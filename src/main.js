@@ -683,9 +683,32 @@ function fellowPetId(key) {
   const cleaned = String(key || "")
     .trim()
     .toLowerCase()
+    .replace(/[_]+/g, "-")
+    .replace(/[^a-z0-9.-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return `aimashi-${cleaned || "fellow"}`;
+}
+
+function legacyFellowPetId(key) {
+  const cleaned = String(key || "")
+    .trim()
+    .toLowerCase()
     .replace(/[^a-z0-9_.-]+/g, "-")
     .replace(/^-+|-+$/g, "");
   return `aimashi-${cleaned || "fellow"}`;
+}
+
+function petIdAliasesForKey(key) {
+  const raw = String(key || "").trim();
+  const values = [
+    fellowPetId(raw),
+    legacyFellowPetId(raw),
+    raw,
+    raw.replace(/_/g, "-"),
+    raw.replace(/-/g, "_")
+  ].filter(Boolean);
+  return [...new Set(values)];
 }
 
 function readPetManifest(petDir) {
@@ -715,7 +738,7 @@ function petRootCandidates() {
 }
 
 function findFellowPetPackage(key) {
-  const ids = [fellowPetId(key), String(key || "").trim()].filter(Boolean);
+  const ids = petIdAliasesForKey(key);
   for (const root of petRootCandidates()) {
     for (const id of ids) {
       const pet = readPetManifest(path.join(root, id));
@@ -729,7 +752,7 @@ function petStatusForFellow(key) {
   const pet = findFellowPetPackage(key);
   return {
     key,
-    petId: fellowPetId(key),
+    petId: pet?.id || fellowPetId(key),
     hasAsset: Boolean(pet),
     placed: petWindows.has(String(key || "")),
     displayName: pet?.displayName || "",
@@ -820,6 +843,62 @@ function styleSettingsForPet(stylePreset) {
   };
 }
 
+function buildFellowPetPrompt(fellow, userPrompt = "") {
+  const extra = String(userPrompt || "").trim();
+  const base = [
+    `把 Aimashi Fellow「${fellow.name}」做成可以放在桌面的本地小伙伴。`,
+    "参考图是角色原始形象图；保留主要发色、脸部气质、服装和装饰识别点。",
+    "做成小体积、清晰轮廓、适合 192x208 动画格子的 Q 版桌宠。",
+    "不要加文字、背景、光效、场景或 UI 元素。"
+  ].join("\n");
+  return extra ? `${base}\n\n用户补充描述：\n${extra}` : base;
+}
+
+const PET_JOB_STEPS = [
+  { id: "base", label: "基础形象", rel: path.join("decoded", "base.png") },
+  { id: "idle", label: "待机动作", rel: path.join("decoded", "idle.png") },
+  { id: "waving", label: "招手动作", rel: path.join("decoded", "waving.png") },
+  { id: "jumping", label: "跳跃动作", rel: path.join("decoded", "jumping.png") },
+  { id: "failed", label: "失败动作", rel: path.join("decoded", "failed.png") },
+  { id: "waiting", label: "等待动作", rel: path.join("decoded", "waiting.png") },
+  { id: "review", label: "检查动作", rel: path.join("decoded", "review.png") }
+];
+
+function filePreview(pathValue) {
+  if (!pathValue || !fs.existsSync(pathValue)) return null;
+  const stat = fs.statSync(pathValue);
+  return {
+    path: pathValue,
+    url: pathToFileURL(pathValue).toString(),
+    updatedAt: stat.mtime.toISOString()
+  };
+}
+
+function petRunProgress(runDir) {
+  const root = String(runDir || "");
+  if (!root) return { total: PET_JOB_STEPS.length, complete: 0, current: "base", steps: [] };
+  const steps = PET_JOB_STEPS.map((step) => {
+    const preview = filePreview(path.join(root, step.rel));
+    return {
+      id: step.id,
+      label: step.label,
+      status: preview ? "complete" : "pending",
+      preview
+    };
+  });
+  const complete = steps.filter((step) => step.status === "complete").length;
+  const current = steps.find((step) => step.status !== "complete")?.id || "finalizing";
+  return {
+    total: steps.length,
+    complete,
+    current,
+    steps,
+    preview: filePreview(path.join(root, "preview", "spritesheet.png")),
+    final: filePreview(path.join(root, "final", "spritesheet.png")),
+    contactSheet: filePreview(path.join(root, "qa", "contact-sheet.png"))
+  };
+}
+
 function petJobSnapshot(job) {
   return {
     id: job.id,
@@ -833,6 +912,10 @@ function petJobSnapshot(job) {
     runDir: job.runDir,
     packageDir: job.packageDir || "",
     logPath: job.logPath || "",
+    prompt: job.userPrompt || "",
+    stylePreset: job.stylePreset || "codex",
+    referenceImages: job.referenceImages || [],
+    progress: petRunProgress(job.runDir),
     logs: (job.logs || []).slice(-40)
   };
 }
@@ -861,9 +944,10 @@ function startFellowPetGeneration(input = {}) {
   const references = referenceImages
     .map((value, index) => materializePetReference(value, refDir, index + 1))
     .filter(Boolean);
-  const style = styleSettingsForPet(input.stylePreset);
-  const prompt = String(input.prompt || "").trim()
-    || `根据 ${fellow.name} 的头像和人设生成一个适合 Aimashi 的本地伙伴桌宠。`;
+  const stylePreset = String(input.stylePreset || "codex").trim() || "codex";
+  const userPrompt = String(input.prompt || "").trim();
+  const style = styleSettingsForPet(stylePreset);
+  const prompt = buildFellowPetPrompt(fellow, userPrompt);
   const job = {
     id: jobId,
     fellowKey: fellow.key,
@@ -874,6 +958,9 @@ function startFellowPetGeneration(input = {}) {
     runDir,
     packageDir: path.join(app.getPath("home"), ".alkaka", "pets", petId),
     logPath: path.join(runDir, "generation.log"),
+    userPrompt,
+    stylePreset,
+    referenceImages,
     logs: []
   };
   petJobs.set(jobId, job);
@@ -887,6 +974,7 @@ function startFellowPetGeneration(input = {}) {
     "--description", `${fellow.name} 的 Aimashi 桌宠。`,
     "--style-notes", style.styleNotes,
     "--style-contract", style.styleContract,
+    "--row-concurrency", "3",
     "--run-dir", runDir
   ];
   for (const reference of references) args.push("--reference", reference);
@@ -3188,7 +3276,7 @@ function parseSseFrame(frame) {
   };
 }
 
-async function readRunEventStream({ runId, signal }) {
+async function readRunEventStream({ runId, signal, emit }) {
   const response = await fetch(`${engineState.baseUrl}/v1/runs/${encodeURIComponent(runId)}/events`, {
     method: "GET",
     headers: {
@@ -3221,6 +3309,8 @@ async function readRunEventStream({ runId, signal }) {
   let finalContent = "";
   let finishReason = "stop";
 
+  let textBlockId = null;
+  let firstDeltaSeen = false;
   const consumeFrame = (frame) => {
     const parsed = parseSseFrame(frame);
     if (!parsed) return false;
@@ -3235,12 +3325,54 @@ async function readRunEventStream({ runId, signal }) {
       });
     }
     if (name === "message.delta") {
-      content += eventText(name, payload);
+      const chunk = eventText(name, payload);
+      content += chunk;
+      if (emit && chunk) {
+        if (!textBlockId) textBlockId = `text_${crypto.randomUUID()}`;
+        if (!firstDeltaSeen) {
+          firstDeltaSeen = true;
+          emit("status", { text: "正在输入" });
+        }
+        emit("text_delta", { id: textBlockId, text: chunk });
+      }
       return false;
     }
     if (name === "message.complete") {
       const text = eventText(name, payload);
       if (text) finalContent = text;
+      return false;
+    }
+    if (name === "reasoning.available") {
+      if (emit) {
+        const text = String(payload.text || "");
+        emit("reasoning_delta", { id: `reasoning_${runId}`, text });
+        emit("status", { text: "正在思考" });
+      }
+      return false;
+    }
+    if (name === "tool.started") {
+      if (emit) {
+        const toolId = `tool_${payload.tool || "unknown"}_${payload.timestamp || Date.now()}`;
+        emit("tool_call_started", {
+          id: toolId,
+          name: String(payload.tool || ""),
+          preview: String(payload.preview || "")
+        });
+        emit("status", { text: `正在调用 ${payload.tool || "工具"}` });
+      }
+      return false;
+    }
+    if (name === "tool.completed") {
+      if (emit) {
+        const toolId = `tool_${payload.tool || "unknown"}_${payload.started_at || ""}`;
+        emit("tool_call_completed", {
+          name: String(payload.tool || ""),
+          duration: typeof payload.duration === "number" ? payload.duration : null,
+          error: Boolean(payload.error),
+          matchByName: true
+        });
+        emit("status", { text: firstDeltaSeen ? "正在输入" : "正在思考" });
+      }
       return false;
     }
     if (name === "run.completed") {
@@ -3459,19 +3591,42 @@ async function sendCodexChat({ fellow, sessionId, messages, signal }) {
   });
 }
 
-async function sendChat({ fellowKey, personaKey, sessionId, messages }) {
+async function sendChat({ fellowKey, personaKey, sessionId, messages, webContents }) {
   if (activeChatAbortController) {
     activeChatAbortController.abort();
   }
   const abortController = new AbortController();
   activeChatAbortController = abortController;
   const { signal } = abortController;
+  const runId = `aimashi_${crypto.randomUUID()}`;
+  let emitSeq = 0;
+  const emit = webContents && !webContents.isDestroyed()
+    ? (kind, data) => {
+      try {
+        if (webContents.isDestroyed()) return;
+        webContents.send("chat:event", {
+          runId,
+          sessionId: sessionId || "",
+          seq: ++emitSeq,
+          kind,
+          data: data || {},
+          ts: Date.now()
+        });
+      } catch {
+        // Ignore IPC errors on closed windows.
+      }
+    }
+    : null;
   try {
     const manifest = loadFellowManifest();
     const fellows = Array.isArray(manifest.fellows) ? manifest.fellows : [];
     const key = fellowKey || personaKey;
     const fellow = fellows.find((item) => item.key === key) || fellows[0] || defaultFellowManifest().fellows[0];
     const agentEngine = normalizeFellowAgentEngine(fellow.agentEngine || fellow.agent_engine || fellow.engine);
+    if (emit) {
+      emit("session_started", { fellowKey: fellow.key, engine: agentEngine });
+      emit("status", { text: "正在思考" });
+    }
     const slashText = isSlashCommandText(messages);
     if (agentEngine === "claude-code") {
       if (slashText) {
@@ -3542,11 +3697,12 @@ async function sendChat({ fellowKey, personaKey, sessionId, messages }) {
       throw new Error(normalizeHermesError(message) || `${response.status} ${response.statusText}`);
     }
     const run = JSON.parse(text);
-    const runId = run.run_id || run.id;
-    if (!runId) throw new Error("Hermes did not return a run_id.");
-    const stream = await readRunEventStream({ runId, signal });
+    const hermesRunId = run.run_id || run.id;
+    if (!hermesRunId) throw new Error("Hermes did not return a run_id.");
+    const stream = await readRunEventStream({ runId: hermesRunId, signal, emit });
+    if (emit) emit("complete", { finishReason: stream.finishReason || "stop", aborted: false });
     return {
-      id: runId,
+      id: hermesRunId,
       object: "chat.completion",
       created: Math.floor(Date.now() / 1000),
       model: "hermes-agent",
@@ -3562,7 +3718,7 @@ async function sendChat({ fellowKey, personaKey, sessionId, messages }) {
       ],
       aimashi: {
         transport: "runs",
-        run_id: runId,
+        run_id: hermesRunId,
         session_id: runBody.session_id,
         fellow_key: fellow.key,
         events: stream.events
@@ -3570,10 +3726,12 @@ async function sendChat({ fellowKey, personaKey, sessionId, messages }) {
     };
   } catch (error) {
     if (signal.aborted) {
+      if (emit) emit("complete", { finishReason: "cancelled", aborted: true });
       const stopped = new Error("生成已停止");
       stopped.code = "AIMASHI_STOPPED";
       throw stopped;
     }
+    if (emit) emit("error", { message: String(error?.message || error) });
     throw error;
   } finally {
     if (activeChatAbortController === abortController) activeChatAbortController = null;
@@ -3741,7 +3899,7 @@ ipcMain.handle("auth:codex-start", () => startCodexOAuth());
 ipcMain.handle("auth:codex-cancel", () => cancelCodexOAuth());
 ipcMain.handle("auth:provider-start", (_event, provider) => startProviderOAuth(provider));
 ipcMain.handle("auth:provider-cancel", () => cancelProviderOAuth());
-ipcMain.handle("chat:send", (_event, payload) => sendChat(payload));
+ipcMain.handle("chat:send", (event, payload) => sendChat({ ...payload, webContents: event.sender }));
 ipcMain.handle("chat:stop", () => stopChat());
 ipcMain.handle("commands:slash", () => loadHermesSlashCommands());
 ipcMain.handle("commands:agent-list", (_event, payload) => loadExternalAgentCommands(payload));

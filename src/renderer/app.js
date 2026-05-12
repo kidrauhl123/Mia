@@ -87,7 +87,8 @@ const state = {
   slashMenuOpen: false,
   slashSelectedIndex: 0,
   slashFilter: "",
-  isGenerating: false
+  isGenerating: false,
+  streaming: null
 };
 
 const els = {
@@ -1485,8 +1486,7 @@ function render() {
     applyFellowAvatar(els.activeChatAvatar, active);
     setText(els.activeChatName, active.name || "Aimashi");
     setText(els.activeChatBadge, "Fellow");
-    const loading = state.startupTasks[0]?.label;
-    setText(els.activeChatMeta, `${sessionsForPersona(active.key).length} 个会话 · 在线${loading ? ` · 正在${loading}` : ""}`);
+    renderHeaderStatus();
   }
   const filter = state.personaFilter.trim().toLowerCase();
   const visiblePersonas = sortFellowsForSidebar(filter
@@ -2205,14 +2205,6 @@ async function deleteFellow(fellowKey) {
   }
 }
 
-function defaultPetPrompt(fellow) {
-  return [
-    `把 ${fellow?.name || "这个 Fellow"} 做成 Aimashi 的桌面小伙伴。`,
-    "保留头像里的主要发色、脸部气质、服装/装饰特征，做成小体积、清晰轮廓、适合 192x208 动画格子的桌宠。",
-    "不要加文字、背景、光效、场景或 UI 元素。"
-  ].join("\n");
-}
-
 function openPetGenerateDialog(fellowKey) {
   const fellow = fellowByKey(fellowKey);
   if (!fellow) return;
@@ -2220,7 +2212,7 @@ function openPetGenerateDialog(fellowKey) {
   state.petGenerateFellowKey = fellow.key;
   const reference = fellow.avatarImage || avatarAssetForKey(fellow.key);
   state.petReferences = reference ? [{ id: cryptoRandomId(), src: reference }] : [];
-  if (els.petPrompt) els.petPrompt.value = defaultPetPrompt(fellow);
+  if (els.petPrompt) els.petPrompt.value = "";
   if (els.petStylePreset) els.petStylePreset.value = "codex";
   renderView();
 }
@@ -2473,6 +2465,44 @@ function renderChat() {
       <div class="bubble"><strong>Model login needed</strong><p>私有 Hermes 已就绪；可以在右侧保存 API key，或使用 OpenAI Codex 登录。</p></div>
     `;
     els.chat.appendChild(warning);
+  }
+  const s = state.streaming;
+  if (s && s.sessionId === session.id) {
+    const article = document.createElement("article");
+    article.className = "message assistant streaming";
+    const personaForStream = active;
+    const fellowAvatarImage = personaForStream?.avatarImage || avatarAssetForKey(personaForStream?.key);
+    const fellowAvatar = avatarImageSrc(fellowAvatarImage);
+    const avatarBackgroundColor = fellowAvatar ? "transparent" : (personaForStream?.color || "#23444d");
+    const imageStyle = avatarThumbBackgroundStyle(fellowAvatarImage, personaForStream?.avatarCrop, personaForStream?.color);
+    const reasoningHtml = s.reasoning
+      ? `<details class="reasoning-block" open><summary>思考过程</summary><pre>${escapeHtml(s.reasoning)}</pre></details>`
+      : "";
+    const toolsHtml = s.tools.length
+      ? `<div class="tool-cards">${s.tools.map((tool) => {
+        const statusClass = tool.status === "completed" ? "ok" : tool.status === "error" ? "err" : "run";
+        const badge = tool.status === "completed"
+          ? (tool.duration != null ? `${tool.duration.toFixed(2)}s` : "完成")
+          : tool.status === "error" ? "失败" : "运行中…";
+        return `<div class="tool-card ${statusClass}">
+            <div class="tool-card-head"><span class="tool-card-name">${escapeHtml(tool.name)}</span><span class="tool-card-badge">${escapeHtml(badge)}</span></div>
+            ${tool.preview ? `<div class="tool-card-preview">${escapeHtml(tool.preview)}</div>` : ""}
+          </div>`;
+      }).join("")}</div>`
+      : "";
+    const textHtml = s.text
+      ? `<div class="streaming-text">${renderMarkdown(s.text)}</div>`
+      : (s.tools.length || s.reasoning ? "" : `<div class="streaming-text streaming-empty"></div>`);
+    article.innerHTML = `
+      <div class="avatar" style="background-color:${escapeHtml(avatarBackgroundColor)};${imageStyle}"></div>
+      <div class="bubble">
+        ${reasoningHtml}
+        ${toolsHtml}
+        ${textHtml}
+        <span class="streaming-cursor" aria-hidden="true"></span>
+      </div>
+    `;
+    els.chat.appendChild(article);
   }
   if (state.forceScrollToBottom || wasNearBottom) {
     els.chat.scrollTop = els.chat.scrollHeight;
@@ -3490,8 +3520,10 @@ els.chatForm.addEventListener("submit", async (event) => {
   els.chatInput.value = "";
   renderSendButton();
   appendChat("user", text);
+  state.streaming = null;
   state.isGenerating = true;
   renderSendButton();
+  renderHeaderStatus();
   try {
     const outgoingText = await outgoingMessageForSubmit(text);
     const history = messagesForActive()
@@ -3533,11 +3565,113 @@ els.chatForm.addEventListener("submit", async (event) => {
     await refreshRuntime();
   } finally {
     state.isGenerating = false;
+    state.streaming = null;
     renderSendButton();
+    renderHeaderStatus();
     els.chatInput.focus();
   }
 });
 
+let pendingStreamRender = false;
+function scheduleStreamRender() {
+  if (pendingStreamRender) return;
+  pendingStreamRender = true;
+  requestAnimationFrame(() => {
+    pendingStreamRender = false;
+    const s = state.streaming;
+    if (s && s.sessionId === activeSession().id) renderChat();
+    renderHeaderStatus();
+  });
+}
+
+function renderHeaderStatus() {
+  if (!els.activeChatMeta) return;
+  const personas = state.runtime?.fellows || state.runtime?.personas || [];
+  const active = personas.find((persona) => persona.key === state.activeKey) || personas[0];
+  if (!active) return;
+  const count = sessionsForPersona(active.key).length;
+  const startupLoading = state.startupTasks[0]?.label;
+  let trailing = "";
+  if (state.isGenerating) {
+    const status = state.streaming?.status || "正在思考";
+    trailing = ` · <span class="typing-status">${escapeHtml(status)}<span class="typing-dots"><i></i><i></i><i></i></span></span>`;
+  } else if (startupLoading) {
+    trailing = ` · 正在${escapeHtml(startupLoading)}`;
+  }
+  els.activeChatMeta.innerHTML = `${count} 个会话 · 在线${trailing}`;
+}
+
+window.aimashi.onChatEvent((envelope) => {
+  if (!envelope || typeof envelope !== "object") return;
+  const { runId, sessionId, kind, data } = envelope;
+  if (!kind) return;
+  if (!state.streaming || state.streaming.runId !== runId) {
+    if (kind !== "session_started") return;
+    state.streaming = {
+      runId,
+      sessionId: sessionId || "",
+      status: "正在思考",
+      text: "",
+      textBlockId: null,
+      reasoning: "",
+      tools: [],
+      toolsByName: new Map()
+    };
+    scheduleStreamRender();
+    return;
+  }
+  const s = state.streaming;
+  switch (kind) {
+    case "status":
+      s.status = String(data?.text || "");
+      break;
+    case "text_delta":
+      if (!s.textBlockId) s.textBlockId = data?.id || `text_${runId}`;
+      s.text += String(data?.text || "");
+      break;
+    case "reasoning_delta":
+      s.reasoning += String(data?.text || "");
+      if (s.reasoning && !s.reasoning.endsWith("\n")) s.reasoning += "\n";
+      break;
+    case "tool_call_started": {
+      const tool = {
+        id: String(data?.id || `tool_${s.tools.length}`),
+        name: String(data?.name || "工具"),
+        preview: String(data?.preview || ""),
+        status: "running",
+        duration: null,
+        error: false
+      };
+      s.tools.push(tool);
+      const queue = s.toolsByName.get(tool.name) || [];
+      queue.push(tool);
+      s.toolsByName.set(tool.name, queue);
+      break;
+    }
+    case "tool_call_completed": {
+      const name = String(data?.name || "");
+      const queue = s.toolsByName.get(name);
+      const tool = queue && queue.find((t) => t.status === "running");
+      if (tool) {
+        tool.status = data?.error ? "error" : "completed";
+        tool.duration = typeof data?.duration === "number" ? data.duration : null;
+        tool.error = Boolean(data?.error);
+      }
+      break;
+    }
+    case "complete":
+      state.streaming = null;
+      break;
+    case "error":
+      state.streaming = null;
+      break;
+    default:
+      break;
+  }
+  scheduleStreamRender();
+});
+
 initializeRuntime();
 renderSendButton();
+renderHeaderStatus();
 setInterval(refreshRuntime, 2000);

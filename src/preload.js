@@ -12,6 +12,13 @@ contextBridge.exposeInMainWorld("aimashi", {
   cancelProviderOAuth: () => ipcRenderer.invoke("auth:provider-cancel"),
   sendChat: (payload) => ipcRenderer.invoke("chat:send", payload),
   stopChat: () => ipcRenderer.invoke("chat:stop"),
+  onChatEvent: (callback) => {
+    const listener = (_event, envelope) => {
+      try { callback(envelope); } catch { /* renderer handler error swallowed */ }
+    };
+    ipcRenderer.on("chat:event", listener);
+    return () => ipcRenderer.removeListener("chat:event", listener);
+  },
   loadSlashCommands: () => ipcRenderer.invoke("commands:slash"),
   loadAgentCommands: (payload) => ipcRenderer.invoke("commands:agent-list", payload),
   executeAgentCommand: (payload) => ipcRenderer.invoke("commands:agent-execute", payload),
