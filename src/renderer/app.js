@@ -2467,7 +2467,8 @@ function renderChat() {
     els.chat.appendChild(warning);
   }
   const s = state.streaming;
-  if (s && s.sessionId === session.id) {
+  const hasStreamingContent = s && (s.text || s.reasoning || s.tools.length);
+  if (s && s.sessionId === session.id && hasStreamingContent) {
     const article = document.createElement("article");
     article.className = "message assistant streaming";
     const personaForStream = active;
@@ -2490,16 +2491,13 @@ function renderChat() {
           </div>`;
       }).join("")}</div>`
       : "";
-    const textHtml = s.text
-      ? `<div class="streaming-text">${renderMarkdown(s.text)}</div>`
-      : (s.tools.length || s.reasoning ? "" : `<div class="streaming-text streaming-empty"></div>`);
+    const textHtml = s.text ? `<div class="streaming-text">${renderMarkdown(s.text)}</div>` : "";
     article.innerHTML = `
       <div class="avatar" style="background-color:${escapeHtml(avatarBackgroundColor)};${imageStyle}"></div>
       <div class="bubble">
         ${reasoningHtml}
         ${toolsHtml}
         ${textHtml}
-        <span class="streaming-cursor" aria-hidden="true"></span>
       </div>
     `;
     els.chat.appendChild(article);
