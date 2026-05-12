@@ -2421,6 +2421,28 @@ async function maybeGenerateTitleForSession(session) {
   }
 }
 
+function renderTraceBlocks({ reasoning, tools }) {
+  const reasoningHtml = reasoning
+    ? `<details class="reasoning-block"><summary>思考过程</summary><pre>${escapeHtml(reasoning)}</pre></details>`
+    : "";
+  const toolList = Array.isArray(tools) ? tools : [];
+  const toolsHtml = toolList.length
+    ? `<div class="tool-cards">${toolList.map((tool) => {
+      const statusClass = tool.status === "completed" ? "ok" : tool.status === "error" ? "err" : "run";
+      const badge = tool.status === "completed"
+        ? (tool.duration != null ? `${Number(tool.duration).toFixed(2)}s` : "完成")
+        : tool.status === "error" ? "失败" : "运行中…";
+      const name = String(tool.name || "工具");
+      const preview = String(tool.preview || "");
+      return `<div class="tool-card ${statusClass}">
+          <div class="tool-card-head"><span class="tool-card-name">${escapeHtml(name)}</span><span class="tool-card-badge">${escapeHtml(badge)}</span></div>
+          ${preview ? `<div class="tool-card-preview">${escapeHtml(preview)}</div>` : ""}
+        </div>`;
+    }).join("")}</div>`
+    : "";
+  return `${reasoningHtml}${toolsHtml}`;
+}
+
 function renderChat() {
   const wasNearBottom = !els.chat || (els.chat.scrollHeight - els.chat.scrollTop - els.chat.clientHeight < 80);
   const session = activeSession();
@@ -2442,9 +2464,12 @@ function renderChat() {
     const imageStyle = message.role === "assistant"
       ? avatarThumbBackgroundStyle(fellowAvatarImage, persona?.avatarCrop, color)
       : "";
+    const traceHtml = message.role === "assistant"
+      ? renderTraceBlocks({ reasoning: message.reasoning, tools: message.tools })
+      : "";
     article.innerHTML = `
       <div class="avatar" style="background-color:${escapeHtml(avatarBackgroundColor)};${imageStyle}">${message.role === "user" ? escapeHtml(label) : ""}</div>
-      <div class="bubble">${renderMarkdown(message.content)}</div>
+      <div class="bubble">${traceHtml}${renderMarkdown(message.content)}</div>
     `;
     els.chat.appendChild(article);
   }
@@ -2476,29 +2501,11 @@ function renderChat() {
     const fellowAvatar = avatarImageSrc(fellowAvatarImage);
     const avatarBackgroundColor = fellowAvatar ? "transparent" : (personaForStream?.color || "#23444d");
     const imageStyle = avatarThumbBackgroundStyle(fellowAvatarImage, personaForStream?.avatarCrop, personaForStream?.color);
-    const reasoningHtml = s.reasoning
-      ? `<details class="reasoning-block" open><summary>思考过程</summary><pre>${escapeHtml(s.reasoning)}</pre></details>`
-      : "";
-    const toolsHtml = s.tools.length
-      ? `<div class="tool-cards">${s.tools.map((tool) => {
-        const statusClass = tool.status === "completed" ? "ok" : tool.status === "error" ? "err" : "run";
-        const badge = tool.status === "completed"
-          ? (tool.duration != null ? `${tool.duration.toFixed(2)}s` : "完成")
-          : tool.status === "error" ? "失败" : "运行中…";
-        return `<div class="tool-card ${statusClass}">
-            <div class="tool-card-head"><span class="tool-card-name">${escapeHtml(tool.name)}</span><span class="tool-card-badge">${escapeHtml(badge)}</span></div>
-            ${tool.preview ? `<div class="tool-card-preview">${escapeHtml(tool.preview)}</div>` : ""}
-          </div>`;
-      }).join("")}</div>`
-      : "";
+    const traceHtml = renderTraceBlocks({ reasoning: s.reasoning, tools: s.tools });
     const textHtml = s.text ? `<div class="streaming-text">${renderMarkdown(s.text)}</div>` : "";
     article.innerHTML = `
       <div class="avatar" style="background-color:${escapeHtml(avatarBackgroundColor)};${imageStyle}"></div>
-      <div class="bubble">
-        ${reasoningHtml}
-        ${toolsHtml}
-        ${textHtml}
-      </div>
+      <div class="bubble">${traceHtml}${textHtml}</div>
     `;
     els.chat.appendChild(article);
   }
@@ -2516,6 +2523,17 @@ function activePersona() {
 function appendChat(role, content, options = {}) {
   const session = activeSession();
   const message = { role, content, createdAt: nowIso(), transient: Boolean(options.transient) };
+  if (options.reasoning) message.reasoning = String(options.reasoning);
+  if (Array.isArray(options.tools) && options.tools.length) {
+    message.tools = options.tools.map((tool) => ({
+      id: String(tool.id || ""),
+      name: String(tool.name || ""),
+      preview: String(tool.preview || ""),
+      status: tool.status || "completed",
+      duration: typeof tool.duration === "number" ? tool.duration : null,
+      error: Boolean(tool.error)
+    }));
+  }
   session.messages.push(message);
   session.updatedAt = nowIso();
   const shouldMarkRead = role === "assistant" && !message.transient;
@@ -3536,8 +3554,11 @@ els.chatForm.addEventListener("submit", async (event) => {
       messages: history
     });
     const answer = response.choices?.[0]?.message?.content || "(No response)";
+    const traceSnapshot = state.streaming
+      ? { reasoning: state.streaming.reasoning || "", tools: state.streaming.tools.slice() }
+      : { reasoning: "", tools: [] };
     state.streaming = null;
-    appendChat("assistant", answer);
+    appendChat("assistant", answer, { reasoning: traceSnapshot.reasoning, tools: traceSnapshot.tools });
     await persistSessionQuietly(session);
     persistReadStateQuietly();
     if (shouldGenerateTitle) {
@@ -3607,11 +3628,12 @@ window.aimashi.onChatEvent((envelope) => {
     state.streaming = {
       runId,
       sessionId: sessionId || "",
-      status: "正在思考",
+      status: "正在输入",
       text: "",
       textBlockId: null,
       reasoning: "",
       tools: [],
+      toolsById: new Map(),
       toolsByName: new Map()
     };
     scheduleStreamRender();
@@ -3640,15 +3662,20 @@ window.aimashi.onChatEvent((envelope) => {
         error: false
       };
       s.tools.push(tool);
+      s.toolsById.set(tool.id, tool);
       const queue = s.toolsByName.get(tool.name) || [];
       queue.push(tool);
       s.toolsByName.set(tool.name, queue);
       break;
     }
     case "tool_call_completed": {
+      const id = String(data?.id || "");
       const name = String(data?.name || "");
-      const queue = s.toolsByName.get(name);
-      const tool = queue && queue.find((t) => t.status === "running");
+      let tool = id ? s.toolsById.get(id) : null;
+      if (!tool) {
+        const queue = s.toolsByName.get(name);
+        tool = queue && queue.find((t) => t.status === "running");
+      }
       if (tool) {
         tool.status = data?.error ? "error" : "completed";
         tool.duration = typeof data?.duration === "number" ? data.duration : null;

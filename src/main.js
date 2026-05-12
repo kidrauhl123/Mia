@@ -45,6 +45,7 @@ let authState = {
 };
 let activeChatAbortController = null;
 const petWindows = new Map();
+const petMessageTimers = new Map();
 const petJobs = new Map();
 
 function writeFileIfMissing(filePath, content, mode) {
@@ -582,11 +583,25 @@ function normalizeChatStore(input) {
         messages: Array.isArray(session.messages)
           ? session.messages
             .filter((message) => message && ["user", "assistant", "system"].includes(message.role))
-            .map((message) => ({
-              role: message.role,
-              content: String(message.content || ""),
-              createdAt: message.createdAt || session.updatedAt || new Date().toISOString()
-            }))
+            .map((message) => {
+              const out = {
+                role: message.role,
+                content: String(message.content || ""),
+                createdAt: message.createdAt || session.updatedAt || new Date().toISOString()
+              };
+              if (message.reasoning) out.reasoning = String(message.reasoning);
+              if (Array.isArray(message.tools) && message.tools.length) {
+                out.tools = message.tools.map((tool) => ({
+                  id: String(tool.id || ""),
+                  name: String(tool.name || ""),
+                  preview: String(tool.preview || ""),
+                  status: ["running", "completed", "error"].includes(tool.status) ? tool.status : "completed",
+                  duration: typeof tool.duration === "number" ? tool.duration : null,
+                  error: Boolean(tool.error)
+                }));
+              }
+              return out;
+            })
           : []
       }))
       .filter((session) => session.id);
@@ -1011,6 +1026,54 @@ function startFellowPetGeneration(input = {}) {
   return petJobSnapshot(job);
 }
 
+const PET_WINDOW_COMPACT = { width: 144, height: 150 };
+const PET_WINDOW_MESSAGE = { width: 260, height: 220 };
+const PET_MESSAGE_DURATION_MS = 8500;
+
+function resizePetWindow(win, size) {
+  if (!win || win.isDestroyed()) return;
+  const bounds = win.getBounds();
+  win.setBounds({
+    x: bounds.x + bounds.width - size.width,
+    y: bounds.y + bounds.height - size.height,
+    width: size.width,
+    height: size.height
+  }, false);
+}
+
+function responseMessageContent(response) {
+  return String(response?.choices?.[0]?.message?.content || "").trim();
+}
+
+function notifyFellowPetMessage(fellowKey, text) {
+  const key = String(fellowKey || "").trim();
+  const content = String(text || "").trim();
+  if (!key || !content) return;
+  const win = petWindows.get(key);
+  if (!win || win.isDestroyed()) return;
+
+  resizePetWindow(win, PET_WINDOW_MESSAGE);
+  try {
+    win.webContents.send("pet:message", {
+      fellowKey: key,
+      text: content,
+      durationMs: PET_MESSAGE_DURATION_MS,
+      ts: Date.now()
+    });
+  } catch {
+    // Ignore closed-window IPC races.
+  }
+
+  const existingTimer = petMessageTimers.get(key);
+  if (existingTimer) clearTimeout(existingTimer);
+  const timer = setTimeout(() => {
+    petMessageTimers.delete(key);
+    const current = petWindows.get(key);
+    if (current && !current.isDestroyed()) resizePetWindow(current, PET_WINDOW_COMPACT);
+  }, PET_MESSAGE_DURATION_MS + 400);
+  petMessageTimers.set(key, timer);
+}
+
 function placeFellowPet(key) {
   initializeRuntime();
   const id = String(key || "").trim();
@@ -1018,8 +1081,8 @@ function placeFellowPet(key) {
   if (!pet) throw new Error("这个 Fellow 还没有可用桌宠资产。");
   const existing = petWindows.get(id);
   if (existing && !existing.isDestroyed()) return petStatusForFellow(id);
-  const petWindowWidth = 236;
-  const petWindowHeight = 196;
+  const petWindowWidth = PET_WINDOW_COMPACT.width;
+  const petWindowHeight = PET_WINDOW_COMPACT.height;
 
   const win = new BrowserWindow({
     width: petWindowWidth,
@@ -1036,6 +1099,7 @@ function placeFellowPet(key) {
     show: false,
     alwaysOnTop: true,
     webPreferences: {
+      preload: path.join(__dirname, "pet-preload.js"),
       contextIsolation: true,
       nodeIntegration: false
     }
@@ -1047,7 +1111,6 @@ function placeFellowPet(key) {
     win.setVisibleOnAllWorkspaces(true);
   }
   win.setAlwaysOnTop(true, "floating");
-  win.setIgnoreMouseEvents(true, { forward: true });
   const display = require("electron").screen.getPrimaryDisplay().workArea;
   win.setBounds({
     x: display.x + display.width - petWindowWidth - 24,
@@ -1064,6 +1127,9 @@ function placeFellowPet(key) {
   });
   win.on("closed", () => {
     if (petWindows.get(id) === win) petWindows.delete(id);
+    const timer = petMessageTimers.get(id);
+    if (timer) clearTimeout(timer);
+    petMessageTimers.delete(id);
   });
   return petStatusForFellow(id);
 }
@@ -1073,6 +1139,9 @@ function recallFellowPet(key) {
   const win = petWindows.get(id);
   if (win && !win.isDestroyed()) win.close();
   petWindows.delete(id);
+  const timer = petMessageTimers.get(id);
+  if (timer) clearTimeout(timer);
+  petMessageTimers.delete(id);
   return petStatusForFellow(id);
 }
 
@@ -3475,7 +3544,7 @@ function normalizeClaudePermissionMode(value) {
   return "default";
 }
 
-async function sendClaudeCodeChat({ fellow, sessionId, messages, signal }) {
+async function sendClaudeCodeChat({ fellow, sessionId, messages, signal, emit }) {
   const engine = "claude-code";
   const commandPath = shellCommandPath("claude");
   if (!commandPath) throw new Error("本机没有检测到 Claude Code CLI。请先安装并确认 `claude --version` 可用。");
@@ -3495,7 +3564,8 @@ async function sendClaudeCodeChat({ fellow, sessionId, messages, signal }) {
       type: "preset",
       preset: "claude_code",
       append: persona
-    }
+    },
+    includePartialMessages: Boolean(emit)
   };
   if (externalSessionId) options.resume = externalSessionId;
   if (fellow.engineConfig?.model) options.model = String(fellow.engineConfig.model);
@@ -3505,23 +3575,97 @@ async function sendClaudeCodeChat({ fellow, sessionId, messages, signal }) {
   const stream = query({ prompt, options });
   let capturedSessionId = externalSessionId;
   const chunks = [];
+  // Per-turn streaming state: indexed by content block index from the SDK partial events.
+  let activeTextId = null;
+  const reasoningId = `reasoning_${crypto.randomUUID()}`;
+  const blockIndex = new Map(); // index -> {kind: 'text'|'thinking'|'tool_use', id, name}
   for await (const message of stream) {
     if (signal?.aborted) break;
     if (message?.session_id && !capturedSessionId) {
       capturedSessionId = message.session_id;
       setAgentSessionId(engine, fellow.key, sessionId, capturedSessionId);
     }
-    if (message?.type === "assistant" || message?.message?.type === "assistant") {
+
+    // Token-level streaming (when includePartialMessages: true)
+    if (emit && message?.type === "stream_event") {
+      const ev = message.event;
+      if (!ev) continue;
+      if (ev.type === "content_block_start" && ev.content_block) {
+        const idx = ev.index;
+        const block = ev.content_block;
+        if (block.type === "text") {
+          if (!activeTextId) activeTextId = `text_${crypto.randomUUID()}`;
+          blockIndex.set(idx, { kind: "text", id: activeTextId });
+        } else if (block.type === "thinking") {
+          blockIndex.set(idx, { kind: "thinking", id: reasoningId });
+        } else if (block.type === "tool_use") {
+          const toolId = String(block.id || `tool_${idx}`);
+          const toolName = String(block.name || "tool");
+          blockIndex.set(idx, { kind: "tool_use", id: toolId, name: toolName });
+          emit("tool_call_started", { id: toolId, name: toolName, preview: "" });
+        }
+      } else if (ev.type === "content_block_delta" && ev.delta) {
+        const meta = blockIndex.get(ev.index);
+        if (!meta) continue;
+        if (ev.delta.type === "text_delta" && meta.kind === "text") {
+          emit("text_delta", { id: meta.id, text: String(ev.delta.text || "") });
+        } else if (ev.delta.type === "thinking_delta" && meta.kind === "thinking") {
+          emit("reasoning_delta", { id: meta.id, text: String(ev.delta.thinking || "") });
+        }
+        // input_json_delta intentionally skipped: noisy, no UI value.
+      }
+      continue;
+    }
+
+    // Whole assistant message — capture final text + close any text block; also catch tool_use blocks
+    // if includePartialMessages was off.
+    if (message?.type === "assistant") {
+      const beta = message.message;
+      const contentBlocks = Array.isArray(beta?.content) ? beta.content : [];
       const text = claudeMessageText(message);
       if (text) chunks.push(text);
+      if (!emit) continue;
+      activeTextId = null; // start a fresh text id for next assistant turn
+      // Fallback: when partial streaming wasn't on, emit one big text_delta here.
+      if (!options.includePartialMessages && text) {
+        emit("text_delta", { id: `text_${crypto.randomUUID()}`, text });
+      }
+      for (const block of contentBlocks) {
+        if (block?.type === "tool_use" && !options.includePartialMessages) {
+          const toolId = String(block.id || `tool_${crypto.randomUUID()}`);
+          const toolName = String(block.name || "tool");
+          const preview = block.input ? JSON.stringify(block.input).slice(0, 160) : "";
+          emit("tool_call_started", { id: toolId, name: toolName, preview });
+        }
+      }
+      continue;
+    }
+
+    // tool_result follow-ups arrive as user messages with content blocks of type 'tool_result'
+    if (emit && message?.type === "user") {
+      const beta = message.message;
+      const contentBlocks = Array.isArray(beta?.content) ? beta.content : [];
+      for (const block of contentBlocks) {
+        if (block?.type === "tool_result") {
+          const toolId = String(block.tool_use_id || "");
+          emit("tool_call_completed", {
+            id: toolId,
+            name: "",
+            duration: null,
+            error: Boolean(block.is_error)
+          });
+        }
+      }
     }
   }
   if (capturedSessionId && !externalSessionId) setAgentSessionId(engine, fellow.key, sessionId, capturedSessionId);
   if (signal?.aborted) {
+    if (emit) emit("complete", { finishReason: "cancelled", aborted: true });
     const stopped = new Error("生成已停止");
     stopped.code = "AIMASHI_STOPPED";
     throw stopped;
   }
+  if (emit) emit("complete", { finishReason: "stop", aborted: false });
   return chatCompletionResponse({
     id: capturedSessionId || `claude_${crypto.randomUUID()}`,
     model: "claude-code",
@@ -3618,31 +3762,36 @@ async function sendChat({ fellowKey, personaKey, sessionId, messages, webContent
     const key = fellowKey || personaKey;
     const fellow = fellows.find((item) => item.key === key) || fellows[0] || defaultFellowManifest().fellows[0];
     const agentEngine = normalizeFellowAgentEngine(fellow.agentEngine || fellow.agent_engine || fellow.engine);
+    const shouldNotifyPet = !String(sessionId || "").startsWith("title:");
+    const completeWithPetMessage = (response) => {
+      if (shouldNotifyPet) notifyFellowPetMessage(fellow.key, responseMessageContent(response));
+      return response;
+    };
     if (emit) {
       emit("session_started", { fellowKey: fellow.key, engine: agentEngine });
     }
     const slashText = isSlashCommandText(messages);
     if (agentEngine === "claude-code") {
       if (slashText) {
-        return chatCompletionResponse({
+        return completeWithPetMessage(chatCompletionResponse({
           id: `cmd_${crypto.randomUUID()}`,
           model: "claude-code",
           content: runExternalSlashCommand({ text: slashText, fellow, engine: agentEngine, sessionId }),
           aimashi: { transport: "local-command", engine: agentEngine, fellow_key: fellow.key }
-        });
+        }));
       }
-      return await sendClaudeCodeChat({ fellow, sessionId, messages, signal });
+      return completeWithPetMessage(await sendClaudeCodeChat({ fellow, sessionId, messages, signal, emit }));
     }
     if (agentEngine === "codex") {
       if (slashText) {
-        return chatCompletionResponse({
+        return completeWithPetMessage(chatCompletionResponse({
           id: `cmd_${crypto.randomUUID()}`,
           model: "codex-cli",
           content: runExternalSlashCommand({ text: slashText, fellow, engine: agentEngine, sessionId }),
           aimashi: { transport: "local-command", engine: agentEngine, fellow_key: fellow.key }
-        });
+        }));
       }
-      return await sendCodexChat({ fellow, sessionId, messages, signal });
+      return completeWithPetMessage(await sendCodexChat({ fellow, sessionId, messages, signal }));
     }
 
     if (!engineState.running || !engineState.baseUrl) {
@@ -3650,7 +3799,7 @@ async function sendChat({ fellowKey, personaKey, sessionId, messages, webContent
     }
     if (slashText) {
       const content = runHermesSlashCommand({ text: slashText, fellow, sessionId });
-      return {
+      return completeWithPetMessage({
         id: `cmd_${crypto.randomUUID()}`,
         object: "chat.completion",
         created: Math.floor(Date.now() / 1000),
@@ -3665,7 +3814,7 @@ async function sendChat({ fellowKey, personaKey, sessionId, messages, webContent
             finish_reason: "stop"
           }
         ]
-      };
+      });
     }
 
     const runBody = buildRunPayload({ fellow, sessionId, messages });
@@ -3695,7 +3844,7 @@ async function sendChat({ fellowKey, personaKey, sessionId, messages, webContent
     if (!hermesRunId) throw new Error("Hermes did not return a run_id.");
     const stream = await readRunEventStream({ runId: hermesRunId, signal, emit });
     if (emit) emit("complete", { finishReason: stream.finishReason || "stop", aborted: false });
-    return {
+    return completeWithPetMessage({
       id: hermesRunId,
       object: "chat.completion",
       created: Math.floor(Date.now() / 1000),
@@ -3717,7 +3866,7 @@ async function sendChat({ fellowKey, personaKey, sessionId, messages, webContent
         fellow_key: fellow.key,
         events: stream.events
       }
-    };
+    });
   } catch (error) {
     if (signal.aborted) {
       if (emit) emit("complete", { finishReason: "cancelled", aborted: true });
@@ -3762,12 +3911,26 @@ function saveChatSession({ personaKey, session }) {
     createdAt: session?.createdAt || now,
     updatedAt: session?.updatedAt || now,
     messages: Array.isArray(session?.messages)
-      ? session.messages.map((message) => ({
-        role: ["user", "assistant", "system"].includes(message.role) ? message.role : "assistant",
-        content: String(message.content || ""),
-        createdAt: message.createdAt || now,
-        transient: Boolean(message.transient)
-      }))
+      ? session.messages.map((message) => {
+        const out = {
+          role: ["user", "assistant", "system"].includes(message.role) ? message.role : "assistant",
+          content: String(message.content || ""),
+          createdAt: message.createdAt || now,
+          transient: Boolean(message.transient)
+        };
+        if (message.reasoning) out.reasoning = String(message.reasoning);
+        if (Array.isArray(message.tools) && message.tools.length) {
+          out.tools = message.tools.map((tool) => ({
+            id: String(tool.id || ""),
+            name: String(tool.name || ""),
+            preview: String(tool.preview || ""),
+            status: ["running", "completed", "error"].includes(tool.status) ? tool.status : "completed",
+            duration: typeof tool.duration === "number" ? tool.duration : null,
+            error: Boolean(tool.error)
+          }));
+        }
+        return out;
+      })
         .filter((message) => !message.transient)
         .map(({ transient, ...message }) => message)
       : []
