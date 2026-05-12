@@ -10,14 +10,14 @@
   <main class="app-shell">
     <aside class="nav-rail" aria-label="主导航">
       <div class="traffic-spacer"></div>
-      <div id="userAvatar" class="profile-avatar rail-avatar" title="Boss">B</div>
+      <div id="userAvatar" class="profile-avatar rail-avatar" role="button" tabindex="0" title="编辑账号">B</div>
       <span id="userDisplayName" class="visually-hidden">Boss</span>
       <div class="rail-divider"></div>
       <button class="rail-button active" type="button" data-view="chat" title="消息" aria-label="消息">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
         <em id="personaCount">0</em>
       </button>
-      <button class="rail-button" type="button" title="联系人" aria-label="联系人">
+      <button class="rail-button" type="button" data-view="contacts" title="联系人" aria-label="联系人">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2 M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0z"/></svg>
       </button>
       <button class="rail-button" type="button" data-view="skills" title="Skill 库" aria-label="Skill 库">
@@ -47,6 +47,20 @@
       </section>
     </aside>
 
+    <aside id="contactsSidebar" class="sidebar contacts-sidebar hidden">
+      <header class="sidebar-tools">
+        <label class="search-box">
+          <span>⌕</span>
+          <input id="contactSearch" autocomplete="off" placeholder="搜索联系人">
+        </label>
+        <button id="newContact" class="icon-button" type="button" title="添加伙伴">＋</button>
+      </header>
+
+      <section class="contact-section">
+        <div id="contactList" class="contact-list"></div>
+      </section>
+    </aside>
+
     <aside id="skillsSidebar" class="sidebar skills-sidebar hidden">
       <header class="sidebar-tools skills-sidebar-tools">
         <label class="search-box">
@@ -57,8 +71,11 @@
       <section id="skillNav" class="skills-nav"></section>
     </aside>
 
+    <div id="sidebarResizeHandle" class="sidebar-resize-handle" role="separator" aria-orientation="vertical" aria-label="调整中栏宽度"></div>
+
     <section id="chatView" class="workspace">
       <header class="topbar">
+        <button class="narrow-back-button" type="button" data-narrow-back title="返回消息栏" aria-label="返回消息栏">‹</button>
         <div class="group-title">
           <div id="activeChatAvatar" class="profile-avatar">A</div>
           <div>
@@ -91,57 +108,75 @@
           </div>
           <div id="slashCommandMenu" class="slash-command-menu hidden"></div>
           <div class="composer-bottom">
-            <label class="model-switcher" title="切换当前模型">
-              <span class="model-avatar" aria-hidden="true">◇</span>
-              <select id="quickModelSelect" aria-label="切换当前模型">
-                <option value="custom">Custom</option>
-                <option value="openai-codex">GPT-5.3 Codex | OpenAI Codex</option>
-                <option value="xai">Grok 4.1 Fast | xAI</option>
-                <option value="anthropic">Claude Sonnet 4.6 | Anthropic</option>
-                <option value="openrouter">Claude Sonnet 4.6 | OpenRouter</option>
-                <option value="deepseek">DeepSeek Chat | DeepSeek</option>
-                <option value="gemini">Gemini 2.5 Pro | Google</option>
-                <option value="lmstudio">Local Model | LM Studio</option>
-              </select>
-            </label>
+            <div class="composer-controls">
+              <label class="model-switcher" title="切换当前模型">
+                <span class="model-avatar" aria-hidden="true">◇</span>
+                <span id="quickModelLabel" class="model-current-label">GPT-5.3 Codex</span>
+                <select id="quickModelSelect" aria-label="切换当前模型">
+                  <option value="custom">Custom</option>
+                  <option value="openai-codex">GPT-5.3 Codex</option>
+                  <option value="xai">Grok 4.1 Fast</option>
+                  <option value="anthropic">Claude Sonnet 4.6</option>
+                  <option value="openrouter">Claude Sonnet 4.6</option>
+                  <option value="deepseek">DeepSeek Chat</option>
+                  <option value="gemini">Gemini 2.5 Pro</option>
+                  <option value="lmstudio">Local Model</option>
+                </select>
+              </label>
+              <span class="composer-dot" aria-hidden="true">·</span>
+              <label class="effort-switcher" title="切换推理强度">
+                <span id="effortLabel" class="effort-label">Medium</span>
+                <select id="effortSelect" aria-label="切换推理强度">
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                  <option value="xhigh">Extra high</option>
+                </select>
+              </label>
+              <span class="composer-dot" aria-hidden="true">·</span>
+              <label class="permission-switcher" title="危险命令权限模式">
+                <span id="permissionLabel" class="permission-label">Ask</span>
+                <select id="permissionMode" aria-label="权限模式">
+                  <option value="manual" title="危险命令会暂停并等待你确认。适合日常使用。">Ask</option>
+                  <option value="smart" title="Hermes 会用辅助模型判断低风险命令，高风险命令仍会询问你。">Smart</option>
+                  <option value="off" title="跳过危险命令确认。只在你完全信任当前任务时使用。">YOLO</option>
+                </select>
+              </label>
+            </div>
             <span id="modelSwitchStatus" class="model-switch-status"></span>
           </div>
         </form>
       </section>
     </section>
 
-    <section id="skillsView" class="workspace skills-workspace hidden">
+    <section id="contactsView" class="workspace contacts-workspace hidden">
       <header class="topbar">
+        <button class="narrow-back-button" type="button" data-narrow-back title="返回联系人" aria-label="返回联系人">‹</button>
         <div class="group-title">
-          <div class="skill-page-mark">SK</div>
           <div>
-            <h1><span>Skill 库</span> <small>本地</small></h1>
-            <p id="skillLibraryMeta">正在扫描本地 Skill...</p>
+            <h1><span id="contactPageTitle">联系人</span></h1>
+            <p id="contactPageMeta">本地伙伴通讯录</p>
           </div>
         </div>
-        <div class="skills-top-meta">
-          <span id="skillSourceMeta">Local Skills</span>
-          <strong id="skillEnabledMeta">Ready</strong>
+      </header>
+      <section class="contacts-layout">
+        <div id="contactDetail" class="contact-detail"></div>
+      </section>
+    </section>
+
+    <section id="skillsView" class="workspace skills-workspace hidden">
+      <header class="topbar">
+        <button class="narrow-back-button" type="button" data-narrow-back title="返回 Skill 栏" aria-label="返回 Skill 栏">‹</button>
+        <div class="group-title">
+          <div>
+            <h1><span id="skillPageTitle">本地 Skill</span></h1>
+          </div>
         </div>
       </header>
       <section class="skills-layout">
-        <div class="skills-hero">
-          <div>
-            <h2>能力库</h2>
-            <p>按本地目录扫描真实 SKILL.md，所有 Fellow 共享同一套 Skill registry。</p>
-          </div>
-          <div id="skillStats" class="skill-stat-strip">
-            <span><strong>0</strong> 扫描中</span>
-          </div>
-        </div>
-
         <div id="skillChipRow" class="skill-chip-row" aria-label="Skill 分类"></div>
 
-        <div class="skill-content-grid">
-          <section id="skillCardGrid" class="skill-card-grid" aria-label="Skill 列表"></section>
-
-          <aside id="skillDetailPanel" class="skill-detail-panel"></aside>
-        </div>
+        <section id="skillCardGrid" class="skill-card-grid" aria-label="Skill 列表"></section>
       </section>
     </section>
 
@@ -309,6 +344,7 @@
           </div>
           <button id="closeFellowDialog" class="icon-button" type="button" title="关闭">×</button>
         </header>
+        <input id="fellowKey" type="hidden">
         <label>
           姓名
           <input id="fellowName" autocomplete="off">
@@ -326,13 +362,58 @@
           </div>
         </section>
         <section class="avatar-defaults" aria-label="默认头像"></section>
-        <label>
-          人设
-          <textarea id="fellowSeed" placeholder="可留空，后续在对话中慢慢形成"></textarea>
+        <label id="fellowAgentEngineField" class="hidden">
+          Agent 引擎
+          <select id="fellowAgentEngine">
+            <option value="hermes">默认</option>
+          </select>
         </label>
+        <details id="fellowPersonaDetails" class="persona-details">
+          <summary>人设</summary>
+          <label>
+            <span>保存在 Hermes fellows/&lt;id&gt;.md，会作为该 Fellow 的系统人设注入。</span>
+            <textarea id="fellowSeed" placeholder="可留空，后续在对话中慢慢形成"></textarea>
+          </label>
+        </details>
         <footer class="fellow-dialog-actions">
           <button id="cancelFellow" class="secondary" type="button">取消</button>
           <button class="primary" type="submit">保存伙伴</button>
+        </footer>
+      </form>
+    </section>
+
+    <section id="petGenerateDialog" class="pet-generate-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="petGenerateTitle">
+      <form id="petGenerateForm" class="pet-generate-card">
+        <header class="fellow-dialog-head">
+          <div>
+            <h2 id="petGenerateTitle">生成桌宠</h2>
+            <p id="petGenerateSubtitle"></p>
+          </div>
+          <button id="closePetGenerateDialog" class="icon-button" type="button" title="关闭">×</button>
+        </header>
+        <label>
+          文字 Prompt
+          <textarea id="petPrompt" placeholder="描述这个 Fellow 作为桌宠时的外观、气质和关键元素"></textarea>
+        </label>
+        <label>
+          风格
+          <select id="petStylePreset">
+            <option value="codex">Codex 小桌宠风</option>
+            <option value="alkaka">Alkaka Q版贴纸风</option>
+            <option value="soft">柔和 Q 版</option>
+          </select>
+        </label>
+        <section class="pet-reference-section">
+          <div class="pet-reference-head">
+            <strong>参考图片</strong>
+            <button id="addPetReference" class="secondary" type="button">＋ 新图片</button>
+            <input id="petReferenceFile" type="file" accept="image/*" class="hidden">
+          </div>
+          <div id="petReferenceList" class="pet-reference-list"></div>
+        </section>
+        <footer class="fellow-dialog-actions">
+          <button id="cancelPetGenerate" class="secondary" type="button">取消</button>
+          <button class="primary" type="submit">开始生成</button>
         </footer>
       </form>
     </section>
@@ -353,6 +434,26 @@
         </footer>
       </div>
     </section>
+
+    <section id="skillPreviewDialog" class="skill-preview-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="skillPreviewTitle">
+      <div class="skill-preview-card">
+        <header class="skill-preview-toolbar">
+          <div class="skill-preview-title">
+            <span id="skillPreviewMark" class="skill-dot docs">SK</span>
+            <div>
+              <h2 id="skillPreviewTitle">Skill</h2>
+              <p id="skillPreviewMeta"></p>
+            </div>
+          </div>
+          <button id="closeSkillPreview" class="icon-button" type="button" title="关闭">×</button>
+        </header>
+        <article id="skillPreviewBody" class="skill-markdown-body"></article>
+      </div>
+    </section>
+    <div id="skillContextMenu" class="skill-context-menu hidden" role="menu"></div>
+    <div id="fellowContextMenu" class="skill-context-menu fellow-context-menu hidden" role="menu"></div>
+    <button id="petJobButton" class="pet-job-button hidden" type="button"></button>
+    <div id="petJobPanel" class="pet-job-panel hidden"></div>
   </main>
   <script src="./app.js"></script>
 </body>

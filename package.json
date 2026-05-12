@@ -11,5 +11,9 @@
   },
   "devDependencies": {
     "electron": "^39.2.6"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.139",
+    "@openai/codex-sdk": "^0.130.0"
   }
 }

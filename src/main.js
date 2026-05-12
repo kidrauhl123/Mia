@@ -4,6 +4,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const net = require("node:net");
 const path = require("node:path");
+const { fileURLToPath, pathToFileURL } = require("node:url");
 
 app.setName("Aimashi");
 
@@ -30,6 +31,8 @@ let engineState = {
 };
 let authProcess = null;
 let codexOAuthCancelled = false;
+let claudeAgentSdkModule = null;
+let codexSdkModule = null;
 let authState = {
   codexStarting: false,
   codexLoggedIn: false,
@@ -41,6 +44,8 @@ let authState = {
   logs: []
 };
 let activeChatAbortController = null;
+const petWindows = new Map();
+const petJobs = new Map();
 
 function writeFileIfMissing(filePath, content, mode) {
   if (fs.existsSync(filePath)) return false;
@@ -92,8 +97,13 @@ function runtimePaths() {
     userProfile: path.join(home, "aimashi-user.json"),
     modelSettings: path.join(home, "aimashi-model.json"),
     providerConnections: path.join(home, "aimashi-providers.json"),
+    permissionSettings: path.join(home, "aimashi-permissions.json"),
+    effortSettings: path.join(home, "aimashi-effort.json"),
+    agentSessions: path.join(home, "aimashi-agent-sessions.json"),
     appearanceSettings: path.join(home, "aimashi-appearance.json"),
     chatSessions: path.join(home, "aimashi-sessions.json"),
+    petDir: path.join(home, "pets"),
+    petJobsDir: path.join(home, "pet-jobs"),
     logsDir: path.join(home, "logs"),
     launchAgent: path.join(app.getPath("home"), "Library", "LaunchAgents", `${AIMASHI_GATEWAY_SERVICE_LABEL}.plist`)
   };
@@ -182,6 +192,194 @@ function defaultAppearanceSettings() {
   };
 }
 
+function defaultPermissionSettings() {
+  return {
+    mode: "manual"
+  };
+}
+
+function defaultEffortSettings() {
+  return {
+    level: "medium"
+  };
+}
+
+function normalizeEffortLevel(value, engine = "hermes") {
+  const raw = String(value || "").trim().toLowerCase();
+  const normalized = raw === "extra-high" || raw === "extra_high" ? "xhigh" : raw;
+  const valid = engine === "claude-code"
+    ? ["low", "medium", "high", "xhigh", "max"]
+    : engine === "codex"
+      ? ["minimal", "low", "medium", "high", "xhigh"]
+      : ["none", "minimal", "low", "medium", "high", "xhigh"];
+  return valid.includes(normalized) ? normalized : "medium";
+}
+
+function normalizeStoredEffortLevel(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  const normalized = raw === "extra-high" || raw === "extra_high" ? "xhigh" : raw;
+  return ["none", "minimal", "low", "medium", "high", "xhigh", "max"].includes(normalized) ? normalized : "medium";
+}
+
+function effortSettings() {
+  const p = runtimePaths();
+  const saved = readJson(p.effortSettings, {});
+  return {
+    ...defaultEffortSettings(),
+    ...saved,
+    level: normalizeEffortLevel(saved.level || defaultEffortSettings().level, "hermes")
+  };
+}
+
+function effortStatus() {
+  return { level: effortSettings().level };
+}
+
+function writeEffortSettings(settings = {}) {
+  const p = runtimePaths();
+  const next = {
+    level: normalizeEffortLevel(settings.level || settings.effortLevel, "hermes")
+  };
+  fs.mkdirSync(path.dirname(p.effortSettings), { recursive: true });
+  fs.writeFileSync(p.effortSettings, JSON.stringify(next, null, 2) + "\n", { mode: 0o600 });
+  writeRuntimeConfig(engineState.port || readConfiguredPort());
+  return next;
+}
+
+function normalizePermissionMode(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (["smart", "auto"].includes(raw)) return "smart";
+  if (["off", "yolo", "allow"].includes(raw)) return "off";
+  return "manual";
+}
+
+function permissionSettings() {
+  const p = runtimePaths();
+  const saved = readJson(p.permissionSettings, {});
+  return {
+    ...defaultPermissionSettings(),
+    ...saved,
+    mode: normalizePermissionMode(saved.mode || defaultPermissionSettings().mode)
+  };
+}
+
+function permissionStatus() {
+  const settings = permissionSettings();
+  const labels = {
+    manual: "Ask",
+    smart: "Smart",
+    off: "YOLO"
+  };
+  return {
+    mode: settings.mode,
+    label: labels[settings.mode] || "Ask"
+  };
+}
+
+function writePermissionSettings(settings = {}) {
+  const p = runtimePaths();
+  const next = {
+    mode: normalizePermissionMode(settings.mode)
+  };
+  fs.mkdirSync(path.dirname(p.permissionSettings), { recursive: true });
+  fs.writeFileSync(p.permissionSettings, JSON.stringify(next, null, 2) + "\n", { mode: 0o600 });
+  writeRuntimeConfig(engineState.port || readConfiguredPort());
+  return next;
+}
+
+function shellCommandPath(command) {
+  const result = spawnSync("zsh", ["-lc", `command -v ${command}`], {
+    encoding: "utf8",
+    timeout: 1500,
+    env: process.env
+  });
+  if (result.error || result.status !== 0) return "";
+  return String(result.stdout || "").split(/\r?\n/)[0]?.trim() || "";
+}
+
+function commandVersion(commandPath) {
+  if (!commandPath) return "";
+  const result = spawnSync(commandPath, ["--version"], {
+    encoding: "utf8",
+    timeout: 2000,
+    env: process.env
+  });
+  if (result.error) return "";
+  return String(result.stdout || result.stderr || "").split(/\r?\n/)[0]?.trim() || "";
+}
+
+function localAgentEngines() {
+  const claudePath = shellCommandPath("claude");
+  const codexPath = shellCommandPath("codex");
+  return {
+    hermes: {
+      id: "hermes",
+      label: "默认",
+      available: true
+    },
+    claudeCode: {
+      id: "claude-code",
+      label: "Claude Code",
+      available: Boolean(claudePath),
+      path: claudePath,
+      version: commandVersion(claudePath)
+    },
+    codex: {
+      id: "codex",
+      label: "Codex",
+      available: Boolean(codexPath),
+      path: codexPath,
+      version: commandVersion(codexPath)
+    }
+  };
+}
+
+function loadAgentSessionMap() {
+  const raw = readJson(runtimePaths().agentSessions, {});
+  return raw && typeof raw === "object" ? raw : {};
+}
+
+function saveAgentSessionMap(store) {
+  const p = runtimePaths();
+  fs.mkdirSync(path.dirname(p.agentSessions), { recursive: true });
+  fs.writeFileSync(p.agentSessions, JSON.stringify(store, null, 2) + "\n", { mode: 0o600 });
+}
+
+function agentSessionKey(engine, fellowKey, sessionId) {
+  return [
+    normalizeFellowAgentEngine(engine),
+    String(fellowKey || "aimashi").trim() || "aimashi",
+    String(sessionId || "default").trim() || "default"
+  ].join(":");
+}
+
+function getAgentSessionId(engine, fellowKey, sessionId) {
+  const store = loadAgentSessionMap();
+  return String(store[agentSessionKey(engine, fellowKey, sessionId)] || "").trim();
+}
+
+function setAgentSessionId(engine, fellowKey, sessionId, externalSessionId) {
+  const id = String(externalSessionId || "").trim();
+  if (!id) return;
+  const store = loadAgentSessionMap();
+  store[agentSessionKey(engine, fellowKey, sessionId)] = id;
+  saveAgentSessionMap(store);
+}
+
+async function claudeAgentSdk() {
+  if (!claudeAgentSdkModule) claudeAgentSdkModule = await import("@anthropic-ai/claude-agent-sdk");
+  return claudeAgentSdkModule;
+}
+
+async function codexSdk() {
+  if (!codexSdkModule) codexSdkModule = await import("@openai/codex-sdk");
+  return codexSdkModule;
+}
+
+function processEnvStrings() {
+  return Object.fromEntries(Object.entries(process.env).filter(([, value]) => typeof value === "string"));
+}
+
 function appearanceSettings() {
   const p = runtimePaths();
   const saved = readJson(p.appearanceSettings, {});
@@ -199,14 +397,58 @@ function defaultFellowManifest() {
         name: "Aimashi",
         account_id: "aimashi",
         route_profile: "aimashi",
-      platform: "api_server",
-      color: "#0f766e",
-      avatarImage: "",
-      avatarCrop: { x: 50, y: 50, offsetX: 0, offsetY: 0, zoom: 1 },
-      bio: "Aimashi App 里的第一个本地伙伴"
+        agentEngine: "hermes",
+        platform: "api_server",
+        color: "#0f766e",
+        avatarImage: "",
+        avatarCrop: { x: 50, y: 50, offsetX: 0, offsetY: 0, zoom: 1 },
+        bio: "Aimashi App 里的第一个本地伙伴"
       }
     ]
   };
+}
+
+function normalizeFellowAgentEngine(value) {
+  const id = String(value || "hermes").trim().toLowerCase().replace(/_/g, "-");
+  if (id === "claude" || id === "claude-code") return "claude-code";
+  if (id === "codex" || id === "openai-codex") return "codex";
+  return "hermes";
+}
+
+function normalizeFellowEngineConfig(input = {}) {
+  const value = input && typeof input === "object" ? input : {};
+  const next = {};
+  const model = String(value.model || "").trim();
+  const permissionMode = String(value.permissionMode || value.permission_mode || "").trim();
+  const effortLevel = String(value.effortLevel || value.effort_level || value.reasoningEffort || value.reasoning_effort || "").trim();
+  if (model) next.model = model;
+  if (permissionMode) next.permissionMode = permissionMode;
+  if (effortLevel) next.effortLevel = normalizeStoredEffortLevel(effortLevel);
+  return next;
+}
+
+function mergeFellowEngineConfig(current = {}, update = {}) {
+  const next = normalizeFellowEngineConfig(current);
+  if (Object.prototype.hasOwnProperty.call(update || {}, "model")) {
+    const model = String(update.model || "").trim();
+    if (model) next.model = model;
+    else delete next.model;
+  }
+  if (Object.prototype.hasOwnProperty.call(update || {}, "permissionMode")
+    || Object.prototype.hasOwnProperty.call(update || {}, "permission_mode")) {
+    const permissionMode = String(update.permissionMode || update.permission_mode || "").trim();
+    if (permissionMode) next.permissionMode = permissionMode;
+    else delete next.permissionMode;
+  }
+  if (Object.prototype.hasOwnProperty.call(update || {}, "effortLevel")
+    || Object.prototype.hasOwnProperty.call(update || {}, "effort_level")
+    || Object.prototype.hasOwnProperty.call(update || {}, "reasoningEffort")
+    || Object.prototype.hasOwnProperty.call(update || {}, "reasoning_effort")) {
+    const effortLevel = String(update.effortLevel || update.effort_level || update.reasoningEffort || update.reasoning_effort || "").trim();
+    if (effortLevel) next.effortLevel = normalizeStoredEffortLevel(effortLevel);
+    else delete next.effortLevel;
+  }
+  return next;
 }
 
 function defaultManifest() {
@@ -223,15 +465,20 @@ function normalizeFellow(item) {
   const key = String(item?.key || item?.account_id || "").trim().toLowerCase().replace(/[^a-z0-9_.-]+/g, "_");
   const name = String(item?.name || item?.display_name || key || "Aimashi").trim();
   if (!key || !name) return null;
+  const pinnedAt = String(item?.pinnedAt || item?.pinned_at || "").trim();
   return {
     key,
     name,
     account_id: String(item?.account_id || key).trim() || key,
     route_profile: String(item?.route_profile || item?.account_id || key).trim() || key,
+    agentEngine: normalizeFellowAgentEngine(item?.agentEngine || item?.agent_engine || item?.engine),
+    engineConfig: normalizeFellowEngineConfig(item?.engineConfig || item?.engine_config),
     platform: String(item?.platform || "api_server").trim() || "api_server",
     color: String(item?.color || item?.accent_color || "#0f766e").trim() || "#0f766e",
     avatarImage: String(item?.avatarImage || item?.avatar_image || "").trim(),
     avatarCrop: normalizeAvatarCrop(item?.avatarCrop || item?.avatar_crop),
+    pinned: Boolean(item?.pinned || item?.is_pinned || pinnedAt),
+    pinnedAt,
     bio: String(item?.bio || item?.description || "").trim()
   };
 }
@@ -395,12 +642,29 @@ function fellowMetadata(fellow) {
   return {
     account_id: fellow.key,
     display_name: fellow.name,
+    agent_engine: normalizeFellowAgentEngine(fellow.agentEngine || fellow.agent_engine),
+    engine_config: normalizeFellowEngineConfig(fellow.engineConfig || fellow.engine_config),
     accent_color: fellow.color || "#0f766e",
     avatar_image: fellow.avatarImage || "",
     avatar_crop: fellow.avatarCrop || { x: 50, y: 50, offsetX: 0, offsetY: 0, zoom: 1 },
+    pinned: Boolean(fellow.pinned),
+    pinned_at: fellow.pinnedAt || "",
     bio: fellow.bio || "",
     created_at: new Date().toISOString()
   };
+}
+
+function fellowPersonaPath(key) {
+  return path.join(runtimePaths().fellowDir, `${String(key || "").trim()}.md`);
+}
+
+function readFellowPersona(key, fallbackName = "Aimashi", fallbackBio = "") {
+  const personaPath = fellowPersonaPath(key);
+  try {
+    return fs.readFileSync(personaPath, "utf8");
+  } catch {
+    return fellowPersonaBody(fallbackName, fallbackBio);
+  }
 }
 
 function fellowKeyFromName(name) {
@@ -414,6 +678,314 @@ function fellowKeyFromName(name) {
   const hash = crypto.createHash("sha1").update(String(name || "fellow")).digest("hex").slice(0, 10);
   return `fellow_${hash}`;
 }
+
+function fellowPetId(key) {
+  const cleaned = String(key || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_.-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return `aimashi-${cleaned || "fellow"}`;
+}
+
+function readPetManifest(petDir) {
+  const manifestPath = path.join(petDir, "pet.json");
+  const manifest = readJson(manifestPath, null);
+  if (!manifest || typeof manifest !== "object") return null;
+  const sheet = String(manifest.spritesheetPath || "spritesheet.webp").trim();
+  const sheetPath = path.join(petDir, sheet);
+  if (!fs.existsSync(sheetPath)) return null;
+  return {
+    id: String(manifest.id || path.basename(petDir)),
+    displayName: String(manifest.displayName || manifest.name || path.basename(petDir)),
+    description: String(manifest.description || ""),
+    dir: petDir,
+    manifestPath,
+    spritesheetPath: sheetPath
+  };
+}
+
+function petRootCandidates() {
+  const p = runtimePaths();
+  return [
+    p.petDir,
+    path.join(app.getPath("home"), ".alkaka", "pets"),
+    path.join(app.getPath("home"), ".codex", "pets")
+  ];
+}
+
+function findFellowPetPackage(key) {
+  const ids = [fellowPetId(key), String(key || "").trim()].filter(Boolean);
+  for (const root of petRootCandidates()) {
+    for (const id of ids) {
+      const pet = readPetManifest(path.join(root, id));
+      if (pet) return pet;
+    }
+  }
+  return null;
+}
+
+function petStatusForFellow(key) {
+  const pet = findFellowPetPackage(key);
+  return {
+    key,
+    petId: fellowPetId(key),
+    hasAsset: Boolean(pet),
+    placed: petWindows.has(String(key || "")),
+    displayName: pet?.displayName || "",
+    packageDir: pet?.dir || "",
+    spritesheetPath: pet?.spritesheetPath || ""
+  };
+}
+
+function petStatusesForFellows(fellows = []) {
+  return Object.fromEntries((fellows || []).map((fellow) => [fellow.key, petStatusForFellow(fellow.key)]));
+}
+
+function getFellowDetails(key) {
+  initializeRuntime();
+  const id = String(key || "").trim();
+  const manifest = loadFellowManifest();
+  const fellow = (manifest.fellows || []).find((item) => item.key === id);
+  if (!fellow) throw new Error("Fellow not found.");
+  return {
+    fellow,
+    personaText: readFellowPersona(fellow.key, fellow.name, fellow.bio),
+    pet: petStatusForFellow(fellow.key)
+  };
+}
+
+function dataUrlToBuffer(value) {
+  const match = String(value || "").match(/^data:([^;,]+)?(;base64)?,(.*)$/);
+  if (!match) return null;
+  const mime = match[1] || "image/png";
+  const ext = mime.includes("jpeg") ? ".jpg" : mime.includes("webp") ? ".webp" : ".png";
+  const data = match[2] ? Buffer.from(match[3], "base64") : Buffer.from(decodeURIComponent(match[3]));
+  return { data, ext };
+}
+
+function materializePetReference(rawValue, outDir, index) {
+  const raw = String(rawValue || "").trim();
+  if (!raw) return null;
+  fs.mkdirSync(outDir, { recursive: true });
+  const data = dataUrlToBuffer(raw);
+  if (data) {
+    const target = path.join(outDir, `reference-${String(index).padStart(2, "0")}${data.ext}`);
+    fs.writeFileSync(target, data.data);
+    return target;
+  }
+  let source = raw;
+  if (/^file:/i.test(raw)) {
+    source = fileURLToPath(raw);
+  } else if (raw.startsWith("./") || raw.startsWith("../")) {
+    source = path.join(__dirname, "renderer", raw);
+  }
+  if (!path.isAbsolute(source) || !fs.existsSync(source)) return null;
+  const ext = path.extname(source) || ".png";
+  const target = path.join(outDir, `reference-${String(index).padStart(2, "0")}${ext}`);
+  fs.copyFileSync(source, target);
+  return target;
+}
+
+function styleSettingsForPet(stylePreset) {
+  const preset = String(stylePreset || "codex").trim();
+  if (preset === "alkaka") {
+    const styleReference = path.join(
+      app.getPath("home"),
+      "github",
+      "alkaka-pet",
+      "pet-app",
+      "skills",
+      "alkaka-friend-pet",
+      "assets",
+      "alkaka-style-reference.jpg"
+    );
+    return {
+      styleNotes: "Alkaka Q版贴纸风：紧凑可爱的伙伴桌宠，清晰线条，大眼睛，保留头像身份特征，适合 192x208 小尺寸动画。",
+      styleContract: "Cute anime sticker-like partner desktop pet, compact chibi proportions, clean dark linework, soft cel shading, readable at 192x208 cells. Avoid realistic rendering, scene backgrounds, tiny noisy detail, shadows, glows, text, and UI elements.",
+      styleReferences: fs.existsSync(styleReference) ? [styleReference] : []
+    };
+  }
+  if (preset === "soft") {
+    return {
+      styleNotes: "柔和 Q 版桌宠：圆润、轻量、少装饰，保留头像主要发色、服饰和气质。",
+      styleContract: "Soft cute digital pet sprite style with simple readable silhouette, flat colors, clean outline, no scene background, no glossy illustration effects.",
+      styleReferences: []
+    };
+  }
+  return {
+    styleNotes: "Codex 内置桌宠风：小体积、像素感边缘、粗轮廓、有限色板、动作清楚但不花哨。",
+    styleContract: "Codex built-in digital pet style: small pixel-art-adjacent mascot, compact chibi proportions, chunky readable silhouette, thick dark outline, limited palette, flat cel shading, transparent sprite atlas.",
+    styleReferences: []
+  };
+}
+
+function petJobSnapshot(job) {
+  return {
+    id: job.id,
+    fellowKey: job.fellowKey,
+    fellowName: job.fellowName,
+    petId: job.petId,
+    status: job.status,
+    startedAt: job.startedAt,
+    finishedAt: job.finishedAt || "",
+    error: job.error || "",
+    runDir: job.runDir,
+    packageDir: job.packageDir || "",
+    logPath: job.logPath || "",
+    logs: (job.logs || []).slice(-40)
+  };
+}
+
+function getPetJobs() {
+  return Array.from(petJobs.values())
+    .sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt)))
+    .map(petJobSnapshot);
+}
+
+function startFellowPetGeneration(input = {}) {
+  initializeRuntime();
+  const key = String(input.fellowKey || input.key || "").trim();
+  const manifest = loadFellowManifest();
+  const fellow = (manifest.fellows || []).find((item) => item.key === key);
+  if (!fellow) throw new Error("Fellow not found.");
+  const script = path.join(app.getPath("home"), "github", "alkaka-pet", "pet-app", "hatch_generate.py");
+  if (!fs.existsSync(script)) throw new Error(`AlkakaPet generator not found: ${script}`);
+
+  const p = runtimePaths();
+  const jobId = crypto.randomUUID();
+  const petId = fellowPetId(fellow.key);
+  const runDir = path.join(p.petJobsDir, `${petId}-${jobId.slice(0, 8)}`);
+  const refDir = path.join(runDir, "aimashi-references");
+  const referenceImages = Array.isArray(input.referenceImages) ? input.referenceImages : [];
+  const references = referenceImages
+    .map((value, index) => materializePetReference(value, refDir, index + 1))
+    .filter(Boolean);
+  const style = styleSettingsForPet(input.stylePreset);
+  const prompt = String(input.prompt || "").trim()
+    || `根据 ${fellow.name} 的头像和人设生成一个适合 Aimashi 的本地伙伴桌宠。`;
+  const job = {
+    id: jobId,
+    fellowKey: fellow.key,
+    fellowName: fellow.name,
+    petId,
+    status: "running",
+    startedAt: new Date().toISOString(),
+    runDir,
+    packageDir: path.join(app.getPath("home"), ".alkaka", "pets", petId),
+    logPath: path.join(runDir, "generation.log"),
+    logs: []
+  };
+  petJobs.set(jobId, job);
+  fs.mkdirSync(runDir, { recursive: true });
+
+  const args = [
+    script,
+    "--prompt", prompt,
+    "--pet-id", petId,
+    "--display-name", fellow.name,
+    "--description", `${fellow.name} 的 Aimashi 桌宠。`,
+    "--style-notes", style.styleNotes,
+    "--style-contract", style.styleContract,
+    "--run-dir", runDir
+  ];
+  for (const reference of references) args.push("--reference", reference);
+  for (const reference of style.styleReferences) args.push("--style-reference", reference);
+
+  const child = spawn("python3", args, {
+    cwd: path.dirname(path.dirname(script)),
+    env: process.env,
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  const append = (chunk) => {
+    const text = String(chunk || "");
+    for (const line of text.split(/\r?\n/).filter(Boolean)) {
+      job.logs.push(line);
+      if (job.logs.length > 160) job.logs.shift();
+    }
+  };
+  child.stdout.on("data", append);
+  child.stderr.on("data", append);
+  child.on("error", (error) => {
+    job.status = "failed";
+    job.error = error.message;
+    job.finishedAt = new Date().toISOString();
+  });
+  child.on("close", (code) => {
+    job.finishedAt = new Date().toISOString();
+    if (code === 0 && findFellowPetPackage(fellow.key)) {
+      job.status = "completed";
+    } else {
+      job.status = "failed";
+      job.error = code === 0 ? "生成结束，但没有找到可用的 pet.json + spritesheet。" : `生成进程退出：${code}`;
+    }
+  });
+  return petJobSnapshot(job);
+}
+
+function placeFellowPet(key) {
+  initializeRuntime();
+  const id = String(key || "").trim();
+  const pet = findFellowPetPackage(id);
+  if (!pet) throw new Error("这个 Fellow 还没有可用桌宠资产。");
+  const existing = petWindows.get(id);
+  if (existing && !existing.isDestroyed()) return petStatusForFellow(id);
+
+  const win = new BrowserWindow({
+    width: 356,
+    height: 264,
+    frame: false,
+    transparent: true,
+    hasShadow: false,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    focusable: false,
+    show: false,
+    alwaysOnTop: true,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+  petWindows.set(id, win);
+  if (process.platform === "darwin") {
+    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
+  } else {
+    win.setVisibleOnAllWorkspaces(true);
+  }
+  win.setAlwaysOnTop(true, "floating");
+  win.setIgnoreMouseEvents(true, { forward: true });
+  const display = require("electron").screen.getPrimaryDisplay().workArea;
+  win.setBounds({
+    x: display.x + display.width - 356 - 24,
+    y: display.y + display.height - 264 - 24,
+    width: 356,
+    height: 264
+  }, false);
+  const url = pathToFileURL(path.join(__dirname, "renderer", "pet.html"));
+  url.searchParams.set("sheet", pathToFileURL(pet.spritesheetPath).toString());
+  url.searchParams.set("name", pet.displayName);
+  win.loadURL(url.toString());
+  win.once("ready-to-show", () => {
+    if (!win.isDestroyed()) win.showInactive();
+  });
+  win.on("closed", () => {
+    if (petWindows.get(id) === win) petWindows.delete(id);
+  });
+  return petStatusForFellow(id);
+}
+
+function recallFellowPet(key) {
+  const id = String(key || "").trim();
+  const win = petWindows.get(id);
+  if (win && !win.isDestroyed()) win.close();
+  petWindows.delete(id);
+  return petStatusForFellow(id);
+}
+
 
 function migrateLegacyPersonas(created) {
   const p = runtimePaths();
@@ -456,6 +1028,8 @@ function initializeRuntime() {
   fs.mkdirSync(p.home, { recursive: true });
   fs.mkdirSync(p.fellowDir, { recursive: true });
   fs.mkdirSync(p.compatSoulsDir, { recursive: true });
+  fs.mkdirSync(p.petDir, { recursive: true });
+  fs.mkdirSync(p.petJobsDir, { recursive: true });
 
   if (writeFileIfMissing(path.join(p.engine, "README.md"), [
     "# Aimashi Hermes Engine",
@@ -489,6 +1063,14 @@ function initializeRuntime() {
 
   if (writeFileIfMissing(p.providerConnections, JSON.stringify(defaultProviderStore(), null, 2) + "\n", 0o600)) {
     created.push("runtime/engine-home/aimashi-providers.json");
+  }
+
+  if (writeFileIfMissing(p.permissionSettings, JSON.stringify(defaultPermissionSettings(), null, 2) + "\n", 0o600)) {
+    created.push("runtime/engine-home/aimashi-permissions.json");
+  }
+
+  if (writeFileIfMissing(p.effortSettings, JSON.stringify(defaultEffortSettings(), null, 2) + "\n", 0o600)) {
+    created.push("runtime/engine-home/aimashi-effort.json");
   }
 
   if (writeFileIfMissing(p.userProfile, JSON.stringify(defaultUserProfile(), null, 2) + "\n")) {
@@ -649,6 +1231,8 @@ function writeRuntimeConfig(port) {
   const model = String(settings.model || "").trim();
   const baseUrl = String(settings.baseUrl || "").trim();
   const apiMode = String(settings.apiMode || "").trim();
+  const approvalsMode = permissionSettings().mode;
+  const reasoningEffort = effortSettings().level;
   fs.mkdirSync(p.home, { recursive: true });
   const lines = [
     "model:",
@@ -671,6 +1255,13 @@ function writeRuntimeConfig(port) {
     "    enabled: false",
     "  discord:",
     "    enabled: false",
+    "",
+    "approvals:",
+    `  mode: ${JSON.stringify(approvalsMode)}`,
+    "  timeout: 60",
+    "",
+    "agent:",
+    `  reasoning_effort: ${JSON.stringify(reasoningEffort)}`,
     "",
     "aimashi:",
     "  runtime_schema: 1",
@@ -707,6 +1298,9 @@ function getRuntimeStatus(created = []) {
     auth: codexAuth,
     user: { ...defaultUserProfile(), ...readJson(p.userProfile, {}) },
     appearance: appearanceSettings(),
+    agentEngines: localAgentEngines(),
+    permissions: permissionStatus(),
+    effort: effortStatus(),
     model: {
       provider: settings.provider,
       model: settings.model,
@@ -717,7 +1311,9 @@ function getRuntimeStatus(created = []) {
     },
     connectedProviders,
     fellows,
-    personas: fellows
+    personas: fellows,
+    pets: petStatusesForFellows(fellows),
+    petJobs: getPetJobs()
   };
 }
 
@@ -931,6 +1527,158 @@ function fallbackSlashCommands() {
   ];
 }
 
+const externalAgentBuiltInCommands = [
+  { command: "/help", name: "/help", description: "显示本地外部 Agent 命令帮助", namespace: "builtin", type: "builtin" },
+  { command: "/clear", name: "/clear", description: "清空当前对话历史", namespace: "builtin", type: "builtin" },
+  { command: "/model", name: "/model", description: "查看当前本地引擎模型", namespace: "builtin", type: "builtin" },
+  { command: "/cost", name: "/cost", description: "查看本次 GUI 可见的用量信息", namespace: "builtin", type: "builtin" },
+  { command: "/memory", name: "/memory", description: "查看当前项目 CLAUDE.md 记忆文件状态", namespace: "builtin", type: "builtin" },
+  { command: "/config", name: "/config", description: "查看当前 Fellow 的本地引擎配置入口", namespace: "builtin", type: "builtin" },
+  { command: "/status", name: "/status", description: "查看本地 CLI、模型、权限和外部会话", namespace: "builtin", type: "builtin" },
+  { command: "/permissions", name: "/permissions", description: "查看当前本地引擎权限", namespace: "builtin", type: "builtin" },
+  { command: "/resume", name: "/resume", description: "把当前 Aimashi 会话绑定到指定外部 session", namespace: "builtin", type: "builtin" },
+  { command: "/rewind", name: "/rewind", description: "提示如何回退当前对话", namespace: "builtin", type: "builtin" }
+];
+
+function parseCommandFrontmatter(markdown = "") {
+  const raw = String(markdown || "");
+  if (!raw.startsWith("---\n") && !raw.startsWith("---\r\n")) return { data: {}, content: raw };
+  const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
+  if (!match) return { data: {}, content: raw };
+  const data = {};
+  for (const line of match[1].split(/\r?\n/)) {
+    const item = line.match(/^\s*([A-Za-z0-9_-]+)\s*:\s*(.*?)\s*$/);
+    if (!item) continue;
+    let value = item[2] || "";
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    data[item[1]] = value;
+  }
+  return { data, content: raw.slice(match[0].length) };
+}
+
+function commandFromMarkdownFile(filePath, baseDir, namespace) {
+  const content = fs.readFileSync(filePath, "utf8");
+  const parsed = parseCommandFrontmatter(content);
+  const relativePath = path.relative(baseDir, filePath);
+  const command = `/${relativePath.replace(/\.md$/i, "").replace(/\\/g, "/")}`;
+  const firstLine = parsed.content.trim().split(/\r?\n/)[0] || "";
+  const description = String(parsed.data.description || firstLine.replace(/^#+\s*/, "").trim() || "自定义 Claude Code 命令");
+  return {
+    command,
+    name: command,
+    path: filePath,
+    relativePath,
+    description,
+    namespace,
+    type: "custom",
+    metadata: parsed.data
+  };
+}
+
+function scanAgentCommandsDirectory(dir, baseDir, namespace) {
+  const commands = [];
+  try {
+    if (!fs.existsSync(dir)) return commands;
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        commands.push(...scanAgentCommandsDirectory(fullPath, baseDir, namespace));
+      } else if (entry.isFile() && entry.name.toLowerCase().endsWith(".md")) {
+        try {
+          commands.push(commandFromMarkdownFile(fullPath, baseDir, namespace));
+        } catch (error) {
+          appendEngineLog(`Agent command parse failed: ${fullPath}: ${error.message}`);
+        }
+      }
+    }
+  } catch (error) {
+    if (error.code !== "ENOENT" && error.code !== "EACCES") {
+      appendEngineLog(`Agent command scan failed: ${dir}: ${error.message}`);
+    }
+  }
+  return commands;
+}
+
+function agentCommandRoots(engine, projectPath = process.cwd()) {
+  const normalized = normalizeFellowAgentEngine(engine);
+  if (normalized !== "claude-code") return [];
+  const roots = [];
+  const project = String(projectPath || "").trim() || process.cwd();
+  if (project) roots.push({ namespace: "project", root: path.join(project, ".claude", "commands") });
+  roots.push({ namespace: "user", root: path.join(app.getPath("home"), ".claude", "commands") });
+  return roots;
+}
+
+function loadExternalAgentCommands(input = {}) {
+  const engine = normalizeFellowAgentEngine(input.engine);
+  const projectPath = String(input.projectPath || process.cwd()).trim() || process.cwd();
+  const builtIn = externalAgentBuiltInCommands.map((item) => ({ ...item, engine }));
+  const custom = [];
+  for (const root of agentCommandRoots(engine, projectPath)) {
+    custom.push(...scanAgentCommandsDirectory(root.root, root.root, root.namespace));
+  }
+  custom.sort((a, b) => a.command.localeCompare(b.command));
+  const rows = [...builtIn, ...custom.map((item) => ({ ...item, engine }))];
+  return { builtIn, custom: custom.map((item) => ({ ...item, engine })), count: rows.length, rows };
+}
+
+function splitCommandInvocation(text = "") {
+  const input = String(text || "").trim();
+  const command = input.split(/\s+/)[0]?.toLowerCase() || "";
+  const argText = input.slice(command.length).trim();
+  const args = argText ? argText.split(/\s+/).filter(Boolean) : [];
+  return { command, argText, args };
+}
+
+function assertAllowedAgentCommandPath(commandPath, engine, projectPath = process.cwd()) {
+  const resolved = path.resolve(String(commandPath || ""));
+  if (!resolved || !fs.existsSync(resolved)) throw new Error("Command file not found.");
+  const roots = agentCommandRoots(engine, projectPath).map((item) => path.resolve(item.root));
+  if (!roots.some((root) => isChildPath(root, resolved))) {
+    throw new Error("Command must be inside an allowed .claude/commands directory.");
+  }
+  return resolved;
+}
+
+function executeExternalAgentCommand(input = {}) {
+  const engine = normalizeFellowAgentEngine(input.engine);
+  const command = String(input.commandName || input.command || "").trim().toLowerCase();
+  const args = Array.isArray(input.args) ? input.args.map(String) : [];
+  const projectPath = String(input.context?.projectPath || input.projectPath || process.cwd()).trim() || process.cwd();
+  if (externalAgentBuiltInCommands.some((item) => item.command === command)) {
+    return {
+      type: "builtin",
+      command,
+      content: runExternalSlashCommand({
+        text: [command, ...args].join(" "),
+        fellow: input.context?.fellow || {},
+        engine,
+        sessionId: input.context?.sessionId || ""
+      })
+    };
+  }
+  const commandPath = assertAllowedAgentCommandPath(input.commandPath, engine, projectPath);
+  const raw = fs.readFileSync(commandPath, "utf8");
+  const parsed = parseCommandFrontmatter(raw);
+  let content = parsed.content;
+  const argsString = args.join(" ");
+  content = content.replace(/\$ARGUMENTS/g, argsString);
+  args.forEach((arg, index) => {
+    content = content.replace(new RegExp(`\\$${index + 1}\\b`, "g"), arg);
+  });
+  return {
+    type: "custom",
+    command,
+    content,
+    metadata: parsed.data,
+    hasFileIncludes: content.includes("@"),
+    hasBashCommands: content.includes("!")
+  };
+}
+
 async function loadHermesSlashCommands() {
   initializeRuntime();
   return timeEngineStepAsync("Load Hermes slash commands", () => loadHermesSlashCommandsInner());
@@ -984,8 +1732,30 @@ function skillRoots() {
   return [
     { source: "aimashi", label: "Aimashi Runtime", root: path.join(p.home, "skills") },
     { source: "hermes", label: "Hermes", root: path.join(home, ".hermes", "skills") },
-    { source: "codex", label: "Codex", root: path.join(home, ".codex", "skills") }
+    { source: "codex", label: "Codex", root: path.join(home, ".codex", "skills") },
+    { source: "claude", label: "Claude Code", root: path.join(home, ".claude", "skills"), idPrefix: "claude:user" },
+    ...claudeCodePluginSkillRoots(home)
   ];
+}
+
+function claudeCodePluginSkillRoots(home) {
+  const registryPath = path.join(home, ".claude", "plugins", "installed_plugins.json");
+  const registry = readJson(registryPath, {});
+  const roots = [];
+  for (const [pluginName, installs] of Object.entries(registry.plugins || {})) {
+    for (const install of Array.isArray(installs) ? installs : []) {
+      const installPath = String(install.installPath || "").trim();
+      if (!installPath) continue;
+      const root = path.join(installPath, "skills");
+      roots.push({
+        source: "claude",
+        label: "Claude Code",
+        root,
+        idPrefix: `claude:${pluginName}`
+      });
+    }
+  }
+  return roots;
 }
 
 function cleanYamlScalar(value) {
@@ -1029,7 +1799,7 @@ function parseSkillMarkdown(filePath, rootInfo) {
     .map((item) => item.replace(/\s+/g, " ").trim())
     .filter(Boolean);
   const description = meta.description || paragraphs[0] || "";
-  const id = `${rootInfo.source}:${rel}`;
+  const id = `${rootInfo.idPrefix || rootInfo.source}:${rel}`;
   return {
     id,
     name: meta.name || fallbackName,
@@ -1088,7 +1858,7 @@ function loadLocalSkills() {
       }
     }
   }
-  const sourceRank = { aimashi: 0, hermes: 1, codex: 2 };
+  const sourceRank = { aimashi: 0, hermes: 1, codex: 2, claude: 3 };
   skills.sort((a, b) => (
     (sourceRank[a.source] ?? 9) - (sourceRank[b.source] ?? 9)
     || String(a.category).localeCompare(String(b.category))
@@ -1112,13 +1882,127 @@ function readLocalSkill(skillId) {
   };
 }
 
+function isChildPath(parentPath, targetPath) {
+  const parent = path.resolve(parentPath);
+  const target = path.resolve(targetPath);
+  const relative = path.relative(parent, target);
+  return Boolean(relative) && !relative.startsWith("..") && !path.isAbsolute(relative);
+}
+
+function deleteLocalSkill(skillId) {
+  const id = String(skillId || "");
+  const found = loadLocalSkills().skills.find((skill) => skill.id === id);
+  if (!found) throw new Error("Skill not found.");
+  if (found.source !== "aimashi") throw new Error("只能删除 Aimashi 本地 Skill。");
+  const root = skillRoots().find((item) => item.source === "aimashi")?.root;
+  const skillDir = path.dirname(found.filePath);
+  if (!root || !isChildPath(root, skillDir)) throw new Error("Skill path is outside the Aimashi skills directory.");
+  fs.rmSync(skillDir, { recursive: true, force: true });
+  return loadLocalSkills();
+}
+
+async function openLocalSkillDirectory(skillId) {
+  const id = String(skillId || "");
+  const found = loadLocalSkills().skills.find((skill) => skill.id === id);
+  if (!found) throw new Error("Skill not found.");
+  const skillDir = path.dirname(found.filePath);
+  if (!fs.existsSync(skillDir)) throw new Error("Skill directory not found.");
+  const error = await shell.openPath(skillDir);
+  if (error) throw new Error(error);
+  return { opened: true, path: skillDir };
+}
+
 function isSlashCommandText(messages) {
   const normalized = normalizeRunMessages(messages);
   const dialogue = normalized.filter((message) => message.role !== "system");
   const lastUserIndex = dialogue.map((message) => message.role).lastIndexOf("user");
   if (lastUserIndex < 0) return "";
   const input = dialogue[lastUserIndex].content.trim();
-  return /^\/[A-Za-z0-9_-]+(?:\s|$)/.test(input) ? input : "";
+  return /^\/[A-Za-z0-9_/-]+(?:\s|$)/.test(input) ? input : "";
+}
+
+function externalAgentStatus({ fellow, engine, sessionId }) {
+  const info = localAgentEngines();
+  const engineInfo = engine === "claude-code" ? info.claudeCode : info.codex;
+  const config = normalizeFellowEngineConfig(fellow.engineConfig);
+  const model = config.model || (engine === "claude-code" ? "Claude Code 默认模型" : "Codex 默认模型");
+  const permission = config.permissionMode || "default";
+  const effort = normalizeEffortLevel(config.effortLevel || "medium", engine);
+  const externalSessionId = getAgentSessionId(engine, fellow.key, sessionId) || "尚未创建";
+  const label = engine === "claude-code" ? "Claude Code" : "Codex";
+  return [
+    `${fellow.name || "当前 Fellow"} 使用 ${label} 本地引擎。`,
+    `模型：${model}`,
+    `推理强度：${effort}`,
+    `权限：${permission}`,
+    `CLI：${engineInfo?.path || "未检测到"}`,
+    engineInfo?.version ? `版本：${engineInfo.version}` : "",
+    `外部会话：${externalSessionId}`
+  ].filter(Boolean).join("\n");
+}
+
+function runExternalSlashCommand({ text, fellow, engine, sessionId }) {
+  const command = String(text || "").trim().split(/\s+/)[0].toLowerCase();
+  const args = String(text || "").trim().slice(command.length).trim();
+  if (command === "/status") return externalAgentStatus({ fellow, engine, sessionId });
+  if (command === "/model") {
+    const config = normalizeFellowEngineConfig(fellow.engineConfig);
+    return `当前模型：${config.model || (engine === "claude-code" ? "Claude Code 默认模型" : "Codex 默认模型")}。\n可以用底部模型选择器切换这个 Fellow 的本地引擎模型。`;
+  }
+  if (command === "/permissions" || command === "/permission") {
+    const config = normalizeFellowEngineConfig(fellow.engineConfig);
+    return `当前权限模式：${config.permissionMode || "default"}。\n可以用底部权限选择器切换这个 Fellow 的本地引擎权限。`;
+  }
+  if (command === "/clear") {
+    return "Aimashi 还没有把 /clear 接到当前会话清空动作。现在可以用顶部新对话按钮开启干净会话。";
+  }
+  if (command === "/cost") {
+    return "当前 GUI 通道暂未保存外部 CLI 的 token/cost 汇总。Claude Code 或 Codex CLI 自己的用量以本机 CLI 配置为准。";
+  }
+  if (command === "/memory") {
+    const memoryPath = path.join(process.cwd(), "CLAUDE.md");
+    return fs.existsSync(memoryPath)
+      ? `当前项目记忆文件：${memoryPath}`
+      : `当前项目未找到 CLAUDE.md：${memoryPath}`;
+  }
+  if (command === "/config") {
+    return "本地外部引擎的模型和权限在输入框下方选择器里查看和切换；更底层的账号、默认模型、权限策略仍以用户本机 CLI 配置为准。";
+  }
+  if (command === "/resume") {
+    const current = getAgentSessionId(engine, fellow.key, sessionId);
+    const next = args.split(/\s+/).filter(Boolean)[0] || "";
+    if (!next) {
+      return [
+        `当前绑定的外部会话：${current || "尚未创建"}`,
+        "用法：/resume <session-id>",
+        "说明：Claude Code 的交互式 session picker 不能直接嵌进当前非交互 SDK 通道；这里支持用明确 session id 切换绑定。"
+      ].join("\n");
+    }
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(next)) {
+      return "session-id 看起来不是有效 UUID。用法：/resume <session-id>";
+    }
+    setAgentSessionId(engine, fellow.key, sessionId, next);
+    return `已把当前 Aimashi 会话绑定到外部 session：${next}\n下一条消息会从这个 session 继续。`;
+  }
+  if (command === "/rewind") {
+    return `Aimashi 还没有把 /rewind 接到会话回退动作。参数：${args || "默认 1 步"}。`;
+  }
+  if (command === "/help") {
+    return [
+      "当前是本地外部 Agent 引擎，可用命令：",
+      "/status - 查看本地 CLI、模型、权限和外部会话",
+      "/model - 查看当前模型",
+      "/permissions - 查看当前权限模式",
+      "/clear - 提示如何开启干净会话",
+      "/cost - 查看 GUI 可见的用量状态",
+      "/memory - 查看当前项目 CLAUDE.md 状态",
+      "/config - 查看当前配置入口",
+      "/resume <session-id> - 切换当前 Aimashi 会话绑定的外部 session",
+      "/rewind - 提示如何回退对话",
+      "Claude Code 自定义命令会从 .claude/commands 和 ~/.claude/commands 扫描。"
+    ].join("\n");
+  }
+  return `${command} 暂时不是 ${engine === "claude-code" ? "Claude Code" : "Codex"} Fellow 的 Aimashi 本地命令。`;
 }
 
 function runHermesSlashCommand({ text, fellow, sessionId }) {
@@ -1683,11 +2567,27 @@ function launchAgentEnvironment() {
   };
 }
 
+function gatewayProgramArguments() {
+  const args = [
+    enginePython(),
+    "-m",
+    "aimashi_plugins",
+    "gateway",
+    "run",
+    "--replace",
+    "--accept-hooks"
+  ];
+  return args;
+}
+
 function launchAgentPlist() {
   const p = runtimePaths();
   const env = launchAgentEnvironment();
   const envEntries = Object.entries(env)
     .map(([key, value]) => `      <key>${xmlEscape(key)}</key>\n      <string>${xmlEscape(value)}</string>`)
+    .join("\n");
+  const programArguments = gatewayProgramArguments()
+    .map((value) => `    <string>${xmlEscape(value)}</string>`)
     .join("\n");
   return [
     `<?xml version="1.0" encoding="UTF-8"?>`,
@@ -1698,13 +2598,7 @@ function launchAgentPlist() {
     `  <string>${AIMASHI_GATEWAY_SERVICE_LABEL}</string>`,
     `  <key>ProgramArguments</key>`,
     `  <array>`,
-    `    <string>${xmlEscape(enginePython())}</string>`,
-    `    <string>-m</string>`,
-    `    <string>aimashi_plugins</string>`,
-    `    <string>gateway</string>`,
-    `    <string>run</string>`,
-    `    <string>--replace</string>`,
-    `    <string>--accept-hooks</string>`,
+    programArguments,
     `  </array>`,
     `  <key>WorkingDirectory</key>`,
     `  <string>${xmlEscape(p.engine)}</string>`,
@@ -1822,6 +2716,7 @@ async function startEngine() {
   const env = {
     ...process.env,
     HERMES_HOME: p.home,
+    HERMES_ACCEPT_HOOKS: "1",
     API_SERVER_ENABLED: "true",
     API_SERVER_HOST: "127.0.0.1",
     API_SERVER_PORT: String(port),
@@ -1861,7 +2756,7 @@ async function startEngine() {
     return getRuntimeStatus();
   }
 
-  engineProcess = spawn(enginePython(), ["-m", "aimashi_plugins", "gateway", "run"], {
+  engineProcess = spawn(enginePython(), gatewayProgramArguments().slice(1), {
     cwd: p.engine,
     env,
     stdio: ["ignore", "pipe", "pipe"]
@@ -2397,6 +3292,173 @@ async function readRunEventStream({ runId, signal }) {
   return { content: finalContent || content, finishReason, events };
 }
 
+function lastUserPrompt(messages) {
+  const normalized = normalizeRunMessages(messages);
+  const last = [...normalized].reverse().find((message) => message.role === "user");
+  if (!last?.content) throw new Error("No user message found.");
+  return last.content;
+}
+
+function externalAgentPrompt({ fellow, messages, includePersona }) {
+  const prompt = lastUserPrompt(messages);
+  if (!includePersona) return prompt;
+  const persona = readFellowPersona(fellow.key, fellow.name, fellow.bio).trim();
+  if (!persona) return prompt;
+  return [
+    "以下是 Aimashi 给当前 Fellow 的人设，请在本次对话中遵守：",
+    "",
+    persona,
+    "",
+    "用户消息：",
+    prompt
+  ].join("\n");
+}
+
+function claudeMessageText(message) {
+  if (!message || typeof message !== "object") return "";
+  const direct = firstTextValue(message.text || message.content || message.delta);
+  if (direct) return direct;
+  const nested = message.message || message.data || {};
+  return firstTextValue(nested.content || nested.text || nested.delta);
+}
+
+function chatCompletionResponse({ id, model, content, finishReason = "stop", aimashi = {} }) {
+  return {
+    id: id || `chatcmpl_${crypto.randomUUID()}`,
+    object: "chat.completion",
+    created: Math.floor(Date.now() / 1000),
+    model,
+    choices: [
+      {
+        index: 0,
+        message: {
+          role: "assistant",
+          content: content || ""
+        },
+        finish_reason: finishReason
+      }
+    ],
+    aimashi
+  };
+}
+
+function normalizeClaudePermissionMode(value) {
+  const id = String(value || "default").trim();
+  if (["default", "acceptEdits", "auto", "bypassPermissions", "plan", "dontAsk"].includes(id)) return id;
+  return "default";
+}
+
+async function sendClaudeCodeChat({ fellow, sessionId, messages, signal }) {
+  const engine = "claude-code";
+  const commandPath = shellCommandPath("claude");
+  if (!commandPath) throw new Error("本机没有检测到 Claude Code CLI。请先安装并确认 `claude --version` 可用。");
+  const externalSessionId = getAgentSessionId(engine, fellow.key, sessionId);
+  const prompt = externalAgentPrompt({ fellow, messages, includePersona: false });
+  const persona = readFellowPersona(fellow.key, fellow.name, fellow.bio).trim();
+  const { query } = await claudeAgentSdk();
+  const options = {
+    abortController: activeChatAbortController,
+    cwd: process.cwd(),
+    pathToClaudeCodeExecutable: commandPath,
+    env: processEnvStrings(),
+    tools: { type: "preset", preset: "claude_code" },
+    settingSources: ["project", "user", "local"],
+    permissionMode: normalizeClaudePermissionMode(fellow.engineConfig?.permissionMode || fellow.agentPermissionMode || "default"),
+    systemPrompt: {
+      type: "preset",
+      preset: "claude_code",
+      append: persona
+    }
+  };
+  if (externalSessionId) options.resume = externalSessionId;
+  if (fellow.engineConfig?.model) options.model = String(fellow.engineConfig.model);
+  options.effort = normalizeEffortLevel(fellow.engineConfig?.effortLevel || "medium", "claude-code");
+  if (options.permissionMode === "bypassPermissions") options.allowDangerouslySkipPermissions = true;
+
+  const stream = query({ prompt, options });
+  let capturedSessionId = externalSessionId;
+  const chunks = [];
+  for await (const message of stream) {
+    if (signal?.aborted) break;
+    if (message?.session_id && !capturedSessionId) {
+      capturedSessionId = message.session_id;
+      setAgentSessionId(engine, fellow.key, sessionId, capturedSessionId);
+    }
+    if (message?.type === "assistant" || message?.message?.type === "assistant") {
+      const text = claudeMessageText(message);
+      if (text) chunks.push(text);
+    }
+  }
+  if (capturedSessionId && !externalSessionId) setAgentSessionId(engine, fellow.key, sessionId, capturedSessionId);
+  if (signal?.aborted) {
+    const stopped = new Error("生成已停止");
+    stopped.code = "AIMASHI_STOPPED";
+    throw stopped;
+  }
+  return chatCompletionResponse({
+    id: capturedSessionId || `claude_${crypto.randomUUID()}`,
+    model: "claude-code",
+    content: chunks.join("\n").trim(),
+    aimashi: {
+      transport: "claude-agent-sdk",
+      engine,
+      session_id: capturedSessionId || "",
+      fellow_key: fellow.key
+    }
+  });
+}
+
+function mapCodexPermissionMode(value) {
+  const id = String(value || "default").trim();
+  if (id === "acceptEdits") return { sandboxMode: "workspace-write", approvalPolicy: "on-request" };
+  if (id === "bypassPermissions") return { sandboxMode: "danger-full-access", approvalPolicy: "never" };
+  if (id === "readOnly") return { sandboxMode: "read-only", approvalPolicy: "on-request" };
+  return { sandboxMode: "workspace-write", approvalPolicy: "untrusted" };
+}
+
+async function sendCodexChat({ fellow, sessionId, messages, signal }) {
+  const engine = "codex";
+  const commandPath = shellCommandPath("codex");
+  if (!commandPath) throw new Error("本机没有检测到 Codex CLI。请先安装并确认 `codex --version` 可用。");
+  const externalSessionId = getAgentSessionId(engine, fellow.key, sessionId);
+  const prompt = externalAgentPrompt({ fellow, messages, includePersona: !externalSessionId });
+  const { Codex } = await codexSdk();
+  const codex = new Codex({
+    codexPathOverride: commandPath,
+    env: processEnvStrings()
+  });
+  const permission = mapCodexPermissionMode(fellow.engineConfig?.permissionMode || fellow.agentPermissionMode || "default");
+  const threadOptions = {
+    workingDirectory: process.cwd(),
+    skipGitRepoCheck: true,
+    modelReasoningEffort: normalizeEffortLevel(fellow.engineConfig?.effortLevel || "medium", "codex"),
+    ...permission
+  };
+  if (fellow.engineConfig?.model) threadOptions.model = String(fellow.engineConfig.model);
+  const thread = externalSessionId
+    ? codex.resumeThread(externalSessionId, threadOptions)
+    : codex.startThread(threadOptions);
+  const turn = await thread.run(prompt, { signal });
+  const capturedSessionId = externalSessionId || thread.id || "";
+  if (capturedSessionId && !externalSessionId) setAgentSessionId(engine, fellow.key, sessionId, capturedSessionId);
+  if (signal?.aborted) {
+    const stopped = new Error("生成已停止");
+    stopped.code = "AIMASHI_STOPPED";
+    throw stopped;
+  }
+  return chatCompletionResponse({
+    id: capturedSessionId || `codex_${crypto.randomUUID()}`,
+    model: "codex-cli",
+    content: String(turn?.finalResponse || "").trim(),
+    aimashi: {
+      transport: "codex-sdk",
+      engine,
+      session_id: capturedSessionId || "",
+      fellow_key: fellow.key
+    }
+  });
+}
+
 async function sendChat({ fellowKey, personaKey, sessionId, messages }) {
   if (activeChatAbortController) {
     activeChatAbortController.abort();
@@ -2404,15 +3466,39 @@ async function sendChat({ fellowKey, personaKey, sessionId, messages }) {
   const abortController = new AbortController();
   activeChatAbortController = abortController;
   const { signal } = abortController;
-  if (!engineState.running || !engineState.baseUrl) {
-    await startEngine();
-  }
   try {
     const manifest = loadFellowManifest();
     const fellows = Array.isArray(manifest.fellows) ? manifest.fellows : [];
     const key = fellowKey || personaKey;
     const fellow = fellows.find((item) => item.key === key) || fellows[0] || defaultFellowManifest().fellows[0];
+    const agentEngine = normalizeFellowAgentEngine(fellow.agentEngine || fellow.agent_engine || fellow.engine);
     const slashText = isSlashCommandText(messages);
+    if (agentEngine === "claude-code") {
+      if (slashText) {
+        return chatCompletionResponse({
+          id: `cmd_${crypto.randomUUID()}`,
+          model: "claude-code",
+          content: runExternalSlashCommand({ text: slashText, fellow, engine: agentEngine, sessionId }),
+          aimashi: { transport: "local-command", engine: agentEngine, fellow_key: fellow.key }
+        });
+      }
+      return await sendClaudeCodeChat({ fellow, sessionId, messages, signal });
+    }
+    if (agentEngine === "codex") {
+      if (slashText) {
+        return chatCompletionResponse({
+          id: `cmd_${crypto.randomUUID()}`,
+          model: "codex-cli",
+          content: runExternalSlashCommand({ text: slashText, fellow, engine: agentEngine, sessionId }),
+          aimashi: { transport: "local-command", engine: agentEngine, fellow_key: fellow.key }
+        });
+      }
+      return await sendCodexChat({ fellow, sessionId, messages, signal });
+    }
+
+    if (!engineState.running || !engineState.baseUrl) {
+      await startEngine();
+    }
     if (slashText) {
       const content = runHermesSlashCommand({ text: slashText, fellow, sessionId });
       return {
@@ -2632,8 +3718,8 @@ function createWindow() {
   const win = new BrowserWindow({
     width: 1120,
     height: 760,
-    minWidth: 900,
-    minHeight: 620,
+    minWidth: 420,
+    minHeight: 560,
     title: "Aimashi",
     titleBarStyle: "hidden",
     trafficLightPosition: { x: 4, y: 8 },
@@ -2658,6 +3744,8 @@ ipcMain.handle("auth:provider-cancel", () => cancelProviderOAuth());
 ipcMain.handle("chat:send", (_event, payload) => sendChat(payload));
 ipcMain.handle("chat:stop", () => stopChat());
 ipcMain.handle("commands:slash", () => loadHermesSlashCommands());
+ipcMain.handle("commands:agent-list", (_event, payload) => loadExternalAgentCommands(payload));
+ipcMain.handle("commands:agent-execute", (_event, payload) => executeExternalAgentCommand(payload));
 ipcMain.handle("chat:sessions-load", () => loadChatSessions());
 ipcMain.handle("chat:session-save", (_event, payload) => saveChatSession(payload));
 ipcMain.handle("chat:read-state-save", (_event, payload) => saveChatReadState(payload));
@@ -2667,6 +3755,16 @@ ipcMain.handle("chat:title-generate", (_event, payload) => generateSessionTitle(
 ipcMain.handle("model:catalog", () => loadHermesModelCatalog());
 ipcMain.handle("skills:list", () => loadLocalSkills());
 ipcMain.handle("skills:read", (_event, skillId) => readLocalSkill(skillId));
+ipcMain.handle("skills:delete", (_event, skillId) => deleteLocalSkill(skillId));
+ipcMain.handle("skills:open-directory", (_event, skillId) => openLocalSkillDirectory(skillId));
+ipcMain.handle("permissions:save", async (_event, settings) => {
+  writePermissionSettings(settings);
+  return getRuntimeStatus();
+});
+ipcMain.handle("effort:save", async (_event, settings) => {
+  writeEffortSettings(settings);
+  return getRuntimeStatus();
+});
 ipcMain.handle("model:save", (_event, settings) => {
   const current = modelSettings();
   const nextProvider = String(settings.provider || "").trim();
@@ -2735,6 +3833,7 @@ function saveFellow(fellowInput) {
 
   const manifest = loadFellowManifest();
   const fellows = Array.isArray(manifest.fellows) ? manifest.fellows : [];
+  const existingFellow = fellows.find((item) => item.key === key);
   if (!fellowInput.key) {
     const existingKeys = new Set(fellows.map((item) => item.key));
     const baseKey = key;
@@ -2747,15 +3846,18 @@ function saveFellow(fellowInput) {
     }
   }
   const next = normalizeFellow({
+    ...(existingFellow || {}),
     key,
     name,
     account_id: key,
     route_profile: key,
+    agentEngine: fellowInput.agentEngine || fellowInput.agent_engine || existingFellow?.agentEngine || "hermes",
+    engineConfig: normalizeFellowEngineConfig(fellowInput.engineConfig || fellowInput.engine_config || existingFellow?.engineConfig),
     platform: "api_server",
     color: fellowInput.color || "#0f766e",
     avatarImage: fellowInput.avatarImage || fellowInput.avatar || "",
     avatarCrop: normalizeAvatarCrop(fellowInput.avatarCrop),
-    bio: fellowInput.description || fellowInput.bio || ""
+    bio: fellowInput.description || fellowInput.bio || fellows.find((item) => item.key === key)?.bio || ""
   });
   const index = fellows.findIndex((item) => item.key === key);
   if (index >= 0) fellows[index] = next;
@@ -2763,15 +3865,105 @@ function saveFellow(fellowInput) {
   manifest.fellows = fellows;
   saveFellowManifest(manifest);
 
-  const body = fellowPersonaBody(name, fellowInput.description || fellowInput.bio || "");
+  const hadExplicitPersona = Object.prototype.hasOwnProperty.call(fellowInput || {}, "personaText");
+  const body = hadExplicitPersona
+    ? String(fellowInput.personaText || "").trim() || fellowPersonaBody(name, next.bio)
+    : fs.existsSync(fellowPersonaPath(key))
+      ? readFellowPersona(key, name, next.bio)
+      : fellowPersonaBody(name, fellowInput.description || fellowInput.bio || "");
   fs.writeFileSync(path.join(p.fellowDir, `${key}.md`), body);
   fs.writeFileSync(path.join(p.fellowDir, `${key}.fellow.json`), JSON.stringify(fellowMetadata(next), null, 2) + "\n");
   fs.writeFileSync(path.join(p.compatSoulsDir, `${key}.md`), body);
   return getRuntimeStatus();
 }
 
+function saveFellowEngineConfig(input = {}) {
+  initializeRuntime();
+  const key = String(input.key || input.fellowKey || "").trim();
+  if (!key) throw new Error("Fellow key is required.");
+  const manifest = loadFellowManifest();
+  const fellows = Array.isArray(manifest.fellows) ? manifest.fellows : [];
+  const index = fellows.findIndex((item) => item.key === key);
+  if (index < 0) throw new Error("Fellow not found.");
+  fellows[index] = normalizeFellow({
+    ...fellows[index],
+    agentEngine: input.agentEngine || fellows[index].agentEngine || "hermes",
+    engineConfig: mergeFellowEngineConfig(fellows[index].engineConfig, input.engineConfig || input.engine_config)
+  });
+  manifest.fellows = fellows;
+  saveFellowManifest(manifest);
+  fs.writeFileSync(
+    path.join(runtimePaths().fellowDir, `${key}.fellow.json`),
+    JSON.stringify(fellowMetadata(fellows[index]), null, 2) + "\n"
+  );
+  return getRuntimeStatus();
+}
+
+function setFellowPinned(input = {}) {
+  const key = String(input.key || input.fellowKey || "").trim();
+  if (!key) throw new Error("Fellow key is required.");
+  const manifest = loadFellowManifest();
+  const fellows = Array.isArray(manifest.fellows) ? manifest.fellows : [];
+  const index = fellows.findIndex((item) => item.key === key);
+  if (index < 0) throw new Error("Fellow not found.");
+  const pinned = Boolean(input.pinned);
+  fellows[index] = normalizeFellow({
+    ...fellows[index],
+    pinned,
+    pinnedAt: pinned ? new Date().toISOString() : ""
+  });
+  manifest.fellows = fellows;
+  saveFellowManifest(manifest);
+  fs.writeFileSync(
+    path.join(runtimePaths().fellowDir, `${key}.fellow.json`),
+    JSON.stringify(fellowMetadata(fellows[index]), null, 2) + "\n"
+  );
+  return getRuntimeStatus();
+}
+
+function deleteFellow(input = {}) {
+  initializeRuntime();
+  const key = String(input.key || input.fellowKey || "").trim();
+  if (!key) throw new Error("Fellow key is required.");
+  if (key === "aimashi") throw new Error("内置 Aimashi 伙伴不能删除。");
+  const p = runtimePaths();
+  const manifest = loadFellowManifest();
+  const fellows = Array.isArray(manifest.fellows) ? manifest.fellows : [];
+  const fellow = fellows.find((item) => item.key === key);
+  if (!fellow) throw new Error("Fellow not found.");
+  manifest.fellows = fellows.filter((item) => item.key !== key);
+  if (manifest.default_fellow === key) manifest.default_fellow = manifest.fellows[0]?.key || "aimashi";
+  saveFellowManifest(manifest);
+  for (const filePath of [
+    path.join(p.fellowDir, `${key}.md`),
+    path.join(p.fellowDir, `${key}.fellow.json`),
+    path.join(p.compatSoulsDir, `${key}.md`)
+  ]) {
+    fs.rmSync(filePath, { force: true });
+  }
+  const chatStore = loadChatStore();
+  delete chatStore.sessions[key];
+  if (chatStore.readAt) delete chatStore.readAt[key];
+  saveChatStore(chatStore);
+  const agentSessions = loadAgentSessionMap();
+  for (const sessionKey of Object.keys(agentSessions)) {
+    if (sessionKey.split(":")[1] === key) delete agentSessions[sessionKey];
+  }
+  saveAgentSessionMap(agentSessions);
+  recallFellowPet(key);
+  return getRuntimeStatus();
+}
+
+ipcMain.handle("fellow:details", (_event, key) => getFellowDetails(key));
 ipcMain.handle("fellow:save", (_event, fellow) => saveFellow(fellow));
+ipcMain.handle("fellow:engine-save", (_event, payload) => saveFellowEngineConfig(payload));
+ipcMain.handle("fellow:pin", (_event, payload) => setFellowPinned(payload));
+ipcMain.handle("fellow:delete", (_event, payload) => deleteFellow(payload));
 ipcMain.handle("persona:save", (_event, persona) => saveFellow(persona));
+ipcMain.handle("pet:jobs", () => getPetJobs());
+ipcMain.handle("pet:generate", (_event, payload) => startFellowPetGeneration(payload));
+ipcMain.handle("pet:place", (_event, key) => placeFellowPet(key));
+ipcMain.handle("pet:recall", (_event, key) => recallFellowPet(key));
 
 app.whenReady().then(() => {
   initializeRuntime();
