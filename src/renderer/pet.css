@@ -6,23 +6,81 @@ body {
   overflow: hidden;
   background: transparent;
   user-select: none;
+  cursor: grab;
 }
 
 .pet-stage {
+  position: relative;
   display: grid;
   place-items: end center;
   width: 100vw;
   height: 100vh;
   background: transparent;
+  -webkit-app-region: no-drag;
+}
+
+.pet-bubble {
+  position: absolute;
+  left: 50%;
+  bottom: 8.4rem;
+  width: min(220px, calc(100vw - 24px));
+  max-height: 86px;
+  padding: 8px 10px;
+  border: 1px solid rgba(19, 23, 34, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.94);
+  color: #161922;
+  box-shadow: 0 12px 28px rgba(16, 20, 39, 0.18);
+  transform: translateX(-50%);
+  font: 600 12px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  letter-spacing: 0;
+  opacity: 1;
+  transition: opacity 160ms ease, transform 160ms ease;
+  -webkit-app-region: no-drag;
+}
+
+.pet-bubble-text {
+  max-height: 70px;
+  overflow: hidden;
+  white-space: pre-wrap;
+}
+
+.pet-bubble-text.scrolling {
+  animation-name: pet-message-scroll;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
+@keyframes pet-message-scroll {
+  from { transform: translateY(0); }
+  to { transform: translateY(var(--pet-scroll-distance, 0)); }
+}
+
+.pet-bubble::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -7px;
+  width: 12px;
+  height: 12px;
+  border-right: 1px solid rgba(19, 23, 34, 0.08);
+  border-bottom: 1px solid rgba(19, 23, 34, 0.08);
+  background: rgba(255, 255, 255, 0.94);
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.pet-bubble.hidden {
+  opacity: 0;
+  transform: translateX(-50%) translateY(4px);
+  pointer-events: none;
 }
 
 .pet-sprite {
-  width: 192px;
-  height: 208px;
-  margin-bottom: 12px;
+  width: 7.04rem;
+  aspect-ratio: 192 / 208;
+  margin-bottom: 14px;
   background-repeat: no-repeat;
   background-size: 800% 900%;
-  image-rendering: auto;
-  transform: scale(1.12);
-  transform-origin: bottom center;
+  image-rendering: pixelated;
+  -webkit-app-region: drag;
 }

@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require("electron");
+const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
 contextBridge.exposeInMainWorld("aimashi", {
   initializeRuntime: () => ipcRenderer.invoke("runtime:initialize"),
@@ -12,6 +12,14 @@ contextBridge.exposeInMainWorld("aimashi", {
   cancelProviderOAuth: () => ipcRenderer.invoke("auth:provider-cancel"),
   sendChat: (payload) => ipcRenderer.invoke("chat:send", payload),
   stopChat: () => ipcRenderer.invoke("chat:stop"),
+  saveAttachment: (payload) => ipcRenderer.invoke("chat:attachment-save", payload),
+  filePathForFile: (file) => {
+    try {
+      return webUtils?.getPathForFile?.(file) || file?.path || "";
+    } catch {
+      return file?.path || "";
+    }
+  },
   onChatEvent: (callback) => {
     const listener = (_event, envelope) => {
       try { callback(envelope); } catch { /* renderer handler error swallowed */ }

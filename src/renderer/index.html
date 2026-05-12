@@ -10,7 +10,7 @@
   <main class="app-shell">
     <aside class="nav-rail" aria-label="主导航">
       <div class="traffic-spacer"></div>
-      <div id="userAvatar" class="profile-avatar rail-avatar" role="button" tabindex="0" title="编辑账号">B</div>
+      <div id="userAvatar" class="profile-avatar rail-avatar" role="button" tabindex="0" title="编辑个人资料">B</div>
       <span id="userDisplayName" class="visually-hidden">Boss</span>
       <div class="rail-divider"></div>
       <button class="rail-button active" type="button" data-view="chat" title="消息" aria-label="消息">
@@ -79,7 +79,7 @@
         <div class="group-title">
           <div id="activeChatAvatar" class="profile-avatar">A</div>
           <div>
-            <h1><span id="activeChatName">Aimashi</span> <small id="activeChatBadge">单聊</small></h1>
+            <h1><span id="activeChatName">Aimashi</span></h1>
             <p id="activeChatMeta">本地伙伴</p>
           </div>
         </div>
@@ -103,9 +103,16 @@
         <div id="chat" class="chat"></div>
         <form id="chatForm" class="composer">
           <div class="composer-input-row">
+            <button id="composerAdd" class="composer-add-button" type="button" title="添加" aria-label="添加">+</button>
             <textarea id="chatInput" placeholder="输入消息，Enter 发送，Shift+Enter 换行"></textarea>
             <button id="sendChat" class="send-button" type="submit" title="发送" aria-label="发送">↗</button>
           </div>
+          <div id="composerAddMenu" class="composer-add-menu hidden">
+            <button type="button" data-composer-add="attachment">添加附件或图片</button>
+            <button type="button" data-composer-add="skill">插件 / 技能</button>
+          </div>
+          <div id="composerAttachments" class="composer-attachments hidden"></div>
+          <input id="composerAttachmentInput" class="hidden" type="file" multiple>
           <div id="slashCommandMenu" class="slash-command-menu hidden"></div>
           <div class="composer-bottom">
             <div class="composer-controls">
@@ -185,77 +192,71 @@
       <header class="modal-header">
         <div>
           <h1>设置</h1>
-          <p>只保留 Aimashi 当前真实需要的配置</p>
+          <p>调整外观、模型和本地运行时</p>
         </div>
         <button id="closeSettings" class="icon-button" type="button" title="关闭">×</button>
       </header>
 
       <section class="settings-layout">
         <aside class="settings-tabs">
-          <button class="settings-tab active" type="button" data-settings-tab="profile">账号</button>
-          <button class="settings-tab" type="button" data-settings-tab="appearance">外观</button>
+          <button class="settings-tab active" type="button" data-settings-tab="appearance">外观</button>
           <button class="settings-tab" type="button" data-settings-tab="model">模型与登录</button>
           <button class="settings-tab" type="button" data-settings-tab="runtime">Hermes Runtime</button>
         </aside>
 
         <div class="settings-content">
-          <section class="settings-panel" data-settings-panel="profile">
-            <form id="profileForm" class="form-grid">
-              <div class="panel-heading">
-                <h2>账号</h2>
-                <p>当前本地用户资料，只保存在 Aimashi 私有 runtime。</p>
-              </div>
-              <label>
-                Nickname
-                <input id="profileDisplayName" autocomplete="off" placeholder="例如 Boss">
-              </label>
-              <label>
-                Avatar Text
-                <input id="profileAvatarText" autocomplete="off" maxlength="2" placeholder="例如 B">
-              </label>
-              <label>
-                Avatar Color
-                <input id="profileAvatarColor" type="color">
-              </label>
-              <label>
-                Avatar Image
-                <input id="profileAvatarImage" autocomplete="off" placeholder="本地图片路径或图片 URL，可留空">
-              </label>
-              <button class="primary" type="submit">保存账号</button>
-            </form>
-          </section>
-
-          <section class="settings-panel hidden" data-settings-panel="appearance">
+          <section class="settings-panel" data-settings-panel="appearance">
             <form id="appearanceForm" class="form-grid">
               <div class="panel-heading">
                 <h2>外观</h2>
-                <p>主题和字体只影响 Aimashi 本应用。</p>
+                <p>这些设置只影响 Aimashi 本应用。</p>
               </div>
-              <label>
-                Theme
+              <section class="settings-row">
+                <div>
+                  <strong>界面主题</strong>
+                  <p>切换浅色或深色界面。</p>
+                </div>
                 <select id="appearanceTheme">
-                  <option value="light">浅色模式</option>
-                  <option value="dark">深色模式</option>
+                  <option value="light">浅色</option>
+                  <option value="dark">深色</option>
                 </select>
-              </label>
-              <label>
-                Font
-                <select id="appearanceFontPreset">
-                  <option value="system">System Default</option>
+              </section>
+              <section class="settings-row">
+                <div>
+                  <strong>字体</strong>
+                  <p>选择聊天和界面使用的字体栈。</p>
+                </div>
+                <div class="font-choice-grid" id="appearanceFontChoices" role="radiogroup" aria-label="字体">
+                  <button class="font-choice" type="button" data-font-preset="system"><span>系统</span><small>System</small></button>
+                  <button class="font-choice" type="button" data-font-preset="sf-pro"><span>SF Pro</span><small>Apple</small></button>
+                  <button class="font-choice" type="button" data-font-preset="pingfang"><span>苹方</span><small>PingFang</small></button>
+                  <button class="font-choice" type="button" data-font-preset="mono"><span>等宽</span><small>Mono</small></button>
+                </div>
+                <select id="appearanceFontPreset" class="visually-hidden" aria-hidden="true" tabindex="-1">
+                  <option value="system">System</option>
                   <option value="sf-pro">SF Pro</option>
                   <option value="pingfang">PingFang SC</option>
-                  <option value="inter">Inter</option>
-                  <option value="helvetica">Helvetica Neue</option>
-                  <option value="noto-sans-sc">Noto Sans SC</option>
-                  <option value="lxgw">LXGW WenKai</option>
                   <option value="mono">Monospace</option>
-                  <option value="custom">Custom</option>
                 </select>
-              </label>
-              <label class="wide">
-                Custom Font
-                <input id="appearanceCustomFont" autocomplete="off" placeholder='例如 "Maple Mono", "PingFang SC", sans-serif'>
-              </label>
+              </section>
+              <section class="settings-row accent-settings-row">
+                <div>
+                  <strong>主题色</strong>
+                  <p>影响选中状态、链接、按钮和用户消息气泡。</p>
+                </div>
+                <div class="accent-picker">
+                  <button id="appearanceAccentReset" class="icon-button" type="button" title="恢复默认主题色" aria-label="恢复默认主题色">↺</button>
+                  <label class="accent-swatch" title="选择主题色">
+                    <span id="appearanceAccentPreview"></span>
+                    <input id="appearanceAccentColor" type="color" value="#5e5ce6" aria-label="主题色">
+                  </label>
+                  <div class="rgb-fields" aria-label="RGB">
+                    <label><input id="appearanceAccentR" type="number" min="0" max="255" inputmode="numeric"><span>R</span></label>
+                    <label><input id="appearanceAccentG" type="number" min="0" max="255" inputmode="numeric"><span>G</span></label>
+                    <label><input id="appearanceAccentB" type="number" min="0" max="255" inputmode="numeric"><span>B</span></label>
+                  </div>
+                </div>
+              </section>
               <button class="primary" type="submit">保存外观</button>
             </form>
           </section>
@@ -336,6 +337,37 @@
       </div>
     </section>
 
+    <section id="profileDialog" class="fellow-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="profileDialogTitle">
+      <form id="profileForm" class="fellow-form">
+        <header class="fellow-dialog-head">
+          <div>
+            <h2 id="profileDialogTitle">编辑个人资料</h2>
+          </div>
+          <button id="closeProfileDialog" class="icon-button" type="button" title="关闭">×</button>
+        </header>
+        <label>
+          名字
+          <input id="profileDisplayName" autocomplete="off" placeholder="例如 Boss">
+        </label>
+        <section class="avatar-picker">
+          <div id="profileAvatarPreview" class="avatar-crop-preview"></div>
+          <div id="profileAvatarDrop" class="avatar-drop">
+            <input id="profileAvatarFile" type="file" accept="image/*" class="hidden">
+            <input id="profileAvatarImage" type="hidden">
+            <button id="chooseProfileAvatar" class="secondary avatar-file-button" type="button" title="选择图片" aria-label="选择图片">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M17 8l-5-5-5 5 M12 3v12"/></svg>
+              选择图片
+            </button>
+            <span>也可以把图片拖到这里</span>
+          </div>
+        </section>
+        <footer class="fellow-dialog-actions">
+          <button id="cancelProfile" class="secondary" type="button">取消</button>
+          <button class="primary" type="submit">保存资料</button>
+        </footer>
+      </form>
+    </section>
+
     <section id="fellowDialog" class="fellow-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="fellowDialogTitle">
       <form id="fellowForm" class="fellow-form">
         <header class="fellow-dialog-head">
@@ -392,8 +424,8 @@
           <button id="closePetGenerateDialog" class="icon-button" type="button" title="关闭">×</button>
         </header>
         <label>
-          文字 Prompt
-          <textarea id="petPrompt" placeholder="描述这个 Fellow 作为桌宠时的外观、气质和关键元素"></textarea>
+          补充描述
+          <textarea id="petPrompt" placeholder="可选：补充这个 Fellow 的动作、气质或细节偏好"></textarea>
         </label>
         <label>
           风格

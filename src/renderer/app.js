@@ -46,7 +46,7 @@ const state = {
   isNarrowWindow: window.innerWidth <= 720,
   sidebarWidth: savedSidebarWidth(),
   sidebarResize: { dragging: false, startX: 0, startWidth: 0 },
-  activeSettingsTab: "profile",
+  activeSettingsTab: "appearance",
   personaFilter: "",
   contactFilter: "",
   skillFilter: "",
@@ -56,6 +56,7 @@ const state = {
   skillContextMenu: { open: false, x: 0, y: 0, skillId: "" },
   fellowContextMenu: { open: false, x: 0, y: 0, fellowKey: "" },
   fellowMenuOpen: false,
+  profileDialogOpen: false,
   fellowDialogOpen: false,
   fellowDialogMode: "create",
   petGenerateOpen: false,
@@ -67,8 +68,13 @@ const state = {
     image: "",
     crop: { x: 50, y: 50, zoom: 1 }
   },
+  profileAvatarDraft: {
+    image: "",
+    crop: { x: 50, y: 50, zoom: 1 }
+  },
   avatarCropEditor: {
     open: false,
+    target: "fellow",
     image: "",
     crop: { x: 50, y: 50, zoom: 1 },
     dragging: false,
@@ -85,10 +91,14 @@ const state = {
   slashCommands: fallbackSlashCommands,
   agentSlashCommands: { "claude-code": [], codex: [] },
   slashMenuOpen: false,
+  composerAddMenuOpen: false,
+  pendingAttachments: [],
   slashSelectedIndex: 0,
   slashFilter: "",
   isGenerating: false,
-  streaming: null
+  streaming: null,
+  openTraceKeys: new Set(),
+  animatedTraceKeys: new Set()
 };
 
 const els = {
@@ -167,6 +177,16 @@ const els = {
   skillPreviewBody: document.getElementById("skillPreviewBody"),
   skillContextMenu: document.getElementById("skillContextMenu"),
   fellowContextMenu: document.getElementById("fellowContextMenu"),
+  profileDialog: document.getElementById("profileDialog"),
+  profileForm: document.getElementById("profileForm"),
+  profileDisplayName: document.getElementById("profileDisplayName"),
+  profileAvatarImage: document.getElementById("profileAvatarImage"),
+  profileAvatarFile: document.getElementById("profileAvatarFile"),
+  chooseProfileAvatar: document.getElementById("chooseProfileAvatar"),
+  profileAvatarDrop: document.getElementById("profileAvatarDrop"),
+  profileAvatarPreview: document.getElementById("profileAvatarPreview"),
+  closeProfileDialog: document.getElementById("closeProfileDialog"),
+  cancelProfile: document.getElementById("cancelProfile"),
   petGenerateDialog: document.getElementById("petGenerateDialog"),
   petGenerateForm: document.getElementById("petGenerateForm"),
   petGenerateTitle: document.getElementById("petGenerateTitle"),
@@ -187,6 +207,10 @@ const els = {
   newSession: document.getElementById("newSession"),
   chatForm: document.getElementById("chatForm"),
   chatInput: document.getElementById("chatInput"),
+  composerAdd: document.getElementById("composerAdd"),
+  composerAddMenu: document.getElementById("composerAddMenu"),
+  composerAttachments: document.getElementById("composerAttachments"),
+  composerAttachmentInput: document.getElementById("composerAttachmentInput"),
   slashCommandMenu: document.getElementById("slashCommandMenu"),
   sendChat: document.getElementById("sendChat"),
   quickModelSelect: document.getElementById("quickModelSelect"),
@@ -206,12 +230,13 @@ const els = {
   appearanceForm: document.getElementById("appearanceForm"),
   appearanceTheme: document.getElementById("appearanceTheme"),
   appearanceFontPreset: document.getElementById("appearanceFontPreset"),
-  appearanceCustomFont: document.getElementById("appearanceCustomFont"),
-  profileForm: document.getElementById("profileForm"),
-  profileDisplayName: document.getElementById("profileDisplayName"),
-  profileAvatarText: document.getElementById("profileAvatarText"),
-  profileAvatarColor: document.getElementById("profileAvatarColor"),
-  profileAvatarImage: document.getElementById("profileAvatarImage"),
+  appearanceFontChoices: document.getElementById("appearanceFontChoices"),
+  appearanceAccentColor: document.getElementById("appearanceAccentColor"),
+  appearanceAccentPreview: document.getElementById("appearanceAccentPreview"),
+  appearanceAccentR: document.getElementById("appearanceAccentR"),
+  appearanceAccentG: document.getElementById("appearanceAccentG"),
+  appearanceAccentB: document.getElementById("appearanceAccentB"),
+  appearanceAccentReset: document.getElementById("appearanceAccentReset"),
   authMethod: document.getElementById("authMethod"),
   modelPreset: document.getElementById("modelPreset"),
   modelProvider: document.getElementById("modelProvider"),
@@ -284,12 +309,39 @@ syncNarrowLayout();
 
 function renderSendButton() {
   if (!els.sendChat) return;
-  const canSend = Boolean(String(els.chatInput?.value || "").trim());
+  const canSend = Boolean(String(els.chatInput?.value || "").trim()) || state.pendingAttachments.length > 0;
   els.sendChat.classList.toggle("stop", state.isGenerating);
   els.sendChat.textContent = state.isGenerating ? "" : "↗";
   els.sendChat.title = state.isGenerating ? "停止生成" : "发送";
   els.sendChat.setAttribute("aria-label", state.isGenerating ? "停止生成" : "发送");
   els.sendChat.disabled = !state.isGenerating && !canSend;
+}
+
+function formatBytes(value) {
+  const size = Number(value) || 0;
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(size < 10 * 1024 ? 1 : 0)} KB`;
+  return `${(size / 1024 / 1024).toFixed(size < 10 * 1024 * 1024 ? 1 : 0)} MB`;
+}
+
+function attachmentKind(file = {}) {
+  const type = String(file.type || file.mime || "").toLowerCase();
+  if (type.startsWith("image/")) return "image";
+  if (type.startsWith("video/")) return "video";
+  if (type.startsWith("audio/")) return "audio";
+  if (type.includes("pdf")) return "pdf";
+  if (type.startsWith("text/")) return "text";
+  return "file";
+}
+
+function attachmentGlyph(attachment = {}) {
+  const kind = attachment.kind || attachmentKind(attachment);
+  if (kind === "image") return "IMG";
+  if (kind === "video") return "VID";
+  if (kind === "audio") return "AUD";
+  if (kind === "pdf") return "PDF";
+  if (kind === "text") return "TXT";
+  return "FILE";
 }
 
 const providerPresets = {
@@ -843,24 +895,68 @@ const fontPresets = {
   system: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
   "sf-pro": '"SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont, sans-serif',
   pingfang: '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif',
-  inter: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-  helvetica: '"Helvetica Neue", Helvetica, Arial, sans-serif',
-  "noto-sans-sc": '"Noto Sans SC", "Source Han Sans SC", sans-serif',
-  lxgw: '"LXGW WenKai", "PingFang SC", cursive',
   mono: '"SF Mono", "Cascadia Code", Menlo, Consolas, monospace'
 };
 
+const DEFAULT_ACCENT_COLOR = "#5e5ce6";
+
+function normalizeHexColor(value, fallback = DEFAULT_ACCENT_COLOR) {
+  const raw = String(value || "").trim();
+  const expanded = raw.replace(/^#([0-9a-fA-F]{3})$/, (_, hex) => `#${hex.split("").map((part) => part + part).join("")}`);
+  return /^#[0-9a-fA-F]{6}$/.test(expanded) ? expanded.toLowerCase() : fallback;
+}
+
+function hexToRgb(value) {
+  const hex = normalizeHexColor(value).slice(1);
+  return {
+    r: Number.parseInt(hex.slice(0, 2), 16),
+    g: Number.parseInt(hex.slice(2, 4), 16),
+    b: Number.parseInt(hex.slice(4, 6), 16)
+  };
+}
+
+function rgbToHex(r, g, b) {
+  return `#${[r, g, b].map((value) => Math.max(0, Math.min(255, Number(value) || 0)).toString(16).padStart(2, "0")).join("")}`;
+}
+
 function fontStackForAppearance(appearance = {}) {
-  if (appearance.fontPreset === "custom" && String(appearance.customFont || "").trim()) {
-    return appearance.customFont.trim();
-  }
   return fontPresets[appearance.fontPreset || "system"] || fontPresets.system;
 }
 
 function applyAppearance(appearance = {}) {
   const theme = appearance.theme === "dark" ? "dark" : "light";
+  const accentColor = normalizeHexColor(appearance.accentColor);
+  const rgb = hexToRgb(accentColor);
   document.documentElement.dataset.theme = theme;
   document.documentElement.style.setProperty("--app-font", fontStackForAppearance(appearance));
+  document.documentElement.style.setProperty("--accent", accentColor);
+  document.documentElement.style.setProperty("--accent-rgb", `${rgb.r} ${rgb.g} ${rgb.b}`);
+  document.documentElement.style.setProperty("--active", `rgb(${rgb.r} ${rgb.g} ${rgb.b} / ${theme === "dark" ? "0.22" : "0.16"})`);
+}
+
+function currentAppearanceDraft() {
+  return {
+    theme: els.appearanceTheme?.value || "light",
+    fontPreset: els.appearanceFontPreset?.value || "system",
+    accentColor: normalizeHexColor(els.appearanceAccentColor?.value)
+  };
+}
+
+function syncAppearanceControls(appearance = currentAppearanceDraft()) {
+  const fontPreset = fontPresets[appearance.fontPreset] ? appearance.fontPreset : "system";
+  if (els.appearanceFontPreset) els.appearanceFontPreset.value = fontPreset;
+  document.querySelectorAll("[data-font-preset]").forEach((button) => {
+    const active = button.dataset.fontPreset === fontPreset;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-checked", active ? "true" : "false");
+  });
+  const accentColor = normalizeHexColor(appearance.accentColor);
+  const rgb = hexToRgb(accentColor);
+  if (els.appearanceAccentColor) els.appearanceAccentColor.value = accentColor;
+  if (els.appearanceAccentPreview) els.appearanceAccentPreview.style.backgroundColor = accentColor;
+  if (els.appearanceAccentR) els.appearanceAccentR.value = String(rgb.r);
+  if (els.appearanceAccentG) els.appearanceAccentG.value = String(rgb.g);
+  if (els.appearanceAccentB) els.appearanceAccentB.value = String(rgb.b);
 }
 
 function initials(name) {
@@ -1007,6 +1103,18 @@ function applyAvatar(el, text, color, image) {
   }
 }
 
+function applyUserAvatar(el, user = {}) {
+  if (!el) return;
+  const image = user.avatarImage || "";
+  const text = user.avatarText || initials(user.displayName || "Boss");
+  if (image) {
+    el.textContent = "";
+    el.setAttribute("style", avatarThumbBackgroundStyle(image, user.avatarCrop, user.avatarColor || "#111827"));
+    return;
+  }
+  applyAvatar(el, text, user.avatarColor || "#111827", "");
+}
+
 function escapeHtml(value) {
   return String(value)
     .replaceAll("&", "&amp;")
@@ -1083,6 +1191,33 @@ function formatConversationTime(value) {
   yesterday.setDate(now.getDate() - 1);
   if (date.toDateString() === yesterday.toDateString()) return "昨天";
   return `${date.getMonth() + 1}/${date.getDate()}`;
+}
+
+function formatMessageTime(value) {
+  const date = value ? new Date(value) : new Date();
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
+function renderMessageTime(value) {
+  const date = value ? new Date(value) : new Date();
+  if (Number.isNaN(date.getTime())) return "";
+  return `<time class="message-time" datetime="${escapeHtml(date.toISOString())}" title="${escapeHtml(date.toLocaleString())}">${escapeHtml(formatMessageTime(date))}</time>`;
+}
+
+function renderAttachmentChips(attachments = []) {
+  if (!Array.isArray(attachments) || !attachments.length) return "";
+  return `
+    <div class="message-attachments">
+      ${attachments.map((attachment) => `
+        <span class="message-attachment" title="${escapeHtml(attachment.path || attachment.name || "")}">
+          <span>${escapeHtml(attachmentGlyph(attachment))}</span>
+          <strong>${escapeHtml(attachment.name || "附件")}</strong>
+          <em>${escapeHtml(formatBytes(attachment.size))}</em>
+        </span>
+      `).join("")}
+    </div>
+  `;
 }
 
 function ensureReadState() {
@@ -1164,9 +1299,8 @@ function conversationPreview(persona) {
   const latest = sessions[0];
   const messages = latest?.messages || [];
   const last = [...messages].reverse().find((message) => String(message.content || "").trim() && !message.transient);
-  const prefix = last?.role === "user" ? "我：" : last?.role === "assistant" ? `${persona.name || "伙伴"}：` : "";
   return {
-    text: last ? `${prefix}${last.content}` : (persona.bio || "本地伙伴 · 等待 Boss 发号施令"),
+    text: last ? last.content : "",
     time: formatConversationTime(latest?.updatedAt || latest?.createdAt)
   };
 }
@@ -1197,7 +1331,9 @@ function hasSuccessfulExchange(session) {
 }
 
 function hasPersistableMessages(session) {
-  return (session?.messages || []).some((message) => String(message.content || "").trim() && !message.transient);
+  return (session?.messages || []).some((message) => (
+    String(message.content || "").trim() || (Array.isArray(message.attachments) && message.attachments.length)
+  ) && !message.transient);
 }
 
 function pruneEmptyDrafts(personaKey = state.activeKey, keepId = "") {
@@ -1363,24 +1499,22 @@ function render() {
   if (!runtime) return;
   renderSendButton();
   const editingModel = els.modelForm.contains(document.activeElement);
-  const editingProfile = els.profileForm.contains(document.activeElement);
-  const editingAppearance = els.appearanceForm.contains(document.activeElement);
-  const appearance = runtime.appearance || { theme: "light", fontPreset: "system", customFont: "" };
+  const editingProfile = Boolean(els.profileForm?.contains(document.activeElement));
+  const editingAppearance = Boolean(els.appearanceForm?.contains(document.activeElement));
+  const appearance = runtime.appearance || { theme: "light", fontPreset: "system", accentColor: DEFAULT_ACCENT_COLOR };
   applyAppearance(appearance);
   if (!editingAppearance) {
     els.appearanceTheme.value = appearance.theme || "light";
     const savedFontPreset = appearance.fontPreset || "system";
-    els.appearanceFontPreset.value = fontPresets[savedFontPreset] || savedFontPreset === "custom" ? savedFontPreset : "system";
-    els.appearanceCustomFont.value = appearance.customFont || "";
+    els.appearanceFontPreset.value = fontPresets[savedFontPreset] ? savedFontPreset : "system";
+    syncAppearanceControls(appearance);
   }
   const user = runtime.user || { displayName: "Boss", avatarText: "B", avatarColor: "#111827", avatarImage: "" };
-  applyAvatar(els.userAvatar, user.avatarText, user.avatarColor, user.avatarImage);
+  applyUserAvatar(els.userAvatar, user);
   setText(els.userDisplayName, user.displayName || "Boss");
-  if (!editingProfile) {
+  if (!editingProfile && els.profileForm) {
     els.profileDisplayName.value = user.displayName || "Boss";
-    els.profileAvatarText.value = user.avatarText || "B";
-    els.profileAvatarColor.value = user.avatarColor || "#111827";
-    els.profileAvatarImage.value = user.avatarImage || "";
+    setProfileAvatarDraft(user.avatarImage || "", user.avatarCrop);
   }
 
   els.engineStatus.textContent = runtime.engineRunning
@@ -1485,7 +1619,6 @@ function render() {
   if (active) {
     applyFellowAvatar(els.activeChatAvatar, active);
     setText(els.activeChatName, active.name || "Aimashi");
-    setText(els.activeChatBadge, "Fellow");
     renderHeaderStatus();
   }
   const filter = state.personaFilter.trim().toLowerCase();
@@ -1499,7 +1632,7 @@ function render() {
     const unread = unreadCountForPersona(persona.key);
     const button = document.createElement("button");
     button.type = "button";
-    button.className = `persona${persona.key === state.activeKey ? " active" : ""}`;
+    button.className = `persona${persona.key === state.activeKey ? " active" : ""}${persona.pinned ? " pinned" : ""}`;
     button.innerHTML = `
       <span class="avatar fellow-photo" data-fellow-avatar="${escapeHtml(persona.key)}" style="${avatarThumbBackgroundStyle(persona.avatarImage || avatarAssetForKey(persona.key), persona.avatarCrop, persona.color || "#5e5ce6")}"></span>
       <span class="persona-main">
@@ -1508,6 +1641,7 @@ function render() {
       </span>
       <span class="persona-side">
         <span class="persona-time">${escapeHtml(preview.time)}</span>
+        <span class="persona-pin${persona.pinned ? "" : " hidden"}" aria-label="置顶">⌖</span>
         <span class="persona-unread${unread ? "" : " hidden"}">${escapeHtml(unread > 99 ? "99+" : String(unread))}</span>
       </span>
     `;
@@ -1539,6 +1673,7 @@ function render() {
 }
 
 function renderView() {
+  if (state.activeSettingsTab === "profile") state.activeSettingsTab = "appearance";
   syncNarrowLayout();
   els.conversationSidebar?.classList.toggle("hidden", state.activeView !== "chat");
   els.contactsSidebar?.classList.toggle("hidden", state.activeView !== "contacts");
@@ -1547,6 +1682,7 @@ function renderView() {
   els.contactsView?.classList.toggle("hidden", state.activeView !== "contacts");
   els.skillsView?.classList.toggle("hidden", state.activeView !== "skills");
   els.settingsView.classList.toggle("hidden", !state.settingsOpen);
+  els.profileDialog?.classList.toggle("hidden", !state.profileDialogOpen);
   els.fellowCreateMenu?.classList.toggle("hidden", !state.fellowMenuOpen);
   els.fellowDialog?.classList.toggle("hidden", !state.fellowDialogOpen);
   els.petGenerateDialog?.classList.toggle("hidden", !state.petGenerateOpen);
@@ -2027,7 +2163,7 @@ function renderContacts() {
         <strong>${escapeHtml(fellow.name)}</strong>
         ${petLabel ? `<small>${escapeHtml(petLabel)}</small>` : ""}
       </span>
-      <span class="contact-row-side">${escapeHtml(fellow.pinned ? "置顶" : summary.time || "")}</span>
+      <span class="contact-row-side">${escapeHtml(summary.time || "")}</span>
     `;
     button.addEventListener("click", () => {
       state.activeContactKey = fellow.key;
@@ -2067,7 +2203,6 @@ function renderContactDetail(fellow) {
       <div class="contact-actions">
         <button class="primary" type="button" data-contact-action="message">发消息</button>
         <button class="secondary" type="button" data-contact-action="edit">编辑</button>
-        <button class="secondary" type="button" data-contact-action="pin">${escapeHtml(fellow.pinned ? "取消置顶" : "置顶")}</button>
         <button class="secondary" type="button" data-contact-action="${escapeHtml(petAction.action)}">${escapeHtml(petAction.label)}</button>
         ${fellow.key === "aimashi" ? "" : `<button class="secondary danger" type="button" data-contact-action="delete">删除伙伴</button>`}
       </div>
@@ -2086,9 +2221,6 @@ function renderContactDetail(fellow) {
   els.contactDetail.querySelector('[data-contact-action="message"]')?.addEventListener("click", () => openFellowChat(fellow.key));
   els.contactDetail.querySelectorAll('[data-contact-action="edit"]').forEach((button) => {
     button.addEventListener("click", () => openEditFellowDialog(fellow.key));
-  });
-  els.contactDetail.querySelector('[data-contact-action="pin"]')?.addEventListener("click", async () => {
-    await setFellowPinned(fellow.key, !fellow.pinned);
   });
   els.contactDetail.querySelector('[data-contact-action="generate-pet"]')?.addEventListener("click", () => openPetGenerateDialog(fellow.key));
   els.contactDetail.querySelector('[data-contact-action="place"]')?.addEventListener("click", async () => {
@@ -2421,21 +2553,79 @@ async function maybeGenerateTitleForSession(session) {
   }
 }
 
-function renderTraceBlocks({ reasoning, tools, expanded }) {
+function normalizeTraceText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/```[\s\S]*?```/g, "")
+    .replace(/[\s\u3000`*_~#>()[\]{}.,，。!?！？:：;；"'“”‘’、|/\\-]+/g, "");
+}
+
+function isDuplicateTraceReasoning(reasoning, content) {
+  const reasoningText = normalizeTraceText(reasoning);
+  const contentText = normalizeTraceText(content);
+  if (!reasoningText || !contentText) return false;
+  if (reasoningText === contentText) return true;
+  const shorter = reasoningText.length <= contentText.length ? reasoningText : contentText;
+  const longer = reasoningText.length > contentText.length ? reasoningText : contentText;
+  return shorter.length >= 16 && longer.includes(shorter);
+}
+
+function traceReasoningForDisplay(reasoning, tools, content = "") {
+  const text = String(reasoning || "").trim();
+  if (!text) return "";
   const toolList = Array.isArray(tools) ? tools : [];
-  if (!reasoning && !toolList.length) return "";
-  const openAttr = expanded ? " open" : "";
+  if (isDuplicateTraceReasoning(text, content)) return "";
+  if (!toolList.length) return "";
+  return text;
+}
+
+function renderTraceBlocks({ reasoning, tools, content, expanded, scopeKey }) {
+  const toolList = Array.isArray(tools) ? tools : [];
+  const displayReasoning = traceReasoningForDisplay(reasoning, toolList, content);
+  if (!displayReasoning && !toolList.length) return "";
   const rows = [];
-  if (reasoning) {
-    const reasoningText = String(reasoning).trim();
+  const openState = (key) => {
+    if (!key) return { open: Boolean(expanded), userOpen: false, userClosed: false };
+    const userOpen = state.openTraceKeys.has(key);
+    const userClosed = state.openTraceKeys.has(`!${key}`);
+    return {
+      open: userOpen || (!userClosed && Boolean(expanded)),
+      userOpen,
+      userClosed
+    };
+  };
+  const animClass = (key) => {
+    if (!key) return "";
+    if (state.animatedTraceKeys.has(key)) return "";
+    return " trace-anim-enter";
+  };
+  const rowAttrs = (key, idx, stateForKey) => {
+    const attrs = [];
+    if (key) attrs.push(`data-trace-key="${escapeHtml(key)}"`);
+    if (stateForKey.open) attrs.push("open");
+    if (stateForKey.open && stateForKey.userOpen) {
+      attrs.push('data-user-open="true"');
+    } else if (stateForKey.open) {
+      attrs.push('data-auto-open="true"');
+    }
+    if (key && !state.animatedTraceKeys.has(key)) {
+      attrs.push(`style="--trace-delay:${Math.min(idx, 6) * 60}ms"`);
+    }
+    return attrs.length ? ` ${attrs.join(" ")}` : "";
+  };
+  if (displayReasoning) {
+    const reasoningText = displayReasoning;
+    const key = scopeKey ? `${scopeKey}::reasoning` : "";
+    const stateForKey = openState(key);
     rows.push(
-      `<details class="trace-row reasoning"${openAttr}>` +
+      `<details class="trace-row reasoning${animClass(key)}"${rowAttrs(key, rows.length, stateForKey)}>` +
         `<summary><span class="trace-chevron">▸</span><span class="trace-cmd">thinking</span><span class="trace-arg">${escapeHtml(reasoningText.slice(0, 80).replace(/\s+/g, " "))}</span></summary>` +
         `<pre class="trace-body">${escapeHtml(reasoningText)}</pre>` +
       `</details>`
     );
   }
-  for (const tool of toolList) {
+  for (let idx = 0; idx < toolList.length; idx++) {
+    const tool = toolList[idx];
     const status = tool.status === "completed" ? "ok" : tool.status === "error" ? "err" : "run";
     const glyph = status === "ok" ? "✓" : status === "err" ? "✗" : "●";
     const meta = status === "run"
@@ -2444,8 +2634,10 @@ function renderTraceBlocks({ reasoning, tools, expanded }) {
     const name = String(tool.name || "tool");
     const preview = String(tool.preview || "");
     const previewInline = preview.replace(/\s+/g, " ").slice(0, 120);
+    const key = scopeKey ? `${scopeKey}::tool::${tool.id || idx}` : "";
+    const stateForKey = openState(key);
     rows.push(
-      `<details class="trace-row tool" data-status="${status}"${expanded ? " open" : ""}>` +
+      `<details class="trace-row tool${animClass(key)}" data-status="${status}"${rowAttrs(key, rows.length, stateForKey)}>` +
         `<summary>` +
           `<span class="trace-chevron">▸</span>` +
           `<span class="trace-glyph">${glyph}</span>` +
@@ -2477,16 +2669,29 @@ function renderChat() {
     const color = message.role === "user" ? user.avatarColor : (persona?.color || "#23444d");
     const fellowAvatarImage = persona?.avatarImage || avatarAssetForKey(persona?.key);
     const fellowAvatar = avatarImageSrc(fellowAvatarImage);
-    const avatarBackgroundColor = message.role === "assistant" && fellowAvatar ? "transparent" : (color || "#111827");
+    const userAvatarImage = user.avatarImage || "";
+    const userAvatar = avatarImageSrc(userAvatarImage);
+    const avatarBackgroundColor = message.role === "assistant"
+      ? (fellowAvatar ? "transparent" : (color || "#111827"))
+      : (userAvatar ? "transparent" : (color || "#111827"));
     const imageStyle = message.role === "assistant"
       ? avatarThumbBackgroundStyle(fellowAvatarImage, persona?.avatarCrop, color)
-      : "";
+      : (userAvatar ? avatarThumbBackgroundStyle(userAvatarImage, user.avatarCrop, color) : "");
     const traceHtml = message.role === "assistant"
-      ? renderTraceBlocks({ reasoning: message.reasoning, tools: message.tools, expanded: false })
+      ? renderTraceBlocks({
+        reasoning: message.reasoning,
+        tools: message.tools,
+        content: message.content,
+        expanded: false,
+        scopeKey: `msg:${message.createdAt || ""}`
+      })
       : "";
+    const timeHtml = renderMessageTime(message.createdAt);
+    const bodyHtml = String(message.content || "").trim() ? renderMarkdown(message.content) : "";
+    const attachmentHtml = renderAttachmentChips(message.attachments);
     article.innerHTML = `
-      <div class="avatar" style="background-color:${escapeHtml(avatarBackgroundColor)};${imageStyle}">${message.role === "user" ? escapeHtml(label) : ""}</div>
-      <div class="message-stack">${traceHtml}<div class="bubble">${renderMarkdown(message.content)}</div></div>
+      <div class="avatar" style="background-color:${escapeHtml(avatarBackgroundColor)};${imageStyle}">${message.role === "user" && !userAvatar ? escapeHtml(label) : ""}</div>
+      <div class="message-stack">${traceHtml}<div class="bubble has-time">${bodyHtml}${attachmentHtml}${timeHtml}</div></div>
     `;
     els.chat.appendChild(article);
   }
@@ -2509,7 +2714,11 @@ function renderChat() {
     els.chat.appendChild(warning);
   }
   const s = state.streaming;
-  const hasStreamingContent = s && (s.text || s.reasoning || s.tools.length);
+  const hasStreamingContent = s && (
+    s.text ||
+    s.tools.length ||
+    traceReasoningForDisplay(s.reasoning, s.tools, s.text)
+  );
   if (s && s.sessionId === session.id && hasStreamingContent) {
     const article = document.createElement("article");
     article.className = "message assistant streaming";
@@ -2518,8 +2727,14 @@ function renderChat() {
     const fellowAvatar = avatarImageSrc(fellowAvatarImage);
     const avatarBackgroundColor = fellowAvatar ? "transparent" : (personaForStream?.color || "#23444d");
     const imageStyle = avatarThumbBackgroundStyle(fellowAvatarImage, personaForStream?.avatarCrop, personaForStream?.color);
-    const traceHtml = renderTraceBlocks({ reasoning: s.reasoning, tools: s.tools, expanded: true });
-    const textHtml = s.text ? `<div class="bubble">${renderMarkdown(s.text)}</div>` : "";
+    const traceHtml = renderTraceBlocks({
+      reasoning: s.reasoning,
+      tools: s.tools,
+      content: s.text,
+      expanded: true,
+      scopeKey: `run:${s.runId || ""}`
+    });
+    const textHtml = s.text ? `<div class="bubble has-time">${renderMarkdown(s.text)}${renderMessageTime(s.createdAt)}</div>` : "";
     article.innerHTML = `
       <div class="avatar" style="background-color:${escapeHtml(avatarBackgroundColor)};${imageStyle}"></div>
       <div class="message-stack">${traceHtml}${textHtml}</div>
@@ -2530,6 +2745,10 @@ function renderChat() {
     els.chat.scrollTop = els.chat.scrollHeight;
   }
   state.forceScrollToBottom = false;
+  for (const node of els.chat.querySelectorAll("details.trace-row[data-trace-key]")) {
+    const key = node.dataset.traceKey;
+    if (key) state.animatedTraceKeys.add(key);
+  }
 }
 
 function activePersona() {
@@ -2540,7 +2759,16 @@ function activePersona() {
 function appendChat(role, content, options = {}) {
   const session = activeSession();
   const message = { role, content, createdAt: nowIso(), transient: Boolean(options.transient) };
-  if (options.reasoning) message.reasoning = String(options.reasoning);
+  if (Array.isArray(options.attachments) && options.attachments.length) {
+    message.attachments = options.attachments.map((attachment) => ({
+      id: String(attachment.id || cryptoRandomId()),
+      name: String(attachment.name || "附件"),
+      path: String(attachment.path || ""),
+      mime: String(attachment.mime || attachment.type || ""),
+      size: Number(attachment.size) || 0,
+      kind: String(attachment.kind || attachmentKind(attachment))
+    }));
+  }
   if (Array.isArray(options.tools) && options.tools.length) {
     message.tools = options.tools.map((tool) => ({
       id: String(tool.id || ""),
@@ -2551,6 +2779,8 @@ function appendChat(role, content, options = {}) {
       error: Boolean(tool.error)
     }));
   }
+  const reasoning = traceReasoningForDisplay(options.reasoning, message.tools, content);
+  if (reasoning) message.reasoning = reasoning;
   session.messages.push(message);
   session.updatedAt = nowIso();
   const shouldMarkRead = role === "assistant" && !message.transient;
@@ -2654,6 +2884,101 @@ function renderSlashCommandMenu() {
   });
 }
 
+function renderComposerAddMenu() {
+  els.composerAddMenu?.classList.toggle("hidden", !state.composerAddMenuOpen);
+  els.composerAdd?.classList.toggle("active", state.composerAddMenuOpen);
+}
+
+function renderComposerAttachments() {
+  if (!els.composerAttachments) return;
+  const attachments = state.pendingAttachments;
+  els.composerAttachments.classList.toggle("hidden", attachments.length === 0);
+  els.composerAttachments.innerHTML = attachments.map((attachment) => `
+    <div class="composer-attachment" title="${escapeHtml(attachment.path || attachment.name)}">
+      <span class="composer-attachment-kind">${escapeHtml(attachmentGlyph(attachment))}</span>
+      <span class="composer-attachment-name">${escapeHtml(attachment.name || "附件")}</span>
+      <span class="composer-attachment-size">${escapeHtml(formatBytes(attachment.size))}</span>
+      <button type="button" data-attachment-remove="${escapeHtml(attachment.id)}" title="移除附件" aria-label="移除附件">×</button>
+    </div>
+  `).join("");
+  els.composerAttachments.querySelectorAll("[data-attachment-remove]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.pendingAttachments = state.pendingAttachments.filter((item) => item.id !== button.dataset.attachmentRemove);
+      renderComposerAttachments();
+      renderSendButton();
+      els.chatInput?.focus();
+    });
+  });
+}
+
+function closeComposerAddMenu() {
+  if (!state.composerAddMenuOpen) return;
+  state.composerAddMenuOpen = false;
+  renderComposerAddMenu();
+}
+
+async function addComposerFiles(fileList) {
+  const files = Array.from(fileList || []).filter(Boolean);
+  if (!files.length) return;
+  const existing = new Set(state.pendingAttachments.map((item) => item.path || `${item.name}:${item.size}`));
+  const next = [];
+  for (const file of files.slice(0, 20)) {
+    let filePath = "";
+    let saved = null;
+    try {
+      filePath = await window.aimashi.filePathForFile?.(file);
+      if (!filePath) {
+        saved = await saveBrowserFileAttachment(file);
+        filePath = saved?.path || "";
+      }
+      if (!filePath && !saved) continue;
+    } catch (error) {
+      appendTransientChat("assistant", `附件「${file.name || "未命名"}」读取失败: ${error.message}`);
+      continue;
+    }
+    const key = filePath || `${file.name}:${file.size}`;
+    if (existing.has(key)) continue;
+    existing.add(key);
+    next.push({
+      id: saved?.id || cryptoRandomId(),
+      name: saved?.name || file.name || (filePath ? filePath.split(/[\\/]/).pop() : "附件"),
+      path: filePath || "",
+      mime: saved?.mime || file.type || "",
+      size: saved?.size || file.size || 0,
+      kind: saved?.kind || attachmentKind(file)
+    });
+  }
+  if (!next.length) return;
+  state.pendingAttachments = [...state.pendingAttachments, ...next].slice(0, 20);
+  renderComposerAttachments();
+  renderSendButton();
+  els.chatInput?.focus();
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => resolve(String(reader.result || "")));
+    reader.addEventListener("error", () => reject(reader.error || new Error("读取附件失败")));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function saveBrowserFileAttachment(file) {
+  if (!file) return null;
+  if (file.size > 25 * 1024 * 1024) {
+    appendTransientChat("assistant", `附件「${file.name || "未命名"}」超过 25MB，暂时不能发送。`);
+    return null;
+  }
+  const dataUrl = await readFileAsDataUrl(file);
+  return window.aimashi.saveAttachment?.({
+    name: file.name || "attachment",
+    mime: file.type || "",
+    size: file.size || 0,
+    dataUrl
+  });
+}
+
 function commandTextForSend(command) {
   return String(command.command || "").trim();
 }
@@ -2713,19 +3038,8 @@ async function initializeRuntime() {
 
 els.openSettings.addEventListener("click", () => {
   state.settingsOpen = true;
+  if (state.activeSettingsTab === "profile") state.activeSettingsTab = "appearance";
   renderView();
-});
-function openProfileSettings() {
-  state.settingsOpen = true;
-  state.activeSettingsTab = "profile";
-  renderView();
-  requestAnimationFrame(() => els.profileDisplayName?.focus());
-}
-els.userAvatar?.addEventListener("click", openProfileSettings);
-els.userAvatar?.addEventListener("keydown", (event) => {
-  if (event.key !== "Enter" && event.key !== " ") return;
-  event.preventDefault();
-  openProfileSettings();
 });
 els.closeSettings.addEventListener("click", () => {
   state.settingsOpen = false;
@@ -2750,6 +3064,7 @@ els.skillPreviewDialog?.addEventListener("click", (event) => {
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
   if (state.skillContextMenu.open) closeSkillContextMenu();
+  closeComposerAddMenu();
   if (state.skillPreviewOpen) {
     state.skillPreviewOpen = false;
     renderSkillPreview();
@@ -2777,6 +3092,11 @@ document.addEventListener("click", (event) => {
   if (els.fellowCreateMenu?.contains(event.target) || els.newPersona?.contains(event.target)) return;
   state.fellowMenuOpen = false;
   renderView();
+});
+document.addEventListener("click", (event) => {
+  if (!state.composerAddMenuOpen) return;
+  if (els.composerAddMenu?.contains(event.target) || els.composerAdd?.contains(event.target)) return;
+  closeComposerAddMenu();
 });
 document.addEventListener("click", (event) => {
   if (!state.petJobPanelOpen) return;
@@ -3152,6 +3472,42 @@ function setFellowAvatarDraft(image, crop = null) {
   renderFellowAvatarDraft();
 }
 
+function setProfileAvatarDraft(image, crop = null) {
+  const src = canonicalAvatarSrc(image);
+  state.profileAvatarDraft = {
+    image: src,
+    crop: normalizeCrop(crop || avatarDefaultCropForSrc(src))
+  };
+  if (els.profileAvatarImage) els.profileAvatarImage.value = state.profileAvatarDraft.image;
+  renderProfileAvatarDraft();
+}
+
+function renderProfileAvatarDraft() {
+  if (!els.profileAvatarPreview) return;
+  const draft = state.profileAvatarDraft;
+  const user = state.runtime?.user || {};
+  const crop = normalizeCrop(draft.crop);
+  els.profileAvatarPreview.setAttribute("style", avatarBackgroundStyle(draft.image, crop, user.avatarColor || "#111827"));
+  els.profileAvatarPreview.title = draft.image ? "点击调整头像裁剪" : "选择头像";
+  els.profileAvatarPreview.setAttribute("role", "button");
+  els.profileAvatarPreview.setAttribute("tabindex", "0");
+  els.profileAvatarPreview.setAttribute("aria-label", "调整头像裁剪");
+}
+
+function openProfileDialog() {
+  const user = state.runtime?.user || { displayName: "Boss", avatarImage: "", avatarCrop: DEFAULT_AVATAR_CROP };
+  state.profileDialogOpen = true;
+  if (els.profileDisplayName) els.profileDisplayName.value = user.displayName || "Boss";
+  setProfileAvatarDraft(user.avatarImage || "", user.avatarCrop);
+  renderView();
+  setTimeout(() => els.profileDisplayName?.focus(), 0);
+}
+
+function closeProfileDialog() {
+  state.profileDialogOpen = false;
+  renderView();
+}
+
 function renderFellowAvatarDefaults() {
   if (!els.fellowAvatarDefaults) return;
   const selected = state.fellowAvatarDraft.image;
@@ -3186,10 +3542,11 @@ function renderAvatarCropEditor() {
   els.avatarCropStage.setAttribute("style", avatarBackgroundStyle(editor.image, crop, "#eef0ff"));
 }
 
-function openAvatarCropEditor(image, crop = null) {
+function openAvatarCropEditor(image, crop = null, target = "fellow") {
   const src = canonicalAvatarSrc(image);
   state.avatarCropEditor = {
     open: true,
+    target,
     image: src,
     crop: normalizeCrop(crop || avatarDefaultCropForSrc(src)),
     dragging: false,
@@ -3218,7 +3575,16 @@ function readFellowAvatarFile(file) {
   if (!file || !file.type?.startsWith("image/")) return;
   const reader = new FileReader();
   reader.addEventListener("load", () => {
-    openAvatarCropEditor(String(reader.result || ""), { x: 50, y: 50, zoom: 1.12 });
+    openAvatarCropEditor(String(reader.result || ""), { x: 50, y: 50, zoom: 1.12 }, "fellow");
+  });
+  reader.readAsDataURL(file);
+}
+
+function readProfileAvatarFile(file) {
+  if (!file || !file.type?.startsWith("image/")) return;
+  const reader = new FileReader();
+  reader.addEventListener("load", () => {
+    openAvatarCropEditor(String(reader.result || ""), { x: 50, y: 50, zoom: 1.12 }, "profile");
   });
   reader.readAsDataURL(file);
 }
@@ -3277,6 +3643,14 @@ els.newPersona.addEventListener("click", (event) => {
 
 els.addFellow?.addEventListener("click", () => openFellowDialog());
 els.newContact?.addEventListener("click", () => openFellowDialog());
+els.userAvatar?.addEventListener("click", openProfileDialog);
+els.userAvatar?.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  event.preventDefault();
+  openProfileDialog();
+});
+els.closeProfileDialog?.addEventListener("click", closeProfileDialog);
+els.cancelProfile?.addEventListener("click", closeProfileDialog);
 els.closeFellowDialog?.addEventListener("click", closeFellowDialog);
 els.cancelFellow?.addEventListener("click", closeFellowDialog);
 els.closePetGenerateDialog?.addEventListener("click", closePetGenerateDialog);
@@ -3335,6 +3709,41 @@ els.fellowAvatarDrop?.addEventListener("drop", (event) => {
   els.fellowAvatarDrop.classList.remove("dragging");
   readFellowAvatarFile(event.dataTransfer?.files?.[0]);
 });
+els.chooseProfileAvatar?.addEventListener("click", () => els.profileAvatarFile?.click());
+els.profileAvatarFile?.addEventListener("change", () => {
+  readProfileAvatarFile(els.profileAvatarFile.files?.[0]);
+  els.profileAvatarFile.value = "";
+});
+els.profileAvatarPreview?.addEventListener("click", () => {
+  const draft = state.profileAvatarDraft;
+  if (!draft?.image) {
+    els.profileAvatarFile?.click();
+    return;
+  }
+  openAvatarCropEditor(draft.image, draft.crop, "profile");
+});
+els.profileAvatarPreview?.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  event.preventDefault();
+  const draft = state.profileAvatarDraft;
+  if (!draft?.image) {
+    els.profileAvatarFile?.click();
+    return;
+  }
+  openAvatarCropEditor(draft.image, draft.crop, "profile");
+});
+els.profileAvatarDrop?.addEventListener("dragover", (event) => {
+  event.preventDefault();
+  els.profileAvatarDrop.classList.add("dragging");
+});
+els.profileAvatarDrop?.addEventListener("dragleave", () => {
+  els.profileAvatarDrop.classList.remove("dragging");
+});
+els.profileAvatarDrop?.addEventListener("drop", (event) => {
+  event.preventDefault();
+  els.profileAvatarDrop.classList.remove("dragging");
+  readProfileAvatarFile(event.dataTransfer?.files?.[0]);
+});
 els.avatarCropStage?.addEventListener("pointerdown", (event) => {
   event.preventDefault();
   state.avatarCropEditor.dragging = true;
@@ -3371,7 +3780,11 @@ els.avatarCropStage?.addEventListener("wheel", (event) => {
   });
 });
 els.confirmAvatarCrop?.addEventListener("click", () => {
-  setFellowAvatarDraft(state.avatarCropEditor.image, state.avatarCropEditor.crop);
+  if (state.avatarCropEditor.target === "profile") {
+    setProfileAvatarDraft(state.avatarCropEditor.image, state.avatarCropEditor.crop);
+  } else {
+    setFellowAvatarDraft(state.avatarCropEditor.image, state.avatarCropEditor.crop);
+  }
   closeAvatarCropEditor();
 });
 els.cancelAvatarCrop?.addEventListener("click", closeAvatarCropEditor);
@@ -3380,52 +3793,75 @@ els.resetAvatarCrop?.addEventListener("click", () => {
   renderAvatarCropEditor();
 });
 
-els.profileForm.addEventListener("submit", async (event) => {
+els.profileForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
+  const displayName = els.profileDisplayName.value.trim() || "Boss";
   state.runtime = await window.aimashi.saveProfile({
-    displayName: els.profileDisplayName.value,
-    avatarText: els.profileAvatarText.value,
-    avatarColor: els.profileAvatarColor.value,
-    avatarImage: els.profileAvatarImage.value
+    displayName,
+    avatarText: initials(displayName),
+    avatarImage: state.profileAvatarDraft.image || els.profileAvatarImage.value,
+    avatarCrop: normalizeCrop(state.profileAvatarDraft.crop)
   });
+  closeProfileDialog();
   render();
 });
 
 els.appearanceForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const next = {
-    theme: els.appearanceTheme.value,
-    fontPreset: els.appearanceFontPreset.value,
-    customFont: els.appearanceCustomFont.value
-  };
+  const next = currentAppearanceDraft();
   applyAppearance(next);
   state.runtime = await window.aimashi.saveAppearance(next);
   render();
 });
 
 els.appearanceTheme.addEventListener("change", () => {
-  applyAppearance({
-    theme: els.appearanceTheme.value,
-    fontPreset: els.appearanceFontPreset.value,
-    customFont: els.appearanceCustomFont.value
-  });
+  const next = currentAppearanceDraft();
+  applyAppearance(next);
+  syncAppearanceControls(next);
 });
 
 els.appearanceFontPreset.addEventListener("change", () => {
-  applyAppearance({
-    theme: els.appearanceTheme.value,
-    fontPreset: els.appearanceFontPreset.value,
-    customFont: els.appearanceCustomFont.value
-  });
+  const next = currentAppearanceDraft();
+  applyAppearance(next);
+  syncAppearanceControls(next);
 });
 
-els.appearanceCustomFont.addEventListener("input", () => {
-  if (els.appearanceFontPreset.value !== "custom") return;
-  applyAppearance({
-    theme: els.appearanceTheme.value,
-    fontPreset: "custom",
-    customFont: els.appearanceCustomFont.value
-  });
+els.appearanceFontChoices?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-font-preset]");
+  if (!button || !els.appearanceFontChoices.contains(button)) return;
+  els.appearanceFontPreset.value = button.dataset.fontPreset || "system";
+  const next = currentAppearanceDraft();
+  applyAppearance(next);
+  syncAppearanceControls(next);
+});
+
+els.appearanceAccentColor?.addEventListener("input", () => {
+  const next = currentAppearanceDraft();
+  applyAppearance(next);
+  syncAppearanceControls(next);
+});
+
+function updateAccentFromRgbFields() {
+  const color = rgbToHex(
+    els.appearanceAccentR?.value,
+    els.appearanceAccentG?.value,
+    els.appearanceAccentB?.value
+  );
+  if (els.appearanceAccentColor) els.appearanceAccentColor.value = color;
+  const next = currentAppearanceDraft();
+  applyAppearance(next);
+  syncAppearanceControls(next);
+}
+
+[els.appearanceAccentR, els.appearanceAccentG, els.appearanceAccentB].forEach((input) => {
+  input?.addEventListener("input", updateAccentFromRgbFields);
+});
+
+els.appearanceAccentReset?.addEventListener("click", () => {
+  if (els.appearanceAccentColor) els.appearanceAccentColor.value = DEFAULT_ACCENT_COLOR;
+  const next = currentAppearanceDraft();
+  applyAppearance(next);
+  syncAppearanceControls(next);
 });
 
 els.fellowForm?.addEventListener("submit", async (event) => {
@@ -3521,6 +3957,51 @@ els.chatInput.addEventListener("input", () => {
   renderSendButton();
 });
 els.chatInput.addEventListener("click", updateSlashCommandState);
+els.composerAdd?.addEventListener("click", (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  state.composerAddMenuOpen = !state.composerAddMenuOpen;
+  state.slashMenuOpen = false;
+  renderSlashCommandMenu();
+  renderComposerAddMenu();
+});
+els.composerAddMenu?.addEventListener("click", (event) => {
+  const action = event.target.closest("[data-composer-add]")?.dataset.composerAdd;
+  if (!action) return;
+  event.preventDefault();
+  closeComposerAddMenu();
+  if (action === "attachment") {
+    els.composerAttachmentInput?.click();
+    return;
+  }
+  els.chatInput?.focus();
+});
+els.composerAttachmentInput?.addEventListener("change", () => {
+  addComposerFiles(els.composerAttachmentInput.files);
+  els.composerAttachmentInput.value = "";
+});
+els.composerAttachments?.addEventListener("click", (event) => {
+  if (event.target.closest("[data-attachment-remove]")) return;
+  els.chatInput?.focus();
+});
+els.chatForm?.addEventListener("dragover", (event) => {
+  if (!event.dataTransfer?.files?.length) return;
+  event.preventDefault();
+  els.chatForm.classList.add("dragging-attachment");
+});
+els.chatForm?.addEventListener("dragleave", () => {
+  els.chatForm.classList.remove("dragging-attachment");
+});
+els.chatForm?.addEventListener("drop", (event) => {
+  if (!event.dataTransfer?.files?.length) return;
+  event.preventDefault();
+  els.chatForm.classList.remove("dragging-attachment");
+  addComposerFiles(event.dataTransfer.files);
+});
+els.chatInput?.addEventListener("paste", (event) => {
+  if (!event.clipboardData?.files?.length) return;
+  addComposerFiles(event.clipboardData.files);
+});
 els.sendChat.addEventListener("click", async (event) => {
   if (!state.isGenerating) return;
   event.preventDefault();
@@ -3539,6 +4020,23 @@ els.chat.addEventListener("keydown", async (event) => {
   event.preventDefault();
   if (await copyTextToClipboard(code.textContent)) flashCopiedCode(code);
 });
+els.chat.addEventListener("toggle", (event) => {
+  const row = event.target.closest?.("details.trace-row[data-trace-key]");
+  if (!row || !els.chat.contains(row)) return;
+  const key = row.dataset.traceKey;
+  if (!key) return;
+  if (row.open) {
+    state.openTraceKeys.add(key);
+    state.openTraceKeys.delete(`!${key}`);
+    row.dataset.userOpen = "true";
+    delete row.dataset.autoOpen;
+  } else {
+    state.openTraceKeys.delete(key);
+    state.openTraceKeys.add(`!${key}`);
+    delete row.dataset.userOpen;
+    delete row.dataset.autoOpen;
+  }
+}, true);
 
 els.chatForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -3547,12 +4045,16 @@ els.chatForm.addEventListener("submit", async (event) => {
     return;
   }
   const text = els.chatInput.value.trim();
-  if (!text) return;
+  const attachments = state.pendingAttachments.map((attachment) => ({ ...attachment }));
+  if (!text && !attachments.length) return;
   const session = activeSession();
   const shouldGenerateTitle = !session.titleGenerated && !hasSuccessfulExchange(session);
   els.chatInput.value = "";
+  state.pendingAttachments = [];
+  renderComposerAttachments();
   renderSendButton();
-  appendChat("user", text);
+  const userText = text || "请查看附件。";
+  appendChat("user", userText, { attachments });
   state.streaming = null;
   state.isGenerating = true;
   renderSendButton();
@@ -3560,8 +4062,8 @@ els.chatForm.addEventListener("submit", async (event) => {
   try {
     const outgoingText = await outgoingMessageForSubmit(text);
     const history = messagesForActive()
-      .filter((message) => message.content)
-      .map((message) => ({ role: message.role, content: message.content }));
+      .filter((message) => message.content || (Array.isArray(message.attachments) && message.attachments.length))
+      .map((message) => ({ role: message.role, content: message.content, attachments: message.attachments || [] }));
     const lastUserIndex = history.map((message) => message.role).lastIndexOf("user");
     if (lastUserIndex >= 0) history[lastUserIndex] = { ...history[lastUserIndex], content: outgoingText };
     const response = await window.aimashi.sendChat({
@@ -3585,7 +4087,7 @@ els.chatForm.addEventListener("submit", async (event) => {
         sessionId: `title:${current.id}`,
         messages: current.messages.slice(0, 4)
       });
-      current.title = result.title || text.slice(0, 24) || "新对话";
+      current.title = result.title || userText.slice(0, 24) || "新对话";
       current.titleGenerated = true;
       current.updatedAt = nowIso();
       await persistSessionQuietly(current);
@@ -3596,7 +4098,7 @@ els.chatForm.addEventListener("submit", async (event) => {
     if (String(error.message || "").includes("生成已停止")) {
       await persistSessionQuietly(session);
     } else {
-      appendTransientChat("assistant", `Request failed: ${error.message}`);
+      appendChat("assistant", `Request failed: ${error.message}`);
       await persistSessionQuietly(session);
     }
     await refreshRuntime();
@@ -3645,6 +4147,7 @@ window.aimashi.onChatEvent((envelope) => {
     state.streaming = {
       runId,
       sessionId: sessionId || "",
+      createdAt: nowIso(),
       status: "正在输入",
       text: "",
       textBlockId: null,
