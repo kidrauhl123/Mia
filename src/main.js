@@ -1018,10 +1018,12 @@ function placeFellowPet(key) {
   if (!pet) throw new Error("这个 Fellow 还没有可用桌宠资产。");
   const existing = petWindows.get(id);
   if (existing && !existing.isDestroyed()) return petStatusForFellow(id);
+  const petWindowWidth = 236;
+  const petWindowHeight = 196;
 
   const win = new BrowserWindow({
-    width: 356,
-    height: 264,
+    width: petWindowWidth,
+    height: petWindowHeight,
     frame: false,
     transparent: true,
     hasShadow: false,
@@ -1048,10 +1050,10 @@ function placeFellowPet(key) {
   win.setIgnoreMouseEvents(true, { forward: true });
   const display = require("electron").screen.getPrimaryDisplay().workArea;
   win.setBounds({
-    x: display.x + display.width - 356 - 24,
-    y: display.y + display.height - 264 - 24,
-    width: 356,
-    height: 264
+    x: display.x + display.width - petWindowWidth - 24,
+    y: display.y + display.height - petWindowHeight - 24,
+    width: petWindowWidth,
+    height: petWindowHeight
   }, false);
   const url = pathToFileURL(path.join(__dirname, "renderer", "pet.html"));
   url.searchParams.set("sheet", pathToFileURL(pet.spritesheetPath).toString());
@@ -3329,10 +3331,7 @@ async function readRunEventStream({ runId, signal, emit }) {
       content += chunk;
       if (emit && chunk) {
         if (!textBlockId) textBlockId = `text_${crypto.randomUUID()}`;
-        if (!firstDeltaSeen) {
-          firstDeltaSeen = true;
-          emit("status", { text: "正在输入" });
-        }
+        firstDeltaSeen = true;
         emit("text_delta", { id: textBlockId, text: chunk });
       }
       return false;
@@ -3346,7 +3345,6 @@ async function readRunEventStream({ runId, signal, emit }) {
       if (emit) {
         const text = String(payload.text || "");
         emit("reasoning_delta", { id: `reasoning_${runId}`, text });
-        emit("status", { text: "正在思考" });
       }
       return false;
     }
@@ -3358,20 +3356,17 @@ async function readRunEventStream({ runId, signal, emit }) {
           name: String(payload.tool || ""),
           preview: String(payload.preview || "")
         });
-        emit("status", { text: `正在调用 ${payload.tool || "工具"}` });
       }
       return false;
     }
     if (name === "tool.completed") {
       if (emit) {
-        const toolId = `tool_${payload.tool || "unknown"}_${payload.started_at || ""}`;
         emit("tool_call_completed", {
           name: String(payload.tool || ""),
           duration: typeof payload.duration === "number" ? payload.duration : null,
           error: Boolean(payload.error),
           matchByName: true
         });
-        emit("status", { text: firstDeltaSeen ? "正在输入" : "正在思考" });
       }
       return false;
     }
@@ -3625,7 +3620,6 @@ async function sendChat({ fellowKey, personaKey, sessionId, messages, webContent
     const agentEngine = normalizeFellowAgentEngine(fellow.agentEngine || fellow.agent_engine || fellow.engine);
     if (emit) {
       emit("session_started", { fellowKey: fellow.key, engine: agentEngine });
-      emit("status", { text: "正在思考" });
     }
     const slashText = isSlashCommandText(messages);
     if (agentEngine === "claude-code") {

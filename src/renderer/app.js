@@ -3589,15 +3589,13 @@ function renderHeaderStatus() {
   const personas = state.runtime?.fellows || state.runtime?.personas || [];
   const active = personas.find((persona) => persona.key === state.activeKey) || personas[0];
   if (!active) return;
+  if (state.isGenerating) {
+    els.activeChatMeta.innerHTML = `<span class="typing-status">正在输入<span class="typing-dots"><i></i><i></i><i></i></span></span>`;
+    return;
+  }
   const count = sessionsForPersona(active.key).length;
   const startupLoading = state.startupTasks[0]?.label;
-  let trailing = "";
-  if (state.isGenerating) {
-    const status = state.streaming?.status || "正在思考";
-    trailing = ` · <span class="typing-status">${escapeHtml(status)}<span class="typing-dots"><i></i><i></i><i></i></span></span>`;
-  } else if (startupLoading) {
-    trailing = ` · 正在${escapeHtml(startupLoading)}`;
-  }
+  const trailing = startupLoading ? ` · 正在${escapeHtml(startupLoading)}` : "";
   els.activeChatMeta.innerHTML = `${count} 个会话 · 在线${trailing}`;
 }
 
