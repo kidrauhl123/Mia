@@ -7,6 +7,7 @@ const net = require("node:net");
 const os = require("node:os");
 const path = require("node:path");
 const { fileURLToPath, pathToFileURL } = require("node:url");
+const QRCode = require("qrcode");
 const WebSocket = require("ws");
 
 app.setName("Aimashi");
@@ -249,7 +250,7 @@ function defaultDaemonSettings() {
 function defaultRelaySettings() {
   return {
     enabled: false,
-    url: process.env.AIMASHI_RELAY_URL || "ws://127.0.0.1:27862/relay",
+    url: process.env.AIMASHI_RELAY_URL || "wss://agi.buytb01.com/relay",
     deviceId: `aimashi-${crypto.randomUUID()}`,
     secret: crypto.randomBytes(32).toString("hex")
   };
@@ -5222,6 +5223,19 @@ ipcMain.handle("daemon:stop", () => stopDaemonService());
 ipcMain.handle("daemon:settings-save", (_event, settings) => {
   writeDaemonSettings(settings);
   return getDaemonStatus();
+});
+ipcMain.handle("util:qr-svg", (_event, text) => {
+  const value = String(text || "").trim();
+  if (!value) return "";
+  return QRCode.toString(value, {
+    type: "svg",
+    margin: 1,
+    width: 184,
+    color: {
+      dark: "#111111",
+      light: "#ffffff"
+    }
+  });
 });
 ipcMain.handle("relay:status", async () => {
   if (!IS_DAEMON_PROCESS) {

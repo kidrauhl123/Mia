@@ -189,29 +189,19 @@
 
     <section id="settingsView" class="settings-modal hidden" role="dialog" aria-modal="true">
       <div class="settings-dialog">
-      <header class="modal-header">
-        <div>
-          <h1>设置</h1>
-          <p>调整外观、模型和本地运行时</p>
-        </div>
-        <button id="closeSettings" class="icon-button" type="button" title="关闭">×</button>
-      </header>
+      <button id="closeSettings" class="icon-button settings-close-button" type="button" title="关闭">×</button>
 
       <section class="settings-layout">
         <aside class="settings-tabs">
           <button class="settings-tab active" type="button" data-settings-tab="appearance">外观</button>
           <button class="settings-tab" type="button" data-settings-tab="model">模型与登录</button>
           <button class="settings-tab" type="button" data-settings-tab="runtime">Hermes Runtime</button>
-          <button class="settings-tab" type="button" data-settings-tab="mobile">手机</button>
+          <button class="settings-tab" type="button" data-settings-tab="mobile">跨设备连接</button>
         </aside>
 
         <div class="settings-content">
           <section class="settings-panel" data-settings-panel="appearance">
             <form id="appearanceForm" class="form-grid">
-              <div class="panel-heading">
-                <h2>外观</h2>
-                <p>这些设置只影响 Aimashi 本应用。</p>
-              </div>
               <section class="settings-row">
                 <div>
                   <strong>界面主题</strong>
@@ -282,9 +272,6 @@
 
           <section class="settings-panel hidden" data-settings-panel="model">
             <form id="modelForm" class="form-grid">
-              <div class="panel-heading">
-                <h2>模型</h2>
-              </div>
               <section class="connected-providers wide">
                 <div class="model-section-title">
                   <strong>已连接的模型提供商</strong>
@@ -332,10 +319,6 @@
 
           <section class="settings-panel hidden" data-settings-panel="runtime">
             <div class="runtime-card">
-              <div class="panel-heading">
-                <h2>私有 Hermes</h2>
-                <p>Aimashi 不读取、不修改现有 Hermes。</p>
-              </div>
               <dl class="runtime-list">
                 <div><dt>Status</dt><dd id="engineStatus">Checking...</dd></div>
                 <div><dt>Hermes Home</dt><dd id="hermesHome"></dd></div>
@@ -354,39 +337,43 @@
 
           <section class="settings-panel hidden" data-settings-panel="mobile">
             <div class="runtime-card mobile-pairing-card">
-              <div class="panel-heading">
-                <h2>手机控制</h2>
-                <p id="mobileDaemonStatus">后台状态检查中</p>
-              </div>
-              <section class="mobile-access-card">
-                <div class="mobile-access-head">
-                  <strong>访问范围</strong>
-                  <span id="mobileDaemonScope">仅本机</span>
+              <p id="mobileDaemonStatus" class="visually-hidden" aria-live="polite">后台状态检查中</p>
+              <section class="connection-row">
+                <div class="connection-row-head">
+                  <div>
+                    <strong>局域网访问</strong>
+                    <p id="mobileDaemonUrl">仅同一网络内可用，公共网络可能会禁止设备互访。</p>
+                  </div>
+                  <button id="mobileLanToggle" class="connection-switch" type="button" role="switch" aria-checked="false" aria-label="局域网访问">
+                    <span></span>
+                  </button>
                 </div>
-                <div class="mobile-access-toggle" role="group" aria-label="手机访问范围">
-                  <button id="mobileLocalOnly" class="secondary" type="button">仅本机</button>
-                  <button id="mobileLanAccess" class="secondary" type="button">允许局域网访问</button>
-                </div>
-                <p id="mobileDaemonUrl" class="mobile-access-note"></p>
+                <section id="mobilePairingBox" class="connection-details hidden">
+                  <div id="mobilePairingQr" class="connection-qr" aria-label="局域网配对二维码"></div>
+                  <button id="mobilePairingReveal" class="link-reveal" type="button">显示链接</button>
+                  <button id="mobilePairingLink" class="pairing-link hidden" type="button" title="点击复制配对链接" aria-label="点击复制配对链接"></button>
+                  <p id="mobilePairingHint" class="pairing-hint">扫描二维码即可连接。</p>
+                </section>
               </section>
-              <section id="mobilePairingBox" class="pairing-box hidden">
-                <strong>配对链接</strong>
-                <button id="mobilePairingLink" class="pairing-link" type="button" title="点击复制配对链接" aria-label="点击复制配对链接"></button>
-                <p id="mobilePairingHint" class="pairing-hint">点击链接即可复制。公司、校园或公共 Wi-Fi 可能会禁止设备互访。</p>
-              </section>
-              <p id="mobileLocalHint" class="mobile-local-hint">仅本机模式下不会生成手机配对链接。需要手机访问时，切换到“允许局域网访问”。</p>
-              <section class="mobile-access-card mobile-remote-card">
-                <div class="mobile-access-head">
-                  <strong>远程访问</strong>
-                  <span id="mobileRelayStatus">未开启</span>
+              <section class="connection-row">
+                <div class="connection-row-head">
+                  <div>
+                    <strong>远程访问</strong>
+                    <p id="mobileRelayHint">通过 Aimashi Relay 中继连接，不要求手机和电脑在同一网络。</p>
+                  </div>
+                  <button id="mobileRelayToggle" class="connection-switch" type="button" role="switch" aria-checked="false" aria-label="远程访问">
+                    <span></span>
+                  </button>
                 </div>
-                <label class="mobile-relay-url-field">
-                  <span>Relay 地址</span>
-                  <input id="mobileRelayUrl" autocomplete="off" spellcheck="false" placeholder="wss://relay.example.com/relay">
-                </label>
-                <button id="mobileRelayToggle" class="secondary" type="button">开启远程访问</button>
-                <button id="mobileRelayLink" class="pairing-link hidden" type="button" title="点击复制远程配对链接" aria-label="点击复制远程配对链接"></button>
-                <p id="mobileRelayHint" class="mobile-access-note">通过 Aimashi Relay 中继连接，不依赖同一局域网。当前 MVP 需要先运行本地 relay 服务。</p>
+                <section id="mobileRelayBox" class="connection-details hidden">
+                  <label class="mobile-relay-url-field">
+                    <span>Relay 地址</span>
+                    <input id="mobileRelayUrl" autocomplete="off" spellcheck="false" placeholder="wss://relay.example.com/relay">
+                  </label>
+                  <div id="mobileRelayQr" class="connection-qr" aria-label="远程配对二维码"></div>
+                  <button id="mobileRelayReveal" class="link-reveal" type="button">显示链接</button>
+                  <button id="mobileRelayLink" class="pairing-link hidden" type="button" title="点击复制远程配对链接" aria-label="点击复制远程配对链接"></button>
+                </section>
               </section>
             </div>
           </section>

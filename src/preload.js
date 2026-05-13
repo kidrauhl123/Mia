@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld("aimashi", {
   startRelay: () => ipcRenderer.invoke("relay:start"),
   stopRelay: () => ipcRenderer.invoke("relay:stop"),
   saveRelaySettings: (settings) => ipcRenderer.invoke("relay:settings-save", settings),
+  qrSvg: (text) => ipcRenderer.invoke("util:qr-svg", text),
   installEngine: () => ipcRenderer.invoke("engine:install"),
   startEngine: () => ipcRenderer.invoke("engine:start"),
   stopEngine: () => ipcRenderer.invoke("engine:stop"),

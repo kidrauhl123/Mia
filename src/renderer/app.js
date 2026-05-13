@@ -16,6 +16,7 @@ const SIDEBAR_WIDTH_MAX = 380;
 const SIDEBAR_WIDTH_DEFAULT = 280;
 const scrollbarTimers = new WeakMap();
 let appearanceSaveStatusTimer = 0;
+const qrSvgCache = new Map();
 
 function clampSidebarWidth(value) {
   const availableMax = Math.max(SIDEBAR_WIDTH_MIN, Math.min(SIDEBAR_WIDTH_MAX, window.innerWidth - 430));
@@ -48,6 +49,8 @@ const state = {
   sidebarWidth: savedSidebarWidth(),
   sidebarResize: { dragging: false, startX: 0, startWidth: 0 },
   activeSettingsTab: "appearance",
+  mobileLanLinkExpanded: false,
+  mobileRelayLinkExpanded: false,
   personaFilter: "",
   contactFilter: "",
   skillFilter: "",
@@ -255,15 +258,16 @@ const els = {
   codexCancel: document.getElementById("codexCancel"),
   codexLogs: document.getElementById("codexLogs"),
   mobileDaemonStatus: document.getElementById("mobileDaemonStatus"),
-  mobileDaemonScope: document.getElementById("mobileDaemonScope"),
   mobileDaemonUrl: document.getElementById("mobileDaemonUrl"),
-  mobileLocalOnly: document.getElementById("mobileLocalOnly"),
-  mobileLanAccess: document.getElementById("mobileLanAccess"),
+  mobileLanToggle: document.getElementById("mobileLanToggle"),
   mobilePairingBox: document.getElementById("mobilePairingBox"),
+  mobilePairingQr: document.getElementById("mobilePairingQr"),
+  mobilePairingReveal: document.getElementById("mobilePairingReveal"),
   mobilePairingLink: document.getElementById("mobilePairingLink"),
   mobilePairingHint: document.getElementById("mobilePairingHint"),
-  mobileLocalHint: document.getElementById("mobileLocalHint"),
-  mobileRelayStatus: document.getElementById("mobileRelayStatus"),
+  mobileRelayBox: document.getElementById("mobileRelayBox"),
+  mobileRelayQr: document.getElementById("mobileRelayQr"),
+  mobileRelayReveal: document.getElementById("mobileRelayReveal"),
   mobileRelayUrl: document.getElementById("mobileRelayUrl"),
   mobileRelayToggle: document.getElementById("mobileRelayToggle"),
   mobileRelayLink: document.getElementById("mobileRelayLink"),
@@ -272,6 +276,33 @@ const els = {
 
 function setText(el, value) {
   if (el) el.textContent = value;
+}
+
+function renderQr(el, text) {
+  if (!el) return;
+  const value = String(text || "").trim();
+  el.dataset.qrText = value;
+  if (!value) {
+    el.innerHTML = "";
+    el.classList.add("hidden");
+    return;
+  }
+  el.classList.remove("hidden");
+  if (qrSvgCache.has(value)) {
+    el.innerHTML = qrSvgCache.get(value);
+    return;
+  }
+  el.textContent = "生成二维码中";
+  if (!window.aimashi?.qrSvg) {
+    el.textContent = "二维码不可用";
+    return;
+  }
+  window.aimashi.qrSvg(value).then((svg) => {
+    qrSvgCache.set(value, svg);
+    if (el.dataset.qrText === value) el.innerHTML = svg;
+  }).catch(() => {
+    if (el.dataset.qrText === value) el.textContent = "二维码生成失败";
+  });
 }
 
 function showAppearanceSaveStatus(text, kind = "ok") {
@@ -1606,11 +1637,11 @@ async function refreshDaemonPairing() {
 }
 
 function renderMobilePairing(daemon = state.runtime?.daemon || {}) {
-  if (!els.mobileDaemonStatus) return;
+  if (!els.mobileLanToggle) return;
   const settings = daemon.settings || {};
   const running = Boolean(daemon.running);
   const host = settings.host || daemon.host || "127.0.0.1";
-  const scope = host === "0.0.0.0" || host === "::" ? "局域网" : "仅本机";
+  const lanEnabled = host === "0.0.0.0" || host === "::";
   const links = Array.isArray(daemon.links) && daemon.links.length
     ? daemon.links
     : Array.isArray(daemon.connectUrls)
@@ -1618,23 +1649,29 @@ function renderMobilePairing(daemon = state.runtime?.daemon || {}) {
       : [];
   const link = links[0] || "";
   setText(els.mobileDaemonStatus, running ? "Aimashi 后台已运行" : daemon.starting ? "Aimashi 后台启动中" : "Aimashi 后台未运行");
-  setText(els.mobileDaemonScope, scope);
-  setText(els.mobileDaemonUrl, scope === "局域网"
-    ? "同一局域网、且未开启设备隔离时可用。"
-    : "仅允许本机访问，手机无法连接。");
-  if (els.mobilePairingBox) els.mobilePairingBox.classList.toggle("hidden", scope !== "局域网" || !link);
-  if (els.mobileLocalHint) els.mobileLocalHint.classList.toggle("hidden", scope === "局域网" && Boolean(link));
+  setText(els.mobileDaemonUrl, lanEnabled
+    ? "同一局域网内扫描二维码连接；公司、校园或公共 Wi-Fi 可能会禁止设备互访。"
+    : "关闭时只允许本机访问，不生成手机配对入口。");
+  els.mobileLanToggle.classList.toggle("active", lanEnabled);
+  els.mobileLanToggle.setAttribute("aria-checked", String(lanEnabled));
+  els.mobileLanToggle.disabled = Boolean(daemon.starting);
+  if (els.mobilePairingBox) els.mobilePairingBox.classList.toggle("hidden", !lanEnabled || !link);
+  renderQr(els.mobilePairingQr, lanEnabled ? link : "");
+  if (els.mobilePairingReveal) {
+    els.mobilePairingReveal.classList.toggle("hidden", !lanEnabled || !link);
+    setText(els.mobilePairingReveal, state.mobileLanLinkExpanded ? "隐藏链接" : "显示链接");
+  }
   if (els.mobilePairingLink) {
+    const showLink = lanEnabled && Boolean(link) && state.mobileLanLinkExpanded;
+    els.mobilePairingLink.classList.toggle("hidden", !showLink);
     els.mobilePairingLink.dataset.link = link;
     setText(els.mobilePairingLink, link);
   }
   if (els.mobilePairingHint) {
-    els.mobilePairingHint.textContent = scope === "局域网"
-      ? "点击链接即可复制。公司、校园或公共 Wi-Fi 可能会禁止设备互访。"
-      : "仅本机模式不会生成手机配对链接。";
+    els.mobilePairingHint.textContent = lanEnabled
+      ? "扫描二维码即可连接；展开链接后点一下会复制。"
+      : "打开局域网访问后才会生成配对二维码。";
   }
-  if (els.mobileLocalOnly) els.mobileLocalOnly.classList.toggle("active", scope === "仅本机");
-  if (els.mobileLanAccess) els.mobileLanAccess.classList.toggle("active", scope === "局域网");
 }
 
 async function refreshRelayPairing() {
@@ -1652,40 +1689,42 @@ async function refreshRelayPairing() {
     renderRelayPairing(relay);
     return relay;
   } catch (error) {
-    setText(els.mobileRelayStatus, `Error: ${error.message}`);
+    setText(els.mobileRelayHint, `Error: ${error.message}`);
     throw error;
   }
 }
 
 function renderRelayPairing(relay = state.runtime?.relay || {}) {
-  if (!els.mobileRelayStatus) return;
+  if (!els.mobileRelayToggle) return;
   const enabled = Boolean(relay.enabled);
   const connected = Boolean(relay.connected);
   const peers = Number(relay.mobilePeers || 0);
   const link = String(relay.pairingLink || "");
-  setText(els.mobileRelayStatus, enabled
-    ? connected
-      ? peers ? `已连接 · ${peers} 台手机` : "已连接"
-      : relay.connecting ? "连接中" : "未连接"
-    : "未开启");
   if (els.mobileRelayToggle) {
-    els.mobileRelayToggle.textContent = enabled ? "关闭远程访问" : "开启远程访问";
     els.mobileRelayToggle.classList.toggle("active", enabled);
+    els.mobileRelayToggle.setAttribute("aria-checked", String(enabled));
   }
+  if (els.mobileRelayBox) els.mobileRelayBox.classList.toggle("hidden", !enabled);
   if (els.mobileRelayUrl && document.activeElement !== els.mobileRelayUrl) {
     els.mobileRelayUrl.value = String(relay.url || "");
   }
+  renderQr(els.mobileRelayQr, enabled ? link : "");
+  if (els.mobileRelayReveal) {
+    els.mobileRelayReveal.classList.toggle("hidden", !enabled || !link);
+    setText(els.mobileRelayReveal, state.mobileRelayLinkExpanded ? "隐藏链接" : "显示链接");
+  }
   if (els.mobileRelayLink) {
-    els.mobileRelayLink.classList.toggle("hidden", !enabled || !link);
+    const showLink = enabled && Boolean(link) && state.mobileRelayLinkExpanded;
+    els.mobileRelayLink.classList.toggle("hidden", !showLink);
     els.mobileRelayLink.dataset.link = link;
     setText(els.mobileRelayLink, link);
   }
   if (els.mobileRelayHint) {
     els.mobileRelayHint.textContent = enabled
       ? connected
-        ? "点击远程配对链接即可复制。手机和电脑不需要在同一网络。"
+        ? peers ? `已连接，${peers} 台手机在线。` : "已连接。扫描二维码即可远程连接。"
         : `等待 relay：${relay.lastError || relay.url || "未连接"}`
-      : "通过 Aimashi Relay 中继连接，不依赖同一局域网。当前 MVP 需要先运行本地 relay 服务。";
+      : "通过 Aimashi Relay 中继连接，不要求手机和电脑在同一网络。";
   }
 }
 
@@ -3455,20 +3494,18 @@ document.querySelectorAll("[data-settings-tab]").forEach((button) => {
   });
 });
 
-els.mobileLocalOnly?.addEventListener("click", async () => {
+els.mobileLanToggle?.addEventListener("click", async () => {
+  const enabled = els.mobileLanToggle.getAttribute("aria-checked") === "true";
   try {
-    await applyDaemonHost("127.0.0.1");
+    await applyDaemonHost(enabled ? "127.0.0.1" : "0.0.0.0");
   } catch (error) {
     setText(els.mobilePairingHint, `切换失败：${error.message}`);
   }
 });
 
-els.mobileLanAccess?.addEventListener("click", async () => {
-  try {
-    await applyDaemonHost("0.0.0.0");
-  } catch (error) {
-    setText(els.mobilePairingHint, `切换失败：${error.message}`);
-  }
+els.mobilePairingReveal?.addEventListener("click", () => {
+  state.mobileLanLinkExpanded = !state.mobileLanLinkExpanded;
+  renderMobilePairing(state.runtime?.daemon || {});
 });
 
 els.mobilePairingLink?.addEventListener("click", async () => {
@@ -3483,6 +3520,11 @@ els.mobilePairingLink?.addEventListener("click", async () => {
   } catch {
     setText(els.mobilePairingHint, "复制失败，可以长按链接文本手动复制。");
   }
+});
+
+els.mobileRelayReveal?.addEventListener("click", () => {
+  state.mobileRelayLinkExpanded = !state.mobileRelayLinkExpanded;
+  renderRelayPairing(state.runtime?.relay || {});
 });
 
 els.mobileRelayToggle?.addEventListener("click", async () => {
