@@ -202,6 +202,7 @@
           <button class="settings-tab active" type="button" data-settings-tab="appearance">外观</button>
           <button class="settings-tab" type="button" data-settings-tab="model">模型与登录</button>
           <button class="settings-tab" type="button" data-settings-tab="runtime">Hermes Runtime</button>
+          <button class="settings-tab" type="button" data-settings-tab="mobile">手机</button>
         </aside>
 
         <div class="settings-content">
@@ -239,6 +240,26 @@
                   <option value="mono">Monospace</option>
                 </select>
               </section>
+              <section class="settings-row">
+                <div>
+                  <strong>中栏列表</strong>
+                  <p>控制消息、联系人和 Skill 导航的列表形态。</p>
+                </div>
+                <select id="appearanceListStyle">
+                  <option value="card">卡片</option>
+                  <option value="flush">贯通</option>
+                </select>
+              </section>
+              <section class="settings-row">
+                <div>
+                  <strong>选中态</strong>
+                  <p>控制中栏选中项的底色和文字对比。</p>
+                </div>
+                <select id="appearanceSelectionStyle">
+                  <option value="soft">柔和</option>
+                  <option value="solid">实色</option>
+                </select>
+              </section>
               <section class="settings-row accent-settings-row">
                 <div>
                   <strong>主题色</strong>
@@ -250,14 +271,12 @@
                     <span id="appearanceAccentPreview"></span>
                     <input id="appearanceAccentColor" type="color" value="#5e5ce6" aria-label="主题色">
                   </label>
-                  <div class="rgb-fields" aria-label="RGB">
-                    <label><input id="appearanceAccentR" type="number" min="0" max="255" inputmode="numeric"><span>R</span></label>
-                    <label><input id="appearanceAccentG" type="number" min="0" max="255" inputmode="numeric"><span>G</span></label>
-                    <label><input id="appearanceAccentB" type="number" min="0" max="255" inputmode="numeric"><span>B</span></label>
-                  </div>
                 </div>
               </section>
-              <button class="primary" type="submit">保存外观</button>
+              <div class="settings-actions">
+                <span id="appearanceSaveStatus" class="form-save-status" role="status" aria-live="polite"></span>
+                <button class="primary" type="submit">保存外观</button>
+              </div>
             </form>
           </section>
 
@@ -330,6 +349,45 @@
               </div>
               <article id="engineWarning" class="notice hidden">Engine 尚未安装到 Aimashi 私有 runtime。</article>
               <pre id="engineLogs"></pre>
+            </div>
+          </section>
+
+          <section class="settings-panel hidden" data-settings-panel="mobile">
+            <div class="runtime-card mobile-pairing-card">
+              <div class="panel-heading">
+                <h2>手机控制</h2>
+                <p id="mobileDaemonStatus">后台状态检查中</p>
+              </div>
+              <section class="mobile-access-card">
+                <div class="mobile-access-head">
+                  <strong>访问范围</strong>
+                  <span id="mobileDaemonScope">仅本机</span>
+                </div>
+                <div class="mobile-access-toggle" role="group" aria-label="手机访问范围">
+                  <button id="mobileLocalOnly" class="secondary" type="button">仅本机</button>
+                  <button id="mobileLanAccess" class="secondary" type="button">允许局域网访问</button>
+                </div>
+                <p id="mobileDaemonUrl" class="mobile-access-note"></p>
+              </section>
+              <section id="mobilePairingBox" class="pairing-box hidden">
+                <strong>配对链接</strong>
+                <button id="mobilePairingLink" class="pairing-link" type="button" title="点击复制配对链接" aria-label="点击复制配对链接"></button>
+                <p id="mobilePairingHint" class="pairing-hint">点击链接即可复制。公司、校园或公共 Wi-Fi 可能会禁止设备互访。</p>
+              </section>
+              <p id="mobileLocalHint" class="mobile-local-hint">仅本机模式下不会生成手机配对链接。需要手机访问时，切换到“允许局域网访问”。</p>
+              <section class="mobile-access-card mobile-remote-card">
+                <div class="mobile-access-head">
+                  <strong>远程访问</strong>
+                  <span id="mobileRelayStatus">未开启</span>
+                </div>
+                <label class="mobile-relay-url-field">
+                  <span>Relay 地址</span>
+                  <input id="mobileRelayUrl" autocomplete="off" spellcheck="false" placeholder="wss://relay.example.com/relay">
+                </label>
+                <button id="mobileRelayToggle" class="secondary" type="button">开启远程访问</button>
+                <button id="mobileRelayLink" class="pairing-link hidden" type="button" title="点击复制远程配对链接" aria-label="点击复制远程配对链接"></button>
+                <p id="mobileRelayHint" class="mobile-access-note">通过 Aimashi Relay 中继连接，不依赖同一局域网。当前 MVP 需要先运行本地 relay 服务。</p>
+              </section>
             </div>
           </section>
         </div>

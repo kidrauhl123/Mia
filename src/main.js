@@ -2,9 +2,12 @@ const { app, BrowserWindow, ipcMain, shell } = require("electron");
 const { spawn, spawnSync } = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
+const http = require("node:http");
 const net = require("node:net");
+const os = require("node:os");
 const path = require("node:path");
 const { fileURLToPath, pathToFileURL } = require("node:url");
+const WebSocket = require("ws");
 
 app.setName("Aimashi");
 
@@ -19,6 +22,9 @@ const CODEX_OAUTH_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 const CODEX_DEVICE_URL = "https://auth.openai.com/codex/device";
 const CODEX_TOKEN_URL = "https://auth.openai.com/oauth/token";
 const AIMASHI_GATEWAY_SERVICE_LABEL = "ai.aimashi.hermes.gateway";
+const AIMASHI_DAEMON_SERVICE_LABEL = "ai.aimashi.daemon";
+const AIMASHI_DAEMON_DEFAULT_PORT = Number(process.env.AIMASHI_DAEMON_PORT || 27861);
+const IS_DAEMON_PROCESS = process.argv.includes("--daemon") || process.env.AIMASHI_DAEMON === "1";
 let engineProcess = null;
 let engineState = {
   running: false,
@@ -44,6 +50,28 @@ let authState = {
   logs: []
 };
 let activeChatAbortController = null;
+let controlServer = null;
+let controlServerState = {
+  running: false,
+  starting: false,
+  host: "",
+  port: 0,
+  baseUrl: "",
+  lastError: "",
+  logs: []
+};
+let relayClient = null;
+let relayReconnectTimer = null;
+let relayState = {
+  enabled: false,
+  connected: false,
+  connecting: false,
+  url: "",
+  deviceId: "",
+  mobilePeers: 0,
+  lastError: "",
+  logs: []
+};
 const petWindows = new Map();
 const petMessageTimers = new Map();
 const petJobs = new Map();
@@ -101,13 +129,17 @@ function runtimePaths() {
     permissionSettings: path.join(home, "aimashi-permissions.json"),
     effortSettings: path.join(home, "aimashi-effort.json"),
     agentSessions: path.join(home, "aimashi-agent-sessions.json"),
+    daemonSettings: path.join(home, "aimashi-daemon.json"),
+    daemonToken: path.join(home, "aimashi-daemon.key"),
+    relaySettings: path.join(home, "aimashi-relay.json"),
     appearanceSettings: path.join(home, "aimashi-appearance.json"),
     chatSessions: path.join(home, "aimashi-sessions.json"),
     attachmentsDir: path.join(home, "attachments"),
     petDir: path.join(home, "pets"),
     petJobsDir: path.join(home, "pet-jobs"),
     logsDir: path.join(home, "logs"),
-    launchAgent: path.join(app.getPath("home"), "Library", "LaunchAgents", `${AIMASHI_GATEWAY_SERVICE_LABEL}.plist`)
+    launchAgent: path.join(app.getPath("home"), "Library", "LaunchAgents", `${AIMASHI_GATEWAY_SERVICE_LABEL}.plist`),
+    daemonLaunchAgent: path.join(app.getPath("home"), "Library", "LaunchAgents", `${AIMASHI_DAEMON_SERVICE_LABEL}.plist`)
   };
 }
 
@@ -191,13 +223,35 @@ function defaultAppearanceSettings() {
   return {
     theme: "light",
     fontPreset: "system",
-    accentColor: "#5e5ce6"
+    accentColor: "#5e5ce6",
+    listStyle: "card",
+    selectionStyle: "soft"
   };
 }
 
 function defaultPermissionSettings() {
   return {
     mode: "manual"
+  };
+}
+
+function defaultDaemonSettings() {
+  const port = Number.isInteger(AIMASHI_DAEMON_DEFAULT_PORT) && AIMASHI_DAEMON_DEFAULT_PORT > 0
+    ? AIMASHI_DAEMON_DEFAULT_PORT
+    : 27861;
+  return {
+    enabled: true,
+    host: process.env.AIMASHI_DAEMON_HOST || "127.0.0.1",
+    port
+  };
+}
+
+function defaultRelaySettings() {
+  return {
+    enabled: false,
+    url: process.env.AIMASHI_RELAY_URL || "ws://127.0.0.1:27862/relay",
+    deviceId: `aimashi-${crypto.randomUUID()}`,
+    secret: crypto.randomBytes(32).toString("hex")
   };
 }
 
@@ -287,6 +341,95 @@ function writePermissionSettings(settings = {}) {
   fs.mkdirSync(path.dirname(p.permissionSettings), { recursive: true });
   fs.writeFileSync(p.permissionSettings, JSON.stringify(next, null, 2) + "\n", { mode: 0o600 });
   writeRuntimeConfig(engineState.port || readConfiguredPort());
+  return next;
+}
+
+function normalizeDaemonHost(value) {
+  const host = String(value || "").trim();
+  if (host === "0.0.0.0" || host === "::" || host === "127.0.0.1" || host === "localhost") return host;
+  return "127.0.0.1";
+}
+
+function normalizeDaemonPort(value) {
+  const port = Number(value);
+  if (Number.isInteger(port) && port > 0 && port < 65536) return port;
+  return defaultDaemonSettings().port;
+}
+
+function daemonSettings() {
+  const saved = readJson(runtimePaths().daemonSettings, {});
+  return {
+    ...defaultDaemonSettings(),
+    ...saved,
+    enabled: saved.enabled !== false,
+    host: normalizeDaemonHost(saved.host || defaultDaemonSettings().host),
+    port: normalizeDaemonPort(saved.port || defaultDaemonSettings().port)
+  };
+}
+
+function writeDaemonSettings(settings = {}) {
+  const p = runtimePaths();
+  const current = daemonSettings();
+  const next = {
+    enabled: settings.enabled !== undefined ? Boolean(settings.enabled) : current.enabled,
+    host: normalizeDaemonHost(settings.host || current.host),
+    port: normalizeDaemonPort(settings.port || current.port)
+  };
+  fs.mkdirSync(path.dirname(p.daemonSettings), { recursive: true });
+  fs.writeFileSync(p.daemonSettings, JSON.stringify(next, null, 2) + "\n", { mode: 0o600 });
+  return next;
+}
+
+function daemonToken() {
+  const p = runtimePaths();
+  if (!fs.existsSync(p.daemonToken)) {
+    fs.mkdirSync(path.dirname(p.daemonToken), { recursive: true });
+    fs.writeFileSync(p.daemonToken, `${crypto.randomBytes(32).toString("hex")}\n`, { mode: 0o600 });
+  }
+  return fs.readFileSync(p.daemonToken, "utf8").trim();
+}
+
+function normalizeRelayUrl(value) {
+  const raw = String(value || "").trim();
+  try {
+    const url = new URL(raw || defaultRelaySettings().url);
+    if (url.protocol !== "ws:" && url.protocol !== "wss:") return defaultRelaySettings().url;
+    if (!url.pathname || url.pathname === "/") url.pathname = "/relay";
+    return url.toString();
+  } catch {
+    return defaultRelaySettings().url;
+  }
+}
+
+function relaySettings() {
+  const p = runtimePaths();
+  let saved = readJson(p.relaySettings, null);
+  if (!saved || typeof saved !== "object" || !saved.deviceId || !saved.secret) {
+    saved = { ...defaultRelaySettings(), ...(saved && typeof saved === "object" ? saved : {}) };
+    fs.mkdirSync(path.dirname(p.relaySettings), { recursive: true });
+    fs.writeFileSync(p.relaySettings, JSON.stringify(saved, null, 2) + "\n", { mode: 0o600 });
+  }
+  return {
+    ...defaultRelaySettings(),
+    ...saved,
+    enabled: Boolean(saved.enabled),
+    url: normalizeRelayUrl(saved.url),
+    deviceId: String(saved.deviceId || defaultRelaySettings().deviceId).trim(),
+    secret: String(saved.secret || defaultRelaySettings().secret).trim()
+  };
+}
+
+function writeRelaySettings(settings = {}) {
+  const p = runtimePaths();
+  const current = relaySettings();
+  const next = {
+    enabled: settings.enabled !== undefined ? Boolean(settings.enabled) : current.enabled,
+    url: normalizeRelayUrl(settings.url || current.url),
+    deviceId: String(settings.deviceId || current.deviceId).trim(),
+    secret: String(settings.secret || current.secret).trim()
+  };
+  fs.mkdirSync(path.dirname(p.relaySettings), { recursive: true });
+  fs.writeFileSync(p.relaySettings, JSON.stringify(next, null, 2) + "\n", { mode: 0o600 });
   return next;
 }
 
@@ -1353,6 +1496,18 @@ function initializeRuntime() {
     created.push("runtime/engine-home/aimashi-effort.json");
   }
 
+  if (writeFileIfMissing(p.daemonSettings, JSON.stringify(defaultDaemonSettings(), null, 2) + "\n", 0o600)) {
+    created.push("runtime/engine-home/aimashi-daemon.json");
+  }
+
+  if (writeFileIfMissing(p.daemonToken, `${crypto.randomBytes(32).toString("hex")}\n`, 0o600)) {
+    created.push("runtime/engine-home/aimashi-daemon.key");
+  }
+
+  if (writeFileIfMissing(p.relaySettings, JSON.stringify(defaultRelaySettings(), null, 2) + "\n", 0o600)) {
+    created.push("runtime/engine-home/aimashi-relay.json");
+  }
+
   if (writeFileIfMissing(p.userProfile, JSON.stringify(defaultUserProfile(), null, 2) + "\n")) {
     created.push("runtime/engine-home/aimashi-user.json");
   }
@@ -1551,6 +1706,110 @@ function writeRuntimeConfig(port) {
   fs.writeFileSync(p.config, lines.join("\n"), { mode: 0o600 });
 }
 
+function daemonConnectUrls(settings = daemonSettings()) {
+  const port = normalizeDaemonPort(settings.port);
+  const host = normalizeDaemonHost(settings.host);
+  if (host !== "0.0.0.0" && host !== "::") {
+    return [`http://${host}:${port}`];
+  }
+  const urls = [];
+  for (const entries of Object.values(os.networkInterfaces())) {
+    for (const entry of entries || []) {
+      if (!entry || entry.internal || entry.family !== "IPv4") continue;
+      if (/^169\.254\./.test(entry.address)) continue;
+      if (/^198\.(18|19)\./.test(entry.address)) continue;
+      urls.push(`http://${entry.address}:${port}`);
+    }
+  }
+  return urls.length ? urls : [`http://127.0.0.1:${port}`];
+}
+
+function daemonPingUrls(settings = daemonSettings()) {
+  const urls = daemonConnectUrls(settings);
+  const port = normalizeDaemonPort(settings.port);
+  const host = normalizeDaemonHost(settings.host);
+  const localUrl = `http://127.0.0.1:${port}`;
+  const candidates = host === "0.0.0.0" || host === "::" || host === "localhost"
+    ? [localUrl, ...urls]
+    : urls;
+  return candidates.filter((url, index, list) => url && list.indexOf(url) === index);
+}
+
+function getDaemonStatus() {
+  const settings = daemonSettings();
+  return {
+    processMode: IS_DAEMON_PROCESS ? "daemon" : "desktop",
+    serviceLabel: AIMASHI_DAEMON_SERVICE_LABEL,
+    settings,
+    running: Boolean(controlServerState.running),
+    starting: Boolean(controlServerState.starting),
+    host: controlServerState.host || settings.host,
+    port: controlServerState.port || settings.port,
+    baseUrl: controlServerState.baseUrl || `http://${settings.host}:${settings.port}`,
+    connectUrls: daemonConnectUrls(settings),
+    launchAgent: runtimePaths().daemonLaunchAgent,
+    lastError: controlServerState.lastError,
+    logs: controlServerState.logs.slice(-80)
+  };
+}
+
+function getDaemonPairingInfo() {
+  const status = getDaemonStatus();
+  const token = daemonToken();
+  const links = status.connectUrls.map((baseUrl) => `${baseUrl}/mobile/#token=${encodeURIComponent(token)}`);
+  return {
+    ...status,
+    token,
+    links
+  };
+}
+
+async function getObservedDaemonStatus(timeoutMs = 500) {
+  const status = getDaemonStatus();
+  if (controlServerState.running) return status;
+  const ping = await pingDaemon(daemonSettings(), timeoutMs);
+  return {
+    ...status,
+    running: ping.ok,
+    baseUrl: ping.baseUrl || status.baseUrl
+  };
+}
+
+function relayHttpOrigin(wsUrl) {
+  try {
+    const url = new URL(wsUrl);
+    url.protocol = url.protocol === "wss:" ? "https:" : "http:";
+    url.pathname = "";
+    url.search = "";
+    url.hash = "";
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return "";
+  }
+}
+
+function relayPairingLink(settings = relaySettings()) {
+  const origin = relayHttpOrigin(settings.url);
+  if (!origin) return "";
+  return `${origin}/mobile/?mode=relay&device=${encodeURIComponent(settings.deviceId)}#secret=${encodeURIComponent(settings.secret)}`;
+}
+
+function relayStatus(includeSecret = false) {
+  const settings = relaySettings();
+  return {
+    enabled: settings.enabled,
+    connected: Boolean(relayState.connected),
+    connecting: Boolean(relayState.connecting),
+    url: settings.url,
+    deviceId: settings.deviceId,
+    mobilePeers: relayState.mobilePeers || 0,
+    pairingLink: relayPairingLink(settings),
+    lastError: relayState.lastError,
+    logs: relayState.logs.slice(-80),
+    ...(includeSecret ? { secret: settings.secret } : {})
+  };
+}
+
 function getRuntimeStatus(created = []) {
   const p = runtimePaths();
   const manifest = loadFellowManifest();
@@ -1575,6 +1834,8 @@ function getRuntimeStatus(created = []) {
     engineServiceLabel: AIMASHI_GATEWAY_SERVICE_LABEL,
     engineLastError: engineState.lastError,
     engineLogs: engineState.logs.slice(-80),
+    daemon: getDaemonStatus(),
+    relay: relayStatus(false),
     auth: codexAuth,
     user: { ...defaultUserProfile(), ...readJson(p.userProfile, {}) },
     appearance: appearanceSettings(),
@@ -2929,6 +3190,756 @@ function startLaunchAgent() {
   runLaunchctl(["kickstart", "-k", `${domain}/${AIMASHI_GATEWAY_SERVICE_LABEL}`], { ignoreFailure: true });
 }
 
+function appendDaemonLog(line) {
+  const clean = String(line || "").replace(new RegExp(daemonToken(), "g"), "[REDACTED]");
+  controlServerState.logs.push(clean);
+  if (controlServerState.logs.length > 200) controlServerState.logs = controlServerState.logs.slice(-200);
+}
+
+function daemonProgramArguments() {
+  const args = [process.execPath];
+  if (process.defaultApp) args.push(app.getAppPath());
+  args.push("--daemon");
+  return args;
+}
+
+function daemonLaunchAgentEnvironment() {
+  const p = runtimePaths();
+  return {
+    AIMASHI_DAEMON: "1",
+    HERMES_HOME: p.home,
+    HERMES_LANGUAGE: process.env.HERMES_LANGUAGE || "zh",
+    PATH: process.env.PATH || "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+    PYTHONUNBUFFERED: "1"
+  };
+}
+
+function daemonLaunchAgentPlist() {
+  const p = runtimePaths();
+  const envEntries = Object.entries(daemonLaunchAgentEnvironment())
+    .map(([key, value]) => `      <key>${xmlEscape(key)}</key>\n      <string>${xmlEscape(value)}</string>`)
+    .join("\n");
+  const programArguments = daemonProgramArguments()
+    .map((value) => `    <string>${xmlEscape(value)}</string>`)
+    .join("\n");
+  return [
+    `<?xml version="1.0" encoding="UTF-8"?>`,
+    `<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">`,
+    `<plist version="1.0">`,
+    `<dict>`,
+    `  <key>Label</key>`,
+    `  <string>${AIMASHI_DAEMON_SERVICE_LABEL}</string>`,
+    `  <key>ProgramArguments</key>`,
+    `  <array>`,
+    programArguments,
+    `  </array>`,
+    `  <key>WorkingDirectory</key>`,
+    `  <string>${xmlEscape(app.getAppPath())}</string>`,
+    `  <key>EnvironmentVariables</key>`,
+    `  <dict>`,
+    envEntries,
+    `  </dict>`,
+    `  <key>RunAtLoad</key>`,
+    `  <true/>`,
+    `  <key>KeepAlive</key>`,
+    `  <true/>`,
+    `  <key>StandardOutPath</key>`,
+    `  <string>${xmlEscape(path.join(p.logsDir, "daemon.log"))}</string>`,
+    `  <key>StandardErrorPath</key>`,
+    `  <string>${xmlEscape(path.join(p.logsDir, "daemon.error.log"))}</string>`,
+    `</dict>`,
+    `</plist>`,
+    ``
+  ].join("\n");
+}
+
+function writeDaemonLaunchAgentPlist() {
+  const p = runtimePaths();
+  fs.mkdirSync(path.dirname(p.daemonLaunchAgent), { recursive: true });
+  fs.mkdirSync(p.logsDir, { recursive: true });
+  fs.writeFileSync(p.daemonLaunchAgent, daemonLaunchAgentPlist(), { mode: 0o600 });
+  return p.daemonLaunchAgent;
+}
+
+function stopDaemonLaunchAgent() {
+  if (process.platform !== "darwin") return;
+  const p = runtimePaths();
+  const domain = launchdDomain();
+  if (!domain) return;
+  runLaunchctl(["bootout", domain, p.daemonLaunchAgent], { ignoreFailure: true });
+  runLaunchctl(["bootout", `${domain}/${AIMASHI_DAEMON_SERVICE_LABEL}`], { ignoreFailure: true });
+}
+
+function startDaemonLaunchAgent() {
+  const domain = launchdDomain();
+  if (process.platform !== "darwin" || !domain) {
+    throw new Error("Aimashi daemon LaunchAgent is currently implemented for macOS launchd.");
+  }
+  const plist = writeDaemonLaunchAgentPlist();
+  stopDaemonLaunchAgent();
+  runLaunchctl(["bootstrap", domain, plist]);
+  runLaunchctl(["kickstart", "-k", `${domain}/${AIMASHI_DAEMON_SERVICE_LABEL}`], { ignoreFailure: true });
+}
+
+function requestAuthToken(req, url) {
+  const header = String(req.headers.authorization || "");
+  if (header.toLowerCase().startsWith("bearer ")) return header.slice(7).trim();
+  const explicit = req.headers["x-aimashi-token"];
+  if (typeof explicit === "string") return explicit.trim();
+  return String(url.searchParams.get("token") || "").trim();
+}
+
+function isControlRequestAuthorized(req, url) {
+  return requestAuthToken(req, url) === daemonToken();
+}
+
+function writeControlJson(res, statusCode, payload) {
+  const text = JSON.stringify(payload ?? {}, null, 2);
+  res.writeHead(statusCode, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Content-Length": Buffer.byteLength(text),
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers": "authorization, content-type, x-aimashi-token",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS"
+  });
+  res.end(text);
+}
+
+function writeControlText(res, statusCode, text, contentType) {
+  const body = String(text || "");
+  res.writeHead(statusCode, {
+    "Content-Type": contentType,
+    "Content-Length": Buffer.byteLength(body),
+    "Cache-Control": "no-cache"
+  });
+  res.end(body);
+}
+
+function writeControlBuffer(res, statusCode, body, contentType) {
+  const buffer = Buffer.isBuffer(body) ? body : Buffer.from(body || "");
+  res.writeHead(statusCode, {
+    "Content-Type": contentType,
+    "Content-Length": buffer.length,
+    "Cache-Control": "public, max-age=3600"
+  });
+  res.end(buffer);
+}
+
+function contentTypeForAsset(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === ".js") return "application/javascript; charset=utf-8";
+  if (ext === ".css") return "text/css; charset=utf-8";
+  if (ext === ".html") return "text/html; charset=utf-8";
+  if (ext === ".json") return "application/json; charset=utf-8";
+  if (ext === ".png") return "image/png";
+  if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
+  if (ext === ".webp") return "image/webp";
+  if (ext === ".svg") return "image/svg+xml";
+  return "application/octet-stream";
+}
+
+function serveMobileAsset(pathname, res) {
+  if (pathname.startsWith("/assets/")) {
+    const root = path.join(__dirname, "renderer", "assets");
+    const requested = path.normalize(path.join(root, pathname.replace(/^\/assets\//, "")));
+    if (!requested.startsWith(`${root}${path.sep}`) || !fs.existsSync(requested) || !fs.statSync(requested).isFile()) {
+      return false;
+    }
+    writeControlBuffer(res, 200, fs.readFileSync(requested), contentTypeForAsset(requested));
+    return true;
+  }
+
+  let asset = "index.html";
+  if (pathname === "/mobile" || pathname === "/mobile/") asset = "index.html";
+  else if (pathname === "/mobile/app.js") asset = "app.js";
+  else if (pathname === "/mobile/styles.css") asset = "styles.css";
+  else if (pathname === "/mobile/manifest.json") {
+    writeControlText(res, 200, JSON.stringify({
+      name: "Aimashi Mobile",
+      short_name: "Aimashi",
+      start_url: "/mobile/",
+      scope: "/mobile/",
+      display: "standalone",
+      orientation: "portrait",
+      background_color: "#ffffff",
+      theme_color: "#5e5ce6"
+    }, null, 2), "application/manifest+json; charset=utf-8");
+    return true;
+  } else {
+    return false;
+  }
+  const filePath = path.join(__dirname, "mobile", asset);
+  if (!fs.existsSync(filePath)) return false;
+  const type = asset.endsWith(".js")
+    ? "application/javascript; charset=utf-8"
+    : asset.endsWith(".css")
+      ? "text/css; charset=utf-8"
+      : "text/html; charset=utf-8";
+  writeControlText(res, 200, fs.readFileSync(filePath, "utf8"), type);
+  return true;
+}
+
+function readControlBody(req, maxBytes = 32 * 1024 * 1024) {
+  return new Promise((resolve, reject) => {
+    let body = "";
+    let size = 0;
+    req.on("data", (chunk) => {
+      size += chunk.length;
+      if (size > maxBytes) {
+        reject(new Error("Request body is too large."));
+        req.destroy();
+        return;
+      }
+      body += String(chunk);
+    });
+    req.on("end", () => {
+      if (!body.trim()) {
+        resolve({});
+        return;
+      }
+      try {
+        resolve(JSON.parse(body));
+      } catch {
+        reject(new Error("Request body must be valid JSON."));
+      }
+    });
+    req.on("error", reject);
+  });
+}
+
+function normalizeRemoteUserMessage(input) {
+  const message = input && typeof input === "object" ? input : { content: input };
+  return {
+    role: "user",
+    content: String(message.content || message.text || "").trim(),
+    attachments: normalizeAttachments(message.attachments),
+    createdAt: message.createdAt || new Date().toISOString()
+  };
+}
+
+function resolveRemoteChatSession({ fellowKey, sessionId }) {
+  initializeRuntime();
+  const manifest = loadFellowManifest();
+  const fellows = Array.isArray(manifest.fellows) ? manifest.fellows : [];
+  const key = String(fellowKey || manifest.default_fellow || fellows[0]?.key || "aimashi").trim();
+  const fellow = fellows.find((item) => item.key === key) || fellows[0] || defaultFellowManifest().fellows[0];
+  const store = loadChatStore();
+  if (!store.sessions[fellow.key]) store.sessions[fellow.key] = [];
+  let session = sessionId
+    ? store.sessions[fellow.key].find((item) => item.id === String(sessionId))
+    : null;
+  if (!session) {
+    session = ensurePersonaSession(store, fellow.key);
+  }
+  return { fellow, store, session };
+}
+
+async function runRemoteChatRequest(body, eventSink = null) {
+  const explicitMessages = Array.isArray(body?.messages) ? body.messages : [];
+  const lastExplicitUser = [...explicitMessages].reverse().find((message) => message?.role === "user");
+  const userMessage = normalizeRemoteUserMessage(lastExplicitUser || { content: body?.text, attachments: body?.attachments });
+  if (!userMessage.content && !userMessage.attachments.length) {
+    throw new Error("text or a user message is required.");
+  }
+
+  const { fellow, store, session } = resolveRemoteChatSession({
+    fellowKey: body?.fellowKey || body?.personaKey,
+    sessionId: body?.sessionId
+  });
+  const now = new Date().toISOString();
+  const history = Array.isArray(session.messages) ? session.messages : [];
+  const runMessages = explicitMessages.length
+    ? explicitMessages
+    : [...history, userMessage].map((message) => ({
+      role: message.role,
+      content: message.content,
+      attachments: normalizeAttachments(message.attachments)
+    }));
+
+  const response = await sendChat({
+    fellowKey: fellow.key,
+    sessionId: session.id,
+    messages: runMessages,
+    webContents: eventSink
+  });
+  const assistantText = responseMessageContent(response);
+  const savedUser = {
+    role: "user",
+    content: userMessage.content || "请查看附件。",
+    createdAt: userMessage.createdAt || now
+  };
+  if (userMessage.attachments.length) savedUser.attachments = userMessage.attachments;
+  session.messages = [
+    ...history,
+    savedUser,
+    {
+      role: "assistant",
+      content: assistantText,
+      createdAt: new Date().toISOString()
+    }
+  ];
+  session.updatedAt = new Date().toISOString();
+  if (!session.titleGenerated) {
+    session.title = fallbackSessionTitle(session.messages);
+  }
+  saveChatStore(store);
+  return { fellow, session, response };
+}
+
+async function handleControlRequest(req, res) {
+  const url = new URL(req.url || "/", `http://${req.headers.host || "127.0.0.1"}`);
+  if (req.method === "OPTIONS") {
+    writeControlJson(res, 204, {});
+    return;
+  }
+  if (req.method === "GET" && url.pathname === "/favicon.ico") {
+    res.writeHead(204, { "Cache-Control": "public, max-age=86400" });
+    res.end();
+    return;
+  }
+  if (req.method === "GET" && serveMobileAsset(url.pathname, res)) {
+    return;
+  }
+  if (req.method === "GET" && url.pathname === "/health") {
+    writeControlJson(res, 200, {
+      status: "ok",
+      service: "aimashi-daemon",
+      pid: process.pid,
+      uptime: Math.round(process.uptime()),
+      mode: IS_DAEMON_PROCESS ? "daemon" : "desktop"
+    });
+    return;
+  }
+  if (!isControlRequestAuthorized(req, url)) {
+    writeControlJson(res, 401, { error: "Unauthorized" });
+    return;
+  }
+  try {
+    if (req.method === "GET" && url.pathname === "/api/runtime/status") {
+      writeControlJson(res, 200, getRuntimeStatus());
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/api/fellows") {
+      const manifest = loadFellowManifest();
+      writeControlJson(res, 200, { fellows: manifest.fellows || [], defaultFellow: manifest.default_fellow || "aimashi" });
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/api/chat/sessions") {
+      writeControlJson(res, 200, loadChatSessions());
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/api/relay/status") {
+      writeControlJson(res, 200, relayStatus(false));
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/relay/start") {
+      const body = await readControlBody(req);
+      writeRelaySettings({ ...body, enabled: true });
+      await startRelayClient();
+      writeControlJson(res, 200, relayStatus(false));
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/relay/stop") {
+      writeRelaySettings({ enabled: false });
+      writeControlJson(res, 200, stopRelayClient());
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/chat/session") {
+      const body = await readControlBody(req);
+      writeControlJson(res, 200, newChatSession(body));
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/chat/session/save") {
+      const body = await readControlBody(req);
+      writeControlJson(res, 200, saveChatSession(body));
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/chat/stop") {
+      writeControlJson(res, 200, stopChat());
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/chat/send") {
+      const body = await readControlBody(req);
+      const result = await runRemoteChatRequest(body);
+      writeControlJson(res, 200, {
+        fellow: result.fellow,
+        session: result.session,
+        response: result.response
+      });
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/chat/stream") {
+      const body = await readControlBody(req);
+      res.writeHead(200, {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+        "Access-Control-Allow-Origin": "*"
+      });
+      const eventSink = {
+        isDestroyed: () => res.destroyed || res.writableEnded,
+        send: (_channel, envelope) => {
+          if (res.destroyed || res.writableEnded) return;
+          res.write(`event: chat\n`);
+          res.write(`data: ${JSON.stringify(envelope)}\n\n`);
+        }
+      };
+      try {
+        const result = await runRemoteChatRequest(body, eventSink);
+        res.write(`event: result\n`);
+        res.write(`data: ${JSON.stringify({ fellow: result.fellow, session: result.session, response: result.response })}\n\n`);
+        res.end();
+      } catch (error) {
+        res.write(`event: error\n`);
+        res.write(`data: ${JSON.stringify({ error: String(error?.message || error) })}\n\n`);
+        res.end();
+      }
+      return;
+    }
+    writeControlJson(res, 404, { error: "Not found" });
+  } catch (error) {
+    writeControlJson(res, 500, { error: String(error?.message || error) });
+  }
+}
+
+async function startControlServer(options = {}) {
+  initializeRuntime();
+  if (controlServer && controlServerState.running) return getDaemonStatus();
+  const settings = { ...daemonSettings(), ...options };
+  const host = normalizeDaemonHost(settings.host);
+  const preferredPort = normalizeDaemonPort(settings.port);
+  const port = await choosePort(preferredPort, 20);
+  if (!port) throw new Error("No available local port for Aimashi daemon.");
+  controlServerState = {
+    ...controlServerState,
+    running: false,
+    starting: true,
+    host,
+    port,
+    baseUrl: `http://${host}:${port}`,
+    lastError: ""
+  };
+  controlServer = http.createServer((req, res) => {
+    handleControlRequest(req, res).catch((error) => {
+      writeControlJson(res, 500, { error: String(error?.message || error) });
+    });
+  });
+  await new Promise((resolve, reject) => {
+    controlServer.once("error", reject);
+    controlServer.listen(port, host, resolve);
+  });
+  controlServerState.running = true;
+  controlServerState.starting = false;
+  writeDaemonSettings({ ...settings, host, port });
+  appendDaemonLog(`Aimashi daemon listening at ${controlServerState.baseUrl}`);
+  if (relaySettings().enabled) {
+    startRelayClient().catch((error) => {
+      relayState.lastError = String(error?.message || error);
+      appendRelayLog(`Relay auto-start failed: ${relayState.lastError}`);
+    });
+  }
+  return getDaemonStatus();
+}
+
+function stopControlServer() {
+  if (!controlServer) {
+    controlServerState.running = false;
+    controlServerState.starting = false;
+    return getDaemonStatus();
+  }
+  const server = controlServer;
+  controlServer = null;
+  server.close(() => {});
+  controlServerState.running = false;
+  controlServerState.starting = false;
+  appendDaemonLog("Aimashi daemon stopped");
+  return getDaemonStatus();
+}
+
+async function pingDaemon(settings = daemonSettings(), timeoutMs = 1200) {
+  const urls = daemonPingUrls(settings);
+  for (const baseUrl of urls) {
+    try {
+      const response = await fetch(`${baseUrl}/health`, { signal: AbortSignal.timeout(timeoutMs) });
+      if (response.ok) return { ok: true, baseUrl };
+    } catch {
+      // Try the next candidate URL.
+    }
+  }
+  return { ok: false, baseUrl: urls[0] || "" };
+}
+
+async function notifyDaemonRelay(action, body = {}) {
+  const ping = await pingDaemon(daemonSettings(), 500);
+  if (!ping.ok || !ping.baseUrl) return null;
+  const response = await fetch(`${ping.baseUrl}/api/relay/${action}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${daemonToken()}`
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(1200)
+  });
+  if (!response.ok) return null;
+  return response.json();
+}
+
+async function fetchDaemonRelayStatus() {
+  const ping = await pingDaemon(daemonSettings(), 500);
+  if (!ping.ok || !ping.baseUrl) return null;
+  const response = await fetch(`${ping.baseUrl}/api/relay/status`, {
+    headers: { Authorization: `Bearer ${daemonToken()}` },
+    signal: AbortSignal.timeout(1200)
+  });
+  if (!response.ok) return null;
+  return response.json();
+}
+
+async function startDaemonService() {
+  initializeRuntime();
+  const settings = daemonSettings();
+  if (IS_DAEMON_PROCESS) return startControlServer(settings);
+  const existing = await pingDaemon(settings, 500);
+  if (existing.ok) return { ...getDaemonStatus(), running: true, baseUrl: existing.baseUrl };
+  if (process.platform === "darwin") {
+    startDaemonLaunchAgent();
+    for (let i = 0; i < 20; i += 1) {
+      const ping = await pingDaemon(settings, 500);
+      if (ping.ok) return { ...getDaemonStatus(), running: true, baseUrl: ping.baseUrl };
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+    throw new Error("Timed out waiting for Aimashi daemon LaunchAgent.");
+  }
+  return startControlServer(settings);
+}
+
+function stopDaemonService() {
+  if (process.platform === "darwin" && !IS_DAEMON_PROCESS) {
+    stopDaemonLaunchAgent();
+  }
+  return stopControlServer();
+}
+
+function appendRelayLog(line) {
+  const settings = relaySettings();
+  const clean = String(line || "")
+    .replace(new RegExp(settings.secret, "g"), "[REDACTED]")
+    .replace(new RegExp(daemonToken(), "g"), "[REDACTED]");
+  relayState.logs.push(clean);
+  if (relayState.logs.length > 200) relayState.logs = relayState.logs.slice(-200);
+}
+
+function relaySend(payload) {
+  if (!relayClient || relayClient.readyState !== WebSocket.OPEN) return false;
+  relayClient.send(JSON.stringify(payload));
+  return true;
+}
+
+function scheduleRelayReconnect() {
+  if (relayReconnectTimer) return;
+  const settings = relaySettings();
+  if (!settings.enabled) return;
+  relayReconnectTimer = setTimeout(() => {
+    relayReconnectTimer = null;
+    startRelayClient().catch((error) => {
+      relayState.lastError = String(error?.message || error);
+      appendRelayLog(`Relay reconnect failed: ${relayState.lastError}`);
+      scheduleRelayReconnect();
+    });
+  }, 2500);
+}
+
+function stopRelayClient() {
+  if (relayReconnectTimer) {
+    clearTimeout(relayReconnectTimer);
+    relayReconnectTimer = null;
+  }
+  const ws = relayClient;
+  relayClient = null;
+  if (ws && ws.readyState === WebSocket.OPEN) ws.close(1000, "remote disabled");
+  relayState = {
+    ...relayState,
+    enabled: relaySettings().enabled,
+    connected: false,
+    connecting: false,
+    mobilePeers: 0
+  };
+  return relayStatus(true);
+}
+
+function relayRpcResult(clientId, id, ok, payload) {
+  relaySend({
+    type: "rpc_result",
+    clientId,
+    id,
+    ok,
+    ...(ok ? { data: payload } : { error: String(payload?.message || payload || "Request failed.") })
+  });
+}
+
+function relayRpcStream(clientId, id, event, data) {
+  relaySend({
+    type: "rpc_stream",
+    clientId,
+    id,
+    event,
+    data
+  });
+}
+
+async function handleRelayRpc(message = {}) {
+  const id = String(message.id || crypto.randomUUID());
+  const clientId = String(message.clientId || "");
+  const method = String(message.method || "GET").toUpperCase();
+  const requestPath = String(message.path || "/");
+  const body = message.body && typeof message.body === "object" ? message.body : {};
+  try {
+    if (method === "GET" && requestPath === "/health") {
+      relayRpcResult(clientId, id, true, {
+        status: "ok",
+        service: "aimashi-daemon",
+        mode: IS_DAEMON_PROCESS ? "daemon" : "desktop"
+      });
+      return;
+    }
+    if (method === "GET" && requestPath === "/api/runtime/status") {
+      relayRpcResult(clientId, id, true, getRuntimeStatus());
+      return;
+    }
+    if (method === "GET" && requestPath === "/api/fellows") {
+      const manifest = loadFellowManifest();
+      relayRpcResult(clientId, id, true, { fellows: manifest.fellows || [], defaultFellow: manifest.default_fellow || "aimashi" });
+      return;
+    }
+    if (method === "GET" && requestPath === "/api/chat/sessions") {
+      relayRpcResult(clientId, id, true, loadChatSessions());
+      return;
+    }
+    if (method === "POST" && requestPath === "/api/chat/session") {
+      relayRpcResult(clientId, id, true, newChatSession(body));
+      return;
+    }
+    if (method === "POST" && requestPath === "/api/chat/session/save") {
+      relayRpcResult(clientId, id, true, saveChatSession(body));
+      return;
+    }
+    if (method === "POST" && requestPath === "/api/chat/stop") {
+      relayRpcResult(clientId, id, true, stopChat());
+      return;
+    }
+    if (method === "POST" && requestPath === "/api/chat/send") {
+      const result = await runRemoteChatRequest(body);
+      relayRpcResult(clientId, id, true, {
+        fellow: result.fellow,
+        session: result.session,
+        response: result.response
+      });
+      return;
+    }
+    if (method === "POST" && requestPath === "/api/chat/stream") {
+      const eventSink = {
+        isDestroyed: () => !relayClient || relayClient.readyState !== WebSocket.OPEN,
+        send: (_channel, envelope) => {
+          relayRpcStream(clientId, id, "chat", envelope);
+        }
+      };
+      const result = await runRemoteChatRequest(body, eventSink);
+      relayRpcStream(clientId, id, "result", {
+        fellow: result.fellow,
+        session: result.session,
+        response: result.response
+      });
+      relayRpcResult(clientId, id, true, { done: true });
+      return;
+    }
+    relayRpcResult(clientId, id, false, "Not found.");
+  } catch (error) {
+    if (method === "POST" && requestPath === "/api/chat/stream") {
+      relayRpcStream(clientId, id, "error", { error: String(error?.message || error) });
+    }
+    relayRpcResult(clientId, id, false, error);
+  }
+}
+
+function handleRelayMessage(raw) {
+  let message = null;
+  try {
+    message = JSON.parse(String(raw || ""));
+  } catch {
+    appendRelayLog("Relay sent invalid JSON.");
+    return;
+  }
+  if (message.type === "ready") {
+    relayState.connected = true;
+    relayState.connecting = false;
+    relayState.mobilePeers = Number(message.device?.mobilePeers || 0);
+    relayState.lastError = "";
+    appendRelayLog("Relay connected.");
+    return;
+  }
+  if (message.type === "peer_count") {
+    relayState.mobilePeers = Number(message.count || 0);
+    return;
+  }
+  if (message.type === "rpc") {
+    handleRelayRpc(message).catch((error) => {
+      relayRpcResult(message.clientId, message.id, false, error);
+    });
+    return;
+  }
+  if (message.type === "error") {
+    relayState.lastError = String(message.error || "Relay error.");
+    appendRelayLog(`Relay error: ${relayState.lastError}`);
+  }
+}
+
+async function startRelayClient() {
+  initializeRuntime();
+  const settings = relaySettings();
+  relayState = {
+    ...relayState,
+    enabled: settings.enabled,
+    url: settings.url,
+    deviceId: settings.deviceId
+  };
+  if (!settings.enabled) return relayStatus(true);
+  if (relayClient && [WebSocket.CONNECTING, WebSocket.OPEN].includes(relayClient.readyState)) return relayStatus(true);
+  if (relayReconnectTimer) {
+    clearTimeout(relayReconnectTimer);
+    relayReconnectTimer = null;
+  }
+  relayState.connecting = true;
+  relayState.connected = false;
+  relayState.lastError = "";
+  const ws = new WebSocket(settings.url);
+  relayClient = ws;
+  ws.on("open", () => {
+    relayState.connecting = false;
+    relaySend({
+      type: "hello",
+      role: "desktop",
+      deviceId: settings.deviceId,
+      secret: settings.secret,
+      name: os.hostname() || "Aimashi Desktop"
+    });
+  });
+  ws.on("message", handleRelayMessage);
+  ws.on("error", (error) => {
+    relayState.lastError = String(error?.message || error);
+    appendRelayLog(`Relay socket error: ${relayState.lastError}`);
+  });
+  ws.on("close", () => {
+    if (relayClient === ws) relayClient = null;
+    relayState.connected = false;
+    relayState.connecting = false;
+    relayState.mobilePeers = 0;
+    appendRelayLog("Relay disconnected.");
+    scheduleRelayReconnect();
+  });
+  return relayStatus(true);
+}
+
 async function isEngineHealthy(baseUrl, timeoutMs = 1200) {
   try {
     const response = await fetch(`${baseUrl}/health`, {
@@ -4182,8 +5193,67 @@ function createWindow() {
   win.loadFile(path.join(__dirname, "renderer", "index.html"));
 }
 
-ipcMain.handle("runtime:initialize", () => initializeRuntime());
-ipcMain.handle("runtime:status", () => getRuntimeStatus());
+ipcMain.handle("runtime:initialize", async () => {
+  const status = initializeRuntime();
+  status.daemon = await getObservedDaemonStatus(350);
+  if (!IS_DAEMON_PROCESS) {
+    status.relay = { ...status.relay, ...(await fetchDaemonRelayStatus().catch(() => null) || {}) };
+  }
+  return status;
+});
+ipcMain.handle("runtime:status", async () => {
+  const status = getRuntimeStatus();
+  status.daemon = await getObservedDaemonStatus(350);
+  if (!IS_DAEMON_PROCESS) {
+    status.relay = { ...status.relay, ...(await fetchDaemonRelayStatus().catch(() => null) || {}) };
+  }
+  return status;
+});
+ipcMain.handle("daemon:status", async () => {
+  return getObservedDaemonStatus(500);
+});
+ipcMain.handle("daemon:pairing", async () => {
+  const settings = daemonSettings();
+  const ping = await pingDaemon(settings, 500);
+  return { ...getDaemonPairingInfo(), running: controlServerState.running || ping.ok, baseUrl: ping.baseUrl || getDaemonStatus().baseUrl };
+});
+ipcMain.handle("daemon:start", () => startDaemonService());
+ipcMain.handle("daemon:stop", () => stopDaemonService());
+ipcMain.handle("daemon:settings-save", (_event, settings) => {
+  writeDaemonSettings(settings);
+  return getDaemonStatus();
+});
+ipcMain.handle("relay:status", async () => {
+  if (!IS_DAEMON_PROCESS) {
+    const daemonRelay = await fetchDaemonRelayStatus().catch(() => null);
+    if (daemonRelay) return { ...relayStatus(true), ...daemonRelay };
+  }
+  return relayStatus(true);
+});
+ipcMain.handle("relay:start", async () => {
+  writeRelaySettings({ enabled: true });
+  if (!IS_DAEMON_PROCESS) {
+    const daemonRelay = await notifyDaemonRelay("start");
+    if (daemonRelay) return { ...relayStatus(true), ...daemonRelay };
+  }
+  return startRelayClient();
+});
+ipcMain.handle("relay:stop", () => {
+  writeRelaySettings({ enabled: false });
+  if (!IS_DAEMON_PROCESS) {
+    notifyDaemonRelay("stop").catch(() => {});
+  }
+  return stopRelayClient();
+});
+ipcMain.handle("relay:settings-save", async (_event, settings) => {
+  const next = writeRelaySettings(settings);
+  if (!IS_DAEMON_PROCESS) {
+    const daemonRelay = await notifyDaemonRelay(next.enabled ? "start" : "stop", next);
+    if (daemonRelay) return { ...relayStatus(true), ...daemonRelay };
+  }
+  if (next.enabled) return startRelayClient();
+  return stopRelayClient();
+});
 ipcMain.handle("engine:install", () => installEngine());
 ipcMain.handle("engine:start", () => startEngine());
 ipcMain.handle("engine:stop", () => stopEngine());
@@ -4255,10 +5325,14 @@ ipcMain.handle("appearance:save", (_event, settings) => {
   const theme = String(settings.theme || current.theme || "light").trim();
   const fontPreset = String(settings.fontPreset || current.fontPreset || "system").trim();
   const accentColor = String(settings.accentColor || current.accentColor || "#5e5ce6").trim();
+  const listStyle = String(settings.listStyle || current.listStyle || "card").trim();
+  const selectionStyle = String(settings.selectionStyle || current.selectionStyle || "soft").trim();
   const next = {
     theme: ["light", "dark"].includes(theme) ? theme : "light",
     fontPreset: ["system", "sf-pro", "pingfang", "mono"].includes(fontPreset) ? fontPreset : "system",
-    accentColor: /^#[0-9a-fA-F]{6}$/.test(accentColor) ? accentColor.toLowerCase() : "#5e5ce6"
+    accentColor: /^#[0-9a-fA-F]{6}$/.test(accentColor) ? accentColor.toLowerCase() : "#5e5ce6",
+    listStyle: ["card", "flush"].includes(listStyle) ? listStyle : "card",
+    selectionStyle: ["soft", "solid"].includes(selectionStyle) ? selectionStyle : "soft"
   };
   fs.writeFileSync(p.appearanceSettings, JSON.stringify(next, null, 2) + "\n");
   return getRuntimeStatus();
@@ -4418,8 +5492,28 @@ ipcMain.handle("pet:generate", (_event, payload) => startFellowPetGeneration(pay
 ipcMain.handle("pet:place", (_event, key) => placeFellowPet(key));
 ipcMain.handle("pet:recall", (_event, key) => recallFellowPet(key));
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   initializeRuntime();
+  if (IS_DAEMON_PROCESS) {
+    try {
+      app.dock?.hide?.();
+    } catch {
+      // Dock APIs are macOS-only.
+    }
+    try {
+      await startControlServer();
+    } catch (error) {
+      controlServerState.starting = false;
+      controlServerState.lastError = String(error?.message || error);
+      appendDaemonLog(`Daemon start failed: ${controlServerState.lastError}`);
+      throw error;
+    }
+    return;
+  }
+  startDaemonService().catch((error) => {
+    controlServerState.lastError = String(error?.message || error);
+    appendDaemonLog(`Background daemon registration failed: ${controlServerState.lastError}`);
+  });
   createWindow();
   setTimeout(async () => {
     try {
@@ -4434,9 +5528,11 @@ app.whenReady().then(() => {
 
 app.on("window-all-closed", () => {
   cancelCodexOAuth();
+  if (IS_DAEMON_PROCESS) return;
   if (process.platform !== "darwin") app.quit();
 });
 
 app.on("activate", () => {
+  if (IS_DAEMON_PROCESS) return;
   if (BrowserWindow.getAllWindows().length === 0) createWindow();
 });

@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#ffffff">
+    <title>Aimashi Mobile</title>
+    <link rel="manifest" href="/mobile/manifest.json">
+    <link rel="stylesheet" href="/mobile/styles.css">
+  </head>
+  <body>
+    <main class="app">
+      <section id="setupView" class="setup-view hidden">
+        <div class="setup-panel">
+          <h1>Aimashi</h1>
+          <p>连接你电脑上的 Aimashi 后台服务。</p>
+          <label>
+            电脑地址
+            <input id="baseUrlInput" inputmode="url" autocomplete="off" placeholder="http://192.168.1.2:27861">
+          </label>
+          <label>
+            配对 Token
+            <input id="tokenInput" autocomplete="off" placeholder="从桌面端设置里复制">
+          </label>
+          <button id="savePairing" class="primary" type="button">连接</button>
+          <p id="setupError" class="error"></p>
+        </div>
+      </section>
+
+      <section id="mainView" class="main-view hidden">
+        <section id="listView" class="pane">
+          <header class="topbar">
+            <div>
+              <h1 id="pageTitle">消息</h1>
+              <p id="connectionMeta">连接中</p>
+            </div>
+            <button id="refreshButton" class="icon-button" type="button" title="刷新">↻</button>
+          </header>
+          <div id="conversationList" class="list"></div>
+        </section>
+
+        <section id="fellowsView" class="pane hidden">
+          <header class="topbar">
+            <div>
+              <h1>伙伴</h1>
+              <p id="fellowMeta"></p>
+            </div>
+          </header>
+          <div id="fellowList" class="list"></div>
+        </section>
+
+        <section id="settingsPane" class="pane hidden">
+          <header class="topbar">
+            <div>
+              <h1>设置</h1>
+              <p>手机端本地保存连接信息</p>
+            </div>
+          </header>
+          <div class="settings-list">
+            <label>
+              电脑地址
+              <input id="settingsBaseUrl" inputmode="url" autocomplete="off">
+            </label>
+            <label>
+              Token
+              <input id="settingsToken" autocomplete="off">
+            </label>
+            <button id="saveSettings" class="secondary" type="button">保存并重连</button>
+            <button id="clearPairing" class="danger" type="button">清除配对</button>
+          </div>
+        </section>
+
+        <section id="chatView" class="chat-view hidden">
+          <header class="chat-topbar">
+            <button id="backButton" class="icon-button" type="button" title="返回">‹</button>
+            <span id="chatAvatar" class="avatar"></span>
+            <div>
+              <h1 id="chatTitle">伙伴</h1>
+              <p id="chatMeta">在线</p>
+            </div>
+            <button id="newSessionButton" class="icon-button" type="button" title="新对话">＋</button>
+          </header>
+          <div id="messageList" class="messages"></div>
+          <form id="composer" class="composer">
+            <textarea id="chatInput" rows="1" placeholder="输入消息"></textarea>
+            <button id="sendButton" class="send-button" type="submit" disabled>↗</button>
+          </form>
+        </section>
+
+        <nav id="bottomNav" class="bottom-nav">
+          <button class="nav-button active" type="button" data-tab="messages">消息</button>
+          <button class="nav-button" type="button" data-tab="fellows">伙伴</button>
+          <button class="nav-button" type="button" data-tab="settings">设置</button>
+        </nav>
+      </section>
+    </main>
+    <script src="/mobile/app.js"></script>
+  </body>
+</html>

@@ -7,7 +7,11 @@ const required = [
   "src/preload.js",
   "src/renderer/index.html",
   "src/renderer/app.js",
-  "src/renderer/styles.css"
+  "src/renderer/styles.css",
+  "src/mobile/index.html",
+  "src/mobile/app.js",
+  "src/mobile/styles.css",
+  "src/relay/server.js"
 ];
 
 for (const file of required) {
@@ -17,7 +21,7 @@ for (const file of required) {
   }
 }
 
-for (const file of ["src/main.js", "src/preload.js", "src/renderer/app.js"]) {
+for (const file of ["src/main.js", "src/preload.js", "src/renderer/app.js", "src/mobile/app.js", "src/relay/server.js"]) {
   childProcess.execFileSync(process.execPath, ["--check", path.join(__dirname, "..", file)], {
     stdio: "inherit"
   });

@@ -15,6 +15,7 @@ const SIDEBAR_WIDTH_MIN = 220;
 const SIDEBAR_WIDTH_MAX = 380;
 const SIDEBAR_WIDTH_DEFAULT = 280;
 const scrollbarTimers = new WeakMap();
+let appearanceSaveStatusTimer = 0;
 
 function clampSidebarWidth(value) {
   const availableMax = Math.max(SIDEBAR_WIDTH_MIN, Math.min(SIDEBAR_WIDTH_MAX, window.innerWidth - 430));
@@ -231,12 +232,12 @@ const els = {
   appearanceTheme: document.getElementById("appearanceTheme"),
   appearanceFontPreset: document.getElementById("appearanceFontPreset"),
   appearanceFontChoices: document.getElementById("appearanceFontChoices"),
+  appearanceListStyle: document.getElementById("appearanceListStyle"),
+  appearanceSelectionStyle: document.getElementById("appearanceSelectionStyle"),
   appearanceAccentColor: document.getElementById("appearanceAccentColor"),
   appearanceAccentPreview: document.getElementById("appearanceAccentPreview"),
-  appearanceAccentR: document.getElementById("appearanceAccentR"),
-  appearanceAccentG: document.getElementById("appearanceAccentG"),
-  appearanceAccentB: document.getElementById("appearanceAccentB"),
   appearanceAccentReset: document.getElementById("appearanceAccentReset"),
+  appearanceSaveStatus: document.getElementById("appearanceSaveStatus"),
   authMethod: document.getElementById("authMethod"),
   modelPreset: document.getElementById("modelPreset"),
   modelProvider: document.getElementById("modelProvider"),
@@ -252,11 +253,40 @@ const els = {
   codexCode: document.getElementById("codexCode"),
   codexLogin: document.getElementById("codexLogin"),
   codexCancel: document.getElementById("codexCancel"),
-  codexLogs: document.getElementById("codexLogs")
+  codexLogs: document.getElementById("codexLogs"),
+  mobileDaemonStatus: document.getElementById("mobileDaemonStatus"),
+  mobileDaemonScope: document.getElementById("mobileDaemonScope"),
+  mobileDaemonUrl: document.getElementById("mobileDaemonUrl"),
+  mobileLocalOnly: document.getElementById("mobileLocalOnly"),
+  mobileLanAccess: document.getElementById("mobileLanAccess"),
+  mobilePairingBox: document.getElementById("mobilePairingBox"),
+  mobilePairingLink: document.getElementById("mobilePairingLink"),
+  mobilePairingHint: document.getElementById("mobilePairingHint"),
+  mobileLocalHint: document.getElementById("mobileLocalHint"),
+  mobileRelayStatus: document.getElementById("mobileRelayStatus"),
+  mobileRelayUrl: document.getElementById("mobileRelayUrl"),
+  mobileRelayToggle: document.getElementById("mobileRelayToggle"),
+  mobileRelayLink: document.getElementById("mobileRelayLink"),
+  mobileRelayHint: document.getElementById("mobileRelayHint")
 };
 
 function setText(el, value) {
   if (el) el.textContent = value;
+}
+
+function showAppearanceSaveStatus(text, kind = "ok") {
+  if (!els.appearanceSaveStatus) return;
+  if (appearanceSaveStatusTimer) window.clearTimeout(appearanceSaveStatusTimer);
+  els.appearanceSaveStatus.textContent = text;
+  els.appearanceSaveStatus.dataset.kind = kind;
+  els.appearanceSaveStatus.classList.toggle("visible", Boolean(text));
+  if (!text) return;
+  appearanceSaveStatusTimer = window.setTimeout(() => {
+    els.appearanceSaveStatus.textContent = "";
+    els.appearanceSaveStatus.classList.remove("visible");
+    delete els.appearanceSaveStatus.dataset.kind;
+    appearanceSaveStatusTimer = 0;
+  }, kind === "error" ? 3600 : 1800);
 }
 
 function applySidebarWidth(width = state.sidebarWidth, persist = false) {
@@ -899,11 +929,21 @@ const fontPresets = {
 };
 
 const DEFAULT_ACCENT_COLOR = "#5e5ce6";
+const DEFAULT_LIST_STYLE = "card";
+const DEFAULT_SELECTION_STYLE = "soft";
 
 function normalizeHexColor(value, fallback = DEFAULT_ACCENT_COLOR) {
   const raw = String(value || "").trim();
   const expanded = raw.replace(/^#([0-9a-fA-F]{3})$/, (_, hex) => `#${hex.split("").map((part) => part + part).join("")}`);
   return /^#[0-9a-fA-F]{6}$/.test(expanded) ? expanded.toLowerCase() : fallback;
+}
+
+function normalizeListStyle(value) {
+  return value === "flush" ? "flush" : DEFAULT_LIST_STYLE;
+}
+
+function normalizeSelectionStyle(value) {
+  return value === "solid" ? "solid" : DEFAULT_SELECTION_STYLE;
 }
 
 function hexToRgb(value) {
@@ -915,8 +955,27 @@ function hexToRgb(value) {
   };
 }
 
-function rgbToHex(r, g, b) {
-  return `#${[r, g, b].map((value) => Math.max(0, Math.min(255, Number(value) || 0)).toString(16).padStart(2, "0")).join("")}`;
+function relativeLuminance(rgb) {
+  const channel = (value) => {
+    const next = Math.max(0, Math.min(255, Number(value) || 0)) / 255;
+    return next <= 0.03928 ? next / 12.92 : ((next + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * channel(rgb.r) + 0.7152 * channel(rgb.g) + 0.0722 * channel(rgb.b);
+}
+
+function selectionTextColors(rgb) {
+  const lightBackground = relativeLuminance(rgb) > 0.56;
+  return lightBackground
+    ? {
+        text: "rgba(0, 0, 0, 0.90)",
+        muted: "rgba(0, 0, 0, 0.66)",
+        faint: "rgba(0, 0, 0, 0.48)"
+      }
+    : {
+        text: "#ffffff",
+        muted: "rgba(255, 255, 255, 0.78)",
+        faint: "rgba(255, 255, 255, 0.62)"
+      };
 }
 
 function fontStackForAppearance(appearance = {}) {
@@ -927,18 +986,37 @@ function applyAppearance(appearance = {}) {
   const theme = appearance.theme === "dark" ? "dark" : "light";
   const accentColor = normalizeHexColor(appearance.accentColor);
   const rgb = hexToRgb(accentColor);
+  const listStyle = normalizeListStyle(appearance.listStyle);
+  const selectionStyle = normalizeSelectionStyle(appearance.selectionStyle);
+  const softActive = `rgb(${rgb.r} ${rgb.g} ${rgb.b} / ${theme === "dark" ? "0.22" : "0.16"})`;
   document.documentElement.dataset.theme = theme;
+  document.documentElement.dataset.listStyle = listStyle;
+  document.documentElement.dataset.selectionStyle = selectionStyle;
   document.documentElement.style.setProperty("--app-font", fontStackForAppearance(appearance));
   document.documentElement.style.setProperty("--accent", accentColor);
   document.documentElement.style.setProperty("--accent-rgb", `${rgb.r} ${rgb.g} ${rgb.b}`);
-  document.documentElement.style.setProperty("--active", `rgb(${rgb.r} ${rgb.g} ${rgb.b} / ${theme === "dark" ? "0.22" : "0.16"})`);
+  document.documentElement.style.setProperty("--active", softActive);
+  if (selectionStyle === "solid") {
+    const textColors = selectionTextColors(rgb);
+    document.documentElement.style.setProperty("--list-active", accentColor);
+    document.documentElement.style.setProperty("--list-active-text", textColors.text);
+    document.documentElement.style.setProperty("--list-active-muted", textColors.muted);
+    document.documentElement.style.setProperty("--list-active-faint", textColors.faint);
+  } else {
+    document.documentElement.style.setProperty("--list-active", softActive);
+    document.documentElement.style.setProperty("--list-active-text", accentColor);
+    document.documentElement.style.setProperty("--list-active-muted", "var(--muted)");
+    document.documentElement.style.setProperty("--list-active-faint", "var(--faint)");
+  }
 }
 
 function currentAppearanceDraft() {
   return {
     theme: els.appearanceTheme?.value || "light",
     fontPreset: els.appearanceFontPreset?.value || "system",
-    accentColor: normalizeHexColor(els.appearanceAccentColor?.value)
+    accentColor: normalizeHexColor(els.appearanceAccentColor?.value),
+    listStyle: normalizeListStyle(els.appearanceListStyle?.value),
+    selectionStyle: normalizeSelectionStyle(els.appearanceSelectionStyle?.value)
   };
 }
 
@@ -950,13 +1028,23 @@ function syncAppearanceControls(appearance = currentAppearanceDraft()) {
     button.classList.toggle("active", active);
     button.setAttribute("aria-checked", active ? "true" : "false");
   });
+  const listStyle = normalizeListStyle(appearance.listStyle);
+  if (els.appearanceListStyle) els.appearanceListStyle.value = listStyle;
+  document.querySelectorAll("[data-list-style]").forEach((button) => {
+    const active = button.dataset.listStyle === listStyle;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-checked", active ? "true" : "false");
+  });
+  const selectionStyle = normalizeSelectionStyle(appearance.selectionStyle);
+  if (els.appearanceSelectionStyle) els.appearanceSelectionStyle.value = selectionStyle;
+  document.querySelectorAll("[data-selection-style]").forEach((button) => {
+    const active = button.dataset.selectionStyle === selectionStyle;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-checked", active ? "true" : "false");
+  });
   const accentColor = normalizeHexColor(appearance.accentColor);
-  const rgb = hexToRgb(accentColor);
   if (els.appearanceAccentColor) els.appearanceAccentColor.value = accentColor;
   if (els.appearanceAccentPreview) els.appearanceAccentPreview.style.backgroundColor = accentColor;
-  if (els.appearanceAccentR) els.appearanceAccentR.value = String(rgb.r);
-  if (els.appearanceAccentG) els.appearanceAccentG.value = String(rgb.g);
-  if (els.appearanceAccentB) els.appearanceAccentB.value = String(rgb.b);
 }
 
 function initials(name) {
@@ -1494,6 +1582,130 @@ function updateModelFieldVisibility(runtime = state.runtime) {
   }
 }
 
+async function refreshDaemonPairing() {
+  try {
+    let pairing = await window.aimashi.daemonPairing();
+    if (!pairing?.running && window.aimashi.startDaemon) {
+      await window.aimashi.startDaemon();
+      pairing = await window.aimashi.daemonPairing();
+    }
+    state.runtime = {
+      ...(state.runtime || {}),
+      daemon: {
+        ...(state.runtime?.daemon || {}),
+        ...pairing,
+        token: undefined
+      }
+    };
+    renderMobilePairing(pairing);
+    return pairing;
+  } catch (error) {
+    setText(els.mobileDaemonStatus, `Error: ${error.message}`);
+    throw error;
+  }
+}
+
+function renderMobilePairing(daemon = state.runtime?.daemon || {}) {
+  if (!els.mobileDaemonStatus) return;
+  const settings = daemon.settings || {};
+  const running = Boolean(daemon.running);
+  const host = settings.host || daemon.host || "127.0.0.1";
+  const scope = host === "0.0.0.0" || host === "::" ? "局域网" : "仅本机";
+  const links = Array.isArray(daemon.links) && daemon.links.length
+    ? daemon.links
+    : Array.isArray(daemon.connectUrls)
+      ? daemon.connectUrls.map((url) => `${url}/mobile/`)
+      : [];
+  const link = links[0] || "";
+  setText(els.mobileDaemonStatus, running ? "Aimashi 后台已运行" : daemon.starting ? "Aimashi 后台启动中" : "Aimashi 后台未运行");
+  setText(els.mobileDaemonScope, scope);
+  setText(els.mobileDaemonUrl, scope === "局域网"
+    ? "同一局域网、且未开启设备隔离时可用。"
+    : "仅允许本机访问，手机无法连接。");
+  if (els.mobilePairingBox) els.mobilePairingBox.classList.toggle("hidden", scope !== "局域网" || !link);
+  if (els.mobileLocalHint) els.mobileLocalHint.classList.toggle("hidden", scope === "局域网" && Boolean(link));
+  if (els.mobilePairingLink) {
+    els.mobilePairingLink.dataset.link = link;
+    setText(els.mobilePairingLink, link);
+  }
+  if (els.mobilePairingHint) {
+    els.mobilePairingHint.textContent = scope === "局域网"
+      ? "点击链接即可复制。公司、校园或公共 Wi-Fi 可能会禁止设备互访。"
+      : "仅本机模式不会生成手机配对链接。";
+  }
+  if (els.mobileLocalOnly) els.mobileLocalOnly.classList.toggle("active", scope === "仅本机");
+  if (els.mobileLanAccess) els.mobileLanAccess.classList.toggle("active", scope === "局域网");
+}
+
+async function refreshRelayPairing() {
+  if (!window.aimashi?.relayStatus) return null;
+  try {
+    const relay = await window.aimashi.relayStatus();
+    state.runtime = {
+      ...(state.runtime || {}),
+      relay: {
+        ...(state.runtime?.relay || {}),
+        ...relay,
+        secret: undefined
+      }
+    };
+    renderRelayPairing(relay);
+    return relay;
+  } catch (error) {
+    setText(els.mobileRelayStatus, `Error: ${error.message}`);
+    throw error;
+  }
+}
+
+function renderRelayPairing(relay = state.runtime?.relay || {}) {
+  if (!els.mobileRelayStatus) return;
+  const enabled = Boolean(relay.enabled);
+  const connected = Boolean(relay.connected);
+  const peers = Number(relay.mobilePeers || 0);
+  const link = String(relay.pairingLink || "");
+  setText(els.mobileRelayStatus, enabled
+    ? connected
+      ? peers ? `已连接 · ${peers} 台手机` : "已连接"
+      : relay.connecting ? "连接中" : "未连接"
+    : "未开启");
+  if (els.mobileRelayToggle) {
+    els.mobileRelayToggle.textContent = enabled ? "关闭远程访问" : "开启远程访问";
+    els.mobileRelayToggle.classList.toggle("active", enabled);
+  }
+  if (els.mobileRelayUrl && document.activeElement !== els.mobileRelayUrl) {
+    els.mobileRelayUrl.value = String(relay.url || "");
+  }
+  if (els.mobileRelayLink) {
+    els.mobileRelayLink.classList.toggle("hidden", !enabled || !link);
+    els.mobileRelayLink.dataset.link = link;
+    setText(els.mobileRelayLink, link);
+  }
+  if (els.mobileRelayHint) {
+    els.mobileRelayHint.textContent = enabled
+      ? connected
+        ? "点击远程配对链接即可复制。手机和电脑不需要在同一网络。"
+        : `等待 relay：${relay.lastError || relay.url || "未连接"}`
+      : "通过 Aimashi Relay 中继连接，不依赖同一局域网。当前 MVP 需要先运行本地 relay 服务。";
+  }
+}
+
+async function applyDaemonHost(host) {
+  if (!window.aimashi?.saveDaemonSettings) return null;
+  setText(els.mobilePairingHint, "正在切换手机访问范围...");
+  await window.aimashi.saveDaemonSettings({ host });
+  await window.aimashi.stopDaemon?.();
+  await window.aimashi.startDaemon?.();
+  return refreshDaemonPairing();
+}
+
+function currentMobilePairingLink() {
+  return String(els.mobilePairingLink?.dataset?.link || els.mobilePairingLink?.value || els.mobilePairingLink?.textContent || "").trim();
+}
+
+function currentRelayPairingLink() {
+  return String(els.mobileRelayLink?.dataset?.link || els.mobileRelayLink?.textContent || "").trim();
+}
+
 function render() {
   const runtime = state.runtime;
   if (!runtime) return;
@@ -1501,12 +1713,20 @@ function render() {
   const editingModel = els.modelForm.contains(document.activeElement);
   const editingProfile = Boolean(els.profileForm?.contains(document.activeElement));
   const editingAppearance = Boolean(els.appearanceForm?.contains(document.activeElement));
-  const appearance = runtime.appearance || { theme: "light", fontPreset: "system", accentColor: DEFAULT_ACCENT_COLOR };
+  const appearance = runtime.appearance || {
+    theme: "light",
+    fontPreset: "system",
+    accentColor: DEFAULT_ACCENT_COLOR,
+    listStyle: DEFAULT_LIST_STYLE,
+    selectionStyle: DEFAULT_SELECTION_STYLE
+  };
   applyAppearance(appearance);
   if (!editingAppearance) {
     els.appearanceTheme.value = appearance.theme || "light";
     const savedFontPreset = appearance.fontPreset || "system";
     els.appearanceFontPreset.value = fontPresets[savedFontPreset] ? savedFontPreset : "system";
+    if (els.appearanceListStyle) els.appearanceListStyle.value = normalizeListStyle(appearance.listStyle);
+    if (els.appearanceSelectionStyle) els.appearanceSelectionStyle.value = normalizeSelectionStyle(appearance.selectionStyle);
     syncAppearanceControls(appearance);
   }
   const user = runtime.user || { displayName: "Boss", avatarText: "B", avatarColor: "#111827", avatarImage: "" };
@@ -1531,6 +1751,8 @@ function render() {
     runtime.engineLastError ? `ERROR: ${runtime.engineLastError}` : "",
     ...(runtime.engineLogs || [])
   ].filter(Boolean).join("\n");
+  renderMobilePairing(runtime.daemon || {});
+  renderRelayPairing(runtime.relay || {});
   const auth = runtime.auth || {};
   const editingModelSelect = document.activeElement === els.modelSelect || document.activeElement === els.quickModelSelect || document.activeElement === els.effortSelect;
   if (!editingModel && !editingModelSelect) renderModelSelectors(runtime);
@@ -3018,7 +3240,15 @@ async function createNewSessionForActive() {
 }
 
 async function refreshRuntime() {
-  state.runtime = await window.aimashi.runtimeStatus();
+  const previousDaemon = state.runtime?.daemon || {};
+  const runtime = await window.aimashi.runtimeStatus();
+  if (runtime?.daemon && Array.isArray(previousDaemon.links) && previousDaemon.links.length && !Array.isArray(runtime.daemon.links)) {
+    runtime.daemon = {
+      ...runtime.daemon,
+      links: previousDaemon.links
+    };
+  }
+  state.runtime = runtime;
   state.petJobs = state.runtime?.petJobs || state.petJobs;
   render();
 }
@@ -3040,6 +3270,10 @@ els.openSettings.addEventListener("click", () => {
   state.settingsOpen = true;
   if (state.activeSettingsTab === "profile") state.activeSettingsTab = "appearance";
   renderView();
+  if (state.activeSettingsTab === "mobile") {
+    refreshDaemonPairing().catch(console.error);
+    refreshRelayPairing().catch(console.error);
+  }
 });
 els.closeSettings.addEventListener("click", () => {
   state.settingsOpen = false;
@@ -3214,7 +3448,110 @@ document.querySelectorAll("[data-settings-tab]").forEach((button) => {
   button.addEventListener("click", () => {
     state.activeSettingsTab = button.dataset.settingsTab;
     renderView();
+    if (state.activeSettingsTab === "mobile") {
+      refreshDaemonPairing().catch(console.error);
+      refreshRelayPairing().catch(console.error);
+    }
   });
+});
+
+els.mobileLocalOnly?.addEventListener("click", async () => {
+  try {
+    await applyDaemonHost("127.0.0.1");
+  } catch (error) {
+    setText(els.mobilePairingHint, `切换失败：${error.message}`);
+  }
+});
+
+els.mobileLanAccess?.addEventListener("click", async () => {
+  try {
+    await applyDaemonHost("0.0.0.0");
+  } catch (error) {
+    setText(els.mobilePairingHint, `切换失败：${error.message}`);
+  }
+});
+
+els.mobilePairingLink?.addEventListener("click", async () => {
+  const link = currentMobilePairingLink();
+  if (!link) {
+    setText(els.mobilePairingHint, "当前没有可复制的配对链接。");
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(link);
+    setText(els.mobilePairingHint, "已复制。把链接发到手机浏览器打开即可。");
+  } catch {
+    setText(els.mobilePairingHint, "复制失败，可以长按链接文本手动复制。");
+  }
+});
+
+els.mobileRelayToggle?.addEventListener("click", async () => {
+  const enabled = Boolean(state.runtime?.relay?.enabled);
+  setText(els.mobileRelayHint, enabled ? "正在关闭远程访问..." : "正在连接 relay...");
+  try {
+    const relayUrl = String(els.mobileRelayUrl?.value || "").trim();
+    if (relayUrl && window.aimashi.saveRelaySettings) {
+      await window.aimashi.saveRelaySettings({ url: relayUrl, enabled });
+    }
+    const relay = enabled
+      ? await window.aimashi.stopRelay()
+      : await window.aimashi.startRelay();
+    state.runtime = {
+      ...(state.runtime || {}),
+      relay: {
+        ...relay,
+        secret: undefined
+      }
+    };
+    renderRelayPairing(relay);
+  } catch (error) {
+    setText(els.mobileRelayHint, `远程访问切换失败：${error.message}`);
+    await refreshRuntime();
+  }
+});
+
+async function saveRelayUrlFromField() {
+  const url = String(els.mobileRelayUrl?.value || "").trim();
+  if (!url || !window.aimashi?.saveRelaySettings) return;
+  setText(els.mobileRelayHint, "正在保存 Relay 地址...");
+  try {
+    const relay = await window.aimashi.saveRelaySettings({
+      url,
+      enabled: Boolean(state.runtime?.relay?.enabled)
+    });
+    state.runtime = {
+      ...(state.runtime || {}),
+      relay: {
+        ...relay,
+        secret: undefined
+      }
+    };
+    renderRelayPairing(relay);
+  } catch (error) {
+    setText(els.mobileRelayHint, `Relay 地址保存失败：${error.message}`);
+  }
+}
+
+els.mobileRelayUrl?.addEventListener("change", saveRelayUrlFromField);
+els.mobileRelayUrl?.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  els.mobileRelayUrl?.blur();
+  saveRelayUrlFromField();
+});
+
+els.mobileRelayLink?.addEventListener("click", async () => {
+  const link = currentRelayPairingLink();
+  if (!link) {
+    setText(els.mobileRelayHint, "当前没有可复制的远程配对链接。");
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(link);
+    setText(els.mobileRelayHint, "已复制远程配对链接。手机和电脑不需要在同一网络。");
+  } catch {
+    setText(els.mobileRelayHint, "复制失败，可以长按链接文本手动复制。");
+  }
 });
 
 els.installEngine.addEventListener("click", async () => {
@@ -3809,9 +4146,29 @@ els.profileForm?.addEventListener("submit", async (event) => {
 els.appearanceForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const next = currentAppearanceDraft();
+  const submitButton = els.appearanceForm.querySelector('button[type="submit"]');
+  const previousText = submitButton?.textContent || "保存外观";
   applyAppearance(next);
-  state.runtime = await window.aimashi.saveAppearance(next);
-  render();
+  showAppearanceSaveStatus("正在保存...");
+  if (submitButton) {
+    submitButton.disabled = true;
+    submitButton.textContent = "保存中";
+  }
+  try {
+    state.runtime = await window.aimashi.saveAppearance(next);
+    render();
+    showAppearanceSaveStatus("已保存");
+    if (submitButton) submitButton.textContent = "已保存";
+    window.setTimeout(() => {
+      if (submitButton) submitButton.textContent = previousText;
+    }, 1000);
+  } catch (error) {
+    console.error(error);
+    showAppearanceSaveStatus("保存失败", "error");
+    if (submitButton) submitButton.textContent = previousText;
+  } finally {
+    if (submitButton) submitButton.disabled = false;
+  }
 });
 
 els.appearanceTheme.addEventListener("change", () => {
@@ -3835,26 +4192,22 @@ els.appearanceFontChoices?.addEventListener("click", (event) => {
   syncAppearanceControls(next);
 });
 
-els.appearanceAccentColor?.addEventListener("input", () => {
+els.appearanceListStyle?.addEventListener("change", () => {
   const next = currentAppearanceDraft();
   applyAppearance(next);
   syncAppearanceControls(next);
 });
 
-function updateAccentFromRgbFields() {
-  const color = rgbToHex(
-    els.appearanceAccentR?.value,
-    els.appearanceAccentG?.value,
-    els.appearanceAccentB?.value
-  );
-  if (els.appearanceAccentColor) els.appearanceAccentColor.value = color;
+els.appearanceSelectionStyle?.addEventListener("change", () => {
   const next = currentAppearanceDraft();
   applyAppearance(next);
   syncAppearanceControls(next);
-}
+});
 
-[els.appearanceAccentR, els.appearanceAccentG, els.appearanceAccentB].forEach((input) => {
-  input?.addEventListener("input", updateAccentFromRgbFields);
+els.appearanceAccentColor?.addEventListener("input", () => {
+  const next = currentAppearanceDraft();
+  applyAppearance(next);
+  syncAppearanceControls(next);
 });
 
 els.appearanceAccentReset?.addEventListener("click", () => {
