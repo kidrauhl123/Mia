@@ -22,6 +22,7 @@ let appearanceSaveStatusTimer = 0;
 let appearanceAutoSaveTimer = 0;
 let appearanceAutoSaveSeq = 0;
 const qrSvgCache = new Map();
+const ICON_PARK_PIN_SVG = '<svg class="icon-park-pin" viewBox="0 0 48 48" aria-hidden="true" focusable="false"><path d="M10.6963 17.5042C13.3347 14.8657 16.4701 14.9387 19.8781 16.8076L32.62 9.74509L31.8989 4.78683L43.2126 16.1005L38.2656 15.3907L31.1918 28.1214C32.9752 31.7589 33.1337 34.6647 30.4953 37.3032C30.4953 37.3032 26.235 33.0429 22.7171 29.525L6.44305 41.5564L18.4382 25.2461C14.9202 21.7281 10.6963 17.5042 10.6963 17.5042Z"/></svg>';
 
 function clampSidebarWidth(value) {
   const availableMax = Math.max(SIDEBAR_WIDTH_MIN, Math.min(SIDEBAR_WIDTH_MAX, window.innerWidth - 430));
@@ -1623,6 +1624,20 @@ async function persistSessionQuietly(session = activeSession()) {
   }
 }
 
+async function replacePersistedSessionQuietly(session = activeSession()) {
+  try {
+    state.chatStore = await window.aimashi.saveChatSession({
+      personaKey: session.personaKey || state.activeKey,
+      session,
+      replaceMessages: true
+    });
+    return true;
+  } catch (error) {
+    console.error("Failed to replace chat session", error);
+    return false;
+  }
+}
+
 async function loadChatSessions() {
   state.chatStore = await window.aimashi.loadChatSessions();
   const personas = state.runtime?.fellows || state.runtime?.personas || [];
@@ -2042,7 +2057,7 @@ function render() {
       </span>
       <span class="persona-side">
         <span class="persona-time">${escapeHtml(preview.time)}</span>
-        <span class="persona-pin${persona.pinned ? "" : " hidden"}" aria-label="置顶">⌖</span>
+        <span class="persona-pin${persona.pinned ? "" : " hidden"}" aria-label="置顶">${ICON_PARK_PIN_SVG}</span>
         <span class="persona-unread${unread ? "" : " hidden"}">${escapeHtml(unread > 99 ? "99+" : String(unread))}</span>
       </span>
     `;
@@ -2528,6 +2543,7 @@ function renderSkillPreview() {
 
 function openSkillContextMenu(skillId, x, y) {
   if (!skillId) return;
+  closeMessageContextMenu();
   state.skillContextMenu = { open: true, x, y, skillId };
   renderSkillContextMenu();
 }
@@ -2558,7 +2574,7 @@ function renderSkillContextMenu() {
     <button class="danger" type="button" data-skill-action="delete" ${canDelete ? "" : "disabled"}>删除</button>
   `;
   const rect = menu.getBoundingClientRect();
-  const width = rect.width || 158;
+  const width = rect.width || 112;
   const height = rect.height || 122;
   menu.style.left = `${Math.max(8, Math.min(state.skillContextMenu.x, window.innerWidth - width - 8))}px`;
   menu.style.top = `${Math.max(8, Math.min(state.skillContextMenu.y, window.innerHeight - height - 8))}px`;
@@ -2738,6 +2754,7 @@ function petStatusForKey(key) {
 
 function openFellowContextMenu(fellowKey, x, y) {
   if (!fellowKey) return;
+  closeMessageContextMenu();
   state.fellowContextMenu = { open: true, x, y, fellowKey };
   renderFellowContextMenu();
 }
@@ -2768,7 +2785,7 @@ function renderFellowContextMenu() {
     ${fellow.key === "aimashi" ? "" : `<div class="skill-context-menu-separator" role="separator"></div><button class="danger" type="button" data-fellow-action="delete">删除伙伴</button>`}
   `;
   const rect = menu.getBoundingClientRect();
-  const width = rect.width || 158;
+  const width = rect.width || 138;
   const height = rect.height || (fellow.key === "aimashi" ? 114 : 158);
   menu.style.left = `${Math.max(8, Math.min(state.fellowContextMenu.x, window.innerWidth - width - 8))}px`;
   menu.style.top = `${Math.max(8, Math.min(state.fellowContextMenu.y, window.innerHeight - height - 8))}px`;
@@ -2795,6 +2812,116 @@ function renderFellowContextMenu() {
   menu.querySelector('[data-fellow-action="delete"]')?.addEventListener("click", async () => {
     closeFellowContextMenu();
     await deleteFellow(fellow.key);
+  });
+}
+
+function messageAtIndex(index) {
+  const messages = messagesForActive();
+  if (!Number.isInteger(index) || index < 0 || index >= messages.length) return null;
+  return messages[index] || null;
+}
+
+function messagePlainText(message) {
+  return String(message?.content || "").trim();
+}
+
+function messageContextSnippet(message) {
+  const text = messagePlainText(message).replace(/\s+/g, " ");
+  return text.length > 160 ? `${text.slice(0, 160)}...` : text;
+}
+
+function openMessageContextMenu(messageIndex, x, y) {
+  const index = Number(messageIndex);
+  if (!messageAtIndex(index)) return;
+  closeSkillContextMenu();
+  closeFellowContextMenu();
+  state.messageContextMenu = { open: true, x, y, messageIndex: index };
+  renderMessageContextMenu();
+}
+
+function closeMessageContextMenu() {
+  if (!state.messageContextMenu.open) return;
+  state.messageContextMenu = { open: false, x: 0, y: 0, messageIndex: -1 };
+  renderMessageContextMenu();
+}
+
+function insertComposerText(text) {
+  const value = String(text || "");
+  if (!value || !els.chatInput) return;
+  els.chatInput.value = value;
+  els.chatInput.focus();
+  els.chatInput.setSelectionRange(value.length, value.length);
+  renderSendButton();
+  updateSlashCommandState();
+}
+
+function replyToMessage(message) {
+  const snippet = messageContextSnippet(message);
+  if (!snippet) return;
+  insertComposerText(`回复这条消息：\n> ${snippet}\n\n`);
+}
+
+function translateMessage(message) {
+  const snippet = messagePlainText(message);
+  if (!snippet) return;
+  insertComposerText(`请把下面这段内容翻译成中文，保持原意和语气：\n\n${snippet}`);
+}
+
+async function toggleMessagePinned(index) {
+  const message = messageAtIndex(index);
+  if (!message) return;
+  message.pinned = !message.pinned;
+  message.pinnedAt = message.pinned ? nowIso() : "";
+  const session = activeSession();
+  session.updatedAt = nowIso();
+  renderChat();
+  await replacePersistedSessionQuietly(session);
+}
+
+async function deleteMessageAt(index) {
+  const session = activeSession();
+  if (!messageAtIndex(index)) return;
+  session.messages.splice(index, 1);
+  session.updatedAt = nowIso();
+  renderChat();
+  renderSessionMenu();
+  await replacePersistedSessionQuietly(session);
+}
+
+function renderMessageContextMenu() {
+  if (!els.messageContextMenu) return;
+  const menu = els.messageContextMenu;
+  const message = messageAtIndex(state.messageContextMenu.messageIndex);
+  const open = state.messageContextMenu.open && message;
+  menu.classList.toggle("hidden", !open);
+  if (!open) return;
+  const hasText = Boolean(messagePlainText(message));
+  menu.innerHTML = `
+    <button type="button" data-message-action="reply" ${hasText ? "" : "disabled"}>回复</button>
+    <button type="button" data-message-action="copy" ${hasText ? "" : "disabled"}>拷贝</button>
+    <button type="button" data-message-action="translate" ${hasText ? "" : "disabled"}>翻译</button>
+    <div class="skill-context-menu-separator" role="separator"></div>
+    <button type="button" data-message-action="pin">${message.pinned ? "取消置顶" : "置顶"}</button>
+    <button class="danger" type="button" data-message-action="delete">删除</button>
+  `;
+  const rect = menu.getBoundingClientRect();
+  const width = rect.width || 96;
+  const height = rect.height || 210;
+  menu.style.left = `${Math.max(8, Math.min(state.messageContextMenu.x, window.innerWidth - width - 8))}px`;
+  menu.style.top = `${Math.max(8, Math.min(state.messageContextMenu.y, window.innerHeight - height - 8))}px`;
+  menu.querySelectorAll("[data-message-action]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const action = button.dataset.messageAction;
+      const index = state.messageContextMenu.messageIndex;
+      const targetMessage = messageAtIndex(index);
+      closeMessageContextMenu();
+      if (!targetMessage) return;
+      if (action === "reply") replyToMessage(targetMessage);
+      if (action === "copy") await copyTextToClipboard(messagePlainText(targetMessage));
+      if (action === "translate") translateMessage(targetMessage);
+      if (action === "pin") await toggleMessagePinned(index);
+      if (action === "delete") await deleteMessageAt(index);
+    });
   });
 }
 
@@ -3166,7 +3293,7 @@ function renderChat() {
   const activeAgentEngine = active?.agentEngine || active?.agent_engine || "hermes";
   const usesHermes = !["claude-code", "codex"].includes(activeAgentEngine);
   els.chat.innerHTML = "";
-  for (const message of messages) {
+  for (const [messageIndex, message] of messages.entries()) {
     const article = document.createElement("article");
     article.className = `message ${message.role === "user" ? "user" : "assistant"}`;
     const persona = active;
@@ -3194,9 +3321,10 @@ function renderChat() {
     const timeHtml = renderMessageTime(message.createdAt);
     const bodyHtml = String(message.content || "").trim() ? renderMarkdown(message.content) : "";
     const attachmentHtml = renderAttachmentChips(message.attachments);
+    const pinnedHtml = message.pinned ? `<span class="message-pin-badge">${ICON_PARK_PIN_SVG}置顶</span>` : "";
     article.innerHTML = `
       <div class="avatar" style="background-color:${escapeHtml(avatarBackgroundColor)};${imageStyle}">${message.role === "user" && !userAvatar ? escapeHtml(label) : ""}</div>
-      <div class="message-stack">${traceHtml}<div class="bubble">${bodyHtml}${attachmentHtml}</div>${timeHtml}</div>
+      <div class="message-stack">${traceHtml}<div class="bubble${message.pinned ? " pinned" : ""}" data-message-index="${messageIndex}">${pinnedHtml}${bodyHtml}${attachmentHtml}</div>${timeHtml}</div>
     `;
     els.chat.appendChild(article);
   }
@@ -3696,6 +3824,8 @@ els.skillPreviewDialog?.addEventListener("click", (event) => {
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
   if (state.skillContextMenu.open) closeSkillContextMenu();
+  if (state.fellowContextMenu.open) closeFellowContextMenu();
+  if (state.messageContextMenu.open) closeMessageContextMenu();
   closeComposerAddMenu();
   if (state.skillPreviewOpen) {
     state.skillPreviewOpen = false;
@@ -3712,6 +3842,16 @@ document.addEventListener("click", (event) => {
 });
 document.addEventListener("click", (event) => {
   if (state.fellowContextMenu.open && !els.fellowContextMenu?.contains(event.target)) closeFellowContextMenu();
+});
+document.addEventListener("click", (event) => {
+  if (state.messageContextMenu.open && !els.messageContextMenu?.contains(event.target)) closeMessageContextMenu();
+});
+els.chat?.addEventListener("contextmenu", (event) => {
+  const bubble = event.target.closest(".bubble[data-message-index]");
+  if (!bubble || !els.chat.contains(bubble)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  openMessageContextMenu(bubble.dataset.messageIndex, event.clientX, event.clientY);
 });
 document.addEventListener("click", (event) => {
   if (!state.sessionMenuOpen) return;

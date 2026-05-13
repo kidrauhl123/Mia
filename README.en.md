@@ -20,13 +20,10 @@ app data directory:
       manifest.json
       aimashi.fellow.json
       aimashi.md
-    souls/
-      aimashi.md
 ```
 
 `fellows/` is the product-facing structure. Each Fellow has metadata in
-`<id>.fellow.json` and a persona seed in `<id>.md`. `souls/` is a compatibility
-mirror for older Hermes/Aimashi layouts.
+`<id>.fellow.json` and a persona seed in `<id>.md`.
 
 ## Run
 

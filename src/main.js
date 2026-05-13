@@ -121,7 +121,6 @@ function runtimePaths() {
     legacyPersonaDir: path.join(home, "personas", "accounts"),
     personaManifest: path.join(home, "fellows", "manifest.json"),
     personaDir: path.join(home, "fellows"),
-    compatSoulsDir: path.join(home, "souls"),
     apiKey: path.join(home, "api-server.key"),
     authJson: path.join(home, "auth.json"),
     userProfile: path.join(home, "aimashi-user.json"),
@@ -752,6 +751,10 @@ function normalizeChatStore(input) {
                 content: String(message.content || ""),
                 createdAt: message.createdAt || session.updatedAt || new Date().toISOString()
               };
+              if (message.pinned) {
+                out.pinned = true;
+                out.pinnedAt = String(message.pinnedAt || message.pinned_at || session.updatedAt || "");
+              }
               const attachments = normalizeAttachments(message.attachments);
               if (attachments.length) out.attachments = attachments;
               if (message.reasoning) out.reasoning = String(message.reasoning);
@@ -1441,14 +1444,11 @@ function migrateLegacyPersonas(created) {
     const mdPath = path.join(p.fellowDir, `${fellow.key}.md`);
     const metaPath = path.join(p.fellowDir, `${fellow.key}.fellow.json`);
     const legacyMdPath = path.join(p.legacyPersonaDir, `${fellow.key}.md`);
-    const compatSoulPath = path.join(p.compatSoulsDir, `${fellow.key}.md`);
     let body = "";
     if (fs.existsSync(mdPath)) {
       body = fs.readFileSync(mdPath, "utf8");
     } else if (fs.existsSync(legacyMdPath)) {
       body = fs.readFileSync(legacyMdPath, "utf8");
-    } else if (fs.existsSync(compatSoulPath)) {
-      body = fs.readFileSync(compatSoulPath, "utf8");
     } else {
       body = fellowPersonaBody(fellow.name, fellow.bio);
     }
@@ -1458,7 +1458,6 @@ function migrateLegacyPersonas(created) {
     if (writeFileIfMissing(metaPath, JSON.stringify(fellowMetadata(fellow), null, 2) + "\n")) {
       created.push(`runtime/engine-home/fellows/${fellow.key}.fellow.json`);
     }
-    writeFileIfMissing(compatSoulPath, body);
   }
 }
 
@@ -1534,7 +1533,7 @@ function initializeRuntime() {
   fs.mkdirSync(p.engine, { recursive: true });
   fs.mkdirSync(p.home, { recursive: true });
   fs.mkdirSync(p.fellowDir, { recursive: true });
-  fs.mkdirSync(p.compatSoulsDir, { recursive: true });
+  fs.rmSync(path.join(p.home, "souls"), { recursive: true, force: true });
   fs.mkdirSync(p.petDir, { recursive: true });
   fs.mkdirSync(p.petJobsDir, { recursive: true });
 
@@ -5622,7 +5621,7 @@ function loadChatSessions() {
   return saveChatStore(store);
 }
 
-function saveChatSession({ personaKey, session }) {
+function saveChatSession({ personaKey, session, replaceMessages = false }) {
   initializeRuntime();
   const key = String(personaKey || session?.personaKey || "").trim();
   if (!key) throw new Error("personaKey is required.");
@@ -5644,6 +5643,10 @@ function saveChatSession({ personaKey, session }) {
           createdAt: message.createdAt || now,
           transient: Boolean(message.transient)
         };
+        if (message.pinned) {
+          out.pinned = true;
+          out.pinnedAt = String(message.pinnedAt || message.pinned_at || now);
+        }
         const attachments = normalizeAttachments(message.attachments);
         if (attachments.length) out.attachments = attachments;
         if (message.reasoning) out.reasoning = String(message.reasoning);
@@ -5683,7 +5686,7 @@ function saveChatSession({ personaKey, session }) {
       titleGenerated: Boolean(existing.titleGenerated || next.titleGenerated),
       createdAt: existing.createdAt || next.createdAt,
       updatedAt: String(next.updatedAt || "").localeCompare(String(existing.updatedAt || "")) >= 0 ? next.updatedAt : existing.updatedAt,
-      messages: mergedMessages
+      messages: replaceMessages ? next.messages : mergedMessages
     };
   }
   else store.sessions[key].push(next);
@@ -6004,7 +6007,6 @@ function saveFellow(fellowInput) {
       : fellowPersonaBody(name, fellowInput.description || fellowInput.bio || "");
   fs.writeFileSync(path.join(p.fellowDir, `${key}.md`), body);
   fs.writeFileSync(path.join(p.fellowDir, `${key}.fellow.json`), JSON.stringify(fellowMetadata(next), null, 2) + "\n");
-  fs.writeFileSync(path.join(p.compatSoulsDir, `${key}.md`), body);
   return getRuntimeStatus();
 }
 
@@ -6067,8 +6069,7 @@ function deleteFellow(input = {}) {
   saveFellowManifest(manifest);
   for (const filePath of [
     path.join(p.fellowDir, `${key}.md`),
-    path.join(p.fellowDir, `${key}.fellow.json`),
-    path.join(p.compatSoulsDir, `${key}.md`)
+    path.join(p.fellowDir, `${key}.fellow.json`)
   ]) {
     fs.rmSync(filePath, { force: true });
   }

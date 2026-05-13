@@ -13,6 +13,7 @@
   --menu-border: rgba(120, 130, 150, 0.16);
   --menu-shadow: 0 16px 40px rgba(16, 20, 39, 0.14);
   --menu-separator: rgba(20, 24, 40, 0.08);
+  --composer-add-menu-width: 188px;
   --accent-rgb: 94 92 230;
   --active: rgb(var(--accent-rgb) / 0.16);
   --list-active: var(--active);
@@ -192,7 +193,7 @@ p {
   place-items: center;
   flex: 0 0 auto;
   color: #fff;
-  font-weight: 560;
+  font-weight: 430;
   overflow: hidden;
 }
 
@@ -346,7 +347,7 @@ body.sidebar-resizing * {
   right: 10px;
   z-index: 18;
   display: grid;
-  min-width: 154px;
+  min-width: 138px;
   padding: 6px;
   border: 1px solid var(--menu-border);
   border-radius: 13px;
@@ -467,7 +468,7 @@ body.sidebar-resizing * {
   padding: 10px 18px 4px;
   color: var(--faint);
   font-size: 10px;
-  font-weight: 650;
+  font-weight: 400;
   letter-spacing: 0.02em;
   text-transform: uppercase;
 }
@@ -512,7 +513,7 @@ body.sidebar-resizing * {
 .skill-nav-row strong {
   color: var(--text);
   font-size: 13px;
-  font-weight: 750;
+  font-weight: 430;
 }
 
 .skill-nav-row.active strong {
@@ -522,7 +523,7 @@ body.sidebar-resizing * {
 .skill-nav-row small {
   color: var(--muted);
   font-size: 11px;
-  font-weight: 550;
+  font-weight: 400;
 }
 
 .skill-nav-row.active small {
@@ -536,7 +537,7 @@ body.sidebar-resizing * {
   color: var(--faint);
   font-size: 10px;
   font-style: normal;
-  font-weight: 800;
+  font-weight: 400;
 }
 
 .skill-nav-row.active em {
@@ -589,7 +590,7 @@ body.sidebar-resizing * {
 
 .skill-filter-row strong {
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 430;
 }
 
 .skill-filter-row small {
@@ -610,7 +611,7 @@ body.sidebar-resizing * {
   color: var(--faint);
   font-size: 10px;
   font-style: normal;
-  font-weight: 650;
+  font-weight: 400;
 }
 
 .skill-filter-row.active em {
@@ -631,7 +632,7 @@ body.sidebar-resizing * {
   border-radius: 8px;
   color: #fff;
   font-size: 10px;
-  font-weight: 750;
+  font-weight: 430;
 }
 
 .skill-dot.docs {
@@ -734,12 +735,12 @@ body.sidebar-resizing * {
 .persona-name {
   color: var(--text);
   font-size: 14px;
-  font-weight: 650;
+  font-weight: 430;
 }
 
 .persona.active .persona-name {
   color: var(--list-active-text);
-  font-weight: 750;
+  font-weight: 450;
 }
 
 .persona-key {
@@ -763,7 +764,7 @@ body.sidebar-resizing * {
 .persona-time {
   color: var(--faint);
   font-size: 11px;
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .persona.active .persona-time,
@@ -772,10 +773,30 @@ body.sidebar-resizing * {
 }
 
 .persona-pin {
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
   color: var(--faint);
-  font-size: 13px;
   line-height: 1;
-  transform: rotate(-18deg);
+}
+
+.icon-park-pin {
+  display: block;
+  width: 1em;
+  height: 1em;
+  fill: currentColor;
+  fill-opacity: 0.18;
+  stroke: currentColor;
+  stroke-width: 4;
+  stroke-linejoin: round;
+  overflow: visible;
+}
+
+.persona-pin .icon-park-pin {
+  width: 14px;
+  height: 14px;
+  fill-opacity: 0.12;
 }
 
 .persona-unread {
@@ -838,7 +859,7 @@ body.sidebar-resizing * {
 .contact-row-main strong {
   color: var(--text);
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 430;
 }
 
 .contact-row.active .contact-row-main strong {
@@ -848,7 +869,7 @@ body.sidebar-resizing * {
 .contact-row-main small {
   color: var(--muted);
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .contact-row.active .contact-row-main small,
@@ -860,7 +881,7 @@ body.sidebar-resizing * {
   max-width: 46px;
   color: var(--faint);
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 400;
 }
 
 .contact-empty {
@@ -991,7 +1012,7 @@ body.topbar-click-capture .topbar {
   min-width: 0;
   color: var(--text);
   font-size: 16px;
-  font-weight: 800;
+  font-weight: 450;
 }
 
 .group-title h1 span {
@@ -1006,13 +1027,13 @@ body.topbar-click-capture .topbar {
   background: rgb(var(--accent-rgb) / 0.12);
   color: var(--accent);
   font-size: 11px;
-  font-weight: 750;
+  font-weight: 400;
 }
 
 .topbar p {
   color: var(--muted);
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .top-actions {
@@ -1049,7 +1070,7 @@ body.topbar-click-capture .topbar {
   white-space: nowrap;
   color: var(--muted);
   font-size: 12px;
-  font-weight: 750;
+  font-weight: 400;
   text-align: left;
 }
 
@@ -1075,7 +1096,7 @@ body.topbar-click-capture .topbar {
   z-index: 12;
   display: grid;
   gap: 8px;
-  width: min(320px, calc(100vw - 380px));
+  width: min(280px, calc(100vw - 380px));
   max-height: 430px;
   padding: 8px;
   border: 1px solid var(--menu-border);
@@ -1156,7 +1177,7 @@ body.topbar-click-capture .topbar {
   border-radius: 8px;
   color: var(--muted);
   font-style: normal;
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .session-row em:hover {
@@ -1217,7 +1238,7 @@ body.topbar-click-capture .topbar {
   overflow: hidden;
   color: var(--text);
   font-size: 24px;
-  font-weight: 800;
+  font-weight: 450;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1225,7 +1246,7 @@ body.topbar-click-capture .topbar {
 .contact-profile-title p {
   color: var(--muted);
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 400;
   line-height: 1.55;
   overflow-wrap: anywhere;
 }
@@ -1261,7 +1282,7 @@ body.topbar-click-capture .topbar {
 .contact-note strong {
   color: var(--faint);
   font-size: 11px;
-  font-weight: 750;
+  font-weight: 400;
 }
 
 .contact-facts dd {
@@ -1269,7 +1290,7 @@ body.topbar-click-capture .topbar {
   overflow: hidden;
   color: var(--text);
   font-size: 13px;
-  font-weight: 650;
+  font-weight: 400;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1323,7 +1344,7 @@ body.topbar-click-capture .topbar {
   background: var(--surface-muted);
   color: var(--muted);
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 400;
 }
 
 .skill-chip-row button span {
@@ -1387,7 +1408,7 @@ body.topbar-click-capture .topbar {
   overflow: hidden;
   color: var(--text);
   font-size: 14px;
-  font-weight: 680;
+  font-weight: 430;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1396,7 +1417,7 @@ body.topbar-click-capture .topbar {
   overflow: hidden;
   color: var(--muted);
   font-size: 11px;
-  font-weight: 500;
+  font-weight: 400;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1417,7 +1438,7 @@ body.topbar-click-capture .topbar {
   color: var(--muted);
   background: var(--surface-muted);
   font-size: 13px;
-  font-weight: 650;
+  font-weight: 400;
 }
 
 .skill-empty-state.compact {
@@ -1457,7 +1478,7 @@ body.topbar-click-capture .topbar {
   margin: 0;
   color: var(--text);
   font-size: 18px;
-  font-weight: 520;
+  font-weight: 430;
   line-height: 1.2;
 }
 
@@ -1523,7 +1544,7 @@ body.topbar-click-capture .topbar {
   margin: 0;
   color: var(--muted);
   font-size: 12px;
-  font-weight: 520;
+  font-weight: 400;
 }
 
 .extension-skill-list button {
@@ -1553,7 +1574,7 @@ body.topbar-click-capture .topbar {
 
 .extension-skill-list strong {
   font-size: 13px;
-  font-weight: 520;
+  font-weight: 430;
 }
 
 .extension-skill-list small {
@@ -1566,7 +1587,9 @@ body.topbar-click-capture .topbar {
   position: fixed;
   z-index: 45;
   display: grid;
-  min-width: 158px;
+  width: max-content;
+  min-width: 112px;
+  max-width: min(220px, calc(100vw - 16px));
   padding: 6px;
   border: 1px solid var(--menu-border);
   border-radius: 14px;
@@ -1587,7 +1610,7 @@ body.topbar-click-capture .topbar {
   align-items: center;
   min-width: 0;
   height: 34px;
-  padding: 0 11px;
+  padding: 0 16px 0 11px;
   border-radius: 9px;
   background: transparent;
   color: var(--text);
@@ -1595,6 +1618,15 @@ body.topbar-click-capture .topbar {
   font-weight: 400;
   text-align: left;
   line-height: 34px;
+  white-space: nowrap;
+}
+
+.fellow-context-menu {
+  min-width: 138px;
+}
+
+.message-context-menu {
+  min-width: 96px;
 }
 
 .skill-context-menu button:hover:not(:disabled) {
@@ -1692,7 +1724,7 @@ body.topbar-click-capture .topbar {
   max-width: min(520px, 58vw);
   color: #24211d;
   font-size: 14px;
-  font-weight: 850;
+  font-weight: 450;
 }
 
 :root[data-theme="dark"] .skill-preview-title h2 {
@@ -1703,7 +1735,7 @@ body.topbar-click-capture .topbar {
   max-width: min(620px, 62vw);
   color: #8a8176;
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 400;
 }
 
 .skill-markdown-body {
@@ -1739,7 +1771,7 @@ body.topbar-click-capture .topbar {
 .skill-markdown-body h1 {
   margin: 0 0 2rem;
   font-size: clamp(2rem, 4.6vw, 3rem);
-  font-weight: 780;
+  font-weight: 450;
   line-height: 1.12;
 }
 
@@ -1748,7 +1780,7 @@ body.topbar-click-capture .topbar {
   padding-bottom: 0.4rem;
   border-bottom: 1px solid #e8dfd2;
   font-size: 1.45rem;
-  font-weight: 720;
+  font-weight: 450;
   line-height: 1.35;
 }
 
@@ -1759,7 +1791,7 @@ body.topbar-click-capture .topbar {
 .skill-markdown-body h3 {
   margin: 2.1rem 0 0.7rem;
   font-size: 1.16rem;
-  font-weight: 720;
+  font-weight: 450;
 }
 
 .skill-markdown-body a {
@@ -1834,7 +1866,7 @@ body.topbar-click-capture .topbar {
   color: #9a9186;
   font-family: "SF Mono", ui-monospace, monospace;
   font-size: 0.72rem;
-  font-weight: 700;
+  font-weight: 400;
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -1893,9 +1925,37 @@ body.topbar-click-capture .topbar {
   border-radius: 18px;
   background: rgba(0, 0, 0, 0.055);
   color: var(--text);
+  font-weight: 400;
   overflow-wrap: anywhere;
   word-break: break-word;
   line-height: 1.58;
+}
+
+.bubble.pinned {
+  box-shadow: inset 0 0 0 1px rgb(var(--accent-rgb) / 0.22);
+}
+
+.message-pin-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 18px;
+  margin: 0 6px 2px 0;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgb(var(--accent-rgb) / 0.12);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 18px;
+  vertical-align: baseline;
+}
+
+.message-pin-badge .icon-park-pin {
+  width: 12px;
+  height: 12px;
+  fill-opacity: 0.14;
+  stroke-width: 4.4;
 }
 
 .bubble.has-time {
@@ -1941,7 +2001,7 @@ body.topbar-click-capture .topbar {
 .message-attachment span {
   color: var(--accent);
   font-size: 10px;
-  font-weight: 820;
+  font-weight: 400;
 }
 
 .message-attachment strong {
@@ -1949,13 +2009,14 @@ body.topbar-click-capture .topbar {
   overflow: hidden;
   text-overflow: ellipsis;
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 400;
   white-space: nowrap;
 }
 
 .message-attachment em {
   color: var(--muted);
   font-size: 10px;
+  font-weight: 400;
   font-style: normal;
   white-space: nowrap;
 }
@@ -2019,7 +2080,7 @@ body.topbar-click-capture .topbar {
   color: var(--surface);
   font-family: var(--app-font);
   font-size: 11px;
-  font-weight: 750;
+  font-weight: 400;
   line-height: 1.2;
   pointer-events: none;
   white-space: nowrap;
@@ -2041,6 +2102,7 @@ body.topbar-click-capture .topbar {
 .user .bubble {
   background: var(--user-bubble);
   color: var(--user-bubble-text);
+  font-weight: 400;
 }
 
 :root[data-theme="dark"] .user .bubble {
@@ -2143,7 +2205,7 @@ body.topbar-click-capture .topbar {
   bottom: 80px;
   z-index: 13;
   display: grid;
-  width: 220px;
+  width: var(--composer-add-menu-width);
   padding: 6px;
   border: 1px solid var(--menu-border);
   border-radius: 14px;
@@ -2217,7 +2279,7 @@ body.topbar-click-capture .topbar {
 
 .skill-picker {
   position: absolute;
-  left: 276px;
+  left: calc(18px + var(--composer-add-menu-width) + 8px);
   bottom: 80px;
   z-index: 14;
   display: flex;
@@ -2432,7 +2494,7 @@ body.topbar-click-capture .topbar {
 .composer-attachment-kind {
   color: var(--accent);
   font-size: 10px;
-  font-weight: 780;
+  font-weight: 400;
 }
 
 .composer-attachment-name {
@@ -2507,7 +2569,7 @@ body.topbar-click-capture .topbar {
 
 .slash-command-token {
   color: inherit;
-  font-weight: 850;
+  font-weight: 430;
   font-size: 15px;
 }
 
@@ -2518,7 +2580,7 @@ body.topbar-click-capture .topbar {
   white-space: nowrap;
   color: var(--muted);
   font-size: 13px;
-  font-weight: 550;
+  font-weight: 400;
 }
 
 .slash-command-item:hover .slash-command-description,
@@ -2623,7 +2685,7 @@ body.topbar-click-capture .topbar {
   background-repeat: no-repeat;
   color: var(--accent);
   font-size: 10px;
-  font-weight: 900;
+  font-weight: 400;
   pointer-events: none;
 }
 
@@ -2656,7 +2718,7 @@ body.topbar-click-capture .topbar {
   background: transparent;
   color: transparent;
   font-size: 12px;
-  font-weight: 560;
+  font-weight: 340;
   opacity: 0;
   box-shadow: none;
 }
@@ -2776,7 +2838,7 @@ body.topbar-click-capture .topbar {
   border-radius: 8px;
   padding: 0 12px;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 430;
   transition: background 120ms ease, border-color 120ms ease, color 120ms ease, opacity 120ms ease;
 }
 
@@ -2937,14 +2999,14 @@ body.topbar-click-capture .topbar {
   margin-top: 4px;
   color: var(--muted);
   font-size: 12px;
-  font-weight: 520;
+  font-weight: 400;
 }
 
 .fellow-form label {
   display: grid;
   gap: 7px;
   color: var(--muted);
-  font-weight: 650;
+  font-weight: 400;
 }
 
 .pet-generate-card label,
@@ -2952,7 +3014,7 @@ body.topbar-click-capture .topbar {
   display: grid;
   gap: 7px;
   color: var(--muted);
-  font-weight: 650;
+  font-weight: 400;
 }
 
 .fellow-form input,
@@ -2986,7 +3048,7 @@ body.topbar-click-capture .topbar {
   padding: 10px 12px;
   color: var(--muted);
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 400;
   list-style: none;
 }
 
@@ -3010,7 +3072,7 @@ body.topbar-click-capture .topbar {
 
 .persona-details label span {
   font-size: 12px;
-  font-weight: 520;
+  font-weight: 400;
 }
 
 .avatar-picker {
@@ -3149,7 +3211,7 @@ body.topbar-click-capture .topbar {
   color: var(--faint);
   background: var(--field);
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 400;
 }
 
 .pet-job-button {
@@ -3163,7 +3225,7 @@ body.topbar-click-capture .topbar {
   background: var(--text);
   color: var(--surface);
   font-size: 12px;
-  font-weight: 760;
+  font-weight: 400;
   box-shadow: 0 10px 28px rgba(16, 20, 39, 0.18);
 }
 
@@ -3200,7 +3262,7 @@ body.topbar-click-capture .topbar {
 
 .pet-job-item span {
   color: var(--muted);
-  font-weight: 650;
+  font-weight: 400;
 }
 
 .pet-job-item p,
@@ -4066,7 +4128,7 @@ textarea:focus {
   background: var(--accent-2);
   color: #fff;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 430;
 }
 
 .provider-logo-wrap {
@@ -4148,7 +4210,7 @@ textarea:focus {
   background: var(--field);
   color: var(--faint);
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .check-dot.authorized {
@@ -4272,7 +4334,7 @@ pre {
   align-items: baseline;
   gap: 4px;
   color: var(--accent, #5e5ce6);
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .typing-dots {
@@ -4310,9 +4372,8 @@ pre {
 .contact-profile-title h2,
 .skill-preview-title,
 .settings-row strong,
-.font-choice span,
-.model-current-label {
-  font-weight: 520;
+.font-choice span {
+  font-weight: 400;
 }
 
 .skill-chip-row button,
@@ -4425,7 +4486,7 @@ pre {
   flex: 0 0 auto;
   width: 10px;
   text-align: center;
-  font-weight: 600;
+  font-weight: 400;
 }
 
 .trace-row[data-status="run"] > summary > .trace-glyph {
@@ -4449,7 +4510,7 @@ pre {
 .trace-cmd {
   flex: 0 0 auto;
   color: var(--text, #1f2937);
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .trace-arg {

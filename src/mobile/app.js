@@ -7,6 +7,8 @@ const storageKeys = {
   secret: "aimashi.mobile.secret"
 };
 
+const DEFAULT_AVATAR_VERSION = "white-circle-1";
+
 const els = {
   setupView: document.getElementById("setupView"),
   mainView: document.getElementById("mainView"),
@@ -425,36 +427,41 @@ function initials(name) {
   return text.slice(0, 2).toUpperCase();
 }
 
+function avatarAssetForKey(key = "") {
+  let hash = 0;
+  for (const char of String(key || "aimashi")) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  const index = (hash % 16) + 1;
+  return `./assets/avatars/${String(index).padStart(2, "0")}.png`;
+}
+
 function avatarUrl(value, preferThumb = true) {
-  const raw = String(value || "").trim();
+  const raw = String(value || "").trim().replace("/assets/avatar-icons/", "/assets/avatars/").replace("./assets/avatar-icons/", "./assets/avatars/");
   if (!raw) return "";
   if (/^(data:|https?:)/i.test(raw)) return raw;
   if (raw.startsWith("./assets/")) {
     const asset = preferThumb && raw.includes("/avatars/")
       ? raw.replace("/avatars/", "/avatar-thumbs/")
       : raw;
-    return `/${asset.slice(2)}`;
+    const path = `/${asset.slice(2)}`;
+    return /^\/assets\/avatar(?:s|-thumbs)\//.test(path) ? `${path}?v=${DEFAULT_AVATAR_VERSION}` : path;
   }
-  if (raw.startsWith("/assets/")) return raw;
+  if (raw.startsWith("/assets/")) {
+    const asset = preferThumb && raw.includes("/avatars/")
+      ? raw.replace("/avatars/", "/avatar-thumbs/")
+      : raw;
+    return /^\/assets\/avatar(?:s|-thumbs)\//.test(asset) ? `${asset}?v=${DEFAULT_AVATAR_VERSION}` : asset;
+  }
   return "";
 }
 
-function avatarStyle(fellow, preferThumb = true) {
-  const image = fellow?.avatarImage || "";
+function avatarImg(fellow, preferThumb = true) {
+  const image = fellow?.avatarImage || avatarAssetForKey(fellow?.key);
   const src = avatarUrl(image, preferThumb);
-  if (!src) return `background-color:${fellow?.color || "#5e5ce6"};`;
-  if (preferThumb && image.includes("/avatars/")) {
-    return `background-image:url('${escapeHtml(src)}');background-size:cover;background-position:center;background-repeat:no-repeat;`;
-  }
-  const crop = fellow?.avatarCrop || {};
-  const zoom = Math.max(1, Math.min(2.4, Number(crop.zoom || 1)));
-  const x = Math.max(0, Math.min(100, Number(crop.x ?? 50)));
-  const y = Math.max(0, Math.min(100, Number(crop.y ?? 50)));
-  return `background-image:url('${escapeHtml(src)}');background-size:${Math.round(zoom * 100)}%;background-position:${x}% ${y}%;background-repeat:no-repeat;`;
+  return src ? `<img src="${escapeHtml(src)}" alt="">` : escapeHtml(initials(fellow?.name || fellow?.key));
 }
 
 function renderAvatar(fellow) {
-  return `<span class="avatar" style="${avatarStyle(fellow)}">${avatarUrl(fellow?.avatarImage) ? "" : escapeHtml(initials(fellow?.name || fellow?.key))}</span>`;
+  return `<span class="avatar">${avatarImg(fellow)}</span>`;
 }
 
 function renderSetup() {
@@ -532,7 +539,8 @@ function renderChat() {
   els.chatView.classList.toggle("hidden", !fellow);
   els.bottomNav.classList.toggle("hidden", Boolean(fellow));
   if (!fellow) return;
-  els.chatAvatar.setAttribute("style", avatarStyle(fellow));
+  els.chatAvatar.removeAttribute("style");
+  els.chatAvatar.innerHTML = avatarImg(fellow);
   setText(els.chatTitle, fellow.name || fellow.key);
   setText(els.chatMeta, state.sending ? "正在回复" : (session?.title || "在线"));
   const messages = messagesForActiveSession();

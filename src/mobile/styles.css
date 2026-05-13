@@ -213,17 +213,29 @@ input {
 }
 
 .avatar {
+  position: relative;
   display: grid;
   width: 48px;
   height: 48px;
   place-items: center;
   border-radius: 50%;
-  background-color: var(--accent);
+  background-color: #fff !important;
+  background-position: center;
   background-repeat: no-repeat;
-  color: #fff;
+  background-size: cover;
+  color: var(--accent);
   font-size: 13px;
   font-weight: 800;
+  overflow: hidden;
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.05);
+}
+
+.avatar img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
 }
 
 .row-main,
