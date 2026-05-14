@@ -168,6 +168,11 @@ function handleHello(ws, message) {
 
   if (role === "desktop") {
     const existing = devices.get(deviceId);
+    if (existing && existing.secret !== secret) {
+      sendJson(ws, { type: "error", error: "Device already registered with a different secret." });
+      ws.close(1008, "desktop secret mismatch");
+      return;
+    }
     if (existing?.ws && existing.ws !== ws) existing.ws.close(1012, "replaced");
     const device = {
       ws,
