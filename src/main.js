@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, shell } = require("electron");
 const { spawn, spawnSync } = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
+const yaml = require("js-yaml");
 const http = require("node:http");
 const net = require("node:net");
 const os = require("node:os");
@@ -9,6 +10,8 @@ const path = require("node:path");
 const { fileURLToPath, pathToFileURL } = require("node:url");
 const QRCode = require("qrcode");
 const WebSocket = require("ws");
+const { normalizePermissionMode, permissionModeLabel } = require("./permission-modes");
+const runtimeResources = require("./runtime-resource-paths");
 
 app.setName("Aimashi");
 
@@ -26,6 +29,25 @@ const AIMASHI_GATEWAY_SERVICE_LABEL = "ai.aimashi.hermes.gateway";
 const AIMASHI_DAEMON_SERVICE_LABEL = "ai.aimashi.daemon";
 const AIMASHI_DAEMON_DEFAULT_PORT = Number(process.env.AIMASHI_DAEMON_PORT || 27861);
 const IS_DAEMON_PROCESS = process.argv.includes("--daemon") || process.env.AIMASHI_DAEMON === "1";
+let shouldRunDesktopInstance = true;
+if (!IS_DAEMON_PROCESS) {
+  const singleInstanceLock = app.requestSingleInstanceLock();
+  if (!singleInstanceLock) {
+    shouldRunDesktopInstance = false;
+    app.quit();
+  } else {
+    app.on("second-instance", () => {
+      const existing = BrowserWindow.getAllWindows()[0];
+      if (existing) {
+        if (existing.isMinimized()) existing.restore();
+        existing.show();
+        existing.focus();
+      } else if (app.isReady()) {
+        createWindow();
+      }
+    });
+  }
+}
 let engineProcess = null;
 let engineState = {
   running: false,
@@ -76,6 +98,7 @@ let relayState = {
 const petWindows = new Map();
 const petMessageTimers = new Map();
 const petJobs = new Map();
+let agentEngineCache = { at: 0, value: null };
 
 function writeFileIfMissing(filePath, content, mode) {
   if (fs.existsSync(filePath)) return false;
@@ -94,9 +117,9 @@ function readJson(filePath, fallback) {
 
 function defaultModelSettings() {
   return {
-    provider: "xai",
-    model: "grok-4.1-fast",
-    apiKeyEnv: "XAI_API_KEY",
+    provider: "",
+    model: "",
+    apiKeyEnv: "",
     apiKey: "",
     baseUrl: "",
     apiMode: ""
@@ -108,11 +131,13 @@ function runtimePaths() {
   const runtime = path.join(root, "runtime");
   const engine = path.join(runtime, "hermes-engine");
   const home = path.join(runtime, "engine-home");
+  const pluginsDir = path.join(runtime, "aimashi-plugins");
   return {
     root,
     runtime,
     engine,
     home,
+    pluginsDir,
     config: path.join(home, "config.yaml"),
     soul: path.join(home, "SOUL.md"),
     fellowManifest: path.join(home, "fellows", "manifest.json"),
@@ -145,6 +170,36 @@ function runtimePaths() {
 
 function venvPythonPath() {
   return path.join(runtimePaths().engine, ".venv", "bin", "python");
+}
+
+// Bundled runtime: vendor/hermes-runtime/<target>/ → app.asar.unpacked/resources/hermes-runtime
+function bundledHermesRuntimeDir() {
+  return runtimeResources.bundledHermesRuntimeDir({
+    resourcesPath: process.resourcesPath,
+    appPath: app.getAppPath(),
+    cwd: process.cwd(),
+    platform: process.platform,
+    arch: process.arch
+  });
+}
+
+function bundledPython() {
+  const root = bundledHermesRuntimeDir();
+  return runtimeResources.bundledPython(root, { platform: process.platform });
+}
+
+function bundledSitePackages() {
+  const root = bundledHermesRuntimeDir();
+  return runtimeResources.bundledSitePackages(root);
+}
+
+function buildPythonPath() {
+  const p = runtimePaths();
+  const parts = [p.pluginsDir];
+  const sitePackages = bundledSitePackages();
+  if (sitePackages) parts.push(sitePackages);
+  if (process.env.PYTHONPATH) parts.push(process.env.PYTHONPATH);
+  return parts.join(":");
 }
 
 function engineMarkerPath() {
@@ -196,6 +251,8 @@ function selectOfficialEnginePython() {
 }
 
 function isEngineInstalled() {
+  // Bundled runtime → installed by definition.
+  if (bundledPython() && bundledSitePackages()) return true;
   const p = runtimePaths();
   const sourceEntrypoint = path.join(p.engine, "hermes_cli", "main.py");
   const venvPython = venvPythonPath();
@@ -222,20 +279,20 @@ function defaultUserProfile() {
 function defaultAppearanceSettings() {
   return {
     theme: "light",
-    fontPreset: "system",
-    accentColor: "#5e5ce6",
-    userBubbleColor: "#dedcff",
-    showHoverBackground: true,
+    fontPreset: "pingfang",
+    accentColor: "#0162db",
+    userBubbleColor: "#0162db",
+    showHoverBackground: false,
     showUserAvatar: true,
     showAssistantAvatar: true,
-    listStyle: "card",
-    selectionStyle: "soft"
+    listStyle: "flush",
+    selectionStyle: "solid"
   };
 }
 
 function defaultPermissionSettings() {
   return {
-    mode: "manual"
+    mode: "ask"
   };
 }
 
@@ -307,13 +364,6 @@ function writeEffortSettings(settings = {}) {
   return next;
 }
 
-function normalizePermissionMode(value) {
-  const raw = String(value || "").trim().toLowerCase();
-  if (["smart", "auto"].includes(raw)) return "smart";
-  if (["off", "yolo", "allow"].includes(raw)) return "off";
-  return "manual";
-}
-
 function permissionSettings() {
   const p = runtimePaths();
   const saved = readJson(p.permissionSettings, {});
@@ -326,14 +376,9 @@ function permissionSettings() {
 
 function permissionStatus() {
   const settings = permissionSettings();
-  const labels = {
-    manual: "Ask",
-    smart: "Smart",
-    off: "YOLO"
-  };
   return {
     mode: settings.mode,
-    label: labels[settings.mode] || "Ask"
+    label: permissionModeLabel(settings.mode)
   };
 }
 
@@ -437,14 +482,69 @@ function writeRelaySettings(settings = {}) {
   return next;
 }
 
+const CLI_PATH_SEGMENTS = [
+  path.join(os.homedir(), ".local", "bin"),
+  path.join(os.homedir(), ".npm-global", "bin"),
+  path.join(os.homedir(), ".bun", "bin"),
+  path.join(os.homedir(), ".deno", "bin"),
+  path.join(os.homedir(), ".cargo", "bin"),
+  path.join(os.homedir(), "Library", "pnpm"),
+  "/opt/homebrew/bin",
+  "/usr/local/bin",
+  "/usr/bin",
+  "/bin",
+  "/usr/sbin",
+  "/sbin"
+];
+
+function cliPathEnv() {
+  const current = String(process.env.PATH || "");
+  const segments = [
+    ...CLI_PATH_SEGMENTS,
+    ...current.split(path.delimiter)
+  ].filter(Boolean);
+  return [...new Set(segments)].join(path.delimiter);
+}
+
+function processEnvWithCliPath() {
+  return {
+    ...process.env,
+    PATH: cliPathEnv()
+  };
+}
+
+function commandNameOnly(command) {
+  const value = String(command || "").trim();
+  if (!/^[A-Za-z0-9._-]+$/.test(value)) return "";
+  return value;
+}
+
+function executablePath(filePath) {
+  try {
+    fs.accessSync(filePath, fs.constants.X_OK);
+    return filePath;
+  } catch {
+    return "";
+  }
+}
+
 function shellCommandPath(command) {
-  const result = spawnSync("zsh", ["-lc", `command -v ${command}`], {
+  const name = commandNameOnly(command);
+  if (!name) return "";
+  const result = spawnSync("zsh", ["-lc", `command -v ${name}`], {
     encoding: "utf8",
     timeout: 1500,
-    env: process.env
+    env: processEnvWithCliPath()
   });
-  if (result.error || result.status !== 0) return "";
-  return String(result.stdout || "").split(/\r?\n/)[0]?.trim() || "";
+  if (!result.error && result.status === 0) {
+    const found = String(result.stdout || "").split(/\r?\n/)[0]?.trim() || "";
+    if (found) return found;
+  }
+  for (const dir of CLI_PATH_SEGMENTS) {
+    const found = executablePath(path.join(dir, name));
+    if (found) return found;
+  }
+  return "";
 }
 
 function commandVersion(commandPath) {
@@ -452,20 +552,202 @@ function commandVersion(commandPath) {
   const result = spawnSync(commandPath, ["--version"], {
     encoding: "utf8",
     timeout: 2000,
-    env: process.env
+    env: processEnvWithCliPath()
   });
   if (result.error) return "";
   return String(result.stdout || result.stderr || "").split(/\r?\n/)[0]?.trim() || "";
 }
 
+function readShebangPython(scriptPath) {
+  if (!scriptPath) return "";
+  try {
+    const fd = fs.openSync(scriptPath, "r");
+    const buf = Buffer.alloc(256);
+    const bytes = fs.readSync(fd, buf, 0, 256, 0);
+    fs.closeSync(fd);
+    const head = buf.slice(0, bytes).toString("utf8");
+    if (!head.startsWith("#!")) return "";
+    const firstLine = head.split(/\r?\n/, 1)[0].slice(2).trim();
+    if (!firstLine) return "";
+    const tokens = firstLine.split(/\s+/);
+    if (tokens[0].endsWith("/env") && tokens[1]) {
+      return shellCommandPath(tokens[1]) || tokens[1];
+    }
+    return tokens[0];
+  } catch {
+    return "";
+  }
+}
+
+function systemHermesCachePath() {
+  return path.join(runtimePaths().home, "aimashi-system-hermes.json");
+}
+
+function loadSystemHermesCache() {
+  const cached = readJson(systemHermesCachePath(), null);
+  if (!cached || typeof cached !== "object") {
+    return { available: false, pending: true };
+  }
+  return cached;
+}
+
+function persistSystemHermesCache(value) {
+  const filePath = systemHermesCachePath();
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify(value, null, 2) + "\n", { mode: 0o600 });
+}
+
+function broadcastEnginesChanged() {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      try { win.webContents.send("runtime:engines-changed"); } catch { /* ignore */ }
+    }
+  }
+}
+
+let systemHermesRefreshing = false;
+const SYSTEM_HERMES_PROBE = [
+  "import json, sys, os",
+  "result = {'python': sys.executable}",
+  "try:",
+  "    import hermes_cli",
+  "    result['hermesImport'] = True",
+  "    result['version'] = getattr(hermes_cli, '__version__', '') or ''",
+  "    result['hermesFile'] = getattr(hermes_cli, '__file__', '')",
+  "except Exception as exc:",
+  "    result['hermesImport'] = False",
+  "    result['hermesError'] = repr(exc)",
+  "try:",
+  "    from gateway.platforms.api_server import APIServerAdapter",
+  "    result['hookAvailable'] = True",
+  "except Exception as exc:",
+  "    result['hookAvailable'] = False",
+  "    result['hookError'] = repr(exc)",
+  "try:",
+  "    from hermes_cli.config import get_hermes_home",
+  "    result['hermesHome'] = str(get_hermes_home())",
+  "except Exception:",
+  "    result['hermesHome'] = os.path.expanduser('~/.hermes')",
+  "print(json.dumps(result))"
+].join("\n");
+
+async function refreshSystemHermesAsync() {
+  // System-hermes detection is disabled: hermes's per-profile lock mechanism
+  // doesn't tolerate aimashi running an extra gateway alongside the user's
+  // launchd one (mutual --replace SIGTERMs). aimashi only manages its own
+  // standalone Hermes from here on. CC/Codex unaffected.
+  persistSystemHermesCache({ available: false, checkedAt: new Date().toISOString(), disabled: true });
+  agentEngineCache = { at: 0, value: null };
+  return;
+  // eslint-disable-next-line no-unreachable
+  if (systemHermesRefreshing) return;
+  systemHermesRefreshing = true;
+  const checkedAt = new Date().toISOString();
+  try {
+    const hermesPath = shellCommandPath("hermes");
+    if (!hermesPath) {
+      persistSystemHermesCache({ available: false, checkedAt });
+      agentEngineCache = { at: 0, value: null };
+      broadcastEnginesChanged();
+      return;
+    }
+    let pythonPath = readShebangPython(hermesPath);
+    if (!pythonPath || !fs.existsSync(pythonPath)) {
+      pythonPath = shellCommandPath("python3") || shellCommandPath("python");
+    }
+    if (!pythonPath) {
+      persistSystemHermesCache({
+        available: false,
+        hermesPath,
+        lastError: "未能确定 hermes 使用的 Python 解释器",
+        checkedAt
+      });
+      agentEngineCache = { at: 0, value: null };
+      broadcastEnginesChanged();
+      return;
+    }
+    const probeResult = await new Promise((resolve) => {
+      const child = spawn(pythonPath, ["-c", SYSTEM_HERMES_PROBE], {
+        env: processEnvWithCliPath(),
+        stdio: ["ignore", "pipe", "pipe"]
+      });
+      let stdout = "";
+      let stderr = "";
+      const timer = setTimeout(() => {
+        try { child.kill("SIGTERM"); } catch { /* ignore */ }
+      }, 8000);
+      child.stdout.on("data", (chunk) => { stdout += chunk; });
+      child.stderr.on("data", (chunk) => { stderr += chunk; });
+      child.on("error", (err) => {
+        clearTimeout(timer);
+        resolve({ error: err.message });
+      });
+      child.on("exit", (code) => {
+        clearTimeout(timer);
+        if (code !== 0) {
+          resolve({ error: stderr.trim() || `python exited ${code}` });
+          return;
+        }
+        try {
+          const line = stdout.trim().split(/\r?\n/).pop() || "{}";
+          resolve({ parsed: JSON.parse(line) });
+        } catch (exc) {
+          resolve({ error: `probe 输出无法解析: ${exc.message}` });
+        }
+      });
+    });
+    let value;
+    if (probeResult.error) {
+      value = {
+        available: false,
+        hermesPath,
+        pythonPath,
+        lastError: probeResult.error,
+        checkedAt
+      };
+    } else {
+      const parsed = probeResult.parsed || {};
+      const hermesImport = Boolean(parsed.hermesImport);
+      const hookAvailable = Boolean(parsed.hookAvailable);
+      value = {
+        available: hermesImport,
+        compatible: hermesImport && hookAvailable,
+        hermesPath,
+        pythonPath: parsed.python || pythonPath,
+        hermesFile: parsed.hermesFile || "",
+        hermesHome: parsed.hermesHome || "",
+        version: parsed.version || "",
+        hookAvailable,
+        hookError: parsed.hookError || "",
+        importError: parsed.hermesError || "",
+        lastError: hermesImport
+          ? (hookAvailable ? "" : "缺少 gateway.platforms.api_server.APIServerAdapter（aimashi 插件 hook 不可用）")
+          : "无法 import hermes_cli",
+        checkedAt
+      };
+    }
+    persistSystemHermesCache(value);
+    agentEngineCache = { at: 0, value: null };
+    if (value.compatible) {
+      try { importFromSystemHermes(); } catch (err) { appendEngineLog(`importFromSystemHermes failed: ${err.message}`); }
+    }
+    broadcastEnginesChanged();
+  } finally {
+    systemHermesRefreshing = false;
+  }
+}
+
 function localAgentEngines() {
+  const now = Date.now();
+  if (agentEngineCache.value && now - agentEngineCache.at < 15000) return agentEngineCache.value;
   const claudePath = shellCommandPath("claude");
   const codexPath = shellCommandPath("codex");
-  return {
+  const value = {
     hermes: {
       id: "hermes",
       label: "默认",
-      available: true
+      available: true,
+      system: { available: false, disabled: true }
     },
     claudeCode: {
       id: "claude-code",
@@ -482,6 +764,8 @@ function localAgentEngines() {
       version: commandVersion(codexPath)
     }
   };
+  agentEngineCache = { at: now, value };
+  return value;
 }
 
 function loadAgentSessionMap() {
@@ -542,7 +826,7 @@ async function codexSdk() {
 }
 
 function processEnvStrings() {
-  return Object.fromEntries(Object.entries(process.env).filter(([, value]) => typeof value === "string"));
+  return Object.fromEntries(Object.entries(processEnvWithCliPath()).filter(([, value]) => typeof value === "string"));
 }
 
 function appearanceSettings() {
@@ -552,24 +836,13 @@ function appearanceSettings() {
 }
 
 function defaultFellowManifest() {
+  // Empty by design — first launch goes through an onboarding flow that asks
+  // the user to create their initial fellow. No pre-baked placeholder.
   return {
     schema_version: 1,
     product: "aimashi",
-    default_fellow: "aimashi",
-    fellows: [
-      {
-        key: "aimashi",
-        name: "Aimashi",
-        account_id: "aimashi",
-        route_profile: "aimashi",
-        agentEngine: "hermes",
-        platform: "api_server",
-        color: "#0f766e",
-        avatarImage: "",
-        avatarCrop: { x: 50, y: 50, zoom: 1 },
-        bio: "Aimashi App 里的第一个本地伙伴"
-      }
-    ]
+    default_fellow: "",
+    fellows: []
   };
 }
 
@@ -616,6 +889,24 @@ function mergeFellowEngineConfig(current = {}, update = {}) {
   return next;
 }
 
+function normalizeCapabilityIds(input) {
+  return Array.isArray(input)
+    ? [...new Set(input.map((item) => String(item || "").trim()).filter(Boolean))].slice(0, 500)
+    : [];
+}
+
+function normalizeFellowCapabilities(input = {}) {
+  const value = input && typeof input === "object" ? input : {};
+  return {
+    inheritEngineDefaults: value.inheritEngineDefaults !== false && value.inherit_engine_defaults !== false,
+    enabledPlugins: normalizeCapabilityIds(value.enabledPlugins || value.enabled_plugins),
+    disabledPlugins: normalizeCapabilityIds(value.disabledPlugins || value.disabled_plugins),
+    enabledSkills: normalizeCapabilityIds(value.enabledSkills || value.enabled_skills),
+    disabledSkills: normalizeCapabilityIds(value.disabledSkills || value.disabled_skills),
+    enabledConnectors: normalizeCapabilityIds(value.enabledConnectors || value.enabled_connectors)
+  };
+}
+
 function defaultManifest() {
   const manifest = defaultFellowManifest();
   return {
@@ -644,7 +935,8 @@ function normalizeFellow(item) {
     avatarCrop: normalizeAvatarCrop(item?.avatarCrop || item?.avatar_crop),
     pinned: Boolean(item?.pinned || item?.is_pinned || pinnedAt),
     pinnedAt,
-    bio: String(item?.bio || item?.description || "").trim()
+    bio: String(item?.bio || item?.description || "").trim(),
+    capabilities: normalizeFellowCapabilities(item?.capabilities)
   };
 }
 
@@ -670,13 +962,10 @@ function normalizeFellowManifest(input) {
       ? source.personas
       : defaultFellowManifest().fellows;
   const fellows = rawFellows.map(normalizeFellow).filter(Boolean);
-  if (!fellows.some((fellow) => fellow.key === "aimashi")) {
-    fellows.unshift(defaultFellowManifest().fellows[0]);
-  }
   return {
     schema_version: 1,
     product: "aimashi",
-    default_fellow: String(source.default_fellow || source.default_persona || fellows[0]?.key || "aimashi"),
+    default_fellow: String(source.default_fellow || source.default_persona || fellows[0]?.key || ""),
     fellows
   };
 }
@@ -833,6 +1122,7 @@ function fellowMetadata(fellow) {
     pinned: Boolean(fellow.pinned),
     pinned_at: fellow.pinnedAt || "",
     bio: fellow.bio || "",
+    capabilities: normalizeFellowCapabilities(fellow.capabilities),
     created_at: new Date().toISOString()
   };
 }
@@ -1141,6 +1431,26 @@ function petGeneratorRoot() {
     path.join(__dirname, "..", "resources", "pet-generator")
   ];
   return candidates.find((candidate) => candidate && fs.existsSync(path.join(candidate, "hatch_generate.py"))) || candidates[0];
+}
+
+function officialLibraryManifestPath() {
+  const candidates = [
+    path.join(app.getAppPath(), "resources", "official-library", "library.json"),
+    path.join(process.resourcesPath || "", "official-library", "library.json"),
+    path.join(__dirname, "..", "resources", "official-library", "library.json")
+  ];
+  return candidates.find((candidate) => candidate && fs.existsSync(candidate)) || candidates[0];
+}
+
+function resolveOfficialLibraryRoot(root = "") {
+  const value = String(root || "").trim();
+  if (!value) return "";
+  if (path.isAbsolute(value)) return value;
+  if (value === "pet-generator" || value.startsWith("pet-generator/")) {
+    const rel = value.slice("pet-generator".length).replace(/^[\\/]/, "");
+    return path.join(petGeneratorRoot(), rel);
+  }
+  return path.join(path.dirname(officialLibraryManifestPath()), value);
 }
 
 function buildFellowPetPrompt(fellow, userPrompt = "") {
@@ -1535,10 +1845,12 @@ function initializeRuntime() {
   const created = [];
   fs.mkdirSync(p.engine, { recursive: true });
   fs.mkdirSync(p.home, { recursive: true });
+  fs.mkdirSync(p.pluginsDir, { recursive: true });
   fs.mkdirSync(p.fellowDir, { recursive: true });
   fs.rmSync(path.join(p.home, "souls"), { recursive: true, force: true });
   fs.mkdirSync(p.petDir, { recursive: true });
   fs.mkdirSync(p.petJobsDir, { recursive: true });
+  ensureEnginePlugins();
 
   if (writeFileIfMissing(path.join(p.engine, "README.md"), [
     "# Aimashi Hermes Engine",
@@ -1574,6 +1886,8 @@ function initializeRuntime() {
   if (writeFileIfMissing(p.providerConnections, JSON.stringify(defaultProviderStore(), null, 2) + "\n", 0o600)) {
     created.push("runtime/engine-home/aimashi-providers.json");
   }
+
+  importFromSystemHermes();
 
   if (writeFileIfMissing(p.permissionSettings, JSON.stringify(defaultPermissionSettings(), null, 2) + "\n", 0o600)) {
     created.push("runtime/engine-home/aimashi-permissions.json");
@@ -1781,6 +2095,14 @@ function externalSkillDirs() {
   return result;
 }
 
+function atomicWriteFile(filePath, content, mode = 0o600) {
+  const dir = path.dirname(filePath);
+  fs.mkdirSync(dir, { recursive: true });
+  const tmpPath = path.join(dir, `.${path.basename(filePath)}.${process.pid}.${Date.now()}.tmp`);
+  fs.writeFileSync(tmpPath, content, { mode });
+  fs.renameSync(tmpPath, filePath);
+}
+
 function writeRuntimeConfig(port) {
   const p = runtimePaths();
   const settings = modelSettings();
@@ -1790,6 +2112,11 @@ function writeRuntimeConfig(port) {
   const apiMode = String(settings.apiMode || "").trim();
   const approvalsMode = permissionSettings().mode;
   const reasoningEffort = effortSettings().level;
+  const source = engineSource();
+  const configPath = path.join(effectiveHermesHome(), "config.yaml");
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+
+  // aimashi always writes its OWN private config.yaml (effectiveHermesHome is private).
   fs.mkdirSync(p.home, { recursive: true });
   const lines = [
     "model:",
@@ -1834,7 +2161,7 @@ function writeRuntimeConfig(port) {
     "  fellows_manifest: fellows/manifest.json",
     ""
   );
-  fs.writeFileSync(p.config, lines.join("\n"), { mode: 0o600 });
+  atomicWriteFile(configPath, lines.join("\n"), 0o600);
 }
 
 function daemonConnectUrls(settings = daemonSettings()) {
@@ -1957,6 +2284,8 @@ function getRuntimeStatus(created = []) {
     configPath: p.config,
     created,
     engineInstalled: isEngineInstalled(),
+    engineSource: engineSource(),
+    managedVenvExists: fs.existsSync(venvPythonPath()),
     engineRunning: engineState.running,
     engineStarting: engineState.starting,
     engineBaseUrl: engineState.baseUrl,
@@ -2152,8 +2481,9 @@ print(json.dumps(rows, ensure_ascii=False))
     cwd: p.engine,
     env: {
       ...process.env,
-      HERMES_HOME: p.home,
-      PYTHONPATH: process.env.PYTHONPATH ? `${p.engine}:${process.env.PYTHONPATH}` : p.engine
+      HERMES_HOME: effectiveHermesHome(),
+      AIMASHI_HOME: p.home,
+      PYTHONPATH: buildPythonPath()
     },
     encoding: "utf8",
     timeout: 15000
@@ -2169,6 +2499,47 @@ print(json.dumps(rows, ensure_ascii=False))
     appendEngineLog(`Model catalog parse failed: ${error.message}`);
   }
   return fallbackModelCatalog();
+}
+
+async function loadEngineCapabilities() {
+  if (!isEngineInstalled()) {
+    return { approvalModes: ["ask", "yolo", "deny"], effortLevels: ["low", "medium", "high"] };
+  }
+  const p = runtimePaths();
+  const script = String.raw`
+import json
+result = {"approvalModes": ["ask", "yolo", "deny"], "effortLevels": ["low", "medium", "high"]}
+try:
+    from hermes_cli.web_server import SETTINGS_SCHEMA
+    if "approvals.mode" in SETTINGS_SCHEMA and "options" in SETTINGS_SCHEMA["approvals.mode"]:
+        result["approvalModes"] = list(SETTINGS_SCHEMA["approvals.mode"]["options"])
+    if "agent.reasoning_effort" in SETTINGS_SCHEMA and "options" in SETTINGS_SCHEMA["agent.reasoning_effort"]:
+        result["effortLevels"] = list(SETTINGS_SCHEMA["agent.reasoning_effort"]["options"])
+except Exception:
+    pass
+print(json.dumps(result))
+`;
+  try {
+    const r = await runPythonScript(["-c", script], {
+      cwd: p.engine,
+      env: {
+        ...process.env,
+        HERMES_HOME: effectiveHermesHome(),
+        AIMASHI_HOME: p.home,
+        PYTHONPATH: buildPythonPath()
+      },
+      encoding: "utf8",
+      timeout: 8000
+    });
+    if (r.status === 0) {
+      const parsed = JSON.parse(String(r.stdout || "{}"));
+      if (Array.isArray(parsed.approvalModes) && parsed.approvalModes.length
+          && Array.isArray(parsed.effortLevels) && parsed.effortLevels.length) {
+        return parsed;
+      }
+    }
+  } catch { /* fall through */ }
+  return { approvalModes: ["ask", "yolo", "deny"], effortLevels: ["low", "medium", "high"] };
 }
 
 function fallbackSlashCommands() {
@@ -2372,8 +2743,9 @@ print(json.dumps(rows, ensure_ascii=False))
     cwd: p.engine,
     env: {
       ...process.env,
-      HERMES_HOME: p.home,
-      PYTHONPATH: process.env.PYTHONPATH ? `${p.engine}:${process.env.PYTHONPATH}` : p.engine
+      HERMES_HOME: effectiveHermesHome(),
+      AIMASHI_HOME: p.home,
+      PYTHONPATH: buildPythonPath()
     },
     encoding: "utf8",
     timeout: 15000
@@ -2571,25 +2943,284 @@ function readClaudeInstalledPlugins() {
 }
 
 function readCodexPluginManifests() {
-  const root = path.join(os.homedir(), ".codex", ".tmp", "plugins", "plugins");
+  const root = path.join(os.homedir(), ".codex", "plugins", "cache");
   if (!fs.existsSync(root)) return [];
-  let entries = [];
-  try {
-    entries = fs.readdirSync(root, { withFileTypes: true });
-  } catch {
-    return [];
+  const out = [];
+  const stack = [{ dir: root, depth: 0, parts: [] }];
+  while (stack.length) {
+    const { dir, depth, parts } = stack.pop();
+    const manifest = readJson(path.join(dir, ".codex-plugin", "plugin.json"), null);
+    if (manifest) {
+      const name = String(manifest.name || parts[1] || path.basename(dir)).trim() || path.basename(dir);
+      const appConfig = readJson(path.join(dir, ".app.json"), {});
+      out.push({
+        name,
+        marketplace: parts[0] || "",
+        installPath: dir,
+        manifest,
+        appConfig,
+        iconUrl: pluginIconUrl(dir, manifest)
+      });
+      continue;
+    }
+    if (depth >= 4) continue;
+    let entries = [];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
+      stack.push({ dir: path.join(dir, entry.name), depth: depth + 1, parts: [...parts, entry.name] });
+    }
   }
-  return entries
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => {
-      const installPath = path.join(root, entry.name);
-      const manifest = readJson(path.join(installPath, ".codex-plugin", "plugin.json"), null);
-      if (!manifest) return null;
-      const name = String(manifest.name || entry.name).trim() || entry.name;
-      const appConfig = readJson(path.join(installPath, ".app.json"), {});
-      return { name, installPath, manifest, appConfig };
-    })
-    .filter(Boolean);
+  return out;
+}
+
+function marketplacePluginName(item = {}, fallback = "") {
+  return String(item.name || item.id || fallback || "").trim();
+}
+
+function pluginDisplayName(manifest = {}, item = {}, fallback = "") {
+  return String(
+    manifest.interface?.displayName
+    || item.interface?.displayName
+    || item.displayName
+    || item.title
+    || manifest.name
+    || item.name
+    || fallback
+    || ""
+  ).trim();
+}
+
+function pluginDescription(manifest = {}, item = {}) {
+  return String(
+    manifest.interface?.shortDescription
+    || manifest.interface?.longDescription
+    || manifest.description
+    || item.description
+    || item.interface?.shortDescription
+    || item.interface?.longDescription
+    || ""
+  ).trim();
+}
+
+function fileUrlIfExists(filePath) {
+  if (!filePath || !fs.existsSync(filePath)) return "";
+  return pathToFileURL(filePath).toString();
+}
+
+function pluginIconUrl(root, manifest = {}) {
+  if (!root || !fs.existsSync(root)) return "";
+  const fromManifest = [
+    manifest.interface?.composerIcon,
+    manifest.interface?.logo,
+    manifest.logo,
+    manifest.icon
+  ].filter(Boolean);
+  for (const rel of fromManifest) {
+    if (typeof rel !== "string" || !rel || path.isAbsolute(rel)) continue;
+    const resolved = path.resolve(root, rel);
+    if (isChildPath(root, resolved)) {
+      const url = fileUrlIfExists(resolved);
+      if (url) return url;
+    }
+  }
+  const candidates = [
+    "assets/app-icon.png",
+    "assets/composer-icon.png",
+    "assets/icon.png",
+    "assets/logo.png",
+    "assets/logo.svg"
+  ];
+  for (const rel of candidates) {
+    const url = fileUrlIfExists(path.join(root, rel));
+    if (url) return url;
+  }
+  try {
+    const assetsRoot = path.join(root, "assets");
+    const entries = fs.readdirSync(assetsRoot, { withFileTypes: true });
+    const found = entries
+      .filter((entry) => entry.isFile() && /\.(svg|png|jpe?g|webp|ico)$/i.test(entry.name))
+      .map((entry) => entry.name)
+      .sort((a, b) => {
+        const score = (name) => (/small/i.test(name) ? 0 : /logo|icon/i.test(name) ? 1 : 2);
+        return score(a) - score(b) || a.localeCompare(b);
+      })[0];
+    if (found) return fileUrlIfExists(path.join(assetsRoot, found));
+  } catch {
+    return "";
+  }
+  return "";
+}
+
+function safeMarketplaceSourcePath(baseRoot, source) {
+  let rel = "";
+  if (typeof source === "string") rel = source;
+  else if (source && typeof source === "object" && source.source === "local") rel = source.path || "";
+  if (!rel || path.isAbsolute(rel)) return "";
+  const resolved = path.resolve(baseRoot, rel);
+  return isChildPath(baseRoot, resolved) ? resolved : "";
+}
+
+function remoteMarketplaceGitUrl(source) {
+  if (!source || typeof source !== "object") return "";
+  if (source.repo) return `https://github.com/${String(source.repo).replace(/\.git$/, "")}.git`;
+  const url = String(source.url || "").trim();
+  if (!url) return "";
+  if (!/^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\.git)?$/.test(url)) return "";
+  return url.endsWith(".git") ? url : `${url}.git`;
+}
+
+function runGit(args, cwd, timeout = 180000) {
+  const git = shellCommandPath("git");
+  if (!git) throw new Error("未找到 git，无法安装远程插件。");
+  const result = spawnSync(git, args, {
+    cwd,
+    encoding: "utf8",
+    env: processEnvWithCliPath(),
+    timeout
+  });
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    const detail = String(result.stderr || result.stdout || "").trim();
+    throw new Error(detail || `git ${args.join(" ")} failed`);
+  }
+}
+
+function checkoutRemoteMarketplacePlugin(item) {
+  const source = item.sourceSpec && typeof item.sourceSpec === "object" ? item.sourceSpec : {};
+  const repoUrl = remoteMarketplaceGitUrl(source);
+  if (!repoUrl) throw new Error("这个远程来源不是可识别的 GitHub 仓库。");
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-plugin-"));
+  const repoDir = path.join(tmpRoot, "repo");
+  try {
+    runGit(["clone", "--no-checkout", "--filter=blob:none", repoUrl, repoDir], process.cwd());
+    const revision = String(source.sha || source.ref || "").trim();
+    if (revision) runGit(["checkout", revision], repoDir);
+    else runGit(["checkout", "HEAD"], repoDir);
+    const relPath = String(source.path || "").trim();
+    if (!relPath) return { tmpRoot, sourcePath: repoDir };
+    if (path.isAbsolute(relPath)) throw new Error("远程插件 path 不能是绝对路径。");
+    const pluginPath = path.resolve(repoDir, relPath);
+    if (!isChildPath(repoDir, pluginPath) || !fs.existsSync(pluginPath)) {
+      throw new Error(`远程插件子目录不存在：${relPath}`);
+    }
+    return { tmpRoot, sourcePath: pluginPath };
+  } catch (error) {
+    try { fs.rmSync(tmpRoot, { recursive: true, force: true }); } catch { /* ignore */ }
+    throw error;
+  }
+}
+
+function readCodexMarketplacePlugins() {
+  const home = os.homedir();
+  const roots = [
+    {
+      marketplace: "openai-curated",
+      label: "Codex official",
+      indexPath: path.join(home, ".codex", ".tmp", "plugins", ".agents", "plugins", "marketplace.json"),
+      sourceRoot: path.join(home, ".codex", ".tmp", "plugins")
+    }
+  ];
+  const out = [];
+  for (const rootInfo of roots) {
+    const index = readJson(rootInfo.indexPath, null);
+    const plugins = Array.isArray(index?.plugins) ? index.plugins : [];
+    for (const item of plugins) {
+      const name = marketplacePluginName(item);
+      if (!name) continue;
+      const sourcePath = safeMarketplaceSourcePath(rootInfo.sourceRoot, item.source);
+      const manifest = sourcePath ? readJson(path.join(sourcePath, ".codex-plugin", "plugin.json"), {}) : {};
+      out.push({
+        id: `market:codex:${rootInfo.marketplace}:${name}`,
+        kind: "plugin",
+        engine: "codex",
+        engineLabel: "Codex",
+        source: "codex",
+        marketplace: rootInfo.marketplace,
+        marketplaceLabel: index?.interface?.displayName || rootInfo.label,
+        name,
+        label: pluginDisplayName(manifest, item, name) || name,
+        description: pluginDescription(manifest, item),
+        category: String(item.category || manifest.interface?.category || "").trim(),
+        version: String(manifest.version || "").trim(),
+        iconUrl: pluginIconUrl(sourcePath, manifest),
+        root: sourcePath,
+        sourcePath,
+        sourceSpec: item.source || "",
+        skillRoot: sourcePath ? path.join(sourcePath, "skills") : "",
+        skillCount: sourcePath ? findSkillFiles(path.join(sourcePath, "skills")).length : 0,
+        commandCount: sourcePath ? countDirectoryFiles(path.join(sourcePath, "commands"), (file) => /\.md$/.test(file), 1) : 0,
+        agentCount: sourcePath ? countDirectoryFiles(path.join(sourcePath, "agents"), (file) => /\.md$/.test(file), 1) : 0,
+        toolCount: 0,
+        hookCount: 0,
+        mcpCount: sourcePath ? Object.keys(readJson(path.join(sourcePath, ".app.json"), {})?.apps || {}).length : 0,
+        installState: "available",
+        installable: Boolean(sourcePath && fs.existsSync(sourcePath)),
+        status: sourcePath ? "可安装" : "远程来源，需联网安装"
+      });
+    }
+  }
+  return out;
+}
+
+function readClaudeMarketplacePlugins() {
+  const home = os.homedir();
+  const known = readJson(path.join(home, ".claude", "plugins", "known_marketplaces.json"), {});
+  const out = [];
+  for (const [marketplace, info] of Object.entries(known || {})) {
+    const installLocation = String(info?.installLocation || "").trim();
+    if (!marketplace || !installLocation) continue;
+    const indexPath = path.join(installLocation, ".claude-plugin", "marketplace.json");
+    const index = readJson(indexPath, null);
+    const plugins = Array.isArray(index?.plugins) ? index.plugins : [];
+    for (const item of plugins) {
+      const name = marketplacePluginName(item);
+      if (!name) continue;
+      const sourcePath = safeMarketplaceSourcePath(installLocation, item.source);
+      const manifest = sourcePath ? readJson(path.join(sourcePath, ".claude-plugin", "plugin.json"), {}) : {};
+      out.push({
+        id: `market:claude-code:${marketplace}:${name}`,
+        kind: "plugin",
+        engine: "claude-code",
+        engineLabel: "Claude Code",
+        source: "claude",
+        marketplace,
+        marketplaceLabel: index?.owner?.name || index?.name || marketplace,
+        name,
+        label: pluginDisplayName(manifest, item, name) || name,
+        qualifiedName: `${name}@${marketplace}`,
+        description: pluginDescription(manifest, item),
+        category: String(item.category || manifest.category || "").trim(),
+        version: String(manifest.version || item.version || "").trim(),
+        iconUrl: pluginIconUrl(sourcePath, manifest),
+        root: sourcePath,
+        sourcePath,
+        sourceSpec: item.source || "",
+        skillRoot: sourcePath ? path.join(sourcePath, "skills") : "",
+        skillCount: sourcePath ? findSkillFiles(path.join(sourcePath, "skills")).length : 0,
+        commandCount: sourcePath ? countDirectoryFiles(path.join(sourcePath, "commands"), (file) => /\.md$/.test(file), 1) : 0,
+        agentCount: sourcePath ? countDirectoryFiles(path.join(sourcePath, "agents"), (file) => /\.md$/.test(file), 1) : 0,
+        hookCount: sourcePath ? countDirectoryFiles(path.join(sourcePath, "hooks"), (file) => /\.md$/.test(file), 1) : 0,
+        mcpCount: sourcePath ? countDirectoryFiles(path.join(sourcePath, "mcp"), (file) => /\.json$|\.js$|\.ts$/.test(file), 2) : 0,
+        installState: "available",
+        installable: Boolean(sourcePath && fs.existsSync(sourcePath)) || Boolean(remoteMarketplaceGitUrl(item.source)),
+        status: sourcePath ? "可安装" : "需联网安装"
+      });
+    }
+  }
+  return out;
+}
+
+function installedCodexPluginKey(item) {
+  return `codex:${item.marketplace || ""}:${item.name}`;
+}
+
+function marketplaceKey(item) {
+  return `${item.engine}:${item.marketplace || ""}:${item.name}`;
 }
 
 function readHermesPluginManifests() {
@@ -2644,6 +3275,109 @@ function readHermesPluginManifests() {
   return out;
 }
 
+function readJsonConnectorEntries(filePath, { source, sourceLabel, scope, provider }) {
+  const raw = readJson(filePath, null);
+  if (!raw || typeof raw !== "object") return [];
+  const candidates = raw.mcpServers || raw.mcp_servers || raw.servers || {};
+  if (!candidates || typeof candidates !== "object" || Array.isArray(candidates)) return [];
+  return Object.entries(candidates)
+    .filter(([name, value]) => name && value && typeof value === "object")
+    .map(([name, value]) => ({
+      id: `mcp:${source}:${scope}:${name}`,
+      kind: "mcp",
+      label: String(name),
+      source,
+      sourceLabel,
+      scope,
+      provider,
+      status: "已配置",
+      description: String(value.description || value.url || value.command || "本机 MCP server 配置"),
+      path: filePath,
+      transport: value.url ? "http" : "stdio"
+    }));
+}
+
+function readCodexTomlMcpEntries(filePath) {
+  if (!fs.existsSync(filePath)) return [];
+  let raw = "";
+  try {
+    raw = fs.readFileSync(filePath, "utf8");
+  } catch {
+    return [];
+  }
+  const entries = [];
+  const sectionPattern = /^\s*\[mcp_servers\.([^\].]+)\]\s*$/gm;
+  for (const match of raw.matchAll(sectionPattern)) {
+    const name = String(match[1] || "").trim();
+    if (!name) continue;
+    entries.push({
+      id: `mcp:codex:user:${name}`,
+      kind: "mcp",
+      label: name,
+      source: "codex",
+      sourceLabel: "Codex",
+      scope: "user",
+      provider: "codex",
+      status: "已配置",
+      description: "Codex config.toml 中的 MCP server",
+      path: filePath,
+      transport: "stdio"
+    });
+  }
+  return entries;
+}
+
+function enumerateConnectors() {
+  const home = os.homedir();
+  const connectors = [];
+
+  connectors.push(...readJsonConnectorEntries(path.join(home, ".claude", ".mcp.json"), {
+    source: "claude",
+    sourceLabel: "Claude Code",
+    scope: "user",
+    provider: "claude-code"
+  }));
+  connectors.push(...readJsonConnectorEntries(path.join(home, ".claude", "settings.json"), {
+    source: "claude",
+    sourceLabel: "Claude Code",
+    scope: "user",
+    provider: "claude-code"
+  }));
+  connectors.push(...readJsonConnectorEntries(path.join(process.cwd(), ".mcp.json"), {
+    source: "claude",
+    sourceLabel: "Claude Project",
+    scope: "project",
+    provider: "claude-code"
+  }));
+  connectors.push(...readJsonConnectorEntries(path.join(home, ".cursor", "mcp.json"), {
+    source: "cursor",
+    sourceLabel: "Cursor",
+    scope: "user",
+    provider: "cursor"
+  }));
+  connectors.push(...readJsonConnectorEntries(path.join(home, ".gemini", "settings.json"), {
+    source: "gemini",
+    sourceLabel: "Gemini",
+    scope: "user",
+    provider: "gemini"
+  }));
+  connectors.push(...readCodexTomlMcpEntries(path.join(home, ".codex", "config.toml")));
+
+  const seen = new Set();
+  return connectors
+    .filter((connector) => {
+      const key = connector.id || `${connector.kind}:${connector.path}:${connector.label}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((a, b) => (
+      String(a.kind || "").localeCompare(String(b.kind || ""))
+      || String(a.sourceLabel || "").localeCompare(String(b.sourceLabel || ""))
+      || String(a.label || "").localeCompare(String(b.label || ""))
+    ));
+}
+
 function extensionCapabilitySummary(extension) {
   const parts = [];
   if (extension.skillCount) parts.push(`${extension.skillCount} Skills`);
@@ -2657,19 +3391,24 @@ function extensionCapabilitySummary(extension) {
 
 function enumerateExtensions() {
   const extensions = [];
+  const installedKeys = new Set();
   for (const item of readClaudeInstalledPlugins()) {
     const skillsRoot = path.join(item.installPath, "skills");
+    const marketplace = String(item.qualifiedName.split("@")[1] || "").trim();
+    installedKeys.add(`claude-code:${marketplace}:${item.name}`);
     extensions.push({
       id: `claude:${item.qualifiedName}`,
       kind: "plugin",
       engine: "claude-code",
       engineLabel: "Claude Code",
       source: "claude",
+      marketplace,
       name: item.name,
       label: item.name,
       qualifiedName: item.qualifiedName,
       description: String(item.manifest.description || "").trim(),
       version: String(item.install.version || item.manifest.version || "").trim(),
+      iconUrl: pluginIconUrl(item.installPath, item.manifest),
       root: item.installPath,
       skillRoot: skillsRoot,
       skillCount: findSkillFiles(skillsRoot).length,
@@ -2677,22 +3416,27 @@ function enumerateExtensions() {
       agentCount: countDirectoryFiles(path.join(item.installPath, "agents"), (file) => /\.md$/.test(file), 1),
       hookCount: countDirectoryFiles(path.join(item.installPath, "hooks"), (file) => /\.md$/.test(file), 1),
       mcpCount: countDirectoryFiles(path.join(item.installPath, "mcp"), (file) => /\.json$|\.js$|\.ts$/.test(file), 2),
+      installState: "installed",
+      installable: false,
       status: "已安装，Claude Code 会话可加载"
     });
   }
   for (const item of readCodexPluginManifests()) {
     const manifest = item.manifest || {};
     const skillsRoot = path.join(item.installPath, "skills");
+    installedKeys.add(installedCodexPluginKey(item));
     extensions.push({
       id: `codex:${item.name}`,
       kind: "plugin",
       engine: "codex",
       engineLabel: "Codex",
       source: "codex",
+      marketplace: item.marketplace || "",
       name: item.name,
       label: manifest.interface?.displayName || item.name,
       description: String(manifest.description || manifest.interface?.shortDescription || "").trim(),
       version: String(manifest.version || "").trim(),
+      iconUrl: item.iconUrl || pluginIconUrl(item.installPath, manifest),
       root: item.installPath,
       skillRoot: skillsRoot,
       skillCount: findSkillFiles(skillsRoot).length,
@@ -2700,6 +3444,8 @@ function enumerateExtensions() {
       agentCount: countDirectoryFiles(path.join(item.installPath, "agents"), (file) => /\.md$/.test(file), 1),
       hookCount: 0,
       mcpCount: item.appConfig?.apps ? Object.keys(item.appConfig.apps).length : 0,
+      installState: "installed",
+      installable: false,
       status: "本机 Codex 插件缓存；当前 Aimashi Codex SDK 会话尚未接入插件加载"
     });
   }
@@ -2715,6 +3461,7 @@ function enumerateExtensions() {
       label: item.name,
       description: item.description,
       version: item.version,
+      iconUrl: pluginIconUrl(item.installPath, {}),
       root: item.installPath,
       skillRoot: skillsRoot,
       skillCount: findSkillFiles(skillsRoot).length + (fs.existsSync(path.join(item.installPath, "SKILL.md")) ? 1 : 0),
@@ -2724,12 +3471,20 @@ function enumerateExtensions() {
       hookCount: item.hooks.length,
       mcpCount: 0,
       pluginKind: item.kind,
+      installState: "installed",
+      installable: false,
       status: item.scopeLabel
     });
+  }
+  for (const item of [...readCodexMarketplacePlugins(), ...readClaudeMarketplacePlugins()]) {
+    if (installedKeys.has(marketplaceKey(item))) continue;
+    extensions.push(item);
   }
   return extensions
     .map((extension) => ({ ...extension, capabilitySummary: extensionCapabilitySummary(extension) }))
     .sort((a, b) => (
+      String(a.installState === "installed" ? "0" : "1").localeCompare(String(b.installState === "installed" ? "0" : "1"))
+      ||
       String(a.engineLabel || "").localeCompare(String(b.engineLabel || ""))
       || String(a.label || a.name || "").localeCompare(String(b.label || b.name || ""))
     ));
@@ -2739,11 +3494,14 @@ function enumeratePlugins() {
   const home = os.homedir();
   const p = runtimePaths();
   const out = [];
+  for (const source of readAimashiOfficialSkillSources()) {
+    out.push(source);
+  }
   out.push({
     id: "aimashi:builtin",
     name: "aimashi",
-    label: "Aimashi 内置",
-    description: "随 Aimashi 一起安装的 Hermes seed Skill 库",
+    label: "Hermes 内置技能",
+    description: "Hermes 官方随运行时提供并同步到 Aimashi runtime 的 Skill",
     source: "aimashi",
     kind: "skill-source",
     engine: "hermes",
@@ -2814,6 +3572,33 @@ function enumeratePlugins() {
   return out;
 }
 
+function readAimashiOfficialSkillSources() {
+  const manifestPath = officialLibraryManifestPath();
+  const manifest = readJson(manifestPath, null);
+  if (!manifest || typeof manifest !== "object") return [];
+  const libraryId = String(manifest.id || "aimashi-official").trim() || "aimashi-official";
+  const libraryLabel = String(manifest.label || "Aimashi 官方库").trim() || "Aimashi 官方库";
+  return (Array.isArray(manifest.skillSources) ? manifest.skillSources : [])
+    .map((item) => {
+      const id = String(item?.id || item?.name || "").trim();
+      const root = resolveOfficialLibraryRoot(item?.root);
+      if (!id || !root) return null;
+      return {
+        id: `${libraryId}:${id}`,
+        name: String(item.name || id).trim(),
+        label: String(item.label || item.name || id).trim(),
+        description: String(item.description || manifest.description || "").trim(),
+        source: libraryId,
+        sourceLabel: libraryLabel,
+        kind: "official-skill-source",
+        engine: String(item.engine || "aimashi").trim(),
+        root,
+        idPrefix: String(item.idPrefix || libraryId).trim() || libraryId
+      };
+    })
+    .filter(Boolean);
+}
+
 async function fetchHermesSkillsCatalog(timeoutMs = 1500) {
   if (!engineState.running || !engineState.baseUrl) return null;
   const controller = new AbortController();
@@ -2839,6 +3624,7 @@ async function fetchHermesSkillsCatalog(timeoutMs = 1500) {
 async function loadLocalSkills() {
   const pluginDefs = enumeratePlugins();
   const extensions = enumerateExtensions();
+  const connectors = enumerateConnectors();
   const skills = [];
   const seenByName = new Set();
   const plugins = [];
@@ -2850,6 +3636,7 @@ async function loadLocalSkills() {
         label: plugin.label,
         description: plugin.description,
         source: plugin.source,
+        sourceLabel: plugin.sourceLabel || plugin.label,
         kind: plugin.kind || "skill-source",
         engine: plugin.engine || "",
         extensionId: plugin.extensionId || "",
@@ -2881,6 +3668,7 @@ async function loadLocalSkills() {
       label: plugin.label,
       description: plugin.description,
       source: plugin.source,
+      sourceLabel: plugin.sourceLabel || plugin.label,
       kind: plugin.kind || "skill-source",
       engine: plugin.engine || "",
       extensionId: plugin.extensionId || "",
@@ -2912,9 +3700,90 @@ async function loadLocalSkills() {
     plugins,
     sources: plugins,
     extensions,
+    connectors,
     skills,
     roots: plugins.map((p) => ({ source: p.source, label: p.label, root: p.root, exists: fs.existsSync(p.root) }))
   };
+}
+
+function marketplaceVersionSegment(item) {
+  const version = String(item.version || "").trim();
+  if (version && /^[A-Za-z0-9._-]+$/.test(version)) return version;
+  const source = item.sourceSpec && typeof item.sourceSpec === "object" ? item.sourceSpec : {};
+  const sha = String(source.sha || source.ref || "").trim();
+  if (sha && /^[A-Za-z0-9._-]+$/.test(sha)) return sha.slice(0, 12);
+  return "local";
+}
+
+function copyMarketplacePluginSource(item, destinationRoot, sourceOverride = "") {
+  const sourcePath = String(sourceOverride || item.sourcePath || "").trim();
+  if (!sourcePath || !fs.existsSync(sourcePath)) {
+    throw new Error("这个插件没有可用的本机源目录，暂不能一键安装。");
+  }
+  const dest = path.join(destinationRoot, item.marketplace || "marketplace", item.name, marketplaceVersionSegment(item));
+  if (fs.existsSync(dest)) return dest;
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  fs.cpSync(sourcePath, dest, {
+    recursive: true,
+    dereference: false,
+    errorOnExist: true,
+    force: false,
+    filter: (src) => !src.split(path.sep).includes(".git")
+  });
+  return dest;
+}
+
+async function installMarketplacePlugin(extensionId) {
+  const id = String(extensionId || "").trim();
+  const item = [...readCodexMarketplacePlugins(), ...readClaudeMarketplacePlugins()].find((entry) => entry.id === id);
+  if (!item) throw new Error("没有找到这个 marketplace 插件。");
+  if (!item.installable) throw new Error(item.status || "这个插件暂不支持一键安装。");
+  let remoteCheckout = null;
+  const sourcePath = item.sourcePath || (() => {
+    remoteCheckout = checkoutRemoteMarketplacePlugin(item);
+    return remoteCheckout.sourcePath;
+  })();
+  if (item.engine === "codex") {
+    try {
+      copyMarketplacePluginSource(item, path.join(os.homedir(), ".codex", "plugins", "cache"), sourcePath);
+      return loadLocalSkills();
+    } finally {
+      if (remoteCheckout?.tmpRoot) {
+        try { fs.rmSync(remoteCheckout.tmpRoot, { recursive: true, force: true }); } catch { /* ignore */ }
+      }
+    }
+  }
+  if (item.engine === "claude-code") {
+    let installPath = "";
+    try {
+      installPath = copyMarketplacePluginSource(item, path.join(os.homedir(), ".claude", "plugins", "cache"), sourcePath);
+    } finally {
+      if (remoteCheckout?.tmpRoot) {
+        try { fs.rmSync(remoteCheckout.tmpRoot, { recursive: true, force: true }); } catch { /* ignore */ }
+      }
+    }
+    const registryPath = path.join(os.homedir(), ".claude", "plugins", "installed_plugins.json");
+    const registry = readJson(registryPath, { version: 2, plugins: {} });
+    if (!registry || typeof registry !== "object") throw new Error("Claude Code installed_plugins.json 无法解析。");
+    registry.version = registry.version || 2;
+    registry.plugins = registry.plugins && typeof registry.plugins === "object" ? registry.plugins : {};
+    const qualifiedName = `${item.name}@${item.marketplace}`;
+    const installs = Array.isArray(registry.plugins[qualifiedName]) ? registry.plugins[qualifiedName] : [];
+    if (!installs.some((install) => String(install.installPath || "") === installPath)) {
+      installs.push({
+        scope: "user",
+        installPath,
+        version: item.version || "unknown",
+        installedAt: new Date().toISOString(),
+        lastUpdated: new Date().toISOString()
+      });
+    }
+    registry.plugins[qualifiedName] = installs;
+    fs.mkdirSync(path.dirname(registryPath), { recursive: true });
+    fs.writeFileSync(registryPath, JSON.stringify(registry, null, 2) + "\n", { mode: 0o600 });
+    return loadLocalSkills();
+  }
+  throw new Error("这个引擎暂不支持一键安装。");
 }
 
 function resolveLocalSkill(identifier) {
@@ -3226,10 +4095,11 @@ asyncio.run(main())
     cwd: p.engine,
     env: {
       ...process.env,
-      HERMES_HOME: p.home,
+      HERMES_HOME: effectiveHermesHome(),
+      AIMASHI_HOME: p.home,
       HERMES_LANGUAGE: process.env.HERMES_LANGUAGE || "zh",
       GATEWAY_ALLOW_ALL_USERS: "true",
-      PYTHONPATH: process.env.PYTHONPATH ? `${p.engine}:${process.env.PYTHONPATH}` : p.engine
+      PYTHONPATH: buildPythonPath()
     },
     encoding: "utf8",
     timeout: 45000
@@ -3333,12 +4203,14 @@ async function timeEngineStepAsync(label, fn) {
 }
 
 function runEngineInstallCommand(command, args, cwd) {
+  const p = runtimePaths();
   appendEngineLog(`$ ${command} ${args.join(" ")}`);
   const result = spawnSync(command, args, {
     cwd,
     env: {
       ...process.env,
-      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1",
+      PYTHONPATH: buildPythonPath()
     },
     encoding: "utf8"
   });
@@ -3370,7 +4242,7 @@ function aimashiPluginFiles() {
       "import sys",
       "",
       "def _load_aimashi_env():",
-      "    home = os.environ.get('HERMES_HOME')",
+      "    home = os.environ.get('AIMASHI_HOME') or os.environ.get('HERMES_HOME')",
       "    if not home:",
       "        return",
       "    paths = [",
@@ -3430,7 +4302,7 @@ function aimashiPluginFiles() {
       "_current_fellow: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar('aimashi_fellow_id', default=None)",
       "",
       "def _read_persona(fellow_id: str) -> Optional[str]:",
-      "    home = os.environ.get('HERMES_HOME')",
+      "    home = os.environ.get('AIMASHI_HOME') or os.environ.get('HERMES_HOME')",
       "    if not home or not _FELLOW_ID_RE.match(fellow_id):",
       "        return None",
       "    path = Path(home) / 'fellows' / f'{fellow_id}.md'",
@@ -3504,10 +4376,14 @@ function aimashiPluginFiles() {
 
 function ensureEnginePlugins() {
   const p = runtimePaths();
-  const pluginDir = path.join(p.engine, "aimashi_plugins");
+  const pluginDir = path.join(p.pluginsDir, "aimashi_plugins");
   fs.mkdirSync(pluginDir, { recursive: true });
   for (const [fileName, content] of Object.entries(aimashiPluginFiles())) {
     fs.writeFileSync(path.join(pluginDir, fileName), content);
+  }
+  const legacyDir = path.join(p.engine, "aimashi_plugins");
+  if (legacyDir !== pluginDir) {
+    try { fs.rmSync(legacyDir, { recursive: true, force: true }); } catch { /* ignore */ }
   }
 }
 
@@ -3599,7 +4475,10 @@ function installEngine() {
   return installEngineFromOfficialPackage();
 }
 
-function choosePort(preferred = 8642, attempts = 40) {
+function choosePort(preferred = 18642, attempts = 40) {
+  // Start outside hermes's traditional 8642 range so aimashi never collides
+  // with a user-managed hermes gateway running on the default port.
+  const start = preferred;
   return new Promise((resolve) => {
     let index = 0;
     const tryNext = () => {
@@ -3607,7 +4486,7 @@ function choosePort(preferred = 8642, attempts = 40) {
         resolve(0);
         return;
       }
-      const port = preferred + index;
+      const port = start + index;
       index += 1;
       const server = net.createServer();
       server.once("error", tryNext);
@@ -3621,16 +4500,171 @@ function choosePort(preferred = 8642, attempts = 40) {
 }
 
 function enginePython() {
+  // Prefer the runtime shipped inside the .app (no install needed).
+  const bundled = bundledPython();
+  if (bundled) return bundled;
+  // Fallback: user previously ran `Install Engine` and we built a venv.
   const venvPython = venvPythonPath();
   if (fs.existsSync(venvPython)) return venvPython;
   return "python3";
 }
 
+function engineSource() {
+  // System-Hermes detection disabled. aimashi has 3 sources of Python+Hermes:
+  //   "bundled" — shipped inside .app/Contents/Resources/hermes-runtime (preferred)
+  //   "managed" — user ran "Install Engine" which built a venv to user data
+  //   "none"    — nothing available; onboarding shows "Install Hermes"
+  if (bundledPython() && bundledSitePackages()) return "bundled";
+  if (fs.existsSync(venvPythonPath())) return "managed";
+  return "none";
+}
+
+// aimashi always uses its private HERMES_HOME for spawning. In system mode we
+// IMPORT user's keys + model choice into aimashi's state (see importFromSystemHermes),
+// but never share the config.yaml — that prevents port conflicts and writes to
+// user's hermes files.
+function effectiveHermesHome() {
+  return runtimePaths().home;
+}
+
+function userHermesHomePath() {
+  const sys = loadSystemHermesCache();
+  if (sys.hermesHome && fs.existsSync(sys.hermesHome)) return sys.hermesHome;
+  return "";
+}
+
+function userHasCustomizedAimashiModel() {
+  const p = runtimePaths();
+  const current = readJson(p.modelSettings, null);
+  if (current && typeof current === "object" && String(current.apiKey || "").length > 0) return true;
+  const store = providerConnectionStore();
+  return Object.keys(store.providers).length > 0;
+}
+
+function importFromSystemHermes() {
+  // No-op: system Hermes detection is disabled. Kept for callsite stability.
+  return;
+  // eslint-disable-next-line no-unreachable
+  if (engineSource() !== "system") return;
+  const userHome = userHermesHomePath();
+  if (!userHome) return;
+  const userConfigPath = path.join(userHome, "config.yaml");
+  if (!fs.existsSync(userConfigPath)) return;
+  let userConfig = {};
+  try {
+    const parsed = yaml.load(fs.readFileSync(userConfigPath, "utf8"));
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) userConfig = parsed;
+  } catch {
+    return;
+  }
+  if (userHasCustomizedAimashiModel()) return;
+
+  const userModel = userConfig.model && typeof userConfig.model === "object" ? userConfig.model : {};
+  const provider = String(userModel.provider || "").trim();
+  const model = String(userModel.default || "").trim();
+  if (!provider || !model) return;
+  const baseUrl = String(userModel.base_url || "").trim();
+  const apiMode = String(userModel.api_mode || "").trim();
+
+  const apiKeyEnvForProvider = {
+    deepseek: "DEEPSEEK_API_KEY",
+    openai: "OPENAI_API_KEY",
+    "openai-codex": "",
+    chatgpt: "OPENAI_API_KEY",
+    anthropic: "ANTHROPIC_API_KEY",
+    xai: "XAI_API_KEY",
+    gemini: "GEMINI_API_KEY",
+    openrouter: "OPENROUTER_API_KEY",
+    copilot: "COPILOT_API_KEY",
+    lmstudio: ""
+  };
+  const apiKeyEnv = apiKeyEnvForProvider[provider] || "";
+  const p = runtimePaths();
+  atomicWriteFile(p.modelSettings, JSON.stringify({
+    provider,
+    model,
+    apiKeyEnv,
+    apiKey: "",
+    baseUrl,
+    apiMode
+  }, null, 2) + "\n", 0o600);
+
+  // Populate aimashi-providers.json with providers reachable from user's hermes.
+  const dotenv = loadHermesDotenv();
+  const userProviders = userConfig.providers && typeof userConfig.providers === "object" ? userConfig.providers : {};
+  const store = providerConnectionStore();
+  const addProvider = (name, cfg = {}) => {
+    if (!name) return;
+    const envName = apiKeyEnvForProvider[name];
+    if (!envName) return;
+    const key = cfg.api_key || dotenv[envName] || "";
+    if (!key) return;
+    if (store.providers[name]) return;
+    store.providers[name] = normalizeProviderConnection(name, {
+      provider: name,
+      providerLabel: name,
+      authType: "api_key",
+      apiKeyEnv: envName,
+      apiKey: key,
+      baseUrl: cfg.base_url || "",
+      apiMode: ""
+    });
+  };
+  // Active model.provider — guaranteed to be the user's working choice.
+  addProvider(provider, { ...userModel });
+  // Plus all enabled providers from the providers: section.
+  for (const [providerName, cfg] of Object.entries(userProviders)) {
+    if (!cfg || typeof cfg !== "object") continue;
+    if (cfg.enabled !== true) continue;
+    addProvider(providerName, cfg);
+  }
+  atomicWriteFile(p.providerConnections, JSON.stringify(store, null, 2) + "\n", 0o600);
+}
+
+// Strip ANSI escape sequences (cursor moves, color codes etc) that sometimes
+// end up in shell-written .env values when user typed with arrow-key edits.
+function stripAnsi(value) {
+  return String(value).replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "").replace(/[\x00-\x08\x0b-\x1f\x7f]/g, "");
+}
+
+function loadHermesDotenv() {
+  const userHome = userHermesHomePath();
+  if (!userHome) return {};
+  const envPath = path.join(userHome, ".env");
+  if (!fs.existsSync(envPath)) return {};
+  try {
+    const raw = fs.readFileSync(envPath, "utf8");
+    const out = {};
+    for (const line of raw.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+      const eq = trimmed.indexOf("=");
+      if (eq <= 0) continue;
+      let key = stripAnsi(trimmed.slice(0, eq).trim());
+      if (key.startsWith("export ")) key = key.slice(7).trim();
+      let value = stripAnsi(trimmed.slice(eq + 1).trim());
+      if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+        value = value.slice(1, -1);
+      }
+      if (key) out[key] = value;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
 function readConfiguredPort() {
-  const text = fs.existsSync(runtimePaths().config) ? fs.readFileSync(runtimePaths().config, "utf8") : "";
-  const match = text.match(/^\s*port:\s*(\d+)\s*$/m);
-  const port = match ? Number(match[1]) : 0;
-  return Number.isInteger(port) && port > 0 ? port : 8642;
+  const configPath = path.join(effectiveHermesHome(), "config.yaml");
+  if (!fs.existsSync(configPath)) return 18642;
+  try {
+    const parsed = yaml.load(fs.readFileSync(configPath, "utf8"));
+    const port = Number(parsed?.platforms?.api_server?.port);
+    if (Number.isInteger(port) && port > 0) return port;
+  } catch {
+    // fall through
+  }
+  return 18642;
 }
 
 function xmlEscape(value) {
@@ -3664,17 +4698,18 @@ function runLaunchctl(args, { ignoreFailure = false } = {}) {
 function launchAgentEnvironment() {
   const p = runtimePaths();
   return {
-    HERMES_HOME: p.home,
+    HERMES_HOME: effectiveHermesHome(),
+      AIMASHI_HOME: p.home,
     HERMES_LANGUAGE: process.env.HERMES_LANGUAGE || "zh",
     HERMES_ACCEPT_HOOKS: "1",
     GATEWAY_ALLOW_ALL_USERS: "true",
     PYTHONUNBUFFERED: "1",
-    PYTHONPATH: process.env.PYTHONPATH ? `${p.engine}:${process.env.PYTHONPATH}` : p.engine
+    PYTHONPATH: buildPythonPath()
   };
 }
 
 function gatewayProgramArguments() {
-  const args = [
+  return [
     enginePython(),
     "-m",
     "aimashi_plugins",
@@ -3683,7 +4718,6 @@ function gatewayProgramArguments() {
     "--replace",
     "--accept-hooks"
   ];
-  return args;
 }
 
 function launchAgentPlist() {
@@ -3772,7 +4806,8 @@ function daemonLaunchAgentEnvironment() {
   const p = runtimePaths();
   return {
     AIMASHI_DAEMON: "1",
-    HERMES_HOME: p.home,
+    HERMES_HOME: effectiveHermesHome(),
+      AIMASHI_HOME: p.home,
     HERMES_LANGUAGE: process.env.HERMES_LANGUAGE || "zh",
     PATH: process.env.PATH || "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin",
     PYTHONUNBUFFERED: "1"
@@ -4507,18 +5542,30 @@ async function startRelayClient() {
 
 async function isEngineHealthy(baseUrl, timeoutMs = 1200) {
   try {
-    const response = await fetch(`${baseUrl}/health`, {
-      headers: { Authorization: `Bearer ${apiKey()}` },
+    // /health is an unauthenticated liveness check on hermes — won't 401 even
+    // with a wrong API_SERVER_KEY. To verify we're talking to an aimashi-owned
+    // gateway (not the user's own launchd hermes), hit an authenticated route
+    // (any 401 confirms the gateway runs but isn't ours; any 200 means it's
+    // ours since only our key would be accepted).
+    const auth = { Authorization: `Bearer ${apiKey()}` };
+    const probe = await fetch(`${baseUrl}/v1/runs/_aimashi_probe/events`, {
+      method: "GET",
+      headers: auth,
       signal: AbortSignal.timeout(timeoutMs)
     });
-    return response.ok;
+    // 404 = our gateway (route exists but run id unknown). 401/403 = not ours.
+    // 200 = also ours (unlikely for a fake run id but defensive).
+    return probe.status === 404 || probe.status === 200;
   } catch {
     return false;
   }
 }
 
 async function adoptRunningEngine() {
-  const ports = [engineState.port, readConfiguredPort(), 8642, 8643, 8644, 8645]
+  // Only check the port we know aimashi configured to bind to. Never scan 8642
+  // (user's launchd hermes default port) to avoid accidentally adopting it.
+  const configuredPort = readConfiguredPort();
+  const ports = [engineState.port, configuredPort]
     .filter((port, index, list) => Number.isInteger(port) && port > 0 && list.indexOf(port) === index);
   for (const port of ports) {
     const baseUrl = `http://127.0.0.1:${port}`;
@@ -4529,7 +5576,7 @@ async function adoptRunningEngine() {
         starting: false,
         baseUrl,
         port,
-        managedBy: process.platform === "darwin" ? "launchd" : "process",
+        managedBy: "process",
         lastError: ""
       };
       return true;
@@ -4569,15 +5616,18 @@ async function startEngine() {
 
   writeRuntimeConfig(port);
   const settings = modelSettings();
+  const dotenv = loadHermesDotenv();
   const env = {
     ...process.env,
-    HERMES_HOME: p.home,
+    ...dotenv,
+    HERMES_HOME: effectiveHermesHome(),
+    AIMASHI_HOME: p.home,
     HERMES_ACCEPT_HOOKS: "1",
     API_SERVER_ENABLED: "true",
     API_SERVER_HOST: "127.0.0.1",
     API_SERVER_PORT: String(port),
     API_SERVER_KEY: apiKey(),
-    PYTHONPATH: process.env.PYTHONPATH ? `${p.engine}:${process.env.PYTHONPATH}` : p.engine
+    PYTHONPATH: buildPythonPath()
   };
   if (settings.apiKey && settings.apiKeyEnv) {
     env[settings.apiKeyEnv] = settings.apiKey;
@@ -4588,18 +5638,20 @@ async function startEngine() {
     }
   }
 
+  const source = engineSource();
+  const useLaunchd = process.platform === "darwin" && source === "managed";
   engineState = {
     ...engineState,
     running: false,
     starting: true,
     baseUrl: `http://127.0.0.1:${port}`,
     port,
-    managedBy: process.platform === "darwin" ? "launchd" : "process",
+    managedBy: useLaunchd ? "launchd" : "process",
     lastError: "",
     logs: []
   };
 
-  if (process.platform === "darwin") {
+  if (useLaunchd) {
     startLaunchAgent();
     const ok = await waitForHealth(engineState.baseUrl, 45000, false);
     engineState.starting = false;
@@ -4656,10 +5708,24 @@ function stopEngine() {
   return getRuntimeStatus();
 }
 
+function uninstallStandaloneEngine() {
+  stopEngine();
+  const p = runtimePaths();
+  try { fs.rmSync(p.launchAgent, { force: true }); } catch { /* plist may not exist */ }
+  try { fs.rmSync(p.engine, { recursive: true, force: true }); } catch { /* engine dir may not exist */ }
+  fs.mkdirSync(p.engine, { recursive: true });
+  agentEngineCache = { at: 0, value: null };
+  appendEngineLog("Standalone Hermes copy uninstalled.");
+  return getRuntimeStatus();
+}
+
 function writeModelSettings(next) {
   const p = runtimePaths();
   fs.writeFileSync(p.modelSettings, JSON.stringify(next, null, 2) + "\n", { mode: 0o600 });
   writeRuntimeConfig(engineState.port || 8642);
+  // NOTE: aimashi never writes back to user's ~/.hermes/config.yaml. The user's
+  // hermes setup stays read-only; aimashi's model choice only affects aimashi's
+  // own private gateway.
 }
 
 function applyCodexModelSettings() {
@@ -4878,8 +5944,9 @@ function startProviderOAuth(input = {}) {
     cwd: p.engine,
     env: {
       ...process.env,
-      HERMES_HOME: p.home,
-      PYTHONPATH: process.env.PYTHONPATH ? `${p.engine}:${process.env.PYTHONPATH}` : p.engine
+      HERMES_HOME: effectiveHermesHome(),
+      AIMASHI_HOME: p.home,
+      PYTHONPATH: buildPythonPath()
     },
     stdio: ["ignore", "pipe", "pipe"]
   });
@@ -5286,7 +6353,7 @@ async function sendClaudeCodeChat({ fellow, sessionId, messages, signal, emit })
   // Per-turn streaming state: indexed by content block index from the SDK partial events.
   let activeTextId = null;
   const reasoningId = `reasoning_${crypto.randomUUID()}`;
-  const blockIndex = new Map(); // index -> {kind: 'text'|'thinking'|'tool_use', id, name}
+  const blockIndex = new Map(); // index -> {kind: 'text'|'thinking'|'tool_use', id, name, input}
   for await (const message of stream) {
     if (signal?.aborted) break;
     if (message?.session_id && !capturedSessionId) {
@@ -5309,8 +6376,9 @@ async function sendClaudeCodeChat({ fellow, sessionId, messages, signal, emit })
         } else if (block.type === "tool_use") {
           const toolId = String(block.id || `tool_${idx}`);
           const toolName = String(block.name || "tool");
-          blockIndex.set(idx, { kind: "tool_use", id: toolId, name: toolName });
-          emit("tool_call_started", { id: toolId, name: toolName, preview: "" });
+          const preview = block.input ? JSON.stringify(block.input, null, 2) : "";
+          blockIndex.set(idx, { kind: "tool_use", id: toolId, name: toolName, input: preview });
+          emit("tool_call_started", { id: toolId, name: toolName, preview });
         }
       } else if (ev.type === "content_block_delta" && ev.delta) {
         const meta = blockIndex.get(ev.index);
@@ -5319,8 +6387,14 @@ async function sendClaudeCodeChat({ fellow, sessionId, messages, signal, emit })
           emit("text_delta", { id: meta.id, text: String(ev.delta.text || "") });
         } else if (ev.delta.type === "thinking_delta" && meta.kind === "thinking") {
           emit("reasoning_delta", { id: meta.id, text: String(ev.delta.thinking || "") });
+        } else if (ev.delta.type === "input_json_delta" && meta.kind === "tool_use") {
+          meta.input = `${meta.input || ""}${String(ev.delta.partial_json || "")}`;
+          emit("tool_call_delta", {
+            id: meta.id,
+            name: meta.name,
+            preview: meta.input.slice(0, 4000)
+          });
         }
-        // input_json_delta intentionally skipped: noisy, no UI value.
       }
       continue;
     }
@@ -5356,9 +6430,11 @@ async function sendClaudeCodeChat({ fellow, sessionId, messages, signal, emit })
       for (const block of contentBlocks) {
         if (block?.type === "tool_result") {
           const toolId = String(block.tool_use_id || "");
+          const resultPreview = firstTextValue(block.content).slice(0, 4000);
           emit("tool_call_completed", {
             id: toolId,
             name: "",
+            preview: resultPreview,
             duration: null,
             error: Boolean(block.is_error)
           });
@@ -5771,15 +6847,41 @@ function createWindow() {
     minHeight: 560,
     title: "Aimashi",
     titleBarStyle: "hidden",
-    trafficLightPosition: { x: 4, y: 8 },
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false
     }
   });
+  if (process.platform === "darwin" && typeof win.setWindowButtonVisibility === "function") {
+    win.setWindowButtonVisibility(false);
+  }
+  const sendWindowEvent = (channel, payload) => {
+    if (!win.isDestroyed()) win.webContents.send(channel, payload);
+  };
+  win.on("focus", () => sendWindowEvent("window:focus-state", true));
+  win.on("blur", () => sendWindowEvent("window:focus-state", false));
+  win.on("enter-full-screen", () => sendWindowEvent("window:fullscreen", true));
+  win.on("leave-full-screen", () => sendWindowEvent("window:fullscreen", false));
   win.loadFile(path.join(__dirname, "renderer", "index.html"));
 }
+
+ipcMain.handle("window:close", (event) => {
+  BrowserWindow.fromWebContents(event.sender)?.close();
+});
+ipcMain.handle("window:minimize", (event) => {
+  BrowserWindow.fromWebContents(event.sender)?.minimize();
+});
+ipcMain.handle("window:green", (event) => {
+  const w = BrowserWindow.fromWebContents(event.sender);
+  if (!w) return;
+  w.setFullScreen(!w.isFullScreen());
+});
+ipcMain.handle("window:state", (event) => {
+  const w = BrowserWindow.fromWebContents(event.sender);
+  if (!w) return { focused: true, fullscreen: false };
+  return { focused: w.isFocused(), fullscreen: w.isFullScreen() };
+});
 
 ipcMain.handle("runtime:initialize", async () => {
   const status = initializeRuntime();
@@ -5858,6 +6960,7 @@ ipcMain.handle("relay:settings-save", async (_event, settings) => {
 ipcMain.handle("engine:install", () => installEngine());
 ipcMain.handle("engine:start", () => startEngine());
 ipcMain.handle("engine:stop", () => stopEngine());
+ipcMain.handle("engine:uninstall-standalone", () => uninstallStandaloneEngine());
 ipcMain.handle("auth:codex-start", () => startCodexOAuth());
 ipcMain.handle("auth:codex-cancel", () => cancelCodexOAuth());
 ipcMain.handle("auth:provider-start", (_event, provider) => startProviderOAuth(provider));
@@ -5875,7 +6978,9 @@ ipcMain.handle("chat:session-create", (_event, payload) => newChatSession(payloa
 ipcMain.handle("chat:session-rename", (_event, payload) => renameChatSession(payload));
 ipcMain.handle("chat:title-generate", (_event, payload) => generateSessionTitle(payload));
 ipcMain.handle("model:catalog", () => loadHermesModelCatalog());
+ipcMain.handle("engine:capabilities", () => loadEngineCapabilities());
 ipcMain.handle("skills:list", () => loadLocalSkills());
+ipcMain.handle("plugins:install", (_event, extensionId) => installMarketplacePlugin(extensionId));
 ipcMain.handle("skills:read", (_event, skillId) => readLocalSkill(skillId));
 ipcMain.handle("skills:delete", (_event, skillId) => deleteLocalSkill(skillId));
 ipcMain.handle("skills:open-directory", (_event, skillId) => openLocalSkillDirectory(skillId));
@@ -5994,7 +7099,8 @@ function saveFellow(fellowInput) {
     color: fellowInput.color || "#0f766e",
     avatarImage: fellowInput.avatarImage || fellowInput.avatar || "",
     avatarCrop: normalizeAvatarCrop(fellowInput.avatarCrop),
-    bio: fellowInput.description || fellowInput.bio || fellows.find((item) => item.key === key)?.bio || ""
+    bio: fellowInput.description || fellowInput.bio || fellows.find((item) => item.key === key)?.bio || "",
+    capabilities: normalizeFellowCapabilities(fellowInput.capabilities || existingFellow?.capabilities)
   });
   const index = fellows.findIndex((item) => item.key === key);
   if (index >= 0) fellows[index] = next;
@@ -6101,6 +7207,7 @@ ipcMain.handle("pet:place", (_event, key) => placeFellowPet(key));
 ipcMain.handle("pet:recall", (_event, key) => recallFellowPet(key));
 
 app.whenReady().then(async () => {
+  if (!IS_DAEMON_PROCESS && !shouldRunDesktopInstance) return;
   initializeRuntime();
   if (IS_DAEMON_PROCESS) {
     try {
@@ -6123,15 +7230,19 @@ app.whenReady().then(async () => {
     appendDaemonLog(`Background daemon registration failed: ${controlServerState.lastError}`);
   });
   createWindow();
+  refreshSystemHermesAsync().catch(() => { /* cached lastError */ });
   setTimeout(async () => {
     try {
-      if (!getRuntimeStatus().engineInstalled) installEngine();
+      if (!getRuntimeStatus().engineInstalled) {
+        appendEngineLog("No Hermes available (system or managed); waiting for manual setup.");
+        return;
+      }
       await startEngine();
     } catch (error) {
       engineState.lastError = error.message;
       appendEngineLog(`Auto-start failed: ${error.message}`);
     }
-  }, 300);
+  }, 1500);
 });
 
 app.on("window-all-closed", () => {

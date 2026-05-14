@@ -7,11 +7,11 @@ When designing chat UX, streaming, tool-use rendering, or multi-engine adapters,
 ### Open-source code references
 
 **Cherry Studio** — Electron + React multi-provider chat client.
-Local clone: `/Users/zuiyou/github/Alkaka-qt-references/cherry-studio`
+Local clone: `Alkaka-reference/cherry-studio`
 Worth reading for: streaming architecture across many providers (Vercel AI SDK `fullStream` adapter), unified chunk schema, thinking/reasoning UI, MCP tool rendering, abort flow over Electron IPC.
 
 **ClaudeCodeUI (siteboon/claudecodeui)** — React + Node.js web UI wrapping Claude Code / Cursor CLI / Codex / Gemini CLI.
-Local clone: `/Users/zuiyou/github/Alkaka-qt-references/claudecodeui`
+Local clone: `Alkaka-reference/claudecodeui`
 Worth reading for: one-file-per-CLI provider layout, `normalizeMessage` adapter pattern, agent status bar with rotating verbs, tool renderer routing.
 
 **Telegram open source** — chat UX reference.

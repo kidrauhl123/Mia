@@ -9,7 +9,11 @@
 <body>
   <main class="app-shell">
     <aside class="nav-rail" aria-label="主导航">
-      <div class="traffic-spacer"></div>
+      <div class="traffic-spacer" id="trafficSpacer">
+        <button class="traffic-light close" type="button" data-action="close" aria-label="关闭"></button>
+        <button class="traffic-light minimize" type="button" data-action="minimize" aria-label="最小化"></button>
+        <button class="traffic-light green" type="button" data-action="green" aria-label="全屏"></button>
+      </div>
       <div id="userAvatar" class="profile-avatar rail-avatar" role="button" tabindex="0" title="编辑个人资料">B</div>
       <span id="userDisplayName" class="visually-hidden">Boss</span>
       <div class="rail-divider"></div>
@@ -20,7 +24,7 @@
       <button class="rail-button" type="button" data-view="contacts" title="联系人" aria-label="联系人">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2 M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0z"/></svg>
       </button>
-      <button class="rail-button" type="button" data-view="skills" title="Skill 库" aria-label="Skill 库">
+      <button class="rail-button" type="button" data-view="skills" title="能力库" aria-label="能力库">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7v14 M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/></svg>
       </button>
       <div class="rail-spacer"></div>
@@ -65,7 +69,7 @@
       <header class="sidebar-tools skills-sidebar-tools">
         <label class="search-box">
           <span>⌕</span>
-          <input id="skillSearch" autocomplete="off" placeholder="搜索 skill">
+          <input id="skillSearch" autocomplete="off" placeholder="搜索能力">
         </label>
       </header>
       <section id="skillNav" class="skills-nav"></section>
@@ -100,7 +104,14 @@
       </header>
 
       <section class="chat-layout">
-        <div id="chat" class="chat"></div>
+        <div id="chat" class="chat">
+          <article class="setup-guide bootstrap">
+            <div class="setup-guide-main">
+              <strong>正在准备 Aimashi</strong>
+              <p>正在创建本地 runtime、读取伙伴和会话。</p>
+            </div>
+          </article>
+        </div>
         <form id="chatForm" class="composer">
           <div class="composer-input-row">
             <button id="composerAdd" class="composer-add-button" type="button" title="添加" aria-label="添加">+</button>
@@ -141,19 +152,14 @@
               <label class="effort-switcher" title="切换推理强度">
                 <span id="effortLabel" class="effort-label">Medium</span>
                 <select id="effortSelect" aria-label="切换推理强度">
-                  <option value="low">Low</option>
-                  <option value="medium">Medium</option>
-                  <option value="high">High</option>
-                  <option value="xhigh">Extra high</option>
+                  <!-- options populated dynamically from hermes SETTINGS_SCHEMA at startup -->
                 </select>
               </label>
               <span class="composer-dot" aria-hidden="true">·</span>
               <label class="permission-switcher" title="危险命令权限模式">
                 <span id="permissionLabel" class="permission-label">Ask</span>
                 <select id="permissionMode" aria-label="权限模式">
-                  <option value="manual" title="危险命令会暂停并等待你确认。适合日常使用。">Ask</option>
-                  <option value="smart" title="Hermes 会用辅助模型判断低风险命令，高风险命令仍会询问你。">Smart</option>
-                  <option value="off" title="跳过危险命令确认。只在你完全信任当前任务时使用。">YOLO</option>
+                  <!-- options populated dynamically from hermes SETTINGS_SCHEMA at startup -->
                 </select>
               </label>
             </div>
@@ -180,10 +186,10 @@
 
     <section id="skillsView" class="workspace skills-workspace hidden">
       <header class="topbar">
-        <button class="narrow-back-button" type="button" data-narrow-back title="返回 Skill 栏" aria-label="返回 Skill 栏">‹</button>
+        <button class="narrow-back-button" type="button" data-narrow-back title="返回能力库" aria-label="返回能力库">‹</button>
         <div class="group-title">
           <div>
-            <h1><span id="skillPageTitle">本地 Skill</span></h1>
+            <h1><span id="skillPageTitle">能力库</span></h1>
           </div>
         </div>
       </header>
@@ -275,7 +281,7 @@
                   <button id="appearanceAccentReset" class="icon-button" type="button" title="恢复默认主题色" aria-label="恢复默认主题色">↺</button>
                   <label class="accent-swatch" title="选择主题色">
                     <span id="appearanceAccentPreview"></span>
-                    <input id="appearanceAccentColor" type="color" value="#5e5ce6" aria-label="主题色">
+                    <input id="appearanceAccentColor" type="color" value="#0162db" aria-label="主题色">
                   </label>
                 </div>
               </section>
@@ -289,7 +295,7 @@
                   <button id="appearanceUserBubbleReset" class="icon-button" type="button" title="恢复默认用户气泡" aria-label="恢复默认用户气泡">↺</button>
                   <label class="accent-swatch" title="选择用户气泡颜色">
                     <span id="appearanceUserBubblePreview"></span>
-                    <input id="appearanceUserBubbleColor" type="color" value="#dedcff" aria-label="用户消息气泡底色">
+                    <input id="appearanceUserBubbleColor" type="color" value="#0162db" aria-label="用户消息气泡底色">
                   </label>
                 </div>
               </section>
@@ -316,7 +322,35 @@
           </section>
 
           <section class="settings-panel hidden" data-settings-panel="model">
-            <form id="modelForm" class="form-grid">
+            <section class="engine-detection wide" id="engineDetection">
+              <div class="model-section-title">
+                <strong>本机引擎</strong>
+                <span>初次启动会自动探测；点击 Hermes 行展开模型配置</span>
+              </div>
+              <button class="engine-row" type="button" data-engine-row="hermes" aria-expanded="false">
+                <span class="engine-row-dot hermes"></span>
+                <span class="engine-row-body">
+                  <strong>Hermes</strong>
+                  <small id="engineRowHermes">检测中…</small>
+                </span>
+                <span class="engine-row-chev" aria-hidden="true">›</span>
+              </button>
+              <div class="engine-row static" data-engine-row="claude-code">
+                <span class="engine-row-dot claude"></span>
+                <span class="engine-row-body">
+                  <strong>Claude Code</strong>
+                  <small id="engineRowClaude">检测中…</small>
+                </span>
+              </div>
+              <div class="engine-row static" data-engine-row="codex">
+                <span class="engine-row-dot codex"></span>
+                <span class="engine-row-body">
+                  <strong>Codex</strong>
+                  <small id="engineRowCodex">检测中…</small>
+                </span>
+              </div>
+            </section>
+            <form id="modelForm" class="form-grid hidden">
               <section class="connected-providers wide">
                 <div class="model-section-title">
                   <strong>已连接的模型提供商</strong>
@@ -374,6 +408,7 @@
                   <button id="installEngine" class="secondary" type="button">Install Engine</button>
                   <button id="startEngine" class="secondary" type="button">Start</button>
                   <button id="stopEngine" class="secondary" type="button">Stop</button>
+                  <button id="uninstallEngine" class="secondary" type="button">卸载独立副本</button>
                 </div>
                 <article id="engineWarning" class="notice hidden">Engine 尚未安装到 Aimashi 私有 runtime。</article>
                 <pre id="engineLogs"></pre>

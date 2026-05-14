@@ -23,6 +23,7 @@ let appearanceAutoSaveTimer = 0;
 let appearanceAutoSaveSeq = 0;
 const qrSvgCache = new Map();
 const ICON_PARK_PIN_SVG = '<svg class="icon-park-pin" viewBox="0 0 48 48" aria-hidden="true" focusable="false"><path d="M10.6963 17.5042C13.3347 14.8657 16.4701 14.9387 19.8781 16.8076L32.62 9.74509L31.8989 4.78683L43.2126 16.1005L38.2656 15.3907L31.1918 28.1214C32.9752 31.7589 33.1337 34.6647 30.4953 37.3032C30.4953 37.3032 26.235 33.0429 22.7171 29.525L6.44305 41.5564L18.4382 25.2461C14.9202 21.7281 10.6963 17.5042 10.6963 17.5042Z"/></svg>';
+const SETUP_GUIDE_DISMISSED_KEY = "aimashi.setupGuideDismissed.v2";
 
 function clampSidebarWidth(value) {
   const availableMax = Math.max(SIDEBAR_WIDTH_MIN, Math.min(SIDEBAR_WIDTH_MAX, window.innerWidth - 430));
@@ -41,11 +42,15 @@ function savedSidebarWidth() {
 
 const state = {
   runtime: null,
-  activeKey: "aimashi",
+  activeKey: "",
   chatStore: { schema_version: 1, readAt: {}, sessions: {} },
   activeSessionIdByPersona: {},
   generatingTitleIds: new Set(),
   startupTasks: [],
+  firstRun: false,
+  setupGuideDismissed: localStorage.getItem(SETUP_GUIDE_DISMISSED_KEY) === "1",
+  onboardingStep: localStorage.getItem("aimashi.onboardingStep") || "engine",
+  onboardingPickedEngine: "",
   forceScrollToBottom: false,
   sessionMenuOpen: false,
   activeView: "chat",
@@ -93,10 +98,13 @@ const state = {
   },
   settingsOpen: false,
   modelCatalog: [],
-  skillLibrary: { plugins: [], sources: [], extensions: [], skills: [], roots: [] },
+  skillLibrary: { plugins: [], sources: [], extensions: [], connectors: [], skills: [], roots: [] },
+  directorySection: "plugins",
   skillPluginFilter: "",
   skillLibraryMode: "skills",
   selectedExtensionId: "",
+  installingExtensions: new Set(),
+  savingFellowCapabilities: new Set(),
   skillPickerOpen: false,
   skillPickerFilter: "",
   skillPickerPluginId: "",
@@ -131,6 +139,11 @@ const els = {
   installEngine: document.getElementById("installEngine"),
   startEngine: document.getElementById("startEngine"),
   stopEngine: document.getElementById("stopEngine"),
+  uninstallEngine: document.getElementById("uninstallEngine"),
+  engineRowHermes: document.getElementById("engineRowHermes"),
+  engineRowClaude: document.getElementById("engineRowClaude"),
+  engineRowCodex: document.getElementById("engineRowCodex"),
+  engineRowHermesButton: document.querySelector('[data-engine-row="hermes"]'),
   personaSearch: document.getElementById("personaSearch"),
   personaCount: document.getElementById("personaCount"),
   fellowCreateMenu: document.getElementById("fellowCreateMenu"),
@@ -467,6 +480,13 @@ function attachmentGlyph(attachment = {}) {
 }
 
 const providerPresets = {
+  "openai-codex": {
+    provider: "openai-codex",
+    model: "gpt-5.3-codex",
+    apiKeyEnv: "",
+    baseUrl: "",
+    apiMode: "codex_responses"
+  },
   xai: {
     provider: "xai",
     model: "grok-4.1-fast",
@@ -487,13 +507,6 @@ const providerPresets = {
     apiKeyEnv: "OPENROUTER_API_KEY",
     baseUrl: "",
     apiMode: ""
-  },
-  "openai-codex": {
-    provider: "openai-codex",
-    model: "gpt-5.3-codex",
-    apiKeyEnv: "",
-    baseUrl: "",
-    apiMode: "codex_responses"
   },
   deepseek: {
     provider: "deepseek",
@@ -726,11 +739,16 @@ function externalPermissionOptions(engine) {
       { value: "bypassPermissions", label: "YOLO", title: "Codex danger-full-access + never。" }
     ];
   }
-  return [
-    { value: "manual", label: "Ask", title: "危险命令会暂停并等待你确认。适合日常使用。" },
-    { value: "smart", label: "Smart", title: "Hermes 会用辅助模型判断低风险命令，高风险命令仍会询问你。" },
-    { value: "off", label: "YOLO", title: "跳过危险命令确认。只在你完全信任当前任务时使用。" }
-  ];
+  // Hermes — pull from real engine capabilities (probed via SETTINGS_SCHEMA).
+  // Defaults to the upstream ask/yolo/deny set if the probe hasn't completed.
+  const modes = (state.engineCapabilities && Array.isArray(state.engineCapabilities.approvalModes) && state.engineCapabilities.approvalModes.length)
+    ? state.engineCapabilities.approvalModes
+    : ["ask", "yolo", "deny"];
+  return modes.map((value) => ({
+    value,
+    label: APPROVAL_LABELS[value] || value,
+    title: APPROVAL_TITLES[value] || ""
+  }));
 }
 
 function effortOptions(engine) {
@@ -752,14 +770,12 @@ function effortOptions(engine) {
       { value: "xhigh", label: "Extra high" }
     ];
   }
-  return [
-    { value: "none", label: "None" },
-    { value: "minimal", label: "Minimal" },
-    { value: "low", label: "Low" },
-    { value: "medium", label: "Medium" },
-    { value: "high", label: "High" },
-    { value: "xhigh", label: "Extra high" }
-  ];
+  // Hermes — pull from real engine capabilities (probed via SETTINGS_SCHEMA at
+  // startup). Defaults to low/medium/high if the probe hasn't completed yet.
+  const levels = (state.engineCapabilities && Array.isArray(state.engineCapabilities.effortLevels) && state.engineCapabilities.effortLevels.length)
+    ? state.engineCapabilities.effortLevels
+    : ["low", "medium", "high"];
+  return levels.map((value) => ({ value, label: EFFORT_LABELS[value] || value }));
 }
 
 function effortLabelForLevel(level = "") {
@@ -855,19 +871,25 @@ function setSelectOptions(select, entries, currentId) {
 
 function syncQuickModelLabel() {
   if (!els.quickModelLabel || !els.quickModelSelect) return;
+  const hasOptions = els.quickModelSelect.options && els.quickModelSelect.options.length > 0;
+  if (!hasOptions || els.quickModelSelect.disabled) {
+    setText(els.quickModelLabel, "未配置模型");
+    return;
+  }
   const selected = els.quickModelSelect.selectedOptions?.[0];
-  setText(els.quickModelLabel, selected?.textContent || "选择模型");
+  setText(els.quickModelLabel, selected?.textContent || "未配置模型");
 }
 
 function permissionLabelForMode(mode = "") {
   const selected = els.permissionMode?.selectedOptions?.[0];
   if (selected?.textContent) return selected.textContent;
   if (mode === "smart") return "Smart";
-  if (mode === "off") return "YOLO";
+  if (mode === "ask" || mode === "manual") return "Ask";
+  if (mode === "yolo" || mode === "off") return "YOLO";
+  if (mode === "deny" || mode === "dontAsk") return "Deny";
   if (mode === "acceptEdits") return activeAgentEngine() === "claude-code" ? "Accept Edits" : "Edits";
   if (mode === "plan") return activeAgentEngine() === "claude-code" ? "Plan Mode" : "Plan";
   if (mode === "auto") return "Auto Mode";
-  if (mode === "dontAsk") return "Deny";
   if (mode === "bypassPermissions") return activeAgentEngine() === "claude-code" ? "Bypass Permissions" : "YOLO";
   if (mode === "readOnly") return "Read";
   return "Ask";
@@ -902,7 +924,7 @@ function syncPermissionControl(runtime = state.runtime) {
   setText(els.permissionLabel, permissionLabelForMode(els.permissionMode.value));
   els.permissionMode.title = `权限模式：${permissionLabelForMode(els.permissionMode.value)}`;
   const switcher = els.permissionMode.closest(".permission-switcher");
-  switcher?.classList.toggle("yolo", els.permissionMode.value === "off" || (engine !== "claude-code" && els.permissionMode.value === "bypassPermissions"));
+  switcher?.classList.toggle("yolo", els.permissionMode.value === "yolo" || els.permissionMode.value === "off" || (engine !== "claude-code" && els.permissionMode.value === "bypassPermissions"));
   switcher?.classList.toggle("claude-bypass", engine === "claude-code" && els.permissionMode.value === "bypassPermissions");
 }
 
@@ -935,7 +957,7 @@ function connectedModelEntries(runtime = state.runtime) {
   const connectedProviders = (runtime?.connectedProviders || []).map((entry) => entry.provider);
   const entries = connectedProviders.flatMap((provider) => modelsForProvider(provider));
   const current = catalogEntryForModel(runtime.model);
-  if (current && !entries.some((entry) => entry.id === current.id)) return [current, ...entries];
+  if (current && providerIsConnected(current.provider, runtime) && !entries.some((entry) => entry.id === current.id)) return [current, ...entries];
   return entries;
 }
 
@@ -1020,10 +1042,10 @@ const fontPresets = {
   mono: '"SF Mono", "Cascadia Code", Menlo, Consolas, monospace'
 };
 
-const DEFAULT_ACCENT_COLOR = "#5e5ce6";
-const DEFAULT_USER_BUBBLE_COLOR = "#dedcff";
-const DEFAULT_LIST_STYLE = "card";
-const DEFAULT_SELECTION_STYLE = "soft";
+const DEFAULT_ACCENT_COLOR = "#0162db";
+const DEFAULT_USER_BUBBLE_COLOR = "#0162db";
+const DEFAULT_LIST_STYLE = "flush";
+const DEFAULT_SELECTION_STYLE = "solid";
 
 function normalizeHexColor(value, fallback = DEFAULT_ACCENT_COLOR) {
   const raw = String(value || "").trim();
@@ -1657,6 +1679,42 @@ async function loadModelCatalog() {
   }
 }
 
+const EFFORT_LABELS = { minimal: "Minimal", low: "Low", medium: "Medium", high: "High", xhigh: "Extra high" };
+const APPROVAL_LABELS = {
+  ask: "Ask",
+  yolo: "YOLO",
+  deny: "Deny",
+  manual: "Ask",   // legacy alias from previous aimashi schema
+  smart: "Smart",
+  off: "YOLO"     // legacy alias from previous aimashi schema
+};
+const APPROVAL_TITLES = {
+  ask: "危险命令会暂停并等待你确认。",
+  yolo: "跳过所有危险命令的确认 — 仅在完全信任当前任务时启用。",
+  deny: "自动拒绝所有危险命令。",
+  smart: "用辅助模型判断低风险命令，高风险仍询问。",
+  manual: "(legacy) 等价于 Ask。"
+};
+
+async function loadEngineCapabilities() {
+  let caps = { approvalModes: ["ask", "yolo", "deny"], effortLevels: ["low", "medium", "high"] };
+  try {
+    if (window.aimashi.loadEngineCapabilities) {
+      const res = await window.aimashi.loadEngineCapabilities();
+      if (res && Array.isArray(res.approvalModes) && res.approvalModes.length
+          && Array.isArray(res.effortLevels) && res.effortLevels.length) {
+        caps = res;
+      }
+    }
+  } catch (error) {
+    console.error("Failed to load engine capabilities", error);
+  }
+  state.engineCapabilities = caps;
+  // `render()` calls syncEffortControl + syncPermissionControl which use
+  // effortOptions()/externalPermissionOptions() — those now read state.engineCapabilities.
+  render();
+}
+
 async function loadSlashCommands() {
   try {
     const rows = await window.aimashi.loadSlashCommands();
@@ -1697,6 +1755,7 @@ async function loadSkills() {
       plugins: Array.isArray(library?.plugins) ? library.plugins : sources,
       sources,
       extensions: Array.isArray(library?.extensions) ? library.extensions : [],
+      connectors: Array.isArray(library?.connectors) ? library.connectors : [],
       roots: Array.isArray(library?.roots) ? library.roots : [],
       skills: Array.isArray(library?.skills) ? library.skills : []
     };
@@ -1707,7 +1766,7 @@ async function loadSkills() {
     if (state.selectedSkillId) await selectSkill(state.selectedSkillId, false);
   } catch (error) {
     console.error("Failed to load local skills", error);
-    state.skillLibrary = { plugins: [], sources: [], extensions: [], roots: [], skills: [] };
+    state.skillLibrary = { plugins: [], sources: [], extensions: [], connectors: [], roots: [], skills: [] };
     state.selectedSkillId = "";
     state.selectedSkillDetail = null;
   } finally {
@@ -1905,10 +1964,10 @@ function render() {
   const editingAppearance = Boolean(els.appearanceForm?.contains(document.activeElement));
   const appearance = runtime.appearance || {
     theme: "light",
-    fontPreset: "system",
+    fontPreset: "pingfang",
     accentColor: DEFAULT_ACCENT_COLOR,
     userBubbleColor: DEFAULT_USER_BUBBLE_COLOR,
-    showHoverBackground: true,
+    showHoverBackground: false,
     showUserAvatar: true,
     showAssistantAvatar: true,
     listStyle: DEFAULT_LIST_STYLE,
@@ -1938,9 +1997,15 @@ function render() {
       : runtime.engineInstalled
         ? "Hermes engine installed"
         : "Runtime home initialized; engine package not installed";
+  renderEngineDetection(runtime);
   els.hermesHome.textContent = runtime.hermesHome;
   els.manifestPath.textContent = runtime.manifestPath;
   els.engineWarning.classList.toggle("hidden", runtime.engineInstalled);
+  const source = runtime.engineSource;
+  const managedVenvExists = Boolean(runtime.managedVenvExists);
+  // Hide "Install Engine" when the runtime is already bundled in the .app.
+  if (els.installEngine) els.installEngine.classList.toggle("hidden", source === "bundled");
+  if (els.uninstallEngine) els.uninstallEngine.classList.toggle("hidden", !managedVenvExists);
   els.engineLogs.textContent = [
     runtime.engineLastError ? `ERROR: ${runtime.engineLastError}` : "",
     ...(runtime.engineLogs || [])
@@ -2005,13 +2070,17 @@ function render() {
   if (els.quickModelSelect) {
     els.quickModelSelect.title = engine === "claude-code" || engine === "codex"
       ? `当前模型：${els.quickModelSelect.selectedOptions?.[0]?.textContent || "默认"}`
-      : `当前模型：${modelDisplayName(runtime.model)}`;
+      : connectedEntries.length
+        ? `当前模型：${modelDisplayName(runtime.model)}`
+        : "未配置模型";
   }
   const activeIcon = engine === "claude-code"
     ? modelIconSrc({ provider: "anthropic", model: "claude" })
     : engine === "codex"
       ? modelIconSrc({ provider: "openai-codex", model: "codex" })
-      : modelIconSrc(runtime.model || {});
+      : connectedEntries.length
+        ? modelIconSrc(runtime.model || {})
+        : "";
   const modelAvatar = document.querySelector(".model-avatar");
   if (modelAvatar) {
     modelAvatar.textContent = activeIcon ? "" : "◇";
@@ -2139,7 +2208,8 @@ function skillInitials(name = "") {
 
 function pluginSourceLabel(source = "") {
   const labels = {
-    aimashi: "Aimashi 内置",
+    "aimashi-official": "Aimashi 官方",
+    aimashi: "Hermes 内置",
     hermes: "Hermes",
     codex: "Codex",
     claude: "Claude Code"
@@ -2148,7 +2218,8 @@ function pluginSourceLabel(source = "") {
 }
 
 function skillAuthorLabel(skill = {}) {
-  if (skill.source === "aimashi") return "Aimashi Runtime";
+  if (skill.source === "aimashi-official") return "Aimashi 官方";
+  if (skill.source === "aimashi") return "Hermes 内置";
   if (skill.source === "hermes") return "Hermes";
   if (skill.source === "codex") return "Codex";
   if (skill.source === "claude") return "Claude Code";
@@ -2368,6 +2439,12 @@ function extensionDetailMeta(extension) {
 
 function renderExtensionDetail(extension) {
   const relatedSkills = (state.skillLibrary.skills || []).filter((skill) => skill.extensionId === extension.id);
+  const installing = state.installingExtensions.has(extension.id);
+  const action = extension.installState === "installed"
+    ? `<button class="extension-action installed" type="button" disabled aria-label="已安装">✓</button>`
+    : extension.installable
+      ? `<button class="extension-action" type="button" data-extension-install="${escapeHtml(extension.id)}" ${installing ? "disabled" : ""} aria-label="安装 ${escapeHtml(extension.label || extension.name || "插件")}">${installing ? "…" : "+"}</button>`
+      : `<button class="extension-action unavailable" type="button" disabled title="${escapeHtml(extension.status || "暂不支持一键安装")}" aria-label="暂不支持一键安装">–</button>`;
   const stats = [
     ["Skills", extension.skillCount],
     ["Commands", extension.commandCount],
@@ -2382,9 +2459,12 @@ function renderExtensionDetail(extension) {
         <div>
           <small>${escapeHtml(extension.engineLabel || "Plugin")}</small>
           <h2>${escapeHtml(extension.label || extension.name)}</h2>
-          <p>${escapeHtml(extension.description || extensionDetailMeta(extension) || "本地发现的插件/扩展。")}</p>
+          <p>${escapeHtml(extension.description || "")}</p>
         </div>
-        <span>${escapeHtml(extension.kind || "plugin")}</span>
+        <div class="extension-detail-actions">
+          <span>${escapeHtml(extension.installState === "installed" ? "已安装" : (extension.status || "可安装"))}</span>
+          ${action}
+        </div>
       </header>
       <dl class="extension-detail-grid">
         <div><dt>状态</dt><dd>${escapeHtml(extension.status || "已发现")}</dd></div>
@@ -2405,6 +2485,116 @@ function renderExtensionDetail(extension) {
   `;
 }
 
+function directorySectionRows() {
+  const skills = state.skillLibrary.skills || [];
+  const connectors = state.skillLibrary.connectors || [];
+  const extensions = state.skillLibrary.extensions || [];
+  const available = extensions.filter((extension) => extension.installState !== "installed").length;
+  return [
+    { id: "plugins", label: "插件", sub: available ? `${available} 个可安装，${extensions.length - available} 个已安装` : "已安装或已发现的能力包", count: extensions.length },
+    { id: "skills", label: "技能", sub: "本机可调用的 SKILL.md 能力", count: skills.length },
+    { id: "connectors", label: "应用连接", sub: "真实外部应用与 MCP 配置", count: connectors.length }
+  ];
+}
+
+function renderDirectorySectionRow(row) {
+  const active = state.directorySection === row.id;
+  return `
+    <button class="skill-filter-row${active ? " active" : ""}" type="button" data-directory-section="${escapeHtml(row.id)}">
+      <span><strong>${escapeHtml(row.label)}</strong><small>${escapeHtml(row.sub)}</small></span>
+      <em>${escapeHtml(String(row.count || 0))}</em>
+    </button>
+  `;
+}
+
+function directoryHaystack(item = {}) {
+  return [
+    item.label,
+    item.name,
+    item.description,
+    item.status,
+    item.source,
+    item.sourceLabel,
+    item.provider,
+    item.engine,
+    item.engineLabel,
+    item.kind,
+    item.scope,
+    item.path,
+    item.root,
+    item.capabilitySummary
+  ].filter(Boolean).join(" ").toLowerCase();
+}
+
+function visibleConnectors() {
+  const needle = state.skillFilter.trim().toLowerCase();
+  const type = state.skillCategoryFilter.trim().toLowerCase();
+  return (state.skillLibrary.connectors || []).filter((connector) => {
+    if (type && String(connector.kind || "").toLowerCase() !== type) return false;
+    return !needle || directoryHaystack(connector).includes(needle);
+  });
+}
+
+function visibleExtensions() {
+  const needle = state.skillFilter.trim().toLowerCase();
+  const engine = state.skillCategoryFilter.trim().toLowerCase();
+  return (state.skillLibrary.extensions || []).filter((extension) => {
+    if (engine && String(extension.engine || "").toLowerCase() !== engine) return false;
+    return !needle || directoryHaystack(extension).includes(needle);
+  });
+}
+
+function countBy(items, keyFn) {
+  const counts = new Map();
+  for (const item of items) {
+    const key = keyFn(item);
+    if (!key) continue;
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+}
+
+function renderConnectorCard(connector) {
+  return `
+    <article class="skill-card connector-card">
+      <header>
+        <strong>${escapeHtml(connector.label || connector.name || "应用连接")}</strong>
+        <small>${escapeHtml([connector.sourceLabel || connector.source || "Local", connector.status || ""].filter(Boolean).join(" · "))}</small>
+      </header>
+      <p>${escapeHtml(connector.description || "本机真实发现的外部应用或 MCP 连接配置。")}</p>
+      <footer>
+        <span>${escapeHtml(connector.kind || "连接")}</span>
+        ${connector.scope ? `<span>${escapeHtml(connector.scope)}</span>` : ""}
+      </footer>
+    </article>
+  `;
+}
+
+function renderPluginCard(extension) {
+  const installing = state.installingExtensions.has(extension.id);
+  const action = extension.installState === "installed"
+    ? `<button class="extension-action installed" type="button" disabled title="已安装" aria-label="已安装">✓</button>`
+    : extension.installable
+      ? `<button class="extension-action" type="button" data-extension-install="${escapeHtml(extension.id)}" ${installing ? "disabled" : ""} title="安装" aria-label="安装 ${escapeHtml(extension.label || extension.name || "插件")}">${installing ? "…" : "+"}</button>`
+      : `<button class="extension-action unavailable" type="button" disabled title="${escapeHtml(extension.status || "暂不支持一键安装")}" aria-label="暂不支持一键安装">–</button>`;
+  const iconLabel = skillInitials(extension.label || extension.name || extension.engineLabel || "Plugin");
+  const icon = extension.iconUrl
+    ? `<span class="plugin-icon"><img src="${escapeHtml(extension.iconUrl)}" alt="" loading="lazy"></span>`
+    : `<span class="plugin-icon fallback ${escapeHtml(extension.engine || "plugin")}" aria-hidden="true">${escapeHtml(iconLabel)}</span>`;
+  return `
+    <article class="skill-card plugin-card${extension.id === state.selectedExtensionId ? " featured" : ""}" data-extension-select="${escapeHtml(extension.id)}">
+      <header>
+        ${icon}
+        <div>
+          <strong>${escapeHtml(extension.label || extension.name || "Plugin")}</strong>
+          <p>${escapeHtml(extension.description || "")}</p>
+        </div>
+        ${action}
+      </header>
+    </article>
+  `;
+}
+
 function skillEmptyText() {
   if (state.skillsLoading) return "正在扫描本地 Skill...";
   if (state.skillStatusFilter === "updates") return "当前没有可更新的 Skill";
@@ -2416,25 +2606,54 @@ function renderSkillLibrary() {
   const skills = state.skillLibrary.skills || [];
   const sources = state.skillLibrary.sources || state.skillLibrary.plugins || [];
   const extensions = state.skillLibrary.extensions || [];
+  const connectors = state.skillLibrary.connectors || [];
   const shown = visibleSkills();
   const totalCount = skills.length;
   const activeSource = sources.find((p) => p.id === state.skillPluginFilter);
   const activeExtension = extensions.find((extension) => extension.id === state.selectedExtensionId);
+  const section = state.directorySection || "plugins";
   setText(
     els.skillPageTitle,
     state.skillsLoading
-      ? "正在扫描 Skill"
-      : (state.skillLibraryMode === "extension" && activeExtension ? activeExtension.label || activeExtension.name : (activeSource?.label || "全部 Skill"))
+      ? "正在扫描能力"
+      : section === "plugins" && state.skillLibraryMode === "extension" && activeExtension
+        ? activeExtension.label || activeExtension.name
+        : section === "connectors"
+          ? "应用连接"
+          : section === "plugins"
+            ? "插件"
+            : (activeSource?.label || "技能")
   );
 
-  const categories = skillCategories();
-  els.skillChipRow.innerHTML = state.skillLibraryMode === "extension" && activeExtension
-    ? `
+  if (section === "connectors") {
+    const connectorKinds = countBy(connectors, (connector) => connector.kind || "connector");
+    els.skillChipRow.innerHTML = [
+      `<button class="${state.skillCategoryFilter ? "" : "active"}" type="button" data-skill-filter="">全部</button>`,
+      ...connectorKinds.map(([kind, count]) => `
+        <button class="${state.skillCategoryFilter === kind ? "active" : ""}" type="button" data-skill-filter="${escapeHtml(kind)}">
+          ${escapeHtml(kind)} <span>${count}</span>
+        </button>
+      `)
+    ].join("");
+  } else if (section === "plugins" && state.skillLibraryMode === "extension" && activeExtension) {
+    els.skillChipRow.innerHTML = `
       <button class="active" type="button" data-skill-filter="">插件详情</button>
       <button type="button" data-skill-filter="">${escapeHtml(activeExtension.engineLabel || activeExtension.engine || "Plugin")}</button>
       ${activeExtension.capabilitySummary ? `<button type="button" data-skill-filter="">${escapeHtml(activeExtension.capabilitySummary)}</button>` : ""}
-    `
-    : [
+    `;
+  } else if (section === "plugins") {
+    const engines = countBy(extensions, (extension) => extension.engine || extension.source || "plugin");
+    els.skillChipRow.innerHTML = [
+      `<button class="${state.skillCategoryFilter ? "" : "active"}" type="button" data-skill-filter="">全部</button>`,
+      ...engines.map(([engine, count]) => `
+        <button class="${state.skillCategoryFilter === engine ? "active" : ""}" type="button" data-skill-filter="${escapeHtml(engine)}">
+          ${escapeHtml(engine)} <span>${count}</span>
+        </button>
+      `)
+    ].join("");
+  } else {
+    const categories = skillCategories();
+    els.skillChipRow.innerHTML = [
       `<button class="${state.skillCategoryFilter ? "" : "active"}" type="button" data-skill-filter="">全部</button>`,
       ...categories.slice(0, 10).map(([category, count]) => `
         <button class="${state.skillCategoryFilter === category ? "active" : ""}" type="button" data-skill-filter="${escapeHtml(category)}">
@@ -2442,6 +2661,7 @@ function renderSkillLibrary() {
         </button>
       `)
     ].join("");
+  }
 
   const navRows = [
     { label: "全部 Skill", sub: "聚合所有本地 Skill 来源", pluginId: "", status: "all", count: totalCount }
@@ -2457,32 +2677,53 @@ function renderSkillLibrary() {
     });
   }
   els.skillNav.innerHTML = `
-    <div class="skill-section-label">Skill 来源</div>
-    ${navRows.map((row) => renderSkillFilterRow(row)).join("")}
-    <div class="skill-section-label">插件 / 扩展</div>
-    ${extensions.length
-      ? extensions.map((extension) => renderExtensionNavRow(extension)).join("")
-      : `<button class="skill-filter-row disabled" type="button" disabled><span><strong>未发现插件</strong><small>后端没有扫描到已安装插件 manifest</small></span><em>0</em></button>`}
-    <div class="skill-section-label">Skill 市场</div>
-    <button class="skill-filter-row disabled" type="button" disabled>
-      <span><strong>Skill 市场</strong><small>下载、更新和删除会放在这里收口</small></span>
-      <em>Soon</em>
-    </button>
+    <div class="skill-section-label">Directory</div>
+    ${directorySectionRows().map((row) => renderDirectorySectionRow(row)).join("")}
+    ${section === "skills" ? `
+      <div class="skill-section-label">Skill 来源</div>
+      ${navRows.map((row) => renderSkillFilterRow(row)).join("")}
+    ` : ""}
   `;
 
-  els.skillCardGrid.innerHTML = state.skillLibraryMode === "extension" && activeExtension
-    ? renderExtensionDetail(activeExtension)
-    : shown.length
-    ? shown.map((skill) => `
-      <article class="skill-card${skill.id === state.selectedSkillId ? " featured" : ""}" data-skill-select="${escapeHtml(skill.id)}">
-        <header>
-          <strong>${escapeHtml(skillDisplayName(skill))}</strong>
-          <small>${escapeHtml(skill.pluginLabel || skillAuthorLabel(skill))}</small>
-        </header>
-        <p>${escapeHtml(skillSummaryZh(skill))}</p>
-      </article>
-    `).join("")
-    : `<div class="skill-empty-state">${skillEmptyText()}</div>`;
+  if (section === "connectors") {
+    const visible = visibleConnectors();
+    els.skillCardGrid.innerHTML = visible.length
+      ? visible.map((connector) => renderConnectorCard(connector)).join("")
+      : `<div class="skill-empty-state">${state.skillsLoading ? "正在扫描真实连接..." : "没有发现匹配的外部应用或 MCP 配置"}</div>`;
+  } else if (section === "plugins") {
+    const visible = visibleExtensions();
+    els.skillCardGrid.innerHTML = state.skillLibraryMode === "extension" && activeExtension
+      ? renderExtensionDetail(activeExtension)
+      : visible.length
+        ? visible.map((extension) => renderPluginCard(extension)).join("")
+        : `<div class="skill-empty-state">${state.skillsLoading ? "正在扫描插件..." : "没有发现匹配的真实插件"}</div>`;
+  } else {
+    els.skillCardGrid.innerHTML = shown.length
+      ? shown.map((skill) => `
+        <article class="skill-card${skill.id === state.selectedSkillId ? " featured" : ""}" data-skill-select="${escapeHtml(skill.id)}">
+          <header>
+            <strong>${escapeHtml(skillDisplayName(skill))}</strong>
+            <small>${escapeHtml(skill.pluginLabel || skillAuthorLabel(skill))}</small>
+          </header>
+          <p>${escapeHtml(skillSummaryZh(skill))}</p>
+        </article>
+      `).join("")
+      : `<div class="skill-empty-state">${skillEmptyText()}</div>`;
+  }
+
+  els.skillNav.querySelectorAll("[data-directory-section]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.directorySection = button.dataset.directorySection || "plugins";
+      state.skillLibraryMode = "skills";
+      state.selectedExtensionId = "";
+      state.skillPluginFilter = "";
+      state.skillStatusFilter = "all";
+      state.skillCategoryFilter = "";
+      closeSkillContextMenu();
+      showNarrowContent();
+      renderSkillLibrary();
+    });
+  });
 
   els.skillNav.querySelectorAll("[data-skill-plugin]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -2498,6 +2739,7 @@ function renderSkillLibrary() {
   });
   els.skillNav.querySelectorAll("[data-skill-extension]").forEach((button) => {
     button.addEventListener("click", () => {
+      state.directorySection = "plugins";
       state.skillLibraryMode = "extension";
       state.selectedExtensionId = button.dataset.skillExtension || "";
       state.skillCategoryFilter = "";
@@ -2511,6 +2753,24 @@ function renderSkillLibrary() {
     card.addEventListener("contextmenu", (event) => {
       event.preventDefault();
       openSkillContextMenu(card.dataset.skillSelect, event.clientX, event.clientY);
+    });
+  });
+  els.skillCardGrid.querySelectorAll("[data-extension-install]").forEach((button) => {
+    button.addEventListener("click", async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      await installExtension(button.dataset.extensionInstall || "");
+    });
+  });
+  els.skillCardGrid.querySelectorAll("[data-extension-select]").forEach((card) => {
+    card.addEventListener("click", (event) => {
+      if (event.target.closest("[data-extension-install]")) return;
+      state.directorySection = "plugins";
+      state.skillLibraryMode = "extension";
+      state.selectedExtensionId = card.dataset.extensionSelect || "";
+      state.skillCategoryFilter = "";
+      closeSkillContextMenu();
+      renderSkillLibrary();
     });
   });
   els.skillChipRow.querySelectorAll("[data-skill-filter]").forEach((button) => {
@@ -2648,8 +2908,136 @@ function openFellowChat(fellowKey) {
   requestAnimationFrame(() => els.chatInput?.focus());
 }
 
+function defaultFellowCapabilities() {
+  return {
+    inheritEngineDefaults: true,
+    enabledPlugins: [],
+    disabledPlugins: [],
+    enabledSkills: [],
+    disabledSkills: [],
+    enabledConnectors: []
+  };
+}
+
+function normalizeCapabilityIds(input) {
+  return Array.isArray(input)
+    ? [...new Set(input.map((item) => String(item || "").trim()).filter(Boolean))]
+    : [];
+}
+
+function fellowCapabilities(fellow = {}) {
+  const raw = fellow.capabilities && typeof fellow.capabilities === "object" ? fellow.capabilities : {};
+  return {
+    ...defaultFellowCapabilities(),
+    inheritEngineDefaults: raw.inheritEngineDefaults !== false && raw.inherit_engine_defaults !== false,
+    enabledPlugins: normalizeCapabilityIds(raw.enabledPlugins || raw.enabled_plugins),
+    disabledPlugins: normalizeCapabilityIds(raw.disabledPlugins || raw.disabled_plugins),
+    enabledSkills: normalizeCapabilityIds(raw.enabledSkills || raw.enabled_skills),
+    disabledSkills: normalizeCapabilityIds(raw.disabledSkills || raw.disabled_skills),
+    enabledConnectors: normalizeCapabilityIds(raw.enabledConnectors || raw.enabled_connectors)
+  };
+}
+
+function capabilityForEngine(item = {}, engine = "") {
+  const itemEngine = String(item.engine || item.provider || "").trim();
+  return !itemEngine || itemEngine === "aimashi" || itemEngine === engine || (engine === "hermes" && item.source === "hermes");
+}
+
+function engineLabel(engine = "") {
+  if (engine === "aimashi") return "Aimashi";
+  if (engine === "claude-code") return "Claude Code";
+  if (engine === "codex") return "Codex";
+  return "Hermes";
+}
+
+function fellowCapabilityItems(fellow = {}) {
+  const engine = fellow.agentEngine || fellow.agent_engine || "hermes";
+  const plugins = (state.skillLibrary.extensions || [])
+    .filter((item) => item.installState === "installed" && capabilityForEngine(item, engine))
+    .slice(0, 24);
+  const skills = (state.skillLibrary.skills || [])
+    .filter((item) => capabilityForEngine(item, engine))
+    .slice(0, 32);
+  const connectors = (state.skillLibrary.connectors || [])
+    .filter((item) => capabilityForEngine(item, engine))
+    .slice(0, 16);
+  return { plugins, skills, connectors };
+}
+
+function capabilityChecked(capabilities, id, enabledKey, disabledKey) {
+  if (capabilities.inheritEngineDefaults) return !capabilities[disabledKey].includes(id);
+  return capabilities[enabledKey].includes(id);
+}
+
+function renderCapabilityCheckbox({ item, checked, disabled, type }) {
+  const title = item.label || item.name || item.id;
+  const meta = item.engineLabel || item.sourceLabel || item.category || item.status || "";
+  return `
+    <label class="capability-row">
+      <input type="checkbox" data-capability-type="${escapeHtml(type)}" data-capability-id="${escapeHtml(item.id)}" ${checked ? "checked" : ""} ${disabled ? "disabled" : ""}>
+      <span>
+        <strong>${escapeHtml(title)}</strong>
+        ${meta ? `<small>${escapeHtml(meta)}</small>` : ""}
+      </span>
+    </label>
+  `;
+}
+
+function renderFellowCapabilitiesPanel(fellow) {
+  const capabilities = fellowCapabilities(fellow);
+  const { plugins, skills, connectors } = fellowCapabilityItems(fellow);
+  const disabled = capabilities.inheritEngineDefaults;
+  const engine = fellow.agentEngine || fellow.agent_engine || "hermes";
+  return `
+    <section class="contact-capabilities">
+      <header>
+        <div>
+          <strong>能力</strong>
+          <p>${escapeHtml(engineLabel(engine))} · ${plugins.length} 插件 · ${skills.length} 技能 · ${connectors.length} 连接</p>
+        </div>
+        <label class="capability-default-toggle">
+          <input type="checkbox" data-capability-default ${capabilities.inheritEngineDefaults ? "checked" : ""}>
+          <span>使用引擎默认能力</span>
+        </label>
+      </header>
+      <div class="capability-columns${disabled ? " inherited" : ""}">
+        <section>
+          <h3>插件</h3>
+          ${plugins.length ? plugins.map((item) => renderCapabilityCheckbox({
+            item,
+            checked: capabilityChecked(capabilities, item.id, "enabledPlugins", "disabledPlugins"),
+            disabled,
+            type: "plugin"
+          })).join("") : `<div class="capability-empty">当前引擎没有已安装插件</div>`}
+        </section>
+        <section>
+          <h3>技能</h3>
+          ${skills.length ? skills.map((item) => renderCapabilityCheckbox({
+            item,
+            checked: capabilityChecked(capabilities, item.id, "enabledSkills", "disabledSkills"),
+            disabled,
+            type: "skill"
+          })).join("") : `<div class="capability-empty">当前引擎没有可选技能</div>`}
+        </section>
+        <section>
+          <h3>应用连接</h3>
+          ${connectors.length ? connectors.map((item) => renderCapabilityCheckbox({
+            item,
+            checked: capabilities.enabledConnectors.includes(item.id),
+            disabled,
+            type: "connector"
+          })).join("") : `<div class="capability-empty">没有发现连接配置</div>`}
+        </section>
+      </div>
+    </section>
+  `;
+}
+
 function renderContacts() {
   if (!els.contactList || !els.contactDetail) return;
+  if (!state.skillsLoading && !(state.skillLibrary.extensions || []).length && !(state.skillLibrary.skills || []).length) {
+    loadSkills().catch(() => {});
+  }
   const fellows = state.runtime?.fellows || state.runtime?.personas || [];
   if (!fellows.length) {
     els.contactList.innerHTML = `<div class="contact-empty">还没有联系人</div>`;
@@ -2730,6 +3118,7 @@ function renderContactDetail(fellow) {
         <strong>最近内容</strong>
         <p>${escapeHtml(summary.preview)}</p>
       </section>
+      ${renderFellowCapabilitiesPanel(fellow)}
     </article>
   `;
   els.contactDetail.querySelector('[data-contact-action="message"]')?.addEventListener("click", () => openFellowChat(fellow.key));
@@ -2745,6 +3134,68 @@ function renderContactDetail(fellow) {
   });
   els.contactDetail.querySelector('[data-contact-action="delete"]')?.addEventListener("click", async () => {
     await deleteFellow(fellow.key);
+  });
+  wireFellowCapabilities(fellow);
+}
+
+async function saveFellowCapabilities(fellow, capabilities) {
+  if (!fellow?.key) return;
+  state.savingFellowCapabilities.add(fellow.key);
+  try {
+    state.runtime = await window.aimashi.saveFellow({
+      ...fellow,
+      capabilities
+    });
+  } catch (error) {
+    window.alert(`保存能力设置失败：${error.message || error}`);
+  } finally {
+    state.savingFellowCapabilities.delete(fellow.key);
+    renderContacts();
+  }
+}
+
+function toggleCapabilityId(capabilities, id, enabledKey, disabledKey, checked) {
+  const next = {
+    ...capabilities,
+    [enabledKey]: [...capabilities[enabledKey]],
+    [disabledKey]: [...capabilities[disabledKey]]
+  };
+  if (next.inheritEngineDefaults) {
+    next[disabledKey] = checked
+      ? next[disabledKey].filter((item) => item !== id)
+      : [...new Set([...next[disabledKey], id])];
+  } else {
+    next[enabledKey] = checked
+      ? [...new Set([...next[enabledKey], id])]
+      : next[enabledKey].filter((item) => item !== id);
+  }
+  return next;
+}
+
+function wireFellowCapabilities(fellow) {
+  if (!els.contactDetail || !fellow) return;
+  const defaultToggle = els.contactDetail.querySelector("[data-capability-default]");
+  defaultToggle?.addEventListener("change", async () => {
+    const capabilities = fellowCapabilities(fellow);
+    capabilities.inheritEngineDefaults = Boolean(defaultToggle.checked);
+    await saveFellowCapabilities(fellow, capabilities);
+  });
+  els.contactDetail.querySelectorAll("[data-capability-type][data-capability-id]").forEach((input) => {
+    input.addEventListener("change", async () => {
+      const id = input.dataset.capabilityId || "";
+      const type = input.dataset.capabilityType || "";
+      let capabilities = fellowCapabilities(fellow);
+      if (type === "plugin") {
+        capabilities = toggleCapabilityId(capabilities, id, "enabledPlugins", "disabledPlugins", input.checked);
+      } else if (type === "skill") {
+        capabilities = toggleCapabilityId(capabilities, id, "enabledSkills", "disabledSkills", input.checked);
+      } else if (type === "connector") {
+        capabilities.enabledConnectors = input.checked
+          ? [...new Set([...capabilities.enabledConnectors, id])]
+          : capabilities.enabledConnectors.filter((item) => item !== id);
+      }
+      await saveFellowCapabilities(fellow, capabilities);
+    });
   });
 }
 
@@ -3086,6 +3537,7 @@ async function deleteSkill(skillId) {
       plugins: Array.isArray(library?.plugins) ? library.plugins : sources,
       sources,
       extensions: Array.isArray(library?.extensions) ? library.extensions : [],
+      connectors: Array.isArray(library?.connectors) ? library.connectors : [],
       roots: Array.isArray(library?.roots) ? library.roots : [],
       skills: Array.isArray(library?.skills) ? library.skills : []
     };
@@ -3102,6 +3554,34 @@ async function deleteSkill(skillId) {
   renderSkillPreview();
 }
 
+async function installExtension(extensionId) {
+  if (!extensionId || state.installingExtensions.has(extensionId)) return;
+  state.installingExtensions.add(extensionId);
+  renderSkillLibrary();
+  try {
+    const library = await window.aimashi.installPlugin(extensionId);
+    const sources = Array.isArray(library?.sources)
+      ? library.sources
+      : (Array.isArray(library?.plugins) ? library.plugins : []);
+    state.skillLibrary = {
+      plugins: Array.isArray(library?.plugins) ? library.plugins : sources,
+      sources,
+      extensions: Array.isArray(library?.extensions) ? library.extensions : [],
+      connectors: Array.isArray(library?.connectors) ? library.connectors : [],
+      roots: Array.isArray(library?.roots) ? library.roots : [],
+      skills: Array.isArray(library?.skills) ? library.skills : []
+    };
+    state.skillLibraryMode = "plugins";
+    state.selectedExtensionId = "";
+  } catch (error) {
+    window.alert(`安装失败：${error.message || error}`);
+  } finally {
+    state.installingExtensions.delete(extensionId);
+    renderSkillLibrary();
+    renderSkillPicker();
+  }
+}
+
 async function openSkillDirectory(skillId) {
   try {
     await window.aimashi.openSkillDirectory(skillId);
@@ -3113,6 +3593,43 @@ async function openSkillDirectory(skillId) {
 
 function messagesForActive() {
   return activeSession().messages;
+}
+
+function renderEngineDetection(runtime) {
+  const engines = runtime?.agentEngines || {};
+
+  if (els.engineRowHermes) {
+    const source = runtime?.engineSource;
+    let line;
+    if (source === "bundled") {
+      line = runtime?.engineRunning ? "随安装包内置 · 运行中" : "随安装包内置 · 就绪";
+    } else if (source === "managed") {
+      line = runtime?.engineRunning ? "独立副本运行中" : "独立副本已安装";
+    } else {
+      line = "未安装 · 点开后可安装独立副本";
+    }
+    els.engineRowHermes.textContent = line;
+  }
+
+  if (els.engineRowClaude) {
+    const cc = engines.claudeCode || {};
+    if (cc.available) {
+      const v = cc.version ? ` · ${cc.version.split(" ")[0]}` : "";
+      els.engineRowClaude.textContent = `${cc.path || "已检测到"}${v}`;
+    } else {
+      els.engineRowClaude.textContent = "未检测到";
+    }
+  }
+
+  if (els.engineRowCodex) {
+    const cx = engines.codex || {};
+    if (cx.available) {
+      const v = cx.version ? ` · ${cx.version.split(" ")[0]}` : "";
+      els.engineRowCodex.textContent = `${cx.path || "已检测到"}${v}`;
+    } else {
+      els.engineRowCodex.textContent = "未检测到";
+    }
+  }
 }
 
 function renderSessionMenu() {
@@ -3284,6 +3801,142 @@ function renderTraceBlocks({ reasoning, tools, content, expanded, scopeKey }) {
   return `<div class="trace">${rows.join("")}</div>`;
 }
 
+function detectedLocalAgentLabels(runtime = state.runtime) {
+  const engines = runtime?.agentEngines || {};
+  const labels = [];
+  if (engines.claudeCode?.available) labels.push("Claude Code");
+  if (engines.codex?.available) labels.push("Codex");
+  return labels;
+}
+
+function shouldShowSetupGuide({ messages }) {
+  if (!state.runtime) return false;
+  // Onboarding takes over the chat panel until the user has at least one fellow.
+  const fellows = state.runtime.fellows || state.runtime.personas || [];
+  if (fellows.length === 0) return true;
+  if (state.setupGuideDismissed) return false;
+  if (messages.length > 0) return false;
+  return true;
+}
+
+function engineChoiceRow({ id, label, status, available, action, actionLabel }) {
+  const stateClass = available ? "" : " unavailable";
+  const actionAttr = action ? `data-setup-action="${action}" data-engine="${id}"` : "";
+  const button = action
+    ? `<button class="setup-engine-action${available ? " primary" : ""}" type="button" ${actionAttr}>${escapeHtml(actionLabel)}</button>`
+    : "";
+  return `
+    <div class="setup-engine-row${stateClass}" data-engine-id="${id}">
+      <span class="setup-engine-dot ${id}"></span>
+      <div class="setup-engine-body">
+        <strong>${escapeHtml(label)}</strong>
+        <small>${escapeHtml(status)}</small>
+      </div>
+      ${button}
+    </div>
+  `;
+}
+
+function renderSetupGuide() {
+  const runtime = state.runtime || {};
+  const engines = runtime.agentEngines || {};
+  const source = runtime.engineSource;
+  const fellows = runtime.fellows || runtime.personas || [];
+
+  // If no fellow exists, force flow into onboarding regardless of prior dismiss.
+  if (fellows.length === 0 && state.onboardingStep === "done") {
+    state.onboardingStep = "engine";
+  }
+
+  if (state.onboardingStep === "create-fellow") {
+    return renderSetupGuideCreateFellowStep();
+  }
+
+  // Default: "engine" step
+  let hermesStatus;
+  let hermesAvailable;
+  let hermesAction;
+  let hermesActionLabel;
+  if (source === "bundled") {
+    hermesStatus = "随 Aimashi 安装包内置，无需额外安装";
+    hermesAvailable = true;
+    hermesAction = "use-engine";
+    hermesActionLabel = "使用 Hermes";
+  } else if (source === "managed") {
+    hermesStatus = "Aimashi 独立 Hermes 副本已安装";
+    hermesAvailable = true;
+    hermesAction = "use-engine";
+    hermesActionLabel = "使用 Hermes";
+  } else {
+    hermesStatus = "未安装 · 点击会装一份独立副本到 Aimashi 私有目录（不影响你自己的 hermes）";
+    hermesAvailable = false;
+    hermesAction = "install-hermes";
+    hermesActionLabel = "安装 Hermes";
+  }
+
+  const cc = engines.claudeCode || {};
+  const claudeStatus = cc.available
+    ? `${cc.path || "已检测到"}${cc.version ? ` · ${cc.version.split(" ")[0]}` : ""}`
+    : "未检测到 · 需先用 npm 装 @anthropic-ai/claude-code";
+  const codex = engines.codex || {};
+  const codexStatus = codex.available
+    ? `${codex.path || "已检测到"}${codex.version ? ` · ${codex.version.split(" ")[0]}` : ""}`
+    : "未检测到 · 需先安装 OpenAI Codex CLI";
+
+  return `
+    <article class="setup-guide">
+      <div class="setup-guide-main">
+        <span class="setup-kicker">第 1 步 / 共 2 步</span>
+        <strong>选个 Agent 引擎</strong>
+        <p>这是你的第一个伙伴默认会用的引擎，以后任意时候都能换。</p>
+      </div>
+      <div class="setup-engine-list">
+        ${engineChoiceRow({
+          id: "hermes",
+          label: "Hermes",
+          status: hermesStatus,
+          available: hermesAvailable,
+          action: hermesAction,
+          actionLabel: hermesActionLabel
+        })}
+        ${engineChoiceRow({
+          id: "claude-code",
+          label: "Claude Code",
+          status: claudeStatus,
+          available: cc.available,
+          action: cc.available ? "use-engine" : "",
+          actionLabel: "使用 Claude Code"
+        })}
+        ${engineChoiceRow({
+          id: "codex",
+          label: "Codex",
+          status: codexStatus,
+          available: codex.available,
+          action: codex.available ? "use-engine" : "",
+          actionLabel: "使用 Codex"
+        })}
+      </div>
+    </article>
+  `;
+}
+
+function renderSetupGuideCreateFellowStep() {
+  const engine = state.onboardingPickedEngine || "hermes";
+  const label = engine === "hermes" ? "Hermes" : engine === "claude-code" ? "Claude Code" : "Codex";
+  return `
+    <article class="setup-guide">
+      <div class="setup-guide-main">
+        <span class="setup-kicker">第 2 步 / 共 2 步</span>
+        <strong>创建你的第一个伙伴</strong>
+        <p>名字、头像、人设都已经预填好，点 "开始创建" 后可以随便改。引擎已选：<b>${escapeHtml(label)}</b>。</p>
+      </div>
+      <div class="setup-actions" style="justify-content: flex-start;">
+        <button class="setup-action primary" type="button" data-setup-action="create-first-fellow">开始创建</button>
+      </div>
+    </article>
+  `;
+}
+
 function renderChat() {
   const wasNearBottom = !els.chat || (els.chat.scrollHeight - els.chat.scrollTop - els.chat.clientHeight < 80);
   const session = activeSession();
@@ -3293,6 +3946,9 @@ function renderChat() {
   const activeAgentEngine = active?.agentEngine || active?.agent_engine || "hermes";
   const usesHermes = !["claude-code", "codex"].includes(activeAgentEngine);
   els.chat.innerHTML = "";
+  if (shouldShowSetupGuide({ messages })) {
+    els.chat.insertAdjacentHTML("beforeend", renderSetupGuide());
+  }
   for (const [messageIndex, message] of messages.entries()) {
     const article = document.createElement("article");
     article.className = `message ${message.role === "user" ? "user" : "assistant"}`;
@@ -3327,24 +3983,6 @@ function renderChat() {
       <div class="message-stack">${traceHtml}<div class="bubble${message.pinned ? " pinned" : ""}" data-message-index="${messageIndex}">${pinnedHtml}${bodyHtml}${attachmentHtml}</div>${timeHtml}</div>
     `;
     els.chat.appendChild(article);
-  }
-  if (usesHermes && state.runtime && !state.runtime.engineInstalled) {
-    const warning = document.createElement("article");
-    warning.className = "message warning";
-    warning.innerHTML = `
-      <div class="avatar">!</div>
-      <div class="bubble"><strong>Engine not installed</strong><p>点击 Install Engine，把官方 Hermes package 安装到 Aimashi 私有 runtime。</p></div>
-    `;
-    els.chat.appendChild(warning);
-  }
-  if (usesHermes && state.runtime?.engineInstalled && !state.runtime?.model?.hasApiKey) {
-    const warning = document.createElement("article");
-    warning.className = "message warning";
-    warning.innerHTML = `
-      <div class="avatar">!</div>
-      <div class="bubble"><strong>Model login needed</strong><p>私有 Hermes 已就绪；可以在右侧保存 API key，或使用 OpenAI Codex 登录。</p></div>
-    `;
-    els.chat.appendChild(warning);
   }
   const s = state.streaming;
   const hasStreamingContent = s && (
@@ -3780,12 +4418,15 @@ async function refreshRuntime() {
 }
 
 async function initializeRuntime() {
-  state.runtime = await trackStartupTask("初始化 runtime", () => window.aimashi.initializeRuntime());
+  const runtime = await trackStartupTask("初始化 runtime", () => window.aimashi.initializeRuntime());
+  state.firstRun = Array.isArray(runtime?.created) && runtime.created.length > 0;
+  state.runtime = runtime;
   await trackStartupTask("加载会话", loadChatSessions);
   render();
   setTimeout(() => {
     Promise.allSettled([
       trackStartupTask("加载 Hermes 模型列表", loadModelCatalog),
+      trackStartupTask("加载引擎能力", loadEngineCapabilities),
       trackStartupTask("加载命令列表", loadSlashCommands),
       trackStartupTask("扫描本地 Skill", loadSkills)
     ]).then(() => render());
@@ -4097,6 +4738,37 @@ els.mobileRelayLink?.addEventListener("click", async () => {
     setText(els.mobileRelayHint, "复制失败，可以长按链接文本手动复制。");
   }
 });
+
+if (els.engineRowHermesButton && els.modelForm) {
+  els.engineRowHermesButton.addEventListener("click", () => {
+    const expanded = els.engineRowHermesButton.getAttribute("aria-expanded") === "true";
+    const next = !expanded;
+    els.engineRowHermesButton.setAttribute("aria-expanded", next ? "true" : "false");
+    els.modelForm.classList.toggle("hidden", !next);
+  });
+}
+
+if (els.uninstallEngine) {
+  els.uninstallEngine.addEventListener("click", async () => {
+    if (!window.confirm("将卸载 Aimashi 独立 Hermes 副本（launchd plist + runtime 目录），系统 Hermes 不受影响。确认？")) return;
+    els.uninstallEngine.disabled = true;
+    const label = els.uninstallEngine.textContent;
+    els.uninstallEngine.textContent = "卸载中…";
+    try {
+      state.runtime = await window.aimashi.uninstallStandaloneEngine();
+      render();
+    } catch (error) {
+      window.alert(`卸载失败：${error.message || error}`);
+    } finally {
+      els.uninstallEngine.disabled = false;
+      els.uninstallEngine.textContent = label;
+    }
+  });
+}
+
+if (window.aimashi.onEnginesChanged) {
+  window.aimashi.onEnginesChanged(() => { refreshRuntime().catch(() => {}); });
+}
 
 els.installEngine.addEventListener("click", async () => {
   els.installEngine.disabled = true;
@@ -4495,18 +5167,24 @@ function renderFellowAgentEngineSelect(current = "hermes") {
 
 function openFellowDialog(fellow = null, personaText = "") {
   if (fellow && fellow.currentTarget) fellow = null;
+  // Allow a seed object in place of `fellow` to prefill create mode (used by
+  // initial-onboarding flow). Detected by absence of a real key.
+  const seed = fellow && !fellow.key && (fellow.name || fellow.agentEngine || fellow.bio) ? fellow : null;
+  const actualFellow = seed ? null : fellow;
   state.fellowMenuOpen = false;
-  state.fellowDialogMode = fellow ? "edit" : "create";
+  state.fellowDialogMode = actualFellow ? "edit" : "create";
   state.fellowDialogOpen = true;
-  const titleName = String(fellow?.name || "").trim();
-  if (els.fellowDialogTitle) els.fellowDialogTitle.textContent = fellow ? `编辑「${titleName || "伙伴"}」` : "添加伙伴";
-  if (els.fellowKey) els.fellowKey.value = fellow?.key || "";
-  els.fellowName.value = fellow?.name || "";
-  renderFellowAgentEngineSelect(fellow?.agentEngine || fellow?.agent_engine || "hermes");
-  const avatarImage = fellow?.avatarImage || defaultAvatarAssets()[0];
-  setFellowAvatarDraft(avatarImage, avatarCropForImage(avatarImage, fellow?.avatarCrop));
-  els.fellowSeed.value = fellow ? personaText : "";
-  if (els.fellowPersonaDetails) els.fellowPersonaDetails.open = false;
+  const titleName = String(actualFellow?.name || "").trim();
+  if (els.fellowDialogTitle) els.fellowDialogTitle.textContent = actualFellow
+    ? `编辑「${titleName || "伙伴"}」`
+    : (seed ? "创建你的第一个伙伴" : "添加伙伴");
+  if (els.fellowKey) els.fellowKey.value = actualFellow?.key || "";
+  els.fellowName.value = actualFellow?.name || seed?.name || "";
+  renderFellowAgentEngineSelect(actualFellow?.agentEngine || actualFellow?.agent_engine || seed?.agentEngine || "hermes");
+  const avatarImage = actualFellow?.avatarImage || defaultAvatarAssets()[0];
+  setFellowAvatarDraft(avatarImage, avatarCropForImage(avatarImage, actualFellow?.avatarCrop));
+  els.fellowSeed.value = actualFellow ? personaText : (seed?.bio || "");
+  if (els.fellowPersonaDetails) els.fellowPersonaDetails.open = Boolean(seed);
   renderView();
   setTimeout(() => els.fellowName?.focus(), 0);
 }
@@ -4764,6 +5442,12 @@ els.fellowForm?.addEventListener("submit", async (event) => {
   if (saved?.key) state.activeKey = saved.key;
   await loadChatSessions();
   state.fellowDialogOpen = false;
+  // If this was the initial onboarding create-fellow step, mark onboarding done.
+  if (state.onboardingStep && state.onboardingStep !== "done") {
+    advanceOnboarding("done");
+    state.setupGuideDismissed = true;
+    localStorage.setItem(SETUP_GUIDE_DISMISSED_KEY, "1");
+  }
   render();
 });
 
@@ -4962,6 +5646,13 @@ els.sendChat.addEventListener("click", async (event) => {
   await window.aimashi.stopChat?.();
 });
 els.chat.addEventListener("click", async (event) => {
+  const setupButton = event.target.closest("[data-setup-action]");
+  if (setupButton && els.chat.contains(setupButton)) {
+    event.preventDefault();
+    event.stopPropagation();
+    await handleSetupGuideAction(setupButton);
+    return;
+  }
   const code = event.target.closest(".bubble code");
   if (!code || !els.chat.contains(code)) return;
   if (await copyTextToClipboard(code.textContent)) flashCopiedCode(code);
@@ -5076,6 +5767,86 @@ function scheduleStreamRender() {
   });
 }
 
+function advanceOnboarding(step) {
+  state.onboardingStep = step;
+  try { localStorage.setItem("aimashi.onboardingStep", step); } catch { /* ignore */ }
+}
+
+function afterEnginePicked(engine) {
+  state.onboardingPickedEngine = engine;
+  advanceOnboarding("create-fellow");
+  // For Hermes: pop the model-settings panel so the user can add provider + API
+  // key right away. For CC/Codex auth happens externally — skip.
+  if (engine === "hermes") {
+    state.settingsOpen = true;
+    state.activeSettingsTab = "model";
+  }
+  renderView();
+}
+
+async function handleSetupGuideAction(button) {
+  const action = button?.dataset?.setupAction || "";
+  if (!action) return false;
+  if (action === "dismiss") {
+    state.setupGuideDismissed = true;
+    localStorage.setItem(SETUP_GUIDE_DISMISSED_KEY, "1");
+    renderChat();
+    return true;
+  }
+  if (action === "open-model-settings") {
+    state.settingsOpen = true;
+    state.activeSettingsTab = "model";
+    renderView();
+    return true;
+  }
+  if (action === "use-engine") {
+    const engine = String(button.dataset.engine || "");
+    if (!["hermes", "claude-code", "codex"].includes(engine)) return true;
+    afterEnginePicked(engine);
+    return true;
+  }
+  if (action === "install-hermes") {
+    button.disabled = true;
+    const original = button.textContent;
+    button.textContent = "安装中…";
+    try {
+      state.runtime = await window.aimashi.installEngine();
+      await loadModelCatalog();
+      afterEnginePicked("hermes");
+    } catch (error) {
+      appendTransientChat("assistant", `Hermes install failed: ${error.message}`);
+      await refreshRuntime();
+    } finally {
+      button.disabled = false;
+      button.textContent = original;
+    }
+    return true;
+  }
+  if (action === "create-first-fellow") {
+    openInitialFellowDialog();
+    return true;
+  }
+  return false;
+}
+
+function openInitialFellowDialog() {
+  const engine = state.onboardingPickedEngine || "hermes";
+  const seed = {
+    name: "Aimashi",
+    agentEngine: engine,
+    bio: "你是 Aimashi，一个轻松友好的桌面 AI 伙伴，回答简洁、口语化。"
+  };
+  // Reuse existing fellow create dialog with prefilled values.
+  if (typeof openFellowDialog === "function") {
+    openFellowDialog(null, seed);
+  } else {
+    // Fallback: at least open settings
+    state.settingsOpen = true;
+    state.activeSettingsTab = "model";
+    renderView();
+  }
+}
+
 function renderHeaderStatus() {
   if (!els.activeChatMeta) return;
   const personas = state.runtime?.fellows || state.runtime?.personas || [];
@@ -5141,6 +5912,17 @@ window.aimashi.onChatEvent((envelope) => {
       s.toolsByName.set(tool.name, queue);
       break;
     }
+    case "tool_call_delta": {
+      const id = String(data?.id || "");
+      const name = String(data?.name || "");
+      let tool = id ? s.toolsById.get(id) : null;
+      if (!tool) {
+        const queue = s.toolsByName.get(name);
+        tool = queue && queue.find((t) => t.status === "running");
+      }
+      if (tool) tool.preview = String(data?.preview || tool.preview || "");
+      break;
+    }
     case "tool_call_completed": {
       const id = String(data?.id || "");
       const name = String(data?.name || "");
@@ -5153,6 +5935,7 @@ window.aimashi.onChatEvent((envelope) => {
         tool.status = data?.error ? "error" : "completed";
         tool.duration = typeof data?.duration === "number" ? data.duration : null;
         tool.error = Boolean(data?.error);
+        if (data?.preview) tool.preview = String(data.preview);
       }
       break;
     }
@@ -5177,3 +5960,31 @@ initializeRuntime();
 renderSendButton();
 renderHeaderStatus();
 setInterval(refreshRuntime, 2000);
+
+(function wireTrafficLights() {
+  const spacer = document.getElementById("trafficSpacer");
+  const api = window.aimashi?.window;
+  if (!spacer || !api) return;
+  spacer.addEventListener("click", (event) => {
+    const btn = event.target.closest(".traffic-light");
+    if (!btn) return;
+    const action = btn.dataset.action;
+    if (action === "close") api.close();
+    else if (action === "minimize") api.minimize();
+    else if (action === "green") api.green();
+  });
+  const applyFocus = (focused) => {
+    document.body.classList.toggle("window-blurred", !focused);
+  };
+  const applyFullscreen = (fullscreen) => {
+    spacer.dataset.fullscreen = fullscreen ? "true" : "false";
+  };
+  api.onFocusState?.(applyFocus);
+  api.onFullscreen?.(applyFullscreen);
+  api.state?.().then((s) => {
+    if (s) {
+      applyFocus(s.focused);
+      applyFullscreen(s.fullscreen);
+    }
+  }).catch(() => {});
+})();

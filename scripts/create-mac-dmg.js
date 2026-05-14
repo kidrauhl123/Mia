@@ -6,15 +6,19 @@ const root = path.resolve(__dirname, "..");
 const pkg = require(path.join(root, "package.json"));
 const productName = pkg.productName || "Aimashi";
 const version = pkg.version || "0.0.0";
-const source = path.join(root, "release", "mac");
-const target = path.join(root, "release", `${productName}-${version}-unsigned.dmg`);
+// electron-builder writes to release/mac/ on x64 host, release/mac-arm64/ on arm64.
+const sourceCandidates = ["mac", "mac-arm64", "mac-x64"]
+  .map((dir) => path.join(root, "release", dir))
+  .filter((dir) => fs.existsSync(path.join(dir, `${productName}.app`)));
+const source = sourceCandidates[0];
+const target = path.join(root, "release", `${productName}-${version}-${process.arch}-unsigned.dmg`);
 
 if (process.platform !== "darwin") {
   throw new Error("create-mac-dmg.js only runs on macOS.");
 }
 
-if (!fs.existsSync(path.join(source, `${productName}.app`))) {
-  throw new Error(`Missing packaged app: ${path.join(source, `${productName}.app`)}`);
+if (!source) {
+  throw new Error(`Missing packaged app under release/mac{,-arm64,-x64}/${productName}.app`);
 }
 
 fs.mkdirSync(path.dirname(target), { recursive: true });

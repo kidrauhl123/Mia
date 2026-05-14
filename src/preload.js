@@ -16,6 +16,12 @@ contextBridge.exposeInMainWorld("aimashi", {
   installEngine: () => ipcRenderer.invoke("engine:install"),
   startEngine: () => ipcRenderer.invoke("engine:start"),
   stopEngine: () => ipcRenderer.invoke("engine:stop"),
+  uninstallStandaloneEngine: () => ipcRenderer.invoke("engine:uninstall-standalone"),
+  onEnginesChanged: (handler) => {
+    const listener = () => { try { handler(); } catch { /* ignore */ } };
+    ipcRenderer.on("runtime:engines-changed", listener);
+    return () => ipcRenderer.removeListener("runtime:engines-changed", listener);
+  },
   startCodexOAuth: () => ipcRenderer.invoke("auth:codex-start"),
   cancelCodexOAuth: () => ipcRenderer.invoke("auth:codex-cancel"),
   startProviderOAuth: (provider) => ipcRenderer.invoke("auth:provider-start", provider),
@@ -47,7 +53,9 @@ contextBridge.exposeInMainWorld("aimashi", {
   renameChatSession: (payload) => ipcRenderer.invoke("chat:session-rename", payload),
   generateSessionTitle: (payload) => ipcRenderer.invoke("chat:title-generate", payload),
   loadModelCatalog: () => ipcRenderer.invoke("model:catalog"),
+  loadEngineCapabilities: () => ipcRenderer.invoke("engine:capabilities"),
   loadSkills: () => ipcRenderer.invoke("skills:list"),
+  installPlugin: (extensionId) => ipcRenderer.invoke("plugins:install", extensionId),
   readSkill: (skillId) => ipcRenderer.invoke("skills:read", skillId),
   deleteSkill: (skillId) => ipcRenderer.invoke("skills:delete", skillId),
   openSkillDirectory: (skillId) => ipcRenderer.invoke("skills:open-directory", skillId),
@@ -65,5 +73,22 @@ contextBridge.exposeInMainWorld("aimashi", {
   loadPetJobs: () => ipcRenderer.invoke("pet:jobs"),
   generateFellowPet: (payload) => ipcRenderer.invoke("pet:generate", payload),
   placeFellowPet: (key) => ipcRenderer.invoke("pet:place", key),
-  recallFellowPet: (key) => ipcRenderer.invoke("pet:recall", key)
+  recallFellowPet: (key) => ipcRenderer.invoke("pet:recall", key),
+  platform: process.platform,
+  window: {
+    close: () => ipcRenderer.invoke("window:close"),
+    minimize: () => ipcRenderer.invoke("window:minimize"),
+    green: () => ipcRenderer.invoke("window:green"),
+    state: () => ipcRenderer.invoke("window:state"),
+    onFocusState: (handler) => {
+      const listener = (_e, focused) => handler(focused);
+      ipcRenderer.on("window:focus-state", listener);
+      return () => ipcRenderer.removeListener("window:focus-state", listener);
+    },
+    onFullscreen: (handler) => {
+      const listener = (_e, fullscreen) => handler(fullscreen);
+      ipcRenderer.on("window:fullscreen", listener);
+      return () => ipcRenderer.removeListener("window:fullscreen", listener);
+    }
+  }
 });
