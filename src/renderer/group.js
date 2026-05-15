@@ -464,6 +464,7 @@
     if (!moduleState.conductor || !promptsModule || typeof promptsModule.shouldSummarize !== "function") return;
     const msgs = moduleState.messagesByGroup.get(group.id) || [];
     if (!promptsModule.shouldSummarize(group, msgs)) return;
+    console.log("[group] summary triggered for group", group.id, "after", msgs.length, "messages");
     const card = await moduleState.conductor.summarize({
       group,
       fellowNamesById: moduleState.fellowNamesById,

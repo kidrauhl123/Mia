@@ -98,6 +98,9 @@ function createGroupStore(rootDir) {
       if (entry) entry.name = patch.name;
       saveManifest(manifest);
     }
+    if (patch && Object.prototype.hasOwnProperty.call(patch, 'contextCard') && patch.contextCard === null) {
+      try { fs.unlinkSync(contextCardPath(id)); } catch { /* may not exist */ }
+    }
     return updated;
   }
 
