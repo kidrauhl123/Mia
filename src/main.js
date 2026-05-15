@@ -12,6 +12,8 @@ const QRCode = require("qrcode");
 const WebSocket = require("ws");
 const { normalizePermissionMode, permissionModeLabel } = require("./permission-modes");
 const runtimeResources = require("./runtime-resource-paths");
+const { createGroupStore } = require("./main/group-store.js");
+const { buildHermesGroupHeader, injectGroupContextForSdk } = require("./main/group-adapters.js");
 
 app.setName("Aimashi");
 
@@ -116,6 +118,13 @@ function readJson(filePath, fallback) {
   }
 }
 
+let _groupStore = null;
+function ensureGroupStore() {
+  if (_groupStore) return _groupStore;
+  _groupStore = createGroupStore(runtimePaths().groupsDir);
+  return _groupStore;
+}
+
 function defaultModelSettings() {
   return {
     provider: "",
@@ -161,6 +170,7 @@ function runtimePaths() {
     appearanceSettings: path.join(home, "aimashi-appearance.json"),
     chatSessions: path.join(home, "aimashi-sessions.json"),
     attachmentsDir: path.join(home, "attachments"),
+    groupsDir: path.join(home, "groups"),
     petDir: path.join(home, "pets"),
     petJobsDir: path.join(home, "pet-jobs"),
     logsDir: path.join(home, "logs"),
@@ -4421,11 +4431,17 @@ function aimashiPluginFiles() {
       "requests, loads <HERMES_HOME>/fellows/<fellow_id>.md, and prepends it",
       "to vanilla Hermes's ephemeral_system_prompt. Hermes core remains",
       "unmodified.",
+      "",
+      "Also reads X-Aimashi-Group-Context (base64-encoded JSON payload) and",
+      "injects the contextBlock into the system prompt so the engine is aware",
+      "of which group conversation it is serving.",
       "\"\"\"",
       "",
       "from __future__ import annotations",
       "",
+      "import base64",
       "import contextvars",
+      "import json",
       "import logging",
       "import os",
       "import re",
@@ -4437,6 +4453,7 @@ function aimashiPluginFiles() {
       "logger = logging.getLogger(__name__)",
       "_FELLOW_ID_RE = re.compile(r'^[A-Za-z0-9_.-]{1,64}$')",
       "_current_fellow: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar('aimashi_fellow_id', default=None)",
+      "_current_group_context: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar('aimashi_group_context', default=None)",
       "",
       "def _read_persona(fellow_id: str) -> Optional[str]:",
       "    home = os.environ.get('AIMASHI_HOME') or os.environ.get('HERMES_HOME')",
@@ -4456,18 +4473,46 @@ function aimashiPluginFiles() {
       "    base = (ephemeral or '').strip()",
       "    return f'{persona}\\n\\n{base}' if base else persona",
       "",
+      "def _join_parts(*parts: Optional[str]) -> str:",
+      "    \"\"\"Join non-empty string parts with double newlines.\"\"\"",
+      "    kept = [p for p in parts if p]",
+      "    if not kept:",
+      "        return ''",
+      "    if len(kept) == 1:",
+      "        return kept[0]",
+      "    return '\\n\\n'.join(p.strip() for p in kept)",
+      "",
       "def _header_fellow_id(request) -> Optional[str]:",
       "    headers = getattr(request, 'headers', {})",
       "    value = headers.get('X-Aimashi-Fellow') or headers.get('X-Alkaka-Fellow') or ''",
       "    return str(value).strip() or None",
       "",
+      "def _header_group_context(request) -> Optional[str]:",
+      "    headers = getattr(request, 'headers', {})",
+      "    raw = headers.get('X-Aimashi-Group-Context') or headers.get('x-aimashi-group-context') or ''",
+      "    raw = str(raw).strip()",
+      "    if not raw:",
+      "        return None",
+      "    try:",
+      "        payload = json.loads(base64.b64decode(raw).decode('utf-8'))",
+      "    except Exception:",
+      "        return None",
+      "    if not isinstance(payload, dict) or payload.get('v') != 1:",
+      "        return None",
+      "    block = payload.get('contextBlock')",
+      "    if not isinstance(block, str) or not block.strip():",
+      "        return None",
+      "    return block",
+      "",
       "def _wrap_handler(handler):",
       "    async def wrapped(self, request):",
-      "        token = _current_fellow.set(_header_fellow_id(request))",
+      "        token_fellow = _current_fellow.set(_header_fellow_id(request))",
+      "        token_group = _current_group_context.set(_header_group_context(request))",
       "        try:",
       "            return await handler(self, request)",
       "        finally:",
-      "            _current_fellow.reset(token)",
+      "            _current_group_context.reset(token_group)",
+      "            _current_fellow.reset(token_fellow)",
       "    wrapped.__name__ = handler.__name__",
       "    wrapped.__qualname__ = handler.__qualname__",
       "    return wrapped",
@@ -4478,10 +4523,9 @@ function aimashiPluginFiles() {
       "    original = APIServerAdapter._run_agent",
       "    async def patched(self, *args, ephemeral_system_prompt=None, **kwargs):",
       "        fellow_id = _current_fellow.get()",
-      "        if fellow_id:",
-      "            persona = _read_persona(fellow_id)",
-      "            if persona:",
-      "                ephemeral_system_prompt = _prepend(persona, ephemeral_system_prompt)",
+      "        group_context = _current_group_context.get()",
+      "        persona = _read_persona(fellow_id) if fellow_id else None",
+      "        ephemeral_system_prompt = _join_parts(persona, group_context, ephemeral_system_prompt) or ephemeral_system_prompt",
       "        return await original(self, *args, ephemeral_system_prompt=ephemeral_system_prompt, **kwargs)",
       "    APIServerAdapter._run_agent = patched",
       "",
@@ -4491,10 +4535,9 @@ function aimashiPluginFiles() {
       "    original = APIServerAdapter._create_agent",
       "    def patched(self, *args, ephemeral_system_prompt=None, **kwargs):",
       "        fellow_id = _current_fellow.get()",
-      "        if fellow_id:",
-      "            persona = _read_persona(fellow_id)",
-      "            if persona:",
-      "                ephemeral_system_prompt = _prepend(persona, ephemeral_system_prompt)",
+      "        group_context = _current_group_context.get()",
+      "        persona = _read_persona(fellow_id) if fellow_id else None",
+      "        ephemeral_system_prompt = _join_parts(persona, group_context, ephemeral_system_prompt) or ephemeral_system_prompt",
       "        return original(self, *args, ephemeral_system_prompt=ephemeral_system_prompt, **kwargs)",
       "    APIServerAdapter._create_agent = patched",
       "",
@@ -6622,12 +6665,15 @@ function normalizeClaudePermissionMode(value) {
   return "default";
 }
 
-async function sendClaudeCodeChat({ fellow, sessionId, messages, signal, abortController, emit, utility = false }) {
+async function sendClaudeCodeChat({ fellow, sessionId, messages, group, signal, abortController, emit, utility = false }) {
   const engine = "claude-code";
   const commandPath = shellCommandPath("claude");
   if (!commandPath) throw new Error("本机没有检测到 Claude Code CLI。请先安装并确认 `claude --version` 可用。");
   const lastUser = lastUserPrompt(messages);
   const prompt = expandLeadingSkillCommand(lastUser, { mode: "native" }) || lastUser;
+  const promptWithGroup = group && group.contextBlock
+    ? injectGroupContextForSdk(prompt, group.contextBlock)
+    : prompt;
   const persona = readFellowPersona(fellow.key, fellow.name, fellow.bio).trim();
   const { query } = await claudeAgentSdk();
   let bridgePluginPath = "";
@@ -6664,7 +6710,7 @@ async function sendClaudeCodeChat({ fellow, sessionId, messages, signal, abortCo
   options.effort = normalizeEffortLevel(fellow.engineConfig?.effortLevel || "medium", "claude-code");
   if (options.permissionMode === "bypassPermissions") options.allowDangerouslySkipPermissions = true;
 
-  const stream = query({ prompt, options });
+  const stream = query({ prompt: promptWithGroup, options });
   let capturedSessionId = externalSessionId;
   const chunks = [];
   // Per-turn streaming state: indexed by content block index from the SDK partial events.
@@ -6788,7 +6834,7 @@ function mapCodexPermissionMode(value) {
   return { sandboxMode: "workspace-write", approvalPolicy: "untrusted" };
 }
 
-async function sendCodexChat({ fellow, sessionId, messages, signal, utility = false }) {
+async function sendCodexChat({ fellow, sessionId, messages, group, signal, utility = false }) {
   const engine = "codex";
   const commandPath = shellCommandPath("codex");
   if (!commandPath) throw new Error("本机没有检测到 Codex CLI。请先安装并确认 `codex --version` 可用。");
@@ -6808,6 +6854,9 @@ async function sendCodexChat({ fellow, sessionId, messages, signal, utility = fa
         userText
       ].join("\n")
     : userText;
+  const promptWithGroup = group && group.contextBlock
+    ? injectGroupContextForSdk(prompt, group.contextBlock)
+    : prompt;
   const { Codex } = await codexSdk();
   const codex = new Codex({
     codexPathOverride: commandPath,
@@ -6824,7 +6873,7 @@ async function sendCodexChat({ fellow, sessionId, messages, signal, utility = fa
   const thread = externalSessionId
     ? codex.resumeThread(externalSessionId, threadOptions)
     : codex.startThread(threadOptions);
-  const turn = await thread.run(prompt, { signal });
+  const turn = await thread.run(promptWithGroup, { signal });
   const capturedSessionId = externalSessionId || thread.id || "";
   if (capturedSessionId && !externalSessionId && !utility) setAgentSessionId(engine, fellow.key, sessionId, capturedSessionId);
   if (signal?.aborted) {
@@ -6845,13 +6894,136 @@ async function sendCodexChat({ fellow, sessionId, messages, signal, utility = fa
   });
 }
 
-async function sendChat({ fellowKey, personaKey, sessionId, messages, webContents, utility = false }) {
-  const abortController = new AbortController();
+async function sendChatStateless({ fellowKey, systemPrompt, userPrompt, signal }) {
+  const manifest = loadFellowManifest();
+  const fellows = Array.isArray(manifest.fellows) ? manifest.fellows : [];
+  const fellow = fellows.find((item) => item.key === fellowKey) || fellows[0];
+  if (!fellow) {
+    throw new Error("还没有可用的 fellow，请先在引导里创建一个再发起对话。");
+  }
+  const agentEngine = normalizeFellowAgentEngine(fellow.agentEngine || fellow.agent_engine || fellow.engine);
+
+  // --- Claude Code branch ---
+  if (agentEngine === "claude-code") {
+    const commandPath = shellCommandPath("claude");
+    if (!commandPath) throw new Error("本机没有检测到 Claude Code CLI。请先安装并确认 `claude --version` 可用。");
+    const { query } = await claudeAgentSdk();
+    // Prepend the system prompt to the user prompt so we don't touch the Fellow's
+    // existing session or inject their persona. No `resume` so it starts fresh.
+    const fullPrompt = systemPrompt ? `${systemPrompt}\n\n${userPrompt}` : userPrompt;
+    const options = {
+      cwd: process.cwd(),
+      pathToClaudeCodeExecutable: commandPath,
+      env: processEnvStrings(),
+      tools: { type: "preset", preset: "claude_code" },
+      settingSources: ["project", "user", "local"],
+      systemPrompt: { type: "preset", preset: "claude_code" }
+    };
+    const stream = query({ prompt: fullPrompt, options });
+    const chunks = [];
+    for await (const message of stream) {
+      if (signal?.aborted) break;
+      if (message?.type === "assistant") {
+        const text = claudeMessageText(message);
+        if (text) chunks.push(text);
+      }
+    }
+    if (signal?.aborted) {
+      const stopped = new Error("生成已停止");
+      stopped.code = "AIMASHI_STOPPED";
+      throw stopped;
+    }
+    return { content: chunks.join("\n").trim() };
+  }
+
+  // --- Codex branch ---
+  if (agentEngine === "codex") {
+    const commandPath = shellCommandPath("codex");
+    if (!commandPath) throw new Error("本机没有检测到 Codex CLI。请先安装并确认 `codex --version` 可用。");
+    const { Codex } = await codexSdk();
+    const codex = new Codex({
+      codexPathOverride: commandPath,
+      env: processEnvStrings()
+    });
+    const thread = codex.startThread({
+      workingDirectory: process.cwd(),
+      skipGitRepoCheck: true,
+      modelReasoningEffort: normalizeEffortLevel("medium", "codex"),
+      ...mapCodexPermissionMode("default")
+    });
+    const fullPrompt = systemPrompt ? `${systemPrompt}\n\n${userPrompt}` : userPrompt;
+    const turn = await thread.run(fullPrompt, { signal });
+    if (signal?.aborted) {
+      const stopped = new Error("生成已停止");
+      stopped.code = "AIMASHI_STOPPED";
+      throw stopped;
+    }
+    return { content: String(turn?.finalResponse || "").trim() };
+  }
+
+  // --- Hermes branch (default) ---
+  if (!engineState.running || !engineState.baseUrl) {
+    await startEngine();
+  }
+  const accountId = fellow.account_id || fellow.key;
+  const routeProfile = fellow.route_profile || accountId;
+  // Use a unique ephemeral session id so Hermes doesn't resume the Fellow's real thread.
+  const ephemeralSessionId = `_stateless_${crypto.randomUUID()}`;
+  const runBody = {
+    model: "hermes-agent",
+    input: userPrompt,
+    session_id: ephemeralSessionId,
+    account_id: accountId,
+    metadata: {
+      fellow_key: fellow.key,
+      persona_key: fellow.key,
+      account_id: accountId,
+      route_profile: routeProfile,
+      display_name: fellow.name
+    }
+  };
+  // Inject caller-supplied system prompt as instructions (no persona).
+  if (systemPrompt) runBody.instructions = systemPrompt;
+  // Omit X-Aimashi-Fellow so fellow_overlay.py doesn't inject the Fellow's persona.
+  const hermesHeaders = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${apiKey()}`
+  };
+  const response = await fetch(`${engineState.baseUrl}/v1/runs`, {
+    method: "POST",
+    headers: hermesHeaders,
+    body: JSON.stringify(runBody),
+    signal
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    let message = text;
+    try {
+      message = JSON.parse(text).error?.message || text;
+    } catch {
+      // Keep the raw response text.
+    }
+    throw new Error(normalizeHermesError(message) || `${response.status} ${response.statusText}`);
+  }
+  const run = JSON.parse(text);
+  const hermesRunId = run.run_id || run.id;
+  if (!hermesRunId) throw new Error("Hermes did not return a run_id.");
+  const stream = await readRunEventStream({ runId: hermesRunId, signal, emit: null });
+  return { content: stream.content || "" };
+}
+
+async function sendChat({ fellowKey, personaKey, sessionId, messages, group, webContents, utility = false }) {
   utility = Boolean(utility);
-  if (!utility) {
+  let abortController;
+  if (group || utility) {
+    // Group dispatches run in parallel; each gets its own controller.
+    // Utility calls also skip the 1v1 "single active chat" semantics.
+    abortController = new AbortController();
+  } else {
     if (activeChatAbortController) {
       activeChatAbortController.abort();
     }
+    abortController = new AbortController();
     activeChatAbortController = abortController;
   }
   const { signal } = abortController;
@@ -6904,7 +7076,7 @@ async function sendChat({ fellowKey, personaKey, sessionId, messages, webContent
           }));
         }
       }
-      return completeWithPetMessage(await sendClaudeCodeChat({ fellow, sessionId, messages, signal, abortController, emit, utility }));
+      return completeWithPetMessage(await sendClaudeCodeChat({ fellow, sessionId, messages, group, signal, abortController, emit, utility }));
     }
     if (agentEngine === "codex") {
       if (slashText) {
@@ -6918,7 +7090,7 @@ async function sendChat({ fellowKey, personaKey, sessionId, messages, webContent
           }));
         }
       }
-      return completeWithPetMessage(await sendCodexChat({ fellow, sessionId, messages, signal, utility }));
+      return completeWithPetMessage(await sendCodexChat({ fellow, sessionId, messages, group, signal, utility }));
     }
 
     if (!engineState.running || !engineState.baseUrl) {
@@ -6945,14 +7117,18 @@ async function sendChat({ fellowKey, personaKey, sessionId, messages, webContent
     }
 
     const runBody = buildRunPayload({ fellow, sessionId, messages });
+    const hermesHeaders = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey()}`,
+      "X-Aimashi-Fellow": fellow.key,
+      "X-Alkaka-Fellow": fellow.key
+    };
+    if (group && group.contextBlock) {
+      hermesHeaders["X-Aimashi-Group-Context"] = buildHermesGroupHeader(group.contextBlock);
+    }
     const response = await fetch(`${engineState.baseUrl}/v1/runs`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey()}`,
-        "X-Aimashi-Fellow": fellow.key,
-        "X-Alkaka-Fellow": fellow.key
-      },
+      headers: hermesHeaders,
       body: JSON.stringify(runBody),
       signal
     });
@@ -7309,6 +7485,7 @@ ipcMain.handle("auth:codex-cancel", () => cancelCodexOAuth());
 ipcMain.handle("auth:provider-start", (_event, provider) => startProviderOAuth(provider));
 ipcMain.handle("auth:provider-cancel", () => cancelProviderOAuth());
 ipcMain.handle("chat:send", (event, payload) => sendChat({ ...payload, webContents: event.sender }));
+ipcMain.handle("chat:send-stateless", (_event, payload) => sendChatStateless(payload));
 ipcMain.handle("chat:stop", () => stopChat());
 ipcMain.handle("chat:attachment-save", (_event, payload) => saveChatAttachment(payload));
 ipcMain.handle("chat:file-fetch", (_event, payload) => readLocalFileAttachment(payload));
@@ -7545,6 +7722,21 @@ ipcMain.handle("fellow:save", (_event, fellow) => saveFellow(fellow));
 ipcMain.handle("fellow:engine-save", (_event, payload) => saveFellowEngineConfig(payload));
 ipcMain.handle("fellow:pin", (_event, payload) => setFellowPinned(payload));
 ipcMain.handle("fellow:delete", (_event, payload) => deleteFellow(payload));
+ipcMain.handle("group:create", (_event, payload) => ensureGroupStore().create(payload));
+ipcMain.handle("group:list", () => ensureGroupStore().list());
+ipcMain.handle("group:get", (_event, id) => ensureGroupStore().get(id));
+ipcMain.handle("group:update", (_event, payload) => ensureGroupStore().updateGroup(payload.id, payload.patch));
+ipcMain.handle("group:append-message", (_event, payload) => { ensureGroupStore().appendMessage(payload.id, payload.message); return true; });
+ipcMain.handle("group:list-messages", (_event, id) => ensureGroupStore().listMessages(id));
+ipcMain.handle("group:save-context-card", (_event, payload) => { ensureGroupStore().saveContextCard(payload.id, payload.card); return true; });
+ipcMain.handle("group:load-prompts", () => {
+  const dir = path.join(__dirname, "..", "resources", "conductor", "default-prompts");
+  return {
+    dispatch: fs.readFileSync(path.join(dir, "dispatch.md"), "utf8"),
+    summarize: fs.readFileSync(path.join(dir, "summarize.md"), "utf8"),
+    nudge: fs.readFileSync(path.join(dir, "nudge.md"), "utf8"),
+  };
+});
 ipcMain.handle("persona:save", (_event, persona) => saveFellow(persona));
 ipcMain.handle("pet:jobs", () => getPetJobs());
 ipcMain.handle("pet:generate", (_event, payload) => startFellowPetGeneration(payload));

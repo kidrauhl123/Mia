@@ -6,6 +6,7 @@
   "description": "Aimashi desktop demo with an app-owned Hermes runtime home.",
   "main": "src/main.js",
   "scripts": {
+    "test": "node --test 'tests/*.test.js'",
     "open": "electron .",
     "start": "electron .",
     "relay": "node src/relay/server.js",
@@ -47,6 +48,7 @@
       "package.json",
       "src/**/*",
       "resources/official-library/**/*",
+      "resources/conductor/**/*",
       "!src/**/*.map"
     ],
     "extraResources": [

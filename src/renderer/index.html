@@ -72,6 +72,7 @@
 
       <section class="conversation-section">
         <div id="personaList" class="persona-list"></div>
+        <div id="groupList" class="group-list"></div>
       </section>
     </aside>
 
@@ -675,7 +676,71 @@
     <div id="messageContextMenu" class="skill-context-menu message-context-menu hidden" role="menu"></div>
     <button id="petJobButton" class="pet-job-button hidden" type="button"></button>
     <div id="petJobPanel" class="pet-job-panel hidden"></div>
+
+    <section id="group-view" class="workspace group-workspace hidden">
+      <div class="group-view-header">
+        <div class="group-view-title" id="group-view-title"></div>
+        <button id="group-view-info" class="icon-button" type="button" title="群信息">ℹ︎</button>
+      </div>
+      <div class="group-message-list" id="group-message-list"></div>
+      <div class="group-composer">
+        <textarea id="group-input" placeholder="输入消息，@ 选择 Fellow" rows="2"></textarea>
+        <button id="group-send" class="primary" type="button">发送</button>
+      </div>
+      <div id="group-mention-picker" class="mention-picker hidden"></div>
+    </section>
   </main>
+  <div id="group-create-dialog" class="modal hidden" role="dialog" aria-modal="true" aria-label="新建群聊">
+    <div class="modal-backdrop"></div>
+    <div class="modal-panel">
+      <div class="modal-title">新建群聊</div>
+      <div class="modal-section">
+        <div class="modal-section-title">选择成员（2-5 个）</div>
+        <div id="group-create-members"></div>
+      </div>
+      <div class="modal-section">
+        <div class="modal-section-title">群主</div>
+        <select id="group-create-host"></select>
+      </div>
+      <div class="modal-section">
+        <div class="modal-section-title">群名（可选）</div>
+        <input id="group-create-name" type="text" maxlength="40" placeholder="留空则用成员名拼接" />
+      </div>
+      <div class="modal-actions">
+        <button id="group-create-cancel" type="button">取消</button>
+        <button id="group-create-confirm" type="button" class="primary">创建</button>
+      </div>
+    </div>
+  </div>
+  <div id="group-info-drawer" class="drawer hidden">
+    <div class="drawer-backdrop"></div>
+    <div class="drawer-panel">
+      <div class="drawer-header">
+        <div class="drawer-title">群信息</div>
+        <button id="group-info-close" class="icon-button" type="button" aria-label="关闭">×</button>
+      </div>
+      <div class="drawer-section">
+        <div class="drawer-section-title">成员</div>
+        <div id="group-info-members"></div>
+      </div>
+      <div class="drawer-section">
+        <div class="drawer-section-title">群主</div>
+        <select id="group-info-host"></select>
+      </div>
+      <div class="drawer-section">
+        <div class="drawer-section-title">目标（可选）</div>
+        <textarea id="group-info-goal" maxlength="200" placeholder="比如：今天把这个 PR 写完"></textarea>
+        <button id="group-info-goal-save" type="button">保存目标</button>
+      </div>
+      <div class="drawer-section">
+        <div class="drawer-section-title">维护</div>
+        <button id="group-info-reset-ctx" type="button">重置群上下文</button>
+      </div>
+    </div>
+  </div>
+  <script src="./group-prompts.js"></script>
+  <script src="./conductor.js"></script>
+  <script src="./group.js"></script>
   <script src="./app.js"></script>
 </body>
 </html>
