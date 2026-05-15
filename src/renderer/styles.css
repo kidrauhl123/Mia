@@ -741,9 +741,9 @@ body.sidebar-resizing * {
 .persona-list {
   display: grid;
   align-content: start;
-  gap: 2px;
+  gap: 6px;
   height: 100%;
-  padding: 6px 0;
+  padding: 8px 0;
   overflow: auto;
   overflow-x: hidden;
 }
@@ -757,13 +757,25 @@ body.sidebar-resizing * {
   min-height: 64px;
   margin: 0 7px;
   padding: 10px;
-  border-radius: 11px;
+  border: 1px solid transparent;
+  border-radius: 10px;
   background: transparent;
   color: var(--text);
   text-align: left;
 }
 
+.message-card {
+  background: var(--surface);
+  border-color: var(--line);
+}
+
+.message-card:hover {
+  border-color: var(--line-strong);
+  background: var(--hover-background);
+}
+
 .persona.active {
+  border-color: transparent;
   background: var(--list-active);
 }
 
@@ -806,6 +818,13 @@ body.sidebar-resizing * {
   gap: 1px;
 }
 
+.persona-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
 .persona-name,
 .persona-key,
 .persona-time {
@@ -816,14 +835,38 @@ body.sidebar-resizing * {
 }
 
 .persona-name {
+  min-width: 0;
   color: var(--text);
   font-size: 14px;
   font-weight: 430;
 }
 
+.persona-type {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: var(--field);
+  color: var(--faint);
+  font-size: 10px;
+  font-weight: 430;
+  line-height: 18px;
+}
+
+.persona-type.group {
+  color: var(--accent);
+}
+
 .persona.active .persona-name {
   color: var(--list-active-text);
   font-weight: 450;
+}
+
+.persona.active .persona-type {
+  background: rgba(255, 255, 255, 0.18);
+  color: var(--list-active-muted);
 }
 
 .persona-key {
@@ -2338,6 +2381,10 @@ body.topbar-click-capture .topbar {
 }
 
 .fellow-context-menu {
+  min-width: 138px;
+}
+
+.group-context-menu {
   min-width: 138px;
 }
 
@@ -6085,10 +6132,10 @@ pre {
 .group-avatar.composite {
   display: grid !important;
   place-items: stretch !important;
-  gap: 1px;
+  gap: 2px;
   overflow: hidden;
-  border-radius: 12px;
-  background: var(--line);
+  border-radius: 50%;
+  background: var(--surface);
   padding: 0;
 }
 .persona .group-avatar {
@@ -6098,7 +6145,6 @@ pre {
 .profile-avatar.group-avatar {
   width: 42px;
   height: 42px;
-  border-radius: 12px;
 }
 
 /* Default to 2x2 for safety */
