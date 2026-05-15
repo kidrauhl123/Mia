@@ -479,14 +479,153 @@
   }
 
   function bindInfoButton(group) {
-    // T15 will implement the info drawer; for now just toggle a stub.
     const btn = document.getElementById("group-view-info");
     if (!btn) return;
     const fresh = btn.cloneNode(true);
     btn.parentNode.replaceChild(fresh, btn);
-    document.getElementById("group-view-info").addEventListener("click", () => {
-      console.log("[group] info button clicked — T15 will implement drawer");
-    });
+    document.getElementById("group-view-info").addEventListener("click", () => openInfoDrawer(group));
+  }
+
+  function openInfoDrawer(group) {
+    const drawer = document.getElementById("group-info-drawer");
+    if (!drawer) {
+      console.error("[group] info drawer DOM missing");
+      return;
+    }
+    const membersBox = document.getElementById("group-info-members");
+    const hostSelect = document.getElementById("group-info-host");
+    const goalInput = document.getElementById("group-info-goal");
+    const closeBtn = document.getElementById("group-info-close");
+    const goalSaveBtn = document.getElementById("group-info-goal-save");
+    const resetCtxBtn = document.getElementById("group-info-reset-ctx");
+    const backdrop = drawer.querySelector(".drawer-backdrop");
+
+    // Members
+    membersBox.innerHTML = "";
+    for (const memberId of group.members) {
+      const row = document.createElement("div");
+      row.className = "member-row";
+      const name = document.createElement("span");
+      name.textContent = (moduleState.fellowNamesById[memberId] || memberId) +
+        (memberId === group.hostFellowId ? " 👑" : "");
+      row.appendChild(name);
+      if (group.members.length > 1) {
+        const removeBtn = document.createElement("button");
+        removeBtn.type = "button";
+        removeBtn.textContent = "移除";
+        removeBtn.addEventListener("click", () => removeMember(group, memberId));
+        row.appendChild(removeBtn);
+      }
+      membersBox.appendChild(row);
+    }
+
+    // Host select
+    hostSelect.innerHTML = "";
+    for (const memberId of group.members) {
+      const opt = document.createElement("option");
+      opt.value = memberId;
+      opt.textContent = moduleState.fellowNamesById[memberId] || memberId;
+      if (memberId === group.hostFellowId) opt.selected = true;
+      hostSelect.appendChild(opt);
+    }
+    hostSelect.onchange = async () => {
+      const newHost = hostSelect.value;
+      group.hostFellowId = newHost;
+      try {
+        await window.aimashi.groups.update(group.id, { hostFellowId: newHost });
+      } catch (e) {
+        console.warn("[group] host switch failed:", e);
+        return;
+      }
+      renderGroupMessages(group, moduleState.messagesByGroup.get(group.id) || []);
+      openInfoDrawer(group); // refresh crown display
+    };
+
+    // Goal
+    goalInput.value = (group.decorations && group.decorations.pinnedGoal) || "";
+    goalSaveBtn.onclick = async () => {
+      const goal = goalInput.value.trim();
+      const decorations = { ...(group.decorations || {}), pinnedGoal: goal || null };
+      group.decorations = decorations;
+      try {
+        await window.aimashi.groups.update(group.id, { decorations });
+      } catch (e) {
+        console.warn("[group] save goal failed:", e);
+      }
+    };
+
+    // Reset context
+    resetCtxBtn.onclick = async () => {
+      if (!confirm("重置群上下文摘要？后续 Fellow 看不到旧摘要，得重新攒一遍。")) return;
+      group.contextCard = null;
+      try {
+        await window.aimashi.groups.update(group.id, { contextCard: null });
+        alert("已重置。");
+      } catch (e) {
+        console.warn("[group] reset context failed:", e);
+      }
+    };
+
+    // Close
+    function close() { drawer.classList.add("hidden"); }
+    closeBtn.onclick = close;
+    if (backdrop) backdrop.onclick = close;
+
+    drawer.classList.remove("hidden");
+  }
+
+  async function removeMember(group, memberId) {
+    if (group.members.length <= 1) {
+      alert("群里至少需要一个 Fellow");
+      return;
+    }
+    const newMembers = group.members.filter((id) => id !== memberId);
+    let newHost = group.hostFellowId;
+    let hostChanged = false;
+    if (memberId === group.hostFellowId) {
+      newHost = newMembers[0];
+      hostChanged = true;
+    }
+    group.members = newMembers;
+    group.hostFellowId = newHost;
+    try {
+      await window.aimashi.groups.update(group.id, { members: newMembers, hostFellowId: newHost });
+    } catch (e) {
+      console.warn("[group] removeMember persist failed:", e);
+      alert("移除失败：" + (e && e.message ? e.message : String(e)));
+      return;
+    }
+
+    const msgs = moduleState.messagesByGroup.get(group.id) || [];
+    const removedName = moduleState.fellowNamesById[memberId] || memberId;
+    const sysContent = hostChanged
+      ? `${removedName} 离开了群，${moduleState.fellowNamesById[newHost] || newHost} 成为群主`
+      : `${removedName} 离开了群`;
+    const sysMsg = {
+      id: "m-" + Date.now() + "-leave",
+      groupId: group.id,
+      role: "system",
+      content: sysContent,
+      mentions: [],
+      turnId: "t-sys-" + Date.now(),
+      createdAt: Date.now(),
+      status: "complete",
+    };
+    try {
+      await window.aimashi.groups.appendMessage(group.id, sysMsg);
+    } catch (e) {
+      console.warn("[group] system bubble persist failed:", e);
+    }
+    msgs.push(sysMsg);
+    renderGroupMessages(group, msgs);
+
+    if (newMembers.length === 1) {
+      if (confirm("群里只剩 1 个 Fellow 了，转为单聊？")) {
+        // v1: 不实现自动迁移，仅提示
+        alert("请直接打开单聊和该 Fellow 对话。");
+      }
+    }
+    openInfoDrawer(group); // refresh
   }
 
   global.aimashiGroup = {
@@ -495,6 +634,8 @@
     openGroup,
     bindCreateButton,
     openCreateDialog,
+    openInfoDrawer,
+    removeMember,
     moduleState,
   };
 })(window);

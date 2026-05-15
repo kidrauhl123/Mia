@@ -679,6 +679,32 @@
     </div>
     <div id="group-mention-picker" class="mention-picker hidden"></div>
   </div>
+  <div id="group-info-drawer" class="drawer hidden">
+    <div class="drawer-backdrop"></div>
+    <div class="drawer-panel">
+      <div class="drawer-header">
+        <div class="drawer-title">群信息</div>
+        <button id="group-info-close" class="icon-button" type="button" aria-label="关闭">×</button>
+      </div>
+      <div class="drawer-section">
+        <div class="drawer-section-title">成员</div>
+        <div id="group-info-members"></div>
+      </div>
+      <div class="drawer-section">
+        <div class="drawer-section-title">群主</div>
+        <select id="group-info-host"></select>
+      </div>
+      <div class="drawer-section">
+        <div class="drawer-section-title">目标（可选）</div>
+        <textarea id="group-info-goal" maxlength="200" placeholder="比如：今天把这个 PR 写完"></textarea>
+        <button id="group-info-goal-save" type="button">保存目标</button>
+      </div>
+      <div class="drawer-section">
+        <div class="drawer-section-title">维护</div>
+        <button id="group-info-reset-ctx" type="button">重置群上下文</button>
+      </div>
+    </div>
+  </div>
   <script src="./group-prompts.js"></script>
   <script src="./conductor.js"></script>
   <script src="./group.js"></script>
