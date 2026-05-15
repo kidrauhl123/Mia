@@ -5589,13 +5589,13 @@ pre {
 .modal-actions button.primary { background: var(--accent, #4a7cff); color: #fff; }
 .checkbox-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; cursor: pointer; }
 
-.group-chat-view {
+.group-workspace {
   display: flex;
   flex-direction: column;
   height: 100%;
   background: var(--bg, #fafafa);
 }
-.group-chat-view.hidden { display: none; }
+.group-workspace.hidden { display: none; }
 .group-view-header {
   display: flex;
   align-items: center;

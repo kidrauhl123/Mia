@@ -644,6 +644,19 @@
     <div id="messageContextMenu" class="skill-context-menu message-context-menu hidden" role="menu"></div>
     <button id="petJobButton" class="pet-job-button hidden" type="button"></button>
     <div id="petJobPanel" class="pet-job-panel hidden"></div>
+
+    <section id="group-view" class="workspace group-workspace hidden">
+      <div class="group-view-header">
+        <div class="group-view-title" id="group-view-title"></div>
+        <button id="group-view-info" class="icon-button" type="button" title="群信息">ℹ︎</button>
+      </div>
+      <div class="group-message-list" id="group-message-list"></div>
+      <div class="group-composer">
+        <textarea id="group-input" placeholder="输入消息，@ 选择 Fellow" rows="2"></textarea>
+        <button id="group-send" class="primary" type="button">发送</button>
+      </div>
+      <div id="group-mention-picker" class="mention-picker hidden"></div>
+    </section>
   </main>
   <div id="group-create-dialog" class="modal hidden" role="dialog" aria-modal="true" aria-label="新建群聊">
     <div class="modal-backdrop"></div>
@@ -666,18 +679,6 @@
         <button id="group-create-confirm" type="button" class="primary">创建</button>
       </div>
     </div>
-  </div>
-  <div id="group-view" class="chat-view group-chat-view hidden">
-    <div class="group-view-header">
-      <div class="group-view-title" id="group-view-title"></div>
-      <button id="group-view-info" class="icon-button" type="button" title="群信息">ℹ︎</button>
-    </div>
-    <div class="group-message-list" id="group-message-list"></div>
-    <div class="group-composer">
-      <textarea id="group-input" placeholder="输入消息，@ 选择 Fellow" rows="2"></textarea>
-      <button id="group-send" class="primary" type="button">发送</button>
-    </div>
-    <div id="group-mention-picker" class="mention-picker hidden"></div>
   </div>
   <div id="group-info-drawer" class="drawer hidden">
     <div class="drawer-backdrop"></div>
