@@ -4,8 +4,13 @@ const crypto = require("node:crypto");
 
 function atomicWrite(filePath, content) {
   const tmp = filePath + ".tmp." + crypto.randomBytes(6).toString("hex");
-  fs.writeFileSync(tmp, content);
-  fs.renameSync(tmp, filePath);
+  try {
+    fs.writeFileSync(tmp, content);
+    fs.renameSync(tmp, filePath);
+  } catch (e) {
+    try { fs.unlinkSync(tmp); } catch { /* tmp may not exist */ }
+    throw e;
+  }
 }
 
 function readJSON(filePath, fallback) {
