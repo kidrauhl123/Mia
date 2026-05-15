@@ -174,9 +174,274 @@
     cancelBtn.addEventListener("click", onCancel);
   }
 
-  function openGroup(groupId) {
-    // T14 will implement the group chat view; for now log only.
-    console.log("[group] open group", groupId, "— T14 will implement view");
+  async function openGroup(groupId) {
+    const group = moduleState.groups.find((g) => g.id === groupId);
+    if (!group) {
+      console.warn("[group] openGroup: not found", groupId);
+      return;
+    }
+    moduleState.activeGroupId = groupId;
+
+    // Hide any other view; show group view
+    // (Other views are managed by app.js; we only flip our own.)
+    const view = document.getElementById("group-view");
+    if (!view) {
+      console.error("[group] group-view DOM missing");
+      return;
+    }
+    view.classList.remove("hidden");
+
+    const titleEl = document.getElementById("group-view-title");
+    if (titleEl) titleEl.textContent = group.name;
+
+    const messages = await window.aimashi.groups.listMessages(groupId);
+    moduleState.messagesByGroup.set(groupId, messages);
+    renderGroupMessages(group, messages);
+    bindComposer(group);
+    bindInfoButton(group);
+  }
+
+  function renderGroupMessages(group, messages) {
+    const list = document.getElementById("group-message-list");
+    if (!list) return;
+    list.innerHTML = "";
+    for (const msg of messages) {
+      const row = document.createElement("div");
+      row.className = "group-msg group-msg-" + msg.role;
+      if (msg.role === "fellow") {
+        const name = moduleState.fellowNamesById[msg.senderFellowId] || msg.senderFellowId;
+        const isHost = msg.senderFellowId === group.hostFellowId;
+        const header = document.createElement("div");
+        header.className = "group-msg-sender";
+        header.textContent = name + (isHost ? " 👑" : "");
+        row.appendChild(header);
+      }
+      const body = document.createElement("div");
+      body.className = "group-msg-body";
+      if (msg.status === "error") body.classList.add("error");
+      body.textContent = msg.content || (msg.status === "streaming" ? "…" : "");
+      row.appendChild(body);
+      list.appendChild(row);
+    }
+    list.scrollTop = list.scrollHeight;
+  }
+
+  function bindComposer(group) {
+    const send = document.getElementById("group-send");
+    const input = document.getElementById("group-input");
+    if (!send || !input) return;
+
+    // Replace nodes to clear prior listeners (defensive)
+    const freshSend = send.cloneNode(true);
+    send.parentNode.replaceChild(freshSend, send);
+    const freshInput = input.cloneNode(true);
+    input.parentNode.replaceChild(freshInput, input);
+
+    const sendBtn = document.getElementById("group-send");
+    const inputEl = document.getElementById("group-input");
+
+    sendBtn.addEventListener("click", () => sendInGroup(group));
+    inputEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        sendInGroup(group);
+      }
+      if (e.key === "@") {
+        // Show picker on next tick so the @ char registers in input
+        setTimeout(() => showMentionPicker(group), 0);
+      }
+    });
+  }
+
+  function showMentionPicker(group) {
+    const picker = document.getElementById("group-mention-picker");
+    if (!picker) return;
+    picker.innerHTML = "";
+    for (const memberId of group.members) {
+      const item = document.createElement("div");
+      item.className = "mention-item";
+      item.textContent = "@" + (moduleState.fellowNamesById[memberId] || memberId);
+      item.addEventListener("click", () => {
+        const input = document.getElementById("group-input");
+        const name = moduleState.fellowNamesById[memberId] || memberId;
+        input.value = input.value + name + " ";
+        picker.classList.add("hidden");
+        input.focus();
+      });
+      picker.appendChild(item);
+    }
+    // Position near the input
+    const input = document.getElementById("group-input");
+    if (input) {
+      const rect = input.getBoundingClientRect();
+      picker.style.left = (rect.left + 8) + "px";
+      picker.style.top = (rect.top - 240) + "px";
+    }
+    picker.classList.remove("hidden");
+  }
+
+  async function sendInGroup(group) {
+    const input = document.getElementById("group-input");
+    if (!input) return;
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = "";
+
+    const turnId = "t-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
+    const mentions = parseMentionsFor(group, text);
+    const userMsg = {
+      id: "m-" + Date.now() + "-u",
+      groupId: group.id,
+      role: "user",
+      content: text,
+      mentions,
+      turnId,
+      createdAt: Date.now(),
+      status: "complete",
+    };
+    await window.aimashi.groups.appendMessage(group.id, userMsg);
+    const msgs = moduleState.messagesByGroup.get(group.id) || [];
+    msgs.push(userMsg);
+    moduleState.messagesByGroup.set(group.id, msgs);
+    renderGroupMessages(group, msgs);
+
+    // Dispatch decision
+    if (!moduleState.conductor) {
+      console.warn("[group] conductor not initialized; only explicit @ will dispatch");
+    }
+
+    const members = moduleState.fellows.filter((f) => group.members.includes(f.id || f.key));
+
+    let dispatch;
+    if (moduleState.conductor) {
+      dispatch = await moduleState.conductor.decideDispatch({
+        group,
+        members,
+        fellowNamesById: moduleState.fellowNamesById,
+        userMessage: userMsg,
+        messages: msgs,
+      });
+    } else {
+      dispatch = { speak: mentions.filter((id) => group.members.includes(id)) };
+    }
+
+    if (dispatch.degraded) {
+      const sysMsg = {
+        id: "m-" + Date.now() + "-sys",
+        groupId: group.id,
+        role: "system",
+        content: "群助手暂时不在线，没 @ 到的消息暂不会被回应",
+        mentions: [],
+        turnId,
+        createdAt: Date.now(),
+        status: "complete",
+      };
+      await window.aimashi.groups.appendMessage(group.id, sysMsg);
+      msgs.push(sysMsg);
+      renderGroupMessages(group, msgs);
+      return;
+    }
+
+    await Promise.all(
+      dispatch.speak.map((fellowId) => dispatchToFellow(group, fellowId, userMsg, turnId))
+    );
+
+    await maybeUpdateSummary(group);
+  }
+
+  function parseMentionsFor(group, text) {
+    const fellows = moduleState.fellows
+      .filter((f) => group.members.includes(f.id || f.key))
+      .map((f) => ({ id: f.id || f.key, name: f.name || f.key }));
+    if (!promptsModule || typeof promptsModule.parseMentions !== "function") return [];
+    return promptsModule.parseMentions(text, fellows);
+  }
+
+  async function dispatchToFellow(group, fellowId, userMsg, turnId) {
+    const msgs = moduleState.messagesByGroup.get(group.id) || [];
+    const filterFn = promptsModule && promptsModule.filterRecentTurnsForFellow;
+    const buildContext = promptsModule && promptsModule.buildFellowGroupContext;
+    const recent = filterFn ? filterFn(msgs, fellowId, 3) : [];
+    const contextBlock = buildContext
+      ? buildContext({
+          groupName: group.name,
+          summary: group.contextCard ? group.contextCard.summary : null,
+          recentForFellow: recent,
+          fellowNamesById: moduleState.fellowNamesById,
+        })
+      : "";
+
+    const placeholderMsg = {
+      id: "m-" + Date.now() + "-" + fellowId,
+      groupId: group.id,
+      role: "fellow",
+      senderFellowId: fellowId,
+      content: "",
+      mentions: [],
+      turnId,
+      createdAt: Date.now(),
+      status: "streaming",
+    };
+    msgs.push(placeholderMsg);
+    renderGroupMessages(group, msgs);
+
+    try {
+      const result = await window.aimashi.sendChat({
+        fellowKey: fellowId,
+        messages: [{ role: "user", content: userMsg.content }],
+        group: { id: group.id, contextBlock },
+      });
+      // chat:send returns OpenAI-style chat completion. Extract content.
+      placeholderMsg.content = extractAssistantContent(result);
+      placeholderMsg.status = "complete";
+    } catch (e) {
+      placeholderMsg.content = "（响应失败：" + (e && e.message ? e.message : String(e)) + "）";
+      placeholderMsg.status = "error";
+    }
+    // Persist the now-completed (or errored) message
+    await window.aimashi.groups.appendMessage(group.id, placeholderMsg);
+    renderGroupMessages(group, msgs);
+  }
+
+  function extractAssistantContent(result) {
+    // chat:send returns chatCompletionResponse / openai-like shape.
+    if (!result) return "";
+    if (typeof result === "string") return result;
+    if (result.content && typeof result.content === "string") return result.content;
+    const choice = Array.isArray(result.choices) ? result.choices[0] : null;
+    if (choice && choice.message && typeof choice.message.content === "string") {
+      return choice.message.content;
+    }
+    return "";
+  }
+
+  async function maybeUpdateSummary(group) {
+    if (!moduleState.conductor || !promptsModule || typeof promptsModule.shouldSummarize !== "function") return;
+    const msgs = moduleState.messagesByGroup.get(group.id) || [];
+    if (!promptsModule.shouldSummarize(group, msgs)) return;
+    const card = await moduleState.conductor.summarize({
+      group,
+      fellowNamesById: moduleState.fellowNamesById,
+      messages: msgs,
+    });
+    if (!card) return;
+    group.contextCard = card;
+    try {
+      await window.aimashi.groups.saveContextCard(group.id, card);
+    } catch (e) {
+      console.warn("[group] saveContextCard failed:", e);
+    }
+  }
+
+  function bindInfoButton(group) {
+    // T15 will implement the info drawer; for now just toggle a stub.
+    const btn = document.getElementById("group-view-info");
+    if (!btn) return;
+    const fresh = btn.cloneNode(true);
+    btn.parentNode.replaceChild(fresh, btn);
+    document.getElementById("group-view-info").addEventListener("click", () => {
+      console.log("[group] info button clicked — T15 will implement drawer");
+    });
   }
 
   global.aimashiGroup = {

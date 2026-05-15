@@ -4674,8 +4674,17 @@ async function initializeRuntime() {
           return list.map((f) => ({ id: f.id || f.key, name: f.name || f.key, key: f.key }));
         },
         engineCall: async ({ kind, prompt, group }) => {
-          // T14 wires this up to chat:send. For now throw to surface during dev.
-          throw new Error("engineCall not wired yet (T14 hooks this up)");
+          // Conductor calls run as stateless ops on the host Fellow's engine.
+          const hostFellowId = group && group.hostFellowId;
+          if (!hostFellowId) throw new Error("no host fellow for group");
+          const result = await window.aimashi.sendChatStateless({
+            fellowKey: hostFellowId,
+            systemPrompt: kind === "summarize"
+              ? "你是群聊摘要器，无人设。"
+              : "你是群聊调度器，无人设。",
+            userPrompt: prompt,
+          });
+          return result && typeof result.content === "string" ? result.content : "";
         },
       });
     } catch (err) {

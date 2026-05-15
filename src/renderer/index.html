@@ -667,6 +667,18 @@
       </div>
     </div>
   </div>
+  <div id="group-view" class="chat-view group-chat-view hidden">
+    <div class="group-view-header">
+      <div class="group-view-title" id="group-view-title"></div>
+      <button id="group-view-info" class="icon-button" type="button" title="群信息">ℹ︎</button>
+    </div>
+    <div class="group-message-list" id="group-message-list"></div>
+    <div class="group-composer">
+      <textarea id="group-input" placeholder="输入消息，@ 选择 Fellow" rows="2"></textarea>
+      <button id="group-send" class="primary" type="button">发送</button>
+    </div>
+    <div id="group-mention-picker" class="mention-picker hidden"></div>
+  </div>
   <script src="./group-prompts.js"></script>
   <script src="./conductor.js"></script>
   <script src="./group.js"></script>
