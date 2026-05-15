@@ -6710,11 +6710,18 @@ async function sendChatStateless({ fellowKey, systemPrompt, userPrompt, signal }
 }
 
 async function sendChat({ fellowKey, personaKey, sessionId, messages, group, webContents }) {
-  if (activeChatAbortController) {
-    activeChatAbortController.abort();
+  let abortController;
+  if (group) {
+    // Group dispatches run in parallel; each gets its own controller.
+    // The 1v1 "single active chat" semantics don't apply.
+    abortController = new AbortController();
+  } else {
+    if (activeChatAbortController) {
+      activeChatAbortController.abort();
+    }
+    abortController = new AbortController();
+    activeChatAbortController = abortController;
   }
-  const abortController = new AbortController();
-  activeChatAbortController = abortController;
   const { signal } = abortController;
   const runId = `aimashi_${crypto.randomUUID()}`;
   let emitSeq = 0;
