@@ -2694,11 +2694,15 @@ function render() {
         const tile = document.createElement("span");
         tile.className = "group-avatar-tile";
         const fellow = personas.find((p) => (p.id || p.key) === mid);
-        tile.style.cssText = avatarThumbBackgroundStyle(
+        let styleStr = avatarThumbBackgroundStyle(
           fellow?.avatarImage || avatarAssetForKey(mid),
           fellow?.avatarCrop,
           fellow?.color || "#5e5ce6"
         );
+        if (!styleStr || styleStr.trim() === "") {
+          styleStr = "background-color:" + (fellow?.color || "#5e5ce6") + ";";
+        }
+        tile.style.cssText = styleStr;
         els.activeChatAvatar.appendChild(tile);
       }
     }
@@ -2792,11 +2796,15 @@ function render() {
       const tile = document.createElement("span");
       tile.className = "group-avatar-tile";
       const fellow = personas.find((p) => (p.id || p.key) === mid);
-      tile.style.cssText = avatarThumbBackgroundStyle(
+      let styleStr = avatarThumbBackgroundStyle(
         fellow?.avatarImage || avatarAssetForKey(mid),
         fellow?.avatarCrop,
         fellow?.color || "#5e5ce6"
       );
+      if (!styleStr || styleStr.trim() === "") {
+        styleStr = "background-color:" + (fellow?.color || "#5e5ce6") + ";";
+      }
+      tile.style.cssText = styleStr;
       avatarEl.appendChild(tile);
     }
     btn.addEventListener("click", () => {
@@ -2879,8 +2887,7 @@ function skillInitials(name = "") {
 function pluginSourceLabel(source = "") {
   const labels = {
     "aimashi-official": "Aimashi 官方",
-    aimashi: "Hermes 内置",
-    hermes: "Hermes",
+    aimashi: "Aimashi Runtime",
     codex: "Codex",
     claude: "Claude Code"
   };
@@ -2889,8 +2896,7 @@ function pluginSourceLabel(source = "") {
 
 function skillAuthorLabel(skill = {}) {
   if (skill.source === "aimashi-official") return "Aimashi 官方";
-  if (skill.source === "aimashi") return "Hermes 内置";
-  if (skill.source === "hermes") return "Hermes";
+  if (skill.source === "aimashi") return "Aimashi Runtime";
   if (skill.source === "codex") return "Codex";
   if (skill.source === "claude") return "Claude Code";
   return skill.sourceLabel || "Local";

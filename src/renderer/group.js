@@ -21,7 +21,14 @@
     conductor: null,
     deps: null,
     personaWatcherBound: false,
+    typingFellowIds: new Set(),
   };
+
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  const STAGGER_MS = 300;
 
   function currentFellows() {
     if (moduleState.deps && typeof moduleState.deps.getFellows === "function") {
@@ -408,6 +415,40 @@
     chatEl.scrollTop = chatEl.scrollHeight;
   }
 
+  // ── Typing indicator helpers ──────────────────────────────────────────────
+
+  function escapeText(s) {
+    return String(s || "").replace(/[&<>"']/g, (c) => (
+      c === "&" ? "&amp;" :
+      c === "<" ? "&lt;" :
+      c === ">" ? "&gt;" :
+      c === '"' ? "&quot;" : "&#39;"
+    ));
+  }
+
+  function refreshGroupTypingStatus() {
+    const group = moduleState.groups.find((g) => g.id === moduleState.activeGroupId);
+    if (!group) return;
+    const meta = document.getElementById("activeChatMeta");
+    if (!meta) return;
+    const namesById = currentFellowNamesById();
+    const ids = [...moduleState.typingFellowIds];
+    if (ids.length === 0) {
+      meta.textContent = "群聊 · " + ((group.members || []).length + 1) + " 人";
+      return;
+    }
+    let label;
+    if (ids.length <= 2) {
+      label = ids.map((id) => namesById[id] || id).join("、");
+    } else {
+      label = (namesById[ids[0]] || ids[0]) + "、" + (namesById[ids[1]] || ids[1]) + " 等 " + ids.length + " 位";
+    }
+    meta.innerHTML = '<span class="typing-status">' +
+      escapeText(label) + ' 正在输入' +
+      '<span class="typing-dots"><i></i><i></i><i></i></span>' +
+      '</span>';
+  }
+
   // ── sendInActiveGroup: reads from #chatInput, called by app.js submit ─────
 
   async function sendInActiveGroup() {
@@ -427,6 +468,7 @@
   }
 
   async function sendInGroup(group, text) {
+    moduleState.typingFellowIds.clear();
     const turnId = "t-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
     const mentions = parseMentionsFor(group, text);
     const userMsg = {
@@ -491,9 +533,15 @@
       return;
     }
 
-    await Promise.all(
-      dispatch.speak.map((fellowId) => dispatchToFellow(group, fellowId, userMsg, turnId))
-    );
+    const dispatchPromises = [];
+    for (let i = 0; i < dispatch.speak.length; i++) {
+      if (i > 0) await sleep(STAGGER_MS);
+      dispatchPromises.push(
+        dispatchToFellow(group, dispatch.speak[i], userMsg, turnId)
+          .catch((err) => console.error("[group] dispatch error", err))
+      );
+    }
+    await Promise.all(dispatchPromises);
 
     await maybeUpdateSummary(group);
   }
@@ -533,6 +581,8 @@
     };
     msgs.push(placeholderMsg);
     const chatEl = document.getElementById("chat");
+    moduleState.typingFellowIds.add(fellowId);
+    refreshGroupTypingStatus();
     renderGroupMessagesIntoChat(group, msgs, chatEl);
 
     try {
@@ -547,6 +597,9 @@
     } catch (e) {
       placeholderMsg.content = "（响应失败：" + (e && e.message ? e.message : String(e)) + "）";
       placeholderMsg.status = "error";
+    } finally {
+      moduleState.typingFellowIds.delete(fellowId);
+      refreshGroupTypingStatus();
     }
     try {
       await window.aimashi.groups.appendMessage(group.id, placeholderMsg);
