@@ -75,6 +75,15 @@ contextBridge.exposeInMainWorld("aimashi", {
   generateFellowPet: (payload) => ipcRenderer.invoke("pet:generate", payload),
   placeFellowPet: (key) => ipcRenderer.invoke("pet:place", key),
   recallFellowPet: (key) => ipcRenderer.invoke("pet:recall", key),
+  groups: {
+    create: (payload) => ipcRenderer.invoke("group:create", payload),
+    list: () => ipcRenderer.invoke("group:list"),
+    get: (id) => ipcRenderer.invoke("group:get", id),
+    update: (id, patch) => ipcRenderer.invoke("group:update", { id, patch }),
+    appendMessage: (id, message) => ipcRenderer.invoke("group:append-message", { id, message }),
+    listMessages: (id) => ipcRenderer.invoke("group:list-messages", id),
+    saveContextCard: (id, card) => ipcRenderer.invoke("group:save-context-card", { id, card }),
+  },
   platform: process.platform,
   window: {
     close: () => ipcRenderer.invoke("window:close"),
