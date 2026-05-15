@@ -6362,12 +6362,15 @@ function normalizeClaudePermissionMode(value) {
   return "default";
 }
 
-async function sendClaudeCodeChat({ fellow, sessionId, messages, signal, emit }) {
+async function sendClaudeCodeChat({ fellow, sessionId, messages, group, signal, emit }) {
   const engine = "claude-code";
   const commandPath = shellCommandPath("claude");
   if (!commandPath) throw new Error("本机没有检测到 Claude Code CLI。请先安装并确认 `claude --version` 可用。");
   const lastUser = lastUserPrompt(messages);
   const prompt = expandLeadingSkillCommand(lastUser, { mode: "native" }) || lastUser;
+  const promptWithGroup = group && group.contextBlock
+    ? injectGroupContextForSdk(prompt, group.contextBlock)
+    : prompt;
   const persona = readFellowPersona(fellow.key, fellow.name, fellow.bio).trim();
   const { query } = await claudeAgentSdk();
   let bridgePluginPath = "";
@@ -6404,7 +6407,7 @@ async function sendClaudeCodeChat({ fellow, sessionId, messages, signal, emit })
   options.effort = normalizeEffortLevel(fellow.engineConfig?.effortLevel || "medium", "claude-code");
   if (options.permissionMode === "bypassPermissions") options.allowDangerouslySkipPermissions = true;
 
-  const stream = query({ prompt, options });
+  const stream = query({ prompt: promptWithGroup, options });
   let capturedSessionId = externalSessionId;
   const chunks = [];
   // Per-turn streaming state: indexed by content block index from the SDK partial events.
@@ -6528,7 +6531,7 @@ function mapCodexPermissionMode(value) {
   return { sandboxMode: "workspace-write", approvalPolicy: "untrusted" };
 }
 
-async function sendCodexChat({ fellow, sessionId, messages, signal }) {
+async function sendCodexChat({ fellow, sessionId, messages, group, signal }) {
   const engine = "codex";
   const commandPath = shellCommandPath("codex");
   if (!commandPath) throw new Error("本机没有检测到 Codex CLI。请先安装并确认 `codex --version` 可用。");
@@ -6548,6 +6551,9 @@ async function sendCodexChat({ fellow, sessionId, messages, signal }) {
         userText
       ].join("\n")
     : userText;
+  const promptWithGroup = group && group.contextBlock
+    ? injectGroupContextForSdk(prompt, group.contextBlock)
+    : prompt;
   const { Codex } = await codexSdk();
   const codex = new Codex({
     codexPathOverride: commandPath,
@@ -6564,7 +6570,7 @@ async function sendCodexChat({ fellow, sessionId, messages, signal }) {
   const thread = externalSessionId
     ? codex.resumeThread(externalSessionId, threadOptions)
     : codex.startThread(threadOptions);
-  const turn = await thread.run(prompt, { signal });
+  const turn = await thread.run(promptWithGroup, { signal });
   const capturedSessionId = externalSessionId || thread.id || "";
   if (capturedSessionId && !externalSessionId) setAgentSessionId(engine, fellow.key, sessionId, capturedSessionId);
   if (signal?.aborted) {
@@ -6585,7 +6591,7 @@ async function sendCodexChat({ fellow, sessionId, messages, signal }) {
   });
 }
 
-async function sendChat({ fellowKey, personaKey, sessionId, messages, webContents }) {
+async function sendChat({ fellowKey, personaKey, sessionId, messages, group, webContents }) {
   if (activeChatAbortController) {
     activeChatAbortController.abort();
   }
@@ -6641,7 +6647,7 @@ async function sendChat({ fellowKey, personaKey, sessionId, messages, webContent
           }));
         }
       }
-      return completeWithPetMessage(await sendClaudeCodeChat({ fellow, sessionId, messages, signal, emit }));
+      return completeWithPetMessage(await sendClaudeCodeChat({ fellow, sessionId, messages, group, signal, emit }));
     }
     if (agentEngine === "codex") {
       if (slashText) {
@@ -6655,7 +6661,7 @@ async function sendChat({ fellowKey, personaKey, sessionId, messages, webContent
           }));
         }
       }
-      return completeWithPetMessage(await sendCodexChat({ fellow, sessionId, messages, signal }));
+      return completeWithPetMessage(await sendCodexChat({ fellow, sessionId, messages, group, signal }));
     }
 
     if (!engineState.running || !engineState.baseUrl) {
@@ -6682,14 +6688,18 @@ async function sendChat({ fellowKey, personaKey, sessionId, messages, webContent
     }
 
     const runBody = buildRunPayload({ fellow, sessionId, messages });
+    const hermesHeaders = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey()}`,
+      "X-Aimashi-Fellow": fellow.key,
+      "X-Alkaka-Fellow": fellow.key
+    };
+    if (group && group.contextBlock) {
+      hermesHeaders["X-Aimashi-Group-Context"] = buildHermesGroupHeader(group.contextBlock);
+    }
     const response = await fetch(`${engineState.baseUrl}/v1/runs`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey()}`,
-        "X-Aimashi-Fellow": fellow.key,
-        "X-Alkaka-Fellow": fellow.key
-      },
+      headers: hermesHeaders,
       body: JSON.stringify(runBody),
       signal
     });
