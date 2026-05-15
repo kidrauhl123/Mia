@@ -2677,11 +2677,45 @@ function render() {
   const unreadTotal = totalUnreadCount(personas);
   els.personaCount.textContent = unreadTotal > 99 ? "99+" : String(unreadTotal);
   els.personaCount.classList.toggle("hidden", unreadTotal <= 0);
+  const groupActive = activeGroup();
   const active = personas.find((persona) => persona.key === state.activeKey) || personas[0];
-  if (active) {
+  const groupInfoBtn = document.getElementById("groupInfoButton");
+  if (groupActive) {
+    // Render composite group avatar in topbar
+    if (els.activeChatAvatar) {
+      els.activeChatAvatar.textContent = "";
+      els.activeChatAvatar.setAttribute("style", "");
+      els.activeChatAvatar.className = "profile-avatar group-avatar";
+      const tiles = (groupActive.members || []).slice(0, 4);
+      for (const mid of tiles) {
+        const tile = document.createElement("span");
+        tile.className = "group-avatar-tile";
+        const fellow = personas.find((p) => (p.id || p.key) === mid);
+        tile.style.cssText = avatarThumbBackgroundStyle(
+          fellow?.avatarImage || avatarAssetForKey(mid),
+          fellow?.avatarCrop,
+          fellow?.color || "#5e5ce6"
+        );
+        els.activeChatAvatar.appendChild(tile);
+      }
+    }
+    setText(els.activeChatName, groupActive.name || "未命名群聊");
+    if (els.activeChatMeta) {
+      els.activeChatMeta.textContent = "群聊 · " + (groupActive.members || []).length + " 人";
+    }
+    if (groupInfoBtn) groupInfoBtn.classList.remove("hidden");
+    // Hide session menu (not relevant for group chats)
+    if (els.sessionMenuButton) els.sessionMenuButton.classList.add("hidden");
+  } else if (active) {
+    if (els.activeChatAvatar) {
+      els.activeChatAvatar.innerHTML = "";
+      els.activeChatAvatar.className = "profile-avatar";
+    }
     applyFellowAvatar(els.activeChatAvatar, active);
     setText(els.activeChatName, active.name || "Aimashi");
     renderHeaderStatus();
+    if (groupInfoBtn) groupInfoBtn.classList.add("hidden");
+    if (els.sessionMenuButton) els.sessionMenuButton.classList.remove("hidden");
   }
   const filter = state.personaFilter.trim().toLowerCase();
   const visiblePersonas = sortFellowsForSidebar(filter
@@ -2724,7 +2758,55 @@ function render() {
     });
     els.personaList.appendChild(button);
   }
-  if (!visiblePersonas.length) {
+
+  // Inject group entries after fellow rows
+  const groups = listGroups();
+  for (const group of groups) {
+    if (filter && !(group.name || "").toLowerCase().includes(filter)) continue;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = `persona group-persona${group.id === state.activeKey ? " active" : ""}`;
+    const previewText = "群聊 · " + (group.members || []).length + " 人";
+    const updated = group.updatedAt ? formatConversationTime(group.updatedAt) : "";
+    btn.innerHTML = `
+      <span class="avatar group-avatar"></span>
+      <span class="persona-main">
+        <span class="persona-name">${escapeHtml(group.name || "未命名群聊")}</span>
+        <span class="persona-key">${escapeHtml(previewText)}</span>
+      </span>
+      <span class="persona-side">
+        <span class="persona-time">${escapeHtml(updated)}</span>
+      </span>
+    `;
+    // Build composite avatar tiles
+    const avatarEl = btn.querySelector(".avatar.group-avatar");
+    const tiles = (group.members || []).slice(0, 4);
+    for (const mid of tiles) {
+      const tile = document.createElement("span");
+      tile.className = "group-avatar-tile";
+      const fellow = personas.find((p) => (p.id || p.key) === mid);
+      tile.style.cssText = avatarThumbBackgroundStyle(
+        fellow?.avatarImage || avatarAssetForKey(mid),
+        fellow?.avatarCrop,
+        fellow?.color || "#5e5ce6"
+      );
+      avatarEl.appendChild(tile);
+    }
+    btn.addEventListener("click", () => {
+      state.activeKey = group.id;
+      state.activeGroupId = group.id;
+      if (window.aimashiGroup) window.aimashiGroup.moduleState.activeGroupId = group.id;
+      showNarrowContent();
+      render();
+    });
+    btn.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      // v1: group context menu deferred
+    });
+    els.personaList.appendChild(btn);
+  }
+
+  if (!visiblePersonas.length && !groups.length) {
     const empty = document.createElement("div");
     empty.className = "persona-empty";
     empty.textContent = "没有匹配的伙伴";
@@ -4723,6 +4805,14 @@ function renderSetupGuideCreateFellowStep() {
 }
 
 function renderChat() {
+  // Branch: if a group is active, delegate to group module
+  const groupActive = activeGroup();
+  if (groupActive) {
+    if (window.aimashiGroup && typeof window.aimashiGroup.renderActiveGroup === "function") {
+      window.aimashiGroup.renderActiveGroup(groupActive);
+    }
+    return;
+  }
   const wasNearBottom = !els.chat || (els.chat.scrollHeight - els.chat.scrollTop - els.chat.clientHeight < 80);
   const session = activeSession();
   const messages = session.messages;
@@ -4813,6 +4903,17 @@ function renderChat() {
 function activePersona() {
   const personas = state.runtime?.fellows || state.runtime?.personas || [];
   return personas.find((persona) => persona.key === state.activeKey) || personas[0];
+}
+
+// ── Group helpers ─────────────────────────────────────────────────────────────
+function listGroups() {
+  if (!window.aimashiGroup || !window.aimashiGroup.moduleState) return [];
+  return window.aimashiGroup.moduleState.groups || [];
+}
+
+function activeGroup() {
+  const groups = listGroups();
+  return groups.find((g) => g.id === state.activeKey) || null;
 }
 
 function appendChat(role, content, options = {}) {
@@ -5279,7 +5380,15 @@ async function initializeRuntime() {
           const list = Array.isArray(state.runtime && state.runtime.fellows) ? state.runtime.fellows
             : Array.isArray(state.runtime && state.runtime.personas) ? state.runtime.personas
             : [];
-          return list.map((f) => ({ id: f.id || f.key, name: f.name || f.key, key: f.key }));
+          return list.map((f) => ({ id: f.id || f.key, name: f.name || f.key, key: f.key, avatarImage: f.avatarImage, avatarCrop: f.avatarCrop, color: f.color }));
+        },
+        getRuntime: () => state.runtime,
+        triggerRender: () => render(),
+        openGroup: (groupId) => {
+          state.activeKey = groupId;
+          if (window.aimashiGroup) window.aimashiGroup.moduleState.activeGroupId = groupId;
+          showNarrowContent();
+          render();
         },
         engineCall: async ({ kind, prompt, group }) => {
           // Conductor calls run as stateless ops on the host Fellow's engine.
@@ -5308,6 +5417,14 @@ async function initializeRuntime() {
     ]).then(() => render());
   }, 800);
 }
+
+// Group info button in topbar
+document.getElementById("groupInfoButton")?.addEventListener("click", () => {
+  const group = activeGroup();
+  if (group && window.aimashiGroup && typeof window.aimashiGroup.openInfoDialog === "function") {
+    window.aimashiGroup.openInfoDialog(group);
+  }
+});
 
 els.openSettings.addEventListener("click", () => {
   state.settingsOpen = true;
@@ -6648,6 +6765,13 @@ els.chat.addEventListener("toggle", (event) => {
 els.chatForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (isComposerComposing()) return;
+  // Branch: group chat
+  if (activeGroup()) {
+    if (window.aimashiGroup && typeof window.aimashiGroup.sendInActiveGroup === "function") {
+      await window.aimashiGroup.sendInActiveGroup();
+    }
+    return;
+  }
   if (state.isGenerating) {
     await window.aimashi.stopChat?.();
     return;
@@ -6817,6 +6941,8 @@ function openInitialFellowDialog() {
 
 function renderHeaderStatus() {
   if (!els.activeChatMeta) return;
+  // If a group is active, the meta is already set by the render() topbar block
+  if (activeGroup()) return;
   const personas = state.runtime?.fellows || state.runtime?.personas || [];
   const active = personas.find((persona) => persona.key === state.activeKey) || personas[0];
   if (!active) return;

@@ -72,7 +72,6 @@
 
       <section class="conversation-section">
         <div id="personaList" class="persona-list"></div>
-        <div id="groupList" class="group-list"></div>
       </section>
     </aside>
 
@@ -123,6 +122,7 @@
           </div>
         </div>
         <div class="top-actions">
+          <button id="groupInfoButton" class="icon-button group-info-topbar-btn hidden" type="button" title="群信息" aria-label="群信息">ℹ︎</button>
           <div class="session-menu-wrap">
             <button id="sessionMenuButton" class="session-trigger" type="button" title="聊天记录" aria-label="聊天记录">
               <span id="currentSessionTitle" class="current-session-title">新对话</span>
@@ -677,67 +677,68 @@
     <button id="petJobButton" class="pet-job-button hidden" type="button"></button>
     <div id="petJobPanel" class="pet-job-panel hidden"></div>
 
-    <section id="group-view" class="workspace group-workspace hidden">
-      <div class="group-view-header">
-        <div class="group-view-title" id="group-view-title"></div>
-        <button id="group-view-info" class="icon-button" type="button" title="群信息">ℹ︎</button>
-      </div>
-      <div class="group-message-list" id="group-message-list"></div>
-      <div class="group-composer">
-        <textarea id="group-input" placeholder="输入消息，@ 选择 Fellow" rows="2"></textarea>
-        <button id="group-send" class="primary" type="button">发送</button>
-      </div>
-      <div id="group-mention-picker" class="mention-picker hidden"></div>
-    </section>
   </main>
-  <div id="group-create-dialog" class="modal hidden" role="dialog" aria-modal="true" aria-label="新建群聊">
-    <div class="modal-backdrop"></div>
-    <div class="modal-panel">
-      <div class="modal-title">新建群聊</div>
-      <div class="modal-section">
-        <div class="modal-section-title">选择成员（2-5 个）</div>
-        <div id="group-create-members"></div>
+
+  <!-- Group create dialog — native .skill-preview-dialog style -->
+  <section id="groupCreateDialog" class="skill-preview-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="groupCreateTitle">
+    <div class="skill-preview-card" style="width: min(520px, calc(100vw - 68px)); height: auto;">
+      <div class="skill-preview-toolbar">
+        <div class="skill-preview-title">
+          <h2 id="groupCreateTitle">新建群聊</h2>
+        </div>
+        <button id="groupCreateClose" class="icon-button" type="button" aria-label="关闭">×</button>
       </div>
-      <div class="modal-section">
-        <div class="modal-section-title">群主</div>
-        <select id="group-create-host"></select>
-      </div>
-      <div class="modal-section">
-        <div class="modal-section-title">群名（可选）</div>
-        <input id="group-create-name" type="text" maxlength="40" placeholder="留空则用成员名拼接" />
-      </div>
-      <div class="modal-actions">
-        <button id="group-create-cancel" type="button">取消</button>
-        <button id="group-create-confirm" type="button" class="primary">创建</button>
-      </div>
-    </div>
-  </div>
-  <div id="group-info-drawer" class="drawer hidden">
-    <div class="drawer-backdrop"></div>
-    <div class="drawer-panel">
-      <div class="drawer-header">
-        <div class="drawer-title">群信息</div>
-        <button id="group-info-close" class="icon-button" type="button" aria-label="关闭">×</button>
-      </div>
-      <div class="drawer-section">
-        <div class="drawer-section-title">成员</div>
-        <div id="group-info-members"></div>
-      </div>
-      <div class="drawer-section">
-        <div class="drawer-section-title">群主</div>
-        <select id="group-info-host"></select>
-      </div>
-      <div class="drawer-section">
-        <div class="drawer-section-title">目标（可选）</div>
-        <textarea id="group-info-goal" maxlength="200" placeholder="比如：今天把这个 PR 写完"></textarea>
-        <button id="group-info-goal-save" type="button">保存目标</button>
-      </div>
-      <div class="drawer-section">
-        <div class="drawer-section-title">维护</div>
-        <button id="group-info-reset-ctx" type="button">重置群上下文</button>
+      <div class="group-create-body">
+        <section class="group-create-section">
+          <h3>选择成员 <span class="group-create-hint">(2-5 个)</span></h3>
+          <div id="groupCreateMembers" class="group-create-members"></div>
+        </section>
+        <section class="group-create-section">
+          <h3>群主</h3>
+          <select id="groupCreateHost" class="group-create-select"></select>
+        </section>
+        <section class="group-create-section">
+          <h3>群名 <span class="group-create-hint">(可选)</span></h3>
+          <input id="groupCreateName" class="group-create-input" type="text" maxlength="40" placeholder="留空则用成员名拼接" />
+        </section>
+        <div class="group-create-actions">
+          <button id="groupCreateCancel" class="button-soft" type="button">取消</button>
+          <button id="groupCreateConfirm" class="button-primary" type="button">创建</button>
+        </div>
       </div>
     </div>
-  </div>
+  </section>
+
+  <!-- Group info dialog — native .skill-preview-dialog style -->
+  <section id="groupInfoDialog" class="skill-preview-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="groupInfoTitle">
+    <div class="skill-preview-card" style="width: min(480px, calc(100vw - 68px)); height: auto;">
+      <div class="skill-preview-toolbar">
+        <div class="skill-preview-title">
+          <h2 id="groupInfoTitle">群信息</h2>
+        </div>
+        <button id="groupInfoClose" class="icon-button" type="button" aria-label="关闭">×</button>
+      </div>
+      <div class="group-create-body">
+        <section class="group-create-section">
+          <h3>成员</h3>
+          <div id="groupInfoMembers" class="group-info-members"></div>
+        </section>
+        <section class="group-create-section">
+          <h3>群主</h3>
+          <select id="groupInfoHost" class="group-create-select"></select>
+        </section>
+        <section class="group-create-section">
+          <h3>目标 <span class="group-create-hint">(可选)</span></h3>
+          <textarea id="groupInfoGoal" class="group-create-input group-info-goal-input" maxlength="200" placeholder="比如：今天把这个 PR 写完"></textarea>
+          <button id="groupInfoGoalSave" class="button-soft" type="button" style="margin-top:8px;">保存目标</button>
+        </section>
+        <section class="group-create-section">
+          <h3>维护</h3>
+          <button id="groupInfoResetCtx" class="button-soft" type="button">重置群上下文</button>
+        </section>
+      </div>
+    </div>
+  </section>
   <script src="./group-prompts.js"></script>
   <script src="./conductor.js"></script>
   <script src="./group.js"></script>

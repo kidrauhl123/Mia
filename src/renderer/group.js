@@ -46,85 +46,51 @@
         summarizeTemplate: moduleState.promptTemplates.summarize,
       });
     }
-    renderGroupSidebarEntries();
     bindCreateButton();
-    bindPersonaListWatcher();
+    // Groups render into #personaList via app.js render() which calls listGroups()
+    // Trigger a render if app.js has exposed one
+    if (typeof deps.triggerRender === "function") deps.triggerRender();
   }
 
+  // Called by app.js to inject group rows into #personaList
   function renderGroupSidebarEntries() {
-    const container = document.getElementById("groupList");
-    if (!container) return;
-    container.innerHTML = "";
-    for (const group of moduleState.groups) {
-      const item = document.createElement("div");
-      item.className = "sidebar-item group-item";
-      item.dataset.groupId = group.id;
-      item.addEventListener("click", () => openGroup(group.id));
-
-      const avatar = document.createElement("div");
-      avatar.className = "group-avatar composite";
-      const memberAvatars = (group.members || []).slice(0, 4);
-      for (const memberId of memberAvatars) {
-        const sub = document.createElement("div");
-        sub.className = "group-avatar-sub";
-        sub.textContent = (moduleState.fellowNamesById[memberId] || "?")[0] || "?";
-        avatar.appendChild(sub);
-      }
-      item.appendChild(avatar);
-
-      const meta = document.createElement("div");
-      meta.className = "sidebar-item-meta";
-      const title = document.createElement("div");
-      title.className = "sidebar-item-title";
-      title.textContent = group.name;
-      meta.appendChild(title);
-      const memberLine = document.createElement("div");
-      memberLine.className = "sidebar-item-subtitle";
-      memberLine.textContent = (group.members || [])
-        .map((id) => moduleState.fellowNamesById[id] || id)
-        .join(", ");
-      meta.appendChild(memberLine);
-      item.appendChild(meta);
-
-      container.appendChild(item);
-    }
+    // No-op: groups are injected by app.js's render loop via listGroups()
+    // This function is kept for backward compat; the real work is in app.js.
   }
 
   function bindCreateButton() {
     const btn = document.getElementById("createGroup");
     if (!btn) return;
     btn.disabled = false;
-    btn.addEventListener("click", openCreateDialog);
+    // Remove prior listeners by cloning
+    const fresh = btn.cloneNode(true);
+    btn.parentNode.replaceChild(fresh, btn);
+    document.getElementById("createGroup").addEventListener("click", () => {
+      // Close the create menu first
+      const menu = document.getElementById("fellowCreateMenu");
+      if (menu) menu.classList.add("hidden");
+      openCreateDialog();
+    });
   }
 
   function bindPersonaListWatcher() {
-    if (moduleState.personaWatcherBound) return;
-    const list = document.getElementById("personaList");
-    if (!list) return;
-    list.addEventListener("click", () => {
-      // If user clicked a 1v1 persona, hide the group view and let app.js show chatView
-      const view = document.getElementById("group-view");
-      if (view && !view.classList.contains("hidden")) {
-        view.classList.add("hidden");
-        moduleState.activeGroupId = null;
-        const chatView = document.getElementById("chatView");
-        if (chatView) chatView.classList.remove("hidden");
-      }
-    });
-    moduleState.personaWatcherBound = true;
+    // Legacy: kept harmless. Group view switching is now handled via state.activeKey in app.js.
   }
 
+  // ── Create dialog ──────────────────────────────────────────────────────────
+
   function openCreateDialog() {
-    const dialog = document.getElementById("group-create-dialog");
+    const dialog = document.getElementById("groupCreateDialog");
     if (!dialog) {
-      console.error("[group] create dialog DOM missing");
+      console.error("[group] groupCreateDialog DOM missing");
       return;
     }
-    const membersBox = document.getElementById("group-create-members");
-    const hostSelect = document.getElementById("group-create-host");
-    const nameInput = document.getElementById("group-create-name");
-    const confirmBtn = document.getElementById("group-create-confirm");
-    const cancelBtn = document.getElementById("group-create-cancel");
+    const membersBox = document.getElementById("groupCreateMembers");
+    const hostSelect = document.getElementById("groupCreateHost");
+    const nameInput = document.getElementById("groupCreateName");
+    const confirmBtn = document.getElementById("groupCreateConfirm");
+    const cancelBtn = document.getElementById("groupCreateCancel");
+    const closeBtn = document.getElementById("groupCreateClose");
 
     const selected = new Set();
 
@@ -138,35 +104,70 @@
       }
     }
 
+    // Build member rows
     membersBox.innerHTML = "";
     for (const fellow of moduleState.fellows) {
-      const row = document.createElement("label");
-      row.className = "checkbox-row";
+      const fellowId = fellow.id || fellow.key;
+      const row = document.createElement("div");
+      row.className = "group-create-member-row";
+
       const cb = document.createElement("input");
       cb.type = "checkbox";
-      cb.value = fellow.id || fellow.key;
-      cb.addEventListener("change", () => {
-        if (cb.checked) selected.add(fellow.id || fellow.key);
-        else selected.delete(fellow.id || fellow.key);
+      cb.value = fellowId;
+
+      const avatarEl = document.createElement("span");
+      avatarEl.className = "member-avatar";
+      // Use avatarThumbBackgroundStyle if available from app.js scope; fall back to color
+      if (typeof avatarThumbBackgroundStyle === "function") {
+        const image = fellow.avatarImage || (typeof avatarAssetForKey === "function" ? avatarAssetForKey(fellowId) : "");
+        avatarEl.style.cssText = avatarThumbBackgroundStyle(image, fellow.avatarCrop, fellow.color || "#5e5ce6");
+      } else {
+        avatarEl.style.background = fellow.color || "#5e5ce6";
+      }
+
+      const nameEl = document.createElement("span");
+      nameEl.className = "member-name";
+      nameEl.textContent = fellow.name || fellowId;
+
+      row.appendChild(cb);
+      row.appendChild(avatarEl);
+      row.appendChild(nameEl);
+
+      // Click anywhere on row toggles checkbox
+      row.addEventListener("click", (e) => {
+        if (e.target !== cb) cb.checked = !cb.checked;
+        if (cb.checked) selected.add(fellowId);
+        else selected.delete(fellowId);
         refreshHostOptions();
       });
-      row.appendChild(cb);
-      const label = document.createElement("span");
-      label.textContent = fellow.name || fellow.id || fellow.key;
-      row.appendChild(label);
+      cb.addEventListener("change", () => {
+        if (cb.checked) selected.add(fellowId);
+        else selected.delete(fellowId);
+        refreshHostOptions();
+      });
+
       membersBox.appendChild(row);
     }
 
     nameInput.value = "";
     dialog.classList.remove("hidden");
 
-    function cleanup() {
+    function close() {
       dialog.classList.add("hidden");
       confirmBtn.removeEventListener("click", onConfirm);
-      cancelBtn.removeEventListener("click", onCancel);
+      cancelBtn.removeEventListener("click", onClose);
+      closeBtn.removeEventListener("click", onClose);
+      document.removeEventListener("keydown", onEsc);
+      dialog.removeEventListener("click", onBackdropClick);
     }
 
-    function onCancel() { cleanup(); }
+    function onClose() { close(); }
+
+    function onEsc(e) { if (e.key === "Escape") close(); }
+
+    function onBackdropClick(e) {
+      if (e.target === dialog) close();
+    }
 
     async function onConfirm() {
       const members = [...selected];
@@ -181,153 +182,236 @@
       try {
         const group = await window.aimashi.groups.create({ name, members, hostFellowId });
         moduleState.groups.push(group);
-        renderGroupSidebarEntries();
-        cleanup();
-        openGroup(group.id);
+        close();
+        // Switch to new group via state
+        if (moduleState.deps && typeof moduleState.deps.openGroup === "function") {
+          moduleState.deps.openGroup(group.id);
+        }
       } catch (e) {
         alert("建群失败：" + (e && e.message ? e.message : String(e)));
       }
     }
 
     confirmBtn.addEventListener("click", onConfirm);
-    cancelBtn.addEventListener("click", onCancel);
+    cancelBtn.addEventListener("click", onClose);
+    closeBtn.addEventListener("click", onClose);
+    document.addEventListener("keydown", onEsc);
+    dialog.addEventListener("click", onBackdropClick);
   }
 
-  async function openGroup(groupId) {
+  // ── Info dialog ────────────────────────────────────────────────────────────
+
+  function openInfoDialog(group) {
+    const dialog = document.getElementById("groupInfoDialog");
+    if (!dialog) {
+      console.error("[group] groupInfoDialog DOM missing");
+      return;
+    }
+    const membersBox = document.getElementById("groupInfoMembers");
+    const hostSelect = document.getElementById("groupInfoHost");
+    const goalInput = document.getElementById("groupInfoGoal");
+    const closeBtn = document.getElementById("groupInfoClose");
+    const goalSaveBtn = document.getElementById("groupInfoGoalSave");
+    const resetCtxBtn = document.getElementById("groupInfoResetCtx");
+
+    function refreshMembers() {
+      membersBox.innerHTML = "";
+      for (const memberId of group.members) {
+        const row = document.createElement("div");
+        row.className = "group-info-member-row";
+        const label = document.createElement("span");
+        label.className = "group-info-member-name";
+        label.textContent = (moduleState.fellowNamesById[memberId] || memberId) +
+          (memberId === group.hostFellowId ? " 👑" : "");
+        row.appendChild(label);
+        if (group.members.length > 1) {
+          const removeBtn = document.createElement("button");
+          removeBtn.type = "button";
+          removeBtn.className = "group-info-remove-btn";
+          removeBtn.textContent = "移除";
+          removeBtn.addEventListener("click", () => removeMember(group, memberId));
+          row.appendChild(removeBtn);
+        }
+        membersBox.appendChild(row);
+      }
+    }
+
+    refreshMembers();
+
+    hostSelect.innerHTML = "";
+    for (const memberId of group.members) {
+      const opt = document.createElement("option");
+      opt.value = memberId;
+      opt.textContent = moduleState.fellowNamesById[memberId] || memberId;
+      if (memberId === group.hostFellowId) opt.selected = true;
+      hostSelect.appendChild(opt);
+    }
+    hostSelect.onchange = async () => {
+      const newHost = hostSelect.value;
+      group.hostFellowId = newHost;
+      try {
+        await window.aimashi.groups.update(group.id, { hostFellowId: newHost });
+      } catch (e) {
+        console.warn("[group] host switch failed:", e);
+        return;
+      }
+      renderActiveGroup(group);
+      refreshMembers();
+    };
+
+    goalInput.value = (group.decorations && group.decorations.pinnedGoal) || "";
+    goalSaveBtn.onclick = async () => {
+      const goal = goalInput.value.trim();
+      const decorations = { ...(group.decorations || {}), pinnedGoal: goal || null };
+      group.decorations = decorations;
+      try {
+        await window.aimashi.groups.update(group.id, { decorations });
+        goalSaveBtn.textContent = "已保存";
+        setTimeout(() => { goalSaveBtn.textContent = "保存目标"; }, 1500);
+      } catch (e) {
+        console.warn("[group] save goal failed:", e);
+      }
+    };
+
+    resetCtxBtn.onclick = async () => {
+      if (!confirm("重置群上下文摘要？后续 Fellow 看不到旧摘要，得重新攒一遍。")) return;
+      group.contextCard = null;
+      try {
+        await window.aimashi.groups.update(group.id, { contextCard: null });
+        alert("已重置。");
+      } catch (e) {
+        console.warn("[group] reset context failed:", e);
+      }
+    };
+
+    dialog.classList.remove("hidden");
+
+    function close() {
+      dialog.classList.add("hidden");
+      closeBtn.removeEventListener("click", onClose);
+      document.removeEventListener("keydown", onEsc);
+      dialog.removeEventListener("click", onBackdropClick);
+    }
+
+    function onClose() { close(); }
+    function onEsc(e) { if (e.key === "Escape") close(); }
+    function onBackdropClick(e) { if (e.target === dialog) close(); }
+
+    closeBtn.addEventListener("click", onClose);
+    document.addEventListener("keydown", onEsc);
+    dialog.addEventListener("click", onBackdropClick);
+  }
+
+  // ── openGroup: now just switches state.activeKey in app.js ────────────────
+
+  function openGroup(groupId) {
     const group = moduleState.groups.find((g) => g.id === groupId);
     if (!group) {
       console.warn("[group] openGroup: not found", groupId);
       return;
     }
     moduleState.activeGroupId = groupId;
-
-    // Hide the 1v1 chat view (it's controlled by app.js)
-    const chatView = document.getElementById("chatView");
-    if (chatView) chatView.classList.add("hidden");
-
-    // Hide any other view; show group view
-    // (Other views are managed by app.js; we only flip our own.)
-    const view = document.getElementById("group-view");
-    if (!view) {
-      console.error("[group] group-view DOM missing");
-      return;
+    if (moduleState.deps && typeof moduleState.deps.openGroup === "function") {
+      moduleState.deps.openGroup(groupId);
     }
-    view.classList.remove("hidden");
-
-    const titleEl = document.getElementById("group-view-title");
-    if (titleEl) titleEl.textContent = group.name;
-
-    const messages = await window.aimashi.groups.listMessages(groupId);
-    moduleState.messagesByGroup.set(groupId, messages);
-    renderGroupMessages(group, messages);
-    bindComposer(group);
-    bindInfoButton(group);
   }
 
-  function renderGroupMessages(group, messages) {
-    const list = document.getElementById("group-message-list");
-    if (!list) return;
-    list.innerHTML = "";
+  // ── renderActiveGroup: fills #chat with group messages ───────────────────
+
+  async function renderActiveGroup(group) {
+    const chatEl = document.getElementById("chat");
+    if (!chatEl) return;
+
+    // Ensure messages are loaded
+    if (!moduleState.messagesByGroup.has(group.id)) {
+      try {
+        const messages = await window.aimashi.groups.listMessages(group.id);
+        moduleState.messagesByGroup.set(group.id, messages);
+      } catch (e) {
+        console.warn("[group] listMessages failed:", e);
+        moduleState.messagesByGroup.set(group.id, []);
+      }
+    }
+
+    const messages = moduleState.messagesByGroup.get(group.id) || [];
+    renderGroupMessagesIntoChat(group, messages, chatEl);
+  }
+
+  function renderGroupMessagesIntoChat(group, messages, chatEl) {
+    if (!chatEl) return;
+    chatEl.innerHTML = "";
+
+    const runtime = (moduleState.deps && moduleState.deps.getRuntime && moduleState.deps.getRuntime()) || {};
+    const allFellows = runtime.fellows || runtime.personas || [];
+
     for (const msg of messages) {
-      const row = document.createElement("div");
-      row.className = "group-msg group-msg-" + msg.role;
-      if (msg.role === "fellow") {
-        const name = moduleState.fellowNamesById[msg.senderFellowId] || msg.senderFellowId;
+      const article = document.createElement("article");
+
+      if (msg.role === "user") {
+        article.className = "message user";
+        const user = runtime.user || { avatarText: "B", avatarColor: "#111827" };
+        const label = user.avatarText || "B";
+        const color = user.avatarColor || "#111827";
+        const userAvatarStyle = (typeof avatarThumbBackgroundStyle === "function" && user.avatarImage)
+          ? avatarThumbBackgroundStyle(user.avatarImage, user.avatarCrop, color)
+          : "";
+        article.innerHTML = `
+          <div class="avatar" style="background-color:${escapeHtmlSafe(color)};${userAvatarStyle}">${escapeHtmlSafe(label)}</div>
+          <div class="message-stack"><div class="bubble">${escapeHtmlSafe(msg.content || "")}</div></div>
+        `;
+      } else if (msg.role === "fellow") {
+        article.className = "message assistant";
+        const fellow = allFellows.find((f) => (f.id || f.key) === msg.senderFellowId);
+        const fellowName = moduleState.fellowNamesById[msg.senderFellowId] || msg.senderFellowId || "?";
+        const fellowColor = fellow?.color || "#5e5ce6";
         const isHost = msg.senderFellowId === group.hostFellowId;
-        const header = document.createElement("div");
-        header.className = "group-msg-sender";
-        header.textContent = name + (isHost ? " 👑" : "");
-        row.appendChild(header);
+        let avatarStyle = "";
+        if (typeof avatarThumbBackgroundStyle === "function") {
+          const image = fellow?.avatarImage || (typeof avatarAssetForKey === "function" ? avatarAssetForKey(msg.senderFellowId) : "");
+          avatarStyle = avatarThumbBackgroundStyle(image, fellow?.avatarCrop, fellowColor);
+        }
+        const senderLabel = fellowName + (isHost ? " 👑" : "");
+        const bodyContent = msg.status === "streaming" ? "…" : escapeHtmlSafe(msg.content || "");
+        const errorClass = msg.status === "error" ? " group-msg-error" : "";
+        article.innerHTML = `
+          <div class="avatar" style="background-color:${escapeHtmlSafe(fellowColor)};${avatarStyle}"></div>
+          <div class="message-stack">
+            <div class="group-msg-sender-label">${escapeHtmlSafe(senderLabel)}</div>
+            <div class="bubble${errorClass}">${bodyContent}</div>
+          </div>
+        `;
+      } else if (msg.role === "system") {
+        article.className = "message group-system-msg";
+        article.innerHTML = `<div class="group-system-text">${escapeHtmlSafe(msg.content || "")}</div>`;
+      } else {
+        continue;
       }
-      const body = document.createElement("div");
-      body.className = "group-msg-body";
-      if (msg.status === "error") body.classList.add("error");
-      body.textContent = msg.content || (msg.status === "streaming" ? "…" : "");
-      row.appendChild(body);
-      list.appendChild(row);
+
+      chatEl.appendChild(article);
     }
-    list.scrollTop = list.scrollHeight;
+
+    chatEl.scrollTop = chatEl.scrollHeight;
   }
 
-  function bindComposer(group) {
-    const send = document.getElementById("group-send");
-    const input = document.getElementById("group-input");
-    if (!send || !input) return;
+  // ── sendInActiveGroup: reads from #chatInput, called by app.js submit ─────
 
-    // Replace nodes to clear prior listeners (defensive)
-    const freshSend = send.cloneNode(true);
-    send.parentNode.replaceChild(freshSend, send);
-    const freshInput = input.cloneNode(true);
-    input.parentNode.replaceChild(freshInput, input);
+  async function sendInActiveGroup() {
+    const group = moduleState.groups.find((g) => g.id === moduleState.activeGroupId);
+    if (!group) return;
 
-    const sendBtn = document.getElementById("group-send");
-    const inputEl = document.getElementById("group-input");
-
-    sendBtn.addEventListener("click", () => sendInGroup(group));
-    inputEl.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
-        sendInGroup(group);
-      }
-      if (e.key === "@") {
-        // Show picker on next tick so the @ char registers in input
-        setTimeout(() => showMentionPicker(group), 0);
-      }
-    });
-  }
-
-  function showMentionPicker(group) {
-    const picker = document.getElementById("group-mention-picker");
-    if (!picker) return;
-    picker.innerHTML = "";
-
-    function close() {
-      picker.classList.add("hidden");
-      document.removeEventListener("click", outsideClick, true);
-      document.removeEventListener("keydown", escKey);
-    }
-    function outsideClick(e) {
-      if (!picker.contains(e.target) && e.target.id !== "group-input") close();
-    }
-    function escKey(e) {
-      if (e.key === "Escape") close();
-    }
-
-    for (const memberId of group.members) {
-      const item = document.createElement("div");
-      item.className = "mention-item";
-      item.textContent = "@" + (moduleState.fellowNamesById[memberId] || memberId);
-      item.addEventListener("click", () => {
-        const input = document.getElementById("group-input");
-        const name = moduleState.fellowNamesById[memberId] || memberId;
-        input.value = input.value + name + " ";
-        close();
-        input.focus();
-      });
-      picker.appendChild(item);
-    }
-    // Position near the input
-    const input = document.getElementById("group-input");
-    if (input) {
-      const rect = input.getBoundingClientRect();
-      picker.style.left = (rect.left + 8) + "px";
-      picker.style.top = (rect.top - 240) + "px";
-    }
-    picker.classList.remove("hidden");
-    // Defer listener attachment so the current keydown doesn't immediately close it
-    setTimeout(() => {
-      document.addEventListener("click", outsideClick, true);
-      document.addEventListener("keydown", escKey);
-    }, 0);
-  }
-
-  async function sendInGroup(group) {
-    const input = document.getElementById("group-input");
-    if (!input) return;
-    const text = input.value.trim();
+    const inputEl = document.getElementById("chatInput");
+    if (!inputEl) return;
+    const text = inputEl.value.trim();
     if (!text) return;
-    input.value = "";
+    inputEl.value = "";
+    // Trigger app.js resize / send button update
+    if (typeof resizeChatInput === "function") resizeChatInput();
+    if (typeof renderSendButton === "function") renderSendButton();
 
+    await sendInGroup(group, text);
+  }
+
+  async function sendInGroup(group, text) {
     const turnId = "t-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
     const mentions = parseMentionsFor(group, text);
     const userMsg = {
@@ -344,9 +428,10 @@
     const msgs = moduleState.messagesByGroup.get(group.id) || [];
     msgs.push(userMsg);
     moduleState.messagesByGroup.set(group.id, msgs);
-    renderGroupMessages(group, msgs);
 
-    // Dispatch decision
+    const chatEl = document.getElementById("chat");
+    renderGroupMessagesIntoChat(group, msgs, chatEl);
+
     if (!moduleState.conductor) {
       console.warn("[group] conductor not initialized; only explicit @ will dispatch");
     }
@@ -379,7 +464,7 @@
       };
       await window.aimashi.groups.appendMessage(group.id, sysMsg);
       msgs.push(sysMsg);
-      renderGroupMessages(group, msgs);
+      renderGroupMessagesIntoChat(group, msgs, chatEl);
       return;
     }
 
@@ -424,7 +509,8 @@
       status: "streaming",
     };
     msgs.push(placeholderMsg);
-    renderGroupMessages(group, msgs);
+    const chatEl = document.getElementById("chat");
+    renderGroupMessagesIntoChat(group, msgs, chatEl);
 
     try {
       const result = await window.aimashi.sendChat({
@@ -433,24 +519,21 @@
         messages: [{ role: "user", content: userMsg.content }],
         group: { id: group.id, contextBlock },
       });
-      // chat:send returns OpenAI-style chat completion. Extract content.
       placeholderMsg.content = extractAssistantContent(result);
       placeholderMsg.status = "complete";
     } catch (e) {
       placeholderMsg.content = "（响应失败：" + (e && e.message ? e.message : String(e)) + "）";
       placeholderMsg.status = "error";
     }
-    // Persist the now-completed (or errored) message
     try {
       await window.aimashi.groups.appendMessage(group.id, placeholderMsg);
     } catch (e) {
       console.warn("[group] appendMessage failed for fellow " + fellowId + ":", e);
     }
-    renderGroupMessages(group, msgs);
+    renderGroupMessagesIntoChat(group, msgs, chatEl);
   }
 
   function extractAssistantContent(result) {
-    // chat:send returns chatCompletionResponse / openai-like shape.
     if (!result) return "";
     if (typeof result === "string") return result;
     if (result.content && typeof result.content === "string") return result.content;
@@ -465,7 +548,6 @@
     if (!moduleState.conductor || !promptsModule || typeof promptsModule.shouldSummarize !== "function") return;
     const msgs = moduleState.messagesByGroup.get(group.id) || [];
     if (!promptsModule.shouldSummarize(group, msgs)) return;
-    console.log("[group] summary triggered for group", group.id, "after", msgs.length, "messages");
     const card = await moduleState.conductor.summarize({
       group,
       fellowNamesById: moduleState.fellowNamesById,
@@ -478,102 +560,6 @@
     } catch (e) {
       console.warn("[group] saveContextCard failed:", e);
     }
-  }
-
-  function bindInfoButton(group) {
-    const btn = document.getElementById("group-view-info");
-    if (!btn) return;
-    const fresh = btn.cloneNode(true);
-    btn.parentNode.replaceChild(fresh, btn);
-    document.getElementById("group-view-info").addEventListener("click", () => openInfoDrawer(group));
-  }
-
-  function openInfoDrawer(group) {
-    const drawer = document.getElementById("group-info-drawer");
-    if (!drawer) {
-      console.error("[group] info drawer DOM missing");
-      return;
-    }
-    const membersBox = document.getElementById("group-info-members");
-    const hostSelect = document.getElementById("group-info-host");
-    const goalInput = document.getElementById("group-info-goal");
-    const closeBtn = document.getElementById("group-info-close");
-    const goalSaveBtn = document.getElementById("group-info-goal-save");
-    const resetCtxBtn = document.getElementById("group-info-reset-ctx");
-    const backdrop = drawer.querySelector(".drawer-backdrop");
-
-    // Members
-    membersBox.innerHTML = "";
-    for (const memberId of group.members) {
-      const row = document.createElement("div");
-      row.className = "member-row";
-      const name = document.createElement("span");
-      name.textContent = (moduleState.fellowNamesById[memberId] || memberId) +
-        (memberId === group.hostFellowId ? " 👑" : "");
-      row.appendChild(name);
-      if (group.members.length > 1) {
-        const removeBtn = document.createElement("button");
-        removeBtn.type = "button";
-        removeBtn.textContent = "移除";
-        removeBtn.addEventListener("click", () => removeMember(group, memberId));
-        row.appendChild(removeBtn);
-      }
-      membersBox.appendChild(row);
-    }
-
-    // Host select
-    hostSelect.innerHTML = "";
-    for (const memberId of group.members) {
-      const opt = document.createElement("option");
-      opt.value = memberId;
-      opt.textContent = moduleState.fellowNamesById[memberId] || memberId;
-      if (memberId === group.hostFellowId) opt.selected = true;
-      hostSelect.appendChild(opt);
-    }
-    hostSelect.onchange = async () => {
-      const newHost = hostSelect.value;
-      group.hostFellowId = newHost;
-      try {
-        await window.aimashi.groups.update(group.id, { hostFellowId: newHost });
-      } catch (e) {
-        console.warn("[group] host switch failed:", e);
-        return;
-      }
-      renderGroupMessages(group, moduleState.messagesByGroup.get(group.id) || []);
-      openInfoDrawer(group); // refresh crown display
-    };
-
-    // Goal
-    goalInput.value = (group.decorations && group.decorations.pinnedGoal) || "";
-    goalSaveBtn.onclick = async () => {
-      const goal = goalInput.value.trim();
-      const decorations = { ...(group.decorations || {}), pinnedGoal: goal || null };
-      group.decorations = decorations;
-      try {
-        await window.aimashi.groups.update(group.id, { decorations });
-      } catch (e) {
-        console.warn("[group] save goal failed:", e);
-      }
-    };
-
-    // Reset context
-    resetCtxBtn.onclick = async () => {
-      if (!confirm("重置群上下文摘要？后续 Fellow 看不到旧摘要，得重新攒一遍。")) return;
-      group.contextCard = null;
-      try {
-        await window.aimashi.groups.update(group.id, { contextCard: null });
-        alert("已重置。");
-      } catch (e) {
-        console.warn("[group] reset context failed:", e);
-      }
-    };
-
-    // Close
-    function close() { drawer.classList.add("hidden"); }
-    closeBtn.onclick = close;
-    if (backdrop) backdrop.onclick = close;
-
-    drawer.classList.remove("hidden");
   }
 
   async function removeMember(group, memberId) {
@@ -619,15 +605,28 @@
       console.warn("[group] system bubble persist failed:", e);
     }
     msgs.push(sysMsg);
-    renderGroupMessages(group, msgs);
+    const chatEl = document.getElementById("chat");
+    renderGroupMessagesIntoChat(group, msgs, chatEl);
 
     if (newMembers.length === 1) {
       if (confirm("群里只剩 1 个 Fellow 了，转为单聊？")) {
-        // v1: 不实现自动迁移，仅提示
         alert("请直接打开单聊和该 Fellow 对话。");
       }
     }
-    openInfoDrawer(group); // refresh
+    // Refresh the info dialog with updated members
+    openInfoDialog(group);
+  }
+
+  // ── Safe HTML escape (available before app.js loads) ─────────────────────
+
+  function escapeHtmlSafe(value) {
+    // If app.js's escapeHtml is already available, use it
+    if (typeof escapeHtml === "function") return escapeHtml(value);
+    return String(value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
   }
 
   global.aimashiGroup = {
@@ -636,7 +635,9 @@
     openGroup,
     bindCreateButton,
     openCreateDialog,
-    openInfoDrawer,
+    openInfoDialog,
+    renderActiveGroup,
+    sendInActiveGroup,
     removeMember,
     moduleState,
   };
