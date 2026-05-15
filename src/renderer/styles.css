@@ -5556,3 +5556,35 @@ pre {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* ── Group-create modal ── */
+.modal.hidden { display: none; }
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+}
+.modal-panel {
+  position: relative;
+  background: var(--bg-elevated, #fff);
+  border-radius: 12px;
+  padding: 20px;
+  min-width: 320px;
+  max-width: 480px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+}
+.modal-title { font-size: 16px; font-weight: 600; margin-bottom: 12px; }
+.modal-section { margin: 12px 0; }
+.modal-section-title { font-size: 12px; color: var(--text-muted, #888); margin-bottom: 6px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.modal-actions button { padding: 6px 16px; border-radius: 6px; border: 0; cursor: pointer; }
+.modal-actions button.primary { background: var(--accent, #4a7cff); color: #fff; }
+.checkbox-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; cursor: pointer; }

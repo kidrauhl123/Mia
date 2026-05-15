@@ -92,10 +92,86 @@
     const btn = document.getElementById("createGroup");
     if (!btn) return;
     btn.disabled = false;
-    btn.addEventListener("click", () => {
-      // T13 will replace this with openCreateDialog().
-      console.log("[group] create button clicked — T13 will hook openCreateDialog");
-    });
+    btn.addEventListener("click", openCreateDialog);
+  }
+
+  function openCreateDialog() {
+    const dialog = document.getElementById("group-create-dialog");
+    if (!dialog) {
+      console.error("[group] create dialog DOM missing");
+      return;
+    }
+    const membersBox = document.getElementById("group-create-members");
+    const hostSelect = document.getElementById("group-create-host");
+    const nameInput = document.getElementById("group-create-name");
+    const confirmBtn = document.getElementById("group-create-confirm");
+    const cancelBtn = document.getElementById("group-create-cancel");
+
+    const selected = new Set();
+
+    function refreshHostOptions() {
+      hostSelect.innerHTML = "";
+      for (const id of selected) {
+        const opt = document.createElement("option");
+        opt.value = id;
+        opt.textContent = moduleState.fellowNamesById[id] || id;
+        hostSelect.appendChild(opt);
+      }
+    }
+
+    membersBox.innerHTML = "";
+    for (const fellow of moduleState.fellows) {
+      const row = document.createElement("label");
+      row.className = "checkbox-row";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.value = fellow.id || fellow.key;
+      cb.addEventListener("change", () => {
+        if (cb.checked) selected.add(fellow.id || fellow.key);
+        else selected.delete(fellow.id || fellow.key);
+        refreshHostOptions();
+      });
+      row.appendChild(cb);
+      const label = document.createElement("span");
+      label.textContent = fellow.name || fellow.id || fellow.key;
+      row.appendChild(label);
+      membersBox.appendChild(row);
+    }
+
+    nameInput.value = "";
+    dialog.classList.remove("hidden");
+
+    function cleanup() {
+      dialog.classList.add("hidden");
+      confirmBtn.removeEventListener("click", onConfirm);
+      cancelBtn.removeEventListener("click", onCancel);
+    }
+
+    function onCancel() { cleanup(); }
+
+    async function onConfirm() {
+      const members = [...selected];
+      if (members.length < 2 || members.length > 5) {
+        alert("成员数必须在 2 到 5 之间");
+        return;
+      }
+      const hostFellowId = hostSelect.value || members[0];
+      const name = nameInput.value.trim() || members
+        .map((id) => moduleState.fellowNamesById[id] || id)
+        .join(" · ");
+      try {
+        const group = await window.aimashi.groups.create({ name, members, hostFellowId });
+        moduleState.groups.push(group);
+        renderGroupSidebarEntries();
+        cleanup();
+        openGroup(group.id);
+      } catch (e) {
+        alert("建群失败：" + (e && e.message ? e.message : String(e)));
+      }
+    }
+
+    confirmBtn.addEventListener("click", onConfirm);
+    cancelBtn.addEventListener("click", onCancel);
   }
 
   function openGroup(groupId) {
@@ -108,6 +184,7 @@
     renderGroupSidebarEntries,
     openGroup,
     bindCreateButton,
+    openCreateDialog,
     moduleState,
   };
 })(window);
