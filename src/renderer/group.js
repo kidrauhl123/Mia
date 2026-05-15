@@ -364,10 +364,26 @@
 
   function renderGroupMessagesIntoChat(group, messages, chatEl) {
     if (!chatEl) return;
+
+    // Preserve the user's scroll position: only auto-scroll to the bottom if
+    // they were already near it (within 80px). Otherwise leave their viewport
+    // alone so reading history isn't yanked back down by streaming updates.
+    const wasNearBottom = chatEl.scrollHeight - chatEl.scrollTop - chatEl.clientHeight < 80;
+
     chatEl.innerHTML = "";
 
     const runtime = (moduleState.deps && moduleState.deps.getRuntime && moduleState.deps.getRuntime()) || {};
     const allFellows = runtime.fellows || runtime.personas || [];
+
+    // Reuse the same markdown renderer as 1v1 so **bold** / `code` / links work
+    // identically. Fall back to escaped plain text if it's not available yet.
+    const renderBody = (content) => {
+      if (!content) return "";
+      if (typeof renderMarkdown === "function") {
+        try { return renderMarkdown(content); } catch { /* fall through */ }
+      }
+      return escapeHtmlSafe(content);
+    };
 
     for (const msg of messages) {
       const article = document.createElement("article");
@@ -382,7 +398,7 @@
           : "";
         article.innerHTML = `
           <div class="avatar" style="background-color:${escapeHtmlSafe(color)};${userAvatarStyle}">${escapeHtmlSafe(label)}</div>
-          <div class="message-stack"><div class="bubble">${escapeHtmlSafe(msg.content || "")}</div></div>
+          <div class="message-stack"><div class="bubble">${renderBody(msg.content)}</div></div>
         `;
       } else if (msg.role === "fellow") {
         article.className = "message assistant";
@@ -396,7 +412,7 @@
           avatarStyle = avatarThumbBackgroundStyle(image, fellow?.avatarCrop, fellowColor);
         }
         const senderLabel = fellowName + (isHost ? " 👑" : "");
-        const bodyContent = msg.status === "streaming" ? "…" : escapeHtmlSafe(msg.content || "");
+        const bodyContent = msg.status === "streaming" ? "…" : renderBody(msg.content);
         const errorClass = msg.status === "error" ? " group-msg-error" : "";
         article.innerHTML = `
           <div class="avatar" style="background-color:${escapeHtmlSafe(fellowColor)};${avatarStyle}"></div>
@@ -415,7 +431,9 @@
       chatEl.appendChild(article);
     }
 
-    chatEl.scrollTop = chatEl.scrollHeight;
+    if (wasNearBottom) {
+      chatEl.scrollTop = chatEl.scrollHeight;
+    }
   }
 
   // ── Typing indicator helpers ──────────────────────────────────────────────
@@ -574,13 +592,27 @@
       if (!relayDispatch || !relayDispatch.speak || relayDispatch.speak.length === 0) {
         break;
       }
-      // Stagger the relay fellow starts the same way
+      // Stagger the relay fellow starts the same way.
+      // Important: the user message passed to dispatchToFellow during relay must NOT
+      // be the original user prompt (e.g. "你俩玩成语接龙") — otherwise each Fellow
+      // sees that prompt fresh and re-opens the game from scratch. Instead, give them
+      // a clear continuation cue plus what the last non-self Fellow just said.
       const relayPromises = [];
       for (let i = 0; i < relayDispatch.speak.length; i++) {
         if (moduleState.relayToken !== myRelayToken) break;
         if (i > 0) await sleep(STAGGER_MS);
+        const fellowId = relayDispatch.speak[i];
+        const namesById = currentFellowNamesById();
+        const latestMsgs = moduleState.messagesByGroup.get(group.id) || [];
+        const lastOther = [...latestMsgs].reverse().find(
+          (m) => m.role === "fellow" && m.senderFellowId !== fellowId && m.content && m.status !== "streaming"
+        );
+        const relayCue = lastOther
+          ? `（群聊正在自由对话。${namesById[lastOther.senderFellowId] || lastOther.senderFellowId} 刚说："${lastOther.content}" 请直接接续刚才的对话，不要重新开场。）`
+          : "（群聊正在自由对话。请基于群上下文接续，不要重新开场。）";
+        const relayUserMsg = { ...userMsg, content: relayCue, mentions: [] };
         relayPromises.push(
-          dispatchToFellow(group, relayDispatch.speak[i], userMsg, turnId)
+          dispatchToFellow(group, fellowId, relayUserMsg, turnId)
             .catch((err) => console.error("[group] relay dispatch error", err))
         );
       }
