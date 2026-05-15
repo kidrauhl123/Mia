@@ -8,6 +8,18 @@ const storageKeys = {
 };
 
 const DEFAULT_AVATAR_VERSION = "white-circle-1";
+const fallbackSlashCommands = [
+  { command: "/new", description: "Start a new session (fresh session ID + history)" },
+  { command: "/topic", description: "Enable or inspect Telegram DM topic sessions" },
+  { command: "/retry", description: "Retry the last message (resend to agent)" },
+  { command: "/undo", description: "Remove the last user/assistant exchange" },
+  { command: "/title", description: "Set a title for the current session" },
+  { command: "/branch", description: "Branch the current session (explore a different path)" },
+  { command: "/compress", description: "Manually compress conversation context" },
+  { command: "/rollback", description: "List or restore filesystem checkpoints" },
+  { command: "/commands", description: "Browse all commands and skills" },
+  { command: "/help", description: "Show available commands" }
+];
 
 const els = {
   setupView: document.getElementById("setupView"),
@@ -43,6 +55,7 @@ const els = {
   attachmentInput: document.getElementById("attachmentInput"),
   attachmentTray: document.getElementById("attachmentTray"),
   attachButton: document.getElementById("attachButton"),
+  slashCommandMenu: document.getElementById("slashCommandMenu"),
   composer: document.getElementById("composer"),
   chatInput: document.getElementById("chatInput"),
   sendButton: document.getElementById("sendButton"),
@@ -63,6 +76,8 @@ const state = {
   runtime: null,
   modelCatalog: [],
   engineCapabilities: { approvalModes: ["ask", "yolo", "deny"], effortLevels: ["low", "medium", "high"] },
+  slashCommands: fallbackSlashCommands,
+  agentSlashCommands: { "claude-code": [], codex: [] },
   fellows: [],
   defaultFellow: "",
   sessions: { schema_version: 1, readAt: {}, sessions: {} },
@@ -72,6 +87,9 @@ const state = {
   pendingBySession: new Map(),
   pendingAttachments: [],
   generatedFiles: new Map(),
+  slashMenuOpen: false,
+  slashSelectedIndex: 0,
+  slashFilter: "",
   sending: false,
   uploadingAttachments: 0,
   status: ""
@@ -643,6 +661,33 @@ async function loadHealth() {
   }
 }
 
+async function loadSlashCommands() {
+  try {
+    const result = await request("/api/commands/slash");
+    const rows = Array.isArray(result?.rows) ? result.rows : (Array.isArray(result) ? result : []);
+    state.slashCommands = rows.length ? rows : fallbackSlashCommands;
+  } catch {
+    state.slashCommands = fallbackSlashCommands;
+  }
+  await Promise.allSettled(["claude-code", "codex"].map(async (engine) => {
+    try {
+      const registry = await request(`/api/commands/agent-list?engine=${encodeURIComponent(engine)}`);
+      const rows = Array.isArray(registry?.rows) ? registry.rows : (Array.isArray(registry) ? registry : []);
+      state.agentSlashCommands[engine] = rows
+        .filter((item) => item?.command || item?.name)
+        .map((item) => ({
+          ...item,
+          command: String(item.command || item.name || "").startsWith("/")
+            ? String(item.command || item.name || "")
+            : `/${item.command || item.name}`,
+          description: String(item.description || "")
+        }));
+    } catch {
+      state.agentSlashCommands[engine] = [];
+    }
+  }));
+}
+
 async function loadData() {
   if (state.mode === "direct" && !state.token) {
     renderSetup();
@@ -654,12 +699,13 @@ async function loadData() {
   }
   await loadHealth();
   try {
-    const [fellowsResult, sessionsResult, runtimeResult, catalogResult, capsResult] = await Promise.allSettled([
+    const [fellowsResult, sessionsResult, runtimeResult, catalogResult, capsResult, commandsResult] = await Promise.allSettled([
       request("/api/fellows"),
       request("/api/chat/sessions"),
       request("/api/runtime/status"),
       request("/api/model/catalog"),
-      request("/api/engine/capabilities")
+      request("/api/engine/capabilities"),
+      loadSlashCommands()
     ]);
     if (fellowsResult.status === "rejected") throw fellowsResult.reason;
     if (sessionsResult.status === "rejected") throw sessionsResult.reason;
@@ -686,6 +732,10 @@ async function loadData() {
           ? capsResult.value.effortLevels
           : state.engineCapabilities.effortLevels
       };
+    }
+    if (commandsResult.status === "rejected") {
+      state.slashCommands = fallbackSlashCommands;
+      state.agentSlashCommands = { "claude-code": [], codex: [] };
     }
     render();
   } catch (error) {
@@ -1202,7 +1252,11 @@ function renderChat() {
   const session = activeSession();
   els.chatView.classList.toggle("hidden", !fellow);
   els.bottomNav.classList.toggle("hidden", Boolean(fellow));
-  if (!fellow) return;
+  if (!fellow) {
+    state.slashMenuOpen = false;
+    renderSlashCommandMenu();
+    return;
+  }
   els.chatAvatar.removeAttribute("style");
   els.chatAvatar.innerHTML = avatarImg(fellow);
   setText(els.chatTitle, fellow.name || fellow.key);
@@ -1266,6 +1320,104 @@ function renderAttachmentTray() {
   ].join("");
 }
 
+function filteredSlashCommands() {
+  const filter = state.slashFilter.replace(/^\//, "").trim().toLowerCase();
+  const engine = activeAgentEngine();
+  const commands = engine === "claude-code" || engine === "codex"
+    ? (state.agentSlashCommands[engine] || [])
+    : (state.slashCommands || fallbackSlashCommands);
+  if (!filter) return commands;
+  return commands.filter((item) => `${item.command} ${item.description}`.toLowerCase().includes(filter));
+}
+
+function externalSlashInvocation(text) {
+  const input = String(text || "").trim();
+  const command = input.split(/\s+/)[0]?.toLowerCase() || "";
+  if (!command.startsWith("/")) return null;
+  const argsText = input.slice(command.length).trim();
+  const args = argsText ? argsText.split(/\s+/).filter(Boolean) : [];
+  const engine = activeAgentEngine();
+  if (engine !== "claude-code" && engine !== "codex") return null;
+  const found = (state.agentSlashCommands[engine] || []).find((item) => String(item.command || "").toLowerCase() === command);
+  return found ? { engine, command, args, item: found } : null;
+}
+
+async function outgoingMessageForSubmit(text) {
+  const invocation = externalSlashInvocation(text);
+  if (!invocation || invocation.item.type !== "custom") return text;
+  const result = await request("/api/commands/agent-execute", {
+    method: "POST",
+    body: JSON.stringify({
+      engine: invocation.engine,
+      commandName: invocation.command,
+      commandPath: invocation.item.path,
+      args: invocation.args,
+      context: { sessionId: activeSession()?.id || "" }
+    })
+  });
+  if (result?.type !== "custom" || !String(result.content || "").trim()) return text;
+  return String(result.content || "").trim();
+}
+
+function updateSlashCommandState() {
+  const value = els.chatInput.value || "";
+  const cursor = els.chatInput.selectionStart || 0;
+  const before = value.slice(0, cursor);
+  const line = before.split(/\n/).pop() || "";
+  const shouldOpen = /^\/[A-Za-z0-9_/-]*$/.test(line);
+  state.slashMenuOpen = shouldOpen;
+  state.slashFilter = shouldOpen ? line : "";
+  if (shouldOpen && state.slashFilter.length <= 1) state.slashSelectedIndex = 0;
+  const commands = filteredSlashCommands();
+  if (state.slashSelectedIndex >= commands.length) state.slashSelectedIndex = Math.max(0, commands.length - 1);
+  renderSlashCommandMenu();
+}
+
+function renderSlashCommandMenu() {
+  if (!els.slashCommandMenu) return;
+  const commands = filteredSlashCommands();
+  els.slashCommandMenu.classList.toggle("hidden", !state.slashMenuOpen);
+  if (!state.slashMenuOpen) {
+    els.slashCommandMenu.innerHTML = "";
+    return;
+  }
+  if (!commands.length) {
+    els.slashCommandMenu.innerHTML = `<div class="slash-command-empty">没有匹配的命令</div>`;
+    return;
+  }
+  els.slashCommandMenu.innerHTML = commands.slice(0, 24).map((item, index) => `
+    <button type="button" class="slash-command-item${index === state.slashSelectedIndex ? " active" : ""}" data-command="${escapeHtml(item.command)}">
+      <span class="slash-command-token">${escapeHtml(item.command)}</span>
+      <span class="slash-command-description">${escapeHtml(item.description || "")}</span>
+    </button>
+  `).join("");
+}
+
+function fillSlashCommand(command) {
+  const value = els.chatInput.value || "";
+  const cursor = els.chatInput.selectionStart || 0;
+  const before = value.slice(0, cursor);
+  const after = value.slice(cursor);
+  const lineStart = before.lastIndexOf("\n") + 1;
+  els.chatInput.value = `${value.slice(0, lineStart)}${command.command} ${after}`;
+  const next = lineStart + command.command.length + 1;
+  els.chatInput.setSelectionRange(next, next);
+  state.slashMenuOpen = false;
+  renderSlashCommandMenu();
+  autosizeComposer();
+  els.chatInput.focus();
+}
+
+function sendSlashCommand(command) {
+  const text = String(command?.command || "").trim();
+  if (!text) return;
+  els.chatInput.value = text;
+  state.slashMenuOpen = false;
+  renderSlashCommandMenu();
+  autosizeComposer();
+  sendMessage();
+}
+
 function render() {
   if (state.mode === "direct" && !state.token) {
     renderSetup();
@@ -1290,6 +1442,7 @@ function openChat(fellowKey) {
 function closeChat() {
   state.activeFellowKey = "";
   state.activeSessionId = "";
+  state.slashMenuOpen = false;
   render();
 }
 
@@ -1581,11 +1734,11 @@ function handlePendingChatEnvelope(key, envelope = {}) {
   renderChat();
 }
 
-async function relayStreamMessage({ fellowKey, sessionId, text, attachments, pendingKeyValue }) {
+async function relayStreamMessage({ fellowKey, sessionId, text, displayText, attachments, pendingKeyValue }) {
   let finalResult = null;
   const result = await relayRequest("/api/chat/stream", {
     method: "POST",
-    body: JSON.stringify({ fellowKey, sessionId, text, attachments })
+    body: JSON.stringify({ fellowKey, sessionId, text, displayText, attachments })
   }, (message) => {
     if (message.event === "chat") {
       const envelope = message.data || {};
@@ -1603,9 +1756,9 @@ async function relayStreamMessage({ fellowKey, sessionId, text, attachments, pen
   return finalResult || result;
 }
 
-async function streamMessage({ fellowKey, sessionId, text, attachments, pendingKeyValue }) {
+async function streamMessage({ fellowKey, sessionId, text, displayText, attachments, pendingKeyValue }) {
   if (state.mode === "relay") {
-    return relayStreamMessage({ fellowKey, sessionId, text, attachments, pendingKeyValue });
+    return relayStreamMessage({ fellowKey, sessionId, text, displayText, attachments, pendingKeyValue });
   }
   const response = await fetch(apiUrl("/api/chat/stream"), {
     method: "POST",
@@ -1613,7 +1766,7 @@ async function streamMessage({ fellowKey, sessionId, text, attachments, pendingK
       "Content-Type": "application/json",
       Authorization: `Bearer ${state.token}`
     },
-    body: JSON.stringify({ fellowKey, sessionId, text, attachments })
+    body: JSON.stringify({ fellowKey, sessionId, text, displayText, attachments })
   });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
@@ -1622,7 +1775,7 @@ async function streamMessage({ fellowKey, sessionId, text, attachments, pendingK
   if (!response.body?.getReader) {
     const result = await request("/api/chat/send", {
       method: "POST",
-      body: JSON.stringify({ fellowKey, sessionId, text, attachments })
+      body: JSON.stringify({ fellowKey, sessionId, text, displayText, attachments })
     });
     return result;
   }
@@ -1694,10 +1847,12 @@ async function sendMessage() {
   state.sending = true;
   renderChat();
   try {
+    const outgoingText = await outgoingMessageForSubmit(text);
     const result = await streamMessage({
       fellowKey: fellow.key,
       sessionId: session?.id || "",
-      text: userText,
+      text: outgoingText || userText,
+      displayText: userText,
       attachments,
       pendingKeyValue: key
     });
@@ -1753,6 +1908,13 @@ els.attachmentTray?.addEventListener("click", (event) => {
   renderSendButton();
   els.chatInput.focus();
 });
+els.slashCommandMenu?.addEventListener("pointerdown", (event) => {
+  const button = event.target.closest("[data-command]");
+  if (!button) return;
+  event.preventDefault();
+  const command = filteredSlashCommands().find((item) => item.command === button.dataset.command);
+  if (command) sendSlashCommand(command);
+});
 els.messageList?.addEventListener("click", async (event) => {
   const copyButton = event.target.closest("[data-copy-code]");
   if (copyButton) {
@@ -1807,12 +1969,48 @@ els.composer.addEventListener("submit", (event) => {
   event.preventDefault();
   sendMessage();
 });
-els.chatInput.addEventListener("input", autosizeComposer);
+els.chatInput.addEventListener("input", () => {
+  autosizeComposer();
+  updateSlashCommandState();
+});
+els.chatInput.addEventListener("click", updateSlashCommandState);
 els.chatInput.addEventListener("paste", (event) => {
   if (!event.clipboardData?.files?.length) return;
   addAttachmentFiles(event.clipboardData.files);
 });
 els.chatInput.addEventListener("keydown", (event) => {
+  if (state.slashMenuOpen) {
+    const commands = filteredSlashCommands();
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      state.slashSelectedIndex = commands.length ? (state.slashSelectedIndex + 1) % commands.length : 0;
+      renderSlashCommandMenu();
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      state.slashSelectedIndex = commands.length ? (state.slashSelectedIndex - 1 + commands.length) % commands.length : 0;
+      renderSlashCommandMenu();
+      return;
+    }
+    if (event.key === "Tab") {
+      event.preventDefault();
+      const command = commands[state.slashSelectedIndex];
+      if (command) fillSlashCommand(command);
+      return;
+    }
+    if (event.key === "Escape") {
+      state.slashMenuOpen = false;
+      renderSlashCommandMenu();
+      return;
+    }
+    if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+      event.preventDefault();
+      const command = commands[state.slashSelectedIndex];
+      if (command) sendSlashCommand(command);
+      return;
+    }
+  }
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
     event.preventDefault();
     sendMessage();

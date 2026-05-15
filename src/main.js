@@ -30,7 +30,7 @@ const CODEX_TOKEN_URL = "https://auth.openai.com/oauth/token";
 const AIMASHI_GATEWAY_SERVICE_LABEL = "ai.aimashi.hermes.gateway";
 const AIMASHI_DAEMON_SERVICE_LABEL = "ai.aimashi.daemon";
 const AIMASHI_DAEMON_DEFAULT_PORT = Number(process.env.AIMASHI_DAEMON_PORT || 27861);
-const MOBILE_ASSET_VERSION = "mobile-trace-markdown-1";
+const MOBILE_ASSET_VERSION = "mobile-slash-commands-1";
 const IS_DAEMON_PROCESS = process.argv.includes("--daemon") || process.env.AIMASHI_DAEMON === "1";
 let shouldRunDesktopInstance = true;
 if (!IS_DAEMON_PROCESS) {
@@ -5314,7 +5314,7 @@ async function runRemoteChatRequest(body, eventSink = null) {
   const assistantText = responseMessageContent(response);
   const savedUser = {
     role: "user",
-    content: userMessage.content || "请查看附件。",
+    content: String(body?.displayText || "").trim() || userMessage.content || "请查看附件。",
     createdAt: userMessage.createdAt || now
   };
   if (userMessage.attachments.length) savedUser.attachments = userMessage.attachments;
@@ -5398,6 +5398,14 @@ async function handleControlRequest(req, res) {
       writeControlJson(res, 200, await loadEngineCapabilities());
       return;
     }
+    if (req.method === "GET" && url.pathname === "/api/commands/slash") {
+      writeControlJson(res, 200, { rows: await loadHermesSlashCommands() });
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/api/commands/agent-list") {
+      writeControlJson(res, 200, loadExternalAgentCommands({ engine: url.searchParams.get("engine") || "" }));
+      return;
+    }
     if (req.method === "GET" && url.pathname === "/api/relay/status") {
       writeControlJson(res, 200, relayStatus(false));
       return;
@@ -5432,6 +5440,11 @@ async function handleControlRequest(req, res) {
     if (req.method === "POST" && url.pathname === "/api/file/fetch") {
       const body = await readControlBody(req);
       writeControlJson(res, 200, readLocalFileAttachment(body));
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/commands/agent-execute") {
+      const body = await readControlBody(req);
+      writeControlJson(res, 200, executeExternalAgentCommand(body));
       return;
     }
     if (req.method === "POST" && url.pathname === "/api/fellow/engine") {
@@ -5738,6 +5751,15 @@ async function handleRelayRpc(message = {}) {
       relayRpcResult(clientId, id, true, await loadEngineCapabilities());
       return;
     }
+    if (method === "GET" && requestPath.startsWith("/api/commands/slash")) {
+      relayRpcResult(clientId, id, true, { rows: await loadHermesSlashCommands() });
+      return;
+    }
+    if (method === "GET" && requestPath.startsWith("/api/commands/agent-list")) {
+      const rpcUrl = new URL(requestPath, "http://127.0.0.1");
+      relayRpcResult(clientId, id, true, loadExternalAgentCommands({ engine: rpcUrl.searchParams.get("engine") || "" }));
+      return;
+    }
     if (method === "POST" && requestPath === "/api/chat/session") {
       relayRpcResult(clientId, id, true, newChatSession(body));
       return;
@@ -5752,6 +5774,10 @@ async function handleRelayRpc(message = {}) {
     }
     if (method === "POST" && requestPath === "/api/file/fetch") {
       relayRpcResult(clientId, id, true, readLocalFileAttachment(body));
+      return;
+    }
+    if (method === "POST" && requestPath === "/api/commands/agent-execute") {
+      relayRpcResult(clientId, id, true, executeExternalAgentCommand(body));
       return;
     }
     if (method === "POST" && requestPath === "/api/fellow/engine") {
