@@ -167,6 +167,7 @@ function runtimePaths() {
     daemonSettings: path.join(home, "aimashi-daemon.json"),
     daemonToken: path.join(home, "aimashi-daemon.key"),
     relaySettings: path.join(home, "aimashi-relay.json"),
+    petRemoteSettings: path.join(home, "aimashi-pet-remote.json"),
     appearanceSettings: path.join(home, "aimashi-appearance.json"),
     chatSessions: path.join(home, "aimashi-sessions.json"),
     attachmentsDir: path.join(home, "attachments"),
@@ -1530,7 +1531,7 @@ function readLocalFileAttachment(input = {}) {
 function styleSettingsForPet(stylePreset) {
   const preset = String(stylePreset || "codex").trim();
   if (preset === "alkaka") {
-    const styleReference = path.join(aimashiSkillsRoot(), "alkaka-friend-pet", "assets", "alkaka-style-reference.jpg");
+    const styleReference = path.join(petGeneratorRoot(), "alkaka-friend-pet", "assets", "alkaka-style-reference.jpg");
     return {
       styleNotes: "Alkaka Q版贴纸风：紧凑可爱的伙伴桌宠，清晰线条，大眼睛，保留头像身份特征，适合 192x208 小尺寸动画。",
       styleContract: "Cute anime sticker-like partner desktop pet, compact chibi proportions, clean dark linework, soft cel shading, readable at 192x208 cells. Avoid realistic rendering, scene backgrounds, tiny noisy detail, shadows, glows, text, and UI elements.",
@@ -1551,6 +1552,16 @@ function styleSettingsForPet(stylePreset) {
   };
 }
 
+function petRemoteCodexSettings() {
+  const saved = readJson(runtimePaths().petRemoteSettings, {});
+  const disabled = process.env.AIMASHI_PET_REMOTE_DISABLED === "1" || saved.enabled === false;
+  const host = disabled
+    ? ""
+    : String(process.env.AIMASHI_PET_REMOTE_HOST || saved.host || DEFAULT_PET_REMOTE_HOST).trim();
+  const root = String(process.env.AIMASHI_PET_REMOTE_ROOT || saved.root || DEFAULT_PET_REMOTE_ROOT).trim();
+  return { host, root, enabled: Boolean(host) };
+}
+
 function petGeneratorRoot() {
   const candidates = [
     path.join(app.getAppPath(), "resources", "pet-generator"),
@@ -1566,7 +1577,7 @@ function aimashiSkillsRoot() {
     path.join(app.getAppPath(), "skills"),
     path.join(__dirname, "..", "skills")
   ];
-  return candidates.find((candidate) => candidate && fs.existsSync(path.join(candidate, "alkaka-friend-pet", "SKILL.md"))) || candidates[0];
+  return candidates.find((candidate) => candidate && fs.existsSync(path.join(candidate, "pet-generator", "SKILL.md"))) || candidates[0];
 }
 
 function officialLibraryManifestPath() {
@@ -1730,6 +1741,11 @@ function startFellowPetGeneration(input = {}) {
     "--package-dir", path.join(p.petDir, petId),
     "--no-partial-preview"
   ];
+  const remote = petRemoteCodexSettings();
+  if (remote.host) {
+    args.push("--remote-host", remote.host);
+    if (remote.root) args.push("--remote-root", remote.root);
+  }
   for (const reference of references) args.push("--reference", reference);
   for (const reference of style.styleReferences) args.push("--style-reference", reference);
 
@@ -1767,6 +1783,8 @@ function startFellowPetGeneration(input = {}) {
 const PET_WINDOW_COMPACT = { width: 144, height: 150 };
 const PET_WINDOW_MESSAGE = { width: 260, height: 220 };
 const PET_MESSAGE_DURATION_MS = 8500;
+const DEFAULT_PET_REMOTE_HOST = "root@23.95.43.168";
+const DEFAULT_PET_REMOTE_ROOT = "~/.aimashi/pet-runs";
 
 function resizePetWindow(win, size) {
   if (!win || win.isDestroyed()) return;
@@ -2206,19 +2224,7 @@ function connectedProviderSummaries(codexAuth = getCodexAuthStatus()) {
 }
 
 function externalSkillDirs() {
-  const home = os.homedir();
-  const candidates = [
-    path.join(home, ".claude", "skills"),
-    path.join(home, ".codex", "skills")
-  ];
-  const registry = readJson(path.join(home, ".claude", "plugins", "installed_plugins.json"), {});
-  for (const installs of Object.values(registry.plugins || {})) {
-    for (const install of Array.isArray(installs) ? installs : []) {
-      const installPath = String(install?.installPath || "").trim();
-      if (!installPath) continue;
-      candidates.push(path.join(installPath, "skills"));
-    }
-  }
+  const candidates = [];
   const seen = new Set();
   const result = [];
   for (const candidate of candidates) {
@@ -2563,6 +2569,29 @@ function fallbackModelCatalog() {
 async function loadHermesModelCatalog() {
   if (!isEngineInstalled()) return fallbackModelCatalog();
   return timeEngineStepAsync("Load Hermes model catalog", () => loadHermesModelCatalogInner());
+}
+
+function loadCodexModels() {
+  // Codex CLI caches its model list at ~/.codex/models_cache.json after the first
+  // authenticated session. Read it so aimashi's picker tracks what `codex` actually
+  // supports today, instead of a hardcoded snapshot. Returns [] on any failure;
+  // the renderer falls back to a built-in list.
+  try {
+    const cachePath = path.join(app.getPath("home"), ".codex", "models_cache.json");
+    const raw = fs.readFileSync(cachePath, "utf8");
+    const parsed = JSON.parse(raw);
+    const models = Array.isArray(parsed?.models) ? parsed.models : [];
+    return models
+      .filter((m) => m && typeof m.slug === "string" && m.slug && m.visibility !== "hide")
+      .map((m) => ({
+        slug: String(m.slug),
+        displayName: String(m.display_name || m.slug),
+        priority: Number.isFinite(m.priority) ? m.priority : 0
+      }))
+      .sort((a, b) => a.priority - b.priority);
+  } catch {
+    return [];
+  }
 }
 
 async function loadHermesModelCatalogInner() {
@@ -2915,34 +2944,10 @@ print(json.dumps(rows, ensure_ascii=False))
 }
 
 function skillRoots() {
-  const home = app.getPath("home");
   const p = runtimePaths();
   return [
-    { source: "aimashi", label: "Aimashi Runtime", root: path.join(p.home, "skills") },
-    { source: "codex", label: "Codex", root: path.join(home, ".codex", "skills") },
-    { source: "claude", label: "Claude Code", root: path.join(home, ".claude", "skills"), idPrefix: "claude:user" },
-    ...claudeCodePluginSkillRoots(home)
+    { source: "aimashi", label: "Aimashi Runtime", root: path.join(p.home, "skills") }
   ];
-}
-
-function claudeCodePluginSkillRoots(home) {
-  const registryPath = path.join(home, ".claude", "plugins", "installed_plugins.json");
-  const registry = readJson(registryPath, {});
-  const roots = [];
-  for (const [pluginName, installs] of Object.entries(registry.plugins || {})) {
-    for (const install of Array.isArray(installs) ? installs : []) {
-      const installPath = String(install.installPath || "").trim();
-      if (!installPath) continue;
-      const root = path.join(installPath, "skills");
-      roots.push({
-        source: "claude",
-        label: "Claude Code",
-        root,
-        idPrefix: `claude:${pluginName}`
-      });
-    }
-  }
-  return roots;
 }
 
 function cleanYamlScalar(value) {
@@ -3069,391 +3074,8 @@ function simpleYamlList(text, key) {
   return out;
 }
 
-function readClaudeInstalledPlugins() {
-  const home = os.homedir();
-  const registry = readJson(path.join(home, ".claude", "plugins", "installed_plugins.json"), {});
-  const out = [];
-  for (const [qualifiedName, installs] of Object.entries(registry.plugins || {})) {
-    for (const install of Array.isArray(installs) ? installs : []) {
-      const installPath = String(install?.installPath || "").trim();
-      if (!installPath) continue;
-      const manifest = readJson(path.join(installPath, ".claude-plugin", "plugin.json"), {});
-      const bareName = String(manifest.name || qualifiedName.split("@")[0]).trim() || qualifiedName;
-      out.push({ qualifiedName, install, installPath, manifest, name: bareName });
-    }
-  }
-  return out;
-}
-
-function readCodexPluginManifests() {
-  const root = path.join(os.homedir(), ".codex", "plugins", "cache");
-  if (!fs.existsSync(root)) return [];
-  const out = [];
-  const stack = [{ dir: root, depth: 0, parts: [] }];
-  while (stack.length) {
-    const { dir, depth, parts } = stack.pop();
-    const manifest = readJson(path.join(dir, ".codex-plugin", "plugin.json"), null);
-    if (manifest) {
-      const name = String(manifest.name || parts[1] || path.basename(dir)).trim() || path.basename(dir);
-      const appConfig = readJson(path.join(dir, ".app.json"), {});
-      out.push({
-        name,
-        marketplace: parts[0] || "",
-        installPath: dir,
-        manifest,
-        appConfig,
-        iconUrl: pluginIconUrl(dir, manifest)
-      });
-      continue;
-    }
-    if (depth >= 4) continue;
-    let entries = [];
-    try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    for (const entry of entries) {
-      if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
-      stack.push({ dir: path.join(dir, entry.name), depth: depth + 1, parts: [...parts, entry.name] });
-    }
-  }
-  return out;
-}
-
-function marketplacePluginName(item = {}, fallback = "") {
-  return String(item.name || item.id || fallback || "").trim();
-}
-
-function pluginDisplayName(manifest = {}, item = {}, fallback = "") {
-  return String(
-    manifest.interface?.displayName
-    || item.interface?.displayName
-    || item.displayName
-    || item.title
-    || manifest.name
-    || item.name
-    || fallback
-    || ""
-  ).trim();
-}
-
-function pluginDescription(manifest = {}, item = {}) {
-  return String(
-    manifest.interface?.shortDescription
-    || manifest.interface?.longDescription
-    || manifest.description
-    || item.description
-    || item.interface?.shortDescription
-    || item.interface?.longDescription
-    || ""
-  ).trim();
-}
-
-function fileUrlIfExists(filePath) {
-  if (!filePath || !fs.existsSync(filePath)) return "";
-  return pathToFileURL(filePath).toString();
-}
-
-function pluginIconUrl(root, manifest = {}) {
-  if (!root || !fs.existsSync(root)) return "";
-  const fromManifest = [
-    manifest.interface?.composerIcon,
-    manifest.interface?.logo,
-    manifest.logo,
-    manifest.icon
-  ].filter(Boolean);
-  for (const rel of fromManifest) {
-    if (typeof rel !== "string" || !rel || path.isAbsolute(rel)) continue;
-    const resolved = path.resolve(root, rel);
-    if (isChildPath(root, resolved)) {
-      const url = fileUrlIfExists(resolved);
-      if (url) return url;
-    }
-  }
-  const candidates = [
-    "assets/app-icon.png",
-    "assets/composer-icon.png",
-    "assets/icon.png",
-    "assets/logo.png",
-    "assets/logo.svg"
-  ];
-  for (const rel of candidates) {
-    const url = fileUrlIfExists(path.join(root, rel));
-    if (url) return url;
-  }
-  try {
-    const assetsRoot = path.join(root, "assets");
-    const entries = fs.readdirSync(assetsRoot, { withFileTypes: true });
-    const found = entries
-      .filter((entry) => entry.isFile() && /\.(svg|png|jpe?g|webp|ico)$/i.test(entry.name))
-      .map((entry) => entry.name)
-      .sort((a, b) => {
-        const score = (name) => (/small/i.test(name) ? 0 : /logo|icon/i.test(name) ? 1 : 2);
-        return score(a) - score(b) || a.localeCompare(b);
-      })[0];
-    if (found) return fileUrlIfExists(path.join(assetsRoot, found));
-  } catch {
-    return "";
-  }
-  return "";
-}
-
-function safeMarketplaceSourcePath(baseRoot, source) {
-  let rel = "";
-  if (typeof source === "string") rel = source;
-  else if (source && typeof source === "object" && source.source === "local") rel = source.path || "";
-  if (!rel || path.isAbsolute(rel)) return "";
-  const resolved = path.resolve(baseRoot, rel);
-  return isChildPath(baseRoot, resolved) ? resolved : "";
-}
-
-function remoteMarketplaceGitUrl(source) {
-  if (!source || typeof source !== "object") return "";
-  if (source.repo) return `https://github.com/${String(source.repo).replace(/\.git$/, "")}.git`;
-  const url = String(source.url || "").trim();
-  if (!url) return "";
-  if (!/^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\.git)?$/.test(url)) return "";
-  return url.endsWith(".git") ? url : `${url}.git`;
-}
-
-function runGit(args, cwd, timeout = 180000) {
-  const git = shellCommandPath("git");
-  if (!git) throw new Error("未找到 git，无法安装远程插件。");
-  const result = spawnSync(git, args, {
-    cwd,
-    encoding: "utf8",
-    env: processEnvWithCliPath(),
-    timeout
-  });
-  if (result.error) throw result.error;
-  if (result.status !== 0) {
-    const detail = String(result.stderr || result.stdout || "").trim();
-    throw new Error(detail || `git ${args.join(" ")} failed`);
-  }
-}
-
-function checkoutRemoteMarketplacePlugin(item) {
-  const source = item.sourceSpec && typeof item.sourceSpec === "object" ? item.sourceSpec : {};
-  const repoUrl = remoteMarketplaceGitUrl(source);
-  if (!repoUrl) throw new Error("这个远程来源不是可识别的 GitHub 仓库。");
-  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-plugin-"));
-  const repoDir = path.join(tmpRoot, "repo");
-  try {
-    runGit(["clone", "--no-checkout", "--filter=blob:none", repoUrl, repoDir], process.cwd());
-    const revision = String(source.sha || source.ref || "").trim();
-    if (revision) runGit(["checkout", revision], repoDir);
-    else runGit(["checkout", "HEAD"], repoDir);
-    const relPath = String(source.path || "").trim();
-    if (!relPath) return { tmpRoot, sourcePath: repoDir };
-    if (path.isAbsolute(relPath)) throw new Error("远程插件 path 不能是绝对路径。");
-    const pluginPath = path.resolve(repoDir, relPath);
-    if (!isChildPath(repoDir, pluginPath) || !fs.existsSync(pluginPath)) {
-      throw new Error(`远程插件子目录不存在：${relPath}`);
-    }
-    return { tmpRoot, sourcePath: pluginPath };
-  } catch (error) {
-    try { fs.rmSync(tmpRoot, { recursive: true, force: true }); } catch { /* ignore */ }
-    throw error;
-  }
-}
-
-function readCodexMarketplacePlugins() {
-  const home = os.homedir();
-  const roots = [
-    {
-      marketplace: "openai-curated",
-      label: "Codex official",
-      indexPath: path.join(home, ".codex", ".tmp", "plugins", ".agents", "plugins", "marketplace.json"),
-      sourceRoot: path.join(home, ".codex", ".tmp", "plugins")
-    }
-  ];
-  const out = [];
-  for (const rootInfo of roots) {
-    const index = readJson(rootInfo.indexPath, null);
-    const plugins = Array.isArray(index?.plugins) ? index.plugins : [];
-    for (const item of plugins) {
-      const name = marketplacePluginName(item);
-      if (!name) continue;
-      const sourcePath = safeMarketplaceSourcePath(rootInfo.sourceRoot, item.source);
-      const manifest = sourcePath ? readJson(path.join(sourcePath, ".codex-plugin", "plugin.json"), {}) : {};
-      out.push({
-        id: `market:codex:${rootInfo.marketplace}:${name}`,
-        kind: "plugin",
-        engine: "codex",
-        engineLabel: "Codex",
-        source: "codex",
-        marketplace: rootInfo.marketplace,
-        marketplaceLabel: index?.interface?.displayName || rootInfo.label,
-        name,
-        label: pluginDisplayName(manifest, item, name) || name,
-        description: pluginDescription(manifest, item),
-        category: String(item.category || manifest.interface?.category || "").trim(),
-        version: String(manifest.version || "").trim(),
-        iconUrl: pluginIconUrl(sourcePath, manifest),
-        root: sourcePath,
-        sourcePath,
-        sourceSpec: item.source || "",
-        skillRoot: sourcePath ? path.join(sourcePath, "skills") : "",
-        skillCount: sourcePath ? findSkillFiles(path.join(sourcePath, "skills")).length : 0,
-        commandCount: sourcePath ? countDirectoryFiles(path.join(sourcePath, "commands"), (file) => /\.md$/.test(file), 1) : 0,
-        agentCount: sourcePath ? countDirectoryFiles(path.join(sourcePath, "agents"), (file) => /\.md$/.test(file), 1) : 0,
-        toolCount: 0,
-        hookCount: 0,
-        mcpCount: sourcePath ? Object.keys(readJson(path.join(sourcePath, ".app.json"), {})?.apps || {}).length : 0,
-        installState: "available",
-        installable: Boolean(sourcePath && fs.existsSync(sourcePath)),
-        status: sourcePath ? "可安装" : "远程来源，需联网安装"
-      });
-    }
-  }
-  return out;
-}
-
-function readClaudeMarketplacePlugins() {
-  const home = os.homedir();
-  const known = readJson(path.join(home, ".claude", "plugins", "known_marketplaces.json"), {});
-  const out = [];
-  for (const [marketplace, info] of Object.entries(known || {})) {
-    const installLocation = String(info?.installLocation || "").trim();
-    if (!marketplace || !installLocation) continue;
-    const indexPath = path.join(installLocation, ".claude-plugin", "marketplace.json");
-    const index = readJson(indexPath, null);
-    const plugins = Array.isArray(index?.plugins) ? index.plugins : [];
-    for (const item of plugins) {
-      const name = marketplacePluginName(item);
-      if (!name) continue;
-      const sourcePath = safeMarketplaceSourcePath(installLocation, item.source);
-      const manifest = sourcePath ? readJson(path.join(sourcePath, ".claude-plugin", "plugin.json"), {}) : {};
-      out.push({
-        id: `market:claude-code:${marketplace}:${name}`,
-        kind: "plugin",
-        engine: "claude-code",
-        engineLabel: "Claude Code",
-        source: "claude",
-        marketplace,
-        marketplaceLabel: index?.owner?.name || index?.name || marketplace,
-        name,
-        label: pluginDisplayName(manifest, item, name) || name,
-        qualifiedName: `${name}@${marketplace}`,
-        description: pluginDescription(manifest, item),
-        category: String(item.category || manifest.category || "").trim(),
-        version: String(manifest.version || item.version || "").trim(),
-        iconUrl: pluginIconUrl(sourcePath, manifest),
-        root: sourcePath,
-        sourcePath,
-        sourceSpec: item.source || "",
-        skillRoot: sourcePath ? path.join(sourcePath, "skills") : "",
-        skillCount: sourcePath ? findSkillFiles(path.join(sourcePath, "skills")).length : 0,
-        commandCount: sourcePath ? countDirectoryFiles(path.join(sourcePath, "commands"), (file) => /\.md$/.test(file), 1) : 0,
-        agentCount: sourcePath ? countDirectoryFiles(path.join(sourcePath, "agents"), (file) => /\.md$/.test(file), 1) : 0,
-        hookCount: sourcePath ? countDirectoryFiles(path.join(sourcePath, "hooks"), (file) => /\.md$/.test(file), 1) : 0,
-        mcpCount: sourcePath ? countDirectoryFiles(path.join(sourcePath, "mcp"), (file) => /\.json$|\.js$|\.ts$/.test(file), 2) : 0,
-        installState: "available",
-        installable: Boolean(sourcePath && fs.existsSync(sourcePath)) || Boolean(remoteMarketplaceGitUrl(item.source)),
-        status: sourcePath ? "可安装" : "需联网安装"
-      });
-    }
-  }
-  return out;
-}
-
-function installedCodexPluginKey(item) {
-  return `codex:${item.marketplace || ""}:${item.name}`;
-}
-
-function marketplaceKey(item) {
-  return `${item.engine}:${item.marketplace || ""}:${item.name}`;
-}
-
-function readJsonConnectorEntries(filePath, { source, sourceLabel, scope, provider }) {
-  const raw = readJson(filePath, null);
-  if (!raw || typeof raw !== "object") return [];
-  const candidates = raw.mcpServers || raw.mcp_servers || raw.servers || {};
-  if (!candidates || typeof candidates !== "object" || Array.isArray(candidates)) return [];
-  return Object.entries(candidates)
-    .filter(([name, value]) => name && value && typeof value === "object")
-    .map(([name, value]) => ({
-      id: `mcp:${source}:${scope}:${name}`,
-      kind: "mcp",
-      label: String(name),
-      source,
-      sourceLabel,
-      scope,
-      provider,
-      status: "已配置",
-      description: String(value.description || value.url || value.command || "本机 MCP server 配置"),
-      path: filePath,
-      transport: value.url ? "http" : "stdio"
-    }));
-}
-
-function readCodexTomlMcpEntries(filePath) {
-  if (!fs.existsSync(filePath)) return [];
-  let raw = "";
-  try {
-    raw = fs.readFileSync(filePath, "utf8");
-  } catch {
-    return [];
-  }
-  const entries = [];
-  const sectionPattern = /^\s*\[mcp_servers\.([^\].]+)\]\s*$/gm;
-  for (const match of raw.matchAll(sectionPattern)) {
-    const name = String(match[1] || "").trim();
-    if (!name) continue;
-    entries.push({
-      id: `mcp:codex:user:${name}`,
-      kind: "mcp",
-      label: name,
-      source: "codex",
-      sourceLabel: "Codex",
-      scope: "user",
-      provider: "codex",
-      status: "已配置",
-      description: "Codex config.toml 中的 MCP server",
-      path: filePath,
-      transport: "stdio"
-    });
-  }
-  return entries;
-}
-
 function enumerateConnectors() {
-  const home = os.homedir();
   const connectors = [];
-
-  connectors.push(...readJsonConnectorEntries(path.join(home, ".claude", ".mcp.json"), {
-    source: "claude",
-    sourceLabel: "Claude Code",
-    scope: "user",
-    provider: "claude-code"
-  }));
-  connectors.push(...readJsonConnectorEntries(path.join(home, ".claude", "settings.json"), {
-    source: "claude",
-    sourceLabel: "Claude Code",
-    scope: "user",
-    provider: "claude-code"
-  }));
-  connectors.push(...readJsonConnectorEntries(path.join(process.cwd(), ".mcp.json"), {
-    source: "claude",
-    sourceLabel: "Claude Project",
-    scope: "project",
-    provider: "claude-code"
-  }));
-  connectors.push(...readJsonConnectorEntries(path.join(home, ".cursor", "mcp.json"), {
-    source: "cursor",
-    sourceLabel: "Cursor",
-    scope: "user",
-    provider: "cursor"
-  }));
-  connectors.push(...readJsonConnectorEntries(path.join(home, ".gemini", "settings.json"), {
-    source: "gemini",
-    sourceLabel: "Gemini",
-    scope: "user",
-    provider: "gemini"
-  }));
-  connectors.push(...readCodexTomlMcpEntries(path.join(home, ".codex", "config.toml")));
-
   const seen = new Set();
   return connectors
     .filter((connector) => {
@@ -3481,70 +3103,7 @@ function extensionCapabilitySummary(extension) {
 }
 
 function enumerateExtensions() {
-  const extensions = [];
-  const installedKeys = new Set();
-  for (const item of readClaudeInstalledPlugins()) {
-    const skillsRoot = path.join(item.installPath, "skills");
-    const marketplace = String(item.qualifiedName.split("@")[1] || "").trim();
-    installedKeys.add(`claude-code:${marketplace}:${item.name}`);
-    extensions.push({
-      id: `claude:${item.qualifiedName}`,
-      kind: "plugin",
-      engine: "claude-code",
-      engineLabel: "Claude Code",
-      source: "claude",
-      marketplace,
-      name: item.name,
-      label: item.name,
-      qualifiedName: item.qualifiedName,
-      description: String(item.manifest.description || "").trim(),
-      version: String(item.install.version || item.manifest.version || "").trim(),
-      iconUrl: pluginIconUrl(item.installPath, item.manifest),
-      root: item.installPath,
-      skillRoot: skillsRoot,
-      skillCount: findSkillFiles(skillsRoot).length,
-      commandCount: countDirectoryFiles(path.join(item.installPath, "commands"), (file) => /\.md$/.test(file), 1),
-      agentCount: countDirectoryFiles(path.join(item.installPath, "agents"), (file) => /\.md$/.test(file), 1),
-      hookCount: countDirectoryFiles(path.join(item.installPath, "hooks"), (file) => /\.md$/.test(file), 1),
-      mcpCount: countDirectoryFiles(path.join(item.installPath, "mcp"), (file) => /\.json$|\.js$|\.ts$/.test(file), 2),
-      installState: "installed",
-      installable: false,
-      status: "已安装，Claude Code 会话可加载"
-    });
-  }
-  for (const item of readCodexPluginManifests()) {
-    const manifest = item.manifest || {};
-    const skillsRoot = path.join(item.installPath, "skills");
-    installedKeys.add(installedCodexPluginKey(item));
-    extensions.push({
-      id: `codex:${item.name}`,
-      kind: "plugin",
-      engine: "codex",
-      engineLabel: "Codex",
-      source: "codex",
-      marketplace: item.marketplace || "",
-      name: item.name,
-      label: manifest.interface?.displayName || item.name,
-      description: String(manifest.description || manifest.interface?.shortDescription || "").trim(),
-      version: String(manifest.version || "").trim(),
-      iconUrl: item.iconUrl || pluginIconUrl(item.installPath, manifest),
-      root: item.installPath,
-      skillRoot: skillsRoot,
-      skillCount: findSkillFiles(skillsRoot).length,
-      commandCount: countDirectoryFiles(path.join(item.installPath, "commands"), (file) => /\.md$/.test(file), 1),
-      agentCount: countDirectoryFiles(path.join(item.installPath, "agents"), (file) => /\.md$/.test(file), 1),
-      hookCount: 0,
-      mcpCount: item.appConfig?.apps ? Object.keys(item.appConfig.apps).length : 0,
-      installState: "installed",
-      installable: false,
-      status: "本机 Codex 插件缓存；当前 Aimashi Codex SDK 会话尚未接入插件加载"
-    });
-  }
-  for (const item of [...readCodexMarketplacePlugins(), ...readClaudeMarketplacePlugins()]) {
-    if (installedKeys.has(marketplaceKey(item))) continue;
-    extensions.push(item);
-  }
-  return extensions
+  return []
     .map((extension) => ({ ...extension, capabilitySummary: extensionCapabilitySummary(extension) }))
     .sort((a, b) => (
       String(a.installState === "installed" ? "0" : "1").localeCompare(String(b.installState === "installed" ? "0" : "1"))
@@ -3555,60 +3114,9 @@ function enumerateExtensions() {
 }
 
 function enumeratePlugins() {
-  const home = os.homedir();
   const out = [];
   for (const source of readAimashiOfficialSkillSources()) {
     out.push(source);
-  }
-  out.push({
-    id: "claude:user",
-    name: "claude",
-    label: "Claude 用户库",
-    description: "本机 ~/.claude/skills/ 下的 Skill",
-    source: "claude",
-    kind: "skill-source",
-    engine: "claude-code",
-    root: path.join(home, ".claude", "skills"),
-    idPrefix: "claude:user"
-  });
-  out.push({
-    id: "codex:user",
-    name: "codex",
-    label: "Codex 用户库",
-    description: "本机 ~/.codex/skills/ 下的 Skill",
-    source: "codex",
-    kind: "skill-source",
-    engine: "codex",
-    root: path.join(home, ".codex", "skills"),
-    idPrefix: "codex:user"
-  });
-  for (const item of readClaudeInstalledPlugins()) {
-    out.push({
-      id: `claude:${item.qualifiedName}`,
-      name: item.name,
-      label: item.name,
-      description: String(item.manifest.description || "").trim(),
-      source: "claude",
-      kind: "plugin-skill-source",
-      engine: "claude-code",
-      extensionId: `claude:${item.qualifiedName}`,
-      root: path.join(item.installPath, "skills"),
-      idPrefix: `claude:${item.qualifiedName}`
-    });
-  }
-  for (const item of readCodexPluginManifests()) {
-    out.push({
-      id: `codex:${item.name}`,
-      name: item.name,
-      label: item.manifest.interface?.displayName || item.name,
-      description: String(item.manifest.description || item.manifest.interface?.shortDescription || "").trim(),
-      source: "codex",
-      kind: "plugin-skill-source",
-      engine: "codex",
-      extensionId: `codex:${item.name}`,
-      root: path.join(item.installPath, "skills"),
-      idPrefix: `codex:${item.name}`
-    });
   }
   return out;
 }
@@ -3747,98 +3255,9 @@ async function loadLocalSkills() {
   };
 }
 
-function marketplaceVersionSegment(item) {
-  const version = String(item.version || "").trim();
-  if (version && /^[A-Za-z0-9._-]+$/.test(version)) return version;
-  const source = item.sourceSpec && typeof item.sourceSpec === "object" ? item.sourceSpec : {};
-  const sha = String(source.sha || source.ref || "").trim();
-  if (sha && /^[A-Za-z0-9._-]+$/.test(sha)) return sha.slice(0, 12);
-  return "local";
-}
-
-function copyMarketplacePluginSource(item, destinationRoot, sourceOverride = "") {
-  const sourcePath = String(sourceOverride || item.sourcePath || "").trim();
-  if (!sourcePath || !fs.existsSync(sourcePath)) {
-    throw new Error("这个插件没有可用的本机源目录，暂不能一键安装。");
-  }
-  const safeSegment = (value) => {
-    const trimmed = String(value || "").trim();
-    return /^[A-Za-z0-9._-]+$/.test(trimmed) ? trimmed : "";
-  };
-  const marketplaceSegment = safeSegment(item.marketplace) || "marketplace";
-  const nameSegment = safeSegment(item.name);
-  if (!nameSegment) {
-    throw new Error("插件名称含有不允许的字符，无法安装。");
-  }
-  const dest = path.join(destinationRoot, marketplaceSegment, nameSegment, marketplaceVersionSegment(item));
-  const resolvedRoot = path.resolve(destinationRoot);
-  const resolvedDest = path.resolve(dest);
-  if (resolvedDest !== resolvedRoot && !resolvedDest.startsWith(`${resolvedRoot}${path.sep}`)) {
-    throw new Error("插件目标路径越界，已拒绝写入。");
-  }
-  if (fs.existsSync(dest)) return dest;
-  fs.mkdirSync(path.dirname(dest), { recursive: true });
-  fs.cpSync(sourcePath, dest, {
-    recursive: true,
-    dereference: false,
-    errorOnExist: true,
-    force: false,
-    filter: (src) => !src.split(path.sep).includes(".git")
-  });
-  return dest;
-}
-
 async function installMarketplacePlugin(extensionId) {
-  const id = String(extensionId || "").trim();
-  const item = [...readCodexMarketplacePlugins(), ...readClaudeMarketplacePlugins()].find((entry) => entry.id === id);
-  if (!item) throw new Error("没有找到这个 marketplace 插件。");
-  if (!item.installable) throw new Error(item.status || "这个插件暂不支持一键安装。");
-  let remoteCheckout = null;
-  const sourcePath = item.sourcePath || (() => {
-    remoteCheckout = checkoutRemoteMarketplacePlugin(item);
-    return remoteCheckout.sourcePath;
-  })();
-  if (item.engine === "codex") {
-    try {
-      copyMarketplacePluginSource(item, path.join(os.homedir(), ".codex", "plugins", "cache"), sourcePath);
-      return loadLocalSkills();
-    } finally {
-      if (remoteCheckout?.tmpRoot) {
-        try { fs.rmSync(remoteCheckout.tmpRoot, { recursive: true, force: true }); } catch { /* ignore */ }
-      }
-    }
-  }
-  if (item.engine === "claude-code") {
-    let installPath = "";
-    try {
-      installPath = copyMarketplacePluginSource(item, path.join(os.homedir(), ".claude", "plugins", "cache"), sourcePath);
-    } finally {
-      if (remoteCheckout?.tmpRoot) {
-        try { fs.rmSync(remoteCheckout.tmpRoot, { recursive: true, force: true }); } catch { /* ignore */ }
-      }
-    }
-    const registryPath = path.join(os.homedir(), ".claude", "plugins", "installed_plugins.json");
-    const registry = readJson(registryPath, { version: 2, plugins: {} });
-    if (!registry || typeof registry !== "object") throw new Error("Claude Code installed_plugins.json 无法解析。");
-    registry.version = registry.version || 2;
-    registry.plugins = registry.plugins && typeof registry.plugins === "object" ? registry.plugins : {};
-    const qualifiedName = `${item.name}@${item.marketplace}`;
-    const installs = Array.isArray(registry.plugins[qualifiedName]) ? registry.plugins[qualifiedName] : [];
-    if (!installs.some((install) => String(install.installPath || "") === installPath)) {
-      installs.push({
-        scope: "user",
-        installPath,
-        version: item.version || "unknown",
-        installedAt: new Date().toISOString(),
-        lastUpdated: new Date().toISOString()
-      });
-    }
-    registry.plugins[qualifiedName] = installs;
-    fs.mkdirSync(path.dirname(registryPath), { recursive: true });
-    fs.writeFileSync(registryPath, JSON.stringify(registry, null, 2) + "\n", { mode: 0o600 });
-    return loadLocalSkills();
-  }
-  throw new Error("这个引擎暂不支持一键安装。");
+  void extensionId;
+  throw new Error("Aimashi 插件安装源尚未接入；不会安装 Codex 或 Claude Code 来源的插件。");
 }
 
 function resolveLocalSkill(identifier) {
@@ -5302,6 +4721,10 @@ async function handleControlRequest(req, res) {
       writeControlJson(res, 200, { models: await loadHermesModelCatalog() });
       return;
     }
+    if (req.method === "GET" && url.pathname === "/api/codex/models") {
+      writeControlJson(res, 200, { models: loadCodexModels() });
+      return;
+    }
     if (req.method === "GET" && url.pathname === "/api/engine/capabilities") {
       writeControlJson(res, 200, await loadEngineCapabilities());
       return;
@@ -5653,6 +5076,10 @@ async function handleRelayRpc(message = {}) {
     }
     if (method === "GET" && requestPath === "/api/model/catalog") {
       relayRpcResult(clientId, id, true, { models: await loadHermesModelCatalog() });
+      return;
+    }
+    if (method === "GET" && requestPath === "/api/codex/models") {
+      relayRpcResult(clientId, id, true, { models: loadCodexModels() });
       return;
     }
     if (method === "GET" && requestPath === "/api/engine/capabilities") {
@@ -7433,6 +6860,7 @@ ipcMain.handle("chat:session-create", (_event, payload) => newChatSession(payloa
 ipcMain.handle("chat:session-rename", (_event, payload) => renameChatSession(payload));
 ipcMain.handle("chat:title-generate", (_event, payload) => generateSessionTitle(payload));
 ipcMain.handle("model:catalog", () => loadHermesModelCatalog());
+ipcMain.handle("codex:list-models", () => loadCodexModels());
 ipcMain.handle("engine:capabilities", () => loadEngineCapabilities());
 ipcMain.handle("skills:list", () => loadLocalSkills());
 ipcMain.handle("plugins:install", (_event, extensionId) => installMarketplacePlugin(extensionId));
@@ -7660,7 +7088,8 @@ ipcMain.handle("group:create", (_event, payload) => ensureGroupStore().create(pa
 ipcMain.handle("group:list", () => ensureGroupStore().list());
 ipcMain.handle("group:get", (_event, id) => ensureGroupStore().get(id));
 ipcMain.handle("group:update", (_event, payload) => ensureGroupStore().updateGroup(payload.id, payload.patch));
-ipcMain.handle("group:append-message", (_event, payload) => { ensureGroupStore().appendMessage(payload.id, payload.message); return true; });
+ipcMain.handle("group:delete", (_event, id) => ensureGroupStore().deleteGroup(id));
+ipcMain.handle("group:append-message", (_event, payload) => ensureGroupStore().appendMessage(payload.id, payload.message));
 ipcMain.handle("group:list-messages", (_event, id) => ensureGroupStore().listMessages(id));
 ipcMain.handle("group:save-context-card", (_event, payload) => { ensureGroupStore().saveContextCard(payload.id, payload.card); return true; });
 ipcMain.handle("group:load-prompts", () => {

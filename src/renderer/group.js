@@ -47,6 +47,12 @@
     return map;
   }
 
+  function triggerRender() {
+    if (moduleState.deps && typeof moduleState.deps.triggerRender === "function") {
+      moduleState.deps.triggerRender();
+    }
+  }
+
   async function initGroupModule(deps) {
     moduleState.deps = deps;
     moduleState.fellows = (deps.getFellows && deps.getFellows()) || [];
@@ -56,6 +62,14 @@
     try {
       moduleState.promptTemplates = await window.aimashi.groups.loadPrompts();
       moduleState.groups = await window.aimashi.groups.list();
+      await Promise.all(moduleState.groups.map(async (group) => {
+        try {
+          moduleState.messagesByGroup.set(group.id, await window.aimashi.groups.listMessages(group.id));
+        } catch (e) {
+          console.warn("[group] listMessages failed for preview:", e);
+          moduleState.messagesByGroup.set(group.id, []);
+        }
+      }));
     } catch (err) {
       console.error("[group] init failed:", err);
       moduleState.promptTemplates = null;
@@ -111,14 +125,17 @@
     const membersBox = document.getElementById("groupCreateMembers");
     const hostSelect = document.getElementById("groupCreateHost");
     const nameInput = document.getElementById("groupCreateName");
+    const countEl = document.getElementById("groupCreateCount");
     const confirmBtn = document.getElementById("groupCreateConfirm");
     const cancelBtn = document.getElementById("groupCreateCancel");
     const closeBtn = document.getElementById("groupCreateClose");
 
+    const MAX_MEMBERS = 5;
     const selected = new Set();
-
     const fellowNamesById = currentFellowNamesById();
+
     function refreshHostOptions() {
+      const prev = hostSelect.value;
       hostSelect.innerHTML = "";
       for (const id of selected) {
         const opt = document.createElement("option");
@@ -126,22 +143,34 @@
         opt.textContent = fellowNamesById[id] || id;
         hostSelect.appendChild(opt);
       }
+      if (selected.has(prev)) hostSelect.value = prev;
+    }
+
+    function refreshCount() {
+      if (countEl) countEl.textContent = String(selected.size);
+      if (confirmBtn) confirmBtn.disabled = selected.size < 2;
     }
 
     // Build member rows
     membersBox.innerHTML = "";
-    for (const fellow of currentFellows()) {
+    const fellows = currentFellows();
+    if (fellows.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "group-create-members-empty";
+      empty.textContent = "还没有 Fellow，先去创建一个";
+      membersBox.appendChild(empty);
+    }
+    for (const fellow of fellows) {
       const fellowId = fellow.id || fellow.key;
-      const row = document.createElement("div");
+      const row = document.createElement("button");
+      row.type = "button";
       row.className = "group-create-member-row";
-
-      const cb = document.createElement("input");
-      cb.type = "checkbox";
-      cb.value = fellowId;
+      row.setAttribute("role", "option");
+      row.setAttribute("aria-selected", "false");
+      row.dataset.fellowId = fellowId;
 
       const avatarEl = document.createElement("span");
       avatarEl.className = "member-avatar";
-      // Use avatarThumbBackgroundStyle if available from app.js scope; fall back to color
       if (typeof avatarThumbBackgroundStyle === "function") {
         const image = fellow.avatarImage || (typeof avatarAssetForKey === "function" ? avatarAssetForKey(fellowId) : "");
         avatarEl.style.cssText = avatarThumbBackgroundStyle(image, fellow.avatarCrop, fellow.color || "#5e5ce6");
@@ -153,28 +182,36 @@
       nameEl.className = "member-name";
       nameEl.textContent = fellow.name || fellowId;
 
-      row.appendChild(cb);
+      const checkEl = document.createElement("span");
+      checkEl.className = "member-check";
+      checkEl.setAttribute("aria-hidden", "true");
+
       row.appendChild(avatarEl);
       row.appendChild(nameEl);
+      row.appendChild(checkEl);
 
-      // Click anywhere on row toggles checkbox
-      row.addEventListener("click", (e) => {
-        if (e.target !== cb) cb.checked = !cb.checked;
-        if (cb.checked) selected.add(fellowId);
-        else selected.delete(fellowId);
+      row.addEventListener("click", () => {
+        if (selected.has(fellowId)) {
+          selected.delete(fellowId);
+          row.classList.remove("is-selected");
+          row.setAttribute("aria-selected", "false");
+        } else {
+          if (selected.size >= MAX_MEMBERS) return;
+          selected.add(fellowId);
+          row.classList.add("is-selected");
+          row.setAttribute("aria-selected", "true");
+        }
         refreshHostOptions();
-      });
-      cb.addEventListener("change", () => {
-        if (cb.checked) selected.add(fellowId);
-        else selected.delete(fellowId);
-        refreshHostOptions();
+        refreshCount();
       });
 
       membersBox.appendChild(row);
     }
 
     nameInput.value = "";
+    refreshCount();
     dialog.classList.remove("hidden");
+    setTimeout(() => { try { membersBox.querySelector(".group-create-member-row")?.focus(); } catch {} }, 0);
 
     function close() {
       dialog.classList.add("hidden");
@@ -233,12 +270,31 @@
     }
     const membersBox = document.getElementById("groupInfoMembers");
     const hostSelect = document.getElementById("groupInfoHost");
+    const nameInput = document.getElementById("groupInfoName");
+    const nameSaveBtn = document.getElementById("groupInfoNameSave");
     const goalInput = document.getElementById("groupInfoGoal");
     const closeBtn = document.getElementById("groupInfoClose");
     const goalSaveBtn = document.getElementById("groupInfoGoalSave");
     const resetCtxBtn = document.getElementById("groupInfoResetCtx");
 
     const infoFellowNamesById = currentFellowNamesById();
+    if (nameInput) nameInput.value = group.name || "";
+    if (nameInput && nameSaveBtn) {
+      nameSaveBtn.onclick = async () => {
+        const name = nameInput.value.trim() || "未命名群聊";
+        group.name = name;
+        try {
+          Object.assign(group, await window.aimashi.groups.update(group.id, { name }));
+          nameSaveBtn.textContent = "已保存";
+          setTimeout(() => { nameSaveBtn.textContent = "保存群名"; }, 1500);
+          triggerRender();
+        } catch (e) {
+          console.warn("[group] save name failed:", e);
+          alert("保存群名失败：" + (e && e.message ? e.message : String(e)));
+        }
+      };
+    }
+
     function refreshMembers() {
       membersBox.innerHTML = "";
       for (const memberId of group.members) {
@@ -312,7 +368,8 @@
           const newMembers = [...group.members, fellowId];
           group.members = newMembers;
           try {
-            await window.aimashi.groups.update(group.id, { members: newMembers });
+            Object.assign(group, await window.aimashi.groups.update(group.id, { members: newMembers }));
+            triggerRender();
           } catch (e) {
             console.warn("[group] addMember persist failed:", e);
             group.members = newMembers.filter((id) => id !== fellowId);
@@ -330,12 +387,13 @@
             status: "complete",
           };
           try {
-            await window.aimashi.groups.appendMessage(group.id, sysMsg);
+            Object.assign(group, await window.aimashi.groups.appendMessage(group.id, sysMsg));
           } catch (e) {
             console.warn("[group] system bubble persist failed:", e);
           }
           const msgs = moduleState.messagesByGroup.get(group.id) || [];
           msgs.push(sysMsg);
+          triggerRender();
           const chatEl = document.getElementById("chat");
           if (chatEl) renderGroupMessagesIntoChat(group, msgs, chatEl);
           openInfoDialog(group);
@@ -357,7 +415,8 @@
       const newHost = hostSelect.value;
       group.hostFellowId = newHost;
       try {
-        await window.aimashi.groups.update(group.id, { hostFellowId: newHost });
+        Object.assign(group, await window.aimashi.groups.update(group.id, { hostFellowId: newHost }));
+        triggerRender();
       } catch (e) {
         console.warn("[group] host switch failed:", e);
         return;
@@ -372,9 +431,10 @@
       const decorations = { ...(group.decorations || {}), pinnedGoal: goal || null };
       group.decorations = decorations;
       try {
-        await window.aimashi.groups.update(group.id, { decorations });
+        Object.assign(group, await window.aimashi.groups.update(group.id, { decorations }));
         goalSaveBtn.textContent = "已保存";
         setTimeout(() => { goalSaveBtn.textContent = "保存目标"; }, 1500);
+        triggerRender();
       } catch (e) {
         console.warn("[group] save goal failed:", e);
       }
@@ -384,7 +444,7 @@
       if (!confirm("重置群上下文摘要？后续 Fellow 看不到旧摘要，得重新攒一遍。")) return;
       group.contextCard = null;
       try {
-        await window.aimashi.groups.update(group.id, { contextCard: null });
+        Object.assign(group, await window.aimashi.groups.update(group.id, { contextCard: null }));
         alert("已重置。");
       } catch (e) {
         console.warn("[group] reset context failed:", e);
@@ -586,10 +646,11 @@
       createdAt: Date.now(),
       status: "complete",
     };
-    await window.aimashi.groups.appendMessage(group.id, userMsg);
+    Object.assign(group, await window.aimashi.groups.appendMessage(group.id, userMsg));
     const msgs = moduleState.messagesByGroup.get(group.id) || [];
     msgs.push(userMsg);
     moduleState.messagesByGroup.set(group.id, msgs);
+    triggerRender();
 
     const chatEl = document.getElementById("chat");
     renderGroupMessagesIntoChat(group, msgs, chatEl);
@@ -632,8 +693,9 @@
         createdAt: Date.now(),
         status: "complete",
       };
-      await window.aimashi.groups.appendMessage(group.id, sysMsg);
+      Object.assign(group, await window.aimashi.groups.appendMessage(group.id, sysMsg));
       msgs.push(sysMsg);
+      triggerRender();
       renderGroupMessagesIntoChat(group, msgs, chatEl);
       return;
     }
@@ -790,10 +852,11 @@
       refreshGroupTypingStatus();
     }
     try {
-      await window.aimashi.groups.appendMessage(group.id, placeholderMsg);
+      Object.assign(group, await window.aimashi.groups.appendMessage(group.id, placeholderMsg));
     } catch (e) {
       console.warn("[group] appendMessage failed for fellow " + fellowId + ":", e);
     }
+    triggerRender();
     renderGroupMessagesIntoChat(group, msgs, chatEl);
   }
 
@@ -841,7 +904,8 @@
     group.members = newMembers;
     group.hostFellowId = newHost;
     try {
-      await window.aimashi.groups.update(group.id, { members: newMembers, hostFellowId: newHost });
+      Object.assign(group, await window.aimashi.groups.update(group.id, { members: newMembers, hostFellowId: newHost }));
+      triggerRender();
     } catch (e) {
       console.warn("[group] removeMember persist failed:", e);
       alert("移除失败：" + (e && e.message ? e.message : String(e)));
@@ -865,11 +929,12 @@
       status: "complete",
     };
     try {
-      await window.aimashi.groups.appendMessage(group.id, sysMsg);
+      Object.assign(group, await window.aimashi.groups.appendMessage(group.id, sysMsg));
     } catch (e) {
       console.warn("[group] system bubble persist failed:", e);
     }
     msgs.push(sysMsg);
+    triggerRender();
     const chatEl = document.getElementById("chat");
     renderGroupMessagesIntoChat(group, msgs, chatEl);
 

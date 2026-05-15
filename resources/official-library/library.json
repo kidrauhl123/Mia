@@ -10,7 +10,7 @@
       "label": "Aimashi 官方库",
       "description": "当前包含 Aimashi 官方维护的伙伴桌宠生成 Skill。",
       "engine": "aimashi",
-      "root": "pet-generator/skills",
+      "root": "skills",
       "idPrefix": "aimashi-official"
     }
   ]

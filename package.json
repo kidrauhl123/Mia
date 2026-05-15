@@ -58,6 +58,13 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "skills",
+        "to": "skills",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "mac": {

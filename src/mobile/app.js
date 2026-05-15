@@ -75,6 +75,7 @@ const state = {
   health: null,
   runtime: null,
   modelCatalog: [],
+  codexModels: [],
   engineCapabilities: { approvalModes: ["ask", "yolo", "deny"], effortLevels: ["low", "medium", "high"] },
   slashCommands: fallbackSlashCommands,
   agentSlashCommands: { "claude-code": [], codex: [] },
@@ -699,13 +700,14 @@ async function loadData() {
   }
   await loadHealth();
   try {
-    const [fellowsResult, sessionsResult, runtimeResult, catalogResult, capsResult, commandsResult] = await Promise.allSettled([
+    const [fellowsResult, sessionsResult, runtimeResult, catalogResult, capsResult, commandsResult, codexModelsResult] = await Promise.allSettled([
       request("/api/fellows"),
       request("/api/chat/sessions"),
       request("/api/runtime/status"),
       request("/api/model/catalog"),
       request("/api/engine/capabilities"),
-      loadSlashCommands()
+      loadSlashCommands(),
+      request("/api/codex/models")
     ]);
     if (fellowsResult.status === "rejected") throw fellowsResult.reason;
     if (sessionsResult.status === "rejected") throw sessionsResult.reason;
@@ -722,6 +724,10 @@ async function loadData() {
     if (catalogResult.status === "fulfilled") {
       const rows = Array.isArray(catalogResult.value?.models) ? catalogResult.value.models : catalogResult.value;
       state.modelCatalog = Array.isArray(rows) ? rows : [];
+    }
+    if (codexModelsResult.status === "fulfilled") {
+      const rows = Array.isArray(codexModelsResult.value?.models) ? codexModelsResult.value.models : [];
+      state.codexModels = rows;
     }
     if (capsResult.status === "fulfilled" && capsResult.value) {
       state.engineCapabilities = {
@@ -898,11 +904,20 @@ function externalModelEntries(engine) {
     ];
   }
   if (engine === "codex") {
+    const entries = [{ id: "default", provider: "codex", model: "", label: "Codex 默认" }];
+    const dynamic = Array.isArray(state.codexModels) ? state.codexModels : [];
+    if (dynamic.length) {
+      for (const m of dynamic) {
+        if (!m?.slug) continue;
+        entries.push({ id: m.slug, provider: "codex", model: m.slug, label: m.displayName || m.slug });
+      }
+      return entries;
+    }
     return [
-      { id: "default", provider: "codex", model: "", label: "Codex 默认" },
+      ...entries,
       { id: "gpt-5.3-codex-spark", provider: "codex", model: "gpt-5.3-codex-spark", label: "GPT-5.3 Codex Spark" },
       { id: "gpt-5.3-codex", provider: "codex", model: "gpt-5.3-codex", label: "GPT-5.3 Codex" },
-      { id: "gpt-5.2-codex", provider: "codex", model: "gpt-5.2-codex", label: "GPT-5.2 Codex" }
+      { id: "gpt-5.2", provider: "codex", model: "gpt-5.2", label: "GPT-5.2" }
     ];
   }
   return [];

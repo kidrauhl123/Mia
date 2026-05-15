@@ -130,7 +130,8 @@ const state = {
   isGenerating: false,
   streaming: null,
   openTraceKeys: new Set(),
-  animatedTraceKeys: new Set()
+  animatedTraceKeys: new Set(),
+  codexModels: []
 };
 
 const els = {
@@ -827,11 +828,27 @@ function externalModelEntries(engine) {
     ];
   }
   if (engine === "codex") {
+    const entries = [{ id: "default", provider: "codex", providerLabel: "Codex CLI", model: "", label: "Codex 默认" }];
+    const dynamic = Array.isArray(state.codexModels) ? state.codexModels : [];
+    if (dynamic.length) {
+      for (const m of dynamic) {
+        if (!m?.slug) continue;
+        entries.push({
+          id: m.slug,
+          provider: "codex",
+          providerLabel: "Codex CLI",
+          model: m.slug,
+          label: m.displayName || m.slug
+        });
+      }
+      return entries;
+    }
+    // Fallback if ~/.codex/models_cache.json is missing (fresh install pre-login).
     return [
-      { id: "default", provider: "codex", providerLabel: "Codex CLI", model: "", label: "Codex 默认" },
+      ...entries,
       { id: "gpt-5.3-codex-spark", provider: "codex", providerLabel: "Codex CLI", model: "gpt-5.3-codex-spark", label: "GPT-5.3 Codex Spark" },
       { id: "gpt-5.3-codex", provider: "codex", providerLabel: "Codex CLI", model: "gpt-5.3-codex", label: "GPT-5.3 Codex" },
-      { id: "gpt-5.2-codex", provider: "codex", providerLabel: "Codex CLI", model: "gpt-5.2-codex", label: "GPT-5.2 Codex" }
+      { id: "gpt-5.2", provider: "codex", providerLabel: "Codex CLI", model: "gpt-5.2", label: "GPT-5.2" }
     ];
   }
   return [];
@@ -2120,6 +2137,17 @@ async function loadModelCatalog() {
   }
 }
 
+async function loadCodexModels() {
+  try {
+    if (!window.aimashi?.loadCodexModels) return;
+    const rows = await window.aimashi.loadCodexModels();
+    state.codexModels = Array.isArray(rows) ? rows : [];
+  } catch (error) {
+    console.error("Failed to load Codex model list", error);
+    state.codexModels = [];
+  }
+}
+
 const EFFORT_LABELS = { minimal: "Minimal", low: "Low", medium: "Medium", high: "High", xhigh: "Extra high" };
 const APPROVAL_LABELS = {
   ask: "Ask",
@@ -3239,7 +3267,7 @@ function directorySectionRows() {
   return [
     { id: "plugins", label: "插件", sub: available ? `${available} 个可安装，${extensions.length - available} 个已安装` : "已安装或已发现的能力包", count: extensions.length },
     { id: "skills", label: "技能", sub: "本机可调用的 SKILL.md 能力", count: skills.length },
-    { id: "connectors", label: "应用连接", sub: "真实外部应用与 MCP 配置", count: connectors.length }
+    { id: "connectors", label: "应用连接", sub: "Aimashi 自己管理的外部连接", count: connectors.length }
   ];
 }
 
@@ -3350,12 +3378,14 @@ function skillEmptyText() {
 function renderSkillLibrary() {
   if (!els.skillNav || !els.skillCardGrid) return;
   const skills = state.skillLibrary.skills || [];
-  const sources = state.skillLibrary.sources || state.skillLibrary.plugins || [];
   const extensions = state.skillLibrary.extensions || [];
   const connectors = state.skillLibrary.connectors || [];
+  if ((state.directorySection || "plugins") === "skills" && state.skillPluginFilter) {
+    state.skillPluginFilter = "";
+    state.skillStatusFilter = "all";
+  }
   const shown = visibleSkills();
   const totalCount = skills.length;
-  const activeSource = sources.find((p) => p.id === state.skillPluginFilter);
   const activeExtension = extensions.find((extension) => extension.id === state.selectedExtensionId);
   const section = state.directorySection || "plugins";
   setText(
@@ -3368,7 +3398,7 @@ function renderSkillLibrary() {
           ? "应用连接"
           : section === "plugins"
             ? "插件"
-            : (activeSource?.label || "技能")
+            : "技能"
   );
 
   if (section === "connectors") {
@@ -3409,26 +3439,9 @@ function renderSkillLibrary() {
     ].join("");
   }
 
-  const navRows = [
-    { label: "全部 Skill", sub: "聚合所有本地 Skill 来源", pluginId: "", status: "all", count: totalCount }
-  ];
-  for (const plugin of sources.filter((source) => source.kind !== "plugin-skill-source")) {
-    navRows.push({
-      label: plugin.label || plugin.name,
-      sub: plugin.description || pluginSourceLabel(plugin.source),
-      pluginId: plugin.id,
-      status: "all",
-      count: plugin.skillCount || 0,
-      child: true
-    });
-  }
   els.skillNav.innerHTML = `
     <div class="skill-section-label">Directory</div>
     ${directorySectionRows().map((row) => renderDirectorySectionRow(row)).join("")}
-    ${section === "skills" ? `
-      <div class="skill-section-label">Skill 来源</div>
-      ${navRows.map((row) => renderSkillFilterRow(row)).join("")}
-    ` : ""}
   `;
 
   if (section === "connectors") {
@@ -3446,7 +3459,7 @@ function renderSkillLibrary() {
   } else {
     els.skillCardGrid.innerHTML = shown.length
       ? shown.map((skill) => `
-        <article class="skill-card${skill.id === state.selectedSkillId ? " featured" : ""}" data-skill-select="${escapeHtml(skill.id)}">
+        <article class="skill-card skill-row-card${skill.id === state.selectedSkillId ? " featured" : ""}" data-skill-select="${escapeHtml(skill.id)}">
           <header>
             <strong>${escapeHtml(skillDisplayName(skill))}</strong>
             <small>${escapeHtml(skill.pluginLabel || skillAuthorLabel(skill))}</small>
@@ -5662,6 +5675,7 @@ async function initializeRuntime() {
   setTimeout(() => {
     Promise.allSettled([
       trackStartupTask("加载 Hermes 模型列表", loadModelCatalog),
+      trackStartupTask("加载 Codex 模型列表", loadCodexModels),
       trackStartupTask("加载引擎能力", loadEngineCapabilities),
       trackStartupTask("加载命令列表", loadSlashCommands),
       trackStartupTask("扫描本地 Skill", loadSkills)

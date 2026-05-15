@@ -47,17 +47,20 @@ test("appendMessage and listMessages roundtrip", () => {
   const group = store.create({
     name: "G", members: ["a", "b"], hostFellowId: "a",
   });
-  store.appendMessage(group.id, {
-    id: "m1", role: "user", content: "hi", mentions: [], turnId: "t1",
+  const touched = store.appendMessage(group.id, {
+    id: "m1", role: "user", content: "hi", mentions: [], turnId: "t1", createdAt: group.updatedAt + 10,
   });
+  assert.equal(touched.updatedAt, group.updatedAt + 10);
   store.appendMessage(group.id, {
     id: "m2", role: "fellow", senderFellowId: "a", content: "hello",
-    mentions: [], turnId: "t1",
+    mentions: [], turnId: "t1", createdAt: group.updatedAt + 20,
   });
   const msgs = store.listMessages(group.id);
   assert.equal(msgs.length, 2);
   assert.equal(msgs[0].content, "hi");
   assert.equal(msgs[1].senderFellowId, "a");
+  const manifest = JSON.parse(fs.readFileSync(path.join(root, "manifest.json"), "utf8"));
+  assert.equal(manifest.groups[0].updatedAt, group.updatedAt + 20);
 });
 
 test("updateGroup persists host switch", () => {
@@ -69,6 +72,22 @@ test("updateGroup persists host switch", () => {
   store.updateGroup(group.id, { hostFellowId: "b" });
   const fresh = store.get(group.id);
   assert.equal(fresh.hostFellowId, "b");
+});
+
+test("deleteGroup removes manifest entry and group files", () => {
+  const root = makeTmpRoot();
+  const store = createGroupStore(root);
+  const group = store.create({
+    name: "G", members: ["a", "b"], hostFellowId: "a",
+  });
+  store.appendMessage(group.id, {
+    id: "m1", role: "user", content: "hi", mentions: [], turnId: "t1",
+  });
+
+  assert.equal(store.deleteGroup(group.id), true);
+  assert.equal(store.get(group.id), null);
+  assert.deepEqual(store.list(), []);
+  assert.equal(fs.existsSync(path.join(root, group.id)), false);
 });
 
 test("saveContextCard atomic write", () => {

@@ -15,10 +15,12 @@ from __future__ import annotations
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import hashlib
 import json
 import os
 import re
 import shutil
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -29,7 +31,10 @@ REPO_ROOT = GENERATOR_ROOT
 PETCTL = GENERATOR_ROOT / "petctl.py"
 CODEX_HOME = Path(os.environ.get("CODEX_HOME") or "~/.codex").expanduser()
 HATCH_SCRIPT_CANDIDATES = (
+    GENERATOR_ROOT / "alkaka-friend-pet" / "scripts",
     GENERATOR_ROOT / "skills" / "alkaka-friend-pet" / "scripts",
+    GENERATOR_ROOT.parent / "skills" / "alkaka-friend-pet" / "scripts",
+    GENERATOR_ROOT.parent.parent / "skills" / "alkaka-friend-pet" / "scripts",
     CODEX_HOME / "skills" / "hatch-pet" / "scripts",
     CODEX_HOME
     / "vendor_imports"
@@ -91,6 +96,11 @@ def run(command: list[str], *, log_path: Path | None = None, stdin: str | None =
             log_file.close()
 
 
+def capture(command: list[str]) -> str:
+    process = subprocess.run(command, cwd=REPO_ROOT, text=True, capture_output=True, check=True)
+    return process.stdout.strip()
+
+
 def ensure_hatch_scripts() -> None:
     global HATCH_SCRIPTS
     for candidate in HATCH_SCRIPT_CANDIDATES:
@@ -137,6 +147,154 @@ def ensure_codex_cli() -> str:
         if Path(candidate).is_file():
             return str(candidate)
     raise SystemExit("codex CLI was not found; install or log in to Codex CLI first")
+
+
+def remote_codex_host(args: argparse.Namespace) -> str:
+    return (args.remote_host or os.environ.get("AIMASHI_PET_REMOTE_HOST") or "").strip()
+
+
+def remote_path_arg(value: str) -> str:
+    if not value or not re.match(r"^[A-Za-z0-9_./:@~-]+$", value):
+        raise SystemExit(f"unsafe remote path: {value!r}")
+    return value
+
+
+def remote_join(*parts: str) -> str:
+    cleaned = [part.strip("/") for part in parts if part]
+    if not cleaned:
+        return ""
+    first = cleaned[0]
+    if parts[0].startswith("/"):
+        return "/" + "/".join(cleaned)
+    return "/".join(cleaned)
+
+
+def remote_shell(args: list[str]) -> str:
+    return " ".join(shlex.quote(str(arg)) for arg in args)
+
+
+def sync_remote_reference(host: str, source: str, remote_refs: str, index: int) -> str:
+    local = Path(source).expanduser().resolve()
+    if not local.is_file():
+        raise SystemExit(f"reference image not found: {source}")
+    ext = local.suffix or ".png"
+    remote_path = remote_path_arg(remote_join(remote_refs, f"reference-{index:02d}{ext}"))
+    run(["rsync", "-a", str(local), f"{host}:{remote_path}"])
+    return remote_path
+
+
+def run_remote_codex_generation(
+    *,
+    args: argparse.Namespace,
+    pet_id: str,
+    display_name: str,
+    description: str,
+    run_dir: Path,
+    package_dir: Path,
+) -> int:
+    host = remote_codex_host(args)
+    if not host:
+        return 1
+    remote_home = capture(["ssh", host, 'printf "%s" "$HOME"'])
+    if not remote_home.startswith("/"):
+        raise SystemExit(f"could not determine remote home for {host}")
+    root_arg = (args.remote_root or os.environ.get("AIMASHI_PET_REMOTE_ROOT") or "").strip()
+    remote_root_base = root_arg.replace("~", remote_home, 1) if root_arg.startswith("~") else root_arg
+    if not remote_root_base:
+        remote_root_base = f"{remote_home}/.aimashi/pet-runs"
+    remote_root_base = remote_path_arg(remote_root_base)
+    token = hashlib.sha1(str(run_dir).encode("utf-8")).hexdigest()[:10]
+    remote_job = remote_path_arg(remote_join(remote_root_base, f"{pet_id}-{token}"))
+    remote_generator = remote_path_arg(remote_join(remote_job, "pet-generator"))
+    remote_run = remote_path_arg(remote_join(remote_job, "run"))
+    remote_package = remote_path_arg(remote_join(remote_job, "package"))
+    remote_refs = remote_path_arg(remote_join(remote_job, "references"))
+
+    run(["ssh", host, f"mkdir -p {remote_shell([remote_generator, remote_run, remote_package, remote_refs])}"])
+    run([
+        "rsync",
+        "-a",
+        "--delete",
+        "--exclude",
+        "__pycache__",
+        "--exclude",
+        ".git",
+        f"{GENERATOR_ROOT}/",
+        f"{host}:{remote_generator}/",
+    ])
+
+    remote_references = [
+        sync_remote_reference(host, reference, remote_refs, index)
+        for index, reference in enumerate(args.reference or [], start=1)
+    ]
+    remote_style_references = [
+        sync_remote_reference(host, reference, remote_refs, index + 100)
+        for index, reference in enumerate(args.style_reference or [], start=1)
+    ]
+
+    remote_args = [
+        "python3",
+        "hatch_generate.py",
+        "--prompt",
+        args.prompt,
+        "--pet-id",
+        pet_id,
+        "--display-name",
+        display_name,
+        "--description",
+        description,
+        "--style-notes",
+        args.style_notes,
+        "--style-contract",
+        args.style_contract,
+        "--row-concurrency",
+        str(args.row_concurrency),
+        "--run-dir",
+        remote_run,
+        "--package-dir",
+        remote_package,
+    ]
+    if args.allow_slot_extraction:
+        remote_args.append("--allow-slot-extraction")
+    if args.no_partial_preview:
+        remote_args.append("--no-partial-preview")
+    if args.legacy_codex_handoff:
+        remote_args.append("--legacy-codex-handoff")
+    if args.no_run_codex:
+        remote_args.append("--no-run-codex")
+    for reference in remote_references:
+        remote_args.extend(["--reference", reference])
+    for reference in remote_style_references:
+        remote_args.extend(["--style-reference", reference])
+
+    remote_command = (
+        f"cd {shlex.quote(remote_generator)} && "
+        f"AIMASHI_PET_REMOTE_ACTIVE=1 {remote_shell(remote_args)}"
+    )
+    try:
+        run(["ssh", host, remote_command])
+    finally:
+        run_dir.mkdir(parents=True, exist_ok=True)
+        package_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            run(["rsync", "-a", f"{host}:{remote_run}/", f"{run_dir}/"])
+            run(["rsync", "-a", f"{host}:{remote_package}/", f"{package_dir}/"])
+        except subprocess.CalledProcessError as exc:
+            print(f"warning: failed to sync remote pet outputs: {exc}", flush=True)
+
+    summary = {
+        "ok": True,
+        "pet_id": pet_id,
+        "display_name": display_name,
+        "run_dir": str(run_dir),
+        "package_dir": str(package_dir),
+        "remote_host": host,
+        "remote_run_dir": remote_run,
+        "contact_sheet": str(run_dir / "qa" / "contact-sheet.png"),
+        "log": str(run_dir / "generation.log"),
+    }
+    print(json.dumps(summary, indent=2), flush=True)
+    return 0
 
 
 def quote(value: str) -> str:
@@ -358,10 +516,11 @@ def main() -> int:
     parser.add_argument("--no-partial-preview", action="store_true")
     parser.add_argument("--legacy-codex-handoff", action="store_true")
     parser.add_argument("--no-run-codex", action="store_true")
+    parser.add_argument("--remote-host", default="")
+    parser.add_argument("--remote-root", default="")
     args = parser.parse_args()
 
     ensure_hatch_scripts()
-    codex = ensure_codex_cli()
 
     pet_id = slugify(args.pet_id or args.display_name or args.prompt.split(",", 1)[0])
     if not pet_id:
@@ -381,6 +540,18 @@ def main() -> int:
     log_path = run_dir / "generation.log"
     if log_path.exists():
         log_path.unlink()
+
+    if remote_codex_host(args) and not os.environ.get("AIMASHI_PET_REMOTE_ACTIVE"):
+        return run_remote_codex_generation(
+            args=args,
+            pet_id=pet_id,
+            display_name=display_name,
+            description=description,
+            run_dir=run_dir,
+            package_dir=package_dir,
+        )
+
+    codex = ensure_codex_cli()
 
     prepare = [
         sys.executable,

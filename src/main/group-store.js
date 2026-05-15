@@ -104,8 +104,32 @@ function createGroupStore(rootDir) {
     return updated;
   }
 
+  function touchGroup(id, updatedAt = Date.now()) {
+    const existing = get(id);
+    if (!existing) throw new Error("group not found: " + id);
+    const nextUpdatedAt = Number.isFinite(Number(updatedAt)) ? Number(updatedAt) : Date.now();
+    const updated = { ...existing, updatedAt: nextUpdatedAt };
+    atomicWrite(groupJsonPath(id), JSON.stringify(updated, null, 2));
+    const manifest = loadManifest();
+    const entry = manifest.groups.find((g) => g.id === id);
+    if (entry) entry.updatedAt = nextUpdatedAt;
+    saveManifest(manifest);
+    return updated;
+  }
+
+  function deleteGroup(id) {
+    const existing = get(id);
+    if (!existing) throw new Error("group not found: " + id);
+    const manifest = loadManifest();
+    manifest.groups = (manifest.groups || []).filter((entry) => entry.id !== id);
+    saveManifest(manifest);
+    fs.rmSync(groupPath(id), { recursive: true, force: true });
+    return true;
+  }
+
   function appendMessage(id, message) {
     fs.appendFileSync(messagesPath(id), JSON.stringify(message) + "\n");
+    return touchGroup(id, message?.createdAt || Date.now());
   }
 
   function listMessages(id) {
@@ -124,7 +148,7 @@ function createGroupStore(rootDir) {
     updateGroup(id, { contextCard: card });
   }
 
-  return { create, list, get, updateGroup, appendMessage, listMessages, saveContextCard };
+  return { create, list, get, updateGroup, deleteGroup, appendMessage, listMessages, saveContextCard };
 }
 
 module.exports = { createGroupStore };
