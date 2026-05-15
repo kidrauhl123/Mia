@@ -429,6 +429,7 @@
     try {
       const result = await window.aimashi.sendChat({
         fellowKey: fellowId,
+        sessionId: "group:" + group.id + ":" + fellowId,
         messages: [{ role: "user", content: userMsg.content }],
         group: { id: group.id, contextBlock },
       });
