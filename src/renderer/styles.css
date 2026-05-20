@@ -741,9 +741,9 @@ body.sidebar-resizing * {
 .persona-list {
   display: grid;
   align-content: start;
-  gap: 6px;
+  gap: 2px;
   height: 100%;
-  padding: 8px 0;
+  padding: 6px 0;
   overflow: auto;
   overflow-x: hidden;
 }
@@ -754,28 +754,25 @@ body.sidebar-resizing * {
   align-items: center;
   gap: 10px;
   width: calc(100% - 14px);
-  min-height: 64px;
+  min-height: 60px;
   margin: 0 7px;
-  padding: 10px;
-  border: 1px solid transparent;
-  border-radius: 10px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 11px;
   background: transparent;
   color: var(--text);
   text-align: left;
 }
 
 .message-card {
-  background: var(--surface);
-  border-color: var(--line);
+  background: transparent;
 }
 
 .message-card:hover {
-  border-color: var(--line-strong);
   background: var(--hover-background);
 }
 
 .persona.active {
-  border-color: transparent;
   background: var(--list-active);
 }
 
@@ -815,7 +812,7 @@ body.sidebar-resizing * {
 
 .persona-main {
   display: grid;
-  gap: 1px;
+  gap: 2px;
 }
 
 .persona-name-row {
@@ -842,7 +839,7 @@ body.sidebar-resizing * {
 }
 
 .persona-type {
-  display: inline-flex;
+  display: none;
   flex: 0 0 auto;
   align-items: center;
   height: 18px;
@@ -884,7 +881,7 @@ body.sidebar-resizing * {
   align-content: center;
   justify-items: end;
   gap: 4px;
-  max-width: 48px;
+  max-width: 46px;
 }
 
 .persona-time {
@@ -1034,8 +1031,8 @@ body.sidebar-resizing * {
 }
 
 :root[data-list-style="flush"] .persona {
-  min-height: 70px;
-  padding: 11px 14px;
+  min-height: 66px;
+  padding: 10px 14px;
 }
 
 :root[data-list-style="flush"] .contact-row {
@@ -1288,11 +1285,20 @@ body.topbar-click-capture .topbar {
 }
 
 .session-row:hover {
-  background: var(--menu-hover-background);
+  background: var(--hover-background);
 }
 
 .session-row.active {
-  background: var(--hover);
+  background: var(--list-active);
+}
+
+.session-row.active strong {
+  color: var(--list-active-text);
+}
+
+.session-row.active small,
+.session-row.active em {
+  color: var(--list-active-muted);
 }
 
 .session-row strong,
@@ -1332,7 +1338,7 @@ body.topbar-click-capture .topbar {
 }
 
 .session-row em:hover {
-  background: var(--menu-hover-background);
+  background: var(--hover-background);
   color: var(--accent);
 }
 
