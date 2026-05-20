@@ -1934,6 +1934,7 @@ function queueGeneratedFileFetches(messages = []) {
     state.generatedFiles.set(filePath, { status: "loading" });
     window.aimashi.fetchFileAttachment?.({ path: filePath })
       .then((attachment) => {
+        if (attachment?.error) throw new Error(attachment.message || "File not found.");
         state.generatedFiles.set(filePath, { status: "ready", attachment });
         renderChat();
       })

@@ -14,6 +14,14 @@ const { normalizePermissionMode, permissionModeLabel } = require("./permission-m
 const runtimeResources = require("./runtime-resource-paths");
 const { createGroupStore } = require("./main/group-store.js");
 const { buildHermesGroupHeader, injectGroupContextForSdk } = require("./main/group-adapters.js");
+const {
+  adapterForEngine,
+  normalizeAgentEngine,
+  resolveChatEngineAdapter
+} = require("./main/chat-engine-registry.js");
+const { createChatEventEmitter } = require("./main/chat-events.js");
+const { chatCompletionResponse, responseMessageContent } = require("./main/chat-response.js");
+const { requireFellow } = require("./main/fellow-registry.js");
 
 app.setName("Aimashi");
 
@@ -859,10 +867,7 @@ function defaultFellowManifest() {
 }
 
 function normalizeFellowAgentEngine(value) {
-  const id = String(value || "hermes").trim().toLowerCase().replace(/_/g, "-");
-  if (id === "claude" || id === "claude-code") return "claude-code";
-  if (id === "codex" || id === "openai-codex") return "codex";
-  return "hermes";
+  return normalizeAgentEngine(value);
 }
 
 function normalizeFellowEngineConfig(input = {}) {
@@ -1302,8 +1307,7 @@ function getFellowDetails(key) {
   initializeRuntime();
   const id = String(key || "").trim();
   const manifest = loadFellowManifest();
-  const fellow = (manifest.fellows || []).find((item) => item.key === id);
-  if (!fellow) throw new Error("Fellow not found.");
+  const { fellow } = requireFellow(manifest, id, "Fellow not found.", { fallback: false });
   return {
     fellow,
     personaText: readFellowPersona(fellow.key, fellow.name, fellow.bio),
@@ -1526,6 +1530,18 @@ function readLocalFileAttachment(input = {}) {
     ...attachment,
     dataUrl
   };
+}
+
+function safeReadLocalFileAttachment(input = {}) {
+  try {
+    return readLocalFileAttachment(input);
+  } catch (error) {
+    return {
+      error: true,
+      message: String(error?.message || error),
+      path: String(input.path || input.filePath || "")
+    };
+  }
 }
 
 function styleSettingsForPet(stylePreset) {
@@ -1795,10 +1811,6 @@ function resizePetWindow(win, size) {
     width: size.width,
     height: size.height
   }, false);
-}
-
-function responseMessageContent(response) {
-  return String(response?.choices?.[0]?.message?.content || "").trim();
 }
 
 function notifyFellowPetMessage(fellowKey, text) {
@@ -6000,26 +6012,6 @@ function claudeMessageText(message) {
   return firstTextValue(nested.content || nested.text || nested.delta);
 }
 
-function chatCompletionResponse({ id, model, content, finishReason = "stop", aimashi = {} }) {
-  return {
-    id: id || `chatcmpl_${crypto.randomUUID()}`,
-    object: "chat.completion",
-    created: Math.floor(Date.now() / 1000),
-    model,
-    choices: [
-      {
-        index: 0,
-        message: {
-          role: "assistant",
-          content: content || ""
-        },
-        finish_reason: finishReason
-      }
-    ],
-    aimashi
-  };
-}
-
 function normalizeClaudePermissionMode(value) {
   const id = String(value || "default").trim();
   if (["default", "acceptEdits", "auto", "bypassPermissions", "plan", "dontAsk"].includes(id)) return id;
@@ -6257,15 +6249,12 @@ async function sendCodexChat({ fellow, sessionId, messages, group, signal, utili
 
 async function sendChatStateless({ fellowKey, systemPrompt, userPrompt, signal }) {
   const manifest = loadFellowManifest();
-  const fellows = Array.isArray(manifest.fellows) ? manifest.fellows : [];
-  const fellow = fellows.find((item) => item.key === fellowKey) || fellows[0];
-  if (!fellow) {
-    throw new Error("还没有可用的 fellow，请先在引导里创建一个再发起对话。");
-  }
-  const agentEngine = normalizeFellowAgentEngine(fellow.agentEngine || fellow.agent_engine || fellow.engine);
+  const { fellow } = requireFellow(manifest, fellowKey, "还没有可用的 fellow，请先在引导里创建一个再发起对话。");
+  const chatEngine = resolveChatEngineAdapter(fellow);
+  const agentEngine = chatEngine.id;
 
   // --- Claude Code branch ---
-  if (agentEngine === "claude-code") {
+  if (chatEngine.id === "claude-code") {
     const commandPath = shellCommandPath("claude");
     if (!commandPath) throw new Error("本机没有检测到 Claude Code CLI。请先安装并确认 `claude --version` 可用。");
     const { query } = await claudeAgentSdk();
@@ -6298,7 +6287,7 @@ async function sendChatStateless({ fellowKey, systemPrompt, userPrompt, signal }
   }
 
   // --- Codex branch ---
-  if (agentEngine === "codex") {
+  if (chatEngine.id === "codex") {
     const commandPath = shellCommandPath("codex");
     if (!commandPath) throw new Error("本机没有检测到 Codex CLI。请先安装并确认 `codex --version` 可用。");
     const { Codex } = await codexSdk();
@@ -6388,34 +6377,15 @@ async function sendChat({ fellowKey, personaKey, sessionId, messages, group, web
     activeChatAbortController = abortController;
   }
   const { signal } = abortController;
-  const runId = `aimashi_${crypto.randomUUID()}`;
-  let emitSeq = 0;
-  const emit = !utility && webContents && !webContents.isDestroyed()
-    ? (kind, data) => {
-      try {
-        if (webContents.isDestroyed()) return;
-        webContents.send("chat:event", {
-          runId,
-          sessionId: sessionId || "",
-          seq: ++emitSeq,
-          kind,
-          data: data || {},
-          ts: Date.now()
-        });
-      } catch {
-        // Ignore IPC errors on closed windows.
-      }
-    }
-    : null;
+  const { emit } = !utility
+    ? createChatEventEmitter({ webContents, sessionId })
+    : { emit: null };
   try {
     const manifest = loadFellowManifest();
-    const fellows = Array.isArray(manifest.fellows) ? manifest.fellows : [];
     const key = fellowKey || personaKey;
-    const fellow = fellows.find((item) => item.key === key) || fellows[0];
-    if (!fellow) {
-      throw new Error("还没有可用的 fellow，请先在引导里创建一个再发起对话。");
-    }
-    const agentEngine = normalizeFellowAgentEngine(fellow.agentEngine || fellow.agent_engine || fellow.engine);
+    const { fellow } = requireFellow(manifest, key, "还没有可用的 fellow，请先在引导里创建一个再发起对话。");
+    const chatEngine = resolveChatEngineAdapter(fellow);
+    const agentEngine = chatEngine.id;
     const shouldNotifyPet = !utility && !String(sessionId || "").startsWith("title:");
     const completeWithPetMessage = (response) => {
       if (shouldNotifyPet) notifyFellowPetMessage(fellow.key, responseMessageContent(response));
@@ -6425,13 +6395,13 @@ async function sendChat({ fellowKey, personaKey, sessionId, messages, group, web
       emit("session_started", { fellowKey: fellow.key, engine: agentEngine });
     }
     const slashText = isSlashCommandText(messages);
-    if (agentEngine === "claude-code") {
+    if (chatEngine.id === "claude-code") {
       if (slashText) {
         const localResult = runExternalSlashCommand({ text: slashText, fellow, engine: agentEngine, sessionId });
         if (localResult != null) {
           return completeWithPetMessage(chatCompletionResponse({
             id: `cmd_${crypto.randomUUID()}`,
-            model: "claude-code",
+            model: chatEngine.responseModel,
             content: localResult,
             aimashi: { transport: "local-command", engine: agentEngine, fellow_key: fellow.key }
           }));
@@ -6439,13 +6409,13 @@ async function sendChat({ fellowKey, personaKey, sessionId, messages, group, web
       }
       return completeWithPetMessage(await sendClaudeCodeChat({ fellow, sessionId, messages, group, signal, abortController, emit, utility }));
     }
-    if (agentEngine === "codex") {
+    if (chatEngine.id === "codex") {
       if (slashText) {
         const localResult = runExternalSlashCommand({ text: slashText, fellow, engine: agentEngine, sessionId });
         if (localResult != null) {
           return completeWithPetMessage(chatCompletionResponse({
             id: `cmd_${crypto.randomUUID()}`,
-            model: "codex-cli",
+            model: chatEngine.responseModel,
             content: localResult,
             aimashi: { transport: "local-command", engine: agentEngine, fellow_key: fellow.key }
           }));
@@ -6463,7 +6433,7 @@ async function sendChat({ fellowKey, personaKey, sessionId, messages, group, web
         id: `cmd_${crypto.randomUUID()}`,
         object: "chat.completion",
         created: Math.floor(Date.now() / 1000),
-        model: "hermes-agent",
+        model: adapterForEngine("hermes").responseModel,
         choices: [
           {
             index: 0,
@@ -6849,7 +6819,7 @@ ipcMain.handle("chat:send", (event, payload) => sendChat({ ...payload, webConten
 ipcMain.handle("chat:send-stateless", (_event, payload) => sendChatStateless(payload));
 ipcMain.handle("chat:stop", () => stopChat());
 ipcMain.handle("chat:attachment-save", (_event, payload) => saveChatAttachment(payload));
-ipcMain.handle("chat:file-fetch", (_event, payload) => readLocalFileAttachment(payload));
+ipcMain.handle("chat:file-fetch", (_event, payload) => safeReadLocalFileAttachment(payload));
 ipcMain.handle("commands:slash", () => loadHermesSlashCommands());
 ipcMain.handle("commands:agent-list", (_event, payload) => loadExternalAgentCommands(payload));
 ipcMain.handle("commands:agent-execute", (_event, payload) => executeExternalAgentCommand(payload));
