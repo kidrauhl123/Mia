@@ -5075,6 +5075,50 @@ function renderSetupGuideCreateFellowStep() {
   `;
 }
 
+function renderMessageHtml(message, ctx) {
+  // ctx = {
+  //   messageIndex: number,
+  //   user: { displayName, avatarText, avatarImage, avatarCrop, avatarColor },
+  //   persona: { name, key, color, avatarImage, avatarCrop } | null,
+  //   showTaskAffordance: boolean,  // currently unused, Task 17 wires up
+  //   tasks?: Task[],               // optional, Task 17 hooks
+  // }
+  // Returns: string of <article>...</article> HTML
+  const { messageIndex, user, persona } = ctx;
+  const label = message.role === "user" ? (user.avatarText || initials(user.displayName)) : initials(persona?.name || "A");
+  const color = message.role === "user" ? user.avatarColor : (persona?.color || "#23444d");
+  const fellowAvatarImage = persona?.avatarImage || avatarAssetForKey(persona?.key);
+  const fellowAvatar = avatarImageSrc(fellowAvatarImage);
+  const userAvatarImage = user.avatarImage || "";
+  const userAvatar = avatarImageSrc(userAvatarImage);
+  const avatarBackgroundColor = message.role === "assistant"
+    ? (fellowAvatar ? "transparent" : (color || "#111827"))
+    : (userAvatar ? "transparent" : (color || "#111827"));
+  const imageStyle = message.role === "assistant"
+    ? avatarThumbBackgroundStyle(fellowAvatarImage, persona?.avatarCrop, color)
+    : (userAvatar ? avatarThumbBackgroundStyle(userAvatarImage, user.avatarCrop, color) : "");
+  const traceHtml = message.role === "assistant"
+    ? renderTraceBlocks({
+      reasoning: message.reasoning,
+      tools: message.tools,
+      content: message.content,
+      expanded: false,
+      scopeKey: `msg:${message.createdAt || ""}`
+    })
+    : "";
+  const timeHtml = renderMessageTime(message.createdAt);
+  const bodyHtml = String(message.content || "").trim() ? renderMarkdown(message.content) : "";
+  const replyHtml = replyQuoteHtml(message.replyTo);
+  const translation = translationHtml(message, messageIndex);
+  const attachmentHtml = renderAttachmentChips([...(message.attachments || []), ...generatedAttachmentsForMessage(message)].map(hydrateAttachmentPreview));
+  const pinnedHtml = message.pinned ? `<span class="message-pin-badge">${ICON_PARK_PIN_SVG}置顶</span>` : "";
+  const roleClass = message.role === "user" ? "user" : "assistant";
+  return `<article class="message ${roleClass}">
+      <div class="avatar" style="background-color:${escapeHtml(avatarBackgroundColor)};${imageStyle}">${message.role === "user" && !userAvatar ? escapeHtml(label) : ""}</div>
+      <div class="message-stack">${traceHtml}<div class="bubble${message.pinned ? " pinned" : ""}" data-message-index="${messageIndex}">${pinnedHtml}${replyHtml}${bodyHtml}${attachmentHtml}${translation}</div>${timeHtml}</div>
+    </article>`;
+}
+
 function renderChat() {
   // Branch: if a group is active, delegate to group module
   const groupActive = activeGroup();
@@ -5097,41 +5141,13 @@ function renderChat() {
     els.chat.insertAdjacentHTML("beforeend", renderSetupGuide());
   }
   for (const [messageIndex, message] of messages.entries()) {
-    const article = document.createElement("article");
-    article.className = `message ${message.role === "user" ? "user" : "assistant"}`;
-    const persona = active;
-    const label = message.role === "user" ? (user.avatarText || initials(user.displayName)) : initials(persona?.name || "A");
-    const color = message.role === "user" ? user.avatarColor : (persona?.color || "#23444d");
-    const fellowAvatarImage = persona?.avatarImage || avatarAssetForKey(persona?.key);
-    const fellowAvatar = avatarImageSrc(fellowAvatarImage);
-    const userAvatarImage = user.avatarImage || "";
-    const userAvatar = avatarImageSrc(userAvatarImage);
-    const avatarBackgroundColor = message.role === "assistant"
-      ? (fellowAvatar ? "transparent" : (color || "#111827"))
-      : (userAvatar ? "transparent" : (color || "#111827"));
-    const imageStyle = message.role === "assistant"
-      ? avatarThumbBackgroundStyle(fellowAvatarImage, persona?.avatarCrop, color)
-      : (userAvatar ? avatarThumbBackgroundStyle(userAvatarImage, user.avatarCrop, color) : "");
-    const traceHtml = message.role === "assistant"
-      ? renderTraceBlocks({
-        reasoning: message.reasoning,
-        tools: message.tools,
-        content: message.content,
-        expanded: false,
-        scopeKey: `msg:${message.createdAt || ""}`
-      })
-      : "";
-    const timeHtml = renderMessageTime(message.createdAt);
-    const bodyHtml = String(message.content || "").trim() ? renderMarkdown(message.content) : "";
-    const replyHtml = replyQuoteHtml(message.replyTo);
-    const translation = translationHtml(message, messageIndex);
-    const attachmentHtml = renderAttachmentChips([...(message.attachments || []), ...generatedAttachmentsForMessage(message)].map(hydrateAttachmentPreview));
-    const pinnedHtml = message.pinned ? `<span class="message-pin-badge">${ICON_PARK_PIN_SVG}置顶</span>` : "";
-    article.innerHTML = `
-      <div class="avatar" style="background-color:${escapeHtml(avatarBackgroundColor)};${imageStyle}">${message.role === "user" && !userAvatar ? escapeHtml(label) : ""}</div>
-      <div class="message-stack">${traceHtml}<div class="bubble${message.pinned ? " pinned" : ""}" data-message-index="${messageIndex}">${pinnedHtml}${replyHtml}${bodyHtml}${attachmentHtml}${translation}</div>${timeHtml}</div>
-    `;
-    els.chat.appendChild(article);
+    const html = renderMessageHtml(message, {
+      messageIndex,
+      user,
+      persona: active,
+      showTaskAffordance: false  // Task 17 will set this true
+    });
+    els.chat.insertAdjacentHTML("beforeend", html);
   }
   const s = state.streaming;
   const hasStreamingContent = s && (
