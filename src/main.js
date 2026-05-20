@@ -6877,6 +6877,86 @@ ipcMain.handle("pet:generate", (_event, payload) => startFellowPetGeneration(pay
 ipcMain.handle("pet:place", (_event, key) => placeFellowPet(key));
 ipcMain.handle("pet:recall", (_event, key) => recallFellowPet(key));
 
+async function callDaemonTasks(pathSegment, opts = {}) {
+  const settings = daemonSettings();
+  const baseUrl = controlServerState.baseUrl || `http://${settings.host}:${settings.port}`;
+  const response = await fetch(`${baseUrl}${pathSegment}`, {
+    ...opts,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${daemonToken()}`,
+      ...(opts.headers || {})
+    }
+  });
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(`daemon ${response.status}: ${body || response.statusText}`);
+  }
+  return response.json();
+}
+
+ipcMain.handle("tasks:list",   async () => (await callDaemonTasks("/api/tasks")).tasks);
+ipcMain.handle("tasks:get",    async (_e, id) => (await callDaemonTasks(`/api/tasks/${id}`)).task);
+ipcMain.handle("tasks:create", async (_e, input) => (await callDaemonTasks("/api/tasks", { method: "POST", body: JSON.stringify(input) })).task);
+ipcMain.handle("tasks:update", async (_e, id, partial) => (await callDaemonTasks(`/api/tasks/${id}`, { method: "PATCH", body: JSON.stringify(partial) })).task);
+ipcMain.handle("tasks:delete", async (_e, id) => callDaemonTasks(`/api/tasks/${id}`, { method: "DELETE" }));
+ipcMain.handle("tasks:pause",  async (_e, id) => (await callDaemonTasks(`/api/tasks/${id}/pause`,  { method: "POST" })).task);
+ipcMain.handle("tasks:resume", async (_e, id) => (await callDaemonTasks(`/api/tasks/${id}/resume`, { method: "POST" })).task);
+ipcMain.handle("tasks:run-now", async (_e, id) => callDaemonTasks(`/api/tasks/${id}/run-now`, { method: "POST" }));
+
+function subscribeDaemonTaskEvents() {
+  if (IS_DAEMON_PROCESS) return;
+  let reconnectDelay = 1000;
+
+  function connect() {
+    const settings = daemonSettings();
+    const baseUrl = controlServerState.baseUrl || `http://${settings.host}:${settings.port}`;
+    const token = daemonToken();
+    let pathname = "/api/tasks/events";
+    const urlObj = new URL(baseUrl + pathname);
+    const httpLib = urlObj.protocol === "https:" ? require("node:https") : require("node:http");
+    const req = httpLib.request({
+      hostname: urlObj.hostname,
+      port: urlObj.port,
+      path: urlObj.pathname,
+      method: "GET",
+      headers: { Authorization: `Bearer ${token}`, Accept: "text/event-stream" }
+    });
+    req.on("response", (res) => {
+      reconnectDelay = 1000;
+      let buf = "";
+      res.on("data", (chunk) => {
+        buf += chunk.toString("utf8");
+        const events = buf.split("\n\n");
+        buf = events.pop() || "";
+        for (const evt of events) {
+          const lines = evt.split("\n");
+          let type = ""; let data = "";
+          for (const line of lines) {
+            if (line.startsWith("event: ")) type = line.slice(7).trim();
+            else if (line.startsWith("data: ")) data += line.slice(6);
+          }
+          if (!type) continue;
+          try {
+            const payload = JSON.parse(data || "null");
+            for (const w of BrowserWindow.getAllWindows()) {
+              try { w.webContents.send("tasks:event", { type, payload }); } catch { /* window closed */ }
+            }
+          } catch { /* ignore parse errors */ }
+        }
+      });
+      res.on("end", () => setTimeout(connect, reconnectDelay));
+      res.on("error", () => setTimeout(connect, reconnectDelay));
+    });
+    req.on("error", () => {
+      reconnectDelay = Math.min(reconnectDelay * 2, 15000);
+      setTimeout(connect, reconnectDelay);
+    });
+    req.end();
+  }
+  connect();
+}
+
 app.whenReady().then(async () => {
   startupTimer.mark("app:ready");
   if (!IS_DAEMON_PROCESS && !shouldRunDesktopInstance) return;
@@ -6898,6 +6978,7 @@ app.whenReady().then(async () => {
   }
   const win = createWindow();
   startupTimer.mark("window:created");
+  subscribeDaemonTaskEvents();
   win.webContents.once("did-finish-load", () => {
     setTimeout(() => runtimeLifecycle().scheduleBackgroundStartup(), 2500);
   });

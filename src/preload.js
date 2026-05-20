@@ -79,6 +79,21 @@ contextBridge.exposeInMainWorld("aimashi", {
   generateFellowPet: (payload) => ipcRenderer.invoke("pet:generate", payload),
   placeFellowPet: (key) => ipcRenderer.invoke("pet:place", key),
   recallFellowPet: (key) => ipcRenderer.invoke("pet:recall", key),
+  tasks: {
+    list: () => ipcRenderer.invoke("tasks:list"),
+    get: (id) => ipcRenderer.invoke("tasks:get", id),
+    create: (input) => ipcRenderer.invoke("tasks:create", input),
+    update: (id, partial) => ipcRenderer.invoke("tasks:update", id, partial),
+    delete: (id) => ipcRenderer.invoke("tasks:delete", id),
+    pause: (id) => ipcRenderer.invoke("tasks:pause", id),
+    resume: (id) => ipcRenderer.invoke("tasks:resume", id),
+    runNow: (id) => ipcRenderer.invoke("tasks:run-now", id),
+    subscribe: (cb) => {
+      const wrapped = (_e, envelope) => cb(envelope);
+      ipcRenderer.on("tasks:event", wrapped);
+      return () => ipcRenderer.removeListener("tasks:event", wrapped);
+    }
+  },
   groups: {
     create: (payload) => ipcRenderer.invoke("group:create", payload),
     list: () => ipcRenderer.invoke("group:list"),
