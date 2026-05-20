@@ -925,7 +925,10 @@ function getSchedulerMcpSpec() {
       AIMASHI_DAEMON_URL: baseUrl,
       AIMASHI_DAEMON_TOKEN: daemonToken(),
       AIMASHI_SCHEDULER_CONTEXT_FILE: schedulerMcpContextPath()
-    }
+    },
+    // Without this, Claude Code defers MCP tools behind a tool-search meta tool
+    // and the AI never sees schedule_* unless it explicitly searches.
+    alwaysLoad: true
   };
 }
 
