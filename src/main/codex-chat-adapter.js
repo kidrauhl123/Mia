@@ -5,10 +5,14 @@ const path = require("node:path");
 
 function mapCodexPermissionMode(value) {
   const id = String(value || "default").trim();
-  if (id === "acceptEdits") return { sandboxMode: "workspace-write", approvalPolicy: "on-request" };
+  // approvalPolicy is forced to "never" across the board: aimashi has no
+  // approval UI surfaced inside chat, so any non-"never" policy makes Codex
+  // self-cancel tool calls (it interprets "no human reachable" as a denial).
+  // Sandbox mode is still honored from the user's dropdown.
+  if (id === "acceptEdits") return { sandboxMode: "workspace-write", approvalPolicy: "never" };
   if (id === "bypassPermissions") return { sandboxMode: "danger-full-access", approvalPolicy: "never" };
-  if (id === "readOnly") return { sandboxMode: "read-only", approvalPolicy: "on-request" };
-  return { sandboxMode: "workspace-write", approvalPolicy: "untrusted" };
+  if (id === "readOnly") return { sandboxMode: "read-only", approvalPolicy: "never" };
+  return { sandboxMode: "workspace-write", approvalPolicy: "never" };
 }
 
 function statelessPrompt(systemPrompt, userPrompt) {
@@ -19,6 +23,10 @@ function stoppedError() {
   const stopped = new Error("生成已停止");
   stopped.code = "AIMASHI_STOPPED";
   return stopped;
+}
+
+function runOptions(signal) {
+  return signal ? { signal } : {};
 }
 
 function generatedImagesRoot(env = {}) {
@@ -167,7 +175,7 @@ function createCodexChatAdapter(deps = {}) {
       ? codex.resumeThread(externalSessionId, threadOptions)
       : codex.startThread(threadOptions);
     const startedAtMs = Date.now();
-    const turn = await thread.run(promptWithGroup, { signal });
+    const turn = await thread.run(promptWithGroup, runOptions(signal));
     const capturedSessionId = externalSessionId || thread.id || "";
     const imagePaths = recentGeneratedImagePaths(capturedSessionId, { env, startedAtMs });
     if (capturedSessionId && !externalSessionId && !utility) {
@@ -202,7 +210,7 @@ function createCodexChatAdapter(deps = {}) {
       modelReasoningEffort: normalizeEffortLevel("medium", "codex"),
       ...mapCodexPermissionMode("default")
     });
-    const turn = await thread.run(statelessPrompt(systemPrompt, userPrompt), { signal });
+    const turn = await thread.run(statelessPrompt(systemPrompt, userPrompt), runOptions(signal));
     if (signal?.aborted) throw stoppedError();
     return { content: String(turn?.finalResponse || "").trim() };
   }
