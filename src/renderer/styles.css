@@ -6327,3 +6327,52 @@ pre {
 .task-empty-side { padding: 32px 16px; text-align: center; color: var(--color-text-secondary, #888); font-size: 12px; }
 .tasks-empty-placeholder { padding: 60px; text-align: center; color: var(--color-text-secondary, #888); }
 .tasks-content { padding: 16px; }
+
+/* ── Task detail view (Task 15) ─────────────────────────────────────────── */
+.task-detail { padding: 20px; max-width: 800px; }
+.task-detail-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--color-border, #e5e7eb);
+  margin-bottom: 16px;
+}
+.task-detail-source { display: flex; flex-direction: column; gap: 4px; }
+.task-detail-source small { font-size: 11px; color: var(--color-text-secondary, #888); }
+.task-detail-source strong { font-size: 14px; }
+.task-detail-source .link { background: none; border: none; color: var(--accent, #0162db); padding: 0; cursor: pointer; font-size: 12px; align-self: flex-start; }
+.task-detail-actions { display: flex; gap: 8px; }
+.task-detail-actions .danger { color: #b91c1c; }
+.task-schedule, .task-prompt, .task-history { margin-bottom: 20px; }
+.task-schedule h3, .task-prompt h3, .task-history h3 {
+  font-size: 12px; font-weight: 600; text-transform: uppercase;
+  color: var(--color-text-secondary, #888); letter-spacing: 0.05em;
+  margin: 0 0 8px;
+}
+.task-form-row { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; }
+.task-form-row label { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.task-form-row label.disabled { opacity: 0.5; }
+.task-form-row input[type=text], .task-form-row input:not([type]), .task-form-row input[type=datetime-local] {
+  padding: 4px 8px; border: 1px solid var(--color-border, #d1d5db); border-radius: 4px; font-family: inherit; font-size: 13px;
+}
+.task-next small { color: var(--color-text-secondary, #888); }
+.task-prompt textarea { width: 100%; padding: 8px; border: 1px solid var(--color-border, #d1d5db); border-radius: 4px; font-family: inherit; font-size: 13px; resize: vertical; }
+.task-history-row {
+  display: grid;
+  grid-template-columns: 24px 140px 60px 1fr;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 8px;
+  width: 100%;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--color-border, #f1f5f9);
+  text-align: left;
+  cursor: pointer;
+  font-size: 12px;
+}
+.task-history-row:hover { background: var(--color-hover, rgba(0,0,0,0.04)); }
+.task-history-row em { color: var(--accent, #0162db); font-style: normal; text-align: right; }
+.task-history-empty { padding: 12px; color: var(--color-text-secondary, #888); font-size: 12px; }

@@ -3984,12 +3984,201 @@ function renderTaskSidebar() {
 
 function renderTaskView() {
   if (!els.tasksContent) return;
-  // Task 15 implements task detail; Task 16 implements run detail; Task 18 implements empty state.
-  if (!state.selectedTaskId) {
-    els.tasksContent.innerHTML = `<div class="tasks-empty-placeholder">选择左侧任务查看详情。</div>`;
-    return;
+  setText(els.tasksPageTitle, "任务");
+  const activeCount = state.tasks.filter((t) => t.status === "active").length;
+  setText(els.tasksPageMeta, `${activeCount} 个活跃`);
+  if (!state.selectedTaskId) { renderTasksEmpty(); return; }
+  const task = state.tasks.find((t) => t.id === state.selectedTaskId);
+  if (!task) { renderTasksEmpty(); return; }
+  if (state.selectedRunId) { renderRunDetail(task); return; }
+  renderTaskDetail(task);
+}
+
+function renderTasksEmpty() {
+  // Task 18 fills this in fully; for now, a friendly fallback.
+  els.tasksContent.innerHTML = `<div class="tasks-empty-placeholder">选择左侧任务查看详情。</div>`;
+}
+
+function renderRunDetail(task) {
+  // Task 16 implements this. Placeholder for now.
+  els.tasksContent.innerHTML = `<div class="tasks-empty-placeholder">运行历史详情（待 Task 16 实现）</div>`;
+}
+
+function renderTaskDetail(task) {
+  const sessionTitle = lookupSessionTitle(task.sessionId) || task.sessionId;
+  const pauseLabel = task.status === "paused" ? "启用" : "暂停";
+  const pauseAction = task.status === "paused" ? "resume" : "pause";
+  els.tasksContent.innerHTML = `
+    <article class="task-detail">
+      <header class="task-detail-head">
+        <div class="task-detail-source">
+          <small>来源会话</small>
+          <strong>${escapeHtml(sessionTitle)} · ${escapeHtml(fellowName(task.fellowId))}</strong>
+          <button class="link" type="button" data-jump-session="${escapeHtml(task.sessionId)}">[打开 →]</button>
+        </div>
+        <div class="task-detail-actions">
+          <button class="secondary" type="button" data-action="run-now">运行一次</button>
+          <button class="secondary" type="button" data-action="${pauseAction}">${pauseLabel}</button>
+          <button class="danger" type="button" data-action="delete">删除</button>
+        </div>
+      </header>
+
+      <section class="task-schedule">
+        <h3>调度</h3>
+        <div class="task-form-row">
+          <label><input type="radio" name="triggerType" value="cron" ${task.trigger.type === "cron" ? "checked" : ""}>重复</label>
+          <label><input type="radio" name="triggerType" value="oneshot" ${task.trigger.type === "oneshot" ? "checked" : ""}>一次性</label>
+          <label class="disabled"><input type="radio" name="triggerType" value="event" disabled>事件触发（V1 不可用）</label>
+        </div>
+        <div class="task-form-row" ${task.trigger.type === "cron" ? "" : "hidden"}>
+          <label>Cron <input id="taskCron" value="${escapeHtml(task.trigger.cron || "")}"></label>
+        </div>
+        <div class="task-form-row" ${task.trigger.type === "oneshot" ? "" : "hidden"}>
+          <label>触发时间 <input id="taskAt" type="datetime-local" value="${task.trigger.at ? toLocalDatetimeInput(task.trigger.at) : ""}"></label>
+        </div>
+        <div class="task-form-row">
+          <label>时区 <input id="taskTimezone" value="${escapeHtml(task.timezone || "UTC")}"></label>
+        </div>
+        <div class="task-form-row task-next">
+          <small>下次: ${task.nextFireAt ? formatRunTime(task.nextFireAt) : "—"}</small>
+        </div>
+      </section>
+
+      <section class="task-prompt">
+        <h3>Prompt</h3>
+        <textarea id="taskPrompt" rows="3">${escapeHtml(task.prompt)}</textarea>
+      </section>
+
+      <section class="task-history">
+        <h3>历史记录 (${task.runs.length})</h3>
+        ${(task.runs || []).slice(-20).reverse().map((run) => `
+          <button class="task-history-row" type="button" data-run-id="${escapeHtml(run.id)}">
+            <span>${run.status === "ok" ? "✓" : run.status === "failed" ? "✗" : "·"}</span>
+            <span>${escapeHtml(formatRunTime(run.firedAt))}</span>
+            <span>${run.status === "failed" ? "失败" : run.status === "skipped" ? "跳过" : "完成"}</span>
+            <em>→ 查看本次输出</em>
+          </button>
+        `).join("")}
+        ${(task.runs || []).length === 0 ? `<div class="task-history-empty">还没有运行过</div>` : ""}
+      </section>
+    </article>
+  `;
+  attachTaskDetailHandlers(task);
+}
+
+function lookupSessionTitle(sessionId) {
+  // state.chatStore.sessions is a dict keyed by personaKey, each value is an array of sessions.
+  const allSessions = state.chatStore?.sessions || {};
+  for (const key of Object.keys(allSessions)) {
+    const arr = allSessions[key];
+    if (!Array.isArray(arr)) continue;
+    const found = arr.find((s) => s.id === sessionId);
+    if (found) return found.title || null;
   }
-  els.tasksContent.innerHTML = `<div class="tasks-empty-placeholder">任务详情（待 Task 15 实现）</div>`;
+  return null;
+}
+
+function toLocalDatetimeInput(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function debounceTask(fn, ms) {
+  let t = null;
+  return (...args) => {
+    clearTimeout(t);
+    t = setTimeout(() => fn(...args), ms);
+  };
+}
+
+function attachTaskDetailHandlers(task) {
+  const save = debounceTask(async (patch) => {
+    try {
+      const updated = await window.aimashi.tasks.update(task.id, patch);
+      const idx = state.tasks.findIndex((t) => t.id === task.id);
+      if (idx >= 0) state.tasks[idx] = updated;
+      renderTaskSidebar();
+    } catch (e) {
+      console.warn("update task failed", e);
+    }
+  }, 400);
+
+  document.querySelectorAll("[name=triggerType]").forEach((r) => {
+    r.addEventListener("change", () => {
+      if (r.value === "event") return;
+      save({ trigger: { type: r.value, cron: task.trigger.cron, at: task.trigger.at } });
+    });
+  });
+  document.getElementById("taskCron")?.addEventListener("input", (e) => {
+    save({ trigger: { ...task.trigger, type: "cron", cron: e.target.value } });
+  });
+  document.getElementById("taskAt")?.addEventListener("input", (e) => {
+    const iso = new Date(e.target.value).toISOString();
+    save({ trigger: { ...task.trigger, type: "oneshot", at: iso } });
+  });
+  document.getElementById("taskTimezone")?.addEventListener("input", (e) => {
+    save({ timezone: e.target.value });
+  });
+  document.getElementById("taskPrompt")?.addEventListener("input", (e) => {
+    save({ prompt: e.target.value });
+  });
+  els.tasksContent.querySelectorAll("[data-action]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const action = btn.dataset.action;
+      try {
+        if (action === "run-now") await window.aimashi.tasks.runNow(task.id);
+        if (action === "pause")   await window.aimashi.tasks.pause(task.id);
+        if (action === "resume")  await window.aimashi.tasks.resume(task.id);
+        if (action === "delete") {
+          if (!confirm(`删除任务「${task.title}」？已发生的历史记录会保留在会话里。`)) return;
+          await window.aimashi.tasks.delete(task.id);
+          state.selectedTaskId = "";
+        }
+      } catch (e) { console.warn("[task action]", action, e); }
+      await loadTasksFromDaemon();
+      renderTaskSidebar();
+      renderTaskView();
+    });
+  });
+  els.tasksContent.querySelectorAll("[data-run-id]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.selectedRunId = btn.dataset.runId;
+      renderTaskSidebar();
+      renderTaskView();
+    });
+  });
+  els.tasksContent.querySelectorAll("[data-jump-session]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const sessionId = btn.dataset.jumpSession;
+      const fellowKey = findFellowForSession(sessionId);
+      if (fellowKey) {
+        state.activeKey = fellowKey;
+        state.activeContactKey = fellowKey;
+        state.activeSessionIdByPersona[fellowKey] = sessionId;
+      }
+      state.activeView = "chat";
+      render();
+    });
+  });
+}
+
+function findFellowForSession(sessionId) {
+  // state.chatStore.sessions is keyed by personaKey; confirm fellow exists in runtime.
+  const fellows = state.runtime?.fellows || state.runtime?.personas || [];
+  const allSessions = state.chatStore?.sessions || {};
+  for (const f of fellows) {
+    const arr = allSessions[f.key];
+    if (!Array.isArray(arr)) continue;
+    if (arr.some((s) => s.id === sessionId)) return f.key;
+  }
+  // Fallback: scan all keys in chatStore in case fellow list isn't loaded yet.
+  for (const key of Object.keys(allSessions)) {
+    const arr = allSessions[key];
+    if (Array.isArray(arr) && arr.some((s) => s.id === sessionId)) return key;
+  }
+  return null;
 }
 
 async function loadTasksFromDaemon() {
