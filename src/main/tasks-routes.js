@@ -1,4 +1,6 @@
 // src/main/tasks-routes.js
+const { computeNextFire } = require("./scheduler.js");
+
 function writeJSON(res, status, body) {
   res.writeHead(status, {
     "Content-Type": "application/json; charset=utf-8",
@@ -13,7 +15,12 @@ function createTasksRoutes({ store, events, runNow, onChange }) {
     const method = req.method;
 
     if (method === "GET" && url === "/api/tasks") {
-      writeJSON(res, 200, { tasks: store.list() });
+      const now = Date.now();
+      const tasks = store.list().map((t) => ({
+        ...t,
+        nextFireAt: computeNextFire(t.trigger, t.timezone, now)
+      }));
+      writeJSON(res, 200, { tasks });
       return true;
     }
     if (method === "GET" && url.startsWith("/api/tasks/")) {

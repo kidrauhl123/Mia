@@ -129,7 +129,14 @@ const state = {
   streaming: null,
   openTraceKeys: new Set(),
   animatedTraceKeys: new Set(),
-  codexModels: []
+  codexModels: [],
+  tasks: [],
+  taskFilter: "",
+  selectedTaskId: "",
+  selectedRunId: "",
+  historyExpanded: false,
+  disabledExpanded: false,
+  tasksUnread: new Map()
 };
 
 const els = {
@@ -319,7 +326,16 @@ const els = {
   mobileRelayUrl: document.getElementById("mobileRelayUrl"),
   mobileRelayToggle: document.getElementById("mobileRelayToggle"),
   mobileRelayLink: document.getElementById("mobileRelayLink"),
-  mobileRelayHint: document.getElementById("mobileRelayHint")
+  mobileRelayHint: document.getElementById("mobileRelayHint"),
+  tasksUnreadBadge: document.getElementById("tasksUnreadBadge"),
+  tasksSidebar: document.getElementById("tasksSidebar"),
+  tasksNav: document.getElementById("tasksNav"),
+  tasksView: document.getElementById("tasksView"),
+  tasksContent: document.getElementById("tasksContent"),
+  tasksPageTitle: document.getElementById("tasksPageTitle"),
+  tasksPageMeta: document.getElementById("tasksPageMeta"),
+  taskActions: document.getElementById("taskActions"),
+  taskSearch: document.getElementById("taskSearch")
 };
 
 function setText(el, value) {
@@ -2836,9 +2852,11 @@ function renderView() {
   els.conversationSidebar?.classList.toggle("hidden", state.activeView !== "chat");
   els.contactsSidebar?.classList.toggle("hidden", state.activeView !== "contacts");
   els.skillsSidebar?.classList.toggle("hidden", state.activeView !== "skills");
+  els.tasksSidebar?.classList.toggle("hidden", state.activeView !== "tasks");
   els.chatView.classList.toggle("hidden", state.activeView !== "chat");
   els.contactsView?.classList.toggle("hidden", state.activeView !== "contacts");
   els.skillsView?.classList.toggle("hidden", state.activeView !== "skills");
+  els.tasksView?.classList.toggle("hidden", state.activeView !== "tasks");
   els.settingsView.classList.toggle("hidden", !state.settingsOpen);
   els.profileDialog?.classList.toggle("hidden", !state.profileDialogOpen);
   els.fellowCreateMenu?.classList.toggle("hidden", !state.fellowMenuOpen);
@@ -2861,6 +2879,8 @@ function renderView() {
   });
   renderSkillLibrary();
   renderContacts();
+  renderTaskSidebar();
+  renderTaskView();
 }
 
 function skillTone(skill = {}) {
@@ -3815,6 +3835,203 @@ async function saveFellowCapabilities(fellow, capabilities) {
     renderContacts();
   }
 }
+
+// ── Tasks view helpers ───────────────────────────────────────────────────────
+
+function fellowName(fellowId) {
+  const fellows = state.runtime?.fellows || state.runtime?.personas || [];
+  const f = fellows.find((x) => x.key === fellowId || x.id === fellowId);
+  return f?.name || fellowId;
+}
+
+function formatNextTime(ms) {
+  if (ms == null) return "—";
+  const d = new Date(ms);
+  return d.toLocaleString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+}
+
+function formatRunTime(ms) {
+  if (ms == null) return "—";
+  const d = new Date(ms);
+  return d.toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+function computeNextFireForUi(task) {
+  return task.nextFireAt != null ? task.nextFireAt : null;
+}
+
+function isTodayMs(ms, now) {
+  if (ms == null) return false;
+  const a = new Date(ms);
+  const b = new Date(now);
+  return a.getFullYear() === b.getFullYear()
+    && a.getMonth() === b.getMonth()
+    && a.getDate() === b.getDate();
+}
+
+function groupTasksForSidebar(tasks, now = Date.now()) {
+  const SEVEN_DAYS = 7 * 24 * 3600 * 1000;
+  const today = [];
+  const upcoming = [];
+  const disabled = [];
+  const history = [];
+
+  for (const task of tasks) {
+    if (task.status !== "active") {
+      disabled.push(task);
+      continue;
+    }
+    const next = computeNextFireForUi(task);
+    if (next == null) {
+      disabled.push(task);
+      continue;
+    }
+    if (isTodayMs(next, now)) today.push({ task, nextFire: next });
+    else if (next - now <= SEVEN_DAYS) upcoming.push({ task, nextFire: next });
+    else upcoming.push({ task, nextFire: next });
+  }
+  today.sort((a, b) => a.nextFire - b.nextFire);
+  upcoming.sort((a, b) => a.nextFire - b.nextFire);
+
+  for (const task of tasks) {
+    for (const run of (task.runs || []).slice(-50)) {
+      history.push({ task, run });
+    }
+  }
+  history.sort((a, b) => b.run.firedAt - a.run.firedAt);
+
+  return { today, upcoming, history, disabled };
+}
+
+function renderTaskSidebar() {
+  if (!els.tasksNav) return;
+  const filter = state.taskFilter.trim().toLowerCase();
+  const filtered = state.tasks.filter((t) =>
+    !filter || `${t.title} ${t.prompt}`.toLowerCase().includes(filter)
+  );
+  const groups = groupTasksForSidebar(filtered);
+
+  function row(task, label, dotClass, taskId) {
+    const unread = state.tasksUnread.get(taskId) || 0;
+    return `
+      <button class="task-row${state.selectedTaskId === taskId && !state.selectedRunId ? " active" : ""}"
+              type="button" data-task-id="${escapeHtml(taskId)}">
+        <span class="task-dot ${dotClass}"></span>
+        <span class="task-row-body">
+          <strong>${escapeHtml(task.title)}</strong>
+          <small>${escapeHtml(label)} · ${escapeHtml(fellowName(task.fellowId))}</small>
+        </span>
+        ${unread ? `<em class="task-unread">${unread}</em>` : ""}
+      </button>
+    `;
+  }
+
+  function historyRow(task, run) {
+    const icon = run.status === "ok" ? "✓" : run.status === "failed" ? "✗" : "·";
+    const selected = state.selectedRunId === run.id ? " active" : "";
+    return `
+      <button class="task-row history${selected}" type="button"
+              data-task-id="${escapeHtml(task.id)}" data-run-id="${escapeHtml(run.id)}">
+        <span class="task-status">${icon}</span>
+        <span class="task-row-body">
+          <strong>${escapeHtml(task.title)}</strong>
+          <small>${escapeHtml(formatRunTime(run.firedAt))}${run.status === "failed" ? " 失败" : ""}</small>
+        </span>
+      </button>
+    `;
+  }
+
+  let html = "";
+  if (groups.today.length) {
+    html += `<div class="task-group-head">今天 (${groups.today.length})</div>`;
+    html += groups.today.map((g) => row(g.task, formatNextTime(g.nextFire), "active", g.task.id)).join("");
+  }
+  if (groups.upcoming.length) {
+    html += `<div class="task-group-head">即将 (${groups.upcoming.length})</div>`;
+    html += groups.upcoming.map((g) => row(g.task, formatNextTime(g.nextFire), "upcoming", g.task.id)).join("");
+  }
+  if (groups.history.length) {
+    const open = state.historyExpanded;
+    html += `<div class="task-group-head collapsible" data-toggle="history">历史 (${groups.history.length}) ${open ? "⌃" : "⌄"}</div>`;
+    if (open) html += groups.history.slice(0, 50).map((g) => historyRow(g.task, g.run)).join("");
+  }
+  if (groups.disabled.length) {
+    const open = state.disabledExpanded;
+    html += `<div class="task-group-head collapsible" data-toggle="disabled">已停用 (${groups.disabled.length}) ${open ? "⌃" : "⌄"}</div>`;
+    if (open) html += groups.disabled.map((t) => row(t, "暂停 / 已完成", "disabled", t.id)).join("");
+  }
+  if (!html) html = `<div class="task-empty-side">还没有定时任务</div>`;
+  els.tasksNav.innerHTML = html;
+
+  els.tasksNav.querySelectorAll("[data-task-id]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.selectedTaskId = btn.dataset.taskId;
+      state.selectedRunId = btn.dataset.runId || "";
+      state.tasksUnread.delete(state.selectedTaskId);
+      updateTasksRailBadge();
+      renderTaskSidebar();
+      renderTaskView();
+    });
+  });
+  els.tasksNav.querySelectorAll("[data-toggle]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (btn.dataset.toggle === "history") state.historyExpanded = !state.historyExpanded;
+      if (btn.dataset.toggle === "disabled") state.disabledExpanded = !state.disabledExpanded;
+      renderTaskSidebar();
+    });
+  });
+}
+
+function renderTaskView() {
+  if (!els.tasksContent) return;
+  // Task 15 implements task detail; Task 16 implements run detail; Task 18 implements empty state.
+  if (!state.selectedTaskId) {
+    els.tasksContent.innerHTML = `<div class="tasks-empty-placeholder">选择左侧任务查看详情。</div>`;
+    return;
+  }
+  els.tasksContent.innerHTML = `<div class="tasks-empty-placeholder">任务详情（待 Task 15 实现）</div>`;
+}
+
+async function loadTasksFromDaemon() {
+  try {
+    state.tasks = await window.aimashi.tasks.list();
+  } catch (e) {
+    console.warn("load tasks failed", e);
+    state.tasks = [];
+  }
+}
+
+let _tasksUnsubscribe = null;
+function subscribeTaskEvents() {
+  if (_tasksUnsubscribe) return;
+  _tasksUnsubscribe = window.aimashi.tasks.subscribe(async (envelope) => {
+    await loadTasksFromDaemon();
+    if (envelope.type === "finished" || envelope.type === "failed") {
+      const taskId = envelope.payload?.taskId;
+      if (taskId && state.selectedTaskId !== taskId) {
+        state.tasksUnread.set(taskId, (state.tasksUnread.get(taskId) || 0) + 1);
+      }
+    }
+    updateTasksRailBadge();
+    if (state.activeView === "tasks") {
+      renderTaskSidebar();
+      renderTaskView();
+    }
+  });
+}
+
+function updateTasksRailBadge() {
+  if (!els.tasksUnreadBadge) return;
+  const total = [...state.tasksUnread.values()].reduce((a, b) => a + b, 0);
+  if (total > 0) {
+    els.tasksUnreadBadge.classList.remove("hidden");
+    els.tasksUnreadBadge.textContent = String(total > 99 ? "99+" : total);
+  } else {
+    els.tasksUnreadBadge.classList.add("hidden");
+  }
+}
+
+// ── End tasks view helpers ───────────────────────────────────────────────────
 
 function toggleCapabilityId(capabilities, id, enabledKey, disabledKey, checked) {
   const next = {
@@ -5593,6 +5810,13 @@ async function initializeRuntime() {
       trackStartupTask("扫描本地 Skill", loadSkills)
     ]).then(() => render());
   }, 800);
+  loadTasksFromDaemon().then(() => {
+    subscribeTaskEvents();
+    if (state.activeView === "tasks") {
+      renderTaskSidebar();
+      renderTaskView();
+    }
+  });
 }
 
 // Group info button in topbar
@@ -5710,6 +5934,10 @@ els.skillSearch?.addEventListener("input", () => {
   state.skillFilter = els.skillSearch.value;
   renderSkillLibrary();
 });
+els.taskSearch?.addEventListener("input", (e) => {
+  state.taskFilter = e.target.value;
+  renderTaskSidebar();
+});
 document.querySelectorAll("[data-skill-filter]").forEach((button) => {
   button.addEventListener("click", () => {
     state.skillCategoryFilter = button.dataset.skillFilter || "";
@@ -5724,6 +5952,12 @@ document.querySelectorAll("[data-view]").forEach((button) => {
     if (button.dataset.view === "settings") state.settingsOpen = true;
     if (button.dataset.view === "skills" && !state.skillLibrary.skills.length && !state.skillsLoading) loadSkills();
     renderView();
+    if (state.activeView === "tasks") {
+      loadTasksFromDaemon().then(() => {
+        renderTaskSidebar();
+        renderTaskView();
+      });
+    }
   });
 });
 
