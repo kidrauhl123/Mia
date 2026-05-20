@@ -31,8 +31,11 @@ const { requireFellow } = require("./main/fellow-registry.js");
 const { createClaudeCodeChatAdapter } = require("./main/claude-code-chat-adapter.js");
 const { createCodexChatAdapter } = require("./main/codex-chat-adapter.js");
 const { createHermesChatAdapter } = require("./main/hermes-chat-adapter.js");
+const { createRuntimeLifecycleService } = require("./main/runtime-lifecycle-service.js");
+const { createStartupTimer } = require("./main/startup-timing.js");
 
 app.setName("Aimashi");
+const startupTimer = createStartupTimer({ scope: "startup" });
 
 const OFFICIAL_ENGINE_PACKAGE = process.env.AIMASHI_ENGINE_PACKAGE || "hermes-agent";
 const OFFICIAL_ENGINE_REPO_URL = process.env.AIMASHI_ENGINE_REPO || "https://github.com/NousResearch/hermes-agent";
@@ -136,8 +139,6 @@ function readJson(filePath, fallback) {
 }
 
 let _groupStore = null;
-let runtimeInitialized = false;
-let backgroundStartupScheduled = false;
 function ensureGroupStore() {
   if (_groupStore) return _groupStore;
   _groupStore = createGroupStore(runtimePaths().groupsDir);
@@ -2020,8 +2021,7 @@ function ensureClaudeBridgePlugin() {
   return { path: bridgeDir, fingerprint };
 }
 
-function initializeRuntime() {
-  if (runtimeInitialized) return getRuntimeStatus();
+function initializeRuntimeCore() {
   const p = runtimePaths();
   const created = [];
   fs.mkdirSync(p.engine, { recursive: true });
@@ -2125,8 +2125,31 @@ function initializeRuntime() {
     appendEngineLog(`Claude bridge plugin setup failed: ${error?.message || error}`);
   }
 
-  runtimeInitialized = true;
   return getRuntimeStatus(created);
+}
+
+let runtimeLifecycleService = null;
+function runtimeLifecycle() {
+  if (!runtimeLifecycleService) {
+    runtimeLifecycleService = createRuntimeLifecycleService({
+      appendDaemonLog,
+      appendEngineLog,
+      getRuntimeStatus,
+      initializeRuntimeCore,
+      isDaemonProcess: IS_DAEMON_PROCESS,
+      refreshSystemHermesAsync,
+      setDaemonLastError: (message) => { controlServerState.lastError = message; },
+      setEngineLastError: (message) => { engineState.lastError = message; },
+      startDaemonService,
+      startEngine,
+      timer: startupTimer
+    });
+  }
+  return runtimeLifecycleService;
+}
+
+function initializeRuntime() {
+  return runtimeLifecycle().initializeRuntime();
 }
 
 function apiKey() {
@@ -6355,36 +6378,15 @@ function createWindow() {
   win.on("blur", () => sendWindowEvent("window:focus-state", false));
   win.on("enter-full-screen", () => sendWindowEvent("window:fullscreen", true));
   win.on("leave-full-screen", () => sendWindowEvent("window:fullscreen", false));
+  win.webContents.once("did-finish-load", () => startupTimer.mark("renderer:did-finish-load"));
   win.loadFile(path.join(__dirname, "renderer", "index.html"));
+  startupTimer.mark("window:load-file");
   return win;
 }
 
-function scheduleBackgroundStartup() {
-  if (IS_DAEMON_PROCESS || backgroundStartupScheduled) return;
-  backgroundStartupScheduled = true;
-  setTimeout(() => {
-    startDaemonService().catch((error) => {
-      controlServerState.lastError = String(error?.message || error);
-      appendDaemonLog(`Background daemon registration failed: ${controlServerState.lastError}`);
-    });
-    refreshSystemHermesAsync().catch(() => { /* cached lastError */ });
-    setTimeout(async () => {
-      try {
-        if (!getRuntimeStatus().engineInstalled) {
-          appendEngineLog("No Hermes available (system or managed); waiting for manual setup.");
-          return;
-        }
-        await startEngine();
-      } catch (error) {
-        engineState.lastError = error.message;
-        appendEngineLog(`Auto-start failed: ${error.message}`);
-      }
-    }, 1500);
-  }, 800);
-}
-
 ipcMain.on("ui:first-paint", () => {
-  scheduleBackgroundStartup();
+  startupTimer.mark("renderer:first-paint");
+  runtimeLifecycle().scheduleBackgroundStartup();
 });
 
 ipcMain.handle("window:close", (event) => {
@@ -6762,6 +6764,7 @@ ipcMain.handle("pet:place", (_event, key) => placeFellowPet(key));
 ipcMain.handle("pet:recall", (_event, key) => recallFellowPet(key));
 
 app.whenReady().then(async () => {
+  startupTimer.mark("app:ready");
   if (!IS_DAEMON_PROCESS && !shouldRunDesktopInstance) return;
   if (IS_DAEMON_PROCESS) {
     try {
@@ -6780,8 +6783,9 @@ app.whenReady().then(async () => {
     return;
   }
   const win = createWindow();
+  startupTimer.mark("window:created");
   win.webContents.once("did-finish-load", () => {
-    setTimeout(scheduleBackgroundStartup, 2500);
+    setTimeout(() => runtimeLifecycle().scheduleBackgroundStartup(), 2500);
   });
 });
 
