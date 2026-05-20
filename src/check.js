@@ -5,6 +5,7 @@ const assert = require("node:assert/strict");
 
 const required = [
   "src/main.js",
+  "src/main/chat-engine-adapters.js",
   "src/main/chat-engine-registry.js",
   "src/main/chat-events.js",
   "src/main/chat-response.js",
@@ -49,7 +50,7 @@ for (const file of required) {
   }
 }
 
-for (const file of ["src/main.js", "src/main/chat-engine-registry.js", "src/main/chat-events.js", "src/main/chat-response.js", "src/main/fellow-registry.js", "src/permission-modes.js", "src/runtime-resource-paths.js", "src/preload.js", "src/renderer/app.js", "src/mobile/app.js", "src/relay/server.js"]) {
+for (const file of ["src/main.js", "src/main/chat-engine-adapters.js", "src/main/chat-engine-registry.js", "src/main/chat-events.js", "src/main/chat-response.js", "src/main/fellow-registry.js", "src/permission-modes.js", "src/runtime-resource-paths.js", "src/preload.js", "src/renderer/app.js", "src/mobile/app.js", "src/relay/server.js"]) {
   childProcess.execFileSync(process.execPath, ["--check", path.join(__dirname, "..", file)], {
     stdio: "inherit"
   });

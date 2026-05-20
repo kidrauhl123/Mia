@@ -19,6 +19,12 @@ const {
   normalizeAgentEngine,
   resolveChatEngineAdapter
 } = require("./main/chat-engine-registry.js");
+const {
+  createChatEngineAdapters,
+  createStatelessChatEngineAdapters,
+  sendWithChatEngineAdapter,
+  sendWithStatelessChatEngineAdapter
+} = require("./main/chat-engine-adapters.js");
 const { createChatEventEmitter } = require("./main/chat-events.js");
 const { chatCompletionResponse, responseMessageContent } = require("./main/chat-response.js");
 const { requireFellow } = require("./main/fellow-registry.js");
@@ -6247,74 +6253,64 @@ async function sendCodexChat({ fellow, sessionId, messages, group, signal, utili
   });
 }
 
-async function sendChatStateless({ fellowKey, systemPrompt, userPrompt, signal }) {
-  const manifest = loadFellowManifest();
-  const { fellow } = requireFellow(manifest, fellowKey, "还没有可用的 fellow，请先在引导里创建一个再发起对话。");
-  const chatEngine = resolveChatEngineAdapter(fellow);
-  const agentEngine = chatEngine.id;
+function statelessPrompt(systemPrompt, userPrompt) {
+  return systemPrompt ? `${systemPrompt}\n\n${userPrompt}` : userPrompt;
+}
 
-  // --- Claude Code branch ---
-  if (chatEngine.id === "claude-code") {
-    const commandPath = shellCommandPath("claude");
-    if (!commandPath) throw new Error("本机没有检测到 Claude Code CLI。请先安装并确认 `claude --version` 可用。");
-    const { query } = await claudeAgentSdk();
-    // Prepend the system prompt to the user prompt so we don't touch the Fellow's
-    // existing session or inject their persona. No `resume` so it starts fresh.
-    const fullPrompt = systemPrompt ? `${systemPrompt}\n\n${userPrompt}` : userPrompt;
-    const options = {
-      cwd: process.cwd(),
-      pathToClaudeCodeExecutable: commandPath,
-      env: processEnvStrings(),
-      tools: { type: "preset", preset: "claude_code" },
-      settingSources: ["project", "user", "local"],
-      systemPrompt: { type: "preset", preset: "claude_code" }
-    };
-    const stream = query({ prompt: fullPrompt, options });
-    const chunks = [];
-    for await (const message of stream) {
-      if (signal?.aborted) break;
-      if (message?.type === "assistant") {
-        const text = claudeMessageText(message);
-        if (text) chunks.push(text);
-      }
-    }
-    if (signal?.aborted) {
-      const stopped = new Error("生成已停止");
-      stopped.code = "AIMASHI_STOPPED";
-      throw stopped;
-    }
-    return { content: chunks.join("\n").trim() };
-  }
+function stoppedError() {
+  const stopped = new Error("生成已停止");
+  stopped.code = "AIMASHI_STOPPED";
+  return stopped;
+}
 
-  // --- Codex branch ---
-  if (chatEngine.id === "codex") {
-    const commandPath = shellCommandPath("codex");
-    if (!commandPath) throw new Error("本机没有检测到 Codex CLI。请先安装并确认 `codex --version` 可用。");
-    const { Codex } = await codexSdk();
-    const codex = new Codex({
-      codexPathOverride: commandPath,
-      env: processEnvStrings()
-    });
-    const thread = codex.startThread({
-      workingDirectory: process.cwd(),
-      skipGitRepoCheck: true,
-      modelReasoningEffort: normalizeEffortLevel("medium", "codex"),
-      ...mapCodexPermissionMode("default")
-    });
-    const fullPrompt = systemPrompt ? `${systemPrompt}\n\n${userPrompt}` : userPrompt;
-    const turn = await thread.run(fullPrompt, { signal });
-    if (signal?.aborted) {
-      const stopped = new Error("生成已停止");
-      stopped.code = "AIMASHI_STOPPED";
-      throw stopped;
+async function sendClaudeCodeStateless({ systemPrompt, userPrompt, signal }) {
+  const commandPath = shellCommandPath("claude");
+  if (!commandPath) throw new Error("本机没有检测到 Claude Code CLI。请先安装并确认 `claude --version` 可用。");
+  const { query } = await claudeAgentSdk();
+  // Prepend the system prompt to the user prompt so we don't touch the Fellow's
+  // existing session or inject their persona. No `resume` so it starts fresh.
+  const fullPrompt = statelessPrompt(systemPrompt, userPrompt);
+  const options = {
+    cwd: process.cwd(),
+    pathToClaudeCodeExecutable: commandPath,
+    env: processEnvStrings(),
+    tools: { type: "preset", preset: "claude_code" },
+    settingSources: ["project", "user", "local"],
+    systemPrompt: { type: "preset", preset: "claude_code" }
+  };
+  const stream = query({ prompt: fullPrompt, options });
+  const chunks = [];
+  for await (const message of stream) {
+    if (signal?.aborted) break;
+    if (message?.type === "assistant") {
+      const text = claudeMessageText(message);
+      if (text) chunks.push(text);
     }
-    return { content: String(turn?.finalResponse || "").trim() };
   }
+  if (signal?.aborted) throw stoppedError();
+  return { content: chunks.join("\n").trim() };
+}
 
-  // --- Hermes branch (default) ---
-  if (!engineState.running || !engineState.baseUrl) {
-    await startEngine();
-  }
+async function sendCodexStateless({ systemPrompt, userPrompt, signal }) {
+  const commandPath = shellCommandPath("codex");
+  if (!commandPath) throw new Error("本机没有检测到 Codex CLI。请先安装并确认 `codex --version` 可用。");
+  const { Codex } = await codexSdk();
+  const codex = new Codex({
+    codexPathOverride: commandPath,
+    env: processEnvStrings()
+  });
+  const thread = codex.startThread({
+    workingDirectory: process.cwd(),
+    skipGitRepoCheck: true,
+    modelReasoningEffort: normalizeEffortLevel("medium", "codex"),
+    ...mapCodexPermissionMode("default")
+  });
+  const turn = await thread.run(statelessPrompt(systemPrompt, userPrompt), { signal });
+  if (signal?.aborted) throw stoppedError();
+  return { content: String(turn?.finalResponse || "").trim() };
+}
+
+async function sendHermesStateless({ fellow, systemPrompt, userPrompt, signal }) {
   const accountId = fellow.account_id || fellow.key;
   const routeProfile = fellow.route_profile || accountId;
   // Use a unique ephemeral session id so Hermes doesn't resume the Fellow's real thread.
@@ -6362,6 +6358,123 @@ async function sendChatStateless({ fellowKey, systemPrompt, userPrompt, signal }
   return { content: stream.content || "" };
 }
 
+function createActiveStatelessChatEngineAdapters() {
+  return createStatelessChatEngineAdapters({
+    ensureHermesReady: ensureHermesChatEngineReady,
+    sendClaudeCodeStateless,
+    sendCodexStateless,
+    sendHermesStateless
+  });
+}
+
+async function sendChatStateless({ fellowKey, systemPrompt, userPrompt, signal }) {
+  const manifest = loadFellowManifest();
+  const { fellow } = requireFellow(manifest, fellowKey, "还没有可用的 fellow，请先在引导里创建一个再发起对话。");
+  const chatEngine = resolveChatEngineAdapter(fellow);
+  return sendWithStatelessChatEngineAdapter(createActiveStatelessChatEngineAdapters(), {
+    chatEngine,
+    fellow,
+    systemPrompt,
+    userPrompt,
+    signal
+  });
+}
+
+async function ensureHermesChatEngineReady() {
+  if (!engineState.running || !engineState.baseUrl) {
+    await startEngine();
+  }
+}
+
+function hermesSlashCommandResponse({ id, content }) {
+  return {
+    id,
+    object: "chat.completion",
+    created: Math.floor(Date.now() / 1000),
+    model: adapterForEngine("hermes").responseModel,
+    choices: [
+      {
+        index: 0,
+        message: {
+          role: "assistant",
+          content: content || "(command completed)"
+        },
+        finish_reason: "stop"
+      }
+    ]
+  };
+}
+
+async function sendHermesChat({ fellow, sessionId, messages, group, signal, emit }) {
+  const runBody = buildRunPayload({ fellow, sessionId, messages });
+  const hermesHeaders = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${apiKey()}`,
+    "X-Aimashi-Fellow": fellow.key,
+    "X-Alkaka-Fellow": fellow.key
+  };
+  if (group && group.contextBlock) {
+    hermesHeaders["X-Aimashi-Group-Context"] = buildHermesGroupHeader(group.contextBlock);
+  }
+  const response = await fetch(`${engineState.baseUrl}/v1/runs`, {
+    method: "POST",
+    headers: hermesHeaders,
+    body: JSON.stringify(runBody),
+    signal
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    let message = text;
+    try {
+      message = JSON.parse(text).error?.message || text;
+    } catch {
+      // Keep the raw response text.
+    }
+    throw new Error(normalizeHermesError(message) || `${response.status} ${response.statusText}`);
+  }
+  const run = JSON.parse(text);
+  const hermesRunId = run.run_id || run.id;
+  if (!hermesRunId) throw new Error("Hermes did not return a run_id.");
+  const stream = await readRunEventStream({ runId: hermesRunId, signal, emit });
+  if (emit) emit("complete", { finishReason: stream.finishReason || "stop", aborted: false });
+  return {
+    id: hermesRunId,
+    object: "chat.completion",
+    created: Math.floor(Date.now() / 1000),
+    model: adapterForEngine("hermes").responseModel,
+    choices: [
+      {
+        index: 0,
+        message: {
+          role: "assistant",
+          content: stream.content || ""
+        },
+        finish_reason: stream.finishReason
+      }
+    ],
+    aimashi: {
+      transport: "runs",
+      run_id: hermesRunId,
+      session_id: runBody.session_id,
+      fellow_key: fellow.key,
+      events: stream.events
+    }
+  };
+}
+
+function createActiveChatEngineAdapters() {
+  return createChatEngineAdapters({
+    chatCompletionResponse,
+    ensureHermesReady: ensureHermesChatEngineReady,
+    hermesSlashCommandResponse,
+    runExternalSlashCommand,
+    runHermesSlashCommand,
+    sendClaudeCodeChat,
+    sendCodexChat,
+    sendHermesChat
+  });
+}
+
 async function sendChat({ fellowKey, personaKey, sessionId, messages, group, webContents, utility = false }) {
   utility = Boolean(utility);
   let abortController;
@@ -6395,112 +6508,19 @@ async function sendChat({ fellowKey, personaKey, sessionId, messages, group, web
       emit("session_started", { fellowKey: fellow.key, engine: agentEngine });
     }
     const slashText = isSlashCommandText(messages);
-    if (chatEngine.id === "claude-code") {
-      if (slashText) {
-        const localResult = runExternalSlashCommand({ text: slashText, fellow, engine: agentEngine, sessionId });
-        if (localResult != null) {
-          return completeWithPetMessage(chatCompletionResponse({
-            id: `cmd_${crypto.randomUUID()}`,
-            model: chatEngine.responseModel,
-            content: localResult,
-            aimashi: { transport: "local-command", engine: agentEngine, fellow_key: fellow.key }
-          }));
-        }
-      }
-      return completeWithPetMessage(await sendClaudeCodeChat({ fellow, sessionId, messages, group, signal, abortController, emit, utility }));
-    }
-    if (chatEngine.id === "codex") {
-      if (slashText) {
-        const localResult = runExternalSlashCommand({ text: slashText, fellow, engine: agentEngine, sessionId });
-        if (localResult != null) {
-          return completeWithPetMessage(chatCompletionResponse({
-            id: `cmd_${crypto.randomUUID()}`,
-            model: chatEngine.responseModel,
-            content: localResult,
-            aimashi: { transport: "local-command", engine: agentEngine, fellow_key: fellow.key }
-          }));
-        }
-      }
-      return completeWithPetMessage(await sendCodexChat({ fellow, sessionId, messages, group, signal, utility }));
-    }
-
-    if (!engineState.running || !engineState.baseUrl) {
-      await startEngine();
-    }
-    if (slashText) {
-      const content = runHermesSlashCommand({ text: slashText, fellow, sessionId });
-      return completeWithPetMessage({
-        id: `cmd_${crypto.randomUUID()}`,
-        object: "chat.completion",
-        created: Math.floor(Date.now() / 1000),
-        model: adapterForEngine("hermes").responseModel,
-        choices: [
-          {
-            index: 0,
-            message: {
-              role: "assistant",
-              content: content || "(command completed)"
-            },
-            finish_reason: "stop"
-          }
-        ]
-      });
-    }
-
-    const runBody = buildRunPayload({ fellow, sessionId, messages });
-    const hermesHeaders = {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey()}`,
-      "X-Aimashi-Fellow": fellow.key,
-      "X-Alkaka-Fellow": fellow.key
-    };
-    if (group && group.contextBlock) {
-      hermesHeaders["X-Aimashi-Group-Context"] = buildHermesGroupHeader(group.contextBlock);
-    }
-    const response = await fetch(`${engineState.baseUrl}/v1/runs`, {
-      method: "POST",
-      headers: hermesHeaders,
-      body: JSON.stringify(runBody),
-      signal
+    const response = await sendWithChatEngineAdapter(createActiveChatEngineAdapters(), {
+      chatEngine,
+      fellow,
+      sessionId,
+      messages,
+      group,
+      signal,
+      abortController,
+      emit,
+      utility,
+      slashText
     });
-    const text = await response.text();
-    if (!response.ok) {
-      let message = text;
-      try {
-        message = JSON.parse(text).error?.message || text;
-      } catch {
-        // Keep the raw response text.
-      }
-      throw new Error(normalizeHermesError(message) || `${response.status} ${response.statusText}`);
-    }
-    const run = JSON.parse(text);
-    const hermesRunId = run.run_id || run.id;
-    if (!hermesRunId) throw new Error("Hermes did not return a run_id.");
-    const stream = await readRunEventStream({ runId: hermesRunId, signal, emit });
-    if (emit) emit("complete", { finishReason: stream.finishReason || "stop", aborted: false });
-    return completeWithPetMessage({
-      id: hermesRunId,
-      object: "chat.completion",
-      created: Math.floor(Date.now() / 1000),
-      model: "hermes-agent",
-      choices: [
-        {
-          index: 0,
-          message: {
-            role: "assistant",
-            content: stream.content || ""
-          },
-          finish_reason: stream.finishReason
-        }
-      ],
-      aimashi: {
-        transport: "runs",
-        run_id: hermesRunId,
-        session_id: runBody.session_id,
-        fellow_key: fellow.key,
-        events: stream.events
-      }
-    });
+    return completeWithPetMessage(response);
   } catch (error) {
     if (signal.aborted) {
       if (emit) emit("complete", { finishReason: "cancelled", aborted: true });
