@@ -28,6 +28,8 @@ const {
 const { createChatEventEmitter } = require("./main/chat-events.js");
 const { chatCompletionResponse, responseMessageContent } = require("./main/chat-response.js");
 const { requireFellow } = require("./main/fellow-registry.js");
+const { createClaudeCodeChatAdapter } = require("./main/claude-code-chat-adapter.js");
+const { createCodexChatAdapter } = require("./main/codex-chat-adapter.js");
 const { createHermesChatAdapter } = require("./main/hermes-chat-adapter.js");
 
 app.setName("Aimashi");
@@ -6011,312 +6013,14 @@ function lastUserPrompt(messages) {
   return [last.content, attachmentText ? `附件上下文：\n${attachmentText}` : ""].filter(Boolean).join("\n\n");
 }
 
-function claudeMessageText(message) {
-  if (!message || typeof message !== "object") return "";
-  const direct = firstTextValue(message.text || message.content || message.delta);
-  if (direct) return direct;
-  const nested = message.message || message.data || {};
-  return firstTextValue(nested.content || nested.text || nested.delta);
-}
-
-function normalizeClaudePermissionMode(value) {
-  const id = String(value || "default").trim();
-  if (["default", "acceptEdits", "auto", "bypassPermissions", "plan", "dontAsk"].includes(id)) return id;
-  return "default";
-}
-
-async function sendClaudeCodeChat({ fellow, sessionId, messages, group, signal, abortController, emit, utility = false }) {
-  const engine = "claude-code";
-  const commandPath = shellCommandPath("claude");
-  if (!commandPath) throw new Error("本机没有检测到 Claude Code CLI。请先安装并确认 `claude --version` 可用。");
-  const lastUser = lastUserPrompt(messages);
-  const prompt = expandLeadingSkillCommand(lastUser, { mode: "native" }) || lastUser;
-  const promptWithGroup = group && group.contextBlock
-    ? injectGroupContextForSdk(prompt, group.contextBlock)
-    : prompt;
-  const persona = readFellowPersona(fellow.key, fellow.name, fellow.bio).trim();
-  const { query } = await claudeAgentSdk();
-  let bridgePluginPath = "";
-  let bridgeFingerprint = "";
-  try {
-    const bridge = ensureClaudeBridgePlugin();
-    bridgePluginPath = bridge.path;
-    bridgeFingerprint = bridge.fingerprint;
-  } catch (error) {
-    appendEngineLog(`Claude bridge plugin refresh failed: ${error?.message || error}`);
-  }
-  const savedEntry = utility ? {} : getAgentSessionEntry(engine, fellow.key, sessionId);
-  const externalSessionId = savedEntry.id && savedEntry.fingerprint === bridgeFingerprint
-    ? savedEntry.id
-    : "";
-  const options = {
-    abortController,
-    cwd: process.cwd(),
-    pathToClaudeCodeExecutable: commandPath,
-    env: processEnvStrings(),
-    tools: { type: "preset", preset: "claude_code" },
-    settingSources: ["project", "user", "local"],
-    permissionMode: normalizeClaudePermissionMode(fellow.engineConfig?.permissionMode || fellow.agentPermissionMode || "default"),
-    systemPrompt: {
-      type: "preset",
-      preset: "claude_code",
-      append: persona
-    },
-    includePartialMessages: Boolean(emit),
-    ...(bridgePluginPath ? { plugins: [{ type: "local", path: bridgePluginPath }], skills: "all" } : {})
-  };
-  if (externalSessionId) options.resume = externalSessionId;
-  if (fellow.engineConfig?.model) options.model = String(fellow.engineConfig.model);
-  options.effort = normalizeEffortLevel(fellow.engineConfig?.effortLevel || "medium", "claude-code");
-  if (options.permissionMode === "bypassPermissions") options.allowDangerouslySkipPermissions = true;
-
-  const stream = query({ prompt: promptWithGroup, options });
-  let capturedSessionId = externalSessionId;
-  const chunks = [];
-  // Per-turn streaming state: indexed by content block index from the SDK partial events.
-  let activeTextId = null;
-  const reasoningId = `reasoning_${crypto.randomUUID()}`;
-  const blockIndex = new Map(); // index -> {kind: 'text'|'thinking'|'tool_use', id, name, input}
-  for await (const message of stream) {
-    if (signal?.aborted) break;
-    if (message?.session_id && !capturedSessionId) {
-      capturedSessionId = message.session_id;
-      if (!utility) setAgentSessionEntry(engine, fellow.key, sessionId, capturedSessionId, bridgeFingerprint);
-    }
-
-    // Token-level streaming (when includePartialMessages: true)
-    if (emit && message?.type === "stream_event") {
-      const ev = message.event;
-      if (!ev) continue;
-      if (ev.type === "content_block_start" && ev.content_block) {
-        const idx = ev.index;
-        const block = ev.content_block;
-        if (block.type === "text") {
-          if (!activeTextId) activeTextId = `text_${crypto.randomUUID()}`;
-          blockIndex.set(idx, { kind: "text", id: activeTextId });
-        } else if (block.type === "thinking") {
-          blockIndex.set(idx, { kind: "thinking", id: reasoningId });
-        } else if (block.type === "tool_use") {
-          const toolId = String(block.id || `tool_${idx}`);
-          const toolName = String(block.name || "tool");
-          const preview = block.input ? JSON.stringify(block.input, null, 2) : "";
-          blockIndex.set(idx, { kind: "tool_use", id: toolId, name: toolName, input: preview });
-          emit("tool_call_started", { id: toolId, name: toolName, preview });
-        }
-      } else if (ev.type === "content_block_delta" && ev.delta) {
-        const meta = blockIndex.get(ev.index);
-        if (!meta) continue;
-        if (ev.delta.type === "text_delta" && meta.kind === "text") {
-          emit("text_delta", { id: meta.id, text: String(ev.delta.text || "") });
-        } else if (ev.delta.type === "thinking_delta" && meta.kind === "thinking") {
-          emit("reasoning_delta", { id: meta.id, text: String(ev.delta.thinking || "") });
-        } else if (ev.delta.type === "input_json_delta" && meta.kind === "tool_use") {
-          meta.input = `${meta.input || ""}${String(ev.delta.partial_json || "")}`;
-          emit("tool_call_delta", {
-            id: meta.id,
-            name: meta.name,
-            preview: meta.input.slice(0, 4000)
-          });
-        }
-      }
-      continue;
-    }
-
-    // Whole assistant message — capture final text + close any text block; also catch tool_use blocks
-    // if includePartialMessages was off.
-    if (message?.type === "assistant") {
-      const beta = message.message;
-      const contentBlocks = Array.isArray(beta?.content) ? beta.content : [];
-      const text = claudeMessageText(message);
-      if (text) chunks.push(text);
-      if (!emit) continue;
-      activeTextId = null; // start a fresh text id for next assistant turn
-      // Fallback: when partial streaming wasn't on, emit one big text_delta here.
-      if (!options.includePartialMessages && text) {
-        emit("text_delta", { id: `text_${crypto.randomUUID()}`, text });
-      }
-      for (const block of contentBlocks) {
-        if (block?.type === "tool_use" && !options.includePartialMessages) {
-          const toolId = String(block.id || `tool_${crypto.randomUUID()}`);
-          const toolName = String(block.name || "tool");
-          const preview = block.input ? JSON.stringify(block.input).slice(0, 160) : "";
-          emit("tool_call_started", { id: toolId, name: toolName, preview });
-        }
-      }
-      continue;
-    }
-
-    // tool_result follow-ups arrive as user messages with content blocks of type 'tool_result'
-    if (emit && message?.type === "user") {
-      const beta = message.message;
-      const contentBlocks = Array.isArray(beta?.content) ? beta.content : [];
-      for (const block of contentBlocks) {
-        if (block?.type === "tool_result") {
-          const toolId = String(block.tool_use_id || "");
-          const resultPreview = firstTextValue(block.content).slice(0, 4000);
-          emit("tool_call_completed", {
-            id: toolId,
-            name: "",
-            preview: resultPreview,
-            duration: null,
-            error: Boolean(block.is_error)
-          });
-        }
-      }
-    }
-  }
-  if (capturedSessionId && !externalSessionId && !utility) setAgentSessionEntry(engine, fellow.key, sessionId, capturedSessionId, bridgeFingerprint);
-  if (signal?.aborted) {
-    if (emit) emit("complete", { finishReason: "cancelled", aborted: true });
-    const stopped = new Error("生成已停止");
-    stopped.code = "AIMASHI_STOPPED";
-    throw stopped;
-  }
-  if (emit) emit("complete", { finishReason: "stop", aborted: false });
-  return chatCompletionResponse({
-    id: capturedSessionId || `claude_${crypto.randomUUID()}`,
-    model: "claude-code",
-    content: chunks.join("\n").trim(),
-    aimashi: {
-      transport: "claude-agent-sdk",
-      engine,
-      session_id: capturedSessionId || "",
-      fellow_key: fellow.key
-    }
-  });
-}
-
-function mapCodexPermissionMode(value) {
-  const id = String(value || "default").trim();
-  if (id === "acceptEdits") return { sandboxMode: "workspace-write", approvalPolicy: "on-request" };
-  if (id === "bypassPermissions") return { sandboxMode: "danger-full-access", approvalPolicy: "never" };
-  if (id === "readOnly") return { sandboxMode: "read-only", approvalPolicy: "on-request" };
-  return { sandboxMode: "workspace-write", approvalPolicy: "untrusted" };
-}
-
-async function sendCodexChat({ fellow, sessionId, messages, group, signal, utility = false }) {
-  const engine = "codex";
-  const commandPath = shellCommandPath("codex");
-  if (!commandPath) throw new Error("本机没有检测到 Codex CLI。请先安装并确认 `codex --version` 可用。");
-  const externalSessionId = utility ? "" : getAgentSessionId(engine, fellow.key, sessionId);
-  const lastUser = lastUserPrompt(messages);
-  const userText = expandLeadingSkillCommand(lastUser, { mode: "inline" }) || lastUser;
-  const persona = !externalSessionId
-    ? readFellowPersona(fellow.key, fellow.name, fellow.bio).trim()
-    : "";
-  const prompt = persona
-    ? [
-        "以下是 Aimashi 给当前 Fellow 的人设，请在本次对话中遵守：",
-        "",
-        persona,
-        "",
-        "用户消息：",
-        userText
-      ].join("\n")
-    : userText;
-  const promptWithGroup = group && group.contextBlock
-    ? injectGroupContextForSdk(prompt, group.contextBlock)
-    : prompt;
-  const { Codex } = await codexSdk();
-  const codex = new Codex({
-    codexPathOverride: commandPath,
-    env: processEnvStrings()
-  });
-  const permission = mapCodexPermissionMode(fellow.engineConfig?.permissionMode || fellow.agentPermissionMode || "default");
-  const threadOptions = {
-    workingDirectory: process.cwd(),
-    skipGitRepoCheck: true,
-    modelReasoningEffort: normalizeEffortLevel(fellow.engineConfig?.effortLevel || "medium", "codex"),
-    ...permission
-  };
-  if (fellow.engineConfig?.model) threadOptions.model = String(fellow.engineConfig.model);
-  const thread = externalSessionId
-    ? codex.resumeThread(externalSessionId, threadOptions)
-    : codex.startThread(threadOptions);
-  const turn = await thread.run(promptWithGroup, { signal });
-  const capturedSessionId = externalSessionId || thread.id || "";
-  if (capturedSessionId && !externalSessionId && !utility) setAgentSessionId(engine, fellow.key, sessionId, capturedSessionId);
-  if (signal?.aborted) {
-    const stopped = new Error("生成已停止");
-    stopped.code = "AIMASHI_STOPPED";
-    throw stopped;
-  }
-  return chatCompletionResponse({
-    id: capturedSessionId || `codex_${crypto.randomUUID()}`,
-    model: "codex-cli",
-    content: String(turn?.finalResponse || "").trim(),
-    aimashi: {
-      transport: "codex-sdk",
-      engine,
-      session_id: capturedSessionId || "",
-      fellow_key: fellow.key
-    }
-  });
-}
-
-function statelessPrompt(systemPrompt, userPrompt) {
-  return systemPrompt ? `${systemPrompt}\n\n${userPrompt}` : userPrompt;
-}
-
-function stoppedError() {
-  const stopped = new Error("生成已停止");
-  stopped.code = "AIMASHI_STOPPED";
-  return stopped;
-}
-
-async function sendClaudeCodeStateless({ systemPrompt, userPrompt, signal }) {
-  const commandPath = shellCommandPath("claude");
-  if (!commandPath) throw new Error("本机没有检测到 Claude Code CLI。请先安装并确认 `claude --version` 可用。");
-  const { query } = await claudeAgentSdk();
-  // Prepend the system prompt to the user prompt so we don't touch the Fellow's
-  // existing session or inject their persona. No `resume` so it starts fresh.
-  const fullPrompt = statelessPrompt(systemPrompt, userPrompt);
-  const options = {
-    cwd: process.cwd(),
-    pathToClaudeCodeExecutable: commandPath,
-    env: processEnvStrings(),
-    tools: { type: "preset", preset: "claude_code" },
-    settingSources: ["project", "user", "local"],
-    systemPrompt: { type: "preset", preset: "claude_code" }
-  };
-  const stream = query({ prompt: fullPrompt, options });
-  const chunks = [];
-  for await (const message of stream) {
-    if (signal?.aborted) break;
-    if (message?.type === "assistant") {
-      const text = claudeMessageText(message);
-      if (text) chunks.push(text);
-    }
-  }
-  if (signal?.aborted) throw stoppedError();
-  return { content: chunks.join("\n").trim() };
-}
-
-async function sendCodexStateless({ systemPrompt, userPrompt, signal }) {
-  const commandPath = shellCommandPath("codex");
-  if (!commandPath) throw new Error("本机没有检测到 Codex CLI。请先安装并确认 `codex --version` 可用。");
-  const { Codex } = await codexSdk();
-  const codex = new Codex({
-    codexPathOverride: commandPath,
-    env: processEnvStrings()
-  });
-  const thread = codex.startThread({
-    workingDirectory: process.cwd(),
-    skipGitRepoCheck: true,
-    modelReasoningEffort: normalizeEffortLevel("medium", "codex"),
-    ...mapCodexPermissionMode("default")
-  });
-  const turn = await thread.run(statelessPrompt(systemPrompt, userPrompt), { signal });
-  if (signal?.aborted) throw stoppedError();
-  return { content: String(turn?.finalResponse || "").trim() };
-}
-
 function createActiveStatelessChatEngineAdapters() {
+  const claudeAdapter = createActiveClaudeCodeChatAdapter();
+  const codexAdapter = createActiveCodexChatAdapter();
   const hermesAdapter = createActiveHermesChatAdapter();
   return createStatelessChatEngineAdapters({
     ensureHermesReady: ensureHermesChatEngineReady,
-    sendClaudeCodeStateless,
-    sendCodexStateless,
+    sendClaudeCodeStateless: claudeAdapter.sendStateless,
+    sendCodexStateless: codexAdapter.sendStateless,
     sendHermesStateless: hermesAdapter.sendStateless
   });
 }
@@ -6352,7 +6056,43 @@ function createActiveHermesChatAdapter() {
   });
 }
 
+function createActiveClaudeCodeChatAdapter() {
+  return createClaudeCodeChatAdapter({
+    appendEngineLog,
+    chatCompletionResponse,
+    claudeAgentSdk,
+    ensureClaudeBridgePlugin,
+    expandLeadingSkillCommand,
+    getAgentSessionEntry,
+    injectGroupContextForSdk,
+    lastUserPrompt,
+    normalizeEffortLevel,
+    processEnvStrings,
+    readFellowPersona,
+    setAgentSessionEntry,
+    shellCommandPath
+  });
+}
+
+function createActiveCodexChatAdapter() {
+  return createCodexChatAdapter({
+    chatCompletionResponse,
+    codexSdk,
+    expandLeadingSkillCommand,
+    getAgentSessionId,
+    injectGroupContextForSdk,
+    lastUserPrompt,
+    normalizeEffortLevel,
+    processEnvStrings,
+    readFellowPersona,
+    setAgentSessionId,
+    shellCommandPath
+  });
+}
+
 function createActiveChatEngineAdapters() {
+  const claudeAdapter = createActiveClaudeCodeChatAdapter();
+  const codexAdapter = createActiveCodexChatAdapter();
   const hermesAdapter = createActiveHermesChatAdapter();
   return createChatEngineAdapters({
     chatCompletionResponse,
@@ -6360,8 +6100,8 @@ function createActiveChatEngineAdapters() {
     hermesSlashCommandResponse: hermesAdapter.slashCommandResponse,
     runExternalSlashCommand,
     runHermesSlashCommand,
-    sendClaudeCodeChat,
-    sendCodexChat,
+    sendClaudeCodeChat: claudeAdapter.sendChat,
+    sendCodexChat: codexAdapter.sendChat,
     sendHermesChat: hermesAdapter.sendChat
   });
 }
