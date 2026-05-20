@@ -1026,13 +1026,36 @@ function ensureCodexHome() {
   const aimashiCodexHome = path.join(runtimePaths().runtime, "codex-home");
   fs.mkdirSync(aimashiCodexHome, { recursive: true });
 
-  // Copy auth.json from user's ~/.codex if present (needed for OpenAI API key)
+  // Symlink everything in user's ~/.codex into our private home EXCEPT
+  // config.toml — we own config.toml so we can append our MCP server entry,
+  // but auth, sessions, history, cache, logs, plugins, skills, etc. all
+  // stay live-linked to the user's real ~/.codex. This keeps thread/resume
+  // working (rollouts live in ~/.codex/sessions/), and survives key rotation.
   const userCodexHome = path.join(require("node:os").homedir(), ".codex");
-  for (const name of ["auth.json"]) {
-    const src = path.join(userCodexHome, name);
-    const dst = path.join(aimashiCodexHome, name);
-    if (fs.existsSync(src) && !fs.existsSync(dst)) {
-      try { fs.copyFileSync(src, dst); } catch { /* ignore */ }
+  if (fs.existsSync(userCodexHome)) {
+    let entries = [];
+    try { entries = fs.readdirSync(userCodexHome); } catch { /* ignore */ }
+    for (const name of entries) {
+      if (name === "config.toml") continue;
+      const target = path.join(userCodexHome, name);
+      const link = path.join(aimashiCodexHome, name);
+      let existing = null;
+      try { existing = fs.lstatSync(link); } catch { /* missing is fine */ }
+      if (existing) {
+        // Drop stale non-symlinks (e.g., auth.json copied by older builds).
+        if (!existing.isSymbolicLink()) {
+          try { fs.rmSync(link, { recursive: true, force: true }); }
+          catch { /* ignore */ }
+        } else {
+          continue;
+        }
+      }
+      try {
+        let stat = null;
+        try { stat = fs.statSync(target); } catch { /* broken target, skip */ }
+        if (!stat) continue;
+        fs.symlinkSync(target, link, stat.isDirectory() ? "dir" : "file");
+      } catch { /* ignore individual symlink failures */ }
     }
   }
 
