@@ -33,6 +33,12 @@ const { createCodexChatAdapter } = require("./main/codex-chat-adapter.js");
 const { createHermesChatAdapter } = require("./main/hermes-chat-adapter.js");
 const { createRuntimeLifecycleService } = require("./main/runtime-lifecycle-service.js");
 const { createStartupTimer } = require("./main/startup-timing.js");
+const { createTasksStore } = require("./main/tasks-store.js");
+const { computeNextFire, isFireable, createScheduler } = require("./main/scheduler.js");
+const { createFireRunner } = require("./main/scheduler-fire.js");
+const { createTasksEventBus } = require("./main/tasks-events.js");
+const { createTasksRoutes } = require("./main/tasks-routes.js");
+const { createSchedulerMcp, SCHEDULER_MCP_NAME } = require("./main/scheduler-mcp.js");
 
 app.setName("Aimashi");
 const startupTimer = createStartupTimer({ scope: "startup" });
@@ -190,6 +196,7 @@ function runtimePaths() {
     petRemoteSettings: path.join(home, "aimashi-pet-remote.json"),
     appearanceSettings: path.join(home, "aimashi-appearance.json"),
     chatSessions: path.join(home, "aimashi-sessions.json"),
+    tasks: path.join(home, "aimashi-tasks.json"),
     attachmentsDir: path.join(home, "attachments"),
     groupsDir: path.join(home, "groups"),
     petDir: path.join(home, "pets"),
@@ -4920,9 +4927,85 @@ async function handleControlRequest(req, res) {
       }
       return;
     }
+    // Route: tasks subsystem
+    const taskUrl = new URL(req.url || "/", `http://${req.headers.host || "127.0.0.1"}`);
+    if (taskUrl.pathname === "/api/tasks/events" && req.method === "GET") {
+      initSchedulerSubsystem();
+      tasksRoutes.handleEventsStream(req, res);
+      return;
+    }
+    if (taskUrl.pathname.startsWith("/api/tasks") || taskUrl.pathname === "/api/tasks") {
+      initSchedulerSubsystem();
+      const body = ["POST", "PATCH"].includes(req.method) ? await readControlBody(req) : null;
+      const handled = await tasksRoutes.handle(req, res, body);
+      if (handled) return;
+    }
     writeControlJson(res, 404, { error: "Not found" });
   } catch (error) {
     writeControlJson(res, 500, { error: String(error?.message || error) });
+  }
+}
+
+let tasksStore = null;
+let tasksEvents = null;
+let scheduler = null;
+let tasksRoutes = null;
+let schedulerMcp = null;
+
+function initSchedulerSubsystem() {
+  if (tasksStore) return; // idempotent
+  const p = runtimePaths();
+  tasksStore = createTasksStore(p.tasks);
+  tasksEvents = createTasksEventBus();
+  const fireRunner = createFireRunner({
+    store: tasksStore,
+    runRemoteChatRequest,
+    emit: (type, payload) => tasksEvents.emit(type, payload)
+  });
+  scheduler = createScheduler({
+    store: tasksStore,
+    onFire: (task) => fireRunner.fire(task)
+  });
+  tasksRoutes = createTasksRoutes({
+    store: tasksStore,
+    events: tasksEvents,
+    runNow: async (id) => {
+      const task = tasksStore.get(id);
+      if (!task) throw new Error("task not found");
+      const run = await fireRunner.fire(task);
+      return { runId: run.id };
+    },
+    onChange: () => scheduler.rescan()
+  });
+  schedulerMcp = createSchedulerMcp({
+    store: tasksStore,
+    scheduler,
+    events: tasksEvents
+  });
+  // TODO(scheduler-mcp-bridge): expose schedule.* tools to Claude Code/Codex via stdio MCP server
+  if (IS_DAEMON_PROCESS) {
+    sweepExpiredOneshotTasks(tasksStore);
+    scheduler.start();
+    appendDaemonLog("Scheduler started");
+  }
+}
+
+// Per spec §9: oneshot tasks whose 'at' has passed while daemon was down
+// transition to status="failed" with a recorded run noting "daemon offline".
+function sweepExpiredOneshotTasks(store) {
+  const now = Date.now();
+  for (const task of store.list()) {
+    if (task.status !== "active") continue;
+    if (task.trigger.type !== "oneshot") continue;
+    const at = new Date(task.trigger.at).getTime();
+    if (Number.isNaN(at) || at > now) continue;
+    store.recordRun(task.id, {
+      firedAt: at,
+      finishedAt: now,
+      status: "failed",
+      error: "missed: daemon offline at scheduled time"
+    });
+    store.update(task.id, { status: "failed" });
   }
 }
 
