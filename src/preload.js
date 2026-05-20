@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
 contextBridge.exposeInMainWorld("aimashi", {
   initializeRuntime: () => ipcRenderer.invoke("runtime:initialize"),
+  notifyFirstPaint: () => ipcRenderer.send("ui:first-paint"),
   runtimeStatus: () => ipcRenderer.invoke("runtime:status"),
   daemonStatus: () => ipcRenderer.invoke("daemon:status"),
   daemonPairing: () => ipcRenderer.invoke("daemon:pairing"),

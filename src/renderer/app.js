@@ -7398,7 +7398,29 @@ window.aimashi.onChatEvent((envelope) => {
 });
 
 resizeChatInput();
-initializeRuntime();
+function startAfterFirstPaint() {
+  const start = () => {
+    try { window.aimashi?.notifyFirstPaint?.(); } catch { /* main may not expose this in older builds */ }
+    initializeRuntime().catch((error) => {
+      console.error("Failed to initialize Aimashi runtime", error);
+      const message = error?.message || String(error || "Unknown error");
+      els.chat.innerHTML = `
+        <article class="setup-guide bootstrap">
+          <div class="setup-guide-main">
+            <strong>Aimashi 初始化失败</strong>
+            <p>${escapeHtml(message)}</p>
+          </div>
+        </article>
+      `;
+    });
+  };
+  if (typeof window.requestAnimationFrame === "function") {
+    window.requestAnimationFrame(() => setTimeout(start, 0));
+  } else {
+    setTimeout(start, 0);
+  }
+}
+startAfterFirstPaint();
 renderSendButton();
 renderHeaderStatus();
 setInterval(refreshRuntime, 2000);

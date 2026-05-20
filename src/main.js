@@ -136,6 +136,8 @@ function readJson(filePath, fallback) {
 }
 
 let _groupStore = null;
+let runtimeInitialized = false;
+let backgroundStartupScheduled = false;
 function ensureGroupStore() {
   if (_groupStore) return _groupStore;
   _groupStore = createGroupStore(runtimePaths().groupsDir);
@@ -2019,6 +2021,7 @@ function ensureClaudeBridgePlugin() {
 }
 
 function initializeRuntime() {
+  if (runtimeInitialized) return getRuntimeStatus();
   const p = runtimePaths();
   const created = [];
   fs.mkdirSync(p.engine, { recursive: true });
@@ -2122,6 +2125,7 @@ function initializeRuntime() {
     appendEngineLog(`Claude bridge plugin setup failed: ${error?.message || error}`);
   }
 
+  runtimeInitialized = true;
   return getRuntimeStatus(created);
 }
 
@@ -6352,7 +6356,36 @@ function createWindow() {
   win.on("enter-full-screen", () => sendWindowEvent("window:fullscreen", true));
   win.on("leave-full-screen", () => sendWindowEvent("window:fullscreen", false));
   win.loadFile(path.join(__dirname, "renderer", "index.html"));
+  return win;
 }
+
+function scheduleBackgroundStartup() {
+  if (IS_DAEMON_PROCESS || backgroundStartupScheduled) return;
+  backgroundStartupScheduled = true;
+  setTimeout(() => {
+    startDaemonService().catch((error) => {
+      controlServerState.lastError = String(error?.message || error);
+      appendDaemonLog(`Background daemon registration failed: ${controlServerState.lastError}`);
+    });
+    refreshSystemHermesAsync().catch(() => { /* cached lastError */ });
+    setTimeout(async () => {
+      try {
+        if (!getRuntimeStatus().engineInstalled) {
+          appendEngineLog("No Hermes available (system or managed); waiting for manual setup.");
+          return;
+        }
+        await startEngine();
+      } catch (error) {
+        engineState.lastError = error.message;
+        appendEngineLog(`Auto-start failed: ${error.message}`);
+      }
+    }, 1500);
+  }, 800);
+}
+
+ipcMain.on("ui:first-paint", () => {
+  scheduleBackgroundStartup();
+});
 
 ipcMain.handle("window:close", (event) => {
   BrowserWindow.fromWebContents(event.sender)?.close();
@@ -6730,7 +6763,6 @@ ipcMain.handle("pet:recall", (_event, key) => recallFellowPet(key));
 
 app.whenReady().then(async () => {
   if (!IS_DAEMON_PROCESS && !shouldRunDesktopInstance) return;
-  initializeRuntime();
   if (IS_DAEMON_PROCESS) {
     try {
       app.dock?.hide?.();
@@ -6747,24 +6779,10 @@ app.whenReady().then(async () => {
     }
     return;
   }
-  startDaemonService().catch((error) => {
-    controlServerState.lastError = String(error?.message || error);
-    appendDaemonLog(`Background daemon registration failed: ${controlServerState.lastError}`);
+  const win = createWindow();
+  win.webContents.once("did-finish-load", () => {
+    setTimeout(scheduleBackgroundStartup, 2500);
   });
-  createWindow();
-  refreshSystemHermesAsync().catch(() => { /* cached lastError */ });
-  setTimeout(async () => {
-    try {
-      if (!getRuntimeStatus().engineInstalled) {
-        appendEngineLog("No Hermes available (system or managed); waiting for manual setup.");
-        return;
-      }
-      await startEngine();
-    } catch (error) {
-      engineState.lastError = error.message;
-      appendEngineLog(`Auto-start failed: ${error.message}`);
-    }
-  }, 1500);
 });
 
 app.on("window-all-closed", () => {
