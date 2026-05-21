@@ -7609,12 +7609,15 @@ els.chatForm.addEventListener("submit", async (event) => {
   renderHeaderStatus();
   try {
     const userMessage = session.messages[session.messages.length - 1];
-    // Persist BEFORE pushing to cloud: the daemon broadcasts cloud:event
-    // back to the renderer, which reloads chatStore from disk (~120ms later).
-    // If we push before persisting, that reload sees a disk version without
-    // this user message and clobbers in-memory state — messages flicker.
+    // Persist BEFORE pushing to cloud: even though the cloud:event
+    // listener no longer reloads chatStore wholesale, persisting first
+    // still avoids races with anything else that may read from disk.
     await persistSessionQuietly(session);
-    pushCloudMessageQuietly(session, userMessage);
+    // Capture the user-push promise so the later assistant push can wait
+    // on it — otherwise a fast local agent + slow user-attachment upload
+    // can cause the assistant message to land in /api/messages first,
+    // and Web/mobile clients will show the assistant before the prompt.
+    const userCloudPush = pushCloudMessageQuietly(session, userMessage);
     const outgoingText = replyContextPrompt(await outgoingMessageForSubmit(text), replyTo);
     const history = messagesForActive()
       .filter((message) => message.content || (Array.isArray(message.attachments) && message.attachments.length))
@@ -7636,6 +7639,11 @@ els.chatForm.addEventListener("submit", async (event) => {
     state.streaming = null;
     appendChat("assistant", answer, { reasoning: traceSnapshot.reasoning, tools: traceSnapshot.tools, attachments: responseAttachments });
     await persistSessionQuietly(session);
+    const assistantMessage = session.messages[session.messages.length - 1];
+    // Wait for the earlier user push to land first so /api/messages
+    // receives user → assistant in order (Codex review P2).
+    try { await userCloudPush; } catch { /* user push errors are non-fatal */ }
+    await pushCloudMessageQuietly(session, assistantMessage);
     persistReadStateQuietly();
     if (shouldGenerateTitle) {
       const current = activeSession();
