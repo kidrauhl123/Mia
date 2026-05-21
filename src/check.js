@@ -77,6 +77,7 @@ const required = [
   "src/renderer/settings/model-helpers.js",
   "src/renderer/settings/engine-options.js",
   "src/renderer/settings/model-settings.js",
+  "src/renderer/loaders.js",
   "src/renderer/sessions/session-read-state.js",
   "src/renderer/skills/skill-helpers.js",
   "src/renderer/skills/skill-library.js",

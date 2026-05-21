@@ -841,26 +841,6 @@ async function loadChatSessions(options = {}) {
   }
 }
 
-async function loadModelCatalog() {
-  try {
-    const rows = await window.aimashi.loadModelCatalog();
-    state.modelCatalog = Array.isArray(rows) && rows.length ? rows : window.aimashiModelHelpers.fallbackCatalogFromPresets();
-  } catch (error) {
-    console.error("Failed to load Hermes model catalog", error);
-    state.modelCatalog = window.aimashiModelHelpers.fallbackCatalogFromPresets();
-  }
-}
-
-async function loadCodexModels() {
-  try {
-    if (!window.aimashi?.loadCodexModels) return;
-    const rows = await window.aimashi.loadCodexModels();
-    state.codexModels = Array.isArray(rows) ? rows : [];
-  } catch (error) {
-    console.error("Failed to load Codex model list", error);
-    state.codexModels = [];
-  }
-}
 
 const EFFORT_LABELS = { minimal: "Minimal", low: "Low", medium: "Medium", high: "High", xhigh: "Extra high" };
 const APPROVAL_LABELS = {
@@ -879,85 +859,6 @@ const APPROVAL_TITLES = {
   manual: "(legacy) 等价于 Ask。"
 };
 
-async function loadEngineCapabilities() {
-  let caps = { approvalModes: ["ask", "yolo", "deny"], effortLevels: ["low", "medium", "high"] };
-  try {
-    if (window.aimashi.loadEngineCapabilities) {
-      const res = await window.aimashi.loadEngineCapabilities();
-      if (res && Array.isArray(res.approvalModes) && res.approvalModes.length
-          && Array.isArray(res.effortLevels) && res.effortLevels.length) {
-        caps = res;
-      }
-    }
-  } catch (error) {
-    console.error("Failed to load engine capabilities", error);
-  }
-  state.engineCapabilities = caps;
-  // `render()` calls syncEffortControl + syncPermissionControl which use
-  // window.aimashiEngineOptions.effortOptions()/window.aimashiEngineOptions.externalPermissionOptions() — those now read state.engineCapabilities.
-  render();
-}
-
-async function loadSlashCommands() {
-  try {
-    const rows = await window.aimashi.loadSlashCommands();
-    state.slashCommands = Array.isArray(rows) && rows.length ? rows : fallbackSlashCommands;
-  } catch (error) {
-    console.error("Failed to load Hermes slash commands", error);
-    state.slashCommands = fallbackSlashCommands;
-  }
-  await Promise.allSettled(["claude-code", "codex"].map(async (engine) => {
-    try {
-      const registry = await window.aimashi.loadAgentCommands?.({ engine });
-      const rows = Array.isArray(registry?.rows) ? registry.rows : (Array.isArray(registry) ? registry : []);
-      state.agentSlashCommands[engine] = rows
-        .filter((item) => item?.command || item?.name)
-        .map((item) => ({
-          ...item,
-          command: String(item.command || item.name || "").startsWith("/")
-            ? String(item.command || item.name || "")
-            : `/${item.command || item.name}`,
-          description: String(item.description || "")
-        }));
-    } catch (error) {
-      console.error(`Failed to load ${engine} slash commands`, error);
-      state.agentSlashCommands[engine] = [];
-    }
-  }));
-}
-
-async function loadSkills() {
-  state.skillsLoading = true;
-  window.aimashiSkillLibrary.renderSkillLibrary();
-  try {
-    const library = await window.aimashi.loadSkills();
-    const sources = Array.isArray(library?.sources)
-      ? library.sources
-      : (Array.isArray(library?.plugins) ? library.plugins : []);
-    state.skillLibrary = {
-      plugins: Array.isArray(library?.plugins) ? library.plugins : sources,
-      sources,
-      extensions: Array.isArray(library?.extensions) ? library.extensions : [],
-      connectors: Array.isArray(library?.connectors) ? library.connectors : [],
-      roots: Array.isArray(library?.roots) ? library.roots : [],
-      skills: Array.isArray(library?.skills) ? library.skills : []
-    };
-    if (!state.selectedSkillId || !state.skillLibrary.skills.some((skill) => skill.id === state.selectedSkillId)) {
-      state.selectedSkillId = state.skillLibrary.skills[0]?.id || "";
-      state.selectedSkillDetail = null;
-    }
-    if (state.selectedSkillId) await window.aimashiSkillLibrary.selectSkill(state.selectedSkillId, false);
-  } catch (error) {
-    console.error("Failed to load local skills", error);
-    state.skillLibrary = { plugins: [], sources: [], extensions: [], connectors: [], roots: [], skills: [] };
-    state.selectedSkillId = "";
-    state.selectedSkillDetail = null;
-  } finally {
-    state.skillsLoading = false;
-    window.aimashiSkillLibrary.renderSkillLibrary();
-    window.aimashiComposer.renderSkillPicker();
-  }
-}
 
 async function trackStartupTask(label, task) {
   const id = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
@@ -2199,13 +2100,16 @@ async function initializeRuntime() {
   if (window.aimashiTraceBlocks && window.aimashiTraceBlocks.initTraceBlocks) {
     window.aimashiTraceBlocks.initTraceBlocks({ state });
   }
+  if (window.aimashiLoaders && window.aimashiLoaders.initLoaders) {
+    window.aimashiLoaders.initLoaders({ state, render, fallbackSlashCommands });
+  }
   if (window.aimashiComposer && window.aimashiComposer.initComposer) {
     window.aimashiComposer.initComposer({
       state,
       els,
       aimashi: window.aimashi,
       fallbackSlashCommands,
-      loadSkills,
+      loadSkills: () => window.aimashiLoaders.loadSkills(),
       renderAttachmentThumb,
       renderSendButton,
       resizeChatInput,
@@ -2222,7 +2126,7 @@ async function initializeRuntime() {
       formatConversationTime,
       hasPersistableMessages,
       sessionsForPersona,
-      loadSkills,
+      loadSkills: () => window.aimashiLoaders.loadSkills(),
       showNarrowContent,
       render,
       closeGroupContextMenu,
@@ -2353,11 +2257,11 @@ async function initializeRuntime() {
   render();
   setTimeout(() => {
     Promise.allSettled([
-      trackStartupTask("加载 Hermes 模型列表", loadModelCatalog),
-      trackStartupTask("加载 Codex 模型列表", loadCodexModels),
-      trackStartupTask("加载引擎能力", loadEngineCapabilities),
-      trackStartupTask("加载命令列表", loadSlashCommands),
-      trackStartupTask("扫描本地 Skill", loadSkills)
+      trackStartupTask("加载 Hermes 模型列表", () => window.aimashiLoaders.loadModelCatalog()),
+      trackStartupTask("加载 Codex 模型列表", () => window.aimashiLoaders.loadCodexModels()),
+      trackStartupTask("加载引擎能力", () => window.aimashiLoaders.loadEngineCapabilities()),
+      trackStartupTask("加载命令列表", () => window.aimashiLoaders.loadSlashCommands()),
+      trackStartupTask("扫描本地 Skill", () => window.aimashiLoaders.loadSkills())
     ]).then(() => render());
   }, 800);
   window.aimashiTasksPanel.loadTasksFromDaemon().then(() => {
@@ -2500,7 +2404,7 @@ document.querySelectorAll("[data-view]").forEach((button) => {
     state.activeView = button.dataset.view;
     showNarrowContent();
     if (button.dataset.view === "settings") state.settingsOpen = true;
-    if (button.dataset.view === "skills" && !state.skillLibrary.skills.length && !state.skillsLoading) loadSkills();
+    if (button.dataset.view === "skills" && !state.skillLibrary.skills.length && !state.skillsLoading) window.aimashiLoaders.loadSkills();
     renderView();
     if (state.activeView === "tasks") {
       window.aimashiTasksPanel?.loadTasksFromDaemon().then(() => {
@@ -2808,7 +2712,7 @@ els.installEngine.addEventListener("click", async () => {
   els.installEngine.textContent = "Installing...";
   try {
     state.runtime = await window.aimashi.installEngine();
-    await loadModelCatalog();
+    await window.aimashiLoaders.loadModelCatalog();
     render();
   } catch (error) {
     appendChat("assistant", `Install failed: ${error.message}`);
@@ -3818,7 +3722,7 @@ async function handleSetupGuideAction(button) {
     button.textContent = "安装中…";
     try {
       state.runtime = await window.aimashi.installEngine();
-      await loadModelCatalog();
+      await window.aimashiLoaders.loadModelCatalog();
       afterEnginePicked("hermes");
     } catch (error) {
       appendTransientChat("assistant", `Hermes install failed: ${error.message}`);
