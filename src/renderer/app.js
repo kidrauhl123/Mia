@@ -1047,7 +1047,7 @@ function render() {
   // Only fall back to personas[0] when no persona matches AND no group is active.
   // Without this guard, clicking a group (whose id doesn't match any persona key)
   // immediately resets activeKey back to personas[0], making group selection a no-op.
-  if (!personas.some((persona) => persona.key === state.activeKey) && personas.length && !activeGroup()) {
+  if (!personas.some((persona) => persona.key === state.activeKey) && personas.length && !activeGroup() && !window.aimashiSocial?.getActiveRoomId?.()) {
     state.activeKey = personas[0].key;
   }
   if (!personas.some((persona) => persona.key === state.activeContactKey) && personas.length) {
@@ -1126,6 +1126,7 @@ function render() {
   const visibleGroups = listGroups().filter((group) => (
     !filter || `${group.name || ""} ${(group.members || []).map((m) => m.fellowId).join(" ")}`.toLowerCase().includes(filter)
   ));
+  const socialRows = window.aimashiSocial?.renderSidebarRows?.() || [];
   const messageRows = window.aimashiFellowManager.sortMessageCardsForSidebar([
     ...visiblePersonas.map((persona) => ({
       type: "fellow",
@@ -1142,7 +1143,8 @@ function render() {
       pinnedAt: group.pinnedAt || "",
       updatedAt: groupConversationUpdatedAt(group),
       group
-    }))
+    })),
+    ...socialRows
   ]);
 
   els.personaList.innerHTML = "";
@@ -1190,6 +1192,36 @@ function render() {
       continue;
     }
 
+    if (row.type === "dm-room") {
+      const room = row.room;
+      const otherName = (room.otherUser && (room.otherUser.username || room.otherUser.account)) || "好友";
+      const dmPreview = room.lastMessagePreview || "暂无对话";
+      const dmBtn = document.createElement("button");
+      dmBtn.type = "button";
+      const activeRoomId = window.aimashiSocial?.getActiveRoomId?.();
+      dmBtn.className = `persona message-card private-message-card${room.id === activeRoomId ? " active" : ""}`;
+      const dmColor = "#5e5ce6";
+      dmBtn.innerHTML = `
+        <span class="avatar fellow-photo" style="background-color:${window.aimashiMarkdown.escapeHtml(dmColor)}; color:#fff; display:flex; align-items:center; justify-content:center;">${window.aimashiMarkdown.escapeHtml((otherName[0] || "?").toUpperCase())}</span>
+        <span class="persona-main">
+          <span class="persona-name-row">
+            <span class="persona-name">${window.aimashiMarkdown.escapeHtml(otherName)}</span>
+            <span class="persona-type">私聊</span>
+          </span>
+          <span class="persona-key">${window.aimashiMarkdown.escapeHtml(dmPreview)}</span>
+        </span>
+      `;
+      dmBtn.addEventListener("click", () => {
+        state.activeKey = "";
+        state.activeGroupId = "";
+        if (window.aimashiGroup) window.aimashiGroup.moduleState.activeGroupId = null;
+        window.aimashiSocial.setActiveRoomId(room.id);
+        showNarrowContent();
+        render();
+      });
+      els.personaList.appendChild(dmBtn);
+      continue;
+    }
     const group = row.group;
     const btn = document.createElement("button");
     btn.type = "button";
@@ -1692,6 +1724,14 @@ function renderMessageHtml(message, ctx) {
 }
 
 function renderChat() {
+  // Branch: if a DM room is active, delegate to social module
+  const activeDmRoomId = window.aimashiSocial?.getActiveRoomId?.();
+  if (activeDmRoomId && !activeGroup() && !state.activeKey) {
+    if (window.aimashiSocial && typeof window.aimashiSocial.renderRoomChat === "function") {
+      window.aimashiSocial.renderRoomChat(els.chat);
+    }
+    return;
+  }
   // Branch: if a group is active, delegate to group module
   const groupActive = activeGroup();
   if (groupActive) {
@@ -2153,6 +2193,20 @@ async function initializeRuntime() {
       console.error("[group] init bootstrap failed:", err);
     }
   }
+  if (window.aimashiSocial && window.aimashiSocial.initSocialModule) {
+    window.aimashiSocial.initSocialModule({
+      getState: () => state,
+      render,
+      els,
+      appendTransientChat,
+    });
+    // Bootstrap social data if already logged in to cloud
+    if (state.runtime && state.runtime.cloud && state.runtime.cloud.loggedIn) {
+      window.aimashiSocial.bootstrapAfterLogin().catch((err) => {
+        console.warn("[social] boot bootstrap failed:", err);
+      });
+    }
+  }
   await trackStartupTask("加载会话", loadChatSessions);
   render();
   setTimeout(() => {
@@ -2424,6 +2478,7 @@ async function submitCloudLogin(mode) {
   try {
     state.runtime = await window.aimashi.cloudLogin({ mode, username, password });
     if (els.cloudPassword) els.cloudPassword.value = "";
+    window.aimashiSocial?.bootstrapAfterLogin?.();
     render();
   } catch (error) {
     setText(els.cloudLoginHint, `连接失败：${error.message || error}`);
@@ -2584,6 +2639,7 @@ if (window.aimashi.onEnginesChanged) {
 if (window.aimashi.onCloudEvent) {
   let cloudEventRefreshTimer = 0;
   window.aimashi.onCloudEvent((envelope = {}) => {
+    window.aimashiSocial?.handleCloudEvent?.(envelope);
     if (envelope.cloud && state.runtime) {
       state.runtime = {
         ...state.runtime,
@@ -2861,6 +2917,20 @@ els.newPersona.addEventListener("click", (event) => {
 
 els.addFellow?.addEventListener("click", () => window.aimashiFellowDialog.openFellowDialog());
 els.newContact?.addEventListener("click", () => window.aimashiFellowDialog.openFellowDialog());
+// Add-friend button: inject next to newContact in the contacts sidebar header
+(function injectAddFriendButton() {
+  const container = els.newContact?.parentElement;
+  if (!container) return;
+  const btn = document.createElement("button");
+  btn.id = "addFriendBtn";
+  btn.className = "icon-button";
+  btn.type = "button";
+  btn.title = "添加好友";
+  btn.setAttribute("aria-label", "添加好友");
+  btn.textContent = "🤝";
+  btn.addEventListener("click", () => window.aimashiSocial?.openAddFriendDialog?.());
+  container.appendChild(btn);
+})();
 els.userAvatar?.addEventListener("click", () => window.aimashiFellowDialog.openProfileDialog());
 els.userAvatar?.addEventListener("keydown", (event) => {
   if (event.key !== "Enter" && event.key !== " ") return;
@@ -3447,6 +3517,15 @@ els.chat.addEventListener("toggle", (event) => {
 els.chatForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (window.aimashiMessageHelpers.isComposerComposing()) return;
+  // Branch: DM room chat
+  if (window.aimashiSocial?.getActiveRoomId?.() && !activeGroup() && !state.activeKey) {
+    const dmText = els.chatInput.value.trim();
+    if (!dmText) return;
+    els.chatInput.value = "";
+    window.aimashiMessageHelpers.resizeChatInput();
+    await window.aimashiSocial.sendInActiveRoom(dmText);
+    return;
+  }
   // Branch: group chat
   if (activeGroup()) {
     if (window.aimashiGroup && typeof window.aimashiGroup.sendInActiveGroup === "function") {
