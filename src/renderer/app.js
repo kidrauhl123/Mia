@@ -3211,7 +3211,7 @@ els.chatInput.addEventListener("compositionstart", () => {
 els.chatInput.addEventListener("compositionend", () => {
   window.aimashiMessageHelpers.noteCompositionEnded();
   els.chatInput.dataset.composing = "false";
-  window.aimashiMessageHelpers.window.aimashiMessageHelpers.resizeChatInput();
+  window.aimashiMessageHelpers.resizeChatInput();
   window.aimashiComposer.updateSlashCommandState();
   renderSendButton();
 });

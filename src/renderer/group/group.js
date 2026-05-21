@@ -521,7 +521,7 @@
     // identically. Fall back to escaped plain text if it's not available yet.
     const renderBody = (content) => {
       if (!content) return "";
-      if (typeof renderMarkdown === "function") {
+      if (typeof window.aimashiMarkdown?.renderMarkdown === "function") {
         try { return window.aimashiMarkdown.renderMarkdown(content); } catch { /* fall through */ }
       }
       return escapeHtmlSafe(content);
@@ -624,7 +624,7 @@
     if (!text) return;
     inputEl.value = "";
     // Trigger app.js resize / send button update
-    if (typeof resizeChatInput === "function") resizeChatInput();
+    if (typeof window.aimashiMessageHelpers?.resizeChatInput === "function") window.aimashiMessageHelpers.resizeChatInput();
     if (typeof renderSendButton === "function") renderSendButton();
 
     await sendInGroup(group, text);
