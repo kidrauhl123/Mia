@@ -492,187 +492,6 @@ const DEFAULT_LIST_STYLE = "flush";
 const DEFAULT_SELECTION_STYLE = "solid";
 
 
-function initials(name) {
-  return (name || "?").trim().slice(0, 2).toUpperCase();
-}
-
-function avatarAssetForKey(key = "") {
-  let hash = 0;
-  for (const char of String(key || "aimashi")) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
-  const index = (hash % 16) + 1;
-  return `./assets/avatars/${String(index).padStart(2, "0")}.png`;
-}
-
-const AVATAR_MIN_ZOOM = 1;
-const DEFAULT_AVATAR_CROP = { x: 50, y: 50, zoom: 1 };
-const DEFAULT_PRESET_AVATAR_CROP = { x: 50, y: 13.5, zoom: 1.72 };
-
-const avatarPresetGroupTabs = [
-  { key: "human", label: "人形" },
-  { key: "pet", label: "宠物" }
-];
-
-const avatarPresetGroups = {
-  human: [
-    { name: "青羽", src: "./assets/avatars/01.png", crop: { x: 50.0687, y: 14.5495, zoom: 2.04 } },
-    { name: "桃奈", src: "./assets/avatars/02.png", crop: { x: 57.2536, y: 8.1635, zoom: 1.56 } },
-    { name: "紫音", src: "./assets/avatars/03.png", crop: { x: 50, y: 14, zoom: 1.48 } },
-    { name: "小栗", src: "./assets/avatars/04.png", crop: { x: 49.0079, y: 23.5736, zoom: 1.72 } },
-    { name: "墨川", src: "./assets/avatars/05.png", crop: { x: 47.6785, y: 11.3611, zoom: 1.88 } },
-    { name: "珊瑚", src: "./assets/avatars/06.png", crop: { x: 46.8749, y: 10.4285, zoom: 1.64 } },
-    { name: "雪璃", src: "./assets/avatars/07.png", crop: { x: 51.6741, y: 8.0209, zoom: 1.72 } },
-    { name: "赤焰", src: "./assets/avatars/08.png", crop: { x: 50.974, y: 12.8636, zoom: 1.88 } },
-    { name: "蓝汐", src: "./assets/avatars/09.png", crop: { x: 47.4999, y: 12.2142, zoom: 1.8 } },
-    { name: "棕野", src: "./assets/avatars/10.png", crop: { x: 50, y: 14, zoom: 1.8 } },
-    { name: "夜莓", src: "./assets/avatars/11.png", crop: { x: 55.8037, y: 7.9731, zoom: 1.64 } },
-    { name: "空铃", src: "./assets/avatars/12.png", crop: { x: 47.3214, y: 16.9763, zoom: 1.8 } },
-    { name: "茉茶", src: "./assets/avatars/13.png", crop: { x: 50, y: 14, zoom: 1.8 } },
-    { name: "星柚", src: "./assets/avatars/14.png", crop: { x: 50, y: 14, zoom: 1.72 } },
-    { name: "爱丽丝", src: "./assets/avatars/15.png", crop: { x: 45.1848, y: 5.1022, zoom: 1.56 } },
-    { name: "岚", src: "./assets/avatars/16.png", crop: { x: 51.0913, y: 15.7858, zoom: 1.72 } }
-  ],
-  pet: Array.from({ length: 16 }, (_item, index) => {
-    const id = String(index + 1).padStart(2, "0");
-    return {
-      name: `宠物 ${id}`,
-      src: `./assets/avatars-pet/${id}.png`,
-      thumb: `./assets/avatar-thumbs-pet/${id}.png`,
-      crop: { x: 50, y: 50, zoom: 1 }
-    };
-  })
-};
-
-const avatarPresets = Object.values(avatarPresetGroups).flat();
-
-function defaultAvatarAssets() {
-  return avatarPresetGroups.human.map((preset) => preset.src);
-}
-
-function canonicalAvatarSrc(src) {
-  return String(src || "").trim().replace("./assets/avatar-icons/", "./assets/avatars/");
-}
-
-function avatarPresetBySrc(src) {
-  const canonical = canonicalAvatarSrc(src);
-  return avatarPresets.find((preset) => preset.src === canonical) || null;
-}
-
-function avatarPresetGroupForSrc(src) {
-  const canonical = canonicalAvatarSrc(src);
-  return avatarPresetGroupTabs.find(({ key }) =>
-    avatarPresetGroups[key]?.some((preset) => preset.src === canonical)
-  )?.key || "";
-}
-
-function avatarThumbForSrc(src) {
-  const preset = avatarPresetBySrc(src);
-  if (!preset) return "";
-  if (preset.thumb) return preset.thumb;
-  return canonicalAvatarSrc(preset.src).replace("./assets/avatars/", "./assets/avatar-thumbs/");
-}
-
-function avatarDefaultCropForSrc(src) {
-  const preset = avatarPresetBySrc(src);
-  if (!preset) return { ...DEFAULT_AVATAR_CROP };
-  return { ...DEFAULT_PRESET_AVATAR_CROP, ...(preset.crop || {}) };
-}
-
-function isNeutralAvatarCrop(crop) {
-  if (!crop) return true;
-  const c = normalizeCrop(crop);
-  return c.x === 50 && c.y === 50 && Math.abs(c.zoom - 1) < 0.001;
-}
-
-function avatarCropForImage(image, crop) {
-  if (avatarPresetBySrc(image) && isNeutralAvatarCrop(crop)) {
-    return avatarDefaultCropForSrc(image);
-  }
-  return crop || DEFAULT_AVATAR_CROP;
-}
-
-function cropsClose(a = {}, b = {}) {
-  const left = normalizeCrop(a);
-  const right = normalizeCrop(b);
-  return Math.abs(left.x - right.x) < 0.01
-    && Math.abs(left.y - right.y) < 0.01
-    && Math.abs(left.zoom - right.zoom) < 0.001;
-}
-
-function avatarImageSrc(value) {
-  const raw = canonicalAvatarSrc(value);
-  if (!raw) return "";
-  if (/^(https?:|file:|data:)/i.test(raw)) return raw;
-  if (raw.startsWith("./") || raw.startsWith("../")) return raw;
-  return `file://${raw}`;
-}
-
-function normalizeCrop(crop = {}) {
-  const num = (value, fallback, min, max) => {
-    const next = Number(value);
-    if (!Number.isFinite(next)) return fallback;
-    return Math.max(min, Math.min(max, next));
-  };
-  return {
-    x: num(crop.x, 50, 0, 100),
-    y: num(crop.y, 50, 0, 100),
-    zoom: num(crop.zoom, 1, AVATAR_MIN_ZOOM, 2.4)
-  };
-}
-
-function avatarBackgroundStyle(image, crop = {}, color = "#5e5ce6") {
-  const src = avatarImageSrc(image) || image || "";
-  const effectiveCrop = avatarCropForImage(image, crop);
-  const c = normalizeCrop(effectiveCrop);
-  const imagePart = src ? `background-image:url('${escapeHtml(src)}');` : "";
-  const backgroundColor = src ? "transparent" : escapeHtml(color);
-  const position = `${c.x}% ${c.y}%`;
-  return `background-color:${backgroundColor};${imagePart}background-size:${Math.round(c.zoom * 100)}%;background-position:${position};background-repeat:no-repeat;`;
-}
-
-function avatarThumbBackgroundStyle(image, crop = {}, color = "#5e5ce6") {
-  const thumb = avatarThumbForSrc(image);
-  const effectiveCrop = avatarCropForImage(image, crop);
-  if (thumb && cropsClose(effectiveCrop, avatarDefaultCropForSrc(image))) {
-    const src = avatarImageSrc(thumb);
-    return `background-color:transparent;background-image:url('${escapeHtml(src)}');background-size:cover;background-position:center;background-repeat:no-repeat;`;
-  }
-  return avatarBackgroundStyle(image, crop, color);
-}
-
-function applyFellowAvatar(el, fellow) {
-  if (!el) return;
-  el.textContent = "";
-  const image = fellow?.avatarImage || avatarAssetForKey(fellow?.key);
-  el.setAttribute("style", avatarThumbBackgroundStyle(image, fellow?.avatarCrop, fellow?.color || "#5e5ce6"));
-}
-
-function applyAvatar(el, text, color, image) {
-  if (!el) return;
-  el.textContent = text || "?";
-  el.style.background = color || "#111827";
-  el.style.backgroundImage = "";
-  el.style.backgroundSize = "";
-  el.style.backgroundPosition = "";
-  const src = avatarImageSrc(image);
-  if (src) {
-    el.textContent = "";
-    el.style.backgroundImage = `url("${src.replaceAll('"', "%22")}")`;
-    el.style.backgroundSize = "cover";
-    el.style.backgroundPosition = "center";
-  }
-}
-
-function applyUserAvatar(el, user = {}) {
-  if (!el) return;
-  const image = user.avatarImage || "";
-  const text = user.avatarText || initials(user.displayName || "Boss");
-  if (image) {
-    el.textContent = "";
-    el.setAttribute("style", avatarThumbBackgroundStyle(image, user.avatarCrop, user.avatarColor || "#111827"));
-    return;
-  }
-  applyAvatar(el, text, user.avatarColor || "#111827", "");
-}
 
 function escapeHtml(value) {
   return String(value)
@@ -1459,7 +1278,7 @@ function render() {
     window.aimashiSettingsAppearance.syncAppearanceControls(appearance);
   }
   const user = runtime.user || { displayName: "Boss", avatarText: "B", avatarColor: "#111827", avatarImage: "" };
-  applyUserAvatar(els.userAvatar, user);
+  window.aimashiAvatar.applyUserAvatar(els.userAvatar, user);
   setText(els.userDisplayName, user.displayName || "Boss");
   if (!editingProfile && els.profileForm) {
     els.profileDisplayName.value = user.displayName || "Boss";
@@ -1594,8 +1413,8 @@ function render() {
       const bossTileTopbar = document.createElement("span");
       bossTileTopbar.className = "group-avatar-tile";
       let topbarBossStyle = "";
-      if (typeof avatarThumbBackgroundStyle === "function" && topbarUser.avatarImage) {
-        topbarBossStyle = avatarThumbBackgroundStyle(topbarUser.avatarImage, topbarUser.avatarCrop, topbarBossColor);
+      if (typeof window.aimashiAvatar?.avatarThumbBackgroundStyle === "function" && topbarUser.avatarImage) {
+        topbarBossStyle = window.aimashiAvatar.avatarThumbBackgroundStyle(topbarUser.avatarImage, topbarUser.avatarCrop, topbarBossColor);
       }
       if (!topbarBossStyle || topbarBossStyle.trim() === "") {
         topbarBossStyle = "background-color:" + topbarBossColor + ";";
@@ -1606,8 +1425,8 @@ function render() {
         const tile = document.createElement("span");
         tile.className = "group-avatar-tile";
         const fellow = personas.find((p) => (p.id || p.key) === mid);
-        let styleStr = avatarThumbBackgroundStyle(
-          fellow?.avatarImage || avatarAssetForKey(mid),
+        let styleStr = window.aimashiAvatar.avatarThumbBackgroundStyle(
+          fellow?.avatarImage || window.aimashiAvatar.avatarAssetForKey(mid),
           fellow?.avatarCrop,
           fellow?.color || "#5e5ce6"
         );
@@ -1633,7 +1452,7 @@ function render() {
       els.activeChatAvatar.innerHTML = "";
       els.activeChatAvatar.className = "profile-avatar";
     }
-    applyFellowAvatar(els.activeChatAvatar, active);
+    window.aimashiAvatar.applyFellowAvatar(els.activeChatAvatar, active);
     setText(els.activeChatName, active.name || "Aimashi");
     renderHeaderStatus();
     if (groupInfoBtn) groupInfoBtn.classList.add("hidden");
@@ -1677,7 +1496,7 @@ function render() {
       button.type = "button";
       button.className = `persona message-card private-message-card${persona.key === state.activeKey ? " active" : ""}${persona.pinned ? " pinned" : ""}`;
       button.innerHTML = `
-        <span class="avatar fellow-photo" data-fellow-avatar="${escapeHtml(persona.key)}" style="${avatarThumbBackgroundStyle(persona.avatarImage || avatarAssetForKey(persona.key), persona.avatarCrop, persona.color || "#5e5ce6")}"></span>
+        <span class="avatar fellow-photo" data-fellow-avatar="${escapeHtml(persona.key)}" style="${window.aimashiAvatar.avatarThumbBackgroundStyle(persona.avatarImage || window.aimashiAvatar.avatarAssetForKey(persona.key), persona.avatarCrop, persona.color || "#5e5ce6")}"></span>
         <span class="persona-main">
           <span class="persona-name-row">
             <span class="persona-name">${escapeHtml(persona.name)}</span>
@@ -1738,8 +1557,8 @@ function render() {
     const bossTileSidebar = document.createElement("span");
     bossTileSidebar.className = "group-avatar-tile";
     let sidebarBossStyle = "";
-    if (typeof avatarThumbBackgroundStyle === "function" && sidebarUser.avatarImage) {
-      sidebarBossStyle = avatarThumbBackgroundStyle(sidebarUser.avatarImage, sidebarUser.avatarCrop, sidebarBossColor);
+    if (typeof window.aimashiAvatar?.avatarThumbBackgroundStyle === "function" && sidebarUser.avatarImage) {
+      sidebarBossStyle = window.aimashiAvatar.avatarThumbBackgroundStyle(sidebarUser.avatarImage, sidebarUser.avatarCrop, sidebarBossColor);
     }
     if (!sidebarBossStyle || sidebarBossStyle.trim() === "") {
       sidebarBossStyle = "background-color:" + sidebarBossColor + ";";
@@ -1750,8 +1569,8 @@ function render() {
       const tile = document.createElement("span");
       tile.className = "group-avatar-tile";
       const fellow = personas.find((p) => (p.id || p.key) === mid);
-      let styleStr = avatarThumbBackgroundStyle(
-        fellow?.avatarImage || avatarAssetForKey(mid),
+      let styleStr = window.aimashiAvatar.avatarThumbBackgroundStyle(
+        fellow?.avatarImage || window.aimashiAvatar.avatarAssetForKey(mid),
         fellow?.avatarCrop,
         fellow?.color || "#5e5ce6"
       );
@@ -2066,7 +1885,7 @@ function renderContacts() {
     button.type = "button";
     button.className = `contact-row${fellow.key === state.activeContactKey ? " active" : ""}`;
     button.innerHTML = `
-      <span class="avatar fellow-photo" style="${avatarThumbBackgroundStyle(fellow.avatarImage || avatarAssetForKey(fellow.key), fellow.avatarCrop, fellow.color || "#5e5ce6")}"></span>
+      <span class="avatar fellow-photo" style="${window.aimashiAvatar.avatarThumbBackgroundStyle(fellow.avatarImage || window.aimashiAvatar.avatarAssetForKey(fellow.key), fellow.avatarCrop, fellow.color || "#5e5ce6")}"></span>
       <span class="contact-row-main">
         <strong>${escapeHtml(fellow.name)}</strong>
         <small>${escapeHtml(fellow.bio || "本地伙伴")}</small>
@@ -2096,7 +1915,7 @@ function renderContactDetail(fellow) {
   els.contactDetail.innerHTML = `
     <article class="contact-profile">
       <header class="contact-profile-head">
-        <button class="contact-profile-avatar" type="button" data-contact-action="edit" title="编辑联系人头像" style="${avatarBackgroundStyle(fellow.avatarImage || avatarAssetForKey(fellow.key), fellow.avatarCrop, fellow.color || "#5e5ce6")}"></button>
+        <button class="contact-profile-avatar" type="button" data-contact-action="edit" title="编辑联系人头像" style="${window.aimashiAvatar.avatarBackgroundStyle(fellow.avatarImage || window.aimashiAvatar.avatarAssetForKey(fellow.key), fellow.avatarCrop, fellow.color || "#5e5ce6")}"></button>
         <div class="contact-profile-title">
           <h2>${escapeHtml(fellow.name || "联系人")}</h2>
           <div class="contact-engine-badge" title="Agent 引擎">
@@ -2807,18 +2626,18 @@ function renderMessageHtml(message, ctx) {
          <button class="link" type="button" data-jump-task="${escapeHtml(taskMeta.id)}">打开任务</button>
        </div>`
     : "";
-  const label = message.role === "user" ? (user.avatarText || initials(user.displayName)) : initials(persona?.name || "A");
+  const label = message.role === "user" ? (user.avatarText || window.aimashiAvatar.initials(user.displayName)) : window.aimashiAvatar.initials(persona?.name || "A");
   const color = message.role === "user" ? user.avatarColor : (persona?.color || "#23444d");
-  const fellowAvatarImage = persona?.avatarImage || avatarAssetForKey(persona?.key);
-  const fellowAvatar = avatarImageSrc(fellowAvatarImage);
+  const fellowAvatarImage = persona?.avatarImage || window.aimashiAvatar.avatarAssetForKey(persona?.key);
+  const fellowAvatar = window.aimashiAvatar.avatarImageSrc(fellowAvatarImage);
   const userAvatarImage = user.avatarImage || "";
-  const userAvatar = avatarImageSrc(userAvatarImage);
+  const userAvatar = window.aimashiAvatar.avatarImageSrc(userAvatarImage);
   const avatarBackgroundColor = message.role === "assistant"
     ? (fellowAvatar ? "transparent" : (color || "#111827"))
     : (userAvatar ? "transparent" : (color || "#111827"));
   const imageStyle = message.role === "assistant"
-    ? avatarThumbBackgroundStyle(fellowAvatarImage, persona?.avatarCrop, color)
-    : (userAvatar ? avatarThumbBackgroundStyle(userAvatarImage, user.avatarCrop, color) : "");
+    ? window.aimashiAvatar.avatarThumbBackgroundStyle(fellowAvatarImage, persona?.avatarCrop, color)
+    : (userAvatar ? window.aimashiAvatar.avatarThumbBackgroundStyle(userAvatarImage, user.avatarCrop, color) : "");
   const traceHtml = message.role === "assistant"
     ? renderTraceBlocks({
       reasoning: message.reasoning,
@@ -2881,10 +2700,10 @@ function renderChat() {
     const article = document.createElement("article");
     article.className = "message assistant streaming";
     const personaForStream = active;
-    const fellowAvatarImage = personaForStream?.avatarImage || avatarAssetForKey(personaForStream?.key);
-    const fellowAvatar = avatarImageSrc(fellowAvatarImage);
+    const fellowAvatarImage = personaForStream?.avatarImage || window.aimashiAvatar.avatarAssetForKey(personaForStream?.key);
+    const fellowAvatar = window.aimashiAvatar.avatarImageSrc(fellowAvatarImage);
     const avatarBackgroundColor = fellowAvatar ? "transparent" : (personaForStream?.color || "#23444d");
-    const imageStyle = avatarThumbBackgroundStyle(fellowAvatarImage, personaForStream?.avatarCrop, personaForStream?.color);
+    const imageStyle = window.aimashiAvatar.avatarThumbBackgroundStyle(fellowAvatarImage, personaForStream?.avatarCrop, personaForStream?.color);
     const traceHtml = renderTraceBlocks({
       reasoning: s.reasoning,
       tools: s.tools,
@@ -3484,6 +3303,9 @@ async function initializeRuntime() {
   if (window.aimashiSkillHelpers && window.aimashiSkillHelpers.initSkillHelpers) {
     window.aimashiSkillHelpers.initSkillHelpers({ escapeHtml });
   }
+  if (window.aimashiAvatar && window.aimashiAvatar.initAvatarHelpers) {
+    window.aimashiAvatar.initAvatarHelpers({ escapeHtml });
+  }
   if (window.aimashiModelHelpers && window.aimashiModelHelpers.initModelHelpers) {
     window.aimashiModelHelpers.initModelHelpers({
       state,
@@ -3552,9 +3374,9 @@ async function initializeRuntime() {
       els,
       aimashi: window.aimashi,
       fellowByKey,
-      avatarAssetForKey,
+      avatarAssetForKey: window.aimashiAvatar.avatarAssetForKey,
       cryptoRandomId,
-      avatarBackgroundStyle,
+      avatarBackgroundStyle: window.aimashiAvatar.avatarBackgroundStyle,
       escapeHtml,
       setText,
       renderView,
@@ -4299,20 +4121,20 @@ els.modelSelect?.addEventListener("change", () => {
 });
 
 function setFellowAvatarDraft(image, crop = null) {
-  const src = canonicalAvatarSrc(image);
+  const src = window.aimashiAvatar.canonicalAvatarSrc(image);
   state.fellowAvatarDraft = {
     image: src,
-    crop: normalizeCrop(crop || avatarDefaultCropForSrc(src))
+    crop: window.aimashiAvatar.normalizeCrop(crop || window.aimashiAvatar.avatarDefaultCropForSrc(src))
   };
   if (els.fellowAvatar) els.fellowAvatar.value = state.fellowAvatarDraft.image;
   renderFellowAvatarDraft();
 }
 
 function setProfileAvatarDraft(image, crop = null) {
-  const src = canonicalAvatarSrc(image);
+  const src = window.aimashiAvatar.canonicalAvatarSrc(image);
   state.profileAvatarDraft = {
     image: src,
-    crop: normalizeCrop(crop || avatarDefaultCropForSrc(src))
+    crop: window.aimashiAvatar.normalizeCrop(crop || window.aimashiAvatar.avatarDefaultCropForSrc(src))
   };
   if (els.profileAvatarImage) els.profileAvatarImage.value = state.profileAvatarDraft.image;
   renderProfileAvatarDraft();
@@ -4322,8 +4144,8 @@ function renderProfileAvatarDraft() {
   if (!els.profileAvatarPreview) return;
   const draft = state.profileAvatarDraft;
   const user = state.runtime?.user || {};
-  const crop = normalizeCrop(draft.crop);
-  els.profileAvatarPreview.setAttribute("style", avatarBackgroundStyle(draft.image, crop, user.avatarColor || "#111827"));
+  const crop = window.aimashiAvatar.normalizeCrop(draft.crop);
+  els.profileAvatarPreview.setAttribute("style", window.aimashiAvatar.avatarBackgroundStyle(draft.image, crop, user.avatarColor || "#111827"));
   els.profileAvatarPreview.title = draft.image ? "点击调整头像裁剪" : "选择头像";
   els.profileAvatarPreview.setAttribute("role", "button");
   els.profileAvatarPreview.setAttribute("tabindex", "0");
@@ -4332,9 +4154,9 @@ function renderProfileAvatarDraft() {
 }
 
 function openProfileDialog() {
-  const user = state.runtime?.user || { displayName: "Boss", avatarImage: "", avatarCrop: DEFAULT_AVATAR_CROP };
+  const user = state.runtime?.user || { displayName: "Boss", avatarImage: "", avatarCrop: window.aimashiAvatar.DEFAULT_AVATAR_CROP };
   state.profileDialogOpen = true;
-  state.profileAvatarPresetGroup = avatarPresetGroupForSrc(user.avatarImage || "") || "human";
+  state.profileAvatarPresetGroup = window.aimashiAvatar.avatarPresetGroupForSrc(user.avatarImage || "") || "human";
   if (els.profileDisplayName) els.profileDisplayName.value = user.displayName || "Boss";
   setProfileAvatarDraft(user.avatarImage || "", user.avatarCrop);
   renderView();
@@ -4348,64 +4170,64 @@ function closeProfileDialog() {
 
 function renderFellowAvatarDefaults() {
   if (!els.fellowAvatarDefaults) return;
-  const activeGroup = avatarPresetGroups[state.fellowAvatarPresetGroup]
+  const activeGroup = window.aimashiAvatar.avatarPresetGroups[state.fellowAvatarPresetGroup]
     ? state.fellowAvatarPresetGroup
     : "human";
   state.fellowAvatarPresetGroup = activeGroup;
   if (els.fellowAvatarDefaultTabs) {
-    els.fellowAvatarDefaultTabs.innerHTML = avatarPresetGroupTabs.map((group) => `
+    els.fellowAvatarDefaultTabs.innerHTML = window.aimashiAvatar.avatarPresetGroupTabs.map((group) => `
       <button type="button" class="${activeGroup === group.key ? "active" : ""}" data-avatar-group="${escapeHtml(group.key)}" role="tab" aria-selected="${activeGroup === group.key ? "true" : "false"}">${escapeHtml(group.label)}</button>
     `).join("");
     els.fellowAvatarDefaultTabs.querySelectorAll("[data-avatar-group]").forEach((button) => {
       button.addEventListener("click", () => {
         const group = button.dataset.avatarGroup || "human";
-        if (!avatarPresetGroups[group] || state.fellowAvatarPresetGroup === group) return;
+        if (!window.aimashiAvatar.avatarPresetGroups[group] || state.fellowAvatarPresetGroup === group) return;
         state.fellowAvatarPresetGroup = group;
         renderFellowAvatarDefaults();
       });
     });
   }
   const selected = state.fellowAvatarDraft.image;
-  const presets = avatarPresetGroups[activeGroup] || avatarPresetGroups.human;
+  const presets = window.aimashiAvatar.avatarPresetGroups[activeGroup] || window.aimashiAvatar.avatarPresetGroups.human;
   els.fellowAvatarDefaults.innerHTML = presets.map((preset) => `
-    <button type="button" class="avatar-default${selected === preset.src ? " active" : ""}" data-avatar="${escapeHtml(preset.src)}" data-avatar-name="${escapeHtml(preset.name)}" title="${escapeHtml(preset.name)}" aria-label="${escapeHtml(preset.name)}" style="${avatarThumbBackgroundStyle(preset.src, avatarDefaultCropForSrc(preset.src), "#eef0ff")}"></button>
+    <button type="button" class="avatar-default${selected === preset.src ? " active" : ""}" data-avatar="${escapeHtml(preset.src)}" data-avatar-name="${escapeHtml(preset.name)}" title="${escapeHtml(preset.name)}" aria-label="${escapeHtml(preset.name)}" style="${window.aimashiAvatar.avatarThumbBackgroundStyle(preset.src, window.aimashiAvatar.avatarDefaultCropForSrc(preset.src), "#eef0ff")}"></button>
   `).join("");
   els.fellowAvatarDefaults.querySelectorAll("[data-avatar]").forEach((button) => {
     button.addEventListener("click", () => {
-      setFellowAvatarDraft(button.dataset.avatar, avatarDefaultCropForSrc(button.dataset.avatar));
-      if (els.fellowName) els.fellowName.value = button.dataset.avatarName || avatarPresetBySrc(button.dataset.avatar)?.name || "";
+      setFellowAvatarDraft(button.dataset.avatar, window.aimashiAvatar.avatarDefaultCropForSrc(button.dataset.avatar));
+      if (els.fellowName) els.fellowName.value = button.dataset.avatarName || window.aimashiAvatar.avatarPresetBySrc(button.dataset.avatar)?.name || "";
     });
   });
 }
 
 function renderProfileAvatarDefaults() {
   if (!els.profileAvatarDefaults) return;
-  const activeGroup = avatarPresetGroups[state.profileAvatarPresetGroup]
+  const activeGroup = window.aimashiAvatar.avatarPresetGroups[state.profileAvatarPresetGroup]
     ? state.profileAvatarPresetGroup
     : "human";
   state.profileAvatarPresetGroup = activeGroup;
   if (els.profileAvatarDefaultTabs) {
-    els.profileAvatarDefaultTabs.innerHTML = avatarPresetGroupTabs.map((group) => `
+    els.profileAvatarDefaultTabs.innerHTML = window.aimashiAvatar.avatarPresetGroupTabs.map((group) => `
       <button type="button" class="${activeGroup === group.key ? "active" : ""}" data-avatar-group="${escapeHtml(group.key)}" role="tab" aria-selected="${activeGroup === group.key ? "true" : "false"}">${escapeHtml(group.label)}</button>
     `).join("");
     els.profileAvatarDefaultTabs.querySelectorAll("[data-avatar-group]").forEach((button) => {
       button.addEventListener("click", () => {
         const group = button.dataset.avatarGroup || "human";
-        if (!avatarPresetGroups[group] || state.profileAvatarPresetGroup === group) return;
+        if (!window.aimashiAvatar.avatarPresetGroups[group] || state.profileAvatarPresetGroup === group) return;
         state.profileAvatarPresetGroup = group;
         renderProfileAvatarDefaults();
       });
     });
   }
   const selected = state.profileAvatarDraft.image;
-  const presets = avatarPresetGroups[activeGroup] || avatarPresetGroups.human;
+  const presets = window.aimashiAvatar.avatarPresetGroups[activeGroup] || window.aimashiAvatar.avatarPresetGroups.human;
   els.profileAvatarDefaults.innerHTML = presets.map((preset) => `
-    <button type="button" class="avatar-default${selected === preset.src ? " active" : ""}" data-avatar="${escapeHtml(preset.src)}" data-avatar-name="${escapeHtml(preset.name)}" title="${escapeHtml(preset.name)}" aria-label="${escapeHtml(preset.name)}" style="${avatarThumbBackgroundStyle(preset.src, avatarDefaultCropForSrc(preset.src), "#eef0ff")}"></button>
+    <button type="button" class="avatar-default${selected === preset.src ? " active" : ""}" data-avatar="${escapeHtml(preset.src)}" data-avatar-name="${escapeHtml(preset.name)}" title="${escapeHtml(preset.name)}" aria-label="${escapeHtml(preset.name)}" style="${window.aimashiAvatar.avatarThumbBackgroundStyle(preset.src, window.aimashiAvatar.avatarDefaultCropForSrc(preset.src), "#eef0ff")}"></button>
   `).join("");
   els.profileAvatarDefaults.querySelectorAll("[data-avatar]").forEach((button) => {
     button.addEventListener("click", async () => {
       const src = button.dataset.avatar;
-      setProfileAvatarDraft(src, avatarDefaultCropForSrc(src));
+      setProfileAvatarDraft(src, window.aimashiAvatar.avatarDefaultCropForSrc(src));
       // Auto-save: clicking a preset is a decisive choice. Pull the current
       // displayName from the input so we don't drop user's in-progress edit.
       try {
@@ -4414,9 +4236,9 @@ function renderProfileAvatarDefaults() {
           || "Boss";
         state.runtime = await window.aimashi.saveProfile({
           displayName,
-          avatarText: initials(displayName),
+          avatarText: window.aimashiAvatar.initials(displayName),
           avatarImage: state.profileAvatarDraft.image || src,
-          avatarCrop: normalizeCrop(state.profileAvatarDraft.crop),
+          avatarCrop: window.aimashiAvatar.normalizeCrop(state.profileAvatarDraft.crop),
         });
         render();
       } catch (err) {
@@ -4428,9 +4250,9 @@ function renderProfileAvatarDefaults() {
 
 function renderFellowAvatarDraft() {
   const draft = state.fellowAvatarDraft;
-  const crop = normalizeCrop(draft.crop);
+  const crop = window.aimashiAvatar.normalizeCrop(draft.crop);
   if (els.fellowAvatarPreview) {
-    els.fellowAvatarPreview.setAttribute("style", avatarBackgroundStyle(draft.image, crop, "#eef0ff"));
+    els.fellowAvatarPreview.setAttribute("style", window.aimashiAvatar.avatarBackgroundStyle(draft.image, crop, "#eef0ff"));
     els.fellowAvatarPreview.title = "点击调整头像裁剪";
     els.fellowAvatarPreview.setAttribute("role", "button");
     els.fellowAvatarPreview.setAttribute("tabindex", "0");
@@ -4442,17 +4264,17 @@ function renderFellowAvatarDraft() {
 function renderAvatarCropEditor() {
   if (!els.avatarCropStage) return;
   const editor = state.avatarCropEditor;
-  const crop = normalizeCrop(editor.crop);
-  els.avatarCropStage.setAttribute("style", avatarBackgroundStyle(editor.image, crop, "#eef0ff"));
+  const crop = window.aimashiAvatar.normalizeCrop(editor.crop);
+  els.avatarCropStage.setAttribute("style", window.aimashiAvatar.avatarBackgroundStyle(editor.image, crop, "#eef0ff"));
 }
 
 function openAvatarCropEditor(image, crop = null, target = "fellow") {
-  const src = canonicalAvatarSrc(image);
+  const src = window.aimashiAvatar.canonicalAvatarSrc(image);
   state.avatarCropEditor = {
     open: true,
     target,
     image: src,
-    crop: normalizeCrop(crop || avatarDefaultCropForSrc(src)),
+    crop: window.aimashiAvatar.normalizeCrop(crop || window.aimashiAvatar.avatarDefaultCropForSrc(src)),
     dragging: false,
     lastX: 0,
     lastY: 0
@@ -4468,7 +4290,7 @@ function closeAvatarCropEditor() {
 }
 
 function updateAvatarCropEditor(crop) {
-  state.avatarCropEditor.crop = normalizeCrop({
+  state.avatarCropEditor.crop = window.aimashiAvatar.normalizeCrop({
     ...state.avatarCropEditor.crop,
     ...crop
   });
@@ -4532,9 +4354,9 @@ function openFellowDialog(fellow = null, personaText = "") {
   if (els.fellowKey) els.fellowKey.value = actualFellow?.key || "";
   els.fellowName.value = actualFellow?.name || seed?.name || "";
   renderFellowAgentEngineSelect(actualFellow?.agentEngine || actualFellow?.agent_engine || seed?.agentEngine || "hermes");
-  const avatarImage = actualFellow?.avatarImage || defaultAvatarAssets()[0];
-  state.fellowAvatarPresetGroup = avatarPresetGroupForSrc(avatarImage) || "human";
-  setFellowAvatarDraft(avatarImage, avatarCropForImage(avatarImage, actualFellow?.avatarCrop));
+  const avatarImage = actualFellow?.avatarImage || window.aimashiAvatar.defaultAvatarAssets()[0];
+  state.fellowAvatarPresetGroup = window.aimashiAvatar.avatarPresetGroupForSrc(avatarImage) || "human";
+  setFellowAvatarDraft(avatarImage, window.aimashiAvatar.avatarCropForImage(avatarImage, actualFellow?.avatarCrop));
   els.fellowSeed.value = actualFellow ? personaText : (seed?.bio || "");
   if (els.fellowPersonaDetails) els.fellowPersonaDetails.open = Boolean(seed);
   renderView();
@@ -4712,9 +4534,9 @@ els.confirmAvatarCrop?.addEventListener("click", async () => {
         || "Boss";
       state.runtime = await window.aimashi.saveProfile({
         displayName,
-        avatarText: initials(displayName),
+        avatarText: window.aimashiAvatar.initials(displayName),
         avatarImage: state.profileAvatarDraft.image || els.profileAvatarImage?.value || "",
-        avatarCrop: normalizeCrop(state.profileAvatarDraft.crop),
+        avatarCrop: window.aimashiAvatar.normalizeCrop(state.profileAvatarDraft.crop),
       });
       render();
     } catch (err) {
@@ -4727,7 +4549,7 @@ els.confirmAvatarCrop?.addEventListener("click", async () => {
 });
 els.cancelAvatarCrop?.addEventListener("click", closeAvatarCropEditor);
 els.resetAvatarCrop?.addEventListener("click", () => {
-  state.avatarCropEditor.crop = normalizeCrop(avatarDefaultCropForSrc(state.avatarCropEditor.image));
+  state.avatarCropEditor.crop = window.aimashiAvatar.normalizeCrop(window.aimashiAvatar.avatarDefaultCropForSrc(state.avatarCropEditor.image));
   renderAvatarCropEditor();
 });
 
@@ -4736,9 +4558,9 @@ els.profileForm?.addEventListener("submit", async (event) => {
   const displayName = els.profileDisplayName.value.trim() || "Boss";
   state.runtime = await window.aimashi.saveProfile({
     displayName,
-    avatarText: initials(displayName),
+    avatarText: window.aimashiAvatar.initials(displayName),
     avatarImage: state.profileAvatarDraft.image || els.profileAvatarImage.value,
-    avatarCrop: normalizeCrop(state.profileAvatarDraft.crop)
+    avatarCrop: window.aimashiAvatar.normalizeCrop(state.profileAvatarDraft.crop)
   });
   closeProfileDialog();
   render();
@@ -4809,7 +4631,7 @@ els.fellowForm?.addEventListener("submit", async (event) => {
     name: els.fellowName.value,
     agentEngine: els.fellowAgentEngine?.value || "hermes",
     avatarImage: state.fellowAvatarDraft.image || els.fellowAvatar.value,
-    avatarCrop: normalizeCrop(state.fellowAvatarDraft.crop),
+    avatarCrop: window.aimashiAvatar.normalizeCrop(state.fellowAvatarDraft.crop),
     description: state.fellowDialogMode === "create" ? els.fellowSeed.value : "",
     personaText: els.fellowSeed.value
   };
