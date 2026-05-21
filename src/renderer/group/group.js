@@ -29,6 +29,10 @@
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
+  function fellowMember(fellowId) {
+    return { kind: "fellow", fellowId: String(fellowId), ownerId: null };
+  }
+
   const STAGGER_MS = 300;
   const MAX_RELAY_TURNS = 6;
 
@@ -236,12 +240,14 @@
         alert("成员数必须在 2 到 5 之间");
         return;
       }
-      const hostFellowId = hostSelect.value || members[0];
+      const hostFellowIdValue = hostSelect.value || members[0];
       const name = nameInput.value.trim() || members
         .map((id) => fellowNamesById[id] || id)
         .join(" · ");
       try {
-        const group = await window.aimashi.groups.create({ name, members, hostFellowId });
+        const memberList = members.map(fellowMember);
+        const hostMember = fellowMember(hostFellowIdValue);
+        const group = await window.aimashi.groups.create({ name, members: memberList, hostMember });
         moduleState.groups.push(group);
         close();
         // Switch to new group via state
