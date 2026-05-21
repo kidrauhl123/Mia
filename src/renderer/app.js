@@ -478,256 +478,6 @@ const providerLabels = {
 };
 
 
-function setEffortSelectOptions(engine, currentLevel) {
-  if (!els.effortSelect) return;
-  const previous = els.effortSelect.value;
-  const options = window.aimashiEngineOptions.effortOptions(engine);
-  const ids = new Set(options.map((option) => option.value));
-  const nextValue = ids.has(currentLevel) ? currentLevel : ids.has(previous) ? previous : "medium";
-  els.effortSelect.innerHTML = "";
-  for (const item of options) {
-    const option = document.createElement("option");
-    option.value = item.value;
-    option.textContent = item.label;
-    els.effortSelect.appendChild(option);
-  }
-  els.effortSelect.value = ids.has(nextValue) ? nextValue : options[0]?.value || "";
-}
-
-function syncEffortControl(runtime = state.runtime) {
-  if (!els.effortSelect || !els.effortLabel) return;
-  const engine = window.aimashiEngineOptions.activeAgentEngine();
-  const external = engine === "claude-code" || engine === "codex";
-  const level = external ? (window.aimashiEngineOptions.engineConfigForPersona().effortLevel || "medium") : (runtime?.effort?.level || "medium");
-  if (document.activeElement !== els.effortSelect) setEffortSelectOptions(engine, level);
-  if (document.activeElement !== els.effortSelect) {
-    els.effortSelect.value = [...els.effortSelect.options].some((option) => option.value === level) ? level : "medium";
-  }
-  setText(els.effortLabel, window.aimashiEngineOptions.effortLabelForLevel(els.effortSelect.value));
-  els.effortSelect.title = `推理强度：${window.aimashiEngineOptions.effortLabelForLevel(els.effortSelect.value)}`;
-}
-
-function fillModelFieldsFromPreset(key) {
-  const preset = providerPresets[key];
-  if (!preset) return;
-  els.modelProvider.value = preset.provider;
-  els.modelName.value = preset.model;
-  els.modelKeyEnv.value = preset.apiKeyEnv;
-  els.modelBaseUrl.value = preset.baseUrl;
-  els.modelApiMode.value = preset.apiMode;
-  els.authMethod.value = key === "openai-codex" ? "openai-codex" : "api-key";
-  els.modelPreset.value = key;
-  if (key === "openai-codex") els.modelApiKey.value = "";
-  updateModelFieldVisibility();
-}
-
-function setSelectOptions(select, entries, currentId) {
-  if (!select) return;
-  const previous = select.value || currentId;
-  select.innerHTML = "";
-  if (!entries.length) {
-    const option = document.createElement("option");
-    option.value = "";
-    option.textContent = "先连接模型提供商";
-    select.appendChild(option);
-    select.value = "";
-    syncQuickModelLabel();
-    return;
-  }
-  const groups = new Map();
-  for (const entry of entries) {
-    const provider = entry.provider || "custom";
-    if (!groups.has(provider)) {
-      groups.set(provider, {
-        label: entry.providerLabel || providerLabels[provider] || provider,
-        entries: []
-      });
-    }
-    groups.get(provider).entries.push(entry);
-  }
-  for (const group of groups.values()) {
-    const optgroup = document.createElement("optgroup");
-    optgroup.label = group.label;
-    for (const entry of group.entries) {
-      const option = document.createElement("option");
-      option.value = entry.id;
-      option.textContent = entry.label || entry.model || "Local Model";
-      optgroup.appendChild(option);
-    }
-    select.appendChild(optgroup);
-  }
-  const ids = new Set(entries.map((entry) => entry.id));
-  if (ids.has(previous)) select.value = previous;
-  else if (ids.has(currentId)) select.value = currentId;
-  else if (entries[0]) select.value = entries[0].id;
-  syncQuickModelLabel();
-}
-
-function syncQuickModelLabel() {
-  if (!els.quickModelLabel || !els.quickModelSelect) return;
-  const hasOptions = els.quickModelSelect.options && els.quickModelSelect.options.length > 0;
-  if (!hasOptions || els.quickModelSelect.disabled) {
-    setText(els.quickModelLabel, "未配置模型");
-    return;
-  }
-  const selected = els.quickModelSelect.selectedOptions?.[0];
-  setText(els.quickModelLabel, selected?.textContent || "未配置模型");
-}
-
-function permissionLabelForMode(mode = "") {
-  const selected = els.permissionMode?.selectedOptions?.[0];
-  if (selected?.textContent) return selected.textContent;
-  if (mode === "smart") return "Smart";
-  if (mode === "ask" || mode === "manual") return "Ask";
-  if (mode === "yolo" || mode === "off") return "YOLO";
-  if (mode === "deny" || mode === "dontAsk") return "Deny";
-  if (mode === "acceptEdits") return window.aimashiEngineOptions.activeAgentEngine() === "claude-code" ? "Accept Edits" : "Edits";
-  if (mode === "plan") return window.aimashiEngineOptions.activeAgentEngine() === "claude-code" ? "Plan Mode" : "Plan";
-  if (mode === "auto") return "Auto Mode";
-  if (mode === "bypassPermissions") return window.aimashiEngineOptions.activeAgentEngine() === "claude-code" ? "Bypass Permissions" : "YOLO";
-  if (mode === "readOnly") return "Read";
-  return "Ask";
-}
-
-function setPermissionSelectOptions(engine, currentMode) {
-  if (!els.permissionMode) return;
-  const previous = els.permissionMode.value;
-  const options = window.aimashiEngineOptions.externalPermissionOptions(engine);
-  const ids = new Set(options.map((option) => option.value));
-  const nextValue = ids.has(currentMode) ? currentMode : ids.has(previous) ? previous : options[0]?.value || "";
-  els.permissionMode.innerHTML = "";
-  for (const item of options) {
-    const option = document.createElement("option");
-    option.value = item.value;
-    option.textContent = item.label;
-    option.title = item.title || "";
-    els.permissionMode.appendChild(option);
-  }
-  els.permissionMode.value = nextValue;
-}
-
-function syncPermissionControl(runtime = state.runtime) {
-  if (!els.permissionMode || !els.permissionLabel) return;
-  const engine = window.aimashiEngineOptions.activeAgentEngine();
-  const external = engine === "claude-code" || engine === "codex";
-  const mode = external ? (window.aimashiEngineOptions.engineConfigForPersona().permissionMode || "default") : (runtime?.permissions?.mode || "manual");
-  setPermissionSelectOptions(engine, mode);
-  if (document.activeElement !== els.permissionMode) {
-    els.permissionMode.value = [...els.permissionMode.options].some((option) => option.value === mode) ? mode : els.permissionMode.options[0]?.value || "";
-  }
-  setText(els.permissionLabel, permissionLabelForMode(els.permissionMode.value));
-  els.permissionMode.title = `权限模式：${permissionLabelForMode(els.permissionMode.value)}`;
-  const switcher = els.permissionMode.closest(".permission-switcher");
-  switcher?.classList.toggle("yolo", els.permissionMode.value === "yolo" || els.permissionMode.value === "off" || (engine !== "claude-code" && els.permissionMode.value === "bypassPermissions"));
-  switcher?.classList.toggle("claude-bypass", engine === "claude-code" && els.permissionMode.value === "bypassPermissions");
-}
-
-function setProviderOptions(select, entries, currentProvider) {
-  if (!select) return;
-  const previous = select.value || currentProvider;
-  select.innerHTML = "";
-  const placeholder = document.createElement("option");
-  placeholder.value = "";
-  placeholder.textContent = entries.length ? "选择要连接的提供商" : "没有更多可添加的提供商";
-  select.appendChild(placeholder);
-  for (const entry of entries) {
-    const option = document.createElement("option");
-    option.value = entry.provider;
-    option.textContent = entry.providerLabel || entry.label || entry.provider;
-    select.appendChild(option);
-  }
-  const ids = new Set(entries.map((entry) => entry.provider));
-  if (ids.has(previous)) select.value = previous;
-  else if (ids.has(currentProvider)) select.value = currentProvider;
-  else select.value = "";
-}
-
-function providerIsConnected(provider, runtime = state.runtime) {
-  if (!provider) return false;
-  return Boolean((runtime?.connectedProviders || []).some((entry) => entry.provider === provider && entry.hasApiKey));
-}
-
-function connectedModelEntries(runtime = state.runtime) {
-  const connectedProviders = (runtime?.connectedProviders || []).map((entry) => entry.provider);
-  const entries = connectedProviders.flatMap((provider) => window.aimashiModelHelpers.modelsForProvider(provider));
-  const current = window.aimashiModelHelpers.catalogEntryForModel(runtime.model);
-  if (current && providerIsConnected(current.provider, runtime) && !entries.some((entry) => entry.id === current.id)) return [current, ...entries];
-  return entries;
-}
-
-function renderModelSelectors(runtime = state.runtime) {
-  const engine = window.aimashiEngineOptions.activeAgentEngine();
-  if (engine === "claude-code" || engine === "codex") {
-    const config = window.aimashiEngineOptions.engineConfigForPersona();
-    const entries = window.aimashiEngineOptions.externalModelEntries(engine);
-    setSelectOptions(els.quickModelSelect, entries, config.model || "default");
-    if (els.quickModelSelect) els.quickModelSelect.disabled = !entries.length;
-    setProviderOptions(els.modelSelect, window.aimashiModelHelpers.providerEntries().filter((entry) => !providerIsConnected(entry.provider, runtime)), "");
-    return;
-  }
-  const providers = window.aimashiModelHelpers.providerEntries().filter((entry) => !providerIsConnected(entry.provider, runtime));
-  const currentId = window.aimashiModelHelpers.catalogEntryForModel(runtime?.model || {})?.id || window.aimashiModelHelpers.modelKey(runtime?.model || {});
-  setProviderOptions(els.modelSelect, providers, "");
-  const connectedEntries = connectedModelEntries(runtime);
-  setSelectOptions(els.quickModelSelect, connectedEntries, currentId);
-  if (els.quickModelSelect) {
-    els.quickModelSelect.disabled = !connectedEntries.length;
-  }
-}
-
-function applyModelEntryToFields(entry) {
-  if (!entry) return;
-  els.modelProvider.value = entry.provider || "";
-  els.modelName.value = entry.model || "";
-  els.modelKeyEnv.value = entry.apiKeyEnv || "";
-  els.modelBaseUrl.value = entry.baseUrl || "";
-  els.modelApiMode.value = entry.apiMode || "";
-  els.authMethod.value = String(entry.authType || "").startsWith("oauth") ? entry.provider : "api-key";
-}
-
-function modelAuthCopy(entry, runtime = state.runtime) {
-  const authType = String(entry?.authType || "api_key");
-  if (!entry) return { state: "未选择", hint: "选择提供商后，Aimashi 会显示它需要的登录方式。" };
-  if (entry.provider === "openai-codex") {
-    return runtime?.auth?.codexLoggedIn
-      ? { state: "已授权 OpenAI Codex", hint: "OAuth token 已保存在 Aimashi 私有 runtime；具体 Codex 模型在聊天框下方切换。" }
-      : { state: "需要 OpenAI 登录", hint: "选择 OpenAI Codex 后，用 OpenAI 登录完成授权；不需要 API key。" };
-  }
-  if (authType.startsWith("oauth")) {
-    return { state: "需要登录", hint: "这个 Hermes Provider 使用 OAuth。点击登录后，Aimashi 会展示浏览器链接、激活码和登录日志。" };
-  }
-  if (entry.provider === "lmstudio") {
-    return { state: "本地服务", hint: "LM Studio 通常不需要 API key；请确认本地服务已启动并加载模型。" };
-  }
-  return runtime?.model?.provider === entry.provider && runtime?.model?.hasApiKey
-    ? { state: "已保存 API key", hint: "留空保存会继续使用已保存的 key；具体模型在聊天框下方切换。" }
-    : { state: "需要 API key", hint: `填写 ${entry.apiKeyEnv || "API Key"} 后保存，Aimashi 会写入私有 runtime 并重启 Hermes。` };
-}
-
-function renderConnectedProviders(runtime = state.runtime) {
-  if (!els.connectedProviderList) return;
-  const providers = runtime?.connectedProviders || [];
-  els.connectedProviderList.innerHTML = "";
-  if (!providers.length) {
-    const empty = document.createElement("div");
-    empty.className = "connected-provider-empty";
-    empty.textContent = "还没有连接模型提供商";
-    els.connectedProviderList.appendChild(empty);
-    return;
-  }
-  for (const provider of providers) {
-    const row = document.createElement("div");
-    row.className = "connected-provider";
-    row.innerHTML = `
-      <span class="provider-logo-wrap"><img class="provider-logo" src="${escapeHtml(window.aimashiModelHelpers.modelIconSrc({ provider: provider.provider }))}" alt="" onerror="this.style.display='none'"></span>
-      <span class="provider-main">
-        <strong>${escapeHtml(provider.providerLabel || provider.provider)}</strong>
-      </span>
-      <span class="provider-check">✓</span>
-    `;
-    els.connectedProviderList.appendChild(row);
-  }
-}
 
 const fontPresets = {
   system: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
@@ -1656,7 +1406,7 @@ function updateModelFieldVisibility(runtime = state.runtime) {
   const providerEntry = window.aimashiModelHelpers.selectedProviderEntry();
   const entry = window.aimashiModelHelpers.selectedModelEntry();
   const authType = String(entry?.authType || "api_key");
-  const isConnected = providerIsConnected(entry?.provider, runtime);
+  const isConnected = window.aimashiModelSettings.providerIsConnected(entry?.provider, runtime);
   const isCodex = entry ? entry.provider === "openai-codex" : false;
   const needsApiKey = Boolean(entry) && !isConnected && !isCodex && !authType.startsWith("oauth") && entry?.provider !== "lmstudio";
   const needsOauth = Boolean(entry) && !isConnected && (isCodex || authType.startsWith("oauth"));
@@ -1665,8 +1415,8 @@ function updateModelFieldVisibility(runtime = state.runtime) {
   els.codexInlineAuth.classList.toggle("hidden", !needsOauth);
   els.modelConnectButton?.classList.toggle("hidden", !(needsApiKey || canConnectWithoutKey));
   if (entry) {
-    applyModelEntryToFields(entry);
-    const copy = modelAuthCopy(entry, runtime);
+    window.aimashiModelSettings.applyModelEntryToFields(entry);
+    const copy = window.aimashiModelSettings.modelAuthCopy(entry, runtime);
     setText(els.modelAuthState, isConnected ? "已连接" : copy.state);
     els.modelAuthState?.classList.remove("hidden");
     setText(els.modelApiKeyLabel, entry.apiKeyEnv || "API Key");
@@ -1741,13 +1491,13 @@ function render() {
   window.aimashiSettingsRemote.renderCloudAccount(runtime.cloud || {});
   const auth = runtime.auth || {};
   const editingModelSelect = document.activeElement === els.modelSelect || document.activeElement === els.quickModelSelect || document.activeElement === els.effortSelect;
-  if (!editingModel && !editingModelSelect) renderModelSelectors(runtime);
-  renderConnectedProviders(runtime);
+  if (!editingModel && !editingModelSelect) window.aimashiModelSettings.renderModelSelectors(runtime);
+  window.aimashiModelSettings.renderConnectedProviders(runtime);
   updateModelFieldVisibility(runtime);
   const selectedEntry = window.aimashiModelHelpers.selectedModelEntry();
   const selectedProvider = selectedEntry?.provider || auth.oauthProvider || "openai-codex";
   const selectedProviderLabel = window.aimashiModelHelpers.providerLabel(selectedProvider);
-  const selectedConnected = providerIsConnected(selectedProvider, runtime);
+  const selectedConnected = window.aimashiModelSettings.providerIsConnected(selectedProvider, runtime);
   els.codexStatus.textContent = auth.codexStarting
     ? `等待 ${auth.oauthProviderLabel || selectedProviderLabel} 授权`
     : selectedConnected
@@ -1778,10 +1528,10 @@ function render() {
     if ([...els.quickModelSelect.options].some((option) => option.value === currentModelId)) {
       els.quickModelSelect.value = currentModelId;
     }
-    syncQuickModelLabel();
+    window.aimashiModelSettings.syncQuickModelLabel();
   }
-  syncEffortControl(runtime);
-  const connectedEntries = connectedModelEntries(runtime);
+  window.aimashiModelSettings.syncEffortControl(runtime);
+  const connectedEntries = window.aimashiModelSettings.connectedModelEntries(runtime);
   const engine = window.aimashiEngineOptions.activeAgentEngine();
   const engineInfo = runtime.agentEngines || {};
   const externalAvailable = engine === "claude-code"
@@ -1813,7 +1563,7 @@ function render() {
     modelAvatar.textContent = activeIcon ? "" : "◇";
     modelAvatar.style.backgroundImage = activeIcon ? `url("${activeIcon}")` : "";
   }
-  syncPermissionControl(runtime);
+  window.aimashiModelSettings.syncPermissionControl(runtime);
 
   const personas = runtime.fellows || runtime.personas || [];
   // Only fall back to personas[0] when no persona matches AND no group is active.
@@ -3887,6 +3637,17 @@ async function initializeRuntime() {
       EFFORT_LABELS,
     });
   }
+  if (window.aimashiModelSettings && window.aimashiModelSettings.initModelSettings) {
+    window.aimashiModelSettings.initModelSettings({
+      state,
+      els,
+      escapeHtml,
+      setText,
+      updateModelFieldVisibility,
+      providerPresets,
+      providerLabels,
+    });
+  }
   if (window.aimashiSkillLibrary && window.aimashiSkillLibrary.initSkillLibrary) {
     window.aimashiSkillLibrary.initSkillLibrary({
       state,
@@ -4462,7 +4223,7 @@ els.codexLogin.addEventListener("click", async () => {
   try {
     const entry = window.aimashiModelHelpers.selectedModelEntry();
     if (entry) {
-      applyModelEntryToFields(entry);
+      window.aimashiModelSettings.applyModelEntryToFields(entry);
       if (entry.provider === "openai-codex") state.runtime = await window.aimashi.saveModel({
         provider: entry.provider,
         model: entry.model,
@@ -4493,7 +4254,7 @@ els.codexCancel.addEventListener("click", async () => {
 });
 
 els.modelPreset.addEventListener("change", () => {
-  fillModelFieldsFromPreset(els.modelPreset.value);
+  window.aimashiModelSettings.fillModelFieldsFromPreset(els.modelPreset.value);
 });
 
 els.authMethod.addEventListener("change", () => {
@@ -4511,7 +4272,7 @@ els.authMethod.addEventListener("change", () => {
 });
 
 els.quickModelSelect?.addEventListener("change", async () => {
-  syncQuickModelLabel();
+  window.aimashiModelSettings.syncQuickModelLabel();
   const engine = window.aimashiEngineOptions.activeAgentEngine();
   if (engine === "claude-code" || engine === "codex") {
     const persona = activePersona();
@@ -4539,7 +4300,7 @@ els.quickModelSelect?.addEventListener("change", async () => {
     }
     return;
   }
-  const entry = connectedModelEntries().find((item) => item.id === els.quickModelSelect.value);
+  const entry = window.aimashiModelSettings.connectedModelEntries().find((item) => item.id === els.quickModelSelect.value);
   if (!entry) return;
   els.quickModelSelect.disabled = true;
   setText(els.modelSwitchStatus, "切换中...");
@@ -4553,9 +4314,9 @@ els.quickModelSelect?.addEventListener("change", async () => {
       providerLabel: entry.providerLabel,
       authType: entry.authType
     });
-    applyModelEntryToFields(entry);
+    window.aimashiModelSettings.applyModelEntryToFields(entry);
     setText(els.modelSwitchStatus, "已切换");
-    const auth = modelAuthCopy(entry, state.runtime);
+    const auth = window.aimashiModelSettings.modelAuthCopy(entry, state.runtime);
     if (auth.state.includes("需要")) {
       state.settingsOpen = true;
       state.activeSettingsTab = "model";
@@ -4566,13 +4327,13 @@ els.quickModelSelect?.addEventListener("change", async () => {
     appendTransientChat("assistant", `Model switch failed: ${error.message}`);
     await refreshRuntime();
   } finally {
-    els.quickModelSelect.disabled = !connectedModelEntries(state.runtime).length;
+    els.quickModelSelect.disabled = !window.aimashiModelSettings.connectedModelEntries(state.runtime).length;
   }
 });
 
 els.effortSelect?.addEventListener("change", async () => {
   const level = els.effortSelect.value;
-  syncEffortControl(state.runtime);
+  window.aimashiModelSettings.syncEffortControl(state.runtime);
   const engine = window.aimashiEngineOptions.activeAgentEngine();
   if (engine === "claude-code" || engine === "codex") {
     const persona = activePersona();
@@ -4588,7 +4349,7 @@ els.effortSelect?.addEventListener("change", async () => {
           effortLevel: level
         }
       });
-      syncEffortControl(state.runtime);
+      window.aimashiModelSettings.syncEffortControl(state.runtime);
       setText(els.modelSwitchStatus, "推理强度已更新");
       render();
     } catch (error) {
@@ -4604,7 +4365,7 @@ els.effortSelect?.addEventListener("change", async () => {
   els.effortSelect.disabled = true;
   try {
     state.runtime = await window.aimashi.saveEffort({ level });
-    syncEffortControl(state.runtime);
+    window.aimashiModelSettings.syncEffortControl(state.runtime);
     setText(els.modelSwitchStatus, "推理强度已更新");
     render();
   } catch (error) {
@@ -4622,7 +4383,7 @@ els.permissionMode?.addEventListener("change", async () => {
   if (engine === "claude-code" || engine === "codex") {
     const persona = activePersona();
     if (!persona) return;
-    setText(els.permissionLabel, permissionLabelForMode(mode));
+    setText(els.permissionLabel, window.aimashiModelSettings.permissionLabelForMode(mode));
     setText(els.modelSwitchStatus, "保存权限...");
     els.permissionMode.disabled = true;
     try {
@@ -4634,7 +4395,7 @@ els.permissionMode?.addEventListener("change", async () => {
           permissionMode: mode
         }
       });
-      syncPermissionControl(state.runtime);
+      window.aimashiModelSettings.syncPermissionControl(state.runtime);
       setText(els.modelSwitchStatus, "权限已更新");
       render();
     } catch (error) {
@@ -4646,12 +4407,12 @@ els.permissionMode?.addEventListener("change", async () => {
     }
     return;
   }
-  syncPermissionControl({ permissions: { mode } });
+  window.aimashiModelSettings.syncPermissionControl({ permissions: { mode } });
   setText(els.modelSwitchStatus, "保存权限...");
   els.permissionMode.disabled = true;
   try {
     state.runtime = await window.aimashi.savePermissions({ mode });
-    syncPermissionControl(state.runtime);
+    window.aimashiModelSettings.syncPermissionControl(state.runtime);
     setText(els.modelSwitchStatus, "权限已更新");
     render();
   } catch (error) {
@@ -4665,7 +4426,7 @@ els.permissionMode?.addEventListener("change", async () => {
 
 els.modelSelect?.addEventListener("change", () => {
   const entry = window.aimashiModelHelpers.selectedModelEntry();
-  applyModelEntryToFields(entry);
+  window.aimashiModelSettings.applyModelEntryToFields(entry);
   updateModelFieldVisibility();
 });
 
@@ -5204,13 +4965,13 @@ els.fellowForm?.addEventListener("submit", async (event) => {
 els.modelForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const entry = window.aimashiModelHelpers.selectedModelEntry();
-  if (!entry || providerIsConnected(entry.provider)) return;
+  if (!entry || window.aimashiModelSettings.providerIsConnected(entry.provider)) return;
   const needsApiKey = entry.provider !== "openai-codex" && entry.provider !== "lmstudio" && !String(entry.authType || "").startsWith("oauth");
   if (needsApiKey && !els.modelApiKey.value.trim()) {
     setText(els.modelAuthState, `需要填写 ${entry.apiKeyEnv || "API Key"}`);
     return;
   }
-  if (entry) applyModelEntryToFields(entry);
+  if (entry) window.aimashiModelSettings.applyModelEntryToFields(entry);
   state.runtime = await window.aimashi.saveModel({
     provider: els.modelProvider.value,
     model: els.modelName.value,

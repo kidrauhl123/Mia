@@ -76,6 +76,7 @@ const required = [
   "src/renderer/format-helpers.js",
   "src/renderer/model-helpers.js",
   "src/renderer/engine-options.js",
+  "src/renderer/model-settings.js",
   "src/renderer/skill-library.js",
   "resources/conductor/default-prompts/dispatch.md",
   "resources/conductor/default-prompts/summarize.md",
