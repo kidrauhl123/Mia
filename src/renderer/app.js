@@ -7582,6 +7582,13 @@ els.chatForm.addEventListener("submit", async (event) => {
   renderSendButton();
   renderHeaderStatus();
   try {
+    const userMessage = session.messages[session.messages.length - 1];
+    // Persist BEFORE pushing to cloud: the daemon broadcasts cloud:event
+    // back to the renderer, which reloads chatStore from disk (~120ms later).
+    // If we push before persisting, that reload sees a disk version without
+    // this user message and clobbers in-memory state — messages flicker.
+    await persistSessionQuietly(session);
+    pushCloudMessageQuietly(session, userMessage);
     const outgoingText = replyContextPrompt(await outgoingMessageForSubmit(text), replyTo);
     const history = messagesForActive()
       .filter((message) => message.content || (Array.isArray(message.attachments) && message.attachments.length))
