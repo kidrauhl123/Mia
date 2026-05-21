@@ -78,6 +78,7 @@ const required = [
   "src/renderer/engine-options.js",
   "src/renderer/model-settings.js",
   "src/renderer/skill-library.js",
+  "src/renderer/setup-guide.js",
   "resources/conductor/default-prompts/dispatch.md",
   "resources/conductor/default-prompts/summarize.md",
   "resources/conductor/default-prompts/nudge.md",
