@@ -65,6 +65,7 @@ const required = [
   "src/renderer/group-prompts.js",
   "src/renderer/conductor.js",
   "src/renderer/group.js",
+  "src/renderer/tasks-panel.js",
   "resources/conductor/default-prompts/dispatch.md",
   "resources/conductor/default-prompts/summarize.md",
   "resources/conductor/default-prompts/nudge.md",
