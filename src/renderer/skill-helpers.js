@@ -6,6 +6,16 @@
 (function () {
   "use strict";
 
+  // escapeHtml is injected via initSkillHelpers() — used only by the markdown
+  // renderers below. The 7 pure data helpers don't need it.
+  let escapeHtml = (value) => String(value || "");
+
+  function initSkillHelpers(deps) {
+    if (deps && typeof deps.escapeHtml === "function") {
+      escapeHtml = deps.escapeHtml;
+    }
+  }
+
   function skillTone(skill = {}) {
     const text = `${skill.category || ""} ${(skill.tags || []).join(" ")} ${skill.name || ""}`.toLowerCase();
     if (/creative|image|video|art|design|media|p5|ascii|music/.test(text)) return "creative";
@@ -65,7 +75,104 @@
     return skill.description || "这个 Skill 提供一组可复用的本地指令，点击可预览原始 SKILL.md 内容。";
   }
 
+  function stripSkillFrontmatter(value = "") {
+    const text = String(value || "");
+    if (!text.startsWith("---")) return text;
+    const lines = text.split(/\r?\n/);
+    const end = lines.findIndex((line, index) => index > 0 && /^---\s*$/.test(line));
+    return end > 0 ? lines.slice(end + 1).join("\n").trim() : text;
+  }
+
+  function renderSkillInlineMarkdown(value = "") {
+    return escapeHtml(value)
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>')
+      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      .replace(/`([^`]+)`/g, "<code>$1</code>");
+  }
+
+  function renderSkillMarkdownSource(value = "") {
+    const lines = stripSkillFrontmatter(value).split(/\r?\n/);
+    const html = [];
+    let paragraph = [];
+    let list = [];
+    let quote = [];
+    let code = null;
+
+    const flushParagraph = () => {
+      if (!paragraph.length) return;
+      html.push(`<p>${renderSkillInlineMarkdown(paragraph.join(" "))}</p>`);
+      paragraph = [];
+    };
+    const flushList = () => {
+      if (!list.length) return;
+      html.push(`<ul>${list.map((item) => `<li>${renderSkillInlineMarkdown(item)}</li>`).join("")}</ul>`);
+      list = [];
+    };
+    const flushQuote = () => {
+      if (!quote.length) return;
+      html.push(`<blockquote>${quote.map((item) => `<p>${renderSkillInlineMarkdown(item)}</p>`).join("")}</blockquote>`);
+      quote = [];
+    };
+    const flushFlow = () => {
+      flushParagraph();
+      flushList();
+      flushQuote();
+    };
+
+    for (const line of lines) {
+      const fence = line.match(/^```(.*)$/);
+      if (fence) {
+        if (code) {
+          const lang = code.lang || "text";
+          html.push(`
+            <div class="code-card">
+              <div class="code-caption"><span>${escapeHtml(lang)}</span></div>
+              <pre><code>${escapeHtml(code.lines.join("\n"))}</code></pre>
+            </div>
+          `);
+          code = null;
+        } else {
+          flushFlow();
+          code = { lang: fence[1].trim(), lines: [] };
+        }
+        continue;
+      }
+      if (code) {
+        code.lines.push(line);
+        continue;
+      }
+      if (!line.trim()) {
+        flushFlow();
+        continue;
+      }
+      const heading = line.match(/^(#{1,4})\s+(.+)$/);
+      if (heading) {
+        flushFlow();
+        html.push(`<h${heading[1].length}>${renderSkillInlineMarkdown(heading[2].trim())}</h${heading[1].length}>`);
+        continue;
+      }
+      const listItem = line.match(/^\s*[-*]\s+(.+)$/);
+      if (listItem) {
+        flushParagraph();
+        flushQuote();
+        list.push(listItem[1].trim());
+        continue;
+      }
+      const quoteLine = line.match(/^>\s*(.*)$/);
+      if (quoteLine) {
+        flushParagraph();
+        flushList();
+        quote.push(quoteLine[1].trim());
+        continue;
+      }
+      paragraph.push(line.trim());
+    }
+    flushFlow();
+    return html.join("");
+  }
+
   window.aimashiSkillHelpers = {
+    initSkillHelpers,
     skillTone,
     skillInitials,
     pluginSourceLabel,
@@ -73,5 +180,8 @@
     skillHasUpdate,
     skillDisplayName,
     skillSummaryZh,
+    stripSkillFrontmatter,
+    renderSkillInlineMarkdown,
+    renderSkillMarkdownSource,
   };
 })();
