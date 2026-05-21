@@ -1223,6 +1223,38 @@ function render() {
       els.personaList.appendChild(dmBtn);
       continue;
     }
+
+    if (row.type === "group-room") {
+      const groom = row.room;
+      const grPreview = groom.lastMessagePreview || "暂无消息";
+      const grBtn = document.createElement("button");
+      grBtn.type = "button";
+      const activeRoomId = window.aimashiSocial?.getActiveRoomId?.();
+      grBtn.className = `persona message-card group-persona${groom.id === activeRoomId ? " active" : ""}`;
+      const grColor = window.aimashiAvatar ? "#5e5ce6" : "#5e5ce6";
+      const memberCountText = groom.memberCount ? ` · ${groom.memberCount}人` : "";
+      grBtn.innerHTML = `
+        <span class="avatar group-avatar" style="background-color:${window.aimashiMarkdown.escapeHtml(grColor)}; color:#fff; display:flex; align-items:center; justify-content:center; font-size:14px;">${window.aimashiMarkdown.escapeHtml((groom.name[0] || "G").toUpperCase())}</span>
+        <span class="persona-main">
+          <span class="persona-name-row">
+            <span class="persona-name">${window.aimashiMarkdown.escapeHtml(groom.name || "群聊")}</span>
+            <span class="persona-type group">群聊${window.aimashiMarkdown.escapeHtml(memberCountText)}</span>
+          </span>
+          <span class="persona-key">${window.aimashiMarkdown.escapeHtml(grPreview)}</span>
+        </span>
+      `;
+      grBtn.addEventListener("click", () => {
+        state.activeKey = "";
+        state.activeGroupId = "";
+        if (window.aimashiGroup) window.aimashiGroup.moduleState.activeGroupId = null;
+        window.aimashiSocial.setActiveRoomId(groom.id);
+        showNarrowContent();
+        render();
+      });
+      els.personaList.appendChild(grBtn);
+      continue;
+    }
+
     const group = row.group;
     const btn = document.createElement("button");
     btn.type = "button";
@@ -2919,19 +2951,29 @@ els.newPersona.addEventListener("click", (event) => {
 
 els.addFellow?.addEventListener("click", () => window.aimashiFellowDialog.openFellowDialog());
 els.newContact?.addEventListener("click", () => window.aimashiFellowDialog.openFellowDialog());
-// Add-friend button: inject next to newContact in the contacts sidebar header
-(function injectAddFriendButton() {
+// Add-friend + new-group buttons: inject next to newContact in the contacts sidebar header
+(function injectSocialHeaderButtons() {
   const container = els.newContact?.parentElement;
   if (!container) return;
-  const btn = document.createElement("button");
-  btn.id = "addFriendBtn";
-  btn.className = "icon-button";
-  btn.type = "button";
-  btn.title = "添加好友";
-  btn.setAttribute("aria-label", "添加好友");
-  btn.textContent = "🤝";
-  btn.addEventListener("click", () => window.aimashiSocial?.openAddFriendDialog?.());
-  container.appendChild(btn);
+  const friendBtn = document.createElement("button");
+  friendBtn.id = "addFriendBtn";
+  friendBtn.className = "icon-button";
+  friendBtn.type = "button";
+  friendBtn.title = "添加好友";
+  friendBtn.setAttribute("aria-label", "添加好友");
+  friendBtn.textContent = "🤝";
+  friendBtn.addEventListener("click", () => window.aimashiSocial?.openAddFriendDialog?.());
+  container.appendChild(friendBtn);
+
+  const groupBtn = document.createElement("button");
+  groupBtn.id = "newGroupRoomBtn";
+  groupBtn.className = "icon-button";
+  groupBtn.type = "button";
+  groupBtn.title = "新建群聊";
+  groupBtn.setAttribute("aria-label", "新建群聊");
+  groupBtn.textContent = "👥";
+  groupBtn.addEventListener("click", () => window.aimashiSocial?.openCreateGroupDialog?.());
+  container.appendChild(groupBtn);
 })();
 els.userAvatar?.addEventListener("click", () => window.aimashiFellowDialog.openProfileDialog());
 els.userAvatar?.addEventListener("keydown", (event) => {
@@ -3519,13 +3561,19 @@ els.chat.addEventListener("toggle", (event) => {
 els.chatForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (window.aimashiMessageHelpers.isComposerComposing()) return;
-  // Branch: DM room chat
+  // Branch: DM room or group-room chat
   if (window.aimashiSocial?.getActiveRoomId?.() && !activeGroup() && !state.activeKey) {
-    const dmText = els.chatInput.value.trim();
-    if (!dmText) return;
+    const roomId = window.aimashiSocial.getActiveRoomId();
+    const roomText = els.chatInput.value.trim();
+    if (!roomText) return;
     els.chatInput.value = "";
     window.aimashiMessageHelpers.resizeChatInput();
-    await window.aimashiSocial.sendInActiveRoom(dmText);
+    const isGroupRoom = roomId && roomId.startsWith("g_");
+    if (isGroupRoom && typeof window.aimashiSocial.sendInActiveGroupRoom === "function") {
+      await window.aimashiSocial.sendInActiveGroupRoom(roomText);
+    } else {
+      await window.aimashiSocial.sendInActiveRoom(roomText);
+    }
     return;
   }
   // Branch: group chat

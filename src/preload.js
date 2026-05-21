@@ -126,7 +126,10 @@ contextBridge.exposeInMainWorld("aimashi", {
     getRoom: (roomId) => ipcRenderer.invoke("social:get-room", roomId),
     listRoomMessages: (roomId, sinceSeq, limit) => ipcRenderer.invoke("social:list-room-messages", roomId, sinceSeq, limit),
     postRoomMessage: (roomId, body) => ipcRenderer.invoke("social:post-room-message", roomId, body),
-    myUsername: () => ipcRenderer.invoke("social:my-username")
+    myUsername: () => ipcRenderer.invoke("social:my-username"),
+    createRoom: (payload) => ipcRenderer.invoke("social:create-room", payload),
+    addRoomMember: (roomId, member) => ipcRenderer.invoke("social:add-room-member", roomId, member),
+    postRoomMessageAsFellow: (roomId, body) => ipcRenderer.invoke("social:post-message-as-fellow", roomId, body)
   },
   platform: process.platform,
   window: {

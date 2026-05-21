@@ -84,3 +84,29 @@ Implications:
 **Not fixed tonight**: real fix requires either (a) server-side fellow registry, or (b) PK includes owner_id `(room_id, member_kind, member_ref, owner_id)` which is a schema migration touching schema v2 + all room_members queries. Too risky for this overnight slot. Acceptable for alpha because the demo path doesn't exercise this edge.
 
 Track for future S2-polish work.
+
+### Phase 4.2: S2-lite desktop groups (commit: feat(desktop): S2-lite groups — create UI + group chat + cross-user AI invocation)
+
+**"新建群" button placement**: injected alongside the existing "添加好友" (🤝) button in the contacts sidebar header (`injectSocialHeaderButtons()` in app.js). Icon: 👥, title: "新建群聊". Decision: same DOM injection approach as the existing add-friend button — no HTML changes needed, single JS touch point.
+
+**Room members cache strategy**: fetched on first open of a group room (`_fetchAndCacheRoomMembers`) and cached in `_roomMembersCache` (a `Map` in social-groups.js via `_internalCtx`). Also populated from the `POST /api/rooms` response when creating a group. NOT refreshed on every send — once cached, stays until page reload or explicit update via `social.room_invited` event (not yet patching on `room_invited`). Rationale: member list changes rarely in the demo scenario; full refresh-on-send was deemed excessive. Deferred: live member updates via WS.
+
+**`sendChatStateless` path**: `window.aimashi.sendChatStateless(...)` — confirmed at `src/preload.js` line 41 as `ipcRenderer.invoke("chat:send-stateless", payload)` and in `src/main.js` line 6360. Path is the assumed path. No adjustment needed.
+
+**Fellows list shape**: `state.runtime?.fellows || state.runtime?.personas || []`, with `fellow.key || fellow.id` as the id field and `fellow.name` for display. Confirmed by grepping app.js lines 834, 1046, 1440. Same dual-field lookup used in `handleFellowInvocation` and `_renderCreateGroupModal`.
+
+**Group-room sidebar detection**: rooms where `room.name != null && room.id.startsWith("g_")`. DM rooms either have `name: null` or start with `dm:`. This matches the cloud convention (cloud creates group rooms with `id = "g_<uuid>"`).
+
+**Group message sender attribution**: user messages show `friend.username` (or `sender_ref` if not in friends list); fellow messages show `[fellowId (ownerUsername)]`. Owner username comes from `room_members.owner_username || owner_id` — cloud stores this on the member row.
+
+**Mention parsing in group send**: `/@(\w+)/g` regex. Only sends `mentions` array if at least one mention matched a fellow in the cached members list. Mentions not matching a known fellow in the room are dropped silently (user may have @-ed a non-fellow or a mistyped name). Rationale: safer to drop than to fail the send.
+
+**social.js split**: extracted group-specific code (~325 lines) into `src/renderer/social/social-groups.js` because social.js would have exceeded 900 lines. `social-groups.js` is a separate IIFE loaded after `social.js` via a new `<script>` tag in `index.html`. Shared state is passed via `window.aimashiSocial._internalCtx` (a getter-based object exposing `moduleState`, `deps`, `roomMembersCache`, and helper functions). `social-groups.js` auto-attaches on load.
+
+**Things skipped / deferred**:
+- Editing group name or leaving a group (no UI)
+- ai_perms override UI for cross-user fellow invocation (ask-mode is cloud-enforced per P4.1 spec §13 note in this log)
+- Live member list updates via WS (only populated on create and first open)
+- Unread indicator for group rooms
+- Timestamps in group message bubbles
+- Pagination for group messages (loads first 100 only)

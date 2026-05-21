@@ -117,6 +117,30 @@ test("handleCloudEvent social.friend_added adds room + friend, removes from outg
   assert.ok(s.moduleState.messageCache.has("dm:u_a:u_b"));
 });
 
+test("handleCloudEvent social.room_invited adds the room to rooms list", () => {
+  const s = loadSocial();
+  s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.handleCloudEvent({
+    type: "social.room_invited",
+    payload: { room: { id: "g_xxx", name: "Squad", updatedAt: "2026-05-21T20:00:00.000Z" }, invitedBy: { id: "u_a", username: "alice" } }
+  });
+  assert.ok(s.moduleState.rooms.find((r) => r.id === "g_xxx"));
+});
+
+test("renderSidebarRows includes group rooms with type group-room", () => {
+  const s = loadSocial();
+  s.moduleState.myUserId = "u_me";
+  s.moduleState.rooms = [
+    { id: "dm:u_me:u_a", updatedAt: "2026-05-21T20:00:00.000Z", name: null },
+    { id: "g_squad", updatedAt: "2026-05-21T21:00:00.000Z", name: "Squad" }
+  ];
+  s.moduleState.friends = [{ id: "u_a", username: "alice" }];
+  const rows = s.renderSidebarRows();
+  assert.equal(rows.length, 2);
+  const groupRow = rows.find((r) => r.type === "group-room");
+  assert.equal(groupRow.room.name, "Squad");
+});
+
 test("handleCloudEvent room.message_appended appends and tracks maxSeq", () => {
   const s = loadSocial();
   s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });

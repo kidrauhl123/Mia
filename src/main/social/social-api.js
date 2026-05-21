@@ -65,6 +65,15 @@ function createSocialApi({ getSettings, normalizeUrl }) {
     },
     async postRoomMessage(roomId, body) {
       return jsonFetch({ ...ctx(), method: "POST", path: `/api/rooms/${encodeURIComponent(roomId)}/messages`, body });
+    },
+    async createRoom({ name, memberFellows, memberFriendUserIds }) {
+      return jsonFetch({ ...ctx(), method: "POST", path: "/api/rooms", body: { name, memberFellows, memberFriendUserIds } });
+    },
+    async addRoomMember(roomId, { memberKind, memberRef, ownerId }) {
+      return jsonFetch({ ...ctx(), method: "POST", path: `/api/rooms/${encodeURIComponent(roomId)}/members`, body: { memberKind, memberRef, ownerId } });
+    },
+    async postRoomMessageAsFellow(roomId, body) {
+      return jsonFetch({ ...ctx(), method: "POST", path: `/api/rooms/${encodeURIComponent(roomId)}/messages/as-fellow`, body });
     }
   };
 }

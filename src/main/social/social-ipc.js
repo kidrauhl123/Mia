@@ -20,6 +20,9 @@ function registerSocialIpc({ ipcMain, socialApi }) {
   ipcMain.handle("social:get-room", safeCall((roomId) => socialApi.getRoom(roomId)));
   ipcMain.handle("social:list-room-messages", safeCall((roomId, sinceSeq, limit) => socialApi.listRoomMessages(roomId, sinceSeq, limit)));
   ipcMain.handle("social:post-room-message", safeCall((roomId, body) => socialApi.postRoomMessage(roomId, body)));
+  ipcMain.handle("social:create-room", safeCall((payload) => socialApi.createRoom(payload)));
+  ipcMain.handle("social:add-room-member", safeCall((roomId, member) => socialApi.addRoomMember(roomId, member)));
+  ipcMain.handle("social:post-message-as-fellow", safeCall((roomId, body) => socialApi.postRoomMessageAsFellow(roomId, body)));
 }
 
 module.exports = { registerSocialIpc };

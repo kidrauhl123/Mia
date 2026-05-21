@@ -9,6 +9,10 @@
   // Decision: singleton modal — create once, re-populate on open.
   // Avoids leaking DOM nodes on repeated opens.
   let _addFriendModal = null;
+  let _createGroupModal = null;
+
+  // Cache of room members per room id (fetched on first open, updated via WS events).
+  const _roomMembersCache = new Map();
 
   const moduleState = {
     rooms: [],
@@ -195,6 +199,25 @@
         _appendMessageToActiveChat(message);
       }
       if (deps && typeof deps.render === "function") deps.render();
+      return;
+    }
+
+    if (type === "social.room_invited") {
+      const { room } = payload || {};
+      if (!room) return;
+      moduleState.rooms = dedup([...moduleState.rooms, room]);
+      if (!moduleState.messageCache.has(room.id)) {
+        moduleState.messageCache.set(room.id, { messages: [], maxSeq: 0 });
+      }
+      if (deps && typeof deps.render === "function") deps.render();
+      return;
+    }
+
+    if (type === "room.fellow_invocation_requested") {
+      handleFellowInvocation(payload).catch((err) => {
+        console.warn("[social] handleFellowInvocation error:", err?.message || err);
+      });
+      return;
     }
   }
 
@@ -202,7 +225,6 @@
 
   function renderSidebarRows() {
     return moduleState.rooms.map((room) => {
-      const otherUser = otherUserForRoom(room);
       const cacheEntry = moduleState.messageCache.get(room.id);
       const lastMsg = cacheEntry && cacheEntry.messages.length
         ? cacheEntry.messages[cacheEntry.messages.length - 1]
@@ -216,6 +238,21 @@
         if (msgTs > updatedAt) updatedAt = msgTs;
       }
 
+      // Group rooms: id starts with "g_" or have a non-null name (cloud convention)
+      const isGroup = room.name != null && room.id.startsWith("g_");
+      if (isGroup) {
+        const memberCount = (_roomMembersCache.get(room.id) || []).length;
+        return {
+          type: "group-room",
+          key: room.id,
+          pinned: false,
+          pinnedAt: "",
+          updatedAt,
+          room: { ...room, lastMessagePreview, memberCount }
+        };
+      }
+
+      const otherUser = otherUserForRoom(room);
       return {
         type: "dm-room",
         key: room.id,
@@ -236,15 +273,50 @@
 
     const entry = moduleState.messageCache.get(roomId) || { messages: [], maxSeq: 0 };
     const room = moduleState.rooms.find((r) => r.id === roomId);
-    const otherUser = room ? otherUserForRoom(room) : { username: "好友" };
-    const otherName = otherUser.username || otherUser.account || "好友";
     const color = avatarColor(roomId);
+    const isGroup = room && room.name != null && roomId.startsWith("g_");
 
     containerEl.innerHTML = "";
 
-    // Minimal wrapper that mimics the chat layout structure.
-    // We replace the #chat contents (keeping the outer shell), so we write
-    // directly into the scrollable chat area.
+    if (isGroup) {
+      // Group room: show messages with sender attribution
+      const members = _roomMembersCache.get(roomId) || [];
+      for (const msg of entry.messages) {
+        const article = _buildGroupMessageArticle(msg, color, members);
+        if (article) containerEl.appendChild(article);
+      }
+
+      containerEl.scrollTop = containerEl.scrollHeight;
+
+      const groupName = escapeHtml(room.name || "群聊");
+      const memberCount = members.length;
+      const nameEl = document.getElementById("activeChatName");
+      if (nameEl) nameEl.textContent = room.name || "群聊";
+      const metaEl = document.getElementById("activeChatMeta");
+      if (metaEl) metaEl.textContent = memberCount ? `群聊 · ${memberCount} 人` : "群聊";
+      const avatarEl = document.getElementById("activeChatAvatar");
+      if (avatarEl) {
+        avatarEl.textContent = (room.name || "G")[0].toUpperCase();
+        avatarEl.className = "profile-avatar";
+        avatarEl.style.cssText = "background-color:" + color + "; color:#fff;";
+      }
+      const groupInfoBtn = document.getElementById("groupInfoButton");
+      if (groupInfoBtn) groupInfoBtn.classList.add("hidden");
+      const sessionMenuBtn = document.getElementById("sessionMenuButton");
+      if (sessionMenuBtn) sessionMenuBtn.classList.add("hidden");
+      const composerBottom = document.querySelector(".composer-bottom");
+      if (composerBottom) composerBottom.classList.add("hidden");
+
+      // Ensure members are cached for mention parsing
+      if (!_roomMembersCache.has(roomId)) {
+        _fetchAndCacheRoomMembers(roomId);
+      }
+      return;
+    }
+
+    // DM room path (unchanged)
+    const otherUser = room ? otherUserForRoom(room) : { username: "好友" };
+    const otherName = otherUser.username || otherUser.account || "好友";
 
     for (const msg of entry.messages) {
       const article = _buildMessageArticle(msg, color);
@@ -253,15 +325,6 @@
 
     containerEl.scrollTop = containerEl.scrollHeight;
 
-    // Wire the existing composer send button for DM rooms.
-    // Decision: reuse the app-level chatInput / sendChat form so we don't
-    // need to inject a separate input into the chat area. The composer is
-    // already present. We just override the send path in the form submit
-    // handler, which lives in app.js — see the sendChat override injected
-    // via deps.setDmSendOverride (if present). Without that hook we still
-    // let the event fire and app.js gracefully ignores it (no session).
-    //
-    // Topbar update: we reach into the DOM directly (same pattern as group).
     const nameEl = document.getElementById("activeChatName");
     if (nameEl) nameEl.textContent = otherName;
     const metaEl = document.getElementById("activeChatMeta");
@@ -311,6 +374,31 @@
       chatEl.appendChild(article);
       chatEl.scrollTop = chatEl.scrollHeight;
     }
+  }
+
+  // ── group feature stubs — implementations in social-groups.js ───────────
+  // social-groups.js is loaded after social.js and attaches itself via
+  // window.aimashiSocialGroups.attach(ctx) where ctx is the shared internal
+  // context exported below.
+
+  function _buildGroupMessageArticle(msg, accentColor, members) {
+    return window.aimashiSocialGroups?.buildGroupMessageArticle(msg, accentColor, members) || null;
+  }
+
+  function _fetchAndCacheRoomMembers(roomId) {
+    return window.aimashiSocialGroups?.fetchAndCacheRoomMembers(roomId);
+  }
+
+  async function sendInActiveGroupRoom(text) {
+    return window.aimashiSocialGroups?.sendInActiveGroupRoom(text);
+  }
+
+  async function handleFellowInvocation(payload) {
+    return window.aimashiSocialGroups?.handleFellowInvocation(payload);
+  }
+
+  function openCreateGroupDialog() {
+    return window.aimashiSocialGroups?.openCreateGroupDialog();
   }
 
   // ── openAddFriendDialog ───────────────────────────────────────────────────
@@ -584,6 +672,19 @@
 
   // ── exports ───────────────────────────────────────────────────────────────
 
+  // Shared context exposed for social-groups.js to consume.
+  const _internalCtx = {
+    get moduleState() { return moduleState; },
+    get deps() { return deps; },
+    roomMembersCache: _roomMembersCache,
+    escapeHtml,
+    avatarColor,
+    dedup,
+    friendById,
+    renderMsgBody: _renderMsgBody,
+    appendMessageToActiveChat: _appendMessageToActiveChat
+  };
+
   global.aimashiSocial = {
     moduleState,
     initSocialModule,
@@ -592,8 +693,11 @@
     renderSidebarRows,
     renderRoomChat,
     openAddFriendDialog,
+    openCreateGroupDialog,
     sendInActiveRoom,
+    sendInActiveGroupRoom,
     getActiveRoomId,
-    setActiveRoomId
+    setActiveRoomId,
+    _internalCtx
   };
 })(typeof window !== "undefined" ? window : globalThis);
