@@ -94,8 +94,23 @@ function createGroupStore(rootDir) {
     return loadManifest().groups.map((entry) => get(entry.id)).filter(Boolean);
   }
 
+  function migrateLegacyGroup(raw) {
+    if (!raw) return raw;
+    // Already new schema: pass through
+    if (raw.hostMember && Array.isArray(raw.members) && raw.members.every((m) => m && m.kind === "fellow")) {
+      return raw;
+    }
+    const normalizedMembers = Array.isArray(raw.members) ? raw.members.map(normalizeMember) : [];
+    const hostSrc = raw.hostMember ?? raw.hostFellowId;
+    const hostMember = hostSrc != null ? normalizeMember(hostSrc) : null;
+    // Strip legacy field so callers never see it
+    const { hostFellowId, ...rest } = raw;
+    return { ...rest, members: normalizedMembers, hostMember };
+  }
+
   function get(id) {
-    return readJSON(groupJsonPath(id), null);
+    const raw = readJSON(groupJsonPath(id), null);
+    return migrateLegacyGroup(raw);
   }
 
   function updateGroup(id, patch) {

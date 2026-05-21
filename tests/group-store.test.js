@@ -97,9 +97,9 @@ test("updateGroup persists host switch", () => {
   const group = store.create({
     name: "G", members: [makeFellowMember("a"), makeFellowMember("b")], hostMember: makeFellowMember("a"),
   });
-  store.updateGroup(group.id, { hostFellowId: "b" });
+  store.updateGroup(group.id, { hostMember: makeFellowMember("b") });
   const fresh = store.get(group.id);
-  assert.equal(fresh.hostFellowId, "b");
+  assert.equal(fresh.hostMember.fellowId, "b");
 });
 
 test("deleteGroup removes manifest entry and group files", () => {
@@ -133,4 +133,66 @@ test("saveContextCard atomic write", () => {
     fs.readFileSync(path.join(root, group.id, "context-card.json"), "utf8")
   );
   assert.equal(card.summary, "they're talking about X");
+});
+
+test("get() migrates legacy group.json on read", () => {
+  const root = makeTmpRoot();
+  const id = "g-legacy";
+  const dir = path.join(root, id);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "group.json"), JSON.stringify({
+    id,
+    name: "Legacy Group",
+    avatar: null,
+    members: ["alice", "bob"],
+    hostFellowId: "alice",
+    decorations: { pinnedGoal: null, todos: [] },
+    contextCard: null,
+    createdAt: 1,
+    updatedAt: 1,
+  }));
+  fs.writeFileSync(path.join(dir, "messages.jsonl"), "");
+  fs.writeFileSync(path.join(root, "manifest.json"), JSON.stringify({
+    groups: [{ id, name: "Legacy Group", createdAt: 1 }],
+  }));
+
+  const store = createGroupStore(root);
+  const group = store.get(id);
+  assert.equal(group.hostMember.kind, "fellow");
+  assert.equal(group.hostMember.fellowId, "alice");
+  assert.equal(group.members.length, 2);
+  assert.equal(group.members[0].fellowId, "alice");
+  // legacy field must NOT be on the returned object
+  assert.equal(group.hostFellowId, undefined);
+});
+
+test("list() returns all groups normalized", () => {
+  const root = makeTmpRoot();
+  const store = createGroupStore(root);
+  store.create({
+    name: "A",
+    members: [makeFellowMember("x"), makeFellowMember("y")],
+    hostMember: makeFellowMember("x"),
+  });
+  // hand-craft a legacy on-disk entry
+  const legacyId = "g-leg";
+  fs.mkdirSync(path.join(root, legacyId), { recursive: true });
+  fs.writeFileSync(path.join(root, legacyId, "group.json"), JSON.stringify({
+    id: legacyId, name: "Old", avatar: null,
+    members: ["m", "n"], hostFellowId: "m",
+    decorations: { pinnedGoal: null, todos: [] },
+    contextCard: null, createdAt: 1, updatedAt: 1,
+  }));
+  fs.writeFileSync(path.join(root, legacyId, "messages.jsonl"), "");
+  const manifest = JSON.parse(fs.readFileSync(path.join(root, "manifest.json"), "utf8"));
+  manifest.groups.push({ id: legacyId, name: "Old", createdAt: 1 });
+  fs.writeFileSync(path.join(root, "manifest.json"), JSON.stringify(manifest));
+
+  const groups = store.list();
+  assert.equal(groups.length, 2);
+  for (const g of groups) {
+    assert.equal(g.hostMember.kind, "fellow");
+    assert.ok(g.members.every((m) => m.kind === "fellow"));
+    assert.equal(g.hostFellowId, undefined);
+  }
 });
