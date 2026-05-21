@@ -896,7 +896,14 @@ async function handleRequest(req, res, context) {
       const room = context.socialStore.getRoom(roomId);
       if (!room) return writeError(res, 404, "room not found");
       const members = context.socialStore.listRoomMembers(roomId);
-      return writeJson(res, 200, { room, members });
+      // M1: enrich fellow members with owner public user so renderer shows username
+      const enriched = members.map((m) => {
+        if (m.member_kind === "fellow" && m.owner_id) {
+          return { ...m, owner: context.cloudStore.getUserPublic(m.owner_id) };
+        }
+        return m;
+      });
+      return writeJson(res, 200, { room, members: enriched });
     }
 
     if (req.method === "GET" && roomMsgsMatch) {

@@ -209,6 +209,8 @@
       if (!moduleState.messageCache.has(room.id)) {
         moduleState.messageCache.set(room.id, { messages: [], maxSeq: 0 });
       }
+      // H2: Invalidate member cache so next mention parse refetches newly-added fellows
+      _roomMembersCache.delete(room.id);
       if (deps && typeof deps.render === "function") deps.render();
       return;
     }

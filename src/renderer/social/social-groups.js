@@ -6,6 +6,10 @@
 (function (global) {
   let ctx = null; // set by attach()
 
+  // H1: dedup set to prevent double-invocation on repeated WS events
+  const _processedInvocations = new Set();
+  const PROCESSED_INVOCATIONS_CAP = 256;
+
   function attach(internalCtx) {
     ctx = internalCtx;
   }
@@ -26,7 +30,8 @@
       senderLabel = escapeHtml(friend.username || msg.sender_ref || "");
     } else if (msg.sender_kind === "fellow") {
       const m = (members || []).find((mem) => mem.member_kind === "fellow" && mem.member_ref === msg.sender_ref);
-      const ownerUsername = m ? (m.owner_username || m.owner_id || "") : "";
+      // M1: prefer enriched owner object from server, fallback to legacy fields
+      const ownerUsername = m ? (m.owner?.username || m.owner?.account || m.owner_username || m.owner_id || "") : "";
       senderLabel = escapeHtml(msg.sender_ref || "") + (ownerUsername ? escapeHtml(` (${ownerUsername})`) : "");
     }
 
@@ -57,13 +62,16 @@
 
   // ── group send: parse @mentions and POST to cloud ─────────────────────────
 
+  // M2: mention regex broadened to cover fellow ids with -, ., _
+  const MENTION_REGEX = /@([A-Za-z0-9_.-]+)/g;
+
   async function sendInActiveGroupRoom(text) {
     const { moduleState, deps, roomMembersCache, appendMessageToActiveChat } = ctx;
     const roomId = moduleState.activeRoomId;
     if (!roomId || !text) return;
     const members = roomMembersCache.get(roomId) || [];
 
-    const mentionPattern = /@(\w+)/g;
+    const mentionPattern = new RegExp(MENTION_REGEX.source, MENTION_REGEX.flags);
     let match;
     const mentions = [];
     while ((match = mentionPattern.exec(text)) !== null) {
@@ -101,6 +109,17 @@
   // ── handleFellowInvocation ────────────────────────────────────────────────
 
   async function handleFellowInvocation(payload) {
+    // H1: dedup by triggeringMessage.id to prevent double AI invocation on repeated WS events
+    const triggerId = payload && payload.triggeringMessage && payload.triggeringMessage.id;
+    if (!triggerId) return;
+    if (_processedInvocations.has(triggerId)) return;
+    _processedInvocations.add(triggerId);
+    // Cap the set so it doesn't grow unboundedly
+    if (_processedInvocations.size > PROCESSED_INVOCATIONS_CAP) {
+      const first = _processedInvocations.values().next().value;
+      _processedInvocations.delete(first);
+    }
+
     const { deps } = ctx;
     const { roomId, fellowId, invokedBy, triggeringMessage, recentMessages } = payload || {};
     if (!roomId || !fellowId) return;
