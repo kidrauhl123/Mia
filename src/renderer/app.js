@@ -2012,7 +2012,7 @@ async function initializeRuntime() {
       loadSkills: () => window.aimashiLoaders.loadSkills(),
       renderAttachmentThumb,
       renderSendButton,
-      resizeChatInput,
+      resizeChatInput: () => window.aimashiMessageHelpers.resizeChatInput(),
       appendTransientChat,
       cryptoRandomId,
       activeSession,
