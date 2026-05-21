@@ -313,6 +313,15 @@ const els = {
   codexCancel: document.getElementById("codexCancel"),
   codexLogs: document.getElementById("codexLogs"),
   mobileDaemonStatus: document.getElementById("mobileDaemonStatus"),
+  cloudAccountHint: document.getElementById("cloudAccountHint"),
+  cloudLoginBox: document.getElementById("cloudLoginBox"),
+  cloudUsername: document.getElementById("cloudUsername"),
+  cloudPassword: document.getElementById("cloudPassword"),
+  cloudLogin: document.getElementById("cloudLogin"),
+  cloudRegister: document.getElementById("cloudRegister"),
+  cloudSync: document.getElementById("cloudSync"),
+  cloudLogout: document.getElementById("cloudLogout"),
+  cloudLoginHint: document.getElementById("cloudLoginHint"),
   mobileDaemonUrl: document.getElementById("mobileDaemonUrl"),
   mobileLanToggle: document.getElementById("mobileLanToggle"),
   mobilePairingBox: document.getElementById("mobilePairingBox"),
@@ -1880,7 +1889,7 @@ function renderAttachmentThumb(attachment = {}, className = "attachment-thumb") 
 }
 
 function renderAttachmentChip(attachment = {}) {
-  const image = (attachment.kind || attachmentKind(attachment)) === "image" && (attachment.thumbnailDataUrl || attachment.thumbnail || attachment.previewDataUrl || attachment.dataUrl);
+  const image = (attachment.kind || attachmentKind(attachment)) === "image" && (attachment.thumbnailDataUrl || attachment.thumbnail || attachment.previewDataUrl || attachment.dataUrl || attachment.url);
   const href = String(attachment.dataUrl || "").startsWith("data:") ? String(attachment.dataUrl) : "";
   const tag = href ? "a" : "span";
   const download = href ? ` href="${escapeHtml(href)}" download="${escapeHtml(attachment.name || "attachment")}"` : "";
@@ -1961,9 +1970,17 @@ function generatedAttachmentsForMessage(message = {}) {
 
 function hydrateAttachmentPreview(attachment = {}) {
   const filePath = String(attachment.path || "").trim();
-  if (!filePath || attachment.thumbnailDataUrl || attachment.thumbnail || attachment.previewDataUrl || attachment.dataUrl) return attachment;
+  const cloudUrl = String(attachment.url || "").trim();
+  if ((!filePath && !cloudUrl) || attachment.thumbnailDataUrl || attachment.thumbnail || attachment.previewDataUrl || attachment.dataUrl) return attachment;
   const kind = String(attachment.kind || attachmentKind(attachment));
   if (kind !== "image") return attachment;
+  if (cloudUrl) {
+    const entry = state.generatedFiles.get(cloudUrl);
+    if (entry?.status === "ready" && entry.attachment) {
+      return { ...attachment, ...entry.attachment };
+    }
+    return attachment;
+  }
   const entry = state.generatedFiles.get(filePath);
   if (entry?.status === "ready" && entry.attachment) {
     return { ...attachment, ...entry.attachment };
@@ -1975,11 +1992,12 @@ function attachmentPreviewPaths(messages = []) {
   return messages.flatMap((message) => Array.isArray(message.attachments) ? message.attachments : [])
     .filter((attachment) => {
       const filePath = String(attachment.path || "").trim();
-      if (!filePath) return false;
+      const cloudUrl = String(attachment.url || "").trim();
+      if (!filePath && !cloudUrl) return false;
       if (attachment.thumbnailDataUrl || attachment.thumbnail || attachment.previewDataUrl || attachment.dataUrl) return false;
       return String(attachment.kind || attachmentKind(attachment)) === "image";
     })
-    .map((attachment) => String(attachment.path).trim());
+    .map((attachment) => String(attachment.path || attachment.url).trim());
 }
 
 function queueGeneratedFileFetches(messages = []) {
@@ -1990,7 +2008,7 @@ function queueGeneratedFileFetches(messages = []) {
   for (const filePath of paths) {
     if (state.generatedFiles.has(filePath)) continue;
     state.generatedFiles.set(filePath, { status: "loading" });
-    window.aimashi.fetchFileAttachment?.({ path: filePath })
+    window.aimashi.fetchFileAttachment?.(filePath.startsWith("/api/files/") ? { url: filePath } : { path: filePath })
       .then((attachment) => {
         if (attachment?.error) throw new Error(attachment.message || "File not found.");
         state.generatedFiles.set(filePath, { status: "ready", attachment });
@@ -2163,6 +2181,22 @@ async function persistSessionQuietly(session = activeSession()) {
   }
 }
 
+async function pushCloudMessageQuietly(session, message) {
+  if (!state.runtime?.cloud?.enabled || !window.aimashi?.cloudPushMessage || !session || !message || message.transient) return false;
+  try {
+    state.runtime = await window.aimashi.cloudPushMessage({
+      fellowKey: state.activeKey,
+      session,
+      message
+    });
+    renderCloudAccount(state.runtime?.cloud || {});
+    return true;
+  } catch (error) {
+    console.error("Failed to push cloud message", error);
+    return false;
+  }
+}
+
 async function replacePersistedSessionQuietly(session = activeSession()) {
   try {
     state.chatStore = await window.aimashi.saveChatSession({
@@ -2177,12 +2211,16 @@ async function replacePersistedSessionQuietly(session = activeSession()) {
   }
 }
 
-async function loadChatSessions() {
+async function loadChatSessions(options = {}) {
+  const previousActive = { ...state.activeSessionIdByPersona };
   state.chatStore = await window.aimashi.loadChatSessions();
   const personas = state.runtime?.fellows || state.runtime?.personas || [];
   for (const persona of personas) {
     const sessions = sessionsForPersona(persona.key);
-    state.activeSessionIdByPersona[persona.key] = sessions[0]?.id;
+    const previous = previousActive[persona.key];
+    state.activeSessionIdByPersona[persona.key] = options.preserveActive && sessions.some((session) => session.id === previous)
+      ? previous
+      : sessions[0]?.id;
   }
 }
 
@@ -2466,6 +2504,34 @@ function renderRelayPairing(relay = state.runtime?.relay || {}) {
   }
 }
 
+function renderCloudAccount(cloud = state.runtime?.cloud || {}) {
+  if (!els.cloudAccountHint) return;
+  const connected = Boolean(cloud.connected);
+  const connecting = Boolean(cloud.connecting);
+  const enabled = Boolean(cloud.enabled);
+  const username = cloud.user?.username || cloud.user?.email || "";
+  if (enabled) {
+    const syncText = cloud.workspaceRevision
+      ? `Cloud revision ${cloud.workspaceRevision} · ${cloud.conversationCount || 0} 个会话`
+      : "Cloud workspace 待同步";
+    els.cloudAccountHint.textContent = connected
+      ? `${username || "当前账号"} 已登录，本机 Agent 在线。${syncText}`
+      : connecting
+        ? `${username || "当前账号"} 已登录，正在连接 Aimashi Cloud。${syncText}`
+        : `${username || "当前账号"} 已登录，等待 Aimashi Cloud：${cloud.lastError || "未连接"}。${syncText}`;
+  } else {
+    els.cloudAccountHint.textContent = "登录后，这台电脑会自动作为本机 Agent 出现在 Web 和手机端。";
+  }
+  els.cloudLoginBox?.classList.toggle("hidden", enabled);
+  els.cloudSync?.classList.toggle("hidden", !enabled);
+  els.cloudLogout?.classList.toggle("hidden", !enabled);
+  if (els.cloudLoginHint) {
+    els.cloudLoginHint.textContent = enabled
+      ? "Web 和手机端登录同一账号后会看到这台电脑在线。"
+      : "使用和 Web 端相同的用户名、密码。";
+  }
+}
+
 async function applyDaemonHost(host) {
   if (!window.aimashi?.saveDaemonSettings) return null;
   setText(els.mobilePairingHint, "正在切换手机访问范围...");
@@ -2541,6 +2607,7 @@ function render() {
   ].filter(Boolean).join("\n");
   renderMobilePairing(runtime.daemon || {});
   renderRelayPairing(runtime.relay || {});
+  renderCloudAccount(runtime.cloud || {});
   const auth = runtime.auth || {};
   const editingModelSelect = document.activeElement === els.modelSelect || document.activeElement === els.quickModelSelect || document.activeElement === els.effortSelect;
   if (!editingModel && !editingModelSelect) renderModelSelectors(runtime);
@@ -6336,6 +6403,58 @@ els.mobileLanToggle?.addEventListener("click", async () => {
     await applyDaemonHost(enabled ? "127.0.0.1" : "0.0.0.0");
   } catch (error) {
     setText(els.mobilePairingHint, `切换失败：${error.message}`);
+  }
+});
+
+async function submitCloudLogin(mode) {
+  const username = String(els.cloudUsername?.value || "").trim();
+  const password = String(els.cloudPassword?.value || "");
+  if (!username) {
+    setText(els.cloudLoginHint, "请输入用户名。");
+    els.cloudUsername?.focus();
+    return;
+  }
+  if (password.length < 6) {
+    setText(els.cloudLoginHint, "密码至少 6 位。");
+    els.cloudPassword?.focus();
+    return;
+  }
+  const buttons = [els.cloudLogin, els.cloudRegister].filter(Boolean);
+  buttons.forEach((button) => { button.disabled = true; });
+  setText(els.cloudLoginHint, mode === "register" ? "正在注册并连接..." : "正在登录并连接...");
+  try {
+    state.runtime = await window.aimashi.cloudLogin({ mode, username, password });
+    if (els.cloudPassword) els.cloudPassword.value = "";
+    render();
+  } catch (error) {
+    setText(els.cloudLoginHint, `连接失败：${error.message || error}`);
+  } finally {
+    buttons.forEach((button) => { button.disabled = false; });
+  }
+}
+
+els.cloudLogin?.addEventListener("click", () => submitCloudLogin("login"));
+els.cloudRegister?.addEventListener("click", () => submitCloudLogin("register"));
+els.cloudSync?.addEventListener("click", async () => {
+  els.cloudSync.disabled = true;
+  try {
+    state.runtime = await window.aimashi.cloudSync();
+    render();
+  } catch (error) {
+    setText(els.cloudLoginHint, `同步失败：${error.message || error}`);
+  } finally {
+    els.cloudSync.disabled = false;
+  }
+});
+els.cloudLogout?.addEventListener("click", async () => {
+  els.cloudLogout.disabled = true;
+  try {
+    state.runtime = await window.aimashi.cloudLogout();
+    render();
+  } catch (error) {
+    setText(els.cloudLoginHint, `退出失败：${error.message || error}`);
+  } finally {
+    els.cloudLogout.disabled = false;
   }
 });
 

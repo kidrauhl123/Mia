@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#f5f5f8">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Aimashi">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <title>Aimashi Web</title>
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png">
+    <link rel="manifest" href="./manifest.webmanifest">
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <main class="app-shell" data-auth="loading">
+      <section id="loginView" class="login-view" aria-label="登录 Aimashi">
+        <div class="login-panel">
+          <div class="login-brand">
+            <div class="brand-mark">A</div>
+            <div>
+              <h1>Aimashi</h1>
+              <p>登录后在网页端、桌面端和手机端同步聊天。</p>
+            </div>
+          </div>
+          <form id="loginForm" class="login-form">
+            <label>
+              用户名
+              <input id="usernameInput" type="text" autocomplete="username" required>
+            </label>
+            <label>
+              密码
+              <div class="code-row">
+                <input id="passwordInput" type="password" autocomplete="current-password" placeholder="至少 6 位" required>
+                <button id="registerButton" type="submit">创建账号</button>
+              </div>
+            </label>
+            <button class="primary-action" type="submit">登录 Aimashi Web</button>
+            <p id="loginHint" class="login-hint">账号、会话和图片会保存到 Aimashi Cloud 服务器。</p>
+          </form>
+        </div>
+      </section>
+
+      <section id="mainView" class="main-view" aria-label="Aimashi Web">
+        <aside class="nav-rail" aria-label="主导航">
+          <div class="rail-logo">A</div>
+          <button class="rail-button active" type="button" data-view="chat" title="消息" aria-label="消息">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            <em id="unreadCount">2</em>
+          </button>
+          <button class="rail-button" type="button" data-view="contacts" title="联系人" aria-label="联系人">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2 M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0z"/></svg>
+          </button>
+          <button class="rail-button" type="button" data-view="skills" title="能力库" aria-label="能力库">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7v14 M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/></svg>
+          </button>
+          <button class="rail-button" type="button" data-view="workbench" title="工作台" aria-label="工作台">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5a2 2 0 0 1 2-2h5v7H4z M13 3h5a2 2 0 0 1 2 2v3h-7z M4 12h7v9H6a2 2 0 0 1-2-2z M13 10h7v9a2 2 0 0 1-2 2h-5z"/></svg>
+          </button>
+          <div class="rail-spacer"></div>
+          <button id="themeToggle" class="rail-button" type="button" title="切换主题" aria-label="切换主题">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v2 M12 19v2 M5.64 5.64l1.42 1.42 M16.94 16.94l1.42 1.42 M3 12h2 M19 12h2 M5.64 18.36l1.42-1.42 M16.94 7.06l1.42-1.42 M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z"/></svg>
+          </button>
+        </aside>
+
+        <aside class="sidebar">
+          <header class="sidebar-tools">
+            <label class="search-box">
+              <span>⌕</span>
+              <input id="conversationSearch" autocomplete="off" placeholder="搜索">
+            </label>
+            <button id="newConversation" class="icon-button" type="button" title="新对话" aria-label="新对话">＋</button>
+          </header>
+          <section id="conversationList" class="persona-list" aria-label="会话列表"></section>
+        </aside>
+
+        <section class="workspace">
+          <header class="topbar">
+            <button id="mobileBack" class="narrow-back-button" type="button" aria-label="返回消息列表">‹</button>
+            <div class="group-title">
+              <span id="activeAvatar" class="avatar"></span>
+              <div>
+                <h1 id="activeTitle">Aimashi</h1>
+                <p id="activeMeta">Aimashi Cloud · 已同步</p>
+              </div>
+            </div>
+            <div class="top-actions">
+              <button id="syncButton" class="sync-pill" type="button">同步中</button>
+              <button id="logoutButton" class="icon-button" type="button" title="退出登录" aria-label="退出登录">⏻</button>
+            </div>
+          </header>
+
+          <section class="chat-layout">
+            <div id="chat" class="chat" aria-live="polite"></div>
+            <form id="chatForm" class="composer">
+              <div id="attachmentTray" class="composer-attachments hidden"></div>
+              <div class="composer-input-row">
+                <button id="attachButton" class="composer-add-button" type="button" title="添加图片或附件" aria-label="添加图片或附件">+</button>
+                <textarea id="chatInput" placeholder="输入消息"></textarea>
+                <button id="sendButton" class="send-button" type="submit" title="发送" aria-label="发送">↗</button>
+              </div>
+              <div class="composer-bottom">
+                <div class="composer-controls">
+                  <span class="model-avatar" aria-hidden="true"><img src="./assets/openai-codex.svg" alt=""></span>
+                  <span>gpt-5.3-codex</span>
+                  <span class="composer-dot">·</span>
+                  <span>Medium</span>
+                  <span class="composer-dot">·</span>
+                  <span>Ask</span>
+                </div>
+                <span id="statusText" class="model-switch-status">Aimashi Cloud</span>
+              </div>
+              <input id="fileInput" class="hidden-file-input" type="file" accept="image/*" multiple>
+            </form>
+          </section>
+          <section id="utilityView" class="utility-view hidden" aria-live="polite"></section>
+        </section>
+      </section>
+      <div id="toast" class="toast hidden" role="status"></div>
+    </main>
+    <script src="./app.js?v=20260520-register-submit"></script>
+  </body>
+</html>

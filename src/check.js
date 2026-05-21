@@ -13,6 +13,9 @@ const required = [
   "src/main/codex-chat-adapter.js",
   "src/main/fellow-registry.js",
   "src/main/hermes-chat-adapter.js",
+  "src/cloud/sqlite-store.js",
+  "src/cloud/desktop-sync.js",
+  "src/cloud/desktop-bridge-permission.js",
   "src/permission-modes.js",
   "src/runtime-resource-paths.js",
   "src/preload.js",
@@ -22,6 +25,28 @@ const required = [
   "src/mobile/index.html",
   "src/mobile/app.js",
   "src/mobile/styles.css",
+  "src/web/index.html",
+  "src/web/app.js",
+  "src/web/styles.css",
+  "src/web/favicon.svg",
+  "src/web/apple-touch-icon.png",
+  "src/web/icon-192.png",
+  "src/web/icon-512.png",
+  "src/web/manifest.webmanifest",
+  "scripts/serve-web.js",
+  "scripts/serve-cloud.js",
+  "scripts/build-cloud-release.js",
+  "scripts/print-cloud-release-handoff.js",
+  "scripts/verify-cloud-production.js",
+  "scripts/audit-cloud-productization.js",
+  "scripts/diagnose-deploy-ssh.js",
+  "scripts/print-cloud-blockers.js",
+  "scripts/deploy-cloud-release.sh",
+  "scripts/install-cloud-release-local.sh",
+  "scripts/doctor-cloud.js",
+  "scripts/smoke-cloud.js",
+  "scripts/local-agent-bridge.js",
+  "docs/cloud-deployment.md",
   "src/relay/server.js",
   "scripts/create-mac-dmg.js",
   "skills/pet-generator/SKILL.md",
@@ -53,11 +78,30 @@ for (const file of required) {
   }
 }
 
-for (const file of ["src/main.js", "src/main/chat-engine-adapters.js", "src/main/chat-engine-registry.js", "src/main/chat-events.js", "src/main/chat-response.js", "src/main/claude-code-chat-adapter.js", "src/main/codex-chat-adapter.js", "src/main/fellow-registry.js", "src/main/hermes-chat-adapter.js", "src/permission-modes.js", "src/runtime-resource-paths.js", "src/preload.js", "src/renderer/app.js", "src/mobile/app.js", "src/relay/server.js"]) {
+const forbiddenRootDuplicates = [
+  "main.js",
+  "desktop-bridge-permission.js"
+];
+
+for (const file of forbiddenRootDuplicates) {
+  const full = path.join(__dirname, "..", file);
+  if (fs.existsSync(full)) {
+    throw new Error(`Unexpected root-level duplicate source file: ${file}`);
+  }
+}
+
+for (const file of ["src/main.js", "src/main/chat-engine-adapters.js", "src/main/chat-engine-registry.js", "src/main/chat-events.js", "src/main/chat-response.js", "src/main/claude-code-chat-adapter.js", "src/main/codex-chat-adapter.js", "src/main/fellow-registry.js", "src/main/hermes-chat-adapter.js", "src/cloud/sqlite-store.js", "src/cloud/desktop-sync.js", "src/cloud/desktop-bridge-permission.js", "src/permission-modes.js", "src/runtime-resource-paths.js", "src/preload.js", "src/renderer/app.js", "src/mobile/app.js", "src/web/app.js", "scripts/serve-web.js", "scripts/serve-cloud.js", "scripts/build-cloud-release.js", "scripts/print-cloud-release-handoff.js", "scripts/verify-cloud-production.js", "scripts/audit-cloud-productization.js", "scripts/diagnose-deploy-ssh.js", "scripts/print-cloud-blockers.js", "scripts/doctor-cloud.js", "scripts/smoke-cloud.js", "scripts/local-agent-bridge.js", "src/relay/server.js"]) {
   childProcess.execFileSync(process.execPath, ["--check", path.join(__dirname, "..", file)], {
     stdio: "inherit"
   });
 }
+
+childProcess.execFileSync("bash", ["-n", path.join(__dirname, "..", "scripts/deploy-cloud-release.sh")], {
+  stdio: "inherit"
+});
+childProcess.execFileSync("bash", ["-n", path.join(__dirname, "..", "scripts/install-cloud-release-local.sh")], {
+  stdio: "inherit"
+});
 
 const { normalizePermissionMode, permissionModeLabel } = require("./permission-modes");
 const {
@@ -87,6 +131,13 @@ assert.doesNotMatch(defaultModelBody, /provider: "xai"[\s\S]*model: "grok-4\.1-f
 assert.doesNotMatch(defaultModelBody, /provider: "openai-codex"[\s\S]*model: "gpt-5\.3-codex"/);
 assert.match(defaultModelBody, /provider: ""[\s\S]*model: ""/);
 assert.match(mainSource, /requestSingleInstanceLock/);
+
+const cloudServerSource = fs.readFileSync(path.join(__dirname, "..", "scripts/serve-cloud.js"), "utf8");
+assert.match(cloudServerSource, /createCloudStore/);
+assert.doesNotMatch(cloudServerSource, /\b(readDb|writeDb|emptyDb|authenticatedToken|passwordHash|createSession|serveFile)\b/);
+assert.doesNotMatch(cloudServerSource, /\bdb\.users\b|\bdb\.sessions\b|\bdb\.workspaces\b|\bdb\.files\b/);
+assert.match(cloudServerSource, /allowQueryTokenAuth/);
+assert.doesNotMatch(cloudServerSource, /authenticateToken\([^)]*url\.searchParams\.get\("token"\)/);
 
 const {
   runtimeTargetId,

@@ -484,6 +484,27 @@
               <section class="connection-row">
                 <div class="connection-row-head">
                   <div>
+                    <strong>Aimashi Cloud</strong>
+                    <p id="cloudAccountHint">登录后，这台电脑会自动作为本机 Agent 出现在 Web 和手机端。</p>
+                  </div>
+                  <div class="cloud-actions">
+                    <button id="cloudSync" class="secondary hidden" type="button">同步</button>
+                    <button id="cloudLogout" class="secondary hidden" type="button">退出登录</button>
+                  </div>
+                </div>
+                <section id="cloudLoginBox" class="connection-details">
+                  <div class="cloud-login-grid">
+                    <input id="cloudUsername" autocomplete="username" placeholder="用户名">
+                    <input id="cloudPassword" autocomplete="current-password" type="password" placeholder="密码">
+                    <button id="cloudLogin" class="primary" type="button">登录</button>
+                    <button id="cloudRegister" class="secondary" type="button">注册</button>
+                  </div>
+                  <p id="cloudLoginHint" class="pairing-hint">使用和 Web 端相同的用户名、密码。</p>
+                </section>
+              </section>
+              <section class="connection-row">
+                <div class="connection-row-head">
+                  <div>
                     <strong>局域网访问</strong>
                     <p id="mobileDaemonUrl">仅同一网络内可用，公共网络可能会禁止设备互访。</p>
                   </div>

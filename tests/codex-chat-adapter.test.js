@@ -11,31 +11,45 @@ const { chatCompletionResponse } = require("../src/main/chat-response.js");
 
 function createDeps(overrides = {}) {
   const calls = [];
+  async function* streamEvents(events) {
+    for (const event of events) yield event;
+  }
+  function threadApi(id, responseText) {
+    return {
+      id,
+      run: async (prompt, runOptions) => {
+        calls.push(["run", prompt, runOptions]);
+        if (overrides.onRun) await overrides.onRun(prompt, runOptions);
+        return { finalResponse: responseText };
+      },
+      runStreamed: async (prompt, runOptions) => {
+        calls.push(["runStreamed", prompt, runOptions]);
+        if (overrides.onRun) await overrides.onRun(prompt, runOptions);
+        return {
+          events: streamEvents(overrides.streamEvents || [
+            { type: "thread.started", thread_id: id },
+            { type: "turn.started" },
+            { type: "item.completed", item: { id: "msg_1", type: "agent_message", text: responseText } },
+            { type: "turn.completed", usage: null }
+          ])
+        };
+      }
+    };
+  }
   class Codex {
     constructor(options) {
       calls.push(["constructor", options]);
     }
     startThread(options) {
       calls.push(["startThread", options]);
-      return {
-        id: overrides.startedThreadId || "thread_1",
-        run: async (prompt, runOptions) => {
-          calls.push(["run", prompt, runOptions]);
-          if (overrides.onRun) await overrides.onRun(prompt, runOptions);
-          return { finalResponse: Object.hasOwn(overrides, "finalResponse") ? overrides.finalResponse : "codex out" };
-        }
-      };
+      return threadApi(
+        overrides.startedThreadId || "thread_1",
+        Object.hasOwn(overrides, "finalResponse") ? overrides.finalResponse : "codex out"
+      );
     }
     resumeThread(id, options) {
       calls.push(["resumeThread", id, options]);
-      return {
-        id,
-        run: async (prompt, runOptions) => {
-          calls.push(["run", prompt, runOptions]);
-          if (overrides.onRun) await overrides.onRun(prompt, runOptions);
-          return { finalResponse: Object.hasOwn(overrides, "finalResponse") ? overrides.finalResponse : "resumed out" };
-        }
-      };
+      return threadApi(id, Object.hasOwn(overrides, "finalResponse") ? overrides.finalResponse : "resumed out");
     }
   }
   return {
@@ -186,4 +200,31 @@ test("sendChat passes through real abort signals", async () => {
   });
 
   assert.equal(deps.calls[3][2].signal, controller.signal);
+});
+
+test("sendChat streams Codex agent message deltas when emit is provided", async () => {
+  const deps = createDeps({
+    streamEvents: [
+      { type: "thread.started", thread_id: "thread_stream" },
+      { type: "turn.started" },
+      { type: "item.updated", item: { id: "msg_1", type: "agent_message", text: "你" } },
+      { type: "item.updated", item: { id: "msg_1", type: "agent_message", text: "你好" } },
+      { type: "item.completed", item: { id: "msg_1", type: "agent_message", text: "你好。" } },
+      { type: "turn.completed", usage: { input_tokens: 1, cached_input_tokens: 0, output_tokens: 2, reasoning_output_tokens: 0 } }
+    ]
+  });
+  const emitted = [];
+  const adapter = createCodexChatAdapter(deps);
+  const response = await adapter.sendChat({
+    fellow: { key: "alice", name: "Alice", bio: "" },
+    sessionId: "s1",
+    messages: [{ role: "user", content: "hello" }],
+    signal: null,
+    emit: (kind, payload) => emitted.push({ kind, payload }),
+    utility: false
+  });
+
+  assert.equal(deps.calls[3][0], "runStreamed");
+  assert.deepEqual(emitted.filter((event) => event.kind === "text_delta").map((event) => event.payload.text), ["你", "好", "。"]);
+  assert.equal(response.choices[0].message.content, "你好。");
 });

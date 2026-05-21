@@ -39,8 +39,17 @@ const { createFireRunner } = require("./main/scheduler-fire.js");
 const { createTasksEventBus } = require("./main/tasks-events.js");
 const { createTasksRoutes } = require("./main/tasks-routes.js");
 const { createSchedulerMcp } = require("./main/scheduler-mcp.js");
+const {
+  cloudConversationFromDesktopSession,
+  cloudMessageFromDesktopMessage,
+  desktopSessionFromCloudConversation
+} = require("./cloud/desktop-sync.js");
 
 app.setName("Aimashi");
+const isolatedUserDataDir = String(process.env.AIMASHI_USER_DATA_DIR || "").trim();
+if (isolatedUserDataDir) {
+  app.setPath("userData", path.resolve(isolatedUserDataDir));
+}
 const startupTimer = createStartupTimer({ scope: "startup" });
 
 const OFFICIAL_ENGINE_PACKAGE = process.env.AIMASHI_ENGINE_PACKAGE || "hermes-agent";
@@ -59,8 +68,9 @@ const AIMASHI_DAEMON_DEFAULT_PORT = Number(process.env.AIMASHI_DAEMON_PORT || 27
 const MOBILE_ASSET_VERSION = "mobile-slash-commands-1";
 const AIMASHI_CLOUD_DEFAULT_URL = process.env.AIMASHI_CLOUD_URL || "https://aiweb.buytb01.com";
 const IS_DAEMON_PROCESS = process.argv.includes("--daemon") || process.env.AIMASHI_DAEMON === "1";
+const ALLOW_MULTIPLE_INSTANCES = process.env.AIMASHI_ALLOW_MULTIPLE_INSTANCES === "1";
 let shouldRunDesktopInstance = true;
-if (!IS_DAEMON_PROCESS) {
+if (!IS_DAEMON_PROCESS && !ALLOW_MULTIPLE_INSTANCES) {
   const singleInstanceLock = app.requestSingleInstanceLock();
   if (!singleInstanceLock) {
     shouldRunDesktopInstance = false;
@@ -127,6 +137,9 @@ let relayState = {
 };
 let cloudBridgeClient = null;
 let cloudBridgeReconnectTimer = null;
+let cloudEventsClient = null;
+let cloudEventsReconnectTimer = null;
+const cloudBridgeAbortControllers = new Map();
 let cloudBridgeState = {
   connecting: false,
   connected: false,
@@ -767,6 +780,14 @@ function broadcastEnginesChanged() {
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) {
       try { win.webContents.send("runtime:engines-changed"); } catch { /* ignore */ }
+    }
+  }
+}
+
+function broadcastRendererEvent(channel, payload) {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      try { win.webContents.send(channel, payload); } catch { /* ignore */ }
     }
   }
 }
@@ -1703,6 +1724,7 @@ function normalizeAttachment(input = {}) {
   const kind = String(input.kind || "").trim() || attachmentKind({ mime, name });
   const thumbnailDataUrl = normalizeAttachmentThumbnail(input.thumbnailDataUrl || input.thumbnail || input.previewDataUrl);
   const dataUrl = normalizeAttachmentDataUrl(input.dataUrl);
+  const url = String(input.url || "").trim();
   const next = {
     id: String(input.id || crypto.randomUUID()),
     name,
@@ -1711,6 +1733,7 @@ function normalizeAttachment(input = {}) {
     size,
     kind
   };
+  if (/^\/api\/files\/[a-zA-Z0-9_-]+$/.test(url) || /^https?:\/\//i.test(url)) next.url = url;
   if (thumbnailDataUrl && kind === "image") next.thumbnailDataUrl = thumbnailDataUrl;
   if (dataUrl && kind === "image") next.dataUrl = dataUrl;
   return next;
@@ -1871,6 +1894,51 @@ function safeReadLocalFileAttachment(input = {}) {
       error: true,
       message: String(error?.message || error),
       path: String(input.path || input.filePath || "")
+    };
+  }
+}
+
+async function fetchCloudFileAttachment(input = {}) {
+  const urlPath = String(input.url || input.path || "").trim();
+  if (!/^\/api\/files\/[a-zA-Z0-9_-]+$/.test(urlPath)) throw new Error("Cloud file URL is invalid.");
+  const settings = cloudSettings();
+  if (!settings.enabled || !settings.token) throw new Error("请先登录 Aimashi Cloud。");
+  const response = await fetch(`${normalizeCloudUrl(settings.url)}${urlPath}`, {
+    headers: { Authorization: `Bearer ${settings.token}` },
+    signal: AbortSignal.timeout(15000)
+  });
+  if (!response.ok) throw new Error(`Aimashi Cloud ${response.status}`);
+  const arrayBuffer = await response.arrayBuffer();
+  const data = Buffer.from(arrayBuffer);
+  if (data.length > 25 * 1024 * 1024) throw new Error("文件超过 25MB，暂时不能内嵌预览。");
+  const mime = response.headers.get("content-type") || "application/octet-stream";
+  const name = sanitizeAttachmentName(input.name || path.basename(urlPath));
+  const dataUrl = `data:${mime};base64,${data.toString("base64")}`;
+  return {
+    id: String(input.id || crypto.randomUUID()),
+    name,
+    path: "",
+    url: urlPath,
+    mime,
+    size: data.length,
+    kind: attachmentKind({ mime, name }),
+    thumbnailDataUrl: mime.startsWith("image/") ? dataUrl : "",
+    dataUrl
+  };
+}
+
+async function safeFetchFileAttachment(input = {}) {
+  try {
+    const cloudUrl = String(input.url || input.path || "").trim();
+    if (/^\/api\/files\/[a-zA-Z0-9_-]+$/.test(cloudUrl)) {
+      return await fetchCloudFileAttachment(input);
+    }
+    return readLocalFileAttachment(input);
+  } catch (error) {
+    return {
+      error: true,
+      message: String(error?.message || error),
+      path: String(input.path || input.filePath || input.url || "")
     };
   }
 }
@@ -5417,6 +5485,9 @@ async function fetchDaemonRelayStatus() {
 }
 
 async function startDaemonService() {
+  if (!IS_DAEMON_PROCESS && process.env.AIMASHI_DISABLE_BACKGROUND_STARTUP === "1") {
+    return { ...getDaemonStatus(), running: false, disabled: true };
+  }
   initializeRuntime();
   const settings = daemonSettings();
   if (IS_DAEMON_PROCESS) return startControlServer(settings);
@@ -5451,12 +5522,17 @@ function appendCloudLog(line) {
 
 function cloudStatus(includeToken = false) {
   const settings = cloudSettings();
+  const cloudWorkspace = readCloudWorkspace();
+  const workspace = cloudWorkspace?.workspace || null;
   return {
     enabled: Boolean(settings.enabled && settings.token),
     connected: Boolean(cloudBridgeState.connected),
     connecting: Boolean(cloudBridgeState.connecting),
     url: settings.url,
     user: settings.user,
+    workspaceRevision: Number(workspace?.revision || 0),
+    conversationCount: Array.isArray(workspace?.conversations) ? workspace.conversations.length : 0,
+    lastSyncAt: cloudWorkspace?.syncedAt || "",
     deviceId: cloudBridgeState.deviceId,
     lastError: cloudBridgeState.lastError,
     logs: cloudBridgeState.logs.slice(-80),
@@ -5481,6 +5557,37 @@ async function cloudApi(pathSegment, { method = "GET", body = null, token = "" }
   return data;
 }
 
+async function syncAimashiCloudWorkspace() {
+  const settings = cloudSettings();
+  if (!settings.enabled || !settings.token) return cloudStatus(false);
+  const data = await cloudApi("/api/me");
+  writeCloudSettings({ user: data.user || settings.user });
+  writeCloudWorkspace(data.workspace || null);
+  mergeCloudWorkspaceIntoChatStore(data.workspace || null);
+  return cloudStatus(false);
+}
+
+async function pushDesktopMessageToCloud({ session, message, fellowKey = "" } = {}) {
+  const settings = cloudSettings();
+  if (!settings.enabled || !settings.token || !session?.id || !message) return cloudStatus(false);
+  const fellow = loadFellowManifest().fellows.find((item) => item.key === fellowKey || item.id === fellowKey) || {};
+  const conversation = cloudConversationFromDesktopSession(session, fellow);
+  await cloudApi("/api/conversations", {
+    method: "POST",
+    body: { conversation }
+  });
+  const pushed = await cloudApi("/api/messages", {
+    method: "POST",
+    body: {
+      conversationId: conversation.id,
+      ...cloudMessageFromDesktopMessage(message)
+    }
+  });
+  writeCloudWorkspace(pushed.workspace || null);
+  mergeCloudWorkspaceIntoChatStore(pushed.workspace || null);
+  return cloudStatus(false);
+}
+
 async function loginAimashiCloud({ username, password, mode = "login", url = "" } = {}) {
   const nextUrl = normalizeCloudUrl(url || cloudSettings().url);
   writeCloudSettings({ url: nextUrl, enabled: false, token: "", user: null });
@@ -5491,6 +5598,9 @@ async function loginAimashiCloud({ username, password, mode = "login", url = "" 
     token: ""
   });
   writeCloudSettings({ url: nextUrl, enabled: true, token: data.token, user: data.user || null });
+  writeCloudWorkspace(data.workspace || null);
+  mergeCloudWorkspaceIntoChatStore(data.workspace || null);
+  startCloudEvents();
   startCloudBridge();
   return cloudStatus(false);
 }
@@ -5501,19 +5611,126 @@ async function logoutAimashiCloud() {
   } catch {
     // Local logout should still clear the desktop token.
   }
-  stopCloudBridge();
   writeCloudSettings({ enabled: false, token: "", user: null });
+  stopCloudEvents();
+  stopCloudBridge();
   return cloudStatus(false);
 }
 
-function cloudBridgeUrl(settings = cloudSettings()) {
+function cloudWebSocketUrl(pathname, settings = cloudSettings()) {
   const url = new URL(settings.url);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  url.pathname = "/api/bridge";
-  url.searchParams.set("token", settings.token);
+  url.pathname = pathname;
+  url.search = "";
+  return url;
+}
+
+function cloudWebSocketProtocols(settings = cloudSettings()) {
+  return [`aimashi-token.${settings.token}`];
+}
+
+function cloudEventsUrl(settings = cloudSettings()) {
+  return cloudWebSocketUrl("/api/events", settings).toString();
+}
+
+function cloudBridgeUrl(settings = cloudSettings()) {
+  const url = cloudWebSocketUrl("/api/bridge", settings);
   url.searchParams.set("deviceName", `${os.hostname()} Aimashi Desktop`);
   url.searchParams.set("engine", "codex");
+  url.searchParams.set("capabilities", JSON.stringify({
+    chat: true,
+    attachments: true,
+    generatedImages: true,
+    cancellation: true,
+    streaming: true,
+    engines: ["codex"],
+    app: "Aimashi Desktop",
+    appVersion: app.getVersion(),
+    hostname: os.hostname()
+  }));
   return url.toString();
+}
+
+function stopCloudEvents() {
+  if (cloudEventsReconnectTimer) {
+    clearTimeout(cloudEventsReconnectTimer);
+    cloudEventsReconnectTimer = null;
+  }
+  const ws = cloudEventsClient;
+  cloudEventsClient = null;
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+    ws.close(1000, "cloud disabled");
+  }
+  return cloudStatus(false);
+}
+
+function scheduleCloudEventsReconnect() {
+  if (cloudEventsReconnectTimer) return;
+  const settings = cloudSettings();
+  if (!settings.enabled || !settings.token) return;
+  cloudEventsReconnectTimer = setTimeout(() => {
+    cloudEventsReconnectTimer = null;
+    startCloudEvents();
+  }, 3000);
+}
+
+function handleCloudWorkspaceEvent(message = {}) {
+  const workspace = message.workspace || null;
+  if (!workspace) return;
+  writeCloudWorkspace(workspace);
+  mergeCloudWorkspaceIntoChatStore(workspace);
+  broadcastRendererEvent("cloud:event", {
+    type: String(message.type || "workspace_updated"),
+    cloud: cloudStatus(false)
+  });
+}
+
+function handleCloudEventsMessage(raw) {
+  let message = null;
+  try {
+    message = JSON.parse(String(raw || ""));
+  } catch {
+    appendCloudLog("Cloud events sent invalid JSON.");
+    return;
+  }
+  if (message.type === "events_ready") {
+    appendCloudLog("Aimashi Cloud events connected.");
+    broadcastRendererEvent("cloud:event", { type: "events_ready", cloud: cloudStatus(false) });
+    return;
+  }
+  if (message.type === "workspace_updated" || message.type === "message_created") {
+    handleCloudWorkspaceEvent(message);
+    return;
+  }
+  if (message.type === "bridge_run_updated" || message.type === "device_updated") {
+    broadcastRendererEvent("cloud:event", {
+      type: String(message.type || "cloud_event"),
+      cloud: cloudStatus(false)
+    });
+  }
+}
+
+function startCloudEvents() {
+  const settings = cloudSettings();
+  if (!settings.enabled || !settings.token) return cloudStatus(false);
+  if (cloudEventsClient && [WebSocket.CONNECTING, WebSocket.OPEN].includes(cloudEventsClient.readyState)) {
+    return cloudStatus(false);
+  }
+  const ws = new WebSocket(cloudEventsUrl(settings), cloudWebSocketProtocols(settings));
+  cloudEventsClient = ws;
+  ws.on("open", () => {
+    appendCloudLog(`Listening to Aimashi Cloud events: ${settings.url}`);
+  });
+  ws.on("message", (raw) => handleCloudEventsMessage(raw));
+  ws.on("error", (error) => {
+    appendCloudLog(`Cloud events socket error: ${error?.message || error}`);
+  });
+  ws.on("close", () => {
+    if (cloudEventsClient === ws) cloudEventsClient = null;
+    appendCloudLog("Aimashi Cloud events disconnected.");
+    scheduleCloudEventsReconnect();
+  });
+  return cloudStatus(false);
 }
 
 function stopCloudBridge() {
@@ -5545,40 +5762,61 @@ function scheduleCloudBridgeReconnect() {
   }, 3000);
 }
 
-async function runCloudBridgeRequest(message = {}) {
+function sendCloudBridgeRunEvent(ws, runId, kind, payload = {}) {
+  if (!ws || ws.readyState !== WebSocket.OPEN || !runId) return;
+  ws.send(JSON.stringify({
+    type: "run_event",
+    runId,
+    event: {
+      kind: String(kind || "status"),
+      ...payload
+    }
+  }));
+}
+
+async function runCloudBridgeRequest(ws, message = {}) {
+  const runId = String(message.runId || crypto.randomUUID());
+  const abortController = new AbortController();
+  cloudBridgeAbortControllers.set(runId, abortController);
   const adapter = createActiveCodexChatAdapter();
-  const response = await adapter.sendChat({
-    fellow: {
-      key: "aimashi_cloud_codex",
-      name: "Codex",
-      bio: "",
-      engineConfig: {
-        effortLevel: "medium",
-        permissionMode: "default"
-      }
-    },
-    sessionId: `cloud:${String(message.conversationId || "default")}`,
-    messages: [{
-      role: "user",
-      content: String(message.text || ""),
-      attachments: Array.isArray(message.attachments) ? message.attachments : []
-    }],
-    signal: null,
-    utility: false
-  });
-  const assistant = response.choices?.[0]?.message || {};
-  const attachments = (assistant.attachments || []).map((attachment) => ({
-    id: attachment.id || `att_${crypto.randomUUID()}`,
-    type: attachment.type || attachment.kind || "file",
-    name: attachment.name || "附件",
-    mimeType: attachment.mimeType || attachment.mime || "",
-    dataUrl: attachment.dataUrl || attachment.thumbnailDataUrl || "",
-    url: attachment.url || ""
-  })).filter((attachment) => attachment.dataUrl || attachment.url);
-  return {
-    text: String(assistant.content || "").trim() || (attachments.length ? "图片已生成。" : "本机 Codex 已完成。"),
-    attachments
-  };
+  try {
+    sendCloudBridgeRunEvent(ws, runId, "status", { text: "本机 Codex 已开始运行。" });
+    const response = await adapter.sendChat({
+      fellow: {
+        key: "aimashi_cloud_codex",
+        name: "Codex",
+        bio: "",
+        engineConfig: {
+          effortLevel: "medium",
+          permissionMode: "default"
+        }
+      },
+      sessionId: `cloud:${String(message.conversationId || "default")}`,
+      messages: [{
+        role: "user",
+        content: String(message.text || ""),
+        attachments: Array.isArray(message.attachments) ? message.attachments : []
+      }],
+      signal: abortController.signal,
+      emit: (kind, payload) => sendCloudBridgeRunEvent(ws, runId, kind, payload),
+      utility: false
+    });
+    const assistant = response.choices?.[0]?.message || {};
+    const attachments = (assistant.attachments || []).map((attachment) => ({
+      id: attachment.id || `att_${crypto.randomUUID()}`,
+      type: attachment.type || attachment.kind || "file",
+      name: attachment.name || "附件",
+      mimeType: attachment.mimeType || attachment.mime || "",
+      dataUrl: attachment.dataUrl || attachment.thumbnailDataUrl || "",
+      url: attachment.url || ""
+    })).filter((attachment) => attachment.dataUrl || attachment.url);
+    return {
+      text: String(assistant.content || "").trim() || (attachments.length ? "图片已生成。" : "本机 Codex 已完成。"),
+      attachments
+    };
+  } finally {
+    cloudBridgeAbortControllers.delete(runId);
+  }
 }
 
 function handleCloudBridgeMessage(ws, raw) {
@@ -5597,9 +5835,13 @@ function handleCloudBridgeMessage(ws, raw) {
     appendCloudLog("Aimashi Cloud Bridge connected.");
     return;
   }
+  if (message.type === "cancel") {
+    cloudBridgeAbortControllers.get(String(message.runId || ""))?.abort();
+    return;
+  }
   if (message.type !== "run") return;
   const runId = String(message.runId || "");
-  runCloudBridgeRequest(message)
+  runCloudBridgeRequest(ws, message)
     .then((result) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "run_result", runId, ok: true, ...result }));
     })
@@ -5620,7 +5862,7 @@ function startCloudBridge() {
   cloudBridgeState.connecting = true;
   cloudBridgeState.connected = false;
   cloudBridgeState.lastError = "";
-  const ws = new WebSocket(cloudBridgeUrl(settings));
+  const ws = new WebSocket(cloudBridgeUrl(settings), cloudWebSocketProtocols(settings));
   cloudBridgeClient = ws;
   ws.on("open", () => {
     appendCloudLog(`Connecting to Aimashi Cloud: ${settings.url}`);
@@ -7116,6 +7358,14 @@ ipcMain.handle("cloud:login", async (_event, payload) => {
   await loginAimashiCloud(payload || {});
   return getRuntimeStatus();
 });
+ipcMain.handle("cloud:sync", async () => {
+  await syncAimashiCloudWorkspace();
+  return getRuntimeStatus();
+});
+ipcMain.handle("cloud:push-message", async (_event, payload) => {
+  await pushDesktopMessageToCloud(payload || {});
+  return getRuntimeStatus();
+});
 ipcMain.handle("cloud:logout", async () => {
   await logoutAimashiCloud();
   return getRuntimeStatus();
@@ -7132,7 +7382,7 @@ ipcMain.handle("chat:send", (event, payload) => sendChat({ ...payload, webConten
 ipcMain.handle("chat:send-stateless", (_event, payload) => sendChatStateless(payload));
 ipcMain.handle("chat:stop", () => stopChat());
 ipcMain.handle("chat:attachment-save", (_event, payload) => saveChatAttachment(payload));
-ipcMain.handle("chat:file-fetch", (_event, payload) => safeReadLocalFileAttachment(payload));
+ipcMain.handle("chat:file-fetch", (_event, payload) => safeFetchFileAttachment(payload));
 ipcMain.handle("commands:slash", () => loadHermesSlashCommands());
 ipcMain.handle("commands:agent-list", (_event, payload) => loadExternalAgentCommands(payload));
 ipcMain.handle("commands:agent-execute", (_event, payload) => executeExternalAgentCommand(payload));
@@ -7509,10 +7759,14 @@ app.whenReady().then(async () => {
   const win = createWindow();
   startupTimer.mark("window:created");
   subscribeDaemonTaskEvents();
+  startCloudEvents();
   startCloudBridge();
-  win.webContents.once("did-finish-load", () => {
-    setTimeout(() => runtimeLifecycle().scheduleBackgroundStartup(), 2500);
-  });
+  syncAimashiCloudWorkspace().catch((error) => appendCloudLog(`Cloud workspace sync failed: ${error?.message || error}`));
+  if (process.env.AIMASHI_DISABLE_BACKGROUND_STARTUP !== "1") {
+    win.webContents.once("did-finish-load", () => {
+      setTimeout(() => runtimeLifecycle().scheduleBackgroundStartup(), 2500);
+    });
+  }
 });
 
 app.on("window-all-closed", () => {

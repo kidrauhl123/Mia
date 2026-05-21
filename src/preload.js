@@ -13,6 +13,16 @@ contextBridge.exposeInMainWorld("aimashi", {
   startRelay: () => ipcRenderer.invoke("relay:start"),
   stopRelay: () => ipcRenderer.invoke("relay:stop"),
   saveRelaySettings: (settings) => ipcRenderer.invoke("relay:settings-save", settings),
+  cloudStatus: () => ipcRenderer.invoke("cloud:status"),
+  cloudLogin: (payload) => ipcRenderer.invoke("cloud:login", payload),
+  cloudSync: () => ipcRenderer.invoke("cloud:sync"),
+  cloudPushMessage: (payload) => ipcRenderer.invoke("cloud:push-message", payload),
+  cloudLogout: () => ipcRenderer.invoke("cloud:logout"),
+  onCloudEvent: (handler) => {
+    const listener = (_event, envelope) => { try { handler(envelope); } catch { /* ignore */ } };
+    ipcRenderer.on("cloud:event", listener);
+    return () => ipcRenderer.removeListener("cloud:event", listener);
+  },
   qrSvg: (text) => ipcRenderer.invoke("util:qr-svg", text),
   installEngine: () => ipcRenderer.invoke("engine:install"),
   startEngine: () => ipcRenderer.invoke("engine:start"),

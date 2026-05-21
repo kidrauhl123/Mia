@@ -1,0 +1,431 @@
+#!/usr/bin/env node
+
+const crypto = require("node:crypto");
+const { spawnSync } = require("node:child_process");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const WebSocket = require("ws");
+const packageJson = require("../package.json");
+
+const cloudUrl = process.env.AIMASHI_CLOUD_URL || "http://127.0.0.1:4175";
+let cloudToken = process.env.AIMASHI_CLOUD_TOKEN || "";
+const engine = process.env.AIMASHI_BRIDGE_ENGINE || "codex";
+const deviceName = process.env.AIMASHI_BRIDGE_NAME || `${os.hostname()} Aimashi Bridge`;
+const cwd = process.env.AIMASHI_BRIDGE_CWD || process.cwd();
+const reconnectMs = Number(process.env.AIMASHI_BRIDGE_RECONNECT_MS || 3000);
+const activeRuns = new Map();
+const MAX_ATTACHMENT_BYTES = 18 * 1024 * 1024;
+
+function log(message) {
+  process.stdout.write(`[aimashi-bridge] ${message}\n`);
+}
+
+function bridgeCapabilities() {
+  return {
+    chat: true,
+    attachments: true,
+    generatedImages: true,
+    cancellation: true,
+    streaming: true,
+    engines: [engine],
+    app: "Aimashi Local Agent Bridge",
+    appVersion: packageJson.version || "",
+    hostname: os.hostname()
+  };
+}
+
+function bridgeUrl(options = {}) {
+  const url = new URL(options.cloudUrl || cloudUrl);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  url.pathname = "/api/bridge";
+  url.search = "";
+  url.searchParams.set("deviceName", options.deviceName || deviceName);
+  url.searchParams.set("engine", options.engine || engine);
+  url.searchParams.set("capabilities", JSON.stringify(options.capabilities || bridgeCapabilities()));
+  return url.toString();
+}
+
+function bridgeProtocols(inputToken = cloudToken) {
+  return [`aimashi-token.${inputToken}`];
+}
+
+async function loginCloudAccount({ cloudUrl: targetCloudUrl = cloudUrl, username, password, fetchImpl = fetch } = {}) {
+  const cleanUsername = String(username || "").trim();
+  if (!cleanUsername) throw new Error("AIMASHI_CLOUD_USERNAME is required when AIMASHI_CLOUD_TOKEN is not set.");
+  if (!String(password || "")) throw new Error("AIMASHI_CLOUD_PASSWORD is required when AIMASHI_CLOUD_USERNAME is set.");
+  const response = await fetchImpl(new URL("/api/auth/login", targetCloudUrl), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ username: cleanUsername, password: String(password) })
+  });
+  let data = {};
+  try {
+    data = await response.json();
+  } catch {
+    data = {};
+  }
+  if (!response.ok || !data.token) {
+    throw new Error(data.error || `Aimashi Cloud login failed: HTTP ${response.status}`);
+  }
+  return data.token;
+}
+
+async function resolveBridgeToken(env = process.env, fetchImpl = fetch) {
+  const configuredToken = String(env.AIMASHI_CLOUD_TOKEN || "");
+  if (configuredToken) return configuredToken;
+  return loginCloudAccount({
+    cloudUrl: env.AIMASHI_CLOUD_URL || cloudUrl,
+    username: env.AIMASHI_CLOUD_USERNAME,
+    password: env.AIMASHI_CLOUD_PASSWORD,
+    fetchImpl
+  });
+}
+
+function shellCommandPath(command) {
+  const result = spawnSync("sh", ["-lc", `command -v ${command}`], { encoding: "utf8" });
+  return result.status === 0 ? String(result.stdout || "").trim().split(/\r?\n/)[0] : "";
+}
+
+function generatedImagesRoot(env = process.env) {
+  const codexHome = String(env.CODEX_HOME || "").trim();
+  if (codexHome) return path.join(codexHome, "generated_images");
+  return path.join(os.homedir(), ".codex", "generated_images");
+}
+
+function recentGeneratedImagePaths(sessionId, startedAtMs, max = 8) {
+  const dir = path.join(generatedImagesRoot(), String(sessionId || ""));
+  if (!fs.existsSync(dir)) return [];
+  const since = Number(startedAtMs) - 5000;
+  return fs.readdirSync(dir)
+    .filter((name) => /\.(?:png|jpe?g|webp)$/i.test(name))
+    .map((name) => {
+      const filePath = path.join(dir, name);
+      try {
+        return { filePath, mtimeMs: fs.statSync(filePath).mtimeMs };
+      } catch {
+        return null;
+      }
+    })
+    .filter((item) => item && item.mtimeMs >= since)
+    .sort((a, b) => a.mtimeMs - b.mtimeMs)
+    .slice(-max)
+    .map((item) => item.filePath);
+}
+
+function imageMime(filePath) {
+  const ext = path.extname(String(filePath || "")).toLowerCase();
+  if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
+  if (ext === ".webp") return "image/webp";
+  return "image/png";
+}
+
+function imageAttachment(filePath) {
+  const stat = fs.statSync(filePath);
+  if (!stat.isFile() || stat.size > 18 * 1024 * 1024) return null;
+  const mimeType = imageMime(filePath);
+  return {
+    id: `generated_${crypto.createHash("sha1").update(filePath).digest("hex").slice(0, 16)}`,
+    type: "image",
+    name: path.basename(filePath),
+    mimeType,
+    dataUrl: `data:${mimeType};base64,${fs.readFileSync(filePath).toString("base64")}`
+  };
+}
+
+function sanitizeAttachmentName(value, fallback = "attachment") {
+  const raw = path.basename(String(value || fallback)).replace(/[^\w.\-()[\] \u4e00-\u9fff]+/g, "_").trim();
+  return raw || fallback;
+}
+
+function attachmentKind({ mimeType = "", name = "" } = {}) {
+  const type = String(mimeType || "").toLowerCase();
+  const ext = path.extname(String(name || "")).toLowerCase();
+  if (type.startsWith("image/") || [".png", ".jpg", ".jpeg", ".webp", ".gif"].includes(ext)) return "image";
+  if (type.startsWith("text/") || [".txt", ".md", ".json", ".csv", ".log", ".js", ".ts", ".tsx", ".jsx", ".py", ".html", ".css"].includes(ext)) return "text";
+  if (type.includes("pdf") || ext === ".pdf") return "pdf";
+  if (type.startsWith("video/")) return "video";
+  if (type.startsWith("audio/")) return "audio";
+  return "file";
+}
+
+function attachmentSummaryLine(attachment, index) {
+  const parts = [
+    `${index + 1}. ${attachment.name || "attachment"}`,
+    `类型：${attachment.mimeType || attachment.kind || "未知"}`,
+    attachment.size ? `大小：${attachment.size} bytes` : "",
+    attachment.path ? `本地路径：${attachment.path}` : ""
+  ].filter(Boolean);
+  return parts.join("；");
+}
+
+function textPreviewForAttachment(attachment) {
+  if (attachment.kind !== "text" || !attachment.path || !fs.existsSync(attachment.path)) return "";
+  const stat = fs.statSync(attachment.path);
+  if (stat.size > 1024 * 1024) return "";
+  try {
+    return fs.readFileSync(attachment.path, "utf8").slice(0, 12000);
+  } catch {
+    return "";
+  }
+}
+
+function attachmentContext(attachments = []) {
+  const normalized = attachments.filter((item) => item?.path || item?.name);
+  if (!normalized.length) return "";
+  const lines = [
+    "本轮用户附带了以下附件。可以直接读取本地路径；如果当前引擎不能读取二进制图片，请根据文件名、类型和用户文字继续处理，并说明限制。",
+    ...normalized.map(attachmentSummaryLine)
+  ];
+  const previews = normalized
+    .map((attachment, index) => {
+      const preview = textPreviewForAttachment(attachment);
+      return preview ? `附件 ${index + 1} 文本预览（${attachment.name}）：\n${preview}` : "";
+    })
+    .filter(Boolean);
+  return [...lines, ...previews].join("\n\n");
+}
+
+function buildCodexPrompt(text, attachments = []) {
+  const context = attachmentContext(attachments);
+  return [String(text || ""), context ? `附件上下文：\n${context}` : ""].filter(Boolean).join("\n\n");
+}
+
+function dataUrlToAttachmentBuffer(dataUrl) {
+  const match = String(dataUrl || "").match(/^data:([^;,]+);base64,(.+)$/);
+  if (!match) return null;
+  const buffer = Buffer.from(match[2], "base64");
+  if (!buffer.length || buffer.length > MAX_ATTACHMENT_BYTES) return null;
+  return { mimeType: match[1], buffer };
+}
+
+function attachmentUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  try {
+    const resolved = new URL(raw, cloudUrl);
+    if (resolved.origin !== new URL(cloudUrl).origin || !resolved.pathname.startsWith("/api/files/")) return null;
+    return resolved;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchAttachmentBuffer(attachment) {
+  const dataUrl = dataUrlToAttachmentBuffer(attachment.dataUrl);
+  if (dataUrl) return dataUrl;
+  const url = attachmentUrl(attachment.url);
+  if (!url) return null;
+  const response = await fetch(url, { headers: { Authorization: `Bearer ${cloudToken}` } });
+  if (!response.ok) throw new Error(`附件下载失败：${response.status}`);
+  const buffer = Buffer.from(await response.arrayBuffer());
+  if (!buffer.length || buffer.length > MAX_ATTACHMENT_BYTES) throw new Error("附件大小无效。");
+  return {
+    mimeType: response.headers.get("content-type") || attachment.mimeType || "",
+    buffer
+  };
+}
+
+async function materializeAttachments(attachments = [], runId = crypto.randomUUID()) {
+  const incoming = Array.isArray(attachments) ? attachments.slice(0, 20) : [];
+  if (!incoming.length) return { attachments: [], dir: "" };
+  const dir = path.join(os.tmpdir(), "aimashi-bridge-attachments", sanitizeAttachmentName(runId));
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const materialized = [];
+  for (const [index, attachment] of incoming.entries()) {
+    const name = sanitizeAttachmentName(attachment.name || `attachment-${index + 1}`);
+    const existingPath = String(attachment.path || "").trim();
+    if (existingPath && fs.existsSync(existingPath)) {
+      const stat = fs.statSync(existingPath);
+      materialized.push({
+        name,
+        path: existingPath,
+        mimeType: attachment.mimeType || attachment.mime || "",
+        size: stat.size,
+        kind: attachmentKind({ mimeType: attachment.mimeType || attachment.mime || "", name })
+      });
+      continue;
+    }
+    const fetched = await fetchAttachmentBuffer(attachment);
+    if (!fetched) continue;
+    const target = path.join(dir, `${index + 1}-${name}`);
+    fs.writeFileSync(target, fetched.buffer, { mode: 0o600 });
+    materialized.push({
+      name,
+      path: target,
+      mimeType: attachment.mimeType || attachment.mime || fetched.mimeType,
+      size: fetched.buffer.length,
+      kind: attachmentKind({ mimeType: attachment.mimeType || attachment.mime || fetched.mimeType, name })
+    });
+  }
+  return { attachments: materialized, dir };
+}
+
+function mapPermissionMode(value) {
+  const mode = String(value || "default");
+  if (mode === "bypass") return { sandboxMode: "danger-full-access", approvalPolicy: "never" };
+  if (mode === "readOnly") return { sandboxMode: "read-only", approvalPolicy: "never" };
+  if (mode === "acceptEdits") return { sandboxMode: "workspace-write", approvalPolicy: "never" };
+  return { sandboxMode: "workspace-write", approvalPolicy: "never" };
+}
+
+function sendRunEvent(ws, runId, kind, payload = {}) {
+  sendJson(ws, { type: "run_event", runId, event: { kind, ...payload } });
+}
+
+function emitCodexStreamEvent(ws, runId, event, textByItem) {
+  if (!event?.item) return;
+  const item = event.item;
+  if (item.type === "agent_message") {
+    const id = String(item.id || "agent_message");
+    const text = String(item.text || "");
+    const previous = textByItem.get(id) || "";
+    const delta = text.startsWith(previous) ? text.slice(previous.length) : text;
+    textByItem.set(id, text);
+    if (delta) sendRunEvent(ws, runId, "text_delta", { id, text: delta });
+  } else if (item.type === "command_execution") {
+    const payload = {
+      id: String(item.id || "command"),
+      name: "shell",
+      preview: String(item.command || ""),
+      status: String(item.status || ""),
+      error: item.status === "failed"
+    };
+    if (event.type === "item.started") sendRunEvent(ws, runId, "tool_call_started", payload);
+    if (event.type === "item.completed") sendRunEvent(ws, runId, "tool_call_completed", payload);
+  }
+}
+
+async function runCodex(text, { signal = null, ws = null, runId = "", attachments = [] } = {}) {
+  const codexPath = shellCommandPath("codex");
+  if (!codexPath) throw new Error("本机没有检测到 Codex CLI。请先安装并登录 Codex。");
+  const materialized = await materializeAttachments(attachments, runId || crypto.randomUUID());
+  try {
+    const { Codex } = await import("@openai/codex-sdk");
+    const codex = new Codex({ codexPathOverride: codexPath, env: process.env });
+    const thread = codex.startThread({
+      workingDirectory: cwd,
+      skipGitRepoCheck: true,
+      modelReasoningEffort: process.env.AIMASHI_CODEX_EFFORT || "medium",
+      ...mapPermissionMode(process.env.AIMASHI_CODEX_PERMISSION || "default")
+    });
+    const startedAtMs = Date.now();
+    let finalResponse = "";
+    const prompt = buildCodexPrompt(text, materialized.attachments);
+    if (ws && runId && typeof thread.runStreamed === "function") {
+      const textByItem = new Map();
+      const { events } = await thread.runStreamed(prompt, { signal });
+      for await (const event of events) {
+        if (event.type === "turn.started") sendRunEvent(ws, runId, "status", { text: "本机 Codex 已开始运行。" });
+        if (event.type === "item.started" || event.type === "item.updated" || event.type === "item.completed") {
+          emitCodexStreamEvent(ws, runId, event, textByItem);
+          if (event.type === "item.completed" && event.item?.type === "agent_message") {
+            finalResponse = String(event.item.text || "");
+          }
+        }
+        if (event.type === "turn.failed") throw new Error(event.error?.message || "Codex turn failed.");
+        if (event.type === "error") throw new Error(event.message || "Codex stream failed.");
+      }
+    } else {
+      const turn = await thread.run(prompt, signal ? { signal } : {});
+      finalResponse = String(turn?.finalResponse || "");
+    }
+    const imagePaths = recentGeneratedImagePaths(thread.id, startedAtMs);
+    const generatedAttachments = imagePaths.map(imageAttachment).filter(Boolean);
+    return {
+      text: finalResponse.trim() || (generatedAttachments.length ? "图片已生成。" : "本机 Codex 已完成。"),
+      attachments: generatedAttachments
+    };
+  } finally {
+    if (materialized.dir) fs.rmSync(materialized.dir, { recursive: true, force: true });
+  }
+}
+
+async function runLocalAgent(message, context = {}) {
+  if (engine === "echo") {
+    return { text: `本机 Bridge 已收到：${message.text || ""}`, attachments: [] };
+  }
+  if (engine !== "codex") throw new Error(`暂不支持的本机 Agent：${engine}`);
+  return runCodex(message.text || "", { ...context, attachments: Array.isArray(message.attachments) ? message.attachments : [] });
+}
+
+function sendJson(ws, payload) {
+  if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
+}
+
+async function connect() {
+  if (!cloudToken) {
+    try {
+      cloudToken = await resolveBridgeToken();
+      log(`logged in to ${cloudUrl} as ${process.env.AIMASHI_CLOUD_USERNAME}`);
+    } catch (error) {
+      process.stderr.write(`${error.message || error}\n`);
+      process.exitCode = 1;
+      return;
+    }
+  }
+  if (!cloudToken) {
+    process.stderr.write("AIMASHI_CLOUD_TOKEN or AIMASHI_CLOUD_USERNAME/AIMASHI_CLOUD_PASSWORD is required.\n");
+    process.exitCode = 1;
+    return;
+  }
+  const ws = new WebSocket(bridgeUrl(), bridgeProtocols());
+  ws.on("open", () => log(`connected to ${cloudUrl} as ${deviceName} (${engine})`));
+  ws.on("message", async (raw) => {
+    let message;
+    try {
+      message = JSON.parse(String(raw));
+    } catch {
+      return;
+    }
+    if (message.type === "bridge_ready") {
+      log(`device online: ${message.deviceId}`);
+      return;
+    }
+    if (message.type === "ping") {
+      sendJson(ws, { type: "pong" });
+      return;
+    }
+    if (message.type === "cancel") {
+      activeRuns.get(String(message.runId || ""))?.abort();
+      return;
+    }
+    if (message.type !== "run") return;
+    log(`run ${message.runId} started`);
+    const abortController = new AbortController();
+    activeRuns.set(String(message.runId || ""), abortController);
+    try {
+      sendRunEvent(ws, message.runId, "status", { text: "本机 Agent 已接收任务。" });
+      const result = await runLocalAgent(message, { signal: abortController.signal, ws, runId: message.runId });
+      sendJson(ws, { type: "run_result", runId: message.runId, ok: true, ...result });
+      log(`run ${message.runId} completed`);
+    } catch (error) {
+      sendJson(ws, { type: "run_result", runId: message.runId, ok: false, error: error.message || String(error) });
+      log(`run ${message.runId} failed: ${error.message || error}`);
+    } finally {
+      activeRuns.delete(String(message.runId || ""));
+    }
+  });
+  ws.on("close", () => {
+    log(`disconnected; reconnecting in ${reconnectMs}ms`);
+    setTimeout(connect, reconnectMs);
+  });
+  ws.on("error", (error) => log(`socket error: ${error.message || error}`));
+}
+
+if (require.main === module) {
+  connect();
+}
+
+module.exports = {
+  bridgeCapabilities,
+  bridgeProtocols,
+  bridgeUrl,
+  buildCodexPrompt,
+  imageAttachment,
+  loginCloudAccount,
+  materializeAttachments,
+  mapPermissionMode,
+  recentGeneratedImagePaths,
+  resolveBridgeToken
+};

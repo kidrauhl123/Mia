@@ -100,6 +100,73 @@ function requireDependency(deps, key) {
   return deps[key];
 }
 
+function emitCodexItemEvent(emit, event, textByItem) {
+  if (typeof emit !== "function" || !event?.item) return;
+  const item = event.item;
+  if (item.type === "agent_message") {
+    const id = String(item.id || "agent_message");
+    const text = String(item.text || "");
+    const previous = textByItem.get(id) || "";
+    const delta = text.startsWith(previous) ? text.slice(previous.length) : text;
+    textByItem.set(id, text);
+    if (delta) emit("text_delta", { id, text: delta });
+    return;
+  }
+  if (item.type === "reasoning" && event.type !== "item.completed") {
+    const id = String(item.id || "reasoning");
+    const text = String(item.text || "");
+    const previous = textByItem.get(id) || "";
+    const delta = text.startsWith(previous) ? text.slice(previous.length) : text;
+    textByItem.set(id, text);
+    if (delta) emit("reasoning_delta", { id, text: delta });
+    return;
+  }
+  if (item.type === "command_execution") {
+    const payload = {
+      id: String(item.id || "command"),
+      name: "shell",
+      preview: String(item.command || ""),
+      status: item.status || "",
+      duration: null,
+      error: item.status === "failed"
+    };
+    if (event.type === "item.started") emit("tool_call_started", payload);
+    if (event.type === "item.completed") emit("tool_call_completed", payload);
+  }
+}
+
+async function runCodexTurn(thread, prompt, { signal = null, emit = null } = {}) {
+  if (typeof emit !== "function" || typeof thread.runStreamed !== "function") {
+    return thread.run(prompt, runOptions(signal));
+  }
+  const { events } = await thread.runStreamed(prompt, runOptions(signal));
+  const items = [];
+  const textByItem = new Map();
+  let finalResponse = "";
+  let usage = null;
+  for await (const event of events) {
+    if (event.type === "thread.started") {
+      emit("session_started", { sessionId: event.thread_id });
+    } else if (event.type === "turn.started") {
+      emit("status", { text: "本机 Codex 已开始运行。" });
+    } else if (event.type === "item.started" || event.type === "item.updated" || event.type === "item.completed") {
+      emitCodexItemEvent(emit, event, textByItem);
+      if (event.type === "item.completed") {
+        if (event.item?.type === "agent_message") finalResponse = String(event.item.text || "");
+        items.push(event.item);
+      }
+    } else if (event.type === "turn.completed") {
+      usage = event.usage || null;
+      emit("complete", { finishReason: "stop" });
+    } else if (event.type === "turn.failed") {
+      throw new Error(event.error?.message || "Codex turn failed.");
+    } else if (event.type === "error") {
+      throw new Error(event.message || "Codex stream failed.");
+    }
+  }
+  return { items, finalResponse, usage };
+}
+
 function createCodexChatAdapter(deps = {}) {
   const shellCommandPath = requireDependency(deps, "shellCommandPath");
   const lastUserPrompt = requireDependency(deps, "lastUserPrompt");
@@ -117,7 +184,7 @@ function createCodexChatAdapter(deps = {}) {
   const randomUUID = deps.randomUUID || (() => crypto.randomUUID());
   const cwd = deps.cwd || (() => process.cwd());
 
-  async function sendChat({ fellow, sessionId, messages, group, signal, utility = false }) {
+  async function sendChat({ fellow, sessionId, messages, group, signal, emit = null, utility = false }) {
     const engine = "codex";
     const commandPath = shellCommandPath("codex");
     if (!commandPath) throw new Error("本机没有检测到 Codex CLI。请先安装并确认 `codex --version` 可用。");
@@ -175,7 +242,7 @@ function createCodexChatAdapter(deps = {}) {
       ? codex.resumeThread(externalSessionId, threadOptions)
       : codex.startThread(threadOptions);
     const startedAtMs = Date.now();
-    const turn = await thread.run(promptWithGroup, runOptions(signal));
+    const turn = await runCodexTurn(thread, promptWithGroup, { signal, emit });
     const capturedSessionId = externalSessionId || thread.id || "";
     const imagePaths = recentGeneratedImagePaths(capturedSessionId, { env, startedAtMs });
     if (capturedSessionId && !externalSessionId && !utility) {

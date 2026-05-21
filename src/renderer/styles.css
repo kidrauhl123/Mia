@@ -4945,6 +4945,12 @@ body.topbar-click-capture .topbar {
   line-height: 1.45;
 }
 
+.cloud-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
 .connection-switch {
   position: relative;
   flex: 0 0 auto;
@@ -5019,6 +5025,32 @@ body.topbar-click-capture .topbar {
   padding: 2px 0 0;
 }
 
+.cloud-login-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto auto;
+  gap: 8px;
+  width: min(560px, 100%);
+}
+
+.cloud-login-grid input {
+  min-width: 0;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  outline: 0;
+  background: var(--field);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.cloud-login-grid input:focus {
+  border-color: rgb(var(--accent-rgb) / 0.42);
+  box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.12);
+}
+
 .connection-qr {
   display: grid;
   place-items: center;
@@ -5030,6 +5062,12 @@ body.topbar-click-capture .topbar {
   color: var(--muted);
   font-size: 11px;
   font-weight: 400;
+}
+
+@media (max-width: 720px) {
+  .cloud-login-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .connection-qr svg {
