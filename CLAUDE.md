@@ -16,13 +16,60 @@
 - **Hermes 运行时**（密封 Python，位于 `vendor/hermes-runtime/<target>/`，由 `scripts/build-hermes-runtime.sh` 在 `prepack` 阶段构建）—— **打包进安装包**，自带不依赖用户环境
 - **Claude Code / Codex 等外部 CLI** —— **不打包**，通过 `shellCommandPath()`（`src/main.js`）从用户系统 `PATH` 里查找
 
-为什么 Hermes 自带、其它 CLI 不自带：Hermes 是 aimashi 的"嫡系"运行时（用户不装也能开箱用）；Claude Code / Codex 是用户已经在自己电脑上用的工具，aimashi 复用它们，不重复安装也不锁版本。
+为什么 Hermes 自带、其它 CLI 不自带：Hermes 是**上游开源 Agent runtime**（上游代码在 `~/github/Alkaka-reference/hermes-agent/`，**不是 aimashi 写的**），aimashi 走 **vendor pin、不 fork**，自带是为了让普通用户开箱即用、不装 Python；Claude Code / Codex 是用户已经在自己电脑上用的工具，aimashi 复用它们，不重复安装也不锁版本。
+
+判断"Hermes 当前真实行为"以 `vendor/hermes-runtime/<target>/site-packages/` 里的 pinned 副本为准；查 upstream 当前设计 / API 演进看 `~/github/Alkaka-reference/hermes-agent/`。两者必然 drift，正常。
 
 ### 硬规则
 
 - **永远不要把 claude / codex 二进制加进 `extraResources` 或当成可分发依赖打包**——复用用户已装好的 CLI 是产品定位的核心，曾把 DMG 从 379MB 砍到 207MB 就是靠这条。如果改动让你想"顺手"打包它们,先确认是不是误解了产品意图。
 - 动 Python 侧之前先读 `scripts/build-hermes-runtime.sh`:包含 strip + ad-hoc 重签名(macOS arm64 不重签会让 dlopen 在严格签名场景下挂掉)、stdlib 裁剪、缓存命中策略。
 - 合并或拉完代码记得 `npm run dist:mac`(或对应平台脚本)重建,否则你跑的还是旧二进制。
+
+## 代码组织
+
+**核心原则：新功能 = 新文件 / 新目录，不要往已有大文件继续堆。**
+
+`src/main.js`（~7800 行）和 `src/renderer/app.js`（~8000 行）已经过大——AI 并行改容易撞车、人审阅看不完、bug 难定位。继续往里加东西是反向工作。
+
+### 硬规则
+
+- **单文件目标 100–500 行**；超过 800 行就该切分。对比基准：Cherry Studio `src/main/index.ts` 319 行、AionUi `src/index.ts` 862 行，Lobster 主进程根本不存在单一大入口（拆成 `agentManager.ts` / `mcpStore.ts` / `coworkStore.ts` 等十几个小文件）。
+- **新功能优先建新文件**，按特性命名（`src/renderer/<feature>.js`、`src/main/<feature>/` 或 `src/main/<feature>-xxx.js`）。**禁止**起 `utils.js` / `helpers.js` / `common.js` 这种语义无关的"桶"文件——它们最后必然变成下一个大杂烩。
+- **不要为单次使用提前抽象**——最小可解决问题的代码，不写"将来可能用得上"的参数 / 配置项 / 抽象层（参考 Karpathy 守则 "Simplicity First"）。
+- **改动外科手术化**：只动本次任务必要的行；不要"顺手"重命名、重排、改注释、改格式。每一行改动都要能直接追溯到用户的请求。
+- 删自己改动产生的孤立 import / 变量；**不要**删既有死代码（除非被明确要求）——它可能是别人 in-progress 的工作。
+
+### 已经在跑的拆分样板（照抄即可）
+
+- `src/renderer/group.js`（974 行）—— IIFE + `window.aimashiGroup.initGroupModule({...deps})` 接回 `app.js`；`index.html` 末尾 `<script src="./group.js"></script>` 引入。**这是当前 renderer 端推荐的样板。**
+- `src/main/codex-chat-adapter.js` / `claude-code-chat-adapter.js` / `hermes-chat-adapter.js` —— 三个引擎适配器各一文件，统一在 `chatEngineRegistry` 注册。
+- `src/main/scheduler*.js` + `tasks-*.js` —— 任务调度子系统，按职责分多文件。
+- `src/cloud/` / `src/relay/` / `src/mobile/` / `src/web/` —— 跨设备 / 多端能力独立子目录。
+
+新功能直接照这些接口形状写新文件，不要发明新抽象层。
+
+### 目标布局（按特性切，参考 AionUi `src/process/` 和 Cherry `src/main/`）
+
+```
+src/
+├── main.js              ← 启动 + 装配，目标 < 500 行
+├── main/<feature>/      ← 主进程按业务领域分子目录（chat / ipc / hermes / cloud / permissions / window 等）
+├── renderer/
+│   ├── app.js           ← 装配 + 路由，目标 < 800 行
+│   ├── <feature>.js     ← 单特性独立文件（同 group.js 形状）
+│   └── <feature>/       ← 复杂特性给独立目录
+├── preload.js
+└── cloud/  relay/  mobile/  web/  ← 已有独立子系统保持隔离
+```
+
+### 改动前必答的三问
+
+1. 这段代码能放到新文件里吗，让 `main.js` / `app.js` 不再变长？
+2. 我引入的参数 / 抽象，是这次任务必须的，还是"将来可能用得上"？
+3. 我对相邻代码的"顺手改"，能不能不做、或者拆成独立 commit？
+
+任一答不上：停下来问用户。
 
 ## 参考项目
 
