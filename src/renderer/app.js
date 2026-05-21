@@ -2137,7 +2137,7 @@ async function initializeRuntime() {
           render();
         },
         engineCall: async ({ kind, prompt, group }) => {
-          const hostFellowId = group && group.hostFellowId;
+          const hostFellowId = group && group.hostMember && group.hostMember.fellowId;
           if (!hostFellowId) throw new Error("no host fellow for group");
           const result = await window.aimashi.sendChatStateless({
             fellowKey: hostFellowId,

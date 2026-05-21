@@ -1,6 +1,12 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const {
+  normalizeMember,
+  normalizeMembersList,
+  memberKey,
+  membersIncludeKey,
+} = require("./group/member-model.js");
 
 function atomicWrite(filePath, content) {
   const tmp = filePath + ".tmp." + crypto.randomBytes(6).toString("hex");
@@ -50,12 +56,17 @@ function createGroupStore(rootDir) {
     return path.join(groupPath(id), "context-card.json");
   }
 
-  function create({ name, members, hostFellowId, avatar = null }) {
-    if (!Array.isArray(members) || members.length < 2 || members.length > 5) {
+  function create({ name, members, hostMember, hostFellowId, avatar = null }) {
+    const normalizedMembers = normalizeMembersList(members);
+    if (normalizedMembers.length < 2 || normalizedMembers.length > 5) {
       throw new Error("group members must be between 2 and 5");
     }
-    if (!members.includes(hostFellowId)) {
-      throw new Error("hostFellowId must be one of members");
+    // Backward-compat: accept legacy hostFellowId if hostMember absent
+    const hostInput = hostMember != null ? hostMember : hostFellowId;
+    if (hostInput == null) throw new Error("hostMember is required");
+    const normalizedHost = normalizeMember(hostInput);
+    if (!membersIncludeKey(normalizedMembers, memberKey(normalizedHost))) {
+      throw new Error("hostMember must be one of members");
     }
     const id = "g-" + crypto.randomBytes(8).toString("hex");
     const now = Date.now();
@@ -63,8 +74,8 @@ function createGroupStore(rootDir) {
       id,
       name,
       avatar,
-      members,
-      hostFellowId,
+      members: normalizedMembers,
+      hostMember: normalizedHost,
       decorations: { pinnedGoal: null, todos: [] },
       contextCard: null,
       createdAt: now,
@@ -83,22 +94,48 @@ function createGroupStore(rootDir) {
     return loadManifest().groups.map((entry) => get(entry.id)).filter(Boolean);
   }
 
+  function migrateLegacyGroup(raw) {
+    if (!raw) return raw;
+    // Already new schema: pass through
+    if (raw.hostMember && Array.isArray(raw.members) && raw.members.every((m) => m && m.kind === "fellow")) {
+      return raw;
+    }
+    const normalizedMembers = Array.isArray(raw.members) ? raw.members.map(normalizeMember) : [];
+    const hostSrc = raw.hostMember ?? raw.hostFellowId;
+    const hostMember = hostSrc != null ? normalizeMember(hostSrc) : null;
+    // Strip legacy field so callers never see it
+    const { hostFellowId, ...rest } = raw;
+    return { ...rest, members: normalizedMembers, hostMember };
+  }
+
   function get(id) {
-    return readJSON(groupJsonPath(id), null);
+    const raw = readJSON(groupJsonPath(id), null);
+    return migrateLegacyGroup(raw);
   }
 
   function updateGroup(id, patch) {
     const existing = get(id);
     if (!existing) throw new Error("group not found: " + id);
-    const updated = { ...existing, ...patch, updatedAt: Date.now() };
+    const normalizedPatch = { ...patch };
+    if (Object.prototype.hasOwnProperty.call(normalizedPatch, "members")) {
+      normalizedPatch.members = normalizeMembersList(normalizedPatch.members);
+    }
+    // host field upgrade: prefer new hostMember; fall back to legacy hostFellowId
+    if (normalizedPatch.hostMember != null) {
+      normalizedPatch.hostMember = normalizeMember(normalizedPatch.hostMember);
+    } else if (normalizedPatch.hostFellowId != null) {
+      normalizedPatch.hostMember = normalizeMember(normalizedPatch.hostFellowId);
+    }
+    delete normalizedPatch.hostFellowId;
+    const updated = { ...existing, ...normalizedPatch, updatedAt: Date.now() };
     atomicWrite(groupJsonPath(id), JSON.stringify(updated, null, 2));
-    if (patch.name) {
+    if (normalizedPatch.name) {
       const manifest = loadManifest();
       const entry = manifest.groups.find((g) => g.id === id);
-      if (entry) entry.name = patch.name;
+      if (entry) entry.name = normalizedPatch.name;
       saveManifest(manifest);
     }
-    if (patch && Object.prototype.hasOwnProperty.call(patch, 'contextCard') && patch.contextCard === null) {
+    if (normalizedPatch && Object.prototype.hasOwnProperty.call(normalizedPatch, "contextCard") && normalizedPatch.contextCard === null) {
       try { fs.unlinkSync(contextCardPath(id)); } catch { /* may not exist */ }
     }
     return updated;

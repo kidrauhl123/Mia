@@ -29,6 +29,18 @@
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
+  function fellowMember(fellowId) {
+    return { kind: "fellow", fellowId: String(fellowId), ownerId: null };
+  }
+
+  function memberFellowIds(group) {
+    return Array.isArray(group?.members) ? group.members.map((m) => m.fellowId) : [];
+  }
+
+  function getHostFellowId(group) {
+    return group?.hostMember?.fellowId || null;
+  }
+
   const STAGGER_MS = 300;
   const MAX_RELAY_TURNS = 6;
 
@@ -236,12 +248,14 @@
         alert("成员数必须在 2 到 5 之间");
         return;
       }
-      const hostFellowId = hostSelect.value || members[0];
+      const hostFellowIdValue = hostSelect.value || members[0];
       const name = nameInput.value.trim() || members
         .map((id) => fellowNamesById[id] || id)
         .join(" · ");
       try {
-        const group = await window.aimashi.groups.create({ name, members, hostFellowId });
+        const memberList = members.map(fellowMember);
+        const hostMember = fellowMember(hostFellowIdValue);
+        const group = await window.aimashi.groups.create({ name, members: memberList, hostMember });
         moduleState.groups.push(group);
         close();
         // Switch to new group via state
@@ -297,15 +311,15 @@
 
     function refreshMembers() {
       membersBox.innerHTML = "";
-      for (const memberId of group.members) {
+      for (const memberId of memberFellowIds(group)) {
         const row = document.createElement("div");
         row.className = "group-info-member-row";
         const label = document.createElement("span");
         label.className = "group-info-member-name";
         label.textContent = (infoFellowNamesById[memberId] || memberId) +
-          (memberId === group.hostFellowId ? " 👑" : "");
+          (memberId === getHostFellowId(group) ? " 👑" : "");
         row.appendChild(label);
-        if (group.members.length > 1) {
+        if (memberFellowIds(group).length > 1) {
           const removeBtn = document.createElement("button");
           removeBtn.type = "button";
           removeBtn.className = "group-info-remove-btn";
@@ -324,7 +338,7 @@
     function refreshAddable() {
       if (!addableBox) return;
       addableBox.innerHTML = "";
-      if (group.members.length >= 5) {
+      if (memberFellowIds(group).length >= 5) {
         const full = document.createElement("p");
         full.className = "group-info-addable-full";
         full.textContent = "已满员（最多 5 位 Fellow）";
@@ -333,7 +347,7 @@
       }
       const eligible = currentFellows().filter((f) => {
         const fid = f.id || f.key;
-        return !group.members.includes(fid);
+        return !memberFellowIds(group).includes(fid);
       });
       if (eligible.length === 0) {
         const none = document.createElement("p");
@@ -364,15 +378,15 @@
         row.appendChild(nameEl);
         row.appendChild(addIndicator);
         row.addEventListener("click", async () => {
-          if (group.members.length >= 5) return;
-          const newMembers = [...group.members, fellowId];
+          if (memberFellowIds(group).length >= 5) return;
+          const newMembers = [...memberFellowIds(group), fellowId].map(fellowMember);
           group.members = newMembers;
           try {
             Object.assign(group, await window.aimashi.groups.update(group.id, { members: newMembers }));
             triggerRender();
           } catch (e) {
             console.warn("[group] addMember persist failed:", e);
-            group.members = newMembers.filter((id) => id !== fellowId);
+            group.members = newMembers.filter((m) => m.fellowId !== fellowId);
             return;
           }
           const fellowName = infoFellowNamesById[fellowId] || fellow.name || fellowId;
@@ -404,18 +418,18 @@
     refreshAddable();
 
     hostSelect.innerHTML = "";
-    for (const memberId of group.members) {
+    for (const memberId of memberFellowIds(group)) {
       const opt = document.createElement("option");
       opt.value = memberId;
       opt.textContent = infoFellowNamesById[memberId] || memberId;
-      if (memberId === group.hostFellowId) opt.selected = true;
+      if (memberId === getHostFellowId(group)) opt.selected = true;
       hostSelect.appendChild(opt);
     }
     hostSelect.onchange = async () => {
       const newHost = hostSelect.value;
-      group.hostFellowId = newHost;
+      group.hostMember = fellowMember(newHost);
       try {
-        Object.assign(group, await window.aimashi.groups.update(group.id, { hostFellowId: newHost }));
+        Object.assign(group, await window.aimashi.groups.update(group.id, { hostMember: fellowMember(newHost) }));
         triggerRender();
       } catch (e) {
         console.warn("[group] host switch failed:", e);
@@ -547,7 +561,7 @@
         const fellow = allFellows.find((f) => (f.id || f.key) === msg.senderFellowId);
         const fellowName = currentFellowNamesById()[msg.senderFellowId] || msg.senderFellowId || "?";
         const fellowColor = fellow?.color || "#5e5ce6";
-        const isHost = msg.senderFellowId === group.hostFellowId;
+        const isHost = msg.senderFellowId === getHostFellowId(group);
         let avatarStyle = "";
         if (typeof window.aimashiAvatar?.avatarThumbBackgroundStyle === "function") {
           const image = fellow?.avatarImage || (typeof window.aimashiAvatar?.avatarAssetForKey === "function" ? window.aimashiAvatar.avatarAssetForKey(msg.senderFellowId) : "");
@@ -659,7 +673,7 @@
       console.warn("[group] conductor not initialized; only explicit @ will dispatch");
     }
 
-    const members = currentFellows().filter((f) => group.members.includes(f.id || f.key));
+    const members = currentFellows().filter((f) => memberFellowIds(group).includes(f.id || f.key));
 
     let dispatch;
     if (moduleState.conductor) {
@@ -679,7 +693,7 @@
         console.warn("[group] dispatch returned empty speak list despite non-empty members:", members.map((f) => f.id || f.key));
       }
     } else {
-      dispatch = { speak: mentions.filter((id) => group.members.includes(id)) };
+      dispatch = { speak: mentions.filter((id) => memberFellowIds(group).includes(id)) };
     }
 
     if (dispatch.degraded) {
@@ -724,7 +738,7 @@
       try {
         relayDispatch = await moduleState.conductor.decideRelay({
           group,
-          members: currentFellows().filter((f) => group.members.includes(f.id || f.key)),
+          members: currentFellows().filter((f) => memberFellowIds(group).includes(f.id || f.key)),
           fellowNamesById: currentFellowNamesById(),
           messages: currentMsgs,
         });
@@ -771,11 +785,11 @@
     if (
       relayedTurns >= MAX_RELAY_TURNS &&
       moduleState.relayToken === myRelayToken &&
-      group.hostFellowId
+      getHostFellowId(group)
     ) {
       const wrapupCue = "（你们已经在群里自由接了好几轮了。请基于你的人设，用一句自然的话问用户：是想继续看你们接下去，还是先聊点别的。承接前面对话，不要重新开场，也不要解释规则。）";
       const wrapupMsg = { ...userMsg, content: wrapupCue, mentions: [] };
-      await dispatchToFellow(group, group.hostFellowId, wrapupMsg, turnId)
+      await dispatchToFellow(group, getHostFellowId(group), wrapupMsg, turnId)
         .catch((err) => console.error("[group] wrapup dispatch error", err));
     }
 
@@ -784,7 +798,7 @@
 
   function parseMentionsFor(group, text) {
     const fellows = currentFellows()
-      .filter((f) => group.members.includes(f.id || f.key))
+      .filter((f) => memberFellowIds(group).includes(f.id || f.key))
       .map((f) => ({ id: f.id || f.key, name: f.name || f.key }));
     if (!promptsModule || typeof promptsModule.parseMentions !== "function") return [];
     return promptsModule.parseMentions(text, fellows);
@@ -890,21 +904,25 @@
   }
 
   async function removeMember(group, memberId) {
-    if (group.members.length <= 1) {
+    if (memberFellowIds(group).length <= 1) {
       alert("群里至少需要一个 Fellow");
       return;
     }
-    const newMembers = group.members.filter((id) => id !== memberId);
-    let newHost = group.hostFellowId;
+    const newMemberIds = memberFellowIds(group).filter((id) => id !== memberId);
+    const newMembers = newMemberIds.map(fellowMember);
+    let newHost = getHostFellowId(group);
     let hostChanged = false;
-    if (memberId === group.hostFellowId) {
-      newHost = newMembers[0];
+    if (memberId === getHostFellowId(group)) {
+      newHost = newMemberIds[0];
       hostChanged = true;
     }
     group.members = newMembers;
-    group.hostFellowId = newHost;
+    group.hostMember = fellowMember(newHost);
     try {
-      Object.assign(group, await window.aimashi.groups.update(group.id, { members: newMembers, hostFellowId: newHost }));
+      Object.assign(group, await window.aimashi.groups.update(group.id, {
+        members: newMembers,
+        hostMember: fellowMember(newHost),
+      }));
       triggerRender();
     } catch (e) {
       console.warn("[group] removeMember persist failed:", e);

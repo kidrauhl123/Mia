@@ -1,6 +1,7 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { createConductor } = require("../src/renderer/group/conductor.js");
+const { makeFellowMember } = require("../src/main/group/member-model.js");
 
 function mockEngine(responses) {
   const calls = [];
@@ -33,7 +34,7 @@ test("explicit @ skips dispatch LLM call", async () => {
     summarizeTemplate: summarizeTpl,
   });
   const result = await conductor.decideDispatch({
-    group: { id: "g1", members: ["alice", "bob"], hostFellowId: "alice", contextCard: null },
+    group: { id: "g1", members: [makeFellowMember("alice"), makeFellowMember("bob")], hostMember: makeFellowMember("alice"), contextCard: null },
     members: fellows,
     fellowNamesById: { alice: "Alice", bob: "Bob" },
     userMessage: { content: "@alice 看下", mentions: ["alice"], turnId: "t1" },
@@ -51,7 +52,7 @@ test("no @ calls dispatch LLM and parses JSON", async () => {
     summarizeTemplate: summarizeTpl,
   });
   const result = await conductor.decideDispatch({
-    group: { id: "g1", members: ["alice", "bob"], hostFellowId: "alice", contextCard: null },
+    group: { id: "g1", members: [makeFellowMember("alice"), makeFellowMember("bob")], hostMember: makeFellowMember("alice"), contextCard: null },
     members: fellows,
     fellowNamesById: { alice: "Alice", bob: "Bob" },
     userMessage: { content: "随便说", mentions: [], turnId: "t1" },
@@ -70,7 +71,7 @@ test("dispatch failure degrades to no speakers", async () => {
     summarizeTemplate: summarizeTpl,
   });
   const result = await conductor.decideDispatch({
-    group: { id: "g1", members: ["alice", "bob"], hostFellowId: "alice", contextCard: null },
+    group: { id: "g1", members: [makeFellowMember("alice"), makeFellowMember("bob")], hostMember: makeFellowMember("alice"), contextCard: null },
     members: fellows,
     fellowNamesById: { alice: "Alice", bob: "Bob" },
     userMessage: { content: "啥", mentions: [], turnId: "t1" },
@@ -87,7 +88,7 @@ test("dispatch returns non-JSON degrades", async () => {
     summarizeTemplate: summarizeTpl,
   });
   const result = await conductor.decideDispatch({
-    group: { id: "g1", members: ["alice", "bob"], hostFellowId: "alice", contextCard: null },
+    group: { id: "g1", members: [makeFellowMember("alice"), makeFellowMember("bob")], hostMember: makeFellowMember("alice"), contextCard: null },
     members: fellows,
     fellowNamesById: { alice: "Alice", bob: "Bob" },
     userMessage: { content: "啥", mentions: [], turnId: "t1" },
@@ -105,7 +106,7 @@ test("dispatch filters unknown fellow ids", async () => {
     summarizeTemplate: summarizeTpl,
   });
   const result = await conductor.decideDispatch({
-    group: { id: "g1", members: ["alice", "bob"], hostFellowId: "alice", contextCard: null },
+    group: { id: "g1", members: [makeFellowMember("alice"), makeFellowMember("bob")], hostMember: makeFellowMember("alice"), contextCard: null },
     members: fellows,
     fellowNamesById: { alice: "Alice", bob: "Bob" },
     userMessage: { content: "啥", mentions: [], turnId: "t1" },

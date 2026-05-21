@@ -19,7 +19,7 @@
     async function decideDispatch(ctx) {
       if (ctx.userMessage.mentions && ctx.userMessage.mentions.length > 0) {
         const valid = ctx.userMessage.mentions.filter((id) =>
-          ctx.group.members.includes(id)
+          ctx.group.members.some((m) => m.fellowId === id)
         );
         return { speak: valid };
       }
@@ -40,7 +40,7 @@
       if (!parsed || !Array.isArray(parsed.speak)) {
         return { speak: [], degraded: true };
       }
-      const valid = parsed.speak.filter((id) => ctx.group.members.includes(id));
+      const valid = parsed.speak.filter((id) => ctx.group.members.some((m) => m.fellowId === id));
       return { speak: valid };
     }
 
@@ -93,7 +93,7 @@
       if (!parsed || !Array.isArray(parsed.speak)) {
         return { speak: [], degraded: true };
       }
-      const valid = parsed.speak.filter((id) => ctx.group.members.includes(id));
+      const valid = parsed.speak.filter((id) => ctx.group.members.some((m) => m.fellowId === id));
       return { speak: valid };
     }
 

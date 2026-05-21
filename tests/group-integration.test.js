@@ -5,6 +5,7 @@ const path = require("node:path");
 const os = require("node:os");
 const { createGroupStore } = require("../src/main/group-store.js");
 const { createConductor } = require("../src/renderer/group/conductor.js");
+const { makeFellowMember } = require("../src/main/group/member-model.js");
 const {
   parseMentions,
   filterRecentTurnsForFellow,
@@ -31,8 +32,8 @@ test("3-fellow group: user @ alice → only alice speaks", async () => {
   const store = createGroupStore(root);
   const group = store.create({
     name: "T",
-    members: ["alice", "bob", "coder"],
-    hostFellowId: "alice",
+    members: [makeFellowMember("alice"), makeFellowMember("bob"), makeFellowMember("coder")],
+    hostMember: makeFellowMember("alice"),
   });
 
   const engine = {
@@ -61,7 +62,7 @@ test("3-fellow group: user @ alice → only alice speaks", async () => {
 
   const dispatch = await conductor.decideDispatch({
     group: store.get(group.id),
-    members: fellows.filter((f) => group.members.includes(f.id)),
+    members: fellows.filter((f) => group.members.some((m) => m.fellowId === f.id)),
     fellowNamesById,
     userMessage: userMsg,
     messages: store.listMessages(group.id),
@@ -75,8 +76,8 @@ test("3-fellow group: no @ triggers dispatch LLM", async () => {
   const store = createGroupStore(root);
   const group = store.create({
     name: "T",
-    members: ["alice", "bob", "coder"],
-    hostFellowId: "alice",
+    members: [makeFellowMember("alice"), makeFellowMember("bob"), makeFellowMember("coder")],
+    hostMember: makeFellowMember("alice"),
   });
 
   let dispatchCalls = 0;
@@ -118,8 +119,8 @@ test("summary triggers after 4 user turns and persists", async () => {
   const store = createGroupStore(root);
   const group = store.create({
     name: "T",
-    members: ["alice", "bob"],
-    hostFellowId: "alice",
+    members: [makeFellowMember("alice"), makeFellowMember("bob")],
+    hostMember: makeFellowMember("alice"),
   });
 
   let summarizeCalls = 0;
@@ -164,8 +165,8 @@ test("dispatch failure does not crash flow, no fellow speaks", async () => {
   const store = createGroupStore(root);
   const group = store.create({
     name: "T",
-    members: ["alice", "bob"],
-    hostFellowId: "alice",
+    members: [makeFellowMember("alice"), makeFellowMember("bob")],
+    hostMember: makeFellowMember("alice"),
   });
   const engine = {
     call: async ({ kind }) => {
@@ -193,12 +194,12 @@ test("host switch persists across reload", () => {
   const store = createGroupStore(root);
   const group = store.create({
     name: "T",
-    members: ["alice", "bob"],
-    hostFellowId: "alice",
+    members: [makeFellowMember("alice"), makeFellowMember("bob")],
+    hostMember: makeFellowMember("alice"),
   });
-  store.updateGroup(group.id, { hostFellowId: "bob" });
+  store.updateGroup(group.id, { hostMember: makeFellowMember("bob") });
 
   const store2 = createGroupStore(root);
   const fresh = store2.get(group.id);
-  assert.equal(fresh.hostFellowId, "bob");
+  assert.equal(fresh.hostMember.fellowId, "bob");
 });
