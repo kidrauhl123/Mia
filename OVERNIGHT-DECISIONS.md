@@ -70,3 +70,17 @@
 - No scroll-to-bottom on new message when user has scrolled up (always auto-scrolls)
 - No pagination for DM messages (loads first 100 only)
 - Mobile app not touched (out of scope)
+
+### Phase 4.1 codex review note (commit 2773b5d)
+
+**Known limitation: fellow ownership is client-asserted.**
+
+`POST /api/rooms` and `POST /api/rooms/:id/members` accept any `memberFellows[].fellowId` and tag with `ownerId=auth.user.id`. Cloud has no server-side registry of "which fellows belong to which user" because fellows are local concepts (per CLAUDE.md).
+
+Implications:
+- A user could claim ownership of an arbitrary fellow id. For demo scenario (Alice creates group with her real Codex, invites Bob, Bob @s codex) this works fine — Alice owns codex, dispatch goes to Alice.
+- Current PK `(room_id, member_kind, member_ref)` means only one "codex" entry per room — if both Alice and Bob had locally-named "codex" fellows, only the first add lands.
+
+**Not fixed tonight**: real fix requires either (a) server-side fellow registry, or (b) PK includes owner_id `(room_id, member_kind, member_ref, owner_id)` which is a schema migration touching schema v2 + all room_members queries. Too risky for this overnight slot. Acceptable for alpha because the demo path doesn't exercise this edge.
+
+Track for future S2-polish work.
