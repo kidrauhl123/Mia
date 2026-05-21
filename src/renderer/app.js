@@ -2589,40 +2589,12 @@ async function initializeRuntime() {
   // once state.runtime is set, render() no longer early-returns and will call
   // into window.aimashi*.{applyAppearance,renderXxx} — which need fontPresets /
   // state / els / etc. to already be injected.
-  if (window.aimashiGroup && window.aimashiGroup.initGroupModule) {
-    try {
-      await window.aimashiGroup.initGroupModule({
-        getFellows: () => {
-          const list = Array.isArray(state.runtime && state.runtime.fellows) ? state.runtime.fellows
-            : Array.isArray(state.runtime && state.runtime.personas) ? state.runtime.personas
-            : [];
-          return list.map((f) => ({ id: f.id || f.key, name: f.name || f.key, key: f.key, avatarImage: f.avatarImage, avatarCrop: f.avatarCrop, color: f.color }));
-        },
-        getRuntime: () => state.runtime,
-        triggerRender: () => render(),
-        openGroup: (groupId) => {
-          state.activeKey = groupId;
-          if (window.aimashiGroup) window.aimashiGroup.moduleState.activeGroupId = groupId;
-          showNarrowContent();
-          render();
-        },
-        engineCall: async ({ kind, prompt, group }) => {
-          const hostFellowId = group && group.hostFellowId;
-          if (!hostFellowId) throw new Error("no host fellow for group");
-          const result = await window.aimashi.sendChatStateless({
-            fellowKey: hostFellowId,
-            systemPrompt: kind === "summarize"
-              ? "你是群聊摘要器，无人设。"
-              : "你是群聊调度器，无人设。",
-            userPrompt: prompt,
-          });
-          return result && typeof result.content === "string" ? result.content : "";
-        },
-      });
-    } catch (err) {
-      console.error("[group] init bootstrap failed:", err);
-    }
-  }
+  // NOTE: group init is intentionally LAST. Its initGroupModule(...) calls
+  // deps.triggerRender() during init, which calls render(), which calls
+  // applyAppearance() — that lives in window.aimashiSettingsAppearance and
+  // needs fontPresets / state / els injected first. If group init runs before
+  // settings-appearance init, fontPresets is undefined and render() throws
+  // "Cannot read properties of undefined (reading 'pingfang')".
   if (window.aimashiSessionReadState && window.aimashiSessionReadState.initSessionReadState) {
     window.aimashiSessionReadState.initSessionReadState({
       state,
@@ -2771,10 +2743,45 @@ async function initializeRuntime() {
       copyTextToClipboard,
       nowIso,
       cryptoRandomId,
-      closeSkillContextMenu,
-      closeFellowContextMenu,
+      closeSkillContextMenu: window.aimashiSkillLibrary.closeSkillContextMenu,
+      closeFellowContextMenu: window.aimashiFellowManager.closeFellowContextMenu,
       closeGroupContextMenu,
     });
+  }
+  // Group init last — see comment above about triggerRender + settings-appearance.
+  if (window.aimashiGroup && window.aimashiGroup.initGroupModule) {
+    try {
+      await window.aimashiGroup.initGroupModule({
+        getFellows: () => {
+          const list = Array.isArray(state.runtime && state.runtime.fellows) ? state.runtime.fellows
+            : Array.isArray(state.runtime && state.runtime.personas) ? state.runtime.personas
+            : [];
+          return list.map((f) => ({ id: f.id || f.key, name: f.name || f.key, key: f.key, avatarImage: f.avatarImage, avatarCrop: f.avatarCrop, color: f.color }));
+        },
+        getRuntime: () => state.runtime,
+        triggerRender: () => render(),
+        openGroup: (groupId) => {
+          state.activeKey = groupId;
+          if (window.aimashiGroup) window.aimashiGroup.moduleState.activeGroupId = groupId;
+          showNarrowContent();
+          render();
+        },
+        engineCall: async ({ kind, prompt, group }) => {
+          const hostFellowId = group && group.hostFellowId;
+          if (!hostFellowId) throw new Error("no host fellow for group");
+          const result = await window.aimashi.sendChatStateless({
+            fellowKey: hostFellowId,
+            systemPrompt: kind === "summarize"
+              ? "你是群聊摘要器，无人设。"
+              : "你是群聊调度器，无人设。",
+            userPrompt: prompt,
+          });
+          return result && typeof result.content === "string" ? result.content : "";
+        },
+      });
+    } catch (err) {
+      console.error("[group] init bootstrap failed:", err);
+    }
   }
   await trackStartupTask("加载会话", loadChatSessions);
   render();
