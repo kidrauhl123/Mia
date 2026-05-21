@@ -69,6 +69,7 @@ const required = [
   "src/renderer/pet-dialog.js",
   "src/renderer/message-menu.js",
   "src/renderer/settings-appearance.js",
+  "src/renderer/session-read-state.js",
   "resources/conductor/default-prompts/dispatch.md",
   "resources/conductor/default-prompts/summarize.md",
   "resources/conductor/default-prompts/nudge.md",

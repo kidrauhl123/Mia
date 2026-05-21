@@ -1822,79 +1822,6 @@ function queueGeneratedFileFetches(messages = []) {
   }
 }
 
-function ensureReadState() {
-  if (!state.chatStore || typeof state.chatStore !== "object") {
-    state.chatStore = { schema_version: 1, readAt: {}, sessions: {} };
-  }
-  if (!state.chatStore.readAt || typeof state.chatStore.readAt !== "object") {
-    state.chatStore.readAt = {};
-  }
-  return state.chatStore.readAt;
-}
-
-function latestAssistantMessageTime(personaKey) {
-  const sessions = state.chatStore.sessions?.[personaKey] || [];
-  let latest = "";
-  for (const session of sessions) {
-    for (const message of session.messages || []) {
-      if (message.role !== "assistant" || message.transient || !String(message.content || "").trim()) continue;
-      const createdAt = message.createdAt || session.updatedAt || session.createdAt || "";
-      if (String(createdAt).localeCompare(latest) > 0) latest = String(createdAt);
-    }
-  }
-  return latest;
-}
-
-function initializeReadStateForPersonas(personas) {
-  const readAt = ensureReadState();
-  let changed = false;
-  for (const persona of personas) {
-    if (!persona?.key || readAt[persona.key]) continue;
-    readAt[persona.key] = latestAssistantMessageTime(persona.key) || nowIso();
-    changed = true;
-  }
-  if (changed) persistReadStateQuietly();
-}
-
-function unreadCountForPersona(personaKey) {
-  const readAt = ensureReadState()[personaKey] || "";
-  let count = 0;
-  for (const session of state.chatStore.sessions?.[personaKey] || []) {
-    for (const message of session.messages || []) {
-      if (message.role !== "assistant" || message.transient || !String(message.content || "").trim()) continue;
-      const createdAt = String(message.createdAt || session.updatedAt || session.createdAt || "");
-      if (createdAt && createdAt.localeCompare(readAt) > 0) count += 1;
-    }
-  }
-  return count;
-}
-
-function totalUnreadCount(personas) {
-  return personas.reduce((total, persona) => total + unreadCountForPersona(persona.key), 0);
-}
-
-async function persistReadStateQuietly() {
-  try {
-    if (window.aimashi?.saveChatReadState) {
-      const readAt = { ...ensureReadState() };
-      await window.aimashi.saveChatReadState({ readAt });
-      state.chatStore.readAt = { ...state.chatStore.readAt, ...readAt };
-    }
-  } catch (error) {
-    console.error("Failed to persist read state", error);
-  }
-}
-
-function markPersonaRead(personaKey, persist = true) {
-  if (!personaKey) return;
-  const latest = latestAssistantMessageTime(personaKey);
-  if (!latest) return;
-  const readAt = ensureReadState();
-  const next = latest;
-  if (String(next).localeCompare(readAt[personaKey] || "") <= 0) return;
-  readAt[personaKey] = next;
-  if (persist) persistReadStateQuietly();
-}
 
 function conversationPreview(persona) {
   const sessions = sessionsForPersona(persona.key);
@@ -2495,9 +2422,9 @@ function render() {
   if (!personas.some((persona) => persona.key === state.activeContactKey) && personas.length) {
     state.activeContactKey = personas.find((persona) => persona.key === state.activeKey)?.key || personas[0].key;
   }
-  initializeReadStateForPersonas(personas);
-  markPersonaRead(state.activeKey, false);
-  const unreadTotal = totalUnreadCount(personas);
+  window.aimashiSessionReadState.initializeReadStateForPersonas(personas);
+  window.aimashiSessionReadState.markPersonaRead(state.activeKey, false);
+  const unreadTotal = window.aimashiSessionReadState.totalUnreadCount(personas);
   els.personaCount.textContent = unreadTotal > 99 ? "99+" : String(unreadTotal);
   els.personaCount.classList.toggle("hidden", unreadTotal <= 0);
   const groupActive = activeGroup();
@@ -2592,7 +2519,7 @@ function render() {
     if (row.type === "fellow") {
       const persona = row.persona;
       const preview = conversationPreview(persona);
-      const unread = unreadCountForPersona(persona.key);
+      const unread = window.aimashiSessionReadState.unreadCountForPersona(persona.key);
       const button = document.createElement("button");
       button.type = "button";
       button.className = `persona message-card private-message-card${persona.key === state.activeKey ? " active" : ""}${persona.pinned ? " pinned" : ""}`;
@@ -2618,7 +2545,7 @@ function render() {
         const latest = sessionsForPersona(persona.key)[0];
         state.activeSessionIdByPersona[persona.key] = latest?.id;
         state.replyDraft = null;
-        markPersonaRead(persona.key);
+        window.aimashiSessionReadState.markPersonaRead(persona.key);
         state.sessionMenuOpen = false;
         showNarrowContent();
         render();
@@ -3470,7 +3397,7 @@ function openFellowChat(fellowKey) {
   state.activeSessionIdByPersona[fellowKey] = latest?.id;
   state.activeView = "chat";
   state.sessionMenuOpen = false;
-  markPersonaRead(fellowKey);
+  window.aimashiSessionReadState.markPersonaRead(fellowKey);
   showNarrowContent();
   render();
   requestAnimationFrame(() => els.chatInput?.focus());
@@ -4713,16 +4640,16 @@ function appendChat(role, content, options = {}) {
   session.messages.push(message);
   session.updatedAt = nowIso();
   const shouldMarkRead = role === "assistant" && !message.transient;
-  if (shouldMarkRead) markPersonaRead(session.personaKey || state.activeKey, false);
+  if (shouldMarkRead) window.aimashiSessionReadState.markPersonaRead(session.personaKey || state.activeKey, false);
   state.forceScrollToBottom = true;
   renderChat();
   renderSessionMenu();
   if (options.persist) {
     persistSessionQuietly(session).then(() => {
-      if (shouldMarkRead) persistReadStateQuietly();
+      if (shouldMarkRead) window.aimashiSessionReadState.persistReadStateQuietly();
     });
   } else if (shouldMarkRead) {
-    persistReadStateQuietly();
+    window.aimashiSessionReadState.persistReadStateQuietly();
   }
   return message;
 }
@@ -5159,6 +5086,13 @@ async function initializeRuntime() {
     } catch (err) {
       console.error("[group] init bootstrap failed:", err);
     }
+  }
+  if (window.aimashiSessionReadState && window.aimashiSessionReadState.initSessionReadState) {
+    window.aimashiSessionReadState.initSessionReadState({
+      state,
+      aimashi: window.aimashi,
+      nowIso,
+    });
   }
   if (window.aimashiTasksPanel && window.aimashiTasksPanel.initTasksPanel) {
     window.aimashiTasksPanel.initTasksPanel({
@@ -6841,7 +6775,7 @@ els.chatForm.addEventListener("submit", async (event) => {
     // receives user → assistant in order (Codex review P2).
     try { await userCloudPush; } catch { /* user push errors are non-fatal */ }
     await pushCloudMessageQuietly(session, assistantMessage);
-    persistReadStateQuietly();
+    window.aimashiSessionReadState.persistReadStateQuietly();
     if (shouldGenerateTitle) {
       const current = activeSession();
       const result = await window.aimashi.generateSessionTitle({
