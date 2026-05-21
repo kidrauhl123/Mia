@@ -1,6 +1,12 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const {
+  normalizeMember,
+  normalizeMembersList,
+  memberKey,
+  membersIncludeKey,
+} = require("./group/member-model.js");
 
 function atomicWrite(filePath, content) {
   const tmp = filePath + ".tmp." + crypto.randomBytes(6).toString("hex");
@@ -50,12 +56,17 @@ function createGroupStore(rootDir) {
     return path.join(groupPath(id), "context-card.json");
   }
 
-  function create({ name, members, hostFellowId, avatar = null }) {
-    if (!Array.isArray(members) || members.length < 2 || members.length > 5) {
+  function create({ name, members, hostMember, hostFellowId, avatar = null }) {
+    const normalizedMembers = normalizeMembersList(members);
+    if (normalizedMembers.length < 2 || normalizedMembers.length > 5) {
       throw new Error("group members must be between 2 and 5");
     }
-    if (!members.includes(hostFellowId)) {
-      throw new Error("hostFellowId must be one of members");
+    // Backward-compat: accept legacy hostFellowId if hostMember absent
+    const hostInput = hostMember != null ? hostMember : hostFellowId;
+    if (hostInput == null) throw new Error("hostMember is required");
+    const normalizedHost = normalizeMember(hostInput);
+    if (!membersIncludeKey(normalizedMembers, memberKey(normalizedHost))) {
+      throw new Error("hostMember must be one of members");
     }
     const id = "g-" + crypto.randomBytes(8).toString("hex");
     const now = Date.now();
@@ -63,8 +74,8 @@ function createGroupStore(rootDir) {
       id,
       name,
       avatar,
-      members,
-      hostFellowId,
+      members: normalizedMembers,
+      hostMember: normalizedHost,
       decorations: { pinnedGoal: null, todos: [] },
       contextCard: null,
       createdAt: now,
