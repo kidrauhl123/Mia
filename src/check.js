@@ -70,6 +70,7 @@ const required = [
   "src/renderer/fellow/fellow-dialog.js",
   "src/renderer/fellow/fellow-manager.js",
   "src/renderer/chat/trace-blocks.js",
+  "src/renderer/chat/message-helpers.js",
   "src/renderer/chat/composer.js",
   "src/renderer/chat/message-menu.js",
   "src/renderer/settings/settings-appearance.js",

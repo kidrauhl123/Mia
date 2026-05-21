@@ -912,7 +912,7 @@ function render() {
   const runtime = state.runtime;
   if (!runtime) return;
   renderSendButton();
-  renderComposerReply();
+  window.aimashiMessageHelpers.renderComposerReply();
   const editingModel = els.modelForm.contains(document.activeElement);
   const editingProfile = Boolean(els.profileForm?.contains(document.activeElement));
   const editingAppearance = Boolean(els.appearanceForm?.contains(document.activeElement));
@@ -1375,115 +1375,6 @@ function renderGroupContextMenu() {
   });
 }
 
-function messageAtIndex(index) {
-  const messages = messagesForActive();
-  if (!Number.isInteger(index) || index < 0 || index >= messages.length) return null;
-  return messages[index] || null;
-}
-
-function messagePlainText(message) {
-  return String(message?.content || "").trim();
-}
-
-function messageContextText(message, selectionText = "") {
-  return String(selectionText || "").trim() || messagePlainText(message);
-}
-
-function messageContextSnippet(message, selectionText = "") {
-  const text = messageContextText(message, selectionText).replace(/\s+/g, " ");
-  return text.length > 160 ? `${text.slice(0, 160)}...` : text;
-}
-
-function messageAuthorLabel(message) {
-  if (message?.role === "user") return "你";
-  const persona = activePersona();
-  return persona?.name || "AI";
-}
-
-function messageReferenceForIndex(index, selectionText = "") {
-  const message = messageAtIndex(index);
-  const snippet = messageContextSnippet(message, selectionText);
-  if (!message || !snippet) return null;
-  return {
-    role: message.role,
-    author: messageAuthorLabel(message),
-    content: snippet,
-    createdAt: message.createdAt || "",
-    messageIndex: index,
-    selected: Boolean(String(selectionText || "").trim())
-  };
-}
-
-function replyQuoteHtml(replyTo) {
-  if (!replyTo?.content) return "";
-  return `
-    <div class="message-reply-quote">
-      <span>${window.aimashiMarkdown.escapeHtml(replyTo.author || (replyTo.role === "user" ? "你" : "AI"))}</span>
-      <p>${window.aimashiMarkdown.escapeHtml(replyTo.content)}</p>
-    </div>
-  `;
-}
-
-let composerCompositionEndedAt = 0;
-
-function isComposerComposing(event = null) {
-  const justCommitted =
-    event?.key === "Enter" &&
-    composerCompositionEndedAt > 0 &&
-    performance.now() - composerCompositionEndedAt < 80;
-  return Boolean(
-    els.chatInput?.dataset.composing === "true" ||
-    event?.isComposing ||
-    event?.key === "Process" ||
-    event?.keyCode === 229 ||
-    justCommitted
-  );
-}
-
-function resizeChatInput() {
-  const input = els.chatInput;
-  if (!input) return;
-  const style = window.getComputedStyle(input);
-  const minHeight = Number.parseFloat(style.minHeight) || 41;
-  const maxHeight = Number.parseFloat(style.maxHeight) || 180;
-  if (!input.value) {
-    input.style.height = `${minHeight}px`;
-    input.style.overflowY = "hidden";
-    return;
-  }
-  input.style.height = `${minHeight}px`;
-  const nextHeight = Math.max(minHeight, Math.min(input.scrollHeight, maxHeight));
-  input.style.height = `${nextHeight}px`;
-  input.style.overflowY = input.scrollHeight > maxHeight ? "auto" : "hidden";
-}
-
-function insertComposerText(text) {
-  const value = String(text || "");
-  if (!value || !els.chatInput) return;
-  els.chatInput.value = value;
-  els.chatInput.focus();
-  els.chatInput.setSelectionRange(value.length, value.length);
-  resizeChatInput();
-  renderSendButton();
-  window.aimashiComposer.updateSlashCommandState();
-}
-
-function renderComposerReply() {
-  if (!els.composerReply) return;
-  const reply = state.replyDraft;
-  els.composerReply.classList.toggle("hidden", !reply);
-  if (!reply) {
-    els.composerReply.innerHTML = "";
-    return;
-  }
-  els.composerReply.innerHTML = `
-    <div>
-      <span>回复 ${window.aimashiMarkdown.escapeHtml(reply.author || "消息")}</span>
-      <p>${window.aimashiMarkdown.escapeHtml(reply.content || "")}</p>
-    </div>
-    <button type="button" data-clear-reply title="取消回复" aria-label="取消回复">×</button>
-  `;
-}
 
 async function openEditFellowDialog(fellowKey) {
   try {
@@ -1789,7 +1680,7 @@ function renderMessageHtml(message, ctx) {
     : "";
   const timeHtml = renderMessageTime(message.createdAt);
   const bodyHtml = String(message.content || "").trim() ? window.aimashiMarkdown.renderMarkdown(message.content) : "";
-  const replyHtml = replyQuoteHtml(message.replyTo);
+  const replyHtml = window.aimashiMessageHelpers.replyQuoteHtml(message.replyTo);
   const translation = window.aimashiMessageMenu?.translationHtml(message, messageIndex) || "";
   const attachmentHtml = renderAttachmentChips([...(message.attachments || []), ...generatedAttachmentsForMessage(message)].map(hydrateAttachmentPreview));
   const pinnedHtml = message.pinned ? `<span class="message-pin-badge">${ICON_PARK_PIN_SVG}置顶</span>` : "";
@@ -2100,6 +1991,15 @@ async function initializeRuntime() {
   if (window.aimashiTraceBlocks && window.aimashiTraceBlocks.initTraceBlocks) {
     window.aimashiTraceBlocks.initTraceBlocks({ state });
   }
+  if (window.aimashiMessageHelpers && window.aimashiMessageHelpers.initMessageHelpers) {
+    window.aimashiMessageHelpers.initMessageHelpers({
+      state,
+      els,
+      activePersona,
+      messagesForActive,
+      renderSendButton,
+    });
+  }
   if (window.aimashiLoaders && window.aimashiLoaders.initLoaders) {
     window.aimashiLoaders.initLoaders({ state, render, fallbackSlashCommands });
   }
@@ -2198,16 +2098,16 @@ async function initializeRuntime() {
       state,
       els,
       aimashi: window.aimashi,
-      messageAtIndex,
-      messageReferenceForIndex,
-      messageContextText,
+      messageAtIndex: window.aimashiMessageHelpers.messageAtIndex,
+      messageReferenceForIndex: window.aimashiMessageHelpers.messageReferenceForIndex,
+      messageContextText: window.aimashiMessageHelpers.messageContextText,
       menuItemHtml: window.aimashiMarkdown.menuItemHtml,
       activeSession,
       persistSessionQuietly,
       replacePersistedSessionQuietly,
       renderChat,
       renderSessionMenu,
-      renderComposerReply,
+      renderComposerReply: window.aimashiMessageHelpers.renderComposerReply,
       escapeHtml: window.aimashiMarkdown.escapeHtml,
       renderMarkdown: window.aimashiMarkdown.renderMarkdown,
       copyTextToClipboard,
@@ -3263,7 +3163,7 @@ els.modelForm.addEventListener("submit", async (event) => {
 });
 
 els.chatInput.addEventListener("keydown", (event) => {
-  if (isComposerComposing(event)) return;
+  if (window.aimashiMessageHelpers.isComposerComposing(event)) return;
   if (state.slashMenuOpen) {
     const commands = window.aimashiComposer.filteredSlashCommands();
     if (event.key === "ArrowDown") {
@@ -3305,20 +3205,19 @@ els.chatInput.addEventListener("keydown", (event) => {
 });
 
 els.chatInput.addEventListener("compositionstart", () => {
-  composerCompositionEndedAt = 0;
   els.chatInput.dataset.composing = "true";
 });
 
 els.chatInput.addEventListener("compositionend", () => {
-  composerCompositionEndedAt = performance.now();
+  window.aimashiMessageHelpers.noteCompositionEnded();
   els.chatInput.dataset.composing = "false";
-  resizeChatInput();
+  window.aimashiMessageHelpers.window.aimashiMessageHelpers.resizeChatInput();
   window.aimashiComposer.updateSlashCommandState();
   renderSendButton();
 });
 
 els.chatInput.addEventListener("input", () => {
-  resizeChatInput();
+  window.aimashiMessageHelpers.resizeChatInput();
   window.aimashiComposer.updateSlashCommandState();
   renderSendButton();
 });
@@ -3433,7 +3332,7 @@ els.composerAttachments?.addEventListener("click", (event) => {
 els.composerReply?.addEventListener("click", (event) => {
   if (!event.target.closest("[data-clear-reply]")) return;
   state.replyDraft = null;
-  renderComposerReply();
+  window.aimashiMessageHelpers.renderComposerReply();
   els.chatInput?.focus();
 });
 els.chatForm?.addEventListener("dragover", (event) => {
@@ -3508,7 +3407,7 @@ els.chat.addEventListener("click", async (event) => {
 els.chat.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-copy-translation]");
   if (!button || !els.chat.contains(button)) return;
-  const message = messageAtIndex(Number(button.dataset.copyTranslation));
+  const message = window.aimashiMessageHelpers.messageAtIndex(Number(button.dataset.copyTranslation));
   const text = message?.translation?.text || "";
   if (!text) return;
   if (await copyTextToClipboard(text)) {
@@ -3547,7 +3446,7 @@ els.chat.addEventListener("toggle", (event) => {
 
 els.chatForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (isComposerComposing()) return;
+  if (window.aimashiMessageHelpers.isComposerComposing()) return;
   // Branch: group chat
   if (activeGroup()) {
     if (window.aimashiGroup && typeof window.aimashiGroup.sendInActiveGroup === "function") {
@@ -3568,9 +3467,9 @@ els.chatForm.addEventListener("submit", async (event) => {
   els.chatInput.value = "";
   state.pendingAttachments = [];
   state.replyDraft = null;
-  renderComposerReply();
+  window.aimashiMessageHelpers.renderComposerReply();
   window.aimashiComposer.renderComposerAttachments();
-  resizeChatInput();
+  window.aimashiMessageHelpers.resizeChatInput();
   renderSendButton();
   const userText = text || "请查看附件。";
   appendChat("user", userText, { attachments, replyTo });
@@ -3869,7 +3768,7 @@ window.aimashi.onChatEvent((envelope) => {
   scheduleStreamRender();
 });
 
-resizeChatInput();
+window.aimashiMessageHelpers.resizeChatInput();
 function startAfterFirstPaint() {
   const start = () => {
     try { window.aimashi?.notifyFirstPaint?.(); } catch { /* main may not expose this in older builds */ }
