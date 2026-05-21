@@ -1040,7 +1040,7 @@ function render() {
   setText(els.userDisplayName, user.displayName || "Boss");
   if (!editingProfile && els.profileForm) {
     els.profileDisplayName.value = user.displayName || "Boss";
-    setProfileAvatarDraft(user.avatarImage || "", user.avatarCrop);
+    window.aimashiFellowDialog.setProfileAvatarDraft(user.avatarImage || "", user.avatarCrop);
   }
 
   els.engineStatus.textContent = runtime.engineRunning
@@ -1587,7 +1587,7 @@ function renderComposerReply() {
 async function openEditFellowDialog(fellowKey) {
   try {
     const details = await window.aimashi.loadFellowDetails(fellowKey);
-    openFellowDialog(details.fellow, details.personaText || "");
+    window.aimashiFellowDialog.openFellowDialog(details.fellow, details.personaText || "");
   } catch (error) {
     appendTransientChat("assistant", `编辑 Fellow 失败: ${error.message}`);
   }
@@ -2648,6 +2648,9 @@ async function initializeRuntime() {
       providerLabels,
     });
   }
+  if (window.aimashiFellowDialog && window.aimashiFellowDialog.initFellowDialog) {
+    window.aimashiFellowDialog.initFellowDialog({ state, els, renderView, render });
+  }
   if (window.aimashiFellowManager && window.aimashiFellowManager.initFellowManager) {
     window.aimashiFellowManager.initFellowManager({
       state,
@@ -3482,253 +3485,6 @@ els.modelSelect?.addEventListener("change", () => {
   updateModelFieldVisibility();
 });
 
-function setFellowAvatarDraft(image, crop = null) {
-  const src = window.aimashiAvatar.canonicalAvatarSrc(image);
-  state.fellowAvatarDraft = {
-    image: src,
-    crop: window.aimashiAvatar.normalizeCrop(crop || window.aimashiAvatar.avatarDefaultCropForSrc(src))
-  };
-  if (els.fellowAvatar) els.fellowAvatar.value = state.fellowAvatarDraft.image;
-  renderFellowAvatarDraft();
-}
-
-function setProfileAvatarDraft(image, crop = null) {
-  const src = window.aimashiAvatar.canonicalAvatarSrc(image);
-  state.profileAvatarDraft = {
-    image: src,
-    crop: window.aimashiAvatar.normalizeCrop(crop || window.aimashiAvatar.avatarDefaultCropForSrc(src))
-  };
-  if (els.profileAvatarImage) els.profileAvatarImage.value = state.profileAvatarDraft.image;
-  renderProfileAvatarDraft();
-}
-
-function renderProfileAvatarDraft() {
-  if (!els.profileAvatarPreview) return;
-  const draft = state.profileAvatarDraft;
-  const user = state.runtime?.user || {};
-  const crop = window.aimashiAvatar.normalizeCrop(draft.crop);
-  els.profileAvatarPreview.setAttribute("style", window.aimashiAvatar.avatarBackgroundStyle(draft.image, crop, user.avatarColor || "#111827"));
-  els.profileAvatarPreview.title = draft.image ? "点击调整头像裁剪" : "选择头像";
-  els.profileAvatarPreview.setAttribute("role", "button");
-  els.profileAvatarPreview.setAttribute("tabindex", "0");
-  els.profileAvatarPreview.setAttribute("aria-label", "调整头像裁剪");
-  renderProfileAvatarDefaults();
-}
-
-function openProfileDialog() {
-  const user = state.runtime?.user || { displayName: "Boss", avatarImage: "", avatarCrop: window.aimashiAvatar.DEFAULT_AVATAR_CROP };
-  state.profileDialogOpen = true;
-  state.profileAvatarPresetGroup = window.aimashiAvatar.avatarPresetGroupForSrc(user.avatarImage || "") || "human";
-  if (els.profileDisplayName) els.profileDisplayName.value = user.displayName || "Boss";
-  setProfileAvatarDraft(user.avatarImage || "", user.avatarCrop);
-  renderView();
-  setTimeout(() => els.profileDisplayName?.focus(), 0);
-}
-
-function closeProfileDialog() {
-  state.profileDialogOpen = false;
-  renderView();
-}
-
-function renderFellowAvatarDefaults() {
-  if (!els.fellowAvatarDefaults) return;
-  const activeGroup = window.aimashiAvatar.avatarPresetGroups[state.fellowAvatarPresetGroup]
-    ? state.fellowAvatarPresetGroup
-    : "human";
-  state.fellowAvatarPresetGroup = activeGroup;
-  if (els.fellowAvatarDefaultTabs) {
-    els.fellowAvatarDefaultTabs.innerHTML = window.aimashiAvatar.avatarPresetGroupTabs.map((group) => `
-      <button type="button" class="${activeGroup === group.key ? "active" : ""}" data-avatar-group="${window.aimashiMarkdown.escapeHtml(group.key)}" role="tab" aria-selected="${activeGroup === group.key ? "true" : "false"}">${window.aimashiMarkdown.escapeHtml(group.label)}</button>
-    `).join("");
-    els.fellowAvatarDefaultTabs.querySelectorAll("[data-avatar-group]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const group = button.dataset.avatarGroup || "human";
-        if (!window.aimashiAvatar.avatarPresetGroups[group] || state.fellowAvatarPresetGroup === group) return;
-        state.fellowAvatarPresetGroup = group;
-        renderFellowAvatarDefaults();
-      });
-    });
-  }
-  const selected = state.fellowAvatarDraft.image;
-  const presets = window.aimashiAvatar.avatarPresetGroups[activeGroup] || window.aimashiAvatar.avatarPresetGroups.human;
-  els.fellowAvatarDefaults.innerHTML = presets.map((preset) => `
-    <button type="button" class="avatar-default${selected === preset.src ? " active" : ""}" data-avatar="${window.aimashiMarkdown.escapeHtml(preset.src)}" data-avatar-name="${window.aimashiMarkdown.escapeHtml(preset.name)}" title="${window.aimashiMarkdown.escapeHtml(preset.name)}" aria-label="${window.aimashiMarkdown.escapeHtml(preset.name)}" style="${window.aimashiAvatar.avatarThumbBackgroundStyle(preset.src, window.aimashiAvatar.avatarDefaultCropForSrc(preset.src), "#eef0ff")}"></button>
-  `).join("");
-  els.fellowAvatarDefaults.querySelectorAll("[data-avatar]").forEach((button) => {
-    button.addEventListener("click", () => {
-      setFellowAvatarDraft(button.dataset.avatar, window.aimashiAvatar.avatarDefaultCropForSrc(button.dataset.avatar));
-      if (els.fellowName) els.fellowName.value = button.dataset.avatarName || window.aimashiAvatar.avatarPresetBySrc(button.dataset.avatar)?.name || "";
-    });
-  });
-}
-
-function renderProfileAvatarDefaults() {
-  if (!els.profileAvatarDefaults) return;
-  const activeGroup = window.aimashiAvatar.avatarPresetGroups[state.profileAvatarPresetGroup]
-    ? state.profileAvatarPresetGroup
-    : "human";
-  state.profileAvatarPresetGroup = activeGroup;
-  if (els.profileAvatarDefaultTabs) {
-    els.profileAvatarDefaultTabs.innerHTML = window.aimashiAvatar.avatarPresetGroupTabs.map((group) => `
-      <button type="button" class="${activeGroup === group.key ? "active" : ""}" data-avatar-group="${window.aimashiMarkdown.escapeHtml(group.key)}" role="tab" aria-selected="${activeGroup === group.key ? "true" : "false"}">${window.aimashiMarkdown.escapeHtml(group.label)}</button>
-    `).join("");
-    els.profileAvatarDefaultTabs.querySelectorAll("[data-avatar-group]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const group = button.dataset.avatarGroup || "human";
-        if (!window.aimashiAvatar.avatarPresetGroups[group] || state.profileAvatarPresetGroup === group) return;
-        state.profileAvatarPresetGroup = group;
-        renderProfileAvatarDefaults();
-      });
-    });
-  }
-  const selected = state.profileAvatarDraft.image;
-  const presets = window.aimashiAvatar.avatarPresetGroups[activeGroup] || window.aimashiAvatar.avatarPresetGroups.human;
-  els.profileAvatarDefaults.innerHTML = presets.map((preset) => `
-    <button type="button" class="avatar-default${selected === preset.src ? " active" : ""}" data-avatar="${window.aimashiMarkdown.escapeHtml(preset.src)}" data-avatar-name="${window.aimashiMarkdown.escapeHtml(preset.name)}" title="${window.aimashiMarkdown.escapeHtml(preset.name)}" aria-label="${window.aimashiMarkdown.escapeHtml(preset.name)}" style="${window.aimashiAvatar.avatarThumbBackgroundStyle(preset.src, window.aimashiAvatar.avatarDefaultCropForSrc(preset.src), "#eef0ff")}"></button>
-  `).join("");
-  els.profileAvatarDefaults.querySelectorAll("[data-avatar]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      const src = button.dataset.avatar;
-      setProfileAvatarDraft(src, window.aimashiAvatar.avatarDefaultCropForSrc(src));
-      // Auto-save: clicking a preset is a decisive choice. Pull the current
-      // displayName from the input so we don't drop user's in-progress edit.
-      try {
-        const displayName = (els.profileDisplayName?.value || "").trim()
-          || state.runtime?.user?.displayName
-          || "Boss";
-        state.runtime = await window.aimashi.saveProfile({
-          displayName,
-          avatarText: window.aimashiAvatar.initials(displayName),
-          avatarImage: state.profileAvatarDraft.image || src,
-          avatarCrop: window.aimashiAvatar.normalizeCrop(state.profileAvatarDraft.crop),
-        });
-        render();
-      } catch (err) {
-        console.error("[profile] preset avatar auto-save failed:", err);
-      }
-    });
-  });
-}
-
-function renderFellowAvatarDraft() {
-  const draft = state.fellowAvatarDraft;
-  const crop = window.aimashiAvatar.normalizeCrop(draft.crop);
-  if (els.fellowAvatarPreview) {
-    els.fellowAvatarPreview.setAttribute("style", window.aimashiAvatar.avatarBackgroundStyle(draft.image, crop, "#eef0ff"));
-    els.fellowAvatarPreview.title = "点击调整头像裁剪";
-    els.fellowAvatarPreview.setAttribute("role", "button");
-    els.fellowAvatarPreview.setAttribute("tabindex", "0");
-    els.fellowAvatarPreview.setAttribute("aria-label", "调整头像裁剪");
-  }
-  renderFellowAvatarDefaults();
-}
-
-function renderAvatarCropEditor() {
-  if (!els.avatarCropStage) return;
-  const editor = state.avatarCropEditor;
-  const crop = window.aimashiAvatar.normalizeCrop(editor.crop);
-  els.avatarCropStage.setAttribute("style", window.aimashiAvatar.avatarBackgroundStyle(editor.image, crop, "#eef0ff"));
-}
-
-function openAvatarCropEditor(image, crop = null, target = "fellow") {
-  const src = window.aimashiAvatar.canonicalAvatarSrc(image);
-  state.avatarCropEditor = {
-    open: true,
-    target,
-    image: src,
-    crop: window.aimashiAvatar.normalizeCrop(crop || window.aimashiAvatar.avatarDefaultCropForSrc(src)),
-    dragging: false,
-    lastX: 0,
-    lastY: 0
-  };
-  renderView();
-  renderAvatarCropEditor();
-}
-
-function closeAvatarCropEditor() {
-  state.avatarCropEditor.open = false;
-  state.avatarCropEditor.dragging = false;
-  renderView();
-}
-
-function updateAvatarCropEditor(crop) {
-  state.avatarCropEditor.crop = window.aimashiAvatar.normalizeCrop({
-    ...state.avatarCropEditor.crop,
-    ...crop
-  });
-  renderAvatarCropEditor();
-}
-
-function readFellowAvatarFile(file) {
-  if (!file || !file.type?.startsWith("image/")) return;
-  const reader = new FileReader();
-  reader.addEventListener("load", () => {
-    openAvatarCropEditor(String(reader.result || ""), { x: 50, y: 50, zoom: 1.12 }, "fellow");
-  });
-  reader.readAsDataURL(file);
-}
-
-function readProfileAvatarFile(file) {
-  if (!file || !file.type?.startsWith("image/")) return;
-  const reader = new FileReader();
-  reader.addEventListener("load", () => {
-    openAvatarCropEditor(String(reader.result || ""), { x: 50, y: 50, zoom: 1.12 }, "profile");
-  });
-  reader.readAsDataURL(file);
-}
-
-function detectedAgentEngineOptions() {
-  const engines = state.runtime?.agentEngines || {};
-  const options = [{ id: "hermes", label: "默认" }];
-  if (engines.claudeCode?.available) options.push({ id: "claude-code", label: "Claude Code" });
-  if (engines.codex?.available) options.push({ id: "codex", label: "Codex" });
-  return options;
-}
-
-function renderFellowAgentEngineSelect(current = "hermes") {
-  const options = detectedAgentEngineOptions();
-  const showField = options.length > 1;
-  els.fellowAgentEngineField?.classList.toggle("hidden", !showField);
-  if (!els.fellowAgentEngine) return;
-  els.fellowAgentEngine.innerHTML = "";
-  for (const option of options) {
-    const node = document.createElement("option");
-    node.value = option.id;
-    node.textContent = option.label;
-    els.fellowAgentEngine.appendChild(node);
-  }
-  els.fellowAgentEngine.value = options.some((option) => option.id === current) ? current : "hermes";
-}
-
-function openFellowDialog(fellow = null, personaText = "") {
-  if (fellow && fellow.currentTarget) fellow = null;
-  // Allow a seed object in place of `fellow` to prefill create mode (used by
-  // initial-onboarding flow). Detected by absence of a real key.
-  const seed = fellow && !fellow.key && (fellow.name || fellow.agentEngine || fellow.bio) ? fellow : null;
-  const actualFellow = seed ? null : fellow;
-  state.fellowMenuOpen = false;
-  state.fellowDialogMode = actualFellow ? "edit" : "create";
-  state.fellowDialogOpen = true;
-  const titleName = String(actualFellow?.name || "").trim();
-  if (els.fellowDialogTitle) els.fellowDialogTitle.textContent = actualFellow
-    ? `编辑「${titleName || "伙伴"}」`
-    : (seed ? "创建你的第一个伙伴" : "添加伙伴");
-  if (els.fellowKey) els.fellowKey.value = actualFellow?.key || "";
-  els.fellowName.value = actualFellow?.name || seed?.name || "";
-  renderFellowAgentEngineSelect(actualFellow?.agentEngine || actualFellow?.agent_engine || seed?.agentEngine || "hermes");
-  const avatarImage = actualFellow?.avatarImage || window.aimashiAvatar.defaultAvatarAssets()[0];
-  state.fellowAvatarPresetGroup = window.aimashiAvatar.avatarPresetGroupForSrc(avatarImage) || "human";
-  setFellowAvatarDraft(avatarImage, window.aimashiAvatar.avatarCropForImage(avatarImage, actualFellow?.avatarCrop));
-  els.fellowSeed.value = actualFellow ? personaText : (seed?.bio || "");
-  if (els.fellowPersonaDetails) els.fellowPersonaDetails.open = Boolean(seed);
-  renderView();
-  setTimeout(() => els.fellowName?.focus(), 0);
-}
-
-function closeFellowDialog() {
-  state.fellowDialogOpen = false;
-  renderView();
-}
 
 els.newPersona.addEventListener("click", (event) => {
   event.stopPropagation();
@@ -3736,18 +3492,18 @@ els.newPersona.addEventListener("click", (event) => {
   renderView();
 });
 
-els.addFellow?.addEventListener("click", () => openFellowDialog());
-els.newContact?.addEventListener("click", () => openFellowDialog());
-els.userAvatar?.addEventListener("click", openProfileDialog);
+els.addFellow?.addEventListener("click", () => window.aimashiFellowDialog.openFellowDialog());
+els.newContact?.addEventListener("click", () => window.aimashiFellowDialog.openFellowDialog());
+els.userAvatar?.addEventListener("click", () => window.aimashiFellowDialog.openProfileDialog());
 els.userAvatar?.addEventListener("keydown", (event) => {
   if (event.key !== "Enter" && event.key !== " ") return;
   event.preventDefault();
-  openProfileDialog();
+  window.aimashiFellowDialog.openProfileDialog();
 });
-els.closeProfileDialog?.addEventListener("click", closeProfileDialog);
-els.cancelProfile?.addEventListener("click", closeProfileDialog);
-els.closeFellowDialog?.addEventListener("click", closeFellowDialog);
-els.cancelFellow?.addEventListener("click", closeFellowDialog);
+els.closeProfileDialog?.addEventListener("click", () => window.aimashiFellowDialog.closeProfileDialog());
+els.cancelProfile?.addEventListener("click", () => window.aimashiFellowDialog.closeProfileDialog());
+els.closeFellowDialog?.addEventListener("click", () => window.aimashiFellowDialog.closeFellowDialog());
+els.cancelFellow?.addEventListener("click", () => window.aimashiFellowDialog.closeFellowDialog());
 els.closePetGenerateDialog?.addEventListener("click", () => window.aimashiPetDialog?.closePetGenerateDialog());
 els.cancelPetGenerate?.addEventListener("click", () => window.aimashiPetDialog?.closePetGenerateDialog());
 els.addPetReference?.addEventListener("click", () => els.petReferenceFile?.click());
@@ -3777,20 +3533,20 @@ els.petGenerateForm?.addEventListener("submit", async (event) => {
 });
 els.chooseFellowAvatar?.addEventListener("click", () => els.fellowAvatarFile?.click());
 els.fellowAvatarFile?.addEventListener("change", () => {
-  readFellowAvatarFile(els.fellowAvatarFile.files?.[0]);
+  window.aimashiFellowDialog.readFellowAvatarFile(els.fellowAvatarFile.files?.[0]);
   els.fellowAvatarFile.value = "";
 });
 els.fellowAvatarPreview?.addEventListener("click", () => {
   const draft = state.fellowAvatarDraft;
   if (!draft?.image) return;
-  openAvatarCropEditor(draft.image, draft.crop);
+  window.aimashiFellowDialog.openAvatarCropEditor(draft.image, draft.crop);
 });
 els.fellowAvatarPreview?.addEventListener("keydown", (event) => {
   if (event.key !== "Enter" && event.key !== " ") return;
   event.preventDefault();
   const draft = state.fellowAvatarDraft;
   if (!draft?.image) return;
-  openAvatarCropEditor(draft.image, draft.crop);
+  window.aimashiFellowDialog.openAvatarCropEditor(draft.image, draft.crop);
 });
 els.fellowAvatarDrop?.addEventListener("dragover", (event) => {
   event.preventDefault();
@@ -3802,11 +3558,11 @@ els.fellowAvatarDrop?.addEventListener("dragleave", () => {
 els.fellowAvatarDrop?.addEventListener("drop", (event) => {
   event.preventDefault();
   els.fellowAvatarDrop.classList.remove("dragging");
-  readFellowAvatarFile(event.dataTransfer?.files?.[0]);
+  window.aimashiFellowDialog.readFellowAvatarFile(event.dataTransfer?.files?.[0]);
 });
 els.chooseProfileAvatar?.addEventListener("click", () => els.profileAvatarFile?.click());
 els.profileAvatarFile?.addEventListener("change", () => {
-  readProfileAvatarFile(els.profileAvatarFile.files?.[0]);
+  window.aimashiFellowDialog.readProfileAvatarFile(els.profileAvatarFile.files?.[0]);
   els.profileAvatarFile.value = "";
 });
 els.profileAvatarPreview?.addEventListener("click", () => {
@@ -3815,7 +3571,7 @@ els.profileAvatarPreview?.addEventListener("click", () => {
     els.profileAvatarFile?.click();
     return;
   }
-  openAvatarCropEditor(draft.image, draft.crop, "profile");
+  window.aimashiFellowDialog.openAvatarCropEditor(draft.image, draft.crop, "profile");
 });
 els.profileAvatarPreview?.addEventListener("keydown", (event) => {
   if (event.key !== "Enter" && event.key !== " ") return;
@@ -3825,7 +3581,7 @@ els.profileAvatarPreview?.addEventListener("keydown", (event) => {
     els.profileAvatarFile?.click();
     return;
   }
-  openAvatarCropEditor(draft.image, draft.crop, "profile");
+  window.aimashiFellowDialog.openAvatarCropEditor(draft.image, draft.crop, "profile");
 });
 els.profileAvatarDrop?.addEventListener("dragover", (event) => {
   event.preventDefault();
@@ -3837,7 +3593,7 @@ els.profileAvatarDrop?.addEventListener("dragleave", () => {
 els.profileAvatarDrop?.addEventListener("drop", (event) => {
   event.preventDefault();
   els.profileAvatarDrop.classList.remove("dragging");
-  readProfileAvatarFile(event.dataTransfer?.files?.[0]);
+  window.aimashiFellowDialog.readProfileAvatarFile(event.dataTransfer?.files?.[0]);
 });
 els.avatarCropStage?.addEventListener("pointerdown", (event) => {
   event.preventDefault();
@@ -3865,7 +3621,7 @@ els.avatarCropStage?.addEventListener("pointermove", (event) => {
   const sensitivity = Math.min(rawPerPx, 3);
   // Negative: dragging image right exposes its left side (crop x decreases).
   const percentPerPx = -sensitivity;
-  updateAvatarCropEditor({
+  window.aimashiFellowDialog.updateAvatarCropEditor({
     x: state.avatarCropEditor.crop.x + dx * percentPerPx,
     y: state.avatarCropEditor.crop.y + dy * percentPerPx
   });
@@ -3880,13 +3636,13 @@ els.avatarCropStage?.addEventListener("pointercancel", () => {
 els.avatarCropStage?.addEventListener("wheel", (event) => {
   event.preventDefault();
   const direction = event.deltaY > 0 ? -1 : 1;
-  updateAvatarCropEditor({
+  window.aimashiFellowDialog.updateAvatarCropEditor({
     zoom: state.avatarCropEditor.crop.zoom + direction * 0.03
   });
 });
 els.confirmAvatarCrop?.addEventListener("click", async () => {
   if (state.avatarCropEditor.target === "profile") {
-    setProfileAvatarDraft(state.avatarCropEditor.image, state.avatarCropEditor.crop);
+    window.aimashiFellowDialog.setProfileAvatarDraft(state.avatarCropEditor.image, state.avatarCropEditor.crop);
     // Auto-persist the avatar so closing the profile dialog without clicking
     // "保存资料" doesn't silently drop the new avatar. The display name field
     // is preserved by reading whatever is currently in the input.
@@ -3905,14 +3661,14 @@ els.confirmAvatarCrop?.addEventListener("click", async () => {
       console.error("[profile] avatar auto-save failed:", err);
     }
   } else {
-    setFellowAvatarDraft(state.avatarCropEditor.image, state.avatarCropEditor.crop);
+    window.aimashiFellowDialog.setFellowAvatarDraft(state.avatarCropEditor.image, state.avatarCropEditor.crop);
   }
-  closeAvatarCropEditor();
+  window.aimashiFellowDialog.closeAvatarCropEditor();
 });
-els.cancelAvatarCrop?.addEventListener("click", closeAvatarCropEditor);
+els.cancelAvatarCrop?.addEventListener("click", () => window.aimashiFellowDialog.closeAvatarCropEditor());
 els.resetAvatarCrop?.addEventListener("click", () => {
   state.avatarCropEditor.crop = window.aimashiAvatar.normalizeCrop(window.aimashiAvatar.avatarDefaultCropForSrc(state.avatarCropEditor.image));
-  renderAvatarCropEditor();
+  window.aimashiFellowDialog.renderAvatarCropEditor();
 });
 
 els.profileForm?.addEventListener("submit", async (event) => {
@@ -3924,7 +3680,7 @@ els.profileForm?.addEventListener("submit", async (event) => {
     avatarImage: state.profileAvatarDraft.image || els.profileAvatarImage.value,
     avatarCrop: window.aimashiAvatar.normalizeCrop(state.profileAvatarDraft.crop)
   });
-  closeProfileDialog();
+  window.aimashiFellowDialog.closeProfileDialog();
   render();
 });
 
@@ -4525,8 +4281,8 @@ function openInitialFellowDialog() {
     bio: "你是 Aimashi，一个轻松友好的桌面 AI 伙伴，回答简洁、口语化。"
   };
   // Reuse existing fellow create dialog with prefilled values.
-  if (typeof openFellowDialog === "function") {
-    openFellowDialog(null, seed);
+  if (typeof window.aimashiFellowDialog?.openFellowDialog === "function") {
+    window.aimashiFellowDialog.openFellowDialog(null, seed);
   } else {
     // Fallback: at least open settings
     state.settingsOpen = true;

@@ -67,6 +67,7 @@ const required = [
   "src/renderer/group/group.js",
   "src/renderer/tasks/tasks-panel.js",
   "src/renderer/fellow/pet-dialog.js",
+  "src/renderer/fellow/fellow-dialog.js",
   "src/renderer/fellow/fellow-manager.js",
   "src/renderer/chat/message-menu.js",
   "src/renderer/settings/settings-appearance.js",
