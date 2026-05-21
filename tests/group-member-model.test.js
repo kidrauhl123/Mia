@@ -68,3 +68,14 @@ test("membersIncludeKey matches by canonical key", () => {
   assert.equal(membersIncludeKey(list, "fellow:aimashi"), true);
   assert.equal(membersIncludeKey(list, "fellow:nope"), false);
 });
+
+test("membersIncludeKey returns false (no throw) when list contains unknown-kind members", () => {
+  const list = [
+    makeFellowMember("aimashi"),
+    { kind: "user", userId: "u-1" },  // not a fellow; should be skipped, not throw
+  ];
+  // a key present among fellow members still hits
+  assert.equal(membersIncludeKey(list, "fellow:aimashi"), true);
+  // a missing key does not throw and returns false
+  assert.equal(membersIncludeKey(list, "fellow:nope"), false);
+});

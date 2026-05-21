@@ -27,7 +27,11 @@ function normalizeMembersList(input) {
 }
 
 function membersIncludeKey(members, key) {
-  return Array.isArray(members) && members.some((m) => memberKey(m) === key);
+  if (!Array.isArray(members)) return false;
+  return members.some((m) => {
+    if (!isFellowMember(m)) return false;
+    return memberKey(m) === key;
+  });
 }
 
 module.exports = {
