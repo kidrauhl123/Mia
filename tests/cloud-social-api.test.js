@@ -5,6 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 const http = require("node:http");
 const { spawn } = require("node:child_process");
+const WebSocket = require("ws");
 
 function startServer() {
   return new Promise((resolve, reject) => {
@@ -259,5 +260,75 @@ test("GET /api/rooms/:id returns room + members", async () => {
     assert.equal(r.status, 200);
     assert.equal(r.body.room.id, room.id);
     assert.equal(r.body.members.length, 2);
+  } finally { await stopServer(ctx); }
+});
+
+function openEventsWs(port, token) {
+  const ws = new WebSocket(
+    "ws://127.0.0.1:" + port + "/api/events",
+    ["aimashi-token." + token]
+  );
+  const events = [];
+  ws.on("message", (data) => {
+    try { events.push(JSON.parse(data.toString())); } catch { /* ignore */ }
+  });
+  return new Promise((resolve, reject) => {
+    ws.once("open", () => resolve({ ws, events }));
+    ws.once("error", reject);
+  });
+}
+
+async function waitForEvent(events, predicate, timeoutMs = 1500) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const found = events.find(predicate);
+    if (found) return found;
+    await new Promise((r) => setTimeout(r, 30));
+  }
+  throw new Error("event not received within " + timeoutMs + "ms; got: " + JSON.stringify(events));
+}
+
+test("accept invite emits social.friend_added to both users", async () => {
+  const ctx = await startServer();
+  try {
+    const alice = await register(ctx.port, "alice");
+    const bob = await register(ctx.port, "bob");
+    const aliceWs = await openEventsWs(ctx.port, alice.token);
+    const bobWs = await openEventsWs(ctx.port, bob.token);
+    try {
+      const created = await api(ctx.port, "POST", "/api/social/invite-codes", { token: alice.token, body: {} });
+      await api(ctx.port, "POST", "/api/social/invite-codes/" + created.body.code + "/accept", { token: bob.token, body: {} });
+      const ae = await waitForEvent(aliceWs.events, (e) => e.type === "social.friend_added");
+      const be = await waitForEvent(bobWs.events, (e) => e.type === "social.friend_added");
+      assert.equal(ae.friend.id, bob.user.id);
+      assert.equal(be.friend.id, alice.user.id);
+      assert.ok(ae.room.id.startsWith("dm:"));
+    } finally {
+      aliceWs.ws.close();
+      bobWs.ws.close();
+    }
+  } finally { await stopServer(ctx); }
+});
+
+test("post DM message emits room.message_appended to both members", async () => {
+  const ctx = await startServer();
+  try {
+    const alice = await register(ctx.port, "alice");
+    const bob = await register(ctx.port, "bob");
+    await friendUp(ctx.port, alice, bob);
+    const aliceWs = await openEventsWs(ctx.port, alice.token);
+    const bobWs = await openEventsWs(ctx.port, bob.token);
+    try {
+      const dmId = "dm:" + [alice.user.id, bob.user.id].sort().join(":");
+      await api(ctx.port, "POST", "/api/rooms/" + dmId + "/messages", { token: alice.token, body: { bodyMd: "boo" } });
+      const ae = await waitForEvent(aliceWs.events, (e) => e.type === "room.message_appended");
+      const be = await waitForEvent(bobWs.events, (e) => e.type === "room.message_appended");
+      assert.equal(ae.message.seq, 1);
+      assert.equal(ae.message.body_md, "boo");
+      assert.equal(be.message.body_md, "boo");
+    } finally {
+      aliceWs.ws.close();
+      bobWs.ws.close();
+    }
   } finally { await stopServer(ctx); }
 });
