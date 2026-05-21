@@ -116,6 +116,127 @@ function createSocialStore(db) {
     return info.changes;
   }
 
+  const insertRoom = db.prepare(`
+    INSERT INTO rooms (id, name, avatar, host_member_json, decorations_json, context_card_json, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const selectRoomById = db.prepare("SELECT * FROM rooms WHERE id = ?");
+  const updateRoomCols = db.prepare(`
+    UPDATE rooms SET
+      name = COALESCE(?, name),
+      avatar = COALESCE(?, avatar),
+      host_member_json = COALESCE(?, host_member_json),
+      decorations_json = COALESCE(?, decorations_json),
+      context_card_json = COALESCE(?, context_card_json),
+      updated_at = ?
+    WHERE id = ?
+  `);
+  const deleteRoomStmt = db.prepare("DELETE FROM rooms WHERE id = ?");
+
+  const insertMember = db.prepare(`
+    INSERT OR IGNORE INTO room_members (room_id, member_kind, member_ref, owner_id, ai_perms_json, joined_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `);
+  const deleteMember = db.prepare(
+    "DELETE FROM room_members WHERE room_id = ? AND member_kind = ? AND member_ref = ?"
+  );
+  const selectMembers = db.prepare(
+    "SELECT * FROM room_members WHERE room_id = ? ORDER BY joined_at"
+  );
+  const selectRoomsByUser = db.prepare(`
+    SELECT r.* FROM rooms r
+    INNER JOIN room_members m ON m.room_id = r.id
+    WHERE m.member_kind = 'user' AND m.member_ref = ?
+    ORDER BY r.updated_at DESC
+  `);
+  const updateMemberPerms = db.prepare(`
+    UPDATE room_members SET ai_perms_json = ?
+    WHERE room_id = ? AND member_kind = ? AND member_ref = ?
+  `);
+
+  function parseRoomRow(row) {
+    if (!row) return null;
+    return {
+      id: row.id,
+      name: row.name,
+      avatar: row.avatar,
+      hostMember: row.host_member_json ? JSON.parse(row.host_member_json) : null,
+      decorations: row.decorations_json ? JSON.parse(row.decorations_json) : null,
+      contextCard: row.context_card_json ? JSON.parse(row.context_card_json) : null,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  function createRoom({ id, name = null, avatar = null, hostMember = null, decorations = null, contextCard = null }) {
+    const now = nowIso();
+    insertRoom.run(
+      String(id),
+      name,
+      avatar,
+      hostMember ? JSON.stringify(hostMember) : null,
+      decorations ? JSON.stringify(decorations) : null,
+      contextCard ? JSON.stringify(contextCard) : null,
+      now,
+      now
+    );
+    return parseRoomRow(selectRoomById.get(String(id)));
+  }
+
+  function getRoom(roomId) {
+    return parseRoomRow(selectRoomById.get(String(roomId)));
+  }
+
+  function updateRoom(roomId, patch = {}) {
+    const has = (k) => Object.prototype.hasOwnProperty.call(patch, k);
+    updateRoomCols.run(
+      has("name") ? patch.name : null,
+      has("avatar") ? patch.avatar : null,
+      has("hostMember") ? (patch.hostMember ? JSON.stringify(patch.hostMember) : null) : null,
+      has("decorations") ? (patch.decorations ? JSON.stringify(patch.decorations) : null) : null,
+      has("contextCard") ? (patch.contextCard ? JSON.stringify(patch.contextCard) : null) : null,
+      nowIso(),
+      String(roomId)
+    );
+    return parseRoomRow(selectRoomById.get(String(roomId)));
+  }
+
+  function deleteRoom(roomId) {
+    deleteRoomStmt.run(String(roomId));
+  }
+
+  function addRoomMember({ roomId, memberKind, memberRef, ownerId = null, aiPerms = null }) {
+    insertMember.run(
+      String(roomId),
+      String(memberKind),
+      String(memberRef),
+      ownerId ? String(ownerId) : null,
+      aiPerms ? JSON.stringify(aiPerms) : null,
+      nowIso()
+    );
+  }
+
+  function removeRoomMember(roomId, memberKind, memberRef) {
+    deleteMember.run(String(roomId), String(memberKind), String(memberRef));
+  }
+
+  function listRoomMembers(roomId) {
+    return selectMembers.all(String(roomId));
+  }
+
+  function listRoomsForUser(userId) {
+    return selectRoomsByUser.all(String(userId)).map(parseRoomRow);
+  }
+
+  function updateRoomMemberPerms(roomId, memberKind, memberRef, aiPerms) {
+    updateMemberPerms.run(
+      aiPerms ? JSON.stringify(aiPerms) : null,
+      String(roomId),
+      String(memberKind),
+      String(memberRef)
+    );
+  }
+
   return {
     addFriendship,
     removeFriendship,
@@ -127,6 +248,15 @@ function createSocialStore(db) {
     revokeFriendRequest,
     listIncomingPending,
     expireOldRequests,
+    createRoom,
+    getRoom,
+    updateRoom,
+    deleteRoom,
+    addRoomMember,
+    removeRoomMember,
+    listRoomMembers,
+    listRoomsForUser,
+    updateRoomMemberPerms,
   };
 }
 

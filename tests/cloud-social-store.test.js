@@ -107,3 +107,74 @@ test("expireOldRequests transitions pending older than maxAgeMs to expired", asy
     assert.equal(row.status, "expired");
   } finally { cleanup(ctx); }
 });
+
+test("createRoom + getRoom roundtrip stores JSON fields", () => {
+  const ctx = makeStores();
+  try {
+    const created = ctx.social.createRoom({
+      id: "r-1",
+      name: "Test",
+      avatar: null,
+      hostMember: null,
+      decorations: { pinnedGoal: null, todos: [] },
+      contextCard: null,
+    });
+    assert.equal(created.id, "r-1");
+    assert.equal(created.name, "Test");
+    assert.deepEqual(created.decorations, { pinnedGoal: null, todos: [] });
+    assert.equal(created.hostMember, null);
+    const fetched = ctx.social.getRoom("r-1");
+    assert.deepEqual(fetched.decorations, { pinnedGoal: null, todos: [] });
+  } finally { cleanup(ctx); }
+});
+
+test("addRoomMember + listRoomMembers", () => {
+  const ctx = makeStores();
+  try {
+    ctx.social.createRoom({ id: "r-2", name: "Pair", avatar: null, hostMember: null, decorations: null, contextCard: null });
+    ctx.social.addRoomMember({ roomId: "r-2", memberKind: "user", memberRef: ctx.alice.id, ownerId: null });
+    ctx.social.addRoomMember({ roomId: "r-2", memberKind: "user", memberRef: ctx.bob.id, ownerId: null });
+    const members = ctx.social.listRoomMembers("r-2");
+    assert.equal(members.length, 2);
+    const refs = members.map((m) => m.member_ref).sort();
+    assert.deepEqual(refs, [ctx.alice.id, ctx.bob.id].sort());
+  } finally { cleanup(ctx); }
+});
+
+test("listRoomsForUser returns rooms where user is a member", () => {
+  const ctx = makeStores();
+  try {
+    ctx.social.createRoom({ id: "r-3", name: "R3", avatar: null, hostMember: null, decorations: null, contextCard: null });
+    ctx.social.addRoomMember({ roomId: "r-3", memberKind: "user", memberRef: ctx.alice.id, ownerId: null });
+    ctx.social.addRoomMember({ roomId: "r-3", memberKind: "user", memberRef: ctx.bob.id, ownerId: null });
+    ctx.social.createRoom({ id: "r-4", name: "R4", avatar: null, hostMember: null, decorations: null, contextCard: null });
+    ctx.social.addRoomMember({ roomId: "r-4", memberKind: "user", memberRef: ctx.bob.id, ownerId: null });
+    const aliceRooms = ctx.social.listRoomsForUser(ctx.alice.id).map((r) => r.id).sort();
+    assert.deepEqual(aliceRooms, ["r-3"]);
+    const bobRooms = ctx.social.listRoomsForUser(ctx.bob.id).map((r) => r.id).sort();
+    assert.deepEqual(bobRooms, ["r-3", "r-4"]);
+  } finally { cleanup(ctx); }
+});
+
+test("deleteRoom cascade-removes room_members", () => {
+  const ctx = makeStores();
+  try {
+    ctx.social.createRoom({ id: "r-5", name: "X", avatar: null, hostMember: null, decorations: null, contextCard: null });
+    ctx.social.addRoomMember({ roomId: "r-5", memberKind: "user", memberRef: ctx.alice.id, ownerId: null });
+    ctx.social.deleteRoom("r-5");
+    assert.equal(ctx.social.getRoom("r-5"), null);
+    assert.deepEqual(ctx.social.listRoomMembers("r-5"), []);
+  } finally { cleanup(ctx); }
+});
+
+test("removeRoomMember", () => {
+  const ctx = makeStores();
+  try {
+    ctx.social.createRoom({ id: "r-6", name: "Y", avatar: null, hostMember: null, decorations: null, contextCard: null });
+    ctx.social.addRoomMember({ roomId: "r-6", memberKind: "user", memberRef: ctx.alice.id, ownerId: null });
+    ctx.social.addRoomMember({ roomId: "r-6", memberKind: "user", memberRef: ctx.bob.id, ownerId: null });
+    ctx.social.removeRoomMember("r-6", "user", ctx.bob.id);
+    const refs = ctx.social.listRoomMembers("r-6").map((m) => m.member_ref);
+    assert.deepEqual(refs, [ctx.alice.id]);
+  } finally { cleanup(ctx); }
+});
