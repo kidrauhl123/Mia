@@ -4,13 +4,13 @@ const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
 const { createGroupStore } = require("../src/main/group-store.js");
-const { createConductor } = require("../src/renderer/conductor.js");
+const { createConductor } = require("../src/renderer/group/conductor.js");
 const {
   parseMentions,
   filterRecentTurnsForFellow,
   buildFellowGroupContext,
   shouldSummarize,
-} = require("../src/renderer/group-prompts.js");
+} = require("../src/renderer/group/group-prompts.js");
 
 function makeTmpRoot() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-it-"));

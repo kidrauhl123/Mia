@@ -171,9 +171,9 @@
 
       const avatarEl = document.createElement("span");
       avatarEl.className = "member-avatar";
-      if (typeof avatarThumbBackgroundStyle === "function") {
-        const image = fellow.avatarImage || (typeof avatarAssetForKey === "function" ? avatarAssetForKey(fellowId) : "");
-        avatarEl.style.cssText = avatarThumbBackgroundStyle(image, fellow.avatarCrop, fellow.color || "#5e5ce6");
+      if (typeof window.aimashiAvatar?.avatarThumbBackgroundStyle === "function") {
+        const image = fellow.avatarImage || (typeof window.aimashiAvatar?.avatarAssetForKey === "function" ? window.aimashiAvatar.avatarAssetForKey(fellowId) : "");
+        avatarEl.style.cssText = window.aimashiAvatar.avatarThumbBackgroundStyle(image, fellow.avatarCrop, fellow.color || "#5e5ce6");
       } else {
         avatarEl.style.background = fellow.color || "#5e5ce6";
       }
@@ -348,9 +348,9 @@
         row.className = "group-create-member-row group-info-add-row";
         const avatarEl = document.createElement("span");
         avatarEl.className = "member-avatar";
-        if (typeof avatarThumbBackgroundStyle === "function") {
-          const image = fellow.avatarImage || (typeof avatarAssetForKey === "function" ? avatarAssetForKey(fellowId) : "");
-          avatarEl.style.cssText = avatarThumbBackgroundStyle(image, fellow.avatarCrop, fellow.color || "#5e5ce6");
+        if (typeof window.aimashiAvatar?.avatarThumbBackgroundStyle === "function") {
+          const image = fellow.avatarImage || (typeof window.aimashiAvatar?.avatarAssetForKey === "function" ? window.aimashiAvatar.avatarAssetForKey(fellowId) : "");
+          avatarEl.style.cssText = window.aimashiAvatar.avatarThumbBackgroundStyle(image, fellow.avatarCrop, fellow.color || "#5e5ce6");
         } else {
           avatarEl.style.background = fellow.color || "#5e5ce6";
         }
@@ -521,8 +521,8 @@
     // identically. Fall back to escaped plain text if it's not available yet.
     const renderBody = (content) => {
       if (!content) return "";
-      if (typeof renderMarkdown === "function") {
-        try { return renderMarkdown(content); } catch { /* fall through */ }
+      if (typeof window.aimashiMarkdown?.renderMarkdown === "function") {
+        try { return window.aimashiMarkdown.renderMarkdown(content); } catch { /* fall through */ }
       }
       return escapeHtmlSafe(content);
     };
@@ -535,8 +535,8 @@
         const user = runtime.user || { avatarText: "B", avatarColor: "#111827" };
         const label = user.avatarText || "B";
         const color = user.avatarColor || "#111827";
-        const userAvatarStyle = (typeof avatarThumbBackgroundStyle === "function" && user.avatarImage)
-          ? avatarThumbBackgroundStyle(user.avatarImage, user.avatarCrop, color)
+        const userAvatarStyle = (typeof window.aimashiAvatar?.avatarThumbBackgroundStyle === "function" && user.avatarImage)
+          ? window.aimashiAvatar.avatarThumbBackgroundStyle(user.avatarImage, user.avatarCrop, color)
           : "";
         article.innerHTML = `
           <div class="avatar" style="background-color:${escapeHtmlSafe(color)};${userAvatarStyle}">${escapeHtmlSafe(label)}</div>
@@ -549,9 +549,9 @@
         const fellowColor = fellow?.color || "#5e5ce6";
         const isHost = msg.senderFellowId === group.hostFellowId;
         let avatarStyle = "";
-        if (typeof avatarThumbBackgroundStyle === "function") {
-          const image = fellow?.avatarImage || (typeof avatarAssetForKey === "function" ? avatarAssetForKey(msg.senderFellowId) : "");
-          avatarStyle = avatarThumbBackgroundStyle(image, fellow?.avatarCrop, fellowColor);
+        if (typeof window.aimashiAvatar?.avatarThumbBackgroundStyle === "function") {
+          const image = fellow?.avatarImage || (typeof window.aimashiAvatar?.avatarAssetForKey === "function" ? window.aimashiAvatar.avatarAssetForKey(msg.senderFellowId) : "");
+          avatarStyle = window.aimashiAvatar.avatarThumbBackgroundStyle(image, fellow?.avatarCrop, fellowColor);
         }
         const senderLabel = fellowName + (isHost ? " 👑" : "");
         const bodyContent = msg.status === "streaming" ? "…" : renderBody(msg.content);
@@ -624,7 +624,7 @@
     if (!text) return;
     inputEl.value = "";
     // Trigger app.js resize / send button update
-    if (typeof resizeChatInput === "function") resizeChatInput();
+    if (typeof window.aimashiMessageHelpers?.resizeChatInput === "function") window.aimashiMessageHelpers.resizeChatInput();
     if (typeof renderSendButton === "function") renderSendButton();
 
     await sendInGroup(group, text);
@@ -951,7 +951,7 @@
 
   function escapeHtmlSafe(value) {
     // If app.js's escapeHtml is already available, use it
-    if (typeof escapeHtml === "function") return escapeHtml(value);
+    if (typeof window.aimashiMarkdown?.escapeHtml === "function") return window.aimashiMarkdown.escapeHtml(value);
     return String(value)
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")

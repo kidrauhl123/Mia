@@ -782,9 +782,35 @@
       </div>
     </div>
   </section>
-  <script src="./group-prompts.js"></script>
-  <script src="./conductor.js"></script>
-  <script src="./group.js"></script>
+  <!-- Shared helpers (loaded first — others depend on them) -->
+  <script src="./helpers/avatar-helpers.js"></script>
+  <script src="./helpers/markdown-helpers.js"></script>
+  <script src="./helpers/format-helpers.js"></script>
+  <script src="./helpers/scrollbar-overlay.js"></script>
+  <!-- Feature modules -->
+  <script src="./loaders.js"></script>
+  <script src="./sessions/session-read-state.js"></script>
+  <script src="./onboarding/setup-guide.js"></script>
+  <script src="./settings/model-helpers.js"></script>
+  <script src="./settings/engine-options.js"></script>
+  <script src="./settings/model-settings.js"></script>
+  <script src="./settings/settings-appearance.js"></script>
+  <script src="./settings/settings-remote.js"></script>
+  <script src="./skills/skill-helpers.js"></script>
+  <script src="./skills/skill-library.js"></script>
+  <script src="./fellow/pet-dialog.js"></script>
+  <script src="./fellow/fellow-dialog.js"></script>
+  <script src="./fellow/fellow-manager.js"></script>
+  <script src="./tasks/tasks-panel.js"></script>
+  <script src="./chat/trace-blocks.js"></script>
+  <script src="./chat/message-helpers.js"></script>
+  <script src="./chat/composer.js"></script>
+  <script src="./chat/message-menu.js"></script>
+  <!-- Group (existing modules, kept as a unit) -->
+  <script src="./group/group-prompts.js"></script>
+  <script src="./group/conductor.js"></script>
+  <script src="./group/group.js"></script>
+  <!-- Main app entry — assembles everything -->
   <script src="./app.js"></script>
 </body>
 </html>

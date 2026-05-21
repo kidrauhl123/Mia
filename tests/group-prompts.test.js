@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const {
   parseMentions,
   filterRecentTurnsForFellow,
-} = require("../src/renderer/group-prompts.js");
+} = require("../src/renderer/group/group-prompts.js");
 
 const fellows = [
   { id: "alice", name: "Alice" },
@@ -62,7 +62,7 @@ const {
   buildSummarizePrompt,
   buildFellowGroupContext,
   shouldSummarize,
-} = require("../src/renderer/group-prompts.js");
+} = require("../src/renderer/group/group-prompts.js");
 
 const dispatchTemplate = `members: {{members}}\nsummary: {{summary}}\nrecent: {{recent}}\nuser: {{userMessage}}`;
 

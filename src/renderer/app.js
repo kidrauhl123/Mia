@@ -14,14 +14,7 @@ const fallbackSlashCommands = [
 const SIDEBAR_WIDTH_MIN = 220;
 const SIDEBAR_WIDTH_MAX = 380;
 const SIDEBAR_WIDTH_DEFAULT = 280;
-const scrollbarTimers = new WeakMap();
-let scrollbarOverlayEl = null;
-let scrollbarOverlayTarget = null;
-let scrollbarDrag = null;
 let skillPickerHoverCloseTimer = 0;
-let appearanceSaveStatusTimer = 0;
-let appearanceAutoSaveTimer = 0;
-let appearanceAutoSaveSeq = 0;
 const qrSvgCache = new Map();
 const ICON_PARK_PIN_SVG = '<svg class="icon-park-pin" viewBox="0 0 48 48" aria-hidden="true" focusable="false"><path d="M10.6963 17.5042C13.3347 14.8657 16.4701 14.9387 19.8781 16.8076L32.62 9.74509L31.8989 4.78683L43.2126 16.1005L38.2656 15.3907L31.1918 28.1214C32.9752 31.7589 33.1337 34.6647 30.4953 37.3032C30.4953 37.3032 26.235 33.0429 22.7171 29.525L6.44305 41.5564L18.4382 25.2461C14.9202 21.7281 10.6963 17.5042 10.6963 17.5042Z"/></svg>';
 const SETUP_GUIDE_DISMISSED_KEY = "aimashi.setupGuideDismissed.v2";
@@ -378,20 +371,6 @@ function renderQr(el, text) {
   });
 }
 
-function showAppearanceSaveStatus(text, kind = "ok") {
-  if (!els.appearanceSaveStatus) return;
-  if (appearanceSaveStatusTimer) window.clearTimeout(appearanceSaveStatusTimer);
-  els.appearanceSaveStatus.textContent = text;
-  els.appearanceSaveStatus.dataset.kind = kind;
-  els.appearanceSaveStatus.classList.toggle("visible", Boolean(text));
-  if (!text) return;
-  appearanceSaveStatusTimer = window.setTimeout(() => {
-    els.appearanceSaveStatus.textContent = "";
-    els.appearanceSaveStatus.classList.remove("visible");
-    delete els.appearanceSaveStatus.dataset.kind;
-    appearanceSaveStatusTimer = 0;
-  }, kind === "error" ? 3600 : 1800);
-}
 
 function applySidebarWidth(width = state.sidebarWidth, persist = false) {
   const next = clampSidebarWidth(width);
@@ -421,157 +400,6 @@ function showNarrowSidebar() {
   syncNarrowLayout();
 }
 
-function ensureScrollbarOverlay() {
-  if (scrollbarOverlayEl) return scrollbarOverlayEl;
-  scrollbarOverlayEl = document.createElement("div");
-  scrollbarOverlayEl.className = "scrollbar-overlay";
-  scrollbarOverlayEl.addEventListener("pointerdown", startScrollbarOverlayDrag);
-  scrollbarOverlayEl.addEventListener("pointerenter", () => {
-    const target = scrollbarOverlayTarget;
-    if (!target) return;
-    const previous = scrollbarTimers.get(target);
-    if (previous) {
-      window.clearTimeout(previous);
-      scrollbarTimers.delete(target);
-    }
-    target.classList.add("scrollbar-visible", "scrollbar-active");
-    updateScrollbarOverlay(target);
-  });
-  scrollbarOverlayEl.addEventListener("pointerleave", () => {
-    if (scrollbarDrag?.active) return;
-    const target = scrollbarOverlayTarget;
-    if (!target) return;
-    scheduleScrollbarHide(target, 500);
-  });
-  document.body.appendChild(scrollbarOverlayEl);
-  return scrollbarOverlayEl;
-}
-
-function scrollbarOverlayMetrics(target) {
-  if (!(target instanceof Element)) return;
-  const maxScroll = target.scrollHeight - target.clientHeight;
-  if (maxScroll <= 0) return;
-  const rect = target.getBoundingClientRect();
-  if (rect.width <= 0 || rect.height <= 0) return;
-  const trackInset = 3;
-  const trackHeight = Math.max(0, rect.height - trackInset * 2);
-  const thumbHeight = Math.max(28, Math.min(trackHeight, (target.clientHeight / target.scrollHeight) * trackHeight));
-  const travel = Math.max(0, trackHeight - thumbHeight);
-  return { rect, maxScroll, trackInset, trackHeight, thumbHeight, travel };
-}
-
-function updateScrollbarOverlay(target) {
-  const metrics = scrollbarOverlayMetrics(target);
-  if (!metrics) return;
-  const { rect, maxScroll, trackInset, thumbHeight, travel } = metrics;
-  const overlay = ensureScrollbarOverlay();
-  const thumbTop = rect.top + trackInset + (target.scrollTop / maxScroll) * travel;
-  const thumbLeft = rect.right - 10;
-
-  overlay.style.height = `${thumbHeight}px`;
-  overlay.style.transform = `translate3d(${Math.round(thumbLeft)}px, ${Math.round(thumbTop)}px, 0)`;
-  overlay.classList.add("visible");
-  scrollbarOverlayTarget = target;
-}
-
-function hideScrollbarOverlay(target) {
-  if (scrollbarDrag?.active) return;
-  if (target && scrollbarOverlayTarget !== target) return;
-  if (!scrollbarOverlayEl) return;
-  scrollbarOverlayEl.classList.remove("visible");
-  scrollbarOverlayTarget = null;
-}
-
-function scheduleScrollbarHide(target, delay = 850) {
-  if (!(target instanceof Element)) return;
-  const previous = scrollbarTimers.get(target);
-  if (previous) window.clearTimeout(previous);
-  scrollbarTimers.set(target, window.setTimeout(() => {
-    if (scrollbarDrag?.active && scrollbarDrag.target === target) return;
-    if (target.matches(":hover") || scrollbarOverlayEl?.matches(":hover")) return;
-    target.classList.remove("scrollbar-visible");
-    target.classList.remove("scrollbar-active");
-    scrollbarTimers.delete(target);
-    hideScrollbarOverlay(target);
-  }, delay));
-}
-
-function showScrollingScrollbar(target) {
-  if (!(target instanceof Element)) return;
-  if (target === document.documentElement || target === document.body) return;
-  if (target.scrollHeight <= target.clientHeight && target.scrollWidth <= target.clientWidth) return;
-  updateScrollbarOverlay(target);
-  target.classList.add("scrollbar-visible");
-  target.classList.add("scrollbar-active");
-  scheduleScrollbarHide(target);
-}
-
-function scrollableAncestor(node) {
-  let current = node instanceof Element ? node : node?.parentElement;
-  while (current && current !== document.body && current !== document.documentElement) {
-    const style = window.getComputedStyle(current);
-    const canScrollY = current.scrollHeight > current.clientHeight && /(auto|scroll|overlay)/.test(style.overflowY);
-    if (canScrollY) return current;
-    current = current.parentElement;
-  }
-  return null;
-}
-
-function maybeShowScrollbarForPointer(event) {
-  if (scrollbarDrag?.active) return;
-  if (scrollbarOverlayEl?.contains(event.target)) return;
-  const target = scrollableAncestor(event.target);
-  if (!target) return;
-  const rect = target.getBoundingClientRect();
-  const nearRightEdge = event.clientX >= rect.right - 18 && event.clientX <= rect.right + 4;
-  if (!nearRightEdge && scrollbarOverlayTarget !== target) return;
-  showScrollingScrollbar(target);
-}
-
-function startScrollbarOverlayDrag(event) {
-  const target = scrollbarOverlayTarget;
-  const metrics = scrollbarOverlayMetrics(target);
-  if (!target || !metrics || !scrollbarOverlayEl) return;
-  event.preventDefault();
-  event.stopPropagation();
-  const previous = scrollbarTimers.get(target);
-  if (previous) {
-    window.clearTimeout(previous);
-    scrollbarTimers.delete(target);
-  }
-  scrollbarOverlayEl.setPointerCapture?.(event.pointerId);
-  scrollbarOverlayEl.classList.add("dragging");
-  target.classList.add("scrollbar-visible", "scrollbar-active");
-  scrollbarDrag = {
-    active: true,
-    pointerId: event.pointerId,
-    target,
-    startY: event.clientY,
-    startScrollTop: target.scrollTop,
-    maxScroll: metrics.maxScroll,
-    travel: metrics.travel || 1
-  };
-}
-
-function updateScrollbarOverlayDrag(event) {
-  if (!scrollbarDrag?.active) return;
-  event.preventDefault();
-  const { target, startY, startScrollTop, maxScroll, travel } = scrollbarDrag;
-  const deltaY = event.clientY - startY;
-  target.scrollTop = Math.max(0, Math.min(maxScroll, startScrollTop + (deltaY / travel) * maxScroll));
-  updateScrollbarOverlay(target);
-}
-
-function stopScrollbarOverlayDrag(event) {
-  if (!scrollbarDrag?.active) return;
-  const { target, pointerId } = scrollbarDrag;
-  scrollbarOverlayEl?.releasePointerCapture?.(pointerId);
-  scrollbarOverlayEl?.classList.remove("dragging");
-  scrollbarDrag = null;
-  updateScrollbarOverlay(target);
-  scheduleScrollbarHide(target, 650);
-}
-
 applySidebarWidth(state.sidebarWidth);
 syncNarrowLayout();
 
@@ -585,32 +413,6 @@ function renderSendButton() {
   els.sendChat.disabled = !state.isGenerating && !canSend;
 }
 
-function formatBytes(value) {
-  const size = Number(value) || 0;
-  if (size < 1024) return `${size} B`;
-  if (size < 1024 * 1024) return `${(size / 1024).toFixed(size < 10 * 1024 ? 1 : 0)} KB`;
-  return `${(size / 1024 / 1024).toFixed(size < 10 * 1024 * 1024 ? 1 : 0)} MB`;
-}
-
-function attachmentKind(file = {}) {
-  const type = String(file.type || file.mime || "").toLowerCase();
-  if (type.startsWith("image/")) return "image";
-  if (type.startsWith("video/")) return "video";
-  if (type.startsWith("audio/")) return "audio";
-  if (type.includes("pdf")) return "pdf";
-  if (type.startsWith("text/")) return "text";
-  return "file";
-}
-
-function attachmentGlyph(attachment = {}) {
-  const kind = attachment.kind || attachmentKind(attachment);
-  if (kind === "image") return "IMG";
-  if (kind === "video") return "VID";
-  if (kind === "audio") return "AUD";
-  if (kind === "pdf") return "PDF";
-  if (kind === "text") return "TXT";
-  return "FILE";
-}
 
 const providerPresets = {
   "openai-codex": {
@@ -675,514 +477,7 @@ const providerLabels = {
   lmstudio: "LM Studio"
 };
 
-function fallbackCatalogFromPresets() {
-  return Object.values(providerPresets).map((preset) => ({
-    id: `${preset.provider}::${preset.model || ""}`,
-    provider: preset.provider,
-    providerLabel: providerLabels[preset.provider] || preset.provider,
-    model: preset.model || "",
-    label: preset.model || "Local Model",
-    authType: preset.provider === "openai-codex" ? "oauth_external" : "api_key",
-    apiKeyEnv: preset.apiKeyEnv,
-    baseUrl: preset.baseUrl,
-    apiMode: preset.apiMode || "chat_completions"
-  }));
-}
 
-function modelKey(model = {}) {
-  return `${String(model.provider || "").trim()}::${String(model.model || "").trim()}`;
-}
-
-function catalogEntries() {
-  const base = state.modelCatalog.length ? state.modelCatalog : fallbackCatalogFromPresets();
-  const current = state.runtime?.model || {};
-  const currentId = modelKey(current);
-  if (!current.provider || base.some((entry) => entry.id === currentId)) return base;
-  return [
-    {
-      id: currentId,
-      provider: current.provider,
-      providerLabel: providerLabels[current.provider] || current.provider,
-      model: current.model || "",
-      label: current.model || "Custom Model",
-      authType: current.provider === "openai-codex" ? "oauth_external" : "api_key",
-      apiKeyEnv: current.apiKeyEnv || "",
-      baseUrl: current.baseUrl || "",
-      apiMode: current.apiMode || "chat_completions"
-    },
-    ...base
-  ];
-}
-
-function catalogEntryForModel(model = {}) {
-  const key = modelKey(model);
-  return catalogEntries().find((entry) => entry.id === key)
-    || catalogEntries().find((entry) => entry.provider === model.provider && entry.model === model.model)
-    || null;
-}
-
-function providerEntries() {
-  const providers = new Map();
-  for (const entry of catalogEntries()) {
-    if (!entry.provider || providers.has(entry.provider)) continue;
-    providers.set(entry.provider, {
-      ...entry,
-      id: entry.provider,
-      model: "",
-      label: entry.providerLabel || providerLabels[entry.provider] || entry.provider
-    });
-  }
-  return [...providers.values()];
-}
-
-function modelsForProvider(provider) {
-  return catalogEntries().filter((entry) => entry.provider === provider);
-}
-
-function defaultModelForProvider(provider, runtime = state.runtime) {
-  const current = runtime?.model || {};
-  if (current.provider === provider) {
-    const currentEntry = catalogEntryForModel(current);
-    if (currentEntry) return currentEntry;
-  }
-  return modelsForProvider(provider).find((entry) => entry.model) || modelsForProvider(provider)[0] || null;
-}
-
-function providerEntryForProvider(provider) {
-  return providerEntries().find((entry) => entry.provider === provider) || null;
-}
-
-function providerIconSrc(provider = "") {
-  const id = String(provider || "").trim().toLowerCase().replace(/[^a-z0-9_.-]+/g, "-");
-  if (!id || id === "custom") return "";
-  return `./assets/provider-icons/${id}.svg`;
-}
-
-function modelIconSrc(model = {}) {
-  const id = String(model.model || model.id || model.name || "").toLowerCase();
-  const provider = String(model.provider || "").toLowerCase();
-  const rules = [
-    [/codex|openai-codex/, "chatgpt.jpeg"],
-    [/gpt-5\.1-chat/, "gpt-5.1-chat.png"],
-    [/gpt-5\.1/, "gpt-5.1.png"],
-    [/gpt-5.*mini/, "gpt-5-mini.png"],
-    [/gpt-5.*nano/, "gpt-5-nano.png"],
-    [/gpt-5/, "gpt-5.png"],
-    [/gpt-4/, "gpt_4.png"],
-    [/gpt-3/, "gpt_3.5.png"],
-    [/claude|anthropic/, "claude.png"],
-    [/deepseek/, "deepseek.png"],
-    [/grok|xai/, "grok.png"],
-    [/qwen|qwq|qvq|wan-/, "qwen.png"],
-    [/gemini/, "gemini.png"],
-    [/gemma/, "gemma.png"],
-    [/llama/, "llama.png"],
-    [/mistral|mixtral|codestral|ministral|magistral/, "mixtral.png"],
-    [/kimi|moonshot/, "moonshot.webp"],
-    [/minimax|abab|m2-her/, "minimax.png"],
-    [/mimo/, "mimo.svg"],
-    [/nvidia|nemotron/, "nvidia.png"],
-    [/copilot/, "copilot.png"],
-    [/hermes|nous/, "nousresearch.png"],
-    [/hugging/, "huggingface.png"],
-    [/glm|zai|zhipu/, "zhipu.png"],
-    [/step/, "step.png"]
-  ];
-  const haystack = `${id} ${provider}`;
-  const match = rules.find(([regex]) => regex.test(haystack));
-  if (match) return `./assets/model-icons/${match[1]}`;
-  return providerIconSrc(provider);
-}
-
-function providerLabel(provider = "") {
-  return providerEntryForProvider(provider)?.providerLabel
-    || providerLabels[provider]
-    || (state.runtime?.connectedProviders || []).find((entry) => entry.provider === provider)?.providerLabel
-    || provider
-    || "Provider";
-}
-
-function selectedProviderEntry() {
-  const provider = els.modelSelect?.value || "";
-  return provider ? providerEntryForProvider(provider) : null;
-}
-
-function selectedModelEntry() {
-  const providerEntry = selectedProviderEntry();
-  return providerEntry ? defaultModelForProvider(providerEntry.provider, state.runtime) : null;
-}
-
-function presetKeyForModel(model = {}) {
-  return catalogEntryForModel(model)?.id || "custom";
-}
-
-function modelDisplayName(model = {}) {
-  const provider = String(model.provider || "").trim();
-  const entry = catalogEntryForModel(model);
-  const name = entry?.label || String(model.model || "").trim() || (provider === "lmstudio" ? "Local Model" : "未选择模型");
-  const label = providerLabel(provider) || "Custom";
-  return `${name} | ${label}`;
-}
-
-function activeAgentEngine() {
-  const persona = activePersona();
-  return persona?.agentEngine || persona?.agent_engine || "hermes";
-}
-
-function engineConfigForPersona(persona = activePersona()) {
-  return persona?.engineConfig || persona?.engine_config || {};
-}
-
-function externalModelEntries(engine) {
-  if (engine === "claude-code") {
-    return [
-      { id: "default", provider: "claude-code", providerLabel: "Claude Code", model: "", label: "Claude Code 默认" },
-      { id: "claude-opus-4-7", provider: "claude-code", providerLabel: "Claude Code", model: "claude-opus-4-7", label: "Claude Opus 4.7" },
-      { id: "claude-sonnet-4-6", provider: "claude-code", providerLabel: "Claude Code", model: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
-      { id: "opus", provider: "claude-code", providerLabel: "Claude Code", model: "opus", label: "Opus alias" },
-      { id: "sonnet", provider: "claude-code", providerLabel: "Claude Code", model: "sonnet", label: "Sonnet alias" }
-    ];
-  }
-  if (engine === "codex") {
-    const entries = [{ id: "default", provider: "codex", providerLabel: "Codex CLI", model: "", label: "Codex 默认" }];
-    const dynamic = Array.isArray(state.codexModels) ? state.codexModels : [];
-    if (dynamic.length) {
-      for (const m of dynamic) {
-        if (!m?.slug) continue;
-        entries.push({
-          id: m.slug,
-          provider: "codex",
-          providerLabel: "Codex CLI",
-          model: m.slug,
-          label: m.displayName || m.slug
-        });
-      }
-      return entries;
-    }
-    // Fallback if ~/.codex/models_cache.json is missing (fresh install pre-login).
-    return [
-      ...entries,
-      { id: "gpt-5.3-codex-spark", provider: "codex", providerLabel: "Codex CLI", model: "gpt-5.3-codex-spark", label: "GPT-5.3 Codex Spark" },
-      { id: "gpt-5.3-codex", provider: "codex", providerLabel: "Codex CLI", model: "gpt-5.3-codex", label: "GPT-5.3 Codex" },
-      { id: "gpt-5.2", provider: "codex", providerLabel: "Codex CLI", model: "gpt-5.2", label: "GPT-5.2" }
-    ];
-  }
-  return [];
-}
-
-function externalPermissionOptions(engine) {
-  if (engine === "claude-code") {
-    return [
-      { value: "default", label: "Ask Permissions", title: "Claude Code 默认权限，危险操作会询问。" },
-      { value: "acceptEdits", label: "Accept Edits", title: "Claude Code 自动接受文件编辑，其他危险操作仍按规则处理。" },
-      { value: "plan", label: "Plan Mode", title: "Claude Code 计划模式，只读规划。" },
-      { value: "auto", label: "Auto Mode", title: "Claude Code 自动判断低风险操作，高风险操作仍会询问。" },
-      { value: "bypassPermissions", label: "Bypass Permissions", title: "Claude Code Bypass Permissions，只在完全信任时使用。" }
-    ];
-  }
-  if (engine === "codex") {
-    return [
-      { value: "default", label: "Ask", title: "Codex 默认 workspace-write + untrusted。" },
-      { value: "acceptEdits", label: "Edits", title: "Codex workspace-write + on-request。" },
-      { value: "readOnly", label: "Read", title: "Codex 只读模式。" },
-      { value: "bypassPermissions", label: "YOLO", title: "Codex danger-full-access + never。" }
-    ];
-  }
-  // Hermes — pull from real engine capabilities (probed via SETTINGS_SCHEMA).
-  // Defaults to the upstream ask/yolo/deny set if the probe hasn't completed.
-  const modes = (state.engineCapabilities && Array.isArray(state.engineCapabilities.approvalModes) && state.engineCapabilities.approvalModes.length)
-    ? state.engineCapabilities.approvalModes
-    : ["ask", "yolo", "deny"];
-  return modes.map((value) => ({
-    value,
-    label: APPROVAL_LABELS[value] || value,
-    title: APPROVAL_TITLES[value] || ""
-  }));
-}
-
-function effortOptions(engine) {
-  if (engine === "claude-code") {
-    return [
-      { value: "low", label: "Low" },
-      { value: "medium", label: "Medium" },
-      { value: "high", label: "High" },
-      { value: "xhigh", label: "Extra high" },
-      { value: "max", label: "Max" }
-    ];
-  }
-  if (engine === "codex") {
-    return [
-      { value: "minimal", label: "Minimal" },
-      { value: "low", label: "Low" },
-      { value: "medium", label: "Medium" },
-      { value: "high", label: "High" },
-      { value: "xhigh", label: "Extra high" }
-    ];
-  }
-  // Hermes — pull from real engine capabilities (probed via SETTINGS_SCHEMA at
-  // startup). Defaults to low/medium/high if the probe hasn't completed yet.
-  const levels = (state.engineCapabilities && Array.isArray(state.engineCapabilities.effortLevels) && state.engineCapabilities.effortLevels.length)
-    ? state.engineCapabilities.effortLevels
-    : ["low", "medium", "high"];
-  return levels.map((value) => ({ value, label: EFFORT_LABELS[value] || value }));
-}
-
-function effortLabelForLevel(level = "") {
-  const selected = els.effortSelect?.selectedOptions?.[0];
-  if (selected?.textContent) return selected.textContent;
-  return effortOptions(activeAgentEngine()).find((item) => item.value === level)?.label || "Medium";
-}
-
-function setEffortSelectOptions(engine, currentLevel) {
-  if (!els.effortSelect) return;
-  const previous = els.effortSelect.value;
-  const options = effortOptions(engine);
-  const ids = new Set(options.map((option) => option.value));
-  const nextValue = ids.has(currentLevel) ? currentLevel : ids.has(previous) ? previous : "medium";
-  els.effortSelect.innerHTML = "";
-  for (const item of options) {
-    const option = document.createElement("option");
-    option.value = item.value;
-    option.textContent = item.label;
-    els.effortSelect.appendChild(option);
-  }
-  els.effortSelect.value = ids.has(nextValue) ? nextValue : options[0]?.value || "";
-}
-
-function syncEffortControl(runtime = state.runtime) {
-  if (!els.effortSelect || !els.effortLabel) return;
-  const engine = activeAgentEngine();
-  const external = engine === "claude-code" || engine === "codex";
-  const level = external ? (engineConfigForPersona().effortLevel || "medium") : (runtime?.effort?.level || "medium");
-  if (document.activeElement !== els.effortSelect) setEffortSelectOptions(engine, level);
-  if (document.activeElement !== els.effortSelect) {
-    els.effortSelect.value = [...els.effortSelect.options].some((option) => option.value === level) ? level : "medium";
-  }
-  setText(els.effortLabel, effortLabelForLevel(els.effortSelect.value));
-  els.effortSelect.title = `推理强度：${effortLabelForLevel(els.effortSelect.value)}`;
-}
-
-function fillModelFieldsFromPreset(key) {
-  const preset = providerPresets[key];
-  if (!preset) return;
-  els.modelProvider.value = preset.provider;
-  els.modelName.value = preset.model;
-  els.modelKeyEnv.value = preset.apiKeyEnv;
-  els.modelBaseUrl.value = preset.baseUrl;
-  els.modelApiMode.value = preset.apiMode;
-  els.authMethod.value = key === "openai-codex" ? "openai-codex" : "api-key";
-  els.modelPreset.value = key;
-  if (key === "openai-codex") els.modelApiKey.value = "";
-  updateModelFieldVisibility();
-}
-
-function setSelectOptions(select, entries, currentId) {
-  if (!select) return;
-  const previous = select.value || currentId;
-  select.innerHTML = "";
-  if (!entries.length) {
-    const option = document.createElement("option");
-    option.value = "";
-    option.textContent = "先连接模型提供商";
-    select.appendChild(option);
-    select.value = "";
-    syncQuickModelLabel();
-    return;
-  }
-  const groups = new Map();
-  for (const entry of entries) {
-    const provider = entry.provider || "custom";
-    if (!groups.has(provider)) {
-      groups.set(provider, {
-        label: entry.providerLabel || providerLabels[provider] || provider,
-        entries: []
-      });
-    }
-    groups.get(provider).entries.push(entry);
-  }
-  for (const group of groups.values()) {
-    const optgroup = document.createElement("optgroup");
-    optgroup.label = group.label;
-    for (const entry of group.entries) {
-      const option = document.createElement("option");
-      option.value = entry.id;
-      option.textContent = entry.label || entry.model || "Local Model";
-      optgroup.appendChild(option);
-    }
-    select.appendChild(optgroup);
-  }
-  const ids = new Set(entries.map((entry) => entry.id));
-  if (ids.has(previous)) select.value = previous;
-  else if (ids.has(currentId)) select.value = currentId;
-  else if (entries[0]) select.value = entries[0].id;
-  syncQuickModelLabel();
-}
-
-function syncQuickModelLabel() {
-  if (!els.quickModelLabel || !els.quickModelSelect) return;
-  const hasOptions = els.quickModelSelect.options && els.quickModelSelect.options.length > 0;
-  if (!hasOptions || els.quickModelSelect.disabled) {
-    setText(els.quickModelLabel, "未配置模型");
-    return;
-  }
-  const selected = els.quickModelSelect.selectedOptions?.[0];
-  setText(els.quickModelLabel, selected?.textContent || "未配置模型");
-}
-
-function permissionLabelForMode(mode = "") {
-  const selected = els.permissionMode?.selectedOptions?.[0];
-  if (selected?.textContent) return selected.textContent;
-  if (mode === "smart") return "Smart";
-  if (mode === "ask" || mode === "manual") return "Ask";
-  if (mode === "yolo" || mode === "off") return "YOLO";
-  if (mode === "deny" || mode === "dontAsk") return "Deny";
-  if (mode === "acceptEdits") return activeAgentEngine() === "claude-code" ? "Accept Edits" : "Edits";
-  if (mode === "plan") return activeAgentEngine() === "claude-code" ? "Plan Mode" : "Plan";
-  if (mode === "auto") return "Auto Mode";
-  if (mode === "bypassPermissions") return activeAgentEngine() === "claude-code" ? "Bypass Permissions" : "YOLO";
-  if (mode === "readOnly") return "Read";
-  return "Ask";
-}
-
-function setPermissionSelectOptions(engine, currentMode) {
-  if (!els.permissionMode) return;
-  const previous = els.permissionMode.value;
-  const options = externalPermissionOptions(engine);
-  const ids = new Set(options.map((option) => option.value));
-  const nextValue = ids.has(currentMode) ? currentMode : ids.has(previous) ? previous : options[0]?.value || "";
-  els.permissionMode.innerHTML = "";
-  for (const item of options) {
-    const option = document.createElement("option");
-    option.value = item.value;
-    option.textContent = item.label;
-    option.title = item.title || "";
-    els.permissionMode.appendChild(option);
-  }
-  els.permissionMode.value = nextValue;
-}
-
-function syncPermissionControl(runtime = state.runtime) {
-  if (!els.permissionMode || !els.permissionLabel) return;
-  const engine = activeAgentEngine();
-  const external = engine === "claude-code" || engine === "codex";
-  const mode = external ? (engineConfigForPersona().permissionMode || "default") : (runtime?.permissions?.mode || "manual");
-  setPermissionSelectOptions(engine, mode);
-  if (document.activeElement !== els.permissionMode) {
-    els.permissionMode.value = [...els.permissionMode.options].some((option) => option.value === mode) ? mode : els.permissionMode.options[0]?.value || "";
-  }
-  setText(els.permissionLabel, permissionLabelForMode(els.permissionMode.value));
-  els.permissionMode.title = `权限模式：${permissionLabelForMode(els.permissionMode.value)}`;
-  const switcher = els.permissionMode.closest(".permission-switcher");
-  switcher?.classList.toggle("yolo", els.permissionMode.value === "yolo" || els.permissionMode.value === "off" || (engine !== "claude-code" && els.permissionMode.value === "bypassPermissions"));
-  switcher?.classList.toggle("claude-bypass", engine === "claude-code" && els.permissionMode.value === "bypassPermissions");
-}
-
-function setProviderOptions(select, entries, currentProvider) {
-  if (!select) return;
-  const previous = select.value || currentProvider;
-  select.innerHTML = "";
-  const placeholder = document.createElement("option");
-  placeholder.value = "";
-  placeholder.textContent = entries.length ? "选择要连接的提供商" : "没有更多可添加的提供商";
-  select.appendChild(placeholder);
-  for (const entry of entries) {
-    const option = document.createElement("option");
-    option.value = entry.provider;
-    option.textContent = entry.providerLabel || entry.label || entry.provider;
-    select.appendChild(option);
-  }
-  const ids = new Set(entries.map((entry) => entry.provider));
-  if (ids.has(previous)) select.value = previous;
-  else if (ids.has(currentProvider)) select.value = currentProvider;
-  else select.value = "";
-}
-
-function providerIsConnected(provider, runtime = state.runtime) {
-  if (!provider) return false;
-  return Boolean((runtime?.connectedProviders || []).some((entry) => entry.provider === provider && entry.hasApiKey));
-}
-
-function connectedModelEntries(runtime = state.runtime) {
-  const connectedProviders = (runtime?.connectedProviders || []).map((entry) => entry.provider);
-  const entries = connectedProviders.flatMap((provider) => modelsForProvider(provider));
-  const current = catalogEntryForModel(runtime.model);
-  if (current && providerIsConnected(current.provider, runtime) && !entries.some((entry) => entry.id === current.id)) return [current, ...entries];
-  return entries;
-}
-
-function renderModelSelectors(runtime = state.runtime) {
-  const engine = activeAgentEngine();
-  if (engine === "claude-code" || engine === "codex") {
-    const config = engineConfigForPersona();
-    const entries = externalModelEntries(engine);
-    setSelectOptions(els.quickModelSelect, entries, config.model || "default");
-    if (els.quickModelSelect) els.quickModelSelect.disabled = !entries.length;
-    setProviderOptions(els.modelSelect, providerEntries().filter((entry) => !providerIsConnected(entry.provider, runtime)), "");
-    return;
-  }
-  const providers = providerEntries().filter((entry) => !providerIsConnected(entry.provider, runtime));
-  const currentId = catalogEntryForModel(runtime?.model || {})?.id || modelKey(runtime?.model || {});
-  setProviderOptions(els.modelSelect, providers, "");
-  const connectedEntries = connectedModelEntries(runtime);
-  setSelectOptions(els.quickModelSelect, connectedEntries, currentId);
-  if (els.quickModelSelect) {
-    els.quickModelSelect.disabled = !connectedEntries.length;
-  }
-}
-
-function applyModelEntryToFields(entry) {
-  if (!entry) return;
-  els.modelProvider.value = entry.provider || "";
-  els.modelName.value = entry.model || "";
-  els.modelKeyEnv.value = entry.apiKeyEnv || "";
-  els.modelBaseUrl.value = entry.baseUrl || "";
-  els.modelApiMode.value = entry.apiMode || "";
-  els.authMethod.value = String(entry.authType || "").startsWith("oauth") ? entry.provider : "api-key";
-}
-
-function modelAuthCopy(entry, runtime = state.runtime) {
-  const authType = String(entry?.authType || "api_key");
-  if (!entry) return { state: "未选择", hint: "选择提供商后，Aimashi 会显示它需要的登录方式。" };
-  if (entry.provider === "openai-codex") {
-    return runtime?.auth?.codexLoggedIn
-      ? { state: "已授权 OpenAI Codex", hint: "OAuth token 已保存在 Aimashi 私有 runtime；具体 Codex 模型在聊天框下方切换。" }
-      : { state: "需要 OpenAI 登录", hint: "选择 OpenAI Codex 后，用 OpenAI 登录完成授权；不需要 API key。" };
-  }
-  if (authType.startsWith("oauth")) {
-    return { state: "需要登录", hint: "这个 Hermes Provider 使用 OAuth。点击登录后，Aimashi 会展示浏览器链接、激活码和登录日志。" };
-  }
-  if (entry.provider === "lmstudio") {
-    return { state: "本地服务", hint: "LM Studio 通常不需要 API key；请确认本地服务已启动并加载模型。" };
-  }
-  return runtime?.model?.provider === entry.provider && runtime?.model?.hasApiKey
-    ? { state: "已保存 API key", hint: "留空保存会继续使用已保存的 key；具体模型在聊天框下方切换。" }
-    : { state: "需要 API key", hint: `填写 ${entry.apiKeyEnv || "API Key"} 后保存，Aimashi 会写入私有 runtime 并重启 Hermes。` };
-}
-
-function renderConnectedProviders(runtime = state.runtime) {
-  if (!els.connectedProviderList) return;
-  const providers = runtime?.connectedProviders || [];
-  els.connectedProviderList.innerHTML = "";
-  if (!providers.length) {
-    const empty = document.createElement("div");
-    empty.className = "connected-provider-empty";
-    empty.textContent = "还没有连接模型提供商";
-    els.connectedProviderList.appendChild(empty);
-    return;
-  }
-  for (const provider of providers) {
-    const row = document.createElement("div");
-    row.className = "connected-provider";
-    row.innerHTML = `
-      <span class="provider-logo-wrap"><img class="provider-logo" src="${escapeHtml(modelIconSrc({ provider: provider.provider }))}" alt="" onerror="this.style.display='none'"></span>
-      <span class="provider-main">
-        <strong>${escapeHtml(provider.providerLabel || provider.provider)}</strong>
-      </span>
-      <span class="provider-check">✓</span>
-    `;
-    els.connectedProviderList.appendChild(row);
-  }
-}
 
 const fontPresets = {
   system: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
@@ -1196,613 +491,8 @@ const DEFAULT_USER_BUBBLE_COLOR = "#0162db";
 const DEFAULT_LIST_STYLE = "flush";
 const DEFAULT_SELECTION_STYLE = "solid";
 
-function normalizeHexColor(value, fallback = DEFAULT_ACCENT_COLOR) {
-  const raw = String(value || "").trim();
-  const expanded = raw.replace(/^#([0-9a-fA-F]{3})$/, (_, hex) => `#${hex.split("").map((part) => part + part).join("")}`);
-  return /^#[0-9a-fA-F]{6}$/.test(expanded) ? expanded.toLowerCase() : fallback;
-}
 
-function normalizeListStyle(value) {
-  return value === "flush" ? "flush" : DEFAULT_LIST_STYLE;
-}
 
-function normalizeSelectionStyle(value) {
-  return value === "solid" ? "solid" : DEFAULT_SELECTION_STYLE;
-}
-
-function hexToRgb(value) {
-  const hex = normalizeHexColor(value).slice(1);
-  return {
-    r: Number.parseInt(hex.slice(0, 2), 16),
-    g: Number.parseInt(hex.slice(2, 4), 16),
-    b: Number.parseInt(hex.slice(4, 6), 16)
-  };
-}
-
-function relativeLuminance(rgb) {
-  const channel = (value) => {
-    const next = Math.max(0, Math.min(255, Number(value) || 0)) / 255;
-    return next <= 0.03928 ? next / 12.92 : ((next + 0.055) / 1.055) ** 2.4;
-  };
-  return 0.2126 * channel(rgb.r) + 0.7152 * channel(rgb.g) + 0.0722 * channel(rgb.b);
-}
-
-function selectionTextColors(rgb) {
-  const lightBackground = relativeLuminance(rgb) > 0.56;
-  return lightBackground
-    ? {
-        text: "rgba(0, 0, 0, 0.90)",
-        muted: "rgba(0, 0, 0, 0.66)",
-        faint: "rgba(0, 0, 0, 0.48)"
-      }
-    : {
-        text: "#ffffff",
-        muted: "rgba(255, 255, 255, 0.78)",
-        faint: "rgba(255, 255, 255, 0.62)"
-      };
-}
-
-function fontStackForAppearance(appearance = {}) {
-  return fontPresets[appearance.fontPreset || "system"] || fontPresets.system;
-}
-
-function applyAppearance(appearance = {}) {
-  const theme = appearance.theme === "dark" ? "dark" : "light";
-  const accentColor = normalizeHexColor(appearance.accentColor);
-  const rgb = hexToRgb(accentColor);
-  const userBubbleColor = normalizeHexColor(appearance.userBubbleColor, DEFAULT_USER_BUBBLE_COLOR);
-  const userBubbleRgb = hexToRgb(userBubbleColor);
-  const userBubbleText = selectionTextColors(userBubbleRgb).text;
-  const listStyle = normalizeListStyle(appearance.listStyle);
-  const selectionStyle = normalizeSelectionStyle(appearance.selectionStyle);
-  const softActive = `rgb(${rgb.r} ${rgb.g} ${rgb.b} / ${theme === "dark" ? "0.22" : "0.16"})`;
-  document.documentElement.dataset.theme = theme;
-  document.documentElement.dataset.listStyle = listStyle;
-  document.documentElement.dataset.selectionStyle = selectionStyle;
-  document.documentElement.dataset.hoverBackground = appearance.showHoverBackground === false ? "false" : "true";
-  document.documentElement.dataset.showUserAvatar = appearance.showUserAvatar === false ? "false" : "true";
-  document.documentElement.dataset.showAssistantAvatar = appearance.showAssistantAvatar === false ? "false" : "true";
-  document.documentElement.style.setProperty("--app-font", fontStackForAppearance(appearance));
-  document.documentElement.style.setProperty("--accent", accentColor);
-  document.documentElement.style.setProperty("--accent-rgb", `${rgb.r} ${rgb.g} ${rgb.b}`);
-  document.documentElement.style.setProperty("--active", softActive);
-  document.documentElement.style.setProperty("--user-bubble", userBubbleColor);
-  document.documentElement.style.setProperty("--user-bubble-text", userBubbleText);
-  if (selectionStyle === "solid") {
-    const textColors = selectionTextColors(rgb);
-    document.documentElement.style.setProperty("--list-active", accentColor);
-    document.documentElement.style.setProperty("--list-active-text", textColors.text);
-    document.documentElement.style.setProperty("--list-active-muted", textColors.muted);
-    document.documentElement.style.setProperty("--list-active-faint", textColors.faint);
-  } else {
-    document.documentElement.style.setProperty("--list-active", softActive);
-    document.documentElement.style.setProperty("--list-active-text", accentColor);
-    document.documentElement.style.setProperty("--list-active-muted", "var(--muted)");
-    document.documentElement.style.setProperty("--list-active-faint", "var(--faint)");
-  }
-}
-
-function currentAppearanceDraft() {
-  return {
-    theme: els.appearanceTheme?.value || "light",
-    fontPreset: els.appearanceFontPreset?.value || "system",
-    accentColor: normalizeHexColor(els.appearanceAccentColor?.value),
-    userBubbleColor: normalizeHexColor(els.appearanceUserBubbleColor?.value, DEFAULT_USER_BUBBLE_COLOR),
-    showHoverBackground: els.appearanceShowHoverBackground?.getAttribute("aria-checked") !== "false",
-    showUserAvatar: els.appearanceShowUserAvatar?.getAttribute("aria-checked") !== "false",
-    showAssistantAvatar: els.appearanceShowAssistantAvatar?.getAttribute("aria-checked") !== "false",
-    listStyle: normalizeListStyle(els.appearanceListStyle?.value),
-    selectionStyle: normalizeSelectionStyle(els.appearanceSelectionStyle?.value)
-  };
-}
-
-function setSettingsSwitch(button, enabled) {
-  if (!button) return;
-  button.classList.toggle("active", Boolean(enabled));
-  button.setAttribute("aria-checked", enabled ? "true" : "false");
-}
-
-function toggleSettingsSwitch(button) {
-  const next = button?.getAttribute("aria-checked") !== "true";
-  setSettingsSwitch(button, next);
-  scheduleAppearanceSave(0);
-}
-
-function syncAppearanceControls(appearance = currentAppearanceDraft()) {
-  const fontPreset = fontPresets[appearance.fontPreset] ? appearance.fontPreset : "system";
-  if (els.appearanceFontPreset) els.appearanceFontPreset.value = fontPreset;
-  document.querySelectorAll("[data-font-preset]").forEach((button) => {
-    const active = button.dataset.fontPreset === fontPreset;
-    button.classList.toggle("active", active);
-    button.setAttribute("aria-checked", active ? "true" : "false");
-  });
-  const listStyle = normalizeListStyle(appearance.listStyle);
-  if (els.appearanceListStyle) els.appearanceListStyle.value = listStyle;
-  document.querySelectorAll("[data-list-style]").forEach((button) => {
-    const active = button.dataset.listStyle === listStyle;
-    button.classList.toggle("active", active);
-    button.setAttribute("aria-checked", active ? "true" : "false");
-  });
-  const selectionStyle = normalizeSelectionStyle(appearance.selectionStyle);
-  if (els.appearanceSelectionStyle) els.appearanceSelectionStyle.value = selectionStyle;
-  document.querySelectorAll("[data-selection-style]").forEach((button) => {
-    const active = button.dataset.selectionStyle === selectionStyle;
-    button.classList.toggle("active", active);
-    button.setAttribute("aria-checked", active ? "true" : "false");
-  });
-  const accentColor = normalizeHexColor(appearance.accentColor);
-  if (els.appearanceAccentColor) els.appearanceAccentColor.value = accentColor;
-  if (els.appearanceAccentPreview) els.appearanceAccentPreview.style.backgroundColor = accentColor;
-  const userBubbleColor = normalizeHexColor(appearance.userBubbleColor, DEFAULT_USER_BUBBLE_COLOR);
-  if (els.appearanceUserBubbleColor) els.appearanceUserBubbleColor.value = userBubbleColor;
-  if (els.appearanceUserBubblePreview) els.appearanceUserBubblePreview.style.backgroundColor = userBubbleColor;
-  setSettingsSwitch(els.appearanceShowHoverBackground, appearance.showHoverBackground !== false);
-  setSettingsSwitch(els.appearanceShowUserAvatar, appearance.showUserAvatar !== false);
-  setSettingsSwitch(els.appearanceShowAssistantAvatar, appearance.showAssistantAvatar !== false);
-}
-
-function mergeRuntimeAppearance(appearance) {
-  state.runtime = {
-    ...(state.runtime || {}),
-    appearance: {
-      ...(state.runtime?.appearance || {}),
-      ...appearance
-    }
-  };
-}
-
-async function persistAppearanceDraft(appearance) {
-  if (!window.aimashi?.saveAppearance) return;
-  const seq = ++appearanceAutoSaveSeq;
-  try {
-    const runtime = await window.aimashi.saveAppearance(appearance);
-    if (seq !== appearanceAutoSaveSeq) return;
-    state.runtime = runtime;
-    applyAppearance(runtime.appearance || appearance);
-    showAppearanceSaveStatus("已保存");
-  } catch (error) {
-    console.error(error);
-    showAppearanceSaveStatus("保存失败", "error");
-  }
-}
-
-function scheduleAppearanceSave(delay = 160) {
-  const next = currentAppearanceDraft();
-  applyAppearance(next);
-  syncAppearanceControls(next);
-  mergeRuntimeAppearance(next);
-  showAppearanceSaveStatus("正在保存...");
-  if (appearanceAutoSaveTimer) window.clearTimeout(appearanceAutoSaveTimer);
-  appearanceAutoSaveTimer = window.setTimeout(() => {
-    appearanceAutoSaveTimer = 0;
-    persistAppearanceDraft(currentAppearanceDraft());
-  }, delay);
-}
-
-function initials(name) {
-  return (name || "?").trim().slice(0, 2).toUpperCase();
-}
-
-function avatarAssetForKey(key = "") {
-  let hash = 0;
-  for (const char of String(key || "aimashi")) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
-  const index = (hash % 16) + 1;
-  return `./assets/avatars/${String(index).padStart(2, "0")}.png`;
-}
-
-const AVATAR_MIN_ZOOM = 1;
-const DEFAULT_AVATAR_CROP = { x: 50, y: 50, zoom: 1 };
-const DEFAULT_PRESET_AVATAR_CROP = { x: 50, y: 13.5, zoom: 1.72 };
-
-const avatarPresetGroupTabs = [
-  { key: "human", label: "人形" },
-  { key: "pet", label: "宠物" }
-];
-
-const avatarPresetGroups = {
-  human: [
-    { name: "青羽", src: "./assets/avatars/01.png", crop: { x: 50.0687, y: 14.5495, zoom: 2.04 } },
-    { name: "桃奈", src: "./assets/avatars/02.png", crop: { x: 57.2536, y: 8.1635, zoom: 1.56 } },
-    { name: "紫音", src: "./assets/avatars/03.png", crop: { x: 50, y: 14, zoom: 1.48 } },
-    { name: "小栗", src: "./assets/avatars/04.png", crop: { x: 49.0079, y: 23.5736, zoom: 1.72 } },
-    { name: "墨川", src: "./assets/avatars/05.png", crop: { x: 47.6785, y: 11.3611, zoom: 1.88 } },
-    { name: "珊瑚", src: "./assets/avatars/06.png", crop: { x: 46.8749, y: 10.4285, zoom: 1.64 } },
-    { name: "雪璃", src: "./assets/avatars/07.png", crop: { x: 51.6741, y: 8.0209, zoom: 1.72 } },
-    { name: "赤焰", src: "./assets/avatars/08.png", crop: { x: 50.974, y: 12.8636, zoom: 1.88 } },
-    { name: "蓝汐", src: "./assets/avatars/09.png", crop: { x: 47.4999, y: 12.2142, zoom: 1.8 } },
-    { name: "棕野", src: "./assets/avatars/10.png", crop: { x: 50, y: 14, zoom: 1.8 } },
-    { name: "夜莓", src: "./assets/avatars/11.png", crop: { x: 55.8037, y: 7.9731, zoom: 1.64 } },
-    { name: "空铃", src: "./assets/avatars/12.png", crop: { x: 47.3214, y: 16.9763, zoom: 1.8 } },
-    { name: "茉茶", src: "./assets/avatars/13.png", crop: { x: 50, y: 14, zoom: 1.8 } },
-    { name: "星柚", src: "./assets/avatars/14.png", crop: { x: 50, y: 14, zoom: 1.72 } },
-    { name: "爱丽丝", src: "./assets/avatars/15.png", crop: { x: 45.1848, y: 5.1022, zoom: 1.56 } },
-    { name: "岚", src: "./assets/avatars/16.png", crop: { x: 51.0913, y: 15.7858, zoom: 1.72 } }
-  ],
-  pet: Array.from({ length: 16 }, (_item, index) => {
-    const id = String(index + 1).padStart(2, "0");
-    return {
-      name: `宠物 ${id}`,
-      src: `./assets/avatars-pet/${id}.png`,
-      thumb: `./assets/avatar-thumbs-pet/${id}.png`,
-      crop: { x: 50, y: 50, zoom: 1 }
-    };
-  })
-};
-
-const avatarPresets = Object.values(avatarPresetGroups).flat();
-
-function defaultAvatarAssets() {
-  return avatarPresetGroups.human.map((preset) => preset.src);
-}
-
-function canonicalAvatarSrc(src) {
-  return String(src || "").trim().replace("./assets/avatar-icons/", "./assets/avatars/");
-}
-
-function avatarPresetBySrc(src) {
-  const canonical = canonicalAvatarSrc(src);
-  return avatarPresets.find((preset) => preset.src === canonical) || null;
-}
-
-function avatarPresetGroupForSrc(src) {
-  const canonical = canonicalAvatarSrc(src);
-  return avatarPresetGroupTabs.find(({ key }) =>
-    avatarPresetGroups[key]?.some((preset) => preset.src === canonical)
-  )?.key || "";
-}
-
-function avatarThumbForSrc(src) {
-  const preset = avatarPresetBySrc(src);
-  if (!preset) return "";
-  if (preset.thumb) return preset.thumb;
-  return canonicalAvatarSrc(preset.src).replace("./assets/avatars/", "./assets/avatar-thumbs/");
-}
-
-function avatarDefaultCropForSrc(src) {
-  const preset = avatarPresetBySrc(src);
-  if (!preset) return { ...DEFAULT_AVATAR_CROP };
-  return { ...DEFAULT_PRESET_AVATAR_CROP, ...(preset.crop || {}) };
-}
-
-function isNeutralAvatarCrop(crop) {
-  if (!crop) return true;
-  const c = normalizeCrop(crop);
-  return c.x === 50 && c.y === 50 && Math.abs(c.zoom - 1) < 0.001;
-}
-
-function avatarCropForImage(image, crop) {
-  if (avatarPresetBySrc(image) && isNeutralAvatarCrop(crop)) {
-    return avatarDefaultCropForSrc(image);
-  }
-  return crop || DEFAULT_AVATAR_CROP;
-}
-
-function cropsClose(a = {}, b = {}) {
-  const left = normalizeCrop(a);
-  const right = normalizeCrop(b);
-  return Math.abs(left.x - right.x) < 0.01
-    && Math.abs(left.y - right.y) < 0.01
-    && Math.abs(left.zoom - right.zoom) < 0.001;
-}
-
-function avatarImageSrc(value) {
-  const raw = canonicalAvatarSrc(value);
-  if (!raw) return "";
-  if (/^(https?:|file:|data:)/i.test(raw)) return raw;
-  if (raw.startsWith("./") || raw.startsWith("../")) return raw;
-  return `file://${raw}`;
-}
-
-function normalizeCrop(crop = {}) {
-  const num = (value, fallback, min, max) => {
-    const next = Number(value);
-    if (!Number.isFinite(next)) return fallback;
-    return Math.max(min, Math.min(max, next));
-  };
-  return {
-    x: num(crop.x, 50, 0, 100),
-    y: num(crop.y, 50, 0, 100),
-    zoom: num(crop.zoom, 1, AVATAR_MIN_ZOOM, 2.4)
-  };
-}
-
-function avatarBackgroundStyle(image, crop = {}, color = "#5e5ce6") {
-  const src = avatarImageSrc(image) || image || "";
-  const effectiveCrop = avatarCropForImage(image, crop);
-  const c = normalizeCrop(effectiveCrop);
-  const imagePart = src ? `background-image:url('${escapeHtml(src)}');` : "";
-  const backgroundColor = src ? "transparent" : escapeHtml(color);
-  const position = `${c.x}% ${c.y}%`;
-  return `background-color:${backgroundColor};${imagePart}background-size:${Math.round(c.zoom * 100)}%;background-position:${position};background-repeat:no-repeat;`;
-}
-
-function avatarThumbBackgroundStyle(image, crop = {}, color = "#5e5ce6") {
-  const thumb = avatarThumbForSrc(image);
-  const effectiveCrop = avatarCropForImage(image, crop);
-  if (thumb && cropsClose(effectiveCrop, avatarDefaultCropForSrc(image))) {
-    const src = avatarImageSrc(thumb);
-    return `background-color:transparent;background-image:url('${escapeHtml(src)}');background-size:cover;background-position:center;background-repeat:no-repeat;`;
-  }
-  return avatarBackgroundStyle(image, crop, color);
-}
-
-function applyFellowAvatar(el, fellow) {
-  if (!el) return;
-  el.textContent = "";
-  const image = fellow?.avatarImage || avatarAssetForKey(fellow?.key);
-  el.setAttribute("style", avatarThumbBackgroundStyle(image, fellow?.avatarCrop, fellow?.color || "#5e5ce6"));
-}
-
-function applyAvatar(el, text, color, image) {
-  if (!el) return;
-  el.textContent = text || "?";
-  el.style.background = color || "#111827";
-  el.style.backgroundImage = "";
-  el.style.backgroundSize = "";
-  el.style.backgroundPosition = "";
-  const src = avatarImageSrc(image);
-  if (src) {
-    el.textContent = "";
-    el.style.backgroundImage = `url("${src.replaceAll('"', "%22")}")`;
-    el.style.backgroundSize = "cover";
-    el.style.backgroundPosition = "center";
-  }
-}
-
-function applyUserAvatar(el, user = {}) {
-  if (!el) return;
-  const image = user.avatarImage || "";
-  const text = user.avatarText || initials(user.displayName || "Boss");
-  if (image) {
-    el.textContent = "";
-    el.setAttribute("style", avatarThumbBackgroundStyle(image, user.avatarCrop, user.avatarColor || "#111827"));
-    return;
-  }
-  applyAvatar(el, text, user.avatarColor || "#111827", "");
-}
-
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
-// Icon path data adapted from ByteDance IconPark (Apache-2.0).
-const ICON_PARK = {
-  addPic: '<path d="M38 21V40C38 41.1046 37.1046 42 36 42H8C6.89543 42 6 41.1046 6 40V12C6 10.8954 6.89543 10 8 10H26.3636" stroke="currentColor" stroke-width="4" stroke-miterlimit="10" stroke-linecap="round" stroke-linejoin="round"/><path d="M12.0005 31.0308L18.0005 23L21.0005 26L24.5005 20.5L32.0005 31.0308H12.0005Z" fill="none" stroke="currentColor" stroke-width="4" stroke-miterlimit="10" stroke-linecap="round" stroke-linejoin="round"/><path d="M34.0005 10H42.0005" stroke="currentColor" stroke-width="4" stroke-miterlimit="10" stroke-linecap="round" stroke-linejoin="round"/><path d="M37.9946 5.79541V13.7954" stroke="currentColor" stroke-width="4" stroke-miterlimit="10" stroke-linecap="round" stroke-linejoin="round"/>',
-  copy: '<path d="M13 12.4316V7.8125C13 6.2592 14.2592 5 15.8125 5H40.1875C41.7408 5 43 6.2592 43 7.8125V32.1875C43 33.7408 41.7408 35 40.1875 35H35.5163" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><path d="M32.1875 13H7.8125C6.2592 13 5 14.2592 5 15.8125V40.1875C5 41.7408 6.2592 43 7.8125 43H32.1875C33.7408 43 35 41.7408 35 40.1875V15.8125C35 14.2592 33.7408 13 32.1875 13Z" fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round"/>',
-  delete: '<path d="M9 10V44H39V10H9Z" fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round"/><path d="M20 20V33" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><path d="M28 20V33" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 10H44" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><path d="M16 10L19.289 4H28.7771L32 10H16Z" fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round"/>',
-  documentFolder: '<path d="M32 6H22V42H32V6Z" fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round"/><path d="M42 6H32V42H42V6Z" fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round"/><path d="M10 6L18 7L14.5 42L6 41L10 6Z" fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round"/><path d="M37 18V15" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><path d="M27 18V15" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>',
-  edit: '<path d="M7 42H43" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><path d="M11 26.7199V34H18.3172L39 13.3081L31.6951 6L11 26.7199Z" fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round"/>',
-  folderOpen: '<path d="M4 9V41L9 21H39.5V15C39.5 13.8954 38.6046 13 37.5 13H24L19 7H6C4.89543 7 4 7.89543 4 9Z" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><path d="M40 41L44 21H8.8125L4 41H40Z" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>',
-  history: '<path d="M5.81836 6.72729V14H13.0911" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 24C4 35.0457 12.9543 44 24 44V44C35.0457 44 44 35.0457 44 24C44 12.9543 35.0457 4 24 4C16.598 4 10.1351 8.02111 6.67677 13.9981" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><path d="M24.005 12L24.0038 24.0088L32.4832 32.4882" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>',
-  message: '<path d="M4 6H44V36H29L24 41L19 36H4V6Z" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><path d="M23 21H25.0025" stroke="currentColor" stroke-width="4" stroke-linecap="round"/><path d="M33.001 21H34.9999" stroke="currentColor" stroke-width="4" stroke-linecap="round"/><path d="M13.001 21H14.9999" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>',
-  pin: '<path d="M10.6963 17.5042C13.3347 14.8657 16.4701 14.9387 19.8781 16.8076L32.62 9.74509L31.8989 4.78683L43.2126 16.1005L38.2656 15.3907L31.1918 28.1214C32.9752 31.7589 33.1337 34.6647 30.4953 37.3032C30.4953 37.3032 26.235 33.0429 22.7171 29.525L6.44305 41.5564L18.4382 25.2461C14.9202 21.7281 10.6963 17.5042 10.6963 17.5042Z" fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round"/>',
-  preview: '<path d="M24 36C35.0457 36 44 24 44 24C44 24 35.0457 12 24 12C12.9543 12 4 24 4 24C4 24 12.9543 36 24 36Z" fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round"/><path d="M24 29C26.7614 29 29 26.7614 29 24C29 21.2386 26.7614 19 24 19C21.2386 19 19 21.2386 19 24C19 26.7614 21.2386 29 24 29Z" fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round"/>',
-  quote: '<path fill-rule="evenodd" clip-rule="evenodd" d="M18.8533 9.11587C11.3227 13.9521 7.13913 19.5811 6.30256 26.0028C5.00021 35.9999 13.9404 40.8932 18.4703 36.4966C23.0002 32.1 20.2848 26.5195 17.0047 24.9941C13.7246 23.4686 11.7187 23.9999 12.0686 21.9614C12.4185 19.923 17.0851 14.2712 21.1849 11.6391C21.4569 11.4078 21.5604 10.959 21.2985 10.6185C21.1262 10.3946 20.7883 9.95545 20.2848 9.30102C19.8445 8.72875 19.4227 8.75017 18.8533 9.11587Z" fill="currentColor"/><path fill-rule="evenodd" clip-rule="evenodd" d="M38.6789 9.11587C31.1484 13.9521 26.9648 19.5811 26.1282 26.0028C24.8259 35.9999 33.7661 40.8932 38.296 36.4966C42.8259 32.1 40.1105 26.5195 36.8304 24.9941C33.5503 23.4686 31.5443 23.9999 31.8943 21.9614C32.2442 19.923 36.9108 14.2712 41.0106 11.6391C41.2826 11.4078 41.3861 10.959 41.1241 10.6185C40.9519 10.3946 40.614 9.95545 40.1105 9.30102C39.6702 8.72875 39.2484 8.75017 38.6789 9.11587Z" fill="currentColor"/>',
-  translate: '<path d="M28.2857 37H39.7143M42 42L39.7143 37M26 42L28.2857 37M28.2857 37L34 24L39.7143 37H28.2857Z" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><path d="M16 6L17 9" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><path d="M6 11H28" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 16C10 16 11.7895 22.2609 16.2632 25.7391C20.7368 29.2174 28 32 28 32" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><path d="M24 11C24 11 22.2105 19.2174 17.7368 23.7826C13.2632 28.3478 6 32 6 32" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>'
-};
-
-function iconParkIcon(name, className = "menu-item-icon") {
-  const body = ICON_PARK[name];
-  if (!body) return "";
-  return `<span class="${className}" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none" focusable="false">${body}</svg></span>`;
-}
-
-function menuItemHtml({ icon, label, attrs = "", className = "" }) {
-  return `<button class="${className}" type="button" ${attrs}>${iconParkIcon(icon)}<span>${escapeHtml(label)}</span></button>`;
-}
-
-function renderInlineMarkdown(value) {
-  const codes = [];
-  const protectedText = String(value || "").replace(/`([^`\n]+)`/g, (_match, code) => {
-    const index = codes.push(code) - 1;
-    return `@@AIMASHI_INLINE_CODE_${index}@@`;
-  });
-  let html = escapeHtml(protectedText);
-  html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-  html = html.replace(/\n/g, "<br>");
-  for (let index = 0; index < codes.length; index++) {
-    html = html.replace(
-      `@@AIMASHI_INLINE_CODE_${index}@@`,
-      `<code class="inline-code" tabindex="0" title="点击复制">${escapeHtml(codes[index])}</code>`
-    );
-  }
-  return html;
-}
-
-function codeLanguageId(language = "") {
-  const raw = String(language || "").trim().toLowerCase();
-  const aliases = {
-    javascript: "js",
-    typescript: "ts",
-    shell: "bash",
-    sh: "bash",
-    zsh: "bash",
-    yml: "yaml"
-  };
-  return aliases[raw] || raw || "text";
-}
-
-function codeLanguageLabel(language = "") {
-  const id = codeLanguageId(language);
-  const labels = {
-    js: "JavaScript",
-    jsx: "JSX",
-    ts: "TypeScript",
-    tsx: "TSX",
-    json: "JSON",
-    bash: "Shell",
-    yaml: "YAML",
-    text: "Text"
-  };
-  return labels[id] || id.toUpperCase();
-}
-
-function highlightPlainSegment(segment, language) {
-  const id = codeLanguageId(language);
-  const keywords = id === "bash"
-    ? new Set(["if", "then", "else", "elif", "fi", "for", "while", "do", "done", "case", "esac", "in", "function", "return", "export", "local", "set"])
-    : new Set(["const", "let", "var", "function", "return", "if", "else", "for", "while", "do", "switch", "case", "break", "continue", "class", "extends", "new", "try", "catch", "finally", "throw", "async", "await", "import", "from", "export", "default", "typeof", "instanceof", "in", "of", "this", "super"]);
-  const source = String(segment || "");
-  const tokenPattern = /--?[A-Za-z0-9][\w-]*|\b[A-Za-z_$][\w$-]*\b|\b\d+(?:\.\d+)?\b|[=!<>|&+\-*/%?:.,;()[\]{}]+/g;
-  let cursor = 0;
-  let html = "";
-  for (const match of source.matchAll(tokenPattern)) {
-    const token = match[0];
-    const offset = match.index ?? 0;
-    if (offset > cursor) html += escapeHtml(source.slice(cursor, offset));
-    const escaped = escapeHtml(token);
-    if (/^\d/.test(token)) html += `<span class="syntax-number">${escaped}</span>`;
-    else if (id === "bash" && token.startsWith("-")) html += `<span class="syntax-parameter">${escaped}</span>`;
-    else if (/^[=!<>|&+\-*/%?:]+$/.test(token)) html += `<span class="syntax-operator">${escaped}</span>`;
-    else if (/^[.,;()[\]{}]+$/.test(token)) html += `<span class="syntax-punctuation">${escaped}</span>`;
-    else if (keywords.has(token)) html += `<span class="syntax-keyword">${escaped}</span>`;
-    else if (["true", "false", "null", "undefined"].includes(token)) html += `<span class="syntax-literal">${escaped}</span>`;
-    else {
-      const before = source.slice(0, offset).replace(/\s+$/g, "");
-      const after = source.slice(offset + token.length).replace(/^\s+/g, "");
-      if (before.endsWith(".")) html += `<span class="syntax-property">${escaped}</span>`;
-      else if (after.startsWith("(")) html += `<span class="syntax-function">${escaped}</span>`;
-      else if (/^[A-Z][A-Za-z0-9_$]*$/.test(token)) html += `<span class="syntax-class">${escaped}</span>`;
-      else html += `<span class="syntax-variable">${escaped}</span>`;
-    }
-    cursor = offset + token.length;
-  }
-  if (cursor < source.length) html += escapeHtml(source.slice(cursor));
-  return html;
-}
-
-function highlightCode(code, language = "") {
-  const id = codeLanguageId(language);
-  if (!["js", "jsx", "ts", "tsx", "json", "bash"].includes(id)) return escapeHtml(code);
-  const source = String(code || "");
-  const parts = [];
-  const pattern = id === "json"
-    ? /("(?:\\.|[^"\\])*")|(-?\b\d+(?:\.\d+)?(?:e[+-]?\d+)?\b)|\b(true|false|null)\b|([{}[\]:,])/gi
-    : /("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)|(\/\/[^\n]*|\/\*[\s\S]*?\*\/|#[^\n]*)|(\$[A-Za-z_][\w]*|\$\{[^}]+\})/g;
-  let cursor = 0;
-  for (const match of source.matchAll(pattern)) {
-    const index = match.index ?? 0;
-    if (index > cursor) parts.push(highlightPlainSegment(source.slice(cursor, index), id));
-    const token = match[0];
-    if (id === "json") {
-      const after = source.slice(index + token.length).replace(/^\s+/g, "");
-      if (match[1] && after.startsWith(":")) parts.push(`<span class="syntax-property">${escapeHtml(token)}</span>`);
-      else if (match[1]) parts.push(`<span class="syntax-string">${escapeHtml(token)}</span>`);
-      else if (match[2]) parts.push(`<span class="syntax-number">${escapeHtml(token)}</span>`);
-      else if (match[3]) parts.push(`<span class="syntax-literal">${escapeHtml(token)}</span>`);
-      else parts.push(`<span class="syntax-punctuation">${escapeHtml(token)}</span>`);
-    } else if (match[1]) {
-      parts.push(`<span class="syntax-string">${escapeHtml(token)}</span>`);
-    } else if (match[2]) {
-      parts.push(`<span class="syntax-comment">${escapeHtml(token)}</span>`);
-    } else if (match[3]) {
-      parts.push(`<span class="syntax-variable">${escapeHtml(token)}</span>`);
-    }
-    cursor = index + token.length;
-  }
-  if (cursor < source.length) parts.push(highlightPlainSegment(source.slice(cursor), id));
-  return parts.join("");
-}
-
-function renderCodeBlock(code, language = "") {
-  const lang = codeLanguageId(language).replace(/[^A-Za-z0-9_+.-]/g, "").slice(0, 24);
-  const label = codeLanguageLabel(lang);
-  return `
-    <figure class="message-code-block" data-language="${escapeHtml(lang)}">
-      <figcaption>
-        <span>${escapeHtml(label)}</span>
-        <button type="button" data-copy-code aria-label="复制代码" title="复制代码">⧉</button>
-      </figcaption>
-      <pre><code class="syntax-code language-${escapeHtml(lang)}">${highlightCode(String(code || "").replace(/\n$/, ""), lang)}</code></pre>
-    </figure>
-  `;
-}
-
-function renderMarkdown(value) {
-  const lines = String(value || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
-  const html = [];
-  let paragraph = [];
-  let list = null;
-  let fence = null;
-
-  const flushParagraph = () => {
-    if (!paragraph.length) return;
-    html.push(`<p>${renderInlineMarkdown(paragraph.join("\n"))}</p>`);
-    paragraph = [];
-  };
-  const flushList = () => {
-    if (!list) return;
-    html.push(`<${list.type}>${list.items.map((item) => `<li>${renderInlineMarkdown(item)}</li>`).join("")}</${list.type}>`);
-    list = null;
-  };
-  const flushTextBlocks = () => {
-    flushParagraph();
-    flushList();
-  };
-
-  for (const line of lines) {
-    const fenceMatch = line.match(/^```([A-Za-z0-9_+.-]*)\s*$/);
-    if (fence) {
-      if (fenceMatch) {
-        html.push(renderCodeBlock(fence.lines.join("\n"), fence.language));
-        fence = null;
-      } else {
-        fence.lines.push(line);
-      }
-      continue;
-    }
-    if (fenceMatch) {
-      flushTextBlocks();
-      fence = { language: fenceMatch[1] || "", lines: [] };
-      continue;
-    }
-    if (!line.trim()) {
-      flushTextBlocks();
-      continue;
-    }
-    if (/^\s*---+\s*$/.test(line)) {
-      flushTextBlocks();
-      html.push('<hr class="message-divider">');
-      continue;
-    }
-    const heading = line.match(/^(#{1,3})\s+(.+)$/);
-    if (heading) {
-      flushTextBlocks();
-      const level = heading[1].length;
-      html.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`);
-      continue;
-    }
-    const unordered = line.match(/^\s*[-*]\s+(.+)$/);
-    if (unordered) {
-      flushParagraph();
-      if (!list || list.type !== "ul") {
-        flushList();
-        list = { type: "ul", items: [] };
-      }
-      list.items.push(unordered[1]);
-      continue;
-    }
-    const ordered = line.match(/^\s*\d+[.)]\s+(.+)$/);
-    if (ordered) {
-      flushParagraph();
-      if (!list || list.type !== "ol") {
-        flushList();
-        list = { type: "ol", items: [] };
-      }
-      list.items.push(ordered[1]);
-      continue;
-    }
-    paragraph.push(line);
-  }
-  flushTextBlocks();
-  if (fence) html.push(renderCodeBlock(fence.lines.join("\n"), fence.language));
-  return html.join("");
-}
 
 async function copyTextToClipboard(text) {
   const value = String(text || "");
@@ -1870,7 +560,7 @@ function formatMessageTime(value) {
 function renderMessageTime(value) {
   const date = value ? new Date(value) : new Date();
   if (Number.isNaN(date.getTime())) return "";
-  return `<time class="message-time" datetime="${escapeHtml(date.toISOString())}" title="${escapeHtml(date.toLocaleString())}">${escapeHtml(formatMessageTime(date))}</time>`;
+  return `<time class="message-time" datetime="${window.aimashiMarkdown.escapeHtml(date.toISOString())}" title="${window.aimashiMarkdown.escapeHtml(date.toLocaleString())}">${window.aimashiMarkdown.escapeHtml(formatMessageTime(date))}</time>`;
 }
 
 function renderAttachmentChips(attachments = []) {
@@ -1884,27 +574,27 @@ function renderAttachmentChips(attachments = []) {
 
 function renderAttachmentThumb(attachment = {}, className = "attachment-thumb") {
   const src = String(attachment.thumbnailDataUrl || attachment.thumbnail || attachment.previewDataUrl || attachment.dataUrl || "").trim();
-  if (!src || !src.startsWith("data:image/")) return `<span>${escapeHtml(attachmentGlyph(attachment))}</span>`;
-  return `<img class="${escapeHtml(className)}" src="${escapeHtml(src)}" alt="">`;
+  if (!src || !src.startsWith("data:image/")) return `<span>${window.aimashiMarkdown.escapeHtml(window.aimashiFormat.attachmentGlyph(attachment))}</span>`;
+  return `<img class="${window.aimashiMarkdown.escapeHtml(className)}" src="${window.aimashiMarkdown.escapeHtml(src)}" alt="">`;
 }
 
 function renderAttachmentChip(attachment = {}) {
-  const image = (attachment.kind || attachmentKind(attachment)) === "image" && (attachment.thumbnailDataUrl || attachment.thumbnail || attachment.previewDataUrl || attachment.dataUrl || attachment.url);
+  const image = (attachment.kind || window.aimashiFormat.attachmentKind(attachment)) === "image" && (attachment.thumbnailDataUrl || attachment.thumbnail || attachment.previewDataUrl || attachment.dataUrl || attachment.url);
   const href = String(attachment.dataUrl || "").startsWith("data:") ? String(attachment.dataUrl) : "";
   const tag = href ? "a" : "span";
-  const download = href ? ` href="${escapeHtml(href)}" download="${escapeHtml(attachment.name || "attachment")}"` : "";
+  const download = href ? ` href="${window.aimashiMarkdown.escapeHtml(href)}" download="${window.aimashiMarkdown.escapeHtml(attachment.name || "attachment")}"` : "";
   if (image) {
     return `
-      <button class="message-attachment image" type="button" title="${escapeHtml(attachment.path || attachment.name || "")}" aria-label="预览图片">
+      <button class="message-attachment image" type="button" title="${window.aimashiMarkdown.escapeHtml(attachment.path || attachment.name || "")}" aria-label="预览图片">
         ${renderAttachmentThumb(attachment, "message-attachment-thumb")}
       </button>
     `;
   }
   return `
-    <${tag} class="message-attachment"${download} title="${escapeHtml(attachment.path || attachment.name || "")}">
+    <${tag} class="message-attachment"${download} title="${window.aimashiMarkdown.escapeHtml(attachment.path || attachment.name || "")}">
       ${renderAttachmentThumb(attachment, "message-attachment-thumb")}
-      <strong>${escapeHtml(attachment.name || "附件")}</strong>
-      <em>${escapeHtml(formatBytes(attachment.size))}</em>
+      <strong>${window.aimashiMarkdown.escapeHtml(attachment.name || "附件")}</strong>
+      <em>${window.aimashiMarkdown.escapeHtml(window.aimashiFormat.formatBytes(attachment.size))}</em>
     </${tag}>
   `;
 }
@@ -1921,7 +611,7 @@ function openImagePreview(src, title = "") {
   overlay.className = "image-preview-overlay";
   overlay.innerHTML = `
     <button class="image-preview-close" type="button" aria-label="关闭">×</button>
-    <img src="${escapeHtml(imageSrc)}" alt="${escapeHtml(title || "图片预览")}">
+    <img src="${window.aimashiMarkdown.escapeHtml(imageSrc)}" alt="${window.aimashiMarkdown.escapeHtml(title || "图片预览")}">
   `;
   overlay.addEventListener("click", (event) => {
     if (event.target === overlay || event.target.closest(".image-preview-close")) closeImagePreview();
@@ -1972,7 +662,7 @@ function hydrateAttachmentPreview(attachment = {}) {
   const filePath = String(attachment.path || "").trim();
   const cloudUrl = String(attachment.url || "").trim();
   if ((!filePath && !cloudUrl) || attachment.thumbnailDataUrl || attachment.thumbnail || attachment.previewDataUrl || attachment.dataUrl) return attachment;
-  const kind = String(attachment.kind || attachmentKind(attachment));
+  const kind = String(attachment.kind || window.aimashiFormat.attachmentKind(attachment));
   if (kind !== "image") return attachment;
   if (cloudUrl) {
     const entry = state.generatedFiles.get(cloudUrl);
@@ -1995,7 +685,7 @@ function attachmentPreviewPaths(messages = []) {
       const cloudUrl = String(attachment.url || "").trim();
       if (!filePath && !cloudUrl) return false;
       if (attachment.thumbnailDataUrl || attachment.thumbnail || attachment.previewDataUrl || attachment.dataUrl) return false;
-      return String(attachment.kind || attachmentKind(attachment)) === "image";
+      return String(attachment.kind || window.aimashiFormat.attachmentKind(attachment)) === "image";
     })
     .map((attachment) => String(attachment.path || attachment.url).trim());
 }
@@ -2021,79 +711,6 @@ function queueGeneratedFileFetches(messages = []) {
   }
 }
 
-function ensureReadState() {
-  if (!state.chatStore || typeof state.chatStore !== "object") {
-    state.chatStore = { schema_version: 1, readAt: {}, sessions: {} };
-  }
-  if (!state.chatStore.readAt || typeof state.chatStore.readAt !== "object") {
-    state.chatStore.readAt = {};
-  }
-  return state.chatStore.readAt;
-}
-
-function latestAssistantMessageTime(personaKey) {
-  const sessions = state.chatStore.sessions?.[personaKey] || [];
-  let latest = "";
-  for (const session of sessions) {
-    for (const message of session.messages || []) {
-      if (message.role !== "assistant" || message.transient || !String(message.content || "").trim()) continue;
-      const createdAt = message.createdAt || session.updatedAt || session.createdAt || "";
-      if (String(createdAt).localeCompare(latest) > 0) latest = String(createdAt);
-    }
-  }
-  return latest;
-}
-
-function initializeReadStateForPersonas(personas) {
-  const readAt = ensureReadState();
-  let changed = false;
-  for (const persona of personas) {
-    if (!persona?.key || readAt[persona.key]) continue;
-    readAt[persona.key] = latestAssistantMessageTime(persona.key) || nowIso();
-    changed = true;
-  }
-  if (changed) persistReadStateQuietly();
-}
-
-function unreadCountForPersona(personaKey) {
-  const readAt = ensureReadState()[personaKey] || "";
-  let count = 0;
-  for (const session of state.chatStore.sessions?.[personaKey] || []) {
-    for (const message of session.messages || []) {
-      if (message.role !== "assistant" || message.transient || !String(message.content || "").trim()) continue;
-      const createdAt = String(message.createdAt || session.updatedAt || session.createdAt || "");
-      if (createdAt && createdAt.localeCompare(readAt) > 0) count += 1;
-    }
-  }
-  return count;
-}
-
-function totalUnreadCount(personas) {
-  return personas.reduce((total, persona) => total + unreadCountForPersona(persona.key), 0);
-}
-
-async function persistReadStateQuietly() {
-  try {
-    if (window.aimashi?.saveChatReadState) {
-      const readAt = { ...ensureReadState() };
-      await window.aimashi.saveChatReadState({ readAt });
-      state.chatStore.readAt = { ...state.chatStore.readAt, ...readAt };
-    }
-  } catch (error) {
-    console.error("Failed to persist read state", error);
-  }
-}
-
-function markPersonaRead(personaKey, persist = true) {
-  if (!personaKey) return;
-  const latest = latestAssistantMessageTime(personaKey);
-  if (!latest) return;
-  const readAt = ensureReadState();
-  const next = latest;
-  if (String(next).localeCompare(readAt[personaKey] || "") <= 0) return;
-  readAt[personaKey] = next;
-  if (persist) persistReadStateQuietly();
-}
 
 function conversationPreview(persona) {
   const sessions = sessionsForPersona(persona.key);
@@ -2189,7 +806,7 @@ async function pushCloudMessageQuietly(session, message) {
       session,
       message
     });
-    renderCloudAccount(state.runtime?.cloud || {});
+    window.aimashiSettingsRemote.renderCloudAccount(state.runtime?.cloud || {});
     return true;
   } catch (error) {
     console.error("Failed to push cloud message", error);
@@ -2224,26 +841,6 @@ async function loadChatSessions(options = {}) {
   }
 }
 
-async function loadModelCatalog() {
-  try {
-    const rows = await window.aimashi.loadModelCatalog();
-    state.modelCatalog = Array.isArray(rows) && rows.length ? rows : fallbackCatalogFromPresets();
-  } catch (error) {
-    console.error("Failed to load Hermes model catalog", error);
-    state.modelCatalog = fallbackCatalogFromPresets();
-  }
-}
-
-async function loadCodexModels() {
-  try {
-    if (!window.aimashi?.loadCodexModels) return;
-    const rows = await window.aimashi.loadCodexModels();
-    state.codexModels = Array.isArray(rows) ? rows : [];
-  } catch (error) {
-    console.error("Failed to load Codex model list", error);
-    state.codexModels = [];
-  }
-}
 
 const EFFORT_LABELS = { minimal: "Minimal", low: "Low", medium: "Medium", high: "High", xhigh: "Extra high" };
 const APPROVAL_LABELS = {
@@ -2262,85 +859,6 @@ const APPROVAL_TITLES = {
   manual: "(legacy) 等价于 Ask。"
 };
 
-async function loadEngineCapabilities() {
-  let caps = { approvalModes: ["ask", "yolo", "deny"], effortLevels: ["low", "medium", "high"] };
-  try {
-    if (window.aimashi.loadEngineCapabilities) {
-      const res = await window.aimashi.loadEngineCapabilities();
-      if (res && Array.isArray(res.approvalModes) && res.approvalModes.length
-          && Array.isArray(res.effortLevels) && res.effortLevels.length) {
-        caps = res;
-      }
-    }
-  } catch (error) {
-    console.error("Failed to load engine capabilities", error);
-  }
-  state.engineCapabilities = caps;
-  // `render()` calls syncEffortControl + syncPermissionControl which use
-  // effortOptions()/externalPermissionOptions() — those now read state.engineCapabilities.
-  render();
-}
-
-async function loadSlashCommands() {
-  try {
-    const rows = await window.aimashi.loadSlashCommands();
-    state.slashCommands = Array.isArray(rows) && rows.length ? rows : fallbackSlashCommands;
-  } catch (error) {
-    console.error("Failed to load Hermes slash commands", error);
-    state.slashCommands = fallbackSlashCommands;
-  }
-  await Promise.allSettled(["claude-code", "codex"].map(async (engine) => {
-    try {
-      const registry = await window.aimashi.loadAgentCommands?.({ engine });
-      const rows = Array.isArray(registry?.rows) ? registry.rows : (Array.isArray(registry) ? registry : []);
-      state.agentSlashCommands[engine] = rows
-        .filter((item) => item?.command || item?.name)
-        .map((item) => ({
-          ...item,
-          command: String(item.command || item.name || "").startsWith("/")
-            ? String(item.command || item.name || "")
-            : `/${item.command || item.name}`,
-          description: String(item.description || "")
-        }));
-    } catch (error) {
-      console.error(`Failed to load ${engine} slash commands`, error);
-      state.agentSlashCommands[engine] = [];
-    }
-  }));
-}
-
-async function loadSkills() {
-  state.skillsLoading = true;
-  renderSkillLibrary();
-  try {
-    const library = await window.aimashi.loadSkills();
-    const sources = Array.isArray(library?.sources)
-      ? library.sources
-      : (Array.isArray(library?.plugins) ? library.plugins : []);
-    state.skillLibrary = {
-      plugins: Array.isArray(library?.plugins) ? library.plugins : sources,
-      sources,
-      extensions: Array.isArray(library?.extensions) ? library.extensions : [],
-      connectors: Array.isArray(library?.connectors) ? library.connectors : [],
-      roots: Array.isArray(library?.roots) ? library.roots : [],
-      skills: Array.isArray(library?.skills) ? library.skills : []
-    };
-    if (!state.selectedSkillId || !state.skillLibrary.skills.some((skill) => skill.id === state.selectedSkillId)) {
-      state.selectedSkillId = state.skillLibrary.skills[0]?.id || "";
-      state.selectedSkillDetail = null;
-    }
-    if (state.selectedSkillId) await selectSkill(state.selectedSkillId, false);
-  } catch (error) {
-    console.error("Failed to load local skills", error);
-    state.skillLibrary = { plugins: [], sources: [], extensions: [], connectors: [], roots: [], skills: [] };
-    state.selectedSkillId = "";
-    state.selectedSkillDetail = null;
-  } finally {
-    state.skillsLoading = false;
-    renderSkillLibrary();
-    renderSkillPicker();
-  }
-}
 
 async function trackStartupTask(label, task) {
   const id = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
@@ -2363,10 +881,10 @@ function selectedAuthMethod(runtime) {
 }
 
 function updateModelFieldVisibility(runtime = state.runtime) {
-  const providerEntry = selectedProviderEntry();
-  const entry = selectedModelEntry();
+  const providerEntry = window.aimashiModelHelpers.selectedProviderEntry();
+  const entry = window.aimashiModelHelpers.selectedModelEntry();
   const authType = String(entry?.authType || "api_key");
-  const isConnected = providerIsConnected(entry?.provider, runtime);
+  const isConnected = window.aimashiModelSettings.providerIsConnected(entry?.provider, runtime);
   const isCodex = entry ? entry.provider === "openai-codex" : false;
   const needsApiKey = Boolean(entry) && !isConnected && !isCodex && !authType.startsWith("oauth") && entry?.provider !== "lmstudio";
   const needsOauth = Boolean(entry) && !isConnected && (isCodex || authType.startsWith("oauth"));
@@ -2375,8 +893,8 @@ function updateModelFieldVisibility(runtime = state.runtime) {
   els.codexInlineAuth.classList.toggle("hidden", !needsOauth);
   els.modelConnectButton?.classList.toggle("hidden", !(needsApiKey || canConnectWithoutKey));
   if (entry) {
-    applyModelEntryToFields(entry);
-    const copy = modelAuthCopy(entry, runtime);
+    window.aimashiModelSettings.applyModelEntryToFields(entry);
+    const copy = window.aimashiModelSettings.modelAuthCopy(entry, runtime);
     setText(els.modelAuthState, isConnected ? "已连接" : copy.state);
     els.modelAuthState?.classList.remove("hidden");
     setText(els.modelApiKeyLabel, entry.apiKeyEnv || "API Key");
@@ -2389,171 +907,12 @@ function updateModelFieldVisibility(runtime = state.runtime) {
   }
 }
 
-async function refreshDaemonPairing() {
-  try {
-    let pairing = await window.aimashi.daemonPairing();
-    if (!pairing?.running && window.aimashi.startDaemon) {
-      await window.aimashi.startDaemon();
-      pairing = await window.aimashi.daemonPairing();
-    }
-    state.runtime = {
-      ...(state.runtime || {}),
-      daemon: {
-        ...(state.runtime?.daemon || {}),
-        ...pairing,
-        token: undefined
-      }
-    };
-    renderMobilePairing(pairing);
-    return pairing;
-  } catch (error) {
-    setText(els.mobileDaemonStatus, `Error: ${error.message}`);
-    throw error;
-  }
-}
-
-function renderMobilePairing(daemon = state.runtime?.daemon || {}) {
-  if (!els.mobileLanToggle) return;
-  const settings = daemon.settings || {};
-  const running = Boolean(daemon.running);
-  const host = settings.host || daemon.host || "127.0.0.1";
-  const lanEnabled = host === "0.0.0.0" || host === "::";
-  const links = Array.isArray(daemon.links) && daemon.links.length
-    ? daemon.links
-    : Array.isArray(daemon.connectUrls)
-      ? daemon.connectUrls.map((url) => `${url}/mobile/`)
-      : [];
-  const link = links[0] || "";
-  setText(els.mobileDaemonStatus, running ? "Aimashi 后台已运行" : daemon.starting ? "Aimashi 后台启动中" : "Aimashi 后台未运行");
-  setText(els.mobileDaemonUrl, lanEnabled
-    ? "同一局域网内扫描二维码连接；公司、校园或公共 Wi-Fi 可能会禁止设备互访。"
-    : "关闭时只允许本机访问，不生成手机配对入口。");
-  els.mobileLanToggle.classList.toggle("active", lanEnabled);
-  els.mobileLanToggle.setAttribute("aria-checked", String(lanEnabled));
-  els.mobileLanToggle.disabled = Boolean(daemon.starting);
-  if (els.mobilePairingBox) els.mobilePairingBox.classList.toggle("hidden", !lanEnabled || !link);
-  renderQr(els.mobilePairingQr, lanEnabled ? link : "");
-  if (els.mobilePairingReveal) {
-    els.mobilePairingReveal.classList.toggle("hidden", !lanEnabled || !link);
-    setText(els.mobilePairingReveal, state.mobileLanLinkExpanded ? "隐藏链接" : "显示链接");
-  }
-  if (els.mobilePairingLink) {
-    const showLink = lanEnabled && Boolean(link) && state.mobileLanLinkExpanded;
-    els.mobilePairingLink.classList.toggle("hidden", !showLink);
-    els.mobilePairingLink.dataset.link = link;
-    setText(els.mobilePairingLink, link);
-  }
-  if (els.mobilePairingHint) {
-    els.mobilePairingHint.textContent = lanEnabled
-      ? "扫描二维码即可连接；展开链接后点一下会复制。"
-      : "打开局域网访问后才会生成配对二维码。";
-  }
-}
-
-async function refreshRelayPairing() {
-  if (!window.aimashi?.relayStatus) return null;
-  try {
-    const relay = await window.aimashi.relayStatus();
-    state.runtime = {
-      ...(state.runtime || {}),
-      relay: {
-        ...(state.runtime?.relay || {}),
-        ...relay,
-        secret: undefined
-      }
-    };
-    renderRelayPairing(relay);
-    return relay;
-  } catch (error) {
-    setText(els.mobileRelayHint, `Error: ${error.message}`);
-    throw error;
-  }
-}
-
-function renderRelayPairing(relay = state.runtime?.relay || {}) {
-  if (!els.mobileRelayToggle) return;
-  const enabled = Boolean(relay.enabled);
-  const connected = Boolean(relay.connected);
-  const peers = Number(relay.mobilePeers || 0);
-  const link = String(relay.pairingLink || "");
-  if (els.mobileRelayToggle) {
-    els.mobileRelayToggle.classList.toggle("active", enabled);
-    els.mobileRelayToggle.setAttribute("aria-checked", String(enabled));
-  }
-  if (els.mobileRelayBox) els.mobileRelayBox.classList.toggle("hidden", !enabled);
-  if (els.mobileRelayUrl && document.activeElement !== els.mobileRelayUrl) {
-    els.mobileRelayUrl.value = String(relay.url || "");
-  }
-  renderQr(els.mobileRelayQr, enabled ? link : "");
-  if (els.mobileRelayReveal) {
-    els.mobileRelayReveal.classList.toggle("hidden", !enabled || !link);
-    setText(els.mobileRelayReveal, state.mobileRelayLinkExpanded ? "隐藏链接" : "显示链接");
-  }
-  if (els.mobileRelayLink) {
-    const showLink = enabled && Boolean(link) && state.mobileRelayLinkExpanded;
-    els.mobileRelayLink.classList.toggle("hidden", !showLink);
-    els.mobileRelayLink.dataset.link = link;
-    setText(els.mobileRelayLink, link);
-  }
-  if (els.mobileRelayHint) {
-    els.mobileRelayHint.textContent = enabled
-      ? connected
-        ? peers ? `已连接，${peers} 台手机在线。` : "已连接。扫描二维码即可远程连接。"
-        : `等待 relay：${relay.lastError || relay.url || "未连接"}`
-      : "通过 Aimashi Relay 中继连接，不要求手机和电脑在同一网络。";
-  }
-}
-
-function renderCloudAccount(cloud = state.runtime?.cloud || {}) {
-  if (!els.cloudAccountHint) return;
-  const connected = Boolean(cloud.connected);
-  const connecting = Boolean(cloud.connecting);
-  const enabled = Boolean(cloud.enabled);
-  const username = cloud.user?.username || cloud.user?.email || "";
-  if (enabled) {
-    const syncText = cloud.workspaceRevision
-      ? `Cloud revision ${cloud.workspaceRevision} · ${cloud.conversationCount || 0} 个会话`
-      : "Cloud workspace 待同步";
-    els.cloudAccountHint.textContent = connected
-      ? `${username || "当前账号"} 已登录，本机 Agent 在线。${syncText}`
-      : connecting
-        ? `${username || "当前账号"} 已登录，正在连接 Aimashi Cloud。${syncText}`
-        : `${username || "当前账号"} 已登录，等待 Aimashi Cloud：${cloud.lastError || "未连接"}。${syncText}`;
-  } else {
-    els.cloudAccountHint.textContent = "登录后，这台电脑会自动作为本机 Agent 出现在 Web 和手机端。";
-  }
-  els.cloudLoginBox?.classList.toggle("hidden", enabled);
-  els.cloudSync?.classList.toggle("hidden", !enabled);
-  els.cloudLogout?.classList.toggle("hidden", !enabled);
-  if (els.cloudLoginHint) {
-    els.cloudLoginHint.textContent = enabled
-      ? "Web 和手机端登录同一账号后会看到这台电脑在线。"
-      : "使用和 Web 端相同的用户名、密码。";
-  }
-}
-
-async function applyDaemonHost(host) {
-  if (!window.aimashi?.saveDaemonSettings) return null;
-  setText(els.mobilePairingHint, "正在切换手机访问范围...");
-  await window.aimashi.saveDaemonSettings({ host });
-  await window.aimashi.stopDaemon?.();
-  await window.aimashi.startDaemon?.();
-  return refreshDaemonPairing();
-}
-
-function currentMobilePairingLink() {
-  return String(els.mobilePairingLink?.dataset?.link || els.mobilePairingLink?.value || els.mobilePairingLink?.textContent || "").trim();
-}
-
-function currentRelayPairingLink() {
-  return String(els.mobileRelayLink?.dataset?.link || els.mobileRelayLink?.textContent || "").trim();
-}
 
 function render() {
   const runtime = state.runtime;
   if (!runtime) return;
   renderSendButton();
-  renderComposerReply();
+  window.aimashiMessageHelpers.renderComposerReply();
   const editingModel = els.modelForm.contains(document.activeElement);
   const editingProfile = Boolean(els.profileForm?.contains(document.activeElement));
   const editingAppearance = Boolean(els.appearanceForm?.contains(document.activeElement));
@@ -2568,21 +927,21 @@ function render() {
     listStyle: DEFAULT_LIST_STYLE,
     selectionStyle: DEFAULT_SELECTION_STYLE
   };
-  applyAppearance(appearance);
+  window.aimashiSettingsAppearance.applyAppearance(appearance);
   if (!editingAppearance) {
     els.appearanceTheme.value = appearance.theme || "light";
     const savedFontPreset = appearance.fontPreset || "system";
     els.appearanceFontPreset.value = fontPresets[savedFontPreset] ? savedFontPreset : "system";
-    if (els.appearanceListStyle) els.appearanceListStyle.value = normalizeListStyle(appearance.listStyle);
-    if (els.appearanceSelectionStyle) els.appearanceSelectionStyle.value = normalizeSelectionStyle(appearance.selectionStyle);
-    syncAppearanceControls(appearance);
+    if (els.appearanceListStyle) els.appearanceListStyle.value = window.aimashiSettingsAppearance.normalizeListStyle(appearance.listStyle);
+    if (els.appearanceSelectionStyle) els.appearanceSelectionStyle.value = window.aimashiSettingsAppearance.normalizeSelectionStyle(appearance.selectionStyle);
+    window.aimashiSettingsAppearance.syncAppearanceControls(appearance);
   }
   const user = runtime.user || { displayName: "Boss", avatarText: "B", avatarColor: "#111827", avatarImage: "" };
-  applyUserAvatar(els.userAvatar, user);
+  window.aimashiAvatar.applyUserAvatar(els.userAvatar, user);
   setText(els.userDisplayName, user.displayName || "Boss");
   if (!editingProfile && els.profileForm) {
     els.profileDisplayName.value = user.displayName || "Boss";
-    setProfileAvatarDraft(user.avatarImage || "", user.avatarCrop);
+    window.aimashiFellowDialog.setProfileAvatarDraft(user.avatarImage || "", user.avatarCrop);
   }
 
   els.engineStatus.textContent = runtime.engineRunning
@@ -2605,18 +964,18 @@ function render() {
     runtime.engineLastError ? `ERROR: ${runtime.engineLastError}` : "",
     ...(runtime.engineLogs || [])
   ].filter(Boolean).join("\n");
-  renderMobilePairing(runtime.daemon || {});
-  renderRelayPairing(runtime.relay || {});
-  renderCloudAccount(runtime.cloud || {});
+  window.aimashiSettingsRemote.renderMobilePairing(runtime.daemon || {});
+  window.aimashiSettingsRemote.renderRelayPairing(runtime.relay || {});
+  window.aimashiSettingsRemote.renderCloudAccount(runtime.cloud || {});
   const auth = runtime.auth || {};
   const editingModelSelect = document.activeElement === els.modelSelect || document.activeElement === els.quickModelSelect || document.activeElement === els.effortSelect;
-  if (!editingModel && !editingModelSelect) renderModelSelectors(runtime);
-  renderConnectedProviders(runtime);
+  if (!editingModel && !editingModelSelect) window.aimashiModelSettings.renderModelSelectors(runtime);
+  window.aimashiModelSettings.renderConnectedProviders(runtime);
   updateModelFieldVisibility(runtime);
-  const selectedEntry = selectedModelEntry();
+  const selectedEntry = window.aimashiModelHelpers.selectedModelEntry();
   const selectedProvider = selectedEntry?.provider || auth.oauthProvider || "openai-codex";
-  const selectedProviderLabel = providerLabel(selectedProvider);
-  const selectedConnected = providerIsConnected(selectedProvider, runtime);
+  const selectedProviderLabel = window.aimashiModelHelpers.providerLabel(selectedProvider);
+  const selectedConnected = window.aimashiModelSettings.providerIsConnected(selectedProvider, runtime);
   els.codexStatus.textContent = auth.codexStarting
     ? `等待 ${auth.oauthProviderLabel || selectedProviderLabel} 授权`
     : selectedConnected
@@ -2640,18 +999,18 @@ function render() {
   els.codexCancel.classList.toggle("hidden", !auth.codexStarting);
   if (!editingModel) updateModelFieldVisibility(runtime);
   if (els.quickModelSelect && document.activeElement !== els.quickModelSelect) {
-    const engine = activeAgentEngine();
+    const engine = window.aimashiEngineOptions.activeAgentEngine();
     const currentModelId = engine === "claude-code" || engine === "codex"
-      ? (engineConfigForPersona().model || "default")
-      : presetKeyForModel(runtime.model);
+      ? (window.aimashiEngineOptions.engineConfigForPersona().model || "default")
+      : window.aimashiModelHelpers.presetKeyForModel(runtime.model);
     if ([...els.quickModelSelect.options].some((option) => option.value === currentModelId)) {
       els.quickModelSelect.value = currentModelId;
     }
-    syncQuickModelLabel();
+    window.aimashiModelSettings.syncQuickModelLabel();
   }
-  syncEffortControl(runtime);
-  const connectedEntries = connectedModelEntries(runtime);
-  const engine = activeAgentEngine();
+  window.aimashiModelSettings.syncEffortControl(runtime);
+  const connectedEntries = window.aimashiModelSettings.connectedModelEntries(runtime);
+  const engine = window.aimashiEngineOptions.activeAgentEngine();
   const engineInfo = runtime.agentEngines || {};
   const externalAvailable = engine === "claude-code"
     ? engineInfo.claudeCode?.available
@@ -2667,22 +1026,22 @@ function render() {
     els.quickModelSelect.title = engine === "claude-code" || engine === "codex"
       ? `当前模型：${els.quickModelSelect.selectedOptions?.[0]?.textContent || "默认"}`
       : connectedEntries.length
-        ? `当前模型：${modelDisplayName(runtime.model)}`
+        ? `当前模型：${window.aimashiModelHelpers.modelDisplayName(runtime.model)}`
         : "未配置模型";
   }
   const activeIcon = engine === "claude-code"
-    ? modelIconSrc({ provider: "anthropic", model: "claude" })
+    ? window.aimashiModelHelpers.modelIconSrc({ provider: "anthropic", model: "claude" })
     : engine === "codex"
-      ? modelIconSrc({ provider: "openai-codex", model: "codex" })
+      ? window.aimashiModelHelpers.modelIconSrc({ provider: "openai-codex", model: "codex" })
       : connectedEntries.length
-        ? modelIconSrc(runtime.model || {})
+        ? window.aimashiModelHelpers.modelIconSrc(runtime.model || {})
         : "";
   const modelAvatar = document.querySelector(".model-avatar");
   if (modelAvatar) {
     modelAvatar.textContent = activeIcon ? "" : "◇";
     modelAvatar.style.backgroundImage = activeIcon ? `url("${activeIcon}")` : "";
   }
-  syncPermissionControl(runtime);
+  window.aimashiModelSettings.syncPermissionControl(runtime);
 
   const personas = runtime.fellows || runtime.personas || [];
   // Only fall back to personas[0] when no persona matches AND no group is active.
@@ -2694,9 +1053,9 @@ function render() {
   if (!personas.some((persona) => persona.key === state.activeContactKey) && personas.length) {
     state.activeContactKey = personas.find((persona) => persona.key === state.activeKey)?.key || personas[0].key;
   }
-  initializeReadStateForPersonas(personas);
-  markPersonaRead(state.activeKey, false);
-  const unreadTotal = totalUnreadCount(personas);
+  window.aimashiSessionReadState.initializeReadStateForPersonas(personas);
+  window.aimashiSessionReadState.markPersonaRead(state.activeKey, false);
+  const unreadTotal = window.aimashiSessionReadState.totalUnreadCount(personas);
   els.personaCount.textContent = unreadTotal > 99 ? "99+" : String(unreadTotal);
   els.personaCount.classList.toggle("hidden", unreadTotal <= 0);
   const groupActive = activeGroup();
@@ -2713,8 +1072,8 @@ function render() {
       const bossTileTopbar = document.createElement("span");
       bossTileTopbar.className = "group-avatar-tile";
       let topbarBossStyle = "";
-      if (typeof avatarThumbBackgroundStyle === "function" && topbarUser.avatarImage) {
-        topbarBossStyle = avatarThumbBackgroundStyle(topbarUser.avatarImage, topbarUser.avatarCrop, topbarBossColor);
+      if (typeof window.aimashiAvatar?.avatarThumbBackgroundStyle === "function" && topbarUser.avatarImage) {
+        topbarBossStyle = window.aimashiAvatar.avatarThumbBackgroundStyle(topbarUser.avatarImage, topbarUser.avatarCrop, topbarBossColor);
       }
       if (!topbarBossStyle || topbarBossStyle.trim() === "") {
         topbarBossStyle = "background-color:" + topbarBossColor + ";";
@@ -2725,8 +1084,8 @@ function render() {
         const tile = document.createElement("span");
         tile.className = "group-avatar-tile";
         const fellow = personas.find((p) => (p.id || p.key) === mid);
-        let styleStr = avatarThumbBackgroundStyle(
-          fellow?.avatarImage || avatarAssetForKey(mid),
+        let styleStr = window.aimashiAvatar.avatarThumbBackgroundStyle(
+          fellow?.avatarImage || window.aimashiAvatar.avatarAssetForKey(mid),
           fellow?.avatarCrop,
           fellow?.color || "#5e5ce6"
         );
@@ -2752,7 +1111,7 @@ function render() {
       els.activeChatAvatar.innerHTML = "";
       els.activeChatAvatar.className = "profile-avatar";
     }
-    applyFellowAvatar(els.activeChatAvatar, active);
+    window.aimashiAvatar.applyFellowAvatar(els.activeChatAvatar, active);
     setText(els.activeChatName, active.name || "Aimashi");
     renderHeaderStatus();
     if (groupInfoBtn) groupInfoBtn.classList.add("hidden");
@@ -2767,7 +1126,7 @@ function render() {
   const visibleGroups = listGroups().filter((group) => (
     !filter || `${group.name || ""} ${(group.members || []).join(" ")}`.toLowerCase().includes(filter)
   ));
-  const messageRows = sortMessageCardsForSidebar([
+  const messageRows = window.aimashiFellowManager.sortMessageCardsForSidebar([
     ...visiblePersonas.map((persona) => ({
       type: "fellow",
       key: persona.key,
@@ -2791,23 +1150,23 @@ function render() {
     if (row.type === "fellow") {
       const persona = row.persona;
       const preview = conversationPreview(persona);
-      const unread = unreadCountForPersona(persona.key);
+      const unread = window.aimashiSessionReadState.unreadCountForPersona(persona.key);
       const button = document.createElement("button");
       button.type = "button";
       button.className = `persona message-card private-message-card${persona.key === state.activeKey ? " active" : ""}${persona.pinned ? " pinned" : ""}`;
       button.innerHTML = `
-        <span class="avatar fellow-photo" data-fellow-avatar="${escapeHtml(persona.key)}" style="${avatarThumbBackgroundStyle(persona.avatarImage || avatarAssetForKey(persona.key), persona.avatarCrop, persona.color || "#5e5ce6")}"></span>
+        <span class="avatar fellow-photo" data-fellow-avatar="${window.aimashiMarkdown.escapeHtml(persona.key)}" style="${window.aimashiAvatar.avatarThumbBackgroundStyle(persona.avatarImage || window.aimashiAvatar.avatarAssetForKey(persona.key), persona.avatarCrop, persona.color || "#5e5ce6")}"></span>
         <span class="persona-main">
           <span class="persona-name-row">
-            <span class="persona-name">${escapeHtml(persona.name)}</span>
+            <span class="persona-name">${window.aimashiMarkdown.escapeHtml(persona.name)}</span>
             <span class="persona-type">私聊</span>
           </span>
-          <span class="persona-key">${escapeHtml(preview.text || "暂无对话")}</span>
+          <span class="persona-key">${window.aimashiMarkdown.escapeHtml(preview.text || "暂无对话")}</span>
         </span>
         <span class="persona-side">
-          <span class="persona-time">${escapeHtml(preview.time)}</span>
+          <span class="persona-time">${window.aimashiMarkdown.escapeHtml(preview.time)}</span>
           <span class="persona-pin${persona.pinned ? "" : " hidden"}" aria-label="置顶">${ICON_PARK_PIN_SVG}</span>
-          <span class="persona-unread${unread ? "" : " hidden"}">${escapeHtml(unread > 99 ? "99+" : String(unread))}</span>
+          <span class="persona-unread${unread ? "" : " hidden"}">${window.aimashiMarkdown.escapeHtml(unread > 99 ? "99+" : String(unread))}</span>
         </span>
       `;
       button.addEventListener("click", () => {
@@ -2817,7 +1176,7 @@ function render() {
         const latest = sessionsForPersona(persona.key)[0];
         state.activeSessionIdByPersona[persona.key] = latest?.id;
         state.replyDraft = null;
-        markPersonaRead(persona.key);
+        window.aimashiSessionReadState.markPersonaRead(persona.key);
         state.sessionMenuOpen = false;
         showNarrowContent();
         render();
@@ -2825,7 +1184,7 @@ function render() {
       button.addEventListener("contextmenu", (event) => {
         event.preventDefault();
         event.stopPropagation();
-        openFellowContextMenu(persona.key, event.clientX, event.clientY);
+        window.aimashiFellowManager.openFellowContextMenu(persona.key, event.clientX, event.clientY);
       });
       els.personaList.appendChild(button);
       continue;
@@ -2840,13 +1199,13 @@ function render() {
       <span class="avatar group-avatar"></span>
       <span class="persona-main">
         <span class="persona-name-row">
-          <span class="persona-name">${escapeHtml(group.name || "未命名群聊")}</span>
+          <span class="persona-name">${window.aimashiMarkdown.escapeHtml(group.name || "未命名群聊")}</span>
           <span class="persona-type group">群聊</span>
         </span>
-        <span class="persona-key">${escapeHtml(preview.text)}</span>
+        <span class="persona-key">${window.aimashiMarkdown.escapeHtml(preview.text)}</span>
       </span>
       <span class="persona-side">
-        <span class="persona-time">${escapeHtml(preview.time)}</span>
+        <span class="persona-time">${window.aimashiMarkdown.escapeHtml(preview.time)}</span>
         <span class="persona-pin${group.pinned ? "" : " hidden"}" aria-label="置顶">${ICON_PARK_PIN_SVG}</span>
       </span>
     `;
@@ -2857,8 +1216,8 @@ function render() {
     const bossTileSidebar = document.createElement("span");
     bossTileSidebar.className = "group-avatar-tile";
     let sidebarBossStyle = "";
-    if (typeof avatarThumbBackgroundStyle === "function" && sidebarUser.avatarImage) {
-      sidebarBossStyle = avatarThumbBackgroundStyle(sidebarUser.avatarImage, sidebarUser.avatarCrop, sidebarBossColor);
+    if (typeof window.aimashiAvatar?.avatarThumbBackgroundStyle === "function" && sidebarUser.avatarImage) {
+      sidebarBossStyle = window.aimashiAvatar.avatarThumbBackgroundStyle(sidebarUser.avatarImage, sidebarUser.avatarCrop, sidebarBossColor);
     }
     if (!sidebarBossStyle || sidebarBossStyle.trim() === "") {
       sidebarBossStyle = "background-color:" + sidebarBossColor + ";";
@@ -2869,8 +1228,8 @@ function render() {
       const tile = document.createElement("span");
       tile.className = "group-avatar-tile";
       const fellow = personas.find((p) => (p.id || p.key) === mid);
-      let styleStr = avatarThumbBackgroundStyle(
-        fellow?.avatarImage || avatarAssetForKey(mid),
+      let styleStr = window.aimashiAvatar.avatarThumbBackgroundStyle(
+        fellow?.avatarImage || window.aimashiAvatar.avatarAssetForKey(mid),
         fellow?.avatarCrop,
         fellow?.color || "#5e5ce6"
       );
@@ -2906,7 +1265,7 @@ function render() {
   }
   renderView();
   renderSessionMenu();
-  if (!hasActiveMessageTextSelection()) renderChat();
+  if (!window.aimashiMessageMenu?.hasActiveMessageTextSelection()) renderChat();
 }
 
 function renderView() {
@@ -2930,11 +1289,11 @@ function renderView() {
   els.fellowDialog?.classList.toggle("hidden", !state.fellowDialogOpen);
   els.petGenerateDialog?.classList.toggle("hidden", !state.petGenerateOpen);
   els.avatarCropDialog?.classList.toggle("hidden", !state.avatarCropEditor.open);
-  renderSkillPreview();
-  renderFellowContextMenu();
+  window.aimashiSkillLibrary.renderSkillPreview();
+  window.aimashiFellowManager.renderFellowContextMenu();
   renderGroupContextMenu();
-  renderPetGenerateDialog();
-  renderPetJobs();
+  window.aimashiPetDialog?.renderPetGenerateDialog();
+  window.aimashiPetDialog?.renderPetJobs();
   document.querySelectorAll("[data-view]").forEach((button) => {
     button.classList.toggle("active", button.dataset.view === state.activeView);
   });
@@ -2944,977 +1303,15 @@ function renderView() {
   document.querySelectorAll("[data-settings-panel]").forEach((panel) => {
     panel.classList.toggle("hidden", panel.dataset.settingsPanel !== state.activeSettingsTab);
   });
-  renderSkillLibrary();
-  renderContacts();
-  renderTaskSidebar();
-  renderTaskView();
+  window.aimashiSkillLibrary.renderSkillLibrary();
+  window.aimashiFellowManager.renderContacts();
+  window.aimashiTasksPanel?.renderTaskSidebar();
+  window.aimashiTasksPanel?.renderTaskView();
 }
 
-function skillTone(skill = {}) {
-  const text = `${skill.category || ""} ${(skill.tags || []).join(" ")} ${skill.name || ""}`.toLowerCase();
-  if (/creative|image|video|art|design|media|p5|ascii|music/.test(text)) return "creative";
-  if (/software|github|devops|mcp|agent|plugin|install|author|code/.test(text)) return "build";
-  if (/apple|productivity|email|note|calendar|maps|home/.test(text)) return "ops";
-  return "docs";
-}
-
-function skillInitials(name = "") {
-  const parts = String(name || "?").split(/[-_\s/]+/).filter(Boolean);
-  return (parts.length > 1 ? `${parts[0][0]}${parts[1][0]}` : String(name || "?").slice(0, 2)).toUpperCase();
-}
-
-function pluginSourceLabel(source = "") {
-  const labels = {
-    "aimashi-official": "Aimashi 官方",
-    aimashi: "Aimashi Runtime",
-    codex: "Codex",
-    claude: "Claude Code"
-  };
-  return labels[source] || "Skill";
-}
-
-function skillAuthorLabel(skill = {}) {
-  if (skill.source === "aimashi-official") return "Aimashi 官方";
-  if (skill.source === "aimashi") return "Aimashi Runtime";
-  if (skill.source === "codex") return "Codex";
-  if (skill.source === "claude") return "Claude Code";
-  return skill.sourceLabel || "Local";
-}
-
-function skillHasUpdate(_skill) {
-  return false;
-}
-
-function skillDisplayName(skill = {}) {
-  return skill.name || skill.title || "Skill";
-}
-
-function skillSummaryZh(skill = {}) {
-  const exact = {
-    imagegen: "生成或编辑图片素材，适合做视觉参考、头像、纹理、插画和界面 mockup。",
-    "openai-docs": "查询 OpenAI 官方文档，适合模型选择、API 用法和迁移升级问题。",
-    "plugin-creator": "创建 Codex 插件目录和配置，适合把工具能力打包成可复用插件。",
-    "skill-creator": "编写或改造 SKILL.md，适合把稳定工作流沉淀成 Codex 可调用的技能。",
-    "skill-installer": "从本地清单或 GitHub 安装 Codex Skill，适合扩展本机技能库。",
-    "pet-generator": "把角色、品牌或参考图做成桌宠 spritesheet，并输出预览和打包文件。",
-    "hatch-pet": "把角色图做成 Codex 宠物 spritesheet，并输出预览和打包文件。"
-  };
-  if (exact[skill.name]) return exact[skill.name];
-  const text = `${skill.category || ""} ${(skill.tags || []).join(" ")} ${skill.name || ""}`.toLowerCase();
-  if (/creative|image|video|art|design|media|p5|ascii|music/.test(text)) return "创作与多媒体相关能力，适合图像、视频、音频、设计或可视化任务。";
-  if (/software|github|devops|mcp|agent|plugin|install|author|code|test/.test(text)) return "工程开发相关能力，适合代码实现、调试、测试、插件、仓库或自动化工作流。";
-  if (/research|paper|search|web|data|analysis|market/.test(text)) return "资料研究相关能力，适合检索、归纳、分析和结构化知识整理。";
-  if (/apple|productivity|email|note|calendar|maps|home/.test(text)) return "个人效率和系统集成相关能力，适合连接本机应用、日程、笔记或自动化操作。";
-  if (/system|docs|doc|write|markdown/.test(text)) return "文档和通用工作流能力，适合阅读说明、整理内容或辅助写作。";
-  return skill.description || "这个 Skill 提供一组可复用的本地指令，点击可预览原始 SKILL.md 内容。";
-}
-
-function skillSourceStatusBase() {
-  return (state.skillLibrary.skills || []).filter((skill) => {
-    if (state.skillPluginFilter && skill.pluginId !== state.skillPluginFilter) return false;
-    if (state.skillStatusFilter === "updates" && !skillHasUpdate(skill)) return false;
-    return true;
-  });
-}
-
-function skillMatchesFilters(skill) {
-  const needle = state.skillFilter.trim().toLowerCase();
-  const category = state.skillCategoryFilter.trim().toLowerCase();
-  const haystack = [
-    skill.name,
-    skill.title,
-    skill.description,
-    skillDisplayName(skill),
-    skillSummaryZh(skill),
-    skill.category,
-    skill.sourceLabel,
-    skill.relPath,
-    ...(skill.tags || [])
-  ].join(" ").toLowerCase();
-  if (state.skillPluginFilter && skill.pluginId !== state.skillPluginFilter) return false;
-  if (state.skillStatusFilter === "updates" && !skillHasUpdate(skill)) return false;
-  return (!needle || haystack.includes(needle)) && (!category || String(skill.category || "") === category);
-}
-
-function visibleSkills() {
-  return (state.skillLibrary.skills || []).filter(skillMatchesFilters);
-}
-
-function skillCategories() {
-  const counts = new Map();
-  for (const skill of skillSourceStatusBase()) {
-    const category = skill.category || "uncategorized";
-    counts.set(category, (counts.get(category) || 0) + 1);
-  }
-  return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-}
-
-function stripSkillFrontmatter(value = "") {
-  const text = String(value || "");
-  if (!text.startsWith("---")) return text;
-  const lines = text.split(/\r?\n/);
-  const end = lines.findIndex((line, index) => index > 0 && /^---\s*$/.test(line));
-  return end > 0 ? lines.slice(end + 1).join("\n").trim() : text;
-}
-
-function renderSkillInlineMarkdown(value = "") {
-  return escapeHtml(value)
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>')
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/`([^`]+)`/g, "<code>$1</code>");
-}
-
-function renderSkillMarkdownSource(value = "") {
-  const lines = stripSkillFrontmatter(value).split(/\r?\n/);
-  const html = [];
-  let paragraph = [];
-  let list = [];
-  let quote = [];
-  let code = null;
-
-  const flushParagraph = () => {
-    if (!paragraph.length) return;
-    html.push(`<p>${renderSkillInlineMarkdown(paragraph.join(" "))}</p>`);
-    paragraph = [];
-  };
-  const flushList = () => {
-    if (!list.length) return;
-    html.push(`<ul>${list.map((item) => `<li>${renderSkillInlineMarkdown(item)}</li>`).join("")}</ul>`);
-    list = [];
-  };
-  const flushQuote = () => {
-    if (!quote.length) return;
-    html.push(`<blockquote>${quote.map((item) => `<p>${renderSkillInlineMarkdown(item)}</p>`).join("")}</blockquote>`);
-    quote = [];
-  };
-  const flushFlow = () => {
-    flushParagraph();
-    flushList();
-    flushQuote();
-  };
-
-  for (const line of lines) {
-    const fence = line.match(/^```(.*)$/);
-    if (fence) {
-      if (code) {
-        const lang = code.lang || "text";
-        html.push(`
-          <div class="code-card">
-            <div class="code-caption"><span>${escapeHtml(lang)}</span></div>
-            <pre><code>${escapeHtml(code.lines.join("\n"))}</code></pre>
-          </div>
-        `);
-        code = null;
-      } else {
-        flushFlow();
-        code = { lang: fence[1].trim(), lines: [] };
-      }
-      continue;
-    }
-    if (code) {
-      code.lines.push(line);
-      continue;
-    }
-    if (!line.trim()) {
-      flushFlow();
-      continue;
-    }
-    const heading = line.match(/^(#{1,4})\s+(.+)$/);
-    if (heading) {
-      flushFlow();
-      html.push(`<h${heading[1].length}>${renderSkillInlineMarkdown(heading[2].trim())}</h${heading[1].length}>`);
-      continue;
-    }
-    const listItem = line.match(/^\s*[-*]\s+(.+)$/);
-    if (listItem) {
-      flushParagraph();
-      flushQuote();
-      list.push(listItem[1].trim());
-      continue;
-    }
-    const quoteLine = line.match(/^>\s*(.*)$/);
-    if (quoteLine) {
-      flushParagraph();
-      flushList();
-      quote.push(quoteLine[1].trim());
-      continue;
-    }
-    paragraph.push(line.trim());
-  }
-  flushFlow();
-  return html.join("");
-}
-
-async function selectSkill(skillId, openPreview = true) {
-  if (!skillId) return;
-  state.selectedSkillId = skillId;
-  const listed = state.skillLibrary.skills.find((skill) => skill.id === skillId);
-  state.selectedSkillDetail = listed || null;
-  if (openPreview) state.skillPreviewOpen = true;
-  renderSkillLibrary();
-  renderSkillPreview();
-  try {
-    state.selectedSkillDetail = await window.aimashi.readSkill(skillId);
-  } catch (error) {
-    console.error("Failed to read skill", error);
-  }
-  renderSkillLibrary();
-  renderSkillPreview();
-}
-
-function renderSkillFilterRow(row) {
-  const active = state.skillLibraryMode === "skills" && state.skillPluginFilter === row.pluginId && state.skillStatusFilter === row.status;
-  return `
-    <button class="skill-filter-row${row.child ? " child" : ""}${active ? " active" : ""}" type="button" data-skill-plugin="${escapeHtml(row.pluginId)}" data-skill-status="${escapeHtml(row.status)}">
-      <span><strong>${escapeHtml(row.label)}</strong>${row.sub ? `<small>${escapeHtml(row.sub)}</small>` : ""}</span>
-      <em>${row.count}</em>
-    </button>
-  `;
-}
-
-function renderExtensionNavRow(extension) {
-  const active = state.skillLibraryMode === "extension" && state.selectedExtensionId === extension.id;
-  return `
-    <button class="skill-filter-row${active ? " active" : ""}" type="button" data-skill-extension="${escapeHtml(extension.id)}">
-      <span>
-        <strong>${escapeHtml(extension.label || extension.name)}</strong>
-        <small>${escapeHtml(extension.engineLabel || extension.source || "Plugin")} · ${escapeHtml(extension.capabilitySummary || extension.status || "已发现")}</small>
-      </span>
-      <em>${escapeHtml(String(extension.skillCount || extension.commandCount || extension.toolCount || ""))}</em>
-    </button>
-  `;
-}
-
-function extensionDetailMeta(extension) {
-  return [
-    extension.engineLabel || extension.engine || "",
-    extension.version ? `v${extension.version}` : "",
-    extension.status || ""
-  ].filter(Boolean).join(" · ");
-}
-
-function renderExtensionDetail(extension) {
-  const relatedSkills = (state.skillLibrary.skills || []).filter((skill) => skill.extensionId === extension.id);
-  const installing = state.installingExtensions.has(extension.id);
-  const action = extension.installState === "installed"
-    ? `<button class="extension-action installed" type="button" disabled aria-label="已安装">✓</button>`
-    : extension.installable
-      ? `<button class="extension-action" type="button" data-extension-install="${escapeHtml(extension.id)}" ${installing ? "disabled" : ""} aria-label="安装 ${escapeHtml(extension.label || extension.name || "插件")}">${installing ? "…" : "+"}</button>`
-      : `<button class="extension-action unavailable" type="button" disabled title="${escapeHtml(extension.status || "暂不支持一键安装")}" aria-label="暂不支持一键安装">–</button>`;
-  const stats = [
-    ["Skills", extension.skillCount],
-    ["Commands", extension.commandCount],
-    ["Agents", extension.agentCount],
-    ["Tools", extension.toolCount],
-    ["Hooks", extension.hookCount],
-    ["MCP", extension.mcpCount]
-  ].filter(([, value]) => Number(value) > 0);
-  return `
-    <article class="extension-detail">
-      <header>
-        <div>
-          <small>${escapeHtml(extension.engineLabel || "Plugin")}</small>
-          <h2>${escapeHtml(extension.label || extension.name)}</h2>
-          <p>${escapeHtml(extension.description || "")}</p>
-        </div>
-        <div class="extension-detail-actions">
-          <span>${escapeHtml(extension.installState === "installed" ? "已安装" : (extension.status || "可安装"))}</span>
-          ${action}
-        </div>
-      </header>
-      <dl class="extension-detail-grid">
-        <div><dt>状态</dt><dd>${escapeHtml(extension.status || "已发现")}</dd></div>
-        <div><dt>路径</dt><dd title="${escapeHtml(extension.root || "")}">${escapeHtml(extension.root || "未知")}</dd></div>
-        ${extension.pluginKind ? `<div><dt>类型</dt><dd>${escapeHtml(extension.pluginKind)}</dd></div>` : ""}
-        ${stats.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(String(value))}</dd></div>`).join("")}
-      </dl>
-      <section class="extension-skill-list">
-        <h3>包含的 Skill</h3>
-        ${relatedSkills.length ? relatedSkills.map((skill) => `
-          <button type="button" data-skill-select="${escapeHtml(skill.id)}">
-            <strong>${escapeHtml(skillDisplayName(skill))}</strong>
-            <small>${escapeHtml(skill.category || skill.name || "Skill")}</small>
-          </button>
-        `).join("") : `<div class="skill-empty-state compact">这个插件没有可扫描到的 SKILL.md</div>`}
-      </section>
-    </article>
-  `;
-}
-
-function directorySectionRows() {
-  const skills = state.skillLibrary.skills || [];
-  const connectors = state.skillLibrary.connectors || [];
-  const extensions = state.skillLibrary.extensions || [];
-  const available = extensions.filter((extension) => extension.installState !== "installed").length;
-  return [
-    { id: "plugins", label: "插件", sub: available ? `${available} 个可安装，${extensions.length - available} 个已安装` : "已安装或已发现的能力包", count: extensions.length },
-    { id: "skills", label: "技能", sub: "本机可调用的 SKILL.md 能力", count: skills.length },
-    { id: "connectors", label: "应用连接", sub: "Aimashi 自己管理的外部连接", count: connectors.length }
-  ];
-}
-
-function renderDirectorySectionRow(row) {
-  const active = state.directorySection === row.id;
-  return `
-    <button class="skill-filter-row${active ? " active" : ""}" type="button" data-directory-section="${escapeHtml(row.id)}">
-      <span><strong>${escapeHtml(row.label)}</strong><small>${escapeHtml(row.sub)}</small></span>
-      <em>${escapeHtml(String(row.count || 0))}</em>
-    </button>
-  `;
-}
-
-function directoryHaystack(item = {}) {
-  return [
-    item.label,
-    item.name,
-    item.description,
-    item.status,
-    item.source,
-    item.sourceLabel,
-    item.provider,
-    item.engine,
-    item.engineLabel,
-    item.kind,
-    item.scope,
-    item.path,
-    item.root,
-    item.capabilitySummary
-  ].filter(Boolean).join(" ").toLowerCase();
-}
-
-function visibleConnectors() {
-  const needle = state.skillFilter.trim().toLowerCase();
-  const type = state.skillCategoryFilter.trim().toLowerCase();
-  return (state.skillLibrary.connectors || []).filter((connector) => {
-    if (type && String(connector.kind || "").toLowerCase() !== type) return false;
-    return !needle || directoryHaystack(connector).includes(needle);
-  });
-}
-
-function visibleExtensions() {
-  const needle = state.skillFilter.trim().toLowerCase();
-  const engine = state.skillCategoryFilter.trim().toLowerCase();
-  return (state.skillLibrary.extensions || []).filter((extension) => {
-    if (engine && String(extension.engine || "").toLowerCase() !== engine) return false;
-    return !needle || directoryHaystack(extension).includes(needle);
-  });
-}
-
-function countBy(items, keyFn) {
-  const counts = new Map();
-  for (const item of items) {
-    const key = keyFn(item);
-    if (!key) continue;
-    counts.set(key, (counts.get(key) || 0) + 1);
-  }
-  return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-}
-
-function renderConnectorCard(connector) {
-  return `
-    <article class="skill-card connector-card">
-      <header>
-        <strong>${escapeHtml(connector.label || connector.name || "应用连接")}</strong>
-        <small>${escapeHtml([connector.sourceLabel || connector.source || "Local", connector.status || ""].filter(Boolean).join(" · "))}</small>
-      </header>
-      <p>${escapeHtml(connector.description || "本机真实发现的外部应用或 MCP 连接配置。")}</p>
-      <footer>
-        <span>${escapeHtml(connector.kind || "连接")}</span>
-        ${connector.scope ? `<span>${escapeHtml(connector.scope)}</span>` : ""}
-      </footer>
-    </article>
-  `;
-}
-
-function renderPluginCard(extension) {
-  const installing = state.installingExtensions.has(extension.id);
-  const action = extension.installState === "installed"
-    ? `<button class="extension-action installed" type="button" disabled title="已安装" aria-label="已安装">✓</button>`
-    : extension.installable
-      ? `<button class="extension-action" type="button" data-extension-install="${escapeHtml(extension.id)}" ${installing ? "disabled" : ""} title="安装" aria-label="安装 ${escapeHtml(extension.label || extension.name || "插件")}">${installing ? "…" : "+"}</button>`
-      : `<button class="extension-action unavailable" type="button" disabled title="${escapeHtml(extension.status || "暂不支持一键安装")}" aria-label="暂不支持一键安装">–</button>`;
-  const iconLabel = skillInitials(extension.label || extension.name || extension.engineLabel || "Plugin");
-  const icon = extension.iconUrl
-    ? `<span class="plugin-icon"><img src="${escapeHtml(extension.iconUrl)}" alt="" loading="lazy"></span>`
-    : `<span class="plugin-icon fallback ${escapeHtml(extension.engine || "plugin")}" aria-hidden="true">${escapeHtml(iconLabel)}</span>`;
-  return `
-    <article class="skill-card plugin-card${extension.id === state.selectedExtensionId ? " featured" : ""}" data-extension-select="${escapeHtml(extension.id)}">
-      <header>
-        ${icon}
-        <div>
-          <strong>${escapeHtml(extension.label || extension.name || "Plugin")}</strong>
-          <p>${escapeHtml(extension.description || "")}</p>
-        </div>
-        ${action}
-      </header>
-    </article>
-  `;
-}
-
-function skillEmptyText() {
-  if (state.skillsLoading) return "正在扫描本地 Skill...";
-  if (state.skillStatusFilter === "updates") return "当前没有可更新的 Skill";
-  return "没有匹配的 Skill";
-}
-
-function renderSkillLibrary() {
-  if (!els.skillNav || !els.skillCardGrid) return;
-  const skills = state.skillLibrary.skills || [];
-  const extensions = state.skillLibrary.extensions || [];
-  const connectors = state.skillLibrary.connectors || [];
-  if ((state.directorySection || "plugins") === "skills" && state.skillPluginFilter) {
-    state.skillPluginFilter = "";
-    state.skillStatusFilter = "all";
-  }
-  const shown = visibleSkills();
-  const totalCount = skills.length;
-  const activeExtension = extensions.find((extension) => extension.id === state.selectedExtensionId);
-  const section = state.directorySection || "plugins";
-  setText(
-    els.skillPageTitle,
-    state.skillsLoading
-      ? "正在扫描能力"
-      : section === "plugins" && state.skillLibraryMode === "extension" && activeExtension
-        ? activeExtension.label || activeExtension.name
-        : section === "connectors"
-          ? "应用连接"
-          : section === "plugins"
-            ? "插件"
-            : "技能"
-  );
-
-  if (section === "connectors") {
-    const connectorKinds = countBy(connectors, (connector) => connector.kind || "connector");
-    els.skillChipRow.innerHTML = [
-      `<button class="${state.skillCategoryFilter ? "" : "active"}" type="button" data-skill-filter="">全部</button>`,
-      ...connectorKinds.map(([kind, count]) => `
-        <button class="${state.skillCategoryFilter === kind ? "active" : ""}" type="button" data-skill-filter="${escapeHtml(kind)}">
-          ${escapeHtml(kind)} <span>${count}</span>
-        </button>
-      `)
-    ].join("");
-  } else if (section === "plugins" && state.skillLibraryMode === "extension" && activeExtension) {
-    els.skillChipRow.innerHTML = `
-      <button class="active" type="button" data-skill-filter="">插件详情</button>
-      <button type="button" data-skill-filter="">${escapeHtml(activeExtension.engineLabel || activeExtension.engine || "Plugin")}</button>
-      ${activeExtension.capabilitySummary ? `<button type="button" data-skill-filter="">${escapeHtml(activeExtension.capabilitySummary)}</button>` : ""}
-    `;
-  } else if (section === "plugins") {
-    const engines = countBy(extensions, (extension) => extension.engine || extension.source || "plugin");
-    els.skillChipRow.innerHTML = [
-      `<button class="${state.skillCategoryFilter ? "" : "active"}" type="button" data-skill-filter="">全部</button>`,
-      ...engines.map(([engine, count]) => `
-        <button class="${state.skillCategoryFilter === engine ? "active" : ""}" type="button" data-skill-filter="${escapeHtml(engine)}">
-          ${escapeHtml(engine)} <span>${count}</span>
-        </button>
-      `)
-    ].join("");
-  } else {
-    const categories = skillCategories();
-    els.skillChipRow.innerHTML = [
-      `<button class="${state.skillCategoryFilter ? "" : "active"}" type="button" data-skill-filter="">全部</button>`,
-      ...categories.slice(0, 10).map(([category, count]) => `
-        <button class="${state.skillCategoryFilter === category ? "active" : ""}" type="button" data-skill-filter="${escapeHtml(category)}">
-          ${escapeHtml(category)} <span>${count}</span>
-        </button>
-      `)
-    ].join("");
-  }
-
-  els.skillNav.innerHTML = `
-    <div class="skill-section-label">Directory</div>
-    ${directorySectionRows().map((row) => renderDirectorySectionRow(row)).join("")}
-  `;
-
-  if (section === "connectors") {
-    const visible = visibleConnectors();
-    els.skillCardGrid.innerHTML = visible.length
-      ? visible.map((connector) => renderConnectorCard(connector)).join("")
-      : `<div class="skill-empty-state">${state.skillsLoading ? "正在扫描真实连接..." : "没有发现匹配的外部应用或 MCP 配置"}</div>`;
-  } else if (section === "plugins") {
-    const visible = visibleExtensions();
-    els.skillCardGrid.innerHTML = state.skillLibraryMode === "extension" && activeExtension
-      ? renderExtensionDetail(activeExtension)
-      : visible.length
-        ? visible.map((extension) => renderPluginCard(extension)).join("")
-        : `<div class="skill-empty-state">${state.skillsLoading ? "正在扫描插件..." : "没有发现匹配的真实插件"}</div>`;
-  } else {
-    els.skillCardGrid.innerHTML = shown.length
-      ? shown.map((skill) => `
-        <article class="skill-card skill-row-card${skill.id === state.selectedSkillId ? " featured" : ""}" data-skill-select="${escapeHtml(skill.id)}">
-          <header>
-            <strong>${escapeHtml(skillDisplayName(skill))}</strong>
-            <small>${escapeHtml(skill.pluginLabel || skillAuthorLabel(skill))}</small>
-          </header>
-          <p>${escapeHtml(skillSummaryZh(skill))}</p>
-        </article>
-      `).join("")
-      : `<div class="skill-empty-state">${skillEmptyText()}</div>`;
-  }
-
-  els.skillNav.querySelectorAll("[data-directory-section]").forEach((button) => {
-    button.addEventListener("click", () => {
-      state.directorySection = button.dataset.directorySection || "plugins";
-      state.skillLibraryMode = "skills";
-      state.selectedExtensionId = "";
-      state.skillPluginFilter = "";
-      state.skillStatusFilter = "all";
-      state.skillCategoryFilter = "";
-      closeSkillContextMenu();
-      showNarrowContent();
-      renderSkillLibrary();
-    });
-  });
-
-  els.skillNav.querySelectorAll("[data-skill-plugin]").forEach((button) => {
-    button.addEventListener("click", () => {
-      state.skillLibraryMode = "skills";
-      state.selectedExtensionId = "";
-      state.skillPluginFilter = button.dataset.skillPlugin || "";
-      state.skillStatusFilter = button.dataset.skillStatus || "all";
-      state.skillCategoryFilter = "";
-      closeSkillContextMenu();
-      showNarrowContent();
-      renderSkillLibrary();
-    });
-  });
-  els.skillNav.querySelectorAll("[data-skill-extension]").forEach((button) => {
-    button.addEventListener("click", () => {
-      state.directorySection = "plugins";
-      state.skillLibraryMode = "extension";
-      state.selectedExtensionId = button.dataset.skillExtension || "";
-      state.skillCategoryFilter = "";
-      closeSkillContextMenu();
-      showNarrowContent();
-      renderSkillLibrary();
-    });
-  });
-  els.skillCardGrid.querySelectorAll("[data-skill-select]").forEach((card) => {
-    card.addEventListener("click", () => selectSkill(card.dataset.skillSelect));
-    card.addEventListener("contextmenu", (event) => {
-      event.preventDefault();
-      openSkillContextMenu(card.dataset.skillSelect, event.clientX, event.clientY);
-    });
-  });
-  els.skillCardGrid.querySelectorAll("[data-extension-install]").forEach((button) => {
-    button.addEventListener("click", async (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      await installExtension(button.dataset.extensionInstall || "");
-    });
-  });
-  els.skillCardGrid.querySelectorAll("[data-extension-select]").forEach((card) => {
-    card.addEventListener("click", (event) => {
-      if (event.target.closest("[data-extension-install]")) return;
-      state.directorySection = "plugins";
-      state.skillLibraryMode = "extension";
-      state.selectedExtensionId = card.dataset.extensionSelect || "";
-      state.skillCategoryFilter = "";
-      closeSkillContextMenu();
-      renderSkillLibrary();
-    });
-  });
-  els.skillChipRow.querySelectorAll("[data-skill-filter]").forEach((button) => {
-    button.addEventListener("click", () => {
-      state.skillCategoryFilter = button.dataset.skillFilter || "";
-      closeSkillContextMenu();
-      renderSkillLibrary();
-    });
-  });
-  renderSkillContextMenu();
-}
-
-function renderSkillPreview() {
-  if (!els.skillPreviewDialog) return;
-  els.skillPreviewDialog.classList.toggle("hidden", !state.skillPreviewOpen);
-  const skill = state.selectedSkillDetail || state.skillLibrary.skills.find((item) => item.id === state.selectedSkillId);
-  if (!skill) return;
-  els.skillPreviewMark.className = `skill-dot ${skillTone(skill)}`;
-  els.skillPreviewMark.textContent = skillInitials(skill.name);
-  setText(els.skillPreviewTitle, skillDisplayName(skill));
-  setText(els.skillPreviewMeta, `${skill.name || "Skill"} · ${skill.sourceLabel || "Local"} · ${skill.relPath || skill.category || ""}`);
-  els.skillPreviewBody.innerHTML = skill.body
-    ? renderSkillMarkdownSource(skill.body)
-    : `<div class="skill-empty-state">正在读取 SKILL.md...</div>`;
-  els.skillPreviewBody.querySelectorAll("a[href]").forEach((link) => {
-    link.setAttribute("target", "_blank");
-    link.setAttribute("rel", "noreferrer");
-  });
-}
-
-function openSkillContextMenu(skillId, x, y) {
-  if (!skillId) return;
-  closeMessageContextMenu();
-  closeGroupContextMenu();
-  state.skillContextMenu = { open: true, x, y, skillId };
-  renderSkillContextMenu();
-}
-
-function closeSkillContextMenu() {
-  if (!state.skillContextMenu.open) return;
-  state.skillContextMenu = { open: false, x: 0, y: 0, skillId: "" };
-  renderSkillContextMenu();
-}
 
 function syncTopbarClickCapture() {
   document.body.classList.toggle("topbar-click-capture", Boolean(state.skillContextMenu.open || state.groupContextMenu.open || state.sessionMenuOpen));
-}
-
-function renderSkillContextMenu() {
-  if (!els.skillContextMenu) return;
-  const menu = els.skillContextMenu;
-  const skill = state.skillLibrary.skills.find((item) => item.id === state.skillContextMenu.skillId);
-  const open = state.skillContextMenu.open && skill;
-  menu.classList.toggle("hidden", !open);
-  syncTopbarClickCapture();
-  if (!open) return;
-  const canDelete = skill.source === "aimashi";
-  menu.innerHTML = `
-    ${menuItemHtml({ icon: "preview", label: "预览", attrs: 'data-skill-action="preview"' })}
-    ${menuItemHtml({ icon: "folderOpen", label: "打开目录", attrs: 'data-skill-action="open-directory"' })}
-    <div class="skill-context-menu-separator" role="separator"></div>
-    ${menuItemHtml({ icon: "delete", label: "删除", attrs: `data-skill-action="delete" ${canDelete ? "" : "disabled"}`, className: "danger" })}
-  `;
-  const rect = menu.getBoundingClientRect();
-  const width = rect.width || 112;
-  const height = rect.height || 122;
-  menu.style.left = `${Math.max(8, Math.min(state.skillContextMenu.x, window.innerWidth - width - 8))}px`;
-  menu.style.top = `${Math.max(8, Math.min(state.skillContextMenu.y, window.innerHeight - height - 8))}px`;
-  menu.querySelector('[data-skill-action="preview"]')?.addEventListener("click", () => {
-    closeSkillContextMenu();
-    selectSkill(skill.id);
-  });
-  menu.querySelector('[data-skill-action="delete"]')?.addEventListener("click", () => {
-    closeSkillContextMenu();
-    deleteSkill(skill.id);
-  });
-  menu.querySelector('[data-skill-action="open-directory"]')?.addEventListener("click", () => {
-    closeSkillContextMenu();
-    openSkillDirectory(skill.id);
-  });
-}
-
-function fellowByKey(key) {
-  const fellows = state.runtime?.fellows || state.runtime?.personas || [];
-  return fellows.find((item) => item.key === key) || null;
-}
-
-function sortFellowsForSidebar(fellows = []) {
-  return fellows
-    .map((fellow, index) => ({ fellow, index }))
-    .sort((a, b) => {
-      const pinnedDiff = Number(Boolean(b.fellow.pinned)) - Number(Boolean(a.fellow.pinned));
-      if (pinnedDiff) return pinnedDiff;
-      if (a.fellow.pinned && b.fellow.pinned) {
-        const timeDiff = String(b.fellow.pinnedAt || "").localeCompare(String(a.fellow.pinnedAt || ""));
-        if (timeDiff) return timeDiff;
-      }
-      return a.index - b.index;
-    })
-    .map((item) => item.fellow);
-}
-
-function sortableConversationTime(value) {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  const numeric = Number(value);
-  if (Number.isFinite(numeric) && numeric > 0) return numeric;
-  const parsed = Date.parse(String(value || ""));
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function sortMessageCardsForSidebar(rows = []) {
-  return rows
-    .map((row, index) => ({ row, index }))
-    .sort((a, b) => {
-      const pinnedDiff = Number(Boolean(b.row.pinned)) - Number(Boolean(a.row.pinned));
-      if (pinnedDiff) return pinnedDiff;
-      if (a.row.pinned && b.row.pinned) {
-        const timeDiff = sortableConversationTime(b.row.pinnedAt) - sortableConversationTime(a.row.pinnedAt);
-        if (timeDiff) return timeDiff;
-      }
-      const updatedDiff = sortableConversationTime(b.row.updatedAt) - sortableConversationTime(a.row.updatedAt);
-      if (updatedDiff) return updatedDiff;
-      return a.index - b.index;
-    })
-    .map((item) => item.row);
-}
-
-function contactSessionSummary(fellow) {
-  const sessions = state.chatStore.sessions[fellow.key] || [];
-  const meaningful = sessions.filter(hasPersistableMessages);
-  const latest = sessions[0];
-  const messages = latest?.messages || [];
-  const last = [...messages].reverse().find((message) => String(message.content || "").trim() && !message.transient);
-  const preview = last
-    ? String(last.content || "")
-    : (fellow.bio || "本地伙伴 · 暂无对话");
-  return {
-    count: meaningful.length || sessions.length,
-    preview,
-    time: formatConversationTime(latest?.updatedAt || latest?.createdAt)
-  };
-}
-
-function contactPetLabel(pet = {}) {
-  if (pet.placed) return "桌面中";
-  if (pet.hasAsset) return "已生成桌宠";
-  return "";
-}
-
-function openFellowChat(fellowKey) {
-  if (!fellowKey) return;
-  state.activeKey = fellowKey;
-  state.activeContactKey = fellowKey;
-  const latest = sessionsForPersona(fellowKey)[0];
-  state.activeSessionIdByPersona[fellowKey] = latest?.id;
-  state.activeView = "chat";
-  state.sessionMenuOpen = false;
-  markPersonaRead(fellowKey);
-  showNarrowContent();
-  render();
-  requestAnimationFrame(() => els.chatInput?.focus());
-}
-
-function defaultFellowCapabilities() {
-  return {
-    inheritEngineDefaults: true,
-    enabledPlugins: [],
-    disabledPlugins: [],
-    enabledSkills: [],
-    disabledSkills: [],
-    enabledConnectors: []
-  };
-}
-
-function normalizeCapabilityIds(input) {
-  return Array.isArray(input)
-    ? [...new Set(input.map((item) => String(item || "").trim()).filter(Boolean))]
-    : [];
-}
-
-function fellowCapabilities(fellow = {}) {
-  const raw = fellow.capabilities && typeof fellow.capabilities === "object" ? fellow.capabilities : {};
-  return {
-    ...defaultFellowCapabilities(),
-    inheritEngineDefaults: raw.inheritEngineDefaults !== false && raw.inherit_engine_defaults !== false,
-    enabledPlugins: normalizeCapabilityIds(raw.enabledPlugins || raw.enabled_plugins),
-    disabledPlugins: normalizeCapabilityIds(raw.disabledPlugins || raw.disabled_plugins),
-    enabledSkills: normalizeCapabilityIds(raw.enabledSkills || raw.enabled_skills),
-    disabledSkills: normalizeCapabilityIds(raw.disabledSkills || raw.disabled_skills),
-    enabledConnectors: normalizeCapabilityIds(raw.enabledConnectors || raw.enabled_connectors)
-  };
-}
-
-function capabilityForEngine(item = {}, engine = "") {
-  const itemEngine = String(item.engine || item.provider || "").trim();
-  return !itemEngine || itemEngine === "aimashi" || itemEngine === engine || (engine === "hermes" && item.source === "hermes");
-}
-
-function engineLabel(engine = "") {
-  if (engine === "aimashi") return "Aimashi";
-  if (engine === "claude-code") return "Claude Code";
-  if (engine === "codex") return "Codex";
-  return "Hermes";
-}
-
-function fellowCapabilityItems(fellow = {}) {
-  const engine = fellow.agentEngine || fellow.agent_engine || "hermes";
-  const plugins = (state.skillLibrary.extensions || [])
-    .filter((item) => item.installState === "installed" && capabilityForEngine(item, engine))
-    .slice(0, 24);
-  const skills = (state.skillLibrary.skills || [])
-    .filter((item) => capabilityForEngine(item, engine))
-    .slice(0, 32);
-  const connectors = (state.skillLibrary.connectors || [])
-    .filter((item) => capabilityForEngine(item, engine))
-    .slice(0, 16);
-  return { plugins, skills, connectors };
-}
-
-function capabilityChecked(capabilities, id, enabledKey, disabledKey) {
-  if (capabilities.inheritEngineDefaults) return !capabilities[disabledKey].includes(id);
-  return capabilities[enabledKey].includes(id);
-}
-
-function renderCapabilityCheckbox({ item, checked, disabled, type }) {
-  const title = item.label || item.name || item.id;
-  const meta = item.engineLabel || item.sourceLabel || item.category || item.status || "";
-  return `
-    <label class="capability-row">
-      <input type="checkbox" data-capability-type="${escapeHtml(type)}" data-capability-id="${escapeHtml(item.id)}" ${checked ? "checked" : ""} ${disabled ? "disabled" : ""}>
-      <span>
-        <strong>${escapeHtml(title)}</strong>
-        ${meta ? `<small>${escapeHtml(meta)}</small>` : ""}
-      </span>
-    </label>
-  `;
-}
-
-function renderFellowCapabilitiesPanel(fellow) {
-  const capabilities = fellowCapabilities(fellow);
-  const { plugins, skills, connectors } = fellowCapabilityItems(fellow);
-  const disabled = capabilities.inheritEngineDefaults;
-  const engine = fellow.agentEngine || fellow.agent_engine || "hermes";
-  return `
-    <section class="contact-capabilities">
-      <header>
-        <div>
-          <strong>能力</strong>
-          <p>${escapeHtml(engineLabel(engine))} · ${plugins.length} 插件 · ${skills.length} 技能 · ${connectors.length} 连接</p>
-        </div>
-        <label class="capability-default-toggle">
-          <input type="checkbox" data-capability-default ${capabilities.inheritEngineDefaults ? "checked" : ""}>
-          <span>使用引擎默认能力</span>
-        </label>
-      </header>
-      <div class="capability-columns${disabled ? " inherited" : ""}">
-        <section>
-          <h3>插件</h3>
-          ${plugins.length ? plugins.map((item) => renderCapabilityCheckbox({
-            item,
-            checked: capabilityChecked(capabilities, item.id, "enabledPlugins", "disabledPlugins"),
-            disabled,
-            type: "plugin"
-          })).join("") : `<div class="capability-empty">当前引擎没有已安装插件</div>`}
-        </section>
-        <section>
-          <h3>技能</h3>
-          ${skills.length ? skills.map((item) => renderCapabilityCheckbox({
-            item,
-            checked: capabilityChecked(capabilities, item.id, "enabledSkills", "disabledSkills"),
-            disabled,
-            type: "skill"
-          })).join("") : `<div class="capability-empty">当前引擎没有可选技能</div>`}
-        </section>
-        <section>
-          <h3>应用连接</h3>
-          ${connectors.length ? connectors.map((item) => renderCapabilityCheckbox({
-            item,
-            checked: capabilities.enabledConnectors.includes(item.id),
-            disabled,
-            type: "connector"
-          })).join("") : `<div class="capability-empty">没有发现连接配置</div>`}
-        </section>
-      </div>
-    </section>
-  `;
-}
-
-function renderContacts() {
-  if (!els.contactList || !els.contactDetail) return;
-  if (!state.skillsLoading && !(state.skillLibrary.extensions || []).length && !(state.skillLibrary.skills || []).length) {
-    loadSkills().catch(() => {});
-  }
-  const fellows = state.runtime?.fellows || state.runtime?.personas || [];
-  if (!fellows.length) {
-    els.contactList.innerHTML = `<div class="contact-empty">还没有联系人</div>`;
-    els.contactDetail.innerHTML = `<div class="contact-empty detail-empty">添加一个伙伴后会显示在这里</div>`;
-    return;
-  }
-  if (!fellows.some((fellow) => fellow.key === state.activeContactKey)) {
-    state.activeContactKey = fellows[0].key;
-  }
-  const filter = state.contactFilter.trim().toLowerCase();
-  const visibleContacts = sortFellowsForSidebar(filter
-    ? fellows.filter((fellow) => `${fellow.name || ""} ${fellow.key || ""} ${fellow.bio || ""}`.toLowerCase().includes(filter))
-    : fellows);
-  els.contactList.innerHTML = "";
-  for (const fellow of visibleContacts) {
-    const summary = contactSessionSummary(fellow);
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = `contact-row${fellow.key === state.activeContactKey ? " active" : ""}`;
-    button.innerHTML = `
-      <span class="avatar fellow-photo" style="${avatarThumbBackgroundStyle(fellow.avatarImage || avatarAssetForKey(fellow.key), fellow.avatarCrop, fellow.color || "#5e5ce6")}"></span>
-      <span class="contact-row-main">
-        <strong>${escapeHtml(fellow.name)}</strong>
-        <small>${escapeHtml(fellow.bio || "本地伙伴")}</small>
-      </span>
-      <span class="contact-row-side">${escapeHtml(summary.time || "")}</span>
-    `;
-    button.addEventListener("click", () => {
-      state.activeContactKey = fellow.key;
-      showNarrowContent();
-      renderContacts();
-    });
-    button.addEventListener("dblclick", () => openFellowChat(fellow.key));
-    els.contactList.appendChild(button);
-  }
-  if (!visibleContacts.length) {
-    els.contactList.innerHTML = `<div class="contact-empty">没有匹配的联系人</div>`;
-  }
-  renderContactDetail(fellows.find((fellow) => fellow.key === state.activeContactKey) || visibleContacts[0] || fellows[0]);
-}
-
-function renderContactDetail(fellow) {
-  if (!els.contactDetail || !fellow) return;
-  const summary = contactSessionSummary(fellow);
-  const engine = fellow.agentEngine || fellow.agent_engine || fellow.engine || "hermes";
-  setText(els.contactPageTitle, fellow.name || "联系人");
-  setText(els.contactPageMeta, `${summary.count} 个会话`);
-  els.contactDetail.innerHTML = `
-    <article class="contact-profile">
-      <header class="contact-profile-head">
-        <button class="contact-profile-avatar" type="button" data-contact-action="edit" title="编辑联系人头像" style="${avatarBackgroundStyle(fellow.avatarImage || avatarAssetForKey(fellow.key), fellow.avatarCrop, fellow.color || "#5e5ce6")}"></button>
-        <div class="contact-profile-title">
-          <h2>${escapeHtml(fellow.name || "联系人")}</h2>
-          <div class="contact-engine-badge" title="Agent 引擎">
-            <span>Agent</span>
-            <strong>${escapeHtml(engineLabel(engine))}</strong>
-          </div>
-          <p>${escapeHtml(fellow.bio || "本地伙伴")}</p>
-        </div>
-        <div class="contact-actions">
-          <button class="primary contact-message-action" type="button" data-contact-action="message" title="发消息" aria-label="发消息">${iconParkIcon("message", "contact-action-icon")}</button>
-          <button class="secondary" type="button" data-contact-action="edit">编辑</button>
-          ${fellow.key === "aimashi" ? "" : `<button class="secondary danger" type="button" data-contact-action="delete">删除伙伴</button>`}
-        </div>
-      </header>
-      <section class="contact-note">
-        <strong>最近内容</strong>
-        <p>${escapeHtml(summary.preview)}</p>
-      </section>
-      ${renderFellowCapabilitiesPanel(fellow)}
-    </article>
-  `;
-  els.contactDetail.querySelector('[data-contact-action="message"]')?.addEventListener("click", () => openFellowChat(fellow.key));
-  els.contactDetail.querySelectorAll('[data-contact-action="edit"]').forEach((button) => {
-    button.addEventListener("click", () => openEditFellowDialog(fellow.key));
-  });
-  els.contactDetail.querySelector('[data-contact-action="delete"]')?.addEventListener("click", async () => {
-    await deleteFellow(fellow.key);
-  });
-  wireFellowCapabilities(fellow);
-}
-
-async function saveFellowCapabilities(fellow, capabilities) {
-  if (!fellow?.key) return;
-  state.savingFellowCapabilities.add(fellow.key);
-  try {
-    state.runtime = await window.aimashi.saveFellow({
-      ...fellow,
-      capabilities
-    });
-  } catch (error) {
-    window.alert(`保存能力设置失败：${error.message || error}`);
-  } finally {
-    state.savingFellowCapabilities.delete(fellow.key);
-    renderContacts();
-  }
-}
-
-// ── Tasks view helpers ───────────────────────────────────────────────────────
-
-function fellowName(fellowId) {
-  const fellows = state.runtime?.fellows || state.runtime?.personas || [];
-  const f = fellows.find((x) => x.key === fellowId || x.id === fellowId);
-  return f?.name || fellowId;
-}
-
-function formatNextTime(ms) {
-  if (ms == null) return "—";
-  const d = new Date(ms);
-  return d.toLocaleString("zh-CN", { hour: "2-digit", minute: "2-digit" });
 }
 
 function formatRunTime(ms) {
@@ -3923,569 +1320,6 @@ function formatRunTime(ms) {
   return d.toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
-function computeNextFireForUi(task) {
-  return task.nextFireAt != null ? task.nextFireAt : null;
-}
-
-function isTodayMs(ms, now) {
-  if (ms == null) return false;
-  const a = new Date(ms);
-  const b = new Date(now);
-  return a.getFullYear() === b.getFullYear()
-    && a.getMonth() === b.getMonth()
-    && a.getDate() === b.getDate();
-}
-
-function groupTasksForSidebar(tasks, now = Date.now()) {
-  const SEVEN_DAYS = 7 * 24 * 3600 * 1000;
-  const today = [];
-  const upcoming = [];
-  const disabled = [];
-  const history = [];
-
-  for (const task of tasks) {
-    if (task.status !== "active") {
-      disabled.push(task);
-      continue;
-    }
-    const next = computeNextFireForUi(task);
-    if (next == null) {
-      disabled.push(task);
-      continue;
-    }
-    if (isTodayMs(next, now)) today.push({ task, nextFire: next });
-    else if (next - now <= SEVEN_DAYS) upcoming.push({ task, nextFire: next });
-    else upcoming.push({ task, nextFire: next });
-  }
-  today.sort((a, b) => a.nextFire - b.nextFire);
-  upcoming.sort((a, b) => a.nextFire - b.nextFire);
-
-  for (const task of tasks) {
-    for (const run of (task.runs || []).slice(-50)) {
-      history.push({ task, run });
-    }
-  }
-  history.sort((a, b) => b.run.firedAt - a.run.firedAt);
-
-  return { today, upcoming, history, disabled };
-}
-
-function renderTaskSidebar() {
-  if (!els.tasksNav) return;
-  const filter = state.taskFilter.trim().toLowerCase();
-  const filtered = state.tasks.filter((t) =>
-    !filter || `${t.title} ${t.prompt}`.toLowerCase().includes(filter)
-  );
-  const groups = groupTasksForSidebar(filtered);
-
-  function row(task, label, dotClass, taskId) {
-    const unread = state.tasksUnread.get(taskId) || 0;
-    return `
-      <button class="task-row${state.selectedTaskId === taskId && !state.selectedRunId ? " active" : ""}"
-              type="button" data-task-id="${escapeHtml(taskId)}">
-        <span class="task-dot ${dotClass}"></span>
-        <span class="task-row-body">
-          <strong>${escapeHtml(task.title)}</strong>
-          <small>${escapeHtml(label)} · ${escapeHtml(fellowName(task.fellowId))}</small>
-        </span>
-        ${unread ? `<em class="task-unread">${unread}</em>` : ""}
-      </button>
-    `;
-  }
-
-  function historyRow(task, run) {
-    const icon = run.status === "ok" ? "✓" : run.status === "failed" ? "✗" : "·";
-    const selected = state.selectedRunId === run.id ? " active" : "";
-    return `
-      <button class="task-row history${selected}" type="button"
-              data-task-id="${escapeHtml(task.id)}" data-run-id="${escapeHtml(run.id)}">
-        <span class="task-status">${icon}</span>
-        <span class="task-row-body">
-          <strong>${escapeHtml(task.title)}</strong>
-          <small>${escapeHtml(formatRunTime(run.firedAt))}${run.status === "failed" ? " 失败" : ""}</small>
-        </span>
-      </button>
-    `;
-  }
-
-  let html = "";
-  if (groups.today.length) {
-    html += `<div class="task-group-head">今天 (${groups.today.length})</div>`;
-    html += groups.today.map((g) => row(g.task, formatNextTime(g.nextFire), "active", g.task.id)).join("");
-  }
-  if (groups.upcoming.length) {
-    html += `<div class="task-group-head">即将 (${groups.upcoming.length})</div>`;
-    html += groups.upcoming.map((g) => row(g.task, formatNextTime(g.nextFire), "upcoming", g.task.id)).join("");
-  }
-  if (groups.history.length) {
-    const open = state.historyExpanded;
-    html += `<div class="task-group-head collapsible" data-toggle="history">历史 (${groups.history.length}) ${open ? "⌃" : "⌄"}</div>`;
-    if (open) html += groups.history.slice(0, 50).map((g) => historyRow(g.task, g.run)).join("");
-  }
-  if (groups.disabled.length) {
-    const open = state.disabledExpanded;
-    html += `<div class="task-group-head collapsible" data-toggle="disabled">已停用 (${groups.disabled.length}) ${open ? "⌃" : "⌄"}</div>`;
-    if (open) html += groups.disabled.map((t) => row(t, "暂停 / 已完成", "disabled", t.id)).join("");
-  }
-  if (!html) html = `<div class="task-empty-side">还没有定时任务</div>`;
-  els.tasksNav.innerHTML = html;
-
-  els.tasksNav.querySelectorAll("[data-task-id]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      state.selectedTaskId = btn.dataset.taskId;
-      state.selectedRunId = btn.dataset.runId || "";
-      state.tasksUnread.delete(state.selectedTaskId);
-      updateTasksRailBadge();
-      renderTaskSidebar();
-      renderTaskView();
-    });
-  });
-  els.tasksNav.querySelectorAll("[data-toggle]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      if (btn.dataset.toggle === "history") state.historyExpanded = !state.historyExpanded;
-      if (btn.dataset.toggle === "disabled") state.disabledExpanded = !state.disabledExpanded;
-      renderTaskSidebar();
-    });
-  });
-}
-
-function renderTaskView() {
-  if (!els.tasksContent) return;
-  setText(els.tasksPageTitle, "任务");
-  const activeCount = state.tasks.filter((t) => t.status === "active").length;
-  setText(els.tasksPageMeta, `${activeCount} 个活跃`);
-  if (!state.selectedTaskId) { renderTasksEmpty(); return; }
-  const task = state.tasks.find((t) => t.id === state.selectedTaskId);
-  if (!task) { renderTasksEmpty(); return; }
-  if (state.selectedRunId) { renderRunDetail(task); return; }
-  renderTaskDetail(task);
-}
-
-function renderTasksEmpty() {
-  if ((state.tasks || []).length === 0) {
-    // No tasks anywhere — onboarding state
-    els.tasksContent.innerHTML = `
-      <div class="tasks-empty">
-        <div class="tasks-empty-emoji">📅</div>
-        <h2>还没有定时任务</h2>
-        <p>回到任意聊天告诉 Aimashi：<br><em>"每天 9 点帮我做 X"</em><br>它会自动帮你建好任务。</p>
-      </div>
-    `;
-    return;
-  }
-  // Tasks exist but none selected
-  els.tasksContent.innerHTML = `
-    <div class="tasks-empty">
-      <div class="tasks-empty-emoji">←</div>
-      <p>选择左侧任务查看详情</p>
-    </div>
-  `;
-}
-
-function renderRunDetail(task) {
-  const run = (task.runs || []).find((r) => r.id === state.selectedRunId);
-  if (!run) {
-    state.selectedRunId = "";
-    renderTaskDetail(task);
-    return;
-  }
-  const message = lookupMessage(task.sessionId, run.outputMessageId);
-  const user = state.runtime?.user || { displayName: "Boss", avatarText: "B", avatarColor: "#111827" };
-  const persona = (state.runtime?.fellows || state.runtime?.personas || []).find((f) => f.key === task.fellowId) || null;
-  const messageHtml = message
-    ? renderMessageHtml(message, {
-        messageIndex: 0,
-        user,
-        persona,
-        showTaskAffordance: false
-      })
-    : `<div class="run-detail-empty">本次输出消息已不在会话历史里${run.error ? `（失败：${escapeHtml(run.error)}）` : "（可能被清理过）"}</div>`;
-  const statusLabel = run.status === "ok" ? "完成" : run.status === "failed" ? "失败" : "跳过";
-  els.tasksContent.innerHTML = `
-    <article class="run-detail">
-      <header class="run-detail-head">
-        <button class="link" type="button" data-action="back-to-task">← 返回任务</button>
-        <h2>${escapeHtml(task.title)} · ${escapeHtml(formatRunTime(run.firedAt))} ${escapeHtml(statusLabel)}</h2>
-        <div class="run-detail-actions">
-          <button class="link" type="button" data-action="open-conversation">打开对话 →</button>
-          <button class="secondary" type="button" data-action="run-now">运行一次</button>
-        </div>
-      </header>
-      <details class="run-detail-prompt">
-        <summary>原始指令</summary>
-        <pre>${escapeHtml(task.prompt)}</pre>
-      </details>
-      <section class="run-detail-output">
-        <h3>AI 输出</h3>
-        <div class="run-output-shell">
-          ${messageHtml}
-        </div>
-      </section>
-    </article>
-  `;
-  els.tasksContent.querySelector("[data-action='back-to-task']")?.addEventListener("click", () => {
-    state.selectedRunId = "";
-    renderTaskSidebar();
-    renderTaskView();
-  });
-  els.tasksContent.querySelector("[data-action='open-conversation']")?.addEventListener("click", () => {
-    jumpToTaskSession(task);
-  });
-  els.tasksContent.querySelector("[data-action='run-now']")?.addEventListener("click", async () => {
-    try { await window.aimashi.tasks.runNow(task.id); } catch (e) { console.warn("run-now failed", e); }
-    await loadTasksFromDaemon();
-    renderTaskView();
-  });
-}
-
-function lookupMessage(sessionId, messageId) {
-  if (!messageId) return null;
-  const buckets = state.chatStore?.sessions || {};
-  for (const key of Object.keys(buckets)) {
-    const bucket = buckets[key];
-    const arr = Array.isArray(bucket) ? bucket : (bucket?.sessions || []);
-    for (const s of arr) {
-      if (s.id !== sessionId) continue;
-      return (s.messages || []).find((m) => m.id === messageId) || null;
-    }
-  }
-  return null;
-}
-
-function jumpToTaskSession(task) {
-  const fellowKey = findFellowForSession(task.sessionId) || task.fellowId;
-  state.activeKey = fellowKey;
-  state.activeContactKey = fellowKey;
-  if (state.activeSessionIdByPersona) {
-    state.activeSessionIdByPersona[fellowKey] = task.sessionId;
-  }
-  state.activeView = "chat";
-  if (typeof render === "function") render();
-  else { renderView(); if (typeof renderChat === "function") renderChat(); }
-}
-
-function renderTaskDetail(task) {
-  const sessionTitle = lookupSessionTitle(task.sessionId) || task.sessionId;
-  const pauseLabel = task.status === "paused" ? "启用" : "暂停";
-  const pauseAction = task.status === "paused" ? "resume" : "pause";
-  els.tasksContent.innerHTML = `
-    <article class="task-detail">
-      <header class="task-detail-head">
-        <div class="task-detail-source">
-          <small>来源会话</small>
-          <strong>${escapeHtml(sessionTitle)} · ${escapeHtml(fellowName(task.fellowId))}</strong>
-          <button class="link" type="button" data-jump-session="${escapeHtml(task.sessionId)}">[打开 →]</button>
-        </div>
-        <div class="task-detail-actions">
-          <button class="secondary" type="button" data-action="run-now">运行一次</button>
-          <button class="secondary" type="button" data-action="${pauseAction}">${pauseLabel}</button>
-          <button class="danger" type="button" data-action="delete">删除</button>
-        </div>
-      </header>
-
-      <section class="task-schedule">
-        <h3>调度</h3>
-        <div class="task-form-row">
-          <label><input type="radio" name="triggerType" value="cron" ${task.trigger.type === "cron" ? "checked" : ""}>重复</label>
-          <label><input type="radio" name="triggerType" value="oneshot" ${task.trigger.type === "oneshot" ? "checked" : ""}>一次性</label>
-          <label class="disabled"><input type="radio" name="triggerType" value="event" disabled>事件触发（V1 不可用）</label>
-        </div>
-        <div class="task-form-row" ${task.trigger.type === "cron" ? "" : "hidden"}>
-          <label>Cron <input id="taskCron" value="${escapeHtml(task.trigger.cron || "")}"></label>
-        </div>
-        <div class="task-form-row" ${task.trigger.type === "oneshot" ? "" : "hidden"}>
-          <label>触发时间 <input id="taskAt" type="datetime-local" value="${task.trigger.at ? toLocalDatetimeInput(task.trigger.at) : ""}"></label>
-        </div>
-        <div class="task-form-row">
-          <label>时区 <input id="taskTimezone" value="${escapeHtml(task.timezone || "UTC")}"></label>
-        </div>
-        <div class="task-form-row task-next">
-          <small>下次: ${task.nextFireAt ? formatRunTime(task.nextFireAt) : "—"}</small>
-        </div>
-      </section>
-
-      <section class="task-prompt">
-        <h3>Prompt</h3>
-        <textarea id="taskPrompt" rows="3">${escapeHtml(task.prompt)}</textarea>
-      </section>
-
-      <section class="task-history">
-        <h3>历史记录 (${task.runs.length})</h3>
-        ${(task.runs || []).slice(-20).reverse().map((run) => `
-          <button class="task-history-row" type="button" data-run-id="${escapeHtml(run.id)}">
-            <span>${run.status === "ok" ? "✓" : run.status === "failed" ? "✗" : "·"}</span>
-            <span>${escapeHtml(formatRunTime(run.firedAt))}</span>
-            <span>${run.status === "failed" ? "失败" : run.status === "skipped" ? "跳过" : "完成"}</span>
-            <em>→ 查看本次输出</em>
-          </button>
-        `).join("")}
-        ${(task.runs || []).length === 0 ? `<div class="task-history-empty">还没有运行过</div>` : ""}
-      </section>
-    </article>
-  `;
-  attachTaskDetailHandlers(task);
-}
-
-function lookupSessionTitle(sessionId) {
-  // state.chatStore.sessions is a dict keyed by personaKey, each value is an array of sessions.
-  const allSessions = state.chatStore?.sessions || {};
-  for (const key of Object.keys(allSessions)) {
-    const arr = allSessions[key];
-    if (!Array.isArray(arr)) continue;
-    const found = arr.find((s) => s.id === sessionId);
-    if (found) return found.title || null;
-  }
-  return null;
-}
-
-function toLocalDatetimeInput(iso) {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-function debounceTask(fn, ms) {
-  let t = null;
-  return (...args) => {
-    clearTimeout(t);
-    t = setTimeout(() => fn(...args), ms);
-  };
-}
-
-function attachTaskDetailHandlers(task) {
-  const save = debounceTask(async (patch) => {
-    try {
-      const updated = await window.aimashi.tasks.update(task.id, patch);
-      const idx = state.tasks.findIndex((t) => t.id === task.id);
-      if (idx >= 0) state.tasks[idx] = updated;
-      renderTaskSidebar();
-    } catch (e) {
-      console.warn("update task failed", e);
-    }
-  }, 400);
-
-  document.querySelectorAll("[name=triggerType]").forEach((r) => {
-    r.addEventListener("change", () => {
-      if (r.value === "event") return;
-      save({ trigger: { type: r.value, cron: task.trigger.cron, at: task.trigger.at } });
-    });
-  });
-  document.getElementById("taskCron")?.addEventListener("input", (e) => {
-    save({ trigger: { ...task.trigger, type: "cron", cron: e.target.value } });
-  });
-  document.getElementById("taskAt")?.addEventListener("input", (e) => {
-    const iso = new Date(e.target.value).toISOString();
-    save({ trigger: { ...task.trigger, type: "oneshot", at: iso } });
-  });
-  document.getElementById("taskTimezone")?.addEventListener("input", (e) => {
-    save({ timezone: e.target.value });
-  });
-  document.getElementById("taskPrompt")?.addEventListener("input", (e) => {
-    save({ prompt: e.target.value });
-  });
-  els.tasksContent.querySelectorAll("[data-action]").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const action = btn.dataset.action;
-      try {
-        if (action === "run-now") await window.aimashi.tasks.runNow(task.id);
-        if (action === "pause")   await window.aimashi.tasks.pause(task.id);
-        if (action === "resume")  await window.aimashi.tasks.resume(task.id);
-        if (action === "delete") {
-          if (!confirm(`删除任务「${task.title}」？已发生的历史记录会保留在会话里。`)) return;
-          await window.aimashi.tasks.delete(task.id);
-          state.selectedTaskId = "";
-        }
-      } catch (e) { console.warn("[task action]", action, e); }
-      await loadTasksFromDaemon();
-      renderTaskSidebar();
-      renderTaskView();
-    });
-  });
-  els.tasksContent.querySelectorAll("[data-run-id]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      state.selectedRunId = btn.dataset.runId;
-      renderTaskSidebar();
-      renderTaskView();
-    });
-  });
-  els.tasksContent.querySelectorAll("[data-jump-session]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      jumpToTaskSession(task);
-    });
-  });
-}
-
-function findFellowForSession(sessionId) {
-  // state.chatStore.sessions is keyed by personaKey; confirm fellow exists in runtime.
-  const fellows = state.runtime?.fellows || state.runtime?.personas || [];
-  const allSessions = state.chatStore?.sessions || {};
-  for (const f of fellows) {
-    const arr = allSessions[f.key];
-    if (!Array.isArray(arr)) continue;
-    if (arr.some((s) => s.id === sessionId)) return f.key;
-  }
-  // Fallback: scan all keys in chatStore in case fellow list isn't loaded yet.
-  for (const key of Object.keys(allSessions)) {
-    const arr = allSessions[key];
-    if (Array.isArray(arr) && arr.some((s) => s.id === sessionId)) return key;
-  }
-  return null;
-}
-
-async function loadTasksFromDaemon() {
-  try {
-    state.tasks = await window.aimashi.tasks.list();
-  } catch (e) {
-    console.warn("load tasks failed", e);
-    state.tasks = [];
-  }
-}
-
-let _tasksUnsubscribe = null;
-function subscribeTaskEvents() {
-  if (_tasksUnsubscribe) return;
-  _tasksUnsubscribe = window.aimashi.tasks.subscribe(async (envelope) => {
-    await loadTasksFromDaemon();
-    if (envelope.type === "finished" || envelope.type === "failed") {
-      const taskId = envelope.payload?.taskId;
-      if (taskId && state.selectedTaskId !== taskId) {
-        state.tasksUnread.set(taskId, (state.tasksUnread.get(taskId) || 0) + 1);
-      }
-    }
-    updateTasksRailBadge();
-    if (state.activeView === "tasks") {
-      renderTaskSidebar();
-      renderTaskView();
-    }
-  });
-}
-
-function updateTasksRailBadge() {
-  if (!els.tasksUnreadBadge) return;
-  const total = [...state.tasksUnread.values()].reduce((a, b) => a + b, 0);
-  if (total > 0) {
-    els.tasksUnreadBadge.classList.remove("hidden");
-    els.tasksUnreadBadge.textContent = String(total > 99 ? "99+" : total);
-  } else {
-    els.tasksUnreadBadge.classList.add("hidden");
-  }
-}
-
-// ── End tasks view helpers ───────────────────────────────────────────────────
-
-function toggleCapabilityId(capabilities, id, enabledKey, disabledKey, checked) {
-  const next = {
-    ...capabilities,
-    [enabledKey]: [...capabilities[enabledKey]],
-    [disabledKey]: [...capabilities[disabledKey]]
-  };
-  if (next.inheritEngineDefaults) {
-    next[disabledKey] = checked
-      ? next[disabledKey].filter((item) => item !== id)
-      : [...new Set([...next[disabledKey], id])];
-  } else {
-    next[enabledKey] = checked
-      ? [...new Set([...next[enabledKey], id])]
-      : next[enabledKey].filter((item) => item !== id);
-  }
-  return next;
-}
-
-function wireFellowCapabilities(fellow) {
-  if (!els.contactDetail || !fellow) return;
-  const defaultToggle = els.contactDetail.querySelector("[data-capability-default]");
-  defaultToggle?.addEventListener("change", async () => {
-    const capabilities = fellowCapabilities(fellow);
-    capabilities.inheritEngineDefaults = Boolean(defaultToggle.checked);
-    await saveFellowCapabilities(fellow, capabilities);
-  });
-  els.contactDetail.querySelectorAll("[data-capability-type][data-capability-id]").forEach((input) => {
-    input.addEventListener("change", async () => {
-      const id = input.dataset.capabilityId || "";
-      const type = input.dataset.capabilityType || "";
-      let capabilities = fellowCapabilities(fellow);
-      if (type === "plugin") {
-        capabilities = toggleCapabilityId(capabilities, id, "enabledPlugins", "disabledPlugins", input.checked);
-      } else if (type === "skill") {
-        capabilities = toggleCapabilityId(capabilities, id, "enabledSkills", "disabledSkills", input.checked);
-      } else if (type === "connector") {
-        capabilities.enabledConnectors = input.checked
-          ? [...new Set([...capabilities.enabledConnectors, id])]
-          : capabilities.enabledConnectors.filter((item) => item !== id);
-      }
-      await saveFellowCapabilities(fellow, capabilities);
-    });
-  });
-}
-
-function petStatusForKey(key) {
-  return state.runtime?.pets?.[key] || { hasAsset: false, placed: false, petId: "" };
-}
-
-function openFellowContextMenu(fellowKey, x, y) {
-  if (!fellowKey) return;
-  closeMessageContextMenu();
-  closeGroupContextMenu();
-  state.fellowContextMenu = { open: true, x, y, fellowKey };
-  renderFellowContextMenu();
-}
-
-function closeFellowContextMenu() {
-  if (!state.fellowContextMenu.open) return;
-  state.fellowContextMenu = { open: false, x: 0, y: 0, fellowKey: "" };
-  renderFellowContextMenu();
-}
-
-function renderFellowContextMenu() {
-  if (!els.fellowContextMenu) return;
-  const menu = els.fellowContextMenu;
-  const fellow = fellowByKey(state.fellowContextMenu.fellowKey);
-  const open = state.fellowContextMenu.open && fellow;
-  menu.classList.toggle("hidden", !open);
-  if (!open) return;
-  const pet = petStatusForKey(fellow.key);
-  const petAction = pet.hasAsset
-    ? pet.placed
-      ? menuItemHtml({ icon: "message", label: `收回「${fellow.name}」`, attrs: 'data-fellow-action="recall"' })
-      : menuItemHtml({ icon: "message", label: "放进桌面", attrs: 'data-fellow-action="place"' })
-    : menuItemHtml({ icon: "addPic", label: "生成桌宠", attrs: 'data-fellow-action="generate-pet"' });
-  menu.innerHTML = `
-    ${menuItemHtml({ icon: "pin", label: fellow.pinned ? "取消置顶" : "置顶", attrs: 'data-fellow-action="pin"' })}
-    ${menuItemHtml({ icon: "edit", label: "编辑", attrs: 'data-fellow-action="edit"' })}
-    ${petAction}
-    ${fellow.key === "aimashi" ? "" : `<div class="skill-context-menu-separator" role="separator"></div>${menuItemHtml({ icon: "delete", label: "删除伙伴", attrs: 'data-fellow-action="delete"', className: "danger" })}`}
-  `;
-  const rect = menu.getBoundingClientRect();
-  const width = rect.width || 138;
-  const height = rect.height || (fellow.key === "aimashi" ? 114 : 158);
-  menu.style.left = `${Math.max(8, Math.min(state.fellowContextMenu.x, window.innerWidth - width - 8))}px`;
-  menu.style.top = `${Math.max(8, Math.min(state.fellowContextMenu.y, window.innerHeight - height - 8))}px`;
-  menu.querySelector('[data-fellow-action="edit"]')?.addEventListener("click", () => {
-    closeFellowContextMenu();
-    openEditFellowDialog(fellow.key);
-  });
-  menu.querySelector('[data-fellow-action="pin"]')?.addEventListener("click", async () => {
-    closeFellowContextMenu();
-    await setFellowPinned(fellow.key, !fellow.pinned);
-  });
-  menu.querySelector('[data-fellow-action="generate-pet"]')?.addEventListener("click", () => {
-    closeFellowContextMenu();
-    openPetGenerateDialog(fellow.key);
-  });
-  menu.querySelector('[data-fellow-action="place"]')?.addEventListener("click", async () => {
-    closeFellowContextMenu();
-    await placeFellowPet(fellow.key);
-  });
-  menu.querySelector('[data-fellow-action="recall"]')?.addEventListener("click", async () => {
-    closeFellowContextMenu();
-    await recallFellowPet(fellow.key);
-  });
-  menu.querySelector('[data-fellow-action="delete"]')?.addEventListener("click", async () => {
-    closeFellowContextMenu();
-    await deleteFellow(fellow.key);
-  });
-}
 
 function groupById(groupId) {
   return listGroups().find((group) => group.id === groupId) || null;
@@ -4493,9 +1327,9 @@ function groupById(groupId) {
 
 function openGroupContextMenu(groupId, x, y) {
   if (!groupId) return;
-  closeMessageContextMenu();
-  closeFellowContextMenu();
-  closeSkillContextMenu();
+  window.aimashiMessageMenu?.closeMessageContextMenu();
+  window.aimashiFellowManager.closeFellowContextMenu();
+  window.aimashiSkillLibrary.closeSkillContextMenu();
   state.groupContextMenu = { open: true, x, y, groupId };
   renderGroupContextMenu();
 }
@@ -4515,10 +1349,10 @@ function renderGroupContextMenu() {
   syncTopbarClickCapture();
   if (!open) return;
   menu.innerHTML = `
-    ${menuItemHtml({ icon: "pin", label: group.pinned ? "取消置顶" : "置顶", attrs: 'data-group-action="pin"' })}
-    ${menuItemHtml({ icon: "edit", label: "编辑群组", attrs: 'data-group-action="edit"' })}
+    ${window.aimashiMarkdown.menuItemHtml({ icon: "pin", label: group.pinned ? "取消置顶" : "置顶", attrs: 'data-group-action="pin"' })}
+    ${window.aimashiMarkdown.menuItemHtml({ icon: "edit", label: "编辑群组", attrs: 'data-group-action="edit"' })}
     <div class="skill-context-menu-separator" role="separator"></div>
-    ${menuItemHtml({ icon: "delete", label: "删除群组", attrs: 'data-group-action="delete"', className: "danger" })}
+    ${window.aimashiMarkdown.menuItemHtml({ icon: "delete", label: "删除群组", attrs: 'data-group-action="delete"', className: "danger" })}
   `;
   const rect = menu.getBoundingClientRect();
   const width = rect.width || 138;
@@ -4541,342 +1375,11 @@ function renderGroupContextMenu() {
   });
 }
 
-function messageAtIndex(index) {
-  const messages = messagesForActive();
-  if (!Number.isInteger(index) || index < 0 || index >= messages.length) return null;
-  return messages[index] || null;
-}
-
-function messagePlainText(message) {
-  return String(message?.content || "").trim();
-}
-
-function messageContextText(message, selectionText = "") {
-  return String(selectionText || "").trim() || messagePlainText(message);
-}
-
-function messageContextSnippet(message, selectionText = "") {
-  const text = messageContextText(message, selectionText).replace(/\s+/g, " ");
-  return text.length > 160 ? `${text.slice(0, 160)}...` : text;
-}
-
-function messageAuthorLabel(message) {
-  if (message?.role === "user") return "你";
-  const persona = activePersona();
-  return persona?.name || "AI";
-}
-
-function messageReferenceForIndex(index, selectionText = "") {
-  const message = messageAtIndex(index);
-  const snippet = messageContextSnippet(message, selectionText);
-  if (!message || !snippet) return null;
-  return {
-    role: message.role,
-    author: messageAuthorLabel(message),
-    content: snippet,
-    createdAt: message.createdAt || "",
-    messageIndex: index,
-    selected: Boolean(String(selectionText || "").trim())
-  };
-}
-
-function replyQuoteHtml(replyTo) {
-  if (!replyTo?.content) return "";
-  return `
-    <div class="message-reply-quote">
-      <span>${escapeHtml(replyTo.author || (replyTo.role === "user" ? "你" : "AI"))}</span>
-      <p>${escapeHtml(replyTo.content)}</p>
-    </div>
-  `;
-}
-
-function clearMessageSelectionHighlight() {
-  try {
-    window.CSS?.highlights?.delete?.("aimashi-message-selection");
-  } catch {
-    // Highlight API is optional.
-  }
-}
-
-function highlightMessageSelection(range) {
-  clearMessageSelectionHighlight();
-  try {
-    if (!range || !window.Highlight || !window.CSS?.highlights) return;
-    window.CSS.highlights.set("aimashi-message-selection", new window.Highlight(range));
-  } catch {
-    // Keep native selection behavior when custom highlights are unavailable.
-  }
-}
-
-function selectionInsideBubble(bubble) {
-  const selection = window.getSelection?.();
-  if (!selection || selection.isCollapsed || selection.rangeCount === 0) return null;
-  const text = selection.toString().trim();
-  if (!text) return null;
-  const anchorInside = selection.anchorNode && bubble.contains(selection.anchorNode);
-  const focusInside = selection.focusNode && bubble.contains(selection.focusNode);
-  if (!anchorInside || !focusInside) return null;
-  const range = selection.getRangeAt(0).cloneRange();
-  return { text, range };
-}
-
-function hasActiveMessageTextSelection() {
-  const selection = window.getSelection?.();
-  if (!selection || selection.isCollapsed || selection.rangeCount === 0) return false;
-  if (!String(selection.toString() || "").trim()) return false;
-  const anchorBubble = selection.anchorNode?.parentElement?.closest?.(".bubble[data-message-index]");
-  const focusBubble = selection.focusNode?.parentElement?.closest?.(".bubble[data-message-index]");
-  return Boolean(anchorBubble && focusBubble && anchorBubble === focusBubble && els.chat?.contains(anchorBubble));
-}
-
-function openMessageContextMenu(messageIndex, x, y, selection = null) {
-  const index = Number(messageIndex);
-  if (!messageAtIndex(index)) return;
-  closeSkillContextMenu();
-  closeFellowContextMenu();
-  closeGroupContextMenu();
-  const selectionText = String(selection?.text || "").trim();
-  state.messageContextMenu = { open: true, x, y, messageIndex: index, selectionText };
-  if (selectionText) highlightMessageSelection(selection.range);
-  else clearMessageSelectionHighlight();
-  renderMessageContextMenu();
-}
-
-function closeMessageContextMenu() {
-  if (!state.messageContextMenu.open) return;
-  state.messageContextMenu = { open: false, x: 0, y: 0, messageIndex: -1, selectionText: "" };
-  clearMessageSelectionHighlight();
-  renderMessageContextMenu();
-}
-
-let composerCompositionEndedAt = 0;
-
-function isComposerComposing(event = null) {
-  const justCommitted =
-    event?.key === "Enter" &&
-    composerCompositionEndedAt > 0 &&
-    performance.now() - composerCompositionEndedAt < 80;
-  return Boolean(
-    els.chatInput?.dataset.composing === "true" ||
-    event?.isComposing ||
-    event?.key === "Process" ||
-    event?.keyCode === 229 ||
-    justCommitted
-  );
-}
-
-function resizeChatInput() {
-  const input = els.chatInput;
-  if (!input) return;
-  const style = window.getComputedStyle(input);
-  const minHeight = Number.parseFloat(style.minHeight) || 41;
-  const maxHeight = Number.parseFloat(style.maxHeight) || 180;
-  if (!input.value) {
-    input.style.height = `${minHeight}px`;
-    input.style.overflowY = "hidden";
-    return;
-  }
-  input.style.height = `${minHeight}px`;
-  const nextHeight = Math.max(minHeight, Math.min(input.scrollHeight, maxHeight));
-  input.style.height = `${nextHeight}px`;
-  input.style.overflowY = input.scrollHeight > maxHeight ? "auto" : "hidden";
-}
-
-function insertComposerText(text) {
-  const value = String(text || "");
-  if (!value || !els.chatInput) return;
-  els.chatInput.value = value;
-  els.chatInput.focus();
-  els.chatInput.setSelectionRange(value.length, value.length);
-  resizeChatInput();
-  renderSendButton();
-  updateSlashCommandState();
-}
-
-function renderComposerReply() {
-  if (!els.composerReply) return;
-  const reply = state.replyDraft;
-  els.composerReply.classList.toggle("hidden", !reply);
-  if (!reply) {
-    els.composerReply.innerHTML = "";
-    return;
-  }
-  els.composerReply.innerHTML = `
-    <div>
-      <span>回复 ${escapeHtml(reply.author || "消息")}</span>
-      <p>${escapeHtml(reply.content || "")}</p>
-    </div>
-    <button type="button" data-clear-reply title="取消回复" aria-label="取消回复">×</button>
-  `;
-}
-
-function replyToMessage(message, index = state.messageContextMenu.messageIndex, selectionText = "") {
-  const reference = messageReferenceForIndex(Number(index), selectionText);
-  if (!reference) return;
-  state.replyDraft = reference;
-  renderComposerReply();
-  els.chatInput?.focus();
-}
-
-function replyContextPrompt(text, replyTo) {
-  if (!replyTo?.content) return text;
-  return [
-    "用户正在回复会话中的某一条消息。请把“被回复消息”作为这次回复的直接上下文，但不要在回答里机械复述它。",
-    "",
-    `被回复消息作者：${replyTo.author || (replyTo.role === "user" ? "用户" : "助手")}`,
-    "被回复消息：",
-    replyTo.content,
-    "",
-    "用户实际输入：",
-    text
-  ].join("\n");
-}
-
-function translationHtml(message, index) {
-  const translation = message?.translation;
-  if (!translation) return "";
-  const status = translation.status || (translation.text ? "done" : "");
-  const label = translation.sourceText ? "选中文本译文" : "译文";
-  const body = status === "loading"
-    ? '<p class="message-translation-muted">正在翻译...</p>'
-    : status === "error"
-      ? `<p class="message-translation-error">${escapeHtml(translation.error || "翻译失败")}</p>`
-      : `<div class="message-translation-body">${renderMarkdown(translation.text || "")}</div>`;
-  const copyButton = status === "done" && translation.text
-    ? `<button type="button" data-copy-translation="${index}" title="复制译文" aria-label="复制译文">⧉</button>`
-    : "";
-  return `
-    <div class="message-translation">
-      <div class="message-translation-head">
-        <span>${label}</span>
-        ${copyButton}
-      </div>
-      ${body}
-    </div>
-  `;
-}
-
-async function translateMessage(message, index = state.messageContextMenu.messageIndex, selectionText = "") {
-  const text = messageContextText(message, selectionText);
-  const messageIndex = Number(index);
-  const session = activeSession();
-  const target = messageAtIndex(messageIndex);
-  if (!text || !target) return;
-  if (state.isGenerating) {
-    target.translation = {
-      status: "error",
-      error: "请等当前回复生成结束后再翻译。",
-      sourceText: String(selectionText || "").trim(),
-      translatedAt: nowIso()
-    };
-    renderChat();
-    return;
-  }
-  target.translation = {
-    status: "loading",
-    text: "",
-    error: "",
-    sourceText: String(selectionText || "").trim(),
-    translatedAt: nowIso()
-  };
-  renderChat();
-  try {
-    const prompt = [
-      "请把下面这条聊天消息翻译成简体中文。",
-      "要求：只输出译文；保持原意、语气和代码/命令/链接；不要添加解释。",
-      "",
-      text
-    ].join("\n");
-    const response = await window.aimashi.sendChat({
-      fellowKey: state.activeKey,
-      personaKey: state.activeKey,
-      sessionId: `utility:translate:${cryptoRandomId()}`,
-      utility: true,
-      messages: [{ role: "user", content: prompt }]
-    });
-    const translated = String(response.choices?.[0]?.message?.content || "").trim();
-    target.translation = translated
-      ? { status: "done", text: translated, error: "", sourceText: String(selectionText || "").trim(), translatedAt: nowIso() }
-      : { status: "error", text: "", error: "模型没有返回译文。", sourceText: String(selectionText || "").trim(), translatedAt: nowIso() };
-  } catch (error) {
-    target.translation = {
-      status: "error",
-      text: "",
-      error: `翻译失败: ${error.message || error}`,
-      sourceText: String(selectionText || "").trim(),
-      translatedAt: nowIso()
-    };
-  }
-  renderChat();
-  await persistSessionQuietly(session);
-}
-
-async function toggleMessagePinned(index) {
-  const message = messageAtIndex(index);
-  if (!message) return;
-  message.pinned = !message.pinned;
-  message.pinnedAt = message.pinned ? nowIso() : "";
-  const session = activeSession();
-  session.updatedAt = nowIso();
-  renderChat();
-  await replacePersistedSessionQuietly(session);
-}
-
-async function deleteMessageAt(index) {
-  const session = activeSession();
-  if (!messageAtIndex(index)) return;
-  session.messages.splice(index, 1);
-  session.updatedAt = nowIso();
-  renderChat();
-  renderSessionMenu();
-  await replacePersistedSessionQuietly(session);
-}
-
-function renderMessageContextMenu() {
-  if (!els.messageContextMenu) return;
-  const menu = els.messageContextMenu;
-  const message = messageAtIndex(state.messageContextMenu.messageIndex);
-  const open = state.messageContextMenu.open && message;
-  menu.classList.toggle("hidden", !open);
-  if (!open) return;
-  const selectionText = String(state.messageContextMenu.selectionText || "").trim();
-  const hasSelection = Boolean(selectionText);
-  const contextText = messageContextText(message, selectionText);
-  const hasText = Boolean(contextText);
-  menu.innerHTML = `
-    ${menuItemHtml({ icon: "quote", label: hasSelection ? "回复选中" : "回复", attrs: `data-message-action="reply" ${hasText ? "" : "disabled"}` })}
-    ${menuItemHtml({ icon: "copy", label: hasSelection ? "拷贝选中" : "拷贝", attrs: `data-message-action="copy" ${hasText ? "" : "disabled"}` })}
-    ${menuItemHtml({ icon: "translate", label: hasSelection ? "翻译选中" : "翻译", attrs: `data-message-action="translate" ${hasText ? "" : "disabled"}` })}
-    <div class="skill-context-menu-separator" role="separator"></div>
-    ${menuItemHtml({ icon: "pin", label: message.pinned ? "取消置顶" : "置顶", attrs: 'data-message-action="pin"' })}
-    ${menuItemHtml({ icon: "delete", label: "删除", attrs: 'data-message-action="delete"', className: "danger" })}
-  `;
-  const rect = menu.getBoundingClientRect();
-  const width = rect.width || 116;
-  const height = rect.height || 210;
-  menu.style.left = `${Math.max(8, Math.min(state.messageContextMenu.x, window.innerWidth - width - 8))}px`;
-  menu.style.top = `${Math.max(8, Math.min(state.messageContextMenu.y, window.innerHeight - height - 8))}px`;
-  menu.querySelectorAll("[data-message-action]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      const action = button.dataset.messageAction;
-      const index = state.messageContextMenu.messageIndex;
-      const actionSelectionText = String(state.messageContextMenu.selectionText || "").trim();
-      const targetMessage = messageAtIndex(index);
-      closeMessageContextMenu();
-      if (!targetMessage) return;
-      if (action === "reply") replyToMessage(targetMessage, index, actionSelectionText);
-      if (action === "copy") await copyTextToClipboard(messageContextText(targetMessage, actionSelectionText));
-      if (action === "translate") await translateMessage(targetMessage, index, actionSelectionText);
-      if (action === "pin") await toggleMessagePinned(index);
-      if (action === "delete") await deleteMessageAt(index);
-    });
-  });
-}
 
 async function openEditFellowDialog(fellowKey) {
   try {
     const details = await window.aimashi.loadFellowDetails(fellowKey);
-    openFellowDialog(details.fellow, details.personaText || "");
+    window.aimashiFellowDialog.openFellowDialog(details.fellow, details.personaText || "");
   } catch (error) {
     appendTransientChat("assistant", `编辑 Fellow 失败: ${error.message}`);
   }
@@ -4893,7 +1396,7 @@ async function setFellowPinned(fellowKey, pinned) {
 }
 
 async function deleteFellow(fellowKey) {
-  const fellow = fellowByKey(fellowKey);
+  const fellow = window.aimashiFellowManager.fellowByKey(fellowKey);
   if (!fellow || fellow.key === "aimashi") return;
   const ok = window.confirm(`删除「${fellow.name || fellow.key}」？\n\n这会移除该伙伴、人设文件和本地会话记录。`);
   if (!ok) return;
@@ -4952,119 +1455,10 @@ async function deleteGroup(groupId) {
   }
 }
 
-function openPetGenerateDialog(fellowKey) {
-  const fellow = fellowByKey(fellowKey);
-  if (!fellow) return;
-  state.petGenerateOpen = true;
-  state.petGenerateFellowKey = fellow.key;
-  const reference = fellow.avatarImage || avatarAssetForKey(fellow.key);
-  state.petReferences = reference ? [{ id: cryptoRandomId(), src: reference }] : [];
-  if (els.petPrompt) els.petPrompt.value = "";
-  if (els.petStylePreset) els.petStylePreset.value = "codex";
-  renderView();
-}
-
-function closePetGenerateDialog() {
-  state.petGenerateOpen = false;
-  state.petGenerateFellowKey = "";
-  state.petReferences = [];
-  renderView();
-}
-
-function renderPetGenerateDialog() {
-  if (!els.petGenerateDialog || !state.petGenerateOpen) return;
-  const fellow = fellowByKey(state.petGenerateFellowKey);
-  if (!fellow) return;
-  setText(els.petGenerateTitle, `生成「${fellow.name}」桌宠`);
-  setText(els.petGenerateSubtitle, "会在后台调用 AlkakaPet/Hatch Pet 流程，耗时可能较长。");
-  if (!els.petReferenceList) return;
-  els.petReferenceList.innerHTML = state.petReferences.length
-    ? state.petReferences.map((item) => `
-      <div class="pet-reference-thumb" style="${avatarBackgroundStyle(item.src, { x: 50, y: 50, zoom: 1 }, "#eef0ff")}">
-        <button type="button" data-remove-pet-reference="${escapeHtml(item.id)}" title="删除">×</button>
-      </div>
-    `).join("")
-    : `<div class="pet-reference-empty">没有参考图片</div>`;
-  els.petReferenceList.querySelectorAll("[data-remove-pet-reference]").forEach((button) => {
-    button.addEventListener("click", () => {
-      state.petReferences = state.petReferences.filter((item) => item.id !== button.dataset.removePetReference);
-      renderPetGenerateDialog();
-    });
-  });
-}
-
-function readPetReferenceFile(file) {
-  if (!file || !file.type?.startsWith("image/")) return;
-  const reader = new FileReader();
-  reader.addEventListener("load", () => {
-    state.petReferences.push({ id: cryptoRandomId(), src: String(reader.result || "") });
-    renderPetGenerateDialog();
-  });
-  reader.readAsDataURL(file);
-}
-
-async function refreshPetJobs() {
-  try {
-    state.petJobs = await window.aimashi.loadPetJobs();
-    renderPetJobs();
-    if (state.petJobs.some((job) => job.status === "completed")) {
-      await refreshRuntime();
-    }
-  } catch (error) {
-    console.error("Failed to load pet jobs", error);
-  }
-}
-
-function renderPetJobs() {
-  const jobs = state.petJobs?.length ? state.petJobs : (state.runtime?.petJobs || []);
-  if (!els.petJobButton || !els.petJobPanel) return;
-  const running = jobs.filter((job) => job.status === "running");
-  const latest = jobs[0];
-  const visible = running.length || latest;
-  els.petJobButton.classList.toggle("hidden", !visible);
-  if (!visible) {
-    els.petJobPanel.classList.add("hidden");
-    return;
-  }
-  els.petJobButton.textContent = running.length
-    ? `桌宠生成中 ${running.length}`
-    : latest.status === "completed"
-      ? "桌宠已生成"
-      : "桌宠生成失败";
-  els.petJobPanel.classList.toggle("hidden", !state.petJobPanelOpen);
-  if (!state.petJobPanelOpen) return;
-  els.petJobPanel.innerHTML = jobs.slice(0, 5).map((job) => `
-    <article class="pet-job-item ${escapeHtml(job.status)}">
-      <strong>${escapeHtml(job.fellowName || job.petId)}</strong>
-      <span>${escapeHtml(job.status === "running" ? "生成中" : job.status === "completed" ? "已完成" : "失败")}</span>
-      ${job.error ? `<p>${escapeHtml(job.error)}</p>` : ""}
-      ${job.logPath ? `<small>${escapeHtml(job.logPath)}</small>` : ""}
-    </article>
-  `).join("");
-}
-
-async function placeFellowPet(fellowKey) {
-  try {
-    await window.aimashi.placeFellowPet(fellowKey);
-    await refreshRuntime();
-  } catch (error) {
-    appendTransientChat("assistant", `放进桌面失败: ${error.message}`);
-  }
-}
-
-async function recallFellowPet(fellowKey) {
-  try {
-    await window.aimashi.recallFellowPet(fellowKey);
-    await refreshRuntime();
-  } catch (error) {
-    appendTransientChat("assistant", `收回桌宠失败: ${error.message}`);
-  }
-}
-
 async function deleteSkill(skillId) {
   const skill = state.skillLibrary.skills.find((item) => item.id === skillId);
   if (!skill || skill.source !== "aimashi") return;
-  const label = skillDisplayName(skill);
+  const label = window.aimashiSkillHelpers.skillDisplayName(skill);
   if (!window.confirm(`删除本地 Skill「${label}」？\n\n会移除 Aimashi Runtime skills 目录下对应文件夹。`)) return;
   try {
     const library = await window.aimashi.deleteSkill(skillId);
@@ -5088,14 +1482,14 @@ async function deleteSkill(skillId) {
     console.error("Failed to delete skill", error);
     window.alert(error.message || "删除 Skill 失败");
   }
-  renderSkillLibrary();
-  renderSkillPreview();
+  window.aimashiSkillLibrary.renderSkillLibrary();
+  window.aimashiSkillLibrary.renderSkillPreview();
 }
 
 async function installExtension(extensionId) {
   if (!extensionId || state.installingExtensions.has(extensionId)) return;
   state.installingExtensions.add(extensionId);
-  renderSkillLibrary();
+  window.aimashiSkillLibrary.renderSkillLibrary();
   try {
     const library = await window.aimashi.installPlugin(extensionId);
     const sources = Array.isArray(library?.sources)
@@ -5115,8 +1509,8 @@ async function installExtension(extensionId) {
     window.alert(`安装失败：${error.message || error}`);
   } finally {
     state.installingExtensions.delete(extensionId);
-    renderSkillLibrary();
-    renderSkillPicker();
+    window.aimashiSkillLibrary.renderSkillLibrary();
+    window.aimashiComposer.renderSkillPicker();
   }
 }
 
@@ -5185,10 +1579,10 @@ function renderSessionMenu() {
     row.className = `session-row${session.id === activeId ? " active" : ""}`;
     row.innerHTML = `
       <span>
-        <strong>${escapeHtml(session.title || "新对话")}</strong>
-        <small>${escapeHtml(new Date(session.updatedAt || session.createdAt || Date.now()).toLocaleString())}</small>
+        <strong>${window.aimashiMarkdown.escapeHtml(session.title || "新对话")}</strong>
+        <small>${window.aimashiMarkdown.escapeHtml(new Date(session.updatedAt || session.createdAt || Date.now()).toLocaleString())}</small>
       </span>
-      <em title="重命名" data-session-edit="${escapeHtml(session.id)}">${iconParkIcon("edit", "session-row-edit-icon")}</em>
+      <em title="重命名" data-session-edit="${window.aimashiMarkdown.escapeHtml(session.id)}">${window.aimashiMarkdown.iconParkIcon("edit", "session-row-edit-icon")}</em>
     `;
     row.addEventListener("click", async (event) => {
       const editTarget = event.target.closest("[data-session-edit]");
@@ -5241,240 +1635,6 @@ async function maybeGenerateTitleForSession(session) {
   }
 }
 
-function normalizeTraceText(value) {
-  return String(value || "")
-    .toLowerCase()
-    .replace(/```[\s\S]*?```/g, "")
-    .replace(/[\s\u3000`*_~#>()[\]{}.,，。!?！？:：;；"'“”‘’、|/\\-]+/g, "");
-}
-
-function isDuplicateTraceReasoning(reasoning, content) {
-  const reasoningText = normalizeTraceText(reasoning);
-  const contentText = normalizeTraceText(content);
-  if (!reasoningText || !contentText) return false;
-  if (reasoningText === contentText) return true;
-  const shorter = reasoningText.length <= contentText.length ? reasoningText : contentText;
-  const longer = reasoningText.length > contentText.length ? reasoningText : contentText;
-  return shorter.length >= 16 && longer.includes(shorter);
-}
-
-function traceReasoningForDisplay(reasoning, tools, content = "") {
-  const text = String(reasoning || "").trim();
-  if (!text) return "";
-  const toolList = Array.isArray(tools) ? tools : [];
-  if (isDuplicateTraceReasoning(text, content)) return "";
-  if (!toolList.length) return "";
-  return text;
-}
-
-function renderTraceBlocks({ reasoning, tools, content, expanded, scopeKey }) {
-  const toolList = Array.isArray(tools) ? tools : [];
-  const displayReasoning = traceReasoningForDisplay(reasoning, toolList, content);
-  if (!displayReasoning && !toolList.length) return "";
-  const rows = [];
-  const openState = (key) => {
-    if (!key) return { open: Boolean(expanded), userOpen: false, userClosed: false };
-    const userOpen = state.openTraceKeys.has(key);
-    const userClosed = state.openTraceKeys.has(`!${key}`);
-    return {
-      open: userOpen || (!userClosed && Boolean(expanded)),
-      userOpen,
-      userClosed
-    };
-  };
-  const animClass = (key) => {
-    if (!key) return "";
-    if (state.animatedTraceKeys.has(key)) return "";
-    return " trace-anim-enter";
-  };
-  const rowAttrs = (key, idx, stateForKey) => {
-    const attrs = [];
-    if (key) attrs.push(`data-trace-key="${escapeHtml(key)}"`);
-    if (stateForKey.open) attrs.push("open");
-    if (stateForKey.open && stateForKey.userOpen) {
-      attrs.push('data-user-open="true"');
-    } else if (stateForKey.open) {
-      attrs.push('data-auto-open="true"');
-    }
-    if (key && !state.animatedTraceKeys.has(key)) {
-      attrs.push(`style="--trace-delay:${Math.min(idx, 6) * 60}ms"`);
-    }
-    return attrs.length ? ` ${attrs.join(" ")}` : "";
-  };
-  if (displayReasoning) {
-    const reasoningText = displayReasoning;
-    const key = scopeKey ? `${scopeKey}::reasoning` : "";
-    const stateForKey = openState(key);
-    rows.push(
-      `<details class="trace-row reasoning${animClass(key)}"${rowAttrs(key, rows.length, stateForKey)}>` +
-        `<summary><span class="trace-chevron">▸</span><span class="trace-cmd">thinking</span><span class="trace-arg">${escapeHtml(reasoningText.slice(0, 80).replace(/\s+/g, " "))}</span></summary>` +
-        `<pre class="trace-body">${escapeHtml(reasoningText)}</pre>` +
-      `</details>`
-    );
-  }
-  for (let idx = 0; idx < toolList.length; idx++) {
-    const tool = toolList[idx];
-    const status = tool.status === "completed" ? "ok" : tool.status === "error" ? "err" : "run";
-    const glyph = status === "ok" ? "✓" : status === "err" ? "✗" : "●";
-    const meta = status === "run"
-      ? "…"
-      : (tool.duration != null ? `${Number(tool.duration).toFixed(2)}s` : "");
-    const name = String(tool.name || "tool");
-    const preview = String(tool.preview || "");
-    const previewInline = preview.replace(/\s+/g, " ").slice(0, 120);
-    const key = scopeKey ? `${scopeKey}::tool::${tool.id || idx}` : "";
-    const stateForKey = openState(key);
-    rows.push(
-      `<details class="trace-row tool${animClass(key)}" data-status="${status}"${rowAttrs(key, rows.length, stateForKey)}>` +
-        `<summary>` +
-          `<span class="trace-chevron">▸</span>` +
-          `<span class="trace-glyph">${glyph}</span>` +
-          `<span class="trace-cmd">${escapeHtml(name)}</span>` +
-          (previewInline ? `<span class="trace-arg">${escapeHtml(previewInline)}</span>` : "") +
-          (meta ? `<span class="trace-meta">${escapeHtml(meta)}</span>` : "") +
-        `</summary>` +
-        (preview ? `<pre class="trace-body">${escapeHtml(preview)}</pre>` : "") +
-      `</details>`
-    );
-  }
-  return `<div class="trace">${rows.join("")}</div>`;
-}
-
-function detectedLocalAgentLabels(runtime = state.runtime) {
-  const engines = runtime?.agentEngines || {};
-  const labels = [];
-  if (engines.claudeCode?.available) labels.push("Claude Code");
-  if (engines.codex?.available) labels.push("Codex");
-  return labels;
-}
-
-function shouldShowSetupGuide({ messages }) {
-  if (!state.runtime) return false;
-  // Onboarding takes over the chat panel until the user has at least one fellow.
-  const fellows = state.runtime.fellows || state.runtime.personas || [];
-  if (fellows.length === 0) return true;
-  if (state.setupGuideDismissed) return false;
-  if (messages.length > 0) return false;
-  return true;
-}
-
-function engineChoiceRow({ id, label, status, available, action, actionLabel }) {
-  const stateClass = available ? "" : " unavailable";
-  const actionAttr = action ? `data-setup-action="${action}" data-engine="${id}"` : "";
-  const button = action
-    ? `<button class="setup-engine-action${available ? " primary" : ""}" type="button" ${actionAttr}>${escapeHtml(actionLabel)}</button>`
-    : "";
-  return `
-    <div class="setup-engine-row${stateClass}" data-engine-id="${id}">
-      <span class="setup-engine-dot ${id}"></span>
-      <div class="setup-engine-body">
-        <strong>${escapeHtml(label)}</strong>
-        <small>${escapeHtml(status)}</small>
-      </div>
-      ${button}
-    </div>
-  `;
-}
-
-function renderSetupGuide() {
-  const runtime = state.runtime || {};
-  const engines = runtime.agentEngines || {};
-  const source = runtime.engineSource;
-  const fellows = runtime.fellows || runtime.personas || [];
-
-  // If no fellow exists, force flow into onboarding regardless of prior dismiss.
-  if (fellows.length === 0 && state.onboardingStep === "done") {
-    state.onboardingStep = "engine";
-  }
-
-  if (state.onboardingStep === "create-fellow") {
-    return renderSetupGuideCreateFellowStep();
-  }
-
-  // Default: "engine" step
-  let hermesStatus;
-  let hermesAvailable;
-  let hermesAction;
-  let hermesActionLabel;
-  if (source === "bundled") {
-    hermesStatus = "随 Aimashi 安装包内置，无需额外安装";
-    hermesAvailable = true;
-    hermesAction = "use-engine";
-    hermesActionLabel = "使用 Hermes";
-  } else if (source === "managed") {
-    hermesStatus = "Aimashi 独立 Hermes 副本已安装";
-    hermesAvailable = true;
-    hermesAction = "use-engine";
-    hermesActionLabel = "使用 Hermes";
-  } else {
-    hermesStatus = "未安装 · 点击会装一份独立副本到 Aimashi 私有目录（不影响你自己的 hermes）";
-    hermesAvailable = false;
-    hermesAction = "install-hermes";
-    hermesActionLabel = "安装 Hermes";
-  }
-
-  const cc = engines.claudeCode || {};
-  const claudeStatus = cc.available
-    ? `${cc.path || "已检测到"}${cc.version ? ` · ${cc.version.split(" ")[0]}` : ""}`
-    : "未检测到 · 需先用 npm 装 @anthropic-ai/claude-code";
-  const codex = engines.codex || {};
-  const codexStatus = codex.available
-    ? `${codex.path || "已检测到"}${codex.version ? ` · ${codex.version.split(" ")[0]}` : ""}`
-    : "未检测到 · 需先安装 OpenAI Codex CLI";
-
-  return `
-    <article class="setup-guide">
-      <div class="setup-guide-main">
-        <span class="setup-kicker">第 1 步 / 共 2 步</span>
-        <strong>选个 Agent 引擎</strong>
-        <p>这是你的第一个伙伴默认会用的引擎，以后任意时候都能换。</p>
-      </div>
-      <div class="setup-engine-list">
-        ${engineChoiceRow({
-          id: "hermes",
-          label: "Hermes",
-          status: hermesStatus,
-          available: hermesAvailable,
-          action: hermesAction,
-          actionLabel: hermesActionLabel
-        })}
-        ${engineChoiceRow({
-          id: "claude-code",
-          label: "Claude Code",
-          status: claudeStatus,
-          available: cc.available,
-          action: cc.available ? "use-engine" : "",
-          actionLabel: "使用 Claude Code"
-        })}
-        ${engineChoiceRow({
-          id: "codex",
-          label: "Codex",
-          status: codexStatus,
-          available: codex.available,
-          action: codex.available ? "use-engine" : "",
-          actionLabel: "使用 Codex"
-        })}
-      </div>
-    </article>
-  `;
-}
-
-function renderSetupGuideCreateFellowStep() {
-  const engine = state.onboardingPickedEngine || "hermes";
-  const label = engine === "hermes" ? "Hermes" : engine === "claude-code" ? "Claude Code" : "Codex";
-  return `
-    <article class="setup-guide">
-      <div class="setup-guide-main">
-        <span class="setup-kicker">第 2 步 / 共 2 步</span>
-        <strong>创建你的第一个伙伴</strong>
-        <p>名字、头像、人设都已经预填好，点 "开始创建" 后可以随便改。引擎已选：<b>${escapeHtml(label)}</b>。</p>
-      </div>
-      <div class="setup-actions" style="justify-content: flex-start;">
-        <button class="setup-action primary" type="button" data-setup-action="create-first-fellow">开始创建</button>
-      </div>
-    </article>
-  `;
-}
 
 function renderMessageHtml(message, ctx) {
   // ctx = {
@@ -5492,25 +1652,25 @@ function renderMessageHtml(message, ctx) {
   const taskAffordanceHtml = taskMeta
     ? `<div class="task-fire-affordance">
          <span class="task-fire-icon">📅</span>
-         来自定时任务「${escapeHtml(taskMeta.title)}」 ·
-         ${escapeHtml(formatRunTime(typeof firedAt === "string" ? new Date(firedAt).getTime() : firedAt))} ·
-         <button class="link" type="button" data-jump-task="${escapeHtml(taskMeta.id)}">打开任务</button>
+         来自定时任务「${window.aimashiMarkdown.escapeHtml(taskMeta.title)}」 ·
+         ${window.aimashiMarkdown.escapeHtml(formatRunTime(typeof firedAt === "string" ? new Date(firedAt).getTime() : firedAt))} ·
+         <button class="link" type="button" data-jump-task="${window.aimashiMarkdown.escapeHtml(taskMeta.id)}">打开任务</button>
        </div>`
     : "";
-  const label = message.role === "user" ? (user.avatarText || initials(user.displayName)) : initials(persona?.name || "A");
+  const label = message.role === "user" ? (user.avatarText || window.aimashiAvatar.initials(user.displayName)) : window.aimashiAvatar.initials(persona?.name || "A");
   const color = message.role === "user" ? user.avatarColor : (persona?.color || "#23444d");
-  const fellowAvatarImage = persona?.avatarImage || avatarAssetForKey(persona?.key);
-  const fellowAvatar = avatarImageSrc(fellowAvatarImage);
+  const fellowAvatarImage = persona?.avatarImage || window.aimashiAvatar.avatarAssetForKey(persona?.key);
+  const fellowAvatar = window.aimashiAvatar.avatarImageSrc(fellowAvatarImage);
   const userAvatarImage = user.avatarImage || "";
-  const userAvatar = avatarImageSrc(userAvatarImage);
+  const userAvatar = window.aimashiAvatar.avatarImageSrc(userAvatarImage);
   const avatarBackgroundColor = message.role === "assistant"
     ? (fellowAvatar ? "transparent" : (color || "#111827"))
     : (userAvatar ? "transparent" : (color || "#111827"));
   const imageStyle = message.role === "assistant"
-    ? avatarThumbBackgroundStyle(fellowAvatarImage, persona?.avatarCrop, color)
-    : (userAvatar ? avatarThumbBackgroundStyle(userAvatarImage, user.avatarCrop, color) : "");
+    ? window.aimashiAvatar.avatarThumbBackgroundStyle(fellowAvatarImage, persona?.avatarCrop, color)
+    : (userAvatar ? window.aimashiAvatar.avatarThumbBackgroundStyle(userAvatarImage, user.avatarCrop, color) : "");
   const traceHtml = message.role === "assistant"
-    ? renderTraceBlocks({
+    ? window.aimashiTraceBlocks.renderTraceBlocks({
       reasoning: message.reasoning,
       tools: message.tools,
       content: message.content,
@@ -5519,14 +1679,14 @@ function renderMessageHtml(message, ctx) {
     })
     : "";
   const timeHtml = renderMessageTime(message.createdAt);
-  const bodyHtml = String(message.content || "").trim() ? renderMarkdown(message.content) : "";
-  const replyHtml = replyQuoteHtml(message.replyTo);
-  const translation = translationHtml(message, messageIndex);
+  const bodyHtml = String(message.content || "").trim() ? window.aimashiMarkdown.renderMarkdown(message.content) : "";
+  const replyHtml = window.aimashiMessageHelpers.replyQuoteHtml(message.replyTo);
+  const translation = window.aimashiMessageMenu?.translationHtml(message, messageIndex) || "";
   const attachmentHtml = renderAttachmentChips([...(message.attachments || []), ...generatedAttachmentsForMessage(message)].map(hydrateAttachmentPreview));
   const pinnedHtml = message.pinned ? `<span class="message-pin-badge">${ICON_PARK_PIN_SVG}置顶</span>` : "";
   const roleClass = message.role === "user" ? "user" : "assistant";
   return `<article class="message ${roleClass}">
-      <div class="avatar" style="background-color:${escapeHtml(avatarBackgroundColor)};${imageStyle}">${message.role === "user" && !userAvatar ? escapeHtml(label) : ""}</div>
+      <div class="avatar" style="background-color:${window.aimashiMarkdown.escapeHtml(avatarBackgroundColor)};${imageStyle}">${message.role === "user" && !userAvatar ? window.aimashiMarkdown.escapeHtml(label) : ""}</div>
       <div class="message-stack">${taskAffordanceHtml}${traceHtml}<div class="bubble${message.pinned ? " pinned" : ""}" data-message-index="${messageIndex}">${pinnedHtml}${replyHtml}${bodyHtml}${attachmentHtml}${translation}</div>${timeHtml}</div>
     </article>`;
 }
@@ -5549,8 +1709,8 @@ function renderChat() {
   const activeAgentEngine = active?.agentEngine || active?.agent_engine || "hermes";
   const usesHermes = !["claude-code", "codex"].includes(activeAgentEngine);
   els.chat.innerHTML = "";
-  if (shouldShowSetupGuide({ messages })) {
-    els.chat.insertAdjacentHTML("beforeend", renderSetupGuide());
+  if (window.aimashiSetupGuide?.shouldShowSetupGuide({ messages })) {
+    els.chat.insertAdjacentHTML("beforeend", window.aimashiSetupGuide.renderSetupGuide());
   }
   for (const [messageIndex, message] of messages.entries()) {
     const html = renderMessageHtml(message, {
@@ -5565,26 +1725,26 @@ function renderChat() {
   const hasStreamingContent = s && (
     s.text ||
     s.tools.length ||
-    traceReasoningForDisplay(s.reasoning, s.tools, s.text)
+    window.aimashiTraceBlocks.traceReasoningForDisplay(s.reasoning, s.tools, s.text)
   );
   if (s && s.sessionId === session.id && hasStreamingContent) {
     const article = document.createElement("article");
     article.className = "message assistant streaming";
     const personaForStream = active;
-    const fellowAvatarImage = personaForStream?.avatarImage || avatarAssetForKey(personaForStream?.key);
-    const fellowAvatar = avatarImageSrc(fellowAvatarImage);
+    const fellowAvatarImage = personaForStream?.avatarImage || window.aimashiAvatar.avatarAssetForKey(personaForStream?.key);
+    const fellowAvatar = window.aimashiAvatar.avatarImageSrc(fellowAvatarImage);
     const avatarBackgroundColor = fellowAvatar ? "transparent" : (personaForStream?.color || "#23444d");
-    const imageStyle = avatarThumbBackgroundStyle(fellowAvatarImage, personaForStream?.avatarCrop, personaForStream?.color);
-    const traceHtml = renderTraceBlocks({
+    const imageStyle = window.aimashiAvatar.avatarThumbBackgroundStyle(fellowAvatarImage, personaForStream?.avatarCrop, personaForStream?.color);
+    const traceHtml = window.aimashiTraceBlocks.renderTraceBlocks({
       reasoning: s.reasoning,
       tools: s.tools,
       content: s.text,
       expanded: true,
       scopeKey: `run:${s.runId || ""}`
     });
-    const textHtml = s.text ? `<div class="bubble">${renderMarkdown(s.text)}</div>${renderMessageTime(s.createdAt)}` : "";
+    const textHtml = s.text ? `<div class="bubble">${window.aimashiMarkdown.renderMarkdown(s.text)}</div>${renderMessageTime(s.createdAt)}` : "";
     article.innerHTML = `
-      <div class="avatar" style="background-color:${escapeHtml(avatarBackgroundColor)};${imageStyle}"></div>
+      <div class="avatar" style="background-color:${window.aimashiMarkdown.escapeHtml(avatarBackgroundColor)};${imageStyle}"></div>
       <div class="message-stack">${traceHtml}${textHtml}</div>
     `;
     els.chat.appendChild(article);
@@ -5688,7 +1848,7 @@ function appendChat(role, content, options = {}) {
       path: String(attachment.path || ""),
       mime: String(attachment.mime || attachment.type || ""),
       size: Number(attachment.size) || 0,
-      kind: String(attachment.kind || attachmentKind(attachment)),
+      kind: String(attachment.kind || window.aimashiFormat.attachmentKind(attachment)),
       thumbnailDataUrl: String(attachment.thumbnailDataUrl || attachment.thumbnail || attachment.previewDataUrl || ""),
       dataUrl: String(attachment.dataUrl || "")
     }));
@@ -5703,21 +1863,21 @@ function appendChat(role, content, options = {}) {
       error: Boolean(tool.error)
     }));
   }
-  const reasoning = traceReasoningForDisplay(options.reasoning, message.tools, content);
+  const reasoning = window.aimashiTraceBlocks.traceReasoningForDisplay(options.reasoning, message.tools, content);
   if (reasoning) message.reasoning = reasoning;
   session.messages.push(message);
   session.updatedAt = nowIso();
   const shouldMarkRead = role === "assistant" && !message.transient;
-  if (shouldMarkRead) markPersonaRead(session.personaKey || state.activeKey, false);
+  if (shouldMarkRead) window.aimashiSessionReadState.markPersonaRead(session.personaKey || state.activeKey, false);
   state.forceScrollToBottom = true;
   renderChat();
   renderSessionMenu();
   if (options.persist) {
     persistSessionQuietly(session).then(() => {
-      if (shouldMarkRead) persistReadStateQuietly();
+      if (shouldMarkRead) window.aimashiSessionReadState.persistReadStateQuietly();
     });
   } else if (shouldMarkRead) {
-    persistReadStateQuietly();
+    window.aimashiSessionReadState.persistReadStateQuietly();
   }
   return message;
 }
@@ -5731,362 +1891,6 @@ function appendTransientChat(role, content) {
   renderSessionMenu();
 }
 
-function filteredSlashCommands() {
-  const filter = state.slashFilter.replace(/^\//, "").trim().toLowerCase();
-  const engine = activeAgentEngine();
-  const commands = engine === "claude-code" || engine === "codex"
-    ? (state.agentSlashCommands[engine] || [])
-    : (state.slashCommands || fallbackSlashCommands);
-  if (!filter) return commands;
-  return commands.filter((item) => `${item.command} ${item.description}`.toLowerCase().includes(filter));
-}
-
-function externalSlashInvocation(text) {
-  const input = String(text || "").trim();
-  const command = input.split(/\s+/)[0]?.toLowerCase() || "";
-  if (!command.startsWith("/")) return null;
-  const argsText = input.slice(command.length).trim();
-  const args = argsText ? argsText.split(/\s+/).filter(Boolean) : [];
-  const engine = activeAgentEngine();
-  if (engine !== "claude-code" && engine !== "codex") return null;
-  const found = (state.agentSlashCommands[engine] || []).find((item) => String(item.command || "").toLowerCase() === command);
-  return found ? { engine, command, args, item: found } : null;
-}
-
-async function outgoingMessageForSubmit(text) {
-  const invocation = externalSlashInvocation(text);
-  if (!invocation || invocation.item.type !== "custom") return text;
-  const result = await window.aimashi.executeAgentCommand?.({
-    engine: invocation.engine,
-    commandName: invocation.command,
-    commandPath: invocation.item.path,
-    args: invocation.args,
-    context: { sessionId: activeSession()?.id || "" }
-  });
-  if (result?.type !== "custom" || !String(result.content || "").trim()) return text;
-  return String(result.content || "").trim();
-}
-
-function updateSlashCommandState() {
-  const value = els.chatInput.value;
-  const cursor = els.chatInput.selectionStart || 0;
-  const before = value.slice(0, cursor);
-  const line = before.split(/\n/).pop() || "";
-  const shouldOpen = /^\/[A-Za-z0-9_/-]*$/.test(line);
-  state.slashMenuOpen = shouldOpen;
-  state.slashFilter = shouldOpen ? line : "";
-  if (shouldOpen && state.slashFilter.length <= 1) state.slashSelectedIndex = 0;
-  const commands = filteredSlashCommands();
-  if (state.slashSelectedIndex >= commands.length) state.slashSelectedIndex = Math.max(0, commands.length - 1);
-  renderSlashCommandMenu();
-}
-
-function renderSlashCommandMenu() {
-  if (!els.slashCommandMenu) return;
-  const commands = filteredSlashCommands();
-  els.slashCommandMenu.classList.toggle("hidden", !state.slashMenuOpen);
-  if (!state.slashMenuOpen) {
-    els.slashCommandMenu.innerHTML = "";
-    return;
-  }
-  if (!commands.length) {
-    els.slashCommandMenu.innerHTML = `<div class="slash-command-empty">没有匹配的命令</div>`;
-    return;
-  }
-  els.slashCommandMenu.innerHTML = commands.map((item, index) => `
-    <button type="button" class="slash-command-item${index === state.slashSelectedIndex ? " active" : ""}" data-command="${escapeHtml(item.command)}">
-      <span class="slash-command-token">${escapeHtml(item.command)}</span>
-      <span class="slash-command-description">${escapeHtml(item.description)}</span>
-    </button>
-  `).join("");
-  els.slashCommandMenu.querySelectorAll("[data-command]").forEach((button) => {
-    button.addEventListener("mousedown", (event) => {
-      event.preventDefault();
-      const command = commands.find((item) => item.command === button.dataset.command);
-      if (command) sendSlashCommand(command);
-    });
-  });
-}
-
-function renderComposerAddMenu() {
-  els.composerAddMenu?.classList.toggle("hidden", !state.composerAddMenuOpen);
-  els.composerAdd?.classList.toggle("active", state.composerAddMenuOpen);
-  if (!els.composerAddMenu) return;
-  els.composerAddMenu.innerHTML = `
-    <button type="button" data-composer-add="attachment">添加附件</button>
-    <button type="button" data-composer-add="skill">插件 / 技能</button>
-  `;
-}
-
-function renderComposerAttachments() {
-  if (!els.composerAttachments) return;
-  const attachments = state.pendingAttachments;
-  els.composerAttachments.classList.toggle("hidden", attachments.length === 0);
-  els.composerAttachments.innerHTML = attachments.map((attachment) => `
-    <div class="composer-attachment${attachment.thumbnailDataUrl ? " image" : ""}" title="${escapeHtml(attachment.path || attachment.name)}">
-      <span class="composer-attachment-kind">${renderAttachmentThumb(attachment, "composer-attachment-thumb")}</span>
-      <span class="composer-attachment-name">${escapeHtml(attachment.name || "附件")}</span>
-      <span class="composer-attachment-size">${escapeHtml(formatBytes(attachment.size))}</span>
-      <button type="button" data-attachment-remove="${escapeHtml(attachment.id)}" title="移除附件" aria-label="移除附件">×</button>
-    </div>
-  `).join("");
-  els.composerAttachments.querySelectorAll("[data-attachment-remove]").forEach((button) => {
-    button.addEventListener("click", () => {
-      state.pendingAttachments = state.pendingAttachments.filter((item) => item.id !== button.dataset.attachmentRemove);
-      renderComposerAttachments();
-      renderSendButton();
-      els.chatInput?.focus();
-    });
-  });
-}
-
-function closeComposerAddMenu() {
-  if (!state.composerAddMenuOpen) return;
-  state.composerAddMenuOpen = false;
-  renderComposerAddMenu();
-}
-
-function composerSkillMenuItem() {
-  return els.composerAddMenu?.querySelector('[data-composer-add="skill"]') || null;
-}
-
-function targetIsSkillPickerZone(target) {
-  if (!(target instanceof Node)) return false;
-  return Boolean(els.skillPicker?.contains(target) || composerSkillMenuItem()?.contains(target));
-}
-
-function cancelSkillPickerHoverClose() {
-  if (!skillPickerHoverCloseTimer) return;
-  clearTimeout(skillPickerHoverCloseTimer);
-  skillPickerHoverCloseTimer = 0;
-}
-
-function scheduleSkillPickerHoverClose() {
-  cancelSkillPickerHoverClose();
-  skillPickerHoverCloseTimer = window.setTimeout(() => {
-    skillPickerHoverCloseTimer = 0;
-    closeSkillPicker();
-  }, 120);
-}
-
-function openSkillPicker() {
-  cancelSkillPickerHoverClose();
-  if (!state.skillLibrary.skills?.length && !state.skillsLoading) {
-    loadSkills();
-  }
-  state.skillPickerOpen = true;
-  state.skillPickerFilter = "";
-  const firstPlugin = (state.skillLibrary.plugins || []).find((plugin) => plugin.skillCount > 0);
-  if (!state.skillPickerPluginId && firstPlugin) state.skillPickerPluginId = firstPlugin.id;
-  if (els.skillPickerSearch) els.skillPickerSearch.value = "";
-  renderSkillPicker();
-  setTimeout(() => els.skillPickerSearch?.focus(), 0);
-}
-
-function closeSkillPicker() {
-  cancelSkillPickerHoverClose();
-  if (!state.skillPickerOpen) return;
-  state.skillPickerOpen = false;
-  renderSkillPicker();
-}
-
-function renderSkillPicker() {
-  if (!els.skillPicker) return;
-  els.skillPicker.classList.toggle("hidden", !state.skillPickerOpen);
-  if (!state.skillPickerOpen || !els.skillPickerBody) return;
-  const needle = String(state.skillPickerFilter || "").trim().toLowerCase();
-  const skills = state.skillLibrary.skills || [];
-  const plugins = (state.skillLibrary.plugins || []).filter((plugin) => plugin.skillCount > 0);
-  if (!state.skillPickerPluginId && plugins.length) state.skillPickerPluginId = plugins[0].id;
-  if (state.skillPickerPluginId && plugins.length && !plugins.some((plugin) => plugin.id === state.skillPickerPluginId)) {
-    state.skillPickerPluginId = plugins[0].id;
-  }
-  const filtered = needle
-    ? skills.filter((skill) => {
-        const hay = [
-          skill.name,
-          skill.title,
-          skill.description,
-          skill.pluginLabel,
-          skill.category,
-          ...(skill.tags || [])
-        ].join(" ").toLowerCase();
-        return hay.includes(needle);
-      })
-    : skills.filter((skill) => !state.skillPickerPluginId || skill.pluginId === state.skillPickerPluginId);
-  if (!filtered.length && !plugins.length) {
-    els.skillPickerBody.innerHTML = `<div class="skill-picker-empty">${state.skillsLoading ? "正在加载…" : "没有匹配的 Skill"}</div>`;
-    return;
-  }
-  const pluginCounts = skills.reduce((acc, skill) => {
-    const pluginId = skill.pluginId || "_other";
-    acc[pluginId] = (acc[pluginId] || 0) + 1;
-    return acc;
-  }, {});
-  const currentPlugin = plugins.find((plugin) => plugin.id === state.skillPickerPluginId);
-  els.skillPickerBody.innerHTML = `
-    <aside class="skill-picker-plugins">
-      ${plugins.map((plugin) => `
-        <button class="${plugin.id === state.skillPickerPluginId ? "active" : ""}" type="button" data-skill-picker-plugin="${escapeHtml(plugin.id)}">
-          <span>${escapeHtml(plugin.label || plugin.name)}</span>
-          <em>${pluginCounts[plugin.id] || plugin.skillCount || 0}</em>
-        </button>
-      `).join("")}
-    </aside>
-    <section class="skill-picker-skills">
-      <header>
-        <span>${escapeHtml(needle ? "搜索结果" : (currentPlugin?.label || "Skills"))}</span>
-        <em>${filtered.length}</em>
-      </header>
-      <div class="skill-picker-list">
-        ${filtered.length ? filtered.map((skill) => `
-          <button class="skill-picker-item" type="button" data-skill-pick="${escapeHtml(skill.name)}">
-            <strong>${escapeHtml(skill.name)}</strong>
-            <small>${escapeHtml((skill.description || skillSummaryZh(skill) || "").slice(0, 108))}</small>
-          </button>
-        `).join("") : `<div class="skill-picker-empty">${state.skillsLoading ? "正在加载…" : "没有匹配的 Skill"}</div>`}
-      </div>
-    </section>
-  `;
-}
-
-function insertSkillIntoComposer(name) {
-  if (!els.chatInput) return;
-  const trigger = `/${name} `;
-  const current = els.chatInput.value || "";
-  els.chatInput.value = current.trim().startsWith("/")
-    ? current.replace(/^\s*\/[A-Za-z0-9_/-]+(?:\s+)?/, trigger)
-    : `${trigger}${current}`;
-  els.chatInput.focus();
-  resizeChatInput();
-  renderSendButton();
-}
-
-async function addComposerFiles(fileList) {
-  const files = Array.from(fileList || []).filter(Boolean);
-  if (!files.length) return;
-  const existing = new Set(state.pendingAttachments.map((item) => item.path || `${item.name}:${item.size}`));
-  const next = [];
-  for (const file of files.slice(0, 20)) {
-    let filePath = "";
-    let saved = null;
-    let thumbnailDataUrl = "";
-    try {
-      thumbnailDataUrl = await thumbnailDataUrlForFile(file);
-      filePath = await window.aimashi.filePathForFile?.(file);
-      if (!filePath) {
-        saved = await saveBrowserFileAttachment(file, thumbnailDataUrl);
-        filePath = saved?.path || "";
-      }
-      if (!filePath && !saved) continue;
-    } catch (error) {
-      appendTransientChat("assistant", `附件「${file.name || "未命名"}」读取失败: ${error.message}`);
-      continue;
-    }
-    const key = filePath || `${file.name}:${file.size}`;
-    if (existing.has(key)) continue;
-    existing.add(key);
-    next.push({
-      id: saved?.id || cryptoRandomId(),
-      name: saved?.name || file.name || (filePath ? filePath.split(/[\\/]/).pop() : "附件"),
-      path: filePath || "",
-      mime: saved?.mime || file.type || "",
-      size: saved?.size || file.size || 0,
-      kind: saved?.kind || attachmentKind(file),
-      thumbnailDataUrl: saved?.thumbnailDataUrl || thumbnailDataUrl || ""
-    });
-  }
-  if (!next.length) return;
-  state.pendingAttachments = [...state.pendingAttachments, ...next].slice(0, 20);
-  renderComposerAttachments();
-  renderSendButton();
-  els.chatInput?.focus();
-}
-
-function thumbnailDataUrlForFile(file) {
-  if (!file || !String(file.type || "").startsWith("image/")) return Promise.resolve("");
-  return new Promise((resolve) => {
-    const url = URL.createObjectURL(file);
-    const image = new Image();
-    image.onload = () => {
-      try {
-        const max = 180;
-        const scale = Math.min(1, max / Math.max(image.naturalWidth || 1, image.naturalHeight || 1));
-        const width = Math.max(1, Math.round((image.naturalWidth || 1) * scale));
-        const height = Math.max(1, Math.round((image.naturalHeight || 1) * scale));
-        const canvas = document.createElement("canvas");
-        canvas.width = width;
-        canvas.height = height;
-        canvas.getContext("2d")?.drawImage(image, 0, 0, width, height);
-        resolve(canvas.toDataURL("image/jpeg", 0.72));
-      } catch {
-        resolve("");
-      } finally {
-        URL.revokeObjectURL(url);
-      }
-    };
-    image.onerror = () => {
-      URL.revokeObjectURL(url);
-      resolve("");
-    };
-    image.src = url;
-  });
-}
-
-function readFileAsDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.addEventListener("load", () => resolve(String(reader.result || "")));
-    reader.addEventListener("error", () => reject(reader.error || new Error("读取附件失败")));
-    reader.readAsDataURL(file);
-  });
-}
-
-async function saveBrowserFileAttachment(file, thumbnailDataUrl = "") {
-  if (!file) return null;
-  if (file.size > 25 * 1024 * 1024) {
-    appendTransientChat("assistant", `附件「${file.name || "未命名"}」超过 25MB，暂时不能发送。`);
-    return null;
-  }
-  const dataUrl = await readFileAsDataUrl(file);
-  return window.aimashi.saveAttachment?.({
-    name: file.name || "attachment",
-    mime: file.type || "",
-    size: file.size || 0,
-    dataUrl,
-    thumbnailDataUrl
-  });
-}
-
-function commandTextForSend(command) {
-  return String(command.command || "").trim();
-}
-
-async function sendSlashCommand(command) {
-  const text = commandTextForSend(command);
-  if (!text) return;
-  els.chatInput.value = text;
-  resizeChatInput();
-  state.slashMenuOpen = false;
-  state.slashFilter = "";
-  renderSlashCommandMenu();
-  els.chatForm.requestSubmit();
-}
-
-function fillSlashCommand(command) {
-  const value = els.chatInput.value;
-  const cursor = els.chatInput.selectionStart || 0;
-  const before = value.slice(0, cursor);
-  const after = value.slice(cursor);
-  const lineStart = before.lastIndexOf("\n") + 1;
-  els.chatInput.value = `${value.slice(0, lineStart)}${command.command} ${after}`;
-  const next = lineStart + command.command.length + 1;
-  els.chatInput.setSelectionRange(next, next);
-  resizeChatInput();
-  state.slashMenuOpen = false;
-  renderSlashCommandMenu();
-  els.chatInput.focus();
-}
 
 async function createNewSessionForActive() {
   pruneEmptyDrafts(state.activeKey);
@@ -6117,8 +1921,204 @@ async function initializeRuntime() {
   const runtime = await trackStartupTask("初始化 runtime", () => window.aimashi.initializeRuntime());
   state.firstRun = Array.isArray(runtime?.created) && runtime.created.length > 0;
   state.runtime = runtime;
-  await trackStartupTask("加载会话", loadChatSessions);
-  render();
+  // Initialize extracted renderer modules BEFORE any subsequent trackStartupTask
+  // call, because trackStartupTask itself triggers render() at start and finish;
+  // once state.runtime is set, render() no longer early-returns and will call
+  // into window.aimashi*.{applyAppearance,renderXxx} — which need fontPresets /
+  // state / els / etc. to already be injected.
+  // NOTE: group init is intentionally LAST. Its initGroupModule(...) calls
+  // deps.triggerRender() during init, which calls render(), which calls
+  // applyAppearance() — that lives in window.aimashiSettingsAppearance and
+  // needs fontPresets / state / els injected first. If group init runs before
+  // settings-appearance init, fontPresets is undefined and render() throws
+  // "Cannot read properties of undefined (reading 'pingfang')".
+  if (window.aimashiSessionReadState && window.aimashiSessionReadState.initSessionReadState) {
+    window.aimashiSessionReadState.initSessionReadState({
+      state,
+      aimashi: window.aimashi,
+      nowIso,
+    });
+  }
+  if (window.aimashiSettingsRemote && window.aimashiSettingsRemote.initSettingsRemote) {
+    window.aimashiSettingsRemote.initSettingsRemote({
+      state,
+      els,
+      setText,
+      renderQr,
+    });
+  }
+  if (window.aimashiSkillHelpers && window.aimashiSkillHelpers.initSkillHelpers) {
+    window.aimashiSkillHelpers.initSkillHelpers({ escapeHtml: window.aimashiMarkdown.escapeHtml });
+  }
+  if (window.aimashiAvatar && window.aimashiAvatar.initAvatarHelpers) {
+    window.aimashiAvatar.initAvatarHelpers({ escapeHtml: window.aimashiMarkdown.escapeHtml });
+  }
+  if (window.aimashiModelHelpers && window.aimashiModelHelpers.initModelHelpers) {
+    window.aimashiModelHelpers.initModelHelpers({
+      state,
+      els,
+      providerLabels,
+      providerPresets,
+    });
+  }
+  if (window.aimashiEngineOptions && window.aimashiEngineOptions.initEngineOptions) {
+    window.aimashiEngineOptions.initEngineOptions({
+      state,
+      els,
+      activePersona,
+      APPROVAL_LABELS,
+      APPROVAL_TITLES,
+      EFFORT_LABELS,
+    });
+  }
+  if (window.aimashiSetupGuide && window.aimashiSetupGuide.initSetupGuide) {
+    window.aimashiSetupGuide.initSetupGuide({ state, escapeHtml: window.aimashiMarkdown.escapeHtml });
+  }
+  if (window.aimashiModelSettings && window.aimashiModelSettings.initModelSettings) {
+    window.aimashiModelSettings.initModelSettings({
+      state,
+      els,
+      escapeHtml: window.aimashiMarkdown.escapeHtml,
+      setText,
+      updateModelFieldVisibility,
+      providerPresets,
+      providerLabels,
+    });
+  }
+  if (window.aimashiFellowDialog && window.aimashiFellowDialog.initFellowDialog) {
+    window.aimashiFellowDialog.initFellowDialog({ state, els, renderView, render });
+  }
+  if (window.aimashiTraceBlocks && window.aimashiTraceBlocks.initTraceBlocks) {
+    window.aimashiTraceBlocks.initTraceBlocks({ state });
+  }
+  if (window.aimashiMessageHelpers && window.aimashiMessageHelpers.initMessageHelpers) {
+    window.aimashiMessageHelpers.initMessageHelpers({
+      state,
+      els,
+      activePersona,
+      messagesForActive,
+      renderSendButton,
+    });
+  }
+  if (window.aimashiLoaders && window.aimashiLoaders.initLoaders) {
+    window.aimashiLoaders.initLoaders({ state, render, fallbackSlashCommands });
+  }
+  if (window.aimashiComposer && window.aimashiComposer.initComposer) {
+    window.aimashiComposer.initComposer({
+      state,
+      els,
+      aimashi: window.aimashi,
+      fallbackSlashCommands,
+      loadSkills: () => window.aimashiLoaders.loadSkills(),
+      renderAttachmentThumb,
+      renderSendButton,
+      resizeChatInput: () => window.aimashiMessageHelpers.resizeChatInput(),
+      appendTransientChat,
+      cryptoRandomId,
+      activeSession,
+    });
+  }
+  if (window.aimashiFellowManager && window.aimashiFellowManager.initFellowManager) {
+    window.aimashiFellowManager.initFellowManager({
+      state,
+      els,
+      setText,
+      formatConversationTime,
+      hasPersistableMessages,
+      sessionsForPersona,
+      loadSkills: () => window.aimashiLoaders.loadSkills(),
+      showNarrowContent,
+      render,
+      closeGroupContextMenu,
+      openEditFellowDialog,
+      deleteFellow,
+      setFellowPinned,
+    });
+  }
+  if (window.aimashiSkillLibrary && window.aimashiSkillLibrary.initSkillLibrary) {
+    window.aimashiSkillLibrary.initSkillLibrary({
+      state,
+      els,
+      aimashi: window.aimashi,
+      escapeHtml: window.aimashiMarkdown.escapeHtml,
+      setText,
+      menuItemHtml: window.aimashiMarkdown.menuItemHtml,
+      syncTopbarClickCapture,
+      closeGroupContextMenu,
+      showNarrowContent,
+      installExtension,
+      deleteSkill,
+      openSkillDirectory,
+    });
+  }
+  if (window.aimashiTasksPanel && window.aimashiTasksPanel.initTasksPanel) {
+    window.aimashiTasksPanel.initTasksPanel({
+      state,
+      els,
+      aimashi: window.aimashi,
+      escapeHtml: window.aimashiMarkdown.escapeHtml,
+      setText,
+      formatRunTime,
+      renderMessageHtml,
+      render,
+      renderView,
+      renderChat,
+    });
+  }
+  if (window.aimashiPetDialog && window.aimashiPetDialog.initPetDialog) {
+    window.aimashiPetDialog.initPetDialog({
+      state,
+      els,
+      aimashi: window.aimashi,
+      fellowByKey: window.aimashiFellowManager.fellowByKey,
+      avatarAssetForKey: window.aimashiAvatar.avatarAssetForKey,
+      cryptoRandomId,
+      avatarBackgroundStyle: window.aimashiAvatar.avatarBackgroundStyle,
+      escapeHtml: window.aimashiMarkdown.escapeHtml,
+      setText,
+      renderView,
+      refreshRuntime,
+      appendTransientChat,
+    });
+  }
+  if (window.aimashiSettingsAppearance && window.aimashiSettingsAppearance.initSettingsAppearance) {
+    window.aimashiSettingsAppearance.initSettingsAppearance({
+      state,
+      els,
+      aimashi: window.aimashi,
+      fontPresets,
+      DEFAULT_ACCENT_COLOR,
+      DEFAULT_USER_BUBBLE_COLOR,
+      DEFAULT_LIST_STYLE,
+      DEFAULT_SELECTION_STYLE,
+    });
+  }
+  if (window.aimashiMessageMenu && window.aimashiMessageMenu.initMessageMenu) {
+    window.aimashiMessageMenu.initMessageMenu({
+      state,
+      els,
+      aimashi: window.aimashi,
+      messageAtIndex: window.aimashiMessageHelpers.messageAtIndex,
+      messageReferenceForIndex: window.aimashiMessageHelpers.messageReferenceForIndex,
+      messageContextText: window.aimashiMessageHelpers.messageContextText,
+      menuItemHtml: window.aimashiMarkdown.menuItemHtml,
+      activeSession,
+      persistSessionQuietly,
+      replacePersistedSessionQuietly,
+      renderChat,
+      renderSessionMenu,
+      renderComposerReply: window.aimashiMessageHelpers.renderComposerReply,
+      escapeHtml: window.aimashiMarkdown.escapeHtml,
+      renderMarkdown: window.aimashiMarkdown.renderMarkdown,
+      copyTextToClipboard,
+      nowIso,
+      cryptoRandomId,
+      closeSkillContextMenu: window.aimashiSkillLibrary.closeSkillContextMenu,
+      closeFellowContextMenu: window.aimashiFellowManager.closeFellowContextMenu,
+      closeGroupContextMenu,
+    });
+  }
+  // Group init last — see comment above about triggerRender + settings-appearance.
   if (window.aimashiGroup && window.aimashiGroup.initGroupModule) {
     try {
       await window.aimashiGroup.initGroupModule({
@@ -6153,20 +2153,22 @@ async function initializeRuntime() {
       console.error("[group] init bootstrap failed:", err);
     }
   }
+  await trackStartupTask("加载会话", loadChatSessions);
+  render();
   setTimeout(() => {
     Promise.allSettled([
-      trackStartupTask("加载 Hermes 模型列表", loadModelCatalog),
-      trackStartupTask("加载 Codex 模型列表", loadCodexModels),
-      trackStartupTask("加载引擎能力", loadEngineCapabilities),
-      trackStartupTask("加载命令列表", loadSlashCommands),
-      trackStartupTask("扫描本地 Skill", loadSkills)
+      trackStartupTask("加载 Hermes 模型列表", () => window.aimashiLoaders.loadModelCatalog()),
+      trackStartupTask("加载 Codex 模型列表", () => window.aimashiLoaders.loadCodexModels()),
+      trackStartupTask("加载引擎能力", () => window.aimashiLoaders.loadEngineCapabilities()),
+      trackStartupTask("加载命令列表", () => window.aimashiLoaders.loadSlashCommands()),
+      trackStartupTask("扫描本地 Skill", () => window.aimashiLoaders.loadSkills())
     ]).then(() => render());
   }, 800);
-  loadTasksFromDaemon().then(() => {
-    subscribeTaskEvents();
+  window.aimashiTasksPanel.loadTasksFromDaemon().then(() => {
+    window.aimashiTasksPanel.subscribeTaskEvents();
     if (state.activeView === "tasks") {
-      renderTaskSidebar();
-      renderTaskView();
+      window.aimashiTasksPanel.renderTaskSidebar();
+      window.aimashiTasksPanel.renderTaskView();
     }
   });
 }
@@ -6184,8 +2186,8 @@ els.openSettings.addEventListener("click", () => {
   if (state.activeSettingsTab === "profile") state.activeSettingsTab = "appearance";
   renderView();
   if (state.activeSettingsTab === "mobile") {
-    refreshDaemonPairing().catch(console.error);
-    refreshRelayPairing().catch(console.error);
+    window.aimashiSettingsRemote.refreshDaemonPairing().catch(console.error);
+    window.aimashiSettingsRemote.refreshRelayPairing().catch(console.error);
   }
 });
 els.closeSettings.addEventListener("click", () => {
@@ -6200,25 +2202,25 @@ els.settingsView.addEventListener("click", (event) => {
 });
 els.closeSkillPreview?.addEventListener("click", () => {
   state.skillPreviewOpen = false;
-  renderSkillPreview();
+  window.aimashiSkillLibrary.renderSkillPreview();
 });
 els.skillPreviewDialog?.addEventListener("click", (event) => {
   if (event.target === els.skillPreviewDialog) {
     state.skillPreviewOpen = false;
-    renderSkillPreview();
+    window.aimashiSkillLibrary.renderSkillPreview();
   }
 });
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
   closeImagePreview();
-  if (state.skillContextMenu.open) closeSkillContextMenu();
-  if (state.fellowContextMenu.open) closeFellowContextMenu();
+  if (state.skillContextMenu.open) window.aimashiSkillLibrary.closeSkillContextMenu();
+  if (state.fellowContextMenu.open) window.aimashiFellowManager.closeFellowContextMenu();
   if (state.groupContextMenu.open) closeGroupContextMenu();
-  if (state.messageContextMenu.open) closeMessageContextMenu();
-  closeComposerAddMenu();
+  if (state.messageContextMenu.open) window.aimashiMessageMenu?.closeMessageContextMenu();
+  window.aimashiComposer.closeComposerAddMenu();
   if (state.skillPreviewOpen) {
     state.skillPreviewOpen = false;
-    renderSkillPreview();
+    window.aimashiSkillLibrary.renderSkillPreview();
   }
 });
 els.sessionMenuButton.addEventListener("click", (event) => {
@@ -6227,24 +2229,24 @@ els.sessionMenuButton.addEventListener("click", (event) => {
   renderSessionMenu();
 });
 document.addEventListener("click", (event) => {
-  if (state.skillContextMenu.open && !els.skillContextMenu?.contains(event.target)) closeSkillContextMenu();
+  if (state.skillContextMenu.open && !els.skillContextMenu?.contains(event.target)) window.aimashiSkillLibrary.closeSkillContextMenu();
 });
 document.addEventListener("click", (event) => {
-  if (state.fellowContextMenu.open && !els.fellowContextMenu?.contains(event.target)) closeFellowContextMenu();
+  if (state.fellowContextMenu.open && !els.fellowContextMenu?.contains(event.target)) window.aimashiFellowManager.closeFellowContextMenu();
 });
 document.addEventListener("click", (event) => {
   if (state.groupContextMenu.open && !els.groupContextMenu?.contains(event.target)) closeGroupContextMenu();
 });
 document.addEventListener("click", (event) => {
-  if (state.messageContextMenu.open && !els.messageContextMenu?.contains(event.target)) closeMessageContextMenu();
+  if (state.messageContextMenu.open && !els.messageContextMenu?.contains(event.target)) window.aimashiMessageMenu?.closeMessageContextMenu();
 });
 els.chat?.addEventListener("contextmenu", (event) => {
   const bubble = event.target.closest(".bubble[data-message-index]");
   if (!bubble || !els.chat.contains(bubble)) return;
-  const selection = selectionInsideBubble(bubble);
+  const selection = window.aimashiMessageMenu?.selectionInsideBubble(bubble);
   event.preventDefault();
   event.stopPropagation();
-  openMessageContextMenu(bubble.dataset.messageIndex, event.clientX, event.clientY, selection);
+  window.aimashiMessageMenu?.openMessageContextMenu(bubble.dataset.messageIndex, event.clientX, event.clientY, selection);
 });
 document.addEventListener("click", (event) => {
   if (!state.sessionMenuOpen) return;
@@ -6261,13 +2263,13 @@ document.addEventListener("click", (event) => {
 document.addEventListener("click", (event) => {
   if (!state.composerAddMenuOpen) return;
   if (els.composerAddMenu?.contains(event.target) || els.skillPicker?.contains(event.target) || els.composerAdd?.contains(event.target)) return;
-  closeComposerAddMenu();
+  window.aimashiComposer.closeComposerAddMenu();
 });
 document.addEventListener("click", (event) => {
   if (!state.petJobPanelOpen) return;
   if (els.petJobPanel?.contains(event.target) || els.petJobButton?.contains(event.target)) return;
   state.petJobPanelOpen = false;
-  renderPetJobs();
+  window.aimashiPetDialog?.renderPetJobs();
 });
 els.newSession.addEventListener("click", async (event) => {
   event.stopPropagation();
@@ -6280,20 +2282,20 @@ els.personaSearch.addEventListener("input", () => {
 });
 els.contactSearch?.addEventListener("input", () => {
   state.contactFilter = els.contactSearch.value;
-  renderContacts();
+  window.aimashiFellowManager.renderContacts();
 });
 els.skillSearch?.addEventListener("input", () => {
   state.skillFilter = els.skillSearch.value;
-  renderSkillLibrary();
+  window.aimashiSkillLibrary.renderSkillLibrary();
 });
 els.taskSearch?.addEventListener("input", (e) => {
   state.taskFilter = e.target.value;
-  renderTaskSidebar();
+  window.aimashiTasksPanel?.renderTaskSidebar();
 });
 document.querySelectorAll("[data-skill-filter]").forEach((button) => {
   button.addEventListener("click", () => {
     state.skillCategoryFilter = button.dataset.skillFilter || "";
-    renderSkillLibrary();
+    window.aimashiSkillLibrary.renderSkillLibrary();
   });
 });
 
@@ -6302,12 +2304,12 @@ document.querySelectorAll("[data-view]").forEach((button) => {
     state.activeView = button.dataset.view;
     showNarrowContent();
     if (button.dataset.view === "settings") state.settingsOpen = true;
-    if (button.dataset.view === "skills" && !state.skillLibrary.skills.length && !state.skillsLoading) loadSkills();
+    if (button.dataset.view === "skills" && !state.skillLibrary.skills.length && !state.skillsLoading) window.aimashiLoaders.loadSkills();
     renderView();
     if (state.activeView === "tasks") {
-      loadTasksFromDaemon().then(() => {
-        renderTaskSidebar();
-        renderTaskView();
+      window.aimashiTasksPanel?.loadTasksFromDaemon().then(() => {
+        window.aimashiTasksPanel?.renderTaskSidebar();
+        window.aimashiTasksPanel?.renderTaskView();
       });
     }
   });
@@ -6351,32 +2353,29 @@ function stopSidebarResize(event) {
 document.addEventListener("pointerup", stopSidebarResize);
 document.addEventListener("pointercancel", stopSidebarResize);
 document.addEventListener("scroll", (event) => {
-  showScrollingScrollbar(event.target);
+  window.aimashiScrollbarOverlay.showScrollingScrollbar(event.target);
 }, { capture: true, passive: true });
 document.addEventListener("pointermove", (event) => {
-  updateScrollbarOverlayDrag(event);
-  maybeShowScrollbarForPointer(event);
+  window.aimashiScrollbarOverlay.updateScrollbarOverlayDrag(event);
+  window.aimashiScrollbarOverlay.maybeShowScrollbarForPointer(event);
 }, { capture: true });
-document.addEventListener("pointerup", stopScrollbarOverlayDrag, { capture: true });
-document.addEventListener("pointercancel", stopScrollbarOverlayDrag, { capture: true });
+document.addEventListener("pointerup", (event) => window.aimashiScrollbarOverlay.stopScrollbarOverlayDrag(event), { capture: true });
+document.addEventListener("pointercancel", (event) => window.aimashiScrollbarOverlay.stopScrollbarOverlayDrag(event), { capture: true });
 document.addEventListener("mouseover", (event) => {
   const target = event.target?.closest?.(".scrollbar-active");
   if (!target) return;
-  const previous = scrollbarTimers.get(target);
-  if (previous) {
-    window.clearTimeout(previous);
-    scrollbarTimers.delete(target);
-  }
-  updateScrollbarOverlay(target);
+  window.aimashiScrollbarOverlay.cancelScrollbarHide(target);
+  window.aimashiScrollbarOverlay.updateScrollbarOverlay(target);
   target.classList.add("scrollbar-visible");
 }, { capture: true, passive: true });
 document.addEventListener("mouseout", (event) => {
   const target = event.target?.closest?.(".scrollbar-active");
   if (!target || target.contains(event.relatedTarget)) return;
-  scheduleScrollbarHide(target, 500);
+  window.aimashiScrollbarOverlay.scheduleScrollbarHide(target, 500);
 }, { capture: true, passive: true });
 window.addEventListener("resize", () => {
-  if (scrollbarOverlayTarget) updateScrollbarOverlay(scrollbarOverlayTarget);
+  const overlayTarget = window.aimashiScrollbarOverlay.getScrollbarOverlayTarget();
+  if (overlayTarget) window.aimashiScrollbarOverlay.updateScrollbarOverlay(overlayTarget);
   const isNarrow = window.innerWidth <= 720;
   if (!state.isNarrowWindow && isNarrow) {
     state.narrowPane = "content";
@@ -6391,8 +2390,8 @@ document.querySelectorAll("[data-settings-tab]").forEach((button) => {
     state.activeSettingsTab = button.dataset.settingsTab;
     renderView();
     if (state.activeSettingsTab === "mobile") {
-      refreshDaemonPairing().catch(console.error);
-      refreshRelayPairing().catch(console.error);
+      window.aimashiSettingsRemote.refreshDaemonPairing().catch(console.error);
+      window.aimashiSettingsRemote.refreshRelayPairing().catch(console.error);
     }
   });
 });
@@ -6400,7 +2399,7 @@ document.querySelectorAll("[data-settings-tab]").forEach((button) => {
 els.mobileLanToggle?.addEventListener("click", async () => {
   const enabled = els.mobileLanToggle.getAttribute("aria-checked") === "true";
   try {
-    await applyDaemonHost(enabled ? "127.0.0.1" : "0.0.0.0");
+    await window.aimashiSettingsRemote.applyDaemonHost(enabled ? "127.0.0.1" : "0.0.0.0");
   } catch (error) {
     setText(els.mobilePairingHint, `切换失败：${error.message}`);
   }
@@ -6460,11 +2459,11 @@ els.cloudLogout?.addEventListener("click", async () => {
 
 els.mobilePairingReveal?.addEventListener("click", () => {
   state.mobileLanLinkExpanded = !state.mobileLanLinkExpanded;
-  renderMobilePairing(state.runtime?.daemon || {});
+  window.aimashiSettingsRemote.renderMobilePairing(state.runtime?.daemon || {});
 });
 
 els.mobilePairingLink?.addEventListener("click", async () => {
-  const link = currentMobilePairingLink();
+  const link = window.aimashiSettingsRemote.currentMobilePairingLink();
   if (!link) {
     setText(els.mobilePairingHint, "当前没有可复制的配对链接。");
     return;
@@ -6479,7 +2478,7 @@ els.mobilePairingLink?.addEventListener("click", async () => {
 
 els.mobileRelayReveal?.addEventListener("click", () => {
   state.mobileRelayLinkExpanded = !state.mobileRelayLinkExpanded;
-  renderRelayPairing(state.runtime?.relay || {});
+  window.aimashiSettingsRemote.renderRelayPairing(state.runtime?.relay || {});
 });
 
 els.mobileRelayToggle?.addEventListener("click", async () => {
@@ -6500,7 +2499,7 @@ els.mobileRelayToggle?.addEventListener("click", async () => {
         secret: undefined
       }
     };
-    renderRelayPairing(relay);
+    window.aimashiSettingsRemote.renderRelayPairing(relay);
   } catch (error) {
     setText(els.mobileRelayHint, `远程访问切换失败：${error.message}`);
     await refreshRuntime();
@@ -6523,7 +2522,7 @@ async function saveRelayUrlFromField() {
         secret: undefined
       }
     };
-    renderRelayPairing(relay);
+    window.aimashiSettingsRemote.renderRelayPairing(relay);
   } catch (error) {
     setText(els.mobileRelayHint, `Relay 地址保存失败：${error.message}`);
   }
@@ -6538,7 +2537,7 @@ els.mobileRelayUrl?.addEventListener("keydown", (event) => {
 });
 
 els.mobileRelayLink?.addEventListener("click", async () => {
-  const link = currentRelayPairingLink();
+  const link = window.aimashiSettingsRemote.currentRelayPairingLink();
   if (!link) {
     setText(els.mobileRelayHint, "当前没有可复制的远程配对链接。");
     return;
@@ -6590,7 +2589,7 @@ if (window.aimashi.onCloudEvent) {
         ...state.runtime,
         cloud: envelope.cloud
       };
-      renderCloudAccount(envelope.cloud);
+      window.aimashiSettingsRemote.renderCloudAccount(envelope.cloud);
     }
     // Refresh runtime metadata (cloud connection / device list) only.
     // We intentionally do NOT reload chatStore here — that races with
@@ -6613,7 +2612,7 @@ els.installEngine.addEventListener("click", async () => {
   els.installEngine.textContent = "Installing...";
   try {
     state.runtime = await window.aimashi.installEngine();
-    await loadModelCatalog();
+    await window.aimashiLoaders.loadModelCatalog();
     render();
   } catch (error) {
     appendChat("assistant", `Install failed: ${error.message}`);
@@ -6644,9 +2643,9 @@ els.stopEngine.addEventListener("click", async () => {
 els.codexLogin.addEventListener("click", async () => {
   els.codexLogin.disabled = true;
   try {
-    const entry = selectedModelEntry();
+    const entry = window.aimashiModelHelpers.selectedModelEntry();
     if (entry) {
-      applyModelEntryToFields(entry);
+      window.aimashiModelSettings.applyModelEntryToFields(entry);
       if (entry.provider === "openai-codex") state.runtime = await window.aimashi.saveModel({
         provider: entry.provider,
         model: entry.model,
@@ -6659,7 +2658,7 @@ els.codexLogin.addEventListener("click", async () => {
     }
     state.runtime = await window.aimashi.startProviderOAuth({
       provider: entry?.provider || "openai-codex",
-      providerLabel: entry?.providerLabel || providerLabel(entry?.provider || "openai-codex"),
+      providerLabel: entry?.providerLabel || window.aimashiModelHelpers.providerLabel(entry?.provider || "openai-codex"),
       authType: entry?.authType || "oauth_external",
       baseUrl: entry?.baseUrl || "",
       apiMode: entry?.apiMode || ""
@@ -6677,7 +2676,7 @@ els.codexCancel.addEventListener("click", async () => {
 });
 
 els.modelPreset.addEventListener("change", () => {
-  fillModelFieldsFromPreset(els.modelPreset.value);
+  window.aimashiModelSettings.fillModelFieldsFromPreset(els.modelPreset.value);
 });
 
 els.authMethod.addEventListener("change", () => {
@@ -6695,11 +2694,11 @@ els.authMethod.addEventListener("change", () => {
 });
 
 els.quickModelSelect?.addEventListener("change", async () => {
-  syncQuickModelLabel();
-  const engine = activeAgentEngine();
+  window.aimashiModelSettings.syncQuickModelLabel();
+  const engine = window.aimashiEngineOptions.activeAgentEngine();
   if (engine === "claude-code" || engine === "codex") {
     const persona = activePersona();
-    const entry = externalModelEntries(engine).find((item) => item.id === els.quickModelSelect.value);
+    const entry = window.aimashiEngineOptions.externalModelEntries(engine).find((item) => item.id === els.quickModelSelect.value);
     if (!persona || !entry) return;
     els.quickModelSelect.disabled = true;
     setText(els.modelSwitchStatus, "保存模型...");
@@ -6708,7 +2707,7 @@ els.quickModelSelect?.addEventListener("change", async () => {
         key: persona.key,
         agentEngine: engine,
         engineConfig: {
-          ...engineConfigForPersona(persona),
+          ...window.aimashiEngineOptions.engineConfigForPersona(persona),
           model: entry.model || ""
         }
       });
@@ -6723,7 +2722,7 @@ els.quickModelSelect?.addEventListener("change", async () => {
     }
     return;
   }
-  const entry = connectedModelEntries().find((item) => item.id === els.quickModelSelect.value);
+  const entry = window.aimashiModelSettings.connectedModelEntries().find((item) => item.id === els.quickModelSelect.value);
   if (!entry) return;
   els.quickModelSelect.disabled = true;
   setText(els.modelSwitchStatus, "切换中...");
@@ -6737,9 +2736,9 @@ els.quickModelSelect?.addEventListener("change", async () => {
       providerLabel: entry.providerLabel,
       authType: entry.authType
     });
-    applyModelEntryToFields(entry);
+    window.aimashiModelSettings.applyModelEntryToFields(entry);
     setText(els.modelSwitchStatus, "已切换");
-    const auth = modelAuthCopy(entry, state.runtime);
+    const auth = window.aimashiModelSettings.modelAuthCopy(entry, state.runtime);
     if (auth.state.includes("需要")) {
       state.settingsOpen = true;
       state.activeSettingsTab = "model";
@@ -6750,14 +2749,14 @@ els.quickModelSelect?.addEventListener("change", async () => {
     appendTransientChat("assistant", `Model switch failed: ${error.message}`);
     await refreshRuntime();
   } finally {
-    els.quickModelSelect.disabled = !connectedModelEntries(state.runtime).length;
+    els.quickModelSelect.disabled = !window.aimashiModelSettings.connectedModelEntries(state.runtime).length;
   }
 });
 
 els.effortSelect?.addEventListener("change", async () => {
   const level = els.effortSelect.value;
-  syncEffortControl(state.runtime);
-  const engine = activeAgentEngine();
+  window.aimashiModelSettings.syncEffortControl(state.runtime);
+  const engine = window.aimashiEngineOptions.activeAgentEngine();
   if (engine === "claude-code" || engine === "codex") {
     const persona = activePersona();
     if (!persona) return;
@@ -6768,11 +2767,11 @@ els.effortSelect?.addEventListener("change", async () => {
         key: persona.key,
         agentEngine: engine,
         engineConfig: {
-          ...engineConfigForPersona(persona),
+          ...window.aimashiEngineOptions.engineConfigForPersona(persona),
           effortLevel: level
         }
       });
-      syncEffortControl(state.runtime);
+      window.aimashiModelSettings.syncEffortControl(state.runtime);
       setText(els.modelSwitchStatus, "推理强度已更新");
       render();
     } catch (error) {
@@ -6788,7 +2787,7 @@ els.effortSelect?.addEventListener("change", async () => {
   els.effortSelect.disabled = true;
   try {
     state.runtime = await window.aimashi.saveEffort({ level });
-    syncEffortControl(state.runtime);
+    window.aimashiModelSettings.syncEffortControl(state.runtime);
     setText(els.modelSwitchStatus, "推理强度已更新");
     render();
   } catch (error) {
@@ -6802,11 +2801,11 @@ els.effortSelect?.addEventListener("change", async () => {
 
 els.permissionMode?.addEventListener("change", async () => {
   const mode = els.permissionMode.value;
-  const engine = activeAgentEngine();
+  const engine = window.aimashiEngineOptions.activeAgentEngine();
   if (engine === "claude-code" || engine === "codex") {
     const persona = activePersona();
     if (!persona) return;
-    setText(els.permissionLabel, permissionLabelForMode(mode));
+    setText(els.permissionLabel, window.aimashiModelSettings.permissionLabelForMode(mode));
     setText(els.modelSwitchStatus, "保存权限...");
     els.permissionMode.disabled = true;
     try {
@@ -6814,11 +2813,11 @@ els.permissionMode?.addEventListener("change", async () => {
         key: persona.key,
         agentEngine: engine,
         engineConfig: {
-          ...engineConfigForPersona(persona),
+          ...window.aimashiEngineOptions.engineConfigForPersona(persona),
           permissionMode: mode
         }
       });
-      syncPermissionControl(state.runtime);
+      window.aimashiModelSettings.syncPermissionControl(state.runtime);
       setText(els.modelSwitchStatus, "权限已更新");
       render();
     } catch (error) {
@@ -6830,12 +2829,12 @@ els.permissionMode?.addEventListener("change", async () => {
     }
     return;
   }
-  syncPermissionControl({ permissions: { mode } });
+  window.aimashiModelSettings.syncPermissionControl({ permissions: { mode } });
   setText(els.modelSwitchStatus, "保存权限...");
   els.permissionMode.disabled = true;
   try {
     state.runtime = await window.aimashi.savePermissions({ mode });
-    syncPermissionControl(state.runtime);
+    window.aimashiModelSettings.syncPermissionControl(state.runtime);
     setText(els.modelSwitchStatus, "权限已更新");
     render();
   } catch (error) {
@@ -6848,258 +2847,11 @@ els.permissionMode?.addEventListener("change", async () => {
 });
 
 els.modelSelect?.addEventListener("change", () => {
-  const entry = selectedModelEntry();
-  applyModelEntryToFields(entry);
+  const entry = window.aimashiModelHelpers.selectedModelEntry();
+  window.aimashiModelSettings.applyModelEntryToFields(entry);
   updateModelFieldVisibility();
 });
 
-function setFellowAvatarDraft(image, crop = null) {
-  const src = canonicalAvatarSrc(image);
-  state.fellowAvatarDraft = {
-    image: src,
-    crop: normalizeCrop(crop || avatarDefaultCropForSrc(src))
-  };
-  if (els.fellowAvatar) els.fellowAvatar.value = state.fellowAvatarDraft.image;
-  renderFellowAvatarDraft();
-}
-
-function setProfileAvatarDraft(image, crop = null) {
-  const src = canonicalAvatarSrc(image);
-  state.profileAvatarDraft = {
-    image: src,
-    crop: normalizeCrop(crop || avatarDefaultCropForSrc(src))
-  };
-  if (els.profileAvatarImage) els.profileAvatarImage.value = state.profileAvatarDraft.image;
-  renderProfileAvatarDraft();
-}
-
-function renderProfileAvatarDraft() {
-  if (!els.profileAvatarPreview) return;
-  const draft = state.profileAvatarDraft;
-  const user = state.runtime?.user || {};
-  const crop = normalizeCrop(draft.crop);
-  els.profileAvatarPreview.setAttribute("style", avatarBackgroundStyle(draft.image, crop, user.avatarColor || "#111827"));
-  els.profileAvatarPreview.title = draft.image ? "点击调整头像裁剪" : "选择头像";
-  els.profileAvatarPreview.setAttribute("role", "button");
-  els.profileAvatarPreview.setAttribute("tabindex", "0");
-  els.profileAvatarPreview.setAttribute("aria-label", "调整头像裁剪");
-  renderProfileAvatarDefaults();
-}
-
-function openProfileDialog() {
-  const user = state.runtime?.user || { displayName: "Boss", avatarImage: "", avatarCrop: DEFAULT_AVATAR_CROP };
-  state.profileDialogOpen = true;
-  state.profileAvatarPresetGroup = avatarPresetGroupForSrc(user.avatarImage || "") || "human";
-  if (els.profileDisplayName) els.profileDisplayName.value = user.displayName || "Boss";
-  setProfileAvatarDraft(user.avatarImage || "", user.avatarCrop);
-  renderView();
-  setTimeout(() => els.profileDisplayName?.focus(), 0);
-}
-
-function closeProfileDialog() {
-  state.profileDialogOpen = false;
-  renderView();
-}
-
-function renderFellowAvatarDefaults() {
-  if (!els.fellowAvatarDefaults) return;
-  const activeGroup = avatarPresetGroups[state.fellowAvatarPresetGroup]
-    ? state.fellowAvatarPresetGroup
-    : "human";
-  state.fellowAvatarPresetGroup = activeGroup;
-  if (els.fellowAvatarDefaultTabs) {
-    els.fellowAvatarDefaultTabs.innerHTML = avatarPresetGroupTabs.map((group) => `
-      <button type="button" class="${activeGroup === group.key ? "active" : ""}" data-avatar-group="${escapeHtml(group.key)}" role="tab" aria-selected="${activeGroup === group.key ? "true" : "false"}">${escapeHtml(group.label)}</button>
-    `).join("");
-    els.fellowAvatarDefaultTabs.querySelectorAll("[data-avatar-group]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const group = button.dataset.avatarGroup || "human";
-        if (!avatarPresetGroups[group] || state.fellowAvatarPresetGroup === group) return;
-        state.fellowAvatarPresetGroup = group;
-        renderFellowAvatarDefaults();
-      });
-    });
-  }
-  const selected = state.fellowAvatarDraft.image;
-  const presets = avatarPresetGroups[activeGroup] || avatarPresetGroups.human;
-  els.fellowAvatarDefaults.innerHTML = presets.map((preset) => `
-    <button type="button" class="avatar-default${selected === preset.src ? " active" : ""}" data-avatar="${escapeHtml(preset.src)}" data-avatar-name="${escapeHtml(preset.name)}" title="${escapeHtml(preset.name)}" aria-label="${escapeHtml(preset.name)}" style="${avatarThumbBackgroundStyle(preset.src, avatarDefaultCropForSrc(preset.src), "#eef0ff")}"></button>
-  `).join("");
-  els.fellowAvatarDefaults.querySelectorAll("[data-avatar]").forEach((button) => {
-    button.addEventListener("click", () => {
-      setFellowAvatarDraft(button.dataset.avatar, avatarDefaultCropForSrc(button.dataset.avatar));
-      if (els.fellowName) els.fellowName.value = button.dataset.avatarName || avatarPresetBySrc(button.dataset.avatar)?.name || "";
-    });
-  });
-}
-
-function renderProfileAvatarDefaults() {
-  if (!els.profileAvatarDefaults) return;
-  const activeGroup = avatarPresetGroups[state.profileAvatarPresetGroup]
-    ? state.profileAvatarPresetGroup
-    : "human";
-  state.profileAvatarPresetGroup = activeGroup;
-  if (els.profileAvatarDefaultTabs) {
-    els.profileAvatarDefaultTabs.innerHTML = avatarPresetGroupTabs.map((group) => `
-      <button type="button" class="${activeGroup === group.key ? "active" : ""}" data-avatar-group="${escapeHtml(group.key)}" role="tab" aria-selected="${activeGroup === group.key ? "true" : "false"}">${escapeHtml(group.label)}</button>
-    `).join("");
-    els.profileAvatarDefaultTabs.querySelectorAll("[data-avatar-group]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const group = button.dataset.avatarGroup || "human";
-        if (!avatarPresetGroups[group] || state.profileAvatarPresetGroup === group) return;
-        state.profileAvatarPresetGroup = group;
-        renderProfileAvatarDefaults();
-      });
-    });
-  }
-  const selected = state.profileAvatarDraft.image;
-  const presets = avatarPresetGroups[activeGroup] || avatarPresetGroups.human;
-  els.profileAvatarDefaults.innerHTML = presets.map((preset) => `
-    <button type="button" class="avatar-default${selected === preset.src ? " active" : ""}" data-avatar="${escapeHtml(preset.src)}" data-avatar-name="${escapeHtml(preset.name)}" title="${escapeHtml(preset.name)}" aria-label="${escapeHtml(preset.name)}" style="${avatarThumbBackgroundStyle(preset.src, avatarDefaultCropForSrc(preset.src), "#eef0ff")}"></button>
-  `).join("");
-  els.profileAvatarDefaults.querySelectorAll("[data-avatar]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      const src = button.dataset.avatar;
-      setProfileAvatarDraft(src, avatarDefaultCropForSrc(src));
-      // Auto-save: clicking a preset is a decisive choice. Pull the current
-      // displayName from the input so we don't drop user's in-progress edit.
-      try {
-        const displayName = (els.profileDisplayName?.value || "").trim()
-          || state.runtime?.user?.displayName
-          || "Boss";
-        state.runtime = await window.aimashi.saveProfile({
-          displayName,
-          avatarText: initials(displayName),
-          avatarImage: state.profileAvatarDraft.image || src,
-          avatarCrop: normalizeCrop(state.profileAvatarDraft.crop),
-        });
-        render();
-      } catch (err) {
-        console.error("[profile] preset avatar auto-save failed:", err);
-      }
-    });
-  });
-}
-
-function renderFellowAvatarDraft() {
-  const draft = state.fellowAvatarDraft;
-  const crop = normalizeCrop(draft.crop);
-  if (els.fellowAvatarPreview) {
-    els.fellowAvatarPreview.setAttribute("style", avatarBackgroundStyle(draft.image, crop, "#eef0ff"));
-    els.fellowAvatarPreview.title = "点击调整头像裁剪";
-    els.fellowAvatarPreview.setAttribute("role", "button");
-    els.fellowAvatarPreview.setAttribute("tabindex", "0");
-    els.fellowAvatarPreview.setAttribute("aria-label", "调整头像裁剪");
-  }
-  renderFellowAvatarDefaults();
-}
-
-function renderAvatarCropEditor() {
-  if (!els.avatarCropStage) return;
-  const editor = state.avatarCropEditor;
-  const crop = normalizeCrop(editor.crop);
-  els.avatarCropStage.setAttribute("style", avatarBackgroundStyle(editor.image, crop, "#eef0ff"));
-}
-
-function openAvatarCropEditor(image, crop = null, target = "fellow") {
-  const src = canonicalAvatarSrc(image);
-  state.avatarCropEditor = {
-    open: true,
-    target,
-    image: src,
-    crop: normalizeCrop(crop || avatarDefaultCropForSrc(src)),
-    dragging: false,
-    lastX: 0,
-    lastY: 0
-  };
-  renderView();
-  renderAvatarCropEditor();
-}
-
-function closeAvatarCropEditor() {
-  state.avatarCropEditor.open = false;
-  state.avatarCropEditor.dragging = false;
-  renderView();
-}
-
-function updateAvatarCropEditor(crop) {
-  state.avatarCropEditor.crop = normalizeCrop({
-    ...state.avatarCropEditor.crop,
-    ...crop
-  });
-  renderAvatarCropEditor();
-}
-
-function readFellowAvatarFile(file) {
-  if (!file || !file.type?.startsWith("image/")) return;
-  const reader = new FileReader();
-  reader.addEventListener("load", () => {
-    openAvatarCropEditor(String(reader.result || ""), { x: 50, y: 50, zoom: 1.12 }, "fellow");
-  });
-  reader.readAsDataURL(file);
-}
-
-function readProfileAvatarFile(file) {
-  if (!file || !file.type?.startsWith("image/")) return;
-  const reader = new FileReader();
-  reader.addEventListener("load", () => {
-    openAvatarCropEditor(String(reader.result || ""), { x: 50, y: 50, zoom: 1.12 }, "profile");
-  });
-  reader.readAsDataURL(file);
-}
-
-function detectedAgentEngineOptions() {
-  const engines = state.runtime?.agentEngines || {};
-  const options = [{ id: "hermes", label: "默认" }];
-  if (engines.claudeCode?.available) options.push({ id: "claude-code", label: "Claude Code" });
-  if (engines.codex?.available) options.push({ id: "codex", label: "Codex" });
-  return options;
-}
-
-function renderFellowAgentEngineSelect(current = "hermes") {
-  const options = detectedAgentEngineOptions();
-  const showField = options.length > 1;
-  els.fellowAgentEngineField?.classList.toggle("hidden", !showField);
-  if (!els.fellowAgentEngine) return;
-  els.fellowAgentEngine.innerHTML = "";
-  for (const option of options) {
-    const node = document.createElement("option");
-    node.value = option.id;
-    node.textContent = option.label;
-    els.fellowAgentEngine.appendChild(node);
-  }
-  els.fellowAgentEngine.value = options.some((option) => option.id === current) ? current : "hermes";
-}
-
-function openFellowDialog(fellow = null, personaText = "") {
-  if (fellow && fellow.currentTarget) fellow = null;
-  // Allow a seed object in place of `fellow` to prefill create mode (used by
-  // initial-onboarding flow). Detected by absence of a real key.
-  const seed = fellow && !fellow.key && (fellow.name || fellow.agentEngine || fellow.bio) ? fellow : null;
-  const actualFellow = seed ? null : fellow;
-  state.fellowMenuOpen = false;
-  state.fellowDialogMode = actualFellow ? "edit" : "create";
-  state.fellowDialogOpen = true;
-  const titleName = String(actualFellow?.name || "").trim();
-  if (els.fellowDialogTitle) els.fellowDialogTitle.textContent = actualFellow
-    ? `编辑「${titleName || "伙伴"}」`
-    : (seed ? "创建你的第一个伙伴" : "添加伙伴");
-  if (els.fellowKey) els.fellowKey.value = actualFellow?.key || "";
-  els.fellowName.value = actualFellow?.name || seed?.name || "";
-  renderFellowAgentEngineSelect(actualFellow?.agentEngine || actualFellow?.agent_engine || seed?.agentEngine || "hermes");
-  const avatarImage = actualFellow?.avatarImage || defaultAvatarAssets()[0];
-  state.fellowAvatarPresetGroup = avatarPresetGroupForSrc(avatarImage) || "human";
-  setFellowAvatarDraft(avatarImage, avatarCropForImage(avatarImage, actualFellow?.avatarCrop));
-  els.fellowSeed.value = actualFellow ? personaText : (seed?.bio || "");
-  if (els.fellowPersonaDetails) els.fellowPersonaDetails.open = Boolean(seed);
-  renderView();
-  setTimeout(() => els.fellowName?.focus(), 0);
-}
-
-function closeFellowDialog() {
-  state.fellowDialogOpen = false;
-  renderView();
-}
 
 els.newPersona.addEventListener("click", (event) => {
   event.stopPropagation();
@@ -7107,33 +2859,33 @@ els.newPersona.addEventListener("click", (event) => {
   renderView();
 });
 
-els.addFellow?.addEventListener("click", () => openFellowDialog());
-els.newContact?.addEventListener("click", () => openFellowDialog());
-els.userAvatar?.addEventListener("click", openProfileDialog);
+els.addFellow?.addEventListener("click", () => window.aimashiFellowDialog.openFellowDialog());
+els.newContact?.addEventListener("click", () => window.aimashiFellowDialog.openFellowDialog());
+els.userAvatar?.addEventListener("click", () => window.aimashiFellowDialog.openProfileDialog());
 els.userAvatar?.addEventListener("keydown", (event) => {
   if (event.key !== "Enter" && event.key !== " ") return;
   event.preventDefault();
-  openProfileDialog();
+  window.aimashiFellowDialog.openProfileDialog();
 });
-els.closeProfileDialog?.addEventListener("click", closeProfileDialog);
-els.cancelProfile?.addEventListener("click", closeProfileDialog);
-els.closeFellowDialog?.addEventListener("click", closeFellowDialog);
-els.cancelFellow?.addEventListener("click", closeFellowDialog);
-els.closePetGenerateDialog?.addEventListener("click", closePetGenerateDialog);
-els.cancelPetGenerate?.addEventListener("click", closePetGenerateDialog);
+els.closeProfileDialog?.addEventListener("click", () => window.aimashiFellowDialog.closeProfileDialog());
+els.cancelProfile?.addEventListener("click", () => window.aimashiFellowDialog.closeProfileDialog());
+els.closeFellowDialog?.addEventListener("click", () => window.aimashiFellowDialog.closeFellowDialog());
+els.cancelFellow?.addEventListener("click", () => window.aimashiFellowDialog.closeFellowDialog());
+els.closePetGenerateDialog?.addEventListener("click", () => window.aimashiPetDialog?.closePetGenerateDialog());
+els.cancelPetGenerate?.addEventListener("click", () => window.aimashiPetDialog?.closePetGenerateDialog());
 els.addPetReference?.addEventListener("click", () => els.petReferenceFile?.click());
 els.petReferenceFile?.addEventListener("change", () => {
-  readPetReferenceFile(els.petReferenceFile.files?.[0]);
+  window.aimashiPetDialog?.readPetReferenceFile(els.petReferenceFile.files?.[0]);
   els.petReferenceFile.value = "";
 });
 els.petJobButton?.addEventListener("click", (event) => {
   event.stopPropagation();
   state.petJobPanelOpen = !state.petJobPanelOpen;
-  renderPetJobs();
+  window.aimashiPetDialog?.renderPetJobs();
 });
 els.petGenerateForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const fellow = fellowByKey(state.petGenerateFellowKey);
+  const fellow = window.aimashiFellowManager.fellowByKey(state.petGenerateFellowKey);
   if (!fellow) return;
   const job = await window.aimashi.generateFellowPet({
     fellowKey: fellow.key,
@@ -7143,25 +2895,25 @@ els.petGenerateForm?.addEventListener("submit", async (event) => {
   });
   state.petJobs = [job, ...state.petJobs.filter((item) => item.id !== job.id)];
   state.petJobPanelOpen = true;
-  closePetGenerateDialog();
-  renderPetJobs();
+  window.aimashiPetDialog?.closePetGenerateDialog();
+  window.aimashiPetDialog?.renderPetJobs();
 });
 els.chooseFellowAvatar?.addEventListener("click", () => els.fellowAvatarFile?.click());
 els.fellowAvatarFile?.addEventListener("change", () => {
-  readFellowAvatarFile(els.fellowAvatarFile.files?.[0]);
+  window.aimashiFellowDialog.readFellowAvatarFile(els.fellowAvatarFile.files?.[0]);
   els.fellowAvatarFile.value = "";
 });
 els.fellowAvatarPreview?.addEventListener("click", () => {
   const draft = state.fellowAvatarDraft;
   if (!draft?.image) return;
-  openAvatarCropEditor(draft.image, draft.crop);
+  window.aimashiFellowDialog.openAvatarCropEditor(draft.image, draft.crop);
 });
 els.fellowAvatarPreview?.addEventListener("keydown", (event) => {
   if (event.key !== "Enter" && event.key !== " ") return;
   event.preventDefault();
   const draft = state.fellowAvatarDraft;
   if (!draft?.image) return;
-  openAvatarCropEditor(draft.image, draft.crop);
+  window.aimashiFellowDialog.openAvatarCropEditor(draft.image, draft.crop);
 });
 els.fellowAvatarDrop?.addEventListener("dragover", (event) => {
   event.preventDefault();
@@ -7173,11 +2925,11 @@ els.fellowAvatarDrop?.addEventListener("dragleave", () => {
 els.fellowAvatarDrop?.addEventListener("drop", (event) => {
   event.preventDefault();
   els.fellowAvatarDrop.classList.remove("dragging");
-  readFellowAvatarFile(event.dataTransfer?.files?.[0]);
+  window.aimashiFellowDialog.readFellowAvatarFile(event.dataTransfer?.files?.[0]);
 });
 els.chooseProfileAvatar?.addEventListener("click", () => els.profileAvatarFile?.click());
 els.profileAvatarFile?.addEventListener("change", () => {
-  readProfileAvatarFile(els.profileAvatarFile.files?.[0]);
+  window.aimashiFellowDialog.readProfileAvatarFile(els.profileAvatarFile.files?.[0]);
   els.profileAvatarFile.value = "";
 });
 els.profileAvatarPreview?.addEventListener("click", () => {
@@ -7186,7 +2938,7 @@ els.profileAvatarPreview?.addEventListener("click", () => {
     els.profileAvatarFile?.click();
     return;
   }
-  openAvatarCropEditor(draft.image, draft.crop, "profile");
+  window.aimashiFellowDialog.openAvatarCropEditor(draft.image, draft.crop, "profile");
 });
 els.profileAvatarPreview?.addEventListener("keydown", (event) => {
   if (event.key !== "Enter" && event.key !== " ") return;
@@ -7196,7 +2948,7 @@ els.profileAvatarPreview?.addEventListener("keydown", (event) => {
     els.profileAvatarFile?.click();
     return;
   }
-  openAvatarCropEditor(draft.image, draft.crop, "profile");
+  window.aimashiFellowDialog.openAvatarCropEditor(draft.image, draft.crop, "profile");
 });
 els.profileAvatarDrop?.addEventListener("dragover", (event) => {
   event.preventDefault();
@@ -7208,7 +2960,7 @@ els.profileAvatarDrop?.addEventListener("dragleave", () => {
 els.profileAvatarDrop?.addEventListener("drop", (event) => {
   event.preventDefault();
   els.profileAvatarDrop.classList.remove("dragging");
-  readProfileAvatarFile(event.dataTransfer?.files?.[0]);
+  window.aimashiFellowDialog.readProfileAvatarFile(event.dataTransfer?.files?.[0]);
 });
 els.avatarCropStage?.addEventListener("pointerdown", (event) => {
   event.preventDefault();
@@ -7236,7 +2988,7 @@ els.avatarCropStage?.addEventListener("pointermove", (event) => {
   const sensitivity = Math.min(rawPerPx, 3);
   // Negative: dragging image right exposes its left side (crop x decreases).
   const percentPerPx = -sensitivity;
-  updateAvatarCropEditor({
+  window.aimashiFellowDialog.updateAvatarCropEditor({
     x: state.avatarCropEditor.crop.x + dx * percentPerPx,
     y: state.avatarCropEditor.crop.y + dy * percentPerPx
   });
@@ -7251,13 +3003,13 @@ els.avatarCropStage?.addEventListener("pointercancel", () => {
 els.avatarCropStage?.addEventListener("wheel", (event) => {
   event.preventDefault();
   const direction = event.deltaY > 0 ? -1 : 1;
-  updateAvatarCropEditor({
+  window.aimashiFellowDialog.updateAvatarCropEditor({
     zoom: state.avatarCropEditor.crop.zoom + direction * 0.03
   });
 });
 els.confirmAvatarCrop?.addEventListener("click", async () => {
   if (state.avatarCropEditor.target === "profile") {
-    setProfileAvatarDraft(state.avatarCropEditor.image, state.avatarCropEditor.crop);
+    window.aimashiFellowDialog.setProfileAvatarDraft(state.avatarCropEditor.image, state.avatarCropEditor.crop);
     // Auto-persist the avatar so closing the profile dialog without clicking
     // "保存资料" doesn't silently drop the new avatar. The display name field
     // is preserved by reading whatever is currently in the input.
@@ -7267,23 +3019,23 @@ els.confirmAvatarCrop?.addEventListener("click", async () => {
         || "Boss";
       state.runtime = await window.aimashi.saveProfile({
         displayName,
-        avatarText: initials(displayName),
+        avatarText: window.aimashiAvatar.initials(displayName),
         avatarImage: state.profileAvatarDraft.image || els.profileAvatarImage?.value || "",
-        avatarCrop: normalizeCrop(state.profileAvatarDraft.crop),
+        avatarCrop: window.aimashiAvatar.normalizeCrop(state.profileAvatarDraft.crop),
       });
       render();
     } catch (err) {
       console.error("[profile] avatar auto-save failed:", err);
     }
   } else {
-    setFellowAvatarDraft(state.avatarCropEditor.image, state.avatarCropEditor.crop);
+    window.aimashiFellowDialog.setFellowAvatarDraft(state.avatarCropEditor.image, state.avatarCropEditor.crop);
   }
-  closeAvatarCropEditor();
+  window.aimashiFellowDialog.closeAvatarCropEditor();
 });
-els.cancelAvatarCrop?.addEventListener("click", closeAvatarCropEditor);
+els.cancelAvatarCrop?.addEventListener("click", () => window.aimashiFellowDialog.closeAvatarCropEditor());
 els.resetAvatarCrop?.addEventListener("click", () => {
-  state.avatarCropEditor.crop = normalizeCrop(avatarDefaultCropForSrc(state.avatarCropEditor.image));
-  renderAvatarCropEditor();
+  state.avatarCropEditor.crop = window.aimashiAvatar.normalizeCrop(window.aimashiAvatar.avatarDefaultCropForSrc(state.avatarCropEditor.image));
+  window.aimashiFellowDialog.renderAvatarCropEditor();
 });
 
 els.profileForm?.addEventListener("submit", async (event) => {
@@ -7291,70 +3043,70 @@ els.profileForm?.addEventListener("submit", async (event) => {
   const displayName = els.profileDisplayName.value.trim() || "Boss";
   state.runtime = await window.aimashi.saveProfile({
     displayName,
-    avatarText: initials(displayName),
+    avatarText: window.aimashiAvatar.initials(displayName),
     avatarImage: state.profileAvatarDraft.image || els.profileAvatarImage.value,
-    avatarCrop: normalizeCrop(state.profileAvatarDraft.crop)
+    avatarCrop: window.aimashiAvatar.normalizeCrop(state.profileAvatarDraft.crop)
   });
-  closeProfileDialog();
+  window.aimashiFellowDialog.closeProfileDialog();
   render();
 });
 
 els.appearanceForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  scheduleAppearanceSave(0);
+  window.aimashiSettingsAppearance.scheduleAppearanceSave(0);
 });
 
 els.appearanceTheme.addEventListener("change", () => {
-  scheduleAppearanceSave(0);
+  window.aimashiSettingsAppearance.scheduleAppearanceSave(0);
 });
 
 els.appearanceFontPreset.addEventListener("change", () => {
-  scheduleAppearanceSave(0);
+  window.aimashiSettingsAppearance.scheduleAppearanceSave(0);
 });
 
 els.appearanceFontChoices?.addEventListener("click", (event) => {
   const button = event.target.closest("[data-font-preset]");
   if (!button || !els.appearanceFontChoices.contains(button)) return;
   els.appearanceFontPreset.value = button.dataset.fontPreset || "system";
-  scheduleAppearanceSave(0);
+  window.aimashiSettingsAppearance.scheduleAppearanceSave(0);
 });
 
 els.appearanceListStyle?.addEventListener("change", () => {
-  scheduleAppearanceSave(0);
+  window.aimashiSettingsAppearance.scheduleAppearanceSave(0);
 });
 
 els.appearanceSelectionStyle?.addEventListener("change", () => {
-  scheduleAppearanceSave(0);
+  window.aimashiSettingsAppearance.scheduleAppearanceSave(0);
 });
 
 els.appearanceAccentColor?.addEventListener("input", () => {
-  scheduleAppearanceSave();
+  window.aimashiSettingsAppearance.scheduleAppearanceSave();
 });
 
 els.appearanceAccentReset?.addEventListener("click", () => {
   if (els.appearanceAccentColor) els.appearanceAccentColor.value = DEFAULT_ACCENT_COLOR;
-  scheduleAppearanceSave(0);
+  window.aimashiSettingsAppearance.scheduleAppearanceSave(0);
 });
 
 els.appearanceUserBubbleColor?.addEventListener("input", () => {
-  scheduleAppearanceSave();
+  window.aimashiSettingsAppearance.scheduleAppearanceSave();
 });
 
 els.appearanceUserBubbleReset?.addEventListener("click", () => {
   if (els.appearanceUserBubbleColor) els.appearanceUserBubbleColor.value = DEFAULT_USER_BUBBLE_COLOR;
-  scheduleAppearanceSave(0);
+  window.aimashiSettingsAppearance.scheduleAppearanceSave(0);
 });
 
 els.appearanceShowHoverBackground?.addEventListener("click", () => {
-  toggleSettingsSwitch(els.appearanceShowHoverBackground);
+  window.aimashiSettingsAppearance.toggleSettingsSwitch(els.appearanceShowHoverBackground);
 });
 
 els.appearanceShowUserAvatar?.addEventListener("click", () => {
-  toggleSettingsSwitch(els.appearanceShowUserAvatar);
+  window.aimashiSettingsAppearance.toggleSettingsSwitch(els.appearanceShowUserAvatar);
 });
 
 els.appearanceShowAssistantAvatar?.addEventListener("click", () => {
-  toggleSettingsSwitch(els.appearanceShowAssistantAvatar);
+  window.aimashiSettingsAppearance.toggleSettingsSwitch(els.appearanceShowAssistantAvatar);
 });
 
 els.fellowForm?.addEventListener("submit", async (event) => {
@@ -7364,7 +3116,7 @@ els.fellowForm?.addEventListener("submit", async (event) => {
     name: els.fellowName.value,
     agentEngine: els.fellowAgentEngine?.value || "hermes",
     avatarImage: state.fellowAvatarDraft.image || els.fellowAvatar.value,
-    avatarCrop: normalizeCrop(state.fellowAvatarDraft.crop),
+    avatarCrop: window.aimashiAvatar.normalizeCrop(state.fellowAvatarDraft.crop),
     description: state.fellowDialogMode === "create" ? els.fellowSeed.value : "",
     personaText: els.fellowSeed.value
   };
@@ -7387,14 +3139,14 @@ els.fellowForm?.addEventListener("submit", async (event) => {
 
 els.modelForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const entry = selectedModelEntry();
-  if (!entry || providerIsConnected(entry.provider)) return;
+  const entry = window.aimashiModelHelpers.selectedModelEntry();
+  if (!entry || window.aimashiModelSettings.providerIsConnected(entry.provider)) return;
   const needsApiKey = entry.provider !== "openai-codex" && entry.provider !== "lmstudio" && !String(entry.authType || "").startsWith("oauth");
   if (needsApiKey && !els.modelApiKey.value.trim()) {
     setText(els.modelAuthState, `需要填写 ${entry.apiKeyEnv || "API Key"}`);
     return;
   }
-  if (entry) applyModelEntryToFields(entry);
+  if (entry) window.aimashiModelSettings.applyModelEntryToFields(entry);
   state.runtime = await window.aimashi.saveModel({
     provider: els.modelProvider.value,
     model: els.modelName.value,
@@ -7411,38 +3163,38 @@ els.modelForm.addEventListener("submit", async (event) => {
 });
 
 els.chatInput.addEventListener("keydown", (event) => {
-  if (isComposerComposing(event)) return;
+  if (window.aimashiMessageHelpers.isComposerComposing(event)) return;
   if (state.slashMenuOpen) {
-    const commands = filteredSlashCommands();
+    const commands = window.aimashiComposer.filteredSlashCommands();
     if (event.key === "ArrowDown") {
       event.preventDefault();
       state.slashSelectedIndex = commands.length ? (state.slashSelectedIndex + 1) % commands.length : 0;
-      renderSlashCommandMenu();
+      window.aimashiComposer.renderSlashCommandMenu();
       return;
     }
     if (event.key === "ArrowUp") {
       event.preventDefault();
       state.slashSelectedIndex = commands.length ? (state.slashSelectedIndex - 1 + commands.length) % commands.length : 0;
-      renderSlashCommandMenu();
+      window.aimashiComposer.renderSlashCommandMenu();
       return;
     }
     if (event.key === "Tab") {
       event.preventDefault();
       const command = commands[state.slashSelectedIndex];
       if (command) {
-        fillSlashCommand(command);
+        window.aimashiComposer.fillSlashCommand(command);
       }
       return;
     }
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       const command = commands[state.slashSelectedIndex];
-      if (command) sendSlashCommand(command);
+      if (command) window.aimashiComposer.sendSlashCommand(command);
       return;
     }
     if (event.key === "Escape") {
       state.slashMenuOpen = false;
-      renderSlashCommandMenu();
+      window.aimashiComposer.renderSlashCommandMenu();
       return;
     }
   }
@@ -7453,52 +3205,51 @@ els.chatInput.addEventListener("keydown", (event) => {
 });
 
 els.chatInput.addEventListener("compositionstart", () => {
-  composerCompositionEndedAt = 0;
   els.chatInput.dataset.composing = "true";
 });
 
 els.chatInput.addEventListener("compositionend", () => {
-  composerCompositionEndedAt = performance.now();
+  window.aimashiMessageHelpers.noteCompositionEnded();
   els.chatInput.dataset.composing = "false";
-  resizeChatInput();
-  updateSlashCommandState();
+  window.aimashiMessageHelpers.resizeChatInput();
+  window.aimashiComposer.updateSlashCommandState();
   renderSendButton();
 });
 
 els.chatInput.addEventListener("input", () => {
-  resizeChatInput();
-  updateSlashCommandState();
+  window.aimashiMessageHelpers.resizeChatInput();
+  window.aimashiComposer.updateSlashCommandState();
   renderSendButton();
 });
 els.chatInput.addEventListener("contextmenu", (event) => {
   event.preventDefault();
   event.stopPropagation();
-  closeComposerAddMenu();
-  closeSkillPicker();
+  window.aimashiComposer.closeComposerAddMenu();
+  window.aimashiComposer.closeSkillPicker();
   els.chatInput.focus();
   window.aimashi?.showEditContextMenu?.({ x: event.clientX, y: event.clientY });
 });
-els.chatInput.addEventListener("click", updateSlashCommandState);
+els.chatInput.addEventListener("click", () => window.aimashiComposer.updateSlashCommandState());
 els.composerAdd?.addEventListener("click", (event) => {
   event.preventDefault();
   event.stopPropagation();
   state.composerAddMenuOpen = !state.composerAddMenuOpen;
   state.slashMenuOpen = false;
-  if (state.composerAddMenuOpen) closeSkillPicker();
-  renderSlashCommandMenu();
-  renderComposerAddMenu();
+  if (state.composerAddMenuOpen) window.aimashiComposer.closeSkillPicker();
+  window.aimashiComposer.renderSlashCommandMenu();
+  window.aimashiComposer.renderComposerAddMenu();
 });
 els.composerAddMenu?.addEventListener("click", (event) => {
   const action = event.target.closest("[data-composer-add]")?.dataset.composerAdd;
   if (!action) return;
   event.preventDefault();
   if (action === "attachment") {
-    closeComposerAddMenu();
+    window.aimashiComposer.closeComposerAddMenu();
     els.composerAttachmentInput?.click();
     return;
   }
   if (action === "skill") {
-    openSkillPicker();
+    window.aimashiComposer.openSkillPicker();
     return;
   }
   els.chatInput?.focus();
@@ -7506,34 +3257,34 @@ els.composerAddMenu?.addEventListener("click", (event) => {
 els.composerAddMenu?.addEventListener("pointerover", (event) => {
   const action = event.target.closest("[data-composer-add]")?.dataset.composerAdd;
   if (action === "skill") {
-    openSkillPicker();
+    window.aimashiComposer.openSkillPicker();
     return;
   }
-  if (action) scheduleSkillPickerHoverClose();
+  if (action) window.aimashiComposer.scheduleSkillPickerHoverClose();
 });
 els.composerAddMenu?.addEventListener("pointerout", (event) => {
   const item = event.target.closest('[data-composer-add="skill"]');
   if (!item) return;
-  if (targetIsSkillPickerZone(event.relatedTarget)) return;
-  scheduleSkillPickerHoverClose();
+  if (window.aimashiComposer.targetIsSkillPickerZone(event.relatedTarget)) return;
+  window.aimashiComposer.scheduleSkillPickerHoverClose();
 });
-els.skillPicker?.addEventListener("pointerenter", cancelSkillPickerHoverClose);
+els.skillPicker?.addEventListener("pointerenter", () => window.aimashiComposer.cancelSkillPickerHoverClose());
 els.skillPicker?.addEventListener("pointerleave", (event) => {
-  if (targetIsSkillPickerZone(event.relatedTarget)) return;
-  scheduleSkillPickerHoverClose();
+  if (window.aimashiComposer.targetIsSkillPickerZone(event.relatedTarget)) return;
+  window.aimashiComposer.scheduleSkillPickerHoverClose();
 });
 
 els.skillPickerSearch?.addEventListener("input", () => {
   state.skillPickerFilter = els.skillPickerSearch.value || "";
-  renderSkillPicker();
+  window.aimashiComposer.renderSkillPicker();
 });
-els.closeSkillPicker?.addEventListener("click", () => closeSkillPicker());
+els.closeSkillPicker?.addEventListener("click", () => window.aimashiComposer.closeSkillPicker());
 els.skillPickerBody?.addEventListener("click", (event) => {
   const button = event.target.closest("[data-skill-pick]");
   if (!button) return;
-  insertSkillIntoComposer(button.dataset.skillPick);
-  closeComposerAddMenu();
-  closeSkillPicker();
+  window.aimashiComposer.insertSkillIntoComposer(button.dataset.skillPick);
+  window.aimashiComposer.closeComposerAddMenu();
+  window.aimashiComposer.closeSkillPicker();
 });
 els.skillPickerBody?.addEventListener("click", (event) => {
   const button = event.target.closest("[data-skill-picker-plugin]");
@@ -7541,7 +3292,7 @@ els.skillPickerBody?.addEventListener("click", (event) => {
   state.skillPickerPluginId = button.dataset.skillPickerPlugin || "";
   state.skillPickerFilter = "";
   if (els.skillPickerSearch) els.skillPickerSearch.value = "";
-  renderSkillPicker();
+  window.aimashiComposer.renderSkillPicker();
 });
 els.skillPickerBody?.addEventListener("pointerover", (event) => {
   const button = event.target.closest("[data-skill-picker-plugin]");
@@ -7549,17 +3300,17 @@ els.skillPickerBody?.addEventListener("pointerover", (event) => {
   state.skillPickerPluginId = button.dataset.skillPickerPlugin || "";
   state.skillPickerFilter = "";
   if (els.skillPickerSearch) els.skillPickerSearch.value = "";
-  renderSkillPicker();
+  window.aimashiComposer.renderSkillPicker();
 });
 els.skillPickerSearch?.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") closeSkillPicker();
+  if (event.key === "Escape") window.aimashiComposer.closeSkillPicker();
   if (event.key === "Enter") {
     event.preventDefault();
     const first = els.skillPickerBody?.querySelector("[data-skill-pick]");
     if (first) {
-      insertSkillIntoComposer(first.dataset.skillPick);
-      closeComposerAddMenu();
-      closeSkillPicker();
+      window.aimashiComposer.insertSkillIntoComposer(first.dataset.skillPick);
+      window.aimashiComposer.closeComposerAddMenu();
+      window.aimashiComposer.closeSkillPicker();
     }
   }
 });
@@ -7568,10 +3319,10 @@ document.addEventListener("click", (event) => {
   if (els.skillPicker?.contains(event.target)) return;
   if (els.composerAddMenu?.contains(event.target)) return;
   if (els.composerAdd?.contains(event.target)) return;
-  closeSkillPicker();
+  window.aimashiComposer.closeSkillPicker();
 });
 els.composerAttachmentInput?.addEventListener("change", () => {
-  addComposerFiles(els.composerAttachmentInput.files);
+  window.aimashiComposer.addComposerFiles(els.composerAttachmentInput.files);
   els.composerAttachmentInput.value = "";
 });
 els.composerAttachments?.addEventListener("click", (event) => {
@@ -7581,7 +3332,7 @@ els.composerAttachments?.addEventListener("click", (event) => {
 els.composerReply?.addEventListener("click", (event) => {
   if (!event.target.closest("[data-clear-reply]")) return;
   state.replyDraft = null;
-  renderComposerReply();
+  window.aimashiMessageHelpers.renderComposerReply();
   els.chatInput?.focus();
 });
 els.chatForm?.addEventListener("dragover", (event) => {
@@ -7596,11 +3347,11 @@ els.chatForm?.addEventListener("drop", (event) => {
   if (!event.dataTransfer?.files?.length) return;
   event.preventDefault();
   els.chatForm.classList.remove("dragging-attachment");
-  addComposerFiles(event.dataTransfer.files);
+  window.aimashiComposer.addComposerFiles(event.dataTransfer.files);
 });
 els.chatInput?.addEventListener("paste", (event) => {
   if (!event.clipboardData?.files?.length) return;
-  addComposerFiles(event.clipboardData.files);
+  window.aimashiComposer.addComposerFiles(event.clipboardData.files);
 });
 els.sendChat.addEventListener("click", async (event) => {
   if (!state.isGenerating) return;
@@ -7616,7 +3367,7 @@ els.chat.addEventListener("click", async (event) => {
     state.selectedRunId = "";
     state.activeView = "tasks";
     state.tasksUnread?.delete(taskId);
-    updateTasksRailBadge();
+    window.aimashiTasksPanel?.updateTasksRailBadge();
     render();
     return;
   }
@@ -7656,7 +3407,7 @@ els.chat.addEventListener("click", async (event) => {
 els.chat.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-copy-translation]");
   if (!button || !els.chat.contains(button)) return;
-  const message = messageAtIndex(Number(button.dataset.copyTranslation));
+  const message = window.aimashiMessageHelpers.messageAtIndex(Number(button.dataset.copyTranslation));
   const text = message?.translation?.text || "";
   if (!text) return;
   if (await copyTextToClipboard(text)) {
@@ -7695,7 +3446,7 @@ els.chat.addEventListener("toggle", (event) => {
 
 els.chatForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (isComposerComposing()) return;
+  if (window.aimashiMessageHelpers.isComposerComposing()) return;
   // Branch: group chat
   if (activeGroup()) {
     if (window.aimashiGroup && typeof window.aimashiGroup.sendInActiveGroup === "function") {
@@ -7716,9 +3467,9 @@ els.chatForm.addEventListener("submit", async (event) => {
   els.chatInput.value = "";
   state.pendingAttachments = [];
   state.replyDraft = null;
-  renderComposerReply();
-  renderComposerAttachments();
-  resizeChatInput();
+  window.aimashiMessageHelpers.renderComposerReply();
+  window.aimashiComposer.renderComposerAttachments();
+  window.aimashiMessageHelpers.resizeChatInput();
   renderSendButton();
   const userText = text || "请查看附件。";
   appendChat("user", userText, { attachments, replyTo });
@@ -7737,7 +3488,10 @@ els.chatForm.addEventListener("submit", async (event) => {
     // can cause the assistant message to land in /api/messages first,
     // and Web/mobile clients will show the assistant before the prompt.
     const userCloudPush = pushCloudMessageQuietly(session, userMessage);
-    const outgoingText = replyContextPrompt(await outgoingMessageForSubmit(text), replyTo);
+    const outgoingBase = await window.aimashiComposer.outgoingMessageForSubmit(text);
+    const outgoingText = window.aimashiMessageMenu
+      ? window.aimashiMessageMenu.replyContextPrompt(outgoingBase, replyTo)
+      : outgoingBase;
     const history = messagesForActive()
       .filter((message) => message.content || (Array.isArray(message.attachments) && message.attachments.length))
       .map((message) => ({ role: message.role, content: message.content, attachments: message.attachments || [] }));
@@ -7757,13 +3511,23 @@ els.chatForm.addEventListener("submit", async (event) => {
       : { reasoning: "", tools: [] };
     state.streaming = null;
     appendChat("assistant", answer, { reasoning: traceSnapshot.reasoning, tools: traceSnapshot.tools, attachments: responseAttachments });
-    await persistSessionQuietly(session);
-    const assistantMessage = session.messages[session.messages.length - 1];
+    // The `session` captured at the top of this handler is now orphan:
+    // persistSessionQuietly(session) at the start of the try block reassigned
+    // state.chatStore via IPC (saveChatSession returns a freshly normalized
+    // store), so the original session object no longer lives inside it.
+    // appendChat above pushed the assistant message into the LIVE session
+    // (state.chatStore.sessions[...]), not into the orphan ref. Persisting
+    // the orphan here would save its stale messages and clobber the assistant
+    // we just appended — that's the "回复被吞" regression introduced by
+    // 0eb1458. Re-resolve to the live session before persist + cloud push.
+    const liveSession = activeSession();
+    await persistSessionQuietly(liveSession);
+    const assistantMessage = liveSession.messages[liveSession.messages.length - 1];
     // Wait for the earlier user push to land first so /api/messages
     // receives user → assistant in order (Codex review P2).
     try { await userCloudPush; } catch { /* user push errors are non-fatal */ }
-    await pushCloudMessageQuietly(session, assistantMessage);
-    persistReadStateQuietly();
+    await pushCloudMessageQuietly(liveSession, assistantMessage);
+    window.aimashiSessionReadState.persistReadStateQuietly();
     if (shouldGenerateTitle) {
       const current = activeSession();
       const result = await window.aimashi.generateSessionTitle({
@@ -7779,11 +3543,17 @@ els.chatForm.addEventListener("submit", async (event) => {
     }
     await refreshRuntime();
   } catch (error) {
+    // Re-resolve session — see comment on `liveSession` above for why the
+    // captured `session` is orphan once persistSessionQuietly has reassigned
+    // state.chatStore. The "生成已停止" branch persists whatever's in memory
+    // (typically just the user message); the error branch first appends an
+    // assistant-side error message via appendChat (which targets the live
+    // session via activeSession()), then persists.
     if (String(error.message || "").includes("生成已停止")) {
-      await persistSessionQuietly(session);
+      await persistSessionQuietly(activeSession());
     } else {
       appendChat("assistant", `Request failed: ${error.message}`);
-      await persistSessionQuietly(session);
+      await persistSessionQuietly(activeSession());
     }
     await refreshRuntime();
   } finally {
@@ -7851,7 +3621,7 @@ async function handleSetupGuideAction(button) {
     button.textContent = "安装中…";
     try {
       state.runtime = await window.aimashi.installEngine();
-      await loadModelCatalog();
+      await window.aimashiLoaders.loadModelCatalog();
       afterEnginePicked("hermes");
     } catch (error) {
       appendTransientChat("assistant", `Hermes install failed: ${error.message}`);
@@ -7877,8 +3647,8 @@ function openInitialFellowDialog() {
     bio: "你是 Aimashi，一个轻松友好的桌面 AI 伙伴，回答简洁、口语化。"
   };
   // Reuse existing fellow create dialog with prefilled values.
-  if (typeof openFellowDialog === "function") {
-    openFellowDialog(null, seed);
+  if (typeof window.aimashiFellowDialog?.openFellowDialog === "function") {
+    window.aimashiFellowDialog.openFellowDialog(null, seed);
   } else {
     // Fallback: at least open settings
     state.settingsOpen = true;
@@ -7900,7 +3670,7 @@ function renderHeaderStatus() {
   }
   const count = sessionsForPersona(active.key).length;
   const startupLoading = state.startupTasks[0]?.label;
-  const trailing = startupLoading ? ` · 正在${escapeHtml(startupLoading)}` : "";
+  const trailing = startupLoading ? ` · 正在${window.aimashiMarkdown.escapeHtml(startupLoading)}` : "";
   els.activeChatMeta.innerHTML = `${count} 个会话 · 在线${trailing}`;
 }
 
@@ -7998,7 +3768,7 @@ window.aimashi.onChatEvent((envelope) => {
   scheduleStreamRender();
 });
 
-resizeChatInput();
+window.aimashiMessageHelpers.resizeChatInput();
 function startAfterFirstPaint() {
   const start = () => {
     try { window.aimashi?.notifyFirstPaint?.(); } catch { /* main may not expose this in older builds */ }
@@ -8009,7 +3779,7 @@ function startAfterFirstPaint() {
         <article class="setup-guide bootstrap">
           <div class="setup-guide-main">
             <strong>Aimashi 初始化失败</strong>
-            <p>${escapeHtml(message)}</p>
+            <p>${window.aimashiMarkdown.escapeHtml(message)}</p>
           </div>
         </article>
       `;

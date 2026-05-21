@@ -1,6 +1,6 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { createConductor } = require("../src/renderer/conductor.js");
+const { createConductor } = require("../src/renderer/group/conductor.js");
 
 function mockEngine(responses) {
   const calls = [];
