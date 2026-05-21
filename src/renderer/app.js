@@ -1080,7 +1080,7 @@ function render() {
       }
       bossTileTopbar.style.cssText = topbarBossStyle;
       els.activeChatAvatar.appendChild(bossTileTopbar);
-      for (const mid of (groupActive.members || [])) {
+      for (const mid of (groupActive.members || []).map((m) => m.fellowId)) {
         const tile = document.createElement("span");
         tile.className = "group-avatar-tile";
         const fellow = personas.find((p) => (p.id || p.key) === mid);
@@ -1124,7 +1124,7 @@ function render() {
     ? personas.filter((persona) => `${persona.name || ""} ${persona.key || ""}`.toLowerCase().includes(filter))
     : personas;
   const visibleGroups = listGroups().filter((group) => (
-    !filter || `${group.name || ""} ${(group.members || []).join(" ")}`.toLowerCase().includes(filter)
+    !filter || `${group.name || ""} ${(group.members || []).map((m) => m.fellowId).join(" ")}`.toLowerCase().includes(filter)
   ));
   const messageRows = window.aimashiFellowManager.sortMessageCardsForSidebar([
     ...visiblePersonas.map((persona) => ({
@@ -1224,7 +1224,7 @@ function render() {
     }
     bossTileSidebar.style.cssText = sidebarBossStyle;
     avatarEl.appendChild(bossTileSidebar);
-    for (const mid of (group.members || [])) {
+    for (const mid of (group.members || []).map((m) => m.fellowId)) {
       const tile = document.createElement("span");
       tile.className = "group-avatar-tile";
       const fellow = personas.find((p) => (p.id || p.key) === mid);
