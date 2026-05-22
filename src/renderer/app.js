@@ -336,6 +336,7 @@ const els = {
   mobileRelayLink: document.getElementById("mobileRelayLink"),
   mobileRelayHint: document.getElementById("mobileRelayHint"),
   tasksUnreadBadge: document.getElementById("tasksUnreadBadge"),
+  contactsUnreadBadge: document.getElementById("contactsUnreadBadge"),
   tasksSidebar: document.getElementById("tasksSidebar"),
   tasksNav: document.getElementById("tasksNav"),
   tasksView: document.getElementById("tasksView"),
@@ -1360,6 +1361,16 @@ function renderView() {
   els.profileDialog?.classList.toggle("hidden", !state.profileDialogOpen);
   els.fellowCreateMenu?.classList.toggle("hidden", !state.fellowMenuOpen);
   els.contactCreateMenu?.classList.toggle("hidden", !state.contactMenuOpen);
+  // Contacts unread = number of pending incoming friend requests.
+  const incomingCount = window.aimashiSocial?.moduleState?.incomingRequests?.length || 0;
+  if (els.contactsUnreadBadge) {
+    if (incomingCount > 0) {
+      els.contactsUnreadBadge.classList.remove("hidden");
+      els.contactsUnreadBadge.textContent = String(incomingCount > 99 ? "99+" : incomingCount);
+    } else {
+      els.contactsUnreadBadge.classList.add("hidden");
+    }
+  }
   els.fellowDialog?.classList.toggle("hidden", !state.fellowDialogOpen);
   els.petGenerateDialog?.classList.toggle("hidden", !state.petGenerateOpen);
   els.avatarCropDialog?.classList.toggle("hidden", !state.avatarCropEditor.open);

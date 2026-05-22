@@ -139,6 +139,26 @@
     if (deps && typeof deps.render === "function") deps.render();
   }
 
+  // ── toast helper (used for new friend-request notifications) ────────────
+
+  let _toastTimer = 0;
+  function showFriendRequestToast(fromName) {
+    const el = document.getElementById("appToast");
+    if (!el) return;
+    el.innerHTML = `
+      <strong>新好友申请</strong>
+      <span>${String(fromName || "").replace(/[<>&"']/g, (ch) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&#39;" }[ch]))} 想加你为好友</span>
+      <button type="button" class="app-toast-action">查看</button>
+    `;
+    el.classList.remove("hidden");
+    el.querySelector(".app-toast-action")?.addEventListener("click", () => {
+      el.classList.add("hidden");
+      openAddFriendDialog();
+    }, { once: true });
+    clearTimeout(_toastTimer);
+    _toastTimer = setTimeout(() => el.classList.add("hidden"), 6000);
+  }
+
   // ── handleCloudEvent ──────────────────────────────────────────────────────
 
   function handleCloudEvent(event) {
@@ -149,8 +169,11 @@
       const req = payload && payload.request;
       if (!req) return;
       // De-dup
-      if (!moduleState.incomingRequests.find((r) => r.id === req.id)) {
+      const seen = moduleState.incomingRequests.find((r) => r.id === req.id);
+      if (!seen) {
         moduleState.incomingRequests.push(req);
+        const fromName = req.from?.username || req.from?.account || req.from_user || "陌生人";
+        showFriendRequestToast(fromName);
       }
       if (deps && typeof deps.render === "function") deps.render();
       return;

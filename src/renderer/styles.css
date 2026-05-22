@@ -368,6 +368,45 @@ body.window-blurred .traffic-spacer:hover .traffic-light.green {
 }
 .rail-badge.hidden { display: none; }
 
+/* ── in-app toast (friend requests, etc.) ────────────────────────────────── */
+
+.app-toast {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  z-index: 200;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 340px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--surface, #fff);
+  color: var(--text, #111);
+  box-shadow: var(--shadow, 0 14px 34px rgba(20, 24, 40, 0.18));
+  border: 1px solid var(--line, rgba(0, 0, 0, 0.08));
+  font-size: 13px;
+  animation: appToastIn 180ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.app-toast.hidden { display: none; }
+.app-toast strong { font-weight: 600; }
+.app-toast span { color: var(--muted, #555); }
+.app-toast-action {
+  margin-left: auto;
+  padding: 5px 10px;
+  border-radius: 7px;
+  background: var(--accent, #0162db);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 500;
+}
+.app-toast-action:hover { filter: brightness(1.06); }
+
+@keyframes appToastIn {
+  from { transform: translateY(-8px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
 .sidebar,
 .workspace {
   min-width: 0;
