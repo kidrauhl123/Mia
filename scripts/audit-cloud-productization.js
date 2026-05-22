@@ -371,7 +371,7 @@ function runAudit({ rootDir = root } = {}) {
     ]),
     item("cloud.realtime-sync", "按用户隔离的实时同步", [
       checkSource(rootDir, "scripts/serve-cloud.js", /\/api\/events|broadcastEvent|workspace_updated|message_created|device_updated|bridge_run_updated/, "event websocket and envelope types"),
-      checkSource(rootDir, "src/web/app.js", /startCloudEvents|handleCloudEvent|room\.message_appended/, "web consumes realtime events"),
+      checkSource(rootDir, "src/web/app.js", /startCloudEvents[\s\S]*workspace_updated[\s\S]*message_created[\s\S]*bridge_run_updated/, "web consumes realtime events"),
       checkSource(rootDir, "src/main.js", /startCloudEvents|mergeCloudWorkspaceIntoChatStore|writeCloudWorkspace/, "desktop consumes cloud events"),
       checkSource(rootDir, "tests/serve-cloud-bridge.test.js", /events broadcast workspace updates only to the authenticated user/, "cross-user realtime isolation test")
     ]),

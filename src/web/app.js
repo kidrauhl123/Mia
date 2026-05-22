@@ -53,7 +53,13 @@ let state = {
   outgoingRequests: [],
   messageCache: new Map(),
   roomMembersCache: new Map(),
-  activeRoomId: "",
+  // Cloud workspace mirror (populated from /api/workspace). Holds the
+  // desktop-synced fellow conversations + their messages. Cloud rooms and
+  // desktop conversations are merged into a single sidebar list.
+  workspace: { revision: 0, conversations: [] },
+  bridgeDevices: [],
+  bridgeBusy: false,
+  activeConversationId: "",
   settingsOpen: false,
   activeSettingsTab: "account",
   createMenuOpen: false,
@@ -107,9 +113,22 @@ function clearSession() {
   state.outgoingRequests = [];
   state.messageCache.clear();
   state.roomMembersCache.clear();
-  state.activeRoomId = "";
+  state.workspace = { revision: 0, conversations: [] };
+  state.bridgeDevices = [];
+  state.bridgeBusy = false;
+  state.activeConversationId = "";
   stopCloudEvents();
   localStorage.removeItem(STORAGE_KEY);
+}
+
+// Conversation kind helpers — rooms are cloud-native DM/group rooms, desktop
+// conversations come from the synced workspace and route through a desktop
+// bridge to run the owner's local fellow.
+function isDesktopConversationId(id) {
+  return typeof id === "string" && id.startsWith("desktop:");
+}
+function isRoomId(id) {
+  return typeof id === "string" && (id.startsWith("dm:") || id.startsWith("g_"));
 }
 
 async function api(path, options = {}) {
@@ -157,7 +176,7 @@ async function handleLogout() {
   setAuthView();
   renderSettings();
   renderConversationList();
-  renderActiveRoom();
+  renderActiveChat();
 }
 
 // ── bootstrap ──────────────────────────────────────────────────────────────
@@ -178,18 +197,45 @@ async function bootstrap() {
     api("/api/social/friends").then((d) => { state.friends = Array.isArray(d.friends) ? d.friends : []; }).catch(() => {}),
     api("/api/social/friend-requests?direction=incoming").then((d) => { state.incomingRequests = Array.isArray(d.requests) ? d.requests : []; }).catch(() => {}),
     api("/api/social/friend-requests?direction=outgoing").then((d) => { state.outgoingRequests = Array.isArray(d.requests) ? d.requests : []; }).catch(() => {}),
+    // Workspace: holds the desktop-synced fellow conversations (Phase A).
+    api("/api/workspace").then((d) => { applyWorkspace(d.workspace); }).catch(() => {}),
+    // Bridge devices: lets Phase B decide whether the owner's desktop is
+    // online and we can route the message through it. Empty array if none.
+    api("/api/bridge/devices").then((d) => { state.bridgeDevices = Array.isArray(d.devices) ? d.devices : []; }).catch(() => {}),
   ]);
-  // pick first room
-  if (!state.activeRoomId && state.rooms.length) {
-    state.activeRoomId = state.rooms[0].id;
+  if (!state.activeConversationId) {
+    // Prefer the most recently active conversation across both rooms and
+    // desktop fellow chats (sorted by recency).
+    const first = combinedConversationItems()[0];
+    if (first) state.activeConversationId = first.id;
   }
-  if (state.activeRoomId) {
-    await ensureRoomMessages(state.activeRoomId);
-    await ensureRoomMembers(state.activeRoomId);
+  if (state.activeConversationId && isRoomId(state.activeConversationId)) {
+    await ensureRoomMessages(state.activeConversationId);
+    await ensureRoomMembers(state.activeConversationId);
   }
   renderConversationList();
-  renderActiveRoom();
+  renderActiveChat();
   renderSettings();
+}
+
+function applyWorkspace(workspace) {
+  if (!workspace || typeof workspace !== "object") {
+    state.workspace = { revision: 0, conversations: [] };
+    return;
+  }
+  state.workspace = {
+    revision: Number(workspace.revision || 0),
+    conversations: Array.isArray(workspace.conversations) ? workspace.conversations : []
+  };
+}
+
+function activeDesktopConversation() {
+  if (!isDesktopConversationId(state.activeConversationId)) return null;
+  return state.workspace.conversations.find((c) => c.id === state.activeConversationId) || null;
+}
+
+function bridgeIsOnline() {
+  return state.bridgeDevices.length > 0;
 }
 
 // Room ids are `dm:<a>:<b>` or `g_<hex>` — both fit the server route regex
@@ -286,8 +332,20 @@ function handleCloudEvent(envelope) {
       entry.maxSeq = Math.max(entry.maxSeq, Number(msg.seq || 0));
       state.messageCache.set(roomId, entry);
     }
-    if (roomId === state.activeRoomId) renderActiveRoom();
+    if (roomId === state.activeConversationId) renderActiveChat();
     renderConversationList();
+  } else if (type === "workspace_updated" || type === "message_created") {
+    applyWorkspace(envelope.workspace);
+    renderConversationList();
+    if (isDesktopConversationId(state.activeConversationId)) renderActiveChat();
+  } else if (type === "device_updated") {
+    if (Array.isArray(envelope.devices)) state.bridgeDevices = envelope.devices;
+    renderActiveChat();
+  } else if (type === "bridge_run_updated") {
+    const status = envelope.run?.status;
+    if (status === "pending" || status === "running") state.bridgeBusy = true;
+    else state.bridgeBusy = false;
+    if (isDesktopConversationId(state.activeConversationId)) renderActiveChat();
   } else if (type === "social.friend_request_received") {
     if (envelope.request) state.incomingRequests = [envelope.request, ...state.incomingRequests];
     showToast(`收到 ${envelope.request?.from?.username || "好友"} 的好友请求`);
@@ -310,7 +368,7 @@ function handleCloudEvent(envelope) {
   }
 }
 
-// ── conversation list ──────────────────────────────────────────────────────
+// ── conversation list (rooms + desktop-synced fellow chats merged) ────────
 
 function friendUsernameById(userId) {
   return state.friends.find((f) => f.id === userId)?.username || userId;
@@ -338,41 +396,79 @@ function roomSortKey(room) {
   return new Date(last?.created_at || room.updated_at || room.created_at || 0).getTime();
 }
 
+function desktopConvLastMessageText(conv) {
+  const last = conv.messages?.[conv.messages.length - 1];
+  if (!last) return conv.meta || "Aimashi Desktop · 已同步";
+  return last.text || (last.attachments?.length ? "[附件]" : "");
+}
+
+function desktopConvSortKey(conv) {
+  const last = conv.messages?.[conv.messages.length - 1];
+  return new Date(last?.createdAt || conv.updatedAt || 0).getTime();
+}
+
+// Unified item shape so the renderer doesn't have to branch every time.
+function combinedConversationItems() {
+  const room = state.rooms.map((r) => ({
+    kind: "room",
+    id: r.id,
+    title: roomDisplayTitle(r),
+    preview: roomLastMessageText(r),
+    sortKey: roomSortKey(r),
+    isDM: r.id?.startsWith("dm:")
+  }));
+  const desktop = state.workspace.conversations.map((c) => ({
+    kind: "desktop",
+    id: c.id,
+    title: c.title || "本地对话",
+    preview: desktopConvLastMessageText(c),
+    sortKey: desktopConvSortKey(c),
+    avatar: c.avatar
+  }));
+  return [...room, ...desktop].sort((a, b) => b.sortKey - a.sortKey);
+}
+
 function renderConversationList() {
   const query = String(els.conversationSearch.value || "").trim().toLowerCase();
-  const items = [...state.rooms]
-    .filter((room) => {
-      if (!query) return true;
-      return roomDisplayTitle(room).toLowerCase().includes(query);
-    })
-    .sort((a, b) => roomSortKey(b) - roomSortKey(a));
+  const all = combinedConversationItems();
+  const items = query ? all.filter((it) => it.title.toLowerCase().includes(query)) : all;
 
   if (!items.length) {
-    els.conversationList.innerHTML = `<p class="persona-empty">没有会话。点击右上 + 添加好友或发起群聊。</p>`;
+    const empty = state.user
+      ? "没有会话。点击右上 + 添加好友或发起群聊；或在桌面端登录同账号并点同步。"
+      : "请先登录。";
+    els.conversationList.innerHTML = `<p class="persona-empty">${empty}</p>`;
     return;
   }
 
-  els.conversationList.innerHTML = items.map((room) => {
-    const title = roomDisplayTitle(room);
-    const preview = roomLastMessageText(room);
-    const isDM = room.id?.startsWith("dm:");
-    const avatarLabel = (title[0] || "?").toUpperCase();
-    const color = isDM ? "#5e5ce6" : "#34c759";
+  els.conversationList.innerHTML = items.map((it) => {
+    const avatarLabel = (it.title[0] || "?").toUpperCase();
+    let color = "#5e5ce6";
+    if (it.kind === "room") color = it.isDM ? "#5e5ce6" : "#34c759";
+    if (it.kind === "desktop") color = "#ff9f0a"; // desktop fellow = orange tint
+    // Only use the avatar URL if it's absolute or a data URL — desktop syncs
+    // store relative paths like ./assets/avatar-08.png that don't exist on
+    // the cloud-served web origin, so fall back to the colored letter circle.
+    const useAvatar = it.avatar && (/^(https?:|data:)/i.test(it.avatar));
+    const avatarStyle = useAvatar
+      ? `background-image:url('${escapeHtml(it.avatar)}'); background-size:cover; background-position:center;`
+      : `background-color:${color}; color:#fff; display:inline-flex; align-items:center; justify-content:center;`;
+    const avatarText = useAvatar ? "" : escapeHtml(avatarLabel);
     return `
-      <button class="persona ${room.id === state.activeRoomId ? "active" : ""}" type="button" data-room-id="${escapeHtml(room.id)}">
-        <span class="avatar" style="background-color:${color}; color:#fff; display:inline-flex; align-items:center; justify-content:center;">${escapeHtml(avatarLabel)}</span>
+      <button class="persona ${it.id === state.activeConversationId ? "active" : ""}" type="button" data-conv-id="${escapeHtml(it.id)}" data-conv-kind="${it.kind}">
+        <span class="avatar" style="${avatarStyle}">${avatarText}</span>
         <span class="persona-main">
-          <strong class="persona-name">${escapeHtml(title)}</strong>
-          <span class="persona-preview">${escapeHtml(preview)}</span>
+          <strong class="persona-name">${escapeHtml(it.title)}</strong>
+          <span class="persona-preview">${escapeHtml(it.preview)}</span>
         </span>
       </button>
     `;
   }).join("");
 }
 
-// ── active room view ───────────────────────────────────────────────────────
+// ── active chat view ───────────────────────────────────────────────────────
 
-function buildMessageArticle(msg, room) {
+function buildRoomMessageArticle(msg, room) {
   const isOwn = msg.sender_kind === "user" && msg.sender_ref === state.user?.id;
   let senderLabel = "";
   if (msg.sender_kind === "user") {
@@ -400,71 +496,191 @@ function buildMessageArticle(msg, room) {
   `;
 }
 
-function renderActiveRoom() {
-  const room = state.rooms.find((r) => r.id === state.activeRoomId);
-  if (!room) {
+function buildDesktopMessageArticle(msg, conv) {
+  const isOwn = msg.role === "user";
+  const cls = isOwn ? "message user" : "message assistant";
+  const initial = isOwn ? (state.user?.username?.[0] || "M").toUpperCase() : (conv.title?.[0] || "A").toUpperCase();
+  const color = isOwn ? "#0162db" : "#ff9f0a";
+  const body = (msg.text || "").replace(/\n/g, "<br>");
+  return `
+    <article class="${cls}">
+      <span class="avatar" style="background-color:${color}; color:#fff; display:inline-flex; align-items:center; justify-content:center;">${escapeHtml(initial)}</span>
+      <div class="message-stack">
+        <div class="bubble">${escapeHtml(body).replace(/&lt;br&gt;/g, "<br>")}</div>
+        <span class="message-time">${escapeHtml(shortTime(msg.createdAt))}</span>
+      </div>
+    </article>
+  `;
+}
+
+function setComposerEnabled(enabled, placeholder) {
+  els.chatInput.disabled = !enabled;
+  els.sendButton.disabled = !enabled;
+  if (placeholder) els.chatInput.placeholder = placeholder;
+}
+
+function renderActiveChat() {
+  const id = state.activeConversationId;
+  if (!id) {
+    els.activeAvatar.style.backgroundImage = "";
     els.activeAvatar.style.backgroundColor = "transparent";
     els.activeAvatar.textContent = "";
     els.activeTitle.textContent = "Aimashi";
     els.activeMeta.textContent = state.user ? "选择一个会话开始聊天" : "Aimashi Cloud";
-    els.chat.innerHTML = `<p class="persona-empty">还没有会话。点击右上 + 添加好友或发起群聊。</p>`;
+    els.chat.innerHTML = `<p class="persona-empty">还没有选中的会话。</p>`;
+    setComposerEnabled(false, "选择一个会话开始聊天");
     return;
   }
-  const title = roomDisplayTitle(room);
-  const isDM = room.id?.startsWith("dm:");
-  els.activeAvatar.style.backgroundColor = isDM ? "#5e5ce6" : "#34c759";
-  els.activeAvatar.style.color = "#fff";
-  els.activeAvatar.style.display = "inline-flex";
-  els.activeAvatar.style.alignItems = "center";
-  els.activeAvatar.style.justifyContent = "center";
-  els.activeAvatar.textContent = (title[0] || "?").toUpperCase();
-  els.activeTitle.textContent = title;
-  els.activeMeta.textContent = isDM ? "私聊" : "群聊";
 
-  const cached = state.messageCache.get(room.id);
-  const messages = cached?.messages || [];
-  if (!messages.length) {
-    els.chat.innerHTML = `<p class="persona-empty">还没有消息。</p>`;
-  } else {
-    els.chat.innerHTML = messages.map((m) => buildMessageArticle(m, room)).join("");
-    els.chat.scrollTop = els.chat.scrollHeight;
+  if (isRoomId(id)) {
+    const room = state.rooms.find((r) => r.id === id);
+    if (!room) { setComposerEnabled(false, "会话不存在"); return; }
+    const title = roomDisplayTitle(room);
+    const isDM = room.id?.startsWith("dm:");
+    els.activeAvatar.style.backgroundImage = "";
+    els.activeAvatar.style.backgroundColor = isDM ? "#5e5ce6" : "#34c759";
+    els.activeAvatar.style.color = "#fff";
+    els.activeAvatar.style.display = "inline-flex";
+    els.activeAvatar.style.alignItems = "center";
+    els.activeAvatar.style.justifyContent = "center";
+    els.activeAvatar.textContent = (title[0] || "?").toUpperCase();
+    els.activeTitle.textContent = title;
+    els.activeMeta.textContent = isDM ? "私聊" : "群聊";
+    const cached = state.messageCache.get(room.id);
+    const messages = cached?.messages || [];
+    els.chat.innerHTML = messages.length
+      ? messages.map((m) => buildRoomMessageArticle(m, room)).join("")
+      : `<p class="persona-empty">还没有消息。</p>`;
+    if (messages.length) els.chat.scrollTop = els.chat.scrollHeight;
+    setComposerEnabled(true, "输入消息，Enter 发送，Shift+Enter 换行");
+    return;
   }
-}
 
-async function setActiveRoom(roomId) {
-  state.activeRoomId = roomId;
-  await ensureRoomMessages(roomId);
-  await ensureRoomMembers(roomId);
-  renderConversationList();
-  renderActiveRoom();
-}
-
-async function sendMessageInActiveRoom() {
-  const text = (els.chatInput.value || "").trim();
-  if (!text || !state.activeRoomId) return;
-  const roomId = state.activeRoomId;
-  els.chatInput.value = "";
-  try {
-    const res = await api(`/api/rooms/${roomId}/messages`, {
-      method: "POST",
-      body: { bodyMd: text }
-    });
-    // The WS event normally wins; if WS is disconnected or slow, append from
-    // the POST response so the user's message doesn't vanish from the UI.
-    const msg = res?.message;
-    if (msg && msg.id) {
-      const entry = state.messageCache.get(roomId) || { messages: [], maxSeq: 0 };
-      if (!entry.messages.some((m) => m.id === msg.id)) {
-        entry.messages.push(msg);
-        entry.maxSeq = Math.max(entry.maxSeq, Number(msg.seq || 0));
-        state.messageCache.set(roomId, entry);
-        if (roomId === state.activeRoomId) renderActiveRoom();
-        renderConversationList();
-      }
+  if (isDesktopConversationId(id)) {
+    const conv = activeDesktopConversation();
+    if (!conv) { setComposerEnabled(false, "对话不存在"); return; }
+    els.activeAvatar.textContent = "";
+    const useAvatar = conv.avatar && (/^(https?:|data:)/i.test(conv.avatar));
+    if (useAvatar) {
+      els.activeAvatar.style.backgroundImage = `url('${conv.avatar}')`;
+      els.activeAvatar.style.backgroundSize = "cover";
+      els.activeAvatar.style.backgroundPosition = "center";
+      els.activeAvatar.style.backgroundColor = "transparent";
+    } else {
+      els.activeAvatar.style.backgroundImage = "";
+      els.activeAvatar.style.backgroundColor = "#ff9f0a";
+      els.activeAvatar.style.color = "#fff";
+      els.activeAvatar.style.display = "inline-flex";
+      els.activeAvatar.style.alignItems = "center";
+      els.activeAvatar.style.justifyContent = "center";
+      els.activeAvatar.textContent = (conv.title?.[0] || "A").toUpperCase();
     }
-  } catch (err) {
-    showToast(err.message);
-    els.chatInput.value = text;
+    els.activeTitle.textContent = conv.title || "本地对话";
+    const online = bridgeIsOnline();
+    els.activeMeta.textContent = online
+      ? (state.bridgeBusy ? "本机 Agent 运行中…" : "本机 Agent · 在线")
+      : "本机 Agent · 离线（请确认桌面端登录同账号并保持在线）";
+    const messages = Array.isArray(conv.messages) ? conv.messages : [];
+    els.chat.innerHTML = messages.length
+      ? messages.map((m) => buildDesktopMessageArticle(m, conv)).join("")
+      : `<p class="persona-empty">还没有消息。</p>`;
+    if (messages.length) els.chat.scrollTop = els.chat.scrollHeight;
+    // Phase B: composer is enabled only when bridge is online and not busy
+    // (Phase A read-only fallback kicks in automatically when offline).
+    if (!online) {
+      setComposerEnabled(false, "本机 Agent 离线，无法发送（消息历史只读）");
+    } else if (state.bridgeBusy) {
+      setComposerEnabled(false, "本机 Agent 运行中…");
+    } else {
+      setComposerEnabled(true, "输入消息，Enter 发送（由本机 Agent 处理）");
+    }
+    return;
+  }
+
+  // Unknown conversation kind — defensively disable.
+  setComposerEnabled(false, "不支持的会话类型");
+  els.chat.innerHTML = `<p class="persona-empty">不支持的会话类型。</p>`;
+}
+
+async function setActiveConversation(id) {
+  state.activeConversationId = id;
+  if (isRoomId(id)) {
+    await ensureRoomMessages(id);
+    await ensureRoomMembers(id);
+  }
+  renderConversationList();
+  renderActiveChat();
+}
+
+async function sendInActive() {
+  const id = state.activeConversationId;
+  const text = (els.chatInput.value || "").trim();
+  if (!text || !id) return;
+
+  if (isRoomId(id)) {
+    els.chatInput.value = "";
+    try {
+      const res = await api(`/api/rooms/${id}/messages`, {
+        method: "POST",
+        body: { bodyMd: text }
+      });
+      const msg = res?.message;
+      if (msg && msg.id) {
+        const entry = state.messageCache.get(id) || { messages: [], maxSeq: 0 };
+        if (!entry.messages.some((m) => m.id === msg.id)) {
+          entry.messages.push(msg);
+          entry.maxSeq = Math.max(entry.maxSeq, Number(msg.seq || 0));
+          state.messageCache.set(id, entry);
+          if (id === state.activeConversationId) renderActiveChat();
+          renderConversationList();
+        }
+      }
+    } catch (err) {
+      showToast(err.message);
+      els.chatInput.value = text;
+    }
+    return;
+  }
+
+  if (isDesktopConversationId(id)) {
+    if (!bridgeIsOnline()) {
+      showToast("本机 Agent 离线，无法发送。");
+      return;
+    }
+    if (state.bridgeBusy) {
+      showToast("本机 Agent 正在运行，请稍后…");
+      return;
+    }
+    const device = state.bridgeDevices[0];
+    els.chatInput.value = "";
+    state.bridgeBusy = true;
+    renderActiveChat();
+    const clientCreatedAt = new Date().toISOString();
+    try {
+      // 1. Persist the user message. The cloud broadcasts message_created so
+      //    the workspace echoes back via WS — but use the POST response as a
+      //    fallback so the bubble shows immediately even if WS is lagged.
+      const userRes = await api("/api/messages", {
+        method: "POST",
+        body: { conversationId: id, role: "user", text, createdAt: clientCreatedAt }
+      });
+      if (userRes?.workspace) applyWorkspace(userRes.workspace);
+      if (id === state.activeConversationId) renderActiveChat();
+      // 2. Dispatch the bridge run on the chosen desktop device. Cloud appends
+      //    the assistant reply automatically. Same WS-fallback pattern.
+      const runRes = await api("/api/bridge/run", {
+        method: "POST",
+        body: { deviceId: device.id, conversationId: id, text }
+      });
+      if (runRes?.workspace) applyWorkspace(runRes.workspace);
+    } catch (err) {
+      showToast(err.message);
+      els.chatInput.value = text;
+    } finally {
+      state.bridgeBusy = false;
+      if (id === state.activeConversationId) renderActiveChat();
+      renderConversationList();
+    }
   }
 }
 
@@ -717,7 +933,7 @@ function openCreateGroupDialog() {
         state.rooms = [room, ...state.rooms.filter((r) => r.id !== room.id)];
         if (Array.isArray(res.members)) state.roomMembersCache.set(room.id, res.members);
         renderConversationList();
-        setActiveRoom(room.id);
+        setActiveConversation(room.id);
       }
       close();
     } catch (err) { statusEl.textContent = err.message; }
@@ -788,9 +1004,9 @@ els.loginForm.addEventListener("submit", (event) => {
 els.conversationSearch.addEventListener("input", renderConversationList);
 
 els.conversationList.addEventListener("click", (event) => {
-  const button = event.target.closest("[data-room-id]");
+  const button = event.target.closest("[data-conv-id]");
   if (!button) return;
-  setActiveRoom(button.dataset.roomId);
+  setActiveConversation(button.dataset.convId);
   setPane("chat");
 });
 
@@ -810,12 +1026,12 @@ document.addEventListener("click", (event) => {
 
 els.chatForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  sendMessageInActiveRoom();
+  sendInActive();
 });
 els.chatInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) {
     event.preventDefault();
-    sendMessageInActiveRoom();
+    sendInActive();
   }
 });
 
@@ -859,5 +1075,5 @@ if (state.token) {
   });
 } else {
   renderConversationList();
-  renderActiveRoom();
+  renderActiveChat();
 }
