@@ -57,23 +57,27 @@ function createSocialApi({ getSettings, normalizeUrl }) {
     async listRooms() {
       return jsonFetch({ ...ctx(), method: "GET", path: "/api/rooms" });
     },
+    // Room ids are `dm:<a>:<b>` or `g_<hex>` — both match the cloud route
+    // regex /api/rooms/([A-Za-z0-9_:-]+) literally. encodeURIComponent would
+    // turn `:` into `%3A` which doesn't match and silently 404s, which is
+    // why DM sends were being swallowed.
     async getRoom(roomId) {
-      return jsonFetch({ ...ctx(), method: "GET", path: `/api/rooms/${encodeURIComponent(roomId)}` });
+      return jsonFetch({ ...ctx(), method: "GET", path: `/api/rooms/${roomId}` });
     },
     async listRoomMessages(roomId, sinceSeq = 0, limit = 100) {
-      return jsonFetch({ ...ctx(), method: "GET", path: `/api/rooms/${encodeURIComponent(roomId)}/messages?since_seq=${Number(sinceSeq) || 0}&limit=${Number(limit) || 100}` });
+      return jsonFetch({ ...ctx(), method: "GET", path: `/api/rooms/${roomId}/messages?since_seq=${Number(sinceSeq) || 0}&limit=${Number(limit) || 100}` });
     },
     async postRoomMessage(roomId, body) {
-      return jsonFetch({ ...ctx(), method: "POST", path: `/api/rooms/${encodeURIComponent(roomId)}/messages`, body });
+      return jsonFetch({ ...ctx(), method: "POST", path: `/api/rooms/${roomId}/messages`, body });
     },
     async createRoom({ name, memberFellows, memberFriendUserIds }) {
       return jsonFetch({ ...ctx(), method: "POST", path: "/api/rooms", body: { name, memberFellows, memberFriendUserIds } });
     },
     async addRoomMember(roomId, { memberKind, memberRef, ownerId }) {
-      return jsonFetch({ ...ctx(), method: "POST", path: `/api/rooms/${encodeURIComponent(roomId)}/members`, body: { memberKind, memberRef, ownerId } });
+      return jsonFetch({ ...ctx(), method: "POST", path: `/api/rooms/${roomId}/members`, body: { memberKind, memberRef, ownerId } });
     },
     async postRoomMessageAsFellow(roomId, body) {
-      return jsonFetch({ ...ctx(), method: "POST", path: `/api/rooms/${encodeURIComponent(roomId)}/messages/as-fellow`, body });
+      return jsonFetch({ ...ctx(), method: "POST", path: `/api/rooms/${roomId}/messages/as-fellow`, body });
     }
   };
 }

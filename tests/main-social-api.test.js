@@ -55,7 +55,10 @@ test("listRoomMessages encodes sinceSeq and limit as query params", async () => 
     });
     const result = await api.listRoomMessages("dm:x:y", 2, 50);
     assert.equal(result.messages[0].seq, 3);
-    assert.equal(seen[0], "/api/rooms/dm%3Ax%3Ay/messages?since_seq=2&limit=50");
+    // Room ids travel verbatim — encodeURIComponent would turn `:` into
+    // `%3A` and the cloud route regex /api/rooms/([A-Za-z0-9_:-]+) wouldn't
+    // match, silently 404ing DM sends.
+    assert.equal(seen[0], "/api/rooms/dm:x:y/messages?since_seq=2&limit=50");
   } finally { await teardown(ctx); }
 });
 
