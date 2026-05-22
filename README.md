@@ -1,155 +1,171 @@
 # Aimashi
 
-Aimashi 是专为 Agent 打造的聊天软件，一个可以管理多个 Agent 伙伴、运行本地/远程 Agent 引擎、并和桌面宠物及移动端联动的客户端。
+Aimashi 是一个面向 Agent 时代的聊天和协作客户端：用户在同一个界面里管理多个 AI Fellow，选择本地 Agent 引擎，和真人好友私聊或拉群，并让自己的 Fellow 在群聊里参与协作。
 
+简单说：**对话是入口，Agent 是肉，GUI 是壳**。
 
-##### （一）兼容的 Agent 引擎
+## 当前形态
 
-###### 1. 运行在 PC 本地
+Aimashi 现在不是单纯的桌面 demo，而是由几条链路组成：
 
-1. 私有 Hermes runtime
-	- Aimashi **不会**读取、修改或复用用户系统里已有的 Hermes 安装。
-	- 首次启动时会在应用数据目录下创建自己的运行时空间。
-	- 当前开发版会把官方 Hermes 安装进 `runtime/hermes-engine/.venv`。
-	- 这还不是 LobsterAI 那种“安装包内置完整 runtime”的形态；正式发布前需要把 Hermes runtime 做成随包资源，避免用户机器缺 Python、pip 或网络时卡住。
+- **桌面端**：Electron 应用，负责本地聊天 UI、Fellow 管理、本地 Agent 调用、群聊协调、桌宠窗口和本地 bridge。
+- **本地引擎**：Hermes runtime 随桌面包构建；Claude Code / Codex 复用用户本机已安装并登录的 CLI。
+- **Cloud API**：提供账号、好友、DM、群房间、消息同步、WebSocket 事件和桌面 bridge 入口。
+- **Web 端**：浏览器页面可注册、登录、加好友、收发 DM、进入群聊并 @ 在线桌面端拥有的 Fellow。
+- **移动端页面**：保留在 `src/mobile/`，不是当前主开发路径。
 
-2. 本地 Claude Code
-	- 如果用户本机能执行 `claude --version`，Aimashi 会把 Claude Code 作为可选 Agent 引擎。
-	- 会复用 Claude Code CLI 和 `@anthropic-ai/claude-agent-sdk`。
-	- Aimashi 会把 Fellow 人设追加到 Claude Code 的 system prompt。
-	- Aimashi Skill 会通过本地 Claude bridge plugin 暴露给 Claude Code。
+## 核心功能
 
-3. 本地 Codex
-	- 如果用户本机能执行 `codex --version`，Aimashi 会把 Codex 作为可选 Agent 引擎。
-	- 会复用 Codex CLI 和 `@openai/codex-sdk`。
-	- 新会话会注入 Fellow 人设；后续通过 Codex thread 继续会话。
+### Fellow 与本地 Agent
 
-###### 2. 运行在云端
+- 每个 Fellow 有独立名字、头像、人设、颜色、置顶状态和引擎选择。
+- 支持的本地引擎：
+  - `hermes`
+  - `claude-code`
+  - `codex`
+- Hermes 模式通过 `X-Aimashi-Fellow` 等上下文注入 Fellow 人设。
+- Claude Code / Codex 模式通过本地 SDK 调用，在新会话或 stateless 调用前注入 Fellow 人设。
+- 外部 CLI 不随安装包分发；Aimashi 只从用户系统 `PATH` 探测和复用它们。
 
-- Hermes
-	- 产品上保留云端 Hermes 的方向。
-	- 当前主路径仍是本地私有 Hermes API。
+### 私聊、好友和群聊
 
-##### （二）私有运行时目录
+- 用户通过 username 加好友，不再使用邀请码路径。
+- 好友接受后由 cloud 创建 DM 房间，消息用 cloud 权威 `seq` 同步。
+- 桌面端侧边栏混排 Fellow、真人 DM、群房间。
+- 桌面端可以创建群聊，把真人好友和自己的 Fellow 加进同一个房间。
+- 群聊支持两种 AI 回复模式：
+  - **协调者模式**：没有明确 @ 时，也让本地 conductor 判断哪些 Fellow 应该回应。
+  - **仅 @ 模式**：只有显式 @ 到 Fellow 时才触发回应。
+- 跨用户群聊里，别人 @ 你的 Fellow 时，cloud 会把调用事件推给你的在线桌面端，由你的本地引擎执行后再回写群消息。
 
-```text
-~/Library/Application Support/Aimashi/runtime/
-  hermes-engine/
-    README.md
-    .venv/
-      ...
-    aimashi_plugins/
-      __main__.py
-      fellow_overlay.py
-  engine-home/
-    config.yaml
-    SOUL.md
-    api-server.key
-    auth.json
-    aimashi-model.json
-    aimashi-providers.json
-    aimashi-permissions.json
-    aimashi-effort.json
-    aimashi-sessions.json
-    aimashi-agent-sessions.json
-    aimashi-daemon.json
-    aimashi-daemon.key
-    aimashi-relay.json
-    fellows/
-      manifest.json
-      aimashi.fellow.json
-      aimashi.md
-    pets/
-    pet-jobs/
-    attachments/
-    logs/
-```
+### Web / Cloud
 
-- `hermes-engine/`：Hermes 引擎目录。开发版通过 Python venv 安装官方 Hermes。
-- `engine-home/`：Aimashi 自己的 Hermes Home，模型配置、认证、会话、伙伴、人设、移动端配置都放这里。
-- `fellows/`：面向产品的伙伴目录。每个 Fellow 由一份 `<id>.fellow.json` 元数据和一份 `<id>.md` 人设 seed 组成。
-- `api-server.key`：Aimashi 调本地 Hermes API 的私有 token。
+- Web 端位于 `src/web/`，生产入口目前是 `https://aiweb.buytb01.com`。
+- Cloud API 位于 `src/cloud/`，使用 SQLite 存账号、好友、房间、成员和消息。
+- 桌面 bridge 通过 WebSocket 登录同一个 cloud 账号，供 cloud 路由远程 Agent 调用。
+- WebSocket token 走 `Sec-WebSocket-Protocol`，避免把 bearer token 放进 URL。
 
-##### （三）多个 Agent 伙伴
+### 桌宠
 
-- 每个 Fellow 可以有自己的名字、头像、人设、颜色、置顶状态。
-- 每个 Fellow 可以选择 Agent 引擎：
-	- `hermes`
-	- `claude-code`
-	- `codex`
-- Hermes 模式下，Aimashi 会通过请求头 `X-Aimashi-Fellow` 告诉本地 Hermes 当前 Fellow。
-- `aimashi_plugins/fellow_overlay.py` 会读取 `fellows/<id>.md`，并注入到 Hermes 的临时 system prompt。
-- Claude Code / Codex 模式下，Aimashi 在本地 SDK 调用前注入 Fellow 人设。
+- 每个 Fellow 可以生成和播放桌宠。
+- 播放窗口由 Electron 透明窗口实现，读取 `pet.json` 和 spritesheet。
+- 生成器资源在 `resources/pet-generator/`。
+- 生成结果默认写入 Aimashi 的应用数据目录，也兼容读取旧的 Alkaka/Codex pet 目录。
 
-##### （四）模型和认证
-
-- Hermes 模式支持模型 preset 和 API key 保存。
-- 默认模型配置写在 `aimashi-model.json`。
-- 多 provider 连接写在 `aimashi-providers.json`。
-- OpenAI Codex OAuth 走 Hermes 的 `openai-codex` provider，token 写入 Aimashi 私有 `engine-home/auth.json`，不写用户的 `~/.codex`。
-- Claude Code 和 Codex 引擎依赖用户本机已有 CLI 登录状态。
-
-##### （五）Skill 和插件
-
-- Aimashi 会加载 Hermes / Aimashi / Claude / Codex 相关 Skill 来源。
-- Hermes runtime 没启动时，Skill 面板会回退读取本地文件系统。
-- Claude Code 会通过 Aimashi 生成的 bridge plugin 看到 Aimashi/Hermes Skill。
-- Composer 里支持 `/skill-name` 这种前缀展开。
-
-##### （六）桌宠功能
-
-- 基于多伙伴设定，每个 Fellow 都可以生成一个桌宠。
-- 桌宠播放窗口在 Aimashi 内部实现，使用透明 Electron 窗口播放 `pet.json` + `spritesheet.webp/png`。
-- 桌宠生成器已经内置在：
-	- `resources/pet-generator`
-- 生成结果默认写入：
-	- `runtime/engine-home/pets`
-- 兼容读取：
-	- `~/.alkaka/pets`
-	- `~/.codex/pets`
-- 生成仍依赖用户本机可用的 Codex CLI imagegen 能力。
-- 生成脚本依赖 Python 和 Pillow；正式发布最好复用随包 Python runtime，避免新用户缺依赖。
-
-##### （七）多端互通
-
-- 桌面端是主入口。
-- 移动端页面在 `src/mobile/`。
-- 本地局域网访问由 Aimashi daemon 提供。
-- 远程访问通过 relay：
-	- 默认 relay 地址：`wss://agi.buytb01.com/relay`
-	- 配置写在 `aimashi-relay.json`
-- daemon 的 LaunchAgent label：
-	- `ai.aimashi.daemon`
-- Hermes gateway 的 LaunchAgent label：
-	- `ai.aimashi.hermes.gateway`
-
-##### （八）开发运行
+## 本地运行
 
 ```bash
 npm install
 npm start
 ```
 
-检查基础文件和 JS 语法：
+常用命令：
 
 ```bash
-npm run check
+npm test              # 全量 Node 测试
+npm run check         # 基础结构和语法检查
+npm run open          # 打开 Electron 桌面端
+npm run web           # 本地 Web 预览
+npm run cloud         # 本地 Cloud API
+npm run bridge        # 本地 agent bridge
+npm run relay         # relay server
 ```
 
-如果需要指定 Hermes 安装来源：
+Cloud 相关测试和部署脚本依赖较新的 Node.js，生产侧要求 Node.js 25+，因为当前 cloud store 使用 `node:sqlite`。
+
+## 运行时和数据目录
+
+桌面端的用户数据在 macOS 下默认位于：
+
+```text
+~/Library/Application Support/Aimashi/
+```
+
+关键子目录：
+
+```text
+runtime/
+  engine-home/
+    config.yaml
+    auth.json
+    aimashi-model.json
+    aimashi-providers.json
+    aimashi-permissions.json
+    aimashi-sessions.json
+    aimashi-agent-sessions.json
+    fellows/
+    pets/
+    pet-jobs/
+    attachments/
+    logs/
+```
+
+Hermes runtime 本体不是在首次启动时现场下载，而是在打包前构建到：
+
+```text
+vendor/hermes-runtime/<target>/
+```
+
+打包时会把对应平台的 runtime 放进安装包资源。改动 Hermes runtime 构建逻辑前先看 `scripts/build-hermes-runtime.sh`。
+
+## 打包和发布
+
+桌面端当前优先支持 macOS unsigned 包：
 
 ```bash
-AIMASHI_ENGINE_REF=<tag-or-commit-sha> npm start
-AIMASHI_ENGINE_SOURCE=/path/to/hermes-agent npm start
-AIMASHI_PYTHON=/path/to/python3.11 npm start
+npm run dist:mac
 ```
 
-##### （九）当前发布缺口
+这会先构建 `vendor/hermes-runtime/mac-arm64`，再走 Electron Builder，并生成 macOS app/DMG 相关产物。当前还没有接入正式签名、公证和自动更新。
 
-1. Electron 打包配置已接入，当前先做 macOS unsigned dmg。
-2. 还没有把 Hermes runtime 作为安装包资源内置。
-3. 首次安装 Hermes 依赖用户机器有 Python 3.11+、pip 和可访问 GitHub 的网络。
-4. 桌宠生成器已内置，但仍依赖 Codex CLI imagegen、Python 和 Pillow。
-5. macOS 签名、公证、自动更新还没有接入。
+Cloud 发布脚本在 `scripts/`，常用入口：
 
-发布前最重要的是先补 runtime 封装：构建阶段固定 Hermes 版本，生成 `vendor/hermes-runtime/current`，打包进 App；首次启动只初始化 `engine-home`，不要现场下载 Hermes。
+```bash
+npm run cloud:release
+npm run cloud:deploy:dry-run
+npm run cloud:deploy
+npm run cloud:prod:verify -- https://aiweb.buytb01.com
+```
+
+更完整的生产部署说明见 `docs/cloud-deployment.md`。
+
+## 项目结构
+
+```text
+src/
+  main.js                     Electron 主进程装配入口
+  main/                       主进程 feature 模块、IPC、引擎适配、群成员模型、任务调度
+  renderer/                   桌面端渲染层
+    app.js                    渲染层装配入口
+    group/                    本地群聊 UI 和 AI 回复模式
+    social/                   cloud 好友、DM、群房间 UI
+    styles/                   按界面职责拆分的 CSS
+  cloud/                      Cloud API、SQLite store、消息和社交模型
+  relay/                      relay server
+  mobile/                     移动端页面
+  web/                        浏览器端页面
+  shared/                     main / preload / renderer / tests 共用 contract
+resources/
+  pet-generator/              桌宠生成器资源
+skills/                       Aimashi 附带 skills
+scripts/                      runtime 构建、cloud 发布、诊断和 smoke 脚本
+tests/                        Node test 测试
+vendor/
+  hermes-runtime/             随包 Hermes runtime
+```
+
+## 重要边界
+
+- Hermes 是 Aimashi 随包的开源 runtime 副本；Claude Code / Codex 是用户机器上的外部 CLI，不能打进安装包。
+- renderer 不直接使用 Node/Electron 能力，需要系统能力时走 preload 暴露的窄接口。
+- main、renderer、cloud、web、mobile 的状态边界要清楚；同一类会话状态只应有一个权威 owner。
+- 新功能优先放进按领域命名的模块，不要继续扩大 `src/main.js`、`src/renderer/app.js`、`src/renderer/styles.css` 这类历史大文件。
+
+## 已知限制
+
+- Cloud 侧还没有真正的 server-side Fellow registry；群成员里的 Fellow 仍主要由 owner 桌面端声明。
+- Web 端不能自己运行本地 Fellow；跨用户 Fellow 回复要求 owner 的桌面端在线。
+- DM/群消息的未读、分页、typing、已读回执等体验还不完整。
+- 云端群聊目前主要靠显式 @ 触发远端 Fellow；本地群聊已有 conductor 模式，完整 cloud conductor 化仍是后续工作。
+- 桌宠生成仍依赖用户本机可用的 Codex image generation 能力和相关运行环境。
+- macOS 签名、公证、自动更新还未接入。
