@@ -2558,3 +2558,19 @@ After all 7 stages:
 - [ ] Codex adversarial review via `codex:rescue`: focus on (a) stage-3 dead-code deletion missed any caller; (b) stage-6 conductor guards under reconnect / event replay; (c) avatar resolution under empty/missing data.
 - [ ] Push: `git push origin main`.
 - [ ] Cloud deploy (only if Stage 7.2 touched the cloud release manifest): `npm run cloud:deploy`.
+
+---
+
+## Appendix A — Audit Follow-ups (out of scope for this plan)
+
+A consistency audit on 2026-05-22 surveyed the codebase for other "reinvented wheel" patterns beyond the four conversation pipelines this plan unifies. Findings below are documented so future work doesn't duplicate the analysis; they are intentionally **not** added as stages here, per `CLAUDE.md` guidance to avoid premature abstraction and keep改动 surgical.
+
+| # | Pattern | Files | Verdict |
+|---|---------|-------|---------|
+| A1 | API client wrappers (`api`/`cloudApi`/`apiUrl`) — 3 near-identical fetch wrappers | `src/web/app.js:206`, `src/main.js:4512`, `src/mobile/app.js:569` | Defer. Auth/timeout could drift but presently working. If Stage 2/6 needs a fourth call site, consolidate then. |
+| A2 | Modal scaffolding — backdrop/Escape/close-button copy | `src/renderer/social/social.js:482`, `src/web/app.js:1011/1161` | Defer. Only 2–3 copies; risk is forgotten Escape handler, not data inconsistency. |
+| A3 | `localStorage` raw access scattered across renderer/web/mobile with ad-hoc keys | `src/renderer/app.js`, `src/web/appearance.js`, `src/mobile/app.js:529` | Defer. Some calls lack try/catch but failures are silent and benign (theme, sidebar width, onboarding flag). Address if a real bug surfaces. |
+| A4 | WebSocket event dispatch — web vs mobile parsers | `src/web/app.js:365`, `src/mobile/app.js:652` | Skip. Intentionally divergent (cloud event types vs relay RPC). Do not unify. |
+| A5 | `escapeHtml` fallback pattern repeated in 5 renderer modules | `sidebar-card-renderer.js`, `skills/skill-helpers.js`, `helpers/avatar-helpers.js`, `group/group.js`, `social/social.js` | Defer. Pattern is consistent (try global, fall back); centralizing buys little. If `window.aimashiMarkdown.escapeHtml` ever changes signature, fix then. |
+
+Tracked here so future readers know these were considered and consciously deferred. Reopen only if a concrete bug or new call site changes the calculus.
