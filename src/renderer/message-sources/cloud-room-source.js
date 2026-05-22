@@ -26,13 +26,24 @@
           if (friend) owner = friend.username || friend.account || "";
           if (!owner && selfId === member.owner_id) owner = ctx.self?.username || "";
         }
+        // If this fellow belongs to me, hydrate its avatar from my local
+        // fellow registry so it renders identically to the same fellow
+        // in fellow-private and local-group views.
+        let avatar = { image: "", crop: null, color: "#5e5ce6" };
+        if (member?.owner_id === selfId) {
+          const localFellow = resolveContact({ kind: ContactKind.Fellow, ref: m.sender_ref }, ctx);
+          if (localFellow.avatar?.image) avatar = localFellow.avatar;
+        }
         const displayName = owner ? `${m.sender_ref} (${owner})` : m.sender_ref;
         return {
           kind: ContactKind.Fellow,
           id: m.sender_ref,
           displayName,
-          avatar: { image: "", crop: null, color: "#5e5ce6" }
+          avatar
         };
+      }
+      if (m.sender_kind === "system") {
+        return { kind: "system", id: "system", displayName: "系统", avatar: { image: "", crop: null, color: "#888" } };
       }
       return { kind: "", id: "", displayName: m.sender_ref || "", avatar: { image: "", crop: null, color: "#888" } };
     }
@@ -47,7 +58,7 @@
           conversationId: room.id,
           messageId: m.id || `${room.id}#${m.seq || idx}`,
           messageIndex: idx,
-          role: m.sender_kind === "fellow" ? "assistant" : "user",
+          role: m.sender_kind === "fellow" ? "assistant" : (m.sender_kind === "system" ? "system" : "user"),
           authorName: author.displayName,
           avatar: author.avatar,
           bodyMd: String(m.body_md || ""),

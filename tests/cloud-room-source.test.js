@@ -66,6 +66,31 @@ test("CloudRoomSource group fellow message resolves fellow contact via members",
   assert.equal(spec.authorName, "codex (alice)");
 });
 
+test("CloudRoomSource hydrates own fellow avatar from ctx.fellows", () => {
+  const src = loadSource();
+  const room = { id: "g_room2" };
+  const messages = [{ id: "msg4", sender_kind: "fellow", sender_ref: "codex", body_md: "yo", created_at: "", seq: 1 }];
+  const members = [{ member_kind: "fellow", member_ref: "codex", owner_id: "user_me" }];
+  const ctx = {
+    self: { id: "user_me", username: "me" },
+    fellows: [{ key: "codex", name: "Codex", avatarImage: "data:codex-pic", color: "#5e5ce6" }],
+    friends: []
+  };
+  const source = src.createCloudRoomSource({ room, messages, members, ctx });
+  const spec = source.listMessages()[0];
+  assert.equal(spec.avatar.image, "data:codex-pic");
+});
+
+test("CloudRoomSource system message gets role=system", () => {
+  const src = loadSource();
+  const room = { id: "g_room3" };
+  const messages = [{ id: "sys1", sender_kind: "system", sender_ref: "sys", body_md: "user joined", created_at: "", seq: 1 }];
+  const source = src.createCloudRoomSource({ room, messages, members: [], ctx: { self: {}, fellows: [], friends: [] } });
+  const spec = source.listMessages()[0];
+  assert.equal(spec.role, "system");
+  assert.equal(spec.authorName, "系统");
+});
+
 test("CloudRoomSource capabilities include copy + reply but pin/delete false (no endpoint yet)", () => {
   const src = loadSource();
   const room = { id: "dm:a:b" };
