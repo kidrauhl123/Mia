@@ -1888,98 +1888,98 @@ git commit -m "refactor(renderer): chatForm submit + send button delegate via ac
 
 ---
 
-## Stage 6 — Cloud Group Conductor
+## Stage 6 — Unified Group Response Mode (cloud groups honor the same setting local groups have)
 
-Goal: when a friend posts in a cloud group, the receiving owner's desktop runs the conductor over MY fellows to decide if any should respond, and dispatches them via the existing local fellow runtime. With the four guards: sender_kind==="user" only, my-fellow-only, turn_id dedup, no fellow→fellow auto-relay.
+Goal: cloud rooms must consult `group.decorations.responseMode` (the existing `GROUP_RESPONSE_MODE = { Conductor, MentionsOnly }` enum) on every incoming message, exactly like local groups do. The conductor is **one implementation of one mode**, not "the cloud group feature." Same UI toggle that local groups expose in the group-info dialog gets surfaced for cloud rooms.
 
-### Task 6.1: Extract conductor to a shared module
+Four guards apply universally (already in the conductor flow for local groups; just need to make sure they fire for cloud rooms): `sender_kind === "user"` only / my-fellow-only / turn_id dedup / no fellow→fellow auto-relay.
+
+### Task 6.1: Persist responseMode on cloud rooms (schema v4)
 
 **Files:**
-- Create: `src/renderer/conductor/index.js` (move existing conductor logic from `src/renderer/group/group.js`)
-- Modify: `src/renderer/group/group.js` (import the new module)
+- Modify: `src/cloud/sqlite-store.js` (rooms table v4 migration: add `decorations_json` column)
+- Modify: `scripts/serve-cloud.js` (room CRUD reads/writes `decorations_json`)
+- Test: `tests/cloud-sqlite-store.test.js` (extend with v4 migration + decorations round-trip)
 
-- [ ] **Step 1: Identify the existing conductor code**
+- [ ] **Step 1: Add v4 migration for decorations_json**
 
-In `src/renderer/group/group.js`, find `moduleState.conductor` initialization and `decideDispatch`. There should also be a separate `src/renderer/conductor/conductor.js` already.
-
-- [ ] **Step 2: Find the existing conductor source**
-
-```
-grep -n "function decideDispatch\|moduleState.conductor\s*=" src/renderer/group/group.js src/renderer/conductor/*.js
-```
-
-There is likely already a `src/renderer/conductor/conductor.js` (the existing `tests/conductor.test.js` requires it). If so, that file IS the conductor and Step 3 is just an exposure change. If not, the in-place conductor body is the block in `group.js` that defines `moduleState.conductor`.
-
-- [ ] **Step 3: Create the IIFE wrapper exposing the existing conductor**
+In `src/cloud/sqlite-store.js`, in the migration block at the bottom of the schema setup:
 
 ```js
-// src/renderer/conductor/index.js
-(function (global) {
-  "use strict";
+if (!hasColumn(db, "rooms", "decorations_json")) {
+  db.exec("ALTER TABLE rooms ADD COLUMN decorations_json TEXT NOT NULL DEFAULT '{}'");
+}
+db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (4, ?)")
+  .run(nowIso());
+```
 
-  // The conductor implementation already lives at src/renderer/conductor/conductor.js
-  // (verified by tests/conductor.test.js requiring it). This module is a thin
-  // global-namespace surface so other renderer modules (cloud-room-conductor)
-  // can use the same instance without redefining decideDispatch.
+- [ ] **Step 2: Add row mapper + getter/setter for decorations**
 
-  function createConductor(spec) {
-    const impl = (typeof require === "function" ? require("./conductor.js") : global.aimashiConductorImpl);
-    if (!impl || typeof impl.decideDispatch !== "function") {
-      console.warn("[conductor] underlying conductor.js not loaded; returning no-op");
-      return { decideDispatch: () => ({ speak: [], degraded: true }) };
-    }
-    return { decideDispatch: (args) => impl.decideDispatch(args) };
+In `src/cloud/sqlite-store.js`, where `rowToRoom` (or equivalent) is defined, include `decorations` parsed from `decorations_json`. Add `updateRoomDecorations(roomId, ownerId, patch)` and `getRoomDecorations(roomId)`.
+
+- [ ] **Step 3: Add `/api/rooms/:id/decorations PATCH` endpoint**
+
+In `scripts/serve-cloud.js`, after the existing room routes, add:
+
+```js
+const decoMatch = url.pathname.match(/^\/api\/rooms\/([A-Za-z0-9_:-]+)\/decorations$/);
+if (req.method === "PATCH" && decoMatch) {
+  const roomId = decoMatch[1];
+  if (!userIsMemberOfRoom(context.socialStore, roomId, auth.user.id)) {
+    return writeError(res, 403, "not a member of this room");
   }
-
-  global.aimashiConductor = { createConductor };
-})(typeof window !== "undefined" ? window : globalThis);
+  const body = await readJson(req);
+  const merged = context.socialStore.mergeRoomDecorations(roomId, body || {});
+  broadcastEvent(context.eventHub, ..., { type: CloudEvent.RoomDecorationsUpdated, roomId, decorations: merged });
+  return writeJson(res, 200, { decorations: merged });
+}
 ```
 
-- [ ] **Step 4: Update `src/renderer/group/group.js` to obtain its conductor from the new module**
+Note: also add `RoomDecorationsUpdated: "room.decorations_updated"` to `src/shared/cloud-events.js` per Stage 7.1.
 
-In `group.js`, locate the line that sets `moduleState.conductor = ...`. Replace with:
+- [ ] **Step 4: Write the failing migration test**
+
+In `tests/cloud-sqlite-store.test.js`, add:
 
 ```js
-moduleState.conductor = window.aimashiConductor.createConductor({ deps });
+test("v4 migration adds decorations_json column with default '{}'", () => {
+  const { db } = setupTempStore();
+  const cols = db.prepare("PRAGMA table_info(rooms)").all().map((c) => c.name);
+  assert.ok(cols.includes("decorations_json"));
+  const dec = db.prepare("SELECT decorations_json FROM rooms LIMIT 1").get();
+  // For pre-existing rows, default is '{}'.
+  if (dec) assert.equal(dec.decorations_json, "{}");
+});
 ```
 
-- [ ] **Step 6: Register `conductor/index.js` in `src/renderer/index.html`**
-
-Add before `social/social.js`:
-
-```html
-  <script src="./conductor/index.js"></script>
-```
-
-- [ ] **Step 7: Verify local group still works**
-
-`npm run open` → send message in local fellow group → fellows respond as before.
-
-- [ ] **Step 8: Run tests**
+- [ ] **Step 5: Run tests**
 
 ```
 npm test
 ```
-Expected: PASS — `tests/conductor.test.js` still passes.
+Expected: PASS. Schema migration is idempotent.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 6: Commit**
 
 ```
-git add src/renderer/conductor/index.js src/renderer/group/group.js src/renderer/index.html
-git commit -m "refactor(renderer): conductor exposed via window.aimashiConductor for cross-conversation reuse"
+git add src/cloud/sqlite-store.js scripts/serve-cloud.js tests/cloud-sqlite-store.test.js
+git commit -m "feat(cloud): rooms.decorations_json + PATCH /api/rooms/:id/decorations (schema v4)"
 ```
 
-### Task 6.2: Cloud-room conductor hook with guards
+### Task 6.2: Unified group-dispatch module that consults responseMode
+
+The local group already uses `groupResponseMode(group)` to pick between Conductor and MentionsOnly. We extract the dispatch decision into a shared module that BOTH local-group send AND cloud-room incoming-message both call. The module returns the list of fellows (mine only) to run; the caller handles actually running them.
 
 **Files:**
-- Create: `src/renderer/conductor/cloud-room-conductor.js`
-- Test: `tests/cloud-room-conductor.test.js`
-- Modify: `src/renderer/social/social.js` (handleCloudEvent room.message_appended branch)
+- Create: `src/renderer/group-dispatch.js`
+- Test: `tests/group-dispatch.test.js`
+- Modify: `src/renderer/index.html` (load `group-dispatch.js` after `response-mode.js`)
+- Modify: `src/renderer/group/group.js` (replace the local dispatch decision with `chooseDispatch(...)`)
 
 - [ ] **Step 1: Write the failing test**
 
 ```js
-// tests/cloud-room-conductor.test.js
+// tests/group-dispatch.test.js
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -1987,214 +1987,323 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 function load() {
-  const src = fs.readFileSync(path.join(__dirname, "..", "src", "renderer", "conductor", "cloud-room-conductor.js"), "utf8");
+  const responseModeSrc = fs.readFileSync(path.join(__dirname, "..", "src", "renderer", "group", "response-mode.js"), "utf8");
+  const src = fs.readFileSync(path.join(__dirname, "..", "src", "renderer", "group-dispatch.js"), "utf8");
   const window = {};
-  const ctx = vm.createContext({ window, globalThis: window, console });
+  const ctx = vm.createContext({ window, globalThis: window, module: { exports: {} }, console });
+  vm.runInContext(responseModeSrc, ctx);
   vm.runInContext(src, ctx);
-  return window.aimashiCloudRoomConductor;
+  return window.aimashiGroupDispatch;
 }
 
-test("guard: fellow-sent message does not trigger", () => {
-  const c = load();
-  const calls = [];
-  const conductor = { decideDispatch: () => { calls.push("dispatched"); return { speak: [] }; } };
-  c.maybeRunConductor({
-    message: { id: "m1", sender_kind: "fellow", sender_ref: "codex", turn_id: "t1" },
-    room: { id: "g_1" },
-    members: [],
-    myUserId: "user_me",
-    myFellowKeys: ["codex"],
-    seenTurnIds: new Set(),
-    conductor,
-    runFellow: () => {}
-  });
-  assert.equal(calls.length, 0);
-});
-
-test("guard: my own user message does not trigger", () => {
-  const c = load();
-  const calls = [];
-  const conductor = { decideDispatch: () => { calls.push("dispatched"); return { speak: [] }; } };
-  c.maybeRunConductor({
-    message: { id: "m1", sender_kind: "user", sender_ref: "user_me", turn_id: "t1" },
-    room: { id: "g_1" }, members: [], myUserId: "user_me", myFellowKeys: ["codex"],
-    seenTurnIds: new Set(), conductor, runFellow: () => {}
-  });
-  assert.equal(calls.length, 0);
-});
-
-test("guard: dedup by turn_id", () => {
-  const c = load();
-  const calls = [];
-  const conductor = { decideDispatch: () => { calls.push("d"); return { speak: [] }; } };
-  const seen = new Set(["t1"]);
-  c.maybeRunConductor({
-    message: { id: "m1", sender_kind: "user", sender_ref: "user_friend", turn_id: "t1" },
-    room: { id: "g_1" }, members: [], myUserId: "user_me", myFellowKeys: ["codex"],
-    seenTurnIds: seen, conductor, runFellow: () => {}
-  });
-  assert.equal(calls.length, 0);
-});
-
-test("friend user message triggers conductor with my fellows only", () => {
-  const c = load();
-  const dispatched = [];
-  const conductor = {
-    decideDispatch: ({ members }) => { dispatched.push(members.map((m) => m.member_ref)); return { speak: [members[0].member_ref] }; }
-  };
-  const ran = [];
-  c.maybeRunConductor({
-    message: { id: "m1", sender_kind: "user", sender_ref: "user_friend", turn_id: "t9", body_md: "ping" },
-    room: { id: "g_1" },
+test("MentionsOnly mode: returns only mentioned fellows owned by me", async () => {
+  const mod = load();
+  const fakeConductor = { decideDispatch: () => { throw new Error("should not be called"); } };
+  const result = await mod.chooseDispatch({
+    group: { id: "g1", decorations: { responseMode: "mentions-only" } },
     members: [
       { member_kind: "fellow", member_ref: "codex", owner_id: "user_me" },
       { member_kind: "fellow", member_ref: "claude", owner_id: "user_friend" }
     ],
     myUserId: "user_me",
     myFellowKeys: ["codex"],
-    seenTurnIds: new Set(),
-    conductor,
-    runFellow: (fellowKey) => ran.push(fellowKey)
+    message: { sender_kind: "user", sender_ref: "user_friend", body_md: "@codex hi", mentions: [{ kind: "fellow", fellowId: "codex" }], turn_id: "t1" },
+    conductor: fakeConductor
   });
-  // conductor was called with only my fellow (codex), not claude (friend's)
-  assert.deepEqual(dispatched[0], ["codex"]);
-  assert.deepEqual(ran, ["codex"]);
+  assert.deepEqual(result.speak, ["codex"]);
+});
+
+test("Conductor mode: asks decideDispatch with my fellows only", async () => {
+  const mod = load();
+  let received = null;
+  const conductor = { decideDispatch: (args) => { received = args; return { speak: ["codex"] }; } };
+  const result = await mod.chooseDispatch({
+    group: { id: "g1", decorations: { responseMode: "conductor" } },
+    members: [
+      { member_kind: "fellow", member_ref: "codex", owner_id: "user_me" },
+      { member_kind: "fellow", member_ref: "claude", owner_id: "user_friend" }
+    ],
+    myUserId: "user_me",
+    myFellowKeys: ["codex"],
+    message: { sender_kind: "user", sender_ref: "user_friend", body_md: "anyone?", mentions: [], turn_id: "t2" },
+    conductor
+  });
+  assert.deepEqual(received.members.map((m) => m.member_ref), ["codex"]);
+  assert.deepEqual(result.speak, ["codex"]);
+});
+
+test("Guard: own user message → no dispatch", async () => {
+  const mod = load();
+  const result = await mod.chooseDispatch({
+    group: { id: "g1", decorations: { responseMode: "conductor" } },
+    members: [{ member_kind: "fellow", member_ref: "codex", owner_id: "user_me" }],
+    myUserId: "user_me",
+    myFellowKeys: ["codex"],
+    message: { sender_kind: "user", sender_ref: "user_me", body_md: "x", turn_id: "t3" },
+    conductor: { decideDispatch: () => ({ speak: ["codex"] }) }
+  });
+  assert.deepEqual(result.speak, []);
+  assert.equal(result.skipped, "own-message");
+});
+
+test("Guard: fellow sender → no dispatch (no fellow→fellow auto-relay)", async () => {
+  const mod = load();
+  const result = await mod.chooseDispatch({
+    group: { id: "g1", decorations: { responseMode: "conductor" } },
+    members: [{ member_kind: "fellow", member_ref: "codex", owner_id: "user_me" }],
+    myUserId: "user_me",
+    myFellowKeys: ["codex"],
+    message: { sender_kind: "fellow", sender_ref: "claude", body_md: "x", turn_id: "t4" },
+    conductor: { decideDispatch: () => ({ speak: ["codex"] }) }
+  });
+  assert.deepEqual(result.speak, []);
+});
+
+test("Guard: turn_id dedup", async () => {
+  const mod = load();
+  const seen = new Set(["t5"]);
+  const result = await mod.chooseDispatch({
+    group: { id: "g1", decorations: { responseMode: "conductor" } },
+    members: [{ member_kind: "fellow", member_ref: "codex", owner_id: "user_me" }],
+    myUserId: "user_me",
+    myFellowKeys: ["codex"],
+    message: { sender_kind: "user", sender_ref: "user_friend", body_md: "x", turn_id: "t5" },
+    seenTurnIds: seen,
+    conductor: { decideDispatch: () => ({ speak: ["codex"] }) }
+  });
+  assert.deepEqual(result.speak, []);
+  assert.equal(result.skipped, "duplicate-turn");
+});
+
+test("Guard: I own no fellows in this group → no dispatch", async () => {
+  const mod = load();
+  const result = await mod.chooseDispatch({
+    group: { id: "g1", decorations: { responseMode: "conductor" } },
+    members: [{ member_kind: "fellow", member_ref: "claude", owner_id: "user_friend" }],
+    myUserId: "user_me",
+    myFellowKeys: [],
+    message: { sender_kind: "user", sender_ref: "user_friend", body_md: "x", turn_id: "t6" },
+    conductor: { decideDispatch: () => ({ speak: ["claude"] }) }
+  });
+  assert.deepEqual(result.speak, []);
 });
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
 ```
-node --test tests/cloud-room-conductor.test.js
+node --test tests/group-dispatch.test.js
 ```
 Expected: FAIL — module missing.
 
 - [ ] **Step 3: Write minimal implementation**
 
 ```js
-// src/renderer/conductor/cloud-room-conductor.js
+// src/renderer/group-dispatch.js
 (function (global) {
   "use strict";
 
-  function maybeRunConductor({ message, room, members, myUserId, myFellowKeys, seenTurnIds, conductor, runFellow }) {
+  function getResponseMode(group) {
+    const api = global.aimashiGroupResponseMode;
+    if (api && typeof api.groupResponseMode === "function") return api.groupResponseMode(group);
+    return group?.decorations?.responseMode || "conductor";
+  }
+
+  function ownsAFellow(myFellowKeys, member, myUserId) {
+    return member.member_kind === "fellow"
+      && (member.owner_id === myUserId || (myFellowKeys || []).includes(member.member_ref));
+  }
+
+  async function chooseDispatch({ group, members, myUserId, myFellowKeys, message, conductor, seenTurnIds }) {
     // Guard 1: only act on user-sent messages
-    if (message.sender_kind !== "user") return;
+    if (message.sender_kind && message.sender_kind !== "user") return { speak: [], skipped: "non-user-sender" };
+    if (message.role && message.role !== "user") return { speak: [], skipped: "non-user-sender" };
     // Guard 2: ignore my own messages
-    if (message.sender_ref === myUserId) return;
+    if (message.sender_ref === myUserId) return { speak: [], skipped: "own-message" };
     // Guard 3: dedup by turn_id
     const turnId = message.turn_id || message.turnId;
-    if (turnId && seenTurnIds.has(turnId)) return;
-    if (turnId) seenTurnIds.add(turnId);
-    // Restrict members to fellows whose owner_id is me
-    const myFellowMembers = (members || []).filter((m) =>
-      m.member_kind === "fellow"
-      && (m.owner_id === myUserId || myFellowKeys.includes(m.member_ref))
-    );
-    if (myFellowMembers.length === 0) return;
+    if (turnId && seenTurnIds && seenTurnIds.has(turnId)) return { speak: [], skipped: "duplicate-turn" };
+    if (turnId && seenTurnIds) seenTurnIds.add(turnId);
+    // Guard 4: restrict to fellows I own (or this device knows about)
+    const myFellowMembers = (members || []).filter((m) => ownsAFellow(myFellowKeys, m, myUserId));
+    if (myFellowMembers.length === 0) return { speak: [], skipped: "no-owned-fellows" };
+
+    const mode = getResponseMode(group);
+    if (mode === "mentions-only") {
+      const mentionIds = (message.mentions || [])
+        .filter((m) => m.kind === "fellow")
+        .map((m) => m.fellowId);
+      const speak = mentionIds.filter((id) => myFellowMembers.some((m) => m.member_ref === id));
+      return { speak, mode };
+    }
+    // mode === "conductor"
     let dispatch;
     try {
-      dispatch = conductor.decideDispatch({
-        group: room,
+      dispatch = await conductor.decideDispatch({
+        group,
         members: myFellowMembers,
         fellowNamesById: {},
-        userMessage: { id: message.id, role: "user", content: message.body_md || "", createdAt: message.created_at },
+        userMessage: { id: message.id, role: "user", content: message.body_md || message.content || "", createdAt: message.created_at || message.createdAt },
         messages: []
       });
     } catch (err) {
-      console.warn("[cloud-room-conductor] decideDispatch error:", err);
-      return;
+      console.warn("[group-dispatch] conductor.decideDispatch threw:", err);
+      return { speak: [], mode, degraded: true };
     }
-    const ids = Array.isArray(dispatch?.speak) ? dispatch.speak : [];
-    for (const fellowRef of ids) {
-      try { runFellow(fellowRef, room, message); } catch (err) {
-        console.warn("[cloud-room-conductor] runFellow error:", err);
-      }
-    }
+    const speak = Array.isArray(dispatch?.speak) ? dispatch.speak.filter((id) => myFellowMembers.some((m) => m.member_ref === id)) : [];
+    return { speak, mode, degraded: Boolean(dispatch?.degraded) };
   }
 
-  global.aimashiCloudRoomConductor = { maybeRunConductor };
+  global.aimashiGroupDispatch = { chooseDispatch };
 })(typeof window !== "undefined" ? window : globalThis);
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
 
 ```
-node --test tests/cloud-room-conductor.test.js
+node --test tests/group-dispatch.test.js
 ```
-Expected: PASS — 4 tests pass.
+Expected: PASS — 6 tests pass.
 
-- [ ] **Step 5: Register script in index.html**
+- [ ] **Step 5: Refactor `src/renderer/group/group.js` to use chooseDispatch**
 
-Modify `src/renderer/index.html`, add after `conductor/index.js`:
+In `src/renderer/group/group.js`, in `sendInGroup`, replace the `if (mode === MentionsOnly) { ... } else { decideDispatch(...) }` block with:
+
+```js
+const result = await window.aimashiGroupDispatch.chooseDispatch({
+  group,
+  members: members.map((f) => ({
+    member_kind: "fellow",
+    member_ref: f.id || f.key,
+    owner_id: moduleState.deps?.getState?.()?.runtime?.user?.id || ""
+  })),
+  myUserId: moduleState.deps?.getState?.()?.runtime?.user?.id || "",
+  myFellowKeys: members.map((f) => f.id || f.key),
+  message: { sender_kind: "user", sender_ref: moduleState.deps?.getState?.()?.runtime?.user?.id || "", body_md: text, mentions: parseMentionsFor(group, text).map((id) => ({ kind: "fellow", fellowId: id })), turn_id: turnId },
+  conductor: moduleState.conductor
+});
+const dispatch = { speak: result.speak, degraded: result.degraded || false };
+```
+
+The downstream "for each fellow in dispatch.speak, run it" block stays unchanged.
+
+- [ ] **Step 6: Register script in index.html**
+
+In `src/renderer/index.html`, add after `group/response-mode.js`:
 
 ```html
-  <script src="./conductor/cloud-room-conductor.js"></script>
+  <script src="./group-dispatch.js"></script>
 ```
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Manual verify — local group still works in both modes**
+
+`npm run open` → in a local group → toggle response mode between Conductor and MentionsOnly via the existing UI → send messages → verify behavior matches each mode.
+
+- [ ] **Step 8: Run tests**
 
 ```
-git add src/renderer/conductor/cloud-room-conductor.js tests/cloud-room-conductor.test.js src/renderer/index.html
-git commit -m "feat(conductor): cloud-room conductor with 4 guards (own-fellow + sender-user + turn-id dedup)"
+npm test
+```
+Expected: PASS — local-group dispatch unchanged in behavior, new module tested.
+
+- [ ] **Step 9: Commit**
+
+```
+git add src/renderer/group-dispatch.js tests/group-dispatch.test.js src/renderer/group/group.js src/renderer/index.html
+git commit -m "feat(renderer): unified chooseDispatch — local group consults responseMode through shared module"
 ```
 
-### Task 6.3: Wire cloud-room conductor into social.js WS handler
+### Task 6.3: Cloud rooms use the same chooseDispatch on WS message_appended
 
 **Files:**
 - Modify: `src/renderer/social/social.js` (handleCloudEvent room.message_appended branch)
+- Modify: `src/renderer/social/social-groups.js` (expose `runFellowInRoom`)
 
-- [ ] **Step 1: Add module state for dedup**
+- [ ] **Step 1: Add dedup set to moduleState**
 
-In `src/renderer/social/social.js`, near `moduleState`, add `seenConductorTurnIds: new Set()` (capped at e.g. 512 entries).
+In `src/renderer/social/social.js`, in `moduleState`, add `seenDispatchTurnIds: new Set()`.
 
-- [ ] **Step 2: Invoke maybeRunConductor on room.message_appended**
+- [ ] **Step 2: Call chooseDispatch on incoming room messages**
 
-In the `if (type === "room.message_appended")` branch in `handleCloudEvent`, after appending message to cache and BEFORE `renderRoomChat` re-render, add:
+In the `if (type === "room.message_appended")` branch in `handleCloudEvent`, AFTER appending the message to cache and BEFORE `renderRoomChat`:
 
 ```js
 const room = moduleState.rooms.find((r) => r.id === roomId);
 const isGroup = room && room.name != null && roomId.startsWith("g_");
 if (isGroup) {
-  const myFellowKeys = (deps?.getState?.()?.runtime?.fellows || deps?.getState?.()?.runtime?.personas || []).map((f) => f.key || f.id);
+  const fellows = deps?.getState?.()?.runtime?.fellows || deps?.getState?.()?.runtime?.personas || [];
+  const myFellowKeys = fellows.map((f) => f.key || f.id);
   const conductor = window.aimashiGroup?.moduleState?.conductor || null;
-  if (conductor) {
-    window.aimashiCloudRoomConductor.maybeRunConductor({
-      message,
-      room,
-      members: _roomMembersCache.get(roomId) || [],
-      myUserId: moduleState.myUserId,
-      myFellowKeys,
-      seenTurnIds: moduleState.seenConductorTurnIds,
-      conductor,
-      runFellow: (fellowKey, rm, srcMsg) => window.aimashiSocialGroups?.runFellowInRoom?.(fellowKey, rm, srcMsg)
-    });
-  }
+  window.aimashiGroupDispatch.chooseDispatch({
+    group: { id: roomId, decorations: room.decorations || {} },
+    members: _roomMembersCache.get(roomId) || [],
+    myUserId: moduleState.myUserId,
+    myFellowKeys,
+    message,
+    seenTurnIds: moduleState.seenDispatchTurnIds,
+    conductor
+  }).then((result) => {
+    for (const fellowKey of result.speak || []) {
+      window.aimashiSocialGroups?.runFellowInRoom?.(fellowKey, room, message);
+    }
+  }).catch((err) => console.warn("[social] chooseDispatch error:", err));
 }
 ```
 
-- [ ] **Step 3: Implement runFellowInRoom in social-groups.js**
+The cloud room consults `room.decorations.responseMode` (defaulted to "conductor" by `groupResponseMode`'s normalization), so a room with no decorations gets the Conductor mode — same fallback as local groups.
 
-In `src/renderer/social/social-groups.js`, expose `runFellowInRoom(fellowKey, room, sourceMessage)` that invokes the local fellow chat engine and posts the result back via `/api/rooms/:id/messages/as-fellow`. Reuse the existing `handleFellowInvocation` body if applicable.
+- [ ] **Step 3: Expose runFellowInRoom in social-groups.js**
 
-- [ ] **Step 4: Manual integration test**
+If not already present, add to `src/renderer/social/social-groups.js`:
 
-`npm run open` on both desktop. Friend (account 123456) sends message in a group containing my (755439's) codex fellow. Verify codex auto-responds without explicit @.
+```js
+async function runFellowInRoom(fellowKey, room, sourceMessage) {
+  const fellow = (ctx.deps?.getState?.()?.runtime?.fellows || []).find((f) => (f.key || f.id) === fellowKey);
+  if (!fellow) return;
+  // Reuse the existing handleFellowInvocation body (mention-triggered path), which
+  // already builds the prompt, runs the local engine and posts back via
+  // /api/rooms/:id/messages/as-fellow. Pass a synthesized invocation payload:
+  return handleFellowInvocation({
+    roomId: room.id,
+    fellowId: fellowKey,
+    triggeringMessage: { id: sourceMessage.id, body_md: sourceMessage.body_md || "" },
+    recentMessages: (ctx.moduleState.messageCache.get(room.id)?.messages || []).slice(-10),
+    members: ctx.roomMembersCache.get(room.id) || []
+  });
+}
+global.aimashiSocialGroups.runFellowInRoom = runFellowInRoom;
+```
 
-- [ ] **Step 5: Run tests**
+- [ ] **Step 4: Add group-info UI to expose responseMode toggle for cloud rooms**
+
+In whichever dialog surfaces cloud-room info (Task: extend the existing `openRoomContextMenu` placeholder), add a row with a select that PATCHes `/api/rooms/:id/decorations` with `{ responseMode: "conductor" | "mentions-only" }`. The select reads `room.decorations.responseMode` and writes via the new endpoint from Task 6.1.
+
+- [ ] **Step 5: Manual integration test**
+
+`npm run open` on two machines logged into different accounts. Friend's account creates a group with one of my fellows. Friend sends a message; verify:
+- Default (Conductor mode): my fellow auto-responds.
+- Toggle to MentionsOnly via group settings → friend sends without @: no response. Friend sends `@codex hi`: my codex responds.
+
+- [ ] **Step 6: Run tests**
 
 ```
 npm test
 ```
-Expected: PASS.
+Expected: PASS — same count plus the cloud-events constant + decoration tests.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```
 git add src/renderer/social/social.js src/renderer/social/social-groups.js
-git commit -m "feat(social): cloud-room conductor wired — friend messages auto-route through my fellows"
+git commit -m "feat(social): cloud rooms honor group.decorations.responseMode (Conductor / MentionsOnly)"
 ```
 
-**Stage 6 acceptance:** A friend posting in a cloud group containing one of my fellows triggers my fellow to respond, with the conductor's auto-routing logic. Guards prevent: my own messages re-triggering, fellow messages bouncing to fellows, replayed events double-running, friend's fellows being dispatched on my machine. `npm test` passes.
+**Stage 6 acceptance:**
+- Local-group send + cloud-room incoming both call the same `chooseDispatch` and the same `GROUP_RESPONSE_MODE` toggle works for both. No parallel "is this a cloud group" branches in dispatch code.
+- A friend posting in a cloud group containing one of my fellows triggers my fellow to respond when the room's `decorations.responseMode === "conductor"`. Set to `"mentions-only"` → only explicit @ triggers.
+- Group-info UI in both local groups AND cloud rooms exposes the same response-mode toggle. The cloud-room toggle PATCHes `/api/rooms/:id/decorations`; the local group toggle continues to use `groupResponseModePatch`.
+- Guards prevent: my own messages re-triggering, fellow→fellow auto-relay, replayed events double-running, friend's fellows being dispatched on my machine.
+- `npm test` passes including new `group-dispatch.test.js`, `cloud-sqlite-store.test.js` v4 migration test.
 
 ---
 
