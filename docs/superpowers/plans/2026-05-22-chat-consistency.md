@@ -2,6 +2,37 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+## Execution status (2026-05-22 — phase 1 landed)
+
+| Task | Status | Notes |
+|------|--------|-------|
+| 1.1 time-format | ✅ done | `src/shared/time-format.js` + 5 tests |
+| 1.2 Contact | ✅ done | `src/shared/contact.js` + 4 tests |
+| 1.3 RenderableMessageSpec | ✅ done | `src/shared/message-spec.js` + 4 tests |
+| 1.4 renderAvatar helper | ✅ done | `src/renderer/contact-avatar.js` + 3 tests + index.html wired |
+| 2.1 FellowSessionSource | ✅ done | `message-sources/fellow-session-source.js` + 3 tests |
+| 2.2 LocalGroupSource | ✅ done | `message-sources/local-group-source.js` + 2 tests |
+| 2.3 CloudRoomSource | ✅ done | `message-sources/cloud-room-source.js` + 4 tests |
+| 3.1 createMessageBubble | ✅ done | `message-bubble-renderer.js` + 3 tests |
+| 3.2 wire fellow chat | ⏸ deferred | Current `renderChat()` uses `renderMessageHtml` (HTML strings) + complex side-effects (setup guide, streaming bubble, trace blocks, scroll anchor) — plan recipe ("replace the loop") doesn't apply cleanly. Needs `npm run open` UI verification we lack. |
+| 3.3 wire local group | ⏸ deferred | Renderer wiring needs UI verification. |
+| 3.4 wire cloud DM + group | ⏸ deferred | Renderer wiring needs UI verification. |
+| 4.1–4.3 avatar everywhere | ⏸ deferred | Depends on 3.x landing. |
+| 5.1–5.3 active conversation | ⏸ deferred | Renderer refactor needs UI verification. |
+| 6.1 cloud schema v4 | ⏸ deferred | `decorations_json` column already exists on `rooms` table; what's missing is the PATCH endpoint, only useful once 6.3 wires the renderer. Defer together. |
+| 6.2 chooseDispatch module | ✅ done (module) | `src/renderer/group-dispatch.js` + 6 tests. Step 5 (wire `group.js sendInGroup`) deferred — needs UI verification. |
+| 6.3 cloud rooms wire | ⏸ deferred | Renderer wiring + manual two-machine integration test. |
+| 7.1 cloud-events constants | ✅ done | `src/shared/cloud-events.js` + 2 tests |
+| 7.2 replace 42 literals | ⏸ deferred | Mechanical search-replace across main.js / serve-cloud.js / social.js / web/app.js with silent-runtime-bug risk if a substitution misfires. Defer until manual smoke. |
+| 7.3 canonical-owner ADR | ✅ done | `docs/adr/2026-05-22-conversation-state-canonical-owner.md` |
+| 7.4 delete dead code | ⏸ deferred | Depends on 3.2–3.4. |
+
+**Landed:** Stages 1+2 (foundations + adapters), Stage 3.1 (bubble), Stage 6.2 module, Stage 7.1, Stage 7.3, plus Appendix A audit. The architectural shell is in place; renderer wiring is the remaining work and needs a session with `npm run open` available.
+
+**Test diff:** baseline 348 / 337 pass → now 384 / 375 pass. +36 tests, all green; 9 remaining failures are pre-existing env-related (cloud productization audit, packaged desktop audit, local installer verify, live audits) and unchanged.
+
+---
+
 **Goal:** Collapse the four parallel conversation pipelines (fellow private, local group, cloud DM, cloud group) into a single pipeline so right-click menus, timestamps, avatars, and AI orchestration behave identically regardless of where a conversation lives.
 
 **Architecture:** Introduce three shared contracts in `src/shared/`: a `Contact` model resolving any participant kind to a uniform display payload, a `RenderableMessageSpec` defining what a message looks like and what actions it permits, and source-specific `MessageSourceAdapter` modules that translate each pipeline's raw schema into the spec. A single `createMessageBubble(spec)` renderer consumes specs; `getActiveConversation()` collapses the three-way active-state checks scattered across `renderChat` / topbar / composer; the conductor lifts out of `group.js` and attaches to the cloud-room adapter with four guards (own-fellow-only, sender-is-user, turn_id dedup, no fellow→fellow relay).
