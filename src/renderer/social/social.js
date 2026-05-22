@@ -762,6 +762,9 @@
     for (const n of moduleState.unreadByRoom.values()) total += n;
     return total;
   }
+  // Expose the cached room member list so app.js can build a composite
+  // avatar for cloud group rooms via the same path as local fellow groups.
+  function getRoomMembers(roomId) { return _roomMembersCache.get(roomId) || null; }
 
   // ── exports ───────────────────────────────────────────────────────────────
 
@@ -793,6 +796,8 @@
     setActiveRoomId,
     getUnreadForRoom,
     getTotalRoomUnread,
+    getRoomMembers,
+    friendById,
     _internalCtx
   };
 })(typeof window !== "undefined" ? window : globalThis);
