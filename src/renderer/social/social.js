@@ -165,6 +165,14 @@
     if (!event || !event.type) return;
     const { type, payload } = event;
 
+    // Every time the WS reconnects (events_ready), re-pull authoritative
+    // state from the cloud. Otherwise any social events that were
+    // broadcast while we were disconnected stay invisible until restart.
+    if (type === "events_ready") {
+      bootstrapAfterLogin().catch((err) => console.warn("[social] rebootstrap on events_ready failed:", err));
+      return;
+    }
+
     if (type === "social.friend_request_received") {
       const req = payload && payload.request;
       if (!req) return;
@@ -428,6 +436,34 @@
 
   // ── openAddFriendDialog ───────────────────────────────────────────────────
 
+  // Lightweight re-fetch of friend-request state (username + incoming +
+  // outgoing) for the add-friend dialog. We call this on every dialog open
+  // so users always see the latest server state even when the WS lost
+  // events or bootstrapAfterLogin never ran (e.g., cloud login happened in
+  // a previous app lifetime and the renderer never got a "loggedIn" tick).
+  async function refreshFriendRequestState() {
+    if (!window.aimashi || !window.aimashi.social) return false;
+    const api = window.aimashi.social;
+    try {
+      const [meRes, incomingRes, outgoingRes] = await Promise.all([
+        api.myUsername(),
+        api.listFriendRequests("incoming"),
+        api.listFriendRequests("outgoing"),
+      ]);
+      if (meRes.ok && meRes.data) {
+        moduleState.myUsername = meRes.data.username || "";
+        moduleState.myUserId = meRes.data.id || "";
+      }
+      if (incomingRes.ok) moduleState.incomingRequests = incomingRes.data?.requests || [];
+      if (outgoingRes.ok) moduleState.outgoingRequests = outgoingRes.data?.requests || [];
+      if (deps && typeof deps.render === "function") deps.render();
+      return true;
+    } catch (err) {
+      console.warn("[social] refreshFriendRequestState failed:", err);
+      return false;
+    }
+  }
+
   function openAddFriendDialog() {
     if (!document.body) return;
     if (!_addFriendModal) {
@@ -454,10 +490,19 @@
     // Assign before rendering so _renderAddFriendModal picks up the fresh closure.
     _addFriendModal._closeModal = close;
 
+    // Render once immediately with whatever cached state we have so the
+    // dialog feels responsive…
     _renderAddFriendModal(_addFriendModal);
     _addFriendModal.classList.remove("hidden");
     document.addEventListener("keydown", onEsc);
     _addFriendModal.addEventListener("click", onBackdrop);
+    // …then re-fetch from the cloud and re-render. This is the safety net
+    // for stale moduleState (WS dropped, bootstrap never fired, etc.).
+    refreshFriendRequestState().then((ok) => {
+      if (ok && !_addFriendModal.classList.contains("hidden")) {
+        _renderAddFriendModal(_addFriendModal);
+      }
+    });
   }
 
   function _renderAddFriendModal(modal) {
