@@ -121,14 +121,18 @@ function clearSession() {
   localStorage.removeItem(STORAGE_KEY);
 }
 
-// Conversation kind helpers — rooms are cloud-native DM/group rooms, desktop
-// conversations come from the synced workspace and route through a desktop
-// bridge to run the owner's local fellow.
-function isDesktopConversationId(id) {
-  return typeof id === "string" && id.startsWith("desktop:");
-}
+// Conversation kind helpers — rooms are cloud-native DM/group rooms.
+// Workspace conversations come from the synced cloud workspace: desktop-
+// originated ones use `desktop:<sessionId>` ids, but historic ones created
+// by the old web client use `conv_xxx`. Both live in workspace.conversations
+// and both route their sends through the desktop bridge in Phase B (since
+// fellow runtime is local to the owner's desktop regardless of id prefix).
 function isRoomId(id) {
   return typeof id === "string" && (id.startsWith("dm:") || id.startsWith("g_"));
+}
+function isWorkspaceConversationId(id) {
+  if (!id || typeof id !== "string") return false;
+  return state.workspace.conversations.some((c) => c.id === id);
 }
 
 async function api(path, options = {}) {
@@ -229,8 +233,8 @@ function applyWorkspace(workspace) {
   };
 }
 
-function activeDesktopConversation() {
-  if (!isDesktopConversationId(state.activeConversationId)) return null;
+function activeWorkspaceConversation() {
+  if (!isWorkspaceConversationId(state.activeConversationId)) return null;
   return state.workspace.conversations.find((c) => c.id === state.activeConversationId) || null;
 }
 
@@ -337,7 +341,7 @@ function handleCloudEvent(envelope) {
   } else if (type === "workspace_updated" || type === "message_created") {
     applyWorkspace(envelope.workspace);
     renderConversationList();
-    if (isDesktopConversationId(state.activeConversationId)) renderActiveChat();
+    if (isWorkspaceConversationId(state.activeConversationId)) renderActiveChat();
   } else if (type === "device_updated") {
     if (Array.isArray(envelope.devices)) state.bridgeDevices = envelope.devices;
     renderActiveChat();
@@ -345,7 +349,7 @@ function handleCloudEvent(envelope) {
     const status = envelope.run?.status;
     if (status === "pending" || status === "running") state.bridgeBusy = true;
     else state.bridgeBusy = false;
-    if (isDesktopConversationId(state.activeConversationId)) renderActiveChat();
+    if (isWorkspaceConversationId(state.activeConversationId)) renderActiveChat();
   } else if (type === "social.friend_request_received") {
     if (envelope.request) state.incomingRequests = [envelope.request, ...state.incomingRequests];
     showToast(`收到 ${envelope.request?.from?.username || "好友"} 的好友请求`);
@@ -556,8 +560,8 @@ function renderActiveChat() {
     return;
   }
 
-  if (isDesktopConversationId(id)) {
-    const conv = activeDesktopConversation();
+  if (isWorkspaceConversationId(id)) {
+    const conv = activeWorkspaceConversation();
     if (!conv) { setComposerEnabled(false, "对话不存在"); return; }
     els.activeAvatar.textContent = "";
     const useAvatar = conv.avatar && (/^(https?:|data:)/i.test(conv.avatar));
@@ -642,7 +646,7 @@ async function sendInActive() {
     return;
   }
 
-  if (isDesktopConversationId(id)) {
+  if (isWorkspaceConversationId(id)) {
     if (!bridgeIsOnline()) {
       showToast("本机 Agent 离线，无法发送。");
       return;
