@@ -60,6 +60,10 @@ let state = {
   bridgeDevices: [],
   bridgeBusy: false,
   activeConversationId: "",
+  // Per-conversation unread counters. Incremented when a WS message arrives
+  // for a non-active conversation, cleared when the user opens it. In-memory
+  // only for v1 — survives until reload.
+  unread: new Map(),
   settingsOpen: false,
   activeSettingsTab: "account",
   createMenuOpen: false,
@@ -372,17 +376,44 @@ function handleCloudEvent(envelope) {
     const roomId = msg?.room_id || envelope.room_id;
     if (!roomId) return;
     const entry = state.messageCache.get(roomId) || { messages: [], maxSeq: 0 };
-    if (!entry.messages.some((m) => m.id === msg.id)) {
+    const fresh = !entry.messages.some((m) => m.id === msg.id);
+    if (fresh) {
       entry.messages.push(msg);
       entry.maxSeq = Math.max(entry.maxSeq, Number(msg.seq || 0));
       state.messageCache.set(roomId, entry);
+      // Bump unread if the message isn't mine and the room isn't currently open.
+      const isMine = msg.sender_kind === "user" && msg.sender_ref === state.user?.id;
+      if (!isMine && roomId !== state.activeConversationId) {
+        state.unread.set(roomId, (state.unread.get(roomId) || 0) + 1);
+      }
     }
-    if (roomId === state.activeConversationId) renderActiveChat();
+    if (roomId === state.activeConversationId) {
+      state.unread.delete(roomId);
+      renderActiveChat();
+    }
     renderConversationList();
+    renderRailUnreadBadge();
   } else if (type === "workspace_updated" || type === "message_created") {
+    // Compare incoming workspace's per-conversation message counts to the
+    // current cache so we can bump unread for desktop:* conversations that
+    // got new assistant/echo messages while inactive.
+    const prevById = new Map(state.workspace.conversations.map((c) => [c.id, (c.messages || []).length]));
     applyWorkspace(envelope.workspace);
+    for (const c of state.workspace.conversations) {
+      const prev = prevById.get(c.id) || 0;
+      const next = (c.messages || []).length;
+      if (next > prev && c.id !== state.activeConversationId) {
+        // Only count messages that aren't mine (best-effort: workspace messages
+        // carry role, "user" === me; "assistant" === bridge response).
+        const newMessages = (c.messages || []).slice(prev);
+        const fromOthers = newMessages.filter((m) => m.role !== "user").length;
+        if (fromOthers > 0) state.unread.set(c.id, (state.unread.get(c.id) || 0) + fromOthers);
+      }
+    }
+    if (state.activeConversationId) state.unread.delete(state.activeConversationId);
     renderConversationList();
     if (isWorkspaceConversationId(state.activeConversationId)) renderActiveChat();
+    renderRailUnreadBadge();
   } else if (type === "device_updated") {
     if (Array.isArray(envelope.devices)) state.bridgeDevices = envelope.devices;
     renderActiveChat();
@@ -415,8 +446,13 @@ function handleCloudEvent(envelope) {
 
 // ── conversation list (rooms + desktop-synced fellow chats merged) ────────
 
+function friendById(userId) {
+  if (userId === state.user?.id) return state.user;
+  return state.friends.find((f) => f.id === userId) || null;
+}
+
 function friendUsernameById(userId) {
-  return state.friends.find((f) => f.id === userId)?.username || userId;
+  return friendById(userId)?.username || userId;
 }
 
 function roomDisplayTitle(room) {
@@ -456,15 +492,34 @@ function desktopConvSortKey(conv) {
 // Pinned items sort to the top regardless of recency, mirroring the
 // ChatGPT-style pin behavior the user asked for.
 function combinedConversationItems() {
-  const room = state.rooms.map((r) => ({
-    kind: "room",
-    id: r.id,
-    title: roomDisplayTitle(r),
-    preview: roomLastMessageText(r),
-    sortKey: roomSortKey(r),
-    isDM: r.id?.startsWith("dm:"),
-    pinned: false
-  }));
+  const room = state.rooms.map((r) => {
+    const isDM = r.id?.startsWith("dm:");
+    let avatar = "";
+    let avatarCrop = null;
+    let color = "";
+    if (isDM) {
+      const parts = r.id.split(":");
+      const otherId = parts[1] === state.user?.id ? parts[2] : parts[1];
+      const friend = friendById(otherId);
+      if (friend) {
+        avatar = friend.avatarImage || "";
+        avatarCrop = friend.avatarCrop || null;
+        color = friend.avatarColor || "";
+      }
+    }
+    return {
+      kind: "room",
+      id: r.id,
+      title: roomDisplayTitle(r),
+      preview: roomLastMessageText(r),
+      sortKey: roomSortKey(r),
+      isDM,
+      avatar,
+      avatarCrop,
+      color,
+      pinned: false
+    };
+  });
   const desktop = state.workspace.conversations.map((c) => ({
     kind: "desktop",
     id: c.id,
@@ -498,7 +553,7 @@ function renderConversationList() {
   els.conversationList.innerHTML = items.map((it) => {
     const avatarLabel = (it.title[0] || "?").toUpperCase();
     let color = "#5e5ce6";
-    if (it.kind === "room") color = it.isDM ? "#5e5ce6" : "#34c759";
+    if (it.kind === "room") color = it.color || (it.isDM ? "#5e5ce6" : "#34c759");
     if (it.kind === "desktop") color = it.color || "#ff9f0a";
     // Accept absolute URLs, data URLs, and relative ./assets/... paths
     // (the cloud release bundles preset avatars under web/assets/ so
@@ -511,19 +566,36 @@ function renderConversationList() {
     // ⋯ menu is only meaningful for workspace conversations right now
     // (cloud rooms don't have a delete/rename endpoint yet).
     const hasMenu = it.kind === "desktop";
+    const unread = state.unread.get(it.id) || 0;
+    const unreadHtml = unread > 0
+      ? `<span class="persona-unread" aria-label="${unread} 条未读">${unread > 99 ? "99+" : unread}</span>`
+      : "";
     return `
-      <div class="persona-row${it.pinned ? " pinned" : ""}${it.id === state.activeConversationId ? " active" : ""}">
+      <div class="persona-row${it.pinned ? " pinned" : ""}${it.id === state.activeConversationId ? " active" : ""}${unread > 0 ? " has-unread" : ""}">
         <button class="persona" type="button" data-conv-id="${escapeHtml(it.id)}" data-conv-kind="${it.kind}">
           <span class="avatar" style="${avatarStyle}">${avatarText}</span>
           <span class="persona-main">
             <strong class="persona-name">${it.pinned ? "📌 " : ""}${escapeHtml(it.title)}</strong>
             <span class="persona-preview">${escapeHtml(it.preview)}</span>
           </span>
+          ${unreadHtml}
         </button>
         ${hasMenu ? `<button class="persona-more" type="button" data-conv-more="${escapeHtml(it.id)}" aria-label="更多操作" title="更多操作">⋯</button>` : ""}
       </div>
     `;
   }).join("");
+}
+
+function renderRailUnreadBadge() {
+  if (!els.unreadCount) return;
+  let total = 0;
+  for (const n of state.unread.values()) total += n;
+  if (total > 0) {
+    els.unreadCount.textContent = total > 99 ? "99+" : String(total);
+    els.unreadCount.hidden = false;
+  } else {
+    els.unreadCount.hidden = true;
+  }
 }
 
 // ── per-conversation ⋯ menu ────────────────────────────────────────────────
@@ -637,22 +709,35 @@ async function handleConvAction(action, convId) {
 function buildRoomMessageArticle(msg, room) {
   const isOwn = msg.sender_kind === "user" && msg.sender_ref === state.user?.id;
   let senderLabel = "";
+  let senderAvatar = "";
+  let senderCrop = null;
+  let senderColor = "";
   if (msg.sender_kind === "user") {
-    const friend = state.friends.find((f) => f.id === msg.sender_ref);
+    const friend = friendById(msg.sender_ref);
     senderLabel = friend?.username || msg.sender_ref || "";
+    senderAvatar = friend?.avatarImage || "";
+    senderCrop = friend?.avatarCrop || null;
+    senderColor = friend?.avatarColor || "";
   } else if (msg.sender_kind === "fellow") {
     const members = state.roomMembersCache.get(room.id) || [];
     const m = members.find((mem) => mem.member_kind === "fellow" && mem.member_ref === msg.sender_ref);
     const owner = m?.owner?.username || m?.owner?.account || m?.owner_id || "";
     senderLabel = msg.sender_ref + (owner ? ` (${owner})` : "");
+    // Fellow avatars in rooms are still client-asserted (no cloud registry
+    // yet) so we render a colored letter circle.
   }
   const cls = isOwn ? "message user" : "message assistant";
-  const initial = isOwn ? (state.user?.username?.[0] || "M").toUpperCase() : (msg.sender_ref?.[0] || "?").toUpperCase();
-  const color = isOwn ? "#0162db" : "#5e5ce6";
+  const initial = isOwn ? (state.user?.username?.[0] || "M").toUpperCase() : (senderLabel?.[0] || msg.sender_ref?.[0] || "?").toUpperCase();
+  const fallbackColor = isOwn ? "#0162db" : (senderColor || "#5e5ce6");
+  const useAvatar = senderAvatar && (/^(https?:|data:|\.?\/assets\/)/i.test(senderAvatar));
+  const avatarStyle = useAvatar
+    ? avatarBackgroundStyle(senderAvatar, senderCrop, fallbackColor)
+    : `background-color:${fallbackColor}; color:#fff; display:inline-flex; align-items:center; justify-content:center;`;
+  const avatarText = useAvatar ? "" : escapeHtml(initial);
   const body = (msg.body_md || "").replace(/\n/g, "<br>");
   return `
     <article class="${cls}">
-      <span class="avatar" style="background-color:${color}; color:#fff; display:inline-flex; align-items:center; justify-content:center;">${escapeHtml(initial)}</span>
+      <span class="avatar" style="${avatarStyle}">${avatarText}</span>
       <div class="message-stack">
         ${senderLabel && !isOwn ? `<span class="message-sender">${escapeHtml(senderLabel)}</span>` : ""}
         <div class="bubble">${escapeHtml(body).replace(/&lt;br&gt;/g, "<br>")}</div>
@@ -665,12 +750,24 @@ function buildRoomMessageArticle(msg, room) {
 function buildDesktopMessageArticle(msg, conv) {
   const isOwn = msg.role === "user";
   const cls = isOwn ? "message user" : "message assistant";
-  const initial = isOwn ? (state.user?.username?.[0] || "M").toUpperCase() : (conv.title?.[0] || "A").toUpperCase();
-  const color = isOwn ? "#0162db" : "#ff9f0a";
+  // Pick avatar source per side: assistant uses the conversation's fellow
+  // image+crop; user uses the signed-in user's own profile avatar (synced
+  // from desktop via PATCH /api/me/profile).
+  const me = state.user;
+  const senderImage = isOwn ? (me?.avatarImage || "") : (conv.avatar || "");
+  const senderCrop = isOwn ? (me?.avatarCrop || null) : (conv.avatarCrop || null);
+  const senderColor = isOwn ? (me?.avatarColor || "") : (conv.color || "");
+  const initial = isOwn ? (me?.username?.[0] || "M").toUpperCase() : (conv.title?.[0] || "A").toUpperCase();
+  const fallbackColor = isOwn ? (senderColor || "#0162db") : (senderColor || "#ff9f0a");
+  const useAvatar = senderImage && (/^(https?:|data:|\.?\/assets\/)/i.test(senderImage));
+  const avatarStyle = useAvatar
+    ? avatarBackgroundStyle(senderImage, senderCrop, fallbackColor)
+    : `background-color:${fallbackColor}; color:#fff; display:inline-flex; align-items:center; justify-content:center;`;
+  const avatarText = useAvatar ? "" : escapeHtml(initial);
   const body = (msg.text || "").replace(/\n/g, "<br>");
   return `
     <article class="${cls}">
-      <span class="avatar" style="background-color:${color}; color:#fff; display:inline-flex; align-items:center; justify-content:center;">${escapeHtml(initial)}</span>
+      <span class="avatar" style="${avatarStyle}">${avatarText}</span>
       <div class="message-stack">
         <div class="bubble">${escapeHtml(body).replace(/&lt;br&gt;/g, "<br>")}</div>
         <span class="message-time">${escapeHtml(shortTime(msg.createdAt))}</span>
@@ -703,13 +800,32 @@ function renderActiveChat() {
     if (!room) { setComposerEnabled(false, "会话不存在"); return; }
     const title = roomDisplayTitle(room);
     const isDM = room.id?.startsWith("dm:");
-    els.activeAvatar.style.backgroundImage = "";
-    els.activeAvatar.style.backgroundColor = isDM ? "#5e5ce6" : "#34c759";
-    els.activeAvatar.style.color = "#fff";
-    els.activeAvatar.style.display = "inline-flex";
-    els.activeAvatar.style.alignItems = "center";
-    els.activeAvatar.style.justifyContent = "center";
-    els.activeAvatar.textContent = (title[0] || "?").toUpperCase();
+    let friendAvatar = "";
+    let friendCrop = null;
+    let friendColor = "";
+    if (isDM) {
+      const parts = room.id.split(":");
+      const otherId = parts[1] === state.user?.id ? parts[2] : parts[1];
+      const friend = friendById(otherId);
+      friendAvatar = friend?.avatarImage || "";
+      friendCrop = friend?.avatarCrop || null;
+      friendColor = friend?.avatarColor || "";
+    }
+    const useAvatar = friendAvatar && (/^(https?:|data:|\.?\/assets\/)/i.test(friendAvatar));
+    if (useAvatar) {
+      const styleStr = avatarBackgroundStyle(friendAvatar, friendCrop, friendColor || "#5e5ce6");
+      els.activeAvatar.style.cssText = styleStr;
+      els.activeAvatar.textContent = "";
+    } else {
+      els.activeAvatar.style.cssText = "";
+      els.activeAvatar.style.backgroundImage = "";
+      els.activeAvatar.style.backgroundColor = friendColor || (isDM ? "#5e5ce6" : "#34c759");
+      els.activeAvatar.style.color = "#fff";
+      els.activeAvatar.style.display = "inline-flex";
+      els.activeAvatar.style.alignItems = "center";
+      els.activeAvatar.style.justifyContent = "center";
+      els.activeAvatar.textContent = (title[0] || "?").toUpperCase();
+    }
     els.activeTitle.textContent = title;
     els.activeMeta.textContent = isDM ? "私聊" : "群聊";
     const cached = state.messageCache.get(room.id);
@@ -778,12 +894,14 @@ function renderActiveChat() {
 
 async function setActiveConversation(id) {
   state.activeConversationId = id;
+  state.unread.delete(id);
   if (isRoomId(id)) {
     await ensureRoomMessages(id);
     await ensureRoomMembers(id);
   }
   renderConversationList();
   renderActiveChat();
+  renderRailUnreadBadge();
 }
 
 async function sendInActive() {

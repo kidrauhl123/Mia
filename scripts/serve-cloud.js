@@ -979,6 +979,19 @@ async function handleRequest(req, res, context) {
       return writeJson(res, 200, { user: auth.user, workspace: cloudStore.getWorkspace(auth.user.id) });
     }
 
+    // PATCH /api/me/profile — update the signed-in user's display avatar so
+    // friends (and the user themself, from other devices) see the same image
+    // their desktop uses. Body: { avatarImage?, avatarCrop?, avatarColor? }
+    if (req.method === "PATCH" && url.pathname === "/api/me/profile") {
+      const body = await readJson(req);
+      const updated = cloudStore.updateUserProfile(auth.user.id, {
+        avatarImage: typeof body.avatarImage === "string" ? body.avatarImage : undefined,
+        avatarCrop: body.avatarCrop === null || (body.avatarCrop && typeof body.avatarCrop === "object") ? body.avatarCrop : undefined,
+        avatarColor: typeof body.avatarColor === "string" ? body.avatarColor : undefined
+      });
+      return writeJson(res, 200, { user: updated });
+    }
+
     if (req.method === "GET" && url.pathname === "/api/workspace") {
       return writeJson(res, 200, { workspace: cloudStore.getWorkspace(auth.user.id) });
     }

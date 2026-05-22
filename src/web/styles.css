@@ -450,10 +450,14 @@ p {
   place-items: center;
   padding: 0 5px;
   border-radius: 9px;
-  background: var(--accent);
+  background: #ff3b30;
   color: #fff;
   font-size: 10px;
   font-weight: 800;
+}
+
+.persona-row.has-unread .persona-name {
+  font-weight: 700;
 }
 
 .workspace {

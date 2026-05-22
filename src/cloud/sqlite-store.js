@@ -46,11 +46,26 @@ function passwordHash(password, salt) {
 
 function publicUser(row) {
   if (!row) return null;
+  let avatarCrop = null;
+  const cropSource = row.avatar_crop_json || row.avatarCrop;
+  if (cropSource) {
+    if (typeof cropSource === "object") {
+      avatarCrop = cropSource;
+    } else {
+      try { avatarCrop = JSON.parse(cropSource); } catch { avatarCrop = null; }
+    }
+  }
   return {
     id: row.id,
     username: row.username || row.email || "",
     email: row.email || "",
-    createdAt: row.created_at || row.createdAt || ""
+    createdAt: row.created_at || row.createdAt || "",
+    // Profile avatar: expose so friends + the user themself render with the
+    // same image+crop their desktop uses, instead of falling back to a
+    // letter circle. All three fields are optional and may be "" / null.
+    avatarImage: row.avatar_image || row.avatarImage || "",
+    avatarCrop,
+    avatarColor: row.avatar_color || row.avatarColor || ""
   };
 }
 
@@ -110,11 +125,18 @@ function fileExtensionForMime(mimeType) {
 }
 
 function rowToUser(row) {
+  let avatarCrop = null;
+  if (row.avatar_crop_json) {
+    try { avatarCrop = JSON.parse(row.avatar_crop_json); } catch { avatarCrop = null; }
+  }
   return {
     id: row.id,
     username: row.username,
     email: row.email || "",
-    createdAt: row.created_at
+    createdAt: row.created_at,
+    avatarImage: row.avatar_image || "",
+    avatarCrop,
+    avatarColor: row.avatar_color || ""
   };
 }
 
@@ -525,6 +547,32 @@ function createCloudStore(options = {}) {
     return row ? publicUser(row) : null;
   }
 
+  function updateUserProfile(userId, patch = {}) {
+    const row = getUserById(userId);
+    if (!row) throw new Error("用户不存在。");
+    const sets = [];
+    const values = [];
+    if (typeof patch.avatarImage === "string") {
+      // Cap to 1MB to keep DB rows reasonable; bigger images should be
+      // uploaded as /api/files and referenced by URL instead.
+      const trimmed = patch.avatarImage.slice(0, 1_500_000);
+      sets.push("avatar_image = ?");
+      values.push(trimmed);
+    }
+    if (patch.avatarCrop === null || typeof patch.avatarCrop === "object") {
+      sets.push("avatar_crop_json = ?");
+      values.push(patch.avatarCrop ? JSON.stringify(patch.avatarCrop) : "");
+    }
+    if (typeof patch.avatarColor === "string") {
+      sets.push("avatar_color = ?");
+      values.push(patch.avatarColor.slice(0, 32));
+    }
+    if (!sets.length) return rowToUser(row);
+    values.push(userId);
+    db.prepare(`UPDATE users SET ${sets.join(", ")} WHERE id = ?`).run(...values);
+    return rowToUser(getUserById(userId));
+  }
+
   return {
     registerUser,
     loginUser,
@@ -545,6 +593,7 @@ function createCloudStore(options = {}) {
     timeoutBridgeRun,
     cancelBridgeRun,
     listBridgeRuns,
+    updateUserProfile,
     getBridgeRun,
     getUserPublic,
     getUserByUsername,
@@ -690,9 +739,22 @@ function migrate(db) {
   if (!hasColumn(db, "bridge_runs", "request_attachments_json")) {
     db.exec("ALTER TABLE bridge_runs ADD COLUMN request_attachments_json TEXT NOT NULL DEFAULT '[]'");
   }
+  // Profile avatar columns added in v3 so friends + the user themself can
+  // surface their display avatar on every device.
+  if (!hasColumn(db, "users", "avatar_image")) {
+    db.exec("ALTER TABLE users ADD COLUMN avatar_image TEXT NOT NULL DEFAULT ''");
+  }
+  if (!hasColumn(db, "users", "avatar_crop_json")) {
+    db.exec("ALTER TABLE users ADD COLUMN avatar_crop_json TEXT NOT NULL DEFAULT ''");
+  }
+  if (!hasColumn(db, "users", "avatar_color")) {
+    db.exec("ALTER TABLE users ADD COLUMN avatar_color TEXT NOT NULL DEFAULT ''");
+  }
   db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (1, ?)")
     .run(nowIso());
   db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (2, ?)")
+    .run(nowIso());
+  db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (3, ?)")
     .run(nowIso());
 }
 

@@ -4544,9 +4544,35 @@ function buildCloudWorkspaceFromLocalSessions() {
   return { conversations };
 }
 
+async function pushUserProfileToCloud() {
+  const settings = settingsStore.cloudSettings();
+  if (!settings.enabled || !settings.token) return;
+  // Profile lives at runtimePaths().userProfile as a JSON blob written by
+  // the profile:save IPC handler. Shape: { displayName, avatarText,
+  // avatarColor, avatarImage, avatarCrop }.
+  const p = runtimePaths();
+  const profile = readJson(p.userProfile, null);
+  if (!profile) return;
+  const body = {
+    avatarImage: String(profile.avatarImage || ""),
+    avatarCrop: profile.avatarCrop || null,
+    avatarColor: String(profile.avatarColor || "")
+  };
+  try {
+    const data = await cloudApi("/api/me/profile", { method: "PATCH", body });
+    if (data && data.user) {
+      settingsStore.writeCloudSettings({ user: data.user });
+    }
+  } catch (error) {
+    appendCloudLog(`Aimashi Cloud profile sync failed: ${error?.message || error}`);
+  }
+}
+
 async function syncAimashiCloudWorkspace() {
   const settings = settingsStore.cloudSettings();
   if (!settings.enabled || !settings.token) return cloudStatus(false);
+  // 0. Push the user's profile avatar so friends see the right image.
+  await pushUserProfileToCloud();
   // 1. Push the full local history up to the cloud so web/mobile can see
   //    everything that existed before this login (or before the last sync).
   const localWorkspace = buildCloudWorkspaceFromLocalSessions();
