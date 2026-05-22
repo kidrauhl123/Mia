@@ -12,6 +12,7 @@
 (function () {
   "use strict";
 
+  const engineContracts = window.aimashiEngineContracts || {};
   let state, els;
   let activePersona;
   let APPROVAL_LABELS = {};
@@ -30,7 +31,8 @@
   function activeAgentEngine() {
     if (!activePersona) return "hermes";
     const persona = activePersona();
-    return persona?.agentEngine || persona?.agent_engine || "hermes";
+    const engine = persona?.agentEngine || persona?.agent_engine || "hermes";
+    return engineContracts.normalizeAgentEngine ? engineContracts.normalizeAgentEngine(engine) : engine;
   }
 
   function engineConfigForPersona(persona = activePersona?.()) {
@@ -38,6 +40,9 @@
   }
 
   function externalModelEntries(engine) {
+    if (engineContracts.externalModelEntries) {
+      return engineContracts.externalModelEntries(engine, { codexModels: state?.codexModels });
+    }
     if (engine === "claude-code") {
       return [
         { id: "default", provider: "claude-code", providerLabel: "Claude Code", model: "", label: "Claude Code 默认" },
@@ -75,6 +80,9 @@
   }
 
   function externalPermissionOptions(engine) {
+    if (engineContracts.externalPermissionOptions && engineContracts.isExternalEngine?.(engine)) {
+      return engineContracts.externalPermissionOptions(engine);
+    }
     if (engine === "claude-code") {
       return [
         { value: "default", label: "Ask Permissions", title: "Claude Code 默认权限，危险操作会询问。" },
@@ -105,6 +113,12 @@
   }
 
   function effortOptions(engine) {
+    if (engineContracts.effortOptions) {
+      return engineContracts.effortOptions(engine, {
+        effortLevels: state?.engineCapabilities?.effortLevels,
+        effortLabels: EFFORT_LABELS
+      });
+    }
     if (engine === "claude-code") {
       return [
         { value: "low", label: "Low" },

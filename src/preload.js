@@ -1,47 +1,48 @@
 const { contextBridge, ipcRenderer, webUtils } = require("electron");
+const { IpcChannel } = require("./shared/ipc-channels");
 
 contextBridge.exposeInMainWorld("aimashi", {
-  initializeRuntime: () => ipcRenderer.invoke("runtime:initialize"),
-  notifyFirstPaint: () => ipcRenderer.send("ui:first-paint"),
-  runtimeStatus: () => ipcRenderer.invoke("runtime:status"),
-  daemonStatus: () => ipcRenderer.invoke("daemon:status"),
-  daemonPairing: () => ipcRenderer.invoke("daemon:pairing"),
-  startDaemon: () => ipcRenderer.invoke("daemon:start"),
-  stopDaemon: () => ipcRenderer.invoke("daemon:stop"),
-  saveDaemonSettings: (settings) => ipcRenderer.invoke("daemon:settings-save", settings),
-  relayStatus: () => ipcRenderer.invoke("relay:status"),
-  startRelay: () => ipcRenderer.invoke("relay:start"),
-  stopRelay: () => ipcRenderer.invoke("relay:stop"),
-  saveRelaySettings: (settings) => ipcRenderer.invoke("relay:settings-save", settings),
-  cloudStatus: () => ipcRenderer.invoke("cloud:status"),
-  cloudLogin: (payload) => ipcRenderer.invoke("cloud:login", payload),
-  cloudSync: () => ipcRenderer.invoke("cloud:sync"),
-  cloudPushMessage: (payload) => ipcRenderer.invoke("cloud:push-message", payload),
-  cloudLogout: () => ipcRenderer.invoke("cloud:logout"),
+  initializeRuntime: () => ipcRenderer.invoke(IpcChannel.RuntimeInitialize),
+  notifyFirstPaint: () => ipcRenderer.send(IpcChannel.UiFirstPaint),
+  runtimeStatus: () => ipcRenderer.invoke(IpcChannel.RuntimeStatus),
+  daemonStatus: () => ipcRenderer.invoke(IpcChannel.DaemonStatus),
+  daemonPairing: () => ipcRenderer.invoke(IpcChannel.DaemonPairing),
+  startDaemon: () => ipcRenderer.invoke(IpcChannel.DaemonStart),
+  stopDaemon: () => ipcRenderer.invoke(IpcChannel.DaemonStop),
+  saveDaemonSettings: (settings) => ipcRenderer.invoke(IpcChannel.DaemonSettingsSave, settings),
+  relayStatus: () => ipcRenderer.invoke(IpcChannel.RelayStatus),
+  startRelay: () => ipcRenderer.invoke(IpcChannel.RelayStart),
+  stopRelay: () => ipcRenderer.invoke(IpcChannel.RelayStop),
+  saveRelaySettings: (settings) => ipcRenderer.invoke(IpcChannel.RelaySettingsSave, settings),
+  cloudStatus: () => ipcRenderer.invoke(IpcChannel.CloudStatus),
+  cloudLogin: (payload) => ipcRenderer.invoke(IpcChannel.CloudLogin, payload),
+  cloudSync: () => ipcRenderer.invoke(IpcChannel.CloudSync),
+  cloudPushMessage: (payload) => ipcRenderer.invoke(IpcChannel.CloudPushMessage, payload),
+  cloudLogout: () => ipcRenderer.invoke(IpcChannel.CloudLogout),
   onCloudEvent: (handler) => {
     const listener = (_event, envelope) => { try { handler(envelope); } catch { /* ignore */ } };
-    ipcRenderer.on("cloud:event", listener);
-    return () => ipcRenderer.removeListener("cloud:event", listener);
+    ipcRenderer.on(IpcChannel.CloudEvent, listener);
+    return () => ipcRenderer.removeListener(IpcChannel.CloudEvent, listener);
   },
-  qrSvg: (text) => ipcRenderer.invoke("util:qr-svg", text),
-  installEngine: () => ipcRenderer.invoke("engine:install"),
-  startEngine: () => ipcRenderer.invoke("engine:start"),
-  stopEngine: () => ipcRenderer.invoke("engine:stop"),
-  uninstallStandaloneEngine: () => ipcRenderer.invoke("engine:uninstall-standalone"),
+  qrSvg: (text) => ipcRenderer.invoke(IpcChannel.UtilQrSvg, text),
+  installEngine: () => ipcRenderer.invoke(IpcChannel.EngineInstall),
+  startEngine: () => ipcRenderer.invoke(IpcChannel.EngineStart),
+  stopEngine: () => ipcRenderer.invoke(IpcChannel.EngineStop),
+  uninstallStandaloneEngine: () => ipcRenderer.invoke(IpcChannel.EngineUninstallStandalone),
   onEnginesChanged: (handler) => {
     const listener = () => { try { handler(); } catch { /* ignore */ } };
-    ipcRenderer.on("runtime:engines-changed", listener);
-    return () => ipcRenderer.removeListener("runtime:engines-changed", listener);
+    ipcRenderer.on(IpcChannel.RuntimeEnginesChanged, listener);
+    return () => ipcRenderer.removeListener(IpcChannel.RuntimeEnginesChanged, listener);
   },
-  startCodexOAuth: () => ipcRenderer.invoke("auth:codex-start"),
-  cancelCodexOAuth: () => ipcRenderer.invoke("auth:codex-cancel"),
-  startProviderOAuth: (provider) => ipcRenderer.invoke("auth:provider-start", provider),
-  cancelProviderOAuth: () => ipcRenderer.invoke("auth:provider-cancel"),
-  sendChat: (payload) => ipcRenderer.invoke("chat:send", payload),
-  sendChatStateless: (payload) => ipcRenderer.invoke("chat:send-stateless", payload),
-  stopChat: () => ipcRenderer.invoke("chat:stop"),
-  saveAttachment: (payload) => ipcRenderer.invoke("chat:attachment-save", payload),
-  fetchFileAttachment: (payload) => ipcRenderer.invoke("chat:file-fetch", payload),
+  startCodexOAuth: () => ipcRenderer.invoke(IpcChannel.AuthCodexStart),
+  cancelCodexOAuth: () => ipcRenderer.invoke(IpcChannel.AuthCodexCancel),
+  startProviderOAuth: (provider) => ipcRenderer.invoke(IpcChannel.AuthProviderStart, provider),
+  cancelProviderOAuth: () => ipcRenderer.invoke(IpcChannel.AuthProviderCancel),
+  sendChat: (payload) => ipcRenderer.invoke(IpcChannel.ChatSend, payload),
+  sendChatStateless: (payload) => ipcRenderer.invoke(IpcChannel.ChatSendStateless, payload),
+  stopChat: () => ipcRenderer.invoke(IpcChannel.ChatStop),
+  saveAttachment: (payload) => ipcRenderer.invoke(IpcChannel.ChatAttachmentSave, payload),
+  fetchFileAttachment: (payload) => ipcRenderer.invoke(IpcChannel.ChatFileFetch, payload),
   filePathForFile: (file) => {
     try {
       return webUtils?.getPathForFile?.(file) || file?.path || "";
@@ -53,99 +54,99 @@ contextBridge.exposeInMainWorld("aimashi", {
     const listener = (_event, envelope) => {
       try { callback(envelope); } catch { /* renderer handler error swallowed */ }
     };
-    ipcRenderer.on("chat:event", listener);
-    return () => ipcRenderer.removeListener("chat:event", listener);
+    ipcRenderer.on(IpcChannel.ChatEvent, listener);
+    return () => ipcRenderer.removeListener(IpcChannel.ChatEvent, listener);
   },
-  loadSlashCommands: () => ipcRenderer.invoke("commands:slash"),
-  loadAgentCommands: (payload) => ipcRenderer.invoke("commands:agent-list", payload),
-  executeAgentCommand: (payload) => ipcRenderer.invoke("commands:agent-execute", payload),
-  loadChatSessions: () => ipcRenderer.invoke("chat:sessions-load"),
-  saveChatSession: (payload) => ipcRenderer.invoke("chat:session-save", payload),
-  saveChatReadState: (payload) => ipcRenderer.invoke("chat:read-state-save", payload),
-  createChatSession: (payload) => ipcRenderer.invoke("chat:session-create", payload),
-  renameChatSession: (payload) => ipcRenderer.invoke("chat:session-rename", payload),
-  generateSessionTitle: (payload) => ipcRenderer.invoke("chat:title-generate", payload),
-  loadModelCatalog: () => ipcRenderer.invoke("model:catalog"),
-  loadCodexModels: () => ipcRenderer.invoke("codex:list-models"),
-  loadEngineCapabilities: () => ipcRenderer.invoke("engine:capabilities"),
-  loadSkills: () => ipcRenderer.invoke("skills:list"),
-  showEditContextMenu: (point) => ipcRenderer.invoke("edit:context-menu", point),
-  installPlugin: (extensionId) => ipcRenderer.invoke("plugins:install", extensionId),
-  readSkill: (skillId) => ipcRenderer.invoke("skills:read", skillId),
-  deleteSkill: (skillId) => ipcRenderer.invoke("skills:delete", skillId),
-  openSkillDirectory: (skillId) => ipcRenderer.invoke("skills:open-directory", skillId),
-  saveModel: (settings) => ipcRenderer.invoke("model:save", settings),
-  savePermissions: (settings) => ipcRenderer.invoke("permissions:save", settings),
-  saveEffort: (settings) => ipcRenderer.invoke("effort:save", settings),
-  saveAppearance: (settings) => ipcRenderer.invoke("appearance:save", settings),
-  saveProfile: (profile) => ipcRenderer.invoke("profile:save", profile),
-  loadFellowDetails: (key) => ipcRenderer.invoke("fellow:details", key),
-  saveFellow: (fellow) => ipcRenderer.invoke("fellow:save", fellow),
-  saveFellowEngine: (payload) => ipcRenderer.invoke("fellow:engine-save", payload),
-  setFellowPinned: (payload) => ipcRenderer.invoke("fellow:pin", payload),
-  deleteFellow: (payload) => ipcRenderer.invoke("fellow:delete", payload),
-  savePersona: (persona) => ipcRenderer.invoke("persona:save", persona),
-  loadPetJobs: () => ipcRenderer.invoke("pet:jobs"),
-  generateFellowPet: (payload) => ipcRenderer.invoke("pet:generate", payload),
-  placeFellowPet: (key) => ipcRenderer.invoke("pet:place", key),
-  recallFellowPet: (key) => ipcRenderer.invoke("pet:recall", key),
+  loadSlashCommands: () => ipcRenderer.invoke(IpcChannel.CommandsSlash),
+  loadAgentCommands: (payload) => ipcRenderer.invoke(IpcChannel.CommandsAgentList, payload),
+  executeAgentCommand: (payload) => ipcRenderer.invoke(IpcChannel.CommandsAgentExecute, payload),
+  loadChatSessions: () => ipcRenderer.invoke(IpcChannel.ChatSessionsLoad),
+  saveChatSession: (payload) => ipcRenderer.invoke(IpcChannel.ChatSessionSave, payload),
+  saveChatReadState: (payload) => ipcRenderer.invoke(IpcChannel.ChatReadStateSave, payload),
+  createChatSession: (payload) => ipcRenderer.invoke(IpcChannel.ChatSessionCreate, payload),
+  renameChatSession: (payload) => ipcRenderer.invoke(IpcChannel.ChatSessionRename, payload),
+  generateSessionTitle: (payload) => ipcRenderer.invoke(IpcChannel.ChatTitleGenerate, payload),
+  loadModelCatalog: () => ipcRenderer.invoke(IpcChannel.ModelCatalog),
+  loadCodexModels: () => ipcRenderer.invoke(IpcChannel.CodexListModels),
+  loadEngineCapabilities: () => ipcRenderer.invoke(IpcChannel.EngineCapabilities),
+  loadSkills: () => ipcRenderer.invoke(IpcChannel.SkillsList),
+  showEditContextMenu: (point) => ipcRenderer.invoke(IpcChannel.EditContextMenu, point),
+  installPlugin: (extensionId) => ipcRenderer.invoke(IpcChannel.PluginsInstall, extensionId),
+  readSkill: (skillId) => ipcRenderer.invoke(IpcChannel.SkillsRead, skillId),
+  deleteSkill: (skillId) => ipcRenderer.invoke(IpcChannel.SkillsDelete, skillId),
+  openSkillDirectory: (skillId) => ipcRenderer.invoke(IpcChannel.SkillsOpenDirectory, skillId),
+  saveModel: (settings) => ipcRenderer.invoke(IpcChannel.ModelSave, settings),
+  savePermissions: (settings) => ipcRenderer.invoke(IpcChannel.PermissionsSave, settings),
+  saveEffort: (settings) => ipcRenderer.invoke(IpcChannel.EffortSave, settings),
+  saveAppearance: (settings) => ipcRenderer.invoke(IpcChannel.AppearanceSave, settings),
+  saveProfile: (profile) => ipcRenderer.invoke(IpcChannel.ProfileSave, profile),
+  loadFellowDetails: (key) => ipcRenderer.invoke(IpcChannel.FellowDetails, key),
+  saveFellow: (fellow) => ipcRenderer.invoke(IpcChannel.FellowSave, fellow),
+  saveFellowEngine: (payload) => ipcRenderer.invoke(IpcChannel.FellowEngineSave, payload),
+  setFellowPinned: (payload) => ipcRenderer.invoke(IpcChannel.FellowPin, payload),
+  deleteFellow: (payload) => ipcRenderer.invoke(IpcChannel.FellowDelete, payload),
+  savePersona: (persona) => ipcRenderer.invoke(IpcChannel.PersonaSave, persona),
+  loadPetJobs: () => ipcRenderer.invoke(IpcChannel.PetJobs),
+  generateFellowPet: (payload) => ipcRenderer.invoke(IpcChannel.PetGenerate, payload),
+  placeFellowPet: (key) => ipcRenderer.invoke(IpcChannel.PetPlace, key),
+  recallFellowPet: (key) => ipcRenderer.invoke(IpcChannel.PetRecall, key),
   tasks: {
-    list: () => ipcRenderer.invoke("tasks:list"),
-    get: (id) => ipcRenderer.invoke("tasks:get", id),
-    create: (input) => ipcRenderer.invoke("tasks:create", input),
-    update: (id, partial) => ipcRenderer.invoke("tasks:update", id, partial),
-    delete: (id) => ipcRenderer.invoke("tasks:delete", id),
-    pause: (id) => ipcRenderer.invoke("tasks:pause", id),
-    resume: (id) => ipcRenderer.invoke("tasks:resume", id),
-    runNow: (id) => ipcRenderer.invoke("tasks:run-now", id),
+    list: () => ipcRenderer.invoke(IpcChannel.TasksList),
+    get: (id) => ipcRenderer.invoke(IpcChannel.TasksGet, id),
+    create: (input) => ipcRenderer.invoke(IpcChannel.TasksCreate, input),
+    update: (id, partial) => ipcRenderer.invoke(IpcChannel.TasksUpdate, id, partial),
+    delete: (id) => ipcRenderer.invoke(IpcChannel.TasksDelete, id),
+    pause: (id) => ipcRenderer.invoke(IpcChannel.TasksPause, id),
+    resume: (id) => ipcRenderer.invoke(IpcChannel.TasksResume, id),
+    runNow: (id) => ipcRenderer.invoke(IpcChannel.TasksRunNow, id),
     subscribe: (cb) => {
       const wrapped = (_e, envelope) => cb(envelope);
-      ipcRenderer.on("tasks:event", wrapped);
-      return () => ipcRenderer.removeListener("tasks:event", wrapped);
+      ipcRenderer.on(IpcChannel.TasksEvent, wrapped);
+      return () => ipcRenderer.removeListener(IpcChannel.TasksEvent, wrapped);
     }
   },
   groups: {
-    create: (payload) => ipcRenderer.invoke("group:create", payload),
-    list: () => ipcRenderer.invoke("group:list"),
-    get: (id) => ipcRenderer.invoke("group:get", id),
-    update: (id, patch) => ipcRenderer.invoke("group:update", { id, patch }),
-    delete: (id) => ipcRenderer.invoke("group:delete", id),
-    appendMessage: (id, message) => ipcRenderer.invoke("group:append-message", { id, message }),
-    listMessages: (id) => ipcRenderer.invoke("group:list-messages", id),
-    saveContextCard: (id, card) => ipcRenderer.invoke("group:save-context-card", { id, card }),
-    loadPrompts: () => ipcRenderer.invoke("group:load-prompts"),
+    create: (payload) => ipcRenderer.invoke(IpcChannel.GroupCreate, payload),
+    list: () => ipcRenderer.invoke(IpcChannel.GroupList),
+    get: (id) => ipcRenderer.invoke(IpcChannel.GroupGet, id),
+    update: (id, patch) => ipcRenderer.invoke(IpcChannel.GroupUpdate, { id, patch }),
+    delete: (id) => ipcRenderer.invoke(IpcChannel.GroupDelete, id),
+    appendMessage: (id, message) => ipcRenderer.invoke(IpcChannel.GroupAppendMessage, { id, message }),
+    listMessages: (id) => ipcRenderer.invoke(IpcChannel.GroupListMessages, id),
+    saveContextCard: (id, card) => ipcRenderer.invoke(IpcChannel.GroupSaveContextCard, { id, card }),
+    loadPrompts: () => ipcRenderer.invoke(IpcChannel.GroupLoadPrompts),
   },
   social: {
-    sendFriendRequest: (toUsername) => ipcRenderer.invoke("social:send-friend-request", toUsername),
-    respondFriendRequest: (requestId, action) => ipcRenderer.invoke("social:respond-friend-request", requestId, action),
-    cancelFriendRequest: (requestId) => ipcRenderer.invoke("social:cancel-friend-request", requestId),
-    listFriendRequests: (direction) => ipcRenderer.invoke("social:list-friend-requests", direction),
-    listFriends: () => ipcRenderer.invoke("social:list-friends"),
-    removeFriend: (userId) => ipcRenderer.invoke("social:remove-friend", userId),
-    listRooms: () => ipcRenderer.invoke("social:list-rooms"),
-    getRoom: (roomId) => ipcRenderer.invoke("social:get-room", roomId),
-    listRoomMessages: (roomId, sinceSeq, limit) => ipcRenderer.invoke("social:list-room-messages", roomId, sinceSeq, limit),
-    postRoomMessage: (roomId, body) => ipcRenderer.invoke("social:post-room-message", roomId, body),
-    myUsername: () => ipcRenderer.invoke("social:my-username"),
-    createRoom: (payload) => ipcRenderer.invoke("social:create-room", payload),
-    addRoomMember: (roomId, member) => ipcRenderer.invoke("social:add-room-member", roomId, member),
-    postRoomMessageAsFellow: (roomId, body) => ipcRenderer.invoke("social:post-message-as-fellow", roomId, body)
+    sendFriendRequest: (toUsername) => ipcRenderer.invoke(IpcChannel.SocialSendFriendRequest, toUsername),
+    respondFriendRequest: (requestId, action) => ipcRenderer.invoke(IpcChannel.SocialRespondFriendRequest, requestId, action),
+    cancelFriendRequest: (requestId) => ipcRenderer.invoke(IpcChannel.SocialCancelFriendRequest, requestId),
+    listFriendRequests: (direction) => ipcRenderer.invoke(IpcChannel.SocialListFriendRequests, direction),
+    listFriends: () => ipcRenderer.invoke(IpcChannel.SocialListFriends),
+    removeFriend: (userId) => ipcRenderer.invoke(IpcChannel.SocialRemoveFriend, userId),
+    listRooms: () => ipcRenderer.invoke(IpcChannel.SocialListRooms),
+    getRoom: (roomId) => ipcRenderer.invoke(IpcChannel.SocialGetRoom, roomId),
+    listRoomMessages: (roomId, sinceSeq, limit) => ipcRenderer.invoke(IpcChannel.SocialListRoomMessages, roomId, sinceSeq, limit),
+    postRoomMessage: (roomId, body) => ipcRenderer.invoke(IpcChannel.SocialPostRoomMessage, roomId, body),
+    myUsername: () => ipcRenderer.invoke(IpcChannel.SocialMyUsername),
+    createRoom: (payload) => ipcRenderer.invoke(IpcChannel.SocialCreateRoom, payload),
+    addRoomMember: (roomId, member) => ipcRenderer.invoke(IpcChannel.SocialAddRoomMember, roomId, member),
+    postRoomMessageAsFellow: (roomId, body) => ipcRenderer.invoke(IpcChannel.SocialPostMessageAsFellow, roomId, body)
   },
   platform: process.platform,
   window: {
-    close: () => ipcRenderer.invoke("window:close"),
-    minimize: () => ipcRenderer.invoke("window:minimize"),
-    green: () => ipcRenderer.invoke("window:green"),
-    state: () => ipcRenderer.invoke("window:state"),
+    close: () => ipcRenderer.invoke(IpcChannel.WindowClose),
+    minimize: () => ipcRenderer.invoke(IpcChannel.WindowMinimize),
+    green: () => ipcRenderer.invoke(IpcChannel.WindowGreen),
+    state: () => ipcRenderer.invoke(IpcChannel.WindowState),
     onFocusState: (handler) => {
       const listener = (_e, focused) => handler(focused);
-      ipcRenderer.on("window:focus-state", listener);
-      return () => ipcRenderer.removeListener("window:focus-state", listener);
+      ipcRenderer.on(IpcChannel.WindowFocusState, listener);
+      return () => ipcRenderer.removeListener(IpcChannel.WindowFocusState, listener);
     },
     onFullscreen: (handler) => {
       const listener = (_e, fullscreen) => handler(fullscreen);
-      ipcRenderer.on("window:fullscreen", listener);
-      return () => ipcRenderer.removeListener("window:fullscreen", listener);
+      ipcRenderer.on(IpcChannel.WindowFullscreen, listener);
+      return () => ipcRenderer.removeListener(IpcChannel.WindowFullscreen, listener);
     }
   }
 });

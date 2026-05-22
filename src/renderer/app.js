@@ -1,23 +1,11 @@
-const fallbackSlashCommands = [
-  { command: "/new", description: "Start a new session (fresh session ID + history)" },
-  { command: "/topic", description: "Enable or inspect Telegram DM topic sessions" },
-  { command: "/retry", description: "Retry the last message (resend to agent)" },
-  { command: "/undo", description: "Remove the last user/assistant exchange" },
-  { command: "/title", description: "Set a title for the current session" },
-  { command: "/branch", description: "Branch the current session (explore a different path)" },
-  { command: "/compress", description: "Manually compress conversation context" },
-  { command: "/rollback", description: "List or restore filesystem checkpoints" },
-  { command: "/commands", description: "Browse all commands and skills" },
-  { command: "/help", description: "Show available commands" }
-];
-
+const fallbackSlashCommands = window.aimashiAppState.fallbackSlashCommands;
+const SETUP_GUIDE_DISMISSED_KEY = window.aimashiAppState.SETUP_GUIDE_DISMISSED_KEY;
 const SIDEBAR_WIDTH_MIN = 220;
 const SIDEBAR_WIDTH_MAX = 380;
 const SIDEBAR_WIDTH_DEFAULT = 280;
 let skillPickerHoverCloseTimer = 0;
 const qrSvgCache = new Map();
 const ICON_PARK_PIN_SVG = '<svg class="icon-park-pin" viewBox="0 0 48 48" aria-hidden="true" focusable="false"><path d="M10.6963 17.5042C13.3347 14.8657 16.4701 14.9387 19.8781 16.8076L32.62 9.74509L31.8989 4.78683L43.2126 16.1005L38.2656 15.3907L31.1918 28.1214C32.9752 31.7589 33.1337 34.6647 30.4953 37.3032C30.4953 37.3032 26.235 33.0429 22.7171 29.525L6.44305 41.5564L18.4382 25.2461C14.9202 21.7281 10.6963 17.5042 10.6963 17.5042Z"/></svg>';
-const SETUP_GUIDE_DISMISSED_KEY = "aimashi.setupGuideDismissed.v2";
 
 function clampSidebarWidth(value) {
   const availableMax = Math.max(SIDEBAR_WIDTH_MIN, Math.min(SIDEBAR_WIDTH_MAX, window.innerWidth - 430));
@@ -34,104 +22,11 @@ function savedSidebarWidth() {
   }
 }
 
-const state = {
-  runtime: null,
-  activeKey: "",
-  chatStore: { schema_version: 1, readAt: {}, sessions: {} },
-  activeSessionIdByPersona: {},
-  generatingTitleIds: new Set(),
-  generatedFiles: new Map(),
-  startupTasks: [],
-  firstRun: false,
-  setupGuideDismissed: localStorage.getItem(SETUP_GUIDE_DISMISSED_KEY) === "1",
-  onboardingStep: localStorage.getItem("aimashi.onboardingStep") || "engine",
-  onboardingPickedEngine: "",
-  forceScrollToBottom: false,
-  sessionMenuOpen: false,
-  activeView: "chat",
-  activeContactKey: "",
-  narrowPane: "content",
-  isNarrowWindow: window.innerWidth <= 720,
+const state = window.aimashiAppState.createInitialState({
+  localStorage,
   sidebarWidth: savedSidebarWidth(),
-  sidebarResize: { dragging: false, startX: 0, startWidth: 0 },
-  activeSettingsTab: "account",
-  mobileLanLinkExpanded: false,
-  mobileRelayLinkExpanded: false,
-  personaFilter: "",
-  contactFilter: "",
-  skillFilter: "",
-  skillCategoryFilter: "",
-  skillStatusFilter: "all",
-  skillContextMenu: { open: false, x: 0, y: 0, skillId: "" },
-  fellowContextMenu: { open: false, x: 0, y: 0, fellowKey: "" },
-  groupContextMenu: { open: false, x: 0, y: 0, groupId: "" },
-  messageContextMenu: { open: false, x: 0, y: 0, messageIndex: -1, selectionText: "" },
-  replyDraft: null,
-  fellowMenuOpen: false,
-  contactMenuOpen: false,
-  profileDialogOpen: false,
-  fellowDialogOpen: false,
-  fellowDialogMode: "create",
-  fellowAvatarPresetGroup: "human",
-  profileAvatarPresetGroup: "human",
-  petGenerateOpen: false,
-  petGenerateFellowKey: "",
-  petReferences: [],
-  petJobs: [],
-  petJobPanelOpen: false,
-  fellowAvatarDraft: {
-    image: "",
-    crop: { x: 50, y: 50, zoom: 1 }
-  },
-  profileAvatarDraft: {
-    image: "",
-    crop: { x: 50, y: 50, zoom: 1 }
-  },
-  avatarCropEditor: {
-    open: false,
-    target: "fellow",
-    image: "",
-    crop: { x: 50, y: 50, zoom: 1 },
-    dragging: false,
-    lastX: 0,
-    lastY: 0
-  },
-  settingsOpen: false,
-  modelCatalog: [],
-  skillLibrary: { plugins: [], sources: [], extensions: [], connectors: [], skills: [], roots: [] },
-  directorySection: "plugins",
-  skillPluginFilter: "",
-  skillLibraryMode: "skills",
-  selectedExtensionId: "",
-  installingExtensions: new Set(),
-  savingFellowCapabilities: new Set(),
-  skillPickerOpen: false,
-  skillPickerFilter: "",
-  skillPickerPluginId: "",
-  selectedSkillId: "",
-  selectedSkillDetail: null,
-  skillPreviewOpen: false,
-  skillsLoading: false,
-  slashCommands: fallbackSlashCommands,
-  agentSlashCommands: { "claude-code": [], codex: [] },
-  slashMenuOpen: false,
-  composerAddMenuOpen: false,
-  pendingAttachments: [],
-  slashSelectedIndex: 0,
-  slashFilter: "",
-  isGenerating: false,
-  streaming: null,
-  openTraceKeys: new Set(),
-  animatedTraceKeys: new Set(),
-  codexModels: [],
-  tasks: [],
-  taskFilter: "",
-  selectedTaskId: "",
-  selectedRunId: "",
-  historyExpanded: false,
-  disabledExpanded: false,
-  tasksUnread: new Map()
-};
+  windowWidth: window.innerWidth
+});
 
 const els = {
   appShell: document.querySelector(".app-shell"),

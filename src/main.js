@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, Menu } = require("electron");
+const { app, BrowserWindow, ipcMain, shell } = require("electron");
 const { spawn, spawnSync } = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
@@ -11,6 +11,7 @@ const { fileURLToPath, pathToFileURL } = require("node:url");
 const QRCode = require("qrcode");
 const WebSocket = require("ws");
 const { normalizePermissionMode, permissionModeLabel } = require("./permission-modes");
+const { IpcChannel } = require("./shared/ipc-channels");
 const runtimeResources = require("./runtime-resource-paths");
 const { createGroupStore } = require("./main/group-store.js");
 const { buildHermesGroupHeader, injectGroupContextForSdk } = require("./main/group-adapters.js");
@@ -46,6 +47,8 @@ const { createTasksRoutes } = require("./main/tasks-routes.js");
 const { createSchedulerMcp } = require("./main/scheduler-mcp.js");
 const { createSocialApi } = require("./main/social/social-api.js");
 const { registerSocialIpc } = require("./main/social/social-ipc.js");
+const { registerWindowIpc } = require("./main/ipc/window-ipc.js");
+const { registerTasksIpc } = require("./main/ipc/tasks-ipc.js");
 const {
   cloudConversationFromDesktopSession,
   cloudMessageFromDesktopMessage,
@@ -500,7 +503,7 @@ function persistSystemHermesCache(value) {
 function broadcastEnginesChanged() {
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) {
-      try { win.webContents.send("runtime:engines-changed"); } catch { /* ignore */ }
+      try { win.webContents.send(IpcChannel.RuntimeEnginesChanged); } catch { /* ignore */ }
     }
   }
 }
@@ -3841,6 +3844,13 @@ function contentTypeForAsset(filePath) {
 }
 
 function serveMobileAsset(pathname, res) {
+  if (pathname === "/shared/engine-contracts.js") {
+    const filePath = path.join(__dirname, "shared", "engine-contracts.js");
+    if (!fs.existsSync(filePath)) return false;
+    writeControlText(res, 200, fs.readFileSync(filePath, "utf8"), "application/javascript; charset=utf-8");
+    return true;
+  }
+
   if (pathname.startsWith("/assets/")) {
     const root = path.join(__dirname, "renderer", "assets");
     const requested = path.normalize(path.join(root, pathname.replace(/^\/assets\//, "")));
@@ -4711,7 +4721,7 @@ function handleCloudWorkspaceEvent(message = {}) {
   if (!workspace) return;
   settingsStore.writeCloudWorkspace(workspace);
   mergeCloudWorkspaceIntoChatStore(workspace);
-  broadcastRendererEvent("cloud:event", {
+  broadcastRendererEvent(IpcChannel.CloudEvent, {
     type: String(message.type || "workspace_updated"),
     cloud: cloudStatus(false)
   });
@@ -4727,15 +4737,15 @@ function handleCloudEventsMessage(raw) {
   }
   if (message.type === "events_ready") {
     appendCloudLog("Aimashi Cloud events connected.");
-    broadcastRendererEvent("cloud:event", { type: "events_ready", cloud: cloudStatus(false) });
+    broadcastRendererEvent(IpcChannel.CloudEvent, { type: "events_ready", cloud: cloudStatus(false) });
     return;
   }
   if (message.type && message.type.startsWith("social.")) {
-    broadcastRendererEvent("cloud:event", { type: message.type, payload: message });
+    broadcastRendererEvent(IpcChannel.CloudEvent, { type: message.type, payload: message });
     return;
   }
   if (message.type === "room.message_appended") {
-    broadcastRendererEvent("cloud:event", { type: "room.message_appended", payload: message });
+    broadcastRendererEvent(IpcChannel.CloudEvent, { type: "room.message_appended", payload: message });
     return;
   }
   if (message.type === "workspace_updated" || message.type === "message_created") {
@@ -4743,7 +4753,7 @@ function handleCloudEventsMessage(raw) {
     return;
   }
   if (message.type === "bridge_run_updated" || message.type === "device_updated") {
-    broadcastRendererEvent("cloud:event", {
+    broadcastRendererEvent(IpcChannel.CloudEvent, {
       type: String(message.type || "cloud_event"),
       cloud: cloudStatus(false)
     });
@@ -6265,7 +6275,8 @@ function createWindow() {
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      sandbox: false
     }
   });
   if (process.platform === "darwin" && typeof win.setWindowButtonVisibility === "function") {
@@ -6274,52 +6285,19 @@ function createWindow() {
   const sendWindowEvent = (channel, payload) => {
     if (!win.isDestroyed()) win.webContents.send(channel, payload);
   };
-  win.on("focus", () => sendWindowEvent("window:focus-state", true));
-  win.on("blur", () => sendWindowEvent("window:focus-state", false));
-  win.on("enter-full-screen", () => sendWindowEvent("window:fullscreen", true));
-  win.on("leave-full-screen", () => sendWindowEvent("window:fullscreen", false));
+  win.on("focus", () => sendWindowEvent(IpcChannel.WindowFocusState, true));
+  win.on("blur", () => sendWindowEvent(IpcChannel.WindowFocusState, false));
+  win.on("enter-full-screen", () => sendWindowEvent(IpcChannel.WindowFullscreen, true));
+  win.on("leave-full-screen", () => sendWindowEvent(IpcChannel.WindowFullscreen, false));
   win.webContents.once("did-finish-load", () => startupTimer.mark("renderer:did-finish-load"));
   win.loadFile(path.join(__dirname, "renderer", "index.html"));
   startupTimer.mark("window:load-file");
   return win;
 }
 
-ipcMain.on("ui:first-paint", () => {
-  startupTimer.mark("renderer:first-paint");
-  runtimeLifecycle().scheduleBackgroundStartup();
-});
+registerWindowIpc({ ipcMain, startupTimer, runtimeLifecycle });
 
-ipcMain.handle("window:close", (event) => {
-  BrowserWindow.fromWebContents(event.sender)?.close();
-});
-ipcMain.handle("window:minimize", (event) => {
-  BrowserWindow.fromWebContents(event.sender)?.minimize();
-});
-ipcMain.handle("window:green", (event) => {
-  const w = BrowserWindow.fromWebContents(event.sender);
-  if (!w) return;
-  w.setFullScreen(!w.isFullScreen());
-});
-ipcMain.handle("window:state", (event) => {
-  const w = BrowserWindow.fromWebContents(event.sender);
-  if (!w) return { focused: true, fullscreen: false };
-  return { focused: w.isFocused(), fullscreen: w.isFullScreen() };
-});
-ipcMain.handle("edit:context-menu", (event, point = {}) => {
-  const w = BrowserWindow.fromWebContents(event.sender);
-  if (!w) return;
-  Menu.buildFromTemplate([
-    { label: "剪切", role: "cut" },
-    { label: "复制", role: "copy" },
-    { label: "粘贴", role: "paste" }
-  ]).popup({
-    window: w,
-    x: Number.isFinite(point.x) ? Math.round(point.x) : undefined,
-    y: Number.isFinite(point.y) ? Math.round(point.y) : undefined
-  });
-});
-
-ipcMain.handle("runtime:initialize", async () => {
+ipcMain.handle(IpcChannel.RuntimeInitialize, async () => {
   const status = initializeRuntime();
   status.daemon = await getObservedDaemonStatus(350);
   if (!IS_DAEMON_PROCESS) {
@@ -6327,7 +6305,7 @@ ipcMain.handle("runtime:initialize", async () => {
   }
   return status;
 });
-ipcMain.handle("runtime:status", async () => {
+ipcMain.handle(IpcChannel.RuntimeStatus, async () => {
   const status = getRuntimeStatus();
   status.daemon = await getObservedDaemonStatus(350);
   if (!IS_DAEMON_PROCESS) {
@@ -6335,21 +6313,21 @@ ipcMain.handle("runtime:status", async () => {
   }
   return status;
 });
-ipcMain.handle("daemon:status", async () => {
+ipcMain.handle(IpcChannel.DaemonStatus, async () => {
   return getObservedDaemonStatus(500);
 });
-ipcMain.handle("daemon:pairing", async () => {
+ipcMain.handle(IpcChannel.DaemonPairing, async () => {
   const settings = settingsStore.daemonSettings();
   const ping = await pingDaemon(settings, 500);
   return { ...getDaemonPairingInfo(), running: controlServerState.running || ping.ok, baseUrl: ping.baseUrl || getDaemonStatus().baseUrl };
 });
-ipcMain.handle("daemon:start", () => startDaemonService());
-ipcMain.handle("daemon:stop", () => stopDaemonService());
-ipcMain.handle("daemon:settings-save", (_event, settings) => {
+ipcMain.handle(IpcChannel.DaemonStart, () => startDaemonService());
+ipcMain.handle(IpcChannel.DaemonStop, () => stopDaemonService());
+ipcMain.handle(IpcChannel.DaemonSettingsSave, (_event, settings) => {
   settingsStore.writeDaemonSettings(settings);
   return getDaemonStatus();
 });
-ipcMain.handle("util:qr-svg", (_event, text) => {
+ipcMain.handle(IpcChannel.UtilQrSvg, (_event, text) => {
   const value = String(text || "").trim();
   if (!value) return "";
   return QRCode.toString(value, {
@@ -6362,14 +6340,14 @@ ipcMain.handle("util:qr-svg", (_event, text) => {
     }
   });
 });
-ipcMain.handle("relay:status", async () => {
+ipcMain.handle(IpcChannel.RelayStatus, async () => {
   if (!IS_DAEMON_PROCESS) {
     const daemonRelay = await fetchDaemonRelayStatus().catch(() => null);
     if (daemonRelay) return { ...relayStatus(true), ...daemonRelay };
   }
   return relayStatus(true);
 });
-ipcMain.handle("relay:start", async () => {
+ipcMain.handle(IpcChannel.RelayStart, async () => {
   settingsStore.writeRelaySettings({ enabled: true });
   if (!IS_DAEMON_PROCESS) {
     const daemonRelay = await notifyDaemonRelay("start");
@@ -6377,14 +6355,14 @@ ipcMain.handle("relay:start", async () => {
   }
   return startRelayClient();
 });
-ipcMain.handle("relay:stop", () => {
+ipcMain.handle(IpcChannel.RelayStop, () => {
   settingsStore.writeRelaySettings({ enabled: false });
   if (!IS_DAEMON_PROCESS) {
     notifyDaemonRelay("stop").catch(() => {});
   }
   return stopRelayClient();
 });
-ipcMain.handle("relay:settings-save", async (_event, settings) => {
+ipcMain.handle(IpcChannel.RelaySettingsSave, async (_event, settings) => {
   const next = settingsStore.writeRelaySettings(settings);
   if (!IS_DAEMON_PROCESS) {
     const daemonRelay = await notifyDaemonRelay(next.enabled ? "start" : "stop", next);
@@ -6393,20 +6371,20 @@ ipcMain.handle("relay:settings-save", async (_event, settings) => {
   if (next.enabled) return startRelayClient();
   return stopRelayClient();
 });
-ipcMain.handle("cloud:status", () => cloudStatus(false));
-ipcMain.handle("cloud:login", async (_event, payload) => {
+ipcMain.handle(IpcChannel.CloudStatus, () => cloudStatus(false));
+ipcMain.handle(IpcChannel.CloudLogin, async (_event, payload) => {
   await loginAimashiCloud(payload || {});
   return getRuntimeStatus();
 });
-ipcMain.handle("cloud:sync", async () => {
+ipcMain.handle(IpcChannel.CloudSync, async () => {
   await syncAimashiCloudWorkspace();
   return getRuntimeStatus();
 });
-ipcMain.handle("cloud:push-message", async (_event, payload) => {
+ipcMain.handle(IpcChannel.CloudPushMessage, async (_event, payload) => {
   await pushDesktopMessageToCloud(payload || {});
   return getRuntimeStatus();
 });
-ipcMain.handle("cloud:logout", async () => {
+ipcMain.handle(IpcChannel.CloudLogout, async () => {
   await logoutAimashiCloud();
   return getRuntimeStatus();
 });
@@ -6415,7 +6393,7 @@ const socialApi = createSocialApi({
   normalizeUrl: settingsStore.normalizeCloudUrl
 });
 registerSocialIpc({ ipcMain, socialApi });
-ipcMain.handle("social:my-username", () => {
+ipcMain.handle(IpcChannel.SocialMyUsername, () => {
   // Wrap in the same {ok, data} envelope safeCall uses for the other
   // social IPCs so the renderer's destructure path is consistent and
   // `meRes.ok` actually flips true when a session is present.
@@ -6430,45 +6408,45 @@ ipcMain.handle("social:my-username", () => {
     return { ok: false, error: String(error?.message || error) };
   }
 });
-ipcMain.handle("engine:install", () => installEngine());
-ipcMain.handle("engine:start", () => startEngine());
-ipcMain.handle("engine:stop", () => stopEngine());
-ipcMain.handle("engine:uninstall-standalone", () => uninstallStandaloneEngine());
-ipcMain.handle("auth:codex-start", () => startCodexOAuth());
-ipcMain.handle("auth:codex-cancel", () => cancelCodexOAuth());
-ipcMain.handle("auth:provider-start", (_event, provider) => startProviderOAuth(provider));
-ipcMain.handle("auth:provider-cancel", () => cancelProviderOAuth());
-ipcMain.handle("chat:send", (event, payload) => sendChat({ ...payload, webContents: event.sender }));
-ipcMain.handle("chat:send-stateless", (_event, payload) => sendChatStateless(payload));
-ipcMain.handle("chat:stop", () => stopChat());
-ipcMain.handle("chat:attachment-save", (_event, payload) => saveChatAttachment(payload));
-ipcMain.handle("chat:file-fetch", (_event, payload) => safeFetchFileAttachment(payload));
-ipcMain.handle("commands:slash", () => loadHermesSlashCommands());
-ipcMain.handle("commands:agent-list", (_event, payload) => loadExternalAgentCommands(payload));
-ipcMain.handle("commands:agent-execute", (_event, payload) => executeExternalAgentCommand(payload));
-ipcMain.handle("chat:sessions-load", () => loadChatSessions());
-ipcMain.handle("chat:session-save", (_event, payload) => saveChatSession(payload));
-ipcMain.handle("chat:read-state-save", (_event, payload) => saveChatReadState(payload));
-ipcMain.handle("chat:session-create", (_event, payload) => newChatSession(payload));
-ipcMain.handle("chat:session-rename", (_event, payload) => renameChatSession(payload));
-ipcMain.handle("chat:title-generate", (_event, payload) => generateSessionTitle(payload));
-ipcMain.handle("model:catalog", () => loadHermesModelCatalog());
-ipcMain.handle("codex:list-models", () => loadCodexModels());
-ipcMain.handle("engine:capabilities", () => loadEngineCapabilities());
-ipcMain.handle("skills:list", () => skillsLoader.loadLocalSkills());
-ipcMain.handle("plugins:install", (_event, extensionId) => skillsLoader.installMarketplacePlugin(extensionId));
-ipcMain.handle("skills:read", (_event, skillId) => skillsLoader.readLocalSkill(skillId));
-ipcMain.handle("skills:delete", (_event, skillId) => skillsLoader.deleteLocalSkill(skillId));
-ipcMain.handle("skills:open-directory", (_event, skillId) => skillsLoader.openLocalSkillDirectory(skillId));
-ipcMain.handle("permissions:save", async (_event, settings) => {
+ipcMain.handle(IpcChannel.EngineInstall, () => installEngine());
+ipcMain.handle(IpcChannel.EngineStart, () => startEngine());
+ipcMain.handle(IpcChannel.EngineStop, () => stopEngine());
+ipcMain.handle(IpcChannel.EngineUninstallStandalone, () => uninstallStandaloneEngine());
+ipcMain.handle(IpcChannel.AuthCodexStart, () => startCodexOAuth());
+ipcMain.handle(IpcChannel.AuthCodexCancel, () => cancelCodexOAuth());
+ipcMain.handle(IpcChannel.AuthProviderStart, (_event, provider) => startProviderOAuth(provider));
+ipcMain.handle(IpcChannel.AuthProviderCancel, () => cancelProviderOAuth());
+ipcMain.handle(IpcChannel.ChatSend, (event, payload) => sendChat({ ...payload, webContents: event.sender }));
+ipcMain.handle(IpcChannel.ChatSendStateless, (_event, payload) => sendChatStateless(payload));
+ipcMain.handle(IpcChannel.ChatStop, () => stopChat());
+ipcMain.handle(IpcChannel.ChatAttachmentSave, (_event, payload) => saveChatAttachment(payload));
+ipcMain.handle(IpcChannel.ChatFileFetch, (_event, payload) => safeFetchFileAttachment(payload));
+ipcMain.handle(IpcChannel.CommandsSlash, () => loadHermesSlashCommands());
+ipcMain.handle(IpcChannel.CommandsAgentList, (_event, payload) => loadExternalAgentCommands(payload));
+ipcMain.handle(IpcChannel.CommandsAgentExecute, (_event, payload) => executeExternalAgentCommand(payload));
+ipcMain.handle(IpcChannel.ChatSessionsLoad, () => loadChatSessions());
+ipcMain.handle(IpcChannel.ChatSessionSave, (_event, payload) => saveChatSession(payload));
+ipcMain.handle(IpcChannel.ChatReadStateSave, (_event, payload) => saveChatReadState(payload));
+ipcMain.handle(IpcChannel.ChatSessionCreate, (_event, payload) => newChatSession(payload));
+ipcMain.handle(IpcChannel.ChatSessionRename, (_event, payload) => renameChatSession(payload));
+ipcMain.handle(IpcChannel.ChatTitleGenerate, (_event, payload) => generateSessionTitle(payload));
+ipcMain.handle(IpcChannel.ModelCatalog, () => loadHermesModelCatalog());
+ipcMain.handle(IpcChannel.CodexListModels, () => loadCodexModels());
+ipcMain.handle(IpcChannel.EngineCapabilities, () => loadEngineCapabilities());
+ipcMain.handle(IpcChannel.SkillsList, () => skillsLoader.loadLocalSkills());
+ipcMain.handle(IpcChannel.PluginsInstall, (_event, extensionId) => skillsLoader.installMarketplacePlugin(extensionId));
+ipcMain.handle(IpcChannel.SkillsRead, (_event, skillId) => skillsLoader.readLocalSkill(skillId));
+ipcMain.handle(IpcChannel.SkillsDelete, (_event, skillId) => skillsLoader.deleteLocalSkill(skillId));
+ipcMain.handle(IpcChannel.SkillsOpenDirectory, (_event, skillId) => skillsLoader.openLocalSkillDirectory(skillId));
+ipcMain.handle(IpcChannel.PermissionsSave, async (_event, settings) => {
   settingsStore.writePermissionSettings(settings);
   return getRuntimeStatus();
 });
-ipcMain.handle("effort:save", async (_event, settings) => {
+ipcMain.handle(IpcChannel.EffortSave, async (_event, settings) => {
   settingsStore.writeEffortSettings(settings);
   return getRuntimeStatus();
 });
-ipcMain.handle("model:save", (_event, settings) => {
+ipcMain.handle(IpcChannel.ModelSave, (_event, settings) => {
   const current = modelSettings();
   const nextProvider = String(settings.provider || "").trim();
   const hasApiKey = Object.prototype.hasOwnProperty.call(settings || {}, "apiKey");
@@ -6501,7 +6479,7 @@ ipcMain.handle("model:save", (_event, settings) => {
   return getRuntimeStatus();
 });
 
-ipcMain.handle("appearance:save", (_event, settings) => {
+ipcMain.handle(IpcChannel.AppearanceSave, (_event, settings) => {
   const p = runtimePaths();
   const current = appearanceSettings();
   const theme = String(settings.theme || current.theme || "light").trim();
@@ -6529,7 +6507,7 @@ ipcMain.handle("appearance:save", (_event, settings) => {
   return getRuntimeStatus();
 });
 
-ipcMain.handle("profile:save", (_event, profile) => {
+ipcMain.handle(IpcChannel.ProfileSave, (_event, profile) => {
   const p = runtimePaths();
   const current = { ...settingsStore.defaultUserProfile(), ...readJson(p.userProfile, {}) };
   const next = {
@@ -6682,20 +6660,20 @@ function deleteFellow(input = {}) {
   return getRuntimeStatus();
 }
 
-ipcMain.handle("fellow:details", (_event, key) => getFellowDetails(key));
-ipcMain.handle("fellow:save", (_event, fellow) => saveFellow(fellow));
-ipcMain.handle("fellow:engine-save", (_event, payload) => saveFellowEngineConfig(payload));
-ipcMain.handle("fellow:pin", (_event, payload) => setFellowPinned(payload));
-ipcMain.handle("fellow:delete", (_event, payload) => deleteFellow(payload));
-ipcMain.handle("group:create", (_event, payload) => ensureGroupStore().create(payload));
-ipcMain.handle("group:list", () => ensureGroupStore().list());
-ipcMain.handle("group:get", (_event, id) => ensureGroupStore().get(id));
-ipcMain.handle("group:update", (_event, payload) => ensureGroupStore().updateGroup(payload.id, payload.patch));
-ipcMain.handle("group:delete", (_event, id) => ensureGroupStore().deleteGroup(id));
-ipcMain.handle("group:append-message", (_event, payload) => ensureGroupStore().appendMessage(payload.id, payload.message));
-ipcMain.handle("group:list-messages", (_event, id) => ensureGroupStore().listMessages(id));
-ipcMain.handle("group:save-context-card", (_event, payload) => { ensureGroupStore().saveContextCard(payload.id, payload.card); return true; });
-ipcMain.handle("group:load-prompts", () => {
+ipcMain.handle(IpcChannel.FellowDetails, (_event, key) => getFellowDetails(key));
+ipcMain.handle(IpcChannel.FellowSave, (_event, fellow) => saveFellow(fellow));
+ipcMain.handle(IpcChannel.FellowEngineSave, (_event, payload) => saveFellowEngineConfig(payload));
+ipcMain.handle(IpcChannel.FellowPin, (_event, payload) => setFellowPinned(payload));
+ipcMain.handle(IpcChannel.FellowDelete, (_event, payload) => deleteFellow(payload));
+ipcMain.handle(IpcChannel.GroupCreate, (_event, payload) => ensureGroupStore().create(payload));
+ipcMain.handle(IpcChannel.GroupList, () => ensureGroupStore().list());
+ipcMain.handle(IpcChannel.GroupGet, (_event, id) => ensureGroupStore().get(id));
+ipcMain.handle(IpcChannel.GroupUpdate, (_event, payload) => ensureGroupStore().updateGroup(payload.id, payload.patch));
+ipcMain.handle(IpcChannel.GroupDelete, (_event, id) => ensureGroupStore().deleteGroup(id));
+ipcMain.handle(IpcChannel.GroupAppendMessage, (_event, payload) => ensureGroupStore().appendMessage(payload.id, payload.message));
+ipcMain.handle(IpcChannel.GroupListMessages, (_event, id) => ensureGroupStore().listMessages(id));
+ipcMain.handle(IpcChannel.GroupSaveContextCard, (_event, payload) => { ensureGroupStore().saveContextCard(payload.id, payload.card); return true; });
+ipcMain.handle(IpcChannel.GroupLoadPrompts, () => {
   const dir = path.join(__dirname, "..", "resources", "conductor", "default-prompts");
   return {
     dispatch: fs.readFileSync(path.join(dir, "dispatch.md"), "utf8"),
@@ -6704,11 +6682,11 @@ ipcMain.handle("group:load-prompts", () => {
     relay: fs.readFileSync(path.join(dir, "relay.md"), "utf8"),
   };
 });
-ipcMain.handle("persona:save", (_event, persona) => saveFellow(persona));
-ipcMain.handle("pet:jobs", () => getPetJobs());
-ipcMain.handle("pet:generate", (_event, payload) => startFellowPetGeneration(payload));
-ipcMain.handle("pet:place", (_event, key) => placeFellowPet(key));
-ipcMain.handle("pet:recall", (_event, key) => recallFellowPet(key));
+ipcMain.handle(IpcChannel.PersonaSave, (_event, persona) => saveFellow(persona));
+ipcMain.handle(IpcChannel.PetJobs, () => getPetJobs());
+ipcMain.handle(IpcChannel.PetGenerate, (_event, payload) => startFellowPetGeneration(payload));
+ipcMain.handle(IpcChannel.PetPlace, (_event, key) => placeFellowPet(key));
+ipcMain.handle(IpcChannel.PetRecall, (_event, key) => recallFellowPet(key));
 
 async function callDaemonTasks(pathSegment, opts = {}) {
   const settings = settingsStore.daemonSettings();
@@ -6728,14 +6706,7 @@ async function callDaemonTasks(pathSegment, opts = {}) {
   return response.json();
 }
 
-ipcMain.handle("tasks:list",   async () => (await callDaemonTasks("/api/tasks")).tasks);
-ipcMain.handle("tasks:get",    async (_e, id) => (await callDaemonTasks(`/api/tasks/${id}`)).task);
-ipcMain.handle("tasks:create", async (_e, input) => (await callDaemonTasks("/api/tasks", { method: "POST", body: JSON.stringify(input) })).task);
-ipcMain.handle("tasks:update", async (_e, id, partial) => (await callDaemonTasks(`/api/tasks/${id}`, { method: "PATCH", body: JSON.stringify(partial) })).task);
-ipcMain.handle("tasks:delete", async (_e, id) => callDaemonTasks(`/api/tasks/${id}`, { method: "DELETE" }));
-ipcMain.handle("tasks:pause",  async (_e, id) => (await callDaemonTasks(`/api/tasks/${id}/pause`,  { method: "POST" })).task);
-ipcMain.handle("tasks:resume", async (_e, id) => (await callDaemonTasks(`/api/tasks/${id}/resume`, { method: "POST" })).task);
-ipcMain.handle("tasks:run-now", async (_e, id) => callDaemonTasks(`/api/tasks/${id}/run-now`, { method: "POST" }));
+registerTasksIpc({ ipcMain, callDaemonTasks });
 
 function subscribeDaemonTaskEvents() {
   if (IS_DAEMON_PROCESS) return;
@@ -6780,7 +6751,7 @@ function subscribeDaemonTaskEvents() {
           try {
             const payload = JSON.parse(data || "null");
             for (const w of BrowserWindow.getAllWindows()) {
-              try { w.webContents.send("tasks:event", { type, payload }); } catch { /* window closed */ }
+              try { w.webContents.send(IpcChannel.TasksEvent, { type, payload }); } catch { /* window closed */ }
             }
           } catch { /* ignore parse errors */ }
         }

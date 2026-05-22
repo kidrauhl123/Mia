@@ -7,6 +7,15 @@ const storageKeys = {
   secret: "aimashi.mobile.secret"
 };
 
+const engineContracts = window.aimashiEngineContracts || {};
+const credentialStorageKeys = {
+  token: "aimashi.mobile.sessionToken",
+  secret: "aimashi.mobile.sessionSecret"
+};
+const legacyCredentialKeys = {
+  token: storageKeys.token,
+  secret: storageKeys.secret
+};
 const DEFAULT_AVATAR_VERSION = "white-circle-1";
 const fallbackSlashCommands = [
   { command: "/new", description: "Start a new session (fresh session ID + history)" },
@@ -99,6 +108,73 @@ const state = {
 function setText(el, value) {
   if (el) el.textContent = value;
 }
+
+function readStorageValue(store, key) {
+  try {
+    return store?.getItem(key) || "";
+  } catch {
+    return "";
+  }
+}
+
+function writeStorageValue(store, key, value) {
+  try {
+    if (value) store?.setItem(key, value);
+    else store?.removeItem(key);
+  } catch {
+    // Storage may be unavailable in private browsing or locked-down contexts.
+  }
+}
+
+function removeStorageValue(store, key) {
+  try {
+    store?.removeItem(key);
+  } catch {
+    // Ignore storage cleanup failures; state is still cleared in memory.
+  }
+}
+
+function clearLegacyPersistedCredentials() {
+  for (const key of Object.values(legacyCredentialKeys)) {
+    removeStorageValue(localStorage, key);
+  }
+}
+
+const mobileCredentialStore = {
+  readToken() {
+    const token = readStorageValue(sessionStorage, credentialStorageKeys.token)
+      || readStorageValue(localStorage, legacyCredentialKeys.token);
+    if (token) writeStorageValue(sessionStorage, credentialStorageKeys.token, token);
+    clearLegacyPersistedCredentials();
+    return token;
+  },
+  writeToken(token) {
+    writeStorageValue(sessionStorage, credentialStorageKeys.token, String(token || "").trim());
+    removeStorageValue(sessionStorage, credentialStorageKeys.secret);
+    clearLegacyPersistedCredentials();
+  },
+  clearToken() {
+    removeStorageValue(sessionStorage, credentialStorageKeys.token);
+    clearLegacyPersistedCredentials();
+  },
+  readSecret() {
+    const secret = readStorageValue(sessionStorage, credentialStorageKeys.secret)
+      || readStorageValue(localStorage, legacyCredentialKeys.secret);
+    if (secret) writeStorageValue(sessionStorage, credentialStorageKeys.secret, secret);
+    clearLegacyPersistedCredentials();
+    return secret;
+  },
+  writeSecret(secret) {
+    writeStorageValue(sessionStorage, credentialStorageKeys.secret, String(secret || "").trim());
+    removeStorageValue(sessionStorage, credentialStorageKeys.token);
+    clearLegacyPersistedCredentials();
+  },
+  clear() {
+    removeStorageValue(sessionStorage, credentialStorageKeys.token);
+    removeStorageValue(sessionStorage, credentialStorageKeys.secret);
+    clearLegacyPersistedCredentials();
+  }
+};
 
 function randomId() {
   if (crypto?.randomUUID) return crypto.randomUUID();
@@ -452,8 +528,8 @@ function readPairingFromHash() {
     state.relayUrl = query.get("relay") || defaultRelayUrl();
     localStorage.setItem(storageKeys.mode, "relay");
     localStorage.setItem(storageKeys.deviceId, state.deviceId);
-    localStorage.setItem(storageKeys.secret, state.secret);
     localStorage.setItem(storageKeys.relayUrl, state.relayUrl);
+    mobileCredentialStore.writeSecret(state.secret);
     history.replaceState(null, document.title, `${location.pathname}${query.toString() ? `?${query.toString()}` : ""}`);
     return;
   }
@@ -463,8 +539,8 @@ function readPairingFromHash() {
   state.token = token;
   state.baseUrl = location.origin;
   localStorage.setItem(storageKeys.mode, "direct");
-  localStorage.setItem(storageKeys.token, token);
   localStorage.setItem(storageKeys.baseUrl, state.baseUrl);
+  mobileCredentialStore.writeToken(token);
   history.replaceState(null, document.title, `${location.pathname}${location.search}`);
 }
 
@@ -475,9 +551,9 @@ function loadStoredPairing() {
     state.mode = "relay";
     state.relayUrl = localStorage.getItem(storageKeys.relayUrl) || defaultRelayUrl();
     state.deviceId = localStorage.getItem(storageKeys.deviceId) || "";
-    state.secret = localStorage.getItem(storageKeys.secret) || "";
+    state.secret = state.secret || mobileCredentialStore.readSecret();
   }
-  state.token = state.token || localStorage.getItem(storageKeys.token) || "";
+  state.token = state.token || mobileCredentialStore.readToken();
   state.baseUrl = normalizeBaseUrl(localStorage.getItem(storageKeys.baseUrl) || location.origin);
 }
 
@@ -487,7 +563,7 @@ function savePairing(baseUrl, token) {
   state.token = String(token || "").trim();
   localStorage.setItem(storageKeys.mode, "direct");
   localStorage.setItem(storageKeys.baseUrl, state.baseUrl);
-  localStorage.setItem(storageKeys.token, state.token);
+  mobileCredentialStore.writeToken(state.token);
 }
 
 function apiUrl(path) {
@@ -747,7 +823,7 @@ async function loadData() {
   } catch (error) {
     if (state.mode === "direct" && error.status === 401) {
       state.token = "";
-      localStorage.removeItem(storageKeys.token);
+      mobileCredentialStore.clearToken();
       setText(els.setupError, "配对已失效，请从桌面端重新复制链接。");
       renderSetup();
       return;
@@ -877,6 +953,9 @@ function connectedModelEntries() {
 }
 
 function activeAgentEngine(fellow = activeFellow()) {
+  if (engineContracts.normalizeAgentEngine) {
+    return engineContracts.normalizeAgentEngine(fellow?.agentEngine || fellow?.agent_engine);
+  }
   const engine = String(fellow?.agentEngine || fellow?.agent_engine || "hermes").trim().toLowerCase();
   if (engine === "claude" || engine === "claude-code") return "claude-code";
   if (engine === "codex" || engine === "openai-codex") return "codex";
@@ -888,12 +967,16 @@ function engineConfigForFellow(fellow = activeFellow()) {
 }
 
 function engineLabel(engine = activeAgentEngine()) {
+  if (engineContracts.engineLabel) return engineContracts.engineLabel(engine);
   if (engine === "claude-code") return "Claude Code";
   if (engine === "codex") return "Codex";
   return "Hermes";
 }
 
 function externalModelEntries(engine) {
+  if (engineContracts.externalModelEntries) {
+    return engineContracts.externalModelEntries(engine, { codexModels: state.codexModels });
+  }
   if (engine === "claude-code") {
     return [
       { id: "default", provider: "claude-code", model: "", label: "Claude Code 默认" },
@@ -927,6 +1010,12 @@ const EFFORT_LABELS = { none: "None", minimal: "Minimal", low: "Low", medium: "M
 const APPROVAL_LABELS = { ask: "Ask", yolo: "YOLO", deny: "Deny", manual: "Ask", smart: "Smart", off: "YOLO" };
 
 function effortOptions(engine) {
+  if (engineContracts.effortOptions) {
+    return engineContracts.effortOptions(engine, {
+      effortLevels: state.engineCapabilities.effortLevels,
+      effortLabels: EFFORT_LABELS
+    });
+  }
   if (engine === "claude-code") {
     return ["low", "medium", "high", "xhigh", "max"].map((value) => ({ value, label: EFFORT_LABELS[value] }));
   }
@@ -940,6 +1029,9 @@ function effortOptions(engine) {
 }
 
 function permissionOptions(engine) {
+  if (engineContracts.externalPermissionOptions && engineContracts.isExternalEngine?.(engine)) {
+    return engineContracts.externalPermissionOptions(engine);
+  }
   if (engine === "claude-code") {
     return [
       { value: "default", label: "Ask Permissions" },
@@ -2109,11 +2201,10 @@ els.saveSettings.addEventListener("click", async () => {
 
 els.clearPairing.addEventListener("click", () => {
   localStorage.removeItem(storageKeys.baseUrl);
-  localStorage.removeItem(storageKeys.token);
   localStorage.removeItem(storageKeys.mode);
   localStorage.removeItem(storageKeys.relayUrl);
   localStorage.removeItem(storageKeys.deviceId);
-  localStorage.removeItem(storageKeys.secret);
+  mobileCredentialStore.clear();
   state.relaySocket?.close?.();
   state.mode = "direct";
   state.token = "";

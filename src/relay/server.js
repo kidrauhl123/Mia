@@ -11,6 +11,7 @@ const HOST = process.env.AIMASHI_RELAY_HOST || "0.0.0.0";
 const ROOT = path.join(__dirname, "..");
 const MOBILE_ROOT = path.join(ROOT, "mobile");
 const ASSET_ROOT = path.join(ROOT, "renderer", "assets");
+const SHARED_ROOT = path.join(ROOT, "shared");
 
 const devices = new Map();
 const clients = new Map();
@@ -115,6 +116,10 @@ function handleHttp(req, res) {
       "Cache-Control": "no-cache"
     });
     res.end(body);
+    return;
+  }
+  if (url.pathname === "/shared/engine-contracts.js") {
+    serveFile(res, path.join(SHARED_ROOT, "engine-contracts.js"), true);
     return;
   }
   if (url.pathname.startsWith("/mobile/")) {

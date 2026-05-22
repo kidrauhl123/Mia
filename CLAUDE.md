@@ -26,6 +26,25 @@
 - 动 Python 侧之前先读 `scripts/build-hermes-runtime.sh`:包含 strip + ad-hoc 重签名(macOS arm64 不重签会让 dlopen 在严格签名场景下挂掉)、stdlib 裁剪、缓存命中策略。
 - 合并或拉完代码记得 `npm run dist:mac`(或对应平台脚本)重建,否则你跑的还是旧二进制。
 
+## 运行 / 验证 / 故障边界
+
+常用入口按目标选，不要盲目跑最重命令：
+
+- **快速测试**：`npm test`
+- **项目自检**：`npm run check`
+- **桌面端开发**：`npm start` / `npm run open`
+- **Web 端本地预览**：`npm run web`
+- **Cloud / relay 调试**：优先看 `package.json` 里的 `cloud:*`、`bridge`、`relay` 脚本，按当前链路只启动必要服务。
+- **Hermes runtime**：改 `vendor/hermes-runtime`、`scripts/build-hermes-runtime.sh` 或 Python 打包逻辑后跑对应 `npm run hermes:runtime:*`；发布/打包前跑 `npm run dist:mac`。
+
+遇到这些情况先停下来确认，不要用重试或"顺手修"掩盖问题：
+
+- Electron app 正在运行导致打包、覆盖、签名、删除失败：先让用户关闭正在运行的 app / 相关进程。
+- 端口被 `web` / `cloud` / `bridge` / `relay` 占用：先确认是不是已有 aimashi 服务，不要直接 kill 不明进程。
+- Hermes 行为和源码不一致：先确认运行的是不是旧的打包 runtime；必要时重建 `vendor/hermes-runtime/<target>/` 或重新打包。
+- macOS arm64 出现 Python 扩展 `dlopen`、签名、quarantine 类问题：先读 `scripts/build-hermes-runtime.sh`，不要绕开 strip / ad-hoc codesign 流程。
+- 测试或脚本需要用户数据目录时，必须使用临时目录或显式测试 fixture；不要让自动化测试写真实 `~/Library/Application Support/Aimashi`。
+
 ## 代码组织
 
 **核心原则：新功能 = 新文件 / 新目录，不要往已有大文件继续堆。**
@@ -70,6 +89,37 @@ src/
 3. 我对相邻代码的"顺手改"，能不能不做、或者拆成独立 commit？
 
 任一答不上：停下来问用户。
+
+## 工程约束
+
+### 进程边界 / IPC
+
+aimashi 是 Electron app，主进程、渲染进程、preload、cloud / relay / mobile 子系统的边界要清楚：
+
+- renderer 不直接使用 Node / Electron 能力；需要系统能力时走 preload 暴露的窄接口。
+- main 不写 DOM 逻辑；窗口、文件、进程、runtime、IPC 编排留在 main 或 `src/main/<feature>/`。
+- 跨进程通信必须走明确 IPC channel；新增 channel 要集中登记或收敛到所属 feature 的常量文件，不要在调用点散落裸字符串。
+- 同一个聊天 / 任务 / agent runtime 的主状态只能有一个 canonical owner。Web、mobile、desktop 可以是壳或辅助视图，不要各自重写一套会话状态机。
+
+### 常量 / 状态 / schema
+
+- 多处比较或 switch 的字符串必须集中为模块级常量：engine id、session status、permission kind、task status、IPC channel、cloud event type 等都算。
+- 测试也要引用同一份常量，避免"实现改了、测试还在复制旧字符串"。
+- 持久化数据要向后兼容：SQLite 表、cloud state、本地会话、任务、Hermes runtime cache、用户配置都不能随意改字段语义。
+- 新字段要有默认值；重命名 / 删除 / 结构调整必须有迁移策略，并能重复运行而不破坏已有数据。
+- secret 只进系统钥匙串、用户私有配置或 `.env` 类机制；非 secret 的开关、路径、阈值不要藏在环境变量里当长期配置。
+
+### 日志
+
+- 日志要能服务诊断，不要制造噪音。轮询、heartbeat、streaming token 这类高频路径不要打 info 级日志。
+- 日志消息用英文自然句，带稳定模块 tag，例如 `[HermesRuntime] started runtime process`。
+- `warn` 用于可恢复异常和降级；`error` 用于需要调查的失败，并把 caught error object 作为最后一个参数传入。
+- 不写纯变量 dump、函数入口日志、每 tick 日志；需要调试细节时用 `debug` 或临时 instrumentation，结束后清理。
+
+### 扩展方式
+
+- 新 engine / channel / skill / runtime 能力优先走 adapter / registry / plugin 形状；缺 hook 就扩 hook，不要把某个 provider 或平台特例硬塞进核心大文件。
+- UI 尺寸、颜色、spacing 优先落在 CSS / design token / class，不要在 JS 里散落 magic number。
 
 ## 参考项目
 
