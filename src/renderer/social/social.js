@@ -844,6 +844,38 @@
     if (!roomId) return;
     moduleState.unreadByRoom.delete(roomId);
   }
+
+  // Cloud rooms don't have a server-side pin field yet (no PATCH /api/rooms).
+  // Track pinned state locally so the unified sidebar menu can offer the
+  // same 置顶/取消置顶 toggle for cloud DM + cloud group as for fellow + local
+  // group. Persisted to localStorage so the pin survives reload but not
+  // cross-device — full sync is a follow-up that needs the backend.
+  const PINNED_ROOMS_KEY = "aimashi.social.pinnedRooms.v1";
+  function _loadPinnedRooms() {
+    try {
+      const raw = localStorage.getItem(PINNED_ROOMS_KEY);
+      if (!raw) return new Set();
+      const arr = JSON.parse(raw);
+      return new Set(Array.isArray(arr) ? arr : []);
+    } catch { return new Set(); }
+  }
+  function _savePinnedRooms() {
+    try {
+      localStorage.setItem(PINNED_ROOMS_KEY, JSON.stringify(Array.from(moduleState.pinnedRooms || [])));
+    } catch { /* localStorage may be disabled — silent */ }
+  }
+  function isRoomPinned(roomId) {
+    if (!roomId) return false;
+    if (!moduleState.pinnedRooms) moduleState.pinnedRooms = _loadPinnedRooms();
+    return moduleState.pinnedRooms.has(roomId);
+  }
+  function setRoomPinned(roomId, pinned) {
+    if (!roomId) return;
+    if (!moduleState.pinnedRooms) moduleState.pinnedRooms = _loadPinnedRooms();
+    if (pinned) moduleState.pinnedRooms.add(roomId);
+    else moduleState.pinnedRooms.delete(roomId);
+    _savePinnedRooms();
+  }
   function getUnreadForRoom(roomId) {
     return unreadShared().computeUnreadForConversation({ id: roomId }, moduleState.unreadByRoom);
   }
@@ -883,6 +915,8 @@
     getActiveRoomId,
     setActiveRoomId,
     markRoomRead,
+    isRoomPinned,
+    setRoomPinned,
     getUnreadForRoom,
     getTotalRoomUnread,
     getRoomMembers,

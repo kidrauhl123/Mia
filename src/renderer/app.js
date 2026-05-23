@@ -518,7 +518,16 @@ function conversationCardSpecFromRow(row, personas) {
         showNarrowContent();
         render();
       },
-      onContextMenu: (x, y) => window.aimashiFellowManager.openFellowContextMenu(persona.key, x, y)
+      onContextMenu: (x, y) => window.aimashiConversationContextMenu.openPrivateConversationMenu(
+        { id: persona.key, name: persona.name, pinned: Boolean(persona.pinned), unread },
+        {
+          togglePinned: () => setFellowPinned(persona.key, !persona.pinned),
+          rename: () => openEditFellowDialog(persona.key),
+          markRead: () => { window.aimashiSessionReadState.markPersonaRead(persona.key); render(); },
+          remove: persona.key === "aimashi" ? null : () => deleteFellow(persona.key)
+        },
+        x, y
+      )
     };
   }
 
@@ -528,15 +537,17 @@ function conversationCardSpecFromRow(row, personas) {
     const other = room.otherUser || {};
     const name = other.username || other.account || "好友";
     const activeRoomId = social?.getActiveRoomId?.();
+    const dmPinned = Boolean(social?.isRoomPinned?.(room.id));
+    const dmUnread = social?.getUnreadForRoom?.(room.id) || 0;
     return {
       kind: "private",
       active: room.id === activeRoomId,
-      pinned: false,
+      pinned: dmPinned,
       name,
       typeLabel: "私聊",
       preview: room.lastMessagePreview || "暂无对话",
       time: formatConversationTime(row.updatedAt),
-      unread: social?.getUnreadForRoom?.(room.id) || 0,
+      unread: dmUnread,
       avatar: {
         image: other.avatarImage,
         crop: other.avatarCrop,
@@ -550,7 +561,15 @@ function conversationCardSpecFromRow(row, personas) {
         showNarrowContent();
         render();
       },
-      onContextMenu: (x, y) => openRoomContextMenu(room, ConversationKind.CloudDM, x, y)
+      onContextMenu: (x, y) => window.aimashiConversationContextMenu.openPrivateConversationMenu(
+        { id: room.id, name, pinned: dmPinned, unread: dmUnread },
+        {
+          togglePinned: () => { social.setRoomPinned(room.id, !dmPinned); render(); },
+          markRead: () => { social.markRoomRead(room.id); render(); },
+          notSupported: { rename: "云端房间重命名暂不支持", remove: "云端房间删除暂不支持" }
+        },
+        x, y
+      )
     };
   }
 
@@ -565,15 +584,18 @@ function conversationCardSpecFromRow(row, personas) {
       if (tile) tiles.push(tile);
     }
     const memberCount = memberRecords.length || room.memberCount || 0;
+    const cgPinned = Boolean(social?.isRoomPinned?.(room.id));
+    const cgUnread = social?.getUnreadForRoom?.(room.id) || 0;
+    const cgName = room.name || "群聊";
     return {
       kind: "group",
       active: room.id === activeRoomId,
-      pinned: false,
-      name: room.name || "群聊",
+      pinned: cgPinned,
+      name: cgName,
       typeLabel: memberCount ? `群聊 · ${memberCount}人` : "群聊",
       preview: room.lastMessagePreview || "暂无消息",
       time: formatConversationTime(row.updatedAt),
-      unread: social?.getUnreadForRoom?.(room.id) || 0,
+      unread: cgUnread,
       members: tiles,
       onClick: () => {
         state.activeKey = "";
@@ -583,7 +605,27 @@ function conversationCardSpecFromRow(row, personas) {
         showNarrowContent();
         render();
       },
-      onContextMenu: (x, y) => openRoomContextMenu(room, ConversationKind.CloudGroup, x, y)
+      onContextMenu: (x, y) => window.aimashiConversationContextMenu.openGroupConversationMenu(
+        { id: room.id, name: cgName, pinned: cgPinned, unread: cgUnread },
+        {
+          togglePinned: () => { social.setRoomPinned(room.id, !cgPinned); render(); },
+          markRead: () => { social.markRoomRead(room.id); render(); },
+          openInfo: () => {
+            const members = social.getRoomMembers?.(room.id) || [];
+            const lines = members.map((m) => {
+              if (m.member_kind === MemberKind.Fellow) return `· fellow ${m.member_ref}`;
+              if (m.member_kind === MemberKind.User) {
+                const friend = social.friendById?.(m.member_ref);
+                return `· ${friend?.username || friend?.account || m.member_ref}`;
+              }
+              return `· ${m.member_ref}`;
+            });
+            alert(`${cgName}\n\n${lines.join("\n") || "（无成员信息）"}`);
+          },
+          notSupported: { remove: "云端群删除暂不支持" }
+        },
+        x, y
+      )
     };
   }
 
@@ -620,7 +662,15 @@ function conversationCardSpecFromRow(row, personas) {
         showNarrowContent();
         render();
       },
-      onContextMenu: (x, y) => openGroupContextMenu(group.id, x, y)
+      onContextMenu: (x, y) => window.aimashiConversationContextMenu.openGroupConversationMenu(
+        { id: group.id, name: group.name || "未命名群聊", pinned: Boolean(group.pinned), unread: 0 },
+        {
+          togglePinned: () => setGroupPinned(group.id, !group.pinned),
+          openInfo: () => window.aimashiGroup?.openInfoDialog?.(group),
+          remove: () => deleteGroup(group.id)
+        },
+        x, y
+      )
     };
   }
   return null;
@@ -634,64 +684,10 @@ function bossAvatarTile(userProfile = state.runtime?.user || {}) {
   };
 }
 
-// Context menu for cloud DM / group rooms. Backend doesn't have rename /
-// pin / delete-room endpoints yet, so this menu offers actions that work
-// purely client-side: copy name, mark read, show member info.
-function openRoomContextMenu(room, kind, x, y) {
-  if (!room || !window.aimashiSocial) return;
-  const social = window.aimashiSocial;
-  const isGroup = kind === ConversationKind.CloudGroup;
-  const displayName = isGroup
-    ? (room.name || "群聊")
-    : (room.ui?.title || room.otherUser?.username || room.otherUser?.account || "好友");
-
-  const menu = document.createElement("div");
-  menu.className = "context-menu";
-  menu.style.cssText = `position:fixed; top:${y}px; left:${x}px; z-index:1000; min-width:160px; padding:6px; background:var(--surface, #fff); border:1px solid var(--line, rgba(0,0,0,0.12)); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.18);`;
-  function close() {
-    menu.remove();
-    document.removeEventListener("click", outside, true);
-    document.removeEventListener("keydown", onKey);
-  }
-  function outside(e) { if (!menu.contains(e.target)) close(); }
-  function onKey(e) { if (e.key === "Escape") close(); }
-
-  const unread = social.getUnreadForRoom?.(room.id) || 0;
-  const items = [
-    { label: `复制${isGroup ? "群名" : "名称"}`, onClick: () => navigator.clipboard?.writeText(displayName).catch(() => {}) },
-    { label: "标记已读", onClick: () => { social.markRoomRead?.(room.id); render(); }, disabled: unread <= 0 },
-    isGroup ? { label: `群信息 · ${(social.getRoomMembers?.(room.id) || []).length}人`, onClick: () => {
-        const members = social.getRoomMembers?.(room.id) || [];
-        const lines = members.map((m) => {
-          if (m.member_kind === MemberKind.Fellow) return `· fellow ${m.member_ref}`;
-          if (m.member_kind === MemberKind.User) {
-            const friend = social.friendById?.(m.member_ref);
-            return `· ${friend?.username || friend?.account || m.member_ref}`;
-          }
-          return `· ${m.member_ref}`;
-        });
-        alert(`${displayName}\n\n${lines.join("\n") || "（无成员信息）"}`);
-      } } : null
-  ].filter(Boolean);
-
-  for (const it of items) {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.style.cssText = "display:block; width:100%; padding:6px 10px; text-align:left; background:transparent; color:var(--text); font-size:13px; border-radius:6px; cursor:pointer;";
-    if (it.disabled) { btn.style.opacity = "0.4"; btn.style.cursor = "default"; }
-    btn.textContent = it.label;
-    btn.addEventListener("click", () => { if (!it.disabled) { it.onClick(); } close(); });
-    if (!it.disabled) btn.addEventListener("mouseenter", () => { btn.style.background = "var(--surface-hover, rgba(0,0,0,0.04))"; });
-    btn.addEventListener("mouseleave", () => { btn.style.background = "transparent"; });
-    menu.appendChild(btn);
-  }
-
-  document.body.appendChild(menu);
-  setTimeout(() => {
-    document.addEventListener("click", outside, true);
-    document.addEventListener("keydown", onKey);
-  }, 0);
-}
+// (openRoomContextMenu removed — sidebar now uses the unified
+// openPrivateConversationMenu / openGroupConversationMenu from
+// src/renderer/conversation-context-menu.js so cloud and local
+// conversations share one menu shape.)
 
 const { formatConversationTime, formatMessageTime } = (typeof window !== "undefined" && window.aimashiTimeFormat) || require("../shared/time-format");
 
