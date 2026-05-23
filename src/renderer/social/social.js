@@ -884,6 +884,19 @@
   function markRoomRead(roomId) {
     if (!roomId) return;
     moduleState.unreadByRoom.delete(roomId);
+    // Phase 3: stamp a read mark on cloud user_settings so other devices
+    // also clear the unread badge. The mark stores the last room.maxSeq
+    // we've read (used for incremental unread reconstruction when a
+    // device reconnects).
+    const cache = moduleState.messageCache.get(roomId);
+    const lastSeq = cache && Number.isFinite(Number(cache.maxSeq)) ? Number(cache.maxSeq) : 0;
+    const s = _ensureCloudSettings();
+    const nextReadMarks = { ...(s.readMarks || {}), [roomId]: lastSeq };
+    moduleState.cloudSettings = { ...s, readMarks: nextReadMarks };
+    // Fire-and-forget — failure is non-blocking; reconnect replay will
+    // bring the latest state.
+    window.aimashi?.social?.settingsPut?.({ pins: s.pins, readMarks: nextReadMarks, appearance: s.appearance })
+      .catch((err) => console.warn("[social] mark-read settingsPut failed:", err?.message || err));
   }
 
   // Phase 3: pin state lives in cloud user_settings (server-canonical).

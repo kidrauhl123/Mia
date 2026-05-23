@@ -1121,6 +1121,16 @@ function renderActiveChat() {
 async function setActiveConversation(id) {
   state.activeConversationId = id;
   state.unread.delete(id);
+  // Phase 3: persist the read mark to cloud so other devices clear
+  // their badge for this conversation. Best-effort — failure doesn't
+  // block opening the conversation.
+  if (id) {
+    const base = state.settings || { pins: [], readMarks: {}, appearance: {} };
+    const nextReadMarks = { ...(base.readMarks || {}), [id]: Date.now() };
+    state.settings = { ...base, readMarks: nextReadMarks };
+    api("/api/me/settings", { method: "PUT", body: state.settings })
+      .catch((err) => console.warn("[web] mark-read PUT failed:", err));
+  }
   if (isRoomId(id)) {
     await ensureRoomMessages(id);
     await ensureRoomMembers(id);
