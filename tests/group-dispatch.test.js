@@ -5,10 +5,12 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 function load() {
+  const sharedContact = fs.readFileSync(path.join(__dirname, "..", "src", "shared", "contact.js"), "utf8");
   const responseModeSrc = fs.readFileSync(path.join(__dirname, "..", "src", "renderer", "group", "response-mode.js"), "utf8");
   const src = fs.readFileSync(path.join(__dirname, "..", "src", "renderer", "group-dispatch.js"), "utf8");
   const window = {};
   const ctx = vm.createContext({ window, globalThis: window, module: { exports: {} }, console });
+  vm.runInContext("globalThis.aimashiContact = (function(){ const module = { exports: {} }; " + sharedContact + "; return module.exports; })();", ctx);
   vm.runInContext(responseModeSrc, ctx);
   vm.runInContext(src, ctx);
   return window.aimashiGroupDispatch;
