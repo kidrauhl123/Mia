@@ -105,6 +105,9 @@ contextBridge.exposeInMainWorld("aimashi", {
       return () => ipcRenderer.removeListener(IpcChannel.TasksEvent, wrapped);
     }
   },
+  conductor: {
+    loadPrompts: () => ipcRenderer.invoke(IpcChannel.ConductorLoadPrompts),
+  },
   social: {
     sendFriendRequest: (toUsername) => ipcRenderer.invoke(IpcChannel.SocialSendFriendRequest, toUsername),
     respondFriendRequest: (requestId, action) => ipcRenderer.invoke(IpcChannel.SocialRespondFriendRequest, requestId, action),

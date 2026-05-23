@@ -307,6 +307,16 @@
         _appendMessageToActiveChat(message);
       }
       if (deps && typeof deps.render === "function") deps.render();
+
+      // Conductor: non-@ user messages in a conductor-mode group route
+      // through dispatch.md to pick a fellow that should reply. The
+      // handler self-gates on (group room, conductor mode, host fellow
+      // owned by us), so it's safe to call for every appended message.
+      if (window.aimashiGroupConductor) {
+        window.aimashiGroupConductor.handleRoomMessageAppended(payload).catch?.((err) => {
+          console.warn("[social] conductor handler failed:", err?.message || err);
+        });
+      }
       return;
     }
 

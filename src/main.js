@@ -4864,8 +4864,14 @@ function handleCloudEventsMessage(raw) {
     broadcastRendererEvent(IpcChannel.CloudEvent, { type: message.type, payload: message });
     return;
   }
-  if (message.type === CloudEvent.RoomMessageAppended) {
-    broadcastRendererEvent(IpcChannel.CloudEvent, { type: CloudEvent.RoomMessageAppended, payload: message });
+  // Forward every persisted room event to the renderer — message_appended
+  // drives the chat bubble append, fellow_invocation_requested drives the
+  // conductor (handleFellowInvocation in social-groups.js), room.deleted /
+  // room.member.* etc keep the sidebar in sync. Earlier only
+  // RoomMessageAppended was forwarded; that silently dropped fellow
+  // invocations and left non-mention groups completely mute.
+  if (message.type && message.type.startsWith("room.")) {
+    broadcastRendererEvent(IpcChannel.CloudEvent, { type: message.type, payload: message });
     return;
   }
   // (workspace_updated / message_created handler removed in Phase 4
@@ -6822,6 +6828,15 @@ ipcMain.handle(IpcChannel.FellowSave, (_event, fellow) => saveFellow(fellow));
 ipcMain.handle(IpcChannel.FellowEngineSave, (_event, payload) => saveFellowEngineConfig(payload));
 ipcMain.handle(IpcChannel.FellowPin, (_event, payload) => setFellowPinned(payload));
 ipcMain.handle(IpcChannel.FellowDelete, (_event, payload) => deleteFellow(payload));
+ipcMain.handle(IpcChannel.ConductorLoadPrompts, () => {
+  const dir = path.join(__dirname, "..", "resources", "conductor", "default-prompts");
+  return {
+    dispatch: fs.readFileSync(path.join(dir, "dispatch.md"), "utf8"),
+    summarize: fs.readFileSync(path.join(dir, "summarize.md"), "utf8"),
+    nudge: fs.readFileSync(path.join(dir, "nudge.md"), "utf8"),
+    relay: fs.readFileSync(path.join(dir, "relay.md"), "utf8"),
+  };
+});
 ipcMain.handle(IpcChannel.PersonaSave, (_event, persona) => saveFellow(persona));
 ipcMain.handle(IpcChannel.PetJobs, () => getPetJobs());
 ipcMain.handle(IpcChannel.PetGenerate, (_event, payload) => startFellowPetGeneration(payload));

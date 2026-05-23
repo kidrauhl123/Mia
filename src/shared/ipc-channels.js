@@ -86,6 +86,7 @@
     TasksResume: "tasks:resume",
     TasksRunNow: "tasks:run-now",
     TasksEvent: "tasks:event",
+    ConductorLoadPrompts: "conductor:load-prompts",
     SocialSendFriendRequest: "social:send-friend-request",
     SocialRespondFriendRequest: "social:respond-friend-request",
     SocialCancelFriendRequest: "social:cancel-friend-request",
