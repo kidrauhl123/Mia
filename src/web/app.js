@@ -453,6 +453,24 @@ function handleCloudEvent(envelope) {
       state.roomMembersCache.delete(envelope.room.id);
     }
     renderConversationList();
+  } else if (type === "room.updated") {
+    // PATCH /api/rooms/:id from any device — merge the patched room.
+    if (envelope.room) {
+      state.rooms = state.rooms.map((r) => (r.id === envelope.room.id ? { ...r, ...envelope.room } : r));
+      renderConversationList();
+      if (state.activeConversationId === envelope.room.id) renderActiveChat();
+    }
+  } else if (type === "room.deleted") {
+    // DELETE /api/rooms/:id from any device — purge local state.
+    const roomId = envelope.roomId;
+    if (roomId) {
+      state.rooms = state.rooms.filter((r) => r.id !== roomId);
+      state.unread.delete(roomId);
+      state.roomMembersCache.delete(roomId);
+      if (state.activeConversationId === roomId) state.activeConversationId = "";
+      renderConversationList();
+      renderActiveChat();
+    }
   }
 }
 
@@ -529,7 +547,7 @@ function combinedConversationItems() {
       avatar,
       avatarCrop,
       color,
-      pinned: false
+      pinned: isRoomPinned(r.id)
     };
   });
   const desktop = state.workspace.conversations.map((c) => ({
@@ -575,9 +593,10 @@ function renderConversationList() {
       ? avatarBackgroundStyle(it.avatar, it.avatarCrop, color)
       : `background-color:${color}; color:#fff; display:inline-flex; align-items:center; justify-content:center;`;
     const avatarText = useAvatar ? "" : escapeHtml(avatarLabel);
-    // ⋯ menu is only meaningful for workspace conversations right now
-    // (cloud rooms don't have a delete/rename endpoint yet).
-    const hasMenu = it.kind === "desktop";
+    // ⋯ menu: workspace conversations + cloud rooms (PATCH/DELETE /api/rooms
+    // shipped — see commit 90671e4). Pin uses local storage; rename + delete
+    // hit the cloud.
+    const hasMenu = it.kind === "desktop" || it.kind === "room";
     const unread = computeUnreadForConversation({ id: it.id }, state.unread);
     // Shared module owns the truncation policy (e.g. "99+"). Web uses its own
     // .persona-unread class for the list row, so re-extract the truncated
@@ -649,15 +668,45 @@ function ensureConvMenuEl() {
   return _convMenuEl;
 }
 
+// Local-only pinning for cloud rooms (mirrors desktop's social.isRoomPinned).
+// Server has no decorations.pinned wiring yet, so pin survives reload via
+// localStorage but doesn't sync across devices. Full sync is a follow-up.
+const ROOM_PINNED_KEY = "aimashi.web.pinnedRooms.v1";
+function _loadPinnedRooms() {
+  try {
+    const raw = localStorage.getItem(ROOM_PINNED_KEY);
+    return new Set(raw ? JSON.parse(raw) : []);
+  } catch { return new Set(); }
+}
+let _pinnedRooms = null;
+function isRoomPinned(roomId) {
+  if (!_pinnedRooms) _pinnedRooms = _loadPinnedRooms();
+  return _pinnedRooms.has(roomId);
+}
+function setRoomPinned(roomId, pinned) {
+  if (!_pinnedRooms) _pinnedRooms = _loadPinnedRooms();
+  if (pinned) _pinnedRooms.add(roomId); else _pinnedRooms.delete(roomId);
+  try { localStorage.setItem(ROOM_PINNED_KEY, JSON.stringify(Array.from(_pinnedRooms))); } catch { /* silent */ }
+}
+
 function openConvMenu(convId, anchorButton) {
   const el = ensureConvMenuEl();
   _convMenuTargetId = convId;
-  const conv = state.workspace.conversations.find((c) => c.id === convId);
-  if (!conv) return;
-  const pinned = Boolean(conv.pinned);
+  // Resolve across both sources so the menu shape is identical regardless of
+  // whether the entry is a workspace conversation (desktop session) or a
+  // cloud room (DM / group). Kind-dispatch happens in handleConvAction.
+  const wsConv = state.workspace.conversations.find((c) => c.id === convId);
+  const room = state.rooms.find((r) => r.id === convId);
+  if (!wsConv && !room) return;
+  const isRoom = Boolean(room);
+  const isDM = isRoom && convId.startsWith("dm:");
+  const pinned = isRoom ? isRoomPinned(convId) : Boolean(wsConv.pinned);
+  // Cloud DM rename is hidden — display name comes from the peer's profile,
+  // not the room record. Server rejects it.
+  const showRename = !isDM;
   el.innerHTML = `
     <button type="button" data-conv-action="pin">${pinned ? "取消置顶" : "置顶"}</button>
-    <button type="button" data-conv-action="rename">编辑</button>
+    ${showRename ? `<button type="button" data-conv-action="rename">编辑</button>` : ""}
     <button type="button" data-conv-action="delete" class="conv-menu-danger">删除</button>
   `;
   el.classList.remove("hidden");
@@ -710,6 +759,9 @@ async function syncWorkspaceChange({ upsert = [], remove = [] }) {
 }
 
 async function handleConvAction(action, convId) {
+  // Dispatch by storage backend: workspace conversation vs cloud room.
+  const room = state.rooms.find((r) => r.id === convId);
+  if (room) return handleRoomAction(action, room);
   const conv = state.workspace.conversations.find((c) => c.id === convId);
   if (!conv) return;
   // Metadata-only patches: send just the fields that change + id. Stripping
@@ -730,6 +782,48 @@ async function handleConvAction(action, convId) {
   if (action === "delete") {
     if (!window.confirm(`确认删除"${conv.title || "本地对话"}"？此操作会从云端永久移除该会话历史。`)) return;
     await syncWorkspaceChange({ remove: [convId] });
+    return;
+  }
+}
+
+// Cloud rooms (DM + group). Hits PATCH/DELETE /api/rooms (commit 90671e4).
+async function handleRoomAction(action, room) {
+  const title = roomDisplayTitle(room);
+  if (action === "pin") {
+    setRoomPinned(room.id, !isRoomPinned(room.id));
+    renderConversationList();
+    return;
+  }
+  if (action === "rename") {
+    if (room.id.startsWith("dm:")) return; // Hidden in menu; defensive.
+    const next = window.prompt("编辑群组名称：", room.name || "");
+    if (next === null) return;
+    const trimmed = String(next).trim();
+    if (!trimmed) return;
+    try {
+      const res = await api(`/api/rooms/${room.id}`, { method: "PATCH", body: { name: trimmed } });
+      if (res?.room) {
+        state.rooms = state.rooms.map((r) => (r.id === room.id ? { ...r, ...res.room } : r));
+        renderConversationList();
+      }
+    } catch (err) {
+      showToast(err.message || "重命名失败");
+    }
+    return;
+  }
+  if (action === "delete") {
+    if (!window.confirm(`确认删除"${title}"？此操作不可撤销，所有成员都将无法访问。`)) return;
+    try {
+      await api(`/api/rooms/${room.id}`, { method: "DELETE" });
+      state.rooms = state.rooms.filter((r) => r.id !== room.id);
+      state.unread.delete(room.id);
+      state.roomMembersCache.delete(room.id);
+      if (state.activeConversationId === room.id) state.activeConversationId = "";
+      renderConversationList();
+      renderActiveChat();
+    } catch (err) {
+      showToast(err.message || "删除失败");
+    }
     return;
   }
 }
@@ -773,6 +867,26 @@ function buildRoomMessageArticle(msg, room) {
   `;
 }
 
+function renderCommandResultHtml(commandResult) {
+  if (!commandResult || commandResult.type !== "session-list" || !Array.isArray(commandResult.rows)) return "";
+  const rows = commandResult.rows.slice(0, 10).map((row) => {
+    const title = String(row.title || row.id || "Session");
+    const preview = String(row.preview || row.project || row.id || "");
+    const updatedAt = Number(row.updatedAt) || 0;
+    const time = updatedAt ? formatConversationTime(new Date(updatedAt).toISOString()) : "";
+    return `
+      <div class="command-session-row" data-command-resume-id="${escapeHtml(row.id || "")}">
+        <span class="command-session-main">
+          <strong>${escapeHtml(title)}</strong>
+          <small>${escapeHtml(preview || row.id || "")}</small>
+        </span>
+        <span class="command-session-side">${escapeHtml(time)}</span>
+      </div>
+    `;
+  }).join("");
+  return rows ? `<div class="command-result session-list">${rows}</div>` : "";
+}
+
 function buildDesktopMessageArticle(msg, conv) {
   const isOwn = msg.role === "user";
   const cls = isOwn ? "message user" : "message assistant";
@@ -791,11 +905,12 @@ function buildDesktopMessageArticle(msg, conv) {
     : `background-color:${fallbackColor}; color:#fff; display:inline-flex; align-items:center; justify-content:center;`;
   const avatarText = useAvatar ? "" : escapeHtml(initial);
   const body = (msg.text || "").replace(/\n/g, "<br>");
+  const commandResultHtml = !isOwn ? renderCommandResultHtml(msg.commandResult) : "";
   return `
     <article class="${cls}">
       <span class="avatar" style="${avatarStyle}">${avatarText}</span>
       <div class="message-stack">
-        <div class="bubble">${escapeHtml(body).replace(/&lt;br&gt;/g, "<br>")}</div>
+        <div class="bubble">${escapeHtml(body).replace(/&lt;br&gt;/g, "<br>")}${commandResultHtml}</div>
         <span class="message-time">${escapeHtml(formatMessageTime(msg.createdAt))}</span>
       </div>
     </article>
