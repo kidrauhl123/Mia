@@ -1169,7 +1169,7 @@ function render() {
   window.aimashiSessionReadState.initializeReadStateForPersonas(personas);
   window.aimashiSessionReadState.markPersonaRead(state.activeKey, false);
   const unreadTotal = window.aimashiSessionReadState.totalUnreadCount(personas);
-  els.personaCount.textContent = unreadTotal > 99 ? "99+" : String(unreadTotal);
+  els.personaCount.textContent = window.aimashiUnread.unreadBadgeText(unreadTotal);
   els.personaCount.classList.toggle("hidden", unreadTotal <= 0);
   const groupActive = activeGroup();
   const active = personas.find((persona) => persona.key === state.activeKey) || personas[0];
@@ -1306,7 +1306,7 @@ function renderView() {
   if (els.contactsUnreadBadge) {
     if (incomingCount > 0) {
       els.contactsUnreadBadge.classList.remove("hidden");
-      els.contactsUnreadBadge.textContent = String(incomingCount > 99 ? "99+" : incomingCount);
+      els.contactsUnreadBadge.textContent = window.aimashiUnread.unreadBadgeText(incomingCount);
     } else {
       els.contactsUnreadBadge.classList.add("hidden");
     }
@@ -1316,7 +1316,7 @@ function renderView() {
   if (els.chatUnreadBadge) {
     if (roomUnread > 0) {
       els.chatUnreadBadge.classList.remove("hidden");
-      els.chatUnreadBadge.textContent = String(roomUnread > 99 ? "99+" : roomUnread);
+      els.chatUnreadBadge.textContent = window.aimashiUnread.unreadBadgeText(roomUnread);
     } else {
       els.chatUnreadBadge.classList.add("hidden");
     }

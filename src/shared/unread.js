@@ -96,11 +96,16 @@
     return total;
   }
 
-  function unreadBadgeHtml(count, options) {
+  function unreadBadgeText(count, options) {
     const n = Number(count);
     if (!Number.isFinite(n) || n <= 0) return "";
     const maxDisplay = options && Number.isFinite(options.maxDisplay) ? options.maxDisplay : 99;
-    const text = n > maxDisplay ? `${maxDisplay}+` : String(Math.trunc(n));
+    return n > maxDisplay ? `${maxDisplay}+` : String(Math.trunc(n));
+  }
+
+  function unreadBadgeHtml(count, options) {
+    const text = unreadBadgeText(count, options);
+    if (!text) return "";
     return `<span class="unread-badge">${text}</span>`;
   }
 
@@ -108,5 +113,6 @@
     computeUnreadForConversation,
     totalUnreadFromConversations,
     unreadBadgeHtml,
+    unreadBadgeText,
   };
 });
