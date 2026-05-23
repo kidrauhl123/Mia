@@ -566,13 +566,40 @@ function persistCloudAttachments(cloudStore, userId, attachments = []) {
 }
 
 function sanitizeCloudMessageAttachments(cloudStore, userId, message = {}) {
-  return {
+  const sanitized = {
     ...message,
     attachments: persistCloudAttachments(
       cloudStore,
       userId,
       Array.isArray(message.attachments) ? message.attachments : []
     )
+  };
+  const commandResult = sanitizeCommandResult(message.commandResult);
+  if (commandResult) sanitized.commandResult = commandResult;
+  else delete sanitized.commandResult;
+  return sanitized;
+}
+
+function sanitizeCommandResult(commandResult) {
+  if (!commandResult || typeof commandResult !== "object" || commandResult.type !== "session-list") return null;
+  const rows = Array.isArray(commandResult.rows)
+    ? commandResult.rows
+      .map((row) => ({
+        id: String(row?.id || "").trim(),
+        title: String(row?.title || "").trim().slice(0, 160),
+        preview: String(row?.preview || "").trim().slice(0, 240),
+        project: String(row?.project || "").trim().slice(0, 240),
+        updatedAt: Number(row?.updatedAt) || 0
+      }))
+      .filter((row) => row.id)
+      .slice(0, 20)
+    : [];
+  if (!rows.length) return null;
+  return {
+    type: "session-list",
+    command: String(commandResult.command || "/resume").trim() || "/resume",
+    engine: String(commandResult.engine || "").trim(),
+    rows
   };
 }
 
@@ -1198,6 +1225,8 @@ async function handleRequest(req, res, context) {
         createdAt: isValidIso ? clientCreatedAt : now(),
         attachments
       };
+      const commandResult = sanitizeCommandResult(body.commandResult);
+      if (commandResult) message.commandResult = commandResult;
       const appended = cloudStore.appendMessage(auth.user.id, {
         conversationId: String(body.conversationId || ""),
         message

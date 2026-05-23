@@ -39,6 +39,34 @@ test("desktop sync forwards createdAt to cloud so dedup matches", () => {
   assert.equal(message.createdAt, "2026-05-20T10:00:00.000Z");
 });
 
+test("desktop sync preserves command results through cloud messages", () => {
+  const commandResult = {
+    type: "session-list",
+    command: "/resume",
+    engine: "claude-code",
+    rows: [{
+      id: "11111111-2222-4333-8444-555555555555",
+      title: "History title",
+      preview: "first prompt",
+      project: "/repo",
+      updatedAt: 2000
+    }]
+  };
+  const cloudMessage = cloudMessageFromDesktopMessage({
+    role: "assistant",
+    content: "choose",
+    createdAt: "2026-05-20T10:00:00.000Z",
+    commandResult
+  });
+  assert.deepEqual(cloudMessage.commandResult, commandResult);
+
+  const session = desktopSessionFromCloudConversation({
+    id: "desktop:local-session-1",
+    messages: [cloudMessage]
+  }, "aimashi");
+  assert.deepEqual(session.messages[0].commandResult, commandResult);
+});
+
 test("desktop sync routes cloud conversations back to their source persona", () => {
   // Conversation carries an explicit personaKey from the upload encoder.
   const session = desktopSessionFromCloudConversation({

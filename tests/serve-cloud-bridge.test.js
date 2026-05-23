@@ -1023,6 +1023,31 @@ test("cloud appends user messages atomically and broadcasts them", async () => {
     const conversation = event.workspace.conversations.find((item) => item.id === account.workspace.activeConversationId);
     assert.equal(conversation.messages.at(-1).text, "服务端追加");
 
+    const commandResult = {
+      type: "session-list",
+      command: "/resume",
+      engine: "codex",
+      rows: [{
+        id: "019e53ab-cb8a-71a2-a2a4-ca7bdf0520d6",
+        title: "Indexed title",
+        preview: "hello",
+        project: "/repo",
+        updatedAt: 1779525746671
+      }]
+    };
+    const commandMessage = await jsonFetch(baseUrl, "/api/messages", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${account.token}` },
+      body: {
+        conversationId: account.workspace.activeConversationId,
+        role: "assistant",
+        text: "选择一个会话继续：",
+        commandResult,
+        attachments: []
+      }
+    });
+    assert.deepEqual(commandMessage.message.commandResult, commandResult);
+
     const newConversation = await jsonFetch(baseUrl, "/api/messages", {
       method: "POST",
       headers: { Authorization: `Bearer ${account.token}` },

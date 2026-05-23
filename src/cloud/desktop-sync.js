@@ -88,8 +88,31 @@ function cloudAttachmentFromDesktopAttachment(attachment = {}) {
   };
 }
 
-function cloudMessageFromDesktopMessage(message = {}) {
+function normalizeCommandResult(commandResult) {
+  if (!commandResult || typeof commandResult !== "object" || commandResult.type !== "session-list") return null;
+  const rows = Array.isArray(commandResult.rows)
+    ? commandResult.rows
+      .map((row) => ({
+        id: String(row?.id || "").trim(),
+        title: String(row?.title || "").trim().slice(0, 160),
+        preview: String(row?.preview || "").trim().slice(0, 240),
+        project: String(row?.project || "").trim().slice(0, 240),
+        updatedAt: Number(row?.updatedAt) || 0
+      }))
+      .filter((row) => row.id)
+      .slice(0, 20)
+    : [];
+  if (!rows.length) return null;
   return {
+    type: "session-list",
+    command: String(commandResult.command || "/resume").trim() || "/resume",
+    engine: String(commandResult.engine || "").trim(),
+    rows
+  };
+}
+
+function cloudMessageFromDesktopMessage(message = {}) {
+  const out = {
     role: message.role === "assistant" ? "assistant" : "user",
     text: String(message.content || message.text || "").trim(),
     // Forward the client timestamp so dedup keys (which include createdAt)
@@ -101,6 +124,9 @@ function cloudMessageFromDesktopMessage(message = {}) {
       ? message.attachments.map(cloudAttachmentFromDesktopAttachment)
       : []
   };
+  const commandResult = normalizeCommandResult(message.commandResult);
+  if (commandResult) out.commandResult = commandResult;
+  return out;
 }
 
 function desktopSessionIdFromCloudConversation(conversation = {}) {
@@ -129,6 +155,8 @@ function desktopMessageFromCloudMessage(message = {}) {
   if (Array.isArray(message.attachments) && message.attachments.length) {
     out.attachments = message.attachments.map(desktopAttachmentFromCloudAttachment);
   }
+  const commandResult = normalizeCommandResult(message.commandResult);
+  if (commandResult) out.commandResult = commandResult;
   return out;
 }
 
@@ -156,5 +184,6 @@ module.exports = {
   cloudConversationIdForSession,
   cloudMessageFromDesktopMessage,
   desktopSessionFromCloudConversation,
-  desktopSessionIdFromCloudConversation
+  desktopSessionIdFromCloudConversation,
+  normalizeCommandResult
 };

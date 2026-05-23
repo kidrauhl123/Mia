@@ -680,6 +680,60 @@ p {
   color: #fff;
 }
 
+.command-result.session-list {
+  display: grid;
+  gap: 6px;
+  min-width: min(520px, 68vw);
+  margin-top: 9px;
+}
+
+.command-session-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 50px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.42);
+}
+
+.command-session-main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.command-session-main strong,
+.command-session-main small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-session-main strong {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.command-session-main small,
+.command-session-side {
+  color: var(--faint);
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.command-session-side {
+  white-space: nowrap;
+}
+
+:root[data-theme="dark"] .command-session-row {
+  background: rgba(255, 255, 255, 0.06);
+}
+
 .message-time {
   margin: 0 8px;
   color: var(--faint);
