@@ -37,7 +37,10 @@ test("sendFriendRequest posts toUsername and parses response", async () => {
     assert.equal(result.request.id, "fr_1");
     assert.equal(seen[0].method, "POST");
     assert.equal(seen[0].url, "/api/social/friend-requests");
-    assert.deepEqual(JSON.parse(seen[0].body), { toUsername: "bob" });
+    const sent = JSON.parse(seen[0].body);
+    assert.equal(sent.toUsername, "bob");
+    // Phase 1.D: writes carry an auto-generated clientOpId for idempotency.
+    assert.match(String(sent.clientOpId || ""), /^op_/, "clientOpId should be auto-attached");
   } finally { await teardown(ctx); }
 });
 

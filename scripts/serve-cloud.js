@@ -402,6 +402,34 @@ function broadcastTransientEvent(hub, userId, payload) {
   }
 }
 
+// ── write idempotency (Phase 1.D) ─────────────────────────────────────────
+//
+// Wrap any state-mutating handler so an identical request body
+// (clientOpId) replays the same response instead of executing again.
+// Necessary because the network can deliver the same POST twice (mobile
+// switching networks, browser auto-retry, our own auto-reconnect) and
+// we don't want to create two friend requests / two rooms / two
+// messages from one user intent.
+//
+// Usage at top of a POST/PATCH/DELETE handler, AFTER reading body:
+//   if (await replayIfCached(context, res, auth.user.id, body)) return;
+// And after building the response:
+//   rememberOp(context, auth.user.id, body, status, payload);
+//   return writeJson(res, status, payload);
+//
+// Bodies without clientOpId pass through transparently (no caching).
+function replayIfCached(context, res, userId, body) {
+  if (!body || !body.clientOpId) return false;
+  const cached = context.eventLog.getCachedOp(userId, body.clientOpId);
+  if (!cached) return false;
+  writeJson(res, cached.statusCode, cached.result);
+  return true;
+}
+function rememberOp(context, userId, body, statusCode, payload) {
+  if (!body || !body.clientOpId) return;
+  context.eventLog.cacheOp(userId, body.clientOpId, { result: payload, statusCode });
+}
+
 function sanitizeBridgeRunEvent(event = {}) {
   const kind = String(event.kind || event.type || "status").trim().slice(0, 60) || "status";
   const out = { kind };
@@ -783,6 +811,7 @@ async function handleRequest(req, res, context) {
     // POST /api/social/friend-requests
     if (req.method === "POST" && url.pathname === "/api/social/friend-requests") {
       const body = await readJson(req);
+      if (replayIfCached(context, res, auth.user.id, body)) return;
       const toUsername = String(body.toUsername || "").trim();
       if (!toUsername) return writeError(res, 400, "toUsername is required");
       const toUser = context.cloudStore.getUserByUsername(toUsername);
@@ -802,7 +831,9 @@ async function handleRequest(req, res, context) {
         type: "social.friend_request_received",
         request: { ...created, from: context.cloudStore.getUserPublic(auth.user.id) }
       });
-      return writeJson(res, 201, { request: created });
+      const payload = { request: created };
+      rememberOp(context, auth.user.id, body, 201, payload);
+      return writeJson(res, 201, payload);
     }
 
     // GET /api/social/friend-requests?direction=incoming|outgoing
@@ -896,6 +927,7 @@ async function handleRequest(req, res, context) {
     // when the local group was uploaded earlier through a different path.
     if (req.method === "POST" && url.pathname === "/api/rooms") {
       const body = await readJson(req);
+      if (replayIfCached(context, res, auth.user.id, body)) return;
       const name = String(body.name || "").trim();
       if (!name || name.length > 80) return writeError(res, 400, "name is required and must be 1..80 chars");
       const memberFellows = Array.isArray(body.memberFellows) ? body.memberFellows : [];
@@ -939,7 +971,9 @@ async function handleRequest(req, res, context) {
           broadcastPersistedEvent(context, m.member_ref, { type: "social.room_invited", room, invitedBy: creatorPublic });
         }
       }
-      return writeJson(res, 201, { room, members });
+      const payload = { room, members };
+      rememberOp(context, auth.user.id, body, 201, payload);
+      return writeJson(res, 201, payload);
     }
 
     const roomAsFellowMatch = url.pathname.match(/^\/api\/rooms\/([A-Za-z0-9_:-]+)\/messages\/as-fellow$/);
@@ -1040,6 +1074,7 @@ async function handleRequest(req, res, context) {
       const existing = context.socialStore.getRoom(roomId);
       if (!existing) return writeError(res, 404, "room not found");
       const body = await readJson(req);
+      if (replayIfCached(context, res, auth.user.id, body)) return;
       const patch = {};
       if (Object.prototype.hasOwnProperty.call(body, "name")) {
         const name = String(body.name || "").trim();
@@ -1058,7 +1093,9 @@ async function handleRequest(req, res, context) {
           broadcastPersistedEvent(context, m.member_ref, { type: "room.updated", room });
         }
       }
-      return writeJson(res, 200, { room });
+      const payload = { room };
+      rememberOp(context, auth.user.id, body, 200, payload);
+      return writeJson(res, 200, payload);
     }
 
     // DELETE /api/rooms/:id — remove the room. ON DELETE CASCADE in the
@@ -1071,6 +1108,11 @@ async function handleRequest(req, res, context) {
       }
       const existing = context.socialStore.getRoom(roomId);
       if (!existing) return writeError(res, 404, "room not found");
+      // DELETE bodies are usually empty, but the client can pass a body
+      // with a clientOpId. Reading it is best-effort.
+      let body = {};
+      try { body = await readJson(req); } catch { /* empty body is fine */ }
+      if (replayIfCached(context, res, auth.user.id, body)) return;
       const members = context.socialStore.listRoomMembers(roomId);
       context.socialStore.deleteRoom(roomId);
       // Broadcast room.deleted BEFORE removing connections — let clients
@@ -1080,7 +1122,9 @@ async function handleRequest(req, res, context) {
           broadcastPersistedEvent(context, m.member_ref, { type: "room.deleted", roomId });
         }
       }
-      return writeJson(res, 200, { ok: true });
+      const payload = { ok: true };
+      rememberOp(context, auth.user.id, body, 200, payload);
+      return writeJson(res, 200, payload);
     }
 
     if (req.method === "GET" && roomMsgsMatch) {
@@ -1100,6 +1144,7 @@ async function handleRequest(req, res, context) {
         return writeError(res, 403, "not a member of this room");
       }
       const body = await readJson(req);
+      if (replayIfCached(context, res, auth.user.id, body)) return;
       // DM rooms are lazy-created on first message (per spec §6)
       if (roomId.startsWith("dm:") && !context.socialStore.getRoom(roomId)) {
         const parts = roomId.split(":");
@@ -1144,7 +1189,9 @@ async function handleRequest(req, res, context) {
           recentMessages,
         });
       }
-      return writeJson(res, 201, { message });
+      const payload = { message };
+      rememberOp(context, auth.user.id, body, 201, payload);
+      return writeJson(res, 201, payload);
     }
 
     if (req.method === "POST" && url.pathname === "/api/auth/logout") {

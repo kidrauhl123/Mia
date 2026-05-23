@@ -188,10 +188,19 @@ function isWorkspaceConversationId(id) {
 async function api(path, options = {}) {
   const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
   if (state.token) headers.Authorization = `Bearer ${state.token}`;
+  // Auto-tag write requests with a clientOpId so a retry (e.g. browser
+  // retry on network blip, double-click) returns the same response
+  // rather than running again (Phase 1.D). Caller can pre-set
+  // body.clientOpId for explicit retry semantics.
+  let body = options.body;
+  const method = String(options.method || "GET").toUpperCase();
+  if ((method === "POST" || method === "PATCH" || method === "DELETE") && body && typeof body === "object" && !body.clientOpId) {
+    body = { ...body, clientOpId: `op_${(crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`)}` };
+  }
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers,
-    body: options.body && typeof options.body !== "string" ? JSON.stringify(options.body) : options.body
+    body: body && typeof body !== "string" ? JSON.stringify(body) : body
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);

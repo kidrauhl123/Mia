@@ -1,4 +1,17 @@
 const { fetch } = globalThis;
+const { randomUUID } = require("node:crypto");
+
+// Tag a write body with a clientOpId so the server can deduplicate
+// retries (Phase 1.D). Bodies that omit clientOpId are still accepted;
+// the helper only attaches one when the caller hasn't supplied their
+// own. Callers that need a stable id across explicit retries can
+// pre-set body.clientOpId.
+function withOpId(body = {}) {
+  if (body && typeof body === "object" && !body.clientOpId) {
+    return { ...body, clientOpId: `op_${randomUUID()}` };
+  }
+  return body;
+}
 
 async function jsonFetch({ baseUrl, token, method, path, body, timeoutMs = 15000 }) {
   const response = await fetch(`${baseUrl}${path}`, {
@@ -36,10 +49,10 @@ function createSocialApi({ getSettings, normalizeUrl }) {
   }
   return {
     async sendFriendRequest(toUsername) {
-      return jsonFetch({ ...ctx(), method: "POST", path: "/api/social/friend-requests", body: { toUsername } });
+      return jsonFetch({ ...ctx(), method: "POST", path: "/api/social/friend-requests", body: withOpId({ toUsername }) });
     },
     async respondFriendRequest(requestId, action) {
-      return jsonFetch({ ...ctx(), method: "POST", path: `/api/social/friend-requests/${encodeURIComponent(requestId)}/respond`, body: { action } });
+      return jsonFetch({ ...ctx(), method: "POST", path: `/api/social/friend-requests/${encodeURIComponent(requestId)}/respond`, body: withOpId({ action }) });
     },
     async cancelFriendRequest(requestId) {
       return jsonFetch({ ...ctx(), method: "DELETE", path: `/api/social/friend-requests/${encodeURIComponent(requestId)}` });
@@ -68,10 +81,17 @@ function createSocialApi({ getSettings, normalizeUrl }) {
       return jsonFetch({ ...ctx(), method: "GET", path: `/api/rooms/${roomId}/messages?since_seq=${Number(sinceSeq) || 0}&limit=${Number(limit) || 100}` });
     },
     async postRoomMessage(roomId, body) {
-      return jsonFetch({ ...ctx(), method: "POST", path: `/api/rooms/${roomId}/messages`, body });
+      return jsonFetch({ ...ctx(), method: "POST", path: `/api/rooms/${roomId}/messages`, body: withOpId(body) });
     },
-    async createRoom({ name, memberFellows, memberFriendUserIds }) {
-      return jsonFetch({ ...ctx(), method: "POST", path: "/api/rooms", body: { name, memberFellows, memberFriendUserIds } });
+    async createRoom({ name, memberFellows, memberFriendUserIds, clientGroupId } = {}) {
+      // clientGroupId is the room-creation-specific idempotency key (links
+      // a local group to its cloud counterpart); we still attach a generic
+      // clientOpId so a *retry* of the same POST doesn't run twice even
+      // when there's no clientGroupId provided. Both checks coexist on
+      // the server.
+      const body = { name, memberFellows, memberFriendUserIds };
+      if (clientGroupId) body.clientGroupId = clientGroupId;
+      return jsonFetch({ ...ctx(), method: "POST", path: "/api/rooms", body: withOpId(body) });
     },
     async updateRoom(roomId, patch) {
       return jsonFetch({ ...ctx(), method: "PATCH", path: `/api/rooms/${roomId}`, body: patch || {} });
