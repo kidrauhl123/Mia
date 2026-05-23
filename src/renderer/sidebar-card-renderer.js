@@ -20,6 +20,12 @@
 (function (global) {
   "use strict";
 
+  function unreadShared() {
+    if (global.aimashiUnread) return global.aimashiUnread;
+    if (typeof require !== "undefined") return require("../shared/unread");
+    throw new Error("aimashiUnread is not loaded");
+  }
+
   function escapeHtml(value) {
     if (typeof global !== "undefined" && global.aimashiMarkdown && typeof global.aimashiMarkdown.escapeHtml === "function") {
       return global.aimashiMarkdown.escapeHtml(value);
@@ -42,8 +48,9 @@
   }
 
   function buildSideHtml({ time, pinned, unread }) {
-    const unreadHtml = unread > 0
-      ? `<span class="persona-unread">${escapeHtml(unread > 99 ? "99+" : String(unread))}</span>`
+    const badge = unreadShared().unreadBadgeHtml(unread);
+    const unreadHtml = badge
+      ? badge.replace('class="unread-badge"', 'class="persona-unread"')
       : `<span class="persona-unread hidden"></span>`;
     return `
       <span class="persona-side">

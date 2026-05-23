@@ -6,6 +6,12 @@
   // Decision: cap initial-message fetch to 30 rooms to keep bootstrap fast.
   const INITIAL_ROOMS_CAP = 30;
 
+  function unreadShared() {
+    if (global.aimashiUnread) return global.aimashiUnread;
+    if (typeof require !== "undefined") return require("../../shared/unread");
+    throw new Error("aimashiUnread is not loaded");
+  }
+
   // Decision: singleton modal — create once, re-populate on open.
   // Avoids leaking DOM nodes on repeated opens.
   let _addFriendModal = null;
@@ -756,11 +762,11 @@
     moduleState.activeRoomId = id || null;
     if (id) moduleState.unreadByRoom.delete(id);
   }
-  function getUnreadForRoom(roomId) { return moduleState.unreadByRoom.get(roomId) || 0; }
+  function getUnreadForRoom(roomId) {
+    return unreadShared().computeUnreadForConversation({ id: roomId }, moduleState.unreadByRoom);
+  }
   function getTotalRoomUnread() {
-    let total = 0;
-    for (const n of moduleState.unreadByRoom.values()) total += n;
-    return total;
+    return unreadShared().totalUnreadFromConversations(null, moduleState.unreadByRoom);
   }
   // Expose the cached room member list so app.js can build a composite
   // avatar for cloud group rooms via the same path as local fellow groups.

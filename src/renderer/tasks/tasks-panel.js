@@ -11,6 +11,11 @@
     if (typeof require !== "undefined") return require("../../shared/contact");
     throw new Error("aimashiContact is not loaded");
   }
+  function unreadShared() {
+    if (__global.aimashiUnread) return __global.aimashiUnread;
+    if (typeof require !== "undefined") return require("../../shared/unread");
+    throw new Error("aimashiUnread is not loaded");
+  }
 
   // Injected at init time. All functions below use these bare identifiers as
   // they did when inline in app.js — keeping diffs minimal.
@@ -101,6 +106,10 @@
 
     function row(task, label, dotClass, taskId) {
       const unread = state.tasksUnread.get(taskId) || 0;
+      const badge = unreadShared().unreadBadgeHtml(unread);
+      const badgeHtml = badge
+        ? badge.replace("<span ", "<em ").replace("</span>", "</em>").replace('class="unread-badge"', 'class="task-unread"')
+        : "";
       return `
         <button class="task-row${state.selectedTaskId === taskId && !state.selectedRunId ? " active" : ""}"
                 type="button" data-task-id="${escapeHtml(taskId)}">
@@ -109,7 +118,7 @@
             <strong>${escapeHtml(task.title)}</strong>
             <small>${escapeHtml(label)} · ${escapeHtml(fellowName(task.fellowId))}</small>
           </span>
-          ${unread ? `<em class="task-unread">${unread}</em>` : ""}
+          ${badgeHtml}
         </button>
       `;
     }
@@ -482,7 +491,11 @@
     const total = [...state.tasksUnread.values()].reduce((a, b) => a + b, 0);
     if (total > 0) {
       els.tasksUnreadBadge.classList.remove("hidden");
-      els.tasksUnreadBadge.textContent = String(total > 99 ? "99+" : total);
+      // Extract truncated text from the shared badge HTML so this rail
+      // count uses the same "99+" boundary as every other unread display.
+      const badge = unreadShared().unreadBadgeHtml(total);
+      const m = badge.match(/>([^<]*)</);
+      els.tasksUnreadBadge.textContent = m ? m[1] : String(total);
     } else {
       els.tasksUnreadBadge.classList.add("hidden");
     }

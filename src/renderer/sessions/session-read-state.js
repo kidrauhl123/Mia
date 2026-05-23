@@ -8,6 +8,13 @@
 (function () {
   "use strict";
 
+  const __global = typeof window !== "undefined" ? window : globalThis;
+  function unreadShared() {
+    if (__global.aimashiUnread) return __global.aimashiUnread;
+    if (typeof require !== "undefined") return require("../../shared/unread");
+    throw new Error("aimashiUnread is not loaded");
+  }
+
   let state, aimashi;
   let nowIso;
 
@@ -56,20 +63,22 @@
 
   function unreadCountForPersona(personaKey) {
     if (!state) return 0;
-    const readAt = ensureReadState()[personaKey] || "";
-    let count = 0;
-    for (const session of state.chatStore.sessions?.[personaKey] || []) {
-      for (const message of session.messages || []) {
-        if (message.role !== "assistant" || message.transient || !String(message.content || "").trim()) continue;
-        const createdAt = String(message.createdAt || session.updatedAt || session.createdAt || "");
-        if (createdAt && createdAt.localeCompare(readAt) > 0) count += 1;
-      }
-    }
-    return count;
+    const readState = { readAt: ensureReadState() };
+    const conversation = {
+      key: personaKey,
+      sessions: state.chatStore.sessions?.[personaKey] || [],
+    };
+    return unreadShared().computeUnreadForConversation(conversation, readState);
   }
 
   function totalUnreadCount(personas) {
-    return personas.reduce((total, persona) => total + unreadCountForPersona(persona.key), 0);
+    if (!state) return 0;
+    const readState = { readAt: ensureReadState() };
+    const conversations = personas.map((persona) => ({
+      key: persona.key,
+      sessions: state.chatStore.sessions?.[persona.key] || [],
+    }));
+    return unreadShared().totalUnreadFromConversations(conversations, readState);
   }
 
   async function persistReadStateQuietly() {
