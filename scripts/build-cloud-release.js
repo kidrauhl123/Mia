@@ -424,6 +424,7 @@ function main() {
   copyDir("src/cloud", path.join(apiDir, "src", "cloud"));
   copyFile("src/permission-modes.js", path.join(apiDir, "src", "permission-modes.js"));
   copyDir("src/web", webDir);
+  copyFile("src/shared/time-format.js", path.join(webDir, "shared", "time-format.js"));
   writeIcoFromPng(path.join(webDir, "icon-192.png"), path.join(webDir, "favicon.ico"));
   copyFile("scripts/smoke-cloud.js", path.join(distDir, "smoke-cloud.js"));
   copyFile("scripts/prepare-cloud-smoke-account.js", path.join(distDir, "prepare-cloud-smoke-account.js"));

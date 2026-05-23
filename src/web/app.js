@@ -4,6 +4,7 @@
 
 const STORAGE_KEY = "aimashi.web.session";
 const API_BASE = "";
+const { formatConversationTime, formatMessageTime } = window.aimashiTimeFormat;
 
 const els = {
   root: document.querySelector(".app-shell"),
@@ -85,27 +86,6 @@ function escapeHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
-}
-
-function shortTime(value) {
-  const date = value ? new Date(value) : new Date();
-  return date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
-}
-
-// Desktop-style relative timestamp for conversation cards:
-// today → HH:MM, yesterday → "昨天", else M/D.
-function formatConversationTime(value) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  const now = new Date();
-  if (date.toDateString() === now.toDateString()) {
-    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
-  }
-  const yesterday = new Date(now);
-  yesterday.setDate(now.getDate() - 1);
-  if (date.toDateString() === yesterday.toDateString()) return "昨天";
-  return `${date.getMonth() + 1}/${date.getDate()}`;
 }
 
 // Avatar preset crop table — mirrors src/renderer/helpers/avatar-helpers.js
@@ -771,7 +751,7 @@ function buildRoomMessageArticle(msg, room) {
       <div class="message-stack">
         ${senderLabel && !isOwn ? `<span class="message-sender">${escapeHtml(senderLabel)}</span>` : ""}
         <div class="bubble">${escapeHtml(body).replace(/&lt;br&gt;/g, "<br>")}</div>
-        <span class="message-time">${escapeHtml(shortTime(msg.created_at))}</span>
+        <span class="message-time">${escapeHtml(formatMessageTime(msg.created_at))}</span>
       </div>
     </article>
   `;
@@ -800,7 +780,7 @@ function buildDesktopMessageArticle(msg, conv) {
       <span class="avatar" style="${avatarStyle}">${avatarText}</span>
       <div class="message-stack">
         <div class="bubble">${escapeHtml(body).replace(/&lt;br&gt;/g, "<br>")}</div>
-        <span class="message-time">${escapeHtml(shortTime(msg.createdAt))}</span>
+        <span class="message-time">${escapeHtml(formatMessageTime(msg.createdAt))}</span>
       </div>
     </article>
   `;
