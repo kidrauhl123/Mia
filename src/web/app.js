@@ -59,6 +59,12 @@ let state = {
   theme: "light",
   rooms: [],
   friends: [],
+  // Cloud-mirrored fellow identities (Phase 2). Populated from
+  // /api/me/fellows on login and kept in sync via fellow.upserted /
+  // fellow.deleted WS events. Used as the `fellows` context for the
+  // cloud-room-source adapter so room messages render fellow names +
+  // avatars instead of fellow-id strings.
+  fellows: [],
   incomingRequests: [],
   outgoingRequests: [],
   messageCache: new Map(),
@@ -159,6 +165,7 @@ function clearSession() {
   state.user = null;
   state.rooms = [];
   state.friends = [];
+  state.fellows = [];
   state.incomingRequests = [];
   state.outgoingRequests = [];
   state.messageCache.clear();
@@ -261,6 +268,10 @@ async function bootstrap() {
     api("/api/social/friends").then((d) => { state.friends = Array.isArray(d.friends) ? d.friends : []; }).catch(() => {}),
     api("/api/social/friend-requests?direction=incoming").then((d) => { state.incomingRequests = Array.isArray(d.requests) ? d.requests : []; }).catch(() => {}),
     api("/api/social/friend-requests?direction=outgoing").then((d) => { state.outgoingRequests = Array.isArray(d.requests) ? d.requests : []; }).catch(() => {}),
+    // Phase 2: fellow identities (name + avatar + persona) so room
+    // messages from a fellow render with proper attribution rather than
+    // a bare fellow-id string.
+    api("/api/me/fellows").then((d) => { state.fellows = Array.isArray(d.fellows) ? d.fellows : []; }).catch(() => {}),
     // Workspace: holds the desktop-synced fellow conversations (Phase A).
     api("/api/workspace").then((d) => { applyWorkspace(d.workspace); }).catch(() => {}),
     // Bridge devices: lets Phase B decide whether the owner's desktop is
@@ -495,6 +506,22 @@ function handleCloudEvent(envelope) {
       state.unread.delete(roomId);
       state.roomMembersCache.delete(roomId);
       if (state.activeConversationId === roomId) state.activeConversationId = "";
+      renderConversationList();
+      renderActiveChat();
+    }
+  } else if (type === "fellow.upserted") {
+    // Phase 2: another device created/edited a fellow — replace by id so
+    // names/avatars stay current across this browser too.
+    const fellow = envelope.fellow;
+    if (fellow && fellow.id) {
+      state.fellows = [fellow, ...state.fellows.filter((f) => f.id !== fellow.id)];
+      renderConversationList();
+      renderActiveChat();
+    }
+  } else if (type === "fellow.deleted") {
+    const fellowId = envelope.fellowId;
+    if (fellowId) {
+      state.fellows = state.fellows.filter((f) => f.id !== fellowId);
       renderConversationList();
       renderActiveChat();
     }
@@ -861,7 +888,7 @@ function buildRoomMessageArticle(msg, room) {
   // Sender resolution routes through the canonical adapter (cloud-room-source).
   // Web reads only MessageSpec fields — no schema branching here.
   const members = state.roomMembersCache.get(room.id) || [];
-  const ctx = { self: state.user, friends: state.friends, fellows: [] };
+  const ctx = { self: state.user, friends: state.friends, fellows: state.fellows };
   const source = window.aimashiCloudRoomSource.createCloudRoomSource({
     room, messages: [msg], members, ctx
   });
