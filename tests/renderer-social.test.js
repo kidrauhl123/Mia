@@ -65,18 +65,18 @@ function loadSocial() {
   return mockWindow.aimashiSocial;
 }
 
-test("renderSidebarRows returns dm-room shaped objects", () => {
+test("renderSidebarRows: dm room → private-room with otherUser resolved", () => {
   const s = loadSocial();
   s.moduleState.myUserId = "u_alice";
   s.moduleState.friends = [{ id: "u_bob", username: "bob", account: "bob" }];
-  s.moduleState.rooms = [{ id: "dm:u_alice:u_bob", name: null, updatedAt: "2026-05-21T20:00:00.000Z" }];
+  s.moduleState.rooms = [{ id: "dm:u_alice:u_bob", type: "dm", name: null, updatedAt: "2026-05-21T20:00:00.000Z" }];
   s.moduleState.messageCache.set("dm:u_alice:u_bob", {
     messages: [{ id: "m1", seq: 1, body_md: "hi", created_at: "2026-05-21T20:01:00.000Z" }],
     maxSeq: 1,
   });
   const rows = s.renderSidebarRows();
   assert.equal(rows.length, 1);
-  assert.equal(rows[0].type, "dm-room");
+  assert.equal(rows[0].type, "private-room");
   assert.equal(rows[0].room.otherUser.username, "bob");
   assert.equal(rows[0].room.lastMessagePreview, "hi");
 });
@@ -131,8 +131,8 @@ test("renderSidebarRows includes group rooms with type group-room", () => {
   const s = loadSocial();
   s.moduleState.myUserId = "u_me";
   s.moduleState.rooms = [
-    { id: "dm:u_me:u_a", updatedAt: "2026-05-21T20:00:00.000Z", name: null },
-    { id: "g_squad", updatedAt: "2026-05-21T21:00:00.000Z", name: "Squad" }
+    { id: "dm:u_me:u_a", type: "dm", updatedAt: "2026-05-21T20:00:00.000Z", name: null },
+    { id: "g_squad", type: "group", updatedAt: "2026-05-21T21:00:00.000Z", name: "Squad" }
   ];
   s.moduleState.friends = [{ id: "u_a", username: "alice" }];
   const rows = s.renderSidebarRows();

@@ -425,6 +425,7 @@ function main() {
   copyFile("src/shared/message-spec.js", path.join(webDir, "shared", "message-spec.js"));
   copyFile("src/shared/contact.js", path.join(webDir, "shared", "contact.js"));
   copyFile("src/shared/unread.js", path.join(webDir, "shared", "unread.js"));
+  copyFile("src/shared/group-tiles.js", path.join(webDir, "shared", "group-tiles.js"));
   copyFile("src/shared/send-pipeline.js", path.join(webDir, "shared", "send-pipeline.js"));
   copyFile("src/renderer/message-sources/cloud-room-source.js", path.join(webDir, "message-sources", "cloud-room-source.js"));
   writeIcoFromPng(path.join(webDir, "icon-192.png"), path.join(webDir, "favicon.ico"));

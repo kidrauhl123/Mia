@@ -119,7 +119,6 @@ const els = {
   skillPreviewBody: document.getElementById("skillPreviewBody"),
   skillContextMenu: document.getElementById("skillContextMenu"),
   fellowContextMenu: document.getElementById("fellowContextMenu"),
-  groupContextMenu: document.getElementById("groupContextMenu"),
   messageContextMenu: document.getElementById("messageContextMenu"),
   profileDialog: document.getElementById("profileDialog"),
   profileForm: document.getElementById("profileForm"),
@@ -448,29 +447,17 @@ function sortSessions(sessions) {
 // stay in lockstep. Destructured access keeps the offending operator pattern
 // out of app.js (Stage 5.2 will swap these literals for the
 // shared MemberKind enum).
-function cloudGroupMemberAvatarTile(member, { social, personas, avatarHelper }) {
-  if (!member) return null;
-  const { member_kind: kind, member_ref: ref } = member;
-  if (kind === MemberKind.User) {
-    const friend = social?.friendById?.(ref);
-    if (friend) {
-      return {
-        image: friend.avatarImage,
-        crop: friend.avatarCrop,
-        color: friend.avatarColor || "#5e5ce6"
-      };
-    }
-    return { image: "", crop: null, color: "#5e5ce6" };
-  }
-  if (kind === MemberKind.Fellow) {
-    const fellow = (personas || []).find((p) => (p.id || p.key) === ref);
-    return {
-      image: fellow?.avatarImage || avatarHelper?.avatarAssetForKey(ref),
-      crop: fellow?.avatarCrop,
-      color: fellow?.color || "#5e5ce6"
-    };
-  }
-  return null;
+// Context passed to the shared resolveGroupMemberTiles for every group
+// rendered in the renderer (sidebar + active-chat header). One builder so
+// the cloud and local paths can't drift.
+function groupTilesCtx(personas) {
+  const social = window.aimashiSocial;
+  return {
+    self: state.runtime?.user || null,
+    friends: social?.moduleState?.friends || [],
+    fellows: personas || [],
+    avatarAssetForKey: window.aimashiAvatar?.avatarAssetForKey
+  };
 }
 
 // Normalize any sidebar row kind into a unified ConversationCard spec the
@@ -507,8 +494,6 @@ function conversationCardSpecFromRow(row, personas) {
       dataAttrs: { fellowAvatar: persona.key },
       onClick: () => {
         state.activeKey = persona.key;
-        state.activeGroupId = "";
-        if (window.aimashiGroup) window.aimashiGroup.moduleState.activeGroupId = null;
         if (window.aimashiSocial) window.aimashiSocial.setActiveRoomId(null);
         const latest = sessionsForPersona(persona.key)[0];
         state.activeSessionIdByPersona[persona.key] = latest?.id;
@@ -531,51 +516,75 @@ function conversationCardSpecFromRow(row, personas) {
     };
   }
 
-  // ── cloud DM (real friend) — same row shape as fellow private ────────────
-  if (row.type === "dm-room") {
+  // ── cloud fellow room (1-on-1 with a fellow, mirrored from a desktop
+  //     session) — same row shape as fellow private chat. Title +
+  //     avatar come from the fellow definition resolved by id.
+  // ── cloud private room (DM with a friend OR fellow session) ─────────────
+  //     Same card shape; the only branch is "who's the other party" — a
+  //     friend (dm room) or a fellow (fellow room) — and that flows
+  //     through one resolver into a single spec.
+  //
+  //     fellow-type rooms are server mirrors of desktop fellow sessions;
+  //     the desktop already shows the persona-level "fellow" card, so
+  //     hiding the mirror here avoids duplicating one fellow conversation
+  //     into N session rows. (Cleanup target: when fellow chat moves
+  //     fully to cloud rooms, delete the "fellow" branch and stop hiding
+  //     these.)
+  if (row.type === "private-room") {
     const room = row.room;
-    const other = room.otherUser || {};
-    const name = other.username || other.account || "好友";
     const activeRoomId = social?.getActiveRoomId?.();
-    const dmPinned = Boolean(social?.isRoomPinned?.(room.id));
-    const dmUnread = social?.getUnreadForRoom?.(room.id) || 0;
+    const isFellow = room.type === "fellow";
+    if (isFellow) return null;
+    let name, avatar;
+    if (isFellow) {
+      const fellowKey = room.decorations?.fellowKey || (room.id?.split(":")[2] || "");
+      const fellow = personas.find((p) => (p.id || p.key) === fellowKey);
+      name = room.name || fellow?.name || "对话";
+      avatar = {
+        image: fellow?.avatarImage || avatarHelper?.avatarAssetForKey(fellowKey),
+        crop: fellow?.avatarCrop,
+        color: fellow?.color || "#5e5ce6"
+      };
+    } else {
+      const other = room.otherUser || {};
+      name = other.username || other.account || "好友";
+      avatar = {
+        image: other.avatarImage,
+        crop: other.avatarCrop,
+        color: other.avatarColor || "#5e5ce6"
+      };
+    }
+    const pinned = Boolean(social?.isRoomPinned?.(room.id));
+    const unread = social?.getUnreadForRoom?.(room.id) || 0;
     return {
       kind: "private",
       active: room.id === activeRoomId,
-      pinned: dmPinned,
+      pinned,
       name,
       typeLabel: "私聊",
       preview: room.lastMessagePreview || "暂无对话",
       time: formatConversationTime(row.updatedAt),
-      unread: dmUnread,
-      avatar: {
-        image: other.avatarImage,
-        crop: other.avatarCrop,
-        color: other.avatarColor || "#5e5ce6"
-      },
+      unread,
+      avatar,
       onClick: () => {
         state.activeKey = "";
-        state.activeGroupId = "";
-        if (window.aimashiGroup) window.aimashiGroup.moduleState.activeGroupId = null;
         window.aimashiSocial.setActiveRoomId(room.id);
         showNarrowContent();
         render();
       },
       onContextMenu: (x, y) => window.aimashiConversationContextMenu.openPrivateConversationMenu(
-        { id: room.id, name, pinned: dmPinned, unread: dmUnread },
+        { id: room.id, name, pinned, unread },
         {
-          togglePinned: () => { social.setRoomPinned(room.id, !dmPinned); render(); },
+          togglePinned: () => { social.setRoomPinned(room.id, !pinned); render(); },
           markRead: () => { social.markRoomRead(room.id); render(); },
           remove: async () => {
             if (!confirm(`确定删除与「${name}」的对话？此操作不可撤销。`)) return;
             const res = await social.deleteCloudRoom(room.id);
             if (!res?.ok) alert(`删除失败：${res?.error || "未知错误"}`);
           },
-          // DM display name comes from the peer's profile, not the room
-          // record, so server rejects PATCH name on dm:* rooms. Leave
-          // rename as not supported here — fixing it would mean editing
-          // the peer's username, which is a different feature.
-          notSupported: { rename: "私聊对方名称由对方用户名决定，无法在此重命名" }
+          // DM display name follows the peer's username, so server rejects
+          // PATCH name on dm:* rooms — surface that to the menu.
+          ...(isFellow ? {} : { notSupported: { rename: "私聊对方名称由对方用户名决定，无法在此重命名" } })
         },
         x, y
       )
@@ -587,11 +596,7 @@ function conversationCardSpecFromRow(row, personas) {
     const room = row.room;
     const activeRoomId = social?.getActiveRoomId?.();
     const memberRecords = social?.getRoomMembers?.(room.id) || [];
-    const tiles = [bossAvatarTile(userProfile)];
-    for (const record of memberRecords) {
-      const tile = cloudGroupMemberAvatarTile(record, { social, personas, avatarHelper });
-      if (tile) tiles.push(tile);
-    }
+    const tiles = window.aimashiGroupTiles.resolveGroupMemberTiles(memberRecords, groupTilesCtx(personas));
     const memberCount = memberRecords.length || room.memberCount || 0;
     const cgPinned = Boolean(social?.isRoomPinned?.(room.id));
     const cgUnread = social?.getUnreadForRoom?.(room.id) || 0;
@@ -608,8 +613,6 @@ function conversationCardSpecFromRow(row, personas) {
       members: tiles,
       onClick: () => {
         state.activeKey = "";
-        state.activeGroupId = "";
-        if (window.aimashiGroup) window.aimashiGroup.moduleState.activeGroupId = null;
         window.aimashiSocial.setActiveRoomId(room.id);
         showNarrowContent();
         render();
@@ -648,77 +651,75 @@ function conversationCardSpecFromRow(row, personas) {
     };
   }
 
-  // ── group stored locally (used to be "local fellow group" — the name said
-  //     "local" but the user's experience shouldn't see that distinction:
-  //     it's just a group, and "upload to cloud" promotes it cross-device).
-  if (row.type === "group") {
-    const group = row.group;
-    const preview = groupConversationPreview(group, personas);
-    const tiles = [bossAvatarTile(userProfile)];
-    for (const mid of (group.members || []).map((m) => m.fellowId)) {
-      const fellow = personas.find((p) => (p.id || p.key) === mid);
-      tiles.push({
-        image: fellow?.avatarImage || avatarHelper?.avatarAssetForKey(mid),
-        crop: fellow?.avatarCrop,
-        color: fellow?.color || "#5e5ce6"
-      });
-    }
-    // Member count: include the user (boss) + fellow members, mirroring how
-    // cloud groups count (memberRecords already include the host user-member).
-    const localMemberCount = 1 + (group.members?.length || 0);
-    return {
-      kind: "group",
-      active: group.id === state.activeKey,
-      pinned: Boolean(group.pinned),
-      name: group.name || "未命名群聊",
-      typeLabel: `群聊 · ${localMemberCount}人`,
-      preview: preview.text,
-      time: preview.time,
-      unread: 0,
-      members: tiles,
-      onClick: () => {
-        state.activeKey = group.id;
-        state.activeGroupId = group.id;
-        if (window.aimashiGroup) window.aimashiGroup.moduleState.activeGroupId = group.id;
-        if (window.aimashiSocial) window.aimashiSocial.setActiveRoomId(null);
-        state.replyDraft = null;
-        state.sessionMenuOpen = false;
-        showNarrowContent();
-        render();
-      },
-      onContextMenu: (x, y) => window.aimashiConversationContextMenu.openGroupConversationMenu(
-        { id: group.id, name: group.name || "未命名群聊", pinned: Boolean(group.pinned), unread: 0 },
-        {
-          togglePinned: () => setGroupPinned(group.id, !group.pinned),
-          openInfo: () => window.aimashiGroup?.openInfoDialog?.(group),
-          rename: async () => {
-            const next = window.prompt("编辑群组名称", group.name || "未命名群聊");
-            if (next === null) return;
-            const trimmed = String(next).trim() || "未命名群聊";
-            if (trimmed === (group.name || "未命名群聊")) return;
-            try {
-              Object.assign(group, await window.aimashi.groups.update(group.id, { name: trimmed }));
-              render();
-            } catch (err) {
-              alert("保存群名失败：" + (err?.message || String(err)));
-            }
-          },
-          markRead: () => { /* local-store groups have no separate unread state — menu item renders disabled because unread=0 */ },
-          remove: () => deleteGroup(group.id)
-        },
-        x, y
-      )
-    };
-  }
   return null;
 }
 
-function bossAvatarTile(userProfile = state.runtime?.user || {}) {
-  return {
-    image: userProfile.avatarImage,
-    crop: userProfile.avatarCrop,
-    color: userProfile.avatarColor || "#111827"
-  };
+// Paint #activeChatAvatar / #activeChatName / #activeChatMeta for the
+// currently-active cloud room (type ∈ {dm, group, fellow}). Mirrors the
+// local-group branch — both paths route through aimashiGroupAvatar for
+// any conversation that has more than one member, so the sidebar and the
+// chat header always agree.
+function paintActiveCloudRoomHeader(room, { personas, social }) {
+  const avatarEl = els.activeChatAvatar;
+  const nameEl = els.activeChatName;
+  const metaEl = els.activeChatMeta;
+  const userProfile = state.runtime?.user || {};
+  const avatarHelper = window.aimashiAvatar;
+  const groupAvatarHelper = window.aimashiGroupAvatar;
+
+  if (room.type === "group") {
+    const members = social?.getRoomMembers?.(room.id) || [];
+    const tiles = window.aimashiGroupTiles.resolveGroupMemberTiles(members, groupTilesCtx(personas));
+    if (avatarEl) {
+      avatarEl.className = "profile-avatar group-avatar";
+      groupAvatarHelper.applyGroupAvatar(avatarEl, tiles);
+    }
+    setText(nameEl, room.name || "群聊");
+    if (metaEl) metaEl.textContent = tiles.length ? `群聊 · ${tiles.length} 人` : "群聊";
+    return;
+  }
+
+  if (room.type === "fellow") {
+    const fellowKey = room.decorations?.fellowKey || (room.id?.split(":")[2] || "");
+    const fellow = (personas || []).find((p) => (p.id || p.key) === fellowKey);
+    if (avatarEl) {
+      avatarEl.innerHTML = "";
+      avatarEl.removeAttribute("data-count");
+      avatarEl.className = "profile-avatar";
+      avatarHelper.applyFellowAvatar(avatarEl, fellow || { key: fellowKey, name: room.name });
+    }
+    setText(nameEl, room.name || fellow?.name || "对话");
+    if (metaEl) metaEl.textContent = "私聊";
+    return;
+  }
+
+  // DM
+  const otherId = (() => {
+    const parts = String(room.id || "").split(":");
+    if (parts[0] !== "dm") return "";
+    return parts[1] === userProfile.id ? parts[2] : parts[1];
+  })();
+  const friend = social?.friendById?.(otherId);
+  const displayName = friend?.username || friend?.account || otherId || "好友";
+  if (avatarEl) {
+    avatarEl.innerHTML = "";
+    avatarEl.removeAttribute("data-count");
+    avatarEl.className = "profile-avatar";
+    if (friend) {
+      avatarHelper.applyFellowAvatar(avatarEl, {
+        key: friend.id,
+        avatarImage: friend.avatarImage,
+        avatarCrop: friend.avatarCrop,
+        color: friend.avatarColor
+      });
+    } else {
+      const letter = (displayName[0] || "?").toUpperCase();
+      avatarEl.textContent = letter;
+      avatarEl.style.cssText = "background-color:#5e5ce6; color:#fff;";
+    }
+  }
+  setText(nameEl, displayName);
+  if (metaEl) metaEl.textContent = "私聊";
 }
 
 // (openRoomContextMenu removed — sidebar now uses the unified
@@ -1218,7 +1219,7 @@ function render() {
   // Only fall back to personas[0] when no persona matches AND no group is active.
   // Without this guard, clicking a group (whose id doesn't match any persona key)
   // immediately resets activeKey back to personas[0], making group selection a no-op.
-  if (!personas.some((persona) => persona.key === state.activeKey) && personas.length && !activeGroup() && !window.aimashiSocial?.getActiveRoomId?.()) {
+  if (!personas.some((persona) => persona.key === state.activeKey) && personas.length && !window.aimashiSocial?.getActiveRoomId?.()) {
     state.activeKey = personas[0].key;
   }
   if (!personas.some((persona) => persona.key === state.activeContactKey) && personas.length) {
@@ -1229,53 +1230,17 @@ function render() {
   const unreadTotal = window.aimashiSessionReadState.totalUnreadCount(personas);
   els.personaCount.textContent = window.aimashiUnread.unreadBadgeText(unreadTotal);
   els.personaCount.classList.toggle("hidden", unreadTotal <= 0);
-  const groupActive = activeGroup();
   const active = personas.find((persona) => persona.key === state.activeKey) || personas[0];
+  const activeCloudRoomId = window.aimashiSocial?.getActiveRoomId?.();
+  const activeCloudRoom = activeCloudRoomId
+    ? window.aimashiSocial?.getRoomById?.(activeCloudRoomId)
+    : null;
   const groupInfoBtn = document.getElementById("groupInfoButton");
-  if (groupActive) {
-    // Render composite group avatar in topbar (Boss first, then all Fellows)
-    if (els.activeChatAvatar) {
-      els.activeChatAvatar.textContent = "";
-      els.activeChatAvatar.setAttribute("style", "");
-      els.activeChatAvatar.className = "profile-avatar group-avatar";
-      const topbarUser = state.runtime?.user || {};
-      const topbarBossColor = topbarUser.avatarColor || "#111827";
-      const bossTileTopbar = document.createElement("span");
-      bossTileTopbar.className = "group-avatar-tile";
-      let topbarBossStyle = "";
-      if (typeof window.aimashiAvatar?.avatarThumbBackgroundStyle === "function" && topbarUser.avatarImage) {
-        topbarBossStyle = window.aimashiAvatar.avatarThumbBackgroundStyle(topbarUser.avatarImage, topbarUser.avatarCrop, topbarBossColor);
-      }
-      if (!topbarBossStyle || topbarBossStyle.trim() === "") {
-        topbarBossStyle = "background-color:" + topbarBossColor + ";";
-      }
-      bossTileTopbar.style.cssText = topbarBossStyle;
-      els.activeChatAvatar.appendChild(bossTileTopbar);
-      for (const mid of (groupActive.members || []).map((m) => m.fellowId)) {
-        const tile = document.createElement("span");
-        tile.className = "group-avatar-tile";
-        const fellow = personas.find((p) => (p.id || p.key) === mid);
-        let styleStr = window.aimashiAvatar.avatarThumbBackgroundStyle(
-          fellow?.avatarImage || window.aimashiAvatar.avatarAssetForKey(mid),
-          fellow?.avatarCrop,
-          fellow?.color || "#5e5ce6"
-        );
-        if (!styleStr || styleStr.trim() === "") {
-          styleStr = "background-color:" + (fellow?.color || "#5e5ce6") + ";";
-        }
-        tile.style.cssText = styleStr;
-        els.activeChatAvatar.appendChild(tile);
-      }
-      els.activeChatAvatar.setAttribute("data-count", String(1 + (groupActive.members || []).length));
-    }
-    setText(els.activeChatName, groupActive.name || "未命名群聊");
-    if (els.activeChatMeta) {
-      els.activeChatMeta.textContent = "群聊 · " + ((groupActive.members || []).length + 1) + " 人";
-    }
-    if (groupInfoBtn) groupInfoBtn.classList.remove("hidden");
-    // Hide session menu (not relevant for group chats)
+  const composerBottom = document.querySelector(".composer-bottom");
+  if (activeCloudRoom) {
+    paintActiveCloudRoomHeader(activeCloudRoom, { personas, social: window.aimashiSocial });
+    if (groupInfoBtn) groupInfoBtn.classList.add("hidden");
     if (els.sessionMenuButton) els.sessionMenuButton.classList.add("hidden");
-    const composerBottom = document.querySelector(".composer-bottom");
     if (composerBottom) composerBottom.classList.add("hidden");
   } else if (active) {
     if (els.activeChatAvatar) {
@@ -1287,24 +1252,13 @@ function render() {
     renderHeaderStatus();
     if (groupInfoBtn) groupInfoBtn.classList.add("hidden");
     if (els.sessionMenuButton) els.sessionMenuButton.classList.remove("hidden");
-    const composerBottom = document.querySelector(".composer-bottom");
     if (composerBottom) composerBottom.classList.remove("hidden");
   }
   const filter = state.personaFilter.trim().toLowerCase();
   const visiblePersonas = filter
     ? personas.filter((persona) => `${persona.name || ""} ${persona.key || ""}`.toLowerCase().includes(filter))
     : personas;
-  const visibleGroups = listGroups().filter((group) => (
-    !filter || `${group.name || ""} ${(group.members || []).map((m) => m.fellowId).join(" ")}`.toLowerCase().includes(filter)
-  ));
   const socialRows = window.aimashiSocial?.renderSidebarRows?.() || [];
-  // Dedup: a local-store group that has a cloud counterpart (group.cloudRoomId
-  // matches one of the socialRows' room ids — set by sync, see main.js
-  // pushLocalGroupsToCloud) is the SAME conversation as the cloud row. The
-  // sidebar must show it once, not twice. Prefer the cloud row because that's
-  // the canonical cross-device version.
-  const cloudRoomIds = new Set(socialRows.filter((r) => r.type === "group-room" || r.type === "dm-room").map((r) => r.key));
-  const dedupedGroups = visibleGroups.filter((g) => !(g.cloudRoomId && cloudRoomIds.has(g.cloudRoomId)));
   const messageRows = window.aimashiFellowManager.sortMessageCardsForSidebar([
     ...visiblePersonas.map((persona) => ({
       type: "fellow",
@@ -1313,14 +1267,6 @@ function render() {
       pinnedAt: persona.pinnedAt || "",
       updatedAt: conversationUpdatedAt(persona),
       persona
-    })),
-    ...dedupedGroups.map((group) => ({
-      type: "group",
-      key: group.id,
-      pinned: Boolean(group.pinned),
-      pinnedAt: group.pinnedAt || "",
-      updatedAt: groupConversationUpdatedAt(group),
-      group
     })),
     ...socialRows
   ]);
@@ -1391,7 +1337,6 @@ function renderView() {
   els.avatarCropDialog?.classList.toggle("hidden", !state.avatarCropEditor.open);
   window.aimashiSkillLibrary.renderSkillPreview();
   window.aimashiFellowManager.renderFellowContextMenu();
-  renderGroupContextMenu();
   window.aimashiPetDialog?.renderPetGenerateDialog();
   window.aimashiPetDialog?.renderPetJobs();
   document.querySelectorAll("[data-view]").forEach((button) => {
@@ -1411,68 +1356,13 @@ function renderView() {
 
 
 function syncTopbarClickCapture() {
-  document.body.classList.toggle("topbar-click-capture", Boolean(state.skillContextMenu.open || state.groupContextMenu.open || state.sessionMenuOpen));
+  document.body.classList.toggle("topbar-click-capture", Boolean(state.skillContextMenu.open || state.sessionMenuOpen));
 }
 
 function formatRunTime(ms) {
   if (ms == null) return "—";
   const d = new Date(ms);
   return d.toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
-}
-
-
-function groupById(groupId) {
-  return listGroups().find((group) => group.id === groupId) || null;
-}
-
-function openGroupContextMenu(groupId, x, y) {
-  if (!groupId) return;
-  window.aimashiMessageMenu?.closeMessageContextMenu();
-  window.aimashiFellowManager.closeFellowContextMenu();
-  window.aimashiSkillLibrary.closeSkillContextMenu();
-  state.groupContextMenu = { open: true, x, y, groupId };
-  renderGroupContextMenu();
-}
-
-function closeGroupContextMenu() {
-  if (!state.groupContextMenu.open) return;
-  state.groupContextMenu = { open: false, x: 0, y: 0, groupId: "" };
-  renderGroupContextMenu();
-}
-
-function renderGroupContextMenu() {
-  if (!els.groupContextMenu) return;
-  const menu = els.groupContextMenu;
-  const group = groupById(state.groupContextMenu.groupId);
-  const open = state.groupContextMenu.open && group;
-  menu.classList.toggle("hidden", !open);
-  syncTopbarClickCapture();
-  if (!open) return;
-  menu.innerHTML = `
-    ${window.aimashiMarkdown.menuItemHtml({ icon: "pin", label: group.pinned ? "取消置顶" : "置顶", attrs: 'data-group-action="pin"' })}
-    ${window.aimashiMarkdown.menuItemHtml({ icon: "edit", label: "编辑群组", attrs: 'data-group-action="edit"' })}
-    <div class="skill-context-menu-separator" role="separator"></div>
-    ${window.aimashiMarkdown.menuItemHtml({ icon: "delete", label: "删除群组", attrs: 'data-group-action="delete"', className: "danger" })}
-  `;
-  const rect = menu.getBoundingClientRect();
-  const width = rect.width || 138;
-  const height = rect.height || 126;
-  menu.style.left = `${Math.max(8, Math.min(state.groupContextMenu.x, window.innerWidth - width - 8))}px`;
-  menu.style.top = `${Math.max(8, Math.min(state.groupContextMenu.y, window.innerHeight - height - 8))}px`;
-  menu.querySelector('[data-group-action="pin"]')?.addEventListener("click", async () => {
-    closeGroupContextMenu();
-    await setGroupPinned(group.id, !group.pinned);
-  });
-  menu.querySelector('[data-group-action="edit"]')?.addEventListener("click", () => {
-    closeGroupContextMenu();
-    if (window.aimashiGroup && typeof window.aimashiGroup.openInfoDialog === "function") {
-      window.aimashiGroup.openInfoDialog(group);
-    }
-  });
-  menu.querySelector('[data-group-action="delete"]')?.addEventListener("click", async () => {
-    closeGroupContextMenu();
-    await deleteGroup(group.id);
-  });
 }
 
 
@@ -1511,47 +1401,6 @@ async function deleteFellow(fellowKey) {
   } catch (error) {
     appendTransientChat("assistant", `删除伙伴失败: ${error.message}`);
     await refreshRuntime();
-  }
-}
-
-async function setGroupPinned(groupId, pinned) {
-  const group = groupById(groupId);
-  if (!group) return;
-  try {
-    const patch = { pinned: Boolean(pinned), pinnedAt: pinned ? nowIso() : "" };
-    const updated = await window.aimashi.groups.update(group.id, patch);
-    if (window.aimashiGroup?.moduleState?.groups) {
-      const index = window.aimashiGroup.moduleState.groups.findIndex((item) => item.id === group.id);
-      if (index >= 0) window.aimashiGroup.moduleState.groups[index] = updated;
-    }
-    render();
-  } catch (error) {
-    appendTransientChat("assistant", `群组置顶失败: ${error.message}`);
-  }
-}
-
-async function deleteGroup(groupId) {
-  const group = groupById(groupId);
-  if (!group) return;
-  const ok = window.confirm(`删除群组「${group.name || "未命名群聊"}」？\n\n该群组和聊天记录将被移除，操作不可撤销。`);
-  if (!ok) return;
-  try {
-    await window.aimashi.groups.delete(group.id);
-    if (window.aimashiGroup?.moduleState) {
-      window.aimashiGroup.moduleState.groups = (window.aimashiGroup.moduleState.groups || []).filter((item) => item.id !== group.id);
-      window.aimashiGroup.moduleState.messagesByGroup?.delete?.(group.id);
-      if (window.aimashiGroup.moduleState.activeGroupId === group.id) {
-        window.aimashiGroup.moduleState.activeGroupId = null;
-      }
-    }
-    if (state.activeKey === group.id) {
-      const fellows = state.runtime?.fellows || state.runtime?.personas || [];
-      state.activeKey = fellows[0]?.key || "";
-      state.activeGroupId = "";
-    }
-    render();
-  } catch (error) {
-    appendTransientChat("assistant", `删除群组失败: ${error.message}`);
   }
 }
 
@@ -1821,19 +1670,12 @@ function renderCommandResultHtml(commandResult) {
 }
 
 function renderChat() {
-  // Branch: if a DM room is active, delegate to social module
-  const activeDmRoomId = window.aimashiSocial?.getActiveRoomId?.();
-  if (activeDmRoomId && !activeGroup() && !state.activeKey) {
+  // Branch: a cloud room (DM / group / fellow) is active → social paints
+  // the message list. Header is painted by render() above.
+  const activeRoomId = window.aimashiSocial?.getActiveRoomId?.();
+  if (activeRoomId && !state.activeKey) {
     if (window.aimashiSocial && typeof window.aimashiSocial.renderRoomChat === "function") {
       window.aimashiSocial.renderRoomChat(els.chat);
-    }
-    return;
-  }
-  // Branch: if a group is active, delegate to group module
-  const groupActive = activeGroup();
-  if (groupActive) {
-    if (window.aimashiGroup && typeof window.aimashiGroup.renderActiveGroup === "function") {
-      window.aimashiGroup.renderActiveGroup(groupActive);
     }
     return;
   }
@@ -1901,62 +1743,7 @@ function activePersona() {
   return personas.find((persona) => persona.key === state.activeKey) || personas[0];
 }
 
-// ── Group helpers ─────────────────────────────────────────────────────────────
-function listGroups() {
-  if (!window.aimashiGroup || !window.aimashiGroup.moduleState) return [];
-  return window.aimashiGroup.moduleState.groups || [];
-}
 
-function activeGroup() {
-  const groups = listGroups();
-  return groups.find((g) => g.id === state.activeKey) || null;
-}
-
-function groupMessagesForPreview(group) {
-  return window.aimashiGroup?.moduleState?.messagesByGroup?.get?.(group.id) || [];
-}
-
-function groupLastPreviewMessage(group) {
-  const messages = groupMessagesForPreview(group);
-  const primary = [...messages].reverse().find((message) => (
-    (message.role === "user" || message.role === "fellow") &&
-    String(message.content || "").trim() &&
-    message.status !== "streaming"
-  ));
-  if (primary) return primary;
-  return [...messages].reverse().find((message) => String(message.content || "").trim() && message.status !== "streaming") || null;
-}
-
-function groupConversationUpdatedAt(group) {
-  const last = groupLastPreviewMessage(group);
-  return last?.createdAt || group.updatedAt || group.createdAt || "";
-}
-
-function groupMessageSpeaker(message, fellows = []) {
-  if (message?.role === "user") return state.runtime?.user?.displayName || "你";
-  if (message?.role === "fellow") {
-    const fellowId = message.senderFellowId || "";
-    const fellow = fellows.find((item) => (item.id || item.key) === fellowId);
-    return fellow?.name || fellowId || "伙伴";
-  }
-  return "系统";
-}
-
-function groupConversationPreview(group, fellows = []) {
-  const last = groupLastPreviewMessage(group);
-  if (!last) {
-    return {
-      text: "暂无消息",
-      time: formatConversationTime(group.updatedAt || group.createdAt)
-    };
-  }
-  const speaker = groupMessageSpeaker(last, fellows);
-  const content = String(last.content || "").replace(/\s+/g, " ").trim();
-  return {
-    text: `${speaker}：${content}`,
-    time: formatConversationTime(last.createdAt || group.updatedAt || group.createdAt)
-  };
-}
 
 function appendChat(role, content, options = {}) {
   const session = activeSession();
@@ -2180,7 +1967,6 @@ async function initializeRuntime() {
       loadSkills: () => window.aimashiLoaders.loadSkills(),
       showNarrowContent,
       render,
-      closeGroupContextMenu,
       openEditFellowDialog,
       deleteFellow,
       setFellowPinned,
@@ -2195,7 +1981,6 @@ async function initializeRuntime() {
       setText,
       menuItemHtml: window.aimashiMarkdown.menuItemHtml,
       syncTopbarClickCapture,
-      closeGroupContextMenu,
       showNarrowContent,
       installExtension,
       deleteSkill,
@@ -2266,43 +2051,7 @@ async function initializeRuntime() {
       cryptoRandomId,
       closeSkillContextMenu: window.aimashiSkillLibrary.closeSkillContextMenu,
       closeFellowContextMenu: window.aimashiFellowManager.closeFellowContextMenu,
-      closeGroupContextMenu,
     });
-  }
-  // Group init last — see comment above about triggerRender + settings-appearance.
-  if (window.aimashiGroup && window.aimashiGroup.initGroupModule) {
-    try {
-      await window.aimashiGroup.initGroupModule({
-        getFellows: () => {
-          const list = Array.isArray(state.runtime && state.runtime.fellows) ? state.runtime.fellows
-            : Array.isArray(state.runtime && state.runtime.personas) ? state.runtime.personas
-            : [];
-          return list.map((f) => ({ id: f.id || f.key, name: f.name || f.key, key: f.key, avatarImage: f.avatarImage, avatarCrop: f.avatarCrop, color: f.color }));
-        },
-        getRuntime: () => state.runtime,
-        triggerRender: () => render(),
-        openGroup: (groupId) => {
-          state.activeKey = groupId;
-          if (window.aimashiGroup) window.aimashiGroup.moduleState.activeGroupId = groupId;
-          showNarrowContent();
-          render();
-        },
-        engineCall: async ({ kind, prompt, group }) => {
-          const hostFellowId = group && group.hostMember && group.hostMember.fellowId;
-          if (!hostFellowId) throw new Error("no host fellow for group");
-          const result = await window.aimashi.sendChatStateless({
-            fellowKey: hostFellowId,
-            systemPrompt: kind === "summarize"
-              ? "你是群聊摘要器，无人设。"
-              : "你是群聊调度器，无人设。",
-            userPrompt: prompt,
-          });
-          return result && typeof result.content === "string" ? result.content : "";
-        },
-      });
-    } catch (err) {
-      console.error("[group] init bootstrap failed:", err);
-    }
   }
   if (window.aimashiSocial && window.aimashiSocial.initSocialModule) {
     window.aimashiSocial.initSocialModule({
@@ -2338,14 +2087,6 @@ async function initializeRuntime() {
   });
 }
 
-// Group info button in topbar
-document.getElementById("groupInfoButton")?.addEventListener("click", () => {
-  const group = activeGroup();
-  if (group && window.aimashiGroup && typeof window.aimashiGroup.openInfoDialog === "function") {
-    window.aimashiGroup.openInfoDialog(group);
-  }
-});
-
 els.openSettings.addEventListener("click", () => {
   state.settingsOpen = true;
   if (state.activeSettingsTab === "profile") state.activeSettingsTab = "appearance";
@@ -2380,7 +2121,6 @@ document.addEventListener("keydown", (event) => {
   closeImagePreview();
   if (state.skillContextMenu.open) window.aimashiSkillLibrary.closeSkillContextMenu();
   if (state.fellowContextMenu.open) window.aimashiFellowManager.closeFellowContextMenu();
-  if (state.groupContextMenu.open) closeGroupContextMenu();
   if (state.messageContextMenu.open) window.aimashiMessageMenu?.closeMessageContextMenu();
   window.aimashiComposer.closeComposerAddMenu();
   if (state.skillPreviewOpen) {
@@ -2398,9 +2138,6 @@ document.addEventListener("click", (event) => {
 });
 document.addEventListener("click", (event) => {
   if (state.fellowContextMenu.open && !els.fellowContextMenu?.contains(event.target)) window.aimashiFellowManager.closeFellowContextMenu();
-});
-document.addEventListener("click", (event) => {
-  if (state.groupContextMenu.open && !els.groupContextMenu?.contains(event.target)) closeGroupContextMenu();
 });
 document.addEventListener("click", (event) => {
   if (state.messageContextMenu.open && !els.messageContextMenu?.contains(event.target)) window.aimashiMessageMenu?.closeMessageContextMenu();
@@ -3707,25 +3444,19 @@ els.chat.addEventListener("toggle", (event) => {
 els.chatForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (window.aimashiMessageHelpers.isComposerComposing()) return;
-  // Branch: DM room or group-room chat
-  if (window.aimashiSocial?.getActiveRoomId?.() && !activeGroup() && !state.activeKey) {
+  // Branch: a cloud room (dm / group / fellow) is active → send via social.
+  if (window.aimashiSocial?.getActiveRoomId?.() && !state.activeKey) {
     const roomId = window.aimashiSocial.getActiveRoomId();
     const roomText = els.chatInput.value;
     if (!roomText.trim()) return;
     els.chatInput.value = "";
     window.aimashiMessageHelpers.resizeChatInput();
-    const isGroupRoom = roomId && roomId.startsWith("g_");
+    const activeRoomRecord = window.aimashiSocial.getRoomById?.(roomId);
+    const isGroupRoom = activeRoomRecord?.type === "group";
     if (isGroupRoom && typeof window.aimashiSocial.sendInActiveGroupRoom === "function") {
       await window.aimashiSocial.sendInActiveGroupRoom(roomText);
     } else {
       await window.aimashiSocial.sendInActiveRoom(roomText);
-    }
-    return;
-  }
-  // Branch: group chat
-  if (activeGroup()) {
-    if (window.aimashiGroup && typeof window.aimashiGroup.sendInActiveGroup === "function") {
-      await window.aimashiGroup.sendInActiveGroup();
     }
     return;
   }
@@ -3954,8 +3685,6 @@ function openInitialFellowDialog() {
 
 function renderHeaderStatus() {
   if (!els.activeChatMeta) return;
-  // If a group is active, the meta is already set by the render() topbar block
-  if (activeGroup()) return;
   const personas = state.runtime?.fellows || state.runtime?.personas || [];
   const active = personas.find((persona) => persona.key === state.activeKey) || personas[0];
   if (!active) return;

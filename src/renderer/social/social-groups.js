@@ -359,29 +359,7 @@
 
       confirmBtn.disabled = true;
       try {
-        // No friends selected → local fellow-only group (no cloud login required).
-        if (memberFriendUserIds.length === 0) {
-          if (fellowEntries.length < 2) {
-            alert("群聊至少需要 2 位智能体");
-            confirmBtn.disabled = false;
-            return;
-          }
-          const members = fellowEntries.map((e) => ({ kind: "fellow", fellowId: String(e.id), ownerId: null }));
-          const hostMember = members[0];
-          const group = await window.aimashi.groups.create({ name, members, hostMember });
-          if (window.aimashiGroup?.moduleState) {
-            window.aimashiGroup.moduleState.groups = window.aimashiGroup.moduleState.groups || [];
-            window.aimashiGroup.moduleState.groups.push(group);
-            if (typeof window.aimashiGroup.openGroup === "function") {
-              window.aimashiGroup.openGroup(group.id);
-            }
-          }
-          close();
-          if (deps && typeof deps.render === "function") deps.render();
-          return;
-        }
-
-        // Has friends → cloud room (requires login).
+        // Phase 5 cutover: every group is a cloud room. Login required.
         const memberFellows = fellowEntries.map((e) => ({ fellowId: e.id }));
         const res = await window.aimashi.social.createRoom({ name, memberFellows, memberFriendUserIds });
         if (!res.ok) { alert("创建失败：" + (res.error || "")); confirmBtn.disabled = false; return; }

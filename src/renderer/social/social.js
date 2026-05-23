@@ -1,6 +1,6 @@
 // Renderer-side social module: friends, DM rooms, add-friend dialog.
 // Loaded by <script src="./social/social.js"> from index.html, BEFORE app.js.
-// Pattern: same IIFE + window.aimashiSocial as group.js uses for window.aimashiGroup.
+// Pattern: IIFE + window.aimashiSocial public API; deps are injected via initSocialModule().
 
 (function (global) {
   // Decision: cap initial-message fetch to 30 rooms to keep bootstrap fast.
@@ -364,9 +364,12 @@
         if (msgTs > updatedAt) updatedAt = msgTs;
       }
 
-      // Group rooms: id starts with "g_" or have a non-null name (cloud convention)
-      const isGroup = room.name != null && room.id.startsWith("g_");
-      if (isGroup) {
+      // Route on rooms.type (schema truth). Two card shapes only:
+      // private-room (dm / fellow) and group-room. The card renderer
+      // resolves "who's the other party" downstream — this file just
+      // packages the row with its cached preview + the membership count
+      // groups need to render the mosaic.
+      if (room.type === "group") {
         const memberCount = (_roomMembersCache.get(room.id) || []).length;
         return {
           type: "group-room",
@@ -378,9 +381,9 @@
         };
       }
 
-      const otherUser = otherUserForRoom(room);
+      const otherUser = room.type === "dm" ? otherUserForRoom(room) : null;
       return {
-        type: "dm-room",
+        type: "private-room",
         key: room.id,
         pinned: false,
         pinnedAt: "",
@@ -400,73 +403,32 @@
     const entry = moduleState.messageCache.get(roomId) || { messages: [], maxSeq: 0 };
     const room = moduleState.rooms.find((r) => r.id === roomId);
     const color = avatarColor(roomId);
-    const isGroup = room && room.name != null && roomId.startsWith("g_");
 
     containerEl.innerHTML = "";
 
-    if (isGroup) {
-      // Group room: show messages with sender attribution
+    // Header (avatar / name / meta) is painted by app.js render() — this
+    // module only owns the message list so the chat header stays in lockstep
+    // with the sidebar's group-avatar mosaic for every room type.
+
+    if (room && room.type === "group") {
       const members = _roomMembersCache.get(roomId) || [];
       for (const msg of entry.messages) {
         const article = _buildGroupMessageArticle(msg, color, members);
         if (article) containerEl.appendChild(article);
       }
-
       containerEl.scrollTop = containerEl.scrollHeight;
-
-      const groupName = escapeHtml(room.name || "群聊");
-      const memberCount = members.length;
-      const nameEl = document.getElementById("activeChatName");
-      if (nameEl) nameEl.textContent = room.name || "群聊";
-      const metaEl = document.getElementById("activeChatMeta");
-      if (metaEl) metaEl.textContent = memberCount ? `群聊 · ${memberCount} 人` : "群聊";
-      const avatarEl = document.getElementById("activeChatAvatar");
-      if (avatarEl) {
-        avatarEl.textContent = (room.name || "G")[0].toUpperCase();
-        avatarEl.className = "profile-avatar";
-        avatarEl.style.cssText = "background-color:" + color + "; color:#fff;";
-      }
-      const groupInfoBtn = document.getElementById("groupInfoButton");
-      if (groupInfoBtn) groupInfoBtn.classList.add("hidden");
-      const sessionMenuBtn = document.getElementById("sessionMenuButton");
-      if (sessionMenuBtn) sessionMenuBtn.classList.add("hidden");
-      const composerBottom = document.querySelector(".composer-bottom");
-      if (composerBottom) composerBottom.classList.add("hidden");
-
-      // Ensure members are cached for mention parsing
       if (!_roomMembersCache.has(roomId)) {
         _fetchAndCacheRoomMembers(roomId);
       }
       return;
     }
 
-    // DM room path (unchanged)
-    const otherUser = room ? otherUserForRoom(room) : { username: "好友" };
-    const otherName = otherUser.username || otherUser.account || "好友";
-
+    // DM and fellow rooms share the 1-on-1 message bubble path.
     for (const msg of entry.messages) {
       const article = _buildMessageArticle(msg, color);
       if (article) containerEl.appendChild(article);
     }
-
     containerEl.scrollTop = containerEl.scrollHeight;
-
-    const nameEl = document.getElementById("activeChatName");
-    if (nameEl) nameEl.textContent = otherName;
-    const metaEl = document.getElementById("activeChatMeta");
-    if (metaEl) metaEl.textContent = "私聊";
-    const avatarEl = document.getElementById("activeChatAvatar");
-    if (avatarEl) {
-      avatarEl.textContent = (otherName[0] || "?").toUpperCase();
-      avatarEl.className = "profile-avatar";
-      avatarEl.style.cssText = "background-color:" + color + "; color:#fff;";
-    }
-    const groupInfoBtn = document.getElementById("groupInfoButton");
-    if (groupInfoBtn) groupInfoBtn.classList.add("hidden");
-    const sessionMenuBtn = document.getElementById("sessionMenuButton");
-    if (sessionMenuBtn) sessionMenuBtn.classList.add("hidden");
-    const composerBottom = document.querySelector(".composer-bottom");
-    if (composerBottom) composerBottom.classList.add("hidden");
   }
 
   function _specForMessage(msg) {
@@ -877,6 +839,7 @@
   // ── getters / setters ─────────────────────────────────────────────────────
 
   function getActiveRoomId() { return moduleState.activeRoomId; }
+  function getRoomById(roomId) { return moduleState.rooms.find((r) => r.id === roomId) || null; }
   function setActiveRoomId(id) {
     moduleState.activeRoomId = id || null;
     if (id) moduleState.unreadByRoom.delete(id);
@@ -1040,6 +1003,7 @@
     sendInActiveRoom,
     sendInActiveGroupRoom,
     getActiveRoomId,
+    getRoomById,
     setActiveRoomId,
     markRoomRead,
     isRoomPinned,

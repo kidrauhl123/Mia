@@ -111,13 +111,8 @@
     `;
     const avatarEl = btn.querySelector(".avatar.group-avatar");
     const members = Array.isArray(spec.members) ? spec.members : [];
-    for (const member of members) {
-      const tile = document.createElement("span");
-      tile.className = "group-avatar-tile";
-      applyAvatarStyle(tile, member.image, member.crop, member.color);
-      avatarEl.appendChild(tile);
-    }
-    avatarEl.setAttribute("data-count", String(members.length));
+    global.aimashiGroupAvatar.applyGroupAvatar(avatarEl, members);
+    avatarEl.classList.add("group-avatar");
     attachHandlers(btn, spec);
     return btn;
   }

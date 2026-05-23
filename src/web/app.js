@@ -285,6 +285,13 @@ async function bootstrap() {
     await ensureRoomMessages(state.activeConversationId);
     await ensureRoomMembers(state.activeConversationId);
   }
+  // Prefetch members for every group room so the sidebar mosaic shows real
+  // avatars on first paint instead of empty tiles.
+  await Promise.all(
+    state.rooms
+      .filter((r) => r.type === "group")
+      .map((r) => ensureRoomMembers(r.id))
+  );
   renderConversationList();
   renderActiveChat();
   renderSettings();
@@ -550,17 +557,30 @@ function roomSortKey(room) {
 // (desktopConvLastMessageText / desktopConvSortKey removed in
 //  Phase 4 cutover.)
 
+function groupTilesCtx() {
+  return {
+    self: state.user || null,
+    friends: state.friends || [],
+    fellows: state.fellows || []
+  };
+}
+
 // Unified item shape so the renderer doesn't have to branch every time.
 // Pinned items sort to the top regardless of recency, mirroring the
 // ChatGPT-style pin behavior the user asked for.
 function combinedConversationItems() {
   const room = state.rooms.map((r) => {
-    const isDM = r.id?.startsWith("dm:");
+    const isDM = r.type === "dm" || r.id?.startsWith("dm:");
     const isFellow = r.type === "fellow" || r.id?.startsWith("fellow:");
+    const isGroup = r.type === "group";
     let avatar = "";
     let avatarCrop = null;
     let color = "";
-    if (isDM) {
+    let memberTiles = null;
+    if (isGroup) {
+      const records = state.roomMembersCache.get(r.id) || [];
+      memberTiles = window.aimashiGroupTiles.resolveGroupMemberTiles(records, groupTilesCtx());
+    } else if (isDM) {
       const parts = r.id.split(":");
       const otherId = parts[1] === state.user?.id ? parts[2] : parts[1];
       const friend = friendById(otherId);
@@ -570,8 +590,6 @@ function combinedConversationItems() {
         color = friend.avatarColor || "";
       }
     } else if (isFellow) {
-      // Phase 4: resolve fellow avatar from cloud-mirrored definitions
-      // so fellow chat cards look the same as DMs and groups.
       const fellowKey = r.decorations?.fellowKey || (r.id?.split(":")[2] || "");
       const fellow = state.fellows?.find((f) => f.id === fellowKey);
       if (fellow) {
@@ -588,9 +606,11 @@ function combinedConversationItems() {
       sortKey: roomSortKey(r),
       isDM,
       isFellow,
+      isGroup,
       avatar,
       avatarCrop,
       color,
+      memberTiles,
       pinned: isRoomPinned(r.id)
     };
   });
@@ -620,14 +640,29 @@ function renderConversationList() {
     let color = "#5e5ce6";
     if (it.kind === "room") color = it.color || (it.isDM ? "#5e5ce6" : "#34c759");
     if (it.kind === "desktop") color = it.color || "#ff9f0a";
-    // Accept absolute URLs, data URLs, and relative ./assets/... paths
-    // (the cloud release bundles preset avatars under web/assets/ so
-    // ./assets/avatars-pet/05.png resolves against the web origin).
-    const useAvatar = it.avatar && (/^(https?:|data:|\.?\/assets\/)/i.test(it.avatar));
-    const avatarStyle = useAvatar
-      ? avatarBackgroundStyle(it.avatar, it.avatarCrop, color)
-      : `background-color:${color}; color:#fff; display:inline-flex; align-items:center; justify-content:center;`;
-    const avatarText = useAvatar ? "" : escapeHtml(avatarLabel);
+    // Group rooms: paint a mosaic from real member avatars. The tile
+    // markup is built into avatarHtml, replacing the single-letter avatar
+    // span used for 1-on-1 rows.
+    let avatarHtml = "";
+    if (it.isGroup) {
+      const tiles = Array.isArray(it.memberTiles) ? it.memberTiles : [];
+      const tileSpans = tiles.map((tile) => {
+        const fallback = tile.color || "#5e5ce6";
+        const useImg = tile.image && (/^(https?:|data:|\.?\/assets\/)/i.test(tile.image));
+        const style = useImg
+          ? avatarBackgroundStyle(tile.image, tile.crop, fallback)
+          : `background-color:${fallback};`;
+        return `<span class="group-avatar-tile" style="${style}"></span>`;
+      }).join("");
+      avatarHtml = `<span class="avatar group-avatar" data-count="${tiles.length}">${tileSpans}</span>`;
+    } else {
+      const useAvatar = it.avatar && (/^(https?:|data:|\.?\/assets\/)/i.test(it.avatar));
+      const avatarStyle = useAvatar
+        ? avatarBackgroundStyle(it.avatar, it.avatarCrop, color)
+        : `background-color:${color}; color:#fff; display:inline-flex; align-items:center; justify-content:center;`;
+      const avatarText = useAvatar ? "" : escapeHtml(avatarLabel);
+      avatarHtml = `<span class="avatar" style="${avatarStyle}">${avatarText}</span>`;
+    }
     // ⋯ menu: workspace conversations + cloud rooms (PATCH/DELETE /api/rooms
     // shipped — see commit 90671e4). Pin uses local storage; rename + delete
     // hit the cloud.
@@ -649,7 +684,7 @@ function renderConversationList() {
     return `
       <div class="persona-row${it.pinned ? " pinned" : ""}${it.id === state.activeConversationId ? " active" : ""}${unread > 0 ? " has-unread" : ""}">
         <button class="persona" type="button" data-conv-id="${escapeHtml(it.id)}" data-conv-kind="${it.kind}">
-          <span class="avatar" style="${avatarStyle}">${avatarText}</span>
+          ${avatarHtml}
           <span class="persona-main">
             <strong class="persona-name">${it.pinned ? "📌 " : ""}${escapeHtml(it.title)}</strong>
             <span class="persona-preview">${escapeHtml(it.preview)}</span>

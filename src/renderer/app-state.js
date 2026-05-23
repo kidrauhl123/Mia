@@ -61,7 +61,6 @@
       skillStatusFilter: "all",
       skillContextMenu: { open: false, x: 0, y: 0, skillId: "" },
       fellowContextMenu: { open: false, x: 0, y: 0, fellowKey: "" },
-      groupContextMenu: { open: false, x: 0, y: 0, groupId: "" },
       messageContextMenu: { open: false, x: 0, y: 0, messageIndex: -1, selectionText: "" },
       replyDraft: null,
       fellowMenuOpen: false,

@@ -9,15 +9,12 @@ const SRC = path.join(__dirname, "..", "src");
 // directly because they ARE the canonical source-of-truth layer:
 //   - message-sources/  : adapters that normalize raw messages → MessageSpec
 //   - shared/           : enum constants + helpers (resolveContact, etc.)
-//   - main/group/       : storage layer (member-model.js et al.)
 const ALLOWED_PREFIXES = [
   "renderer/message-sources/",
-  "shared/",
-  "main/group/"
+  "shared/"
 ];
 
 const ALLOWED_FILES = [
-  "main/group-store.js" // storage layer — persisting kind literal is legitimate
 ];
 
 function walk(dir, out = []) {

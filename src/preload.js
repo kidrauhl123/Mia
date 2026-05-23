@@ -105,17 +105,6 @@ contextBridge.exposeInMainWorld("aimashi", {
       return () => ipcRenderer.removeListener(IpcChannel.TasksEvent, wrapped);
     }
   },
-  groups: {
-    create: (payload) => ipcRenderer.invoke(IpcChannel.GroupCreate, payload),
-    list: () => ipcRenderer.invoke(IpcChannel.GroupList),
-    get: (id) => ipcRenderer.invoke(IpcChannel.GroupGet, id),
-    update: (id, patch) => ipcRenderer.invoke(IpcChannel.GroupUpdate, { id, patch }),
-    delete: (id) => ipcRenderer.invoke(IpcChannel.GroupDelete, id),
-    appendMessage: (id, message) => ipcRenderer.invoke(IpcChannel.GroupAppendMessage, { id, message }),
-    listMessages: (id) => ipcRenderer.invoke(IpcChannel.GroupListMessages, id),
-    saveContextCard: (id, card) => ipcRenderer.invoke(IpcChannel.GroupSaveContextCard, { id, card }),
-    loadPrompts: () => ipcRenderer.invoke(IpcChannel.GroupLoadPrompts),
-  },
   social: {
     sendFriendRequest: (toUsername) => ipcRenderer.invoke(IpcChannel.SocialSendFriendRequest, toUsername),
     respondFriendRequest: (requestId, action) => ipcRenderer.invoke(IpcChannel.SocialRespondFriendRequest, requestId, action),

@@ -15,8 +15,6 @@ const { IpcChannel } = require("./shared/ipc-channels");
 const { CloudEvent } = require("./shared/cloud-events");
 const { MemberKind } = require("./shared/conversation-kinds");
 const runtimeResources = require("./runtime-resource-paths");
-const { createGroupStore } = require("./main/group-store.js");
-const { buildHermesGroupHeader, injectGroupContextForSdk } = require("./main/group-adapters.js");
 const {
   adapterForEngine,
   normalizeAgentEngine,
@@ -271,15 +269,6 @@ function readJson(filePath, fallback) {
     return fallback;
   }
 }
-
-let _groupStore = null;
-function ensureGroupStore() {
-  if (_groupStore) return _groupStore;
-  _groupStore = createGroupStore(runtimePaths().groupsDir);
-  return _groupStore;
-}
-
-
 
 function officialEngineUrl() {
   if (String(OFFICIAL_ENGINE_URL || "").trim()) return OFFICIAL_ENGINE_URL.trim();
@@ -2705,23 +2694,7 @@ function aimashiSessionTitleForAgentBinding(localSessionId, fellow) {
   const id = String(localSessionId || "").trim();
   const fellowKey = String(fellow?.key || "").trim();
   if (!id || id.startsWith("title:") || id.startsWith("utility:")) return null;
-  if (id.startsWith("group:")) {
-    const groupId = id.slice("group:".length).split(":")[0] || "";
-    try {
-      const group = groupId ? ensureGroupStore().get(groupId) : null;
-      return {
-        title: group?.name ? `群聊：${group.name}` : "Aimashi 群聊",
-        preview: `${fellow?.name || fellowKey || "当前 Fellow"} 在这个群聊中的外部会话`,
-        updatedAt: Number(group?.updatedAt || 0)
-      };
-    } catch {
-      return {
-        title: "Aimashi 群聊",
-        preview: `${fellow?.name || fellowKey || "当前 Fellow"} 在这个群聊中的外部会话`,
-        updatedAt: 0
-      };
-    }
-  }
+  if (id.startsWith("group:")) return null;
   try {
     const sessions = loadChatStore().sessions?.[fellowKey] || [];
     const session = sessions.find((item) => item.id === id);
@@ -4638,15 +4611,13 @@ async function syncAimashiCloudWorkspace() {
   if (!settings.enabled || !settings.token) return cloudStatus(false);
   // 0. Profile avatar so friends see the right image.
   await pushUserProfileToCloud();
-  // 1. Push local-only groups into cloud rooms (Phase 4).
-  await pushLocalGroupsToCloud();
-  // 2. Push fellow identities so other devices render proper attribution.
+  // 1. Push fellow identities so other devices render proper attribution.
   await pushAllFellowsToCloud();
-  // 3. Mirror every fellow chat session + message into the unified
+  // 2. Mirror every fellow chat session + message into the unified
   //    rooms+messages model. Idempotent — runs on every sync, no-op
   //    when all sessions are already mirrored.
   await pushAllFellowSessionsToCloudRooms();
-  // 4. Refresh cloud account meta (avatar/username might have changed
+  // 3. Refresh cloud account meta (avatar/username might have changed
   //    on another device).
   try {
     const data = await cloudApi("/api/me");
@@ -4655,114 +4626,6 @@ async function syncAimashiCloudWorkspace() {
     appendCloudLog(`Aimashi Cloud /api/me refresh failed: ${error?.message || error}`);
   }
   return cloudStatus(false);
-}
-
-// For each locally-stored group without a recorded cloudRoomId, create a
-// cloud room counterpart via POST /api/rooms and store the returned room.id
-// back so subsequent syncs skip it. One-directional: cloud rooms are NOT
-// pulled into the local group store because cloud rooms may contain human
-// members the fellow-only local store can't represent — the sidebar shows
-// the cloud version directly (de-duped against the local entry by id).
-async function pushLocalGroupsToCloud() {
-  let groupList = [];
-  try { groupList = ensureGroupStore().list(); }
-  catch (error) { appendCloudLog(`Cloud group sync: failed to list local groups (${error?.message || error})`); return; }
-
-  // Two layers of dedup so this function can never create a duplicate
-  // cloud room:
-  //   (a) Server-side idempotency on body.clientGroupId — server checks
-  //       existing rooms' decorations.clientGroupId before creating.
-  //   (b) Heuristic recovery for groups whose cloud counterpart was created
-  //       BEFORE clientGroupId existed (e.g., the briefly-shipped per-group
-  //       "上传到云端" action). Match by name + identical fellow member set
-  //       against existing cloud rooms; if found, link without POST.
-  let existingRooms = [];
-  try {
-    const data = await cloudApi("/api/rooms", { method: "GET" });
-    existingRooms = Array.isArray(data?.rooms) ? data.rooms : [];
-  } catch { /* sync continues without the heuristic if list fails */ }
-
-  function fellowIdSet(arr) {
-    const out = new Set();
-    for (const m of (Array.isArray(arr) ? arr : [])) {
-      const id = String(m?.fellowId || m?.member_ref || m?.id || m?.key || "").trim();
-      if (id) out.add(id);
-    }
-    return out;
-  }
-
-  for (const group of groupList) {
-    if (!group || group.cloudRoomId) continue;
-    const memberFellows = (Array.isArray(group.members) ? group.members : [])
-      .map((m) => ({ fellowId: m?.fellowId || m?.id || m?.key || "" }))
-      .filter((m) => m.fellowId);
-    if (!memberFellows.length) continue;
-
-    // (b) Heuristic match against pre-clientGroupId rooms — same-named
-    //     non-DM rooms get a detail fetch to compare member sets.
-    const localIds = fellowIdSet(memberFellows);
-    const sameNameCloud = existingRooms.find((r) => r && !r.id?.startsWith("dm:") && (r.name || "").trim() === (group.name || "").trim());
-    if (sameNameCloud) {
-      try {
-        const detail = await cloudApi(`/api/rooms/${sameNameCloud.id}`, { method: "GET" });
-        const remoteFellows = (detail?.members || []).filter((m) => m.member_kind === MemberKind.Fellow).map((m) => m.member_ref);
-        const remoteSet = new Set(remoteFellows);
-        const sameMembers = remoteSet.size === localIds.size && [...localIds].every((id) => remoteSet.has(id));
-        if (sameMembers) {
-          ensureGroupStore().updateGroup(group.id, { cloudRoomId: sameNameCloud.id });
-          appendCloudLog(`Cloud group sync: linked existing room ${sameNameCloud.id} to local group ${group.id} (legacy duplicate avoided)`);
-          continue;
-        }
-      } catch (error) {
-        appendCloudLog(`Cloud group sync: detail fetch failed for ${sameNameCloud.id}: ${error?.message || error}`);
-      }
-    }
-
-    // (a) Server-side idempotent create. Server returns existing if any
-    //     room has decorations.clientGroupId === group.id.
-    try {
-      const res = await cloudApi("/api/rooms", {
-        method: "POST",
-        body: {
-          name: group.name || "未命名群聊",
-          memberFellows,
-          memberFriendUserIds: [],
-          clientGroupId: group.id
-        }
-      });
-      const roomId = res?.room?.id;
-      if (roomId) ensureGroupStore().updateGroup(group.id, { cloudRoomId: roomId });
-    } catch (error) {
-      appendCloudLog(`Cloud group sync failed for ${group.id}: ${error?.message || error}`);
-    }
-  }
-  // Phase 4 backfill: for every group that DOES have a cloudRoomId,
-  // re-push every local message via the message endpoint. Server-side
-  // clientOpId idempotency (Phase 1.D) means we never duplicate; messages
-  // that were lost in the live mirror's transient window or while
-  // offline get filled in by the next sync.
-  for (const group of groupList) {
-    if (!group || !group.cloudRoomId) continue;
-    let messages = [];
-    try { messages = ensureGroupStore().listMessages(group.id) || []; }
-    catch (error) { appendCloudLog(`Cloud group backfill: failed to list messages for ${group.id}: ${error?.message || error}`); continue; }
-    for (const message of messages) {
-      const text = String(message?.text || message?.bodyMd || message?.body_md || "").trim();
-      if (!text) continue;
-      const clientOpId = `op_grp_${group.id}_${message.id || message.createdAt || ""}`;
-      try {
-        await cloudApi(`/api/rooms/${encodeURIComponent(group.cloudRoomId)}/messages`, {
-          method: "POST",
-          body: { bodyMd: text, attachments: message.attachments || null, clientOpId }
-        });
-      } catch (error) {
-        // Stop the backfill for this group on first error; next sync
-        // retries. Avoid spamming failed POSTs.
-        appendCloudLog(`Cloud group backfill error (${group.cloudRoomId}): ${error?.message || error}`);
-        break;
-      }
-    }
-  }
 }
 
 async function pushDesktopMessageToCloud({ session, message, fellowKey = "" } = {}) {
@@ -6234,11 +6097,18 @@ async function ensureHermesChatEngineReady() {
   }
 }
 
+// Group-context plumbing carried over from the local-group era. Cloud group
+// rooms don't currently set group.contextBlock — the dep is wired through
+// the adapters as a no-op so existing call sites stay valid until/unless
+// cloud-side conductor needs a different injection shape.
+function _noopGroupHeader() { return ""; }
+function _passthroughGroupContext(userMessage) { return userMessage; }
+
 function createActiveHermesChatAdapter() {
   return createHermesChatAdapter({
     apiKey,
     baseUrl: () => engineState.baseUrl,
-    buildGroupHeader: buildHermesGroupHeader,
+    buildGroupHeader: _noopGroupHeader,
     buildRunPayload,
     normalizeError: normalizeHermesError,
     readRunEventStream,
@@ -6255,7 +6125,7 @@ function createActiveClaudeCodeChatAdapter() {
     expandLeadingSkillCommand: skillsLoader.expandLeadingSkillCommand,
     getAgentSessionEntry,
     getSchedulerMcpSpec,
-    injectGroupContextForSdk,
+    injectGroupContextForSdk: _passthroughGroupContext,
     lastUserPrompt,
     normalizeEffortLevel: settingsStore.normalizeEffortLevel,
     processEnvStrings,
@@ -6273,7 +6143,7 @@ function createActiveCodexChatAdapter() {
     ensureCodexHome,
     expandLeadingSkillCommand: skillsLoader.expandLeadingSkillCommand,
     getAgentSessionId,
-    injectGroupContextForSdk,
+    injectGroupContextForSdk: _passthroughGroupContext,
     lastUserPrompt,
     normalizeEffortLevel: settingsStore.normalizeEffortLevel,
     processEnvStrings,
@@ -6952,59 +6822,6 @@ ipcMain.handle(IpcChannel.FellowSave, (_event, fellow) => saveFellow(fellow));
 ipcMain.handle(IpcChannel.FellowEngineSave, (_event, payload) => saveFellowEngineConfig(payload));
 ipcMain.handle(IpcChannel.FellowPin, (_event, payload) => setFellowPinned(payload));
 ipcMain.handle(IpcChannel.FellowDelete, (_event, payload) => deleteFellow(payload));
-ipcMain.handle(IpcChannel.GroupCreate, (_event, payload) => ensureGroupStore().create(payload));
-ipcMain.handle(IpcChannel.GroupList, () => ensureGroupStore().list());
-ipcMain.handle(IpcChannel.GroupGet, (_event, id) => ensureGroupStore().get(id));
-ipcMain.handle(IpcChannel.GroupUpdate, (_event, payload) => ensureGroupStore().updateGroup(payload.id, payload.patch));
-ipcMain.handle(IpcChannel.GroupDelete, (_event, id) => ensureGroupStore().deleteGroup(id));
-ipcMain.handle(IpcChannel.GroupAppendMessage, (_event, payload) => {
-  const result = ensureGroupStore().appendMessage(payload.id, payload.message);
-  // Phase 4: mirror to cloud if this group has been promoted to a cloud
-  // room. Fire-and-forget — the local append is the source of truth for
-  // offline; cloud is the cross-device mirror. clientOpId keeps the
-  // server-side write idempotent so retries don't duplicate.
-  mirrorLocalGroupMessageToCloud(payload.id, payload.message).catch((e) =>
-    appendCloudLog(`Cloud group message mirror failed for ${payload.id}: ${e?.message || e}`)
-  );
-  return result;
-});
-
-async function mirrorLocalGroupMessageToCloud(groupId, message) {
-  const settings = settingsStore.cloudSettings();
-  if (!settings.enabled || !settings.token || !groupId || !message) return;
-  const group = ensureGroupStore().get(groupId);
-  if (!group || !group.cloudRoomId) return;
-  const text = String(message.text || message.bodyMd || message.body_md || "").trim();
-  if (!text) return;
-  // Stable clientOpId derived from message id so a retry replays the
-  // same op rather than creating a duplicate.
-  const clientOpId = `op_grp_${groupId}_${message.id || message.createdAt || Date.now()}`;
-  try {
-    await cloudApi(`/api/rooms/${encodeURIComponent(group.cloudRoomId)}/messages`, {
-      method: "POST",
-      body: {
-        bodyMd: text,
-        attachments: message.attachments || null,
-        clientOpId
-      }
-    });
-  } catch (error) {
-    // Log + drop. The local message is already persisted; the next sync
-    // can backfill if mirroring is essential.
-    appendCloudLog(`Cloud group message mirror error (${group.cloudRoomId}): ${error?.message || error}`);
-  }
-}
-ipcMain.handle(IpcChannel.GroupListMessages, (_event, id) => ensureGroupStore().listMessages(id));
-ipcMain.handle(IpcChannel.GroupSaveContextCard, (_event, payload) => { ensureGroupStore().saveContextCard(payload.id, payload.card); return true; });
-ipcMain.handle(IpcChannel.GroupLoadPrompts, () => {
-  const dir = path.join(__dirname, "..", "resources", "conductor", "default-prompts");
-  return {
-    dispatch: fs.readFileSync(path.join(dir, "dispatch.md"), "utf8"),
-    summarize: fs.readFileSync(path.join(dir, "summarize.md"), "utf8"),
-    nudge: fs.readFileSync(path.join(dir, "nudge.md"), "utf8"),
-    relay: fs.readFileSync(path.join(dir, "relay.md"), "utf8"),
-  };
-});
 ipcMain.handle(IpcChannel.PersonaSave, (_event, persona) => saveFellow(persona));
 ipcMain.handle(IpcChannel.PetJobs, () => getPetJobs());
 ipcMain.handle(IpcChannel.PetGenerate, (_event, payload) => startFellowPetGeneration(payload));

@@ -742,7 +742,6 @@
     </section>
     <div id="skillContextMenu" class="skill-context-menu hidden" role="menu"></div>
     <div id="fellowContextMenu" class="skill-context-menu fellow-context-menu hidden" role="menu"></div>
-    <div id="groupContextMenu" class="skill-context-menu group-context-menu hidden" role="menu"></div>
     <div id="messageContextMenu" class="skill-context-menu message-context-menu hidden" role="menu"></div>
     <button id="petJobButton" class="pet-job-button hidden" type="button"></button>
     <div id="petJobPanel" class="pet-job-panel hidden"></div>
@@ -858,6 +857,7 @@
   </section>
   <!-- Shared helpers (loaded first — others depend on them) -->
   <script src="./helpers/avatar-helpers.js"></script>
+  <script src="./helpers/group-avatar.js"></script>
   <script src="./helpers/markdown-helpers.js"></script>
   <script src="./helpers/format-helpers.js"></script>
   <script src="./helpers/scrollbar-overlay.js"></script>
@@ -869,6 +869,7 @@
   <script src="../shared/cloud-events.js"></script>
   <script src="../shared/unread.js"></script>
   <script src="../shared/conversation-kinds.js"></script>
+  <script src="../shared/group-tiles.js"></script>
   <script src="../shared/send-pipeline.js"></script>
   <script src="./app-state.js"></script>
   <!-- Feature modules -->
@@ -890,12 +891,6 @@
   <script src="./chat/message-helpers.js"></script>
   <script src="./chat/composer.js"></script>
   <script src="./chat/message-menu.js"></script>
-  <!-- Group (existing modules, kept as a unit) -->
-  <script src="./group/group-prompts.js"></script>
-  <script src="./group/conductor.js"></script>
-  <script src="./group/response-mode.js"></script>
-  <script src="./group-dispatch.js"></script>
-  <script src="./group/group.js"></script>
   <!-- Toast notifier (used by social events and other in-app announcements) -->
   <div id="appToast" class="app-toast hidden" role="status" aria-live="polite"></div>
 
@@ -904,7 +899,6 @@
 
   <!-- Message source adapters (raw schema → RenderableMessageSpec) -->
   <script src="./message-sources/fellow-session-source.js"></script>
-  <script src="./message-sources/local-group-source.js"></script>
   <script src="./message-sources/cloud-room-source.js"></script>
 
   <!-- Single message-bubble DOM producer -->
