@@ -386,7 +386,13 @@ function handleCloudEvent(envelope) {
       entry.maxSeq = Math.max(entry.maxSeq, Number(msg.seq || 0));
       state.messageCache.set(roomId, entry);
       // Bump unread if the message isn't mine and the room isn't currently open.
-      const isMine = msg.sender_kind === "user" && msg.sender_ref === state.user?.id;
+      // Self-id check goes through shared/contact: resolveContact returns kind="self"
+      // only when ref matches ctx.self.id (works for any sender kind).
+      const author = window.aimashiContact.resolveContact(
+        { kind: "user", ref: msg.sender_ref },
+        { self: state.user, friends: state.friends }
+      );
+      const isMine = author.kind === "self";
       if (!isMine && roomId !== state.activeConversationId) {
         state.unread.set(roomId, (state.unread.get(roomId) || 0) + 1);
       }
@@ -717,41 +723,37 @@ async function handleConvAction(action, convId) {
 // ── active chat view ───────────────────────────────────────────────────────
 
 function buildRoomMessageArticle(msg, room) {
-  const isOwn = msg.sender_kind === "user" && msg.sender_ref === state.user?.id;
-  let senderLabel = "";
-  let senderAvatar = "";
-  let senderCrop = null;
-  let senderColor = "";
-  if (msg.sender_kind === "user") {
-    const friend = friendById(msg.sender_ref);
-    senderLabel = friend?.username || msg.sender_ref || "";
-    senderAvatar = friend?.avatarImage || "";
-    senderCrop = friend?.avatarCrop || null;
-    senderColor = friend?.avatarColor || "";
-  } else if (msg.sender_kind === "fellow") {
-    const members = state.roomMembersCache.get(room.id) || [];
-    const m = members.find((mem) => mem.member_kind === "fellow" && mem.member_ref === msg.sender_ref);
-    const owner = m?.owner?.username || m?.owner?.account || m?.owner_id || "";
-    senderLabel = msg.sender_ref + (owner ? ` (${owner})` : "");
-    // Fellow avatars in rooms are still client-asserted (no cloud registry
-    // yet) so we render a colored letter circle.
-  }
+  // Sender resolution routes through the canonical adapter (cloud-room-source).
+  // Web reads only MessageSpec fields — no schema branching here.
+  const members = state.roomMembersCache.get(room.id) || [];
+  const ctx = { self: state.user, friends: state.friends, fellows: [] };
+  const source = window.aimashiCloudRoomSource.createCloudRoomSource({
+    room, messages: [msg], members, ctx
+  });
+  const spec = source.listMessages()[0];
+  const isOwn = spec.isOwn;
+  const senderLabel = spec.authorName;
+  const senderAvatar = spec.avatar?.image || "";
+  const senderCrop = spec.avatar?.crop || null;
+  const senderColor = spec.avatar?.color || "";
   const cls = isOwn ? "message user" : "message assistant";
-  const initial = isOwn ? (state.user?.username?.[0] || "M").toUpperCase() : (senderLabel?.[0] || msg.sender_ref?.[0] || "?").toUpperCase();
+  const initial = isOwn
+    ? (state.user?.username?.[0] || "M").toUpperCase()
+    : (senderLabel?.[0] || "?").toUpperCase();
   const fallbackColor = isOwn ? "#0162db" : (senderColor || "#5e5ce6");
   const useAvatar = senderAvatar && (/^(https?:|data:|\.?\/assets\/)/i.test(senderAvatar));
   const avatarStyle = useAvatar
     ? avatarBackgroundStyle(senderAvatar, senderCrop, fallbackColor)
     : `background-color:${fallbackColor}; color:#fff; display:inline-flex; align-items:center; justify-content:center;`;
   const avatarText = useAvatar ? "" : escapeHtml(initial);
-  const body = (msg.body_md || "").replace(/\n/g, "<br>");
+  const body = (spec.bodyMd || "").replace(/\n/g, "<br>");
   return `
     <article class="${cls}">
       <span class="avatar" style="${avatarStyle}">${avatarText}</span>
       <div class="message-stack">
         ${senderLabel && !isOwn ? `<span class="message-sender">${escapeHtml(senderLabel)}</span>` : ""}
         <div class="bubble">${escapeHtml(body).replace(/&lt;br&gt;/g, "<br>")}</div>
-        <span class="message-time">${escapeHtml(formatMessageTime(msg.created_at))}</span>
+        <span class="message-time">${escapeHtml(formatMessageTime(spec.createdAt))}</span>
       </div>
     </article>
   `;
