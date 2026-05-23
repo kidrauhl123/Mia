@@ -28,7 +28,8 @@ function loadRenderer() {
   };
   const window = {
     aimashiMarkdown: { escapeHtml: (v) => String(v || ""), renderMarkdown: (v) => String(v || "") },
-    aimashiContactAvatar: { renderAvatar: (c) => mockEl() }
+    aimashiContactAvatar: { renderAvatar: (c) => mockEl() },
+    aimashiTimeFormat: require("../src/shared/time-format")
   };
   const ctx = vm.createContext({ window, globalThis: window, document: { createElement: () => mockEl() }, console });
   vm.runInContext(src, ctx);

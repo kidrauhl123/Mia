@@ -1,6 +1,10 @@
 (function (global) {
   "use strict";
 
+  function timeFormat() {
+    return global.aimashiTimeFormat || require("../shared/time-format");
+  }
+
   function escapeHtml(value) {
     const h = global.aimashiMarkdown?.escapeHtml;
     if (typeof h === "function") return h(value);
@@ -13,9 +17,7 @@
   }
   function shortTime(value) {
     if (!value) return "";
-    const d = new Date(value);
-    if (Number.isNaN(d.getTime())) return "";
-    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+    return timeFormat().formatMessageTime(value);
   }
 
   function createMessageBubble(spec, options = {}) {

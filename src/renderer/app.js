@@ -651,26 +651,7 @@ function openRoomContextMenu(room, kind, x, y) {
   document.body.appendChild(menu);
 }
 
-function formatConversationTime(value) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  const now = new Date();
-  const sameDay = date.toDateString() === now.toDateString();
-  if (sameDay) {
-    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
-  }
-  const yesterday = new Date(now);
-  yesterday.setDate(now.getDate() - 1);
-  if (date.toDateString() === yesterday.toDateString()) return "昨天";
-  return `${date.getMonth() + 1}/${date.getDate()}`;
-}
-
-function formatMessageTime(value) {
-  const date = value ? new Date(value) : new Date();
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
-}
+const { formatConversationTime, formatMessageTime } = (typeof window !== "undefined" && window.aimashiTimeFormat) || require("../shared/time-format");
 
 function renderMessageTime(value) {
   const date = value ? new Date(value) : new Date();
