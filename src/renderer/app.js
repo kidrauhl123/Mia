@@ -2188,7 +2188,29 @@ document.addEventListener("click", (event) => {
 document.addEventListener("click", (event) => {
   if (state.messageContextMenu.open && !els.messageContextMenu?.contains(event.target)) window.aimashiMessageMenu?.closeMessageContextMenu();
 });
+// Left/right click on cloud-room avatars → contact card / quick menu.
+els.chat?.addEventListener("click", (event) => {
+  const avatarEl = event.target.closest(".message-avatar[data-sender-kind][data-sender-ref]");
+  if (!avatarEl || !els.chat.contains(avatarEl)) return;
+  const kind = avatarEl.dataset.senderKind;
+  const ref = avatarEl.dataset.senderRef;
+  if (!kind || !ref) return;
+  const roomId = window.aimashiSocial?.getActiveRoomId?.();
+  event.stopPropagation();
+  window.aimashiContactCard?.openCard({ kind, ref, roomId, anchor: avatarEl });
+});
 els.chat?.addEventListener("contextmenu", (event) => {
+  const avatarEl = event.target.closest(".message-avatar[data-sender-kind][data-sender-ref]");
+  if (avatarEl && els.chat.contains(avatarEl)) {
+    const kind = avatarEl.dataset.senderKind;
+    const ref = avatarEl.dataset.senderRef;
+    if (!kind || !ref) return;
+    const roomId = window.aimashiSocial?.getActiveRoomId?.();
+    event.preventDefault();
+    event.stopPropagation();
+    window.aimashiContactCard?.openContextMenu({ kind, ref, roomId, anchor: avatarEl, x: event.clientX, y: event.clientY });
+    return;
+  }
   const bubble = event.target.closest(".bubble[data-message-index]");
   if (!bubble || !els.chat.contains(bubble)) return;
   // Cloud-room bubbles (cloud DM + cloud group) carry data-message-source +

@@ -79,7 +79,7 @@
     const article = document.createElement("article");
     article.className = `message ${roleClass}`;
     article.innerHTML = `
-      <div class="avatar" style="background-color:${escapeHtml(avatarColor)};${avatarStyle}">${escapeHtml(avatarLetter)}</div>
+      <div class="avatar message-avatar" data-sender-kind="${escapeHtml(msg.sender_kind || "")}" data-sender-ref="${escapeHtml(msg.sender_ref || "")}" style="background-color:${escapeHtml(avatarColor)};${avatarStyle}" title="${escapeHtml(spec?.authorName || "")}">${escapeHtml(avatarLetter)}</div>
       <div class="message-stack">
         ${senderLabel ? `<span class="message-sender">${escapeHtml(senderLabel)}</span>` : ""}
         <div class="bubble" data-message-index="${messageIndex}" data-message-source="cloud-room" data-message-id="${escapeHtml(msg.id || "")}">${bodyHtml}</div>
