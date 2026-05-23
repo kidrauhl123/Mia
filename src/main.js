@@ -6949,7 +6949,43 @@ ipcMain.handle(IpcChannel.GroupList, () => ensureGroupStore().list());
 ipcMain.handle(IpcChannel.GroupGet, (_event, id) => ensureGroupStore().get(id));
 ipcMain.handle(IpcChannel.GroupUpdate, (_event, payload) => ensureGroupStore().updateGroup(payload.id, payload.patch));
 ipcMain.handle(IpcChannel.GroupDelete, (_event, id) => ensureGroupStore().deleteGroup(id));
-ipcMain.handle(IpcChannel.GroupAppendMessage, (_event, payload) => ensureGroupStore().appendMessage(payload.id, payload.message));
+ipcMain.handle(IpcChannel.GroupAppendMessage, (_event, payload) => {
+  const result = ensureGroupStore().appendMessage(payload.id, payload.message);
+  // Phase 4: mirror to cloud if this group has been promoted to a cloud
+  // room. Fire-and-forget — the local append is the source of truth for
+  // offline; cloud is the cross-device mirror. clientOpId keeps the
+  // server-side write idempotent so retries don't duplicate.
+  mirrorLocalGroupMessageToCloud(payload.id, payload.message).catch((e) =>
+    appendCloudLog(`Cloud group message mirror failed for ${payload.id}: ${e?.message || e}`)
+  );
+  return result;
+});
+
+async function mirrorLocalGroupMessageToCloud(groupId, message) {
+  const settings = settingsStore.cloudSettings();
+  if (!settings.enabled || !settings.token || !groupId || !message) return;
+  const group = ensureGroupStore().get(groupId);
+  if (!group || !group.cloudRoomId) return;
+  const text = String(message.text || message.bodyMd || message.body_md || "").trim();
+  if (!text) return;
+  // Stable clientOpId derived from message id so a retry replays the
+  // same op rather than creating a duplicate.
+  const clientOpId = `op_grp_${groupId}_${message.id || message.createdAt || Date.now()}`;
+  try {
+    await cloudApi(`/api/rooms/${encodeURIComponent(group.cloudRoomId)}/messages`, {
+      method: "POST",
+      body: {
+        bodyMd: text,
+        attachments: message.attachments || null,
+        clientOpId
+      }
+    });
+  } catch (error) {
+    // Log + drop. The local message is already persisted; the next sync
+    // can backfill if mirroring is essential.
+    appendCloudLog(`Cloud group message mirror error (${group.cloudRoomId}): ${error?.message || error}`);
+  }
+}
 ipcMain.handle(IpcChannel.GroupListMessages, (_event, id) => ensureGroupStore().listMessages(id));
 ipcMain.handle(IpcChannel.GroupSaveContextCard, (_event, payload) => { ensureGroupStore().saveContextCard(payload.id, payload.card); return true; });
 ipcMain.handle(IpcChannel.GroupLoadPrompts, () => {
