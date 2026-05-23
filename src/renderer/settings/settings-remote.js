@@ -146,8 +146,11 @@
       const syncText = cloud.workspaceRevision
         ? `Cloud revision ${cloud.workspaceRevision} · ${cloud.conversationCount || 0} 个会话`
         : "Cloud workspace 待同步";
+      // Phase 1+: with the persistent event log + WS since_seq replay,
+      // routine sync happens automatically; the visible hint focuses on
+      // connection state rather than "你该点同步了".
       els.cloudAccountHint.textContent = connected
-        ? `${username || "当前账号"} 已登录，本机 Agent 在线。${syncText}`
+        ? `${username || "当前账号"} 已登录，自动同步中。${syncText}`
         : connecting
           ? `${username || "当前账号"} 已登录，正在连接 Aimashi Cloud。${syncText}`
           : `${username || "当前账号"} 已登录，等待 Aimashi Cloud：${cloud.lastError || "未连接"}。${syncText}`;
