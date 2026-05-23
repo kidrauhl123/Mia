@@ -260,7 +260,6 @@ function verifyRelease() {
     "api/src/cloud/social-store.js",
     "api/src/cloud/messages-store.js",
     "api/src/cloud/dm-room.js",
-    "api/src/cloud/desktop-sync.js",
     "api/src/cloud/desktop-bridge-permission.js",
     "api/src/permission-modes.js",
     "web/index.html",
@@ -291,7 +290,6 @@ function verifyRelease() {
     "api/src/cloud/social-store.js",
     "api/src/cloud/messages-store.js",
     "api/src/cloud/dm-room.js",
-    "api/src/cloud/desktop-sync.js",
     "api/src/cloud/desktop-bridge-permission.js",
     "api/src/permission-modes.js",
     "web/app.js",
@@ -389,7 +387,6 @@ function verifyRelease() {
     require(${JSON.stringify(assertFile("api/src/cloud/social-store.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud/messages-store.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud/dm-room.js"))});
-    require(${JSON.stringify(assertFile("api/src/cloud/desktop-sync.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud/desktop-bridge-permission.js"))});
     require(${JSON.stringify(assertFile("api/src/permission-modes.js"))});
     require(${JSON.stringify(assertFile("api/server.js"))});

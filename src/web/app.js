@@ -75,10 +75,8 @@ let state = {
   outgoingRequests: [],
   messageCache: new Map(),
   roomMembersCache: new Map(),
-  // Cloud workspace mirror (populated from /api/workspace). Holds the
-  // desktop-synced fellow conversations + their messages. Cloud rooms and
-  // desktop conversations are merged into a single sidebar list.
-  workspace: { revision: 0, conversations: [] },
+  // (Phase 4 cutover: state.workspace removed. Every conversation now
+  //  lives in state.rooms — fellow chats are rooms-of-type-fellow.)
   bridgeDevices: [],
   bridgeBusy: false,
   activeConversationId: "",
@@ -173,11 +171,12 @@ function clearSession() {
   state.friends = [];
   state.fellows = [];
   state.settings = { pins: [], readMarks: {}, appearance: {} };
+  state.messageCache.clear?.();
+  state.roomMembersCache.clear?.();
   state.incomingRequests = [];
   state.outgoingRequests = [];
   state.messageCache.clear();
   state.roomMembersCache.clear();
-  state.workspace = { revision: 0, conversations: [] };
   state.bridgeDevices = [];
   state.bridgeBusy = false;
   state.activeConversationId = "";
@@ -185,18 +184,11 @@ function clearSession() {
   localStorage.removeItem(STORAGE_KEY);
 }
 
-// Conversation kind helpers — rooms are cloud-native DM/group rooms.
-// Workspace conversations come from the synced cloud workspace: desktop-
-// originated ones use `desktop:<sessionId>` ids, but historic ones created
-// by the old web client use `conv_xxx`. Both live in workspace.conversations
-// and both route their sends through the desktop bridge in Phase B (since
-// fellow runtime is local to the owner's desktop regardless of id prefix).
+// All conversations are rooms after Phase 4 cutover.
+// Type is encoded in the id prefix (dm:, g_, fellow:) and also lives in
+// room.type. Old workspace-conversation helper is gone.
 function isRoomId(id) {
   return typeof id === "string" && (id.startsWith("dm:") || id.startsWith("g_") || id.startsWith("fellow:"));
-}
-function isWorkspaceConversationId(id) {
-  if (!id || typeof id !== "string") return false;
-  return state.workspace.conversations.some((c) => c.id === id);
 }
 
 async function api(path, options = {}) {
@@ -281,15 +273,11 @@ async function bootstrap() {
     api("/api/me/fellows").then((d) => { state.fellows = Array.isArray(d.fellows) ? d.fellows : []; }).catch(() => {}),
     // Phase 3: cross-device user settings (pin / read marks / appearance).
     api("/api/me/settings").then((d) => { if (d.settings) state.settings = d.settings; }).catch(() => {}),
-    // Workspace: holds the desktop-synced fellow conversations (Phase A).
-    api("/api/workspace").then((d) => { applyWorkspace(d.workspace); }).catch(() => {}),
     // Bridge devices: lets Phase B decide whether the owner's desktop is
     // online and we can route the message through it. Empty array if none.
     api("/api/bridge/devices").then((d) => { state.bridgeDevices = Array.isArray(d.devices) ? d.devices : []; }).catch(() => {}),
   ]);
   if (!state.activeConversationId) {
-    // Prefer the most recently active conversation across both rooms and
-    // desktop fellow chats (sorted by recency).
     const first = combinedConversationItems()[0];
     if (first) state.activeConversationId = first.id;
   }
@@ -302,21 +290,7 @@ async function bootstrap() {
   renderSettings();
 }
 
-function applyWorkspace(workspace) {
-  if (!workspace || typeof workspace !== "object") {
-    state.workspace = { revision: 0, conversations: [] };
-    return;
-  }
-  state.workspace = {
-    revision: Number(workspace.revision || 0),
-    conversations: Array.isArray(workspace.conversations) ? workspace.conversations : []
-  };
-}
-
-function activeWorkspaceConversation() {
-  if (!isWorkspaceConversationId(state.activeConversationId)) return null;
-  return state.workspace.conversations.find((c) => c.id === state.activeConversationId) || null;
-}
+// (applyWorkspace + activeWorkspaceConversation removed in Phase 4 cutover.)
 
 function bridgeIsOnline() {
   return state.bridgeDevices.length > 0;
@@ -459,27 +433,6 @@ function handleCloudEvent(envelope) {
     }
     renderConversationList();
     renderRailUnreadBadge();
-  } else if (type === "workspace_updated" || type === "message_created") {
-    // Compare incoming workspace's per-conversation message counts to the
-    // current cache so we can bump unread for desktop:* conversations that
-    // got new assistant/echo messages while inactive.
-    const prevById = new Map(state.workspace.conversations.map((c) => [c.id, (c.messages || []).length]));
-    applyWorkspace(envelope.workspace);
-    for (const c of state.workspace.conversations) {
-      const prev = prevById.get(c.id) || 0;
-      const next = (c.messages || []).length;
-      if (next > prev && c.id !== state.activeConversationId) {
-        // Only count messages that aren't mine (best-effort: workspace messages
-        // carry role, "user" === me; "assistant" === bridge response).
-        const newMessages = (c.messages || []).slice(prev);
-        const fromOthers = newMessages.filter((m) => m.role !== "user").length;
-        if (fromOthers > 0) state.unread.set(c.id, (state.unread.get(c.id) || 0) + fromOthers);
-      }
-    }
-    if (state.activeConversationId) state.unread.delete(state.activeConversationId);
-    renderConversationList();
-    if (isWorkspaceConversationId(state.activeConversationId)) renderActiveChat();
-    renderRailUnreadBadge();
   } else if (type === "device_updated") {
     if (Array.isArray(envelope.devices)) state.bridgeDevices = envelope.devices;
     renderActiveChat();
@@ -487,7 +440,7 @@ function handleCloudEvent(envelope) {
     const status = envelope.run?.status;
     if (status === "pending" || status === "running") state.bridgeBusy = true;
     else state.bridgeBusy = false;
-    if (isWorkspaceConversationId(state.activeConversationId)) renderActiveChat();
+    renderActiveChat();
   } else if (type === "social.friend_request_received") {
     if (envelope.request) state.incomingRequests = [envelope.request, ...state.incomingRequests];
     showToast(`收到 ${envelope.request?.from?.username || "好友"} 的好友请求`);
@@ -594,16 +547,8 @@ function roomSortKey(room) {
   return new Date(last?.created_at || room.updated_at || room.created_at || 0).getTime();
 }
 
-function desktopConvLastMessageText(conv) {
-  const last = conv.messages?.[conv.messages.length - 1];
-  if (!last) return conv.meta || "Aimashi Desktop · 已同步";
-  return last.text || (last.attachments?.length ? "[附件]" : "");
-}
-
-function desktopConvSortKey(conv) {
-  const last = conv.messages?.[conv.messages.length - 1];
-  return new Date(last?.createdAt || conv.updatedAt || 0).getTime();
-}
+// (desktopConvLastMessageText / desktopConvSortKey removed in
+//  Phase 4 cutover.)
 
 // Unified item shape so the renderer doesn't have to branch every time.
 // Pinned items sort to the top regardless of recency, mirroring the
@@ -649,18 +594,9 @@ function combinedConversationItems() {
       pinned: isRoomPinned(r.id)
     };
   });
-  const desktop = state.workspace.conversations.map((c) => ({
-    kind: "desktop",
-    id: c.id,
-    title: c.title || "本地对话",
-    preview: desktopConvLastMessageText(c),
-    sortKey: desktopConvSortKey(c),
-    avatar: c.avatar,
-    avatarCrop: c.avatarCrop || null,
-    color: c.color || "",
-    pinned: Boolean(c.pinned)
-  }));
-  return [...room, ...desktop].sort((a, b) => {
+  // (Phase 4 cutover: workspace conversations gone — every conversation
+  //  is a room.)
+  return room.sort((a, b) => {
     if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
     return b.sortKey - a.sortKey;
   });
@@ -816,15 +752,10 @@ async function pushSettings(patch, _retried = false) {
 function openConvMenu(convId, anchorButton) {
   const el = ensureConvMenuEl();
   _convMenuTargetId = convId;
-  // Resolve across both sources so the menu shape is identical regardless of
-  // whether the entry is a workspace conversation (desktop session) or a
-  // cloud room (DM / group). Kind-dispatch happens in handleConvAction.
-  const wsConv = state.workspace.conversations.find((c) => c.id === convId);
   const room = state.rooms.find((r) => r.id === convId);
-  if (!wsConv && !room) return;
-  const isRoom = Boolean(room);
-  const isDM = isRoom && convId.startsWith("dm:");
-  const pinned = isRoom ? isRoomPinned(convId) : Boolean(wsConv.pinned);
+  if (!room) return;
+  const isDM = convId.startsWith("dm:");
+  const pinned = isRoomPinned(convId);
   // Cloud DM rename is hidden — display name comes from the peer's profile,
   // not the room record. Server rejects it.
   const showRename = !isDM;
@@ -849,68 +780,14 @@ function closeConvMenu() {
   _convMenuTargetId = "";
 }
 
-// Concurrency-safe write path: send ONLY the touched conversation (and
-// optional remove list) to /api/workspace/sync. Server merges by id so a
-// stale local snapshot from this tab can't clobber updates another device
-// pushed in between.
-async function syncWorkspaceChange({ upsert = [], remove = [] }) {
-  // Optimistic local update so the UI reacts immediately.
-  const removeSet = new Set(remove);
-  const byId = new Map(upsert.map((c) => [c.id, c]));
-  const optimistic = state.workspace.conversations
-    .filter((c) => !removeSet.has(c.id))
-    .map((c) => byId.has(c.id) ? { ...c, ...byId.get(c.id) } : c);
-  for (const c of byId.values()) {
-    if (!optimistic.some((x) => x.id === c.id)) optimistic.unshift(c);
-  }
-  applyWorkspace({ ...state.workspace, conversations: optimistic });
-  if (state.activeConversationId && removeSet.has(state.activeConversationId)) {
-    state.activeConversationId = "";
-  }
-  renderConversationList();
-  renderActiveChat();
-  try {
-    const res = await api("/api/workspace/sync", {
-      method: "POST",
-      body: { conversations: upsert, removeConversationIds: remove }
-    });
-    if (res?.workspace) applyWorkspace(res.workspace);
-    renderConversationList();
-    if (state.activeConversationId) renderActiveChat();
-  } catch (err) {
-    showToast(err.message);
-  }
-}
+// (syncWorkspaceChange removed in Phase 4 cutover — every action
+//  routes through handleRoomAction now.)
 
 async function handleConvAction(action, convId) {
-  // Dispatch by storage backend: workspace conversation vs cloud room.
   const room = state.rooms.find((r) => r.id === convId);
   if (room) return handleRoomAction(action, room);
-  const conv = state.workspace.conversations.find((c) => c.id === convId);
-  if (!conv) return;
-  // Metadata-only patches: send just the fields that change + id. Stripping
-  // `messages` is critical — including a stale local copy would trigger
-  // server-side merge against the latest cloud history.
-  if (action === "pin") {
-    await syncWorkspaceChange({ upsert: [{ id: conv.id, pinned: !conv.pinned }] });
-    return;
-  }
-  if (action === "rename") {
-    const title = window.prompt("新会话名称：", conv.title || "");
-    if (title === null) return;
-    const trimmed = String(title).trim();
-    if (!trimmed) return;
-    await syncWorkspaceChange({ upsert: [{ id: conv.id, title: trimmed }] });
-    return;
-  }
-  if (action === "delete") {
-    if (!window.confirm(`确认删除"${conv.title || "本地对话"}"？此操作会从云端永久移除该会话历史。`)) return;
-    await syncWorkspaceChange({ remove: [convId] });
-    return;
-  }
 }
 
-// Cloud rooms (DM + group). Hits PATCH/DELETE /api/rooms (commit 90671e4).
 async function handleRoomAction(action, room) {
   const title = roomDisplayTitle(room);
   if (action === "pin") {
@@ -1010,35 +887,8 @@ function renderCommandResultHtml(commandResult) {
   return rows ? `<div class="command-result session-list">${rows}</div>` : "";
 }
 
-function buildDesktopMessageArticle(msg, conv) {
-  const isOwn = msg.role === "user";
-  const cls = isOwn ? "message user" : "message assistant";
-  // Pick avatar source per side: assistant uses the conversation's fellow
-  // image+crop; user uses the signed-in user's own profile avatar (synced
-  // from desktop via PATCH /api/me/profile).
-  const me = state.user;
-  const senderImage = isOwn ? (me?.avatarImage || "") : (conv.avatar || "");
-  const senderCrop = isOwn ? (me?.avatarCrop || null) : (conv.avatarCrop || null);
-  const senderColor = isOwn ? (me?.avatarColor || "") : (conv.color || "");
-  const initial = isOwn ? (me?.username?.[0] || "M").toUpperCase() : (conv.title?.[0] || "A").toUpperCase();
-  const fallbackColor = isOwn ? (senderColor || "#0162db") : (senderColor || "#ff9f0a");
-  const useAvatar = senderImage && (/^(https?:|data:|\.?\/assets\/)/i.test(senderImage));
-  const avatarStyle = useAvatar
-    ? avatarBackgroundStyle(senderImage, senderCrop, fallbackColor)
-    : `background-color:${fallbackColor}; color:#fff; display:inline-flex; align-items:center; justify-content:center;`;
-  const avatarText = useAvatar ? "" : escapeHtml(initial);
-  const body = (msg.text || "").replace(/\n/g, "<br>");
-  const commandResultHtml = !isOwn ? renderCommandResultHtml(msg.commandResult) : "";
-  return `
-    <article class="${cls}">
-      <span class="avatar" style="${avatarStyle}">${avatarText}</span>
-      <div class="message-stack">
-        <div class="bubble">${escapeHtml(body).replace(/&lt;br&gt;/g, "<br>")}${commandResultHtml}</div>
-        <span class="message-time">${escapeHtml(formatMessageTime(msg.createdAt))}</span>
-      </div>
-    </article>
-  `;
-}
+// (buildDesktopMessageArticle removed in Phase 4 cutover — fellow chats
+//  render through buildRoomMessageArticle now.)
 
 function setComposerEnabled(enabled, placeholder) {
   els.chatInput.disabled = !enabled;
@@ -1102,54 +952,7 @@ function renderActiveChat() {
     return;
   }
 
-  if (isWorkspaceConversationId(id)) {
-    const conv = activeWorkspaceConversation();
-    if (!conv) { setComposerEnabled(false, "对话不存在"); return; }
-    els.activeAvatar.textContent = "";
-    const useAvatar = conv.avatar && (/^(https?:|data:|\.?\/assets\/)/i.test(conv.avatar));
-    if (useAvatar) {
-      const preset = AVATAR_PRESETS[conv.avatar];
-      const cropToUse = conv.avatarCrop && !(
-        Math.abs(Number(conv.avatarCrop.x) - 50) < 0.01 &&
-        Math.abs(Number(conv.avatarCrop.y) - 50) < 0.01 &&
-        Math.abs(Number(conv.avatarCrop.zoom || 1) - 1) < 0.001
-      ) ? conv.avatarCrop : preset || { x: 50, y: 50, zoom: 1 };
-      const zoom = Number(cropToUse.zoom) || 1;
-      els.activeAvatar.style.backgroundImage = `url('${conv.avatar}')`;
-      els.activeAvatar.style.backgroundSize = `${Math.round(zoom * 100)}%`;
-      els.activeAvatar.style.backgroundPosition = `${Number(cropToUse.x) || 50}% ${Number(cropToUse.y) || 50}%`;
-      els.activeAvatar.style.backgroundRepeat = "no-repeat";
-      els.activeAvatar.style.backgroundColor = "transparent";
-    } else {
-      els.activeAvatar.style.backgroundImage = "";
-      els.activeAvatar.style.backgroundColor = conv.color || "#ff9f0a";
-      els.activeAvatar.style.color = "#fff";
-      els.activeAvatar.style.display = "inline-flex";
-      els.activeAvatar.style.alignItems = "center";
-      els.activeAvatar.style.justifyContent = "center";
-      els.activeAvatar.textContent = (conv.title?.[0] || "A").toUpperCase();
-    }
-    els.activeTitle.textContent = conv.title || "本地对话";
-    const online = bridgeIsOnline();
-    els.activeMeta.textContent = online
-      ? (state.bridgeBusy ? "本机 Agent 运行中…" : "本机 Agent · 在线")
-      : "本机 Agent · 离线（请确认桌面端登录同账号并保持在线）";
-    const messages = Array.isArray(conv.messages) ? conv.messages : [];
-    els.chat.innerHTML = messages.length
-      ? messages.map((m) => buildDesktopMessageArticle(m, conv)).join("")
-      : `<p class="persona-empty">还没有消息。</p>`;
-    if (messages.length) els.chat.scrollTop = els.chat.scrollHeight;
-    // Phase B: composer is enabled only when bridge is online and not busy
-    // (Phase A read-only fallback kicks in automatically when offline).
-    if (!online) {
-      setComposerEnabled(false, "本机 Agent 离线，无法发送（消息历史只读）");
-    } else if (state.bridgeBusy) {
-      setComposerEnabled(false, "本机 Agent 运行中…");
-    } else {
-      setComposerEnabled(true, "输入消息，Enter 发送（由本机 Agent 处理）");
-    }
-    return;
-  }
+  // (workspace-only render branch removed in Phase 4 cutover.)
 
   // Unknown conversation kind — defensively disable.
   setComposerEnabled(false, "不支持的会话类型");
@@ -1221,46 +1024,11 @@ async function sendInActive() {
     return;
   }
 
-  if (isWorkspaceConversationId(id)) {
-    if (!bridgeIsOnline()) {
-      showToast("本机 Agent 离线，无法发送。");
-      return;
-    }
-    if (state.bridgeBusy) {
-      showToast("本机 Agent 正在运行，请稍后…");
-      return;
-    }
-    const device = state.bridgeDevices[0];
-    els.chatInput.value = "";
-    state.bridgeBusy = true;
-    renderActiveChat();
-    const clientCreatedAt = new Date().toISOString();
-    try {
-      // 1. Persist the user message. The cloud broadcasts message_created so
-      //    the workspace echoes back via WS — but use the POST response as a
-      //    fallback so the bubble shows immediately even if WS is lagged.
-      const userRes = await api("/api/messages", {
-        method: "POST",
-        body: { conversationId: id, role: "user", text, createdAt: clientCreatedAt }
-      });
-      if (userRes?.workspace) applyWorkspace(userRes.workspace);
-      if (id === state.activeConversationId) renderActiveChat();
-      // 2. Dispatch the bridge run on the chosen desktop device. Cloud appends
-      //    the assistant reply automatically. Same WS-fallback pattern.
-      const runRes = await api("/api/bridge/run", {
-        method: "POST",
-        body: { deviceId: device.id, conversationId: id, text }
-      });
-      if (runRes?.workspace) applyWorkspace(runRes.workspace);
-    } catch (err) {
-      showToast(err.message);
-      els.chatInput.value = text;
-    } finally {
-      state.bridgeBusy = false;
-      if (id === state.activeConversationId) renderActiveChat();
-      renderConversationList();
-    }
-  }
+  // (workspace conversation send removed — fellow chats are rooms and
+  //  go through the isRoomId branch above. If we ever want web-triggered
+  //  agent execution for a fellow room, dispatch a bridge run AFTER the
+  //  /api/rooms/:id/messages POST above; the bridge handler now writes
+  //  the assistant reply into the same room via messagesStore.)
 }
 
 // ── add-friend dialog ──────────────────────────────────────────────────────

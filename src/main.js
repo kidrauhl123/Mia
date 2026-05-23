@@ -56,11 +56,8 @@ const { createSocialApi } = require("./main/social/social-api.js");
 const { registerSocialIpc } = require("./main/social/social-ipc.js");
 const { registerWindowIpc } = require("./main/ipc/window-ipc.js");
 const { registerTasksIpc } = require("./main/ipc/tasks-ipc.js");
-const {
-  cloudConversationFromDesktopSession,
-  cloudMessageFromDesktopMessage,
-  desktopSessionFromCloudConversation
-} = require("./cloud/desktop-sync.js");
+// (cloud/desktop-sync helpers removed in Phase 4 cutover — fellow chats
+//  now sync via rooms+messages, no need for the workspace-shape mappers.)
 
 app.setName("Aimashi");
 const isolatedUserDataDir = String(process.env.AIMASHI_USER_DATA_DIR || "").trim();
@@ -353,53 +350,11 @@ function daemonToken() {
   return fs.readFileSync(p.daemonToken, "utf8").trim();
 }
 
-function mergeCloudWorkspaceIntoChatStore(workspace) {
-  if (!workspace || !Array.isArray(workspace.conversations)) return loadChatStore();
-  const manifest = loadFellowManifest();
-  const fellowKeys = new Set(
-    (Array.isArray(manifest.fellows) ? manifest.fellows : [])
-      .map((fellow) => String(fellow?.key || "").trim())
-      .filter(Boolean)
-  );
-  const defaultPersonaKey = String(manifest.default_fellow || "aimashi");
-  const store = loadChatStore();
-  // Each conversation is merged under the persona it was originally
-  // attached to (carried via `conversation.personaKey` from the
-  // desktop-sync encoder). Conversations whose source persona no longer
-  // exists fall back to the manifest default so they don't disappear.
-  const touchedPersonas = new Set();
-  for (const conversation of workspace.conversations) {
-    const requested = String(conversation?.personaKey || "").trim();
-    const personaKey = requested && fellowKeys.has(requested)
-      ? requested
-      : defaultPersonaKey;
-    if (!store.sessions[personaKey]) store.sessions[personaKey] = [];
-    touchedPersonas.add(personaKey);
-    const incoming = desktopSessionFromCloudConversation(conversation, personaKey);
-    const existing = store.sessions[personaKey].find((session) => session.id === incoming.id);
-    if (!existing) {
-      store.sessions[personaKey].push(incoming);
-      continue;
-    }
-    const messagesByKey = new Map();
-    for (const message of existing.messages || []) {
-      messagesByKey.set(chatMessageMergeKey(message), message);
-    }
-    for (const message of incoming.messages || []) {
-      const key = chatMessageMergeKey(message);
-      const previous = messagesByKey.get(key);
-      messagesByKey.set(key, previous ? mergeChatMessageRecord(previous, message) : message);
-    }
-    existing.title = incoming.title || existing.title;
-    existing.titleGenerated = Boolean(existing.titleGenerated || incoming.titleGenerated);
-    existing.updatedAt = [existing.updatedAt, incoming.updatedAt].filter(Boolean).sort().at(-1) || new Date().toISOString();
-    existing.messages = [...messagesByKey.values()].sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
-  }
-  for (const personaKey of touchedPersonas) {
-    store.sessions[personaKey].sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
-  }
-  return saveChatStore(store);
-}
+// (mergeCloudWorkspaceIntoChatStore removed in Phase 4 cutover —
+//  the cloud workspace snapshot is no longer the conversation source.
+//  Fellow chats now sync via rooms+messages; the merge-into-chat-store
+//  path is replaced by the cloud-room cache which never overwrites the
+//  local chat-store.)
 
 const CLI_PATH_SEGMENTS = [
   path.join(os.homedir(), ".local", "bin"),
@@ -4569,17 +4524,12 @@ function appendCloudLog(line) {
 
 function cloudStatus(includeToken = false) {
   const settings = settingsStore.cloudSettings();
-  const cloudWorkspace = settingsStore.readCloudWorkspace();
-  const workspace = cloudWorkspace?.workspace || null;
   return {
     enabled: Boolean(settings.enabled && settings.token),
     connected: Boolean(cloudBridgeState.connected),
     connecting: Boolean(cloudBridgeState.connecting),
     url: settings.url,
     user: settings.user,
-    workspaceRevision: Number(workspace?.revision || 0),
-    conversationCount: Array.isArray(workspace?.conversations) ? workspace.conversations.length : 0,
-    lastSyncAt: cloudWorkspace?.syncedAt || "",
     deviceId: cloudBridgeState.deviceId,
     lastError: cloudBridgeState.lastError,
     logs: cloudBridgeState.logs.slice(-80),
@@ -4604,33 +4554,9 @@ async function cloudApi(pathSegment, { method = "GET", body = null, token = "" }
   return data;
 }
 
-// Bulk push: build the full cloud workspace from every local chat session
-// (per persona, including messages) and PUT it to /api/workspace. This is
-// what the user expects from clicking "同步" — they want existing fellow
-// chats to appear on web/mobile, not just messages typed after login.
-function buildCloudWorkspaceFromLocalSessions() {
-  const manifest = loadFellowManifest();
-  const fellowByKey = new Map(
-    (Array.isArray(manifest.fellows) ? manifest.fellows : [])
-      .map((f) => [String(f?.key || f?.id || ""), f])
-      .filter(([key]) => key)
-  );
-  const store = loadChatStore();
-  const conversations = [];
-  for (const [personaKey, sessions] of Object.entries(store.sessions || {})) {
-    if (!Array.isArray(sessions)) continue;
-    const fellow = fellowByKey.get(personaKey) || {};
-    for (const session of sessions) {
-      if (!session?.id) continue;
-      const base = cloudConversationFromDesktopSession(session, fellow);
-      const messages = Array.isArray(session.messages)
-        ? session.messages.map(cloudMessageFromDesktopMessage)
-        : [];
-      conversations.push({ ...base, messages });
-    }
-  }
-  return { conversations };
-}
+// (buildCloudWorkspaceFromLocalSessions removed in Phase 4 cutover —
+//  fellow chat sync is now done by pushAllFellowSessionsToCloudRooms
+//  which writes directly into rooms+messages.)
 
 // Phase 2: mirror a local fellow's identity to /api/me/fellows so other
 // devices (web, fresh desktop install, etc.) see proper attribution on
@@ -4710,44 +4636,24 @@ async function pushUserProfileToCloud() {
 async function syncAimashiCloudWorkspace() {
   const settings = settingsStore.cloudSettings();
   if (!settings.enabled || !settings.token) return cloudStatus(false);
-  // 0. Push the user's profile avatar so friends see the right image.
+  // 0. Profile avatar so friends see the right image.
   await pushUserProfileToCloud();
-  // 1. Push the full local history up to the cloud so web/mobile can see
-  //    everything that existed before this login (or before the last sync).
-  const localWorkspace = buildCloudWorkspaceFromLocalSessions();
-  let pushed = null;
-  try {
-    // Concurrency-safe sync: server merges by conversation id rather than
-    // replacing the whole array, so pushing this desktop's local sessions
-    // can't delete conversations another device already uploaded.
-    pushed = await cloudApi("/api/workspace/sync", {
-      method: "POST",
-      body: { conversations: localWorkspace.conversations }
-    });
-  } catch (error) {
-    appendCloudLog(`Aimashi Cloud sync push failed: ${error?.message || error}`);
-  }
-  // 2. Push any locally-stored groups that haven't been mirrored to cloud
-  //    yet. From the user's view there is no "local group" vs "cloud
-  //    group" — they're just groups; sync handles the storage promotion.
+  // 1. Push local-only groups into cloud rooms (Phase 4).
   await pushLocalGroupsToCloud();
-  // 2b. Push fellow identities to cloud (Phase 2). Without this, fellow
-  //     chat history viewed on web shows assistant turns with no name /
-  //     avatar — sender is just a fellow id the cloud doesn't know.
+  // 2. Push fellow identities so other devices render proper attribution.
   await pushAllFellowsToCloud();
-  // 2c. Migrate ALL fellow chat sessions into the unified rooms+messages
-  //     model (Phase 4). Each session becomes a fellow-type room; each
-  //     message becomes a messages row. Idempotent on (sessionId,
-  //     messageId) so subsequent syncs are no-ops; safe to re-run.
+  // 3. Mirror every fellow chat session + message into the unified
+  //    rooms+messages model. Idempotent — runs on every sync, no-op
+  //    when all sessions are already mirrored.
   await pushAllFellowSessionsToCloudRooms();
-  // 3. Pull the merged result back so any cloud-only conversations (DM peers,
-  //    other-device sessions) also land in the local chat store.
-  const data = pushed && pushed.workspace
-    ? { user: settings.user, workspace: pushed.workspace }
-    : await cloudApi("/api/me");
-  settingsStore.writeCloudSettings({ user: data.user || settings.user });
-  settingsStore.writeCloudWorkspace(data.workspace || null);
-  mergeCloudWorkspaceIntoChatStore(data.workspace || null);
+  // 4. Refresh cloud account meta (avatar/username might have changed
+  //    on another device).
+  try {
+    const data = await cloudApi("/api/me");
+    settingsStore.writeCloudSettings({ user: data?.user || settings.user });
+  } catch (error) {
+    appendCloudLog(`Aimashi Cloud /api/me refresh failed: ${error?.message || error}`);
+  }
   return cloudStatus(false);
 }
 
@@ -4863,25 +4769,7 @@ async function pushDesktopMessageToCloud({ session, message, fellowKey = "" } = 
   const settings = settingsStore.cloudSettings();
   if (!settings.enabled || !settings.token || !session?.id || !message) return cloudStatus(false);
   const fellow = loadFellowManifest().fellows.find((item) => item.key === fellowKey || item.id === fellowKey) || {};
-  const conversation = cloudConversationFromDesktopSession(session, fellow);
-  // Legacy workspace-snapshot path (kept for backward compat with older
-  // web clients that still read /api/workspace).
-  await cloudApi("/api/conversations", {
-    method: "POST",
-    body: { conversation }
-  });
-  const pushed = await cloudApi("/api/messages", {
-    method: "POST",
-    body: {
-      conversationId: conversation.id,
-      ...cloudMessageFromDesktopMessage(message)
-    }
-  });
-  settingsStore.writeCloudWorkspace(pushed.workspace || null);
-  mergeCloudWorkspaceIntoChatStore(pushed.workspace || null);
-  // Phase 4: ALSO mirror into the unified rooms+messages model. After
-  // migration window every client will read from here only; until then
-  // both paths are kept in lock-step.
+  // Phase 4 cutover: single push path — mirror into rooms+messages.
   await mirrorFellowSessionToCloudRoom(session, fellow, message).catch((e) =>
     appendCloudLog(`Cloud fellow-room push failed: ${e?.message || e}`)
   );
@@ -4982,8 +4870,6 @@ async function loginAimashiCloud({ username, password, mode = "login", url = "" 
     token: ""
   });
   settingsStore.writeCloudSettings({ url: nextUrl, enabled: true, token: data.token, user: data.user || null });
-  settingsStore.writeCloudWorkspace(data.workspace || null);
-  mergeCloudWorkspaceIntoChatStore(data.workspace || null);
   startCloudEvents();
   startCloudBridge();
   return cloudStatus(false);
@@ -5063,16 +4949,7 @@ function scheduleCloudEventsReconnect() {
   }, 3000);
 }
 
-function handleCloudWorkspaceEvent(message = {}) {
-  const workspace = message.workspace || null;
-  if (!workspace) return;
-  settingsStore.writeCloudWorkspace(workspace);
-  mergeCloudWorkspaceIntoChatStore(workspace);
-  broadcastRendererEvent(IpcChannel.CloudEvent, {
-    type: String(message.type || CloudEvent.WorkspaceUpdated),
-    cloud: cloudStatus(false)
-  });
-}
+// (handleCloudWorkspaceEvent removed in Phase 4 cutover.)
 
 function handleCloudEventsMessage(raw) {
   let message = null;
@@ -5128,10 +5005,10 @@ function handleCloudEventsMessage(raw) {
     broadcastRendererEvent(IpcChannel.CloudEvent, { type: CloudEvent.RoomMessageAppended, payload: message });
     return;
   }
-  if (message.type === CloudEvent.WorkspaceUpdated || message.type === CloudEvent.MessageCreated) {
-    handleCloudWorkspaceEvent(message);
-    return;
-  }
+  // (workspace_updated / message_created handler removed in Phase 4
+  //  cutover — the events no longer fire because /api/workspace and
+  //  /api/messages are gone. Room messages broadcast via
+  //  room.message_appended above.)
   if (message.type === CloudEvent.BridgeRunUpdated || message.type === CloudEvent.DeviceUpdated) {
     broadcastRendererEvent(IpcChannel.CloudEvent, {
       type: String(message.type || "cloud_event"),

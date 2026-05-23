@@ -311,19 +311,7 @@ function createSettingsStore(deps = {}) {
     return next;
   }
 
-  function readCloudWorkspace() {
-    return readJson(runtimePaths().cloudWorkspace, null);
-  }
-
-  function writeCloudWorkspace(workspace) {
-    const p = runtimePaths();
-    fs.mkdirSync(path.dirname(p.cloudWorkspace), { recursive: true });
-    fs.writeFileSync(p.cloudWorkspace, JSON.stringify({
-      workspace: workspace || null,
-      syncedAt: new Date().toISOString()
-    }, null, 2) + "\n", { mode: 0o600 });
-    return readCloudWorkspace();
-  }
+  // (readCloudWorkspace / writeCloudWorkspace removed in Phase 4 cutover.)
 
   return {
     defaultModelSettings,
@@ -352,8 +340,6 @@ function createSettingsStore(deps = {}) {
     normalizeCloudUrl,
     cloudSettings,
     writeCloudSettings,
-    readCloudWorkspace,
-    writeCloudWorkspace,
   };
 }
 
