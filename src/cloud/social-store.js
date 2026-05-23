@@ -129,8 +129,8 @@ function createSocialStore(db) {
   }
 
   const insertRoom = db.prepare(`
-    INSERT INTO rooms (id, name, avatar, host_member_json, decorations_json, context_card_json, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO rooms (id, type, name, avatar, host_member_json, decorations_json, context_card_json, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const selectRoomById = db.prepare("SELECT * FROM rooms WHERE id = ?");
   const updateRoomCols = db.prepare(`
@@ -173,6 +173,7 @@ function createSocialStore(db) {
     if (!row) return null;
     return {
       id: row.id,
+      type: row.type || (row.id?.startsWith("dm:") ? "dm" : row.id?.startsWith("fellow:") ? "fellow" : "group"),
       name: row.name,
       avatar: row.avatar,
       hostMember: row.host_member_json ? JSON.parse(row.host_member_json) : null,
@@ -183,10 +184,19 @@ function createSocialStore(db) {
     };
   }
 
-  function createRoom({ id, name = null, avatar = null, hostMember = null, decorations = null, contextCard = null }) {
+  function inferType(id) {
+    if (typeof id !== "string") return "group";
+    if (id.startsWith("dm:")) return "dm";
+    if (id.startsWith("fellow:")) return "fellow";
+    return "group";
+  }
+
+  function createRoom({ id, type = null, name = null, avatar = null, hostMember = null, decorations = null, contextCard = null }) {
     const now = nowIso();
+    const resolvedType = type || inferType(id);
     insertRoom.run(
       String(id),
+      resolvedType,
       name,
       avatar,
       hostMember ? JSON.stringify(hostMember) : null,

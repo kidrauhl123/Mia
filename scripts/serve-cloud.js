@@ -1237,6 +1237,48 @@ async function handleRequest(req, res, context) {
       return writeJson(res, 200, payload);
     }
 
+    // PUT /api/me/fellow-rooms/:sessionId — upsert a single-owner
+    // fellow-chat room. Phase 4 conversation-model unification: fellow
+    // private chats now live in the same rooms+messages tables as
+    // cloud DMs and groups. Each fellow chat session becomes a room
+    // with id "fellow:<userId>:<sessionId>", type "fellow", and two
+    // member rows: the owner (kind=user) and the fellow (kind=fellow,
+    // ownerId=userId).
+    //
+    // Body: { fellowKey, title?, clientOpId? }
+    //
+    // Idempotent on (owner, sessionId): repeated calls return the same
+    // room. Updates to name only happen if `title` is provided and
+    // differs.
+    const fellowRoomMatch = url.pathname.match(/^\/api\/me\/fellow-rooms\/([A-Za-z0-9_.:-]+)$/);
+    if (req.method === "PUT" && fellowRoomMatch) {
+      const sessionId = fellowRoomMatch[1];
+      const body = await readJson(req);
+      if (replayIfCached(context, res, auth.user.id, body)) return;
+      const fellowKey = String(body.fellowKey || "").trim();
+      if (!fellowKey) return writeError(res, 400, "fellowKey is required");
+      const title = String(body.title || "").trim();
+      const roomId = `fellow:${auth.user.id}:${sessionId}`;
+      let room = context.socialStore.getRoom(roomId);
+      if (!room) {
+        context.socialStore.createRoom({
+          id: roomId,
+          type: "fellow",
+          name: title || null,
+          decorations: { fellowKey, sessionId }
+        });
+        context.socialStore.addRoomMember({ roomId, memberKind: "user", memberRef: auth.user.id });
+        context.socialStore.addRoomMember({ roomId, memberKind: "fellow", memberRef: fellowKey, ownerId: auth.user.id });
+        room = context.socialStore.getRoom(roomId);
+      } else if (title && title !== room.name) {
+        room = context.socialStore.updateRoom(roomId, { name: title });
+      }
+      const members = context.socialStore.listRoomMembers(roomId);
+      const payload = { room, members };
+      rememberOp(context, auth.user.id, body, 200, payload);
+      return writeJson(res, 200, payload);
+    }
+
     // GET /api/me/fellows — list this user's cloud-mirrored fellow
     // definitions. Phase 2 of the sync redesign: fellow identity (name +
     // avatar + persona + capabilities) lives in cloud so web / a freshly-

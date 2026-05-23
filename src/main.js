@@ -4735,6 +4735,11 @@ async function syncAimashiCloudWorkspace() {
   //     chat history viewed on web shows assistant turns with no name /
   //     avatar — sender is just a fellow id the cloud doesn't know.
   await pushAllFellowsToCloud();
+  // 2c. Migrate ALL fellow chat sessions into the unified rooms+messages
+  //     model (Phase 4). Each session becomes a fellow-type room; each
+  //     message becomes a messages row. Idempotent on (sessionId,
+  //     messageId) so subsequent syncs are no-ops; safe to re-run.
+  await pushAllFellowSessionsToCloudRooms();
   // 3. Pull the merged result back so any cloud-only conversations (DM peers,
   //    other-device sessions) also land in the local chat store.
   const data = pushed && pushed.workspace
@@ -4859,6 +4864,8 @@ async function pushDesktopMessageToCloud({ session, message, fellowKey = "" } = 
   if (!settings.enabled || !settings.token || !session?.id || !message) return cloudStatus(false);
   const fellow = loadFellowManifest().fellows.find((item) => item.key === fellowKey || item.id === fellowKey) || {};
   const conversation = cloudConversationFromDesktopSession(session, fellow);
+  // Legacy workspace-snapshot path (kept for backward compat with older
+  // web clients that still read /api/workspace).
   await cloudApi("/api/conversations", {
     method: "POST",
     body: { conversation }
@@ -4872,7 +4879,97 @@ async function pushDesktopMessageToCloud({ session, message, fellowKey = "" } = 
   });
   settingsStore.writeCloudWorkspace(pushed.workspace || null);
   mergeCloudWorkspaceIntoChatStore(pushed.workspace || null);
+  // Phase 4: ALSO mirror into the unified rooms+messages model. After
+  // migration window every client will read from here only; until then
+  // both paths are kept in lock-step.
+  await mirrorFellowSessionToCloudRoom(session, fellow, message).catch((e) =>
+    appendCloudLog(`Cloud fellow-room push failed: ${e?.message || e}`)
+  );
   return cloudStatus(false);
+}
+
+// Sync-time backfill: walk every fellow chat session and every message
+// inside it, ensure the cloud fellow-room exists, post every message
+// with stable clientOpId. Idempotent — safe to run on every sync.
+// Slow on first call (proportional to total local chat history) but
+// gives us a clean, complete cloud mirror.
+async function pushAllFellowSessionsToCloudRooms() {
+  const settings = settingsStore.cloudSettings();
+  if (!settings.enabled || !settings.token || !settings.user?.id) return;
+  let store;
+  try { store = loadChatStore(); }
+  catch (e) { appendCloudLog(`Cloud fellow-room backfill: failed to read chat store (${e?.message || e})`); return; }
+  const manifest = loadFellowManifest();
+  const fellowByKey = new Map((manifest.fellows || []).map((f) => [f.key, f]));
+  for (const [personaKey, sessions] of Object.entries(store.sessions || {})) {
+    if (!Array.isArray(sessions)) continue;
+    const fellow = fellowByKey.get(personaKey) || { key: personaKey, name: personaKey };
+    for (const session of sessions) {
+      if (!session?.id) continue;
+      try {
+        await cloudApi(`/api/me/fellow-rooms/${encodeURIComponent(session.id)}`, {
+          method: "PUT",
+          body: {
+            fellowKey: fellow.key,
+            title: session.title || fellow.name || "对话",
+            clientOpId: `op_fellow_room_${settings.user.id}_${session.id}`
+          }
+        });
+      } catch (e) {
+        appendCloudLog(`Cloud fellow-room upsert failed (${session.id}): ${e?.message || e}`);
+        continue;
+      }
+      const roomId = `fellow:${settings.user.id}:${session.id}`;
+      const messages = Array.isArray(session.messages) ? session.messages : [];
+      for (const message of messages) {
+        const text = String(message?.content || message?.text || "").trim();
+        if (!text) continue;
+        const clientOpId = `op_fellow_msg_${session.id}_${message.id || message.createdAt || ""}`;
+        try {
+          await cloudApi(`/api/rooms/${encodeURIComponent(roomId)}/messages`, {
+            method: "POST",
+            body: { bodyMd: text, attachments: message.attachments || null, clientOpId }
+          });
+        } catch (e) {
+          appendCloudLog(`Cloud fellow-room message backfill failed (${roomId}): ${e?.message || e}`);
+          break; // stop this session's backfill; next sync retries
+        }
+      }
+    }
+  }
+}
+
+async function mirrorFellowSessionToCloudRoom(session, fellow, message) {
+  if (!session?.id || !fellow?.key) return;
+  const settings = settingsStore.cloudSettings();
+  if (!settings.enabled || !settings.token || !settings.user?.id) return;
+  // Step 1: ensure the fellow-type room exists for this session.
+  try {
+    await cloudApi(`/api/me/fellow-rooms/${encodeURIComponent(session.id)}`, {
+      method: "PUT",
+      body: {
+        fellowKey: fellow.key,
+        title: session.title || fellow.name || "对话",
+        clientOpId: `op_fellow_room_${settings.user.id}_${session.id}`
+      }
+    });
+  } catch (e) {
+    appendCloudLog(`Cloud fellow-room upsert failed (${session.id}): ${e?.message || e}`);
+    return;
+  }
+  // Step 2: post the message to that room.
+  const roomId = `fellow:${settings.user.id}:${session.id}`;
+  const text = String(message?.content || message?.text || "").trim();
+  if (!text) return;
+  const clientOpId = `op_fellow_msg_${session.id}_${message.id || message.createdAt || Date.now()}`;
+  try {
+    await cloudApi(`/api/rooms/${encodeURIComponent(roomId)}/messages`, {
+      method: "POST",
+      body: { bodyMd: text, attachments: message.attachments || null, clientOpId }
+    });
+  } catch (e) {
+    appendCloudLog(`Cloud fellow-room message push failed (${roomId}): ${e?.message || e}`);
+  }
 }
 
 async function loginAimashiCloud({ username, password, mode = "login", url = "" } = {}) {

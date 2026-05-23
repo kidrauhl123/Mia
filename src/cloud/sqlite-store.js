@@ -693,8 +693,17 @@ function migrate(db) {
       resolved_at  TEXT
     );
 
+    -- A "room" is the universal Conversation entity. type values:
+    --   'dm'     — two-user direct message (id format dm:a:b)
+    --   'group'  — multi-member room (id format g_<hex>)
+    --   'fellow' — a user's private chat with one of their own fellows
+    --              (id format fellow:<userId>:<fellowKey>). owner only,
+    --              no other user members.
+    -- The type column is the canonical answer for "what kind of
+    -- conversation is this"; id prefix is just a historical hint.
     CREATE TABLE IF NOT EXISTS rooms (
       id                TEXT PRIMARY KEY,
+      type              TEXT NOT NULL DEFAULT 'group',
       name              TEXT,
       avatar            TEXT,
       host_member_json  TEXT,
@@ -703,6 +712,7 @@ function migrate(db) {
       created_at        TEXT NOT NULL,
       updated_at        TEXT NOT NULL
     );
+    CREATE INDEX IF NOT EXISTS idx_rooms_type ON rooms(type);
 
     CREATE TABLE IF NOT EXISTS room_members (
       room_id       TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
@@ -828,6 +838,14 @@ function migrate(db) {
   if (!hasColumn(db, "user_settings", "version")) {
     db.exec("ALTER TABLE user_settings ADD COLUMN version INTEGER NOT NULL DEFAULT 0");
   }
+  // v7: rooms.type column for explicit conversation kind. Existing
+  // rows backfilled by id prefix; new rows must declare it.
+  if (!hasColumn(db, "rooms", "type")) {
+    db.exec("ALTER TABLE rooms ADD COLUMN type TEXT NOT NULL DEFAULT 'group'");
+    db.exec("UPDATE rooms SET type = 'dm' WHERE id LIKE 'dm:%'");
+    db.exec("UPDATE rooms SET type = 'fellow' WHERE id LIKE 'fellow:%'");
+    db.exec("CREATE INDEX IF NOT EXISTS idx_rooms_type ON rooms(type)");
+  }
   db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (1, ?)")
     .run(nowIso());
   db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (2, ?)")
@@ -839,6 +857,8 @@ function migrate(db) {
   db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (5, ?)")
     .run(nowIso());
   db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (6, ?)")
+    .run(nowIso());
+  db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (7, ?)")
     .run(nowIso());
 }
 
