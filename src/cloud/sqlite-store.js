@@ -735,6 +735,36 @@ function migrate(db) {
     CREATE INDEX IF NOT EXISTS idx_friend_requests_code ON friend_requests(code, status);
     CREATE INDEX IF NOT EXISTS idx_room_members_user ON room_members(member_kind, member_ref);
     CREATE INDEX IF NOT EXISTS idx_messages_room_seq ON messages(room_id, seq);
+
+    -- v4: per-user persistent event log + write idempotency.
+    -- See docs/superpowers/plans/2026-05-23-sync-architecture-redesign.md.
+    -- Every state-changing WS broadcast also lands a row here. Clients
+    -- track last_seen_seq and on reconnect ask for since_seq > N → server
+    -- replays the missed rows. Disconnect tolerance becomes free.
+    CREATE TABLE IF NOT EXISTS user_events (
+      id          INTEGER PRIMARY KEY,
+      user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      seq         INTEGER NOT NULL,
+      kind        TEXT NOT NULL,
+      scope_kind  TEXT,
+      scope_ref   TEXT,
+      payload     TEXT NOT NULL,
+      created_at  TEXT NOT NULL,
+      UNIQUE (user_id, seq)
+    );
+    CREATE INDEX IF NOT EXISTS idx_user_events_user_seq ON user_events(user_id, seq);
+
+    -- Write-side idempotency. Body.clientOpId on POST/PATCH/DELETE; server
+    -- caches the response for 24h so retries return the same answer.
+    CREATE TABLE IF NOT EXISTS op_idempotency (
+      user_id     TEXT NOT NULL,
+      client_op   TEXT NOT NULL,
+      result_json TEXT NOT NULL,
+      status_code INTEGER NOT NULL DEFAULT 200,
+      created_at  TEXT NOT NULL,
+      PRIMARY KEY (user_id, client_op)
+    );
+    CREATE INDEX IF NOT EXISTS idx_op_idempotency_created ON op_idempotency(created_at);
   `);
   if (!hasColumn(db, "bridge_runs", "request_attachments_json")) {
     db.exec("ALTER TABLE bridge_runs ADD COLUMN request_attachments_json TEXT NOT NULL DEFAULT '[]'");
@@ -750,11 +780,19 @@ function migrate(db) {
   if (!hasColumn(db, "users", "avatar_color")) {
     db.exec("ALTER TABLE users ADD COLUMN avatar_color TEXT NOT NULL DEFAULT ''");
   }
+  // v4: per-user event seq cache. event_seq mirrors MAX(user_events.seq)
+  // for that user; kept on the row for fast monotonic increment under
+  // the same transaction as the user_events insert.
+  if (!hasColumn(db, "users", "event_seq")) {
+    db.exec("ALTER TABLE users ADD COLUMN event_seq INTEGER NOT NULL DEFAULT 0");
+  }
   db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (1, ?)")
     .run(nowIso());
   db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (2, ?)")
     .run(nowIso());
   db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (3, ?)")
+    .run(nowIso());
+  db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (4, ?)")
     .run(nowIso());
 }
 
