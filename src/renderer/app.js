@@ -1795,17 +1795,23 @@ function renderMessageHtml(message, ctx) {
 function renderCommandResultHtml(commandResult) {
   if (!commandResult || commandResult.type !== "session-list" || !Array.isArray(commandResult.rows)) return "";
   const engine = String(commandResult.engine || "");
+  const sourceDeviceId = String(commandResult.sourceDeviceId || "");
+  const currentDeviceId = String(state.runtime?.relay?.deviceId || "");
+  const isForeignDeviceList = Boolean(sourceDeviceId && currentDeviceId && sourceDeviceId !== currentDeviceId);
   const rows = commandResult.rows.slice(0, 10).map((row) => {
     const title = String(row.title || row.id || "Session");
     const preview = String(row.preview || row.project || row.id || "");
     const project = String(row.project || "");
+    const previewText = isForeignDeviceList
+      ? `${preview || row.id || ""} · 来自另一台设备，请重新发送 /resume`
+      : (preview || project || row.id || "");
     const updatedAt = Number(row.updatedAt) || 0;
     const time = updatedAt ? formatConversationTime(new Date(updatedAt).toISOString()) : "";
     return `
-      <button class="command-session-row" type="button" data-command-resume-engine="${window.aimashiMarkdown.escapeHtml(engine)}" data-command-resume-id="${window.aimashiMarkdown.escapeHtml(row.id || "")}">
+      <button class="command-session-row" type="button" data-command-resume-engine="${window.aimashiMarkdown.escapeHtml(engine)}" data-command-resume-id="${window.aimashiMarkdown.escapeHtml(row.id || "")}" data-command-source-device-id="${window.aimashiMarkdown.escapeHtml(sourceDeviceId)}"${isForeignDeviceList ? " disabled title=\"这条列表来自另一台设备，请在当前设备重新发送 /resume\"" : ""}>
         <span class="command-session-main">
           <strong>${window.aimashiMarkdown.escapeHtml(title)}</strong>
-          <small>${window.aimashiMarkdown.escapeHtml(preview || project || row.id || "")}</small>
+          <small>${window.aimashiMarkdown.escapeHtml(previewText)}</small>
         </span>
         <span class="command-session-side">${window.aimashiMarkdown.escapeHtml(time)}</span>
       </button>
@@ -3593,6 +3599,12 @@ els.chat.addEventListener("click", async (event) => {
     event.stopPropagation();
     const sessionIdToResume = String(resumeButton.dataset.commandResumeId || "").trim();
     if (!sessionIdToResume || resumeButton.disabled) return;
+    const sourceDeviceId = String(resumeButton.dataset.commandSourceDeviceId || "").trim();
+    const currentDeviceId = String(state.runtime?.relay?.deviceId || "").trim();
+    if (sourceDeviceId && currentDeviceId && sourceDeviceId !== currentDeviceId) {
+      appendTransientChat("assistant", "这条 /resume 列表来自另一台设备。请在当前设备重新发送 /resume，生成本机可恢复的 session 列表。");
+      return;
+    }
     const engine = resumeButton.dataset.commandResumeEngine || window.aimashiEngineOptions.activeAgentEngine();
     const fellow = activePersona() || { key: state.activeKey };
     resumeButton.disabled = true;

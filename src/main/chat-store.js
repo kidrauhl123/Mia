@@ -81,12 +81,17 @@ function createChatStore(deps = {}) {
         .slice(0, 20)
       : [];
     if (!rows.length) return null;
-    return {
+    const normalized = {
       type: "session-list",
       command: String(commandResult.command || "/resume").trim() || "/resume",
       engine: String(commandResult.engine || "").trim(),
       rows
     };
+    const sourceDeviceId = String(commandResult.sourceDeviceId || "").trim();
+    const sourceDeviceName = String(commandResult.sourceDeviceName || "").trim().slice(0, 120);
+    if (sourceDeviceId) normalized.sourceDeviceId = sourceDeviceId;
+    if (sourceDeviceName) normalized.sourceDeviceName = sourceDeviceName;
+    return normalized;
   }
 
   function chatMessageMergeKey(message) {

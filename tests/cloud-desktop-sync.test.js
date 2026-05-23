@@ -44,6 +44,7 @@ test("desktop sync preserves command results through cloud messages", () => {
     type: "session-list",
     command: "/resume",
     engine: "claude-code",
+    sourceDeviceId: "aimashi-device-a",
     rows: [{
       id: "11111111-2222-4333-8444-555555555555",
       title: "History title",

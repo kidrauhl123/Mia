@@ -2826,6 +2826,13 @@ function usefulExternalSessionRow(row) {
   return true;
 }
 
+function commandResultDeviceMeta() {
+  const relay = settingsStore.relaySettings();
+  return {
+    sourceDeviceId: String(relay.deviceId || "").trim()
+  };
+}
+
 function runExternalSlashCommand({ text, fellow, engine, sessionId }) {
   const command = String(text || "").trim().split(/\s+/)[0].toLowerCase();
   const args = String(text || "").trim().slice(command.length).trim();
@@ -2884,6 +2891,7 @@ function runExternalSlashCommand({ text, fellow, engine, sessionId }) {
           type: "session-list",
           command: "/resume",
           engine,
+          ...commandResultDeviceMeta(),
           rows
         }
       };
