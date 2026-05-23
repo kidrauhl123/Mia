@@ -11,6 +11,11 @@
   const responseModeModule = (typeof window !== "undefined" && window.aimashiGroupResponseMode)
     ? window.aimashiGroupResponseMode
     : (typeof require !== "undefined" ? require("./response-mode.js") : {});
+  function contactModule() {
+    if (typeof window !== "undefined" && window.aimashiContact) return window.aimashiContact;
+    if (typeof require !== "undefined") return require("../../shared/contact");
+    throw new Error("aimashiContact is not loaded");
+  }
   const { createConductor } = conductorModule || {};
   const {
     GROUP_RESPONSE_MODE,
@@ -37,8 +42,14 @@
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  function fellowMember(fellowId) {
-    return { kind: "fellow", fellowId: String(fellowId), ownerId: null };
+  function resolveFellowContact(fellowId) {
+    const { resolveContact, ContactKind } = contactModule();
+    return resolveContact({ kind: ContactKind.Fellow, ref: fellowId }, { fellows: currentFellows() });
+  }
+
+  function makeMemberRecord(fellowId) {
+    const c = resolveFellowContact(fellowId);
+    return { kind: "fellow", fellowId: c.id, ownerId: null };
   }
 
   function memberFellowIds(group) {
@@ -261,8 +272,8 @@
         .map((id) => fellowNamesById[id] || id)
         .join(" · ");
       try {
-        const memberList = members.map(fellowMember);
-        const hostMember = fellowMember(hostFellowIdValue);
+        const memberList = members.map(makeMemberRecord);
+        const hostMember = makeMemberRecord(hostFellowIdValue);
         const group = await window.aimashi.groups.create({ name, members: memberList, hostMember });
         moduleState.groups.push(group);
         close();
@@ -304,15 +315,12 @@
     if (goalInput) goalInput.value = (group.decorations && group.decorations.pinnedGoal) || "";
     refreshResponseModeOptions();
 
-    function fellowById(fellowId) {
-      return currentFellows().find((f) => (f.id || f.key) === fellowId) || null;
-    }
-
-    function applyMemberAvatar(avatarEl, fellow, fellowId) {
-      const color = fellow?.color || "#5e5ce6";
+    function applyMemberAvatar(avatarEl, contact, fellowId) {
+      const avatar = contact?.avatar || {};
+      const color = avatar.color || "#5e5ce6";
       if (typeof window.aimashiAvatar?.avatarThumbBackgroundStyle === "function") {
-        const image = fellow?.avatarImage || (typeof window.aimashiAvatar?.avatarAssetForKey === "function" ? window.aimashiAvatar.avatarAssetForKey(fellowId) : "");
-        const style = window.aimashiAvatar.avatarThumbBackgroundStyle(image, fellow?.avatarCrop, color);
+        const image = avatar.image || (typeof window.aimashiAvatar?.avatarAssetForKey === "function" ? window.aimashiAvatar.avatarAssetForKey(fellowId) : "");
+        const style = window.aimashiAvatar.avatarThumbBackgroundStyle(image, avatar.crop, color);
         avatarEl.style.cssText = style && style.trim() ? style : "background-color:" + color + ";";
       } else {
         avatarEl.style.background = color;
@@ -350,9 +358,9 @@
 
     async function setHostMember(group, memberId) {
       if (!memberId || memberId === getHostFellowId(group)) return;
-      group.hostMember = fellowMember(memberId);
+      group.hostMember = makeMemberRecord(memberId);
       try {
-        Object.assign(group, await window.aimashi.groups.update(group.id, { hostMember: fellowMember(memberId) }));
+        Object.assign(group, await window.aimashi.groups.update(group.id, { hostMember: makeMemberRecord(memberId) }));
         triggerRender();
       } catch (e) {
         console.warn("[group] host switch failed:", e);
@@ -394,17 +402,17 @@
     function refreshMembers() {
       membersBox.innerHTML = "";
       for (const memberId of memberFellowIds(group)) {
-        const fellow = fellowById(memberId);
+        const memberContact = resolveFellowContact(memberId);
         const row = document.createElement("div");
         row.className = "group-info-member-row";
         const main = document.createElement("span");
         main.className = "group-info-member-main";
         const avatarEl = document.createElement("span");
         avatarEl.className = "member-avatar";
-        applyMemberAvatar(avatarEl, fellow, memberId);
+        applyMemberAvatar(avatarEl, memberContact, memberId);
         const label = document.createElement("span");
         label.className = "group-info-member-name";
-        label.textContent = infoFellowNamesById[memberId] || memberId;
+        label.textContent = memberContact.displayName || memberId;
         if (memberId === getHostFellowId(group)) {
           const crown = document.createElement("span");
           crown.className = "group-info-host-badge";
@@ -498,7 +506,7 @@
         row.appendChild(addIndicator);
         row.addEventListener("click", async () => {
           if (memberFellowIds(group).length >= 5) return;
-          const newMembers = [...memberFellowIds(group), fellowId].map(fellowMember);
+          const newMembers = [...memberFellowIds(group), fellowId].map(makeMemberRecord);
           group.members = newMembers;
           try {
             Object.assign(group, await window.aimashi.groups.update(group.id, { members: newMembers }));
@@ -1014,7 +1022,7 @@
       return;
     }
     const newMemberIds = memberFellowIds(group).filter((id) => id !== memberId);
-    const newMembers = newMemberIds.map(fellowMember);
+    const newMembers = newMemberIds.map(makeMemberRecord);
     let newHost = getHostFellowId(group);
     let hostChanged = false;
     if (memberId === getHostFellowId(group)) {
@@ -1022,11 +1030,11 @@
       hostChanged = true;
     }
     group.members = newMembers;
-    group.hostMember = fellowMember(newHost);
+    group.hostMember = makeMemberRecord(newHost);
     try {
       Object.assign(group, await window.aimashi.groups.update(group.id, {
         members: newMembers,
-        hostMember: fellowMember(newHost),
+        hostMember: makeMemberRecord(newHost),
       }));
       triggerRender();
     } catch (e) {
