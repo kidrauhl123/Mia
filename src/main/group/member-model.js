@@ -1,11 +1,13 @@
+const { MemberKind } = require("../../shared/conversation-kinds.js");
+
 function makeFellowMember(fellowId, options = {}) {
   const id = String(fellowId || "").trim();
   if (!id) throw new Error("fellowId is required");
-  return { kind: "fellow", fellowId: id, ownerId: options.ownerId ?? null };
+  return { kind: MemberKind.Fellow, fellowId: id, ownerId: options.ownerId ?? null };
 }
 
 function isFellowMember(value) {
-  return Boolean(value) && typeof value === "object" && value.kind === "fellow" && typeof value.fellowId === "string" && value.fellowId.length > 0;
+  return Boolean(value) && typeof value === "object" && value.kind === MemberKind.Fellow && typeof value.fellowId === "string" && value.fellowId.length > 0;
 }
 
 function memberKey(member) {
@@ -17,7 +19,7 @@ function normalizeMember(input) {
   if (input == null) throw new Error("member is required");
   if (typeof input === "string") return makeFellowMember(input);
   if (typeof input !== "object") throw new Error("member must be object or legacy string");
-  if (input.kind === "fellow") return makeFellowMember(input.fellowId, { ownerId: input.ownerId ?? null });
+  if (input.kind === MemberKind.Fellow) return makeFellowMember(input.fellowId, { ownerId: input.ownerId ?? null });
   throw new Error("unsupported member kind: " + input.kind);
 }
 

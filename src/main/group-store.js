@@ -7,6 +7,7 @@ const {
   memberKey,
   membersIncludeKey,
 } = require("./group/member-model.js");
+const { MemberKind } = require("../shared/conversation-kinds.js");
 
 function atomicWrite(filePath, content) {
   const tmp = filePath + ".tmp." + crypto.randomBytes(6).toString("hex");
@@ -97,7 +98,7 @@ function createGroupStore(rootDir) {
   function migrateLegacyGroup(raw) {
     if (!raw) return raw;
     // Already new schema: pass through
-    if (raw.hostMember && Array.isArray(raw.members) && raw.members.every((m) => m && m.kind === "fellow")) {
+    if (raw.hostMember && Array.isArray(raw.members) && raw.members.every((m) => m && m.kind === MemberKind.Fellow)) {
       return raw;
     }
     const normalizedMembers = Array.isArray(raw.members) ? raw.members.map(normalizeMember) : [];

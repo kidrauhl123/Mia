@@ -20,6 +20,7 @@ function loadInBrowserLikeContext() {
   const files = [
     "src/shared/message-spec.js",
     "src/shared/contact.js",
+    "src/shared/conversation-kinds.js",
     "src/renderer/message-sources/cloud-room-source.js"
   ];
   for (const rel of files) {

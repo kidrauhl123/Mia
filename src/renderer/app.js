@@ -1,5 +1,6 @@
 const fallbackSlashCommands = window.aimashiAppState.fallbackSlashCommands;
 const SETUP_GUIDE_DISMISSED_KEY = window.aimashiAppState.SETUP_GUIDE_DISMISSED_KEY;
+const { ConversationKind, MemberKind } = (typeof window !== "undefined" && window.aimashiConversationKinds) || require("../shared/conversation-kinds");
 const SIDEBAR_WIDTH_MIN = 220;
 const SIDEBAR_WIDTH_MAX = 380;
 const SIDEBAR_WIDTH_DEFAULT = 280;
@@ -449,7 +450,7 @@ function sortSessions(sessions) {
 function cloudGroupMemberAvatarTile(member, { social, personas, avatarHelper }) {
   if (!member) return null;
   const { member_kind: kind, member_ref: ref } = member;
-  if (kind === "user") {
+  if (kind === MemberKind.User) {
     const friend = social?.friendById?.(ref);
     if (friend) {
       return {
@@ -460,7 +461,7 @@ function cloudGroupMemberAvatarTile(member, { social, personas, avatarHelper }) 
     }
     return { image: "", crop: null, color: "#5e5ce6" };
   }
-  if (kind === "fellow") {
+  if (kind === MemberKind.Fellow) {
     const fellow = (personas || []).find((p) => (p.id || p.key) === ref);
     return {
       image: fellow?.avatarImage || avatarHelper?.avatarAssetForKey(ref),
@@ -649,7 +650,7 @@ function openRoomContextMenu(room, kind, x, y) {
   function outside(e) { if (!menu.contains(e.target)) close(); }
   document.addEventListener("click", outside);
   const items = [];
-  if (kind === "group") {
+  if (kind === ConversationKind.CloudGroup) {
     items.push({ label: "群信息", onClick: () => { /* future: open group info dialog */ } });
   }
   // No cloud endpoint for delete-room yet; placeholder hint for now.
@@ -1262,7 +1263,7 @@ function render() {
   for (const row of messageRows) {
     const spec = conversationCardSpecFromRow(row, personas);
     if (!spec) continue;
-    const card = spec.kind === "group"
+    const card = spec.kind === ConversationKind.CloudGroup
       ? window.aimashiSidebarCards.createGroupCard(spec)
       : window.aimashiSidebarCards.createPrivateCard(spec);
     els.personaList.appendChild(card);

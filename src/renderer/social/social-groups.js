@@ -4,6 +4,8 @@
 // Uses window.aimashiSocial._internalCtx to share state.
 
 (function (global) {
+  const { MemberKind } = (typeof window !== "undefined" && window.aimashiConversationKinds) || require("../../shared/conversation-kinds");
+
   let ctx = null; // set by attach()
 
   // H1: dedup set to prevent double-invocation on repeated WS events
@@ -339,7 +341,7 @@
       const entries = Array.from(selected.values());
       const name = (nameInput.value || "").trim() || entries.map((e) => e.name).join(" · ");
       const memberFriendUserIds = entries.filter((e) => e.kind === "friend").map((e) => e.id);
-      const fellowEntries = entries.filter((e) => e.kind === "fellow");
+      const fellowEntries = entries.filter((e) => e.kind === MemberKind.Fellow);
 
       confirmBtn.disabled = true;
       try {
