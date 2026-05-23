@@ -427,6 +427,7 @@ function main() {
   copyFile("src/shared/time-format.js", path.join(webDir, "shared", "time-format.js"));
   copyFile("src/shared/message-spec.js", path.join(webDir, "shared", "message-spec.js"));
   copyFile("src/shared/contact.js", path.join(webDir, "shared", "contact.js"));
+  copyFile("src/shared/unread.js", path.join(webDir, "shared", "unread.js"));
   copyFile("src/renderer/message-sources/cloud-room-source.js", path.join(webDir, "message-sources", "cloud-room-source.js"));
   writeIcoFromPng(path.join(webDir, "icon-192.png"), path.join(webDir, "favicon.ico"));
   copyFile("scripts/smoke-cloud.js", path.join(distDir, "smoke-cloud.js"));

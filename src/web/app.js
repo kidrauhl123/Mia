@@ -5,6 +5,7 @@
 const STORAGE_KEY = "aimashi.web.session";
 const API_BASE = "";
 const { formatConversationTime, formatMessageTime } = window.aimashiTimeFormat;
+const { computeUnreadForConversation, totalUnreadFromConversations, unreadBadgeHtml } = window.aimashiUnread;
 
 const els = {
   root: document.querySelector(".app-shell"),
@@ -576,9 +577,13 @@ function renderConversationList() {
     // ⋯ menu is only meaningful for workspace conversations right now
     // (cloud rooms don't have a delete/rename endpoint yet).
     const hasMenu = it.kind === "desktop";
-    const unread = state.unread.get(it.id) || 0;
+    const unread = computeUnreadForConversation({ id: it.id }, state.unread);
+    // Shared module owns the truncation policy (e.g. "99+"). Web uses its own
+    // .persona-unread class for the list row, so re-extract the truncated
+    // text from the shared badge HTML and re-wrap it with the web class.
+    const unreadText = unreadBadgeText(unread);
     const unreadHtml = unread > 0
-      ? `<span class="persona-unread" aria-label="${unread} 条未读">${unread > 99 ? "99+" : unread}</span>`
+      ? `<span class="persona-unread" aria-label="${unread} 条未读">${escapeHtml(unreadText)}</span>`
       : "";
     const timeLabel = it.sortKey ? formatConversationTime(it.sortKey) : "";
     // Right-side column: when unread, show the red badge; otherwise show the
@@ -602,12 +607,20 @@ function renderConversationList() {
   }).join("");
 }
 
+// Strip the wrapping <span class="unread-badge"> shared/unread produces so we
+// can drop the truncated text into the rail <em> (already styled as a badge)
+// or the .persona-unread list span. Keeps "99+" policy in one place.
+function unreadBadgeText(count) {
+  const html = unreadBadgeHtml(count);
+  if (!html) return "";
+  return html.replace(/<\/?span[^>]*>/g, "");
+}
+
 function renderRailUnreadBadge() {
   if (!els.unreadCount) return;
-  let total = 0;
-  for (const n of state.unread.values()) total += n;
+  const total = totalUnreadFromConversations(null, state.unread);
   if (total > 0) {
-    els.unreadCount.textContent = total > 99 ? "99+" : String(total);
+    els.unreadCount.textContent = unreadBadgeText(total);
     els.unreadCount.hidden = false;
   } else {
     els.unreadCount.hidden = true;
