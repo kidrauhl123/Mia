@@ -3845,7 +3845,7 @@ function contentTypeForAsset(filePath) {
 }
 
 function serveMobileAsset(pathname, res) {
-  if (pathname === "/shared/engine-contracts.js" || pathname === "/shared/time-format.js") {
+  if (pathname === "/shared/engine-contracts.js" || pathname === "/shared/time-format.js" || pathname === "/shared/send-pipeline.js") {
     const filePath = path.join(__dirname, "shared", path.basename(pathname));
     if (!fs.existsSync(filePath)) return false;
     writeControlText(res, 200, fs.readFileSync(filePath, "utf8"), "application/javascript; charset=utf-8");

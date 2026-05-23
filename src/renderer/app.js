@@ -1,6 +1,7 @@
 const fallbackSlashCommands = window.aimashiAppState.fallbackSlashCommands;
 const SETUP_GUIDE_DISMISSED_KEY = window.aimashiAppState.SETUP_GUIDE_DISMISSED_KEY;
 const { ConversationKind, MemberKind } = (typeof window !== "undefined" && window.aimashiConversationKinds) || require("../shared/conversation-kinds");
+const { prepareOutgoingMessage } = (typeof window !== "undefined" && window.aimashiSendPipeline) || require("../shared/send-pipeline");
 const SIDEBAR_WIDTH_MIN = 220;
 const SIDEBAR_WIDTH_MAX = 380;
 const SIDEBAR_WIDTH_DEFAULT = 280;
@@ -3547,8 +3548,8 @@ els.chatForm.addEventListener("submit", async (event) => {
   // Branch: DM room or group-room chat
   if (window.aimashiSocial?.getActiveRoomId?.() && !activeGroup() && !state.activeKey) {
     const roomId = window.aimashiSocial.getActiveRoomId();
-    const roomText = els.chatInput.value.trim();
-    if (!roomText) return;
+    const roomText = els.chatInput.value;
+    if (!roomText.trim()) return;
     els.chatInput.value = "";
     window.aimashiMessageHelpers.resizeChatInput();
     const isGroupRoom = roomId && roomId.startsWith("g_");
@@ -3570,11 +3571,30 @@ els.chatForm.addEventListener("submit", async (event) => {
     await window.aimashi.stopChat?.();
     return;
   }
-  const text = els.chatInput.value.trim();
-  const attachments = state.pendingAttachments.map((attachment) => ({ ...attachment }));
-  if (!text && !attachments.length) return;
-  const session = activeSession();
   const replyTo = state.replyDraft ? { ...state.replyDraft } : null;
+  const fellows = state.runtime?.fellows || state.runtime?.personas || [];
+  const activeFellow = fellows.find((p) => p.key === state.activeKey) || null;
+  let prepared;
+  try {
+    prepared = prepareOutgoingMessage(
+      {
+        text: els.chatInput.value,
+        attachments: state.pendingAttachments,
+        replyTo
+      },
+      {
+        members: activeFellow
+          ? [{ kind: MemberKind.Fellow, ref: activeFellow.key, name: activeFellow.name || activeFellow.key }]
+          : []
+      }
+    );
+  } catch (err) {
+    if (err && err.code === "EMPTY_MESSAGE") return;
+    throw err;
+  }
+  const text = prepared.bodyMd;
+  const attachments = prepared.attachments;
+  const session = activeSession();
   const shouldGenerateTitle = !session.titleGenerated && !hasSuccessfulExchange(session);
   els.chatInput.value = "";
   state.pendingAttachments = [];

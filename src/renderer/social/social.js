@@ -12,6 +12,12 @@
     throw new Error("aimashiUnread is not loaded");
   }
 
+  function sendPipelineShared() {
+    if (global.aimashiSendPipeline) return global.aimashiSendPipeline;
+    if (typeof require !== "undefined") return require("../../shared/send-pipeline");
+    throw new Error("aimashiSendPipeline is not loaded");
+  }
+
   // Decision: singleton modal — create once, re-populate on open.
   // Avoids leaking DOM nodes on repeated opens.
   let _addFriendModal = null;
@@ -755,9 +761,21 @@
 
   async function sendInActiveRoom(text) {
     const roomId = moduleState.activeRoomId;
-    if (!roomId || !text) return;
+    if (!roomId) return;
+    const members = _roomMembersCache.get(roomId) || [];
+    let prepared;
     try {
-      const res = await window.aimashi.social.postRoomMessage(roomId, { bodyMd: text });
+      prepared = sendPipelineShared().prepareOutgoingMessage({ text }, { members });
+    } catch (err) {
+      if (err && err.code === "EMPTY_MESSAGE") return;
+      console.warn("[social] sendInActiveRoom prepare failed:", err?.message || err);
+      return;
+    }
+    try {
+      const res = await window.aimashi.social.postRoomMessage(roomId, {
+        bodyMd: prepared.bodyMd,
+        ...(prepared.mentions.length ? { mentions: prepared.mentions } : {})
+      });
       if (!res.ok) {
         console.warn("[social] postRoomMessage failed:", res.error);
         return;

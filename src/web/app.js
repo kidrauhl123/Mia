@@ -6,6 +6,7 @@ const STORAGE_KEY = "aimashi.web.session";
 const API_BASE = "";
 const { formatConversationTime, formatMessageTime } = window.aimashiTimeFormat;
 const { computeUnreadForConversation, totalUnreadFromConversations, unreadBadgeHtml } = window.aimashiUnread;
+const { prepareOutgoingMessage } = window.aimashiSendPipeline;
 
 const els = {
   root: document.querySelector(".app-shell"),
@@ -931,15 +932,28 @@ async function setActiveConversation(id) {
 
 async function sendInActive() {
   const id = state.activeConversationId;
-  const text = (els.chatInput.value || "").trim();
-  if (!text || !id) return;
+  if (!id) return;
+  const rawText = els.chatInput.value || "";
+  const members = isRoomId(id) ? (state.roomMembersCache.get(id) || []) : [];
+  let prepared;
+  try {
+    prepared = prepareOutgoingMessage({ text: rawText }, { members });
+  } catch (err) {
+    if (err && err.code === "EMPTY_MESSAGE") return;
+    showToast(err.message);
+    return;
+  }
+  const text = prepared.bodyMd;
 
   if (isRoomId(id)) {
     els.chatInput.value = "";
     try {
       const res = await api(`/api/rooms/${id}/messages`, {
         method: "POST",
-        body: { bodyMd: text }
+        body: {
+          bodyMd: text,
+          ...(prepared.mentions.length ? { mentions: prepared.mentions } : {})
+        }
       });
       const msg = res?.message;
       if (msg && msg.id) {

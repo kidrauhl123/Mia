@@ -8,6 +8,7 @@ const storageKeys = {
 };
 
 const engineContracts = window.aimashiEngineContracts || {};
+const { prepareOutgoingMessage } = window.aimashiSendPipeline;
 const credentialStorageKeys = {
   token: "aimashi.mobile.sessionToken",
   secret: "aimashi.mobile.sessionSecret"
@@ -1970,9 +1971,23 @@ async function streamMessage({ fellowKey, sessionId, text, displayText, attachme
 async function sendMessage() {
   const fellow = activeFellow();
   if (!fellow || state.sending) return;
-  const text = els.chatInput.value.trim();
-  const attachments = state.pendingAttachments.map((attachment) => ({ ...attachment }));
-  if (!text && !attachments.length) return;
+  let prepared;
+  try {
+    prepared = prepareOutgoingMessage(
+      {
+        text: els.chatInput.value,
+        attachments: state.pendingAttachments
+      },
+      {
+        members: [{ kind: "fellow", ref: fellow.key, name: fellow.name || fellow.key }]
+      }
+    );
+  } catch (err) {
+    if (err && err.code === "EMPTY_MESSAGE") return;
+    throw err;
+  }
+  const text = prepared.bodyMd;
+  const attachments = prepared.attachments;
   const session = activeSession();
   const key = pendingKey(fellow.key, session?.id || state.activeSessionId || "new");
   const userText = text || "请查看附件。";
