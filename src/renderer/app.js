@@ -550,7 +550,7 @@ function conversationCardSpecFromRow(row, personas) {
         showNarrowContent();
         render();
       },
-      onContextMenu: (x, y) => openRoomContextMenu(room, "dm", x, y)
+      onContextMenu: (x, y) => openRoomContextMenu(room, ConversationKind.CloudDM, x, y)
     };
   }
 
@@ -583,7 +583,7 @@ function conversationCardSpecFromRow(row, personas) {
         showNarrowContent();
         render();
       },
-      onContextMenu: (x, y) => openRoomContextMenu(room, "group", x, y)
+      onContextMenu: (x, y) => openRoomContextMenu(room, ConversationKind.CloudGroup, x, y)
     };
   }
 
@@ -634,38 +634,63 @@ function bossAvatarTile(userProfile = state.runtime?.user || {}) {
   };
 }
 
-// Minimal context menu for cloud DM / group rooms. Hides behind a no-op
-// stub if the social module isn't wired yet (e.g., not logged into cloud).
+// Context menu for cloud DM / group rooms. Backend doesn't have rename /
+// pin / delete-room endpoints yet, so this menu offers actions that work
+// purely client-side: copy name, mark read, show member info.
 function openRoomContextMenu(room, kind, x, y) {
   if (!room || !window.aimashiSocial) return;
-  // For now we don't yet have cloud-side pin/rename/delete endpoints for
-  // rooms (only for workspace conversations). Surface a minimal menu so the
-  // right-click at least feels alive and so we have a hook to extend later.
+  const social = window.aimashiSocial;
+  const isGroup = kind === ConversationKind.CloudGroup;
+  const displayName = isGroup
+    ? (room.name || "群聊")
+    : (room.ui?.title || room.otherUser?.username || room.otherUser?.account || "好友");
+
   const menu = document.createElement("div");
   menu.className = "context-menu";
-  menu.style.cssText = `position:fixed; top:${y}px; left:${x}px; z-index:1000; min-width:140px; padding:6px; background:var(--surface, #fff); border:1px solid var(--line, rgba(0,0,0,0.12)); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.18);`;
+  menu.style.cssText = `position:fixed; top:${y}px; left:${x}px; z-index:1000; min-width:160px; padding:6px; background:var(--surface, #fff); border:1px solid var(--line, rgba(0,0,0,0.12)); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.18);`;
   function close() {
     menu.remove();
-    document.removeEventListener("click", outside);
+    document.removeEventListener("click", outside, true);
+    document.removeEventListener("keydown", onKey);
   }
   function outside(e) { if (!menu.contains(e.target)) close(); }
-  document.addEventListener("click", outside);
-  const items = [];
-  if (kind === ConversationKind.CloudGroup) {
-    items.push({ label: "群信息", onClick: () => { /* future: open group info dialog */ } });
-  }
-  // No cloud endpoint for delete-room yet; placeholder hint for now.
-  items.push({ label: "暂无更多操作", onClick: () => {}, disabled: true });
+  function onKey(e) { if (e.key === "Escape") close(); }
+
+  const unread = social.getUnreadForRoom?.(room.id) || 0;
+  const items = [
+    { label: `复制${isGroup ? "群名" : "名称"}`, onClick: () => navigator.clipboard?.writeText(displayName).catch(() => {}) },
+    { label: "标记已读", onClick: () => { social.markRoomRead?.(room.id); render(); }, disabled: unread <= 0 },
+    isGroup ? { label: `群信息 · ${(social.getRoomMembers?.(room.id) || []).length}人`, onClick: () => {
+        const members = social.getRoomMembers?.(room.id) || [];
+        const lines = members.map((m) => {
+          if (m.member_kind === MemberKind.Fellow) return `· fellow ${m.member_ref}`;
+          if (m.member_kind === MemberKind.User) {
+            const friend = social.friendById?.(m.member_ref);
+            return `· ${friend?.username || friend?.account || m.member_ref}`;
+          }
+          return `· ${m.member_ref}`;
+        });
+        alert(`${displayName}\n\n${lines.join("\n") || "（无成员信息）"}`);
+      } } : null
+  ].filter(Boolean);
+
   for (const it of items) {
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.style.cssText = "display:block; width:100%; padding:6px 10px; text-align:left; background:transparent; color:var(--text); font-size:13px; border-radius:6px;";
-    if (it.disabled) btn.style.opacity = "0.5";
+    btn.style.cssText = "display:block; width:100%; padding:6px 10px; text-align:left; background:transparent; color:var(--text); font-size:13px; border-radius:6px; cursor:pointer;";
+    if (it.disabled) { btn.style.opacity = "0.4"; btn.style.cursor = "default"; }
     btn.textContent = it.label;
     btn.addEventListener("click", () => { if (!it.disabled) { it.onClick(); } close(); });
+    if (!it.disabled) btn.addEventListener("mouseenter", () => { btn.style.background = "var(--surface-hover, rgba(0,0,0,0.04))"; });
+    btn.addEventListener("mouseleave", () => { btn.style.background = "transparent"; });
     menu.appendChild(btn);
   }
+
   document.body.appendChild(menu);
+  setTimeout(() => {
+    document.addEventListener("click", outside, true);
+    document.addEventListener("keydown", onKey);
+  }, 0);
 }
 
 const { formatConversationTime, formatMessageTime } = (typeof window !== "undefined" && window.aimashiTimeFormat) || require("../shared/time-format");
@@ -1715,6 +1740,7 @@ function renderMessageHtml(message, ctx) {
     : "";
   const timeHtml = renderMessageTime(message.createdAt);
   const bodyHtml = String(message.content || "").trim() ? window.aimashiMarkdown.renderMarkdown(message.content) : "";
+  const commandResultHtml = message.role === "assistant" ? renderCommandResultHtml(message.commandResult) : "";
   const replyHtml = window.aimashiMessageHelpers.replyQuoteHtml(message.replyTo);
   const translation = window.aimashiMessageMenu?.translationHtml(message, messageIndex) || "";
   const attachmentHtml = renderAttachmentChips([...(message.attachments || []), ...generatedAttachmentsForMessage(message)].map(hydrateAttachmentPreview));
@@ -1722,8 +1748,30 @@ function renderMessageHtml(message, ctx) {
   const roleClass = message.role === "user" ? "user" : "assistant";
   return `<article class="message ${roleClass}">
       <div class="avatar" style="background-color:${window.aimashiMarkdown.escapeHtml(avatarBackgroundColor)};${imageStyle}">${message.role === "user" && !userAvatar ? window.aimashiMarkdown.escapeHtml(label) : ""}</div>
-      <div class="message-stack">${taskAffordanceHtml}${traceHtml}<div class="bubble${message.pinned ? " pinned" : ""}" data-message-index="${messageIndex}">${pinnedHtml}${replyHtml}${bodyHtml}${attachmentHtml}${translation}</div>${timeHtml}</div>
+      <div class="message-stack">${taskAffordanceHtml}${traceHtml}<div class="bubble${message.pinned ? " pinned" : ""}" data-message-index="${messageIndex}">${pinnedHtml}${replyHtml}${bodyHtml}${commandResultHtml}${attachmentHtml}${translation}</div>${timeHtml}</div>
     </article>`;
+}
+
+function renderCommandResultHtml(commandResult) {
+  if (!commandResult || commandResult.type !== "session-list" || !Array.isArray(commandResult.rows)) return "";
+  const engine = String(commandResult.engine || "");
+  const rows = commandResult.rows.slice(0, 10).map((row) => {
+    const title = String(row.title || row.id || "Session");
+    const preview = String(row.preview || row.project || row.id || "");
+    const project = String(row.project || "");
+    const updatedAt = Number(row.updatedAt) || 0;
+    const time = updatedAt ? formatConversationTime(new Date(updatedAt).toISOString()) : "";
+    return `
+      <button class="command-session-row" type="button" data-command-resume-engine="${window.aimashiMarkdown.escapeHtml(engine)}" data-command-resume-id="${window.aimashiMarkdown.escapeHtml(row.id || "")}">
+        <span class="command-session-main">
+          <strong>${window.aimashiMarkdown.escapeHtml(title)}</strong>
+          <small>${window.aimashiMarkdown.escapeHtml(preview || project || row.id || "")}</small>
+        </span>
+        <span class="command-session-side">${window.aimashiMarkdown.escapeHtml(time)}</span>
+      </button>
+    `;
+  }).join("");
+  return `<div class="command-result session-list">${rows}</div>`;
 }
 
 function renderChat() {
@@ -1895,6 +1943,20 @@ function appendChat(role, content, options = {}) {
       thumbnailDataUrl: String(attachment.thumbnailDataUrl || attachment.thumbnail || attachment.previewDataUrl || ""),
       dataUrl: String(attachment.dataUrl || "")
     }));
+  }
+  if (options.commandResult && typeof options.commandResult === "object") {
+    message.commandResult = {
+      ...options.commandResult,
+      rows: Array.isArray(options.commandResult.rows)
+        ? options.commandResult.rows.map((row) => ({
+          id: String(row.id || ""),
+          title: String(row.title || ""),
+          preview: String(row.preview || ""),
+          project: String(row.project || ""),
+          updatedAt: Number(row.updatedAt) || 0
+        }))
+        : []
+    };
   }
   if (Array.isArray(options.tools) && options.tools.length) {
     message.tools = options.tools.map((tool) => ({
@@ -2300,6 +2362,22 @@ document.addEventListener("click", (event) => {
 els.chat?.addEventListener("contextmenu", (event) => {
   const bubble = event.target.closest(".bubble[data-message-index]");
   if (!bubble || !els.chat.contains(bubble)) return;
+  // Cloud-room bubbles (cloud DM + cloud group) carry data-message-source +
+  // data-message-id and live in social.moduleState.messageCache, not the
+  // fellow session, so dispatch to the lightweight social message menu.
+  if (bubble.dataset.messageSource === "cloud-room") {
+    const social = window.aimashiSocial;
+    const messageId = bubble.dataset.messageId;
+    if (!social || !messageId) return;
+    const roomId = social.getActiveRoomId?.();
+    const cache = roomId ? social.moduleState?.messageCache?.get?.(roomId) : null;
+    const message = cache?.messages?.find?.((m) => m.id === messageId);
+    if (!message) return;
+    event.preventDefault();
+    event.stopPropagation();
+    window.aimashiSocialMessageMenu?.openSocialMessageMenu(message, event.clientX, event.clientY);
+    return;
+  }
   const selection = window.aimashiMessageMenu?.selectionInsideBubble(bubble);
   event.preventDefault();
   event.stopPropagation();
@@ -3637,12 +3715,13 @@ els.chatForm.addEventListener("submit", async (event) => {
     });
     const responseMessage = response.choices?.[0]?.message || {};
     const responseAttachments = Array.isArray(responseMessage.attachments) ? responseMessage.attachments : [];
+    const responseCommandResult = responseMessage.commandResult || response.aimashi?.commandResult || null;
     const answer = responseMessage.content || (responseAttachments.length ? "" : "(No response)");
     const traceSnapshot = state.streaming
       ? { reasoning: state.streaming.reasoning || "", tools: state.streaming.tools.slice() }
       : { reasoning: "", tools: [] };
     state.streaming = null;
-    appendChat("assistant", answer, { reasoning: traceSnapshot.reasoning, tools: traceSnapshot.tools, attachments: responseAttachments });
+    appendChat("assistant", answer, { reasoning: traceSnapshot.reasoning, tools: traceSnapshot.tools, attachments: responseAttachments, commandResult: responseCommandResult });
     // The `session` captured at the top of this handler is now orphan:
     // persistSessionQuietly(session) at the start of the try block reassigned
     // state.chatStore via IPC (saveChatSession returns a freshly normalized

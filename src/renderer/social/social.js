@@ -437,21 +437,42 @@
     return source.listMessages()[0] || null;
   }
 
+  // DM bubble mirrors fellow chat's renderMessageHtml shape EXACTLY so the
+  // CSS targeting .message > .message-stack > .bubble paints it as a real
+  // bubble. The bubble carries data-message-source="cloud-room" + a
+  // data-message-id so the chat-level contextmenu dispatcher in app.js
+  // routes to openSocialMessageMenu instead of the fellow message menu.
   function _buildMessageArticle(msg, accentColor) {
     const spec = _specForMessage(msg);
-    const createBubble = window.aimashiMessageBubble?.createMessageBubble;
-    if (!spec || !createBubble) {
-      // Defensive fallback — bare bubble, no context menu.
-      const article = document.createElement("article");
-      article.className = "message assistant";
-      article.innerHTML = `<div class="message-stack"><div class="bubble">${_renderMsgBody(msg.body_md || "")}</div></div>`;
-      return article;
-    }
-    return createBubble(spec, {
-      onContextMenu: (_spec, x, y) => {
-        window.aimashiSocialMessageMenu?.openSocialMessageMenu(msg, x, y);
-      }
-    });
+    const isUser = Boolean(spec && spec.isOwn);
+    const roleClass = isUser ? "user" : "assistant";
+    const authorName = spec ? spec.authorName : "";
+    const avatar = (spec && spec.avatar) || { image: "", crop: null, color: "" };
+    const avatarColor = avatar.color || accentColor || "#5e5ce6";
+    const avatarHelpers = window.aimashiAvatar;
+    const avatarStyle = (avatarHelpers && typeof avatarHelpers.avatarThumbBackgroundStyle === "function")
+      ? avatarHelpers.avatarThumbBackgroundStyle(avatar.image, avatar.crop, avatarColor)
+      : `background-color:${avatarColor};`;
+    const avatarLetter = avatar.image ? "" : ((authorName || "?")[0] || "?").toUpperCase();
+    const bodyHtml = _renderMsgBody((spec ? spec.bodyMd : msg.body_md) || "");
+    const createdAt = msg.created_at || msg.createdAt || "";
+    const timeHtml = createdAt
+      ? `<time class="message-time" datetime="${escapeHtml(createdAt)}">${escapeHtml(window.aimashiTimeFormat.formatMessageTime(createdAt))}</time>`
+      : "";
+
+    const cache = moduleState.messageCache.get(moduleState.activeRoomId);
+    const messageIndex = cache ? cache.messages.findIndex((m) => m.id === msg.id) : -1;
+
+    const article = document.createElement("article");
+    article.className = `message ${roleClass}`;
+    article.innerHTML = `
+      <div class="avatar" style="background-color:${escapeHtml(avatarColor)};${avatarStyle}">${escapeHtml(avatarLetter)}</div>
+      <div class="message-stack">
+        <div class="bubble" data-message-index="${messageIndex}" data-message-source="cloud-room" data-message-id="${escapeHtml(msg.id || "")}">${bodyHtml}</div>
+        ${timeHtml}
+      </div>
+    `;
+    return article;
   }
 
   function _renderMsgBody(md) {
@@ -819,6 +840,10 @@
     moduleState.activeRoomId = id || null;
     if (id) moduleState.unreadByRoom.delete(id);
   }
+  function markRoomRead(roomId) {
+    if (!roomId) return;
+    moduleState.unreadByRoom.delete(roomId);
+  }
   function getUnreadForRoom(roomId) {
     return unreadShared().computeUnreadForConversation({ id: roomId }, moduleState.unreadByRoom);
   }
@@ -857,6 +882,7 @@
     sendInActiveGroupRoom,
     getActiveRoomId,
     setActiveRoomId,
+    markRoomRead,
     getUnreadForRoom,
     getTotalRoomUnread,
     getRoomMembers,

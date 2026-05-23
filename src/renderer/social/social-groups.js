@@ -45,25 +45,48 @@
 
   // ── group message article (with sender attribution) ───────────────────────
 
+  // Group bubble mirrors fellow chat's renderMessageHtml shape EXACTLY
+  // (same .avatar div, .message-stack, .bubble with data-message-index +
+  // data-message-source, message-time after bubble). This is what the
+  // existing CSS expects; deviating produces "bubble that isn't a bubble".
   function buildGroupMessageArticle(msg, accentColor, members) {
-    const { moduleState } = ctx;
+    const { moduleState, escapeHtml, renderMsgBody } = ctx;
     const roomId = moduleState.activeRoomId || "";
     const source = _cloudRoomSourceFor(roomId, [msg], members);
     const spec = source ? source.listMessages()[0] : null;
-    const createBubble = window.aimashiMessageBubble?.createMessageBubble;
-    if (!spec || !createBubble) {
-      // Defensive: if adapter/renderer isn't wired yet, fall back to a
-      // bare article so the chat still shows something.
-      const article = document.createElement("article");
-      article.className = "message assistant";
-      article.innerHTML = `<div class="message-stack"><div class="bubble">${ctx.renderMsgBody(msg.body_md || "")}</div></div>`;
-      return article;
-    }
-    return createBubble(spec, {
-      onContextMenu: (_spec, x, y) => {
-        window.aimashiSocialMessageMenu?.openSocialMessageMenu(msg, x, y);
-      }
-    });
+    const isOwn = Boolean(spec && spec.isOwn);
+    const roleClass = isOwn ? "user" : "assistant";
+    const authorName = spec ? spec.authorName : "";
+    const senderLabel = isOwn ? "" : (authorName || "");
+    const avatar = (spec && spec.avatar) || { image: "", crop: null, color: "" };
+    const avatarColor = avatar.color || accentColor || "#5e5ce6";
+    const avatarHelpers = window.aimashiAvatar;
+    const avatarStyle = (avatarHelpers && typeof avatarHelpers.avatarThumbBackgroundStyle === "function")
+      ? avatarHelpers.avatarThumbBackgroundStyle(avatar.image, avatar.crop, avatarColor)
+      : `background-color:${avatarColor};`;
+    const avatarLetter = avatar.image ? "" : ((authorName || "?")[0] || "?").toUpperCase();
+    const bodyHtml = renderMsgBody((spec ? spec.bodyMd : msg.body_md) || "");
+    const createdAt = msg.created_at || msg.createdAt || "";
+    const timeHtml = createdAt
+      ? `<time class="message-time" datetime="${escapeHtml(createdAt)}">${escapeHtml(window.aimashiTimeFormat.formatMessageTime(createdAt))}</time>`
+      : "";
+
+    // Index in the room's message cache — used by the chat-level contextmenu
+    // dispatcher in app.js to look up the message for the floating menu.
+    const cache = moduleState.messageCache.get(roomId);
+    const messageIndex = cache ? cache.messages.findIndex((m) => m.id === msg.id) : -1;
+
+    const article = document.createElement("article");
+    article.className = `message ${roleClass}`;
+    article.innerHTML = `
+      <div class="avatar" style="background-color:${escapeHtml(avatarColor)};${avatarStyle}">${escapeHtml(avatarLetter)}</div>
+      <div class="message-stack">
+        ${senderLabel ? `<span class="message-sender">${escapeHtml(senderLabel)}</span>` : ""}
+        <div class="bubble" data-message-index="${messageIndex}" data-message-source="cloud-room" data-message-id="${escapeHtml(msg.id || "")}">${bodyHtml}</div>
+        ${timeHtml}
+      </div>
+    `;
+    return article;
   }
 
   async function fetchAndCacheRoomMembers(roomId) {
