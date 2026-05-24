@@ -66,6 +66,9 @@
       : `background-color:${avatarColor};`;
     const avatarLetter = avatar.image ? "" : ((authorName || "?")[0] || "?").toUpperCase();
     const bodyHtml = renderMsgBody((spec ? spec.bodyMd : msg.body_md) || "");
+    const attachmentHtml = typeof ctx.renderAttachmentChips === "function"
+      ? ctx.renderAttachmentChips(spec?.attachments || msg.attachments || [])
+      : "";
     const createdAt = msg.created_at || msg.createdAt || "";
     const timeHtml = createdAt
       ? `<time class="message-time" datetime="${escapeHtml(createdAt)}">${escapeHtml(window.aimashiTimeFormat.formatMessageTime(createdAt))}</time>`
@@ -83,6 +86,7 @@
       <div class="message-stack">
         ${senderLabel ? `<span class="message-sender">${escapeHtml(senderLabel)}</span>` : ""}
         <div class="bubble" data-message-index="${messageIndex}" data-message-source="cloud-room" data-message-id="${escapeHtml(msg.id || "")}">${bodyHtml}</div>
+        ${attachmentHtml}
         ${timeHtml}
       </div>
     `;

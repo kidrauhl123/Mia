@@ -6,6 +6,15 @@
   // Decision: cap initial-message fetch to 30 rooms to keep bootstrap fast.
   const INITIAL_ROOMS_CAP = 30;
 
+  function conversationKinds() {
+    if (global.aimashiConversationKinds) return global.aimashiConversationKinds;
+    if (typeof require !== "undefined") return require("../../shared/conversation-kinds");
+    return {
+      MemberKind: { Fellow: "fellow", User: "user" },
+      SenderKind: { Fellow: "fellow", User: "user", System: "system" }
+    };
+  }
+
   function unreadShared() {
     if (global.aimashiUnread) return global.aimashiUnread;
     if (typeof require !== "undefined") return require("../../shared/unread");
@@ -35,6 +44,7 @@
     activeRoomId: null,
     myUsername: "",
     myUserId: "",
+    cloudAgentRunsByRoom: new Map(),
     // unreadByRoom: roomId → count. Bumped by WS room.message_appended when
     // the message is from someone else and the room isn't currently open.
     // Cleared by setActiveRoomId (and on bootstrap — incomingRequests path
@@ -64,6 +74,91 @@
     for (let i = 0; i < s.length; i++) hash = (hash * 31 + s.charCodeAt(i)) >>> 0;
     const PALETTE = ["#5e5ce6", "#30b0c7", "#34c759", "#ff9f0a", "#ff3b30", "#af52de", "#007aff"];
     return PALETTE[hash % PALETTE.length];
+  }
+
+  function attachmentKind(file = {}) {
+    const type = String(file.mimeType || file.mime || file.type || "").toLowerCase();
+    const name = String(file.name || "");
+    const ext = name.split(".").pop()?.toLowerCase() || "";
+    if (type.startsWith("image/") || ["png", "jpg", "jpeg", "webp", "gif"].includes(ext)) return "image";
+    if (type.startsWith("video/")) return "video";
+    if (type.startsWith("audio/")) return "audio";
+    if (type.includes("pdf") || ext === "pdf") return "pdf";
+    if (type.startsWith("text/") || ["txt", "md", "json", "csv", "log", "js", "ts", "tsx", "jsx", "py", "html", "css"].includes(ext)) return "text";
+    return "file";
+  }
+
+  function attachmentGlyph(attachment = {}) {
+    const kind = attachment.kind || attachmentKind(attachment);
+    if (kind === "image") return "IMG";
+    if (kind === "video") return "VID";
+    if (kind === "audio") return "AUD";
+    if (kind === "pdf") return "PDF";
+    if (kind === "text") return "TXT";
+    return "FILE";
+  }
+
+  function formatBytes(value) {
+    const bytes = Number(value) || 0;
+    if (!bytes) return "";
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`;
+    return `${(bytes / 1024 / 1024).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
+  }
+
+  function renderAttachmentThumb(attachment = {}, className = "message-attachment-thumb") {
+    const src = String(attachment.thumbnailDataUrl || attachment.thumbnail || attachment.previewDataUrl || attachment.dataUrl || "").trim();
+    if (!src || !src.startsWith("data:image/")) return `<span>${escapeHtml(attachmentGlyph(attachment))}</span>`;
+    return `<img class="${escapeHtml(className)}" src="${escapeHtml(src)}" alt="">`;
+  }
+
+  function renderAttachmentChip(attachment = {}) {
+    const image = (attachment.kind || attachmentKind(attachment)) === "image"
+      && (attachment.thumbnailDataUrl || attachment.thumbnail || attachment.previewDataUrl || attachment.dataUrl || attachment.url);
+    const href = String(attachment.url || attachment.dataUrl || "").trim();
+    const safeHref = /^(\/api\/files\/[A-Za-z0-9_-]+|data:[^"'<>]+)$/i.test(href) ? href : "";
+    const tag = safeHref ? "a" : "span";
+    const download = safeHref ? ` href="${escapeHtml(safeHref)}" download="${escapeHtml(attachment.name || "attachment")}"` : "";
+    if (image) {
+      return `
+        <${tag} class="message-attachment image"${download} title="${escapeHtml(attachment.name || "")}" aria-label="预览图片">
+          ${renderAttachmentThumb(attachment)}
+        </${tag}>
+      `;
+    }
+    return `
+      <${tag} class="message-attachment"${download} title="${escapeHtml(attachment.path || attachment.name || "")}">
+        ${renderAttachmentThumb(attachment)}
+        <strong>${escapeHtml(attachment.name || "附件")}</strong>
+        <em>${escapeHtml(formatBytes(attachment.size))}</em>
+      </${tag}>
+    `;
+  }
+
+  function renderAttachmentChips(attachments = []) {
+    if (!Array.isArray(attachments) || !attachments.length) return "";
+    return `<div class="message-attachments">${attachments.map(renderAttachmentChip).join("")}</div>`;
+  }
+
+  function eventType(event = {}) {
+    return String(event.type || event.event || "");
+  }
+
+  function eventText(event = {}) {
+    for (const key of ["delta", "content_delta", "text_delta", "text", "content"]) {
+      if (typeof event[key] === "string") return event[key];
+    }
+    const data = event.data && typeof event.data === "object" ? event.data : null;
+    if (data) return eventText(data);
+    return "";
+  }
+
+  function cloudRunFor(roomId, runId = "") {
+    const existing = moduleState.cloudAgentRunsByRoom.get(roomId);
+    if (existing) return existing;
+    const run = { roomId, runId, text: "", status: "running", createdAt: new Date().toISOString(), tools: [] };
+    moduleState.cloudAgentRunsByRoom.set(roomId, run);
+    return run;
   }
 
   // Parse dm:<a>:<b> and return the user-id that is NOT myUserId.
@@ -367,6 +462,47 @@
       return;
     }
 
+    if (type === "cloud_agent_run_started") {
+      const roomId = payload?.roomId;
+      if (!roomId) return;
+      const run = cloudRunFor(roomId, payload.runId || "");
+      run.runId = payload.runId || run.runId;
+      run.hermesRunId = payload.hermesRunId || run.hermesRunId || "";
+      run.fellowId = payload.fellowId || run.fellowId || "";
+      run.status = "running";
+      if (deps && typeof deps.render === "function") deps.render();
+      return;
+    }
+
+    if (type === "cloud_agent_run_event") {
+      const roomId = payload?.roomId;
+      const hermesEvent = payload?.event || {};
+      if (!roomId) return;
+      const run = cloudRunFor(roomId, payload.runId || "");
+      run.fellowId = payload.fellowId || run.fellowId || "";
+      const name = eventType(hermesEvent);
+      if (name === "message.delta") {
+        run.text += eventText(hermesEvent);
+      } else if (name === "message.complete" || name === "message.completed") {
+        run.text = eventText(hermesEvent) || run.text;
+      } else if (name === "run.completed") {
+        run.text = eventText(hermesEvent) || run.text;
+        run.status = "complete";
+      } else if (name === "run.failed") {
+        run.status = "error";
+      } else if (name === "run.cancelled") {
+        run.status = "cancelled";
+      } else if (name === "tool.started") {
+        run.tools.push({ name: String(hermesEvent.tool || hermesEvent.name || hermesEvent.data?.tool || "工具"), status: "running" });
+      } else if (name === "tool.completed") {
+        const toolName = String(hermesEvent.tool || hermesEvent.name || hermesEvent.data?.tool || "");
+        const tool = [...run.tools].reverse().find((item) => !toolName || item.name === toolName);
+        if (tool) tool.status = hermesEvent.error || hermesEvent.data?.error ? "error" : "complete";
+      }
+      if (deps && typeof deps.render === "function") deps.render();
+      return;
+    }
+
     if (type === "room.message_appended") {
       const { roomId, message } = payload || {};
       if (!roomId || !message) return;
@@ -381,6 +517,9 @@
         entry.messages.sort((a, b) => a.seq - b.seq);
       }
       if (message.seq > entry.maxSeq) entry.maxSeq = message.seq;
+      if (message.sender_kind === conversationKinds().SenderKind.Fellow) {
+        moduleState.cloudAgentRunsByRoom.delete(roomId);
+      }
 
       // Unread bookkeeping: count messages that aren't mine and didn't land
       // in the currently open room.
@@ -540,6 +679,8 @@
         const article = _buildGroupMessageArticle(msg, color, members);
         if (article) containerEl.appendChild(article);
       }
+      const streaming = _buildCloudAgentStreamingArticle(roomId, color, members);
+      if (streaming) containerEl.appendChild(streaming);
       containerEl.scrollTop = containerEl.scrollHeight;
       if (!_roomMembersCache.has(roomId)) {
         _fetchAndCacheRoomMembers(roomId);
@@ -552,15 +693,17 @@
       const article = _buildMessageArticle(msg, color);
       if (article) containerEl.appendChild(article);
     }
+    const streaming = _buildCloudAgentStreamingArticle(roomId, color);
+    if (streaming) containerEl.appendChild(streaming);
     containerEl.scrollTop = containerEl.scrollHeight;
   }
 
-  function _specForMessage(msg) {
+  function _specForMessage(msg, members = []) {
     const factory = (typeof window !== "undefined" && window.aimashiCloudRoomSource) || null;
     if (!factory || typeof factory.createCloudRoomSource !== "function") return null;
     const room = moduleState.rooms.find((r) => r.id === moduleState.activeRoomId) || { id: moduleState.activeRoomId || "" };
     const ctx = { self: { id: moduleState.myUserId, username: moduleState.myUsername }, friends: moduleState.friends, fellows: [] };
-    const source = factory.createCloudRoomSource({ room, messages: [msg], members: [], ctx });
+    const source = factory.createCloudRoomSource({ room, messages: [msg], members, ctx });
     return source.listMessages()[0] || null;
   }
 
@@ -582,6 +725,7 @@
       : `background-color:${avatarColor};`;
     const avatarLetter = avatar.image ? "" : ((authorName || "?")[0] || "?").toUpperCase();
     const bodyHtml = _renderMsgBody((spec ? spec.bodyMd : msg.body_md) || "");
+    const attachmentHtml = renderAttachmentChips(spec?.attachments || msg.attachments || []);
     const createdAt = msg.created_at || msg.createdAt || "";
     const timeHtml = createdAt
       ? `<time class="message-time" datetime="${escapeHtml(createdAt)}">${escapeHtml(window.aimashiTimeFormat.formatMessageTime(createdAt))}</time>`
@@ -596,7 +740,49 @@
       <div class="avatar" style="background-color:${escapeHtml(avatarColor)};${avatarStyle}">${escapeHtml(avatarLetter)}</div>
       <div class="message-stack">
         <div class="bubble" data-message-index="${messageIndex}" data-message-source="cloud-room" data-message-id="${escapeHtml(msg.id || "")}">${bodyHtml}</div>
+        ${attachmentHtml}
         ${timeHtml}
+      </div>
+    `;
+    return article;
+  }
+
+  function _buildCloudAgentStreamingArticle(roomId, accentColor, members = []) {
+    const run = moduleState.cloudAgentRunsByRoom.get(roomId);
+    if (!run || (run.status === "complete" && !run.text && !run.tools.length)) return null;
+    const room = moduleState.rooms.find((r) => r.id === roomId) || { id: roomId };
+    const fellowKey = run.fellowId || room.decorations?.fellowKey || (room.id?.startsWith("fellow:") ? room.id.split(":")[2] : "aimashi");
+    const synthetic = {
+      id: `cloud-agent-stream-${run.runId || roomId}`,
+      sender_kind: conversationKinds().SenderKind.Fellow,
+      sender_ref: fellowKey,
+      body_md: run.text || "",
+      created_at: run.createdAt || new Date().toISOString()
+    };
+    const spec = _specForMessage(synthetic, members);
+    const authorName = spec ? spec.authorName : fellowKey;
+    const avatar = (spec && spec.avatar) || { image: "", crop: null, color: "" };
+    const avatarColor = avatar.color || accentColor || "#5e5ce6";
+    const avatarHelpers = window.aimashiAvatar;
+    const avatarStyle = (avatarHelpers && typeof avatarHelpers.avatarThumbBackgroundStyle === "function")
+      ? avatarHelpers.avatarThumbBackgroundStyle(avatar.image, avatar.crop, avatarColor)
+      : `background-color:${avatarColor};`;
+    const avatarLetter = avatar.image ? "" : ((authorName || "?")[0] || "?").toUpperCase();
+    const bodyHtml = run.text ? _renderMsgBody(run.text) : "";
+    const statusHtml = run.status === "running"
+      ? `<span class="typing-status">正在输入<span class="typing-dots"><i></i><i></i><i></i></span></span>`
+      : "";
+    const toolsHtml = run.tools.length
+      ? `<div class="message-attachments">${run.tools.slice(-3).map((tool) => `<span class="message-attachment"><span>TOOL</span><strong>${escapeHtml(tool.name || "工具")}</strong><em>${escapeHtml(tool.status || "")}</em></span>`).join("")}</div>`
+      : "";
+    const article = document.createElement("article");
+    article.className = "message assistant streaming";
+    article.innerHTML = `
+      <div class="avatar" style="background-color:${escapeHtml(avatarColor)};${avatarStyle}">${escapeHtml(avatarLetter)}</div>
+      <div class="message-stack">
+        ${bodyHtml ? `<div class="bubble">${bodyHtml}</div>` : ""}
+        ${statusHtml ? `<div class="bubble">${statusHtml}</div>` : ""}
+        ${toolsHtml}
       </div>
     `;
     return article;
@@ -1164,6 +1350,7 @@
     dedup,
     friendById,
     renderMsgBody: _renderMsgBody,
+    renderAttachmentChips,
     appendMessageToActiveChat: _appendMessageToActiveChat
   };
 

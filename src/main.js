@@ -4874,6 +4874,10 @@ function handleCloudEventsMessage(raw) {
     broadcastRendererEvent(IpcChannel.CloudEvent, { type: message.type, payload: message });
     return;
   }
+  if (message.type === CloudEvent.CloudAgentRunStarted || message.type === CloudEvent.CloudAgentRunEvent) {
+    broadcastRendererEvent(IpcChannel.CloudEvent, { type: message.type, payload: message });
+    return;
+  }
   // (workspace_updated / message_created handler removed in Phase 4
   //  cutover — the events no longer fire because /api/workspace and
   //  /api/messages are gone. Room messages broadcast via

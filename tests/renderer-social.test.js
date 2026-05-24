@@ -161,3 +161,42 @@ test("handleCloudEvent room.message_appended appends and tracks maxSeq", () => {
   assert.equal(entry.messages.length, 2);
   assert.equal(entry.maxSeq, 2);
 });
+
+test("handleCloudEvent cloud_agent_run events track transient room streaming state", () => {
+  const s = loadSocial();
+  s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_started",
+    payload: { roomId: "fellow:u_a:aimashi", runId: "car_1", hermesRunId: "hr_1", fellowId: "aimashi" },
+  });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { roomId: "fellow:u_a:aimashi", runId: "car_1", event: { type: "message.delta", delta: "hello " } },
+  });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { roomId: "fellow:u_a:aimashi", runId: "car_1", event: { type: "tool.started", tool: "shell" } },
+  });
+  const run = s.moduleState.cloudAgentRunsByRoom.get("fellow:u_a:aimashi");
+  assert.equal(run.hermesRunId, "hr_1");
+  assert.equal(run.text, "hello ");
+  assert.equal(run.tools.map((tool) => tool.name).join(","), "shell");
+});
+
+test("handleCloudEvent fellow reply clears transient cloud agent stream", () => {
+  const s = loadSocial();
+  s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_started",
+    payload: { roomId: "fellow:u_a:aimashi", runId: "car_1" },
+  });
+  assert.ok(s.moduleState.cloudAgentRunsByRoom.has("fellow:u_a:aimashi"));
+  s.handleCloudEvent({
+    type: "room.message_appended",
+    payload: {
+      roomId: "fellow:u_a:aimashi",
+      message: { id: "m1", seq: 1, sender_kind: "fellow", sender_ref: "aimashi", body_md: "done" },
+    },
+  });
+  assert.equal(s.moduleState.cloudAgentRunsByRoom.has("fellow:u_a:aimashi"), false);
+});

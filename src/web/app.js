@@ -7,6 +7,7 @@ const API_BASE = "";
 const { formatConversationTime, formatMessageTime } = window.aimashiTimeFormat;
 const { computeUnreadForConversation, totalUnreadFromConversations, unreadBadgeHtml } = window.aimashiUnread;
 const { prepareOutgoingMessage } = window.aimashiSendPipeline;
+const { SenderKind } = window.aimashiConversationKinds;
 
 const els = {
   root: document.querySelector(".app-shell"),
@@ -79,6 +80,7 @@ let state = {
   //  lives in state.rooms — fellow chats are rooms-of-type-fellow.)
   bridgeDevices: [],
   bridgeBusy: false,
+  cloudAgentRunsByRoom: new Map(),
   activeConversationId: "",
   // Per-conversation unread counters. Incremented when a WS message arrives
   // for a non-active conversation, cleared when the user opens it. In-memory
@@ -98,6 +100,70 @@ function escapeHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+function formatBytes(value) {
+  const bytes = Number(value) || 0;
+  if (!bytes) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
+}
+
+function attachmentKind(file = {}) {
+  const type = String(file.mimeType || file.mime || file.type || "").toLowerCase();
+  const name = String(file.name || "");
+  const ext = name.split(".").pop()?.toLowerCase() || "";
+  if (type.startsWith("image/") || ["png", "jpg", "jpeg", "webp", "gif"].includes(ext)) return "image";
+  if (type.startsWith("video/")) return "video";
+  if (type.startsWith("audio/")) return "audio";
+  if (type.includes("pdf") || ext === "pdf") return "pdf";
+  if (type.startsWith("text/") || ["txt", "md", "json", "csv", "log", "js", "ts", "tsx", "jsx", "py", "html", "css"].includes(ext)) return "text";
+  return "file";
+}
+
+function attachmentGlyph(attachment = {}) {
+  const kind = attachment.kind || attachmentKind(attachment);
+  if (kind === "image") return "IMG";
+  if (kind === "video") return "VID";
+  if (kind === "audio") return "AUD";
+  if (kind === "pdf") return "PDF";
+  if (kind === "text") return "TXT";
+  return "FILE";
+}
+
+function attachmentThumb(attachment = {}, className = "message-attachment-thumb") {
+  const src = String(attachment.thumbnailDataUrl || attachment.thumbnail || attachment.previewDataUrl || attachment.dataUrl || "").trim();
+  if (!src || !src.startsWith("data:image/")) return `<span>${escapeHtml(attachmentGlyph(attachment))}</span>`;
+  return `<img class="${escapeHtml(className)}" src="${escapeHtml(src)}" alt="">`;
+}
+
+function renderAttachmentChip(attachment = {}) {
+  const image = (attachment.kind || attachmentKind(attachment)) === "image"
+    && (attachment.thumbnailDataUrl || attachment.thumbnail || attachment.previewDataUrl || attachment.dataUrl || attachment.url);
+  const href = String(attachment.url || attachment.dataUrl || "").trim();
+  const safeHref = /^(\/api\/files\/[A-Za-z0-9_-]+|data:[^"'<>]+)$/i.test(href) ? href : "";
+  const tag = safeHref ? "a" : "span";
+  const download = safeHref ? ` href="${escapeHtml(safeHref)}" download="${escapeHtml(attachment.name || "attachment")}"` : "";
+  if (image) {
+    return `
+      <${tag} class="message-attachment image"${download} title="${escapeHtml(attachment.name || "")}" aria-label="预览图片">
+        ${attachmentThumb(attachment)}
+      </${tag}>
+    `;
+  }
+  return `
+    <${tag} class="message-attachment"${download} title="${escapeHtml(attachment.path || attachment.name || "")}">
+      ${attachmentThumb(attachment)}
+      <strong>${escapeHtml(attachment.name || "附件")}</strong>
+      <em>${escapeHtml(formatBytes(attachment.size))}</em>
+    </${tag}>
+  `;
+}
+
+function renderAttachmentChips(attachments = []) {
+  if (!Array.isArray(attachments) || !attachments.length) return "";
+  return `<div class="message-attachments">${attachments.map(renderAttachmentChip).join("")}</div>`;
 }
 
 // Avatar preset crop table — mirrors src/renderer/helpers/avatar-helpers.js
@@ -410,6 +476,33 @@ function scheduleReconnect() {
   eventsReconnectTimer = setTimeout(() => { eventsReconnectTimer = 0; startCloudEvents(); }, 3000);
 }
 
+function hermesEventType(event = {}) {
+  return String(event.type || event.event || "");
+}
+
+function hermesEventText(event = {}) {
+  for (const key of ["delta", "content_delta", "text_delta", "text", "content"]) {
+    if (typeof event[key] === "string") return event[key];
+  }
+  const data = event.data && typeof event.data === "object" ? event.data : null;
+  return data ? hermesEventText(data) : "";
+}
+
+function cloudRunFor(roomId, runId = "") {
+  const existing = state.cloudAgentRunsByRoom.get(roomId);
+  if (existing) return existing;
+  const run = {
+    roomId,
+    runId,
+    text: "",
+    status: "running",
+    createdAt: new Date().toISOString(),
+    tools: [],
+  };
+  state.cloudAgentRunsByRoom.set(roomId, run);
+  return run;
+}
+
 function handleCloudEvent(envelope) {
   const type = envelope?.type || "";
   if (type === "room.message_appended") {
@@ -422,6 +515,7 @@ function handleCloudEvent(envelope) {
       entry.messages.push(msg);
       entry.maxSeq = Math.max(entry.maxSeq, Number(msg.seq || 0));
       state.messageCache.set(roomId, entry);
+      if (msg.sender_kind === SenderKind.Fellow) state.cloudAgentRunsByRoom.delete(roomId);
       // Bump unread if the message isn't mine and the room isn't currently open.
       // Self-id check goes through shared/contact: resolveContact returns kind="self"
       // only when ref matches ctx.self.id (works for any sender kind).
@@ -440,6 +534,41 @@ function handleCloudEvent(envelope) {
     }
     renderConversationList();
     renderRailUnreadBadge();
+  } else if (type === "cloud_agent_run_started") {
+    const roomId = envelope.roomId;
+    if (!roomId) return;
+    const run = cloudRunFor(roomId, envelope.runId || "");
+    run.runId = envelope.runId || run.runId;
+    run.hermesRunId = envelope.hermesRunId || run.hermesRunId || "";
+    run.fellowId = envelope.fellowId || run.fellowId || "";
+    run.status = "running";
+    if (roomId === state.activeConversationId) renderActiveChat();
+  } else if (type === "cloud_agent_run_event") {
+    const roomId = envelope.roomId;
+    const event = envelope.event || {};
+    if (!roomId) return;
+    const run = cloudRunFor(roomId, envelope.runId || "");
+    run.fellowId = envelope.fellowId || run.fellowId || "";
+    const name = hermesEventType(event);
+    if (name === "message.delta") {
+      run.text += hermesEventText(event);
+    } else if (name === "message.complete" || name === "message.completed") {
+      run.text = hermesEventText(event) || run.text;
+    } else if (name === "run.completed") {
+      run.text = hermesEventText(event) || run.text;
+      run.status = "complete";
+    } else if (name === "run.failed") {
+      run.status = "error";
+    } else if (name === "run.cancelled") {
+      run.status = "cancelled";
+    } else if (name === "tool.started") {
+      run.tools.push({ name: String(event.tool || event.name || event.data?.tool || "工具"), status: "running" });
+    } else if (name === "tool.completed") {
+      const toolName = String(event.tool || event.name || event.data?.tool || "");
+      const tool = [...run.tools].reverse().find((item) => !toolName || item.name === toolName);
+      if (tool) tool.status = event.error || event.data?.error ? "error" : "complete";
+    }
+    if (roomId === state.activeConversationId) renderActiveChat();
   } else if (type === "device_updated") {
     if (Array.isArray(envelope.devices)) state.bridgeDevices = envelope.devices;
     renderActiveChat();
@@ -892,14 +1021,52 @@ function buildRoomMessageArticle(msg, room) {
     : `background-color:${fallbackColor}; color:#fff; display:inline-flex; align-items:center; justify-content:center;`;
   const avatarText = useAvatar ? "" : escapeHtml(initial);
   const body = (spec.bodyMd || "").replace(/\n/g, "<br>");
+  const bodyHtml = body ? `<div class="bubble">${escapeHtml(body).replace(/&lt;br&gt;/g, "<br>")}</div>` : "";
+  const attachmentHtml = renderAttachmentChips(spec.attachments || msg.attachments || []);
   return `
     <article class="${cls}">
       <span class="avatar" style="${avatarStyle}">${avatarText}</span>
       <div class="message-stack">
         ${senderLabel && !isOwn ? `<span class="message-sender">${escapeHtml(senderLabel)}</span>` : ""}
-        <div class="bubble">${escapeHtml(body).replace(/&lt;br&gt;/g, "<br>")}</div>
+        ${bodyHtml}
+        ${attachmentHtml}
         <span class="message-time">${escapeHtml(formatMessageTime(spec.createdAt))}</span>
       </div>
+    </article>
+  `;
+}
+
+function buildCloudAgentStreamingArticle(room, run) {
+  if (!room || !run || (run.status === "complete" && !run.text && !run.tools.length)) return "";
+  const fellowKey = run.fellowId || room.decorations?.fellowKey || (room.id?.startsWith("fellow:") ? room.id.split(":")[2] : "aimashi");
+  const msg = {
+    id: `cloud-agent-stream-${run.runId || room.id}`,
+    sender_kind: "fellow",
+    sender_ref: fellowKey,
+    body_md: run.text || "",
+    created_at: run.createdAt || new Date().toISOString(),
+    seq: 0,
+  };
+  const members = state.roomMembersCache.get(room.id) || [];
+  const ctx = { self: state.user, friends: state.friends, fellows: state.fellows };
+  const source = window.aimashiCloudRoomSource.createCloudRoomSource({ room, messages: [msg], members, ctx });
+  const spec = source.listMessages()[0];
+  const avatar = spec.avatar || {};
+  const avatarStyle = avatar.image
+    ? avatarBackgroundStyle(avatar.image, avatar.crop, avatar.color || "#5e5ce6")
+    : `background-color:${avatar.color || "#5e5ce6"}; color:#fff; display:inline-flex; align-items:center; justify-content:center;`;
+  const avatarText = avatar.image ? "" : escapeHtml((spec.authorName?.[0] || "?").toUpperCase());
+  const textHtml = run.text ? `<div class="bubble">${escapeHtml(run.text).replace(/\n/g, "<br>")}</div>` : "";
+  const statusHtml = run.status === "running"
+    ? `<div class="bubble"><span class="typing-status">正在输入<span class="typing-dots"><i></i><i></i><i></i></span></span></div>`
+    : "";
+  const toolsHtml = run.tools.length
+    ? `<div class="message-attachments">${run.tools.slice(-3).map((tool) => `<span class="message-attachment"><span>TOOL</span><strong>${escapeHtml(tool.name || "工具")}</strong><em>${escapeHtml(tool.status || "")}</em></span>`).join("")}</div>`
+    : "";
+  return `
+    <article class="message assistant streaming">
+      <span class="avatar" style="${avatarStyle}">${avatarText}</span>
+      <div class="message-stack">${textHtml}${statusHtml}${toolsHtml}</div>
     </article>
   `;
 }
@@ -981,10 +1148,12 @@ function renderActiveChat() {
     els.activeMeta.textContent = isDM ? "私聊" : "群聊";
     const cached = state.messageCache.get(room.id);
     const messages = cached?.messages || [];
+    const streaming = buildCloudAgentStreamingArticle(room, state.cloudAgentRunsByRoom.get(room.id));
     els.chat.innerHTML = messages.length
-      ? messages.map((m) => buildRoomMessageArticle(m, room)).join("")
+      ? `${messages.map((m) => buildRoomMessageArticle(m, room)).join("")}${streaming}`
       : `<p class="persona-empty">还没有消息。</p>`;
-    if (messages.length) els.chat.scrollTop = els.chat.scrollHeight;
+    if (!messages.length && streaming) els.chat.innerHTML = streaming;
+    if (messages.length || streaming) els.chat.scrollTop = els.chat.scrollHeight;
     setComposerEnabled(true, "输入消息，Enter 发送，Shift+Enter 换行");
     return;
   }
