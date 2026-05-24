@@ -9,7 +9,8 @@
 //   回复  → set composer reply draft (embedded as a markdown quote on send)
 //   拷贝  → copy plain text
 //   翻译  → translate in place via the utility model
-//   删除  → DELETE /api/rooms/:id/messages/:msgId (syncs to all devices)
+//   删除  → DELETE /api/rooms/:id/messages/:msgId (local delete: hides it for
+//          you across your own devices; other members keep their copy)
 // 置顶 is intentionally omitted: a shared cloud room has no per-message pin.
 //
 // Wired from app.js's chat-level contextmenu dispatcher, which routes bubbles
@@ -80,6 +81,9 @@
   function openSocialMessageMenu(message, x, y) {
     const menu = getMenuEl();
     if (!menu) return;
+    // Tear down a still-open instance of THIS menu first, or its document
+    // listeners (outside-click / escape) leak when reopened via right-click.
+    closeMenu();
     // If fellow chat had its menu open, close it first.
     const closeFellow = global.aimashiMessageMenu?.closeMessageContextMenu;
     if (typeof closeFellow === "function") closeFellow();

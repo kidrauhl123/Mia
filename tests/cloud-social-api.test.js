@@ -365,6 +365,47 @@ test("POST to room user is not member of returns 403", async () => {
   } finally { await stopServer(ctx); }
 });
 
+test("DELETE message hides it for the deleter only — other members keep their copy", async () => {
+  const ctx = await startServer();
+  try {
+    const alice = await register(ctx.port, "alice");
+    const bob = await register(ctx.port, "bob");
+    const room = await friendUp(ctx.port, alice, bob);
+    const posted = await api(ctx.port, "POST", "/api/rooms/" + room.id + "/messages", {
+      token: alice.token, body: { bodyMd: "alice's message" }
+    });
+    assert.equal(posted.status, 201);
+    const msgId = posted.body.message.id;
+    // Bob deletes Alice's message — WeChat-style local delete, not a recall.
+    const del = await api(ctx.port, "DELETE", "/api/rooms/" + room.id + "/messages/" + msgId, { token: bob.token });
+    assert.equal(del.status, 200);
+    // Bob's history drops it.
+    const bobList = await api(ctx.port, "GET", "/api/rooms/" + room.id + "/messages?since_seq=0", { token: bob.token });
+    assert.deepEqual(bobList.body.messages.map((m) => m.id), []);
+    // Alice's history is UNTOUCHED — a member must never delete from another's view.
+    const aliceList = await api(ctx.port, "GET", "/api/rooms/" + room.id + "/messages?since_seq=0", { token: alice.token });
+    assert.deepEqual(aliceList.body.messages.map((m) => m.id), [msgId]);
+  } finally { await stopServer(ctx); }
+});
+
+test("DELETE message → 403 non-member, 404 missing id", async () => {
+  const ctx = await startServer();
+  try {
+    const alice = await register(ctx.port, "alice");
+    const bob = await register(ctx.port, "bob");
+    const charlie = await register(ctx.port, "charlie");
+    const room = await friendUp(ctx.port, alice, bob);
+    const posted = await api(ctx.port, "POST", "/api/rooms/" + room.id + "/messages", {
+      token: alice.token, body: { bodyMd: "hi" }
+    });
+    const msgId = posted.body.message.id;
+    const intruder = await api(ctx.port, "DELETE", "/api/rooms/" + room.id + "/messages/" + msgId, { token: charlie.token });
+    assert.equal(intruder.status, 403);
+    const missing = await api(ctx.port, "DELETE", "/api/rooms/" + room.id + "/messages/m_nope", { token: alice.token });
+    assert.equal(missing.status, 404);
+  } finally { await stopServer(ctx); }
+});
+
 test("POST to DM room id derives membership from friendship even before explicit room", async () => {
   const ctx = await startServer();
   try {

@@ -23,6 +23,16 @@ function createMessagesStore(db) {
     SELECT * FROM messages WHERE room_id = ? AND seq > ?
     ORDER BY seq ASC LIMIT ?
   `);
+  const selectSinceForViewer = db.prepare(`
+    SELECT * FROM messages
+    WHERE room_id = ? AND seq > ?
+      AND id NOT IN (SELECT message_id FROM message_hidden WHERE user_id = ?)
+    ORDER BY seq ASC LIMIT ?
+  `);
+  const insertHidden = db.prepare(`
+    INSERT OR IGNORE INTO message_hidden (user_id, room_id, message_id, created_at)
+    VALUES (?, ?, ?, ?)
+  `);
   const updateStatus = db.prepare(
     "UPDATE messages SET status = ?, error_json = COALESCE(?, error_json) WHERE id = ?"
   );
@@ -73,8 +83,14 @@ function createMessagesStore(db) {
     return selectMessage.get(String(id)) || null;
   }
 
-  function listMessagesSince(roomId, sinceSeq, limit = 100) {
+  // When viewerId is given, messages that viewer has locally deleted (hidden)
+  // are excluded; without it the full room history is returned (used by
+  // fellow-invocation context where there is no single viewer).
+  function listMessagesSince(roomId, sinceSeq, limit = 100, viewerId = null) {
     const cap = Math.min(Math.max(Number(limit) || 100, 1), 500);
+    if (viewerId) {
+      return selectSinceForViewer.all(String(roomId), Number(sinceSeq) || 0, String(viewerId), cap);
+    }
     return selectSince.all(String(roomId), Number(sinceSeq) || 0, cap);
   }
 
@@ -91,7 +107,18 @@ function createMessagesStore(db) {
     return row;
   }
 
-  return { appendMessage, getMessage, listMessagesSince, updateMessageStatus, deleteMessage };
+  // Hide a single message from one user's view only (WeChat-style local
+  // delete). Returns the message row so the caller can 404 a missing id, or
+  // null when it doesn't exist. The row itself is never removed; other room
+  // members keep their copy. Idempotent.
+  function hideMessageForUser(roomId, messageId, userId) {
+    const row = selectMessage.get(String(messageId));
+    if (!row) return null;
+    insertHidden.run(String(userId), String(roomId), String(messageId), nowIso());
+    return row;
+  }
+
+  return { appendMessage, getMessage, listMessagesSince, updateMessageStatus, deleteMessage, hideMessageForUser };
 }
 
 module.exports = { createMessagesStore };

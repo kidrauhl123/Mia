@@ -116,6 +116,36 @@ test("deleteMessage removes the row and returns it; missing id returns null", ()
   } finally { teardown(ctx); }
 });
 
+test("hideMessageForUser hides a message for one viewer only; row survives", () => {
+  const ctx = setup();
+  try {
+    const m1 = ctx.messages.appendMessage({ roomId: "r-msg", senderKind: "user", senderRef: ctx.alice.id, bodyMd: "keep" });
+    const m2 = ctx.messages.appendMessage({ roomId: "r-msg", senderKind: "user", senderRef: ctx.alice.id, bodyMd: "bob hides this" });
+    // Bob hides Alice's message from his own view; returns the row so the
+    // caller can 404 on a missing id.
+    const hidden = ctx.messages.hideMessageForUser("r-msg", m2.id, ctx.bob.id);
+    assert.equal(hidden.id, m2.id);
+    // Bob's view drops m2; Alice's view is untouched (local-delete semantics).
+    assert.deepEqual(ctx.messages.listMessagesSince("r-msg", 0, 100, ctx.bob.id).map((m) => m.id), [m1.id]);
+    assert.deepEqual(ctx.messages.listMessagesSince("r-msg", 0, 100, ctx.alice.id).map((m) => m.id), [m1.id, m2.id]);
+    // No viewer → unfiltered (backward compatible with fellow-invocation context).
+    assert.equal(ctx.messages.listMessagesSince("r-msg", 0).length, 2);
+    // The row is NOT hard-deleted — hiding is per-user only.
+    assert.equal(ctx.messages.getMessage(m2.id).body_md, "bob hides this");
+  } finally { teardown(ctx); }
+});
+
+test("hideMessageForUser is idempotent; missing id returns null", () => {
+  const ctx = setup();
+  try {
+    const m = ctx.messages.appendMessage({ roomId: "r-msg", senderKind: "user", senderRef: ctx.alice.id, bodyMd: "x" });
+    ctx.messages.hideMessageForUser("r-msg", m.id, ctx.bob.id);
+    ctx.messages.hideMessageForUser("r-msg", m.id, ctx.bob.id);
+    assert.equal(ctx.messages.listMessagesSince("r-msg", 0, 100, ctx.bob.id).length, 0);
+    assert.equal(ctx.messages.hideMessageForUser("r-msg", "m_nope", ctx.bob.id), null);
+  } finally { teardown(ctx); }
+});
+
 test("updateMessageStatus transitions streaming -> complete", () => {
   const ctx = setup();
   try {

@@ -1210,7 +1210,9 @@ async function handleRequest(req, res, context) {
       }
       const sinceSeq = Number(url.searchParams.get("since_seq") || 0);
       const limit = Number(url.searchParams.get("limit") || 100);
-      const messages = context.messagesStore.listMessagesSince(roomId, sinceSeq, limit);
+      // Pass the requesting user so messages they've locally deleted (hidden)
+      // are excluded — survives re-sync and new devices.
+      const messages = context.messagesStore.listMessagesSince(roomId, sinceSeq, limit, auth.user.id);
       return writeJson(res, 200, { messages });
     }
 
@@ -1286,9 +1288,11 @@ async function handleRequest(req, res, context) {
       return writeJson(res, 201, payload);
     }
 
-    // DELETE /api/rooms/:id/messages/:msgId — remove a single message and
-    // tell every user-member to drop it from their cache (multi-device sync).
-    // Any member of the room may delete; these are the user's own rooms.
+    // DELETE /api/rooms/:id/messages/:msgId — WeChat-style local delete: hide
+    // the message from THIS user's view only, then tell their other devices to
+    // drop it too. Other room members keep their copy; a member can never
+    // delete a message out of someone else's history. (A future "recall" would
+    // be a separate, sender-only, broadcast-to-all action.)
     if (req.method === "DELETE" && roomMsgDeleteMatch) {
       const roomId = roomMsgDeleteMatch[1];
       const messageId = roomMsgDeleteMatch[2];
@@ -1299,13 +1303,10 @@ async function handleRequest(req, res, context) {
       if (!existing || existing.room_id !== roomId) {
         return writeError(res, 404, "message not found");
       }
-      context.messagesStore.deleteMessage(messageId);
-      const allMembers = context.socialStore.listRoomMembers(roomId);
-      for (const m of allMembers) {
-        if (m.member_kind === "user") {
-          broadcastPersistedEvent(context, m.member_ref, { type: "room.message_deleted", roomId, messageId });
-        }
-      }
+      context.messagesStore.hideMessageForUser(roomId, messageId, auth.user.id);
+      // Only the deleting user's own devices learn about it — never broadcast
+      // to the other members.
+      broadcastPersistedEvent(context, auth.user.id, { type: "room.message_deleted", roomId, messageId });
       return writeJson(res, 200, { ok: true, roomId, messageId });
     }
 

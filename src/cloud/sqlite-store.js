@@ -734,6 +734,20 @@ function migrate(db) {
     CREATE INDEX IF NOT EXISTS idx_room_members_user ON room_members(member_kind, member_ref);
     CREATE INDEX IF NOT EXISTS idx_messages_room_seq ON messages(room_id, seq);
 
+    -- v9: per-user message hiding (WeChat-style local delete). Deleting a
+    -- message removes it only from the deleter's own view (across their
+    -- devices); other room members keep their copy. This is distinct from a
+    -- future "recall" that would hard-delete for everyone. The read path
+    -- filters messages whose id appears here for the requesting user.
+    CREATE TABLE IF NOT EXISTS message_hidden (
+      user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      room_id    TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+      message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (user_id, message_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_message_hidden_user_room ON message_hidden(user_id, room_id);
+
     -- v4: per-user persistent event log + write idempotency.
     -- See docs/superpowers/plans/2026-05-23-sync-architecture-redesign.md.
     -- Every state-changing WS broadcast also lands a row here. Clients
@@ -877,6 +891,8 @@ function migrate(db) {
   db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (7, ?)")
     .run(nowIso());
   db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (8, ?)")
+    .run(nowIso());
+  db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (9, ?)")
     .run(nowIso());
 }
 

@@ -80,7 +80,6 @@
   // that mirror the topbar composer-bottom controls in private chat.
   function renderFellowCard(args) {
     const { ref, roomId } = args;
-    const local = localFellow(ref);
     const member = findFellowRoomMember(roomId, ref);
     const ownerId = member?.owner_id || "";
     const me = selfUser();
@@ -88,7 +87,12 @@
     // because a fellow key happens to collide with one of our local keys). Only
     // when there's NO room member (private fellow chat) does a local fellow
     // count as ours — there's no owner_id to read there.
-    const isMine = member ? (ownerId === me.id) : Boolean(local);
+    const isMine = member ? (ownerId === me.id) : Boolean(localFellow(ref));
+    // Bind the local fellow ONLY when it's actually ours. A same-key fellow
+    // owned by another room member must fall through to the remote-only card —
+    // otherwise its name/avatar/controls would mirror, and edits would persist
+    // to, my own local fellow settings.
+    const local = isMine ? localFellow(ref) : null;
 
     const name = local?.name || member?.fellow_name || ref;
     const avatar = local

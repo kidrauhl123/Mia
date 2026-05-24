@@ -94,7 +94,7 @@ test("CloudRoomSource system message gets role=system", () => {
   assert.equal(spec.authorName, "系统");
 });
 
-test("CloudRoomSource capabilities include copy + reply but pin/delete false (no endpoint yet)", () => {
+test("CloudRoomSource capabilities: copy + reply + delete true, pin false", () => {
   const src = loadSource();
   const room = { id: "dm:a:b" };
   const messages = [{ id: "m", sender_kind: "user", sender_ref: "a", body_md: "x", created_at: "", seq: 1 }];
@@ -103,5 +103,7 @@ test("CloudRoomSource capabilities include copy + reply but pin/delete false (no
   assert.equal(cap.copy, true);
   assert.equal(cap.reply, true);
   assert.equal(cap.pin, false);
-  assert.equal(cap.delete, false);
+  // Delete is WeChat-style local-hide, available on every cloud-room message
+  // (DELETE /api/rooms/:id/messages/:msgId hides it for the requesting user).
+  assert.equal(cap.delete, true);
 });
