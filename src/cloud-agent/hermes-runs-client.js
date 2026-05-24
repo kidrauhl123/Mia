@@ -18,7 +18,7 @@ function parseErrorMessage(text) {
   }
 }
 
-function parseSseEvents(text) {
+function parseSseEvents(text, onEvent = null) {
   const events = [];
   let content = "";
   for (const block of String(text || "").split(/\n\n+/)) {
@@ -36,6 +36,7 @@ function parseSseEvents(text) {
       event = { type: "raw", data };
     }
     events.push(event);
+    if (typeof onEvent === "function") onEvent(event);
     const delta = event.delta || event.content_delta || event.text_delta || "";
     if (typeof delta === "string") content += delta;
     if (typeof event.content === "string" && (event.type === "message.completed" || event.type === "run.completed")) {
@@ -67,14 +68,14 @@ function createHermesRunsClient(deps = {}) {
     return runId;
   }
 
-  async function readEvents({ baseUrl, runId, signal }) {
+  async function readEvents({ baseUrl, runId, signal, onEvent }) {
     const response = await fetchImpl(`${cleanBaseUrl(baseUrl)}/v1/runs/${encodeURIComponent(runId)}/events`, {
       method: "GET",
       signal
     });
     const text = await response.text();
     if (!response.ok) throw new Error(parseErrorMessage(text) || `Hermes events failed: ${response.status}`);
-    return parseSseEvents(text);
+    return parseSseEvents(text, onEvent);
   }
 
   async function runChat(args = {}) {
@@ -127,7 +128,13 @@ function createHermesRunsClient(deps = {}) {
       headers,
       signal: args.signal
     });
-    const stream = await readEvents({ baseUrl: args.baseUrl, runId, signal: args.signal });
+    if (typeof args.onRunCreated === "function") args.onRunCreated(runId);
+    const stream = await readEvents({
+      baseUrl: args.baseUrl,
+      runId,
+      signal: args.signal,
+      onEvent: args.onEvent
+    });
     return { runId, content: stream.content || "", events: stream.events };
   }
 

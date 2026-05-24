@@ -47,6 +47,7 @@ test("dispatcher only runs enabled cloud-hermes fellow rooms and appends fellow 
   const ctx = setup();
   const hermesCalls = [];
   const broadcasts = [];
+  const transientEvents = [];
   const materializeCalls = [];
   try {
     const dispatcher = createCloudAgentDispatcher({
@@ -63,6 +64,9 @@ test("dispatcher only runs enabled cloud-hermes fellow rooms and appends fellow 
       hermesRunsClient: {
         async runChat(args) {
           hermesCalls.push(args);
+          args.onRunCreated?.("hr_1");
+          args.onEvent?.({ type: "message.delta", delta: "cloud " });
+          args.onEvent?.({ type: "tool.started", tool: "shell" });
           return { runId: "hr_1", content: "cloud reply", events: [{ artifacts: [{ path: "/data/workspace/out.txt" }] }] };
         }
       },
@@ -81,6 +85,9 @@ test("dispatcher only runs enabled cloud-hermes fellow rooms and appends fellow 
       },
       broadcastPersistedEvent(userId, payload) {
         broadcasts.push({ userId, payload });
+      },
+      broadcastTransientEvent(userId, payload) {
+        transientEvents.push({ userId, payload });
       }
     });
 
@@ -115,6 +122,13 @@ test("dispatcher only runs enabled cloud-hermes fellow rooms and appends fellow 
     assert.deepEqual(runRows, [{ status: "complete", hermes_run_id: "hr_1" }]);
     assert.equal(broadcasts.length, 1);
     assert.equal(broadcasts[0].payload.type, "room.message_appended");
+    assert.deepEqual(transientEvents.map((item) => item.payload.type), [
+      "cloud_agent_run_started",
+      "cloud_agent_run_event",
+      "cloud_agent_run_event"
+    ]);
+    assert.equal(transientEvents[0].payload.hermesRunId, "hr_1");
+    assert.deepEqual(transientEvents.slice(1).map((item) => item.payload.event.type), ["message.delta", "tool.started"]);
   } finally {
     ctx.cleanup();
   }

@@ -23,6 +23,9 @@ function createCloudAgentDispatcher(deps = {}) {
   const broadcastPersistedEvent = typeof deps.broadcastPersistedEvent === "function"
     ? deps.broadcastPersistedEvent
     : () => {};
+  const broadcastTransientEvent = typeof deps.broadcastTransientEvent === "function"
+    ? deps.broadcastTransientEvent
+    : () => {};
   const pending = new Set();
 
   function conversationHistory(roomId) {
@@ -76,7 +79,27 @@ function createCloudAgentDispatcher(deps = {}) {
         roomId,
         input: materialized.input || message.body_md || "",
         attachments: materialized.attachments || [],
-        conversationHistory: conversationHistory(roomId)
+        conversationHistory: conversationHistory(roomId),
+        onRunCreated(hermesRunId) {
+          cloudAgentRunsStore.markRunning(run.id, hermesRunId || "");
+          broadcastTransientEvent(userId, {
+            type: "cloud_agent_run_started",
+            runId: run.id,
+            hermesRunId,
+            roomId,
+            fellowId,
+            triggerMessageId: message.id
+          });
+        },
+        onEvent(event) {
+          broadcastTransientEvent(userId, {
+            type: "cloud_agent_run_event",
+            runId: run.id,
+            roomId,
+            fellowId,
+            event
+          });
+        }
       });
       const replyAttachments = attachmentMaterializer?.archiveGeneratedAttachments
         ? attachmentMaterializer.archiveGeneratedAttachments({
@@ -85,7 +108,7 @@ function createCloudAgentDispatcher(deps = {}) {
           result
         })
         : [];
-      cloudAgentRunsStore.markRunning(run.id, result.runId || "");
+      if (result.runId) cloudAgentRunsStore.markRunning(run.id, result.runId);
       const reply = messagesStore.appendMessage({
         roomId,
         senderKind: "fellow",

@@ -1647,6 +1647,7 @@ function createAimashiCloudServer(options = {}) {
     workerManager,
     hermesRunsClient,
     attachmentMaterializer,
+    broadcastTransientEvent: (userId, payload) => broadcastTransientEvent(context.eventHub, userId, payload),
     broadcastPersistedEvent: (userId, payload) => broadcastPersistedEvent(context, userId, payload)
   });
   const server = http.createServer((req, res) => handleRequest(req, res, context));

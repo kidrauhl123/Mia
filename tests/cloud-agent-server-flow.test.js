@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const WebSocket = require("ws");
 
 const { createAimashiCloudServer } = require("../scripts/serve-cloud.js");
 
@@ -36,6 +37,33 @@ async function jsonFetch(baseUrl, requestPath, options = {}) {
   return data;
 }
 
+function wsTokenProtocol(token) {
+  return [`aimashi-token.${token}`];
+}
+
+function eventsWsUrl(baseUrl) {
+  return `${baseUrl.replace(/^http:/, "ws:")}/api/events`;
+}
+
+function waitForMessage(ws, predicate) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("Timed out waiting for websocket message.")), 2000);
+    ws.on("message", function onMessage(raw) {
+      const message = JSON.parse(String(raw));
+      if (!predicate(message)) return;
+      clearTimeout(timer);
+      ws.off("message", onMessage);
+      resolve(message);
+    });
+    ws.on("error", reject);
+  });
+}
+
+function closeWs(ws) {
+  if (!ws || ws.readyState === WebSocket.CLOSING || ws.readyState === WebSocket.CLOSED) return;
+  try { ws.close(); } catch { /* test cleanup */ }
+}
+
 test("POST /api/rooms/:id/messages appends cloud fellow reply through existing room messages", async () => {
   const dataDir = tempDir("aimashi-cloud-agent-server-");
   const hermesCalls = [];
@@ -54,11 +82,14 @@ test("POST /api/rooms/:id/messages appends cloud fellow reply through existing r
     cloudAgentHermesClient: {
       async runChat(args) {
         hermesCalls.push(args);
+        args.onRunCreated?.("hr_server_1");
+        args.onEvent?.({ type: "message.delta", delta: "server " });
         return { runId: "hr_server_1", content: "server cloud reply", events: [] };
       }
     }
   });
   const baseUrl = await listen(server);
+  let eventsWs = null;
   try {
     const account = await jsonFetch(baseUrl, "/api/auth/register", {
       method: "POST",
@@ -66,7 +97,10 @@ test("POST /api/rooms/:id/messages appends cloud fellow reply through existing r
     });
     const roomId = `fellow:${account.user.id}:aimashi`;
     const authHeaders = { authorization: `Bearer ${account.token}` };
+    eventsWs = new WebSocket(eventsWsUrl(baseUrl), wsTokenProtocol(account.token));
+    await waitForMessage(eventsWs, (message) => message.type === "events_ready");
 
+    const runStarted = waitForMessage(eventsWs, (message) => message.type === "cloud_agent_run_started" && message.roomId === roomId);
     const sent = await jsonFetch(baseUrl, `/api/rooms/${roomId}/messages`, {
       method: "POST",
       headers: authHeaders,
@@ -86,6 +120,8 @@ test("POST /api/rooms/:id/messages appends cloud fellow reply through existing r
     assert.equal(sentAttachments[0].dataUrl, undefined);
 
     await server.aimashi.cloudAgentDispatcher.idle();
+    const started = await runStarted;
+    assert.equal(started.hermesRunId, "hr_server_1");
 
     const listed = await jsonFetch(baseUrl, `/api/rooms/${roomId}/messages`, {
       headers: authHeaders
@@ -98,6 +134,7 @@ test("POST /api/rooms/:id/messages appends cloud fellow reply through existing r
     assert.equal(hermesCalls[0].attachments.length, 1);
     assert.equal(hermesCalls[0].attachments[0].path.startsWith("/data/attachments/"), true);
   } finally {
+    closeWs(eventsWs);
     await close(server);
     fs.rmSync(dataDir, { recursive: true, force: true });
   }

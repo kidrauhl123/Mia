@@ -31,6 +31,7 @@ test("worker manager rejects unsafe user ids for filesystem paths", () => {
 
 test("Hermes runs client sends Fellow headers and returns final text", async () => {
   const calls = [];
+  const callbacks = [];
   const fakeFetch = async (url, options = {}) => {
     calls.push({ url: String(url), method: options.method || "GET", headers: options.headers || {}, body: options.body || "" });
     if (String(url).endsWith("/v1/runs")) {
@@ -66,7 +67,13 @@ test("Hermes runs client sends Fellow headers and returns final text", async () 
     roomId: "fellow:u1:aimashi",
     input: "hi",
     attachments: [{ id: "file_1", name: "note.txt", mimeType: "text/plain", size: 12, kind: "text", path: "/data/attachments/run/note.txt" }],
-    conversationHistory: [{ role: "user", content: "hi" }]
+    conversationHistory: [{ role: "user", content: "hi" }],
+    onRunCreated(runId) {
+      callbacks.push({ type: "run", runId });
+    },
+    onEvent(event) {
+      callbacks.push({ type: "event", event });
+    }
   });
 
   assert.equal(out.runId, "run_1");
@@ -82,6 +89,13 @@ test("Hermes runs client sends Fellow headers and returns final text", async () 
   assert.deepEqual(body.attachments, [{ id: "file_1", name: "note.txt", mimeType: "text/plain", size: 12, kind: "text", path: "/data/attachments/run/note.txt" }]);
   assert.equal(body.metadata.account_id, "u1");
   assert.deepEqual(body.metadata.attachments, [{ id: "file_1", name: "note.txt", mimeType: "text/plain", path: "/data/attachments/run/note.txt" }]);
+  assert.equal(callbacks[0].type, "run");
+  assert.equal(callbacks[0].runId, "run_1");
+  assert.deepEqual(callbacks.filter((item) => item.type === "event").map((item) => item.event.type), [
+    "message.delta",
+    "message.delta",
+    "run.completed"
+  ]);
 });
 
 test("docker worker mode starts one isolated container per user", async () => {

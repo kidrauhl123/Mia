@@ -12,6 +12,8 @@
     WorkspaceUpdated: "workspace_updated",
     MessageCreated: "message_created",
     BridgeRunUpdated: "bridge_run_updated",
+    CloudAgentRunStarted: "cloud_agent_run_started",
+    CloudAgentRunEvent: "cloud_agent_run_event",
     DeviceUpdated: "device_updated",
     EventsReady: "events_ready"
   });
