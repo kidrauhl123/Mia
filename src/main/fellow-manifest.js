@@ -109,6 +109,7 @@ function createFellowManifest(deps = {}) {
     const name = String(item?.name || item?.display_name || key || "Aimashi").trim();
     if (!key || !name) return null;
     const pinnedAt = String(item?.pinnedAt || item?.pinned_at || "").trim();
+    const mutedAt = String(item?.mutedAt || item?.muted_at || "").trim();
     return {
       key,
       name,
@@ -122,6 +123,8 @@ function createFellowManifest(deps = {}) {
       avatarCrop: normalizeAvatarCrop(item?.avatarCrop || item?.avatar_crop),
       pinned: Boolean(item?.pinned || item?.is_pinned || pinnedAt),
       pinnedAt,
+      muted: Boolean(item?.muted || item?.is_muted || mutedAt),
+      mutedAt,
       bio: String(item?.bio || item?.description || "").trim(),
       capabilities: normalizeFellowCapabilities(item?.capabilities)
     };
@@ -197,6 +200,8 @@ function createFellowManifest(deps = {}) {
       avatar_crop: fellow.avatarCrop || { x: 50, y: 50, zoom: 1 },
       pinned: Boolean(fellow.pinned),
       pinned_at: fellow.pinnedAt || "",
+      muted: Boolean(fellow.muted),
+      muted_at: fellow.mutedAt || "",
       bio: fellow.bio || "",
       capabilities: normalizeFellowCapabilities(fellow.capabilities),
       created_at: new Date().toISOString()

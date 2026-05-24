@@ -23,6 +23,7 @@ function createChatStore(deps = {}) {
     return {
       schema_version: 1,
       readAt: {},
+      manualUnread: {},
       sessions: {}
     };
   }
@@ -117,10 +118,17 @@ function createChatStore(deps = {}) {
     const store = input && typeof input === "object" ? input : defaultChatStore();
     const sessions = store.sessions && typeof store.sessions === "object" ? store.sessions : {};
     const readAt = store.readAt && typeof store.readAt === "object" ? store.readAt : {};
-    const normalized = { schema_version: 1, readAt: {}, sessions: {} };
+    const manualUnread = store.manualUnread && typeof store.manualUnread === "object" ? store.manualUnread : {};
+    const normalized = { schema_version: 1, readAt: {}, manualUnread: {}, sessions: {} };
     for (const [personaKey, value] of Object.entries(readAt)) {
       if (typeof value === "string" && value.trim()) {
         normalized.readAt[String(personaKey)] = value;
+      }
+    }
+    // Personas the user "标为未读" (manual override); only persist truthy flags.
+    for (const [personaKey, value] of Object.entries(manualUnread)) {
+      if (value === true && String(personaKey).trim()) {
+        normalized.manualUnread[String(personaKey)] = true;
       }
     }
     for (const [personaKey, list] of Object.entries(sessions)) {

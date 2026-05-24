@@ -495,6 +495,7 @@ function conversationCardSpecFromRow(row, personas) {
       kind: "private",
       active: persona.key === state.activeKey,
       pinned: Boolean(persona.pinned),
+      muted: Boolean(persona.muted),
       name: persona.name,
       typeLabel: "私聊",
       preview: preview.text || "暂无对话",
@@ -518,11 +519,16 @@ function conversationCardSpecFromRow(row, personas) {
         render();
       },
       onContextMenu: (x, y) => window.aimashiConversationContextMenu.openPrivateConversationMenu(
-        { id: persona.key, name: persona.name, pinned: Boolean(persona.pinned), unread },
+        { id: persona.key, name: persona.name, pinned: Boolean(persona.pinned), unread, muted: Boolean(persona.muted) },
         {
           togglePinned: () => setFellowPinned(persona.key, !persona.pinned),
           rename: () => openEditFellowDialog(persona.key),
-          markRead: () => { window.aimashiSessionReadState.markPersonaRead(persona.key); render(); },
+          toggleRead: (next) => {
+            if (next) window.aimashiSessionReadState.markPersonaUnread(persona.key);
+            else window.aimashiSessionReadState.markPersonaRead(persona.key);
+            render();
+          },
+          toggleMuted: (next) => { setFellowMuted(persona.key, next); render(); },
           remove: persona.key === "aimashi" ? null : () => deleteFellow(persona.key)
         },
         x, y
@@ -1262,8 +1268,11 @@ function render() {
     state.activeContactKey = personas.find((persona) => persona.key === state.activeKey)?.key || personas[0].key;
   }
   window.aimashiSessionReadState.initializeReadStateForPersonas(personas);
-  window.aimashiSessionReadState.markPersonaRead(state.activeKey, false);
-  const unreadTotal = window.aimashiSessionReadState.totalUnreadCount(personas);
+  // Passive render-time read mark: advance the read pointer but never clear an
+  // explicit "标为未读" the user just set on the active fellow.
+  window.aimashiSessionReadState.markPersonaRead(state.activeKey, false, { clearManual: false });
+  // Muted fellows are excluded from the aggregate badge, mirroring muted cloud rooms.
+  const unreadTotal = window.aimashiSessionReadState.totalUnreadCount(personas.filter((p) => !p.muted));
   els.personaCount.textContent = window.aimashiUnread.unreadBadgeText(unreadTotal);
   els.personaCount.classList.toggle("hidden", unreadTotal <= 0);
   const active = personas.find((persona) => persona.key === state.activeKey) || personas[0];
@@ -1436,6 +1445,16 @@ async function setFellowPinned(fellowKey, pinned) {
     render();
   } catch (error) {
     appendTransientChat("assistant", `置顶失败: ${error.message}`);
+    await refreshRuntime();
+  }
+}
+
+async function setFellowMuted(fellowKey, muted) {
+  try {
+    state.runtime = await window.aimashi.setFellowMuted({ key: fellowKey, muted });
+    render();
+  } catch (error) {
+    appendTransientChat("assistant", `免打扰设置失败: ${error.message}`);
     await refreshRuntime();
   }
 }
@@ -1870,7 +1889,7 @@ function appendChat(role, content, options = {}) {
   session.messages.push(message);
   session.updatedAt = nowIso();
   const shouldMarkRead = role === "assistant" && !message.transient;
-  if (shouldMarkRead) window.aimashiSessionReadState.markPersonaRead(session.personaKey || state.activeKey, false);
+  if (shouldMarkRead) window.aimashiSessionReadState.markPersonaRead(session.personaKey || state.activeKey, false, { clearManual: false });
   state.forceScrollToBottom = true;
   renderChat();
   renderSessionMenu();

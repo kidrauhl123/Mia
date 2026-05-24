@@ -71,7 +71,6 @@
   //                                                       conversation.unread
   //   toggleMuted?: (nextMutedState: boolean) => void,
   //   remove?: () => Promise<void>,
-  //   openPetMenu?: () => void,
   //   notSupported?: { rename?: string, remove?: string }
   // }
   function pushReadItem(items, conversation, actions) {
@@ -86,7 +85,7 @@
     if (!actions.toggleMuted) return;
     items.push({
       icon: "bellOff",
-      label: conversation.muted ? "取消免打扰" : "消息免打扰",
+      label: conversation.muted ? "取消免打扰" : "免打扰",
       key: "toggle-muted"
     });
   }
@@ -102,9 +101,6 @@
     }
     pushReadItem(items, conversation, actions);
     pushMutedItem(items, conversation, actions);
-    if (actions.openPetMenu) {
-      items.push({ icon: "addPic", label: "桌宠", key: "pet" });
-    }
     if (actions.remove || actions.notSupported?.remove) {
       items.push({ separator: true });
       items.push({ icon: "delete", label: "删除", key: "remove", danger: true });
@@ -118,7 +114,6 @@
       }
       if (key === "toggle-read") return actions.toggleRead?.(conversation.unread <= 0);
       if (key === "toggle-muted") return actions.toggleMuted?.(!conversation.muted);
-      if (key === "pet") return actions.openPetMenu?.();
       if (key === "remove") {
         if (actions.remove) return actions.remove();
         return alert(actions.notSupported?.remove || "暂未支持");

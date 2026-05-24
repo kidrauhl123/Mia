@@ -71,6 +71,7 @@
     FellowSave: "fellow:save",
     FellowEngineSave: "fellow:engine-save",
     FellowPin: "fellow:pin",
+    FellowMute: "fellow:mute",
     FellowDelete: "fellow:delete",
     PersonaSave: "persona:save",
     PetJobs: "pet:jobs",

@@ -6336,7 +6336,7 @@ function saveChatSession({ personaKey, session, replaceMessages = false }) {
   return saveChatStore(store);
 }
 
-function saveChatReadState({ readAt }) {
+function saveChatReadState({ readAt, manualUnread }) {
   initializeRuntime();
   const store = loadChatStore();
   if (readAt && typeof readAt === "object") {
@@ -6344,6 +6344,13 @@ function saveChatReadState({ readAt }) {
       Object.entries(readAt)
         .filter(([key, value]) => key && typeof value === "string" && value.trim())
         .map(([key, value]) => [String(key), value])
+    );
+  }
+  if (manualUnread && typeof manualUnread === "object") {
+    store.manualUnread = Object.fromEntries(
+      Object.entries(manualUnread)
+        .filter(([key, value]) => key && value === true)
+        .map(([key]) => [String(key), true])
     );
   }
   return saveChatStore(store);
@@ -6782,6 +6789,28 @@ function setFellowPinned(input = {}) {
   return getRuntimeStatus();
 }
 
+function setFellowMuted(input = {}) {
+  const key = String(input.key || input.fellowKey || "").trim();
+  if (!key) throw new Error("Fellow key is required.");
+  const manifest = loadFellowManifest();
+  const fellows = Array.isArray(manifest.fellows) ? manifest.fellows : [];
+  const index = fellows.findIndex((item) => item.key === key);
+  if (index < 0) throw new Error("Fellow not found.");
+  const muted = Boolean(input.muted);
+  fellows[index] = normalizeFellow({
+    ...fellows[index],
+    muted,
+    mutedAt: muted ? new Date().toISOString() : ""
+  });
+  manifest.fellows = fellows;
+  saveFellowManifest(manifest);
+  fs.writeFileSync(
+    path.join(runtimePaths().fellowDir, `${key}.fellow.json`),
+    JSON.stringify(fellowMetadata(fellows[index]), null, 2) + "\n"
+  );
+  return getRuntimeStatus();
+}
+
 function deleteFellow(input = {}) {
   initializeRuntime();
   const key = String(input.key || input.fellowKey || "").trim();
@@ -6804,6 +6833,7 @@ function deleteFellow(input = {}) {
   const chatStore = loadChatStore();
   delete chatStore.sessions[key];
   if (chatStore.readAt) delete chatStore.readAt[key];
+  if (chatStore.manualUnread) delete chatStore.manualUnread[key];
   saveChatStore(chatStore);
   const agentSessions = loadAgentSessionMap();
   for (const sessionKey of Object.keys(agentSessions)) {
@@ -6831,6 +6861,7 @@ ipcMain.handle(IpcChannel.FellowDetails, (_event, key) => getFellowDetails(key))
 ipcMain.handle(IpcChannel.FellowSave, (_event, fellow) => saveFellow(fellow));
 ipcMain.handle(IpcChannel.FellowEngineSave, (_event, payload) => saveFellowEngineConfig(payload));
 ipcMain.handle(IpcChannel.FellowPin, (_event, payload) => setFellowPinned(payload));
+ipcMain.handle(IpcChannel.FellowMute, (_event, payload) => setFellowMuted(payload));
 ipcMain.handle(IpcChannel.FellowDelete, (_event, payload) => deleteFellow(payload));
 ipcMain.handle(IpcChannel.ConductorLoadPrompts, () => {
   const dir = path.join(__dirname, "..", "resources", "conductor", "default-prompts");

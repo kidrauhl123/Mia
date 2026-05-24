@@ -84,6 +84,7 @@ contextBridge.exposeInMainWorld("aimashi", {
   saveFellow: (fellow) => ipcRenderer.invoke(IpcChannel.FellowSave, fellow),
   saveFellowEngine: (payload) => ipcRenderer.invoke(IpcChannel.FellowEngineSave, payload),
   setFellowPinned: (payload) => ipcRenderer.invoke(IpcChannel.FellowPin, payload),
+  setFellowMuted: (payload) => ipcRenderer.invoke(IpcChannel.FellowMute, payload),
   deleteFellow: (payload) => ipcRenderer.invoke(IpcChannel.FellowDelete, payload),
   savePersona: (persona) => ipcRenderer.invoke(IpcChannel.PersonaSave, persona),
   loadPetJobs: () => ipcRenderer.invoke(IpcChannel.PetJobs),

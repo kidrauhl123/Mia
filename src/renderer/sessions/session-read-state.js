@@ -35,6 +35,18 @@
     return state.chatStore.readAt;
   }
 
+  // Personas the user explicitly "标为未读". A manual override that surfaces a
+  // single-pip badge even when no assistant message is newer than the read
+  // mark; cleared by markPersonaRead. Persisted alongside readAt.
+  function ensureManualUnread() {
+    if (!state) return {};
+    ensureReadState();
+    if (!state.chatStore.manualUnread || typeof state.chatStore.manualUnread !== "object") {
+      state.chatStore.manualUnread = {};
+    }
+    return state.chatStore.manualUnread;
+  }
+
   function latestAssistantMessageTime(personaKey) {
     if (!state) return "";
     const sessions = state.chatStore.sessions?.[personaKey] || [];
@@ -68,17 +80,19 @@
       key: personaKey,
       sessions: state.chatStore.sessions?.[personaKey] || [],
     };
-    return unreadShared().computeUnreadForConversation(conversation, readState);
+    const computed = unreadShared().computeUnreadForConversation(conversation, readState);
+    if (computed > 0) return computed;
+    // No genuinely-unread messages, but the user may have "标为未读" → single pip.
+    return ensureManualUnread()[personaKey] ? 1 : 0;
   }
 
   function totalUnreadCount(personas) {
     if (!state) return 0;
-    const readState = { readAt: ensureReadState() };
-    const conversations = personas.map((persona) => ({
-      key: persona.key,
-      sessions: state.chatStore.sessions?.[persona.key] || [],
-    }));
-    return unreadShared().totalUnreadFromConversations(conversations, readState);
+    // Sum per-persona so the manual-unread override is reflected in the badge
+    // total exactly as it is per row.
+    let total = 0;
+    for (const persona of personas) total += unreadCountForPersona(persona.key);
+    return total;
   }
 
   async function persistReadStateQuietly() {
@@ -86,23 +100,42 @@
     try {
       if (window.aimashi?.saveChatReadState) {
         const readAt = { ...ensureReadState() };
-        await window.aimashi.saveChatReadState({ readAt });
+        const manualUnread = { ...ensureManualUnread() };
+        await window.aimashi.saveChatReadState({ readAt, manualUnread });
         state.chatStore.readAt = { ...state.chatStore.readAt, ...readAt };
+        state.chatStore.manualUnread = manualUnread;
       }
     } catch (error) {
       console.error("Failed to persist read state", error);
     }
   }
 
-  function markPersonaRead(personaKey, persist = true) {
+  // clearManual=false is used by the passive, render-time auto-read of the
+  // active persona: it should advance the read mark but NOT wipe an explicit
+  // "标为未读" override, otherwise marking the currently-open fellow unread is an
+  // instant no-op. Explicit reads (opening the chat, 标为已读) keep the default.
+  function markPersonaRead(personaKey, persist = true, { clearManual = true } = {}) {
     if (!state) return;
     if (!personaKey) return;
+    let changed = false;
+    if (clearManual) {
+      const manual = ensureManualUnread();
+      if (manual[personaKey]) { delete manual[personaKey]; changed = true; }
+    }
     const latest = latestAssistantMessageTime(personaKey);
-    if (!latest) return;
     const readAt = ensureReadState();
-    const next = latest;
-    if (String(next).localeCompare(readAt[personaKey] || "") <= 0) return;
-    readAt[personaKey] = next;
+    if (latest && String(latest).localeCompare(readAt[personaKey] || "") > 0) {
+      readAt[personaKey] = latest;
+      changed = true;
+    }
+    if (changed && persist) persistReadStateQuietly();
+  }
+
+  function markPersonaUnread(personaKey, persist = true) {
+    if (!state || !personaKey) return;
+    const manual = ensureManualUnread();
+    if (manual[personaKey]) return;
+    manual[personaKey] = true;
     if (persist) persistReadStateQuietly();
   }
 
@@ -115,5 +148,6 @@
     totalUnreadCount,
     persistReadStateQuietly,
     markPersonaRead,
+    markPersonaUnread,
   };
 })();
