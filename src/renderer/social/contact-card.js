@@ -76,6 +76,8 @@
     return runtime.cloud?.user || runtime.user || {};
   }
 
+  // Fellow card with live engineConfig selectors (model / effort / permission)
+  // that mirror the topbar composer-bottom controls in private chat.
   function renderFellowCard(args) {
     const { ref, roomId } = args;
     const local = localFellow(ref);
@@ -88,41 +90,126 @@
     const avatar = local
       ? { image: local.avatarImage, crop: local.avatarCrop, color: local.color }
       : { image: member?.fellow_avatar_image, crop: member?.fellow_avatar_crop, color: member?.fellow_color || "#5e5ce6" };
-    const engine = local?.agentEngine || local?.agent_engine || (local ? "hermes" : "");
-    const model = local?.model?.model || local?.model || "";
-    const effort = local?.effort || local?.effortLevel || "";
-    const permission = local?.permissionMode || local?.permission || "";
 
     const card = document.createElement("div");
     card.className = "contact-card";
     card.setAttribute("role", "dialog");
+
+    if (!local) {
+      card.innerHTML = `
+        <div class="contact-card-head">
+          <span class="avatar contact-card-avatar" style="${avatarStyleFor(avatar)}"></span>
+          <div class="contact-card-head-text">
+            <strong class="contact-card-name">${escapeHtml(name)}</strong>
+            <span class="contact-card-kind">AI · 远端</span>
+          </div>
+        </div>
+        <p class="contact-card-empty">这位 AI 不在你的本地 fellow 列表里，只能看到名字。</p>
+        <div class="contact-card-actions">
+          <button type="button" data-card-action="close" class="button-primary">关闭</button>
+        </div>
+      `;
+      card.addEventListener("click", (event) => {
+        if (event.target.closest("[data-card-action]")) closeCard();
+      });
+      return card;
+    }
+
+    const engineOptions = global.aimashiEngineOptions;
+    const engine = engineOptions?.activeAgentEngine
+      ? (local.agentEngine || local.agent_engine || "hermes")
+      : (local.agentEngine || "hermes");
+    const config = local.engineConfig || local.engine_config || {};
+    const modelEntries = engineOptions?.externalModelEntries?.(engine) || [];
+    const effortEntries = engineOptions?.effortOptions?.(engine) || [];
+    const permissionEntries = engineOptions?.externalPermissionOptions?.(engine) || [];
+
+    const isExternal = engine === "claude-code" || engine === "codex";
+    const modelDefaultEntry = modelEntries.find((m) => m.id === "default");
+    const currentModelId = (() => {
+      if (!isExternal) return "";
+      const cur = config.model || "";
+      if (!cur) return modelDefaultEntry?.id || "default";
+      const match = modelEntries.find((m) => m.model === cur || m.id === cur);
+      return match?.id || cur;
+    })();
+    const currentEffort = config.effortLevel || (effortEntries.find((e) => e.value === "medium")?.value || effortEntries[0]?.value || "");
+    const currentPermission = config.permissionMode || (permissionEntries.find((p) => p.value === "default")?.value || permissionEntries[0]?.value || "");
+
+    function optionList(entries, valueKey, labelKey, selectedValue) {
+      return entries.map((e) => {
+        const value = e[valueKey];
+        const sel = value === selectedValue ? " selected" : "";
+        return `<option value="${escapeHtml(value)}"${sel}>${escapeHtml(e[labelKey])}</option>`;
+      }).join("");
+    }
+
     card.innerHTML = `
       <div class="contact-card-head">
         <span class="avatar contact-card-avatar" style="${avatarStyleFor(avatar)}"></span>
         <div class="contact-card-head-text">
           <strong class="contact-card-name">${escapeHtml(name)}</strong>
-          <span class="contact-card-kind">AI · ${escapeHtml(engine || "agent")}</span>
+          <span class="contact-card-kind">AI · ${escapeHtml(engine)}</span>
         </div>
       </div>
-      ${local ? `
-        <dl class="contact-card-fields">
-          <div><dt>模型</dt><dd>${escapeHtml(model || "默认")}</dd></div>
-          <div><dt>思考强度</dt><dd>${escapeHtml(effort || "默认")}</dd></div>
-          <div><dt>权限模式</dt><dd>${escapeHtml(permission || "默认")}</dd></div>
-        </dl>
-      ` : `
-        <p class="contact-card-empty">这位 AI 不在你的本地 fellow 列表里，只能看到名字。</p>
-      `}
+      <dl class="contact-card-fields contact-card-fields-editable">
+        <div>
+          <dt>模型</dt>
+          <dd>${isExternal && modelEntries.length
+            ? `<select data-fellow-field="model">${optionList(modelEntries, "id", "label", currentModelId)}</select>`
+            : `<span class="contact-card-muted">由全局模型决定</span>`}</dd>
+        </div>
+        <div>
+          <dt>思考强度</dt>
+          <dd>${effortEntries.length
+            ? `<select data-fellow-field="effortLevel">${optionList(effortEntries, "value", "label", currentEffort)}</select>`
+            : `<span class="contact-card-muted">不适用</span>`}</dd>
+        </div>
+        <div>
+          <dt>权限模式</dt>
+          <dd>${permissionEntries.length
+            ? `<select data-fellow-field="permissionMode">${optionList(permissionEntries, "value", "label", currentPermission)}</select>`
+            : `<span class="contact-card-muted">不适用</span>`}</dd>
+        </div>
+      </dl>
       <div class="contact-card-actions">
-        ${isMine ? `<button type="button" data-card-action="edit-fellow" class="button-soft">编辑详情</button>` : ""}
+        ${isMine ? `<button type="button" data-card-action="edit-fellow" class="button-soft">编辑人设</button>` : ""}
         <button type="button" data-card-action="close" class="button-primary">关闭</button>
       </div>
     `;
+
+    async function persistField(field, value) {
+      try {
+        const update = {};
+        if (field === "model") {
+          // The select option value is the model entry id; we need the actual
+          // `.model` string (which is "" for the "default" entry — encoded as
+          // a missing field in storage).
+          const entry = modelEntries.find((m) => m.id === value);
+          update.model = entry?.model || "";
+        } else {
+          update[field] = value;
+        }
+        await global.aimashi.saveFellowEngine({
+          key: local.key,
+          agentEngine: engine,
+          engineConfig: update,
+        });
+      } catch (err) {
+        alert("保存失败：" + (err?.message || err));
+      }
+    }
+
+    card.addEventListener("change", (event) => {
+      const sel = event.target.closest("[data-fellow-field]");
+      if (!sel) return;
+      persistField(sel.dataset.fellowField, sel.value);
+    });
     card.addEventListener("click", (event) => {
       const btn = event.target.closest("[data-card-action]");
       if (!btn) return;
       event.stopPropagation();
-      if (btn.dataset.cardAction === "edit-fellow" && local) {
+      if (btn.dataset.cardAction === "edit-fellow") {
         closeCard();
         global.aimashiFellowDialog?.openFellowDialog?.(local, local.personaText || "");
       } else {
