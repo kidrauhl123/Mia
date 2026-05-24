@@ -88,9 +88,10 @@ test("PUT then GET /api/me/fellows roundtrips identity fields", async () => {
 
     const list = await api(ctx.port, "GET", "/api/me/fellows", { token: A.token });
     assert.equal(list.status, 200);
-    assert.equal(list.body.fellows.length, 1);
-    assert.equal(list.body.fellows[0].name, "Codex");
-    assert.deepEqual(list.body.fellows[0].avatarCrop, { x: 10, y: 20, w: 100, h: 100 });
+    const codex = list.body.fellows.find((fellow) => fellow.id === "codex");
+    assert.ok(codex);
+    assert.equal(codex.name, "Codex");
+    assert.deepEqual(codex.avatarCrop, { x: 10, y: 20, w: 100, h: 100 });
   } finally { await stopServer(ctx); }
 });
 
@@ -122,7 +123,7 @@ test("DELETE /api/me/fellows/:id removes the row and fires fellow.deleted", asyn
     const del = await api(ctx.port, "DELETE", "/api/me/fellows/x", { token: A.token });
     assert.equal(del.status, 200);
     const list = await api(ctx.port, "GET", "/api/me/fellows", { token: A.token });
-    assert.equal(list.body.fellows.length, 0);
+    assert.equal(list.body.fellows.some((fellow) => fellow.id === "x"), false);
 
     await new Promise((r) => setTimeout(r, 100));
     const { createCloudStore } = require("../src/cloud/sqlite-store");

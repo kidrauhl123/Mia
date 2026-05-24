@@ -388,8 +388,8 @@ test("GET /api/rooms lists current user's rooms", async () => {
     await friendUp(ctx.port, alice, bob);
     const list = await api(ctx.port, "GET", "/api/rooms", { token: alice.token });
     assert.equal(list.status, 200);
-    assert.equal(list.body.rooms.length, 1);
-    assert.ok(list.body.rooms[0].id.startsWith("dm:"));
+    const dmRooms = list.body.rooms.filter((room) => room.id.startsWith("dm:"));
+    assert.equal(dmRooms.length, 1);
   } finally { await stopServer(ctx); }
 });
 
@@ -520,8 +520,9 @@ test("end-to-end: two users meet, friend up, exchange DM messages with seq", asy
     assert.equal(aFriends.body.friends.length, 1);
 
     const aRooms = await api(ctx.port, "GET", "/api/rooms", { token: alice.token });
-    assert.equal(aRooms.body.rooms.length, 1);
-    assert.equal(aRooms.body.rooms[0].id, roomId);
+    const dmRooms = aRooms.body.rooms.filter((room) => room.id.startsWith("dm:"));
+    assert.equal(dmRooms.length, 1);
+    assert.equal(dmRooms[0].id, roomId);
 
     const m1 = await api(ctx.port, "POST", "/api/rooms/" + roomId + "/messages", { token: alice.token, body: { bodyMd: "hi bob" } });
     const m2 = await api(ctx.port, "POST", "/api/rooms/" + roomId + "/messages", { token: bob.token, body: { bodyMd: "hey alice" } });

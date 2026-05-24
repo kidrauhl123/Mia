@@ -96,9 +96,9 @@ test("fellow rooms show up in GET /api/rooms alongside DMs and groups", async ()
     await api(ctx.port, "PUT", "/api/me/fellow-rooms/sess2", { token: A.token, body: { fellowKey: "aimashi", title: "Aimashi chat" } });
     const list = await api(ctx.port, "GET", "/api/rooms", { token: A.token });
     const fellowRooms = (list.body.rooms || []).filter((r) => r.type === "fellow");
-    assert.equal(fellowRooms.length, 2);
+    assert.equal(fellowRooms.length, 3);
     const names = fellowRooms.map((r) => r.name).sort();
-    assert.deepEqual(names, ["Aimashi chat", "Codex chat"]);
+    assert.deepEqual(names, ["Aimashi", "Aimashi chat", "Codex chat"]);
   } finally { await stopServer(ctx); }
 });
 

@@ -41,6 +41,42 @@ try {
 } catch {
   ({ createUserSettingsStore } = require("./src/cloud/user-settings-store.js"));
 }
+let createRuntimeBindingsStore = null;
+try {
+  ({ createRuntimeBindingsStore } = require("../src/cloud-agent/runtime-bindings-store.js"));
+} catch {
+  ({ createRuntimeBindingsStore } = require("./src/cloud-agent/runtime-bindings-store.js"));
+}
+let createCloudAgentRunsStore = null;
+try {
+  ({ createCloudAgentRunsStore } = require("../src/cloud-agent/cloud-agent-runs-store.js"));
+} catch {
+  ({ createCloudAgentRunsStore } = require("./src/cloud-agent/cloud-agent-runs-store.js"));
+}
+let ensureDefaultCloudFellow = null;
+try {
+  ({ ensureDefaultCloudFellow } = require("../src/cloud-agent/default-fellow.js"));
+} catch {
+  ({ ensureDefaultCloudFellow } = require("./src/cloud-agent/default-fellow.js"));
+}
+let createHermesWorkerManager = null;
+try {
+  ({ createHermesWorkerManager } = require("../src/cloud-agent/hermes-worker-manager.js"));
+} catch {
+  ({ createHermesWorkerManager } = require("./src/cloud-agent/hermes-worker-manager.js"));
+}
+let createHermesRunsClient = null;
+try {
+  ({ createHermesRunsClient } = require("../src/cloud-agent/hermes-runs-client.js"));
+} catch {
+  ({ createHermesRunsClient } = require("./src/cloud-agent/hermes-runs-client.js"));
+}
+let createCloudAgentDispatcher = null;
+try {
+  ({ createCloudAgentDispatcher } = require("../src/cloud-agent/dispatcher.js"));
+} catch {
+  ({ createCloudAgentDispatcher } = require("./src/cloud-agent/dispatcher.js"));
+}
 let dmRoomId = null;
 let ensureDmRoom = null;
 try {
@@ -759,6 +795,11 @@ function serveAuthorizedFile(req, res, cloudStore, auth, pathname) {
   return true;
 }
 
+function ensureCloudAgentBootstrap(context, userId) {
+  if (!context?.fellowsStore || !context?.runtimeBindingsStore || !context?.socialStore) return null;
+  return ensureDefaultCloudFellow(context, userId);
+}
+
 async function handleRequest(req, res, context) {
   const cloudStore = context.cloudStore;
   const bridgeHub = context.bridgeHub;
@@ -790,11 +831,14 @@ async function handleRequest(req, res, context) {
   try {
     if (req.method === "POST" && url.pathname === "/api/auth/register") {
       const account = cloudStore.registerUser(await readJson(req));
+      ensureCloudAgentBootstrap(context, account.user.id);
       return writeJson(res, 201, account);
     }
 
     if (req.method === "POST" && url.pathname === "/api/auth/login") {
-      return writeJson(res, 200, cloudStore.loginUser({ ...(await readJson(req)), ip: clientIp(req) }));
+      const account = cloudStore.loginUser({ ...(await readJson(req)), ip: clientIp(req) });
+      ensureCloudAgentBootstrap(context, account.user.id);
+      return writeJson(res, 200, account);
     }
 
     const auth = cloudStore.authenticateToken(tokenFromRequest(req));
@@ -909,6 +953,7 @@ async function handleRequest(req, res, context) {
     }
 
     if (req.method === "GET" && url.pathname === "/api/rooms") {
+      ensureCloudAgentBootstrap(context, auth.user.id);
       const rooms = context.socialStore.listRoomsForUser(auth.user.id);
       return writeJson(res, 200, { rooms });
     }
@@ -1208,6 +1253,15 @@ async function handleRequest(req, res, context) {
           recentMessages,
         });
       }
+      if (context.cloudAgentDispatcher) {
+        context.cloudAgentDispatcher.handleUserMessage({
+          userId: auth.user.id,
+          roomId,
+          message
+        }).catch((error) => {
+          console.warn("[cloud-agent] dispatch failed:", error?.message || error);
+        });
+      }
       const payload = { message };
       rememberOp(context, auth.user.id, body, 201, payload);
       return writeJson(res, 201, payload);
@@ -1219,6 +1273,7 @@ async function handleRequest(req, res, context) {
     }
 
     if (req.method === "GET" && url.pathname === "/api/me") {
+      ensureCloudAgentBootstrap(context, auth.user.id);
       return writeJson(res, 200, { user: auth.user });
     }
 
@@ -1530,12 +1585,17 @@ function createAimashiCloudServer(options = {}) {
     webRoot: options.webRoot || defaultWebRoot(),
     releaseManifest: options.releaseManifest === undefined ? defaultReleaseManifest() : options.releaseManifest,
     socialStore: null,
-    messagesStore: null
+    messagesStore: null,
+    runtimeBindingsStore: null,
+    cloudAgentRunsStore: null,
+    cloudAgentDispatcher: null
   };
   context.socialStore = createSocialStore(context.cloudStore.getDb());
   context.messagesStore = createMessagesStore(context.cloudStore.getDb());
   context.eventLog = createEventLogStore(context.cloudStore.getDb());
   context.fellowsStore = createFellowsStore(context.cloudStore.getDb());
+  context.runtimeBindingsStore = createRuntimeBindingsStore(context.cloudStore.getDb());
+  context.cloudAgentRunsStore = createCloudAgentRunsStore(context.cloudStore.getDb());
   // Inject fellowsStore so listRoomMembers can enrich fellow members
   // with name/avatar from the owner's fellow definitions in one shot.
   context.socialStore._attachFellowsStore?.(context.fellowsStore);
@@ -1550,6 +1610,23 @@ function createAimashiCloudServer(options = {}) {
   }, 60 * 60 * 1000);
   if (context.eventLogPurgeTimer.unref) context.eventLogPurgeTimer.unref();
   context.userSettingsStore = createUserSettingsStore(context.cloudStore.getDb());
+  const workerManager = options.cloudAgentWorkerManager || createHermesWorkerManager({
+    rootDir: options.cloudAgentRootDir,
+    mode: options.cloudAgentMode,
+    staticBaseUrl: options.cloudAgentHermesBaseUrl,
+    apiKey: options.cloudAgentHermesApiKey
+  });
+  const hermesRunsClient = options.cloudAgentHermesClient || createHermesRunsClient();
+  context.cloudAgentDispatcher = createCloudAgentDispatcher({
+    socialStore: context.socialStore,
+    messagesStore: context.messagesStore,
+    fellowsStore: context.fellowsStore,
+    runtimeBindingsStore: context.runtimeBindingsStore,
+    cloudAgentRunsStore: context.cloudAgentRunsStore,
+    workerManager,
+    hermesRunsClient,
+    broadcastPersistedEvent: (userId, payload) => broadcastPersistedEvent(context, userId, payload)
+  });
   const server = http.createServer((req, res) => handleRequest(req, res, context));
   const wss = new WebSocketServer({ noServer: true });
   server.on("upgrade", (req, socket, head) => handleBridgeUpgrade(req, socket, head, context, wss));

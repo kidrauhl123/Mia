@@ -761,6 +761,34 @@ function migrate(db) {
       version          INTEGER NOT NULL DEFAULT 0,
       updated_at       TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS fellow_runtime_bindings (
+      user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      fellow_id    TEXT NOT NULL,
+      runtime_kind TEXT NOT NULL,
+      enabled      INTEGER NOT NULL DEFAULT 1,
+      config_json  TEXT NOT NULL DEFAULT '{}',
+      created_at   TEXT NOT NULL,
+      updated_at   TEXT NOT NULL,
+      PRIMARY KEY (user_id, fellow_id, runtime_kind)
+    );
+    CREATE INDEX IF NOT EXISTS idx_fellow_runtime_bindings_user
+      ON fellow_runtime_bindings(user_id, enabled);
+
+    CREATE TABLE IF NOT EXISTS cloud_agent_runs (
+      id                 TEXT PRIMARY KEY,
+      user_id            TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      fellow_id          TEXT NOT NULL,
+      room_id            TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+      trigger_message_id TEXT NOT NULL,
+      hermes_run_id      TEXT NOT NULL DEFAULT '',
+      status             TEXT NOT NULL,
+      error_json         TEXT NOT NULL DEFAULT '',
+      created_at         TEXT NOT NULL,
+      updated_at         TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_cloud_agent_runs_room
+      ON cloud_agent_runs(room_id, created_at);
   `);
   if (!hasColumn(db, "bridge_runs", "request_attachments_json")) {
     db.exec("ALTER TABLE bridge_runs ADD COLUMN request_attachments_json TEXT NOT NULL DEFAULT '[]'");
@@ -808,6 +836,8 @@ function migrate(db) {
   db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (6, ?)")
     .run(nowIso());
   db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (7, ?)")
+    .run(nowIso());
+  db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (8, ?)")
     .run(nowIso());
 }
 

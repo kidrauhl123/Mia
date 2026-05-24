@@ -76,7 +76,8 @@ test("POST /api/rooms is idempotent on clientOpId", async () => {
 
     // Belt and suspenders: server-side count of rooms for this user is 1
     const list = await api(ctx.port, "GET", "/api/rooms", { token: A.token });
-    assert.equal(list.body.rooms.length, 1, "only ONE room created across two POSTs with same clientOpId");
+    const groupRooms = list.body.rooms.filter((room) => room.type === "group");
+    assert.equal(groupRooms.length, 1, "only ONE group room created across two POSTs with same clientOpId");
   } finally { await stopServer(ctx); }
 });
 
@@ -122,6 +123,7 @@ test("Different clientOpIds → different writes (sanity check on cache scoping)
     const r2 = await api(ctx.port, "POST", "/api/rooms", { token: A.token, body: { name: "b", memberFellows: [{ fellowId: "f1" }], memberFriendUserIds: [], clientOpId: "op_B" } });
     assert.notEqual(r1.body.room.id, r2.body.room.id);
     const list = await api(ctx.port, "GET", "/api/rooms", { token: A.token });
-    assert.equal(list.body.rooms.length, 2);
+    const groupRooms = list.body.rooms.filter((room) => room.type === "group");
+    assert.equal(groupRooms.length, 2);
   } finally { await stopServer(ctx); }
 });
