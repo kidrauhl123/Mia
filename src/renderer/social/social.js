@@ -133,6 +133,79 @@
 
   function initSocialModule(d) {
     deps = d;
+    // Local-first: hydrate the sidebar from the last persisted snapshot so
+    // the conversation list paints instantly on cold start (TG / WeChat
+    // behavior). bootstrapAfterLogin then refreshes from cloud in place.
+    _hydrateSnapshot();
+  }
+
+  // ── local snapshot (cold-start cache) ──────────────────────────────────────
+  // The conversation list + last-message previews + group member tiles +
+  // unread counts are persisted to localStorage after every cloud sync so
+  // the next launch renders the full list with zero network wait. Cloud
+  // remains the source of truth; the snapshot is a render cache that the
+  // background bootstrap overwrites.
+
+  const _SNAPSHOT_KEY = "aimashi.social.snapshot.v1";
+  let _snapshotTimer = 0;
+
+  function _persistSnapshot() {
+    try {
+      if (typeof localStorage === "undefined" || !moduleState.myUserId) return;
+      const previews = {};
+      for (const [roomId, entry] of moduleState.messageCache) {
+        const last = entry?.messages?.[entry.messages.length - 1];
+        if (last) {
+          previews[roomId] = {
+            id: last.id, body_md: last.body_md, created_at: last.created_at,
+            seq: last.seq, sender_kind: last.sender_kind, sender_ref: last.sender_ref
+          };
+        }
+      }
+      const members = {};
+      for (const [roomId, list] of _roomMembersCache) members[roomId] = list;
+      const snapshot = {
+        userId: moduleState.myUserId,
+        rooms: moduleState.rooms,
+        friends: moduleState.friends,
+        previews,
+        members,
+        unread: Object.fromEntries(moduleState.unreadByRoom),
+        ts: Date.now()
+      };
+      localStorage.setItem(_SNAPSHOT_KEY, JSON.stringify(snapshot));
+    } catch { /* quota / unavailable — cache is best-effort */ }
+  }
+
+  function _schedulePersistSnapshot() {
+    if (_snapshotTimer) return;
+    _snapshotTimer = setTimeout(() => { _snapshotTimer = 0; _persistSnapshot(); }, 400);
+  }
+
+  function _hydrateSnapshot() {
+    try {
+      if (typeof localStorage === "undefined") return false;
+      const raw = localStorage.getItem(_SNAPSHOT_KEY);
+      if (!raw) return false;
+      const snap = JSON.parse(raw);
+      if (!snap || !Array.isArray(snap.rooms)) return false;
+      moduleState.rooms = snap.rooms;
+      moduleState.friends = Array.isArray(snap.friends) ? snap.friends : [];
+      moduleState.myUserId = snap.userId || "";
+      for (const [roomId, last] of Object.entries(snap.previews || {})) {
+        moduleState.messageCache.set(roomId, { messages: [last], maxSeq: last.seq || 0 });
+      }
+      for (const [roomId, list] of Object.entries(snap.members || {})) {
+        if (Array.isArray(list)) _roomMembersCache.set(roomId, list);
+      }
+      for (const [roomId, n] of Object.entries(snap.unread || {})) {
+        if (n > 0) moduleState.unreadByRoom.set(roomId, n);
+      }
+      // We have a renderable list right now — open the sidebar gate so the
+      // first render paints from cache instead of waiting on the network.
+      moduleState.bootstrapped = true;
+      return true;
+    } catch { return false; }
   }
 
   // ── bootstrapAfterLogin ───────────────────────────────────────────────────
@@ -152,8 +225,16 @@
         api.listFriendRequests("outgoing"),
       ]);
       if (meRes.ok) {
+        const freshUserId = meRes.data.id || "";
+        // Account switch since the cached snapshot was written → drop the
+        // stale render cache so we don't briefly show another user's rooms.
+        if (moduleState.myUserId && freshUserId && moduleState.myUserId !== freshUserId) {
+          moduleState.messageCache.clear();
+          _roomMembersCache.clear();
+          moduleState.unreadByRoom.clear();
+        }
         moduleState.myUsername = meRes.data.username || "";
-        moduleState.myUserId = meRes.data.id || "";
+        moduleState.myUserId = freshUserId;
       }
       if (friendsRes.ok) moduleState.friends = friendsRes.data?.friends || [];
       if (roomsRes.ok) moduleState.rooms = roomsRes.data?.rooms || [];
@@ -201,6 +282,7 @@
     // the sidebar shows both data sources in one paint instead of
     // "personas now, rooms later" (the visible "割裂" the user reported).
     moduleState.bootstrapped = true;
+    _persistSnapshot();
     if (deps && typeof deps.render === "function") deps.render();
   }
 
@@ -315,6 +397,7 @@
       if (roomId === moduleState.activeRoomId) {
         _appendMessageToActiveChat(message);
       }
+      _schedulePersistSnapshot();
       if (deps && typeof deps.render === "function") deps.render();
 
       // Conductor: non-@ user messages in a conductor-mode group route
@@ -338,6 +421,7 @@
       }
       // H2: Invalidate member cache so next mention parse refetches newly-added fellows
       _roomMembersCache.delete(room.id);
+      _schedulePersistSnapshot();
       if (deps && typeof deps.render === "function") deps.render();
       return;
     }
@@ -349,6 +433,7 @@
       const { room } = payload || {};
       if (!room || !room.id) return;
       moduleState.rooms = moduleState.rooms.map((r) => (r.id === room.id ? { ...r, ...room } : r));
+      _schedulePersistSnapshot();
       if (deps && typeof deps.render === "function") deps.render();
       return;
     }
@@ -367,6 +452,7 @@
       // cleanup is needed here. Leftover pin entries (orphaned by a
       // room delete the server didn't broadcast for some reason) age
       // out at the next settings PUT or are tolerated harmlessly.
+      _schedulePersistSnapshot();
       if (deps && typeof deps.render === "function") deps.render();
       return;
     }
