@@ -652,15 +652,36 @@
   font-size: 11px;
   color: var(--muted);
 }
-/* Composer controls reused inline — no outer ring. The .model-switcher /
- * .effort-switcher / .permission-switcher classes inherit their look from
- * styles.css (same as the topbar private-chat strip). */
+/* Three rows: 标题 / 控件. The control side reuses .model-switcher /
+ * .effort-switcher / .permission-switcher from styles.css so dropdown look
+ * + logo + hover state stay in lockstep with the private-chat topbar
+ * strip. No outer ring. */
 .contact-card-controls {
-  display: flex;
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+}
+.contact-card-row {
+  display: grid;
+  grid-template-columns: 64px 1fr;
   align-items: center;
-  flex-wrap: wrap;
-  row-gap: 4px;
-  padding: 4px 0;
+  gap: 8px;
+}
+.contact-card-row dt {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.contact-card-row dd {
+  margin: 0;
+  min-width: 0;
+}
+.contact-card-row dd .model-switcher,
+.contact-card-row dd .effort-switcher,
+.contact-card-row dd .permission-switcher {
+  margin-left: -8px; /* offset the switcher's own 8px inner padding so the
+                        label aligns visually with the row's content column */
 }
 .contact-card-empty {
   margin: 0;

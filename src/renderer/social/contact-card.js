@@ -101,7 +101,7 @@
           <span class="avatar contact-card-avatar" style="${avatarStyleFor(avatar)}"></span>
           <div class="contact-card-head-text">
             <strong class="contact-card-name">${escapeHtml(name)}</strong>
-            <span class="contact-card-kind">AI · 远端</span>
+            <span class="contact-card-kind">远端</span>
           </div>
         </div>
         <p class="contact-card-empty">这位 AI 不在你的本地 fellow 列表里，只能看到名字。</p>
@@ -183,32 +183,45 @@
         <span class="avatar contact-card-avatar" style="${avatarStyleFor(avatar)}"></span>
         <div class="contact-card-head-text">
           <strong class="contact-card-name">${escapeHtml(name)}</strong>
-          <span class="contact-card-kind">AI · ${escapeHtml(engine)}</span>
+          <span class="contact-card-kind">${escapeHtml(engine)}</span>
         </div>
       </div>
-      <div class="contact-card-controls composer-controls">
-        <label class="model-switcher" title="切换模型">
-          <span class="model-avatar" style="${modelLogoStyle}" aria-hidden="true">${modelLogoSrc ? "" : "◇"}</span>
-          <span class="model-current-label">${escapeHtml(currentModelLabel)}</span>
-          ${modelEntries.length
-            ? `<select data-fellow-field="model" aria-label="切换模型">${options(modelEntries, "id", "label", currentModelEntry?.id)}</select>`
-            : ""}
-        </label>
-        <span class="composer-dot" aria-hidden="true">·</span>
-        <label class="effort-switcher" title="切换推理强度">
-          <span class="effort-label">${escapeHtml(currentEffortLabel)}</span>
-          ${effortEntries.length
-            ? `<select data-fellow-field="effortLevel" aria-label="切换推理强度">${options(effortEntries, "value", "label", currentEffort)}</select>`
-            : ""}
-        </label>
-        <span class="composer-dot" aria-hidden="true">·</span>
-        <label class="permission-switcher" title="权限模式">
-          <span class="permission-label">${escapeHtml(currentPermissionLabel)}</span>
-          ${permissionEntries.length
-            ? `<select data-fellow-field="permissionMode" aria-label="权限模式">${options(permissionEntries, "value", "label", currentPermission)}</select>`
-            : ""}
-        </label>
-      </div>
+      <dl class="contact-card-controls">
+        <div class="contact-card-row">
+          <dt>模型</dt>
+          <dd>
+            <label class="model-switcher" title="切换模型">
+              <span class="model-avatar" style="${modelLogoStyle}" aria-hidden="true">${modelLogoSrc ? "" : "◇"}</span>
+              <span class="model-current-label">${escapeHtml(currentModelLabel)}</span>
+              ${modelEntries.length
+                ? `<select data-fellow-field="model" aria-label="切换模型">${options(modelEntries, "id", "label", currentModelEntry?.id)}</select>`
+                : ""}
+            </label>
+          </dd>
+        </div>
+        <div class="contact-card-row">
+          <dt>推理强度</dt>
+          <dd>
+            <label class="effort-switcher" title="切换推理强度">
+              <span class="effort-label">${escapeHtml(currentEffortLabel)}</span>
+              ${effortEntries.length
+                ? `<select data-fellow-field="effortLevel" aria-label="切换推理强度">${options(effortEntries, "value", "label", currentEffort)}</select>`
+                : ""}
+            </label>
+          </dd>
+        </div>
+        <div class="contact-card-row">
+          <dt>权限</dt>
+          <dd>
+            <label class="permission-switcher" title="权限模式">
+              <span class="permission-label">${escapeHtml(currentPermissionLabel)}</span>
+              ${permissionEntries.length
+                ? `<select data-fellow-field="permissionMode" aria-label="权限模式">${options(permissionEntries, "value", "label", currentPermission)}</select>`
+                : ""}
+            </label>
+          </dd>
+        </div>
+      </dl>
       <div class="contact-card-actions">
         ${isMine ? `<button type="button" data-card-action="edit-fellow" class="button-soft">编辑人设</button>` : ""}
         <button type="button" data-card-action="close" class="button-primary">关闭</button>
