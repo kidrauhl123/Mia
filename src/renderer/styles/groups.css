@@ -652,51 +652,15 @@
   font-size: 11px;
   color: var(--muted);
 }
-.contact-card-fields {
-  display: grid;
-  gap: 6px;
-  margin: 0;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface-soft);
-  font-size: 12px;
-}
-.contact-card-fields > div {
-  display: grid;
-  grid-template-columns: 80px 1fr;
-  gap: 8px;
-}
-.contact-card-fields dt {
-  margin: 0;
-  color: var(--muted);
-}
-.contact-card-fields dd {
-  margin: 0;
-  color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.contact-card-fields-editable dd select {
-  width: 100%;
-  min-height: 28px;
-  padding: 4px 8px;
-  border-radius: 6px;
-  border: 1px solid var(--line);
-  background: var(--surface);
-  color: var(--text);
-  font: inherit;
-  font-size: 12px;
-}
-.contact-card-fields-editable dd select:focus {
-  outline: none;
-  border-color: rgb(var(--accent-rgb) / 0.42);
-  box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.12);
-}
-.contact-card-muted {
-  color: var(--muted);
-  font-style: italic;
+/* Composer controls reused inline — no outer ring. The .model-switcher /
+ * .effort-switcher / .permission-switcher classes inherit their look from
+ * styles.css (same as the topbar private-chat strip). */
+.contact-card-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  row-gap: 4px;
+  padding: 4px 0;
 }
 .contact-card-empty {
   margin: 0;

@@ -116,33 +116,67 @@
     }
 
     const engineOptions = global.aimashiEngineOptions;
-    const engine = engineOptions?.activeAgentEngine
-      ? (local.agentEngine || local.agent_engine || "hermes")
-      : (local.agentEngine || "hermes");
+    const modelHelpers = global.aimashiModelHelpers;
+    const modelSettings = global.aimashiModelSettings;
+    const runtime = _ctx?.deps?.getState?.()?.runtime || {};
+    const engine = local.agentEngine || local.agent_engine || "hermes";
     const config = local.engineConfig || local.engine_config || {};
-    const modelEntries = engineOptions?.externalModelEntries?.(engine) || [];
+    const isExternal = engine === "claude-code" || engine === "codex";
+
+    // Reuse the same entry sources the topbar composer-bottom uses so the
+    // dropdown contents (and labels / logos) match private chat exactly.
+    const modelEntries = isExternal
+      ? (engineOptions?.externalModelEntries?.(engine) || [])
+      : (modelSettings?.connectedModelEntries?.(runtime) || []);
     const effortEntries = engineOptions?.effortOptions?.(engine) || [];
     const permissionEntries = engineOptions?.externalPermissionOptions?.(engine) || [];
 
-    const isExternal = engine === "claude-code" || engine === "codex";
-    const modelDefaultEntry = modelEntries.find((m) => m.id === "default");
-    const currentModelId = (() => {
-      if (!isExternal) return "";
-      const cur = config.model || "";
-      if (!cur) return modelDefaultEntry?.id || "default";
-      const match = modelEntries.find((m) => m.model === cur || m.id === cur);
-      return match?.id || cur;
+    // Current selections.
+    const currentModelEntry = (() => {
+      if (isExternal) {
+        const cur = config.model || "";
+        if (!cur) return modelEntries.find((m) => m.id === "default") || modelEntries[0] || null;
+        return modelEntries.find((m) => m.model === cur || m.id === cur) || null;
+      }
+      const currentId = modelHelpers?.catalogEntryForModel?.(runtime?.model || {})?.id
+        || modelHelpers?.modelKey?.(runtime?.model || {})
+        || "";
+      return modelEntries.find((m) => m.id === currentId) || modelEntries[0] || null;
     })();
-    const currentEffort = config.effortLevel || (effortEntries.find((e) => e.value === "medium")?.value || effortEntries[0]?.value || "");
-    const currentPermission = config.permissionMode || (permissionEntries.find((p) => p.value === "default")?.value || permissionEntries[0]?.value || "");
+    const currentModelLabel = currentModelEntry?.label || (isExternal ? "默认" : (modelHelpers?.modelDisplayName?.(runtime?.model || {}) || "未配置"));
+    const modelLogoSrc = (() => {
+      if (isExternal) {
+        return modelHelpers?.modelIconSrc?.({
+          provider: engine === "claude-code" ? "anthropic" : "openai-codex",
+          model: currentModelEntry?.model || ""
+        }) || "";
+      }
+      return modelHelpers?.modelIconSrc?.(runtime?.model || {}) || "";
+    })();
 
-    function optionList(entries, valueKey, labelKey, selectedValue) {
+    const currentEffort = config.effortLevel
+      || effortEntries.find((e) => e.value === "medium")?.value
+      || effortEntries[0]?.value
+      || "";
+    const currentEffortLabel = effortEntries.find((e) => e.value === currentEffort)?.label || "Medium";
+
+    const currentPermission = config.permissionMode
+      || permissionEntries.find((p) => p.value === "default")?.value
+      || permissionEntries[0]?.value
+      || "";
+    const currentPermissionLabel = permissionEntries.find((p) => p.value === currentPermission)?.label || "Ask";
+
+    function options(entries, valueKey, labelKey, selectedValue) {
       return entries.map((e) => {
         const value = e[valueKey];
         const sel = value === selectedValue ? " selected" : "";
         return `<option value="${escapeHtml(value)}"${sel}>${escapeHtml(e[labelKey])}</option>`;
       }).join("");
     }
+
+    const modelLogoStyle = modelLogoSrc
+      ? `background-image:url('${escapeHtml(modelLogoSrc)}');background-color:transparent;`
+      : "";
 
     card.innerHTML = `
       <div class="contact-card-head">
@@ -152,26 +186,29 @@
           <span class="contact-card-kind">AI · ${escapeHtml(engine)}</span>
         </div>
       </div>
-      <dl class="contact-card-fields contact-card-fields-editable">
-        <div>
-          <dt>模型</dt>
-          <dd>${isExternal && modelEntries.length
-            ? `<select data-fellow-field="model">${optionList(modelEntries, "id", "label", currentModelId)}</select>`
-            : `<span class="contact-card-muted">由全局模型决定</span>`}</dd>
-        </div>
-        <div>
-          <dt>思考强度</dt>
-          <dd>${effortEntries.length
-            ? `<select data-fellow-field="effortLevel">${optionList(effortEntries, "value", "label", currentEffort)}</select>`
-            : `<span class="contact-card-muted">不适用</span>`}</dd>
-        </div>
-        <div>
-          <dt>权限模式</dt>
-          <dd>${permissionEntries.length
-            ? `<select data-fellow-field="permissionMode">${optionList(permissionEntries, "value", "label", currentPermission)}</select>`
-            : `<span class="contact-card-muted">不适用</span>`}</dd>
-        </div>
-      </dl>
+      <div class="contact-card-controls composer-controls">
+        <label class="model-switcher" title="切换模型">
+          <span class="model-avatar" style="${modelLogoStyle}" aria-hidden="true">${modelLogoSrc ? "" : "◇"}</span>
+          <span class="model-current-label">${escapeHtml(currentModelLabel)}</span>
+          ${modelEntries.length
+            ? `<select data-fellow-field="model" aria-label="切换模型">${options(modelEntries, "id", "label", currentModelEntry?.id)}</select>`
+            : ""}
+        </label>
+        <span class="composer-dot" aria-hidden="true">·</span>
+        <label class="effort-switcher" title="切换推理强度">
+          <span class="effort-label">${escapeHtml(currentEffortLabel)}</span>
+          ${effortEntries.length
+            ? `<select data-fellow-field="effortLevel" aria-label="切换推理强度">${options(effortEntries, "value", "label", currentEffort)}</select>`
+            : ""}
+        </label>
+        <span class="composer-dot" aria-hidden="true">·</span>
+        <label class="permission-switcher" title="权限模式">
+          <span class="permission-label">${escapeHtml(currentPermissionLabel)}</span>
+          ${permissionEntries.length
+            ? `<select data-fellow-field="permissionMode" aria-label="权限模式">${options(permissionEntries, "value", "label", currentPermission)}</select>`
+            : ""}
+        </label>
+      </div>
       <div class="contact-card-actions">
         ${isMine ? `<button type="button" data-card-action="edit-fellow" class="button-soft">编辑人设</button>` : ""}
         <button type="button" data-card-action="close" class="button-primary">关闭</button>
@@ -180,11 +217,24 @@
 
     async function persistField(field, value) {
       try {
+        if (field === "model" && !isExternal) {
+          // Hermes: model is runtime-global. saveModel mirrors the topbar
+          // path so we keep one truth.
+          const entry = modelEntries.find((m) => m.id === value);
+          if (!entry) return;
+          await global.aimashi.saveModel({
+            provider: entry.provider,
+            model: entry.model,
+            apiKeyEnv: entry.apiKeyEnv,
+            baseUrl: entry.baseUrl,
+            apiMode: entry.apiMode,
+            providerLabel: entry.providerLabel,
+            authType: entry.authType,
+          });
+          return;
+        }
         const update = {};
         if (field === "model") {
-          // The select option value is the model entry id; we need the actual
-          // `.model` string (which is "" for the "default" entry — encoded as
-          // a missing field in storage).
           const entry = modelEntries.find((m) => m.id === value);
           update.model = entry?.model || "";
         } else {
@@ -203,6 +253,9 @@
     card.addEventListener("change", (event) => {
       const sel = event.target.closest("[data-fellow-field]");
       if (!sel) return;
+      const newLabel = sel.options[sel.selectedIndex]?.textContent || "";
+      const labelSpan = sel.parentElement?.querySelector(".model-current-label, .effort-label, .permission-label");
+      if (labelSpan) labelSpan.textContent = newLabel;
       persistField(sel.dataset.fellowField, sel.value);
     });
     card.addEventListener("click", (event) => {
