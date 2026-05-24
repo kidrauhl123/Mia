@@ -5034,6 +5034,12 @@ function handleCloudBridgeMessage(ws, raw) {
 }
 
 function startCloudBridge() {
+  // The daemon is the sole bridge host whenever it's enabled, so the foreground
+  // app defers to it — otherwise the cloud would see two devices for one user
+  // and resolveBridgeRunDevice (serve-cloud) refuses to dispatch. The app only
+  // hosts when the daemon is disabled. The daemon process itself always hosts.
+  // Centralised here so every caller (startup, login, reconnect) is consistent.
+  if (!IS_DAEMON_PROCESS && settingsStore.daemonSettings().enabled) return cloudStatus(false);
   const settings = settingsStore.cloudSettings();
   if (!settings.enabled || !settings.token) return cloudStatus(false);
   if (cloudBridgeClient && [WebSocket.CONNECTING, WebSocket.OPEN].includes(cloudBridgeClient.readyState)) {
@@ -6975,13 +6981,28 @@ app.whenReady().then(async () => {
       appendDaemonLog(`Daemon start failed: ${controlServerState.lastError}`);
       throw error;
     }
+    // Host the cloud bridge so this device's local AI keeps serving remote
+    // (web / mobile) requests while the UI window is closed. The daemon is the
+    // sole bridge host whenever it's enabled (the foreground app defers to it),
+    // so the cloud always sees exactly one online device. initializeRuntime
+    // makes the local engine runnable headlessly. The interval retries so the
+    // bridge connects once a cloud token appears (e.g. first login happens in
+    // the foreground after the daemon is already up) and after any drop;
+    // startCloudBridge no-ops when already connected or when there's no token.
+    try {
+      initializeRuntime();
+    } catch (error) {
+      appendDaemonLog(`Daemon runtime init failed: ${error?.message || error}`);
+    }
+    startCloudBridge();
+    setInterval(startCloudBridge, 10000);
     return;
   }
   const win = createWindow();
   startupTimer.mark("window:created");
   subscribeDaemonTaskEvents();
   startCloudEvents();
-  startCloudBridge();
+  startCloudBridge(); // self-gates: defers to the daemon when it's enabled
   syncAimashiCloudWorkspace().catch((error) => appendCloudLog(`Cloud workspace sync failed: ${error?.message || error}`));
   if (process.env.AIMASHI_DISABLE_BACKGROUND_STARTUP !== "1") {
     win.webContents.once("did-finish-load", () => {
