@@ -18,8 +18,8 @@ const AUTH_TRACE_PATTERNS = [
 
 function parseArgs(argv = process.argv.slice(2)) {
   const args = [...argv];
-  let remote = process.env.AIMASHI_DEPLOY_REMOTE || DEFAULT_REMOTE;
-  let timeoutSeconds = Number(process.env.AIMASHI_DEPLOY_SSH_DIAGNOSE_TIMEOUT || 10);
+  let remote = process.env.MIA_DEPLOY_REMOTE || DEFAULT_REMOTE;
+  let timeoutSeconds = Number(process.env.MIA_DEPLOY_SSH_DIAGNOSE_TIMEOUT || 10);
   while (args.length) {
     const arg = args.shift();
     if (arg === "--timeout") {
@@ -108,7 +108,7 @@ async function diagnoseDeploySsh({
 
 function renderDiagnosis(result) {
   return [
-    "Aimashi Cloud SSH deploy diagnosis",
+    "Mia Cloud SSH deploy diagnosis",
     "",
     `Remote: ${result.remote}`,
     result.agentSummary,
@@ -118,7 +118,7 @@ function renderDiagnosis(result) {
     "",
     result.ok
       ? "SSH BatchMode preflight passed."
-      : "SSH BatchMode preflight failed. If an Aimashi deploy key was offered but not accepted, fix VPS authorized_keys or sshd policy."
+      : "SSH BatchMode preflight failed. If an Mia deploy key was offered but not accepted, fix VPS authorized_keys or sshd policy."
   ].join("\n");
 }
 

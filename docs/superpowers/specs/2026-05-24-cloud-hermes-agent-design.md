@@ -5,13 +5,13 @@
 
 ## 1. 背景
 
-Aimashi 现在的核心模型已经逐步收敛到：
+Mia 现在的核心模型已经逐步收敛到：
 
 - `rooms` 是统一会话入口，`type='fellow'` 表示用户与自己的 Fellow 私聊。
 - `messages` 是统一消息流，Fellow 回复也是同一张表里的 `sender_kind='fellow'` 消息。
 - `user_events` 是登录用户的持久事件回放通道。
 - `fellows` 只保存身份形状：名字、头像、人设、能力等；runtime 配置不放在这里。
-- 桌面端 Hermes 已经通过 `POST /v1/runs`、`GET /v1/runs/{run_id}/events`、`X-Aimashi-Fellow`、`conversation_history` 等机制发送对话，并通过 Hermes overlay 注入 Fellow 人设。
+- 桌面端 Hermes 已经通过 `POST /v1/runs`、`GET /v1/runs/{run_id}/events`、`X-Mia-Fellow`、`conversation_history` 等机制发送对话，并通过 Hermes overlay 注入 Fellow 人设。
 
 本设计要把“本地运行的 Hermes Agent”扩展为“云端运行的 Hermes Agent”，但用户视角不应出现两套产品：云端 Agent 仍然是一个普通 Fellow，只是运行位置从本机变成服务器。
 
@@ -31,7 +31,7 @@ Aimashi 现在的核心模型已经逐步收敛到：
 - 本期不重写 Hermes 工具系统，也不 fork Hermes。
 - 本期不实现跨服务器联邦或端到端加密。
 - 本期不把 cloud-backed Fellow 做成新的联系人类型；它仍然是 Fellow。
-- 本期不把所有危险工具默认静默放行；需要审批的能力仍走 Hermes/Aimashi 的审批事件。
+- 本期不把所有危险工具默认静默放行；需要审批的能力仍走 Hermes/Mia 的审批事件。
 
 ## 4. 关键决策
 
@@ -63,7 +63,7 @@ CREATE INDEX idx_fellow_runtime_bindings_user
 本期采用“每用户 Hermes worker 容器”的隔离模型：
 
 ```text
-/var/lib/aimashi-cloud-agent-users/<userId>/
+/var/lib/mia-cloud-agent-users/<userId>/
   hermes-home/
   home/
   workspace/
@@ -110,7 +110,7 @@ dispatcher 调用该用户的 worker Hermes：
 
 ```text
 POST /v1/runs
-X-Aimashi-Fellow: <fellowId>
+X-Mia-Fellow: <fellowId>
 X-Alkaka-Fellow: <fellowId>
 X-Hermes-Session-Key: cloud:<userId>:<fellowId>:<roomId>
 ```
@@ -152,9 +152,9 @@ messagesStore.appendMessage({
 
 在用户注册成功、首次登录或 cloud bootstrap 时执行幂等 ensure：
 
-1. 确保默认 Fellow 存在：`id='aimashi'`，owner 是当前用户，persona 文本写入 `fellows.persona_text`。
-2. 确保 `fellow_runtime_bindings(userId, 'aimashi', 'cloud-hermes')` 存在且 enabled。
-3. 确保 `fellow:<userId>:aimashi` room 存在，且 room members 包含该 user 和该 Fellow。
+1. 确保默认 Fellow 存在：`id='mia'`，owner 是当前用户，persona 文本写入 `fellows.persona_text`。
+2. 确保 `fellow_runtime_bindings(userId, 'mia', 'cloud-hermes')` 存在且 enabled。
+3. 确保 `fellow:<userId>:mia` room 存在，且 room members 包含该 user 和该 Fellow。
 4. 确保用户列表和 room bootstrap 会返回这个 room。
 
 所有 ensure 都必须幂等，避免多端同时登录创建重复 room 或重复 binding。
@@ -195,7 +195,7 @@ src/cloud-agent/
 运行前，`attachment-materializer` 将该用户本次消息可见的附件复制或硬链接到：
 
 ```text
-/var/lib/aimashi-cloud-agent-users/<userId>/attachments/<fileId>/
+/var/lib/mia-cloud-agent-users/<userId>/attachments/<fileId>/
 ```
 
 容器内看到的是：
@@ -212,7 +212,7 @@ Hermes 在 `/data/workspace` 或 `/data/attachments` 生成的可交付文件，
 
 ### 7.3 目录与权限
 
-用户容器只挂载自己的 `/var/lib/aimashi-cloud-agent-users/<userId>` 子树。即使 Hermes 终端执行 `ls /`、`find /data` 或脚本读写，也只能看到容器内命名空间和该用户目录。服务器宿主文件、其他用户目录、cloud sqlite、全局 uploads 目录都不进入容器挂载。
+用户容器只挂载自己的 `/var/lib/mia-cloud-agent-users/<userId>` 子树。即使 Hermes 终端执行 `ls /`、`find /data` 或脚本读写，也只能看到容器内命名空间和该用户目录。服务器宿主文件、其他用户目录、cloud sqlite、全局 uploads 目录都不进入容器挂载。
 
 ## 8. 运行状态、并发与恢复
 
@@ -248,9 +248,9 @@ CREATE INDEX idx_cloud_agent_runs_room
 Hermes SSE 事件分两类处理：
 
 - 最终 assistant 文本写入 `messages`。
-- 工具进度、token delta、审批请求等 transient 状态映射到 Aimashi room/run 事件，用于 UI 展示。
+- 工具进度、token delta、审批请求等 transient 状态映射到 Mia room/run 事件，用于 UI 展示。
 
-需要人工确认的终端命令、文件写入或外部访问不能被 cloud dispatcher 静默绕过。审批请求应通过 Aimashi 现有 room/event 通道送到对应登录用户；用户批准后由 cloud 进程调用 Hermes approval endpoint，拒绝则取消对应工具调用或 run。
+需要人工确认的终端命令、文件写入或外部访问不能被 cloud dispatcher 静默绕过。审批请求应通过 Mia 现有 room/event 通道送到对应登录用户；用户批准后由 cloud 进程调用 Hermes approval endpoint，拒绝则取消对应工具调用或 run。
 
 本期可以先保证最终文本闭环，但接口设计必须保留 `run.pending_approval` 这类事件，不把审批做死成“永远允许”。
 

@@ -85,7 +85,7 @@ test("diagnoseDeploySsh runs BatchMode verbose ssh and renders actionable failur
     "true"
   ]);
   const rendered = renderDiagnosis(result);
-  assert.match(rendered, /Aimashi Cloud SSH deploy diagnosis/);
+  assert.match(rendered, /Mia Cloud SSH deploy diagnosis/);
   assert.match(rendered, /fix VPS authorized_keys or sshd policy/);
   assert.doesNotMatch(rendered, /PRIVATE KEY|BEGIN OPENSSH PRIVATE KEY/);
 });

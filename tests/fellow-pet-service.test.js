@@ -64,14 +64,14 @@ class FakePetWindow extends EventEmitter {
 FakePetWindow.instances = [];
 
 function makeRuntime() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-pet-service-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "mia-pet-service-"));
   return {
     root,
     runtime: path.join(root, "runtime"),
     home: path.join(root, "runtime", "engine-home"),
     petDir: path.join(root, "runtime", "engine-home", "pets"),
     petJobsDir: path.join(root, "runtime", "engine-home", "pet-jobs"),
-    petRemoteSettings: path.join(root, "runtime", "engine-home", "aimashi-pet-remote.json")
+    petRemoteSettings: path.join(root, "runtime", "engine-home", "mia-pet-remote.json")
   };
 }
 
@@ -141,7 +141,7 @@ function makeService(overrides = {}) {
     clearTimeout: (timer) => {
       timer.cleared = true;
     },
-    env: { AIMASHI_PET_REMOTE_DISABLED: "1" },
+    env: { MIA_PET_REMOTE_DISABLED: "1" },
     platform: "darwin",
     ...overrides
   });

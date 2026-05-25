@@ -5,7 +5,7 @@
 // Pure data and DOM helpers; no state.* references.  escapeHtml is the only
 // external function dependency (injected via initAvatarHelpers).
 //
-// Constants live in the module and are also exposed on window.aimashiAvatar
+// Constants live in the module and are also exposed on window.miaAvatar
 // so the avatar dialog code in app.js can still read avatarPresetGroups /
 // avatarPresetGroupTabs / DEFAULT_AVATAR_CROP without a separate import.
 (function () {
@@ -25,7 +25,7 @@
 
   function avatarAssetForKey(key = "") {
     let hash = 0;
-    for (const char of String(key || "aimashi")) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+    for (const char of String(key || "mia")) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
     const index = (hash % 16) + 1;
     return `./assets/avatars/${String(index).padStart(2, "0")}.png`;
   }
@@ -201,7 +201,7 @@
     applyAvatar(el, text, user.avatarColor || "#111827", "");
   }
 
-  window.aimashiAvatar = {
+  window.miaAvatar = {
     initAvatarHelpers,
     DEFAULT_AVATAR_CROP,
     DEFAULT_PRESET_AVATAR_CROP,

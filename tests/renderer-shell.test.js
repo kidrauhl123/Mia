@@ -11,7 +11,7 @@ test("renderer app shell loads state module before the entrypoint", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
 
   assert.match(html, /<script src="\.\/app-state\.js"><\/script>[\s\S]*<script src="\.\/app\.js"><\/script>/);
-  assert.match(appSource, /window\.aimashiAppState\.createInitialState/);
+  assert.match(appSource, /window\.miaAppState\.createInitialState/);
   assert.doesNotMatch(appSource, /const state = \{/);
   assert.doesNotMatch(appSource, /const fallbackSlashCommands = \[/);
 });
@@ -19,7 +19,7 @@ test("renderer app shell loads state module before the entrypoint", () => {
 test("cloud room composer uses one social send path for dm and group rooms", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
 
-  assert.match(appSource, /await window\.aimashiSocial\.sendInActiveRoom\(roomText\);/);
+  assert.match(appSource, /await window\.miaSocial\.sendInActiveRoom\(roomText\);/);
   assert.doesNotMatch(appSource, /sendInActiveGroupRoom\(roomText\)/);
 });
 
@@ -52,7 +52,7 @@ test("desktop cloud-Hermes fellow controls save through cloud runtime binding", 
 
   assert.match(appSource, /function runtimeKindForCloudFellowRoom\(room\)\s*\{[\s\S]*return String\(room\?\.decorations\?\.runtimeKind \|\| ""\)\.trim\(\) \|\| "desktop-local";/);
   assert.match(appSource, /async function saveActiveCloudFellowRuntimeConfig/);
-  assert.match(appSource, /window\.aimashi\.social\.saveFellowRuntime\(context\.fellowKey/);
+  assert.match(appSource, /window\.mia\.social\.saveFellowRuntime\(context\.fellowKey/);
   assert.match(appSource, /if\s*\(await saveActiveCloudFellowRuntimeConfig\([\s\S]*\)\)\s*return;/);
   assert.match(appSource, /const cloudPersona = personas\.find[\s\S]*if \(cloudPersona\) return cloudPersona;\s*return null;/);
 });
@@ -92,20 +92,20 @@ test("renderer app state factory owns default mutable state", () => {
   const source = fs.readFileSync(path.join(root, "src/renderer/app-state.js"), "utf8");
   const localStorage = {
     getItem(key) {
-      if (key === "aimashi.setupGuideDismissed.v2") return "1";
-      if (key === "aimashi.onboardingStep") return "model";
+      if (key === "mia.setupGuideDismissed.v2") return "1";
+      if (key === "mia.onboardingStep") return "model";
       return "";
     }
   };
   const sandbox = {
-    window: { aimashiAppState: null, innerWidth: 640, localStorage },
+    window: { miaAppState: null, innerWidth: 640, localStorage },
     localStorage,
     Set,
     Map
   };
   vm.runInNewContext(source, sandbox);
 
-  const state = sandbox.window.aimashiAppState.createInitialState({
+  const state = sandbox.window.miaAppState.createInitialState({
     localStorage,
     sidebarWidth: 300,
     windowWidth: 640
@@ -116,5 +116,5 @@ test("renderer app state factory owns default mutable state", () => {
   assert.equal(state.isNarrowWindow, true);
   assert.equal(state.sidebarWidth, 300);
   assert.equal(state.slashCommands[0].command, "/new");
-  assert.notEqual(state.slashCommands, sandbox.window.aimashiAppState.fallbackSlashCommands);
+  assert.notEqual(state.slashCommands, sandbox.window.miaAppState.fallbackSlashCommands);
 });

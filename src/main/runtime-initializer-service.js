@@ -22,7 +22,7 @@ function createRuntimeInitializerService(deps = {}) {
   const defaultChatStore = deps.defaultChatStore || (() => ({ sessions: [] }));
   const loadFellowManifest = deps.loadFellowManifest || (() => ({ fellows: [] }));
   const saveFellowManifest = deps.saveFellowManifest || (() => {});
-  const fellowPersonaBody = deps.fellowPersonaBody || ((name, bio) => `${name || "Aimashi"}\n\n${bio || ""}`);
+  const fellowPersonaBody = deps.fellowPersonaBody || ((name, bio) => `${name || "Mia"}\n\n${bio || ""}`);
   const fellowMetadata = deps.fellowMetadata || ((fellow) => fellow);
   const ensureClaudeBridgePlugin = deps.ensureClaudeBridgePlugin || (() => {});
   const appendEngineLog = deps.appendEngineLog || (() => {});
@@ -80,9 +80,9 @@ function createRuntimeInitializerService(deps = {}) {
     ensureEnginePlugins();
 
     if (writeFileIfMissing(path.join(p.engine, "README.md"), [
-      "# Aimashi Hermes Engine",
+      "# Mia Hermes Engine",
       "",
-      "This directory is reserved for Aimashi's bundled or downloaded Hermes engine.",
+      "This directory is reserved for Mia's bundled or downloaded Hermes engine.",
       "The demo intentionally does not inspect or modify any user-installed Hermes checkout.",
       ""
     ].join("\n"))) {
@@ -103,49 +103,49 @@ function createRuntimeInitializerService(deps = {}) {
     if (writeFileIfMissing(p.modelSettings, JSON.stringify({
       ...defaultModelSettings()
     }, null, 2) + "\n", 0o600)) {
-      created.push("runtime/engine-home/aimashi-model.json");
+      created.push("runtime/engine-home/mia-model.json");
     }
 
     if (writeFileIfMissing(p.providerConnections, JSON.stringify(defaultProviderStore(), null, 2) + "\n", 0o600)) {
-      created.push("runtime/engine-home/aimashi-providers.json");
+      created.push("runtime/engine-home/mia-providers.json");
     }
 
     if (writeFileIfMissing(p.permissionSettings, JSON.stringify(defaultPermissionSettings(), null, 2) + "\n", 0o600)) {
-      created.push("runtime/engine-home/aimashi-permissions.json");
+      created.push("runtime/engine-home/mia-permissions.json");
     }
 
     if (writeFileIfMissing(p.effortSettings, JSON.stringify(defaultEffortSettings(), null, 2) + "\n", 0o600)) {
-      created.push("runtime/engine-home/aimashi-effort.json");
+      created.push("runtime/engine-home/mia-effort.json");
     }
 
     if (writeFileIfMissing(p.daemonSettings, JSON.stringify(defaultDaemonSettings(), null, 2) + "\n", 0o600)) {
-      created.push("runtime/engine-home/aimashi-daemon.json");
+      created.push("runtime/engine-home/mia-daemon.json");
     }
 
     if (writeFileIfMissing(p.daemonToken, `${randomBytes(32).toString("hex")}\n`, 0o600)) {
-      created.push("runtime/engine-home/aimashi-daemon.key");
+      created.push("runtime/engine-home/mia-daemon.key");
     }
 
     if (writeFileIfMissing(p.relaySettings, JSON.stringify(defaultRelaySettings(), null, 2) + "\n", 0o600)) {
-      created.push("runtime/engine-home/aimashi-relay.json");
+      created.push("runtime/engine-home/mia-relay.json");
     }
 
     if (writeFileIfMissing(p.userProfile, JSON.stringify(defaultUserProfile(), null, 2) + "\n")) {
-      created.push("runtime/engine-home/aimashi-user.json");
+      created.push("runtime/engine-home/mia-user.json");
     }
 
     if (writeFileIfMissing(p.appearanceSettings, JSON.stringify(defaultAppearanceSettings(), null, 2) + "\n")) {
-      created.push("runtime/engine-home/aimashi-appearance.json");
+      created.push("runtime/engine-home/mia-appearance.json");
     }
 
     if (writeFileIfMissing(p.chatSessions, JSON.stringify(defaultChatStore(), null, 2) + "\n", 0o600)) {
-      created.push("runtime/engine-home/aimashi-sessions.json");
+      created.push("runtime/engine-home/mia-sessions.json");
     }
 
     if (writeFileIfMissing(p.soul, [
-      "# Aimashi Shared Soul",
+      "# Mia Shared Soul",
       "",
-      "你是 Aimashi 应用中的本地伙伴。这里是所有 Fellow 共享的基础语气。",
+      "你是 Mia 应用中的本地伙伴。这里是所有 Fellow 共享的基础语气。",
       "具体名字、身份和关系写在 fellows/<fellow_id>.md。",
       "",
       "## Style",

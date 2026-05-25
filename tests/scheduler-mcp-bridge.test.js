@@ -7,7 +7,7 @@ const { test } = require("node:test");
 const { createSchedulerMcpBridge } = require("../src/main/scheduler-mcp-bridge.js");
 
 function setup(t, overrides = {}) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-scheduler-mcp-bridge-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-scheduler-mcp-bridge-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const runtime = {
     runtime: path.join(dir, "runtime")
@@ -60,15 +60,15 @@ test("getSpec returns the stdio MCP config with daemon token and context path", 
     command: "/usr/local/bin/node",
     args: [scriptPath],
     env: {
-      AIMASHI_DAEMON_URL: "http://127.0.0.1:27861",
-      AIMASHI_DAEMON_TOKEN: "token_1",
-      AIMASHI_SCHEDULER_CONTEXT_FILE: service.contextPath()
+      MIA_DAEMON_URL: "http://127.0.0.1:27861",
+      MIA_DAEMON_TOKEN: "token_1",
+      MIA_SCHEDULER_CONTEXT_FILE: service.contextPath()
     },
     alwaysLoad: true
   });
 });
 
-test("ensureCodexHome links user Codex state and rewrites only Aimashi scheduler config", (t) => {
+test("ensureCodexHome links user Codex state and rewrites only Mia scheduler config", (t) => {
   const { scriptPath, service, userHome } = setup(t, {
     nodePath: () => "/opt/node \"quoted\""
   });
@@ -80,7 +80,7 @@ test("ensureCodexHome links user Codex state and rewrites only Aimashi scheduler
   fs.writeFileSync(path.join(userCodexHome, "config.toml"), [
     "model = \"gpt\"",
     "",
-    "[mcp_servers.aimashi-scheduler]",
+    "[mcp_servers.mia-scheduler]",
     "command = \"old\"",
     "",
     "[mcp_servers.other]",
@@ -99,7 +99,7 @@ test("ensureCodexHome links user Codex state and rewrites only Aimashi scheduler
   assert.match(config, /model = "gpt"/);
   assert.match(config, /\[mcp_servers\.other\]\ncommand = "keep"/);
   assert.doesNotMatch(config, /command = "old"/);
-  assert.match(config, /\[mcp_servers\.aimashi-scheduler\]/);
+  assert.match(config, /\[mcp_servers\.mia-scheduler\]/);
   assert.match(config, /command = "\/opt\/node \\"quoted\\""/);
-  assert.match(config, /AIMASHI_DAEMON_TOKEN = "token_1"/);
+  assert.match(config, /MIA_DAEMON_TOKEN = "token_1"/);
 });

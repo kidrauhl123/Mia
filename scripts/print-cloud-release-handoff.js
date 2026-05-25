@@ -34,7 +34,7 @@ function sshPublicKeyFingerprint(publicKey) {
   }
 }
 
-function readDeploymentPublicKey(publicKeyPath = process.env.AIMASHI_DEPLOY_PUBLIC_KEY || path.join(os.homedir(), ".ssh", "id_ed25519.pub")) {
+function readDeploymentPublicKey(publicKeyPath = process.env.MIA_DEPLOY_PUBLIC_KEY || path.join(os.homedir(), ".ssh", "id_ed25519.pub")) {
   if (!publicKeyPath || !fs.existsSync(publicKeyPath)) return null;
   const publicKey = readText(publicKeyPath).trim();
   if (!/^(ssh-ed25519|ssh-rsa|ecdsa-sha2-)\s+\S+/.test(publicKey)) return null;
@@ -74,12 +74,12 @@ function sshServerDiagnosticsCommand(publicKey, user = "root") {
   const homeExpr = user === "root" ? "/root" : `~${user}`;
   return [
     `ls -ld ${homeExpr} ${homeExpr}/.ssh ${homeExpr}/.ssh/authorized_keys 2>/dev/null || true`,
-    `grep -qxF ${shellQuote(publicKey)} ${homeExpr}/.ssh/authorized_keys && echo "authorized_keys contains Aimashi deploy key" || echo "MISSING Aimashi deploy key"`,
+    `grep -qxF ${shellQuote(publicKey)} ${homeExpr}/.ssh/authorized_keys && echo "authorized_keys contains Mia deploy key" || echo "MISSING Mia deploy key"`,
     "sshd -T 2>/dev/null | grep -E '^(pubkeyauthentication|permitrootlogin|authorizedkeysfile|passwordauthentication) ' || true"
   ].join("\n");
 }
 
-function parseDeployRemote(remote = process.env.AIMASHI_DEPLOY_REMOTE || "root@aiweb.buytb01.com") {
+function parseDeployRemote(remote = process.env.MIA_DEPLOY_REMOTE || "root@aiweb.buytb01.com") {
   const value = String(remote || "").trim() || "root@aiweb.buytb01.com";
   const at = value.lastIndexOf("@");
   if (at === -1) {
@@ -93,8 +93,8 @@ function parseDeployRemote(remote = process.env.AIMASHI_DEPLOY_REMOTE || "root@a
 }
 
 function buildSshAuthorizationHelp({
-  remote = process.env.AIMASHI_DEPLOY_REMOTE || "root@aiweb.buytb01.com",
-  sshPublicKeyPath = process.env.AIMASHI_DEPLOY_PUBLIC_KEY || path.join(os.homedir(), ".ssh", "id_ed25519.pub"),
+  remote = process.env.MIA_DEPLOY_REMOTE || "root@aiweb.buytb01.com",
+  sshPublicKeyPath = process.env.MIA_DEPLOY_PUBLIC_KEY || path.join(os.homedir(), ".ssh", "id_ed25519.pub"),
   sshAgentStatus = readSshAgentStatus()
 } = {}) {
   const deployRemote = parseDeployRemote(remote);
@@ -103,7 +103,7 @@ function buildSshAuthorizationHelp({
     throw new Error(`Missing or invalid deployment public key: ${sshPublicKeyPath}`);
   }
   return [
-    "Aimashi Cloud SSH authorization help",
+    "Mia Cloud SSH authorization help",
     "",
     `Remote target: ${deployRemote.remote}`,
     `Remote user: ${deployRemote.user}`,
@@ -156,14 +156,14 @@ function checksumVerifyCommand(checksumFile) {
 
 function buildHandoff({
   distDir = path.join(root, "dist"),
-  publicUrl = process.env.AIMASHI_CLOUD_PUBLIC_URL || "https://aiweb.buytb01.com",
-  sshPublicKeyPath = process.env.AIMASHI_DEPLOY_PUBLIC_KEY || path.join(os.homedir(), ".ssh", "id_ed25519.pub")
+  publicUrl = process.env.MIA_CLOUD_PUBLIC_URL || "https://aiweb.buytb01.com",
+  sshPublicKeyPath = process.env.MIA_DEPLOY_PUBLIC_KEY || path.join(os.homedir(), ".ssh", "id_ed25519.pub")
 } = {}) {
-  const releaseDir = path.join(distDir, "aimashi-cloud-release");
-  const archive = path.join(distDir, "aimashi-cloud-release.tgz");
+  const releaseDir = path.join(distDir, "mia-cloud-release");
+  const archive = path.join(distDir, "mia-cloud-release.tgz");
   const shaFile = `${archive}.sha256`;
-  const handoffFile = path.join(distDir, "aimashi-cloud-release-handoff.txt");
-  const transferBundle = path.join(distDir, "aimashi-cloud-release-transfer.tgz");
+  const handoffFile = path.join(distDir, "mia-cloud-release-handoff.txt");
+  const transferBundle = path.join(distDir, "mia-cloud-release-transfer.tgz");
   const manifestPath = path.join(releaseDir, "manifest.json");
   const readmePath = path.join(releaseDir, "README.md");
   const installerPath = path.join(releaseDir, "install-cloud-release-local.sh");
@@ -212,7 +212,7 @@ function buildHandoff({
   ] : [];
 
   return [
-    "Aimashi Cloud release handoff",
+    "Mia Cloud release handoff",
     "",
     `Public URL: ${publicUrl}`,
     `Archive: ${archive}`,
@@ -230,67 +230,67 @@ function buildHandoff({
     `- ${transferBundle}.sha256`,
     ...sshAccessSection,
     "",
-    "If you send the transfer bundle instead of the three files above, place it on the VPS as /tmp/aimashi-cloud-release-transfer.tgz and place its checksum sidecar as /tmp/aimashi-cloud-release-transfer.tgz.sha256, then run:",
+    "If you send the transfer bundle instead of the three files above, place it on the VPS as /tmp/mia-cloud-release-transfer.tgz and place its checksum sidecar as /tmp/mia-cloud-release-transfer.tgz.sha256, then run:",
     "```bash",
     "cd /tmp",
-    checksumVerifyCommand("aimashi-cloud-release-transfer.tgz.sha256"),
-    "tar -xzf aimashi-cloud-release-transfer.tgz -C /tmp --strip-components=1",
-    "AIMASHI_TRANSFER_VERIFY_ONLY=1 bash install-transfer-bundle.sh",
+    checksumVerifyCommand("mia-cloud-release-transfer.tgz.sha256"),
+    "tar -xzf mia-cloud-release-transfer.tgz -C /tmp --strip-components=1",
+    "MIA_TRANSFER_VERIFY_ONLY=1 bash install-transfer-bundle.sh",
     "bash install-transfer-bundle.sh",
     "```",
     "",
     "Place them on the VPS as:",
-    "- /tmp/aimashi-cloud-release.tgz",
-    "- /tmp/aimashi-cloud-release.tgz.sha256",
-    "- /tmp/aimashi-cloud-release-handoff.txt",
+    "- /tmp/mia-cloud-release.tgz",
+    "- /tmp/mia-cloud-release.tgz.sha256",
+    "- /tmp/mia-cloud-release-handoff.txt",
     "",
     "On the VPS:",
     "```bash",
     "cd /tmp",
-    "tar -xOf aimashi-cloud-release.tgz aimashi-cloud-release/install-cloud-release-local.sh > install-cloud-release-local.sh",
+    "tar -xOf mia-cloud-release.tgz mia-cloud-release/install-cloud-release-local.sh > install-cloud-release-local.sh",
     "chmod +x install-cloud-release-local.sh",
-    "AIMASHI_INSTALL_VERIFY_ONLY=1 bash install-cloud-release-local.sh /tmp/aimashi-cloud-release.tgz",
-    "./install-cloud-release-local.sh /tmp/aimashi-cloud-release.tgz",
+    "MIA_INSTALL_VERIFY_ONLY=1 bash install-cloud-release-local.sh /tmp/mia-cloud-release.tgz",
+    "./install-cloud-release-local.sh /tmp/mia-cloud-release.tgz",
     "```",
     "",
     "After install:",
     "```bash",
     "cd /tmp",
-    "tar -xzf aimashi-cloud-release.tgz aimashi-cloud-release/doctor-cloud.js aimashi-cloud-release/smoke-cloud.js",
-    `AIMASHI_DOCTOR_EXPECT_RELEASE_COMMIT=${shellQuote(expectedCommit)} \\`,
-    `AIMASHI_DOCTOR_EXPECT_RELEASE_BUILT_AT=${shellQuote(expectedBuiltAt)} \\`,
-    `node aimashi-cloud-release/doctor-cloud.js ${shellQuote(publicUrl)}`,
-    `AIMASHI_SMOKE_EXPECT_RELEASE_COMMIT=${shellQuote(expectedCommit)} \\`,
-    `AIMASHI_SMOKE_EXPECT_RELEASE_BUILT_AT=${shellQuote(expectedBuiltAt)} \\`,
-    `node aimashi-cloud-release/smoke-cloud.js ${shellQuote(publicUrl)}`,
+    "tar -xzf mia-cloud-release.tgz mia-cloud-release/doctor-cloud.js mia-cloud-release/smoke-cloud.js",
+    `MIA_DOCTOR_EXPECT_RELEASE_COMMIT=${shellQuote(expectedCommit)} \\`,
+    `MIA_DOCTOR_EXPECT_RELEASE_BUILT_AT=${shellQuote(expectedBuiltAt)} \\`,
+    `node mia-cloud-release/doctor-cloud.js ${shellQuote(publicUrl)}`,
+    `MIA_SMOKE_EXPECT_RELEASE_COMMIT=${shellQuote(expectedCommit)} \\`,
+    `MIA_SMOKE_EXPECT_RELEASE_BUILT_AT=${shellQuote(expectedBuiltAt)} \\`,
+    `node mia-cloud-release/smoke-cloud.js ${shellQuote(publicUrl)}`,
     "```",
     "",
     "After a desktop bridge is logged into the same dedicated smoke account, run the end-to-end bridge smoke:",
     "```bash",
     "cd /tmp",
-    "tar -xzf aimashi-cloud-release.tgz aimashi-cloud-release/prepare-cloud-smoke-account.js aimashi-cloud-release/smoke-cloud.js",
-    "AIMASHI_SMOKE_USERNAME='<smoke-account>' \\",
-    "AIMASHI_SMOKE_PASSWORD='<smoke-password>' \\",
-    `node aimashi-cloud-release/prepare-cloud-smoke-account.js ${shellQuote(publicUrl)}`,
-    "AIMASHI_SMOKE_USERNAME='<smoke-account>' \\",
-    "AIMASHI_SMOKE_PASSWORD='<smoke-password>' \\",
-    "AIMASHI_SMOKE_REQUIRE_BRIDGE=1 \\",
-    `AIMASHI_SMOKE_EXPECT_RELEASE_COMMIT=${shellQuote(expectedCommit)} \\`,
-    `AIMASHI_SMOKE_EXPECT_RELEASE_BUILT_AT=${shellQuote(expectedBuiltAt)} \\`,
-    `node aimashi-cloud-release/smoke-cloud.js ${shellQuote(publicUrl)}`,
+    "tar -xzf mia-cloud-release.tgz mia-cloud-release/prepare-cloud-smoke-account.js mia-cloud-release/smoke-cloud.js",
+    "MIA_SMOKE_USERNAME='<smoke-account>' \\",
+    "MIA_SMOKE_PASSWORD='<smoke-password>' \\",
+    `node mia-cloud-release/prepare-cloud-smoke-account.js ${shellQuote(publicUrl)}`,
+    "MIA_SMOKE_USERNAME='<smoke-account>' \\",
+    "MIA_SMOKE_PASSWORD='<smoke-password>' \\",
+    "MIA_SMOKE_REQUIRE_BRIDGE=1 \\",
+    `MIA_SMOKE_EXPECT_RELEASE_COMMIT=${shellQuote(expectedCommit)} \\`,
+    `MIA_SMOKE_EXPECT_RELEASE_BUILT_AT=${shellQuote(expectedBuiltAt)} \\`,
+    `node mia-cloud-release/smoke-cloud.js ${shellQuote(publicUrl)}`,
     "```",
     "",
     "Desktop bridge same-account control:",
-    "- A desktop bridge logged into the same Aimashi Cloud account can be called directly from Web or mobile.",
+    "- A desktop bridge logged into the same Mia Cloud account can be called directly from Web or mobile.",
     "- This does not require a separate local approval click for the remote connection.",
     "- Agent permission mode remains the normal per-Agent execution setting; it is not device authentication.",
     "",
-    "If the operator is using the standalone local Agent bridge instead of the desktop app, start it from a full Aimashi project checkout on the bridge machine with the same smoke account first. This command is not run from the extracted Cloud release directory:",
+    "If the operator is using the standalone local Agent bridge instead of the desktop app, start it from a full Mia project checkout on the bridge machine with the same smoke account first. This command is not run from the extracted Cloud release directory:",
     "```bash",
-    "cd /path/to/aimashi",
-    `AIMASHI_CLOUD_URL=${shellQuote(publicUrl)} \\`,
-    "AIMASHI_CLOUD_USERNAME='<smoke-account>' \\",
-    "AIMASHI_CLOUD_PASSWORD='<smoke-password>' \\",
+    "cd /path/to/mia",
+    `MIA_CLOUD_URL=${shellQuote(publicUrl)} \\`,
+    "MIA_CLOUD_USERNAME='<smoke-account>' \\",
+    "MIA_CLOUD_PASSWORD='<smoke-password>' \\",
     "npm run bridge",
     "```",
     "",
@@ -300,9 +300,9 @@ function buildHandoff({
 
 function writeHandoffFile({
   distDir = path.join(root, "dist"),
-  publicUrl = process.env.AIMASHI_CLOUD_PUBLIC_URL || "https://aiweb.buytb01.com",
-  sshPublicKeyPath = process.env.AIMASHI_DEPLOY_PUBLIC_KEY || path.join(os.homedir(), ".ssh", "id_ed25519.pub"),
-  outputPath = path.join(distDir, "aimashi-cloud-release-handoff.txt")
+  publicUrl = process.env.MIA_CLOUD_PUBLIC_URL || "https://aiweb.buytb01.com",
+  sshPublicKeyPath = process.env.MIA_DEPLOY_PUBLIC_KEY || path.join(os.homedir(), ".ssh", "id_ed25519.pub"),
+  outputPath = path.join(distDir, "mia-cloud-release-handoff.txt")
 } = {}) {
   const handoff = `${buildHandoff({ distDir, publicUrl, sshPublicKeyPath })}\n`;
   fs.writeFileSync(outputPath, handoff);
@@ -311,9 +311,9 @@ function writeHandoffFile({
 
 function verifyHandoffFile({
   distDir = path.join(root, "dist"),
-  publicUrl = process.env.AIMASHI_CLOUD_PUBLIC_URL || "https://aiweb.buytb01.com",
-  sshPublicKeyPath = process.env.AIMASHI_DEPLOY_PUBLIC_KEY || path.join(os.homedir(), ".ssh", "id_ed25519.pub"),
-  outputPath = path.join(distDir, "aimashi-cloud-release-handoff.txt")
+  publicUrl = process.env.MIA_CLOUD_PUBLIC_URL || "https://aiweb.buytb01.com",
+  sshPublicKeyPath = process.env.MIA_DEPLOY_PUBLIC_KEY || path.join(os.homedir(), ".ssh", "id_ed25519.pub"),
+  outputPath = path.join(distDir, "mia-cloud-release-handoff.txt")
 } = {}) {
   if (!fs.existsSync(outputPath)) {
     throw new Error(`Missing release handoff file: ${outputPath}`);
@@ -332,7 +332,7 @@ function buildTransferInstallScript() {
     "set -euo pipefail",
     "",
     'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"',
-    'ARCHIVE="$SCRIPT_DIR/aimashi-cloud-release.tgz"',
+    'ARCHIVE="$SCRIPT_DIR/mia-cloud-release.tgz"',
     'INSTALLER="$SCRIPT_DIR/install-cloud-release-local.sh"',
     'cd "$SCRIPT_DIR"',
     "",
@@ -342,12 +342,12 @@ function buildTransferInstallScript() {
     "  shasum -a 256 -c TRANSFER-SHA256.txt",
     "fi",
     "",
-    'tar -xOf "$ARCHIVE" aimashi-cloud-release/install-cloud-release-local.sh > "$INSTALLER"',
+    'tar -xOf "$ARCHIVE" mia-cloud-release/install-cloud-release-local.sh > "$INSTALLER"',
     'chmod +x "$INSTALLER"',
-    'AIMASHI_INSTALL_VERIFY_ONLY=1 bash "$INSTALLER" "$ARCHIVE"',
+    'MIA_INSTALL_VERIFY_ONLY=1 bash "$INSTALLER" "$ARCHIVE"',
     "",
-    'if [ "${AIMASHI_TRANSFER_VERIFY_ONLY:-}" = "1" ]; then',
-    '  echo "Aimashi Cloud transfer bundle verify-only completed: $ARCHIVE"',
+    'if [ "${MIA_TRANSFER_VERIFY_ONLY:-}" = "1" ]; then',
+    '  echo "Mia Cloud transfer bundle verify-only completed: $ARCHIVE"',
     "  exit 0",
     "fi",
     "",
@@ -358,15 +358,15 @@ function buildTransferInstallScript() {
 
 function buildTransferReadme({ publicUrl, expectedCommit, expectedBuiltAt }) {
   return [
-    "# Aimashi Cloud transfer bundle",
+    "# Mia Cloud transfer bundle",
     "",
-    "This directory was extracted from `aimashi-cloud-release-transfer.tgz`.",
+    "This directory was extracted from `mia-cloud-release-transfer.tgz`.",
     "",
     "Verify the transfer and installer without changing system files:",
     "",
     "```bash",
     "cd /tmp",
-    "AIMASHI_TRANSFER_VERIFY_ONLY=1 bash install-transfer-bundle.sh",
+    "MIA_TRANSFER_VERIFY_ONLY=1 bash install-transfer-bundle.sh",
     "```",
     "",
     "Install after the verify-only command passes:",
@@ -380,41 +380,41 @@ function buildTransferReadme({ publicUrl, expectedCommit, expectedBuiltAt }) {
     "",
     "```bash",
     "cd /tmp",
-    "tar -xzf aimashi-cloud-release.tgz aimashi-cloud-release/doctor-cloud.js aimashi-cloud-release/smoke-cloud.js",
-    `AIMASHI_DOCTOR_EXPECT_RELEASE_COMMIT=${shellQuote(expectedCommit)} \\`,
-    `AIMASHI_DOCTOR_EXPECT_RELEASE_BUILT_AT=${shellQuote(expectedBuiltAt)} \\`,
-    `node aimashi-cloud-release/doctor-cloud.js ${shellQuote(publicUrl)}`,
-    `AIMASHI_SMOKE_EXPECT_RELEASE_COMMIT=${shellQuote(expectedCommit)} \\`,
-    `AIMASHI_SMOKE_EXPECT_RELEASE_BUILT_AT=${shellQuote(expectedBuiltAt)} \\`,
-    `node aimashi-cloud-release/smoke-cloud.js ${shellQuote(publicUrl)}`,
+    "tar -xzf mia-cloud-release.tgz mia-cloud-release/doctor-cloud.js mia-cloud-release/smoke-cloud.js",
+    `MIA_DOCTOR_EXPECT_RELEASE_COMMIT=${shellQuote(expectedCommit)} \\`,
+    `MIA_DOCTOR_EXPECT_RELEASE_BUILT_AT=${shellQuote(expectedBuiltAt)} \\`,
+    `node mia-cloud-release/doctor-cloud.js ${shellQuote(publicUrl)}`,
+    `MIA_SMOKE_EXPECT_RELEASE_COMMIT=${shellQuote(expectedCommit)} \\`,
+    `MIA_SMOKE_EXPECT_RELEASE_BUILT_AT=${shellQuote(expectedBuiltAt)} \\`,
+    `node mia-cloud-release/smoke-cloud.js ${shellQuote(publicUrl)}`,
     "```",
     "",
     "Prepare or validate the fixed smoke account before bridge-required e2e:",
     "",
     "```bash",
     "cd /tmp",
-    "tar -xzf aimashi-cloud-release.tgz aimashi-cloud-release/prepare-cloud-smoke-account.js aimashi-cloud-release/smoke-cloud.js",
-    "AIMASHI_SMOKE_USERNAME='<smoke-account>' \\",
-    "AIMASHI_SMOKE_PASSWORD='<smoke-password>' \\",
-    `node aimashi-cloud-release/prepare-cloud-smoke-account.js ${shellQuote(publicUrl)}`,
-    "AIMASHI_SMOKE_USERNAME='<smoke-account>' \\",
-    "AIMASHI_SMOKE_PASSWORD='<smoke-password>' \\",
-    "AIMASHI_SMOKE_REQUIRE_BRIDGE=1 \\",
-    `AIMASHI_SMOKE_EXPECT_RELEASE_COMMIT=${shellQuote(expectedCommit)} \\`,
-    `AIMASHI_SMOKE_EXPECT_RELEASE_BUILT_AT=${shellQuote(expectedBuiltAt)} \\`,
-    `node aimashi-cloud-release/smoke-cloud.js ${shellQuote(publicUrl)}`,
+    "tar -xzf mia-cloud-release.tgz mia-cloud-release/prepare-cloud-smoke-account.js mia-cloud-release/smoke-cloud.js",
+    "MIA_SMOKE_USERNAME='<smoke-account>' \\",
+    "MIA_SMOKE_PASSWORD='<smoke-password>' \\",
+    `node mia-cloud-release/prepare-cloud-smoke-account.js ${shellQuote(publicUrl)}`,
+    "MIA_SMOKE_USERNAME='<smoke-account>' \\",
+    "MIA_SMOKE_PASSWORD='<smoke-password>' \\",
+    "MIA_SMOKE_REQUIRE_BRIDGE=1 \\",
+    `MIA_SMOKE_EXPECT_RELEASE_COMMIT=${shellQuote(expectedCommit)} \\`,
+    `MIA_SMOKE_EXPECT_RELEASE_BUILT_AT=${shellQuote(expectedBuiltAt)} \\`,
+    `node mia-cloud-release/smoke-cloud.js ${shellQuote(publicUrl)}`,
     "```",
     "",
     "Log the desktop app or standalone bridge into the same smoke account before running the bridge-required e2e command.",
     "",
-    "Desktop bridge same-account control from a full Aimashi checkout:",
+    "Desktop bridge same-account control from a full Mia checkout:",
     "",
     "```bash",
-    "cd /path/to/aimashi",
+    "cd /path/to/mia",
     "npm run cloud:prod:verify:e2e -- https://aiweb.buytb01.com",
     "```",
     "",
-    "A desktop bridge logged into the same Aimashi Cloud account can be called directly from Web or mobile. It does not require a separate local approval click for the remote connection. Agent permission mode remains the normal per-Agent execution setting and is not used as device authentication.",
+    "A desktop bridge logged into the same Mia Cloud account can be called directly from Web or mobile. It does not require a separate local approval click for the remote connection. Agent permission mode remains the normal per-Agent execution setting and is not used as device authentication.",
     "",
     "Do not mark production complete until doctor and smoke both pass against the public URL.",
     ""
@@ -423,24 +423,24 @@ function buildTransferReadme({ publicUrl, expectedCommit, expectedBuiltAt }) {
 
 function writeTransferBundle({
   distDir = path.join(root, "dist"),
-  publicUrl = process.env.AIMASHI_CLOUD_PUBLIC_URL || "https://aiweb.buytb01.com",
-  sshPublicKeyPath = process.env.AIMASHI_DEPLOY_PUBLIC_KEY || path.join(os.homedir(), ".ssh", "id_ed25519.pub"),
-  outputPath = path.join(distDir, "aimashi-cloud-release-transfer.tgz")
+  publicUrl = process.env.MIA_CLOUD_PUBLIC_URL || "https://aiweb.buytb01.com",
+  sshPublicKeyPath = process.env.MIA_DEPLOY_PUBLIC_KEY || path.join(os.homedir(), ".ssh", "id_ed25519.pub"),
+  outputPath = path.join(distDir, "mia-cloud-release-transfer.tgz")
 } = {}) {
-  const archive = path.join(distDir, "aimashi-cloud-release.tgz");
+  const archive = path.join(distDir, "mia-cloud-release.tgz");
   const shaFile = `${archive}.sha256`;
   const handoffFile = writeHandoffFile({ distDir, publicUrl, sshPublicKeyPath });
   verifyHandoffFile({ distDir, publicUrl, sshPublicKeyPath, outputPath: handoffFile });
-  const manifest = JSON.parse(readText(path.join(distDir, "aimashi-cloud-release", "manifest.json")));
+  const manifest = JSON.parse(readText(path.join(distDir, "mia-cloud-release", "manifest.json")));
 
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-cloud-transfer-"));
-  const bundleRoot = path.join(tempDir, "aimashi-cloud-transfer");
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-cloud-transfer-"));
+  const bundleRoot = path.join(tempDir, "mia-cloud-transfer");
   try {
     fs.mkdirSync(bundleRoot, { recursive: true });
     const copiedFiles = [
-      { source: archive, name: "aimashi-cloud-release.tgz" },
-      { source: shaFile, name: "aimashi-cloud-release.tgz.sha256" },
-      { source: handoffFile, name: "aimashi-cloud-release-handoff.txt" }
+      { source: archive, name: "mia-cloud-release.tgz" },
+      { source: shaFile, name: "mia-cloud-release.tgz.sha256" },
+      { source: handoffFile, name: "mia-cloud-release-handoff.txt" }
     ];
     const fileNames = copiedFiles.map((file) => file.name);
     for (const file of copiedFiles) {
@@ -461,7 +461,7 @@ function writeTransferBundle({
     const transferHashes = fileNames.map((name) => `${sha256File(path.join(bundleRoot, name))}  ${name}`);
     fs.writeFileSync(path.join(bundleRoot, "TRANSFER-SHA256.txt"), `${transferHashes.join("\n")}\n`);
     fs.rmSync(outputPath, { force: true });
-    childProcess.execFileSync("tar", ["-czf", outputPath, "-C", tempDir, "aimashi-cloud-transfer"], {
+    childProcess.execFileSync("tar", ["-czf", outputPath, "-C", tempDir, "mia-cloud-transfer"], {
       stdio: "ignore"
     });
     fs.writeFileSync(`${outputPath}.sha256`, `${sha256File(outputPath)}  ${path.basename(outputPath)}\n`);
@@ -472,7 +472,7 @@ function writeTransferBundle({
 }
 
 function verifyTransferBundle({
-  outputPath = path.join(root, "dist", "aimashi-cloud-release-transfer.tgz")
+  outputPath = path.join(root, "dist", "mia-cloud-release-transfer.tgz")
 } = {}) {
   if (!fs.existsSync(outputPath)) {
     throw new Error(`Missing release transfer bundle: ${outputPath}`);
@@ -489,18 +489,18 @@ function verifyTransferBundle({
     );
   }
 
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-cloud-transfer-verify-"));
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-cloud-transfer-verify-"));
   const requiredFiles = new Set([
-    "aimashi-cloud-release.tgz",
-    "aimashi-cloud-release.tgz.sha256",
-    "aimashi-cloud-release-handoff.txt",
+    "mia-cloud-release.tgz",
+    "mia-cloud-release.tgz.sha256",
+    "mia-cloud-release-handoff.txt",
     "install-transfer-bundle.sh",
     "TRANSFER-README.md"
   ]);
 
   try {
     childProcess.execFileSync("tar", ["-xzf", outputPath, "-C", tempDir], { stdio: "ignore" });
-    const bundleRoot = path.join(tempDir, "aimashi-cloud-transfer");
+    const bundleRoot = path.join(tempDir, "mia-cloud-transfer");
     const checksumPath = path.join(bundleRoot, "TRANSFER-SHA256.txt");
     if (!fs.existsSync(checksumPath)) {
       throw new Error(`Transfer bundle is missing TRANSFER-SHA256.txt: ${outputPath}`);
@@ -543,22 +543,22 @@ function verifyTransferBundle({
 function main() {
   if (process.argv.includes("--write")) {
     const outputPath = writeHandoffFile();
-    console.log(`Aimashi Cloud release handoff written: ${outputPath}`);
+    console.log(`Mia Cloud release handoff written: ${outputPath}`);
     return;
   }
   if (process.argv.includes("--bundle")) {
     const outputPath = writeTransferBundle();
-    console.log(`Aimashi Cloud release transfer bundle written: ${outputPath}`);
+    console.log(`Mia Cloud release transfer bundle written: ${outputPath}`);
     return;
   }
   if (process.argv.includes("--verify-bundle")) {
     const outputPath = verifyTransferBundle();
-    console.log(`Aimashi Cloud release transfer bundle verified: ${outputPath}`);
+    console.log(`Mia Cloud release transfer bundle verified: ${outputPath}`);
     return;
   }
   if (process.argv.includes("--verify-file")) {
     const outputPath = verifyHandoffFile();
-    console.log(`Aimashi Cloud release handoff verified: ${outputPath}`);
+    console.log(`Mia Cloud release handoff verified: ${outputPath}`);
     return;
   }
   if (process.argv.includes("--ssh-authorize")) {

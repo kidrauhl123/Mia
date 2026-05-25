@@ -37,10 +37,10 @@ test("local bridge websocket URL omits auth token and advertises capabilities", 
 });
 
 test("local bridge sends cloud token via websocket subprotocol", () => {
-  assert.deepEqual(bridgeProtocols("secret-token"), ["aimashi-token.secret-token"]);
+  assert.deepEqual(bridgeProtocols("secret-token"), ["mia-token.secret-token"]);
 });
 
-test("local bridge can log in with the same Aimashi Cloud account", async () => {
+test("local bridge can log in with the same Mia Cloud account", async () => {
   let request;
   const token = await loginCloudAccount({
     cloudUrl: "https://cloud.example",
@@ -68,9 +68,9 @@ test("local bridge can log in with the same Aimashi Cloud account", async () => 
 
 test("local bridge token resolution prefers explicit token over password login", async () => {
   const token = await resolveBridgeToken({
-    AIMASHI_CLOUD_TOKEN: "explicit-token",
-    AIMASHI_CLOUD_USERNAME: "jung",
-    AIMASHI_CLOUD_PASSWORD: "secret1"
+    MIA_CLOUD_TOKEN: "explicit-token",
+    MIA_CLOUD_USERNAME: "jung",
+    MIA_CLOUD_PASSWORD: "secret1"
   }, async () => {
     throw new Error("fetch should not be called");
   });
@@ -81,12 +81,12 @@ test("local bridge token resolution prefers explicit token over password login",
 test("local bridge account login reports missing credentials clearly", async () => {
   await assert.rejects(
     () => resolveBridgeToken({
-      AIMASHI_CLOUD_URL: "https://cloud.example",
-      AIMASHI_CLOUD_USERNAME: "jung"
+      MIA_CLOUD_URL: "https://cloud.example",
+      MIA_CLOUD_USERNAME: "jung"
     }, async () => {
       throw new Error("fetch should not be called");
     }),
-    /AIMASHI_CLOUD_PASSWORD is required/
+    /MIA_CLOUD_PASSWORD is required/
   );
 });
 
@@ -117,7 +117,7 @@ test("local bridge permission mapping never waits for hidden CLI approval UI", (
 });
 
 test("local bridge includes attachment paths and text previews in Codex prompt", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-bridge-prompt-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-bridge-prompt-"));
   try {
     const filePath = path.join(dir, "note.txt");
     fs.writeFileSync(filePath, "hello attachment", "utf8");
@@ -154,7 +154,7 @@ test("local bridge materializes data-url attachments to local files", async () =
 });
 
 test("local bridge surfaces recent Codex generated images as uploadable attachments", () => {
-  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-bridge-generated-"));
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), "mia-bridge-generated-"));
   const previousCodexHome = process.env.CODEX_HOME;
   try {
     process.env.CODEX_HOME = codexHome;

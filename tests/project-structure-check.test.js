@@ -36,7 +36,7 @@ test("cloud desktop sync lives behind a main/cloud Module instead of main.js", (
   assert.match(syncSource, /function createCloudDesktopSyncClient/, "cloud desktop sync Module should exist");
   assert.match(mainSource, /createCloudDesktopSyncClient/, "main should instantiate the cloud desktop sync Module");
   assert.doesNotMatch(mainSource, /async function cloudApi/, "main must not own low-level cloud HTTP requests");
-  assert.doesNotMatch(mainSource, /async function syncAimashiCloudWorkspace/, "main must not own workspace sync orchestration");
+  assert.doesNotMatch(mainSource, /async function syncMiaCloudWorkspace/, "main must not own workspace sync orchestration");
   assert.doesNotMatch(mainSource, /async function pushAllFellowSessionsToCloudRooms/, "main must not own fellow room backfill");
   assert.doesNotMatch(mainSource, /async function mirrorFellowSessionToCloudRoom/, "main must not own fellow-room message mirroring");
 });
@@ -191,7 +191,7 @@ test("Claude bridge plugin generation lives behind a main claude-bridge-plugin s
   assert.match(mainSource, /createClaudeBridgePluginService/, "main should instantiate Claude bridge plugin setup");
   assert.doesNotMatch(mainSource, /function ensureClaudeBridgePlugin/, "main must not own Claude bridge plugin generation");
   assert.doesNotMatch(mainSource, /\.claude-plugin/, "main must not own Claude plugin manifest paths");
-  assert.doesNotMatch(mainSource, /aimashi-skills/, "main must not own Claude plugin manifest content");
+  assert.doesNotMatch(mainSource, /mia-skills/, "main must not own Claude plugin manifest content");
   assert.doesNotMatch(mainSource, /fs\.symlinkSync\(skillPath/, "main must not own bridge skill symlink creation");
 });
 
@@ -235,7 +235,7 @@ test("Hermes slash-command execution lives behind a main hermes-slash-command se
   assert.match(slashSource, /function createHermesSlashCommandService/, "Hermes slash-command service should exist");
   assert.match(mainSource, /createHermesSlashCommandService/, "main should instantiate Hermes slash-command execution");
   assert.doesNotMatch(mainSource, /function runHermesSlashCommand/, "main must not own Hermes slash-command execution");
-  assert.doesNotMatch(mainSource, /_AIMASHI_ZH_I18N/, "main must not embed Hermes slash-command i18n dictionaries");
+  assert.doesNotMatch(mainSource, /_MIA_ZH_I18N/, "main must not embed Hermes slash-command i18n dictionaries");
   assert.doesNotMatch(mainSource, /GatewayRunner/, "main must not embed Hermes gateway Python scripts");
   assert.doesNotMatch(mainSource, /gateway\.help\.header/, "main must not own localized Hermes command copy");
 });
@@ -259,15 +259,15 @@ test("macOS launchd plist and launchctl operations live behind a main launchd se
   assert.doesNotMatch(mainSource, /function startDaemonLaunchAgent/, "main must not own daemon launchd start");
 });
 
-test("Aimashi Hermes plugin files and install cleanup live behind a main engine-plugins service", () => {
+test("Mia Hermes plugin files and install cleanup live behind a main engine-plugins service", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
   const pluginSource = fs.readFileSync(path.join(root, "src/main/engine-plugins-service.js"), "utf8");
 
   assert.match(pluginSource, /function createEnginePluginsService/, "engine plugins service should exist");
   assert.match(mainSource, /createEnginePluginsService/, "main should instantiate engine plugin installation");
-  assert.doesNotMatch(mainSource, /function aimashiPluginFiles/, "main must not own embedded Python plugin source");
+  assert.doesNotMatch(mainSource, /function miaPluginFiles/, "main must not own embedded Python plugin source");
   assert.doesNotMatch(mainSource, /function ensureEnginePlugins/, "main must not own engine plugin install cleanup");
-  assert.doesNotMatch(mainSource, /X-Aimashi-Fellow/, "main must not embed Hermes overlay Python code");
+  assert.doesNotMatch(mainSource, /X-Mia-Fellow/, "main must not embed Hermes overlay Python code");
 });
 
 test("local Agent CLI discovery and version caching live behind a main local-agent-engine service", () => {
@@ -392,8 +392,8 @@ test("runtime directory initialization lives behind a main runtime-initializer s
   assert.doesNotMatch(mainSource, /function writeFileIfMissing/, "main must not own default runtime file writes");
   assert.doesNotMatch(mainSource, /function migrateLegacyPersonas/, "main must not own legacy persona migration");
   assert.doesNotMatch(mainSource, /function initializeRuntimeCore/, "main must not own runtime directory bootstrapping");
-  assert.doesNotMatch(mainSource, /Aimashi Shared Soul/, "main must not embed default SOUL content");
-  assert.doesNotMatch(mainSource, /runtime\/engine-home\/aimashi-model\.json/, "main must not own default settings creation bookkeeping");
+  assert.doesNotMatch(mainSource, /Mia Shared Soul/, "main must not embed default SOUL content");
+  assert.doesNotMatch(mainSource, /runtime\/engine-home\/mia-model\.json/, "main must not own default settings creation bookkeeping");
 });
 
 test("runtime initializer does not eagerly read provider defaults before provider connections initialize", () => {

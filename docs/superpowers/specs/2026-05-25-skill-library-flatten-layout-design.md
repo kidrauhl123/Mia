@@ -17,10 +17,10 @@
 排查 `src/main/skills-loader.js` 后确认，三个 section 里**只有「技能」有真实数据**：
 
 - `enumerateConnectors()`（:152）开头即 `const connectors = []`，永远返回空 → 截图中 `应用连接 0`。
-- `enumerateExtensions()`（:180）为 `return [].map(...)`，永远返回空 → `插件 0`。安装入口 `installMarketplacePlugin()`（:334）是一句直接抛错的桩：`"Aimashi 插件安装源尚未接入"`。
-- `enumeratePlugins()`（:191）读「Aimashi 官方库」manifest，但那是**技能的来源文件夹**（SKILL.md 的 root），最终喂给「技能」栏，不是可安装插件。
+- `enumerateExtensions()`（:180）为 `return [].map(...)`，永远返回空 → `插件 0`。安装入口 `installMarketplacePlugin()`（:334）是一句直接抛错的桩：`"Mia 插件安装源尚未接入"`。
+- `enumeratePlugins()`（:191）读「Mia 官方库」manifest，但那是**技能的来源文件夹**（SKILL.md 的 root），最终喂给「技能」栏，不是可安装插件。
 
-MCP 现状：aimashi 仅作为 **outbound MCP server** 把调度器 `schedule.*` 工具注入底层 Claude Code / Codex 引擎（`scheduler-mcp-server.js` + 两个 chat-adapter 的 `mcpServers` 配置）；**没有**消费用户自配 MCP 的客户端/host 能力，也无对应 UI。
+MCP 现状：mia 仅作为 **outbound MCP server** 把调度器 `schedule.*` 工具注入底层 Claude Code / Codex 引擎（`scheduler-mcp-server.js` + 两个 chat-adapter 的 `mcpServers` 配置）；**没有**消费用户自配 MCP 的客户端/host 能力，也无对应 UI。
 
 结论：`插件` 与 `应用连接` 是结构存在、数据永远为空的占位。
 
@@ -30,7 +30,7 @@ MCP 现状：aimashi 仅作为 **outbound MCP server** 把调度器 `schedule.*`
 
 ## 范围边界
 
-本子项目（A）**只**做布局壳与本地技能网格。以下属于后续子项目 B（aimashi Cloud 注册表），A 不做：
+本子项目（A）**只**做布局壳与本地技能网格。以下属于后续子项目 B（mia Cloud 注册表），A 不做：
 
 - 排序（最热）、`我的技能` 切换、`添加`/安装按钮、`X万人添加` 安装量
 - 办公学习 / 电脑设置 / 生活日常 / 休闲娱乐 等**云端固定分类**与 3D 分类图标
@@ -106,4 +106,4 @@ A 的产物是一个干净的本地技能网格，结构上为 B 接入远程品
 
 ## 后续（子项目 B，另起 spec）
 
-aimashi Cloud 技能注册表：远程目录、真实安装量、分类体系、`添加`/安装流程、`我的技能` 与商店的区分。B 落地时把远程品类填进 A 已建好的网格壳。
+mia Cloud 技能注册表：远程目录、真实安装量、分类体系、`添加`/安装流程、`我的技能` 与商店的区分。B 落地时把远程品类填进 A 已建好的网格壳。

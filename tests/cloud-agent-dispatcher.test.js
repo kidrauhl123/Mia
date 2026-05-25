@@ -14,7 +14,7 @@ const { ensureDefaultCloudFellow } = require("../src/cloud-agent/default-fellow.
 const { createCloudAgentDispatcher } = require("../src/cloud-agent/dispatcher.js");
 
 function setup() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-cloud-agent-dispatcher-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-cloud-agent-dispatcher-"));
   const cloudStore = createCloudStore({ dataDir: dir });
   const db = cloudStore.getDb();
   const socialStore = createSocialStore(db);
@@ -52,7 +52,7 @@ test("dispatcher only runs enabled cloud-hermes fellow rooms and appends fellow 
   try {
     ctx.runtimeBindingsStore.upsertBinding({
       userId: ctx.user.id,
-      fellowId: "aimashi",
+      fellowId: "mia",
       runtimeKind: "cloud-hermes",
       enabled: true,
       config: {
@@ -114,7 +114,7 @@ test("dispatcher only runs enabled cloud-hermes fellow rooms and appends fellow 
 
     assert.equal(hermesCalls.length, 1);
     assert.equal(hermesCalls[0].userId, ctx.user.id);
-    assert.equal(hermesCalls[0].fellow.id, "aimashi");
+    assert.equal(hermesCalls[0].fellow.id, "mia");
     assert.equal(hermesCalls[0].model, "hermes-agent");
     assert.equal(hermesCalls[0].effortLevel, "high");
     assert.equal(hermesCalls[0].permissionMode, "auto");
@@ -126,7 +126,7 @@ test("dispatcher only runs enabled cloud-hermes fellow rooms and appends fellow 
 
     const messages = ctx.messagesStore.listMessagesSince(ctx.room.id, 0);
     assert.deepEqual(messages.map((m) => m.sender_kind), ["user", "fellow"]);
-    assert.equal(messages[1].sender_ref, "aimashi");
+    assert.equal(messages[1].sender_ref, "mia");
     assert.equal(messages[1].sender_owner_id, ctx.user.id);
     assert.equal(messages[1].body_md, "cloud reply");
     assert.deepEqual(JSON.parse(messages[1].attachments_json), [{ id: "file_generated", type: "text", name: "out.txt", mimeType: "text/plain", size: 3, url: "/api/files/file_generated" }]);
@@ -153,7 +153,7 @@ test("dispatcher skips fellow rooms without enabled cloud-hermes binding", async
   try {
     ctx.runtimeBindingsStore.upsertBinding({
       userId: ctx.user.id,
-      fellowId: "aimashi",
+      fellowId: "mia",
       runtimeKind: "cloud-hermes",
       enabled: false
     });
@@ -184,15 +184,15 @@ test("dispatcher skips fellow rooms without enabled cloud-hermes binding", async
 
 test("dispatcher skips desktop-local and legacy fellow rooms even when a cloud binding exists", async () => {
   for (const decorations of [
-    { fellowKey: "aimashi", sessionId: "aimashi", runtimeKind: "desktop-local" },
-    { fellowKey: "aimashi", sessionId: "aimashi" }
+    { fellowKey: "mia", sessionId: "mia", runtimeKind: "desktop-local" },
+    { fellowKey: "mia", sessionId: "mia" }
   ]) {
     const ctx = setup();
     try {
       ctx.socialStore.updateRoom(ctx.room.id, { decorations });
       ctx.runtimeBindingsStore.upsertBinding({
         userId: ctx.user.id,
-        fellowId: "aimashi",
+        fellowId: "mia",
         runtimeKind: "cloud-hermes",
         enabled: true,
         config: { model: "hermes-agent" }

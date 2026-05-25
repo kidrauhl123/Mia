@@ -1,9 +1,9 @@
 {
-  "name": "aimashi",
+  "name": "mia",
   "version": "0.1.0",
   "private": true,
-  "productName": "Aimashi",
-  "description": "Aimashi desktop demo with an app-owned Hermes runtime home.",
+  "productName": "Mia",
+  "description": "Mia desktop demo with an app-owned Hermes runtime home.",
   "main": "src/main.js",
   "scripts": {
     "test": "node --test 'tests/*.test.js'",
@@ -21,12 +21,12 @@
     "cloud:deploy:authorize-help": "node scripts/print-cloud-release-handoff.js --ssh-authorize",
     "cloud:deploy:ssh-diagnose": "node scripts/diagnose-deploy-ssh.js",
     "cloud:deploy": "bash scripts/deploy-cloud-release.sh",
-    "cloud:deploy:dry-run": "AIMASHI_DEPLOY_DRY_RUN=1 bash scripts/deploy-cloud-release.sh",
+    "cloud:deploy:dry-run": "MIA_DEPLOY_DRY_RUN=1 bash scripts/deploy-cloud-release.sh",
     "cloud:prod:verify": "node scripts/verify-cloud-production.js",
-    "cloud:prod:verify:e2e": "AIMASHI_SMOKE_REQUIRE_BRIDGE=1 node scripts/verify-cloud-production.js",
+    "cloud:prod:verify:e2e": "MIA_SMOKE_REQUIRE_BRIDGE=1 node scripts/verify-cloud-production.js",
     "cloud:audit": "node scripts/audit-cloud-productization.js --live",
     "cloud:install:local": "bash scripts/install-cloud-release-local.sh",
-    "cloud:install:verify": "AIMASHI_INSTALL_VERIFY_ONLY=1 bash scripts/install-cloud-release-local.sh dist/aimashi-cloud-release.tgz",
+    "cloud:install:verify": "MIA_INSTALL_VERIFY_ONLY=1 bash scripts/install-cloud-release-local.sh dist/mia-cloud-release.tgz",
     "cloud:doctor": "node scripts/doctor-cloud.js",
     "cloud:smoke": "node scripts/smoke-cloud.js",
     "cloud:smoke:account": "node scripts/prepare-cloud-smoke-account.js",
@@ -62,8 +62,8 @@
     "ws": "^8.20.1"
   },
   "build": {
-    "appId": "ai.aimashi.app",
-    "productName": "Aimashi",
+    "appId": "ai.mia.app",
+    "productName": "Mia",
     "directories": {
       "output": "release"
     },

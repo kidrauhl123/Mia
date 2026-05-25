@@ -70,7 +70,7 @@ function createRemoteControlRouter({
         handled: true,
         data: {
           status: "ok",
-          service: "aimashi-daemon",
+          service: "mia-daemon",
           mode: isDaemonProcess ? "daemon" : "desktop"
         }
       };
@@ -80,7 +80,7 @@ function createRemoteControlRouter({
     }
     if (routeInfo.method === "GET" && routeInfo.pathname === "/api/fellows") {
       const manifest = loadFellowManifest();
-      return { handled: true, data: { fellows: manifest.fellows || [], defaultFellow: manifest.default_fellow || "aimashi" } };
+      return { handled: true, data: { fellows: manifest.fellows || [], defaultFellow: manifest.default_fellow || "mia" } };
     }
     if (routeInfo.method === "GET" && routeInfo.pathname === "/api/chat/sessions") {
       return { handled: true, data: loadChatSessions() };

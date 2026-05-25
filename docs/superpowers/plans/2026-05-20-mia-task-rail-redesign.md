@@ -1,14 +1,14 @@
-# Aimashi 任务面板（Task Rail）Implementation Plan
+# Mia 任务面板（Task Rail）Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 把 rail 第 4 项「工作台」替换为「任务」面板，daemon 内置 cron + 一次性 scheduler，AI 通过对话创建 / 修改任务，输出落回原 fellow 会话；GUI 提供任务列表 + 详情 + 历史内联查看。
 
-**Architecture:** Scheduler 仅在 daemon 进程启动，是任务的唯一权威源；GUI 通过既有 HTTP control server + SSE 订阅 daemon。AI 通过新 MCP server `aimashi-scheduler` 调用 daemon 内部函数（Hermes 直调，Claude Code / Codex 走 MCP）。任务 fire 复用现有 `runRemoteChatRequest`，输出 message 上挂 `taskId / taskRunId` 元信息。
+**Architecture:** Scheduler 仅在 daemon 进程启动，是任务的唯一权威源；GUI 通过既有 HTTP control server + SSE 订阅 daemon。AI 通过新 MCP server `mia-scheduler` 调用 daemon 内部函数（Hermes 直调，Claude Code / Codex 走 MCP）。任务 fire 复用现有 `runRemoteChatRequest`，输出 message 上挂 `taskId / taskRunId` 元信息。
 
-**Tech Stack:** Node.js（CommonJS）+ Electron 主进程 / 渲染进程；`cron-parser` 新增依赖；node:test 内置测试框架；现有 `aimashi-sessions.json` + 新增 `aimashi-tasks.json`；既有 LaunchAgent / 控制服务器 / MCP bridge。
+**Tech Stack:** Node.js（CommonJS）+ Electron 主进程 / 渲染进程；`cron-parser` 新增依赖；node:test 内置测试框架；现有 `mia-sessions.json` + 新增 `mia-tasks.json`；既有 LaunchAgent / 控制服务器 / MCP bridge。
 
-**Reference spec:** `docs/superpowers/specs/2026-05-20-aimashi-task-rail-redesign.md`
+**Reference spec:** `docs/superpowers/specs/2026-05-20-mia-task-rail-redesign.md`
 
 ---
 
@@ -16,10 +16,10 @@
 
 新增（按依赖顺序）：
 
-- `src/main/tasks-store.js` —— `aimashi-tasks.json` 的 CRUD + 原子写
+- `src/main/tasks-store.js` —— `mia-tasks.json` 的 CRUD + 原子写
 - `src/main/scheduler.js` —— Scheduler 引擎（heap + setTimeout，cron-parser 解析）
 - `src/main/scheduler-fire.js` —— 把 task 翻译成 `runRemoteChatRequest` 调用 + 记 run
-- `src/main/scheduler-mcp.js` —— MCP server `aimashi-scheduler`，工具表
+- `src/main/scheduler-mcp.js` —— MCP server `mia-scheduler`，工具表
 - `src/main/tasks-routes.js` —— `/api/tasks/*` HTTP handler
 - `src/main/tasks-events.js` —— SSE broadcast bus
 - `src/renderer/daemon-tasks-client.js` —— GUI 端 fetch + SSE 封装（通过 IPC 走主进程）
@@ -48,7 +48,7 @@
 - [ ] **Step 1: 安装依赖**
 
 ```bash
-cd /Users/jung/GitHub/aimashi
+cd /Users/jung/GitHub/mia
 npm install cron-parser@^4.9.0 --save
 ```
 
@@ -89,7 +89,7 @@ const os = require("node:os");
 const { createTasksStore } = require("../src/main/tasks-store.js");
 
 function tmpFile() {
-  return path.join(fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-tasks-")), "tasks.json");
+  return path.join(fs.mkdtempSync(path.join(os.tmpdir(), "mia-tasks-")), "tasks.json");
 }
 
 test("createTasksStore: empty file returns empty list", () => {
@@ -537,7 +537,7 @@ const { createTasksStore } = require("../src/main/tasks-store.js");
 const { createFireRunner } = require("../src/main/scheduler-fire.js");
 
 function tmpStore() {
-  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-fire-")), "tasks.json");
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "mia-fire-")), "tasks.json");
   return createTasksStore(file);
 }
 
@@ -765,7 +765,7 @@ const { createTasksEventBus } = require("../src/main/tasks-events.js");
 const { createTasksRoutes } = require("../src/main/tasks-routes.js");
 
 function ctx() {
-  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-routes-")), "tasks.json");
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "mia-routes-")), "tasks.json");
   const store = createTasksStore(file);
   const events = createTasksEventBus();
   const fired = [];
@@ -993,10 +993,10 @@ git commit -m "feat(tasks): HTTP routes + SSE events stream"
 - [ ] **Step 1: 看现有 MCP server 模式**
 
 ```bash
-grep -n "bridgeSkillsDir\|bridgeServerDir\|mcp.*server\|aimashi-skills" src/main.js | head -10
+grep -n "bridgeSkillsDir\|bridgeServerDir\|mcp.*server\|mia-skills" src/main.js | head -10
 ```
 
-Expected: 找到 `bridgeSkillsDir`（约 main.js:1964）—— 它创建一个 `bridge/skills` 目录、写一个 `aimashi-skills.json` manifest，然后由 hermes runtime / claude-code 通过 MCP 协议加载。
+Expected: 找到 `bridgeSkillsDir`（约 main.js:1964）—— 它创建一个 `bridge/skills` 目录、写一个 `mia-skills.json` manifest，然后由 hermes runtime / claude-code 通过 MCP 协议加载。
 
 阅读 main.js:1964-2010 段，弄清 manifest schema。
 
@@ -1008,13 +1008,13 @@ Expected: 找到 `bridgeSkillsDir`（约 main.js:1964）—— 它创建一个 `
 // so Claude Code / Codex can discover the schedule.* tools, and exposes a
 // handler that the bridge invokes.
 
-const SCHEDULER_MCP_NAME = "aimashi-scheduler";
+const SCHEDULER_MCP_NAME = "mia-scheduler";
 
 function makeManifest() {
   return {
     name: SCHEDULER_MCP_NAME,
     version: "0.1.0",
-    description: "Aimashi scheduler — create / list / update / pause / resume / delete cron and one-shot tasks.",
+    description: "Mia scheduler — create / list / update / pause / resume / delete cron and one-shot tasks.",
     tools: [
       {
         name: "schedule.create",
@@ -1101,7 +1101,7 @@ const { createTasksEventBus } = require("../src/main/tasks-events.js");
 const { createSchedulerMcp } = require("../src/main/scheduler-mcp.js");
 
 function setup() {
-  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-mcp-")), "tasks.json");
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "mia-mcp-")), "tasks.json");
   const store = createTasksStore(file);
   const events = createTasksEventBus();
   const rescans = { count: 0 };
@@ -1250,7 +1250,7 @@ grep -n "runtimePaths\|daemonSettings\|IS_DAEMON_PROCESS" src/main.js | head
 打开 src/main.js 找到 runtimePaths 返回的对象（约 line 184-200），在 `chatSessions: ...` 行下面加：
 
 ```javascript
-tasks: path.join(home, "aimashi-tasks.json"),
+tasks: path.join(home, "mia-tasks.json"),
 ```
 
 - [ ] **Step 3: 在 main.js 顶部 require 新模块**
@@ -1651,7 +1651,7 @@ npm run open
 在 devtools console 跑：
 
 ```javascript
-await window.aimashi.tasks.list();  // 应返回 []
+await window.mia.tasks.list();  // 应返回 []
 ```
 
 Expected: 返回 `[]`，无报错。
@@ -1933,7 +1933,7 @@ function computeNextFireForUi(task, now) {
   // Use same logic as scheduler but in browser — re-export via preload, or
   // duplicate the small bit here. Simplest: read task.nextFire if backend
   // populates it. For v1 we keep it minimal and call into preload helper.
-  return window.aimashi.tasks._computeNext?.(task, now) ?? null;
+  return window.mia.tasks._computeNext?.(task, now) ?? null;
 }
 
 function isToday(ms, now) {
@@ -2106,7 +2106,7 @@ els.tasksView.classList.add("hidden");
 ```javascript
 async function loadTasksFromDaemon() {
   try {
-    state.tasks = await window.aimashi.tasks.list();
+    state.tasks = await window.mia.tasks.list();
   } catch (e) {
     console.error("load tasks failed", e);
     state.tasks = [];
@@ -2116,7 +2116,7 @@ async function loadTasksFromDaemon() {
 let tasksUnsubscribe = null;
 function subscribeTaskEvents() {
   if (tasksUnsubscribe) return;
-  tasksUnsubscribe = window.aimashi.tasks.subscribe(async (envelope) => {
+  tasksUnsubscribe = window.mia.tasks.subscribe(async (envelope) => {
     await loadTasksFromDaemon();
     if (envelope.type === "finished" || envelope.type === "failed") {
       const taskId = envelope.payload?.taskId;
@@ -2245,7 +2245,7 @@ function renderTaskDetail(task) {
 function attachTaskDetailHandlers(task) {
   const debouncedSave = debounce(async (patch) => {
     try {
-      const updated = await window.aimashi.tasks.update(task.id, patch);
+      const updated = await window.mia.tasks.update(task.id, patch);
       const idx = state.tasks.findIndex(t => t.id === task.id);
       if (idx >= 0) state.tasks[idx] = updated;
       renderTaskSidebar();
@@ -2276,12 +2276,12 @@ function attachTaskDetailHandlers(task) {
     btn.addEventListener("click", async () => {
       const action = btn.dataset.action;
       try {
-        if (action === "run-now")  await window.aimashi.tasks.runNow(task.id);
-        if (action === "pause")    await window.aimashi.tasks.pause(task.id);
-        if (action === "resume")   await window.aimashi.tasks.resume(task.id);
+        if (action === "run-now")  await window.mia.tasks.runNow(task.id);
+        if (action === "pause")    await window.mia.tasks.pause(task.id);
+        if (action === "resume")   await window.mia.tasks.resume(task.id);
         if (action === "delete") {
           if (!confirm(`删除任务「${task.title}」？已发生的历史记录会保留在会话里。`)) return;
-          await window.aimashi.tasks.delete(task.id);
+          await window.mia.tasks.delete(task.id);
           state.selectedTaskId = "";
         }
       } catch (e) { console.error(e); }
@@ -2336,9 +2336,9 @@ function sessionTitle(sessionId) {
 
 ```bash
 # 找到 daemon baseUrl + token
-cat ~/Library/Application\ Support/Aimashi/aimashi-daemon.json
-cat ~/Library/Application\ Support/Aimashi/aimashi-daemon.key
-TOKEN=$(cat ~/Library/Application\ Support/Aimashi/aimashi-daemon.key)
+cat ~/Library/Application\ Support/Mia/mia-daemon.json
+cat ~/Library/Application\ Support/Mia/mia-daemon.key
+TOKEN=$(cat ~/Library/Application\ Support/Mia/mia-daemon.key)
 curl -X POST http://127.0.0.1:PORT/api/tasks \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"title":"测试","fellowId":"FELLOW_KEY","sessionId":"SESSION_ID","originMessageId":"m","trigger":{"type":"cron","cron":"0 9 * * *"},"timezone":"Asia/Shanghai","prompt":"测试"}'
@@ -2399,7 +2399,7 @@ function renderRunDetail(task) {
     jumpToSession(task.sessionId);
   });
   els.tasksContent.querySelector("[data-action='run-now']").addEventListener("click", async () => {
-    await window.aimashi.tasks.runNow(task.id);
+    await window.mia.tasks.runNow(task.id);
     await loadTasksFromDaemon();
     renderTaskView();
   });
@@ -2496,7 +2496,7 @@ function renderTasksEmpty() {
     <div class="tasks-empty">
       <div class="tasks-empty-emoji">📅</div>
       <h2>还没有定时任务</h2>
-      <p>回到任意聊天告诉 Aimashi：<br><em>"每天 9 点帮我做 X"</em><br>它会自动帮你建好任务。</p>
+      <p>回到任意聊天告诉 Mia：<br><em>"每天 9 点帮我做 X"</em><br>它会自动帮你建好任务。</p>
     </div>
   `;
 }
@@ -2583,15 +2583,15 @@ npm run open
 - [ ] **Step 5: 关 GUI、保留 daemon 验证**
 
 ```bash
-# 关闭 Aimashi.app 窗口（不退出 daemon）
+# 关闭 Mia.app 窗口（不退出 daemon）
 # 等下一次 fire
-# 重新打开 Aimashi.app → 应看到 daemon 关期间的 fire 已经在历史里
-tail -F ~/Library/Logs/Aimashi/daemon.log  # 或类似日志
+# 重新打开 Mia.app → 应看到 daemon 关期间的 fire 已经在历史里
+tail -F ~/Library/Logs/Mia/daemon.log  # 或类似日志
 ```
 
 - [ ] **Step 6: 校对 spec coverage**
 
-打开 `docs/superpowers/specs/2026-05-20-aimashi-task-rail-redesign.md`，逐节对照实现是否落地：
+打开 `docs/superpowers/specs/2026-05-20-mia-task-rail-redesign.md`，逐节对照实现是否落地：
 - §3 导航变更 ✓
 - §4 实体 schema ✓
 - §5 用户流程（create / fire / view / edit / cascade）✓
@@ -2614,7 +2614,7 @@ echo "task rail implementation complete" > /dev/null
 如果有 docs 改动（如把 spec 标为"已实施"），提交：
 
 ```bash
-git add docs/superpowers/specs/2026-05-20-aimashi-task-rail-redesign.md
+git add docs/superpowers/specs/2026-05-20-mia-task-rail-redesign.md
 git commit -m "docs: mark task rail spec as shipped"
 ```
 
@@ -2637,5 +2637,5 @@ git commit -m "docs: mark task rail spec as shipped"
 - [ ] 一次性任务 fire 成功后状态转 done
 - [ ] 删除任务后历史 message 仍在原会话里（不级联删 message）
 - [ ] 启动 / 关 daemon 多次 → 任务持久化正常
-- [ ] `~/Library/Application Support/Aimashi/aimashi-tasks.json` 文件存在且 schema 正确
+- [ ] `~/Library/Application Support/Mia/mia-tasks.json` 文件存在且 schema 正确
 - [ ] 把这一行 spec coverage 检查放进 commit message 里：参 spec §X 已实现 / §Y V2 留位

@@ -21,7 +21,7 @@ const {
 
 const root = path.resolve(__dirname, "..");
 
-const objective = "实现前 7 个 Aimashi Cloud 产品化目标：统一账号同步、SQLite 持久化、安全基线、增强 Bridge、附件/图片流、实时同步、桌面端云同步，并且只用真实证据判定完成。";
+const objective = "实现前 7 个 Mia Cloud 产品化目标：统一账号同步、SQLite 持久化、安全基线、增强 Bridge、附件/图片流、实时同步、桌面端云同步，并且只用真实证据判定完成。";
 
 function readText(rootDir, relativePath) {
   return fs.readFileSync(path.join(rootDir, relativePath), "utf8");
@@ -70,26 +70,26 @@ function checkPackageScript(rootDir, name, expected) {
 }
 
 function checkReleaseManifest(rootDir) {
-  const manifestPath = path.join(rootDir, "dist", "aimashi-cloud-release", "manifest.json");
+  const manifestPath = path.join(rootDir, "dist", "mia-cloud-release", "manifest.json");
   if (!fs.existsSync(manifestPath)) {
-    return { ok: false, label: "release manifest", evidence: "dist/aimashi-cloud-release/manifest.json missing" };
+    return { ok: false, label: "release manifest", evidence: "dist/mia-cloud-release/manifest.json missing" };
   }
   const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
   return {
     ok: Boolean(manifest.builtAt && manifest.source?.gitCommit && manifest.files?.["api/server.js"]),
     label: "release manifest",
-    evidence: `dist/aimashi-cloud-release/manifest.json builtAt=${manifest.builtAt || "missing"} commit=${manifest.source?.gitCommit || "missing"}`
+    evidence: `dist/mia-cloud-release/manifest.json builtAt=${manifest.builtAt || "missing"} commit=${manifest.source?.gitCommit || "missing"}`
   };
 }
 
 function checkReleaseArchiveChecksum(rootDir) {
-  const archivePath = path.join(rootDir, "dist", "aimashi-cloud-release.tgz");
+  const archivePath = path.join(rootDir, "dist", "mia-cloud-release.tgz");
   const sidecarPath = `${archivePath}.sha256`;
   if (!fs.existsSync(archivePath)) {
-    return { ok: false, label: "release archive checksum", evidence: "dist/aimashi-cloud-release.tgz missing" };
+    return { ok: false, label: "release archive checksum", evidence: "dist/mia-cloud-release.tgz missing" };
   }
   if (!fs.existsSync(sidecarPath)) {
-    return { ok: false, label: "release archive checksum", evidence: "dist/aimashi-cloud-release.tgz.sha256 missing" };
+    return { ok: false, label: "release archive checksum", evidence: "dist/mia-cloud-release.tgz.sha256 missing" };
   }
   const expected = readSha256(sidecarPath).toLowerCase();
   const actual = sha256File(archivePath);
@@ -97,8 +97,8 @@ function checkReleaseArchiveChecksum(rootDir) {
     ok: expected === actual,
     label: "release archive checksum",
     evidence: expected === actual
-      ? `dist/aimashi-cloud-release.tgz sha256=${actual}`
-      : `dist/aimashi-cloud-release.tgz.sha256=${expected}; actual=${actual}`
+      ? `dist/mia-cloud-release.tgz sha256=${actual}`
+      : `dist/mia-cloud-release.tgz.sha256=${expected}; actual=${actual}`
   };
 }
 
@@ -108,7 +108,7 @@ function checkReleaseHandoffFresh(rootDir) {
     return {
       ok: true,
       label: "release handoff freshness",
-      evidence: "dist/aimashi-cloud-release-handoff.txt matches current release artifacts"
+      evidence: "dist/mia-cloud-release-handoff.txt matches current release artifacts"
     };
   } catch (error) {
     return {
@@ -121,11 +121,11 @@ function checkReleaseHandoffFresh(rootDir) {
 
 function checkTransferBundleFresh(rootDir) {
   try {
-    verifyTransferBundle({ outputPath: path.join(rootDir, "dist", "aimashi-cloud-release-transfer.tgz") });
+    verifyTransferBundle({ outputPath: path.join(rootDir, "dist", "mia-cloud-release-transfer.tgz") });
     return {
       ok: true,
       label: "release transfer bundle freshness",
-      evidence: "dist/aimashi-cloud-release-transfer.tgz and internal checksums verified"
+      evidence: "dist/mia-cloud-release-transfer.tgz and internal checksums verified"
     };
   } catch (error) {
     return {
@@ -149,12 +149,12 @@ function extractAsarText(archivePath, filePath) {
 }
 
 function checkPackagedDesktopPermissionGate(rootDir) {
-  const archivePath = path.join(rootDir, "release", "mac-arm64", "Aimashi.app", "Contents", "Resources", "app.asar");
+  const archivePath = path.join(rootDir, "release", "mac-arm64", "Mia.app", "Contents", "Resources", "app.asar");
   if (!fs.existsSync(archivePath)) {
     return {
       ok: false,
       label: "packaged same-account bridge policy",
-      evidence: "release/mac-arm64/Aimashi.app/Contents/Resources/app.asar missing"
+      evidence: "release/mac-arm64/Mia.app/Contents/Resources/app.asar missing"
     };
   }
   try {
@@ -164,7 +164,7 @@ function checkPackagedDesktopPermissionGate(rootDir) {
     const hasBridgeEntrypoint = /startCloudBridge/.test(mainSource)
       && (/createCloudBridgeClient/.test(mainSource) || /async function runCloudBridgeRequest/.test(mainSource));
     const required = [
-      /AIMASHI_ALLOW_MULTIPLE_INSTANCES/.test(mainSource),
+      /MIA_ALLOW_MULTIPLE_INSTANCES/.test(mainSource),
       /cloudWebSocketProtocols/.test(mainSource),
       hasBridgeEntrypoint,
       /permissionMode: "default"/.test(bridgeSource),
@@ -175,8 +175,8 @@ function checkPackagedDesktopPermissionGate(rootDir) {
       ok: required.every(Boolean),
       label: "packaged same-account bridge policy",
       evidence: required.every(Boolean)
-        ? "packaged Aimashi.app connects Cloud bridge with account-authenticated WebSocket and starts the local Agent without a separate remote-connection approval gate"
-        : "packaged Aimashi.app is missing current same-account bridge auth/startup policy or still contains a local remote-connection approval gate"
+        ? "packaged Mia.app connects Cloud bridge with account-authenticated WebSocket and starts the local Agent without a separate remote-connection approval gate"
+        : "packaged Mia.app is missing current same-account bridge auth/startup policy or still contains a local remote-connection approval gate"
     };
   } catch (error) {
     return {
@@ -200,7 +200,7 @@ function expectedNativePermissionProofSourceHashes(rootDir) {
 }
 
 function checkNativePermissionProof(rootDir) {
-  const relativePath = "dist/aimashi-desktop-permission-manual-proof.json";
+  const relativePath = "dist/mia-desktop-permission-manual-proof.json";
   const proofPath = path.join(rootDir, relativePath);
   if (!fs.existsSync(proofPath)) {
     return {
@@ -277,13 +277,13 @@ function runCommand(command, args, { timeoutMs = 10000 } = {}) {
 
 async function livePublicProductionChecks({
   rootDir = root,
-  publicUrl = process.env.AIMASHI_CLOUD_PUBLIC_URL || "https://aiweb.buytb01.com",
-  timeoutMs = Number(process.env.AIMASHI_AUDIT_TIMEOUT_MS || 10000),
+  publicUrl = process.env.MIA_CLOUD_PUBLIC_URL || "https://aiweb.buytb01.com",
+  timeoutMs = Number(process.env.MIA_AUDIT_TIMEOUT_MS || 10000),
   fetchImpl = fetch
 } = {}) {
   const baseUrl = normalizeBaseUrl(publicUrl);
   const expected = readExpectedRelease({
-    manifestPath: path.join(rootDir, "dist", "aimashi-cloud-release", "manifest.json")
+    manifestPath: path.join(rootDir, "dist", "mia-cloud-release", "manifest.json")
   });
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -324,15 +324,15 @@ async function livePublicProductionChecks({
 }
 
 async function liveSshDeployChecks({
-  deployRemote = process.env.AIMASHI_DEPLOY_REMOTE || "root@aiweb.buytb01.com",
-  timeoutMs = Number(process.env.AIMASHI_AUDIT_TIMEOUT_MS || 10000),
+  deployRemote = process.env.MIA_DEPLOY_REMOTE || "root@aiweb.buytb01.com",
+  timeoutMs = Number(process.env.MIA_AUDIT_TIMEOUT_MS || 10000),
   runCommandImpl = runCommand
 } = {}) {
   if (!deployRemote) {
     return [{
       ok: false,
       label: "live ssh deploy access",
-      evidence: "AIMASHI_DEPLOY_REMOTE is empty"
+      evidence: "MIA_DEPLOY_REMOTE is empty"
     }];
   }
   const result = await runCommandImpl("ssh", [
@@ -369,7 +369,7 @@ function runAudit({ rootDir = root } = {}) {
       checkSource(rootDir, "src/cloud/sqlite-store.js", /scryptSync/, "scrypt password hashing"),
       checkSource(rootDir, "src/cloud/sqlite-store.js", /token_hash/, "hashed session tokens"),
       checkSource(rootDir, "src/cloud/sqlite-store.js", /loginFailures|rateLimitKey/, "login failure rate limiting"),
-      checkSource(rootDir, "scripts/serve-cloud.js", /authenticated-files|applySecurityHeaders|AIMASHI_CLOUD_ALLOWED_ORIGINS|isOriginAllowed/, "auth files and browser-origin controls"),
+      checkSource(rootDir, "scripts/serve-cloud.js", /authenticated-files|applySecurityHeaders|MIA_CLOUD_ALLOWED_ORIGINS|isOriginAllowed/, "auth files and browser-origin controls"),
       checkSource(rootDir, "tests/serve-cloud-bridge.test.js", /cloud files require owner authentication/, "file ownership API test"),
       checkSource(rootDir, "tests/serve-cloud-bridge.test.js", /websocket auth rejects query token auth by default/, "query-token rejection test")
     ]),
@@ -391,7 +391,7 @@ function runAudit({ rootDir = root } = {}) {
       checkSource(rootDir, "tests/sync-replay.test.js", /reconnect with since_seq replays/, "since_seq replay test guards offline drop")
     ]),
     item("cloud.desktop-sync", "桌面端同账号云同步和 Bridge 自动接入", [
-      checkSource(rootDir, "src/main.js", /cloudLogin|syncAimashiCloudWorkspace|startCloudBridge/, "desktop login/sync/bridge IPC path"),
+      checkSource(rootDir, "src/main.js", /cloudLogin|syncMiaCloudWorkspace|startCloudBridge/, "desktop login/sync/bridge IPC path"),
       checkSource(rootDir, "src/main/cloud/desktop-sync-client.js", /pushAllFellows[\s\S]*ensureFellowRoom/, "desktop sync ensures stable fellow cloud rooms"),
       checkSource(rootDir, "tests/main-cloud-desktop-sync-client.test.js", /syncWorkspace syncs fellow identity and stable rooms without reading local sessions/, "desktop sync no longer backfills local sessions on login"),
       checkSource(rootDir, "src/preload.js", /cloudStatus[\s\S]*cloudLogin[\s\S]*cloudSync|cloudLogin[\s\S]*cloudSync[\s\S]*cloudLogout/, "preload exposes cloud account actions"),
@@ -404,27 +404,27 @@ function runAudit({ rootDir = root } = {}) {
     item("gate.same-account-bridge-control", "同账号 Web/手机端可直接调用桌面 Agent，设备鉴权不复用 Agent permission", [
       checkSource(rootDir, "src/main/cloud/cloud-bridge-client.js", /async function runCloudBridgeRequest[\s\S]*permissionMode: "default"/, "desktop bridge keeps Agent permissionMode on the Agent run"),
       checkSource(rootDir, "src/main/cloud/cloud-bridge-client.js", /async function runCloudBridgeRequest(?![\s\S]*?confirmCloudBridgeRun\()/, "desktop bridge run source does not call local approval gate"),
-      checkSource(rootDir, "src/main.js", /cloudWebSocketProtocols[\s\S]*aimashi-token\./, "desktop bridge authenticates to Cloud with account token subprotocol"),
+      checkSource(rootDir, "src/main.js", /cloudWebSocketProtocols[\s\S]*mia-token\./, "desktop bridge authenticates to Cloud with account token subprotocol"),
       checkSource(rootDir, "scripts/serve-cloud.js", /devicesByUser[\s\S]*hub\.devicesByUser\.get\(userId\)/, "cloud bridge devices are scoped by authenticated userId"),
       checkSource(rootDir, "tests/project-structure-check.test.js", /does not add a separate local approval gate/, "regression test forbids remote-connection approval gate in bridge run"),
       checkSource(rootDir, "tests/serve-cloud-bridge.test.js", /auto-selects the only online device|runs on the explicitly selected online device|requires explicit device selection/, "same-account bridge dispatch tests")
     ]),
     item("cloud.release-package", "可部署 release 包、doctor/smoke/handoff/transfer bundle", [
       checkPackageScript(rootDir, "cloud:release", "node scripts/build-cloud-release.js"),
-      checkPackageScript(rootDir, "cloud:deploy:dry-run", "AIMASHI_DEPLOY_DRY_RUN=1 bash scripts/deploy-cloud-release.sh"),
+      checkPackageScript(rootDir, "cloud:deploy:dry-run", "MIA_DEPLOY_DRY_RUN=1 bash scripts/deploy-cloud-release.sh"),
       checkPackageScript(rootDir, "cloud:deploy:ssh-diagnose", "node scripts/diagnose-deploy-ssh.js"),
       checkPackageScript(rootDir, "cloud:blockers", "node scripts/print-cloud-blockers.js"),
       checkPackageScript(rootDir, "cloud:audit", "node scripts/audit-cloud-productization.js --live"),
       checkPackageScript(rootDir, "cloud:prod:verify", "node scripts/verify-cloud-production.js"),
-      checkPackageScript(rootDir, "cloud:prod:verify:e2e", "AIMASHI_SMOKE_REQUIRE_BRIDGE=1 node scripts/verify-cloud-production.js"),
+      checkPackageScript(rootDir, "cloud:prod:verify:e2e", "MIA_SMOKE_REQUIRE_BRIDGE=1 node scripts/verify-cloud-production.js"),
       checkReleaseManifest(rootDir),
       checkReleaseArchiveChecksum(rootDir),
       checkReleaseHandoffFresh(rootDir),
       checkTransferBundleFresh(rootDir),
       checkPackagedDesktopPermissionGate(rootDir),
       checkSource(rootDir, "scripts/build-cloud-release.js", /README\.md[\s\S]*install-cloud-release-local\.sh[\s\S]*doctor-cloud\.js[\s\S]*smoke-cloud\.js[\s\S]*diagnose-deploy-ssh\.js/, "release package includes operator assets"),
-      checkSource(rootDir, "dist/aimashi-cloud-release/README.md", /same Aimashi Cloud account[\s\S]*does not require a separate local approval click[\s\S]*Agent permission mode remains/, "release README documents same-account bridge without remote approval gate"),
-      checkSource(rootDir, "scripts/print-cloud-release-handoff.js", /same Aimashi Cloud account[\s\S]*does not require a separate local approval click[\s\S]*Agent permission mode remains/, "transfer bundle documents same-account bridge without remote approval gate"),
+      checkSource(rootDir, "dist/mia-cloud-release/README.md", /same Mia Cloud account[\s\S]*does not require a separate local approval click[\s\S]*Agent permission mode remains/, "release README documents same-account bridge without remote approval gate"),
+      checkSource(rootDir, "scripts/print-cloud-release-handoff.js", /same Mia Cloud account[\s\S]*does not require a separate local approval click[\s\S]*Agent permission mode remains/, "transfer bundle documents same-account bridge without remote approval gate"),
       checkSource(rootDir, "scripts/print-cloud-release-handoff.js", /readSshAgentStatus[\s\S]*ssh-add/, "handoff reports ssh-agent status and ssh-add recovery"),
       checkSource(rootDir, "scripts/print-cloud-release-handoff.js", /sshServerDiagnosticsCommand[\s\S]*authorized_keys[\s\S]*sshd -T/, "handoff includes VPS-side SSH diagnostics")
     ]),
@@ -482,7 +482,7 @@ async function runAuditLive(options = {}) {
 
 function renderAudit(audit) {
   const lines = [
-    "Aimashi Cloud productization audit",
+    "Mia Cloud productization audit",
     "",
     `Objective: ${audit.objective}`,
     ""

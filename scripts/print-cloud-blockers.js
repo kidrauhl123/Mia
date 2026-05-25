@@ -18,12 +18,12 @@ function safeSshAuthorizationHelp() {
     return buildSshAuthorizationHelp();
   } catch (error) {
     return [
-      "Aimashi Cloud SSH authorization help",
+      "Mia Cloud SSH authorization help",
       "",
       `Public key is not ready: ${String(error?.message || error)}`,
       "Create or point to a deployment public key before production deploy:",
       "```bash",
-      "ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -C aimashi-cloud-deploy",
+      "ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -C mia-cloud-deploy",
       "npm run cloud:deploy:authorize-help",
       "npm run cloud:deploy:ssh-diagnose",
       "```",
@@ -34,9 +34,9 @@ function safeSshAuthorizationHelp() {
 }
 
 function readReleaseIdentity(rootDir = root) {
-  const manifestPath = path.join(rootDir, "dist", "aimashi-cloud-release", "manifest.json");
-  const releaseShaPath = path.join(rootDir, "dist", "aimashi-cloud-release.tgz.sha256");
-  const transferShaPath = path.join(rootDir, "dist", "aimashi-cloud-release-transfer.tgz.sha256");
+  const manifestPath = path.join(rootDir, "dist", "mia-cloud-release", "manifest.json");
+  const releaseShaPath = path.join(rootDir, "dist", "mia-cloud-release.tgz.sha256");
+  const transferShaPath = path.join(rootDir, "dist", "mia-cloud-release-transfer.tgz.sha256");
   if (!fs.existsSync(manifestPath)) throw new Error(`Missing release manifest: ${manifestPath}`);
   const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
   return {
@@ -50,7 +50,7 @@ function readReleaseIdentity(rootDir = root) {
 
 async function productionDeployComplete({
   rootDir = root,
-  publicUrl = process.env.AIMASHI_CLOUD_PUBLIC_URL || "https://aiweb.buytb01.com"
+  publicUrl = process.env.MIA_CLOUD_PUBLIC_URL || "https://aiweb.buytb01.com"
 } = {}) {
   try {
     const audit = await runAuditLive({ rootDir, publicUrl });
@@ -62,12 +62,12 @@ async function productionDeployComplete({
 
 async function buildCloudBlockers({
   rootDir = root,
-  publicUrl = process.env.AIMASHI_CLOUD_PUBLIC_URL || "https://aiweb.buytb01.com"
+  publicUrl = process.env.MIA_CLOUD_PUBLIC_URL || "https://aiweb.buytb01.com"
 } = {}) {
   const identity = readReleaseIdentity(rootDir);
   const productionComplete = await productionDeployComplete({ rootDir, publicUrl });
   const lines = [
-    "Aimashi Cloud remaining blockers",
+    "Mia Cloud remaining blockers",
     "",
     "Current release:",
     `- commit: ${identity.commit}${identity.dirty ? "+dirty" : ""}`,
@@ -100,7 +100,7 @@ async function buildCloudBlockers({
 
 async function buildCloudBlockerSummary({
   rootDir = root,
-  publicUrl = process.env.AIMASHI_CLOUD_PUBLIC_URL || "https://aiweb.buytb01.com"
+  publicUrl = process.env.MIA_CLOUD_PUBLIC_URL || "https://aiweb.buytb01.com"
 } = {}) {
   const identity = readReleaseIdentity(rootDir);
   const productionComplete = await productionDeployComplete({ rootDir, publicUrl });

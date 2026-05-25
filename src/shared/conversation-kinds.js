@@ -1,7 +1,7 @@
 (function attachConversationKinds(root, factory) {
   const api = factory();
   if (typeof module === "object" && module.exports) module.exports = api;
-  if (root) root.aimashiConversationKinds = api;
+  if (root) root.miaConversationKinds = api;
 })(typeof window !== "undefined" ? window : (typeof globalThis !== "undefined" ? globalThis : null), function buildConversationKinds() {
   const ConversationKind = Object.freeze({
     FellowPrivate: "fellow",

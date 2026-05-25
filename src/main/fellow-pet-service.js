@@ -17,7 +17,7 @@ const PET_WINDOW_COMPACT = { width: 144, height: 150 };
 const PET_WINDOW_MESSAGE = { width: 260, height: 220 };
 const PET_MESSAGE_DURATION_MS = 8500;
 const DEFAULT_PET_REMOTE_HOST = "root@23.95.43.168";
-const DEFAULT_PET_REMOTE_ROOT = "~/.aimashi/pet-runs";
+const DEFAULT_PET_REMOTE_ROOT = "~/.mia/pet-runs";
 
 function fellowPetId(key) {
   const cleaned = String(key || "")
@@ -27,7 +27,7 @@ function fellowPetId(key) {
     .replace(/[^a-z0-9.-]+/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-+|-+$/g, "");
-  return `aimashi-${cleaned || "fellow"}`;
+  return `mia-${cleaned || "fellow"}`;
 }
 
 function legacyFellowPetId(key) {
@@ -36,7 +36,7 @@ function legacyFellowPetId(key) {
     .toLowerCase()
     .replace(/[^a-z0-9_.-]+/g, "-")
     .replace(/^-+|-+$/g, "");
-  return `aimashi-${cleaned || "fellow"}`;
+  return `mia-${cleaned || "fellow"}`;
 }
 
 function petIdAliasesForKey(key) {
@@ -54,7 +54,7 @@ function petIdAliasesForKey(key) {
 function buildFellowPetPrompt(fellow, userPrompt = "") {
   const extra = String(userPrompt || "").trim();
   const base = [
-    `把 Aimashi Fellow「${fellow.name}」做成可以放在桌面的本地小伙伴。`,
+    `把 Mia Fellow「${fellow.name}」做成可以放在桌面的本地小伙伴。`,
     "参考图是角色原始形象图；保留主要发色、脸部气质、服装和装饰识别点。",
     "做成小体积、清晰轮廓、适合 192x208 动画格子的 Q 版桌宠。",
     "不要加文字、背景、光效、场景或 UI 元素。"
@@ -153,7 +153,7 @@ function createFellowPetService(deps = {}) {
     return candidates.find((candidate) => candidate && fs.existsSync(path.join(candidate, "hatch_generate.py"))) || candidates[0];
   }
 
-  function aimashiSkillsRoot() {
+  function miaSkillsRoot() {
     const candidates = [
       path.join(resourcesPath, "skills"),
       path.join(app.getAppPath(), "skills"),
@@ -181,7 +181,7 @@ function createFellowPetService(deps = {}) {
     }
     if (value === "skills" || value.startsWith("skills/")) {
       const rel = value.slice("skills".length).replace(/^[\\/]/, "");
-      return path.join(aimashiSkillsRoot(), rel);
+      return path.join(miaSkillsRoot(), rel);
     }
     return path.join(path.dirname(officialLibraryManifestPath()), value);
   }
@@ -235,11 +235,11 @@ function createFellowPetService(deps = {}) {
 
   function petRemoteCodexSettings() {
     const saved = readJson(runtimePaths().petRemoteSettings, {});
-    const disabled = env.AIMASHI_PET_REMOTE_DISABLED === "1" || saved.enabled === false;
+    const disabled = env.MIA_PET_REMOTE_DISABLED === "1" || saved.enabled === false;
     const host = disabled
       ? ""
-      : String(env.AIMASHI_PET_REMOTE_HOST || saved.host || DEFAULT_PET_REMOTE_HOST).trim();
-    const root = String(env.AIMASHI_PET_REMOTE_ROOT || saved.root || DEFAULT_PET_REMOTE_ROOT).trim();
+      : String(env.MIA_PET_REMOTE_HOST || saved.host || DEFAULT_PET_REMOTE_HOST).trim();
+    const root = String(env.MIA_PET_REMOTE_ROOT || saved.root || DEFAULT_PET_REMOTE_ROOT).trim();
     return { host, root, enabled: Boolean(host) };
   }
 
@@ -313,13 +313,13 @@ function createFellowPetService(deps = {}) {
     if (!fellow) throw new Error("Fellow not found.");
     const generatorRoot = petGeneratorRoot();
     const script = path.join(generatorRoot, "hatch_generate.py");
-    if (!fs.existsSync(script)) throw new Error(`Aimashi pet generator not found: ${script}`);
+    if (!fs.existsSync(script)) throw new Error(`Mia pet generator not found: ${script}`);
 
     const p = runtimePaths();
     const jobId = randomUUID();
     const petId = fellowPetId(fellow.key);
     const runDir = path.join(p.petJobsDir, `${petId}-${jobId.slice(0, 8)}`);
-    const refDir = path.join(runDir, "aimashi-references");
+    const refDir = path.join(runDir, "mia-references");
     const referenceImages = Array.isArray(input.referenceImages) ? input.referenceImages : [];
     const references = referenceImages
       .map((value, index) => materializePetReference(value, refDir, index + 1))
@@ -351,7 +351,7 @@ function createFellowPetService(deps = {}) {
       "--prompt", prompt,
       "--pet-id", petId,
       "--display-name", fellow.name,
-      "--description", `${fellow.name} 的 Aimashi 桌宠。`,
+      "--description", `${fellow.name} 的 Mia 桌宠。`,
       "--style-notes", style.styleNotes,
       "--style-contract", style.styleContract,
       "--row-concurrency", "3",
@@ -511,7 +511,7 @@ function createFellowPetService(deps = {}) {
   }
 
   return {
-    aimashiSkillsRoot,
+    miaSkillsRoot,
     findFellowPetPackage,
     jobs,
     materializePetReference,

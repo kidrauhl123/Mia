@@ -48,12 +48,12 @@ cafe52c fix(cloud): release-time require paths + manifest entries for social mod
 ### 立刻可演示
 
 1. 主 checkout 已经在 `aef65e2`（main 最新），直接 `npm run open` 起 Electron
-2. 注册一个账号（菜单里"Aimashi Cloud"登录页 → 注册）— **会自动生成 username**
+2. 注册一个账号（菜单里"Mia Cloud"登录页 → 注册）— **会自动生成 username**
 3. 浏览器打开 https://aiweb.buytb01.com → 注册第二个账号
 4. 桌面端 → 联系人页 → 顶上 🤝 按钮 → 输第二个账号的 username → 发送
 5. 浏览器端 → 好友 tab → 收到的请求 → 同意
 6. 两边都看到对方进了 DM 房间 → 互发消息（应该实时同步）
-7. 桌面端 → 顶上 👥 按钮 → 新建群 → 输群名 + 勾选朋友 + 勾选 codex / aimashi (你本地的 fellow) → 创建
+7. 桌面端 → 顶上 👥 按钮 → 新建群 → 输群名 + 勾选朋友 + 勾选 codex / mia (你本地的 fellow) → 创建
 8. 浏览器端：收到群邀请 → 进群 → 输 `@codex 帮我查一下 xxx` → 发送
 9. 桌面端这边：codex 自动接到 invocation event → 调本地引擎 → 把回话 POST 回群
 10. 浏览器和桌面同步看到 codex 的回话
@@ -89,11 +89,11 @@ cafe52c fix(cloud): release-time require paths + manifest entries for social mod
 
 ## 部署状态
 
-- VPS `23.95.43.168` (`aiweb.buytb01.com`) — `aimashi-cloud` service active
+- VPS `23.95.43.168` (`aiweb.buytb01.com`) — `mia-cloud` service active
 - 数据库已 schema v2，社交表落地 + 已生效
 - nginx WS 配置正常，subprotocol auth 工作
 - 5 次部署，每次都过 `cloud:smoke` 15 项
-- 备份在 VPS `/root/aimashi-cloud-*-<deploy-id>.tgz`
+- 备份在 VPS `/root/mia-cloud-*-<deploy-id>.tgz`
 
 ## 决策日志
 

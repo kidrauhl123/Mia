@@ -1,7 +1,7 @@
 (function attachTimeFormat(root, factory) {
   const api = factory();
   if (typeof module === "object" && module.exports) module.exports = api;
-  if (root) root.aimashiTimeFormat = api;
+  if (root) root.miaTimeFormat = api;
 })(typeof window !== "undefined" ? window : (typeof globalThis !== "undefined" ? globalThis : null), function buildTimeFormat() {
   function formatConversationTime(value) {
     if (!value) return "";

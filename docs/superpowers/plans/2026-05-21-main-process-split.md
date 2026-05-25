@@ -61,7 +61,7 @@ Roughly grouped by domain. Sizes are estimates from grep + read.
   `placeFellowPet`, `recallFellowPet`, `notifyFellowPetMessage`,
   `petStatusForFellow`, `findFellowPetPackage`, `resizePetWindow`,
   `styleSettingsForPet`, `petRemoteCodexSettings`, `petGeneratorRoot`,
-  `aimashiSkillsRoot`, `officialLibraryManifestPath`,
+  `miaSkillsRoot`, `officialLibraryManifestPath`,
   `resolveOfficialLibraryRoot`, `buildFellowPetPrompt`, `filePreview`,
   `petRunProgress`, `petJobSnapshot`, `getPetJobs`, `migrateLegacyPersonas`)
   → `src/main/pet-generator.js` (~370 lines). **Note:** interleaved with
@@ -155,7 +155,7 @@ for renderer, <500 for main) still remain in front; expect another
    apply per extraction.
 2. **Per-commit verify**: `node --check src/main/<new>.js && node --check src/main.js && node src/check.js && npm test`.
    All four must pass before commit.
-3. **Per-commit smoke**: `AIMASHI_USER_DATA_DIR=/tmp/aimashi-refactor-smoke-<name> ELECTRON_ENABLE_LOGGING=1 npm run open`.
+3. **Per-commit smoke**: `MIA_USER_DATA_DIR=/tmp/mia-refactor-smoke-<name> ELECTRON_ENABLE_LOGGING=1 npm run open`.
    Grep stderr for `TypeError|ReferenceError|Uncaught|pingfang`. The
    harmless `tasks:list fetch failed` is expected in isolated smoke.
 4. **Before push**: per memory `feedback_codex_review_before_push`, run

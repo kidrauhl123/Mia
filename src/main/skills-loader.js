@@ -190,18 +190,18 @@ function createSkillsLoader(deps = {}) {
 
   function enumeratePlugins() {
     const out = [];
-    for (const source of readAimashiOfficialSkillSources()) {
+    for (const source of readMiaOfficialSkillSources()) {
       out.push(source);
     }
     return out;
   }
 
-  function readAimashiOfficialSkillSources() {
+  function readMiaOfficialSkillSources() {
     const manifestPath = officialLibraryManifestPath();
     const manifest = readJson(manifestPath, null);
     if (!manifest || typeof manifest !== "object") return [];
-    const libraryId = String(manifest.id || "aimashi-official").trim() || "aimashi-official";
-    const libraryLabel = String(manifest.label || "Aimashi 官方库").trim() || "Aimashi 官方库";
+    const libraryId = String(manifest.id || "mia-official").trim() || "mia-official";
+    const libraryLabel = String(manifest.label || "Mia 官方库").trim() || "Mia 官方库";
     return (Array.isArray(manifest.skillSources) ? manifest.skillSources : [])
       .map((item) => {
         const id = String(item?.id || item?.name || "").trim();
@@ -215,7 +215,7 @@ function createSkillsLoader(deps = {}) {
           source: libraryId,
           sourceLabel: libraryLabel,
           kind: "official-skill-source",
-          engine: String(item.engine || "aimashi").trim(),
+          engine: String(item.engine || "mia").trim(),
           root,
           idPrefix: String(item.idPrefix || libraryId).trim() || libraryId
         };
@@ -274,7 +274,7 @@ function createSkillsLoader(deps = {}) {
       for (const filePath of findSkillFiles(plugin.root)) {
         try {
           const skill = parseSkillMarkdown(filePath, plugin);
-          if (plugin.source !== "aimashi" && seenByName.has(skill.name.toLowerCase())) continue;
+          if (plugin.source !== "mia" && seenByName.has(skill.name.toLowerCase())) continue;
           seenByName.add(skill.name.toLowerCase());
           skill.pluginId = plugin.id;
           skill.pluginLabel = plugin.label;
@@ -333,7 +333,7 @@ function createSkillsLoader(deps = {}) {
 
   async function installMarketplacePlugin(extensionId) {
     void extensionId;
-    throw new Error("Aimashi 插件安装源尚未接入；不会安装 Codex 或 Claude Code 来源的插件。");
+    throw new Error("Mia 插件安装源尚未接入；不会安装 Codex 或 Claude Code 来源的插件。");
   }
 
   function resolveLocalSkill(identifier) {
@@ -341,7 +341,7 @@ function createSkillsLoader(deps = {}) {
     if (!target) return null;
     for (const plugin of enumeratePlugins()) {
       if (!fs.existsSync(plugin.root)) continue;
-      const inAimashiPrivate = plugin.source === "aimashi" && isChildPath(runtimePaths().home, plugin.root);
+      const inMiaPrivate = plugin.source === "mia" && isChildPath(runtimePaths().home, plugin.root);
       for (const filePath of findSkillFiles(plugin.root)) {
         try {
           const raw = fs.readFileSync(filePath, "utf8");
@@ -356,7 +356,7 @@ function createSkillsLoader(deps = {}) {
             path.basename(path.dirname(filePath))
           ].filter(Boolean);
           if (aliases.some((alias) => String(alias).trim() === target)) {
-            return { filePath, root: plugin.root, inAimashiPrivate, raw, skill };
+            return { filePath, root: plugin.root, inMiaPrivate, raw, skill };
           }
         } catch {
           // skip unreadable
@@ -388,7 +388,7 @@ function createSkillsLoader(deps = {}) {
     if (!found) return null;
     if (mode === "native") {
       return [
-        `用户选择了 Aimashi Skill：${name}。`,
+        `用户选择了 Mia Skill：${name}。`,
         "请优先使用运行环境里同名的 Skill；如果 Skill 工具需要命名空间，请选择最匹配这个名称的 Skill。",
         "",
         userRequest
@@ -412,10 +412,10 @@ function createSkillsLoader(deps = {}) {
   async function deleteLocalSkill(skillId) {
     const found = resolveLocalSkill(skillId);
     if (!found) throw new Error("Skill not found.");
-    if (!found.inAimashiPrivate) throw new Error("只能删除 Aimashi 私有 Skill 目录里的 Skill。");
-    const aimashiRoot = path.join(runtimePaths().home, "skills");
+    if (!found.inMiaPrivate) throw new Error("只能删除 Mia 私有 Skill 目录里的 Skill。");
+    const miaRoot = path.join(runtimePaths().home, "skills");
     const skillDir = path.dirname(found.filePath);
-    if (!isChildPath(aimashiRoot, skillDir)) throw new Error("Skill path is outside the Aimashi skills directory.");
+    if (!isChildPath(miaRoot, skillDir)) throw new Error("Skill path is outside the Mia skills directory.");
     fs.rmSync(skillDir, { recursive: true, force: true });
     return loadLocalSkills();
   }
@@ -450,7 +450,7 @@ function createSkillsLoader(deps = {}) {
     enumerateConnectors,
     enumerateExtensions,
     enumeratePlugins,
-    readAimashiOfficialSkillSources,
+    readMiaOfficialSkillSources,
     extensionCapabilitySummary,
   };
 }

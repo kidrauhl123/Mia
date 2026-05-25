@@ -8,7 +8,7 @@ const { pathToFileURL } = require("node:url");
 const { createChatAttachments } = require("../src/main/chat-attachments.js");
 
 function setup(t, overrides = {}) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-chat-attachments-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-chat-attachments-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const calls = { initialize: 0 };
   const attachments = createChatAttachments({
@@ -69,7 +69,7 @@ test("saveChatAttachment writes bounded data URLs into the runtime attachment di
 
 test("readLocalFileAttachment and safeFetchFileAttachment handle local files and errors", async (t) => {
   const { attachments } = setup(t);
-  const filePath = path.join(os.tmpdir(), `aimashi-local-${process.pid}.txt`);
+  const filePath = path.join(os.tmpdir(), `mia-local-${process.pid}.txt`);
   fs.writeFileSync(filePath, "local text", "utf8");
   try {
     const local = attachments.readLocalFileAttachment({ path: filePath });

@@ -58,7 +58,7 @@ test("claude adapter returns local slash command response without SDK call", asy
   assert.equal(response.id, "cmd_test");
   assert.equal(response.model, "claude-code");
   assert.equal(response.choices[0].message.content, "local help");
-  assert.deepEqual(response.aimashi, {
+  assert.deepEqual(response.mia, {
     transport: "local-command",
     engine: "claude-code",
     fellow_key: "alice"
@@ -98,7 +98,7 @@ test("claude adapter preserves structured local command result", async () => {
 
   assert.equal(response.choices[0].message.content, "选择一个会话继续：");
   assert.deepEqual(response.choices[0].message.commandResult, { type: "session-list", rows: [{ id: "s1" }] });
-  assert.deepEqual(response.aimashi.commandResult, { type: "session-list", rows: [{ id: "s1" }] });
+  assert.deepEqual(response.mia.commandResult, { type: "session-list", rows: [{ id: "s1" }] });
 });
 
 

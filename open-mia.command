@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 if [ ! -d "node_modules/electron" ]; then
-  echo "Installing Aimashi dependencies..."
+  echo "Installing Mia dependencies..."
   npm install
 fi
 

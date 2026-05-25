@@ -11,11 +11,11 @@ function loadSource() {
   const src = fs.readFileSync(path.join(__dirname, "..", "src", "renderer", "message-sources", "cloud-room-source.js"), "utf8");
   const window = {};
   const ctx = vm.createContext({ window, globalThis: window, console });
-  vm.runInContext("globalThis.aimashiMessageSpec = (function(){ const module = { exports: {} }; " + sharedSpec + "; return module.exports; })();", ctx);
-  vm.runInContext("globalThis.aimashiContact = (function(){ const module = { exports: {} }; " + sharedContact + "; return module.exports; })();", ctx);
+  vm.runInContext("globalThis.miaMessageSpec = (function(){ const module = { exports: {} }; " + sharedSpec + "; return module.exports; })();", ctx);
+  vm.runInContext("globalThis.miaContact = (function(){ const module = { exports: {} }; " + sharedContact + "; return module.exports; })();", ctx);
   vm.runInContext(sharedKinds, ctx);
   vm.runInContext(src, ctx);
-  return window.aimashiCloudRoomSource;
+  return window.miaCloudRoomSource;
 }
 
 test("CloudRoomSource DM friend message uses friend avatar", () => {

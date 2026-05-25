@@ -170,7 +170,7 @@
     return `${name} | ${label}`;
   }
 
-  window.aimashiModelHelpers = {
+  window.miaModelHelpers = {
     initModelHelpers,
     modelKey,
     fallbackCatalogFromPresets,

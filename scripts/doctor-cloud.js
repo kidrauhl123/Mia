@@ -20,16 +20,16 @@ function usage() {
     "",
     "Examples:",
     "  node scripts/doctor-cloud.js https://aiweb.buytb01.com",
-    "  AIMASHI_DOCTOR_REMOTE=root@aiweb.buytb01.com node scripts/doctor-cloud.js https://aiweb.buytb01.com",
+    "  MIA_DOCTOR_REMOTE=root@aiweb.buytb01.com node scripts/doctor-cloud.js https://aiweb.buytb01.com",
     "",
     "Environment:",
-    "  AIMASHI_CLOUD_URL=<url>          Cloud URL when no positional URL is passed.",
-    "  AIMASHI_DOCTOR_REMOTE=<ssh>      Optional SSH target for server prerequisite checks.",
-    "  AIMASHI_DOCTOR_EXPECT_RELEASE_COMMIT=<sha>  Require /api/health.release.gitCommit to match.",
-    "  AIMASHI_DOCTOR_EXPECT_RELEASE_BUILT_AT=<iso>  Require /api/health.release.builtAt to match.",
-    "  AIMASHI_DEPLOY_SUDO=\"sudo -n\"    Optional privilege command for nginx -t.",
-    "  AIMASHI_DEPLOY_SERVICE_USER=aimashi-cloud  Service user expected by deployment scripts.",
-    "  AIMASHI_DOCTOR_TIMEOUT_MS=10000  Per network/SSH check timeout."
+    "  MIA_CLOUD_URL=<url>          Cloud URL when no positional URL is passed.",
+    "  MIA_DOCTOR_REMOTE=<ssh>      Optional SSH target for server prerequisite checks.",
+    "  MIA_DOCTOR_EXPECT_RELEASE_COMMIT=<sha>  Require /api/health.release.gitCommit to match.",
+    "  MIA_DOCTOR_EXPECT_RELEASE_BUILT_AT=<iso>  Require /api/health.release.builtAt to match.",
+    "  MIA_DEPLOY_SUDO=\"sudo -n\"    Optional privilege command for nginx -t.",
+    "  MIA_DEPLOY_SERVICE_USER=mia-cloud  Service user expected by deployment scripts.",
+    "  MIA_DOCTOR_TIMEOUT_MS=10000  Per network/SSH check timeout."
   ].join("\n");
 }
 
@@ -48,13 +48,13 @@ function parseArgs(argv = process.argv.slice(2), env = process.env) {
   const positional = argv.filter((arg) => !String(arg).startsWith("-"));
   if (argv.includes("-h") || argv.includes("--help")) return { help: true };
   return {
-    baseUrl: normalizeBaseUrl(positional[0] || env.AIMASHI_CLOUD_URL || "https://aiweb.buytb01.com"),
-    remote: String(env.AIMASHI_DOCTOR_REMOTE || "").trim(),
-    sudo: String(env.AIMASHI_DEPLOY_SUDO || "").trim(),
-    serviceUser: String(env.AIMASHI_DEPLOY_SERVICE_USER || "aimashi-cloud").trim() || "aimashi-cloud",
-    expectedReleaseCommit: String(env.AIMASHI_DOCTOR_EXPECT_RELEASE_COMMIT || "").trim(),
-    expectedReleaseBuiltAt: String(env.AIMASHI_DOCTOR_EXPECT_RELEASE_BUILT_AT || "").trim(),
-    timeoutMs: Number(env.AIMASHI_DOCTOR_TIMEOUT_MS || 10000)
+    baseUrl: normalizeBaseUrl(positional[0] || env.MIA_CLOUD_URL || "https://aiweb.buytb01.com"),
+    remote: String(env.MIA_DOCTOR_REMOTE || "").trim(),
+    sudo: String(env.MIA_DEPLOY_SUDO || "").trim(),
+    serviceUser: String(env.MIA_DEPLOY_SERVICE_USER || "mia-cloud").trim() || "mia-cloud",
+    expectedReleaseCommit: String(env.MIA_DOCTOR_EXPECT_RELEASE_COMMIT || "").trim(),
+    expectedReleaseBuiltAt: String(env.MIA_DOCTOR_EXPECT_RELEASE_BUILT_AT || "").trim(),
+    timeoutMs: Number(env.MIA_DOCTOR_TIMEOUT_MS || 10000)
   };
 }
 
@@ -142,9 +142,9 @@ function shellQuote(value) {
   return `'${String(value).replace(/'/g, "'\\''")}'`;
 }
 
-function buildRemoteProbeCommand({ sudo = "", serviceUser = "aimashi-cloud" } = {}) {
+function buildRemoteProbeCommand({ sudo = "", serviceUser = "mia-cloud" } = {}) {
   const sudoPrefix = sudo ? `${sudo} ` : "";
-  const quotedServiceUser = shellQuote(serviceUser || "aimashi-cloud");
+  const quotedServiceUser = shellQuote(serviceUser || "mia-cloud");
   return [
     "set -euo pipefail",
     "node -e 'require(\"node:sqlite\"); const major = Number(process.versions.node.split(\".\")[0]); if (major < 25) { console.error(\"Node.js 25+ is required, found \" + process.version); process.exit(1); }'",
@@ -195,7 +195,7 @@ async function checkPublic(baseUrl, {
   }
 }
 
-async function checkRemote(remote, { sudo = "", serviceUser = "aimashi-cloud", timeoutMs = 10000 } = {}) {
+async function checkRemote(remote, { sudo = "", serviceUser = "mia-cloud", timeoutMs = 10000 } = {}) {
   if (!remote) return [];
   const access = await runCommand("ssh", [
     "-o", "BatchMode=yes",
@@ -243,7 +243,7 @@ async function main() {
 
 if (require.main === module) {
   main().catch((error) => {
-    console.error(`Aimashi Cloud doctor failed: ${error.message}`);
+    console.error(`Mia Cloud doctor failed: ${error.message}`);
     process.exit(1);
   });
 }

@@ -241,7 +241,7 @@ function createRelayClient({
         role: "desktop",
         deviceId: current.deviceId,
         secret: current.secret,
-        name: hostname() || "Aimashi Desktop"
+        name: hostname() || "Mia Desktop"
       });
     });
     ws.on("message", (raw) => {

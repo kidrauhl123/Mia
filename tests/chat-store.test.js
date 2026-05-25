@@ -26,7 +26,7 @@ test("normalizeChatStore preserves structured command results", () => {
             type: "session-list",
             command: "/resume",
             engine: "codex",
-            sourceDeviceId: "aimashi-device-a",
+            sourceDeviceId: "mia-device-a",
             rows: [{
               id: "019e53ab-cb8a-71a2-a2a4-ca7bdf0520d6",
               title: "Indexed title",
@@ -44,7 +44,7 @@ test("normalizeChatStore preserves structured command results", () => {
     type: "session-list",
     command: "/resume",
     engine: "codex",
-    sourceDeviceId: "aimashi-device-a",
+    sourceDeviceId: "mia-device-a",
     rows: [{
       id: "019e53ab-cb8a-71a2-a2a4-ca7bdf0520d6",
       title: "Indexed title",

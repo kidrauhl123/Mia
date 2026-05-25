@@ -121,4 +121,4 @@ if (sprite && sheet) {
   tick();
 }
 
-window.aimashiPet?.onMessage?.(showMessage);
+window.miaPet?.onMessage?.(showMessage);

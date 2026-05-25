@@ -33,20 +33,20 @@ function sha256Text(contents) {
 }
 
 function createReleaseFixture({ badSidecar = false } = {}) {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-handoff-"));
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-handoff-"));
   const distDir = path.join(tempDir, "dist");
-  const releaseDir = path.join(distDir, "aimashi-cloud-release");
+  const releaseDir = path.join(distDir, "mia-cloud-release");
   const archiveContents = "archive";
   const archiveSha = sha256Text(archiveContents);
-  writeFile(path.join(distDir, "aimashi-cloud-release.tgz"), archiveContents);
+  writeFile(path.join(distDir, "mia-cloud-release.tgz"), archiveContents);
   writeFile(
-    path.join(distDir, "aimashi-cloud-release.tgz.sha256"),
-    `${badSidecar ? "0".repeat(64) : archiveSha}  aimashi-cloud-release.tgz\n`
+    path.join(distDir, "mia-cloud-release.tgz.sha256"),
+    `${badSidecar ? "0".repeat(64) : archiveSha}  mia-cloud-release.tgz\n`
   );
   writeFile(path.join(releaseDir, "README.md"), "# readme\n");
   writeFile(path.join(releaseDir, "install-cloud-release-local.sh"), "#!/usr/bin/env bash\n");
   writeFile(path.join(releaseDir, "manifest.json"), `${JSON.stringify({
-    product: "Aimashi Cloud",
+    product: "Mia Cloud",
     builtAt: "2026-05-21T01:02:03.000Z",
     source: { gitCommit: "abcdef123456", gitDirty: true },
     files: {
@@ -58,7 +58,7 @@ function createReleaseFixture({ badSidecar = false } = {}) {
 }
 
 test("readSha256 parses the first checksum field and sha256File hashes file contents", () => {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-sha-"));
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-sha-"));
   try {
     const shaFile = path.join(tempDir, "release.tgz.sha256");
     const archive = path.join(tempDir, "release.tgz");
@@ -72,10 +72,10 @@ test("readSha256 parses the first checksum field and sha256File hashes file cont
 });
 
 test("deployment public key helpers expose public key fingerprints without private key material", () => {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-pubkey-"));
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-pubkey-"));
   try {
     const publicKeyPath = path.join(tempDir, "id_ed25519.pub");
-    const publicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC1I4LfHcHFs9N1NZWSKlYhvthAl8S3zKLer1+gbPn4J aimashi-test";
+    const publicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC1I4LfHcHFs9N1NZWSKlYhvthAl8S3zKLer1+gbPn4J mia-test";
     fs.writeFileSync(publicKeyPath, `${publicKey}\n`);
     const expectedFingerprint = sshPublicKeyFingerprint(publicKey);
     assert.match(expectedFingerprint, /^SHA256:/);
@@ -91,7 +91,7 @@ test("deployment public key helpers expose public key fingerprints without priva
 });
 
 test("authorizedKeysInstallCommand appends the deployment public key idempotently", () => {
-  const publicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC1I4LfHcHFs9N1NZWSKlYhvthAl8S3zKLer1+gbPn4J aimashi-test";
+  const publicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC1I4LfHcHFs9N1NZWSKlYhvthAl8S3zKLer1+gbPn4J mia-test";
   const command = authorizedKeysInstallCommand(publicKey, "root");
   assert.match(command, /install -d -m 700 \/root\/\.ssh/);
   assert.match(command, /grep -qxF 'ssh-ed25519/);
@@ -101,18 +101,18 @@ test("authorizedKeysInstallCommand appends the deployment public key idempotentl
 });
 
 test("sshServerDiagnosticsCommand checks key presence, permissions, and sshd policy", () => {
-  const publicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC1I4LfHcHFs9N1NZWSKlYhvthAl8S3zKLer1+gbPn4J aimashi-test";
+  const publicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC1I4LfHcHFs9N1NZWSKlYhvthAl8S3zKLer1+gbPn4J mia-test";
   const command = sshServerDiagnosticsCommand(publicKey, "root");
   assert.match(command, /ls -ld \/root \/root\/\.ssh \/root\/\.ssh\/authorized_keys/);
   assert.match(command, /grep -qxF 'ssh-ed25519/);
-  assert.match(command, /authorized_keys contains Aimashi deploy key/);
-  assert.match(command, /MISSING Aimashi deploy key/);
+  assert.match(command, /authorized_keys contains Mia deploy key/);
+  assert.match(command, /MISSING Mia deploy key/);
   assert.match(command, /sshd -T/);
   assert.match(command, /permitrootlogin/);
   assert.doesNotMatch(command, /PRIVATE KEY|BEGIN OPENSSH PRIVATE KEY/);
 });
 
-test("parseDeployRemote extracts a deploy user from AIMASHI_DEPLOY_REMOTE-style targets", () => {
+test("parseDeployRemote extracts a deploy user from MIA_DEPLOY_REMOTE-style targets", () => {
   assert.deepEqual(parseDeployRemote("root@aiweb.buytb01.com"), {
     remote: "root@aiweb.buytb01.com",
     user: "root",
@@ -131,28 +131,28 @@ test("parseDeployRemote extracts a deploy user from AIMASHI_DEPLOY_REMOTE-style 
 });
 
 test("buildSshAuthorizationHelp prints a focused SSH unblock command without release artifacts", () => {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-ssh-help-"));
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-ssh-help-"));
   try {
     const publicKeyPath = path.join(tempDir, "id_ed25519.pub");
-    const publicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC1I4LfHcHFs9N1NZWSKlYhvthAl8S3zKLer1+gbPn4J aimashi-test";
+    const publicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC1I4LfHcHFs9N1NZWSKlYhvthAl8S3zKLer1+gbPn4J mia-test";
     fs.writeFileSync(publicKeyPath, `${publicKey}\n`);
     const help = buildSshAuthorizationHelp({
       remote: "deploy@aiweb.buytb01.com",
       sshPublicKeyPath: publicKeyPath,
       sshAgentStatus: "ssh-agent identities: none loaded"
     });
-    assert.match(help, /Aimashi Cloud SSH authorization help/);
+    assert.match(help, /Mia Cloud SSH authorization help/);
     assert.match(help, /Remote target: deploy@aiweb\.buytb01\.com/);
     assert.match(help, /Remote user: deploy/);
     assert.match(help, new RegExp(`Public key path: ${publicKeyPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
     assert.match(help, /Public key fingerprint: SHA256:/);
     assert.match(help, /Local ssh-agent identities: none loaded/);
-    assert.match(help, /ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC1I4LfHcHFs9N1NZWSKlYhvthAl8S3zKLer1\+gbPn4J aimashi-test/);
+    assert.match(help, /ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC1I4LfHcHFs9N1NZWSKlYhvthAl8S3zKLer1\+gbPn4J mia-test/);
     assert.match(help, /install -d -m 700 ~deploy\/\.ssh/);
     assert.match(help, /grep -qxF 'ssh-ed25519/);
     assert.match(help, /If SSH is still denied after authorizing/);
     assert.match(help, /sshd -T/);
-    assert.match(help, /MISSING Aimashi deploy key/);
+    assert.match(help, /MISSING Mia deploy key/);
     assert.match(help, new RegExp(`ssh-add '${path.join(tempDir, "id_ed25519").replace(/'/g, "'\\\\''")}'`));
     assert.match(help, /ssh -o BatchMode=yes -o ConnectTimeout=10 'deploy@aiweb\.buytb01\.com' true/);
     assert.match(help, /npm run cloud:deploy/);
@@ -184,75 +184,75 @@ test("readSshAgentStatus summarizes loaded, empty, and unavailable agents withou
 });
 
 test("checksumVerifyCommand supports Linux sha256sum and macOS shasum", () => {
-  const command = checksumVerifyCommand("aimashi-cloud-release-transfer.tgz.sha256");
+  const command = checksumVerifyCommand("mia-cloud-release-transfer.tgz.sha256");
   assert.match(command, /if command -v sha256sum >\/dev\/null 2>&1; then/);
-  assert.match(command, /sha256sum -c 'aimashi-cloud-release-transfer\.tgz\.sha256'/);
-  assert.match(command, /shasum -a 256 -c 'aimashi-cloud-release-transfer\.tgz\.sha256'/);
+  assert.match(command, /sha256sum -c 'mia-cloud-release-transfer\.tgz\.sha256'/);
+  assert.match(command, /shasum -a 256 -c 'mia-cloud-release-transfer\.tgz\.sha256'/);
 });
 
 test("buildHandoff prints operator commands from release artifacts", () => {
   const { tempDir, distDir } = createReleaseFixture();
   try {
     const publicKeyPath = path.join(tempDir, "id_ed25519.pub");
-    fs.writeFileSync(publicKeyPath, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC1I4LfHcHFs9N1NZWSKlYhvthAl8S3zKLer1+gbPn4J aimashi-test\n");
+    fs.writeFileSync(publicKeyPath, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC1I4LfHcHFs9N1NZWSKlYhvthAl8S3zKLer1+gbPn4J mia-test\n");
     const handoff = buildHandoff({ distDir, publicUrl: "https://aiweb.buytb01.com", sshPublicKeyPath: publicKeyPath });
     assert.match(handoff, new RegExp(`Archive SHA-256: ${sha256Text("archive")}`));
     assert.match(handoff, /Source commit: abcdef123456\+dirty/);
     assert.match(handoff, /Built at: 2026-05-21T01:02:03\.000Z/);
     assert.match(handoff, /Send these files to the VPS operator:/);
-    assert.match(handoff, /aimashi-cloud-release-handoff\.txt/);
+    assert.match(handoff, /mia-cloud-release-handoff\.txt/);
     assert.match(handoff, /Optional single-file transfer bundle:/);
-    assert.match(handoff, /aimashi-cloud-release-transfer\.tgz/);
-    assert.match(handoff, /aimashi-cloud-release-transfer\.tgz\.sha256/);
+    assert.match(handoff, /mia-cloud-release-transfer\.tgz/);
+    assert.match(handoff, /mia-cloud-release-transfer\.tgz\.sha256/);
     assert.match(handoff, /If SSH deploy access is denied/);
     assert.match(handoff, /npm run cloud:deploy:authorize-help/);
     assert.match(handoff, new RegExp(`Public key path: ${publicKeyPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
     assert.match(handoff, /Public key fingerprint: SHA256:/);
-    assert.match(handoff, /ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC1I4LfHcHFs9N1NZWSKlYhvthAl8S3zKLer1\+gbPn4J aimashi-test/);
+    assert.match(handoff, /ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC1I4LfHcHFs9N1NZWSKlYhvthAl8S3zKLer1\+gbPn4J mia-test/);
     assert.match(handoff, /Run this on the VPS as root to authorize that key:/);
     assert.match(handoff, /install -d -m 700 \/root\/\.ssh/);
     assert.match(handoff, /grep -qxF 'ssh-ed25519/);
     assert.match(handoff, /If SSH is still denied after authorizing/);
     assert.match(handoff, /sshd -T/);
-    assert.match(handoff, /MISSING Aimashi deploy key/);
+    assert.match(handoff, /MISSING Mia deploy key/);
     assert.match(handoff, /npm run cloud:deploy:ssh-diagnose/);
     assert.match(
       handoff,
-      /sha256sum -c 'aimashi-cloud-release-transfer\.tgz\.sha256'[\s\S]*shasum -a 256 -c 'aimashi-cloud-release-transfer\.tgz\.sha256'[\s\S]*tar -xzf aimashi-cloud-release-transfer\.tgz -C \/tmp --strip-components=1/
+      /sha256sum -c 'mia-cloud-release-transfer\.tgz\.sha256'[\s\S]*shasum -a 256 -c 'mia-cloud-release-transfer\.tgz\.sha256'[\s\S]*tar -xzf mia-cloud-release-transfer\.tgz -C \/tmp --strip-components=1/
     );
-    assert.match(handoff, /tar -xzf aimashi-cloud-release-transfer\.tgz -C \/tmp --strip-components=1/);
-    assert.match(handoff, /AIMASHI_TRANSFER_VERIFY_ONLY=1 bash install-transfer-bundle\.sh/);
+    assert.match(handoff, /tar -xzf mia-cloud-release-transfer\.tgz -C \/tmp --strip-components=1/);
+    assert.match(handoff, /MIA_TRANSFER_VERIFY_ONLY=1 bash install-transfer-bundle\.sh/);
     assert.match(handoff, /bash install-transfer-bundle\.sh/);
     assert.match(handoff, /Place them on the VPS as:/);
-    assert.match(handoff, /\/tmp\/aimashi-cloud-release\.tgz\.sha256/);
-    assert.match(handoff, /\/tmp\/aimashi-cloud-release-handoff\.txt/);
-    assert.match(handoff, /AIMASHI_INSTALL_VERIFY_ONLY=1 bash install-cloud-release-local\.sh \/tmp\/aimashi-cloud-release\.tgz/);
-    assert.match(handoff, /\.\/install-cloud-release-local\.sh \/tmp\/aimashi-cloud-release\.tgz/);
-    assert.match(handoff, /AIMASHI_DOCTOR_EXPECT_RELEASE_COMMIT='abcdef123456'/);
-    assert.match(handoff, /AIMASHI_DOCTOR_EXPECT_RELEASE_BUILT_AT='2026-05-21T01:02:03\.000Z'/);
-    assert.match(handoff, /node aimashi-cloud-release\/doctor-cloud\.js 'https:\/\/aiweb\.buytb01\.com'/);
-    assert.match(handoff, /AIMASHI_SMOKE_EXPECT_RELEASE_COMMIT='abcdef123456'/);
-    assert.match(handoff, /AIMASHI_SMOKE_EXPECT_RELEASE_BUILT_AT='2026-05-21T01:02:03\.000Z'/);
-    assert.match(handoff, /node aimashi-cloud-release\/smoke-cloud\.js 'https:\/\/aiweb\.buytb01\.com'/);
+    assert.match(handoff, /\/tmp\/mia-cloud-release\.tgz\.sha256/);
+    assert.match(handoff, /\/tmp\/mia-cloud-release-handoff\.txt/);
+    assert.match(handoff, /MIA_INSTALL_VERIFY_ONLY=1 bash install-cloud-release-local\.sh \/tmp\/mia-cloud-release\.tgz/);
+    assert.match(handoff, /\.\/install-cloud-release-local\.sh \/tmp\/mia-cloud-release\.tgz/);
+    assert.match(handoff, /MIA_DOCTOR_EXPECT_RELEASE_COMMIT='abcdef123456'/);
+    assert.match(handoff, /MIA_DOCTOR_EXPECT_RELEASE_BUILT_AT='2026-05-21T01:02:03\.000Z'/);
+    assert.match(handoff, /node mia-cloud-release\/doctor-cloud\.js 'https:\/\/aiweb\.buytb01\.com'/);
+    assert.match(handoff, /MIA_SMOKE_EXPECT_RELEASE_COMMIT='abcdef123456'/);
+    assert.match(handoff, /MIA_SMOKE_EXPECT_RELEASE_BUILT_AT='2026-05-21T01:02:03\.000Z'/);
+    assert.match(handoff, /node mia-cloud-release\/smoke-cloud\.js 'https:\/\/aiweb\.buytb01\.com'/);
     assert.match(handoff, /After a desktop bridge is logged into the same dedicated smoke account/);
-    assert.match(handoff, /aimashi-cloud-release\/prepare-cloud-smoke-account\.js aimashi-cloud-release\/smoke-cloud\.js/);
-    assert.match(handoff, /node aimashi-cloud-release\/prepare-cloud-smoke-account\.js 'https:\/\/aiweb\.buytb01\.com'/);
-    assert.match(handoff, /AIMASHI_SMOKE_USERNAME='<smoke-account>'/);
-    assert.match(handoff, /AIMASHI_SMOKE_PASSWORD='<smoke-password>'/);
-    assert.match(handoff, /AIMASHI_SMOKE_REQUIRE_BRIDGE=1/);
+    assert.match(handoff, /mia-cloud-release\/prepare-cloud-smoke-account\.js mia-cloud-release\/smoke-cloud\.js/);
+    assert.match(handoff, /node mia-cloud-release\/prepare-cloud-smoke-account\.js 'https:\/\/aiweb\.buytb01\.com'/);
+    assert.match(handoff, /MIA_SMOKE_USERNAME='<smoke-account>'/);
+    assert.match(handoff, /MIA_SMOKE_PASSWORD='<smoke-password>'/);
+    assert.match(handoff, /MIA_SMOKE_REQUIRE_BRIDGE=1/);
     assert.match(handoff, /Desktop bridge same-account control:/);
-    assert.match(handoff, /same Aimashi Cloud account/);
+    assert.match(handoff, /same Mia Cloud account/);
     assert.match(handoff, /directly from Web or mobile/);
     assert.match(handoff, /does not require a separate local approval click/);
     assert.match(handoff, /Agent permission mode remains/);
     assert.doesNotMatch(handoff, /gate\.native-permission-click/);
     assert.match(handoff, /standalone local Agent bridge/);
-    assert.match(handoff, /full Aimashi project checkout/);
+    assert.match(handoff, /full Mia project checkout/);
     assert.match(handoff, /not run from the extracted Cloud release directory/);
-    assert.match(handoff, /cd \/path\/to\/aimashi/);
-    assert.match(handoff, /AIMASHI_CLOUD_URL='https:\/\/aiweb\.buytb01\.com'/);
-    assert.match(handoff, /AIMASHI_CLOUD_USERNAME='<smoke-account>'/);
-    assert.match(handoff, /AIMASHI_CLOUD_PASSWORD='<smoke-password>'/);
+    assert.match(handoff, /cd \/path\/to\/mia/);
+    assert.match(handoff, /MIA_CLOUD_URL='https:\/\/aiweb\.buytb01\.com'/);
+    assert.match(handoff, /MIA_CLOUD_USERNAME='<smoke-account>'/);
+    assert.match(handoff, /MIA_CLOUD_PASSWORD='<smoke-password>'/);
     assert.match(handoff, /npm run bridge/);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
@@ -275,14 +275,14 @@ test("writeHandoffFile writes a transfer note beside release artifacts", () => {
   const { tempDir, distDir } = createReleaseFixture();
   try {
     const outputPath = writeHandoffFile({ distDir, publicUrl: "https://aiweb.buytb01.com" });
-    assert.equal(outputPath, path.join(distDir, "aimashi-cloud-release-handoff.txt"));
+    assert.equal(outputPath, path.join(distDir, "mia-cloud-release-handoff.txt"));
     const written = fs.readFileSync(outputPath, "utf8");
-    assert.match(written, /Aimashi Cloud release handoff/);
+    assert.match(written, /Mia Cloud release handoff/);
     assert.match(written, new RegExp(`Archive SHA-256: ${sha256Text("archive")}`));
-    assert.match(written, /aimashi-cloud-release-handoff\.txt/);
-    assert.match(written, /AIMASHI_DOCTOR_EXPECT_RELEASE_COMMIT='abcdef123456'/);
-    assert.match(written, /AIMASHI_SMOKE_EXPECT_RELEASE_COMMIT='abcdef123456'/);
-    assert.match(written, /node aimashi-cloud-release\/smoke-cloud\.js 'https:\/\/aiweb\.buytb01\.com'/);
+    assert.match(written, /mia-cloud-release-handoff\.txt/);
+    assert.match(written, /MIA_DOCTOR_EXPECT_RELEASE_COMMIT='abcdef123456'/);
+    assert.match(written, /MIA_SMOKE_EXPECT_RELEASE_COMMIT='abcdef123456'/);
+    assert.match(written, /node mia-cloud-release\/smoke-cloud\.js 'https:\/\/aiweb\.buytb01\.com'/);
     assert.match(written, /\n$/);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
@@ -293,43 +293,43 @@ test("writeTransferBundle packages release, checksum, and handoff into one tarba
   const { tempDir, distDir } = createReleaseFixture();
   try {
     const outputPath = writeTransferBundle({ distDir, publicUrl: "https://aiweb.buytb01.com" });
-    assert.equal(outputPath, path.join(distDir, "aimashi-cloud-release-transfer.tgz"));
+    assert.equal(outputPath, path.join(distDir, "mia-cloud-release-transfer.tgz"));
     assert.ok(fs.existsSync(outputPath));
     const sidecarPath = `${outputPath}.sha256`;
     assert.ok(fs.existsSync(sidecarPath));
-    assert.match(fs.readFileSync(sidecarPath, "utf8"), new RegExp(`^${sha256File(outputPath)}  aimashi-cloud-release-transfer\\.tgz\\n$`));
+    assert.match(fs.readFileSync(sidecarPath, "utf8"), new RegExp(`^${sha256File(outputPath)}  mia-cloud-release-transfer\\.tgz\\n$`));
     const listing = require("node:child_process")
       .execFileSync("tar", ["-tzf", outputPath], { encoding: "utf8" });
-    assert.match(listing, /aimashi-cloud-transfer\/aimashi-cloud-release\.tgz/);
-    assert.match(listing, /aimashi-cloud-transfer\/aimashi-cloud-release\.tgz\.sha256/);
-    assert.match(listing, /aimashi-cloud-transfer\/aimashi-cloud-release-handoff\.txt/);
-    assert.match(listing, /aimashi-cloud-transfer\/install-transfer-bundle\.sh/);
-    assert.match(listing, /aimashi-cloud-transfer\/TRANSFER-README\.md/);
-    assert.match(listing, /aimashi-cloud-transfer\/TRANSFER-SHA256\.txt/);
+    assert.match(listing, /mia-cloud-transfer\/mia-cloud-release\.tgz/);
+    assert.match(listing, /mia-cloud-transfer\/mia-cloud-release\.tgz\.sha256/);
+    assert.match(listing, /mia-cloud-transfer\/mia-cloud-release-handoff\.txt/);
+    assert.match(listing, /mia-cloud-transfer\/install-transfer-bundle\.sh/);
+    assert.match(listing, /mia-cloud-transfer\/TRANSFER-README\.md/);
+    assert.match(listing, /mia-cloud-transfer\/TRANSFER-SHA256\.txt/);
     const manifest = require("node:child_process")
-      .execFileSync("tar", ["-xOf", outputPath, "aimashi-cloud-transfer/TRANSFER-SHA256.txt"], { encoding: "utf8" });
-    assert.match(manifest, new RegExp(`${sha256Text("archive")}  aimashi-cloud-release\\.tgz`));
-    assert.match(manifest, /aimashi-cloud-release-handoff\.txt/);
+      .execFileSync("tar", ["-xOf", outputPath, "mia-cloud-transfer/TRANSFER-SHA256.txt"], { encoding: "utf8" });
+    assert.match(manifest, new RegExp(`${sha256Text("archive")}  mia-cloud-release\\.tgz`));
+    assert.match(manifest, /mia-cloud-release-handoff\.txt/);
     assert.match(manifest, /install-transfer-bundle\.sh/);
     assert.match(manifest, /TRANSFER-README\.md/);
     const readme = require("node:child_process")
-      .execFileSync("tar", ["-xOf", outputPath, "aimashi-cloud-transfer/TRANSFER-README.md"], { encoding: "utf8" });
-    assert.match(readme, /AIMASHI_TRANSFER_VERIFY_ONLY=1 bash install-transfer-bundle\.sh/);
+      .execFileSync("tar", ["-xOf", outputPath, "mia-cloud-transfer/TRANSFER-README.md"], { encoding: "utf8" });
+    assert.match(readme, /MIA_TRANSFER_VERIFY_ONLY=1 bash install-transfer-bundle\.sh/);
     assert.match(readme, /bash install-transfer-bundle\.sh/);
-    assert.match(readme, /AIMASHI_DOCTOR_EXPECT_RELEASE_COMMIT='abcdef123456'/);
-    assert.match(readme, /prepare-cloud-smoke-account\.js aimashi-cloud-release\/smoke-cloud\.js/);
-    assert.match(readme, /node aimashi-cloud-release\/prepare-cloud-smoke-account\.js 'https:\/\/aiweb\.buytb01\.com'/);
-    assert.match(readme, /AIMASHI_SMOKE_REQUIRE_BRIDGE=1/);
+    assert.match(readme, /MIA_DOCTOR_EXPECT_RELEASE_COMMIT='abcdef123456'/);
+    assert.match(readme, /prepare-cloud-smoke-account\.js mia-cloud-release\/smoke-cloud\.js/);
+    assert.match(readme, /node mia-cloud-release\/prepare-cloud-smoke-account\.js 'https:\/\/aiweb\.buytb01\.com'/);
+    assert.match(readme, /MIA_SMOKE_REQUIRE_BRIDGE=1/);
     assert.match(readme, /Log the desktop app or standalone bridge into the same smoke account/);
-    assert.match(readme, /Desktop bridge same-account control from a full Aimashi checkout/);
-    assert.match(readme, /same Aimashi Cloud account/);
+    assert.match(readme, /Desktop bridge same-account control from a full Mia checkout/);
+    assert.match(readme, /same Mia Cloud account/);
     assert.match(readme, /does not require a separate local approval click/);
     assert.match(readme, /Agent permission mode remains/);
     assert.doesNotMatch(readme, /gate\.native-permission-click/);
     const installer = require("node:child_process")
-      .execFileSync("tar", ["-xOf", outputPath, "aimashi-cloud-transfer/install-transfer-bundle.sh"], { encoding: "utf8" });
-    assert.match(installer, /AIMASHI_TRANSFER_VERIFY_ONLY/);
-    assert.match(installer, /AIMASHI_INSTALL_VERIFY_ONLY=1 bash "\$INSTALLER" "\$ARCHIVE"/);
+      .execFileSync("tar", ["-xOf", outputPath, "mia-cloud-transfer/install-transfer-bundle.sh"], { encoding: "utf8" });
+    assert.match(installer, /MIA_TRANSFER_VERIFY_ONLY/);
+    assert.match(installer, /MIA_INSTALL_VERIFY_ONLY=1 bash "\$INSTALLER" "\$ARCHIVE"/);
     assert.match(installer, /bash "\$INSTALLER" "\$ARCHIVE"/);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
@@ -347,26 +347,26 @@ test("verifyTransferBundle accepts current bundle and rejects checksum mismatche
       () => verifyTransferBundle({ outputPath }),
       /Missing release transfer bundle checksum/
     );
-    fs.writeFileSync(`${outputPath}.sha256`, `${sha256File(outputPath)}  aimashi-cloud-release-transfer.tgz\n`);
+    fs.writeFileSync(`${outputPath}.sha256`, `${sha256File(outputPath)}  mia-cloud-release-transfer.tgz\n`);
 
-    fs.writeFileSync(`${outputPath}.sha256`, `${"f".repeat(64)}  aimashi-cloud-release-transfer.tgz\n`);
+    fs.writeFileSync(`${outputPath}.sha256`, `${"f".repeat(64)}  mia-cloud-release-transfer.tgz\n`);
     assert.throws(
       () => verifyTransferBundle({ outputPath }),
       /Transfer bundle archive checksum mismatch/
     );
-    fs.writeFileSync(`${outputPath}.sha256`, `${sha256File(outputPath)}  aimashi-cloud-release-transfer.tgz\n`);
+    fs.writeFileSync(`${outputPath}.sha256`, `${sha256File(outputPath)}  mia-cloud-release-transfer.tgz\n`);
 
-    const badRoot = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-bad-transfer-"));
-    const bundleDir = path.join(badRoot, "aimashi-cloud-transfer");
+    const badRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mia-bad-transfer-"));
+    const bundleDir = path.join(badRoot, "mia-cloud-transfer");
     fs.mkdirSync(bundleDir, { recursive: true });
-    fs.writeFileSync(path.join(bundleDir, "aimashi-cloud-release.tgz"), "tampered");
-    fs.writeFileSync(path.join(bundleDir, "aimashi-cloud-release.tgz.sha256"), "sha  aimashi-cloud-release.tgz\n");
-    fs.writeFileSync(path.join(bundleDir, "aimashi-cloud-release-handoff.txt"), "handoff\n");
+    fs.writeFileSync(path.join(bundleDir, "mia-cloud-release.tgz"), "tampered");
+    fs.writeFileSync(path.join(bundleDir, "mia-cloud-release.tgz.sha256"), "sha  mia-cloud-release.tgz\n");
+    fs.writeFileSync(path.join(bundleDir, "mia-cloud-release-handoff.txt"), "handoff\n");
     fs.writeFileSync(path.join(bundleDir, "install-transfer-bundle.sh"), "#!/usr/bin/env bash\n");
     fs.writeFileSync(path.join(bundleDir, "TRANSFER-README.md"), "# transfer\n");
-    fs.writeFileSync(path.join(bundleDir, "TRANSFER-SHA256.txt"), `${"0".repeat(64)}  aimashi-cloud-release.tgz\n`);
-    require("node:child_process").execFileSync("tar", ["-czf", outputPath, "-C", badRoot, "aimashi-cloud-transfer"]);
-    fs.writeFileSync(`${outputPath}.sha256`, `${sha256File(outputPath)}  aimashi-cloud-release-transfer.tgz\n`);
+    fs.writeFileSync(path.join(bundleDir, "TRANSFER-SHA256.txt"), `${"0".repeat(64)}  mia-cloud-release.tgz\n`);
+    require("node:child_process").execFileSync("tar", ["-czf", outputPath, "-C", badRoot, "mia-cloud-transfer"]);
+    fs.writeFileSync(`${outputPath}.sha256`, `${sha256File(outputPath)}  mia-cloud-release-transfer.tgz\n`);
     fs.rmSync(badRoot, { recursive: true, force: true });
 
     assert.throws(
@@ -397,7 +397,7 @@ test("verifyHandoffFile accepts current handoff and rejects stale content", () =
 });
 
 test("buildHandoff rejects incomplete release artifacts", () => {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-handoff-missing-"));
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-handoff-missing-"));
   try {
     assert.throws(
       () => buildHandoff({ distDir: path.join(tempDir, "dist") }),

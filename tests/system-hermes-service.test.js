@@ -15,7 +15,7 @@ function readJson(filePath, fallback) {
 }
 
 function setup(t, overrides = {}) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-system-hermes-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-system-hermes-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const runtime = { home: path.join(dir, "engine-home") };
   const calls = [];
@@ -40,7 +40,7 @@ test("refresh records the disabled system Hermes policy and resets local Agent c
 
   await service.refresh();
 
-  const cachePath = path.join(runtime.home, "aimashi-system-hermes.json");
+  const cachePath = path.join(runtime.home, "mia-system-hermes.json");
   assert.deepEqual(JSON.parse(fs.readFileSync(cachePath, "utf8")), {
     available: false,
     checkedAt: "2026-05-25T12:34:56.000Z",
@@ -55,7 +55,7 @@ test("disabled system Hermes never leaks legacy user Hermes home or dotenv value
   fs.mkdirSync(oldHermesHome, { recursive: true });
   fs.writeFileSync(path.join(oldHermesHome, ".env"), "OPENAI_API_KEY=secret\n");
   fs.mkdirSync(runtime.home, { recursive: true });
-  fs.writeFileSync(path.join(runtime.home, "aimashi-system-hermes.json"), JSON.stringify({
+  fs.writeFileSync(path.join(runtime.home, "mia-system-hermes.json"), JSON.stringify({
     available: true,
     hermesHome: oldHermesHome
   }, null, 2));

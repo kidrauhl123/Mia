@@ -1,17 +1,17 @@
 const storageKeys = {
-  token: "aimashi.mobile.token",
-  baseUrl: "aimashi.mobile.baseUrl",
-  mode: "aimashi.mobile.mode",
-  relayUrl: "aimashi.mobile.relayUrl",
-  deviceId: "aimashi.mobile.deviceId",
-  secret: "aimashi.mobile.secret"
+  token: "mia.mobile.token",
+  baseUrl: "mia.mobile.baseUrl",
+  mode: "mia.mobile.mode",
+  relayUrl: "mia.mobile.relayUrl",
+  deviceId: "mia.mobile.deviceId",
+  secret: "mia.mobile.secret"
 };
 
-const engineContracts = window.aimashiEngineContracts || {};
-const { prepareOutgoingMessage } = window.aimashiSendPipeline;
+const engineContracts = window.miaEngineContracts || {};
+const { prepareOutgoingMessage } = window.miaSendPipeline;
 const credentialStorageKeys = {
-  token: "aimashi.mobile.sessionToken",
-  secret: "aimashi.mobile.sessionSecret"
+  token: "mia.mobile.sessionToken",
+  secret: "mia.mobile.sessionSecret"
 };
 const legacyCredentialKeys = {
   token: storageKeys.token,
@@ -195,14 +195,14 @@ function renderInlineMarkdown(value) {
   const codes = [];
   const protectedText = String(value || "").replace(/`([^`\n]+)`/g, (_match, code) => {
     const index = codes.push(code) - 1;
-    return `@@AIMASHI_INLINE_CODE_${index}@@`;
+    return `@@MIA_INLINE_CODE_${index}@@`;
   });
   let html = escapeHtml(protectedText);
   html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
   html = html.replace(/\n/g, "<br>");
   for (let index = 0; index < codes.length; index++) {
     html = html.replace(
-      `@@AIMASHI_INLINE_CODE_${index}@@`,
+      `@@MIA_INLINE_CODE_${index}@@`,
       `<code class="inline-code" tabindex="0" title="点击复制">${escapeHtml(codes[index])}</code>`
     );
   }
@@ -586,7 +586,7 @@ function handleRelayMessage(raw) {
   }
   if (message.type === "ready") {
     state.relayReady = true;
-    state.status = `已通过 Relay 连接 ${message.device?.name || "Aimashi"}`;
+    state.status = `已通过 Relay 连接 ${message.device?.name || "Mia"}`;
     render();
     return;
   }
@@ -727,7 +727,7 @@ async function loadHealth() {
   try {
     if (state.mode === "relay") {
       await ensureRelayConnected();
-      state.health = { status: "ok", service: "aimashi-relay" };
+      state.health = { status: "ok", service: "mia-relay" };
       state.status = "已通过 Relay 连接";
       return;
     }
@@ -1076,7 +1076,7 @@ function setSelectOptions(select, entries, selectedValue, emptyLabel) {
   select.disabled = false;
 }
 
-const { formatConversationTime, formatMessageTime } = window.aimashiTimeFormat;
+const { formatConversationTime, formatMessageTime } = window.miaTimeFormat;
 
 function messagePreview(session) {
   const messages = Array.isArray(session?.messages) ? session.messages : [];
@@ -1253,7 +1253,7 @@ function initials(name) {
 
 function avatarAssetForKey(key = "") {
   let hash = 0;
-  for (const char of String(key || "aimashi")) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  for (const char of String(key || "mia")) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
   const index = (hash % 16) + 1;
   return `./assets/avatars/${String(index).padStart(2, "0")}.png`;
 }
@@ -1348,7 +1348,7 @@ function renderFellowList() {
           <strong>${escapeHtml(fellow.name || fellow.key)}</strong>
           <time>${escapeHtml((fellow.agentEngine || "hermes").toUpperCase())}</time>
         </span>
-        <p>${escapeHtml(fellow.bio || "Aimashi 伙伴")}</p>
+        <p>${escapeHtml(fellow.bio || "Mia 伙伴")}</p>
       </span>
     </button>
   `).join("");

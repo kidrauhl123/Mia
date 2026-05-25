@@ -26,7 +26,7 @@ async function jsonFetch({ baseUrl, token, method, path, body, timeoutMs = 15000
   if (!response.ok) {
     let payload = null;
     try { payload = await response.json(); } catch { /* ignore */ }
-    const message = (payload && payload.error) || `Aimashi Cloud ${response.status}`;
+    const message = (payload && payload.error) || `Mia Cloud ${response.status}`;
     const err = new Error(message);
     err.status = response.status;
     throw err;
@@ -39,7 +39,7 @@ function createSocialApi({ getSettings, normalizeUrl }) {
   function ctx(opts = {}) {
     const settings = getSettings();
     if (!settings || !settings.enabled || !settings.token) {
-      throw new Error("Aimashi Cloud not logged in.");
+      throw new Error("Mia Cloud not logged in.");
     }
     return {
       baseUrl: normalizeUrl(settings.url),

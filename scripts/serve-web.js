@@ -7,9 +7,9 @@ const path = require("node:path");
 
 const root = path.join(__dirname, "..", "src", "web");
 const sourceRoot = path.join(__dirname, "..", "src");
-const host = process.env.AIMASHI_WEB_HOST || "127.0.0.1";
-const port = Number(process.env.AIMASHI_WEB_PORT || 4174);
-const apiTarget = process.env.AIMASHI_WEB_API_TARGET || "http://127.0.0.1:4175";
+const host = process.env.MIA_WEB_HOST || "127.0.0.1";
+const port = Number(process.env.MIA_WEB_PORT || 4174);
+const apiTarget = process.env.MIA_WEB_API_TARGET || "http://127.0.0.1:4175";
 
 function contentType(filePath) {
   const ext = path.extname(filePath).toLowerCase();
@@ -94,5 +94,5 @@ server.on("upgrade", (req, socket, head) => {
 });
 
 server.listen(port, host, () => {
-  console.log(`Aimashi Web listening on http://${host}:${port}`);
+  console.log(`Mia Web listening on http://${host}:${port}`);
 });

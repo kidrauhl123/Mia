@@ -19,10 +19,10 @@ function loadHelper() {
     };
     return el;
   };
-  const window = { aimashiAvatar: { avatarThumbBackgroundStyle: (img, crop, color) => `background-image:url(${img});background-color:${color};` } };
+  const window = { miaAvatar: { avatarThumbBackgroundStyle: (img, crop, color) => `background-image:url(${img});background-color:${color};` } };
   const ctx = vm.createContext({ window, globalThis: window, document: { createElement: () => mockEl() }, console });
   vm.runInContext(src, ctx);
-  return window.aimashiContactAvatar;
+  return window.miaContactAvatar;
 }
 
 test("renderAvatar with image returns styled element", () => {

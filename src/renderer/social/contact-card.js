@@ -12,7 +12,7 @@
 (function (global) {
   "use strict";
 
-  const { MemberKind } = (typeof window !== "undefined" && window.aimashiConversationKinds)
+  const { MemberKind } = (typeof window !== "undefined" && window.miaConversationKinds)
     || require("../../shared/conversation-kinds");
 
   let _ctx = null;
@@ -23,7 +23,7 @@
   function attach(internalCtx) { _ctx = internalCtx; }
 
   function escapeHtml(value) {
-    return global.aimashiMarkdown?.escapeHtml?.(value)
+    return global.miaMarkdown?.escapeHtml?.(value)
       ?? String(value ?? "").replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" }[ch]));
   }
 
@@ -49,7 +49,7 @@
 
   function avatarStyleFor(avatar) {
     if (avatar?.image) {
-      const helper = global.aimashiAvatar?.avatarThumbBackgroundStyle;
+      const helper = global.miaAvatar?.avatarThumbBackgroundStyle;
       if (helper) return helper(avatar.image, avatar.crop, avatar.color || "#5e5ce6");
     }
     return `background-color:${avatar?.color || "#5e5ce6"};`;
@@ -123,9 +123,9 @@
       return card;
     }
 
-    const engineOptions = global.aimashiEngineOptions;
-    const modelHelpers = global.aimashiModelHelpers;
-    const modelSettings = global.aimashiModelSettings;
+    const engineOptions = global.miaEngineOptions;
+    const modelHelpers = global.miaModelHelpers;
+    const modelSettings = global.miaModelSettings;
     const runtime = _ctx?.deps?.getState?.()?.runtime || {};
     const engine = local.agentEngine || local.agent_engine || "hermes";
     const config = local.engineConfig || local.engine_config || {};
@@ -243,7 +243,7 @@
           // path so we keep one truth.
           const entry = modelEntries.find((m) => m.id === value);
           if (!entry) return;
-          await global.aimashi.saveModel({
+          await global.mia.saveModel({
             provider: entry.provider,
             model: entry.model,
             apiKeyEnv: entry.apiKeyEnv,
@@ -261,7 +261,7 @@
         } else {
           update[field] = value;
         }
-        await global.aimashi.saveFellowEngine({
+        await global.mia.saveFellowEngine({
           key: local.key,
           agentEngine: engine,
           engineConfig: update,
@@ -285,7 +285,7 @@
       event.stopPropagation();
       if (btn.dataset.cardAction === "edit-fellow") {
         closeCard();
-        global.aimashiFellowDialog?.openFellowDialog?.(local, local.personaText || "");
+        global.miaFellowDialog?.openFellowDialog?.(local, local.personaText || "");
       } else {
         closeCard();
       }
@@ -386,14 +386,14 @@
     input.dispatchEvent(new Event("input", { bubbles: true }));
   }
 
-  global.aimashiContactCard = {
+  global.miaContactCard = {
     attach,
     openCard,
     openContextMenu,
     closeCard,
   };
 
-  if (global.aimashiSocial && global.aimashiSocial._internalCtx) {
-    attach(global.aimashiSocial._internalCtx);
+  if (global.miaSocial && global.miaSocial._internalCtx) {
+    attach(global.miaSocial._internalCtx);
   }
 })(typeof window !== "undefined" ? window : globalThis);

@@ -12,7 +12,7 @@
 (function () {
   "use strict";
 
-  const engineContracts = window.aimashiEngineContracts || {};
+  const engineContracts = window.miaEngineContracts || {};
   let state, els;
   let activePersona;
   let APPROVAL_LABELS = {};
@@ -152,7 +152,7 @@
     return effortOptions(activeAgentEngine()).find((item) => item.value === level)?.label || "Medium";
   }
 
-  window.aimashiEngineOptions = {
+  window.miaEngineOptions = {
     initEngineOptions,
     activeAgentEngine,
     engineConfigForPersona,

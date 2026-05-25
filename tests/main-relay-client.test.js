@@ -179,7 +179,7 @@ test("rpc requests route through the relay Module and return normalized envelope
       clientId: "mobile_1",
       id: "rpc_1",
       ok: true,
-      data: { status: "ok", service: "aimashi-daemon", mode: "desktop" }
+      data: { status: "ok", service: "mia-daemon", mode: "desktop" }
     },
     {
       type: "rpc_result",

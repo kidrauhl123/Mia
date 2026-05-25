@@ -1,10 +1,10 @@
-# aimashi — Claude 阅读须知
+# mia — Claude 阅读须知
 
 ## 这个项目是什么
 
 **Agent 时代的聊天平台 / 多 Agent 协作管理平台**。
 
-用 GUI 给用户一个统一、好用的入口，去聊、去管、去协调一堆 AI Agent：openclaw、Hermes、Codex、Claude Code…… 用户不用记每个 CLI 怎么用、各自跑在哪、状态怎样——aimashi 把它们都接进同一个聊天界面，让它们能像同事一样被叫出来、被指挥、被组合。
+用 GUI 给用户一个统一、好用的入口，去聊、去管、去协调一堆 AI Agent：openclaw、Hermes、Codex、Claude Code…… 用户不用记每个 CLI 怎么用、各自跑在哪、状态怎样——mia 把它们都接进同一个聊天界面，让它们能像同事一样被叫出来、被指挥、被组合。
 
 简单说：**对话是入口，Agent 是肉，GUI 是壳**。
 
@@ -16,7 +16,7 @@
 - **Hermes 运行时**（密封 Python，位于 `vendor/hermes-runtime/<target>/`，由 `scripts/build-hermes-runtime.sh` 在 `prepack` 阶段构建）—— **打包进安装包**，自带不依赖用户环境
 - **Claude Code / Codex 等外部 CLI** —— **不打包**，通过 `shellCommandPath()`（`src/main.js`）从用户系统 `PATH` 里查找
 
-为什么 Hermes 自带、其它 CLI 不自带：Hermes 是**上游开源 Agent runtime**（上游代码在 `~/github/Alkaka-reference/hermes-agent/`，**不是 aimashi 写的**），aimashi 走 **vendor pin、不 fork**，自带是为了让普通用户开箱即用、不装 Python；Claude Code / Codex 是用户已经在自己电脑上用的工具，aimashi 复用它们，不重复安装也不锁版本。
+为什么 Hermes 自带、其它 CLI 不自带：Hermes 是**上游开源 Agent runtime**（上游代码在 `~/github/Alkaka-reference/hermes-agent/`，**不是 mia 写的**），mia 走 **vendor pin、不 fork**，自带是为了让普通用户开箱即用、不装 Python；Claude Code / Codex 是用户已经在自己电脑上用的工具，mia 复用它们，不重复安装也不锁版本。
 
 判断"Hermes 当前真实行为"以 `vendor/hermes-runtime/<target>/site-packages/` 里的 pinned 副本为准；查 upstream 当前设计 / API 演进看 `~/github/Alkaka-reference/hermes-agent/`。两者必然 drift，正常。
 
@@ -40,10 +40,10 @@
 遇到这些情况先停下来确认，不要用重试或"顺手修"掩盖问题：
 
 - Electron app 正在运行导致打包、覆盖、签名、删除失败：先让用户关闭正在运行的 app / 相关进程。
-- 端口被 `web` / `cloud` / `bridge` / `relay` 占用：先确认是不是已有 aimashi 服务，不要直接 kill 不明进程。
+- 端口被 `web` / `cloud` / `bridge` / `relay` 占用：先确认是不是已有 mia 服务，不要直接 kill 不明进程。
 - Hermes 行为和源码不一致：先确认运行的是不是旧的打包 runtime；必要时重建 `vendor/hermes-runtime/<target>/` 或重新打包。
 - macOS arm64 出现 Python 扩展 `dlopen`、签名、quarantine 类问题：先读 `scripts/build-hermes-runtime.sh`，不要绕开 strip / ad-hoc codesign 流程。
-- 测试或脚本需要用户数据目录时，必须使用临时目录或显式测试 fixture；不要让自动化测试写真实 `~/Library/Application Support/Aimashi`。
+- 测试或脚本需要用户数据目录时，必须使用临时目录或显式测试 fixture；不要让自动化测试写真实 `~/Library/Application Support/Mia`。
 
 ## 代码组织
 
@@ -67,7 +67,7 @@
 - `src/main/ipc/window-ipc.js` / `tasks-ipc.js` —— IPC 按职责注册，`main.js` 只做装配。
 - `src/main/codex-chat-adapter.js` / `claude-code-chat-adapter.js` / `hermes-chat-adapter.js` —— 三个引擎适配器各一文件，统一在 `chatEngineRegistry` 注册。
 - `src/main/scheduler*.js` + `tasks-*.js` —— 任务调度子系统，按职责分多文件。
-- `src/renderer/app-state.js`、`src/renderer/group/group.js`、`src/renderer/social/social.js` —— renderer feature 用 IIFE + `window.aimashiXxx.init...({...deps})` 接回 `app.js`。
+- `src/renderer/app-state.js`、`src/renderer/group/group.js`、`src/renderer/social/social.js` —— renderer feature 用 IIFE + `window.miaXxx.init...({...deps})` 接回 `app.js`。
 - `src/renderer/styles/chat.css`、`groups.css`、`tasks.css`、`responsive.css` —— CSS 按界面职责拆分，由 `index.html` 组合。
 - `src/cloud/` / `src/relay/` / `src/mobile/` / `src/web/` —— 跨设备 / 多端能力独立子目录。
 
@@ -100,7 +100,7 @@ src/
 
 ### 进程边界 / IPC
 
-aimashi 是 Electron app，主进程、渲染进程、preload、cloud / relay / mobile 子系统的边界要清楚：
+mia 是 Electron app，主进程、渲染进程、preload、cloud / relay / mobile 子系统的边界要清楚：
 
 - renderer 不直接使用 Node / Electron 能力；需要系统能力时走 preload 暴露的窄接口。
 - main 不写 DOM 逻辑；窗口、文件、进程、runtime、IPC 编排留在 main 或 `src/main/<feature>/`。
@@ -133,22 +133,22 @@ aimashi 是 Electron app，主进程、渲染进程、preload、cloud / relay / 
 
 ### 开源代码参考
 
-**AionUi**（iOfficeAI/AionUi，Apache-2.0）—— Electron 多引擎 AI 客户端，**和 aimashi 同一品类**，强相关。
+**AionUi**（iOfficeAI/AionUi，Apache-2.0）—— Electron 多引擎 AI 客户端，**和 mia 同一品类**，强相关。
 本地路径：`Alkaka-reference/AionUi`
 值得读的角度：
-- `src/process/agent/AgentRegistry.ts` —— 多引擎统一注册表（ACP CLIs、Gemini、OpenClaw、Nanobot、Remote、Custom ACP），覆盖 aimashi 未来要做的方向
+- `src/process/agent/AgentRegistry.ts` —— 多引擎统一注册表（ACP CLIs、Gemini、OpenClaw、Nanobot、Remote、Custom ACP），覆盖 mia 未来要做的方向
 - `src/process/agent/acp/AcpDetector.ts` —— PATH 探测 CLI 可用性，和 `shellCommandPath()` 同套思路，参考它的探测时机 / 缓存策略 / 失败回退
 - `src/process/channels/` —— Telegram / Lark / 钉钉 / 微信 / 企微 接入实现
 - `src/process/webserver/` —— 手机远程访问 WebUI（WebSocket + 配对协议）
-- `src/process/pet/` —— 桌宠状态机 / 事件桥（仅参考思路；aimashi 的桌宠按 ADR-0002 放在独立 repo）
+- `src/process/pet/` —— 桌宠状态机 / 事件桥（仅参考思路；mia 的桌宠按 ADR-0002 放在独立 repo）
 - `src/process/task/` —— Cron 调度
 - 三进程隔离约定（main / renderer / worker，禁止跨进程 API 混用）见根目录 `AGENTS.md`
 
-**LobsterAI**（网易有道，MIT）—— Electron + React 个人助理 Agent 客户端，主打 24/7 自动化任务，**和 aimashi 的"复用外部 CLI + 自带 Python 运行时"路线高度重合**。
+**LobsterAI**（网易有道，MIT）—— Electron + React 个人助理 Agent 客户端，主打 24/7 自动化任务，**和 mia 的"复用外部 CLI + 自带 Python 运行时"路线高度重合**。
 本地路径：`Alkaka-reference/lobsterai`
 值得读的角度：
 - `src/main/libs/openclawEngineManager.ts` —— Engine 状态机 / 自动重启 / runtime 探测的首选样板（Hermes runtime 管理可直接对照）
-- `src/main/libs/pythonRuntime.ts` —— 密封 Python 运行时怎么寻路、起进程、健康检查，aimashi 的 `vendor/hermes-runtime` 落地时最该参考
+- `src/main/libs/pythonRuntime.ts` —— 密封 Python 运行时怎么寻路、起进程、健康检查，mia 的 `vendor/hermes-runtime` 落地时最该参考
 - `src/scheduledTask/` —— Cron 调度（`cronJobService.ts`、模型映射、迁移），需要做定时 Agent 时直接看这里
 - `src/main/libs/mcpServerManager.ts` + `mcpBridgeServer.ts` —— MCP server 生命周期管理
 - `src/main/libs/coworkOpenAICompatProxy.ts` —— 给 Agent 暴露 OpenAI 兼容接口的代理写法
@@ -168,10 +168,10 @@ aimashi 是 Electron app，主进程、渲染进程、preload、cloud / relay / 
 
 ### UX 参考（闭源，只观察行为）
 
-**WorkBuddy**（腾讯云 CodeBuddy 团队，2026.3 上线）—— **OpenClaw 兼容**的桌面 AI Agent，**和 aimashi 同一赛道的直接竞品**。
+**WorkBuddy**（腾讯云 CodeBuddy 团队，2026.3 上线）—— **OpenClaw 兼容**的桌面 AI Agent，**和 mia 同一赛道的直接竞品**。
 官网 / 入口：腾讯云 WorkBuddy（macOS / Windows 都有）
 值得观察：
-- "自然语言 → 多步桌面任务"的指令到执行的 UX 链路（aimashi 正面对标这块）
+- "自然语言 → 多步桌面任务"的指令到执行的 UX 链路（mia 正面对标这块）
 - **微信扫码一键配对，手机远程控制 PC 端 Agent** 的交互流程（可对比 AionUi 的 webserver 方案）
 - 20+ skill 模板（编码 / 文档 / 调研 / 数据分析 / 自动化）的入口和呈现
 - 多模型切换（混元 / DeepSeek / GLM / Kimi / MiniMax）的选择 UX

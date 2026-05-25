@@ -25,7 +25,7 @@ test("production verifier normalizes public URLs", () => {
 });
 
 test("production verifier reads expected release identity from manifest", () => {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-prod-verify-"));
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-prod-verify-"));
   try {
     const manifestPath = writeManifest(tempDir, {
       source: { gitCommit: "abc123" },
@@ -42,7 +42,7 @@ test("production verifier reads expected release identity from manifest", () => 
 });
 
 test("production verifier runs doctor then smoke with manifest release expectations", () => {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-prod-verify-"));
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-prod-verify-"));
   try {
     const manifestPath = writeManifest(tempDir, {
       source: { gitCommit: "abc123" },
@@ -67,17 +67,17 @@ test("production verifier runs doctor then smoke with manifest release expectati
     assert.deepEqual(calls[0].args, ["/repo/scripts/doctor-cloud.js", "https://aiweb.buytb01.com"]);
     assert.deepEqual(calls[1].args, ["/repo/scripts/smoke-cloud.js", "https://aiweb.buytb01.com"]);
     assert.equal(calls[0].options.env.EXISTING, "1");
-    assert.equal(calls[0].options.env.AIMASHI_DOCTOR_EXPECT_RELEASE_COMMIT, "abc123");
-    assert.equal(calls[0].options.env.AIMASHI_DOCTOR_EXPECT_RELEASE_BUILT_AT, "2026-05-21T01:02:03.000Z");
-    assert.equal(calls[1].options.env.AIMASHI_SMOKE_EXPECT_RELEASE_COMMIT, "abc123");
-    assert.equal(calls[1].options.env.AIMASHI_SMOKE_EXPECT_RELEASE_BUILT_AT, "2026-05-21T01:02:03.000Z");
+    assert.equal(calls[0].options.env.MIA_DOCTOR_EXPECT_RELEASE_COMMIT, "abc123");
+    assert.equal(calls[0].options.env.MIA_DOCTOR_EXPECT_RELEASE_BUILT_AT, "2026-05-21T01:02:03.000Z");
+    assert.equal(calls[1].options.env.MIA_SMOKE_EXPECT_RELEASE_COMMIT, "abc123");
+    assert.equal(calls[1].options.env.MIA_SMOKE_EXPECT_RELEASE_BUILT_AT, "2026-05-21T01:02:03.000Z");
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
 
 test("production verifier stops before smoke when doctor fails", () => {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-prod-verify-"));
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-prod-verify-"));
   try {
     const manifestPath = writeManifest(tempDir, {
       source: { gitCommit: "abc123" },
@@ -101,7 +101,7 @@ test("production verifier stops before smoke when doctor fails", () => {
 });
 
 test("production verifier fails fast when bridge smoke lacks a fixed account", () => {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-prod-verify-"));
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-prod-verify-"));
   try {
     const manifestPath = writeManifest(tempDir, {
       source: { gitCommit: "abc123" },
@@ -115,10 +115,10 @@ test("production verifier fails fast when bridge smoke lacks a fixed account", (
         calls.push(args);
         return { status: 0 };
       },
-      baseEnv: { AIMASHI_SMOKE_REQUIRE_BRIDGE: "1" },
+      baseEnv: { MIA_SMOKE_REQUIRE_BRIDGE: "1" },
       cwd: "/repo",
       stdio: "pipe"
-    }), /AIMASHI_SMOKE_USERNAME and AIMASHI_SMOKE_PASSWORD are required/);
+    }), /MIA_SMOKE_USERNAME and MIA_SMOKE_PASSWORD are required/);
     assert.equal(calls.length, 0);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
@@ -127,9 +127,9 @@ test("production verifier fails fast when bridge smoke lacks a fixed account", (
 
 test("bridge smoke environment accepts a fixed account", () => {
   assert.doesNotThrow(() => assertBridgeSmokeEnv({
-    AIMASHI_SMOKE_REQUIRE_BRIDGE: "1",
-    AIMASHI_SMOKE_USERNAME: "smoketest",
-    AIMASHI_SMOKE_PASSWORD: "secret1"
+    MIA_SMOKE_REQUIRE_BRIDGE: "1",
+    MIA_SMOKE_USERNAME: "smoketest",
+    MIA_SMOKE_PASSWORD: "secret1"
   }));
 });
 
@@ -137,7 +137,7 @@ test("commandEnv preserves existing environment and sets prefixed release expect
   const env = commandEnv({ A: "b" }, "SMOKE", { gitCommit: "abc123", builtAt: "date" });
   assert.deepEqual(env, {
     A: "b",
-    AIMASHI_SMOKE_EXPECT_RELEASE_COMMIT: "abc123",
-    AIMASHI_SMOKE_EXPECT_RELEASE_BUILT_AT: "date"
+    MIA_SMOKE_EXPECT_RELEASE_COMMIT: "abc123",
+    MIA_SMOKE_EXPECT_RELEASE_BUILT_AT: "date"
   });
 });

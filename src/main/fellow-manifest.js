@@ -28,7 +28,7 @@ function createFellowManifest(deps = {}) {
     // the user to create their initial fellow. No pre-baked placeholder.
     return {
       schema_version: 1,
-      product: "aimashi",
+      product: "mia",
       default_fellow: "",
       fellows: []
     };
@@ -104,7 +104,7 @@ function createFellowManifest(deps = {}) {
 
   function normalizeFellow(item) {
     const key = String(item?.key || item?.account_id || "").trim().toLowerCase().replace(/[^a-z0-9_.-]+/g, "_");
-    const name = String(item?.name || item?.display_name || key || "Aimashi").trim();
+    const name = String(item?.name || item?.display_name || key || "Mia").trim();
     if (!key || !name) return null;
     const pinnedAt = String(item?.pinnedAt || item?.pinned_at || "").trim();
     const mutedAt = String(item?.mutedAt || item?.muted_at || "").trim();
@@ -152,7 +152,7 @@ function createFellowManifest(deps = {}) {
     const fellows = rawFellows.map(normalizeFellow).filter(Boolean);
     return {
       schema_version: 1,
-      product: "aimashi",
+      product: "mia",
       default_fellow: String(source.default_fellow || source.default_persona || fellows[0]?.key || ""),
       fellows
     };
@@ -181,7 +181,7 @@ function createFellowManifest(deps = {}) {
     return [
       `# ${name}`,
       "",
-      `你是${name}，Aimashi App 里的本地伙伴。`,
+      `你是${name}，Mia App 里的本地伙伴。`,
       description ? String(description).trim() : "请保持清楚、可靠、可执行的沟通风格。",
       ""
     ].join("\n");
@@ -210,7 +210,7 @@ function createFellowManifest(deps = {}) {
     return path.join(runtimePaths().fellowDir, `${String(key || "").trim()}.md`);
   }
 
-  function readFellowPersona(key, fallbackName = "Aimashi", fallbackBio = "") {
+  function readFellowPersona(key, fallbackName = "Mia", fallbackBio = "") {
     const personaPath = fellowPersonaPath(key);
     try {
       return fs.readFileSync(personaPath, "utf8");

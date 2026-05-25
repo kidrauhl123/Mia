@@ -53,7 +53,7 @@ test("choosePort returns 0 when no candidate port can bind", async () => {
   assert.equal(await service.choosePort(20000, 2), 0);
 });
 
-test("isEngineHealthy verifies the authenticated Aimashi probe route", async () => {
+test("isEngineHealthy verifies the authenticated Mia probe route", async () => {
   const calls = [];
   const service = createEngineHealthService({
     apiKey: () => "key_1",
@@ -66,7 +66,7 @@ test("isEngineHealthy verifies the authenticated Aimashi probe route", async () 
 
   assert.equal(await service.isEngineHealthy("http://127.0.0.1:18642", 1234), true);
   assert.deepEqual(calls, [[
-    "http://127.0.0.1:18642/v1/runs/_aimashi_probe/events",
+    "http://127.0.0.1:18642/v1/runs/_mia_probe/events",
     {
       method: "GET",
       headers: { Authorization: "Bearer key_1" },
@@ -81,7 +81,7 @@ test("isEngineHealthy verifies the authenticated Aimashi probe route", async () 
   assert.equal(await rejected.isEngineHealthy("http://127.0.0.1:18642"), false);
 });
 
-test("adoptRunningEngine only probes remembered Aimashi ports and updates engine state", async () => {
+test("adoptRunningEngine only probes remembered Mia ports and updates engine state", async () => {
   let state = { running: false, starting: true, port: 19001, baseUrl: "", managedBy: "", lastError: "old" };
   const probes = [];
   const service = createEngineHealthService({
@@ -97,8 +97,8 @@ test("adoptRunningEngine only probes remembered Aimashi ports and updates engine
 
   assert.equal(await service.adoptRunningEngine(), true);
   assert.deepEqual(probes, [
-    "http://127.0.0.1:19001/v1/runs/_aimashi_probe/events",
-    "http://127.0.0.1:19002/v1/runs/_aimashi_probe/events"
+    "http://127.0.0.1:19001/v1/runs/_mia_probe/events",
+    "http://127.0.0.1:19002/v1/runs/_mia_probe/events"
   ]);
   assert.deepEqual(state, {
     running: true,

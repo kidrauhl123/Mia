@@ -6,12 +6,12 @@ function toTomlStr(value) {
   return `"${String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
 
-function stripAimashiSchedulerSection(toml = "") {
+function stripMiaSchedulerSection(toml = "") {
   const lines = String(toml || "").split("\n");
   const filtered = [];
   let inOurSection = false;
   for (const line of lines) {
-    if (line.trim() === "[mcp_servers.aimashi-scheduler]") {
+    if (line.trim() === "[mcp_servers.mia-scheduler]") {
       inOurSection = true;
       continue;
     }
@@ -80,22 +80,22 @@ function createSchedulerMcpBridge(deps = {}) {
       command,
       args: [scriptPath],
       env: {
-        AIMASHI_DAEMON_URL: baseUrl,
-        AIMASHI_DAEMON_TOKEN: daemonToken(),
-        AIMASHI_SCHEDULER_CONTEXT_FILE: contextPath()
+        MIA_DAEMON_URL: baseUrl,
+        MIA_DAEMON_TOKEN: daemonToken(),
+        MIA_SCHEDULER_CONTEXT_FILE: contextPath()
       },
       alwaysLoad: true
     };
   }
 
-  function linkUserCodexState(userCodexHome, aimashiCodexHome) {
+  function linkUserCodexState(userCodexHome, miaCodexHome) {
     if (!fsImpl.existsSync(userCodexHome)) return;
     let entries = [];
     try { entries = fsImpl.readdirSync(userCodexHome); } catch { return; }
     for (const name of entries) {
       if (name === "config.toml") continue;
       const target = path.join(userCodexHome, name);
-      const link = path.join(aimashiCodexHome, name);
+      const link = path.join(miaCodexHome, name);
       let existing = null;
       try { existing = fsImpl.lstatSync(link); } catch { /* missing is fine */ }
       if (existing) {
@@ -120,14 +120,14 @@ function createSchedulerMcpBridge(deps = {}) {
   function schedulerTomlSection({ baseUrl, command, scriptPath }) {
     return [
       "",
-      "[mcp_servers.aimashi-scheduler]",
+      "[mcp_servers.mia-scheduler]",
       `command = ${toTomlStr(command)}`,
       `args = [${toTomlStr(scriptPath)}]`,
       "",
-      "[mcp_servers.aimashi-scheduler.env]",
-      `AIMASHI_DAEMON_URL = ${toTomlStr(baseUrl)}`,
-      `AIMASHI_DAEMON_TOKEN = ${toTomlStr(daemonToken())}`,
-      `AIMASHI_SCHEDULER_CONTEXT_FILE = ${toTomlStr(contextPath())}`,
+      "[mcp_servers.mia-scheduler.env]",
+      `MIA_DAEMON_URL = ${toTomlStr(baseUrl)}`,
+      `MIA_DAEMON_TOKEN = ${toTomlStr(daemonToken())}`,
+      `MIA_SCHEDULER_CONTEXT_FILE = ${toTomlStr(contextPath())}`,
       ""
     ].join("\n");
   }
@@ -140,22 +140,22 @@ function createSchedulerMcpBridge(deps = {}) {
     const command = resolveNodePath();
     if (!command) return "";
 
-    const aimashiCodexHome = path.join(runtimePaths().runtime, "codex-home");
-    fsImpl.mkdirSync(aimashiCodexHome, { recursive: true });
+    const miaCodexHome = path.join(runtimePaths().runtime, "codex-home");
+    fsImpl.mkdirSync(miaCodexHome, { recursive: true });
 
     const userCodexHome = path.join(homeDir(), ".codex");
-    linkUserCodexState(userCodexHome, aimashiCodexHome);
+    linkUserCodexState(userCodexHome, miaCodexHome);
 
     let baseConfig = "";
     try {
       baseConfig = fsImpl.readFileSync(path.join(userCodexHome, "config.toml"), "utf8");
     } catch {
-      // No user config; write only Aimashi's MCP section.
+      // No user config; write only Mia's MCP section.
     }
 
-    const finalConfig = stripAimashiSchedulerSection(baseConfig) + schedulerTomlSection({ baseUrl, command, scriptPath });
-    fsImpl.writeFileSync(path.join(aimashiCodexHome, "config.toml"), finalConfig, "utf8");
-    return aimashiCodexHome;
+    const finalConfig = stripMiaSchedulerSection(baseConfig) + schedulerTomlSection({ baseUrl, command, scriptPath });
+    fsImpl.writeFileSync(path.join(miaCodexHome, "config.toml"), finalConfig, "utf8");
+    return miaCodexHome;
   }
 
   return {
@@ -172,6 +172,6 @@ function createSchedulerMcpBridge(deps = {}) {
 
 module.exports = {
   createSchedulerMcpBridge,
-  stripAimashiSchedulerSection,
+  stripMiaSchedulerSection,
   toTomlStr
 };

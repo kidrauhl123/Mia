@@ -91,13 +91,13 @@ try {
   ({ dmRoomId, ensureDmRoom } = require("./src/cloud/dm-room.js"));
 }
 
-const host = process.env.AIMASHI_CLOUD_HOST || "127.0.0.1";
-const port = Number(process.env.AIMASHI_CLOUD_PORT || process.env.PORT || 4175);
-const defaultDataDir = process.env.AIMASHI_CLOUD_DATA || path.join(process.cwd(), ".aimashi-cloud");
+const host = process.env.MIA_CLOUD_HOST || "127.0.0.1";
+const port = Number(process.env.MIA_CLOUD_PORT || process.env.PORT || 4175);
+const defaultDataDir = process.env.MIA_CLOUD_DATA || path.join(process.cwd(), ".mia-cloud");
 const maxUploadBytes = 18 * 1024 * 1024;
 const maxBodyBytes = Math.ceil(maxUploadBytes * 4 / 3) + 1024 * 1024;
-const bridgeRunTimeoutMs = Number(process.env.AIMASHI_BRIDGE_RUN_TIMEOUT_MS || 1000 * 60 * 5);
-const litellmAdminBaseUrl = String(process.env.AIMASHI_LITELLM_ADMIN_BASE_URL || "http://127.0.0.1:4000").replace(/\/+$/, "");
+const bridgeRunTimeoutMs = Number(process.env.MIA_BRIDGE_RUN_TIMEOUT_MS || 1000 * 60 * 5);
+const litellmAdminBaseUrl = String(process.env.MIA_LITELLM_ADMIN_BASE_URL || "http://127.0.0.1:4000").replace(/\/+$/, "");
 const cloudFeatures = [
   "sqlite-store",
   "auth-sessions",
@@ -111,7 +111,7 @@ const cloudFeatures = [
   "cloud-hermes-agent",
   "cloud-agent-user-isolation"
 ];
-const defaultAllowedOrigins = String(process.env.AIMASHI_CLOUD_ALLOWED_ORIGINS || "")
+const defaultAllowedOrigins = String(process.env.MIA_CLOUD_ALLOWED_ORIGINS || "")
   .split(",")
   .map((origin) => origin.trim())
   .filter(Boolean);
@@ -126,13 +126,13 @@ function readJsonFile(filePath) {
 
 function defaultReleaseManifest() {
   const candidates = [
-    process.env.AIMASHI_CLOUD_RELEASE_MANIFEST || "",
+    process.env.MIA_CLOUD_RELEASE_MANIFEST || "",
     path.join(__dirname, "release-manifest.json"),
     path.join(__dirname, "..", "manifest.json")
   ].filter(Boolean);
   for (const candidate of candidates) {
     const manifest = readJsonFile(candidate);
-    if (manifest && manifest.product === "Aimashi Cloud") return manifest;
+    if (manifest && manifest.product === "Mia Cloud") return manifest;
   }
   return null;
 }
@@ -209,7 +209,7 @@ function readBody(req) {
     req.on("end", () => {
       if (tooLarge) {
         const error = new Error("Request body is too large.");
-        error.code = "AIMASHI_BODY_TOO_LARGE";
+        error.code = "MIA_BODY_TOO_LARGE";
         reject(error);
         return;
       }
@@ -226,7 +226,7 @@ async function readJson(req) {
     return JSON.parse(body);
   } catch {
     const error = new Error("Invalid JSON.");
-    error.code = "AIMASHI_INVALID_JSON";
+    error.code = "MIA_INVALID_JSON";
     throw error;
   }
 }
@@ -318,7 +318,7 @@ function fileContentType(filePath, fallback = "application/octet-stream") {
 
 function defaultWebRoot() {
   const candidates = [
-    process.env.AIMASHI_WEB_ROOT,
+    process.env.MIA_WEB_ROOT,
     path.join(__dirname, "..", "web"),
     path.join(__dirname, "..", "src", "web")
   ].filter(Boolean);
@@ -367,8 +367,8 @@ function serveWebAsset(req, res, webRoot, pathname) {
 
 function adminCredentials(context = {}) {
   return {
-    username: String(context.adminUsername || process.env.AIMASHI_CLOUD_ADMIN_USERNAME || "").trim(),
-    password: String(context.adminPassword || process.env.AIMASHI_CLOUD_ADMIN_PASSWORD || "").trim()
+    username: String(context.adminUsername || process.env.MIA_CLOUD_ADMIN_USERNAME || "").trim(),
+    password: String(context.adminPassword || process.env.MIA_CLOUD_ADMIN_PASSWORD || "").trim()
   };
 }
 
@@ -407,7 +407,7 @@ function requireAdmin(req, res, context) {
   ) {
     return true;
   }
-  res.setHeader("WWW-Authenticate", 'Basic realm="Aimashi Admin", charset="UTF-8"');
+  res.setHeader("WWW-Authenticate", 'Basic realm="Mia Admin", charset="UTF-8"');
   writeError(res, 401, "需要管理员账号。");
   return false;
 }
@@ -424,14 +424,14 @@ function serveAdminModelPage(req, res, context) {
 }
 
 function litellmAdminKey(context = {}) {
-  return String(context.litellmAdminKey || process.env.LITELLM_MASTER_KEY || process.env.AIMASHI_LITELLM_MASTER_KEY || "").trim();
+  return String(context.litellmAdminKey || process.env.LITELLM_MASTER_KEY || process.env.MIA_LITELLM_MASTER_KEY || "").trim();
 }
 
 function litellmServiceKey(context = {}) {
   return String(
     context.litellmServiceKey ||
-    process.env.AIMASHI_CLOUD_AGENT_MODEL_API_KEY ||
-    process.env.AIMASHI_LITELLM_API_KEY ||
+    process.env.MIA_CLOUD_AGENT_MODEL_API_KEY ||
+    process.env.MIA_LITELLM_API_KEY ||
     ""
   ).trim();
 }
@@ -497,7 +497,7 @@ function normalizeAdminModelInput(input = {}) {
   }
   return {
     provider: String(input.provider || "").trim(),
-    modelName: "aimashi-default",
+    modelName: "mia-default",
     upstreamModel,
     apiKey,
     apiBase,
@@ -505,16 +505,16 @@ function normalizeAdminModelInput(input = {}) {
   };
 }
 
-async function listAimashiLiteLLMModels(context) {
+async function listMiaLiteLLMModels(context) {
   const info = await litellmRequest(context, "/model/info");
   const rows = Array.isArray(info?.data) ? info.data : [];
-  return rows.filter((row) => row?.model_name === "aimashi-default");
+  return rows.filter((row) => row?.model_name === "mia-default");
 }
 
 async function handleAdminModelGateway(req, res, context, url) {
   if (!requireAdmin(req, res, context)) return;
   if (req.method === "GET" && url.pathname === "/api/admin/model-gateway") {
-    const models = await listAimashiLiteLLMModels(context);
+    const models = await listMiaLiteLLMModels(context);
     return writeJson(res, 200, {
       ok: true,
       gateway: {
@@ -522,13 +522,13 @@ async function handleAdminModelGateway(req, res, context, url) {
         adminConfigured: Boolean(litellmAdminKey(context)),
         serviceKeyConfigured: Boolean(litellmServiceKey(context))
       },
-      modelName: "aimashi-default",
+      modelName: "mia-default",
       models: models.map(redactModelInfo)
     });
   }
   if (req.method === "POST" && url.pathname === "/api/admin/model-gateway") {
     const input = normalizeAdminModelInput(await readJson(req));
-    const existing = await listAimashiLiteLLMModels(context);
+    const existing = await listMiaLiteLLMModels(context);
     for (const row of existing) {
       const id = String(row?.model_info?.id || row?.model_id || "").trim();
       if (id) {
@@ -565,15 +565,15 @@ async function handleAdminModelGateway(req, res, context, url) {
       method: "POST",
       key: serviceKey,
       body: {
-        model: "aimashi-default",
-        messages: [{ role: "user", content: "Reply with exactly: aimashi-ok" }],
+        model: "mia-default",
+        messages: [{ role: "user", content: "Reply with exactly: mia-ok" }],
         max_tokens: 20
       }
     });
     return writeJson(res, 200, {
       ok: true,
       reply: result?.choices?.[0]?.message?.content || "",
-      model: result?.model || "aimashi-default"
+      model: result?.model || "mia-default"
     });
   }
   writeError(res, 404, "Not found.");
@@ -849,7 +849,7 @@ function runBridgeDevice(hub, device, payload) {
     const timer = setTimeout(() => {
       hub.pendingRuns.delete(runId);
       const timeout = new Error("本机 Agent 响应超时。");
-      timeout.code = "AIMASHI_BRIDGE_TIMEOUT";
+      timeout.code = "MIA_BRIDGE_TIMEOUT";
       reject(timeout);
     }, hub.runTimeoutMs || bridgeRunTimeoutMs);
     hub.pendingRuns.set(runId, { runId, userId: device.userId, deviceId: device.id, device, resolve, reject, timer });
@@ -880,7 +880,7 @@ function cancelBridgeRunDevice(hub, userId, runId) {
     pending.device.ws.send(JSON.stringify({ type: "cancel", runId }));
   }
   const cancelled = new Error("本机 Agent 运行已取消。");
-  cancelled.code = "AIMASHI_BRIDGE_CANCELLED";
+  cancelled.code = "MIA_BRIDGE_CANCELLED";
   pending.reject(cancelled);
   return true;
 }
@@ -918,7 +918,7 @@ function tokenFromRequest(req) {
 
 function tokenFromWebSocketProtocol(req) {
   const header = String(req.headers["sec-websocket-protocol"] || "");
-  const prefix = "aimashi-token.";
+  const prefix = "mia-token.";
   return header.split(",")
     .map((item) => item.trim())
     .find((item) => item.startsWith(prefix))
@@ -1061,8 +1061,8 @@ async function handleRequest(req, res, context) {
   if (req.method === "GET" && url.pathname === "/api/health") {
     writeJson(res, 200, {
       ok: true,
-      service: "aimashi-cloud",
-      version: String(process.env.AIMASHI_CLOUD_VERSION || ""),
+      service: "mia-cloud",
+      version: String(process.env.MIA_CLOUD_VERSION || ""),
       release: releaseHealthPayload(context.releaseManifest),
       features: cloudFeatures
     });
@@ -1397,7 +1397,7 @@ async function handleRequest(req, res, context) {
     // PATCH /api/rooms/:id — update room metadata (name, decorations).
     // Used by sidebar context menu for rename and pin. Any member of the
     // room can edit metadata; this is intentionally lenient because the
-    // operations are non-destructive and aimashi has no group-admin model.
+    // operations are non-destructive and mia has no group-admin model.
     if (req.method === "PATCH" && roomDetailMatch) {
       const roomId = roomDetailMatch[1];
       if (!userIsMemberOfRoom(context.socialStore, roomId, auth.user.id)) {
@@ -1906,13 +1906,13 @@ async function handleRequest(req, res, context) {
         }
         return writeJson(res, 200, { run: completed, message });
       } catch (error) {
-        if (error.code === "AIMASHI_BRIDGE_CANCELLED") {
+        if (error.code === "MIA_BRIDGE_CANCELLED") {
           const cancelled = cloudStore.getBridgeRun(auth.user.id, bridgeRun.id)
             || cloudStore.cancelBridgeRun(auth.user.id, bridgeRun.id);
           broadcastTransientEvent(context.eventHub, auth.user.id, { type: "bridge_run_updated", run: cancelled });
           return writeJson(res, 200, { run: cancelled, cancelled: true });
         }
-        const failed = error.code === "AIMASHI_BRIDGE_TIMEOUT"
+        const failed = error.code === "MIA_BRIDGE_TIMEOUT"
           ? cloudStore.timeoutBridgeRun(auth.user.id, bridgeRun.id, error.message || "本机 Agent 响应超时。")
           : cloudStore.failBridgeRun(auth.user.id, bridgeRun.id, error.message || "本机 Agent 执行失败。");
         broadcastTransientEvent(context.eventHub, auth.user.id, { type: "bridge_run_updated", run: failed });
@@ -1929,8 +1929,8 @@ async function handleRequest(req, res, context) {
     writeError(res, 404, "Not found.");
   } catch (error) {
     const message = error.message || "Internal error.";
-    if (error.code === "AIMASHI_INVALID_JSON") return writeError(res, 400, message);
-    if (error.code === "AIMASHI_BODY_TOO_LARGE") return writeError(res, 413, message);
+    if (error.code === "MIA_INVALID_JSON") return writeError(res, 400, message);
+    if (error.code === "MIA_BODY_TOO_LARGE") return writeError(res, 413, message);
     if (/账号已存在/.test(message)) return writeError(res, 409, message);
     if (/登录尝试过多/.test(message)) return writeError(res, 429, message);
     if (/用户名或密码不正确/.test(message)) return writeError(res, 401, message);
@@ -1978,7 +1978,7 @@ function handleBridgeUpgrade(req, socket, head, context, wss) {
   });
 }
 
-function createAimashiCloudServer(options = {}) {
+function createMiaCloudServer(options = {}) {
   const storePaths = createStore(options.dataDir || defaultDataDir);
   const context = {
     store: storePaths,
@@ -1986,7 +1986,7 @@ function createAimashiCloudServer(options = {}) {
     bridgeHub: createBridgeHub(options.bridgeRunTimeoutMs || bridgeRunTimeoutMs),
     eventHub: createEventHub(),
     allowedOrigins: allowedOriginsFromOptions(options),
-    allowQueryTokenAuth: Boolean(options.allowQueryTokenAuth || process.env.AIMASHI_CLOUD_ALLOW_QUERY_TOKEN === "1"),
+    allowQueryTokenAuth: Boolean(options.allowQueryTokenAuth || process.env.MIA_CLOUD_ALLOW_QUERY_TOKEN === "1"),
     webRoot: options.webRoot || defaultWebRoot(),
     releaseManifest: options.releaseManifest === undefined ? defaultReleaseManifest() : options.releaseManifest,
     socialStore: null,
@@ -2041,17 +2041,17 @@ function createAimashiCloudServer(options = {}) {
   const wss = new WebSocketServer({ noServer: true });
   server.on("upgrade", (req, socket, head) => handleBridgeUpgrade(req, socket, head, context, wss));
   server.on("close", () => context.cloudStore.close?.());
-  server.aimashi = context;
+  server.mia = context;
   return server;
 }
 
 if (require.main === module) {
-  const server = createAimashiCloudServer();
+  const server = createMiaCloudServer();
   server.listen(port, host, () => {
-    console.log(`Aimashi Cloud API listening on http://${host}:${port}`);
+    console.log(`Mia Cloud API listening on http://${host}:${port}`);
   });
 }
 
 module.exports = {
-  createAimashiCloudServer
+  createMiaCloudServer
 };

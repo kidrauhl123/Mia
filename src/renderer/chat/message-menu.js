@@ -10,7 +10,7 @@
 (function () {
   "use strict";
 
-  let state, els, aimashi;
+  let state, els, mia;
   let messageAtIndex, messageReferenceForIndex, messageContextText, menuItemHtml;
   let activeSession, persistSessionQuietly, replacePersistedSessionQuietly;
   let renderChat, renderSessionMenu, renderComposerReply;
@@ -21,7 +21,7 @@
   function initMessageMenu(deps) {
     state = deps.state;
     els = deps.els;
-    aimashi = deps.aimashi || (typeof window !== "undefined" ? window.aimashi : null);
+    mia = deps.mia || (typeof window !== "undefined" ? window.mia : null);
     messageAtIndex = deps.messageAtIndex;
     messageReferenceForIndex = deps.messageReferenceForIndex;
     messageContextText = deps.messageContextText;
@@ -44,7 +44,7 @@
 
   function clearMessageSelectionHighlight() {
     try {
-      window.CSS?.highlights?.delete?.("aimashi-message-selection");
+      window.CSS?.highlights?.delete?.("mia-message-selection");
     } catch {
       // Highlight API is optional.
     }
@@ -54,7 +54,7 @@
     clearMessageSelectionHighlight();
     try {
       if (!range || !window.Highlight || !window.CSS?.highlights) return;
-      window.CSS.highlights.set("aimashi-message-selection", new window.Highlight(range));
+      window.CSS.highlights.set("mia-message-selection", new window.Highlight(range));
     } catch {
       // Keep native selection behavior when custom highlights are unavailable.
     }
@@ -183,7 +183,7 @@
         "",
         text
       ].join("\n");
-      const response = await window.aimashi.sendChat({
+      const response = await window.mia.sendChat({
         fellowKey: state.activeKey,
         personaKey: state.activeKey,
         sessionId: `utility:translate:${cryptoRandomId()}`,
@@ -269,7 +269,7 @@
     });
   }
 
-  window.aimashiMessageMenu = {
+  window.miaMessageMenu = {
     initMessageMenu,
     clearMessageSelectionHighlight,
     highlightMessageSelection,

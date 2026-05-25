@@ -1,52 +1,52 @@
-# Aimashi Cloud Deployment
+# Mia Cloud Deployment
 
-This document is the production checklist for the official Aimashi Cloud/Web host.
+This document is the production checklist for the official Mia Cloud/Web host.
 
 ## Runtime Layout
 
-- API service: `/opt/aimashi-cloud/server.js`
-- Cloud data: `/var/lib/aimashi-cloud`
-- Web root: `/var/www/aimashi-web`
+- API service: `/opt/mia-cloud/server.js`
+- Cloud data: `/var/lib/mia-cloud`
+- Web root: `/var/www/mia-web`
 - Public origin: `https://aiweb.buytb01.com`
 - Local API listener: `127.0.0.1:4175`
 
 ## Required Environment
 
 ```ini
-AIMASHI_CLOUD_HOST=127.0.0.1
-AIMASHI_CLOUD_PORT=4175
-AIMASHI_CLOUD_DATA=/var/lib/aimashi-cloud
-AIMASHI_CLOUD_ALLOWED_ORIGINS=https://aiweb.buytb01.com
-AIMASHI_BRIDGE_RUN_TIMEOUT_MS=300000
-AIMASHI_CLOUD_VERSION=2026-05-20
-AIMASHI_CLOUD_AGENT_MODE=docker
-AIMASHI_CLOUD_AGENT_ROOT=/var/lib/aimashi-cloud-agent-users
-AIMASHI_CLOUD_HERMES_IMAGE=aimashi/hermes-cloud:2026.5.7
-AIMASHI_CLOUD_HERMES_CONTAINER_PORT=8765
-AIMASHI_CLOUD_AGENT_DOCKER_NETWORK=aimashi-cloud
-AIMASHI_CLOUD_AGENT_MODEL_PROVIDER=aimashi-litellm
-AIMASHI_CLOUD_AGENT_MODEL=aimashi-default
-AIMASHI_CLOUD_AGENT_MODEL_BASE_URL=http://litellm:4000/v1
-AIMASHI_CLOUD_AGENT_MODEL_API_KEY=<LiteLLM virtual key>
-AIMASHI_LITELLM_ADMIN_BASE_URL=http://127.0.0.1:4000
-AIMASHI_CLOUD_ADMIN_USERNAME=<admin username>
-AIMASHI_CLOUD_ADMIN_PASSWORD=<admin password>
+MIA_CLOUD_HOST=127.0.0.1
+MIA_CLOUD_PORT=4175
+MIA_CLOUD_DATA=/var/lib/mia-cloud
+MIA_CLOUD_ALLOWED_ORIGINS=https://aiweb.buytb01.com
+MIA_BRIDGE_RUN_TIMEOUT_MS=300000
+MIA_CLOUD_VERSION=2026-05-20
+MIA_CLOUD_AGENT_MODE=docker
+MIA_CLOUD_AGENT_ROOT=/var/lib/mia-cloud-agent-users
+MIA_CLOUD_HERMES_IMAGE=mia/hermes-cloud:2026.5.7
+MIA_CLOUD_HERMES_CONTAINER_PORT=8765
+MIA_CLOUD_AGENT_DOCKER_NETWORK=mia-cloud
+MIA_CLOUD_AGENT_MODEL_PROVIDER=mia-litellm
+MIA_CLOUD_AGENT_MODEL=mia-default
+MIA_CLOUD_AGENT_MODEL_BASE_URL=http://litellm:4000/v1
+MIA_CLOUD_AGENT_MODEL_API_KEY=<LiteLLM virtual key>
+MIA_LITELLM_ADMIN_BASE_URL=http://127.0.0.1:4000
+MIA_CLOUD_ADMIN_USERNAME=<admin username>
+MIA_CLOUD_ADMIN_PASSWORD=<admin password>
 LITELLM_MASTER_KEY=<LiteLLM admin key>
 ```
 
-`AIMASHI_CLOUD_ALLOWED_ORIGINS` is required in production. Without it, WebSocket upgrades are limited to same-host/local origins only.
-`AIMASHI_CLOUD_PORT` takes precedence over the generic `PORT`; if `AIMASHI_CLOUD_PORT` is unset, the server honors `PORT` for platform-style deployments.
-`AIMASHI_CLOUD_AGENT_MODE=docker` enables the cloud-backed Hermes Fellow runtime. The release includes `hermes-image/`, and the installer builds `AIMASHI_CLOUD_HERMES_IMAGE` locally on the VPS so the runtime does not depend on pulling a private image. The service creates one worker container per user, mounts only `/var/lib/aimashi-cloud-agent-users/<userId>` at `/data`, binds the Hermes API to `127.0.0.1` on a random host port, and passes `HERMES_HOME=/data/hermes-home`, `HOME=/data/home`, `TERMINAL_CWD=/data/workspace`, and `HERMES_WRITE_SAFE_ROOT=/data/workspace` into the container. The worker container must not mount `/var/lib/aimashi-cloud`, global uploads, other users' agent directories, or `/var/run/docker.sock`.
-`AIMASHI_CLOUD_AGENT_MODEL_*` configures the platform-supplied model for every user's cloud Hermes worker. The worker manager writes each user's private `hermes-home/config.yaml` with a custom provider named `aimashi-litellm`, pointing to the LiteLLM Proxy OpenAI-compatible endpoint. Store provider keys inside LiteLLM and give Aimashi only a limited LiteLLM virtual key, not raw OpenAI/Anthropic/other provider keys.
+`MIA_CLOUD_ALLOWED_ORIGINS` is required in production. Without it, WebSocket upgrades are limited to same-host/local origins only.
+`MIA_CLOUD_PORT` takes precedence over the generic `PORT`; if `MIA_CLOUD_PORT` is unset, the server honors `PORT` for platform-style deployments.
+`MIA_CLOUD_AGENT_MODE=docker` enables the cloud-backed Hermes Fellow runtime. The release includes `hermes-image/`, and the installer builds `MIA_CLOUD_HERMES_IMAGE` locally on the VPS so the runtime does not depend on pulling a private image. The service creates one worker container per user, mounts only `/var/lib/mia-cloud-agent-users/<userId>` at `/data`, binds the Hermes API to `127.0.0.1` on a random host port, and passes `HERMES_HOME=/data/hermes-home`, `HOME=/data/home`, `TERMINAL_CWD=/data/workspace`, and `HERMES_WRITE_SAFE_ROOT=/data/workspace` into the container. The worker container must not mount `/var/lib/mia-cloud`, global uploads, other users' agent directories, or `/var/run/docker.sock`.
+`MIA_CLOUD_AGENT_MODEL_*` configures the platform-supplied model for every user's cloud Hermes worker. The worker manager writes each user's private `hermes-home/config.yaml` with a custom provider named `mia-litellm`, pointing to the LiteLLM Proxy OpenAI-compatible endpoint. Store provider keys inside LiteLLM and give Mia only a limited LiteLLM virtual key, not raw OpenAI/Anthropic/other provider keys.
 
 ## LiteLLM Model Gateway
 
-Aimashi expects LiteLLM Proxy to be reachable from Hermes worker containers. A common production layout is a dedicated Docker network:
+Mia expects LiteLLM Proxy to be reachable from Hermes worker containers. A common production layout is a dedicated Docker network:
 
 ```bash
-docker network create aimashi-cloud || true
+docker network create mia-cloud || true
 docker run -d --name litellm --restart unless-stopped \
-  --network aimashi-cloud \
+  --network mia-cloud \
   -p 127.0.0.1:4000:4000 \
   -v /opt/litellm/config.yaml:/app/config.yaml:ro \
   -e LITELLM_MASTER_KEY=<admin key> \
@@ -54,45 +54,45 @@ docker run -d --name litellm --restart unless-stopped \
   --config /app/config.yaml --host 0.0.0.0 --port 4000
 ```
 
-Use the Aimashi admin page at `/admin/model` to save the provider API key and the `aimashi-default` model alias into LiteLLM. Keep the LiteLLM UI private or disabled on the public internet. The Aimashi systemd unit should use a LiteLLM virtual key in `AIMASHI_CLOUD_AGENT_MODEL_API_KEY`; Hermes users only receive the cloud Fellow experience and do not configure model providers themselves.
+Use the Mia admin page at `/admin/model` to save the provider API key and the `mia-default` model alias into LiteLLM. Keep the LiteLLM UI private or disabled on the public internet. The Mia systemd unit should use a LiteLLM virtual key in `MIA_CLOUD_AGENT_MODEL_API_KEY`; Hermes users only receive the cloud Fellow experience and do not configure model providers themselves.
 
 ## systemd Unit
 
 ```ini
 [Unit]
-Description=Aimashi Cloud API
+Description=Mia Cloud API
 After=network.target
 
 [Service]
 Type=simple
-User=aimashi-cloud
-Group=aimashi-cloud
-WorkingDirectory=/opt/aimashi-cloud
-ExecStart=/usr/bin/node /opt/aimashi-cloud/server.js
+User=mia-cloud
+Group=mia-cloud
+WorkingDirectory=/opt/mia-cloud
+ExecStart=/usr/bin/node /opt/mia-cloud/server.js
 Restart=always
 RestartSec=3
-Environment=AIMASHI_CLOUD_HOST=127.0.0.1
-Environment=AIMASHI_CLOUD_PORT=4175
-Environment=AIMASHI_CLOUD_DATA=/var/lib/aimashi-cloud
-Environment=AIMASHI_WEB_ROOT=/var/www/aimashi-web
-Environment=AIMASHI_CLOUD_ALLOWED_ORIGINS=https://aiweb.buytb01.com
-Environment=AIMASHI_BRIDGE_RUN_TIMEOUT_MS=300000
-Environment=AIMASHI_CLOUD_VERSION=2026-05-20
-Environment=AIMASHI_CLOUD_AGENT_MODE=docker
-Environment=AIMASHI_CLOUD_AGENT_ROOT=/var/lib/aimashi-cloud-agent-users
-Environment=AIMASHI_CLOUD_HERMES_IMAGE=aimashi/hermes-cloud:2026.5.7
-Environment=AIMASHI_CLOUD_HERMES_CONTAINER_PORT=8765
-Environment=AIMASHI_CLOUD_AGENT_DOCKER_NETWORK=aimashi-cloud
-Environment=AIMASHI_CLOUD_AGENT_MODEL_PROVIDER=aimashi-litellm
-Environment=AIMASHI_CLOUD_AGENT_MODEL=aimashi-default
-Environment=AIMASHI_CLOUD_AGENT_MODEL_BASE_URL=http://litellm:4000/v1
-Environment=AIMASHI_CLOUD_AGENT_MODEL_API_KEY=<LiteLLM virtual key>
-Environment=AIMASHI_LITELLM_ADMIN_BASE_URL=http://127.0.0.1:4000
-EnvironmentFile=-/etc/aimashi-cloud/admin.env
+Environment=MIA_CLOUD_HOST=127.0.0.1
+Environment=MIA_CLOUD_PORT=4175
+Environment=MIA_CLOUD_DATA=/var/lib/mia-cloud
+Environment=MIA_WEB_ROOT=/var/www/mia-web
+Environment=MIA_CLOUD_ALLOWED_ORIGINS=https://aiweb.buytb01.com
+Environment=MIA_BRIDGE_RUN_TIMEOUT_MS=300000
+Environment=MIA_CLOUD_VERSION=2026-05-20
+Environment=MIA_CLOUD_AGENT_MODE=docker
+Environment=MIA_CLOUD_AGENT_ROOT=/var/lib/mia-cloud-agent-users
+Environment=MIA_CLOUD_HERMES_IMAGE=mia/hermes-cloud:2026.5.7
+Environment=MIA_CLOUD_HERMES_CONTAINER_PORT=8765
+Environment=MIA_CLOUD_AGENT_DOCKER_NETWORK=mia-cloud
+Environment=MIA_CLOUD_AGENT_MODEL_PROVIDER=mia-litellm
+Environment=MIA_CLOUD_AGENT_MODEL=mia-default
+Environment=MIA_CLOUD_AGENT_MODEL_BASE_URL=http://litellm:4000/v1
+Environment=MIA_CLOUD_AGENT_MODEL_API_KEY=<LiteLLM virtual key>
+Environment=MIA_LITELLM_ADMIN_BASE_URL=http://127.0.0.1:4000
+EnvironmentFile=-/etc/mia-cloud/admin.env
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
-ReadWritePaths=/var/lib/aimashi-cloud /var/lib/aimashi-cloud-agent-users
+ReadWritePaths=/var/lib/mia-cloud /var/lib/mia-cloud-agent-users
 
 [Install]
 WantedBy=multi-user.target
@@ -119,7 +119,7 @@ server {
     ssl_certificate /etc/letsencrypt/live/aiweb.buytb01.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/aiweb.buytb01.com/privkey.pem;
 
-    root /var/www/aimashi-web;
+    root /var/www/mia-web;
     index index.html;
 
     location = /favicon.ico {
@@ -165,9 +165,9 @@ server {
 }
 ```
 
-The `map` block belongs in nginx's `http` context, not inside `server`. If the server uses a `sites-enabled` layout, put the `map` in `/etc/nginx/conf.d/aimashi-websocket-map.conf` or the main `nginx.conf` `http` block, then put the `server` block in the site file. Always run `nginx -t` before reload. The nginx config must preserve `Sec-WebSocket-Protocol`; this header carries the Cloud bearer token subprotocol for `/api/events` and `/api/bridge`.
+The `map` block belongs in nginx's `http` context, not inside `server`. If the server uses a `sites-enabled` layout, put the `map` in `/etc/nginx/conf.d/mia-websocket-map.conf` or the main `nginx.conf` `http` block, then put the `server` block in the site file. Always run `nginx -t` before reload. The nginx config must preserve `Sec-WebSocket-Protocol`; this header carries the Cloud bearer token subprotocol for `/api/events` and `/api/bridge`.
 
-Do not pass Cloud bearer tokens in WebSocket URLs. Current Web/Desktop/bridge clients authenticate `/api/events` and `/api/bridge` with the `Sec-WebSocket-Protocol` value `aimashi-token.<token>`, which keeps tokens out of normal URL logs. Query-string token auth is disabled by default; set `AIMASHI_CLOUD_ALLOW_QUERY_TOKEN=1` only for a short, explicit legacy-client migration window.
+Do not pass Cloud bearer tokens in WebSocket URLs. Current Web/Desktop/bridge clients authenticate `/api/events` and `/api/bridge` with the `Sec-WebSocket-Protocol` value `mia-token.<token>`, which keeps tokens out of normal URL logs. Query-string token auth is disabled by default; set `MIA_CLOUD_ALLOW_QUERY_TOKEN=1` only for a short, explicit legacy-client migration window.
 
 ## Deploy Steps
 
@@ -184,7 +184,7 @@ npm run cloud:deploy:dry-run
 ```
 
 The dry run performs local structure checks, the full test suite, release build, manifest verification, and archive checksum verification, then prints the remote target, expected release commit, expected `builtAt`, archive hash, and install paths. It does not connect to SSH, upload files, install anything, or run public smoke.
-It also runs the bundled `install-cloud-release-local.sh` in `AIMASHI_INSTALL_VERIFY_ONLY=1` mode against the just-built tarball, which checks the archive checksum, unpacks the release, validates required files, and verifies every SHA-256 hash in `manifest.json` without touching systemd or install directories.
+It also runs the bundled `install-cloud-release-local.sh` in `MIA_INSTALL_VERIFY_ONLY=1` mode against the just-built tarball, which checks the archive checksum, unpacks the release, validates required files, and verifies every SHA-256 hash in `manifest.json` without touching systemd or install directories.
 
 If SSH deploy access is denied, print the exact public-key authorization block for the VPS operator:
 
@@ -206,11 +206,11 @@ Production doctor, useful to identify the exact blocker before deployment:
 
 ```bash
 npm run cloud:doctor -- https://aiweb.buytb01.com
-AIMASHI_DOCTOR_REMOTE=root@aiweb.buytb01.com npm run cloud:doctor -- https://aiweb.buytb01.com
+MIA_DOCTOR_REMOTE=root@aiweb.buytb01.com npm run cloud:doctor -- https://aiweb.buytb01.com
 ```
 
 The doctor checks DNS, `/api/health`, required product features, release provenance, same-origin CORS, security headers, HTTPS HSTS, optional non-interactive SSH access, remote Node.js 25+ with `node:sqlite`, deploy-critical commands, the configured service user or `useradd`, and `nginx -t`. It is intentionally stricter than a curl health check and should fail while production still runs an older Cloud build or SSH credentials are unavailable.
-The same `doctor-cloud.js` is bundled into `dist/aimashi-cloud-release.tgz`, so an operator with only the release archive can also extract the package and run `node doctor-cloud.js https://aiweb.buytb01.com` from the unpacked release directory.
+The same `doctor-cloud.js` is bundled into `dist/mia-cloud-release.tgz`, so an operator with only the release archive can also extract the package and run `node doctor-cloud.js https://aiweb.buytb01.com` from the unpacked release directory.
 
 Server-local install path, useful when the operator can open a shell on the VPS but this workstation does not have SSH key access:
 
@@ -224,93 +224,93 @@ npm run cloud:release:handoff:verify
 npm run cloud:release:handoff:bundle
 npm run cloud:release:handoff:bundle:verify
 # Copy these files to /tmp on the VPS with your available channel:
-#   dist/aimashi-cloud-release.tgz
-#   dist/aimashi-cloud-release.tgz.sha256
-#   dist/aimashi-cloud-release-handoff.txt
+#   dist/mia-cloud-release.tgz
+#   dist/mia-cloud-release.tgz.sha256
+#   dist/mia-cloud-release-handoff.txt
 # Or copy this single bundle to /tmp and extract it there:
-#   dist/aimashi-cloud-release-transfer.tgz
-#   dist/aimashi-cloud-release-transfer.tgz.sha256
+#   dist/mia-cloud-release-transfer.tgz
+#   dist/mia-cloud-release-transfer.tgz.sha256
 
 # On the VPS:
 cd /tmp
 # If using the single bundle:
 # if command -v sha256sum >/dev/null 2>&1; then
-#   sha256sum -c aimashi-cloud-release-transfer.tgz.sha256
+#   sha256sum -c mia-cloud-release-transfer.tgz.sha256
 # else
-#   shasum -a 256 -c aimashi-cloud-release-transfer.tgz.sha256
+#   shasum -a 256 -c mia-cloud-release-transfer.tgz.sha256
 # fi
-# tar -xzf aimashi-cloud-release-transfer.tgz -C /tmp --strip-components=1
-# AIMASHI_TRANSFER_VERIFY_ONLY=1 bash install-transfer-bundle.sh
+# tar -xzf mia-cloud-release-transfer.tgz -C /tmp --strip-components=1
+# MIA_TRANSFER_VERIFY_ONLY=1 bash install-transfer-bundle.sh
 # bash install-transfer-bundle.sh
 # If using the three separate files:
-tar -xOf aimashi-cloud-release.tgz aimashi-cloud-release/install-cloud-release-local.sh > install-cloud-release-local.sh
+tar -xOf mia-cloud-release.tgz mia-cloud-release/install-cloud-release-local.sh > install-cloud-release-local.sh
 chmod +x install-cloud-release-local.sh
-./install-cloud-release-local.sh /tmp/aimashi-cloud-release.tgz
+./install-cloud-release-local.sh /tmp/mia-cloud-release.tgz
 ```
 
-`npm run cloud:release:handoff` prints the exact archive path, archive SHA-256, source commit, `builtAt`, VPS install commands, and post-install doctor/smoke commands from the current release manifest, so those values do not need to be copied manually from multiple files. `npm run cloud:release:handoff:file` writes the same text to `dist/aimashi-cloud-release-handoff.txt` so it can be sent alongside the archive and checksum. `npm run cloud:release:handoff:verify` confirms the handoff file still matches the current archive checksum and release manifest. `npm run cloud:release:handoff:bundle` writes `dist/aimashi-cloud-release-transfer.tgz` and `dist/aimashi-cloud-release-transfer.tgz.sha256`, a single transfer bundle plus external checksum sidecar. The bundle contains the release archive, checksum sidecar, handoff file, `install-transfer-bundle.sh`, `TRANSFER-README.md`, and `TRANSFER-SHA256.txt` for operator-side verification before install. `npm run cloud:release:handoff:bundle:verify` requires the external bundle sidecar, checks it, extracts the transfer bundle locally, and verifies each listed file hash before it is sent. On the VPS, `AIMASHI_TRANSFER_VERIFY_ONLY=1 bash install-transfer-bundle.sh` verifies the transfer hashes, extracts the release installer, and runs installer verify-only mode without changing system files; `bash install-transfer-bundle.sh` repeats those checks and then performs the install.
-The handoff doctor and smoke commands include `AIMASHI_DOCTOR_EXPECT_RELEASE_COMMIT`, `AIMASHI_DOCTOR_EXPECT_RELEASE_BUILT_AT`, `AIMASHI_SMOKE_EXPECT_RELEASE_COMMIT`, and `AIMASHI_SMOKE_EXPECT_RELEASE_BUILT_AT` from the package manifest. Keep those values in the commands; otherwise a passing doctor or smoke can prove the public service works, but not that it is the exact package you just handed off.
+`npm run cloud:release:handoff` prints the exact archive path, archive SHA-256, source commit, `builtAt`, VPS install commands, and post-install doctor/smoke commands from the current release manifest, so those values do not need to be copied manually from multiple files. `npm run cloud:release:handoff:file` writes the same text to `dist/mia-cloud-release-handoff.txt` so it can be sent alongside the archive and checksum. `npm run cloud:release:handoff:verify` confirms the handoff file still matches the current archive checksum and release manifest. `npm run cloud:release:handoff:bundle` writes `dist/mia-cloud-release-transfer.tgz` and `dist/mia-cloud-release-transfer.tgz.sha256`, a single transfer bundle plus external checksum sidecar. The bundle contains the release archive, checksum sidecar, handoff file, `install-transfer-bundle.sh`, `TRANSFER-README.md`, and `TRANSFER-SHA256.txt` for operator-side verification before install. `npm run cloud:release:handoff:bundle:verify` requires the external bundle sidecar, checks it, extracts the transfer bundle locally, and verifies each listed file hash before it is sent. On the VPS, `MIA_TRANSFER_VERIFY_ONLY=1 bash install-transfer-bundle.sh` verifies the transfer hashes, extracts the release installer, and runs installer verify-only mode without changing system files; `bash install-transfer-bundle.sh` repeats those checks and then performs the install.
+The handoff doctor and smoke commands include `MIA_DOCTOR_EXPECT_RELEASE_COMMIT`, `MIA_DOCTOR_EXPECT_RELEASE_BUILT_AT`, `MIA_SMOKE_EXPECT_RELEASE_COMMIT`, and `MIA_SMOKE_EXPECT_RELEASE_BUILT_AT` from the package manifest. Keep those values in the commands; otherwise a passing doctor or smoke can prove the public service works, but not that it is the exact package you just handed off.
 
 After an SSH deploy or server-local install, the development machine can run the same public release gate without manually copying manifest values:
 
 ```bash
 npm run cloud:prod:verify -- https://aiweb.buytb01.com
-AIMASHI_DOCTOR_REMOTE=root@aiweb.buytb01.com npm run cloud:prod:verify -- https://aiweb.buytb01.com
-AIMASHI_SMOKE_USERNAME=<account> \
-AIMASHI_SMOKE_PASSWORD=<password> \
+MIA_DOCTOR_REMOTE=root@aiweb.buytb01.com npm run cloud:prod:verify -- https://aiweb.buytb01.com
+MIA_SMOKE_USERNAME=<account> \
+MIA_SMOKE_PASSWORD=<password> \
 npm run cloud:prod:verify:e2e -- https://aiweb.buytb01.com
 ```
 
-`cloud:prod:verify` reads `dist/aimashi-cloud-release/manifest.json`, injects the expected `gitCommit` and `builtAt` into `doctor-cloud.js` and `smoke-cloud.js`, and fails unless the public service is the exact release that was just built.
-`cloud:prod:verify:e2e` adds `AIMASHI_SMOKE_REQUIRE_BRIDGE=1`, so it also requires `AIMASHI_SMOKE_USERNAME`/`AIMASHI_SMOKE_PASSWORD`, an online desktop bridge logged into that same account, and one `/api/bridge/run` response that contains `aimashi-cloud-bridge-smoke-ok`.
+`cloud:prod:verify` reads `dist/mia-cloud-release/manifest.json`, injects the expected `gitCommit` and `builtAt` into `doctor-cloud.js` and `smoke-cloud.js`, and fails unless the public service is the exact release that was just built.
+`cloud:prod:verify:e2e` adds `MIA_SMOKE_REQUIRE_BRIDGE=1`, so it also requires `MIA_SMOKE_USERNAME`/`MIA_SMOKE_PASSWORD`, an online desktop bridge logged into that same account, and one `/api/bridge/run` response that contains `mia-cloud-bridge-smoke-ok`.
 
 Before running bridge-required production smoke, prepare or validate the fixed smoke account:
 
 ```bash
-AIMASHI_SMOKE_USERNAME="<smoke-account>" \
-AIMASHI_SMOKE_PASSWORD="<smoke-password>" \
+MIA_SMOKE_USERNAME="<smoke-account>" \
+MIA_SMOKE_PASSWORD="<smoke-password>" \
 npm run cloud:smoke:account -- https://aiweb.buytb01.com
 ```
 
 The account command logs in if the account already exists, registers it if it does not exist, checks current online bridge devices for that account, and does not print the password or bearer token. If the account exists with a different password, it fails instead of changing credentials.
 
-The local installer verifies Node.js 25+ with `node:sqlite`, checks the release archive checksum when the `.sha256` sidecar is present, unpacks the release, validates required API/Web/smoke/doctor files, creates or reuses the dedicated `aimashi-cloud` system user, backs up current data/API/Web/systemd unit paths, verifies each tar backup with `tar -tzf`, installs API and Web files, writes `/opt/aimashi-cloud/release-manifest.json`, grants the data directory to the service user, restarts `aimashi-cloud` as that non-root user, runs `doctor-cloud.js` with expected `gitCommit`/`builtAt`, then runs `smoke-cloud.js` with the same expected release. If install, doctor, or smoke fails, it stops the service, restores the previous data/API/Web/unit backups, and restarts the old service so SQLite data is not left on a newer schema after a code rollback. Set `AIMASHI_INSTALL_SKIP_SMOKE=1` only for emergency installs where public DNS/nginx is known to be temporarily unavailable; despite the legacy variable name, this skips both post-install doctor and smoke gates.
-Set `AIMASHI_INSTALL_VERIFY_ONLY=1` to verify the tarball and manifest hashes without installing files or requiring `systemctl`, `npm`, or `rsync`.
+The local installer verifies Node.js 25+ with `node:sqlite`, checks the release archive checksum when the `.sha256` sidecar is present, unpacks the release, validates required API/Web/smoke/doctor files, creates or reuses the dedicated `mia-cloud` system user, backs up current data/API/Web/systemd unit paths, verifies each tar backup with `tar -tzf`, installs API and Web files, writes `/opt/mia-cloud/release-manifest.json`, grants the data directory to the service user, restarts `mia-cloud` as that non-root user, runs `doctor-cloud.js` with expected `gitCommit`/`builtAt`, then runs `smoke-cloud.js` with the same expected release. If install, doctor, or smoke fails, it stops the service, restores the previous data/API/Web/unit backups, and restarts the old service so SQLite data is not left on a newer schema after a code rollback. Set `MIA_INSTALL_SKIP_SMOKE=1` only for emergency installs where public DNS/nginx is known to be temporarily unavailable; despite the legacy variable name, this skips both post-install doctor and smoke gates.
+Set `MIA_INSTALL_VERIFY_ONLY=1` to verify the tarball and manifest hashes without installing files or requiring `systemctl`, `npm`, or `rsync`.
 
-The deploy script first verifies SSH access to `root@aiweb.buytb01.com` and checks remote runtime prerequisites (`Node.js 25+` with `node:sqlite`, `npm`, `rsync`, `systemctl`, `tar`, `id`, `chown`, the configured service user or `useradd`, and `sha256sum` or `shasum`). It then runs local checks, builds `dist/aimashi-cloud-release.tgz`, verifies `dist/aimashi-cloud-release.tgz.sha256`, uploads both files, verifies the archive checksum on the server before unpacking, creates or reuses the dedicated service user, backs up `/var/lib/aimashi-cloud`, backs up the current API directory, Web directory, and systemd unit, verifies each tar backup with `tar -tzf`, installs API/Web files, writes and enables the `aimashi-cloud` systemd unit, grants the data directory to the service user, restarts the service as that non-root user, runs `npm run cloud:doctor -- https://aiweb.buytb01.com` with expected `gitCommit` and `builtAt`, then runs `npm run cloud:smoke -- https://aiweb.buytb01.com` with the same expected release. If checksum, install, `npm install`, systemd restart, public doctor, or public smoke fails, the script stops the service, attempts to restore the previous data/API/Web/unit backups, and restarts the old service before exiting with failure. Public doctor and smoke both fail if `/api/health.release` does not match the package that was just deployed.
+The deploy script first verifies SSH access to `root@aiweb.buytb01.com` and checks remote runtime prerequisites (`Node.js 25+` with `node:sqlite`, `npm`, `rsync`, `systemctl`, `tar`, `id`, `chown`, the configured service user or `useradd`, and `sha256sum` or `shasum`). It then runs local checks, builds `dist/mia-cloud-release.tgz`, verifies `dist/mia-cloud-release.tgz.sha256`, uploads both files, verifies the archive checksum on the server before unpacking, creates or reuses the dedicated service user, backs up `/var/lib/mia-cloud`, backs up the current API directory, Web directory, and systemd unit, verifies each tar backup with `tar -tzf`, installs API/Web files, writes and enables the `mia-cloud` systemd unit, grants the data directory to the service user, restarts the service as that non-root user, runs `npm run cloud:doctor -- https://aiweb.buytb01.com` with expected `gitCommit` and `builtAt`, then runs `npm run cloud:smoke -- https://aiweb.buytb01.com` with the same expected release. If checksum, install, `npm install`, systemd restart, public doctor, or public smoke fails, the script stops the service, attempts to restore the previous data/API/Web/unit backups, and restarts the old service before exiting with failure. Public doctor and smoke both fail if `/api/health.release` does not match the package that was just deployed.
 
-The default assumes direct root SSH. For a normal SSH account with passwordless sudo, use `AIMASHI_DEPLOY_SUDO="sudo -n"` and, if needed, change the backup directory to a location that sudo can write:
+The default assumes direct root SSH. For a normal SSH account with passwordless sudo, use `MIA_DEPLOY_SUDO="sudo -n"` and, if needed, change the backup directory to a location that sudo can write:
 
 ```bash
-AIMASHI_DEPLOY_REMOTE=deploy@aiweb.buytb01.com \
-AIMASHI_DEPLOY_SUDO="sudo -n" \
-AIMASHI_DEPLOY_BACKUP_DIR=/var/backups \
+MIA_DEPLOY_REMOTE=deploy@aiweb.buytb01.com \
+MIA_DEPLOY_SUDO="sudo -n" \
+MIA_DEPLOY_BACKUP_DIR=/var/backups \
 npm run cloud:deploy
 ```
 
-`AIMASHI_DEPLOY_SUDO` must be a simple command such as `sudo -n` or `/usr/bin/sudo -n`; shell snippets, redirects, pipes, variable expansions, and quoted subcommands are rejected by the deploy scripts.
+`MIA_DEPLOY_SUDO` must be a simple command such as `sudo -n` or `/usr/bin/sudo -n`; shell snippets, redirects, pipes, variable expansions, and quoted subcommands are rejected by the deploy scripts.
 
 Override targets with environment variables:
 
 ```bash
-AIMASHI_DEPLOY_REMOTE=root@example.com \
-AIMASHI_CLOUD_PUBLIC_URL=https://aiweb.buytb01.com \
+MIA_DEPLOY_REMOTE=root@example.com \
+MIA_CLOUD_PUBLIC_URL=https://aiweb.buytb01.com \
 npm run cloud:deploy
 ```
 
 Supported deployment overrides:
 
-- `AIMASHI_DEPLOY_REMOTE`: SSH target, default `root@aiweb.buytb01.com`.
-- `AIMASHI_DEPLOY_SUDO`: optional simple privilege command, for example `sudo -n`; shell snippets are rejected.
-- `AIMASHI_DEPLOY_BACKUP_DIR`: remote backup directory, default `/root`.
-- `AIMASHI_DEPLOY_ID`: optional deploy identifier used in backup filenames, default `<timestamp>-<pid>`.
-- `AIMASHI_DEPLOY_API_DIR`: remote API install directory, default `/opt/aimashi-cloud`.
-- `AIMASHI_DEPLOY_WEB_DIR`: remote Web install directory, default `/var/www/aimashi-web`.
-- `AIMASHI_DEPLOY_DATA_DIR`: remote persistent data directory, default `/var/lib/aimashi-cloud`.
-- `AIMASHI_DEPLOY_SERVICE`: systemd service name, default `aimashi-cloud`.
-- `AIMASHI_DEPLOY_SERVICE_USER`: non-root system user for the API service, default `aimashi-cloud`.
-- `AIMASHI_DEPLOY_DRY_RUN`: set to `1` to stop after local verification and release metadata output.
-- `AIMASHI_CLOUD_ALLOW_QUERY_TOKEN`: optional legacy WebSocket auth fallback. Leave unset in production; set to `1` only if an old client that cannot send `Sec-WebSocket-Protocol` must be temporarily supported.
+- `MIA_DEPLOY_REMOTE`: SSH target, default `root@aiweb.buytb01.com`.
+- `MIA_DEPLOY_SUDO`: optional simple privilege command, for example `sudo -n`; shell snippets are rejected.
+- `MIA_DEPLOY_BACKUP_DIR`: remote backup directory, default `/root`.
+- `MIA_DEPLOY_ID`: optional deploy identifier used in backup filenames, default `<timestamp>-<pid>`.
+- `MIA_DEPLOY_API_DIR`: remote API install directory, default `/opt/mia-cloud`.
+- `MIA_DEPLOY_WEB_DIR`: remote Web install directory, default `/var/www/mia-web`.
+- `MIA_DEPLOY_DATA_DIR`: remote persistent data directory, default `/var/lib/mia-cloud`.
+- `MIA_DEPLOY_SERVICE`: systemd service name, default `mia-cloud`.
+- `MIA_DEPLOY_SERVICE_USER`: non-root system user for the API service, default `mia-cloud`.
+- `MIA_DEPLOY_DRY_RUN`: set to `1` to stop after local verification and release metadata output.
+- `MIA_CLOUD_ALLOW_QUERY_TOKEN`: optional legacy WebSocket auth fallback. Leave unset in production; set to `1` only if an old client that cannot send `Sec-WebSocket-Protocol` must be temporarily supported.
 
 Manual path:
 
@@ -320,29 +320,29 @@ Manual path:
    node src/check.js
    npm test
    npm run cloud:release
-   cd dist && shasum -a 256 -c aimashi-cloud-release.tgz.sha256
+   cd dist && shasum -a 256 -c mia-cloud-release.tgz.sha256
    ```
 
 2. Copy API files:
 
    ```bash
-   mkdir -p /opt/aimashi-cloud/src/cloud
-   rsync -av --delete dist/aimashi-cloud-release/api/ /opt/aimashi-cloud/
-   cd /opt/aimashi-cloud && npm install --omit=dev
+   mkdir -p /opt/mia-cloud/src/cloud
+   rsync -av --delete dist/mia-cloud-release/api/ /opt/mia-cloud/
+   cd /opt/mia-cloud && npm install --omit=dev
    ```
 
 3. Copy Web assets:
 
    ```bash
-   rsync -av --delete dist/aimashi-cloud-release/web/ /var/www/aimashi-web/
+   rsync -av --delete dist/mia-cloud-release/web/ /var/www/mia-web/
    ```
 
 4. Restart and verify:
 
    ```bash
    systemctl daemon-reload
-   systemctl restart aimashi-cloud
-   systemctl is-active aimashi-cloud
+   systemctl restart mia-cloud
+   systemctl is-active mia-cloud
    curl -fsS https://aiweb.buytb01.com/api/health
    curl -fsS https://aiweb.buytb01.com/api/health | grep bridge-websocket-subprotocol-token
    curl -fsS https://aiweb.buytb01.com/api/health | grep gitCommit
@@ -352,11 +352,11 @@ Manual path:
 5. Record the deployed release:
 
    ```bash
-   cat dist/aimashi-cloud-release/manifest.json
-   cat dist/aimashi-cloud-release.tgz.sha256
+   cat dist/mia-cloud-release/manifest.json
+   cat dist/mia-cloud-release.tgz.sha256
    ```
 
-The release manifest records `builtAt`, source git commit, dirty state, and SHA-256 hashes for every file in the API/Web/smoke bundle. The deploy script installs this manifest as `/opt/aimashi-cloud/release-manifest.json`, and `/api/health` returns a compact `release` object from it. Keep the manifest and archive checksum with deployment notes so a later `/api/health` smoke can be matched to the exact package that was installed.
+The release manifest records `builtAt`, source git commit, dirty state, and SHA-256 hashes for every file in the API/Web/smoke bundle. The deploy script installs this manifest as `/opt/mia-cloud/release-manifest.json`, and `/api/health` returns a compact `release` object from it. Keep the manifest and archive checksum with deployment notes so a later `/api/health` smoke can be matched to the exact package that was installed.
 
 6. Browser smoke test:
 
@@ -369,37 +369,37 @@ The release manifest records `builtAt`, source git commit, dirty state, and SHA-
 For a deploy-time end-to-end bridge smoke, log the desktop app into a dedicated smoke account, then run:
 
 ```bash
-AIMASHI_SMOKE_USERNAME=<account> \
-AIMASHI_SMOKE_PASSWORD=<password> \
+MIA_SMOKE_USERNAME=<account> \
+MIA_SMOKE_PASSWORD=<password> \
 npm run cloud:prod:verify:e2e -- https://aiweb.buytb01.com
 ```
 
 This verifies health features, release identity, auth, authenticated files, `/api/events`, bridge device presence, and one `/api/bridge/run` request through the online desktop bridge with the expected smoke reply marker.
 
-When the smoke uses the desktop app bridge, remote control is authorized by the same Aimashi Cloud account:
+When the smoke uses the desktop app bridge, remote control is authorized by the same Mia Cloud account:
 
 - Log the desktop app into the same account used by Web or mobile.
 - Web/mobile can call that online desktop bridge directly; there is no separate local approval click for the remote connection.
 - Agent permission mode remains the normal per-Agent execution setting (Ask/YOLO/Deny or external-engine defaults). It is not device authentication.
 
-For an operator-side standalone local Agent bridge, the bridge can now log in with the same Aimashi Cloud account instead of copying a bearer token. Run this from a full Aimashi project checkout on the bridge machine, not from the extracted Cloud release directory:
+For an operator-side standalone local Agent bridge, the bridge can now log in with the same Mia Cloud account instead of copying a bearer token. Run this from a full Mia project checkout on the bridge machine, not from the extracted Cloud release directory:
 
 ```bash
-cd /path/to/aimashi
-AIMASHI_CLOUD_URL=https://aiweb.buytb01.com \
-AIMASHI_CLOUD_USERNAME=<account> \
-AIMASHI_CLOUD_PASSWORD=<password> \
+cd /path/to/mia
+MIA_CLOUD_URL=https://aiweb.buytb01.com \
+MIA_CLOUD_USERNAME=<account> \
+MIA_CLOUD_PASSWORD=<password> \
 npm run bridge
 ```
 
-`AIMASHI_CLOUD_TOKEN` still works for automation and takes precedence when set, but the account/password path is the preferred production smoke path because it matches the Web/Desktop account model.
+`MIA_CLOUD_TOKEN` still works for automation and takes precedence when set, but the account/password path is the preferred production smoke path because it matches the Web/Desktop account model.
 
 ## Data Safety
 
-Back up `/var/lib/aimashi-cloud/cloud.sqlite` and `/var/lib/aimashi-cloud/uploads/` before replacing the service.
+Back up `/var/lib/mia-cloud/cloud.sqlite` and `/var/lib/mia-cloud/uploads/` before replacing the service.
 
 ```bash
-systemctl stop aimashi-cloud
-tar -C /var/lib -czf /root/aimashi-cloud-backup-$(date +%Y%m%d-%H%M%S).tgz aimashi-cloud
-systemctl start aimashi-cloud
+systemctl stop mia-cloud
+tar -C /var/lib -czf /root/mia-cloud-backup-$(date +%Y%m%d-%H%M%S).tgz mia-cloud
+systemctl start mia-cloud
 ```

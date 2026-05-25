@@ -75,7 +75,7 @@ function createDeps(overrides = {}) {
 }
 
 test("mapCodexPermissionMode maps known permission modes", () => {
-  // approvalPolicy is forced to "never" everywhere because aimashi has no
+  // approvalPolicy is forced to "never" everywhere because mia has no
   // approval UI inside chat; sandbox mode still varies per user preference.
   assert.deepEqual(mapCodexPermissionMode("acceptEdits"), {
     sandboxMode: "workspace-write",
@@ -114,7 +114,7 @@ test("sendChat starts new thread with persona on first turn", async () => {
   assert.equal(deps.calls[2][1].modelReasoningEffort, "codex:high");
   assert.equal(deps.calls[2][1].model, "gpt-test");
   assert.equal(deps.calls[2][1].sandboxMode, "read-only");
-  assert.match(deps.calls[3][1], /^GROUP:ctx\n以下是 Aimashi 给当前 Fellow 的人设/);
+  assert.match(deps.calls[3][1], /^GROUP:ctx\n以下是 Mia 给当前 Fellow 的人设/);
   assert.match(deps.calls[3][1], /persona/);
   assert.match(deps.calls[3][1], /expanded/);
   assert.deepEqual(deps.calls[3][2], {});
@@ -144,7 +144,7 @@ test("sendChat resumes existing thread without persona injection", async () => {
 });
 
 test("sendChat surfaces generated image paths when Codex returns empty text", async () => {
-  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-codex-images-"));
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), "mia-codex-images-"));
   const imageDir = path.join(codexHome, "generated_images", "thread_1");
   const imagePath = path.join(imageDir, "ig_generated.png");
   const deps = createDeps({

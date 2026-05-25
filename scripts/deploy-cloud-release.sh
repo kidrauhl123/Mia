@@ -2,37 +2,44 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-REMOTE="${AIMASHI_DEPLOY_REMOTE:-root@aiweb.buytb01.com}"
-PUBLIC_URL="${AIMASHI_CLOUD_PUBLIC_URL:-https://aiweb.buytb01.com}"
-REMOTE_TMP="${AIMASHI_DEPLOY_TMP:-/tmp/aimashi-cloud-release.tgz}"
-REMOTE_RELEASE_DIR="${AIMASHI_DEPLOY_RELEASE_DIR:-/tmp/aimashi-cloud-release}"
-API_DIR="${AIMASHI_DEPLOY_API_DIR:-/opt/aimashi-cloud}"
-WEB_DIR="${AIMASHI_DEPLOY_WEB_DIR:-/var/www/aimashi-web}"
-DATA_DIR="${AIMASHI_DEPLOY_DATA_DIR:-/var/lib/aimashi-cloud}"
-AGENT_ROOT="${AIMASHI_CLOUD_AGENT_ROOT:-/var/lib/aimashi-cloud-agent-users}"
-HERMES_IMAGE="${AIMASHI_CLOUD_HERMES_IMAGE:-aimashi/hermes-cloud:2026.5.7}"
-AGENT_DOCKER_NETWORK="${AIMASHI_CLOUD_AGENT_DOCKER_NETWORK:-aimashi-cloud}"
-AGENT_MODEL_PROVIDER="${AIMASHI_CLOUD_AGENT_MODEL_PROVIDER:-aimashi-litellm}"
-AGENT_MODEL_NAME="${AIMASHI_CLOUD_AGENT_MODEL:-aimashi-default}"
-AGENT_MODEL_BASE_URL="${AIMASHI_CLOUD_AGENT_MODEL_BASE_URL:-http://litellm:4000/v1}"
-AGENT_MODEL_API_KEY="${AIMASHI_CLOUD_AGENT_MODEL_API_KEY:-${AIMASHI_LITELLM_API_KEY:-}}"
-BACKUP_DIR="${AIMASHI_DEPLOY_BACKUP_DIR:-/root}"
-SERVICE="${AIMASHI_DEPLOY_SERVICE:-aimashi-cloud}"
-SERVICE_USER="${AIMASHI_DEPLOY_SERVICE_USER:-aimashi-cloud}"
-NGINX_MAP_CONF="${AIMASHI_DEPLOY_NGINX_MAP_CONF:-/etc/nginx/conf.d/aimashi-websocket-map.conf}"
-NGINX_SITE_CONF="${AIMASHI_DEPLOY_NGINX_SITE_CONF:-/etc/nginx/sites-enabled/aimashi-web}"
-DEPLOY_SUDO="${AIMASHI_DEPLOY_SUDO:-}"
-DEPLOY_DRY_RUN="${AIMASHI_DEPLOY_DRY_RUN:-}"
-DEPLOY_SKIP_LOCAL_TESTS="${AIMASHI_DEPLOY_SKIP_LOCAL_TESTS:-}"
-ARCHIVE="$ROOT/dist/aimashi-cloud-release.tgz"
+REMOTE="${MIA_DEPLOY_REMOTE:-root@aiweb.buytb01.com}"
+PUBLIC_URL="${MIA_CLOUD_PUBLIC_URL:-https://aiweb.buytb01.com}"
+REMOTE_TMP="${MIA_DEPLOY_TMP:-/tmp/mia-cloud-release.tgz}"
+REMOTE_RELEASE_DIR="${MIA_DEPLOY_RELEASE_DIR:-/tmp/mia-cloud-release}"
+API_DIR="${MIA_DEPLOY_API_DIR:-/opt/mia-cloud}"
+WEB_DIR="${MIA_DEPLOY_WEB_DIR:-/var/www/mia-web}"
+DATA_DIR="${MIA_DEPLOY_DATA_DIR:-/var/lib/mia-cloud}"
+AGENT_ROOT="${MIA_CLOUD_AGENT_ROOT:-/var/lib/mia-cloud-agent-users}"
+HERMES_IMAGE="${MIA_CLOUD_HERMES_IMAGE:-mia/hermes-cloud:2026.5.7}"
+AGENT_DOCKER_NETWORK="${MIA_CLOUD_AGENT_DOCKER_NETWORK:-mia-cloud}"
+AGENT_MODEL_PROVIDER="${MIA_CLOUD_AGENT_MODEL_PROVIDER:-mia-litellm}"
+AGENT_MODEL_NAME="${MIA_CLOUD_AGENT_MODEL:-mia-default}"
+AGENT_MODEL_BASE_URL="${MIA_CLOUD_AGENT_MODEL_BASE_URL:-http://litellm:4000/v1}"
+AGENT_MODEL_API_KEY="${MIA_CLOUD_AGENT_MODEL_API_KEY:-${MIA_LITELLM_API_KEY:-}}"
+BACKUP_DIR="${MIA_DEPLOY_BACKUP_DIR:-/root}"
+SERVICE="${MIA_DEPLOY_SERVICE:-mia-cloud}"
+SERVICE_USER="${MIA_DEPLOY_SERVICE_USER:-mia-cloud}"
+NGINX_MAP_CONF="${MIA_DEPLOY_NGINX_MAP_CONF:-/etc/nginx/conf.d/mia-websocket-map.conf}"
+NGINX_SITE_CONF="${MIA_DEPLOY_NGINX_SITE_CONF:-/etc/nginx/sites-enabled/mia-web}"
+DEPLOY_SUDO="${MIA_DEPLOY_SUDO:-}"
+DEPLOY_DRY_RUN="${MIA_DEPLOY_DRY_RUN:-}"
+DEPLOY_SKIP_LOCAL_TESTS="${MIA_DEPLOY_SKIP_LOCAL_TESTS:-}"
+ARCHIVE="$ROOT/dist/mia-cloud-release.tgz"
 ARCHIVE_SHA="$ARCHIVE.sha256"
-DEPLOY_ID="${AIMASHI_DEPLOY_ID:-$(date +%Y%m%d-%H%M%S)-$$}"
-API_BACKUP="$BACKUP_DIR/aimashi-cloud-api-$DEPLOY_ID.tgz"
-WEB_BACKUP="$BACKUP_DIR/aimashi-cloud-web-$DEPLOY_ID.tgz"
-DATA_BACKUP="$BACKUP_DIR/aimashi-cloud-data-$DEPLOY_ID.tgz"
-UNIT_BACKUP="$BACKUP_DIR/aimashi-cloud-$SERVICE-unit-$DEPLOY_ID.service"
-NGINX_MAP_BACKUP="$BACKUP_DIR/aimashi-cloud-nginx-map-$DEPLOY_ID.conf"
-NGINX_SITE_BACKUP="$BACKUP_DIR/aimashi-cloud-nginx-site-$DEPLOY_ID.conf"
+DEPLOY_ID="${MIA_DEPLOY_ID:-$(date +%Y%m%d-%H%M%S)-$$}"
+API_BACKUP="$BACKUP_DIR/mia-cloud-api-$DEPLOY_ID.tgz"
+WEB_BACKUP="$BACKUP_DIR/mia-cloud-web-$DEPLOY_ID.tgz"
+DATA_BACKUP="$BACKUP_DIR/mia-cloud-data-$DEPLOY_ID.tgz"
+UNIT_BACKUP="$BACKUP_DIR/mia-cloud-$SERVICE-unit-$DEPLOY_ID.service"
+NGINX_MAP_BACKUP="$BACKUP_DIR/mia-cloud-nginx-map-$DEPLOY_ID.conf"
+NGINX_SITE_BACKUP="$BACKUP_DIR/mia-cloud-nginx-site-$DEPLOY_ID.conf"
+LEGACY_SLUG="${MIA_DEPLOY_LEGACY_SLUG:-aima$(printf 'shi')}"
+LEGACY_SERVICE="${MIA_DEPLOY_LEGACY_SERVICE:-$LEGACY_SLUG-cloud}"
+LEGACY_DATA_DIR="${MIA_DEPLOY_LEGACY_DATA_DIR:-/var/lib/$LEGACY_SERVICE}"
+LEGACY_AGENT_ROOT="${MIA_DEPLOY_LEGACY_AGENT_ROOT:-/var/lib/$LEGACY_SERVICE-agent-users}"
+LEGACY_ETC_DIR="${MIA_DEPLOY_LEGACY_ETC_DIR:-/etc/$LEGACY_SERVICE}"
+LEGACY_NGINX_MAP_CONF="${MIA_DEPLOY_LEGACY_NGINX_MAP_CONF:-/etc/nginx/conf.d/$LEGACY_SLUG-websocket-map.conf}"
+LEGACY_NGINX_SITE_CONF="${MIA_DEPLOY_LEGACY_NGINX_SITE_CONF:-/etc/nginx/sites-enabled/$LEGACY_SLUG-web}"
 
 cd "$ROOT"
 
@@ -45,7 +52,7 @@ validate_deploy_sudo() {
     return
   fi
   if printf "%s" "$DEPLOY_SUDO" | LC_ALL=C grep -q '[^A-Za-z0-9_./ -]'; then
-    echo "AIMASHI_DEPLOY_SUDO must be a simple command such as 'sudo -n' or '/usr/bin/sudo -n'." >&2
+    echo "MIA_DEPLOY_SUDO must be a simple command such as 'sudo -n' or '/usr/bin/sudo -n'." >&2
     exit 1
   fi
 }
@@ -53,24 +60,30 @@ validate_deploy_sudo() {
 validate_deploy_sudo
 DEPLOY_SUDO_QUOTED="$(shell_quote "$DEPLOY_SUDO")"
 SERVICE_USER_QUOTED="$(shell_quote "$SERVICE_USER")"
+LEGACY_SERVICE_QUOTED="$(shell_quote "$LEGACY_SERVICE")"
+LEGACY_DATA_DIR_QUOTED="$(shell_quote "$LEGACY_DATA_DIR")"
+LEGACY_AGENT_ROOT_QUOTED="$(shell_quote "$LEGACY_AGENT_ROOT")"
+LEGACY_ETC_DIR_QUOTED="$(shell_quote "$LEGACY_ETC_DIR")"
+LEGACY_NGINX_MAP_CONF_QUOTED="$(shell_quote "$LEGACY_NGINX_MAP_CONF")"
+LEGACY_NGINX_SITE_CONF_QUOTED="$(shell_quote "$LEGACY_NGINX_SITE_CONF")"
 
 print_ssh_help() {
   echo
   echo "Remote SSH access failed for $REMOTE."
-  if ssh-add -l >/tmp/aimashi-deploy-ssh-agent.$$ 2>&1; then
-    identities="$(wc -l < /tmp/aimashi-deploy-ssh-agent.$$ | tr -d ' ')"
+  if ssh-add -l >/tmp/mia-deploy-ssh-agent.$$ 2>&1; then
+    identities="$(wc -l < /tmp/mia-deploy-ssh-agent.$$ | tr -d ' ')"
     echo "Local ssh-agent identities: $identities loaded."
     echo "A key is loaded locally; if SSH is still denied, inspect VPS authorized_keys and sshd policy with the diagnostics printed by cloud:deploy:authorize-help."
-    echo "For a local filtered auth trace, run: AIMASHI_DEPLOY_REMOTE=\"$REMOTE\" npm run cloud:deploy:ssh-diagnose"
-  elif grep -qi "no identities" /tmp/aimashi-deploy-ssh-agent.$$; then
+    echo "For a local filtered auth trace, run: MIA_DEPLOY_REMOTE=\"$REMOTE\" npm run cloud:deploy:ssh-diagnose"
+  elif grep -qi "no identities" /tmp/mia-deploy-ssh-agent.$$; then
     echo "Local ssh-agent identities: none loaded."
     echo "If your deployment key has a passphrase, run: ssh-add ~/.ssh/id_ed25519"
   else
     echo "Local ssh-agent status: unavailable."
   fi
-  rm -f /tmp/aimashi-deploy-ssh-agent.$$
+  rm -f /tmp/mia-deploy-ssh-agent.$$
   echo "Run this locally to print the public-key authorization command for the VPS operator:"
-  echo "  AIMASHI_DEPLOY_REMOTE=\"$REMOTE\" npm run cloud:deploy:authorize-help"
+  echo "  MIA_DEPLOY_REMOTE=\"$REMOTE\" npm run cloud:deploy:authorize-help"
   echo
 }
 
@@ -95,7 +108,7 @@ fi
 echo "==> Verifying local source"
 node src/check.js
 if [ "$DEPLOY_SKIP_LOCAL_TESTS" = "1" ]; then
-  echo "==> Skipping npm test because AIMASHI_DEPLOY_SKIP_LOCAL_TESTS=1"
+  echo "==> Skipping npm test because MIA_DEPLOY_SKIP_LOCAL_TESTS=1"
 else
   npm test
 fi
@@ -103,16 +116,16 @@ fi
 echo "==> Building release"
 npm run cloud:release
 (cd "$ROOT/dist" && shasum -a 256 -c "$(basename "$ARCHIVE_SHA")")
-AIMASHI_INSTALL_VERIFY_ONLY=1 bash "$ROOT/dist/aimashi-cloud-release/install-cloud-release-local.sh" "$ARCHIVE"
+MIA_INSTALL_VERIFY_ONLY=1 bash "$ROOT/dist/mia-cloud-release/install-cloud-release-local.sh" "$ARCHIVE"
 npm run cloud:release:handoff:file
 npm run cloud:release:handoff:verify
 npm run cloud:release:handoff:bundle
 npm run cloud:release:handoff:bundle:verify
-EXPECTED_RELEASE_COMMIT="$(node -e "const m=require('./dist/aimashi-cloud-release/manifest.json'); process.stdout.write(String(m.source?.gitCommit || ''))")"
-EXPECTED_RELEASE_BUILT_AT="$(node -e "const m=require('./dist/aimashi-cloud-release/manifest.json'); process.stdout.write(String(m.builtAt || ''))")"
+EXPECTED_RELEASE_COMMIT="$(node -e "const m=require('./dist/mia-cloud-release/manifest.json'); process.stdout.write(String(m.source?.gitCommit || ''))")"
+EXPECTED_RELEASE_BUILT_AT="$(node -e "const m=require('./dist/mia-cloud-release/manifest.json'); process.stdout.write(String(m.builtAt || ''))")"
 
 if [ "$DEPLOY_DRY_RUN" = "1" ]; then
-  echo "Aimashi Cloud deploy dry run completed."
+  echo "Mia Cloud deploy dry run completed."
   echo "Remote target: $REMOTE"
   echo "Public URL: $PUBLIC_URL"
   echo "Archive: $ARCHIVE"
@@ -141,9 +154,15 @@ ssh "$REMOTE" "bash -s" <<REMOTE_SCRIPT
 set -euo pipefail
 SUDO_CMD=$DEPLOY_SUDO_QUOTED
 SERVICE_USER=$SERVICE_USER_QUOTED
+LEGACY_SERVICE=$LEGACY_SERVICE_QUOTED
+LEGACY_DATA_DIR=$LEGACY_DATA_DIR_QUOTED
+LEGACY_AGENT_ROOT=$LEGACY_AGENT_ROOT_QUOTED
+LEGACY_ETC_DIR=$LEGACY_ETC_DIR_QUOTED
+LEGACY_NGINX_MAP_CONF=$LEGACY_NGINX_MAP_CONF_QUOTED
+LEGACY_NGINX_SITE_CONF=$LEGACY_NGINX_SITE_CONF_QUOTED
 run_as_root() {
   if [ -n "\$SUDO_CMD" ]; then
-    # AIMASHI_DEPLOY_SUDO is intentionally a command string, for example: sudo -n
+    # MIA_DEPLOY_SUDO is intentionally a command string, for example: sudo -n
     \$SUDO_CMD "\$@"
   else
     "\$@"
@@ -191,6 +210,70 @@ ensure_docker_access() {
   run_as_root "\$usermod_cmd" -aG docker "\$SERVICE_USER"
 }
 
+stop_legacy_service() {
+  if [ -z "\$LEGACY_SERVICE" ] || [ "\$LEGACY_SERVICE" = "$SERVICE" ]; then
+    return
+  fi
+  if systemctl list-unit-files "\$LEGACY_SERVICE.service" >/dev/null 2>&1 || systemctl status "\$LEGACY_SERVICE" >/dev/null 2>&1; then
+    run_as_root systemctl stop "\$LEGACY_SERVICE" || true
+  fi
+}
+
+disable_legacy_service() {
+  if [ -z "\$LEGACY_SERVICE" ] || [ "\$LEGACY_SERVICE" = "$SERVICE" ]; then
+    return
+  fi
+  run_as_root systemctl disable "\$LEGACY_SERVICE" >/dev/null 2>&1 || true
+}
+
+migrate_legacy_dir() {
+  src="\$1"
+  dst="\$2"
+  label="\$3"
+  if [ -e "\$dst" ] || [ ! -d "\$src" ]; then
+    return
+  fi
+  echo "Migrating legacy \$label to \$dst"
+  run_as_root mkdir -p "\$(dirname "\$dst")" "\$dst"
+  run_as_root rsync -a "\$src/" "\$dst/"
+}
+
+migrate_legacy_admin_env() {
+  src="\$LEGACY_ETC_DIR/admin.env"
+  dst="/etc/mia-cloud/admin.env"
+  if [ -f "\$dst" ] || [ ! -f "\$src" ]; then
+    return
+  fi
+  legacy_slug="\$(basename "\$LEGACY_SERVICE" | sed 's/-cloud$//')"
+  legacy_upper="\$(printf '%s' "\$legacy_slug" | tr '[:lower:]' '[:upper:]')"
+  legacy_title="\$(printf '%s' "\$legacy_slug" | awk '{ print toupper(substr(\$0,1,1)) substr(\$0,2) }')"
+  echo "Migrating legacy admin env to \$dst"
+  run_as_root mkdir -p /etc/mia-cloud
+  sed "s/\${legacy_upper}_/MIA_/g;s/\${legacy_title}/Mia/g;s/\${legacy_slug}/mia/g" "\$src" | run_as_root tee "\$dst" >/dev/null
+  run_as_root chmod 600 "\$dst"
+}
+
+migrate_legacy_dropins() {
+  src_dir="/etc/systemd/system/\$LEGACY_SERVICE.service.d"
+  dst_dir="/etc/systemd/system/$SERVICE.service.d"
+  if [ -d "\$dst_dir" ] || [ ! -d "\$src_dir" ]; then
+    return
+  fi
+  legacy_slug="\$(basename "\$LEGACY_SERVICE" | sed 's/-cloud$//')"
+  legacy_upper="\$(printf '%s' "\$legacy_slug" | tr '[:lower:]' '[:upper:]')"
+  echo "Migrating legacy systemd drop-ins to \$dst_dir"
+  run_as_root mkdir -p "\$dst_dir"
+  for src in "\$src_dir"/*.conf; do
+    [ -f "\$src" ] || continue
+    sed "s/\${legacy_upper}_/MIA_/g;s/\${legacy_slug}/mia/g" "\$src" | run_as_root tee "\$dst_dir/\$(basename "\$src")" >/dev/null
+  done
+}
+
+remove_legacy_nginx_sites() {
+  run_as_root rm -f "\$LEGACY_NGINX_MAP_CONF" "\$LEGACY_NGINX_SITE_CONF"
+  run_as_root rm -f "/etc/nginx/sites-available/\$(basename "\$LEGACY_NGINX_SITE_CONF")"
+}
+
 unit_value() {
   key="\$1"
   file="\$2"
@@ -235,6 +318,9 @@ rollback_install() {
   fi
   echo "Remote install failed; attempting rollback before exit." >&2
   run_as_root systemctl stop "$SERVICE" || true
+  if [ -n "\$LEGACY_SERVICE" ] && [ "\$LEGACY_SERVICE" != "$SERVICE" ]; then
+    run_as_root systemctl start "\$LEGACY_SERVICE" || true
+  fi
   if [ -f "$DATA_BACKUP" ]; then
     run_as_root rm -rf "$DATA_DIR" || true
     run_as_root mkdir -p "$(dirname "$DATA_DIR")" || true
@@ -291,6 +377,10 @@ tar -xzf "$REMOTE_TMP" -C "$REMOTE_RELEASE_DIR" --strip-components=1
 run_as_root mkdir -p "$BACKUP_DIR"
 ensure_service_user
 ensure_docker_access
+stop_legacy_service
+migrate_legacy_dir "\$LEGACY_DATA_DIR" "$DATA_DIR" "data"
+migrate_legacy_dir "\$LEGACY_AGENT_ROOT" "$AGENT_ROOT" "agent root"
+migrate_legacy_admin_env
 if [ -d "$DATA_DIR" ]; then
   run_as_root systemctl stop "$SERVICE" || true
   run_as_root tar -C "$(dirname "$DATA_DIR")" -czf "$DATA_BACKUP" "$(basename "$DATA_DIR")"
@@ -329,8 +419,9 @@ run_as_root rsync -a --delete "$REMOTE_RELEASE_DIR/api/" "$API_DIR/"
 run_as_root cp "$REMOTE_RELEASE_DIR/manifest.json" "$API_DIR/release-manifest.json"
 run_as_root rsync -a --delete "$REMOTE_RELEASE_DIR/web/" "$WEB_DIR/"
 run_as_root mkdir -p "$(dirname "$NGINX_MAP_CONF")" "$(dirname "$NGINX_SITE_CONF")"
-run_as_root cp "$REMOTE_RELEASE_DIR/nginx/aimashi-websocket-map.conf" "$NGINX_MAP_CONF"
-run_as_root cp "$REMOTE_RELEASE_DIR/nginx/aimashi-cloud-site.conf" "$NGINX_SITE_CONF"
+run_as_root cp "$REMOTE_RELEASE_DIR/nginx/mia-websocket-map.conf" "$NGINX_MAP_CONF"
+run_as_root cp "$REMOTE_RELEASE_DIR/nginx/mia-cloud-site.conf" "$NGINX_SITE_CONF"
+remove_legacy_nginx_sites
 run_as_root rm -f /etc/nginx/sites-enabled/litellm-admin /etc/nginx/sites-available/litellm-admin
 run_as_root nginx -t
 run_as_root systemctl reload nginx
@@ -340,7 +431,7 @@ run_as_root npm install --omit=dev
 unit_tmp="$REMOTE_RELEASE_DIR/$SERVICE.service"
 cat > "\$unit_tmp" <<SERVICE_UNIT
 [Unit]
-Description=Aimashi Cloud API
+Description=Mia Cloud API
 After=network.target
 
 [Service]
@@ -351,24 +442,24 @@ WorkingDirectory=$API_DIR
 ExecStart=/usr/bin/env node $API_DIR/server.js
 Restart=always
 RestartSec=3
-Environment=AIMASHI_CLOUD_HOST=127.0.0.1
-Environment=AIMASHI_CLOUD_PORT=4175
-Environment=AIMASHI_CLOUD_DATA=$DATA_DIR
-Environment=AIMASHI_WEB_ROOT=$WEB_DIR
-Environment=AIMASHI_CLOUD_ALLOWED_ORIGINS=$PUBLIC_URL
-Environment=AIMASHI_BRIDGE_RUN_TIMEOUT_MS=300000
-Environment=AIMASHI_CLOUD_VERSION=2026-05-20
-Environment=AIMASHI_CLOUD_AGENT_MODE=docker
-Environment=AIMASHI_CLOUD_AGENT_ROOT=$AGENT_ROOT
-Environment=AIMASHI_CLOUD_HERMES_IMAGE=$HERMES_IMAGE
-Environment=AIMASHI_CLOUD_HERMES_CONTAINER_PORT=8765
-Environment=AIMASHI_CLOUD_AGENT_DOCKER_NETWORK=$AGENT_DOCKER_NETWORK
-Environment=AIMASHI_CLOUD_AGENT_MODEL_PROVIDER=$AGENT_MODEL_PROVIDER
-Environment=AIMASHI_CLOUD_AGENT_MODEL=$AGENT_MODEL_NAME
-Environment=AIMASHI_CLOUD_AGENT_MODEL_BASE_URL=$AGENT_MODEL_BASE_URL
-Environment=AIMASHI_CLOUD_AGENT_MODEL_API_KEY=$AGENT_MODEL_API_KEY
-Environment=AIMASHI_LITELLM_ADMIN_BASE_URL=http://127.0.0.1:4000
-EnvironmentFile=-/etc/aimashi-cloud/admin.env
+Environment=MIA_CLOUD_HOST=127.0.0.1
+Environment=MIA_CLOUD_PORT=4175
+Environment=MIA_CLOUD_DATA=$DATA_DIR
+Environment=MIA_WEB_ROOT=$WEB_DIR
+Environment=MIA_CLOUD_ALLOWED_ORIGINS=$PUBLIC_URL
+Environment=MIA_BRIDGE_RUN_TIMEOUT_MS=300000
+Environment=MIA_CLOUD_VERSION=2026-05-20
+Environment=MIA_CLOUD_AGENT_MODE=docker
+Environment=MIA_CLOUD_AGENT_ROOT=$AGENT_ROOT
+Environment=MIA_CLOUD_HERMES_IMAGE=$HERMES_IMAGE
+Environment=MIA_CLOUD_HERMES_CONTAINER_PORT=8765
+Environment=MIA_CLOUD_AGENT_DOCKER_NETWORK=$AGENT_DOCKER_NETWORK
+Environment=MIA_CLOUD_AGENT_MODEL_PROVIDER=$AGENT_MODEL_PROVIDER
+Environment=MIA_CLOUD_AGENT_MODEL=$AGENT_MODEL_NAME
+Environment=MIA_CLOUD_AGENT_MODEL_BASE_URL=$AGENT_MODEL_BASE_URL
+Environment=MIA_CLOUD_AGENT_MODEL_API_KEY=$AGENT_MODEL_API_KEY
+Environment=MIA_LITELLM_ADMIN_BASE_URL=http://127.0.0.1:4000
+EnvironmentFile=-/etc/mia-cloud/admin.env
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
@@ -379,10 +470,12 @@ WantedBy=multi-user.target
 SERVICE_UNIT
 run_as_root mkdir -p /etc/systemd/system
 run_as_root cp "\$unit_tmp" "/etc/systemd/system/$SERVICE.service"
+migrate_legacy_dropins
 run_as_root systemctl daemon-reload
 run_as_root systemctl enable "$SERVICE"
 run_as_root systemctl restart "$SERVICE"
 run_as_root systemctl is-active "$SERVICE"
+disable_legacy_service
 install_done=1
 trap - ERR
 REMOTE_SCRIPT
@@ -474,8 +567,8 @@ ROLLBACK_SCRIPT
 }
 
 echo "==> Running public doctor"
-if ! AIMASHI_DOCTOR_EXPECT_RELEASE_COMMIT="$EXPECTED_RELEASE_COMMIT" \
-  AIMASHI_DOCTOR_EXPECT_RELEASE_BUILT_AT="$EXPECTED_RELEASE_BUILT_AT" \
+if ! MIA_DOCTOR_EXPECT_RELEASE_COMMIT="$EXPECTED_RELEASE_COMMIT" \
+  MIA_DOCTOR_EXPECT_RELEASE_BUILT_AT="$EXPECTED_RELEASE_BUILT_AT" \
   npm run cloud:doctor -- "$PUBLIC_URL"; then
   echo "==> Public doctor failed; attempting remote rollback"
   rollback_remote || echo "Remote rollback failed; inspect $REMOTE manually." >&2
@@ -483,12 +576,12 @@ if ! AIMASHI_DOCTOR_EXPECT_RELEASE_COMMIT="$EXPECTED_RELEASE_COMMIT" \
 fi
 
 echo "==> Running public smoke"
-if ! AIMASHI_SMOKE_EXPECT_RELEASE_COMMIT="$EXPECTED_RELEASE_COMMIT" \
-  AIMASHI_SMOKE_EXPECT_RELEASE_BUILT_AT="$EXPECTED_RELEASE_BUILT_AT" \
+if ! MIA_SMOKE_EXPECT_RELEASE_COMMIT="$EXPECTED_RELEASE_COMMIT" \
+  MIA_SMOKE_EXPECT_RELEASE_BUILT_AT="$EXPECTED_RELEASE_BUILT_AT" \
   npm run cloud:smoke -- "$PUBLIC_URL"; then
   echo "==> Public smoke failed; attempting remote rollback"
   rollback_remote || echo "Remote rollback failed; inspect $REMOTE manually." >&2
   exit 1
 fi
 
-echo "Aimashi Cloud deploy completed: $PUBLIC_URL"
+echo "Mia Cloud deploy completed: $PUBLIC_URL"

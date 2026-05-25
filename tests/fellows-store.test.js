@@ -7,7 +7,7 @@ const { createCloudStore } = require("../src/cloud/sqlite-store");
 const { createFellowsStore } = require("../src/cloud/fellows-store");
 
 function freshStore() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-fellows-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-fellows-"));
   const store = createCloudStore({ dataDir: dir });
   return { store, dir, cleanup() { fs.rmSync(dir, { recursive: true, force: true }); } };
 }

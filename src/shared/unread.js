@@ -22,7 +22,7 @@
 (function attachUnread(root, factory) {
   const api = factory();
   if (typeof module === "object" && module.exports) module.exports = api;
-  if (root) root.aimashiUnread = api;
+  if (root) root.miaUnread = api;
 })(typeof window !== "undefined" ? window : (typeof globalThis !== "undefined" ? globalThis : null), function buildUnread() {
   function isMap(value) {
     return value && typeof value.get === "function" && typeof value.values === "function";

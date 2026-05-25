@@ -178,14 +178,14 @@ function createFellowService({
     initializeRuntime();
     const key = String(input.key || input.fellowKey || "").trim();
     if (!key) throw new Error("Fellow key is required.");
-    if (key === "aimashi") throw new Error("内置 Aimashi 伙伴不能删除。");
+    if (key === "mia") throw new Error("内置 Mia 伙伴不能删除。");
     const p = runtimePaths();
     const manifest = loadFellowManifest();
     const fellows = Array.isArray(manifest.fellows) ? manifest.fellows : [];
     const fellow = fellows.find((item) => item.key === key);
     if (!fellow) throw new Error("Fellow not found.");
     manifest.fellows = fellows.filter((item) => item.key !== key);
-    if (manifest.default_fellow === key) manifest.default_fellow = manifest.fellows[0]?.key || "aimashi";
+    if (manifest.default_fellow === key) manifest.default_fellow = manifest.fellows[0]?.key || "mia";
     saveFellowManifest(manifest);
     for (const filePath of [
       path.join(p.fellowDir, `${key}.md`),

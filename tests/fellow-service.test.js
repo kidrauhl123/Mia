@@ -16,7 +16,7 @@ function readJson(filePath, fallback) {
 }
 
 function setup(t, overrides = {}) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-fellow-service-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-fellow-service-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const paths = {
     home: dir,
@@ -159,34 +159,34 @@ test("deleteFellow removes files and cleans dependent local state", async (t) =>
     setAgentSessions,
     getAgentSessions
   } = setup(t);
-  service.saveFellow({ key: "aimashi", name: "Aimashi" });
+  service.saveFellow({ key: "mia", name: "Mia" });
   service.saveFellow({ key: "bob", name: "Bob" });
   const manifest = fellowManifest.loadFellowManifest();
   manifest.default_fellow = "bob";
   fellowManifest.saveFellowManifest(manifest);
   setChatStore({
-    sessions: { bob: [{ id: "s_1" }], aimashi: [{ id: "s_2" }] },
-    readAt: { bob: "2026-01-01T00:00:00.000Z", aimashi: "2026-01-02T00:00:00.000Z" },
-    manualUnread: { bob: true, aimashi: true }
+    sessions: { bob: [{ id: "s_1" }], mia: [{ id: "s_2" }] },
+    readAt: { bob: "2026-01-01T00:00:00.000Z", mia: "2026-01-02T00:00:00.000Z" },
+    manualUnread: { bob: true, mia: true }
   });
   setAgentSessions({
     "codex:bob:s_1": "external_bob",
-    "codex:aimashi:s_2": "external_aimashi"
+    "codex:mia:s_2": "external_mia"
   });
 
   service.deleteFellow({ key: "bob" });
   await Promise.resolve();
 
-  assert.deepEqual(fellowManifest.loadFellowManifest().fellows.map((fellow) => fellow.key), ["aimashi"]);
-  assert.equal(fellowManifest.loadFellowManifest().default_fellow, "aimashi");
+  assert.deepEqual(fellowManifest.loadFellowManifest().fellows.map((fellow) => fellow.key), ["mia"]);
+  assert.equal(fellowManifest.loadFellowManifest().default_fellow, "mia");
   assert.equal(fs.existsSync(path.join(paths.fellowDir, "bob.md")), false);
   assert.equal(fs.existsSync(path.join(paths.fellowDir, "bob.fellow.json")), false);
   assert.deepEqual(getChatStore(), {
-    sessions: { aimashi: [{ id: "s_2" }] },
-    readAt: { aimashi: "2026-01-02T00:00:00.000Z" },
-    manualUnread: { aimashi: true }
+    sessions: { mia: [{ id: "s_2" }] },
+    readAt: { mia: "2026-01-02T00:00:00.000Z" },
+    manualUnread: { mia: true }
   });
-  assert.deepEqual(getAgentSessions(), { "codex:aimashi:s_2": "external_aimashi" });
+  assert.deepEqual(getAgentSessions(), { "codex:mia:s_2": "external_mia" });
   assert.deepEqual(calls.orphaned, ["bob"]);
   assert.deepEqual(calls.taskEvents, [{ event: "orphaned", payload: { fellowId: "bob", count: 2 } }]);
   assert.equal(calls.rescans, 1);

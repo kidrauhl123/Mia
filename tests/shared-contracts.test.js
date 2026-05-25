@@ -20,7 +20,7 @@ function loadBrowserGlobal(relativePath, globalName) {
 
 test("ipc channel contract is available in Node and browser contexts", () => {
   const nodeContract = require("../src/shared/ipc-channels");
-  const browserContract = loadBrowserGlobal("src/shared/ipc-channels.js", "aimashiIpcChannels");
+  const browserContract = loadBrowserGlobal("src/shared/ipc-channels.js", "miaIpcChannels");
 
   assert.equal(nodeContract.IpcChannel.ChatSend, "chat:send");
   assert.equal(nodeContract.IpcChannel.RuntimeInitialize, "runtime:initialize");
@@ -30,7 +30,7 @@ test("ipc channel contract is available in Node and browser contexts", () => {
 
 test("engine contract normalizes aliases and exposes shared labels", () => {
   const nodeContract = require("../src/shared/engine-contracts");
-  const browserContract = loadBrowserGlobal("src/shared/engine-contracts.js", "aimashiEngineContracts");
+  const browserContract = loadBrowserGlobal("src/shared/engine-contracts.js", "miaEngineContracts");
 
   assert.equal(nodeContract.EngineId.Hermes, "hermes");
   assert.equal(nodeContract.EngineId.ClaudeCode, "claude-code");

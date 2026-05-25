@@ -19,9 +19,9 @@ function createClaudeBridgePluginService(deps = {}) {
     fsImpl.mkdirSync(manifestDir, { recursive: true });
     if (!fsImpl.existsSync(manifestPath)) {
       fsImpl.writeFileSync(manifestPath, JSON.stringify({
-        name: "aimashi-skills",
+        name: "mia-skills",
         version: "1.0.0",
-        description: "Aimashi bridge: surfaces Hermes runtime skills to Claude Code engine."
+        description: "Mia bridge: surfaces Hermes runtime skills to Claude Code engine."
       }, null, 2) + "\n");
     }
 
@@ -29,7 +29,7 @@ function createClaudeBridgePluginService(deps = {}) {
     fsImpl.mkdirSync(bridgeSkillsDir, { recursive: true });
 
     const sourceRoots = [
-      { key: "aimashi", root: path.join(p.home, "skills") }
+      { key: "mia", root: path.join(p.home, "skills") }
     ];
     const seen = new Set();
     for (const source of sourceRoots) {

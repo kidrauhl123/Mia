@@ -5,7 +5,7 @@
 (function () {
   "use strict";
 
-  let state, els, aimashi;
+  let state, els, mia;
   let fontPresets, DEFAULT_ACCENT_COLOR, DEFAULT_USER_BUBBLE_COLOR, DEFAULT_LIST_STYLE, DEFAULT_SELECTION_STYLE;
 
   // Module-local timers, formerly top-of-app.js lets 22-24.
@@ -16,7 +16,7 @@
   function initSettingsAppearance(deps) {
     state = deps.state;
     els = deps.els;
-    aimashi = deps.aimashi || (typeof window !== "undefined" ? window.aimashi : null);
+    mia = deps.mia || (typeof window !== "undefined" ? window.mia : null);
     fontPresets = deps.fontPresets;
     DEFAULT_ACCENT_COLOR = deps.DEFAULT_ACCENT_COLOR;
     DEFAULT_USER_BUBBLE_COLOR = deps.DEFAULT_USER_BUBBLE_COLOR;
@@ -195,10 +195,10 @@
   }
 
   async function persistAppearanceDraft(appearance) {
-    if (!window.aimashi?.saveAppearance) return;
+    if (!window.mia?.saveAppearance) return;
     const seq = ++appearanceAutoSaveSeq;
     try {
-      const runtime = await window.aimashi.saveAppearance(appearance);
+      const runtime = await window.mia.saveAppearance(appearance);
       if (seq !== appearanceAutoSaveSeq) return;
       state.runtime = runtime;
       applyAppearance(runtime.appearance || appearance);
@@ -222,7 +222,7 @@
     }, delay);
   }
 
-  window.aimashiSettingsAppearance = {
+  window.miaSettingsAppearance = {
     initSettingsAppearance,
     showAppearanceSaveStatus,
     normalizeHexColor,

@@ -1,7 +1,7 @@
 (function attachIpcChannels(root, factory) {
   const api = factory();
   if (typeof module === "object" && module.exports) module.exports = api;
-  if (root) root.aimashiIpcChannels = api;
+  if (root) root.miaIpcChannels = api;
 })(typeof window !== "undefined" ? window : (typeof globalThis !== "undefined" ? globalThis : null), function buildIpcChannels() {
   const IpcChannel = Object.freeze({
     UiFirstPaint: "ui:first-paint",

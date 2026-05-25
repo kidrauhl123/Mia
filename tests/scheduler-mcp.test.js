@@ -9,7 +9,7 @@ const { createTasksEventBus } = require("../src/main/tasks-events.js");
 const { createSchedulerMcp } = require("../src/main/scheduler-mcp.js");
 
 function setup() {
-  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-mcp-")), "tasks.json");
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "mia-mcp-")), "tasks.json");
   const store = createTasksStore(file);
   const events = createTasksEventBus();
   const rescans = { count: 0 };

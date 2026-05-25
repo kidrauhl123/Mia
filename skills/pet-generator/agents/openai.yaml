@@ -1,4 +1,4 @@
 interface:
   display_name: "Pet Generator"
   short_description: "Generate style-flexible desktop pet spritesheets"
-  default_prompt: "Use $pet-generator to create an Aimashi/Codex-compatible animated desktop pet in any pet-safe style from a concept, company brand, or reference image."
+  default_prompt: "Use $pet-generator to create an Mia/Codex-compatible animated desktop pet in any pet-safe style from a concept, company brand, or reference image."

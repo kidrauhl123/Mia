@@ -5,10 +5,10 @@ const path = require("node:path");
 const { test } = require("node:test");
 const WebSocket = require("ws");
 
-const { createAimashiCloudServer } = require("../scripts/serve-cloud");
+const { createMiaCloudServer } = require("../scripts/serve-cloud");
 
 function tempDataDir() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-cloud-bridge-"));
+  return fs.mkdtempSync(path.join(os.tmpdir(), "mia-cloud-bridge-"));
 }
 
 function listen(server) {
@@ -98,7 +98,7 @@ function closeWs(ws) {
 }
 
 function wsTokenProtocol(token) {
-  return [`aimashi-token.${token}`];
+  return [`mia-token.${token}`];
 }
 
 function wsBaseUrl(baseUrl) {
@@ -119,7 +119,7 @@ function bridgeWsUrl(baseUrl, params = {}) {
 
 test("auth accepts username registration with six character password", async () => {
   const dataDir = tempDataDir();
-  const server = createAimashiCloudServer({ dataDir });
+  const server = createMiaCloudServer({ dataDir });
   const baseUrl = await listen(server);
   let ws = null;
   try {
@@ -144,7 +144,7 @@ test("auth accepts username registration with six character password", async () 
 
 test("cloud logout invalidates bearer sessions", async () => {
   const dataDir = tempDataDir();
-  const server = createAimashiCloudServer({ dataDir });
+  const server = createMiaCloudServer({ dataDir });
   const baseUrl = await listen(server);
   try {
     const account = await jsonFetch(baseUrl, "/api/auth/register", {
@@ -172,11 +172,11 @@ test("cloud logout invalidates bearer sessions", async () => {
 
 test("cloud applies security headers and restricts browser CORS origins", async () => {
   const dataDir = tempDataDir();
-  const server = createAimashiCloudServer({
+  const server = createMiaCloudServer({
     dataDir,
     allowedOrigins: ["https://aiweb.buytb01.com"],
     releaseManifest: {
-      product: "Aimashi Cloud",
+      product: "Mia Cloud",
       version: "0.1.0",
       builtAt: "2026-05-21T00:00:00.000Z",
       source: { gitCommit: "abc123", gitDirty: true },
@@ -196,7 +196,7 @@ test("cloud applies security headers and restricts browser CORS origins", async 
     });
     assert.equal(allowed.status, 200);
     const health = await allowed.json();
-    assert.equal(health.service, "aimashi-cloud");
+    assert.equal(health.service, "mia-cloud");
     assert.deepEqual(health.release, {
       version: "0.1.0",
       builtAt: "2026-05-21T00:00:00.000Z",
@@ -224,7 +224,7 @@ test("cloud applies security headers and restricts browser CORS origins", async 
 
 test("cloud handles browser CORS preflight for allowed origins only", async () => {
   const dataDir = tempDataDir();
-  const server = createAimashiCloudServer({
+  const server = createMiaCloudServer({
     dataDir,
     allowedOrigins: ["https://aiweb.buytb01.com"]
   });
@@ -261,7 +261,7 @@ test("cloud handles browser CORS preflight for allowed origins only", async () =
 
 test("cloud returns client errors for malformed or oversized JSON bodies", async () => {
   const dataDir = tempDataDir();
-  const server = createAimashiCloudServer({ dataDir });
+  const server = createMiaCloudServer({ dataDir });
   const baseUrl = await listen(server);
   try {
     const malformed = await rawFetch(baseUrl, "/api/auth/register", {
@@ -287,7 +287,7 @@ test("cloud returns client errors for malformed or oversized JSON bodies", async
 
 test("cloud accepts image uploads at the documented eighteen megabyte limit", async () => {
   const dataDir = tempDataDir();
-  const server = createAimashiCloudServer({ dataDir });
+  const server = createMiaCloudServer({ dataDir });
   const baseUrl = await listen(server);
   try {
     const account = await jsonFetch(baseUrl, "/api/auth/register", {
@@ -313,7 +313,7 @@ test("cloud accepts image uploads at the documented eighteen megabyte limit", as
 
 test("cloud rejects active-content image uploads", async () => {
   const dataDir = tempDataDir();
-  const server = createAimashiCloudServer({ dataDir });
+  const server = createMiaCloudServer({ dataDir });
   const baseUrl = await listen(server);
   try {
     const account = await jsonFetch(baseUrl, "/api/auth/register", {
@@ -342,13 +342,13 @@ test("cloud rejects active-content image uploads", async () => {
 
 test("cloud can serve bundled web assets without exposing path traversal", async () => {
   const dataDir = tempDataDir();
-  const server = createAimashiCloudServer({ dataDir });
+  const server = createMiaCloudServer({ dataDir });
   const baseUrl = await listen(server);
   try {
     const index = await rawFetch(baseUrl, "/");
     assert.equal(index.status, 200);
     assert.match(index.headers.get("content-type") || "", /text\/html/);
-    assert.match(await index.text(), /<title>Aimashi Web<\/title>/);
+    assert.match(await index.text(), /<title>Mia Web<\/title>/);
 
     const app = await rawFetch(baseUrl, "/app.js");
     assert.equal(app.status, 200);
@@ -357,12 +357,12 @@ test("cloud can serve bundled web assets without exposing path traversal", async
     const shared = await rawFetch(baseUrl, "/shared/engine-contracts.js");
     assert.equal(shared.status, 200);
     assert.match(shared.headers.get("content-type") || "", /javascript/);
-    assert.match(await shared.text(), /aimashiEngineContracts/);
+    assert.match(await shared.text(), /miaEngineContracts/);
 
     const messageSource = await rawFetch(baseUrl, "/message-sources/cloud-room-source.js");
     assert.equal(messageSource.status, 200);
     assert.match(messageSource.headers.get("content-type") || "", /javascript/);
-    assert.match(await messageSource.text(), /aimashiCloudRoomSource/);
+    assert.match(await messageSource.text(), /miaCloudRoomSource/);
 
     const favicon = await rawFetch(baseUrl, "/favicon.ico");
     assert.equal(favicon.status, 200);
@@ -381,13 +381,13 @@ test("cloud can serve bundled web assets without exposing path traversal", async
     assert.equal(manifest.status, 200);
     assert.match(manifest.headers.get("content-type") || "", /application\/manifest\+json/);
     const manifestJson = await manifest.json();
-    assert.equal(manifestJson.name, "Aimashi Web");
+    assert.equal(manifestJson.name, "Mia Web");
     assert.equal(manifestJson.display, "standalone");
     assert.deepEqual(manifestJson.icons?.map((icon) => icon.src), ["/icon-192.png", "/icon-512.png", "/favicon.svg"]);
 
     const traversal = await rawFetch(baseUrl, "/%2e%2e/package.json");
     assert.notEqual(traversal.status, 200);
-    assert.doesNotMatch(await traversal.text(), /"aimashi"/);
+    assert.doesNotMatch(await traversal.text(), /"mia"/);
 
     const malformed = await rawFetch(baseUrl, "/%E0%A4%A");
     assert.equal(malformed.status, 400);
@@ -399,7 +399,7 @@ test("cloud can serve bundled web assets without exposing path traversal", async
 
 test("cloud rejects websocket upgrades from disallowed browser origins", async () => {
   const dataDir = tempDataDir();
-  const server = createAimashiCloudServer({
+  const server = createMiaCloudServer({
     dataDir,
     allowedOrigins: ["https://aiweb.buytb01.com"]
   });
@@ -431,7 +431,7 @@ test("cloud rejects websocket upgrades from disallowed browser origins", async (
 
 test("cloud default origin policy allows same host and rejects foreign websocket origins", async () => {
   const dataDir = tempDataDir();
-  const server = createAimashiCloudServer({ dataDir });
+  const server = createMiaCloudServer({ dataDir });
   const baseUrl = await listen(server);
   let sameHostWs = null;
   let rejectedWs = null;
@@ -460,7 +460,7 @@ test("cloud default origin policy allows same host and rejects foreign websocket
 
 test("cloud websocket auth accepts subprotocol tokens without query tokens", async () => {
   const dataDir = tempDataDir();
-  const server = createAimashiCloudServer({ dataDir });
+  const server = createMiaCloudServer({ dataDir });
   const baseUrl = await listen(server);
   let ws = null;
   try {
@@ -480,7 +480,7 @@ test("cloud websocket auth accepts subprotocol tokens without query tokens", asy
 
 test("cloud websocket auth rejects query token auth by default", async () => {
   const dataDir = tempDataDir();
-  const server = createAimashiCloudServer({ dataDir });
+  const server = createMiaCloudServer({ dataDir });
   const baseUrl = await listen(server);
   let eventsWs = null;
   let bridgeWs = null;
@@ -510,7 +510,7 @@ test("cloud websocket auth rejects query token auth by default", async () => {
 
 test("cloud bridge forwards run progress events to authenticated event sockets", async () => {
   const dataDir = tempDataDir();
-  const server = createAimashiCloudServer({ dataDir });
+  const server = createMiaCloudServer({ dataDir });
   const baseUrl = await listen(server);
   let bridgeWs = null;
   let eventsWs = null;
@@ -572,7 +572,7 @@ test("cloud bridge forwards run progress events to authenticated event sockets",
 
 test("cloud bridge broadcasts device removal when a desktop disconnects", async () => {
   const dataDir = tempDataDir();
-  const server = createAimashiCloudServer({ dataDir });
+  const server = createMiaCloudServer({ dataDir });
   const baseUrl = await listen(server);
   let bridgeWs = null;
   let eventsWs = null;
@@ -605,7 +605,7 @@ test("cloud bridge broadcasts device removal when a desktop disconnects", async 
 
 test("cloud bridge device listing follows live websocket state instead of stale sqlite rows", async () => {
   const dataDir = tempDataDir();
-  const server = createAimashiCloudServer({ dataDir });
+  const server = createMiaCloudServer({ dataDir });
   const baseUrl = await listen(server);
   let bridgeWs = null;
   try {
@@ -640,7 +640,7 @@ test("cloud bridge device listing follows live websocket state instead of stale 
 
 test("cloud bridge requires explicit device selection when multiple devices are online", async () => {
   const dataDir = tempDataDir();
-  const server = createAimashiCloudServer({ dataDir });
+  const server = createMiaCloudServer({ dataDir });
   const baseUrl = await listen(server);
   let wsOne = null;
   let wsTwo = null;
@@ -676,7 +676,7 @@ test("cloud bridge requires explicit device selection when multiple devices are 
 
 test("cloud files require owner authentication", async () => {
   const dataDir = tempDataDir();
-  const server = createAimashiCloudServer({ dataDir });
+  const server = createMiaCloudServer({ dataDir });
   const baseUrl = await listen(server);
   try {
     const alice = await jsonFetch(baseUrl, "/api/auth/register", {
@@ -720,7 +720,7 @@ test("cloud files require owner authentication", async () => {
 
 test("cloud can cancel a pending bridge run", async () => {
   const dataDir = tempDataDir();
-  const server = createAimashiCloudServer({ dataDir });
+  const server = createMiaCloudServer({ dataDir });
   const baseUrl = await listen(server);
   let ws = null;
   try {
@@ -775,7 +775,7 @@ test("cloud can cancel a pending bridge run", async () => {
 
 test("cloud marks bridge runs as timed_out when a device never responds", async () => {
   const dataDir = tempDataDir();
-  const server = createAimashiCloudServer({ dataDir, bridgeRunTimeoutMs: 20 });
+  const server = createMiaCloudServer({ dataDir, bridgeRunTimeoutMs: 20 });
   const baseUrl = await listen(server);
   let ws = null;
   try {

@@ -10,7 +10,7 @@ const CONTAINER_ENV = Object.freeze({
   HERMES_WRITE_SAFE_ROOT: "/data/workspace"
 });
 
-const MODEL_API_KEY_ENV = "AIMASHI_CLOUD_AGENT_MODEL_API_KEY";
+const MODEL_API_KEY_ENV = "MIA_CLOUD_AGENT_MODEL_API_KEY";
 
 function atomicWriteFile(filePath, content, mode = 0o600) {
   const dir = path.dirname(filePath);
@@ -28,24 +28,24 @@ function assertSafeUserId(userId) {
 }
 
 function createHermesWorkerManager(options = {}) {
-  const rootDir = path.resolve(options.rootDir || process.env.AIMASHI_CLOUD_AGENT_ROOT || "/var/lib/aimashi-cloud-agent-users");
-  const mode = options.mode || process.env.AIMASHI_CLOUD_AGENT_MODE || "disabled";
-  const staticBaseUrl = options.staticBaseUrl || process.env.AIMASHI_CLOUD_HERMES_BASE_URL || "";
-  const apiKey = options.apiKey || process.env.AIMASHI_CLOUD_HERMES_API_KEY || "aimashi-cloud";
-  const image = options.image || process.env.AIMASHI_CLOUD_HERMES_IMAGE || "";
-  const dockerNetwork = String(options.dockerNetwork || process.env.AIMASHI_CLOUD_AGENT_DOCKER_NETWORK || "bridge").trim() || "bridge";
-  const dockerBin = options.dockerBin || process.env.AIMASHI_DOCKER_BIN || "docker";
+  const rootDir = path.resolve(options.rootDir || process.env.MIA_CLOUD_AGENT_ROOT || "/var/lib/mia-cloud-agent-users");
+  const mode = options.mode || process.env.MIA_CLOUD_AGENT_MODE || "disabled";
+  const staticBaseUrl = options.staticBaseUrl || process.env.MIA_CLOUD_HERMES_BASE_URL || "";
+  const apiKey = options.apiKey || process.env.MIA_CLOUD_HERMES_API_KEY || "mia-cloud";
+  const image = options.image || process.env.MIA_CLOUD_HERMES_IMAGE || "";
+  const dockerNetwork = String(options.dockerNetwork || process.env.MIA_CLOUD_AGENT_DOCKER_NETWORK || "bridge").trim() || "bridge";
+  const dockerBin = options.dockerBin || process.env.MIA_DOCKER_BIN || "docker";
   const execFile = options.execFile || promisify(execFileCb);
-  const containerPort = Number(options.containerPort || process.env.AIMASHI_CLOUD_HERMES_CONTAINER_PORT || 8765);
-  const modelProvider = String(options.modelProvider || process.env.AIMASHI_CLOUD_AGENT_MODEL_PROVIDER || "aimashi-litellm").trim();
-  const model = String(options.model || process.env.AIMASHI_CLOUD_AGENT_MODEL || "aimashi-default").trim();
-  const modelBaseUrl = String(options.modelBaseUrl || process.env.AIMASHI_CLOUD_AGENT_MODEL_BASE_URL || "http://litellm:4000/v1").trim();
-  const modelApiMode = String(options.modelApiMode || process.env.AIMASHI_CLOUD_AGENT_MODEL_API_MODE || "chat_completions").trim();
-  const modelApiKey = String(options.modelApiKey || process.env[MODEL_API_KEY_ENV] || process.env.AIMASHI_LITELLM_API_KEY || "").trim();
-  const modelProviderName = String(options.modelProviderName || process.env.AIMASHI_CLOUD_AGENT_MODEL_PROVIDER_NAME || "Aimashi LiteLLM").trim();
+  const containerPort = Number(options.containerPort || process.env.MIA_CLOUD_HERMES_CONTAINER_PORT || 8765);
+  const modelProvider = String(options.modelProvider || process.env.MIA_CLOUD_AGENT_MODEL_PROVIDER || "mia-litellm").trim();
+  const model = String(options.model || process.env.MIA_CLOUD_AGENT_MODEL || "mia-default").trim();
+  const modelBaseUrl = String(options.modelBaseUrl || process.env.MIA_CLOUD_AGENT_MODEL_BASE_URL || "http://litellm:4000/v1").trim();
+  const modelApiMode = String(options.modelApiMode || process.env.MIA_CLOUD_AGENT_MODEL_API_MODE || "chat_completions").trim();
+  const modelApiKey = String(options.modelApiKey || process.env[MODEL_API_KEY_ENV] || process.env.MIA_LITELLM_API_KEY || "").trim();
+  const modelProviderName = String(options.modelProviderName || process.env.MIA_CLOUD_AGENT_MODEL_PROVIDER_NAME || "Mia LiteLLM").trim();
   const fetchImpl = options.fetch || fetch;
   const sleep = options.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
-  const healthTimeoutMs = Number(options.healthTimeoutMs ?? process.env.AIMASHI_CLOUD_HERMES_START_TIMEOUT_MS ?? 45000);
+  const healthTimeoutMs = Number(options.healthTimeoutMs ?? process.env.MIA_CLOUD_HERMES_START_TIMEOUT_MS ?? 45000);
 
   function pathsForUser(userId) {
     const id = assertSafeUserId(userId);
@@ -113,7 +113,7 @@ function createHermesWorkerManager(options = {}) {
       "agent:",
       "  reasoning_effort: \"medium\"",
       "",
-      "aimashi:",
+      "mia:",
       "  runtime_schema: 1",
       ""
     ];
@@ -142,13 +142,13 @@ function createHermesWorkerManager(options = {}) {
       return ensureDockerWorker(paths);
     }
     if (mode === "disabled") {
-      throw new Error("Cloud Hermes worker is not configured. Set AIMASHI_CLOUD_AGENT_MODE=static and AIMASHI_CLOUD_HERMES_BASE_URL, or configure a container worker.");
+      throw new Error("Cloud Hermes worker is not configured. Set MIA_CLOUD_AGENT_MODE=static and MIA_CLOUD_HERMES_BASE_URL, or configure a container worker.");
     }
     throw new Error(`Unsupported cloud Hermes worker mode: ${mode}`);
   }
 
   function containerName(userId) {
-    return `aimashi-hermes-${assertSafeUserId(userId)}`;
+    return `mia-hermes-${assertSafeUserId(userId)}`;
   }
 
   async function docker(args) {
@@ -192,7 +192,7 @@ function createHermesWorkerManager(options = {}) {
   }
 
   async function ensureDockerWorker(paths) {
-    if (!image) throw new Error("AIMASHI_CLOUD_HERMES_IMAGE is required for docker cloud Hermes workers.");
+    if (!image) throw new Error("MIA_CLOUD_HERMES_IMAGE is required for docker cloud Hermes workers.");
     const name = containerName(paths.userId);
     const running = await dockerRunning(name);
     if (!running) {

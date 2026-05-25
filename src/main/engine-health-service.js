@@ -40,7 +40,7 @@ function createEngineHealthService(deps = {}) {
 
   async function isEngineHealthy(baseUrl, timeoutMs = 1200) {
     try {
-      const probe = await fetchImpl(`${baseUrl}/v1/runs/_aimashi_probe/events`, {
+      const probe = await fetchImpl(`${baseUrl}/v1/runs/_mia_probe/events`, {
         method: "GET",
         headers: { Authorization: `Bearer ${apiKey()}` },
         signal: timeoutSignal(timeoutMs)

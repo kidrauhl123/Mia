@@ -16,7 +16,7 @@ function readJson(filePath, fallback) {
 }
 
 function setup(t, overrides = {}) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-chat-session-service-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-chat-session-service-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const chatSessions = path.join(dir, "chat-sessions.json");
   const calls = { initialize: 0, titleChats: [] };
@@ -42,7 +42,7 @@ test("saveChatSession owns merge, transient filtering, and persistence", async (
   const { chatStore, service } = setup(t);
 
   await service.saveChatSession({
-    personaKey: "aimashi",
+    personaKey: "mia",
     session: {
       id: "s_1",
       title: "First",
@@ -55,7 +55,7 @@ test("saveChatSession owns merge, transient filtering, and persistence", async (
     }
   });
   await service.saveChatSession({
-    personaKey: "aimashi",
+    personaKey: "mia",
     session: {
       id: "s_1",
       title: "Ignored",
@@ -67,7 +67,7 @@ test("saveChatSession owns merge, transient filtering, and persistence", async (
     }
   });
 
-  const saved = chatStore.loadChatStore().sessions.aimashi[0];
+  const saved = chatStore.loadChatStore().sessions.mia[0];
   assert.equal(saved.title, "First");
   assert.equal(saved.updatedAt, "2026-01-01T00:00:03.000Z");
   assert.deepEqual(saved.messages.map((message) => [message.role, message.content, Boolean(message.pinned)]), [
@@ -79,29 +79,29 @@ test("saveChatSession owns merge, transient filtering, and persistence", async (
 test("newChatSession prunes empty sessions and saveChatReadState persists unread overrides", async (t) => {
   const { chatStore, service } = setup(t);
 
-  await service.saveChatSession({ personaKey: "aimashi", session: { id: "empty", messages: [] } });
+  await service.saveChatSession({ personaKey: "mia", session: { id: "empty", messages: [] } });
   await service.saveChatSession({
-    personaKey: "aimashi",
+    personaKey: "mia",
     session: { id: "kept", messages: [{ role: "user", content: "keep", createdAt: "2026-01-01T00:00:00.000Z" }] }
   });
-  await service.newChatSession({ personaKey: "aimashi" });
+  await service.newChatSession({ personaKey: "mia" });
   await service.saveChatReadState({
-    readAt: { aimashi: "2026-01-02T00:00:00.000Z", empty: "" },
-    manualUnread: { aimashi: true, ignored: false }
+    readAt: { mia: "2026-01-02T00:00:00.000Z", empty: "" },
+    manualUnread: { mia: true, ignored: false }
   });
 
   const store = chatStore.loadChatStore();
-  assert.equal(store.sessions.aimashi.length, 2);
-  assert.deepEqual(store.sessions.aimashi.map((session) => session.id).includes("empty"), false);
-  assert.deepEqual(store.readAt, { aimashi: "2026-01-02T00:00:00.000Z" });
-  assert.deepEqual(store.manualUnread, { aimashi: true });
+  assert.equal(store.sessions.mia.length, 2);
+  assert.deepEqual(store.sessions.mia.map((session) => session.id).includes("empty"), false);
+  assert.deepEqual(store.readAt, { mia: "2026-01-02T00:00:00.000Z" });
+  assert.deepEqual(store.manualUnread, { mia: true });
 });
 
 test("generateSessionTitle delegates title chat and falls back safely", async (t) => {
   const { calls, service } = setup(t);
 
   assert.deepEqual(await service.generateSessionTitle({
-    personaKey: "aimashi",
+    personaKey: "mia",
     messages: [
       { role: "system", content: "ignored" },
       { role: "user", content: "请帮我设计一个同步方案" },
@@ -115,7 +115,7 @@ test("generateSessionTitle delegates title chat and falls back safely", async (t
 
   const failing = setup(t, { sendChat: async () => { throw new Error("down"); } }).service;
   assert.deepEqual(await failing.generateSessionTitle({
-    personaKey: "aimashi",
+    personaKey: "mia",
     messages: [{ role: "user", content: "Fallback title from user content" }]
   }), { title: "Fallback title from user content" });
 });

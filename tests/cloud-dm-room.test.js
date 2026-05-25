@@ -18,7 +18,7 @@ test("dmRoomId throws on identical user ids", () => {
 });
 
 test("ensureDmRoom creates room and adds two members on first call", () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-dm-test-"));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-dm-test-"));
   const cloudStore = createCloudStore({ dataDir: tmpDir });
   try {
     const social = createSocialStore(cloudStore.getDb());
@@ -40,7 +40,7 @@ test("ensureDmRoom creates room and adds two members on first call", () => {
 });
 
 test("ensureDmRoom returns existing room on second call (idempotent)", () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-dm-test2-"));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-dm-test2-"));
   const cloudStore = createCloudStore({ dataDir: tmpDir });
   try {
     const social = createSocialStore(cloudStore.getDb());
@@ -58,7 +58,7 @@ test("ensureDmRoom returns existing room on second call (idempotent)", () => {
 });
 
 test("ensureDmRoom rejects non-friends", () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-dm-test3-"));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-dm-test3-"));
   const cloudStore = createCloudStore({ dataDir: tmpDir });
   try {
     const social = createSocialStore(cloudStore.getDb());

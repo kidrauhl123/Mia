@@ -2,7 +2,7 @@ const crypto = require("node:crypto");
 
 function cleanRunSessionId(value, fellowKey) {
   const raw = String(value || "").trim();
-  const fallback = `${fellowKey || "aimashi"}:default`;
+  const fallback = `${fellowKey || "mia"}:default`;
   return (raw || fallback)
     .replace(/[^A-Za-z0-9_.:-]+/g, "_")
     .slice(0, 120) || fallback;
@@ -25,7 +25,7 @@ function firstTextValue(value) {
 function normalizeHermesError(message) {
   const text = String(message || "").trim();
   if (text.includes("No inference provider configured") || text.includes("no API key was found")) {
-    return "Aimashi Hermes 已启动，但模型还不能调用。请在右侧 Model 选择 preset，填 API key，保存后再发送。";
+    return "Mia Hermes 已启动，但模型还不能调用。请在右侧 Model 选择 preset，填 API key，保存后再发送。";
   }
   return text;
 }

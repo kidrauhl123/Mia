@@ -6,7 +6,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const root = path.resolve(__dirname, "..");
-const distDir = path.join(root, "dist", "aimashi-cloud-release");
+const distDir = path.join(root, "dist", "mia-cloud-release");
 const apiDir = path.join(distDir, "api");
 const webDir = path.join(distDir, "web");
 const hermesImageDir = path.join(distDir, "hermes-image");
@@ -92,7 +92,7 @@ function writeReleaseManifest() {
   const gitCommit = commandOutput("git", ["rev-parse", "--short=12", "HEAD"]);
   const gitStatus = commandOutput("git", ["status", "--porcelain"]);
   writeJson(path.join(distDir, "manifest.json"), {
-    product: "Aimashi Cloud",
+    product: "Mia Cloud",
     version: rootPackage.version || "",
     builtAt: new Date().toISOString(),
     source: {
@@ -102,7 +102,7 @@ function writeReleaseManifest() {
     },
     api: {
       entry: "api/server.js",
-      install: "cd /opt/aimashi-cloud && npm install --omit=dev"
+      install: "cd /opt/mia-cloud && npm install --omit=dev"
     },
     web: {
       root: "web"
@@ -116,7 +116,7 @@ function writeHermesImageContext() {
   copyFile("cloud/hermes-image/Dockerfile", path.join(hermesImageDir, "Dockerfile"));
   copyFile("cloud/hermes-image/entrypoint.sh", path.join(hermesImageDir, "entrypoint.sh"));
 
-  const pluginDir = path.join(hermesImageDir, "aimashi_plugins");
+  const pluginDir = path.join(hermesImageDir, "mia_plugins");
   fs.mkdirSync(pluginDir, { recursive: true });
   for (const [fileName, content] of Object.entries(pluginFiles())) {
     fs.writeFileSync(path.join(pluginDir, fileName), content);
@@ -131,18 +131,18 @@ function writeHermesImageContext() {
 }
 
 function writeReleaseReadme() {
-  fs.writeFileSync(path.join(distDir, "README.md"), `# Aimashi Cloud Release
+  fs.writeFileSync(path.join(distDir, "README.md"), `# Mia Cloud Release
 
-This archive contains the deployable Aimashi Cloud API, Web assets, installer, smoke test, smoke-account preparation helper, doctor, and release manifest.
+This archive contains the deployable Mia Cloud API, Web assets, installer, smoke test, smoke-account preparation helper, doctor, and release manifest.
 
 ## Verify Before Install
 
 \`\`\`bash
-AIMASHI_INSTALL_VERIFY_ONLY=1 bash install-cloud-release-local.sh /tmp/aimashi-cloud-release.tgz
+MIA_INSTALL_VERIFY_ONLY=1 bash install-cloud-release-local.sh /tmp/mia-cloud-release.tgz
 node doctor-cloud.js https://aiweb.buytb01.com
 \`\`\`
 
-If SSH deploy access is denied from the development Mac, run this from a full Aimashi project checkout to collect a filtered public-key authentication trace:
+If SSH deploy access is denied from the development Mac, run this from a full Mia project checkout to collect a filtered public-key authentication trace:
 
 \`\`\`bash
 npm run cloud:deploy:ssh-diagnose
@@ -150,19 +150,19 @@ npm run cloud:deploy:ssh-diagnose
 
 The release archive also includes \`diagnose-deploy-ssh.js\` for operators who copy the helper back into a full checkout or run it with Node on the development machine. The diagnostic prints ssh-agent identity status and filtered \`ssh -vvv\` authentication lines; it does not print private-key material.
 
-If this archive has already been extracted and the original tarball is not in the current directory, run the verify command from the directory that contains \`aimashi-cloud-release.tgz\`, or pass the absolute path to the tarball.
+If this archive has already been extracted and the original tarball is not in the current directory, run the verify command from the directory that contains \`mia-cloud-release.tgz\`, or pass the absolute path to the tarball.
 
 ## Platform Model Gateway
 
-Cloud Hermes workers use the platform model supplied through LiteLLM Proxy. Configure provider keys from the Aimashi admin page at \`/admin/model\`; it writes the \`aimashi-default\` model alias into LiteLLM over the private admin API. The release includes a \`hermes-image/\` Docker build context and the installer builds \`AIMASHI_CLOUD_HERMES_IMAGE\` on the VPS, so worker startup does not depend on pulling a private external image. The service still needs \`AIMASHI_CLOUD_AGENT_MODEL_BASE_URL=http://litellm:4000/v1\`, \`AIMASHI_CLOUD_AGENT_MODEL=aimashi-default\`, \`AIMASHI_CLOUD_AGENT_MODEL_API_KEY=<LiteLLM virtual key>\`, \`LITELLM_MASTER_KEY=<LiteLLM admin key>\`, and \`AIMASHI_CLOUD_ADMIN_USERNAME/PASSWORD\` in systemd or \`/etc/aimashi-cloud/admin.env\`. Do not expose the LiteLLM UI directly on the public internet.
+Cloud Hermes workers use the platform model supplied through LiteLLM Proxy. Configure provider keys from the Mia admin page at \`/admin/model\`; it writes the \`mia-default\` model alias into LiteLLM over the private admin API. The release includes a \`hermes-image/\` Docker build context and the installer builds \`MIA_CLOUD_HERMES_IMAGE\` on the VPS, so worker startup does not depend on pulling a private external image. The service still needs \`MIA_CLOUD_AGENT_MODEL_BASE_URL=http://litellm:4000/v1\`, \`MIA_CLOUD_AGENT_MODEL=mia-default\`, \`MIA_CLOUD_AGENT_MODEL_API_KEY=<LiteLLM virtual key>\`, \`LITELLM_MASTER_KEY=<LiteLLM admin key>\`, and \`MIA_CLOUD_ADMIN_USERNAME/PASSWORD\` in systemd or \`/etc/mia-cloud/admin.env\`. Do not expose the LiteLLM UI directly on the public internet.
 
 ## Install On The VPS
 
 \`\`\`bash
 cd /tmp
-tar -xOf aimashi-cloud-release.tgz aimashi-cloud-release/install-cloud-release-local.sh > install-cloud-release-local.sh
+tar -xOf mia-cloud-release.tgz mia-cloud-release/install-cloud-release-local.sh > install-cloud-release-local.sh
 chmod +x install-cloud-release-local.sh
-./install-cloud-release-local.sh /tmp/aimashi-cloud-release.tgz
+./install-cloud-release-local.sh /tmp/mia-cloud-release.tgz
 \`\`\`
 
 The installer verifies the archive checksum and manifest hashes, creates or reuses the dedicated service user, backs up data/API/Web/systemd files, installs the new API and Web assets, restarts systemd, runs smoke, and rolls back on install or smoke failure.
@@ -170,11 +170,11 @@ The installer verifies the archive checksum and manifest hashes, creates or reus
 ## Verify After Install
 
 \`\`\`bash
-AIMASHI_DOCTOR_EXPECT_RELEASE_COMMIT="$(node -e "const m=require('./manifest.json'); process.stdout.write(String(m.source?.gitCommit || ''))")" \\
-AIMASHI_DOCTOR_EXPECT_RELEASE_BUILT_AT="$(node -e "const m=require('./manifest.json'); process.stdout.write(String(m.builtAt || ''))")" \\
+MIA_DOCTOR_EXPECT_RELEASE_COMMIT="$(node -e "const m=require('./manifest.json'); process.stdout.write(String(m.source?.gitCommit || ''))")" \\
+MIA_DOCTOR_EXPECT_RELEASE_BUILT_AT="$(node -e "const m=require('./manifest.json'); process.stdout.write(String(m.builtAt || ''))")" \\
 node doctor-cloud.js https://aiweb.buytb01.com
-AIMASHI_SMOKE_EXPECT_RELEASE_COMMIT="$(node -e "const m=require('./manifest.json'); process.stdout.write(String(m.source?.gitCommit || ''))")" \\
-AIMASHI_SMOKE_EXPECT_RELEASE_BUILT_AT="$(node -e "const m=require('./manifest.json'); process.stdout.write(String(m.builtAt || ''))")" \\
+MIA_SMOKE_EXPECT_RELEASE_COMMIT="$(node -e "const m=require('./manifest.json'); process.stdout.write(String(m.source?.gitCommit || ''))")" \\
+MIA_SMOKE_EXPECT_RELEASE_BUILT_AT="$(node -e "const m=require('./manifest.json'); process.stdout.write(String(m.builtAt || ''))")" \\
 node smoke-cloud.js https://aiweb.buytb01.com
 \`\`\`
 
@@ -183,29 +183,29 @@ node smoke-cloud.js https://aiweb.buytb01.com
 Prepare or validate a dedicated smoke account, log the desktop app into that same account, then run:
 
 \`\`\`bash
-AIMASHI_SMOKE_USERNAME="<smoke-account>" \\
-AIMASHI_SMOKE_PASSWORD="<smoke-password>" \\
+MIA_SMOKE_USERNAME="<smoke-account>" \\
+MIA_SMOKE_PASSWORD="<smoke-password>" \\
 node prepare-cloud-smoke-account.js https://aiweb.buytb01.com
 \`\`\`
 
 \`\`\`bash
-AIMASHI_SMOKE_USERNAME="<smoke-account>" \\
-AIMASHI_SMOKE_PASSWORD="<smoke-password>" \\
-AIMASHI_SMOKE_REQUIRE_BRIDGE=1 \\
-AIMASHI_SMOKE_EXPECT_RELEASE_COMMIT="$(node -e "const m=require('./manifest.json'); process.stdout.write(String(m.source?.gitCommit || ''))")" \\
-AIMASHI_SMOKE_EXPECT_RELEASE_BUILT_AT="$(node -e "const m=require('./manifest.json'); process.stdout.write(String(m.builtAt || ''))")" \\
+MIA_SMOKE_USERNAME="<smoke-account>" \\
+MIA_SMOKE_PASSWORD="<smoke-password>" \\
+MIA_SMOKE_REQUIRE_BRIDGE=1 \\
+MIA_SMOKE_EXPECT_RELEASE_COMMIT="$(node -e "const m=require('./manifest.json'); process.stdout.write(String(m.source?.gitCommit || ''))")" \\
+MIA_SMOKE_EXPECT_RELEASE_BUILT_AT="$(node -e "const m=require('./manifest.json'); process.stdout.write(String(m.builtAt || ''))")" \\
 node smoke-cloud.js https://aiweb.buytb01.com
 \`\`\`
 
-The bridge smoke fails unless the public Cloud has an online desktop bridge for the same account and the assistant reply contains \`aimashi-cloud-bridge-smoke-ok\`. A desktop bridge logged into the same Aimashi Cloud account can be called directly from Web or mobile; it does not require a separate local approval click for the remote connection. Agent permission mode remains the normal per-Agent execution setting (Ask/YOLO/Deny or external-engine defaults) and is not used as device authentication.
+The bridge smoke fails unless the public Cloud has an online desktop bridge for the same account and the assistant reply contains \`mia-cloud-bridge-smoke-ok\`. A desktop bridge logged into the same Mia Cloud account can be called directly from Web or mobile; it does not require a separate local approval click for the remote connection. Agent permission mode remains the normal per-Agent execution setting (Ask/YOLO/Deny or external-engine defaults) and is not used as device authentication.
 
-If the operator is using the standalone local Agent bridge instead of the desktop app, start it from a full Aimashi project checkout on the bridge machine with the same smoke account before running the bridge smoke. This command is not run from the extracted Cloud release directory:
+If the operator is using the standalone local Agent bridge instead of the desktop app, start it from a full Mia project checkout on the bridge machine with the same smoke account before running the bridge smoke. This command is not run from the extracted Cloud release directory:
 
 \`\`\`bash
-cd /path/to/aimashi
-AIMASHI_CLOUD_URL=https://aiweb.buytb01.com \\
-AIMASHI_CLOUD_USERNAME="<smoke-account>" \\
-AIMASHI_CLOUD_PASSWORD="<smoke-password>" \\
+cd /path/to/mia
+MIA_CLOUD_URL=https://aiweb.buytb01.com \\
+MIA_CLOUD_USERNAME="<smoke-account>" \\
+MIA_CLOUD_PASSWORD="<smoke-password>" \\
 npm run bridge
 \`\`\`
 
@@ -216,12 +216,12 @@ See \`cloud-deployment.md\` for nginx, systemd, rollback, and end-to-end desktop
 function writeNginxConfigs() {
   const nginxDir = path.join(distDir, "nginx");
   fs.mkdirSync(nginxDir, { recursive: true });
-  fs.writeFileSync(path.join(nginxDir, "aimashi-websocket-map.conf"), `map $http_upgrade $connection_upgrade {
+  fs.writeFileSync(path.join(nginxDir, "mia-websocket-map.conf"), `map $http_upgrade $connection_upgrade {
     default upgrade;
     '' close;
 }
 `);
-  fs.writeFileSync(path.join(nginxDir, "aimashi-cloud-site.conf"), `server {
+  fs.writeFileSync(path.join(nginxDir, "mia-cloud-site.conf"), `server {
     listen 80;
     server_name aiweb.buytb01.com;
     return 301 https://$host$request_uri;
@@ -234,7 +234,7 @@ server {
     ssl_certificate /etc/letsencrypt/live/aiweb.buytb01.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/aiweb.buytb01.com/privkey.pem;
 
-    root /var/www/aimashi-web;
+    root /var/www/mia-web;
     index index.html;
 
     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
@@ -337,11 +337,11 @@ function verifyRelease() {
     "cloud-deployment.md",
     "hermes-image/Dockerfile",
     "hermes-image/entrypoint.sh",
-    "hermes-image/aimashi_plugins/__init__.py",
-    "hermes-image/aimashi_plugins/__main__.py",
-    "hermes-image/aimashi_plugins/fellow_overlay.py",
-    "nginx/aimashi-websocket-map.conf",
-    "nginx/aimashi-cloud-site.conf",
+    "hermes-image/mia_plugins/__init__.py",
+    "hermes-image/mia_plugins/__main__.py",
+    "hermes-image/mia_plugins/fellow_overlay.py",
+    "nginx/mia-websocket-map.conf",
+    "nginx/mia-cloud-site.conf",
     "manifest.json"
   ];
   for (const file of requiredFiles) assertFile(file);
@@ -394,11 +394,11 @@ function verifyRelease() {
   if (!/nginx -t/.test(deploymentDoc)) {
     throw new Error("Deployment doc must require nginx -t before reload.");
   }
-  const nginxMap = fs.readFileSync(assertFile("nginx/aimashi-websocket-map.conf"), "utf8");
+  const nginxMap = fs.readFileSync(assertFile("nginx/mia-websocket-map.conf"), "utf8");
   if (!/map\s+\$http_upgrade\s+\$connection_upgrade/.test(nginxMap)) {
     throw new Error("Release nginx map must define $connection_upgrade for WebSockets.");
   }
-  const nginxSite = fs.readFileSync(assertFile("nginx/aimashi-cloud-site.conf"), "utf8");
+  const nginxSite = fs.readFileSync(assertFile("nginx/mia-cloud-site.conf"), "utf8");
   if (!/proxy_set_header\s+Sec-WebSocket-Protocol\s+\$http_sec_websocket_protocol/.test(nginxSite)) {
     throw new Error("Release nginx site must preserve the WebSocket Sec-WebSocket-Protocol header.");
   }
@@ -412,7 +412,7 @@ function verifyRelease() {
     throw new Error("Release nginx site must serve /manifest.webmanifest with application/manifest+json.");
   }
   if (!/location\s+\/admin\/\s+\{[\s\S]*proxy_pass\s+http:\/\/127\.0\.0\.1:4175/.test(nginxSite)) {
-    throw new Error("Release nginx site must proxy /admin/ to the Aimashi Cloud API.");
+    throw new Error("Release nginx site must proxy /admin/ to the Mia Cloud API.");
   }
   if (
     !/ssl_certificate\s+\/etc\/letsencrypt\/live\/aiweb\.buytb01\.com\/fullchain\.pem/.test(nginxSite) ||
@@ -424,33 +424,33 @@ function verifyRelease() {
     throw new Error("Release nginx site must redirect HTTP to HTTPS.");
   }
   const releaseReadme = fs.readFileSync(assertFile("README.md"), "utf8");
-  if (!/AIMASHI_INSTALL_VERIFY_ONLY=1 bash install-cloud-release-local\.sh \/tmp\/aimashi-cloud-release\.tgz/.test(releaseReadme)) {
+  if (!/MIA_INSTALL_VERIFY_ONLY=1 bash install-cloud-release-local\.sh \/tmp\/mia-cloud-release\.tgz/.test(releaseReadme)) {
     throw new Error("Release README must document verify-only local install.");
   }
   if (
-    !/AIMASHI_DOCTOR_EXPECT_RELEASE_COMMIT="\$\(node -e "const m=require\('\.\/manifest\.json'\); process\.stdout\.write\(String\(m\.source\?\.gitCommit \|\| ''\)\)"\)"/.test(releaseReadme) ||
-    !/AIMASHI_DOCTOR_EXPECT_RELEASE_BUILT_AT="\$\(node -e "const m=require\('\.\/manifest\.json'\); process\.stdout\.write\(String\(m\.builtAt \|\| ''\)\)"\)"/.test(releaseReadme) ||
+    !/MIA_DOCTOR_EXPECT_RELEASE_COMMIT="\$\(node -e "const m=require\('\.\/manifest\.json'\); process\.stdout\.write\(String\(m\.source\?\.gitCommit \|\| ''\)\)"\)"/.test(releaseReadme) ||
+    !/MIA_DOCTOR_EXPECT_RELEASE_BUILT_AT="\$\(node -e "const m=require\('\.\/manifest\.json'\); process\.stdout\.write\(String\(m\.builtAt \|\| ''\)\)"\)"/.test(releaseReadme) ||
     !/node doctor-cloud\.js https:\/\/aiweb\.buytb01\.com/.test(releaseReadme) ||
-    !/AIMASHI_SMOKE_EXPECT_RELEASE_COMMIT="\$\(node -e "const m=require\('\.\/manifest\.json'\); process\.stdout\.write\(String\(m\.source\?\.gitCommit \|\| ''\)\)"\)"/.test(releaseReadme) ||
-    !/AIMASHI_SMOKE_EXPECT_RELEASE_BUILT_AT="\$\(node -e "const m=require\('\.\/manifest\.json'\); process\.stdout\.write\(String\(m\.builtAt \|\| ''\)\)"\)"/.test(releaseReadme) ||
+    !/MIA_SMOKE_EXPECT_RELEASE_COMMIT="\$\(node -e "const m=require\('\.\/manifest\.json'\); process\.stdout\.write\(String\(m\.source\?\.gitCommit \|\| ''\)\)"\)"/.test(releaseReadme) ||
+    !/MIA_SMOKE_EXPECT_RELEASE_BUILT_AT="\$\(node -e "const m=require\('\.\/manifest\.json'\); process\.stdout\.write\(String\(m\.builtAt \|\| ''\)\)"\)"/.test(releaseReadme) ||
     !/node smoke-cloud\.js https:\/\/aiweb\.buytb01\.com/.test(releaseReadme)
   ) {
     throw new Error("Release README must document expected-release public doctor and smoke verification.");
   }
   if (
     !/node prepare-cloud-smoke-account\.js https:\/\/aiweb\.buytb01\.com/.test(releaseReadme) ||
-    !/full Aimashi project checkout/.test(releaseReadme) ||
+    !/full Mia project checkout/.test(releaseReadme) ||
     !/not run from the extracted Cloud release directory/.test(releaseReadme) ||
-    !/cd \/path\/to\/aimashi/.test(releaseReadme) ||
-    !/AIMASHI_CLOUD_URL=https:\/\/aiweb\.buytb01\.com/.test(releaseReadme) ||
-    !/AIMASHI_CLOUD_USERNAME="<smoke-account>"/.test(releaseReadme) ||
-    !/AIMASHI_CLOUD_PASSWORD="<smoke-password>"/.test(releaseReadme) ||
+    !/cd \/path\/to\/mia/.test(releaseReadme) ||
+    !/MIA_CLOUD_URL=https:\/\/aiweb\.buytb01\.com/.test(releaseReadme) ||
+    !/MIA_CLOUD_USERNAME="<smoke-account>"/.test(releaseReadme) ||
+    !/MIA_CLOUD_PASSWORD="<smoke-password>"/.test(releaseReadme) ||
     !/npm run bridge/.test(releaseReadme)
   ) {
     throw new Error("Release README must document standalone bridge same-account startup from a full project checkout.");
   }
   if (
-    !/same Aimashi Cloud account/.test(releaseReadme) ||
+    !/same Mia Cloud account/.test(releaseReadme) ||
     !/does not require a separate local approval click/.test(releaseReadme) ||
     !/Agent permission mode remains/.test(releaseReadme) ||
     !/device authentication/.test(releaseReadme)
@@ -459,8 +459,8 @@ function verifyRelease() {
   }
   if (
     !/LiteLLM Proxy/.test(releaseReadme) ||
-    !/AIMASHI_CLOUD_AGENT_MODEL_BASE_URL=http:\/\/litellm:4000\/v1/.test(releaseReadme) ||
-    !/AIMASHI_CLOUD_AGENT_MODEL_API_KEY=<LiteLLM virtual key>/.test(releaseReadme) ||
+    !/MIA_CLOUD_AGENT_MODEL_BASE_URL=http:\/\/litellm:4000\/v1/.test(releaseReadme) ||
+    !/MIA_CLOUD_AGENT_MODEL_API_KEY=<LiteLLM virtual key>/.test(releaseReadme) ||
     !/hermes-image\/` Docker build context/.test(releaseReadme) ||
     !/\/admin\/model/.test(releaseReadme) ||
     !/Do not expose the LiteLLM UI directly/.test(releaseReadme)
@@ -488,7 +488,7 @@ function verifyRelease() {
   });
 
   const manifest = JSON.parse(fs.readFileSync(assertFile("manifest.json"), "utf8"));
-  if (manifest.product !== "Aimashi Cloud") throw new Error("Release manifest has the wrong product.");
+  if (manifest.product !== "Mia Cloud") throw new Error("Release manifest has the wrong product.");
   if (!manifest.builtAt || !manifest.files || typeof manifest.files !== "object") {
     throw new Error("Release manifest is missing build metadata or file hashes.");
   }
@@ -536,7 +536,7 @@ function main() {
   writeNginxConfigs();
 
   writeJson(path.join(apiDir, "package.json"), {
-    name: "aimashi-cloud-api",
+    name: "mia-cloud-api",
     version: rootPackage.version || "0.0.0",
     private: true,
     type: "commonjs",
@@ -552,18 +552,18 @@ function main() {
 
   verifyRelease();
 
-  const archive = path.join(root, "dist", "aimashi-cloud-release.tgz");
+  const archive = path.join(root, "dist", "mia-cloud-release.tgz");
   const archiveSha = `${archive}.sha256`;
   fs.rmSync(archive, { force: true });
   fs.rmSync(archiveSha, { force: true });
-  childProcess.execFileSync("tar", ["-czf", archive, "-C", path.join(root, "dist"), "aimashi-cloud-release"], {
+  childProcess.execFileSync("tar", ["-czf", archive, "-C", path.join(root, "dist"), "mia-cloud-release"], {
     stdio: "inherit"
   });
   fs.writeFileSync(archiveSha, `${sha256File(archive)}  ${path.basename(archive)}\n`);
 
-  console.log(`Aimashi Cloud release directory: ${distDir}`);
-  console.log(`Aimashi Cloud release archive: ${archive}`);
-  console.log(`Aimashi Cloud release SHA-256: ${archiveSha}`);
+  console.log(`Mia Cloud release directory: ${distDir}`);
+  console.log(`Mia Cloud release archive: ${archive}`);
+  console.log(`Mia Cloud release SHA-256: ${archiveSha}`);
 }
 
 main();

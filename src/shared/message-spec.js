@@ -30,6 +30,6 @@ function normalizeSpec(input = {}) {
   };
 }
 
-const __aimashiMessageSpecExports = { MessageCapability, defaultCapabilities, normalizeSpec };
-if (typeof module !== "undefined" && module.exports) module.exports = __aimashiMessageSpecExports;
-if (typeof window !== "undefined") window.aimashiMessageSpec = __aimashiMessageSpecExports;
+const __miaMessageSpecExports = { MessageCapability, defaultCapabilities, normalizeSpec };
+if (typeof module !== "undefined" && module.exports) module.exports = __miaMessageSpecExports;
+if (typeof window !== "undefined") window.miaMessageSpec = __miaMessageSpecExports;

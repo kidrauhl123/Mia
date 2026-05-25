@@ -24,13 +24,13 @@
   }
 
   function escapeHtml(value) {
-    const h = global.aimashiMarkdown?.escapeHtml;
+    const h = global.miaMarkdown?.escapeHtml;
     if (typeof h === "function") return h(value);
     return String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[c]));
   }
 
   function menuItemHtml(spec) {
-    const fn = global.aimashiMarkdown?.menuItemHtml;
+    const fn = global.miaMarkdown?.menuItemHtml;
     if (typeof fn === "function") return fn(spec);
     return `<button type="button" ${spec.attrs || ""}>${escapeHtml(spec.label)}</button>`;
   }
@@ -85,10 +85,10 @@
     // listeners (outside-click / escape) leak when reopened via right-click.
     closeMenu();
     // If fellow chat had its menu open, close it first.
-    const closeFellow = global.aimashiMessageMenu?.closeMessageContextMenu;
+    const closeFellow = global.miaMessageMenu?.closeMessageContextMenu;
     if (typeof closeFellow === "function") closeFellow();
 
-    const social = global.aimashiSocial;
+    const social = global.miaSocial;
     const roomId = social?.getActiveRoomId?.();
     const desc = social?.describeMessageForMenu?.(message) || { authorName: "", isOwn: false, bodyMd: message?.body_md || "" };
     const plain = plainTextFromMarkdown(desc.bodyMd);
@@ -118,7 +118,7 @@
           return;
         }
         if (action === "reply") {
-          global.aimashiMessageHelpers?.setReplyDraft?.({
+          global.miaMessageHelpers?.setReplyDraft?.({
             role: desc.isOwn ? "user" : "assistant",
             author: desc.isOwn ? "你" : (desc.authorName || "对方"),
             content: snippetOf(plain)
@@ -151,5 +151,5 @@
     }, 0);
   }
 
-  global.aimashiSocialMessageMenu = { openSocialMessageMenu, closeSocialMessageMenu: closeMenu };
+  global.miaSocialMessageMenu = { openSocialMessageMenu, closeSocialMessageMenu: closeMenu };
 })(typeof window !== "undefined" ? window : globalThis);

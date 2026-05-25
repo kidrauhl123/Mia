@@ -106,7 +106,7 @@
     state.activeSessionIdByPersona[fellowKey] = latest?.id;
     state.activeView = "chat";
     state.sessionMenuOpen = false;
-    window.aimashiSessionReadState.markPersonaRead(fellowKey);
+    window.miaSessionReadState.markPersonaRead(fellowKey);
     showNarrowContent();
     render();
     requestAnimationFrame(() => els.chatInput?.focus());
@@ -144,11 +144,11 @@
 
   function capabilityForEngine(item = {}, engine = "") {
     const itemEngine = String(item.engine || item.provider || "").trim();
-    return !itemEngine || itemEngine === "aimashi" || itemEngine === engine || (engine === "hermes" && item.source === "hermes");
+    return !itemEngine || itemEngine === "mia" || itemEngine === engine || (engine === "hermes" && item.source === "hermes");
   }
 
   function engineLabel(engine = "") {
-    if (engine === "aimashi") return "Aimashi";
+    if (engine === "mia") return "Mia";
     if (engine === "claude-code") return "Claude Code";
     if (engine === "codex") return "Codex";
     return "Hermes";
@@ -179,10 +179,10 @@
     const meta = item.engineLabel || item.sourceLabel || item.category || item.status || "";
     return `
       <label class="capability-row">
-        <input type="checkbox" data-capability-type="${window.aimashiMarkdown.escapeHtml(type)}" data-capability-id="${window.aimashiMarkdown.escapeHtml(item.id)}" ${checked ? "checked" : ""} ${disabled ? "disabled" : ""}>
+        <input type="checkbox" data-capability-type="${window.miaMarkdown.escapeHtml(type)}" data-capability-id="${window.miaMarkdown.escapeHtml(item.id)}" ${checked ? "checked" : ""} ${disabled ? "disabled" : ""}>
         <span>
-          <strong>${window.aimashiMarkdown.escapeHtml(title)}</strong>
-          ${meta ? `<small>${window.aimashiMarkdown.escapeHtml(meta)}</small>` : ""}
+          <strong>${window.miaMarkdown.escapeHtml(title)}</strong>
+          ${meta ? `<small>${window.miaMarkdown.escapeHtml(meta)}</small>` : ""}
         </span>
       </label>
     `;
@@ -198,7 +198,7 @@
         <header>
           <div>
             <strong>能力</strong>
-            <p>${window.aimashiMarkdown.escapeHtml(engineLabel(engine))} · ${plugins.length} 插件 · ${skills.length} 技能 · ${connectors.length} 连接</p>
+            <p>${window.miaMarkdown.escapeHtml(engineLabel(engine))} · ${plugins.length} 插件 · ${skills.length} 技能 · ${connectors.length} 连接</p>
           </div>
           <label class="capability-default-toggle">
             <input type="checkbox" data-capability-default ${capabilities.inheritEngineDefaults ? "checked" : ""}>
@@ -263,12 +263,12 @@
       button.type = "button";
       button.className = `contact-row${fellow.key === state.activeContactKey ? " active" : ""}`;
       button.innerHTML = `
-        <span class="avatar fellow-photo" style="${window.aimashiAvatar.avatarThumbBackgroundStyle(fellow.avatarImage || window.aimashiAvatar.avatarAssetForKey(fellow.key), fellow.avatarCrop, fellow.color || "#5e5ce6")}"></span>
+        <span class="avatar fellow-photo" style="${window.miaAvatar.avatarThumbBackgroundStyle(fellow.avatarImage || window.miaAvatar.avatarAssetForKey(fellow.key), fellow.avatarCrop, fellow.color || "#5e5ce6")}"></span>
         <span class="contact-row-main">
-          <strong>${window.aimashiMarkdown.escapeHtml(fellow.name)}</strong>
-          <small>${window.aimashiMarkdown.escapeHtml(fellow.bio || "本地伙伴")}</small>
+          <strong>${window.miaMarkdown.escapeHtml(fellow.name)}</strong>
+          <small>${window.miaMarkdown.escapeHtml(fellow.bio || "本地伙伴")}</small>
         </span>
-        <span class="contact-row-side">${window.aimashiMarkdown.escapeHtml(summary.time || "")}</span>
+        <span class="contact-row-side">${window.miaMarkdown.escapeHtml(summary.time || "")}</span>
       `;
       button.addEventListener("click", () => {
         state.activeContactKey = fellow.key;
@@ -293,24 +293,24 @@
     els.contactDetail.innerHTML = `
       <article class="contact-profile">
         <header class="contact-profile-head">
-          <button class="contact-profile-avatar" type="button" data-contact-action="edit" title="编辑联系人头像" style="${window.aimashiAvatar.avatarBackgroundStyle(fellow.avatarImage || window.aimashiAvatar.avatarAssetForKey(fellow.key), fellow.avatarCrop, fellow.color || "#5e5ce6")}"></button>
+          <button class="contact-profile-avatar" type="button" data-contact-action="edit" title="编辑联系人头像" style="${window.miaAvatar.avatarBackgroundStyle(fellow.avatarImage || window.miaAvatar.avatarAssetForKey(fellow.key), fellow.avatarCrop, fellow.color || "#5e5ce6")}"></button>
           <div class="contact-profile-title">
-            <h2>${window.aimashiMarkdown.escapeHtml(fellow.name || "联系人")}</h2>
+            <h2>${window.miaMarkdown.escapeHtml(fellow.name || "联系人")}</h2>
             <div class="contact-engine-badge" title="Agent 引擎">
               <span>Agent</span>
-              <strong>${window.aimashiMarkdown.escapeHtml(engineLabel(engine))}</strong>
+              <strong>${window.miaMarkdown.escapeHtml(engineLabel(engine))}</strong>
             </div>
-            <p>${window.aimashiMarkdown.escapeHtml(fellow.bio || "本地伙伴")}</p>
+            <p>${window.miaMarkdown.escapeHtml(fellow.bio || "本地伙伴")}</p>
           </div>
           <div class="contact-actions">
-            <button class="primary contact-message-action" type="button" data-contact-action="message" title="发消息" aria-label="发消息">${window.aimashiMarkdown.iconParkIcon("message", "contact-action-icon")}</button>
+            <button class="primary contact-message-action" type="button" data-contact-action="message" title="发消息" aria-label="发消息">${window.miaMarkdown.iconParkIcon("message", "contact-action-icon")}</button>
             <button class="secondary" type="button" data-contact-action="edit">编辑</button>
-            ${fellow.key === "aimashi" ? "" : `<button class="secondary danger" type="button" data-contact-action="delete">删除伙伴</button>`}
+            ${fellow.key === "mia" ? "" : `<button class="secondary danger" type="button" data-contact-action="delete">删除伙伴</button>`}
           </div>
         </header>
         <section class="contact-note">
           <strong>最近内容</strong>
-          <p>${window.aimashiMarkdown.escapeHtml(summary.preview)}</p>
+          <p>${window.miaMarkdown.escapeHtml(summary.preview)}</p>
         </section>
         ${renderFellowCapabilitiesPanel(fellow)}
       </article>
@@ -329,7 +329,7 @@
     if (!fellow?.key || !state) return;
     state.savingFellowCapabilities.add(fellow.key);
     try {
-      state.runtime = await window.aimashi.saveFellow({
+      state.runtime = await window.mia.saveFellow({
         ...fellow,
         capabilities
       });
@@ -392,7 +392,7 @@
 
   function openFellowContextMenu(fellowKey, x, y) {
     if (!fellowKey || !state) return;
-    window.aimashiMessageMenu?.closeMessageContextMenu();
+    window.miaMessageMenu?.closeMessageContextMenu();
     closeGroupContextMenu?.(); // group subsystem removed in unification — dep no longer injected
     state.fellowContextMenu = { open: true, x, y, fellowKey };
     renderFellowContextMenu();
@@ -414,18 +414,18 @@
     const pet = petStatusForKey(fellow.key);
     const petAction = pet.hasAsset
       ? pet.placed
-        ? window.aimashiMarkdown.menuItemHtml({ icon: "message", label: `收回「${fellow.name}」`, attrs: 'data-fellow-action="recall"' })
-        : window.aimashiMarkdown.menuItemHtml({ icon: "message", label: "放进桌面", attrs: 'data-fellow-action="place"' })
-      : window.aimashiMarkdown.menuItemHtml({ icon: "addPic", label: "生成桌宠", attrs: 'data-fellow-action="generate-pet"' });
+        ? window.miaMarkdown.menuItemHtml({ icon: "message", label: `收回「${fellow.name}」`, attrs: 'data-fellow-action="recall"' })
+        : window.miaMarkdown.menuItemHtml({ icon: "message", label: "放进桌面", attrs: 'data-fellow-action="place"' })
+      : window.miaMarkdown.menuItemHtml({ icon: "addPic", label: "生成桌宠", attrs: 'data-fellow-action="generate-pet"' });
     menu.innerHTML = `
-      ${window.aimashiMarkdown.menuItemHtml({ icon: "pin", label: fellow.pinned ? "取消置顶" : "置顶", attrs: 'data-fellow-action="pin"' })}
-      ${window.aimashiMarkdown.menuItemHtml({ icon: "edit", label: "编辑", attrs: 'data-fellow-action="edit"' })}
+      ${window.miaMarkdown.menuItemHtml({ icon: "pin", label: fellow.pinned ? "取消置顶" : "置顶", attrs: 'data-fellow-action="pin"' })}
+      ${window.miaMarkdown.menuItemHtml({ icon: "edit", label: "编辑", attrs: 'data-fellow-action="edit"' })}
       ${petAction}
-      ${fellow.key === "aimashi" ? "" : `<div class="skill-context-menu-separator" role="separator"></div>${window.aimashiMarkdown.menuItemHtml({ icon: "delete", label: "删除伙伴", attrs: 'data-fellow-action="delete"', className: "danger" })}`}
+      ${fellow.key === "mia" ? "" : `<div class="skill-context-menu-separator" role="separator"></div>${window.miaMarkdown.menuItemHtml({ icon: "delete", label: "删除伙伴", attrs: 'data-fellow-action="delete"', className: "danger" })}`}
     `;
     const rect = menu.getBoundingClientRect();
     const width = rect.width || 138;
-    const height = rect.height || (fellow.key === "aimashi" ? 114 : 158);
+    const height = rect.height || (fellow.key === "mia" ? 114 : 158);
     menu.style.left = `${Math.max(8, Math.min(state.fellowContextMenu.x, window.innerWidth - width - 8))}px`;
     menu.style.top = `${Math.max(8, Math.min(state.fellowContextMenu.y, window.innerHeight - height - 8))}px`;
     menu.querySelector('[data-fellow-action="edit"]')?.addEventListener("click", () => {
@@ -438,15 +438,15 @@
     });
     menu.querySelector('[data-fellow-action="generate-pet"]')?.addEventListener("click", () => {
       closeFellowContextMenu();
-      window.aimashiPetDialog?.openPetGenerateDialog(fellow.key);
+      window.miaPetDialog?.openPetGenerateDialog(fellow.key);
     });
     menu.querySelector('[data-fellow-action="place"]')?.addEventListener("click", async () => {
       closeFellowContextMenu();
-      await window.aimashiPetDialog?.placeFellowPet(fellow.key);
+      await window.miaPetDialog?.placeFellowPet(fellow.key);
     });
     menu.querySelector('[data-fellow-action="recall"]')?.addEventListener("click", async () => {
       closeFellowContextMenu();
-      await window.aimashiPetDialog?.recallFellowPet(fellow.key);
+      await window.miaPetDialog?.recallFellowPet(fellow.key);
     });
     menu.querySelector('[data-fellow-action="delete"]')?.addEventListener("click", async () => {
       closeFellowContextMenu();
@@ -454,7 +454,7 @@
     });
   }
 
-  window.aimashiFellowManager = {
+  window.miaFellowManager = {
     initFellowManager,
     fellowByKey,
     sortFellowsForSidebar,

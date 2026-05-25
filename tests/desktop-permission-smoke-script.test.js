@@ -17,14 +17,14 @@ const {
 
 test("desktop permission smoke manual mode is explicit opt-in", () => {
   assert.equal(isManualPermissionSmoke({}), false);
-  assert.equal(isManualPermissionSmoke({ AIMASHI_PERMISSION_SMOKE_MANUAL: "0" }), false);
-  assert.equal(isManualPermissionSmoke({ AIMASHI_PERMISSION_SMOKE_MANUAL: "1" }), true);
-  assert.equal(isManualPermissionSmoke({ AIMASHI_PERMISSION_SMOKE_MANUAL: "true" }), true);
-  assert.equal(isManualPermissionSmoke({ AIMASHI_PERMISSION_SMOKE_MANUAL: "yes" }), true);
+  assert.equal(isManualPermissionSmoke({ MIA_PERMISSION_SMOKE_MANUAL: "0" }), false);
+  assert.equal(isManualPermissionSmoke({ MIA_PERMISSION_SMOKE_MANUAL: "1" }), true);
+  assert.equal(isManualPermissionSmoke({ MIA_PERMISSION_SMOKE_MANUAL: "true" }), true);
+  assert.equal(isManualPermissionSmoke({ MIA_PERMISSION_SMOKE_MANUAL: "yes" }), true);
 });
 
 test("desktop permission smoke audit parser captures show and reject result", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-permission-smoke-test-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-permission-smoke-test-"));
   const auditFile = path.join(dir, "dialog.jsonl");
   try {
     fs.writeFileSync(auditFile, [
@@ -36,7 +36,7 @@ test("desktop permission smoke audit parser captures show and reject result", ()
           defaultId: 1,
           cancelId: 1,
           detail: [
-            "来源：Aimashi Cloud",
+            "来源：Mia Cloud",
             "会话：default",
             "附件：1 个",
             "请求内容：",
@@ -58,7 +58,7 @@ test("desktop permission smoke audit parser captures show and reject result", ()
 });
 
 test("desktop permission smoke waits for a real dialog result record", async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-permission-smoke-test-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-permission-smoke-test-"));
   const auditFile = path.join(dir, "dialog.jsonl");
   try {
     fs.writeFileSync(auditFile, JSON.stringify({
@@ -69,7 +69,7 @@ test("desktop permission smoke waits for a real dialog result record", async () 
         defaultId: 1,
         cancelId: 1,
         detail: [
-          "来源：Aimashi Cloud",
+          "来源：Mia Cloud",
           "会话：default",
           "附件：1 个",
           "permission-dialog-audit-smoke-do-not-run-codex"
@@ -117,29 +117,29 @@ test("desktop permission smoke does not activate apps outside manual macOS mode"
 
 test("desktop permission smoke uses a bounded manual window settle delay", () => {
   assert.equal(manualSmokeWindowSettleMs({}), 1500);
-  assert.equal(manualSmokeWindowSettleMs({ AIMASHI_PERMISSION_SMOKE_WINDOW_SETTLE_MS: "0" }), 0);
-  assert.equal(manualSmokeWindowSettleMs({ AIMASHI_PERMISSION_SMOKE_WINDOW_SETTLE_MS: "2500" }), 2500);
-  assert.equal(manualSmokeWindowSettleMs({ AIMASHI_PERMISSION_SMOKE_WINDOW_SETTLE_MS: "-1" }), 1500);
-  assert.equal(manualSmokeWindowSettleMs({ AIMASHI_PERMISSION_SMOKE_WINDOW_SETTLE_MS: "bad" }), 1500);
+  assert.equal(manualSmokeWindowSettleMs({ MIA_PERMISSION_SMOKE_WINDOW_SETTLE_MS: "0" }), 0);
+  assert.equal(manualSmokeWindowSettleMs({ MIA_PERMISSION_SMOKE_WINDOW_SETTLE_MS: "2500" }), 2500);
+  assert.equal(manualSmokeWindowSettleMs({ MIA_PERMISSION_SMOKE_WINDOW_SETTLE_MS: "-1" }), 1500);
+  assert.equal(manualSmokeWindowSettleMs({ MIA_PERMISSION_SMOKE_WINDOW_SETTLE_MS: "bad" }), 1500);
 });
 
 test("desktop permission smoke gives manual mode a human-scale default timeout", () => {
   assert.equal(permissionSmokeTimeoutMs({}), 30000);
-  assert.equal(permissionSmokeTimeoutMs({ AIMASHI_PERMISSION_SMOKE_MANUAL: "1" }), 240000);
-  assert.equal(permissionSmokeTimeoutMs({ AIMASHI_PERMISSION_SMOKE_MANUAL: "1", AIMASHI_PERMISSION_SMOKE_TIMEOUT_MS: "120000" }), 120000);
-  assert.equal(permissionSmokeTimeoutMs({ AIMASHI_PERMISSION_SMOKE_TIMEOUT_MS: "15000" }), 15000);
-  assert.equal(permissionSmokeTimeoutMs({ AIMASHI_PERMISSION_SMOKE_MANUAL: "1", AIMASHI_PERMISSION_SMOKE_TIMEOUT_MS: "-1" }), 240000);
-  assert.equal(permissionSmokeTimeoutMs({ AIMASHI_PERMISSION_SMOKE_TIMEOUT_MS: "bad" }), 30000);
+  assert.equal(permissionSmokeTimeoutMs({ MIA_PERMISSION_SMOKE_MANUAL: "1" }), 240000);
+  assert.equal(permissionSmokeTimeoutMs({ MIA_PERMISSION_SMOKE_MANUAL: "1", MIA_PERMISSION_SMOKE_TIMEOUT_MS: "120000" }), 120000);
+  assert.equal(permissionSmokeTimeoutMs({ MIA_PERMISSION_SMOKE_TIMEOUT_MS: "15000" }), 15000);
+  assert.equal(permissionSmokeTimeoutMs({ MIA_PERMISSION_SMOKE_MANUAL: "1", MIA_PERMISSION_SMOKE_TIMEOUT_MS: "-1" }), 240000);
+  assert.equal(permissionSmokeTimeoutMs({ MIA_PERMISSION_SMOKE_TIMEOUT_MS: "bad" }), 30000);
 });
 
 test("desktop permission smoke writes manual proof to an explicit durable path", () => {
   const rootDir = "/repo";
   assert.equal(
     permissionSmokeProofFile({}, rootDir),
-    path.join(rootDir, "dist", "aimashi-desktop-permission-manual-proof.json")
+    path.join(rootDir, "dist", "mia-desktop-permission-manual-proof.json")
   );
   assert.equal(
-    permissionSmokeProofFile({ AIMASHI_PERMISSION_SMOKE_PROOF_FILE: "/tmp/proof.json" }, rootDir),
+    permissionSmokeProofFile({ MIA_PERMISSION_SMOKE_PROOF_FILE: "/tmp/proof.json" }, rootDir),
     "/tmp/proof.json"
   );
 });

@@ -1,13 +1,13 @@
-// Aimashi Web — chat + settings only.
+// Mia Web — chat + settings only.
 // Conversation list = cloud DM, group rooms, and cloud-mirrored fellow rooms.
 
-const STORAGE_KEY = "aimashi.web.session";
+const STORAGE_KEY = "mia.web.session";
 const API_BASE = "";
-const { formatConversationTime, formatMessageTime } = window.aimashiTimeFormat;
-const { computeUnreadForConversation, totalUnreadFromConversations, unreadBadgeHtml } = window.aimashiUnread;
-const { prepareOutgoingMessage } = window.aimashiSendPipeline;
-const { SenderKind } = window.aimashiConversationKinds;
-const engineContracts = window.aimashiEngineContracts || {};
+const { formatConversationTime, formatMessageTime } = window.miaTimeFormat;
+const { computeUnreadForConversation, totalUnreadFromConversations, unreadBadgeHtml } = window.miaUnread;
+const { prepareOutgoingMessage } = window.miaSendPipeline;
+const { SenderKind } = window.miaConversationKinds;
+const engineContracts = window.miaEngineContracts || {};
 const normalizeAgentEngine = engineContracts.normalizeAgentEngine || ((value) => {
   const id = String(value || "hermes").trim().toLowerCase().replace(/_/g, "-");
   if (id === "claude" || id === "claude-code") return "claude-code";
@@ -362,7 +362,7 @@ async function api(path, options = {}) {
 
 function setAuthView() {
   els.root.dataset.auth = state.token ? "signed-in" : "signed-out";
-  // Theme now lives in window.aimashiAppearance (see web/appearance.js).
+  // Theme now lives in window.miaAppearance (see web/appearance.js).
   // It applies on script load so the page doesn't flash; don't override here.
 }
 
@@ -491,7 +491,7 @@ function lastSeenSeqForConversation(roomId) {
 
 // Resume cursor for replay (Phase 1.C). Per-account so logging out of A
 // and into B doesn't replay A's events to B's session.
-function lastEventSeqKey() { return `aimashi.web.lastEventSeq.${state.user?.id || "anon"}`; }
+function lastEventSeqKey() { return `mia.web.lastEventSeq.${state.user?.id || "anon"}`; }
 function loadLastEventSeq() {
   try { return Number(localStorage.getItem(lastEventSeqKey())) || 0; } catch { return 0; }
 }
@@ -507,7 +507,7 @@ function startCloudEvents() {
   const url = `${proto}//${window.location.host}/api/events?since_seq=${sinceSeq}`;
   let socket;
   try {
-    socket = new WebSocket(url, ["aimashi-token." + state.token]);
+    socket = new WebSocket(url, ["mia-token." + state.token]);
   } catch (err) {
     console.warn("[web] WS connect failed:", err);
     scheduleReconnect();
@@ -604,7 +604,7 @@ function handleCloudEvent(envelope) {
       // Bump unread if the message isn't mine and the room isn't currently open.
       // Self-id check goes through shared/contact: resolveContact returns kind="self"
       // only when ref matches ctx.self.id (works for any sender kind).
-      const author = window.aimashiContact.resolveContact(
+      const author = window.miaContact.resolveContact(
         { kind: "user", ref: msg.sender_ref },
         { self: state.user, friends: state.friends }
       );
@@ -990,7 +990,7 @@ function combinedConversationItems() {
     let memberTiles = null;
     if (isGroup) {
       const records = state.roomMembersCache.get(r.id) || [];
-      memberTiles = window.aimashiGroupTiles.resolveGroupMemberTiles(records, groupTilesCtx());
+      memberTiles = window.miaGroupTiles.resolveGroupMemberTiles(records, groupTilesCtx());
     } else if (isDM) {
       const parts = r.id.split(":");
       const otherId = parts[1] === state.user?.id ? parts[2] : parts[1];
@@ -1281,7 +1281,7 @@ function buildRoomMessageArticle(msg, room) {
   // Web reads only MessageSpec fields — no schema branching here.
   const members = state.roomMembersCache.get(room.id) || [];
   const ctx = { self: state.user, friends: state.friends, fellows: state.fellows };
-  const source = window.aimashiCloudRoomSource.createCloudRoomSource({
+  const source = window.miaCloudRoomSource.createCloudRoomSource({
     room, messages: [msg], members, ctx
   });
   const spec = source.listMessages()[0];
@@ -1318,7 +1318,7 @@ function buildRoomMessageArticle(msg, room) {
 
 function buildCloudAgentStreamingArticle(room, run) {
   if (!room || !run || (run.status === "complete" && !run.text && !run.tools.length)) return "";
-  const fellowKey = run.fellowId || room.decorations?.fellowKey || (room.id?.startsWith("fellow:") ? room.id.split(":")[2] : "aimashi");
+  const fellowKey = run.fellowId || room.decorations?.fellowKey || (room.id?.startsWith("fellow:") ? room.id.split(":")[2] : "mia");
   const msg = {
     id: `cloud-agent-stream-${run.runId || room.id}`,
     sender_kind: "fellow",
@@ -1329,7 +1329,7 @@ function buildCloudAgentStreamingArticle(room, run) {
   };
   const members = state.roomMembersCache.get(room.id) || [];
   const ctx = { self: state.user, friends: state.friends, fellows: state.fellows };
-  const source = window.aimashiCloudRoomSource.createCloudRoomSource({ room, messages: [msg], members, ctx });
+  const source = window.miaCloudRoomSource.createCloudRoomSource({ room, messages: [msg], members, ctx });
   const spec = source.listMessages()[0];
   const avatar = spec.avatar || {};
   const avatarStyle = avatar.image
@@ -1386,8 +1386,8 @@ function renderActiveChat() {
     els.activeAvatar.style.backgroundImage = "";
     els.activeAvatar.style.backgroundColor = "transparent";
     els.activeAvatar.textContent = "";
-    els.activeTitle.textContent = "Aimashi";
-    els.activeMeta.textContent = state.user ? "选择一个会话开始聊天" : "Aimashi Cloud";
+    els.activeTitle.textContent = "Mia";
+    els.activeMeta.textContent = state.user ? "选择一个会话开始聊天" : "Mia Cloud";
     els.chat.innerHTML = `<p class="persona-empty">还没有选中的会话。</p>`;
     setComposerEnabled(false, "选择一个会话开始聊天");
     renderComposerControls(null);
@@ -1820,7 +1820,7 @@ function renderSettings() {
   }
   // Reflect current appearance state into the inputs every time the dialog
   // opens so it survives external mutations (multiple tabs, reset action).
-  const ap = window.aimashiAppearance?.get?.() || {};
+  const ap = window.miaAppearance?.get?.() || {};
   if (els.appearanceTheme) els.appearanceTheme.value = ap.theme || "light";
   if (els.appearanceListStyle) els.appearanceListStyle.value = ap.listStyle || "card";
   if (els.appearanceSelectionStyle) els.appearanceSelectionStyle.value = ap.selectionStyle || "soft";
@@ -1930,12 +1930,12 @@ els.cloudLogoutFromSettings?.addEventListener("click", handleLogout);
 function bindAppearanceInput(el, key, getValue) {
   if (!el) return;
   el.addEventListener("change", () => {
-    window.aimashiAppearance?.update({ [key]: getValue(el) });
+    window.miaAppearance?.update({ [key]: getValue(el) });
   });
   // Color pickers also fire "input" — capture so the page reacts live.
   if (el.type === "color") {
     el.addEventListener("input", () => {
-      window.aimashiAppearance?.update({ [key]: getValue(el) });
+      window.miaAppearance?.update({ [key]: getValue(el) });
     });
   }
 }

@@ -9,7 +9,7 @@ const { createRuntimeBindingsStore } = require("../src/cloud-agent/runtime-bindi
 const { createCloudAgentRunsStore } = require("../src/cloud-agent/cloud-agent-runs-store.js");
 
 function freshStore() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-cloud-agent-stores-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-cloud-agent-stores-"));
   const store = createCloudStore({ dataDir: dir });
   return {
     dir,
@@ -31,7 +31,7 @@ function insertUser(db, id) {
 function insertRoom(db, id) {
   db.prepare(
     "INSERT INTO rooms (id, type, name, created_at, updated_at) VALUES (?, 'fellow', ?, ?, ?)"
-  ).run(id, "Aimashi", new Date().toISOString(), new Date().toISOString());
+  ).run(id, "Mia", new Date().toISOString(), new Date().toISOString());
 }
 
 test("schema has fellow runtime bindings and cloud agent runs", () => {
@@ -54,29 +54,29 @@ test("runtime binding upsert/get scopes by user and fellow", () => {
     const bindings = createRuntimeBindingsStore(ctx.db);
     const inserted = bindings.upsertBinding({
       userId: "u1",
-      fellowId: "aimashi",
+      fellowId: "mia",
       runtimeKind: "cloud-hermes",
       enabled: true,
       config: { model: "hermes-agent" }
     });
     assert.equal(inserted.userId, "u1");
-    assert.equal(inserted.fellowId, "aimashi");
+    assert.equal(inserted.fellowId, "mia");
     assert.equal(inserted.runtimeKind, "cloud-hermes");
     assert.equal(inserted.enabled, true);
     assert.deepEqual(inserted.config, { model: "hermes-agent" });
 
-    assert.equal(bindings.getBinding("u2", "aimashi", "cloud-hermes"), null);
-    assert.equal(bindings.getEnabledBinding("u1", "aimashi", "cloud-hermes").enabled, true);
+    assert.equal(bindings.getBinding("u2", "mia", "cloud-hermes"), null);
+    assert.equal(bindings.getEnabledBinding("u1", "mia", "cloud-hermes").enabled, true);
 
     const disabled = bindings.upsertBinding({
       userId: "u1",
-      fellowId: "aimashi",
+      fellowId: "mia",
       runtimeKind: "cloud-hermes",
       enabled: false,
       config: { model: "off" }
     });
     assert.equal(disabled.enabled, false);
-    assert.equal(bindings.getEnabledBinding("u1", "aimashi", "cloud-hermes"), null);
+    assert.equal(bindings.getEnabledBinding("u1", "mia", "cloud-hermes"), null);
   } finally {
     ctx.cleanup();
   }
@@ -86,12 +86,12 @@ test("cloud agent run lifecycle records hermes run id and completion", () => {
   const ctx = freshStore();
   try {
     insertUser(ctx.db, "u1");
-    insertRoom(ctx.db, "fellow:u1:aimashi");
+    insertRoom(ctx.db, "fellow:u1:mia");
     const runs = createCloudAgentRunsStore(ctx.db);
     const run = runs.createRun({
       userId: "u1",
-      fellowId: "aimashi",
-      roomId: "fellow:u1:aimashi",
+      fellowId: "mia",
+      roomId: "fellow:u1:mia",
       triggerMessageId: "m1"
     });
     assert.equal(run.status, "queued");
@@ -107,8 +107,8 @@ test("cloud agent run lifecycle records hermes run id and completion", () => {
 
     const errored = runs.createRun({
       userId: "u1",
-      fellowId: "aimashi",
-      roomId: "fellow:u1:aimashi",
+      fellowId: "mia",
+      roomId: "fellow:u1:mia",
       triggerMessageId: "m2"
     });
     const failed = runs.markError(errored.id, new Error("boom"));

@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "id": "aimashi-official",
-  "label": "Aimashi 官方库",
-  "description": "Aimashi 团队维护的一方能力库，只收录随本应用发布或由 Aimashi 管理的能力。",
+  "id": "mia-official",
+  "label": "Mia 官方库",
+  "description": "Mia 团队维护的一方能力库，只收录随本应用发布或由 Mia 管理的能力。",
   "skillSources": [
     {
       "id": "friend-pet",
-      "name": "aimashi-official",
-      "label": "Aimashi 官方库",
-      "description": "当前包含 Aimashi 官方维护的伙伴桌宠生成 Skill。",
-      "engine": "aimashi",
+      "name": "mia-official",
+      "label": "Mia 官方库",
+      "description": "当前包含 Mia 官方维护的伙伴桌宠生成 Skill。",
+      "engine": "mia",
       "root": "skills",
-      "idPrefix": "aimashi-official"
+      "idPrefix": "mia-official"
     }
   ]
 }

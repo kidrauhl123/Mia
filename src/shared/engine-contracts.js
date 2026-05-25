@@ -1,7 +1,7 @@
 (function attachEngineContracts(root, factory) {
   const api = factory();
   if (typeof module === "object" && module.exports) module.exports = api;
-  if (root) root.aimashiEngineContracts = api;
+  if (root) root.miaEngineContracts = api;
 })(typeof window !== "undefined" ? window : (typeof globalThis !== "undefined" ? globalThis : null), function buildEngineContracts() {
   const EngineId = Object.freeze({
     Hermes: "hermes",

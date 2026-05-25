@@ -14,22 +14,22 @@ function runtimeFor(dir) {
     runtime: path.join(dir, "runtime"),
     engine,
     home,
-    pluginsDir: path.join(dir, "runtime", "aimashi-plugins"),
+    pluginsDir: path.join(dir, "runtime", "mia-plugins"),
     fellowManifest: path.join(home, "fellows", "manifest.json"),
     fellowDir: path.join(home, "fellows"),
     legacyPersonaDir: path.join(home, "personas", "accounts"),
     apiKey: path.join(home, "api-server.key"),
     config: path.join(home, "config.yaml"),
-    modelSettings: path.join(home, "aimashi-model.json"),
-    providerConnections: path.join(home, "aimashi-providers.json"),
-    permissionSettings: path.join(home, "aimashi-permissions.json"),
-    effortSettings: path.join(home, "aimashi-effort.json"),
-    daemonSettings: path.join(home, "aimashi-daemon.json"),
-    daemonToken: path.join(home, "aimashi-daemon.key"),
-    relaySettings: path.join(home, "aimashi-relay.json"),
-    userProfile: path.join(home, "aimashi-user.json"),
-    appearanceSettings: path.join(home, "aimashi-appearance.json"),
-    chatSessions: path.join(home, "aimashi-sessions.json"),
+    modelSettings: path.join(home, "mia-model.json"),
+    providerConnections: path.join(home, "mia-providers.json"),
+    permissionSettings: path.join(home, "mia-permissions.json"),
+    effortSettings: path.join(home, "mia-effort.json"),
+    daemonSettings: path.join(home, "mia-daemon.json"),
+    daemonToken: path.join(home, "mia-daemon.key"),
+    relaySettings: path.join(home, "mia-relay.json"),
+    userProfile: path.join(home, "mia-user.json"),
+    appearanceSettings: path.join(home, "mia-appearance.json"),
+    chatSessions: path.join(home, "mia-sessions.json"),
     soul: path.join(home, "SOUL.md"),
     petDir: path.join(home, "pets"),
     petJobsDir: path.join(home, "pet-jobs")
@@ -37,7 +37,7 @@ function runtimeFor(dir) {
 }
 
 function setup(t, overrides = {}) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-runtime-init-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-runtime-init-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const runtime = runtimeFor(dir);
   const calls = [];
@@ -108,7 +108,7 @@ test("initializeRuntimeCore creates runtime directories, default files, fellows,
   assert.deepEqual(readJson(runtime.userProfile), { displayName: "Boss" });
   assert.deepEqual(readJson(runtime.appearanceSettings), { theme: "system" });
   assert.deepEqual(readJson(runtime.chatSessions), { sessions: [] });
-  assert.match(fs.readFileSync(runtime.soul, "utf8"), /Aimashi Shared Soul/);
+  assert.match(fs.readFileSync(runtime.soul, "utf8"), /Mia Shared Soul/);
   assert.equal(fs.readFileSync(path.join(runtime.fellowDir, "mei.md"), "utf8"), "legacy persona body");
   assert.deepEqual(readJson(path.join(runtime.fellowDir, "mei.fellow.json")), { key: "mei", name: "Mei" });
   assert.deepEqual(calls, [
@@ -138,7 +138,7 @@ test("initializeRuntimeCore does not overwrite existing user-owned runtime files
   assert.deepEqual(readJson(runtime.modelSettings), { provider: "openai" });
   assert.equal(fs.readFileSync(path.join(runtime.fellowDir, "mei.md"), "utf8"), "current persona");
   assert.equal(status.created.includes("runtime/engine-home/api-server.key"), false);
-  assert.equal(status.created.includes("runtime/engine-home/aimashi-model.json"), false);
+  assert.equal(status.created.includes("runtime/engine-home/mia-model.json"), false);
   assert.equal(status.created.includes("runtime/engine-home/fellows/mei.md"), false);
 });
 

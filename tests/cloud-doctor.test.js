@@ -136,30 +136,30 @@ test("cloud doctor remote probe checks deploy-critical commands", () => {
   assert.match(command, /command -v systemctl/);
   assert.match(command, /command -v id/);
   assert.match(command, /command -v chown/);
-  assert.match(command, /id -u 'aimashi-cloud'/);
+  assert.match(command, /id -u 'mia-cloud'/);
   assert.match(command, /command -v useradd/);
   assert.match(command, /sudo -n nginx -t/);
 });
 
 test("cloud doctor remote probe quotes custom service user", () => {
-  const command = buildRemoteProbeCommand({ serviceUser: "aimashi'cloud" });
-  assert.match(command, /id -u 'aimashi'\\''cloud'/);
+  const command = buildRemoteProbeCommand({ serviceUser: "mia'cloud" });
+  assert.match(command, /id -u 'mia'\\''cloud'/);
 });
 
 test("cloud doctor parses defaults and remote settings", () => {
   const parsed = parseArgs([], {
-    AIMASHI_CLOUD_URL: "http://127.0.0.1:4175",
-    AIMASHI_DOCTOR_REMOTE: "deploy@example.com",
-    AIMASHI_DEPLOY_SUDO: "sudo -n",
-    AIMASHI_DEPLOY_SERVICE_USER: "aimashi-prod",
-    AIMASHI_DOCTOR_EXPECT_RELEASE_COMMIT: "abc123",
-    AIMASHI_DOCTOR_EXPECT_RELEASE_BUILT_AT: "2026-05-20T00:00:00.000Z",
-    AIMASHI_DOCTOR_TIMEOUT_MS: "5000"
+    MIA_CLOUD_URL: "http://127.0.0.1:4175",
+    MIA_DOCTOR_REMOTE: "deploy@example.com",
+    MIA_DEPLOY_SUDO: "sudo -n",
+    MIA_DEPLOY_SERVICE_USER: "mia-prod",
+    MIA_DOCTOR_EXPECT_RELEASE_COMMIT: "abc123",
+    MIA_DOCTOR_EXPECT_RELEASE_BUILT_AT: "2026-05-20T00:00:00.000Z",
+    MIA_DOCTOR_TIMEOUT_MS: "5000"
   });
   assert.equal(parsed.baseUrl, "http://127.0.0.1:4175");
   assert.equal(parsed.remote, "deploy@example.com");
   assert.equal(parsed.sudo, "sudo -n");
-  assert.equal(parsed.serviceUser, "aimashi-prod");
+  assert.equal(parsed.serviceUser, "mia-prod");
   assert.equal(parsed.expectedReleaseCommit, "abc123");
   assert.equal(parsed.expectedReleaseBuiltAt, "2026-05-20T00:00:00.000Z");
   assert.equal(parsed.timeoutMs, 5000);

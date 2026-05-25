@@ -8,7 +8,7 @@ const { freePort } = require("./helpers/free-port.js");
 const { createDaemonControlServer } = require("../src/main/daemon/control-server.js");
 
 function setup(t, overrides = {}) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-daemon-control-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-daemon-control-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const calls = {
     initialize: 0,
@@ -29,7 +29,7 @@ function setup(t, overrides = {}) {
   };
   const server = createDaemonControlServer({
     isDaemonProcess: true,
-    serviceLabel: "ai.aimashi.daemon",
+    serviceLabel: "ai.mia.daemon",
     dirname: path.join(dir, "app"),
     pid: () => 1234,
     uptime: () => 12.4,
@@ -47,7 +47,7 @@ function setup(t, overrides = {}) {
     normalizeDaemonPort: (port) => Number(port) || 27861,
     runtimePaths: () => ({
       home: path.join(dir, "home"),
-      daemonLaunchAgent: path.join(dir, "ai.aimashi.daemon.plist")
+      daemonLaunchAgent: path.join(dir, "ai.mia.daemon.plist")
     }),
     getRelaySettings: () => relaySettings,
     writeRelaySettings: (settings) => {
@@ -75,7 +75,7 @@ test("status and pairing links are owned by the daemon control server runtime", 
   const pairing = server.pairingInfo();
 
   assert.equal(status.processMode, "daemon");
-  assert.equal(status.serviceLabel, "ai.aimashi.daemon");
+  assert.equal(status.serviceLabel, "ai.mia.daemon");
   assert.equal(status.running, false);
   assert.deepEqual(status.logs, ["[REDACTED] visible"]);
   assert.equal(pairing.token, "secret-token");
@@ -93,7 +93,7 @@ test("start serves health, protects remote routes, and delegates authorized remo
   const health = await fetch(`${status.baseUrl}/health`).then((response) => response.json());
   assert.deepEqual(health, {
     status: "ok",
-    service: "aimashi-daemon",
+    service: "mia-daemon",
     pid: 1234,
     uptime: 12,
     mode: "daemon",
@@ -118,7 +118,7 @@ test("ping rejects a daemon running from a different runtime home", async (t) =>
   const { dir, server, setDaemonSettings } = setup(t, {
     fetchImpl: async () => ({
       ok: true,
-      json: async () => ({ status: "ok", service: "aimashi-daemon", runtimeHome: "/tmp/wrong-home" })
+      json: async () => ({ status: "ok", service: "mia-daemon", runtimeHome: "/tmp/wrong-home" })
     })
   });
   setDaemonSettings({ port });

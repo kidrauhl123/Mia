@@ -38,13 +38,13 @@ function loadCard() {
     getElementById() { return null; },
   };
   const window = {
-    aimashiConversationKinds: { MemberKind: { Fellow: "fellow", User: "user" } },
+    miaConversationKinds: { MemberKind: { Fellow: "fellow", User: "user" } },
     innerWidth: 1000,
     innerHeight: 800,
   };
   const ctx = vm.createContext({ window, globalThis: window, document, console, setTimeout });
   vm.runInContext(src, ctx);
-  return { card: window.aimashiContactCard, body };
+  return { card: window.miaContactCard, body };
 }
 
 function ctxWith(ownerId, meId) {

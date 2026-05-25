@@ -7,7 +7,7 @@ const { test } = require("node:test");
 const { createLocalAgentEngineService } = require("../src/main/local-agent-engine-service.js");
 
 function makeService(t, overrides = {}) {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-local-agent-home-"));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-local-agent-home-"));
   t.after(() => fs.rmSync(home, { recursive: true, force: true }));
   const calls = [];
   const service = createLocalAgentEngineService({

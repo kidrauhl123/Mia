@@ -1,7 +1,7 @@
 {
-  "name": "Aimashi Web",
-  "short_name": "Aimashi",
-  "description": "Aimashi Cloud chat workspace for web, desktop, and mobile.",
+  "name": "Mia Web",
+  "short_name": "Mia",
+  "description": "Mia Cloud chat workspace for web, desktop, and mobile.",
   "id": "/",
   "start_url": "/",
   "scope": "/",

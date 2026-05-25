@@ -4,7 +4,7 @@ function createChatEventEmitter({
   webContents,
   sessionId = "",
   channel = "chat:event",
-  runId = `aimashi_${crypto.randomUUID()}`,
+  runId = `mia_${crypto.randomUUID()}`,
   now = () => Date.now()
 } = {}) {
   let seq = 0;

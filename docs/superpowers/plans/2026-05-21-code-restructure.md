@@ -1,10 +1,10 @@
-# Aimashi 代码结构重整 Implementation Plan
+# Mia 代码结构重整 Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 把 `src/main.js`（~7800 行）和 `src/renderer/app.js`（~8050 行）按 CLAUDE.md「代码组织」节的目标布局重构，让 `main.js` < 500 行（只剩启动 + 装配）、`app.js` < 800 行（只剩装配 + 路由），其余按特性独立成模块。
 
-**Architecture:** 渲染端复用 `src/renderer/group.js` 已验证的样板：IIFE + `window.aimashi<Feature>` 命名空间 + `init<Feature>({...deps})` 注入依赖；主进程端复用 `src/main/codex-chat-adapter.js` 样板：CommonJS module + `main.js` 装配点 require。**零行为变更**——本计划只挪位置和重组依赖注入，不优化、不重命名 API、不改样式、不补功能。
+**Architecture:** 渲染端复用 `src/renderer/group.js` 已验证的样板：IIFE + `window.mia<Feature>` 命名空间 + `init<Feature>({...deps})` 注入依赖；主进程端复用 `src/main/codex-chat-adapter.js` 样板：CommonJS module + `main.js` 装配点 require。**零行为变更**——本计划只挪位置和重组依赖注入，不优化、不重命名 API、不改样式、不补功能。
 
 **Tech Stack:** Vanilla JS, Electron, Node `node:test`，`node src/check.js` 做结构校验，`npm test` 做后端测试，`npm run open` 启动 app 做手测。
 
@@ -21,7 +21,7 @@
 主进程改动有部分覆盖（IPC、cloud、tasks 有 test），但 fellow/engine 等大块也无 renderer 级测试。手测仍是最终安全网。
 
 ### 样板对照
-- **渲染端**：参考 `src/renderer/group.js` —— 完整 IIFE，结尾 `window.aimashiGroup = {...}`，`app.js` 启动时 `await window.aimashiGroup.initGroupModule({ state, els, deps... })`；HTML 引入 `<script src="./group.js"></script>` 放在 `app.js` 之前。
+- **渲染端**：参考 `src/renderer/group.js` —— 完整 IIFE，结尾 `window.miaGroup = {...}`，`app.js` 启动时 `await window.miaGroup.initGroupModule({ state, els, deps... })`；HTML 引入 `<script src="./group.js"></script>` 放在 `app.js` 之前。
 - **主进程**：参考 `src/main/codex-chat-adapter.js` —— `module.exports = { fn1, fn2, ... }`，`main.js` 顶部 `const codexAdapter = require('./main/codex-chat-adapter.js')`，装配时调用。
 
 ### 风险红旗（每个任务都要意识到）
@@ -85,7 +85,7 @@ grep -n "renderTask\|loadTasksFromDaemon\|subscribeTaskEvents\|renderRunDetail\|
   function subscribeTaskEvents() { /* ... */ }
   // ... 其余 task 相关函数
 
-  window.aimashiTasksPanel = {
+  window.miaTasksPanel = {
     initTasksPanel: init,
     renderTaskSidebar,
     renderTaskView,
@@ -102,12 +102,12 @@ grep -n "renderTask\|loadTasksFromDaemon\|subscribeTaskEvents\|renderRunDetail\|
 
 找到 `initializeRuntime()`（约行 6116-6175），在 group module 初始化的旁边加：
 ```javascript
-if (window.aimashiTasksPanel) {
-  window.aimashiTasksPanel.initTasksPanel({ state, els, aimashi: window.aimashi });
+if (window.miaTasksPanel) {
+  window.miaTasksPanel.initTasksPanel({ state, els, mia: window.mia });
 }
 ```
-找到 `render()` / `renderView()` 中所有调用 `renderTaskSidebar()` / `renderTaskView()` / `renderTaskDetail()` / `renderRunDetail()` 的地方，改为 `window.aimashiTasksPanel.renderTaskXxx()`。
-找到调用 `loadTasksFromDaemon()` / `subscribeTaskEvents()` 的地方，同样改为 `window.aimashiTasksPanel.xxx`。
+找到 `render()` / `renderView()` 中所有调用 `renderTaskSidebar()` / `renderTaskView()` / `renderTaskDetail()` / `renderRunDetail()` 的地方，改为 `window.miaTasksPanel.renderTaskXxx()`。
+找到调用 `loadTasksFromDaemon()` / `subscribeTaskEvents()` 的地方，同样改为 `window.miaTasksPanel.xxx`。
 
 - [ ] **Step 4: 从 `app.js` 删除已迁移代码**
 
@@ -119,7 +119,7 @@ if (window.aimashiTasksPanel) {
 ```html
 <script src="./tasks-panel.js"></script>
 ```
-（顺序：先 tasks-panel，再 group，最后 app.js —— 让所有 `window.aimashi*` 在 `app.js` init 之前就绪）
+（顺序：先 tasks-panel，再 group，最后 app.js —— 让所有 `window.mia*` 在 `app.js` init 之前就绪）
 
 - [ ] **Step 6: 静态校验**
 
@@ -159,7 +159,7 @@ refactor(renderer): extract tasks panel into tasks-panel.js module
 
 Move ~450 lines of task sidebar / detail / runs rendering and daemon
 event subscription out of app.js into a self-contained module behind
-window.aimashiTasksPanel, mirroring the group.js extraction pattern.
+window.miaTasksPanel, mirroring the group.js extraction pattern.
 
 Zero behavior change; verified via npm test and manual smoke of the
 tasks panel against pre-refactor app.
@@ -186,12 +186,12 @@ grep -n "openPetGenerateDialog\|closePetGenerateDialog\|renderPetGenerateDialog\
 
 - [ ] **Step 2: 创建模块**
 
-`src/renderer/pet-dialog.js`，IIFE，导出 `window.aimashiPetDialog = { initPetDialog, open, close, renderJobs, refreshJobs, placePet, recallPet }`。
+`src/renderer/pet-dialog.js`，IIFE，导出 `window.miaPetDialog = { initPetDialog, open, close, renderJobs, refreshJobs, placePet, recallPet }`。
 
 - [ ] **Step 3: 装配 + 改调用点**
 
-`app.js initializeRuntime()` 加 `window.aimashiPetDialog.initPetDialog({ state, els, aimashi })`。
-将原本调 `openPetGenerateDialog()` / `placeFellowPet()` 等的位置改为 `window.aimashiPetDialog.open()` / `window.aimashiPetDialog.placePet()`。
+`app.js initializeRuntime()` 加 `window.miaPetDialog.initPetDialog({ state, els, mia })`。
+将原本调 `openPetGenerateDialog()` / `placeFellowPet()` 等的位置改为 `window.miaPetDialog.open()` / `window.miaPetDialog.placePet()`。
 
 - [ ] **Step 4: 从 app.js 删除**
 
@@ -242,7 +242,7 @@ grep -n "loadSkills\|renderSkillLibrary\|renderSkillPreview\|renderExtensionDeta
 
 - [ ] **Step 2: 创建模块**
 
-`src/renderer/skill-library.js`，IIFE，导出 `window.aimashiSkillLibrary = { initSkillLibrary, loadSkills, renderSkillLibrary, renderSkillPreview, ... }`。
+`src/renderer/skill-library.js`，IIFE，导出 `window.miaSkillLibrary = { initSkillLibrary, loadSkills, renderSkillLibrary, renderSkillPreview, ... }`。
 
 - [ ] **Step 3: 装配 + 调用点改写**
 
@@ -284,7 +284,7 @@ grep -n "openMessageContextMenu\|closeMessageContextMenu\|renderMessageContextMe
 
 - [ ] **Step 2-5: 同前**
 
-`src/renderer/message-menu.js` 导出 `window.aimashiMessageMenu = { initMessageMenu, open, close, render, replyTo, highlightSelection, clearSelection }`。
+`src/renderer/message-menu.js` 导出 `window.miaMessageMenu = { initMessageMenu, open, close, render, replyTo, highlightSelection, clearSelection }`。
 
 - [ ] **Step 6: 校验 + 测试**
 
@@ -329,9 +329,9 @@ grep -n "syncAppearanceControls\|applyAppearance\|persistAppearanceDraft\|schedu
 
 - [ ] **Step 2-5: 创建模块、装配、删除、引入**
 
-`src/renderer/settings-appearance.js` 导出 `window.aimashiSettingsAppearance = { initAppearance, applyAppearance, syncControls, persistDraft, scheduleSave }`。
+`src/renderer/settings-appearance.js` 导出 `window.miaSettingsAppearance = { initAppearance, applyAppearance, syncControls, persistDraft, scheduleSave }`。
 
-`app.js` 中 settings tab 切换时调 `window.aimashiSettingsAppearance.syncControls()`。
+`app.js` 中 settings tab 切换时调 `window.miaSettingsAppearance.syncControls()`。
 
 - [ ] **Step 6: 校验**
 
@@ -361,7 +361,7 @@ grep -n "renderModelSelectors\|applyModelEntryToFields\|fillModelFieldsFromPrese
 
 - [ ] **Step 2-5: 同前**
 
-注意：模型 tab 涉及 provider OAuth 触发，IPC 调用通过 `deps.aimashi.startProviderOAuth()` 等，不要直接引用 `window.aimashi`。
+注意：模型 tab 涉及 provider OAuth 触发，IPC 调用通过 `deps.mia.startProviderOAuth()` 等，不要直接引用 `window.mia`。
 
 - [ ] **Step 6: 校验**
 
@@ -424,7 +424,7 @@ grep -n "loadChatSessions\|activeSession\|sessionsForPersona\|persistSession\|pe
 
 - [ ] **Step 2-5: 同前**
 
-注意：`activeSession()` 和 `sessionsForPersona()` 被聊天主流程频繁调用，导出形式必须稳定。建议保留 `app.js` 顶部一行 `const { activeSession, sessionsForPersona } = window.aimashiSessionManager` 简化下游引用。
+注意：`activeSession()` 和 `sessionsForPersona()` 被聊天主流程频繁调用，导出形式必须稳定。建议保留 `app.js` 顶部一行 `const { activeSession, sessionsForPersona } = window.miaSessionManager` 简化下游引用。
 
 - [ ] **Step 6: 校验**
 
@@ -493,7 +493,7 @@ grep -n "renderContacts\|renderContactDetail\|openFellowDialog\|closeFellowDialo
 
 **Files:**
 - Create: `src/renderer/constants/ui.js` / `providers.js` / `avatar.js` / `codes.js`
-- Modify: `src/renderer/app.js`（移除约 300 行常量定义，换成 `<script>` 注入的全局 `AIMASHI_CONSTANTS_*` 或直接通过 `window.AimashiConstants`）
+- Modify: `src/renderer/app.js`（移除约 300 行常量定义，换成 `<script>` 注入的全局 `MIA_CONSTANTS_*` 或直接通过 `window.MiaConstants`）
 
 - [ ] **Step 1: 定位常量块**
 
@@ -509,7 +509,7 @@ grep -n "renderContacts\|renderContactDetail\|openFellowDialog\|closeFellowDialo
 每个文件用 IIFE：
 ```javascript
 (function () {
-  window.AimashiConstantsUI = {
+  window.MiaConstantsUI = {
     SIDEBAR_WIDTH_MIN: 240,
     SIDEBAR_WIDTH_MAX: 420,
     // ...
@@ -529,8 +529,8 @@ grep -n "renderContacts\|renderContactDetail\|openFellowDialog\|closeFellowDialo
 
 - [ ] **Step 4: 在 app.js + 已拆模块中改引用**
 
-例如原本 `SIDEBAR_WIDTH_MIN` → `window.AimashiConstantsUI.SIDEBAR_WIDTH_MIN`。
-全文 search-replace 风险高，建议每个常量逐个替换，或在 app.js 顶部加 `const { SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX } = window.AimashiConstantsUI` 简化。
+例如原本 `SIDEBAR_WIDTH_MIN` → `window.MiaConstantsUI.SIDEBAR_WIDTH_MIN`。
+全文 search-replace 风险高，建议每个常量逐个替换，或在 app.js 顶部加 `const { SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX } = window.MiaConstantsUI` 简化。
 
 - [ ] **Step 5: 校验**
 
@@ -556,7 +556,7 @@ grep -n "renderContacts\|renderContactDetail\|openFellowDialog\|closeFellowDialo
 
 ```javascript
 (function () {
-  window.AimashiFormat = { formatBytes, formatConversationTime, ... };
+  window.MiaFormat = { formatBytes, formatConversationTime, ... };
 })();
 ```
 
@@ -623,13 +623,13 @@ grep -n "openSettings.addEventListener\|closeSettings.addEventListener\|settings
     els.closeSettings?.addEventListener("click", () => { state.settingsOpen = false; render(); });
     // ...
   }
-  window.aimashiListenersSettings = { attach };
+  window.miaListenersSettings = { attach };
 })();
 ```
 
 - [ ] **Step 3-5: 装配 + 删除 + 引入**
 
-`app.js` 在 DOM ready 后调 `window.aimashiListenersSettings.attach({ state, els, render })`。
+`app.js` 在 DOM ready 后调 `window.miaListenersSettings.attach({ state, els, render })`。
 
 - [ ] **Step 6-7: 校验 + 手测开 / 关 / tab 切换**
 
@@ -825,7 +825,7 @@ node src/check.js && npm test
 - Create: `src/main/cloud-bridge.js`
 - Modify: `src/main.js`（移除约 700 行：5543-5954）
 
-迁移：`cloudApi`, `loginAimashiCloud`, `logoutAimashiCloud`, `syncAimashiCloudWorkspace`, `pushDesktopMessageToCloud`, `startCloudBridge`, `stopCloudBridge`, `startCloudEvents`, `stopCloudEvents`, `mergeCloudWorkspaceIntoChatStore`, `cloudBridgeState`, `cloudBridgeClient`。
+迁移：`cloudApi`, `loginMiaCloud`, `logoutMiaCloud`, `syncMiaCloudWorkspace`, `pushDesktopMessageToCloud`, `startCloudBridge`, `stopCloudBridge`, `startCloudEvents`, `stopCloudEvents`, `mergeCloudWorkspaceIntoChatStore`, `cloudBridgeState`, `cloudBridgeClient`。
 
 注意：与 `src/cloud/desktop-sync.js` / `src/cloud/sqlite-store.js` 协作，不要重复职责。Cloud settings 留在 settings 模块。
 
@@ -873,7 +873,7 @@ node src/check.js && npm test
 - Create: `src/main/runtime-paths.js`
 - Modify: `src/main.js`（移除约 220 行：155-278, 1980-2006）
 
-迁移：`runtimePaths`, `venvPythonPath`, `bundledHermesRuntimeDir`, `bundledPython`, `bundledSitePackages`, `buildPythonPath`, `petGeneratorRoot`, `aimashiSkillsRoot`, `officialLibraryManifestPath`，外加 `writeFileIfMissing` / `readJson` 这两个底层工具。
+迁移：`runtimePaths`, `venvPythonPath`, `bundledHermesRuntimeDir`, `bundledPython`, `bundledSitePackages`, `buildPythonPath`, `petGeneratorRoot`, `miaSkillsRoot`, `officialLibraryManifestPath`，外加 `writeFileIfMissing` / `readJson` 这两个底层工具。
 
 注意：这是底层依赖，几乎所有模块都用它，最好**最早或最晚拆**。本计划放在 D 最后，是因为前面已经把消费方拆出去了，这时调整 import 路径较清晰。
 
@@ -1067,7 +1067,7 @@ registerIpcHandlers(ipcModules, { /* 注入上下文 */ });
 
 ### 关键发现 & 修复
 
-**init-order bug 第一回**（在 B1 修复，bundle 进 b2d6fa3）：原本 `window.aimashi*.init*` 全部放在 `initializeRuntime()` 的第一次 `render()` 之后。这意味着首次 render 时模块的注入依赖还是 undefined，每次 `window.aimashi*.renderXxx()` 都在抛 TypeError。但渲染器异常不冒到 stderr，smoke 检测没抓到。第二次 render（用户交互触发）时 init 已完成，所以肉眼看不出。
+**init-order bug 第一回**（在 B1 修复，bundle 进 b2d6fa3）：原本 `window.mia*.init*` 全部放在 `initializeRuntime()` 的第一次 `render()` 之后。这意味着首次 render 时模块的注入依赖还是 undefined，每次 `window.mia*.renderXxx()` 都在抛 TypeError。但渲染器异常不冒到 stderr，smoke 检测没抓到。第二次 render（用户交互触发）时 init 已完成，所以肉眼看不出。
 
 修复：所有模块 init 移到 `render()` 之前。
 

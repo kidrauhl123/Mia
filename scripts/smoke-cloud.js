@@ -21,12 +21,12 @@ function usage() {
     "  node scripts/smoke-cloud.js https://aiweb.buytb01.com",
     "",
     "Environment:",
-    "  AIMASHI_SMOKE_USERNAME=<account>   Log in to an existing smoke account instead of registering a temporary one.",
-    "  AIMASHI_SMOKE_PASSWORD=<password>  Password for AIMASHI_SMOKE_USERNAME.",
-    "  AIMASHI_SMOKE_REQUIRE_BRIDGE=1     Require an online bridge device and run one request through it.",
-    "  AIMASHI_SMOKE_BRIDGE_TIMEOUT_MS=120000  Timeout for the bridge run request.",
-    "  AIMASHI_SMOKE_EXPECT_RELEASE_COMMIT=<sha>  Require /api/health.release.gitCommit to match.",
-    "  AIMASHI_SMOKE_EXPECT_RELEASE_BUILT_AT=<iso>  Require /api/health.release.builtAt to match."
+    "  MIA_SMOKE_USERNAME=<account>   Log in to an existing smoke account instead of registering a temporary one.",
+    "  MIA_SMOKE_PASSWORD=<password>  Password for MIA_SMOKE_USERNAME.",
+    "  MIA_SMOKE_REQUIRE_BRIDGE=1     Require an online bridge device and run one request through it.",
+    "  MIA_SMOKE_BRIDGE_TIMEOUT_MS=120000  Timeout for the bridge run request.",
+    "  MIA_SMOKE_EXPECT_RELEASE_COMMIT=<sha>  Require /api/health.release.gitCommit to match.",
+    "  MIA_SMOKE_EXPECT_RELEASE_BUILT_AT=<iso>  Require /api/health.release.builtAt to match."
   ].join("\n");
 }
 
@@ -88,8 +88,8 @@ async function assertWebAppServed(baseUrl) {
   });
   if (!response.ok) throw new Error(`GET / failed: ${response.status}`);
   const html = await response.text();
-  if (!/<title>Aimashi Web<\/title>/.test(html) || !/src="\.\/app\.js/.test(html)) {
-    throw new Error("Web app HTML did not look like Aimashi Web.");
+  if (!/<title>Mia Web<\/title>/.test(html) || !/src="\.\/app\.js/.test(html)) {
+    throw new Error("Web app HTML did not look like Mia Web.");
   }
   const favicon = await fetch(`${baseUrl}/favicon.ico`, {
     headers: { Origin: baseUrl }
@@ -124,7 +124,7 @@ async function assertWebAppServed(baseUrl) {
   const manifestJson = await manifest.json();
   const iconSources = Array.isArray(manifestJson.icons) ? manifestJson.icons.map((icon) => icon.src) : [];
   if (
-    manifestJson.name !== "Aimashi Web" ||
+    manifestJson.name !== "Mia Web" ||
     manifestJson.display !== "standalone" ||
     !iconSources.includes("/icon-192.png") ||
     !iconSources.includes("/icon-512.png") ||
@@ -279,20 +279,20 @@ async function expectWebSocketRejected(url, protocols = [], timeoutMs = 5000) {
 }
 
 async function main() {
-  const baseUrl = normalizeBaseUrl(process.argv[2] || process.env.AIMASHI_CLOUD_URL || "");
+  const baseUrl = normalizeBaseUrl(process.argv[2] || process.env.MIA_CLOUD_URL || "");
   const checks = [];
   const pass = (name, detail = "") => checks.push({ ok: true, name, detail });
 
   const health = await jsonRequest(baseUrl, "/api/health");
-  if (health.data.service !== "aimashi-cloud") throw new Error("Health endpoint is not Aimashi Cloud.");
+  if (health.data.service !== "mia-cloud") throw new Error("Health endpoint is not Mia Cloud.");
   for (const feature of requiredFeatures) {
     if (!Array.isArray(health.data.features) || !health.data.features.includes(feature)) {
       throw new Error(`Cloud is missing required feature: ${feature}`);
     }
   }
   const release = health.data.release;
-  const expectedReleaseCommit = String(process.env.AIMASHI_SMOKE_EXPECT_RELEASE_COMMIT || "").trim();
-  const expectedReleaseBuiltAt = String(process.env.AIMASHI_SMOKE_EXPECT_RELEASE_BUILT_AT || "").trim();
+  const expectedReleaseCommit = String(process.env.MIA_SMOKE_EXPECT_RELEASE_COMMIT || "").trim();
+  const expectedReleaseBuiltAt = String(process.env.MIA_SMOKE_EXPECT_RELEASE_BUILT_AT || "").trim();
   if ((expectedReleaseCommit || expectedReleaseBuiltAt) && (!release || typeof release !== "object")) {
     throw new Error("Cloud health is missing release metadata.");
   }
@@ -310,11 +310,11 @@ async function main() {
   await assertWebAppServed(baseUrl);
   pass("web app", "index favicon and manifest served");
 
-  const configuredUsername = String(process.env.AIMASHI_SMOKE_USERNAME || "").trim();
-  const configuredPassword = String(process.env.AIMASHI_SMOKE_PASSWORD || "");
-  if (configuredUsername && !configuredPassword) throw new Error("AIMASHI_SMOKE_PASSWORD is required when AIMASHI_SMOKE_USERNAME is set.");
-  if (process.env.AIMASHI_SMOKE_REQUIRE_BRIDGE === "1" && (!configuredUsername || !configuredPassword)) {
-    throw new Error("AIMASHI_SMOKE_USERNAME and AIMASHI_SMOKE_PASSWORD are required when AIMASHI_SMOKE_REQUIRE_BRIDGE=1 so the desktop bridge can be logged into the same account.");
+  const configuredUsername = String(process.env.MIA_SMOKE_USERNAME || "").trim();
+  const configuredPassword = String(process.env.MIA_SMOKE_PASSWORD || "");
+  if (configuredUsername && !configuredPassword) throw new Error("MIA_SMOKE_PASSWORD is required when MIA_SMOKE_USERNAME is set.");
+  if (process.env.MIA_SMOKE_REQUIRE_BRIDGE === "1" && (!configuredUsername || !configuredPassword)) {
+    throw new Error("MIA_SMOKE_USERNAME and MIA_SMOKE_PASSWORD are required when MIA_SMOKE_REQUIRE_BRIDGE=1 so the desktop bridge can be logged into the same account.");
   }
   const username = configuredUsername || `smoke${Date.now()}`;
   const password = configuredPassword || "secret1";
@@ -333,7 +333,7 @@ async function main() {
 
   await expectWebSocketMessage(
     wsUrl(baseUrl, "/api/events"),
-    [`aimashi-token.${token}`],
+    [`mia-token.${token}`],
     (message) => message.type === "events_ready"
   );
   pass("events websocket", "subprotocol token accepted");
@@ -388,29 +388,29 @@ async function main() {
   //  messages now, and is covered by the room-message integration tests.)
 
   const devices = await jsonRequest(baseUrl, "/api/bridge/devices", { token });
-  if (process.env.AIMASHI_SMOKE_REQUIRE_BRIDGE === "1" && !devices.data.devices?.length) {
+  if (process.env.MIA_SMOKE_REQUIRE_BRIDGE === "1" && !devices.data.devices?.length) {
     throw new Error("No online bridge devices found.");
   }
   pass("bridge devices", `${devices.data.devices?.length || 0} online`);
 
-  if (process.env.AIMASHI_SMOKE_REQUIRE_BRIDGE === "1") {
+  if (process.env.MIA_SMOKE_REQUIRE_BRIDGE === "1") {
     const device = devices.data.devices[0];
-    const timeoutMs = Number(process.env.AIMASHI_SMOKE_BRIDGE_TIMEOUT_MS || 120_000);
+    const timeoutMs = Number(process.env.MIA_SMOKE_BRIDGE_TIMEOUT_MS || 120_000);
     const run = await jsonRequest(baseUrl, "/api/bridge/run", {
       token,
       method: "POST",
       signal: timeoutSignal(timeoutMs),
       body: {
         deviceId: device.id,
-        conversationId: account.data.workspace?.activeConversationId || "conv_aimashi",
-        text: "Aimashi Cloud smoke: reply with aimashi-cloud-bridge-smoke-ok"
+        conversationId: account.data.workspace?.activeConversationId || "conv_mia",
+        text: "Mia Cloud smoke: reply with mia-cloud-bridge-smoke-ok"
       }
     });
     if (run.data.run?.status !== "succeeded") throw new Error(`Bridge run did not succeed: ${run.data.run?.status || "missing status"}`);
     const bridgeText = String(run.data.message?.text || run.data.run?.resultText || "");
     if (!bridgeText.trim()) throw new Error("Bridge run returned an empty assistant response.");
-    if (!bridgeText.includes("aimashi-cloud-bridge-smoke-ok")) {
-      throw new Error("Bridge run response did not include aimashi-cloud-bridge-smoke-ok.");
+    if (!bridgeText.includes("mia-cloud-bridge-smoke-ok")) {
+      throw new Error("Bridge run response did not include mia-cloud-bridge-smoke-ok.");
     }
     pass("bridge run", `${device.deviceName || device.id} -> ${run.data.run.id}`);
   }
@@ -422,16 +422,16 @@ async function main() {
   });
   await expectJsonStatus(baseUrl, "/api/me", 401, { token });
   pass("logout", "token invalidated");
-  await expectWebSocketRejected(wsUrl(baseUrl, "/api/events"), [`aimashi-token.${token}`]);
+  await expectWebSocketRejected(wsUrl(baseUrl, "/api/events"), [`mia-token.${token}`]);
   pass("logout websocket", "token rejected");
 
   for (const check of checks) {
     console.log(`OK ${check.name}${check.detail ? ` - ${check.detail}` : ""}`);
   }
-  console.log(`Aimashi Cloud smoke passed: ${baseUrl}`);
+  console.log(`Mia Cloud smoke passed: ${baseUrl}`);
 }
 
 main().catch((error) => {
-  console.error(`Aimashi Cloud smoke failed: ${error.message || error}`);
+  console.error(`Mia Cloud smoke failed: ${error.message || error}`);
   process.exitCode = 1;
 });

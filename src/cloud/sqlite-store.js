@@ -71,30 +71,30 @@ function publicUser(row) {
 }
 
 function userDisplayName(user) {
-  return user.username || user.email || "Aimashi 用户";
+  return user.username || user.email || "Mia 用户";
 }
 
 function defaultWorkspace(user, now = nowIso, id = randomId) {
   return {
     revision: 1,
-    activeConversationId: "conv_aimashi",
+    activeConversationId: "conv_mia",
     conversations: [{
-      id: "conv_aimashi",
-      title: "Aimashi",
-      meta: "Aimashi Cloud · 已同步",
+      id: "conv_mia",
+      title: "Mia",
+      meta: "Mia Cloud · 已同步",
       avatar: "./assets/avatar-01.png",
       updatedAt: now(),
       unread: 0,
       messages: [{
         id: id("msg"),
         role: "assistant",
-        text: `欢迎，${userDisplayName(user)}。这是你的 Aimashi Cloud 工作区，消息会保存在服务器上。`,
+        text: `欢迎，${userDisplayName(user)}。这是你的 Mia Cloud 工作区，消息会保存在服务器上。`,
         createdAt: now(),
         attachments: []
       }]
     }],
     contacts: [
-      { id: "contact_aimashi", title: "Aimashi", meta: "默认云端伙伴", avatar: "./assets/avatar-01.png", status: "可用", note: "负责日常对话、信息整理和轻量任务推进。" },
+      { id: "contact_mia", title: "Mia", meta: "默认云端伙伴", avatar: "./assets/avatar-01.png", status: "可用", note: "负责日常对话、信息整理和轻量任务推进。" },
       { id: "contact_codex", title: "Codex", meta: "代码与自动化", avatar: "./assets/avatar-08.png", status: "本地桥接待接入", note: "通过桌面端 Bridge 调用本机 Codex / Claude Code / Hermes。" }
     ],
     skills: [
@@ -200,7 +200,7 @@ function resetVolatileBridgeState(db, now = nowIso) {
     UPDATE bridge_runs
     SET status = 'failed', error = ?, updated_at = ?, completed_at = ?
     WHERE status IN ('pending', 'running')
-  `).run("Aimashi Cloud 已重启，本机 Agent 运行已中断。", timestamp, timestamp);
+  `).run("Mia Cloud 已重启，本机 Agent 运行已中断。", timestamp, timestamp);
 }
 
 function hasColumn(db, tableName, columnName) {
@@ -209,7 +209,7 @@ function hasColumn(db, tableName, columnName) {
 }
 
 function createCloudStore(options = {}) {
-  const dbPath = options.dbPath || path.join(options.dataDir || path.join(os.tmpdir(), "aimashi-cloud"), "cloud.sqlite");
+  const dbPath = options.dbPath || path.join(options.dataDir || path.join(os.tmpdir(), "mia-cloud"), "cloud.sqlite");
   const uploadDir = options.uploadDir || path.join(path.dirname(dbPath), "uploads");
   const now = options.now || nowIso;
   const randomBytes = options.randomBytes || crypto.randomBytes;

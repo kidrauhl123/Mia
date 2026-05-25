@@ -1,6 +1,6 @@
 const crypto = require("node:crypto");
 
-function chatCompletionResponse({ id, model, content, attachments = [], commandResult = null, finishReason = "stop", aimashi = {} }) {
+function chatCompletionResponse({ id, model, content, attachments = [], commandResult = null, finishReason = "stop", mia = {} }) {
   const message = {
     role: "assistant",
     content: content || ""
@@ -19,7 +19,7 @@ function chatCompletionResponse({ id, model, content, attachments = [], commandR
         finish_reason: finishReason
       }
     ],
-    aimashi: commandResult && typeof commandResult === "object" ? { ...aimashi, commandResult } : aimashi
+    mia: commandResult && typeof commandResult === "object" ? { ...mia, commandResult } : mia
   };
 }
 

@@ -86,7 +86,7 @@ test("sendChat streams partials, stores session, and returns chat response", asy
   ]);
   assert.equal(response.id, "sess_1");
   assert.equal(response.choices[0].message.content, "hello final");
-  assert.deepEqual(response.aimashi, {
+  assert.deepEqual(response.mia, {
     transport: "claude-agent-sdk",
     engine: "claude-code",
     session_id: "sess_1",

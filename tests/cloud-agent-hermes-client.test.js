@@ -8,12 +8,12 @@ const { createHermesWorkerManager } = require("../src/cloud-agent/hermes-worker-
 const { createHermesRunsClient } = require("../src/cloud-agent/hermes-runs-client.js");
 
 test("worker manager derives separate roots and env per user", () => {
-  const manager = createHermesWorkerManager({ rootDir: "/tmp/aimashi-agents", mode: "static", staticBaseUrl: "http://127.0.0.1:9999" });
+  const manager = createHermesWorkerManager({ rootDir: "/tmp/mia-agents", mode: "static", staticBaseUrl: "http://127.0.0.1:9999" });
   const a = manager.pathsForUser("user_a");
   const b = manager.pathsForUser("user_b");
 
-  assert.equal(a.root, path.join("/tmp/aimashi-agents", "user_a"));
-  assert.equal(a.workspace, path.join("/tmp/aimashi-agents", "user_a", "workspace"));
+  assert.equal(a.root, path.join("/tmp/mia-agents", "user_a"));
+  assert.equal(a.workspace, path.join("/tmp/mia-agents", "user_a", "workspace"));
   assert.notEqual(a.home, b.home);
   assert.notEqual(a.hermesHome, b.hermesHome);
 
@@ -28,25 +28,25 @@ test("worker manager derives separate roots and env per user", () => {
     API_SERVER_ENABLED: "true",
     API_SERVER_HOST: "0.0.0.0",
     API_SERVER_PORT: "8765",
-    API_SERVER_KEY: "aimashi-cloud"
+    API_SERVER_KEY: "mia-cloud"
   });
 });
 
 test("worker manager rejects unsafe user ids for filesystem paths", () => {
-  const manager = createHermesWorkerManager({ rootDir: "/tmp/aimashi-agents" });
+  const manager = createHermesWorkerManager({ rootDir: "/tmp/mia-agents" });
   assert.throws(() => manager.pathsForUser("../escape"), /unsafe userId/);
   assert.throws(() => manager.pathsForUser(""), /userId required/);
 });
 
 test("worker manager writes platform LiteLLM config per user", () => {
-  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-agents-"));
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-agents-"));
   const manager = createHermesWorkerManager({
     rootDir,
     mode: "static",
     staticBaseUrl: "http://127.0.0.1:9999",
     apiKey: "worker-api-key",
-    modelProvider: "aimashi-litellm",
-    model: "aimashi-default",
+    modelProvider: "mia-litellm",
+    model: "mia-default",
     modelBaseUrl: "http://litellm:4000/v1",
     modelApiKey: "sk-litellm"
   });
@@ -57,14 +57,14 @@ test("worker manager writes platform LiteLLM config per user", () => {
   const stat = fs.statSync(configPath);
 
   assert.equal(stat.mode & 0o777, 0o600);
-  assert.match(config, /provider: "aimashi-litellm"/);
-  assert.match(config, /default: "aimashi-default"/);
+  assert.match(config, /provider: "mia-litellm"/);
+  assert.match(config, /default: "mia-default"/);
   assert.match(config, /base_url: "http:\/\/litellm:4000\/v1"/);
   assert.match(config, /host: 0\.0\.0\.0/);
-  assert.match(config, /key_env: "AIMASHI_CLOUD_AGENT_MODEL_API_KEY"/);
+  assert.match(config, /key_env: "MIA_CLOUD_AGENT_MODEL_API_KEY"/);
   assert.match(config, /key: worker-api-key/);
   assert.doesNotMatch(config, /sk-litellm/);
-  assert.equal(manager.envForUser("user_a").AIMASHI_CLOUD_AGENT_MODEL_API_KEY, "sk-litellm");
+  assert.equal(manager.envForUser("user_a").MIA_CLOUD_AGENT_MODEL_API_KEY, "sk-litellm");
 });
 
 test("Hermes runs client sends Fellow headers and returns final text", async () => {
@@ -101,8 +101,8 @@ test("Hermes runs client sends Fellow headers and returns final text", async () 
     baseUrl: "http://worker",
     apiKey: "secret",
     userId: "u1",
-    fellow: { id: "aimashi", name: "Aimashi" },
-    roomId: "fellow:u1:aimashi",
+    fellow: { id: "mia", name: "Mia" },
+    roomId: "fellow:u1:mia",
     model: "hermes-agent",
     effortLevel: "high",
     permissionMode: "auto",
@@ -120,14 +120,14 @@ test("Hermes runs client sends Fellow headers and returns final text", async () 
   assert.equal(out.runId, "run_1");
   assert.equal(out.content, "hello");
   assert.equal(calls[0].url, "http://worker/v1/runs");
-  assert.equal(calls[0].headers["X-Aimashi-Fellow"], "aimashi");
-  assert.equal(calls[0].headers["X-Alkaka-Fellow"], "aimashi");
-  assert.equal(calls[0].headers["X-Hermes-Session-Key"], "cloud:u1:aimashi:fellow:u1:aimashi");
+  assert.equal(calls[0].headers["X-Mia-Fellow"], "mia");
+  assert.equal(calls[0].headers["X-Alkaka-Fellow"], "mia");
+  assert.equal(calls[0].headers["X-Hermes-Session-Key"], "cloud:u1:mia:fellow:u1:mia");
   assert.equal(calls[0].headers.Authorization, "Bearer secret");
   assert.equal(calls[1].headers.Authorization, "Bearer secret");
   const body = JSON.parse(calls[0].body);
   assert.equal(body.model, "hermes-agent");
-  assert.equal(body.session_id, "cloud:u1:aimashi:fellow:u1:aimashi");
+  assert.equal(body.session_id, "cloud:u1:mia:fellow:u1:mia");
   assert.deepEqual(body.conversation_history, [{ role: "user", content: "hi" }]);
   assert.deepEqual(body.attachments, [{ id: "file_1", name: "note.txt", mimeType: "text/plain", size: 12, kind: "text", path: "/data/attachments/run/note.txt" }]);
   assert.equal(body.metadata.account_id, "u1");
@@ -154,10 +154,10 @@ test("docker worker mode starts one isolated container per user", async () => {
     throw new Error(`unexpected docker command: ${args.join(" ")}`);
   };
   const manager = createHermesWorkerManager({
-    rootDir: "/tmp/aimashi-agents",
+    rootDir: "/tmp/mia-agents",
     mode: "docker",
-    image: "aimashi/hermes-cloud:test",
-    dockerNetwork: "aimashi-cloud",
+    image: "mia/hermes-cloud:test",
+    dockerNetwork: "mia-cloud",
     modelApiKey: "sk-litellm",
     healthTimeoutMs: 0,
     execFile: fakeExecFile
@@ -169,11 +169,11 @@ test("docker worker mode starts one isolated container per user", async () => {
   const runCall = execCalls.find((call) => call.args[0] === "run");
   assert.ok(runCall, "docker run should be called when container is missing");
   assert.ok(runCall.args.includes("--network"));
-  assert.ok(runCall.args.includes("aimashi-cloud"));
+  assert.ok(runCall.args.includes("mia-cloud"));
   assert.ok(runCall.args.includes("--read-only"));
   assert.ok(runCall.args.includes("--cpus=1"));
   assert.ok(runCall.args.includes("--memory=1024m"));
-  assert.ok(runCall.args.includes("type=bind,src=/tmp/aimashi-agents/user_a,dst=/data"));
+  assert.ok(runCall.args.includes("type=bind,src=/tmp/mia-agents/user_a,dst=/data"));
   assert.ok(runCall.args.includes("HERMES_HOME=/data/hermes-home"));
   assert.ok(runCall.args.includes("HOME=/data/home"));
   assert.ok(runCall.args.includes("TERMINAL_CWD=/data/workspace"));
@@ -181,7 +181,7 @@ test("docker worker mode starts one isolated container per user", async () => {
   assert.ok(runCall.args.includes("API_SERVER_ENABLED=true"));
   assert.ok(runCall.args.includes("API_SERVER_HOST=0.0.0.0"));
   assert.ok(runCall.args.includes("API_SERVER_PORT=8765"));
-  assert.ok(runCall.args.includes("API_SERVER_KEY=aimashi-cloud"));
-  assert.ok(runCall.args.includes("AIMASHI_CLOUD_AGENT_MODEL_API_KEY=sk-litellm"));
+  assert.ok(runCall.args.includes("API_SERVER_KEY=mia-cloud"));
+  assert.ok(runCall.args.includes("MIA_CLOUD_AGENT_MODEL_API_KEY=sk-litellm"));
   assert.equal(runCall.args.some((arg) => String(arg).includes("docker.sock")), false);
 });

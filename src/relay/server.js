@@ -6,8 +6,8 @@ const http = require("node:http");
 const path = require("node:path");
 const { WebSocketServer } = require("ws");
 
-const PORT = Number(process.env.AIMASHI_RELAY_PORT || 27862);
-const HOST = process.env.AIMASHI_RELAY_HOST || "0.0.0.0";
+const PORT = Number(process.env.MIA_RELAY_PORT || 27862);
+const HOST = process.env.MIA_RELAY_HOST || "0.0.0.0";
 const ROOT = path.join(__dirname, "..");
 const MOBILE_ROOT = path.join(ROOT, "mobile");
 const ASSET_ROOT = path.join(ROOT, "renderer", "assets");
@@ -45,7 +45,7 @@ function readJson(value) {
 function publicDevice(device) {
   return {
     deviceId: device.deviceId,
-    name: device.name || "Aimashi Desktop",
+    name: device.name || "Mia Desktop",
     connectedAt: device.connectedAt,
     mobilePeers: device.mobiles.size
   };
@@ -77,7 +77,7 @@ function handleHttp(req, res) {
   if (url.pathname === "/health") {
     const body = JSON.stringify({
       status: "ok",
-      service: "aimashi-relay",
+      service: "mia-relay",
       devices: devices.size,
       clients: clients.size,
       uptime: Math.round(process.uptime())
@@ -101,8 +101,8 @@ function handleHttp(req, res) {
   }
   if (url.pathname === "/mobile/manifest.json") {
     const body = JSON.stringify({
-      name: "Aimashi Mobile",
-      short_name: "Aimashi",
+      name: "Mia Mobile",
+      short_name: "Mia",
       start_url: "/mobile/",
       scope: "/mobile/",
       display: "standalone",
@@ -183,7 +183,7 @@ function handleHello(ws, message) {
       ws,
       deviceId,
       secret,
-      name: String(message.name || "Aimashi Desktop"),
+      name: String(message.name || "Mia Desktop"),
       connectedAt: new Date().toISOString(),
       mobiles: new Map()
     };
@@ -299,5 +299,5 @@ setInterval(() => {
 
 server.listen(PORT, HOST, () => {
   const displayHost = HOST === "0.0.0.0" ? "127.0.0.1" : HOST;
-  console.log(`Aimashi relay listening at http://${displayHost}:${PORT}`);
+  console.log(`Mia relay listening at http://${displayHost}:${PORT}`);
 });

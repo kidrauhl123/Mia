@@ -7,8 +7,8 @@ function usage() {
     "Ensures the fixed production smoke account exists and the supplied password can log in.",
     "",
     "Environment:",
-    "  AIMASHI_SMOKE_USERNAME=<account>   Required fixed smoke account username.",
-    "  AIMASHI_SMOKE_PASSWORD=<password>  Required fixed smoke account password."
+    "  MIA_SMOKE_USERNAME=<account>   Required fixed smoke account username.",
+    "  MIA_SMOKE_PASSWORD=<password>  Required fixed smoke account password."
   ].join("\n");
 }
 
@@ -37,10 +37,10 @@ async function jsonRequest(baseUrl, path, { method = "GET", token = "", body = n
 }
 
 function smokeAccountEnv(env = process.env) {
-  const username = String(env.AIMASHI_SMOKE_USERNAME || "").trim();
-  const password = String(env.AIMASHI_SMOKE_PASSWORD || "");
+  const username = String(env.MIA_SMOKE_USERNAME || "").trim();
+  const password = String(env.MIA_SMOKE_PASSWORD || "");
   if (!username || !password) {
-    throw new Error("AIMASHI_SMOKE_USERNAME and AIMASHI_SMOKE_PASSWORD are required.");
+    throw new Error("MIA_SMOKE_USERNAME and MIA_SMOKE_PASSWORD are required.");
   }
   return { username, password };
 }
@@ -104,16 +104,16 @@ function printResult(result) {
   console.log("");
   console.log("Log the desktop app into this same account before running:");
   console.log("```bash");
-  console.log("AIMASHI_SMOKE_USERNAME='<smoke-account>' \\");
-  console.log("AIMASHI_SMOKE_PASSWORD='<same-password>' \\");
+  console.log("MIA_SMOKE_USERNAME='<smoke-account>' \\");
+  console.log("MIA_SMOKE_PASSWORD='<same-password>' \\");
   console.log("npm run cloud:prod:verify:e2e -- " + result.baseUrl);
   console.log("```");
   console.log("");
-  console.log("For the standalone local Agent bridge from a full Aimashi checkout:");
+  console.log("For the standalone local Agent bridge from a full Mia checkout:");
   console.log("```bash");
-  console.log(`AIMASHI_CLOUD_URL='${result.baseUrl.replace(/'/g, "'\\''")}' \\`);
-  console.log("AIMASHI_CLOUD_USERNAME='<smoke-account>' \\");
-  console.log("AIMASHI_CLOUD_PASSWORD='<same-password>' \\");
+  console.log(`MIA_CLOUD_URL='${result.baseUrl.replace(/'/g, "'\\''")}' \\`);
+  console.log("MIA_CLOUD_USERNAME='<smoke-account>' \\");
+  console.log("MIA_CLOUD_PASSWORD='<same-password>' \\");
   console.log("npm run bridge");
   console.log("```");
   console.log("");
@@ -128,7 +128,7 @@ async function main() {
   const positional = process.argv.slice(2).filter((arg) => !String(arg).startsWith("-"));
   const { username, password } = smokeAccountEnv();
   const result = await prepareSmokeAccount({
-    publicUrl: positional[0] || process.env.AIMASHI_CLOUD_PUBLIC_URL,
+    publicUrl: positional[0] || process.env.MIA_CLOUD_PUBLIC_URL,
     username,
     password
   });

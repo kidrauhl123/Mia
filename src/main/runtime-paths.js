@@ -13,8 +13,8 @@ function createRuntimePaths(deps = {}) {
   const {
     app,
     runtimeResources,
-    AIMASHI_GATEWAY_SERVICE_LABEL,
-    AIMASHI_DAEMON_SERVICE_LABEL,
+    MIA_GATEWAY_SERVICE_LABEL,
+    MIA_DAEMON_SERVICE_LABEL,
   } = deps;
 
   function runtimePaths() {
@@ -22,7 +22,7 @@ function createRuntimePaths(deps = {}) {
     const runtime = path.join(root, "runtime");
     const engine = path.join(runtime, "hermes-engine");
     const home = path.join(runtime, "engine-home");
-    const pluginsDir = path.join(runtime, "aimashi-plugins");
+    const pluginsDir = path.join(runtime, "mia-plugins");
     return {
       root,
       runtime,
@@ -39,28 +39,28 @@ function createRuntimePaths(deps = {}) {
       personaDir: path.join(home, "fellows"),
       apiKey: path.join(home, "api-server.key"),
       authJson: path.join(home, "auth.json"),
-      userProfile: path.join(home, "aimashi-user.json"),
-      modelSettings: path.join(home, "aimashi-model.json"),
-      providerConnections: path.join(home, "aimashi-providers.json"),
-      permissionSettings: path.join(home, "aimashi-permissions.json"),
-      effortSettings: path.join(home, "aimashi-effort.json"),
-      agentSessions: path.join(home, "aimashi-agent-sessions.json"),
-      daemonSettings: path.join(home, "aimashi-daemon.json"),
-      daemonToken: path.join(home, "aimashi-daemon.key"),
-      relaySettings: path.join(home, "aimashi-relay.json"),
-      cloudSettings: path.join(home, "aimashi-cloud.json"),
-      cloudWorkspace: path.join(home, "aimashi-cloud-workspace.json"),
-      petRemoteSettings: path.join(home, "aimashi-pet-remote.json"),
-      appearanceSettings: path.join(home, "aimashi-appearance.json"),
-      chatSessions: path.join(home, "aimashi-sessions.json"),
-      tasks: path.join(home, "aimashi-tasks.json"),
+      userProfile: path.join(home, "mia-user.json"),
+      modelSettings: path.join(home, "mia-model.json"),
+      providerConnections: path.join(home, "mia-providers.json"),
+      permissionSettings: path.join(home, "mia-permissions.json"),
+      effortSettings: path.join(home, "mia-effort.json"),
+      agentSessions: path.join(home, "mia-agent-sessions.json"),
+      daemonSettings: path.join(home, "mia-daemon.json"),
+      daemonToken: path.join(home, "mia-daemon.key"),
+      relaySettings: path.join(home, "mia-relay.json"),
+      cloudSettings: path.join(home, "mia-cloud.json"),
+      cloudWorkspace: path.join(home, "mia-cloud-workspace.json"),
+      petRemoteSettings: path.join(home, "mia-pet-remote.json"),
+      appearanceSettings: path.join(home, "mia-appearance.json"),
+      chatSessions: path.join(home, "mia-sessions.json"),
+      tasks: path.join(home, "mia-tasks.json"),
       attachmentsDir: path.join(home, "attachments"),
       groupsDir: path.join(home, "groups"),
       petDir: path.join(home, "pets"),
       petJobsDir: path.join(home, "pet-jobs"),
       logsDir: path.join(home, "logs"),
-      launchAgent: path.join(app.getPath("home"), "Library", "LaunchAgents", `${AIMASHI_GATEWAY_SERVICE_LABEL}.plist`),
-      daemonLaunchAgent: path.join(app.getPath("home"), "Library", "LaunchAgents", `${AIMASHI_DAEMON_SERVICE_LABEL}.plist`)
+      launchAgent: path.join(app.getPath("home"), "Library", "LaunchAgents", `${MIA_GATEWAY_SERVICE_LABEL}.plist`),
+      daemonLaunchAgent: path.join(app.getPath("home"), "Library", "LaunchAgents", `${MIA_DAEMON_SERVICE_LABEL}.plist`)
     };
   }
 
@@ -99,7 +99,7 @@ function createRuntimePaths(deps = {}) {
   }
 
   function engineMarkerPath() {
-    return path.join(runtimePaths().engine, "aimashi-runtime.json");
+    return path.join(runtimePaths().engine, "mia-runtime.json");
   }
 
   return {

@@ -76,7 +76,7 @@ Add compact segmented tab styles and keep the existing `.avatar-defaults` grid d
 
 Run: `npm run check`
 
-Expected: `Aimashi project structure OK`
+Expected: `Mia project structure OK`
 
 - [ ] **Step 2: Inspect focused diff**
 

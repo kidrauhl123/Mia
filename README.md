@@ -1,12 +1,12 @@
-# Aimashi
+# Mia
 
-Aimashi 是一个面向 Agent 时代的聊天和协作客户端：用户在同一个界面里管理多个 AI Fellow，选择本地 Agent 引擎，和真人好友私聊或拉群，并让自己的 Fellow 在群聊里参与协作。
+Mia 是一个面向 Agent 时代的聊天和协作客户端：用户在同一个界面里管理多个 AI Fellow，选择本地 Agent 引擎，和真人好友私聊或拉群，并让自己的 Fellow 在群聊里参与协作。
 
 简单说：**对话是入口，Agent 是肉，GUI 是壳**。
 
 ## 当前形态
 
-Aimashi 现在不是单纯的桌面 demo，而是由几条链路组成：
+Mia 现在不是单纯的桌面 demo，而是由几条链路组成：
 
 - **桌面端**：Electron 应用，负责本地聊天 UI、Fellow 管理、本地 Agent 调用、群聊协调、桌宠窗口和本地 bridge。
 - **本地引擎**：Hermes runtime 随桌面包构建；Claude Code / Codex 复用用户本机已安装并登录的 CLI。
@@ -23,9 +23,9 @@ Aimashi 现在不是单纯的桌面 demo，而是由几条链路组成：
   - `hermes`
   - `claude-code`
   - `codex`
-- Hermes 模式通过 `X-Aimashi-Fellow` 等上下文注入 Fellow 人设。
+- Hermes 模式通过 `X-Mia-Fellow` 等上下文注入 Fellow 人设。
 - Claude Code / Codex 模式通过本地 SDK 调用，在新会话或 stateless 调用前注入 Fellow 人设。
-- 外部 CLI 不随安装包分发；Aimashi 只从用户系统 `PATH` 探测和复用它们。
+- 外部 CLI 不随安装包分发；Mia 只从用户系统 `PATH` 探测和复用它们。
 
 ### 私聊、好友和群聊
 
@@ -50,7 +50,7 @@ Aimashi 现在不是单纯的桌面 demo，而是由几条链路组成：
 - 每个 Fellow 可以生成和播放桌宠。
 - 播放窗口由 Electron 透明窗口实现，读取 `pet.json` 和 spritesheet。
 - 生成器资源在 `resources/pet-generator/`。
-- 生成结果默认写入 Aimashi 的应用数据目录，也兼容读取旧的 Alkaka/Codex pet 目录。
+- 生成结果默认写入 Mia 的应用数据目录，也兼容读取旧的 Alkaka/Codex pet 目录。
 
 ## 本地运行
 
@@ -78,7 +78,7 @@ Cloud 相关测试和部署脚本依赖较新的 Node.js，生产侧要求 Node.
 桌面端的用户数据在 macOS 下默认位于：
 
 ```text
-~/Library/Application Support/Aimashi/
+~/Library/Application Support/Mia/
 ```
 
 关键子目录：
@@ -88,11 +88,11 @@ runtime/
   engine-home/
     config.yaml
     auth.json
-    aimashi-model.json
-    aimashi-providers.json
-    aimashi-permissions.json
-    aimashi-sessions.json
-    aimashi-agent-sessions.json
+    mia-model.json
+    mia-providers.json
+    mia-permissions.json
+    mia-sessions.json
+    mia-agent-sessions.json
     fellows/
     pets/
     pet-jobs/
@@ -147,7 +147,7 @@ src/
   shared/                     main / preload / renderer / tests 共用 contract
 resources/
   pet-generator/              桌宠生成器资源
-skills/                       Aimashi 附带 skills
+skills/                       Mia 附带 skills
 scripts/                      runtime 构建、cloud 发布、诊断和 smoke 脚本
 tests/                        Node test 测试
 vendor/
@@ -156,7 +156,7 @@ vendor/
 
 ## 重要边界
 
-- Hermes 是 Aimashi 随包的开源 runtime 副本；Claude Code / Codex 是用户机器上的外部 CLI，不能打进安装包。
+- Hermes 是 Mia 随包的开源 runtime 副本；Claude Code / Codex 是用户机器上的外部 CLI，不能打进安装包。
 - renderer 不直接使用 Node/Electron 能力，需要系统能力时走 preload 暴露的窄接口。
 - main、renderer、cloud、web、mobile 的状态边界要清楚；同一类会话状态只应有一个权威 owner。
 - 新功能优先放进按领域命名的模块，不要继续扩大 `src/main.js`、`src/renderer/app.js`、`src/renderer/styles.css` 这类历史大文件。

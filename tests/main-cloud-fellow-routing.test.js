@@ -39,7 +39,7 @@ test("renderer no longer executes local fellow replies for cloud room events", (
   const html = read("src/renderer/index.html");
 
   assert.equal(
-    /window\.aimashiGroupConductor\.handleRoomMessageAppended/.test(social),
+    /window\.miaGroupConductor\.handleRoomMessageAppended/.test(social),
     false,
     "renderer must not run conductor dispatch from room.message_appended"
   );

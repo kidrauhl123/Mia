@@ -1,8 +1,8 @@
-# Aimashi Group Chat Implementation Plan
+# Mia Group Chat Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 实现 aimashi 群聊 v1，支持把多个 Fellow 拉到同一会话，由群主 Fellow 承担调度/摘要的不可见 LLM 调用，跨引擎共群，按 spec `docs/superpowers/specs/2026-05-14-group-chat-design.md` 落地。
+**Goal:** 实现 mia 群聊 v1，支持把多个 Fellow 拉到同一会话，由群主 Fellow 承担调度/摘要的不可见 LLM 调用，跨引擎共群，按 spec `docs/superpowers/specs/2026-05-14-group-chat-design.md` 落地。
 
 **Architecture:** 单一 "group" 实体（侧边栏与 1v1 单聊并列）。群主 Fellow 是 members 之一，在群里承担三种行为——可见的"接话发言"（带人设）、不可见的"调度决策"和"摘要生成"（系统 prompt，无人设，无状态调用，不污染 Fellow session）。群上下文（摘要 + 被 @ 历史）在 dispatch 时由 main 进程按 Fellow 引擎注入。
 
@@ -36,12 +36,12 @@ tests/group-adapters.test.js
 ```
 package.json                                              # 加 npm test 脚本
 src/main.js                                               # 注册 group-store + group-adapters IPC
-src/preload.js                                            # 暴露 aimashi.groups.* API
+src/preload.js                                            # 暴露 mia.groups.* API
 src/renderer/app.js                                       # 侧边栏识别 group / 1v1，群入口
 src/renderer/index.html                                   # group 视图 DOM 节点
 src/renderer/styles.css                                   # 群相关样式
 src/check.js                                              # 新文件加入 required 列表
-runtime/hermes-engine/aimashi_plugins/fellow_overlay.py   # 解析 X-Aimashi-Group-Context header
+runtime/hermes-engine/mia_plugins/fellow_overlay.py   # 解析 X-Mia-Group-Context header
 ```
 
 ---
@@ -105,7 +105,7 @@ const os = require("node:os");
 const { createGroupStore } = require("../src/main/group-store.js");
 
 function makeTmpRoot() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-group-test-"));
+  return fs.mkdtempSync(path.join(os.tmpdir(), "mia-group-test-"));
 }
 
 test("create group writes group.json and manifest entry", () => {
@@ -1001,7 +1001,7 @@ git commit -m "feat(group): add conductor for dispatch and summarize"
 - Test: `tests/group-adapters.test.js`
 
 `group-adapters.js` 提供两类函数：
-- `buildHermesGroupHeader(groupContextBlock)` → 返回 `X-Aimashi-Group-Context` header 值（base64 编码 JSON）
+- `buildHermesGroupHeader(groupContextBlock)` → 返回 `X-Mia-Group-Context` header 值（base64 编码 JSON）
 - `injectGroupContextForSdk(originalUserMessage, groupContextBlock)` → 返回拼接好的 user message 给 Claude Code / Codex SDK 用（两边格式一样，复用同一个函数）
 
 - [ ] **Step 1: 写测试**
@@ -1076,10 +1076,10 @@ git commit -m "feat(group): add cross-engine group context adapters"
 
 ---
 
-## Task 7: 扩展 fellow_overlay.py 识别 X-Aimashi-Group-Context
+## Task 7: 扩展 fellow_overlay.py 识别 X-Mia-Group-Context
 
 **Files:**
-- Modify: `runtime/hermes-engine/aimashi_plugins/fellow_overlay.py`（在用户机器上是 `~/Library/Application Support/Aimashi/runtime/hermes-engine/aimashi_plugins/fellow_overlay.py`；源在 vendor 或 build script，需先确认）
+- Modify: `runtime/hermes-engine/mia_plugins/fellow_overlay.py`（在用户机器上是 `~/Library/Application Support/Mia/runtime/hermes-engine/mia_plugins/fellow_overlay.py`；源在 vendor 或 build script，需先确认）
 
 - [ ] **Step 1: 定位 fellow_overlay.py 源**
 
@@ -1091,19 +1091,19 @@ Expected: 至少一条命中路径
 - [ ] **Step 2: 读取现有 fellow_overlay.py 行为**
 
 Run: `cat <OVERLAY_SOURCE>`
-确认它如何读 `X-Aimashi-Fellow` header 并注入 system prompt。新逻辑要在同一处加。
+确认它如何读 `X-Mia-Fellow` header 并注入 system prompt。新逻辑要在同一处加。
 
 - [ ] **Step 3: 加 group context 注入**
 
 Edit `<OVERLAY_SOURCE>`：
 
-在现有 `X-Aimashi-Fellow` header 处理之后，加入：
+在现有 `X-Mia-Fellow` header 处理之后，加入：
 ```python
 import base64
 import json
 
 def _read_group_context(headers):
-    raw = headers.get("X-Aimashi-Group-Context") or headers.get("x-aimashi-group-context")
+    raw = headers.get("X-Mia-Group-Context") or headers.get("x-mia-group-context")
     if not raw:
         return None
     try:
@@ -1140,10 +1140,10 @@ print('header value:', header)
 
 ```bash
 git add <OVERLAY_SOURCE>
-git commit -m "feat(hermes-overlay): inject X-Aimashi-Group-Context into system prompt"
+git commit -m "feat(hermes-overlay): inject X-Mia-Group-Context into system prompt"
 ```
 
-如果 `<OVERLAY_SOURCE>` 不在 aimashi repo（属于 vendor 的 hermes runtime 子项目），按那个 repo 的提交规范单独提交，并记录 commit hash 以备 aimashi 升级 Hermes 版本时引用。
+如果 `<OVERLAY_SOURCE>` 不在 mia repo（属于 vendor 的 hermes runtime 子项目），按那个 repo 的提交规范单独提交，并记录 commit hash 以备 mia 升级 Hermes 版本时引用。
 
 ---
 
@@ -1218,7 +1218,7 @@ Expected: PASS（仅做文件存在 + 语法检查）
 
 启动一次确认无运行时错误：
 Run: `npm start`
-打开 DevTools 验证 `window.aimashi.groups` 即将存在（Task 9 之后）。先关掉。
+打开 DevTools 验证 `window.mia.groups` 即将存在（Task 9 之后）。先关掉。
 
 - [ ] **Step 5: Commit**
 
@@ -1229,7 +1229,7 @@ git commit -m "feat(group): register group IPC handlers in main process"
 
 ---
 
-## Task 9: Preload 暴露 aimashi.groups.* API
+## Task 9: Preload 暴露 mia.groups.* API
 
 **Files:**
 - Modify: `src/preload.js`
@@ -1237,7 +1237,7 @@ git commit -m "feat(group): register group IPC handlers in main process"
 
 - [ ] **Step 1: 扩展 preload**
 
-Edit `src/preload.js`，在 `contextBridge.exposeInMainWorld("aimashi", { ... })` 的对象里，紧邻现有 `fellow*` API 之后添加：
+Edit `src/preload.js`，在 `contextBridge.exposeInMainWorld("mia", { ... })` 的对象里，紧邻现有 `fellow*` API 之后添加：
 ```js
 groups: {
   create: (payload) => ipcRenderer.invoke("group:create", payload),
@@ -1275,7 +1275,7 @@ Expected: PASS
 
 ```bash
 git add src/preload.js src/check.js
-git commit -m "feat(group): expose aimashi.groups API via preload"
+git commit -m "feat(group): expose mia.groups API via preload"
 ```
 
 ---
@@ -1286,7 +1286,7 @@ git commit -m "feat(group): expose aimashi.groups API via preload"
 - Modify: `src/main.js`（chat:send handler）
 
 `chat:send` 现有签名（按现有 payload 结构推断，需先读源代码确认）接受 `{ fellowKey, messages, ... }`。要加可选的 `group: { id, contextBlock }` 字段。当存在时：
-- Hermes engine：注入 `X-Aimashi-Group-Context` header
+- Hermes engine：注入 `X-Mia-Group-Context` header
 - Claude Code / Codex engine：把 `contextBlock` 前置到最后一条 user message
 
 - [ ] **Step 1: 阅读现有 chat:send 实现**
@@ -1307,7 +1307,7 @@ const { fellowKey, messages, group, ...rest } = payload;
 在 Hermes 分支拼请求 headers 的地方加：
 ```js
 if (group && group.contextBlock) {
-  headers["X-Aimashi-Group-Context"] = buildHermesGroupHeader(group.contextBlock);
+  headers["X-Mia-Group-Context"] = buildHermesGroupHeader(group.contextBlock);
 }
 ```
 
@@ -1342,7 +1342,7 @@ git commit -m "feat(group): chat:send accepts optional group context for all eng
 
 **Files:**
 - Modify: `src/main.js`（加 IPC `group:prompts` 返回模板字符串）
-- Modify: `src/preload.js`（加 `aimashi.groups.loadPrompts`）
+- Modify: `src/preload.js`（加 `mia.groups.loadPrompts`）
 
 - [ ] **Step 1: 加 IPC handler**
 
@@ -1405,12 +1405,12 @@ Create `src/renderer/group.js`:
   const { parseMentions, filterRecentTurnsForFellow, buildFellowGroupContext, shouldSummarize } =
     typeof require !== "undefined"
       ? require("./group-prompts.js")
-      : global.aimashiGroupPrompts;
+      : global.miaGroupPrompts;
 
   const { createConductor } =
     typeof require !== "undefined"
       ? require("./conductor.js")
-      : global.aimashiConductor;
+      : global.miaConductor;
 
   const moduleState = {
     groups: [],
@@ -1427,8 +1427,8 @@ Create `src/renderer/group.js`:
     moduleState.fellowNamesById = Object.fromEntries(
       moduleState.fellows.map((f) => [f.id, f.name])
     );
-    moduleState.promptTemplates = await window.aimashi.groups.loadPrompts();
-    moduleState.groups = await window.aimashi.groups.list();
+    moduleState.promptTemplates = await window.mia.groups.loadPrompts();
+    moduleState.groups = await window.mia.groups.list();
     moduleState.conductor = createConductor({
       engineCall: deps.engineCall,
       dispatchTemplate: moduleState.promptTemplates.dispatch,
@@ -1446,7 +1446,7 @@ Create `src/renderer/group.js`:
     // To be implemented in Task 13.
   }
 
-  global.aimashiGroup = {
+  global.miaGroup = {
     initGroupModule,
     renderGroupSidebarEntries,
     openGroup,
@@ -1550,10 +1550,10 @@ Edit `src/renderer/styles.css`，追加：
 
 - [ ] **Step 4: 在 app.js 启动时挂载**
 
-Edit `src/renderer/app.js`，找到现有"启动 / 初始化"块（搜 `await window.aimashi.runtimeStatus` 或类似入口），在初始化 fellow 列表之后加：
+Edit `src/renderer/app.js`，找到现有"启动 / 初始化"块（搜 `await window.mia.runtimeStatus` 或类似入口），在初始化 fellow 列表之后加：
 ```js
-if (window.aimashiGroup) {
-  await window.aimashiGroup.initGroupModule({
+if (window.miaGroup) {
+  await window.miaGroup.initGroupModule({
     getFellows: () => state.fellows || [],
     engineCall: async ({ kind, prompt, group }) => {
       // Route via existing chat:send IPC using host fellow's engine
@@ -1579,7 +1579,7 @@ if (typeof module !== "undefined" && module.exports) {
   module.exports = { parseMentions, filterRecentTurnsForFellow, buildDispatchPrompt, buildSummarizePrompt, buildFellowGroupContext, shouldSummarize };
 }
 if (typeof window !== "undefined") {
-  window.aimashiGroupPrompts = { parseMentions, filterRecentTurnsForFellow, buildDispatchPrompt, buildSummarizePrompt, buildFellowGroupContext, shouldSummarize };
+  window.miaGroupPrompts = { parseMentions, filterRecentTurnsForFellow, buildDispatchPrompt, buildSummarizePrompt, buildFellowGroupContext, shouldSummarize };
 }
 ```
 
@@ -1589,7 +1589,7 @@ if (typeof module !== "undefined" && module.exports) {
   module.exports = { createConductor };
 }
 if (typeof window !== "undefined") {
-  window.aimashiConductor = { createConductor };
+  window.miaConductor = { createConductor };
 }
 ```
 
@@ -1600,7 +1600,7 @@ if (typeof window !== "undefined") {
 const promptsModule =
   typeof require !== "undefined"
     ? require("./group-prompts.js")
-    : window.aimashiGroupPrompts;
+    : window.miaGroupPrompts;
 const { buildDispatchPrompt, buildSummarizePrompt } = promptsModule;
 ```
 
@@ -1611,11 +1611,11 @@ const { buildDispatchPrompt, buildSummarizePrompt } = promptsModule;
 const promptsModule =
   typeof require !== "undefined"
     ? require("./group-prompts.js")
-    : window.aimashiGroupPrompts;
+    : window.miaGroupPrompts;
 const conductorModule =
   typeof require !== "undefined"
     ? require("./conductor.js")
-    : window.aimashiConductor;
+    : window.miaConductor;
 const { parseMentions, filterRecentTurnsForFellow, buildFellowGroupContext, shouldSummarize } = promptsModule;
 const { createConductor } = conductorModule;
 ```
@@ -1745,7 +1745,7 @@ function openCreateDialog() {
       .map((id) => moduleState.fellowNamesById[id] || id)
       .join(" · ");
     try {
-      const group = await window.aimashi.groups.create({ name, members, hostFellowId });
+      const group = await window.mia.groups.create({ name, members, hostFellowId });
       moduleState.groups.push(group);
       renderGroupSidebarEntries();
       close();
@@ -1824,7 +1824,7 @@ async function openGroup(groupId) {
 
   document.getElementById("group-view-title").textContent = group.name;
 
-  const messages = await window.aimashi.groups.listMessages(groupId);
+  const messages = await window.mia.groups.listMessages(groupId);
   moduleState.messagesByGroup.set(groupId, messages);
   renderGroupMessages(group, messages);
   bindComposer(group);
@@ -1916,7 +1916,7 @@ async function sendInGroup(group) {
     createdAt: Date.now(),
     status: "complete",
   };
-  await window.aimashi.groups.appendMessage(group.id, userMsg);
+  await window.mia.groups.appendMessage(group.id, userMsg);
   const msgs = moduleState.messagesByGroup.get(group.id) || [];
   msgs.push(userMsg);
   renderGroupMessages(group, msgs);
@@ -1941,7 +1941,7 @@ async function sendInGroup(group) {
       createdAt: Date.now(),
       status: "complete",
     };
-    await window.aimashi.groups.appendMessage(group.id, sysMsg);
+    await window.mia.groups.appendMessage(group.id, sysMsg);
     msgs.push(sysMsg);
     renderGroupMessages(group, msgs);
     return;
@@ -1979,7 +1979,7 @@ async function dispatchToFellow(group, fellowId, userMsg, turnId) {
   renderGroupMessages(group, msgs);
 
   try {
-    const result = await window.aimashi.sendChat({
+    const result = await window.mia.sendChat({
       fellowKey: fellowId,
       messages: [{ role: "user", content: userMsg.content }],
       group: { id: group.id, contextBlock },
@@ -1990,7 +1990,7 @@ async function dispatchToFellow(group, fellowId, userMsg, turnId) {
     placeholderMsg.content = "（响应失败：" + e.message + "）";
     placeholderMsg.status = "error";
   }
-  await window.aimashi.groups.appendMessage(group.id, placeholderMsg);
+  await window.mia.groups.appendMessage(group.id, placeholderMsg);
   renderGroupMessages(group, msgs);
 }
 
@@ -2004,7 +2004,7 @@ async function maybeUpdateSummary(group) {
   });
   if (!card) return;
   group.contextCard = card;
-  await window.aimashi.groups.saveContextCard(group.id, card);
+  await window.mia.groups.saveContextCard(group.id, card);
 }
 ```
 
@@ -2012,11 +2012,11 @@ async function maybeUpdateSummary(group) {
 
 修改 Task 12 留下的 `engineCall` 占位。在 `app.js` 启动初始化里：
 ```js
-await window.aimashiGroup.initGroupModule({
+await window.miaGroup.initGroupModule({
   getFellows: () => state.fellows || [],
   engineCall: async ({ kind, prompt, group }) => {
     const hostFellowId = group.hostFellowId;
-    const result = await window.aimashi.sendChat({
+    const result = await window.mia.sendChat({
       fellowKey: hostFellowId,
       messages: [{ role: "user", content: prompt }],
       systemOverride: "（系统：你是群聊辅助器，无人设，按指令输出）",
@@ -2028,7 +2028,7 @@ await window.aimashiGroup.initGroupModule({
 
 **注意**：`systemOverride` 字段需要 main 进程 `chat:send` handler 支持——如果尚不支持，加一个简单分支：当 payload 有 `systemOverride` 时，把它作为单次调用的 system prompt 顶替 Fellow 人设（但**不**写入 Fellow session 历史，必须是无状态调用）。
 
-如果现有 `chat:send` 强写 session，新增一个独立 IPC `chat:send-stateless`，接受 `{ fellowKey, messages, systemPrompt }` → 临时调用引擎不入 session。preload 暴露为 `aimashi.sendChatStateless`。
+如果现有 `chat:send` 强写 session，新增一个独立 IPC `chat:send-stateless`，接受 `{ fellowKey, messages, systemPrompt }` → 临时调用引擎不入 session。preload 暴露为 `mia.sendChatStateless`。
 
 - [ ] **Step 5: Smoke test**
 
@@ -2121,7 +2121,7 @@ function openInfoDrawer(group) {
   }
   hostSelect.onchange = async () => {
     group.hostFellowId = hostSelect.value;
-    await window.aimashi.groups.update(group.id, { hostFellowId: hostSelect.value });
+    await window.mia.groups.update(group.id, { hostFellowId: hostSelect.value });
     renderGroupMessages(group, moduleState.messagesByGroup.get(group.id) || []);
   };
 
@@ -2130,13 +2130,13 @@ function openInfoDrawer(group) {
     const goal = goalInput.value.trim();
     const decorations = { ...(group.decorations || {}), pinnedGoal: goal || null };
     group.decorations = decorations;
-    await window.aimashi.groups.update(group.id, { decorations });
+    await window.mia.groups.update(group.id, { decorations });
   };
 
   document.getElementById("group-info-reset-ctx").onclick = async () => {
     if (!confirm("重置群上下文摘要？后续 Fellow 看不到旧摘要，得重新攒一遍。")) return;
     group.contextCard = null;
-    await window.aimashi.groups.update(group.id, { contextCard: null });
+    await window.mia.groups.update(group.id, { contextCard: null });
     alert("已重置。");
   };
 
@@ -2158,7 +2158,7 @@ async function removeMember(group, memberId) {
   }
   group.members = newMembers;
   group.hostFellowId = newHost;
-  await window.aimashi.groups.update(group.id, { members: newMembers, hostFellowId: newHost });
+  await window.mia.groups.update(group.id, { members: newMembers, hostFellowId: newHost });
 
   const msgs = moduleState.messagesByGroup.get(group.id) || [];
   const sysMsg = {
@@ -2174,7 +2174,7 @@ async function removeMember(group, memberId) {
     createdAt: Date.now(),
     status: "complete",
   };
-  await window.aimashi.groups.appendMessage(group.id, sysMsg);
+  await window.mia.groups.appendMessage(group.id, sysMsg);
   msgs.push(sysMsg);
   renderGroupMessages(group, msgs);
 
@@ -2242,7 +2242,7 @@ const {
 } = require("../src/renderer/group-prompts.js");
 
 function makeTmpRoot() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-it-"));
+  return fs.mkdtempSync(path.join(os.tmpdir(), "mia-it-"));
 }
 
 const fellows = [

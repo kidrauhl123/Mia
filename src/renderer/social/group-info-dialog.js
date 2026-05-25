@@ -18,7 +18,7 @@
 (function (global) {
   "use strict";
 
-  const { MemberKind } = (typeof window !== "undefined" && window.aimashiConversationKinds)
+  const { MemberKind } = (typeof window !== "undefined" && window.miaConversationKinds)
     || require("../../shared/conversation-kinds");
 
   let _ctx = null;
@@ -28,7 +28,7 @@
   function attach(internalCtx) { _ctx = internalCtx; }
 
   function escapeHtml(value) {
-    return global.aimashiMarkdown?.escapeHtml?.(value)
+    return global.miaMarkdown?.escapeHtml?.(value)
       ?? String(value ?? "").replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" }[ch]));
   }
 
@@ -39,7 +39,7 @@
     const custom = room?.decorations?.avatar;
     if (custom && custom.image) {
       slot.className = "avatar";
-      const style = global.aimashiAvatar?.avatarThumbBackgroundStyle?.(custom.image, custom.crop, "#5e5ce6")
+      const style = global.miaAvatar?.avatarThumbBackgroundStyle?.(custom.image, custom.crop, "#5e5ce6")
         || `background-image:url('${custom.image}');background-size:cover;background-position:center;`;
       slot.style.cssText = style;
       slot.removeAttribute("data-count");
@@ -48,8 +48,8 @@
     }
     slot.className = "avatar group-avatar";
     slot.style.cssText = "";
-    const tiles = global.aimashiGroupTiles.resolveGroupMemberTiles(members || [], groupTilesCtx());
-    global.aimashiGroupAvatar.applyGroupAvatar(slot, tiles);
+    const tiles = global.miaGroupTiles.resolveGroupMemberTiles(members || [], groupTilesCtx());
+    global.miaGroupAvatar.applyGroupAvatar(slot, tiles);
   }
 
   function groupTilesCtx() {
@@ -60,7 +60,7 @@
       self: cloudUser || runtimeState.runtime?.user || null,
       friends: moduleState.friends || [],
       fellows: runtimeState.runtime?.fellows || runtimeState.runtime?.personas || [],
-      avatarAssetForKey: global.aimashiAvatar?.avatarAssetForKey
+      avatarAssetForKey: global.miaAvatar?.avatarAssetForKey
     };
   }
 
@@ -68,7 +68,7 @@
 
   async function patchDecorations(room, patch) {
     const decorations = { ...(room.decorations || {}), ...patch };
-    const res = await global.aimashi.social.updateRoom(room.id, { decorations });
+    const res = await global.mia.social.updateRoom(room.id, { decorations });
     if (!res.ok) {
       console.warn("[group-info] PATCH decorations failed:", res.error);
       return null;
@@ -77,7 +77,7 @@
   }
 
   async function patchName(room, name) {
-    const res = await global.aimashi.social.updateRoom(room.id, { name });
+    const res = await global.mia.social.updateRoom(room.id, { name });
     if (!res.ok) {
       alert("保存群名失败：" + (res.error || ""));
       return null;
@@ -99,7 +99,7 @@
     }
     const f = (fellows || []).find((x) => (x.id || x.key) === member.member_ref);
     return {
-      image: f?.avatarImage || global.aimashiAvatar?.avatarAssetForKey?.(member.member_ref),
+      image: f?.avatarImage || global.miaAvatar?.avatarAssetForKey?.(member.member_ref),
       crop: f?.avatarCrop,
       color: f?.color || "#5e5ce6"
     };
@@ -134,7 +134,7 @@
         avatar = { image: "", crop: null, color: "#5e5ce6" };
       }
       const style = avatar.image
-        ? global.aimashiAvatar.avatarThumbBackgroundStyle(avatar.image, avatar.crop, avatar.color)
+        ? global.miaAvatar.avatarThumbBackgroundStyle(avatar.image, avatar.crop, avatar.color)
         : `background-color:${avatar.color};`;
       avatarEl.style.cssText = style || `background-color:${avatar.color};`;
       const nameEl = document.createElement("span");
@@ -181,7 +181,7 @@
           reload(room.id);
         } else if (btn.dataset.groupMemberAction === "remove") {
           if (!confirm(`确定移除「${label}」？`)) return;
-          const res = await global.aimashi.social.removeRoomMember(room.id, {
+          const res = await global.mia.social.removeRoomMember(room.id, {
             memberKind: member.member_kind,
             memberRef: member.member_ref
           });
@@ -207,7 +207,7 @@
   }
 
   async function reload(roomId) {
-    const res = await global.aimashi.social.getRoom(roomId);
+    const res = await global.mia.social.getRoom(roomId);
     if (!res.ok) return;
     const data = res.data;
     if (data?.room) {
@@ -262,7 +262,7 @@
     const addableBox = document.getElementById("groupInfoAddable");
 
     // Ensure members are fresh.
-    global.aimashi.social.getRoom(roomId).then((res) => {
+    global.mia.social.getRoom(roomId).then((res) => {
       if (!res.ok) return;
       const data = res.data;
       if (Array.isArray(data?.members)) _ctx.roomMembersCache.set(roomId, data.members);
@@ -330,7 +330,7 @@
       reader.addEventListener("load", () => {
         const dataUrl = String(reader.result || "");
         _pendingAvatarApply = roomId;
-        global.aimashiFellowDialog.openAvatarCropEditor(dataUrl, { x: 50, y: 50, zoom: 1.12 }, "groupRoom");
+        global.miaFellowDialog.openAvatarCropEditor(dataUrl, { x: 50, y: 50, zoom: 1.12 }, "groupRoom");
       });
       reader.readAsDataURL(file);
       avatarFile.value = "";
@@ -365,18 +365,18 @@
     if (!roomId) return;
     const room = _ctx.moduleState.rooms.find((r) => r.id === roomId);
     if (!room) return;
-    const normalized = global.aimashiAvatar.normalizeCrop(crop);
+    const normalized = global.miaAvatar.normalizeCrop(crop);
     const updated = await patchDecorations(room, { avatar: { image, crop: normalized } });
     if (updated) reload(roomId);
   }
 
-  global.aimashiGroupInfoDialog = {
+  global.miaGroupInfoDialog = {
     attach,
     open: openDialog,
     applyAvatarFromCropEditor,
   };
 
-  if (global.aimashiSocial && global.aimashiSocial._internalCtx) {
-    attach(global.aimashiSocial._internalCtx);
+  if (global.miaSocial && global.miaSocial._internalCtx) {
+    attach(global.miaSocial._internalCtx);
   }
 })(typeof window !== "undefined" ? window : globalThis);

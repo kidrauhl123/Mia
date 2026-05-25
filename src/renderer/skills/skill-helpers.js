@@ -1,7 +1,7 @@
 // Skill data helpers
 // Pure functions extracted from app.js (formerly lines 2681-2738). No state
 // or DOM dependencies; safe to call before any init. Exposed under
-// window.aimashiSkillHelpers for direct use from app.js and from any future
+// window.miaSkillHelpers for direct use from app.js and from any future
 // skill-related module.
 (function () {
   "use strict";
@@ -31,8 +31,8 @@
 
   function pluginSourceLabel(source = "") {
     const labels = {
-      "aimashi-official": "Aimashi 官方",
-      aimashi: "Aimashi Runtime",
+      "mia-official": "Mia 官方",
+      mia: "Mia Runtime",
       codex: "Codex",
       claude: "Claude Code"
     };
@@ -40,8 +40,8 @@
   }
 
   function skillAuthorLabel(skill = {}) {
-    if (skill.source === "aimashi-official") return "Aimashi 官方";
-    if (skill.source === "aimashi") return "Aimashi Runtime";
+    if (skill.source === "mia-official") return "Mia 官方";
+    if (skill.source === "mia") return "Mia Runtime";
     if (skill.source === "codex") return "Codex";
     if (skill.source === "claude") return "Claude Code";
     return skill.sourceLabel || "Local";
@@ -171,7 +171,7 @@
     return html.join("");
   }
 
-  window.aimashiSkillHelpers = {
+  window.miaSkillHelpers = {
     initSkillHelpers,
     skillTone,
     skillInitials,

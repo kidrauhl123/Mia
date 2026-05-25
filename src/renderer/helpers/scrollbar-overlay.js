@@ -181,7 +181,7 @@
     }
   }
 
-  window.aimashiScrollbarOverlay = {
+  window.miaScrollbarOverlay = {
     ensureScrollbarOverlay,
     scrollbarOverlayMetrics,
     updateScrollbarOverlay,

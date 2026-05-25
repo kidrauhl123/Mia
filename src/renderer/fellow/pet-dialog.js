@@ -1,18 +1,18 @@
 // Pet generate dialog module
 // Extracted from app.js (formerly lines 4490-4597). Mirrors the group.js /
-// tasks-panel.js extraction pattern: IIFE + window.aimashiPetDialog namespace +
+// tasks-panel.js extraction pattern: IIFE + window.miaPetDialog namespace +
 // initPetDialog for dependency injection.
 (function () {
   "use strict";
 
-  let state, els, aimashi;
+  let state, els, mia;
   let fellowByKey, avatarAssetForKey, cryptoRandomId, avatarBackgroundStyle;
   let escapeHtml, setText, renderView, refreshRuntime, appendTransientChat;
 
   function initPetDialog(deps) {
     state = deps.state;
     els = deps.els;
-    aimashi = deps.aimashi || (typeof window !== "undefined" ? window.aimashi : null);
+    mia = deps.mia || (typeof window !== "undefined" ? window.mia : null);
     fellowByKey = deps.fellowByKey;
     avatarAssetForKey = deps.avatarAssetForKey;
     cryptoRandomId = deps.cryptoRandomId;
@@ -77,7 +77,7 @@
 
   async function refreshPetJobs() {
     try {
-      state.petJobs = await window.aimashi.loadPetJobs();
+      state.petJobs = await window.mia.loadPetJobs();
       renderPetJobs();
       if (state.petJobs.some((job) => job.status === "completed")) {
         await refreshRuntime();
@@ -117,7 +117,7 @@
 
   async function placeFellowPet(fellowKey) {
     try {
-      await window.aimashi.placeFellowPet(fellowKey);
+      await window.mia.placeFellowPet(fellowKey);
       await refreshRuntime();
     } catch (error) {
       appendTransientChat("assistant", `放进桌面失败: ${error.message}`);
@@ -126,14 +126,14 @@
 
   async function recallFellowPet(fellowKey) {
     try {
-      await window.aimashi.recallFellowPet(fellowKey);
+      await window.mia.recallFellowPet(fellowKey);
       await refreshRuntime();
     } catch (error) {
       appendTransientChat("assistant", `收回桌宠失败: ${error.message}`);
     }
   }
 
-  window.aimashiPetDialog = {
+  window.miaPetDialog = {
     initPetDialog,
     openPetGenerateDialog,
     closePetGenerateDialog,

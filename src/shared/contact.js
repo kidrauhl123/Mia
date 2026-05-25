@@ -51,6 +51,6 @@ function resolveContact(query, ctx = {}) {
   return { kind: "", id: "", displayName: "", avatar: emptyAvatar() };
 }
 
-const __aimashiContactExports = { resolveContact, ContactKind };
-if (typeof module !== "undefined" && module.exports) module.exports = __aimashiContactExports;
-if (typeof window !== "undefined") window.aimashiContact = __aimashiContactExports;
+const __miaContactExports = { resolveContact, ContactKind };
+if (typeof module !== "undefined" && module.exports) module.exports = __miaContactExports;
+if (typeof window !== "undefined") window.miaContact = __miaContactExports;

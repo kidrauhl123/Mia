@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // src/main/scheduler-mcp-server.js
-// Standalone stdio MCP server (JSON-RPC 2.0) for Aimashi scheduler.
+// Standalone stdio MCP server (JSON-RPC 2.0) for Mia scheduler.
 // Spawned by Claude Code / Codex adapters as a child process.
-// Reads per-turn context from AIMASHI_SCHEDULER_CONTEXT_FILE (path to JSON).
-// Calls daemon HTTP API at AIMASHI_DAEMON_URL with AIMASHI_DAEMON_TOKEN auth.
+// Reads per-turn context from MIA_SCHEDULER_CONTEXT_FILE (path to JSON).
+// Calls daemon HTTP API at MIA_DAEMON_URL with MIA_DAEMON_TOKEN auth.
 
 "use strict";
 
@@ -13,9 +13,9 @@ const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const DAEMON_URL = (process.env.AIMASHI_DAEMON_URL || "http://127.0.0.1:27861").replace(/\/$/, "");
-const DAEMON_TOKEN = process.env.AIMASHI_DAEMON_TOKEN || "";
-const CONTEXT_FILE = process.env.AIMASHI_SCHEDULER_CONTEXT_FILE || "";
+const DAEMON_URL = (process.env.MIA_DAEMON_URL || "http://127.0.0.1:27861").replace(/\/$/, "");
+const DAEMON_TOKEN = process.env.MIA_DAEMON_TOKEN || "";
+const CONTEXT_FILE = process.env.MIA_SCHEDULER_CONTEXT_FILE || "";
 
 function readContext() {
   if (!CONTEXT_FILE) return {};
@@ -228,7 +228,7 @@ async function handleRequest(req) {
       result: {
         protocolVersion: "2024-11-05",
         capabilities: { tools: {} },
-        serverInfo: { name: "aimashi-scheduler", version: "0.1.0" }
+        serverInfo: { name: "mia-scheduler", version: "0.1.0" }
       }
     });
     return;

@@ -9,7 +9,7 @@ const {
 } = require("../src/main/agent-session-index.js");
 
 function tempHome() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-session-index-"));
+  return fs.mkdtempSync(path.join(os.tmpdir(), "mia-session-index-"));
 }
 
 test("listClaudeSessions uses history titles and jsonl previews", () => {

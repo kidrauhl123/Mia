@@ -1,7 +1,7 @@
 (function attachSendPipeline(root, factory) {
   const api = factory();
   if (typeof module === "object" && module.exports) module.exports = api;
-  if (root) root.aimashiSendPipeline = api;
+  if (root) root.miaSendPipeline = api;
 })(typeof window !== "undefined" ? window : (typeof globalThis !== "undefined" ? globalThis : null), function buildSendPipeline() {
   // TODO(task 5.2): replace inline MemberKind literals with
   // `require("./conversation-kinds").MemberKind` once Stage 5 lands.

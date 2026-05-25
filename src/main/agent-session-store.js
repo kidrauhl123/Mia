@@ -36,7 +36,7 @@ function createAgentSessionStore(deps = {}) {
   function sessionKey(engine, fellowKey, sessionId) {
     return [
       normalizeFellowAgentEngine(engine),
-      String(fellowKey || "aimashi").trim() || "aimashi",
+      String(fellowKey || "mia").trim() || "mia",
       String(sessionId || "default").trim() || "default"
     ].join(":");
   }

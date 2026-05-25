@@ -4,7 +4,7 @@ dist/
 out/
 release/
 vendor/hermes-runtime/
-.aimashi-cloud/
+.mia-cloud/
 test-results/
 .DS_Store
 npm-debug.log*

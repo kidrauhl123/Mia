@@ -11,7 +11,7 @@
 (function () {
   "use strict";
 
-  let state, els, aimashi;
+  let state, els, mia;
   let fallbackSlashCommands;
   let loadSkills, renderAttachmentThumb, renderSendButton, resizeChatInput;
   let appendTransientChat, cryptoRandomId, activeSession;
@@ -22,7 +22,7 @@
   function initComposer(deps) {
     state = deps.state;
     els = deps.els;
-    aimashi = deps.aimashi || (typeof window !== "undefined" ? window.aimashi : null);
+    mia = deps.mia || (typeof window !== "undefined" ? window.mia : null);
     fallbackSlashCommands = deps.fallbackSlashCommands || [];
     loadSkills = deps.loadSkills;
     renderAttachmentThumb = deps.renderAttachmentThumb;
@@ -36,7 +36,7 @@
   function filteredSlashCommands() {
     if (!state) return [];
     const filter = state.slashFilter.replace(/^\//, "").trim().toLowerCase();
-    const engine = window.aimashiEngineOptions.activeAgentEngine();
+    const engine = window.miaEngineOptions.activeAgentEngine();
     const commands = engine === "claude-code" || engine === "codex"
       ? (state.agentSlashCommands[engine] || [])
       : (state.slashCommands || fallbackSlashCommands);
@@ -51,7 +51,7 @@
     if (!command.startsWith("/")) return null;
     const argsText = input.slice(command.length).trim();
     const args = argsText ? argsText.split(/\s+/).filter(Boolean) : [];
-    const engine = window.aimashiEngineOptions.activeAgentEngine();
+    const engine = window.miaEngineOptions.activeAgentEngine();
     if (engine !== "claude-code" && engine !== "codex") return null;
     const found = (state.agentSlashCommands[engine] || []).find((item) => String(item.command || "").toLowerCase() === command);
     return found ? { engine, command, args, item: found } : null;
@@ -60,7 +60,7 @@
   async function outgoingMessageForSubmit(text) {
     const invocation = externalSlashInvocation(text);
     if (!invocation || invocation.item.type !== "custom") return text;
-    const result = await window.aimashi.executeAgentCommand?.({
+    const result = await window.mia.executeAgentCommand?.({
       engine: invocation.engine,
       commandName: invocation.command,
       commandPath: invocation.item.path,
@@ -99,9 +99,9 @@
       return;
     }
     els.slashCommandMenu.innerHTML = commands.map((item, index) => `
-      <button type="button" class="slash-command-item${index === state.slashSelectedIndex ? " active" : ""}" data-command="${window.aimashiMarkdown.escapeHtml(item.command)}">
-        <span class="slash-command-token">${window.aimashiMarkdown.escapeHtml(item.command)}</span>
-        <span class="slash-command-description">${window.aimashiMarkdown.escapeHtml(item.description)}</span>
+      <button type="button" class="slash-command-item${index === state.slashSelectedIndex ? " active" : ""}" data-command="${window.miaMarkdown.escapeHtml(item.command)}">
+        <span class="slash-command-token">${window.miaMarkdown.escapeHtml(item.command)}</span>
+        <span class="slash-command-description">${window.miaMarkdown.escapeHtml(item.description)}</span>
       </button>
     `).join("");
     els.slashCommandMenu.querySelectorAll("[data-command]").forEach((button) => {
@@ -129,11 +129,11 @@
     const attachments = state.pendingAttachments;
     els.composerAttachments.classList.toggle("hidden", attachments.length === 0);
     els.composerAttachments.innerHTML = attachments.map((attachment) => `
-      <div class="composer-attachment${attachment.thumbnailDataUrl ? " image" : ""}" title="${window.aimashiMarkdown.escapeHtml(attachment.path || attachment.name)}">
+      <div class="composer-attachment${attachment.thumbnailDataUrl ? " image" : ""}" title="${window.miaMarkdown.escapeHtml(attachment.path || attachment.name)}">
         <span class="composer-attachment-kind">${renderAttachmentThumb(attachment, "composer-attachment-thumb")}</span>
-        <span class="composer-attachment-name">${window.aimashiMarkdown.escapeHtml(attachment.name || "附件")}</span>
-        <span class="composer-attachment-size">${window.aimashiMarkdown.escapeHtml(window.aimashiFormat.formatBytes(attachment.size))}</span>
-        <button type="button" data-attachment-remove="${window.aimashiMarkdown.escapeHtml(attachment.id)}" title="移除附件" aria-label="移除附件">×</button>
+        <span class="composer-attachment-name">${window.miaMarkdown.escapeHtml(attachment.name || "附件")}</span>
+        <span class="composer-attachment-size">${window.miaMarkdown.escapeHtml(window.miaFormat.formatBytes(attachment.size))}</span>
+        <button type="button" data-attachment-remove="${window.miaMarkdown.escapeHtml(attachment.id)}" title="移除附件" aria-label="移除附件">×</button>
       </div>
     `).join("");
     els.composerAttachments.querySelectorAll("[data-attachment-remove]").forEach((button) => {
@@ -234,22 +234,22 @@
     els.skillPickerBody.innerHTML = `
       <aside class="skill-picker-plugins">
         ${plugins.map((plugin) => `
-          <button class="${plugin.id === state.skillPickerPluginId ? "active" : ""}" type="button" data-skill-picker-plugin="${window.aimashiMarkdown.escapeHtml(plugin.id)}">
-            <span>${window.aimashiMarkdown.escapeHtml(plugin.label || plugin.name)}</span>
+          <button class="${plugin.id === state.skillPickerPluginId ? "active" : ""}" type="button" data-skill-picker-plugin="${window.miaMarkdown.escapeHtml(plugin.id)}">
+            <span>${window.miaMarkdown.escapeHtml(plugin.label || plugin.name)}</span>
             <em>${pluginCounts[plugin.id] || plugin.skillCount || 0}</em>
           </button>
         `).join("")}
       </aside>
       <section class="skill-picker-skills">
         <header>
-          <span>${window.aimashiMarkdown.escapeHtml(needle ? "搜索结果" : (currentPlugin?.label || "Skills"))}</span>
+          <span>${window.miaMarkdown.escapeHtml(needle ? "搜索结果" : (currentPlugin?.label || "Skills"))}</span>
           <em>${filtered.length}</em>
         </header>
         <div class="skill-picker-list">
           ${filtered.length ? filtered.map((skill) => `
-            <button class="skill-picker-item" type="button" data-skill-pick="${window.aimashiMarkdown.escapeHtml(skill.name)}">
-              <strong>${window.aimashiMarkdown.escapeHtml(skill.name)}</strong>
-              <small>${window.aimashiMarkdown.escapeHtml((skill.description || window.aimashiSkillHelpers.skillSummaryZh(skill) || "").slice(0, 108))}</small>
+            <button class="skill-picker-item" type="button" data-skill-pick="${window.miaMarkdown.escapeHtml(skill.name)}">
+              <strong>${window.miaMarkdown.escapeHtml(skill.name)}</strong>
+              <small>${window.miaMarkdown.escapeHtml((skill.description || window.miaSkillHelpers.skillSummaryZh(skill) || "").slice(0, 108))}</small>
             </button>
           `).join("") : `<div class="skill-picker-empty">${state.skillsLoading ? "正在加载…" : "没有匹配的 Skill"}</div>`}
         </div>
@@ -281,7 +281,7 @@
       let thumbnailDataUrl = "";
       try {
         thumbnailDataUrl = await thumbnailDataUrlForFile(file);
-        filePath = await window.aimashi.filePathForFile?.(file);
+        filePath = await window.mia.filePathForFile?.(file);
         if (!filePath) {
           saved = await saveBrowserFileAttachment(file, thumbnailDataUrl);
           filePath = saved?.path || "";
@@ -300,7 +300,7 @@
         path: filePath || "",
         mime: saved?.mime || file.type || "",
         size: saved?.size || file.size || 0,
-        kind: saved?.kind || window.aimashiFormat.attachmentKind(file),
+        kind: saved?.kind || window.miaFormat.attachmentKind(file),
         thumbnailDataUrl: saved?.thumbnailDataUrl || thumbnailDataUrl || ""
       });
     }
@@ -357,7 +357,7 @@
       return null;
     }
     const dataUrl = await readFileAsDataUrl(file);
-    return window.aimashi.saveAttachment?.({
+    return window.mia.saveAttachment?.({
       name: file.name || "attachment",
       mime: file.type || "",
       size: file.size || 0,
@@ -398,7 +398,7 @@
     els.chatInput.focus();
   }
 
-  window.aimashiComposer = {
+  window.miaComposer = {
     initComposer,
     filteredSlashCommands,
     externalSlashInvocation,

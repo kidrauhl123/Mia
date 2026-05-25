@@ -8,7 +8,7 @@ const { createTasksEventBus } = require("../src/main/tasks-events.js");
 const { createTasksRoutes } = require("../src/main/tasks-routes.js");
 
 function ctx() {
-  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-routes-")), "tasks.json");
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "mia-routes-")), "tasks.json");
   const store = createTasksStore(file);
   const events = createTasksEventBus();
   const fired = [];

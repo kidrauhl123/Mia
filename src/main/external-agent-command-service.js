@@ -13,7 +13,7 @@ const EXTERNAL_AGENT_BUILT_IN_COMMANDS = [
   { command: "/config", name: "/config", description: "查看当前 Fellow 的本地引擎配置入口", namespace: "builtin", type: "builtin" },
   { command: "/status", name: "/status", description: "查看本地 CLI、模型、权限和外部会话", namespace: "builtin", type: "builtin" },
   { command: "/permissions", name: "/permissions", description: "查看当前本地引擎权限", namespace: "builtin", type: "builtin" },
-  { command: "/resume", name: "/resume", description: "把当前 Aimashi 会话绑定到指定外部 session", namespace: "builtin", type: "builtin" },
+  { command: "/resume", name: "/resume", description: "把当前 Mia 会话绑定到指定外部 session", namespace: "builtin", type: "builtin" },
   { command: "/rewind", name: "/rewind", description: "提示如何回退当前对话", namespace: "builtin", type: "builtin" }
 ];
 
@@ -148,7 +148,7 @@ function createExternalAgentCommandService(deps = {}) {
     ].filter(Boolean).join("\n");
   }
 
-  function aimashiSessionTitleForAgentBinding(localSessionId, fellow) {
+  function miaSessionTitleForAgentBinding(localSessionId, fellow) {
     const id = String(localSessionId || "").trim();
     const fellowKey = String(fellow?.key || "").trim();
     if (!id || id.startsWith("title:") || id.startsWith("utility:")) return null;
@@ -158,8 +158,8 @@ function createExternalAgentCommandService(deps = {}) {
       const session = sessions.find((item) => item.id === id);
       if (session) {
         return {
-          title: session.title || "Aimashi 对话",
-          preview: `${fellow?.name || fellowKey || "当前 Fellow"} 的 Aimashi 对话`,
+          title: session.title || "Mia 对话",
+          preview: `${fellow?.name || fellowKey || "当前 Fellow"} 的 Mia 对话`,
           updatedAt: Date.parse(session.updatedAt || session.createdAt || "") || 0
         };
       }
@@ -167,8 +167,8 @@ function createExternalAgentCommandService(deps = {}) {
       // Fall through to a generic label.
     }
     return {
-      title: "Aimashi 对话",
-      preview: `${fellow?.name || fellowKey || "当前 Fellow"} 的 Aimashi 对话`,
+      title: "Mia 对话",
+      preview: `${fellow?.name || fellowKey || "当前 Fellow"} 的 Mia 对话`,
       updatedAt: 0
     };
   }
@@ -186,7 +186,7 @@ function createExternalAgentCommandService(deps = {}) {
       const localSessionId = key.slice(prefix.length);
       const externalId = agentSessionEntryId(entry);
       if (!externalId || rowsByExternalId.has(externalId)) continue;
-      const local = aimashiSessionTitleForAgentBinding(localSessionId, fellow);
+      const local = miaSessionTitleForAgentBinding(localSessionId, fellow);
       if (!local) continue;
       const external = metadata.get(externalId) || {};
       rowsByExternalId.set(externalId, {
@@ -232,7 +232,7 @@ function createExternalAgentCommandService(deps = {}) {
       return `当前权限模式：${config.permissionMode || "default"}。\n可以用底部权限选择器切换这个 Fellow 的本地引擎权限。`;
     }
     if (command === "/clear") {
-      return "Aimashi 还没有把 /clear 接到当前会话清空动作。现在可以用顶部新对话按钮开启干净会话。";
+      return "Mia 还没有把 /clear 接到当前会话清空动作。现在可以用顶部新对话按钮开启干净会话。";
     }
     if (command === "/cost") {
       return "当前 GUI 通道暂未保存外部 CLI 的 token/cost 汇总。Claude Code 或 Codex CLI 自己的用量以本机 CLI 配置为准。";
@@ -292,10 +292,10 @@ function createExternalAgentCommandService(deps = {}) {
       } else {
         setAgentSessionId(engine, fellow.key, sessionId, next);
       }
-      return `已把当前 Aimashi 会话绑定到外部 session：${next}\n下一条消息会从这个 session 继续。`;
+      return `已把当前 Mia 会话绑定到外部 session：${next}\n下一条消息会从这个 session 继续。`;
     }
     if (command === "/rewind") {
-      return `Aimashi 还没有把 /rewind 接到会话回退动作。参数：${argText || "默认 1 步"}。`;
+      return `Mia 还没有把 /rewind 接到会话回退动作。参数：${argText || "默认 1 步"}。`;
     }
     if (command === "/help") {
       return [
@@ -307,7 +307,7 @@ function createExternalAgentCommandService(deps = {}) {
         "/cost - 查看 GUI 可见的用量状态",
         "/memory - 查看当前项目 CLAUDE.md 状态",
         "/config - 查看当前配置入口",
-        "/resume <session-id> - 切换当前 Aimashi 会话绑定的外部 session",
+        "/resume <session-id> - 切换当前 Mia 会话绑定的外部 session",
         "/rewind - 提示如何回退对话",
         "Claude Code 自定义命令会从 .claude/commands 和 ~/.claude/commands 扫描。"
       ].join("\n");

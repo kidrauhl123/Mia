@@ -12,7 +12,7 @@
   "use strict";
 
   function tileStyle(image, crop, color) {
-    const helper = global.aimashiAvatar?.avatarThumbBackgroundStyle;
+    const helper = global.miaAvatar?.avatarThumbBackgroundStyle;
     const fallback = `background-color:${color || "#5e5ce6"};`;
     if (typeof helper !== "function" || !image) return fallback;
     const style = helper(image, crop, color || "#5e5ce6");
@@ -34,5 +34,5 @@
     }
   }
 
-  global.aimashiGroupAvatar = { applyGroupAvatar, tileStyle };
+  global.miaGroupAvatar = { applyGroupAvatar, tileStyle };
 })(typeof window !== "undefined" ? window : globalThis);

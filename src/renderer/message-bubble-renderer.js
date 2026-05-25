@@ -2,16 +2,16 @@
   "use strict";
 
   function timeFormat() {
-    return global.aimashiTimeFormat || require("../shared/time-format");
+    return global.miaTimeFormat || require("../shared/time-format");
   }
 
   function escapeHtml(value) {
-    const h = global.aimashiMarkdown?.escapeHtml;
+    const h = global.miaMarkdown?.escapeHtml;
     if (typeof h === "function") return h(value);
     return String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[c]));
   }
   function renderMd(md) {
-    const fn = global.aimashiMarkdown?.renderMarkdown;
+    const fn = global.miaMarkdown?.renderMarkdown;
     if (typeof fn === "function") { try { return fn(md); } catch { /* fall */ } }
     return escapeHtml(md);
   }
@@ -27,8 +27,8 @@
     article.setAttribute("data-message-id", spec.messageId || "");
     article.setAttribute("data-source", spec.source || "");
 
-    const avatarEl = global.aimashiContactAvatar?.renderAvatar
-      ? global.aimashiContactAvatar.renderAvatar({ displayName: spec.authorName, avatar: spec.avatar || {} })
+    const avatarEl = global.miaContactAvatar?.renderAvatar
+      ? global.miaContactAvatar.renderAvatar({ displayName: spec.authorName, avatar: spec.avatar || {} })
       : null;
     if (avatarEl) article.appendChild(avatarEl);
 
@@ -51,5 +51,5 @@
     return article;
   }
 
-  global.aimashiMessageBubble = { createMessageBubble };
+  global.miaMessageBubble = { createMessageBubble };
 })(typeof window !== "undefined" ? window : globalThis);

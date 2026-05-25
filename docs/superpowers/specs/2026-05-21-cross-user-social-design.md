@@ -1,4 +1,4 @@
-# Aimashi 跨用户社交（Cross-User Social）设计
+# Mia 跨用户社交（Cross-User Social）设计
 
 状态：已确认设计，待写实施计划
 日期：2026-05-21
@@ -7,7 +7,7 @@
 
 ### 目标
 
-在现有"对话是入口、Agent 是肉"的基础上，把 contacts 从"只有自己的 AI Fellow"扩到"还包含其他真人用户"，让 aimashi 用户之间：
+在现有"对话是入口、Agent 是肉"的基础上，把 contacts 从"只有自己的 AI Fellow"扩到"还包含其他真人用户"，让 mia 用户之间：
 
 1. **私聊**：互加好友、1:1 文字消息。MVP 必备项。
 2. **跨用户群聊**：把好友和各自的 AI Fellow 拉到同一群里，真人 + Fellow 并列为成员；群里别的真人可以 @ 我的 Fellow 跟它对话、让它办事；Fellow 在群里能区分发言来自哪个用户。
@@ -19,7 +19,7 @@
 - 消息撤回 / 编辑
 - 已读回执 / 多端未读分裂消解（多端一致只做到"消息时序 + 离线追赶"两层）
 - 富媒体（语音、视频、文件预览深度集成）—— 图片附件复用现有 cloud attachment 通道即可
-- 跨 cloud 实例联邦（同一个 aimashi cloud 内）
+- 跨 cloud 实例联邦（同一个 mia cloud 内）
 - 群语音 / 屏幕共享
 - per-friend ACL（亲近的人之间不引入细粒度权限）
 - 桌宠同屏 / 群成员桌宠互动（v2）
@@ -77,7 +77,7 @@ R 必须先于 S2。S1 可以与 R 并行（私聊不依赖 group schema）。
 
 ## 3. Contacts 模型
 
-当前 `src/cloud/sqlite-store.js` 中的 `contacts` 是种子数据列表（`contact_aimashi`、`contact_codex`），实际上是 Fellow 的展示元数据。本期不动这层语义，仅在 UI 列表层引入"contact 类型"概念，**不增加新的持久表来塞混合数据**。
+当前 `src/cloud/sqlite-store.js` 中的 `contacts` 是种子数据列表（`contact_mia`、`contact_codex`），实际上是 Fellow 的展示元数据。本期不动这层语义，仅在 UI 列表层引入"contact 类型"概念，**不增加新的持久表来塞混合数据**。
 
 UI 层 contacts 列表（侧边栏）按以下顺序拼出：
 
@@ -240,7 +240,7 @@ host 失效场景（host fellow 的主人离线、host 是云端 fellow 但 clou
 
 ### 7.4 在线状态
 
-- 云端 Fellow（runtime 在 cloud，例如 `contact_aimashi`）：始终在线
+- 云端 Fellow（runtime 在 cloud，例如 `contact_mia`）：始终在线
 - 本地 Bridge Fellow（runtime 在主人桌面端，例如 `contact_codex`）：跟随主人桌面端 Bridge 在线状态
   - 主人桌面端 Bridge 通过 `cloudBridgeClient` 注册 presence
   - cloud 维护 `fellow_presence(fellow_id, owner_id, status, updated_at)` 内存表（不持久化，重启清空）
@@ -334,13 +334,13 @@ WS 事件（沿用 `cloudEventsClient` 通道，新增事件类型）：
 
 群里某个 fellow 被调用时：
 
-- 云端 fellow（如 `contact_aimashi`）→ cloud 内部直接调度，不出 cloud
+- 云端 fellow（如 `contact_mia`）→ cloud 内部直接调度，不出 cloud
 - 本地 Bridge fellow（如 `contact_codex`）→ cloud 发 `bridge.run` 给主人桌面端的 `cloudBridgeClient` → 桌面端跑完把结果回发 cloud → cloud 写入 messages 表并广播
 - 调用现有 `cloudBridgeAbortControllers` / `cloudBridgeState` 机制不变
 
 ## 11. 文件布局
 
-遵循 CLAUDE.md "新功能 = 新文件" 硬规则，单文件目标 100–500 行。`src/cloud/` 下的文件是 cloud server bundle（部署到 `/opt/aimashi-cloud/server.js`，见 `docs/cloud-deployment.md`），`src/main/` 是桌面端 Electron 主进程：
+遵循 CLAUDE.md "新功能 = 新文件" 硬规则，单文件目标 100–500 行。`src/cloud/` 下的文件是 cloud server bundle（部署到 `/opt/mia-cloud/server.js`，见 `docs/cloud-deployment.md`），`src/main/` 是桌面端 Electron 主进程：
 
 ```
 src/
@@ -411,7 +411,7 @@ S1 和 R 可并行。S2 严格依赖 R 与 S1。M 与 S1 同期。
 
 ## 14. 验收（功能层）
 
-- 两个 aimashi 账号互加好友后，A 发的消息 B 桌面端 + 移动端 + Web 端按时序拿到
+- 两个 mia 账号互加好友后，A 发的消息 B 桌面端 + 移动端 + Web 端按时序拿到
 - A 创建群，拉好友 B，拉自己 Codex；B 在群里 @ Codex，A 桌面端弹确认（默认 `ask`），A 同意后 Codex 在群里输出结果
 - A 把自己 Codex 在该群权限调成 `yolo`，B 后续 @ Codex 不再弹 A 确认
 - A 桌面端离线时，群里 @ A 的 Codex，群里看到 "[Codex] 离线"，A 上线后不补发但群历史可见

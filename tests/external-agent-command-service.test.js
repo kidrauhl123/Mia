@@ -38,7 +38,7 @@ function makeService(overrides = {}) {
 }
 
 test("executeCommand renders a custom command only from allowed command roots", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-agent-command-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-agent-command-"));
   const projectPath = path.join(dir, "repo");
   const commandRoot = path.join(projectPath, ".claude", "commands");
   const commandPath = path.join(commandRoot, "review.md");
@@ -75,7 +75,7 @@ test("executeCommand renders a custom command only from allowed command roots", 
 });
 
 test("executeCommand rejects a custom command outside allowed command roots", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-agent-command-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-agent-command-"));
   const projectPath = path.join(dir, "repo");
   const commandRoot = path.join(projectPath, ".claude", "commands");
   const outsidePath = path.join(dir, "outside.md");
@@ -125,7 +125,7 @@ test("runSlashCommand reports external agent status from injected engine and ses
   assert.match(result, /外部会话：thread_1/);
 });
 
-test("runSlashCommand lists Aimashi-bound external sessions before raw CLI history", () => {
+test("runSlashCommand lists Mia-bound external sessions before raw CLI history", () => {
   const candidateId = "22222222-2222-4333-8444-555555555555";
   const currentId = "11111111-2222-4333-8444-555555555555";
   const { service } = makeService({
@@ -139,7 +139,7 @@ test("runSlashCommand lists Aimashi-bound external sessions before raw CLI histo
         alice: [
           {
             id: "local_2",
-            title: "Aimashi 里的旧会话",
+            title: "Mia 里的旧会话",
             createdAt: "2026-05-20T00:00:00.000Z",
             updatedAt: "2026-05-21T00:00:00.000Z"
           }
@@ -163,8 +163,8 @@ test("runSlashCommand lists Aimashi-bound external sessions before raw CLI histo
   assert.deepEqual(result.commandResult.rows, [
     {
       id: candidateId,
-      title: "Aimashi 里的旧会话",
-      preview: "Alice 的 Aimashi 对话 · /repo",
+      title: "Mia 里的旧会话",
+      preview: "Alice 的 Mia 对话 · /repo",
       project: "/repo",
       updatedAt: Date.parse("2026-05-21T00:00:00.000Z")
     }

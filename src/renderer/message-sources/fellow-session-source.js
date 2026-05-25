@@ -2,10 +2,10 @@
   "use strict";
 
   function spec() {
-    return global.aimashiMessageSpec || require("../../shared/message-spec");
+    return global.miaMessageSpec || require("../../shared/message-spec");
   }
   function contact() {
-    return global.aimashiContact || require("../../shared/contact");
+    return global.miaContact || require("../../shared/contact");
   }
 
   function createFellowSessionSource({ session, persona, ctx }) {
@@ -39,5 +39,5 @@
     return { kind: "fellow-session", id: session.id, listMessages };
   }
 
-  global.aimashiFellowSessionSource = { createFellowSessionSource };
+  global.miaFellowSessionSource = { createFellowSessionSource };
 })(typeof window !== "undefined" ? window : globalThis);

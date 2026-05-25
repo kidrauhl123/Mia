@@ -41,7 +41,7 @@
 
 **Topbar for DM rooms**: `renderRoomChat(els.chat)` writes directly to `#activeChatName`, `#activeChatMeta`, `#activeChatAvatar` after the outer `render()` sets them (double-write, but render runs last). Hides session-menu, composer-bottom, group-info-button. Acceptable for alpha; revisit if visible flicker is reported.
 
-**Enter to send in DM room**: Reuses the existing `#chatForm submit` path (same as fellow and group). DM branch checks `window.aimashiSocial.getActiveRoomId()` first. Shift+Enter newline works automatically (existing composer behavior).
+**Enter to send in DM room**: Reuses the existing `#chatForm submit` path (same as fellow and group). DM branch checks `window.miaSocial.getActiveRoomId()` first. Shift+Enter newline works automatically (existing composer behavior).
 
 **Input clears after DM send**: `els.chatInput.value = ""` and `resizeChatInput()` called before the async send, same pattern as group.
 
@@ -51,17 +51,17 @@
 
 **CSS shared between fellow chat and DM chat**: DM sidebar cards use the same `persona message-card private-message-card` classes as fellow cards. DM chat messages use the same `message user` / `message assistant` article classes. Composer classes shared. Difference: DM has no `.persona-side` timestamp or unread badge in the sidebar card (deferred — not enough data without a read-state store for rooms).
 
-**No unread badge for DM rooms**: Not implemented. `window.aimashiSessionReadState` is tied to fellow sessions; DM rooms use a separate message cache with no per-room read cursor. Deferred to a future PR.
+**No unread badge for DM rooms**: Not implemented. `window.miaSessionReadState` is tied to fellow sessions; DM rooms use a separate message cache with no per-room read cursor. Deferred to a future PR.
 
 **No timestamp in DM sidebar row**: The `persona-side` span with time is omitted from the DM card template. Can be added once we have a `formatConversationTime(updatedAt)` call wired in.
 
-**avatarColorForKey not exposed on aimashiAvatar**: The helper doesn't exist on the global; DM sidebar cards fall back to a fixed `#5e5ce6`. The social module itself uses a deterministic hash from room id. Logged here so the UX polish pass knows to add it.
+**avatarColorForKey not exposed on miaAvatar**: The helper doesn't exist on the global; DM sidebar cards fall back to a fixed `#5e5ce6`. The social module itself uses a deterministic hash from room id. Logged here so the UX polish pass knows to add it.
 
 **DM room "lazy-create on first send"**: Already decided in Phase 2a — the cloud creates the DM room when friendship is accepted (not on first message). So the room always exists before the user sees the conversation entry.
 
 **friend_added outgoing/incoming cleanup**: Uses `to_user` / `from_user` field matching (the user-id stored in the request row) rather than username matching, since usernames can change. If the API stores username as `to_user` instead of id, this may need adjustment.
 
-**sendInActiveRoom exposed on aimashiSocial**: Added as the 10th export so app.js's form submit can call it. Not listed in the original spec but required for the send path.
+**sendInActiveRoom exposed on miaSocial**: Added as the 10th export so app.js's form submit can call it. Not listed in the original spec but required for the send path.
 
 **Things not done / deferred**:
 - No unread indicator for DM rooms
@@ -91,7 +91,7 @@ Track for future S2-polish work.
 
 **Room members cache strategy**: fetched on first open of a group room (`_fetchAndCacheRoomMembers`) and cached in `_roomMembersCache` (a `Map` in social-groups.js via `_internalCtx`). Also populated from the `POST /api/rooms` response when creating a group. NOT refreshed on every send — once cached, stays until page reload or explicit update via `social.room_invited` event (not yet patching on `room_invited`). Rationale: member list changes rarely in the demo scenario; full refresh-on-send was deemed excessive. Deferred: live member updates via WS.
 
-**`sendChatStateless` path**: `window.aimashi.sendChatStateless(...)` — confirmed at `src/preload.js` line 41 as `ipcRenderer.invoke("chat:send-stateless", payload)` and in `src/main.js` line 6360. Path is the assumed path. No adjustment needed.
+**`sendChatStateless` path**: `window.mia.sendChatStateless(...)` — confirmed at `src/preload.js` line 41 as `ipcRenderer.invoke("chat:send-stateless", payload)` and in `src/main.js` line 6360. Path is the assumed path. No adjustment needed.
 
 **Fellows list shape**: `state.runtime?.fellows || state.runtime?.personas || []`, with `fellow.key || fellow.id` as the id field and `fellow.name` for display. Confirmed by grepping app.js lines 834, 1046, 1440. Same dual-field lookup used in `handleFellowInvocation` and `_renderCreateGroupModal`.
 
@@ -101,7 +101,7 @@ Track for future S2-polish work.
 
 **Mention parsing in group send**: `/@(\w+)/g` regex. Only sends `mentions` array if at least one mention matched a fellow in the cached members list. Mentions not matching a known fellow in the room are dropped silently (user may have @-ed a non-fellow or a mistyped name). Rationale: safer to drop than to fail the send.
 
-**social.js split**: extracted group-specific code (~325 lines) into `src/renderer/social/social-groups.js` because social.js would have exceeded 900 lines. `social-groups.js` is a separate IIFE loaded after `social.js` via a new `<script>` tag in `index.html`. Shared state is passed via `window.aimashiSocial._internalCtx` (a getter-based object exposing `moduleState`, `deps`, `roomMembersCache`, and helper functions). `social-groups.js` auto-attaches on load.
+**social.js split**: extracted group-specific code (~325 lines) into `src/renderer/social/social-groups.js` because social.js would have exceeded 900 lines. `social-groups.js` is a separate IIFE loaded after `social.js` via a new `<script>` tag in `index.html`. Shared state is passed via `window.miaSocial._internalCtx` (a getter-based object exposing `moduleState`, `deps`, `roomMembersCache`, and helper functions). `social-groups.js` auto-attaches on load.
 
 **Things skipped / deferred**:
 - Editing group name or leaving a group (no UI)

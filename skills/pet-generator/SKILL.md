@@ -1,13 +1,13 @@
 ---
 name: pet-generator
-description: Create, repair, validate, visually QA, and package Aimashi/Codex-compatible animated desktop pets and pet spritesheets from character art, generated images, company or prospect brand cues, or visual references. Use when a user wants a flexible desktop pet workflow, a non-pixel custom pet style, a prospect or company mascot pet, or a full 8x9 animated pet atlas with transparent unused cells, QA contact sheets, and pet.json packaging. This skill composes the installed $imagegen system skill for visual generation and uses bundled scripts for deterministic spritesheet assembly.
+description: Create, repair, validate, visually QA, and package Mia/Codex-compatible animated desktop pets and pet spritesheets from character art, generated images, company or prospect brand cues, or visual references. Use when a user wants a flexible desktop pet workflow, a non-pixel custom pet style, a prospect or company mascot pet, or a full 8x9 animated pet atlas with transparent unused cells, QA contact sheets, and pet.json packaging. This skill composes the installed $imagegen system skill for visual generation and uses bundled scripts for deterministic spritesheet assembly.
 ---
 
 # Pet Generator
 
 ## Overview
 
-Create an Aimashi/Codex-compatible animated desktop pet from a concept, brand cue, company/prospect name, one or more reference images, or any combination of those inputs. This workflow keeps the deterministic pet-generation pipeline for atlas geometry, validation, visual QA, and packaging, while using concise state-specific prompts and allowing any pet-safe visual style.
+Create an Mia/Codex-compatible animated desktop pet from a concept, brand cue, company/prospect name, one or more reference images, or any combination of those inputs. This workflow keeps the deterministic pet-generation pipeline for atlas geometry, validation, visual QA, and packaging, while using concise state-specific prompts and allowing any pet-safe visual style.
 
 User-facing inputs are optional. If the user omits a pet name, infer one from the concept, brand, company, or reference filenames; if that is not possible, choose a short friendly name. If the user omits a description, infer one from the concept or references. If the user omits reference images, generate the base pet from text first, then use that base as the canonical reference for every animation row.
 

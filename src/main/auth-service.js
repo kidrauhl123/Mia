@@ -195,7 +195,7 @@ function createAuthService({
   async function startCodexOAuth() {
     initializeRuntime();
     if (!isEngineInstalled()) {
-      throw new Error("Hermes engine is not installed in Aimashi runtime.");
+      throw new Error("Hermes engine is not installed in Mia runtime.");
     }
     if (authProcess || authState.codexStarting) return getRuntimeStatus();
 
@@ -267,7 +267,7 @@ function createAuthService({
   function startProviderOAuth(input = {}) {
     initializeRuntime();
     if (!isEngineInstalled()) {
-      throw new Error("Hermes engine is not installed in Aimashi runtime.");
+      throw new Error("Hermes engine is not installed in Mia runtime.");
     }
     const provider = String(input.provider || "").trim();
     if (!provider) throw new Error("Provider is required.");
@@ -295,7 +295,7 @@ function createAuthService({
       env: {
         ...process.env,
         HERMES_HOME: effectiveHermesHome(),
-        AIMASHI_HOME: p.home,
+        MIA_HOME: p.home,
         PYTHONPATH: buildPythonPath()
       },
       stdio: ["ignore", "pipe", "pipe"]

@@ -121,8 +121,8 @@ function createEngineRuntimeConfigService(deps = {}) {
       "",
       "agent:",
       `  reasoning_effort: ${JSON.stringify(reasoningEffort)}`,
-      // Scheduling is owned by aimashi's app-maintained scheduler (the
-      // aimashi-scheduler MCP below), which delivers reminders back into the
+      // Scheduling is owned by mia's app-maintained scheduler (the
+      // mia-scheduler MCP below), which delivers reminders back into the
       // chat. Disable Hermes' built-in cronjob toolset so the fellow routes
       // through the app scheduler instead of Hermes' own cron (whose output
       // never reaches the desktop UI).
@@ -147,7 +147,7 @@ function createEngineRuntimeConfigService(deps = {}) {
       // infers stdio transport when no url is present (see Hermes mcp_tool).
       const mcpYaml = yaml.dump({
         mcp_servers: {
-          "aimashi-scheduler": {
+          "mia-scheduler": {
             command: schedulerSpec.command,
             args: schedulerSpec.args || [],
             env: schedulerSpec.env || {}
@@ -157,7 +157,7 @@ function createEngineRuntimeConfigService(deps = {}) {
       lines.push(mcpYaml, "");
     }
     lines.push(
-      "aimashi:",
+      "mia:",
       "  runtime_schema: 1",
       "  fellows_manifest: fellows/manifest.json",
       ""

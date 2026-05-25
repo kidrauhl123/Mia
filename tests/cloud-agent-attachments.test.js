@@ -12,7 +12,7 @@ const {
 } = require("../src/cloud-agent/attachment-materializer.js");
 
 function setup() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-cloud-agent-attachments-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-cloud-agent-attachments-"));
   const cloudStore = createCloudStore({ dataDir: dir });
   const alice = cloudStore.registerUser({ username: "alice", password: "123456" }).user;
   const bob = cloudStore.registerUser({ username: "bob", password: "123456" }).user;

@@ -24,7 +24,7 @@ function createStartupTimer({ scope = "startup", logger = console } = {}) {
       .filter((key) => !["label", "elapsedMs", "at"].includes(key))
       .map((key) => `${key}=${entry[key]}`)
       .join(" ");
-    const line = `[Aimashi:${scope}] ${entry.label} +${elapsedMs}ms${suffix ? ` ${suffix}` : ""}`;
+    const line = `[Mia:${scope}] ${entry.label} +${elapsedMs}ms${suffix ? ` ${suffix}` : ""}`;
     if (logger && typeof logger.info === "function") logger.info(line);
     else if (logger && typeof logger.log === "function") logger.log(line);
     return entry;

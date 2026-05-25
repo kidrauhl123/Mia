@@ -55,7 +55,7 @@ function setup(overrides = {}) {
     isDaemonProcess: false,
     isDaemonEnabled: () => false,
     cloudBridgeUrl: () => "wss://cloud.example/api/bridge?deviceName=Mac",
-    cloudWebSocketProtocols: (s) => [`aimashi-token.${s.token}`],
+    cloudWebSocketProtocols: (s) => [`mia-token.${s.token}`],
     createActiveCodexChatAdapter: () => ({
       sendChat: async (args) => {
         calls.chat.push(args);
@@ -109,7 +109,7 @@ test("start opens one bridge socket and ready updates status", () => {
 
   assert.equal(sockets.length, 1);
   assert.equal(sockets[0].url, "wss://cloud.example/api/bridge?deviceName=Mac");
-  assert.deepEqual(sockets[0].protocols, ["aimashi-token.tok_1"]);
+  assert.deepEqual(sockets[0].protocols, ["mia-token.tok_1"]);
 
   sockets[0].emit("message", JSON.stringify({ type: "bridge_ready", deviceId: "dev_1" }));
 

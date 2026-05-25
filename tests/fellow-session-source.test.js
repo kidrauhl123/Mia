@@ -10,10 +10,10 @@ function loadSource() {
   const src = fs.readFileSync(path.join(__dirname, "..", "src", "renderer", "message-sources", "fellow-session-source.js"), "utf8");
   const window = {};
   const ctx = vm.createContext({ window, globalThis: window, module: { exports: {} }, require, console });
-  vm.runInContext("globalThis.aimashiMessageSpec = (function(){ const module = { exports: {} }; " + sharedSpec + "; return module.exports; })();", ctx);
-  vm.runInContext("globalThis.aimashiContact = (function(){ const module = { exports: {} }; " + sharedContact + "; return module.exports; })();", ctx);
+  vm.runInContext("globalThis.miaMessageSpec = (function(){ const module = { exports: {} }; " + sharedSpec + "; return module.exports; })();", ctx);
+  vm.runInContext("globalThis.miaContact = (function(){ const module = { exports: {} }; " + sharedContact + "; return module.exports; })();", ctx);
   vm.runInContext(src, ctx);
-  return window.aimashiFellowSessionSource;
+  return window.miaFellowSessionSource;
 }
 
 test("FellowSessionSource maps user message to spec", () => {

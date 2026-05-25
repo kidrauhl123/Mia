@@ -23,7 +23,7 @@ function cloudBridgeRunDialogOptions(message = {}) {
   const preview = prompt.length > 600 ? `${prompt.slice(0, 600)}...` : prompt;
   const attachmentCount = Array.isArray(message.attachments) ? message.attachments.length : 0;
   const detail = [
-    "来源：Aimashi Cloud",
+    "来源：Mia Cloud",
     `会话：${String(message.conversationId || "default")}`,
     attachmentCount ? `附件：${attachmentCount} 个` : "",
     preview ? `\n请求内容：\n${preview}` : ""
@@ -31,7 +31,7 @@ function cloudBridgeRunDialogOptions(message = {}) {
   return {
     type: "question",
     title: "允许远程运行本机 Agent？",
-    message: "Aimashi Cloud 请求使用这台电脑的本机 Agent。",
+    message: "Mia Cloud 请求使用这台电脑的本机 Agent。",
     detail,
     buttons: ["允许本次运行", "拒绝"],
     defaultId: 1,
@@ -44,11 +44,11 @@ function cloudBridgeRunNotificationOptions(message = {}) {
   const attachmentCount = Array.isArray(message.attachments) ? message.attachments.length : 0;
   const conversationId = String(message.conversationId || "default");
   return {
-    title: "Aimashi Cloud 请求本机 Agent",
+    title: "Mia Cloud 请求本机 Agent",
     body: [
       `会话：${conversationId}`,
       attachmentCount ? `附件：${attachmentCount} 个` : "",
-      "请回到 Aimashi，在权限弹窗中选择允许或拒绝。"
+      "请回到 Mia，在权限弹窗中选择允许或拒绝。"
     ].filter(Boolean).join("\n"),
     silent: false
   };
@@ -91,7 +91,7 @@ function cloudBridgeRunPromptHtml(options = {}) {
 <body>
   <main>
     <h1>${escapeHtml(options.title || "允许远程运行本机 Agent？")}</h1>
-    <p>${escapeHtml(options.message || "Aimashi Cloud 请求使用这台电脑的本机 Agent。")}</p>
+    <p>${escapeHtml(options.message || "Mia Cloud 请求使用这台电脑的本机 Agent。")}</p>
     <pre>${escapeHtml(options.detail || "")}</pre>
     <div class="actions">
       <button data-response="0">${escapeHtml(allowLabel)}</button>
@@ -101,11 +101,11 @@ function cloudBridgeRunPromptHtml(options = {}) {
   <script>
     for (const button of document.querySelectorAll("button[data-response]")) {
       button.addEventListener("click", () => {
-        window.location.href = "aimashi-permission://response/" + encodeURIComponent(button.dataset.response);
+        window.location.href = "mia-permission://response/" + encodeURIComponent(button.dataset.response);
       });
     }
     window.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") window.location.href = "aimashi-permission://response/1";
+      if (event.key === "Escape") window.location.href = "mia-permission://response/1";
     });
   </script>
 </body>

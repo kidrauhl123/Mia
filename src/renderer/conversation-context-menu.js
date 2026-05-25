@@ -16,7 +16,7 @@
   "use strict";
 
   const menuItemHtml = (icon, label, attrs, danger) => {
-    const md = global.aimashiMarkdown;
+    const md = global.miaMarkdown;
     if (md && typeof md.menuItemHtml === "function") {
       return md.menuItemHtml({ icon, label, attrs, className: danger ? "danger" : "" });
     }
@@ -173,7 +173,7 @@
     });
   }
 
-  global.aimashiConversationContextMenu = {
+  global.miaConversationContextMenu = {
     openPrivateConversationMenu,
     openGroupConversationMenu,
     closeConversationContextMenu: closeMenu

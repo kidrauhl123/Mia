@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const SETUP_GUIDE_DISMISSED_KEY = "aimashi.setupGuideDismissed.v2";
+  const SETUP_GUIDE_DISMISSED_KEY = "mia.setupGuideDismissed.v2";
 
   const fallbackSlashCommands = Object.freeze([
     { command: "/new", description: "Start a new session (fresh session ID + history)" },
@@ -41,7 +41,7 @@
       startupTasks: [],
       firstRun: false,
       setupGuideDismissed: readLocal(storage, SETUP_GUIDE_DISMISSED_KEY) === "1",
-      onboardingStep: readLocal(storage, "aimashi.onboardingStep", "engine"),
+      onboardingStep: readLocal(storage, "mia.onboardingStep", "engine"),
       onboardingPickedEngine: "",
       forceScrollToBottom: false,
       sessionMenuOpen: false,
@@ -124,7 +124,7 @@
     };
   }
 
-  window.aimashiAppState = {
+  window.miaAppState = {
     SETUP_GUIDE_DISMISSED_KEY,
     fallbackSlashCommands,
     createInitialState

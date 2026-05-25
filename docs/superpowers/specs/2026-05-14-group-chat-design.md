@@ -1,4 +1,4 @@
-# Aimashi 群聊（Group Chat）设计
+# Mia 群聊（Group Chat）设计
 
 状态：已确认，待写实施计划
 日期：2026-05-14
@@ -7,7 +7,7 @@
 
 ### 目标
 
-为 aimashi 增加"群聊"概念：用户可以把多个 Fellow 拉到同一个会话里，让它们既能日常陪聊（A 场景），又能在用户挂上目标/待办后协作完成任务（B 场景）。B 由 A 自然涌现，不作为独立 IA 实体存在。
+为 mia 增加"群聊"概念：用户可以把多个 Fellow 拉到同一个会话里，让它们既能日常陪聊（A 场景），又能在用户挂上目标/待办后协作完成任务（B 场景）。B 由 A 自然涌现，不作为独立 IA 实体存在。
 
 ### 非目标（v1）
 
@@ -83,7 +83,7 @@ Message {
 沿用 `engine-home` 风格：
 
 ```
-~/Library/Application Support/Aimashi/runtime/engine-home/groups/
+~/Library/Application Support/Mia/runtime/engine-home/groups/
   manifest.json              # 所有群的元信息索引
   <group-id>/
     group.json               # 单个群的完整元信息 + decorations
@@ -149,7 +149,7 @@ user 发送 msg (含或不含 @)
   │     - 最近 3 轮"被该 Fellow 参与或 @"的完整消息（按 turn 过滤，不足 3 轮就取实际数）
   │     - 当前 turn 的用户消息
   │   按 Fellow 引擎类型走不同适配器：
-  │     - Hermes: header X-Aimashi-Group-Context 传摘要
+  │     - Hermes: header X-Mia-Group-Context 传摘要
   │     - Claude Code: 拼到 SDK 调用的 user message 前面
   │     - Codex: 拼到 SDK 调用的 user message 前面
   │   流式响应回 renderer，写入 messages.jsonl
@@ -192,9 +192,9 @@ user 发送 msg (含或不含 @)
 
 ### Hermes Fellow
 
-- 现有：`X-Aimashi-Fellow` header 标识当前 Fellow
-- 新增：`X-Aimashi-Group-Context` header（base64-encoded JSON），含摘要 + 被 @ 历史
-- `aimashi_plugins/fellow_overlay.py` 扩展：识别新 header，将群上下文拼到临时 system prompt
+- 现有：`X-Mia-Fellow` header 标识当前 Fellow
+- 新增：`X-Mia-Group-Context` header（base64-encoded JSON），含摘要 + 被 @ 历史
+- `mia_plugins/fellow_overlay.py` 扩展：识别新 header，将群上下文拼到临时 system prompt
 
 ### Claude Code Fellow / Codex Fellow
 
@@ -223,7 +223,7 @@ user 发送 msg (含或不含 @)
 
 ## 8. 组件 & 文件清单
 
-**技术栈约束**：沿用现有 aimashi 风格——vanilla JS（无 React、无 TS、无构建链），扁平文件布局（与 `src/renderer/app.js`、`src/renderer/pet.js` 同级），renderer 侧 IPC 通过现有 `preload.js` 暴露 API。
+**技术栈约束**：沿用现有 mia 风格——vanilla JS（无 React、无 TS、无构建链），扁平文件布局（与 `src/renderer/app.js`、`src/renderer/pet.js` 同级），renderer 侧 IPC 通过现有 `preload.js` 暴露 API。
 
 ### 新增
 
@@ -248,11 +248,11 @@ resources/conductor/
 ### 改动
 
 - `src/main.js`：注册 group-store / group-adapters 的 IPC handler
-- `src/preload.js`：暴露 `aimashi.groups.*` API
+- `src/preload.js`：暴露 `mia.groups.*` API
 - `src/renderer/app.js`：侧边栏渲染能区分"群"和"1v1"条目；@ composer 复用现有 input；从 app.js 转发到 `group.js`
 - `src/renderer/index.html` / `styles.css`：群相关 DOM 节点和样式
-- `runtime/hermes-engine/aimashi_plugins/fellow_overlay.py`：识别 `X-Aimashi-Group-Context` header
-- `engine-home/aimashi-sessions.json`：扩展 schema 支持 group sessions（保持向前兼容旧 1v1 session）
+- `runtime/hermes-engine/mia_plugins/fellow_overlay.py`：识别 `X-Mia-Group-Context` header
+- `engine-home/mia-sessions.json`：扩展 schema 支持 group sessions（保持向前兼容旧 1v1 session）
 
 ## 9. 测试策略
 
@@ -299,4 +299,4 @@ resources/conductor/
 - AutoGen GroupChat manager（调度模式）
 - CrewAI（任务化角色协作）
 - WeChat / Telegram / 飞书（群 UX：@、reply、群通知机器人）
-- aimashi 本身的 Fellow + 引擎 + 桌宠抽象（这是设计的 anchor，所有选择以"贴合 aimashi 资产"为准）
+- mia 本身的 Fellow + 引擎 + 桌宠抽象（这是设计的 anchor，所有选择以"贴合 mia 资产"为准）

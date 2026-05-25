@@ -70,12 +70,12 @@ test("packaged desktop audit verifies the current same-account bridge policy is 
 });
 
 test("release archive checksum audit rejects stale sidecars", () => {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-audit-release-"));
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-audit-release-"));
   try {
     const distDir = path.join(tempDir, "dist");
     fs.mkdirSync(distDir, { recursive: true });
-    fs.writeFileSync(path.join(distDir, "aimashi-cloud-release.tgz"), "archive");
-    fs.writeFileSync(path.join(distDir, "aimashi-cloud-release.tgz.sha256"), `${"0".repeat(64)}  aimashi-cloud-release.tgz\n`);
+    fs.writeFileSync(path.join(distDir, "mia-cloud-release.tgz"), "archive");
+    fs.writeFileSync(path.join(distDir, "mia-cloud-release.tgz.sha256"), `${"0".repeat(64)}  mia-cloud-release.tgz\n`);
     const check = checkReleaseArchiveChecksum(tempDir);
     assert.equal(check.ok, false);
     assert.equal(check.label, "release archive checksum");
@@ -98,7 +98,7 @@ test("cloud productization audit rendering is explicit about blockers", () => {
 });
 
 test("native permission proof audit requires a real reject result and current source hashes", () => {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-native-proof-"));
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-native-proof-"));
   try {
     const sourceFiles = {
       "scripts/smoke-desktop-permission.js": "smoke",
@@ -115,7 +115,7 @@ test("native permission proof audit requires a real reject result and current so
     assert.equal(missing.ok, false);
     assert.match(missing.evidence, /missing/);
 
-    const proofPath = path.join(tempDir, "dist", "aimashi-desktop-permission-manual-proof.json");
+    const proofPath = path.join(tempDir, "dist", "mia-desktop-permission-manual-proof.json");
     fs.mkdirSync(path.dirname(proofPath), { recursive: true });
     fs.writeFileSync(proofPath, JSON.stringify({
       proofVersion: 1,
@@ -186,7 +186,7 @@ test("live cloud productization audit uses public health instead of plan text", 
 });
 
 test("live public production checks pass for current release health and headers", async () => {
-  const release = require("../dist/aimashi-cloud-release/manifest.json");
+  const release = require("../dist/mia-cloud-release/manifest.json");
   const features = [
     "sqlite-store",
     "authenticated-files",
@@ -252,7 +252,7 @@ test("live ssh deploy check reports denied deploy access", async () => {
 });
 
 test("live audit passes production gate only when public release and ssh access both pass", async () => {
-  const release = require("../dist/aimashi-cloud-release/manifest.json");
+  const release = require("../dist/mia-cloud-release/manifest.json");
   const features = [
     "sqlite-store",
     "authenticated-files",

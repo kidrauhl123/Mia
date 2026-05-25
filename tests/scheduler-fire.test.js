@@ -8,7 +8,7 @@ const { createTasksStore } = require("../src/main/tasks-store.js");
 const { createFireRunner } = require("../src/main/scheduler-fire.js");
 
 function tmpStore() {
-  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-fire-")), "tasks.json");
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "mia-fire-")), "tasks.json");
   return createTasksStore(file);
 }
 

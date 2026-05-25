@@ -159,7 +159,7 @@ print(json.dumps(rows, ensure_ascii=False))
       env: {
         ...process.env,
         HERMES_HOME: effectiveHermesHome(),
-        AIMASHI_HOME: p.home,
+        MIA_HOME: p.home,
         PYTHONPATH: buildPythonPath()
       },
       encoding: "utf8",
@@ -202,7 +202,7 @@ print(json.dumps(result))
         env: {
           ...process.env,
           HERMES_HOME: effectiveHermesHome(),
-          AIMASHI_HOME: p.home,
+          MIA_HOME: p.home,
           PYTHONPATH: buildPythonPath()
         },
         encoding: "utf8",
@@ -271,7 +271,7 @@ print(json.dumps(rows, ensure_ascii=False))
       env: {
         ...process.env,
         HERMES_HOME: effectiveHermesHome(),
-        AIMASHI_HOME: p.home,
+        MIA_HOME: p.home,
         PYTHONPATH: buildPythonPath()
       },
       encoding: "utf8",

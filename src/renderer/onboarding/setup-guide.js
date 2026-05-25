@@ -72,17 +72,17 @@
     let hermesAction;
     let hermesActionLabel;
     if (source === "bundled") {
-      hermesStatus = "随 Aimashi 安装包内置，无需额外安装";
+      hermesStatus = "随 Mia 安装包内置，无需额外安装";
       hermesAvailable = true;
       hermesAction = "use-engine";
       hermesActionLabel = "使用 Hermes";
     } else if (source === "managed") {
-      hermesStatus = "Aimashi 独立 Hermes 副本已安装";
+      hermesStatus = "Mia 独立 Hermes 副本已安装";
       hermesAvailable = true;
       hermesAction = "use-engine";
       hermesActionLabel = "使用 Hermes";
     } else {
-      hermesStatus = "未安装 · 点击会装一份独立副本到 Aimashi 私有目录（不影响你自己的 hermes）";
+      hermesStatus = "未安装 · 点击会装一份独立副本到 Mia 私有目录（不影响你自己的 hermes）";
       hermesAvailable = false;
       hermesAction = "install-hermes";
       hermesActionLabel = "安装 Hermes";
@@ -152,7 +152,7 @@
     `;
   }
 
-  window.aimashiSetupGuide = {
+  window.miaSetupGuide = {
     initSetupGuide,
     detectedLocalAgentLabels,
     shouldShowSetupGuide,

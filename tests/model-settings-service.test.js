@@ -71,13 +71,13 @@ test("saveModelSelection restarts the engine only when a new api key is submitte
     providerLabel: "OpenAI",
     model: "gpt-5.3",
     apiKey: "new-key",
-    apiKeyEnv: "AIMASHI_OPENAI_KEY"
+    apiKeyEnv: "MIA_OPENAI_KEY"
   });
 
   assert.deepEqual(calls.modelWrites, [{
     provider: "openai",
     model: "gpt-5.3",
-    apiKeyEnv: "AIMASHI_OPENAI_KEY",
+    apiKeyEnv: "MIA_OPENAI_KEY",
     apiKey: "new-key",
     baseUrl: "",
     apiMode: ""
@@ -86,7 +86,7 @@ test("saveModelSelection restarts the engine only when a new api key is submitte
     provider: "openai",
     providerLabel: "OpenAI",
     authType: "api_key",
-    apiKeyEnv: "AIMASHI_OPENAI_KEY",
+    apiKeyEnv: "MIA_OPENAI_KEY",
     apiKey: "new-key",
     baseUrl: "",
     apiMode: ""

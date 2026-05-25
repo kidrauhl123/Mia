@@ -1,6 +1,6 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
-contextBridge.exposeInMainWorld("aimashiPet", {
+contextBridge.exposeInMainWorld("miaPet", {
   onMessage: (callback) => {
     const listener = (_event, payload) => {
       try { callback(payload); } catch { /* pet renderer handler error swallowed */ }

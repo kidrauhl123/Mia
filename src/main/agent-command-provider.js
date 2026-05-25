@@ -2,12 +2,12 @@ const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
 
-const AIMASHI_BRIDGE_COMMANDS = [
+const MIA_BRIDGE_COMMANDS = [
   {
     command: "/resume",
     name: "/resume",
-    description: "在 Aimashi 聊天里选择并恢复外部 agent session",
-    source: "aimashi",
+    description: "在 Mia 聊天里选择并恢复外部 agent session",
+    source: "mia",
     type: "bridge"
   }
 ];
@@ -185,7 +185,7 @@ function createAgentCommandProvider(deps = {}) {
         ? CODEX_CURATED_NATIVE_COMMANDS.map((item) => ({ ...item, engine }))
         : [];
     const custom = loadCustomCommands(engine, projectPath).map((item) => ({ ...item, engine }));
-    const bridge = AIMASHI_BRIDGE_COMMANDS.map((item) => ({ ...item, engine }));
+    const bridge = MIA_BRIDGE_COMMANDS.map((item) => ({ ...item, engine }));
     const rows = mergeCommandRows([bridge, native.map((item) => ({ ...item, engine })), custom]);
     return { native, builtIn: bridge, bridge, custom, count: rows.length, rows };
   }
@@ -197,7 +197,7 @@ function createAgentCommandProvider(deps = {}) {
 }
 
 module.exports = {
-  AIMASHI_BRIDGE_COMMANDS,
+  MIA_BRIDGE_COMMANDS,
   CODEX_CURATED_NATIVE_COMMANDS,
   createAgentCommandProvider,
   mergeCommandRows,

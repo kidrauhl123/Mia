@@ -207,4 +207,4 @@ assert.equal(runtimeTargetId({ platform: "win32", arch: "x64" }), "win-x64");
   );
 }
 
-console.log("Aimashi project structure OK");
+console.log("Mia project structure OK");

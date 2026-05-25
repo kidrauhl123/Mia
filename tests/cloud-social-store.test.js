@@ -7,7 +7,7 @@ const { createCloudStore } = require("../src/cloud/sqlite-store.js");
 const { createSocialStore } = require("../src/cloud/social-store.js");
 
 function makeStores() {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-social-test-"));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-social-test-"));
   const cloudStore = createCloudStore({ dataDir: tmpDir });
   const db = cloudStore.getDb();
   const social = createSocialStore(db);

@@ -86,11 +86,11 @@ function createHermesChatAdapter(deps = {}) {
     const headers = {
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey()}`,
-      "X-Aimashi-Fellow": fellow.key,
+      "X-Mia-Fellow": fellow.key,
       "X-Alkaka-Fellow": fellow.key
     };
     if (group && group.contextBlock) {
-      headers["X-Aimashi-Group-Context"] = buildGroupHeader(group.contextBlock);
+      headers["X-Mia-Group-Context"] = buildGroupHeader(group.contextBlock);
     }
     const runId = await createRun({ body: runBody, headers, signal });
     const stream = await readRunEventStream({ runId, signal, emit });
@@ -110,7 +110,7 @@ function createHermesChatAdapter(deps = {}) {
           finish_reason: stream.finishReason
         }
       ],
-      aimashi: {
+      mia: {
         transport: "runs",
         run_id: runId,
         session_id: runBody.session_id,

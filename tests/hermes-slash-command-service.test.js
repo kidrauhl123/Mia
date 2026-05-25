@@ -15,12 +15,12 @@ function readJson(filePath, fallback) {
 }
 
 function setup(t, overrides = {}) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-hermes-slash-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-hermes-slash-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const runtime = {
     engine: path.join(dir, "hermes-engine"),
     home: path.join(dir, "engine-home"),
-    userProfile: path.join(dir, "engine-home", "aimashi-user.json")
+    userProfile: path.join(dir, "engine-home", "mia-user.json")
   };
   const calls = [];
   const service = createHermesSlashCommandService({
@@ -56,7 +56,7 @@ test("run sends a localized Hermes slash-command script with session and user co
   assert.equal(calls.length, 1);
   assert.equal(calls[0].command, path.join(dir, "python"));
   assert.equal(calls[0].args[0], "-c");
-  assert.match(calls[0].args[1], /_AIMASHI_ZH_I18N/);
+  assert.match(calls[0].args[1], /_MIA_ZH_I18N/);
   assert.match(calls[0].args[1], /GatewayRunner/);
   assert.match(calls[0].args[1], /MessageEvent/);
   assert.deepEqual(JSON.parse(calls[0].args[2]), {
@@ -67,14 +67,14 @@ test("run sends a localized Hermes slash-command script with session and user co
   });
   assert.equal(calls[0].options.cwd, runtime.engine);
   assert.equal(calls[0].options.env.HERMES_HOME, path.join(dir, "hermes-home"));
-  assert.equal(calls[0].options.env.AIMASHI_HOME, runtime.home);
+  assert.equal(calls[0].options.env.MIA_HOME, runtime.home);
   assert.equal(calls[0].options.env.HERMES_LANGUAGE, "zh");
   assert.equal(calls[0].options.env.GATEWAY_ALLOW_ALL_USERS, "true");
   assert.equal(calls[0].options.env.PYTHONPATH, path.join(dir, "plugins"));
   assert.equal(calls[0].options.timeout, 45000);
 });
 
-test("run falls back to Aimashi names when fellow or profile names are empty", (t) => {
+test("run falls back to Mia names when fellow or profile names are empty", (t) => {
   const { calls, service } = setup(t, {
     defaultUserProfile: () => ({ displayName: "" }),
     spawnSync: (command, args, options) => {
@@ -87,8 +87,8 @@ test("run falls back to Aimashi names when fellow or profile names are empty", (
   assert.deepEqual(JSON.parse(calls[0].args[2]), {
     text: "/status",
     sessionKey: "clean-f1-",
-    chatName: "Aimashi",
-    userName: "Aimashi"
+    chatName: "Mia",
+    userName: "Mia"
   });
 });
 

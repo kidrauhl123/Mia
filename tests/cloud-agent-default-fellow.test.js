@@ -9,7 +9,7 @@ const { createSocialStore } = require("../src/cloud/social-store.js");
 const { createFellowsStore } = require("../src/cloud/fellows-store.js");
 const { createRuntimeBindingsStore } = require("../src/cloud-agent/runtime-bindings-store.js");
 const { ensureDefaultCloudFellow } = require("../src/cloud-agent/default-fellow.js");
-const { createAimashiCloudServer } = require("../scripts/serve-cloud.js");
+const { createMiaCloudServer } = require("../scripts/serve-cloud.js");
 
 function tempDir(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -42,7 +42,7 @@ async function jsonFetch(baseUrl, requestPath, options = {}) {
 }
 
 function freshStores() {
-  const dir = tempDir("aimashi-default-fellow-");
+  const dir = tempDir("mia-default-fellow-");
   const cloudStore = createCloudStore({ dataDir: dir });
   const db = cloudStore.getDb();
   const socialStore = createSocialStore(db);
@@ -70,12 +70,12 @@ test("ensureDefaultCloudFellow creates fellow, binding, room, and members idempo
     const out1 = ensureDefaultCloudFellow(ctx, account.user.id);
     const out2 = ensureDefaultCloudFellow(ctx, account.user.id);
 
-    assert.equal(out1.fellow.id, "aimashi");
-    assert.equal(out1.room.id, `fellow:${account.user.id}:aimashi`);
+    assert.equal(out1.fellow.id, "mia");
+    assert.equal(out1.room.id, `fellow:${account.user.id}:mia`);
     assert.equal(out1.room.type, "fellow");
     assert.equal(out2.room.id, out1.room.id);
 
-    const binding = ctx.runtimeBindingsStore.getEnabledBinding(account.user.id, "aimashi", "cloud-hermes");
+    const binding = ctx.runtimeBindingsStore.getEnabledBinding(account.user.id, "mia", "cloud-hermes");
     assert.equal(binding.runtimeKind, "cloud-hermes");
 
     const rooms = ctx.socialStore.listRoomsForUser(account.user.id)
@@ -95,7 +95,7 @@ test("ensureDefaultCloudFellow preserves an existing default fellow identity", (
   try {
     const account = ctx.cloudStore.registerUser({ username: "carol", password: "123456" });
     ctx.fellowsStore.upsertFellow(account.user.id, {
-      id: "aimashi",
+      id: "mia",
       name: "My Cloud Pal",
       color: "#111111",
       bio: "custom bio",
@@ -118,12 +118,12 @@ test("ensureDefaultCloudFellow backfills missing cloud runtimeKind on legacy def
   const ctx = freshStores();
   try {
     const account = ctx.cloudStore.registerUser({ username: "dave", password: "123456" });
-    const roomId = `fellow:${account.user.id}:aimashi`;
+    const roomId = `fellow:${account.user.id}:mia`;
     ctx.socialStore.createRoom({
       id: roomId,
       type: "fellow",
-      name: "Legacy Aimashi",
-      decorations: { fellowKey: "aimashi", sessionId: "aimashi", pinnedGoal: "keep me" }
+      name: "Legacy Mia",
+      decorations: { fellowKey: "mia", sessionId: "mia", pinnedGoal: "keep me" }
     });
 
     const out = ensureDefaultCloudFellow(ctx, account.user.id);
@@ -139,12 +139,12 @@ test("ensureDefaultCloudFellow does not override an explicit desktop-local runti
   const ctx = freshStores();
   try {
     const account = ctx.cloudStore.registerUser({ username: "erin", password: "123456" });
-    const roomId = `fellow:${account.user.id}:aimashi`;
+    const roomId = `fellow:${account.user.id}:mia`;
     ctx.socialStore.createRoom({
       id: roomId,
       type: "fellow",
-      name: "Local Aimashi",
-      decorations: { fellowKey: "aimashi", sessionId: "aimashi", runtimeKind: "desktop-local" }
+      name: "Local Mia",
+      decorations: { fellowKey: "mia", sessionId: "mia", runtimeKind: "desktop-local" }
     });
 
     const out = ensureDefaultCloudFellow(ctx, account.user.id);
@@ -156,8 +156,8 @@ test("ensureDefaultCloudFellow does not override an explicit desktop-local runti
 });
 
 test("registration makes default cloud fellow room visible through /api/rooms", async () => {
-  const dataDir = tempDir("aimashi-default-fellow-http-");
-  const server = createAimashiCloudServer({ dataDir });
+  const dataDir = tempDir("mia-default-fellow-http-");
+  const server = createMiaCloudServer({ dataDir });
   const baseUrl = await listen(server);
   try {
     const account = await jsonFetch(baseUrl, "/api/auth/register", {
@@ -167,7 +167,7 @@ test("registration makes default cloud fellow room visible through /api/rooms", 
     const listed = await jsonFetch(baseUrl, "/api/rooms", {
       headers: { authorization: `Bearer ${account.token}` }
     });
-    const roomId = `fellow:${account.user.id}:aimashi`;
+    const roomId = `fellow:${account.user.id}:mia`;
     assert.ok(listed.rooms.some((room) => room.id === roomId && room.type === "fellow"));
   } finally {
     await close(server);

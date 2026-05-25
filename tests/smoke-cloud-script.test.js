@@ -7,12 +7,12 @@ const { promisify } = require("node:util");
 const { test } = require("node:test");
 const WebSocket = require("ws");
 
-const { createAimashiCloudServer } = require("../scripts/serve-cloud");
+const { createMiaCloudServer } = require("../scripts/serve-cloud");
 
 const execFile = promisify(childProcess.execFile);
 
 function tempDataDir() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-smoke-script-"));
+  return fs.mkdtempSync(path.join(os.tmpdir(), "mia-smoke-script-"));
 }
 
 function listen(server) {
@@ -96,10 +96,10 @@ function waitForProcessOutput(child, pattern, timeoutMs = 5000) {
 
 test("cloud smoke script can require and execute a bridge run", async () => {
   const dataDir = tempDataDir();
-  const server = createAimashiCloudServer({
+  const server = createMiaCloudServer({
     dataDir,
     releaseManifest: {
-      product: "Aimashi Cloud",
+      product: "Mia Cloud",
       version: "0.1.0",
       builtAt: "2026-05-21T01:23:45.000Z",
       source: { gitCommit: "smokecommit", gitDirty: false },
@@ -121,7 +121,7 @@ test("cloud smoke script can require and execute a bridge run", async () => {
     bridgeUrl.searchParams.set("deviceName", "Script Smoke Bridge");
     bridgeUrl.searchParams.set("engine", "codex");
     bridgeUrl.searchParams.set("capabilities", JSON.stringify({ streaming: true, attachments: true }));
-    bridgeWs = new WebSocket(bridgeUrl, [`aimashi-token.${login.token}`], {
+    bridgeWs = new WebSocket(bridgeUrl, [`mia-token.${login.token}`], {
       headers: { Origin: baseUrl }
     });
     bridgeWs.on("message", (raw) => {
@@ -131,7 +131,7 @@ test("cloud smoke script can require and execute a bridge run", async () => {
         type: "run_result",
         runId: message.runId,
         ok: true,
-        text: "aimashi-cloud-bridge-smoke-ok",
+        text: "mia-cloud-bridge-smoke-ok",
         attachments: []
       }));
     });
@@ -144,12 +144,12 @@ test("cloud smoke script can require and execute a bridge run", async () => {
       cwd: dataDir,
       env: {
         ...process.env,
-        AIMASHI_SMOKE_USERNAME: "smoketest",
-        AIMASHI_SMOKE_PASSWORD: "secret1",
-        AIMASHI_SMOKE_REQUIRE_BRIDGE: "1",
-        AIMASHI_SMOKE_BRIDGE_TIMEOUT_MS: "10000",
-        AIMASHI_SMOKE_EXPECT_RELEASE_COMMIT: "smokecommit",
-        AIMASHI_SMOKE_EXPECT_RELEASE_BUILT_AT: "2026-05-21T01:23:45.000Z"
+        MIA_SMOKE_USERNAME: "smoketest",
+        MIA_SMOKE_PASSWORD: "secret1",
+        MIA_SMOKE_REQUIRE_BRIDGE: "1",
+        MIA_SMOKE_BRIDGE_TIMEOUT_MS: "10000",
+        MIA_SMOKE_EXPECT_RELEASE_COMMIT: "smokecommit",
+        MIA_SMOKE_EXPECT_RELEASE_BUILT_AT: "2026-05-21T01:23:45.000Z"
       },
       timeout: 15_000
     });
@@ -168,7 +168,7 @@ test("cloud smoke script can require and execute a bridge run", async () => {
     assert.match(stdout, /OK bridge run - Script Smoke Bridge -> run_/);
     assert.match(stdout, /OK logout - token invalidated/);
     assert.match(stdout, /OK logout websocket - token rejected/);
-    assert.match(stdout, /Aimashi Cloud smoke passed:/);
+    assert.match(stdout, /Mia Cloud smoke passed:/);
   } finally {
     closeWs(bridgeWs);
     await close(server);
@@ -178,10 +178,10 @@ test("cloud smoke script can require and execute a bridge run", async () => {
 
 test("cloud smoke script can verify a standalone account-login bridge", async () => {
   const dataDir = tempDataDir();
-  const server = createAimashiCloudServer({
+  const server = createMiaCloudServer({
     dataDir,
     releaseManifest: {
-      product: "Aimashi Cloud",
+      product: "Mia Cloud",
       version: "0.1.0",
       builtAt: "2026-05-21T01:23:45.000Z",
       source: { gitCommit: "smokecommit", gitDirty: false },
@@ -199,12 +199,12 @@ test("cloud smoke script can verify a standalone account-login bridge", async ()
       cwd: path.join(__dirname, ".."),
       env: {
         ...process.env,
-        AIMASHI_CLOUD_URL: baseUrl,
-        AIMASHI_CLOUD_USERNAME: "accountbridge",
-        AIMASHI_CLOUD_PASSWORD: "secret1",
-        AIMASHI_BRIDGE_ENGINE: "echo",
-        AIMASHI_BRIDGE_NAME: "Account Login Bridge",
-        AIMASHI_BRIDGE_RECONNECT_MS: "60000"
+        MIA_CLOUD_URL: baseUrl,
+        MIA_CLOUD_USERNAME: "accountbridge",
+        MIA_CLOUD_PASSWORD: "secret1",
+        MIA_BRIDGE_ENGINE: "echo",
+        MIA_BRIDGE_NAME: "Account Login Bridge",
+        MIA_BRIDGE_RECONNECT_MS: "60000"
       },
       stdio: ["ignore", "pipe", "pipe"]
     });
@@ -215,19 +215,19 @@ test("cloud smoke script can verify a standalone account-login bridge", async ()
       cwd: path.join(__dirname, ".."),
       env: {
         ...process.env,
-        AIMASHI_SMOKE_USERNAME: "accountbridge",
-        AIMASHI_SMOKE_PASSWORD: "secret1",
-        AIMASHI_SMOKE_REQUIRE_BRIDGE: "1",
-        AIMASHI_SMOKE_BRIDGE_TIMEOUT_MS: "10000",
-        AIMASHI_SMOKE_EXPECT_RELEASE_COMMIT: "smokecommit",
-        AIMASHI_SMOKE_EXPECT_RELEASE_BUILT_AT: "2026-05-21T01:23:45.000Z"
+        MIA_SMOKE_USERNAME: "accountbridge",
+        MIA_SMOKE_PASSWORD: "secret1",
+        MIA_SMOKE_REQUIRE_BRIDGE: "1",
+        MIA_SMOKE_BRIDGE_TIMEOUT_MS: "10000",
+        MIA_SMOKE_EXPECT_RELEASE_COMMIT: "smokecommit",
+        MIA_SMOKE_EXPECT_RELEASE_BUILT_AT: "2026-05-21T01:23:45.000Z"
       },
       timeout: 15_000
     });
     assert.match(stdout, /OK auth - login accountbridge/);
     assert.match(stdout, /OK bridge devices - 1 online/);
     assert.match(stdout, /OK bridge run - Account Login Bridge -> run_/);
-    assert.match(stdout, /Aimashi Cloud smoke passed:/);
+    assert.match(stdout, /Mia Cloud smoke passed:/);
   } finally {
     if (bridge && !bridge.killed) bridge.kill("SIGTERM");
     await close(server);
@@ -237,13 +237,13 @@ test("cloud smoke script can verify a standalone account-login bridge", async ()
 
 test("cloud smoke account helper registers then validates a fixed account without printing secrets", async () => {
   const dataDir = tempDataDir();
-  const server = createAimashiCloudServer({ dataDir });
+  const server = createMiaCloudServer({ dataDir });
   const baseUrl = await listen(server);
   try {
     const env = {
       ...process.env,
-      AIMASHI_SMOKE_USERNAME: "fixedsmoke",
-      AIMASHI_SMOKE_PASSWORD: "secret1"
+      MIA_SMOKE_USERNAME: "fixedsmoke",
+      MIA_SMOKE_PASSWORD: "secret1"
     };
     const first = await execFile(process.execPath, [path.join(__dirname, "..", "scripts", "prepare-cloud-smoke-account.js"), baseUrl], {
       cwd: path.join(__dirname, ".."),
@@ -267,7 +267,7 @@ test("cloud smoke account helper registers then validates a fixed account withou
 
 test("cloud smoke account helper rejects an existing account with the wrong password", async () => {
   const dataDir = tempDataDir();
-  const server = createAimashiCloudServer({ dataDir });
+  const server = createMiaCloudServer({ dataDir });
   const baseUrl = await listen(server);
   try {
     await jsonFetch(baseUrl, "/api/auth/register", {
@@ -279,8 +279,8 @@ test("cloud smoke account helper rejects an existing account with the wrong pass
         cwd: path.join(__dirname, ".."),
         env: {
           ...process.env,
-          AIMASHI_SMOKE_USERNAME: "fixedsmoke",
-          AIMASHI_SMOKE_PASSWORD: "wrongpass"
+          MIA_SMOKE_USERNAME: "fixedsmoke",
+          MIA_SMOKE_PASSWORD: "wrongpass"
         }
       }),
       (error) => {
@@ -297,10 +297,10 @@ test("cloud smoke account helper rejects an existing account with the wrong pass
 
 test("cloud smoke script requires a fixed account for bridge smoke", async () => {
   const dataDir = tempDataDir();
-  const server = createAimashiCloudServer({
+  const server = createMiaCloudServer({
     dataDir,
     releaseManifest: {
-      product: "Aimashi Cloud",
+      product: "Mia Cloud",
       version: "0.1.0",
       builtAt: "2026-05-21T01:23:45.000Z",
       source: { gitCommit: "smokecommit", gitDirty: false },
@@ -317,13 +317,13 @@ test("cloud smoke script requires a fixed account for bridge smoke", async () =>
         cwd: dataDir,
         env: {
           ...process.env,
-          AIMASHI_SMOKE_REQUIRE_BRIDGE: "1",
-          AIMASHI_SMOKE_EXPECT_RELEASE_COMMIT: "smokecommit",
-          AIMASHI_SMOKE_EXPECT_RELEASE_BUILT_AT: "2026-05-21T01:23:45.000Z"
+          MIA_SMOKE_REQUIRE_BRIDGE: "1",
+          MIA_SMOKE_EXPECT_RELEASE_COMMIT: "smokecommit",
+          MIA_SMOKE_EXPECT_RELEASE_BUILT_AT: "2026-05-21T01:23:45.000Z"
         },
         timeout: 15_000
       }),
-      /AIMASHI_SMOKE_USERNAME and AIMASHI_SMOKE_PASSWORD are required/
+      /MIA_SMOKE_USERNAME and MIA_SMOKE_PASSWORD are required/
     );
   } finally {
     await close(server);

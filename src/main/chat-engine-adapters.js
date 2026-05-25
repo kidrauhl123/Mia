@@ -22,7 +22,7 @@ function commandResponse({ commandId, chatCompletionResponse, engine, model, res
     model,
     content: normalized.content,
     commandResult: normalized.commandResult,
-    aimashi: { transport: "local-command", engine, fellow_key: fellowKey }
+    mia: { transport: "local-command", engine, fellow_key: fellowKey }
   });
 }
 

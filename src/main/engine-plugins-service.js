@@ -7,7 +7,7 @@ function pluginFiles() {
       "import os",
       "import sys",
       "",
-      "sys.stderr.write(f\"[aimashi_plugins] loaded (HERMES_HOME={os.environ.get('HERMES_HOME', '<unset>')})\\n\")",
+      "sys.stderr.write(f\"[mia_plugins] loaded (HERMES_HOME={os.environ.get('HERMES_HOME', '<unset>')})\\n\")",
       "sys.stderr.flush()",
       "",
       "from . import fellow_overlay  # noqa: F401,E402",
@@ -19,13 +19,13 @@ function pluginFiles() {
       "import runpy",
       "import sys",
       "",
-      "def _load_aimashi_env():",
-      "    home = os.environ.get('AIMASHI_HOME') or os.environ.get('HERMES_HOME')",
+      "def _load_mia_env():",
+      "    home = os.environ.get('MIA_HOME') or os.environ.get('HERMES_HOME')",
       "    if not home:",
       "        return",
       "    paths = [",
-      "        os.path.join(home, 'aimashi-model.json'),",
-      "        os.path.join(home, 'aimashi-providers.json'),",
+      "        os.path.join(home, 'mia-model.json'),",
+      "        os.path.join(home, 'mia-providers.json'),",
       "    ]",
       "    try:",
       "        model = json.load(open(paths[0], encoding='utf-8')) if os.path.exists(paths[0]) else {}",
@@ -50,20 +50,20 @@ function pluginFiles() {
       "            if env_name and api_key and not os.environ.get(env_name):",
       "                os.environ[env_name] = api_key",
       "",
-      "_load_aimashi_env()",
+      "_load_mia_env()",
       "sys.argv[0] = 'hermes_cli.main'",
       "runpy.run_module('hermes_cli.main', run_name='__main__', alter_sys=True)",
       ""
     ].join("\n"),
     "fellow_overlay.py": [
-      "\"\"\"Per-Fellow persona overlay for Aimashi.",
+      "\"\"\"Per-Fellow persona overlay for Mia.",
       "",
-      "Reads X-Aimashi-Fellow (or X-Alkaka-Fellow) on Hermes api_server",
+      "Reads X-Mia-Fellow (or X-Alkaka-Fellow) on Hermes api_server",
       "requests, loads <HERMES_HOME>/fellows/<fellow_id>.md, and prepends it",
       "to vanilla Hermes's ephemeral_system_prompt. Hermes core remains",
       "unmodified.",
       "",
-      "Also reads X-Aimashi-Group-Context (base64-encoded JSON payload) and",
+      "Also reads X-Mia-Group-Context (base64-encoded JSON payload) and",
       "injects the contextBlock into the system prompt so the engine is aware",
       "of which group conversation it is serving.",
       "\"\"\"",
@@ -83,11 +83,11 @@ function pluginFiles() {
       "",
       "logger = logging.getLogger(__name__)",
       "_FELLOW_ID_RE = re.compile(r'^[A-Za-z0-9_.-]{1,64}$')",
-      "_current_fellow: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar('aimashi_fellow_id', default=None)",
-      "_current_group_context: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar('aimashi_group_context', default=None)",
+      "_current_fellow: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar('mia_fellow_id', default=None)",
+      "_current_group_context: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar('mia_group_context', default=None)",
       "",
       "def _read_persona(fellow_id: str) -> Optional[str]:",
-      "    home = os.environ.get('AIMASHI_HOME') or os.environ.get('HERMES_HOME')",
+      "    home = os.environ.get('MIA_HOME') or os.environ.get('HERMES_HOME')",
       "    if not home or not _FELLOW_ID_RE.match(fellow_id):",
       "        return None",
       "    path = Path(home) / 'fellows' / f'{fellow_id}.md'",
@@ -96,7 +96,7 @@ function pluginFiles() {
       "    try:",
       "        text = path.read_text(encoding='utf-8').strip()",
       "    except OSError as exc:",
-      "        logger.warning('aimashi fellow overlay cannot read %s: %s', path, exc)",
+      "        logger.warning('mia fellow overlay cannot read %s: %s', path, exc)",
       "        return None",
       "    return text or None",
       "",
@@ -115,12 +115,12 @@ function pluginFiles() {
       "",
       "def _header_fellow_id(request) -> Optional[str]:",
       "    headers = getattr(request, 'headers', {})",
-      "    value = headers.get('X-Aimashi-Fellow') or headers.get('X-Alkaka-Fellow') or ''",
+      "    value = headers.get('X-Mia-Fellow') or headers.get('X-Alkaka-Fellow') or ''",
       "    return str(value).strip() or None",
       "",
       "def _header_group_context(request) -> Optional[str]:",
       "    headers = getattr(request, 'headers', {})",
-      "    raw = headers.get('X-Aimashi-Group-Context') or headers.get('x-aimashi-group-context') or ''",
+      "    raw = headers.get('X-Mia-Group-Context') or headers.get('x-mia-group-context') or ''",
       "    raw = str(raw).strip()",
       "    if not raw:",
       "        return None",
@@ -191,12 +191,12 @@ function createEnginePluginsService(deps = {}) {
 
   function ensureInstalled() {
     const p = runtimePaths();
-    const pluginDir = path.join(p.pluginsDir, "aimashi_plugins");
+    const pluginDir = path.join(p.pluginsDir, "mia_plugins");
     fs.mkdirSync(pluginDir, { recursive: true });
     for (const [fileName, content] of Object.entries(pluginFiles())) {
       fs.writeFileSync(path.join(pluginDir, fileName), content);
     }
-    const legacyDir = path.join(p.engine, "aimashi_plugins");
+    const legacyDir = path.join(p.engine, "mia_plugins");
     if (legacyDir !== pluginDir) {
       try { fs.rmSync(legacyDir, { recursive: true, force: true }); } catch { /* ignore */ }
     }

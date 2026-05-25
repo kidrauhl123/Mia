@@ -1,9 +1,9 @@
 (function (global) {
   "use strict";
 
-  function spec() { return global.aimashiMessageSpec || require("../../shared/message-spec"); }
-  function contact() { return global.aimashiContact || require("../../shared/contact"); }
-  const { MemberKind, SenderKind } = (typeof window !== "undefined" && window.aimashiConversationKinds) || require("../../shared/conversation-kinds");
+  function spec() { return global.miaMessageSpec || require("../../shared/message-spec"); }
+  function contact() { return global.miaContact || require("../../shared/contact"); }
+  const { MemberKind, SenderKind } = (typeof window !== "undefined" && window.miaConversationKinds) || require("../../shared/conversation-kinds");
 
   function safeJsonArray(s) { try { const v = JSON.parse(s); return Array.isArray(v) ? v : []; } catch { return []; } }
 
@@ -101,5 +101,5 @@
     return { kind: "cloud-room", id: room.id, listMessages, resolveMention };
   }
 
-  global.aimashiCloudRoomSource = { createCloudRoomSource };
+  global.miaCloudRoomSource = { createCloudRoomSource };
 })(typeof window !== "undefined" ? window : globalThis);

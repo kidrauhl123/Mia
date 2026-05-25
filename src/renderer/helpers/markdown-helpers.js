@@ -2,8 +2,8 @@
 // Extracted from app.js. Pure text-in/text-out renderers used by chat,
 // skill preview, message context menu, and any other inline content path.
 //
-// Self-contained: no state.* / els.* / aimashi.* dependencies. Module
-// registers on window.aimashiMarkdown at script-load time; no init needed.
+// Self-contained: no state.* / els.* / mia.* dependencies. Module
+// registers on window.miaMarkdown at script-load time; no init needed.
 (function () {
   "use strict";
 
@@ -47,26 +47,26 @@
     const codes = [];
     let protectedText = String(value || "").replace(/`([^`\n]+)`/g, (_match, code) => {
       const index = codes.push(code) - 1;
-      return `@@AIMASHI_INLINE_CODE_${index}@@`;
+      return `@@MIA_INLINE_CODE_${index}@@`;
     });
     const links = [];
     protectedText = protectedText.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, (_match, text, url) => {
       const index = links.push({ text, url }) - 1;
-      return `@@AIMASHI_LINK_${index}@@`;
+      return `@@MIA_LINK_${index}@@`;
     });
     let html = escapeHtml(protectedText);
     html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
     html = html.replace(/\n/g, "<br>");
     for (let index = 0; index < codes.length; index++) {
       html = html.replace(
-        `@@AIMASHI_INLINE_CODE_${index}@@`,
+        `@@MIA_INLINE_CODE_${index}@@`,
         `<code class="inline-code" tabindex="0" title="点击复制">${escapeHtml(codes[index])}</code>`
       );
     }
     for (let index = 0; index < links.length; index++) {
       const { text, url } = links[index];
       html = html.replace(
-        `@@AIMASHI_LINK_${index}@@`,
+        `@@MIA_LINK_${index}@@`,
         `<a class="message-link" data-external-link="${escapeHtml(url)}" role="link" tabindex="0" title="${escapeHtml(url)}">${escapeHtml(text)}</a>`
       );
     }
@@ -263,7 +263,7 @@
     return html.join("");
   }
 
-  window.aimashiMarkdown = {
+  window.miaMarkdown = {
     escapeHtml,
     ICON_PARK,
     iconParkIcon,

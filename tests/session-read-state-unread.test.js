@@ -19,12 +19,12 @@ function load() {
   const src = fs.readFileSync(path.join(__dirname, "..", "src", "renderer", "sessions", "session-read-state.js"), "utf8");
   const saved = [];
   const win = {
-    aimashiUnread: unreadShared,
-    aimashi: { saveChatReadState: async (payload) => { saved.push(payload); } },
+    miaUnread: unreadShared,
+    mia: { saveChatReadState: async (payload) => { saved.push(payload); } },
   };
   const ctx = vm.createContext({ window: win, globalThis: win, console, Date, String, Object, Array, Number, JSON });
   vm.runInContext(src, ctx);
-  return { srs: win.aimashiSessionReadState, saved };
+  return { srs: win.miaSessionReadState, saved };
 }
 
 // One persona "codex" with a single assistant message already marked read.

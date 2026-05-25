@@ -158,8 +158,8 @@ test("members accept legacy shapes (member_ref / member_kind / fellowId / id+nam
   ]);
 });
 
-test("attaches to globalThis as aimashiSendPipeline (IIFE double-source)", () => {
+test("attaches to globalThis as miaSendPipeline (IIFE double-source)", () => {
   // The module already ran via require above. Verify the global attach worked.
-  assert.ok(globalThis.aimashiSendPipeline);
-  assert.equal(typeof globalThis.aimashiSendPipeline.prepareOutgoingMessage, "function");
+  assert.ok(globalThis.miaSendPipeline);
+  assert.equal(typeof globalThis.miaSendPipeline.prepareOutgoingMessage, "function");
 });

@@ -5,7 +5,7 @@
 
 ## 1. 背景
 
-Aimashi 当前已经有一部分 cloud-canonical 基础：
+Mia 当前已经有一部分 cloud-canonical 基础：
 
 - Cloud `rooms` 是 DM、群聊、Fellow room 的统一会话表。
 - Cloud `messages` 是房间消息流，带 per-room `seq`。
@@ -15,19 +15,19 @@ Aimashi 当前已经有一部分 cloud-canonical 基础：
 
 但桌面端仍保留本地 Fellow 私聊权威源：
 
-- `aimashi-sessions.json` 存本地 Fellow 私聊。
+- `mia-sessions.json` 存本地 Fellow 私聊。
 - `src/renderer/app.js` 的私聊发送仍走 `activeSession()`、`saveChatSession()`、`sendChat()`、再尝试 `cloudPushMessage()`。
 - Cloud fellow rooms 在桌面侧边栏被隐藏，因为它们被当成本地 session 的镜像。
 - 登录态下，本地 JSON、cloud rooms、renderer social snapshot 三者都可能影响 UI。
 
-这导致用户看到“本地和远端不一样”，也让清理数据、删除好友、群聊回复、Fellow 私聊同步变得脆弱。项目已有 ADR `2026-05-22-conversation-state-canonical-owner.md` 明确决定：登录 Aimashi Cloud 后，cloud 是 conversation state 的写权威。本设计把这个决定落到 Fellow 私聊和桌面 UI。
+这导致用户看到“本地和远端不一样”，也让清理数据、删除好友、群聊回复、Fellow 私聊同步变得脆弱。项目已有 ADR `2026-05-22-conversation-state-canonical-owner.md` 明确决定：登录 Mia Cloud 后，cloud 是 conversation state 的写权威。本设计把这个决定落到 Fellow 私聊和桌面 UI。
 
 ## 2. 目标
 
 1. 登录态下，所有用户可见 conversation 都以 cloud `rooms/messages` 为唯一权威源。
 2. Fellow 私聊变成 `room.type='fellow'` 的 cloud room，桌面、Web、移动端读取同一份消息。
 3. 桌面端发送 Fellow 私聊消息时先写 cloud，再由本地或云端 Agent 将回复写回同一个 room。
-4. `aimashi-sessions.json` 不再作为登录态聊天真相，只保留未登录本地模式和一次性迁移输入。
+4. `mia-sessions.json` 不再作为登录态聊天真相，只保留未登录本地模式和一次性迁移输入。
 5. 桌面侧边栏不再隐藏 fellow rooms；用户看到的 Fellow 私聊来自 cloud room。
 6. 删除、清空、重启、跨端登录后，旧本地 JSON 不会再把历史私聊推回云端。
 7. 保留本地 Agent runtime 能力：Claude Code、Codex、Hermes 的外部 thread/session id 仍存在本机，因为这些运行态绑定物理机器。
@@ -52,11 +52,11 @@ Aimashi 当前已经有一部分 cloud-canonical 基础：
 - Conversation 列表来自 `GET /api/rooms`。
 - Conversation 消息来自 `GET /api/rooms/:id/messages` 和 `room.message_appended` events。
 - New chat、send、rename、delete、pin、read mark 等用户可见 conversation 操作都写 cloud。
-- 本地 `aimashi-sessions.json` 不参与登录态 UI 合并，不做登录态自动 backfill。
+- 本地 `mia-sessions.json` 不参与登录态 UI 合并，不做登录态自动 backfill。
 
 未登录态下：
 
-- 桌面端继续使用本地 `aimashi-sessions.json`，保持离线 Fellow 私聊可用。
+- 桌面端继续使用本地 `mia-sessions.json`，保持离线 Fellow 私聊可用。
 - 用户登录后，后续新消息走 cloud；历史迁移作为显式动作，不在普通启动时自动执行。
 
 ### 4.2 Fellow 私聊 room 模型
@@ -90,7 +90,7 @@ room_members:
 
 本地 Agent 仍需要恢复 Claude Code / Codex / Hermes 的外部 thread。该状态不是聊天内容权威，而是 runtime resume metadata。
 
-保留 `aimashi-agent-sessions.json` 或等价 store，但 key 改为 cloud room 维度：
+保留 `mia-agent-sessions.json` 或等价 store，但 key 改为 cloud room 维度：
 
 ```text
 <engine>:<fellowKey>:room:<roomId>
@@ -100,7 +100,7 @@ room_members:
 
 ### 4.5 历史迁移
 
-登录后的普通启动不自动把 `aimashi-sessions.json` 全量推到 cloud。原因：
+登录后的普通启动不自动把 `mia-sessions.json` 全量推到 cloud。原因：
 
 - 自动 backfill 会把用户刚清掉的测试历史重新推回云端。
 - 旧本地消息可能已经在 cloud 有镜像，自动合并容易重复。
@@ -130,7 +130,7 @@ room_members:
 
 Fellow room 的标题和头像从 cloud fellow identity 或本地 fellow manifest 解析；如果解析不到，显示 room name 和默认头像。
 
-`aimashi.social.snapshot.v1` 仍可作为启动渲染缓存，但它只是 cloud rooms 的缓存。bootstrap 完成后必须被 cloud 结果覆盖，不能把已删除的本地 Fellow/session 再注入 conversation list。
+`mia.social.snapshot.v1` 仍可作为启动渲染缓存，但它只是 cloud rooms 的缓存。bootstrap 完成后必须被 cloud 结果覆盖，不能把已删除的本地 Fellow/session 再注入 conversation list。
 
 ## 5. 关键模块影响
 
@@ -171,7 +171,7 @@ Fellow room 的标题和头像从 cloud fellow identity 或本地 fellow manifes
 
 - `src/renderer/app.js`
   - 登录态 Fellow 点击打开 cloud fellow room。
-  - 登录态 submit 走 `window.aimashiSocial.sendInActiveRoom()`。
+  - 登录态 submit 走 `window.miaSocial.sendInActiveRoom()`。
   - 未登录态仍走本地 `sendChat()` + `saveChatSession()`。
 
 - `src/renderer/message-sources/cloud-room-source.js`
@@ -199,7 +199,7 @@ Fellow room 的标题和头像从 cloud fellow identity 或本地 fellow manifes
 - 桌面登录后，Fellow room 出现在 conversation list，不被隐藏。
 - 用户在桌面 Fellow 私聊发送消息，cloud `messages` 增加 user message。
 - 本地 Agent 回复写入同一个 cloud room，Web 拉取能看到。
-- 清空本地 `aimashi-sessions.json` 后重启，cloud room 历史仍可见。
+- 清空本地 `mia-sessions.json` 后重启，cloud room 历史仍可见。
 - 清空 cloud room 后重启，旧本地 session 不会自动回填。
 
 ### Regression tests
@@ -214,7 +214,7 @@ Fellow room 的标题和头像从 cloud fellow identity 或本地 fellow manifes
 1. 登录同一账号的桌面和 Web 看到同一组 Fellow/DM/group rooms。
 2. Fellow 私聊消息从桌面发送后，Web 不需要手动同步即可看到。
 3. Web 或 cloud agent 写入的 Fellow room 消息，桌面重连后能看到。
-4. `aimashi-sessions.json` 中的旧消息不会在普通启动或 cloud sync 时重新推到 cloud。
+4. `mia-sessions.json` 中的旧消息不会在普通启动或 cloud sync 时重新推到 cloud。
 5. 桌面登录态 conversation list 不再同时显示“本地 Fellow 卡片”和“cloud fellow room 镜像”两套入口。
 6. `npm test` 和 `npm run check` 通过。
 

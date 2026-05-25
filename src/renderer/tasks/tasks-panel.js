@@ -1,32 +1,32 @@
 // Tasks panel module
 // Extracted from app.js (formerly lines 3973-4373). Mirrors the group.js
-// extraction pattern: IIFE + window.aimashiTasksPanel namespace + initTasksPanel
+// extraction pattern: IIFE + window.miaTasksPanel namespace + initTasksPanel
 // for dependency injection. Behavior is identical to the previous inline code.
 (function () {
   "use strict";
 
   const __global = typeof window !== "undefined" ? window : globalThis;
   function contact() {
-    if (__global.aimashiContact) return __global.aimashiContact;
+    if (__global.miaContact) return __global.miaContact;
     if (typeof require !== "undefined") return require("../../shared/contact");
-    throw new Error("aimashiContact is not loaded");
+    throw new Error("miaContact is not loaded");
   }
   function unreadShared() {
-    if (__global.aimashiUnread) return __global.aimashiUnread;
+    if (__global.miaUnread) return __global.miaUnread;
     if (typeof require !== "undefined") return require("../../shared/unread");
-    throw new Error("aimashiUnread is not loaded");
+    throw new Error("miaUnread is not loaded");
   }
 
   // Injected at init time. All functions below use these bare identifiers as
   // they did when inline in app.js — keeping diffs minimal.
-  let state, els, aimashi;
+  let state, els, mia;
   let escapeHtml, setText, formatRunTime, renderMessageHtml;
   let render, renderView, renderChat;
 
   function initTasksPanel(deps) {
     state = deps.state;
     els = deps.els;
-    aimashi = deps.aimashi || (typeof window !== "undefined" ? window.aimashi : null);
+    mia = deps.mia || (typeof window !== "undefined" ? window.mia : null);
     escapeHtml = deps.escapeHtml;
     setText = deps.setText;
     formatRunTime = deps.formatRunTime;
@@ -197,7 +197,7 @@
         <div class="tasks-empty">
           <div class="tasks-empty-emoji">📅</div>
           <h2>还没有定时任务</h2>
-          <p>回到任意聊天告诉 Aimashi：<br><em>"每天 9 点帮我做 X"</em><br>它会自动帮你建好任务。</p>
+          <p>回到任意聊天告诉 Mia：<br><em>"每天 9 点帮我做 X"</em><br>它会自动帮你建好任务。</p>
         </div>
       `;
       return;
@@ -260,7 +260,7 @@
       jumpToTaskSession(task);
     });
     els.tasksContent.querySelector("[data-action='run-now']")?.addEventListener("click", async () => {
-      try { await window.aimashi.tasks.runNow(task.id); } catch (e) { console.warn("run-now failed", e); }
+      try { await window.mia.tasks.runNow(task.id); } catch (e) { console.warn("run-now failed", e); }
       await loadTasksFromDaemon();
       renderTaskView();
     });
@@ -383,7 +383,7 @@
   function attachTaskDetailHandlers(task) {
     const save = debounceTask(async (patch) => {
       try {
-        const updated = await window.aimashi.tasks.update(task.id, patch);
+        const updated = await window.mia.tasks.update(task.id, patch);
         const idx = state.tasks.findIndex((t) => t.id === task.id);
         if (idx >= 0) state.tasks[idx] = updated;
         renderTaskSidebar();
@@ -415,12 +415,12 @@
       btn.addEventListener("click", async () => {
         const action = btn.dataset.action;
         try {
-          if (action === "run-now") await window.aimashi.tasks.runNow(task.id);
-          if (action === "pause")   await window.aimashi.tasks.pause(task.id);
-          if (action === "resume")  await window.aimashi.tasks.resume(task.id);
+          if (action === "run-now") await window.mia.tasks.runNow(task.id);
+          if (action === "pause")   await window.mia.tasks.pause(task.id);
+          if (action === "resume")  await window.mia.tasks.resume(task.id);
           if (action === "delete") {
             if (!confirm(`删除任务「${task.title}」？已发生的历史记录会保留在会话里。`)) return;
-            await window.aimashi.tasks.delete(task.id);
+            await window.mia.tasks.delete(task.id);
             state.selectedTaskId = "";
           }
         } catch (e) { console.warn("[task action]", action, e); }
@@ -460,7 +460,7 @@
 
   async function loadTasksFromDaemon() {
     try {
-      state.tasks = await window.aimashi.tasks.list();
+      state.tasks = await window.mia.tasks.list();
     } catch (e) {
       console.warn("load tasks failed", e);
       state.tasks = [];
@@ -470,7 +470,7 @@
   let _tasksUnsubscribe = null;
   function subscribeTaskEvents() {
     if (_tasksUnsubscribe) return;
-    _tasksUnsubscribe = window.aimashi.tasks.subscribe(async (envelope) => {
+    _tasksUnsubscribe = window.mia.tasks.subscribe(async (envelope) => {
       await loadTasksFromDaemon();
       if (envelope.type === "finished" || envelope.type === "failed") {
         const taskId = envelope.payload?.taskId;
@@ -501,7 +501,7 @@
     }
   }
 
-  window.aimashiTasksPanel = {
+  window.miaTasksPanel = {
     initTasksPanel,
     renderTaskSidebar,
     renderTaskView,

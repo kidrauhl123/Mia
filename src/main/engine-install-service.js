@@ -13,7 +13,7 @@ function createEngineInstallService(deps = {}) {
   const bundledPython = deps.bundledPython || (() => "");
   const bundledSitePackages = deps.bundledSitePackages || (() => "");
   const buildPythonPath = deps.buildPythonPath || (() => "");
-  const engineMarkerPath = deps.engineMarkerPath || (() => path.join(runtimePaths().engine, "aimashi-runtime.json"));
+  const engineMarkerPath = deps.engineMarkerPath || (() => path.join(runtimePaths().engine, "mia-runtime.json"));
   const readJson = deps.readJson || ((filePath, fallback) => {
     try {
       return JSON.parse(fsImpl.readFileSync(filePath, "utf8"));
@@ -34,13 +34,13 @@ function createEngineInstallService(deps = {}) {
     return env[envName] || fallback;
   }
 
-  const officialPackage = configuredValue("officialPackage", "AIMASHI_ENGINE_PACKAGE", "hermes-agent");
-  const officialRepoUrl = configuredValue("officialRepoUrl", "AIMASHI_ENGINE_REPO", "https://github.com/NousResearch/hermes-agent");
-  const officialRef = configuredValue("officialRef", "AIMASHI_ENGINE_REF", "main");
-  const officialUrl = configuredValue("officialUrl", "AIMASHI_ENGINE_URL", "");
-  const officialExtras = configuredValue("officialExtras", "AIMASHI_ENGINE_EXTRAS", "web");
-  const officialPython = configuredValue("officialPython", "AIMASHI_PYTHON", "");
-  const devEngineSource = configuredValue("devEngineSource", "AIMASHI_ENGINE_SOURCE", "");
+  const officialPackage = configuredValue("officialPackage", "MIA_ENGINE_PACKAGE", "hermes-agent");
+  const officialRepoUrl = configuredValue("officialRepoUrl", "MIA_ENGINE_REPO", "https://github.com/NousResearch/hermes-agent");
+  const officialRef = configuredValue("officialRef", "MIA_ENGINE_REF", "main");
+  const officialUrl = configuredValue("officialUrl", "MIA_ENGINE_URL", "");
+  const officialExtras = configuredValue("officialExtras", "MIA_ENGINE_EXTRAS", "web");
+  const officialPython = configuredValue("officialPython", "MIA_PYTHON", "");
+  const devEngineSource = configuredValue("devEngineSource", "MIA_ENGINE_SOURCE", "");
 
   function officialEngineUrl() {
     if (String(officialUrl || "").trim()) return officialUrl.trim();
@@ -83,7 +83,7 @@ function createEngineInstallService(deps = {}) {
         return command;
       }
     }
-    throw new Error("Official Hermes requires Python 3.11+. Set AIMASHI_PYTHON=/path/to/python3.11 or newer.");
+    throw new Error("Official Hermes requires Python 3.11+. Set MIA_PYTHON=/path/to/python3.11 or newer.");
   }
 
   function isInstalled() {
@@ -166,7 +166,7 @@ function createEngineInstallService(deps = {}) {
       filter: (source) => !skip.has(path.basename(source))
     });
     fsImpl.writeFileSync(engineMarkerPath(), JSON.stringify({
-      product: "aimashi",
+      product: "mia",
       source: "maintained-local-source",
       source_path: devEngineSource,
       installed_at: now().toISOString()
@@ -187,11 +187,11 @@ function createEngineInstallService(deps = {}) {
     fsImpl.rmSync(p.engine, { recursive: true, force: true });
     fsImpl.mkdirSync(p.engine, { recursive: true });
     fsImpl.writeFileSync(path.join(p.engine, "README.md"), [
-      "# Aimashi Hermes Engine",
+      "# Mia Hermes Engine",
       "",
       `This runtime installs the official Hermes source archive: ${officialEngineUrl()}`,
       `Python executable used for installation: ${python}`,
-      "Set AIMASHI_ENGINE_SOURCE only for local Hermes development builds.",
+      "Set MIA_ENGINE_SOURCE only for local Hermes development builds.",
       ""
     ].join("\n"));
 
@@ -206,10 +206,10 @@ function createEngineInstallService(deps = {}) {
     }
     runInstallCommand(venvPythonPath(), ["-c", "import hermes_cli.main, fastapi, uvicorn; print('hermes_cli + web deps import OK')"], p.engine);
     ensureEnginePlugins();
-    runInstallCommand(venvPythonPath(), ["-c", "import aimashi_plugins; print('aimashi_plugins import OK')"], p.engine);
+    runInstallCommand(venvPythonPath(), ["-c", "import mia_plugins; print('mia_plugins import OK')"], p.engine);
 
     fsImpl.writeFileSync(engineMarkerPath(), JSON.stringify({
-      product: "aimashi",
+      product: "mia",
       source: "official-github-archive",
       package: officialPackage,
       repo: officialRepoUrl,

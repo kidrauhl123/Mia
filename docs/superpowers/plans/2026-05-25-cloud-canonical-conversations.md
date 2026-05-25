@@ -21,7 +21,7 @@
 - Modify: `src/shared/ipc-channels.js`
   - Owns IPC channel names. Add one stable channel constant.
 - Modify: `src/preload.js`
-  - Owns safe renderer bridge APIs. Expose `window.aimashi.social.ensureFellowRoom`.
+  - Owns safe renderer bridge APIs. Expose `window.mia.social.ensureFellowRoom`.
 - Modify: `src/main/cloud/desktop-sync-client.js`
   - Owns desktop-to-cloud identity sync. Stop reading local chat sessions during login sync; ensure stable fellow rooms after fellow identity sync.
 - Modify: `src/renderer/social/social.js`
@@ -59,7 +59,7 @@
 
 - `docs/adr/2026-05-22-conversation-state-canonical-owner.md` already says cloud is the write authority when logged in.
 - `docs/superpowers/plans/2026-05-23-sync-architecture-redesign.md` planned moving fellow private conversations into rooms.
-- `src/main/cloud/desktop-sync-client.js` still reads `aimashi-sessions.json` and pushes session ids as cloud fellow room ids.
+- `src/main/cloud/desktop-sync-client.js` still reads `mia-sessions.json` and pushes session ids as cloud fellow room ids.
 - `scripts/serve-cloud.js` only has `PUT /api/me/fellow-rooms/:sessionId`, creating `fellow:<userId>:<sessionId>`.
 - `src/renderer/app.js` still merges local persona rows into the logged-in message list and explicitly hides `room.type === "fellow"` rooms.
 - `src/renderer/social/social.js` handles `room.updated` by mapping existing rooms only, so a new room event can be dropped.
@@ -164,7 +164,7 @@ test("ensureFellowRoom calls stable fellow room endpoint", async () => {
 - [ ] Add IPC bridge support.
   - Add `SocialEnsureFellowRoom` in `src/shared/ipc-channels.js`.
   - Register it in `src/main/social/social-ipc.js`.
-  - Expose `window.aimashi.social.ensureFellowRoom` in `src/preload.js`.
+  - Expose `window.mia.social.ensureFellowRoom` in `src/preload.js`.
   - Add a test in the existing preload or IPC bridge test file that asserts `ensureFellowRoom("alice", { title: "爱丽丝" })` invokes the `SocialEnsureFellowRoom` channel with the same arguments.
 
 - [ ] Run targeted tests:

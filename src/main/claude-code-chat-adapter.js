@@ -34,7 +34,7 @@ function statelessPrompt(systemPrompt, userPrompt) {
 
 function stoppedError() {
   const stopped = new Error("生成已停止");
-  stopped.code = "AIMASHI_STOPPED";
+  stopped.code = "MIA_STOPPED";
   return stopped;
 }
 
@@ -112,7 +112,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
       },
       includePartialMessages: Boolean(emit),
       ...(bridgePluginPath ? { plugins: [{ type: "local", path: bridgePluginPath }], skills: "all" } : {}),
-      ...(schedulerMcpSpec ? { mcpServers: { "aimashi-scheduler": schedulerMcpSpec } } : {})
+      ...(schedulerMcpSpec ? { mcpServers: { "mia-scheduler": schedulerMcpSpec } } : {})
     };
     if (externalSessionId) options.resume = externalSessionId;
     if (fellow.engineConfig?.model) options.model = String(fellow.engineConfig.model);
@@ -220,7 +220,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
       id: capturedSessionId || `claude_${randomUUID()}`,
       model: "claude-code",
       content: chunks.join("\n").trim(),
-      aimashi: {
+      mia: {
         transport: "claude-agent-sdk",
         engine,
         session_id: capturedSessionId || "",

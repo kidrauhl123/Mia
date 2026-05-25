@@ -235,12 +235,12 @@ function createChatAttachments({
     const urlPath = String(input.url || input.path || "").trim();
     if (!/^\/api\/files\/[a-zA-Z0-9_-]+$/.test(urlPath)) throw new Error("Cloud file URL is invalid.");
     const settings = getCloudSettings();
-    if (!settings.enabled || !settings.token) throw new Error("请先登录 Aimashi Cloud。");
+    if (!settings.enabled || !settings.token) throw new Error("请先登录 Mia Cloud。");
     const response = await fetchImpl(`${normalizeCloudUrl(settings.url)}${urlPath}`, {
       headers: { Authorization: `Bearer ${settings.token}` },
       signal: timeoutSignal(15000)
     });
-    if (!response.ok) throw new Error(`Aimashi Cloud ${response.status}`);
+    if (!response.ok) throw new Error(`Mia Cloud ${response.status}`);
     const arrayBuffer = await response.arrayBuffer();
     const data = Buffer.from(arrayBuffer);
     if (data.length > 25 * 1024 * 1024) throw new Error("文件超过 25MB，暂时不能内嵌预览。");

@@ -1,4 +1,4 @@
-// Aimashi Web — appearance settings.
+// Mia Web — appearance settings.
 // Persists in localStorage and applies on document.documentElement via
 // data-* attributes + CSS custom properties. The shape mirrors a subset
 // of desktop's userAppearance (font preset deliberately omitted per the
@@ -6,7 +6,7 @@
 (function (global) {
   "use strict";
 
-  const STORAGE_KEY = "aimashi.web.appearance";
+  const STORAGE_KEY = "mia.web.appearance";
   const DEFAULT_ACCENT = "#5e5ce6";
   const DEFAULT_USER_BUBBLE = "#0162db";
 
@@ -99,7 +99,7 @@
   // Apply immediately on script load so the page doesn't flash light→dark.
   init();
 
-  global.aimashiAppearance = {
+  global.miaAppearance = {
     get,
     update,
     reset,

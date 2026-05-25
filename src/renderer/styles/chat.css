@@ -205,7 +205,7 @@
   background: rgba(255, 255, 255, 0.08);
 }
 
-::highlight(aimashi-message-selection) {
+::highlight(mia-message-selection) {
   background: rgb(var(--accent-rgb) / 0.24);
   color: inherit;
 }

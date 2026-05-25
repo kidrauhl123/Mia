@@ -26,8 +26,8 @@ function createSettingsStore(deps = {}) {
     // main.js reassigns engineState on every Hermes restart — capturing the
     // object would go stale.
     getEngineState,
-    AIMASHI_DAEMON_DEFAULT_PORT,
-    AIMASHI_CLOUD_DEFAULT_URL,
+    MIA_DAEMON_DEFAULT_PORT,
+    MIA_CLOUD_DEFAULT_URL,
     normalizeAvatarCrop = (crop) => crop || defaultUserProfile().avatarCrop,
   } = deps;
 
@@ -128,12 +128,12 @@ function createSettingsStore(deps = {}) {
   }
 
   function defaultDaemonSettings() {
-    const port = Number.isInteger(AIMASHI_DAEMON_DEFAULT_PORT) && AIMASHI_DAEMON_DEFAULT_PORT > 0
-      ? AIMASHI_DAEMON_DEFAULT_PORT
+    const port = Number.isInteger(MIA_DAEMON_DEFAULT_PORT) && MIA_DAEMON_DEFAULT_PORT > 0
+      ? MIA_DAEMON_DEFAULT_PORT
       : 27861;
     return {
       enabled: true,
-      host: process.env.AIMASHI_DAEMON_HOST || "127.0.0.1",
+      host: process.env.MIA_DAEMON_HOST || "127.0.0.1",
       port
     };
   }
@@ -141,8 +141,8 @@ function createSettingsStore(deps = {}) {
   function defaultRelaySettings() {
     return {
       enabled: false,
-      url: process.env.AIMASHI_RELAY_URL || "wss://agi.buytb01.com/relay",
-      deviceId: `aimashi-${crypto.randomUUID()}`,
+      url: process.env.MIA_RELAY_URL || "wss://agi.buytb01.com/relay",
+      deviceId: `mia-${crypto.randomUUID()}`,
       secret: crypto.randomBytes(32).toString("hex")
     };
   }
@@ -307,7 +307,7 @@ function createSettingsStore(deps = {}) {
   function defaultCloudSettings() {
     return {
       enabled: false,
-      url: AIMASHI_CLOUD_DEFAULT_URL,
+      url: MIA_CLOUD_DEFAULT_URL,
       token: "",
       user: null
     };
@@ -316,14 +316,14 @@ function createSettingsStore(deps = {}) {
   function normalizeCloudUrl(value) {
     const raw = String(value || "").trim();
     try {
-      const url = new URL(raw || AIMASHI_CLOUD_DEFAULT_URL);
-      if (url.protocol !== "http:" && url.protocol !== "https:") return AIMASHI_CLOUD_DEFAULT_URL;
+      const url = new URL(raw || MIA_CLOUD_DEFAULT_URL);
+      if (url.protocol !== "http:" && url.protocol !== "https:") return MIA_CLOUD_DEFAULT_URL;
       url.hash = "";
       url.search = "";
       url.pathname = url.pathname.replace(/\/+$/, "");
       return url.toString().replace(/\/$/, "");
     } catch {
-      return AIMASHI_CLOUD_DEFAULT_URL;
+      return MIA_CLOUD_DEFAULT_URL;
     }
   }
 

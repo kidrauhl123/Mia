@@ -22,10 +22,10 @@
   async function refreshDaemonPairing() {
     if (!state || !els) return null;
     try {
-      let pairing = await window.aimashi.daemonPairing();
-      if (!pairing?.running && window.aimashi.startDaemon) {
-        await window.aimashi.startDaemon();
-        pairing = await window.aimashi.daemonPairing();
+      let pairing = await window.mia.daemonPairing();
+      if (!pairing?.running && window.mia.startDaemon) {
+        await window.mia.startDaemon();
+        pairing = await window.mia.daemonPairing();
       }
       state.runtime = {
         ...(state.runtime || {}),
@@ -55,7 +55,7 @@
         ? daemon.connectUrls.map((url) => `${url}/mobile/`)
         : [];
     const link = links[0] || "";
-    setText(els.mobileDaemonStatus, running ? "Aimashi 后台已运行" : daemon.starting ? "Aimashi 后台启动中" : "Aimashi 后台未运行");
+    setText(els.mobileDaemonStatus, running ? "Mia 后台已运行" : daemon.starting ? "Mia 后台启动中" : "Mia 后台未运行");
     setText(els.mobileDaemonUrl, lanEnabled
       ? "同一局域网内扫描二维码连接；公司、校园或公共 Wi-Fi 可能会禁止设备互访。"
       : "关闭时只允许本机访问，不生成手机配对入口。");
@@ -83,9 +83,9 @@
 
   async function refreshRelayPairing() {
     if (!state || !els) return null;
-    if (!window.aimashi?.relayStatus) return null;
+    if (!window.mia?.relayStatus) return null;
     try {
-      const relay = await window.aimashi.relayStatus();
+      const relay = await window.mia.relayStatus();
       state.runtime = {
         ...(state.runtime || {}),
         relay: {
@@ -132,7 +132,7 @@
         ? connected
           ? peers ? `已连接，${peers} 台手机在线。` : "已连接。扫描二维码即可远程连接。"
           : `等待 relay：${relay.lastError || relay.url || "未连接"}`
-        : "通过 Aimashi Relay 中继连接，不要求手机和电脑在同一网络。";
+        : "通过 Mia Relay 中继连接，不要求手机和电脑在同一网络。";
     }
   }
 
@@ -152,8 +152,8 @@
       els.cloudAccountHint.textContent = connected
         ? `${username || "当前账号"} 已登录，自动同步中。${syncText}`
         : connecting
-          ? `${username || "当前账号"} 已登录，正在连接 Aimashi Cloud。${syncText}`
-          : `${username || "当前账号"} 已登录，等待 Aimashi Cloud：${cloud.lastError || "未连接"}。${syncText}`;
+          ? `${username || "当前账号"} 已登录，正在连接 Mia Cloud。${syncText}`
+          : `${username || "当前账号"} 已登录，等待 Mia Cloud：${cloud.lastError || "未连接"}。${syncText}`;
     } else {
       els.cloudAccountHint.textContent = "登录后，这台电脑会自动作为本机 Agent 出现在 Web 和手机端。";
     }
@@ -169,11 +169,11 @@
 
   async function applyDaemonHost(host) {
     if (!state || !els) return null;
-    if (!window.aimashi?.saveDaemonSettings) return null;
+    if (!window.mia?.saveDaemonSettings) return null;
     setText(els.mobilePairingHint, "正在切换手机访问范围...");
-    await window.aimashi.saveDaemonSettings({ host });
-    await window.aimashi.stopDaemon?.();
-    await window.aimashi.startDaemon?.();
+    await window.mia.saveDaemonSettings({ host });
+    await window.mia.stopDaemon?.();
+    await window.mia.startDaemon?.();
     return refreshDaemonPairing();
   }
 
@@ -187,7 +187,7 @@
     return String(els.mobileRelayLink?.dataset?.link || els.mobileRelayLink?.textContent || "").trim();
   }
 
-  window.aimashiSettingsRemote = {
+  window.miaSettingsRemote = {
     initSettingsRemote,
     refreshDaemonPairing,
     renderMobilePairing,

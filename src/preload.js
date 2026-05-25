@@ -1,7 +1,7 @@
 const { contextBridge, ipcRenderer, webUtils } = require("electron");
 const { IpcChannel } = require("./shared/ipc-channels");
 
-contextBridge.exposeInMainWorld("aimashi", {
+contextBridge.exposeInMainWorld("mia", {
   initializeRuntime: () => ipcRenderer.invoke(IpcChannel.RuntimeInitialize),
   notifyFirstPaint: () => ipcRenderer.send(IpcChannel.UiFirstPaint),
   runtimeStatus: () => ipcRenderer.invoke(IpcChannel.RuntimeStatus),

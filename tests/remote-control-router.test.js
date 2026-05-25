@@ -49,7 +49,7 @@ test("routes health and read endpoints through one remote control router", async
 
   assert.deepEqual(await router.route({ method: "GET", path: "/health" }), {
     handled: true,
-    data: { status: "ok", service: "aimashi-daemon", mode: "desktop" }
+    data: { status: "ok", service: "mia-daemon", mode: "desktop" }
   });
   assert.deepEqual(await router.route({ method: "GET", path: "/api/fellows" }), {
     handled: true,

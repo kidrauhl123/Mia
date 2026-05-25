@@ -35,15 +35,15 @@
 
 ```js
 // Member 是 plain JS object（不引入 TS）
-{ kind: 'fellow', fellowId: 'aimashi', ownerId: null }
+{ kind: 'fellow', fellowId: 'mia', ownerId: null }
 
 // 序列化进 group.json 时直接 JSON.stringify
 // 反序列化时由 member-model.js 校验
 
 // 等价旧格式（migration source）：
-// hostFellowId: 'aimashi' → hostMember: { kind: 'fellow', fellowId: 'aimashi', ownerId: null }
-// members: ['aimashi', 'codex'] → members: [
-//   { kind: 'fellow', fellowId: 'aimashi', ownerId: null },
+// hostFellowId: 'mia' → hostMember: { kind: 'fellow', fellowId: 'mia', ownerId: null }
+// members: ['mia', 'codex'] → members: [
+//   { kind: 'fellow', fellowId: 'mia', ownerId: null },
 //   { kind: 'fellow', fellowId: 'codex',   ownerId: null }
 // ]
 ```
@@ -75,8 +75,8 @@ const {
 } = require("../src/main/group/member-model.js");
 
 test("makeFellowMember builds canonical Member", () => {
-  const m = makeFellowMember("aimashi");
-  assert.deepEqual(m, { kind: "fellow", fellowId: "aimashi", ownerId: null });
+  const m = makeFellowMember("mia");
+  assert.deepEqual(m, { kind: "fellow", fellowId: "mia", ownerId: null });
 });
 
 test("makeFellowMember rejects empty fellowId", () => {
@@ -97,13 +97,13 @@ test("isFellowMember discriminates kind", () => {
 });
 
 test("memberKey returns kind-prefixed unique key", () => {
-  assert.equal(memberKey({ kind: "fellow", fellowId: "aimashi", ownerId: null }), "fellow:aimashi");
+  assert.equal(memberKey({ kind: "fellow", fellowId: "mia", ownerId: null }), "fellow:mia");
 });
 
 test("normalizeMember upgrades legacy string to fellow Member", () => {
   assert.deepEqual(
-    normalizeMember("aimashi"),
-    { kind: "fellow", fellowId: "aimashi", ownerId: null }
+    normalizeMember("mia"),
+    { kind: "fellow", fellowId: "mia", ownerId: null }
   );
 });
 
@@ -120,17 +120,17 @@ test("normalizeMember rejects malformed input", () => {
 
 test("normalizeMembersList accepts mixed legacy + new", () => {
   const list = normalizeMembersList([
-    "aimashi",
+    "mia",
     { kind: "fellow", fellowId: "codex", ownerId: null },
   ]);
   assert.equal(list.length, 2);
-  assert.equal(list[0].fellowId, "aimashi");
+  assert.equal(list[0].fellowId, "mia");
   assert.equal(list[1].fellowId, "codex");
 });
 
 test("membersIncludeKey matches by canonical key", () => {
-  const list = [makeFellowMember("aimashi"), makeFellowMember("codex")];
-  assert.equal(membersIncludeKey(list, "fellow:aimashi"), true);
+  const list = [makeFellowMember("mia"), makeFellowMember("codex")];
+  assert.equal(membersIncludeKey(list, "fellow:mia"), true);
   assert.equal(membersIncludeKey(list, "fellow:nope"), false);
 });
 ```
@@ -606,7 +606,7 @@ git commit -m "refactor(group): updateGroup accepts and normalizes hostMember/me
 ```js
 const hostFellowId = hostSelect.value || members[0];
 // ...
-const group = await window.aimashi.groups.create({ name, members, hostFellowId });
+const group = await window.mia.groups.create({ name, members, hostFellowId });
 ```
 
 注意：渲染端没有 require module-resolution，Member 工厂函数需要通过 preload 暴露**或**直接在 renderer 端 inline 一个等价函数。本 plan 选择 **inline**（避免动 preload bridge）。
@@ -628,7 +628,7 @@ function fellowMember(fellowId) {
 ```js
 const hostFellowId = hostSelect.value || members[0];
 // ...
-const group = await window.aimashi.groups.create({ name, members, hostFellowId });
+const group = await window.mia.groups.create({ name, members, hostFellowId });
 ```
 
 改成：
@@ -637,7 +637,7 @@ const group = await window.aimashi.groups.create({ name, members, hostFellowId }
 const hostFellowIdValue = hostSelect.value || members[0];
 const memberList = members.map(fellowMember);
 const hostMember = fellowMember(hostFellowIdValue);
-const group = await window.aimashi.groups.create({ name, members: memberList, hostMember });
+const group = await window.mia.groups.create({ name, members: memberList, hostMember });
 ```
 
 注意 `members` 数组从 UI 收集到的是 fellowId 字符串数组（select / checkbox dataset），保留这层；只在调 IPC 前转 Member。
@@ -650,7 +650,7 @@ npm run open
 
 操作：联系人页 → 新建群 → 选 2 个 fellow → 提交。检查：
 - 群创建成功，侧边栏出现
-- 关闭 app，看 `~/Library/Application Support/Aimashi/groups/<gid>/group.json` 内容确实是 Member 形态（`hostMember.fellowId = ...`）
+- 关闭 app，看 `~/Library/Application Support/Mia/groups/<gid>/group.json` 内容确实是 Member 形态（`hostMember.fellowId = ...`）
 - 没有报错
 
 - [ ] **Step 5: Commit**
@@ -700,13 +700,13 @@ if (memberId === getHostFellowId(group)) opt.selected = true;
 ```js
 group.hostFellowId = newHost;
 // ...
-Object.assign(group, await window.aimashi.groups.update(group.id, { hostFellowId: newHost }));
+Object.assign(group, await window.mia.groups.update(group.id, { hostFellowId: newHost }));
 ```
 改成：
 ```js
 group.hostMember = fellowMember(newHost);
 // ...
-Object.assign(group, await window.aimashi.groups.update(group.id, { hostMember: fellowMember(newHost) }));
+Object.assign(group, await window.mia.groups.update(group.id, { hostMember: fellowMember(newHost) }));
 ```
 
 - [ ] **Step 5: 改 message 渲染中的 host 判断（原约 550 行 `senderFellowId === group.hostFellowId`）**
@@ -721,13 +721,13 @@ const isHost = msg.senderFellowId === getHostFellowId(group);
 ```js
 const newMembers = [...group.members, fellowId];
 // ...
-Object.assign(group, await window.aimashi.groups.update(group.id, { members: newMembers }));
+Object.assign(group, await window.mia.groups.update(group.id, { members: newMembers }));
 ```
 改成：
 ```js
 const newMembers = [...memberFellowIds(group), fellowId].map(fellowMember);
 // ...
-Object.assign(group, await window.aimashi.groups.update(group.id, { members: newMembers }));
+Object.assign(group, await window.mia.groups.update(group.id, { members: newMembers }));
 ```
 
 - [ ] **Step 7: 改 dispatchToFellow 入口（原约 727 行 `group.members.includes(f.id || f.key)`）**
@@ -754,7 +754,7 @@ if (memberId === group.hostFellowId) {
   newHost = ...
 }
 group.hostFellowId = newHost;
-Object.assign(group, await window.aimashi.groups.update(group.id, { members: newMembers, hostFellowId: newHost }));
+Object.assign(group, await window.mia.groups.update(group.id, { members: newMembers, hostFellowId: newHost }));
 ```
 改成：
 ```js
@@ -764,7 +764,7 @@ if (memberId === getHostFellowId(group)) {
   newHost = ...
 }
 group.hostMember = fellowMember(newHost);
-Object.assign(group, await window.aimashi.groups.update(group.id, {
+Object.assign(group, await window.mia.groups.update(group.id, {
   members: newMembers.map(fellowMember),
   hostMember: fellowMember(newHost),
 }));

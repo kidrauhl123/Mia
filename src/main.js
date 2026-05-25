@@ -83,20 +83,20 @@ const { registerTasksIpc } = require("./main/ipc/tasks-ipc.js");
 // (cloud/desktop-sync helpers removed in Phase 4 cutover — fellow chats
 //  now sync via rooms+messages, no need for the workspace-shape mappers.)
 
-app.setName("Aimashi");
-const isolatedUserDataDir = String(process.env.AIMASHI_USER_DATA_DIR || "").trim();
+app.setName("Mia");
+const isolatedUserDataDir = String(process.env.MIA_USER_DATA_DIR || "").trim();
 if (isolatedUserDataDir) {
   app.setPath("userData", path.resolve(isolatedUserDataDir));
 }
 const startupTimer = createStartupTimer({ scope: "startup" });
 
-const AIMASHI_GATEWAY_SERVICE_LABEL = "ai.aimashi.hermes.gateway";
-const AIMASHI_DAEMON_SERVICE_LABEL = "ai.aimashi.daemon";
-const AIMASHI_DAEMON_DEFAULT_PORT = Number(process.env.AIMASHI_DAEMON_PORT || 27861);
+const MIA_GATEWAY_SERVICE_LABEL = "ai.mia.hermes.gateway";
+const MIA_DAEMON_SERVICE_LABEL = "ai.mia.daemon";
+const MIA_DAEMON_DEFAULT_PORT = Number(process.env.MIA_DAEMON_PORT || 27861);
 const MOBILE_ASSET_VERSION = "mobile-slash-commands-1";
-const AIMASHI_CLOUD_DEFAULT_URL = process.env.AIMASHI_CLOUD_URL || "https://aiweb.buytb01.com";
-const IS_DAEMON_PROCESS = process.argv.includes("--daemon") || process.env.AIMASHI_DAEMON === "1";
-const ALLOW_MULTIPLE_INSTANCES = process.env.AIMASHI_ALLOW_MULTIPLE_INSTANCES === "1";
+const MIA_CLOUD_DEFAULT_URL = process.env.MIA_CLOUD_URL || "https://aiweb.buytb01.com";
+const IS_DAEMON_PROCESS = process.argv.includes("--daemon") || process.env.MIA_DAEMON === "1";
+const ALLOW_MULTIPLE_INSTANCES = process.env.MIA_ALLOW_MULTIPLE_INSTANCES === "1";
 let shouldRunDesktopInstance = true;
 if (!IS_DAEMON_PROCESS && !ALLOW_MULTIPLE_INSTANCES) {
   const singleInstanceLock = app.requestSingleInstanceLock();
@@ -130,8 +130,8 @@ let engineState = {
 const runtimePathsModule = createRuntimePaths({
   app,
   runtimeResources,
-  AIMASHI_GATEWAY_SERVICE_LABEL,
-  AIMASHI_DAEMON_SERVICE_LABEL,
+  MIA_GATEWAY_SERVICE_LABEL,
+  MIA_DAEMON_SERVICE_LABEL,
 });
 const {
   runtimePaths,
@@ -179,7 +179,7 @@ const engineRuntimeConfigService = createEngineRuntimeConfigService({
   externalSkillDirs: () => [],
   // Lazy: schedulerMcpBridge is created later in this module; the thunk is
   // only invoked at writeRuntimeConfig time (runtime), by which point it
-  // exists. Lets the Hermes config.yaml carry the aimashi-scheduler MCP.
+  // exists. Lets the Hermes config.yaml carry the mia-scheduler MCP.
   getSchedulerMcpSpec: () => schedulerMcpBridge.getSpec()
 });
 const {
@@ -200,8 +200,8 @@ const engineHealthService = createEngineHealthService({
 });
 
 const launchdService = createLaunchdService({
-  gatewayServiceLabel: AIMASHI_GATEWAY_SERVICE_LABEL,
-  daemonServiceLabel: AIMASHI_DAEMON_SERVICE_LABEL,
+  gatewayServiceLabel: MIA_GATEWAY_SERVICE_LABEL,
+  daemonServiceLabel: MIA_DAEMON_SERVICE_LABEL,
   runtimePaths,
   appPath: () => app.getAppPath(),
   execPath: () => process.execPath,
@@ -232,8 +232,8 @@ settingsStore = createSettingsStore({
   writeRuntimeConfig,
   readConfiguredPort,
   getEngineState: () => engineState,
-  AIMASHI_DAEMON_DEFAULT_PORT,
-  AIMASHI_CLOUD_DEFAULT_URL,
+  MIA_DAEMON_DEFAULT_PORT,
+  MIA_CLOUD_DEFAULT_URL,
   normalizeAvatarCrop: (crop) => normalizeAvatarCrop(crop)
 });
 
@@ -570,7 +570,7 @@ function getRuntimeStatus(created = []) {
     engineBaseUrl: engineState.baseUrl,
     enginePort: engineState.port,
     engineManagedBy: engineState.managedBy,
-    engineServiceLabel: AIMASHI_GATEWAY_SERVICE_LABEL,
+    engineServiceLabel: MIA_GATEWAY_SERVICE_LABEL,
     engineLastError: engineState.lastError,
     engineLogs: engineState.logs.slice(-80),
     daemon: getDaemonStatus(),
@@ -707,7 +707,7 @@ function resolveRemoteChatSession({ fellowKey, sessionId }) {
   initializeRuntime();
   const manifest = loadFellowManifest();
   const fellows = Array.isArray(manifest.fellows) ? manifest.fellows : [];
-  const key = String(fellowKey || manifest.default_fellow || fellows[0]?.key || "aimashi").trim();
+  const key = String(fellowKey || manifest.default_fellow || fellows[0]?.key || "mia").trim();
   const fellow = fellows.find((item) => item.key === key) || fellows[0] || defaultFellowManifest().fellows[0];
   const store = loadChatStore();
   if (!store.sessions[fellow.key]) store.sessions[fellow.key] = [];
@@ -854,7 +854,7 @@ async function runRemoteChatRequest(body, eventSink = null) {
   // one resolveRemoteChatSession returned; mutating session.messages on it and
   // saving it preserves any new-session we just created via ensurePersonaSession.
   // (Concurrent writes to the same session can still race — tracked in
-  // docs/superpowers/known-issues/2026-05-20-aimashi-task-rail-deferrals.md.)
+  // docs/superpowers/known-issues/2026-05-20-mia-task-rail-deferrals.md.)
   session.messages = [
     ...(Array.isArray(session.messages) ? session.messages : []),
     savedUser,
@@ -936,7 +936,7 @@ function sweepExpiredOneshotTasks(store) {
 }
 
 async function startDaemonService() {
-  if (!IS_DAEMON_PROCESS && process.env.AIMASHI_DISABLE_BACKGROUND_STARTUP === "1") {
+  if (!IS_DAEMON_PROCESS && process.env.MIA_DISABLE_BACKGROUND_STARTUP === "1") {
     return { ...getDaemonStatus(), running: false, disabled: true };
   }
   initializeRuntime();
@@ -952,7 +952,7 @@ async function startDaemonService() {
       if (ping.ok) return { ...getDaemonStatus(), running: true, baseUrl: ping.baseUrl };
       await new Promise((resolve) => setTimeout(resolve, 300));
     }
-    throw new Error("Timed out waiting for Aimashi daemon LaunchAgent.");
+    throw new Error("Timed out waiting for Mia daemon LaunchAgent.");
   }
   return daemonControlServer.start(settings);
 }
@@ -1020,15 +1020,15 @@ function deleteFellowFromCloud(fellowKey) {
   return cloudDesktopSync().deleteFellow(fellowKey);
 }
 
-function syncAimashiCloudWorkspace() {
+function syncMiaCloudWorkspace() {
   return cloudDesktopSync().syncWorkspace();
 }
 
-function loginAimashiCloud(payload = {}) {
+function loginMiaCloud(payload = {}) {
   return cloudDesktopSync().login(payload);
 }
 
-function logoutAimashiCloud() {
+function logoutMiaCloud() {
   return cloudDesktopSync().logout();
 }
 
@@ -1049,7 +1049,7 @@ function cloudWebSocketUrl(pathname, settings = settingsStore.cloudSettings()) {
 }
 
 function cloudWebSocketProtocols(settings = settingsStore.cloudSettings()) {
-  return [`aimashi-token.${settings.token}`];
+  return [`mia-token.${settings.token}`];
 }
 
 function cloudEventsUrl(settings = settingsStore.cloudSettings()) {
@@ -1063,7 +1063,7 @@ function cloudEventsUrl(settings = settingsStore.cloudSettings()) {
 
 function cloudBridgeUrl(settings = settingsStore.cloudSettings()) {
   const url = cloudWebSocketUrl("/api/bridge", settings);
-  url.searchParams.set("deviceName", `${os.hostname()} Aimashi Desktop`);
+  url.searchParams.set("deviceName", `${os.hostname()} Mia Desktop`);
   url.searchParams.set("engine", "codex");
   url.searchParams.set("capabilities", JSON.stringify({
     chat: true,
@@ -1072,7 +1072,7 @@ function cloudBridgeUrl(settings = settingsStore.cloudSettings()) {
     cancellation: true,
     streaming: true,
     engines: ["codex"],
-    app: "Aimashi Desktop",
+    app: "Mia Desktop",
     appVersion: app.getVersion(),
     hostname: os.hostname()
   }));
@@ -1107,14 +1107,14 @@ async function startEngine() {
   initializeRuntime();
   const p = runtimePaths();
   if (!engineInstallService.isInstalled()) {
-    throw new Error("Hermes engine is not installed in Aimashi runtime.");
+    throw new Error("Hermes engine is not installed in Mia runtime.");
   }
   if (engineProcess && engineState.running) return getRuntimeStatus();
   enginePluginsService.ensureInstalled();
   if (await engineHealthService.adoptRunningEngine()) return getRuntimeStatus();
 
   const port = await engineHealthService.choosePort();
-  if (!port) throw new Error("No available local port for Aimashi Hermes API.");
+  if (!port) throw new Error("No available local port for Mia Hermes API.");
 
   writeRuntimeConfig(port);
   const settings = modelSettings();
@@ -1123,7 +1123,7 @@ async function startEngine() {
     ...process.env,
     ...dotenv,
     HERMES_HOME: effectiveHermesHome(),
-    AIMASHI_HOME: p.home,
+    MIA_HOME: p.home,
     HERMES_ACCEPT_HOOKS: "1",
     API_SERVER_ENABLED: "true",
     API_SERVER_HOST: "127.0.0.1",
@@ -1159,10 +1159,10 @@ async function startEngine() {
     engineState.starting = false;
     engineState.running = ok;
     if (!ok) {
-      engineState.lastError = "Timed out waiting for Aimashi Hermes launchd service.";
+      engineState.lastError = "Timed out waiting for Mia Hermes launchd service.";
       throw new Error(engineState.lastError);
     }
-    appendEngineLog(`Aimashi Hermes service running at ${engineState.baseUrl}`);
+    appendEngineLog(`Mia Hermes service running at ${engineState.baseUrl}`);
     return getRuntimeStatus();
   }
 
@@ -1225,8 +1225,8 @@ function writeModelSettings(next) {
   const p = runtimePaths();
   fs.writeFileSync(p.modelSettings, JSON.stringify(next, null, 2) + "\n", { mode: 0o600 });
   writeRuntimeConfig(engineState.port || 8642);
-  // NOTE: aimashi never writes back to user's ~/.hermes/config.yaml. The user's
-  // hermes setup stays read-only; aimashi's model choice only affects aimashi's
+  // NOTE: mia never writes back to user's ~/.hermes/config.yaml. The user's
+  // hermes setup stays read-only; mia's model choice only affects mia's
   // own private gateway.
 }
 
@@ -1414,7 +1414,7 @@ async function sendChat({ fellowKey, personaKey, sessionId, messages, group, web
     if (signal.aborted) {
       if (emit) emit("complete", { finishReason: "cancelled", aborted: true });
       const stopped = new Error("生成已停止");
-      stopped.code = "AIMASHI_STOPPED";
+      stopped.code = "MIA_STOPPED";
       throw stopped;
     }
     if (emit) emit("error", { message: String(error?.message || error) });
@@ -1439,7 +1439,7 @@ function createWindow() {
     height: 760,
     minWidth: 420,
     minHeight: 560,
-    title: "Aimashi",
+    title: "Mia",
     titleBarStyle: "hidden",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -1531,14 +1531,14 @@ relayRuntime = createRelayClient({
   mobileAssetVersion: MOBILE_ASSET_VERSION,
   daemonToken,
   initializeRuntime,
-  hostname: () => os.hostname() || "Aimashi Desktop",
+  hostname: () => os.hostname() || "Mia Desktop",
   randomUUID: () => crypto.randomUUID(),
   remoteRouter: remoteControlRouter
 });
 
 daemonControlServer = createDaemonControlServer({
   isDaemonProcess: IS_DAEMON_PROCESS,
-  serviceLabel: AIMASHI_DAEMON_SERVICE_LABEL,
+  serviceLabel: MIA_DAEMON_SERVICE_LABEL,
   dirname: __dirname,
   daemonToken,
   initializeRuntime,
@@ -1668,11 +1668,11 @@ ipcMain.handle(IpcChannel.RelaySettingsSave, async (_event, settings) => {
 });
 ipcMain.handle(IpcChannel.CloudStatus, () => cloudStatus(false));
 ipcMain.handle(IpcChannel.CloudLogin, async (_event, payload) => {
-  await loginAimashiCloud(payload || {});
+  await loginMiaCloud(payload || {});
   return getRuntimeStatus();
 });
 ipcMain.handle(IpcChannel.CloudSync, async () => {
-  await syncAimashiCloudWorkspace();
+  await syncMiaCloudWorkspace();
   return getRuntimeStatus();
 });
 // Phase 3: cross-device settings (pin / read marks / appearance). Renderer
@@ -1696,7 +1696,7 @@ ipcMain.handle(IpcChannel.CloudSettingsPut, async (_event, settings) => {
   }
 });
 ipcMain.handle(IpcChannel.CloudLogout, async () => {
-  await logoutAimashiCloud();
+  await logoutMiaCloud();
   return getRuntimeStatus();
 });
 const socialApi = createSocialApi({
@@ -1916,8 +1916,8 @@ app.whenReady().then(async () => {
   daemonTasksClient.startEvents();
   startCloudEvents();
   startCloudBridge(); // self-gates: defers to the daemon when it's enabled
-  syncAimashiCloudWorkspace().catch((error) => appendCloudLog(`Cloud workspace sync failed: ${error?.message || error}`));
-  if (process.env.AIMASHI_DISABLE_BACKGROUND_STARTUP !== "1") {
+  syncMiaCloudWorkspace().catch((error) => appendCloudLog(`Cloud workspace sync failed: ${error?.message || error}`));
+  if (process.env.MIA_DISABLE_BACKGROUND_STARTUP !== "1") {
     win.webContents.once("did-finish-load", () => {
       setTimeout(() => runtimeLifecycle().scheduleBackgroundStartup(), 2500);
     });

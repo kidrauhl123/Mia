@@ -1,7 +1,7 @@
 // Session read-state module
 // Extracted from app.js (formerly lines 1825-1897). Pure data layer for
 // per-persona unread badge tracking and read-marker persistence. No DOM
-// access, so the module is fully self-contained behind window.aimashiSessionReadState.
+// access, so the module is fully self-contained behind window.miaSessionReadState.
 //
 // Defensive: all exposed methods no-op if init hasn't run (state ref still
 // undefined). Avoids the init-order class of bug fixed in commit b2d6fa3.
@@ -10,17 +10,17 @@
 
   const __global = typeof window !== "undefined" ? window : globalThis;
   function unreadShared() {
-    if (__global.aimashiUnread) return __global.aimashiUnread;
+    if (__global.miaUnread) return __global.miaUnread;
     if (typeof require !== "undefined") return require("../../shared/unread");
-    throw new Error("aimashiUnread is not loaded");
+    throw new Error("miaUnread is not loaded");
   }
 
-  let state, aimashi;
+  let state, mia;
   let nowIso;
 
   function initSessionReadState(deps) {
     state = deps.state;
-    aimashi = deps.aimashi || (typeof window !== "undefined" ? window.aimashi : null);
+    mia = deps.mia || (typeof window !== "undefined" ? window.mia : null);
     nowIso = deps.nowIso;
   }
 
@@ -98,10 +98,10 @@
   async function persistReadStateQuietly() {
     if (!state) return;
     try {
-      if (window.aimashi?.saveChatReadState) {
+      if (window.mia?.saveChatReadState) {
         const readAt = { ...ensureReadState() };
         const manualUnread = { ...ensureManualUnread() };
-        await window.aimashi.saveChatReadState({ readAt, manualUnread });
+        await window.mia.saveChatReadState({ readAt, manualUnread });
         state.chatStore.readAt = { ...state.chatStore.readAt, ...readAt };
         state.chatStore.manualUnread = manualUnread;
       }
@@ -139,7 +139,7 @@
     if (persist) persistReadStateQuietly();
   }
 
-  window.aimashiSessionReadState = {
+  window.miaSessionReadState = {
     initSessionReadState,
     ensureReadState,
     latestAssistantMessageTime,

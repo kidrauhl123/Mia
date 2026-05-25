@@ -61,7 +61,7 @@ function setup(overrides = {}) {
     },
     cloudStatus: () => ({ enabled: settings.enabled }),
     cloudEventsUrl: (s) => `wss://cloud.example/api/events?since_seq=${Number(s.lastEventSeq) || 0}`,
-    cloudWebSocketProtocols: (s) => [`aimashi-token.${s.token}`],
+    cloudWebSocketProtocols: (s) => [`mia-token.${s.token}`],
     broadcastRendererEvent: (channel, envelope) => calls.broadcasts.push({ channel, envelope }),
     cloudEventChannel: "cloud:event",
     appendCloudLog: (line) => calls.logs.push(line),
@@ -92,7 +92,7 @@ test("start opens one /api/events websocket with resume cursor", () => {
 
   assert.equal(sockets.length, 1);
   assert.equal(sockets[0].url, "wss://cloud.example/api/events?since_seq=3");
-  assert.deepEqual(sockets[0].protocols, ["aimashi-token.tok_1"]);
+  assert.deepEqual(sockets[0].protocols, ["mia-token.tok_1"]);
 
   sockets[0].readyState = FakeWebSocket.CLOSED;
   client.start();
@@ -211,7 +211,7 @@ test("fellow runtime updates are forwarded to the renderer", () => {
     type: "fellow.runtime_updated",
     seq: 9,
     binding: {
-      fellowId: "aimashi",
+      fellowId: "mia",
       runtimeKind: "cloud-hermes",
       config: { model: "hermes-agent" }
     }
@@ -225,7 +225,7 @@ test("fellow runtime updates are forwarded to the renderer", () => {
       type: "fellow.runtime_updated",
       seq: 9,
       binding: {
-        fellowId: "aimashi",
+        fellowId: "mia",
         runtimeKind: "cloud-hermes",
         config: { model: "hermes-agent" }
       }

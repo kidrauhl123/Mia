@@ -29,7 +29,7 @@ test("src/web/index.html loads shared/unread.js before app.js", () => {
   assert.ok(appIdx >= 0, "index.html must load app.js");
   assert.ok(
     unreadIdx < appIdx,
-    "shared/unread.js must be loaded before app.js so window.aimashiUnread is defined when app.js runs"
+    "shared/unread.js must be loaded before app.js so window.miaUnread is defined when app.js runs"
   );
 });
 
@@ -109,12 +109,12 @@ test("src/web/styles.css carries desktop-style AI control switchers", () => {
   assert.match(css, /\.permission-switcher\.yolo/);
 });
 
-test("src/web/app.js routes through window.aimashiUnread", () => {
+test("src/web/app.js routes through window.miaUnread", () => {
   const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
   assert.match(
     source,
-    /window\.aimashiUnread/,
-    "web/app.js must destructure window.aimashiUnread"
+    /window\.miaUnread/,
+    "web/app.js must destructure window.miaUnread"
   );
   assert.match(
     source,

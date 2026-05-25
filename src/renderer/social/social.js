@@ -1,6 +1,6 @@
 // Renderer-side social module: friends, DM rooms, add-friend dialog.
 // Loaded by <script src="./social/social.js"> from index.html, BEFORE app.js.
-// Pattern: IIFE + window.aimashiSocial public API; deps are injected via initSocialModule().
+// Pattern: IIFE + window.miaSocial public API; deps are injected via initSocialModule().
 
 (function (global) {
   // Decision: cap initial-message fetch to 30 rooms to keep bootstrap fast.
@@ -9,7 +9,7 @@
   // Lazy shared-dep accessor (mirrors unreadShared / sendPipelineShared) so the
   // module still loads in test VMs where neither the global nor require exists.
   function conversationKinds() {
-    if (global.aimashiConversationKinds) return global.aimashiConversationKinds;
+    if (global.miaConversationKinds) return global.miaConversationKinds;
     if (typeof require !== "undefined") return require("../../shared/conversation-kinds");
     return {
       MemberKind: { Fellow: "fellow", User: "user" },
@@ -18,15 +18,15 @@
   }
 
   function unreadShared() {
-    if (global.aimashiUnread) return global.aimashiUnread;
+    if (global.miaUnread) return global.miaUnread;
     if (typeof require !== "undefined") return require("../../shared/unread");
-    throw new Error("aimashiUnread is not loaded");
+    throw new Error("miaUnread is not loaded");
   }
 
   function sendPipelineShared() {
-    if (global.aimashiSendPipeline) return global.aimashiSendPipeline;
+    if (global.miaSendPipeline) return global.miaSendPipeline;
     if (typeof require !== "undefined") return require("../../shared/send-pipeline");
-    throw new Error("aimashiSendPipeline is not loaded");
+    throw new Error("miaSendPipeline is not loaded");
   }
 
   // Decision: singleton modal — create once, re-populate on open.
@@ -66,8 +66,8 @@
   // ── helpers ───────────────────────────────────────────────────────────────
 
   function escapeHtml(value) {
-    if (typeof window !== "undefined" && window.aimashiMarkdown && typeof window.aimashiMarkdown.escapeHtml === "function") {
-      return window.aimashiMarkdown.escapeHtml(value);
+    if (typeof window !== "undefined" && window.miaMarkdown && typeof window.miaMarkdown.escapeHtml === "function") {
+      return window.miaMarkdown.escapeHtml(value);
     }
     return String(value || "")
       .replace(/&/g, "&amp;")
@@ -304,7 +304,7 @@
   // returns kind="self" only when ref matches ctx.self.id). Falls back to
   // false when the helper isn't loaded (test sandbox or pre-bootstrap).
   function _isMessageFromSelf(msg) {
-    const helper = (typeof window !== "undefined" && window.aimashiContact) || null;
+    const helper = (typeof window !== "undefined" && window.miaContact) || null;
     if (!helper || typeof helper.resolveContact !== "function") return false;
     const { resolveContact, ContactKind } = helper;
     const contact = resolveContact(
@@ -318,7 +318,7 @@
   // cloud-room-source adapter and reading spec.role. Falls back to false when
   // the adapter isn't loaded (test sandbox or pre-bootstrap).
   function _isUserRoleMessage(msg) {
-    const factory = (typeof window !== "undefined" && window.aimashiCloudRoomSource) || null;
+    const factory = (typeof window !== "undefined" && window.miaCloudRoomSource) || null;
     if (!factory || typeof factory.createCloudRoomSource !== "function") return false;
     const room = moduleState.rooms.find((r) => r.id === moduleState.activeRoomId) || { id: moduleState.activeRoomId || "" };
     const ctx = { self: { id: moduleState.myUserId, username: moduleState.myUsername }, friends: moduleState.friends, fellows: [] };
@@ -340,7 +340,7 @@
   // remains the source of truth; the snapshot is a render cache that the
   // background bootstrap overwrites.
 
-  const _SNAPSHOT_KEY = "aimashi.social.snapshot.v1";
+  const _SNAPSHOT_KEY = "mia.social.snapshot.v1";
   let _snapshotTimer = 0;
 
   function _persistSnapshot() {
@@ -405,11 +405,11 @@
   // ── bootstrapAfterLogin ───────────────────────────────────────────────────
 
   async function bootstrapAfterLogin() {
-    if (!window.aimashi || !window.aimashi.social) {
-      console.warn("[social] window.aimashi.social not available — skip bootstrap");
+    if (!window.mia || !window.mia.social) {
+      console.warn("[social] window.mia.social not available — skip bootstrap");
       return;
     }
-    const api = window.aimashi.social;
+    const api = window.mia.social;
     try {
       const [meRes, friendsRes, incomingRes, outgoingRes] = await Promise.all([
         api.myUsername(),
@@ -818,7 +818,7 @@
   }
 
   function _specForMessage(msg, members = []) {
-    const factory = (typeof window !== "undefined" && window.aimashiCloudRoomSource) || null;
+    const factory = (typeof window !== "undefined" && window.miaCloudRoomSource) || null;
     if (!factory || typeof factory.createCloudRoomSource !== "function") return null;
     const room = moduleState.rooms.find((r) => r.id === moduleState.activeRoomId) || { id: moduleState.activeRoomId || "" };
     const ctx = { self: { id: moduleState.myUserId, username: moduleState.myUsername }, friends: moduleState.friends, fellows: [] };
@@ -852,7 +852,7 @@
     const authorName = spec ? spec.authorName : "";
     const avatar = (spec && spec.avatar) || { image: "", crop: null, color: "" };
     const avatarColor = avatar.color || accentColor || "#5e5ce6";
-    const avatarHelpers = window.aimashiAvatar;
+    const avatarHelpers = window.miaAvatar;
     const avatarStyle = (avatarHelpers && typeof avatarHelpers.avatarThumbBackgroundStyle === "function")
       ? avatarHelpers.avatarThumbBackgroundStyle(avatar.image, avatar.crop, avatarColor)
       : `background-color:${avatarColor};`;
@@ -867,7 +867,7 @@
     const attachmentHtml = renderAttachmentChips(spec?.attachments || msg.attachments || []);
     const createdAt = msg.created_at || msg.createdAt || "";
     const timeHtml = createdAt
-      ? `<time class="message-time" datetime="${escapeHtml(createdAt)}">${escapeHtml(window.aimashiTimeFormat.formatMessageTime(createdAt))}</time>`
+      ? `<time class="message-time" datetime="${escapeHtml(createdAt)}">${escapeHtml(window.miaTimeFormat.formatMessageTime(createdAt))}</time>`
       : "";
 
     const article = document.createElement("article");
@@ -892,7 +892,7 @@
     const run = moduleState.cloudAgentRunsByRoom.get(roomId);
     if (!run || (!run.text && !run.tools.length)) return null;
     const room = moduleState.rooms.find((r) => r.id === roomId) || { id: roomId };
-    const fellowKey = run.fellowId || room.decorations?.fellowKey || (room.id?.startsWith("fellow:") ? room.id.split(":")[2] : "aimashi");
+    const fellowKey = run.fellowId || room.decorations?.fellowKey || (room.id?.startsWith("fellow:") ? room.id.split(":")[2] : "mia");
     const synthetic = {
       id: `cloud-agent-stream-${run.runId || roomId}`,
       sender_kind: "fellow",
@@ -904,7 +904,7 @@
     const authorName = spec ? spec.authorName : fellowKey;
     const avatar = (spec && spec.avatar) || { image: "", crop: null, color: "" };
     const avatarColor = avatar.color || accentColor || "#5e5ce6";
-    const avatarHelpers = window.aimashiAvatar;
+    const avatarHelpers = window.miaAvatar;
     const avatarStyle = (avatarHelpers && typeof avatarHelpers.avatarThumbBackgroundStyle === "function")
       ? avatarHelpers.avatarThumbBackgroundStyle(avatar.image, avatar.crop, avatarColor)
       : `background-color:${avatarColor};`;
@@ -1003,7 +1003,7 @@
         text
       ].join("\n");
       const cryptoRandomId = () => (window.crypto?.randomUUID ? window.crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2));
-      const response = await window.aimashi.sendChat({
+      const response = await window.mia.sendChat({
         fellowKey,
         sessionId: `utility:translate:${cryptoRandomId()}`,
         utility: true,
@@ -1034,7 +1034,7 @@
     if (deps && typeof deps.render === "function") deps.render();
     let ok = false;
     try {
-      const res = await window.aimashi.social.deleteRoomMessage(roomId, messageId);
+      const res = await window.mia.social.deleteRoomMessage(roomId, messageId);
       ok = Boolean(res && res.ok !== false);
       if (!ok) console.warn("[social] deleteRoomMessage failed:", res?.error || "unknown");
     } catch (err) {
@@ -1051,8 +1051,8 @@
   }
 
   function _renderMsgBody(md) {
-    if (typeof window !== "undefined" && window.aimashiMarkdown && typeof window.aimashiMarkdown.renderMarkdown === "function") {
-      try { return window.aimashiMarkdown.renderMarkdown(md); } catch { /* fall through */ }
+    if (typeof window !== "undefined" && window.miaMarkdown && typeof window.miaMarkdown.renderMarkdown === "function") {
+      try { return window.miaMarkdown.renderMarkdown(md); } catch { /* fall through */ }
     }
     return escapeHtml(md);
   }
@@ -1139,16 +1139,16 @@
 
   // ── group feature stubs — implementations in social-groups.js ───────────
   // social-groups.js is loaded after social.js and attaches itself via
-  // window.aimashiSocialGroups.attach(ctx) where ctx is the shared internal
+  // window.miaSocialGroups.attach(ctx) where ctx is the shared internal
   // context exported below.
 
   function _buildGroupMessageArticle(msg, accentColor, members) {
-    const build = window.aimashiSocialGroups?.buildGroupMessageArticle;
+    const build = window.miaSocialGroups?.buildGroupMessageArticle;
     return typeof build === "function" ? build(msg, accentColor, members) : null;
   }
 
   function _fetchAndCacheRoomMembers(roomId) {
-    return window.aimashiSocialGroups?.fetchAndCacheRoomMembers(roomId);
+    return window.miaSocialGroups?.fetchAndCacheRoomMembers(roomId);
   }
 
   async function sendInActiveGroupRoom(text) {
@@ -1156,7 +1156,7 @@
   }
 
   function openCreateGroupDialog() {
-    return window.aimashiSocialGroups?.openCreateGroupDialog();
+    return window.miaSocialGroups?.openCreateGroupDialog();
   }
 
   // ── openAddFriendDialog ───────────────────────────────────────────────────
@@ -1167,8 +1167,8 @@
   // events or bootstrapAfterLogin never ran (e.g., cloud login happened in
   // a previous app lifetime and the renderer never got a "loggedIn" tick).
   async function refreshFriendRequestState() {
-    if (!window.aimashi || !window.aimashi.social) return false;
-    const api = window.aimashi.social;
+    if (!window.mia || !window.mia.social) return false;
+    const api = window.mia.social;
     try {
       const [meRes, incomingRes, outgoingRes] = await Promise.all([
         api.myUsername(),
@@ -1326,14 +1326,14 @@
       if (errorEl) errorEl.textContent = "";
       sendBtn.disabled = true;
       try {
-        const res = await window.aimashi.social.sendFriendRequest(username);
+        const res = await window.mia.social.sendFriendRequest(username);
         if (!res.ok) {
           if (errorEl) errorEl.textContent = res.error || "发送失败";
           return;
         }
         if (usernameInput) usernameInput.value = "";
         // Refresh outgoing list
-        const outRes = await window.aimashi.social.listFriendRequests("outgoing");
+        const outRes = await window.mia.social.listFriendRequests("outgoing");
         if (outRes.ok) moduleState.outgoingRequests = outRes.data?.requests || [];
         // Re-render modal sections
         const oList = card.querySelector("#socialOutgoingList");
@@ -1380,7 +1380,7 @@
         acceptBtn.addEventListener("click", async () => {
           acceptBtn.disabled = true;
           try {
-            const res = await window.aimashi.social.respondFriendRequest(req.id, "accept");
+            const res = await window.mia.social.respondFriendRequest(req.id, "accept");
             if (!res.ok) { acceptBtn.disabled = false; return; }
             moduleState.incomingRequests = moduleState.incomingRequests.filter((r) => r.id !== req.id);
             // Re-render
@@ -1397,7 +1397,7 @@
         rejectBtn.addEventListener("click", async () => {
           rejectBtn.disabled = true;
           try {
-            const res = await window.aimashi.social.respondFriendRequest(req.id, "reject");
+            const res = await window.mia.social.respondFriendRequest(req.id, "reject");
             if (!res.ok) { rejectBtn.disabled = false; return; }
             moduleState.incomingRequests = moduleState.incomingRequests.filter((r) => r.id !== req.id);
             if (modal) _renderAddFriendModal(modal);
@@ -1416,7 +1416,7 @@
         cancelBtn.addEventListener("click", async () => {
           cancelBtn.disabled = true;
           try {
-            const res = await window.aimashi.social.cancelFriendRequest(req.id);
+            const res = await window.mia.social.cancelFriendRequest(req.id);
             if (!res.ok) { cancelBtn.disabled = false; return; }
             moduleState.outgoingRequests = moduleState.outgoingRequests.filter((r) => r.id !== req.id);
             if (modal) _renderAddFriendModal(modal);
@@ -1452,7 +1452,7 @@
     const localMsg = _appendLocalOutgoingRoomMessage(roomId, prepared);
     const mentions = postMentionsForRoom(roomType, prepared.mentions);
     try {
-      const res = await window.aimashi.social.postRoomMessage(roomId, {
+      const res = await window.mia.social.postRoomMessage(roomId, {
         bodyMd: prepared.bodyMd,
         ...(mentions.length ? { mentions } : {})
       });
@@ -1495,7 +1495,7 @@
     const nextOverrides = { ...(s.unreadOverrides || {}) };
     delete nextOverrides[roomId];
     moduleState.cloudSettings = { ...s, readMarks: nextReadMarks, unreadOverrides: nextOverrides };
-    window.aimashi?.social?.settingsPut?.({
+    window.mia?.social?.settingsPut?.({
       pins: s.pins,
       readMarks: nextReadMarks,
       appearance: s.appearance,
@@ -1570,7 +1570,7 @@
     moduleState.cloudSettings = { ...s, ...next };
     if (deps && typeof deps.render === "function") deps.render();
     try {
-      const updated = await window.aimashi.social.settingsPut({
+      const updated = await window.mia.social.settingsPut({
         pins: next.pins,
         mutedRooms: next.mutedRooms,
         unreadOverrides: next.unreadOverrides,
@@ -1592,7 +1592,7 @@
 
   async function bootstrapCloudSettings() {
     try {
-      const settings = await window.aimashi.social.settingsGet();
+      const settings = await window.mia.social.settingsGet();
       if (settings && typeof settings === "object") {
         moduleState.cloudSettings = {
           ...settings,
@@ -1628,7 +1628,7 @@
   // room.updated WS event will reconcile from canonical state.
   async function renameRoom(roomId, name) {
     if (!roomId || !name) return { ok: false, error: "missing arg" };
-    const res = await window.aimashi.social.updateRoom(roomId, { name });
+    const res = await window.mia.social.updateRoom(roomId, { name });
     if (res?.ok && res.data?.room) {
       const room = res.data.room;
       moduleState.rooms = moduleState.rooms.map((r) => (r.id === room.id ? { ...r, ...room } : r));
@@ -1642,7 +1642,7 @@
   // local state immediately.
   async function deleteCloudRoom(roomId) {
     if (!roomId) return { ok: false, error: "missing arg" };
-    const res = await window.aimashi.social.deleteRoom(roomId);
+    const res = await window.mia.social.deleteRoom(roomId);
     if (res?.ok) {
       moduleState.rooms = moduleState.rooms.filter((r) => r.id !== roomId);
       moduleState.messageCache.delete(roomId);
@@ -1696,7 +1696,7 @@
     appendMessageToActiveChat: _appendMessageToActiveChat
   };
 
-  global.aimashiSocial = {
+  global.miaSocial = {
     moduleState,
     initSocialModule,
     bootstrapAfterLogin,
@@ -1730,8 +1730,8 @@
     friendById,
     _internalCtx
   };
-  if (global.aimashiSocialGroups && typeof global.aimashiSocialGroups.attach === "function") {
-    global.aimashiSocialGroups.attach(_internalCtx);
+  if (global.miaSocialGroups && typeof global.miaSocialGroups.attach === "function") {
+    global.miaSocialGroups.attach(_internalCtx);
   }
 
   // Hydrate the cold-start cache at module load — before app.js even calls

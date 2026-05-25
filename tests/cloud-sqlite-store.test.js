@@ -7,7 +7,7 @@ const { test } = require("node:test");
 const { createCloudStore } = require("../src/cloud/sqlite-store.js");
 
 function tempStore() {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-cloud-store-"));
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-cloud-store-"));
   return {
     dataDir,
     dbPath: path.join(dataDir, "cloud.sqlite"),
@@ -103,7 +103,7 @@ test("sqlite store records bridge devices and run lifecycle", () => {
 
     const run = store.createBridgeRun(user.id, {
       deviceId: device.id,
-      conversationId: "conv_aimashi",
+      conversationId: "conv_mia",
       text: "你好",
       attachments: [{ id: "req_1", type: "image", url: "/api/files/file_request" }]
     });
@@ -129,7 +129,7 @@ test("sqlite store records bridge devices and run lifecycle", () => {
 
     const timeoutRun = store.createBridgeRun(user.id, {
       deviceId: device.id,
-      conversationId: "conv_aimashi",
+      conversationId: "conv_mia",
       text: "超时"
     });
     const timedOut = store.timeoutBridgeRun(user.id, timeoutRun.id, "本机 Agent 响应超时。");
@@ -138,7 +138,7 @@ test("sqlite store records bridge devices and run lifecycle", () => {
 
     const cancelRun = store.createBridgeRun(user.id, {
       deviceId: device.id,
-      conversationId: "conv_aimashi",
+      conversationId: "conv_mia",
       text: "取消"
     });
     const cancelled = store.cancelBridgeRun(user.id, cancelRun.id);
@@ -171,14 +171,14 @@ test("sqlite store clears volatile bridge state after reopening", () => {
 
     const runningRun = store.createBridgeRun(user.id, {
       deviceId: device.id,
-      conversationId: "conv_aimashi",
+      conversationId: "conv_mia",
       text: "running"
     });
     runningRunId = runningRun.id;
     store.startBridgeRun(user.id, runningRun.id);
     pendingRunId = store.createBridgeRun(user.id, {
       deviceId: device.id,
-      conversationId: "conv_aimashi",
+      conversationId: "conv_mia",
       text: "pending"
     }).id;
   } finally {
@@ -233,7 +233,7 @@ test("sqlite store rate limits repeated failed logins per account and ip", () =>
 });
 
 test("schema v2 creates social tables and indexes", () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-schema-test-"));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-schema-test-"));
   const store = createCloudStore({ dataDir: tmpDir });
   try {
     const db = store.getDb();

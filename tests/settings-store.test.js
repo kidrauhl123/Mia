@@ -15,17 +15,17 @@ function readJson(filePath, fallback) {
 }
 
 function setup(t, overrides = {}) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-settings-store-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-settings-store-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const home = path.join(dir, "home");
   const runtime = {
-    appearanceSettings: path.join(home, "aimashi-appearance.json"),
-    userProfile: path.join(home, "aimashi-user.json"),
-    effortSettings: path.join(home, "aimashi-effort.json"),
-    permissionSettings: path.join(home, "aimashi-permissions.json"),
-    daemonSettings: path.join(home, "aimashi-daemon.json"),
-    relaySettings: path.join(home, "aimashi-relay.json"),
-    cloudSettings: path.join(home, "aimashi-cloud.json")
+    appearanceSettings: path.join(home, "mia-appearance.json"),
+    userProfile: path.join(home, "mia-user.json"),
+    effortSettings: path.join(home, "mia-effort.json"),
+    permissionSettings: path.join(home, "mia-permissions.json"),
+    daemonSettings: path.join(home, "mia-daemon.json"),
+    relaySettings: path.join(home, "mia-relay.json"),
+    cloudSettings: path.join(home, "mia-cloud.json")
   };
   const writes = [];
   const store = createSettingsStore({
@@ -34,8 +34,8 @@ function setup(t, overrides = {}) {
     writeRuntimeConfig: (port) => writes.push(["runtime-config", port]),
     readConfiguredPort: () => 19001,
     getEngineState: () => ({ port: 0 }),
-    AIMASHI_DAEMON_DEFAULT_PORT: 27861,
-    AIMASHI_CLOUD_DEFAULT_URL: "https://cloud.example.test",
+    MIA_DAEMON_DEFAULT_PORT: 27861,
+    MIA_CLOUD_DEFAULT_URL: "https://cloud.example.test",
     normalizeAvatarCrop: (crop) => ({
       x: Number(crop?.x) || 50,
       y: Number(crop?.y) || 50,

@@ -11,23 +11,23 @@ const { spawn } = require("node:child_process");
 const { freePort } = require("./helpers/free-port");
 
 async function startServer() {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-fellow-api-"));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-fellow-api-"));
   const port = await freePort();
   return new Promise((resolve, reject) => {
     const proc = spawn(process.execPath, ["scripts/serve-cloud.js"], {
       env: {
         ...process.env,
-        AIMASHI_CLOUD_HOST: "127.0.0.1",
-        AIMASHI_CLOUD_PORT: String(port),
-        AIMASHI_CLOUD_DATA: tmpDir,
-        AIMASHI_CLOUD_ALLOW_QUERY_TOKEN: "1"
+        MIA_CLOUD_HOST: "127.0.0.1",
+        MIA_CLOUD_PORT: String(port),
+        MIA_CLOUD_DATA: tmpDir,
+        MIA_CLOUD_ALLOW_QUERY_TOKEN: "1"
       },
       stdio: ["ignore", "pipe", "pipe"]
     });
     let resolved = false;
     const done = () => { if (!resolved) { resolved = true; resolve({ proc, port, tmpDir }); } };
     proc.stdout.on("data", (c) => { if (/listening|Listening/.test(c.toString())) done(); });
-    proc.stderr.on("data", (c) => { if (/listening|Listening|aimashi-cloud/i.test(c.toString())) done(); });
+    proc.stderr.on("data", (c) => { if (/listening|Listening|mia-cloud/i.test(c.toString())) done(); });
     proc.on("error", reject);
     setTimeout(done, 1500);
   });
@@ -140,9 +140,9 @@ test("PUT same clientOpId twice creates only one fellow upsert event in user_eve
   const ctx = await startServer();
   try {
     const A = await register(ctx.port, "chi");
-    const body = { name: "Aimashi", color: "#5e5ce6", clientOpId: "op_fellow_idem" };
-    await api(ctx.port, "PUT", "/api/me/fellows/aimashi", { token: A.token, body });
-    await api(ctx.port, "PUT", "/api/me/fellows/aimashi", { token: A.token, body });
+    const body = { name: "Mia", color: "#5e5ce6", clientOpId: "op_fellow_idem" };
+    await api(ctx.port, "PUT", "/api/me/fellows/mia", { token: A.token, body });
+    await api(ctx.port, "PUT", "/api/me/fellows/mia", { token: A.token, body });
 
     await new Promise((r) => setTimeout(r, 100));
     const { createCloudStore } = require("../src/cloud/sqlite-store");

@@ -16,12 +16,12 @@ function readJson(filePath, fallback) {
 }
 
 function setup(t, overrides = {}) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-engine-runtime-config-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-engine-runtime-config-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const runtime = {
     home: path.join(dir, "engine-home"),
     apiKey: path.join(dir, "engine-home", "api-server.key"),
-    modelSettings: path.join(dir, "engine-home", "aimashi-model.json")
+    modelSettings: path.join(dir, "engine-home", "mia-model.json")
   };
   const service = createEngineRuntimeConfigService({
     runtimePaths: () => runtime,
@@ -109,21 +109,21 @@ test("writeRuntimeConfig writes the private Hermes config with auth, model, appr
   assert.match(config, /agent:\n  reasoning_effort: "high"\n  disabled_toolsets:\n    - cronjob/);
   assert.match(config, /skills:\n  external_dirs:\n/);
   assert.equal((config.match(/skills-a/g) || []).length, 1);
-  assert.match(config, /aimashi:\n  runtime_schema: 1\n  fellows_manifest: fellows\/manifest\.json/);
+  assert.match(config, /mia:\n  runtime_schema: 1\n  fellows_manifest: fellows\/manifest\.json/);
   // No scheduler spec supplied → no mcp_servers block.
   assert.ok(!/mcp_servers:/.test(config));
 });
 
-test("writeRuntimeConfig adds the aimashi-scheduler MCP server when a spec is available", (t) => {
+test("writeRuntimeConfig adds the mia-scheduler MCP server when a spec is available", (t) => {
   const { runtime, service } = setup(t, {
     getSchedulerMcpSpec: () => ({
       type: "stdio",
       command: "/usr/local/bin/node",
-      args: ["/opt/aimashi/scheduler-mcp-server.js"],
+      args: ["/opt/mia/scheduler-mcp-server.js"],
       env: {
-        AIMASHI_DAEMON_URL: "http://127.0.0.1:8765",
-        AIMASHI_DAEMON_TOKEN: "tok-123",
-        AIMASHI_SCHEDULER_CONTEXT_FILE: "/tmp/ctx.json"
+        MIA_DAEMON_URL: "http://127.0.0.1:8765",
+        MIA_DAEMON_TOKEN: "tok-123",
+        MIA_SCHEDULER_CONTEXT_FILE: "/tmp/ctx.json"
       },
       alwaysLoad: true
     })
@@ -133,21 +133,21 @@ test("writeRuntimeConfig adds the aimashi-scheduler MCP server when a spec is av
 
   const config = fs.readFileSync(path.join(runtime.home, "config.yaml"), "utf8");
   const parsed = yaml.load(config);
-  assert.deepEqual(parsed.mcp_servers["aimashi-scheduler"], {
+  assert.deepEqual(parsed.mcp_servers["mia-scheduler"], {
     command: "/usr/local/bin/node",
-    args: ["/opt/aimashi/scheduler-mcp-server.js"],
+    args: ["/opt/mia/scheduler-mcp-server.js"],
     env: {
-      AIMASHI_DAEMON_URL: "http://127.0.0.1:8765",
-      AIMASHI_DAEMON_TOKEN: "tok-123",
-      AIMASHI_SCHEDULER_CONTEXT_FILE: "/tmp/ctx.json"
+      MIA_DAEMON_URL: "http://127.0.0.1:8765",
+      MIA_DAEMON_TOKEN: "tok-123",
+      MIA_SCHEDULER_CONTEXT_FILE: "/tmp/ctx.json"
     }
   });
   // The SDK-only keys are not carried into the Hermes config.
-  assert.ok(!("type" in parsed.mcp_servers["aimashi-scheduler"]));
-  assert.ok(!("alwaysLoad" in parsed.mcp_servers["aimashi-scheduler"]));
+  assert.ok(!("type" in parsed.mcp_servers["mia-scheduler"]));
+  assert.ok(!("alwaysLoad" in parsed.mcp_servers["mia-scheduler"]));
 });
 
-test("readConfiguredPort returns the configured API server port or the Aimashi default", (t) => {
+test("readConfiguredPort returns the configured API server port or the Mia default", (t) => {
   const { runtime, service } = setup(t);
 
   assert.equal(service.readConfiguredPort(), 18642);

@@ -7,7 +7,7 @@
     const avatar = contact && contact.avatar ? contact.avatar : { image: "", crop: null, color: "" };
     const color = avatar.color || "#5e5ce6";
     if (avatar.image) {
-      const helper = global.aimashiAvatar?.avatarThumbBackgroundStyle;
+      const helper = global.miaAvatar?.avatarThumbBackgroundStyle;
       let style = "";
       if (typeof helper === "function") style = helper(avatar.image, avatar.crop, color);
       if (!style) style = `background-image:url('${avatar.image}');background-color:${color};background-size:cover;background-position:center;`;
@@ -21,5 +21,5 @@
     return el;
   }
 
-  global.aimashiContactAvatar = { renderAvatar };
+  global.miaContactAvatar = { renderAvatar };
 })(typeof window !== "undefined" ? window : globalThis);

@@ -4,9 +4,9 @@
 // strings for the chat composer and the Settings - Model tab.
 //
 // Data layer dependencies (already-extracted modules):
-//   - window.aimashiEngineOptions: activeAgentEngine, engineConfigForPersona,
+//   - window.miaEngineOptions: activeAgentEngine, engineConfigForPersona,
 //     effortOptions, effortLabelForLevel, externalModelEntries, externalPermissionOptions
-//   - window.aimashiModelHelpers: modelKey, catalogEntryForModel, providerEntries,
+//   - window.miaModelHelpers: modelKey, catalogEntryForModel, providerEntries,
 //     modelsForProvider, modelIconSrc
 //
 // Defensive `if (!state || !els)` guards keep early calls safe.
@@ -31,7 +31,7 @@
   function setEffortSelectOptions(engine, currentLevel) {
     if (!els || !els.effortSelect) return;
     const previous = els.effortSelect.value;
-    const options = window.aimashiEngineOptions.effortOptions(engine);
+    const options = window.miaEngineOptions.effortOptions(engine);
     const ids = new Set(options.map((option) => option.value));
     const nextValue = ids.has(currentLevel) ? currentLevel : ids.has(previous) ? previous : "medium";
     els.effortSelect.innerHTML = "";
@@ -46,15 +46,15 @@
 
   function syncEffortControl(runtime = state?.runtime) {
     if (!state || !els || !els.effortSelect || !els.effortLabel) return;
-    const engine = window.aimashiEngineOptions.activeAgentEngine();
+    const engine = window.miaEngineOptions.activeAgentEngine();
     const external = engine === "claude-code" || engine === "codex";
-    const level = external ? (window.aimashiEngineOptions.engineConfigForPersona().effortLevel || "medium") : (runtime?.effort?.level || "medium");
+    const level = external ? (window.miaEngineOptions.engineConfigForPersona().effortLevel || "medium") : (runtime?.effort?.level || "medium");
     if (document.activeElement !== els.effortSelect) setEffortSelectOptions(engine, level);
     if (document.activeElement !== els.effortSelect) {
       els.effortSelect.value = [...els.effortSelect.options].some((option) => option.value === level) ? level : "medium";
     }
-    setText(els.effortLabel, window.aimashiEngineOptions.effortLabelForLevel(els.effortSelect.value));
-    els.effortSelect.title = `推理强度：${window.aimashiEngineOptions.effortLabelForLevel(els.effortSelect.value)}`;
+    setText(els.effortLabel, window.miaEngineOptions.effortLabelForLevel(els.effortSelect.value));
+    els.effortSelect.title = `推理强度：${window.miaEngineOptions.effortLabelForLevel(els.effortSelect.value)}`;
   }
 
   function fillModelFieldsFromPreset(key) {
@@ -133,10 +133,10 @@
     if (mode === "ask" || mode === "manual") return "Ask";
     if (mode === "yolo" || mode === "off") return "YOLO";
     if (mode === "deny" || mode === "dontAsk") return "Deny";
-    if (mode === "acceptEdits") return window.aimashiEngineOptions.activeAgentEngine() === "claude-code" ? "Accept Edits" : "Edits";
-    if (mode === "plan") return window.aimashiEngineOptions.activeAgentEngine() === "claude-code" ? "Plan Mode" : "Plan";
+    if (mode === "acceptEdits") return window.miaEngineOptions.activeAgentEngine() === "claude-code" ? "Accept Edits" : "Edits";
+    if (mode === "plan") return window.miaEngineOptions.activeAgentEngine() === "claude-code" ? "Plan Mode" : "Plan";
     if (mode === "auto") return "Auto Mode";
-    if (mode === "bypassPermissions") return window.aimashiEngineOptions.activeAgentEngine() === "claude-code" ? "Bypass Permissions" : "YOLO";
+    if (mode === "bypassPermissions") return window.miaEngineOptions.activeAgentEngine() === "claude-code" ? "Bypass Permissions" : "YOLO";
     if (mode === "readOnly") return "Read";
     return "Ask";
   }
@@ -144,7 +144,7 @@
   function setPermissionSelectOptions(engine, currentMode) {
     if (!els || !els.permissionMode) return;
     const previous = els.permissionMode.value;
-    const options = window.aimashiEngineOptions.externalPermissionOptions(engine);
+    const options = window.miaEngineOptions.externalPermissionOptions(engine);
     const ids = new Set(options.map((option) => option.value));
     const nextValue = ids.has(currentMode) ? currentMode : ids.has(previous) ? previous : options[0]?.value || "";
     els.permissionMode.innerHTML = "";
@@ -160,9 +160,9 @@
 
   function syncPermissionControl(runtime = state?.runtime) {
     if (!state || !els || !els.permissionMode || !els.permissionLabel) return;
-    const engine = window.aimashiEngineOptions.activeAgentEngine();
+    const engine = window.miaEngineOptions.activeAgentEngine();
     const external = engine === "claude-code" || engine === "codex";
-    const mode = external ? (window.aimashiEngineOptions.engineConfigForPersona().permissionMode || "default") : (runtime?.permissions?.mode || "manual");
+    const mode = external ? (window.miaEngineOptions.engineConfigForPersona().permissionMode || "default") : (runtime?.permissions?.mode || "manual");
     setPermissionSelectOptions(engine, mode);
     if (document.activeElement !== els.permissionMode) {
       els.permissionMode.value = [...els.permissionMode.options].some((option) => option.value === mode) ? mode : els.permissionMode.options[0]?.value || "";
@@ -201,25 +201,25 @@
 
   function connectedModelEntries(runtime = state?.runtime) {
     const connectedProviders = (runtime?.connectedProviders || []).map((entry) => entry.provider);
-    const entries = connectedProviders.flatMap((provider) => window.aimashiModelHelpers.modelsForProvider(provider));
-    const current = window.aimashiModelHelpers.catalogEntryForModel(runtime?.model || {});
+    const entries = connectedProviders.flatMap((provider) => window.miaModelHelpers.modelsForProvider(provider));
+    const current = window.miaModelHelpers.catalogEntryForModel(runtime?.model || {});
     if (current && providerIsConnected(current.provider, runtime) && !entries.some((entry) => entry.id === current.id)) return [current, ...entries];
     return entries;
   }
 
   function renderModelSelectors(runtime = state?.runtime) {
     if (!state || !els) return;
-    const engine = window.aimashiEngineOptions.activeAgentEngine();
+    const engine = window.miaEngineOptions.activeAgentEngine();
     if (engine === "claude-code" || engine === "codex") {
-      const config = window.aimashiEngineOptions.engineConfigForPersona();
-      const entries = window.aimashiEngineOptions.externalModelEntries(engine);
+      const config = window.miaEngineOptions.engineConfigForPersona();
+      const entries = window.miaEngineOptions.externalModelEntries(engine);
       setSelectOptions(els.quickModelSelect, entries, config.model || "default");
       if (els.quickModelSelect) els.quickModelSelect.disabled = !entries.length;
-      setProviderOptions(els.modelSelect, window.aimashiModelHelpers.providerEntries().filter((entry) => !providerIsConnected(entry.provider, runtime)), "");
+      setProviderOptions(els.modelSelect, window.miaModelHelpers.providerEntries().filter((entry) => !providerIsConnected(entry.provider, runtime)), "");
       return;
     }
-    const providers = window.aimashiModelHelpers.providerEntries().filter((entry) => !providerIsConnected(entry.provider, runtime));
-    const currentId = window.aimashiModelHelpers.catalogEntryForModel(runtime?.model || {})?.id || window.aimashiModelHelpers.modelKey(runtime?.model || {});
+    const providers = window.miaModelHelpers.providerEntries().filter((entry) => !providerIsConnected(entry.provider, runtime));
+    const currentId = window.miaModelHelpers.catalogEntryForModel(runtime?.model || {})?.id || window.miaModelHelpers.modelKey(runtime?.model || {});
     setProviderOptions(els.modelSelect, providers, "");
     const connectedEntries = connectedModelEntries(runtime);
     setSelectOptions(els.quickModelSelect, connectedEntries, currentId);
@@ -240,21 +240,21 @@
 
   function modelAuthCopy(entry, runtime = state?.runtime) {
     const authType = String(entry?.authType || "api_key");
-    if (!entry) return { state: "未选择", hint: "选择提供商后，Aimashi 会显示它需要的登录方式。" };
+    if (!entry) return { state: "未选择", hint: "选择提供商后，Mia 会显示它需要的登录方式。" };
     if (entry.provider === "openai-codex") {
       return runtime?.auth?.codexLoggedIn
-        ? { state: "已授权 OpenAI Codex", hint: "OAuth token 已保存在 Aimashi 私有 runtime；具体 Codex 模型在聊天框下方切换。" }
+        ? { state: "已授权 OpenAI Codex", hint: "OAuth token 已保存在 Mia 私有 runtime；具体 Codex 模型在聊天框下方切换。" }
         : { state: "需要 OpenAI 登录", hint: "选择 OpenAI Codex 后，用 OpenAI 登录完成授权；不需要 API key。" };
     }
     if (authType.startsWith("oauth")) {
-      return { state: "需要登录", hint: "这个 Hermes Provider 使用 OAuth。点击登录后，Aimashi 会展示浏览器链接、激活码和登录日志。" };
+      return { state: "需要登录", hint: "这个 Hermes Provider 使用 OAuth。点击登录后，Mia 会展示浏览器链接、激活码和登录日志。" };
     }
     if (entry.provider === "lmstudio") {
       return { state: "本地服务", hint: "LM Studio 通常不需要 API key；请确认本地服务已启动并加载模型。" };
     }
     return runtime?.model?.provider === entry.provider && runtime?.model?.hasApiKey
       ? { state: "已保存 API key", hint: "留空保存会继续使用已保存的 key；具体模型在聊天框下方切换。" }
-      : { state: "需要 API key", hint: `填写 ${entry.apiKeyEnv || "API Key"} 后保存，Aimashi 会写入私有 runtime 并重启 Hermes。` };
+      : { state: "需要 API key", hint: `填写 ${entry.apiKeyEnv || "API Key"} 后保存，Mia 会写入私有 runtime 并重启 Hermes。` };
   }
 
   function renderConnectedProviders(runtime = state?.runtime) {
@@ -272,7 +272,7 @@
       const row = document.createElement("div");
       row.className = "connected-provider";
       row.innerHTML = `
-        <span class="provider-logo-wrap"><img class="provider-logo" src="${escapeHtml(window.aimashiModelHelpers.modelIconSrc({ provider: provider.provider }))}" alt="" onerror="this.style.display='none'"></span>
+        <span class="provider-logo-wrap"><img class="provider-logo" src="${escapeHtml(window.miaModelHelpers.modelIconSrc({ provider: provider.provider }))}" alt="" onerror="this.style.display='none'"></span>
         <span class="provider-main">
           <strong>${escapeHtml(provider.providerLabel || provider.provider)}</strong>
         </span>
@@ -282,7 +282,7 @@
     }
   }
 
-  window.aimashiModelSettings = {
+  window.miaModelSettings = {
     initModelSettings,
     setEffortSelectOptions,
     syncEffortControl,

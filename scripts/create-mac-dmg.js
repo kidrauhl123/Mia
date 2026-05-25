@@ -4,7 +4,7 @@ const path = require("node:path");
 
 const root = path.resolve(__dirname, "..");
 const pkg = require(path.join(root, "package.json"));
-const productName = pkg.productName || "Aimashi";
+const productName = pkg.productName || "Mia";
 const version = pkg.version || "0.0.0";
 // electron-builder writes to release/mac/ on x64 host, release/mac-arm64/ on arm64.
 const sourceCandidates = ["mac", "mac-arm64", "mac-x64"]

@@ -1,7 +1,7 @@
 (function attachCloudEvents(root, factory) {
   const api = factory();
   if (typeof module === "object" && module.exports) module.exports = api;
-  if (root) root.aimashiCloudEvents = api;
+  if (root) root.miaCloudEvents = api;
 })(typeof window !== "undefined" ? window : (typeof globalThis !== "undefined" ? globalThis : null), function buildCloudEvents() {
   const CloudEvent = Object.freeze({
     SocialFriendRequestReceived: "social.friend_request_received",

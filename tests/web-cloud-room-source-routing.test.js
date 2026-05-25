@@ -1,9 +1,9 @@
 // Task 2.1 routing test: web's bubble render must read MessageSpec fields only,
-// which it gets by calling window.aimashiCloudRoomSource.createCloudRoomSource
+// which it gets by calling window.miaCloudRoomSource.createCloudRoomSource
 // (the canonical adapter). This test simulates a browser-ish environment:
 //   - loads src/shared/contact.js + src/shared/message-spec.js + the adapter
 //     via vm with a `window` global (no `require`/no `module` in scope)
-//   - asserts the adapter is reachable through window.aimashiCloudRoomSource
+//   - asserts the adapter is reachable through window.miaCloudRoomSource
 //   - asserts a sample DM message resolves through it to a MessageSpec the web
 //     bubble can render without any sender_kind/member_kind branching.
 
@@ -32,10 +32,10 @@ function loadInBrowserLikeContext() {
 
 test("web loads shared modules into window without throwing (no `module` in scope)", () => {
   const win = loadInBrowserLikeContext();
-  assert.ok(win.aimashiMessageSpec, "aimashiMessageSpec must attach to window");
-  assert.ok(win.aimashiContact, "aimashiContact must attach to window");
-  assert.ok(win.aimashiCloudRoomSource, "aimashiCloudRoomSource must attach to window");
-  assert.equal(typeof win.aimashiCloudRoomSource.createCloudRoomSource, "function");
+  assert.ok(win.miaMessageSpec, "miaMessageSpec must attach to window");
+  assert.ok(win.miaContact, "miaContact must attach to window");
+  assert.ok(win.miaCloudRoomSource, "miaCloudRoomSource must attach to window");
+  assert.equal(typeof win.miaCloudRoomSource.createCloudRoomSource, "function");
 });
 
 test("web buildRoomMessageArticle path: own user message → MessageSpec with isOwn=true and authorName=self", () => {
@@ -43,7 +43,7 @@ test("web buildRoomMessageArticle path: own user message → MessageSpec with is
   const room = { id: "dm:user_me:user_friend" };
   const msg = { id: "m1", sender_kind: "user", sender_ref: "user_me", body_md: "hi", created_at: "", seq: 1 };
   const ctx = { self: { id: "user_me", username: "me" }, friends: [], fellows: [] };
-  const source = win.aimashiCloudRoomSource.createCloudRoomSource({ room, messages: [msg], members: [], ctx });
+  const source = win.miaCloudRoomSource.createCloudRoomSource({ room, messages: [msg], members: [], ctx });
   const spec = source.listMessages()[0];
   assert.equal(spec.isOwn, true);
   assert.equal(spec.authorName, "me");
@@ -62,7 +62,7 @@ test("web buildRoomMessageArticle path: friend message → MessageSpec carries f
     friends: [{ id: "user_friend", username: "alice", avatarImage: "data:alice" }],
     fellows: []
   };
-  const source = win.aimashiCloudRoomSource.createCloudRoomSource({ room, messages: [msg], members: [], ctx });
+  const source = win.miaCloudRoomSource.createCloudRoomSource({ room, messages: [msg], members: [], ctx });
   const spec = source.listMessages()[0];
   assert.equal(spec.isOwn, false);
   assert.equal(spec.authorName, "alice");
@@ -79,7 +79,7 @@ test("web buildRoomMessageArticle path: fellow message in cloud room → spec ha
     friends: [{ id: "user_friend", username: "alice" }],
     fellows: []
   };
-  const source = win.aimashiCloudRoomSource.createCloudRoomSource({ room, messages: [msg], members, ctx });
+  const source = win.miaCloudRoomSource.createCloudRoomSource({ room, messages: [msg], members, ctx });
   const spec = source.listMessages()[0];
   assert.equal(spec.role, "assistant");
   assert.equal(spec.isOwn, false);
@@ -95,12 +95,12 @@ test("web isMine check via resolveContact: only self.id ref resolves to kind=sel
   const self = { id: "user_me", username: "me" };
   const friends = [{ id: "user_friend", username: "alice" }];
   // Own message → kind=self
-  const own = win.aimashiContact.resolveContact({ kind: "user", ref: "user_me" }, { self, friends });
+  const own = win.miaContact.resolveContact({ kind: "user", ref: "user_me" }, { self, friends });
   assert.equal(own.kind, "self");
   // Friend message → kind=user (not self)
-  const friend = win.aimashiContact.resolveContact({ kind: "user", ref: "user_friend" }, { self, friends });
+  const friend = win.miaContact.resolveContact({ kind: "user", ref: "user_friend" }, { self, friends });
   assert.notEqual(friend.kind, "self");
   // Fellow ref passed as kind=user with a non-matching id → not self
-  const fellow = win.aimashiContact.resolveContact({ kind: "user", ref: "codex" }, { self, friends });
+  const fellow = win.miaContact.resolveContact({ kind: "user", ref: "codex" }, { self, friends });
   assert.notEqual(fellow.kind, "self");
 });

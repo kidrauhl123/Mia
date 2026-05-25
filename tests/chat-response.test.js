@@ -11,7 +11,7 @@ test("chatCompletionResponse returns OpenAI-compatible response shape", () => {
     model: "hermes-agent",
     content: "hello",
     finishReason: "stop",
-    aimashi: { fellow_key: "alice" }
+    mia: { fellow_key: "alice" }
   });
   assert.equal(response.id, "r1");
   assert.equal(response.object, "chat.completion");
@@ -19,7 +19,7 @@ test("chatCompletionResponse returns OpenAI-compatible response shape", () => {
   assert.equal(response.choices[0].message.role, "assistant");
   assert.equal(response.choices[0].message.content, "hello");
   assert.equal(response.choices[0].finish_reason, "stop");
-  assert.deepEqual(response.aimashi, { fellow_key: "alice" });
+  assert.deepEqual(response.mia, { fellow_key: "alice" });
 });
 
 test("responseMessageContent trims assistant content", () => {
@@ -36,10 +36,10 @@ test("chatCompletionResponse carries structured command results", () => {
     model: "claude-code",
     content: "choose",
     commandResult,
-    aimashi: { transport: "local-command" }
+    mia: { transport: "local-command" }
   });
 
   assert.deepEqual(response.choices[0].message.commandResult, commandResult);
-  assert.deepEqual(response.aimashi.commandResult, commandResult);
-  assert.equal(response.aimashi.transport, "local-command");
+  assert.deepEqual(response.mia.commandResult, commandResult);
+  assert.equal(response.mia.transport, "local-command");
 });

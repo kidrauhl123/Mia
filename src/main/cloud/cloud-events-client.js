@@ -111,7 +111,7 @@ function createCloudEventsClient({
       eventState.connecting = false;
       eventState.readyAt = nowFn();
       eventState.lastError = "";
-      log(`Aimashi Cloud events connected (since_seq=${message.sinceSeq || 0}, serverSeq=${message.serverSeq || 0}).`);
+      log(`Mia Cloud events connected (since_seq=${message.sinceSeq || 0}, serverSeq=${message.serverSeq || 0}).`);
       emitToRenderer({ type: CloudEvent.EventsReady, cloud: cloudUiStatus() });
       return;
     }
@@ -221,7 +221,7 @@ function createCloudEventsClient({
     const ws = new WebSocketImpl(cloudEventsUrl(s), cloudWebSocketProtocols(s));
     activeSocket = ws;
     ws.on("open", () => {
-      log(`Listening to Aimashi Cloud events: ${s.url}`);
+      log(`Listening to Mia Cloud events: ${s.url}`);
     });
     ws.on("message", (raw) => handleMessage(raw));
     ws.on("error", (error) => {
@@ -235,7 +235,7 @@ function createCloudEventsClient({
       eventState.connected = false;
       eventState.openedAt = 0;
       eventState.readyAt = 0;
-      log("Aimashi Cloud events disconnected.");
+      log("Mia Cloud events disconnected.");
       scheduleReconnect();
     });
     return status();

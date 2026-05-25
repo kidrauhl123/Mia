@@ -4,7 +4,7 @@ const fs = require("node:fs");
 function hermesSlashCommandScript() {
   return `
 import asyncio, json, sys
-from agent import i18n as _aimashi_i18n
+from agent import i18n as _mia_i18n
 from gateway.config import Platform
 from gateway.platforms.base import MessageEvent, MessageType
 from gateway.run import GatewayRunner
@@ -12,7 +12,7 @@ from gateway.session import SessionSource
 
 payload = json.loads(sys.argv[1])
 
-_AIMASHI_ZH_I18N = {
+_MIA_ZH_I18N = {
     "gateway.help.header": "可用命令：",
     "gateway.help.skill_header": "技能命令（{count} 个）：",
     "gateway.help.more_use_commands": "还有 {count} 个技能命令，输入 /commands 查看更多。",
@@ -73,19 +73,19 @@ _AIMASHI_ZH_I18N = {
     "gateway.usage.label_cost": "费用",
     "gateway.usage.rate_limits": "速率限制",
 }
-with _aimashi_i18n._catalog_lock:
-    _aimashi_i18n._catalog_cache.setdefault("zh", {}).update(_AIMASHI_ZH_I18N)
-    _aimashi_i18n._catalog_cache.setdefault("en", {}).update(_AIMASHI_ZH_I18N)
+with _mia_i18n._catalog_lock:
+    _mia_i18n._catalog_cache.setdefault("zh", {}).update(_MIA_ZH_I18N)
+    _mia_i18n._catalog_cache.setdefault("en", {}).update(_MIA_ZH_I18N)
 
 async def main():
     runner = GatewayRunner()
     source = SessionSource(
         platform=Platform.WEBHOOK,
         chat_id=payload["sessionKey"],
-        chat_name=payload.get("chatName") or "Aimashi",
+        chat_name=payload.get("chatName") or "Mia",
         chat_type="dm",
-        user_id="aimashi-user",
-        user_name=payload.get("userName") or "Aimashi",
+        user_id="mia-user",
+        user_name=payload.get("userName") or "Mia",
     )
     event = MessageEvent(
         text=payload["text"],
@@ -118,7 +118,7 @@ function createHermesSlashCommandService(deps = {}) {
       return fallback;
     }
   });
-  const defaultUserProfile = deps.defaultUserProfile || (() => ({ displayName: "Aimashi" }));
+  const defaultUserProfile = deps.defaultUserProfile || (() => ({ displayName: "Mia" }));
   const cleanRunSessionId = deps.cleanRunSessionId || ((sessionId, fellowKey) => sessionId || fellowKey || "default");
   const enginePython = deps.enginePython || (() => "python3");
   const effectiveHermesHome = deps.effectiveHermesHome || (() => runtimePaths().home);
@@ -132,15 +132,15 @@ function createHermesSlashCommandService(deps = {}) {
     const payload = JSON.stringify({
       text,
       sessionKey,
-      chatName: fellow.name || "Aimashi",
-      userName: readJson(p.userProfile, defaultUserProfile()).displayName || "Aimashi"
+      chatName: fellow.name || "Mia",
+      userName: readJson(p.userProfile, defaultUserProfile()).displayName || "Mia"
     });
     const result = spawnSync(enginePython(), ["-c", hermesSlashCommandScript(), payload], {
       cwd: p.engine,
       env: {
         ...env,
         HERMES_HOME: effectiveHermesHome(),
-        AIMASHI_HOME: p.home,
+        MIA_HOME: p.home,
         HERMES_LANGUAGE: env.HERMES_LANGUAGE || "zh",
         GATEWAY_ALLOW_ALL_USERS: "true",
         PYTHONPATH: buildPythonPath()

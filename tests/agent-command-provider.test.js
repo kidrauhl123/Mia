@@ -26,13 +26,13 @@ test("claude command list includes native supported commands", async () => {
 
   assert.equal(result.rows.find((row) => row.command === "/goal")?.source, "native");
   assert.equal(result.rows.find((row) => row.command === "/goal")?.argumentHint, "<condition>");
-  assert.equal(result.rows.find((row) => row.command === "/resume")?.source, "aimashi");
+  assert.equal(result.rows.find((row) => row.command === "/resume")?.source, "mia");
 });
 
 test("codex command list exposes curated native goal command", async () => {
   const result = await provider().loadExternalAgentCommands({ engine: "codex", projectPath: "/repo" });
 
   assert.equal(result.rows.find((row) => row.command === "/goal")?.source, "native-curated");
-  assert.equal(result.rows.find((row) => row.command === "/resume")?.source, "aimashi");
+  assert.equal(result.rows.find((row) => row.command === "/resume")?.source, "mia");
 });
 

@@ -50,12 +50,12 @@ function renderStatus(data) {
   }
   if (!data.gateway?.serviceKeyConfigured) {
     els.badge.textContent = "缺服务 key";
-    els.summary.textContent = "Aimashi 服务还没有注入内部 LiteLLM key。";
+    els.summary.textContent = "Mia 服务还没有注入内部 LiteLLM key。";
     return;
   }
   if (!model) {
     els.badge.textContent = "未设置";
-    els.summary.textContent = "还没有配置 aimashi-default。";
+    els.summary.textContent = "还没有配置 mia-default。";
     return;
   }
   els.badge.textContent = "已设置";

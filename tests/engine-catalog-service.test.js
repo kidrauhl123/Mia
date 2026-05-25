@@ -7,7 +7,7 @@ const { test } = require("node:test");
 const { createEngineCatalogService } = require("../src/main/engine-catalog-service.js");
 
 function createHarness(overrides = {}) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-engine-catalog-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-engine-catalog-"));
   const engine = path.join(dir, "engine");
   const home = path.join(dir, "home");
   const userHome = path.join(dir, "user");

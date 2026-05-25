@@ -7,22 +7,22 @@ const { test } = require("node:test");
 const { createLaunchdService } = require("../src/main/launchd-service.js");
 
 function setup(t, overrides = {}) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-launchd-service-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-launchd-service-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const calls = [];
   const runtime = {
     home: path.join(dir, "home & data"),
     engine: path.join(dir, "engine <runtime>"),
     logsDir: path.join(dir, "logs"),
-    launchAgent: path.join(dir, "LaunchAgents", "ai.aimashi.hermes.gateway.plist"),
-    daemonLaunchAgent: path.join(dir, "LaunchAgents", "ai.aimashi.daemon.plist")
+    launchAgent: path.join(dir, "LaunchAgents", "ai.mia.hermes.gateway.plist"),
+    daemonLaunchAgent: path.join(dir, "LaunchAgents", "ai.mia.daemon.plist")
   };
   const service = createLaunchdService({
-    gatewayServiceLabel: "ai.aimashi.hermes.gateway",
-    daemonServiceLabel: "ai.aimashi.daemon",
+    gatewayServiceLabel: "ai.mia.hermes.gateway",
+    daemonServiceLabel: "ai.mia.daemon",
     runtimePaths: () => runtime,
-    appPath: () => path.join(dir, "Aimashi <Dev>.app"),
-    execPath: () => "/Applications/Aimashi.app/Contents/MacOS/Aimashi",
+    appPath: () => path.join(dir, "Mia <Dev>.app"),
+    execPath: () => "/Applications/Mia.app/Contents/MacOS/Mia",
     defaultApp: () => false,
     enginePython: () => path.join(dir, "venv", "bin", "python3"),
     effectiveHermesHome: () => path.join(dir, "hermes & home"),
@@ -48,13 +48,13 @@ test("gateway launch agent plist escapes values and uses Hermes gateway argument
 
   const plist = service.gatewayLaunchAgentPlist();
 
-  assert.match(plist, /<string>ai\.aimashi\.hermes\.gateway<\/string>/);
+  assert.match(plist, /<string>ai\.mia\.hermes\.gateway<\/string>/);
   assert.match(plist, /<string>gateway<\/string>/);
   assert.match(plist, /<string>run<\/string>/);
   assert.match(plist, /<string>--replace<\/string>/);
   assert.match(plist, /<string>--accept-hooks<\/string>/);
   assert.match(plist, /<key>HERMES_HOME<\/key>\n      <string>.*hermes &amp; home<\/string>/);
-  assert.match(plist, /<key>AIMASHI_HOME<\/key>\n      <string>.*home &amp; data<\/string>/);
+  assert.match(plist, /<key>MIA_HOME<\/key>\n      <string>.*home &amp; data<\/string>/);
   assert.match(plist, /<string>.*engine &lt;runtime&gt;<\/string>/);
   assert.match(plist, new RegExp(`<string>${runtime.logsDir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/gateway\\.log</string>`));
 });
@@ -67,9 +67,9 @@ test("startGateway writes plist, bootouts old jobs, then bootstrap and kickstart
   assert.ok(fs.existsSync(runtime.launchAgent));
   assert.deepEqual(calls, [
     ["launchctl", "bootout", "gui/501", runtime.launchAgent],
-    ["launchctl", "bootout", "gui/501/ai.aimashi.hermes.gateway"],
+    ["launchctl", "bootout", "gui/501/ai.mia.hermes.gateway"],
     ["launchctl", "bootstrap", "gui/501", runtime.launchAgent],
-    ["launchctl", "kickstart", "-k", "gui/501/ai.aimashi.hermes.gateway"]
+    ["launchctl", "kickstart", "-k", "gui/501/ai.mia.hermes.gateway"]
   ]);
 });
 
@@ -79,9 +79,9 @@ test("daemon launch agent uses the app executable and daemon environment", (t) =
   const args = service.daemonProgramArguments();
   const plist = service.daemonLaunchAgentPlist();
 
-  assert.deepEqual(args, ["/Applications/Aimashi.app/Contents/MacOS/Aimashi", service.appPath(), "--daemon"]);
-  assert.match(plist, /<string>ai\.aimashi\.daemon<\/string>/);
-  assert.match(plist, /<key>AIMASHI_DAEMON<\/key>\n      <string>1<\/string>/);
+  assert.deepEqual(args, ["/Applications/Mia.app/Contents/MacOS/Mia", service.appPath(), "--daemon"]);
+  assert.match(plist, /<string>ai\.mia\.daemon<\/string>/);
+  assert.match(plist, /<key>MIA_DAEMON<\/key>\n      <string>1<\/string>/);
   assert.match(plist, /<key>PATH<\/key>\n      <string>\/usr\/local\/bin:\/usr\/bin<\/string>/);
   assert.match(plist, new RegExp(`<string>${runtime.logsDir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/daemon\\.error\\.log</string>`));
 });

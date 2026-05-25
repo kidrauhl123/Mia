@@ -7,7 +7,7 @@ const path = require("node:path");
 
 function createDaemonControlServer({
   isDaemonProcess = false,
-  serviceLabel = "ai.aimashi.daemon",
+  serviceLabel = "ai.mia.daemon",
   dirname,
   pid = () => process.pid,
   uptime = () => process.uptime(),
@@ -135,7 +135,7 @@ function createDaemonControlServer({
     const header = String(req.headers.authorization || "");
     const bearer = header.match(/^Bearer\s+(.+)$/i);
     if (bearer) return bearer[1].trim();
-    const explicit = req.headers["x-aimashi-token"];
+    const explicit = req.headers["x-mia-token"];
     if (typeof explicit === "string") return explicit.trim();
     const query = url.searchParams.get("token");
     if (query) return query;
@@ -152,7 +152,7 @@ function createDaemonControlServer({
       "Content-Type": "application/json; charset=utf-8",
       "Content-Length": Buffer.byteLength(body),
       "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Headers": "authorization, content-type, x-aimashi-token",
+      "Access-Control-Allow-Headers": "authorization, content-type, x-mia-token",
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
       "Cache-Control": "no-store"
     });
@@ -216,8 +216,8 @@ function createDaemonControlServer({
     else if (pathname === "/mobile/styles.css") asset = "styles.css";
     else if (pathname === "/mobile/manifest.json") {
       writeText(res, 200, JSON.stringify({
-        name: "Aimashi Mobile",
-        short_name: "Aimashi",
+        name: "Mia Mobile",
+        short_name: "Mia",
         start_url: "/mobile/",
         scope: "/mobile/",
         display: "standalone",
@@ -285,7 +285,7 @@ function createDaemonControlServer({
     if (req.method === "GET" && url.pathname === "/health") {
       writeJson(res, 200, {
         status: "ok",
-        service: "aimashi-daemon",
+        service: "mia-daemon",
         pid: pid(),
         uptime: Math.round(uptime()),
         mode: isDaemonProcess ? "daemon" : "desktop",
@@ -379,7 +379,7 @@ function createDaemonControlServer({
     const host = normalizeDaemonHost(settings.host);
     const preferredPort = normalizeDaemonPort(settings.port);
     const port = await choosePort(preferredPort, 20);
-    if (!port) throw new Error("No available local port for Aimashi daemon.");
+    if (!port) throw new Error("No available local port for Mia daemon.");
     state = {
       ...state,
       running: false,
@@ -402,7 +402,7 @@ function createDaemonControlServer({
     state.running = true;
     state.starting = false;
     writeDaemonSettings({ ...settings, host, port });
-    appendLog(`Aimashi daemon listening at ${state.baseUrl}`);
+    appendLog(`Mia daemon listening at ${state.baseUrl}`);
     if (getRelaySettings().enabled) {
       startRelayClient().catch((error) => {
         recordRelayError(error, "Relay auto-start failed");
@@ -422,7 +422,7 @@ function createDaemonControlServer({
     server.close(() => {});
     state.running = false;
     state.starting = false;
-    appendLog("Aimashi daemon stopped");
+    appendLog("Mia daemon stopped");
     return status();
   }
 

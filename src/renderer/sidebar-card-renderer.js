@@ -21,24 +21,24 @@
   "use strict";
 
   function unreadShared() {
-    if (global.aimashiUnread) return global.aimashiUnread;
+    if (global.miaUnread) return global.miaUnread;
     if (typeof require !== "undefined") return require("../shared/unread");
-    throw new Error("aimashiUnread is not loaded");
+    throw new Error("miaUnread is not loaded");
   }
 
   function escapeHtml(value) {
-    if (typeof global !== "undefined" && global.aimashiMarkdown && typeof global.aimashiMarkdown.escapeHtml === "function") {
-      return global.aimashiMarkdown.escapeHtml(value);
+    if (typeof global !== "undefined" && global.miaMarkdown && typeof global.miaMarkdown.escapeHtml === "function") {
+      return global.miaMarkdown.escapeHtml(value);
     }
     return String(value ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[ch]));
   }
 
   function pinSvg() {
-    return global.aimashiIconParkPin || global.ICON_PARK_PIN_SVG || "";
+    return global.miaIconParkPin || global.ICON_PARK_PIN_SVG || "";
   }
 
   function applyAvatarStyle(el, image, crop, color) {
-    const helper = global.aimashiAvatar?.avatarThumbBackgroundStyle;
+    const helper = global.miaAvatar?.avatarThumbBackgroundStyle;
     let style = "";
     if (typeof helper === "function" && image) {
       style = helper(image, crop, color || "#5e5ce6");
@@ -121,12 +121,12 @@
       applyAvatarStyle(avatarEl, spec.customAvatar.image, spec.customAvatar.crop, "#5e5ce6");
     } else {
       const members = Array.isArray(spec.members) ? spec.members : [];
-      global.aimashiGroupAvatar.applyGroupAvatar(avatarEl, members);
+      global.miaGroupAvatar.applyGroupAvatar(avatarEl, members);
       avatarEl.classList.add("group-avatar");
     }
     attachHandlers(btn, spec);
     return btn;
   }
 
-  global.aimashiSidebarCards = { createPrivateCard, createGroupCard };
+  global.miaSidebarCards = { createPrivateCard, createGroupCard };
 })(typeof window !== "undefined" ? window : globalThis);

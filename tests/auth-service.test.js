@@ -12,7 +12,7 @@ function jsonResponse(body, ok = true, status = 200, statusText = "OK") {
 }
 
 function createHarness(overrides = {}) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-auth-service-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-auth-service-"));
   const paths = {
     authJson: path.join(dir, "auth.json"),
     engine: path.join(dir, "engine"),
@@ -148,7 +148,7 @@ test("startProviderOAuth spawns hermes auth and saves provider on success", asyn
 
   assert.equal(calls.spawned[0][0], "/python");
   assert.deepEqual(calls.spawned[0][1], ["-m", "hermes_cli.main", "auth", "add", "anthropic", "--type", "oauth"]);
-  assert.equal(calls.spawned[0][2].env.HERMES_HOME, calls.spawned[0][2].env.AIMASHI_HOME);
+  assert.equal(calls.spawned[0][2].env.HERMES_HOME, calls.spawned[0][2].env.MIA_HOME);
 
   calls.spawnedProcesses[0].stdout.emit("data", "Open https://auth.anthropic.example\n");
   calls.spawnedProcesses[0].emit("exit", 0, null);

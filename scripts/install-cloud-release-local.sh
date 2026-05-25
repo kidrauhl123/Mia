@@ -1,40 +1,45 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ARCHIVE_INPUT="${1:-${AIMASHI_RELEASE_ARCHIVE:-./aimashi-cloud-release.tgz}}"
+ARCHIVE_INPUT="${1:-${MIA_RELEASE_ARCHIVE:-./mia-cloud-release.tgz}}"
 ARCHIVE="$(cd "$(dirname "$ARCHIVE_INPUT")" && pwd)/$(basename "$ARCHIVE_INPUT")"
-PUBLIC_URL="${AIMASHI_CLOUD_PUBLIC_URL:-https://aiweb.buytb01.com}"
-SMOKE_URL="${AIMASHI_INSTALL_SMOKE_URL:-$PUBLIC_URL}"
-API_DIR="${AIMASHI_DEPLOY_API_DIR:-/opt/aimashi-cloud}"
-WEB_DIR="${AIMASHI_DEPLOY_WEB_DIR:-/var/www/aimashi-web}"
-DATA_DIR="${AIMASHI_DEPLOY_DATA_DIR:-/var/lib/aimashi-cloud}"
-AGENT_ROOT="${AIMASHI_CLOUD_AGENT_ROOT:-/var/lib/aimashi-cloud-agent-users}"
-HERMES_IMAGE="${AIMASHI_CLOUD_HERMES_IMAGE:-aimashi/hermes-cloud:2026.5.7}"
-AGENT_DOCKER_NETWORK="${AIMASHI_CLOUD_AGENT_DOCKER_NETWORK:-aimashi-cloud}"
-AGENT_MODEL_PROVIDER="${AIMASHI_CLOUD_AGENT_MODEL_PROVIDER:-aimashi-litellm}"
-AGENT_MODEL_NAME="${AIMASHI_CLOUD_AGENT_MODEL:-aimashi-default}"
-AGENT_MODEL_BASE_URL="${AIMASHI_CLOUD_AGENT_MODEL_BASE_URL:-http://litellm:4000/v1}"
-AGENT_MODEL_API_KEY="${AIMASHI_CLOUD_AGENT_MODEL_API_KEY:-${AIMASHI_LITELLM_API_KEY:-}}"
-BACKUP_DIR="${AIMASHI_DEPLOY_BACKUP_DIR:-/root}"
-SERVICE="${AIMASHI_DEPLOY_SERVICE:-aimashi-cloud}"
-SERVICE_USER="${AIMASHI_DEPLOY_SERVICE_USER:-aimashi-cloud}"
-DEPLOY_SUDO="${AIMASHI_DEPLOY_SUDO:-}"
-INSTALL_TMP="${AIMASHI_INSTALL_TMP:-/tmp/aimashi-cloud-release-install-$$}"
-DEPLOY_ID="${AIMASHI_DEPLOY_ID:-$(date +%Y%m%d-%H%M%S)-$$}"
-SKIP_SMOKE="${AIMASHI_INSTALL_SKIP_SMOKE:-}"
-VERIFY_ONLY="${AIMASHI_INSTALL_VERIFY_ONLY:-}"
+PUBLIC_URL="${MIA_CLOUD_PUBLIC_URL:-https://aiweb.buytb01.com}"
+SMOKE_URL="${MIA_INSTALL_SMOKE_URL:-$PUBLIC_URL}"
+API_DIR="${MIA_DEPLOY_API_DIR:-/opt/mia-cloud}"
+WEB_DIR="${MIA_DEPLOY_WEB_DIR:-/var/www/mia-web}"
+DATA_DIR="${MIA_DEPLOY_DATA_DIR:-/var/lib/mia-cloud}"
+AGENT_ROOT="${MIA_CLOUD_AGENT_ROOT:-/var/lib/mia-cloud-agent-users}"
+HERMES_IMAGE="${MIA_CLOUD_HERMES_IMAGE:-mia/hermes-cloud:2026.5.7}"
+AGENT_DOCKER_NETWORK="${MIA_CLOUD_AGENT_DOCKER_NETWORK:-mia-cloud}"
+AGENT_MODEL_PROVIDER="${MIA_CLOUD_AGENT_MODEL_PROVIDER:-mia-litellm}"
+AGENT_MODEL_NAME="${MIA_CLOUD_AGENT_MODEL:-mia-default}"
+AGENT_MODEL_BASE_URL="${MIA_CLOUD_AGENT_MODEL_BASE_URL:-http://litellm:4000/v1}"
+AGENT_MODEL_API_KEY="${MIA_CLOUD_AGENT_MODEL_API_KEY:-${MIA_LITELLM_API_KEY:-}}"
+BACKUP_DIR="${MIA_DEPLOY_BACKUP_DIR:-/root}"
+SERVICE="${MIA_DEPLOY_SERVICE:-mia-cloud}"
+SERVICE_USER="${MIA_DEPLOY_SERVICE_USER:-mia-cloud}"
+DEPLOY_SUDO="${MIA_DEPLOY_SUDO:-}"
+INSTALL_TMP="${MIA_INSTALL_TMP:-/tmp/mia-cloud-release-install-$$}"
+DEPLOY_ID="${MIA_DEPLOY_ID:-$(date +%Y%m%d-%H%M%S)-$$}"
+SKIP_SMOKE="${MIA_INSTALL_SKIP_SMOKE:-}"
+VERIFY_ONLY="${MIA_INSTALL_VERIFY_ONLY:-}"
 
-API_BACKUP="$BACKUP_DIR/aimashi-cloud-api-$DEPLOY_ID.tgz"
-WEB_BACKUP="$BACKUP_DIR/aimashi-cloud-web-$DEPLOY_ID.tgz"
-DATA_BACKUP="$BACKUP_DIR/aimashi-cloud-data-$DEPLOY_ID.tgz"
-UNIT_BACKUP="$BACKUP_DIR/aimashi-cloud-$SERVICE-unit-$DEPLOY_ID.service"
+API_BACKUP="$BACKUP_DIR/mia-cloud-api-$DEPLOY_ID.tgz"
+WEB_BACKUP="$BACKUP_DIR/mia-cloud-web-$DEPLOY_ID.tgz"
+DATA_BACKUP="$BACKUP_DIR/mia-cloud-data-$DEPLOY_ID.tgz"
+UNIT_BACKUP="$BACKUP_DIR/mia-cloud-$SERVICE-unit-$DEPLOY_ID.service"
+LEGACY_SLUG="${MIA_DEPLOY_LEGACY_SLUG:-aima$(printf 'shi')}"
+LEGACY_SERVICE="${MIA_DEPLOY_LEGACY_SERVICE:-$LEGACY_SLUG-cloud}"
+LEGACY_DATA_DIR="${MIA_DEPLOY_LEGACY_DATA_DIR:-/var/lib/$LEGACY_SERVICE}"
+LEGACY_AGENT_ROOT="${MIA_DEPLOY_LEGACY_AGENT_ROOT:-/var/lib/$LEGACY_SERVICE-agent-users}"
+LEGACY_ETC_DIR="${MIA_DEPLOY_LEGACY_ETC_DIR:-/etc/$LEGACY_SERVICE}"
 
 validate_deploy_sudo() {
   if [ -z "$DEPLOY_SUDO" ]; then
     return
   fi
   if printf "%s" "$DEPLOY_SUDO" | LC_ALL=C grep -q '[^A-Za-z0-9_./ -]'; then
-    echo "AIMASHI_DEPLOY_SUDO must be a simple command such as 'sudo -n' or '/usr/bin/sudo -n'." >&2
+    echo "MIA_DEPLOY_SUDO must be a simple command such as 'sudo -n' or '/usr/bin/sudo -n'." >&2
     exit 1
   fi
 }
@@ -43,7 +48,7 @@ validate_deploy_sudo
 
 run_as_root() {
   if [ -n "$DEPLOY_SUDO" ]; then
-    # AIMASHI_DEPLOY_SUDO is intentionally a command string, for example: sudo -n
+    # MIA_DEPLOY_SUDO is intentionally a command string, for example: sudo -n
     $DEPLOY_SUDO "$@"
   else
     "$@"
@@ -106,6 +111,65 @@ ensure_docker_access() {
   run_as_root "$usermod_cmd" -aG docker "$SERVICE_USER"
 }
 
+stop_legacy_service() {
+  if [ -z "$LEGACY_SERVICE" ] || [ "$LEGACY_SERVICE" = "$SERVICE" ]; then
+    return
+  fi
+  if systemctl list-unit-files "$LEGACY_SERVICE.service" >/dev/null 2>&1 || systemctl status "$LEGACY_SERVICE" >/dev/null 2>&1; then
+    run_as_root systemctl stop "$LEGACY_SERVICE" || true
+  fi
+}
+
+disable_legacy_service() {
+  if [ -z "$LEGACY_SERVICE" ] || [ "$LEGACY_SERVICE" = "$SERVICE" ]; then
+    return
+  fi
+  run_as_root systemctl disable "$LEGACY_SERVICE" >/dev/null 2>&1 || true
+}
+
+migrate_legacy_dir() {
+  src="$1"
+  dst="$2"
+  label="$3"
+  if [ -e "$dst" ] || [ ! -d "$src" ]; then
+    return
+  fi
+  echo "Migrating legacy $label to $dst"
+  run_as_root mkdir -p "$(dirname "$dst")" "$dst"
+  run_as_root rsync -a "$src/" "$dst/"
+}
+
+migrate_legacy_admin_env() {
+  src="$LEGACY_ETC_DIR/admin.env"
+  dst="/etc/mia-cloud/admin.env"
+  if [ -f "$dst" ] || [ ! -f "$src" ]; then
+    return
+  fi
+  legacy_slug="$(basename "$LEGACY_SERVICE" | sed 's/-cloud$//')"
+  legacy_upper="$(printf '%s' "$legacy_slug" | tr '[:lower:]' '[:upper:]')"
+  legacy_title="$(printf '%s' "$legacy_slug" | awk '{ print toupper(substr($0,1,1)) substr($0,2) }')"
+  echo "Migrating legacy admin env to $dst"
+  run_as_root mkdir -p /etc/mia-cloud
+  sed "s/${legacy_upper}_/MIA_/g;s/${legacy_title}/Mia/g;s/${legacy_slug}/mia/g" "$src" | run_as_root tee "$dst" >/dev/null
+  run_as_root chmod 600 "$dst"
+}
+
+migrate_legacy_dropins() {
+  src_dir="/etc/systemd/system/$LEGACY_SERVICE.service.d"
+  dst_dir="/etc/systemd/system/$SERVICE.service.d"
+  if [ -d "$dst_dir" ] || [ ! -d "$src_dir" ]; then
+    return
+  fi
+  legacy_slug="$(basename "$LEGACY_SERVICE" | sed 's/-cloud$//')"
+  legacy_upper="$(printf '%s' "$legacy_slug" | tr '[:lower:]' '[:upper:]')"
+  echo "Migrating legacy systemd drop-ins to $dst_dir"
+  run_as_root mkdir -p "$dst_dir"
+  for src in "$src_dir"/*.conf; do
+    [ -f "$src" ] || continue
+    sed "s/${legacy_upper}_/MIA_/g;s/${legacy_slug}/mia/g" "$src" | run_as_root tee "$dst_dir/$(basename "$src")" >/dev/null
+  done
+}
+
 unit_value() {
   key="$1"
   file="$2"
@@ -149,6 +213,9 @@ rollback_install() {
   fi
   echo "Install failed; attempting rollback before exit." >&2
   run_as_root systemctl stop "$SERVICE" || true
+  if [ -n "$LEGACY_SERVICE" ] && [ "$LEGACY_SERVICE" != "$SERVICE" ]; then
+    run_as_root systemctl start "$LEGACY_SERVICE" || true
+  fi
   if [ -f "$DATA_BACKUP" ]; then
     run_as_root rm -rf "$DATA_DIR" || true
     run_as_root mkdir -p "$(dirname "$DATA_DIR")" || true
@@ -267,7 +334,7 @@ const path = require("node:path");
 const manifestPath = process.argv[2];
 const root = process.argv[3];
 const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
-if (manifest.product !== "Aimashi Cloud") {
+if (manifest.product !== "Mia Cloud") {
   throw new Error("Release manifest has the wrong product.");
 }
 if (!manifest.builtAt || !manifest.files || typeof manifest.files !== "object") {
@@ -286,7 +353,7 @@ for (const [relativePath, expectedHash] of Object.entries(manifest.files)) {
 NODE
 
 if [ "$VERIFY_ONLY" = "1" ]; then
-  echo "Aimashi Cloud local installer verify-only completed: $ARCHIVE"
+  echo "Mia Cloud local installer verify-only completed: $ARCHIVE"
   rm -rf "$INSTALL_TMP"
   exit 0
 fi
@@ -302,6 +369,10 @@ install_done=0
 trap rollback_install ERR
 ensure_service_user
 ensure_docker_access
+stop_legacy_service
+migrate_legacy_dir "$LEGACY_DATA_DIR" "$DATA_DIR" "data"
+migrate_legacy_dir "$LEGACY_AGENT_ROOT" "$AGENT_ROOT" "agent root"
+migrate_legacy_admin_env
 
 run_as_root mkdir -p "$BACKUP_DIR"
 if [ -d "$DATA_DIR" ]; then
@@ -341,7 +412,7 @@ run_as_root npm install --omit=dev
 unit_tmp="$INSTALL_TMP/$SERVICE.service"
 cat > "$unit_tmp" <<SERVICE_UNIT
 [Unit]
-Description=Aimashi Cloud API
+Description=Mia Cloud API
 After=network.target
 
 [Service]
@@ -352,24 +423,24 @@ WorkingDirectory=$API_DIR
 ExecStart=/usr/bin/env node $API_DIR/server.js
 Restart=always
 RestartSec=3
-Environment=AIMASHI_CLOUD_HOST=127.0.0.1
-Environment=AIMASHI_CLOUD_PORT=4175
-Environment=AIMASHI_CLOUD_DATA=$DATA_DIR
-Environment=AIMASHI_WEB_ROOT=$WEB_DIR
-Environment=AIMASHI_CLOUD_ALLOWED_ORIGINS=$PUBLIC_URL
-Environment=AIMASHI_BRIDGE_RUN_TIMEOUT_MS=300000
-Environment=AIMASHI_CLOUD_VERSION=2026-05-20
-Environment=AIMASHI_CLOUD_AGENT_MODE=docker
-Environment=AIMASHI_CLOUD_AGENT_ROOT=$AGENT_ROOT
-Environment=AIMASHI_CLOUD_HERMES_IMAGE=$HERMES_IMAGE
-Environment=AIMASHI_CLOUD_HERMES_CONTAINER_PORT=8765
-Environment=AIMASHI_CLOUD_AGENT_DOCKER_NETWORK=$AGENT_DOCKER_NETWORK
-Environment=AIMASHI_CLOUD_AGENT_MODEL_PROVIDER=$AGENT_MODEL_PROVIDER
-Environment=AIMASHI_CLOUD_AGENT_MODEL=$AGENT_MODEL_NAME
-Environment=AIMASHI_CLOUD_AGENT_MODEL_BASE_URL=$AGENT_MODEL_BASE_URL
-Environment=AIMASHI_CLOUD_AGENT_MODEL_API_KEY=$AGENT_MODEL_API_KEY
-Environment=AIMASHI_LITELLM_ADMIN_BASE_URL=http://127.0.0.1:4000
-EnvironmentFile=-/etc/aimashi-cloud/admin.env
+Environment=MIA_CLOUD_HOST=127.0.0.1
+Environment=MIA_CLOUD_PORT=4175
+Environment=MIA_CLOUD_DATA=$DATA_DIR
+Environment=MIA_WEB_ROOT=$WEB_DIR
+Environment=MIA_CLOUD_ALLOWED_ORIGINS=$PUBLIC_URL
+Environment=MIA_BRIDGE_RUN_TIMEOUT_MS=300000
+Environment=MIA_CLOUD_VERSION=2026-05-20
+Environment=MIA_CLOUD_AGENT_MODE=docker
+Environment=MIA_CLOUD_AGENT_ROOT=$AGENT_ROOT
+Environment=MIA_CLOUD_HERMES_IMAGE=$HERMES_IMAGE
+Environment=MIA_CLOUD_HERMES_CONTAINER_PORT=8765
+Environment=MIA_CLOUD_AGENT_DOCKER_NETWORK=$AGENT_DOCKER_NETWORK
+Environment=MIA_CLOUD_AGENT_MODEL_PROVIDER=$AGENT_MODEL_PROVIDER
+Environment=MIA_CLOUD_AGENT_MODEL=$AGENT_MODEL_NAME
+Environment=MIA_CLOUD_AGENT_MODEL_BASE_URL=$AGENT_MODEL_BASE_URL
+Environment=MIA_CLOUD_AGENT_MODEL_API_KEY=$AGENT_MODEL_API_KEY
+Environment=MIA_LITELLM_ADMIN_BASE_URL=http://127.0.0.1:4000
+EnvironmentFile=-/etc/mia-cloud/admin.env
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
@@ -380,32 +451,34 @@ WantedBy=multi-user.target
 SERVICE_UNIT
 run_as_root mkdir -p /etc/systemd/system
 run_as_root cp "$unit_tmp" "/etc/systemd/system/$SERVICE.service"
+migrate_legacy_dropins
 run_as_root systemctl daemon-reload
 run_as_root systemctl enable "$SERVICE"
 run_as_root systemctl restart "$SERVICE"
 run_as_root systemctl is-active "$SERVICE"
+disable_legacy_service
 install_done=1
 trap - ERR
 
 if [ "$SKIP_SMOKE" = "1" ]; then
-  echo "Aimashi Cloud local install completed without public verification: $SERVICE"
+  echo "Mia Cloud local install completed without public verification: $SERVICE"
   exit 0
 fi
 
 echo "Running doctor against $SMOKE_URL"
-if ! AIMASHI_DOCTOR_EXPECT_RELEASE_COMMIT="$EXPECTED_RELEASE_COMMIT" \
-  AIMASHI_DOCTOR_EXPECT_RELEASE_BUILT_AT="$EXPECTED_RELEASE_BUILT_AT" \
+if ! MIA_DOCTOR_EXPECT_RELEASE_COMMIT="$EXPECTED_RELEASE_COMMIT" \
+  MIA_DOCTOR_EXPECT_RELEASE_BUILT_AT="$EXPECTED_RELEASE_BUILT_AT" \
   node "$INSTALL_TMP/doctor-cloud.js" "$SMOKE_URL"; then
   rollback_after_public_verification_failure || echo "Rollback after doctor failure failed; inspect this host manually." >&2
   exit 1
 fi
 
 echo "Running smoke against $SMOKE_URL"
-if ! AIMASHI_SMOKE_EXPECT_RELEASE_COMMIT="$EXPECTED_RELEASE_COMMIT" \
-  AIMASHI_SMOKE_EXPECT_RELEASE_BUILT_AT="$EXPECTED_RELEASE_BUILT_AT" \
+if ! MIA_SMOKE_EXPECT_RELEASE_COMMIT="$EXPECTED_RELEASE_COMMIT" \
+  MIA_SMOKE_EXPECT_RELEASE_BUILT_AT="$EXPECTED_RELEASE_BUILT_AT" \
   node "$INSTALL_TMP/smoke-cloud.js" "$SMOKE_URL"; then
   rollback_after_public_verification_failure || echo "Rollback after smoke failure failed; inspect this host manually." >&2
   exit 1
 fi
 
-echo "Aimashi Cloud local install completed: $SMOKE_URL"
+echo "Mia Cloud local install completed: $SMOKE_URL"

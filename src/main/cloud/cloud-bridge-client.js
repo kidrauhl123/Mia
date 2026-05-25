@@ -81,7 +81,7 @@ function createCloudBridgeClient({
       sendCloudBridgeRunEvent(ws, runId, "status", { text: "本机 Codex 已开始运行。" });
       const response = await adapter.sendChat({
         fellow: {
-          key: "aimashi_cloud_codex",
+          key: "mia_cloud_codex",
           name: "Codex",
           bio: "",
           engineConfig: {
@@ -130,7 +130,7 @@ function createCloudBridgeClient({
       bridgeState.connecting = false;
       bridgeState.deviceId = String(message.deviceId || "");
       bridgeState.lastError = "";
-      appendLog("Aimashi Cloud Bridge connected.");
+      appendLog("Mia Cloud Bridge connected.");
       return;
     }
     if (message.type === "cancel") {
@@ -193,7 +193,7 @@ function createCloudBridgeClient({
     const ws = new WebSocketImpl(cloudBridgeUrl(s), cloudWebSocketProtocols(s));
     activeSocket = ws;
     ws.on("open", () => {
-      appendLog(`Connecting to Aimashi Cloud: ${s.url}`);
+      appendLog(`Connecting to Mia Cloud: ${s.url}`);
     });
     ws.on("message", (raw) => handleMessage(ws, raw));
     ws.on("error", (error) => {
@@ -206,7 +206,7 @@ function createCloudBridgeClient({
       bridgeState.connected = false;
       bridgeState.connecting = false;
       bridgeState.deviceId = "";
-      appendLog("Aimashi Cloud Bridge disconnected.");
+      appendLog("Mia Cloud Bridge disconnected.");
       scheduleReconnect();
     });
     return status(false);

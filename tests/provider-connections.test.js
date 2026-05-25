@@ -7,7 +7,7 @@ const { test } = require("node:test");
 const { createProviderConnections } = require("../src/main/provider-connections.js");
 
 function createHarness(overrides = {}) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-provider-connections-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-provider-connections-"));
   const providerConnections = path.join(dir, "providers.json");
   const service = createProviderConnections({
     runtimePaths: () => ({ providerConnections }),

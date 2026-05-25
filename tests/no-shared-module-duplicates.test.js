@@ -38,7 +38,7 @@ test("no toLocaleTimeString/toLocaleDateString outside shared/time-format.js", (
     offenders,
     [],
     `These files duplicate shared/time-format.js:\n  ${offenders.join("\n  ")}\n` +
-      `Use \`window.aimashiTimeFormat.formatMessageTime(value)\` (or require fallback).`
+      `Use \`window.miaTimeFormat.formatMessageTime(value)\` (or require fallback).`
   );
 });
 
@@ -51,7 +51,7 @@ test("no inline > 99 ? '99+' badge truncation outside shared/unread.js", () => {
     offenders,
     [],
     `These files duplicate shared/unread.js badge truncation:\n  ${offenders.join("\n  ")}\n` +
-      `Use \`window.aimashiUnread.unreadBadgeHtml(count)\` or the shared count helpers.`
+      `Use \`window.miaUnread.unreadBadgeHtml(count)\` or the shared count helpers.`
   );
 });
 
@@ -77,6 +77,6 @@ test("no mention parser definitions outside shared/send-pipeline.js", () => {
     offenders,
     [],
     `These files duplicate shared/send-pipeline.js mention parsing:\n  ${offenders.join("\n  ")}\n` +
-      `Use \`window.aimashiSendPipeline.prepareOutgoingMessage(input, ctx)\` or \`parseMentions(text, members)\`.`
+      `Use \`window.miaSendPipeline.prepareOutgoingMessage(input, ctx)\` or \`parseMentions(text, members)\`.`
   );
 });

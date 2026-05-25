@@ -11,17 +11,17 @@ const { spawn } = require("node:child_process");
 const { freePort } = require("./helpers/free-port");
 
 async function startServer() {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-fellow-room-"));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-fellow-room-"));
   const port = await freePort();
   return new Promise((resolve, reject) => {
     const proc = spawn(process.execPath, ["scripts/serve-cloud.js"], {
-      env: { ...process.env, AIMASHI_CLOUD_HOST: "127.0.0.1", AIMASHI_CLOUD_PORT: String(port), AIMASHI_CLOUD_DATA: tmpDir, AIMASHI_CLOUD_ALLOW_QUERY_TOKEN: "1" },
+      env: { ...process.env, MIA_CLOUD_HOST: "127.0.0.1", MIA_CLOUD_PORT: String(port), MIA_CLOUD_DATA: tmpDir, MIA_CLOUD_ALLOW_QUERY_TOKEN: "1" },
       stdio: ["ignore", "pipe", "pipe"]
     });
     let resolved = false;
     const done = () => { if (!resolved) { resolved = true; resolve({ proc, port, tmpDir }); } };
     proc.stdout.on("data", (c) => { if (/listening|Listening/.test(c.toString())) done(); });
-    proc.stderr.on("data", (c) => { if (/listening|Listening|aimashi-cloud/i.test(c.toString())) done(); });
+    proc.stderr.on("data", (c) => { if (/listening|Listening|mia-cloud/i.test(c.toString())) done(); });
     proc.on("error", reject);
     setTimeout(done, 1500);
   });
@@ -199,12 +199,12 @@ test("fellow rooms show up in GET /api/rooms alongside DMs and groups", async ()
   try {
     const A = await register(ctx.port, "tau");
     await api(ctx.port, "PUT", "/api/me/fellow-rooms/sess1", { token: A.token, body: { fellowKey: "codex", title: "Codex chat" } });
-    await api(ctx.port, "PUT", "/api/me/fellow-rooms/sess2", { token: A.token, body: { fellowKey: "aimashi", title: "Aimashi chat" } });
+    await api(ctx.port, "PUT", "/api/me/fellow-rooms/sess2", { token: A.token, body: { fellowKey: "mia", title: "Mia chat" } });
     const list = await api(ctx.port, "GET", "/api/rooms", { token: A.token });
     const fellowRooms = (list.body.rooms || []).filter((r) => r.type === "fellow");
     assert.equal(fellowRooms.length, 3);
     const names = fellowRooms.map((r) => r.name).sort();
-    assert.deepEqual(names, ["Aimashi", "Aimashi chat", "Codex chat"]);
+    assert.deepEqual(names, ["Codex chat", "Mia", "Mia chat"]);
   } finally { await stopServer(ctx); }
 });
 

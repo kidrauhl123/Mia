@@ -46,7 +46,7 @@ function createCloudDesktopSyncClient({
       signal: timeoutSignal(15000)
     });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.error || `Aimashi Cloud ${response.status}`);
+    if (!response.ok) throw new Error(data.error || `Mia Cloud ${response.status}`);
     return data;
   }
 
@@ -132,7 +132,7 @@ function createCloudDesktopSyncClient({
         writeCloudSettings({ user: data.user });
       }
     } catch (error) {
-      log(`Aimashi Cloud profile sync failed: ${error?.message || error}`);
+      log(`Mia Cloud profile sync failed: ${error?.message || error}`);
     }
   }
 
@@ -230,7 +230,7 @@ function createCloudDesktopSyncClient({
       const data = await cloudApi("/api/me");
       writeCloudSettings({ user: data?.user || current.user });
     } catch (error) {
-      log(`Aimashi Cloud /api/me refresh failed: ${error?.message || error}`);
+      log(`Mia Cloud /api/me refresh failed: ${error?.message || error}`);
     }
     return status(false);
   }

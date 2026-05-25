@@ -165,10 +165,10 @@ test("module attaches itself to a window-like global", () => {
   try {
     delete require.cache[require.resolve("../src/shared/unread")];
     require("../src/shared/unread");
-    assert.equal(typeof fakeWindow.aimashiUnread, "object");
-    assert.equal(typeof fakeWindow.aimashiUnread.unreadBadgeHtml, "function");
-    assert.equal(typeof fakeWindow.aimashiUnread.computeUnreadForConversation, "function");
-    assert.equal(typeof fakeWindow.aimashiUnread.totalUnreadFromConversations, "function");
+    assert.equal(typeof fakeWindow.miaUnread, "object");
+    assert.equal(typeof fakeWindow.miaUnread.unreadBadgeHtml, "function");
+    assert.equal(typeof fakeWindow.miaUnread.computeUnreadForConversation, "function");
+    assert.equal(typeof fakeWindow.miaUnread.totalUnreadFromConversations, "function");
   } finally {
     if (prevWindow === undefined) delete global.window;
     else global.window = prevWindow;

@@ -5,7 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 const WebSocket = require("ws");
 
-const { createAimashiCloudServer } = require("../scripts/serve-cloud.js");
+const { createMiaCloudServer } = require("../scripts/serve-cloud.js");
 
 function tempDir(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -38,7 +38,7 @@ async function jsonFetch(baseUrl, requestPath, options = {}) {
 }
 
 function wsTokenProtocol(token) {
-  return [`aimashi-token.${token}`];
+  return [`mia-token.${token}`];
 }
 
 function eventsWsUrl(baseUrl) {
@@ -65,9 +65,9 @@ function closeWs(ws) {
 }
 
 test("POST /api/rooms/:id/messages appends cloud fellow reply through existing room messages", async () => {
-  const dataDir = tempDir("aimashi-cloud-agent-server-");
+  const dataDir = tempDir("mia-cloud-agent-server-");
   const hermesCalls = [];
-  const server = createAimashiCloudServer({
+  const server = createMiaCloudServer({
     dataDir,
     cloudAgentWorkerManager: {
       async ensureWorker(userId) {
@@ -95,7 +95,7 @@ test("POST /api/rooms/:id/messages appends cloud fellow reply through existing r
       method: "POST",
       body: { username: "alice", password: "123456" }
     });
-    const roomId = `fellow:${account.user.id}:aimashi`;
+    const roomId = `fellow:${account.user.id}:mia`;
     const authHeaders = { authorization: `Bearer ${account.token}` };
     eventsWs = new WebSocket(eventsWsUrl(baseUrl), wsTokenProtocol(account.token));
     await waitForMessage(eventsWs, (message) => message.type === "events_ready");
@@ -119,7 +119,7 @@ test("POST /api/rooms/:id/messages appends cloud fellow reply through existing r
     assert.match(sentAttachments[0].url, /^\/api\/files\/file_/);
     assert.equal(sentAttachments[0].dataUrl, undefined);
 
-    await server.aimashi.cloudAgentDispatcher.idle();
+    await server.mia.cloudAgentDispatcher.idle();
     const started = await runStarted;
     assert.equal(started.hermesRunId, "hr_server_1");
 
@@ -127,7 +127,7 @@ test("POST /api/rooms/:id/messages appends cloud fellow reply through existing r
       headers: authHeaders
     });
     assert.deepEqual(listed.messages.map((m) => m.sender_kind), ["user", "fellow"]);
-    assert.equal(listed.messages[1].sender_ref, "aimashi");
+    assert.equal(listed.messages[1].sender_ref, "mia");
     assert.equal(listed.messages[1].body_md, "server cloud reply");
     assert.equal(hermesCalls.length, 1);
     assert.match(hermesCalls[0].input, /附件上下文/);

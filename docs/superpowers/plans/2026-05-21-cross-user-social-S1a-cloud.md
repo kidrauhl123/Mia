@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 在 aimashi cloud server 上加齐"加好友 + 1:1 私聊 + 服务端权威 seq + 端增量拉取"所需的 schema、store helpers、HTTP endpoints、WS 广播事件。本 plan 范围仅 server 端，**不动桌面 client / 移动端 / Web 端 UI**（那是 S1b plan）。
+**Goal:** 在 mia cloud server 上加齐"加好友 + 1:1 私聊 + 服务端权威 seq + 端增量拉取"所需的 schema、store helpers、HTTP endpoints、WS 广播事件。本 plan 范围仅 server 端，**不动桌面 client / 移动端 / Web 端 UI**（那是 S1b plan）。
 
 **Architecture:** 在现有 `src/cloud/sqlite-store.js` 上叠 schema v2（5 张新表）；新建 `src/cloud/social-store.js` + `src/cloud/messages-store.js` 承担 CRUD（隔离 sqlite-store.js 不让它继续膨胀）；新增 `/api/social/*` + `/api/rooms/*` HTTP routes 接入 `scripts/serve-cloud.js` 的 `handleRequest`；WS 广播复用现有 `broadcastEvent(eventHub, userId, payload)` 通道，新增 `social.*` / `room.*` 事件类型。Messages 表每条消息由 server 分配 per-room 递增 `seq`，客户端按 `since_seq=N` 增量拉取。本阶段 DM 房间是退化群（两个 `kind='user'` 成员 + 无 host），room id 由 user pair 派生 `dm:<userA>:<userB>` 字典序归一。
 
@@ -147,7 +147,7 @@ const path = require("node:path");
 const { createCloudStore } = require("../src/cloud/sqlite-store.js");
 
 function makeStore() {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-cloud-test-"));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-cloud-test-"));
   const store = createCloudStore({ dataDir: tmpDir });
   return { store, tmpDir };
 }
@@ -289,7 +289,7 @@ const { createCloudStore } = require("../src/cloud/sqlite-store.js");
 const { createSocialStore } = require("../src/cloud/social-store.js");
 
 function makeStores() {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-social-test-"));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-social-test-"));
   const cloudStore = createCloudStore({ dataDir: tmpDir });
   const db = cloudStore.getDb();
   const social = createSocialStore(db);
@@ -852,7 +852,7 @@ const { createSocialStore } = require("../src/cloud/social-store.js");
 const { createMessagesStore } = require("../src/cloud/messages-store.js");
 
 function setup() {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-msg-test-"));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-msg-test-"));
   const cloudStore = createCloudStore({ dataDir: tmpDir });
   const db = cloudStore.getDb();
   const social = createSocialStore(db);
@@ -1103,7 +1103,7 @@ test("dmRoomId throws on identical user ids", () => {
 });
 
 test("ensureDmRoom creates room and adds two members on first call", () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-dm-test-"));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-dm-test-"));
   const cloudStore = createCloudStore({ dataDir: tmpDir });
   try {
     const social = createSocialStore(cloudStore.getDb());
@@ -1125,7 +1125,7 @@ test("ensureDmRoom creates room and adds two members on first call", () => {
 });
 
 test("ensureDmRoom returns existing room on second call (idempotent)", () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-dm-test2-"));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-dm-test2-"));
   const cloudStore = createCloudStore({ dataDir: tmpDir });
   try {
     const social = createSocialStore(cloudStore.getDb());
@@ -1143,7 +1143,7 @@ test("ensureDmRoom returns existing room on second call (idempotent)", () => {
 });
 
 test("ensureDmRoom rejects non-friends", () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-dm-test3-"));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-dm-test3-"));
   const cloudStore = createCloudStore({ dataDir: tmpDir });
   try {
     const social = createSocialStore(cloudStore.getDb());
@@ -1244,21 +1244,21 @@ const { spawn } = require("node:child_process");
 
 function startServer() {
   return new Promise((resolve, reject) => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-api-test-"));
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-api-test-"));
     const port = 4000 + Math.floor(Math.random() * 1000);
     const proc = spawn(process.execPath, ["scripts/serve-cloud.js"], {
       env: {
         ...process.env,
-        AIMASHI_CLOUD_HOST: "127.0.0.1",
-        AIMASHI_CLOUD_PORT: String(port),
-        AIMASHI_CLOUD_DATA: tmpDir,
+        MIA_CLOUD_HOST: "127.0.0.1",
+        MIA_CLOUD_PORT: String(port),
+        MIA_CLOUD_DATA: tmpDir,
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
     let resolved = false;
     proc.stderr.on("data", (chunk) => {
       const s = chunk.toString();
-      if (s.includes("listening") || s.includes("Listening") || s.includes("aimashi-cloud")) {
+      if (s.includes("listening") || s.includes("Listening") || s.includes("mia-cloud")) {
         if (!resolved) { resolved = true; resolve({ proc, port, tmpDir }); }
       }
     });
@@ -1843,8 +1843,8 @@ Events go through existing `broadcastEvent(context.eventHub, userId, payload)`. 
 
 WS endpoint (verified by reading `scripts/serve-cloud.js:820-844`):
 - Path: `/api/events`
-- Auth (production): subprotocol header `Sec-WebSocket-Protocol: aimashi-token.<token>` parsed by `tokenFromWebSocketProtocol(req)` (`serve-cloud.js:488`)
-- Auth (test-only fallback): `?token=<token>` query param, **but only when env `AIMASHI_CLOUD_ALLOW_QUERY_TOKEN=1`** (see `serve-cloud.js:834` — `context.allowQueryTokenAuth`)
+- Auth (production): subprotocol header `Sec-WebSocket-Protocol: mia-token.<token>` parsed by `tokenFromWebSocketProtocol(req)` (`serve-cloud.js:488`)
+- Auth (test-only fallback): `?token=<token>` query param, **but only when env `MIA_CLOUD_ALLOW_QUERY_TOKEN=1`** (see `serve-cloud.js:834` — `context.allowQueryTokenAuth`)
 
 For these tests, use the subprotocol method (matches production), no env tweak needed. `ws` npm package accepts subprotocols as the second arg to the constructor.
 
@@ -1858,7 +1858,7 @@ const WebSocket = require("ws");
 function openEventsWs(port, token) {
   const ws = new WebSocket(
     "ws://127.0.0.1:" + port + "/api/events",
-    ["aimashi-token." + token]
+    ["mia-token." + token]
   );
   const events = [];
   ws.on("message", (data) => {
@@ -2036,7 +2036,7 @@ Expected: all references are within `scripts/serve-cloud.js` (route definitions)
 npm test 2>&1 | tail -10
 ```
 
-Expected: zero new failures introduced (pre-existing failures from missing `dist/aimashi-cloud-release/` artifacts are not this plan's concern — same as R baseline).
+Expected: zero new failures introduced (pre-existing failures from missing `dist/mia-cloud-release/` artifacts are not this plan's concern — same as R baseline).
 
 - [ ] **Step 5: Final commit (if cleanup needed)**
 

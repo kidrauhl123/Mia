@@ -8,17 +8,17 @@ const path = require("node:path");
 const WebSocket = require("ws");
 const packageJson = require("../package.json");
 
-const cloudUrl = process.env.AIMASHI_CLOUD_URL || "http://127.0.0.1:4175";
-let cloudToken = process.env.AIMASHI_CLOUD_TOKEN || "";
-const engine = process.env.AIMASHI_BRIDGE_ENGINE || "codex";
-const deviceName = process.env.AIMASHI_BRIDGE_NAME || `${os.hostname()} Aimashi Bridge`;
-const cwd = process.env.AIMASHI_BRIDGE_CWD || process.cwd();
-const reconnectMs = Number(process.env.AIMASHI_BRIDGE_RECONNECT_MS || 3000);
+const cloudUrl = process.env.MIA_CLOUD_URL || "http://127.0.0.1:4175";
+let cloudToken = process.env.MIA_CLOUD_TOKEN || "";
+const engine = process.env.MIA_BRIDGE_ENGINE || "codex";
+const deviceName = process.env.MIA_BRIDGE_NAME || `${os.hostname()} Mia Bridge`;
+const cwd = process.env.MIA_BRIDGE_CWD || process.cwd();
+const reconnectMs = Number(process.env.MIA_BRIDGE_RECONNECT_MS || 3000);
 const activeRuns = new Map();
 const MAX_ATTACHMENT_BYTES = 18 * 1024 * 1024;
 
 function log(message) {
-  process.stdout.write(`[aimashi-bridge] ${message}\n`);
+  process.stdout.write(`[mia-bridge] ${message}\n`);
 }
 
 function bridgeCapabilities() {
@@ -29,7 +29,7 @@ function bridgeCapabilities() {
     cancellation: true,
     streaming: true,
     engines: [engine],
-    app: "Aimashi Local Agent Bridge",
+    app: "Mia Local Agent Bridge",
     appVersion: packageJson.version || "",
     hostname: os.hostname()
   };
@@ -47,13 +47,13 @@ function bridgeUrl(options = {}) {
 }
 
 function bridgeProtocols(inputToken = cloudToken) {
-  return [`aimashi-token.${inputToken}`];
+  return [`mia-token.${inputToken}`];
 }
 
 async function loginCloudAccount({ cloudUrl: targetCloudUrl = cloudUrl, username, password, fetchImpl = fetch } = {}) {
   const cleanUsername = String(username || "").trim();
-  if (!cleanUsername) throw new Error("AIMASHI_CLOUD_USERNAME is required when AIMASHI_CLOUD_TOKEN is not set.");
-  if (!String(password || "")) throw new Error("AIMASHI_CLOUD_PASSWORD is required when AIMASHI_CLOUD_USERNAME is set.");
+  if (!cleanUsername) throw new Error("MIA_CLOUD_USERNAME is required when MIA_CLOUD_TOKEN is not set.");
+  if (!String(password || "")) throw new Error("MIA_CLOUD_PASSWORD is required when MIA_CLOUD_USERNAME is set.");
   const response = await fetchImpl(new URL("/api/auth/login", targetCloudUrl), {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -66,18 +66,18 @@ async function loginCloudAccount({ cloudUrl: targetCloudUrl = cloudUrl, username
     data = {};
   }
   if (!response.ok || !data.token) {
-    throw new Error(data.error || `Aimashi Cloud login failed: HTTP ${response.status}`);
+    throw new Error(data.error || `Mia Cloud login failed: HTTP ${response.status}`);
   }
   return data.token;
 }
 
 async function resolveBridgeToken(env = process.env, fetchImpl = fetch) {
-  const configuredToken = String(env.AIMASHI_CLOUD_TOKEN || "");
+  const configuredToken = String(env.MIA_CLOUD_TOKEN || "");
   if (configuredToken) return configuredToken;
   return loginCloudAccount({
-    cloudUrl: env.AIMASHI_CLOUD_URL || cloudUrl,
-    username: env.AIMASHI_CLOUD_USERNAME,
-    password: env.AIMASHI_CLOUD_PASSWORD,
+    cloudUrl: env.MIA_CLOUD_URL || cloudUrl,
+    username: env.MIA_CLOUD_USERNAME,
+    password: env.MIA_CLOUD_PASSWORD,
     fetchImpl
   });
 }
@@ -229,7 +229,7 @@ async function fetchAttachmentBuffer(attachment) {
 async function materializeAttachments(attachments = [], runId = crypto.randomUUID()) {
   const incoming = Array.isArray(attachments) ? attachments.slice(0, 20) : [];
   if (!incoming.length) return { attachments: [], dir: "" };
-  const dir = path.join(os.tmpdir(), "aimashi-bridge-attachments", sanitizeAttachmentName(runId));
+  const dir = path.join(os.tmpdir(), "mia-bridge-attachments", sanitizeAttachmentName(runId));
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   const materialized = [];
   for (const [index, attachment] of incoming.entries()) {
@@ -306,8 +306,8 @@ async function runCodex(text, { signal = null, ws = null, runId = "", attachment
     const thread = codex.startThread({
       workingDirectory: cwd,
       skipGitRepoCheck: true,
-      modelReasoningEffort: process.env.AIMASHI_CODEX_EFFORT || "medium",
-      ...mapPermissionMode(process.env.AIMASHI_CODEX_PERMISSION || "default")
+      modelReasoningEffort: process.env.MIA_CODEX_EFFORT || "medium",
+      ...mapPermissionMode(process.env.MIA_CODEX_PERMISSION || "default")
     });
     const startedAtMs = Date.now();
     let finalResponse = "";
@@ -357,7 +357,7 @@ async function connect() {
   if (!cloudToken) {
     try {
       cloudToken = await resolveBridgeToken();
-      log(`logged in to ${cloudUrl} as ${process.env.AIMASHI_CLOUD_USERNAME}`);
+      log(`logged in to ${cloudUrl} as ${process.env.MIA_CLOUD_USERNAME}`);
     } catch (error) {
       process.stderr.write(`${error.message || error}\n`);
       process.exitCode = 1;
@@ -365,7 +365,7 @@ async function connect() {
     }
   }
   if (!cloudToken) {
-    process.stderr.write("AIMASHI_CLOUD_TOKEN or AIMASHI_CLOUD_USERNAME/AIMASHI_CLOUD_PASSWORD is required.\n");
+    process.stderr.write("MIA_CLOUD_TOKEN or MIA_CLOUD_USERNAME/MIA_CLOUD_PASSWORD is required.\n");
     process.exitCode = 1;
     return;
   }

@@ -1,7 +1,7 @@
-const fallbackSlashCommands = window.aimashiAppState.fallbackSlashCommands;
-const SETUP_GUIDE_DISMISSED_KEY = window.aimashiAppState.SETUP_GUIDE_DISMISSED_KEY;
-const { ConversationKind, MemberKind } = (typeof window !== "undefined" && window.aimashiConversationKinds) || require("../shared/conversation-kinds");
-const { prepareOutgoingMessage } = (typeof window !== "undefined" && window.aimashiSendPipeline) || require("../shared/send-pipeline");
+const fallbackSlashCommands = window.miaAppState.fallbackSlashCommands;
+const SETUP_GUIDE_DISMISSED_KEY = window.miaAppState.SETUP_GUIDE_DISMISSED_KEY;
+const { ConversationKind, MemberKind } = (typeof window !== "undefined" && window.miaConversationKinds) || require("../shared/conversation-kinds");
+const { prepareOutgoingMessage } = (typeof window !== "undefined" && window.miaSendPipeline) || require("../shared/send-pipeline");
 const SIDEBAR_WIDTH_MIN = 220;
 const SIDEBAR_WIDTH_MAX = 380;
 const SIDEBAR_WIDTH_DEFAULT = 280;
@@ -19,13 +19,13 @@ function clampSidebarWidth(value) {
 
 function savedSidebarWidth() {
   try {
-    return clampSidebarWidth(Number(localStorage.getItem("aimashi.sidebarWidth")) || SIDEBAR_WIDTH_DEFAULT);
+    return clampSidebarWidth(Number(localStorage.getItem("mia.sidebarWidth")) || SIDEBAR_WIDTH_DEFAULT);
   } catch {
     return SIDEBAR_WIDTH_DEFAULT;
   }
 }
 
-const state = window.aimashiAppState.createInitialState({
+const state = window.miaAppState.createInitialState({
   localStorage,
   sidebarWidth: savedSidebarWidth(),
   windowWidth: window.innerWidth
@@ -262,11 +262,11 @@ function renderQr(el, text) {
     return;
   }
   el.textContent = "生成二维码中";
-  if (!window.aimashi?.qrSvg) {
+  if (!window.mia?.qrSvg) {
     el.textContent = "二维码不可用";
     return;
   }
-  window.aimashi.qrSvg(value).then((svg) => {
+  window.mia.qrSvg(value).then((svg) => {
     qrSvgCache.set(value, svg);
     if (el.dataset.qrText === value) el.innerHTML = svg;
   }).catch(() => {
@@ -281,7 +281,7 @@ function applySidebarWidth(width = state.sidebarWidth, persist = false) {
   document.documentElement.style.setProperty("--sidebar-width", `${next}px`);
   if (persist) {
     try {
-      localStorage.setItem("aimashi.sidebarWidth", String(next));
+      localStorage.setItem("mia.sidebarWidth", String(next));
     } catch {
       // localStorage may be unavailable in restricted renderer contexts.
     }
@@ -310,7 +310,7 @@ function renderSendButton() {
   if (!els.sendChat) return;
   const hasContent = Boolean(String(els.chatInput?.value || "").trim()) || state.pendingAttachments.length > 0;
   const cloudSignedIn = Boolean(state.runtime?.cloud?.enabled);
-  const hasActiveCloudRoom = Boolean(window.aimashiSocial?.getActiveRoomId?.());
+  const hasActiveCloudRoom = Boolean(window.miaSocial?.getActiveRoomId?.());
   const canSend = hasContent && (!cloudSignedIn || hasActiveCloudRoom);
   els.sendChat.classList.toggle("stop", state.isGenerating);
   els.sendChat.textContent = state.isGenerating ? "" : "↗";
@@ -453,7 +453,7 @@ function sortSessions(sessions) {
 // rendered in the renderer (sidebar + active-chat header). One builder so
 // the cloud and local paths can't drift.
 function groupTilesCtx(personas) {
-  const social = window.aimashiSocial;
+  const social = window.miaSocial;
   // Group membership records use the CLOUD user id (state.runtime.cloud.user.id),
   // not the desktop-local user id. If we hand the resolver the local user
   // object the self-match misses and the user gets painted as the
@@ -472,7 +472,7 @@ function groupTilesCtx(personas) {
     self,
     friends: social?.moduleState?.friends || [],
     fellows: personas || [],
-    avatarAssetForKey: window.aimashiAvatar?.avatarAssetForKey
+    avatarAssetForKey: window.miaAvatar?.avatarAssetForKey
   };
 }
 
@@ -484,15 +484,15 @@ function groupTilesCtx(personas) {
 // species.
 function conversationCardSpecFromRow(row, personas) {
   if (!row) return null;
-  const social = window.aimashiSocial;
-  const avatarHelper = window.aimashiAvatar;
+  const social = window.miaSocial;
+  const avatarHelper = window.miaAvatar;
   const userProfile = state.runtime?.user || {};
 
   // ── fellow private chat (existing) ───────────────────────────────────────
   if (row.type === "fellow") {
     const persona = row.persona;
     const preview = conversationPreview(persona);
-    const unread = window.aimashiSessionReadState.unreadCountForPersona(persona.key);
+    const unread = window.miaSessionReadState.unreadCountForPersona(persona.key);
     return {
       kind: "private",
       active: persona.key === state.activeKey,
@@ -511,27 +511,27 @@ function conversationCardSpecFromRow(row, personas) {
       dataAttrs: { fellowAvatar: persona.key },
       onClick: () => {
         state.activeKey = persona.key;
-        if (window.aimashiSocial) window.aimashiSocial.setActiveRoomId(null);
+        if (window.miaSocial) window.miaSocial.setActiveRoomId(null);
         const latest = sessionsForPersona(persona.key)[0];
         state.activeSessionIdByPersona[persona.key] = latest?.id;
         state.replyDraft = null;
-        window.aimashiSessionReadState.markPersonaRead(persona.key);
+        window.miaSessionReadState.markPersonaRead(persona.key);
         state.sessionMenuOpen = false;
         showNarrowContent();
         render();
       },
-      onContextMenu: (x, y) => window.aimashiConversationContextMenu.openPrivateConversationMenu(
+      onContextMenu: (x, y) => window.miaConversationContextMenu.openPrivateConversationMenu(
         { id: persona.key, name: persona.name, pinned: Boolean(persona.pinned), unread, muted: Boolean(persona.muted) },
         {
           togglePinned: () => setFellowPinned(persona.key, !persona.pinned),
           rename: () => openEditFellowDialog(persona.key),
           toggleRead: (next) => {
-            if (next) window.aimashiSessionReadState.markPersonaUnread(persona.key);
-            else window.aimashiSessionReadState.markPersonaRead(persona.key);
+            if (next) window.miaSessionReadState.markPersonaUnread(persona.key);
+            else window.miaSessionReadState.markPersonaRead(persona.key);
             render();
           },
           toggleMuted: (next) => { setFellowMuted(persona.key, next); render(); },
-          remove: persona.key === "aimashi" ? null : () => deleteFellow(persona.key)
+          remove: persona.key === "mia" ? null : () => deleteFellow(persona.key)
         },
         x, y
       )
@@ -581,11 +581,11 @@ function conversationCardSpecFromRow(row, personas) {
       avatar,
       onClick: () => {
         state.activeKey = "";
-        window.aimashiSocial.setActiveRoomId(room.id);
+        window.miaSocial.setActiveRoomId(room.id);
         showNarrowContent();
         render();
       },
-      onContextMenu: (x, y) => window.aimashiConversationContextMenu.openPrivateConversationMenu(
+      onContextMenu: (x, y) => window.miaConversationContextMenu.openPrivateConversationMenu(
         { id: room.id, name, pinned, unread, muted },
         {
           togglePinned: () => { social.setRoomPinned(room.id, !pinned); render(); },
@@ -614,7 +614,7 @@ function conversationCardSpecFromRow(row, personas) {
     const room = row.room;
     const activeRoomId = social?.getActiveRoomId?.();
     const memberRecords = social?.getRoomMembers?.(room.id) || [];
-    const tiles = window.aimashiGroupTiles.resolveGroupMemberTiles(memberRecords, groupTilesCtx(personas));
+    const tiles = window.miaGroupTiles.resolveGroupMemberTiles(memberRecords, groupTilesCtx(personas));
     const memberCount = memberRecords.length || room.memberCount || 0;
     const cgPinned = Boolean(social?.isRoomPinned?.(room.id));
     const cgMuted = Boolean(social?.isRoomMuted?.(room.id));
@@ -634,11 +634,11 @@ function conversationCardSpecFromRow(row, personas) {
       customAvatar: room.decorations?.avatar || null,
       onClick: () => {
         state.activeKey = "";
-        window.aimashiSocial.setActiveRoomId(room.id);
+        window.miaSocial.setActiveRoomId(room.id);
         showNarrowContent();
         render();
       },
-      onContextMenu: (x, y) => window.aimashiConversationContextMenu.openGroupConversationMenu(
+      onContextMenu: (x, y) => window.miaConversationContextMenu.openGroupConversationMenu(
         { id: room.id, name: cgName, pinned: cgPinned, unread: cgUnread, muted: cgMuted },
         {
           togglePinned: () => { social.setRoomPinned(room.id, !cgPinned); render(); },
@@ -648,7 +648,7 @@ function conversationCardSpecFromRow(row, personas) {
             render();
           },
           toggleMuted: (next) => { social.setRoomMuted(room.id, next); render(); },
-          openInfo: () => window.aimashiGroupInfoDialog?.open(room.id),
+          openInfo: () => window.miaGroupInfoDialog?.open(room.id),
           rename: async () => {
             const next = window.prompt("编辑群组名称", cgName);
             if (!next || next.trim() === cgName) return;
@@ -671,7 +671,7 @@ function conversationCardSpecFromRow(row, personas) {
 
 // Paint #activeChatAvatar / #activeChatName / #activeChatMeta for the
 // currently-active cloud room (type ∈ {dm, group, fellow}). Mirrors the
-// local-group branch — both paths route through aimashiGroupAvatar for
+// local-group branch — both paths route through miaGroupAvatar for
 // any conversation that has more than one member, so the sidebar and the
 // chat header always agree.
 function paintActiveCloudRoomHeader(room, { personas, social }) {
@@ -679,8 +679,8 @@ function paintActiveCloudRoomHeader(room, { personas, social }) {
   const nameEl = els.activeChatName;
   const metaEl = els.activeChatMeta;
   const userProfile = state.runtime?.user || {};
-  const avatarHelper = window.aimashiAvatar;
-  const groupAvatarHelper = window.aimashiGroupAvatar;
+  const avatarHelper = window.miaAvatar;
+  const groupAvatarHelper = window.miaGroupAvatar;
   // id-prefix fallback for pre-v7 cloud deployments that don't yet return
   // room.type. social.renderSidebarRows already normalizes this; mirror it
   // here so a room loaded outside the sidebar pipeline (active room loaded
@@ -693,7 +693,7 @@ function paintActiveCloudRoomHeader(room, { personas, social }) {
 
   if (roomType === "group") {
     const members = social?.getRoomMembers?.(room.id) || [];
-    const tiles = window.aimashiGroupTiles.resolveGroupMemberTiles(members, groupTilesCtx(personas));
+    const tiles = window.miaGroupTiles.resolveGroupMemberTiles(members, groupTilesCtx(personas));
     const customAvatar = room.decorations?.avatar;
     if (avatarEl) {
       if (customAvatar && customAvatar.image) {
@@ -760,12 +760,12 @@ function paintActiveCloudRoomHeader(room, { personas, social }) {
 // src/renderer/conversation-context-menu.js so cloud and local
 // conversations share one menu shape.)
 
-const { formatConversationTime, formatMessageTime } = (typeof window !== "undefined" && window.aimashiTimeFormat) || require("../shared/time-format");
+const { formatConversationTime, formatMessageTime } = (typeof window !== "undefined" && window.miaTimeFormat) || require("../shared/time-format");
 
 function renderMessageTime(value) {
   const date = value ? new Date(value) : new Date();
   if (Number.isNaN(date.getTime())) return "";
-  return `<time class="message-time" datetime="${window.aimashiMarkdown.escapeHtml(date.toISOString())}" title="${window.aimashiMarkdown.escapeHtml(date.toLocaleString())}">${window.aimashiMarkdown.escapeHtml(formatMessageTime(date))}</time>`;
+  return `<time class="message-time" datetime="${window.miaMarkdown.escapeHtml(date.toISOString())}" title="${window.miaMarkdown.escapeHtml(date.toLocaleString())}">${window.miaMarkdown.escapeHtml(formatMessageTime(date))}</time>`;
 }
 
 function renderAttachmentChips(attachments = []) {
@@ -779,27 +779,27 @@ function renderAttachmentChips(attachments = []) {
 
 function renderAttachmentThumb(attachment = {}, className = "attachment-thumb") {
   const src = String(attachment.thumbnailDataUrl || attachment.thumbnail || attachment.previewDataUrl || attachment.dataUrl || "").trim();
-  if (!src || !src.startsWith("data:image/")) return `<span>${window.aimashiMarkdown.escapeHtml(window.aimashiFormat.attachmentGlyph(attachment))}</span>`;
-  return `<img class="${window.aimashiMarkdown.escapeHtml(className)}" src="${window.aimashiMarkdown.escapeHtml(src)}" alt="">`;
+  if (!src || !src.startsWith("data:image/")) return `<span>${window.miaMarkdown.escapeHtml(window.miaFormat.attachmentGlyph(attachment))}</span>`;
+  return `<img class="${window.miaMarkdown.escapeHtml(className)}" src="${window.miaMarkdown.escapeHtml(src)}" alt="">`;
 }
 
 function renderAttachmentChip(attachment = {}) {
-  const image = (attachment.kind || window.aimashiFormat.attachmentKind(attachment)) === "image" && (attachment.thumbnailDataUrl || attachment.thumbnail || attachment.previewDataUrl || attachment.dataUrl || attachment.url);
+  const image = (attachment.kind || window.miaFormat.attachmentKind(attachment)) === "image" && (attachment.thumbnailDataUrl || attachment.thumbnail || attachment.previewDataUrl || attachment.dataUrl || attachment.url);
   const href = String(attachment.dataUrl || "").startsWith("data:") ? String(attachment.dataUrl) : "";
   const tag = href ? "a" : "span";
-  const download = href ? ` href="${window.aimashiMarkdown.escapeHtml(href)}" download="${window.aimashiMarkdown.escapeHtml(attachment.name || "attachment")}"` : "";
+  const download = href ? ` href="${window.miaMarkdown.escapeHtml(href)}" download="${window.miaMarkdown.escapeHtml(attachment.name || "attachment")}"` : "";
   if (image) {
     return `
-      <button class="message-attachment image" type="button" title="${window.aimashiMarkdown.escapeHtml(attachment.path || attachment.name || "")}" aria-label="预览图片">
+      <button class="message-attachment image" type="button" title="${window.miaMarkdown.escapeHtml(attachment.path || attachment.name || "")}" aria-label="预览图片">
         ${renderAttachmentThumb(attachment, "message-attachment-thumb")}
       </button>
     `;
   }
   return `
-    <${tag} class="message-attachment"${download} title="${window.aimashiMarkdown.escapeHtml(attachment.path || attachment.name || "")}">
+    <${tag} class="message-attachment"${download} title="${window.miaMarkdown.escapeHtml(attachment.path || attachment.name || "")}">
       ${renderAttachmentThumb(attachment, "message-attachment-thumb")}
-      <strong>${window.aimashiMarkdown.escapeHtml(attachment.name || "附件")}</strong>
-      <em>${window.aimashiMarkdown.escapeHtml(window.aimashiFormat.formatBytes(attachment.size))}</em>
+      <strong>${window.miaMarkdown.escapeHtml(attachment.name || "附件")}</strong>
+      <em>${window.miaMarkdown.escapeHtml(window.miaFormat.formatBytes(attachment.size))}</em>
     </${tag}>
   `;
 }
@@ -816,7 +816,7 @@ function openImagePreview(src, title = "") {
   overlay.className = "image-preview-overlay";
   overlay.innerHTML = `
     <button class="image-preview-close" type="button" aria-label="关闭">×</button>
-    <img src="${window.aimashiMarkdown.escapeHtml(imageSrc)}" alt="${window.aimashiMarkdown.escapeHtml(title || "图片预览")}">
+    <img src="${window.miaMarkdown.escapeHtml(imageSrc)}" alt="${window.miaMarkdown.escapeHtml(title || "图片预览")}">
   `;
   overlay.addEventListener("click", (event) => {
     if (event.target === overlay || event.target.closest(".image-preview-close")) closeImagePreview();
@@ -867,7 +867,7 @@ function hydrateAttachmentPreview(attachment = {}) {
   const filePath = String(attachment.path || "").trim();
   const cloudUrl = String(attachment.url || "").trim();
   if ((!filePath && !cloudUrl) || attachment.thumbnailDataUrl || attachment.thumbnail || attachment.previewDataUrl || attachment.dataUrl) return attachment;
-  const kind = String(attachment.kind || window.aimashiFormat.attachmentKind(attachment));
+  const kind = String(attachment.kind || window.miaFormat.attachmentKind(attachment));
   if (kind !== "image") return attachment;
   if (cloudUrl) {
     const entry = state.generatedFiles.get(cloudUrl);
@@ -890,7 +890,7 @@ function attachmentPreviewPaths(messages = []) {
       const cloudUrl = String(attachment.url || "").trim();
       if (!filePath && !cloudUrl) return false;
       if (attachment.thumbnailDataUrl || attachment.thumbnail || attachment.previewDataUrl || attachment.dataUrl) return false;
-      return String(attachment.kind || window.aimashiFormat.attachmentKind(attachment)) === "image";
+      return String(attachment.kind || window.miaFormat.attachmentKind(attachment)) === "image";
     })
     .map((attachment) => String(attachment.path || attachment.url).trim());
 }
@@ -903,7 +903,7 @@ function queueGeneratedFileFetches(messages = []) {
   for (const filePath of paths) {
     if (state.generatedFiles.has(filePath)) continue;
     state.generatedFiles.set(filePath, { status: "loading" });
-    window.aimashi.fetchFileAttachment?.(filePath.startsWith("/api/files/") ? { url: filePath } : { path: filePath })
+    window.mia.fetchFileAttachment?.(filePath.startsWith("/api/files/") ? { url: filePath } : { path: filePath })
       .then((attachment) => {
         if (attachment?.error) throw new Error(attachment.message || "File not found.");
         state.generatedFiles.set(filePath, { status: "ready", attachment });
@@ -996,7 +996,7 @@ function sessionForPersonaSession(personaKey, sessionId) {
 
 async function persistSession(session = activeSession()) {
   if (!hasPersistableMessages(session)) return;
-  state.chatStore = await window.aimashi.saveChatSession({
+  state.chatStore = await window.mia.saveChatSession({
     personaKey: session.personaKey || state.activeKey,
     session
   });
@@ -1014,7 +1014,7 @@ async function persistSessionQuietly(session = activeSession()) {
 
 async function replacePersistedSessionQuietly(session = activeSession()) {
   try {
-    state.chatStore = await window.aimashi.saveChatSession({
+    state.chatStore = await window.mia.saveChatSession({
       personaKey: session.personaKey || state.activeKey,
       session,
       replaceMessages: true
@@ -1028,7 +1028,7 @@ async function replacePersistedSessionQuietly(session = activeSession()) {
 
 async function loadChatSessions(options = {}) {
   const previousActive = { ...state.activeSessionIdByPersona };
-  state.chatStore = await window.aimashi.loadChatSessions();
+  state.chatStore = await window.mia.loadChatSessions();
   const personas = state.runtime?.fellows || state.runtime?.personas || [];
   for (const persona of personas) {
     const sessions = sessionsForPersona(persona.key);
@@ -1045,9 +1045,9 @@ const APPROVAL_LABELS = {
   ask: "Ask",
   yolo: "YOLO",
   deny: "Deny",
-  manual: "Ask",   // legacy alias from previous aimashi schema
+  manual: "Ask",   // legacy alias from previous mia schema
   smart: "Smart",
-  off: "YOLO"     // legacy alias from previous aimashi schema
+  off: "YOLO"     // legacy alias from previous mia schema
 };
 const APPROVAL_TITLES = {
   ask: "危险命令会暂停并等待你确认。",
@@ -1067,7 +1067,7 @@ async function trackStartupTask(label, task) {
     return await task();
   } finally {
     const ms = Math.round(performance.now() - start);
-    console.info(`[Aimashi startup] ${label}: ${ms}ms`);
+    console.info(`[Mia startup] ${label}: ${ms}ms`);
     state.startupTasks = state.startupTasks.filter((item) => item.id !== id);
     render();
   }
@@ -1079,10 +1079,10 @@ function selectedAuthMethod(runtime) {
 }
 
 function updateModelFieldVisibility(runtime = state.runtime) {
-  const providerEntry = window.aimashiModelHelpers.selectedProviderEntry();
-  const entry = window.aimashiModelHelpers.selectedModelEntry();
+  const providerEntry = window.miaModelHelpers.selectedProviderEntry();
+  const entry = window.miaModelHelpers.selectedModelEntry();
   const authType = String(entry?.authType || "api_key");
-  const isConnected = window.aimashiModelSettings.providerIsConnected(entry?.provider, runtime);
+  const isConnected = window.miaModelSettings.providerIsConnected(entry?.provider, runtime);
   const isCodex = entry ? entry.provider === "openai-codex" : false;
   const needsApiKey = Boolean(entry) && !isConnected && !isCodex && !authType.startsWith("oauth") && entry?.provider !== "lmstudio";
   const needsOauth = Boolean(entry) && !isConnected && (isCodex || authType.startsWith("oauth"));
@@ -1091,12 +1091,12 @@ function updateModelFieldVisibility(runtime = state.runtime) {
   els.codexInlineAuth.classList.toggle("hidden", !needsOauth);
   els.modelConnectButton?.classList.toggle("hidden", !(needsApiKey || canConnectWithoutKey));
   if (entry) {
-    window.aimashiModelSettings.applyModelEntryToFields(entry);
-    const copy = window.aimashiModelSettings.modelAuthCopy(entry, runtime);
+    window.miaModelSettings.applyModelEntryToFields(entry);
+    const copy = window.miaModelSettings.modelAuthCopy(entry, runtime);
     setText(els.modelAuthState, isConnected ? "已连接" : copy.state);
     els.modelAuthState?.classList.remove("hidden");
     setText(els.modelApiKeyLabel, entry.apiKeyEnv || "API Key");
-    els.modelApiKey.placeholder = "保存在 Aimashi 私有 runtime";
+    els.modelApiKey.placeholder = "保存在 Mia 私有 runtime";
     if (els.modelConnectButton) {
       els.modelConnectButton.textContent = `连接 ${providerEntry?.providerLabel || entry.providerLabel || entry.provider}`;
     }
@@ -1110,7 +1110,7 @@ function render() {
   const runtime = state.runtime;
   if (!runtime) return;
   renderSendButton();
-  window.aimashiMessageHelpers.renderComposerReply();
+  window.miaMessageHelpers.renderComposerReply();
   const editingModel = els.modelForm.contains(document.activeElement);
   const editingProfile = Boolean(els.profileForm?.contains(document.activeElement));
   const editingAppearance = Boolean(els.appearanceForm?.contains(document.activeElement));
@@ -1125,21 +1125,21 @@ function render() {
     listStyle: DEFAULT_LIST_STYLE,
     selectionStyle: DEFAULT_SELECTION_STYLE
   };
-  window.aimashiSettingsAppearance.applyAppearance(appearance);
+  window.miaSettingsAppearance.applyAppearance(appearance);
   if (!editingAppearance) {
     els.appearanceTheme.value = appearance.theme || "light";
     const savedFontPreset = appearance.fontPreset || "system";
     els.appearanceFontPreset.value = fontPresets[savedFontPreset] ? savedFontPreset : "system";
-    if (els.appearanceListStyle) els.appearanceListStyle.value = window.aimashiSettingsAppearance.normalizeListStyle(appearance.listStyle);
-    if (els.appearanceSelectionStyle) els.appearanceSelectionStyle.value = window.aimashiSettingsAppearance.normalizeSelectionStyle(appearance.selectionStyle);
-    window.aimashiSettingsAppearance.syncAppearanceControls(appearance);
+    if (els.appearanceListStyle) els.appearanceListStyle.value = window.miaSettingsAppearance.normalizeListStyle(appearance.listStyle);
+    if (els.appearanceSelectionStyle) els.appearanceSelectionStyle.value = window.miaSettingsAppearance.normalizeSelectionStyle(appearance.selectionStyle);
+    window.miaSettingsAppearance.syncAppearanceControls(appearance);
   }
   const user = runtime.user || { displayName: "Boss", avatarText: "B", avatarColor: "#111827", avatarImage: "" };
-  window.aimashiAvatar.applyUserAvatar(els.userAvatar, user);
+  window.miaAvatar.applyUserAvatar(els.userAvatar, user);
   setText(els.userDisplayName, user.displayName || "Boss");
   if (!editingProfile && els.profileForm) {
     els.profileDisplayName.value = user.displayName || "Boss";
-    window.aimashiFellowDialog.setProfileAvatarDraft(user.avatarImage || "", user.avatarCrop);
+    window.miaFellowDialog.setProfileAvatarDraft(user.avatarImage || "", user.avatarCrop);
   }
 
   els.engineStatus.textContent = runtime.engineRunning
@@ -1162,18 +1162,18 @@ function render() {
     runtime.engineLastError ? `ERROR: ${runtime.engineLastError}` : "",
     ...(runtime.engineLogs || [])
   ].filter(Boolean).join("\n");
-  window.aimashiSettingsRemote.renderMobilePairing(runtime.daemon || {});
-  window.aimashiSettingsRemote.renderRelayPairing(runtime.relay || {});
-  window.aimashiSettingsRemote.renderCloudAccount(runtime.cloud || {});
+  window.miaSettingsRemote.renderMobilePairing(runtime.daemon || {});
+  window.miaSettingsRemote.renderRelayPairing(runtime.relay || {});
+  window.miaSettingsRemote.renderCloudAccount(runtime.cloud || {});
   const auth = runtime.auth || {};
   const editingModelSelect = document.activeElement === els.modelSelect || document.activeElement === els.quickModelSelect || document.activeElement === els.effortSelect;
-  if (!editingModel && !editingModelSelect) window.aimashiModelSettings.renderModelSelectors(runtime);
-  window.aimashiModelSettings.renderConnectedProviders(runtime);
+  if (!editingModel && !editingModelSelect) window.miaModelSettings.renderModelSelectors(runtime);
+  window.miaModelSettings.renderConnectedProviders(runtime);
   updateModelFieldVisibility(runtime);
-  const selectedEntry = window.aimashiModelHelpers.selectedModelEntry();
+  const selectedEntry = window.miaModelHelpers.selectedModelEntry();
   const selectedProvider = selectedEntry?.provider || auth.oauthProvider || "openai-codex";
-  const selectedProviderLabel = window.aimashiModelHelpers.providerLabel(selectedProvider);
-  const selectedConnected = window.aimashiModelSettings.providerIsConnected(selectedProvider, runtime);
+  const selectedProviderLabel = window.miaModelHelpers.providerLabel(selectedProvider);
+  const selectedConnected = window.miaModelSettings.providerIsConnected(selectedProvider, runtime);
   els.codexStatus.textContent = auth.codexStarting
     ? `等待 ${auth.oauthProviderLabel || selectedProviderLabel} 授权`
     : selectedConnected
@@ -1197,18 +1197,18 @@ function render() {
   els.codexCancel.classList.toggle("hidden", !auth.codexStarting);
   if (!editingModel) updateModelFieldVisibility(runtime);
   if (els.quickModelSelect && document.activeElement !== els.quickModelSelect) {
-    const engine = window.aimashiEngineOptions.activeAgentEngine();
+    const engine = window.miaEngineOptions.activeAgentEngine();
     const currentModelId = engine === "claude-code" || engine === "codex"
-      ? (window.aimashiEngineOptions.engineConfigForPersona().model || "default")
-      : window.aimashiModelHelpers.presetKeyForModel(runtime.model);
+      ? (window.miaEngineOptions.engineConfigForPersona().model || "default")
+      : window.miaModelHelpers.presetKeyForModel(runtime.model);
     if ([...els.quickModelSelect.options].some((option) => option.value === currentModelId)) {
       els.quickModelSelect.value = currentModelId;
     }
-    window.aimashiModelSettings.syncQuickModelLabel();
+    window.miaModelSettings.syncQuickModelLabel();
   }
-  window.aimashiModelSettings.syncEffortControl(runtime);
-  const connectedEntries = window.aimashiModelSettings.connectedModelEntries(runtime);
-  const engine = window.aimashiEngineOptions.activeAgentEngine();
+  window.miaModelSettings.syncEffortControl(runtime);
+  const connectedEntries = window.miaModelSettings.connectedModelEntries(runtime);
+  const engine = window.miaEngineOptions.activeAgentEngine();
   const engineInfo = runtime.agentEngines || {};
   const externalAvailable = engine === "claude-code"
     ? engineInfo.claudeCode?.available
@@ -1224,26 +1224,26 @@ function render() {
     els.quickModelSelect.title = engine === "claude-code" || engine === "codex"
       ? `当前模型：${els.quickModelSelect.selectedOptions?.[0]?.textContent || "默认"}`
       : connectedEntries.length
-        ? `当前模型：${window.aimashiModelHelpers.modelDisplayName(runtime.model)}`
+        ? `当前模型：${window.miaModelHelpers.modelDisplayName(runtime.model)}`
         : "未配置模型";
   }
   const activeIcon = engine === "claude-code"
-    ? window.aimashiModelHelpers.modelIconSrc({ provider: "anthropic", model: "claude" })
+    ? window.miaModelHelpers.modelIconSrc({ provider: "anthropic", model: "claude" })
     : engine === "codex"
-      ? window.aimashiModelHelpers.modelIconSrc({ provider: "openai-codex", model: "codex" })
+      ? window.miaModelHelpers.modelIconSrc({ provider: "openai-codex", model: "codex" })
       : connectedEntries.length
-        ? window.aimashiModelHelpers.modelIconSrc(runtime.model || {})
+        ? window.miaModelHelpers.modelIconSrc(runtime.model || {})
         : "";
   const modelAvatar = document.querySelector(".model-avatar");
   if (modelAvatar) {
     modelAvatar.textContent = activeIcon ? "" : "◇";
     modelAvatar.style.backgroundImage = activeIcon ? `url("${activeIcon}")` : "";
   }
-  window.aimashiModelSettings.syncPermissionControl(runtime);
+  window.miaModelSettings.syncPermissionControl(runtime);
   syncCloudFellowRuntimeControls();
 
   const personas = runtime.fellows || runtime.personas || [];
-  const social = window.aimashiSocial;
+  const social = window.miaSocial;
   // cloud.enabled = token present (signed in). NOTE: there is no
   // cloud.loggedIn field — cloudStatus() exposes enabled/connected/
   // connecting only. An earlier version gated on loggedIn, which was
@@ -1262,13 +1262,13 @@ function render() {
   if (!personas.some((persona) => persona.key === state.activeContactKey) && personas.length) {
     state.activeContactKey = personas.find((persona) => persona.key === state.activeKey)?.key || personas[0].key;
   }
-  window.aimashiSessionReadState.initializeReadStateForPersonas(personas);
+  window.miaSessionReadState.initializeReadStateForPersonas(personas);
   // Passive render-time read mark: advance the read pointer but never clear an
   // explicit "标为未读" the user just set on the active fellow.
-  window.aimashiSessionReadState.markPersonaRead(state.activeKey, false, { clearManual: false });
+  window.miaSessionReadState.markPersonaRead(state.activeKey, false, { clearManual: false });
   // Muted fellows are excluded from the aggregate badge, mirroring muted cloud rooms.
-  const unreadTotal = window.aimashiSessionReadState.totalUnreadCount(personas.filter((p) => !p.muted));
-  els.personaCount.textContent = window.aimashiUnread.unreadBadgeText(unreadTotal);
+  const unreadTotal = window.miaSessionReadState.totalUnreadCount(personas.filter((p) => !p.muted));
+  els.personaCount.textContent = window.miaUnread.unreadBadgeText(unreadTotal);
   els.personaCount.classList.toggle("hidden", unreadTotal <= 0);
   const active = cloudSignedIn ? null : (personas.find((persona) => persona.key === state.activeKey) || personas[0]);
   const activeCloudRoom = activeCloudRoomId
@@ -1277,7 +1277,7 @@ function render() {
   const groupInfoBtn = document.getElementById("groupInfoButton");
   const composerBottom = document.querySelector(".composer-bottom");
   if (activeCloudRoom) {
-    paintActiveCloudRoomHeader(activeCloudRoom, { personas, social: window.aimashiSocial });
+    paintActiveCloudRoomHeader(activeCloudRoom, { personas, social: window.miaSocial });
     const activeCloudRoomType = roomTypeForComposer(activeCloudRoom, activeCloudRoom.id || activeCloudRoomId);
     const activeIsGroup = activeCloudRoomType === "group";
     const showPrivateAiControls = activeCloudRoomType === "fellow";
@@ -1299,8 +1299,8 @@ function render() {
       els.activeChatAvatar.innerHTML = "";
       els.activeChatAvatar.className = "profile-avatar";
     }
-    window.aimashiAvatar.applyFellowAvatar(els.activeChatAvatar, active);
-    setText(els.activeChatName, active.name || "Aimashi");
+    window.miaAvatar.applyFellowAvatar(els.activeChatAvatar, active);
+    setText(els.activeChatName, active.name || "Mia");
     renderHeaderStatus();
     if (groupInfoBtn) groupInfoBtn.classList.add("hidden");
     if (els.sessionMenuButton) els.sessionMenuButton.classList.remove("hidden");
@@ -1328,7 +1328,7 @@ function render() {
       updatedAt: conversationUpdatedAt(persona),
       persona
     }));
-  const messageRows = !cloudReady ? [] : window.aimashiFellowManager.sortMessageCardsForSidebar([
+  const messageRows = !cloudReady ? [] : window.miaFellowManager.sortMessageCardsForSidebar([
     ...localConversationRows,
     ...socialRows
   ]);
@@ -1338,8 +1338,8 @@ function render() {
     const spec = conversationCardSpecFromRow(row, personas);
     if (!spec) continue;
     const card = spec.kind === ConversationKind.CloudGroup
-      ? window.aimashiSidebarCards.createGroupCard(spec)
-      : window.aimashiSidebarCards.createPrivateCard(spec);
+      ? window.miaSidebarCards.createGroupCard(spec)
+      : window.miaSidebarCards.createPrivateCard(spec);
     els.personaList.appendChild(card);
   }
 
@@ -1351,7 +1351,7 @@ function render() {
   }
   renderView();
   renderSessionMenu();
-  if (!window.aimashiMessageMenu?.hasActiveMessageTextSelection()) renderChat();
+  if (!window.miaMessageMenu?.hasActiveMessageTextSelection()) renderChat();
 }
 
 function renderView() {
@@ -1375,21 +1375,21 @@ function renderView() {
   els.fellowCreateMenu?.classList.toggle("hidden", !state.fellowMenuOpen);
   els.contactCreateMenu?.classList.toggle("hidden", !state.contactMenuOpen);
   // Contacts unread = number of pending incoming friend requests.
-  const incomingCount = window.aimashiSocial?.moduleState?.incomingRequests?.length || 0;
+  const incomingCount = window.miaSocial?.moduleState?.incomingRequests?.length || 0;
   if (els.contactsUnreadBadge) {
     if (incomingCount > 0) {
       els.contactsUnreadBadge.classList.remove("hidden");
-      els.contactsUnreadBadge.textContent = window.aimashiUnread.unreadBadgeText(incomingCount);
+      els.contactsUnreadBadge.textContent = window.miaUnread.unreadBadgeText(incomingCount);
     } else {
       els.contactsUnreadBadge.classList.add("hidden");
     }
   }
   // Chat unread = total unread DM/group room messages.
-  const roomUnread = window.aimashiSocial?.getTotalRoomUnread?.() || 0;
+  const roomUnread = window.miaSocial?.getTotalRoomUnread?.() || 0;
   if (els.chatUnreadBadge) {
     if (roomUnread > 0) {
       els.chatUnreadBadge.classList.remove("hidden");
-      els.chatUnreadBadge.textContent = window.aimashiUnread.unreadBadgeText(roomUnread);
+      els.chatUnreadBadge.textContent = window.miaUnread.unreadBadgeText(roomUnread);
     } else {
       els.chatUnreadBadge.classList.add("hidden");
     }
@@ -1397,10 +1397,10 @@ function renderView() {
   els.fellowDialog?.classList.toggle("hidden", !state.fellowDialogOpen);
   els.petGenerateDialog?.classList.toggle("hidden", !state.petGenerateOpen);
   els.avatarCropDialog?.classList.toggle("hidden", !state.avatarCropEditor.open);
-  window.aimashiSkillLibrary.renderSkillPreview();
-  window.aimashiFellowManager.renderFellowContextMenu();
-  window.aimashiPetDialog?.renderPetGenerateDialog();
-  window.aimashiPetDialog?.renderPetJobs();
+  window.miaSkillLibrary.renderSkillPreview();
+  window.miaFellowManager.renderFellowContextMenu();
+  window.miaPetDialog?.renderPetGenerateDialog();
+  window.miaPetDialog?.renderPetJobs();
   document.querySelectorAll("[data-view]").forEach((button) => {
     button.classList.toggle("active", button.dataset.view === state.activeView);
   });
@@ -1410,10 +1410,10 @@ function renderView() {
   document.querySelectorAll("[data-settings-panel]").forEach((panel) => {
     panel.classList.toggle("hidden", panel.dataset.settingsPanel !== state.activeSettingsTab);
   });
-  window.aimashiSkillLibrary.renderSkillLibrary();
-  window.aimashiFellowManager.renderContacts();
-  window.aimashiTasksPanel?.renderTaskSidebar();
-  window.aimashiTasksPanel?.renderTaskView();
+  window.miaSkillLibrary.renderSkillLibrary();
+  window.miaFellowManager.renderContacts();
+  window.miaTasksPanel?.renderTaskSidebar();
+  window.miaTasksPanel?.renderTaskView();
 }
 
 
@@ -1430,8 +1430,8 @@ function formatRunTime(ms) {
 
 async function openEditFellowDialog(fellowKey) {
   try {
-    const details = await window.aimashi.loadFellowDetails(fellowKey);
-    window.aimashiFellowDialog.openFellowDialog(details.fellow, details.personaText || "");
+    const details = await window.mia.loadFellowDetails(fellowKey);
+    window.miaFellowDialog.openFellowDialog(details.fellow, details.personaText || "");
   } catch (error) {
     appendTransientChat("assistant", `编辑 Fellow 失败: ${error.message}`);
   }
@@ -1439,7 +1439,7 @@ async function openEditFellowDialog(fellowKey) {
 
 async function setFellowPinned(fellowKey, pinned) {
   try {
-    state.runtime = await window.aimashi.setFellowPinned({ key: fellowKey, pinned });
+    state.runtime = await window.mia.setFellowPinned({ key: fellowKey, pinned });
     render();
   } catch (error) {
     appendTransientChat("assistant", `置顶失败: ${error.message}`);
@@ -1449,7 +1449,7 @@ async function setFellowPinned(fellowKey, pinned) {
 
 async function setFellowMuted(fellowKey, muted) {
   try {
-    state.runtime = await window.aimashi.setFellowMuted({ key: fellowKey, muted });
+    state.runtime = await window.mia.setFellowMuted({ key: fellowKey, muted });
     render();
   } catch (error) {
     appendTransientChat("assistant", `免打扰设置失败: ${error.message}`);
@@ -1458,15 +1458,15 @@ async function setFellowMuted(fellowKey, muted) {
 }
 
 async function deleteFellow(fellowKey) {
-  const fellow = window.aimashiFellowManager.fellowByKey(fellowKey);
-  if (!fellow || fellow.key === "aimashi") return;
+  const fellow = window.miaFellowManager.fellowByKey(fellowKey);
+  if (!fellow || fellow.key === "mia") return;
   const ok = window.confirm(`删除「${fellow.name || fellow.key}」？\n\n这会移除该伙伴、人设文件和本地会话记录。`);
   if (!ok) return;
   try {
-    state.runtime = await window.aimashi.deleteFellow({ key: fellow.key });
+    state.runtime = await window.mia.deleteFellow({ key: fellow.key });
     await loadChatSessions();
     const fellows = state.runtime?.fellows || state.runtime?.personas || [];
-    const next = fellows[0]?.key || "aimashi";
+    const next = fellows[0]?.key || "mia";
     if (!fellows.some((item) => item.key === state.activeKey)) state.activeKey = next;
     if (!fellows.some((item) => item.key === state.activeContactKey)) state.activeContactKey = state.activeKey;
     render();
@@ -1478,11 +1478,11 @@ async function deleteFellow(fellowKey) {
 
 async function deleteSkill(skillId) {
   const skill = state.skillLibrary.skills.find((item) => item.id === skillId);
-  if (!skill || skill.source !== "aimashi") return;
-  const label = window.aimashiSkillHelpers.skillDisplayName(skill);
-  if (!window.confirm(`删除本地 Skill「${label}」？\n\n会移除 Aimashi Runtime skills 目录下对应文件夹。`)) return;
+  if (!skill || skill.source !== "mia") return;
+  const label = window.miaSkillHelpers.skillDisplayName(skill);
+  if (!window.confirm(`删除本地 Skill「${label}」？\n\n会移除 Mia Runtime skills 目录下对应文件夹。`)) return;
   try {
-    const library = await window.aimashi.deleteSkill(skillId);
+    const library = await window.mia.deleteSkill(skillId);
     const sources = Array.isArray(library?.sources)
       ? library.sources
       : (Array.isArray(library?.plugins) ? library.plugins : []);
@@ -1503,13 +1503,13 @@ async function deleteSkill(skillId) {
     console.error("Failed to delete skill", error);
     window.alert(error.message || "删除 Skill 失败");
   }
-  window.aimashiSkillLibrary.renderSkillLibrary();
-  window.aimashiSkillLibrary.renderSkillPreview();
+  window.miaSkillLibrary.renderSkillLibrary();
+  window.miaSkillLibrary.renderSkillPreview();
 }
 
 async function openSkillDirectory(skillId) {
   try {
-    await window.aimashi.openSkillDirectory(skillId);
+    await window.mia.openSkillDirectory(skillId);
   } catch (error) {
     console.error("Failed to open skill directory", error);
     window.alert(error.message || "打开 Skill 目录失败");
@@ -1572,10 +1572,10 @@ function renderSessionMenu() {
     row.className = `session-row${session.id === activeId ? " active" : ""}`;
     row.innerHTML = `
       <span>
-        <strong>${window.aimashiMarkdown.escapeHtml(session.title || "新对话")}</strong>
-        <small>${window.aimashiMarkdown.escapeHtml(new Date(session.updatedAt || session.createdAt || Date.now()).toLocaleString())}</small>
+        <strong>${window.miaMarkdown.escapeHtml(session.title || "新对话")}</strong>
+        <small>${window.miaMarkdown.escapeHtml(new Date(session.updatedAt || session.createdAt || Date.now()).toLocaleString())}</small>
       </span>
-      <em title="重命名" data-session-edit="${window.aimashiMarkdown.escapeHtml(session.id)}">${window.aimashiMarkdown.iconParkIcon("edit", "session-row-edit-icon")}</em>
+      <em title="重命名" data-session-edit="${window.miaMarkdown.escapeHtml(session.id)}">${window.miaMarkdown.iconParkIcon("edit", "session-row-edit-icon")}</em>
     `;
     row.addEventListener("click", async (event) => {
       const editTarget = event.target.closest("[data-session-edit]");
@@ -1583,7 +1583,7 @@ function renderSessionMenu() {
         event.stopPropagation();
         const title = window.prompt("重命名这个会话", session.title || "新对话");
         if (!title || !title.trim()) return;
-        state.chatStore = await window.aimashi.renameChatSession({
+        state.chatStore = await window.mia.renameChatSession({
           personaKey: state.activeKey,
           sessionId: session.id,
           title
@@ -1613,7 +1613,7 @@ async function maybeGenerateTitleForSession(session) {
   if (!session || session.titleGenerated || !hasSuccessfulExchange(session) || state.generatingTitleIds.has(session.id)) return;
   state.generatingTitleIds.add(session.id);
   try {
-    const result = await window.aimashi.generateSessionTitle({
+    const result = await window.mia.generateSessionTitle({
       personaKey: session.personaKey || state.activeKey,
       sessionId: `title:${session.id}`,
       messages: (session.messages || []).filter((message) => !message.transient).slice(0, 4)
@@ -1645,25 +1645,25 @@ function renderMessageHtml(message, ctx) {
   const taskAffordanceHtml = taskMeta
     ? `<div class="task-fire-affordance">
          <span class="task-fire-icon">📅</span>
-         来自定时任务「${window.aimashiMarkdown.escapeHtml(taskMeta.title)}」 ·
-         ${window.aimashiMarkdown.escapeHtml(formatRunTime(typeof firedAt === "string" ? new Date(firedAt).getTime() : firedAt))} ·
-         <button class="link" type="button" data-jump-task="${window.aimashiMarkdown.escapeHtml(taskMeta.id)}">打开任务</button>
+         来自定时任务「${window.miaMarkdown.escapeHtml(taskMeta.title)}」 ·
+         ${window.miaMarkdown.escapeHtml(formatRunTime(typeof firedAt === "string" ? new Date(firedAt).getTime() : firedAt))} ·
+         <button class="link" type="button" data-jump-task="${window.miaMarkdown.escapeHtml(taskMeta.id)}">打开任务</button>
        </div>`
     : "";
-  const label = message.role === "user" ? (user.avatarText || window.aimashiAvatar.initials(user.displayName)) : window.aimashiAvatar.initials(persona?.name || "A");
+  const label = message.role === "user" ? (user.avatarText || window.miaAvatar.initials(user.displayName)) : window.miaAvatar.initials(persona?.name || "A");
   const color = message.role === "user" ? user.avatarColor : (persona?.color || "#23444d");
-  const fellowAvatarImage = persona?.avatarImage || window.aimashiAvatar.avatarAssetForKey(persona?.key);
-  const fellowAvatar = window.aimashiAvatar.avatarImageSrc(fellowAvatarImage);
+  const fellowAvatarImage = persona?.avatarImage || window.miaAvatar.avatarAssetForKey(persona?.key);
+  const fellowAvatar = window.miaAvatar.avatarImageSrc(fellowAvatarImage);
   const userAvatarImage = user.avatarImage || "";
-  const userAvatar = window.aimashiAvatar.avatarImageSrc(userAvatarImage);
+  const userAvatar = window.miaAvatar.avatarImageSrc(userAvatarImage);
   const avatarBackgroundColor = message.role === "assistant"
     ? (fellowAvatar ? "transparent" : (color || "#111827"))
     : (userAvatar ? "transparent" : (color || "#111827"));
   const imageStyle = message.role === "assistant"
-    ? window.aimashiAvatar.avatarThumbBackgroundStyle(fellowAvatarImage, persona?.avatarCrop, color)
-    : (userAvatar ? window.aimashiAvatar.avatarThumbBackgroundStyle(userAvatarImage, user.avatarCrop, color) : "");
+    ? window.miaAvatar.avatarThumbBackgroundStyle(fellowAvatarImage, persona?.avatarCrop, color)
+    : (userAvatar ? window.miaAvatar.avatarThumbBackgroundStyle(userAvatarImage, user.avatarCrop, color) : "");
   const traceHtml = message.role === "assistant"
-    ? window.aimashiTraceBlocks.renderTraceBlocks({
+    ? window.miaTraceBlocks.renderTraceBlocks({
       reasoning: message.reasoning,
       tools: message.tools,
       content: message.content,
@@ -1672,10 +1672,10 @@ function renderMessageHtml(message, ctx) {
     })
     : "";
   const timeHtml = renderMessageTime(message.createdAt);
-  const bodyHtml = String(message.content || "").trim() ? window.aimashiMarkdown.renderMarkdown(message.content) : "";
+  const bodyHtml = String(message.content || "").trim() ? window.miaMarkdown.renderMarkdown(message.content) : "";
   const commandResultHtml = message.role === "assistant" ? renderCommandResultHtml(message.commandResult) : "";
-  const replyHtml = window.aimashiMessageHelpers.replyQuoteHtml(message.replyTo);
-  const translation = window.aimashiMessageMenu?.translationHtml(message, messageIndex) || "";
+  const replyHtml = window.miaMessageHelpers.replyQuoteHtml(message.replyTo);
+  const translation = window.miaMessageMenu?.translationHtml(message, messageIndex) || "";
   const attachmentHtml = renderAttachmentChips([...(message.attachments || []), ...generatedAttachmentsForMessage(message)].map(hydrateAttachmentPreview));
   const pinnedHtml = message.pinned ? `<span class="message-pin-badge">${ICON_PARK_PIN_SVG}置顶</span>` : "";
   const roleClass = message.role === "user" ? "user" : "assistant";
@@ -1689,7 +1689,7 @@ function renderMessageHtml(message, ctx) {
     : (state.runtime?.cloud?.user?.id || "");
   const avatarTitle = message.role === "assistant" ? (persona?.name || "") : (user.displayName || "");
   return `<article class="message ${roleClass}">
-      <div class="avatar message-avatar" data-sender-kind="${senderKind}" data-sender-ref="${window.aimashiMarkdown.escapeHtml(senderRef)}" title="${window.aimashiMarkdown.escapeHtml(avatarTitle)}" style="background-color:${window.aimashiMarkdown.escapeHtml(avatarBackgroundColor)};${imageStyle}">${message.role === "user" && !userAvatar ? window.aimashiMarkdown.escapeHtml(label) : ""}</div>
+      <div class="avatar message-avatar" data-sender-kind="${senderKind}" data-sender-ref="${window.miaMarkdown.escapeHtml(senderRef)}" title="${window.miaMarkdown.escapeHtml(avatarTitle)}" style="background-color:${window.miaMarkdown.escapeHtml(avatarBackgroundColor)};${imageStyle}">${message.role === "user" && !userAvatar ? window.miaMarkdown.escapeHtml(label) : ""}</div>
       <div class="message-stack">${taskAffordanceHtml}${traceHtml}<div class="bubble${message.pinned ? " pinned" : ""}" data-message-index="${messageIndex}">${pinnedHtml}${replyHtml}${bodyHtml}${commandResultHtml}${attachmentHtml}${translation}</div>${timeHtml}</div>
     </article>`;
 }
@@ -1710,12 +1710,12 @@ function renderCommandResultHtml(commandResult) {
     const updatedAt = Number(row.updatedAt) || 0;
     const time = updatedAt ? formatConversationTime(new Date(updatedAt).toISOString()) : "";
     return `
-      <button class="command-session-row" type="button" data-command-resume-engine="${window.aimashiMarkdown.escapeHtml(engine)}" data-command-resume-id="${window.aimashiMarkdown.escapeHtml(row.id || "")}" data-command-source-device-id="${window.aimashiMarkdown.escapeHtml(sourceDeviceId)}"${isForeignDeviceList ? " disabled title=\"这条列表来自另一台设备，请在当前设备重新发送 /resume\"" : ""}>
+      <button class="command-session-row" type="button" data-command-resume-engine="${window.miaMarkdown.escapeHtml(engine)}" data-command-resume-id="${window.miaMarkdown.escapeHtml(row.id || "")}" data-command-source-device-id="${window.miaMarkdown.escapeHtml(sourceDeviceId)}"${isForeignDeviceList ? " disabled title=\"这条列表来自另一台设备，请在当前设备重新发送 /resume\"" : ""}>
         <span class="command-session-main">
-          <strong>${window.aimashiMarkdown.escapeHtml(title)}</strong>
-          <small>${window.aimashiMarkdown.escapeHtml(previewText)}</small>
+          <strong>${window.miaMarkdown.escapeHtml(title)}</strong>
+          <small>${window.miaMarkdown.escapeHtml(previewText)}</small>
         </span>
-        <span class="command-session-side">${window.aimashiMarkdown.escapeHtml(time)}</span>
+        <span class="command-session-side">${window.miaMarkdown.escapeHtml(time)}</span>
       </button>
     `;
   }).join("");
@@ -1725,10 +1725,10 @@ function renderCommandResultHtml(commandResult) {
 function renderChat() {
   // Branch: a cloud room (DM / group / fellow) is active → social paints
   // the message list. Header is painted by render() above.
-  const activeRoomId = window.aimashiSocial?.getActiveRoomId?.();
+  const activeRoomId = window.miaSocial?.getActiveRoomId?.();
   if (activeRoomId) {
-    if (window.aimashiSocial && typeof window.aimashiSocial.renderRoomChat === "function") {
-      window.aimashiSocial.renderRoomChat(els.chat);
+    if (window.miaSocial && typeof window.miaSocial.renderRoomChat === "function") {
+      window.miaSocial.renderRoomChat(els.chat);
     }
     return;
   }
@@ -1745,8 +1745,8 @@ function renderChat() {
   const activeAgentEngine = active?.agentEngine || active?.agent_engine || "hermes";
   const usesHermes = !["claude-code", "codex"].includes(activeAgentEngine);
   els.chat.innerHTML = "";
-  if (window.aimashiSetupGuide?.shouldShowSetupGuide({ messages })) {
-    els.chat.insertAdjacentHTML("beforeend", window.aimashiSetupGuide.renderSetupGuide());
+  if (window.miaSetupGuide?.shouldShowSetupGuide({ messages })) {
+    els.chat.insertAdjacentHTML("beforeend", window.miaSetupGuide.renderSetupGuide());
   }
   for (const [messageIndex, message] of messages.entries()) {
     const html = renderMessageHtml(message, {
@@ -1761,26 +1761,26 @@ function renderChat() {
   const hasStreamingContent = s && (
     s.text ||
     s.tools.length ||
-    window.aimashiTraceBlocks.traceReasoningForDisplay(s.reasoning, s.tools, s.text)
+    window.miaTraceBlocks.traceReasoningForDisplay(s.reasoning, s.tools, s.text)
   );
   if (s && s.sessionId === session.id && hasStreamingContent) {
     const article = document.createElement("article");
     article.className = "message assistant streaming";
     const personaForStream = active;
-    const fellowAvatarImage = personaForStream?.avatarImage || window.aimashiAvatar.avatarAssetForKey(personaForStream?.key);
-    const fellowAvatar = window.aimashiAvatar.avatarImageSrc(fellowAvatarImage);
+    const fellowAvatarImage = personaForStream?.avatarImage || window.miaAvatar.avatarAssetForKey(personaForStream?.key);
+    const fellowAvatar = window.miaAvatar.avatarImageSrc(fellowAvatarImage);
     const avatarBackgroundColor = fellowAvatar ? "transparent" : (personaForStream?.color || "#23444d");
-    const imageStyle = window.aimashiAvatar.avatarThumbBackgroundStyle(fellowAvatarImage, personaForStream?.avatarCrop, personaForStream?.color);
-    const traceHtml = window.aimashiTraceBlocks.renderTraceBlocks({
+    const imageStyle = window.miaAvatar.avatarThumbBackgroundStyle(fellowAvatarImage, personaForStream?.avatarCrop, personaForStream?.color);
+    const traceHtml = window.miaTraceBlocks.renderTraceBlocks({
       reasoning: s.reasoning,
       tools: s.tools,
       content: s.text,
       expanded: true,
       scopeKey: `run:${s.runId || ""}`
     });
-    const textHtml = s.text ? `<div class="bubble">${window.aimashiMarkdown.renderMarkdown(s.text)}</div>${renderMessageTime(s.createdAt)}` : "";
+    const textHtml = s.text ? `<div class="bubble">${window.miaMarkdown.renderMarkdown(s.text)}</div>${renderMessageTime(s.createdAt)}` : "";
     article.innerHTML = `
-      <div class="avatar" style="background-color:${window.aimashiMarkdown.escapeHtml(avatarBackgroundColor)};${imageStyle}"></div>
+      <div class="avatar" style="background-color:${window.miaMarkdown.escapeHtml(avatarBackgroundColor)};${imageStyle}"></div>
       <div class="message-stack">${traceHtml}${textHtml}</div>
     `;
     els.chat.appendChild(article);
@@ -1815,7 +1815,7 @@ function runtimeKindForCloudFellowRoom(room) {
 }
 
 function activeCloudFellowContext() {
-  const social = window.aimashiSocial;
+  const social = window.miaSocial;
   const roomId = social?.getActiveRoomId?.();
   if (!roomId) return null;
   const room = social?.getRoomById?.(roomId) || { id: roomId };
@@ -1869,7 +1869,7 @@ async function ensureCloudFellowRuntime(fellowKey, runtimeKind = "cloud-hermes")
   if (!fellowKey || runtimeKind !== "cloud-hermes") return null;
   const key = cloudFellowRuntimeCacheKey(fellowKey, runtimeKind);
   if (cloudFellowRuntimeCache.has(key)) return cloudFellowRuntimeCache.get(key);
-  const response = await window.aimashi.social.getFellowRuntime(fellowKey, runtimeKind);
+  const response = await window.mia.social.getFellowRuntime(fellowKey, runtimeKind);
   if (!response?.ok) throw new Error(response?.error || "读取云端运行配置失败");
   const binding = response.data?.binding || null;
   cloudFellowRuntimeCache.set(key, binding);
@@ -1885,7 +1885,7 @@ function syncCloudFellowRuntimeControls() {
   setText(els.quickModelLabel, modelLabel || "Hermes Agent");
   const effortLabel = setComposerSelectOptions(
     els.effortSelect,
-    window.aimashiEngineOptions.effortOptions("hermes"),
+    window.miaEngineOptions.effortOptions("hermes"),
     config.effortLevel || "medium"
   );
   setText(els.effortLabel, effortLabel || "Medium");
@@ -1927,7 +1927,7 @@ async function saveActiveCloudFellowRuntimeConfig(patch, pendingText, successTex
       enabled: true,
       config: {}
     };
-    const response = await window.aimashi.social.saveFellowRuntime(context.fellowKey, {
+    const response = await window.mia.social.saveFellowRuntime(context.fellowKey, {
       runtimeKind: context.runtimeKind,
       enabled: current.enabled !== false,
       config: { ...(current.config || {}), ...patch }
@@ -1945,7 +1945,7 @@ async function saveActiveCloudFellowRuntimeConfig(patch, pendingText, successTex
 }
 
 function activeCloudFellowKey() {
-  const social = window.aimashiSocial;
+  const social = window.miaSocial;
   const roomId = social?.getActiveRoomId?.();
   if (!roomId) return "";
   const room = social?.getRoomById?.(roomId) || { id: roomId };
@@ -1992,7 +1992,7 @@ function appendChat(role, content, options = {}) {
       path: String(attachment.path || ""),
       mime: String(attachment.mime || attachment.type || ""),
       size: Number(attachment.size) || 0,
-      kind: String(attachment.kind || window.aimashiFormat.attachmentKind(attachment)),
+      kind: String(attachment.kind || window.miaFormat.attachmentKind(attachment)),
       thumbnailDataUrl: String(attachment.thumbnailDataUrl || attachment.thumbnail || attachment.previewDataUrl || ""),
       dataUrl: String(attachment.dataUrl || "")
     }));
@@ -2021,21 +2021,21 @@ function appendChat(role, content, options = {}) {
       error: Boolean(tool.error)
     }));
   }
-  const reasoning = window.aimashiTraceBlocks.traceReasoningForDisplay(options.reasoning, message.tools, content);
+  const reasoning = window.miaTraceBlocks.traceReasoningForDisplay(options.reasoning, message.tools, content);
   if (reasoning) message.reasoning = reasoning;
   session.messages.push(message);
   session.updatedAt = nowIso();
   const shouldMarkRead = role === "assistant" && !message.transient;
-  if (shouldMarkRead) window.aimashiSessionReadState.markPersonaRead(session.personaKey || state.activeKey, false, { clearManual: false });
+  if (shouldMarkRead) window.miaSessionReadState.markPersonaRead(session.personaKey || state.activeKey, false, { clearManual: false });
   state.forceScrollToBottom = true;
   renderChat();
   renderSessionMenu();
   if (options.persist) {
     persistSessionQuietly(session).then(() => {
-      if (shouldMarkRead) window.aimashiSessionReadState.persistReadStateQuietly();
+      if (shouldMarkRead) window.miaSessionReadState.persistReadStateQuietly();
     });
   } else if (shouldMarkRead) {
-    window.aimashiSessionReadState.persistReadStateQuietly();
+    window.miaSessionReadState.persistReadStateQuietly();
   }
   return message;
 }
@@ -2052,7 +2052,7 @@ function appendTransientChat(role, content) {
 
 async function createNewSessionForActive() {
   pruneEmptyDrafts(state.activeKey);
-  state.chatStore = await window.aimashi.createChatSession({ personaKey: state.activeKey });
+  state.chatStore = await window.mia.createChatSession({ personaKey: state.activeKey });
   const latest = sessionsForPersona(state.activeKey)[0];
   state.activeSessionIdByPersona[state.activeKey] = latest?.id;
   state.sessionMenuOpen = false;
@@ -2063,7 +2063,7 @@ async function createNewSessionForActive() {
 
 async function refreshRuntime() {
   const previousDaemon = state.runtime?.daemon || {};
-  const runtime = await window.aimashi.runtimeStatus();
+  const runtime = await window.mia.runtimeStatus();
   if (runtime?.daemon && Array.isArray(previousDaemon.links) && previousDaemon.links.length && !Array.isArray(runtime.daemon.links)) {
     runtime.daemon = {
       ...runtime.daemon,
@@ -2076,51 +2076,51 @@ async function refreshRuntime() {
 }
 
 async function initializeRuntime() {
-  const runtime = await trackStartupTask("初始化 runtime", () => window.aimashi.initializeRuntime());
+  const runtime = await trackStartupTask("初始化 runtime", () => window.mia.initializeRuntime());
   state.firstRun = Array.isArray(runtime?.created) && runtime.created.length > 0;
   state.runtime = runtime;
   // Initialize extracted renderer modules BEFORE any subsequent trackStartupTask
   // call, because trackStartupTask itself triggers render() at start and finish;
   // once state.runtime is set, render() no longer early-returns and will call
-  // into window.aimashi*.{applyAppearance,renderXxx} — which need fontPresets /
+  // into window.mia*.{applyAppearance,renderXxx} — which need fontPresets /
   // state / els / etc. to already be injected.
   // NOTE: group init is intentionally LAST. Its initGroupModule(...) calls
   // deps.triggerRender() during init, which calls render(), which calls
-  // applyAppearance() — that lives in window.aimashiSettingsAppearance and
+  // applyAppearance() — that lives in window.miaSettingsAppearance and
   // needs fontPresets / state / els injected first. If group init runs before
   // settings-appearance init, fontPresets is undefined and render() throws
   // "Cannot read properties of undefined (reading 'pingfang')".
-  if (window.aimashiSessionReadState && window.aimashiSessionReadState.initSessionReadState) {
-    window.aimashiSessionReadState.initSessionReadState({
+  if (window.miaSessionReadState && window.miaSessionReadState.initSessionReadState) {
+    window.miaSessionReadState.initSessionReadState({
       state,
-      aimashi: window.aimashi,
+      mia: window.mia,
       nowIso,
     });
   }
-  if (window.aimashiSettingsRemote && window.aimashiSettingsRemote.initSettingsRemote) {
-    window.aimashiSettingsRemote.initSettingsRemote({
+  if (window.miaSettingsRemote && window.miaSettingsRemote.initSettingsRemote) {
+    window.miaSettingsRemote.initSettingsRemote({
       state,
       els,
       setText,
       renderQr,
     });
   }
-  if (window.aimashiSkillHelpers && window.aimashiSkillHelpers.initSkillHelpers) {
-    window.aimashiSkillHelpers.initSkillHelpers({ escapeHtml: window.aimashiMarkdown.escapeHtml });
+  if (window.miaSkillHelpers && window.miaSkillHelpers.initSkillHelpers) {
+    window.miaSkillHelpers.initSkillHelpers({ escapeHtml: window.miaMarkdown.escapeHtml });
   }
-  if (window.aimashiAvatar && window.aimashiAvatar.initAvatarHelpers) {
-    window.aimashiAvatar.initAvatarHelpers({ escapeHtml: window.aimashiMarkdown.escapeHtml });
+  if (window.miaAvatar && window.miaAvatar.initAvatarHelpers) {
+    window.miaAvatar.initAvatarHelpers({ escapeHtml: window.miaMarkdown.escapeHtml });
   }
-  if (window.aimashiModelHelpers && window.aimashiModelHelpers.initModelHelpers) {
-    window.aimashiModelHelpers.initModelHelpers({
+  if (window.miaModelHelpers && window.miaModelHelpers.initModelHelpers) {
+    window.miaModelHelpers.initModelHelpers({
       state,
       els,
       providerLabels,
       providerPresets,
     });
   }
-  if (window.aimashiEngineOptions && window.aimashiEngineOptions.initEngineOptions) {
-    window.aimashiEngineOptions.initEngineOptions({
+  if (window.miaEngineOptions && window.miaEngineOptions.initEngineOptions) {
+    window.miaEngineOptions.initEngineOptions({
       state,
       els,
       activePersona,
@@ -2129,28 +2129,28 @@ async function initializeRuntime() {
       EFFORT_LABELS,
     });
   }
-  if (window.aimashiSetupGuide && window.aimashiSetupGuide.initSetupGuide) {
-    window.aimashiSetupGuide.initSetupGuide({ state, escapeHtml: window.aimashiMarkdown.escapeHtml });
+  if (window.miaSetupGuide && window.miaSetupGuide.initSetupGuide) {
+    window.miaSetupGuide.initSetupGuide({ state, escapeHtml: window.miaMarkdown.escapeHtml });
   }
-  if (window.aimashiModelSettings && window.aimashiModelSettings.initModelSettings) {
-    window.aimashiModelSettings.initModelSettings({
+  if (window.miaModelSettings && window.miaModelSettings.initModelSettings) {
+    window.miaModelSettings.initModelSettings({
       state,
       els,
-      escapeHtml: window.aimashiMarkdown.escapeHtml,
+      escapeHtml: window.miaMarkdown.escapeHtml,
       setText,
       updateModelFieldVisibility,
       providerPresets,
       providerLabels,
     });
   }
-  if (window.aimashiFellowDialog && window.aimashiFellowDialog.initFellowDialog) {
-    window.aimashiFellowDialog.initFellowDialog({ state, els, renderView, render });
+  if (window.miaFellowDialog && window.miaFellowDialog.initFellowDialog) {
+    window.miaFellowDialog.initFellowDialog({ state, els, renderView, render });
   }
-  if (window.aimashiTraceBlocks && window.aimashiTraceBlocks.initTraceBlocks) {
-    window.aimashiTraceBlocks.initTraceBlocks({ state });
+  if (window.miaTraceBlocks && window.miaTraceBlocks.initTraceBlocks) {
+    window.miaTraceBlocks.initTraceBlocks({ state });
   }
-  if (window.aimashiMessageHelpers && window.aimashiMessageHelpers.initMessageHelpers) {
-    window.aimashiMessageHelpers.initMessageHelpers({
+  if (window.miaMessageHelpers && window.miaMessageHelpers.initMessageHelpers) {
+    window.miaMessageHelpers.initMessageHelpers({
       state,
       els,
       activePersona,
@@ -2158,33 +2158,33 @@ async function initializeRuntime() {
       renderSendButton,
     });
   }
-  if (window.aimashiLoaders && window.aimashiLoaders.initLoaders) {
-    window.aimashiLoaders.initLoaders({ state, render, fallbackSlashCommands });
+  if (window.miaLoaders && window.miaLoaders.initLoaders) {
+    window.miaLoaders.initLoaders({ state, render, fallbackSlashCommands });
   }
-  if (window.aimashiComposer && window.aimashiComposer.initComposer) {
-    window.aimashiComposer.initComposer({
+  if (window.miaComposer && window.miaComposer.initComposer) {
+    window.miaComposer.initComposer({
       state,
       els,
-      aimashi: window.aimashi,
+      mia: window.mia,
       fallbackSlashCommands,
-      loadSkills: () => window.aimashiLoaders.loadSkills(),
+      loadSkills: () => window.miaLoaders.loadSkills(),
       renderAttachmentThumb,
       renderSendButton,
-      resizeChatInput: () => window.aimashiMessageHelpers.resizeChatInput(),
+      resizeChatInput: () => window.miaMessageHelpers.resizeChatInput(),
       appendTransientChat,
       cryptoRandomId,
       activeSession,
     });
   }
-  if (window.aimashiFellowManager && window.aimashiFellowManager.initFellowManager) {
-    window.aimashiFellowManager.initFellowManager({
+  if (window.miaFellowManager && window.miaFellowManager.initFellowManager) {
+    window.miaFellowManager.initFellowManager({
       state,
       els,
       setText,
       formatConversationTime,
       hasPersistableMessages,
       sessionsForPersona,
-      loadSkills: () => window.aimashiLoaders.loadSkills(),
+      loadSkills: () => window.miaLoaders.loadSkills(),
       showNarrowContent,
       render,
       openEditFellowDialog,
@@ -2192,26 +2192,26 @@ async function initializeRuntime() {
       setFellowPinned,
     });
   }
-  if (window.aimashiSkillLibrary && window.aimashiSkillLibrary.initSkillLibrary) {
-    window.aimashiSkillLibrary.initSkillLibrary({
+  if (window.miaSkillLibrary && window.miaSkillLibrary.initSkillLibrary) {
+    window.miaSkillLibrary.initSkillLibrary({
       state,
       els,
-      aimashi: window.aimashi,
-      escapeHtml: window.aimashiMarkdown.escapeHtml,
+      mia: window.mia,
+      escapeHtml: window.miaMarkdown.escapeHtml,
       setText,
-      menuItemHtml: window.aimashiMarkdown.menuItemHtml,
+      menuItemHtml: window.miaMarkdown.menuItemHtml,
       syncTopbarClickCapture,
       showNarrowContent,
       deleteSkill,
       openSkillDirectory,
     });
   }
-  if (window.aimashiTasksPanel && window.aimashiTasksPanel.initTasksPanel) {
-    window.aimashiTasksPanel.initTasksPanel({
+  if (window.miaTasksPanel && window.miaTasksPanel.initTasksPanel) {
+    window.miaTasksPanel.initTasksPanel({
       state,
       els,
-      aimashi: window.aimashi,
-      escapeHtml: window.aimashiMarkdown.escapeHtml,
+      mia: window.mia,
+      escapeHtml: window.miaMarkdown.escapeHtml,
       setText,
       formatRunTime,
       renderMessageHtml,
@@ -2220,27 +2220,27 @@ async function initializeRuntime() {
       renderChat,
     });
   }
-  if (window.aimashiPetDialog && window.aimashiPetDialog.initPetDialog) {
-    window.aimashiPetDialog.initPetDialog({
+  if (window.miaPetDialog && window.miaPetDialog.initPetDialog) {
+    window.miaPetDialog.initPetDialog({
       state,
       els,
-      aimashi: window.aimashi,
-      fellowByKey: window.aimashiFellowManager.fellowByKey,
-      avatarAssetForKey: window.aimashiAvatar.avatarAssetForKey,
+      mia: window.mia,
+      fellowByKey: window.miaFellowManager.fellowByKey,
+      avatarAssetForKey: window.miaAvatar.avatarAssetForKey,
       cryptoRandomId,
-      avatarBackgroundStyle: window.aimashiAvatar.avatarBackgroundStyle,
-      escapeHtml: window.aimashiMarkdown.escapeHtml,
+      avatarBackgroundStyle: window.miaAvatar.avatarBackgroundStyle,
+      escapeHtml: window.miaMarkdown.escapeHtml,
       setText,
       renderView,
       refreshRuntime,
       appendTransientChat,
     });
   }
-  if (window.aimashiSettingsAppearance && window.aimashiSettingsAppearance.initSettingsAppearance) {
-    window.aimashiSettingsAppearance.initSettingsAppearance({
+  if (window.miaSettingsAppearance && window.miaSettingsAppearance.initSettingsAppearance) {
+    window.miaSettingsAppearance.initSettingsAppearance({
       state,
       els,
-      aimashi: window.aimashi,
+      mia: window.mia,
       fontPresets,
       DEFAULT_ACCENT_COLOR,
       DEFAULT_USER_BUBBLE_COLOR,
@@ -2248,32 +2248,32 @@ async function initializeRuntime() {
       DEFAULT_SELECTION_STYLE,
     });
   }
-  if (window.aimashiMessageMenu && window.aimashiMessageMenu.initMessageMenu) {
-    window.aimashiMessageMenu.initMessageMenu({
+  if (window.miaMessageMenu && window.miaMessageMenu.initMessageMenu) {
+    window.miaMessageMenu.initMessageMenu({
       state,
       els,
-      aimashi: window.aimashi,
-      messageAtIndex: window.aimashiMessageHelpers.messageAtIndex,
-      messageReferenceForIndex: window.aimashiMessageHelpers.messageReferenceForIndex,
-      messageContextText: window.aimashiMessageHelpers.messageContextText,
-      menuItemHtml: window.aimashiMarkdown.menuItemHtml,
+      mia: window.mia,
+      messageAtIndex: window.miaMessageHelpers.messageAtIndex,
+      messageReferenceForIndex: window.miaMessageHelpers.messageReferenceForIndex,
+      messageContextText: window.miaMessageHelpers.messageContextText,
+      menuItemHtml: window.miaMarkdown.menuItemHtml,
       activeSession,
       persistSessionQuietly,
       replacePersistedSessionQuietly,
       renderChat,
       renderSessionMenu,
-      renderComposerReply: window.aimashiMessageHelpers.renderComposerReply,
-      escapeHtml: window.aimashiMarkdown.escapeHtml,
-      renderMarkdown: window.aimashiMarkdown.renderMarkdown,
+      renderComposerReply: window.miaMessageHelpers.renderComposerReply,
+      escapeHtml: window.miaMarkdown.escapeHtml,
+      renderMarkdown: window.miaMarkdown.renderMarkdown,
       copyTextToClipboard,
       nowIso,
       cryptoRandomId,
-      closeSkillContextMenu: window.aimashiSkillLibrary.closeSkillContextMenu,
-      closeFellowContextMenu: window.aimashiFellowManager.closeFellowContextMenu,
+      closeSkillContextMenu: window.miaSkillLibrary.closeSkillContextMenu,
+      closeFellowContextMenu: window.miaFellowManager.closeFellowContextMenu,
     });
   }
-  if (window.aimashiSocial && window.aimashiSocial.initSocialModule) {
-    window.aimashiSocial.initSocialModule({
+  if (window.miaSocial && window.miaSocial.initSocialModule) {
+    window.miaSocial.initSocialModule({
       getState: () => state,
       render,
       els,
@@ -2284,7 +2284,7 @@ async function initializeRuntime() {
     // this used to never run; bootstrap only fired later via the WS
     // events_ready event, which is part of why the list arrived late.)
     if (state.runtime && state.runtime.cloud && state.runtime.cloud.enabled) {
-      window.aimashiSocial.bootstrapAfterLogin().catch((err) => {
+      window.miaSocial.bootstrapAfterLogin().catch((err) => {
         console.warn("[social] boot bootstrap failed:", err);
       });
     }
@@ -2293,25 +2293,25 @@ async function initializeRuntime() {
   render();
   setTimeout(() => {
     Promise.allSettled([
-      trackStartupTask("加载 Hermes 模型列表", () => window.aimashiLoaders.loadModelCatalog()),
-      trackStartupTask("加载 Codex 模型列表", () => window.aimashiLoaders.loadCodexModels()),
-      trackStartupTask("加载引擎能力", () => window.aimashiLoaders.loadEngineCapabilities()),
-      trackStartupTask("加载命令列表", () => window.aimashiLoaders.loadSlashCommands()),
-      trackStartupTask("扫描本地 Skill", () => window.aimashiLoaders.loadSkills())
+      trackStartupTask("加载 Hermes 模型列表", () => window.miaLoaders.loadModelCatalog()),
+      trackStartupTask("加载 Codex 模型列表", () => window.miaLoaders.loadCodexModels()),
+      trackStartupTask("加载引擎能力", () => window.miaLoaders.loadEngineCapabilities()),
+      trackStartupTask("加载命令列表", () => window.miaLoaders.loadSlashCommands()),
+      trackStartupTask("扫描本地 Skill", () => window.miaLoaders.loadSkills())
     ]).then(() => render());
   }, 800);
-  window.aimashiTasksPanel.loadTasksFromDaemon().then(() => {
-    window.aimashiTasksPanel.subscribeTaskEvents();
+  window.miaTasksPanel.loadTasksFromDaemon().then(() => {
+    window.miaTasksPanel.subscribeTaskEvents();
     if (state.activeView === "tasks") {
-      window.aimashiTasksPanel.renderTaskSidebar();
-      window.aimashiTasksPanel.renderTaskView();
+      window.miaTasksPanel.renderTaskSidebar();
+      window.miaTasksPanel.renderTaskView();
     }
   });
 }
 
 document.getElementById("groupInfoButton")?.addEventListener("click", () => {
-  const roomId = window.aimashiSocial?.getActiveRoomId?.();
-  if (roomId) window.aimashiGroupInfoDialog?.open(roomId);
+  const roomId = window.miaSocial?.getActiveRoomId?.();
+  if (roomId) window.miaGroupInfoDialog?.open(roomId);
 });
 
 els.openSettings.addEventListener("click", () => {
@@ -2319,8 +2319,8 @@ els.openSettings.addEventListener("click", () => {
   if (state.activeSettingsTab === "profile") state.activeSettingsTab = "appearance";
   renderView();
   if (state.activeSettingsTab === "account") {
-    window.aimashiSettingsRemote.refreshDaemonPairing().catch(console.error);
-    window.aimashiSettingsRemote.refreshRelayPairing().catch(console.error);
+    window.miaSettingsRemote.refreshDaemonPairing().catch(console.error);
+    window.miaSettingsRemote.refreshRelayPairing().catch(console.error);
   }
 });
 els.closeSettings.addEventListener("click", () => {
@@ -2335,24 +2335,24 @@ els.settingsView.addEventListener("click", (event) => {
 });
 els.closeSkillPreview?.addEventListener("click", () => {
   state.skillPreviewOpen = false;
-  window.aimashiSkillLibrary.renderSkillPreview();
+  window.miaSkillLibrary.renderSkillPreview();
 });
 els.skillPreviewDialog?.addEventListener("click", (event) => {
   if (event.target === els.skillPreviewDialog) {
     state.skillPreviewOpen = false;
-    window.aimashiSkillLibrary.renderSkillPreview();
+    window.miaSkillLibrary.renderSkillPreview();
   }
 });
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
   closeImagePreview();
-  if (state.skillContextMenu.open) window.aimashiSkillLibrary.closeSkillContextMenu();
-  if (state.fellowContextMenu.open) window.aimashiFellowManager.closeFellowContextMenu();
-  if (state.messageContextMenu.open) window.aimashiMessageMenu?.closeMessageContextMenu();
-  window.aimashiComposer.closeComposerAddMenu();
+  if (state.skillContextMenu.open) window.miaSkillLibrary.closeSkillContextMenu();
+  if (state.fellowContextMenu.open) window.miaFellowManager.closeFellowContextMenu();
+  if (state.messageContextMenu.open) window.miaMessageMenu?.closeMessageContextMenu();
+  window.miaComposer.closeComposerAddMenu();
   if (state.skillPreviewOpen) {
     state.skillPreviewOpen = false;
-    window.aimashiSkillLibrary.renderSkillPreview();
+    window.miaSkillLibrary.renderSkillPreview();
   }
 });
 els.sessionMenuButton.addEventListener("click", (event) => {
@@ -2361,13 +2361,13 @@ els.sessionMenuButton.addEventListener("click", (event) => {
   renderSessionMenu();
 });
 document.addEventListener("click", (event) => {
-  if (state.skillContextMenu.open && !els.skillContextMenu?.contains(event.target)) window.aimashiSkillLibrary.closeSkillContextMenu();
+  if (state.skillContextMenu.open && !els.skillContextMenu?.contains(event.target)) window.miaSkillLibrary.closeSkillContextMenu();
 });
 document.addEventListener("click", (event) => {
-  if (state.fellowContextMenu.open && !els.fellowContextMenu?.contains(event.target)) window.aimashiFellowManager.closeFellowContextMenu();
+  if (state.fellowContextMenu.open && !els.fellowContextMenu?.contains(event.target)) window.miaFellowManager.closeFellowContextMenu();
 });
 document.addEventListener("click", (event) => {
-  if (state.messageContextMenu.open && !els.messageContextMenu?.contains(event.target)) window.aimashiMessageMenu?.closeMessageContextMenu();
+  if (state.messageContextMenu.open && !els.messageContextMenu?.contains(event.target)) window.miaMessageMenu?.closeMessageContextMenu();
 });
 // Left/right click on cloud-room avatars → contact card / quick menu.
 els.chat?.addEventListener("click", (event) => {
@@ -2376,9 +2376,9 @@ els.chat?.addEventListener("click", (event) => {
   const kind = avatarEl.dataset.senderKind;
   const ref = avatarEl.dataset.senderRef;
   if (!kind || !ref) return;
-  const roomId = window.aimashiSocial?.getActiveRoomId?.();
+  const roomId = window.miaSocial?.getActiveRoomId?.();
   event.stopPropagation();
-  window.aimashiContactCard?.openCard({ kind, ref, roomId, anchor: avatarEl });
+  window.miaContactCard?.openCard({ kind, ref, roomId, anchor: avatarEl });
 });
 els.chat?.addEventListener("contextmenu", (event) => {
   const avatarEl = event.target.closest(".message-avatar[data-sender-kind][data-sender-ref]");
@@ -2386,10 +2386,10 @@ els.chat?.addEventListener("contextmenu", (event) => {
     const kind = avatarEl.dataset.senderKind;
     const ref = avatarEl.dataset.senderRef;
     if (!kind || !ref) return;
-    const roomId = window.aimashiSocial?.getActiveRoomId?.();
+    const roomId = window.miaSocial?.getActiveRoomId?.();
     event.preventDefault();
     event.stopPropagation();
-    window.aimashiContactCard?.openContextMenu({ kind, ref, roomId, anchor: avatarEl, x: event.clientX, y: event.clientY });
+    window.miaContactCard?.openContextMenu({ kind, ref, roomId, anchor: avatarEl, x: event.clientX, y: event.clientY });
     return;
   }
   const bubble = event.target.closest(".bubble[data-message-index]");
@@ -2398,7 +2398,7 @@ els.chat?.addEventListener("contextmenu", (event) => {
   // data-message-id and live in social.moduleState.messageCache, not the
   // fellow session, so dispatch to the lightweight social message menu.
   if (bubble.dataset.messageSource === "cloud-room") {
-    const social = window.aimashiSocial;
+    const social = window.miaSocial;
     const messageId = bubble.dataset.messageId;
     if (!social || !messageId) return;
     const roomId = social.getActiveRoomId?.();
@@ -2407,13 +2407,13 @@ els.chat?.addEventListener("contextmenu", (event) => {
     if (!message) return;
     event.preventDefault();
     event.stopPropagation();
-    window.aimashiSocialMessageMenu?.openSocialMessageMenu(message, event.clientX, event.clientY);
+    window.miaSocialMessageMenu?.openSocialMessageMenu(message, event.clientX, event.clientY);
     return;
   }
-  const selection = window.aimashiMessageMenu?.selectionInsideBubble(bubble);
+  const selection = window.miaMessageMenu?.selectionInsideBubble(bubble);
   event.preventDefault();
   event.stopPropagation();
-  window.aimashiMessageMenu?.openMessageContextMenu(bubble.dataset.messageIndex, event.clientX, event.clientY, selection);
+  window.miaMessageMenu?.openMessageContextMenu(bubble.dataset.messageIndex, event.clientX, event.clientY, selection);
 });
 document.addEventListener("click", (event) => {
   if (!state.sessionMenuOpen) return;
@@ -2436,13 +2436,13 @@ document.addEventListener("click", (event) => {
 document.addEventListener("click", (event) => {
   if (!state.composerAddMenuOpen) return;
   if (els.composerAddMenu?.contains(event.target) || els.skillPicker?.contains(event.target) || els.composerAdd?.contains(event.target)) return;
-  window.aimashiComposer.closeComposerAddMenu();
+  window.miaComposer.closeComposerAddMenu();
 });
 document.addEventListener("click", (event) => {
   if (!state.petJobPanelOpen) return;
   if (els.petJobPanel?.contains(event.target) || els.petJobButton?.contains(event.target)) return;
   state.petJobPanelOpen = false;
-  window.aimashiPetDialog?.renderPetJobs();
+  window.miaPetDialog?.renderPetJobs();
 });
 els.newSession.addEventListener("click", async (event) => {
   event.stopPropagation();
@@ -2455,20 +2455,20 @@ els.personaSearch.addEventListener("input", () => {
 });
 els.contactSearch?.addEventListener("input", () => {
   state.contactFilter = els.contactSearch.value;
-  window.aimashiFellowManager.renderContacts();
+  window.miaFellowManager.renderContacts();
 });
 els.skillSearch?.addEventListener("input", () => {
   state.skillFilter = els.skillSearch.value;
-  window.aimashiSkillLibrary.renderSkillLibrary();
+  window.miaSkillLibrary.renderSkillLibrary();
 });
 els.taskSearch?.addEventListener("input", (e) => {
   state.taskFilter = e.target.value;
-  window.aimashiTasksPanel?.renderTaskSidebar();
+  window.miaTasksPanel?.renderTaskSidebar();
 });
 document.querySelectorAll("[data-skill-filter]").forEach((button) => {
   button.addEventListener("click", () => {
     state.skillCategoryFilter = button.dataset.skillFilter || "";
-    window.aimashiSkillLibrary.renderSkillLibrary();
+    window.miaSkillLibrary.renderSkillLibrary();
   });
 });
 
@@ -2477,12 +2477,12 @@ document.querySelectorAll("[data-view]").forEach((button) => {
     state.activeView = button.dataset.view;
     showNarrowContent();
     if (button.dataset.view === "settings") state.settingsOpen = true;
-    if (button.dataset.view === "skills" && !state.skillLibrary.skills.length && !state.skillsLoading) window.aimashiLoaders.loadSkills();
+    if (button.dataset.view === "skills" && !state.skillLibrary.skills.length && !state.skillsLoading) window.miaLoaders.loadSkills();
     renderView();
     if (state.activeView === "tasks") {
-      window.aimashiTasksPanel?.loadTasksFromDaemon().then(() => {
-        window.aimashiTasksPanel?.renderTaskSidebar();
-        window.aimashiTasksPanel?.renderTaskView();
+      window.miaTasksPanel?.loadTasksFromDaemon().then(() => {
+        window.miaTasksPanel?.renderTaskSidebar();
+        window.miaTasksPanel?.renderTaskView();
       });
     }
   });
@@ -2526,29 +2526,29 @@ function stopSidebarResize(event) {
 document.addEventListener("pointerup", stopSidebarResize);
 document.addEventListener("pointercancel", stopSidebarResize);
 document.addEventListener("scroll", (event) => {
-  window.aimashiScrollbarOverlay.showScrollingScrollbar(event.target);
+  window.miaScrollbarOverlay.showScrollingScrollbar(event.target);
 }, { capture: true, passive: true });
 document.addEventListener("pointermove", (event) => {
-  window.aimashiScrollbarOverlay.updateScrollbarOverlayDrag(event);
-  window.aimashiScrollbarOverlay.maybeShowScrollbarForPointer(event);
+  window.miaScrollbarOverlay.updateScrollbarOverlayDrag(event);
+  window.miaScrollbarOverlay.maybeShowScrollbarForPointer(event);
 }, { capture: true });
-document.addEventListener("pointerup", (event) => window.aimashiScrollbarOverlay.stopScrollbarOverlayDrag(event), { capture: true });
-document.addEventListener("pointercancel", (event) => window.aimashiScrollbarOverlay.stopScrollbarOverlayDrag(event), { capture: true });
+document.addEventListener("pointerup", (event) => window.miaScrollbarOverlay.stopScrollbarOverlayDrag(event), { capture: true });
+document.addEventListener("pointercancel", (event) => window.miaScrollbarOverlay.stopScrollbarOverlayDrag(event), { capture: true });
 document.addEventListener("mouseover", (event) => {
   const target = event.target?.closest?.(".scrollbar-active");
   if (!target) return;
-  window.aimashiScrollbarOverlay.cancelScrollbarHide(target);
-  window.aimashiScrollbarOverlay.updateScrollbarOverlay(target);
+  window.miaScrollbarOverlay.cancelScrollbarHide(target);
+  window.miaScrollbarOverlay.updateScrollbarOverlay(target);
   target.classList.add("scrollbar-visible");
 }, { capture: true, passive: true });
 document.addEventListener("mouseout", (event) => {
   const target = event.target?.closest?.(".scrollbar-active");
   if (!target || target.contains(event.relatedTarget)) return;
-  window.aimashiScrollbarOverlay.scheduleScrollbarHide(target, 500);
+  window.miaScrollbarOverlay.scheduleScrollbarHide(target, 500);
 }, { capture: true, passive: true });
 window.addEventListener("resize", () => {
-  const overlayTarget = window.aimashiScrollbarOverlay.getScrollbarOverlayTarget();
-  if (overlayTarget) window.aimashiScrollbarOverlay.updateScrollbarOverlay(overlayTarget);
+  const overlayTarget = window.miaScrollbarOverlay.getScrollbarOverlayTarget();
+  if (overlayTarget) window.miaScrollbarOverlay.updateScrollbarOverlay(overlayTarget);
   const isNarrow = window.innerWidth <= 720;
   if (!state.isNarrowWindow && isNarrow) {
     state.narrowPane = "content";
@@ -2563,8 +2563,8 @@ document.querySelectorAll("[data-settings-tab]").forEach((button) => {
     state.activeSettingsTab = button.dataset.settingsTab;
     renderView();
     if (state.activeSettingsTab === "account") {
-      window.aimashiSettingsRemote.refreshDaemonPairing().catch(console.error);
-      window.aimashiSettingsRemote.refreshRelayPairing().catch(console.error);
+      window.miaSettingsRemote.refreshDaemonPairing().catch(console.error);
+      window.miaSettingsRemote.refreshRelayPairing().catch(console.error);
     }
   });
 });
@@ -2572,7 +2572,7 @@ document.querySelectorAll("[data-settings-tab]").forEach((button) => {
 els.mobileLanToggle?.addEventListener("click", async () => {
   const enabled = els.mobileLanToggle.getAttribute("aria-checked") === "true";
   try {
-    await window.aimashiSettingsRemote.applyDaemonHost(enabled ? "127.0.0.1" : "0.0.0.0");
+    await window.miaSettingsRemote.applyDaemonHost(enabled ? "127.0.0.1" : "0.0.0.0");
   } catch (error) {
     setText(els.mobilePairingHint, `切换失败：${error.message}`);
   }
@@ -2595,9 +2595,9 @@ async function submitCloudLogin(mode) {
   buttons.forEach((button) => { button.disabled = true; });
   setText(els.cloudLoginHint, mode === "register" ? "正在注册并连接..." : "正在登录并连接...");
   try {
-    state.runtime = await window.aimashi.cloudLogin({ mode, username, password });
+    state.runtime = await window.mia.cloudLogin({ mode, username, password });
     if (els.cloudPassword) els.cloudPassword.value = "";
-    window.aimashiSocial?.bootstrapAfterLogin?.();
+    window.miaSocial?.bootstrapAfterLogin?.();
     render();
   } catch (error) {
     setText(els.cloudLoginHint, `连接失败：${error.message || error}`);
@@ -2611,7 +2611,7 @@ els.cloudRegister?.addEventListener("click", () => submitCloudLogin("register"))
 els.cloudSync?.addEventListener("click", async () => {
   els.cloudSync.disabled = true;
   try {
-    state.runtime = await window.aimashi.cloudSync();
+    state.runtime = await window.mia.cloudSync();
     render();
   } catch (error) {
     setText(els.cloudLoginHint, `同步失败：${error.message || error}`);
@@ -2622,7 +2622,7 @@ els.cloudSync?.addEventListener("click", async () => {
 els.cloudLogout?.addEventListener("click", async () => {
   els.cloudLogout.disabled = true;
   try {
-    state.runtime = await window.aimashi.cloudLogout();
+    state.runtime = await window.mia.cloudLogout();
     render();
   } catch (error) {
     setText(els.cloudLoginHint, `退出失败：${error.message || error}`);
@@ -2633,11 +2633,11 @@ els.cloudLogout?.addEventListener("click", async () => {
 
 els.mobilePairingReveal?.addEventListener("click", () => {
   state.mobileLanLinkExpanded = !state.mobileLanLinkExpanded;
-  window.aimashiSettingsRemote.renderMobilePairing(state.runtime?.daemon || {});
+  window.miaSettingsRemote.renderMobilePairing(state.runtime?.daemon || {});
 });
 
 els.mobilePairingLink?.addEventListener("click", async () => {
-  const link = window.aimashiSettingsRemote.currentMobilePairingLink();
+  const link = window.miaSettingsRemote.currentMobilePairingLink();
   if (!link) {
     setText(els.mobilePairingHint, "当前没有可复制的配对链接。");
     return;
@@ -2652,7 +2652,7 @@ els.mobilePairingLink?.addEventListener("click", async () => {
 
 els.mobileRelayReveal?.addEventListener("click", () => {
   state.mobileRelayLinkExpanded = !state.mobileRelayLinkExpanded;
-  window.aimashiSettingsRemote.renderRelayPairing(state.runtime?.relay || {});
+  window.miaSettingsRemote.renderRelayPairing(state.runtime?.relay || {});
 });
 
 els.mobileRelayToggle?.addEventListener("click", async () => {
@@ -2660,12 +2660,12 @@ els.mobileRelayToggle?.addEventListener("click", async () => {
   setText(els.mobileRelayHint, enabled ? "正在关闭远程访问..." : "正在连接 relay...");
   try {
     const relayUrl = String(els.mobileRelayUrl?.value || "").trim();
-    if (relayUrl && window.aimashi.saveRelaySettings) {
-      await window.aimashi.saveRelaySettings({ url: relayUrl, enabled });
+    if (relayUrl && window.mia.saveRelaySettings) {
+      await window.mia.saveRelaySettings({ url: relayUrl, enabled });
     }
     const relay = enabled
-      ? await window.aimashi.stopRelay()
-      : await window.aimashi.startRelay();
+      ? await window.mia.stopRelay()
+      : await window.mia.startRelay();
     state.runtime = {
       ...(state.runtime || {}),
       relay: {
@@ -2673,7 +2673,7 @@ els.mobileRelayToggle?.addEventListener("click", async () => {
         secret: undefined
       }
     };
-    window.aimashiSettingsRemote.renderRelayPairing(relay);
+    window.miaSettingsRemote.renderRelayPairing(relay);
   } catch (error) {
     setText(els.mobileRelayHint, `远程访问切换失败：${error.message}`);
     await refreshRuntime();
@@ -2682,10 +2682,10 @@ els.mobileRelayToggle?.addEventListener("click", async () => {
 
 async function saveRelayUrlFromField() {
   const url = String(els.mobileRelayUrl?.value || "").trim();
-  if (!url || !window.aimashi?.saveRelaySettings) return;
+  if (!url || !window.mia?.saveRelaySettings) return;
   setText(els.mobileRelayHint, "正在保存 Relay 地址...");
   try {
-    const relay = await window.aimashi.saveRelaySettings({
+    const relay = await window.mia.saveRelaySettings({
       url,
       enabled: Boolean(state.runtime?.relay?.enabled)
     });
@@ -2696,7 +2696,7 @@ async function saveRelayUrlFromField() {
         secret: undefined
       }
     };
-    window.aimashiSettingsRemote.renderRelayPairing(relay);
+    window.miaSettingsRemote.renderRelayPairing(relay);
   } catch (error) {
     setText(els.mobileRelayHint, `Relay 地址保存失败：${error.message}`);
   }
@@ -2711,7 +2711,7 @@ els.mobileRelayUrl?.addEventListener("keydown", (event) => {
 });
 
 els.mobileRelayLink?.addEventListener("click", async () => {
-  const link = window.aimashiSettingsRemote.currentRelayPairingLink();
+  const link = window.miaSettingsRemote.currentRelayPairingLink();
   if (!link) {
     setText(els.mobileRelayHint, "当前没有可复制的远程配对链接。");
     return;
@@ -2735,12 +2735,12 @@ if (els.engineRowHermesButton && els.modelForm) {
 
 if (els.uninstallEngine) {
   els.uninstallEngine.addEventListener("click", async () => {
-    if (!window.confirm("将卸载 Aimashi 独立 Hermes 副本（launchd plist + runtime 目录），系统 Hermes 不受影响。确认？")) return;
+    if (!window.confirm("将卸载 Mia 独立 Hermes 副本（launchd plist + runtime 目录），系统 Hermes 不受影响。确认？")) return;
     els.uninstallEngine.disabled = true;
     const label = els.uninstallEngine.textContent;
     els.uninstallEngine.textContent = "卸载中…";
     try {
-      state.runtime = await window.aimashi.uninstallStandaloneEngine();
+      state.runtime = await window.mia.uninstallStandaloneEngine();
       render();
     } catch (error) {
       window.alert(`卸载失败：${error.message || error}`);
@@ -2751,13 +2751,13 @@ if (els.uninstallEngine) {
   });
 }
 
-if (window.aimashi.onEnginesChanged) {
-  window.aimashi.onEnginesChanged(() => { refreshRuntime().catch(() => {}); });
+if (window.mia.onEnginesChanged) {
+  window.mia.onEnginesChanged(() => { refreshRuntime().catch(() => {}); });
 }
 
-if (window.aimashi.onCloudEvent) {
+if (window.mia.onCloudEvent) {
   let cloudEventRefreshTimer = 0;
-  window.aimashi.onCloudEvent((envelope = {}) => {
+  window.mia.onCloudEvent((envelope = {}) => {
     const runtimeBinding = envelope.type === "fellow.runtime_updated"
       ? envelope.binding
       : envelope.payload?.binding;
@@ -2767,13 +2767,13 @@ if (window.aimashi.onCloudEvent) {
         runtimeBinding
       );
     }
-    window.aimashiSocial?.handleCloudEvent?.(envelope);
+    window.miaSocial?.handleCloudEvent?.(envelope);
     if (envelope.cloud && state.runtime) {
       state.runtime = {
         ...state.runtime,
         cloud: envelope.cloud
       };
-      window.aimashiSettingsRemote.renderCloudAccount(envelope.cloud);
+      window.miaSettingsRemote.renderCloudAccount(envelope.cloud);
     }
     // Refresh runtime metadata (cloud connection / device list) only.
     // We intentionally do NOT reload chatStore here — that races with
@@ -2795,8 +2795,8 @@ els.installEngine.addEventListener("click", async () => {
   els.installEngine.disabled = true;
   els.installEngine.textContent = "Installing...";
   try {
-    state.runtime = await window.aimashi.installEngine();
-    await window.aimashiLoaders.loadModelCatalog();
+    state.runtime = await window.mia.installEngine();
+    await window.miaLoaders.loadModelCatalog();
     render();
   } catch (error) {
     appendChat("assistant", `Install failed: ${error.message}`);
@@ -2809,7 +2809,7 @@ els.startEngine.addEventListener("click", async () => {
   els.startEngine.disabled = true;
   els.startEngine.textContent = "Starting...";
   try {
-    state.runtime = await window.aimashi.startEngine();
+    state.runtime = await window.mia.startEngine();
     render();
   } catch (error) {
     appendChat("assistant", `Start failed: ${error.message}`);
@@ -2820,17 +2820,17 @@ els.startEngine.addEventListener("click", async () => {
   }
 });
 els.stopEngine.addEventListener("click", async () => {
-  state.runtime = await window.aimashi.stopEngine();
+  state.runtime = await window.mia.stopEngine();
   render();
 });
 
 els.codexLogin.addEventListener("click", async () => {
   els.codexLogin.disabled = true;
   try {
-    const entry = window.aimashiModelHelpers.selectedModelEntry();
+    const entry = window.miaModelHelpers.selectedModelEntry();
     if (entry) {
-      window.aimashiModelSettings.applyModelEntryToFields(entry);
-      if (entry.provider === "openai-codex") state.runtime = await window.aimashi.saveModel({
+      window.miaModelSettings.applyModelEntryToFields(entry);
+      if (entry.provider === "openai-codex") state.runtime = await window.mia.saveModel({
         provider: entry.provider,
         model: entry.model,
         apiKeyEnv: entry.apiKeyEnv,
@@ -2840,9 +2840,9 @@ els.codexLogin.addEventListener("click", async () => {
         authType: entry.authType
       });
     }
-    state.runtime = await window.aimashi.startProviderOAuth({
+    state.runtime = await window.mia.startProviderOAuth({
       provider: entry?.provider || "openai-codex",
-      providerLabel: entry?.providerLabel || window.aimashiModelHelpers.providerLabel(entry?.provider || "openai-codex"),
+      providerLabel: entry?.providerLabel || window.miaModelHelpers.providerLabel(entry?.provider || "openai-codex"),
       authType: entry?.authType || "oauth_external",
       baseUrl: entry?.baseUrl || "",
       apiMode: entry?.apiMode || ""
@@ -2855,12 +2855,12 @@ els.codexLogin.addEventListener("click", async () => {
 });
 
 els.codexCancel.addEventListener("click", async () => {
-  state.runtime = await window.aimashi.cancelProviderOAuth();
+  state.runtime = await window.mia.cancelProviderOAuth();
   render();
 });
 
 els.modelPreset.addEventListener("change", () => {
-  window.aimashiModelSettings.fillModelFieldsFromPreset(els.modelPreset.value);
+  window.miaModelSettings.fillModelFieldsFromPreset(els.modelPreset.value);
 });
 
 els.authMethod.addEventListener("change", () => {
@@ -2878,26 +2878,26 @@ els.authMethod.addEventListener("change", () => {
 });
 
 els.quickModelSelect?.addEventListener("change", async () => {
-  window.aimashiModelSettings.syncQuickModelLabel();
+  window.miaModelSettings.syncQuickModelLabel();
   if (await saveActiveCloudFellowRuntimeConfig(
     { model: els.quickModelSelect.value || "hermes-agent" },
     "保存模型...",
     "模型已更新",
     "Cloud model switch failed"
   )) return;
-  const engine = window.aimashiEngineOptions.activeAgentEngine();
+  const engine = window.miaEngineOptions.activeAgentEngine();
   if (engine === "claude-code" || engine === "codex") {
     const persona = activePersona();
-    const entry = window.aimashiEngineOptions.externalModelEntries(engine).find((item) => item.id === els.quickModelSelect.value);
+    const entry = window.miaEngineOptions.externalModelEntries(engine).find((item) => item.id === els.quickModelSelect.value);
     if (!persona || !entry) return;
     els.quickModelSelect.disabled = true;
     setText(els.modelSwitchStatus, "保存模型...");
     try {
-      state.runtime = await window.aimashi.saveFellowEngine({
+      state.runtime = await window.mia.saveFellowEngine({
         key: persona.key,
         agentEngine: engine,
         engineConfig: {
-          ...window.aimashiEngineOptions.engineConfigForPersona(persona),
+          ...window.miaEngineOptions.engineConfigForPersona(persona),
           model: entry.model || ""
         }
       });
@@ -2912,12 +2912,12 @@ els.quickModelSelect?.addEventListener("change", async () => {
     }
     return;
   }
-  const entry = window.aimashiModelSettings.connectedModelEntries().find((item) => item.id === els.quickModelSelect.value);
+  const entry = window.miaModelSettings.connectedModelEntries().find((item) => item.id === els.quickModelSelect.value);
   if (!entry) return;
   els.quickModelSelect.disabled = true;
   setText(els.modelSwitchStatus, "切换中...");
   try {
-    state.runtime = await window.aimashi.saveModel({
+    state.runtime = await window.mia.saveModel({
       provider: entry.provider,
       model: entry.model,
       apiKeyEnv: entry.apiKeyEnv,
@@ -2926,9 +2926,9 @@ els.quickModelSelect?.addEventListener("change", async () => {
       providerLabel: entry.providerLabel,
       authType: entry.authType
     });
-    window.aimashiModelSettings.applyModelEntryToFields(entry);
+    window.miaModelSettings.applyModelEntryToFields(entry);
     setText(els.modelSwitchStatus, "已切换");
-    const auth = window.aimashiModelSettings.modelAuthCopy(entry, state.runtime);
+    const auth = window.miaModelSettings.modelAuthCopy(entry, state.runtime);
     if (auth.state.includes("需要")) {
       state.settingsOpen = true;
       state.activeSettingsTab = "model";
@@ -2939,35 +2939,35 @@ els.quickModelSelect?.addEventListener("change", async () => {
     appendTransientChat("assistant", `Model switch failed: ${error.message}`);
     await refreshRuntime();
   } finally {
-    els.quickModelSelect.disabled = !window.aimashiModelSettings.connectedModelEntries(state.runtime).length;
+    els.quickModelSelect.disabled = !window.miaModelSettings.connectedModelEntries(state.runtime).length;
   }
 });
 
 els.effortSelect?.addEventListener("change", async () => {
   const level = els.effortSelect.value;
-  window.aimashiModelSettings.syncEffortControl(state.runtime);
+  window.miaModelSettings.syncEffortControl(state.runtime);
   if (await saveActiveCloudFellowRuntimeConfig(
     { effortLevel: level || "medium" },
     "保存推理强度...",
     "推理强度已更新",
     "Cloud effort update failed"
   )) return;
-  const engine = window.aimashiEngineOptions.activeAgentEngine();
+  const engine = window.miaEngineOptions.activeAgentEngine();
   if (engine === "claude-code" || engine === "codex") {
     const persona = activePersona();
     if (!persona) return;
     setText(els.modelSwitchStatus, "保存推理强度...");
     els.effortSelect.disabled = true;
     try {
-      state.runtime = await window.aimashi.saveFellowEngine({
+      state.runtime = await window.mia.saveFellowEngine({
         key: persona.key,
         agentEngine: engine,
         engineConfig: {
-          ...window.aimashiEngineOptions.engineConfigForPersona(persona),
+          ...window.miaEngineOptions.engineConfigForPersona(persona),
           effortLevel: level
         }
       });
-      window.aimashiModelSettings.syncEffortControl(state.runtime);
+      window.miaModelSettings.syncEffortControl(state.runtime);
       setText(els.modelSwitchStatus, "推理强度已更新");
       render();
     } catch (error) {
@@ -2982,8 +2982,8 @@ els.effortSelect?.addEventListener("change", async () => {
   setText(els.modelSwitchStatus, "保存推理强度...");
   els.effortSelect.disabled = true;
   try {
-    state.runtime = await window.aimashi.saveEffort({ level });
-    window.aimashiModelSettings.syncEffortControl(state.runtime);
+    state.runtime = await window.mia.saveEffort({ level });
+    window.miaModelSettings.syncEffortControl(state.runtime);
     setText(els.modelSwitchStatus, "推理强度已更新");
     render();
   } catch (error) {
@@ -3003,23 +3003,23 @@ els.permissionMode?.addEventListener("change", async () => {
     "权限已更新",
     "Cloud permission mode failed"
   )) return;
-  const engine = window.aimashiEngineOptions.activeAgentEngine();
+  const engine = window.miaEngineOptions.activeAgentEngine();
   if (engine === "claude-code" || engine === "codex") {
     const persona = activePersona();
     if (!persona) return;
-    setText(els.permissionLabel, window.aimashiModelSettings.permissionLabelForMode(mode));
+    setText(els.permissionLabel, window.miaModelSettings.permissionLabelForMode(mode));
     setText(els.modelSwitchStatus, "保存权限...");
     els.permissionMode.disabled = true;
     try {
-      state.runtime = await window.aimashi.saveFellowEngine({
+      state.runtime = await window.mia.saveFellowEngine({
         key: persona.key,
         agentEngine: engine,
         engineConfig: {
-          ...window.aimashiEngineOptions.engineConfigForPersona(persona),
+          ...window.miaEngineOptions.engineConfigForPersona(persona),
           permissionMode: mode
         }
       });
-      window.aimashiModelSettings.syncPermissionControl(state.runtime);
+      window.miaModelSettings.syncPermissionControl(state.runtime);
       setText(els.modelSwitchStatus, "权限已更新");
       render();
     } catch (error) {
@@ -3031,12 +3031,12 @@ els.permissionMode?.addEventListener("change", async () => {
     }
     return;
   }
-  window.aimashiModelSettings.syncPermissionControl({ permissions: { mode } });
+  window.miaModelSettings.syncPermissionControl({ permissions: { mode } });
   setText(els.modelSwitchStatus, "保存权限...");
   els.permissionMode.disabled = true;
   try {
-    state.runtime = await window.aimashi.savePermissions({ mode });
-    window.aimashiModelSettings.syncPermissionControl(state.runtime);
+    state.runtime = await window.mia.savePermissions({ mode });
+    window.miaModelSettings.syncPermissionControl(state.runtime);
     setText(els.modelSwitchStatus, "权限已更新");
     render();
   } catch (error) {
@@ -3049,8 +3049,8 @@ els.permissionMode?.addEventListener("change", async () => {
 });
 
 els.modelSelect?.addEventListener("change", () => {
-  const entry = window.aimashiModelHelpers.selectedModelEntry();
-  window.aimashiModelSettings.applyModelEntryToFields(entry);
+  const entry = window.miaModelHelpers.selectedModelEntry();
+  window.miaModelSettings.applyModelEntryToFields(entry);
   updateModelFieldVisibility();
 });
 
@@ -3064,17 +3064,17 @@ els.newPersona.addEventListener("click", (event) => {
 els.convMenuAddFriend?.addEventListener("click", () => {
   state.fellowMenuOpen = false;
   renderView();
-  window.aimashiSocial?.openAddFriendDialog?.();
+  window.miaSocial?.openAddFriendDialog?.();
 });
 els.addFellow?.addEventListener("click", () => {
   state.fellowMenuOpen = false;
   renderView();
-  window.aimashiFellowDialog.openFellowDialog();
+  window.miaFellowDialog.openFellowDialog();
 });
 els.convMenuNewGroup?.addEventListener("click", () => {
   state.fellowMenuOpen = false;
   renderView();
-  window.aimashiSocial?.openCreateGroupDialog?.();
+  window.miaSocial?.openCreateGroupDialog?.();
 });
 els.newContact?.addEventListener("click", (event) => {
   event.stopPropagation();
@@ -3084,45 +3084,45 @@ els.newContact?.addEventListener("click", (event) => {
 els.contactMenuAddFriend?.addEventListener("click", () => {
   state.contactMenuOpen = false;
   renderView();
-  window.aimashiSocial?.openAddFriendDialog?.();
+  window.miaSocial?.openAddFriendDialog?.();
 });
 els.contactMenuAddFellow?.addEventListener("click", () => {
   state.contactMenuOpen = false;
   renderView();
-  window.aimashiFellowDialog.openFellowDialog();
+  window.miaFellowDialog.openFellowDialog();
 });
 els.contactMenuNewGroup?.addEventListener("click", () => {
   state.contactMenuOpen = false;
   renderView();
-  window.aimashiSocial?.openCreateGroupDialog?.();
+  window.miaSocial?.openCreateGroupDialog?.();
 });
-els.userAvatar?.addEventListener("click", () => window.aimashiFellowDialog.openProfileDialog());
+els.userAvatar?.addEventListener("click", () => window.miaFellowDialog.openProfileDialog());
 els.userAvatar?.addEventListener("keydown", (event) => {
   if (event.key !== "Enter" && event.key !== " ") return;
   event.preventDefault();
-  window.aimashiFellowDialog.openProfileDialog();
+  window.miaFellowDialog.openProfileDialog();
 });
-els.closeProfileDialog?.addEventListener("click", () => window.aimashiFellowDialog.closeProfileDialog());
-els.cancelProfile?.addEventListener("click", () => window.aimashiFellowDialog.closeProfileDialog());
-els.closeFellowDialog?.addEventListener("click", () => window.aimashiFellowDialog.closeFellowDialog());
-els.cancelFellow?.addEventListener("click", () => window.aimashiFellowDialog.closeFellowDialog());
-els.closePetGenerateDialog?.addEventListener("click", () => window.aimashiPetDialog?.closePetGenerateDialog());
-els.cancelPetGenerate?.addEventListener("click", () => window.aimashiPetDialog?.closePetGenerateDialog());
+els.closeProfileDialog?.addEventListener("click", () => window.miaFellowDialog.closeProfileDialog());
+els.cancelProfile?.addEventListener("click", () => window.miaFellowDialog.closeProfileDialog());
+els.closeFellowDialog?.addEventListener("click", () => window.miaFellowDialog.closeFellowDialog());
+els.cancelFellow?.addEventListener("click", () => window.miaFellowDialog.closeFellowDialog());
+els.closePetGenerateDialog?.addEventListener("click", () => window.miaPetDialog?.closePetGenerateDialog());
+els.cancelPetGenerate?.addEventListener("click", () => window.miaPetDialog?.closePetGenerateDialog());
 els.addPetReference?.addEventListener("click", () => els.petReferenceFile?.click());
 els.petReferenceFile?.addEventListener("change", () => {
-  window.aimashiPetDialog?.readPetReferenceFile(els.petReferenceFile.files?.[0]);
+  window.miaPetDialog?.readPetReferenceFile(els.petReferenceFile.files?.[0]);
   els.petReferenceFile.value = "";
 });
 els.petJobButton?.addEventListener("click", (event) => {
   event.stopPropagation();
   state.petJobPanelOpen = !state.petJobPanelOpen;
-  window.aimashiPetDialog?.renderPetJobs();
+  window.miaPetDialog?.renderPetJobs();
 });
 els.petGenerateForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const fellow = window.aimashiFellowManager.fellowByKey(state.petGenerateFellowKey);
+  const fellow = window.miaFellowManager.fellowByKey(state.petGenerateFellowKey);
   if (!fellow) return;
-  const job = await window.aimashi.generateFellowPet({
+  const job = await window.mia.generateFellowPet({
     fellowKey: fellow.key,
     prompt: els.petPrompt?.value || "",
     stylePreset: els.petStylePreset?.value || "codex",
@@ -3130,25 +3130,25 @@ els.petGenerateForm?.addEventListener("submit", async (event) => {
   });
   state.petJobs = [job, ...state.petJobs.filter((item) => item.id !== job.id)];
   state.petJobPanelOpen = true;
-  window.aimashiPetDialog?.closePetGenerateDialog();
-  window.aimashiPetDialog?.renderPetJobs();
+  window.miaPetDialog?.closePetGenerateDialog();
+  window.miaPetDialog?.renderPetJobs();
 });
 els.chooseFellowAvatar?.addEventListener("click", () => els.fellowAvatarFile?.click());
 els.fellowAvatarFile?.addEventListener("change", () => {
-  window.aimashiFellowDialog.readFellowAvatarFile(els.fellowAvatarFile.files?.[0]);
+  window.miaFellowDialog.readFellowAvatarFile(els.fellowAvatarFile.files?.[0]);
   els.fellowAvatarFile.value = "";
 });
 els.fellowAvatarPreview?.addEventListener("click", () => {
   const draft = state.fellowAvatarDraft;
   if (!draft?.image) return;
-  window.aimashiFellowDialog.openAvatarCropEditor(draft.image, draft.crop);
+  window.miaFellowDialog.openAvatarCropEditor(draft.image, draft.crop);
 });
 els.fellowAvatarPreview?.addEventListener("keydown", (event) => {
   if (event.key !== "Enter" && event.key !== " ") return;
   event.preventDefault();
   const draft = state.fellowAvatarDraft;
   if (!draft?.image) return;
-  window.aimashiFellowDialog.openAvatarCropEditor(draft.image, draft.crop);
+  window.miaFellowDialog.openAvatarCropEditor(draft.image, draft.crop);
 });
 els.fellowAvatarDrop?.addEventListener("dragover", (event) => {
   event.preventDefault();
@@ -3160,11 +3160,11 @@ els.fellowAvatarDrop?.addEventListener("dragleave", () => {
 els.fellowAvatarDrop?.addEventListener("drop", (event) => {
   event.preventDefault();
   els.fellowAvatarDrop.classList.remove("dragging");
-  window.aimashiFellowDialog.readFellowAvatarFile(event.dataTransfer?.files?.[0]);
+  window.miaFellowDialog.readFellowAvatarFile(event.dataTransfer?.files?.[0]);
 });
 els.chooseProfileAvatar?.addEventListener("click", () => els.profileAvatarFile?.click());
 els.profileAvatarFile?.addEventListener("change", () => {
-  window.aimashiFellowDialog.readProfileAvatarFile(els.profileAvatarFile.files?.[0]);
+  window.miaFellowDialog.readProfileAvatarFile(els.profileAvatarFile.files?.[0]);
   els.profileAvatarFile.value = "";
 });
 els.profileAvatarPreview?.addEventListener("click", () => {
@@ -3173,7 +3173,7 @@ els.profileAvatarPreview?.addEventListener("click", () => {
     els.profileAvatarFile?.click();
     return;
   }
-  window.aimashiFellowDialog.openAvatarCropEditor(draft.image, draft.crop, "profile");
+  window.miaFellowDialog.openAvatarCropEditor(draft.image, draft.crop, "profile");
 });
 els.profileAvatarPreview?.addEventListener("keydown", (event) => {
   if (event.key !== "Enter" && event.key !== " ") return;
@@ -3183,7 +3183,7 @@ els.profileAvatarPreview?.addEventListener("keydown", (event) => {
     els.profileAvatarFile?.click();
     return;
   }
-  window.aimashiFellowDialog.openAvatarCropEditor(draft.image, draft.crop, "profile");
+  window.miaFellowDialog.openAvatarCropEditor(draft.image, draft.crop, "profile");
 });
 els.profileAvatarDrop?.addEventListener("dragover", (event) => {
   event.preventDefault();
@@ -3195,7 +3195,7 @@ els.profileAvatarDrop?.addEventListener("dragleave", () => {
 els.profileAvatarDrop?.addEventListener("drop", (event) => {
   event.preventDefault();
   els.profileAvatarDrop.classList.remove("dragging");
-  window.aimashiFellowDialog.readProfileAvatarFile(event.dataTransfer?.files?.[0]);
+  window.miaFellowDialog.readProfileAvatarFile(event.dataTransfer?.files?.[0]);
 });
 els.avatarCropStage?.addEventListener("pointerdown", (event) => {
   event.preventDefault();
@@ -3223,7 +3223,7 @@ els.avatarCropStage?.addEventListener("pointermove", (event) => {
   const sensitivity = Math.min(rawPerPx, 3);
   // Negative: dragging image right exposes its left side (crop x decreases).
   const percentPerPx = -sensitivity;
-  window.aimashiFellowDialog.updateAvatarCropEditor({
+  window.miaFellowDialog.updateAvatarCropEditor({
     x: state.avatarCropEditor.crop.x + dx * percentPerPx,
     y: state.avatarCropEditor.crop.y + dy * percentPerPx
   });
@@ -3238,7 +3238,7 @@ els.avatarCropStage?.addEventListener("pointercancel", () => {
 els.avatarCropStage?.addEventListener("wheel", (event) => {
   event.preventDefault();
   const direction = event.deltaY > 0 ? -1 : 1;
-  window.aimashiFellowDialog.updateAvatarCropEditor({
+  window.miaFellowDialog.updateAvatarCropEditor({
     zoom: state.avatarCropEditor.crop.zoom + direction * 0.03
   });
 });
@@ -3246,12 +3246,12 @@ els.confirmAvatarCrop?.addEventListener("click", async () => {
   if (state.avatarCropEditor.target === "groupRoom") {
     const image = state.avatarCropEditor.image;
     const crop = state.avatarCropEditor.crop;
-    window.aimashiFellowDialog.closeAvatarCropEditor();
-    window.aimashiGroupInfoDialog?.applyAvatarFromCropEditor(image, crop);
+    window.miaFellowDialog.closeAvatarCropEditor();
+    window.miaGroupInfoDialog?.applyAvatarFromCropEditor(image, crop);
     return;
   }
   if (state.avatarCropEditor.target === "profile") {
-    window.aimashiFellowDialog.setProfileAvatarDraft(state.avatarCropEditor.image, state.avatarCropEditor.crop);
+    window.miaFellowDialog.setProfileAvatarDraft(state.avatarCropEditor.image, state.avatarCropEditor.crop);
     // Auto-persist the avatar so closing the profile dialog without clicking
     // "保存资料" doesn't silently drop the new avatar. The display name field
     // is preserved by reading whatever is currently in the input.
@@ -3259,96 +3259,96 @@ els.confirmAvatarCrop?.addEventListener("click", async () => {
       const displayName = (els.profileDisplayName?.value || "").trim()
         || state.runtime?.user?.displayName
         || "Boss";
-      state.runtime = await window.aimashi.saveProfile({
+      state.runtime = await window.mia.saveProfile({
         displayName,
-        avatarText: window.aimashiAvatar.initials(displayName),
+        avatarText: window.miaAvatar.initials(displayName),
         avatarImage: state.profileAvatarDraft.image || els.profileAvatarImage?.value || "",
-        avatarCrop: window.aimashiAvatar.normalizeCrop(state.profileAvatarDraft.crop),
+        avatarCrop: window.miaAvatar.normalizeCrop(state.profileAvatarDraft.crop),
       });
       render();
     } catch (err) {
       console.error("[profile] avatar auto-save failed:", err);
     }
   } else {
-    window.aimashiFellowDialog.setFellowAvatarDraft(state.avatarCropEditor.image, state.avatarCropEditor.crop);
+    window.miaFellowDialog.setFellowAvatarDraft(state.avatarCropEditor.image, state.avatarCropEditor.crop);
   }
-  window.aimashiFellowDialog.closeAvatarCropEditor();
+  window.miaFellowDialog.closeAvatarCropEditor();
 });
-els.cancelAvatarCrop?.addEventListener("click", () => window.aimashiFellowDialog.closeAvatarCropEditor());
+els.cancelAvatarCrop?.addEventListener("click", () => window.miaFellowDialog.closeAvatarCropEditor());
 els.resetAvatarCrop?.addEventListener("click", () => {
-  state.avatarCropEditor.crop = window.aimashiAvatar.normalizeCrop(window.aimashiAvatar.avatarDefaultCropForSrc(state.avatarCropEditor.image));
-  window.aimashiFellowDialog.renderAvatarCropEditor();
+  state.avatarCropEditor.crop = window.miaAvatar.normalizeCrop(window.miaAvatar.avatarDefaultCropForSrc(state.avatarCropEditor.image));
+  window.miaFellowDialog.renderAvatarCropEditor();
 });
 
 els.profileForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
   const displayName = els.profileDisplayName.value.trim() || "Boss";
-  state.runtime = await window.aimashi.saveProfile({
+  state.runtime = await window.mia.saveProfile({
     displayName,
-    avatarText: window.aimashiAvatar.initials(displayName),
+    avatarText: window.miaAvatar.initials(displayName),
     avatarImage: state.profileAvatarDraft.image || els.profileAvatarImage.value,
-    avatarCrop: window.aimashiAvatar.normalizeCrop(state.profileAvatarDraft.crop)
+    avatarCrop: window.miaAvatar.normalizeCrop(state.profileAvatarDraft.crop)
   });
-  window.aimashiFellowDialog.closeProfileDialog();
+  window.miaFellowDialog.closeProfileDialog();
   render();
 });
 
 els.appearanceForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  window.aimashiSettingsAppearance.scheduleAppearanceSave(0);
+  window.miaSettingsAppearance.scheduleAppearanceSave(0);
 });
 
 els.appearanceTheme.addEventListener("change", () => {
-  window.aimashiSettingsAppearance.scheduleAppearanceSave(0);
+  window.miaSettingsAppearance.scheduleAppearanceSave(0);
 });
 
 els.appearanceFontPreset.addEventListener("change", () => {
-  window.aimashiSettingsAppearance.scheduleAppearanceSave(0);
+  window.miaSettingsAppearance.scheduleAppearanceSave(0);
 });
 
 els.appearanceFontChoices?.addEventListener("click", (event) => {
   const button = event.target.closest("[data-font-preset]");
   if (!button || !els.appearanceFontChoices.contains(button)) return;
   els.appearanceFontPreset.value = button.dataset.fontPreset || "system";
-  window.aimashiSettingsAppearance.scheduleAppearanceSave(0);
+  window.miaSettingsAppearance.scheduleAppearanceSave(0);
 });
 
 els.appearanceListStyle?.addEventListener("change", () => {
-  window.aimashiSettingsAppearance.scheduleAppearanceSave(0);
+  window.miaSettingsAppearance.scheduleAppearanceSave(0);
 });
 
 els.appearanceSelectionStyle?.addEventListener("change", () => {
-  window.aimashiSettingsAppearance.scheduleAppearanceSave(0);
+  window.miaSettingsAppearance.scheduleAppearanceSave(0);
 });
 
 els.appearanceAccentColor?.addEventListener("input", () => {
-  window.aimashiSettingsAppearance.scheduleAppearanceSave();
+  window.miaSettingsAppearance.scheduleAppearanceSave();
 });
 
 els.appearanceAccentReset?.addEventListener("click", () => {
   if (els.appearanceAccentColor) els.appearanceAccentColor.value = DEFAULT_ACCENT_COLOR;
-  window.aimashiSettingsAppearance.scheduleAppearanceSave(0);
+  window.miaSettingsAppearance.scheduleAppearanceSave(0);
 });
 
 els.appearanceUserBubbleColor?.addEventListener("input", () => {
-  window.aimashiSettingsAppearance.scheduleAppearanceSave();
+  window.miaSettingsAppearance.scheduleAppearanceSave();
 });
 
 els.appearanceUserBubbleReset?.addEventListener("click", () => {
   if (els.appearanceUserBubbleColor) els.appearanceUserBubbleColor.value = DEFAULT_USER_BUBBLE_COLOR;
-  window.aimashiSettingsAppearance.scheduleAppearanceSave(0);
+  window.miaSettingsAppearance.scheduleAppearanceSave(0);
 });
 
 els.appearanceShowHoverBackground?.addEventListener("click", () => {
-  window.aimashiSettingsAppearance.toggleSettingsSwitch(els.appearanceShowHoverBackground);
+  window.miaSettingsAppearance.toggleSettingsSwitch(els.appearanceShowHoverBackground);
 });
 
 els.appearanceShowUserAvatar?.addEventListener("click", () => {
-  window.aimashiSettingsAppearance.toggleSettingsSwitch(els.appearanceShowUserAvatar);
+  window.miaSettingsAppearance.toggleSettingsSwitch(els.appearanceShowUserAvatar);
 });
 
 els.appearanceShowAssistantAvatar?.addEventListener("click", () => {
-  window.aimashiSettingsAppearance.toggleSettingsSwitch(els.appearanceShowAssistantAvatar);
+  window.miaSettingsAppearance.toggleSettingsSwitch(els.appearanceShowAssistantAvatar);
 });
 
 els.fellowForm?.addEventListener("submit", async (event) => {
@@ -3358,11 +3358,11 @@ els.fellowForm?.addEventListener("submit", async (event) => {
     name: els.fellowName.value,
     agentEngine: els.fellowAgentEngine?.value || "hermes",
     avatarImage: state.fellowAvatarDraft.image || els.fellowAvatar.value,
-    avatarCrop: window.aimashiAvatar.normalizeCrop(state.fellowAvatarDraft.crop),
+    avatarCrop: window.miaAvatar.normalizeCrop(state.fellowAvatarDraft.crop),
     description: state.fellowDialogMode === "create" ? els.fellowSeed.value : "",
     personaText: els.fellowSeed.value
   };
-  state.runtime = await window.aimashi.saveFellow(fellow);
+  state.runtime = await window.mia.saveFellow(fellow);
   const fellows = state.runtime?.fellows || state.runtime?.personas || [];
   const saved = fellow.key
     ? fellows.find((item) => item.key === fellow.key)
@@ -3381,15 +3381,15 @@ els.fellowForm?.addEventListener("submit", async (event) => {
 
 els.modelForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const entry = window.aimashiModelHelpers.selectedModelEntry();
-  if (!entry || window.aimashiModelSettings.providerIsConnected(entry.provider)) return;
+  const entry = window.miaModelHelpers.selectedModelEntry();
+  if (!entry || window.miaModelSettings.providerIsConnected(entry.provider)) return;
   const needsApiKey = entry.provider !== "openai-codex" && entry.provider !== "lmstudio" && !String(entry.authType || "").startsWith("oauth");
   if (needsApiKey && !els.modelApiKey.value.trim()) {
     setText(els.modelAuthState, `需要填写 ${entry.apiKeyEnv || "API Key"}`);
     return;
   }
-  if (entry) window.aimashiModelSettings.applyModelEntryToFields(entry);
-  state.runtime = await window.aimashi.saveModel({
+  if (entry) window.miaModelSettings.applyModelEntryToFields(entry);
+  state.runtime = await window.mia.saveModel({
     provider: els.modelProvider.value,
     model: els.modelName.value,
     apiKeyEnv: els.modelKeyEnv.value,
@@ -3405,38 +3405,38 @@ els.modelForm.addEventListener("submit", async (event) => {
 });
 
 els.chatInput.addEventListener("keydown", (event) => {
-  if (window.aimashiMessageHelpers.isComposerComposing(event)) return;
+  if (window.miaMessageHelpers.isComposerComposing(event)) return;
   if (state.slashMenuOpen) {
-    const commands = window.aimashiComposer.filteredSlashCommands();
+    const commands = window.miaComposer.filteredSlashCommands();
     if (event.key === "ArrowDown") {
       event.preventDefault();
       state.slashSelectedIndex = commands.length ? (state.slashSelectedIndex + 1) % commands.length : 0;
-      window.aimashiComposer.renderSlashCommandMenu();
+      window.miaComposer.renderSlashCommandMenu();
       return;
     }
     if (event.key === "ArrowUp") {
       event.preventDefault();
       state.slashSelectedIndex = commands.length ? (state.slashSelectedIndex - 1 + commands.length) % commands.length : 0;
-      window.aimashiComposer.renderSlashCommandMenu();
+      window.miaComposer.renderSlashCommandMenu();
       return;
     }
     if (event.key === "Tab") {
       event.preventDefault();
       const command = commands[state.slashSelectedIndex];
       if (command) {
-        window.aimashiComposer.fillSlashCommand(command);
+        window.miaComposer.fillSlashCommand(command);
       }
       return;
     }
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       const command = commands[state.slashSelectedIndex];
-      if (command) window.aimashiComposer.sendSlashCommand(command);
+      if (command) window.miaComposer.sendSlashCommand(command);
       return;
     }
     if (event.key === "Escape") {
       state.slashMenuOpen = false;
-      window.aimashiComposer.renderSlashCommandMenu();
+      window.miaComposer.renderSlashCommandMenu();
       return;
     }
   }
@@ -3451,47 +3451,47 @@ els.chatInput.addEventListener("compositionstart", () => {
 });
 
 els.chatInput.addEventListener("compositionend", () => {
-  window.aimashiMessageHelpers.noteCompositionEnded();
+  window.miaMessageHelpers.noteCompositionEnded();
   els.chatInput.dataset.composing = "false";
-  window.aimashiMessageHelpers.resizeChatInput();
-  window.aimashiComposer.updateSlashCommandState();
+  window.miaMessageHelpers.resizeChatInput();
+  window.miaComposer.updateSlashCommandState();
   renderSendButton();
 });
 
 els.chatInput.addEventListener("input", () => {
-  window.aimashiMessageHelpers.resizeChatInput();
-  window.aimashiComposer.updateSlashCommandState();
+  window.miaMessageHelpers.resizeChatInput();
+  window.miaComposer.updateSlashCommandState();
   renderSendButton();
 });
 els.chatInput.addEventListener("contextmenu", (event) => {
   event.preventDefault();
   event.stopPropagation();
-  window.aimashiComposer.closeComposerAddMenu();
-  window.aimashiComposer.closeSkillPicker();
+  window.miaComposer.closeComposerAddMenu();
+  window.miaComposer.closeSkillPicker();
   els.chatInput.focus();
-  window.aimashi?.showEditContextMenu?.({ x: event.clientX, y: event.clientY });
+  window.mia?.showEditContextMenu?.({ x: event.clientX, y: event.clientY });
 });
-els.chatInput.addEventListener("click", () => window.aimashiComposer.updateSlashCommandState());
+els.chatInput.addEventListener("click", () => window.miaComposer.updateSlashCommandState());
 els.composerAdd?.addEventListener("click", (event) => {
   event.preventDefault();
   event.stopPropagation();
   state.composerAddMenuOpen = !state.composerAddMenuOpen;
   state.slashMenuOpen = false;
-  if (state.composerAddMenuOpen) window.aimashiComposer.closeSkillPicker();
-  window.aimashiComposer.renderSlashCommandMenu();
-  window.aimashiComposer.renderComposerAddMenu();
+  if (state.composerAddMenuOpen) window.miaComposer.closeSkillPicker();
+  window.miaComposer.renderSlashCommandMenu();
+  window.miaComposer.renderComposerAddMenu();
 });
 els.composerAddMenu?.addEventListener("click", (event) => {
   const action = event.target.closest("[data-composer-add]")?.dataset.composerAdd;
   if (!action) return;
   event.preventDefault();
   if (action === "attachment") {
-    window.aimashiComposer.closeComposerAddMenu();
+    window.miaComposer.closeComposerAddMenu();
     els.composerAttachmentInput?.click();
     return;
   }
   if (action === "skill") {
-    window.aimashiComposer.openSkillPicker();
+    window.miaComposer.openSkillPicker();
     return;
   }
   els.chatInput?.focus();
@@ -3499,34 +3499,34 @@ els.composerAddMenu?.addEventListener("click", (event) => {
 els.composerAddMenu?.addEventListener("pointerover", (event) => {
   const action = event.target.closest("[data-composer-add]")?.dataset.composerAdd;
   if (action === "skill") {
-    window.aimashiComposer.openSkillPicker();
+    window.miaComposer.openSkillPicker();
     return;
   }
-  if (action) window.aimashiComposer.scheduleSkillPickerHoverClose();
+  if (action) window.miaComposer.scheduleSkillPickerHoverClose();
 });
 els.composerAddMenu?.addEventListener("pointerout", (event) => {
   const item = event.target.closest('[data-composer-add="skill"]');
   if (!item) return;
-  if (window.aimashiComposer.targetIsSkillPickerZone(event.relatedTarget)) return;
-  window.aimashiComposer.scheduleSkillPickerHoverClose();
+  if (window.miaComposer.targetIsSkillPickerZone(event.relatedTarget)) return;
+  window.miaComposer.scheduleSkillPickerHoverClose();
 });
-els.skillPicker?.addEventListener("pointerenter", () => window.aimashiComposer.cancelSkillPickerHoverClose());
+els.skillPicker?.addEventListener("pointerenter", () => window.miaComposer.cancelSkillPickerHoverClose());
 els.skillPicker?.addEventListener("pointerleave", (event) => {
-  if (window.aimashiComposer.targetIsSkillPickerZone(event.relatedTarget)) return;
-  window.aimashiComposer.scheduleSkillPickerHoverClose();
+  if (window.miaComposer.targetIsSkillPickerZone(event.relatedTarget)) return;
+  window.miaComposer.scheduleSkillPickerHoverClose();
 });
 
 els.skillPickerSearch?.addEventListener("input", () => {
   state.skillPickerFilter = els.skillPickerSearch.value || "";
-  window.aimashiComposer.renderSkillPicker();
+  window.miaComposer.renderSkillPicker();
 });
-els.closeSkillPicker?.addEventListener("click", () => window.aimashiComposer.closeSkillPicker());
+els.closeSkillPicker?.addEventListener("click", () => window.miaComposer.closeSkillPicker());
 els.skillPickerBody?.addEventListener("click", (event) => {
   const button = event.target.closest("[data-skill-pick]");
   if (!button) return;
-  window.aimashiComposer.insertSkillIntoComposer(button.dataset.skillPick);
-  window.aimashiComposer.closeComposerAddMenu();
-  window.aimashiComposer.closeSkillPicker();
+  window.miaComposer.insertSkillIntoComposer(button.dataset.skillPick);
+  window.miaComposer.closeComposerAddMenu();
+  window.miaComposer.closeSkillPicker();
 });
 els.skillPickerBody?.addEventListener("click", (event) => {
   const button = event.target.closest("[data-skill-picker-plugin]");
@@ -3534,7 +3534,7 @@ els.skillPickerBody?.addEventListener("click", (event) => {
   state.skillPickerPluginId = button.dataset.skillPickerPlugin || "";
   state.skillPickerFilter = "";
   if (els.skillPickerSearch) els.skillPickerSearch.value = "";
-  window.aimashiComposer.renderSkillPicker();
+  window.miaComposer.renderSkillPicker();
 });
 els.skillPickerBody?.addEventListener("pointerover", (event) => {
   const button = event.target.closest("[data-skill-picker-plugin]");
@@ -3542,17 +3542,17 @@ els.skillPickerBody?.addEventListener("pointerover", (event) => {
   state.skillPickerPluginId = button.dataset.skillPickerPlugin || "";
   state.skillPickerFilter = "";
   if (els.skillPickerSearch) els.skillPickerSearch.value = "";
-  window.aimashiComposer.renderSkillPicker();
+  window.miaComposer.renderSkillPicker();
 });
 els.skillPickerSearch?.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") window.aimashiComposer.closeSkillPicker();
+  if (event.key === "Escape") window.miaComposer.closeSkillPicker();
   if (event.key === "Enter") {
     event.preventDefault();
     const first = els.skillPickerBody?.querySelector("[data-skill-pick]");
     if (first) {
-      window.aimashiComposer.insertSkillIntoComposer(first.dataset.skillPick);
-      window.aimashiComposer.closeComposerAddMenu();
-      window.aimashiComposer.closeSkillPicker();
+      window.miaComposer.insertSkillIntoComposer(first.dataset.skillPick);
+      window.miaComposer.closeComposerAddMenu();
+      window.miaComposer.closeSkillPicker();
     }
   }
 });
@@ -3561,10 +3561,10 @@ document.addEventListener("click", (event) => {
   if (els.skillPicker?.contains(event.target)) return;
   if (els.composerAddMenu?.contains(event.target)) return;
   if (els.composerAdd?.contains(event.target)) return;
-  window.aimashiComposer.closeSkillPicker();
+  window.miaComposer.closeSkillPicker();
 });
 els.composerAttachmentInput?.addEventListener("change", () => {
-  window.aimashiComposer.addComposerFiles(els.composerAttachmentInput.files);
+  window.miaComposer.addComposerFiles(els.composerAttachmentInput.files);
   els.composerAttachmentInput.value = "";
 });
 els.composerAttachments?.addEventListener("click", (event) => {
@@ -3574,7 +3574,7 @@ els.composerAttachments?.addEventListener("click", (event) => {
 els.composerReply?.addEventListener("click", (event) => {
   if (!event.target.closest("[data-clear-reply]")) return;
   state.replyDraft = null;
-  window.aimashiMessageHelpers.renderComposerReply();
+  window.miaMessageHelpers.renderComposerReply();
   els.chatInput?.focus();
 });
 els.chatForm?.addEventListener("dragover", (event) => {
@@ -3589,17 +3589,17 @@ els.chatForm?.addEventListener("drop", (event) => {
   if (!event.dataTransfer?.files?.length) return;
   event.preventDefault();
   els.chatForm.classList.remove("dragging-attachment");
-  window.aimashiComposer.addComposerFiles(event.dataTransfer.files);
+  window.miaComposer.addComposerFiles(event.dataTransfer.files);
 });
 els.chatInput?.addEventListener("paste", (event) => {
   if (!event.clipboardData?.files?.length) return;
-  window.aimashiComposer.addComposerFiles(event.clipboardData.files);
+  window.miaComposer.addComposerFiles(event.clipboardData.files);
 });
 els.sendChat.addEventListener("click", async (event) => {
   if (!state.isGenerating) return;
   event.preventDefault();
   event.stopPropagation();
-  await window.aimashi.stopChat?.();
+  await window.mia.stopChat?.();
 });
 els.chat.addEventListener("click", async (event) => {
   const jumpBtn = event.target.closest?.("[data-jump-task]");
@@ -3609,7 +3609,7 @@ els.chat.addEventListener("click", async (event) => {
     state.selectedRunId = "";
     state.activeView = "tasks";
     state.tasksUnread?.delete(taskId);
-    window.aimashiTasksPanel?.updateTasksRailBadge();
+    window.miaTasksPanel?.updateTasksRailBadge();
     render();
     return;
   }
@@ -3625,12 +3625,12 @@ els.chat.addEventListener("click", async (event) => {
       appendTransientChat("assistant", "这条 /resume 列表来自另一台设备。请在当前设备重新发送 /resume，生成本机可恢复的 session 列表。");
       return;
     }
-    const engine = resumeButton.dataset.commandResumeEngine || window.aimashiEngineOptions.activeAgentEngine();
+    const engine = resumeButton.dataset.commandResumeEngine || window.miaEngineOptions.activeAgentEngine();
     const fellow = activePersona() || { key: state.activeKey };
     resumeButton.disabled = true;
     resumeButton.classList.add("loading");
     try {
-      const result = await window.aimashi.executeAgentCommand?.({
+      const result = await window.mia.executeAgentCommand?.({
         engine,
         commandName: "/resume",
         args: [sessionIdToResume],
@@ -3669,7 +3669,7 @@ els.chat.addEventListener("click", async (event) => {
   if (link && els.chat.contains(link)) {
     event.preventDefault();
     event.stopPropagation();
-    window.aimashi?.openExternal?.(link.dataset.externalLink);
+    window.mia?.openExternal?.(link.dataset.externalLink);
     return;
   }
   const code = event.target.closest(".bubble code.inline-code");
@@ -3694,7 +3694,7 @@ els.chat.addEventListener("click", async (event) => {
 els.chat.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-copy-translation]");
   if (!button || !els.chat.contains(button)) return;
-  const message = window.aimashiMessageHelpers.messageAtIndex(Number(button.dataset.copyTranslation));
+  const message = window.miaMessageHelpers.messageAtIndex(Number(button.dataset.copyTranslation));
   const text = message?.translation?.text || "";
   if (!text) return;
   if (await copyTextToClipboard(text)) {
@@ -3711,7 +3711,7 @@ els.chat.addEventListener("keydown", async (event) => {
   const link = event.target.closest("a.message-link[data-external-link]");
   if (link && els.chat.contains(link)) {
     event.preventDefault();
-    window.aimashi?.openExternal?.(link.dataset.externalLink);
+    window.mia?.openExternal?.(link.dataset.externalLink);
     return;
   }
   const code = event.target.closest(".bubble code.inline-code");
@@ -3739,10 +3739,10 @@ els.chat.addEventListener("toggle", (event) => {
 
 els.chatForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (window.aimashiMessageHelpers.isComposerComposing()) return;
+  if (window.miaMessageHelpers.isComposerComposing()) return;
   // Branch: a cloud room (dm / group / fellow) is active → send via social.
-  if (window.aimashiSocial?.getActiveRoomId?.()) {
-    const roomId = window.aimashiSocial.getActiveRoomId();
+  if (window.miaSocial?.getActiveRoomId?.()) {
+    const roomId = window.miaSocial.getActiveRoomId();
     let roomText = els.chatInput.value;
     if (!roomText.trim()) return;
     // Cloud rooms have no reply_to column, so a quote-reply is embedded as a
@@ -3752,16 +3752,16 @@ els.chatForm.addEventListener("submit", async (event) => {
       const quoted = String(roomReply.content).split("\n").map((line) => `> ${line}`).join("\n");
       roomText = `> **${roomReply.author || "回复"}**\n${quoted}\n\n${roomText}`;
       state.replyDraft = null;
-      window.aimashiMessageHelpers.renderComposerReply();
+      window.miaMessageHelpers.renderComposerReply();
     }
     els.chatInput.value = "";
-    window.aimashiMessageHelpers.resizeChatInput();
-    await window.aimashiSocial.sendInActiveRoom(roomText);
+    window.miaMessageHelpers.resizeChatInput();
+    await window.miaSocial.sendInActiveRoom(roomText);
     return;
   }
   if (state.runtime?.cloud?.enabled) return;
   if (state.isGenerating) {
-    await window.aimashi.stopChat?.();
+    await window.mia.stopChat?.();
     return;
   }
   const replyTo = state.replyDraft ? { ...state.replyDraft } : null;
@@ -3794,9 +3794,9 @@ els.chatForm.addEventListener("submit", async (event) => {
   els.chatInput.value = "";
   state.pendingAttachments = [];
   state.replyDraft = null;
-  window.aimashiMessageHelpers.renderComposerReply();
-  window.aimashiComposer.renderComposerAttachments();
-  window.aimashiMessageHelpers.resizeChatInput();
+  window.miaMessageHelpers.renderComposerReply();
+  window.miaComposer.renderComposerAttachments();
+  window.miaMessageHelpers.resizeChatInput();
   renderSendButton();
   const userText = text || "请查看附件。";
   appendChat("user", userText, { attachments, replyTo });
@@ -3806,16 +3806,16 @@ els.chatForm.addEventListener("submit", async (event) => {
   renderHeaderStatus();
   try {
     await persistSessionQuietly(session);
-    const outgoingBase = await window.aimashiComposer.outgoingMessageForSubmit(text);
-    const outgoingText = window.aimashiMessageMenu
-      ? window.aimashiMessageMenu.replyContextPrompt(outgoingBase, replyTo)
+    const outgoingBase = await window.miaComposer.outgoingMessageForSubmit(text);
+    const outgoingText = window.miaMessageMenu
+      ? window.miaMessageMenu.replyContextPrompt(outgoingBase, replyTo)
       : outgoingBase;
     const history = messagesForActive()
       .filter((message) => message.content || (Array.isArray(message.attachments) && message.attachments.length))
       .map((message) => ({ role: message.role, content: message.content, attachments: message.attachments || [] }));
     const lastUserIndex = history.map((message) => message.role).lastIndexOf("user");
     if (lastUserIndex >= 0) history[lastUserIndex] = { ...history[lastUserIndex], content: outgoingText };
-    const response = await window.aimashi.sendChat({
+    const response = await window.mia.sendChat({
       fellowKey: submitPersonaKey,
       personaKey: submitPersonaKey,
       sessionId: submitSessionId,
@@ -3823,7 +3823,7 @@ els.chatForm.addEventListener("submit", async (event) => {
     });
     const responseMessage = response.choices?.[0]?.message || {};
     const responseAttachments = Array.isArray(responseMessage.attachments) ? responseMessage.attachments : [];
-    const responseCommandResult = responseMessage.commandResult || response.aimashi?.commandResult || null;
+    const responseCommandResult = responseMessage.commandResult || response.mia?.commandResult || null;
     const answer = responseMessage.content || (responseAttachments.length ? "" : "(No response)");
     const traceSnapshot = state.streaming
       ? { reasoning: state.streaming.reasoning || "", tools: state.streaming.tools.slice() }
@@ -3847,10 +3847,10 @@ els.chatForm.addEventListener("submit", async (event) => {
     // we just appended — that's the "回复被吞" regression introduced by
     // 0eb1458. Re-resolve to the live session before persisting.
     await persistSessionQuietly(liveSession);
-    window.aimashiSessionReadState.persistReadStateQuietly();
+    window.miaSessionReadState.persistReadStateQuietly();
     if (shouldGenerateTitle) {
       const current = sessionForPersonaSession(submitPersonaKey, submitSessionId);
-      const result = await window.aimashi.generateSessionTitle({
+      const result = await window.mia.generateSessionTitle({
         personaKey: submitPersonaKey,
         sessionId: `title:${current.id}`,
         messages: current.messages.slice(0, 4)
@@ -3900,7 +3900,7 @@ function scheduleStreamRender() {
 
 function advanceOnboarding(step) {
   state.onboardingStep = step;
-  try { localStorage.setItem("aimashi.onboardingStep", step); } catch { /* ignore */ }
+  try { localStorage.setItem("mia.onboardingStep", step); } catch { /* ignore */ }
 }
 
 function afterEnginePicked(engine) {
@@ -3941,8 +3941,8 @@ async function handleSetupGuideAction(button) {
     const original = button.textContent;
     button.textContent = "安装中…";
     try {
-      state.runtime = await window.aimashi.installEngine();
-      await window.aimashiLoaders.loadModelCatalog();
+      state.runtime = await window.mia.installEngine();
+      await window.miaLoaders.loadModelCatalog();
       afterEnginePicked("hermes");
     } catch (error) {
       appendTransientChat("assistant", `Hermes install failed: ${error.message}`);
@@ -3963,13 +3963,13 @@ async function handleSetupGuideAction(button) {
 function openInitialFellowDialog() {
   const engine = state.onboardingPickedEngine || "hermes";
   const seed = {
-    name: "Aimashi",
+    name: "Mia",
     agentEngine: engine,
-    bio: "你是 Aimashi，一个轻松友好的桌面 AI 伙伴，回答简洁、口语化。"
+    bio: "你是 Mia，一个轻松友好的桌面 AI 伙伴，回答简洁、口语化。"
   };
   // Reuse existing fellow create dialog with prefilled values.
-  if (typeof window.aimashiFellowDialog?.openFellowDialog === "function") {
-    window.aimashiFellowDialog.openFellowDialog(null, seed);
+  if (typeof window.miaFellowDialog?.openFellowDialog === "function") {
+    window.miaFellowDialog.openFellowDialog(null, seed);
   } else {
     // Fallback: at least open settings
     state.settingsOpen = true;
@@ -3989,11 +3989,11 @@ function renderHeaderStatus() {
   }
   const count = sessionsForPersona(active.key).length;
   const startupLoading = state.startupTasks[0]?.label;
-  const trailing = startupLoading ? ` · 正在${window.aimashiMarkdown.escapeHtml(startupLoading)}` : "";
+  const trailing = startupLoading ? ` · 正在${window.miaMarkdown.escapeHtml(startupLoading)}` : "";
   els.activeChatMeta.innerHTML = `${count} 个会话 · 在线${trailing}`;
 }
 
-window.aimashi.onChatEvent((envelope) => {
+window.mia.onChatEvent((envelope) => {
   if (!envelope || typeof envelope !== "object") return;
   const { runId, sessionId, kind, data } = envelope;
   if (!kind) return;
@@ -4087,18 +4087,18 @@ window.aimashi.onChatEvent((envelope) => {
   scheduleStreamRender();
 });
 
-window.aimashiMessageHelpers.resizeChatInput();
+window.miaMessageHelpers.resizeChatInput();
 function startAfterFirstPaint() {
   const start = () => {
-    try { window.aimashi?.notifyFirstPaint?.(); } catch { /* main may not expose this in older builds */ }
+    try { window.mia?.notifyFirstPaint?.(); } catch { /* main may not expose this in older builds */ }
     initializeRuntime().catch((error) => {
-      console.error("Failed to initialize Aimashi runtime", error);
+      console.error("Failed to initialize Mia runtime", error);
       const message = error?.message || String(error || "Unknown error");
       els.chat.innerHTML = `
         <article class="setup-guide bootstrap">
           <div class="setup-guide-main">
-            <strong>Aimashi 初始化失败</strong>
-            <p>${window.aimashiMarkdown.escapeHtml(message)}</p>
+            <strong>Mia 初始化失败</strong>
+            <p>${window.miaMarkdown.escapeHtml(message)}</p>
           </div>
         </article>
       `;
@@ -4117,7 +4117,7 @@ setInterval(refreshRuntime, 2000);
 
 (function wireTrafficLights() {
   const spacer = document.getElementById("trafficSpacer");
-  const api = window.aimashi?.window;
+  const api = window.mia?.window;
   if (!spacer || !api) return;
   spacer.addEventListener("click", (event) => {
     const btn = event.target.closest(".traffic-light");

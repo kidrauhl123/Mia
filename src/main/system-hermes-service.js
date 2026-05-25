@@ -19,7 +19,7 @@ function createSystemHermesService(deps = {}) {
     : () => {};
 
   function cachePath() {
-    return path.join(runtimePaths().home, "aimashi-system-hermes.json");
+    return path.join(runtimePaths().home, "mia-system-hermes.json");
   }
 
   function loadCache() {

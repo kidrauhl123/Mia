@@ -57,7 +57,7 @@ test("desktop only trusts a daemon running from the same runtime home", () => {
   assert.match(
     main,
     /const expectedRuntimeHome = runtimePaths\(\)\.home;[\s\S]*daemonControlServer\.ping\(settings, 500, \{ expectedRuntimeHome \}\)/,
-    "desktop must not defer group AI to a stale LaunchAgent pointed at another AIMASHI_HOME"
+    "desktop must not defer group AI to a stale LaunchAgent pointed at another MIA_HOME"
   );
 });
 
@@ -77,7 +77,7 @@ test("renderer social module no longer runs local engines for cloud room AI", ()
   const html = read("src/renderer/index.html");
 
   assert.equal(
-    /window\.aimashiGroupConductor\.handleRoomMessageAppended/.test(social),
+    /window\.miaGroupConductor\.handleRoomMessageAppended/.test(social),
     false,
     "renderer must not run conductor dispatch from room.message_appended"
   );

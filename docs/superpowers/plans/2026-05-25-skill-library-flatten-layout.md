@@ -6,7 +6,7 @@
 
 **Architecture:** 纯前端/渲染层改动。`skill-library.js` 的 `renderSkillLibrary()` 收敛为单一技能路径并产出带图标的卡片；`index.html` 删除 `#skillsSidebar`、把搜索框移进 `#skillsView` 顶部；`app.js` 清掉对已删节点的引用并在进入 skills 视图时让 `.app-shell` 折叠侧栏列；技能样式抽到新的 `styles/skills.css`，`styles.css` 净减少。主进程 `skills-loader.js` 不动。
 
-**Tech Stack:** Vanilla JS（IIFE + `window.aimashiXxx`）、原生 CSS Grid、`node --test` 源码断言测试。
+**Tech Stack:** Vanilla JS（IIFE + `window.miaXxx`）、原生 CSS Grid、`node --test` 源码断言测试。
 
 ---
 
@@ -66,11 +66,11 @@ Expected: FAIL（当前源码仍含 `renderPluginCard` / `state.directorySection
 // Single full-width skill grid: search + category pills + skill cards.
 // Plugins / connectors / extensions were removed — those data types are
 //永远为空 today and return with the future Cloud registry (sub-project B).
-// Data helpers live in skill-helpers.js (window.aimashiSkillHelpers).
+// Data helpers live in skill-helpers.js (window.miaSkillHelpers).
 (function () {
   "use strict";
 
-  let state, els, aimashi;
+  let state, els, mia;
   let escapeHtml, setText, menuItemHtml;
   let syncTopbarClickCapture;
   let closeGroupContextMenu, showNarrowContent;
@@ -79,7 +79,7 @@ Expected: FAIL（当前源码仍含 `renderPluginCard` / `state.directorySection
   function initSkillLibrary(deps) {
     state = deps.state;
     els = deps.els;
-    aimashi = deps.aimashi || (typeof window !== "undefined" ? window.aimashi : null);
+    mia = deps.mia || (typeof window !== "undefined" ? window.mia : null);
     escapeHtml = deps.escapeHtml;
     setText = deps.setText;
     menuItemHtml = deps.menuItemHtml;
@@ -98,8 +98,8 @@ Expected: FAIL（当前源码仍含 `renderPluginCard` / `state.directorySection
       skill.name,
       skill.title,
       skill.description,
-      window.aimashiSkillHelpers.skillDisplayName(skill),
-      window.aimashiSkillHelpers.skillSummaryZh(skill),
+      window.miaSkillHelpers.skillDisplayName(skill),
+      window.miaSkillHelpers.skillSummaryZh(skill),
       skill.category,
       skill.sourceLabel,
       skill.relPath,
@@ -131,7 +131,7 @@ Expected: FAIL（当前源码仍含 `renderPluginCard` / `state.directorySection
     renderSkillLibrary();
     renderSkillPreview();
     try {
-      state.selectedSkillDetail = await window.aimashi.readSkill(skillId);
+      state.selectedSkillDetail = await window.mia.readSkill(skillId);
     } catch (error) {
       console.error("Failed to read skill", error);
     }
@@ -145,18 +145,18 @@ Expected: FAIL（当前源码仍含 `renderPluginCard` / `state.directorySection
   }
 
   function renderSkillCard(skill) {
-    const tone = window.aimashiSkillHelpers.skillTone(skill);
-    const initials = window.aimashiSkillHelpers.skillInitials(skill.name);
+    const tone = window.miaSkillHelpers.skillTone(skill);
+    const initials = window.miaSkillHelpers.skillInitials(skill.name);
     return `
       <article class="skill-card${skill.id === state.selectedSkillId ? " featured" : ""}" data-skill-select="${escapeHtml(skill.id)}">
         <header>
           <span class="skill-card-icon ${escapeHtml(tone)}" aria-hidden="true">${escapeHtml(initials)}</span>
           <div class="skill-card-head">
-            <strong>${escapeHtml(window.aimashiSkillHelpers.skillDisplayName(skill))}</strong>
-            <small>${escapeHtml(skill.pluginLabel || window.aimashiSkillHelpers.skillAuthorLabel(skill))}</small>
+            <strong>${escapeHtml(window.miaSkillHelpers.skillDisplayName(skill))}</strong>
+            <small>${escapeHtml(skill.pluginLabel || window.miaSkillHelpers.skillAuthorLabel(skill))}</small>
           </div>
         </header>
-        <p>${escapeHtml(window.aimashiSkillHelpers.skillSummaryZh(skill))}</p>
+        <p>${escapeHtml(window.miaSkillHelpers.skillSummaryZh(skill))}</p>
       </article>
     `;
   }
@@ -202,12 +202,12 @@ Expected: FAIL（当前源码仍含 `renderPluginCard` / `state.directorySection
     els.skillPreviewDialog.classList.toggle("hidden", !state.skillPreviewOpen);
     const skill = state.selectedSkillDetail || state.skillLibrary.skills.find((item) => item.id === state.selectedSkillId);
     if (!skill) return;
-    els.skillPreviewMark.className = `skill-dot ${window.aimashiSkillHelpers.skillTone(skill)}`;
-    els.skillPreviewMark.textContent = window.aimashiSkillHelpers.skillInitials(skill.name);
-    setText(els.skillPreviewTitle, window.aimashiSkillHelpers.skillDisplayName(skill));
+    els.skillPreviewMark.className = `skill-dot ${window.miaSkillHelpers.skillTone(skill)}`;
+    els.skillPreviewMark.textContent = window.miaSkillHelpers.skillInitials(skill.name);
+    setText(els.skillPreviewTitle, window.miaSkillHelpers.skillDisplayName(skill));
     setText(els.skillPreviewMeta, `${skill.name || "Skill"} · ${skill.sourceLabel || "Local"} · ${skill.relPath || skill.category || ""}`);
     els.skillPreviewBody.innerHTML = skill.body
-      ? window.aimashiSkillHelpers.renderSkillMarkdownSource(skill.body)
+      ? window.miaSkillHelpers.renderSkillMarkdownSource(skill.body)
       : `<div class="skill-empty-state">正在读取 SKILL.md...</div>`;
     els.skillPreviewBody.querySelectorAll("a[href]").forEach((link) => {
       link.setAttribute("target", "_blank");
@@ -217,7 +217,7 @@ Expected: FAIL（当前源码仍含 `renderPluginCard` / `state.directorySection
 
   function openSkillContextMenu(skillId, x, y) {
     if (!skillId || !state) return;
-    window.aimashiMessageMenu?.closeMessageContextMenu();
+    window.miaMessageMenu?.closeMessageContextMenu();
     closeGroupContextMenu?.();
     state.skillContextMenu = { open: true, x, y, skillId };
     renderSkillContextMenu();
@@ -237,7 +237,7 @@ Expected: FAIL（当前源码仍含 `renderPluginCard` / `state.directorySection
     menu.classList.toggle("hidden", !open);
     syncTopbarClickCapture();
     if (!open) return;
-    const canDelete = skill.source === "aimashi";
+    const canDelete = skill.source === "mia";
     menu.innerHTML = `
       ${menuItemHtml({ icon: "preview", label: "预览", attrs: 'data-skill-action="preview"' })}
       ${menuItemHtml({ icon: "folderOpen", label: "打开目录", attrs: 'data-skill-action="open-directory"' })}
@@ -263,7 +263,7 @@ Expected: FAIL（当前源码仍含 `renderPluginCard` / `state.directorySection
     });
   }
 
-  window.aimashiSkillLibrary = {
+  window.miaSkillLibrary = {
     initSkillLibrary,
     skillMatchesFilters,
     visibleSkills,
@@ -725,7 +725,7 @@ git commit -m "style(skills): extract skills.css, full-width grid, collapse side
 - [ ] **Step 1: 全量自动化**
 
 Run: `npm test 2>&1 | tail -6 && npm run check`
-Expected: 测试全绿；`Aimashi project structure OK`。
+Expected: 测试全绿；`Mia project structure OK`。
 
 - [ ] **Step 2: 手动启动核对**
 

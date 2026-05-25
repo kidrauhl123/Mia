@@ -34,7 +34,7 @@
 ### Task 1.1 — 桌面渲染器迁移
 
 **改动**：
-- `src/renderer/app.js:698-722` 删除 `formatConversationTime`、`formatMessageTime`、`formatMessageTimeHtml` 三个本地函数；改为顶部 `const { formatConversationTime, formatMessageTime } = window.aimashiTimeFormat || require("../shared/time-format");`（沿用现有 IIFE 双源模式）。如果 `formatMessageTimeHtml` 是 HTML 包装（带 `<time>` 标签），保留 wrapper 但内部调 shared 函数。
+- `src/renderer/app.js:698-722` 删除 `formatConversationTime`、`formatMessageTime`、`formatMessageTimeHtml` 三个本地函数；改为顶部 `const { formatConversationTime, formatMessageTime } = window.miaTimeFormat || require("../shared/time-format");`（沿用现有 IIFE 双源模式）。如果 `formatMessageTimeHtml` 是 HTML 包装（带 `<time>` 标签），保留 wrapper 但内部调 shared 函数。
 - `src/renderer/message-bubble-renderer.js:14-18` 删 `shortTime`，改用 `formatMessageTime`。
 
 **验收**：
@@ -49,7 +49,7 @@ node --test tests/shared-time-format.test.js tests/renderer-*.test.js
 
 **改动**：
 - `src/web/app.js:93-104` 删本地时间格式函数。
-- 在 web 端 entry HTML 里加载 `src/shared/time-format.js`（或通过 bundling）。后续渲染调 `window.aimashiTimeFormat.formatMessageTime`。
+- 在 web 端 entry HTML 里加载 `src/shared/time-format.js`（或通过 bundling）。后续渲染调 `window.miaTimeFormat.formatMessageTime`。
 
 **验收**：
 ```bash
@@ -185,7 +185,7 @@ grep -rn "99 ?" src/ | grep -v "shared/unread" | grep -v test | wc -l
 
 **验收**：
 ```bash
-grep -n "unread" src/web/app.js | grep -v "aimashiUnread\|shared/unread" | wc -l
+grep -n "unread" src/web/app.js | grep -v "miaUnread\|shared/unread" | wc -l
 # 应只剩状态字段名（state.unread），不应有任何独立计算/渲染
 ```
 

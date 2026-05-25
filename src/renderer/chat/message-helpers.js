@@ -67,8 +67,8 @@
     if (!replyTo?.content) return "";
     return `
       <div class="message-reply-quote">
-        <span>${window.aimashiMarkdown.escapeHtml(replyTo.author || (replyTo.role === "user" ? "你" : "AI"))}</span>
-        <p>${window.aimashiMarkdown.escapeHtml(replyTo.content)}</p>
+        <span>${window.miaMarkdown.escapeHtml(replyTo.author || (replyTo.role === "user" ? "你" : "AI"))}</span>
+        <p>${window.miaMarkdown.escapeHtml(replyTo.content)}</p>
       </div>
     `;
   }
@@ -114,7 +114,7 @@
     els.chatInput.setSelectionRange(value.length, value.length);
     resizeChatInput();
     renderSendButton?.();
-    window.aimashiComposer.updateSlashCommandState();
+    window.miaComposer.updateSlashCommandState();
   }
 
   // Set a reply draft from any source (fellow message OR cloud-room message)
@@ -137,14 +137,14 @@
     }
     els.composerReply.innerHTML = `
       <div>
-        <span>回复 ${window.aimashiMarkdown.escapeHtml(reply.author || "消息")}</span>
-        <p>${window.aimashiMarkdown.escapeHtml(reply.content || "")}</p>
+        <span>回复 ${window.miaMarkdown.escapeHtml(reply.author || "消息")}</span>
+        <p>${window.miaMarkdown.escapeHtml(reply.content || "")}</p>
       </div>
       <button type="button" data-clear-reply title="取消回复" aria-label="取消回复">×</button>
     `;
   }
 
-  window.aimashiMessageHelpers = {
+  window.miaMessageHelpers = {
     initMessageHelpers,
     noteCompositionEnded,
     messageAtIndex,

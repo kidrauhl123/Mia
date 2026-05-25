@@ -26,19 +26,19 @@
   async function loadModelCatalog() {
     if (!state) return;
     try {
-      const rows = await window.aimashi.loadModelCatalog();
-      state.modelCatalog = Array.isArray(rows) && rows.length ? rows : window.aimashiModelHelpers.fallbackCatalogFromPresets();
+      const rows = await window.mia.loadModelCatalog();
+      state.modelCatalog = Array.isArray(rows) && rows.length ? rows : window.miaModelHelpers.fallbackCatalogFromPresets();
     } catch (error) {
       console.error("Failed to load Hermes model catalog", error);
-      state.modelCatalog = window.aimashiModelHelpers.fallbackCatalogFromPresets();
+      state.modelCatalog = window.miaModelHelpers.fallbackCatalogFromPresets();
     }
   }
 
   async function loadCodexModels() {
     if (!state) return;
     try {
-      if (!window.aimashi?.loadCodexModels) return;
-      const rows = await window.aimashi.loadCodexModels();
+      if (!window.mia?.loadCodexModels) return;
+      const rows = await window.mia.loadCodexModels();
       state.codexModels = Array.isArray(rows) ? rows : [];
     } catch (error) {
       console.error("Failed to load Codex model list", error);
@@ -50,8 +50,8 @@
     if (!state) return;
     let caps = { approvalModes: ["ask", "yolo", "deny"], effortLevels: ["low", "medium", "high"] };
     try {
-      if (window.aimashi.loadEngineCapabilities) {
-        const res = await window.aimashi.loadEngineCapabilities();
+      if (window.mia.loadEngineCapabilities) {
+        const res = await window.mia.loadEngineCapabilities();
         if (res && Array.isArray(res.approvalModes) && res.approvalModes.length
             && Array.isArray(res.effortLevels) && res.effortLevels.length) {
           caps = res;
@@ -62,7 +62,7 @@
     }
     state.engineCapabilities = caps;
     // `render()` calls syncEffortControl + syncPermissionControl which use
-    // window.aimashiEngineOptions.effortOptions()/externalPermissionOptions()
+    // window.miaEngineOptions.effortOptions()/externalPermissionOptions()
     // — those read state.engineCapabilities.
     render();
   }
@@ -70,7 +70,7 @@
   async function loadSlashCommands() {
     if (!state) return;
     try {
-      const rows = await window.aimashi.loadSlashCommands();
+      const rows = await window.mia.loadSlashCommands();
       state.slashCommands = Array.isArray(rows) && rows.length ? rows : fallbackSlashCommands;
     } catch (error) {
       console.error("Failed to load Hermes slash commands", error);
@@ -78,7 +78,7 @@
     }
     await Promise.allSettled(["claude-code", "codex"].map(async (engine) => {
       try {
-        const registry = await window.aimashi.loadAgentCommands?.({ engine });
+        const registry = await window.mia.loadAgentCommands?.({ engine });
         const rows = Array.isArray(registry?.rows) ? registry.rows : (Array.isArray(registry) ? registry : []);
         state.agentSlashCommands[engine] = rows
           .filter((item) => item?.command || item?.name)
@@ -99,9 +99,9 @@
   async function loadSkills() {
     if (!state) return;
     state.skillsLoading = true;
-    window.aimashiSkillLibrary.renderSkillLibrary();
+    window.miaSkillLibrary.renderSkillLibrary();
     try {
-      const library = await window.aimashi.loadSkills();
+      const library = await window.mia.loadSkills();
       const sources = Array.isArray(library?.sources)
         ? library.sources
         : (Array.isArray(library?.plugins) ? library.plugins : []);
@@ -117,7 +117,7 @@
         state.selectedSkillId = state.skillLibrary.skills[0]?.id || "";
         state.selectedSkillDetail = null;
       }
-      if (state.selectedSkillId) await window.aimashiSkillLibrary.selectSkill(state.selectedSkillId, false);
+      if (state.selectedSkillId) await window.miaSkillLibrary.selectSkill(state.selectedSkillId, false);
     } catch (error) {
       console.error("Failed to load local skills", error);
       state.skillLibrary = { plugins: [], sources: [], extensions: [], connectors: [], roots: [], skills: [] };
@@ -125,12 +125,12 @@
       state.selectedSkillDetail = null;
     } finally {
       state.skillsLoading = false;
-      window.aimashiSkillLibrary.renderSkillLibrary();
-      window.aimashiComposer.renderSkillPicker();
+      window.miaSkillLibrary.renderSkillLibrary();
+      window.miaComposer.renderSkillPicker();
     }
   }
 
-  window.aimashiLoaders = {
+  window.miaLoaders = {
     initLoaders,
     loadModelCatalog,
     loadCodexModels,

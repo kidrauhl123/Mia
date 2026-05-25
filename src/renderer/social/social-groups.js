@@ -1,10 +1,10 @@
 // Renderer-side group-room feature: group message rendering, @mention send,
 // and the create-group dialog.
 // Loaded by <script src="./social/social-groups.js"> AFTER social.js.
-// Uses window.aimashiSocial._internalCtx to share state.
+// Uses window.miaSocial._internalCtx to share state.
 
 (function (global) {
-  const { MemberKind } = (typeof window !== "undefined" && window.aimashiConversationKinds) || require("../../shared/conversation-kinds");
+  const { MemberKind } = (typeof window !== "undefined" && window.miaConversationKinds) || require("../../shared/conversation-kinds");
 
   let ctx = null; // set by attach()
 
@@ -29,7 +29,7 @@
   }
 
   function _cloudRoomSourceFor(roomId, msgs, members) {
-    const factory = global.aimashiCloudRoomSource;
+    const factory = global.miaCloudRoomSource;
     if (!factory || typeof factory.createCloudRoomSource !== "function") return null;
     return factory.createCloudRoomSource({
       room: { id: roomId },
@@ -56,7 +56,7 @@
     const senderLabel = isOwn ? "" : (authorName || "");
     const avatar = (spec && spec.avatar) || { image: "", crop: null, color: "" };
     const avatarColor = avatar.color || accentColor || "#5e5ce6";
-    const avatarHelpers = window.aimashiAvatar;
+    const avatarHelpers = window.miaAvatar;
     const avatarStyle = (avatarHelpers && typeof avatarHelpers.avatarThumbBackgroundStyle === "function")
       ? avatarHelpers.avatarThumbBackgroundStyle(avatar.image, avatar.crop, avatarColor)
       : `background-color:${avatarColor};`;
@@ -70,7 +70,7 @@
       : "";
     const createdAt = msg.created_at || msg.createdAt || "";
     const timeHtml = createdAt
-      ? `<time class="message-time" datetime="${escapeHtml(createdAt)}">${escapeHtml(window.aimashiTimeFormat.formatMessageTime(createdAt))}</time>`
+      ? `<time class="message-time" datetime="${escapeHtml(createdAt)}">${escapeHtml(window.miaTimeFormat.formatMessageTime(createdAt))}</time>`
       : "";
 
     // Index in the room's message cache — used by the chat-level contextmenu
@@ -109,9 +109,9 @@
   }
 
   async function fetchAndCacheRoomMembers(roomId) {
-    if (!window.aimashi || !window.aimashi.social) return;
+    if (!window.mia || !window.mia.social) return;
     try {
-      const res = await window.aimashi.social.getRoom(roomId);
+      const res = await window.mia.social.getRoom(roomId);
       if (res.ok && res.data && Array.isArray(res.data.members)) {
         ctx.roomMembersCache.set(roomId, res.data.members);
       }
@@ -125,8 +125,8 @@
   // and group rooms share one optimistic-send/reconcile pipeline.
 
   async function sendInActiveGroupRoom(text) {
-    if (global.aimashiSocial && typeof global.aimashiSocial.sendInActiveRoom === "function") {
-      return global.aimashiSocial.sendInActiveRoom(text);
+    if (global.miaSocial && typeof global.miaSocial.sendInActiveRoom === "function") {
+      return global.miaSocial.sendInActiveRoom(text);
     }
     console.warn("[social-groups] unified social send path is unavailable");
   }
@@ -174,8 +174,8 @@
 
       const avatarEl = document.createElement("span");
       avatarEl.className = "member-avatar";
-      if (entry.image && typeof window.aimashiAvatar?.avatarThumbBackgroundStyle === "function") {
-        avatarEl.style.cssText = window.aimashiAvatar.avatarThumbBackgroundStyle(entry.image, entry.crop, entry.color);
+      if (entry.image && typeof window.miaAvatar?.avatarThumbBackgroundStyle === "function") {
+        avatarEl.style.cssText = window.miaAvatar.avatarThumbBackgroundStyle(entry.image, entry.crop, entry.color);
       } else {
         avatarEl.style.background = entry.color;
       }
@@ -269,7 +269,7 @@
       try {
         // Phase 5 cutover: every group is a cloud room. Login required.
         const memberFellows = fellowEntries.map((e) => ({ fellowId: e.id }));
-        const res = await window.aimashi.social.createRoom({ name, memberFellows, memberFriendUserIds });
+        const res = await window.mia.social.createRoom({ name, memberFellows, memberFriendUserIds });
         if (!res.ok) { alert("创建失败：" + (res.error || "")); confirmBtn.disabled = false; return; }
         const newRoom = res.data?.room || res.data;
         if (newRoom && newRoom.id) {
@@ -299,9 +299,9 @@
     dialog.addEventListener("click", onBackdropClick);
   }
 
-  // ── wire up to aimashiSocial ──────────────────────────────────────────────
+  // ── wire up to miaSocial ──────────────────────────────────────────────
 
-  global.aimashiSocialGroups = {
+  global.miaSocialGroups = {
     attach,
     buildGroupMessageArticle,
     fetchAndCacheRoomMembers,
@@ -309,8 +309,8 @@
     openCreateGroupDialog
   };
 
-  // Auto-attach if aimashiSocial already loaded (normal script order: social.js first).
-  if (global.aimashiSocial && global.aimashiSocial._internalCtx) {
-    attach(global.aimashiSocial._internalCtx);
+  // Auto-attach if miaSocial already loaded (normal script order: social.js first).
+  if (global.miaSocial && global.miaSocial._internalCtx) {
+    attach(global.miaSocial._internalCtx);
   }
 })(typeof window !== "undefined" ? window : globalThis);

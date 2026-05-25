@@ -15,7 +15,7 @@ function readJson(filePath, fallback) {
 }
 
 function setup(t, overrides = {}) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-engine-install-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-engine-install-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const runtime = {
     engine: path.join(dir, "hermes-engine"),
@@ -30,7 +30,7 @@ function setup(t, overrides = {}) {
     bundledPython: () => "",
     bundledSitePackages: () => "",
     buildPythonPath: () => `${runtime.pluginsDir}:${path.join(dir, "site-packages")}`,
-    engineMarkerPath: () => path.join(runtime.engine, "aimashi-runtime.json"),
+    engineMarkerPath: () => path.join(runtime.engine, "mia-runtime.json"),
     readJson,
     appendLog: (line) => logs.push(line),
     clearLogs: () => calls.push({ type: "clearLogs" }),
@@ -173,7 +173,7 @@ test("runInstallCommand logs command output, injects install environment, and th
 });
 
 test("installFromDevSource replaces managed engine with filtered source copy and marker", (t) => {
-  const source = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-dev-engine-"));
+  const source = fs.mkdtempSync(path.join(os.tmpdir(), "mia-dev-engine-"));
   t.after(() => fs.rmSync(source, { recursive: true, force: true }));
   fs.mkdirSync(path.join(source, "hermes_cli"), { recursive: true });
   fs.writeFileSync(path.join(source, "hermes_cli", "main.py"), "print('ok')\n");
@@ -200,7 +200,7 @@ test("installFromDevSource replaces managed engine with filtered source copy and
   assert.equal(fs.existsSync(path.join(runtime.engine, ".git", "ignored")), false);
   assert.equal(fs.existsSync(path.join(runtime.engine, "tests", "ignored.py")), false);
   assert.deepEqual(readJson(service.engineMarkerPath(), {}), {
-    product: "aimashi",
+    product: "mia",
     source: "maintained-local-source",
     source_path: source,
     installed_at: "2026-05-25T00:00:00.000Z"
@@ -244,13 +244,13 @@ test("installFromOfficialPackage builds venv, retries without extras, verifies p
     [service.venvPythonPath(), "-m", "pip", "install", "--upgrade", "hermes-agent[web] @ https://github.com/NousResearch/hermes-agent/archive/main.tar.gz"],
     [service.venvPythonPath(), "-m", "pip", "install", "--upgrade", "hermes-agent @ https://github.com/NousResearch/hermes-agent/archive/main.tar.gz"],
     [service.venvPythonPath(), "-c", "import hermes_cli.main, fastapi, uvicorn; print('hermes_cli + web deps import OK')"],
-    [service.venvPythonPath(), "-c", "import aimashi_plugins; print('aimashi_plugins import OK')"]
+    [service.venvPythonPath(), "-c", "import mia_plugins; print('mia_plugins import OK')"]
   ]);
   assert.match(logs.join("\n"), /Official Hermes install with extras failed; retrying base install/);
   assert.deepEqual(status, { created: ["runtime/hermes-engine"], engineInstalled: true });
   assert.match(fs.readFileSync(path.join(runtime.engine, "README.md"), "utf8"), /official Hermes source archive/);
   assert.deepEqual(readJson(service.engineMarkerPath(), {}), {
-    product: "aimashi",
+    product: "mia",
     source: "official-github-archive",
     package: "hermes-agent",
     repo: "https://github.com/NousResearch/hermes-agent/",

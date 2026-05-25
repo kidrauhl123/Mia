@@ -146,7 +146,7 @@ function createTasksStore(filePath) {
   }
 
   // Called by the renderer's session-delete flow when that handler exists.
-  // As of v1, aimashi only supports deleting a fellow (which deletes its
+  // As of v1, mia only supports deleting a fellow (which deletes its
   // session bucket as a unit) — that path uses orphanByFellow above.
   // Kept for the future per-session delete flow.
   function orphanBySession(sessionId) {

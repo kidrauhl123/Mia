@@ -31,7 +31,7 @@ async function startLiteLLMFake() {
   const port = await freePort();
   const calls = [];
   let models = [{
-    model_name: "aimashi-default",
+    model_name: "mia-default",
     litellm_params: { model: "openai/old", api_key: "hidden" },
     model_info: { id: "old-model-id" }
   }];
@@ -67,7 +67,7 @@ async function startLiteLLMFake() {
       }
       if (req.method === "POST" && url.pathname === "/v1/chat/completions") {
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ model: "aimashi-default", choices: [{ message: { content: "aimashi-ok" } }] }));
+        res.end(JSON.stringify({ model: "mia-default", choices: [{ message: { content: "mia-ok" } }] }));
         return;
       }
       res.writeHead(404, { "content-type": "application/json" });
@@ -79,26 +79,26 @@ async function startLiteLLMFake() {
 }
 
 async function startCloud(litellmPort) {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-admin-test-"));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-admin-test-"));
   const port = await freePort();
   const proc = spawn(process.execPath, ["scripts/serve-cloud.js"], {
     env: {
       ...process.env,
-      AIMASHI_CLOUD_HOST: "127.0.0.1",
-      AIMASHI_CLOUD_PORT: String(port),
-      AIMASHI_CLOUD_DATA: tmpDir,
-      AIMASHI_CLOUD_ADMIN_USERNAME: "admin",
-      AIMASHI_CLOUD_ADMIN_PASSWORD: "secret",
-      AIMASHI_LITELLM_ADMIN_BASE_URL: `http://127.0.0.1:${litellmPort}`,
+      MIA_CLOUD_HOST: "127.0.0.1",
+      MIA_CLOUD_PORT: String(port),
+      MIA_CLOUD_DATA: tmpDir,
+      MIA_CLOUD_ADMIN_USERNAME: "admin",
+      MIA_CLOUD_ADMIN_PASSWORD: "secret",
+      MIA_LITELLM_ADMIN_BASE_URL: `http://127.0.0.1:${litellmPort}`,
       LITELLM_MASTER_KEY: "master",
-      AIMASHI_CLOUD_AGENT_MODEL_API_KEY: "service"
+      MIA_CLOUD_AGENT_MODEL_API_KEY: "service"
     },
     stdio: ["ignore", "pipe", "pipe"]
   });
   await new Promise((resolve, reject) => {
     const done = () => resolve();
     proc.stdout.on("data", (chunk) => { if (/listening|Listening/.test(chunk.toString())) done(); });
-    proc.stderr.on("data", (chunk) => { if (/listening|Listening|aimashi-cloud/i.test(chunk.toString())) done(); });
+    proc.stderr.on("data", (chunk) => { if (/listening|Listening|mia-cloud/i.test(chunk.toString())) done(); });
     proc.on("error", reject);
     setTimeout(done, 1200);
   });
@@ -119,14 +119,14 @@ test("admin model gateway is protected by Basic auth", async () => {
   try {
     const unauth = await request(cloud.port, "GET", "/api/admin/model-gateway");
     assert.equal(unauth.status, 401);
-    assert.match(String(unauth.headers["www-authenticate"] || ""), /Aimashi Admin/);
+    assert.match(String(unauth.headers["www-authenticate"] || ""), /Mia Admin/);
   } finally {
     await stopCloud(cloud);
     await new Promise((resolve) => lite.server.close(resolve));
   }
 });
 
-test("admin model gateway replaces aimashi-default without leaking provider key", async () => {
+test("admin model gateway replaces mia-default without leaking provider key", async () => {
   const lite = await startLiteLLMFake();
   const cloud = await startCloud(lite.port);
   const auth = { username: "admin", password: "secret" };
@@ -143,7 +143,7 @@ test("admin model gateway replaces aimashi-default without leaking provider key"
     assert.equal(saved.body.ok, true);
     assert.equal(saved.body.model.litellm_params.api_key, "configured");
     assert.equal(lite.models.length, 1);
-    assert.equal(lite.models[0].model_name, "aimashi-default");
+    assert.equal(lite.models[0].model_name, "mia-default");
     assert.equal(lite.models[0].litellm_params.model, "deepseek/deepseek-chat");
     assert.equal(lite.models[0].litellm_params.api_key, "sk-provider-secret");
     assert.ok(lite.calls.some((call) => call.path === "/model/delete"));
@@ -154,7 +154,7 @@ test("admin model gateway replaces aimashi-default without leaking provider key"
 
     const tested = await request(cloud.port, "POST", "/api/admin/model-gateway/test", { auth, body: {} });
     assert.equal(tested.status, 200);
-    assert.equal(tested.body.reply, "aimashi-ok");
+    assert.equal(tested.body.reply, "mia-ok");
   } finally {
     await stopCloud(cloud);
     await new Promise((resolve) => lite.server.close(resolve));

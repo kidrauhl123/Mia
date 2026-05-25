@@ -8,8 +8,8 @@ async function startWebServer() {
   const proc = spawn(process.execPath, ["scripts/serve-web.js"], {
     env: {
       ...process.env,
-      AIMASHI_WEB_HOST: "127.0.0.1",
-      AIMASHI_WEB_PORT: String(port)
+      MIA_WEB_HOST: "127.0.0.1",
+      MIA_WEB_PORT: String(port)
     },
     stdio: ["ignore", "pipe", "pipe"]
   });
@@ -52,15 +52,15 @@ test("web dev server serves shared source modules used by index.html", async () 
     const engine = await fetch(`${baseUrl}/shared/engine-contracts.js`);
     assert.equal(engine.status, 200);
     assert.match(engine.headers.get("content-type") || "", /javascript/);
-    assert.match(await engine.text(), /aimashiEngineContracts/);
+    assert.match(await engine.text(), /miaEngineContracts/);
 
     const cloudRoomSource = await fetch(`${baseUrl}/message-sources/cloud-room-source.js`);
     assert.equal(cloudRoomSource.status, 200);
     assert.match(cloudRoomSource.headers.get("content-type") || "", /javascript/);
-    assert.match(await cloudRoomSource.text(), /aimashiCloudRoomSource/);
+    assert.match(await cloudRoomSource.text(), /miaCloudRoomSource/);
 
     const traversal = await fetch(`${baseUrl}/%2e%2e/package.json`);
-    assert.doesNotMatch(await traversal.text(), /"aimashi"/);
+    assert.doesNotMatch(await traversal.text(), /"mia"/);
   } finally {
     await stopWebServer(proc);
   }

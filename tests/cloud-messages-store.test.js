@@ -8,7 +8,7 @@ const { createSocialStore } = require("../src/cloud/social-store.js");
 const { createMessagesStore } = require("../src/cloud/messages-store.js");
 
 function setup() {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-msg-test-"));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-msg-test-"));
   const cloudStore = createCloudStore({ dataDir: tmpDir });
   const db = cloudStore.getDb();
   const social = createSocialStore(db);

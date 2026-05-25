@@ -105,7 +105,7 @@ function createLaunchdService(deps = {}) {
     const p = runtimePaths();
     return {
       HERMES_HOME: effectiveHermesHome(),
-      AIMASHI_HOME: p.home,
+      MIA_HOME: p.home,
       HERMES_LANGUAGE: env.HERMES_LANGUAGE || "zh",
       HERMES_ACCEPT_HOOKS: "1",
       GATEWAY_ALLOW_ALL_USERS: "true",
@@ -118,7 +118,7 @@ function createLaunchdService(deps = {}) {
     return [
       enginePython(),
       "-m",
-      "aimashi_plugins",
+      "mia_plugins",
       "gateway",
       "run",
       "--replace",
@@ -156,9 +156,9 @@ function createLaunchdService(deps = {}) {
   function daemonEnvironment() {
     const p = runtimePaths();
     return {
-      AIMASHI_DAEMON: "1",
+      MIA_DAEMON: "1",
       HERMES_HOME: effectiveHermesHome(),
-      AIMASHI_HOME: p.home,
+      MIA_HOME: p.home,
       HERMES_LANGUAGE: env.HERMES_LANGUAGE || "zh",
       PATH: env.PATH || "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin",
       PYTHONUNBUFFERED: "1"
@@ -213,7 +213,7 @@ function createLaunchdService(deps = {}) {
       plistPath: runtimePaths().launchAgent,
       label: gatewayServiceLabel,
       writePlist: writeGatewayLaunchAgentPlist,
-      errorMessage: "Aimashi background service is currently implemented for macOS launchd."
+      errorMessage: "Mia background service is currently implemented for macOS launchd."
     });
   }
 
@@ -226,7 +226,7 @@ function createLaunchdService(deps = {}) {
       plistPath: runtimePaths().daemonLaunchAgent,
       label: daemonServiceLabel,
       writePlist: writeDaemonLaunchAgentPlist,
-      errorMessage: "Aimashi daemon LaunchAgent is currently implemented for macOS launchd."
+      errorMessage: "Mia daemon LaunchAgent is currently implemented for macOS launchd."
     });
   }
 

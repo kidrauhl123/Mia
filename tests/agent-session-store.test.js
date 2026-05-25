@@ -15,10 +15,10 @@ function readJson(filePath, fallback) {
 }
 
 function setup(t) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-agent-session-store-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-agent-session-store-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const runtime = {
-    agentSessions: path.join(dir, "home", "aimashi-agent-sessions.json")
+    agentSessions: path.join(dir, "home", "mia-agent-sessions.json")
   };
   const service = createAgentSessionStore({
     runtimePaths: () => runtime,
@@ -32,7 +32,7 @@ test("sessionKey normalizes engine, fellow, and local session defaults", (t) => 
   const { service } = setup(t);
 
   assert.equal(service.sessionKey(" codex ", " alice ", " local_1 "), "engine:codex:alice:local_1");
-  assert.equal(service.sessionKey("", "", ""), "engine:hermes:aimashi:default");
+  assert.equal(service.sessionKey("", "", ""), "engine:hermes:mia:default");
 });
 
 test("loadMap falls back to an empty object and saveMap persists with private permissions", (t) => {

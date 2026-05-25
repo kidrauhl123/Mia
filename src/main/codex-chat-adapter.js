@@ -5,7 +5,7 @@ const path = require("node:path");
 
 function mapCodexPermissionMode(value) {
   const id = String(value || "default").trim();
-  // approvalPolicy is forced to "never" across the board: aimashi has no
+  // approvalPolicy is forced to "never" across the board: mia has no
   // approval UI surfaced inside chat, so any non-"never" policy makes Codex
   // self-cancel tool calls (it interprets "no human reachable" as a denial).
   // Sandbox mode is still honored from the user's dropdown.
@@ -21,7 +21,7 @@ function statelessPrompt(systemPrompt, userPrompt) {
 
 function stoppedError() {
   const stopped = new Error("生成已停止");
-  stopped.code = "AIMASHI_STOPPED";
+  stopped.code = "MIA_STOPPED";
   return stopped;
 }
 
@@ -204,7 +204,7 @@ function createCodexChatAdapter(deps = {}) {
       : "";
     const prompt = persona
       ? [
-          "以下是 Aimashi 给当前 Fellow 的人设，请在本次对话中遵守：",
+          "以下是 Mia 给当前 Fellow 的人设，请在本次对话中遵守：",
           "",
           persona,
           "",
@@ -254,7 +254,7 @@ function createCodexChatAdapter(deps = {}) {
       model: "codex-cli",
       content: contentWithGeneratedImages(turn?.finalResponse, imagePaths),
       attachments: generatedImageAttachments(imagePaths),
-      aimashi: {
+      mia: {
         transport: "codex-sdk",
         engine,
         session_id: capturedSessionId || "",

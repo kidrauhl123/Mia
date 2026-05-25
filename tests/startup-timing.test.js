@@ -15,7 +15,7 @@ test("startup timer records marks and writes scoped log lines", () => {
   assert.equal(mark.id, 7);
   assert.equal(typeof mark.elapsedMs, "number");
   assert.equal(timer.snapshot().length, 1);
-  assert.match(lines[0], /^\[Aimashi:test\] window:created \+\d+ms id=7$/);
+  assert.match(lines[0], /^\[Mia:test\] window:created \+\d+ms id=7$/);
 });
 
 test("startup timer snapshot is immutable from caller mutations", () => {

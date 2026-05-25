@@ -8,15 +8,15 @@ const SHARED_DIR = path.join(__dirname, "..", "src", "shared");
 
 // Each entry: { file: shared module filename, global: expected window.* attach name }
 const SHARED_MODULES = [
-  { file: "engine-contracts.js", global: "aimashiEngineContracts" },
-  { file: "ipc-channels.js", global: "aimashiIpcChannels" },
-  { file: "contact.js", global: "aimashiContact" },
-  { file: "message-spec.js", global: "aimashiMessageSpec" },
-  { file: "time-format.js", global: "aimashiTimeFormat" },
-  { file: "cloud-events.js", global: "aimashiCloudEvents" },
-  { file: "unread.js", global: "aimashiUnread" },
-  { file: "conversation-kinds.js", global: "aimashiConversationKinds" },
-  { file: "send-pipeline.js", global: "aimashiSendPipeline" }
+  { file: "engine-contracts.js", global: "miaEngineContracts" },
+  { file: "ipc-channels.js", global: "miaIpcChannels" },
+  { file: "contact.js", global: "miaContact" },
+  { file: "message-spec.js", global: "miaMessageSpec" },
+  { file: "time-format.js", global: "miaTimeFormat" },
+  { file: "cloud-events.js", global: "miaCloudEvents" },
+  { file: "unread.js", global: "miaUnread" },
+  { file: "conversation-kinds.js", global: "miaConversationKinds" },
+  { file: "send-pipeline.js", global: "miaSendPipeline" }
 ];
 
 function runInBrowserSandbox(filePath) {

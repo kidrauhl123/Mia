@@ -29,13 +29,13 @@ function loadSocial() {
     cloneNode() { return mockEl(); },
   });
   const mockWindow = {
-    aimashi: {},
-    aimashiSendPipeline: require("../src/shared/send-pipeline.js"),
-    aimashiMarkdown: {
+    mia: {},
+    miaSendPipeline: require("../src/shared/send-pipeline.js"),
+    miaMarkdown: {
       escapeHtml: (v) => String(v || "").replace(/&/g, "&amp;").replace(/</g, "&lt;"),
       renderMarkdown: (v) => String(v || ""),
     },
-    aimashiTimeFormat: { formatMessageTime: () => "now" },
+    miaTimeFormat: { formatMessageTime: () => "now" },
   };
   const context = vm.createContext({
     window: mockWindow,
@@ -65,8 +65,8 @@ function loadSocial() {
     Math,
   });
   vm.runInContext(src, context);
-  mockWindow.aimashiSocial.__mockWindow = mockWindow;
-  return mockWindow.aimashiSocial;
+  mockWindow.miaSocial.__mockWindow = mockWindow;
+  return mockWindow.miaSocial;
 }
 
 async function withMutedConsoleWarn(fn) {
@@ -98,7 +98,7 @@ test("bootstrapAfterLogin ensures local fellow rooms before listing rooms", asyn
     els: {},
     appendTransientChat: () => {}
   });
-  s.__mockWindow.aimashi.social = {
+  s.__mockWindow.mia.social = {
     myUsername: async () => ({ ok: true, data: { id: "u_1", username: "jung" } }),
     listFriends: async () => ({ ok: true, data: { friends: [] } }),
     listFriendRequests: async () => ({ ok: true, data: { requests: [] } }),
@@ -134,7 +134,7 @@ test("bootstrapAfterLogin warns when fellow room ensure returns ok false", async
       els: {},
       appendTransientChat: () => {}
     });
-    s.__mockWindow.aimashi.social = {
+    s.__mockWindow.mia.social = {
       myUsername: async () => ({ ok: true, data: { id: "u_1", username: "jung" } }),
       listFriends: async () => ({ ok: true, data: { friends: [] } }),
       listFriendRequests: async () => ({ ok: true, data: { requests: [] } }),
@@ -240,21 +240,21 @@ test("renderSidebarRows includes group rooms with type group-room", () => {
   s.moduleState.rooms = [
     { id: "dm:u_me:u_a", type: "dm", updatedAt: "2026-05-21T20:00:00.000Z", name: null },
     { id: "g_squad", type: "group", updatedAt: "2026-05-21T21:00:00.000Z", name: "Squad" },
-    { id: "fellow:u_me:aimashi", type: "fellow", updatedAt: "2026-05-21T22:00:00.000Z", name: "Aimashi" }
+    { id: "fellow:u_me:mia", type: "fellow", updatedAt: "2026-05-21T22:00:00.000Z", name: "Mia" }
   ];
   s.moduleState.friends = [{ id: "u_a", username: "alice" }];
   const rows = s.renderSidebarRows();
   assert.equal(rows.length, 3);
   const groupRow = rows.find((r) => r.type === "group-room");
   assert.equal(groupRow.room.name, "Squad");
-  const fellowRow = rows.find((item) => item.room?.id === "fellow:u_me:aimashi");
+  const fellowRow = rows.find((item) => item.room?.id === "fellow:u_me:mia");
   assert.equal(fellowRow.type, "private-room");
 });
 
 test("sendInActiveGroupRoom uses the unified cloud-room send path", async () => {
   const s = loadSocial();
   const posted = [];
-  s.__mockWindow.aimashi.social = {
+  s.__mockWindow.mia.social = {
     postRoomMessage: async (roomId, body) => {
       posted.push({ roomId, body });
       return { ok: true, data: { message: { id: "m1", seq: 1, body_md: body.bodyMd } } };
@@ -276,13 +276,13 @@ test("sendInActiveGroupRoom delegates to the unified cloud-room send path", asyn
   const s = loadSocial();
   const posted = [];
   let attached = null;
-  s.__mockWindow.aimashi.social = {
+  s.__mockWindow.mia.social = {
     postRoomMessage: async (roomId, body) => {
       posted.push({ roomId, body });
       return { ok: true, data: { message: { id: "m1", seq: 1, body_md: body.bodyMd } } };
     }
   };
-  s.__mockWindow.aimashiSocialGroups = {
+  s.__mockWindow.miaSocialGroups = {
     attach(ctx) { attached = ctx; },
     sendInActiveGroupRoom() { throw new Error("groups module not attached"); }
   };
@@ -304,7 +304,7 @@ test("sendInActiveRoom shows outgoing cloud messages before the network reply re
   const post = deferred();
   const posted = [];
   s.moduleState.myUserId = "u_me";
-  s.__mockWindow.aimashi.social = {
+  s.__mockWindow.mia.social = {
     postRoomMessage: async (roomId, body) => {
       posted.push({ roomId, body });
       return post.promise;
@@ -341,7 +341,7 @@ test("sendInActiveRoom keeps a failed outgoing cloud message visible", async () 
   const s = loadSocial();
   const posted = [];
   s.moduleState.myUserId = "u_me";
-  s.__mockWindow.aimashi.social = {
+  s.__mockWindow.mia.social = {
     postRoomMessage: async (roomId, body) => {
       posted.push({ roomId, body });
       return { ok: false, error: "network down" };
@@ -364,12 +364,12 @@ test("sendInActiveRoom keeps a failed outgoing cloud message visible", async () 
 test("renderRoomChat marks failed outgoing cloud messages", async () => {
   const s = loadSocial();
   s.moduleState.myUserId = "u_me";
-  s.__mockWindow.aimashi.social = {
+  s.__mockWindow.mia.social = {
     postRoomMessage: async () => ({ ok: false, error: "network down" })
   };
-  s.moduleState.activeRoomId = "fellow:u_me:aimashi";
-  s.moduleState.rooms = [{ id: "fellow:u_me:aimashi", type: "fellow", name: "Aimashi" }];
-  s.moduleState.messageCache.set("fellow:u_me:aimashi", { messages: [], maxSeq: 0 });
+  s.moduleState.activeRoomId = "fellow:u_me:mia";
+  s.moduleState.rooms = [{ id: "fellow:u_me:mia", type: "fellow", name: "Mia" }];
+  s.moduleState.messageCache.set("fellow:u_me:mia", { messages: [], maxSeq: 0 });
 
   await withMutedConsoleWarn(() => s.sendInActiveRoom("hello failed"));
 
@@ -394,7 +394,7 @@ test("sendInActiveRoom posts group mentions in cloud fellow format", async () =>
   const s = loadSocial();
   const posted = [];
   s.moduleState.myUserId = "u_me";
-  s.__mockWindow.aimashi.social = {
+  s.__mockWindow.mia.social = {
     postRoomMessage: async (roomId, body) => {
       posted.push({ roomId, body });
       return { ok: true, data: { message: { id: "m1", seq: 1, sender_kind: "user", sender_ref: "u_me", body_md: body.bodyMd } } };
@@ -441,17 +441,17 @@ test("handleCloudEvent cloud_agent_run events track transient room streaming sta
   s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
   s.handleCloudEvent({
     type: "cloud_agent_run_started",
-    payload: { roomId: "fellow:u_a:aimashi", runId: "car_1", hermesRunId: "hr_1", fellowId: "aimashi" },
+    payload: { roomId: "fellow:u_a:mia", runId: "car_1", hermesRunId: "hr_1", fellowId: "mia" },
   });
   s.handleCloudEvent({
     type: "cloud_agent_run_event",
-    payload: { roomId: "fellow:u_a:aimashi", runId: "car_1", event: { type: "message.delta", delta: "hello " } },
+    payload: { roomId: "fellow:u_a:mia", runId: "car_1", event: { type: "message.delta", delta: "hello " } },
   });
   s.handleCloudEvent({
     type: "cloud_agent_run_event",
-    payload: { roomId: "fellow:u_a:aimashi", runId: "car_1", event: { type: "tool.started", tool: "shell" } },
+    payload: { roomId: "fellow:u_a:mia", runId: "car_1", event: { type: "tool.started", tool: "shell" } },
   });
-  const run = s.moduleState.cloudAgentRunsByRoom.get("fellow:u_a:aimashi");
+  const run = s.moduleState.cloudAgentRunsByRoom.get("fellow:u_a:mia");
   assert.equal(run.hermesRunId, "hr_1");
   assert.equal(run.text, "hello ");
   assert.equal(run.tools.map((tool) => tool.name).join(","), "shell");
@@ -481,12 +481,12 @@ test("handleCloudEvent does not infer group typing state from conductor-mode use
 test("renderRoomChat hides typing until an agent stream emits text", () => {
   const s = loadSocial();
   s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
-  s.moduleState.activeRoomId = "fellow:u_a:aimashi";
-  s.moduleState.rooms = [{ id: "fellow:u_a:aimashi", type: "fellow", decorations: { fellowKey: "aimashi" } }];
-  s.moduleState.messageCache.set("fellow:u_a:aimashi", { messages: [], maxSeq: 0 });
+  s.moduleState.activeRoomId = "fellow:u_a:mia";
+  s.moduleState.rooms = [{ id: "fellow:u_a:mia", type: "fellow", decorations: { fellowKey: "mia" } }];
+  s.moduleState.messageCache.set("fellow:u_a:mia", { messages: [], maxSeq: 0 });
   s.handleCloudEvent({
     type: "cloud_agent_run_started",
-    payload: { roomId: "fellow:u_a:aimashi", runId: "car_1", fellowId: "aimashi" },
+    payload: { roomId: "fellow:u_a:mia", runId: "car_1", fellowId: "mia" },
   });
 
   const chat = {
@@ -506,16 +506,16 @@ test("renderRoomChat hides typing until an agent stream emits text", () => {
 test("renderRoomChat does not label tool-only agent activity as typing", () => {
   const s = loadSocial();
   s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
-  s.moduleState.activeRoomId = "fellow:u_a:aimashi";
-  s.moduleState.rooms = [{ id: "fellow:u_a:aimashi", type: "fellow", decorations: { fellowKey: "aimashi" } }];
-  s.moduleState.messageCache.set("fellow:u_a:aimashi", { messages: [], maxSeq: 0 });
+  s.moduleState.activeRoomId = "fellow:u_a:mia";
+  s.moduleState.rooms = [{ id: "fellow:u_a:mia", type: "fellow", decorations: { fellowKey: "mia" } }];
+  s.moduleState.messageCache.set("fellow:u_a:mia", { messages: [], maxSeq: 0 });
   s.handleCloudEvent({
     type: "cloud_agent_run_started",
-    payload: { roomId: "fellow:u_a:aimashi", runId: "car_1", fellowId: "aimashi" },
+    payload: { roomId: "fellow:u_a:mia", runId: "car_1", fellowId: "mia" },
   });
   s.handleCloudEvent({
     type: "cloud_agent_run_event",
-    payload: { roomId: "fellow:u_a:aimashi", runId: "car_1", event: { type: "tool.started", tool: "search" } },
+    payload: { roomId: "fellow:u_a:mia", runId: "car_1", event: { type: "tool.started", tool: "search" } },
   });
 
   const chat = {
@@ -539,15 +539,15 @@ test("handleCloudEvent fellow reply clears transient cloud agent stream", () => 
   s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
   s.handleCloudEvent({
     type: "cloud_agent_run_started",
-    payload: { roomId: "fellow:u_a:aimashi", runId: "car_1" },
+    payload: { roomId: "fellow:u_a:mia", runId: "car_1" },
   });
-  assert.ok(s.moduleState.cloudAgentRunsByRoom.has("fellow:u_a:aimashi"));
+  assert.ok(s.moduleState.cloudAgentRunsByRoom.has("fellow:u_a:mia"));
   s.handleCloudEvent({
     type: "room.message_appended",
     payload: {
-      roomId: "fellow:u_a:aimashi",
-      message: { id: "m1", seq: 1, sender_kind: "fellow", sender_ref: "aimashi", body_md: "done" },
+      roomId: "fellow:u_a:mia",
+      message: { id: "m1", seq: 1, sender_kind: "fellow", sender_ref: "mia", body_md: "done" },
     },
   });
-  assert.equal(s.moduleState.cloudAgentRunsByRoom.has("fellow:u_a:aimashi"), false);
+  assert.equal(s.moduleState.cloudAgentRunsByRoom.has("fellow:u_a:mia"), false);
 });

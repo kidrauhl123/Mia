@@ -34,7 +34,7 @@
     return "FILE";
   }
 
-  window.aimashiFormat = {
+  window.miaFormat = {
     formatBytes,
     attachmentKind,
     attachmentGlyph,

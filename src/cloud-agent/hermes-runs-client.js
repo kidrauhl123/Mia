@@ -122,7 +122,7 @@ function createHermesRunsClient(deps = {}) {
       }
     };
     const headers = {
-      "X-Aimashi-Fellow": key,
+      "X-Mia-Fellow": key,
       "X-Alkaka-Fellow": key,
       "X-Hermes-Session-Key": sessionId
     };

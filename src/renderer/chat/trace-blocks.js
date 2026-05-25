@@ -63,7 +63,7 @@
     };
     const rowAttrs = (key, idx, stateForKey) => {
       const attrs = [];
-      if (key) attrs.push(`data-trace-key="${window.aimashiMarkdown.escapeHtml(key)}"`);
+      if (key) attrs.push(`data-trace-key="${window.miaMarkdown.escapeHtml(key)}"`);
       if (stateForKey.open) attrs.push("open");
       if (stateForKey.open && stateForKey.userOpen) {
         attrs.push('data-user-open="true"');
@@ -81,8 +81,8 @@
       const stateForKey = openState(key);
       rows.push(
         `<details class="trace-row reasoning${animClass(key)}"${rowAttrs(key, rows.length, stateForKey)}>` +
-          `<summary><span class="trace-chevron">▸</span><span class="trace-cmd">thinking</span><span class="trace-arg">${window.aimashiMarkdown.escapeHtml(reasoningText.slice(0, 80).replace(/\s+/g, " "))}</span></summary>` +
-          `<pre class="trace-body">${window.aimashiMarkdown.escapeHtml(reasoningText)}</pre>` +
+          `<summary><span class="trace-chevron">▸</span><span class="trace-cmd">thinking</span><span class="trace-arg">${window.miaMarkdown.escapeHtml(reasoningText.slice(0, 80).replace(/\s+/g, " "))}</span></summary>` +
+          `<pre class="trace-body">${window.miaMarkdown.escapeHtml(reasoningText)}</pre>` +
         `</details>`
       );
     }
@@ -103,18 +103,18 @@
           `<summary>` +
             `<span class="trace-chevron">▸</span>` +
             `<span class="trace-glyph">${glyph}</span>` +
-            `<span class="trace-cmd">${window.aimashiMarkdown.escapeHtml(name)}</span>` +
-            (previewInline ? `<span class="trace-arg">${window.aimashiMarkdown.escapeHtml(previewInline)}</span>` : "") +
-            (meta ? `<span class="trace-meta">${window.aimashiMarkdown.escapeHtml(meta)}</span>` : "") +
+            `<span class="trace-cmd">${window.miaMarkdown.escapeHtml(name)}</span>` +
+            (previewInline ? `<span class="trace-arg">${window.miaMarkdown.escapeHtml(previewInline)}</span>` : "") +
+            (meta ? `<span class="trace-meta">${window.miaMarkdown.escapeHtml(meta)}</span>` : "") +
           `</summary>` +
-          (preview ? `<pre class="trace-body">${window.aimashiMarkdown.escapeHtml(preview)}</pre>` : "") +
+          (preview ? `<pre class="trace-body">${window.miaMarkdown.escapeHtml(preview)}</pre>` : "") +
         `</details>`
       );
     }
     return `<div class="trace">${rows.join("")}</div>`;
   }
 
-  window.aimashiTraceBlocks = {
+  window.miaTraceBlocks = {
     initTraceBlocks,
     normalizeTraceText,
     isDuplicateTraceReasoning,

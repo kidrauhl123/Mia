@@ -3,13 +3,13 @@
 // so Claude Code / Codex can discover the schedule.* tools, and exposes a
 // handler that the bridge invokes.
 
-const SCHEDULER_MCP_NAME = "aimashi-scheduler";
+const SCHEDULER_MCP_NAME = "mia-scheduler";
 
 function makeManifest() {
   return {
     name: SCHEDULER_MCP_NAME,
     version: "0.1.0",
-    description: "Aimashi scheduler — create / list / update / pause / resume / delete cron and one-shot tasks.",
+    description: "Mia scheduler — create / list / update / pause / resume / delete cron and one-shot tasks.",
     tools: [
       {
         name: "schedule.create",

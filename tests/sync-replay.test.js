@@ -12,25 +12,25 @@ const WebSocket = require("ws");
 const { freePort } = require("./helpers/free-port");
 
 async function startServer() {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-sync-replay-"));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-sync-replay-"));
   const port = await freePort();
   return new Promise((resolve, reject) => {
     const proc = spawn(process.execPath, ["scripts/serve-cloud.js"], {
       env: {
         ...process.env,
-        AIMASHI_CLOUD_HOST: "127.0.0.1",
-        AIMASHI_CLOUD_PORT: String(port),
-        AIMASHI_CLOUD_DATA: tmpDir,
+        MIA_CLOUD_HOST: "127.0.0.1",
+        MIA_CLOUD_PORT: String(port),
+        MIA_CLOUD_DATA: tmpDir,
         // Necessary so token can travel via ?token= rather than the
         // sec-websocket-protocol subprotocol header.
-        AIMASHI_CLOUD_ALLOW_QUERY_TOKEN: "1",
+        MIA_CLOUD_ALLOW_QUERY_TOKEN: "1",
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
     let resolved = false;
     const done = () => { if (!resolved) { resolved = true; resolve({ proc, port, tmpDir }); } };
     proc.stdout.on("data", (c) => { if (/listening|Listening/.test(c.toString())) done(); });
-    proc.stderr.on("data", (c) => { if (/listening|Listening|aimashi-cloud/i.test(c.toString())) done(); });
+    proc.stderr.on("data", (c) => { if (/listening|Listening|mia-cloud/i.test(c.toString())) done(); });
     proc.on("error", reject);
     setTimeout(done, 1500);
   });

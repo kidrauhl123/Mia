@@ -8,7 +8,7 @@ This wraps the Codex Hatch Pet pipeline with a product-facing command:
 It does not call the Image API directly and does not require OPENAI_API_KEY.
 Instead it prepares a Hatch Pet run and asks the local Codex CLI to use its
 built-in image generation capability, then install the result as an
-Aimashi-compatible atlas package.
+Mia-compatible atlas package.
 """
 
 from __future__ import annotations
@@ -150,7 +150,7 @@ def ensure_codex_cli() -> str:
 
 
 def remote_codex_host(args: argparse.Namespace) -> str:
-    return (args.remote_host or os.environ.get("AIMASHI_PET_REMOTE_HOST") or "").strip()
+    return (args.remote_host or os.environ.get("MIA_PET_REMOTE_HOST") or "").strip()
 
 
 def remote_path_arg(value: str) -> str:
@@ -198,10 +198,10 @@ def run_remote_codex_generation(
     remote_home = capture(["ssh", host, 'printf "%s" "$HOME"'])
     if not remote_home.startswith("/"):
         raise SystemExit(f"could not determine remote home for {host}")
-    root_arg = (args.remote_root or os.environ.get("AIMASHI_PET_REMOTE_ROOT") or "").strip()
+    root_arg = (args.remote_root or os.environ.get("MIA_PET_REMOTE_ROOT") or "").strip()
     remote_root_base = root_arg.replace("~", remote_home, 1) if root_arg.startswith("~") else root_arg
     if not remote_root_base:
-        remote_root_base = f"{remote_home}/.aimashi/pet-runs"
+        remote_root_base = f"{remote_home}/.mia/pet-runs"
     remote_root_base = remote_path_arg(remote_root_base)
     token = hashlib.sha1(str(run_dir).encode("utf-8")).hexdigest()[:10]
     remote_job = remote_path_arg(remote_join(remote_root_base, f"{pet_id}-{token}"))
@@ -269,7 +269,7 @@ def run_remote_codex_generation(
 
     remote_command = (
         f"cd {shlex.quote(remote_generator)} && "
-        f"AIMASHI_PET_REMOTE_ACTIVE=1 {remote_shell(remote_args)}"
+        f"MIA_PET_REMOTE_ACTIVE=1 {remote_shell(remote_args)}"
     )
     try:
         run(["ssh", host, remote_command])
@@ -379,7 +379,7 @@ def write_base_idle_prompt(
     )
     prompt = f"""You are running inside Codex CLI for Alkaka's native desktop pet creator.
 
-Goal: create the minimum playable preview for one Aimashi desktop pet.
+Goal: create the minimum playable preview for one Mia desktop pet.
 
 User sentence:
 {user_prompt}
@@ -535,13 +535,13 @@ def main() -> int:
     package_dir = (
         Path(args.package_dir).expanduser().resolve()
         if args.package_dir
-        else Path("~/.aimashi/pets").expanduser().resolve() / pet_id
+        else Path("~/.mia/pets").expanduser().resolve() / pet_id
     )
     log_path = run_dir / "generation.log"
     if log_path.exists():
         log_path.unlink()
 
-    if remote_codex_host(args) and not os.environ.get("AIMASHI_PET_REMOTE_ACTIVE"):
+    if remote_codex_host(args) and not os.environ.get("MIA_PET_REMOTE_ACTIVE"):
         return run_remote_codex_generation(
             args=args,
             pet_id=pet_id,

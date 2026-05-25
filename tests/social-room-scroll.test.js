@@ -53,12 +53,12 @@ function loadSocial() {
   let chatEl = mockEl();
   const groupArticles = [];
   const mockWindow = {
-    aimashi: {},
-    aimashiMarkdown: {
+    mia: {},
+    miaMarkdown: {
       escapeHtml: (v) => String(v || ""),
       renderMarkdown: (v) => String(v || ""),
     },
-    aimashiSocialGroups: {
+    miaSocialGroups: {
       fetchAndCacheRoomMembers() {},
       buildGroupMessageArticle(msg) {
         const article = mockEl();
@@ -84,7 +84,7 @@ function loadSocial() {
     setTimeout: () => 0, clearTimeout: () => {},
   });
   vm.runInContext(src, context);
-  const social = mockWindow.aimashiSocial;
+  const social = mockWindow.miaSocial;
   social.moduleState.activeRoomId = "g_1";
   social.moduleState.rooms = [{ id: "g_1", type: "group", name: "G" }];
   social.moduleState.messageCache.set("g_1", { messages: [], maxSeq: 0 });

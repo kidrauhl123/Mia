@@ -7,7 +7,7 @@ const os = require("node:os");
 const { createTasksStore } = require("../src/main/tasks-store.js");
 
 function tmpFile() {
-  return path.join(fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-tasks-")), "tasks.json");
+  return path.join(fs.mkdtempSync(path.join(os.tmpdir(), "mia-tasks-")), "tasks.json");
 }
 
 test("createTasksStore: empty file returns empty list", () => {

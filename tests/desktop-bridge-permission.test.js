@@ -23,7 +23,7 @@ test("desktop bridge permission dialog describes source, conversation, attachmen
   assert.deepEqual(options.buttons, ["允许本次运行", "拒绝"]);
   assert.equal(options.defaultId, 1);
   assert.equal(options.cancelId, 1);
-  assert.match(options.detail, /来源：Aimashi Cloud/);
+  assert.match(options.detail, /来源：Mia Cloud/);
   assert.match(options.detail, /会话：conv_1/);
   assert.match(options.detail, /附件：2 个/);
   assert.match(options.detail, /运行本机任务/);
@@ -34,7 +34,7 @@ test("desktop bridge permission notification directs user back to native dialog"
     conversationId: "conv_notice",
     attachments: [{ name: "a.png" }]
   });
-  assert.equal(options.title, "Aimashi Cloud 请求本机 Agent");
+  assert.equal(options.title, "Mia Cloud 请求本机 Agent");
   assert.match(options.body, /会话：conv_notice/);
   assert.match(options.body, /附件：1 个/);
   assert.match(options.body, /权限弹窗/);
@@ -49,7 +49,7 @@ test("desktop bridge permission prompt html defaults to reject and escapes reque
   }));
   assert.match(html, /<button data-response="0">允许本次运行<\/button>\s*<button class="primary" data-response="1" autofocus>拒绝<\/button>/);
   assert.match(html, /data-response="1" autofocus/);
-  assert.match(html, /aimashi-permission:\/\/response\/1/);
+  assert.match(html, /mia-permission:\/\/response\/1/);
   assert.match(html, /允许本次运行/);
   assert.match(html, /拒绝/);
   assert.match(html, /conv_&lt;unsafe&gt;/);
@@ -103,7 +103,7 @@ test("desktop bridge permission follows ask dialog response", async () => {
 });
 
 test("desktop bridge permission can audit the real dialog options path", async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-permission-audit-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-permission-audit-"));
   const auditFile = path.join(dir, "dialog.jsonl");
   try {
     await confirmCloudBridgeRunPermission({

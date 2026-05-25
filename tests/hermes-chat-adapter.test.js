@@ -81,9 +81,9 @@ test("sendChat posts Hermes run with fellow and group headers", async () => {
   assert.deepEqual(deps.fetchCalls[0].options.headers, {
     "Content-Type": "application/json",
     Authorization: "Bearer secret",
-    "X-Aimashi-Fellow": "alice",
+    "X-Mia-Fellow": "alice",
     "X-Alkaka-Fellow": "alice",
-    "X-Aimashi-Group-Context": "group:ctx"
+    "X-Mia-Group-Context": "group:ctx"
   });
   assert.deepEqual(JSON.parse(deps.fetchCalls[0].options.body), {
     model: "hermes-agent",
@@ -95,7 +95,7 @@ test("sendChat posts Hermes run with fellow and group headers", async () => {
   assert.equal(deps.streamCalls[0].runId, "run_1");
   assert.equal(result.id, "run_1");
   assert.equal(result.choices[0].message.content, "assistant text");
-  assert.deepEqual(result.aimashi, {
+  assert.deepEqual(result.mia, {
     transport: "runs",
     run_id: "run_1",
     session_id: "s1",

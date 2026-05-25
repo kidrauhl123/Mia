@@ -2,11 +2,11 @@
 // Single full-width skill grid: search + category pills + skill cards.
 // Plugins / connectors / extensions were removed — those data types are
 // 永远为空 today and return with the future Cloud registry (sub-project B).
-// Data helpers live in skill-helpers.js (window.aimashiSkillHelpers).
+// Data helpers live in skill-helpers.js (window.miaSkillHelpers).
 (function () {
   "use strict";
 
-  let state, els, aimashi;
+  let state, els, mia;
   let escapeHtml, setText, menuItemHtml;
   let syncTopbarClickCapture;
   let closeGroupContextMenu, showNarrowContent;
@@ -15,7 +15,7 @@
   function initSkillLibrary(deps) {
     state = deps.state;
     els = deps.els;
-    aimashi = deps.aimashi || (typeof window !== "undefined" ? window.aimashi : null);
+    mia = deps.mia || (typeof window !== "undefined" ? window.mia : null);
     escapeHtml = deps.escapeHtml;
     setText = deps.setText;
     menuItemHtml = deps.menuItemHtml;
@@ -34,8 +34,8 @@
       skill.name,
       skill.title,
       skill.description,
-      window.aimashiSkillHelpers.skillDisplayName(skill),
-      window.aimashiSkillHelpers.skillSummaryZh(skill),
+      window.miaSkillHelpers.skillDisplayName(skill),
+      window.miaSkillHelpers.skillSummaryZh(skill),
       skill.category,
       skill.sourceLabel,
       skill.relPath,
@@ -67,7 +67,7 @@
     renderSkillLibrary();
     renderSkillPreview();
     try {
-      state.selectedSkillDetail = await window.aimashi.readSkill(skillId);
+      state.selectedSkillDetail = await window.mia.readSkill(skillId);
     } catch (error) {
       console.error("Failed to read skill", error);
     }
@@ -81,18 +81,18 @@
   }
 
   function renderSkillCard(skill) {
-    const tone = window.aimashiSkillHelpers.skillTone(skill);
-    const initials = window.aimashiSkillHelpers.skillInitials(skill.name);
+    const tone = window.miaSkillHelpers.skillTone(skill);
+    const initials = window.miaSkillHelpers.skillInitials(skill.name);
     return `
       <article class="skill-card${skill.id === state.selectedSkillId ? " featured" : ""}" data-skill-select="${escapeHtml(skill.id)}">
         <header>
           <span class="skill-card-icon ${escapeHtml(tone)}" aria-hidden="true">${escapeHtml(initials)}</span>
           <div class="skill-card-head">
-            <strong>${escapeHtml(window.aimashiSkillHelpers.skillDisplayName(skill))}</strong>
-            <small>${escapeHtml(skill.pluginLabel || window.aimashiSkillHelpers.skillAuthorLabel(skill))}</small>
+            <strong>${escapeHtml(window.miaSkillHelpers.skillDisplayName(skill))}</strong>
+            <small>${escapeHtml(skill.pluginLabel || window.miaSkillHelpers.skillAuthorLabel(skill))}</small>
           </div>
         </header>
-        <p>${escapeHtml(window.aimashiSkillHelpers.skillSummaryZh(skill))}</p>
+        <p>${escapeHtml(window.miaSkillHelpers.skillSummaryZh(skill))}</p>
       </article>
     `;
   }
@@ -138,12 +138,12 @@
     els.skillPreviewDialog.classList.toggle("hidden", !state.skillPreviewOpen);
     const skill = state.selectedSkillDetail || state.skillLibrary.skills.find((item) => item.id === state.selectedSkillId);
     if (!skill) return;
-    els.skillPreviewMark.className = `skill-dot ${window.aimashiSkillHelpers.skillTone(skill)}`;
-    els.skillPreviewMark.textContent = window.aimashiSkillHelpers.skillInitials(skill.name);
-    setText(els.skillPreviewTitle, window.aimashiSkillHelpers.skillDisplayName(skill));
+    els.skillPreviewMark.className = `skill-dot ${window.miaSkillHelpers.skillTone(skill)}`;
+    els.skillPreviewMark.textContent = window.miaSkillHelpers.skillInitials(skill.name);
+    setText(els.skillPreviewTitle, window.miaSkillHelpers.skillDisplayName(skill));
     setText(els.skillPreviewMeta, `${skill.name || "Skill"} · ${skill.sourceLabel || "Local"} · ${skill.relPath || skill.category || ""}`);
     els.skillPreviewBody.innerHTML = skill.body
-      ? window.aimashiSkillHelpers.renderSkillMarkdownSource(skill.body)
+      ? window.miaSkillHelpers.renderSkillMarkdownSource(skill.body)
       : `<div class="skill-empty-state">正在读取 SKILL.md...</div>`;
     els.skillPreviewBody.querySelectorAll("a[href]").forEach((link) => {
       link.setAttribute("target", "_blank");
@@ -153,7 +153,7 @@
 
   function openSkillContextMenu(skillId, x, y) {
     if (!skillId || !state) return;
-    window.aimashiMessageMenu?.closeMessageContextMenu();
+    window.miaMessageMenu?.closeMessageContextMenu();
     closeGroupContextMenu?.();
     state.skillContextMenu = { open: true, x, y, skillId };
     renderSkillContextMenu();
@@ -173,7 +173,7 @@
     menu.classList.toggle("hidden", !open);
     syncTopbarClickCapture();
     if (!open) return;
-    const canDelete = skill.source === "aimashi";
+    const canDelete = skill.source === "mia";
     menu.innerHTML = `
       ${menuItemHtml({ icon: "preview", label: "预览", attrs: 'data-skill-action="preview"' })}
       ${menuItemHtml({ icon: "folderOpen", label: "打开目录", attrs: 'data-skill-action="open-directory"' })}
@@ -199,7 +199,7 @@
     });
   }
 
-  window.aimashiSkillLibrary = {
+  window.miaSkillLibrary = {
     initSkillLibrary,
     skillMatchesFilters,
     visibleSkills,

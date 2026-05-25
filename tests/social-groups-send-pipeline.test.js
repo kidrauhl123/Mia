@@ -15,14 +15,14 @@ function loadSocialGroups() {
     get innerHTML() { return this._html; },
   });
   const mockWindow = {
-    aimashi: {
+    mia: {
       social: {
         postRoomMessage: async () => {
           throw new Error("social-groups must not post room messages directly");
         },
       },
     },
-    aimashiSocial: {
+    miaSocial: {
       sendInActiveRoom: async (text) => delegated.push(text),
       _internalCtx: {
         moduleState: {
@@ -40,7 +40,7 @@ function loadSocialGroups() {
           : "",
       },
     },
-    aimashiConversationKinds: require("../src/shared/conversation-kinds.js"),
+    miaConversationKinds: require("../src/shared/conversation-kinds.js"),
   };
   const context = vm.createContext({
     window: mockWindow,
@@ -60,7 +60,7 @@ function loadSocialGroups() {
   });
   const src = fs.readFileSync(path.join(ROOT, "src/renderer/social/social-groups.js"), "utf8");
   vm.runInContext(src, context);
-  return { groups: mockWindow.aimashiSocialGroups, delegated };
+  return { groups: mockWindow.miaSocialGroups, delegated };
 }
 
 test("sendInActiveGroupRoom delegates to the unified social send path", async () => {
