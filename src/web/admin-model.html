@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#f7f7f8">
+    <title>Aimashi 模型后台</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/styles.css">
+    <script defer src="/admin-model.js"></script>
+  </head>
+  <body class="admin-body">
+    <main class="admin-shell">
+      <header class="admin-header">
+        <div>
+          <p>Aimashi Cloud</p>
+          <h1>模型后台</h1>
+        </div>
+        <a href="/" class="admin-link">回到 Web</a>
+      </header>
+
+      <section class="admin-panel">
+        <div class="admin-status-row">
+          <div>
+            <strong>平台供给模型</strong>
+            <p id="adminSummary">正在读取配置...</p>
+          </div>
+          <span id="adminStatusBadge" class="admin-badge">检查中</span>
+        </div>
+
+        <form id="modelAdminForm" class="admin-form">
+          <label>
+            供应商
+            <select id="providerSelect">
+              <option value="deepseek" data-model="deepseek/deepseek-chat">DeepSeek</option>
+              <option value="openai" data-model="openai/gpt-4o-mini">OpenAI</option>
+              <option value="openrouter" data-model="openrouter/openai/gpt-4o-mini">OpenRouter</option>
+              <option value="gemini" data-model="gemini/gemini-2.0-flash">Gemini</option>
+              <option value="xai" data-model="xai/grok-2-latest">xAI</option>
+              <option value="custom" data-model="">自定义</option>
+            </select>
+          </label>
+
+          <label>
+            Aimashi 模型名
+            <input id="publicModelInput" value="aimashi-default" readonly>
+          </label>
+
+          <label>
+            真实模型
+            <input id="upstreamModelInput" autocomplete="off" spellcheck="false" placeholder="deepseek/deepseek-chat" required>
+          </label>
+
+          <label>
+            API Key
+            <input id="apiKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="保存时必须填写" required>
+          </label>
+
+          <label>
+            API Base URL
+            <input id="apiBaseInput" autocomplete="off" spellcheck="false" placeholder="可选，兼容服务才需要">
+          </label>
+
+          <label>
+            API Version
+            <input id="apiVersionInput" autocomplete="off" spellcheck="false" placeholder="可选，Azure 等服务才需要">
+          </label>
+
+          <div class="admin-actions">
+            <button id="saveModelButton" class="admin-primary" type="submit">保存配置</button>
+            <button id="testModelButton" class="admin-secondary" type="button">测试模型</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="admin-panel admin-log-panel">
+        <strong>结果</strong>
+        <pre id="adminOutput">等待操作。</pre>
+      </section>
+    </main>
+  </body>
+</html>

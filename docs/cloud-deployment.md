@@ -28,6 +28,10 @@ AIMASHI_CLOUD_AGENT_MODEL_PROVIDER=aimashi-litellm
 AIMASHI_CLOUD_AGENT_MODEL=aimashi-default
 AIMASHI_CLOUD_AGENT_MODEL_BASE_URL=http://litellm:4000/v1
 AIMASHI_CLOUD_AGENT_MODEL_API_KEY=<LiteLLM virtual key>
+AIMASHI_LITELLM_ADMIN_BASE_URL=http://127.0.0.1:4000
+AIMASHI_CLOUD_ADMIN_USERNAME=<admin username>
+AIMASHI_CLOUD_ADMIN_PASSWORD=<admin password>
+LITELLM_MASTER_KEY=<LiteLLM admin key>
 ```
 
 `AIMASHI_CLOUD_ALLOWED_ORIGINS` is required in production. Without it, WebSocket upgrades are limited to same-host/local origins only.
@@ -50,7 +54,7 @@ docker run -d --name litellm --restart unless-stopped \
   --config /app/config.yaml --host 0.0.0.0 --port 4000
 ```
 
-Use LiteLLM Admin UI/API to manage provider API keys, model aliases, budgets, and virtual keys. The Aimashi systemd unit should use a LiteLLM virtual key in `AIMASHI_CLOUD_AGENT_MODEL_API_KEY`; Hermes users only receive the cloud Fellow experience and do not configure model providers themselves.
+Use the Aimashi admin page at `/admin/model` to save the provider API key and the `aimashi-default` model alias into LiteLLM. Keep the LiteLLM UI private or disabled on the public internet. The Aimashi systemd unit should use a LiteLLM virtual key in `AIMASHI_CLOUD_AGENT_MODEL_API_KEY`; Hermes users only receive the cloud Fellow experience and do not configure model providers themselves.
 
 ## systemd Unit
 
@@ -82,6 +86,8 @@ Environment=AIMASHI_CLOUD_AGENT_MODEL_PROVIDER=aimashi-litellm
 Environment=AIMASHI_CLOUD_AGENT_MODEL=aimashi-default
 Environment=AIMASHI_CLOUD_AGENT_MODEL_BASE_URL=http://litellm:4000/v1
 Environment=AIMASHI_CLOUD_AGENT_MODEL_API_KEY=<LiteLLM virtual key>
+Environment=AIMASHI_LITELLM_ADMIN_BASE_URL=http://127.0.0.1:4000
+EnvironmentFile=-/etc/aimashi-cloud/admin.env
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full

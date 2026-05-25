@@ -322,6 +322,7 @@ run_as_root rsync -a --delete "$REMOTE_RELEASE_DIR/web/" "$WEB_DIR/"
 run_as_root mkdir -p "$(dirname "$NGINX_MAP_CONF")" "$(dirname "$NGINX_SITE_CONF")"
 run_as_root cp "$REMOTE_RELEASE_DIR/nginx/aimashi-websocket-map.conf" "$NGINX_MAP_CONF"
 run_as_root cp "$REMOTE_RELEASE_DIR/nginx/aimashi-cloud-site.conf" "$NGINX_SITE_CONF"
+run_as_root rm -f /etc/nginx/sites-enabled/litellm-admin /etc/nginx/sites-available/litellm-admin
 run_as_root nginx -t
 run_as_root systemctl reload nginx
 run_as_root chown -R "\$SERVICE_USER:\$SERVICE_USER" "$DATA_DIR" "$AGENT_ROOT"
@@ -356,6 +357,8 @@ Environment=AIMASHI_CLOUD_AGENT_MODEL_PROVIDER=$AGENT_MODEL_PROVIDER
 Environment=AIMASHI_CLOUD_AGENT_MODEL=$AGENT_MODEL_NAME
 Environment=AIMASHI_CLOUD_AGENT_MODEL_BASE_URL=$AGENT_MODEL_BASE_URL
 Environment=AIMASHI_CLOUD_AGENT_MODEL_API_KEY=$AGENT_MODEL_API_KEY
+Environment=AIMASHI_LITELLM_ADMIN_BASE_URL=http://127.0.0.1:4000
+EnvironmentFile=-/etc/aimashi-cloud/admin.env
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full

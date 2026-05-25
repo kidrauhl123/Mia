@@ -97,6 +97,7 @@ const defaultDataDir = process.env.AIMASHI_CLOUD_DATA || path.join(process.cwd()
 const maxUploadBytes = 18 * 1024 * 1024;
 const maxBodyBytes = Math.ceil(maxUploadBytes * 4 / 3) + 1024 * 1024;
 const bridgeRunTimeoutMs = Number(process.env.AIMASHI_BRIDGE_RUN_TIMEOUT_MS || 1000 * 60 * 5);
+const litellmAdminBaseUrl = String(process.env.AIMASHI_LITELLM_ADMIN_BASE_URL || "http://127.0.0.1:4000").replace(/\/+$/, "");
 const cloudFeatures = [
   "sqlite-store",
   "auth-sessions",
@@ -179,6 +180,16 @@ function writeJson(res, status, payload) {
 
 function writeError(res, status, message) {
   writeJson(res, status, { error: String(message || "Request failed.") });
+}
+
+function writeText(res, status, body, contentType = "text/plain; charset=utf-8") {
+  const text = String(body || "");
+  res.writeHead(status, {
+    "Content-Type": contentType,
+    "Content-Length": Buffer.byteLength(text),
+    "Cache-Control": "no-store"
+  });
+  res.end(text);
 }
 
 function readBody(req) {
@@ -342,6 +353,220 @@ function serveWebAsset(req, res, webRoot, pathname) {
   if (req.method === "HEAD") res.end();
   else res.end(body);
   return true;
+}
+
+function adminCredentials(context = {}) {
+  return {
+    username: String(context.adminUsername || process.env.AIMASHI_CLOUD_ADMIN_USERNAME || "").trim(),
+    password: String(context.adminPassword || process.env.AIMASHI_CLOUD_ADMIN_PASSWORD || "").trim()
+  };
+}
+
+function safeEqualString(a, b) {
+  const left = Buffer.from(String(a || ""));
+  const right = Buffer.from(String(b || ""));
+  if (left.length !== right.length) return false;
+  return crypto.timingSafeEqual(left, right);
+}
+
+function parseBasicAuth(req) {
+  const header = String(req.headers.authorization || "");
+  const match = header.match(/^Basic\s+(.+)$/i);
+  if (!match) return null;
+  try {
+    const decoded = Buffer.from(match[1], "base64").toString("utf8");
+    const index = decoded.indexOf(":");
+    if (index < 0) return null;
+    return { username: decoded.slice(0, index), password: decoded.slice(index + 1) };
+  } catch {
+    return null;
+  }
+}
+
+function requireAdmin(req, res, context) {
+  const expected = adminCredentials(context);
+  if (!expected.username || !expected.password) {
+    writeError(res, 503, "管理后台还没有配置管理员账号。");
+    return false;
+  }
+  const provided = parseBasicAuth(req);
+  if (
+    provided &&
+    safeEqualString(provided.username, expected.username) &&
+    safeEqualString(provided.password, expected.password)
+  ) {
+    return true;
+  }
+  res.setHeader("WWW-Authenticate", 'Basic realm="Aimashi Admin", charset="UTF-8"');
+  writeError(res, 401, "需要管理员账号。");
+  return false;
+}
+
+function serveAdminModelPage(req, res, context) {
+  if (!requireAdmin(req, res, context)) return true;
+  const filePath = path.join(context.webRoot || defaultWebRoot(), "admin-model.html");
+  if (!fs.existsSync(filePath)) {
+    writeError(res, 404, "Admin page not found.");
+    return true;
+  }
+  writeText(res, 200, fs.readFileSync(filePath, "utf8"), "text/html; charset=utf-8");
+  return true;
+}
+
+function litellmAdminKey(context = {}) {
+  return String(context.litellmAdminKey || process.env.LITELLM_MASTER_KEY || process.env.AIMASHI_LITELLM_MASTER_KEY || "").trim();
+}
+
+function litellmServiceKey(context = {}) {
+  return String(
+    context.litellmServiceKey ||
+    process.env.AIMASHI_CLOUD_AGENT_MODEL_API_KEY ||
+    process.env.AIMASHI_LITELLM_API_KEY ||
+    ""
+  ).trim();
+}
+
+function redactModelInfo(row = {}) {
+  const params = { ...(row.litellm_params || {}) };
+  if (params.api_key) params.api_key = "configured";
+  return {
+    model_name: row.model_name || "",
+    model_info: row.model_info || {},
+    litellm_params: params
+  };
+}
+
+async function litellmRequest(context, pathname, { method = "GET", key = "", body = null } = {}) {
+  const token = key || litellmAdminKey(context);
+  if (!token) {
+    const error = new Error("LiteLLM 管理 key 未配置。");
+    error.status = 503;
+    throw error;
+  }
+  const response = await fetch(`${litellmAdminBaseUrl}${pathname}`, {
+    method,
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      ...(body ? { "Content-Type": "application/json" } : {})
+    },
+    body: body ? JSON.stringify(body) : undefined
+  });
+  const text = await response.text();
+  let data = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = { raw: text };
+  }
+  if (!response.ok) {
+    const error = new Error(data?.error?.message || data?.detail || data?.message || `LiteLLM request failed (${response.status}).`);
+    error.status = response.status;
+    error.payload = data;
+    throw error;
+  }
+  return data;
+}
+
+function normalizeAdminModelInput(input = {}) {
+  const upstreamModel = String(input.upstreamModel || input.model || "").trim();
+  const apiKey = String(input.apiKey || "").trim();
+  const apiBase = String(input.apiBase || "").trim();
+  const apiVersion = String(input.apiVersion || "").trim();
+  if (!upstreamModel) throw new Error("请填写真实模型。");
+  if (!apiKey) throw new Error("请填写供应商 API Key。");
+  if (!/^[a-z0-9_.-]+\/[A-Za-z0-9_.:/@-]+$/i.test(upstreamModel)) {
+    throw new Error("真实模型格式不对，例如 deepseek/deepseek-chat。");
+  }
+  if (apiBase) {
+    try {
+      const url = new URL(apiBase);
+      if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("bad protocol");
+    } catch {
+      throw new Error("API Base URL 格式不对。");
+    }
+  }
+  return {
+    provider: String(input.provider || "").trim(),
+    modelName: "aimashi-default",
+    upstreamModel,
+    apiKey,
+    apiBase,
+    apiVersion
+  };
+}
+
+async function listAimashiLiteLLMModels(context) {
+  const info = await litellmRequest(context, "/model/info");
+  const rows = Array.isArray(info?.data) ? info.data : [];
+  return rows.filter((row) => row?.model_name === "aimashi-default");
+}
+
+async function handleAdminModelGateway(req, res, context, url) {
+  if (!requireAdmin(req, res, context)) return;
+  if (req.method === "GET" && url.pathname === "/api/admin/model-gateway") {
+    const models = await listAimashiLiteLLMModels(context);
+    return writeJson(res, 200, {
+      ok: true,
+      gateway: {
+        baseUrl: litellmAdminBaseUrl,
+        adminConfigured: Boolean(litellmAdminKey(context)),
+        serviceKeyConfigured: Boolean(litellmServiceKey(context))
+      },
+      modelName: "aimashi-default",
+      models: models.map(redactModelInfo)
+    });
+  }
+  if (req.method === "POST" && url.pathname === "/api/admin/model-gateway") {
+    const input = normalizeAdminModelInput(await readJson(req));
+    const existing = await listAimashiLiteLLMModels(context);
+    for (const row of existing) {
+      const id = String(row?.model_info?.id || row?.model_id || "").trim();
+      if (id) {
+        await litellmRequest(context, "/model/delete", { method: "POST", body: { id } });
+      }
+    }
+    const litellmParams = {
+      model: input.upstreamModel,
+      api_key: input.apiKey
+    };
+    if (input.apiBase) litellmParams.api_base = input.apiBase;
+    if (input.apiVersion) litellmParams.api_version = input.apiVersion;
+    const created = await litellmRequest(context, "/model/new", {
+      method: "POST",
+      body: {
+        model_name: input.modelName,
+        litellm_params: litellmParams,
+        model_info: {
+          id: input.modelName,
+          base_model: input.upstreamModel,
+          provider: input.provider || undefined
+        }
+      }
+    });
+    return writeJson(res, 200, {
+      ok: true,
+      model: redactModelInfo(created),
+      message: "模型配置已保存。"
+    });
+  }
+  if (req.method === "POST" && url.pathname === "/api/admin/model-gateway/test") {
+    const serviceKey = litellmServiceKey(context) || litellmAdminKey(context);
+    const result = await litellmRequest(context, "/v1/chat/completions", {
+      method: "POST",
+      key: serviceKey,
+      body: {
+        model: "aimashi-default",
+        messages: [{ role: "user", content: "Reply with exactly: aimashi-ok" }],
+        max_tokens: 20
+      }
+    });
+    return writeJson(res, 200, {
+      ok: true,
+      reply: result?.choices?.[0]?.message?.content || "",
+      model: result?.model || "aimashi-default"
+    });
+  }
+  writeError(res, 404, "Not found.");
 }
 
 function createBridgeHub(runTimeoutMs = bridgeRunTimeoutMs) {
@@ -831,6 +1056,24 @@ async function handleRequest(req, res, context) {
       release: releaseHealthPayload(context.releaseManifest),
       features: cloudFeatures
     });
+    return;
+  }
+
+  if (url.pathname === "/admin") {
+    res.writeHead(308, { "Location": "/admin/model" });
+    res.end();
+    return;
+  }
+  if (req.method === "GET" && (url.pathname === "/admin/model" || url.pathname === "/admin/model/")) {
+    serveAdminModelPage(req, res, context);
+    return;
+  }
+  if (url.pathname.startsWith("/api/admin/")) {
+    try {
+      await handleAdminModelGateway(req, res, context, url);
+    } catch (error) {
+      writeError(res, error.status || 500, error.message || "Admin request failed.");
+    }
     return;
   }
 

@@ -134,7 +134,7 @@ If this archive has already been extracted and the original tarball is not in th
 
 ## Platform Model Gateway
 
-Cloud Hermes workers use the platform model supplied through LiteLLM Proxy. Configure LiteLLM provider keys, model aliases, budgets, and virtual keys in LiteLLM Admin UI/API, then set \`AIMASHI_CLOUD_AGENT_MODEL_BASE_URL=http://litellm:4000/v1\`, \`AIMASHI_CLOUD_AGENT_MODEL=aimashi-default\`, and \`AIMASHI_CLOUD_AGENT_MODEL_API_KEY=<LiteLLM virtual key>\` on the Aimashi Cloud systemd service. Do not put raw provider API keys in Aimashi.
+Cloud Hermes workers use the platform model supplied through LiteLLM Proxy. Configure provider keys from the Aimashi admin page at \`/admin/model\`; it writes the \`aimashi-default\` model alias into LiteLLM over the private admin API. The service still needs \`AIMASHI_CLOUD_AGENT_MODEL_BASE_URL=http://litellm:4000/v1\`, \`AIMASHI_CLOUD_AGENT_MODEL=aimashi-default\`, \`AIMASHI_CLOUD_AGENT_MODEL_API_KEY=<LiteLLM virtual key>\`, \`LITELLM_MASTER_KEY=<LiteLLM admin key>\`, and \`AIMASHI_CLOUD_ADMIN_USERNAME/PASSWORD\` in systemd or \`/etc/aimashi-cloud/admin.env\`. Do not expose the LiteLLM UI directly on the public internet.
 
 ## Install On The VPS
 
@@ -274,6 +274,8 @@ function verifyRelease() {
     "api/src/cloud-agent/dispatcher.js",
     "api/src/permission-modes.js",
     "web/index.html",
+    "web/admin-model.html",
+    "web/admin-model.js",
     "web/app.js",
     "web/appearance.js",
     "web/styles.css",
@@ -311,6 +313,7 @@ function verifyRelease() {
     "api/src/cloud-agent/dispatcher.js",
     "api/src/permission-modes.js",
     "web/app.js",
+    "web/admin-model.js",
     "web/appearance.js",
     "smoke-cloud.js",
     "prepare-cloud-smoke-account.js",
@@ -403,7 +406,8 @@ function verifyRelease() {
     !/LiteLLM Proxy/.test(releaseReadme) ||
     !/AIMASHI_CLOUD_AGENT_MODEL_BASE_URL=http:\/\/litellm:4000\/v1/.test(releaseReadme) ||
     !/AIMASHI_CLOUD_AGENT_MODEL_API_KEY=<LiteLLM virtual key>/.test(releaseReadme) ||
-    !/Do not put raw provider API keys in Aimashi/.test(releaseReadme)
+    !/\/admin\/model/.test(releaseReadme) ||
+    !/Do not expose the LiteLLM UI directly/.test(releaseReadme)
   ) {
     throw new Error("Release README must document the LiteLLM platform model gateway.");
   }
