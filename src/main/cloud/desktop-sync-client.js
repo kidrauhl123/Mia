@@ -81,14 +81,13 @@ function createCloudDesktopSyncClient({
 
   async function ensureFellowRoom(fellow) {
     const current = settings();
-    if (!current.enabled || !current.token || !current.user?.id || !fellow?.key) return;
+    if (!current.enabled || !current.token || !fellow?.key) return;
     try {
       await cloudApi(`/api/me/fellows/${encodeURIComponent(fellow.key)}/room`, {
         method: "PUT",
         body: {
           title: fellow.name || fellow.key,
-          runtimeKind: "desktop-local",
-          clientOpId: `op_fellow_room_${current.user.id}_${fellow.key}`
+          runtimeKind: "desktop-local"
         }
       });
     } catch (error) {
@@ -137,7 +136,7 @@ function createCloudDesktopSyncClient({
     }
   }
 
-  async function pushAllFellowSessionsToCloudRooms() {
+  async function legacyBackfillFellowSessionsToCloudRooms() {
     const current = settings();
     if (!current.enabled || !current.token || !current.user?.id) return;
     let store;

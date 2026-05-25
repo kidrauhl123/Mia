@@ -12,7 +12,7 @@ function jsonResponse(body, ok = true, status = 200) {
 }
 
 function setup(overrides = {}) {
-  let settings = {
+  let settings = overrides.initialSettings || {
     enabled: true,
     token: "tok_1",
     url: "https://cloud.example/",
@@ -143,8 +143,7 @@ test("syncWorkspace syncs fellow identity and stable rooms without reading local
   });
   assert.deepEqual(calls.fetch[2].body, {
     title: "Codex",
-    runtimeKind: "desktop-local",
-    clientOpId: "op_fellow_room_u_1_codex"
+    runtimeKind: "desktop-local"
   });
   assert.deepEqual(calls.writes.at(-1), { user: { id: "u_1", username: "refreshed" } });
 });
@@ -178,6 +177,32 @@ test("pushAllFellows ensures a stable cloud room for each local fellow", async (
     ["PUT", "https://cloud.example/api/me/fellows/codex"],
     ["PUT", "https://cloud.example/api/me/fellows/codex/room"]
   ]);
+  assert.deepEqual(calls.fetch[1].body, {
+    title: "Codex",
+    runtimeKind: "desktop-local"
+  });
+});
+
+test("pushAllFellows ensures rooms even when local user metadata is missing", async () => {
+  const { client, calls } = setup({
+    initialSettings: {
+      enabled: true,
+      token: "tok_1",
+      url: "https://cloud.example/",
+      user: null
+    }
+  });
+
+  await client.pushAllFellows();
+
+  assert.deepEqual(calls.fetch.map((request) => [request.method, request.url]), [
+    ["PUT", "https://cloud.example/api/me/fellows/codex"],
+    ["PUT", "https://cloud.example/api/me/fellows/codex/room"]
+  ]);
+  assert.deepEqual(calls.fetch[1].body, {
+    title: "Codex",
+    runtimeKind: "desktop-local"
+  });
 });
 
 test("logout clears local cloud auth even when remote logout fails and stops sockets", async () => {
