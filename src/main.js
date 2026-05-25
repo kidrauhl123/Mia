@@ -53,6 +53,13 @@ const { createSchedulerMcp } = require("./main/scheduler-mcp.js");
 const { createSocialApi } = require("./main/social/social-api.js");
 const { registerSocialIpc } = require("./main/social/social-ipc.js");
 const { createCloudDesktopSyncClient } = require("./main/cloud/desktop-sync-client.js");
+const {
+  createLocalFellowResponder,
+  shouldHandleLocalCloudRoomAi
+} = require("./main/social/local-fellow-responder.js");
+const { buildInvocation } = require("./main/social/fellow-invocation.js");
+const { createMainGroupConductor } = require("./main/social/group-conductor.js");
+const { createMainFellowRoomResponder } = require("./main/social/fellow-room-responder.js");
 const { registerWindowIpc } = require("./main/ipc/window-ipc.js");
 const { registerTasksIpc } = require("./main/ipc/tasks-ipc.js");
 // (cloud/desktop-sync helpers removed in Phase 4 cutover — fellow chats
@@ -4611,6 +4618,16 @@ function scheduleCloudEventsReconnect() {
   }, 3000);
 }
 
+function loadConductorPrompts() {
+  const dir = path.join(__dirname, "..", "resources", "conductor", "default-prompts");
+  return {
+    dispatch: fs.readFileSync(path.join(dir, "dispatch.md"), "utf8"),
+    summarize: fs.readFileSync(path.join(dir, "summarize.md"), "utf8"),
+    nudge: fs.readFileSync(path.join(dir, "nudge.md"), "utf8"),
+    relay: fs.readFileSync(path.join(dir, "relay.md"), "utf8"),
+  };
+}
+
 // (handleCloudWorkspaceEvent removed in Phase 4 cutover.)
 
 function handleCloudEventsMessage(raw) {
@@ -4660,6 +4677,31 @@ function handleCloudEventsMessage(raw) {
   }
   // Phase 2: fellow identity changes from another device.
   if (message.type === "fellow.upserted" || message.type === "fellow.deleted") {
+    broadcastRendererEvent(IpcChannel.CloudEvent, { type: message.type, payload: message });
+    return;
+  }
+  if (message.type === CloudEvent.RoomFellowInvocationRequested) {
+    if (shouldHandleCloudRoomAi()) {
+      const args = buildInvocation(message, loadFellowManifest().fellows || []);
+      if (args) {
+        localFellowResponder.respond(args)
+          .catch((error) => appendCloudLog(`Cloud fellow invocation failed: ${error?.message || error}`));
+      }
+    }
+    broadcastRendererEvent(IpcChannel.CloudEvent, { type: message.type, payload: message });
+    return;
+  }
+  if (message.type === CloudEvent.RoomMessageAppended) {
+    if (shouldHandleCloudRoomAi()) {
+      const args = {
+        roomId: message.roomId || message.room_id,
+        message: message.message
+      };
+      mainGroupConductor.handleRoomMessageAppended(args)
+        .catch((error) => appendCloudLog(`Cloud group conductor failed: ${error?.message || error}`));
+      mainFellowRoomResponder.handleRoomMessageAppended(args)
+        .catch((error) => appendCloudLog(`Cloud fellow room responder failed: ${error?.message || error}`));
+    }
     broadcastRendererEvent(IpcChannel.CloudEvent, { type: message.type, payload: message });
     return;
   }
@@ -6383,6 +6425,40 @@ cloudDesktopSyncRuntime = createCloudDesktopSyncClient({
 const socialApi = createSocialApi({
   getSettings: () => settingsStore.cloudSettings(),
   normalizeUrl: settingsStore.normalizeCloudUrl
+});
+const localFellowResponder = createLocalFellowResponder({
+  sendChat,
+  postRoomMessageAsFellow: (roomId, body) => socialApi.postRoomMessageAsFellow(roomId, body),
+  log: (line) => appendCloudLog(line)
+});
+function shouldHandleCloudRoomAi() {
+  return shouldHandleLocalCloudRoomAi({
+    isDaemon: IS_DAEMON_PROCESS,
+    daemonEnabled: settingsStore.daemonSettings().enabled
+  });
+}
+const mainGroupConductor = createMainGroupConductor({
+  getCurrentUserId: () => settingsStore.cloudSettings().user?.id || "",
+  listFellows: () => loadFellowManifest().fellows || [],
+  loadPrompts: loadConductorPrompts,
+  getRoomDetails: (roomId) => socialApi.getRoom(roomId),
+  listRecentMessages: async (roomId, sinceSeq, limit) => {
+    const data = await socialApi.listRoomMessages(roomId, sinceSeq, limit);
+    return data?.messages || [];
+  },
+  sendChatStateless,
+  responder: localFellowResponder,
+  log: (line) => appendCloudLog(line)
+});
+const mainFellowRoomResponder = createMainFellowRoomResponder({
+  getCurrentUserId: () => settingsStore.cloudSettings().user?.id || "",
+  getRoomDetails: (roomId) => socialApi.getRoom(roomId),
+  listRecentMessages: async (roomId, sinceSeq, limit) => {
+    const data = await socialApi.listRoomMessages(roomId, sinceSeq, limit);
+    return data?.messages || [];
+  },
+  responder: localFellowResponder,
+  log: (line) => appendCloudLog(line)
 });
 registerSocialIpc({ ipcMain, socialApi });
 ipcMain.handle(IpcChannel.SocialMyUsername, () => {
