@@ -1579,6 +1579,37 @@ async function handleRequest(req, res, context) {
       return writeJson(res, 200, payload);
     }
 
+    // PUT /api/me/fellows/:fellowId/room — ensure the stable private room
+    // for a fellow exists. Unlike the legacy session endpoint below, this
+    // room id is tied to the fellow identity, not a local chat session.
+    const stableFellowRoomMatch = url.pathname.match(/^\/api\/me\/fellows\/([A-Za-z0-9_.-]+)\/room$/);
+    if (req.method === "PUT" && stableFellowRoomMatch) {
+      const fellowId = stableFellowRoomMatch[1];
+      const body = await readJson(req);
+      if (replayIfCached(context, res, auth.user.id, body)) return;
+      const existingFellow = context.fellowsStore.getFellow(auth.user.id, fellowId);
+      const runtimeKind = String(body.runtimeKind || "").trim() || undefined;
+      const name = String(body.title || "").trim() || existingFellow?.name || fellowId;
+      const decorations = { fellowKey: fellowId, runtimeKind };
+      const roomId = `fellow:${auth.user.id}:${fellowId}`;
+      let room = context.socialStore.getRoom(roomId);
+      const created = !room;
+
+      if (created) {
+        context.socialStore.createRoom({ id: roomId, type: "fellow", name, decorations });
+      } else {
+        room = context.socialStore.updateRoom(roomId, { name, decorations });
+      }
+      context.socialStore.addRoomMember({ roomId, memberKind: "user", memberRef: auth.user.id });
+      context.socialStore.addRoomMember({ roomId, memberKind: "fellow", memberRef: fellowId, ownerId: auth.user.id });
+      room = context.socialStore.getRoom(roomId);
+      const members = context.socialStore.listRoomMembers(roomId);
+      broadcastPersistedEvent(context, auth.user.id, { type: "room.updated", room });
+      const payload = { ok: true, room, members, created };
+      rememberOp(context, auth.user.id, body, 200, payload);
+      return writeJson(res, 200, payload);
+    }
+
     // PUT /api/me/fellow-rooms/:sessionId — upsert a single-owner
     // fellow-chat room. Phase 4 conversation-model unification: fellow
     // private chats now live in the same rooms+messages tables as

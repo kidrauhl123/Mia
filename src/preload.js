@@ -123,6 +123,7 @@ contextBridge.exposeInMainWorld("aimashi", {
     deleteRoomMessage: (roomId, messageId) => ipcRenderer.invoke(IpcChannel.SocialDeleteRoomMessage, roomId, messageId),
     myUsername: () => ipcRenderer.invoke(IpcChannel.SocialMyUsername),
     createRoom: (payload) => ipcRenderer.invoke(IpcChannel.SocialCreateRoom, payload),
+    ensureFellowRoom: (fellowId, body) => ipcRenderer.invoke(IpcChannel.SocialEnsureFellowRoom, fellowId, body),
     updateRoom: (roomId, patch) => ipcRenderer.invoke(IpcChannel.SocialUpdateRoom, roomId, patch),
     deleteRoom: (roomId) => ipcRenderer.invoke(IpcChannel.SocialDeleteRoom, roomId),
     addRoomMember: (roomId, member) => ipcRenderer.invoke(IpcChannel.SocialAddRoomMember, roomId, member),

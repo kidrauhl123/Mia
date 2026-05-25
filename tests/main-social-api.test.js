@@ -109,6 +109,30 @@ test("deleteRoom sends DELETE to the room route", async () => {
   } finally { await teardown(ctx); }
 });
 
+test("ensureFellowRoom sends PUT to the stable fellow room route", async () => {
+  const seen = [];
+  const ctx = await spawnFakeCloud(async (req, res) => {
+    let body = "";
+    req.on("data", (c) => { body += c; });
+    req.on("end", () => {
+      seen.push({ method: req.method, url: req.url, body });
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ ok: true, room: { id: "fellow:u_1:alice" }, created: true }));
+    });
+  });
+  try {
+    const api = createSocialApi({
+      getSettings: () => ({ enabled: true, token: "t", url: ctx.baseUrl }),
+      normalizeUrl: (u) => u
+    });
+    const result = await api.ensureFellowRoom("alice", { title: "爱丽丝" });
+    assert.equal(result.room.id, "fellow:u_1:alice");
+    assert.equal(seen[0].method, "PUT");
+    assert.equal(seen[0].url, "/api/me/fellows/alice/room");
+    assert.deepEqual(JSON.parse(seen[0].body), { title: "爱丽丝" });
+  } finally { await teardown(ctx); }
+});
+
 test("non-2xx responses throw with parsed error message", async () => {
   const ctx = await spawnFakeCloud((req, res) => {
     res.writeHead(404, { "content-type": "application/json" });

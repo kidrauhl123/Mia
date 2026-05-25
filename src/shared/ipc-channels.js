@@ -101,6 +101,7 @@
     SocialDeleteRoomMessage: "social:delete-room-message",
     SocialMyUsername: "social:my-username",
     SocialCreateRoom: "social:create-room",
+    SocialEnsureFellowRoom: "social:ensure-fellow-room",
     SocialUpdateRoom: "social:update-room",
     SocialDeleteRoom: "social:delete-room",
     SocialAddRoomMember: "social:add-room-member",

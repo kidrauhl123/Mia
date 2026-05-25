@@ -96,6 +96,9 @@ function createSocialApi({ getSettings, normalizeUrl }) {
       if (clientGroupId) body.clientGroupId = clientGroupId;
       return jsonFetch({ ...ctx(), method: "POST", path: "/api/rooms", body: withOpId(body) });
     },
+    async ensureFellowRoom(fellowId, body = {}) {
+      return jsonFetch({ ...ctx(), method: "PUT", path: `/api/me/fellows/${encodeURIComponent(fellowId)}/room`, body });
+    },
     async updateRoom(roomId, patch) {
       return jsonFetch({ ...ctx(), method: "PATCH", path: `/api/rooms/${roomId}`, body: patch || {} });
     },

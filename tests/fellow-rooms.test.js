@@ -58,6 +58,35 @@ async function register(port, account) {
   return r.body;
 }
 
+test("PUT /api/me/fellows/:fellowId/room creates a stable fellow room", async () => {
+  const ctx = await startServer();
+  try {
+    const A = await register(ctx.port, "jung");
+    const first = await api(ctx.port, "PUT", "/api/me/fellows/alice/room", {
+      token: A.token,
+      body: { title: "爱丽丝", runtimeKind: "desktop-local" }
+    });
+
+    assert.equal(first.status, 200);
+    assert.equal(first.body.ok, true);
+    assert.equal(first.body.room.id, `fellow:${A.user.id}:alice`);
+    assert.equal(first.body.room.type, "fellow");
+    assert.equal(first.body.room.decorations.fellowKey, "alice");
+    assert.equal(first.body.created, true);
+
+    const rooms = await api(ctx.port, "GET", "/api/rooms", { token: A.token });
+    assert.equal((rooms.body.rooms || []).some((room) => room.id === first.body.room.id), true);
+
+    const second = await api(ctx.port, "PUT", "/api/me/fellows/alice/room", {
+      token: A.token,
+      body: { title: "爱丽丝", runtimeKind: "desktop-local" }
+    });
+    assert.equal(second.status, 200);
+    assert.equal(second.body.room.id, first.body.room.id);
+    assert.equal(second.body.created, false);
+  } finally { await stopServer(ctx); }
+});
+
 test("PUT /api/me/fellow-rooms/:sessionId creates a fellow-type room owned by the user", async () => {
   const ctx = await startServer();
   try {
