@@ -23,6 +23,7 @@ NGINX_MAP_CONF="${AIMASHI_DEPLOY_NGINX_MAP_CONF:-/etc/nginx/conf.d/aimashi-webso
 NGINX_SITE_CONF="${AIMASHI_DEPLOY_NGINX_SITE_CONF:-/etc/nginx/sites-enabled/aimashi-web}"
 DEPLOY_SUDO="${AIMASHI_DEPLOY_SUDO:-}"
 DEPLOY_DRY_RUN="${AIMASHI_DEPLOY_DRY_RUN:-}"
+DEPLOY_SKIP_LOCAL_TESTS="${AIMASHI_DEPLOY_SKIP_LOCAL_TESTS:-}"
 ARCHIVE="$ROOT/dist/aimashi-cloud-release.tgz"
 ARCHIVE_SHA="$ARCHIVE.sha256"
 DEPLOY_ID="${AIMASHI_DEPLOY_ID:-$(date +%Y%m%d-%H%M%S)-$$}"
@@ -93,7 +94,11 @@ fi
 
 echo "==> Verifying local source"
 node src/check.js
-npm test
+if [ "$DEPLOY_SKIP_LOCAL_TESTS" = "1" ]; then
+  echo "==> Skipping npm test because AIMASHI_DEPLOY_SKIP_LOCAL_TESTS=1"
+else
+  npm test
+fi
 
 echo "==> Building release"
 npm run cloud:release
