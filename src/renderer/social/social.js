@@ -213,6 +213,54 @@
     });
   }
 
+  function ensureRoomMessageCache(roomId) {
+    if (!roomId || moduleState.messageCache.has(roomId)) return;
+    moduleState.messageCache.set(roomId, { messages: [], maxSeq: 0 });
+  }
+
+  function upsertRoom(room) {
+    if (!room || !room.id) return null;
+    const idx = moduleState.rooms.findIndex((r) => r.id === room.id);
+    if (idx >= 0) {
+      moduleState.rooms[idx] = { ...moduleState.rooms[idx], ...room };
+    } else {
+      moduleState.rooms.push(room);
+    }
+    ensureRoomMessageCache(room.id);
+    return moduleState.rooms.find((r) => r.id === room.id) || room;
+  }
+
+  function localRuntimeFellows() {
+    const state = (deps && typeof deps.getState === "function" && deps.getState()) || {};
+    const runtime = state.runtime || {};
+    const candidates = [
+      ...(Array.isArray(runtime.fellows) ? runtime.fellows : []),
+      ...(Array.isArray(runtime.personas) ? runtime.personas : []),
+      ...(Array.isArray(state.personas) ? state.personas : [])
+    ];
+    const seen = new Set();
+    const fellows = [];
+    for (const item of candidates) {
+      if (!item || typeof item !== "object") continue;
+      const key = String(item.key || item.id || "").trim();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      fellows.push({ ...item, key });
+    }
+    return fellows;
+  }
+
+  async function ensureLocalFellowRooms(api) {
+    if (!api || typeof api.ensureFellowRoom !== "function") return;
+    for (const fellow of localRuntimeFellows()) {
+      try {
+        await api.ensureFellowRoom(fellow.key, { title: fellow.name || fellow.displayName || fellow.key, runtimeKind: "desktop-local" });
+      } catch (error) {
+        console.warn("[social] ensure fellow room failed", fellow.key, error);
+      }
+    }
+  }
+
   // Resolve "is this message from me?" through shared/contact (resolveContact
   // returns kind="self" only when ref matches ctx.self.id). Falls back to
   // false when the helper isn't loaded (test sandbox or pre-bootstrap).
@@ -324,10 +372,9 @@
     }
     const api = window.aimashi.social;
     try {
-      const [meRes, friendsRes, roomsRes, incomingRes, outgoingRes] = await Promise.all([
+      const [meRes, friendsRes, incomingRes, outgoingRes] = await Promise.all([
         api.myUsername(),
         api.listFriends(),
-        api.listRooms(),
         api.listFriendRequests("incoming"),
         api.listFriendRequests("outgoing"),
       ]);
@@ -344,9 +391,13 @@
         moduleState.myUserId = freshUserId;
       }
       if (friendsRes.ok) moduleState.friends = friendsRes.data?.friends || [];
-      if (roomsRes.ok) moduleState.rooms = roomsRes.data?.rooms || [];
       if (incomingRes.ok) moduleState.incomingRequests = incomingRes.data?.requests || [];
       if (outgoingRes.ok) moduleState.outgoingRequests = outgoingRes.data?.requests || [];
+
+      await ensureLocalFellowRooms(api);
+
+      const roomsRes = await api.listRooms();
+      if (roomsRes.ok) moduleState.rooms = roomsRes.data?.rooms || [];
 
       // Phase 3: cross-device user settings (pin / read marks / appearance).
       await bootstrapCloudSettings();
@@ -460,10 +511,7 @@
         moduleState.friends = dedup([...moduleState.friends, friend]);
       }
       if (room) {
-        moduleState.rooms = dedup([...moduleState.rooms, room]);
-        if (!moduleState.messageCache.has(room.id)) {
-          moduleState.messageCache.set(room.id, { messages: [], maxSeq: 0 });
-        }
+        upsertRoom(room);
       }
       // Remove matching pending requests from both lists
       if (friend) {
@@ -571,10 +619,7 @@
     if (type === "social.room_invited") {
       const { room } = payload || {};
       if (!room) return;
-      moduleState.rooms = dedup([...moduleState.rooms, room]);
-      if (!moduleState.messageCache.has(room.id)) {
-        moduleState.messageCache.set(room.id, { messages: [], maxSeq: 0 });
-      }
+      upsertRoom(room);
       // H2: Invalidate member cache so next mention parse refetches newly-added fellows
       _roomMembersCache.delete(room.id);
       _schedulePersistSnapshot();
@@ -588,7 +633,7 @@
     if (type === "room.updated") {
       const { room } = payload || {};
       if (!room || !room.id) return;
-      moduleState.rooms = moduleState.rooms.map((r) => (r.id === room.id ? { ...r, ...room } : r));
+      upsertRoom(room);
       _schedulePersistSnapshot();
       if (deps && typeof deps.render === "function") deps.render();
       return;

@@ -62,8 +62,41 @@ function loadSocial() {
     Math,
   });
   vm.runInContext(src, context);
+  mockWindow.aimashiSocial.__mockWindow = mockWindow;
   return mockWindow.aimashiSocial;
 }
+
+test("bootstrapAfterLogin ensures local fellow rooms before listing rooms", async () => {
+  const s = loadSocial();
+  const calls = [];
+  s.initSocialModule({
+    getState: () => ({ runtime: { fellows: [{ key: "alice", name: "爱丽丝" }] } }),
+    render: () => {},
+    els: {},
+    appendTransientChat: () => {}
+  });
+  s.__mockWindow.aimashi.social = {
+    myUsername: async () => ({ ok: true, data: { id: "u_1", username: "jung" } }),
+    listFriends: async () => ({ ok: true, data: { friends: [] } }),
+    listFriendRequests: async () => ({ ok: true, data: { requests: [] } }),
+    settingsGet: async () => ({}),
+    ensureFellowRoom: async (fellowId, body) => {
+      calls.push({ kind: "ensure", fellowId, body });
+      return { ok: true, data: { room: { id: "fellow:u_1:alice", type: "fellow" } } };
+    },
+    listRooms: async () => {
+      calls.push({ kind: "listRooms" });
+      return { ok: true, data: { rooms: [{ id: "fellow:u_1:alice", type: "fellow", name: "爱丽丝" }] } };
+    },
+    listRoomMessages: async () => ({ ok: true, data: { messages: [] } })
+  };
+
+  await s.bootstrapAfterLogin();
+
+  assert.deepEqual(calls.map((call) => call.kind), ["ensure", "listRooms"]);
+  assert.equal(calls[0].fellowId, "alice");
+  assert.deepEqual(JSON.parse(JSON.stringify(calls[0].body)), { title: "爱丽丝", runtimeKind: "desktop-local" });
+});
 
 test("renderSidebarRows: dm room → private-room with otherUser resolved", () => {
   const s = loadSocial();
@@ -127,18 +160,34 @@ test("handleCloudEvent social.room_invited adds the room to rooms list", () => {
   assert.ok(s.moduleState.rooms.find((r) => r.id === "g_xxx"));
 });
 
+test("handleCloudEvent room.updated upserts unknown rooms", () => {
+  const s = loadSocial();
+  s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
+
+  s.handleCloudEvent({
+    type: "room.updated",
+    payload: { room: { id: "fellow:u_1:alice", type: "fellow", name: "爱丽丝" } }
+  });
+
+  assert.equal(s.moduleState.rooms.some((room) => room.id === "fellow:u_1:alice"), true);
+  assert.equal(s.moduleState.messageCache.has("fellow:u_1:alice"), true);
+});
+
 test("renderSidebarRows includes group rooms with type group-room", () => {
   const s = loadSocial();
   s.moduleState.myUserId = "u_me";
   s.moduleState.rooms = [
     { id: "dm:u_me:u_a", type: "dm", updatedAt: "2026-05-21T20:00:00.000Z", name: null },
-    { id: "g_squad", type: "group", updatedAt: "2026-05-21T21:00:00.000Z", name: "Squad" }
+    { id: "g_squad", type: "group", updatedAt: "2026-05-21T21:00:00.000Z", name: "Squad" },
+    { id: "fellow:u_me:aimashi", type: "fellow", updatedAt: "2026-05-21T22:00:00.000Z", name: "Aimashi" }
   ];
   s.moduleState.friends = [{ id: "u_a", username: "alice" }];
   const rows = s.renderSidebarRows();
-  assert.equal(rows.length, 2);
+  assert.equal(rows.length, 3);
   const groupRow = rows.find((r) => r.type === "group-room");
   assert.equal(groupRow.room.name, "Squad");
+  const fellowRow = rows.find((item) => item.room?.id === "fellow:u_me:aimashi");
+  assert.equal(fellowRow.type, "private-room");
 });
 
 test("handleCloudEvent room.message_appended appends and tracks maxSeq", () => {

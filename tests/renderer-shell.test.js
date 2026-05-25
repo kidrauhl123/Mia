@@ -16,6 +16,18 @@ test("renderer app shell loads state module before the entrypoint", () => {
   assert.doesNotMatch(appSource, /const fallbackSlashCommands = \[/);
 });
 
+test("logged-in message list uses social rows instead of local fellow rows", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+
+  assert.match(appSource, /cloudSignedIn\s*\?\s*\[\]\s*:\s*visiblePersonas\.map/s);
+});
+
+test("fellow cloud rooms are not hidden from the sidebar", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+
+  assert.doesNotMatch(appSource, /if\s*\(\s*isFellow\s*\)\s*return\s+null/);
+});
+
 test("renderer app state factory owns default mutable state", () => {
   const source = fs.readFileSync(path.join(root, "src/renderer/app-state.js"), "utf8");
   const localStorage = {

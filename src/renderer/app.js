@@ -554,7 +554,6 @@ function conversationCardSpecFromRow(row, personas) {
     const room = row.room;
     const activeRoomId = social?.getActiveRoomId?.();
     const isFellow = room.type === "fellow";
-    if (isFellow) return null;
     let name, avatar;
     if (isFellow) {
       const fellowKey = room.decorations?.fellowKey || (room.id?.split(":")[2] || "");
@@ -1323,15 +1322,18 @@ function render() {
   const cloudSignedIn = Boolean(state.runtime?.cloud?.enabled);
   const cloudReady = !cloudSignedIn || !social || social.isBootstrapped?.();
   const socialRows = cloudReady ? (social?.renderSidebarRows?.() || []) : [];
-  const messageRows = !cloudReady ? [] : window.aimashiFellowManager.sortMessageCardsForSidebar([
-    ...visiblePersonas.map((persona) => ({
+  const localConversationRows = cloudSignedIn
+    ? []
+    : visiblePersonas.map((persona) => ({
       type: "fellow",
       key: persona.key,
       pinned: Boolean(persona.pinned),
       pinnedAt: persona.pinnedAt || "",
       updatedAt: conversationUpdatedAt(persona),
       persona
-    })),
+    }));
+  const messageRows = !cloudReady ? [] : window.aimashiFellowManager.sortMessageCardsForSidebar([
+    ...localConversationRows,
     ...socialRows
   ]);
 
