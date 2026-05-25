@@ -65,6 +65,9 @@
     const attachmentHtml = typeof ctx.renderAttachmentChips === "function"
       ? ctx.renderAttachmentChips(spec?.attachments || msg.attachments || [])
       : "";
+    const sendStatusHtml = typeof ctx.renderSendStatus === "function"
+      ? ctx.renderSendStatus(msg)
+      : "";
     const createdAt = msg.created_at || msg.createdAt || "";
     const timeHtml = createdAt
       ? `<time class="message-time" datetime="${escapeHtml(createdAt)}">${escapeHtml(window.aimashiTimeFormat.formatMessageTime(createdAt))}</time>`
@@ -99,6 +102,7 @@
         ${attachmentHtml}
         ${translationHtml}
         ${timeHtml}
+        ${sendStatusHtml}
       </div>
     `;
     return article;
@@ -116,55 +120,15 @@
     }
   }
 
-  // ── group send: parse @mentions and POST to cloud ─────────────────────────
-
-  // M2: mention regex broadened to cover fellow ids with -, ., _
-  const MENTION_REGEX = /@([A-Za-z0-9_.-]+)/g;
+  // ── group send ────────────────────────────────────────────────────────────
+  // Message sending is intentionally owned by social.js so cloud DM, fellow,
+  // and group rooms share one optimistic-send/reconcile pipeline.
 
   async function sendInActiveGroupRoom(text) {
-    const { moduleState, deps, roomMembersCache, appendMessageToActiveChat } = ctx;
-    const roomId = moduleState.activeRoomId;
-    if (!roomId || !text) return;
-    const members = roomMembersCache.get(roomId) || [];
-
-    // Mention resolution lives in the cloud-room adapter — see resolveMention
-    // there. social-groups must not crack open the member list itself.
-    const source = _cloudRoomSourceFor(roomId, [], members);
-    const mentionPattern = new RegExp(MENTION_REGEX.source, MENTION_REGEX.flags);
-    let match;
-    const mentions = [];
-    while ((match = mentionPattern.exec(text)) !== null) {
-      const word = match[1];
-      const resolved = source && typeof source.resolveMention === "function"
-        ? source.resolveMention(word)
-        : null;
-      if (resolved) mentions.push(resolved);
+    if (global.aimashiSocial && typeof global.aimashiSocial.sendInActiveRoom === "function") {
+      return global.aimashiSocial.sendInActiveRoom(text);
     }
-
-    try {
-      const res = await window.aimashi.social.postRoomMessage(roomId, {
-        bodyMd: text,
-        ...(mentions.length ? { mentions } : {})
-      });
-      if (!res.ok) {
-        console.warn("[social-groups] sendInActiveGroupRoom failed:", res.error);
-        return;
-      }
-      const sentMsg = res.data?.message;
-      if (!sentMsg || !sentMsg.id) return;
-      setTimeout(() => {
-        const entry = moduleState.messageCache.get(roomId);
-        if (entry && !entry.messages.find((m) => m.id === sentMsg.id)) {
-          entry.messages.push(sentMsg);
-          entry.messages.sort((a, b) => a.seq - b.seq);
-          if (sentMsg.seq > entry.maxSeq) entry.maxSeq = sentMsg.seq;
-          if (roomId === moduleState.activeRoomId) appendMessageToActiveChat(sentMsg);
-          if (deps && typeof deps.render === "function") deps.render();
-        }
-      }, 500);
-    } catch (err) {
-      console.warn("[social-groups] sendInActiveGroupRoom error:", err);
-    }
+    console.warn("[social-groups] unified social send path is unavailable");
   }
 
   // ── openCreateGroupDialog ─────────────────────────────────────────────────

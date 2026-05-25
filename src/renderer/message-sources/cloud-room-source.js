@@ -78,6 +78,7 @@
           attachments: m.attachments_json ? safeJsonArray(m.attachments_json) : (Array.isArray(m.attachments) ? m.attachments : []),
           mentions: m.mentions_json ? safeJsonArray(m.mentions_json) : (Array.isArray(m.mentions) ? m.mentions : []),
           isOwn: isOwnUser,
+          isPending: Boolean(m._localPending || m.status === "sending" || m.status === "pending"),
           // delete = WeChat-style local hide (any member may remove a message
           // from their own view); pin has no per-message meaning in a shared room.
           capabilities: { reply: true, copy: true, pin: false, delete: true }

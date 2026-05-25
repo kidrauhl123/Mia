@@ -8,11 +8,12 @@ const os = require("node:os");
 const path = require("node:path");
 const http = require("node:http");
 const { spawn } = require("node:child_process");
+const { freePort } = require("./helpers/free-port");
 
-function startServer() {
+async function startServer() {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-fellow-room-"));
+  const port = await freePort();
   return new Promise((resolve, reject) => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-fellow-room-"));
-    const port = 4000 + Math.floor(Math.random() * 1000);
     const proc = spawn(process.execPath, ["scripts/serve-cloud.js"], {
       env: { ...process.env, AIMASHI_CLOUD_HOST: "127.0.0.1", AIMASHI_CLOUD_PORT: String(port), AIMASHI_CLOUD_DATA: tmpDir, AIMASHI_CLOUD_ALLOW_QUERY_TOKEN: "1" },
       stdio: ["ignore", "pipe", "pipe"]
@@ -27,8 +28,10 @@ function startServer() {
 }
 
 async function stopServer(ctx) {
-  ctx.proc.kill("SIGTERM");
-  await new Promise((r) => ctx.proc.on("exit", r));
+  if (ctx.proc.exitCode === null && ctx.proc.signalCode === null) {
+    ctx.proc.kill("SIGTERM");
+    await new Promise((r) => ctx.proc.once("exit", r));
+  }
   fs.rmSync(ctx.tmpDir, { recursive: true, force: true });
 }
 
@@ -173,7 +176,7 @@ test("PUT /api/me/fellow-rooms/:sessionId creates a fellow-type room owned by th
     assert.equal(r.body.room.id, `fellow:${A.user.id}:${sessionId}`);
     assert.equal(r.body.room.type, "fellow");
     assert.equal(r.body.room.name, "和 Codex 的会话");
-    assert.deepEqual(r.body.room.decorations, { fellowKey: "codex", sessionId });
+    assert.deepEqual(r.body.room.decorations, { fellowKey: "codex", sessionId, runtimeKind: "desktop-local" });
     const member_kinds = r.body.members.map((m) => m.member_kind).sort();
     assert.deepEqual(member_kinds, ["fellow", "user"]);
   } finally { await stopServer(ctx); }
@@ -187,6 +190,7 @@ test("PUT /api/me/fellow-rooms is idempotent (same sessionId returns same room)"
     const r2 = await api(ctx.port, "PUT", "/api/me/fellow-rooms/sess1", { token: A.token, body: { fellowKey: "codex", title: "v2" } });
     assert.equal(r1.body.room.id, r2.body.room.id);
     assert.equal(r2.body.room.name, "v2", "title update on subsequent PUT");
+    assert.equal(r2.body.room.decorations.runtimeKind, "desktop-local", "desktop-created fellow rooms must stay local-runtime by default");
   } finally { await stopServer(ctx); }
 });
 

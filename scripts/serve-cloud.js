@@ -337,13 +337,23 @@ function serveWebAsset(req, res, webRoot, pathname) {
   }
   if (relative === "favicon.ico") relative = "favicon.svg";
   if (!relative || relative.endsWith("/")) relative = path.join(relative, "index.html");
-  const resolved = path.resolve(webRoot, relative);
   const root = path.resolve(webRoot);
-  if (resolved !== root && !resolved.startsWith(`${root}${path.sep}`)) {
-    writeError(res, 403, "Forbidden.");
-    return true;
+  const sourceRoot = path.resolve(__dirname, "..", "src");
+  const candidates = [{ resolved: path.resolve(webRoot, relative), allowedRoot: root }];
+  if (relative.startsWith("shared/")) {
+    candidates.push({ resolved: path.resolve(sourceRoot, relative), allowedRoot: sourceRoot });
+  } else if (relative.startsWith("message-sources/")) {
+    candidates.push({ resolved: path.resolve(sourceRoot, "renderer", relative), allowedRoot: sourceRoot });
   }
-  if (!fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) return false;
+  let resolved = "";
+  for (const { resolved: candidate, allowedRoot } of candidates) {
+    if (candidate !== allowedRoot && !candidate.startsWith(`${allowedRoot}${path.sep}`)) continue;
+    if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+      resolved = candidate;
+      break;
+    }
+  }
+  if (!resolved) return false;
   const body = fs.readFileSync(resolved);
   res.writeHead(200, {
     "Content-Type": fileContentType(resolved),
@@ -1338,6 +1348,7 @@ async function handleRequest(req, res, context) {
       if (!fellowMember || fellowMember.owner_id !== auth.user.id) {
         return writeError(res, 403, "you are not the owner of this fellow in this room");
       }
+      if (replayIfCached(context, res, auth.user.id, body)) return;
       const attachments = persistCloudAttachments(
         context.cloudStore,
         auth.user.id,
@@ -1360,7 +1371,9 @@ async function handleRequest(req, res, context) {
           broadcastPersistedEvent(context, m.member_ref, { type: "room.message_appended", roomId, message });
         }
       }
-      return writeJson(res, 201, { message });
+      const payload = { message };
+      rememberOp(context, auth.user.id, body, 201, payload);
+      return writeJson(res, 201, payload);
     }
 
     if (req.method === "GET" && roomDetailMatch) {
@@ -1654,18 +1667,28 @@ async function handleRequest(req, res, context) {
       const title = String(body.title || "").trim();
       const roomId = `fellow:${auth.user.id}:${sessionId}`;
       let room = context.socialStore.getRoom(roomId);
+      const decorations = {
+        ...(room?.decorations || {}),
+        fellowKey,
+        sessionId,
+        runtimeKind: room?.decorations?.runtimeKind || "desktop-local"
+      };
+      const sameJson = (a, b) => JSON.stringify(a || null) === JSON.stringify(b || null);
       if (!room) {
         context.socialStore.createRoom({
           id: roomId,
           type: "fellow",
           name: title || null,
-          decorations: { fellowKey, sessionId }
+          decorations
         });
         context.socialStore.addRoomMember({ roomId, memberKind: "user", memberRef: auth.user.id });
         context.socialStore.addRoomMember({ roomId, memberKind: "fellow", memberRef: fellowKey, ownerId: auth.user.id });
         room = context.socialStore.getRoom(roomId);
-      } else if (title && title !== room.name) {
-        room = context.socialStore.updateRoom(roomId, { name: title });
+      } else if ((title && title !== room.name) || !sameJson(room.decorations, decorations)) {
+        room = context.socialStore.updateRoom(roomId, {
+          ...(title && title !== room.name ? { name: title } : {}),
+          decorations
+        });
       }
       const members = context.socialStore.listRoomMembers(roomId);
       const payload = { room, members };
@@ -1677,10 +1700,54 @@ async function handleRequest(req, res, context) {
     // definitions. Phase 2 of the sync redesign: fellow identity (name +
     // avatar + persona + capabilities) lives in cloud so web / a freshly-
     // installed desktop / another machine can render fellow chats with
-    // proper attribution. Runtime config (engine, model) stays local.
+    // proper attribution. Desktop-local runtime config stays local; cloud
+    // runtime bindings live under the /runtime endpoint below.
     if (req.method === "GET" && url.pathname === "/api/me/fellows") {
       const fellows = context.fellowsStore.listFellows(auth.user.id);
       return writeJson(res, 200, { fellows });
+    }
+
+    // GET/PUT /api/me/fellows/:id/runtime — web-side AI private chat controls.
+    // Desktop-local fellows keep their runtime settings on the desktop; this
+    // endpoint owns cloud runtime bindings such as cloud-hermes.
+    const fellowRuntimeMatch = url.pathname.match(/^\/api\/me\/fellows\/([A-Za-z0-9_.-]+)\/runtime$/);
+    if (req.method === "GET" && fellowRuntimeMatch) {
+      const fellowId = fellowRuntimeMatch[1];
+      const runtimeKind = String(url.searchParams.get("kind") || "cloud-hermes").trim() || "cloud-hermes";
+      const binding = context.runtimeBindingsStore.getBinding(auth.user.id, fellowId, runtimeKind) || {
+        userId: auth.user.id,
+        fellowId,
+        runtimeKind,
+        enabled: false,
+        config: {}
+      };
+      return writeJson(res, 200, { binding });
+    }
+
+    if (req.method === "PUT" && fellowRuntimeMatch) {
+      const fellowId = fellowRuntimeMatch[1];
+      const body = await readJson(req);
+      if (replayIfCached(context, res, auth.user.id, body)) return;
+      const fellow = context.fellowsStore.getFellow(auth.user.id, fellowId);
+      if (!fellow) return writeError(res, 404, "fellow not found");
+      const runtimeKind = String(body.runtimeKind || "cloud-hermes").trim() || "cloud-hermes";
+      const inputConfig = body.config && typeof body.config === "object" ? body.config : {};
+      const config = {
+        model: String(inputConfig.model || "").trim().slice(0, 120),
+        effortLevel: String(inputConfig.effortLevel || "medium").trim().slice(0, 40),
+        permissionMode: String(inputConfig.permissionMode || "ask").trim().slice(0, 80)
+      };
+      const binding = context.runtimeBindingsStore.upsertBinding({
+        userId: auth.user.id,
+        fellowId,
+        runtimeKind,
+        enabled: body.enabled !== false,
+        config
+      });
+      broadcastPersistedEvent(context, auth.user.id, { type: "fellow.runtime_updated", binding });
+      const payload = { binding };
+      rememberOp(context, auth.user.id, body, 200, payload);
+      return writeJson(res, 200, payload);
     }
 
     // PUT /api/me/fellows/:id — upsert one fellow. Body shape mirrors the

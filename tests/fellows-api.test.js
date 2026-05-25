@@ -8,11 +8,12 @@ const path = require("node:path");
 const http = require("node:http");
 const WebSocket = require("ws");
 const { spawn } = require("node:child_process");
+const { freePort } = require("./helpers/free-port");
 
-function startServer() {
+async function startServer() {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-fellow-api-"));
+  const port = await freePort();
   return new Promise((resolve, reject) => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-fellow-api-"));
-    const port = 4000 + Math.floor(Math.random() * 1000);
     const proc = spawn(process.execPath, ["scripts/serve-cloud.js"], {
       env: {
         ...process.env,
@@ -33,8 +34,10 @@ function startServer() {
 }
 
 async function stopServer(ctx) {
-  ctx.proc.kill("SIGTERM");
-  await new Promise((r) => ctx.proc.on("exit", r));
+  if (ctx.proc.exitCode === null && ctx.proc.signalCode === null) {
+    ctx.proc.kill("SIGTERM");
+    await new Promise((r) => ctx.proc.once("exit", r));
+  }
   fs.rmSync(ctx.tmpDir, { recursive: true, force: true });
 }
 
@@ -92,6 +95,44 @@ test("PUT then GET /api/me/fellows roundtrips identity fields", async () => {
     assert.ok(codex);
     assert.equal(codex.name, "Codex");
     assert.deepEqual(codex.avatarCrop, { x: 10, y: 20, w: 100, h: 100 });
+  } finally { await stopServer(ctx); }
+});
+
+test("GET and PUT /api/me/fellows/:id/runtime roundtrip cloud AI controls", async () => {
+  const ctx = await startServer();
+  try {
+    const A = await register(ctx.port, "rho");
+    await api(ctx.port, "PUT", "/api/me/fellows/codex", {
+      token: A.token,
+      body: { name: "Codex", clientOpId: "op_runtime_fellow" }
+    });
+
+    const empty = await api(ctx.port, "GET", "/api/me/fellows/codex/runtime?kind=cloud-hermes", { token: A.token });
+    assert.equal(empty.status, 200);
+    assert.equal(empty.body.binding.enabled, false);
+    assert.deepEqual(empty.body.binding.config, {});
+
+    const saved = await api(ctx.port, "PUT", "/api/me/fellows/codex/runtime", {
+      token: A.token,
+      body: {
+        runtimeKind: "cloud-hermes",
+        enabled: true,
+        config: {
+          model: "hermes-agent",
+          effortLevel: "high",
+          permissionMode: "auto"
+        },
+        clientOpId: "op_runtime_save"
+      }
+    });
+    assert.equal(saved.status, 200);
+    assert.equal(saved.body.binding.enabled, true);
+    assert.equal(saved.body.binding.config.effortLevel, "high");
+
+    const got = await api(ctx.port, "GET", "/api/me/fellows/codex/runtime?kind=cloud-hermes", { token: A.token });
+    assert.equal(got.status, 200);
+    assert.equal(got.body.binding.config.model, "hermes-agent");
+    assert.equal(got.body.binding.config.permissionMode, "auto");
   } finally { await stopServer(ctx); }
 });
 

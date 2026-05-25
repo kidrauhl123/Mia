@@ -26,6 +26,8 @@ function createHermesChatAdapter(deps = {}) {
   const buildRunPayload = requireDependency(deps, "buildRunPayload");
   const normalizeError = requireDependency(deps, "normalizeError");
   const readRunEventStream = requireDependency(deps, "readRunEventStream");
+  const writeSchedulerMcpContext = requireDependency(deps, "writeSchedulerMcpContext");
+  const appendEngineLog = deps.appendEngineLog || (() => {});
   const fetchImpl = deps.fetch || fetch;
   const nowSeconds = deps.nowSeconds || defaultNowSeconds;
   const randomUUID = deps.randomUUID || (() => crypto.randomUUID());
@@ -69,6 +71,17 @@ function createHermesChatAdapter(deps = {}) {
   }
 
   async function sendChat({ fellow, sessionId, messages, group, signal, emit }) {
+    // Tell the scheduler MCP which fellow/session this turn belongs to, so a
+    // schedule_create call fires the reminder back into this conversation.
+    const lastUserMessage = Array.isArray(messages)
+      ? [...messages].reverse().find((m) => m?.role === "user")
+      : null;
+    const originMessageId = String(lastUserMessage?.id || "");
+    try {
+      writeSchedulerMcpContext({ fellowId: fellow.key, sessionId, originMessageId });
+    } catch (error) {
+      appendEngineLog(`Scheduler MCP context write failed: ${error?.message || error}`);
+    }
     const runBody = buildRunPayload({ fellow, sessionId, messages });
     const headers = {
       "Content-Type": "application/json",

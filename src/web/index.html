@@ -111,6 +111,35 @@
                 <textarea id="chatInput" placeholder="输入消息，Enter 发送，Shift+Enter 换行"></textarea>
                 <button id="sendButton" class="send-button" type="submit" title="发送" aria-label="发送">↗</button>
               </div>
+              <div id="composerBottom" class="composer-bottom hidden">
+                <div class="composer-controls">
+                  <label class="model-switcher" title="切换当前模型">
+                    <span class="model-avatar" aria-hidden="true">◇</span>
+                    <span id="quickModelLabel" class="model-current-label">GPT-5.3 Codex</span>
+                    <select id="quickModelSelect" aria-label="切换当前模型">
+                      <option value="custom">Custom</option>
+                      <option value="openai-codex">GPT-5.3 Codex</option>
+                      <option value="xai">Grok 4.1 Fast</option>
+                      <option value="anthropic">Claude Sonnet 4.6</option>
+                      <option value="openrouter">Claude Sonnet 4.6</option>
+                      <option value="deepseek">DeepSeek Chat</option>
+                      <option value="gemini">Gemini 2.5 Pro</option>
+                      <option value="lmstudio">Local Model</option>
+                    </select>
+                  </label>
+                  <span class="composer-dot" aria-hidden="true">·</span>
+                  <label class="effort-switcher" title="切换推理强度">
+                    <span id="effortLabel" class="effort-label">Medium</span>
+                    <select id="effortSelect" aria-label="切换推理强度"></select>
+                  </label>
+                  <span class="composer-dot" aria-hidden="true">·</span>
+                  <label class="permission-switcher" title="危险命令权限模式">
+                    <span id="permissionLabel" class="permission-label">Ask</span>
+                    <select id="permissionMode" aria-label="权限模式"></select>
+                  </label>
+                </div>
+                <span id="modelSwitchStatus" class="model-switch-status"></span>
+              </div>
             </form>
           </section>
         </section>
@@ -234,6 +263,7 @@
     <script src="./shared/time-format.js?v=20260523-shared-time-format"></script>
     <script src="./shared/message-spec.js?v=20260523-shared-message-spec"></script>
     <script src="./shared/contact.js?v=20260523-shared-contact"></script>
+    <script src="./shared/engine-contracts.js?v=20260525-web-ai-controls"></script>
     <script src="./shared/conversation-kinds.js?v=20260524-cloud-agent"></script>
     <script src="./shared/unread.js?v=20260523-shared-unread"></script>
     <script src="./shared/group-tiles.js?v=20260523-group-tiles"></script>

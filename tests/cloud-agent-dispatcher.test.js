@@ -50,6 +50,17 @@ test("dispatcher only runs enabled cloud-hermes fellow rooms and appends fellow 
   const transientEvents = [];
   const materializeCalls = [];
   try {
+    ctx.runtimeBindingsStore.upsertBinding({
+      userId: ctx.user.id,
+      fellowId: "aimashi",
+      runtimeKind: "cloud-hermes",
+      enabled: true,
+      config: {
+        model: "hermes-agent",
+        effortLevel: "high",
+        permissionMode: "auto"
+      }
+    });
     const dispatcher = createCloudAgentDispatcher({
       socialStore: ctx.socialStore,
       messagesStore: ctx.messagesStore,
@@ -104,6 +115,9 @@ test("dispatcher only runs enabled cloud-hermes fellow rooms and appends fellow 
     assert.equal(hermesCalls.length, 1);
     assert.equal(hermesCalls[0].userId, ctx.user.id);
     assert.equal(hermesCalls[0].fellow.id, "aimashi");
+    assert.equal(hermesCalls[0].model, "hermes-agent");
+    assert.equal(hermesCalls[0].effortLevel, "high");
+    assert.equal(hermesCalls[0].permissionMode, "auto");
     assert.equal(materializeCalls.length, 1);
     assert.deepEqual(materializeCalls[0].attachments, [{ id: "file_1", url: "/api/files/file_1" }]);
     assert.match(hermesCalls[0].input, /附件上下文/);
@@ -165,5 +179,46 @@ test("dispatcher skips fellow rooms without enabled cloud-hermes binding", async
     assert.equal(ctx.messagesStore.listMessagesSince(ctx.room.id, 0).length, 1);
   } finally {
     ctx.cleanup();
+  }
+});
+
+test("dispatcher skips desktop-local and legacy fellow rooms even when a cloud binding exists", async () => {
+  for (const decorations of [
+    { fellowKey: "aimashi", sessionId: "aimashi", runtimeKind: "desktop-local" },
+    { fellowKey: "aimashi", sessionId: "aimashi" }
+  ]) {
+    const ctx = setup();
+    try {
+      ctx.socialStore.updateRoom(ctx.room.id, { decorations });
+      ctx.runtimeBindingsStore.upsertBinding({
+        userId: ctx.user.id,
+        fellowId: "aimashi",
+        runtimeKind: "cloud-hermes",
+        enabled: true,
+        config: { model: "hermes-agent" }
+      });
+      let called = false;
+      const dispatcher = createCloudAgentDispatcher({
+        socialStore: ctx.socialStore,
+        messagesStore: ctx.messagesStore,
+        fellowsStore: ctx.fellowsStore,
+        runtimeBindingsStore: ctx.runtimeBindingsStore,
+        cloudAgentRunsStore: ctx.cloudAgentRunsStore,
+        workerManager: { async ensureWorker() { called = true; } },
+        hermesRunsClient: { async runChat() { called = true; return { content: "" }; } },
+        broadcastPersistedEvent() {}
+      });
+      const message = ctx.messagesStore.appendMessage({
+        roomId: ctx.room.id,
+        senderKind: "user",
+        senderRef: ctx.user.id,
+        bodyMd: "hello"
+      });
+      await dispatcher.handleUserMessage({ userId: ctx.user.id, roomId: ctx.room.id, message });
+      assert.equal(called, false);
+      assert.equal(ctx.messagesStore.listMessagesSince(ctx.room.id, 0).length, 1);
+    } finally {
+      ctx.cleanup();
+    }
   }
 });

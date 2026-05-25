@@ -136,9 +136,9 @@ test("respond skips empty replies and incomplete invocations", async () => {
   assert.equal(calls.post.length, 0);
 });
 
-test("shouldHandleLocalCloudRoomAi gives one process ownership", () => {
-  assert.equal(shouldHandleLocalCloudRoomAi({ isDaemon: true, daemonEnabled: true }), true);
-  assert.equal(shouldHandleLocalCloudRoomAi({ isDaemon: true, daemonEnabled: false }), true);
+test("shouldHandleLocalCloudRoomAi keeps visible desktop rooms responsive when daemon is enabled", () => {
+  assert.equal(shouldHandleLocalCloudRoomAi({ isDaemon: false, daemonEnabled: true }), true);
   assert.equal(shouldHandleLocalCloudRoomAi({ isDaemon: false, daemonEnabled: false }), true);
-  assert.equal(shouldHandleLocalCloudRoomAi({ isDaemon: false, daemonEnabled: true }), false);
+  assert.equal(shouldHandleLocalCloudRoomAi({ isDaemon: true, daemonEnabled: true }), false);
+  assert.equal(shouldHandleLocalCloudRoomAi({ isDaemon: true, daemonEnabled: false }), false);
 });

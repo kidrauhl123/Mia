@@ -518,6 +518,7 @@ function main() {
   copyFile("src/shared/time-format.js", path.join(webDir, "shared", "time-format.js"));
   copyFile("src/shared/message-spec.js", path.join(webDir, "shared", "message-spec.js"));
   copyFile("src/shared/contact.js", path.join(webDir, "shared", "contact.js"));
+  copyFile("src/shared/engine-contracts.js", path.join(webDir, "shared", "engine-contracts.js"));
   copyFile("src/shared/conversation-kinds.js", path.join(webDir, "shared", "conversation-kinds.js"));
   copyFile("src/shared/unread.js", path.join(webDir, "shared", "unread.js"));
   copyFile("src/shared/group-tiles.js", path.join(webDir, "shared", "group-tiles.js"));

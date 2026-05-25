@@ -114,6 +114,33 @@ test("POST /api/rooms/:id/messages is idempotent on clientOpId", async () => {
   } finally { await stopServer(ctx); }
 });
 
+test("POST /api/rooms/:id/messages/as-fellow is idempotent on clientOpId", async () => {
+  const ctx = await startServer();
+  try {
+    const A = await register(ctx.port, "kappa-fellow");
+    const room = await api(ctx.port, "POST", "/api/rooms", {
+      token: A.token,
+      body: {
+        name: "fellow-idempotency",
+        memberFellows: [{ fellowId: "f1" }],
+        memberFriendUserIds: [],
+        clientOpId: "op_room_for_fellow_msg"
+      }
+    });
+    const roomId = room.body.room.id;
+    const msg = { fellowId: "f1", bodyMd: "assistant-once", clientOpId: "op_fellow_msg_42" };
+    const r1 = await api(ctx.port, "POST", `/api/rooms/${roomId}/messages/as-fellow`, { token: A.token, body: msg });
+    const r2 = await api(ctx.port, "POST", `/api/rooms/${roomId}/messages/as-fellow`, { token: A.token, body: msg });
+    assert.equal(r1.status, 201);
+    assert.equal(r2.status, 201);
+    assert.equal(r1.body.message.id, r2.body.message.id, "both POSTs return the same fellow message id");
+
+    const listed = await api(ctx.port, "GET", `/api/rooms/${roomId}/messages`, { token: A.token });
+    const assistantMessages = (listed.body.messages || []).filter((m) => m.body_md === "assistant-once");
+    assert.equal(assistantMessages.length, 1, "only ONE fellow row persisted across two identical POSTs");
+  } finally { await stopServer(ctx); }
+});
+
 test("POST /api/social/friend-requests is idempotent on clientOpId", async () => {
   const ctx = await startServer();
   try {

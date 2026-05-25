@@ -44,6 +44,7 @@ function createCloudAgentDispatcher(deps = {}) {
 
     const room = socialStore.getRoom(roomId);
     if (!room || room.type !== "fellow") return null;
+    if (room.decorations?.runtimeKind !== "cloud-hermes") return null;
     const fellowMember = socialStore.listRoomMembers(roomId)
       .find((member) => member.member_kind === "fellow" && member.owner_id === userId);
     if (!fellowMember) return null;
@@ -51,6 +52,7 @@ function createCloudAgentDispatcher(deps = {}) {
     const fellowId = fellowMember.member_ref;
     const binding = runtimeBindingsStore.getEnabledBinding(userId, fellowId, "cloud-hermes");
     if (!binding) return null;
+    const runtimeConfig = binding.config || {};
     const fellow = fellowsStore.getFellow(userId, fellowId) || { id: fellowId, name: fellowId };
 
     const run = cloudAgentRunsStore.createRun({
@@ -77,6 +79,9 @@ function createCloudAgentDispatcher(deps = {}) {
         userId,
         fellow,
         roomId,
+        model: runtimeConfig.model || "hermes-agent",
+        effortLevel: runtimeConfig.effortLevel || "medium",
+        permissionMode: runtimeConfig.permissionMode || "ask",
         input: materialized.input || message.body_md || "",
         attachments: materialized.attachments || [],
         conversationHistory: conversationHistory(roomId),

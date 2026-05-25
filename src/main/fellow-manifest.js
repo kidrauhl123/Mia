@@ -8,10 +8,8 @@
 // Plus the normalization helpers used everywhere (normalizeFellow,
 // normalizeFellowEngineConfig, mergeFellowEngineConfig, etc.).
 //
-// The write-side CRUD (saveFellow / saveFellowEngineConfig / setFellowPinned /
-// deleteFellow) stays in main.js for now — it has too many cross-cutting
-// side effects (initializeRuntime call, getRuntimeStatus, ensureClaudeBridgePlugin)
-// to move cleanly without a bigger plan.
+// Write-side CRUD lives in fellow-service.js, which composes these record
+// helpers with cloud sync, task cleanup, chat cleanup, and pet cleanup.
 
 const crypto = require("node:crypto");
 const fs = require("node:fs");

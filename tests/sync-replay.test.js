@@ -9,11 +9,12 @@ const path = require("node:path");
 const http = require("node:http");
 const { spawn } = require("node:child_process");
 const WebSocket = require("ws");
+const { freePort } = require("./helpers/free-port");
 
-function startServer() {
+async function startServer() {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-sync-replay-"));
+  const port = await freePort();
   return new Promise((resolve, reject) => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "aimashi-sync-replay-"));
-    const port = 4000 + Math.floor(Math.random() * 1000);
     const proc = spawn(process.execPath, ["scripts/serve-cloud.js"], {
       env: {
         ...process.env,
@@ -36,8 +37,10 @@ function startServer() {
 }
 
 async function stopServer(ctx) {
-  ctx.proc.kill("SIGTERM");
-  await new Promise((r) => ctx.proc.on("exit", r));
+  if (ctx.proc.exitCode === null && ctx.proc.signalCode === null) {
+    ctx.proc.kill("SIGTERM");
+    await new Promise((r) => ctx.proc.once("exit", r));
+  }
   fs.rmSync(ctx.tmpDir, { recursive: true, force: true });
 }
 

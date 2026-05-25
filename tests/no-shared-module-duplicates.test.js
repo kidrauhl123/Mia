@@ -68,9 +68,15 @@ test("no fellowMember/fellowById helper definitions (removed in task 4.3)", () =
   );
 });
 
-// TODO: pattern #4 from the plan — inline `@\w+` mention regex parsing
-// outside shared/send-pipeline.js — is intentionally not guarded here.
-// The existing parseMentions helper in src/renderer/group/group-prompts.js
-// is a legitimate exemption, and a static regex on `@\w+` is too noisy
-// to distinguish parser definitions from incidental string literals.
-// Revisit once parseMentions is itself folded into shared/send-pipeline.
+test("no mention parser definitions outside shared/send-pipeline.js", () => {
+  const offenders = findOffenders(
+    ["shared/send-pipeline.js"],
+    /const\s+MENTION_REGEX\s*=|function\s+parseMentions\b/
+  );
+  assert.deepStrictEqual(
+    offenders,
+    [],
+    `These files duplicate shared/send-pipeline.js mention parsing:\n  ${offenders.join("\n  ")}\n` +
+      `Use \`window.aimashiSendPipeline.prepareOutgoingMessage(input, ctx)\` or \`parseMentions(text, members)\`.`
+  );
+});

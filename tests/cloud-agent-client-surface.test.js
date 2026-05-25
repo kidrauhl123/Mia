@@ -10,10 +10,10 @@ function read(rel) {
 }
 
 test("desktop forwards cloud agent run events over the existing CloudEvent IPC", () => {
-  const source = read("src/main.js");
+  const source = read("src/main/cloud/cloud-events-client.js");
   assert.match(source, /CloudEvent\.CloudAgentRunStarted/);
   assert.match(source, /CloudEvent\.CloudAgentRunEvent/);
-  assert.match(source, /broadcastRendererEvent\(IpcChannel\.CloudEvent,\s*\{\s*type:\s*message\.type,\s*payload:\s*message\s*\}/s);
+  assert.match(source, /emitToRenderer\(\{\s*type:\s*message\.type,\s*payload:\s*message\s*\}\)/s);
 });
 
 test("web cloud room rendering surfaces cloud agent streams and attachments", () => {

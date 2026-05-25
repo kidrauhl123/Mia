@@ -48,9 +48,15 @@ function ensureDefaultCloudFellow(context, userId, options = {}) {
       decorations: { fellowKey: fellowId, sessionId: fellowId, runtimeKind: "cloud-hermes" }
     });
   } else {
+    const decorations = {
+      ...(room.decorations || {}),
+      fellowKey: room.decorations?.fellowKey || fellowId,
+      sessionId: room.decorations?.sessionId || fellowId,
+      runtimeKind: room.decorations?.runtimeKind || "cloud-hermes"
+    };
     room = context.socialStore.updateRoom(roomId, {
       name: room.name || fellow.name,
-      decorations: room.decorations || { fellowKey: fellowId, sessionId: fellowId, runtimeKind: "cloud-hermes" }
+      decorations
     });
   }
 

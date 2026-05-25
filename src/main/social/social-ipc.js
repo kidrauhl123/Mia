@@ -25,11 +25,12 @@ function registerSocialIpc({ ipcMain, socialApi }) {
   ipcMain.handle(IpcChannel.SocialDeleteRoomMessage, safeCall((roomId, messageId) => socialApi.deleteRoomMessage(roomId, messageId)));
   ipcMain.handle(IpcChannel.SocialCreateRoom, safeCall((payload) => socialApi.createRoom(payload)));
   ipcMain.handle(IpcChannel.SocialEnsureFellowRoom, safeCall((fellowId, body) => socialApi.ensureFellowRoom(fellowId, body)));
+  ipcMain.handle(IpcChannel.SocialGetFellowRuntime, safeCall((fellowId, runtimeKind) => socialApi.getFellowRuntime(fellowId, runtimeKind)));
+  ipcMain.handle(IpcChannel.SocialSaveFellowRuntime, safeCall((fellowId, body) => socialApi.saveFellowRuntime(fellowId, body)));
   ipcMain.handle(IpcChannel.SocialUpdateRoom, safeCall((roomId, patch) => socialApi.updateRoom(roomId, patch)));
   ipcMain.handle(IpcChannel.SocialDeleteRoom, safeCall((roomId) => socialApi.deleteRoom(roomId)));
   ipcMain.handle(IpcChannel.SocialAddRoomMember, safeCall((roomId, member) => socialApi.addRoomMember(roomId, member)));
   ipcMain.handle(IpcChannel.SocialRemoveRoomMember, safeCall((roomId, member) => socialApi.removeRoomMember(roomId, member)));
-  ipcMain.handle(IpcChannel.SocialPostMessageAsFellow, safeCall((roomId, body) => socialApi.postRoomMessageAsFellow(roomId, body)));
 }
 
 module.exports = { registerSocialIpc };

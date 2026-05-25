@@ -7,6 +7,7 @@ const SIDEBAR_WIDTH_MAX = 380;
 const SIDEBAR_WIDTH_DEFAULT = 280;
 let skillPickerHoverCloseTimer = 0;
 const qrSvgCache = new Map();
+const cloudFellowRuntimeCache = new Map();
 const ICON_PARK_PIN_SVG = '<svg class="icon-park-pin" viewBox="0 0 48 48" aria-hidden="true" focusable="false"><path d="M10.6963 17.5042C13.3347 14.8657 16.4701 14.9387 19.8781 16.8076L32.62 9.74509L31.8989 4.78683L43.2126 16.1005L38.2656 15.3907L31.1918 28.1214C32.9752 31.7589 33.1337 34.6647 30.4953 37.3032C30.4953 37.3032 26.235 33.0429 22.7171 29.525L6.44305 41.5564L18.4382 25.2461C14.9202 21.7281 10.6963 17.5042 10.6963 17.5042Z"/></svg>';
 
 function clampSidebarWidth(value) {
@@ -82,7 +83,6 @@ const els = {
   resetAvatarCrop: document.getElementById("resetAvatarCrop"),
   conversationSidebar: document.getElementById("conversationSidebar"),
   contactsSidebar: document.getElementById("contactsSidebar"),
-  skillsSidebar: document.getElementById("skillsSidebar"),
   sidebarResizeHandle: document.getElementById("sidebarResizeHandle"),
   narrowBackButtons: document.querySelectorAll("[data-narrow-back]"),
   chatView: document.getElementById("chatView"),
@@ -107,7 +107,6 @@ const els = {
   engineWarning: document.getElementById("engineWarning"),
   chat: document.getElementById("chat"),
   skillSearch: document.getElementById("skillSearch"),
-  skillNav: document.getElementById("skillNav"),
   skillPageTitle: document.getElementById("skillPageTitle"),
   skillChipRow: document.getElementById("skillChipRow"),
   skillCardGrid: document.getElementById("skillCardGrid"),
@@ -539,20 +538,10 @@ function conversationCardSpecFromRow(row, personas) {
     };
   }
 
-  // ── cloud fellow room (1-on-1 with a fellow, mirrored from a desktop
-  //     session) — same row shape as fellow private chat. Title +
-  //     avatar come from the fellow definition resolved by id.
   // ── cloud private room (DM with a friend OR fellow session) ─────────────
   //     Same card shape; the only branch is "who's the other party" — a
   //     friend (dm room) or a fellow (fellow room) — and that flows
   //     through one resolver into a single spec.
-  //
-  //     fellow-type rooms are server mirrors of desktop fellow sessions;
-  //     the desktop already shows the persona-level "fellow" card, so
-  //     hiding the mirror here avoids duplicating one fellow conversation
-  //     into N session rows. (Cleanup target: when fellow chat moves
-  //     fully to cloud rooms, delete the "fellow" branch and stop hiding
-  //     these.)
   if (row.type === "private-room") {
     const room = row.room;
     const activeRoomId = social?.getActiveRoomId?.();
@@ -996,6 +985,15 @@ function activeSession() {
   return session;
 }
 
+function sessionForPersonaSession(personaKey, sessionId) {
+  const key = String(personaKey || state.activeKey || "");
+  const sessions = sessionsForPersona(key);
+  const selected = sessions.find((session) => session.id === sessionId);
+  const session = selected || sessions[0];
+  if (session) state.activeSessionIdByPersona[key] = session.id;
+  return session;
+}
+
 async function persistSession(session = activeSession()) {
   if (!hasPersistableMessages(session)) return;
   state.chatStore = await window.aimashi.saveChatSession({
@@ -1242,6 +1240,7 @@ function render() {
     modelAvatar.style.backgroundImage = activeIcon ? `url("${activeIcon}")` : "";
   }
   window.aimashiModelSettings.syncPermissionControl(runtime);
+  syncCloudFellowRuntimeControls();
 
   const personas = runtime.fellows || runtime.personas || [];
   const social = window.aimashiSocial;
@@ -1279,14 +1278,12 @@ function render() {
   const composerBottom = document.querySelector(".composer-bottom");
   if (activeCloudRoom) {
     paintActiveCloudRoomHeader(activeCloudRoom, { personas, social: window.aimashiSocial });
-    const activeIsGroup = (activeCloudRoom.type
-      || (activeCloudRoom.id?.startsWith("dm:") ? "dm"
-        : activeCloudRoom.id?.startsWith("fellow:") ? "fellow"
-        : (activeCloudRoom.id?.startsWith("g_") || activeCloudRoom.id?.startsWith("g-")) ? "group"
-        : "")) === "group";
+    const activeCloudRoomType = roomTypeForComposer(activeCloudRoom, activeCloudRoom.id || activeCloudRoomId);
+    const activeIsGroup = activeCloudRoomType === "group";
+    const showPrivateAiControls = activeCloudRoomType === "fellow";
     if (groupInfoBtn) groupInfoBtn.classList.toggle("hidden", !activeIsGroup);
     if (els.sessionMenuButton) els.sessionMenuButton.classList.add("hidden");
-    if (composerBottom) composerBottom.classList.add("hidden");
+    if (composerBottom) composerBottom.classList.toggle("hidden", !showPrivateAiControls);
   } else if (cloudSignedIn) {
     if (els.activeChatAvatar) {
       els.activeChatAvatar.innerHTML = "";
@@ -1296,7 +1293,7 @@ function render() {
     if (els.activeChatMeta) setText(els.activeChatMeta, "云端同步已开启");
     if (groupInfoBtn) groupInfoBtn.classList.add("hidden");
     if (els.sessionMenuButton) els.sessionMenuButton.classList.add("hidden");
-    if (composerBottom) composerBottom.classList.add("hidden");
+    if (composerBottom) composerBottom.classList.toggle("hidden", true);
   } else if (active) {
     if (els.activeChatAvatar) {
       els.activeChatAvatar.innerHTML = "";
@@ -1367,12 +1364,12 @@ function renderView() {
   syncNarrowLayout();
   els.conversationSidebar?.classList.toggle("hidden", state.activeView !== "chat");
   els.contactsSidebar?.classList.toggle("hidden", state.activeView !== "contacts");
-  els.skillsSidebar?.classList.toggle("hidden", state.activeView !== "skills");
   els.tasksSidebar?.classList.toggle("hidden", state.activeView !== "tasks");
   els.chatView.classList.toggle("hidden", state.activeView !== "chat");
   els.contactsView?.classList.toggle("hidden", state.activeView !== "contacts");
   els.skillsView?.classList.toggle("hidden", state.activeView !== "skills");
   els.tasksView?.classList.toggle("hidden", state.activeView !== "tasks");
+  els.appShell?.setAttribute("data-active-view", state.activeView);
   els.settingsView.classList.toggle("hidden", !state.settingsOpen);
   els.profileDialog?.classList.toggle("hidden", !state.profileDialogOpen);
   els.fellowCreateMenu?.classList.toggle("hidden", !state.fellowMenuOpen);
@@ -1508,34 +1505,6 @@ async function deleteSkill(skillId) {
   }
   window.aimashiSkillLibrary.renderSkillLibrary();
   window.aimashiSkillLibrary.renderSkillPreview();
-}
-
-async function installExtension(extensionId) {
-  if (!extensionId || state.installingExtensions.has(extensionId)) return;
-  state.installingExtensions.add(extensionId);
-  window.aimashiSkillLibrary.renderSkillLibrary();
-  try {
-    const library = await window.aimashi.installPlugin(extensionId);
-    const sources = Array.isArray(library?.sources)
-      ? library.sources
-      : (Array.isArray(library?.plugins) ? library.plugins : []);
-    state.skillLibrary = {
-      plugins: Array.isArray(library?.plugins) ? library.plugins : sources,
-      sources,
-      extensions: Array.isArray(library?.extensions) ? library.extensions : [],
-      connectors: Array.isArray(library?.connectors) ? library.connectors : [],
-      roots: Array.isArray(library?.roots) ? library.roots : [],
-      skills: Array.isArray(library?.skills) ? library.skills : []
-    };
-    state.skillLibraryMode = "plugins";
-    state.selectedExtensionId = "";
-  } catch (error) {
-    window.alert(`安装失败：${error.message || error}`);
-  } finally {
-    state.installingExtensions.delete(extensionId);
-    window.aimashiSkillLibrary.renderSkillLibrary();
-    window.aimashiComposer.renderSkillPicker();
-  }
 }
 
 async function openSkillDirectory(skillId) {
@@ -1826,15 +1795,178 @@ function renderChat() {
   }
 }
 
+function roomTypeForComposer(room, roomId = "") {
+  return room?.type
+    || (roomId.startsWith("dm:") ? "dm"
+      : roomId.startsWith("fellow:") ? "fellow"
+      : (roomId.startsWith("g_") || roomId.startsWith("g-")) ? "group"
+      : "");
+}
+
+function fellowKeyForCloudRoom(room) {
+  const decorated = room?.decorations?.fellowKey || room?.fellowKey || room?.fellow_id || "";
+  if (decorated) return String(decorated);
+  const roomId = String(room?.id || "");
+  return roomId.startsWith("fellow:") ? roomId.split(":").slice(2).join(":") : "";
+}
+
+function runtimeKindForCloudFellowRoom(room) {
+  return String(room?.decorations?.runtimeKind || "").trim() || "desktop-local";
+}
+
+function activeCloudFellowContext() {
+  const social = window.aimashiSocial;
+  const roomId = social?.getActiveRoomId?.();
+  if (!roomId) return null;
+  const room = social?.getRoomById?.(roomId) || { id: roomId };
+  if (roomTypeForComposer(room, roomId) !== "fellow") return null;
+  const fellowKey = fellowKeyForCloudRoom(room);
+  if (!fellowKey) return null;
+  return {
+    room,
+    roomId,
+    fellowKey,
+    runtimeKind: runtimeKindForCloudFellowRoom(room)
+  };
+}
+
+function cloudFellowRuntimeCacheKey(fellowKey, runtimeKind = "cloud-hermes") {
+  return `${fellowKey}:${runtimeKind}`;
+}
+
+function cloudHermesModelEntries() {
+  return [{ id: "hermes-agent", label: "Hermes Agent" }];
+}
+
+function cloudHermesPermissionEntries() {
+  return [
+    { value: "ask", label: "Ask" },
+    { value: "auto", label: "Auto" },
+    { value: "readOnly", label: "Read" }
+  ];
+}
+
+function setComposerSelectOptions(select, entries, selectedValue) {
+  if (!select) return "";
+  const normalized = (Array.isArray(entries) ? entries : [])
+    .filter((entry) => entry && (entry.id !== undefined || entry.value !== undefined))
+    .map((entry) => ({
+      value: String(entry.id ?? entry.value),
+      label: String(entry.label || entry.id || entry.value)
+    }));
+  select.innerHTML = normalized.map((entry) => {
+    const option = document.createElement("option");
+    option.value = entry.value;
+    option.textContent = entry.label;
+    return option.outerHTML;
+  }).join("");
+  const value = String(selectedValue || normalized[0]?.value || "");
+  select.value = normalized.some((entry) => entry.value === value) ? value : normalized[0]?.value || "";
+  return select.selectedOptions?.[0]?.textContent || "";
+}
+
+async function ensureCloudFellowRuntime(fellowKey, runtimeKind = "cloud-hermes") {
+  if (!fellowKey || runtimeKind !== "cloud-hermes") return null;
+  const key = cloudFellowRuntimeCacheKey(fellowKey, runtimeKind);
+  if (cloudFellowRuntimeCache.has(key)) return cloudFellowRuntimeCache.get(key);
+  const response = await window.aimashi.social.getFellowRuntime(fellowKey, runtimeKind);
+  if (!response?.ok) throw new Error(response?.error || "读取云端运行配置失败");
+  const binding = response.data?.binding || null;
+  cloudFellowRuntimeCache.set(key, binding);
+  return binding;
+}
+
+function syncCloudFellowRuntimeControls() {
+  const context = activeCloudFellowContext();
+  if (!context || context.runtimeKind !== "cloud-hermes") return false;
+  const binding = cloudFellowRuntimeCache.get(cloudFellowRuntimeCacheKey(context.fellowKey, context.runtimeKind));
+  const config = binding?.config || {};
+  const modelLabel = setComposerSelectOptions(els.quickModelSelect, cloudHermesModelEntries(), config.model || "hermes-agent");
+  setText(els.quickModelLabel, modelLabel || "Hermes Agent");
+  const effortLabel = setComposerSelectOptions(
+    els.effortSelect,
+    window.aimashiEngineOptions.effortOptions("hermes"),
+    config.effortLevel || "medium"
+  );
+  setText(els.effortLabel, effortLabel || "Medium");
+  const permissionLabel = setComposerSelectOptions(els.permissionMode, cloudHermesPermissionEntries(), config.permissionMode || "ask");
+  setText(els.permissionLabel, permissionLabel || "Ask");
+  const permissionSwitcher = els.permissionMode?.closest(".permission-switcher");
+  permissionSwitcher?.classList.toggle("yolo", false);
+  permissionSwitcher?.classList.toggle("claude-bypass", false);
+  if (els.quickModelSelect) els.quickModelSelect.disabled = false;
+  if (els.effortSelect) els.effortSelect.disabled = false;
+  if (els.permissionMode) els.permissionMode.disabled = false;
+  setText(els.modelSwitchStatus, "Cloud Hermes");
+  if (!binding) {
+    ensureCloudFellowRuntime(context.fellowKey, context.runtimeKind)
+      .then(() => {
+        const latest = activeCloudFellowContext();
+        if (latest?.roomId === context.roomId) render();
+      })
+      .catch((error) => {
+        setText(els.modelSwitchStatus, "云端配置读取失败");
+        console.warn("[renderer] cloud fellow runtime load failed:", error?.message || error);
+      });
+  }
+  return true;
+}
+
+async function saveActiveCloudFellowRuntimeConfig(patch, pendingText, successText, errorPrefix) {
+  const context = activeCloudFellowContext();
+  if (!context || context.runtimeKind !== "cloud-hermes") return false;
+  const key = cloudFellowRuntimeCacheKey(context.fellowKey, context.runtimeKind);
+  setText(els.modelSwitchStatus, pendingText);
+  if (els.quickModelSelect) els.quickModelSelect.disabled = true;
+  if (els.effortSelect) els.effortSelect.disabled = true;
+  if (els.permissionMode) els.permissionMode.disabled = true;
+  try {
+    const current = cloudFellowRuntimeCache.get(key) || await ensureCloudFellowRuntime(context.fellowKey, context.runtimeKind) || {
+      fellowId: context.fellowKey,
+      runtimeKind: context.runtimeKind,
+      enabled: true,
+      config: {}
+    };
+    const response = await window.aimashi.social.saveFellowRuntime(context.fellowKey, {
+      runtimeKind: context.runtimeKind,
+      enabled: current.enabled !== false,
+      config: { ...(current.config || {}), ...patch }
+    });
+    if (!response?.ok) throw new Error(response?.error || "保存云端运行配置失败");
+    cloudFellowRuntimeCache.set(key, response.data?.binding || { ...current, config: { ...(current.config || {}), ...patch } });
+    setText(els.modelSwitchStatus, successText);
+    render();
+  } catch (error) {
+    setText(els.modelSwitchStatus, "保存失败");
+    appendTransientChat("assistant", `${errorPrefix}: ${error.message || error}`);
+    syncCloudFellowRuntimeControls();
+  }
+  return true;
+}
+
+function activeCloudFellowKey() {
+  const social = window.aimashiSocial;
+  const roomId = social?.getActiveRoomId?.();
+  if (!roomId) return "";
+  const room = social?.getRoomById?.(roomId) || { id: roomId };
+  return roomTypeForComposer(room, roomId) === "fellow" ? fellowKeyForCloudRoom(room) : "";
+}
+
 function activePersona() {
   const personas = state.runtime?.fellows || state.runtime?.personas || [];
+  const cloudFellowKey = activeCloudFellowKey();
+  if (cloudFellowKey) {
+    const cloudPersona = personas.find((persona) => (persona.key || persona.id) === cloudFellowKey);
+    if (cloudPersona) return cloudPersona;
+    return null;
+  }
   return personas.find((persona) => persona.key === state.activeKey) || personas[0];
 }
 
 
 
 function appendChat(role, content, options = {}) {
-  const session = activeSession();
+  const session = options.session || activeSession();
   const message = { role, content, createdAt: nowIso(), transient: Boolean(options.transient) };
   if (options.replyTo?.content) {
     message.replyTo = {
@@ -2070,7 +2202,6 @@ async function initializeRuntime() {
       menuItemHtml: window.aimashiMarkdown.menuItemHtml,
       syncTopbarClickCapture,
       showNarrowContent,
-      installExtension,
       deleteSkill,
       openSkillDirectory,
     });
@@ -2627,6 +2758,15 @@ if (window.aimashi.onEnginesChanged) {
 if (window.aimashi.onCloudEvent) {
   let cloudEventRefreshTimer = 0;
   window.aimashi.onCloudEvent((envelope = {}) => {
+    const runtimeBinding = envelope.type === "fellow.runtime_updated"
+      ? envelope.binding
+      : envelope.payload?.binding;
+    if (runtimeBinding?.fellowId && runtimeBinding?.runtimeKind) {
+      cloudFellowRuntimeCache.set(
+        cloudFellowRuntimeCacheKey(runtimeBinding.fellowId, runtimeBinding.runtimeKind),
+        runtimeBinding
+      );
+    }
     window.aimashiSocial?.handleCloudEvent?.(envelope);
     if (envelope.cloud && state.runtime) {
       state.runtime = {
@@ -2739,6 +2879,12 @@ els.authMethod.addEventListener("change", () => {
 
 els.quickModelSelect?.addEventListener("change", async () => {
   window.aimashiModelSettings.syncQuickModelLabel();
+  if (await saveActiveCloudFellowRuntimeConfig(
+    { model: els.quickModelSelect.value || "hermes-agent" },
+    "保存模型...",
+    "模型已更新",
+    "Cloud model switch failed"
+  )) return;
   const engine = window.aimashiEngineOptions.activeAgentEngine();
   if (engine === "claude-code" || engine === "codex") {
     const persona = activePersona();
@@ -2800,6 +2946,12 @@ els.quickModelSelect?.addEventListener("change", async () => {
 els.effortSelect?.addEventListener("change", async () => {
   const level = els.effortSelect.value;
   window.aimashiModelSettings.syncEffortControl(state.runtime);
+  if (await saveActiveCloudFellowRuntimeConfig(
+    { effortLevel: level || "medium" },
+    "保存推理强度...",
+    "推理强度已更新",
+    "Cloud effort update failed"
+  )) return;
   const engine = window.aimashiEngineOptions.activeAgentEngine();
   if (engine === "claude-code" || engine === "codex") {
     const persona = activePersona();
@@ -2845,6 +2997,12 @@ els.effortSelect?.addEventListener("change", async () => {
 
 els.permissionMode?.addEventListener("change", async () => {
   const mode = els.permissionMode.value;
+  if (await saveActiveCloudFellowRuntimeConfig(
+    { permissionMode: mode || "ask" },
+    "保存权限...",
+    "权限已更新",
+    "Cloud permission mode failed"
+  )) return;
   const engine = window.aimashiEngineOptions.activeAgentEngine();
   if (engine === "claude-code" || engine === "codex") {
     const persona = activePersona();
@@ -3507,6 +3665,13 @@ els.chat.addEventListener("click", async (event) => {
     await handleSetupGuideAction(setupButton);
     return;
   }
+  const link = event.target.closest("a.message-link[data-external-link]");
+  if (link && els.chat.contains(link)) {
+    event.preventDefault();
+    event.stopPropagation();
+    window.aimashi?.openExternal?.(link.dataset.externalLink);
+    return;
+  }
   const code = event.target.closest(".bubble code.inline-code");
   if (!code || !els.chat.contains(code)) return;
   if (event.target.closest("[data-copy-code]")) return;
@@ -3543,6 +3708,12 @@ els.chat.addEventListener("click", async (event) => {
 });
 els.chat.addEventListener("keydown", async (event) => {
   if (event.key !== "Enter" && event.key !== " ") return;
+  const link = event.target.closest("a.message-link[data-external-link]");
+  if (link && els.chat.contains(link)) {
+    event.preventDefault();
+    window.aimashi?.openExternal?.(link.dataset.externalLink);
+    return;
+  }
   const code = event.target.closest(".bubble code.inline-code");
   if (!code || !els.chat.contains(code)) return;
   event.preventDefault();
@@ -3571,6 +3742,7 @@ els.chatForm.addEventListener("submit", async (event) => {
   if (window.aimashiMessageHelpers.isComposerComposing()) return;
   // Branch: a cloud room (dm / group / fellow) is active → send via social.
   if (window.aimashiSocial?.getActiveRoomId?.()) {
+    const roomId = window.aimashiSocial.getActiveRoomId();
     let roomText = els.chatInput.value;
     if (!roomText.trim()) return;
     // Cloud rooms have no reply_to column, so a quote-reply is embedded as a
@@ -3615,7 +3787,9 @@ els.chatForm.addEventListener("submit", async (event) => {
   }
   const text = prepared.bodyMd;
   const attachments = prepared.attachments;
+  const submitPersonaKey = state.activeKey;
   const session = activeSession();
+  const submitSessionId = session.id;
   const shouldGenerateTitle = !session.titleGenerated && !hasSuccessfulExchange(session);
   els.chatInput.value = "";
   state.pendingAttachments = [];
@@ -3642,9 +3816,9 @@ els.chatForm.addEventListener("submit", async (event) => {
     const lastUserIndex = history.map((message) => message.role).lastIndexOf("user");
     if (lastUserIndex >= 0) history[lastUserIndex] = { ...history[lastUserIndex], content: outgoingText };
     const response = await window.aimashi.sendChat({
-      fellowKey: state.activeKey,
-      personaKey: state.activeKey,
-      sessionId: session.id,
+      fellowKey: submitPersonaKey,
+      personaKey: submitPersonaKey,
+      sessionId: submitSessionId,
       messages: history
     });
     const responseMessage = response.choices?.[0]?.message || {};
@@ -3655,7 +3829,14 @@ els.chatForm.addEventListener("submit", async (event) => {
       ? { reasoning: state.streaming.reasoning || "", tools: state.streaming.tools.slice() }
       : { reasoning: "", tools: [] };
     state.streaming = null;
-    appendChat("assistant", answer, { reasoning: traceSnapshot.reasoning, tools: traceSnapshot.tools, attachments: responseAttachments, commandResult: responseCommandResult });
+    const liveSession = sessionForPersonaSession(submitPersonaKey, submitSessionId);
+    appendChat("assistant", answer, {
+      reasoning: traceSnapshot.reasoning,
+      tools: traceSnapshot.tools,
+      attachments: responseAttachments,
+      commandResult: responseCommandResult,
+      session: liveSession
+    });
     // The `session` captured at the top of this handler is now orphan:
     // persistSessionQuietly(session) at the start of the try block reassigned
     // state.chatStore via IPC (saveChatSession returns a freshly normalized
@@ -3665,13 +3846,12 @@ els.chatForm.addEventListener("submit", async (event) => {
     // the orphan here would save its stale messages and clobber the assistant
     // we just appended — that's the "回复被吞" regression introduced by
     // 0eb1458. Re-resolve to the live session before persisting.
-    const liveSession = activeSession();
     await persistSessionQuietly(liveSession);
     window.aimashiSessionReadState.persistReadStateQuietly();
     if (shouldGenerateTitle) {
-      const current = activeSession();
+      const current = sessionForPersonaSession(submitPersonaKey, submitSessionId);
       const result = await window.aimashi.generateSessionTitle({
-        personaKey: state.activeKey,
+        personaKey: submitPersonaKey,
         sessionId: `title:${current.id}`,
         messages: current.messages.slice(0, 4)
       });
@@ -3690,10 +3870,11 @@ els.chatForm.addEventListener("submit", async (event) => {
     // assistant-side error message via appendChat (which targets the live
     // session via activeSession()), then persists.
     if (String(error.message || "").includes("生成已停止")) {
-      await persistSessionQuietly(activeSession());
+      await persistSessionQuietly(sessionForPersonaSession(submitPersonaKey, submitSessionId));
     } else {
-      appendChat("assistant", `Request failed: ${error.message}`);
-      await persistSessionQuietly(activeSession());
+      const failedSession = sessionForPersonaSession(submitPersonaKey, submitSessionId);
+      appendChat("assistant", `Request failed: ${error.message}`, { session: failedSession });
+      await persistSessionQuietly(failedSession);
     }
     await refreshRuntime();
   } finally {

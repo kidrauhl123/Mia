@@ -287,6 +287,22 @@
   pointer-events: none;
 }
 
+.message-send-status {
+  display: block;
+  align-self: flex-start;
+  margin: -1px 0 0 6px;
+  color: var(--faint);
+  font-size: 10px;
+  font-weight: 520;
+  line-height: 1;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.message-send-status.is-error {
+  color: #b91c1c;
+}
+
 .message-attachments {
   display: flex;
   flex-wrap: wrap;
@@ -441,6 +457,22 @@
 
 :root[data-theme="dark"] .bubble .message-divider {
   background: rgba(255, 255, 255, 0.14);
+}
+
+.bubble a.message-link {
+  color: #2563eb;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  word-break: break-word;
+}
+
+.bubble a.message-link:hover {
+  text-decoration-thickness: 2px;
+}
+
+:root[data-theme="dark"] .bubble a.message-link {
+  color: #6ea8fe;
 }
 
 .bubble code.inline-code {
@@ -695,6 +727,11 @@
   margin: -2px 6px 0 0;
 }
 
+.message.user .message-send-status {
+  align-self: flex-end;
+  margin: -1px 6px 0 0;
+}
+
 .user .avatar {
   background: var(--accent);
 }
@@ -712,6 +749,10 @@
 
 :root[data-theme="dark"] .message-time {
   color: var(--faint);
+}
+
+:root[data-theme="dark"] .message-send-status.is-error {
+  color: #f87171;
 }
 
 :root[data-show-user-avatar="false"] .message.user .avatar,

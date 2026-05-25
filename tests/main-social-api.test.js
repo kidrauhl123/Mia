@@ -135,6 +135,35 @@ test("ensureFellowRoom sends PUT to the stable fellow room route", async () => {
   } finally { await teardown(ctx); }
 });
 
+test("saveFellowRuntime sends PUT with an idempotency key", async () => {
+  const seen = [];
+  const ctx = await spawnFakeCloud(async (req, res) => {
+    let body = "";
+    req.on("data", (c) => { body += c; });
+    req.on("end", () => {
+      seen.push({ method: req.method, url: req.url, body });
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ binding: { fellowId: "alice", runtimeKind: "cloud-hermes" } }));
+    });
+  });
+  try {
+    const api = createSocialApi({
+      getSettings: () => ({ enabled: true, token: "t", url: ctx.baseUrl }),
+      normalizeUrl: (u) => u
+    });
+    const result = await api.saveFellowRuntime("alice", {
+      runtimeKind: "cloud-hermes",
+      config: { model: "hermes-agent" }
+    });
+    assert.equal(result.binding.fellowId, "alice");
+    assert.equal(seen[0].method, "PUT");
+    assert.equal(seen[0].url, "/api/me/fellows/alice/runtime");
+    const sentBody = JSON.parse(seen[0].body);
+    assert.equal(sentBody.runtimeKind, "cloud-hermes");
+    assert.match(sentBody.clientOpId, /^op_/);
+  } finally { await teardown(ctx); }
+});
+
 test("non-2xx responses throw with parsed error message", async () => {
   const ctx = await spawnFakeCloud((req, res) => {
     res.writeHead(404, { "content-type": "application/json" });

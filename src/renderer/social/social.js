@@ -254,7 +254,10 @@
     if (!api || typeof api.ensureFellowRoom !== "function") return;
     for (const fellow of localRuntimeFellows()) {
       try {
-        const result = await api.ensureFellowRoom(fellow.key, { title: fellow.name || fellow.displayName || fellow.key, runtimeKind: "desktop-local" });
+        const result = await api.ensureFellowRoom(fellow.key, {
+          title: fellow.name || fellow.displayName || fellow.key,
+          runtimeKind: "desktop-local"
+        });
         if (result && result.ok === false) {
           throw new Error(result.error || result.message || result.data?.error || "unknown ensure failure");
         }
@@ -262,6 +265,39 @@
         console.warn("[social] ensure fellow room failed", fellow.key, error);
       }
     }
+  }
+
+  function roomTypeFor(room, roomId = "") {
+    if (room?.type) return room.type;
+    const id = room?.id || roomId || "";
+    if (id.startsWith("dm:")) return "dm";
+    if (id.startsWith("fellow:")) return "fellow";
+    if (id.startsWith("g_") || id.startsWith("g-")) return "group";
+    return null;
+  }
+
+  function sendPipelineMembersForRoom(roomType, members) {
+    if (roomType !== "group") return Array.isArray(members) ? members : [];
+    return (Array.isArray(members) ? members : [])
+      .filter(Boolean)
+      .map((m) => ({
+        ...m,
+        kind: m.member_kind || m.kind,
+        ref: m.member_ref || m.ref,
+        name: m.name || m.fellow_name || m.username || m.displayName || ""
+      }));
+  }
+
+  function cloudMentionForRoom(roomType, mention) {
+    if (roomType !== "group") return mention;
+    if (!mention || mention.kind !== conversationKinds().MemberKind.Fellow || !mention.ref) return null;
+    return { kind: "fellow", fellowId: mention.ref };
+  }
+
+  function postMentionsForRoom(roomType, mentions) {
+    return (Array.isArray(mentions) ? mentions : [])
+      .map((mention) => cloudMentionForRoom(roomType, mention))
+      .filter(Boolean);
   }
 
   // Resolve "is this message from me?" through shared/contact (resolveContact
@@ -587,7 +623,8 @@
         entry.messages.sort((a, b) => a.seq - b.seq);
       }
       if (message.seq > entry.maxSeq) entry.maxSeq = message.seq;
-      if (message.sender_kind === conversationKinds().SenderKind.Fellow) {
+      const { SenderKind } = conversationKinds();
+      if (message.sender_kind === SenderKind.Fellow) {
         moduleState.cloudAgentRunsByRoom.delete(roomId);
       }
 
@@ -601,12 +638,11 @@
       // If this is the active room, append to DOM directly for snappy UX. Only
       // stick to the bottom for my own messages; someone else's message must not
       // pull me away from history I've scrolled up to read.
-      if (roomId === moduleState.activeRoomId) {
+      if (fresh && roomId === moduleState.activeRoomId) {
         _appendMessageToActiveChat(message, { stick: isMine });
       }
       _schedulePersistSnapshot();
       if (deps && typeof deps.render === "function") deps.render();
-
       return;
     }
 
@@ -668,8 +704,8 @@
     }
 
     if (type === "room.fellow_invocation_requested") {
-      // Main process owns local fellow execution. The renderer only observes
-      // this event so foreground and daemon processes cannot both reply.
+      // Main process owns local fellow execution so the same path works in the
+      // foreground app and the headless daemon. Renderer only observes events.
       return;
     }
   }
@@ -755,11 +791,7 @@
     // module only owns the message list so the chat header stays in lockstep
     // with the sidebar's group-avatar mosaic for every room type.
 
-    const roomType = room?.type
-      || (roomId.startsWith("dm:") ? "dm"
-        : roomId.startsWith("fellow:") ? "fellow"
-        : (roomId.startsWith("g_") || roomId.startsWith("g-")) ? "group"
-        : null);
+    const roomType = roomTypeFor(room, roomId);
     if (room && roomType === "group") {
       const members = _roomMembersCache.get(roomId) || [];
       for (const msg of entry.messages) {
@@ -850,6 +882,7 @@
         ${attachmentHtml}
         ${_renderMsgTranslation(msg)}
         ${timeHtml}
+        ${renderSendStatus(msg)}
       </div>
     `;
     return article;
@@ -857,7 +890,7 @@
 
   function _buildCloudAgentStreamingArticle(roomId, accentColor, members = []) {
     const run = moduleState.cloudAgentRunsByRoom.get(roomId);
-    if (!run || (run.status === "complete" && !run.text && !run.tools.length)) return null;
+    if (!run || (!run.text && !run.tools.length)) return null;
     const room = moduleState.rooms.find((r) => r.id === roomId) || { id: roomId };
     const fellowKey = run.fellowId || room.decorations?.fellowKey || (room.id?.startsWith("fellow:") ? room.id.split(":")[2] : "aimashi");
     const synthetic = {
@@ -877,8 +910,12 @@
       : `background-color:${avatarColor};`;
     const avatarLetter = avatar.image ? "" : ((authorName || "?")[0] || "?").toUpperCase();
     const bodyHtml = run.text ? _renderMsgBody(run.text) : "";
-    const statusHtml = run.status === "running"
-      ? `<span class="typing-status">正在输入<span class="typing-dots"><i></i><i></i><i></i></span></span>`
+    const isGroupRoom = roomTypeFor(room, roomId) === "group";
+    const typingText = isGroupRoom
+      ? `${run.typingLabel || authorName || fellowKey}正在输入`
+      : "正在输入";
+    const statusHtml = run.status === "running" && run.text
+      ? `<span class="typing-status">${escapeHtml(typingText)}<span class="typing-dots"><i></i><i></i><i></i></span></span>`
       : "";
     const toolsHtml = run.tools.length
       ? `<div class="message-attachments">${run.tools.slice(-3).map((tool) => `<span class="message-attachment"><span>TOOL</span><strong>${escapeHtml(tool.name || "工具")}</strong><em>${escapeHtml(tool.status || "")}</em></span>`).join("")}</div>`
@@ -911,6 +948,16 @@
       return `<div class="message-translation"><div class="message-translation-head"><span>译文</span></div><p class="message-translation-error">${escapeHtml(t.error || "翻译失败")}</p></div>`;
     }
     return `<div class="message-translation"><div class="message-translation-head"><span>译文</span></div><div class="message-translation-body">${_renderMsgBody(t.text || "")}</div></div>`;
+  }
+
+  function renderSendStatus(msg) {
+    const status = msg && msg.status;
+    if (status !== "sending" && status !== "error") return "";
+    if (status === "sending") {
+      return `<span class="message-send-status is-sending">发送中...</span>`;
+    }
+    const errorText = String(msg.error || "发送失败");
+    return `<span class="message-send-status is-error" title="${escapeHtml(errorText)}">发送失败</span>`;
   }
 
   function _reRenderActiveChat() {
@@ -1020,11 +1067,74 @@
     const nearBottom = chatEl.scrollHeight - chatEl.scrollTop - chatEl.clientHeight < SCROLL_STICK_THRESHOLD_PX;
     const room = moduleState.rooms.find((r) => r.id === moduleState.activeRoomId);
     const color = room ? avatarColor(room.id) : "#5e5ce6";
-    const article = _buildMessageArticle(msg, color);
+    const roomType = roomTypeFor(room, moduleState.activeRoomId);
+    const article = roomType === "group"
+      ? _buildGroupMessageArticle(msg, color, _roomMembersCache.get(moduleState.activeRoomId) || [])
+      : _buildMessageArticle(msg, color);
     if (article) {
       chatEl.appendChild(article);
       if (stick || nearBottom) chatEl.scrollTop = chatEl.scrollHeight;
     }
+  }
+
+  function _appendLocalOutgoingRoomMessage(roomId, prepared) {
+    if (!roomId || !prepared || !prepared.bodyMd) return null;
+    if (!moduleState.messageCache.has(roomId)) {
+      moduleState.messageCache.set(roomId, { messages: [], maxSeq: 0 });
+    }
+    const msg = {
+      id: `local_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      seq: Number.MAX_SAFE_INTEGER,
+      sender_kind: conversationKinds().SenderKind.User,
+      sender_ref: moduleState.myUserId || "",
+      body_md: prepared.bodyMd,
+      attachments: prepared.attachments || [],
+      mentions: prepared.mentions || [],
+      status: "sending",
+      created_at: new Date().toISOString(),
+      _localPending: true
+    };
+    const entry = moduleState.messageCache.get(roomId);
+    entry.messages.push(msg);
+    entry.messages.sort((a, b) => a.seq - b.seq);
+    if (roomId === moduleState.activeRoomId) _appendMessageToActiveChat(msg);
+    if (deps && typeof deps.render === "function") deps.render();
+    return msg;
+  }
+
+  function _markLocalOutgoingRoomMessageFailed(roomId, localId, error) {
+    const entry = moduleState.messageCache.get(roomId);
+    if (!entry || !localId) return false;
+    const msg = entry.messages.find((m) => m.id === localId);
+    if (!msg) return false;
+    msg.status = "error";
+    msg.error = String(error || "发送失败");
+    msg._localPending = false;
+    if (roomId === moduleState.activeRoomId) _reRenderActiveChat();
+    if (deps && typeof deps.render === "function") deps.render();
+    return true;
+  }
+
+  function _reconcileSentRoomMessage(roomId, localId, sentMsg) {
+    if (!roomId || !sentMsg || !sentMsg.id) return false;
+    if (!moduleState.messageCache.has(roomId)) {
+      moduleState.messageCache.set(roomId, { messages: [], maxSeq: 0 });
+    }
+    const entry = moduleState.messageCache.get(roomId);
+    const serverIdx = entry.messages.findIndex((m) => m.id === sentMsg.id);
+    const localIdx = entry.messages.findIndex((m) => m.id === localId);
+    if (serverIdx >= 0) {
+      if (localIdx >= 0 && localIdx !== serverIdx) entry.messages.splice(localIdx, 1);
+    } else if (localIdx >= 0) {
+      entry.messages[localIdx] = sentMsg;
+    } else {
+      entry.messages.push(sentMsg);
+    }
+    entry.messages.sort((a, b) => a.seq - b.seq);
+    if (sentMsg.seq > entry.maxSeq) entry.maxSeq = sentMsg.seq;
+    if (roomId === moduleState.activeRoomId) _reRenderActiveChat();
+    if (deps && typeof deps.render === "function") deps.render();
+    return true;
   }
 
   // ── group feature stubs — implementations in social-groups.js ───────────
@@ -1033,7 +1143,8 @@
   // context exported below.
 
   function _buildGroupMessageArticle(msg, accentColor, members) {
-    return window.aimashiSocialGroups?.buildGroupMessageArticle(msg, accentColor, members) || null;
+    const build = window.aimashiSocialGroups?.buildGroupMessageArticle;
+    return typeof build === "function" ? build(msg, accentColor, members) : null;
   }
 
   function _fetchAndCacheRoomMembers(roomId) {
@@ -1041,7 +1152,7 @@
   }
 
   async function sendInActiveGroupRoom(text) {
-    return window.aimashiSocialGroups?.sendInActiveGroupRoom(text);
+    return sendInActiveRoom(text);
   }
 
   function openCreateGroupDialog() {
@@ -1319,45 +1430,42 @@
     }
   }
 
-  // ── DM send: called by app.js when a DM room is active ───────────────────
+  // ── Cloud-room send: DM, fellow rooms, and groups share one path. ─────────
 
   async function sendInActiveRoom(text) {
     const roomId = moduleState.activeRoomId;
     if (!roomId) return;
+    const room = moduleState.rooms.find((r) => r.id === roomId) || { id: roomId };
+    const roomType = roomTypeFor(room, roomId);
     const members = _roomMembersCache.get(roomId) || [];
     let prepared;
     try {
-      prepared = sendPipelineShared().prepareOutgoingMessage({ text }, { members });
+      prepared = sendPipelineShared().prepareOutgoingMessage(
+        { text },
+        { members: sendPipelineMembersForRoom(roomType, members) }
+      );
     } catch (err) {
       if (err && err.code === "EMPTY_MESSAGE") return;
       console.warn("[social] sendInActiveRoom prepare failed:", err?.message || err);
       return;
     }
+    const localMsg = _appendLocalOutgoingRoomMessage(roomId, prepared);
+    const mentions = postMentionsForRoom(roomType, prepared.mentions);
     try {
       const res = await window.aimashi.social.postRoomMessage(roomId, {
         bodyMd: prepared.bodyMd,
-        ...(prepared.mentions.length ? { mentions: prepared.mentions } : {})
+        ...(mentions.length ? { mentions } : {})
       });
       if (!res.ok) {
         console.warn("[social] postRoomMessage failed:", res.error);
+        if (localMsg) _markLocalOutgoingRoomMessageFailed(roomId, localMsg.id, res.error);
         return;
       }
-      // If WS event doesn't arrive within 500ms, optimistically append from response.
       const sentMsg = res.data?.message;
       if (!sentMsg || !sentMsg.id) return; // server didn't return a message somehow — skip optimistic
-      if (sentMsg) {
-        setTimeout(() => {
-          const entry = moduleState.messageCache.get(roomId);
-          if (entry && !entry.messages.find((m) => m.id === sentMsg.id)) {
-            entry.messages.push(sentMsg);
-            entry.messages.sort((a, b) => a.seq - b.seq);
-            if (sentMsg.seq > entry.maxSeq) entry.maxSeq = sentMsg.seq;
-            if (roomId === moduleState.activeRoomId) _appendMessageToActiveChat(sentMsg);
-            if (deps && typeof deps.render === "function") deps.render();
-          }
-        }, 500);
-      }
+      _reconcileSentRoomMessage(roomId, localMsg?.id, sentMsg);
     } catch (err) {
+      if (localMsg) _markLocalOutgoingRoomMessageFailed(roomId, localMsg.id, err?.message || err);
       console.warn("[social] sendInActiveRoom error:", err);
     }
   }
@@ -1584,6 +1692,7 @@
     friendById,
     renderMsgBody: _renderMsgBody,
     renderAttachmentChips,
+    renderSendStatus,
     appendMessageToActiveChat: _appendMessageToActiveChat
   };
 
@@ -1621,6 +1730,9 @@
     friendById,
     _internalCtx
   };
+  if (global.aimashiSocialGroups && typeof global.aimashiSocialGroups.attach === "function") {
+    global.aimashiSocialGroups.attach(_internalCtx);
+  }
 
   // Hydrate the cold-start cache at module load — before app.js even calls
   // initSocialModule — so the very first render() paints the full saved

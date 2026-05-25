@@ -14,9 +14,12 @@ function response({ ok = true, status = 200, statusText = "OK", body = {} } = {}
 function createDeps(overrides = {}) {
   const fetchCalls = [];
   const streamCalls = [];
+  const schedulerContextWrites = [];
   const deps = {
     fetchCalls,
     streamCalls,
+    schedulerContextWrites,
+    writeSchedulerMcpContext: (ctx) => { schedulerContextWrites.push(ctx); },
     apiKey: () => "secret",
     baseUrl: () => "http://hermes.test",
     buildGroupHeader: (contextBlock) => `group:${contextBlock}`,
@@ -101,6 +104,24 @@ test("sendChat posts Hermes run with fellow and group headers", async () => {
   });
   assert.deepEqual(emitted, [
     { kind: "complete", data: { finishReason: "stop", aborted: false } }
+  ]);
+});
+
+test("sendChat writes scheduler MCP context for the current fellow/session", async () => {
+  const deps = createDeps();
+  const adapter = createHermesChatAdapter(deps);
+  await adapter.sendChat({
+    fellow,
+    sessionId: "s1",
+    messages: [
+      { role: "user", id: "m1", content: "earlier" },
+      { role: "assistant", id: "a1", content: "ok" },
+      { role: "user", id: "m2", content: "remind me in 1m" }
+    ],
+    signal: null
+  });
+  assert.deepEqual(deps.schedulerContextWrites, [
+    { fellowId: "alice", sessionId: "s1", originMessageId: "m2" }
   ]);
 });
 

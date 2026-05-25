@@ -108,6 +108,8 @@ function createHermesRunsClient(deps = {}) {
         persona_key: key,
         account_id: userId,
         route_profile: "cloud-hermes",
+        effort_level: args.effortLevel || "medium",
+        permission_mode: args.permissionMode || "ask",
         room_id: roomId,
         attachments: Array.isArray(args.attachments)
           ? args.attachments.map((attachment) => ({

@@ -114,6 +114,47 @@ test("ensureDefaultCloudFellow preserves an existing default fellow identity", (
   }
 });
 
+test("ensureDefaultCloudFellow backfills missing cloud runtimeKind on legacy default rooms", () => {
+  const ctx = freshStores();
+  try {
+    const account = ctx.cloudStore.registerUser({ username: "dave", password: "123456" });
+    const roomId = `fellow:${account.user.id}:aimashi`;
+    ctx.socialStore.createRoom({
+      id: roomId,
+      type: "fellow",
+      name: "Legacy Aimashi",
+      decorations: { fellowKey: "aimashi", sessionId: "aimashi", pinnedGoal: "keep me" }
+    });
+
+    const out = ensureDefaultCloudFellow(ctx, account.user.id);
+
+    assert.equal(out.room.decorations.runtimeKind, "cloud-hermes");
+    assert.equal(out.room.decorations.pinnedGoal, "keep me");
+  } finally {
+    ctx.cleanup();
+  }
+});
+
+test("ensureDefaultCloudFellow does not override an explicit desktop-local runtimeKind", () => {
+  const ctx = freshStores();
+  try {
+    const account = ctx.cloudStore.registerUser({ username: "erin", password: "123456" });
+    const roomId = `fellow:${account.user.id}:aimashi`;
+    ctx.socialStore.createRoom({
+      id: roomId,
+      type: "fellow",
+      name: "Local Aimashi",
+      decorations: { fellowKey: "aimashi", sessionId: "aimashi", runtimeKind: "desktop-local" }
+    });
+
+    const out = ensureDefaultCloudFellow(ctx, account.user.id);
+
+    assert.equal(out.room.decorations.runtimeKind, "desktop-local");
+  } finally {
+    ctx.cleanup();
+  }
+});
+
 test("registration makes default cloud fellow room visible through /api/rooms", async () => {
   const dataDir = tempDir("aimashi-default-fellow-http-");
   const server = createAimashiCloudServer({ dataDir });

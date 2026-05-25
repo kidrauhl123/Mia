@@ -99,6 +99,12 @@ function createSocialApi({ getSettings, normalizeUrl }) {
     async ensureFellowRoom(fellowId, body = {}) {
       return jsonFetch({ ...ctx(), method: "PUT", path: `/api/me/fellows/${encodeURIComponent(fellowId)}/room`, body: withOpId(body) });
     },
+    async getFellowRuntime(fellowId, runtimeKind = "cloud-hermes") {
+      return jsonFetch({ ...ctx(), method: "GET", path: `/api/me/fellows/${encodeURIComponent(fellowId)}/runtime?kind=${encodeURIComponent(runtimeKind)}` });
+    },
+    async saveFellowRuntime(fellowId, body = {}) {
+      return jsonFetch({ ...ctx(), method: "PUT", path: `/api/me/fellows/${encodeURIComponent(fellowId)}/runtime`, body: withOpId(body) });
+    },
     async updateRoom(roomId, patch) {
       return jsonFetch({ ...ctx(), method: "PATCH", path: `/api/rooms/${roomId}`, body: patch || {} });
     },
@@ -112,7 +118,7 @@ function createSocialApi({ getSettings, normalizeUrl }) {
       return jsonFetch({ ...ctx(), method: "DELETE", path: `/api/rooms/${roomId}/members`, body: { memberKind, memberRef } });
     },
     async postRoomMessageAsFellow(roomId, body) {
-      return jsonFetch({ ...ctx(), method: "POST", path: `/api/rooms/${roomId}/messages/as-fellow`, body });
+      return jsonFetch({ ...ctx(), method: "POST", path: `/api/rooms/${roomId}/messages/as-fellow`, body: withOpId(body) });
     }
   };
 }

@@ -28,6 +28,7 @@ function createSettingsStore(deps = {}) {
     getEngineState,
     AIMASHI_DAEMON_DEFAULT_PORT,
     AIMASHI_CLOUD_DEFAULT_URL,
+    normalizeAvatarCrop = (crop) => crop || defaultUserProfile().avatarCrop,
   } = deps;
 
   function defaultModelSettings() {
@@ -63,6 +64,61 @@ function createSettingsStore(deps = {}) {
       listStyle: "flush",
       selectionStyle: "solid"
     };
+  }
+
+  function userProfile() {
+    const p = runtimePaths();
+    return { ...defaultUserProfile(), ...readJson(p.userProfile, {}) };
+  }
+
+  function writeUserProfile(profile = {}) {
+    const p = runtimePaths();
+    const current = userProfile();
+    const next = {
+      displayName: String(profile.displayName || current.displayName || "Boss").trim() || "Boss",
+      avatarText: String(profile.avatarText || current.avatarText || "B").trim().slice(0, 2).toUpperCase() || "B",
+      avatarColor: String(profile.avatarColor || current.avatarColor || "#111827").trim() || "#111827",
+      avatarImage: String(profile.avatarImage || current.avatarImage || "").trim(),
+      avatarCrop: normalizeAvatarCrop(profile.avatarCrop || current.avatarCrop)
+    };
+    fs.mkdirSync(path.dirname(p.userProfile), { recursive: true });
+    fs.writeFileSync(p.userProfile, JSON.stringify(next, null, 2) + "\n");
+    return next;
+  }
+
+  function appearanceSettings() {
+    const p = runtimePaths();
+    const saved = readJson(p.appearanceSettings, {});
+    return { ...defaultAppearanceSettings(), ...saved };
+  }
+
+  function writeAppearanceSettings(settings = {}) {
+    const p = runtimePaths();
+    const current = appearanceSettings();
+    const theme = String(settings.theme || current.theme || "light").trim();
+    const fontPreset = String(settings.fontPreset || current.fontPreset || "system").trim();
+    const accentColor = String(settings.accentColor || current.accentColor || "#5e5ce6").trim();
+    const userBubbleColor = String(settings.userBubbleColor || current.userBubbleColor || "#dedcff").trim();
+    const showHoverBackground = settings.showHoverBackground == null ? current.showHoverBackground !== false : settings.showHoverBackground !== false;
+    const showUserAvatar = settings.showUserAvatar == null ? current.showUserAvatar !== false : settings.showUserAvatar !== false;
+    const showAssistantAvatar = settings.showAssistantAvatar == null ? current.showAssistantAvatar !== false : settings.showAssistantAvatar !== false;
+    const listStyle = String(settings.listStyle || current.listStyle || "card").trim();
+    const selectionStyle = String(settings.selectionStyle || current.selectionStyle || "soft").trim();
+    const validHex = (value, fallback) => /^#[0-9a-fA-F]{6}$/.test(value) ? value.toLowerCase() : fallback;
+    const next = {
+      theme: ["light", "dark"].includes(theme) ? theme : "light",
+      fontPreset: ["system", "sf-pro", "pingfang", "mono"].includes(fontPreset) ? fontPreset : "system",
+      accentColor: validHex(accentColor, "#5e5ce6"),
+      userBubbleColor: validHex(userBubbleColor, "#dedcff"),
+      showHoverBackground,
+      showUserAvatar,
+      showAssistantAvatar,
+      listStyle: ["card", "flush"].includes(listStyle) ? listStyle : "card",
+      selectionStyle: ["soft", "solid"].includes(selectionStyle) ? selectionStyle : "soft"
+    };
+    fs.mkdirSync(path.dirname(p.appearanceSettings), { recursive: true });
+    fs.writeFileSync(p.appearanceSettings, JSON.stringify(next, null, 2) + "\n");
+    return next;
   }
 
   function defaultPermissionSettings() {
@@ -317,6 +373,10 @@ function createSettingsStore(deps = {}) {
     defaultModelSettings,
     defaultUserProfile,
     defaultAppearanceSettings,
+    userProfile,
+    writeUserProfile,
+    appearanceSettings,
+    writeAppearanceSettings,
     defaultPermissionSettings,
     defaultDaemonSettings,
     defaultRelaySettings,

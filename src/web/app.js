@@ -1,6 +1,5 @@
 // Aimashi Web — chat + settings only.
-// Conversation list = cloud DM + group rooms. No fellows on web (those live on
-// the owner's desktop; future remote-fellow work will surface them here).
+// Conversation list = cloud DM, group rooms, and cloud-mirrored fellow rooms.
 
 const STORAGE_KEY = "aimashi.web.session";
 const API_BASE = "";
@@ -8,6 +7,75 @@ const { formatConversationTime, formatMessageTime } = window.aimashiTimeFormat;
 const { computeUnreadForConversation, totalUnreadFromConversations, unreadBadgeHtml } = window.aimashiUnread;
 const { prepareOutgoingMessage } = window.aimashiSendPipeline;
 const { SenderKind } = window.aimashiConversationKinds;
+const engineContracts = window.aimashiEngineContracts || {};
+const normalizeAgentEngine = engineContracts.normalizeAgentEngine || ((value) => {
+  const id = String(value || "hermes").trim().toLowerCase().replace(/_/g, "-");
+  if (id === "claude" || id === "claude-code") return "claude-code";
+  if (id === "codex" || id === "openai-codex") return "codex";
+  return "hermes";
+});
+const engineLabel = engineContracts.engineLabel || ((value) => {
+  const engine = normalizeAgentEngine(value);
+  if (engine === "claude-code") return "Claude Code";
+  if (engine === "codex") return "Codex";
+  return "Hermes";
+});
+const externalModelEntries = engineContracts.externalModelEntries || ((value) => {
+  const engine = normalizeAgentEngine(value);
+  if (engine === "claude-code") {
+    return [
+      { id: "default", model: "", label: "Claude Code 默认" },
+      { id: "claude-opus-4-7", model: "claude-opus-4-7", label: "Claude Opus 4.7" },
+      { id: "claude-sonnet-4-6", model: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
+      { id: "opus", model: "opus", label: "Opus alias" },
+      { id: "sonnet", model: "sonnet", label: "Sonnet alias" }
+    ];
+  }
+  if (engine === "codex") {
+    return [
+      { id: "default", model: "", label: "Codex 默认" },
+      { id: "gpt-5.3-codex-spark", model: "gpt-5.3-codex-spark", label: "GPT-5.3 Codex Spark" },
+      { id: "gpt-5.3-codex", model: "gpt-5.3-codex", label: "GPT-5.3 Codex" },
+      { id: "gpt-5.2", model: "gpt-5.2", label: "GPT-5.2" }
+    ];
+  }
+  return [];
+});
+const effortOptions = engineContracts.effortOptions || ((value) => {
+  const engine = normalizeAgentEngine(value);
+  const labels = { minimal: "Minimal", low: "Low", medium: "Medium", high: "High", xhigh: "Extra high", max: "Max" };
+  const levels = engine === "claude-code"
+    ? ["low", "medium", "high", "xhigh", "max"]
+    : engine === "codex"
+      ? ["minimal", "low", "medium", "high", "xhigh"]
+      : ["low", "medium", "high"];
+  return levels.map((level) => ({ value: level, label: labels[level] || level }));
+});
+const externalPermissionOptions = engineContracts.externalPermissionOptions || ((value) => {
+  const engine = normalizeAgentEngine(value);
+  if (engine === "claude-code") {
+    return [
+      { value: "default", label: "Ask Permissions" },
+      { value: "acceptEdits", label: "Accept Edits" },
+      { value: "plan", label: "Plan Mode" },
+      { value: "auto", label: "Auto Mode" },
+      { value: "bypassPermissions", label: "Bypass Permissions" }
+    ];
+  }
+  if (engine === "codex") {
+    return [
+      { value: "default", label: "Ask" },
+      { value: "acceptEdits", label: "Edits" },
+      { value: "readOnly", label: "Read" },
+      { value: "bypassPermissions", label: "YOLO" }
+    ];
+  }
+  return [
+    { value: "ask", label: "Ask" },
+    { value: "auto", label: "Auto" },
+    { value: "readOnly", label: "Read" }
+  ];
+});
 
 const els = {
   root: document.querySelector(".app-shell"),
@@ -36,6 +104,14 @@ const els = {
   chatForm: document.getElementById("chatForm"),
   chatInput: document.getElementById("chatInput"),
   sendButton: document.getElementById("sendButton"),
+  composerBottom: document.getElementById("composerBottom"),
+  quickModelSelect: document.getElementById("quickModelSelect"),
+  quickModelLabel: document.getElementById("quickModelLabel"),
+  effortSelect: document.getElementById("effortSelect"),
+  effortLabel: document.getElementById("effortLabel"),
+  permissionMode: document.getElementById("permissionMode"),
+  permissionLabel: document.getElementById("permissionLabel"),
+  modelSwitchStatus: document.getElementById("modelSwitchStatus"),
 
   settingsView: document.getElementById("settingsView"),
   openSettings: document.getElementById("openSettings"),
@@ -81,6 +157,7 @@ let state = {
   bridgeDevices: [],
   bridgeBusy: false,
   cloudAgentRunsByRoom: new Map(),
+  fellowRuntimeCache: new Map(),
   activeConversationId: "",
   // Per-conversation unread counters. Incremented when a WS message arrives
   // for a non-active conversation, cleared when the user opens it. In-memory
@@ -245,6 +322,8 @@ function clearSession() {
   state.roomMembersCache.clear();
   state.bridgeDevices = [];
   state.bridgeBusy = false;
+  state.cloudAgentRunsByRoom.clear?.();
+  state.fellowRuntimeCache.clear?.();
   state.activeConversationId = "";
   stopCloudEvents();
   localStorage.removeItem(STORAGE_KEY);
@@ -266,7 +345,7 @@ async function api(path, options = {}) {
   // body.clientOpId for explicit retry semantics.
   let body = options.body;
   const method = String(options.method || "GET").toUpperCase();
-  if ((method === "POST" || method === "PATCH" || method === "DELETE") && body && typeof body === "object" && !body.clientOpId) {
+  if ((method === "POST" || method === "PUT" || method === "PATCH" || method === "DELETE") && body && typeof body === "object" && !body.clientOpId) {
     body = { ...body, clientOpId: `op_${(crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`)}` };
   }
   const response = await fetch(`${API_BASE}${path}`, {
@@ -400,6 +479,12 @@ async function ensureRoomMembers(roomId) {
   } catch (err) {
     console.warn("[web] ensureRoomMembers failed:", err);
   }
+}
+
+function lastSeenSeqForConversation(roomId) {
+  const cached = state.messageCache.get(roomId);
+  const maxSeq = Number(cached?.maxSeq || 0);
+  return Number.isFinite(maxSeq) && maxSeq > 0 ? maxSeq : 0;
 }
 
 // ── cloud events (WS) ──────────────────────────────────────────────────────
@@ -623,6 +708,12 @@ function handleCloudEvent(envelope) {
       renderConversationList();
       renderActiveChat();
     }
+  } else if (type === "fellow.runtime_updated") {
+    const binding = envelope.binding;
+    if (binding?.fellowId && binding?.runtimeKind) {
+      state.fellowRuntimeCache.set(runtimeCacheKey(binding.fellowId, binding.runtimeKind), binding);
+      renderActiveChat();
+    }
   } else if (type === "fellow.deleted") {
     const fellowId = envelope.fellowId;
     if (fellowId) {
@@ -668,6 +759,195 @@ function roomDisplayTitle(room) {
     return fellow?.name || fellowKey || "对话";
   }
   return room.name || "未命名群聊";
+}
+
+function roomTypeForControls(room) {
+  if (!room) return "";
+  return room.type
+    || (room.id?.startsWith("dm:") ? "dm"
+      : room.id?.startsWith("fellow:") ? "fellow"
+      : (room.id?.startsWith("g_") || room.id?.startsWith("g-")) ? "group"
+      : "");
+}
+
+function fellowKeyForRoom(room) {
+  const decorated = room?.decorations?.fellowKey || room?.fellowKey || room?.fellow_id || "";
+  if (decorated) return String(decorated);
+  const id = String(room?.id || "");
+  return id.startsWith("fellow:") ? id.split(":").slice(2).join(":") : "";
+}
+
+function fellowByKey(key) {
+  const wanted = String(key || "");
+  return state.fellows.find((fellow) => String(fellow.id || fellow.key || "") === wanted) || null;
+}
+
+function runtimeKindForFellowRoom(room, fellow) {
+  void fellow;
+  const runtimeKind = String(room?.decorations?.runtimeKind || "").trim();
+  return runtimeKind || "desktop-local";
+}
+
+function engineForRuntimeKind(runtimeKind) {
+  const kind = String(runtimeKind || "").trim();
+  if (kind === "cloud-hermes" || kind === "desktop-local") return "hermes";
+  return normalizeAgentEngine(kind);
+}
+
+function runtimeCacheKey(fellowKey, runtimeKind) {
+  return `${fellowKey}:${runtimeKind || "cloud-hermes"}`;
+}
+
+function runtimeBindingFor(fellowKey, runtimeKind) {
+  return state.fellowRuntimeCache.get(runtimeCacheKey(fellowKey, runtimeKind)) || null;
+}
+
+async function ensureFellowRuntime(fellowKey, runtimeKind = "cloud-hermes") {
+  if (!fellowKey || runtimeKind === "desktop-local") return null;
+  const key = runtimeCacheKey(fellowKey, runtimeKind);
+  if (state.fellowRuntimeCache.has(key)) return state.fellowRuntimeCache.get(key);
+  try {
+    const data = await api(`/api/me/fellows/${encodeURIComponent(fellowKey)}/runtime?kind=${encodeURIComponent(runtimeKind)}`);
+    const binding = data?.binding || null;
+    state.fellowRuntimeCache.set(key, binding);
+    return binding;
+  } catch (err) {
+    console.warn("[web] fellow runtime GET failed:", err);
+    state.fellowRuntimeCache.set(key, null);
+    return null;
+  }
+}
+
+function selectEntriesForModel(engine, runtimeKind) {
+  if (runtimeKind === "desktop-local") {
+    return [{ value: "desktop-local", label: "Desktop Local" }];
+  }
+  if (runtimeKind === "cloud-hermes" || engine === "hermes") {
+    return [{ value: "hermes-agent", label: "Hermes Agent" }];
+  }
+  return externalModelEntries(engine).map((entry) => ({
+    value: entry.id,
+    model: entry.model,
+    label: entry.label || entry.model || entry.id
+  }));
+}
+
+function selectEntriesForPermission(engine, runtimeKind) {
+  if (runtimeKind === "desktop-local") {
+    return [{ value: "default", label: "Ask" }];
+  }
+  if (runtimeKind === "cloud-hermes" || engine === "hermes") {
+    return [
+      { value: "ask", label: "Ask" },
+      { value: "auto", label: "Auto" },
+      { value: "readOnly", label: "Read" }
+    ];
+  }
+  return externalPermissionOptions(engine);
+}
+
+function setSelectOptions(select, entries, selectedValue, fallbackLabel) {
+  if (!select) return "";
+  const normalized = (Array.isArray(entries) ? entries : [])
+    .filter((entry) => entry && entry.value !== undefined)
+    .map((entry) => ({
+      value: String(entry.value),
+      label: String(entry.label || entry.value),
+      title: String(entry.title || "")
+    }));
+  const value = String(selectedValue || normalized[0]?.value || "");
+  const options = normalized.length ? normalized : [{ value, label: fallbackLabel || value || "Default", title: "" }];
+  if (value && !options.some((entry) => entry.value === value)) {
+    options.unshift({ value, label: fallbackLabel || value, title: "" });
+  }
+  select.innerHTML = options.map((entry) => (
+    `<option value="${escapeHtml(entry.value)}"${entry.title ? ` title="${escapeHtml(entry.title)}"` : ""}>${escapeHtml(entry.label)}</option>`
+  )).join("");
+  select.value = value || options[0]?.value || "";
+  return select.selectedOptions?.[0]?.textContent || fallbackLabel || "";
+}
+
+function setModelSwitchStatus(text, online = false) {
+  if (!els.modelSwitchStatus) return;
+  els.modelSwitchStatus.textContent = text || "";
+  els.modelSwitchStatus.classList.toggle("online", Boolean(online));
+}
+
+function renderComposerControls(room = null) {
+  const show = roomTypeForControls(room) === "fellow";
+  els.composerBottom?.classList.toggle("hidden", !show);
+  if (!show) return;
+
+  const fellowKey = fellowKeyForRoom(room);
+  const fellow = fellowByKey(fellowKey);
+  const runtimeKind = runtimeKindForFellowRoom(room, fellow);
+  const engine = engineForRuntimeKind(runtimeKind);
+  const binding = runtimeBindingFor(fellowKey, runtimeKind);
+  const config = binding?.config || {};
+  const editable = Boolean(fellowKey && runtimeKind !== "desktop-local");
+
+  const modelValue = config.model || (runtimeKind === "desktop-local" ? "desktop-local" : "hermes-agent");
+  const modelLabel = setSelectOptions(els.quickModelSelect, selectEntriesForModel(engine, runtimeKind), modelValue, "Default");
+  if (els.quickModelLabel) els.quickModelLabel.textContent = modelLabel || "Default";
+
+  const effort = config.effortLevel || "medium";
+  const effortLabel = setSelectOptions(els.effortSelect, effortOptions(engine), effort, "Medium");
+  if (els.effortLabel) els.effortLabel.textContent = effortLabel || "Medium";
+
+  const permission = config.permissionMode || (runtimeKind === "desktop-local" ? "default" : "ask");
+  const permissionLabel = setSelectOptions(els.permissionMode, selectEntriesForPermission(engine, runtimeKind), permission, "Ask");
+  if (els.permissionLabel) els.permissionLabel.textContent = permissionLabel || "Ask";
+  const permissionWrap = els.permissionMode?.closest?.(".permission-switcher");
+  permissionWrap?.classList.toggle("yolo", permission === "bypassPermissions");
+  permissionWrap?.classList.toggle("claude-bypass", engine === "claude-code" && permission === "bypassPermissions");
+
+  if (els.quickModelSelect) els.quickModelSelect.disabled = !editable;
+  if (els.effortSelect) els.effortSelect.disabled = !editable;
+  if (els.permissionMode) els.permissionMode.disabled = !editable;
+  setModelSwitchStatus(runtimeKind === "desktop-local" ? "Desktop controls" : engineLabel(engine), editable);
+
+  if (editable && !state.fellowRuntimeCache.has(runtimeCacheKey(fellowKey, runtimeKind))) {
+    ensureFellowRuntime(fellowKey, runtimeKind).then(() => {
+      if (state.activeConversationId === room.id) renderActiveChat();
+    });
+  }
+}
+
+async function saveWebAiControl(kind, value) {
+  const room = state.rooms.find((r) => r.id === state.activeConversationId);
+  if (roomTypeForControls(room) !== "fellow") return;
+  const fellowKey = fellowKeyForRoom(room);
+  const runtimeKind = runtimeKindForFellowRoom(room, fellowByKey(fellowKey));
+  if (!fellowKey || runtimeKind === "desktop-local") {
+    showToast("桌面端本地伙伴需要在桌面端切换模型设置。");
+    renderComposerControls(room);
+    return;
+  }
+  const key = runtimeCacheKey(fellowKey, runtimeKind);
+  const current = runtimeBindingFor(fellowKey, runtimeKind) || await ensureFellowRuntime(fellowKey, runtimeKind) || {
+    fellowId: fellowKey,
+    runtimeKind,
+    enabled: true,
+    config: {}
+  };
+  const config = { ...(current.config || {}) };
+  if (kind === "model") config.model = value;
+  else if (kind === "effort") config.effortLevel = value;
+  else if (kind === "permission") config.permissionMode = value;
+  setModelSwitchStatus("保存中...", true);
+  try {
+    const data = await api(`/api/me/fellows/${encodeURIComponent(fellowKey)}/runtime`, {
+      method: "PUT",
+      body: { runtimeKind, enabled: current.enabled !== false, config }
+    });
+    state.fellowRuntimeCache.set(key, data?.binding || { ...current, config });
+    renderComposerControls(room);
+    setModelSwitchStatus("已更新", true);
+  } catch (err) {
+    showToast(err.message || "设置保存失败");
+    setModelSwitchStatus("保存失败", false);
+    renderComposerControls(room);
+  }
 }
 
 function roomLastMessageText(room) {
@@ -1110,34 +1390,46 @@ function renderActiveChat() {
     els.activeMeta.textContent = state.user ? "选择一个会话开始聊天" : "Aimashi Cloud";
     els.chat.innerHTML = `<p class="persona-empty">还没有选中的会话。</p>`;
     setComposerEnabled(false, "选择一个会话开始聊天");
+    renderComposerControls(null);
     return;
   }
 
   if (isRoomId(id)) {
     const room = state.rooms.find((r) => r.id === id);
-    if (!room) { setComposerEnabled(false, "会话不存在"); return; }
+    if (!room) {
+      setComposerEnabled(false, "会话不存在");
+      renderComposerControls(null);
+      return;
+    }
     const title = roomDisplayTitle(room);
-    const isDM = room.id?.startsWith("dm:");
-    let friendAvatar = "";
-    let friendCrop = null;
-    let friendColor = "";
+    const roomType = roomTypeForControls(room);
+    const isDM = roomType === "dm";
+    const isFellow = roomType === "fellow";
+    let peerAvatar = "";
+    let peerCrop = null;
+    let peerColor = "";
     if (isDM) {
       const parts = room.id.split(":");
       const otherId = parts[1] === state.user?.id ? parts[2] : parts[1];
       const friend = friendById(otherId);
-      friendAvatar = friend?.avatarImage || "";
-      friendCrop = friend?.avatarCrop || null;
-      friendColor = friend?.avatarColor || "";
+      peerAvatar = friend?.avatarImage || "";
+      peerCrop = friend?.avatarCrop || null;
+      peerColor = friend?.avatarColor || "";
+    } else if (isFellow) {
+      const fellow = fellowByKey(fellowKeyForRoom(room));
+      peerAvatar = fellow?.avatarImage || "";
+      peerCrop = fellow?.avatarCrop || null;
+      peerColor = fellow?.color || "";
     }
-    const useAvatar = friendAvatar && (/^(https?:|data:|\.?\/assets\/)/i.test(friendAvatar));
+    const useAvatar = peerAvatar && (/^(https?:|data:|\.?\/assets\/)/i.test(peerAvatar));
     if (useAvatar) {
-      const styleStr = avatarBackgroundStyle(friendAvatar, friendCrop, friendColor || "#5e5ce6");
+      const styleStr = avatarBackgroundStyle(peerAvatar, peerCrop, peerColor || "#5e5ce6");
       els.activeAvatar.style.cssText = styleStr;
       els.activeAvatar.textContent = "";
     } else {
       els.activeAvatar.style.cssText = "";
       els.activeAvatar.style.backgroundImage = "";
-      els.activeAvatar.style.backgroundColor = friendColor || (isDM ? "#5e5ce6" : "#34c759");
+      els.activeAvatar.style.backgroundColor = peerColor || (isDM ? "#5e5ce6" : isFellow ? "#ff9f0a" : "#34c759");
       els.activeAvatar.style.color = "#fff";
       els.activeAvatar.style.display = "inline-flex";
       els.activeAvatar.style.alignItems = "center";
@@ -1145,7 +1437,8 @@ function renderActiveChat() {
       els.activeAvatar.textContent = (title[0] || "?").toUpperCase();
     }
     els.activeTitle.textContent = title;
-    els.activeMeta.textContent = isDM ? "私聊" : "群聊";
+    els.activeMeta.textContent = isDM ? "私聊" : isFellow ? "AI 私聊" : "群聊";
+    renderComposerControls(room);
     const cached = state.messageCache.get(room.id);
     const messages = cached?.messages || [];
     const streaming = buildCloudAgentStreamingArticle(room, state.cloudAgentRunsByRoom.get(room.id));
@@ -1162,25 +1455,26 @@ function renderActiveChat() {
 
   // Unknown conversation kind — defensively disable.
   setComposerEnabled(false, "不支持的会话类型");
+  renderComposerControls(null);
   els.chat.innerHTML = `<p class="persona-empty">不支持的会话类型。</p>`;
 }
 
 async function setActiveConversation(id) {
   state.activeConversationId = id;
   state.unread.delete(id);
-  // Phase 3: persist the read mark to cloud so other devices clear
-  // their badge for this conversation. Best-effort — failure doesn't
-  // block opening the conversation.
-  if (id) {
-    const base = state.settings || { pins: [], readMarks: {}, appearance: {} };
-    const nextReadMarks = { ...(base.readMarks || {}), [id]: Date.now() };
-    state.settings = { ...base, readMarks: nextReadMarks };
-    api("/api/me/settings", { method: "PUT", body: state.settings })
-      .catch((err) => console.warn("[web] mark-read PUT failed:", err));
-  }
   if (isRoomId(id)) {
     await ensureRoomMessages(id);
     await ensureRoomMembers(id);
+    const room = state.rooms.find((item) => item.id === id);
+    if (roomTypeForControls(room) === "fellow") {
+      await ensureFellowRuntime(fellowKeyForRoom(room), runtimeKindForFellowRoom(room, fellowByKey(fellowKeyForRoom(room))));
+    }
+  }
+  // Phase 3: persist the read mark to cloud so other devices clear their badge.
+  // readMarks are message seq cursors, so compute after ensureRoomMessages().
+  if (id) {
+    pushSettings({ readMarks: { [id]: lastSeenSeqForConversation(id) } })
+      .catch((err) => console.warn("[web] mark-read settings PUT failed:", err));
   }
   renderConversationList();
   renderActiveChat();
@@ -1609,6 +1903,9 @@ els.chatInput.addEventListener("keydown", (event) => {
     sendInActive();
   }
 });
+els.quickModelSelect?.addEventListener("change", () => saveWebAiControl("model", els.quickModelSelect.value));
+els.effortSelect?.addEventListener("change", () => saveWebAiControl("effort", els.effortSelect.value));
+els.permissionMode?.addEventListener("change", () => saveWebAiControl("permission", els.permissionMode.value));
 
 els.mobileBack?.addEventListener("click", () => setPane("list"));
 

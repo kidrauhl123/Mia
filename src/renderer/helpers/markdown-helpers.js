@@ -45,9 +45,14 @@
 
   function renderInlineMarkdown(value) {
     const codes = [];
-    const protectedText = String(value || "").replace(/`([^`\n]+)`/g, (_match, code) => {
+    let protectedText = String(value || "").replace(/`([^`\n]+)`/g, (_match, code) => {
       const index = codes.push(code) - 1;
       return `@@AIMASHI_INLINE_CODE_${index}@@`;
+    });
+    const links = [];
+    protectedText = protectedText.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, (_match, text, url) => {
+      const index = links.push({ text, url }) - 1;
+      return `@@AIMASHI_LINK_${index}@@`;
     });
     let html = escapeHtml(protectedText);
     html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
@@ -56,6 +61,13 @@
       html = html.replace(
         `@@AIMASHI_INLINE_CODE_${index}@@`,
         `<code class="inline-code" tabindex="0" title="点击复制">${escapeHtml(codes[index])}</code>`
+      );
+    }
+    for (let index = 0; index < links.length; index++) {
+      const { text, url } = links[index];
+      html = html.replace(
+        `@@AIMASHI_LINK_${index}@@`,
+        `<a class="message-link" data-external-link="${escapeHtml(url)}" role="link" tabindex="0" title="${escapeHtml(url)}">${escapeHtml(text)}</a>`
       );
     }
     return html;

@@ -354,6 +354,16 @@ test("cloud can serve bundled web assets without exposing path traversal", async
     assert.equal(app.status, 200);
     assert.match(app.headers.get("content-type") || "", /javascript/);
 
+    const shared = await rawFetch(baseUrl, "/shared/engine-contracts.js");
+    assert.equal(shared.status, 200);
+    assert.match(shared.headers.get("content-type") || "", /javascript/);
+    assert.match(await shared.text(), /aimashiEngineContracts/);
+
+    const messageSource = await rawFetch(baseUrl, "/message-sources/cloud-room-source.js");
+    assert.equal(messageSource.status, 200);
+    assert.match(messageSource.headers.get("content-type") || "", /javascript/);
+    assert.match(await messageSource.text(), /aimashiCloudRoomSource/);
+
     const favicon = await rawFetch(baseUrl, "/favicon.ico");
     assert.equal(favicon.status, 200);
     assert.match(favicon.headers.get("content-type") || "", /image\/svg\+xml/);

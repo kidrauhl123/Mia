@@ -140,6 +140,14 @@ function runCloudBridgeRequestSource(source) {
   return source.match(/async function runCloudBridgeRequest\(ws, message = \{\}\) \{[\s\S]*?\n\}/)?.[0] || "";
 }
 
+function extractAsarText(archivePath, filePath) {
+  try {
+    return String(asar.extractFile(archivePath, filePath));
+  } catch {
+    return "";
+  }
+}
+
 function checkPackagedDesktopPermissionGate(rootDir) {
   const archivePath = path.join(rootDir, "release", "mac-arm64", "Aimashi.app", "Contents", "Resources", "app.asar");
   if (!fs.existsSync(archivePath)) {
@@ -150,12 +158,15 @@ function checkPackagedDesktopPermissionGate(rootDir) {
     };
   }
   try {
-    const mainSource = String(asar.extractFile(archivePath, "src/main.js"));
-    const bridgeSource = runCloudBridgeRequestSource(mainSource);
+    const mainSource = extractAsarText(archivePath, "src/main.js");
+    const bridgeClientSource = extractAsarText(archivePath, "src/main/cloud/cloud-bridge-client.js");
+    const bridgeSource = runCloudBridgeRequestSource(bridgeClientSource || mainSource);
+    const hasBridgeEntrypoint = /startCloudBridge/.test(mainSource)
+      && (/createCloudBridgeClient/.test(mainSource) || /async function runCloudBridgeRequest/.test(mainSource));
     const required = [
       /AIMASHI_ALLOW_MULTIPLE_INSTANCES/.test(mainSource),
       /cloudWebSocketProtocols/.test(mainSource),
-      /startCloudBridge/.test(mainSource),
+      hasBridgeEntrypoint,
       /permissionMode: "default"/.test(bridgeSource),
       !/confirmCloudBridgeRun\(/.test(bridgeSource),
       !/等待本机权限确认/.test(bridgeSource)
@@ -391,8 +402,8 @@ function runAudit({ rootDir = root } = {}) {
       checkSource(rootDir, "tests/fellow-rooms.test.js", /Fellow-room messages POST works through the unified/, "fellow chat room integration test")
     ]),
     item("gate.same-account-bridge-control", "同账号 Web/手机端可直接调用桌面 Agent，设备鉴权不复用 Agent permission", [
-      checkSource(rootDir, "src/main.js", /async function runCloudBridgeRequest[\s\S]*permissionMode: "default"/, "desktop bridge keeps Agent permissionMode on the Agent run"),
-      checkSource(rootDir, "src/main.js", /async function runCloudBridgeRequest(?![\s\S]*?confirmCloudBridgeRun\()/, "desktop bridge run source does not call local approval gate"),
+      checkSource(rootDir, "src/main/cloud/cloud-bridge-client.js", /async function runCloudBridgeRequest[\s\S]*permissionMode: "default"/, "desktop bridge keeps Agent permissionMode on the Agent run"),
+      checkSource(rootDir, "src/main/cloud/cloud-bridge-client.js", /async function runCloudBridgeRequest(?![\s\S]*?confirmCloudBridgeRun\()/, "desktop bridge run source does not call local approval gate"),
       checkSource(rootDir, "src/main.js", /cloudWebSocketProtocols[\s\S]*aimashi-token\./, "desktop bridge authenticates to Cloud with account token subprotocol"),
       checkSource(rootDir, "scripts/serve-cloud.js", /devicesByUser[\s\S]*hub\.devicesByUser\.get\(userId\)/, "cloud bridge devices are scoped by authenticated userId"),
       checkSource(rootDir, "tests/project-structure-check.test.js", /does not add a separate local approval gate/, "regression test forbids remote-connection approval gate in bridge run"),

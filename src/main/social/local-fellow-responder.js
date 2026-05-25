@@ -3,7 +3,8 @@
 const PROCESSED_CAP = 500;
 
 function shouldHandleLocalCloudRoomAi({ isDaemon, daemonEnabled }) {
-  return Boolean(isDaemon) || !daemonEnabled;
+  void daemonEnabled;
+  return !Boolean(isDaemon);
 }
 
 function clientOpIdForDedupKey(dedupKey) {

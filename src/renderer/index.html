@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="./styles/chat.css">
   <link rel="stylesheet" href="./styles/groups.css">
   <link rel="stylesheet" href="./styles/tasks.css">
+  <link rel="stylesheet" href="./styles/skills.css">
 </head>
 <body>
   <main class="app-shell">
@@ -134,16 +135,6 @@
       <section class="contact-section">
         <div id="contactList" class="contact-list"></div>
       </section>
-    </aside>
-
-    <aside id="skillsSidebar" class="sidebar skills-sidebar hidden">
-      <header class="sidebar-tools skills-sidebar-tools">
-        <label class="search-box">
-          <span>⌕</span>
-          <input id="skillSearch" autocomplete="off" placeholder="搜索能力">
-        </label>
-      </header>
-      <section id="skillNav" class="skills-nav"></section>
     </aside>
 
     <aside id="tasksSidebar" class="sidebar tasks-sidebar hidden">
@@ -277,13 +268,17 @@
     </section>
 
     <section id="skillsView" class="workspace skills-workspace hidden">
-      <header class="topbar">
+      <header class="topbar skills-topbar">
         <button class="narrow-back-button" type="button" data-narrow-back title="返回能力库" aria-label="返回能力库">‹</button>
         <div class="group-title">
           <div>
             <h1><span id="skillPageTitle">能力库</span></h1>
           </div>
         </div>
+        <label class="search-box skills-search">
+          <span>⌕</span>
+          <input id="skillSearch" autocomplete="off" placeholder="搜索能力">
+        </label>
       </header>
       <section class="skills-layout">
         <div id="skillChipRow" class="skill-chip-row" aria-label="Skill 分类"></div>

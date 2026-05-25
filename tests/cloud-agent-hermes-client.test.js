@@ -103,6 +103,9 @@ test("Hermes runs client sends Fellow headers and returns final text", async () 
     userId: "u1",
     fellow: { id: "aimashi", name: "Aimashi" },
     roomId: "fellow:u1:aimashi",
+    model: "hermes-agent",
+    effortLevel: "high",
+    permissionMode: "auto",
     input: "hi",
     attachments: [{ id: "file_1", name: "note.txt", mimeType: "text/plain", size: 12, kind: "text", path: "/data/attachments/run/note.txt" }],
     conversationHistory: [{ role: "user", content: "hi" }],
@@ -123,10 +126,13 @@ test("Hermes runs client sends Fellow headers and returns final text", async () 
   assert.equal(calls[0].headers.Authorization, "Bearer secret");
   assert.equal(calls[1].headers.Authorization, "Bearer secret");
   const body = JSON.parse(calls[0].body);
+  assert.equal(body.model, "hermes-agent");
   assert.equal(body.session_id, "cloud:u1:aimashi:fellow:u1:aimashi");
   assert.deepEqual(body.conversation_history, [{ role: "user", content: "hi" }]);
   assert.deepEqual(body.attachments, [{ id: "file_1", name: "note.txt", mimeType: "text/plain", size: 12, kind: "text", path: "/data/attachments/run/note.txt" }]);
   assert.equal(body.metadata.account_id, "u1");
+  assert.equal(body.metadata.effort_level, "high");
+  assert.equal(body.metadata.permission_mode, "auto");
   assert.deepEqual(body.metadata.attachments, [{ id: "file_1", name: "note.txt", mimeType: "text/plain", path: "/data/attachments/run/note.txt" }]);
   assert.equal(callbacks[0].type, "run");
   assert.equal(callbacks[0].runId, "run_1");

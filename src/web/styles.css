@@ -1157,6 +1157,7 @@ p {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  min-width: 0;
   min-height: 26px;
   color: var(--muted);
   font-size: 12px;
@@ -1165,19 +1166,178 @@ p {
 .composer-controls {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 3px;
   min-width: 0;
 }
 
-.model-avatar,
+.composer-dot {
+  color: var(--faint);
+  font-size: 12px;
+  font-weight: 340;
+  line-height: 26px;
+  pointer-events: none;
+  user-select: none;
+}
+
+.model-switcher {
+  position: relative;
+  display: inline-grid;
+  grid-template-columns: 16px minmax(0, max-content);
+  align-items: center;
+  gap: 5px;
+  width: fit-content;
+  max-width: min(280px, 42vw);
+  height: 26px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+}
+
+.model-switcher:hover {
+  background: var(--hover);
+}
+
+.model-switcher:focus-within {
+  background: var(--field);
+}
+
+.model-avatar {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+  border-radius: 50%;
+  background: rgb(var(--accent-rgb) / 0.14);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 400;
+  pointer-events: none;
+}
+
 .model-avatar img {
   display: block;
   width: 16px;
   height: 16px;
 }
 
-.composer-dot {
+.model-current-label {
+  position: relative;
+  z-index: 2;
+  min-width: 0;
+  max-width: calc(min(280px, 42vw) - 36px);
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 340;
+  line-height: 26px;
+  pointer-events: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-switcher select {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  border-radius: 8px;
+  outline: 0;
+  padding: 0;
+  background: transparent;
+  color: transparent;
+  font-size: 12px;
+  font-weight: 340;
+  opacity: 0;
+  box-shadow: none;
+}
+
+.effort-switcher,
+.permission-switcher {
+  position: relative;
+  display: inline-grid;
+  grid-template-columns: max-content;
+  align-items: center;
+  height: 26px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+}
+
+.effort-switcher {
+  padding: 0 6px;
+}
+
+.permission-switcher {
+  padding: 0 8px;
+}
+
+.effort-switcher:hover,
+.permission-switcher:hover {
+  background: var(--hover);
+}
+
+.effort-switcher:focus-within,
+.permission-switcher:focus-within {
+  background: var(--field);
+}
+
+.effort-label,
+.permission-label {
+  position: relative;
+  z-index: 2;
+  font-size: 12px;
+  font-weight: 340;
+  line-height: 26px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.effort-label {
   color: var(--faint);
+}
+
+.permission-label {
+  color: var(--muted);
+}
+
+.permission-switcher.yolo .permission-label {
+  color: #8b5cf6;
+}
+
+.permission-switcher.claude-bypass .permission-label {
+  color: #b88712;
+}
+
+.effort-switcher select,
+.permission-switcher select {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: 8px;
+  outline: 0;
+  padding: 0;
+  background: transparent;
+  color: transparent;
+  font-size: 12px;
+  font-weight: 340;
+  opacity: 0;
+  box-shadow: none;
+}
+
+.model-switcher select:disabled,
+.effort-switcher select:disabled,
+.permission-switcher select:disabled {
+  cursor: default;
 }
 
 .model-switch-status {

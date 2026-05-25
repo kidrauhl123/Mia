@@ -51,11 +51,22 @@ function scrollEl({ scrollTop, scrollHeight, clientHeight }) {
 function loadSocial() {
   const src = fs.readFileSync(path.join(__dirname, "..", "src", "renderer", "social", "social.js"), "utf8");
   let chatEl = mockEl();
+  const groupArticles = [];
   const mockWindow = {
     aimashi: {},
     aimashiMarkdown: {
       escapeHtml: (v) => String(v || ""),
       renderMarkdown: (v) => String(v || ""),
+    },
+    aimashiSocialGroups: {
+      fetchAndCacheRoomMembers() {},
+      buildGroupMessageArticle(msg) {
+        const article = mockEl();
+        article.kind = "group-article";
+        article.messageId = msg.id;
+        groupArticles.push({ msg, article });
+        return article;
+      },
     },
   };
   const context = vm.createContext({
@@ -77,7 +88,7 @@ function loadSocial() {
   social.moduleState.activeRoomId = "g_1";
   social.moduleState.rooms = [{ id: "g_1", type: "group", name: "G" }];
   social.moduleState.messageCache.set("g_1", { messages: [], maxSeq: 0 });
-  return { social, setChat: (el) => { chatEl = el; } };
+  return { social, groupArticles, setChat: (el) => { chatEl = el; } };
 }
 
 test("renderRoomChat preserves scroll position on a same-room re-render when scrolled up", () => {
@@ -135,4 +146,19 @@ test("appendMessageToActiveChat follows to bottom when stick:true (self-sent / n
   setChat(chat);
   social._internalCtx.appendMessageToActiveChat(incoming, { stick: true });
   assert.equal(chat.scrollTop, 1000, "your own message should jump to the bottom");
+});
+
+test("appendMessageToActiveChat uses group renderer for active group rooms", () => {
+  const { social, groupArticles, setChat } = loadSocial();
+  const chat = scrollEl({ scrollTop: 100, scrollHeight: 1000, clientHeight: 400 });
+  setChat(chat);
+  social._internalCtx.roomMembersCache.set("g_1", [
+    { member_kind: "user", member_ref: "u_other", username: "other" }
+  ]);
+
+  social._internalCtx.appendMessageToActiveChat(incoming, { stick: false });
+
+  assert.equal(groupArticles.length, 1, "live group append must go through buildGroupMessageArticle");
+  assert.equal(groupArticles[0].msg.id, "m1");
+  assert.equal(chat.children[0].kind, "group-article");
 });

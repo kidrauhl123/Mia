@@ -165,11 +165,21 @@ function createMainGroupConductor({
   responder,
   log = () => {}
 }) {
-  const processed = new Set();
+  const processedReplies = new Set();
+  const completedMessages = new Set();
 
-  function markProcessed(messageId) {
-    processed.add(messageId);
-    if (processed.size > PROCESSED_CAP) processed.delete(processed.values().next().value);
+  function replyKey(messageId, fellowId) {
+    return `${messageId}:${fellowId}`;
+  }
+
+  function markProcessedReply(messageId, fellowId) {
+    processedReplies.add(replyKey(messageId, fellowId));
+    if (processedReplies.size > PROCESSED_CAP) processedReplies.delete(processedReplies.values().next().value);
+  }
+
+  function markMessageComplete(messageId) {
+    completedMessages.add(messageId);
+    if (completedMessages.size > PROCESSED_CAP) completedMessages.delete(completedMessages.values().next().value);
   }
 
   async function handleRoomMessageAppended(payload) {
@@ -177,7 +187,7 @@ function createMainGroupConductor({
     if (!roomId || !message?.id) return;
     if (message.sender_kind !== SenderKind.User) return;
     if (messageHasMentions(message)) return;
-    if (processed.has(message.id)) return;
+    if (completedMessages.has(message.id)) return;
 
     const userId = getCurrentUserId();
     if (!userId) return;
@@ -215,9 +225,12 @@ function createMainGroupConductor({
     const recentMessages = normalizeMessages(await listRecentMessages(roomId, sinceSeq, 6));
 
     const respondToChosen = async (chosen) => {
+      let pending = 0;
+      let failed = 0;
       for (const fellowId of chosen) {
         const member = fellowMembers.find((item) => item.member_ref === fellowId);
         if (!member || member.owner_id !== userId) continue;
+        if (processedReplies.has(replyKey(message.id, fellowId))) continue;
         const args = buildInvocation({
           roomId,
           fellowId,
@@ -226,10 +239,14 @@ function createMainGroupConductor({
           recentMessages
         }, fellows);
         if (args) {
+          pending += 1;
           const didRespond = await responder.respond(args);
-          if (didRespond) markProcessed(message.id);
+          if (didRespond) markProcessedReply(message.id, fellowId);
+          else failed += 1;
         }
       }
+      if (pending > 0 && !failed) markMessageComplete(message.id);
+      return { pending, failed };
     };
 
     const directChosen = directFellowIdsForMessage(message, fellowMembers, ownFellowMembers, fellows);
@@ -271,7 +288,10 @@ function createMainGroupConductor({
     const parsed = safeParseJSON(raw);
     const suggested = Array.isArray(parsed?.speak) ? parsed.speak : [];
     const chosen = suggested.length ? suggested : [hostFellowId];
-    await respondToChosen(chosen);
+    const result = await respondToChosen(chosen);
+    if (result.pending === 0 && result.failed === 0 && !chosen.includes(hostFellowId)) {
+      await respondToChosen([hostFellowId]);
+    }
   }
 
   return { handleRoomMessageAppended };

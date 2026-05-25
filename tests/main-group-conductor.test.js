@@ -195,6 +195,44 @@ test("handleRoomMessageAppended falls back to the host fellow when dispatch retu
   assert.equal(calls.respond[0].fellowId, "codex");
 });
 
+test("handleRoomMessageAppended falls back to the host fellow when dispatch chooses no owned fellow", async () => {
+  const { conductor, calls } = setup({
+    sendChatStateless: async (args) => {
+      calls.dispatch.push(args);
+      return { content: JSON.stringify({ speak: ["remote", "missing"] }) };
+    }
+  });
+
+  await conductor.handleRoomMessageAppended({ roomId: "g_1", message: { ...userMessage, id: "m_invalid" } });
+  await conductor.handleRoomMessageAppended({ roomId: "g_1", message: { ...userMessage, id: "m_invalid" } });
+
+  assert.equal(calls.dispatch.length, 1);
+  assert.equal(calls.respond.length, 1);
+  assert.equal(calls.respond[0].fellowId, "codex");
+});
+
+test("handleRoomMessageAppended retries when dispatch has no valid speaker and host reply fails", async () => {
+  const { conductor, calls } = setup({
+    sendChatStateless: async (args) => {
+      calls.dispatch.push(args);
+      return { content: JSON.stringify({ speak: ["remote"] }) };
+    },
+    responder: {
+      respond: async (args) => {
+        calls.respond.push(args);
+        return false;
+      }
+    }
+  });
+
+  await conductor.handleRoomMessageAppended({ roomId: "g_1", message: { ...userMessage, id: "m_retry_invalid" } });
+  await conductor.handleRoomMessageAppended({ roomId: "g_1", message: { ...userMessage, id: "m_retry_invalid" } });
+
+  assert.equal(calls.dispatch.length, 2);
+  assert.equal(calls.respond.length, 2);
+  assert.deepEqual(calls.respond.map((call) => call.fellowId), ["codex", "codex"]);
+});
+
 test("handleRoomMessageAppended skips dispatch when the group has one owned fellow", async () => {
   const { conductor, calls } = setup({
     getRoomDetails: async (roomId) => ({
@@ -302,4 +340,41 @@ test("handleRoomMessageAppended dedups by triggering message id", async () => {
 
   assert.equal(calls.dispatch.length, 1);
   assert.equal(calls.respond.length, 1);
+});
+
+test("handleRoomMessageAppended retries failed fellows without duplicating successful fellows", async () => {
+  const calls = { respond: [] };
+  const { conductor } = setup({
+    getRoomDetails: async (roomId) => ({
+      room: {
+        id: roomId,
+        type: "group",
+        decorations: {
+          responseMode: "conductor",
+          hostMember: { kind: "fellow", fellowId: "codex" }
+        }
+      },
+      members: [
+        { member_kind: "user", member_ref: "u_me", username: "me" },
+        { member_kind: "fellow", member_ref: "codex", owner_id: "u_me", fellow_name: "Codex" },
+        { member_kind: "fellow", member_ref: "alice", owner_id: "u_me", fellow_name: "Alice" }
+      ]
+    }),
+    listFellows: () => [
+      { key: "codex", name: "Codex" },
+      { key: "alice", name: "Alice" }
+    ],
+    sendChatStateless: async () => ({ content: JSON.stringify({ speak: ["codex", "alice"] }) }),
+    responder: {
+      respond: async (args) => {
+        calls.respond.push(args.fellowId);
+        return args.fellowId === "codex" || calls.respond.filter((id) => id === "alice").length > 1;
+      }
+    }
+  });
+
+  await conductor.handleRoomMessageAppended({ roomId: "g_1", message: userMessage });
+  await conductor.handleRoomMessageAppended({ roomId: "g_1", message: userMessage });
+
+  assert.deepEqual(calls.respond, ["codex", "alice", "alice"]);
 });

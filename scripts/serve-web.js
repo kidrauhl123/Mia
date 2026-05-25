@@ -6,6 +6,7 @@ const net = require("node:net");
 const path = require("node:path");
 
 const root = path.join(__dirname, "..", "src", "web");
+const sourceRoot = path.join(__dirname, "..", "src");
 const host = process.env.AIMASHI_WEB_HOST || "127.0.0.1";
 const port = Number(process.env.AIMASHI_WEB_PORT || 4174);
 const apiTarget = process.env.AIMASHI_WEB_API_TARGET || "http://127.0.0.1:4175";
@@ -25,9 +26,17 @@ function contentType(filePath) {
 function safePath(requestPath) {
   const decoded = decodeURIComponent(requestPath.split("?")[0] || "/");
   const target = decoded === "/" ? "index.html" : decoded.replace(/^\/+/, "");
-  const filePath = path.normalize(path.join(root, target));
-  if (filePath !== root && !filePath.startsWith(`${root}${path.sep}`)) return "";
-  return filePath;
+  const candidates = [{ filePath: path.normalize(path.join(root, target)), base: root }];
+  if (target.startsWith("shared/")) {
+    candidates.push({ filePath: path.normalize(path.join(sourceRoot, target)), base: sourceRoot });
+  } else if (target.startsWith("message-sources/")) {
+    candidates.push({ filePath: path.normalize(path.join(sourceRoot, "renderer", target)), base: sourceRoot });
+  }
+  for (const { filePath, base } of candidates) {
+    if (filePath !== base && !filePath.startsWith(`${base}${path.sep}`)) continue;
+    if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) return filePath;
+  }
+  return candidates[0].filePath;
 }
 
 const server = http.createServer((req, res) => {

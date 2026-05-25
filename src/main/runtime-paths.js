@@ -5,9 +5,7 @@
 //
 // CommonJS factory pattern: createRuntimePaths({...deps}) returns the
 // runtimePaths() function + the small bundled-runtime helpers. Engine
-// installation helpers (pythonVersion / selectOfficialEnginePython /
-// isEngineInstalled / officialEngineUrl) stay in main.js until the
-// engine lifecycle is extracted as its own module.
+// installation lifecycle is owned by engine-install-service.
 
 const path = require("node:path");
 

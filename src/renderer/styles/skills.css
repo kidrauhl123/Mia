@@ -1,0 +1,178 @@
+/* 技能库 — 单列全屏卡片网格。从 styles.css 抽出 + 重做布局。 */
+
+/* 没有中栏，skillsView 显式跨 sidebar/handle/workspace 三列铺满 nav-rail 右侧 */
+.skills-workspace {
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-column: 2 / -1;
+}
+
+/* 没有中栏可拖，隐藏调宽手柄，免得它占住 col2 */
+.app-shell[data-active-view="skills"] #sidebarResizeHandle {
+  display: none;
+}
+
+.skills-topbar {
+  align-items: center;
+}
+
+.skills-search {
+  max-width: 280px;
+  margin-left: auto;
+}
+
+.skills-layout {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 14px;
+  min-height: 0;
+  padding: 18px 22px;
+  background: var(--surface);
+  overflow: auto;
+}
+
+.skill-chip-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.skill-chip-row button {
+  flex: 0 0 auto;
+  min-height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.skill-chip-row button span {
+  color: var(--faint);
+  font-size: 11px;
+}
+
+.skill-chip-row button.active,
+.skill-chip-row button:hover {
+  border-color: var(--line-strong);
+  background: transparent;
+}
+
+.skill-chip-row button.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.skill-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr));
+  align-content: start;
+  align-items: start;
+  gap: 14px;
+  min-width: 0;
+}
+
+.skill-card {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 10px;
+  min-width: 0;
+  min-height: 132px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-soft);
+  box-shadow: 0 1px 2px rgba(20, 30, 50, 0.04);
+  cursor: pointer;
+}
+
+.skill-card:hover {
+  border-color: var(--line-strong);
+  background: var(--surface);
+}
+
+.skill-card.featured {
+  border-color: var(--accent);
+}
+
+.skill-card header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.skill-card-head {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.skill-card-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.skill-card-icon.docs { background: #2563eb; }
+.skill-card-icon.creative { background: #0f766e; }
+.skill-card-icon.build { background: #7c3aed; }
+.skill-card-icon.ops { background: #475569; }
+
+.skill-card header strong {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 560;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.skill-card header small {
+  color: var(--faint);
+  font-size: 12px;
+}
+
+.skill-card p {
+  margin: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+.skill-empty-state {
+  padding: 40px 12px;
+  color: var(--faint);
+  text-align: center;
+  font-size: 13px;
+}
+
+/* 预览弹窗的 #skillPreviewMark 仍用 .skill-dot */
+.skill-dot {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 430;
+}
+
+.skill-dot.docs { background: #2563eb; }
+.skill-dot.creative { background: #0f766e; }
+.skill-dot.build { background: #7c3aed; }
+.skill-dot.ops { background: #475569; }

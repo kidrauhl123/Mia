@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld("aimashi", {
     return () => ipcRenderer.removeListener(IpcChannel.CloudEvent, listener);
   },
   qrSvg: (text) => ipcRenderer.invoke(IpcChannel.UtilQrSvg, text),
+  openExternal: (url) => ipcRenderer.invoke(IpcChannel.UtilOpenExternal, url),
   installEngine: () => ipcRenderer.invoke(IpcChannel.EngineInstall),
   startEngine: () => ipcRenderer.invoke(IpcChannel.EngineStart),
   stopEngine: () => ipcRenderer.invoke(IpcChannel.EngineStop),
@@ -123,11 +124,12 @@ contextBridge.exposeInMainWorld("aimashi", {
     myUsername: () => ipcRenderer.invoke(IpcChannel.SocialMyUsername),
     createRoom: (payload) => ipcRenderer.invoke(IpcChannel.SocialCreateRoom, payload),
     ensureFellowRoom: (fellowId, body) => ipcRenderer.invoke(IpcChannel.SocialEnsureFellowRoom, fellowId, body),
+    getFellowRuntime: (fellowId, runtimeKind) => ipcRenderer.invoke(IpcChannel.SocialGetFellowRuntime, fellowId, runtimeKind),
+    saveFellowRuntime: (fellowId, body) => ipcRenderer.invoke(IpcChannel.SocialSaveFellowRuntime, fellowId, body),
     updateRoom: (roomId, patch) => ipcRenderer.invoke(IpcChannel.SocialUpdateRoom, roomId, patch),
     deleteRoom: (roomId) => ipcRenderer.invoke(IpcChannel.SocialDeleteRoom, roomId),
     addRoomMember: (roomId, member) => ipcRenderer.invoke(IpcChannel.SocialAddRoomMember, roomId, member),
     removeRoomMember: (roomId, member) => ipcRenderer.invoke(IpcChannel.SocialRemoveRoomMember, roomId, member),
-    postRoomMessageAsFellow: (roomId, body) => ipcRenderer.invoke(IpcChannel.SocialPostMessageAsFellow, roomId, body),
     settingsGet: () => ipcRenderer.invoke(IpcChannel.CloudSettingsGet),
     settingsPut: (settings) => ipcRenderer.invoke(IpcChannel.CloudSettingsPut, settings)
   },

@@ -23,18 +23,6 @@ test("cloud room composer uses one social send path for dm and group rooms", () 
   assert.doesNotMatch(appSource, /sendInActiveGroupRoom\(roomText\)/);
 });
 
-test("logged-in message list uses social rows instead of local fellow rows", () => {
-  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
-
-  assert.match(appSource, /cloudSignedIn\s*\?\s*\[\]\s*:\s*visiblePersonas\.map/s);
-});
-
-test("fellow cloud rooms are not hidden from the sidebar", () => {
-  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
-
-  assert.doesNotMatch(appSource, /if\s*\(\s*isFellow\s*\)\s*return\s+null/);
-});
-
 test("cloud room send and render do not depend on activeKey being empty", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
 
@@ -51,6 +39,33 @@ test("logged-in active pane never falls back to local fellow sessions", () => {
   assert.match(appSource, /if\s*\(state\.runtime\?\.cloud\?\.enabled\)\s*return;/);
 });
 
+test("desktop cloud fellow rooms keep private AI composer controls visible", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+
+  assert.match(appSource, /activeCloudRoomType\s*===\s*"fellow"/);
+  assert.match(appSource, /composerBottom\.classList\.toggle\("hidden",\s*!showPrivateAiControls\)/);
+  assert.doesNotMatch(appSource, /if\s*\(composerBottom\)\s*composerBottom\.classList\.add\("hidden"\);/);
+});
+
+test("desktop cloud-Hermes fellow controls save through cloud runtime binding", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+
+  assert.match(appSource, /function runtimeKindForCloudFellowRoom\(room\)\s*\{[\s\S]*return String\(room\?\.decorations\?\.runtimeKind \|\| ""\)\.trim\(\) \|\| "desktop-local";/);
+  assert.match(appSource, /async function saveActiveCloudFellowRuntimeConfig/);
+  assert.match(appSource, /window\.aimashi\.social\.saveFellowRuntime\(context\.fellowKey/);
+  assert.match(appSource, /if\s*\(await saveActiveCloudFellowRuntimeConfig\([\s\S]*\)\)\s*return;/);
+  assert.match(appSource, /const cloudPersona = personas\.find[\s\S]*if \(cloudPersona\) return cloudPersona;\s*return null;/);
+});
+
+test("private chat async replies are anchored to the submit session", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+
+  assert.match(appSource, /const submitPersonaKey = state\.activeKey;/);
+  assert.match(appSource, /const submitSessionId = session\.id;/);
+  assert.match(appSource, /const liveSession = sessionForPersonaSession\(submitPersonaKey, submitSessionId\);/);
+  assert.match(appSource, /appendChat\("assistant", answer,[\s\S]*session: liveSession/);
+});
+
 test("renderer no longer mirrors local sends through legacy cloud push", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const preloadSource = fs.readFileSync(path.join(root, "src/preload.js"), "utf8");
@@ -59,6 +74,18 @@ test("renderer no longer mirrors local sends through legacy cloud push", () => {
   assert.doesNotMatch(appSource, /pushCloudMessageQuietly|cloudPushMessage/);
   assert.doesNotMatch(preloadSource, /cloudPushMessage/);
   assert.doesNotMatch(channelSource, /CloudPushMessage/);
+});
+
+test("logged-in message list uses social rows instead of local fellow rows", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+
+  assert.match(appSource, /cloudSignedIn\s*\?\s*\[\]\s*:\s*visiblePersonas\.map/s);
+});
+
+test("fellow cloud rooms are not hidden from the sidebar", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+
+  assert.doesNotMatch(appSource, /if\s*\(\s*isFellow\s*\)\s*return\s+null/);
 });
 
 test("renderer app state factory owns default mutable state", () => {

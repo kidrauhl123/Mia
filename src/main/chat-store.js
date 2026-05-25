@@ -4,9 +4,8 @@
 // generation, message reply/translation/tool record normalization, and
 // the merge key used when reconciling cloud-pushed messages.
 //
-// The session mutation surface (saveChatSession, deleteChatSession,
-// pushCloudMessage, etc.) stays in main.js for now — those touch a
-// large IPC + cloud-sync pipeline and need a separate plan.
+// Session mutations live in chat-session-service; this module stays focused on
+// the persisted JSON shape and record-level normalization.
 
 const crypto = require("node:crypto");
 const fs = require("node:fs");
@@ -224,6 +223,7 @@ function createChatStore(deps = {}) {
     normalizeMessageReply,
     normalizeMessageTranslation,
     normalizeCommandResult,
+    normalizeAttachments,
     chatMessageMergeKey,
     mergeChatMessageRecord,
     normalizeChatStore,

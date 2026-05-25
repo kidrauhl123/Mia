@@ -11,13 +11,14 @@ function loadSocial() {
   const src = fs.readFileSync(path.join(__dirname, "..", "src", "renderer", "social", "social.js"), "utf8");
   const mockEl = () => ({
     classList: { add() {}, remove() {}, toggle() {} },
+    children: [],
     addEventListener() {},
     removeEventListener() {},
-    appendChild() {},
+    appendChild(child) { this.children.push(child); return child; },
     querySelector() { return mockEl(); },
     querySelectorAll() { return []; },
-    set innerHTML(v) {},
-    get innerHTML() { return ""; },
+    set innerHTML(v) { this._html = v; this.children = []; },
+    get innerHTML() { return this._html || ""; },
     set textContent(v) {},
     get textContent() { return ""; },
     setAttribute() {},
@@ -29,10 +30,12 @@ function loadSocial() {
   });
   const mockWindow = {
     aimashi: {},
+    aimashiSendPipeline: require("../src/shared/send-pipeline.js"),
     aimashiMarkdown: {
       escapeHtml: (v) => String(v || "").replace(/&/g, "&amp;").replace(/</g, "&lt;"),
       renderMarkdown: (v) => String(v || ""),
     },
+    aimashiTimeFormat: { formatMessageTime: () => "now" },
   };
   const context = vm.createContext({
     window: mockWindow,
@@ -64,6 +67,26 @@ function loadSocial() {
   vm.runInContext(src, context);
   mockWindow.aimashiSocial.__mockWindow = mockWindow;
   return mockWindow.aimashiSocial;
+}
+
+async function withMutedConsoleWarn(fn) {
+  const original = console.warn;
+  console.warn = () => {};
+  try {
+    return await fn();
+  } finally {
+    console.warn = original;
+  }
+}
+
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
 }
 
 test("bootstrapAfterLogin ensures local fellow rooms before listing rooms", async () => {
@@ -228,6 +251,170 @@ test("renderSidebarRows includes group rooms with type group-room", () => {
   assert.equal(fellowRow.type, "private-room");
 });
 
+test("sendInActiveGroupRoom uses the unified cloud-room send path", async () => {
+  const s = loadSocial();
+  const posted = [];
+  s.__mockWindow.aimashi.social = {
+    postRoomMessage: async (roomId, body) => {
+      posted.push({ roomId, body });
+      return { ok: true, data: { message: { id: "m1", seq: 1, body_md: body.bodyMd } } };
+    }
+  };
+  s.moduleState.activeRoomId = "g_missing_module";
+  s.moduleState.rooms = [{ id: "g_missing_module", type: "group", name: "Squad" }];
+  s.moduleState.messageCache.set("g_missing_module", { messages: [], maxSeq: 0 });
+
+  await withMutedConsoleWarn(() => s.sendInActiveGroupRoom("  hello group  "));
+
+  assert.equal(posted.length, 1);
+  assert.equal(posted[0].roomId, "g_missing_module");
+  assert.equal(posted[0].body.bodyMd, "hello group");
+  assert.equal(s.moduleState.messageCache.get("g_missing_module").messages.length, 1);
+});
+
+test("sendInActiveGroupRoom delegates to the unified cloud-room send path", async () => {
+  const s = loadSocial();
+  const posted = [];
+  let attached = null;
+  s.__mockWindow.aimashi.social = {
+    postRoomMessage: async (roomId, body) => {
+      posted.push({ roomId, body });
+      return { ok: true, data: { message: { id: "m1", seq: 1, body_md: body.bodyMd } } };
+    }
+  };
+  s.__mockWindow.aimashiSocialGroups = {
+    attach(ctx) { attached = ctx; },
+    sendInActiveGroupRoom() { throw new Error("groups module not attached"); }
+  };
+  s.moduleState.activeRoomId = "g_bad_module";
+  s.moduleState.rooms = [{ id: "g_bad_module", type: "group", name: "Squad" }];
+  s.moduleState.messageCache.set("g_bad_module", { messages: [], maxSeq: 0 });
+
+  await withMutedConsoleWarn(() => s.sendInActiveGroupRoom("hello after fallback"));
+
+  assert.equal(attached, null);
+  assert.equal(posted.length, 1);
+  assert.equal(posted[0].roomId, "g_bad_module");
+  assert.equal(posted[0].body.bodyMd, "hello after fallback");
+  assert.equal(s.moduleState.messageCache.get("g_bad_module").messages.length, 1);
+});
+
+test("sendInActiveRoom shows outgoing cloud messages before the network reply resolves", async () => {
+  const s = loadSocial();
+  const post = deferred();
+  const posted = [];
+  s.moduleState.myUserId = "u_me";
+  s.__mockWindow.aimashi.social = {
+    postRoomMessage: async (roomId, body) => {
+      posted.push({ roomId, body });
+      return post.promise;
+    }
+  };
+  s.moduleState.activeRoomId = "g_fast";
+  s.moduleState.rooms = [{ id: "g_fast", type: "group", name: "Fast" }];
+  s.moduleState.messageCache.set("g_fast", { messages: [], maxSeq: 0 });
+  s._internalCtx.roomMembersCache.set("g_fast", [
+    { member_kind: "fellow", member_ref: "codex", fellow_name: "Codex" }
+  ]);
+
+  const sendPromise = s.sendInActiveRoom("hello immediately");
+  const entry = s.moduleState.messageCache.get("g_fast");
+
+  assert.equal(posted.length, 1);
+  assert.equal(entry.messages.length, 1);
+  assert.match(entry.messages[0].id, /^local_/);
+  assert.equal(entry.messages[0].status, "sending");
+  assert.equal(entry.messages[0].body_md, "hello immediately");
+  assert.equal(s.moduleState.cloudAgentRunsByRoom.has("g_fast"), false);
+
+  post.resolve({
+    ok: true,
+    data: { message: { id: "m_server", seq: 1, sender_kind: "user", sender_ref: "u_me", body_md: "hello immediately" } }
+  });
+  await sendPromise;
+
+  assert.deepEqual(entry.messages.map((m) => m.id), ["m_server"]);
+  assert.equal(entry.maxSeq, 1);
+});
+
+test("sendInActiveRoom keeps a failed outgoing cloud message visible", async () => {
+  const s = loadSocial();
+  const posted = [];
+  s.moduleState.myUserId = "u_me";
+  s.__mockWindow.aimashi.social = {
+    postRoomMessage: async (roomId, body) => {
+      posted.push({ roomId, body });
+      return { ok: false, error: "network down" };
+    }
+  };
+  s.moduleState.activeRoomId = "g_failed";
+  s.moduleState.rooms = [{ id: "g_failed", type: "group", name: "Failed" }];
+  s.moduleState.messageCache.set("g_failed", { messages: [], maxSeq: 0 });
+
+  await withMutedConsoleWarn(() => s.sendInActiveRoom("爱丽丝你帮我找下AI领域最新新闻"));
+
+  const entry = s.moduleState.messageCache.get("g_failed");
+  assert.equal(posted.length, 1);
+  assert.equal(entry.messages.length, 1);
+  assert.equal(entry.messages[0].body_md, "爱丽丝你帮我找下AI领域最新新闻");
+  assert.equal(entry.messages[0].status, "error");
+  assert.equal(entry.messages[0].error, "network down");
+});
+
+test("renderRoomChat marks failed outgoing cloud messages", async () => {
+  const s = loadSocial();
+  s.moduleState.myUserId = "u_me";
+  s.__mockWindow.aimashi.social = {
+    postRoomMessage: async () => ({ ok: false, error: "network down" })
+  };
+  s.moduleState.activeRoomId = "fellow:u_me:aimashi";
+  s.moduleState.rooms = [{ id: "fellow:u_me:aimashi", type: "fellow", name: "Aimashi" }];
+  s.moduleState.messageCache.set("fellow:u_me:aimashi", { messages: [], maxSeq: 0 });
+
+  await withMutedConsoleWarn(() => s.sendInActiveRoom("hello failed"));
+
+  const chat = {
+    children: [],
+    appendChild(child) { this.children.push(child); return child; },
+    set innerHTML(value) { this.children = []; this._html = value; },
+    get innerHTML() { return this._html || ""; },
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+  };
+  s.renderRoomChat(chat);
+
+  assert.equal(chat.children.length, 1);
+  assert.match(chat.children[0].innerHTML, /message-send-status is-error/);
+  assert.match(chat.children[0].innerHTML, /发送失败/);
+  assert.match(chat.children[0].innerHTML, /title="network down"/);
+});
+
+test("sendInActiveRoom posts group mentions in cloud fellow format", async () => {
+  const s = loadSocial();
+  const posted = [];
+  s.moduleState.myUserId = "u_me";
+  s.__mockWindow.aimashi.social = {
+    postRoomMessage: async (roomId, body) => {
+      posted.push({ roomId, body });
+      return { ok: true, data: { message: { id: "m1", seq: 1, sender_kind: "user", sender_ref: "u_me", body_md: body.bodyMd } } };
+    }
+  };
+  s.moduleState.activeRoomId = "g_mentions";
+  s.moduleState.rooms = [{ id: "g_mentions", type: "group", name: "Mentions" }];
+  s.moduleState.messageCache.set("g_mentions", { messages: [], maxSeq: 0 });
+  s._internalCtx.roomMembersCache.set("g_mentions", [
+    { member_kind: "fellow", member_ref: "codex", fellow_name: "Codex" }
+  ]);
+
+  await s.sendInActiveRoom("hi @Codex");
+
+  assert.equal(posted.length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(posted[0].body.mentions)), [
+    { kind: "fellow", fellowId: "codex" }
+  ]);
+});
+
 test("handleCloudEvent room.message_appended appends and tracks maxSeq", () => {
   const s = loadSocial();
   s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
@@ -268,6 +455,83 @@ test("handleCloudEvent cloud_agent_run events track transient room streaming sta
   assert.equal(run.hermesRunId, "hr_1");
   assert.equal(run.text, "hello ");
   assert.equal(run.tools.map((tool) => tool.name).join(","), "shell");
+});
+
+test("handleCloudEvent does not infer group typing state from conductor-mode user messages", () => {
+  const s = loadSocial();
+  s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.myUserId = "u_me";
+  s.moduleState.rooms = [{ id: "g_typing", type: "group", decorations: { responseMode: "conductor" } }];
+  s._internalCtx.roomMembersCache.set("g_typing", [
+    { member_kind: "user", member_ref: "u_me" },
+    { member_kind: "fellow", member_ref: "codex", fellow_name: "小栗" }
+  ]);
+
+  s.handleCloudEvent({
+    type: "room.message_appended",
+    payload: {
+      roomId: "g_typing",
+      message: { id: "m1", seq: 1, sender_kind: "user", sender_ref: "u_me", body_md: "有人吗" },
+    },
+  });
+
+  assert.equal(s.moduleState.cloudAgentRunsByRoom.has("g_typing"), false);
+});
+
+test("renderRoomChat hides typing until an agent stream emits text", () => {
+  const s = loadSocial();
+  s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.activeRoomId = "fellow:u_a:aimashi";
+  s.moduleState.rooms = [{ id: "fellow:u_a:aimashi", type: "fellow", decorations: { fellowKey: "aimashi" } }];
+  s.moduleState.messageCache.set("fellow:u_a:aimashi", { messages: [], maxSeq: 0 });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_started",
+    payload: { roomId: "fellow:u_a:aimashi", runId: "car_1", fellowId: "aimashi" },
+  });
+
+  const chat = {
+    children: [],
+    appendChild(child) { this.children.push(child); return child; },
+    set innerHTML(value) { this.children = []; this._html = value; },
+    get innerHTML() { return this._html || ""; },
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+  };
+  s.renderRoomChat(chat);
+
+  assert.equal(chat.children.length, 0);
+});
+
+test("renderRoomChat does not label tool-only agent activity as typing", () => {
+  const s = loadSocial();
+  s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.activeRoomId = "fellow:u_a:aimashi";
+  s.moduleState.rooms = [{ id: "fellow:u_a:aimashi", type: "fellow", decorations: { fellowKey: "aimashi" } }];
+  s.moduleState.messageCache.set("fellow:u_a:aimashi", { messages: [], maxSeq: 0 });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_started",
+    payload: { roomId: "fellow:u_a:aimashi", runId: "car_1", fellowId: "aimashi" },
+  });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { roomId: "fellow:u_a:aimashi", runId: "car_1", event: { type: "tool.started", tool: "search" } },
+  });
+
+  const chat = {
+    children: [],
+    appendChild(child) { this.children.push(child); return child; },
+    set innerHTML(value) { this.children = []; this._html = value; },
+    get innerHTML() { return this._html || ""; },
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+  };
+  s.renderRoomChat(chat);
+
+  assert.equal(chat.children.length, 1);
+  assert.match(chat.children[0].innerHTML, /TOOL/);
+  assert.doesNotMatch(chat.children[0].innerHTML, /typing-status/);
 });
 
 test("handleCloudEvent fellow reply clears transient cloud agent stream", () => {
