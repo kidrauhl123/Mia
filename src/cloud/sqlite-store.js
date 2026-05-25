@@ -700,8 +700,6 @@ function migrate(db) {
       created_at        TEXT NOT NULL,
       updated_at        TEXT NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS idx_rooms_type ON rooms(type);
-
     CREATE TABLE IF NOT EXISTS room_members (
       room_id       TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
       member_kind   TEXT NOT NULL,
@@ -874,8 +872,8 @@ function migrate(db) {
     db.exec("ALTER TABLE rooms ADD COLUMN type TEXT NOT NULL DEFAULT 'group'");
     db.exec("UPDATE rooms SET type = 'dm' WHERE id LIKE 'dm:%'");
     db.exec("UPDATE rooms SET type = 'fellow' WHERE id LIKE 'fellow:%'");
-    db.exec("CREATE INDEX IF NOT EXISTS idx_rooms_type ON rooms(type)");
   }
+  db.exec("CREATE INDEX IF NOT EXISTS idx_rooms_type ON rooms(type)");
   db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (1, ?)")
     .run(nowIso());
   db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (2, ?)")
