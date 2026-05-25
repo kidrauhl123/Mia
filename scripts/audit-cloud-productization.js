@@ -49,6 +49,16 @@ function checkSource(rootDir, relativePath, pattern, label) {
   };
 }
 
+function checkSourceAbsent(rootDir, relativePath, pattern, label) {
+  const filePath = path.join(rootDir, relativePath);
+  const source = fs.existsSync(filePath) ? fs.readFileSync(filePath, "utf8") : "";
+  return {
+    ok: !pattern.test(source),
+    label,
+    evidence: `${relativePath} :: ${label}`
+  };
+}
+
 function checkPackageScript(rootDir, name, expected) {
   const pkg = JSON.parse(readText(rootDir, "package.json"));
   const actual = pkg.scripts?.[name] || "";
@@ -370,10 +380,14 @@ function runAudit({ rootDir = root } = {}) {
       checkSource(rootDir, "tests/sync-replay.test.js", /reconnect with since_seq replays/, "since_seq replay test guards offline drop")
     ]),
     item("cloud.desktop-sync", "桌面端同账号云同步和 Bridge 自动接入", [
-      checkSource(rootDir, "src/main.js", /cloudLogin|syncAimashiCloudWorkspace|startCloudBridge|cloudPushMessage/, "desktop login/sync/bridge IPC path"),
-      checkSource(rootDir, "src/main.js", /pushAllFellowSessionsToCloudRooms|mirrorFellowSessionToCloudRoom/, "desktop mirrors fellow sessions into cloud rooms"),
-      checkSource(rootDir, "src/preload.js", /cloudLogin|cloudPushMessage|cloudStatus/, "preload exposes cloud actions"),
-      checkSource(rootDir, "src/renderer/app.js", /pushCloudMessageQuietly|renderCloudStatus|cloudLogin/, "renderer cloud status and push path"),
+      checkSource(rootDir, "src/main.js", /cloudLogin|syncAimashiCloudWorkspace|startCloudBridge/, "desktop login/sync/bridge IPC path"),
+      checkSource(rootDir, "src/main/cloud/desktop-sync-client.js", /pushAllFellows[\s\S]*ensureFellowRoom/, "desktop sync ensures stable fellow cloud rooms"),
+      checkSource(rootDir, "tests/main-cloud-desktop-sync-client.test.js", /syncWorkspace syncs fellow identity and stable rooms without reading local sessions/, "desktop sync no longer backfills local sessions on login"),
+      checkSource(rootDir, "src/preload.js", /cloudStatus[\s\S]*cloudLogin[\s\S]*cloudSync|cloudLogin[\s\S]*cloudSync[\s\S]*cloudLogout/, "preload exposes cloud account actions"),
+      checkSource(rootDir, "src/renderer/app.js", /sendInActiveRoom\(roomText\)[\s\S]*return;/, "renderer sends active cloud rooms through the unified social path"),
+      checkSourceAbsent(rootDir, "src/renderer/app.js", /pushCloudMessageQuietly|cloudPushMessage/, "renderer does not mirror local sends through legacy cloud push"),
+      checkSourceAbsent(rootDir, "src/preload.js", /cloudPushMessage/, "preload omits legacy cloud push bridge"),
+      checkSourceAbsent(rootDir, "src/shared/ipc-channels.js", /CloudPushMessage/, "shared IPC omits legacy cloud push channel"),
       checkSource(rootDir, "tests/fellow-rooms.test.js", /Fellow-room messages POST works through the unified/, "fellow chat room integration test")
     ]),
     item("gate.same-account-bridge-control", "同账号 Web/手机端可直接调用桌面 Agent，设备鉴权不复用 Agent permission", [
