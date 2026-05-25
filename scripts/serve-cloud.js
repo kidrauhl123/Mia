@@ -1590,21 +1590,39 @@ async function handleRequest(req, res, context) {
       const existingFellow = context.fellowsStore.getFellow(auth.user.id, fellowId);
       const runtimeKind = String(body.runtimeKind || "").trim() || undefined;
       const name = String(body.title || "").trim() || existingFellow?.name || fellowId;
-      const decorations = { fellowKey: fellowId, runtimeKind };
+      const decorations = runtimeKind ? { fellowKey: fellowId, runtimeKind } : { fellowKey: fellowId };
       const roomId = `fellow:${auth.user.id}:${fellowId}`;
       let room = context.socialStore.getRoom(roomId);
       const created = !room;
+      let changed = false;
+      const sameJson = (a, b) => JSON.stringify(a || null) === JSON.stringify(b || null);
+      const hasMember = (members, kind, ref, ownerId = null) => members.some((member) =>
+        member.member_kind === kind &&
+        member.member_ref === ref &&
+        (ownerId == null || member.owner_id === ownerId)
+      );
 
       if (created) {
-        context.socialStore.createRoom({ id: roomId, type: "fellow", name, decorations });
-      } else {
+        room = context.socialStore.createRoom({ id: roomId, type: "fellow", name, decorations });
+        changed = true;
+      } else if (room.name !== name || !sameJson(room.decorations, decorations)) {
         room = context.socialStore.updateRoom(roomId, { name, decorations });
+        changed = true;
       }
-      context.socialStore.addRoomMember({ roomId, memberKind: "user", memberRef: auth.user.id });
-      context.socialStore.addRoomMember({ roomId, memberKind: "fellow", memberRef: fellowId, ownerId: auth.user.id });
+      let members = context.socialStore.listRoomMembers(roomId);
+      if (!hasMember(members, "user", auth.user.id)) {
+        context.socialStore.addRoomMember({ roomId, memberKind: "user", memberRef: auth.user.id });
+        changed = true;
+      }
+      if (!hasMember(members, "fellow", fellowId, auth.user.id)) {
+        context.socialStore.addRoomMember({ roomId, memberKind: "fellow", memberRef: fellowId, ownerId: auth.user.id });
+        changed = true;
+      }
       room = context.socialStore.getRoom(roomId);
-      const members = context.socialStore.listRoomMembers(roomId);
-      broadcastPersistedEvent(context, auth.user.id, { type: "room.updated", room });
+      members = context.socialStore.listRoomMembers(roomId);
+      if (changed) {
+        broadcastPersistedEvent(context, auth.user.id, { type: "room.updated", room });
+      }
       const payload = { ok: true, room, members, created };
       rememberOp(context, auth.user.id, body, 200, payload);
       return writeJson(res, 200, payload);

@@ -77,6 +77,7 @@ test("PUT /api/me/fellows/:fellowId/room creates a stable fellow room", async ()
     const rooms = await api(ctx.port, "GET", "/api/rooms", { token: A.token });
     assert.equal((rooms.body.rooms || []).some((room) => room.id === first.body.room.id), true);
 
+    await new Promise((r) => setTimeout(r, 25));
     const second = await api(ctx.port, "PUT", "/api/me/fellows/alice/room", {
       token: A.token,
       body: { title: "爱丽丝", runtimeKind: "desktop-local" }
@@ -84,6 +85,20 @@ test("PUT /api/me/fellows/:fellowId/room creates a stable fellow room", async ()
     assert.equal(second.status, 200);
     assert.equal(second.body.room.id, first.body.room.id);
     assert.equal(second.body.created, false);
+
+    assert.equal(second.body.room.updatedAt, first.body.room.updatedAt);
+
+    const { createCloudStore } = require("../src/cloud/sqlite-store");
+    const { createEventLogStore } = require("../src/cloud/event-log-store");
+    const store = createCloudStore({ dataDir: ctx.tmpDir });
+    try {
+      const log = createEventLogStore(store.getDb());
+      const roomUpdatedEvents = log.listEventsSince(A.user.id, 0).filter((event) =>
+        event.kind === "room.updated" &&
+        event.payload?.room?.id === first.body.room.id
+      );
+      assert.equal(roomUpdatedEvents.length, 1);
+    } finally { store.close?.(); }
   } finally { await stopServer(ctx); }
 });
 

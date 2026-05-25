@@ -129,7 +129,9 @@ test("ensureFellowRoom sends PUT to the stable fellow room route", async () => {
     assert.equal(result.room.id, "fellow:u_1:alice");
     assert.equal(seen[0].method, "PUT");
     assert.equal(seen[0].url, "/api/me/fellows/alice/room");
-    assert.deepEqual(JSON.parse(seen[0].body), { title: "爱丽丝" });
+    const sentBody = JSON.parse(seen[0].body);
+    assert.equal(sentBody.title, "爱丽丝");
+    assert.match(sentBody.clientOpId, /^op_/);
   } finally { await teardown(ctx); }
 });
 

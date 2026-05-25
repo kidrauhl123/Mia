@@ -97,7 +97,7 @@ function createSocialApi({ getSettings, normalizeUrl }) {
       return jsonFetch({ ...ctx(), method: "POST", path: "/api/rooms", body: withOpId(body) });
     },
     async ensureFellowRoom(fellowId, body = {}) {
-      return jsonFetch({ ...ctx(), method: "PUT", path: `/api/me/fellows/${encodeURIComponent(fellowId)}/room`, body });
+      return jsonFetch({ ...ctx(), method: "PUT", path: `/api/me/fellows/${encodeURIComponent(fellowId)}/room`, body: withOpId(body) });
     },
     async updateRoom(roomId, patch) {
       return jsonFetch({ ...ctx(), method: "PATCH", path: `/api/rooms/${roomId}`, body: patch || {} });
