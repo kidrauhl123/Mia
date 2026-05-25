@@ -18,7 +18,9 @@ test("server-local installer restores data backups during rollback", () => {
   assert.match(source, /ensure_service_user\(\) \{[\s\S]*?useradd_cmd=.*useradd[\s\S]*?--system --user-group --home-dir "\$DATA_DIR" --shell "\$login_shell" "\$SERVICE_USER"/);
   assert.match(source, /ensure_docker_access\(\) \{[\s\S]*?grep -q '\^docker:' \/etc\/group[\s\S]*?usermod_cmd=.*usermod[\s\S]*?run_as_root "\$usermod_cmd" -aG docker "\$SERVICE_USER"/);
   assert.match(source, /AGENT_DOCKER_NETWORK="\$\{MIA_CLOUD_AGENT_DOCKER_NETWORK:-mia-cloud\}"/);
+  assert.match(source, /LITELLM_CONTAINER="\$\{MIA_LITELLM_CONTAINER:-litellm\}"/);
   assert.match(source, /docker network inspect "\$AGENT_DOCKER_NETWORK"[\s\S]*?docker network create "\$AGENT_DOCKER_NETWORK"/);
+  assert.match(source, /docker container inspect "\$LITELLM_CONTAINER"[\s\S]*?docker network connect "\$AGENT_DOCKER_NETWORK" "\$LITELLM_CONTAINER"/);
   assert.match(source, /AGENT_MODEL_BASE_URL="\$\{MIA_CLOUD_AGENT_MODEL_BASE_URL:-http:\/\/litellm:4000\/v1\}"/);
   assert.match(source, /AGENT_MODEL_API_KEY="\$\{MIA_CLOUD_AGENT_MODEL_API_KEY:-\$\{MIA_LITELLM_API_KEY:-\}\}"/);
   assert.match(source, /Environment=MIA_CLOUD_AGENT_MODEL_BASE_URL=\$AGENT_MODEL_BASE_URL/);
@@ -69,7 +71,9 @@ test("ssh deploy script restores data backups during install and public verifica
   assert.match(source, /ensure_service_user\(\) \{[\s\S]*?useradd_cmd=.*useradd[\s\S]*?--system --user-group --home-dir "\$DATA_DIR" --shell "\\\$login_shell" "\\\$SERVICE_USER"/);
   assert.match(source, /ensure_docker_access\(\) \{[\s\S]*?grep -q '\^docker:' \/etc\/group[\s\S]*?usermod_cmd=.*usermod[\s\S]*?run_as_root "\\\$usermod_cmd" -aG docker "\\\$SERVICE_USER"/);
   assert.match(source, /AGENT_DOCKER_NETWORK="\$\{MIA_CLOUD_AGENT_DOCKER_NETWORK:-mia-cloud\}"/);
+  assert.match(source, /LITELLM_CONTAINER="\$\{MIA_LITELLM_CONTAINER:-litellm\}"/);
   assert.match(source, /docker network inspect "\$AGENT_DOCKER_NETWORK"[\s\S]*?docker network create "\$AGENT_DOCKER_NETWORK"/);
+  assert.match(source, /docker container inspect "\$LITELLM_CONTAINER"[\s\S]*?docker network connect "\$AGENT_DOCKER_NETWORK" "\$LITELLM_CONTAINER"/);
   assert.match(source, /AGENT_MODEL_BASE_URL="\$\{MIA_CLOUD_AGENT_MODEL_BASE_URL:-http:\/\/litellm:4000\/v1\}"/);
   assert.match(source, /AGENT_MODEL_API_KEY="\$\{MIA_CLOUD_AGENT_MODEL_API_KEY:-\$\{MIA_LITELLM_API_KEY:-\}\}"/);
   assert.match(source, /Environment=MIA_CLOUD_AGENT_DOCKER_NETWORK=\$AGENT_DOCKER_NETWORK/);

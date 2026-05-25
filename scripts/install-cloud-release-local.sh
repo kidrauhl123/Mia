@@ -11,6 +11,7 @@ DATA_DIR="${MIA_DEPLOY_DATA_DIR:-/var/lib/mia-cloud}"
 AGENT_ROOT="${MIA_CLOUD_AGENT_ROOT:-/var/lib/mia-cloud-agent-users}"
 HERMES_IMAGE="${MIA_CLOUD_HERMES_IMAGE:-mia/hermes-cloud:2026.5.7}"
 AGENT_DOCKER_NETWORK="${MIA_CLOUD_AGENT_DOCKER_NETWORK:-mia-cloud}"
+LITELLM_CONTAINER="${MIA_LITELLM_CONTAINER:-litellm}"
 AGENT_MODEL_PROVIDER="${MIA_CLOUD_AGENT_MODEL_PROVIDER:-mia-litellm}"
 AGENT_MODEL_NAME="${MIA_CLOUD_AGENT_MODEL:-mia-default}"
 AGENT_MODEL_BASE_URL="${MIA_CLOUD_AGENT_MODEL_BASE_URL:-http://litellm:4000/v1}"
@@ -96,6 +97,9 @@ ensure_docker_access() {
   fi
   if [ -n "$AGENT_DOCKER_NETWORK" ] && [ "$AGENT_DOCKER_NETWORK" != "bridge" ]; then
     run_as_root docker network inspect "$AGENT_DOCKER_NETWORK" >/dev/null 2>&1 || run_as_root docker network create "$AGENT_DOCKER_NETWORK" >/dev/null
+    if run_as_root docker container inspect "$LITELLM_CONTAINER" >/dev/null 2>&1; then
+      run_as_root docker network connect "$AGENT_DOCKER_NETWORK" "$LITELLM_CONTAINER" >/dev/null 2>&1 || true
+    fi
   fi
   if id -nG "$SERVICE_USER" | tr ' ' '\n' | grep -qx docker; then
     return
