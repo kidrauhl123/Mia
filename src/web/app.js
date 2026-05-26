@@ -95,6 +95,7 @@ const els = {
   conversationCreateMenu: document.getElementById("conversationCreateMenu"),
   convMenuAddFriend: document.getElementById("convMenuAddFriend"),
   convMenuNewGroup: document.getElementById("convMenuNewGroup"),
+  convMenuNewFellow: document.getElementById("convMenuNewFellow"),
   unreadCount: document.getElementById("unreadCount"),
   mobileBack: document.getElementById("mobileBack"),
   userAvatar: document.getElementById("userAvatar"),
@@ -337,9 +338,81 @@ const AVATAR_PRESETS = {
   "./assets/avatars/16.png": { x: 51.0913, y: 15.7858, zoom: 1.72 }
 };
 
+const WEB_AVATAR_PRESET_GROUP_TABS = [
+  { key: "human", label: "人形" },
+  { key: "pet", label: "宠物" }
+];
+
+const WEB_AVATAR_PRESET_GROUPS = {
+  human: [
+    { name: "青羽", src: "./assets/avatars/01.png", crop: { x: 50.0687, y: 14.5495, zoom: 2.04 } },
+    { name: "桃奈", src: "./assets/avatars/02.png", crop: { x: 57.2536, y: 8.1635, zoom: 1.56 } },
+    { name: "紫音", src: "./assets/avatars/03.png", crop: { x: 50, y: 14, zoom: 1.48 } },
+    { name: "小栗", src: "./assets/avatars/04.png", crop: { x: 49.0079, y: 23.5736, zoom: 1.72 } },
+    { name: "墨川", src: "./assets/avatars/05.png", crop: { x: 47.6785, y: 11.3611, zoom: 1.88 } },
+    { name: "珊瑚", src: "./assets/avatars/06.png", crop: { x: 46.8749, y: 10.4285, zoom: 1.64 } },
+    { name: "雪璃", src: "./assets/avatars/07.png", crop: { x: 51.6741, y: 8.0209, zoom: 1.72 } },
+    { name: "赤焰", src: "./assets/avatars/08.png", crop: { x: 50.974, y: 12.8636, zoom: 1.88 } },
+    { name: "蓝汐", src: "./assets/avatars/09.png", crop: { x: 47.4999, y: 12.2142, zoom: 1.8 } },
+    { name: "棕野", src: "./assets/avatars/10.png", crop: { x: 50, y: 14, zoom: 1.8 } },
+    { name: "夜莓", src: "./assets/avatars/11.png", crop: { x: 55.8037, y: 7.9731, zoom: 1.64 } },
+    { name: "空铃", src: "./assets/avatars/12.png", crop: { x: 47.3214, y: 16.9763, zoom: 1.8 } },
+    { name: "茉茶", src: "./assets/avatars/13.png", crop: { x: 50, y: 14, zoom: 1.8 } },
+    { name: "星柚", src: "./assets/avatars/14.png", crop: { x: 50, y: 14, zoom: 1.72 } },
+    { name: "爱丽丝", src: "./assets/avatars/15.png", crop: { x: 45.1848, y: 5.1022, zoom: 1.56 } },
+    { name: "岚", src: "./assets/avatars/16.png", crop: { x: 51.0913, y: 15.7858, zoom: 1.72 } }
+  ],
+  pet: Array.from({ length: 16 }, (_item, index) => {
+    const id = String(index + 1).padStart(2, "0");
+    return { name: `宠物 ${id}`, src: `./assets/avatars-pet/${id}.png`, crop: { x: 50, y: 50, zoom: 1 } };
+  })
+};
+
+const WEB_AVATAR_PRESETS = Object.values(WEB_AVATAR_PRESET_GROUPS).flat();
+
+function webAvatarPresetBySrc(src) {
+  const value = String(src || "").trim();
+  return WEB_AVATAR_PRESETS.find((preset) => preset.src === value) || null;
+}
+
+function webAvatarPresetGroupForSrc(src) {
+  const value = String(src || "").trim();
+  return WEB_AVATAR_PRESET_GROUP_TABS.find(({ key }) =>
+    WEB_AVATAR_PRESET_GROUPS[key]?.some((preset) => preset.src === value)
+  )?.key || "human";
+}
+
+function webNormalizeAvatarCrop(crop = {}) {
+  const source = crop && typeof crop === "object" ? crop : {};
+  const num = (value, fallback, min, max) => {
+    const next = Number(value);
+    if (!Number.isFinite(next)) return fallback;
+    return Math.max(min, Math.min(max, next));
+  };
+  const normalized = {
+    x: num(source.x, 50, 0, 100),
+    y: num(source.y, 50, 0, 100),
+    zoom: num(source.zoom, 1, 1, 2.4)
+  };
+  if (
+    Object.prototype.hasOwnProperty.call(source, "start")
+    || Object.prototype.hasOwnProperty.call(source, "duration")
+    || Object.prototype.hasOwnProperty.call(source, "trimStart")
+    || Object.prototype.hasOwnProperty.call(source, "trimDuration")
+  ) {
+    Object.assign(normalized, avatarMedia.normalizeTrim?.(source) || avatarMedia.trimFromCrop?.(source) || { start: 0, duration: 3 });
+  }
+  return normalized;
+}
+
+function webAvatarDefaultCropForSrc(src) {
+  if (avatarMedia.isVideo?.(src)) return { x: 50, y: 50, zoom: 1, start: 0, duration: avatarMedia.DEFAULT_TRIM_DURATION || 3 };
+  return { x: 50, y: 13.5, zoom: 1.72, ...(webAvatarPresetBySrc(src)?.crop || {}) };
+}
+
 function avatarBackgroundStyle(image, customCrop, fallbackColor) {
   if (!image) return `background-color:${fallbackColor};color:#fff;display:inline-flex;align-items:center;justify-content:center;`;
-  if (avatarMedia.isVideo?.(image)) return `background-color:${fallbackColor};color:#fff;display:inline-flex;align-items:center;justify-content:center;`;
+  if (avatarMedia.isVideo?.(image)) return "background-color:transparent;";
   const preset = AVATAR_PRESETS[image] || null;
   // Treat (50, 50, 1) as "no crop set" so we fall back to the preset crop
   // for human avatars even when the synced conversation didn't carry one.
@@ -371,7 +444,7 @@ function avatarVideoHtml(image, crop = {}) {
 function avatarHtml({ className = "avatar", image = "", crop = null, color = "#5e5ce6", text = "", attrs = "" } = {}) {
   const useAvatar = image && isPublicImageSrc(image);
   if (useAvatar && avatarMedia.isVideo?.(image)) {
-    return `<span class="${escapeHtml(className)}" ${attrs} style="background-color:${escapeHtml(color)};">${avatarVideoHtml(image, crop || {})}</span>`;
+    return `<span class="${escapeHtml(className)}" ${attrs} style="background-color:transparent;">${avatarVideoHtml(image, crop || {})}</span>`;
   }
   const style = useAvatar
     ? avatarBackgroundStyle(image, crop, color)
@@ -394,7 +467,7 @@ function applyAvatarMedia(el, image, crop = null, color = "#5e5ce6", text = "") 
   el.querySelectorAll?.(".avatar-video")?.forEach((node) => node.remove());
   const useAvatar = image && isPublicImageSrc(image);
   if (useAvatar && avatarMedia.isVideo?.(image)) {
-    el.style.cssText = `background-color:${color};`;
+    el.style.cssText = "background-color:transparent;";
     el.textContent = "";
     el.insertAdjacentHTML("afterbegin", avatarVideoHtml(image, crop || {}));
     hydrateAvatarVideos(el);
@@ -1951,6 +2024,387 @@ async function sendInActive() {
   //  the assistant reply into the same room via messagesStore.)
 }
 
+// ── create cloud fellow dialog ─────────────────────────────────────────────
+
+let _createFellowModal = null;
+let _avatarCropModal = null;
+
+function webSlugFromFellowName(name) {
+  return String(name || "fellow")
+    .trim()
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 48) || "fellow";
+}
+
+function cloudFellowKeyFromName(name, existingKeys = []) {
+  const used = new Set(existingKeys.map((key) => String(key || "").trim()).filter(Boolean));
+  const base = webSlugFromFellowName(name);
+  let key = base;
+  let index = 2;
+  while (used.has(key)) {
+    key = `${base}_${index}`;
+    index += 1;
+  }
+  return key;
+}
+
+function webFellowDefaultDraft() {
+  const first = WEB_AVATAR_PRESET_GROUPS.human[0];
+  return {
+    name: "",
+    personaText: "",
+    avatarImage: first.src,
+    avatarCrop: webAvatarDefaultCropForSrc(first.src),
+    avatarPresetGroup: "human",
+    saving: false
+  };
+}
+
+function setWebFellowAvatarDraft(draft, image, crop = null) {
+  const src = String(image || "").trim();
+  draft.avatarImage = src;
+  draft.avatarCrop = webNormalizeAvatarCrop(crop || webAvatarDefaultCropForSrc(src));
+  draft.avatarPresetGroup = webAvatarPresetGroupForSrc(src);
+}
+
+function renderWebFellowAvatarPreview(root, draft) {
+  const preview = root?.querySelector?.("#webFellowAvatarPreview");
+  if (!preview) return;
+  applyAvatarMedia(preview, draft.avatarImage, draft.avatarCrop, "#eef0ff", "");
+  preview.title = "点击调整头像";
+}
+
+function renderWebFellowAvatarDefaults(root, draft) {
+  const tabs = root?.querySelector?.("#webFellowAvatarDefaultTabs");
+  const defaults = root?.querySelector?.("#webFellowAvatarDefaults");
+  if (!tabs || !defaults) return;
+  const active = WEB_AVATAR_PRESET_GROUPS[draft.avatarPresetGroup] ? draft.avatarPresetGroup : "human";
+  draft.avatarPresetGroup = active;
+  tabs.innerHTML = WEB_AVATAR_PRESET_GROUP_TABS.map((group) => `
+    <button type="button" class="${active === group.key ? "active" : ""}" data-avatar-group="${escapeHtml(group.key)}" role="tab" aria-selected="${active === group.key ? "true" : "false"}">${escapeHtml(group.label)}</button>
+  `).join("");
+  defaults.innerHTML = (WEB_AVATAR_PRESET_GROUPS[active] || []).map((preset) => `
+    <button type="button" class="avatar-default${draft.avatarImage === preset.src ? " active" : ""}" data-avatar="${escapeHtml(preset.src)}" data-avatar-name="${escapeHtml(preset.name)}" title="${escapeHtml(preset.name)}" aria-label="${escapeHtml(preset.name)}" style="${avatarBackgroundStyle(preset.src, webAvatarDefaultCropForSrc(preset.src), "#eef0ff")}"></button>
+  `).join("");
+  tabs.querySelectorAll("[data-avatar-group]").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (!WEB_AVATAR_PRESET_GROUPS[button.dataset.avatarGroup]) return;
+      draft.avatarPresetGroup = button.dataset.avatarGroup;
+      renderWebFellowAvatarDefaults(root, draft);
+    });
+  });
+  defaults.querySelectorAll("[data-avatar]").forEach((button) => {
+    button.addEventListener("click", () => {
+      setWebFellowAvatarDraft(draft, button.dataset.avatar, webAvatarDefaultCropForSrc(button.dataset.avatar));
+      draft.name = button.dataset.avatarName || draft.name;
+      const nameInput = root.querySelector("#webFellowName");
+      if (nameInput) nameInput.value = draft.name;
+      renderWebFellowAvatarPreview(root, draft);
+      renderWebFellowAvatarDefaults(root, draft);
+    });
+  });
+}
+
+function readWebFellowAvatarFile(file, draft, root) {
+  if (!file) return;
+  const isImage = file.type?.startsWith("image/");
+  const isVideo = file.type?.startsWith("video/");
+  if (!isImage && !isVideo) {
+    showToast("请选择图片或视频文件。");
+    return;
+  }
+  if (isVideo && file.size > 8 * 1024 * 1024) {
+    showToast("视频头像请控制在 8MB 以内。");
+    return;
+  }
+  const reader = new FileReader();
+  reader.addEventListener("load", () => {
+    const image = String(reader.result || "");
+    openWebAvatarCropEditor({
+      draft,
+      root,
+      image,
+      crop: isVideo ? { x: 50, y: 50, zoom: 1, start: 0, duration: 3 } : { x: 50, y: 50, zoom: 1.12 }
+    });
+  });
+  reader.readAsDataURL(file);
+}
+
+function openWebAvatarCropEditor({ draft, root, image, crop }) {
+  if (!_avatarCropModal) {
+    _avatarCropModal = document.createElement("section");
+    _avatarCropModal.className = "settings-modal web-avatar-crop-modal";
+    document.body.appendChild(_avatarCropModal);
+  }
+  const editor = {
+    image: String(image || draft.avatarImage || ""),
+    crop: webNormalizeAvatarCrop(crop || draft.avatarCrop),
+    dragging: false,
+    lastX: 0,
+    lastY: 0
+  };
+  _avatarCropModal.classList.remove("hidden");
+
+  const render = () => {
+    _avatarCropModal.innerHTML = `
+      <div class="avatar-crop-card">
+        <header class="avatar-crop-head">
+          <h2>调整头像</h2>
+          <button class="icon-button" type="button" data-action="close" aria-label="关闭">×</button>
+        </header>
+        <div id="webAvatarCropStage" class="avatar-crop-stage">
+          <div class="avatar-crop-circle"></div>
+        </div>
+        <footer class="avatar-crop-actions">
+          <button class="secondary" type="button" data-action="reset">重置</button>
+          <span>拖拽移动，滚轮缩放</span>
+          <button class="primary" type="button" data-action="confirm">使用头像</button>
+        </footer>
+      </div>
+    `;
+    const stage = _avatarCropModal.querySelector("#webAvatarCropStage");
+    applyAvatarMedia(stage, editor.image, editor.crop, "#eef0ff", "");
+    stage.insertAdjacentHTML("beforeend", '<div class="avatar-crop-circle"></div>');
+    stage.addEventListener("pointerdown", (event) => {
+      editor.dragging = true;
+      editor.lastX = event.clientX;
+      editor.lastY = event.clientY;
+      stage.setPointerCapture?.(event.pointerId);
+    });
+    stage.addEventListener("pointermove", (event) => {
+      if (!editor.dragging) return;
+      const dx = event.clientX - editor.lastX;
+      const dy = event.clientY - editor.lastY;
+      editor.lastX = event.clientX;
+      editor.lastY = event.clientY;
+      const stageSize = stage.clientWidth || 320;
+      const zoom = editor.crop.zoom || 1;
+      const percentPerPx = 100 / (stageSize * zoom);
+      editor.crop = webNormalizeAvatarCrop({
+        ...editor.crop,
+        x: editor.crop.x + dx * percentPerPx,
+        y: editor.crop.y + dy * percentPerPx
+      });
+      applyAvatarMedia(stage, editor.image, editor.crop, "#eef0ff", "");
+      stage.insertAdjacentHTML("beforeend", '<div class="avatar-crop-circle"></div>');
+    });
+    stage.addEventListener("pointerup", (event) => {
+      editor.dragging = false;
+      stage.releasePointerCapture?.(event.pointerId);
+    });
+    stage.addEventListener("pointercancel", () => { editor.dragging = false; });
+    stage.addEventListener("wheel", (event) => {
+      event.preventDefault();
+      const direction = event.deltaY > 0 ? -1 : 1;
+      editor.crop = webNormalizeAvatarCrop({ ...editor.crop, zoom: editor.crop.zoom + direction * 0.04 });
+      applyAvatarMedia(stage, editor.image, editor.crop, "#eef0ff", "");
+      stage.insertAdjacentHTML("beforeend", '<div class="avatar-crop-circle"></div>');
+    }, { passive: false });
+    _avatarCropModal.querySelector('[data-action="close"]')?.addEventListener("click", close);
+    _avatarCropModal.querySelector('[data-action="reset"]')?.addEventListener("click", () => {
+      editor.crop = webAvatarDefaultCropForSrc(editor.image);
+      render();
+    });
+    _avatarCropModal.querySelector('[data-action="confirm"]')?.addEventListener("click", () => {
+      setWebFellowAvatarDraft(draft, editor.image, editor.crop);
+      renderWebFellowAvatarPreview(root, draft);
+      renderWebFellowAvatarDefaults(root, draft);
+      close();
+    });
+  };
+
+  function close() {
+    _avatarCropModal.classList.add("hidden");
+    document.removeEventListener("keydown", onEsc);
+  }
+  function onEsc(event) {
+    if (event.key === "Escape") close();
+  }
+  document.addEventListener("keydown", onEsc);
+  _avatarCropModal.onclick = (event) => {
+    if (event.target === _avatarCropModal) close();
+  };
+  render();
+}
+
+async function saveCloudOnlyFellowFromWeb(draft) {
+  const name = String(draft.name || "").trim();
+  if (!name) throw new Error("请输入智能体名称。");
+  const key = cloudFellowKeyFromName(name, state.fellows.map((fellow) => fellow.id || fellow.key));
+  const identity = {
+    name,
+    color: "#2563eb",
+    avatarImage: draft.avatarImage || "",
+    avatarCrop: draft.avatarCrop,
+    bio: draft.personaText || "",
+    personaText: draft.personaText || "",
+    capabilities: ["chat", "files", "terminal", "code"]
+  };
+  const saved = await api(`/api/me/fellows/${encodeURIComponent(key)}`, {
+    method: "PUT",
+    body: identity
+  });
+  const runtime = await api(`/api/me/fellows/${encodeURIComponent(key)}/runtime`, {
+    method: "PUT",
+    body: {
+      runtimeKind: "cloud-hermes",
+      enabled: true,
+      config: {
+        model: state.platformModels[0]?.value || "mia-default",
+        effortLevel: "medium",
+        permissionMode: "ask"
+      }
+    }
+  });
+  const ensured = await api(`/api/me/fellows/${encodeURIComponent(key)}/room`, {
+    method: "PUT",
+    body: {
+      title: name,
+      runtimeKind: "cloud-hermes"
+    }
+  });
+  const fellow = { ...(saved.fellow || identity), key, id: key };
+  state.fellows = [fellow, ...state.fellows.filter((item) => String(item.id || item.key || "") !== key)];
+  if (runtime.binding) state.fellowRuntimeCache.set(runtimeCacheKey(key, "cloud-hermes"), runtime.binding);
+  if (ensured.room) {
+    state.rooms = [ensured.room, ...state.rooms.filter((room) => room.id !== ensured.room.id)];
+    if (Array.isArray(ensured.members)) state.roomMembersCache.set(ensured.room.id, ensured.members);
+  }
+  return { key, fellow, room: ensured.room || null };
+}
+
+function openCreateFellowDialog() {
+  if (!_createFellowModal) {
+    _createFellowModal = document.createElement("section");
+    _createFellowModal.className = "settings-modal web-fellow-dialog";
+    document.body.appendChild(_createFellowModal);
+  }
+  state.createMenuOpen = false;
+  renderCreateMenu();
+  const draft = webFellowDefaultDraft();
+  _createFellowModal.classList.remove("hidden");
+
+  function close() {
+    _createFellowModal.classList.add("hidden");
+    document.removeEventListener("keydown", onEsc);
+    _createFellowModal.removeEventListener("click", onBackdrop);
+  }
+  function onEsc(event) {
+    if (event.key === "Escape") close();
+  }
+  function onBackdrop(event) {
+    if (event.target === _createFellowModal) close();
+  }
+
+  function render() {
+    _createFellowModal.innerHTML = `
+      <form id="webCreateFellowForm" class="fellow-form">
+        <header class="fellow-dialog-head">
+          <div>
+            <h2>创建智能体</h2>
+          </div>
+          <button class="icon-button" type="button" data-action="close" title="关闭" aria-label="关闭">×</button>
+        </header>
+        <label>
+          姓名
+          <input id="webFellowName" autocomplete="off" value="${escapeHtml(draft.name)}">
+        </label>
+        <label>
+          运行位置
+          <div class="web-fellow-runtime-fixed">
+            <span class="web-fellow-runtime-logo" aria-hidden="true">M</span>
+            <strong>Mia Cloud</strong>
+          </div>
+        </label>
+        <section class="avatar-picker">
+          <div id="webFellowAvatarPreview" class="avatar-crop-preview" role="button" tabindex="0" aria-label="调整头像"></div>
+          <div id="webFellowAvatarDrop" class="avatar-drop">
+            <input id="webFellowAvatarFile" type="file" accept="image/*,video/*" class="hidden">
+            <button id="webChooseFellowAvatar" class="secondary avatar-file-button" type="button" title="选择图片" aria-label="选择图片">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M17 8l-5-5-5 5 M12 3v12"/></svg>
+              选择图片
+            </button>
+            <span>也可以把图片拖到这里</span>
+          </div>
+        </section>
+        <section class="avatar-default-panel" aria-label="默认头像">
+          <div id="webFellowAvatarDefaultTabs" class="avatar-default-tabs" role="tablist" aria-label="默认头像风格"></div>
+          <section id="webFellowAvatarDefaults" class="avatar-defaults" aria-label="默认头像"></section>
+        </section>
+        <details class="persona-details">
+          <summary>人设</summary>
+          <label>
+            <span>会保存在 Mia Cloud，并作为该 Fellow 的系统人设注入。</span>
+            <textarea id="webFellowSeed" placeholder="可留空，后续在对话中慢慢形成">${escapeHtml(draft.personaText)}</textarea>
+          </label>
+        </details>
+        <footer class="fellow-dialog-actions">
+          <button class="secondary" type="button" data-action="close">取消</button>
+          <button class="primary" type="submit" ${draft.saving ? "disabled" : ""}>${draft.saving ? "保存中..." : "保存伙伴"}</button>
+        </footer>
+      </form>
+    `;
+    renderWebFellowAvatarPreview(_createFellowModal, draft);
+    renderWebFellowAvatarDefaults(_createFellowModal, draft);
+    const nameInput = _createFellowModal.querySelector("#webFellowName");
+    const seedInput = _createFellowModal.querySelector("#webFellowSeed");
+    const fileInput = _createFellowModal.querySelector("#webFellowAvatarFile");
+    const drop = _createFellowModal.querySelector("#webFellowAvatarDrop");
+    nameInput?.addEventListener("input", () => { draft.name = nameInput.value; });
+    seedInput?.addEventListener("input", () => { draft.personaText = seedInput.value; });
+    _createFellowModal.querySelector('[data-action="close"]')?.addEventListener("click", close);
+    _createFellowModal.querySelector("#webChooseFellowAvatar")?.addEventListener("click", () => fileInput?.click());
+    _createFellowModal.querySelector("#webFellowAvatarPreview")?.addEventListener("click", () => {
+      openWebAvatarCropEditor({ draft, root: _createFellowModal, image: draft.avatarImage, crop: draft.avatarCrop });
+    });
+    _createFellowModal.querySelector("#webFellowAvatarPreview")?.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      openWebAvatarCropEditor({ draft, root: _createFellowModal, image: draft.avatarImage, crop: draft.avatarCrop });
+    });
+    fileInput?.addEventListener("change", () => {
+      readWebFellowAvatarFile(fileInput.files?.[0], draft, _createFellowModal);
+      fileInput.value = "";
+    });
+    drop?.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      drop.classList.add("dragging");
+    });
+    drop?.addEventListener("dragleave", () => drop.classList.remove("dragging"));
+    drop?.addEventListener("drop", (event) => {
+      event.preventDefault();
+      drop.classList.remove("dragging");
+      readWebFellowAvatarFile(event.dataTransfer?.files?.[0], draft, _createFellowModal);
+    });
+    _createFellowModal.querySelector("#webCreateFellowForm")?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      draft.name = nameInput?.value || draft.name;
+      draft.personaText = seedInput?.value || draft.personaText;
+      draft.saving = true;
+      render();
+      try {
+        const saved = await saveCloudOnlyFellowFromWeb(draft);
+        close();
+        renderConversationList();
+        if (saved.room?.id) setActiveConversation(saved.room.id);
+      } catch (err) {
+        draft.saving = false;
+        render();
+        showToast(err.message || "创建智能体失败");
+      }
+    });
+  }
+
+  document.addEventListener("keydown", onEsc);
+  _createFellowModal.addEventListener("click", onBackdrop);
+  render();
+  setTimeout(() => _createFellowModal.querySelector("#webFellowName")?.focus(), 0);
+}
+
 // ── add-friend dialog ──────────────────────────────────────────────────────
 
 let _addFriendModal = null;
@@ -2312,6 +2766,7 @@ els.newConversation.addEventListener("click", (event) => {
 });
 els.convMenuAddFriend?.addEventListener("click", () => openAddFriendDialog());
 els.convMenuNewGroup?.addEventListener("click", () => openCreateGroupDialog());
+els.convMenuNewFellow?.addEventListener("click", () => openCreateFellowDialog());
 document.addEventListener("click", (event) => {
   if (!state.createMenuOpen) return;
   if (els.conversationCreateMenu?.contains(event.target) || els.newConversation?.contains(event.target)) return;

@@ -52,6 +52,25 @@ test("src/web/index.html includes the desktop-style chat history menu", () => {
   assert.match(html, />\s*聊天记录\s*</);
 });
 
+test("src/web exposes cloud-only fellow creation from the sidebar plus menu", () => {
+  const html = fs.readFileSync(path.join(ROOT, "src/web/index.html"), "utf8");
+  const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
+
+  assert.match(html, /id="convMenuNewFellow"/);
+  assert.match(html, />\s*创建智能体\s*</);
+  assert.match(source, /convMenuNewFellow: document\.getElementById\("convMenuNewFellow"\)/);
+  assert.match(source, /function openCreateFellowDialog\(\)/);
+  assert.match(source, /function saveCloudOnlyFellowFromWeb\(/);
+  assert.match(source, /runtimeKind:\s*"cloud-hermes"/);
+  assert.match(source, /\/api\/me\/fellows\/\$\{encodeURIComponent\(key\)\}/);
+  assert.match(source, /\/api\/me\/fellows\/\$\{encodeURIComponent\(key\)\}\/runtime/);
+  assert.match(source, /\/api\/me\/fellows\/\$\{encodeURIComponent\(key\)\}\/room/);
+  assert.match(source, /avatarImage:\s*draft\.avatarImage/);
+  assert.match(source, /avatarCrop:\s*draft\.avatarCrop/);
+  assert.doesNotMatch(source, /id="webFellowRuntimeLocation"/);
+  assert.doesNotMatch(source, /desktop-local[\s\S]{0,160}openCreateFellowDialog/);
+});
+
 test("src/web/index.html uses the signed-in user avatar in the rail", () => {
   const html = fs.readFileSync(path.join(ROOT, "src/web/index.html"), "utf8");
   assert.match(html, /id="userAvatar"/);
@@ -221,6 +240,20 @@ test("src/web/app.js mirrors desktop rail avatar and model icon behavior", () =>
   assert.match(source, /function modelIconSrc\(model = \{\}\)/);
   assert.match(source, /function setModelAvatar\(engine, entry = \{\}, config = \{\}\)/);
   assert.match(source, /setModelAvatar\(engine, selectedModelEntry, config\)/);
+});
+
+test("src/web avatar media does not use accent backgrounds or avatar borders", () => {
+  const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
+  const css = fs.readFileSync(path.join(ROOT, "src/web/styles.css"), "utf8");
+
+  assert.match(source, /avatarMedia\.isVideo\?\.\(image\)\) return "background-color:transparent;"/);
+  assert.match(source, /style="background-color:transparent;">\$\{avatarVideoHtml/);
+  assert.doesNotMatch(source, /style="background-color:\$\{escapeHtml\(color\)\};">\$\{avatarVideoHtml/);
+  assert.doesNotMatch(source, /el\.style\.cssText = `background-color:\$\{color\};`/);
+  assert.match(css, /\.rail-avatar\s*\{[\s\S]*?background-color:\s*transparent;/);
+  assert.match(css, /\.rail-avatar:hover,[\s\S]*?box-shadow:\s*none;/);
+  assert.match(css, /\.avatar,\n\.profile-avatar\s*\{[\s\S]*?border:\s*0;/);
+  assert.match(css, /\.avatar,\n\.profile-avatar\s*\{[\s\S]*?background-color:\s*transparent;/);
 });
 
 test("src/web/app.js renders web bubbles through desktop markdown", () => {

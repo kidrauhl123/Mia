@@ -56,6 +56,16 @@
     return `background-color:${avatar?.color || "#5e5ce6"};`;
   }
 
+  function paintContactCardAvatar(card, avatar) {
+    const avatarEl = card?.querySelector?.(".contact-card-avatar");
+    if (!avatarEl) return;
+    if (avatar?.image && typeof global.miaAvatar?.applyAvatarMedia === "function") {
+      global.miaAvatar.applyAvatarMedia(avatarEl, avatar.image, avatar.crop, avatar.color || "#5e5ce6");
+      return;
+    }
+    avatarEl.style.cssText = avatarStyleFor(avatar);
+  }
+
   function localFellow(ref) {
     const runtime = _ctx?.deps?.getState?.()?.runtime || {};
     const cloudFellows = Array.isArray(_ctx?.moduleState?.fellows) ? _ctx.moduleState.fellows : [];
@@ -185,7 +195,7 @@
     if (!local) {
       card.innerHTML = `
         <div class="contact-card-head">
-          <span class="avatar contact-card-avatar" style="${avatarStyleFor(avatar)}"></span>
+          <span class="avatar contact-card-avatar"></span>
           <div class="contact-card-head-text">
             <strong class="contact-card-name">${escapeHtml(name)}</strong>
             <span class="contact-card-kind">远端</span>
@@ -196,6 +206,7 @@
           <button type="button" data-card-action="close" class="button-primary">关闭</button>
         </div>
       `;
+      paintContactCardAvatar(card, avatar);
       card.addEventListener("click", (event) => {
         if (event.target.closest("[data-card-action]")) closeCard();
       });
@@ -285,7 +296,7 @@
 
     card.innerHTML = `
       <div class="contact-card-head">
-        <span class="avatar contact-card-avatar" style="${avatarStyleFor(avatar)}"></span>
+        <span class="avatar contact-card-avatar"></span>
         <div class="contact-card-head-text">
           <strong class="contact-card-name">${escapeHtml(name)}</strong>
           <span class="contact-card-kind">${escapeHtml(local.runtimeLabel || (isCloudHermes ? "Mia Cloud" : engine))}</span>
@@ -332,6 +343,7 @@
         <button type="button" data-card-action="close" class="button-primary">关闭</button>
       </div>
     `;
+    paintContactCardAvatar(card, avatar);
 
     async function persistField(field, value) {
       try {
@@ -387,7 +399,7 @@
     card.setAttribute("role", "dialog");
     card.innerHTML = `
       <div class="contact-card-head">
-        <span class="avatar contact-card-avatar" style="${avatarStyleFor(avatar)}"></span>
+        <span class="avatar contact-card-avatar"></span>
         <div class="contact-card-head-text">
           <strong class="contact-card-name">${escapeHtml(name)}</strong>
           <span class="contact-card-kind">${isSelf ? "我" : "联系人"}</span>
@@ -397,6 +409,7 @@
         <button type="button" data-card-action="close" class="button-primary">关闭</button>
       </div>
     `;
+    paintContactCardAvatar(card, avatar);
     card.addEventListener("click", (event) => {
       const btn = event.target.closest("[data-card-action]");
       if (!btn) return;

@@ -42,6 +42,7 @@
   const AVATAR_MIN_ZOOM = 1;
   const DEFAULT_AVATAR_CROP = { x: 50, y: 50, zoom: 1 };
   const DEFAULT_PRESET_AVATAR_CROP = { x: 50, y: 13.5, zoom: 1.72 };
+  const avatarVideoLoopEpochs = new Map();
 
   const avatarPresetGroupTabs = [
     { key: "human", label: "人形" },
@@ -144,30 +145,31 @@
   }
 
   function normalizeCrop(crop = {}) {
+    const source = crop && typeof crop === "object" ? crop : {};
     const num = (value, fallback, min, max) => {
       const next = Number(value);
       if (!Number.isFinite(next)) return fallback;
       return Math.max(min, Math.min(max, next));
     };
     const normalized = {
-      x: num(crop.x, 50, 0, 100),
-      y: num(crop.y, 50, 0, 100),
-      zoom: num(crop.zoom, 1, AVATAR_MIN_ZOOM, 2.4)
+      x: num(source.x, 50, 0, 100),
+      y: num(source.y, 50, 0, 100),
+      zoom: num(source.zoom, 1, AVATAR_MIN_ZOOM, 2.4)
     };
     if (
-      Object.prototype.hasOwnProperty.call(crop || {}, "start")
-      || Object.prototype.hasOwnProperty.call(crop || {}, "duration")
-      || Object.prototype.hasOwnProperty.call(crop || {}, "trimStart")
-      || Object.prototype.hasOwnProperty.call(crop || {}, "trimDuration")
+      Object.prototype.hasOwnProperty.call(source, "start")
+      || Object.prototype.hasOwnProperty.call(source, "duration")
+      || Object.prototype.hasOwnProperty.call(source, "trimStart")
+      || Object.prototype.hasOwnProperty.call(source, "trimDuration")
     ) {
-      Object.assign(normalized, avatarMedia().normalizeTrim(crop));
+      Object.assign(normalized, avatarMedia().normalizeTrim(source));
     }
     return normalized;
   }
 
   function avatarBackgroundStyle(image, crop = {}, color = "#5e5ce6") {
     const src = avatarImageSrc(image) || image || "";
-    if (avatarMedia().isVideo(src)) return `background-color:${escapeHtml(color)};`;
+    if (avatarMedia().isVideo(src)) return "background-color:transparent;";
     const effectiveCrop = avatarCropForImage(image, crop);
     const c = normalizeCrop(effectiveCrop);
     const imagePart = src ? `background-image:url('${escapeHtml(src)}');` : "";
@@ -190,6 +192,16 @@
     el?.querySelectorAll?.(":scope > .avatar-video")?.forEach((node) => node.remove());
   }
 
+  function removeAvatarImages(el) {
+    el?.querySelectorAll?.(":scope > .avatar-image")?.forEach((node) => node.remove());
+  }
+
+  function removeAvatarChildrenExcept(el, keepNode) {
+    Array.from(el?.childNodes || []).forEach((node) => {
+      if (node !== keepNode) node.remove();
+    });
+  }
+
   function videoObjectStyle(crop = {}) {
     const c = normalizeCrop(crop);
     return `object-position:${c.x}% ${c.y}%;transform:scale(${c.zoom});transform-origin:${c.x}% ${c.y}%;`;
@@ -202,11 +214,62 @@
     });
   }
 
+  function avatarClockNow() {
+    if (typeof performance !== "undefined" && typeof performance.now === "function") {
+      return performance.now();
+    }
+    return Date.now();
+  }
+
+  function avatarLoopHash(value) {
+    let hash = 0;
+    const text = String(value || "");
+    for (let i = 0; i < text.length; i += 1) {
+      hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
+    }
+    return hash.toString(36);
+  }
+
+  function avatarVideoLoopKey(image, crop = {}) {
+    const src = avatarImageSrc(image) || image || "";
+    const c = normalizeCrop(crop);
+    const trim = avatarMedia().trimFromCrop(c);
+    return [
+      avatarLoopHash(src),
+      c.x.toFixed(2),
+      c.y.toFixed(2),
+      c.zoom.toFixed(3),
+      trim.start.toFixed(2),
+      trim.duration.toFixed(2)
+    ].join("\u001f");
+  }
+
+  function avatarVideoLoopEpoch(key) {
+    const normalizedKey = String(key || "");
+    if (!avatarVideoLoopEpochs.has(normalizedKey)) {
+      avatarVideoLoopEpochs.set(normalizedKey, avatarClockNow());
+    }
+    return avatarVideoLoopEpochs.get(normalizedKey);
+  }
+
+  function avatarVideoTargetTime(video) {
+    const trim = avatarTrimForVideo(video);
+    const duration = Math.max(Number(trim.duration) || avatarMedia().DEFAULT_TRIM_DURATION || 3, 0.1);
+    const epoch = Number(video?.dataset?.avatarLoopEpoch);
+    const startedAt = Number.isFinite(epoch) ? epoch : avatarClockNow();
+    const elapsed = Math.max(0, (avatarClockNow() - startedAt) / 1000);
+    return trim.start + (elapsed % duration);
+  }
+
   function showAvatarVideo(video) {
     if (!video) return;
     const schedule = typeof requestAnimationFrame === "function"
       ? requestAnimationFrame
       : (fn) => setTimeout(fn, 0);
+    if (typeof video.requestVideoFrameCallback === "function") {
+      video.requestVideoFrameCallback(() => schedule(() => video.classList.add("ready")));
+      return;
+    }
     schedule(() => video.classList.add("ready"));
   }
 
@@ -215,13 +278,13 @@
     video.dataset.avatarLoopReady = "true";
     const seekStart = () => {
       const trim = avatarTrimForVideo(video);
-      const start = trim.start;
       if (!Number.isFinite(video.duration) || video.duration <= 0) return;
-      const safeStart = Math.min(start, Math.max(video.duration - 0.1, 0));
-      if (Math.abs(video.currentTime - safeStart) > 0.08) {
+      const target = avatarVideoTargetTime(video);
+      const safeTarget = Math.min(target, Math.max(video.duration - 0.1, 0));
+      if (Math.abs(video.currentTime - safeTarget) > 0.08) {
         video.addEventListener("seeked", () => showAvatarVideo(video), { once: true });
         try {
-          video.currentTime = safeStart;
+          video.currentTime = safeTarget;
         } catch {
           showAvatarVideo(video);
         }
@@ -233,7 +296,9 @@
     video.addEventListener("timeupdate", () => {
       const trim = avatarTrimForVideo(video);
       const end = trim.start + trim.duration;
-      if (video.currentTime < trim.start - 0.15 || video.currentTime >= end) seekStart();
+      const target = avatarVideoTargetTime(video);
+      const drift = Math.abs(video.currentTime - target);
+      if (video.currentTime < trim.start - 0.15 || video.currentTime >= end || drift > 0.45) seekStart();
     });
     video.addEventListener("ended", () => {
       seekStart();
@@ -247,17 +312,36 @@
 
   function updateAvatarVideoElement(video, image, crop = {}) {
     const src = avatarImageSrc(image) || image || "";
-    if (video.getAttribute("src") !== src) {
+    const c = normalizeCrop(crop);
+    const trim = avatarMedia().trimFromCrop(c);
+    const loopKey = avatarVideoLoopKey(src, c);
+    const changed = video.getAttribute("src") !== src || video.dataset.avatarLoopKey !== loopKey;
+    if (changed) {
       video.classList.remove("ready");
       video.setAttribute("src", src);
     }
     video.loop = false;
     video.removeAttribute("loop");
-    video.setAttribute("style", videoObjectStyle(crop));
-    const trim = avatarMedia().trimFromCrop(crop);
+    video.preload = "auto";
+    video.setAttribute("preload", "auto");
+    video.setAttribute("style", videoObjectStyle(c));
     video.dataset.avatarStart = String(trim.start);
     video.dataset.avatarDuration = String(trim.duration);
+    video.dataset.avatarLoopKey = loopKey;
+    video.dataset.avatarLoopEpoch = String(avatarVideoLoopEpoch(loopKey));
     syncAvatarVideoLoop(video);
+    if (video.readyState >= 1) {
+      video.classList.remove("ready");
+      const trimTarget = Math.min(avatarVideoTargetTime(video), Math.max(video.duration - 0.1, 0));
+      try {
+        if (Number.isFinite(trimTarget) && Math.abs(video.currentTime - trimTarget) > 0.08) {
+          video.currentTime = trimTarget;
+        }
+      } catch {
+        // Ignore browser seek failures; the loop synchronizer will retry.
+      }
+      showAvatarVideo(video);
+    }
     video.play?.().catch?.(() => {});
   }
 
@@ -270,50 +354,131 @@
     video.loop = false;
     video.autoplay = true;
     video.playsInline = true;
+    video.preload = "auto";
     video.setAttribute("muted", "");
     video.setAttribute("autoplay", "");
     video.setAttribute("playsinline", "");
+    video.setAttribute("preload", "auto");
     video.setAttribute("aria-hidden", "true");
     updateAvatarVideoElement(video, src, crop);
     return video;
   }
 
+  function updateAvatarImageElement(imageEl, image, crop = {}) {
+    const src = avatarImageSrc(image) || image || "";
+    if (imageEl.getAttribute("src") !== src) {
+      imageEl.setAttribute("src", src);
+    }
+    imageEl.setAttribute("alt", "");
+    imageEl.setAttribute("aria-hidden", "true");
+    imageEl.draggable = false;
+    imageEl.setAttribute("style", videoObjectStyle(normalizeCrop(crop)));
+  }
+
+  function createAvatarImageElement(image, crop = {}) {
+    const imageEl = document.createElement("img");
+    imageEl.className = "avatar-image";
+    updateAvatarImageElement(imageEl, image, crop);
+    return imageEl;
+  }
+
   function applyAvatarMedia(el, image, crop = {}, color = "#5e5ce6", fallbackText = "", options = {}) {
     if (!el) return;
     const src = avatarImageSrc(image) || image || "";
+    el.style.background = "";
     el.style.backgroundImage = "";
     el.style.backgroundSize = "";
     el.style.backgroundPosition = "";
     el.style.backgroundRepeat = "";
-    el.style.backgroundColor = color || "#5e5ce6";
     if (avatarMedia().isVideo(src)) {
+      el.classList.add("media-avatar");
       el.classList.add("video-avatar");
-      if (!options.preserveChildren) el.textContent = "";
+      el.style.backgroundColor = "transparent";
+      removeAvatarImages(el);
       const videos = Array.from(el.querySelectorAll?.(":scope > .avatar-video") || []);
       const video = videos[0] || createAvatarVideoElement(src, crop);
       videos.slice(1).forEach((node) => node.remove());
+      if (!options.preserveChildren) removeAvatarChildrenExcept(el, video);
       updateAvatarVideoElement(video, src, crop);
       if (video.parentElement !== el || video !== el.firstElementChild) el.prepend(video);
       return;
     }
+    if (src) {
+      el.classList.add("media-avatar");
+      el.classList.remove("video-avatar");
+      el.style.backgroundColor = "transparent";
+      removeAvatarVideos(el);
+      const images = Array.from(el.querySelectorAll?.(":scope > .avatar-image") || []);
+      const imageEl = images[0] || createAvatarImageElement(src, crop);
+      images.slice(1).forEach((node) => node.remove());
+      if (!options.preserveChildren) removeAvatarChildrenExcept(el, imageEl);
+      updateAvatarImageElement(imageEl, src, crop);
+      if (imageEl.parentElement !== el || imageEl !== el.firstElementChild) el.prepend(imageEl);
+      return;
+    }
+    el.classList.remove("media-avatar");
     el.classList.remove("video-avatar");
+    el.style.backgroundColor = color || "#5e5ce6";
     removeAvatarVideos(el);
+    removeAvatarImages(el);
     if (!options.preserveChildren) el.textContent = fallbackText || "";
     el.setAttribute("style", avatarThumbBackgroundStyle(image, crop, color));
   }
 
+  function avatarMediaAttrs(image = "", crop = {}, color = "#5e5ce6", text = "") {
+    const normalizedCrop = normalizeCrop(crop || {});
+    return [
+      'data-avatar-media="1"',
+      `data-avatar-image="${escapeHtml(image || "")}"`,
+      `data-avatar-crop="${escapeHtml(JSON.stringify(normalizedCrop))}"`,
+      `data-avatar-color="${escapeHtml(color || "#5e5ce6")}"`,
+      `data-avatar-text="${escapeHtml(text || "")}"`
+    ].join(" ");
+  }
+
   function avatarHtml({ tag = "div", className = "avatar", image = "", crop = {}, color = "#5e5ce6", text = "", attrs = "" } = {}) {
     const src = avatarImageSrc(image) || image || "";
-    if (avatarMedia().isVideo(src)) {
-      const trim = avatarMedia().trimFromCrop(crop);
-      const style = `background-color:${escapeHtml(color)};`;
-      return `<${tag} class="${escapeHtml(`${className} video-avatar`)}" ${attrs} style="${style}"><video class="avatar-video" src="${escapeHtml(src)}" muted autoplay playsinline aria-hidden="true" data-avatar-start="${escapeHtml(trim.start)}" data-avatar-duration="${escapeHtml(trim.duration)}" style="${videoObjectStyle(crop)}"></video></${tag}>`;
+    const hasImage = Boolean(src);
+    const style = hasImage
+      ? "background-color:transparent;"
+      : avatarThumbBackgroundStyle(image, crop, color);
+    return `<${tag} class="${escapeHtml(className)}" ${attrs} ${avatarMediaAttrs(image || "", crop, color, text)} style="${style}">${hasImage ? "" : escapeHtml(text || "")}</${tag}>`;
+  }
+
+  function parseAvatarCrop(value) {
+    try {
+      const parsed = JSON.parse(String(value || "{}"));
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+      return {};
     }
-    const style = avatarThumbBackgroundStyle(image, crop, color);
-    return `<${tag} class="${escapeHtml(className)}" ${attrs} style="${style}">${escapeHtml(text || "")}</${tag}>`;
+  }
+
+  function hydrateAvatarMedia(root = document) {
+    const targets = [];
+    if (root.matches?.("[data-avatar-media]")) targets.push(root);
+    root.querySelectorAll?.("[data-avatar-media]")?.forEach((el) => targets.push(el));
+    targets.forEach((el) => {
+      const signature = [
+        el.dataset.avatarImage || "",
+        el.dataset.avatarCrop || "",
+        el.dataset.avatarColor || "",
+        el.dataset.avatarText || ""
+      ].join("\u001f");
+      if (el.dataset.avatarRenderedSignature === signature) return;
+      applyAvatarMedia(
+        el,
+        el.dataset.avatarImage || "",
+        parseAvatarCrop(el.dataset.avatarCrop),
+        el.dataset.avatarColor || "#5e5ce6",
+        el.dataset.avatarText || ""
+      );
+      el.dataset.avatarRenderedSignature = signature;
+    });
   }
 
   function hydrateAvatarVideos(root = document) {
+    hydrateAvatarMedia(root);
     root.querySelectorAll?.("video.avatar-video")?.forEach((video) => {
       if (video.dataset.avatarHydrated === "true") return;
       video.dataset.avatarHydrated = "true";
@@ -331,6 +496,8 @@
   function applyAvatar(el, text, color, image) {
     if (!el) return;
     removeAvatarVideos(el);
+    removeAvatarImages(el);
+    el.classList?.remove("media-avatar");
     el.classList?.remove("video-avatar");
     el.textContent = text || "?";
     el.style.background = color || "#111827";
@@ -384,6 +551,7 @@
     updateAvatarVideoElement,
     applyAvatarMedia,
     avatarHtml,
+    hydrateAvatarMedia,
     hydrateAvatarVideos,
     applyFellowAvatar,
     applyAvatar,

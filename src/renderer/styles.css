@@ -261,36 +261,52 @@ body.window-blurred .traffic-spacer:hover .traffic-light.green {
   overflow: hidden;
 }
 
+.avatar-image,
 .avatar-video {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  opacity: 0;
   pointer-events: none;
+}
+
+.avatar-image {
+  display: block;
+}
+
+.avatar-video {
+  opacity: 0;
 }
 
 .avatar-video.ready {
   opacity: 1;
 }
 
+.avatar.media-avatar,
+.fellow-photo.media-avatar,
+.profile-avatar.media-avatar,
+.contact-avatar.media-avatar,
+.contact-profile-avatar.media-avatar,
 .avatar.video-avatar,
 .fellow-photo.video-avatar,
-.profile-avatar.video-avatar {
+.profile-avatar.video-avatar,
+.contact-avatar.video-avatar,
+.contact-profile-avatar.video-avatar {
   border-color: transparent;
+  background-color: transparent;
 }
 
 .rail-avatar {
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: var(--accent);
+  background: transparent;
 }
 
 .rail-avatar:hover,
 .rail-avatar:focus-visible {
-  box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.14);
+  box-shadow: none;
 }
 
 .rail-divider {
@@ -660,7 +676,7 @@ body.sidebar-resizing * {
   border-radius: 50%;
   background-size: cover;
   background-position: center;
-  border: 1px solid var(--line);
+  border: 0;
 }
 
 .persona-main,
@@ -1228,14 +1244,15 @@ body.topbar-click-capture .topbar {
   overflow: hidden;
   width: 96px;
   height: 96px;
-  border: 1px solid var(--line);
+  border: 0;
   border-radius: 50%;
+  background-color: transparent;
   background-repeat: no-repeat;
-  box-shadow: inset 0 0 0 5px rgba(255, 255, 255, 0.55);
+  box-shadow: none;
 }
 
 .contact-profile-avatar:hover {
-  border-color: var(--accent);
+  border-color: transparent;
 }
 
 .contact-profile-title {

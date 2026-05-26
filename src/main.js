@@ -181,7 +181,15 @@ const engineRuntimeConfigService = createEngineRuntimeConfigService({
   permissionSettings: () => settingsStore?.permissionSettings() || { mode: "ask" },
   effortSettings: () => settingsStore?.effortSettings() || { level: "medium" },
   engineSource: engineInstallService.engineSource,
-  externalSkillDirs: () => [],
+  // Surface the user's skills to the Hermes runtime so it auto-uses them by
+  // description (no slash command). Installed/authored skills live under
+  // <home>/skills; bundled official skills (skill-creator etc.) under _builtin.
+  // Lazy thunk: invoked at writeRuntimeConfig time, after fellowPetService init.
+  externalSkillDirs: () => {
+    const dirs = [path.join(runtimePaths().home, "skills")];
+    try { dirs.push(path.join(fellowPetService.miaSkillsRoot(), "_builtin")); } catch { /* bundled root not found */ }
+    return dirs;
+  },
   // Lazy: schedulerMcpBridge is created later in this module; the thunk is
   // only invoked at writeRuntimeConfig time (runtime), by which point it
   // exists. Lets the Hermes config.yaml carry the mia-scheduler MCP.

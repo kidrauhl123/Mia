@@ -711,7 +711,6 @@ function paintActiveCloudRoomHeader(room, { personas, social }) {
     if (avatarEl) {
       if (customAvatar && customAvatar.image) {
         avatarEl.className = "profile-avatar";
-        avatarEl.innerHTML = "";
         avatarEl.removeAttribute("data-count");
         avatarHelper.applyAvatarMedia(avatarEl, customAvatar.image, customAvatar.crop, "#5e5ce6");
       } else {
@@ -728,7 +727,6 @@ function paintActiveCloudRoomHeader(room, { personas, social }) {
     const fellowKey = room.decorations?.fellowKey || (room.id?.split(":")[2] || "");
     const fellow = (personas || []).find((p) => (p.id || p.key) === fellowKey);
     if (avatarEl) {
-      avatarEl.innerHTML = "";
       avatarEl.removeAttribute("data-count");
       avatarEl.className = "profile-avatar";
       avatarHelper.applyFellowAvatar(avatarEl, fellow || { key: fellowKey, name: room.name });
@@ -747,15 +745,13 @@ function paintActiveCloudRoomHeader(room, { personas, social }) {
   const friend = social?.friendById?.(otherId);
   const displayName = friend?.username || friend?.account || otherId || "好友";
   if (avatarEl) {
-    avatarEl.innerHTML = "";
     avatarEl.removeAttribute("data-count");
     avatarEl.className = "profile-avatar";
     if (friend) {
       avatarHelper.applyAvatarMedia(avatarEl, friend.avatarImage, friend.avatarCrop, friend.avatarColor || "#5e5ce6");
     } else {
       const letter = (displayName[0] || "?").toUpperCase();
-      avatarEl.textContent = letter;
-      avatarEl.style.cssText = "background-color:#5e5ce6; color:#fff;";
+      avatarHelper.applyAvatar(avatarEl, letter, "#111827", "");
     }
   }
   setText(nameEl, displayName);
@@ -1328,7 +1324,6 @@ function render() {
     if (composerBottom) composerBottom.classList.toggle("hidden", true);
   } else if (active) {
     if (els.activeChatAvatar) {
-      els.activeChatAvatar.innerHTML = "";
       els.activeChatAvatar.className = "profile-avatar";
     }
     window.miaAvatar.applyFellowAvatar(els.activeChatAvatar, active);

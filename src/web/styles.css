@@ -480,7 +480,7 @@ p {
   padding: 0;
   border: 0;
   border-radius: 50%;
-  background-color: var(--accent);
+  background-color: transparent;
   color: #fff;
   font-size: 15px;
   font-weight: 430;
@@ -489,7 +489,7 @@ p {
 
 .rail-avatar:hover,
 .rail-avatar:focus-visible {
-  box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.14);
+  box-shadow: none;
 }
 
 .rail-spacer {
@@ -658,9 +658,9 @@ p {
   place-items: center;
   width: 42px;
   height: 42px;
-  border: 1px solid var(--line);
+  border: 0;
   border-radius: 50%;
-  background-color: var(--field);
+  background-color: transparent;
   background-position: center;
   background-size: cover;
   color: var(--accent);
@@ -2712,6 +2712,299 @@ p {
   padding: 12px 14px;
   border-radius: 10px;
   background: var(--surface-muted);
+}
+
+.web-fellow-dialog,
+.web-avatar-crop-modal {
+  padding: 24px;
+  background: rgba(16, 20, 39, 0.24);
+}
+
+.web-avatar-crop-modal {
+  z-index: 90;
+}
+
+.fellow-form {
+  display: grid;
+  gap: 14px;
+  width: min(430px, calc(100vw - 48px));
+  max-height: calc(100dvh - 48px);
+  overflow: auto;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+
+.fellow-dialog-head,
+.fellow-dialog-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.fellow-dialog-head h2,
+.avatar-crop-head h2 {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.fellow-form label,
+.persona-details label {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.fellow-form input,
+.fellow-form textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  outline: 0;
+  padding: 10px 12px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.fellow-form textarea {
+  min-height: 118px;
+  resize: vertical;
+}
+
+.web-fellow-runtime-fixed {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: max-content;
+  max-width: 100%;
+  min-height: 34px;
+  padding: 4px 10px 4px 5px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--field);
+  color: var(--text);
+}
+
+.web-fellow-runtime-logo {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.avatar-picker {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+}
+
+.avatar-crop-preview {
+  position: relative;
+  width: 82px;
+  height: 82px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background-repeat: no-repeat;
+  box-shadow: inset 0 0 0 4px color-mix(in srgb, var(--surface) 55%, transparent);
+  cursor: pointer;
+}
+
+.avatar-crop-preview:hover,
+.avatar-crop-preview:focus-visible {
+  border-color: var(--accent);
+}
+
+.avatar-drop {
+  display: grid;
+  gap: 7px;
+  align-content: center;
+  min-height: 82px;
+  padding: 10px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 12px;
+  background: var(--field);
+  color: var(--muted);
+}
+
+.avatar-drop.dragging {
+  border-color: var(--accent);
+  background: var(--list-active);
+}
+
+.avatar-file-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: max-content;
+}
+
+.avatar-file-button svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.avatar-drop span,
+.persona-details label span,
+.avatar-crop-actions span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.avatar-default-panel {
+  display: grid;
+  gap: 9px;
+}
+
+.avatar-default-tabs {
+  display: inline-flex;
+  width: max-content;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--field);
+}
+
+.avatar-default-tabs button {
+  min-width: 52px;
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.avatar-default-tabs button.active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08);
+}
+
+.avatar-defaults {
+  display: grid;
+  grid-template-columns: repeat(8, 34px);
+  gap: 7px;
+}
+
+.avatar-default {
+  width: 34px;
+  height: 34px;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  background-repeat: no-repeat;
+}
+
+.avatar-default.active {
+  border-color: var(--accent);
+}
+
+.persona-details {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--field);
+}
+
+.persona-details summary {
+  padding: 10px 12px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 400;
+  list-style: none;
+}
+
+.persona-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.persona-details summary::after {
+  content: "⌄";
+  float: right;
+  color: var(--faint);
+}
+
+.persona-details label {
+  padding: 0 12px 12px;
+}
+
+.fellow-dialog-actions {
+  justify-content: flex-end;
+}
+
+.avatar-crop-card {
+  display: grid;
+  gap: 14px;
+  width: min(390px, calc(100vw - 48px));
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+
+.avatar-crop-head,
+.avatar-crop-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.avatar-crop-stage {
+  position: relative;
+  width: min(320px, calc(100vw - 96px));
+  aspect-ratio: 1;
+  justify-self: center;
+  overflow: hidden;
+  border-radius: 12px;
+  background-repeat: no-repeat;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.avatar-crop-stage:active {
+  cursor: grabbing;
+}
+
+.avatar-crop-stage::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.avatar-crop-circle {
+  position: absolute;
+  inset: 22px;
+  z-index: 2;
+  border: 2px solid rgba(255, 255, 255, 0.92);
+  border-radius: 50%;
+  box-shadow: 0 0 0 999px rgba(0, 0, 0, 0.38);
+  pointer-events: none;
 }
 
 .cloud-login-grid {
