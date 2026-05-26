@@ -30,7 +30,7 @@ function createLocalFellowResponder({ sendChat, postRoomMessageAsFellow, log = (
     if (processed.size > PROCESSED_CAP) processed.delete(processed.values().next().value);
   }
 
-  async function respond({ roomId, fellowId, dedupKey, systemPrompt, userPrompt, turnId = null }) {
+  async function respond({ roomId, fellowId, dedupKey, systemPrompt, userPrompt, turnId = null, runtimeConfig = null }) {
     if (!roomId || !fellowId || !dedupKey) return;
     if (processed.has(dedupKey)) return;
     if (inFlight.has(dedupKey)) return;
@@ -38,7 +38,7 @@ function createLocalFellowResponder({ sendChat, postRoomMessageAsFellow, log = (
 
     let text = "";
     try {
-      const result = await sendChat({
+      const chatArgs = {
         fellowKey: fellowId,
         personaKey: fellowId,
         sessionId: `room:${roomId}`,
@@ -49,7 +49,9 @@ function createLocalFellowResponder({ sendChat, postRoomMessageAsFellow, log = (
         group: true,
         utility: true,
         allowSlashCommands: false
-      });
+      };
+      if (runtimeConfig && typeof runtimeConfig === "object") chatArgs.runtimeConfig = runtimeConfig;
+      const result = await sendChat(chatArgs);
       text = responseText(result);
     } catch (error) {
       log(`[local-fellow-responder] engine failed: ${error?.message || error}`);

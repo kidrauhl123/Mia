@@ -153,6 +153,24 @@ test("listFellows fetches cloud fellow identities", async () => {
   } finally { await teardown(ctx); }
 });
 
+test("deleteFellow removes a cloud fellow identity", async () => {
+  const seen = [];
+  const ctx = await spawnFakeCloud((req, res) => {
+    seen.push({ method: req.method, url: req.url });
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ ok: true }));
+  });
+  try {
+    const api = createSocialApi({
+      getSettings: () => ({ enabled: true, token: "t", url: ctx.baseUrl }),
+      normalizeUrl: (u) => u
+    });
+    const result = await api.deleteFellow("mia");
+    assert.equal(result.ok, true);
+    assert.deepEqual(seen[0], { method: "DELETE", url: "/api/me/fellows/mia" });
+  } finally { await teardown(ctx); }
+});
+
 test("listPlatformModels fetches platform model catalog", async () => {
   const seen = [];
   const ctx = await spawnFakeCloud((req, res) => {

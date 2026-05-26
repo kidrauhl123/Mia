@@ -89,7 +89,7 @@ function createHermesRunService(deps = {}) {
       .filter((message) => message.content || message.attachments.length);
   }
 
-  function buildRunPayload({ fellow, sessionId, messages }) {
+  function buildRunPayload({ fellow, sessionId, messages, model = "", effortLevel = "", permissionMode = "" }) {
     const normalized = normalizeRunMessages(messages);
     const instructions = normalized
       .filter((message) => message.role === "system")
@@ -117,8 +117,11 @@ function createHermesRunService(deps = {}) {
       .filter((message) => message.content);
     const accountId = fellow.account_id || fellow.key;
     const routeProfile = fellow.route_profile || accountId;
+    const selectedModel = String(model || "").trim() || "hermes-agent";
+    const selectedEffort = String(effortLevel || "").trim();
+    const selectedPermission = String(permissionMode || "").trim();
     const body = {
-      model: "hermes-agent",
+      model: selectedModel,
       input,
       session_id: cleanRunSessionId(sessionId, fellow.key),
       account_id: accountId,
@@ -130,6 +133,8 @@ function createHermesRunService(deps = {}) {
         display_name: fellow.name
       }
     };
+    if (selectedEffort) body.metadata.effort_level = selectedEffort;
+    if (selectedPermission) body.metadata.permission_mode = selectedPermission;
     if (instructions) body.instructions = instructions;
     if (conversationHistory.length) body.conversation_history = conversationHistory;
     return body;

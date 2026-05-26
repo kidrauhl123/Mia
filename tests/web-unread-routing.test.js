@@ -92,15 +92,24 @@ test("src/web/app.js uses platform model catalog for cloud fellow controls", () 
   assert.match(source, /platformModels/);
   assert.match(source, /loadPlatformModels/);
   assert.match(source, /\/api\/me\/model-catalog/);
-  assert.match(source, /selectEntriesForModel\(engine, runtimeKind\)[\s\S]*state\.platformModels/);
+  assert.match(source, /selectEntriesForModel\(engine, runtimeKind, config = \{\}\)[\s\S]*state\.platformModels/);
   assert.doesNotMatch(source, /return \[\{ value: "hermes-agent", label: "Hermes Agent" \}\];/);
 });
 
-test("src/web/app.js treats legacy fellow rooms as desktop-local runtime", () => {
+test("src/web/app.js lets web controls update desktop-local fellow runtime bindings", () => {
   const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
   assert.match(source, /function runtimeKindForFellowRoom\(room, fellow\)[\s\S]*return runtimeKind \|\| "desktop-local";/);
   assert.doesNotMatch(source, /return runtimeKind \|\| "cloud-hermes";/);
-  assert.match(source, /if\s*\(!fellowKey \|\| runtimeKind === "desktop-local"\)\s*\{[\s\S]*桌面端本地伙伴需要在桌面端切换模型设置/);
+  assert.doesNotMatch(source, /runtimeKind === "desktop-local"\)\s*return null/);
+  assert.doesNotMatch(source, /Desktop controls/);
+  assert.doesNotMatch(source, /桌面端本地伙伴需要在桌面端切换模型设置/);
+  assert.doesNotMatch(source, /Desktop Local/);
+  assert.match(source, /function engineForRuntimeBinding\(runtimeKind, binding\)/);
+  assert.match(source, /config\.agentEngine/);
+  assert.match(source, /selectEntriesForModel\(engine, runtimeKind, config\)/);
+  assert.match(source, /config\.modelEntries/);
+  assert.match(source, /const editable = Boolean\(fellowKey\);/);
+  assert.match(source, /body:\s*\{ runtimeKind, enabled: true, config \}/);
 });
 
 test("src/web/app.js adds clientOpId to PUT runtime writes", () => {

@@ -257,6 +257,87 @@
     return fellows;
   }
 
+  function normalizeAgentEngine(value) {
+    const normalizer = window.miaEngineContracts?.normalizeAgentEngine;
+    if (typeof normalizer === "function") return normalizer(value);
+    const id = String(value || "hermes").trim().toLowerCase().replace(/_/g, "-");
+    if (id === "claude" || id === "claude-code") return "claude-code";
+    if (id === "codex" || id === "openai-codex") return "codex";
+    return "hermes";
+  }
+
+  function localHermesModelEntries(runtime = {}) {
+    const entries = typeof window.miaModelSettings?.connectedModelEntries === "function"
+      ? window.miaModelSettings.connectedModelEntries(runtime)
+      : [];
+    return (Array.isArray(entries) ? entries : [])
+      .map((entry) => ({
+        value: String(entry.model || entry.id || "").trim(),
+        label: String(entry.label || entry.model || entry.id || "Local Model").trim(),
+        model: String(entry.model || "").trim(),
+        provider: String(entry.provider || "").trim(),
+        providerLabel: String(entry.providerLabel || "").trim()
+      }))
+      .filter((entry) => entry.value);
+  }
+
+  function externalModelEntries(engine) {
+    const entries = typeof window.miaEngineOptions?.externalModelEntries === "function"
+      ? window.miaEngineOptions.externalModelEntries(engine)
+      : [];
+    return (Array.isArray(entries) ? entries : [])
+      .map((entry) => ({
+        value: String(entry.model || entry.id || "").trim(),
+        label: String(entry.label || entry.model || entry.id || "Default").trim(),
+        model: String(entry.model || "").trim(),
+        provider: String(entry.provider || engine).trim(),
+        providerLabel: String(entry.providerLabel || "").trim()
+      }))
+      .filter((entry) => entry.value || entry.model === "");
+  }
+
+  function desktopLocalRuntimeConfig(fellow) {
+    const state = (deps && typeof deps.getState === "function" && deps.getState()) || {};
+    const runtime = state.runtime || {};
+    const engine = normalizeAgentEngine(fellow?.agentEngine || fellow?.agent_engine || "hermes");
+    const engineConfig = fellow?.engineConfig || fellow?.engine_config || {};
+    const config = { agentEngine: engine };
+    if (engine === "claude-code" || engine === "codex") {
+      config.model = String(engineConfig.model || "").trim();
+      config.effortLevel = String(engineConfig.effortLevel || "medium").trim();
+      config.permissionMode = String(engineConfig.permissionMode || "default").trim();
+      config.modelEntries = externalModelEntries(engine);
+      return config;
+    }
+    config.model = String(runtime.model?.model || "").trim();
+    config.effortLevel = String(runtime.effort?.level || "medium").trim();
+    config.permissionMode = String(runtime.permissions?.mode || "ask").trim();
+    config.modelEntries = localHermesModelEntries(runtime);
+    return config;
+  }
+
+  async function syncLocalFellowRuntimeBinding(api, fellow) {
+    const fellowKey = String(fellow?.key || fellow?.id || "").trim();
+    if (!fellowKey || !api || typeof api.saveFellowRuntime !== "function") return;
+    try {
+      await api.saveFellowRuntime(fellowKey, {
+        runtimeKind: "desktop-local",
+        enabled: true,
+        config: desktopLocalRuntimeConfig(fellow)
+      });
+    } catch (error) {
+      console.warn("[social] sync fellow runtime failed", fellowKey, error);
+    }
+  }
+
+  async function syncLocalFellowRuntimeBindings() {
+    const api = window.mia?.social;
+    if (!api || typeof api.saveFellowRuntime !== "function") return;
+    for (const fellow of localRuntimeFellows()) {
+      await syncLocalFellowRuntimeBinding(api, fellow);
+    }
+  }
+
   async function ensureLocalFellowRooms(api) {
     if (!api || typeof api.ensureFellowRoom !== "function") return;
     for (const fellow of localRuntimeFellows()) {
@@ -265,6 +346,7 @@
           title: fellow.name || fellow.displayName || fellow.key,
           runtimeKind: "desktop-local"
         });
+        await syncLocalFellowRuntimeBinding(api, fellow);
         if (result && result.ok === false) {
           throw new Error(result.error || result.message || result.data?.error || "unknown ensure failure");
         }
@@ -1784,6 +1866,7 @@
     moduleState,
     initSocialModule,
     bootstrapAfterLogin,
+    syncLocalFellowRuntimeBindings,
     isBootstrapped,
     handleCloudEvent,
     renderSidebarRows,

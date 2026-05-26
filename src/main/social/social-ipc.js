@@ -20,6 +20,7 @@ function registerSocialIpc({ ipcMain, socialApi }) {
   ipcMain.handle(IpcChannel.SocialRemoveFriend, safeCall((userId) => socialApi.removeFriend(userId)));
   ipcMain.handle(IpcChannel.SocialListRooms, safeCall(() => socialApi.listRooms()));
   ipcMain.handle(IpcChannel.SocialListFellows, safeCall(() => socialApi.listFellows()));
+  ipcMain.handle(IpcChannel.SocialDeleteFellow, safeCall((fellowId) => socialApi.deleteFellow(fellowId)));
   ipcMain.handle(IpcChannel.SocialListPlatformModels, safeCall(() => socialApi.listPlatformModels()));
   ipcMain.handle(IpcChannel.SocialGetRoom, safeCall((roomId) => socialApi.getRoom(roomId)));
   ipcMain.handle(IpcChannel.SocialListRoomMessages, safeCall((roomId, sinceSeq, limit) => socialApi.listRoomMessages(roomId, sinceSeq, limit)));

@@ -255,6 +255,26 @@ function createCloudDesktopSyncClient({
     return data && data.settings ? data.settings : null;
   }
 
+  async function listMarketSkills({ category = "", q = "" } = {}) {
+    const params = new URLSearchParams();
+    if (category) params.set("category", category);
+    if (q) params.set("q", q);
+    const qs = params.toString();
+    const data = await cloudApi(`/api/skills${qs ? `?${qs}` : ""}`, { method: "GET" });
+    return {
+      skills: Array.isArray(data.skills) ? data.skills : [],
+      categories: Array.isArray(data.categories) ? data.categories : []
+    };
+  }
+
+  async function installMarketSkill(skillId) {
+    const data = await cloudApi(`/api/skills/${encodeURIComponent(String(skillId))}/install`, {
+      method: "POST",
+      body: {}
+    });
+    return data && data.skill ? data.skill : null;
+  }
+
   async function login({ username, password, mode = "login", url = "" } = {}) {
     const nextUrl = normalizeCloudUrl(url || settings().url);
     writeCloudSettings({ url: nextUrl, enabled: false, token: "", user: null });
@@ -285,6 +305,8 @@ function createCloudDesktopSyncClient({
   return {
     deleteFellow,
     getUserSettings,
+    installMarketSkill,
+    listMarketSkills,
     login,
     logout,
     putUserSettings,

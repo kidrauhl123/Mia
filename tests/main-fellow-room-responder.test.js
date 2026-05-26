@@ -4,7 +4,7 @@ const assert = require("node:assert/strict");
 const { createMainFellowRoomResponder } = require("../src/main/social/fellow-room-responder.js");
 
 function setup(overrides = {}) {
-  const calls = { respond: [], roomDetails: [], recent: [], log: [] };
+  const calls = { respond: [], roomDetails: [], recent: [], runtime: [], log: [] };
   const responder = createMainFellowRoomResponder({
     getCurrentUserId: () => "u_1",
     getRoomDetails: async (roomId) => {
@@ -23,6 +23,10 @@ function setup(overrides = {}) {
         { id: "m_0", seq: 1, sender_kind: "user", sender_ref: "u_1", body_md: "前文" },
         { id: "m_1", seq: 2, sender_kind: "user", sender_ref: "u_1", body_md: "你好" }
       ];
+    },
+    getFellowRuntime: async (fellowId, runtimeKind) => {
+      calls.runtime.push({ fellowId, runtimeKind });
+      return null;
     },
     responder: {
       respond: async (args) => {
@@ -127,6 +131,37 @@ test("retries repeated message events until responder succeeds", async () => {
   await responder.handleRoomMessageAppended(payload);
 
   assert.equal(calls.respond.length, 2);
+});
+
+test("passes desktop-local runtime binding config to the local responder", async () => {
+  const { responder, calls } = setup({
+    getFellowRuntime: async (fellowId, runtimeKind) => {
+      calls.runtime.push({ fellowId, runtimeKind });
+      return {
+        fellowId,
+        runtimeKind,
+        enabled: true,
+        config: {
+          model: "mia-pro",
+          effortLevel: "high",
+          permissionMode: "auto"
+        }
+      };
+    }
+  });
+
+  await responder.handleRoomMessageAppended({
+    roomId: "fellow:u_1:alice",
+    message: { id: "m_1", seq: 2, sender_kind: "user", sender_ref: "u_1", body_md: "你好" }
+  });
+
+  assert.deepEqual(calls.runtime, [{ fellowId: "alice", runtimeKind: "desktop-local" }]);
+  assert.equal(calls.respond.length, 1);
+  assert.deepEqual(calls.respond[0].runtimeConfig, {
+    model: "mia-pro",
+    effortLevel: "high",
+    permissionMode: "auto"
+  });
 });
 
 test("skips cloud runtime fellow rooms", async () => {

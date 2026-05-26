@@ -1231,29 +1231,51 @@ body.topbar-click-capture .topbar {
 }
 
 .contact-engine-badge {
-  display: inline-flex;
+  display: inline-grid;
+  grid-template-columns: 30px minmax(0, auto);
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   width: fit-content;
   max-width: 100%;
-  min-height: 24px;
-  padding: 3px 8px;
+  min-height: 40px;
+  padding: 5px 10px 5px 5px;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: 10px;
   background: var(--surface);
-  color: var(--muted);
-  font-size: 11px;
   line-height: 1;
 }
 
-.contact-engine-badge span {
-  color: var(--faint);
+.contact-engine-badge .contact-engine-logo {
+  width: 30px;
+  height: 30px;
 }
 
-.contact-engine-badge strong {
+.contact-engine-badge .contact-engine-logo::before {
+  width: 24px;
+  height: 24px;
+}
+
+.contact-engine-badge .contact-engine-logo img {
+  width: 25px;
+  height: 25px;
+}
+
+.contact-engine-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.contact-engine-copy small {
+  color: var(--faint);
+  font-size: 10px;
+  font-weight: 400;
+}
+
+.contact-engine-copy strong {
   overflow: hidden;
-  color: var(--accent);
-  font-size: 11px;
+  color: var(--text);
+  font-size: 12px;
   font-weight: 520;
   text-overflow: ellipsis;
   white-space: nowrap;

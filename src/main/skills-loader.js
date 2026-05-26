@@ -188,12 +188,44 @@ function createSkillsLoader(deps = {}) {
       ));
   }
 
+  // Writable private source: skills the user installed from the marketplace
+  // land here (under the runtime home, not the read-only bundle). Scanned
+  // like any source, and deletable because source === "mia".
+  function miaPrivateSkillSource() {
+    return {
+      id: "mia:private",
+      name: "mia",
+      label: "我的技能",
+      description: "从技能市场安装到本机的 Skill。",
+      source: "mia",
+      sourceLabel: "本机安装",
+      kind: "private-skill-source",
+      engine: "mia",
+      root: path.join(runtimePaths().home, "skills"),
+      idPrefix: "mia"
+    };
+  }
+
   function enumeratePlugins() {
-    const out = [];
+    const out = [miaPrivateSkillSource()];
     for (const source of readMiaOfficialSkillSources()) {
       out.push(source);
     }
     return out;
+  }
+
+  // Install a marketplace skill by writing its SKILL.md body into the
+  // private source. The cloud returns the full body (with frontmatter);
+  // we drop it at <home>/skills/<id>/SKILL.md so the next scan surfaces it.
+  async function installMarketplaceSkill(skill) {
+    if (!skill || !skill.id || !skill.body) {
+      throw new Error("installMarketplaceSkill: skill.id and skill.body required");
+    }
+    const safeId = String(skill.id).replace(/[^A-Za-z0-9._-]/g, "-").slice(0, 80) || "skill";
+    const skillDir = path.join(runtimePaths().home, "skills", safeId);
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(path.join(skillDir, "SKILL.md"), String(skill.body), "utf8");
+    return loadLocalSkills();
   }
 
   function readMiaOfficialSkillSources() {
@@ -436,6 +468,7 @@ function createSkillsLoader(deps = {}) {
     readLocalSkill,
     deleteLocalSkill,
     openLocalSkillDirectory,
+    installMarketplaceSkill,
     installMarketplacePlugin,
     // Used by chat-engine adapters
     expandLeadingSkillCommand,

@@ -796,6 +796,12 @@ function engineForRuntimeKind(runtimeKind) {
   return normalizeAgentEngine(kind);
 }
 
+function engineForRuntimeBinding(runtimeKind, binding) {
+  const config = binding?.config || {};
+  if (runtimeKind === "desktop-local" && config.agentEngine) return normalizeAgentEngine(config.agentEngine);
+  return engineForRuntimeKind(runtimeKind);
+}
+
 function runtimeCacheKey(fellowKey, runtimeKind) {
   return `${fellowKey}:${runtimeKind || "cloud-hermes"}`;
 }
@@ -827,7 +833,7 @@ async function loadPlatformModels() {
 }
 
 async function ensureFellowRuntime(fellowKey, runtimeKind = "cloud-hermes") {
-  if (!fellowKey || runtimeKind === "desktop-local") return null;
+  if (!fellowKey) return null;
   const key = runtimeCacheKey(fellowKey, runtimeKind);
   if (state.fellowRuntimeCache.has(key)) return state.fellowRuntimeCache.get(key);
   try {
@@ -842,9 +848,23 @@ async function ensureFellowRuntime(fellowKey, runtimeKind = "cloud-hermes") {
   }
 }
 
-function selectEntriesForModel(engine, runtimeKind) {
-  if (runtimeKind === "desktop-local") {
-    return [{ value: "desktop-local", label: "Desktop Local" }];
+function selectEntriesForModel(engine, runtimeKind, config = {}) {
+  if (runtimeKind === "desktop-local" && Array.isArray(config.modelEntries) && config.modelEntries.length) {
+    return config.modelEntries.map((entry) => ({
+      value: String(entry.value || entry.id || entry.model || ""),
+      model: String(entry.model || entry.value || entry.id || ""),
+      label: String(entry.label || entry.model || entry.value || entry.id || "Default")
+    })).filter((entry) => entry.value || entry.model);
+  }
+  if (runtimeKind === "desktop-local" && (engine === "claude-code" || engine === "codex")) {
+    return externalModelEntries(engine).map((entry) => ({
+      value: entry.model || entry.id,
+      model: entry.model,
+      label: entry.label || entry.model || entry.id
+    }));
+  }
+  if (runtimeKind === "desktop-local" && config.model) {
+    return [{ value: config.model, label: config.model, model: config.model }];
   }
   if (runtimeKind === "cloud-hermes" || engine === "hermes") {
     return state.platformModels.length
@@ -859,8 +879,15 @@ function selectEntriesForModel(engine, runtimeKind) {
 }
 
 function selectEntriesForPermission(engine, runtimeKind) {
+  if (runtimeKind === "desktop-local" && (engine === "claude-code" || engine === "codex")) {
+    return externalPermissionOptions(engine);
+  }
   if (runtimeKind === "desktop-local") {
-    return [{ value: "default", label: "Ask" }];
+    return [
+      { value: "ask", label: "Ask" },
+      { value: "yolo", label: "YOLO" },
+      { value: "deny", label: "Deny" }
+    ];
   }
   if (runtimeKind === "cloud-hermes" || engine === "hermes") {
     return [
@@ -907,21 +934,21 @@ function renderComposerControls(room = null) {
   const fellowKey = fellowKeyForRoom(room);
   const fellow = fellowByKey(fellowKey);
   const runtimeKind = runtimeKindForFellowRoom(room, fellow);
-  const engine = engineForRuntimeKind(runtimeKind);
   const binding = runtimeBindingFor(fellowKey, runtimeKind);
   const config = binding?.config || {};
-  const editable = Boolean(fellowKey && runtimeKind !== "desktop-local");
+  const engine = engineForRuntimeBinding(runtimeKind, binding);
+  const editable = Boolean(fellowKey);
 
-  const cloudModelEntries = selectEntriesForModel(engine, runtimeKind);
-  const modelValue = config.model || (runtimeKind === "desktop-local" ? "desktop-local" : cloudModelEntries[0]?.value || "mia-default");
-  const modelLabel = setSelectOptions(els.quickModelSelect, cloudModelEntries, modelValue, "Default");
+  const cloudModelEntries = selectEntriesForModel(engine, runtimeKind, config);
+  const modelValue = config.model || (runtimeKind === "desktop-local" && (engine === "claude-code" || engine === "codex") ? "default" : cloudModelEntries[0]?.value || "mia-default");
+  const modelLabel = setSelectOptions(els.quickModelSelect, cloudModelEntries, modelValue, config.model || "Default");
   if (els.quickModelLabel) els.quickModelLabel.textContent = modelLabel || "Default";
 
   const effort = config.effortLevel || "medium";
   const effortLabel = setSelectOptions(els.effortSelect, effortOptions(engine), effort, "Medium");
   if (els.effortLabel) els.effortLabel.textContent = effortLabel || "Medium";
 
-  const permission = config.permissionMode || (runtimeKind === "desktop-local" ? "default" : "ask");
+  const permission = config.permissionMode || (runtimeKind === "desktop-local" && (engine === "claude-code" || engine === "codex") ? "default" : "ask");
   const permissionLabel = setSelectOptions(els.permissionMode, selectEntriesForPermission(engine, runtimeKind), permission, "Ask");
   if (els.permissionLabel) els.permissionLabel.textContent = permissionLabel || "Ask";
   const permissionWrap = els.permissionMode?.closest?.(".permission-switcher");
@@ -931,7 +958,7 @@ function renderComposerControls(room = null) {
   if (els.quickModelSelect) els.quickModelSelect.disabled = !editable;
   if (els.effortSelect) els.effortSelect.disabled = !editable;
   if (els.permissionMode) els.permissionMode.disabled = !editable;
-  setModelSwitchStatus(runtimeKind === "desktop-local" ? "Desktop controls" : engineLabel(engine), editable);
+  setModelSwitchStatus(engineLabel(engine), editable);
 
   if (editable && !state.fellowRuntimeCache.has(runtimeCacheKey(fellowKey, runtimeKind))) {
     ensureFellowRuntime(fellowKey, runtimeKind).then(() => {
@@ -945,8 +972,8 @@ async function saveWebAiControl(kind, value) {
   if (roomTypeForControls(room) !== "fellow") return;
   const fellowKey = fellowKeyForRoom(room);
   const runtimeKind = runtimeKindForFellowRoom(room, fellowByKey(fellowKey));
-  if (!fellowKey || runtimeKind === "desktop-local") {
-    showToast("桌面端本地伙伴需要在桌面端切换模型设置。");
+  if (!fellowKey) {
+    showToast("当前对话没有可配置的 fellow。");
     renderComposerControls(room);
     return;
   }
@@ -958,14 +985,18 @@ async function saveWebAiControl(kind, value) {
     config: {}
   };
   const config = { ...(current.config || {}) };
-  if (kind === "model") config.model = value;
+  const engine = engineForRuntimeBinding(runtimeKind, current);
+  if (kind === "model") {
+    const entry = selectEntriesForModel(engine, runtimeKind, config).find((item) => item.value === value);
+    config.model = entry?.model ?? value;
+  }
   else if (kind === "effort") config.effortLevel = value;
   else if (kind === "permission") config.permissionMode = value;
   setModelSwitchStatus("保存中...", true);
   try {
     const data = await api(`/api/me/fellows/${encodeURIComponent(fellowKey)}/runtime`, {
       method: "PUT",
-      body: { runtimeKind, enabled: current.enabled !== false, config }
+      body: { runtimeKind, enabled: true, config }
     });
     state.fellowRuntimeCache.set(key, data?.binding || { ...current, config });
     renderComposerControls(room);

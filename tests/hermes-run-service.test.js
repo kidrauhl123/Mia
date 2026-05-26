@@ -68,6 +68,28 @@ test("buildRunPayload normalizes messages into Hermes run input, history, and me
   });
 });
 
+test("buildRunPayload applies per-turn runtime model and control metadata", () => {
+  const runs = service();
+  const payload = runs.buildRunPayload({
+    fellow: {
+      key: "alice",
+      name: "Alice"
+    },
+    sessionId: "s1",
+    model: "mia-pro",
+    effortLevel: "high",
+    permissionMode: "auto",
+    messages: [
+      { role: "system", content: "system one" },
+      { role: "user", content: "last" }
+    ]
+  });
+
+  assert.equal(payload.model, "mia-pro");
+  assert.equal(payload.metadata.effort_level, "high");
+  assert.equal(payload.metadata.permission_mode, "auto");
+});
+
 test("slashCommandText and lastUserPrompt share the same normalized message surface", () => {
   const runs = service();
   const messages = [

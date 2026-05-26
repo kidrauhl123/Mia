@@ -127,6 +127,39 @@ test("contacts merge local fellows with owned cloud fellows", () => {
   assert.match(appSource, /const contactKeys = new Set/);
 });
 
+test("contact detail shows engine logo and fellow device label", () => {
+  const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
+  const fellowManagerSource = fs.readFileSync(path.join(root, "src/renderer/fellow/fellow-manager.js"), "utf8");
+  const styleSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+
+  assert.match(mainSource, /function localDeviceName\(\)/);
+  assert.match(mainSource, /localDevice:\s*\{\s*name:\s*localDeviceName\(\)/);
+  assert.match(fellowManagerSource, /function fellowDeviceLabel\(fellow = \{\}\)/);
+  assert.match(fellowManagerSource, /function engineLogoHtml\(engine = ""\)/);
+  assert.match(fellowManagerSource, /engine-row-logo contact-engine-logo/);
+  assert.match(fellowManagerSource, /fellowDeviceLabel\(fellow\)/);
+  assert.doesNotMatch(fellowManagerSource, /"本地伙伴"/);
+  assert.match(styleSource, /\.contact-engine-badge \.contact-engine-logo/);
+});
+
+test("contact detail allows deleting owned cloud-only fellows", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const fellowManagerSource = fs.readFileSync(path.join(root, "src/renderer/fellow/fellow-manager.js"), "utf8");
+  const preloadSource = fs.readFileSync(path.join(root, "src/preload.js"), "utf8");
+  const channelSource = fs.readFileSync(path.join(root, "src/shared/ipc-channels.js"), "utf8");
+  const socialApiSource = fs.readFileSync(path.join(root, "src/main/social/social-api.js"), "utf8");
+  const socialIpcSource = fs.readFileSync(path.join(root, "src/main/social/social-ipc.js"), "utf8");
+
+  assert.doesNotMatch(appSource, /if \(!fellow \|\| fellow\.key === "mia"\) return;/);
+  assert.match(appSource, /if \(!fellow\.cloudOnly && fellow\.key === "mia"\) return;/);
+  assert.match(appSource, /window\.mia\.social\.deleteFellow\(fellow\.key\)/);
+  assert.match(fellowManagerSource, /const canDeleteFellow = fellow\.cloudOnly \|\| \(canEditLocalFellow && fellow\.key !== "mia"\);/);
+  assert.match(channelSource, /SocialDeleteFellow/);
+  assert.match(preloadSource, /deleteFellow: \(fellowId\) => ipcRenderer\.invoke\(IpcChannel\.SocialDeleteFellow, fellowId\)/);
+  assert.match(socialApiSource, /async deleteFellow\(fellowId\)/);
+  assert.match(socialIpcSource, /SocialDeleteFellow/);
+});
+
 test("renderer app state factory owns default mutable state", () => {
   const source = fs.readFileSync(path.join(root, "src/renderer/app-state.js"), "utf8");
   const localStorage = {

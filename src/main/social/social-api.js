@@ -73,6 +73,9 @@ function createSocialApi({ getSettings, normalizeUrl }) {
     async listFellows() {
       return jsonFetch({ ...ctx(), method: "GET", path: "/api/me/fellows" });
     },
+    async deleteFellow(fellowId) {
+      return jsonFetch({ ...ctx(), method: "DELETE", path: `/api/me/fellows/${encodeURIComponent(fellowId)}` });
+    },
     async listPlatformModels() {
       return jsonFetch({ ...ctx(), method: "GET", path: "/api/me/model-catalog" });
     },

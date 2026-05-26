@@ -106,7 +106,14 @@ test("bootstrapAfterLogin ensures local fellow rooms before listing rooms", asyn
   const s = loadSocial();
   const calls = [];
   s.initSocialModule({
-    getState: () => ({ runtime: { fellows: [{ key: "alice", name: "爱丽丝" }] } }),
+    getState: () => ({
+      runtime: {
+        model: { provider: "deepseek", model: "deepseek-chat" },
+        effort: { level: "high" },
+        permissions: { mode: "yolo" },
+        fellows: [{ key: "alice", name: "爱丽丝" }]
+      }
+    }),
     render: () => {},
     els: {},
     appendTransientChat: () => {}
@@ -120,6 +127,10 @@ test("bootstrapAfterLogin ensures local fellow rooms before listing rooms", asyn
       calls.push({ kind: "ensure", fellowId, body });
       return { ok: true, data: { room: { id: "fellow:u_1:alice", type: "fellow" } } };
     },
+    saveFellowRuntime: async (fellowId, body) => {
+      calls.push({ kind: "runtime", fellowId, body });
+      return { ok: true, data: { binding: { fellowId, ...body } } };
+    },
     listRooms: async () => {
       calls.push({ kind: "listRooms" });
       return { ok: true, data: { rooms: [{ id: "fellow:u_1:alice", type: "fellow", name: "爱丽丝" }] } };
@@ -129,9 +140,78 @@ test("bootstrapAfterLogin ensures local fellow rooms before listing rooms", asyn
 
   await s.bootstrapAfterLogin();
 
-  assert.deepEqual(calls.map((call) => call.kind), ["ensure", "listRooms"]);
+  assert.deepEqual(calls.map((call) => call.kind), ["ensure", "runtime", "listRooms"]);
   assert.equal(calls[0].fellowId, "alice");
   assert.deepEqual(JSON.parse(JSON.stringify(calls[0].body)), { title: "爱丽丝", runtimeKind: "desktop-local" });
+  assert.equal(calls[1].fellowId, "alice");
+  assert.deepEqual(JSON.parse(JSON.stringify(calls[1].body)), {
+    runtimeKind: "desktop-local",
+    enabled: true,
+    config: {
+      agentEngine: "hermes",
+      model: "deepseek-chat",
+      effortLevel: "high",
+      permissionMode: "yolo",
+      modelEntries: []
+    }
+  });
+});
+
+test("bootstrapAfterLogin syncs external fellow runtime config for web controls", async () => {
+  const s = loadSocial();
+  const calls = [];
+  s.__mockWindow.miaEngineContracts = require("../src/shared/engine-contracts.js");
+  s.__mockWindow.miaEngineOptions = {
+    externalModelEntries: () => [
+      { id: "default", model: "", label: "Codex 默认", provider: "codex" },
+      { id: "gpt-5.3-codex", model: "gpt-5.3-codex", label: "GPT-5.3 Codex", provider: "codex" }
+    ]
+  };
+  s.initSocialModule({
+    getState: () => ({
+      runtime: {
+        fellows: [{
+          key: "codex",
+          name: "Codex",
+          agentEngine: "codex",
+          engineConfig: { model: "gpt-5.3-codex", effortLevel: "xhigh", permissionMode: "readOnly" }
+        }]
+      }
+    }),
+    render: () => {},
+    els: {},
+    appendTransientChat: () => {}
+  });
+  s.__mockWindow.mia.social = {
+    myUsername: async () => ({ ok: true, data: { id: "u_1", username: "jung" } }),
+    listFriends: async () => ({ ok: true, data: { friends: [] } }),
+    listFriendRequests: async () => ({ ok: true, data: { requests: [] } }),
+    settingsGet: async () => ({}),
+    ensureFellowRoom: async (fellowId, body) => {
+      calls.push({ kind: "ensure", fellowId, body });
+      return { ok: true, data: { room: { id: "fellow:u_1:codex", type: "fellow" } } };
+    },
+    saveFellowRuntime: async (fellowId, body) => {
+      calls.push({ kind: "runtime", fellowId, body });
+      return { ok: true, data: { binding: { fellowId, ...body } } };
+    },
+    listRooms: async () => ({ ok: true, data: { rooms: [] } }),
+    listRoomMessages: async () => ({ ok: true, data: { messages: [] } })
+  };
+
+  await s.bootstrapAfterLogin();
+
+  assert.equal(calls[1].kind, "runtime");
+  assert.deepEqual(JSON.parse(JSON.stringify(calls[1].body.config)), {
+    agentEngine: "codex",
+    model: "gpt-5.3-codex",
+    effortLevel: "xhigh",
+    permissionMode: "readOnly",
+    modelEntries: [
+      { value: "default", label: "Codex 默认", model: "", provider: "codex", providerLabel: "" },
+      { value: "gpt-5.3-codex", label: "GPT-5.3 Codex", model: "gpt-5.3-codex", provider: "codex", providerLabel: "" }
+    ]
+  });
 });
 
 test("ensureFellowRoom upserts the ensured room into the sidebar cache", async () => {

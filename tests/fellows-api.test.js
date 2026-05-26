@@ -120,7 +120,11 @@ test("GET and PUT /api/me/fellows/:id/runtime roundtrip cloud AI controls", asyn
         config: {
           model: "hermes-agent",
           effortLevel: "high",
-          permissionMode: "auto"
+          permissionMode: "auto",
+          agentEngine: "codex",
+          modelEntries: [
+            { value: "gpt-5.3-codex", label: "GPT-5.3 Codex", model: "gpt-5.3-codex", provider: "codex", providerLabel: "Codex CLI" }
+          ]
         },
         clientOpId: "op_runtime_save"
       }
@@ -133,6 +137,10 @@ test("GET and PUT /api/me/fellows/:id/runtime roundtrip cloud AI controls", asyn
     assert.equal(got.status, 200);
     assert.equal(got.body.binding.config.model, "hermes-agent");
     assert.equal(got.body.binding.config.permissionMode, "auto");
+    assert.equal(got.body.binding.config.agentEngine, "codex");
+    assert.deepEqual(got.body.binding.config.modelEntries, [
+      { value: "gpt-5.3-codex", label: "GPT-5.3 Codex", model: "gpt-5.3-codex", provider: "codex", providerLabel: "Codex CLI" }
+    ]);
   } finally { await stopServer(ctx); }
 });
 

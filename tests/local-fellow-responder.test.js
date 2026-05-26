@@ -60,6 +60,24 @@ test("respond runs the local engine and posts the reply as the fellow", async ()
   }]);
 });
 
+test("respond forwards runtime config to the local chat engine", async () => {
+  const { responder, calls } = setup();
+  await responder.respond({
+    ...base,
+    runtimeConfig: {
+      model: "mia-pro",
+      effortLevel: "high",
+      permissionMode: "auto"
+    }
+  });
+
+  assert.deepEqual(calls.engine[0].runtimeConfig, {
+    model: "mia-pro",
+    effortLevel: "high",
+    permissionMode: "auto"
+  });
+});
+
 test("respond uses the same clientOpId for the same dedupKey", async () => {
   const first = setup();
   const second = setup();

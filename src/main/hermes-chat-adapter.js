@@ -70,7 +70,7 @@ function createHermesChatAdapter(deps = {}) {
     return runId;
   }
 
-  async function sendChat({ fellow, sessionId, messages, group, signal, emit }) {
+  async function sendChat({ fellow, sessionId, messages, group, signal, emit, runtimeConfig = null }) {
     // Tell the scheduler MCP which fellow/session this turn belongs to, so a
     // schedule_create call fires the reminder back into this conversation.
     const lastUserMessage = Array.isArray(messages)
@@ -82,7 +82,14 @@ function createHermesChatAdapter(deps = {}) {
     } catch (error) {
       appendEngineLog(`Scheduler MCP context write failed: ${error?.message || error}`);
     }
-    const runBody = buildRunPayload({ fellow, sessionId, messages });
+    const runBody = buildRunPayload({
+      fellow,
+      sessionId,
+      messages,
+      model: runtimeConfig?.model,
+      effortLevel: runtimeConfig?.effortLevel,
+      permissionMode: runtimeConfig?.permissionMode
+    });
     const headers = {
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey()}`,

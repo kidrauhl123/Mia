@@ -171,6 +171,88 @@
   font-size: 13px;
 }
 
+/* 顶栏标题 + 我的技能/探索发现 切换 */
+.skills-topbar-title {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+
+.skill-mode-toggle {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--field);
+}
+
+.skill-mode-toggle button {
+  padding: 5px 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 450;
+  cursor: pointer;
+}
+
+.skill-mode-toggle button.active {
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 560;
+  box-shadow: 0 1px 3px rgba(17, 24, 39, 0.08);
+}
+
+/* 市场卡片：标题行带「添加」按钮 */
+.market-card {
+  cursor: default;
+}
+
+.skill-card-titlerow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.skill-card-titlerow strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.skill-card-action {
+  flex: 0 0 auto;
+  padding: 5px 14px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.skill-card-action:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.skill-card-action:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.skill-card-action.installed {
+  background: transparent;
+  color: var(--faint);
+  font-weight: 450;
+  cursor: default;
+}
+
 /* 预览弹窗的 #skillPreviewMark 仍用 .skill-dot */
 .skill-dot {
   display: grid;

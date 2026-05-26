@@ -45,7 +45,8 @@ function createDeps(overrides = {}) {
         events: [{ event: "run.completed" }]
       };
     },
-    responseModel: "hermes-agent"
+    responseModel: "hermes-agent",
+    ...overrides
   };
   return deps;
 }
@@ -105,6 +106,44 @@ test("sendChat posts Hermes run with fellow and group headers", async () => {
   assert.deepEqual(emitted, [
     { kind: "complete", data: { finishReason: "stop", aborted: false } }
   ]);
+});
+
+test("sendChat passes runtime config into Hermes run payload builder", async () => {
+  const buildCalls = [];
+  const deps = createDeps({
+    buildRunPayload: (input) => {
+      buildCalls.push(input);
+      return {
+        model: input.model,
+        input: input.messages?.at(-1)?.content || "",
+        session_id: input.sessionId || "default",
+        account_id: input.fellow.key,
+        metadata: {
+          fellow_key: input.fellow.key,
+          effort_level: input.effortLevel,
+          permission_mode: input.permissionMode
+        }
+      };
+    }
+  });
+  const adapter = createHermesChatAdapter(deps);
+
+  await adapter.sendChat({
+    fellow,
+    sessionId: "s1",
+    messages: [{ role: "user", content: "hi" }],
+    runtimeConfig: {
+      model: "mia-pro",
+      effortLevel: "high",
+      permissionMode: "auto"
+    },
+    signal: null
+  });
+
+  assert.equal(buildCalls[0].model, "mia-pro");
+  assert.equal(buildCalls[0].effortLevel, "high");
+  assert.equal(buildCalls[0].permissionMode, "auto");
+  assert.equal(JSON.parse(deps.fetchCalls[0].options.body).model, "mia-pro");
 });
 
 test("sendChat writes scheduler MCP context for the current fellow/session", async () => {

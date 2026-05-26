@@ -51,6 +51,7 @@
       avatarImage: input.avatarImage || input.avatar_image || "",
       avatarCrop: input.avatarCrop || input.avatar_crop || null,
       agentEngine: input.agentEngine || input.agent_engine || input.engine || (normalizedCloudOnly ? "hermes" : undefined),
+      deviceName: input.deviceName || input.device_name || input.sourceDeviceName || input.source_device_name || input.hostname || "",
       cloudOnly: normalizedCloudOnly
     };
   }
@@ -125,7 +126,7 @@
     const last = [...messages].reverse().find((message) => String(message.content || "").trim() && !message.transient);
     const preview = last
       ? String(last.content || "")
-      : (fellow.bio || (fellow.cloudOnly ? "云端伙伴 · 暂无对话" : "本地伙伴 · 暂无对话"));
+      : `${fellowSubtitle(fellow)} · 暂无对话`;
     return {
       count: meaningful.length || sessions.length,
       preview,
@@ -197,6 +198,45 @@
     if (engine === "claude-code") return "Claude Code";
     if (engine === "codex") return "Codex";
     return "Hermes";
+  }
+
+  function engineLogoKind(engine = "") {
+    if (engine === "claude-code") return "claude";
+    if (engine === "codex") return "codex";
+    return "hermes";
+  }
+
+  function engineLogoHtml(engine = "") {
+    const kind = engineLogoKind(engine);
+    if (kind === "codex") {
+      return '<span class="engine-row-logo contact-engine-logo codex" aria-hidden="true"><img src="./assets/engine-icons/codex-color.svg" alt=""></span>';
+    }
+    return `<span class="engine-row-logo contact-engine-logo ${window.miaMarkdown.escapeHtml(kind)}" aria-hidden="true"></span>`;
+  }
+
+  function firstNonEmpty(...values) {
+    for (const value of values) {
+      const next = String(value || "").trim();
+      if (next) return next;
+    }
+    return "";
+  }
+
+  function fellowDeviceLabel(fellow = {}) {
+    const explicit = firstNonEmpty(
+      fellow.deviceName,
+      fellow.device_name,
+      fellow.sourceDeviceName,
+      fellow.source_device_name,
+      fellow.hostname
+    );
+    if (explicit) return explicit;
+    if (fellow.cloudOnly) return "云端伙伴";
+    return firstNonEmpty(state?.runtime?.localDevice?.name, state?.runtime?.cloud?.deviceName, state?.runtime?.relay?.deviceName, "当前设备");
+  }
+
+  function fellowSubtitle(fellow = {}) {
+    return firstNonEmpty(fellow.bio, fellow.description, fellowDeviceLabel(fellow));
   }
 
   function fellowCapabilityItems(fellow = {}) {
@@ -311,7 +351,7 @@
         <span class="avatar fellow-photo" style="${window.miaAvatar.avatarThumbBackgroundStyle(fellow.avatarImage || window.miaAvatar.avatarAssetForKey(fellow.key), fellow.avatarCrop, fellow.color || "#5e5ce6")}"></span>
         <span class="contact-row-main">
           <strong>${window.miaMarkdown.escapeHtml(fellow.name)}</strong>
-          <small>${window.miaMarkdown.escapeHtml(fellow.bio || (fellow.cloudOnly ? "云端伙伴" : "本地伙伴"))}</small>
+          <small>${window.miaMarkdown.escapeHtml(fellowSubtitle(fellow))}</small>
         </span>
         <span class="contact-row-side">${window.miaMarkdown.escapeHtml(summary.time || "")}</span>
       `;
@@ -336,6 +376,7 @@
     setText(els.contactPageTitle, fellow.name || "联系人");
     setText(els.contactPageMeta, fellow.cloudOnly ? "云端伙伴" : `${summary.count} 个会话`);
     const canEditLocalFellow = !fellow.cloudOnly;
+    const canDeleteFellow = fellow.cloudOnly || (canEditLocalFellow && fellow.key !== "mia");
     els.contactDetail.innerHTML = `
       <article class="contact-profile">
         <header class="contact-profile-head">
@@ -343,15 +384,18 @@
           <div class="contact-profile-title">
             <h2>${window.miaMarkdown.escapeHtml(fellow.name || "联系人")}</h2>
             <div class="contact-engine-badge" title="Agent 引擎">
-              <span>Agent</span>
-              <strong>${window.miaMarkdown.escapeHtml(engineLabel(engine))}</strong>
+              ${engineLogoHtml(engine)}
+              <span class="contact-engine-copy">
+                <small>Agent</small>
+                <strong>${window.miaMarkdown.escapeHtml(engineLabel(engine))}</strong>
+              </span>
             </div>
-            <p>${window.miaMarkdown.escapeHtml(fellow.bio || (fellow.cloudOnly ? "云端伙伴" : "本地伙伴"))}</p>
+            <p>${window.miaMarkdown.escapeHtml(fellowSubtitle(fellow))}</p>
           </div>
           <div class="contact-actions">
             <button class="primary contact-message-action" type="button" data-contact-action="message" title="发消息" aria-label="发消息">${window.miaMarkdown.iconParkIcon("message", "contact-action-icon")}</button>
             ${canEditLocalFellow ? `<button class="secondary" type="button" data-contact-action="edit">编辑</button>` : ""}
-            ${canEditLocalFellow && fellow.key !== "mia" ? `<button class="secondary danger" type="button" data-contact-action="delete">删除伙伴</button>` : ""}
+            ${canDeleteFellow ? `<button class="secondary danger" type="button" data-contact-action="delete">删除伙伴</button>` : ""}
           </div>
         </header>
         <section class="contact-note">
@@ -458,6 +502,7 @@
     menu.classList.toggle("hidden", !open);
     if (!open) return;
     const pet = petStatusForKey(fellow.key);
+    const canDeleteFellow = fellow.cloudOnly || fellow.key !== "mia";
     const petAction = pet.hasAsset
       ? pet.placed
         ? window.miaMarkdown.menuItemHtml({ icon: "message", label: `收回「${fellow.name}」`, attrs: 'data-fellow-action="recall"' })
@@ -467,11 +512,11 @@
       ${window.miaMarkdown.menuItemHtml({ icon: "pin", label: fellow.pinned ? "取消置顶" : "置顶", attrs: 'data-fellow-action="pin"' })}
       ${window.miaMarkdown.menuItemHtml({ icon: "edit", label: "编辑", attrs: 'data-fellow-action="edit"' })}
       ${petAction}
-      ${fellow.key === "mia" ? "" : `<div class="skill-context-menu-separator" role="separator"></div>${window.miaMarkdown.menuItemHtml({ icon: "delete", label: "删除伙伴", attrs: 'data-fellow-action="delete"', className: "danger" })}`}
+      ${canDeleteFellow ? `<div class="skill-context-menu-separator" role="separator"></div>${window.miaMarkdown.menuItemHtml({ icon: "delete", label: "删除伙伴", attrs: 'data-fellow-action="delete"', className: "danger" })}` : ""}
     `;
     const rect = menu.getBoundingClientRect();
     const width = rect.width || 138;
-    const height = rect.height || (fellow.key === "mia" ? 114 : 158);
+    const height = rect.height || (canDeleteFellow ? 158 : 114);
     menu.style.left = `${Math.max(8, Math.min(state.fellowContextMenu.x, window.innerWidth - width - 8))}px`;
     menu.style.top = `${Math.max(8, Math.min(state.fellowContextMenu.y, window.innerHeight - height - 8))}px`;
     menu.querySelector('[data-fellow-action="edit"]')?.addEventListener("click", () => {
@@ -517,6 +562,9 @@
     engineLabel,
     fellowCapabilityItems,
     capabilityChecked,
+    fellowDeviceLabel,
+    fellowSubtitle,
+    engineLogoHtml,
     renderCapabilityCheckbox,
     renderFellowCapabilitiesPanel,
     renderContacts,

@@ -18,6 +18,8 @@ test("main routes cloud room AI events to main-process responders", () => {
   assert.match(main, /createLocalFellowResponder/);
   assert.match(main, /createMainGroupConductor/);
   assert.match(main, /createMainFellowRoomResponder/);
+  assert.match(main, /getFellowRuntime:\s*async\s*\(fellowId,\s*runtimeKind\)/);
+  assert.match(main, /socialApi\.getFellowRuntime\(fellowId,\s*runtimeKind\)/);
   assert.match(main, /sendChat,\s*\n\s*postRoomMessageAsFellow/s);
   assert.match(
     routedSource,

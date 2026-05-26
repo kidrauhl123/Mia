@@ -109,6 +109,7 @@ const els = {
   chat: document.getElementById("chat"),
   skillSearch: document.getElementById("skillSearch"),
   skillPageTitle: document.getElementById("skillPageTitle"),
+  skillModeToggle: document.getElementById("skillModeToggle"),
   skillChipRow: document.getElementById("skillChipRow"),
   skillCardGrid: document.getElementById("skillCardGrid"),
   skillPreviewDialog: document.getElementById("skillPreviewDialog"),
@@ -1484,12 +1485,26 @@ async function setFellowMuted(fellowKey, muted) {
 
 async function deleteFellow(fellowKey) {
   const fellow = window.miaFellowManager.fellowByKey(fellowKey);
-  if (!fellow || fellow.key === "mia") return;
-  const ok = window.confirm(`删除「${fellow.name || fellow.key}」？\n\n这会移除该伙伴、人设文件和本地会话记录。`);
+  if (!fellow) return;
+  if (!fellow.cloudOnly && fellow.key === "mia") return;
+  const detail = fellow.cloudOnly
+    ? "这会从云端联系人里移除该伙伴。"
+    : "这会移除该伙伴、人设文件和本地会话记录。";
+  const ok = window.confirm(`删除「${fellow.name || fellow.key}」？\n\n${detail}`);
   if (!ok) return;
   try {
-    state.runtime = await window.mia.deleteFellow({ key: fellow.key });
-    await loadChatSessions();
+    if (fellow.cloudOnly) {
+      const result = await window.mia.social.deleteFellow(fellow.key);
+      if (result && result.ok === false) throw new Error(result.error || "删除云端伙伴失败");
+      if (window.miaSocial?.moduleState) {
+        window.miaSocial.moduleState.fellows = window.miaSocial.moduleState.fellows
+          .filter((item) => String(item?.key || item?.id || "") !== fellow.key);
+      }
+      await window.miaSocial?.bootstrapAfterLogin?.();
+    } else {
+      state.runtime = await window.mia.deleteFellow({ key: fellow.key });
+      await loadChatSessions();
+    }
     const fellows = state.runtime?.fellows || state.runtime?.personas || [];
     const next = fellows[0]?.key || "mia";
     if (!fellows.some((item) => item.key === state.activeKey)) state.activeKey = next;
@@ -1903,6 +1918,12 @@ function cloudHermesPermissionEntries() {
   ];
 }
 
+function syncLocalFellowRuntimeBindingsSoon() {
+  if (typeof window.miaSocial?.syncLocalFellowRuntimeBindings !== "function") return;
+  window.miaSocial.syncLocalFellowRuntimeBindings()
+    .catch((error) => console.warn("[renderer] desktop-local runtime sync failed:", error?.message || error));
+}
+
 function setComposerSelectOptions(select, entries, selectedValue) {
   if (!select) return "";
   const normalized = (Array.isArray(entries) ? entries : [])
@@ -1993,7 +2014,7 @@ async function saveActiveCloudFellowRuntimeConfig(patch, pendingText, successTex
     };
     const response = await window.mia.social.saveFellowRuntime(context.fellowKey, {
       runtimeKind: context.runtimeKind,
-      enabled: current.enabled !== false,
+      enabled: true,
       config: { ...(current.config || {}), ...patch }
     });
     if (!response?.ok) throw new Error(response?.error || "保存云端运行配置失败");
@@ -3011,6 +3032,7 @@ els.quickModelSelect?.addEventListener("change", async () => {
           model: entry.model || ""
         }
       });
+      syncLocalFellowRuntimeBindingsSoon();
       setText(els.modelSwitchStatus, "模型已更新");
       render();
     } catch (error) {
@@ -3036,6 +3058,7 @@ els.quickModelSelect?.addEventListener("change", async () => {
       providerLabel: entry.providerLabel,
       authType: entry.authType
     });
+    syncLocalFellowRuntimeBindingsSoon();
     window.miaModelSettings.applyModelEntryToFields(entry);
     setText(els.modelSwitchStatus, "已切换");
     const auth = window.miaModelSettings.modelAuthCopy(entry, state.runtime);
@@ -3077,6 +3100,7 @@ els.effortSelect?.addEventListener("change", async () => {
           effortLevel: level
         }
       });
+      syncLocalFellowRuntimeBindingsSoon();
       window.miaModelSettings.syncEffortControl(state.runtime);
       setText(els.modelSwitchStatus, "推理强度已更新");
       render();
@@ -3093,6 +3117,7 @@ els.effortSelect?.addEventListener("change", async () => {
   els.effortSelect.disabled = true;
   try {
     state.runtime = await window.mia.saveEffort({ level });
+    syncLocalFellowRuntimeBindingsSoon();
     window.miaModelSettings.syncEffortControl(state.runtime);
     setText(els.modelSwitchStatus, "推理强度已更新");
     render();
@@ -3129,6 +3154,7 @@ els.permissionMode?.addEventListener("change", async () => {
           permissionMode: mode
         }
       });
+      syncLocalFellowRuntimeBindingsSoon();
       window.miaModelSettings.syncPermissionControl(state.runtime);
       setText(els.modelSwitchStatus, "权限已更新");
       render();
@@ -3146,6 +3172,7 @@ els.permissionMode?.addEventListener("change", async () => {
   els.permissionMode.disabled = true;
   try {
     state.runtime = await window.mia.savePermissions({ mode });
+    syncLocalFellowRuntimeBindingsSoon();
     window.miaModelSettings.syncPermissionControl(state.runtime);
     setText(els.modelSwitchStatus, "权限已更新");
     render();

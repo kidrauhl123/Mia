@@ -538,6 +538,40 @@ function normalizeAdminModelInput(input = {}) {
   };
 }
 
+function sanitizeRuntimeModelEntries(entries) {
+  if (!Array.isArray(entries)) return [];
+  return entries.slice(0, 80)
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return null;
+      const value = String(entry.value || entry.id || entry.model || "").trim().slice(0, 160);
+      const model = String(entry.model || value || "").trim().slice(0, 160);
+      const label = String(entry.label || entry.name || model || value || "").trim().slice(0, 160);
+      if (!value && !model) return null;
+      return {
+        value: value || model,
+        label: label || value || model,
+        model,
+        provider: String(entry.provider || "").trim().slice(0, 80),
+        providerLabel: String(entry.providerLabel || entry.provider_label || "").trim().slice(0, 120)
+      };
+    })
+    .filter(Boolean);
+}
+
+function sanitizeRuntimeConfig(inputConfig = {}) {
+  const input = inputConfig && typeof inputConfig === "object" ? inputConfig : {};
+  const config = {
+    model: String(input.model || "").trim().slice(0, 160),
+    effortLevel: String(input.effortLevel || "medium").trim().slice(0, 40),
+    permissionMode: String(input.permissionMode || "ask").trim().slice(0, 80)
+  };
+  const agentEngine = String(input.agentEngine || input.agent_engine || "").trim().slice(0, 80);
+  if (agentEngine) config.agentEngine = agentEngine;
+  const modelEntries = sanitizeRuntimeModelEntries(input.modelEntries || input.model_entries);
+  if (modelEntries.length) config.modelEntries = modelEntries;
+  return config;
+}
+
 async function listLiteLLMModels(context) {
   const info = await litellmRequest(context, "/model/info");
   const rows = Array.isArray(info?.data) ? info.data : [];
@@ -1763,8 +1797,9 @@ async function handleRequest(req, res, context) {
     }
 
     // GET/PUT /api/me/fellows/:id/runtime — web-side AI private chat controls.
-    // Desktop-local fellows keep their runtime settings on the desktop; this
-    // endpoint owns cloud runtime bindings such as cloud-hermes.
+    // Runtime bindings are stored per runtimeKind. cloud-hermes is consumed by
+    // the cloud worker; desktop-local is consumed by the user's desktop app
+    // when it answers a synced fellow room.
     const fellowRuntimeMatch = url.pathname.match(/^\/api\/me\/fellows\/([A-Za-z0-9_.-]+)\/runtime$/);
     if (req.method === "GET" && fellowRuntimeMatch) {
       const fellowId = fellowRuntimeMatch[1];
@@ -1786,12 +1821,7 @@ async function handleRequest(req, res, context) {
       const fellow = context.fellowsStore.getFellow(auth.user.id, fellowId);
       if (!fellow) return writeError(res, 404, "fellow not found");
       const runtimeKind = String(body.runtimeKind || "cloud-hermes").trim() || "cloud-hermes";
-      const inputConfig = body.config && typeof body.config === "object" ? body.config : {};
-      const config = {
-        model: String(inputConfig.model || "").trim().slice(0, 120),
-        effortLevel: String(inputConfig.effortLevel || "medium").trim().slice(0, 40),
-        permissionMode: String(inputConfig.permissionMode || "ask").trim().slice(0, 80)
-      };
+      const config = sanitizeRuntimeConfig(body.config);
       const binding = context.runtimeBindingsStore.upsertBinding({
         userId: auth.user.id,
         fellowId,

@@ -38,10 +38,17 @@ function formatRecentMessages(messages) {
     .join("\n");
 }
 
+function normalizeRuntimeBinding(result) {
+  const binding = result?.binding || result?.data?.binding || result;
+  if (!binding || typeof binding !== "object") return null;
+  return binding;
+}
+
 function createMainFellowRoomResponder({
   getCurrentUserId,
   getRoomDetails,
   listRecentMessages,
+  getFellowRuntime = async () => null,
   responder,
   log = () => {}
 }) {
@@ -76,7 +83,8 @@ function createMainFellowRoomResponder({
 
       const room = details?.room || details;
       if (inferRoomType(room) !== "fellow") return;
-      if (room?.decorations?.runtimeKind && room.decorations.runtimeKind !== "desktop-local") return;
+      const runtimeKind = String(room?.decorations?.runtimeKind || "").trim() || "desktop-local";
+      if (runtimeKind !== "desktop-local") return;
       const members = Array.isArray(details?.members) ? details.members : [];
       const fellowId = fellowIdForRoom(room, members, currentUserId);
       if (!fellowId) return;
@@ -89,10 +97,18 @@ function createMainFellowRoomResponder({
 
       const sinceSeq = Math.max(0, Number(message.seq || 0) - 6);
       const recentMessages = normalizeMessages(await listRecentMessages(roomId, sinceSeq, 6));
+      let runtimeConfig = {};
+      try {
+        const binding = normalizeRuntimeBinding(await getFellowRuntime(fellowId, runtimeKind));
+        runtimeConfig = binding?.enabled !== false && binding?.config && typeof binding.config === "object" ? binding.config : {};
+      } catch (error) {
+        log(`[main-fellow-room-responder] get runtime failed: ${error?.message || error}`);
+      }
       const didRespond = await responder.respond({
         roomId,
         fellowId,
         dedupKey: `${message.id}:${fellowId}`,
+        runtimeConfig,
         systemPrompt: [
           `你是 ${fellowId}，正在和用户进行一对一私聊。`,
           "最近消息上下文：",

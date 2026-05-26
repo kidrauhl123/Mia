@@ -97,6 +97,12 @@ const MOBILE_ASSET_VERSION = "mobile-slash-commands-1";
 const MIA_CLOUD_DEFAULT_URL = process.env.MIA_CLOUD_URL || "https://aiweb.buytb01.com";
 const IS_DAEMON_PROCESS = process.argv.includes("--daemon") || process.env.MIA_DAEMON === "1";
 const ALLOW_MULTIPLE_INSTANCES = process.env.MIA_ALLOW_MULTIPLE_INSTANCES === "1";
+
+function localDeviceName() {
+  const hostname = String(os.hostname() || "").trim();
+  return hostname ? `${hostname} Mia Desktop` : "Mia Desktop";
+}
+
 let shouldRunDesktopInstance = true;
 if (!IS_DAEMON_PROCESS && !ALLOW_MULTIPLE_INSTANCES) {
   const singleInstanceLock = app.requestSingleInstanceLock();
@@ -573,6 +579,11 @@ function getRuntimeStatus(created = []) {
     engineServiceLabel: MIA_GATEWAY_SERVICE_LABEL,
     engineLastError: engineState.lastError,
     engineLogs: engineState.logs.slice(-80),
+    localDevice: {
+      name: localDeviceName(),
+      hostname: String(os.hostname() || "").trim(),
+      role: "desktop"
+    },
     daemon: getDaemonStatus(),
     relay: relayStatus(false),
     cloud: cloudStatus(false),
@@ -1063,7 +1074,7 @@ function cloudEventsUrl(settings = settingsStore.cloudSettings()) {
 
 function cloudBridgeUrl(settings = settingsStore.cloudSettings()) {
   const url = cloudWebSocketUrl("/api/bridge", settings);
-  url.searchParams.set("deviceName", `${os.hostname()} Mia Desktop`);
+  url.searchParams.set("deviceName", localDeviceName());
   url.searchParams.set("engine", "codex");
   url.searchParams.set("capabilities", JSON.stringify({
     chat: true,
@@ -1364,7 +1375,30 @@ function createActiveChatEngineAdapters() {
   });
 }
 
-async function sendChat({ fellowKey, personaKey, sessionId, messages, group, webContents, utility = false, allowSlashCommands = true }) {
+function normalizeTurnRuntimeConfig(runtimeConfig = null) {
+  if (!runtimeConfig || typeof runtimeConfig !== "object") return {};
+  const config = {};
+  const model = String(runtimeConfig.model || "").trim();
+  const effortLevel = String(runtimeConfig.effortLevel || "").trim();
+  const permissionMode = String(runtimeConfig.permissionMode || "").trim();
+  if (model) config.model = model;
+  if (effortLevel) config.effortLevel = effortLevel;
+  if (permissionMode) config.permissionMode = permissionMode;
+  return config;
+}
+
+function fellowWithRuntimeConfig(fellow, runtimeConfig = {}) {
+  if (!runtimeConfig || !Object.keys(runtimeConfig).length) return fellow;
+  return {
+    ...fellow,
+    engineConfig: {
+      ...(fellow.engineConfig || fellow.engine_config || {}),
+      ...runtimeConfig
+    }
+  };
+}
+
+async function sendChat({ fellowKey, personaKey, sessionId, messages, group, webContents, utility = false, allowSlashCommands = true, runtimeConfig = null }) {
   utility = Boolean(utility);
   let abortController;
   if (group || utility) {
@@ -1386,20 +1420,22 @@ async function sendChat({ fellowKey, personaKey, sessionId, messages, group, web
     const manifest = loadFellowManifest();
     const key = fellowKey || personaKey;
     const { fellow } = requireFellow(manifest, key, "还没有可用的 fellow，请先在引导里创建一个再发起对话。");
-    const chatEngine = resolveChatEngineAdapter(fellow);
+    const turnRuntimeConfig = normalizeTurnRuntimeConfig(runtimeConfig);
+    const fellowForTurn = fellowWithRuntimeConfig(fellow, turnRuntimeConfig);
+    const chatEngine = resolveChatEngineAdapter(fellowForTurn);
     const agentEngine = chatEngine.id;
     const shouldNotifyPet = !utility && !String(sessionId || "").startsWith("title:");
     const completeWithPetMessage = (response) => {
-      if (shouldNotifyPet) fellowPetService.notifyMessage(fellow.key, responseMessageContent(response));
+      if (shouldNotifyPet) fellowPetService.notifyMessage(fellowForTurn.key, responseMessageContent(response));
       return response;
     };
     if (emit) {
-      emit("session_started", { fellowKey: fellow.key, engine: agentEngine });
+      emit("session_started", { fellowKey: fellowForTurn.key, engine: agentEngine });
     }
     const slashText = allowSlashCommands ? hermesRunService.slashCommandText(messages) : "";
     const response = await sendWithChatEngineAdapter(createActiveChatEngineAdapters(), {
       chatEngine,
-      fellow,
+      fellow: fellowForTurn,
       sessionId,
       messages,
       group,
@@ -1407,7 +1443,8 @@ async function sendChat({ fellowKey, personaKey, sessionId, messages, group, web
       abortController,
       emit,
       utility,
-      slashText
+      slashText,
+      runtimeConfig: turnRuntimeConfig
     });
     return completeWithPetMessage(response);
   } catch (error) {
@@ -1766,6 +1803,10 @@ const mainFellowRoomResponder = createMainFellowRoomResponder({
     const data = await socialApi.listRoomMessages(roomId, sinceSeq, limit);
     return data?.messages || [];
   },
+  getFellowRuntime: async (fellowId, runtimeKind) => {
+    const data = await socialApi.getFellowRuntime(fellowId, runtimeKind);
+    return data?.binding || null;
+  },
   responder: localFellowResponder,
   log: (line) => appendCloudLog(line)
 });
@@ -1832,6 +1873,13 @@ ipcMain.handle(IpcChannel.PluginsInstall, (_event, extensionId) => skillsLoader.
 ipcMain.handle(IpcChannel.SkillsRead, (_event, skillId) => skillsLoader.readLocalSkill(skillId));
 ipcMain.handle(IpcChannel.SkillsDelete, (_event, skillId) => skillsLoader.deleteLocalSkill(skillId));
 ipcMain.handle(IpcChannel.SkillsOpenDirectory, (_event, skillId) => skillsLoader.openLocalSkillDirectory(skillId));
+ipcMain.handle(IpcChannel.SkillsMarketList, (_event, params) => cloudDesktopSync().listMarketSkills(params || {}));
+ipcMain.handle(IpcChannel.SkillsMarketInstall, async (_event, skillId) => {
+  const skill = await cloudDesktopSync().installMarketSkill(skillId);
+  if (!skill) throw new Error("技能不存在或安装失败。");
+  const library = await skillsLoader.installMarketplaceSkill(skill);
+  return { skill, library };
+});
 ipcMain.handle(IpcChannel.PermissionsSave, async (_event, settings) => {
   settingsStore.writePermissionSettings(settings);
   return getRuntimeStatus();

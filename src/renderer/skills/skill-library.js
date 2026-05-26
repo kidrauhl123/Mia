@@ -95,32 +95,15 @@
     `;
   }
 
-  function renderSkillLibrary() {
-    if (!state || !els || !els.skillChipRow || !els.skillCardGrid) return;
-    setText(els.skillPageTitle, state.skillsLoading ? "正在扫描能力" : "技能");
-
-    const categories = skillCategories();
+  function renderChips(entries) {
     els.skillChipRow.innerHTML = [
       `<button class="${state.skillCategoryFilter ? "" : "active"}" type="button" data-skill-filter="">全部</button>`,
-      ...categories.slice(0, 12).map(([category, count]) => `
+      ...entries.slice(0, 12).map(([category, count]) => `
         <button class="${state.skillCategoryFilter === category ? "active" : ""}" type="button" data-skill-filter="${escapeHtml(category)}">
           ${escapeHtml(category)} <span>${count}</span>
         </button>
       `)
     ].join("");
-
-    const shown = visibleSkills();
-    els.skillCardGrid.innerHTML = shown.length
-      ? shown.map((skill) => renderSkillCard(skill)).join("")
-      : `<div class="skill-empty-state">${skillEmptyText()}</div>`;
-
-    els.skillCardGrid.querySelectorAll("[data-skill-select]").forEach((card) => {
-      card.addEventListener("click", () => selectSkill(card.dataset.skillSelect));
-      card.addEventListener("contextmenu", (event) => {
-        event.preventDefault();
-        openSkillContextMenu(card.dataset.skillSelect, event.clientX, event.clientY);
-      });
-    });
     els.skillChipRow.querySelectorAll("[data-skill-filter]").forEach((button) => {
       button.addEventListener("click", () => {
         state.skillCategoryFilter = button.dataset.skillFilter || "";
@@ -128,7 +111,51 @@
         renderSkillLibrary();
       });
     });
+  }
+
+  function renderModeToggle() {
+    if (!els.skillModeToggle) return;
+    const market = !!state.skillMarketMode;
+    els.skillModeToggle.innerHTML = `
+      <button class="${market ? "" : "active"}" type="button" role="tab" data-skill-mode="mine">我的技能</button>
+      <button class="${market ? "active" : ""}" type="button" role="tab" data-skill-mode="market">探索发现</button>
+    `;
+    els.skillModeToggle.querySelectorAll("[data-skill-mode]").forEach((button) => {
+      button.addEventListener("click", () => switchSkillMode(button.dataset.skillMode === "market"));
+    });
+  }
+
+  function switchSkillMode(toMarket) {
+    if (!!state.skillMarketMode === !!toMarket) return;
+    state.skillMarketMode = !!toMarket;
+    state.skillCategoryFilter = "";
+    closeSkillContextMenu();
+    renderSkillLibrary();
+    if (toMarket && !state.skillMarket.loaded && !state.skillMarket.loading) loadMarketSkills();
+  }
+
+  function renderSkillLibrary() {
+    if (!state || !els || !els.skillChipRow || !els.skillCardGrid) return;
+    renderModeToggle();
+    if (state.skillMarketMode) renderMarketView();
+    else renderLocalView();
     renderSkillContextMenu();
+  }
+
+  function renderLocalView() {
+    setText(els.skillPageTitle, state.skillsLoading ? "正在扫描能力" : "技能");
+    renderChips(skillCategories());
+    const shown = visibleSkills();
+    els.skillCardGrid.innerHTML = shown.length
+      ? shown.map((skill) => renderSkillCard(skill)).join("")
+      : `<div class="skill-empty-state">${skillEmptyText()}</div>`;
+    els.skillCardGrid.querySelectorAll("[data-skill-select]").forEach((card) => {
+      card.addEventListener("click", () => selectSkill(card.dataset.skillSelect));
+      card.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        openSkillContextMenu(card.dataset.skillSelect, event.clientX, event.clientY);
+      });
+    });
   }
 
   function renderSkillPreview() {
@@ -197,6 +224,122 @@
     });
   }
 
+  // ---- Marketplace (探索发现) ----
+
+  function cloudSignedIn() {
+    return Boolean(state.runtime?.cloud?.enabled);
+  }
+
+  function marketSkillInstalled(skill) {
+    return (state.skillLibrary.skills || []).some((local) => local.name === skill.name);
+  }
+
+  function formatInstallCount(n) {
+    const value = Number(n) || 0;
+    if (value <= 0) return "";
+    if (value >= 10000) return `${(value / 10000).toFixed(1).replace(/\.0$/, "")}万人添加`;
+    return `${value} 人添加`;
+  }
+
+  function marketCategoryEntries() {
+    return (state.skillMarket.categories || []).map((entry) => [entry.category, entry.count]);
+  }
+
+  function visibleMarketSkills() {
+    const needle = state.skillFilter.trim().toLowerCase();
+    const category = state.skillCategoryFilter.trim();
+    return (state.skillMarket.skills || []).filter((skill) => {
+      if (category && String(skill.category || "") !== category) return false;
+      if (!needle) return true;
+      return [skill.name, skill.description, skill.sourceLabel, skill.category]
+        .join(" ").toLowerCase().includes(needle);
+    });
+  }
+
+  function renderMarketCard(skill) {
+    const tone = window.miaSkillHelpers.skillTone(skill);
+    const initials = window.miaSkillHelpers.skillInitials(skill.name);
+    const installed = marketSkillInstalled(skill);
+    const installing = state.installingSkillIds.has(skill.id);
+    const action = installed
+      ? `<span class="skill-card-action installed">已添加</span>`
+      : `<button class="skill-card-action" type="button" data-skill-install="${escapeHtml(skill.id)}"${installing ? " disabled" : ""}>${installing ? "…" : "添加"}</button>`;
+    const meta = [skill.sourceLabel, formatInstallCount(skill.installCount)].filter(Boolean).join(" · ");
+    return `
+      <article class="skill-card market-card" data-market-id="${escapeHtml(skill.id)}">
+        <span class="skill-card-icon ${escapeHtml(tone)}" aria-hidden="true">${escapeHtml(initials)}</span>
+        <div class="skill-card-head">
+          <div class="skill-card-titlerow">
+            <strong>${escapeHtml(skill.name)}</strong>
+            ${action}
+          </div>
+          <p>${escapeHtml(skill.description || "")}</p>
+        </div>
+        <span class="skill-card-source">${escapeHtml(meta)}</span>
+      </article>
+    `;
+  }
+
+  function renderMarketView() {
+    setText(els.skillPageTitle, "探索发现");
+    renderChips(marketCategoryEntries());
+    if (!cloudSignedIn()) {
+      els.skillCardGrid.innerHTML = `<div class="skill-empty-state">登录 Mia Cloud 后即可浏览技能市场。</div>`;
+      return;
+    }
+    if (state.skillMarket.loading) {
+      els.skillCardGrid.innerHTML = `<div class="skill-empty-state">正在加载技能市场...</div>`;
+      return;
+    }
+    const shown = visibleMarketSkills();
+    els.skillCardGrid.innerHTML = shown.length
+      ? shown.map((skill) => renderMarketCard(skill)).join("")
+      : `<div class="skill-empty-state">没有匹配的技能</div>`;
+    els.skillCardGrid.querySelectorAll("[data-skill-install]").forEach((button) => {
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        installMarketSkill(button.dataset.skillInstall);
+      });
+    });
+  }
+
+  async function loadMarketSkills() {
+    if (!state || !window.mia?.marketSkills) return;
+    state.skillMarket.loading = true;
+    renderSkillLibrary();
+    try {
+      const data = await window.mia.marketSkills({});
+      state.skillMarket.skills = Array.isArray(data?.skills) ? data.skills : [];
+      state.skillMarket.categories = Array.isArray(data?.categories) ? data.categories : [];
+      state.skillMarket.loaded = true;
+    } catch (error) {
+      console.error("Failed to load skill market", error);
+      state.skillMarket.skills = [];
+    } finally {
+      state.skillMarket.loading = false;
+      renderSkillLibrary();
+    }
+  }
+
+  async function installMarketSkill(skillId) {
+    if (!skillId || !state || state.installingSkillIds.has(skillId)) return;
+    state.installingSkillIds.add(skillId);
+    renderSkillLibrary();
+    try {
+      const result = await window.mia.installMarketSkill(skillId);
+      if (result?.library) state.skillLibrary = result.library;
+      const entry = state.skillMarket.skills.find((skill) => skill.id === skillId);
+      if (entry && result?.skill) entry.installCount = result.skill.installCount;
+    } catch (error) {
+      console.error("Failed to install skill", error);
+      window.alert(`安装失败：${error?.message || error}`);
+    } finally {
+      state.installingSkillIds.delete(skillId);
+      renderSkillLibrary();
+    }
+  }
+
   window.miaSkillLibrary = {
     initSkillLibrary,
     skillMatchesFilters,
@@ -210,5 +353,8 @@
     openSkillContextMenu,
     closeSkillContextMenu,
     renderSkillContextMenu,
+    switchSkillMode,
+    loadMarketSkills,
+    installMarketSkill,
   };
 })();
