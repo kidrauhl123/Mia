@@ -29,6 +29,7 @@
     "cloud:install:verify": "MIA_INSTALL_VERIFY_ONLY=1 bash scripts/install-cloud-release-local.sh dist/mia-cloud-release.tgz",
     "cloud:doctor": "node scripts/doctor-cloud.js",
     "cloud:smoke": "node scripts/smoke-cloud.js",
+    "cloud:skills:sync": "node scripts/sync-cloud-skills.js",
     "cloud:smoke:account": "node scripts/prepare-cloud-smoke-account.js",
     "desktop:permission-smoke": "node scripts/smoke-desktop-permission.js",
     "bridge": "node scripts/local-agent-bridge.js",

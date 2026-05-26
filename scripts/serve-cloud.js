@@ -41,11 +41,11 @@ try {
 } catch {
   ({ createSkillsStore } = require("./src/cloud/skills-store.js"));
 }
-let SKILLS_SEED = [];
+let loadSkillsCatalog = () => [];
 try {
-  ({ SKILLS_SEED } = require("../src/cloud/skills-seed.js"));
+  ({ loadSkillsCatalog } = require("../src/cloud/skills-catalog.js"));
 } catch {
-  ({ SKILLS_SEED } = require("./src/cloud/skills-seed.js"));
+  ({ loadSkillsCatalog } = require("./src/cloud/skills-catalog.js"));
 }
 let createUserSettingsStore = null;
 try {
@@ -2107,7 +2107,7 @@ function createMiaCloudServer(options = {}) {
   context.eventLog = createEventLogStore(context.cloudStore.getDb());
   context.fellowsStore = createFellowsStore(context.cloudStore.getDb());
   context.skillsStore = createSkillsStore(context.cloudStore.getDb());
-  context.skillsStore.seedSkills(SKILLS_SEED);
+  context.skillsStore.seedSkills(loadSkillsCatalog());
   context.runtimeBindingsStore = createRuntimeBindingsStore(context.cloudStore.getDb());
   context.cloudAgentRunsStore = createCloudAgentRunsStore(context.cloudStore.getDb());
   // Inject fellowsStore so listRoomMembers can enrich fellow members

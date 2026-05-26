@@ -52,6 +52,7 @@ function createSkillsStore(db) {
     "INSERT OR IGNORE INTO skill_installs (skill_id, user_id, created_at) VALUES (?, ?, ?)"
   );
   const bumpStmt = db.prepare("UPDATE skills SET install_count = install_count + 1 WHERE id = ?");
+  const deleteStmt = db.prepare("DELETE FROM skills WHERE id = ?");
 
   function upsertSkill(skill) {
     if (!skill || !skill.id || !skill.name) throw new Error("upsertSkill: skill.id and skill.name required");
@@ -113,7 +114,11 @@ function createSkillsStore(db) {
     }
   }
 
-  return { upsertSkill, listSkills, listCategories, getSkill, recordInstall, seedSkills };
+  function deleteSkill(id) {
+    return deleteStmt.run(String(id)).changes;
+  }
+
+  return { upsertSkill, listSkills, listCategories, getSkill, recordInstall, seedSkills, deleteSkill };
 }
 
 module.exports = { createSkillsStore };
