@@ -112,19 +112,37 @@ test("desktop avatar picker supports video avatars with one trim row", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const dialogSource = fs.readFileSync(path.join(root, "src/renderer/fellow/fellow-dialog.js"), "utf8");
   const avatarSource = fs.readFileSync(path.join(root, "src/renderer/helpers/avatar-helpers.js"), "utf8");
+  const styleSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
 
   assert.match(html, /shared\/avatar-media\.js/);
   assert.match(html, /id="profileAvatarFile"[^>]+accept="image\/\*,video\/\*"/);
   assert.match(html, /id="fellowAvatarFile"[^>]+accept="image\/\*,video\/\*"/);
   assert.match(html, /id="avatarTrimControls"/);
+  assert.match(html, /id="avatarTrimTimeline"/);
+  assert.match(html, /id="avatarTrimFrames"/);
+  assert.match(html, /id="avatarTrimPreview"/);
+  assert.match(html, /data-avatar-trim-handle="start"/);
+  assert.match(html, /data-avatar-trim-handle="end"/);
   assert.match(html, /id="avatarTrimStart"/);
   assert.match(html, /id="avatarTrimDuration"/);
   assert.match(appSource, /avatarTrimControls: document\.getElementById\("avatarTrimControls"\)/);
+  assert.match(appSource, /avatarTrimTimeline: document\.getElementById\("avatarTrimTimeline"\)/);
+  assert.match(appSource, /avatarTrimFrames: document\.getElementById\("avatarTrimFrames"\)/);
+  assert.match(appSource, /beginAvatarTrimDrag/);
   assert.match(appSource, /avatarTrimStart\.addEventListener\("input"/);
   assert.match(dialogSource, /file\.type\?\.startsWith\("video\/"\)/);
   assert.match(dialogSource, /updateAvatarTrimControls/);
+  assert.match(dialogSource, /renderAvatarTrimFrames/);
+  assert.doesNotMatch(dialogSource, /Math\.abs\(els\.avatarTrimPreview\.currentTime - trim\.start\)/);
   assert.match(avatarSource, /applyAvatarMedia/);
   assert.match(avatarSource, /createAvatarVideoElement/);
+  assert.match(avatarSource, /updateAvatarVideoElement/);
+  assert.match(avatarSource, /classList\.add\("video-avatar"\)/);
+  assert.match(avatarSource, /class="\$\{escapeHtml\(`\$\{className\} video-avatar`\)\}"/);
+  assert.match(avatarSource, /video\.loop = false/);
+  assert.doesNotMatch(avatarSource, /muted loop autoplay/);
+  assert.match(styleSource, /\.avatar-video\.ready/);
+  assert.match(styleSource, /\.profile-avatar\.video-avatar/);
 });
 
 test("private chat async replies are anchored to the submit session", () => {

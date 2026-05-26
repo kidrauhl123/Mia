@@ -117,8 +117,8 @@
     if (!els.skillModeToggle) return;
     const market = !!state.skillMarketMode;
     els.skillModeToggle.innerHTML = `
+      <button class="${market ? "active" : ""}" type="button" role="tab" data-skill-mode="market">技能市场</button>
       <button class="${market ? "" : "active"}" type="button" role="tab" data-skill-mode="mine">我的技能</button>
-      <button class="${market ? "active" : ""}" type="button" role="tab" data-skill-mode="market">探索发现</button>
     `;
     els.skillModeToggle.querySelectorAll("[data-skill-mode]").forEach((button) => {
       button.addEventListener("click", () => switchSkillMode(button.dataset.skillMode === "market"));
@@ -199,10 +199,13 @@
     syncTopbarClickCapture();
     if (!open) return;
     const canDelete = skill.source === "mia";
+    // Only skills you authored locally are publishable — not ones downloaded
+    // from the market (.mia-market.json) or shipped with the app.
+    const canPublish = skill.source === "mia" && !skill.fromMarket;
     menu.innerHTML = `
       ${menuItemHtml({ icon: "preview", label: "预览", attrs: 'data-skill-action="preview"' })}
       ${menuItemHtml({ icon: "folderOpen", label: "打开目录", attrs: 'data-skill-action="open-directory"' })}
-      ${menuItemHtml({ icon: "edit", label: "发布到市场", attrs: 'data-skill-action="publish"' })}
+      ${canPublish ? menuItemHtml({ icon: "edit", label: "发布到市场", attrs: 'data-skill-action="publish"' }) : ""}
       <div class="skill-context-menu-separator" role="separator"></div>
       ${menuItemHtml({ icon: "delete", label: "删除", attrs: `data-skill-action="delete" ${canDelete ? "" : "disabled"}`, className: "danger" })}
     `;
@@ -310,10 +313,15 @@
   }
 
   function renderMarketView() {
-    setText(els.skillPageTitle, "探索发现");
+    setText(els.skillPageTitle, "技能市场");
     renderChips(marketCategoryEntries());
     if (!cloudSignedIn()) {
       els.skillCardGrid.innerHTML = `<div class="skill-empty-state">登录 Mia Cloud 后即可浏览技能市场。</div>`;
+      return;
+    }
+    // Lazy-load the catalog the first time the market is shown.
+    if (!state.skillMarket.loaded && !state.skillMarket.loading) {
+      loadMarketSkills();
       return;
     }
     if (state.skillMarket.loading) {

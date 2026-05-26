@@ -195,60 +195,109 @@
     return `object-position:${c.x}% ${c.y}%;transform:scale(${c.zoom});transform-origin:${c.x}% ${c.y}%;`;
   }
 
-  function syncAvatarVideoLoop(video, crop = {}) {
-    const trim = avatarMedia().trimFromCrop(crop);
-    const start = trim.start;
-    const end = trim.start + trim.duration;
+  function avatarTrimForVideo(video) {
+    return avatarMedia().normalizeTrim({
+      start: video?.dataset?.avatarStart,
+      duration: video?.dataset?.avatarDuration
+    });
+  }
+
+  function showAvatarVideo(video) {
+    if (!video) return;
+    const schedule = typeof requestAnimationFrame === "function"
+      ? requestAnimationFrame
+      : (fn) => setTimeout(fn, 0);
+    schedule(() => video.classList.add("ready"));
+  }
+
+  function syncAvatarVideoLoop(video) {
+    if (!video || video.dataset.avatarLoopReady === "true") return;
+    video.dataset.avatarLoopReady = "true";
     const seekStart = () => {
+      const trim = avatarTrimForVideo(video);
+      const start = trim.start;
       if (!Number.isFinite(video.duration) || video.duration <= 0) return;
       const safeStart = Math.min(start, Math.max(video.duration - 0.1, 0));
-      if (Math.abs(video.currentTime - safeStart) > 0.25) video.currentTime = safeStart;
+      if (Math.abs(video.currentTime - safeStart) > 0.08) {
+        video.addEventListener("seeked", () => showAvatarVideo(video), { once: true });
+        try {
+          video.currentTime = safeStart;
+        } catch {
+          showAvatarVideo(video);
+        }
+        return;
+      }
+      showAvatarVideo(video);
     };
     video.addEventListener("loadedmetadata", seekStart);
     video.addEventListener("timeupdate", () => {
-      if (video.currentTime >= end) seekStart();
+      const trim = avatarTrimForVideo(video);
+      const end = trim.start + trim.duration;
+      if (video.currentTime < trim.start - 0.15 || video.currentTime >= end) seekStart();
+    });
+    video.addEventListener("ended", () => {
+      seekStart();
+      video.play?.().catch?.(() => {});
     });
     video.addEventListener("canplay", () => {
       video.play?.().catch?.(() => {});
     });
+    if (video.readyState >= 1) seekStart();
+  }
+
+  function updateAvatarVideoElement(video, image, crop = {}) {
+    const src = avatarImageSrc(image) || image || "";
+    if (video.getAttribute("src") !== src) {
+      video.classList.remove("ready");
+      video.setAttribute("src", src);
+    }
+    video.loop = false;
+    video.removeAttribute("loop");
+    video.setAttribute("style", videoObjectStyle(crop));
+    const trim = avatarMedia().trimFromCrop(crop);
+    video.dataset.avatarStart = String(trim.start);
+    video.dataset.avatarDuration = String(trim.duration);
+    syncAvatarVideoLoop(video);
+    video.play?.().catch?.(() => {});
   }
 
   function createAvatarVideoElement(image, crop = {}) {
     const src = avatarImageSrc(image) || image || "";
     const video = document.createElement("video");
     video.className = "avatar-video";
-    video.src = src;
+    video.setAttribute("src", src);
     video.muted = true;
-    video.loop = true;
+    video.loop = false;
     video.autoplay = true;
     video.playsInline = true;
     video.setAttribute("muted", "");
-    video.setAttribute("loop", "");
     video.setAttribute("autoplay", "");
     video.setAttribute("playsinline", "");
     video.setAttribute("aria-hidden", "true");
-    video.setAttribute("style", videoObjectStyle(crop));
-    const trim = avatarMedia().trimFromCrop(crop);
-    video.dataset.avatarStart = String(trim.start);
-    video.dataset.avatarDuration = String(trim.duration);
-    syncAvatarVideoLoop(video, crop);
+    updateAvatarVideoElement(video, src, crop);
     return video;
   }
 
   function applyAvatarMedia(el, image, crop = {}, color = "#5e5ce6", fallbackText = "", options = {}) {
     if (!el) return;
     const src = avatarImageSrc(image) || image || "";
-    removeAvatarVideos(el);
     el.style.backgroundImage = "";
     el.style.backgroundSize = "";
     el.style.backgroundPosition = "";
     el.style.backgroundRepeat = "";
     el.style.backgroundColor = color || "#5e5ce6";
     if (avatarMedia().isVideo(src)) {
+      el.classList.add("video-avatar");
       if (!options.preserveChildren) el.textContent = "";
-      el.prepend(createAvatarVideoElement(src, crop));
+      const videos = Array.from(el.querySelectorAll?.(":scope > .avatar-video") || []);
+      const video = videos[0] || createAvatarVideoElement(src, crop);
+      videos.slice(1).forEach((node) => node.remove());
+      updateAvatarVideoElement(video, src, crop);
+      if (video.parentElement !== el || video !== el.firstElementChild) el.prepend(video);
       return;
     }
+    el.classList.remove("video-avatar");
+    removeAvatarVideos(el);
     if (!options.preserveChildren) el.textContent = fallbackText || "";
     el.setAttribute("style", avatarThumbBackgroundStyle(image, crop, color));
   }
@@ -258,7 +307,7 @@
     if (avatarMedia().isVideo(src)) {
       const trim = avatarMedia().trimFromCrop(crop);
       const style = `background-color:${escapeHtml(color)};`;
-      return `<${tag} class="${escapeHtml(className)}" ${attrs} style="${style}"><video class="avatar-video" src="${escapeHtml(src)}" muted loop autoplay playsinline aria-hidden="true" data-avatar-start="${escapeHtml(trim.start)}" data-avatar-duration="${escapeHtml(trim.duration)}" style="${videoObjectStyle(crop)}"></video></${tag}>`;
+      return `<${tag} class="${escapeHtml(`${className} video-avatar`)}" ${attrs} style="${style}"><video class="avatar-video" src="${escapeHtml(src)}" muted autoplay playsinline aria-hidden="true" data-avatar-start="${escapeHtml(trim.start)}" data-avatar-duration="${escapeHtml(trim.duration)}" style="${videoObjectStyle(crop)}"></video></${tag}>`;
     }
     const style = avatarThumbBackgroundStyle(image, crop, color);
     return `<${tag} class="${escapeHtml(className)}" ${attrs} style="${style}">${escapeHtml(text || "")}</${tag}>`;
@@ -268,10 +317,7 @@
     root.querySelectorAll?.("video.avatar-video")?.forEach((video) => {
       if (video.dataset.avatarHydrated === "true") return;
       video.dataset.avatarHydrated = "true";
-      syncAvatarVideoLoop(video, {
-        start: video.dataset.avatarStart,
-        duration: video.dataset.avatarDuration
-      });
+      syncAvatarVideoLoop(video);
       video.play?.().catch?.(() => {});
     });
   }
@@ -284,6 +330,8 @@
 
   function applyAvatar(el, text, color, image) {
     if (!el) return;
+    removeAvatarVideos(el);
+    el.classList?.remove("video-avatar");
     el.textContent = text || "?";
     el.style.background = color || "#111827";
     el.style.backgroundImage = "";
@@ -333,6 +381,7 @@
     avatarBackgroundStyle,
     avatarThumbBackgroundStyle,
     createAvatarVideoElement,
+    updateAvatarVideoElement,
     applyAvatarMedia,
     avatarHtml,
     hydrateAvatarVideos,

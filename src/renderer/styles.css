@@ -267,7 +267,18 @@ body.window-blurred .traffic-spacer:hover .traffic-light.green {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  opacity: 0;
   pointer-events: none;
+}
+
+.avatar-video.ready {
+  opacity: 1;
+}
+
+.avatar.video-avatar,
+.fellow-photo.video-avatar,
+.profile-avatar.video-avatar {
+  border-color: transparent;
 }
 
 .rail-avatar {
@@ -3333,18 +3344,50 @@ body.topbar-click-capture .topbar {
   user-select: none;
 }
 
-.avatar-trim-preview {
+.avatar-trim-timeline::after {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  background:
+    repeating-linear-gradient(90deg, transparent 0 51px, rgba(255, 255, 255, 0.2) 51px 52px),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 42%, rgba(0, 0, 0, 0.12));
+  pointer-events: none;
+}
+
+.avatar-trim-frames {
   position: absolute;
   inset: 0;
-  width: 100%;
+  display: flex;
+  overflow: hidden;
+  background: linear-gradient(180deg, #41474c, #24282c);
+  pointer-events: none;
+}
+
+.avatar-trim-frame {
+  flex: 1 1 0;
+  width: 0;
+  min-width: 0;
   height: 100%;
   object-fit: cover;
-  opacity: 0.92;
+  background: linear-gradient(90deg, #31363a, #444b50 50%, #31363a);
+}
+
+.avatar-trim-frame.placeholder {
+  opacity: 0.72;
+}
+
+.avatar-trim-preview {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
   pointer-events: none;
 }
 
 .avatar-trim-mask {
   position: absolute;
+  z-index: 2;
   top: 0;
   bottom: 0;
   background: rgba(9, 10, 12, 0.72);
@@ -3363,6 +3406,7 @@ body.topbar-click-capture .topbar {
 
 .avatar-trim-selection {
   position: absolute;
+  z-index: 3;
   top: 0;
   bottom: 0;
   left: var(--trim-start);
@@ -3399,6 +3443,7 @@ body.topbar-click-capture .topbar {
 
 .avatar-trim-label {
   position: absolute;
+  z-index: 4;
   right: 8px;
   bottom: 6px;
   padding: 2px 6px;

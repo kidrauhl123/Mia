@@ -22,7 +22,7 @@ test("main orchestrates cloud install → local write", () => {
   // install: cloud call → download package → verify checksum → extract locally
   assert.match(main, /installMarketSkill\(skillId\)/);
   assert.match(main, /downloadSkillPackage\(download\.url\)/);
-  assert.match(main, /installMarketplaceSkill\(\{ id: skill\.id, zipBuffer \}\)/);
+  assert.match(main, /installMarketplaceSkill\(\{ id: skill\.id, zipBuffer/);
 });
 
 test("skill-library renders a market mode with an install action", () => {

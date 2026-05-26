@@ -85,6 +85,7 @@ const els = {
   avatarCropStage: document.getElementById("avatarCropStage"),
   avatarTrimControls: document.getElementById("avatarTrimControls"),
   avatarTrimTimeline: document.getElementById("avatarTrimTimeline"),
+  avatarTrimFrames: document.getElementById("avatarTrimFrames"),
   avatarTrimPreview: document.getElementById("avatarTrimPreview"),
   avatarTrimLabel: document.getElementById("avatarTrimLabel"),
   avatarTrimStart: document.getElementById("avatarTrimStart"),
@@ -3511,7 +3512,9 @@ function updateAvatarTrimDrag(event) {
   const maxDuration = window.miaAvatarMedia?.MAX_TRIM_DURATION || 5;
   if (avatarTrimDrag.mode === "start") {
     const end = avatarTrimDrag.start + avatarTrimDrag.duration;
-    const nextStart = Math.max(0, Math.min(seconds, end - minDuration, end - maxDuration));
+    const lower = Math.max(0, end - maxDuration);
+    const upper = Math.max(lower, end - minDuration);
+    const nextStart = Math.max(lower, Math.min(seconds, upper));
     setAvatarTrimRange(nextStart, end - nextStart);
     return;
   }

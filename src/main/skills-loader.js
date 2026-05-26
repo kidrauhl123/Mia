@@ -222,7 +222,7 @@ function createSkillsLoader(deps = {}) {
   // Extract a downloaded skill package (zip buffer) into the private source
   // <home>/skills/<id>. The dir is cleared first so re-install/update replaces
   // cleanly. Multi-file skills (scripts/references/assets) land intact.
-  async function installMarketplaceSkill({ id, zipBuffer } = {}) {
+  async function installMarketplaceSkill({ id, zipBuffer, marketVersion = "" } = {}) {
     if (!id || !zipBuffer) {
       throw new Error("installMarketplaceSkill: id and zipBuffer required");
     }
@@ -245,6 +245,13 @@ function createSkillsLoader(deps = {}) {
       fs.mkdirSync(path.dirname(target), { recursive: true });
       fs.writeFileSync(target, entry.getData());
     }
+    // Provenance marker: this skill came from the market (not authored here),
+    // so the UI hides "发布到市场" for it. Also records the installed version.
+    fs.writeFileSync(
+      path.join(skillDir, ".mia-market.json"),
+      JSON.stringify({ id: String(id), version: String(marketVersion || "") }),
+      "utf8"
+    );
     return loadLocalSkills();
   }
 
@@ -347,6 +354,7 @@ function createSkillsLoader(deps = {}) {
           skill.pluginSource = plugin.source;
           skill.extensionId = plugin.extensionId || "";
           skill.sourceKind = plugin.kind || "skill-source";
+          skill.fromMarket = fs.existsSync(path.join(path.dirname(filePath), ".mia-market.json"));
           skills.push(skill);
           pluginSkills += 1;
         } catch (error) {

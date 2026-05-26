@@ -10,6 +10,7 @@
 
   let state, els;
   let renderView, render;
+  let avatarTrimFrameToken = 0;
 
   function initFellowDialog(deps) {
     state = deps.state;
@@ -175,18 +176,169 @@
     updateAvatarTrimControls();
   }
 
+  function clearAvatarTrimFrames() {
+    avatarTrimFrameToken += 1;
+    if (els?.avatarTrimFrames) {
+      els.avatarTrimFrames.innerHTML = "";
+      els.avatarTrimFrames.dataset.src = "";
+      els.avatarTrimFrames.dataset.status = "";
+    }
+    if (els?.avatarTrimPreview) {
+      els.avatarTrimPreview.removeAttribute("src");
+      els.avatarTrimPreview.load?.();
+    }
+  }
+
+  function avatarTrimFrameCount() {
+    const width = Number(els?.avatarTrimTimeline?.clientWidth) || 320;
+    return Math.max(5, Math.min(12, Math.round(width / 42)));
+  }
+
+  function setAvatarTrimFramePlaceholders(count = avatarTrimFrameCount()) {
+    if (!els?.avatarTrimFrames) return;
+    const frameCount = Math.max(5, Math.min(12, Number(count) || 8));
+    els.avatarTrimFrames.dataset.status = "loading";
+    els.avatarTrimFrames.innerHTML = Array.from({ length: frameCount }, () => (
+      '<span class="avatar-trim-frame placeholder"></span>'
+    )).join("");
+  }
+
+  function waitForVideoEvent(video, eventName) {
+    if (eventName === "loadedmetadata" && video.readyState >= 1) return Promise.resolve();
+    if (eventName === "loadeddata" && video.readyState >= 2) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const cleanup = () => {
+        video.removeEventListener(eventName, done);
+        video.removeEventListener("error", fail);
+      };
+      const done = () => {
+        cleanup();
+        resolve();
+      };
+      const fail = () => {
+        cleanup();
+        reject(new Error("video frame load failed"));
+      };
+      video.addEventListener(eventName, done, { once: true });
+      video.addEventListener("error", fail, { once: true });
+    });
+  }
+
+  function waitForDecodedVideoFrame(video) {
+    return new Promise((resolve) => {
+      if (typeof video.requestVideoFrameCallback === "function") {
+        video.requestVideoFrameCallback(() => resolve());
+        return;
+      }
+      requestAnimationFrame(() => resolve());
+    });
+  }
+
+  function seekAvatarTrimFrame(video, time) {
+    return new Promise((resolve, reject) => {
+      let timer = 0;
+      const cleanup = () => {
+        clearTimeout(timer);
+        video.removeEventListener("seeked", done);
+        video.removeEventListener("error", fail);
+      };
+      const done = () => {
+        cleanup();
+        resolve();
+      };
+      const fail = () => {
+        cleanup();
+        reject(new Error("video frame seek failed"));
+      };
+      timer = setTimeout(done, 900);
+      video.addEventListener("seeked", done, { once: true });
+      video.addEventListener("error", fail, { once: true });
+      try {
+        video.currentTime = Math.max(0, time);
+      } catch (err) {
+        fail();
+      }
+    });
+  }
+
+  function drawAvatarTrimFrame(video, width = 84, height = 54) {
+    const ratio = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(width * ratio);
+    canvas.height = Math.round(height * ratio);
+    const ctx = canvas.getContext("2d");
+    const sourceWidth = video.videoWidth || width;
+    const sourceHeight = video.videoHeight || height;
+    const scale = Math.max(canvas.width / sourceWidth, canvas.height / sourceHeight);
+    const drawWidth = sourceWidth * scale;
+    const drawHeight = sourceHeight * scale;
+    ctx.drawImage(video, (canvas.width - drawWidth) / 2, (canvas.height - drawHeight) / 2, drawWidth, drawHeight);
+    return canvas.toDataURL("image/jpeg", 0.76);
+  }
+
+  async function renderAvatarTrimFrames(src) {
+    const frameBox = els?.avatarTrimFrames;
+    if (!frameBox || !src) return;
+    if (frameBox.dataset.src === src && ["loading", "ready", "error"].includes(frameBox.dataset.status)) return;
+    const token = ++avatarTrimFrameToken;
+    const frameCount = avatarTrimFrameCount();
+    frameBox.dataset.src = src;
+    setAvatarTrimFramePlaceholders(frameCount);
+    const video = document.createElement("video");
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = "auto";
+    video.src = src;
+    video.load?.();
+    try {
+      await waitForVideoEvent(video, "loadedmetadata");
+      const rawDuration = Number(video.duration);
+      const duration = Number.isFinite(rawDuration) && rawDuration > 0
+        ? rawDuration
+        : (window.miaAvatarMedia?.MAX_TRIM_DURATION || 5);
+      const frameWidth = Math.max(44, Math.round((els.avatarTrimTimeline?.clientWidth || 320) / frameCount));
+      for (let i = 0; i < frameCount; i += 1) {
+        if (token !== avatarTrimFrameToken || frameBox.dataset.src !== src) return;
+        const time = Math.min(duration - 0.05, Math.max(0, ((i + 0.5) / frameCount) * duration));
+        await seekAvatarTrimFrame(video, time).catch(() => {});
+        await waitForDecodedVideoFrame(video);
+        if (token !== avatarTrimFrameToken || frameBox.dataset.src !== src) return;
+        const img = document.createElement("img");
+        img.className = "avatar-trim-frame";
+        img.alt = "";
+        img.decoding = "async";
+        img.src = drawAvatarTrimFrame(video, frameWidth, 54);
+        frameBox.children[i]?.replaceWith(img);
+      }
+      if (token === avatarTrimFrameToken && frameBox.dataset.src === src) {
+        frameBox.dataset.status = "ready";
+      }
+    } catch (err) {
+      if (token === avatarTrimFrameToken && frameBox.dataset.src === src) {
+        frameBox.dataset.status = "error";
+      }
+    } finally {
+      video.removeAttribute("src");
+      video.load?.();
+    }
+  }
+
   function updateAvatarTrimControls() {
     if (!state || !els?.avatarTrimControls) return;
     const editor = state.avatarCropEditor || {};
     const isVideo = window.miaAvatarMedia?.isVideo?.(editor.image);
     els.avatarTrimControls.classList.toggle("hidden", !isVideo);
-    if (!isVideo) return;
+    if (!isVideo) {
+      clearAvatarTrimFrames();
+      return;
+    }
     const trim = window.miaAvatarMedia.normalizeTrim(editor.crop || {});
     const previewSrc = window.miaAvatar.avatarImageSrc(editor.image) || editor.image || "";
-    if (els.avatarTrimPreview && els.avatarTrimPreview.src !== previewSrc) {
-      els.avatarTrimPreview.src = previewSrc;
-      els.avatarTrimPreview.currentTime = trim.start || 0;
+    if (els.avatarTrimPreview && els.avatarTrimPreview.getAttribute("src") !== previewSrc) {
+      els.avatarTrimPreview.setAttribute("src", previewSrc);
+      els.avatarTrimPreview.load?.();
     }
+    renderAvatarTrimFrames(previewSrc);
     const total = Math.max(
       Number(els.avatarTrimPreview?.duration) || 0,
       trim.start + trim.duration,
@@ -225,6 +377,7 @@
 
   function closeAvatarCropEditor() {
     if (!state) return;
+    clearAvatarTrimFrames();
     state.avatarCropEditor.open = false;
     state.avatarCropEditor.dragging = false;
     renderView();

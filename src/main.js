@@ -1881,7 +1881,7 @@ ipcMain.handle(IpcChannel.SkillsMarketInstall, async (_event, skillId) => {
   if (checksum !== download.checksum) {
     throw new Error("技能包校验失败（checksum 不匹配），已中止安装。");
   }
-  const library = await skillsLoader.installMarketplaceSkill({ id: skill.id, zipBuffer });
+  const library = await skillsLoader.installMarketplaceSkill({ id: skill.id, zipBuffer, marketVersion: download.version });
   return { skill, library };
 });
 ipcMain.handle(IpcChannel.SkillsPublish, async (_event, payload) => {

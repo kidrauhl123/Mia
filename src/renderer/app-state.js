@@ -58,7 +58,7 @@
       contactFilter: "",
       skillFilter: "",
       skillCategoryFilter: "",
-      skillMarketMode: false,
+      skillMarketMode: true,
       skillMarket: { skills: [], categories: [], loading: false, loaded: false },
       installingSkillIds: new Set(),
       skillContextMenu: { open: false, x: 0, y: 0, skillId: "" },
