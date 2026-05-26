@@ -12,6 +12,8 @@ const REMOTE_ROUTES = new Set([
   "GET /api/commands/agent-list",
   "POST /api/chat/session",
   "POST /api/chat/session/save",
+  "POST /api/chat/session/rename",
+  "POST /api/chat/read-state/save",
   "POST /api/chat/attachment",
   "POST /api/file/fetch",
   "POST /api/commands/agent-execute",
@@ -47,6 +49,8 @@ function createRemoteControlRouter({
   loadExternalAgentCommands,
   newChatSession,
   saveChatSession,
+  saveChatReadState,
+  renameChatSession,
   saveChatAttachment,
   readLocalFileAttachment,
   executeExternalAgentCommand,
@@ -108,6 +112,12 @@ function createRemoteControlRouter({
     }
     if (routeInfo.method === "POST" && routeInfo.pathname === "/api/chat/session/save") {
       return { handled: true, data: saveChatSession(body) };
+    }
+    if (routeInfo.method === "POST" && routeInfo.pathname === "/api/chat/session/rename") {
+      return { handled: true, data: renameChatSession(body) };
+    }
+    if (routeInfo.method === "POST" && routeInfo.pathname === "/api/chat/read-state/save") {
+      return { handled: true, data: saveChatReadState(body) };
     }
     if (routeInfo.method === "POST" && routeInfo.pathname === "/api/chat/attachment") {
       return { handled: true, data: saveChatAttachment(body) };

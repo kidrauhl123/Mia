@@ -603,44 +603,44 @@
     }
   }
 
-  // A task fires inside the daemon, a separate process. Rather than let the
-  // daemon's overwrite-style chat write race the desktop's in-memory store, the
-  // daemon reports the reply via the task event and the desktop merges it into
-  // the executor's conversation through the normal (disk-fresh, dedup) save path
-  // — so the result shows up in that fellow's chat instead of vanishing.
-  async function deliverTaskOutputToChat(payload = {}) {
-    const { fellowId, sessionId, outputText, messageId, createdAt } = payload;
-    if (!fellowId || !outputText) return;
-    const list = state.chatStore?.sessions?.[fellowId];
-    if (!Array.isArray(list) || !list.length) return; // nothing on screen yet; daemon's own write covers reopen
-    // Land in the session the user actually sees: the task's own session, else
-    // the fellow's currently-open session, else its most recent.
-    const activeId = state.activeSessionIdByPersona?.[fellowId];
-    const target = list.find((s) => s.id === sessionId)
-      || list.find((s) => s.id === activeId)
-      || list[0];
-    const id = messageId || ("msg-task-" + (payload.runId || Date.now()));
-    if ((target.messages || []).some((m) => m.id === id)) return;
-    const message = { id, role: "assistant", content: outputText, createdAt: createdAt || new Date().toISOString() };
-    try {
-      state.chatStore = await window.mia.saveChatSession({
-        personaKey: target.personaKey || fellowId,
-        session: { ...target, personaKey: target.personaKey || fellowId, messages: [...(target.messages || []), message] }
-      });
-    } catch (e) {
-      console.warn("deliver task output to chat failed", e);
+  // The daemon owns the chat store and is the single writer. When it appends a
+  // task's reply it broadcasts `sessions_changed`; the desktop just reloads the
+  // authoritative store from disk and re-renders — no second writer, no merge
+  // guesswork, so the reply reliably shows up in the executor's conversation.
+  let _reloadRetry = null;
+  async function reloadChatFromDisk() {
+    // Never touch state.chatStore mid-stream: streaming render + the final append
+    // re-resolve from it, so replacing it under an in-flight turn corrupts that
+    // turn. Defer until generation finishes, then reload.
+    if (state.isGenerating) {
+      clearTimeout(_reloadRetry);
+      _reloadRetry = setTimeout(reloadChatFromDisk, 1500);
       return;
     }
-    if (state.activeView === "chat" && state.activeKey === fellowId && typeof render === "function") render();
+    try {
+      const fresh = await window.mia.loadChatSessions();
+      if (fresh && fresh.sessions) {
+        state.chatStore = fresh;
+        if (state.activeView === "chat" && typeof render === "function") render();
+      }
+    } catch (e) {
+      console.warn("reload chat after task event failed", e);
+    }
   }
 
   let _tasksUnsubscribe = null;
   function subscribeTaskEvents() {
     if (_tasksUnsubscribe) return;
     _tasksUnsubscribe = window.mia.tasks.subscribe(async (envelope) => {
-      if (envelope.type === "finished") await deliverTaskOutputToChat(envelope.payload);
+      if (envelope.type === "sessions_changed") {
+        await reloadChatFromDisk();
+        return;
+      }
       await loadTasksFromDaemon();
       if (envelope.type === "finished" || envelope.type === "failed") {
+        // Reload chat too in case the sessions_changed event was missed (e.g. the
+        // SSE reconnected after the daemon wrote).
+        if (envelope.type === "finished") await reloadChatFromDisk();
         const taskId = envelope.payload?.taskId;
         if (taskId && state.selectedTaskId !== taskId) {
           state.tasksUnread.set(taskId, (state.tasksUnread.get(taskId) || 0) + 1);

@@ -861,28 +861,54 @@ async function runRemoteChatRequest(body, eventSink = null) {
       error: Boolean(tool.error)
     }));
   }
-  // Append to the in-memory session we resolved at the top. The store is the
-  // one resolveRemoteChatSession returned; mutating session.messages on it and
-  // saving it preserves any new-session we just created via ensurePersonaSession.
-  // (Concurrent writes to the same session can still race — tracked in
-  // docs/superpowers/known-issues/2026-05-20-mia-task-rail-deferrals.md.)
-  session.messages = [
-    ...(Array.isArray(session.messages) ? session.messages : []),
+  // Persist by RELOADING the store after the await and appending only the two new
+  // messages to the target session. The pre-await `store` snapshot is stale — any
+  // writes that landed during `await sendChat` (foreground chat, another task) are
+  // on disk now, and overwriting with the snapshot would drop them. Reload→append→
+  // save is fully synchronous, so within this (daemon) process it is atomic; the
+  // foreground app routes its writes through the daemon too, so there is a single
+  // writer. If the session was created fresh this turn it isn't on disk yet, so
+  // recreate it in the reloaded store rather than losing the messages.
+  const fresh = loadChatStore();
+  if (!fresh.sessions[fellow.key]) fresh.sessions[fellow.key] = [];
+  let target = fresh.sessions[fellow.key].find((item) => item.id === session.id);
+  if (!target) {
+    target = {
+      id: session.id,
+      personaKey: fellow.key,
+      title: session.title || "新对话",
+      titleGenerated: Boolean(session.titleGenerated),
+      createdAt: session.createdAt || now,
+      updatedAt: now,
+      messages: []
+    };
+    fresh.sessions[fellow.key].unshift(target);
+  }
+  target.messages = [
+    ...(Array.isArray(target.messages) ? target.messages : []),
     savedUser,
     savedAssistant
   ];
-  session.updatedAt = new Date().toISOString();
-  if (!session.titleGenerated) {
-    session.title = fallbackSessionTitle(session.messages);
+  target.updatedAt = new Date().toISOString();
+  if (!target.titleGenerated) {
+    target.title = fallbackSessionTitle(target.messages);
   }
-  saveChatStore(store);
-  return { fellow, session, response, userMessageId, assistantMessageId };
+  saveChatStore(fresh);
+  notifyChatSessionsChanged();
+  return { fellow, session: target, response, userMessageId, assistantMessageId };
 }
 
 let tasksStore = null;
 let tasksEvents = null;
 let scheduler = null;
 let tasksRoutes = null;
+
+// Broadcast that the chat store changed (e.g. a task fire appended its reply) so
+// the foreground app reloads it. Rides the task-event bus and its SSE stream out
+// to the desktop tasks-client and renderer, the same channel task events use.
+function notifyChatSessionsChanged(payload = {}) {
+  try { if (tasksEvents) tasksEvents.emit("sessions_changed", payload); } catch { /* bus unavailable */ }
+}
 
 function initSchedulerSubsystem() {
   if (tasksStore) return; // idempotent
@@ -1543,6 +1569,8 @@ remoteControlRouter = createRemoteControlRouter({
   loadExternalAgentCommands: (body) => externalAgentCommandService.loadCommands(body),
   newChatSession: (body) => chatSessionService.newChatSession(body),
   saveChatSession: (body) => chatSessionService.saveChatSession(body),
+  saveChatReadState: (body) => chatSessionService.saveChatReadState(body),
+  renameChatSession: (body) => chatSessionService.renameChatSession(body),
   saveChatAttachment,
   readLocalFileAttachment,
   executeExternalAgentCommand: (body) => externalAgentCommandService.executeCommand(body),
@@ -1854,11 +1882,37 @@ ipcMain.handle(IpcChannel.ChatFileFetch, (_event, payload) => safeFetchFileAttac
 ipcMain.handle(IpcChannel.CommandsSlash, () => engineCatalogService.loadHermesSlashCommands());
 ipcMain.handle(IpcChannel.CommandsAgentList, async (_event, payload) => externalAgentCommandService.loadCommands(payload));
 ipcMain.handle(IpcChannel.CommandsAgentExecute, (_event, payload) => externalAgentCommandService.executeCommand(payload));
+// The daemon is the single writer of the chat store: whenever it's enabled, the
+// foreground app routes its chat-store WRITES through the daemon's control server
+// so the daemon's task fires and the user's chats never clobber each other across
+// processes. Reads stay local — they hit the same on-disk file the daemon wrote.
+// If the daemon is enabled but unreachable, fall back to a local write: an absent
+// daemon isn't writing, so there's no competing writer to race.
+async function routeChatWrite(localFn, daemonPath, body) {
+  if (IS_DAEMON_PROCESS || !settingsStore.daemonSettings().enabled) return localFn();
+  try {
+    return await daemonTasksClient.call(daemonPath, { method: "POST", body: JSON.stringify(body || {}) });
+  } catch (error) {
+    // Fall back to a LOCAL write only when the daemon is genuinely down — then it
+    // isn't writing, so there's no competing writer. If the daemon is alive and
+    // the call merely blipped, a local write would re-introduce the cross-process
+    // race, so surface the error instead and let the caller retry on the next save.
+    let daemonRunning = true;
+    try { daemonRunning = Boolean((await getObservedDaemonStatus(400))?.running); } catch { daemonRunning = false; }
+    if (daemonRunning) throw error;
+    appendDaemonLog(`Chat write skipped daemon (down) at ${daemonPath}, writing locally: ${error?.message || error}`);
+    return localFn();
+  }
+}
 ipcMain.handle(IpcChannel.ChatSessionsLoad, () => chatSessionService.loadChatSessions());
-ipcMain.handle(IpcChannel.ChatSessionSave, (_event, payload) => chatSessionService.saveChatSession(payload));
-ipcMain.handle(IpcChannel.ChatReadStateSave, (_event, payload) => chatSessionService.saveChatReadState(payload));
-ipcMain.handle(IpcChannel.ChatSessionCreate, (_event, payload) => chatSessionService.newChatSession(payload));
-ipcMain.handle(IpcChannel.ChatSessionRename, (_event, payload) => chatSessionService.renameChatSession(payload));
+ipcMain.handle(IpcChannel.ChatSessionSave, (_event, payload) =>
+  routeChatWrite(() => chatSessionService.saveChatSession(payload), "/api/chat/session/save", payload));
+ipcMain.handle(IpcChannel.ChatReadStateSave, (_event, payload) =>
+  routeChatWrite(() => chatSessionService.saveChatReadState(payload), "/api/chat/read-state/save", payload));
+ipcMain.handle(IpcChannel.ChatSessionCreate, (_event, payload) =>
+  routeChatWrite(() => chatSessionService.newChatSession(payload), "/api/chat/session", payload));
+ipcMain.handle(IpcChannel.ChatSessionRename, (_event, payload) =>
+  routeChatWrite(() => chatSessionService.renameChatSession(payload), "/api/chat/session/rename", payload));
 ipcMain.handle(IpcChannel.ChatTitleGenerate, (_event, payload) => chatSessionService.generateSessionTitle(payload));
 ipcMain.handle(IpcChannel.ModelCatalog, () => engineCatalogService.loadHermesModelCatalog());
 ipcMain.handle(IpcChannel.CodexListModels, () => engineCatalogService.loadCodexModels());

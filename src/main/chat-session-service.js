@@ -10,8 +10,10 @@ function createChatSessionService({
 }) {
   function loadChatSessions() {
     initializeRuntime();
-    const store = chatStore.loadChatStore();
-    return chatStore.saveChatStore(store);
+    // Pure read: loadChatStore already returns a normalized store. It must NOT
+    // write — the foreground app reads through this, and a write-on-read would
+    // make it a second writer racing the daemon (the single writer).
+    return chatStore.loadChatStore();
   }
 
   function saveChatSession({ personaKey, session, replaceMessages = false }) {
