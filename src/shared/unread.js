@@ -54,7 +54,7 @@
   //   - { key, sessions: [{ messages: [...] }, ...] }  (persona shape)
   function computeUnreadForConversation(conversation, readState) {
     if (!conversation) return 0;
-    const id = conversation.id || conversation.key || conversation.roomId || "";
+    const id = conversation.id || conversation.key || conversation.conversationId || "";
 
     if (isMap(readState)) {
       const n = readState.get(id);

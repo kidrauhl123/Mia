@@ -5,8 +5,8 @@ const { buildInvocation } = require("../src/main/social/fellow-invocation.js");
 
 test("buildInvocation turns an explicit @ event into responder args", () => {
   const args = buildInvocation({
-    type: "room.fellow_invocation_requested",
-    roomId: "g_1",
+    type: "conversation.fellow_invocation_requested",
+    conversationId: "g_1",
     fellowId: "codex",
     invokedBy: { username: "alice" },
     triggeringMessage: {
@@ -24,7 +24,7 @@ test("buildInvocation turns an explicit @ event into responder args", () => {
     { key: "codex", name: "Codex" }
   ]);
 
-  assert.equal(args.roomId, "g_1");
+  assert.equal(args.conversationId, "g_1");
   assert.equal(args.fellowId, "codex");
   assert.equal(args.dedupKey, "m_1:codex");
   assert.equal(args.userPrompt, "@codex 看看这个");
@@ -35,16 +35,16 @@ test("buildInvocation turns an explicit @ event into responder args", () => {
   assert.match(args.systemPrompt, /\[fellow:codex\] 收到/);
 });
 
-test("buildInvocation returns null for missing trigger, room, fellow, or local fellow", () => {
+test("buildInvocation returns null for missing trigger, conversation, fellow, or local fellow", () => {
   const fellows = [{ key: "codex", name: "Codex" }];
   const base = {
-    roomId: "g_1",
+    conversationId: "g_1",
     fellowId: "codex",
     triggeringMessage: { id: "m_1", body_md: "hi" }
   };
 
   assert.equal(buildInvocation({ ...base, triggeringMessage: null }, fellows), null);
-  assert.equal(buildInvocation({ ...base, roomId: "" }, fellows), null);
+  assert.equal(buildInvocation({ ...base, conversationId: "" }, fellows), null);
   assert.equal(buildInvocation({ ...base, fellowId: "" }, fellows), null);
   assert.equal(buildInvocation({ ...base, fellowId: "remote" }, fellows), null);
 });

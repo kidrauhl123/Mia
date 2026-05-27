@@ -67,8 +67,8 @@ function createSocialApi({ getSettings, normalizeUrl }) {
     async removeFriend(userId) {
       return jsonFetch({ ...ctx(), method: "DELETE", path: `/api/social/friends/${encodeURIComponent(userId)}` });
     },
-    async listRooms() {
-      return jsonFetch({ ...ctx(), method: "GET", path: "/api/rooms" });
+    async listConversations() {
+      return jsonFetch({ ...ctx(), method: "GET", path: "/api/conversations" });
     },
     async listFellows() {
       return jsonFetch({ ...ctx(), method: "GET", path: "/api/me/fellows" });
@@ -87,37 +87,37 @@ function createSocialApi({ getSettings, normalizeUrl }) {
     async listPlatformModels() {
       return jsonFetch({ ...ctx(), method: "GET", path: "/api/me/model-catalog" });
     },
-    // Room ids are `dm:<a>:<b>` or `g_<hex>` — both match the cloud route
-    // regex /api/rooms/([A-Za-z0-9_:-]+) literally. encodeURIComponent would
+    // Conversation ids are `dm:<a>:<b>` or `g_<hex>` — both match the cloud route
+    // regex /api/conversations/([A-Za-z0-9_:-]+) literally. encodeURIComponent would
     // turn `:` into `%3A` which doesn't match and silently 404s, which is
     // why DM sends were being swallowed.
-    async getRoom(roomId) {
-      return jsonFetch({ ...ctx(), method: "GET", path: `/api/rooms/${roomId}` });
+    async getConversation(conversationId) {
+      return jsonFetch({ ...ctx(), method: "GET", path: `/api/conversations/${conversationId}` });
     },
-    async listRoomMessages(roomId, sinceSeq = 0, limit = 100) {
-      return jsonFetch({ ...ctx(), method: "GET", path: `/api/rooms/${roomId}/messages?since_seq=${Number(sinceSeq) || 0}&limit=${Number(limit) || 100}` });
+    async listConversationMessages(conversationId, sinceSeq = 0, limit = 100) {
+      return jsonFetch({ ...ctx(), method: "GET", path: `/api/conversations/${conversationId}/messages?since_seq=${Number(sinceSeq) || 0}&limit=${Number(limit) || 100}` });
     },
-    async postRoomMessage(roomId, body) {
-      return jsonFetch({ ...ctx(), method: "POST", path: `/api/rooms/${roomId}/messages`, body: withOpId(body) });
+    async postConversationMessage(conversationId, body) {
+      return jsonFetch({ ...ctx(), method: "POST", path: `/api/conversations/${conversationId}/messages`, body: withOpId(body) });
     },
-    async deleteRoomMessage(roomId, messageId) {
-      return jsonFetch({ ...ctx(), method: "DELETE", path: `/api/rooms/${roomId}/messages/${encodeURIComponent(messageId)}` });
+    async deleteConversationMessage(conversationId, messageId) {
+      return jsonFetch({ ...ctx(), method: "DELETE", path: `/api/conversations/${conversationId}/messages/${encodeURIComponent(messageId)}` });
     },
-    async createRoom({ name, memberFellows, memberFriendUserIds, clientGroupId } = {}) {
-      // clientGroupId is the room-creation-specific idempotency key (links
+    async createConversation({ name, memberFellows, memberFriendUserIds, clientGroupId } = {}) {
+      // clientGroupId is the conversation-creation-specific idempotency key (links
       // a local group to its cloud counterpart); we still attach a generic
       // clientOpId so a *retry* of the same POST doesn't run twice even
       // when there's no clientGroupId provided. Both checks coexist on
       // the server.
       const body = { name, memberFellows, memberFriendUserIds };
       if (clientGroupId) body.clientGroupId = clientGroupId;
-      return jsonFetch({ ...ctx(), method: "POST", path: "/api/rooms", body: withOpId(body) });
+      return jsonFetch({ ...ctx(), method: "POST", path: "/api/conversations", body: withOpId(body) });
     },
-    async ensureFellowRoom(fellowId, body = {}) {
-      return jsonFetch({ ...ctx(), method: "PUT", path: `/api/me/fellows/${encodeURIComponent(fellowId)}/room`, body: withOpId(body) });
+    async ensureFellowConversation(fellowId, body = {}) {
+      return jsonFetch({ ...ctx(), method: "PUT", path: `/api/me/fellows/${encodeURIComponent(fellowId)}/conversation`, body: withOpId(body) });
     },
-    async ensureFellowSessionRoom(sessionId, body = {}) {
-      return jsonFetch({ ...ctx(), method: "PUT", path: `/api/me/fellow-rooms/${encodeURIComponent(sessionId)}`, body: withOpId(body) });
+    async ensureFellowSessionConversation(sessionId, body = {}) {
+      return jsonFetch({ ...ctx(), method: "PUT", path: `/api/me/fellow-conversations/${encodeURIComponent(sessionId)}`, body: withOpId(body) });
     },
     async getFellowRuntime(fellowId, runtimeKind = "cloud-hermes") {
       return jsonFetch({ ...ctx(), method: "GET", path: `/api/me/fellows/${encodeURIComponent(fellowId)}/runtime?kind=${encodeURIComponent(runtimeKind)}` });
@@ -125,20 +125,20 @@ function createSocialApi({ getSettings, normalizeUrl }) {
     async saveFellowRuntime(fellowId, body = {}) {
       return jsonFetch({ ...ctx(), method: "PUT", path: `/api/me/fellows/${encodeURIComponent(fellowId)}/runtime`, body: withOpId(body) });
     },
-    async updateRoom(roomId, patch) {
-      return jsonFetch({ ...ctx(), method: "PATCH", path: `/api/rooms/${roomId}`, body: patch || {} });
+    async updateConversation(conversationId, patch) {
+      return jsonFetch({ ...ctx(), method: "PATCH", path: `/api/conversations/${conversationId}`, body: patch || {} });
     },
-    async deleteRoom(roomId) {
-      return jsonFetch({ ...ctx(), method: "DELETE", path: `/api/rooms/${roomId}` });
+    async deleteConversation(conversationId) {
+      return jsonFetch({ ...ctx(), method: "DELETE", path: `/api/conversations/${conversationId}` });
     },
-    async addRoomMember(roomId, { memberKind, memberRef, ownerId }) {
-      return jsonFetch({ ...ctx(), method: "POST", path: `/api/rooms/${roomId}/members`, body: { memberKind, memberRef, ownerId } });
+    async addConversationMember(conversationId, { memberKind, memberRef, ownerId }) {
+      return jsonFetch({ ...ctx(), method: "POST", path: `/api/conversations/${conversationId}/members`, body: { memberKind, memberRef, ownerId } });
     },
-    async removeRoomMember(roomId, { memberKind, memberRef }) {
-      return jsonFetch({ ...ctx(), method: "DELETE", path: `/api/rooms/${roomId}/members`, body: { memberKind, memberRef } });
+    async removeConversationMember(conversationId, { memberKind, memberRef }) {
+      return jsonFetch({ ...ctx(), method: "DELETE", path: `/api/conversations/${conversationId}/members`, body: { memberKind, memberRef } });
     },
-    async postRoomMessageAsFellow(roomId, body) {
-      return jsonFetch({ ...ctx(), method: "POST", path: `/api/rooms/${roomId}/messages/as-fellow`, body: withOpId(body) });
+    async postConversationMessageAsFellow(conversationId, body) {
+      return jsonFetch({ ...ctx(), method: "POST", path: `/api/conversations/${conversationId}/messages/as-fellow`, body: withOpId(body) });
     }
   };
 }

@@ -128,13 +128,13 @@ function createSocialStore(db) {
     return { ...row, status: "cancelled", resolved_at: resolvedAt };
   }
 
-  const insertRoom = db.prepare(`
-    INSERT INTO rooms (id, type, name, avatar, host_member_json, decorations_json, context_card_json, created_at, updated_at)
+  const insertConversation = db.prepare(`
+    INSERT INTO conversations (id, type, name, avatar, host_member_json, decorations_json, context_card_json, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  const selectRoomById = db.prepare("SELECT * FROM rooms WHERE id = ?");
-  const updateRoomCols = db.prepare(`
-    UPDATE rooms SET
+  const selectConversationById = db.prepare("SELECT * FROM conversations WHERE id = ?");
+  const updateConversationCols = db.prepare(`
+    UPDATE conversations SET
       name = COALESCE(?, name),
       avatar = COALESCE(?, avatar),
       host_member_json = COALESCE(?, host_member_json),
@@ -143,33 +143,33 @@ function createSocialStore(db) {
       updated_at = ?
     WHERE id = ?
   `);
-  const deleteRoomStmt = db.prepare("DELETE FROM rooms WHERE id = ?");
+  const deleteConversationStmt = db.prepare("DELETE FROM conversations WHERE id = ?");
 
   const insertMember = db.prepare(`
-    INSERT OR IGNORE INTO room_members (room_id, member_kind, member_ref, owner_id, ai_perms_json, joined_at)
+    INSERT OR IGNORE INTO conversation_members (conversation_id, member_kind, member_ref, owner_id, ai_perms_json, joined_at)
     VALUES (?, ?, ?, ?, ?, ?)
   `);
   const deleteMember = db.prepare(
-    "DELETE FROM room_members WHERE room_id = ? AND member_kind = ? AND member_ref = ?"
+    "DELETE FROM conversation_members WHERE conversation_id = ? AND member_kind = ? AND member_ref = ?"
   );
   const selectMembers = db.prepare(
-    "SELECT * FROM room_members WHERE room_id = ? ORDER BY joined_at"
+    "SELECT * FROM conversation_members WHERE conversation_id = ? ORDER BY joined_at"
   );
   const selectMember = db.prepare(
-    "SELECT * FROM room_members WHERE room_id = ? AND member_kind = ? AND member_ref = ?"
+    "SELECT * FROM conversation_members WHERE conversation_id = ? AND member_kind = ? AND member_ref = ?"
   );
-  const selectRoomsByUser = db.prepare(`
-    SELECT r.* FROM rooms r
-    INNER JOIN room_members m ON m.room_id = r.id
+  const selectConversationsByUser = db.prepare(`
+    SELECT r.* FROM conversations r
+    INNER JOIN conversation_members m ON m.conversation_id = r.id
     WHERE m.member_kind = 'user' AND m.member_ref = ?
     ORDER BY r.updated_at DESC
   `);
   const updateMemberPerms = db.prepare(`
-    UPDATE room_members SET ai_perms_json = ?
-    WHERE room_id = ? AND member_kind = ? AND member_ref = ?
+    UPDATE conversation_members SET ai_perms_json = ?
+    WHERE conversation_id = ? AND member_kind = ? AND member_ref = ?
   `);
 
-  function parseRoomRow(row) {
+  function parseConversationRow(row) {
     if (!row) return null;
     return {
       id: row.id,
@@ -191,10 +191,10 @@ function createSocialStore(db) {
     return "group";
   }
 
-  function createRoom({ id, type = null, name = null, avatar = null, hostMember = null, decorations = null, contextCard = null }) {
+  function createConversation({ id, type = null, name = null, avatar = null, hostMember = null, decorations = null, contextCard = null }) {
     const now = nowIso();
     const resolvedType = type || inferType(id);
-    insertRoom.run(
+    insertConversation.run(
       String(id),
       resolvedType,
       name,
@@ -205,34 +205,34 @@ function createSocialStore(db) {
       now,
       now
     );
-    return parseRoomRow(selectRoomById.get(String(id)));
+    return parseConversationRow(selectConversationById.get(String(id)));
   }
 
-  function getRoom(roomId) {
-    return parseRoomRow(selectRoomById.get(String(roomId)));
+  function getConversation(conversationId) {
+    return parseConversationRow(selectConversationById.get(String(conversationId)));
   }
 
-  function updateRoom(roomId, patch = {}) {
+  function updateConversation(conversationId, patch = {}) {
     const has = (k) => Object.prototype.hasOwnProperty.call(patch, k);
-    updateRoomCols.run(
+    updateConversationCols.run(
       has("name") ? patch.name : null,
       has("avatar") ? patch.avatar : null,
       has("hostMember") ? (patch.hostMember ? JSON.stringify(patch.hostMember) : null) : null,
       has("decorations") ? (patch.decorations ? JSON.stringify(patch.decorations) : null) : null,
       has("contextCard") ? (patch.contextCard ? JSON.stringify(patch.contextCard) : null) : null,
       nowIso(),
-      String(roomId)
+      String(conversationId)
     );
-    return parseRoomRow(selectRoomById.get(String(roomId)));
+    return parseConversationRow(selectConversationById.get(String(conversationId)));
   }
 
-  function deleteRoom(roomId) {
-    deleteRoomStmt.run(String(roomId));
+  function deleteConversation(conversationId) {
+    deleteConversationStmt.run(String(conversationId));
   }
 
-  function addRoomMember({ roomId, memberKind, memberRef, ownerId = null, aiPerms = null }) {
+  function addConversationMember({ conversationId, memberKind, memberRef, ownerId = null, aiPerms = null }) {
     insertMember.run(
-      String(roomId),
+      String(conversationId),
       String(memberKind),
       String(memberRef),
       ownerId ? String(ownerId) : null,
@@ -241,15 +241,15 @@ function createSocialStore(db) {
     );
   }
 
-  function removeRoomMember(roomId, memberKind, memberRef) {
-    deleteMember.run(String(roomId), String(memberKind), String(memberRef));
+  function removeConversationMember(conversationId, memberKind, memberRef) {
+    deleteMember.run(String(conversationId), String(memberKind), String(memberRef));
   }
 
   let _fellowsStore = null;
   function _attachFellowsStore(store) { _fellowsStore = store || null; }
 
-  function listRoomMembers(roomId) {
-    const rows = selectMembers.all(String(roomId));
+  function listConversationMembers(conversationId) {
+    const rows = selectMembers.all(String(conversationId));
     if (!_fellowsStore) return rows;
     // Enrich fellow members with name/avatar from the owner's fellow
     // definitions so cross-owner fellow attribution can show the actual
@@ -269,18 +269,18 @@ function createSocialStore(db) {
     });
   }
 
-  function getRoomMember(roomId, memberKind, memberRef) {
-    return selectMember.get(String(roomId), String(memberKind), String(memberRef)) || null;
+  function getConversationMember(conversationId, memberKind, memberRef) {
+    return selectMember.get(String(conversationId), String(memberKind), String(memberRef)) || null;
   }
 
-  function listRoomsForUser(userId) {
-    return selectRoomsByUser.all(String(userId)).map(parseRoomRow);
+  function listConversationsForUser(userId) {
+    return selectConversationsByUser.all(String(userId)).map(parseConversationRow);
   }
 
-  function updateRoomMemberPerms(roomId, memberKind, memberRef, aiPerms) {
+  function updateConversationMemberPerms(conversationId, memberKind, memberRef, aiPerms) {
     updateMemberPerms.run(
       aiPerms ? JSON.stringify(aiPerms) : null,
-      String(roomId),
+      String(conversationId),
       String(memberKind),
       String(memberRef)
     );
@@ -297,16 +297,16 @@ function createSocialStore(db) {
     listOutgoingPending,
     respondToFriendRequest,
     cancelFriendRequest,
-    createRoom,
-    getRoom,
-    updateRoom,
-    deleteRoom,
-    addRoomMember,
-    removeRoomMember,
-    listRoomMembers,
-    listRoomsForUser,
-    updateRoomMemberPerms,
-    getRoomMember,
+    createConversation,
+    getConversation,
+    updateConversation,
+    deleteConversation,
+    addConversationMember,
+    removeConversationMember,
+    listConversationMembers,
+    listConversationsForUser,
+    updateConversationMemberPerms,
+    getConversationMember,
     _attachFellowsStore,
   };
 }

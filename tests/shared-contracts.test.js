@@ -70,7 +70,7 @@ test("session history contract is shared by desktop and web clients", () => {
   const nodeContract = require("../src/shared/session-history");
   const browserContract = loadBrowserGlobal("src/shared/session-history.js", "miaSessionHistory");
 
-  assert.equal(nodeContract.roomType({ id: "fellow:u:mia" }), "fellow");
+  assert.equal(nodeContract.conversationType({ id: "fellow:u:mia" }), "fellow");
   assert.equal(browserContract.runtimeKind({ decorations: { runtimeKind: "cloud-hermes" } }), "cloud-hermes");
   assert.equal(browserContract.canCreateSession({ type: "fellow", decorations: { fellowKey: "mia" } }), true);
 });

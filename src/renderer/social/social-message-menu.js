@@ -1,20 +1,20 @@
-// Context menu for cloud-room (DM + group) message bubbles.
+// Context menu for cloud-conversation (DM + group) message bubbles.
 //
-// Cloud-room messages don't live in a fellow session, so the fellow-chat menu
+// Cloud-conversation messages don't live in a fellow session, so the fellow-chat menu
 // in src/renderer/chat/message-menu.js (which depends on activeSession() /
 // messageAtIndex) can't be reused directly. This module renders the SAME
 // designed menu — same #messageContextMenu element, same .message-context-menu
 // CSS, same menuItemHtml icons + separator + danger styling — but wires the
-// actions to cloud-room operations:
+// actions to cloud-conversation operations:
 //   回复  → set composer reply draft (embedded as a markdown quote on send)
 //   拷贝  → copy plain text
 //   翻译  → translate in place via the utility model
-//   删除  → DELETE /api/rooms/:id/messages/:msgId (local delete: hides it for
+//   删除  → DELETE /api/conversations/:id/messages/:msgId (local delete: hides it for
 //          you across your own devices; other members keep their copy)
-// 置顶 is intentionally omitted: a shared cloud room has no per-message pin.
+// 置顶 is intentionally omitted: a shared cloud conversation has no per-message pin.
 //
 // Wired from app.js's chat-level contextmenu dispatcher, which routes bubbles
-// carrying data-message-source="cloud-room" here instead of the fellow menu.
+// carrying data-message-source="cloud-conversation" here instead of the fellow menu.
 
 (function (global) {
   "use strict";
@@ -89,7 +89,7 @@
     if (typeof closeFellow === "function") closeFellow();
 
     const social = global.miaSocial;
-    const roomId = social?.getActiveRoomId?.();
+    const conversationId = social?.getActiveConversationId?.();
     const desc = social?.describeMessageForMenu?.(message) || { authorName: "", isOwn: false, bodyMd: message?.body_md || "" };
     const plain = plainTextFromMarkdown(desc.bodyMd);
     const hasText = Boolean(plain);
@@ -126,11 +126,11 @@
           return;
         }
         if (action === "translate") {
-          if (roomId && message?.id) await social?.translateRoomMessage?.(roomId, message.id);
+          if (conversationId && message?.id) await social?.translateConversationMessage?.(conversationId, message.id);
           return;
         }
         if (action === "delete") {
-          if (roomId && message?.id) await social?.deleteRoomMessage?.(roomId, message.id);
+          if (conversationId && message?.id) await social?.deleteConversationMessage?.(conversationId, message.id);
           return;
         }
       });

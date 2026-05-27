@@ -80,7 +80,7 @@ async function friendUp(port, a, b) {
     body: { action: "accept" }
   });
   if (accepted.status !== 200) throw new Error("friend accept failed: " + JSON.stringify(accepted));
-  return accepted.body.room;
+  return accepted.body.conversation;
 }
 
 test("POST /api/social/friend-requests creates pending request", async () => {
@@ -161,7 +161,7 @@ test("POST /api/social/friend-requests → 400 missing toUsername", async () => 
   } finally { await stopServer(ctx); }
 });
 
-test("POST /:id/respond accept creates friendship + DM room + returns both", async () => {
+test("POST /:id/respond accept creates friendship + DM conversation + returns both", async () => {
   const ctx = await startServer();
   try {
     const alice = await register(ctx.port, "alice");
@@ -174,12 +174,12 @@ test("POST /:id/respond accept creates friendship + DM room + returns both", asy
     });
     assert.equal(accept.status, 200);
     assert.equal(accept.body.friend.id, alice.user.id);
-    assert.ok(accept.body.room.id.startsWith("dm:"));
+    assert.ok(accept.body.conversation.id.startsWith("dm:"));
     assert.equal(accept.body.request.status, "accepted");
   } finally { await stopServer(ctx); }
 });
 
-test("POST /:id/respond reject returns 200 without friend/room", async () => {
+test("POST /:id/respond reject returns 200 without friend/conversation", async () => {
   const ctx = await startServer();
   try {
     const alice = await register(ctx.port, "alice");
@@ -193,7 +193,7 @@ test("POST /:id/respond reject returns 200 without friend/room", async () => {
     assert.equal(reject.status, 200);
     assert.equal(reject.body.request.status, "rejected");
     assert.equal(reject.body.friend, undefined);
-    assert.equal(reject.body.room, undefined);
+    assert.equal(reject.body.conversation, undefined);
   } finally { await stopServer(ctx); }
 });
 
@@ -308,7 +308,7 @@ test("GET /api/social/friends lists accepted friends", async () => {
   } finally { await stopServer(ctx); }
 });
 
-test("DELETE /api/social/friends/:userId removes friendship but keeps DM room", async () => {
+test("DELETE /api/social/friends/:userId removes friendship but keeps DM conversation", async () => {
   const ctx = await startServer();
   try {
     const alice = await register(ctx.port, "alice");
@@ -321,49 +321,49 @@ test("DELETE /api/social/friends/:userId removes friendship but keeps DM room", 
   } finally { await stopServer(ctx); }
 });
 
-test("POST /api/rooms/:id/messages sends to DM room, server assigns seq", async () => {
+test("POST /api/conversations/:id/messages sends to DM conversation, server assigns seq", async () => {
   const ctx = await startServer();
   try {
     const alice = await register(ctx.port, "alice");
     const bob = await register(ctx.port, "bob");
-    const room = await friendUp(ctx.port, alice, bob);
-    const m1 = await api(ctx.port, "POST", "/api/rooms/" + room.id + "/messages", {
+    const conversation = await friendUp(ctx.port, alice, bob);
+    const m1 = await api(ctx.port, "POST", "/api/conversations/" + conversation.id + "/messages", {
       token: alice.token, body: { bodyMd: "hi bob" }
     });
     assert.equal(m1.status, 201);
     assert.equal(m1.body.message.seq, 1);
     assert.equal(m1.body.message.sender_ref, alice.user.id);
-    const m2 = await api(ctx.port, "POST", "/api/rooms/" + room.id + "/messages", {
+    const m2 = await api(ctx.port, "POST", "/api/conversations/" + conversation.id + "/messages", {
       token: bob.token, body: { bodyMd: "sup" }
     });
     assert.equal(m2.body.message.seq, 2);
   } finally { await stopServer(ctx); }
 });
 
-test("GET /api/rooms/:id/messages?since_seq=N returns incremental", async () => {
+test("GET /api/conversations/:id/messages?since_seq=N returns incremental", async () => {
   const ctx = await startServer();
   try {
     const alice = await register(ctx.port, "alice");
     const bob = await register(ctx.port, "bob");
-    const room = await friendUp(ctx.port, alice, bob);
+    const conversation = await friendUp(ctx.port, alice, bob);
     for (let i = 1; i <= 5; i++) {
-      await api(ctx.port, "POST", "/api/rooms/" + room.id + "/messages", { token: alice.token, body: { bodyMd: "m" + i } });
+      await api(ctx.port, "POST", "/api/conversations/" + conversation.id + "/messages", { token: alice.token, body: { bodyMd: "m" + i } });
     }
-    const r = await api(ctx.port, "GET", "/api/rooms/" + room.id + "/messages?since_seq=2", { token: bob.token });
+    const r = await api(ctx.port, "GET", "/api/conversations/" + conversation.id + "/messages?since_seq=2", { token: bob.token });
     assert.equal(r.status, 200);
     assert.equal(r.body.messages.length, 3);
     assert.deepEqual(r.body.messages.map((m) => m.seq), [3, 4, 5]);
   } finally { await stopServer(ctx); }
 });
 
-test("POST to room user is not member of returns 403", async () => {
+test("POST to conversation user is not member of returns 403", async () => {
   const ctx = await startServer();
   try {
     const alice = await register(ctx.port, "alice");
     const bob = await register(ctx.port, "bob");
     const charlie = await register(ctx.port, "charlie");
-    const room = await friendUp(ctx.port, alice, bob);
-    const r = await api(ctx.port, "POST", "/api/rooms/" + room.id + "/messages", { token: charlie.token, body: { bodyMd: "intruder" } });
+    const conversation = await friendUp(ctx.port, alice, bob);
+    const r = await api(ctx.port, "POST", "/api/conversations/" + conversation.id + "/messages", { token: charlie.token, body: { bodyMd: "intruder" } });
     assert.equal(r.status, 403);
   } finally { await stopServer(ctx); }
 });
@@ -373,20 +373,20 @@ test("DELETE message hides it for the deleter only — other members keep their 
   try {
     const alice = await register(ctx.port, "alice");
     const bob = await register(ctx.port, "bob");
-    const room = await friendUp(ctx.port, alice, bob);
-    const posted = await api(ctx.port, "POST", "/api/rooms/" + room.id + "/messages", {
+    const conversation = await friendUp(ctx.port, alice, bob);
+    const posted = await api(ctx.port, "POST", "/api/conversations/" + conversation.id + "/messages", {
       token: alice.token, body: { bodyMd: "alice's message" }
     });
     assert.equal(posted.status, 201);
     const msgId = posted.body.message.id;
     // Bob deletes Alice's message — WeChat-style local delete, not a recall.
-    const del = await api(ctx.port, "DELETE", "/api/rooms/" + room.id + "/messages/" + msgId, { token: bob.token });
+    const del = await api(ctx.port, "DELETE", "/api/conversations/" + conversation.id + "/messages/" + msgId, { token: bob.token });
     assert.equal(del.status, 200);
     // Bob's history drops it.
-    const bobList = await api(ctx.port, "GET", "/api/rooms/" + room.id + "/messages?since_seq=0", { token: bob.token });
+    const bobList = await api(ctx.port, "GET", "/api/conversations/" + conversation.id + "/messages?since_seq=0", { token: bob.token });
     assert.deepEqual(bobList.body.messages.map((m) => m.id), []);
     // Alice's history is UNTOUCHED — a member must never delete from another's view.
-    const aliceList = await api(ctx.port, "GET", "/api/rooms/" + room.id + "/messages?since_seq=0", { token: alice.token });
+    const aliceList = await api(ctx.port, "GET", "/api/conversations/" + conversation.id + "/messages?since_seq=0", { token: alice.token });
     assert.deepEqual(aliceList.body.messages.map((m) => m.id), [msgId]);
   } finally { await stopServer(ctx); }
 });
@@ -397,60 +397,60 @@ test("DELETE message → 403 non-member, 404 missing id", async () => {
     const alice = await register(ctx.port, "alice");
     const bob = await register(ctx.port, "bob");
     const charlie = await register(ctx.port, "charlie");
-    const room = await friendUp(ctx.port, alice, bob);
-    const posted = await api(ctx.port, "POST", "/api/rooms/" + room.id + "/messages", {
+    const conversation = await friendUp(ctx.port, alice, bob);
+    const posted = await api(ctx.port, "POST", "/api/conversations/" + conversation.id + "/messages", {
       token: alice.token, body: { bodyMd: "hi" }
     });
     const msgId = posted.body.message.id;
-    const intruder = await api(ctx.port, "DELETE", "/api/rooms/" + room.id + "/messages/" + msgId, { token: charlie.token });
+    const intruder = await api(ctx.port, "DELETE", "/api/conversations/" + conversation.id + "/messages/" + msgId, { token: charlie.token });
     assert.equal(intruder.status, 403);
-    const missing = await api(ctx.port, "DELETE", "/api/rooms/" + room.id + "/messages/m_nope", { token: alice.token });
+    const missing = await api(ctx.port, "DELETE", "/api/conversations/" + conversation.id + "/messages/m_nope", { token: alice.token });
     assert.equal(missing.status, 404);
   } finally { await stopServer(ctx); }
 });
 
-test("POST to DM room id derives membership from friendship even before explicit room", async () => {
+test("POST to DM conversation id derives membership from friendship even before explicit conversation", async () => {
   const ctx = await startServer();
   try {
     const alice = await register(ctx.port, "alice");
     const bob = await register(ctx.port, "bob");
     const dmId = "dm:" + [alice.user.id, bob.user.id].sort().join(":");
-    const r1 = await api(ctx.port, "POST", "/api/rooms/" + dmId + "/messages", { token: alice.token, body: { bodyMd: "hi" } });
+    const r1 = await api(ctx.port, "POST", "/api/conversations/" + dmId + "/messages", { token: alice.token, body: { bodyMd: "hi" } });
     assert.equal(r1.status, 403, "non-friends cannot start DM");
 
     await friendUp(ctx.port, alice, bob);
-    const r2 = await api(ctx.port, "POST", "/api/rooms/" + dmId + "/messages", { token: alice.token, body: { bodyMd: "hi friend" } });
+    const r2 = await api(ctx.port, "POST", "/api/conversations/" + dmId + "/messages", { token: alice.token, body: { bodyMd: "hi friend" } });
     assert.equal(r2.status, 201);
   } finally { await stopServer(ctx); }
 });
 
-test("GET /api/rooms lists current user's rooms", async () => {
+test("GET /api/conversations lists current user's conversations", async () => {
   const ctx = await startServer();
   try {
     const alice = await register(ctx.port, "alice");
     const bob = await register(ctx.port, "bob");
     await friendUp(ctx.port, alice, bob);
-    const list = await api(ctx.port, "GET", "/api/rooms", { token: alice.token });
+    const list = await api(ctx.port, "GET", "/api/conversations", { token: alice.token });
     assert.equal(list.status, 200);
-    const dmRooms = list.body.rooms.filter((room) => room.id.startsWith("dm:"));
-    assert.equal(dmRooms.length, 1);
+    const dmConversations = list.body.conversations.filter((conversation) => conversation.id.startsWith("dm:"));
+    assert.equal(dmConversations.length, 1);
   } finally { await stopServer(ctx); }
 });
 
-test("GET /api/rooms/:id returns room + members", async () => {
+test("GET /api/conversations/:id returns conversation + members", async () => {
   const ctx = await startServer();
   try {
     const alice = await register(ctx.port, "alice");
     const bob = await register(ctx.port, "bob");
-    const room = await friendUp(ctx.port, alice, bob);
-    const r = await api(ctx.port, "GET", "/api/rooms/" + room.id, { token: alice.token });
+    const conversation = await friendUp(ctx.port, alice, bob);
+    const r = await api(ctx.port, "GET", "/api/conversations/" + conversation.id, { token: alice.token });
     assert.equal(r.status, 200);
-    assert.equal(r.body.room.id, room.id);
+    assert.equal(r.body.conversation.id, conversation.id);
     assert.equal(r.body.members.length, 2);
   } finally { await stopServer(ctx); }
 });
 
-test("GET /api/rooms/:id returns fellow owner without profile avatar payloads", async () => {
+test("GET /api/conversations/:id returns fellow owner without profile avatar payloads", async () => {
   const ctx = await startServer();
   try {
     const alice = await register(ctx.port, "alice");
@@ -465,13 +465,13 @@ test("GET /api/rooms/:id returns fellow owner without profile avatar payloads", 
     });
     assert.equal(profile.status, 200);
 
-    const ensured = await api(ctx.port, "PUT", "/api/me/fellows/bot/room", {
+    const ensured = await api(ctx.port, "PUT", "/api/me/fellows/bot/conversation", {
       token: alice.token,
       body: { title: "Bot", runtimeKind: "desktop-local" }
     });
     assert.equal(ensured.status, 200);
 
-    const detail = await api(ctx.port, "GET", "/api/rooms/" + ensured.body.room.id, { token: alice.token });
+    const detail = await api(ctx.port, "GET", "/api/conversations/" + ensured.body.conversation.id, { token: alice.token });
     assert.equal(detail.status, 200);
     const fellowMember = detail.body.members.find((member) => member.member_kind === "fellow");
     assert.equal(fellowMember.owner.id, alice.user.id);
@@ -525,7 +525,7 @@ test("respond accept emits social.friend_added to both users", async () => {
       const be = await waitForEvent(bobWs.events, (e) => e.type === "social.friend_added");
       assert.equal(ae.friend.id, bob.user.id);
       assert.equal(be.friend.id, alice.user.id);
-      assert.ok(ae.room.id.startsWith("dm:"));
+      assert.ok(ae.conversation.id.startsWith("dm:"));
     } finally {
       aliceWs.ws.close();
       bobWs.ws.close();
@@ -552,7 +552,7 @@ test("POST friend-request emits social.friend_request_received to recipient", as
   } finally { await stopServer(ctx); }
 });
 
-test("post DM message emits room.message_appended to both members", async () => {
+test("post DM message emits conversation.message_appended to both members", async () => {
   const ctx = await startServer();
   try {
     const alice = await register(ctx.port, "alice");
@@ -562,9 +562,9 @@ test("post DM message emits room.message_appended to both members", async () => 
     const bobWs = await openEventsWs(ctx.port, bob.token);
     try {
       const dmId = "dm:" + [alice.user.id, bob.user.id].sort().join(":");
-      await api(ctx.port, "POST", "/api/rooms/" + dmId + "/messages", { token: alice.token, body: { bodyMd: "boo" } });
-      const ae = await waitForEvent(aliceWs.events, (e) => e.type === "room.message_appended");
-      const be = await waitForEvent(bobWs.events, (e) => e.type === "room.message_appended");
+      await api(ctx.port, "POST", "/api/conversations/" + dmId + "/messages", { token: alice.token, body: { bodyMd: "boo" } });
+      const ae = await waitForEvent(aliceWs.events, (e) => e.type === "conversation.message_appended");
+      const be = await waitForEvent(bobWs.events, (e) => e.type === "conversation.message_appended");
       assert.equal(ae.message.seq, 1);
       assert.equal(ae.message.body_md, "boo");
       assert.equal(be.message.body_md, "boo");
@@ -590,32 +590,32 @@ test("end-to-end: two users meet, friend up, exchange DM messages with seq", asy
       token: bob.token, body: { action: "accept" }
     });
     assert.equal(accepted.status, 200);
-    const roomId = accepted.body.room.id;
+    const conversationId = accepted.body.conversation.id;
 
     const aFriends = await api(ctx.port, "GET", "/api/social/friends", { token: alice.token });
     assert.equal(aFriends.body.friends.length, 1);
 
-    const aRooms = await api(ctx.port, "GET", "/api/rooms", { token: alice.token });
-    const dmRooms = aRooms.body.rooms.filter((room) => room.id.startsWith("dm:"));
-    assert.equal(dmRooms.length, 1);
-    assert.equal(dmRooms[0].id, roomId);
+    const aConversations = await api(ctx.port, "GET", "/api/conversations", { token: alice.token });
+    const dmConversations = aConversations.body.conversations.filter((conversation) => conversation.id.startsWith("dm:"));
+    assert.equal(dmConversations.length, 1);
+    assert.equal(dmConversations[0].id, conversationId);
 
-    const m1 = await api(ctx.port, "POST", "/api/rooms/" + roomId + "/messages", { token: alice.token, body: { bodyMd: "hi bob" } });
-    const m2 = await api(ctx.port, "POST", "/api/rooms/" + roomId + "/messages", { token: bob.token, body: { bodyMd: "hey alice" } });
-    const m3 = await api(ctx.port, "POST", "/api/rooms/" + roomId + "/messages", { token: alice.token, body: { bodyMd: "tomorrow at 9?" } });
+    const m1 = await api(ctx.port, "POST", "/api/conversations/" + conversationId + "/messages", { token: alice.token, body: { bodyMd: "hi bob" } });
+    const m2 = await api(ctx.port, "POST", "/api/conversations/" + conversationId + "/messages", { token: bob.token, body: { bodyMd: "hey alice" } });
+    const m3 = await api(ctx.port, "POST", "/api/conversations/" + conversationId + "/messages", { token: alice.token, body: { bodyMd: "tomorrow at 9?" } });
     assert.deepEqual([m1.body.message.seq, m2.body.message.seq, m3.body.message.seq], [1, 2, 3]);
 
-    const all = await api(ctx.port, "GET", "/api/rooms/" + roomId + "/messages?since_seq=0", { token: bob.token });
+    const all = await api(ctx.port, "GET", "/api/conversations/" + conversationId + "/messages?since_seq=0", { token: bob.token });
     assert.equal(all.body.messages.length, 3);
     assert.deepEqual(all.body.messages.map((m) => m.body_md), ["hi bob", "hey alice", "tomorrow at 9?"]);
 
-    const partial = await api(ctx.port, "GET", "/api/rooms/" + roomId + "/messages?since_seq=1", { token: bob.token });
+    const partial = await api(ctx.port, "GET", "/api/conversations/" + conversationId + "/messages?since_seq=1", { token: bob.token });
     assert.equal(partial.body.messages.length, 2);
     assert.deepEqual(partial.body.messages.map((m) => m.seq), [2, 3]);
   } finally { await stopServer(ctx); }
 });
 
-// ── Phase 4.1: Group rooms + fellow members + cross-user invocation ──
+// ── Phase 4.1: Group conversations + fellow members + cross-user invocation ──
 
 async function setupGroupScenario(port) {
   const alice = await register(port, "alice");
@@ -625,11 +625,11 @@ async function setupGroupScenario(port) {
   return { alice, bob };
 }
 
-test("POST /api/rooms creates group with creator + fellow + friend members", async () => {
+test("POST /api/conversations creates group with creator + fellow + friend members", async () => {
   const ctx = await startServer();
   try {
     const { alice, bob } = await setupGroupScenario(ctx.port);
-    const r = await api(ctx.port, "POST", "/api/rooms", {
+    const r = await api(ctx.port, "POST", "/api/conversations", {
       token: alice.token,
       body: {
         name: "Test Squad",
@@ -638,8 +638,8 @@ test("POST /api/rooms creates group with creator + fellow + friend members", asy
       }
     });
     assert.equal(r.status, 201);
-    assert.ok(r.body.room.id.startsWith("g_"));
-    assert.equal(r.body.room.name, "Test Squad");
+    assert.ok(r.body.conversation.id.startsWith("g_"));
+    assert.equal(r.body.conversation.name, "Test Squad");
     const members = r.body.members;
     assert.equal(members.length, 3); // alice + codex + bob
     const userMembers = members.filter((m) => m.member_kind === "user").map((m) => m.member_ref).sort();
@@ -651,12 +651,12 @@ test("POST /api/rooms creates group with creator + fellow + friend members", asy
   } finally { await stopServer(ctx); }
 });
 
-test("POST /api/rooms refuses non-friend in memberFriendUserIds", async () => {
+test("POST /api/conversations refuses non-friend in memberFriendUserIds", async () => {
   const ctx = await startServer();
   try {
     const alice = await register(ctx.port, "alice");
     const stranger = await register(ctx.port, "stranger");
-    const r = await api(ctx.port, "POST", "/api/rooms", {
+    const r = await api(ctx.port, "POST", "/api/conversations", {
       token: alice.token,
       body: { name: "x", memberFellows: [], memberFriendUserIds: [stranger.user.id] }
     });
@@ -664,7 +664,7 @@ test("POST /api/rooms refuses non-friend in memberFriendUserIds", async () => {
   } finally { await stopServer(ctx); }
 });
 
-test("POST /api/rooms/:id/members adds friend after group exists", async () => {
+test("POST /api/conversations/:id/members adds friend after group exists", async () => {
   const ctx = await startServer();
   try {
     const { alice, bob } = await setupGroupScenario(ctx.port);
@@ -673,31 +673,31 @@ test("POST /api/rooms/:id/members adds friend after group exists", async () => {
     const fr = await api(ctx.port, "POST", "/api/social/friend-requests", { token: alice.token, body: { toUsername: "charlie" } });
     await api(ctx.port, "POST", "/api/social/friend-requests/" + fr.body.request.id + "/respond", { token: charlie.token, body: { action: "accept" } });
     // create group with bob
-    const grp = await api(ctx.port, "POST", "/api/rooms", {
+    const grp = await api(ctx.port, "POST", "/api/conversations", {
       token: alice.token,
       body: { name: "G", memberFellows: [], memberFriendUserIds: [bob.user.id] }
     });
     // add charlie later
-    const add = await api(ctx.port, "POST", "/api/rooms/" + grp.body.room.id + "/members", {
+    const add = await api(ctx.port, "POST", "/api/conversations/" + grp.body.conversation.id + "/members", {
       token: alice.token,
       body: { memberKind: "user", memberRef: charlie.user.id }
     });
     assert.equal(add.status, 201);
-    const detail = await api(ctx.port, "GET", "/api/rooms/" + grp.body.room.id, { token: alice.token });
+    const detail = await api(ctx.port, "GET", "/api/conversations/" + grp.body.conversation.id, { token: alice.token });
     assert.equal(detail.body.members.length, 3);
   } finally { await stopServer(ctx); }
 });
 
-test("POST /api/rooms/:id/members rejects pulling someone else's fellow", async () => {
+test("POST /api/conversations/:id/members rejects pulling someone else's fellow", async () => {
   const ctx = await startServer();
   try {
     const { alice, bob } = await setupGroupScenario(ctx.port);
-    const grp = await api(ctx.port, "POST", "/api/rooms", {
+    const grp = await api(ctx.port, "POST", "/api/conversations", {
       token: alice.token,
       body: { name: "G", memberFellows: [], memberFriendUserIds: [bob.user.id] }
     });
     // bob tries to pull alice's fellow (owner_id=alice.user.id) — should fail
-    const add = await api(ctx.port, "POST", "/api/rooms/" + grp.body.room.id + "/members", {
+    const add = await api(ctx.port, "POST", "/api/conversations/" + grp.body.conversation.id + "/members", {
       token: bob.token,
       body: { memberKind: "fellow", memberRef: "codex", ownerId: alice.user.id }
     });
@@ -709,11 +709,11 @@ test("POST /messages/as-fellow allows owner to post on behalf of own fellow", as
   const ctx = await startServer();
   try {
     const { alice, bob } = await setupGroupScenario(ctx.port);
-    const grp = await api(ctx.port, "POST", "/api/rooms", {
+    const grp = await api(ctx.port, "POST", "/api/conversations", {
       token: alice.token,
       body: { name: "G", memberFellows: [{ fellowId: "codex" }], memberFriendUserIds: [bob.user.id] }
     });
-    const r = await api(ctx.port, "POST", "/api/rooms/" + grp.body.room.id + "/messages/as-fellow", {
+    const r = await api(ctx.port, "POST", "/api/conversations/" + grp.body.conversation.id + "/messages/as-fellow", {
       token: alice.token,
       body: { fellowId: "codex", bodyMd: "Hello from Codex" }
     });
@@ -729,12 +729,12 @@ test("POST /messages/as-fellow rejects non-owner", async () => {
   const ctx = await startServer();
   try {
     const { alice, bob } = await setupGroupScenario(ctx.port);
-    const grp = await api(ctx.port, "POST", "/api/rooms", {
+    const grp = await api(ctx.port, "POST", "/api/conversations", {
       token: alice.token,
       body: { name: "G", memberFellows: [{ fellowId: "codex" }], memberFriendUserIds: [bob.user.id] }
     });
     // bob tries to post as alice's codex
-    const r = await api(ctx.port, "POST", "/api/rooms/" + grp.body.room.id + "/messages/as-fellow", {
+    const r = await api(ctx.port, "POST", "/api/conversations/" + grp.body.conversation.id + "/messages/as-fellow", {
       token: bob.token,
       body: { fellowId: "codex", bodyMd: "fake" }
     });
@@ -742,21 +742,21 @@ test("POST /messages/as-fellow rejects non-owner", async () => {
   } finally { await stopServer(ctx); }
 });
 
-test("fellow mention in group message triggers room.fellow_invocation_requested to owner", async () => {
+test("fellow mention in group message triggers conversation.fellow_invocation_requested to owner", async () => {
   const ctx = await startServer();
   try {
     const { alice, bob } = await setupGroupScenario(ctx.port);
-    const grp = await api(ctx.port, "POST", "/api/rooms", {
+    const grp = await api(ctx.port, "POST", "/api/conversations", {
       token: alice.token,
       body: { name: "G", memberFellows: [{ fellowId: "codex" }], memberFriendUserIds: [bob.user.id] }
     });
     const aliceWs = await openEventsWs(ctx.port, alice.token);
     try {
-      await api(ctx.port, "POST", "/api/rooms/" + grp.body.room.id + "/messages", {
+      await api(ctx.port, "POST", "/api/conversations/" + grp.body.conversation.id + "/messages", {
         token: bob.token,
         body: { bodyMd: "@codex help me", mentions: [{ kind: "fellow", fellowId: "codex" }] }
       });
-      const inv = await waitForEvent(aliceWs.events, (e) => e.type === "room.fellow_invocation_requested");
+      const inv = await waitForEvent(aliceWs.events, (e) => e.type === "conversation.fellow_invocation_requested");
       assert.equal(inv.fellowId, "codex");
       assert.equal(inv.invokedBy.id, bob.user.id);
       assert.ok(Array.isArray(inv.recentMessages));

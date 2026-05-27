@@ -63,7 +63,7 @@ function freshStores() {
   };
 }
 
-test("ensureDefaultCloudFellow creates fellow, binding, room, and members idempotently", () => {
+test("ensureDefaultCloudFellow creates fellow, binding, conversation, and members idempotently", () => {
   const ctx = freshStores();
   try {
     const account = ctx.cloudStore.registerUser({ username: "alice", password: "123456" });
@@ -73,18 +73,18 @@ test("ensureDefaultCloudFellow creates fellow, binding, room, and members idempo
     assert.equal(out1.fellow.id, "mia");
     assert.equal(out1.fellow.bio, "Mia Fellow");
     assert.doesNotMatch(out1.fellow.personaText, /云端 Agent|本地运行/);
-    assert.equal(out1.room.id, `fellow:${account.user.id}:mia`);
-    assert.equal(out1.room.type, "fellow");
-    assert.equal(out2.room.id, out1.room.id);
+    assert.equal(out1.conversation.id, `fellow:${account.user.id}:mia`);
+    assert.equal(out1.conversation.type, "fellow");
+    assert.equal(out2.conversation.id, out1.conversation.id);
 
     const binding = ctx.runtimeBindingsStore.getEnabledBinding(account.user.id, "mia", "cloud-hermes");
     assert.equal(binding.runtimeKind, "cloud-hermes");
 
-    const rooms = ctx.socialStore.listRoomsForUser(account.user.id)
-      .filter((room) => room.id === out1.room.id);
-    assert.equal(rooms.length, 1);
+    const conversations = ctx.socialStore.listConversationsForUser(account.user.id)
+      .filter((conversation) => conversation.id === out1.conversation.id);
+    assert.equal(conversations.length, 1);
 
-    const members = ctx.socialStore.listRoomMembers(out1.room.id);
+    const members = ctx.socialStore.listConversationMembers(out1.conversation.id);
     assert.deepEqual(members.map((m) => m.member_kind).sort(), ["fellow", "user"]);
     assert.equal(members.find((m) => m.member_kind === "fellow").owner_id, account.user.id);
   } finally {
@@ -116,13 +116,13 @@ test("ensureDefaultCloudFellow preserves an existing default fellow identity", (
   }
 });
 
-test("ensureDefaultCloudFellow backfills missing cloud runtimeKind on legacy default rooms", () => {
+test("ensureDefaultCloudFellow backfills missing cloud runtimeKind on legacy default conversations", () => {
   const ctx = freshStores();
   try {
     const account = ctx.cloudStore.registerUser({ username: "dave", password: "123456" });
-    const roomId = `fellow:${account.user.id}:mia`;
-    ctx.socialStore.createRoom({
-      id: roomId,
+    const conversationId = `fellow:${account.user.id}:mia`;
+    ctx.socialStore.createConversation({
+      id: conversationId,
       type: "fellow",
       name: "Legacy Mia",
       decorations: { fellowKey: "mia", sessionId: "mia", pinnedGoal: "keep me" }
@@ -130,8 +130,8 @@ test("ensureDefaultCloudFellow backfills missing cloud runtimeKind on legacy def
 
     const out = ensureDefaultCloudFellow(ctx, account.user.id);
 
-    assert.equal(out.room.decorations.runtimeKind, "cloud-hermes");
-    assert.equal(out.room.decorations.pinnedGoal, "keep me");
+    assert.equal(out.conversation.decorations.runtimeKind, "cloud-hermes");
+    assert.equal(out.conversation.decorations.pinnedGoal, "keep me");
   } finally {
     ctx.cleanup();
   }
@@ -141,9 +141,9 @@ test("ensureDefaultCloudFellow does not override an explicit desktop-local runti
   const ctx = freshStores();
   try {
     const account = ctx.cloudStore.registerUser({ username: "erin", password: "123456" });
-    const roomId = `fellow:${account.user.id}:mia`;
-    ctx.socialStore.createRoom({
-      id: roomId,
+    const conversationId = `fellow:${account.user.id}:mia`;
+    ctx.socialStore.createConversation({
+      id: conversationId,
       type: "fellow",
       name: "Local Mia",
       decorations: { fellowKey: "mia", sessionId: "mia", runtimeKind: "desktop-local" }
@@ -151,13 +151,13 @@ test("ensureDefaultCloudFellow does not override an explicit desktop-local runti
 
     const out = ensureDefaultCloudFellow(ctx, account.user.id);
 
-    assert.equal(out.room.decorations.runtimeKind, "desktop-local");
+    assert.equal(out.conversation.decorations.runtimeKind, "desktop-local");
   } finally {
     ctx.cleanup();
   }
 });
 
-test("registration makes default cloud fellow room visible through /api/rooms", async () => {
+test("registration makes default cloud fellow conversation visible through /api/conversations", async () => {
   const dataDir = tempDir("mia-default-fellow-http-");
   const server = createMiaCloudServer({ dataDir });
   const baseUrl = await listen(server);
@@ -166,11 +166,11 @@ test("registration makes default cloud fellow room visible through /api/rooms", 
       method: "POST",
       body: { username: "bob", password: "123456" }
     });
-    const listed = await jsonFetch(baseUrl, "/api/rooms", {
+    const listed = await jsonFetch(baseUrl, "/api/conversations", {
       headers: { authorization: `Bearer ${account.token}` }
     });
-    const roomId = `fellow:${account.user.id}:mia`;
-    assert.ok(listed.rooms.some((room) => room.id === roomId && room.type === "fellow"));
+    const conversationId = `fellow:${account.user.id}:mia`;
+    assert.ok(listed.conversations.some((conversation) => conversation.id === conversationId && conversation.type === "fellow"));
   } finally {
     await close(server);
     fs.rmSync(dataDir, { recursive: true, force: true });

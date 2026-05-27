@@ -1,18 +1,18 @@
-// Group info / settings dialog for cloud group rooms.
+// Group info / settings dialog for cloud group conversations.
 // Replaces the local-group openInfoDialog deleted in Phase 5. Every field
-// here writes through PATCH /api/rooms/:id (top-level name; everything
-// else goes into decorations) or /api/rooms/:id/members for membership.
+// here writes through PATCH /api/conversations/:id (top-level name; everything
+// else goes into decorations) or /api/conversations/:id/members for membership.
 //
 // Fields:
 //   - 群头像 (decorations.avatar = { image, crop }) — uses the shared
 //     avatar-crop editor; reverting "恢复默认" clears the override so the
 //     sidebar mosaic renders again.
-//   - 群名 (room.name)
+//   - 群名 (conversation.name)
 //   - 回复模式 (decorations.responseMode: "conductor" | "mentions-only")
 //   - 群目标 (decorations.pinnedGoal) — shown to the conductor's
 //     dispatch prompt as the group summary fallback.
 //   - 群主 (decorations.hostMember = { kind: "fellow", fellowId })
-//   - 成员管理 (POST/DELETE /api/rooms/:id/members)
+//   - 成员管理 (POST/DELETE /api/conversations/:id/members)
 //   - 重置群上下文 (decorations.contextCard = null)
 
 (function (global) {
@@ -22,7 +22,7 @@
     || require("../../shared/conversation-kinds");
 
   let _ctx = null;
-  let _activeRoomId = null;
+  let _activeConversationId = null;
   let _pendingAvatarApply = null;
 
   function attach(internalCtx) { _ctx = internalCtx; }
@@ -32,11 +32,11 @@
       ?? String(value ?? "").replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" }[ch]));
   }
 
-  function applyTilesToButton(buttonEl, room, members) {
+  function applyTilesToButton(buttonEl, conversation, members) {
     if (!buttonEl) return;
     const slot = buttonEl.querySelector(".avatar");
     if (!slot) return;
-    const custom = room?.decorations?.avatar;
+    const custom = conversation?.decorations?.avatar;
     if (custom && custom.image) {
       slot.className = "avatar";
       global.miaAvatar.paintAvatar(slot, { image: custom.image, crop: custom.crop, color: "#5e5ce6" });
@@ -56,30 +56,32 @@
     return {
       self: cloudUser || runtimeState.runtime?.user || null,
       friends: moduleState.friends || [],
-      fellows: runtimeState.runtime?.fellows || runtimeState.runtime?.personas || [],
+      // Canonical owned-fellow list (cloud + local) so cloud fellows like mia
+      // resolve their name/avatar tile in groups they belong to.
+      fellows: _ctx.adapterCtx().fellows,
       avatarAssetForKey: global.miaAvatar?.avatarAssetForKey
     };
   }
 
   // —— field writes ——
 
-  async function patchDecorations(room, patch) {
-    const decorations = { ...(room.decorations || {}), ...patch };
-    const res = await global.mia.social.updateRoom(room.id, { decorations });
+  async function patchDecorations(conversation, patch) {
+    const decorations = { ...(conversation.decorations || {}), ...patch };
+    const res = await global.mia.social.updateConversation(conversation.id, { decorations });
     if (!res.ok) {
       console.warn("[group-info] PATCH decorations failed:", res.error);
       return null;
     }
-    return res.data?.room || res.data || null;
+    return res.data?.conversation || res.data || null;
   }
 
-  async function patchName(room, name) {
-    const res = await global.mia.social.updateRoom(room.id, { name });
+  async function patchName(conversation, name) {
+    const res = await global.mia.social.updateConversation(conversation.id, { name });
     if (!res.ok) {
       alert("保存群名失败：" + (res.error || ""));
       return null;
     }
-    return res.data?.room || res.data || null;
+    return res.data?.conversation || res.data || null;
   }
 
   // —— render ——
@@ -108,9 +110,9 @@
     return friend?.username || friend?.account || member.member_ref;
   }
 
-  function renderMembersSection(box, room, members, fellows, friends, self) {
+  function renderMembersSection(box, conversation, members, fellows, friends, self) {
     box.innerHTML = "";
-    const hostFellowId = room.decorations?.hostMember?.fellowId || null;
+    const hostFellowId = conversation.decorations?.hostMember?.fellowId || null;
     const fellowMembers = members.filter((m) => m.member_kind === MemberKind.Fellow);
     for (const member of members) {
       const row = document.createElement("div");
@@ -171,16 +173,16 @@
         if (!btn || btn.disabled) return;
         menu.classList.add("hidden");
         if (btn.dataset.groupMemberAction === "set-host") {
-          await patchDecorations(room, { hostMember: { kind: MemberKind.Fellow, fellowId: member.member_ref } });
-          reload(room.id);
+          await patchDecorations(conversation, { hostMember: { kind: MemberKind.Fellow, fellowId: member.member_ref } });
+          reload(conversation.id);
         } else if (btn.dataset.groupMemberAction === "remove") {
           if (!confirm(`确定移除「${label}」？`)) return;
-          const res = await global.mia.social.removeRoomMember(room.id, {
+          const res = await global.mia.social.removeConversationMember(conversation.id, {
             memberKind: member.member_kind,
             memberRef: member.member_ref
           });
           if (!res.ok) { alert("移除失败：" + (res.error || "")); return; }
-          reload(room.id);
+          reload(conversation.id);
         }
       });
       actions.appendChild(trigger);
@@ -190,9 +192,9 @@
     }
   }
 
-  function renderResponseMode(el, room) {
+  function renderResponseMode(el, conversation) {
     if (!el) return;
-    const mode = room.decorations?.responseMode === "mentions-only" ? "mentions-only" : "conductor";
+    const mode = conversation.decorations?.responseMode === "mentions-only" ? "mentions-only" : "conductor";
     el.querySelectorAll("[data-group-response-mode]").forEach((btn) => {
       const selected = btn.dataset.groupResponseMode === mode;
       btn.classList.toggle("active", selected);
@@ -200,48 +202,49 @@
     });
   }
 
-  async function reload(roomId) {
-    const res = await global.mia.social.getRoom(roomId);
+  async function reload(conversationId) {
+    const res = await global.mia.social.getConversation(conversationId);
     if (!res.ok) return;
     const data = res.data;
-    if (data?.room) {
-      _ctx.moduleState.rooms = _ctx.moduleState.rooms.map((r) => (r.id === roomId ? { ...r, ...data.room } : r));
+    if (data?.conversation) {
+      _ctx.moduleState.conversations = _ctx.moduleState.conversations.map((r) => (r.id === conversationId ? { ...r, ...data.conversation } : r));
     }
     if (Array.isArray(data?.members)) {
-      _ctx.roomMembersCache.set(roomId, data.members);
+      _ctx.conversationMembersCache.set(conversationId, data.members);
     }
-    paintDialog(_activeRoomId);
+    paintDialog(_activeConversationId);
     _ctx.deps?.render?.();
   }
 
-  function paintDialog(roomId) {
-    if (!roomId) return;
-    const room = _ctx.moduleState.rooms.find((r) => r.id === roomId);
-    if (!room) return;
-    const members = _ctx.roomMembersCache.get(roomId) || [];
+  function paintDialog(conversationId) {
+    if (!conversationId) return;
+    const conversation = _ctx.moduleState.conversations.find((r) => r.id === conversationId);
+    if (!conversation) return;
+    const members = _ctx.conversationMembersCache.get(conversationId) || [];
     const runtimeState = _ctx.deps?.getState?.() || {};
-    const fellows = runtimeState.runtime?.fellows || runtimeState.runtime?.personas || [];
+    // Canonical owned-fellow list (cloud + local) — see groupTilesCtx().
+    const fellows = _ctx.adapterCtx().fellows;
     const self = runtimeState.runtime?.cloud?.user || runtimeState.runtime?.user || null;
 
     const avatarBtn = document.getElementById("groupInfoAvatarPreview");
-    applyTilesToButton(avatarBtn, room, members);
+    applyTilesToButton(avatarBtn, conversation, members);
 
     const nameInput = document.getElementById("groupInfoName");
-    if (nameInput && document.activeElement !== nameInput) nameInput.value = room.name || "";
+    if (nameInput && document.activeElement !== nameInput) nameInput.value = conversation.name || "";
 
     const goalInput = document.getElementById("groupInfoGoal");
-    if (goalInput && document.activeElement !== goalInput) goalInput.value = room.decorations?.pinnedGoal || "";
+    if (goalInput && document.activeElement !== goalInput) goalInput.value = conversation.decorations?.pinnedGoal || "";
 
-    renderResponseMode(document.getElementById("groupInfoResponseMode"), room);
-    renderMembersSection(document.getElementById("groupInfoMembers"), room, members, fellows, _ctx.moduleState.friends || [], self);
+    renderResponseMode(document.getElementById("groupInfoResponseMode"), conversation);
+    renderMembersSection(document.getElementById("groupInfoMembers"), conversation, members, fellows, _ctx.moduleState.friends || [], self);
   }
 
-  function openDialog(roomOrId) {
-    const roomId = typeof roomOrId === "string" ? roomOrId : roomOrId?.id;
-    if (!roomId) return;
+  function openDialog(conversationOrId) {
+    const conversationId = typeof conversationOrId === "string" ? conversationOrId : conversationOrId?.id;
+    if (!conversationId) return;
     const dialog = document.getElementById("groupInfoDialog");
     if (!dialog) return;
-    _activeRoomId = roomId;
+    _activeConversationId = conversationId;
     dialog.classList.remove("hidden");
 
     const nameInput = document.getElementById("groupInfoName");
@@ -256,19 +259,19 @@
     const addableBox = document.getElementById("groupInfoAddable");
 
     // Ensure members are fresh.
-    global.mia.social.getRoom(roomId).then((res) => {
+    global.mia.social.getConversation(conversationId).then((res) => {
       if (!res.ok) return;
       const data = res.data;
-      if (Array.isArray(data?.members)) _ctx.roomMembersCache.set(roomId, data.members);
-      if (data?.room) _ctx.moduleState.rooms = _ctx.moduleState.rooms.map((r) => (r.id === roomId ? { ...r, ...data.room } : r));
-      paintDialog(roomId);
-    }).catch(() => paintDialog(roomId));
+      if (Array.isArray(data?.members)) _ctx.conversationMembersCache.set(conversationId, data.members);
+      if (data?.conversation) _ctx.moduleState.conversations = _ctx.moduleState.conversations.map((r) => (r.id === conversationId ? { ...r, ...data.conversation } : r));
+      paintDialog(conversationId);
+    }).catch(() => paintDialog(conversationId));
 
-    paintDialog(roomId);
+    paintDialog(conversationId);
 
     function close() {
       dialog.classList.add("hidden");
-      _activeRoomId = null;
+      _activeConversationId = null;
       _pendingAvatarApply = null;
       closeBtn?.removeEventListener("click", close);
       document.removeEventListener("keydown", onEsc);
@@ -285,36 +288,36 @@
     function onEsc(e) { if (e.key === "Escape") close(); }
     function onBackdrop(e) { if (e.target === dialog) close(); }
     async function onNameChange() {
-      const room = _ctx.moduleState.rooms.find((r) => r.id === roomId);
-      if (!room) return;
+      const conversation = _ctx.moduleState.conversations.find((r) => r.id === conversationId);
+      if (!conversation) return;
       const next = nameInput.value.trim() || "未命名群聊";
-      if (next === (room.name || "")) return;
-      const updated = await patchName(room, next);
-      if (updated) reload(roomId);
+      if (next === (conversation.name || "")) return;
+      const updated = await patchName(conversation, next);
+      if (updated) reload(conversationId);
     }
     async function onGoalChange() {
-      const room = _ctx.moduleState.rooms.find((r) => r.id === roomId);
-      if (!room) return;
+      const conversation = _ctx.moduleState.conversations.find((r) => r.id === conversationId);
+      if (!conversation) return;
       const next = goalInput.value.trim();
-      if (next === (room.decorations?.pinnedGoal || "")) return;
-      const updated = await patchDecorations(room, { pinnedGoal: next || null });
-      if (updated) reload(roomId);
+      if (next === (conversation.decorations?.pinnedGoal || "")) return;
+      const updated = await patchDecorations(conversation, { pinnedGoal: next || null });
+      if (updated) reload(conversationId);
     }
     async function onResponseModeClick(event) {
       const btn = event.target.closest("[data-group-response-mode]");
       if (!btn) return;
-      const room = _ctx.moduleState.rooms.find((r) => r.id === roomId);
-      if (!room) return;
+      const conversation = _ctx.moduleState.conversations.find((r) => r.id === conversationId);
+      if (!conversation) return;
       const next = btn.dataset.groupResponseMode === "mentions-only" ? "mentions-only" : "conductor";
-      const updated = await patchDecorations(room, { responseMode: next });
-      if (updated) reload(roomId);
+      const updated = await patchDecorations(conversation, { responseMode: next });
+      if (updated) reload(conversationId);
     }
     async function onResetCtx() {
-      const room = _ctx.moduleState.rooms.find((r) => r.id === roomId);
-      if (!room) return;
+      const conversation = _ctx.moduleState.conversations.find((r) => r.id === conversationId);
+      if (!conversation) return;
       if (!confirm("重置群上下文？已生成的摘要会清空，后续重新积累。")) return;
-      const updated = await patchDecorations(room, { contextCard: null });
-      if (updated) reload(roomId);
+      const updated = await patchDecorations(conversation, { contextCard: null });
+      if (updated) reload(conversationId);
     }
     function onAvatarClick() { avatarFile?.click(); }
     function onAvatarFile() {
@@ -323,17 +326,17 @@
       const reader = new FileReader();
       reader.addEventListener("load", () => {
         const dataUrl = String(reader.result || "");
-        _pendingAvatarApply = roomId;
-        global.miaFellowDialog.openAvatarCropEditor(dataUrl, { x: 50, y: 50, zoom: 1.12 }, "groupRoom");
+        _pendingAvatarApply = conversationId;
+        global.miaFellowDialog.openAvatarCropEditor(dataUrl, { x: 50, y: 50, zoom: 1.12 }, "groupConversation");
       });
       reader.readAsDataURL(file);
       avatarFile.value = "";
     }
     async function onAvatarReset() {
-      const room = _ctx.moduleState.rooms.find((r) => r.id === roomId);
-      if (!room) return;
-      const updated = await patchDecorations(room, { avatar: null });
-      if (updated) reload(roomId);
+      const conversation = _ctx.moduleState.conversations.find((r) => r.id === conversationId);
+      if (!conversation) return;
+      const updated = await patchDecorations(conversation, { avatar: null });
+      if (updated) reload(conversationId);
     }
     function onToggleAddable() {
       addableBox?.classList.toggle("hidden");
@@ -352,16 +355,16 @@
     addMemberToggle?.addEventListener("click", onToggleAddable);
   }
 
-  // Called from the global confirmAvatarCrop handler (target === "groupRoom").
+  // Called from the global confirmAvatarCrop handler (target === "groupConversation").
   async function applyAvatarFromCropEditor(image, crop) {
-    const roomId = _pendingAvatarApply || _activeRoomId;
+    const conversationId = _pendingAvatarApply || _activeConversationId;
     _pendingAvatarApply = null;
-    if (!roomId) return;
-    const room = _ctx.moduleState.rooms.find((r) => r.id === roomId);
-    if (!room) return;
+    if (!conversationId) return;
+    const conversation = _ctx.moduleState.conversations.find((r) => r.id === conversationId);
+    if (!conversation) return;
     const normalized = global.miaAvatar.normalizeCrop(crop);
-    const updated = await patchDecorations(room, { avatar: { image, crop: normalized } });
-    if (updated) reload(roomId);
+    const updated = await patchDecorations(conversation, { avatar: { image, crop: normalized } });
+    if (updated) reload(conversationId);
   }
 
   global.miaGroupInfoDialog = {

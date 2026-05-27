@@ -28,7 +28,7 @@ test("normalizeSpec fills missing fields with safe defaults", () => {
 
 test("normalizeSpec preserves provided fields", () => {
   const s = normalizeSpec({
-    source: "cloud-room", conversationId: "dm:a:b", messageId: "msg_1",
+    source: "cloud-conversation", conversationId: "dm:a:b", messageId: "msg_1",
     role: "user", authorName: "alice", bodyMd: "hi",
     capabilities: { reply: true, copy: true }
   });

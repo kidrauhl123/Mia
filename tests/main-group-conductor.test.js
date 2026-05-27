@@ -4,7 +4,7 @@ const assert = require("node:assert/strict");
 const { createMainGroupConductor } = require("../src/main/social/group-conductor.js");
 
 function setup(overrides = {}) {
-  const calls = { dispatch: [], respond: [], roomDetails: [], recent: [], log: [] };
+  const calls = { dispatch: [], respond: [], conversationDetails: [], recent: [], log: [] };
   const members = [
     { member_kind: "user", member_ref: "u_me", username: "me" },
     { member_kind: "fellow", member_ref: "codex", owner_id: "u_me", fellow_name: "Codex" },
@@ -23,11 +23,11 @@ function setup(overrides = {}) {
         "user: {{userMessage}}"
       ].join("\n")
     }),
-    getRoomDetails: async (roomId) => {
-      calls.roomDetails.push(roomId);
+    getConversationDetails: async (conversationId) => {
+      calls.conversationDetails.push(conversationId);
       return {
-        room: {
-          id: roomId,
+        conversation: {
+          id: conversationId,
           type: "group",
           decorations: {
             responseMode: "conductor",
@@ -38,8 +38,8 @@ function setup(overrides = {}) {
         members
       };
     },
-    listRecentMessages: async (roomId, sinceSeq, limit) => {
-      calls.recent.push({ roomId, sinceSeq, limit });
+    listRecentMessages: async (conversationId, sinceSeq, limit) => {
+      calls.recent.push({ conversationId, sinceSeq, limit });
       return [
         { id: "m_0", seq: 1, sender_kind: "user", sender_ref: "u_me", sender_username: "me", body_md: "背景" },
         { id: "m_1", seq: 2, sender_kind: "user", sender_ref: "u_me", sender_username: "me", body_md: "大家怎么看" }
@@ -70,30 +70,30 @@ const userMessage = {
   body_md: "大家怎么看"
 };
 
-test("handleRoomMessageAppended dispatches and invokes only owned chosen fellows", async () => {
+test("handleConversationMessageAppended dispatches and invokes only owned chosen fellows", async () => {
   const { conductor, calls } = setup();
 
-  await conductor.handleRoomMessageAppended({ roomId: "g_1", message: userMessage });
+  await conductor.handleConversationMessageAppended({ conversationId: "g_1", message: userMessage });
 
   assert.equal(calls.dispatch.length, 1);
   assert.equal(calls.dispatch[0].fellowKey, "codex");
   assert.match(calls.dispatch[0].userPrompt, /ship the feature/);
   assert.match(calls.dispatch[0].userPrompt, /Codex/);
   assert.match(calls.dispatch[0].userPrompt, /大家怎么看/);
-  assert.deepEqual(calls.recent, [{ roomId: "g_1", sinceSeq: 0, limit: 6 }]);
+  assert.deepEqual(calls.recent, [{ conversationId: "g_1", sinceSeq: 0, limit: 6 }]);
   assert.equal(calls.respond.length, 1);
-  assert.equal(calls.respond[0].roomId, "g_1");
+  assert.equal(calls.respond[0].conversationId, "g_1");
   assert.equal(calls.respond[0].fellowId, "codex");
   assert.equal(calls.respond[0].dedupKey, "m_1:codex");
   assert.equal(calls.respond[0].userPrompt, "大家怎么看");
   assert.match(calls.respond[0].systemPrompt, /你是 Codex/);
 });
 
-test("handleRoomMessageAppended skips explicit mentions from mentions_json", async () => {
+test("handleConversationMessageAppended skips explicit mentions from mentions_json", async () => {
   const { conductor, calls } = setup();
 
-  await conductor.handleRoomMessageAppended({
-    roomId: "g_1",
+  await conductor.handleConversationMessageAppended({
+    conversationId: "g_1",
     message: {
       ...userMessage,
       mentions_json: JSON.stringify([{ kind: "fellow", fellowId: "codex" }])
@@ -104,11 +104,11 @@ test("handleRoomMessageAppended skips explicit mentions from mentions_json", asy
   assert.equal(calls.respond.length, 0);
 });
 
-test("handleRoomMessageAppended treats mentions and mentions_json as one mention source", async () => {
+test("handleConversationMessageAppended treats mentions and mentions_json as one mention source", async () => {
   const { conductor, calls } = setup();
 
-  await conductor.handleRoomMessageAppended({
-    roomId: "g_1",
+  await conductor.handleConversationMessageAppended({
+    conversationId: "g_1",
     message: {
       ...userMessage,
       mentions: [],
@@ -120,11 +120,11 @@ test("handleRoomMessageAppended treats mentions and mentions_json as one mention
   assert.equal(calls.respond.length, 0);
 });
 
-test("handleRoomMessageAppended skips when the conductor host fellow is remote-owned", async () => {
+test("handleConversationMessageAppended skips when the conductor host fellow is remote-owned", async () => {
   const { conductor, calls } = setup({
-    getRoomDetails: async (roomId) => ({
-      room: {
-        id: roomId,
+    getConversationDetails: async (conversationId) => ({
+      conversation: {
+        id: conversationId,
         type: "group",
         decorations: {
           responseMode: "conductor",
@@ -138,17 +138,17 @@ test("handleRoomMessageAppended skips when the conductor host fellow is remote-o
     })
   });
 
-  await conductor.handleRoomMessageAppended({ roomId: "g_1", message: userMessage });
+  await conductor.handleConversationMessageAppended({ conversationId: "g_1", message: userMessage });
 
   assert.equal(calls.dispatch.length, 0);
   assert.equal(calls.respond.length, 0);
 });
 
-test("handleRoomMessageAppended requires explicit host when multiple owners have fellows", async () => {
+test("handleConversationMessageAppended requires explicit host when multiple owners have fellows", async () => {
   const { conductor, calls } = setup({
-    getRoomDetails: async (roomId) => ({
-      room: {
-        id: roomId,
+    getConversationDetails: async (conversationId) => ({
+      conversation: {
+        id: conversationId,
         type: "group",
         decorations: { responseMode: "conductor" }
       },
@@ -159,13 +159,13 @@ test("handleRoomMessageAppended requires explicit host when multiple owners have
     })
   });
 
-  await conductor.handleRoomMessageAppended({ roomId: "g_1", message: userMessage });
+  await conductor.handleConversationMessageAppended({ conversationId: "g_1", message: userMessage });
 
   assert.equal(calls.dispatch.length, 0);
   assert.equal(calls.respond.length, 0);
 });
 
-test("handleRoomMessageAppended falls back to the host fellow when dispatch chooses nobody", async () => {
+test("handleConversationMessageAppended falls back to the host fellow when dispatch chooses nobody", async () => {
   const { conductor, calls } = setup({
     sendChatStateless: async (args) => {
       calls.dispatch.push(args);
@@ -173,14 +173,14 @@ test("handleRoomMessageAppended falls back to the host fellow when dispatch choo
     }
   });
 
-  await conductor.handleRoomMessageAppended({ roomId: "g_1", message: userMessage });
+  await conductor.handleConversationMessageAppended({ conversationId: "g_1", message: userMessage });
 
   assert.equal(calls.dispatch.length, 1);
   assert.equal(calls.respond.length, 1);
   assert.equal(calls.respond[0].fellowId, "codex");
 });
 
-test("handleRoomMessageAppended falls back to the host fellow when dispatch returns invalid JSON", async () => {
+test("handleConversationMessageAppended falls back to the host fellow when dispatch returns invalid JSON", async () => {
   const { conductor, calls } = setup({
     sendChatStateless: async (args) => {
       calls.dispatch.push(args);
@@ -188,14 +188,14 @@ test("handleRoomMessageAppended falls back to the host fellow when dispatch retu
     }
   });
 
-  await conductor.handleRoomMessageAppended({ roomId: "g_1", message: userMessage });
+  await conductor.handleConversationMessageAppended({ conversationId: "g_1", message: userMessage });
 
   assert.equal(calls.dispatch.length, 1);
   assert.equal(calls.respond.length, 1);
   assert.equal(calls.respond[0].fellowId, "codex");
 });
 
-test("handleRoomMessageAppended falls back to the host fellow when dispatch chooses no owned fellow", async () => {
+test("handleConversationMessageAppended falls back to the host fellow when dispatch chooses no owned fellow", async () => {
   const { conductor, calls } = setup({
     sendChatStateless: async (args) => {
       calls.dispatch.push(args);
@@ -203,15 +203,15 @@ test("handleRoomMessageAppended falls back to the host fellow when dispatch choo
     }
   });
 
-  await conductor.handleRoomMessageAppended({ roomId: "g_1", message: { ...userMessage, id: "m_invalid" } });
-  await conductor.handleRoomMessageAppended({ roomId: "g_1", message: { ...userMessage, id: "m_invalid" } });
+  await conductor.handleConversationMessageAppended({ conversationId: "g_1", message: { ...userMessage, id: "m_invalid" } });
+  await conductor.handleConversationMessageAppended({ conversationId: "g_1", message: { ...userMessage, id: "m_invalid" } });
 
   assert.equal(calls.dispatch.length, 1);
   assert.equal(calls.respond.length, 1);
   assert.equal(calls.respond[0].fellowId, "codex");
 });
 
-test("handleRoomMessageAppended retries when dispatch has no valid speaker and host reply fails", async () => {
+test("handleConversationMessageAppended retries when dispatch has no valid speaker and host reply fails", async () => {
   const { conductor, calls } = setup({
     sendChatStateless: async (args) => {
       calls.dispatch.push(args);
@@ -225,19 +225,19 @@ test("handleRoomMessageAppended retries when dispatch has no valid speaker and h
     }
   });
 
-  await conductor.handleRoomMessageAppended({ roomId: "g_1", message: { ...userMessage, id: "m_retry_invalid" } });
-  await conductor.handleRoomMessageAppended({ roomId: "g_1", message: { ...userMessage, id: "m_retry_invalid" } });
+  await conductor.handleConversationMessageAppended({ conversationId: "g_1", message: { ...userMessage, id: "m_retry_invalid" } });
+  await conductor.handleConversationMessageAppended({ conversationId: "g_1", message: { ...userMessage, id: "m_retry_invalid" } });
 
   assert.equal(calls.dispatch.length, 2);
   assert.equal(calls.respond.length, 2);
   assert.deepEqual(calls.respond.map((call) => call.fellowId), ["codex", "codex"]);
 });
 
-test("handleRoomMessageAppended skips dispatch when the group has one owned fellow", async () => {
+test("handleConversationMessageAppended skips dispatch when the group has one owned fellow", async () => {
   const { conductor, calls } = setup({
-    getRoomDetails: async (roomId) => ({
-      room: {
-        id: roomId,
+    getConversationDetails: async (conversationId) => ({
+      conversation: {
+        id: conversationId,
         type: "group",
         decorations: { responseMode: "conductor" }
       },
@@ -248,18 +248,18 @@ test("handleRoomMessageAppended skips dispatch when the group has one owned fell
     })
   });
 
-  await conductor.handleRoomMessageAppended({ roomId: "g_1", message: userMessage });
+  await conductor.handleConversationMessageAppended({ conversationId: "g_1", message: userMessage });
 
   assert.equal(calls.dispatch.length, 0);
   assert.equal(calls.respond.length, 1);
   assert.equal(calls.respond[0].fellowId, "codex");
 });
 
-test("handleRoomMessageAppended skips dispatch when the user text names an owned fellow", async () => {
+test("handleConversationMessageAppended skips dispatch when the user text names an owned fellow", async () => {
   const { conductor, calls } = setup();
 
-  await conductor.handleRoomMessageAppended({
-    roomId: "g_1",
+  await conductor.handleConversationMessageAppended({
+    conversationId: "g_1",
     message: { ...userMessage, id: "m_named", body_md: "Codex 说句话" }
   });
 
@@ -268,7 +268,7 @@ test("handleRoomMessageAppended skips dispatch when the user text names an owned
   assert.equal(calls.respond[0].fellowId, "codex");
 });
 
-test("handleRoomMessageAppended routes search requests to an owned Codex fellow", async () => {
+test("handleConversationMessageAppended routes search requests to an owned Codex fellow", async () => {
   const members = [
     { member_kind: "user", member_ref: "u_me", username: "me" },
     { member_kind: "fellow", member_ref: "xiaoli", owner_id: "u_me", fellow_name: "小栗" },
@@ -281,9 +281,9 @@ test("handleRoomMessageAppended routes search requests to an owned Codex fellow"
       { key: "alice", name: "爱丽丝", agentEngine: "claude-code" },
       { key: "blackcat", name: "黑猫", agentEngine: "codex" }
     ],
-    getRoomDetails: async (roomId) => ({
-      room: {
-        id: roomId,
+    getConversationDetails: async (conversationId) => ({
+      conversation: {
+        id: conversationId,
         type: "group",
         decorations: { responseMode: "conductor" }
       },
@@ -291,8 +291,8 @@ test("handleRoomMessageAppended routes search requests to an owned Codex fellow"
     })
   });
 
-  await conductor.handleRoomMessageAppended({
-    roomId: "g_1",
+  await conductor.handleConversationMessageAppended({
+    conversationId: "g_1",
     message: { ...userMessage, id: "m_search", body_md: "谁能搜，搜一下" }
   });
 
@@ -301,7 +301,7 @@ test("handleRoomMessageAppended routes search requests to an owned Codex fellow"
   assert.equal(calls.respond[0].fellowId, "blackcat");
 });
 
-test("handleRoomMessageAppended overrides a non-search-capable named fellow for latest-news requests", async () => {
+test("handleConversationMessageAppended overrides a non-search-capable named fellow for latest-news requests", async () => {
   const members = [
     { member_kind: "user", member_ref: "u_me", username: "me" },
     { member_kind: "fellow", member_ref: "alice", owner_id: "u_me", fellow_name: "爱丽丝" },
@@ -312,9 +312,9 @@ test("handleRoomMessageAppended overrides a non-search-capable named fellow for 
       { key: "alice", name: "爱丽丝", agentEngine: "claude-code" },
       { key: "blackcat", name: "黑猫", agentEngine: "codex" }
     ],
-    getRoomDetails: async (roomId) => ({
-      room: {
-        id: roomId,
+    getConversationDetails: async (conversationId) => ({
+      conversation: {
+        id: conversationId,
         type: "group",
         decorations: { responseMode: "conductor" }
       },
@@ -322,8 +322,8 @@ test("handleRoomMessageAppended overrides a non-search-capable named fellow for 
     })
   });
 
-  await conductor.handleRoomMessageAppended({
-    roomId: "g_1",
+  await conductor.handleConversationMessageAppended({
+    conversationId: "g_1",
     message: { ...userMessage, id: "m_news", body_md: "爱丽丝你帮我找下AI领域最新新闻" }
   });
 
@@ -332,22 +332,22 @@ test("handleRoomMessageAppended overrides a non-search-capable named fellow for 
   assert.equal(calls.respond[0].fellowId, "blackcat");
 });
 
-test("handleRoomMessageAppended dedups by triggering message id", async () => {
+test("handleConversationMessageAppended dedups by triggering message id", async () => {
   const { conductor, calls } = setup();
 
-  await conductor.handleRoomMessageAppended({ roomId: "g_1", message: userMessage });
-  await conductor.handleRoomMessageAppended({ roomId: "g_1", message: userMessage });
+  await conductor.handleConversationMessageAppended({ conversationId: "g_1", message: userMessage });
+  await conductor.handleConversationMessageAppended({ conversationId: "g_1", message: userMessage });
 
   assert.equal(calls.dispatch.length, 1);
   assert.equal(calls.respond.length, 1);
 });
 
-test("handleRoomMessageAppended retries failed fellows without duplicating successful fellows", async () => {
+test("handleConversationMessageAppended retries failed fellows without duplicating successful fellows", async () => {
   const calls = { respond: [] };
   const { conductor } = setup({
-    getRoomDetails: async (roomId) => ({
-      room: {
-        id: roomId,
+    getConversationDetails: async (conversationId) => ({
+      conversation: {
+        id: conversationId,
         type: "group",
         decorations: {
           responseMode: "conductor",
@@ -373,8 +373,8 @@ test("handleRoomMessageAppended retries failed fellows without duplicating succe
     }
   });
 
-  await conductor.handleRoomMessageAppended({ roomId: "g_1", message: userMessage });
-  await conductor.handleRoomMessageAppended({ roomId: "g_1", message: userMessage });
+  await conductor.handleConversationMessageAppended({ conversationId: "g_1", message: userMessage });
+  await conductor.handleConversationMessageAppended({ conversationId: "g_1", message: userMessage });
 
   assert.deepEqual(calls.respond, ["codex", "alice", "alice"]);
 });

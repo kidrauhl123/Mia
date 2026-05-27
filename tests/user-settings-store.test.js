@@ -65,7 +65,7 @@ test("putSettings rejects array length > 1000 pins (defensive cap)", () => {
   try {
     const s = createUserSettingsStore(ctx.store.getDb());
     const u = makeUser(ctx.store);
-    const giant = Array.from({ length: 1500 }, (_, i) => `room_${i}`);
+    const giant = Array.from({ length: 1500 }, (_, i) => `conversation_${i}`);
     const put = s.putSettings(u, { pins: giant, readMarks: {}, appearance: {} });
     assert.equal(put.ok, true);
     assert.equal(put.settings.pins.length, 1000);

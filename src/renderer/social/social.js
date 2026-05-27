@@ -1,10 +1,10 @@
-// Renderer-side social module: friends, DM rooms, add-friend dialog.
+// Renderer-side social module: friends, DM conversations, add-friend dialog.
 // Loaded by <script src="./social/social.js"> from index.html, BEFORE app.js.
 // Pattern: IIFE + window.miaSocial public API; deps are injected via initSocialModule().
 
 (function (global) {
-  // Decision: cap initial-message fetch to 30 rooms to keep bootstrap fast.
-  const INITIAL_ROOMS_CAP = 30;
+  // Decision: cap initial-message fetch to 30 conversations to keep bootstrap fast.
+  const INITIAL_CONVERSATIONS_CAP = 30;
 
   // Lazy shared-dep accessor (mirrors unreadShared / sendPipelineShared) so the
   // module still loads in test VMs where neither the global nor require exists.
@@ -33,15 +33,15 @@
     if (global.miaSessionHistory) return global.miaSessionHistory;
     if (typeof require !== "undefined") return require("../../shared/session-history");
     return {
-      roomType: (room, roomId = "") => {
-        const id = room?.id || roomId || "";
-        if (room?.type) return room.type;
+      conversationType: (conversation, conversationId = "") => {
+        const id = conversation?.id || conversationId || "";
+        if (conversation?.type) return conversation.type;
         if (id.startsWith("dm:")) return "dm";
         if (id.startsWith("fellow:")) return "fellow";
         if (id.startsWith("g_") || id.startsWith("g-")) return "group";
         return "";
       },
-      sidebarRooms: (rooms) => rooms
+      sidebarConversations: (conversations) => conversations
     };
   }
 
@@ -50,32 +50,32 @@
   let _addFriendModal = null;
   let _createGroupModal = null;
 
-  // Cache of room members per room id (fetched on first open, updated via WS events).
-  const _roomMembersCache = new Map();
+  // Cache of conversation members per conversation id (fetched on first open, updated via WS events).
+  const _conversationMembersCache = new Map();
 
   // Distance (px) from the bottom within which we treat the user as "pinned" and
   // keep following new content. Mirrors the fellow-chat threshold in app.js.
   const SCROLL_STICK_THRESHOLD_PX = 80;
-  // Which room renderRoomChat last painted — a change means the user switched
-  // rooms, so we land at the bottom instead of preserving the old offset.
-  let _lastRenderedRoomId = null;
+  // Which conversation renderConversationChat last painted — a change means the user switched
+  // conversations, so we land at the bottom instead of preserving the old offset.
+  let _lastRenderedConversationId = null;
 
   const moduleState = {
-    rooms: [],
+    conversations: [],
     friends: [],
     fellows: [],
     incomingRequests: [],
     outgoingRequests: [],
     messageCache: new Map(),
-    activeRoomId: null,
+    activeConversationId: null,
     myUsername: "",
     myUserId: "",
-    cloudAgentRunsByRoom: new Map(),
-    // unreadByRoom: roomId → count. Bumped by WS room.message_appended when
-    // the message is from someone else and the room isn't currently open.
-    // Cleared by setActiveRoomId (and on bootstrap — incomingRequests path
+    cloudAgentRunsByConversation: new Map(),
+    // unreadByConversation: conversationId → count. Bumped by WS conversation.message_appended when
+    // the message is from someone else and the conversation isn't currently open.
+    // Cleared by setActiveConversationId (and on bootstrap — incomingRequests path
     // doesn't update this, only message activity does).
-    unreadByRoom: new Map()
+    unreadByConversation: new Map()
   };
 
   let deps = null;
@@ -94,7 +94,7 @@
   }
 
   function avatarColor(key) {
-    // Derive a stable hex color from the room id using a simple hash.
+    // Derive a stable hex color from the conversation id using a simple hash.
     let hash = 0;
     const s = String(key || "dm");
     for (let i = 0; i < s.length; i++) hash = (hash * 31 + s.charCodeAt(i)) >>> 0;
@@ -195,25 +195,25 @@
     return "";
   }
 
-  function cloudRunFor(roomId, runId = "") {
-    const existing = moduleState.cloudAgentRunsByRoom.get(roomId);
+  function cloudRunFor(conversationId, runId = "") {
+    const existing = moduleState.cloudAgentRunsByConversation.get(conversationId);
     if (existing) return existing;
     const run = {
-      roomId,
+      conversationId,
       runId,
       text: "",
       status: "running",
       createdAt: new Date().toISOString(),
       tools: []
     };
-    moduleState.cloudAgentRunsByRoom.set(roomId, run);
+    moduleState.cloudAgentRunsByConversation.set(conversationId, run);
     return run;
   }
 
   // Parse dm:<a>:<b> and return the user-id that is NOT myUserId.
-  function otherUserId(roomId) {
-    if (!roomId || !roomId.startsWith("dm:")) return null;
-    const parts = roomId.split(":");
+  function otherUserId(conversationId) {
+    if (!conversationId || !conversationId.startsWith("dm:")) return null;
+    const parts = conversationId.split(":");
     // format: dm:<uid_a>:<uid_b>
     const a = parts[1];
     const b = parts.slice(2).join(":");
@@ -226,10 +226,10 @@
     return moduleState.friends.find((f) => f.id === userId) || null;
   }
 
-  // Compute otherUser display info for a DM room.
-  function otherUserForRoom(room) {
-    const uid = otherUserId(room.id);
-    if (!uid) return { id: "", username: room.name || room.id };
+  // Compute otherUser display info for a DM conversation.
+  function otherUserForConversation(conversation) {
+    const uid = otherUserId(conversation.id);
+    if (!uid) return { id: "", username: conversation.name || conversation.id };
     const friend = friendById(uid);
     if (friend) return friend;
     return { id: uid, username: uid, account: uid };
@@ -246,35 +246,35 @@
     });
   }
 
-  function ensureRoomMessageCache(roomId) {
-    if (!roomId || moduleState.messageCache.has(roomId)) return;
-    moduleState.messageCache.set(roomId, { messages: [], maxSeq: 0 });
+  function ensureConversationMessageCache(conversationId) {
+    if (!conversationId || moduleState.messageCache.has(conversationId)) return;
+    moduleState.messageCache.set(conversationId, { messages: [], maxSeq: 0 });
   }
 
-  function upsertRoom(room) {
-    if (!room || !room.id) return null;
-    const idx = moduleState.rooms.findIndex((r) => r.id === room.id);
+  function upsertConversation(conversation) {
+    if (!conversation || !conversation.id) return null;
+    const idx = moduleState.conversations.findIndex((r) => r.id === conversation.id);
     if (idx >= 0) {
-      moduleState.rooms[idx] = { ...moduleState.rooms[idx], ...room };
+      moduleState.conversations[idx] = { ...moduleState.conversations[idx], ...conversation };
     } else {
-      moduleState.rooms.push(room);
+      moduleState.conversations.push(conversation);
     }
-    ensureRoomMessageCache(room.id);
-    return moduleState.rooms.find((r) => r.id === room.id) || room;
+    ensureConversationMessageCache(conversation.id);
+    return moduleState.conversations.find((r) => r.id === conversation.id) || conversation;
   }
 
-  function upsertFellowRoom(room) {
-    return upsertRoom(room);
+  function upsertFellowConversation(conversation) {
+    return upsertConversation(conversation);
   }
 
-  function fellowRoomForKey(fellowKey) {
+  function fellowConversationForKey(fellowKey) {
     const key = String(fellowKey || "").trim();
     if (!key) return null;
-    return moduleState.rooms.find((room) => {
-      const roomId = String(room?.id || "");
-      const decorated = String(room?.decorations?.fellowKey || room?.fellowKey || "").trim();
-      return (room?.type === "fellow" || roomId.startsWith("fellow:"))
-        && (decorated === key || roomId.split(":").slice(2).join(":") === key);
+    return moduleState.conversations.find((conversation) => {
+      const conversationId = String(conversation?.id || "");
+      const decorated = String(conversation?.decorations?.fellowKey || conversation?.fellowKey || "").trim();
+      return (conversation?.type === "fellow" || conversationId.startsWith("fellow:"))
+        && (decorated === key || conversationId.split(":").slice(2).join(":") === key);
     }) || null;
   }
 
@@ -327,11 +327,11 @@
     }
   }
 
-  async function ensureLocalFellowRooms(api) {
-    if (!api || !window.miaFellowCommands?.ensureDesktopLocalFellowRoom) return;
+  async function ensureLocalFellowConversations(api) {
+    if (!api || !window.miaFellowCommands?.ensureDesktopLocalFellowConversation) return;
     for (const fellow of localRuntimeFellows()) {
       try {
-        await window.miaFellowCommands.ensureDesktopLocalFellowRoom({
+        await window.miaFellowCommands.ensureDesktopLocalFellowConversation({
           api,
           state: currentState(),
           fellow,
@@ -340,39 +340,39 @@
           engineOptions: window.miaEngineOptions
         });
       } catch (error) {
-        console.warn("[social] ensure fellow room failed", fellow.key, error);
+        console.warn("[social] ensure fellow conversation failed", fellow.key, error);
       }
     }
   }
 
-  async function ensureFellowRoom(fellow) {
+  async function ensureFellowConversation(fellow) {
     const fellowKey = String(fellow?.key || fellow?.id || "").trim();
-    if (!fellowKey || !window.miaFellowCommands?.ensureDesktopLocalFellowRoom) return null;
+    if (!fellowKey || !window.miaFellowCommands?.ensureDesktopLocalFellowConversation) return null;
     try {
-      const result = await window.miaFellowCommands.ensureDesktopLocalFellowRoom({
+      const result = await window.miaFellowCommands.ensureDesktopLocalFellowConversation({
         api: window.mia?.social,
         state: currentState(),
         fellow: { ...fellow, key: fellowKey },
         engineContracts: window.miaEngineContracts,
         modelSettings: window.miaModelSettings,
         engineOptions: window.miaEngineOptions,
-        onRoom: upsertRoom
+        onConversation: upsertConversation
       });
-      const room = result.room || null;
-      if (room) _schedulePersistSnapshot();
-      return room;
+      const conversation = result.conversation || null;
+      if (conversation) _schedulePersistSnapshot();
+      return conversation;
     } catch (error) {
-      console.warn("[social] ensure fellow room failed", fellowKey, error);
+      console.warn("[social] ensure fellow conversation failed", fellowKey, error);
       return null;
     }
   }
 
-  function roomTypeFor(room, roomId = "") {
-    return sessionHistoryShared().roomType(room, roomId) || null;
+  function conversationTypeFor(conversation, conversationId = "") {
+    return sessionHistoryShared().conversationType(conversation, conversationId) || null;
   }
 
-  function sendPipelineMembersForRoom(roomType, members) {
-    if (roomType !== "group") return Array.isArray(members) ? members : [];
+  function sendPipelineMembersForConversation(conversationType, members) {
+    if (conversationType !== "group") return Array.isArray(members) ? members : [];
     return (Array.isArray(members) ? members : [])
       .filter(Boolean)
       .map((m) => ({
@@ -383,15 +383,15 @@
       }));
   }
 
-  function cloudMentionForRoom(roomType, mention) {
-    if (roomType !== "group") return mention;
+  function cloudMentionForConversation(conversationType, mention) {
+    if (conversationType !== "group") return mention;
     if (!mention || mention.kind !== conversationKinds().MemberKind.Fellow || !mention.ref) return null;
     return { kind: "fellow", fellowId: mention.ref };
   }
 
-  function postMentionsForRoom(roomType, mentions) {
+  function postMentionsForConversation(conversationType, mentions) {
     return (Array.isArray(mentions) ? mentions : [])
-      .map((mention) => cloudMentionForRoom(roomType, mention))
+      .map((mention) => cloudMentionForConversation(conversationType, mention))
       .filter(Boolean);
   }
 
@@ -410,13 +410,13 @@
   }
 
   // Resolve "is this a user-role message?" by routing through the canonical
-  // cloud-room-source adapter and reading spec.role. Falls back to false when
+  // cloud-conversation-source adapter and reading spec.role. Falls back to false when
   // the adapter isn't loaded (test sandbox or pre-bootstrap).
   function _isUserRoleMessage(msg) {
-    const factory = (typeof window !== "undefined" && window.miaCloudRoomSource) || null;
-    if (!factory || typeof factory.createCloudRoomSource !== "function") return false;
-    const room = moduleState.rooms.find((r) => r.id === moduleState.activeRoomId) || { id: moduleState.activeRoomId || "" };
-    const source = factory.createCloudRoomSource({ room, messages: [msg], members: [], ctx: adapterCtx() });
+    const factory = (typeof window !== "undefined" && window.miaCloudConversationSource) || null;
+    if (!factory || typeof factory.createCloudConversationSource !== "function") return false;
+    const conversation = moduleState.conversations.find((r) => r.id === moduleState.activeConversationId) || { id: moduleState.activeConversationId || "" };
+    const source = factory.createCloudConversationSource({ conversation, messages: [msg], members: [], ctx: adapterCtx() });
     const spec = source.listMessages()[0];
     return !!spec && spec.role === "user";
   }
@@ -471,25 +471,25 @@
     try {
       if (typeof localStorage === "undefined" || !moduleState.myUserId) return;
       const previews = {};
-      for (const [roomId, entry] of moduleState.messageCache) {
+      for (const [conversationId, entry] of moduleState.messageCache) {
         const last = entry?.messages?.[entry.messages.length - 1];
         if (last) {
-          previews[roomId] = {
+          previews[conversationId] = {
             id: last.id, body_md: last.body_md, created_at: last.created_at,
             seq: last.seq, sender_kind: last.sender_kind, sender_ref: last.sender_ref
           };
         }
       }
       const members = {};
-      for (const [roomId, list] of _roomMembersCache) members[roomId] = list;
+      for (const [conversationId, list] of _conversationMembersCache) members[conversationId] = list;
       const snapshot = {
         userId: moduleState.myUserId,
-        rooms: moduleState.rooms,
+        conversations: moduleState.conversations,
         friends: moduleState.friends,
         fellows: moduleState.fellows,
         previews,
         members,
-        unread: Object.fromEntries(moduleState.unreadByRoom),
+        unread: Object.fromEntries(moduleState.unreadByConversation),
         ts: Date.now()
       };
       localStorage.setItem(_SNAPSHOT_KEY, JSON.stringify(snapshot));
@@ -507,19 +507,19 @@
       const raw = localStorage.getItem(_SNAPSHOT_KEY);
       if (!raw) return false;
       const snap = JSON.parse(raw);
-      if (!snap || !Array.isArray(snap.rooms)) return false;
-      moduleState.rooms = snap.rooms;
+      if (!snap || !Array.isArray(snap.conversations)) return false;
+      moduleState.conversations = snap.conversations;
       moduleState.friends = Array.isArray(snap.friends) ? snap.friends : [];
       moduleState.fellows = Array.isArray(snap.fellows) ? snap.fellows : [];
       moduleState.myUserId = snap.userId || "";
-      for (const [roomId, last] of Object.entries(snap.previews || {})) {
-        moduleState.messageCache.set(roomId, { messages: [last], maxSeq: last.seq || 0 });
+      for (const [conversationId, last] of Object.entries(snap.previews || {})) {
+        moduleState.messageCache.set(conversationId, { messages: [last], maxSeq: last.seq || 0 });
       }
-      for (const [roomId, list] of Object.entries(snap.members || {})) {
-        if (Array.isArray(list)) _roomMembersCache.set(roomId, list);
+      for (const [conversationId, list] of Object.entries(snap.members || {})) {
+        if (Array.isArray(list)) _conversationMembersCache.set(conversationId, list);
       }
-      for (const [roomId, n] of Object.entries(snap.unread || {})) {
-        if (n > 0) moduleState.unreadByRoom.set(roomId, n);
+      for (const [conversationId, n] of Object.entries(snap.unread || {})) {
+        if (n > 0) moduleState.unreadByConversation.set(conversationId, n);
       }
       // We have a renderable list right now — open the sidebar gate so the
       // first render paints from cache instead of waiting on the network.
@@ -547,11 +547,11 @@
       if (meRes.ok) {
         const freshUserId = meRes.data.id || "";
         // Account switch since the cached snapshot was written → drop the
-        // stale render cache so we don't briefly show another user's rooms.
+        // stale render cache so we don't briefly show another user's conversations.
         if (moduleState.myUserId && freshUserId && moduleState.myUserId !== freshUserId) {
           moduleState.messageCache.clear();
-          _roomMembersCache.clear();
-          moduleState.unreadByRoom.clear();
+          _conversationMembersCache.clear();
+          moduleState.unreadByConversation.clear();
         }
         moduleState.myUsername = meRes.data.username || "";
         moduleState.myUserId = freshUserId;
@@ -561,36 +561,36 @@
       if (incomingRes.ok) moduleState.incomingRequests = incomingRes.data?.requests || [];
       if (outgoingRes.ok) moduleState.outgoingRequests = outgoingRes.data?.requests || [];
 
-      await ensureLocalFellowRooms(api);
+      await ensureLocalFellowConversations(api);
 
-      const roomsRes = await api.listRooms();
-      if (roomsRes.ok) moduleState.rooms = roomsRes.data?.rooms || [];
+      const conversationsRes = await api.listConversations();
+      if (conversationsRes.ok) moduleState.conversations = conversationsRes.data?.conversations || [];
 
       // Phase 3: cross-device user settings (pin / read marks / appearance).
       await bootstrapCloudSettings();
 
-      // Fetch initial messages for up to INITIAL_ROOMS_CAP rooms.
-      const roomsToFetch = moduleState.rooms.slice(0, INITIAL_ROOMS_CAP);
-      await Promise.all(roomsToFetch.map(async (room) => {
-        if (!moduleState.messageCache.has(room.id)) {
-          moduleState.messageCache.set(room.id, { messages: [], maxSeq: 0 });
+      // Fetch initial messages for up to INITIAL_CONVERSATIONS_CAP conversations.
+      const conversationsToFetch = moduleState.conversations.slice(0, INITIAL_CONVERSATIONS_CAP);
+      await Promise.all(conversationsToFetch.map(async (conversation) => {
+        if (!moduleState.messageCache.has(conversation.id)) {
+          moduleState.messageCache.set(conversation.id, { messages: [], maxSeq: 0 });
         }
         try {
-          const msgRes = await api.listRoomMessages(room.id, 0, 100);
+          const msgRes = await api.listConversationMessages(conversation.id, 0, 100);
           if (msgRes.ok) {
             const msgs = (msgRes.data?.messages || []).slice().sort((a, b) => a.seq - b.seq);
             const maxSeq = msgs.reduce((m, x) => Math.max(m, Number(x.seq) || 0), 0);
-            moduleState.messageCache.set(room.id, { messages: msgs, maxSeq });
+            moduleState.messageCache.set(conversation.id, { messages: msgs, maxSeq });
           }
         } catch (err) {
-          console.warn("[social] listRoomMessages failed for", room.id, err);
+          console.warn("[social] listConversationMessages failed for", conversation.id, err);
         }
       }));
 
-      // Prefetch members for every group room so the sidebar mosaic
+      // Prefetch members for every group conversation so the sidebar mosaic
       // shows real avatars on first paint instead of an empty circle.
-      // Bounded by INITIAL_ROOMS_CAP just like the message fetch above.
-      const groupRoomsToFetch = roomsToFetch.filter((r) => {
+      // Bounded by INITIAL_CONVERSATIONS_CAP just like the message fetch above.
+      const groupConversationsToFetch = conversationsToFetch.filter((r) => {
         const t = r.type
           || (r.id?.startsWith("dm:") ? "dm"
             : r.id?.startsWith("fellow:") ? "fellow"
@@ -598,14 +598,14 @@
             : null);
         return t === "group";
       });
-      await Promise.all(groupRoomsToFetch.map((r) => _fetchAndCacheRoomMembers(r.id)));
+      await Promise.all(groupConversationsToFetch.map((r) => _fetchAndCacheConversationMembers(r.id)));
     } catch (err) {
       console.error("[social] bootstrapAfterLogin failed:", err);
     }
     // Flip the bootstrap flag AFTER everything is in the cache so the
     // first render that includes cloud rows also has fellow personas —
     // the sidebar shows both data sources in one paint instead of
-    // "personas now, rooms later" (the visible "割裂" the user reported).
+    // "personas now, conversations later" (the visible "割裂" the user reported).
     moduleState.bootstrapped = true;
     _persistSnapshot();
     if (deps && typeof deps.render === "function") deps.render();
@@ -695,12 +695,12 @@
     }
 
     if (type === "social.friend_added") {
-      const { friend, room } = payload || {};
+      const { friend, conversation } = payload || {};
       if (friend) {
         moduleState.friends = dedup([...moduleState.friends, friend]);
       }
-      if (room) {
-        upsertRoom(room);
+      if (conversation) {
+        upsertConversation(conversation);
       }
       // Remove matching pending requests from both lists
       if (friend) {
@@ -716,9 +716,9 @@
     }
 
     if (type === "cloud_agent_run_started") {
-      const roomId = payload?.roomId;
-      if (!roomId) return;
-      const run = cloudRunFor(roomId, payload.runId || "");
+      const conversationId = payload?.conversationId;
+      if (!conversationId) return;
+      const run = cloudRunFor(conversationId, payload.runId || "");
       run.runId = payload.runId || run.runId;
       run.hermesRunId = payload.hermesRunId || run.hermesRunId || "";
       run.fellowId = payload.fellowId || run.fellowId || "";
@@ -728,10 +728,10 @@
     }
 
     if (type === "cloud_agent_run_event") {
-      const roomId = payload?.roomId;
+      const conversationId = payload?.conversationId;
       const hermesEvent = payload?.event || {};
-      if (!roomId) return;
-      const run = cloudRunFor(roomId, payload.runId || "");
+      if (!conversationId) return;
+      const run = cloudRunFor(conversationId, payload.runId || "");
       run.fellowId = payload.fellowId || run.fellowId || "";
       const name = eventType(hermesEvent);
       if (name === "message.delta") {
@@ -759,13 +759,13 @@
       return;
     }
 
-    if (type === "room.message_appended") {
-      const { roomId, message } = payload || {};
-      if (!roomId || !message) return;
-      if (!moduleState.messageCache.has(roomId)) {
-        moduleState.messageCache.set(roomId, { messages: [], maxSeq: 0 });
+    if (type === "conversation.message_appended") {
+      const { conversationId, message } = payload || {};
+      if (!conversationId || !message) return;
+      if (!moduleState.messageCache.has(conversationId)) {
+        moduleState.messageCache.set(conversationId, { messages: [], maxSeq: 0 });
       }
-      const entry = moduleState.messageCache.get(roomId);
+      const entry = moduleState.messageCache.get(conversationId);
       // De-dup by id
       const fresh = !entry.messages.find((m) => m.id === message.id);
       if (fresh) {
@@ -775,24 +775,24 @@
       if (message.seq > entry.maxSeq) entry.maxSeq = message.seq;
       const { SenderKind } = conversationKinds();
       if (message.sender_kind === SenderKind.Fellow) {
-        moduleState.cloudAgentRunsByRoom.delete(roomId);
+        moduleState.cloudAgentRunsByConversation.delete(conversationId);
         // First fellow reply in an untitled conversation → auto-title it.
-        if (deps && typeof deps.maybeGenerateRoomTitle === "function") {
-          Promise.resolve(deps.maybeGenerateRoomTitle(roomId)).catch(() => {});
+        if (deps && typeof deps.maybeGenerateConversationTitle === "function") {
+          Promise.resolve(deps.maybeGenerateConversationTitle(conversationId)).catch(() => {});
         }
       }
 
       // Unread bookkeeping: count messages that aren't mine and didn't land
-      // in the currently open room.
+      // in the currently open conversation.
       const isMine = _isMessageFromSelf(message);
-      if (fresh && !isMine && roomId !== moduleState.activeRoomId) {
-        moduleState.unreadByRoom.set(roomId, (moduleState.unreadByRoom.get(roomId) || 0) + 1);
+      if (fresh && !isMine && conversationId !== moduleState.activeConversationId) {
+        moduleState.unreadByConversation.set(conversationId, (moduleState.unreadByConversation.get(conversationId) || 0) + 1);
       }
 
-      // If this is the active room, append to DOM directly for snappy UX. Only
+      // If this is the active conversation, append to DOM directly for snappy UX. Only
       // stick to the bottom for my own messages; someone else's message must not
       // pull me away from history I've scrolled up to read.
-      if (fresh && roomId === moduleState.activeRoomId) {
+      if (fresh && conversationId === moduleState.activeConversationId) {
         _appendMessageToActiveChat(message, { stick: isMine });
       }
       _schedulePersistSnapshot();
@@ -800,64 +800,64 @@
       return;
     }
 
-    if (type === "social.room_invited") {
-      const { room } = payload || {};
-      if (!room) return;
-      upsertRoom(room);
+    if (type === "social.conversation_invited") {
+      const { conversation } = payload || {};
+      if (!conversation) return;
+      upsertConversation(conversation);
       // H2: Invalidate member cache so next mention parse refetches newly-added fellows
-      _roomMembersCache.delete(room.id);
+      _conversationMembersCache.delete(conversation.id);
       _schedulePersistSnapshot();
       if (deps && typeof deps.render === "function") deps.render();
       return;
     }
 
-    // PATCH /api/rooms/:id from any device. Merge the patched room back in
+    // PATCH /api/conversations/:id from any device. Merge the patched conversation back in
     // by id; broadcast originator includes ourselves so this also handles
     // multi-tab consistency.
-    if (type === "room.updated") {
-      const { room } = payload || {};
-      if (!room || !room.id) return;
-      upsertRoom(room);
+    if (type === "conversation.updated") {
+      const { conversation } = payload || {};
+      if (!conversation || !conversation.id) return;
+      upsertConversation(conversation);
       _schedulePersistSnapshot();
       if (deps && typeof deps.render === "function") deps.render();
       return;
     }
 
-    // DELETE /api/rooms/:id from any device.
-    if (type === "room.deleted") {
-      const { roomId } = payload || {};
-      if (!roomId) return;
-      moduleState.rooms = moduleState.rooms.filter((r) => r.id !== roomId);
-      moduleState.messageCache.delete(roomId);
-      moduleState.unreadByRoom.delete(roomId);
-      _roomMembersCache.delete(roomId);
-      if (roomId === moduleState.activeRoomId) moduleState.activeRoomId = null;
+    // DELETE /api/conversations/:id from any device.
+    if (type === "conversation.deleted") {
+      const { conversationId } = payload || {};
+      if (!conversationId) return;
+      moduleState.conversations = moduleState.conversations.filter((r) => r.id !== conversationId);
+      moduleState.messageCache.delete(conversationId);
+      moduleState.unreadByConversation.delete(conversationId);
+      _conversationMembersCache.delete(conversationId);
+      if (conversationId === moduleState.activeConversationId) moduleState.activeConversationId = null;
       // Pin state is on cloud (Phase 3); the server side cascades on
-      // room delete and pushes user_settings.updated, so no client-side
+      // conversation delete and pushes user_settings.updated, so no client-side
       // cleanup is needed here. Leftover pin entries (orphaned by a
-      // room delete the server didn't broadcast for some reason) age
+      // conversation delete the server didn't broadcast for some reason) age
       // out at the next settings PUT or are tolerated harmlessly.
       _schedulePersistSnapshot();
       if (deps && typeof deps.render === "function") deps.render();
       return;
     }
 
-    // DELETE /api/rooms/:id/messages/:msgId from any device — drop the
-    // message from the cache and re-render. Mirrors room.message_appended.
-    if (type === "room.message_deleted") {
-      const { roomId, messageId } = payload || {};
-      if (!roomId || !messageId) return;
-      const entry = moduleState.messageCache.get(roomId);
+    // DELETE /api/conversations/:id/messages/:msgId from any device — drop the
+    // message from the cache and re-render. Mirrors conversation.message_appended.
+    if (type === "conversation.message_deleted") {
+      const { conversationId, messageId } = payload || {};
+      if (!conversationId || !messageId) return;
+      const entry = moduleState.messageCache.get(conversationId);
       if (entry) {
         entry.messages = entry.messages.filter((m) => m.id !== messageId);
       }
-      if (roomId === moduleState.activeRoomId) _removeMessageFromActiveChat(messageId);
+      if (conversationId === moduleState.activeConversationId) _removeMessageFromActiveChat(messageId);
       _schedulePersistSnapshot();
       if (deps && typeof deps.render === "function") deps.render();
       return;
     }
 
-    if (type === "room.fellow_invocation_requested") {
+    if (type === "conversation.fellow_invocation_requested") {
       // Main process owns local fellow execution so the same path works in the
       // foreground app and the headless daemon. Renderer only observes events.
       return;
@@ -867,78 +867,78 @@
   // ── renderSidebarRows ─────────────────────────────────────────────────────
 
   function renderSidebarRows() {
-    const sidebarRooms = sessionHistoryShared().sidebarRooms(moduleState.rooms, {
-      activeRoomId: moduleState.activeRoomId,
+    const sidebarConversations = sessionHistoryShared().sidebarConversations(moduleState.conversations, {
+      activeConversationId: moduleState.activeConversationId,
       messageCache: moduleState.messageCache
     });
-    return sidebarRooms.map((room) => {
-      const cacheEntry = moduleState.messageCache.get(room.id);
+    return sidebarConversations.map((conversation) => {
+      const cacheEntry = moduleState.messageCache.get(conversation.id);
       const lastMsg = cacheEntry && cacheEntry.messages.length
         ? cacheEntry.messages[cacheEntry.messages.length - 1]
         : null;
       const lastMessagePreview = lastMsg ? String(lastMsg.body_md || "").slice(0, 80) : "";
 
-      // updatedAt: prefer last message time if newer than room.updatedAt
-      let updatedAt = room.updatedAt ? new Date(room.updatedAt).getTime() : 0;
+      // updatedAt: prefer last message time if newer than conversation.updatedAt
+      let updatedAt = conversation.updatedAt ? new Date(conversation.updatedAt).getTime() : 0;
       if (lastMsg && lastMsg.created_at) {
         const msgTs = new Date(lastMsg.created_at).getTime();
         if (msgTs > updatedAt) updatedAt = msgTs;
       }
 
-      // Route on rooms.type (schema truth). Two card shapes only:
-      // private-room (dm / fellow) and group-room. id-prefix fallback
+      // Route on conversations.type (schema truth). Two card shapes only:
+      // private-conversation (dm / fellow) and group-conversation. id-prefix fallback
       // keeps the sidebar correct against older cloud deployments that
       // haven't shipped the v7 type column yet — once every server is
       // on schema ≥ v7 the fallback can be removed.
-      const roomType = room.type
-        || (room.id?.startsWith("dm:") ? "dm"
-          : room.id?.startsWith("fellow:") ? "fellow"
-          : room.id?.startsWith("g_") || room.id?.startsWith("g-") ? "group"
+      const conversationType = conversation.type
+        || (conversation.id?.startsWith("dm:") ? "dm"
+          : conversation.id?.startsWith("fellow:") ? "fellow"
+          : conversation.id?.startsWith("g_") || conversation.id?.startsWith("g-") ? "group"
           : null);
-      if (roomType === "group") {
-        const memberCount = (_roomMembersCache.get(room.id) || []).length;
+      if (conversationType === "group") {
+        const memberCount = (_conversationMembersCache.get(conversation.id) || []).length;
         return {
-          type: "group-room",
-          key: room.id,
+          type: "group-conversation",
+          key: conversation.id,
           pinned: false,
           pinnedAt: "",
           updatedAt,
-          room: { ...room, type: "group", lastMessagePreview, memberCount }
+          conversation: { ...conversation, type: "group", lastMessagePreview, memberCount }
         };
       }
 
-      const otherUser = roomType === "dm" ? otherUserForRoom(room) : null;
+      const otherUser = conversationType === "dm" ? otherUserForConversation(conversation) : null;
       return {
-        type: "private-room",
-        key: room.id,
+        type: "private-conversation",
+        key: conversation.id,
         pinned: false,
         pinnedAt: "",
         updatedAt,
-        room: { ...room, type: roomType || "dm", otherUser, lastMessagePreview }
+        conversation: { ...conversation, type: conversationType || "dm", otherUser, lastMessagePreview }
       };
     });
   }
 
-  // ── renderRoomChat ─────────────────────────────────────────────────────────
+  // ── renderConversationChat ─────────────────────────────────────────────────────────
 
-  function renderRoomChat(containerEl) {
+  function renderConversationChat(containerEl) {
     if (!containerEl) return;
-    const roomId = moduleState.activeRoomId;
-    if (!roomId) return;
+    const conversationId = moduleState.activeConversationId;
+    if (!conversationId) return;
 
-    const entry = moduleState.messageCache.get(roomId) || { messages: [], maxSeq: 0 };
-    const room = moduleState.rooms.find((r) => r.id === roomId);
-    const color = avatarColor(roomId);
+    const entry = moduleState.messageCache.get(conversationId) || { messages: [], maxSeq: 0 };
+    const conversation = moduleState.conversations.find((r) => r.id === conversationId);
+    const color = avatarColor(conversationId);
 
     // Decide BEFORE rebuilding whether to keep the view pinned to the bottom.
-    // Stick when entering a different room (show its latest) or when the user is
+    // Stick when entering a different conversation (show its latest) or when the user is
     // already near the bottom; otherwise restore their prior offset so a
     // background re-render never yanks them out of the history they scrolled to.
-    const isRoomSwitch = roomId !== _lastRenderedRoomId;
+    const isConversationSwitch = conversationId !== _lastRenderedConversationId;
     const prevScrollTop = containerEl.scrollTop;
-    const stickToBottom = isRoomSwitch
+    const stickToBottom = isConversationSwitch
       || (containerEl.scrollHeight - containerEl.scrollTop - containerEl.clientHeight < SCROLL_STICK_THRESHOLD_PX);
-    _lastRenderedRoomId = roomId;
+    _lastRenderedConversationId = conversationId;
     const applyScroll = () => {
       containerEl.scrollTop = stickToBottom ? containerEl.scrollHeight : prevScrollTop;
     };
@@ -947,41 +947,41 @@
 
     // Header (avatar / name / meta) is painted by app.js render() — this
     // module only owns the message list so the chat header stays in lockstep
-    // with the sidebar's group-avatar mosaic for every room type.
+    // with the sidebar's group-avatar mosaic for every conversation type.
 
-    const roomType = roomTypeFor(room, roomId);
-    if (room && roomType === "group") {
-      const members = _roomMembersCache.get(roomId) || [];
+    const conversationType = conversationTypeFor(conversation, conversationId);
+    if (conversation && conversationType === "group") {
+      const members = _conversationMembersCache.get(conversationId) || [];
       for (const msg of entry.messages) {
         const article = _buildGroupMessageArticle(msg, color, members);
         if (article) containerEl.appendChild(article);
       }
-      const streaming = _buildCloudAgentStreamingArticle(roomId, color, members);
+      const streaming = _buildCloudAgentStreamingArticle(conversationId, color, members);
       if (streaming) containerEl.appendChild(streaming);
       window.miaAvatar?.hydrateAvatarVideos?.(containerEl);
       applyScroll();
-      if (!_roomMembersCache.has(roomId)) {
-        _fetchAndCacheRoomMembers(roomId);
+      if (!_conversationMembersCache.has(conversationId)) {
+        _fetchAndCacheConversationMembers(conversationId);
       }
       return;
     }
 
-    // DM and fellow rooms share the 1-on-1 message bubble path.
+    // DM and fellow conversations share the 1-on-1 message bubble path.
     for (const msg of entry.messages) {
       const article = _buildMessageArticle(msg, color);
       if (article) containerEl.appendChild(article);
     }
-    const streaming = _buildCloudAgentStreamingArticle(roomId, color);
+    const streaming = _buildCloudAgentStreamingArticle(conversationId, color);
     if (streaming) containerEl.appendChild(streaming);
     window.miaAvatar?.hydrateAvatarVideos?.(containerEl);
     applyScroll();
   }
 
   function _specForMessage(msg, members = []) {
-    const factory = (typeof window !== "undefined" && window.miaCloudRoomSource) || null;
-    if (!factory || typeof factory.createCloudRoomSource !== "function") return null;
-    const room = moduleState.rooms.find((r) => r.id === moduleState.activeRoomId) || { id: moduleState.activeRoomId || "" };
-    const source = factory.createCloudRoomSource({ room, messages: [msg], members, ctx: adapterCtx() });
+    const factory = (typeof window !== "undefined" && window.miaCloudConversationSource) || null;
+    if (!factory || typeof factory.createCloudConversationSource !== "function") return null;
+    const conversation = moduleState.conversations.find((r) => r.id === moduleState.activeConversationId) || { id: moduleState.activeConversationId || "" };
+    const source = factory.createCloudConversationSource({ conversation, messages: [msg], members, ctx: adapterCtx() });
     return source.listMessages()[0] || null;
   }
 
@@ -990,7 +990,7 @@
   // friend names resolve correctly in groups, matching the rendered bubble.
   function describeMessageForMenu(msg) {
     if (!msg) return { authorName: "", isOwn: false, bodyMd: "" };
-    const members = _roomMembersCache.get(moduleState.activeRoomId) || [];
+    const members = _conversationMembersCache.get(moduleState.activeConversationId) || [];
     const spec = _specForMessage(msg, members);
     return {
       authorName: spec ? spec.authorName : "",
@@ -1001,7 +1001,7 @@
 
   // DM bubble mirrors fellow chat's renderMessageHtml shape EXACTLY so the
   // CSS targeting .message > .message-stack > .bubble paints it as a real
-  // bubble. The bubble carries data-message-source="cloud-room" + a
+  // bubble. The bubble carries data-message-source="cloud-conversation" + a
   // data-message-id so the chat-level contextmenu dispatcher in app.js
   // routes to openSocialMessageMenu instead of the fellow message menu.
   function _buildMessageArticle(msg, accentColor) {
@@ -1023,7 +1023,7 @@
         attrs: `data-sender-kind="${escapeHtml(msg.sender_kind || "")}" data-sender-ref="${escapeHtml(msg.sender_ref || "")}" title="${escapeHtml(authorName || "")}"`
       })
       : `<div class="avatar message-avatar" data-sender-kind="${escapeHtml(msg.sender_kind || "")}" data-sender-ref="${escapeHtml(msg.sender_ref || "")}" style="${escapeHtml(avatarFallbackStyle(avatarHelpers, avatar.image, avatar.crop, avatarColor))}" title="${escapeHtml(authorName || "")}">${escapeHtml(avatarLetter)}</div>`;
-    const cache = moduleState.messageCache.get(moduleState.activeRoomId);
+    const cache = moduleState.messageCache.get(moduleState.activeConversationId);
     const messageIndex = cache ? cache.messages.findIndex((m) => m.id === msg.id) : -1;
     const bodyHtml = _renderMsgBody((spec ? spec.bodyMd : msg.body_md) || "");
     const skillsHtml = _renderMsgSkills(msg);
@@ -1031,7 +1031,7 @@
     // attachment-only / empty-body message keeps a right-clickable carrier with
     // the data attributes the app.js contextmenu dispatcher looks for. Skill
     // chips the user selected for this message render at the top of the bubble.
-    const bubbleHtml = `<div class="bubble" data-message-index="${messageIndex}" data-message-source="cloud-room" data-message-id="${escapeHtml(msg.id || "")}">${skillsHtml}${bodyHtml}</div>`;
+    const bubbleHtml = `<div class="bubble" data-message-index="${messageIndex}" data-message-source="cloud-conversation" data-message-id="${escapeHtml(msg.id || "")}">${skillsHtml}${bodyHtml}</div>`;
     const attachmentHtml = renderAttachmentChips(spec?.attachments || msg.attachments || []);
     const createdAt = msg.created_at || msg.createdAt || "";
     const timeHtml = createdAt
@@ -1056,13 +1056,13 @@
     return article;
   }
 
-  function _buildCloudAgentStreamingArticle(roomId, accentColor, members = []) {
-    const run = moduleState.cloudAgentRunsByRoom.get(roomId);
+  function _buildCloudAgentStreamingArticle(conversationId, accentColor, members = []) {
+    const run = moduleState.cloudAgentRunsByConversation.get(conversationId);
     if (!run || (!run.text && !run.tools.length && run.status !== "running")) return null;
-    const room = moduleState.rooms.find((r) => r.id === roomId) || { id: roomId };
-    const fellowKey = run.fellowId || room.decorations?.fellowKey || (room.id?.startsWith("fellow:") ? room.id.split(":")[2] : "mia");
+    const conversation = moduleState.conversations.find((r) => r.id === conversationId) || { id: conversationId };
+    const fellowKey = run.fellowId || conversation.decorations?.fellowKey || (conversation.id?.startsWith("fellow:") ? conversation.id.split(":")[2] : "mia");
     const synthetic = {
-      id: `cloud-agent-stream-${run.runId || roomId}`,
+      id: `cloud-agent-stream-${run.runId || conversationId}`,
       sender_kind: "fellow",
       sender_ref: fellowKey,
       body_md: run.text || "",
@@ -1085,8 +1085,8 @@
       })
       : `<div class="avatar message-avatar" data-sender-kind="fellow" data-sender-ref="${escapeHtml(fellowKey)}" style="${escapeHtml(avatarFallbackStyle(avatarHelpers, avatar.image, avatar.crop, avatarColor))}" title="${escapeHtml(authorName || "")}">${escapeHtml(avatarLetter)}</div>`;
     const bodyHtml = run.text ? _renderMsgBody(run.text) : "";
-    const isGroupRoom = roomTypeFor(room, roomId) === "group";
-    const typingText = isGroupRoom
+    const isGroupConversation = conversationTypeFor(conversation, conversationId) === "group";
+    const typingText = isGroupConversation
       ? `${run.typingLabel || authorName || fellowKey}正在输入`
       : "正在输入";
     const statusHtml = run.status === "running" && (run.text || !run.tools.length)
@@ -1108,7 +1108,7 @@
     return article;
   }
 
-  // Translation block for a cloud-room bubble. Reuses the exact .message-translation
+  // Translation block for a cloud-conversation bubble. Reuses the exact .message-translation
   // markup/CSS from fellow chat (chat/message-menu.js translationHtml) so the
   // in-place translate result looks identical. The translation lives on the
   // cached message object (transient — never pushed to cloud).
@@ -1137,7 +1137,7 @@
 
   function _reRenderActiveChat() {
     const chatEl = document.getElementById("chat");
-    if (chatEl && moduleState.activeRoomId) renderRoomChat(chatEl);
+    if (chatEl && moduleState.activeConversationId) renderConversationChat(chatEl);
   }
 
   // Remove a single message's bubble from the open chat without a full repaint.
@@ -1148,28 +1148,28 @@
     bubble?.closest(".message")?.remove();
   }
 
-  // Translate a cloud-room message in place. Mirrors message-menu.translateMessage
-  // but stores the result on the cached message and re-renders the room.
-  async function translateRoomMessage(roomId, messageId) {
-    const entry = moduleState.messageCache.get(roomId);
+  // Translate a cloud-conversation message in place. Mirrors message-menu.translateMessage
+  // but stores the result on the cached message and re-renders the conversation.
+  async function translateConversationMessage(conversationId, messageId) {
+    const entry = moduleState.messageCache.get(conversationId);
     const msg = entry && entry.messages.find((m) => m.id === messageId);
     if (!msg) return;
     const text = String(msg.body_md || msg.bodyMd || "").trim();
     if (!text) return;
     // sendChat needs a fellow to run the utility model on: prefer a fellow
-    // member of this room, else fall back to the first available persona.
+    // member of this conversation, else fall back to the first available persona.
     const runtime = (deps && typeof deps.getState === "function" && deps.getState()?.runtime) || {};
     const fellows = runtime.fellows || runtime.personas || [];
     const { MemberKind } = conversationKinds();
-    const roomFellow = (_roomMembersCache.get(roomId) || []).find((m) => m.member_kind === MemberKind.Fellow);
-    const fellowKey = (roomFellow && roomFellow.member_ref) || (fellows[0] && (fellows[0].key || fellows[0].id)) || "";
+    const conversationFellow = (_conversationMembersCache.get(conversationId) || []).find((m) => m.member_kind === MemberKind.Fellow);
+    const fellowKey = (conversationFellow && conversationFellow.member_ref) || (fellows[0] && (fellows[0].key || fellows[0].id)) || "";
     if (!fellowKey) {
       msg.translation = { status: "error", text: "", error: "没有可用于翻译的 fellow。" };
-      if (roomId === moduleState.activeRoomId) _reRenderActiveChat();
+      if (conversationId === moduleState.activeConversationId) _reRenderActiveChat();
       return;
     }
     msg.translation = { status: "loading", text: "", error: "" };
-    if (roomId === moduleState.activeRoomId) _reRenderActiveChat();
+    if (conversationId === moduleState.activeConversationId) _reRenderActiveChat();
     try {
       const prompt = [
         "请把下面这条聊天消息翻译成简体中文。",
@@ -1191,36 +1191,36 @@
     } catch (error) {
       msg.translation = { status: "error", text: "", error: `翻译失败: ${error?.message || error}` };
     }
-    if (roomId === moduleState.activeRoomId) _reRenderActiveChat();
+    if (conversationId === moduleState.activeConversationId) _reRenderActiveChat();
   }
 
-  // Delete a cloud-room message: optimistically drop it locally, then DELETE on
-  // the server. The room.message_deleted broadcast keeps other devices in sync;
+  // Delete a cloud-conversation message: optimistically drop it locally, then DELETE on
+  // the server. The conversation.message_deleted broadcast keeps other devices in sync;
   // for this device we apply immediately so the bubble vanishes with no lag.
-  async function deleteRoomMessage(roomId, messageId) {
-    const entry = moduleState.messageCache.get(roomId);
+  async function deleteConversationMessage(conversationId, messageId) {
+    const entry = moduleState.messageCache.get(conversationId);
     // Capture the message so we can roll the optimistic removal back if the
     // server rejects — otherwise the bubble vanishes locally while the message
     // still exists on the server (divergence until the next bootstrap).
     const removed = entry ? entry.messages.find((m) => m.id === messageId) : null;
     if (entry) entry.messages = entry.messages.filter((m) => m.id !== messageId);
-    if (roomId === moduleState.activeRoomId) _removeMessageFromActiveChat(messageId);
+    if (conversationId === moduleState.activeConversationId) _removeMessageFromActiveChat(messageId);
     _schedulePersistSnapshot();
     if (deps && typeof deps.render === "function") deps.render();
     let ok = false;
     try {
-      const res = await window.mia.social.deleteRoomMessage(roomId, messageId);
+      const res = await window.mia.social.deleteConversationMessage(conversationId, messageId);
       ok = Boolean(res && res.ok !== false);
-      if (!ok) console.warn("[social] deleteRoomMessage failed:", res?.error || "unknown");
+      if (!ok) console.warn("[social] deleteConversationMessage failed:", res?.error || "unknown");
     } catch (err) {
-      console.warn("[social] deleteRoomMessage error:", err?.message || err);
+      console.warn("[social] deleteConversationMessage error:", err?.message || err);
     }
     if (!ok && removed && entry && !entry.messages.find((m) => m.id === messageId)) {
       // Restore the message and re-render so the user doesn't silently lose it.
       entry.messages.push(removed);
       entry.messages.sort((a, b) => a.seq - b.seq);
       _schedulePersistSnapshot();
-      if (roomId === moduleState.activeRoomId) _reRenderActiveChat();
+      if (conversationId === moduleState.activeConversationId) _reRenderActiveChat();
       if (deps && typeof deps.render === "function") deps.render();
     }
   }
@@ -1256,11 +1256,11 @@
     const chatEl = document.getElementById("chat");
     if (!chatEl) return;
     const nearBottom = chatEl.scrollHeight - chatEl.scrollTop - chatEl.clientHeight < SCROLL_STICK_THRESHOLD_PX;
-    const room = moduleState.rooms.find((r) => r.id === moduleState.activeRoomId);
-    const color = room ? avatarColor(room.id) : "#5e5ce6";
-    const roomType = roomTypeFor(room, moduleState.activeRoomId);
-    const article = roomType === "group"
-      ? _buildGroupMessageArticle(msg, color, _roomMembersCache.get(moduleState.activeRoomId) || [])
+    const conversation = moduleState.conversations.find((r) => r.id === moduleState.activeConversationId);
+    const color = conversation ? avatarColor(conversation.id) : "#5e5ce6";
+    const conversationType = conversationTypeFor(conversation, moduleState.activeConversationId);
+    const article = conversationType === "group"
+      ? _buildGroupMessageArticle(msg, color, _conversationMembersCache.get(moduleState.activeConversationId) || [])
       : _buildMessageArticle(msg, color);
     if (article) {
       chatEl.appendChild(article);
@@ -1269,10 +1269,10 @@
     }
   }
 
-  function _appendLocalOutgoingRoomMessage(roomId, prepared, skills = null) {
-    if (!roomId || !prepared || !prepared.bodyMd) return null;
-    if (!moduleState.messageCache.has(roomId)) {
-      moduleState.messageCache.set(roomId, { messages: [], maxSeq: 0 });
+  function _appendLocalOutgoingConversationMessage(conversationId, prepared, skills = null) {
+    if (!conversationId || !prepared || !prepared.bodyMd) return null;
+    if (!moduleState.messageCache.has(conversationId)) {
+      moduleState.messageCache.set(conversationId, { messages: [], maxSeq: 0 });
     }
     const msg = {
       id: `local_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -1289,33 +1289,33 @@
       created_at: new Date().toISOString(),
       _localPending: true
     };
-    const entry = moduleState.messageCache.get(roomId);
+    const entry = moduleState.messageCache.get(conversationId);
     entry.messages.push(msg);
     entry.messages.sort((a, b) => a.seq - b.seq);
-    if (roomId === moduleState.activeRoomId) _appendMessageToActiveChat(msg);
+    if (conversationId === moduleState.activeConversationId) _appendMessageToActiveChat(msg);
     if (deps && typeof deps.render === "function") deps.render();
     return msg;
   }
 
-  function _markLocalOutgoingRoomMessageFailed(roomId, localId, error) {
-    const entry = moduleState.messageCache.get(roomId);
+  function _markLocalOutgoingConversationMessageFailed(conversationId, localId, error) {
+    const entry = moduleState.messageCache.get(conversationId);
     if (!entry || !localId) return false;
     const msg = entry.messages.find((m) => m.id === localId);
     if (!msg) return false;
     msg.status = "error";
     msg.error = String(error || "发送失败");
     msg._localPending = false;
-    if (roomId === moduleState.activeRoomId) _reRenderActiveChat();
+    if (conversationId === moduleState.activeConversationId) _reRenderActiveChat();
     if (deps && typeof deps.render === "function") deps.render();
     return true;
   }
 
-  function _reconcileSentRoomMessage(roomId, localId, sentMsg) {
-    if (!roomId || !sentMsg || !sentMsg.id) return false;
-    if (!moduleState.messageCache.has(roomId)) {
-      moduleState.messageCache.set(roomId, { messages: [], maxSeq: 0 });
+  function _reconcileSentConversationMessage(conversationId, localId, sentMsg) {
+    if (!conversationId || !sentMsg || !sentMsg.id) return false;
+    if (!moduleState.messageCache.has(conversationId)) {
+      moduleState.messageCache.set(conversationId, { messages: [], maxSeq: 0 });
     }
-    const entry = moduleState.messageCache.get(roomId);
+    const entry = moduleState.messageCache.get(conversationId);
     const serverIdx = entry.messages.findIndex((m) => m.id === sentMsg.id);
     const localIdx = entry.messages.findIndex((m) => m.id === localId);
     if (serverIdx >= 0) {
@@ -1327,7 +1327,7 @@
     }
     entry.messages.sort((a, b) => a.seq - b.seq);
     if (sentMsg.seq > entry.maxSeq) entry.maxSeq = sentMsg.seq;
-    if (roomId === moduleState.activeRoomId) _reRenderActiveChat();
+    if (conversationId === moduleState.activeConversationId) _reRenderActiveChat();
     if (deps && typeof deps.render === "function") deps.render();
     return true;
   }
@@ -1342,12 +1342,12 @@
     return typeof build === "function" ? build(msg, accentColor, members) : null;
   }
 
-  function _fetchAndCacheRoomMembers(roomId) {
-    return window.miaSocialGroups?.fetchAndCacheRoomMembers(roomId);
+  function _fetchAndCacheConversationMembers(conversationId) {
+    return window.miaSocialGroups?.fetchAndCacheConversationMembers(conversationId);
   }
 
-  async function sendInActiveGroupRoom(text) {
-    return sendInActiveRoom(text);
+  async function sendInActiveGroupConversation(text) {
+    return sendInActiveConversation(text);
   }
 
   function openCreateGroupDialog() {
@@ -1625,14 +1625,14 @@
     }
   }
 
-  // ── Cloud-room send: DM, fellow rooms, and groups share one path. ─────────
+  // ── Cloud-conversation send: DM, fellow conversations, and groups share one path. ─────────
 
-  async function sendInActiveRoom(text, options = {}) {
-    const roomId = moduleState.activeRoomId;
-    if (!roomId) return;
-    const room = moduleState.rooms.find((r) => r.id === roomId) || { id: roomId };
-    const roomType = roomTypeFor(room, roomId);
-    const members = _roomMembersCache.get(roomId) || [];
+  async function sendInActiveConversation(text, options = {}) {
+    const conversationId = moduleState.activeConversationId;
+    if (!conversationId) return;
+    const conversation = moduleState.conversations.find((r) => r.id === conversationId) || { id: conversationId };
+    const conversationType = conversationTypeFor(conversation, conversationId);
+    const members = _conversationMembersCache.get(conversationId) || [];
     // Composer skill chips selected for this message (the user's 「使用」).
     const skills = Array.isArray(options.skills) && options.skills.length
       ? options.skills.map((s) => ({ id: String(s.id || ""), name: String(s.name || s.id || "") })).filter((s) => s.id)
@@ -1641,65 +1641,65 @@
     try {
       prepared = sendPipelineShared().prepareOutgoingMessage(
         { text },
-        { members: sendPipelineMembersForRoom(roomType, members) }
+        { members: sendPipelineMembersForConversation(conversationType, members) }
       );
     } catch (err) {
       if (err && err.code === "EMPTY_MESSAGE") return;
-      console.warn("[social] sendInActiveRoom prepare failed:", err?.message || err);
+      console.warn("[social] sendInActiveConversation prepare failed:", err?.message || err);
       return;
     }
-    const localMsg = _appendLocalOutgoingRoomMessage(roomId, prepared, skills);
-    const mentions = postMentionsForRoom(roomType, prepared.mentions);
+    const localMsg = _appendLocalOutgoingConversationMessage(conversationId, prepared, skills);
+    const mentions = postMentionsForConversation(conversationType, prepared.mentions);
     try {
-      const res = await window.mia.social.postRoomMessage(roomId, {
+      const res = await window.mia.social.postConversationMessage(conversationId, {
         bodyMd: prepared.bodyMd,
         ...(mentions.length ? { mentions } : {}),
         ...(skills ? { skills } : {})
       });
       if (!res.ok) {
-        console.warn("[social] postRoomMessage failed:", res.error);
-        if (localMsg) _markLocalOutgoingRoomMessageFailed(roomId, localMsg.id, res.error);
+        console.warn("[social] postConversationMessage failed:", res.error);
+        if (localMsg) _markLocalOutgoingConversationMessageFailed(conversationId, localMsg.id, res.error);
         return;
       }
       const sentMsg = res.data?.message;
       if (!sentMsg || !sentMsg.id) return; // server didn't return a message somehow — skip optimistic
-      _reconcileSentRoomMessage(roomId, localMsg?.id, sentMsg);
+      _reconcileSentConversationMessage(conversationId, localMsg?.id, sentMsg);
     } catch (err) {
-      if (localMsg) _markLocalOutgoingRoomMessageFailed(roomId, localMsg.id, err?.message || err);
-      console.warn("[social] sendInActiveRoom error:", err);
+      if (localMsg) _markLocalOutgoingConversationMessageFailed(conversationId, localMsg.id, err?.message || err);
+      console.warn("[social] sendInActiveConversation error:", err);
     }
   }
 
   // ── getters / setters ─────────────────────────────────────────────────────
 
-  function getActiveRoomId() { return moduleState.activeRoomId; }
-  function getRoomById(roomId) { return moduleState.rooms.find((r) => r.id === roomId) || null; }
-  function setActiveRoomId(id) {
+  function getActiveConversationId() { return moduleState.activeConversationId; }
+  function getConversationById(conversationId) { return moduleState.conversations.find((r) => r.id === conversationId) || null; }
+  function setActiveConversationId(id) {
     const next = id || null;
-    // Any actual navigation (switching rooms, or leaving to a local fellow chat
+    // Any actual navigation (switching conversations, or leaving to a local fellow chat
     // that reuses #chat) invalidates the last-painted marker, so the next
-    // renderRoomChat treats re-entry as a switch and lands at the latest message
+    // renderConversationChat treats re-entry as a switch and lands at the latest message
     // instead of restoring a stale offset.
-    if (next !== moduleState.activeRoomId) _lastRenderedRoomId = null;
-    moduleState.activeRoomId = next;
-    if (id) moduleState.unreadByRoom.delete(id);
+    if (next !== moduleState.activeConversationId) _lastRenderedConversationId = null;
+    moduleState.activeConversationId = next;
+    if (id) moduleState.unreadByConversation.delete(id);
   }
-  function markRoomRead(roomId) {
-    if (!roomId) return;
-    moduleState.unreadByRoom.delete(roomId);
-    const cache = moduleState.messageCache.get(roomId);
+  function markConversationRead(conversationId) {
+    if (!conversationId) return;
+    moduleState.unreadByConversation.delete(conversationId);
+    const cache = moduleState.messageCache.get(conversationId);
     const lastSeq = cache && Number.isFinite(Number(cache.maxSeq)) ? Number(cache.maxSeq) : 0;
     const s = _ensureCloudSettings();
-    const nextReadMarks = { ...(s.readMarks || {}), [roomId]: lastSeq };
+    const nextReadMarks = { ...(s.readMarks || {}), [conversationId]: lastSeq };
     // Clear any manual "标为未读" override so the badge actually goes away.
     const nextOverrides = { ...(s.unreadOverrides || {}) };
-    delete nextOverrides[roomId];
+    delete nextOverrides[conversationId];
     moduleState.cloudSettings = { ...s, readMarks: nextReadMarks, unreadOverrides: nextOverrides };
     window.mia?.social?.settingsPut?.({
       pins: s.pins,
       readMarks: nextReadMarks,
       appearance: s.appearance,
-      mutedRooms: s.mutedRooms || [],
+      mutedConversations: s.mutedConversations || [],
       unreadOverrides: nextOverrides,
       expectedVersion: s.version || 0
     }).catch((err) => console.warn("[social] mark-read settingsPut failed:", err?.message || err));
@@ -1711,68 +1711,68 @@
   // user_settings.updated WS event. Mutations PUT via IPC and the
   // broadcast confirms / replaces the optimistic update.
   function _ensureCloudSettings() {
-    if (!moduleState.cloudSettings) moduleState.cloudSettings = { pins: [], readMarks: {}, appearance: {}, mutedRooms: [], unreadOverrides: {} };
-    if (!Array.isArray(moduleState.cloudSettings.mutedRooms)) moduleState.cloudSettings.mutedRooms = [];
+    if (!moduleState.cloudSettings) moduleState.cloudSettings = { pins: [], readMarks: {}, appearance: {}, mutedConversations: [], unreadOverrides: {} };
+    if (!Array.isArray(moduleState.cloudSettings.mutedConversations)) moduleState.cloudSettings.mutedConversations = [];
     if (!moduleState.cloudSettings.unreadOverrides) moduleState.cloudSettings.unreadOverrides = {};
     return moduleState.cloudSettings;
   }
-  function isRoomPinned(roomId) {
-    if (!roomId) return false;
+  function isConversationPinned(conversationId) {
+    if (!conversationId) return false;
     const s = _ensureCloudSettings();
-    return Array.isArray(s.pins) && s.pins.includes(roomId);
+    return Array.isArray(s.pins) && s.pins.includes(conversationId);
   }
-  function isRoomMuted(roomId) {
-    if (!roomId) return false;
+  function isConversationMuted(conversationId) {
+    if (!conversationId) return false;
     const s = _ensureCloudSettings();
-    return Array.isArray(s.mutedRooms) && s.mutedRooms.includes(roomId);
+    return Array.isArray(s.mutedConversations) && s.mutedConversations.includes(conversationId);
   }
-  function isRoomManuallyUnread(roomId) {
-    if (!roomId) return false;
+  function isConversationManuallyUnread(conversationId) {
+    if (!conversationId) return false;
     const s = _ensureCloudSettings();
-    return Boolean(s.unreadOverrides && s.unreadOverrides[roomId]);
+    return Boolean(s.unreadOverrides && s.unreadOverrides[conversationId]);
   }
-  async function setRoomPinned(roomId, pinned, _retried = false) {
-    return _patchCloudSettings({ pinned, roomId, _retried });
+  async function setConversationPinned(conversationId, pinned, _retried = false) {
+    return _patchCloudSettings({ pinned, conversationId, _retried });
   }
-  async function setRoomMuted(roomId, muted, _retried = false) {
-    return _patchCloudSettings({ muted, roomId, _retried });
+  async function setConversationMuted(conversationId, muted, _retried = false) {
+    return _patchCloudSettings({ muted, conversationId, _retried });
   }
   // Manual unread / read override. Telegram-style: forces the badge state
-  // until either (a) opening the room (markRoomRead) or (b) the user
+  // until either (a) opening the conversation (markConversationRead) or (b) the user
   // toggles it back from the menu.
-  async function setRoomManuallyUnread(roomId, unread, _retried = false) {
-    return _patchCloudSettings({ manualUnread: unread, roomId, _retried });
+  async function setConversationManuallyUnread(conversationId, unread, _retried = false) {
+    return _patchCloudSettings({ manualUnread: unread, conversationId, _retried });
   }
-  async function _patchCloudSettings({ pinned, muted, manualUnread, roomId, _retried }) {
-    if (!roomId) return;
+  async function _patchCloudSettings({ pinned, muted, manualUnread, conversationId, _retried }) {
+    if (!conversationId) return;
     const s = _ensureCloudSettings();
     const pins = Array.isArray(s.pins) ? s.pins : [];
-    const mutedRooms = Array.isArray(s.mutedRooms) ? s.mutedRooms : [];
+    const mutedConversations = Array.isArray(s.mutedConversations) ? s.mutedConversations : [];
     const unreadOverrides = s.unreadOverrides && typeof s.unreadOverrides === "object" ? { ...s.unreadOverrides } : {};
     const next = {
-      pins: pinned === true ? [...new Set([...pins, roomId])]
-        : pinned === false ? pins.filter((id) => id !== roomId)
+      pins: pinned === true ? [...new Set([...pins, conversationId])]
+        : pinned === false ? pins.filter((id) => id !== conversationId)
         : pins,
-      mutedRooms: muted === true ? [...new Set([...mutedRooms, roomId])]
-        : muted === false ? mutedRooms.filter((id) => id !== roomId)
-        : mutedRooms,
+      mutedConversations: muted === true ? [...new Set([...mutedConversations, conversationId])]
+        : muted === false ? mutedConversations.filter((id) => id !== conversationId)
+        : mutedConversations,
       unreadOverrides,
       readMarks: s.readMarks || {},
       appearance: s.appearance || {}
     };
     if (manualUnread === true) {
-      next.unreadOverrides[roomId] = true;
+      next.unreadOverrides[conversationId] = true;
     } else if (manualUnread === false) {
-      delete next.unreadOverrides[roomId];
+      delete next.unreadOverrides[conversationId];
       // Clear actual unread count too — "mark read" should leave 0.
-      moduleState.unreadByRoom.delete(roomId);
+      moduleState.unreadByConversation.delete(conversationId);
     }
     moduleState.cloudSettings = { ...s, ...next };
     if (deps && typeof deps.render === "function") deps.render();
     try {
       const updated = await window.mia.social.settingsPut({
         pins: next.pins,
-        mutedRooms: next.mutedRooms,
+        mutedConversations: next.mutedConversations,
         unreadOverrides: next.unreadOverrides,
         readMarks: next.readMarks,
         appearance: next.appearance,
@@ -1782,7 +1782,7 @@
     } catch (err) {
       if (!_retried && /409|version conflict/i.test(String(err?.message || ""))) {
         await bootstrapCloudSettings();
-        return _patchCloudSettings({ pinned, muted, manualUnread, roomId, _retried: true });
+        return _patchCloudSettings({ pinned, muted, manualUnread, conversationId, _retried: true });
       }
       console.warn("[social] settingsPut failed:", err?.message || err);
       moduleState.cloudSettings = s;
@@ -1799,7 +1799,7 @@
           pins: Array.isArray(settings.pins) ? settings.pins : [],
           readMarks: settings.readMarks && typeof settings.readMarks === "object" ? settings.readMarks : {},
           appearance: settings.appearance && typeof settings.appearance === "object" ? settings.appearance : {},
-          mutedRooms: Array.isArray(settings.mutedRooms) ? settings.mutedRooms : [],
+          mutedConversations: Array.isArray(settings.mutedConversations) ? settings.mutedConversations : [],
           unreadOverrides: settings.unreadOverrides && typeof settings.unreadOverrides === "object" ? settings.unreadOverrides : {}
         };
         if (deps && typeof deps.render === "function") deps.render();
@@ -1816,68 +1816,68 @@
       pins: Array.isArray(settings.pins) ? settings.pins : [],
       readMarks: settings.readMarks && typeof settings.readMarks === "object" ? settings.readMarks : {},
       appearance: settings.appearance && typeof settings.appearance === "object" ? settings.appearance : {},
-      mutedRooms: Array.isArray(settings.mutedRooms) ? settings.mutedRooms : [],
+      mutedConversations: Array.isArray(settings.mutedConversations) ? settings.mutedConversations : [],
       unreadOverrides: settings.unreadOverrides && typeof settings.unreadOverrides === "object" ? settings.unreadOverrides : {}
     };
     if (deps && typeof deps.render === "function") deps.render();
   }
 
-  // PATCH /api/rooms/:id — rename the cloud room (groups only; DM rename
+  // PATCH /api/conversations/:id — rename the cloud conversation (groups only; DM rename
   // is rejected server-side because DM display name is derived from the
-  // peer's profile). Optimistically updates local rooms list; the
-  // room.updated WS event will reconcile from canonical state.
-  async function renameRoom(roomId, name) {
-    if (!roomId || !name) return { ok: false, error: "missing arg" };
-    const res = await window.mia.social.updateRoom(roomId, { name });
-    if (res?.ok && res.data?.room) {
-      const room = res.data.room;
-      moduleState.rooms = moduleState.rooms.map((r) => (r.id === room.id ? { ...r, ...room } : r));
+  // peer's profile). Optimistically updates local conversations list; the
+  // conversation.updated WS event will reconcile from canonical state.
+  async function renameConversation(conversationId, name) {
+    if (!conversationId || !name) return { ok: false, error: "missing arg" };
+    const res = await window.mia.social.updateConversation(conversationId, { name });
+    if (res?.ok && res.data?.conversation) {
+      const conversation = res.data.conversation;
+      moduleState.conversations = moduleState.conversations.map((r) => (r.id === conversation.id ? { ...r, ...conversation } : r));
       if (deps && typeof deps.render === "function") deps.render();
     }
     return res;
   }
 
-  // DELETE /api/rooms/:id — remove the cloud room. Server cascades members
-  // + messages. WS room.deleted will sync other tabs; this also cleans up
+  // DELETE /api/conversations/:id — remove the cloud conversation. Server cascades members
+  // + messages. WS conversation.deleted will sync other tabs; this also cleans up
   // local state immediately.
-  async function deleteCloudRoom(roomId) {
-    if (!roomId) return { ok: false, error: "missing arg" };
-    const res = await window.mia.social.deleteRoom(roomId);
+  async function deleteCloudConversation(conversationId) {
+    if (!conversationId) return { ok: false, error: "missing arg" };
+    const res = await window.mia.social.deleteConversation(conversationId);
     if (res?.ok) {
-      moduleState.rooms = moduleState.rooms.filter((r) => r.id !== roomId);
-      moduleState.messageCache.delete(roomId);
-      moduleState.unreadByRoom.delete(roomId);
-      _roomMembersCache.delete(roomId);
-      if (roomId === moduleState.activeRoomId) moduleState.activeRoomId = null;
+      moduleState.conversations = moduleState.conversations.filter((r) => r.id !== conversationId);
+      moduleState.messageCache.delete(conversationId);
+      moduleState.unreadByConversation.delete(conversationId);
+      _conversationMembersCache.delete(conversationId);
+      if (conversationId === moduleState.activeConversationId) moduleState.activeConversationId = null;
       // Pin state is server-canonical now; cleanup happens via
       // user_settings.updated broadcast.
       if (deps && typeof deps.render === "function") deps.render();
     }
     return res;
   }
-  function getUnreadForRoom(roomId) {
-    const actual = unreadShared().computeUnreadForConversation({ id: roomId }, moduleState.unreadByRoom);
+  function getUnreadForConversation(conversationId) {
+    const actual = unreadShared().computeUnreadForConversation({ id: conversationId }, moduleState.unreadByConversation);
     if (actual > 0) return actual;
     // Manual "标为未读" override surfaces as a single-pip badge.
-    return isRoomManuallyUnread(roomId) ? 1 : 0;
+    return isConversationManuallyUnread(conversationId) ? 1 : 0;
   }
-  // Aggregate unread badge total. Muted rooms ("免打扰") are excluded so they
+  // Aggregate unread badge total. Muted conversations ("免打扰") are excluded so they
   // don't drive the app/dock badge — the per-row grey pip still renders via
-  // getUnreadForRoom in renderSidebarRows, but a muted room never "notifies"
-  // at the aggregate level. Uses getUnreadForRoom so manual "标为未读"
+  // getUnreadForConversation in renderSidebarRows, but a muted conversation never "notifies"
+  // at the aggregate level. Uses getUnreadForConversation so manual "标为未读"
   // overrides count consistently.
-  function getTotalRoomUnread() {
+  function getTotalConversationUnread() {
     let total = 0;
-    for (const room of moduleState.rooms) {
-      if (!room || !room.id) continue;
-      if (isRoomMuted(room.id)) continue;
-      total += getUnreadForRoom(room.id);
+    for (const conversation of moduleState.conversations) {
+      if (!conversation || !conversation.id) continue;
+      if (isConversationMuted(conversation.id)) continue;
+      total += getUnreadForConversation(conversation.id);
     }
     return total;
   }
-  // Expose the cached room member list so app.js can build a composite
-  // avatar for cloud group rooms via the same path as local fellow groups.
-  function getRoomMembers(roomId) { return _roomMembersCache.get(roomId) || null; }
+  // Expose the cached conversation member list so app.js can build a composite
+  // avatar for cloud group conversations via the same path as local fellow groups.
+  function getConversationMembers(conversationId) { return _conversationMembersCache.get(conversationId) || null; }
 
   // ── exports ───────────────────────────────────────────────────────────────
 
@@ -1885,7 +1885,7 @@
   const _internalCtx = {
     get moduleState() { return moduleState; },
     get deps() { return deps; },
-    roomMembersCache: _roomMembersCache,
+    conversationMembersCache: _conversationMembersCache,
     escapeHtml,
     avatarColor,
     dedup,
@@ -1905,33 +1905,33 @@
     isBootstrapped,
     handleCloudEvent,
     renderSidebarRows,
-    renderRoomChat,
+    renderConversationChat,
     openAddFriendDialog,
     openCreateGroupDialog,
-    sendInActiveRoom,
-    sendInActiveGroupRoom,
-    translateRoomMessage,
-    deleteRoomMessage,
+    sendInActiveConversation,
+    sendInActiveGroupConversation,
+    translateConversationMessage,
+    deleteConversationMessage,
     describeMessageForMenu,
-    getActiveRoomId,
-    getRoomById,
-    fellowRoomForKey,
-    setActiveRoomId,
-    markRoomRead,
-    isRoomPinned,
-    setRoomPinned,
-    isRoomMuted,
-    setRoomMuted,
-    isRoomManuallyUnread,
-    setRoomManuallyUnread,
+    getActiveConversationId,
+    getConversationById,
+    fellowConversationForKey,
+    setActiveConversationId,
+    markConversationRead,
+    isConversationPinned,
+    setConversationPinned,
+    isConversationMuted,
+    setConversationMuted,
+    isConversationManuallyUnread,
+    setConversationManuallyUnread,
     applyCloudSettings,
-    ensureFellowRoom,
-    upsertFellowRoom,
-    renameRoom,
-    deleteCloudRoom,
-    getUnreadForRoom,
-    getTotalRoomUnread,
-    getRoomMembers,
+    ensureFellowConversation,
+    upsertFellowConversation,
+    renameConversation,
+    deleteCloudConversation,
+    getUnreadForConversation,
+    getTotalConversationUnread,
+    getConversationMembers,
     friendById,
     _internalCtx
   };

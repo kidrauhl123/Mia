@@ -1,4 +1,4 @@
-// Click-on-avatar contact card for cloud rooms.
+// Click-on-avatar contact card for cloud conversations.
 //
 // Two interactions on a group-message avatar:
 //   - Left click → open this card. AI cards show current 模型 / effort /
@@ -69,8 +69,8 @@
     return fellows.find((f) => String(f.key || "") === target || String(f.id || "") === target) || null;
   }
 
-  function findFellowRoomMember(roomId, ref) {
-    const members = _ctx?.roomMembersCache?.get?.(roomId) || [];
+  function findFellowConversationMember(conversationId, ref) {
+    const members = _ctx?.conversationMembersCache?.get?.(conversationId) || [];
     return members.find((m) => m.member_kind === MemberKind.Fellow && m.member_ref === ref) || null;
   }
 
@@ -156,17 +156,17 @@
   // Fellow card with live engineConfig selectors (model / effort / permission)
   // that mirror the topbar composer-bottom controls in private chat.
   function renderFellowCard(args) {
-    const { ref, roomId } = args;
-    const member = findFellowRoomMember(roomId, ref);
+    const { ref, conversationId } = args;
+    const member = findFellowConversationMember(conversationId, ref);
     const ownerId = member?.owner_id || "";
     const me = selfUser();
-    // In a shared room, trust the member row's owner_id (never elevate just
+    // In a shared conversation, trust the member row's owner_id (never elevate just
     // because a fellow key happens to collide with one of our local keys). Only
-    // when there's NO room member (private fellow chat) does a local fellow
+    // when there's NO conversation member (private fellow chat) does a local fellow
     // count as ours — there's no owner_id to read there.
     const isMine = member ? (ownerId === me.id) : Boolean(localFellow(ref));
     // Bind the local fellow ONLY when it's actually ours. A same-key fellow
-    // owned by another room member must fall through to the remote-only card —
+    // owned by another conversation member must fall through to the remote-only card —
     // otherwise its name/avatar/controls would mirror, and edits would persist
     // to, my own local fellow settings.
     const local = isMine ? localFellow(ref) : null;
@@ -407,11 +407,11 @@
     return card;
   }
 
-  function openCard({ kind, ref, roomId, anchor }) {
+  function openCard({ kind, ref, conversationId, anchor }) {
     closeCard();
     const card = kind === MemberKind.Fellow
-      ? renderFellowCard({ ref, roomId })
-      : renderUserCard({ ref, roomId });
+      ? renderFellowCard({ ref, conversationId })
+      : renderUserCard({ ref, conversationId });
     document.body.appendChild(card);
     _popover = card;
     const anchorRect = anchor?.getBoundingClientRect?.() || { right: window.innerWidth / 2, top: window.innerHeight / 2, left: 0 };
@@ -424,7 +424,7 @@
     }, 0);
   }
 
-  function openContextMenu({ kind, ref, roomId, anchor, x, y }) {
+  function openContextMenu({ kind, ref, conversationId, anchor, x, y }) {
     closeCard();
     const menu = document.createElement("div");
     menu.className = "skill-context-menu";
@@ -445,7 +445,7 @@
       if (!btn) return;
       event.stopPropagation();
       closeCard();
-      if (btn.dataset.cardMenu === "card") openCard({ kind, ref, roomId, anchor });
+      if (btn.dataset.cardMenu === "card") openCard({ kind, ref, conversationId, anchor });
       else if (btn.dataset.cardMenu === "mention") insertMentionInComposer(ref);
     });
     setTimeout(() => {

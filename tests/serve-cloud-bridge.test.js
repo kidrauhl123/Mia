@@ -364,10 +364,10 @@ test("cloud can serve bundled web assets without exposing path traversal", async
     assert.match(shared.headers.get("content-type") || "", /javascript/);
     assert.match(await shared.text(), /miaEngineContracts/);
 
-    const messageSource = await rawFetch(baseUrl, "/message-sources/cloud-room-source.js");
+    const messageSource = await rawFetch(baseUrl, "/message-sources/cloud-conversation-source.js");
     assert.equal(messageSource.status, 200);
     assert.match(messageSource.headers.get("content-type") || "", /javascript/);
-    assert.match(await messageSource.text(), /miaCloudRoomSource/);
+    assert.match(await messageSource.text(), /miaCloudConversationSource/);
 
     const favicon = await rawFetch(baseUrl, "/favicon.ico");
     assert.equal(favicon.status, 200);

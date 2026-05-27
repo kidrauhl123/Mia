@@ -10,27 +10,27 @@ function randomId(prefix) {
 
 function createMessagesStore(db) {
   const selectMaxSeq = db.prepare(
-    "SELECT COALESCE(MAX(seq), 0) AS max_seq FROM messages WHERE room_id = ?"
+    "SELECT COALESCE(MAX(seq), 0) AS max_seq FROM messages WHERE conversation_id = ?"
   );
   const insertMessage = db.prepare(`
     INSERT INTO messages (
-      id, room_id, seq, turn_id, sender_kind, sender_ref, sender_owner_id,
+      id, conversation_id, seq, turn_id, sender_kind, sender_ref, sender_owner_id,
       body_md, attachments_json, mentions_json, skills_json, status, error_json, created_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const selectMessage = db.prepare("SELECT * FROM messages WHERE id = ?");
   const selectSince = db.prepare(`
-    SELECT * FROM messages WHERE room_id = ? AND seq > ?
+    SELECT * FROM messages WHERE conversation_id = ? AND seq > ?
     ORDER BY seq ASC LIMIT ?
   `);
   const selectSinceForViewer = db.prepare(`
     SELECT * FROM messages
-    WHERE room_id = ? AND seq > ?
+    WHERE conversation_id = ? AND seq > ?
       AND id NOT IN (SELECT message_id FROM message_hidden WHERE user_id = ?)
     ORDER BY seq ASC LIMIT ?
   `);
   const insertHidden = db.prepare(`
-    INSERT OR IGNORE INTO message_hidden (user_id, room_id, message_id, created_at)
+    INSERT OR IGNORE INTO message_hidden (user_id, conversation_id, message_id, created_at)
     VALUES (?, ?, ?, ?)
   `);
   const updateStatus = db.prepare(
@@ -40,7 +40,7 @@ function createMessagesStore(db) {
 
   function appendMessage(args) {
     const {
-      roomId,
+      conversationId,
       senderKind,
       senderRef,
       senderOwnerId = null,
@@ -56,10 +56,10 @@ function createMessagesStore(db) {
     const createdAt = nowIso();
     db.exec("BEGIN");
     try {
-      const seq = selectMaxSeq.get(String(roomId)).max_seq + 1;
+      const seq = selectMaxSeq.get(String(conversationId)).max_seq + 1;
       insertMessage.run(
         id,
-        String(roomId),
+        String(conversationId),
         seq,
         turnId,
         String(senderKind),
@@ -86,14 +86,14 @@ function createMessagesStore(db) {
   }
 
   // When viewerId is given, messages that viewer has locally deleted (hidden)
-  // are excluded; without it the full room history is returned (used by
+  // are excluded; without it the full conversation history is returned (used by
   // fellow-invocation context where there is no single viewer).
-  function listMessagesSince(roomId, sinceSeq, limit = 100, viewerId = null) {
+  function listMessagesSince(conversationId, sinceSeq, limit = 100, viewerId = null) {
     const cap = Math.min(Math.max(Number(limit) || 100, 1), 500);
     if (viewerId) {
-      return selectSinceForViewer.all(String(roomId), Number(sinceSeq) || 0, String(viewerId), cap);
+      return selectSinceForViewer.all(String(conversationId), Number(sinceSeq) || 0, String(viewerId), cap);
     }
-    return selectSince.all(String(roomId), Number(sinceSeq) || 0, cap);
+    return selectSince.all(String(conversationId), Number(sinceSeq) || 0, cap);
   }
 
   function updateMessageStatus(id, status, errorJson = null) {
@@ -101,7 +101,7 @@ function createMessagesStore(db) {
   }
 
   // Hard-delete a single message. Returns the deleted row (so callers can
-  // broadcast room.message_deleted with the room_id) or null if it was gone.
+  // broadcast conversation.message_deleted with the conversation_id) or null if it was gone.
   function deleteMessage(id) {
     const row = selectMessage.get(String(id));
     if (!row) return null;
@@ -111,12 +111,12 @@ function createMessagesStore(db) {
 
   // Hide a single message from one user's view only (WeChat-style local
   // delete). Returns the message row so the caller can 404 a missing id, or
-  // null when it doesn't exist. The row itself is never removed; other room
+  // null when it doesn't exist. The row itself is never removed; other conversation
   // members keep their copy. Idempotent.
-  function hideMessageForUser(roomId, messageId, userId) {
+  function hideMessageForUser(conversationId, messageId, userId) {
     const row = selectMessage.get(String(messageId));
     if (!row) return null;
-    insertHidden.run(String(userId), String(roomId), String(messageId), nowIso());
+    insertHidden.run(String(userId), String(conversationId), String(messageId), nowIso());
     return row;
   }
 

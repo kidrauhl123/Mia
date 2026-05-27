@@ -106,10 +106,10 @@ test("WS reconnect with since_seq replays every persisted event missed while off
       { token: B.token, body: { action: "accept" } });
 
     // A is offline during the next batch of activity — send 5 messages
-    // from B to the freshly-created DM room.
-    const dmRoom = `dm:${[A.user.id, B.user.id].sort().join(":")}`;
+    // from B to the freshly-created DM conversation.
+    const dmConversation = `dm:${[A.user.id, B.user.id].sort().join(":")}`;
     for (let i = 1; i <= 5; i++) {
-      const r = await api(ctx.port, "POST", `/api/rooms/${dmRoom}/messages`,
+      const r = await api(ctx.port, "POST", `/api/conversations/${dmConversation}/messages`,
         { token: B.token, body: { bodyMd: `hello ${i}` } });
       assert.ok(r.status === 200 || r.status === 201, `msg ${i}: ${r.status}`);
     }
@@ -118,7 +118,7 @@ test("WS reconnect with since_seq replays every persisted event missed while off
     const ws = openEvents(ctx.port, A.token, 0);
     const events = await collectEvents(ws, (collected) => {
       // wait until we've seen events_ready + all 5 replayed message events
-      const messages = collected.filter((e) => e.type === "room.message_appended" && e.replay);
+      const messages = collected.filter((e) => e.type === "conversation.message_appended" && e.replay);
       return messages.length >= 5;
     });
     ws.close();
@@ -128,7 +128,7 @@ test("WS reconnect with since_seq replays every persisted event missed while off
     assert.equal(ready.sinceSeq, 0);
     assert.ok(ready.serverSeq >= 5, `serverSeq should reflect appended events (got ${ready.serverSeq})`);
 
-    const replayed = events.filter((e) => e.replay && e.type === "room.message_appended");
+    const replayed = events.filter((e) => e.replay && e.type === "conversation.message_appended");
     assert.equal(replayed.length, 5, `expected 5 replayed messages, got ${replayed.length}`);
     // Seq monotonic and ordered
     const seqs = replayed.map((e) => e.seq);

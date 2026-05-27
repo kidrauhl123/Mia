@@ -165,8 +165,8 @@ function parseDispatchSpeak(text) {
   }
 }
 
-function hostFellowIdFor(room, ownFellowMembers, fellowMembers = []) {
-  const explicit = room?.decorations?.hostMember || room?.hostMember;
+function hostFellowIdFor(conversation, ownFellowMembers, fellowMembers = []) {
+  const explicit = conversation?.decorations?.hostMember || conversation?.hostMember;
   if (explicit && explicit.kind === MemberKind.Fellow && explicit.fellowId) return explicit.fellowId;
   if (fellowMembers.some((member) => !ownFellowMembers.includes(member))) return null;
   return ownFellowMembers[0]?.member_ref || null;

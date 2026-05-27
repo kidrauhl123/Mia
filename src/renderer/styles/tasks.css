@@ -220,7 +220,7 @@
 .task-time-controls > input,
 .task-time-controls > select { flex: 1 1 0; min-width: 0; padding: 10px 12px; }
 .task-time-controls > select { padding-right: 28px; }
-/* Agent select needs right room for the inset chevron too. */
+/* Agent select needs right conversation for the inset chevron too. */
 .task-create-dialog .fellow-form select { padding: 10px 30px 10px 12px; }
 
 .task-create-error { color: #e5484d; font-size: 13px; }

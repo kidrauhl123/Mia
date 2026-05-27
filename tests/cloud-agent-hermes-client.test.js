@@ -102,7 +102,7 @@ test("Hermes runs client sends Fellow headers and returns final text", async () 
     apiKey: "secret",
     userId: "u1",
     fellow: { id: "mia", name: "Mia" },
-    roomId: "fellow:u1:mia",
+    conversationId: "fellow:u1:mia",
     model: "hermes-agent",
     effortLevel: "high",
     permissionMode: "auto",
@@ -158,7 +158,7 @@ test("Hermes runs client accepts an isolated session id for conductor-style call
     baseUrl: "http://worker",
     userId: "u1",
     fellow: { id: "alice", name: "Alice" },
-    roomId: "g_1",
+    conversationId: "g_1",
     sessionId: "cloud:u1:conductor:g_1:m_1",
     metadataRole: "group-conductor",
     input: "choose"
@@ -166,7 +166,7 @@ test("Hermes runs client accepts an isolated session id for conductor-style call
 
   const body = JSON.parse(calls[0].body);
   assert.equal(body.session_id, "cloud:u1:conductor:g_1:m_1");
-  assert.equal(body.metadata.room_id, "g_1");
+  assert.equal(body.metadata.conversation_id, "g_1");
   assert.equal(body.metadata.role, "group-conductor");
   assert.equal(calls[0].headers["X-Hermes-Session-Key"], "cloud:u1:conductor:g_1:m_1");
 });

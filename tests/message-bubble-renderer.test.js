@@ -49,7 +49,7 @@ test("createMessageBubble user message gets .message.user class", () => {
 test("createMessageBubble assistant message gets .message.assistant class", () => {
   const r = loadRenderer();
   const article = r.createMessageBubble({
-    source: "cloud-room", conversationId: "dm", messageId: "m",
+    source: "cloud-conversation", conversationId: "dm", messageId: "m",
     role: "assistant", authorName: "Codex", bodyMd: "ok",
     avatar: { image: "data:codex" }, capabilities: { reply: true, copy: true, pin: false, delete: false }
   });
@@ -60,7 +60,7 @@ test("createMessageBubble emits contextmenu listener on the article", () => {
   const r = loadRenderer();
   const calls = [];
   const article = r.createMessageBubble({
-    source: "cloud-room", conversationId: "x", messageId: "y",
+    source: "cloud-conversation", conversationId: "x", messageId: "y",
     role: "user", authorName: "a", bodyMd: "x", isOwn: false,
     avatar: { color: "#5e5ce6" }, capabilities: { reply: true, copy: true, pin: false, delete: false }
   }, {

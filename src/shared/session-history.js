@@ -3,36 +3,36 @@
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) root.miaSessionHistory = api;
 })(typeof window !== "undefined" ? window : (typeof globalThis !== "undefined" ? globalThis : null), function buildSessionHistory() {
-  function roomType(room, roomId = "") {
-    const id = String(roomId || room?.id || "");
-    return room?.type
+  function conversationType(conversation, conversationId = "") {
+    const id = String(conversationId || conversation?.id || "");
+    return conversation?.type
       || (id.startsWith("dm:") ? "dm"
         : id.startsWith("fellow:") ? "fellow"
         : (id.startsWith("g_") || id.startsWith("g-")) ? "group"
         : "");
   }
 
-  function fellowKey(room) {
-    const decorated = room?.decorations?.fellowKey || room?.fellowKey || room?.fellow_id || "";
+  function fellowKey(conversation) {
+    const decorated = conversation?.decorations?.fellowKey || conversation?.fellowKey || conversation?.fellow_id || "";
     if (decorated) return String(decorated);
-    const id = String(room?.id || "");
+    const id = String(conversation?.id || "");
     return id.startsWith("fellow:") ? id.split(":").slice(2).join(":") : "";
   }
 
-  function runtimeKind(room, fallback = "desktop-local") {
-    return String(room?.decorations?.runtimeKind || "").trim() || fallback;
+  function runtimeKind(conversation, fallback = "desktop-local") {
+    return String(conversation?.decorations?.runtimeKind || "").trim() || fallback;
   }
 
-  function roomSortTime(room, messageCache) {
-    const cache = messageCache?.get?.(room?.id);
+  function conversationSortTime(conversation, messageCache) {
+    const cache = messageCache?.get?.(conversation?.id);
     const last = cache?.messages?.[cache.messages.length - 1];
     return new Date(
       last?.created_at
       || last?.createdAt
-      || room?.updated_at
-      || room?.updatedAt
-      || room?.created_at
-      || room?.createdAt
+      || conversation?.updated_at
+      || conversation?.updatedAt
+      || conversation?.created_at
+      || conversation?.createdAt
       || 0
     ).getTime() || 0;
   }
@@ -43,84 +43,84 @@
       .find((item) => String(item?.key || item?.id || "") === wanted) || null;
   }
 
-  function sessionTitle(room, options = {}) {
-    if (!room) return options.defaultTitle || "新对话";
-    const type = roomType(room, room.id || "");
+  function sessionTitle(conversation, options = {}) {
+    if (!conversation) return options.defaultTitle || "新对话";
+    const type = conversationType(conversation, conversation.id || "");
     if (type === "fellow") {
-      if (room.name) return room.name;
-      const key = fellowKey(room);
+      if (conversation.name) return conversation.name;
+      const key = fellowKey(conversation);
       const fellow = findFellow(key, options.fellows);
       return fellow?.name || key || options.defaultTitle || "新对话";
     }
-    if (type === "group") return room.name || options.groupTitle || "群聊";
-    if (typeof options.dmTitle === "function") return options.dmTitle(room) || options.dmTitleFallback || "私聊";
-    return room.name || options.dmTitle || options.dmTitleFallback || "私聊";
+    if (type === "group") return conversation.name || options.groupTitle || "群聊";
+    if (typeof options.dmTitle === "function") return options.dmTitle(conversation) || options.dmTitleFallback || "私聊";
+    return conversation.name || options.dmTitle || options.dmTitleFallback || "私聊";
   }
 
-  function sessionRoomsForRoom(room, rooms = [], options = {}) {
-    if (!room) return [];
-    if (roomType(room, room.id || "") !== "fellow") return [room];
-    const key = fellowKey(room);
-    if (!key) return [room];
-    return (Array.isArray(rooms) ? rooms : [])
-      .filter((candidate) => roomType(candidate, candidate?.id || "") === "fellow")
+  function sessionConversationsForConversation(conversation, conversations = [], options = {}) {
+    if (!conversation) return [];
+    if (conversationType(conversation, conversation.id || "") !== "fellow") return [conversation];
+    const key = fellowKey(conversation);
+    if (!key) return [conversation];
+    return (Array.isArray(conversations) ? conversations : [])
+      .filter((candidate) => conversationType(candidate, candidate?.id || "") === "fellow")
       .filter((candidate) => fellowKey(candidate) === key)
-      .sort((a, b) => roomSortTime(b, options.messageCache) - roomSortTime(a, options.messageCache));
+      .sort((a, b) => conversationSortTime(b, options.messageCache) - conversationSortTime(a, options.messageCache));
   }
 
-  function preferredFellowSidebarRoom(current, candidate, options = {}) {
+  function preferredFellowSidebarConversation(current, candidate, options = {}) {
     if (!current) return candidate;
-    const activeRoomId = String(options.activeRoomId || "");
-    if (candidate?.id && candidate.id === activeRoomId) return candidate;
-    if (current?.id && current.id === activeRoomId) return current;
-    return roomSortTime(candidate, options.messageCache) > roomSortTime(current, options.messageCache)
+    const activeConversationId = String(options.activeConversationId || "");
+    if (candidate?.id && candidate.id === activeConversationId) return candidate;
+    if (current?.id && current.id === activeConversationId) return current;
+    return conversationSortTime(candidate, options.messageCache) > conversationSortTime(current, options.messageCache)
       ? candidate
       : current;
   }
 
-  function sidebarRooms(rooms = [], options = {}) {
-    const allRooms = Array.isArray(rooms) ? rooms : [];
-    const regularRooms = [];
-    const fellowRoomsByKey = new Map();
-    for (const room of allRooms) {
-      if (roomType(room, room?.id || "") !== "fellow") {
-        regularRooms.push(room);
+  function sidebarConversations(conversations = [], options = {}) {
+    const allConversations = Array.isArray(conversations) ? conversations : [];
+    const regularConversations = [];
+    const fellowConversationsByKey = new Map();
+    for (const conversation of allConversations) {
+      if (conversationType(conversation, conversation?.id || "") !== "fellow") {
+        regularConversations.push(conversation);
         continue;
       }
-      const key = fellowKey(room) || String(room?.id || "");
+      const key = fellowKey(conversation) || String(conversation?.id || "");
       if (!key) continue;
-      fellowRoomsByKey.set(key, preferredFellowSidebarRoom(fellowRoomsByKey.get(key), room, options));
+      fellowConversationsByKey.set(key, preferredFellowSidebarConversation(fellowConversationsByKey.get(key), conversation, options));
     }
-    return [...regularRooms, ...fellowRoomsByKey.values()];
+    return [...regularConversations, ...fellowConversationsByKey.values()];
   }
 
-  function fellowDisplayTitle(room, fellows = [], fallback = "对话") {
-    const key = fellowKey(room);
+  function fellowDisplayTitle(conversation, fellows = [], fallback = "对话") {
+    const key = fellowKey(conversation);
     const fellow = findFellow(key, fellows);
-    return fellow?.name || room?.decorations?.fellowName || key || fallback;
+    return fellow?.name || conversation?.decorations?.fellowName || key || fallback;
   }
 
-  function canCreateSession(room) {
-    return roomType(room, room?.id || "") === "fellow" && Boolean(fellowKey(room));
+  function canCreateSession(conversation) {
+    return conversationType(conversation, conversation?.id || "") === "fellow" && Boolean(fellowKey(conversation));
   }
 
-  function createFellowSessionPayload(room, sessionId, options = {}) {
+  function createFellowSessionPayload(conversation, sessionId, options = {}) {
     return {
-      fellowKey: fellowKey(room),
+      fellowKey: fellowKey(conversation),
       title: options.title || "新对话",
-      runtimeKind: runtimeKind(room, options.runtimeKindFallback || "desktop-local"),
+      runtimeKind: runtimeKind(conversation, options.runtimeKindFallback || "desktop-local"),
       sessionId
     };
   }
 
   return {
-    roomType,
+    conversationType,
     fellowKey,
     runtimeKind,
-    roomSortTime,
+    conversationSortTime,
     sessionTitle,
-    sessionRoomsForRoom,
-    sidebarRooms,
+    sessionConversationsForConversation,
+    sidebarConversations,
     fellowDisplayTitle,
     canCreateSession,
     createFellowSessionPayload

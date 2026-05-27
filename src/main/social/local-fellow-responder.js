@@ -2,7 +2,7 @@
 
 const PROCESSED_CAP = 500;
 
-function shouldHandleLocalCloudRoomAi({ isDaemon, daemonEnabled }) {
+function shouldHandleLocalCloudConversationAi({ isDaemon, daemonEnabled }) {
   void daemonEnabled;
   return !Boolean(isDaemon);
 }
@@ -65,7 +65,7 @@ function activeSkillIdsFromMessage(message) {
   return ids;
 }
 
-function createLocalFellowResponder({ sendChat, postRoomMessageAsFellow, emitCloudEvent = () => {}, log = () => {} }) {
+function createLocalFellowResponder({ sendChat, postConversationMessageAsFellow, emitCloudEvent = () => {}, log = () => {} }) {
   const processed = new Set();
   const inFlight = new Set();
 
@@ -74,10 +74,10 @@ function createLocalFellowResponder({ sendChat, postRoomMessageAsFellow, emitClo
     if (processed.size > PROCESSED_CAP) processed.delete(processed.values().next().value);
   }
 
-  async function postFailureMessage({ roomId, fellowId, dedupKey, turnId, stage, error }) {
+  async function postFailureMessage({ conversationId, fellowId, dedupKey, turnId, stage, error }) {
     const message = String(error?.message || error || "unknown error");
     try {
-      const result = await postRoomMessageAsFellow(roomId, {
+      const result = await postConversationMessageAsFellow(conversationId, {
         fellowId,
         bodyMd: userFacingFailureMessage(message),
         turnId,
@@ -92,8 +92,8 @@ function createLocalFellowResponder({ sendChat, postRoomMessageAsFellow, emitClo
     }
   }
 
-  async function respond({ roomId, fellowId, dedupKey, systemPrompt, userPrompt, turnId = null, runtimeConfig = null, activeSkillIds = [] }) {
-    if (!roomId || !fellowId || !dedupKey) return;
+  async function respond({ conversationId, fellowId, dedupKey, systemPrompt, userPrompt, turnId = null, runtimeConfig = null, activeSkillIds = [] }) {
+    if (!conversationId || !fellowId || !dedupKey) return;
     if (processed.has(dedupKey)) return;
     if (inFlight.has(dedupKey)) return;
     inFlight.add(dedupKey);
@@ -103,7 +103,7 @@ function createLocalFellowResponder({ sendChat, postRoomMessageAsFellow, emitClo
     emitCloudEvent({
       type: "cloud_agent_run_started",
       runId,
-      roomId,
+      conversationId,
       fellowId,
       triggerMessageId: triggerMessageIdForDedupKey(dedupKey)
     });
@@ -111,7 +111,7 @@ function createLocalFellowResponder({ sendChat, postRoomMessageAsFellow, emitClo
       const chatArgs = {
         fellowKey: fellowId,
         personaKey: fellowId,
-        sessionId: `room:${roomId}`,
+        sessionId: `conversation:${conversationId}`,
         messages: [
           { role: "system", content: systemPrompt || "" },
           { role: "user", content: userPrompt || "" }
@@ -132,12 +132,12 @@ function createLocalFellowResponder({ sendChat, postRoomMessageAsFellow, emitClo
       emitCloudEvent({
         type: "cloud_agent_run_event",
         runId,
-        roomId,
+        conversationId,
         fellowId,
         event: { type: "run.failed", error: String(error?.message || error) }
       });
       const didPostFailure = await postFailureMessage({
-        roomId,
+        conversationId,
         fellowId,
         dedupKey,
         turnId,
@@ -152,7 +152,7 @@ function createLocalFellowResponder({ sendChat, postRoomMessageAsFellow, emitClo
       emitCloudEvent({
         type: "cloud_agent_run_event",
         runId,
-        roomId,
+        conversationId,
         fellowId,
         event: { type: "run.failed", error: "empty response" }
       });
@@ -161,7 +161,7 @@ function createLocalFellowResponder({ sendChat, postRoomMessageAsFellow, emitClo
     }
 
     try {
-      const result = await postRoomMessageAsFellow(roomId, {
+      const result = await postConversationMessageAsFellow(conversationId, {
         fellowId,
         bodyMd: text,
         turnId,
@@ -176,7 +176,7 @@ function createLocalFellowResponder({ sendChat, postRoomMessageAsFellow, emitClo
       emitCloudEvent({
         type: "cloud_agent_run_event",
         runId,
-        roomId,
+        conversationId,
         fellowId,
         event: { type: "run.failed", error: String(error?.message || error) }
       });
@@ -194,5 +194,5 @@ module.exports = {
   createLocalFellowResponder,
   runIdForDedupKey,
   responseText,
-  shouldHandleLocalCloudRoomAi
+  shouldHandleLocalCloudConversationAi
 };

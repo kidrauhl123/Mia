@@ -84,10 +84,10 @@ function createHermesRunsClient(deps = {}) {
   async function runChat(args = {}) {
     const key = fellowKey(args.fellow);
     const userId = String(args.userId || "").trim();
-    const roomId = String(args.roomId || "").trim();
+    const conversationId = String(args.conversationId || "").trim();
     if (!userId) throw new Error("userId required");
-    if (!roomId) throw new Error("roomId required");
-    const sessionId = String(args.sessionId || "").trim() || `cloud:${userId}:${key}:${roomId}`;
+    if (!conversationId) throw new Error("conversationId required");
+    const sessionId = String(args.sessionId || "").trim() || `cloud:${userId}:${key}:${conversationId}`;
     const body = {
       model: args.model || "mia-default",
       input: String(args.input || ""),
@@ -111,7 +111,7 @@ function createHermesRunsClient(deps = {}) {
         role: args.metadataRole || "chat",
         effort_level: args.effortLevel || "medium",
         permission_mode: args.permissionMode || "ask",
-        room_id: roomId,
+        conversation_id: conversationId,
         attachments: Array.isArray(args.attachments)
           ? args.attachments.map((attachment) => ({
             id: attachment.id,

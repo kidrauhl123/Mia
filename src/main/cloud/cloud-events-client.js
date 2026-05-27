@@ -118,19 +118,19 @@ function createCloudEventsClient({
       emitToRenderer({ type: message.type, payload: message });
       return;
     }
-    if (message.type === CloudEvent.RoomFellowInvocationRequested) {
+    if (message.type === CloudEvent.ConversationFellowInvocationRequested) {
       fellowRuntimeDispatcher?.handleCloudEvent?.(message)
         ?.catch((error) => log(`Cloud fellow invocation failed: ${error?.message || error}`));
       emitToRenderer({ type: message.type, payload: message });
       return;
     }
-    if (message.type === CloudEvent.RoomMessageAppended) {
+    if (message.type === CloudEvent.ConversationMessageAppended) {
       fellowRuntimeDispatcher?.handleCloudEvent?.(message)
-        ?.catch((error) => log(`Cloud room AI dispatch failed: ${error?.message || error}`));
+        ?.catch((error) => log(`Cloud conversation AI dispatch failed: ${error?.message || error}`));
       emitToRenderer({ type: message.type, payload: message });
       return;
     }
-    if (message.type && message.type.startsWith("room.")) {
+    if (message.type && message.type.startsWith("conversation.")) {
       emitToRenderer({ type: message.type, payload: message });
       return;
     }

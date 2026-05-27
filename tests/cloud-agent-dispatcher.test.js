@@ -25,7 +25,7 @@ function setup() {
   const cloudAgentRunsStore = createCloudAgentRunsStore(db);
   const user = cloudStore.registerUser({ username: "alice", password: "123456" }).user;
   const baseContext = { socialStore, fellowsStore, runtimeBindingsStore };
-  const { room } = ensureDefaultCloudFellow(baseContext, user.id);
+  const { conversation } = ensureDefaultCloudFellow(baseContext, user.id);
   return {
     dir,
     cloudStore,
@@ -35,7 +35,7 @@ function setup() {
     runtimeBindingsStore,
     cloudAgentRunsStore,
     user,
-    room,
+    conversation,
     cleanup() {
       cloudStore.close?.();
       fs.rmSync(dir, { recursive: true, force: true });
@@ -43,7 +43,7 @@ function setup() {
   };
 }
 
-test("dispatcher only runs enabled cloud-hermes fellow rooms and appends fellow reply", async () => {
+test("dispatcher only runs enabled cloud-hermes fellow conversations and appends fellow reply", async () => {
   const ctx = setup();
   const hermesCalls = [];
   const broadcasts = [];
@@ -103,14 +103,14 @@ test("dispatcher only runs enabled cloud-hermes fellow rooms and appends fellow 
     });
 
     const message = ctx.messagesStore.appendMessage({
-      roomId: ctx.room.id,
+      conversationId: ctx.conversation.id,
       senderKind: "user",
       senderRef: ctx.user.id,
       bodyMd: "hello",
       attachments: [{ id: "file_1", url: "/api/files/file_1" }]
     });
 
-    await dispatcher.handleUserMessage({ userId: ctx.user.id, roomId: ctx.room.id, message });
+    await dispatcher.handleUserMessage({ userId: ctx.user.id, conversationId: ctx.conversation.id, message });
 
     assert.equal(hermesCalls.length, 1);
     assert.equal(hermesCalls[0].userId, ctx.user.id);
@@ -124,7 +124,7 @@ test("dispatcher only runs enabled cloud-hermes fellow rooms and appends fellow 
     assert.deepEqual(hermesCalls[0].attachments, [{ id: "file_1", name: "a.txt", path: "/data/attachments/run/a.txt" }]);
     assert.deepEqual(hermesCalls[0].conversationHistory.map((m) => m.role), ["user"]);
 
-    const messages = ctx.messagesStore.listMessagesSince(ctx.room.id, 0);
+    const messages = ctx.messagesStore.listMessagesSince(ctx.conversation.id, 0);
     assert.deepEqual(messages.map((m) => m.sender_kind), ["user", "fellow"]);
     assert.equal(messages[1].sender_ref, "mia");
     assert.equal(messages[1].sender_owner_id, ctx.user.id);
@@ -135,7 +135,7 @@ test("dispatcher only runs enabled cloud-hermes fellow rooms and appends fellow 
       .map((row) => ({ status: row.status, hermes_run_id: row.hermes_run_id }));
     assert.deepEqual(runRows, [{ status: "complete", hermes_run_id: "hr_1" }]);
     assert.equal(broadcasts.length, 1);
-    assert.equal(broadcasts[0].payload.type, "room.message_appended");
+    assert.equal(broadcasts[0].payload.type, "conversation.message_appended");
     assert.deepEqual(transientEvents.map((item) => item.payload.type), [
       "cloud_agent_run_started",
       "cloud_agent_run_event",
@@ -173,12 +173,12 @@ test("dispatcher defaults cloud-hermes runs to the platform model alias", async 
       broadcastTransientEvent() {}
     });
     const message = ctx.messagesStore.appendMessage({
-      roomId: ctx.room.id,
+      conversationId: ctx.conversation.id,
       senderKind: "user",
       senderRef: ctx.user.id,
       bodyMd: "hello"
     });
-    await dispatcher.handleUserMessage({ userId: ctx.user.id, roomId: ctx.room.id, message });
+    await dispatcher.handleUserMessage({ userId: ctx.user.id, conversationId: ctx.conversation.id, message });
     assert.equal(hermesCalls.length, 1);
     assert.equal(hermesCalls[0].model, "mia-default");
   } finally {
@@ -186,18 +186,18 @@ test("dispatcher defaults cloud-hermes runs to the platform model alias", async 
   }
 });
 
-test("invokeFellow runs enabled cloud-hermes fellows in group rooms", async () => {
+test("invokeFellow runs enabled cloud-hermes fellows in group conversations", async () => {
   const ctx = setup();
   const hermesCalls = [];
   const broadcasts = [];
   try {
-    const group = ctx.socialStore.createRoom({
+    const group = ctx.socialStore.createConversation({
       id: "g_cloud",
       type: "group",
       name: "Cloud Group"
     });
-    ctx.socialStore.addRoomMember({ roomId: group.id, memberKind: "user", memberRef: ctx.user.id });
-    ctx.socialStore.addRoomMember({ roomId: group.id, memberKind: "fellow", memberRef: "mia", ownerId: ctx.user.id });
+    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "user", memberRef: ctx.user.id });
+    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "fellow", memberRef: "mia", ownerId: ctx.user.id });
     ctx.runtimeBindingsStore.upsertBinding({
       userId: ctx.user.id,
       fellowId: "mia",
@@ -228,7 +228,7 @@ test("invokeFellow runs enabled cloud-hermes fellows in group rooms", async () =
       broadcastTransientEvent() {}
     });
     const message = ctx.messagesStore.appendMessage({
-      roomId: group.id,
+      conversationId: group.id,
       senderKind: "user",
       senderRef: ctx.user.id,
       bodyMd: "@mia hello"
@@ -236,7 +236,7 @@ test("invokeFellow runs enabled cloud-hermes fellows in group rooms", async () =
 
     const reply = await dispatcher.invokeFellow({
       userId: ctx.user.id,
-      roomId: group.id,
+      conversationId: group.id,
       fellowId: "mia",
       message
     });
@@ -245,27 +245,27 @@ test("invokeFellow runs enabled cloud-hermes fellows in group rooms", async () =
     assert.equal(reply.sender_ref, "mia");
     assert.equal(reply.body_md, "group cloud reply");
     assert.equal(hermesCalls.length, 1);
-    assert.equal(hermesCalls[0].roomId, group.id);
+    assert.equal(hermesCalls[0].conversationId, group.id);
     assert.equal(hermesCalls[0].fellow.id, "mia");
     assert.deepEqual(ctx.messagesStore.listMessagesSince(group.id, 0).map((m) => m.sender_kind), ["user", "fellow"]);
     assert.equal(broadcasts.length, 1);
-    assert.equal(broadcasts[0].payload.type, "room.message_appended");
+    assert.equal(broadcasts[0].payload.type, "conversation.message_appended");
   } finally {
     ctx.cleanup();
   }
 });
 
-test("handleUserMessage runs the single owned cloud-hermes fellow in a group room", async () => {
+test("handleUserMessage runs the single owned cloud-hermes fellow in a group conversation", async () => {
   const ctx = setup();
   const hermesCalls = [];
   try {
-    const group = ctx.socialStore.createRoom({
+    const group = ctx.socialStore.createConversation({
       id: "g_cloud_auto",
       type: "group",
       name: "Cloud Group"
     });
-    ctx.socialStore.addRoomMember({ roomId: group.id, memberKind: "user", memberRef: ctx.user.id });
-    ctx.socialStore.addRoomMember({ roomId: group.id, memberKind: "fellow", memberRef: "mia", ownerId: ctx.user.id });
+    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "user", memberRef: ctx.user.id });
+    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "fellow", memberRef: "mia", ownerId: ctx.user.id });
     ctx.runtimeBindingsStore.upsertBinding({
       userId: ctx.user.id,
       fellowId: "mia",
@@ -294,7 +294,7 @@ test("handleUserMessage runs the single owned cloud-hermes fellow in a group roo
       broadcastTransientEvent() {}
     });
     const message = ctx.messagesStore.appendMessage({
-      roomId: group.id,
+      conversationId: group.id,
       senderKind: "user",
       senderRef: ctx.user.id,
       bodyMd: "谁能总结一下"
@@ -302,14 +302,14 @@ test("handleUserMessage runs the single owned cloud-hermes fellow in a group roo
 
     const reply = await dispatcher.handleUserMessage({
       userId: ctx.user.id,
-      roomId: group.id,
+      conversationId: group.id,
       message
     });
 
     assert.equal(reply.sender_ref, "mia");
     assert.equal(reply.body_md, "single fellow reply");
     assert.equal(hermesCalls.length, 1);
-    assert.equal(hermesCalls[0].roomId, group.id);
+    assert.equal(hermesCalls[0].conversationId, group.id);
   } finally {
     ctx.cleanup();
   }
@@ -321,14 +321,14 @@ test("handleUserMessage routes multi-fellow cloud groups by the named fellow", a
   try {
     ctx.fellowsStore.upsertFellow(ctx.user.id, { id: "alice", name: "爱丽丝", capabilities: ["chat"] });
     ctx.fellowsStore.upsertFellow(ctx.user.id, { id: "xiaoli", name: "小栗", capabilities: ["chat"] });
-    const group = ctx.socialStore.createRoom({
+    const group = ctx.socialStore.createConversation({
       id: "g_cloud_named",
       type: "group",
       name: "Cloud Group"
     });
-    ctx.socialStore.addRoomMember({ roomId: group.id, memberKind: "user", memberRef: ctx.user.id });
-    ctx.socialStore.addRoomMember({ roomId: group.id, memberKind: "fellow", memberRef: "alice", ownerId: ctx.user.id });
-    ctx.socialStore.addRoomMember({ roomId: group.id, memberKind: "fellow", memberRef: "xiaoli", ownerId: ctx.user.id });
+    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "user", memberRef: ctx.user.id });
+    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "fellow", memberRef: "alice", ownerId: ctx.user.id });
+    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "fellow", memberRef: "xiaoli", ownerId: ctx.user.id });
     for (const fellowId of ["alice", "xiaoli"]) {
       ctx.runtimeBindingsStore.upsertBinding({
         userId: ctx.user.id,
@@ -359,7 +359,7 @@ test("handleUserMessage routes multi-fellow cloud groups by the named fellow", a
       broadcastTransientEvent() {}
     });
     const message = ctx.messagesStore.appendMessage({
-      roomId: group.id,
+      conversationId: group.id,
       senderKind: "user",
       senderRef: ctx.user.id,
       bodyMd: "爱丽丝你说一下"
@@ -367,7 +367,7 @@ test("handleUserMessage routes multi-fellow cloud groups by the named fellow", a
 
     const reply = await dispatcher.handleUserMessage({
       userId: ctx.user.id,
-      roomId: group.id,
+      conversationId: group.id,
       message
     });
 
@@ -389,14 +389,14 @@ test("handleUserMessage routes cloud group search requests to a search-capable f
       name: "黑猫",
       capabilities: { webSearch: true }
     });
-    const group = ctx.socialStore.createRoom({
+    const group = ctx.socialStore.createConversation({
       id: "g_cloud_search",
       type: "group",
       name: "Cloud Group"
     });
-    ctx.socialStore.addRoomMember({ roomId: group.id, memberKind: "user", memberRef: ctx.user.id });
-    ctx.socialStore.addRoomMember({ roomId: group.id, memberKind: "fellow", memberRef: "alice", ownerId: ctx.user.id });
-    ctx.socialStore.addRoomMember({ roomId: group.id, memberKind: "fellow", memberRef: "blackcat", ownerId: ctx.user.id });
+    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "user", memberRef: ctx.user.id });
+    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "fellow", memberRef: "alice", ownerId: ctx.user.id });
+    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "fellow", memberRef: "blackcat", ownerId: ctx.user.id });
     for (const fellowId of ["alice", "blackcat"]) {
       ctx.runtimeBindingsStore.upsertBinding({
         userId: ctx.user.id,
@@ -427,7 +427,7 @@ test("handleUserMessage routes cloud group search requests to a search-capable f
       broadcastTransientEvent() {}
     });
     const message = ctx.messagesStore.appendMessage({
-      roomId: group.id,
+      conversationId: group.id,
       senderKind: "user",
       senderRef: ctx.user.id,
       bodyMd: "爱丽丝你帮我找下AI领域最新新闻"
@@ -435,7 +435,7 @@ test("handleUserMessage routes cloud group search requests to a search-capable f
 
     const reply = await dispatcher.handleUserMessage({
       userId: ctx.user.id,
-      roomId: group.id,
+      conversationId: group.id,
       message
     });
 
@@ -453,7 +453,7 @@ test("handleUserMessage uses a cloud conductor when a multi-fellow cloud group h
   try {
     ctx.fellowsStore.upsertFellow(ctx.user.id, { id: "alice", name: "爱丽丝", capabilities: ["chat"] });
     ctx.fellowsStore.upsertFellow(ctx.user.id, { id: "xiaoli", name: "小栗", capabilities: ["chat"] });
-    const group = ctx.socialStore.createRoom({
+    const group = ctx.socialStore.createConversation({
       id: "g_cloud_conductor",
       type: "group",
       name: "Cloud Group",
@@ -462,9 +462,9 @@ test("handleUserMessage uses a cloud conductor when a multi-fellow cloud group h
         hostMember: { kind: "fellow", fellowId: "alice" }
       }
     });
-    ctx.socialStore.addRoomMember({ roomId: group.id, memberKind: "user", memberRef: ctx.user.id });
-    ctx.socialStore.addRoomMember({ roomId: group.id, memberKind: "fellow", memberRef: "alice", ownerId: ctx.user.id });
-    ctx.socialStore.addRoomMember({ roomId: group.id, memberKind: "fellow", memberRef: "xiaoli", ownerId: ctx.user.id });
+    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "user", memberRef: ctx.user.id });
+    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "fellow", memberRef: "alice", ownerId: ctx.user.id });
+    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "fellow", memberRef: "xiaoli", ownerId: ctx.user.id });
     for (const fellowId of ["alice", "xiaoli"]) {
       ctx.runtimeBindingsStore.upsertBinding({
         userId: ctx.user.id,
@@ -505,7 +505,7 @@ test("handleUserMessage uses a cloud conductor when a multi-fellow cloud group h
       broadcastTransientEvent() {}
     });
     const message = ctx.messagesStore.appendMessage({
-      roomId: group.id,
+      conversationId: group.id,
       senderKind: "user",
       senderRef: ctx.user.id,
       bodyMd: "大家怎么看"
@@ -513,7 +513,7 @@ test("handleUserMessage uses a cloud conductor when a multi-fellow cloud group h
 
     const reply = await dispatcher.handleUserMessage({
       userId: ctx.user.id,
-      roomId: group.id,
+      conversationId: group.id,
       message
     });
 
@@ -532,7 +532,7 @@ test("handleUserMessage uses a cloud conductor when a multi-fellow cloud group h
   }
 });
 
-test("dispatcher skips fellow rooms without enabled cloud-hermes binding", async () => {
+test("dispatcher skips fellow conversations without enabled cloud-hermes binding", async () => {
   const ctx = setup();
   try {
     ctx.runtimeBindingsStore.upsertBinding({
@@ -553,27 +553,27 @@ test("dispatcher skips fellow rooms without enabled cloud-hermes binding", async
       broadcastPersistedEvent() {}
     });
     const message = ctx.messagesStore.appendMessage({
-      roomId: ctx.room.id,
+      conversationId: ctx.conversation.id,
       senderKind: "user",
       senderRef: ctx.user.id,
       bodyMd: "hello"
     });
-    await dispatcher.handleUserMessage({ userId: ctx.user.id, roomId: ctx.room.id, message });
+    await dispatcher.handleUserMessage({ userId: ctx.user.id, conversationId: ctx.conversation.id, message });
     assert.equal(called, false);
-    assert.equal(ctx.messagesStore.listMessagesSince(ctx.room.id, 0).length, 1);
+    assert.equal(ctx.messagesStore.listMessagesSince(ctx.conversation.id, 0).length, 1);
   } finally {
     ctx.cleanup();
   }
 });
 
-test("dispatcher skips desktop-local and legacy fellow rooms even when a cloud binding exists", async () => {
+test("dispatcher skips desktop-local and legacy fellow conversations even when a cloud binding exists", async () => {
   for (const decorations of [
     { fellowKey: "mia", sessionId: "mia", runtimeKind: "desktop-local" },
     { fellowKey: "mia", sessionId: "mia" }
   ]) {
     const ctx = setup();
     try {
-      ctx.socialStore.updateRoom(ctx.room.id, { decorations });
+      ctx.socialStore.updateConversation(ctx.conversation.id, { decorations });
       ctx.runtimeBindingsStore.upsertBinding({
         userId: ctx.user.id,
         fellowId: "mia",
@@ -593,14 +593,14 @@ test("dispatcher skips desktop-local and legacy fellow rooms even when a cloud b
         broadcastPersistedEvent() {}
       });
       const message = ctx.messagesStore.appendMessage({
-        roomId: ctx.room.id,
+        conversationId: ctx.conversation.id,
         senderKind: "user",
         senderRef: ctx.user.id,
         bodyMd: "hello"
       });
-      await dispatcher.handleUserMessage({ userId: ctx.user.id, roomId: ctx.room.id, message });
+      await dispatcher.handleUserMessage({ userId: ctx.user.id, conversationId: ctx.conversation.id, message });
       assert.equal(called, false);
-      assert.equal(ctx.messagesStore.listMessagesSince(ctx.room.id, 0).length, 1);
+      assert.equal(ctx.messagesStore.listMessagesSince(ctx.conversation.id, 0).length, 1);
     } finally {
       ctx.cleanup();
     }

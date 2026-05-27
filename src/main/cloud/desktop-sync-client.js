@@ -79,11 +79,11 @@ function createCloudDesktopSyncClient({
     }
   }
 
-  async function ensureFellowRoom(fellow) {
+  async function ensureFellowConversation(fellow) {
     const current = settings();
     if (!current.enabled || !current.token || !fellow?.key) return;
     try {
-      await cloudApi(`/api/me/fellows/${encodeURIComponent(fellow.key)}/room`, {
+      await cloudApi(`/api/me/fellows/${encodeURIComponent(fellow.key)}/conversation`, {
         method: "PUT",
         body: {
           title: fellow.name || fellow.key,
@@ -91,7 +91,7 @@ function createCloudDesktopSyncClient({
         }
       });
     } catch (error) {
-      log(`Cloud fellow room ensure failed for ${fellow.key}: ${error?.message || error}`);
+      log(`Cloud fellow conversation ensure failed for ${fellow.key}: ${error?.message || error}`);
     }
   }
 
@@ -111,7 +111,7 @@ function createCloudDesktopSyncClient({
     const manifest = loadFellowManifest();
     for (const fellow of (manifest.fellows || [])) {
       await pushFellow(fellow);
-      await ensureFellowRoom(fellow);
+      await ensureFellowConversation(fellow);
     }
   }
 
@@ -136,14 +136,14 @@ function createCloudDesktopSyncClient({
     }
   }
 
-  async function legacyBackfillFellowSessionsToCloudRooms() {
+  async function legacyBackfillFellowSessionsToCloudConversations() {
     const current = settings();
     if (!current.enabled || !current.token || !current.user?.id) return;
     let store;
     try {
       store = loadChatStore();
     } catch (error) {
-      log(`Cloud fellow-room backfill: failed to read chat store (${error?.message || error})`);
+      log(`Cloud fellow-conversation backfill: failed to read chat store (${error?.message || error})`);
       return;
     }
     const manifest = loadFellowManifest();
@@ -160,64 +160,64 @@ function createCloudDesktopSyncClient({
   async function mirrorFellowSessionMessages(current, session, fellow) {
     if (!session?.id || !fellow?.key) return;
     try {
-      await cloudApi(`/api/me/fellow-rooms/${encodeURIComponent(session.id)}`, {
+      await cloudApi(`/api/me/fellow-conversations/${encodeURIComponent(session.id)}`, {
         method: "PUT",
         body: {
           fellowKey: fellow.key,
           title: session.title || fellow.name || "对话",
-          clientOpId: `op_fellow_room_${current.user.id}_${session.id}`
+          clientOpId: `op_fellow_conversation_${current.user.id}_${session.id}`
         }
       });
     } catch (error) {
-      log(`Cloud fellow-room upsert failed (${session.id}): ${error?.message || error}`);
+      log(`Cloud fellow-conversation upsert failed (${session.id}): ${error?.message || error}`);
       return;
     }
-    const roomId = `fellow:${current.user.id}:${session.id}`;
+    const conversationId = `fellow:${current.user.id}:${session.id}`;
     const messages = Array.isArray(session.messages) ? session.messages : [];
     for (const message of messages) {
       const text = String(message?.content || message?.text || "").trim();
       if (!text) continue;
       const clientOpId = `op_fellow_msg_${session.id}_${message.id || message.createdAt || ""}`;
       try {
-        await cloudApi(`/api/rooms/${encodeURIComponent(roomId)}/messages`, {
+        await cloudApi(`/api/conversations/${encodeURIComponent(conversationId)}/messages`, {
           method: "POST",
           body: { bodyMd: text, attachments: message.attachments || null, clientOpId }
         });
       } catch (error) {
-        log(`Cloud fellow-room message backfill failed (${roomId}): ${error?.message || error}`);
+        log(`Cloud fellow-conversation message backfill failed (${conversationId}): ${error?.message || error}`);
         break;
       }
     }
   }
 
-  async function mirrorFellowSessionToCloudRoom(session, fellow, message) {
+  async function mirrorFellowSessionToCloudConversation(session, fellow, message) {
     if (!session?.id || !fellow?.key) return;
     const current = settings();
     if (!current.enabled || !current.token || !current.user?.id) return;
     try {
-      await cloudApi(`/api/me/fellow-rooms/${encodeURIComponent(session.id)}`, {
+      await cloudApi(`/api/me/fellow-conversations/${encodeURIComponent(session.id)}`, {
         method: "PUT",
         body: {
           fellowKey: fellow.key,
           title: session.title || fellow.name || "对话",
-          clientOpId: `op_fellow_room_${current.user.id}_${session.id}`
+          clientOpId: `op_fellow_conversation_${current.user.id}_${session.id}`
         }
       });
     } catch (error) {
-      log(`Cloud fellow-room upsert failed (${session.id}): ${error?.message || error}`);
+      log(`Cloud fellow-conversation upsert failed (${session.id}): ${error?.message || error}`);
       return;
     }
-    const roomId = `fellow:${current.user.id}:${session.id}`;
+    const conversationId = `fellow:${current.user.id}:${session.id}`;
     const text = String(message?.content || message?.text || "").trim();
     if (!text) return;
     const clientOpId = `op_fellow_msg_${session.id}_${message.id || message.createdAt || now()}`;
     try {
-      await cloudApi(`/api/rooms/${encodeURIComponent(roomId)}/messages`, {
+      await cloudApi(`/api/conversations/${encodeURIComponent(conversationId)}/messages`, {
         method: "POST",
         body: { bodyMd: text, attachments: message.attachments || null, clientOpId }
       });
     } catch (error) {
-      log(`Cloud fellow-room message push failed (${roomId}): ${error?.message || error}`);
+      log(`Cloud fellow-conversation message push failed (${conversationId}): ${error?.message || error}`);
     }
   }
 
@@ -239,8 +239,8 @@ function createCloudDesktopSyncClient({
     const current = settings();
     if (!current.enabled || !current.token || !session?.id || !message) return status(false);
     const fellow = (loadFellowManifest().fellows || []).find((item) => item.key === fellowKey || item.id === fellowKey) || {};
-    await mirrorFellowSessionToCloudRoom(session, fellow, message).catch((error) =>
-      log(`Cloud fellow-room push failed: ${error?.message || error}`)
+    await mirrorFellowSessionToCloudConversation(session, fellow, message).catch((error) =>
+      log(`Cloud fellow-conversation push failed: ${error?.message || error}`)
     );
     return status(false);
   }

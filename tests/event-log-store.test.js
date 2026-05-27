@@ -26,10 +26,10 @@ test("appendEvent increments seq monotonically per user", () => {
     const log = createEventLogStore(ctx.store.getDb());
     const userA = makeUser(ctx.store, "ua");
     const userB = makeUser(ctx.store, "ub");
-    const a1 = log.appendEvent(userA, { kind: "room.updated", payload: { x: 1 } });
-    const a2 = log.appendEvent(userA, { kind: "room.message_appended", payload: { x: 2 } });
-    const a3 = log.appendEvent(userA, { kind: "room.updated", payload: { x: 3 } });
-    const b1 = log.appendEvent(userB, { kind: "room.updated", payload: { y: 1 } });
+    const a1 = log.appendEvent(userA, { kind: "conversation.updated", payload: { x: 1 } });
+    const a2 = log.appendEvent(userA, { kind: "conversation.message_appended", payload: { x: 2 } });
+    const a3 = log.appendEvent(userA, { kind: "conversation.updated", payload: { x: 3 } });
+    const b1 = log.appendEvent(userB, { kind: "conversation.updated", payload: { y: 1 } });
     assert.equal(a1.seq, 1);
     assert.equal(a2.seq, 2);
     assert.equal(a3.seq, 3);
@@ -45,15 +45,15 @@ test("appendEvent persists scopeKind / scopeRef / payload roundtrip", () => {
     const log = createEventLogStore(ctx.store.getDb());
     const u = makeUser(ctx.store);
     log.appendEvent(u, {
-      kind: "room.message_appended",
-      scopeKind: "room",
+      kind: "conversation.message_appended",
+      scopeKind: "conversation",
       scopeRef: "g_abc",
       payload: { messageId: "m_1", text: "hi" }
     });
     const events = log.listEventsSince(u, 0);
     assert.equal(events.length, 1);
-    assert.equal(events[0].kind, "room.message_appended");
-    assert.equal(events[0].scopeKind, "room");
+    assert.equal(events[0].kind, "conversation.message_appended");
+    assert.equal(events[0].scopeKind, "conversation");
     assert.equal(events[0].scopeRef, "g_abc");
     assert.deepEqual(events[0].payload, { messageId: "m_1", text: "hi" });
   } finally { ctx.cleanup(); }
@@ -64,7 +64,7 @@ test("listEventsSince returns only events with seq > sinceSeq, in order, respect
   try {
     const log = createEventLogStore(ctx.store.getDb());
     const u = makeUser(ctx.store);
-    for (let i = 1; i <= 10; i++) log.appendEvent(u, { kind: "room.updated", payload: { i } });
+    for (let i = 1; i <= 10; i++) log.appendEvent(u, { kind: "conversation.updated", payload: { i } });
     const tail = log.listEventsSince(u, 7);
     assert.equal(tail.length, 3, "events 8,9,10 should be returned");
     assert.deepEqual(tail.map((e) => e.seq), [8, 9, 10]);
@@ -93,9 +93,9 @@ test("op idempotency cache: getCachedOp returns null when missing, result when p
     const log = createEventLogStore(ctx.store.getDb());
     const u = makeUser(ctx.store);
     assert.equal(log.getCachedOp(u, "op_xyz"), null);
-    log.cacheOp(u, "op_xyz", { result: { ok: true, room: { id: "g_1" } }, statusCode: 201 });
+    log.cacheOp(u, "op_xyz", { result: { ok: true, conversation: { id: "g_1" } }, statusCode: 201 });
     const cached = log.getCachedOp(u, "op_xyz");
-    assert.deepEqual(cached.result, { ok: true, room: { id: "g_1" } });
+    assert.deepEqual(cached.result, { ok: true, conversation: { id: "g_1" } });
     assert.equal(cached.statusCode, 201);
   } finally { ctx.cleanup(); }
 });

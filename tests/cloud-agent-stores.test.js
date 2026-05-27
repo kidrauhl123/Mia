@@ -28,9 +28,9 @@ function insertUser(db, id) {
   ).run(id, `${id}@local`, id, "salt", "hash", new Date().toISOString());
 }
 
-function insertRoom(db, id) {
+function insertConversation(db, id) {
   db.prepare(
-    "INSERT INTO rooms (id, type, name, created_at, updated_at) VALUES (?, 'fellow', ?, ?, ?)"
+    "INSERT INTO conversations (id, type, name, created_at, updated_at) VALUES (?, 'fellow', ?, ?, ?)"
   ).run(id, "Mia", new Date().toISOString(), new Date().toISOString());
 }
 
@@ -86,12 +86,12 @@ test("cloud agent run lifecycle records hermes run id and completion", () => {
   const ctx = freshStore();
   try {
     insertUser(ctx.db, "u1");
-    insertRoom(ctx.db, "fellow:u1:mia");
+    insertConversation(ctx.db, "fellow:u1:mia");
     const runs = createCloudAgentRunsStore(ctx.db);
     const run = runs.createRun({
       userId: "u1",
       fellowId: "mia",
-      roomId: "fellow:u1:mia",
+      conversationId: "fellow:u1:mia",
       triggerMessageId: "m1"
     });
     assert.equal(run.status, "queued");
@@ -108,7 +108,7 @@ test("cloud agent run lifecycle records hermes run id and completion", () => {
     const errored = runs.createRun({
       userId: "u1",
       fellowId: "mia",
-      roomId: "fellow:u1:mia",
+      conversationId: "fellow:u1:mia",
       triggerMessageId: "m2"
     });
     const failed = runs.markError(errored.id, new Error("boom"));

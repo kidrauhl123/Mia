@@ -70,12 +70,12 @@ function loadSocial() {
   return mockWindow.miaSocial;
 }
 
-function installCloudRoomSource(mockWindow) {
+function installCloudConversationSource(mockWindow) {
   const root = path.join(__dirname, "..");
   const sharedSpec = fs.readFileSync(path.join(root, "src", "shared", "message-spec.js"), "utf8");
   const sharedContact = fs.readFileSync(path.join(root, "src", "shared", "contact.js"), "utf8");
   const sharedKinds = fs.readFileSync(path.join(root, "src", "shared", "conversation-kinds.js"), "utf8");
-  const source = fs.readFileSync(path.join(root, "src", "renderer", "message-sources", "cloud-room-source.js"), "utf8");
+  const source = fs.readFileSync(path.join(root, "src", "renderer", "message-sources", "cloud-conversation-source.js"), "utf8");
   const context = vm.createContext({ window: mockWindow, globalThis: mockWindow, console });
   vm.runInContext("globalThis.miaMessageSpec = (function(){ const module = { exports: {} }; " + sharedSpec + "; return module.exports; })();", context);
   vm.runInContext("globalThis.miaContact = (function(){ const module = { exports: {} }; " + sharedContact + "; return module.exports; })();", context);
@@ -103,7 +103,7 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
-test("bootstrapAfterLogin ensures local fellow rooms before listing rooms", async () => {
+test("bootstrapAfterLogin ensures local fellow conversations before listing conversations", async () => {
   const s = loadSocial();
   const calls = [];
   s.initSocialModule({
@@ -124,24 +124,24 @@ test("bootstrapAfterLogin ensures local fellow rooms before listing rooms", asyn
     listFriends: async () => ({ ok: true, data: { friends: [] } }),
     listFriendRequests: async () => ({ ok: true, data: { requests: [] } }),
     settingsGet: async () => ({}),
-    ensureFellowRoom: async (fellowId, body) => {
+    ensureFellowConversation: async (fellowId, body) => {
       calls.push({ kind: "ensure", fellowId, body });
-      return { ok: true, data: { room: { id: "fellow:u_1:alice", type: "fellow" } } };
+      return { ok: true, data: { conversation: { id: "fellow:u_1:alice", type: "fellow" } } };
     },
     saveFellowRuntime: async (fellowId, body) => {
       calls.push({ kind: "runtime", fellowId, body });
       return { ok: true, data: { binding: { fellowId, ...body } } };
     },
-    listRooms: async () => {
-      calls.push({ kind: "listRooms" });
-      return { ok: true, data: { rooms: [{ id: "fellow:u_1:alice", type: "fellow", name: "爱丽丝" }] } };
+    listConversations: async () => {
+      calls.push({ kind: "listConversations" });
+      return { ok: true, data: { conversations: [{ id: "fellow:u_1:alice", type: "fellow", name: "爱丽丝" }] } };
     },
-    listRoomMessages: async () => ({ ok: true, data: { messages: [] } })
+    listConversationMessages: async () => ({ ok: true, data: { messages: [] } })
   };
 
   await s.bootstrapAfterLogin();
 
-  assert.deepEqual(calls.map((call) => call.kind), ["ensure", "runtime", "listRooms"]);
+  assert.deepEqual(calls.map((call) => call.kind), ["ensure", "runtime", "listConversations"]);
   assert.equal(calls[0].fellowId, "alice");
   assert.deepEqual(JSON.parse(JSON.stringify(calls[0].body)), { title: "爱丽丝", runtimeKind: "desktop-local" });
   assert.equal(calls[1].fellowId, "alice");
@@ -188,16 +188,16 @@ test("bootstrapAfterLogin syncs external fellow runtime config for web controls"
     listFriends: async () => ({ ok: true, data: { friends: [] } }),
     listFriendRequests: async () => ({ ok: true, data: { requests: [] } }),
     settingsGet: async () => ({}),
-    ensureFellowRoom: async (fellowId, body) => {
+    ensureFellowConversation: async (fellowId, body) => {
       calls.push({ kind: "ensure", fellowId, body });
-      return { ok: true, data: { room: { id: "fellow:u_1:codex", type: "fellow" } } };
+      return { ok: true, data: { conversation: { id: "fellow:u_1:codex", type: "fellow" } } };
     },
     saveFellowRuntime: async (fellowId, body) => {
       calls.push({ kind: "runtime", fellowId, body });
       return { ok: true, data: { binding: { fellowId, ...body } } };
     },
-    listRooms: async () => ({ ok: true, data: { rooms: [] } }),
-    listRoomMessages: async () => ({ ok: true, data: { messages: [] } })
+    listConversations: async () => ({ ok: true, data: { conversations: [] } }),
+    listConversationMessages: async () => ({ ok: true, data: { messages: [] } })
   };
 
   await s.bootstrapAfterLogin();
@@ -215,53 +215,53 @@ test("bootstrapAfterLogin syncs external fellow runtime config for web controls"
   });
 });
 
-test("ensureFellowRoom upserts the ensured room into the sidebar cache", async () => {
+test("ensureFellowConversation upserts the ensured conversation into the sidebar cache", async () => {
   const s = loadSocial();
   const calls = [];
   s.__mockWindow.mia.social = {
-    ensureFellowRoom: async (fellowId, body) => {
+    ensureFellowConversation: async (fellowId, body) => {
       calls.push({ fellowId, body });
-      return { ok: true, data: { ok: true, room: { id: "fellow:u_1:alice", type: "fellow", name: "爱丽丝" } } };
+      return { ok: true, data: { ok: true, conversation: { id: "fellow:u_1:alice", type: "fellow", name: "爱丽丝" } } };
     }
   };
 
-  const room = await s.ensureFellowRoom({ key: "alice", name: "爱丽丝" });
+  const conversation = await s.ensureFellowConversation({ key: "alice", name: "爱丽丝" });
 
-  assert.equal(room.id, "fellow:u_1:alice");
-  assert.equal(s.moduleState.rooms.some((item) => item.id === "fellow:u_1:alice"), true);
+  assert.equal(conversation.id, "fellow:u_1:alice");
+  assert.equal(s.moduleState.conversations.some((item) => item.id === "fellow:u_1:alice"), true);
   assert.deepEqual(JSON.parse(JSON.stringify(calls[0])), {
     fellowId: "alice",
     body: { title: "爱丽丝", runtimeKind: "desktop-local" }
   });
 });
 
-test("upsertFellowRoom caches a cloud-hermes fellow room", async () => {
+test("upsertFellowConversation caches a cloud-hermes fellow conversation", async () => {
   const s = loadSocial();
-  const room = {
+  const conversation = {
     id: "fellow:u_1:alice",
     type: "fellow",
     name: "Alice",
     decorations: { fellowKey: "alice", runtimeKind: "cloud-hermes" }
   };
-  const saved = s.upsertFellowRoom(room);
-  assert.equal(saved.id, room.id);
-  assert.equal(s.getRoomById(room.id).decorations.runtimeKind, "cloud-hermes");
+  const saved = s.upsertFellowConversation(conversation);
+  assert.equal(saved.id, conversation.id);
+  assert.equal(s.getConversationById(conversation.id).decorations.runtimeKind, "cloud-hermes");
 });
 
-test("fellowRoomForKey returns an existing cloud-hermes fellow room", async () => {
+test("fellowConversationForKey returns an existing cloud-hermes fellow conversation", async () => {
   const s = loadSocial();
-  s.upsertFellowRoom({
+  s.upsertFellowConversation({
     id: "fellow:u_1:alice",
     type: "fellow",
     name: "Alice",
     decorations: { fellowKey: "alice", runtimeKind: "cloud-hermes" }
   });
-  const room = s.fellowRoomForKey("alice");
-  assert.equal(room.id, "fellow:u_1:alice");
-  assert.equal(room.decorations.runtimeKind, "cloud-hermes");
+  const conversation = s.fellowConversationForKey("alice");
+  assert.equal(conversation.id, "fellow:u_1:alice");
+  assert.equal(conversation.decorations.runtimeKind, "cloud-hermes");
 });
 
-test("bootstrapAfterLogin warns when fellow room ensure returns ok false", async () => {
+test("bootstrapAfterLogin warns when fellow conversation ensure returns ok false", async () => {
   const s = loadSocial();
   const calls = [];
   const warnings = [];
@@ -279,15 +279,15 @@ test("bootstrapAfterLogin warns when fellow room ensure returns ok false", async
       listFriends: async () => ({ ok: true, data: { friends: [] } }),
       listFriendRequests: async () => ({ ok: true, data: { requests: [] } }),
       settingsGet: async () => ({}),
-      ensureFellowRoom: async (fellowId) => {
+      ensureFellowConversation: async (fellowId) => {
         calls.push({ kind: "ensure", fellowId });
         return { ok: false, error: "boom" };
       },
-      listRooms: async () => {
-        calls.push({ kind: "listRooms" });
-        return { ok: true, data: { rooms: [] } };
+      listConversations: async () => {
+        calls.push({ kind: "listConversations" });
+        return { ok: true, data: { conversations: [] } };
       },
-      listRoomMessages: async () => ({ ok: true, data: { messages: [] } })
+      listConversationMessages: async () => ({ ok: true, data: { messages: [] } })
     };
 
     await s.bootstrapAfterLogin();
@@ -295,24 +295,24 @@ test("bootstrapAfterLogin warns when fellow room ensure returns ok false", async
     console.warn = originalWarn;
   }
 
-  assert.deepEqual(calls.map((call) => call.kind), ["ensure", "listRooms"]);
+  assert.deepEqual(calls.map((call) => call.kind), ["ensure", "listConversations"]);
   assert.equal(warnings.some((args) => args.some((part) => String(part).includes("alice") || String(part).includes("boom"))), true);
 });
 
-test("renderSidebarRows: dm room → private-room with otherUser resolved", () => {
+test("renderSidebarRows: dm conversation → private-conversation with otherUser resolved", () => {
   const s = loadSocial();
   s.moduleState.myUserId = "u_alice";
   s.moduleState.friends = [{ id: "u_bob", username: "bob", account: "bob" }];
-  s.moduleState.rooms = [{ id: "dm:u_alice:u_bob", type: "dm", name: null, updatedAt: "2026-05-21T20:00:00.000Z" }];
+  s.moduleState.conversations = [{ id: "dm:u_alice:u_bob", type: "dm", name: null, updatedAt: "2026-05-21T20:00:00.000Z" }];
   s.moduleState.messageCache.set("dm:u_alice:u_bob", {
     messages: [{ id: "m1", seq: 1, body_md: "hi", created_at: "2026-05-21T20:01:00.000Z" }],
     maxSeq: 1,
   });
   const rows = s.renderSidebarRows();
   assert.equal(rows.length, 1);
-  assert.equal(rows[0].type, "private-room");
-  assert.equal(rows[0].room.otherUser.username, "bob");
-  assert.equal(rows[0].room.lastMessagePreview, "hi");
+  assert.equal(rows[0].type, "private-conversation");
+  assert.equal(rows[0].conversation.otherUser.username, "bob");
+  assert.equal(rows[0].conversation.lastMessagePreview, "hi");
 });
 
 test("handleCloudEvent social.friend_request_received appends incoming", () => {
@@ -334,7 +334,7 @@ test("handleCloudEvent social.friend_request_received appends incoming", () => {
   assert.equal(s.moduleState.incomingRequests[0].from.username, "x");
 });
 
-test("handleCloudEvent social.friend_added adds room + friend, removes from outgoing", () => {
+test("handleCloudEvent social.friend_added adds conversation + friend, removes from outgoing", () => {
   const s = loadSocial();
   s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
   s.moduleState.outgoingRequests = [{ id: "fr_2", to_user: "u_b", status: "pending" }];
@@ -342,42 +342,42 @@ test("handleCloudEvent social.friend_added adds room + friend, removes from outg
     type: "social.friend_added",
     payload: {
       friend: { id: "u_b", username: "b" },
-      room: { id: "dm:u_a:u_b", updatedAt: "2026-05-21T20:00:00.000Z" },
+      conversation: { id: "dm:u_a:u_b", updatedAt: "2026-05-21T20:00:00.000Z" },
     },
   });
   assert.equal(s.moduleState.friends.find((f) => f.id === "u_b").username, "b");
-  assert.equal(s.moduleState.rooms.find((r) => r.id === "dm:u_a:u_b").id, "dm:u_a:u_b");
+  assert.equal(s.moduleState.conversations.find((r) => r.id === "dm:u_a:u_b").id, "dm:u_a:u_b");
   assert.equal(s.moduleState.outgoingRequests.length, 0);
   assert.ok(s.moduleState.messageCache.has("dm:u_a:u_b"));
 });
 
-test("handleCloudEvent social.room_invited adds the room to rooms list", () => {
+test("handleCloudEvent social.conversation_invited adds the conversation to conversations list", () => {
   const s = loadSocial();
   s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
   s.handleCloudEvent({
-    type: "social.room_invited",
-    payload: { room: { id: "g_xxx", name: "Squad", updatedAt: "2026-05-21T20:00:00.000Z" }, invitedBy: { id: "u_a", username: "alice" } }
+    type: "social.conversation_invited",
+    payload: { conversation: { id: "g_xxx", name: "Squad", updatedAt: "2026-05-21T20:00:00.000Z" }, invitedBy: { id: "u_a", username: "alice" } }
   });
-  assert.ok(s.moduleState.rooms.find((r) => r.id === "g_xxx"));
+  assert.ok(s.moduleState.conversations.find((r) => r.id === "g_xxx"));
 });
 
-test("handleCloudEvent room.updated upserts unknown rooms", () => {
+test("handleCloudEvent conversation.updated upserts unknown conversations", () => {
   const s = loadSocial();
   s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
 
   s.handleCloudEvent({
-    type: "room.updated",
-    payload: { room: { id: "fellow:u_1:alice", type: "fellow", name: "爱丽丝" } }
+    type: "conversation.updated",
+    payload: { conversation: { id: "fellow:u_1:alice", type: "fellow", name: "爱丽丝" } }
   });
 
-  assert.equal(s.moduleState.rooms.some((room) => room.id === "fellow:u_1:alice"), true);
+  assert.equal(s.moduleState.conversations.some((conversation) => conversation.id === "fellow:u_1:alice"), true);
   assert.equal(s.moduleState.messageCache.has("fellow:u_1:alice"), true);
 });
 
-test("renderSidebarRows includes group rooms with type group-room", () => {
+test("renderSidebarRows includes group conversations with type group-conversation", () => {
   const s = loadSocial();
   s.moduleState.myUserId = "u_me";
-  s.moduleState.rooms = [
+  s.moduleState.conversations = [
     { id: "dm:u_me:u_a", type: "dm", updatedAt: "2026-05-21T20:00:00.000Z", name: null },
     { id: "g_squad", type: "group", updatedAt: "2026-05-21T21:00:00.000Z", name: "Squad" },
     { id: "fellow:u_me:mia", type: "fellow", updatedAt: "2026-05-21T22:00:00.000Z", name: "Mia" }
@@ -385,79 +385,79 @@ test("renderSidebarRows includes group rooms with type group-room", () => {
   s.moduleState.friends = [{ id: "u_a", username: "alice" }];
   const rows = s.renderSidebarRows();
   assert.equal(rows.length, 3);
-  const groupRow = rows.find((r) => r.type === "group-room");
-  assert.equal(groupRow.room.name, "Squad");
-  const fellowRow = rows.find((item) => item.room?.id === "fellow:u_me:mia");
-  assert.equal(fellowRow.type, "private-room");
+  const groupRow = rows.find((r) => r.type === "group-conversation");
+  assert.equal(groupRow.conversation.name, "Squad");
+  const fellowRow = rows.find((item) => item.conversation?.id === "fellow:u_me:mia");
+  assert.equal(fellowRow.type, "private-conversation");
 });
 
-test("sendInActiveGroupRoom uses the unified cloud-room send path", async () => {
+test("sendInActiveGroupConversation uses the unified cloud-conversation send path", async () => {
   const s = loadSocial();
   const posted = [];
   s.__mockWindow.mia.social = {
-    postRoomMessage: async (roomId, body) => {
-      posted.push({ roomId, body });
+    postConversationMessage: async (conversationId, body) => {
+      posted.push({ conversationId, body });
       return { ok: true, data: { message: { id: "m1", seq: 1, body_md: body.bodyMd } } };
     }
   };
-  s.moduleState.activeRoomId = "g_missing_module";
-  s.moduleState.rooms = [{ id: "g_missing_module", type: "group", name: "Squad" }];
+  s.moduleState.activeConversationId = "g_missing_module";
+  s.moduleState.conversations = [{ id: "g_missing_module", type: "group", name: "Squad" }];
   s.moduleState.messageCache.set("g_missing_module", { messages: [], maxSeq: 0 });
 
-  await withMutedConsoleWarn(() => s.sendInActiveGroupRoom("  hello group  "));
+  await withMutedConsoleWarn(() => s.sendInActiveGroupConversation("  hello group  "));
 
   assert.equal(posted.length, 1);
-  assert.equal(posted[0].roomId, "g_missing_module");
+  assert.equal(posted[0].conversationId, "g_missing_module");
   assert.equal(posted[0].body.bodyMd, "hello group");
   assert.equal(s.moduleState.messageCache.get("g_missing_module").messages.length, 1);
 });
 
-test("sendInActiveGroupRoom delegates to the unified cloud-room send path", async () => {
+test("sendInActiveGroupConversation delegates to the unified cloud-conversation send path", async () => {
   const s = loadSocial();
   const posted = [];
   let attached = null;
   s.__mockWindow.mia.social = {
-    postRoomMessage: async (roomId, body) => {
-      posted.push({ roomId, body });
+    postConversationMessage: async (conversationId, body) => {
+      posted.push({ conversationId, body });
       return { ok: true, data: { message: { id: "m1", seq: 1, body_md: body.bodyMd } } };
     }
   };
   s.__mockWindow.miaSocialGroups = {
     attach(ctx) { attached = ctx; },
-    sendInActiveGroupRoom() { throw new Error("groups module not attached"); }
+    sendInActiveGroupConversation() { throw new Error("groups module not attached"); }
   };
-  s.moduleState.activeRoomId = "g_bad_module";
-  s.moduleState.rooms = [{ id: "g_bad_module", type: "group", name: "Squad" }];
+  s.moduleState.activeConversationId = "g_bad_module";
+  s.moduleState.conversations = [{ id: "g_bad_module", type: "group", name: "Squad" }];
   s.moduleState.messageCache.set("g_bad_module", { messages: [], maxSeq: 0 });
 
-  await withMutedConsoleWarn(() => s.sendInActiveGroupRoom("hello after fallback"));
+  await withMutedConsoleWarn(() => s.sendInActiveGroupConversation("hello after fallback"));
 
   assert.equal(attached, null);
   assert.equal(posted.length, 1);
-  assert.equal(posted[0].roomId, "g_bad_module");
+  assert.equal(posted[0].conversationId, "g_bad_module");
   assert.equal(posted[0].body.bodyMd, "hello after fallback");
   assert.equal(s.moduleState.messageCache.get("g_bad_module").messages.length, 1);
 });
 
-test("sendInActiveRoom shows outgoing cloud messages before the network reply resolves", async () => {
+test("sendInActiveConversation shows outgoing cloud messages before the network reply resolves", async () => {
   const s = loadSocial();
   const post = deferred();
   const posted = [];
   s.moduleState.myUserId = "u_me";
   s.__mockWindow.mia.social = {
-    postRoomMessage: async (roomId, body) => {
-      posted.push({ roomId, body });
+    postConversationMessage: async (conversationId, body) => {
+      posted.push({ conversationId, body });
       return post.promise;
     }
   };
-  s.moduleState.activeRoomId = "g_fast";
-  s.moduleState.rooms = [{ id: "g_fast", type: "group", name: "Fast" }];
+  s.moduleState.activeConversationId = "g_fast";
+  s.moduleState.conversations = [{ id: "g_fast", type: "group", name: "Fast" }];
   s.moduleState.messageCache.set("g_fast", { messages: [], maxSeq: 0 });
-  s._internalCtx.roomMembersCache.set("g_fast", [
+  s._internalCtx.conversationMembersCache.set("g_fast", [
     { member_kind: "fellow", member_ref: "codex", fellow_name: "Codex" }
   ]);
 
-  const sendPromise = s.sendInActiveRoom("hello immediately");
+  const sendPromise = s.sendInActiveConversation("hello immediately");
   const entry = s.moduleState.messageCache.get("g_fast");
 
   assert.equal(posted.length, 1);
@@ -465,7 +465,7 @@ test("sendInActiveRoom shows outgoing cloud messages before the network reply re
   assert.match(entry.messages[0].id, /^local_/);
   assert.equal(entry.messages[0].status, "sending");
   assert.equal(entry.messages[0].body_md, "hello immediately");
-  assert.equal(s.moduleState.cloudAgentRunsByRoom.has("g_fast"), false);
+  assert.equal(s.moduleState.cloudAgentRunsByConversation.has("g_fast"), false);
 
   post.resolve({
     ok: true,
@@ -477,21 +477,21 @@ test("sendInActiveRoom shows outgoing cloud messages before the network reply re
   assert.equal(entry.maxSeq, 1);
 });
 
-test("sendInActiveRoom keeps a failed outgoing cloud message visible", async () => {
+test("sendInActiveConversation keeps a failed outgoing cloud message visible", async () => {
   const s = loadSocial();
   const posted = [];
   s.moduleState.myUserId = "u_me";
   s.__mockWindow.mia.social = {
-    postRoomMessage: async (roomId, body) => {
-      posted.push({ roomId, body });
+    postConversationMessage: async (conversationId, body) => {
+      posted.push({ conversationId, body });
       return { ok: false, error: "network down" };
     }
   };
-  s.moduleState.activeRoomId = "g_failed";
-  s.moduleState.rooms = [{ id: "g_failed", type: "group", name: "Failed" }];
+  s.moduleState.activeConversationId = "g_failed";
+  s.moduleState.conversations = [{ id: "g_failed", type: "group", name: "Failed" }];
   s.moduleState.messageCache.set("g_failed", { messages: [], maxSeq: 0 });
 
-  await withMutedConsoleWarn(() => s.sendInActiveRoom("爱丽丝你帮我找下AI领域最新新闻"));
+  await withMutedConsoleWarn(() => s.sendInActiveConversation("爱丽丝你帮我找下AI领域最新新闻"));
 
   const entry = s.moduleState.messageCache.get("g_failed");
   assert.equal(posted.length, 1);
@@ -501,17 +501,17 @@ test("sendInActiveRoom keeps a failed outgoing cloud message visible", async () 
   assert.equal(entry.messages[0].error, "network down");
 });
 
-test("renderRoomChat marks failed outgoing cloud messages", async () => {
+test("renderConversationChat marks failed outgoing cloud messages", async () => {
   const s = loadSocial();
   s.moduleState.myUserId = "u_me";
   s.__mockWindow.mia.social = {
-    postRoomMessage: async () => ({ ok: false, error: "network down" })
+    postConversationMessage: async () => ({ ok: false, error: "network down" })
   };
-  s.moduleState.activeRoomId = "fellow:u_me:mia";
-  s.moduleState.rooms = [{ id: "fellow:u_me:mia", type: "fellow", name: "Mia" }];
+  s.moduleState.activeConversationId = "fellow:u_me:mia";
+  s.moduleState.conversations = [{ id: "fellow:u_me:mia", type: "fellow", name: "Mia" }];
   s.moduleState.messageCache.set("fellow:u_me:mia", { messages: [], maxSeq: 0 });
 
-  await withMutedConsoleWarn(() => s.sendInActiveRoom("hello failed"));
+  await withMutedConsoleWarn(() => s.sendInActiveConversation("hello failed"));
 
   const chat = {
     children: [],
@@ -522,7 +522,7 @@ test("renderRoomChat marks failed outgoing cloud messages", async () => {
     scrollHeight: 0,
     clientHeight: 0,
   };
-  s.renderRoomChat(chat);
+  s.renderConversationChat(chat);
 
   assert.equal(chat.children.length, 1);
   assert.match(chat.children[0].innerHTML, /message-send-status is-error/);
@@ -530,9 +530,9 @@ test("renderRoomChat marks failed outgoing cloud messages", async () => {
   assert.match(chat.children[0].innerHTML, /title="network down"/);
 });
 
-test("renderRoomChat resolves self and fellow avatars from one contact context", () => {
+test("renderConversationChat resolves self and fellow avatars from one contact context", () => {
   const s = loadSocial();
-  installCloudRoomSource(s.__mockWindow);
+  installCloudConversationSource(s.__mockWindow);
   s.__mockWindow.miaAvatar = {
     avatarThumbBackgroundStyle: (image, _crop, color) => image
       ? `background-color:transparent;background-image:url('${image}');`
@@ -570,8 +570,8 @@ test("renderRoomChat resolves self and fellow avatars from one contact context",
   });
   s.moduleState.myUserId = "u_me";
   s.moduleState.myUsername = "boss";
-  s.moduleState.activeRoomId = "fellow:u_me:mia";
-  s.moduleState.rooms = [{ id: "fellow:u_me:mia", type: "fellow", name: "Mia", decorations: { fellowKey: "mia" } }];
+  s.moduleState.activeConversationId = "fellow:u_me:mia";
+  s.moduleState.conversations = [{ id: "fellow:u_me:mia", type: "fellow", name: "Mia", decorations: { fellowKey: "mia" } }];
   s.moduleState.messageCache.set("fellow:u_me:mia", {
     maxSeq: 2,
     messages: [
@@ -589,7 +589,7 @@ test("renderRoomChat resolves self and fellow avatars from one contact context",
     clientHeight: 0,
   };
 
-  s.renderRoomChat(chat);
+  s.renderConversationChat(chat);
 
   assert.equal(chat.children.length, 2);
   assert.match(chat.children[0].innerHTML, /data:self-avatar/);
@@ -597,9 +597,9 @@ test("renderRoomChat resolves self and fellow avatars from one contact context",
   assert.doesNotMatch(chat.children[0].innerHTML, /data:cloud-avatar/);
 });
 
-test("renderRoomChat uses cloud fellow avatar when no local fellow exists", () => {
+test("renderConversationChat uses cloud fellow avatar when no local fellow exists", () => {
   const s = loadSocial();
-  installCloudRoomSource(s.__mockWindow);
+  installCloudConversationSource(s.__mockWindow);
   s.__mockWindow.miaAvatar = {
     avatarThumbBackgroundStyle: (image, _crop, color) => image
       ? `background-color:transparent;background-image:url('${image}');`
@@ -615,8 +615,8 @@ test("renderRoomChat uses cloud fellow avatar when no local fellow exists", () =
   s.moduleState.myUserId = "u_me";
   s.moduleState.myUsername = "boss";
   s.moduleState.fellows = [{ id: "mia", name: "Mia", avatarImage: "data:cloud-mia-avatar", color: "#2563eb" }];
-  s.moduleState.activeRoomId = "fellow:u_me:mia";
-  s.moduleState.rooms = [{ id: "fellow:u_me:mia", type: "fellow", name: "Mia", decorations: { fellowKey: "mia" } }];
+  s.moduleState.activeConversationId = "fellow:u_me:mia";
+  s.moduleState.conversations = [{ id: "fellow:u_me:mia", type: "fellow", name: "Mia", decorations: { fellowKey: "mia" } }];
   s.moduleState.messageCache.set("fellow:u_me:mia", {
     maxSeq: 1,
     messages: [{ id: "m_fellow", seq: 1, sender_kind: "fellow", sender_ref: "mia", body_md: "hello", created_at: "" }]
@@ -631,16 +631,16 @@ test("renderRoomChat uses cloud fellow avatar when no local fellow exists", () =
     clientHeight: 0,
   };
 
-  s.renderRoomChat(chat);
+  s.renderConversationChat(chat);
 
   assert.equal(chat.children.length, 1);
   assert.match(chat.children[0].innerHTML, /data:cloud-mia-avatar/);
   assert.doesNotMatch(chat.children[0].innerHTML, /asset:mia/);
 });
 
-test("renderRoomChat self letter falls back to local profile, not cloud username", () => {
+test("renderConversationChat self letter falls back to local profile, not cloud username", () => {
   const s = loadSocial();
-  installCloudRoomSource(s.__mockWindow);
+  installCloudConversationSource(s.__mockWindow);
   s.__mockWindow.miaAvatar = {
     avatarThumbBackgroundStyle: (image, _crop, color) => image
       ? `background-color:transparent;background-image:url('${image}');`
@@ -659,8 +659,8 @@ test("renderRoomChat self letter falls back to local profile, not cloud username
   });
   s.moduleState.myUserId = "u_me";
   s.moduleState.myUsername = "7";
-  s.moduleState.activeRoomId = "fellow:u_me:mia";
-  s.moduleState.rooms = [{ id: "fellow:u_me:mia", type: "fellow", name: "Mia", decorations: { fellowKey: "mia" } }];
+  s.moduleState.activeConversationId = "fellow:u_me:mia";
+  s.moduleState.conversations = [{ id: "fellow:u_me:mia", type: "fellow", name: "Mia", decorations: { fellowKey: "mia" } }];
   s.moduleState.messageCache.set("fellow:u_me:mia", {
     maxSeq: 1,
     messages: [{ id: "m_user", seq: 1, sender_kind: "user", sender_ref: "u_me", body_md: "hi", created_at: "" }]
@@ -675,31 +675,31 @@ test("renderRoomChat self letter falls back to local profile, not cloud username
     clientHeight: 0,
   };
 
-  s.renderRoomChat(chat);
+  s.renderConversationChat(chat);
 
   assert.equal(chat.children.length, 1);
   assert.match(chat.children[0].innerHTML, />B<\/div>/);
   assert.doesNotMatch(chat.children[0].innerHTML, />7<\/div>/);
 });
 
-test("sendInActiveRoom posts group mentions in cloud fellow format", async () => {
+test("sendInActiveConversation posts group mentions in cloud fellow format", async () => {
   const s = loadSocial();
   const posted = [];
   s.moduleState.myUserId = "u_me";
   s.__mockWindow.mia.social = {
-    postRoomMessage: async (roomId, body) => {
-      posted.push({ roomId, body });
+    postConversationMessage: async (conversationId, body) => {
+      posted.push({ conversationId, body });
       return { ok: true, data: { message: { id: "m1", seq: 1, sender_kind: "user", sender_ref: "u_me", body_md: body.bodyMd } } };
     }
   };
-  s.moduleState.activeRoomId = "g_mentions";
-  s.moduleState.rooms = [{ id: "g_mentions", type: "group", name: "Mentions" }];
+  s.moduleState.activeConversationId = "g_mentions";
+  s.moduleState.conversations = [{ id: "g_mentions", type: "group", name: "Mentions" }];
   s.moduleState.messageCache.set("g_mentions", { messages: [], maxSeq: 0 });
-  s._internalCtx.roomMembersCache.set("g_mentions", [
+  s._internalCtx.conversationMembersCache.set("g_mentions", [
     { member_kind: "fellow", member_ref: "codex", fellow_name: "Codex" }
   ]);
 
-  await s.sendInActiveRoom("hi @Codex");
+  await s.sendInActiveConversation("hi @Codex");
 
   assert.equal(posted.length, 1);
   assert.deepEqual(JSON.parse(JSON.stringify(posted[0].body.mentions)), [
@@ -707,43 +707,43 @@ test("sendInActiveRoom posts group mentions in cloud fellow format", async () =>
   ]);
 });
 
-test("handleCloudEvent room.message_appended appends and tracks maxSeq", () => {
+test("handleCloudEvent conversation.message_appended appends and tracks maxSeq", () => {
   const s = loadSocial();
   s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
   s.handleCloudEvent({
-    type: "room.message_appended",
-    payload: { roomId: "dm:u_a:u_b", message: { id: "m1", seq: 1, body_md: "hi", created_at: "2026-05-21T20:01:00.000Z" } },
+    type: "conversation.message_appended",
+    payload: { conversationId: "dm:u_a:u_b", message: { id: "m1", seq: 1, body_md: "hi", created_at: "2026-05-21T20:01:00.000Z" } },
   });
   s.handleCloudEvent({
-    type: "room.message_appended",
-    payload: { roomId: "dm:u_a:u_b", message: { id: "m2", seq: 2, body_md: "yo", created_at: "2026-05-21T20:02:00.000Z" } },
+    type: "conversation.message_appended",
+    payload: { conversationId: "dm:u_a:u_b", message: { id: "m2", seq: 2, body_md: "yo", created_at: "2026-05-21T20:02:00.000Z" } },
   });
   // duplicate (same id) shouldn't double-append
   s.handleCloudEvent({
-    type: "room.message_appended",
-    payload: { roomId: "dm:u_a:u_b", message: { id: "m2", seq: 2, body_md: "yo", created_at: "2026-05-21T20:02:00.000Z" } },
+    type: "conversation.message_appended",
+    payload: { conversationId: "dm:u_a:u_b", message: { id: "m2", seq: 2, body_md: "yo", created_at: "2026-05-21T20:02:00.000Z" } },
   });
   const entry = s.moduleState.messageCache.get("dm:u_a:u_b");
   assert.equal(entry.messages.length, 2);
   assert.equal(entry.maxSeq, 2);
 });
 
-test("handleCloudEvent cloud_agent_run events track transient room streaming state", () => {
+test("handleCloudEvent cloud_agent_run events track transient conversation streaming state", () => {
   const s = loadSocial();
   s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
   s.handleCloudEvent({
     type: "cloud_agent_run_started",
-    payload: { roomId: "fellow:u_a:mia", runId: "car_1", hermesRunId: "hr_1", fellowId: "mia" },
+    payload: { conversationId: "fellow:u_a:mia", runId: "car_1", hermesRunId: "hr_1", fellowId: "mia" },
   });
   s.handleCloudEvent({
     type: "cloud_agent_run_event",
-    payload: { roomId: "fellow:u_a:mia", runId: "car_1", event: { type: "message.delta", delta: "hello " } },
+    payload: { conversationId: "fellow:u_a:mia", runId: "car_1", event: { type: "message.delta", delta: "hello " } },
   });
   s.handleCloudEvent({
     type: "cloud_agent_run_event",
-    payload: { roomId: "fellow:u_a:mia", runId: "car_1", event: { type: "tool.started", tool: "shell" } },
+    payload: { conversationId: "fellow:u_a:mia", runId: "car_1", event: { type: "tool.started", tool: "shell" } },
   });
-  const run = s.moduleState.cloudAgentRunsByRoom.get("fellow:u_a:mia");
+  const run = s.moduleState.cloudAgentRunsByConversation.get("fellow:u_a:mia");
   assert.equal(run.hermesRunId, "hr_1");
   assert.equal(run.text, "hello ");
   assert.equal(run.tools.map((tool) => tool.name).join(","), "shell");
@@ -753,32 +753,32 @@ test("handleCloudEvent does not infer group typing state from conductor-mode use
   const s = loadSocial();
   s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
   s.moduleState.myUserId = "u_me";
-  s.moduleState.rooms = [{ id: "g_typing", type: "group", decorations: { responseMode: "conductor" } }];
-  s._internalCtx.roomMembersCache.set("g_typing", [
+  s.moduleState.conversations = [{ id: "g_typing", type: "group", decorations: { responseMode: "conductor" } }];
+  s._internalCtx.conversationMembersCache.set("g_typing", [
     { member_kind: "user", member_ref: "u_me" },
     { member_kind: "fellow", member_ref: "codex", fellow_name: "小栗" }
   ]);
 
   s.handleCloudEvent({
-    type: "room.message_appended",
+    type: "conversation.message_appended",
     payload: {
-      roomId: "g_typing",
+      conversationId: "g_typing",
       message: { id: "m1", seq: 1, sender_kind: "user", sender_ref: "u_me", body_md: "有人吗" },
     },
   });
 
-  assert.equal(s.moduleState.cloudAgentRunsByRoom.has("g_typing"), false);
+  assert.equal(s.moduleState.cloudAgentRunsByConversation.has("g_typing"), false);
 });
 
-test("renderRoomChat shows typing as soon as an agent run starts", () => {
+test("renderConversationChat shows typing as soon as an agent run starts", () => {
   const s = loadSocial();
   s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
-  s.moduleState.activeRoomId = "fellow:u_a:mia";
-  s.moduleState.rooms = [{ id: "fellow:u_a:mia", type: "fellow", decorations: { fellowKey: "mia" } }];
+  s.moduleState.activeConversationId = "fellow:u_a:mia";
+  s.moduleState.conversations = [{ id: "fellow:u_a:mia", type: "fellow", decorations: { fellowKey: "mia" } }];
   s.moduleState.messageCache.set("fellow:u_a:mia", { messages: [], maxSeq: 0 });
   s.handleCloudEvent({
     type: "cloud_agent_run_started",
-    payload: { roomId: "fellow:u_a:mia", runId: "car_1", fellowId: "mia" },
+    payload: { conversationId: "fellow:u_a:mia", runId: "car_1", fellowId: "mia" },
   });
 
   const chat = {
@@ -790,26 +790,26 @@ test("renderRoomChat shows typing as soon as an agent run starts", () => {
     scrollHeight: 0,
     clientHeight: 0,
   };
-  s.renderRoomChat(chat);
+  s.renderConversationChat(chat);
 
   assert.equal(chat.children.length, 1);
   assert.match(chat.children[0].innerHTML, /typing-status/);
   assert.match(chat.children[0].innerHTML, /正在输入/);
 });
 
-test("renderRoomChat does not label tool-only agent activity as typing", () => {
+test("renderConversationChat does not label tool-only agent activity as typing", () => {
   const s = loadSocial();
   s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
-  s.moduleState.activeRoomId = "fellow:u_a:mia";
-  s.moduleState.rooms = [{ id: "fellow:u_a:mia", type: "fellow", decorations: { fellowKey: "mia" } }];
+  s.moduleState.activeConversationId = "fellow:u_a:mia";
+  s.moduleState.conversations = [{ id: "fellow:u_a:mia", type: "fellow", decorations: { fellowKey: "mia" } }];
   s.moduleState.messageCache.set("fellow:u_a:mia", { messages: [], maxSeq: 0 });
   s.handleCloudEvent({
     type: "cloud_agent_run_started",
-    payload: { roomId: "fellow:u_a:mia", runId: "car_1", fellowId: "mia" },
+    payload: { conversationId: "fellow:u_a:mia", runId: "car_1", fellowId: "mia" },
   });
   s.handleCloudEvent({
     type: "cloud_agent_run_event",
-    payload: { roomId: "fellow:u_a:mia", runId: "car_1", event: { type: "tool.started", tool: "search" } },
+    payload: { conversationId: "fellow:u_a:mia", runId: "car_1", event: { type: "tool.started", tool: "search" } },
   });
 
   const chat = {
@@ -821,7 +821,7 @@ test("renderRoomChat does not label tool-only agent activity as typing", () => {
     scrollHeight: 0,
     clientHeight: 0,
   };
-  s.renderRoomChat(chat);
+  s.renderConversationChat(chat);
 
   assert.equal(chat.children.length, 1);
   assert.match(chat.children[0].innerHTML, /TOOL/);
@@ -833,15 +833,15 @@ test("handleCloudEvent fellow reply clears transient cloud agent stream", () => 
   s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
   s.handleCloudEvent({
     type: "cloud_agent_run_started",
-    payload: { roomId: "fellow:u_a:mia", runId: "car_1" },
+    payload: { conversationId: "fellow:u_a:mia", runId: "car_1" },
   });
-  assert.ok(s.moduleState.cloudAgentRunsByRoom.has("fellow:u_a:mia"));
+  assert.ok(s.moduleState.cloudAgentRunsByConversation.has("fellow:u_a:mia"));
   s.handleCloudEvent({
-    type: "room.message_appended",
+    type: "conversation.message_appended",
     payload: {
-      roomId: "fellow:u_a:mia",
+      conversationId: "fellow:u_a:mia",
       message: { id: "m1", seq: 1, sender_kind: "fellow", sender_ref: "mia", body_md: "done" },
     },
   });
-  assert.equal(s.moduleState.cloudAgentRunsByRoom.has("fellow:u_a:mia"), false);
+  assert.equal(s.moduleState.cloudAgentRunsByConversation.has("fellow:u_a:mia"), false);
 });

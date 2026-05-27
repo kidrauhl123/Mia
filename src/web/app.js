@@ -1,5 +1,5 @@
 // Mia Web — chat + settings only.
-// Conversation list = cloud DM, group rooms, and cloud-mirrored fellow rooms.
+// Conversation list = cloud DM, group conversations, and cloud-mirrored fellow conversations.
 
 const STORAGE_KEY = "mia.web.session";
 const API_BASE = "";
@@ -142,29 +142,29 @@ let state = {
   token: "",
   user: null,
   theme: "light",
-  rooms: [],
+  conversations: [],
   friends: [],
   // Cloud-mirrored fellow identities (Phase 2). Populated from
   // /api/me/fellows on login and kept in sync via fellow.upserted /
   // fellow.deleted WS events. Used as the `fellows` context for the
-  // cloud-room-source adapter so room messages render fellow names +
+  // cloud-conversation-source adapter so conversation messages render fellow names +
   // avatars instead of fellow-id strings.
   fellows: [],
   // Cross-device user settings (Phase 3). Holds pins + read marks +
   // appearance. Populated from /api/me/settings on bootstrap; updated
   // optimistically via pushSettings() + reconciled by
   // user_settings.updated WS events. Replaces the previous localStorage-
-  // backed _pinnedRooms set.
+  // backed _pinnedConversations set.
   settings: { pins: [], readMarks: {}, appearance: {} },
   incomingRequests: [],
   outgoingRequests: [],
   messageCache: new Map(),
-  roomMembersCache: new Map(),
+  conversationMembersCache: new Map(),
   // (Phase 4 cutover: state.workspace removed. Every conversation now
-  //  lives in state.rooms — fellow chats are rooms-of-type-fellow.)
+  //  lives in state.conversations — fellow chats are conversations-of-type-fellow.)
   bridgeDevices: [],
   bridgeBusy: false,
-  cloudAgentRunsByRoom: new Map(),
+  cloudAgentRunsByConversation: new Map(),
   fellowRuntimeCache: new Map(),
   platformModels: [],
   activeConversationId: "",
@@ -602,29 +602,29 @@ function saveSession() {
 function clearSession() {
   state.token = "";
   state.user = null;
-  state.rooms = [];
+  state.conversations = [];
   state.friends = [];
   state.fellows = [];
   state.settings = { pins: [], readMarks: {}, appearance: {} };
   state.messageCache.clear?.();
-  state.roomMembersCache.clear?.();
+  state.conversationMembersCache.clear?.();
   state.incomingRequests = [];
   state.outgoingRequests = [];
   state.messageCache.clear();
-  state.roomMembersCache.clear();
+  state.conversationMembersCache.clear();
   state.bridgeDevices = [];
   state.bridgeBusy = false;
-  state.cloudAgentRunsByRoom.clear?.();
+  state.cloudAgentRunsByConversation.clear?.();
   state.fellowRuntimeCache.clear?.();
   state.activeConversationId = "";
   stopCloudEvents();
   localStorage.removeItem(STORAGE_KEY);
 }
 
-// All conversations are rooms after Phase 4 cutover.
+// All conversations are conversations after Phase 4 cutover.
 // Type is encoded in the id prefix (dm:, g_, fellow:) and also lives in
-// room.type. Old workspace-conversation helper is gone.
-function isRoomId(id) {
+// conversation.type. Old workspace-conversation helper is gone.
+function isConversationId(id) {
   return typeof id === "string" && (id.startsWith("dm:") || id.startsWith("g_") || id.startsWith("fellow:"));
 }
 
@@ -701,11 +701,11 @@ async function bootstrap() {
     return;
   }
   await Promise.all([
-    api("/api/rooms").then((d) => { state.rooms = Array.isArray(d.rooms) ? d.rooms : []; }).catch(() => {}),
+    api("/api/conversations").then((d) => { state.conversations = Array.isArray(d.conversations) ? d.conversations : []; }).catch(() => {}),
     api("/api/social/friends").then((d) => { state.friends = Array.isArray(d.friends) ? d.friends : []; }).catch(() => {}),
     api("/api/social/friend-requests?direction=incoming").then((d) => { state.incomingRequests = Array.isArray(d.requests) ? d.requests : []; }).catch(() => {}),
     api("/api/social/friend-requests?direction=outgoing").then((d) => { state.outgoingRequests = Array.isArray(d.requests) ? d.requests : []; }).catch(() => {}),
-    // Phase 2: fellow identities (name + avatar + persona) so room
+    // Phase 2: fellow identities (name + avatar + persona) so conversation
     // messages from a fellow render with proper attribution rather than
     // a bare fellow-id string.
     api("/api/me/fellows").then((d) => { state.fellows = Array.isArray(d.fellows) ? d.fellows : []; }).catch(() => {}),
@@ -720,16 +720,16 @@ async function bootstrap() {
     const first = combinedConversationItems()[0];
     if (first) state.activeConversationId = first.id;
   }
-  if (state.activeConversationId && isRoomId(state.activeConversationId)) {
-    await ensureRoomMessages(state.activeConversationId);
-    await ensureRoomMembers(state.activeConversationId);
+  if (state.activeConversationId && isConversationId(state.activeConversationId)) {
+    await ensureConversationMessages(state.activeConversationId);
+    await ensureConversationMembers(state.activeConversationId);
   }
-  // Prefetch members for every group room so the sidebar mosaic shows real
+  // Prefetch members for every group conversation so the sidebar mosaic shows real
   // avatars on first paint instead of empty tiles.
   await Promise.all(
-    state.rooms
+    state.conversations
       .filter((r) => r.type === "group" || (!r.id?.startsWith("dm:") && !r.id?.startsWith("fellow:") && (r.id?.startsWith("g_") || r.id?.startsWith("g-"))))
-      .map((r) => ensureRoomMembers(r.id))
+      .map((r) => ensureConversationMembers(r.id))
   );
   renderConversationList();
   renderActiveChat();
@@ -742,16 +742,16 @@ function bridgeIsOnline() {
   return state.bridgeDevices.length > 0;
 }
 
-// Room ids are `dm:<a>:<b>` or `g_<hex>` — both fit the server route regex
-// /api/rooms/([A-Za-z0-9_:-]+) literally. encodeURIComponent would turn `:`
-// into `%3A` and 404 the route, so paths use room.id verbatim.
+// Conversation ids are `dm:<a>:<b>` or `g_<hex>` — both fit the server route regex
+// /api/conversations/([A-Za-z0-9_:-]+) literally. encodeURIComponent would turn `:`
+// into `%3A` and 404 the route, so paths use conversation.id verbatim.
 
-async function ensureRoomMessages(roomId) {
-  if (!roomId) return;
-  const cached = state.messageCache.get(roomId);
+async function ensureConversationMessages(conversationId) {
+  if (!conversationId) return;
+  const cached = state.messageCache.get(conversationId);
   const sinceSeq = cached?.maxSeq || 0;
   try {
-    const data = await api(`/api/rooms/${roomId}/messages?since_seq=${sinceSeq}&limit=200`);
+    const data = await api(`/api/conversations/${conversationId}/messages?since_seq=${sinceSeq}&limit=200`);
     const incoming = Array.isArray(data.messages) ? data.messages : [];
     const messages = cached ? [...cached.messages] : [];
     const seen = new Set(messages.map((m) => m.id));
@@ -759,24 +759,24 @@ async function ensureRoomMessages(roomId) {
       if (!seen.has(m.id)) { messages.push(m); seen.add(m.id); }
     }
     const maxSeq = messages.reduce((acc, m) => Math.max(acc, Number(m.seq || 0)), sinceSeq);
-    state.messageCache.set(roomId, { messages, maxSeq });
+    state.messageCache.set(conversationId, { messages, maxSeq });
   } catch (err) {
-    console.warn("[web] ensureRoomMessages failed:", err);
+    console.warn("[web] ensureConversationMessages failed:", err);
   }
 }
 
-async function ensureRoomMembers(roomId) {
-  if (!roomId || state.roomMembersCache.has(roomId)) return;
+async function ensureConversationMembers(conversationId) {
+  if (!conversationId || state.conversationMembersCache.has(conversationId)) return;
   try {
-    const data = await api(`/api/rooms/${roomId}`);
-    if (Array.isArray(data.members)) state.roomMembersCache.set(roomId, data.members);
+    const data = await api(`/api/conversations/${conversationId}`);
+    if (Array.isArray(data.members)) state.conversationMembersCache.set(conversationId, data.members);
   } catch (err) {
-    console.warn("[web] ensureRoomMembers failed:", err);
+    console.warn("[web] ensureConversationMembers failed:", err);
   }
 }
 
-function lastSeenSeqForConversation(roomId) {
-  const cached = state.messageCache.get(roomId);
+function lastSeenSeqForConversation(conversationId) {
+  const cached = state.messageCache.get(conversationId);
   const maxSeq = Number(cached?.maxSeq || 0);
   return Number.isFinite(maxSeq) && maxSeq > 0 ? maxSeq : 0;
 }
@@ -867,35 +867,35 @@ function hermesEventText(event = {}) {
   return data ? hermesEventText(data) : "";
 }
 
-function cloudRunFor(roomId, runId = "") {
-  const existing = state.cloudAgentRunsByRoom.get(roomId);
+function cloudRunFor(conversationId, runId = "") {
+  const existing = state.cloudAgentRunsByConversation.get(conversationId);
   if (existing) return existing;
   const run = {
-    roomId,
+    conversationId,
     runId,
     text: "",
     status: "running",
     createdAt: new Date().toISOString(),
     tools: [],
   };
-  state.cloudAgentRunsByRoom.set(roomId, run);
+  state.cloudAgentRunsByConversation.set(conversationId, run);
   return run;
 }
 
 function handleCloudEvent(envelope) {
   const type = envelope?.type || "";
-  if (type === "room.message_appended") {
+  if (type === "conversation.message_appended") {
     const msg = envelope.message;
-    const roomId = msg?.room_id || envelope.room_id;
-    if (!roomId) return;
-    const entry = state.messageCache.get(roomId) || { messages: [], maxSeq: 0 };
+    const conversationId = msg?.conversation_id || envelope.conversation_id;
+    if (!conversationId) return;
+    const entry = state.messageCache.get(conversationId) || { messages: [], maxSeq: 0 };
     const fresh = !entry.messages.some((m) => m.id === msg.id);
     if (fresh) {
       entry.messages.push(msg);
       entry.maxSeq = Math.max(entry.maxSeq, Number(msg.seq || 0));
-      state.messageCache.set(roomId, entry);
-      if (msg.sender_kind === SenderKind.Fellow) state.cloudAgentRunsByRoom.delete(roomId);
-      // Bump unread if the message isn't mine and the room isn't currently open.
+      state.messageCache.set(conversationId, entry);
+      if (msg.sender_kind === SenderKind.Fellow) state.cloudAgentRunsByConversation.delete(conversationId);
+      // Bump unread if the message isn't mine and the conversation isn't currently open.
       // Self-id check goes through shared/contact: resolveContact returns kind="self"
       // only when ref matches ctx.self.id (works for any sender kind).
       const author = window.miaContact.resolveContact(
@@ -903,31 +903,31 @@ function handleCloudEvent(envelope) {
         { self: state.user, friends: state.friends }
       );
       const isMine = author.kind === "self";
-      if (!isMine && roomId !== state.activeConversationId) {
-        state.unread.set(roomId, (state.unread.get(roomId) || 0) + 1);
+      if (!isMine && conversationId !== state.activeConversationId) {
+        state.unread.set(conversationId, (state.unread.get(conversationId) || 0) + 1);
       }
     }
-    if (roomId === state.activeConversationId) {
-      state.unread.delete(roomId);
+    if (conversationId === state.activeConversationId) {
+      state.unread.delete(conversationId);
       renderActiveChat();
     }
     renderConversationList();
     renderSessionMenu();
     renderRailUnreadBadge();
   } else if (type === "cloud_agent_run_started") {
-    const roomId = envelope.roomId;
-    if (!roomId) return;
-    const run = cloudRunFor(roomId, envelope.runId || "");
+    const conversationId = envelope.conversationId;
+    if (!conversationId) return;
+    const run = cloudRunFor(conversationId, envelope.runId || "");
     run.runId = envelope.runId || run.runId;
     run.hermesRunId = envelope.hermesRunId || run.hermesRunId || "";
     run.fellowId = envelope.fellowId || run.fellowId || "";
     run.status = "running";
-    if (roomId === state.activeConversationId) renderActiveChat();
+    if (conversationId === state.activeConversationId) renderActiveChat();
   } else if (type === "cloud_agent_run_event") {
-    const roomId = envelope.roomId;
+    const conversationId = envelope.conversationId;
     const event = envelope.event || {};
-    if (!roomId) return;
-    const run = cloudRunFor(roomId, envelope.runId || "");
+    if (!conversationId) return;
+    const run = cloudRunFor(conversationId, envelope.runId || "");
     run.fellowId = envelope.fellowId || run.fellowId || "";
     const name = hermesEventType(event);
     if (name === "message.delta") {
@@ -948,7 +948,7 @@ function handleCloudEvent(envelope) {
       const tool = [...run.tools].reverse().find((item) => !toolName || item.name === toolName);
       if (tool) tool.status = event.error || event.data?.error ? "error" : "complete";
     }
-    if (roomId === state.activeConversationId) renderActiveChat();
+    if (conversationId === state.activeConversationId) renderActiveChat();
   } else if (type === "device_updated") {
     if (Array.isArray(envelope.devices)) state.bridgeDevices = envelope.devices;
     renderActiveChat();
@@ -964,34 +964,34 @@ function handleCloudEvent(envelope) {
     if (envelope.friend) {
       state.friends = [envelope.friend, ...state.friends.filter((f) => f.id !== envelope.friend.id)];
     }
-    if (envelope.room) {
-      state.rooms = [envelope.room, ...state.rooms.filter((r) => r.id !== envelope.room.id)];
+    if (envelope.conversation) {
+      state.conversations = [envelope.conversation, ...state.conversations.filter((r) => r.id !== envelope.conversation.id)];
     }
     state.incomingRequests = state.incomingRequests.filter((r) => r.from_user !== envelope.friend?.id && r.to_user !== envelope.friend?.id);
     state.outgoingRequests = state.outgoingRequests.filter((r) => r.to_user !== envelope.friend?.id);
     renderConversationList();
-  } else if (type === "social.room_invited") {
-    if (envelope.room) {
-      state.rooms = [envelope.room, ...state.rooms.filter((r) => r.id !== envelope.room.id)];
-      state.roomMembersCache.delete(envelope.room.id);
+  } else if (type === "social.conversation_invited") {
+    if (envelope.conversation) {
+      state.conversations = [envelope.conversation, ...state.conversations.filter((r) => r.id !== envelope.conversation.id)];
+      state.conversationMembersCache.delete(envelope.conversation.id);
     }
     renderConversationList();
-  } else if (type === "room.updated") {
-    // PATCH /api/rooms/:id from any device — merge the patched room.
-    if (envelope.room) {
-      state.rooms = state.rooms.map((r) => (r.id === envelope.room.id ? { ...r, ...envelope.room } : r));
+  } else if (type === "conversation.updated") {
+    // PATCH /api/conversations/:id from any device — merge the patched conversation.
+    if (envelope.conversation) {
+      state.conversations = state.conversations.map((r) => (r.id === envelope.conversation.id ? { ...r, ...envelope.conversation } : r));
       renderConversationList();
-      if (state.activeConversationId === envelope.room.id) renderActiveChat();
+      if (state.activeConversationId === envelope.conversation.id) renderActiveChat();
       renderSessionMenu();
     }
-  } else if (type === "room.deleted") {
-    // DELETE /api/rooms/:id from any device — purge local state.
-    const roomId = envelope.roomId;
-    if (roomId) {
-      state.rooms = state.rooms.filter((r) => r.id !== roomId);
-      state.unread.delete(roomId);
-      state.roomMembersCache.delete(roomId);
-      if (state.activeConversationId === roomId) state.activeConversationId = "";
+  } else if (type === "conversation.deleted") {
+    // DELETE /api/conversations/:id from any device — purge local state.
+    const conversationId = envelope.conversationId;
+    if (conversationId) {
+      state.conversations = state.conversations.filter((r) => r.id !== conversationId);
+      state.unread.delete(conversationId);
+      state.conversationMembersCache.delete(conversationId);
+      if (state.activeConversationId === conversationId) state.activeConversationId = "";
       renderConversationList();
       renderActiveChat();
     }
@@ -1030,7 +1030,7 @@ function handleCloudEvent(envelope) {
   }
 }
 
-// ── conversation list (rooms + desktop-synced fellow chats merged) ────────
+// ── conversation list (conversations + desktop-synced fellow chats merged) ────────
 
 function friendById(userId) {
   if (userId === state.user?.id) return state.user;
@@ -1041,24 +1041,24 @@ function friendUsernameById(userId) {
   return friendById(userId)?.username || userId;
 }
 
-function roomDisplayTitle(room) {
-  if (room.id?.startsWith("dm:")) {
-    const parts = room.id.split(":");
+function conversationDisplayTitle(conversation) {
+  if (conversation.id?.startsWith("dm:")) {
+    const parts = conversation.id.split(":");
     const otherId = parts[1] === state.user?.id ? parts[2] : parts[1];
     return friendUsernameById(otherId);
   }
-  if (room.type === "fellow" || room.id?.startsWith("fellow:")) {
-    return sessionHistory.fellowDisplayTitle(room, state.fellows, "对话");
+  if (conversation.type === "fellow" || conversation.id?.startsWith("fellow:")) {
+    return sessionHistory.fellowDisplayTitle(conversation, state.fellows, "对话");
   }
-  return room.name || "未命名群聊";
+  return conversation.name || "未命名群聊";
 }
 
-function roomTypeForControls(room) {
-  return sessionHistory.roomType(room, room?.id || "");
+function conversationTypeForControls(conversation) {
+  return sessionHistory.conversationType(conversation, conversation?.id || "");
 }
 
-function fellowKeyForRoom(room) {
-  return sessionHistory.fellowKey(room);
+function fellowKeyForConversation(conversation) {
+  return sessionHistory.fellowKey(conversation);
 }
 
 function fellowByKey(key) {
@@ -1066,9 +1066,9 @@ function fellowByKey(key) {
   return state.fellows.find((fellow) => String(fellow.id || fellow.key || "") === wanted) || null;
 }
 
-function runtimeKindForFellowRoom(room, fellow) {
+function runtimeKindForFellowConversation(conversation, fellow) {
   void fellow;
-  return sessionHistory.runtimeKind(room, "desktop-local");
+  return sessionHistory.runtimeKind(conversation, "desktop-local");
 }
 
 function engineForRuntimeKind(runtimeKind) {
@@ -1218,14 +1218,14 @@ function setSelectOptions(select, entries, selectedValue, fallbackLabel) {
 function setModelSwitchStatus() {
 }
 
-function renderComposerControls(room = null) {
-  const show = roomTypeForControls(room) === "fellow";
+function renderComposerControls(conversation = null) {
+  const show = conversationTypeForControls(conversation) === "fellow";
   els.composerBottom?.classList.toggle("hidden", !show);
   if (!show) return;
 
-  const fellowKey = fellowKeyForRoom(room);
+  const fellowKey = fellowKeyForConversation(conversation);
   const fellow = fellowByKey(fellowKey);
-  const runtimeKind = runtimeKindForFellowRoom(room, fellow);
+  const runtimeKind = runtimeKindForFellowConversation(conversation, fellow);
   const binding = runtimeBindingFor(fellowKey, runtimeKind);
   const config = binding?.config || {};
   const engine = engineForRuntimeBinding(runtimeKind, binding);
@@ -1258,19 +1258,19 @@ function renderComposerControls(room = null) {
 
   if (editable && !state.fellowRuntimeCache.has(runtimeCacheKey(fellowKey, runtimeKind))) {
     ensureFellowRuntime(fellowKey, runtimeKind).then(() => {
-      if (state.activeConversationId === room.id) renderActiveChat();
+      if (state.activeConversationId === conversation.id) renderActiveChat();
     });
   }
 }
 
 async function saveWebAiControl(kind, value) {
-  const room = state.rooms.find((r) => r.id === state.activeConversationId);
-  if (roomTypeForControls(room) !== "fellow") return;
-  const fellowKey = fellowKeyForRoom(room);
-  const runtimeKind = runtimeKindForFellowRoom(room, fellowByKey(fellowKey));
+  const conversation = state.conversations.find((r) => r.id === state.activeConversationId);
+  if (conversationTypeForControls(conversation) !== "fellow") return;
+  const fellowKey = fellowKeyForConversation(conversation);
+  const runtimeKind = runtimeKindForFellowConversation(conversation, fellowByKey(fellowKey));
   if (!fellowKey) {
     showToast("当前对话没有可配置的 fellow。");
-    renderComposerControls(room);
+    renderComposerControls(conversation);
     return;
   }
   const key = runtimeCacheKey(fellowKey, runtimeKind);
@@ -1299,24 +1299,24 @@ async function saveWebAiControl(kind, value) {
       modelEntries
     });
     if (result?.binding) state.fellowRuntimeCache.set(key, result.binding);
-    renderComposerControls(room);
+    renderComposerControls(conversation);
     setModelSwitchStatus("已更新", true);
   } catch (err) {
     showToast(err.message || "设置保存失败");
     setModelSwitchStatus("保存失败", false);
-    renderComposerControls(room);
+    renderComposerControls(conversation);
   }
 }
 
-function roomLastMessageText(room) {
-  const cached = state.messageCache.get(room.id);
+function conversationLastMessageText(conversation) {
+  const cached = state.messageCache.get(conversation.id);
   const last = cached?.messages?.[cached.messages.length - 1];
   if (!last) return "暂无对话";
   return last.body_md || (last.attachments ? "[附件]" : "");
 }
 
-function roomSortKey(room) {
-  return sessionHistory.roomSortTime(room, state.messageCache);
+function conversationSortKey(conversation) {
+  return sessionHistory.conversationSortTime(conversation, state.messageCache);
 }
 
 function cryptoRandomId() {
@@ -1324,22 +1324,22 @@ function cryptoRandomId() {
   return `session_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
 
-function activeSessionRoom() {
-  return state.rooms.find((room) => room.id === state.activeConversationId) || null;
+function activeSessionConversation() {
+  return state.conversations.find((conversation) => conversation.id === state.activeConversationId) || null;
 }
 
-function sessionTitleForRoom(room) {
-  return sessionHistory.sessionTitle(room, {
+function sessionTitleForConversation(conversation) {
+  return sessionHistory.sessionTitle(conversation, {
     fellows: state.fellows,
     defaultTitle: "新对话",
     groupTitle: "群聊",
-    dmTitle: roomDisplayTitle,
+    dmTitle: conversationDisplayTitle,
     dmTitleFallback: "私聊"
   });
 }
 
-function sessionRoomsForRoom(room) {
-  return sessionHistory.sessionRoomsForRoom(room, state.rooms, { messageCache: state.messageCache });
+function sessionConversationsForConversation(conversation) {
+  return sessionHistory.sessionConversationsForConversation(conversation, state.conversations, { messageCache: state.messageCache });
 }
 
 function updateCurrentSessionTitle(title) {
@@ -1351,16 +1351,16 @@ function updateCurrentSessionTitle(title) {
   requestAnimationFrame(() => els.currentSessionTitle?.classList.add("title-updated"));
 }
 
-async function renameSessionRoom(room) {
-  if (!room || roomTypeForControls(room) === "dm") return;
-  const title = window.prompt("重命名这个会话", sessionTitleForRoom(room));
+async function renameSessionConversation(conversation) {
+  if (!conversation || conversationTypeForControls(conversation) === "dm") return;
+  const title = window.prompt("重命名这个会话", sessionTitleForConversation(conversation));
   if (title === null) return;
   const trimmed = String(title || "").trim();
   if (!trimmed) return;
   try {
-    const res = await api(`/api/rooms/${room.id}`, { method: "PATCH", body: { name: trimmed } });
-    const updated = res?.room || { ...room, name: trimmed };
-    state.rooms = state.rooms.map((candidate) => (candidate.id === room.id ? { ...candidate, ...updated } : candidate));
+    const res = await api(`/api/conversations/${conversation.id}`, { method: "PATCH", body: { name: trimmed } });
+    const updated = res?.conversation || { ...conversation, name: trimmed };
+    state.conversations = state.conversations.map((candidate) => (candidate.id === conversation.id ? { ...candidate, ...updated } : candidate));
     renderConversationList();
     renderActiveChat();
     renderSessionMenu();
@@ -1369,23 +1369,23 @@ async function renameSessionRoom(room) {
   }
 }
 
-function selectSessionRoom(room) {
-  if (!room?.id) return;
+function selectSessionConversation(conversation) {
+  if (!conversation?.id) return;
   state.sessionMenuOpen = false;
-  setActiveConversation(room.id);
+  setActiveConversation(conversation.id);
 }
 
 async function createNewSessionForActive() {
-  const room = activeSessionRoom();
-  if (!sessionHistory.canCreateSession(room)) return;
-  const payload = sessionHistory.createFellowSessionPayload(room, cryptoRandomId(), {
+  const conversation = activeSessionConversation();
+  if (!sessionHistory.canCreateSession(conversation)) return;
+  const payload = sessionHistory.createFellowSessionPayload(conversation, cryptoRandomId(), {
     title: "新对话",
     runtimeKindFallback: "desktop-local"
   });
   const fellowKey = payload.fellowKey;
   if (!fellowKey) return;
   try {
-    const res = await api(`/api/me/fellow-rooms/${encodeURIComponent(payload.sessionId)}`, {
+    const res = await api(`/api/me/fellow-conversations/${encodeURIComponent(payload.sessionId)}`, {
       method: "PUT",
       body: {
         fellowKey,
@@ -1393,10 +1393,10 @@ async function createNewSessionForActive() {
         runtimeKind: payload.runtimeKind
       }
     });
-    const created = res?.room;
+    const created = res?.conversation;
     if (!created?.id) return;
-    state.rooms = [created, ...state.rooms.filter((candidate) => candidate.id !== created.id)];
-    if (Array.isArray(res.members)) state.roomMembersCache.set(created.id, res.members);
+    state.conversations = [created, ...state.conversations.filter((candidate) => candidate.id !== created.id)];
+    if (Array.isArray(res.members)) state.conversationMembersCache.set(created.id, res.members);
     state.messageCache.set(created.id, { messages: [], maxSeq: 0 });
     state.sessionMenuOpen = false;
     setActiveConversation(created.id);
@@ -1407,40 +1407,40 @@ async function createNewSessionForActive() {
 
 function renderSessionMenu() {
   if (!els.sessionMenu || !els.sessionList) return;
-  const room = activeSessionRoom();
-  const hasRoom = Boolean(room);
-  els.sessionMenuButton?.classList.toggle("hidden", !hasRoom);
-  els.sessionMenu.classList.toggle("hidden", !hasRoom || !state.sessionMenuOpen);
-  if (!hasRoom) {
+  const conversation = activeSessionConversation();
+  const hasConversation = Boolean(conversation);
+  els.sessionMenuButton?.classList.toggle("hidden", !hasConversation);
+  els.sessionMenu.classList.toggle("hidden", !hasConversation || !state.sessionMenuOpen);
+  if (!hasConversation) {
     els.sessionList.innerHTML = "";
     updateCurrentSessionTitle("新对话");
     return;
   }
 
-  const rooms = sessionRoomsForRoom(room);
-  const canCreate = sessionHistory.canCreateSession(room);
+  const conversations = sessionConversationsForConversation(conversation);
+  const canCreate = sessionHistory.canCreateSession(conversation);
   els.newSession?.classList.toggle("hidden", !canCreate);
-  updateCurrentSessionTitle(sessionTitleForRoom(room));
+  updateCurrentSessionTitle(sessionTitleForConversation(conversation));
   els.sessionList.innerHTML = "";
-  for (const item of rooms) {
-    const editable = roomTypeForControls(item) !== "dm";
+  for (const item of conversations) {
+    const editable = conversationTypeForControls(item) !== "dm";
     const row = document.createElement("button");
     row.type = "button";
-    row.className = `session-row${item.id === room.id ? " active" : ""}`;
+    row.className = `session-row${item.id === conversation.id ? " active" : ""}`;
     row.innerHTML = `
       <span>
-        <strong>${escapeHtml(sessionTitleForRoom(item))}</strong>
-        <small>${escapeHtml(new Date(roomSortKey(item) || Date.now()).toLocaleString())}</small>
+        <strong>${escapeHtml(sessionTitleForConversation(item))}</strong>
+        <small>${escapeHtml(new Date(conversationSortKey(item) || Date.now()).toLocaleString())}</small>
       </span>
       ${editable ? `<em title="重命名" data-session-edit="${escapeHtml(item.id)}">✎</em>` : "<i></i>"}
     `;
     row.addEventListener("click", (event) => {
       if (event.target.closest("[data-session-edit]")) {
         event.stopPropagation();
-        renameSessionRoom(item);
+        renameSessionConversation(item);
         return;
       }
-      selectSessionRoom(item);
+      selectSessionConversation(item);
     });
     els.sessionList.appendChild(row);
   }
@@ -1461,11 +1461,11 @@ function groupTilesCtx() {
 // Pinned items sort to the top regardless of recency, mirroring the
 // ChatGPT-style pin behavior the user asked for.
 function combinedConversationItems() {
-  const sidebarRooms = sessionHistory.sidebarRooms(state.rooms, {
-    activeRoomId: state.activeConversationId,
+  const sidebarConversations = sessionHistory.sidebarConversations(state.conversations, {
+    activeConversationId: state.activeConversationId,
     messageCache: state.messageCache
   });
-  const room = sidebarRooms.map((r) => {
+  const conversation = sidebarConversations.map((r) => {
     // id-prefix fallback for cloud deployments that haven't shipped the v7
     // type column yet. Remove once every server is on schema ≥ v7.
     const isDM = r.type === "dm" || r.id?.startsWith("dm:");
@@ -1476,7 +1476,7 @@ function combinedConversationItems() {
     let color = "";
     let memberTiles = null;
     if (isGroup) {
-      const records = state.roomMembersCache.get(r.id) || [];
+      const records = state.conversationMembersCache.get(r.id) || [];
       memberTiles = window.miaGroupTiles.resolveGroupMemberTiles(records, groupTilesCtx());
     } else if (isDM) {
       const parts = r.id.split(":");
@@ -1497,11 +1497,11 @@ function combinedConversationItems() {
       }
     }
     return {
-      kind: "room",
+      kind: "conversation",
       id: r.id,
-      title: roomDisplayTitle(r),
-      preview: roomLastMessageText(r),
-      sortKey: roomSortKey(r),
+      title: conversationDisplayTitle(r),
+      preview: conversationLastMessageText(r),
+      sortKey: conversationSortKey(r),
       isDM,
       isFellow,
       isGroup,
@@ -1509,12 +1509,12 @@ function combinedConversationItems() {
       avatarCrop,
       color,
       memberTiles,
-      pinned: isRoomPinned(r.id)
+      pinned: isConversationPinned(r.id)
     };
   });
   // (Phase 4 cutover: workspace conversations gone — every conversation
-  //  is a room.)
-  return room.sort((a, b) => {
+  //  is a conversation.)
+  return conversation.sort((a, b) => {
     if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
     return b.sortKey - a.sortKey;
   });
@@ -1536,9 +1536,9 @@ function renderConversationList() {
   els.conversationList.innerHTML = items.map((it) => {
     const avatarLabel = (it.title[0] || "?").toUpperCase();
     let color = "#5e5ce6";
-    if (it.kind === "room") color = it.color || (it.isDM ? "#5e5ce6" : "#34c759");
+    if (it.kind === "conversation") color = it.color || (it.isDM ? "#5e5ce6" : "#34c759");
     if (it.kind === "desktop") color = it.color || "#ff9f0a";
-    // Group rooms: paint a mosaic from real member avatars. The tile
+    // Group conversations: paint a mosaic from real member avatars. The tile
     // markup is built into avatarHtml, replacing the single-letter avatar
     // span used for 1-on-1 rows.
     let avatarMarkup = "";
@@ -1557,10 +1557,10 @@ function renderConversationList() {
     } else {
       avatarMarkup = avatarHtmlForConversation(it, color, avatarLabel);
     }
-    // ⋯ menu: workspace conversations + cloud rooms (PATCH/DELETE /api/rooms
+    // ⋯ menu: workspace conversations + cloud conversations (PATCH/DELETE /api/conversations
     // shipped — see commit 90671e4). Pin uses local storage; rename + delete
     // hit the cloud.
-    const hasMenu = it.kind === "desktop" || it.kind === "room";
+    const hasMenu = it.kind === "desktop" || it.kind === "conversation";
     const unread = computeUnreadForConversation({ id: it.id }, state.unread);
     // Shared module owns the truncation policy (e.g. "99+"). Web uses its own
     // .persona-unread class for the list row, so re-extract the truncated
@@ -1638,14 +1638,14 @@ function ensureConvMenuEl() {
 // kept current via user_settings.updated WS events. Local mutation goes
 // through pushSettings() which optimistically updates state.settings,
 // fires a PUT, and the broadcast comes back to confirm (or replace) it.
-function isRoomPinned(roomId) {
-  if (!roomId) return false;
-  return Array.isArray(state.settings?.pins) && state.settings.pins.includes(roomId);
+function isConversationPinned(conversationId) {
+  if (!conversationId) return false;
+  return Array.isArray(state.settings?.pins) && state.settings.pins.includes(conversationId);
 }
-async function setRoomPinned(roomId, pinned) {
-  if (!roomId) return;
+async function setConversationPinned(conversationId, pinned) {
+  if (!conversationId) return;
   const current = Array.isArray(state.settings?.pins) ? state.settings.pins : [];
-  const nextPins = pinned ? [...new Set([...current, roomId])] : current.filter((id) => id !== roomId);
+  const nextPins = pinned ? [...new Set([...current, conversationId])] : current.filter((id) => id !== conversationId);
   await pushSettings({ pins: nextPins });
 }
 
@@ -1682,12 +1682,12 @@ async function pushSettings(patch, _retried = false) {
 function openConvMenu(convId, anchorButton) {
   const el = ensureConvMenuEl();
   _convMenuTargetId = convId;
-  const room = state.rooms.find((r) => r.id === convId);
-  if (!room) return;
+  const conversation = state.conversations.find((r) => r.id === convId);
+  if (!conversation) return;
   const isDM = convId.startsWith("dm:");
-  const pinned = isRoomPinned(convId);
+  const pinned = isConversationPinned(convId);
   // Cloud DM rename is hidden — display name comes from the peer's profile,
-  // not the room record. Server rejects it.
+  // not the conversation record. Server rejects it.
   const showRename = !isDM;
   el.innerHTML = `
     <button type="button" data-conv-action="pin">${pinned ? "取消置顶" : "置顶"}</button>
@@ -1711,29 +1711,29 @@ function closeConvMenu() {
 }
 
 // (syncWorkspaceChange removed in Phase 4 cutover — every action
-//  routes through handleRoomAction now.)
+//  routes through handleConversationAction now.)
 
 async function handleConvAction(action, convId) {
-  const room = state.rooms.find((r) => r.id === convId);
-  if (room) return handleRoomAction(action, room);
+  const conversation = state.conversations.find((r) => r.id === convId);
+  if (conversation) return handleConversationAction(action, conversation);
 }
 
-async function handleRoomAction(action, room) {
-  const title = roomDisplayTitle(room);
+async function handleConversationAction(action, conversation) {
+  const title = conversationDisplayTitle(conversation);
   if (action === "pin") {
-    await setRoomPinned(room.id, !isRoomPinned(room.id));
+    await setConversationPinned(conversation.id, !isConversationPinned(conversation.id));
     return;
   }
   if (action === "rename") {
-    if (room.id.startsWith("dm:")) return; // Hidden in menu; defensive.
-    const next = window.prompt("编辑群组名称：", room.name || "");
+    if (conversation.id.startsWith("dm:")) return; // Hidden in menu; defensive.
+    const next = window.prompt("编辑群组名称：", conversation.name || "");
     if (next === null) return;
     const trimmed = String(next).trim();
     if (!trimmed) return;
     try {
-      const res = await api(`/api/rooms/${room.id}`, { method: "PATCH", body: { name: trimmed } });
-      if (res?.room) {
-        state.rooms = state.rooms.map((r) => (r.id === room.id ? { ...r, ...res.room } : r));
+      const res = await api(`/api/conversations/${conversation.id}`, { method: "PATCH", body: { name: trimmed } });
+      if (res?.conversation) {
+        state.conversations = state.conversations.map((r) => (r.id === conversation.id ? { ...r, ...res.conversation } : r));
         renderConversationList();
       }
     } catch (err) {
@@ -1744,11 +1744,11 @@ async function handleRoomAction(action, room) {
   if (action === "delete") {
     if (!window.confirm(`确认删除"${title}"？此操作不可撤销，所有成员都将无法访问。`)) return;
     try {
-      await api(`/api/rooms/${room.id}`, { method: "DELETE" });
-      state.rooms = state.rooms.filter((r) => r.id !== room.id);
-      state.unread.delete(room.id);
-      state.roomMembersCache.delete(room.id);
-      if (state.activeConversationId === room.id) state.activeConversationId = "";
+      await api(`/api/conversations/${conversation.id}`, { method: "DELETE" });
+      state.conversations = state.conversations.filter((r) => r.id !== conversation.id);
+      state.unread.delete(conversation.id);
+      state.conversationMembersCache.delete(conversation.id);
+      if (state.activeConversationId === conversation.id) state.activeConversationId = "";
       renderConversationList();
       renderActiveChat();
     } catch (err) {
@@ -1760,13 +1760,13 @@ async function handleRoomAction(action, room) {
 
 // ── active chat view ───────────────────────────────────────────────────────
 
-function buildRoomMessageArticle(msg, room) {
-  // Sender resolution routes through the canonical adapter (cloud-room-source).
+function buildConversationMessageArticle(msg, conversation) {
+  // Sender resolution routes through the canonical adapter (cloud-conversation-source).
   // Web reads only MessageSpec fields — no schema branching here.
-  const members = state.roomMembersCache.get(room.id) || [];
+  const members = state.conversationMembersCache.get(conversation.id) || [];
   const ctx = { self: state.user, friends: state.friends, fellows: state.fellows };
-  const source = window.miaCloudRoomSource.createCloudRoomSource({
-    room, messages: [msg], members, ctx
+  const source = window.miaCloudConversationSource.createCloudConversationSource({
+    conversation, messages: [msg], members, ctx
   });
   const spec = source.listMessages()[0];
   const isOwn = spec.isOwn;
@@ -1801,20 +1801,20 @@ function buildRoomMessageArticle(msg, room) {
   `;
 }
 
-function buildCloudAgentStreamingArticle(room, run) {
-  if (!room || !run || (run.status === "complete" && !run.text && !run.tools.length)) return "";
-  const fellowKey = run.fellowId || room.decorations?.fellowKey || (room.id?.startsWith("fellow:") ? room.id.split(":")[2] : "mia");
+function buildCloudAgentStreamingArticle(conversation, run) {
+  if (!conversation || !run || (run.status === "complete" && !run.text && !run.tools.length)) return "";
+  const fellowKey = run.fellowId || conversation.decorations?.fellowKey || (conversation.id?.startsWith("fellow:") ? conversation.id.split(":")[2] : "mia");
   const msg = {
-    id: `cloud-agent-stream-${run.runId || room.id}`,
+    id: `cloud-agent-stream-${run.runId || conversation.id}`,
     sender_kind: "fellow",
     sender_ref: fellowKey,
     body_md: run.text || "",
     created_at: run.createdAt || new Date().toISOString(),
     seq: 0,
   };
-  const members = state.roomMembersCache.get(room.id) || [];
+  const members = state.conversationMembersCache.get(conversation.id) || [];
   const ctx = { self: state.user, friends: state.friends, fellows: state.fellows };
-  const source = window.miaCloudRoomSource.createCloudRoomSource({ room, messages: [msg], members, ctx });
+  const source = window.miaCloudConversationSource.createCloudConversationSource({ conversation, messages: [msg], members, ctx });
   const spec = source.listMessages()[0];
   const avatar = spec.avatar || {};
   const avatarMarkup = avatarHtml({
@@ -1860,7 +1860,7 @@ function renderCommandResultHtml(commandResult) {
 }
 
 // (buildDesktopMessageArticle removed in Phase 4 cutover — fellow chats
-//  render through buildRoomMessageArticle now.)
+//  render through buildConversationMessageArticle now.)
 
 function setComposerEnabled(enabled, placeholder) {
   els.chatInput.disabled = !enabled;
@@ -1884,31 +1884,31 @@ function renderActiveChat() {
     return;
   }
 
-  if (isRoomId(id)) {
-    const room = state.rooms.find((r) => r.id === id);
-    if (!room) {
+  if (isConversationId(id)) {
+    const conversation = state.conversations.find((r) => r.id === id);
+    if (!conversation) {
       setComposerEnabled(false, "会话不存在");
       renderComposerControls(null);
       state.sessionMenuOpen = false;
       renderSessionMenu();
       return;
     }
-    const title = roomDisplayTitle(room);
-    const roomType = roomTypeForControls(room);
-    const isDM = roomType === "dm";
-    const isFellow = roomType === "fellow";
+    const title = conversationDisplayTitle(conversation);
+    const conversationType = conversationTypeForControls(conversation);
+    const isDM = conversationType === "dm";
+    const isFellow = conversationType === "fellow";
     let peerAvatar = "";
     let peerCrop = null;
     let peerColor = "";
     if (isDM) {
-      const parts = room.id.split(":");
+      const parts = conversation.id.split(":");
       const otherId = parts[1] === state.user?.id ? parts[2] : parts[1];
       const friend = friendById(otherId);
       peerAvatar = friend?.avatarImage || "";
       peerCrop = friend?.avatarCrop || null;
       peerColor = friend?.avatarColor || "";
     } else if (isFellow) {
-      const fellow = fellowByKey(fellowKeyForRoom(room));
+      const fellow = fellowByKey(fellowKeyForConversation(conversation));
       peerAvatar = fellow?.avatarImage || "";
       peerCrop = fellow?.avatarCrop || null;
       peerColor = fellow?.color || "";
@@ -1923,12 +1923,12 @@ function renderActiveChat() {
     els.activeTitle.textContent = title;
     els.activeMeta.textContent = isDM ? "私聊" : isFellow ? "AI 私聊" : "群聊";
     renderSessionMenu();
-    renderComposerControls(room);
-    const cached = state.messageCache.get(room.id);
+    renderComposerControls(conversation);
+    const cached = state.messageCache.get(conversation.id);
     const messages = cached?.messages || [];
-    const streaming = buildCloudAgentStreamingArticle(room, state.cloudAgentRunsByRoom.get(room.id));
+    const streaming = buildCloudAgentStreamingArticle(conversation, state.cloudAgentRunsByConversation.get(conversation.id));
     els.chat.innerHTML = messages.length
-      ? `${messages.map((m) => buildRoomMessageArticle(m, room)).join("")}${streaming}`
+      ? `${messages.map((m) => buildConversationMessageArticle(m, conversation)).join("")}${streaming}`
       : `<p class="persona-empty">还没有消息。</p>`;
     if (!messages.length && streaming) els.chat.innerHTML = streaming;
     hydrateAvatarVideos(els.chat);
@@ -1948,16 +1948,16 @@ function renderActiveChat() {
 }
 
 async function hydrateActiveConversation(id) {
-  if (!id || !isRoomId(id)) return;
-  await ensureRoomMessages(id);
-  await ensureRoomMembers(id);
-  const room = state.rooms.find((item) => item.id === id);
-  if (roomTypeForControls(room) === "fellow") {
-    await ensureFellowRuntime(fellowKeyForRoom(room), runtimeKindForFellowRoom(room, fellowByKey(fellowKeyForRoom(room))));
+  if (!id || !isConversationId(id)) return;
+  await ensureConversationMessages(id);
+  await ensureConversationMembers(id);
+  const conversation = state.conversations.find((item) => item.id === id);
+  if (conversationTypeForControls(conversation) === "fellow") {
+    await ensureFellowRuntime(fellowKeyForConversation(conversation), runtimeKindForFellowConversation(conversation, fellowByKey(fellowKeyForConversation(conversation))));
   }
   if (state.activeConversationId !== id) return;
   // Phase 3: persist the read mark to cloud so other devices clear their badge.
-  // readMarks are message seq cursors, so compute after ensureRoomMessages().
+  // readMarks are message seq cursors, so compute after ensureConversationMessages().
   pushSettings({ readMarks: { [id]: lastSeenSeqForConversation(id) } })
     .catch((err) => console.warn("[web] mark-read settings PUT failed:", err));
   renderConversationList();
@@ -1978,7 +1978,7 @@ async function sendInActive() {
   const id = state.activeConversationId;
   if (!id) return;
   const rawText = els.chatInput.value || "";
-  const members = isRoomId(id) ? (state.roomMembersCache.get(id) || []) : [];
+  const members = isConversationId(id) ? (state.conversationMembersCache.get(id) || []) : [];
   let prepared;
   try {
     prepared = prepareOutgoingMessage({ text: rawText }, { members });
@@ -1989,10 +1989,10 @@ async function sendInActive() {
   }
   const text = prepared.bodyMd;
 
-  if (isRoomId(id)) {
+  if (isConversationId(id)) {
     els.chatInput.value = "";
     try {
-      const res = await api(`/api/rooms/${id}/messages`, {
+      const res = await api(`/api/conversations/${id}/messages`, {
         method: "POST",
         body: {
           bodyMd: text,
@@ -2017,11 +2017,11 @@ async function sendInActive() {
     return;
   }
 
-  // (workspace conversation send removed — fellow chats are rooms and
-  //  go through the isRoomId branch above. If we ever want web-triggered
-  //  agent execution for a fellow room, dispatch a bridge run AFTER the
-  //  /api/rooms/:id/messages POST above; the bridge handler now writes
-  //  the assistant reply into the same room via messagesStore.)
+  // (workspace conversation send removed — fellow chats are conversations and
+  //  go through the isConversationId branch above. If we ever want web-triggered
+  //  agent execution for a fellow conversation, dispatch a bridge run AFTER the
+  //  /api/conversations/:id/messages POST above; the bridge handler now writes
+  //  the assistant reply into the same conversation via messagesStore.)
 }
 
 // ── create cloud fellow dialog ─────────────────────────────────────────────
@@ -2260,7 +2260,7 @@ async function saveCloudOnlyFellowFromWeb(draft) {
       }
     }
   });
-  const ensured = await api(`/api/me/fellows/${encodeURIComponent(key)}/room`, {
+  const ensured = await api(`/api/me/fellows/${encodeURIComponent(key)}/conversation`, {
     method: "PUT",
     body: {
       title: name,
@@ -2270,11 +2270,11 @@ async function saveCloudOnlyFellowFromWeb(draft) {
   const fellow = { ...(saved.fellow || identity), key, id: key };
   state.fellows = [fellow, ...state.fellows.filter((item) => String(item.id || item.key || "") !== key)];
   if (runtime.binding) state.fellowRuntimeCache.set(runtimeCacheKey(key, "cloud-hermes"), runtime.binding);
-  if (ensured.room) {
-    state.rooms = [ensured.room, ...state.rooms.filter((room) => room.id !== ensured.room.id)];
-    if (Array.isArray(ensured.members)) state.roomMembersCache.set(ensured.room.id, ensured.members);
+  if (ensured.conversation) {
+    state.conversations = [ensured.conversation, ...state.conversations.filter((conversation) => conversation.id !== ensured.conversation.id)];
+    if (Array.isArray(ensured.members)) state.conversationMembersCache.set(ensured.conversation.id, ensured.members);
   }
-  return { key, fellow, room: ensured.room || null };
+  return { key, fellow, conversation: ensured.conversation || null };
 }
 
 function openCreateFellowDialog() {
@@ -2390,7 +2390,7 @@ function openCreateFellowDialog() {
         const saved = await saveCloudOnlyFellowFromWeb(draft);
         close();
         renderConversationList();
-        if (saved.room?.id) setActiveConversation(saved.room.id);
+        if (saved.conversation?.id) setActiveConversation(saved.conversation.id);
       } catch (err) {
         draft.saving = false;
         render();
@@ -2534,9 +2534,9 @@ function renderAddFriendModal() {
       try {
         const res = await api(`/api/social/friend-requests/${encodeURIComponent(id)}/respond`, { method: "POST", body: { action } });
         state.incomingRequests = state.incomingRequests.filter((r) => r.id !== id);
-        if (action === "accept" && res.friend && res.room) {
+        if (action === "accept" && res.friend && res.conversation) {
           state.friends = [res.friend, ...state.friends.filter((f) => f.id !== res.friend.id)];
-          state.rooms = [res.room, ...state.rooms.filter((r) => r.id !== res.room.id)];
+          state.conversations = [res.conversation, ...state.conversations.filter((r) => r.id !== res.conversation.id)];
           renderConversationList();
         }
         renderAddFriendModal();
@@ -2648,13 +2648,13 @@ function openCreateGroupDialog() {
     const namesList = ids.map((id) => friendUsernameById(id));
     const name = (nameInput?.value || "").trim() || namesList.join(" · ");
     try {
-      const res = await api("/api/rooms", { method: "POST", body: { name, memberFriendUserIds: ids, memberFellows: [] } });
-      const room = res.room || res.data?.room;
-      if (room) {
-        state.rooms = [room, ...state.rooms.filter((r) => r.id !== room.id)];
-        if (Array.isArray(res.members)) state.roomMembersCache.set(room.id, res.members);
+      const res = await api("/api/conversations", { method: "POST", body: { name, memberFriendUserIds: ids, memberFellows: [] } });
+      const conversation = res.conversation || res.data?.conversation;
+      if (conversation) {
+        state.conversations = [conversation, ...state.conversations.filter((r) => r.id !== conversation.id)];
+        if (Array.isArray(res.members)) state.conversationMembersCache.set(conversation.id, res.members);
         renderConversationList();
-        setActiveConversation(room.id);
+        setActiveConversation(conversation.id);
       }
       close();
     } catch (err) { statusEl.textContent = err.message; }
@@ -2776,7 +2776,7 @@ document.addEventListener("click", (event) => {
 
 els.sessionMenuButton?.addEventListener("click", (event) => {
   event.stopPropagation();
-  if (!activeSessionRoom()) return;
+  if (!activeSessionConversation()) return;
   state.sessionMenuOpen = !state.sessionMenuOpen;
   renderSessionMenu();
 });

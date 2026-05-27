@@ -1,6 +1,6 @@
 // Renderer for sidebar conversation cards. ONE shape for 1-on-1 chats
 // (fellow private or cloud DM) and ONE shape for group chats (local fellow
-// group or cloud room with friends + fellows). The caller normalizes its
+// group or cloud conversation with friends + fellows). The caller normalizes its
 // row into a spec; the actual avatar / time / pin / unread / context-menu
 // behavior is the same regardless of where the conversation lives.
 //
@@ -34,7 +34,7 @@
   }
 
   function pinSvg() {
-    return global.miaIconParkPin || global.ICON_PARK_PIN_SVG || "";
+    return global.miaIconParkPin || global.ICON_PARK_PIN_SVG || '<svg class="icon-park-pin" viewBox="0 0 48 48" aria-hidden="true" focusable="false"><path d="M10.6963 17.5042C13.3347 14.8657 16.4701 14.9387 19.8781 16.8076L32.62 9.74509L31.8989 4.78683L43.2126 16.1005L38.2656 15.3907L31.1918 28.1214C32.9752 31.7589 33.1337 34.6647 30.4953 37.3032C30.4953 37.3032 26.235 33.0429 22.7171 29.525L6.44305 41.5564L18.4382 25.2461C14.9202 21.7281 10.6963 17.5042 10.6963 17.5042Z"/></svg>';
   }
 
   function applyAvatarStyle(el, image, crop, color) {

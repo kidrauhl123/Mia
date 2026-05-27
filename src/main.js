@@ -47,10 +47,10 @@ const { createSocialApi } = require("./main/social/social-api.js");
 const { registerSocialIpc } = require("./main/social/social-ipc.js");
 const {
   createLocalFellowResponder,
-  shouldHandleLocalCloudRoomAi
+  shouldHandleLocalCloudConversationAi
 } = require("./main/social/local-fellow-responder.js");
 const { createMainGroupConductor } = require("./main/social/group-conductor.js");
-const { createMainFellowRoomResponder } = require("./main/social/fellow-room-responder.js");
+const { createMainFellowConversationResponder } = require("./main/social/fellow-conversation-responder.js");
 const { createMainFellowRuntimeDispatcher } = require("./main/social/fellow-runtime-dispatcher.js");
 const { createCloudEventsClient } = require("./main/cloud/cloud-events-client.js");
 const { createCloudBridgeClient } = require("./main/cloud/cloud-bridge-client.js");
@@ -80,7 +80,7 @@ const { createEngineInstallService } = require("./main/engine-install-service.js
 const { registerWindowIpc } = require("./main/ipc/window-ipc.js");
 const { registerTasksIpc } = require("./main/ipc/tasks-ipc.js");
 // (cloud/desktop-sync helpers removed in Phase 4 cutover — fellow chats
-//  now sync via rooms+messages, no need for the workspace-shape mappers.)
+//  now sync via conversations+messages, no need for the workspace-shape mappers.)
 
 app.setName("Mia");
 const isolatedUserDataDir = String(process.env.MIA_USER_DATA_DIR || "").trim();
@@ -481,8 +481,8 @@ function daemonToken() {
 
 // (mergeCloudWorkspaceIntoChatStore removed in Phase 4 cutover —
 //  the cloud workspace snapshot is no longer the conversation source.
-//  Fellow chats now sync via rooms+messages; the merge-into-chat-store
-//  path is replaced by the cloud-room cache which never overwrites the
+//  Fellow chats now sync via conversations+messages; the merge-into-chat-store
+//  path is replaced by the cloud-conversation cache which never overwrites the
 //  local chat-store.)
 
 function broadcastRendererEvent(channel, payload) {
@@ -904,21 +904,21 @@ async function runRemoteChatRequest(body, eventSink = null) {
   saveChatStore(fresh);
   notifyChatSessionsChanged();
   // When signed into Mia Cloud, the conversation the user sees IS a per-fellow
-  // cloud room keyed by FELLOW (`fellow:<userId>:<fellowKey>`), not by session. A
-  // scheduled task runs locally, so post its reply into that room AS the fellow —
+  // cloud conversation keyed by FELLOW (`fellow:<userId>:<fellowKey>`), not by session. A
+  // scheduled task runs locally, so post its reply into that conversation AS the fellow —
   // the same path web/cloud fellow replies use — so it shows up and notifies in
   // the message list (and syncs to web / other devices). Only for background
-  // (task) runs; foreground and web chats already reach the room themselves.
-  // (The earlier session-keyed mirror wrote to a phantom room and never showed.)
+  // (task) runs; foreground and web chats already reach the conversation themselves.
+  // (The earlier session-keyed mirror wrote to a phantom conversation and never showed.)
   if (body?.background && assistantText.trim()) {
     const cloud = settingsStore.cloudSettings();
     if (cloud.enabled && cloud.token && cloud.user?.id) {
-      const roomId = `fellow:${cloud.user.id}:${fellow.key}`;
-      Promise.resolve(socialApi.postRoomMessageAsFellow(roomId, {
+      const conversationId = `fellow:${cloud.user.id}:${fellow.key}`;
+      Promise.resolve(socialApi.postConversationMessageAsFellow(conversationId, {
         fellowId: fellow.key,
         bodyMd: assistantText,
         clientOpId: `op_task_${target.id}_${assistantMessageId}`
-      })).catch((error) => appendDaemonLog(`Task reply room post failed: ${error?.message || error}`));
+      })).catch((error) => appendDaemonLog(`Task reply conversation post failed: ${error?.message || error}`));
     }
   }
   return { fellow, session: target, response, userMessageId, assistantMessageId };
@@ -1342,7 +1342,7 @@ async function ensureHermesChatEngineReady() {
 }
 
 // Group-context plumbing carried over from the local-group era. Cloud group
-// rooms don't currently set group.contextBlock — the dep is wired through
+// conversations don't currently set group.contextBlock — the dep is wired through
 // the adapters as a no-op so existing call sites stay valid until/unless
 // cloud-side conductor needs a different injection shape.
 function _noopGroupHeader() { return ""; }
@@ -1848,7 +1848,7 @@ cloudBridgeRuntime = createCloudBridgeClient({
 for (const line of pendingCloudLogs.splice(0)) cloudBridgeRuntime.appendLog(line);
 const localFellowResponder = createLocalFellowResponder({
   sendChat,
-  postRoomMessageAsFellow: (roomId, body) => socialApi.postRoomMessageAsFellow(roomId, body),
+  postConversationMessageAsFellow: (conversationId, body) => socialApi.postConversationMessageAsFellow(conversationId, body),
   emitCloudEvent: (message) => {
     broadcastRendererEvent(IpcChannel.CloudEvent, {
       type: message.type,
@@ -1857,8 +1857,8 @@ const localFellowResponder = createLocalFellowResponder({
   },
   log: (line) => appendCloudLog(line)
 });
-function shouldHandleCloudRoomAi() {
-  return shouldHandleLocalCloudRoomAi({
+function shouldHandleCloudConversationAi() {
+  return shouldHandleLocalCloudConversationAi({
     isDaemon: IS_DAEMON_PROCESS,
     daemonEnabled: settingsStore.daemonSettings().enabled
   });
@@ -1867,24 +1867,24 @@ const mainGroupConductor = createMainGroupConductor({
   getCurrentUserId: () => settingsStore.cloudSettings().user?.id || "",
   listFellows: () => loadFellowManifest().fellows || [],
   loadPrompts: loadConductorPrompts,
-  getRoomDetails: (roomId) => socialApi.getRoom(roomId),
-  listRecentMessages: async (roomId, sinceSeq, limit) => {
-    const data = await socialApi.listRoomMessages(roomId, sinceSeq, limit);
+  getConversationDetails: (conversationId) => socialApi.getConversation(conversationId),
+  listRecentMessages: async (conversationId, sinceSeq, limit) => {
+    const data = await socialApi.listConversationMessages(conversationId, sinceSeq, limit);
     return data?.messages || [];
   },
   sendChatStateless,
   responder: localFellowResponder,
   log: (line) => appendCloudLog(line)
 });
-const mainFellowRoomResponder = createMainFellowRoomResponder({
+const mainFellowConversationResponder = createMainFellowConversationResponder({
   getCurrentUserId: () => settingsStore.cloudSettings().user?.id || "",
-  getRoomDetails: (roomId) => socialApi.getRoom(roomId),
-  listRooms: async () => {
-    const data = await socialApi.listRooms();
-    return data?.rooms || [];
+  getConversationDetails: (conversationId) => socialApi.getConversation(conversationId),
+  listConversations: async () => {
+    const data = await socialApi.listConversations();
+    return data?.conversations || [];
   },
-  listRecentMessages: async (roomId, sinceSeq, limit) => {
-    const data = await socialApi.listRoomMessages(roomId, sinceSeq, limit);
+  listRecentMessages: async (conversationId, sinceSeq, limit) => {
+    const data = await socialApi.listConversationMessages(conversationId, sinceSeq, limit);
     return data?.messages || [];
   },
   getFellowRuntime: async (fellowId, runtimeKind) => {
@@ -1895,11 +1895,11 @@ const mainFellowRoomResponder = createMainFellowRoomResponder({
   log: (line) => appendCloudLog(line)
 });
 const mainFellowRuntimeDispatcher = createMainFellowRuntimeDispatcher({
-  shouldHandle: shouldHandleCloudRoomAi,
+  shouldHandle: shouldHandleCloudConversationAi,
   listFellows: () => loadFellowManifest().fellows || [],
   localFellowResponder,
   mainGroupConductor,
-  mainFellowRoomResponder,
+  mainFellowConversationResponder,
   log: (line) => appendCloudLog(line)
 });
 cloudEventSocketRuntime = createCloudEventsClient({

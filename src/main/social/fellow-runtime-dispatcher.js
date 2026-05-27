@@ -8,7 +8,7 @@ function createMainFellowRuntimeDispatcher({
   listFellows = () => [],
   localFellowResponder,
   mainGroupConductor,
-  mainFellowRoomResponder,
+  mainFellowConversationResponder,
   log = () => {}
 } = {}) {
   function canHandle() {
@@ -29,23 +29,23 @@ function createMainFellowRuntimeDispatcher({
     return invokeFellow(args);
   }
 
-  async function handleRoomMessageAppended(message = {}) {
+  async function handleConversationMessageAppended(message = {}) {
     if (!canHandle()) return false;
     const args = {
-      roomId: message.roomId || message.room_id,
+      conversationId: message.conversationId || message.conversation_id,
       message: message.message
     };
     const tasks = [];
-    if (mainGroupConductor && typeof mainGroupConductor.handleRoomMessageAppended === "function") {
+    if (mainGroupConductor && typeof mainGroupConductor.handleConversationMessageAppended === "function") {
       tasks.push(
-        mainGroupConductor.handleRoomMessageAppended(args)
+        mainGroupConductor.handleConversationMessageAppended(args)
           .catch((error) => log(`Cloud group conductor failed: ${error?.message || error}`))
       );
     }
-    if (mainFellowRoomResponder && typeof mainFellowRoomResponder.handleRoomMessageAppended === "function") {
+    if (mainFellowConversationResponder && typeof mainFellowConversationResponder.handleConversationMessageAppended === "function") {
       tasks.push(
-        mainFellowRoomResponder.handleRoomMessageAppended(args)
-          .catch((error) => log(`Cloud fellow room responder failed: ${error?.message || error}`))
+        mainFellowConversationResponder.handleConversationMessageAppended(args)
+          .catch((error) => log(`Cloud fellow conversation responder failed: ${error?.message || error}`))
       );
     }
     await Promise.all(tasks);
@@ -53,7 +53,7 @@ function createMainFellowRuntimeDispatcher({
   }
 
   async function handleCloudEvent(message = {}) {
-    if (message.type === CloudEvent.RoomFellowInvocationRequested) {
+    if (message.type === CloudEvent.ConversationFellowInvocationRequested) {
       try {
         return await handleFellowInvocationRequested(message);
       } catch (error) {
@@ -61,8 +61,8 @@ function createMainFellowRuntimeDispatcher({
         return false;
       }
     }
-    if (message.type === CloudEvent.RoomMessageAppended) {
-      return handleRoomMessageAppended(message);
+    if (message.type === CloudEvent.ConversationMessageAppended) {
+      return handleConversationMessageAppended(message);
     }
     return false;
   }
@@ -71,7 +71,7 @@ function createMainFellowRuntimeDispatcher({
     invokeFellow,
     handleCloudEvent,
     handleFellowInvocationRequested,
-    handleRoomMessageAppended
+    handleConversationMessageAppended
   };
 }
 

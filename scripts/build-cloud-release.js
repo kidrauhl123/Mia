@@ -328,7 +328,7 @@ function verifyRelease() {
     "api/src/cloud/sqlite-store.js",
     "api/src/cloud/social-store.js",
     "api/src/cloud/messages-store.js",
-    "api/src/cloud/dm-room.js",
+    "api/src/cloud/dm-conversation.js",
     "api/src/cloud/desktop-bridge-permission.js",
     "api/src/cloud-agent/runtime-bindings-store.js",
     "api/src/cloud-agent/cloud-agent-runs-store.js",
@@ -379,7 +379,7 @@ function verifyRelease() {
     "api/src/cloud/sqlite-store.js",
     "api/src/cloud/social-store.js",
     "api/src/cloud/messages-store.js",
-    "api/src/cloud/dm-room.js",
+    "api/src/cloud/dm-conversation.js",
     "api/src/cloud/desktop-bridge-permission.js",
     "api/src/cloud-agent/runtime-bindings-store.js",
     "api/src/cloud-agent/cloud-agent-runs-store.js",
@@ -504,7 +504,7 @@ function verifyRelease() {
     require(${JSON.stringify(assertFile("api/src/cloud/sqlite-store.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud/social-store.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud/messages-store.js"))});
-    require(${JSON.stringify(assertFile("api/src/cloud/dm-room.js"))});
+    require(${JSON.stringify(assertFile("api/src/cloud/dm-conversation.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud/desktop-bridge-permission.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/runtime-bindings-store.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/cloud-agent-runs-store.js"))});
@@ -567,7 +567,7 @@ function main() {
   copyFile("src/shared/send-pipeline.js", path.join(webDir, "shared", "send-pipeline.js"));
   copyFile("src/shared/fellow-runtime-control.js", path.join(webDir, "shared", "fellow-runtime-control.js"));
   copyFile("src/renderer/helpers/markdown-helpers.js", path.join(webDir, "helpers", "markdown-helpers.js"));
-  copyFile("src/renderer/message-sources/cloud-room-source.js", path.join(webDir, "message-sources", "cloud-room-source.js"));
+  copyFile("src/renderer/message-sources/cloud-conversation-source.js", path.join(webDir, "message-sources", "cloud-conversation-source.js"));
   writeIcoFromPng(path.join(webDir, "icon-192.png"), path.join(webDir, "favicon.ico"));
   copyFile("scripts/smoke-cloud.js", path.join(distDir, "smoke-cloud.js"));
   copyFile("scripts/prepare-cloud-smoke-account.js", path.join(distDir, "prepare-cloud-smoke-account.js"));

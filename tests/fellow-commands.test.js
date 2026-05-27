@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 
 const commands = require("../src/renderer/fellow/fellow-commands.js");
 
-test("saveFellow creates a cloud-hermes fellow through identity, runtime, and room commands", async () => {
+test("saveFellow creates a cloud-hermes fellow through identity, runtime, and conversation commands", async () => {
   const calls = [];
   const state = {
     runtime: {
@@ -15,9 +15,9 @@ test("saveFellow creates a cloud-hermes fellow through identity, runtime, and ro
     moduleState: {
       fellows: [{ id: "mia", name: "Mia" }]
     },
-    upsertFellowRoom(room) {
-      calls.push(["upsertRoom", room.id]);
-      return room;
+    upsertFellowConversation(conversation) {
+      calls.push(["upsertConversation", conversation.id]);
+      return conversation;
     }
   };
   const api = {
@@ -30,9 +30,9 @@ test("saveFellow creates a cloud-hermes fellow through identity, runtime, and ro
         calls.push(["runtime", key, body]);
         return { ok: true, data: { binding: { fellowId: key, ...body } } };
       },
-      async ensureFellowRoom(key, body) {
-        calls.push(["room", key, body]);
-        return { ok: true, data: { room: { id: `fellow:u_1:${key}`, type: "fellow", decorations: { fellowKey: key, runtimeKind: body.runtimeKind } } } };
+      async ensureFellowConversation(key, body) {
+        calls.push(["conversation", key, body]);
+        return { ok: true, data: { conversation: { id: `fellow:u_1:${key}`, type: "fellow", decorations: { fellowKey: key, runtimeKind: body.runtimeKind } } } };
       }
     }
   };
@@ -53,8 +53,8 @@ test("saveFellow creates a cloud-hermes fellow through identity, runtime, and ro
   });
 
   assert.equal(result.key, "alice");
-  assert.equal(result.room.id, "fellow:u_1:alice");
-  assert.deepEqual(calls.map((call) => call[0]), ["identity", "runtime", "room", "upsertRoom"]);
+  assert.equal(result.conversation.id, "fellow:u_1:alice");
+  assert.deepEqual(calls.map((call) => call[0]), ["identity", "runtime", "conversation", "upsertConversation"]);
   assert.equal(calls[1][2].config.model, "mia-fast");
   assert.equal(calls[2][2].runtimeKind, "cloud-hermes");
   assert.equal(social.moduleState.fellows[0].id, "alice");
@@ -353,12 +353,12 @@ test("syncDesktopLocalFellowRuntimeBinding stores hermes config from current dev
   ]]);
 });
 
-test("ensureDesktopLocalFellowRoom creates room and syncs external engine runtime config", async () => {
+test("ensureDesktopLocalFellowConversation creates conversation and syncs external engine runtime config", async () => {
   const calls = [];
   const api = {
-    async ensureFellowRoom(fellowId, body) {
-      calls.push(["room", fellowId, body]);
-      return { ok: true, data: { room: { id: `fellow:u_1:${fellowId}`, type: "fellow" } } };
+    async ensureFellowConversation(fellowId, body) {
+      calls.push(["conversation", fellowId, body]);
+      return { ok: true, data: { conversation: { id: `fellow:u_1:${fellowId}`, type: "fellow" } } };
     },
     async saveFellowRuntime(fellowId, body) {
       calls.push(["runtime", fellowId, body]);
@@ -367,7 +367,7 @@ test("ensureDesktopLocalFellowRoom creates room and syncs external engine runtim
   };
   const upserted = [];
 
-  const result = await commands.ensureDesktopLocalFellowRoom({
+  const result = await commands.ensureDesktopLocalFellowConversation({
     api,
     state: { runtime: {} },
     fellow: {
@@ -382,14 +382,14 @@ test("ensureDesktopLocalFellowRoom creates room and syncs external engine runtim
         { id: "gpt-5.3-codex", model: "gpt-5.3-codex", label: "GPT-5.3 Codex", provider: "codex" }
       ]
     },
-    onRoom: (room) => {
-      upserted.push(room);
-      return { ...room, upserted: true };
+    onConversation: (conversation) => {
+      upserted.push(conversation);
+      return { ...conversation, upserted: true };
     }
   });
 
-  assert.deepEqual(calls.map((call) => call[0]), ["room", "runtime"]);
-  assert.deepEqual(calls[0], ["room", "codex", { title: "Codex", runtimeKind: "desktop-local" }]);
+  assert.deepEqual(calls.map((call) => call[0]), ["conversation", "runtime"]);
+  assert.deepEqual(calls[0], ["conversation", "codex", { title: "Codex", runtimeKind: "desktop-local" }]);
   assert.equal(calls[1][1], "codex");
   assert.deepEqual(calls[1][2].config, {
     agentEngine: "codex",
@@ -401,7 +401,7 @@ test("ensureDesktopLocalFellowRoom creates room and syncs external engine runtim
       { value: "gpt-5.3-codex", label: "GPT-5.3 Codex", model: "gpt-5.3-codex", provider: "codex", providerLabel: "" }
     ]
   });
-  assert.equal(result.room.upserted, true);
+  assert.equal(result.conversation.upserted, true);
   assert.equal(upserted[0].id, "fellow:u_1:codex");
 });
 

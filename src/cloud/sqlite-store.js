@@ -317,7 +317,7 @@ function createCloudStore(options = {}) {
     const row = getUserById(userId);
     const user = rowToUser(row);
     // Phase 4 cutover: workspace removed from auth response. Clients
-    // bootstrap conversations from /api/rooms now.
+    // bootstrap conversations from /api/conversations now.
     return { token: createSession(user.id), user };
   }
 
@@ -683,15 +683,15 @@ function migrate(db) {
       resolved_at  TEXT
     );
 
-    -- A "room" is the universal Conversation entity. type values:
+    -- A "conversation" is the universal Conversation entity. type values:
     --   'dm'     — two-user direct message (id format dm:a:b)
-    --   'group'  — multi-member room (id format g_<hex>)
+    --   'group'  — multi-member conversation (id format g_<hex>)
     --   'fellow' — a user's private chat with one of their own fellows
     --              (id format fellow:<userId>:<fellowKey>). owner only,
     --              no other user members.
     -- The type column is the canonical answer for "what kind of
     -- conversation is this"; id prefix is just a historical hint.
-    CREATE TABLE IF NOT EXISTS rooms (
+    CREATE TABLE IF NOT EXISTS conversations (
       id                TEXT PRIMARY KEY,
       type              TEXT NOT NULL DEFAULT 'group',
       name              TEXT,
@@ -702,19 +702,19 @@ function migrate(db) {
       created_at        TEXT NOT NULL,
       updated_at        TEXT NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS room_members (
-      room_id       TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+    CREATE TABLE IF NOT EXISTS conversation_members (
+      conversation_id       TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
       member_kind   TEXT NOT NULL,
       member_ref    TEXT NOT NULL,
       owner_id      TEXT,
       ai_perms_json TEXT,
       joined_at     TEXT NOT NULL,
-      PRIMARY KEY (room_id, member_kind, member_ref)
+      PRIMARY KEY (conversation_id, member_kind, member_ref)
     );
 
     CREATE TABLE IF NOT EXISTS messages (
       id              TEXT PRIMARY KEY,
-      room_id         TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+      conversation_id         TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
       seq             INTEGER NOT NULL,
       turn_id         TEXT,
       sender_kind     TEXT NOT NULL,
@@ -727,27 +727,27 @@ function migrate(db) {
       status          TEXT NOT NULL,
       error_json      TEXT,
       created_at      TEXT NOT NULL,
-      UNIQUE (room_id, seq)
+      UNIQUE (conversation_id, seq)
     );
 
     CREATE INDEX IF NOT EXISTS idx_friend_requests_to ON friend_requests(to_user, status);
     CREATE INDEX IF NOT EXISTS idx_friend_requests_code ON friend_requests(code, status);
-    CREATE INDEX IF NOT EXISTS idx_room_members_user ON room_members(member_kind, member_ref);
-    CREATE INDEX IF NOT EXISTS idx_messages_room_seq ON messages(room_id, seq);
+    CREATE INDEX IF NOT EXISTS idx_conversation_members_user ON conversation_members(member_kind, member_ref);
+    CREATE INDEX IF NOT EXISTS idx_messages_conversation_seq ON messages(conversation_id, seq);
 
     -- v9: per-user message hiding (WeChat-style local delete). Deleting a
     -- message removes it only from the deleter's own view (across their
-    -- devices); other room members keep their copy. This is distinct from a
+    -- devices); other conversation members keep their copy. This is distinct from a
     -- future "recall" that would hard-delete for everyone. The read path
     -- filters messages whose id appears here for the requesting user.
     CREATE TABLE IF NOT EXISTS message_hidden (
       user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      room_id    TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+      conversation_id    TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
       message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
       created_at TEXT NOT NULL,
       PRIMARY KEY (user_id, message_id)
     );
-    CREATE INDEX IF NOT EXISTS idx_message_hidden_user_room ON message_hidden(user_id, room_id);
+    CREATE INDEX IF NOT EXISTS idx_message_hidden_user_conversation ON message_hidden(user_id, conversation_id);
 
     -- v4: per-user persistent event log + write idempotency.
     -- See docs/superpowers/plans/2026-05-23-sync-architecture-redesign.md.
@@ -833,7 +833,7 @@ function migrate(db) {
       id                 TEXT PRIMARY KEY,
       user_id            TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       fellow_id          TEXT NOT NULL,
-      room_id            TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+      conversation_id            TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
       trigger_message_id TEXT NOT NULL,
       hermes_run_id      TEXT NOT NULL DEFAULT '',
       status             TEXT NOT NULL,
@@ -841,8 +841,8 @@ function migrate(db) {
       created_at         TEXT NOT NULL,
       updated_at         TEXT NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS idx_cloud_agent_runs_room
-      ON cloud_agent_runs(room_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_cloud_agent_runs_conversation
+      ON cloud_agent_runs(conversation_id, created_at);
 
     CREATE TABLE IF NOT EXISTS skills (
       id            TEXT PRIMARY KEY,
@@ -912,14 +912,14 @@ function migrate(db) {
   if (!hasColumn(db, "user_settings", "version")) {
     db.exec("ALTER TABLE user_settings ADD COLUMN version INTEGER NOT NULL DEFAULT 0");
   }
-  // v7: rooms.type column for explicit conversation kind. Existing
+  // v7: conversations.type column for explicit conversation kind. Existing
   // rows backfilled by id prefix; new rows must declare it.
-  if (!hasColumn(db, "rooms", "type")) {
-    db.exec("ALTER TABLE rooms ADD COLUMN type TEXT NOT NULL DEFAULT 'group'");
-    db.exec("UPDATE rooms SET type = 'dm' WHERE id LIKE 'dm:%'");
-    db.exec("UPDATE rooms SET type = 'fellow' WHERE id LIKE 'fellow:%'");
+  if (!hasColumn(db, "conversations", "type")) {
+    db.exec("ALTER TABLE conversations ADD COLUMN type TEXT NOT NULL DEFAULT 'group'");
+    db.exec("UPDATE conversations SET type = 'dm' WHERE id LIKE 'dm:%'");
+    db.exec("UPDATE conversations SET type = 'fellow' WHERE id LIKE 'fellow:%'");
   }
-  db.exec("CREATE INDEX IF NOT EXISTS idx_rooms_type ON rooms(type)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_conversations_type ON conversations(type)");
   db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (1, ?)")
     .run(nowIso());
   db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (2, ?)")

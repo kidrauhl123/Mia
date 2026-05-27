@@ -40,7 +40,7 @@ function setup(overrides = {}) {
   const calls = {
     broadcasts: [],
     conductor: [],
-    fellowRoom: [],
+    fellowConversation: [],
     logs: [],
     responder: [],
     runtimeDispatcher: [],
@@ -66,7 +66,7 @@ function setup(overrides = {}) {
     broadcastRendererEvent: (channel, envelope) => calls.broadcasts.push({ channel, envelope }),
     cloudEventChannel: "cloud:event",
     appendCloudLog: (line) => calls.logs.push(line),
-    shouldHandleCloudRoomAi: () => true,
+    shouldHandleCloudConversationAi: () => true,
     fellowRuntimeDispatcher: {
       handleCloudEvent: async (message) => calls.runtimeDispatcher.push(message)
     },
@@ -172,35 +172,35 @@ test("start replaces a stale cloud events socket that never became ready", () =>
   assert.equal(client.status().connecting, true);
 });
 
-test("room AI events are handled in main and still forwarded to renderer", async () => {
+test("conversation AI events are handled in main and still forwarded to renderer", async () => {
   const { client, calls } = setup();
 
   client.handleMessage(JSON.stringify({
-    type: "room.fellow_invocation_requested",
+    type: "conversation.fellow_invocation_requested",
     seq: 4,
-    roomId: "g_1",
+    conversationId: "g_1",
     fellowId: "codex",
     triggeringMessage: { id: "m_1", body_md: "@codex 看看" }
   }));
   client.handleMessage(JSON.stringify({
-    type: "room.message_appended",
+    type: "conversation.message_appended",
     seq: 5,
-    roomId: "g_1",
+    conversationId: "g_1",
     message: { id: "m_2", seq: 2, sender_kind: "user", body_md: "大家看看" }
   }));
   await Promise.resolve();
 
   assert.deepEqual(calls.settingsWrites, [{ lastEventSeq: 4 }, { lastEventSeq: 5 }]);
   assert.deepEqual(calls.runtimeDispatcher.map((message) => message.type), [
-    "room.fellow_invocation_requested",
-    "room.message_appended"
+    "conversation.fellow_invocation_requested",
+    "conversation.message_appended"
   ]);
   assert.equal(calls.runtimeDispatcher[0].fellowId, "codex");
   assert.deepEqual(calls.runtimeDispatcher[1].message, { id: "m_2", seq: 2, sender_kind: "user", body_md: "大家看看" });
   assert.deepEqual(calls.responder, []);
   assert.deepEqual(calls.conductor, []);
-  assert.deepEqual(calls.fellowRoom, []);
-  assert.equal(calls.broadcasts.map((item) => item.envelope.type).join(","), "room.fellow_invocation_requested,room.message_appended");
+  assert.deepEqual(calls.fellowConversation, []);
+  assert.equal(calls.broadcasts.map((item) => item.envelope.type).join(","), "conversation.fellow_invocation_requested,conversation.message_appended");
 });
 
 test("fellow runtime updates are forwarded to the renderer", () => {

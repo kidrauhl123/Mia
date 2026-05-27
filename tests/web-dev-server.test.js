@@ -58,10 +58,10 @@ test("web dev server serves shared source modules used by the /app shell", async
     assert.match(engine.headers.get("content-type") || "", /javascript/);
     assert.match(await engine.text(), /miaEngineContracts/);
 
-    const cloudRoomSource = await fetch(`${baseUrl}/message-sources/cloud-room-source.js`);
-    assert.equal(cloudRoomSource.status, 200);
-    assert.match(cloudRoomSource.headers.get("content-type") || "", /javascript/);
-    assert.match(await cloudRoomSource.text(), /miaCloudRoomSource/);
+    const cloudConversationSource = await fetch(`${baseUrl}/message-sources/cloud-conversation-source.js`);
+    assert.equal(cloudConversationSource.status, 200);
+    assert.match(cloudConversationSource.headers.get("content-type") || "", /javascript/);
+    assert.match(await cloudConversationSource.text(), /miaCloudConversationSource/);
 
     const traversal = await fetch(`${baseUrl}/%2e%2e/package.json`);
     assert.doesNotMatch(await traversal.text(), /"mia"/);

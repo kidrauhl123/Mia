@@ -22,17 +22,17 @@ function safeParseJSON(text) {
   }
 }
 
-function inferRoomType(room) {
-  if (!room) return null;
-  if (room.type) return room.type;
-  if (room.id?.startsWith("dm:")) return "dm";
-  if (room.id?.startsWith("fellow:")) return "fellow";
-  if (room.id?.startsWith("g_") || room.id?.startsWith("g-")) return "group";
+function inferConversationType(conversation) {
+  if (!conversation) return null;
+  if (conversation.type) return conversation.type;
+  if (conversation.id?.startsWith("dm:")) return "dm";
+  if (conversation.id?.startsWith("fellow:")) return "fellow";
+  if (conversation.id?.startsWith("g_") || conversation.id?.startsWith("g-")) return "group";
   return null;
 }
 
-function responseModeFor(room) {
-  return room?.decorations?.responseMode === "mentions-only" ? "mentions-only" : "conductor";
+function responseModeFor(conversation) {
+  return conversation?.decorations?.responseMode === "mentions-only" ? "mentions-only" : "conductor";
 }
 
 function normalizeMessages(result) {
@@ -45,7 +45,7 @@ function createMainGroupConductor({
   getCurrentUserId,
   listFellows,
   loadPrompts,
-  getRoomDetails,
+  getConversationDetails,
   listRecentMessages,
   sendChatStateless,
   responder,
@@ -68,9 +68,9 @@ function createMainGroupConductor({
     if (completedMessages.size > PROCESSED_CAP) completedMessages.delete(completedMessages.values().next().value);
   }
 
-  async function handleRoomMessageAppended(payload) {
-    const { roomId, message } = payload || {};
-    if (!roomId || !message?.id) return;
+  async function handleConversationMessageAppended(payload) {
+    const { conversationId, message } = payload || {};
+    if (!conversationId || !message?.id) return;
     if (message.sender_kind !== SenderKind.User) return;
     if (messageHasMentions(message)) return;
     if (completedMessages.has(message.id)) return;
@@ -80,21 +80,21 @@ function createMainGroupConductor({
 
     let details;
     try {
-      details = await getRoomDetails(roomId);
+      details = await getConversationDetails(conversationId);
     } catch (error) {
-      log(`[main-group-conductor] get room failed: ${error?.message || error}`);
+      log(`[main-group-conductor] get conversation failed: ${error?.message || error}`);
       return;
     }
-    const room = details?.room || details;
-    if (inferRoomType(room) !== "group") return;
-    if (responseModeFor(room) !== "conductor") return;
+    const conversation = details?.conversation || details;
+    if (inferConversationType(conversation) !== "group") return;
+    if (responseModeFor(conversation) !== "conductor") return;
 
     const members = Array.isArray(details?.members) ? details.members : [];
     const fellowMembers = members.filter((member) => member.member_kind === MemberKind.Fellow);
     const ownFellowMembers = fellowMembers.filter((member) => member.owner_id === userId);
     if (!ownFellowMembers.length) return;
 
-    const hostFellowId = hostFellowIdFor(room, ownFellowMembers, fellowMembers);
+    const hostFellowId = hostFellowIdFor(conversation, ownFellowMembers, fellowMembers);
     const hostMember = fellowMembers.find((member) => member.member_ref === hostFellowId);
     if (!hostMember || hostMember.owner_id !== userId) return;
 
@@ -108,7 +108,7 @@ function createMainGroupConductor({
       return { id: member.member_ref, name };
     });
     const sinceSeq = Math.max(0, Number(message.seq || 0) - 6);
-    const recentMessages = normalizeMessages(await listRecentMessages(roomId, sinceSeq, 6));
+    const recentMessages = normalizeMessages(await listRecentMessages(conversationId, sinceSeq, 6));
 
     const respondToChosen = async (chosen) => {
       let pending = 0;
@@ -118,7 +118,7 @@ function createMainGroupConductor({
         if (!member || member.owner_id !== userId) continue;
         if (processedReplies.has(replyKey(message.id, fellowId))) continue;
         const args = buildInvocation({
-          roomId,
+          conversationId,
           fellowId,
           invokedBy: { username: "conductor" },
           triggeringMessage: message,
@@ -152,7 +152,7 @@ function createMainGroupConductor({
 
     const dispatchPrompt = buildDispatchPrompt(prompts.dispatch, {
       members: memberDescriptors,
-      summary: room.contextCard?.summary || room.decorations?.pinnedGoal || null,
+      summary: conversation.contextCard?.summary || conversation.decorations?.pinnedGoal || null,
       recentMessages,
       fellowNamesById,
       userMessage: message.body_md || ""
@@ -180,7 +180,7 @@ function createMainGroupConductor({
     }
   }
 
-  return { handleRoomMessageAppended };
+  return { handleConversationMessageAppended };
 }
 
 module.exports = {

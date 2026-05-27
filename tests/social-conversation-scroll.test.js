@@ -1,13 +1,13 @@
-// Scroll-anchoring behavior for cloud-room (group / DM) chat rendering.
+// Scroll-anchoring behavior for cloud-conversation (group / DM) chat rendering.
 //
-// Bug: renderRoomChat unconditionally forced `scrollTop = scrollHeight` on every
+// Bug: renderConversationChat unconditionally forced `scrollTop = scrollHeight` on every
 // paint, so any background re-render (read receipts, cloud-agent streaming,
 // member/runtime refresh) yanked the user to the bottom — making it impossible
 // to scroll up and read history in a group. The fellow-chat path in app.js
-// already guards on "was the user near the bottom?"; the cloud-room path didn't.
+// already guards on "was the user near the bottom?"; the cloud-conversation path didn't.
 //
 // Loads social.js into a vm sandbox with a mock DOM. The chat container is an
-// argument to renderRoomChat, so its scroll metrics are fully controllable here.
+// argument to renderConversationChat, so its scroll metrics are fully controllable here.
 
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
@@ -59,7 +59,7 @@ function loadSocial() {
       renderMarkdown: (v) => String(v || ""),
     },
     miaSocialGroups: {
-      fetchAndCacheRoomMembers() {},
+      fetchAndCacheConversationMembers() {},
       buildGroupMessageArticle(msg) {
         const article = mockEl();
         article.kind = "group-article";
@@ -85,48 +85,48 @@ function loadSocial() {
   });
   vm.runInContext(src, context);
   const social = mockWindow.miaSocial;
-  social.moduleState.activeRoomId = "g_1";
-  social.moduleState.rooms = [{ id: "g_1", type: "group", name: "G" }];
+  social.moduleState.activeConversationId = "g_1";
+  social.moduleState.conversations = [{ id: "g_1", type: "group", name: "G" }];
   social.moduleState.messageCache.set("g_1", { messages: [], maxSeq: 0 });
   return { social, groupArticles, setChat: (el) => { chatEl = el; } };
 }
 
-test("renderRoomChat preserves scroll position on a same-room re-render when scrolled up", () => {
+test("renderConversationChat preserves scroll position on a same-conversation re-render when scrolled up", () => {
   const { social } = loadSocial();
-  // First paint of the room = entering it → lands at the bottom.
-  social.renderRoomChat(scrollEl({ scrollTop: 600, scrollHeight: 1000, clientHeight: 400 }));
+  // First paint of the conversation = entering it → lands at the bottom.
+  social.renderConversationChat(scrollEl({ scrollTop: 600, scrollHeight: 1000, clientHeight: 400 }));
   // User scrolls up to read history, then a background event re-renders.
   const c = scrollEl({ scrollTop: 120, scrollHeight: 1000, clientHeight: 400 });
-  social.renderRoomChat(c);
+  social.renderConversationChat(c);
   assert.equal(c.scrollTop, 120, "must not yank to bottom while reading history");
 });
 
-test("renderRoomChat follows to the bottom when the user is already near the bottom", () => {
+test("renderConversationChat follows to the bottom when the user is already near the bottom", () => {
   const { social } = loadSocial();
-  social.renderRoomChat(scrollEl({ scrollTop: 600, scrollHeight: 1000, clientHeight: 400 }));
+  social.renderConversationChat(scrollEl({ scrollTop: 600, scrollHeight: 1000, clientHeight: 400 }));
   const c = scrollEl({ scrollTop: 590, scrollHeight: 1000, clientHeight: 400 }); // 10px from bottom
-  social.renderRoomChat(c);
+  social.renderConversationChat(c);
   assert.equal(c.scrollTop, 1000, "near-bottom users should keep following new content");
 });
 
-test("renderRoomChat jumps to the bottom on room switch even if metrics say not-near-bottom", () => {
+test("renderConversationChat jumps to the bottom on conversation switch even if metrics say not-near-bottom", () => {
   const { social } = loadSocial();
   // Fresh module → first paint of g_1 is a switch; user metrics are far from bottom.
   const c = scrollEl({ scrollTop: 0, scrollHeight: 1000, clientHeight: 400 });
-  social.renderRoomChat(c);
-  assert.equal(c.scrollTop, 1000, "entering a room should show its latest messages");
+  social.renderConversationChat(c);
+  assert.equal(c.scrollTop, 1000, "entering a conversation should show its latest messages");
 });
 
-test("re-entering a room after a detour through a local fellow chat lands at the bottom", () => {
+test("re-entering a conversation after a detour through a local fellow chat lands at the bottom", () => {
   const { social } = loadSocial();
   // Enter g_1 (first paint = switch → bottom).
-  social.renderRoomChat(scrollEl({ scrollTop: 600, scrollHeight: 1000, clientHeight: 400 }));
-  // Detour to a local fellow chat: app.js clears cloud-room mode via setActiveRoomId(null).
-  social.setActiveRoomId(null);
-  // Come back to the same room. The shared #chat may be scrolled up from the fellow chat.
-  social.setActiveRoomId("g_1");
+  social.renderConversationChat(scrollEl({ scrollTop: 600, scrollHeight: 1000, clientHeight: 400 }));
+  // Detour to a local fellow chat: app.js clears cloud-conversation mode via setActiveConversationId(null).
+  social.setActiveConversationId(null);
+  // Come back to the same conversation. The shared #chat may be scrolled up from the fellow chat.
+  social.setActiveConversationId("g_1");
   const c = scrollEl({ scrollTop: 0, scrollHeight: 1000, clientHeight: 400 });
-  social.renderRoomChat(c);
+  social.renderConversationChat(c);
   assert.equal(c.scrollTop, 1000, "re-entry must show latest, not restore an unrelated offset");
 });
 
@@ -148,11 +148,11 @@ test("appendMessageToActiveChat follows to bottom when stick:true (self-sent / n
   assert.equal(chat.scrollTop, 1000, "your own message should jump to the bottom");
 });
 
-test("appendMessageToActiveChat uses group renderer for active group rooms", () => {
+test("appendMessageToActiveChat uses group renderer for active group conversations", () => {
   const { social, groupArticles, setChat } = loadSocial();
   const chat = scrollEl({ scrollTop: 100, scrollHeight: 1000, clientHeight: 400 });
   setChat(chat);
-  social._internalCtx.roomMembersCache.set("g_1", [
+  social._internalCtx.conversationMembersCache.set("g_1", [
     { member_kind: "user", member_ref: "u_other", username: "other" }
   ]);
 

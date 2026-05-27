@@ -44,7 +44,7 @@ test("sendFriendRequest posts toUsername and parses response", async () => {
   } finally { await teardown(ctx); }
 });
 
-test("listRoomMessages encodes sinceSeq and limit as query params", async () => {
+test("listConversationMessages encodes sinceSeq and limit as query params", async () => {
   const seen = [];
   const ctx = await spawnFakeCloud((req, res) => {
     seen.push(req.url);
@@ -56,16 +56,16 @@ test("listRoomMessages encodes sinceSeq and limit as query params", async () => 
       getSettings: () => ({ enabled: true, token: "t", url: ctx.baseUrl }),
       normalizeUrl: (u) => u
     });
-    const result = await api.listRoomMessages("dm:x:y", 2, 50);
+    const result = await api.listConversationMessages("dm:x:y", 2, 50);
     assert.equal(result.messages[0].seq, 3);
-    // Room ids travel verbatim — encodeURIComponent would turn `:` into
-    // `%3A` and the cloud route regex /api/rooms/([A-Za-z0-9_:-]+) wouldn't
+    // Conversation ids travel verbatim — encodeURIComponent would turn `:` into
+    // `%3A` and the cloud route regex /api/conversations/([A-Za-z0-9_:-]+) wouldn't
     // match, silently 404ing DM sends.
-    assert.equal(seen[0], "/api/rooms/dm:x:y/messages?since_seq=2&limit=50");
+    assert.equal(seen[0], "/api/conversations/dm:x:y/messages?since_seq=2&limit=50");
   } finally { await teardown(ctx); }
 });
 
-test("updateRoom sends PATCH with patch body verbatim", async () => {
+test("updateConversation sends PATCH with patch body verbatim", async () => {
   const seen = [];
   const ctx = await spawnFakeCloud(async (req, res) => {
     let body = "";
@@ -73,7 +73,7 @@ test("updateRoom sends PATCH with patch body verbatim", async () => {
     req.on("end", () => {
       seen.push({ method: req.method, url: req.url, body });
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ room: { id: "g_abc", name: "renamed" } }));
+      res.end(JSON.stringify({ conversation: { id: "g_abc", name: "renamed" } }));
     });
   });
   try {
@@ -81,16 +81,16 @@ test("updateRoom sends PATCH with patch body verbatim", async () => {
       getSettings: () => ({ enabled: true, token: "t", url: ctx.baseUrl }),
       normalizeUrl: (u) => u
     });
-    const result = await api.updateRoom("g_abc", { name: "renamed" });
-    assert.equal(result.room.name, "renamed");
+    const result = await api.updateConversation("g_abc", { name: "renamed" });
+    assert.equal(result.conversation.name, "renamed");
     assert.equal(seen[0].method, "PATCH");
-    // Room ids travel verbatim — encodeURIComponent on `:` would 404.
-    assert.equal(seen[0].url, "/api/rooms/g_abc");
+    // Conversation ids travel verbatim — encodeURIComponent on `:` would 404.
+    assert.equal(seen[0].url, "/api/conversations/g_abc");
     assert.deepEqual(JSON.parse(seen[0].body), { name: "renamed" });
   } finally { await teardown(ctx); }
 });
 
-test("deleteRoom sends DELETE to the room route", async () => {
+test("deleteConversation sends DELETE to the conversation route", async () => {
   const seen = [];
   const ctx = await spawnFakeCloud((req, res) => {
     seen.push({ method: req.method, url: req.url });
@@ -102,14 +102,14 @@ test("deleteRoom sends DELETE to the room route", async () => {
       getSettings: () => ({ enabled: true, token: "t", url: ctx.baseUrl }),
       normalizeUrl: (u) => u
     });
-    const result = await api.deleteRoom("dm:a:b");
+    const result = await api.deleteConversation("dm:a:b");
     assert.equal(result.ok, true);
     assert.equal(seen[0].method, "DELETE");
-    assert.equal(seen[0].url, "/api/rooms/dm:a:b");
+    assert.equal(seen[0].url, "/api/conversations/dm:a:b");
   } finally { await teardown(ctx); }
 });
 
-test("ensureFellowRoom sends PUT to the stable fellow room route", async () => {
+test("ensureFellowConversation sends PUT to the stable fellow conversation route", async () => {
   const seen = [];
   const ctx = await spawnFakeCloud(async (req, res) => {
     let body = "";
@@ -117,7 +117,7 @@ test("ensureFellowRoom sends PUT to the stable fellow room route", async () => {
     req.on("end", () => {
       seen.push({ method: req.method, url: req.url, body });
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ ok: true, room: { id: "fellow:u_1:alice" }, created: true }));
+      res.end(JSON.stringify({ ok: true, conversation: { id: "fellow:u_1:alice" }, created: true }));
     });
   });
   try {
@@ -125,17 +125,17 @@ test("ensureFellowRoom sends PUT to the stable fellow room route", async () => {
       getSettings: () => ({ enabled: true, token: "t", url: ctx.baseUrl }),
       normalizeUrl: (u) => u
     });
-    const result = await api.ensureFellowRoom("alice", { title: "爱丽丝" });
-    assert.equal(result.room.id, "fellow:u_1:alice");
+    const result = await api.ensureFellowConversation("alice", { title: "爱丽丝" });
+    assert.equal(result.conversation.id, "fellow:u_1:alice");
     assert.equal(seen[0].method, "PUT");
-    assert.equal(seen[0].url, "/api/me/fellows/alice/room");
+    assert.equal(seen[0].url, "/api/me/fellows/alice/conversation");
     const sentBody = JSON.parse(seen[0].body);
     assert.equal(sentBody.title, "爱丽丝");
     assert.match(sentBody.clientOpId, /^op_/);
   } finally { await teardown(ctx); }
 });
 
-test("ensureFellowSessionRoom sends PUT to the per-session fellow room route", async () => {
+test("ensureFellowSessionConversation sends PUT to the per-session fellow conversation route", async () => {
   const seen = [];
   const ctx = await spawnFakeCloud(async (req, res) => {
     let body = "";
@@ -143,7 +143,7 @@ test("ensureFellowSessionRoom sends PUT to the per-session fellow room route", a
     req.on("end", () => {
       seen.push({ method: req.method, url: req.url, body });
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ ok: true, room: { id: "fellow:u_1:sess_1" }, created: true }));
+      res.end(JSON.stringify({ ok: true, conversation: { id: "fellow:u_1:sess_1" }, created: true }));
     });
   });
   try {
@@ -151,14 +151,14 @@ test("ensureFellowSessionRoom sends PUT to the per-session fellow room route", a
       getSettings: () => ({ enabled: true, token: "t", url: ctx.baseUrl }),
       normalizeUrl: (u) => u
     });
-    const result = await api.ensureFellowSessionRoom("sess_1", {
+    const result = await api.ensureFellowSessionConversation("sess_1", {
       fellowKey: "mia",
       title: "新对话",
       runtimeKind: "cloud-hermes"
     });
-    assert.equal(result.room.id, "fellow:u_1:sess_1");
+    assert.equal(result.conversation.id, "fellow:u_1:sess_1");
     assert.equal(seen[0].method, "PUT");
-    assert.equal(seen[0].url, "/api/me/fellow-rooms/sess_1");
+    assert.equal(seen[0].url, "/api/me/fellow-conversations/sess_1");
     const sentBody = JSON.parse(seen[0].body);
     assert.equal(sentBody.fellowKey, "mia");
     assert.equal(sentBody.runtimeKind, "cloud-hermes");

@@ -84,7 +84,7 @@
   function openMessageContextMenu(messageIndex, x, y, selection = null) {
     const index = Number(messageIndex);
     if (!messageAtIndex(index)) return;
-    // Optional calls: the group subsystem was removed in the cloud-room
+    // Optional calls: the group subsystem was removed in the cloud-conversation
     // unification, so closeGroupContextMenu is no longer injected. Calling an
     // undefined dep here threw a TypeError *after* the handler had already
     // preventDefault()ed the native menu — which silently killed the right-

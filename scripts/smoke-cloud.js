@@ -384,8 +384,8 @@ async function main() {
   pass("file policy", "active svg rejected");
 
   // (was: POST /api/messages blank-text rejection. Endpoint deleted in
-  //  Phase 4 cutover — message validation lives at POST /api/rooms/:id/
-  //  messages now, and is covered by the room-message integration tests.)
+  //  Phase 4 cutover — message validation lives at POST /api/conversations/:id/
+  //  messages now, and is covered by the conversation-message integration tests.)
 
   const devices = await jsonRequest(baseUrl, "/api/bridge/devices", { token });
   if (process.env.MIA_SMOKE_REQUIRE_BRIDGE === "1" && !devices.data.devices?.length) {

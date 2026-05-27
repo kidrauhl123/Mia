@@ -1,24 +1,24 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 
-const { createMainFellowRoomResponder } = require("../src/main/social/fellow-room-responder.js");
+const { createMainFellowConversationResponder } = require("../src/main/social/fellow-conversation-responder.js");
 
 function setup(overrides = {}) {
-  const calls = { respond: [], roomDetails: [], recent: [], runtime: [], log: [] };
-  const responder = createMainFellowRoomResponder({
+  const calls = { respond: [], conversationDetails: [], recent: [], runtime: [], log: [] };
+  const responder = createMainFellowConversationResponder({
     getCurrentUserId: () => "u_1",
-    getRoomDetails: async (roomId) => {
-      calls.roomDetails.push(roomId);
+    getConversationDetails: async (conversationId) => {
+      calls.conversationDetails.push(conversationId);
       return {
-        room: { id: roomId, type: "fellow", decorations: { fellowKey: "alice" } },
+        conversation: { id: conversationId, type: "fellow", decorations: { fellowKey: "alice" } },
         members: [
           { member_kind: "user", member_ref: "u_1" },
           { member_kind: "fellow", member_ref: "alice", owner_id: "u_1" }
         ]
       };
     },
-    listRecentMessages: async (roomId, sinceSeq, limit) => {
-      calls.recent.push({ roomId, sinceSeq, limit });
+    listRecentMessages: async (conversationId, sinceSeq, limit) => {
+      calls.recent.push({ conversationId, sinceSeq, limit });
       return [
         { id: "m_0", seq: 1, sender_kind: "user", sender_ref: "u_1", body_md: "前文" },
         { id: "m_1", seq: 2, sender_kind: "user", sender_ref: "u_1", body_md: "你好" }
@@ -40,34 +40,34 @@ function setup(overrides = {}) {
   return { responder, calls };
 }
 
-test("handles user messages in owned fellow rooms", async () => {
+test("handles user messages in owned fellow conversations", async () => {
   const { responder, calls } = setup();
 
-  await responder.handleRoomMessageAppended({
-    roomId: "fellow:u_1:alice",
+  await responder.handleConversationMessageAppended({
+    conversationId: "fellow:u_1:alice",
     message: { id: "m_1", seq: 2, sender_kind: "user", sender_ref: "u_1", body_md: "你好" }
   });
 
-  assert.deepEqual(calls.roomDetails, ["fellow:u_1:alice"]);
-  assert.deepEqual(calls.recent, [{ roomId: "fellow:u_1:alice", sinceSeq: 0, limit: 6 }]);
+  assert.deepEqual(calls.conversationDetails, ["fellow:u_1:alice"]);
+  assert.deepEqual(calls.recent, [{ conversationId: "fellow:u_1:alice", sinceSeq: 0, limit: 6 }]);
   assert.equal(calls.respond.length, 1);
-  assert.equal(calls.respond[0].roomId, "fellow:u_1:alice");
+  assert.equal(calls.respond[0].conversationId, "fellow:u_1:alice");
   assert.equal(calls.respond[0].fellowId, "alice");
   assert.equal(calls.respond[0].dedupKey, "m_1:alice");
   assert.equal(calls.respond[0].userPrompt, "你好");
   assert.match(calls.respond[0].systemPrompt, /前文/);
 });
 
-test("falls back to stable fellow room id suffix when details omit fellow metadata", async () => {
+test("falls back to stable fellow conversation id suffix when details omit fellow metadata", async () => {
   const { responder, calls } = setup({
-    getRoomDetails: async () => ({
-      room: { id: "fellow:u_1:alice", type: "fellow" },
+    getConversationDetails: async () => ({
+      conversation: { id: "fellow:u_1:alice", type: "fellow" },
       members: []
     })
   });
 
-  await responder.handleRoomMessageAppended({
-    roomId: "fellow:u_1:alice",
+  await responder.handleConversationMessageAppended({
+    conversationId: "fellow:u_1:alice",
     message: { id: "m_1", seq: 2, sender_kind: "user", sender_ref: "u_1", body_md: "你好" }
   });
 
@@ -75,12 +75,12 @@ test("falls back to stable fellow room id suffix when details omit fellow metada
   assert.equal(calls.respond[0].fellowId, "alice");
 });
 
-test("falls back to room list metadata when room details are too slow", async () => {
+test("falls back to conversation list metadata when conversation details are too slow", async () => {
   const { responder, calls } = setup({
-    getRoomDetails: async () => {
+    getConversationDetails: async () => {
       throw new Error("The operation was aborted due to timeout");
     },
-    listRooms: async () => ([
+    listConversations: async () => ([
       {
         id: "fellow:u_1:session_1",
         type: "fellow",
@@ -89,35 +89,35 @@ test("falls back to room list metadata when room details are too slow", async ()
     ])
   });
 
-  await responder.handleRoomMessageAppended({
-    roomId: "fellow:u_1:session_1",
+  await responder.handleConversationMessageAppended({
+    conversationId: "fellow:u_1:session_1",
     message: { id: "m_1", seq: 2, sender_kind: "user", sender_ref: "u_1", body_md: "你好" }
   });
 
   assert.equal(calls.respond.length, 1);
   assert.equal(calls.respond[0].fellowId, "alice");
-  assert.match(calls.log.join("\n"), /get room failed/);
+  assert.match(calls.log.join("\n"), /get conversation failed/);
 });
 
-test("ignores non-user messages and unowned fellow rooms", async () => {
+test("ignores non-user messages and unowned fellow conversations", async () => {
   const first = setup();
-  await first.responder.handleRoomMessageAppended({
-    roomId: "fellow:u_1:alice",
+  await first.responder.handleConversationMessageAppended({
+    conversationId: "fellow:u_1:alice",
     message: { id: "m_f", sender_kind: "fellow", sender_ref: "alice", body_md: "hi" }
   });
   assert.equal(first.calls.respond.length, 0);
 
   const second = setup({
-    getRoomDetails: async () => ({
-      room: { id: "fellow:u_2:alice", type: "fellow", decorations: { fellowKey: "alice" } },
+    getConversationDetails: async () => ({
+      conversation: { id: "fellow:u_2:alice", type: "fellow", decorations: { fellowKey: "alice" } },
       members: [
         { member_kind: "user", member_ref: "u_2" },
         { member_kind: "fellow", member_ref: "alice", owner_id: "u_2" }
       ]
     })
   });
-  await second.responder.handleRoomMessageAppended({
-    roomId: "fellow:u_2:alice",
+  await second.responder.handleConversationMessageAppended({
+    conversationId: "fellow:u_2:alice",
     message: { id: "m_1", sender_kind: "user", sender_ref: "u_1", body_md: "你好" }
   });
   assert.equal(second.calls.respond.length, 0);
@@ -126,12 +126,12 @@ test("ignores non-user messages and unowned fellow rooms", async () => {
 test("dedups repeated message events", async () => {
   const { responder, calls } = setup();
   const payload = {
-    roomId: "fellow:u_1:alice",
+    conversationId: "fellow:u_1:alice",
     message: { id: "m_1", seq: 2, sender_kind: "user", sender_ref: "u_1", body_md: "你好" }
   };
 
-  await responder.handleRoomMessageAppended(payload);
-  await responder.handleRoomMessageAppended(payload);
+  await responder.handleConversationMessageAppended(payload);
+  await responder.handleConversationMessageAppended(payload);
 
   assert.equal(calls.respond.length, 1);
 });
@@ -146,13 +146,13 @@ test("retries repeated message events until responder succeeds", async () => {
     }
   });
   const payload = {
-    roomId: "fellow:u_1:alice",
+    conversationId: "fellow:u_1:alice",
     message: { id: "m_1", seq: 2, sender_kind: "user", sender_ref: "u_1", body_md: "你好" }
   };
 
-  await responder.handleRoomMessageAppended(payload);
-  await responder.handleRoomMessageAppended(payload);
-  await responder.handleRoomMessageAppended(payload);
+  await responder.handleConversationMessageAppended(payload);
+  await responder.handleConversationMessageAppended(payload);
+  await responder.handleConversationMessageAppended(payload);
 
   assert.equal(calls.respond.length, 2);
 });
@@ -174,8 +174,8 @@ test("passes desktop-local runtime binding config to the local responder", async
     }
   });
 
-  await responder.handleRoomMessageAppended({
-    roomId: "fellow:u_1:alice",
+  await responder.handleConversationMessageAppended({
+    conversationId: "fellow:u_1:alice",
     message: { id: "m_1", seq: 2, sender_kind: "user", sender_ref: "u_1", body_md: "你好" }
   });
 
@@ -188,10 +188,10 @@ test("passes desktop-local runtime binding config to the local responder", async
   });
 });
 
-test("skips cloud runtime fellow rooms", async () => {
+test("skips cloud runtime fellow conversations", async () => {
   const { responder, calls } = setup({
-    getRoomDetails: async () => ({
-      room: { id: "fellow:u_1:alice", type: "fellow", decorations: { fellowKey: "alice", runtimeKind: "cloud-hermes" } },
+    getConversationDetails: async () => ({
+      conversation: { id: "fellow:u_1:alice", type: "fellow", decorations: { fellowKey: "alice", runtimeKind: "cloud-hermes" } },
       members: [
         { member_kind: "user", member_ref: "u_1" },
         { member_kind: "fellow", member_ref: "alice", owner_id: "u_1" }
@@ -199,8 +199,8 @@ test("skips cloud runtime fellow rooms", async () => {
     })
   });
 
-  await responder.handleRoomMessageAppended({
-    roomId: "fellow:u_1:alice",
+  await responder.handleConversationMessageAppended({
+    conversationId: "fellow:u_1:alice",
     message: { id: "m_1", seq: 2, sender_kind: "user", sender_ref: "u_1", body_md: "你好" }
   });
 

@@ -16,18 +16,18 @@ test("renderer app shell loads state module before the entrypoint", () => {
   assert.doesNotMatch(appSource, /const fallbackSlashCommands = \[/);
 });
 
-test("cloud room composer uses one social send path for dm and group rooms", () => {
+test("cloud conversation composer uses one social send path for dm and group conversations", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
 
-  assert.match(appSource, /await window\.miaSocial\.sendInActiveRoom\(roomText\b/);
-  assert.doesNotMatch(appSource, /sendInActiveGroupRoom\(roomText\)/);
+  assert.match(appSource, /await window\.miaSocial\.sendInActiveConversation\(conversationText\b/);
+  assert.doesNotMatch(appSource, /sendInActiveGroupConversation\(conversationText\)/);
 });
 
-test("cloud room send and render do not depend on activeKey being empty", () => {
+test("cloud conversation send and render do not depend on activeKey being empty", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
 
-  assert.doesNotMatch(appSource, /getActiveRoomId\?\.\(\) && !state\.activeKey/);
-  assert.doesNotMatch(appSource, /activeRoomId && !state\.activeKey/);
+  assert.doesNotMatch(appSource, /getActiveConversationId\?\.\(\) && !state\.activeKey/);
+  assert.doesNotMatch(appSource, /activeConversationId && !state\.activeKey/);
 });
 
 test("logged-in active pane never falls back to local fellow sessions", () => {
@@ -40,15 +40,15 @@ test("logged-in active pane never falls back to local fellow sessions", () => {
   assert.match(appSource, /els\.chat\.innerHTML = renderCloudLoginGuide\(\);/);
 });
 
-test("desktop cloud fellow rooms keep private AI composer controls visible", () => {
+test("desktop cloud fellow conversations keep private AI composer controls visible", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
 
-  assert.match(appSource, /activeCloudRoomType\s*===\s*"fellow"/);
+  assert.match(appSource, /activeCloudConversationType\s*===\s*"fellow"/);
   assert.match(appSource, /composerBottom\.classList\.toggle\("hidden",\s*!showPrivateAiControls\)/);
   assert.doesNotMatch(appSource, /if\s*\(composerBottom\)\s*composerBottom\.classList\.add\("hidden"\);/);
 });
 
-test("desktop cloud fellow rooms expose the restored chat history menu", () => {
+test("desktop cloud fellow conversations expose the restored chat history menu", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const socialSource = fs.readFileSync(path.join(root, "src/renderer/social/social.js"), "utf8");
   const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
@@ -58,15 +58,15 @@ test("desktop cloud fellow rooms expose the restored chat history menu", () => {
   assert.match(html, /shared\/session-history\.js/);
   assert.match(appSource, /const sessionHistory = \(typeof window !== "undefined" && window\.miaSessionHistory\)/);
   assert.match(appSource, /if \(els\.sessionMenuButton\) els\.sessionMenuButton\.classList\.remove\("hidden"\);/);
-  assert.match(appSource, /function renderCloudRoomSessionMenu\(activeRoom\)/);
-  assert.match(appSource, /sessionHistory\.sessionRoomsForRoom/);
+  assert.match(appSource, /function renderCloudConversationSessionMenu\(activeConversation\)/);
+  assert.match(appSource, /sessionHistory\.sessionConversationsForConversation/);
   assert.match(appSource, /sessionHistory\.createFellowSessionPayload/);
   assert.match(appSource, /sessionHistory\.fellowDisplayTitle/);
-  assert.match(appSource, /function createNewCloudSessionForActive\(room\)/);
-  assert.match(socialSource, /sessionHistoryShared\(\)\.sidebarRooms\(moduleState\.rooms/);
-  assert.match(appSource, /window\.mia\.social\.ensureFellowSessionRoom/);
-  assert.match(preloadSource, /ensureFellowSessionRoom: \(sessionId, body\) => ipcRenderer\.invoke\(IpcChannel\.SocialEnsureFellowSessionRoom, sessionId, body\)/);
-  assert.match(socialApiSource, /async ensureFellowSessionRoom\(sessionId, body = \{\}\)/);
+  assert.match(appSource, /function createNewCloudSessionForActive\(conversation\)/);
+  assert.match(socialSource, /sessionHistoryShared\(\)\.sidebarConversations\(moduleState\.conversations/);
+  assert.match(appSource, /window\.mia\.social\.ensureFellowSessionConversation/);
+  assert.match(preloadSource, /ensureFellowSessionConversation: \(sessionId, body\) => ipcRenderer\.invoke\(IpcChannel\.SocialEnsureFellowSessionConversation, sessionId, body\)/);
+  assert.match(socialApiSource, /async ensureFellowSessionConversation\(sessionId, body = \{\}\)/);
 });
 
 test("desktop fellow controls save through fellow runtime control adapter", () => {
@@ -77,7 +77,7 @@ test("desktop fellow controls save through fellow runtime control adapter", () =
     appSource.indexOf("els.modelSelect?.addEventListener")
   );
 
-  assert.match(appSource, /function runtimeKindForFellowRoom\(room\)\s*\{[\s\S]*return sessionHistory\.runtimeKind\(room, "desktop-local"\);/);
+  assert.match(appSource, /function runtimeKindForFellowConversation\(conversation\)\s*\{[\s\S]*return sessionHistory\.runtimeKind\(conversation, "desktop-local"\);/);
   assert.match(appSource, /async function saveActiveFellowRuntimeControl/);
   assert.match(appSource, /window\.miaFellowCommands\.saveFellowRuntimeControl\(\{/);
   assert.match(appSource, /window\.miaFellowCommands\.getFellowRuntimeBinding\(\{/);
@@ -92,10 +92,10 @@ test("desktop fellow controls save through fellow runtime control adapter", () =
   assert.doesNotMatch(quickControlSource, /window\.mia\.saveModel\(/);
   assert.doesNotMatch(quickControlSource, /window\.mia\.saveEffort\(/);
   assert.doesNotMatch(quickControlSource, /window\.mia\.savePermissions\(/);
-  assert.match(appSource, /const roomPersona = personas\.find[\s\S]*if \(roomPersona\) return roomPersona;\s*return null;/);
+  assert.match(appSource, /const conversationPersona = personas\.find[\s\S]*if \(conversationPersona\) return conversationPersona;\s*return null;/);
 });
 
-test("desktop Hermes room model picker uses platform model catalog", () => {
+test("desktop Hermes conversation model picker uses platform model catalog", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const preloadSource = fs.readFileSync(path.join(root, "src/preload.js"), "utf8");
   const socialApiSource = fs.readFileSync(path.join(root, "src/main/social/social-api.js"), "utf8");
@@ -225,12 +225,12 @@ test("desktop avatar video crop updates do not restart playback unless trim chan
   assert.equal(seeks[0], 1.5);
 });
 
-test("cloud-only: submit routes through the active cloud room, not a local session", () => {
+test("cloud-only: submit routes through the active cloud conversation, not a local session", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const start = appSource.indexOf('els.chatForm.addEventListener("submit"');
   const handler = appSource.slice(start, appSource.indexOf("\n});", start) + 4);
 
-  assert.match(handler, /window\.miaSocial\.sendInActiveRoom\(/);
+  assert.match(handler, /window\.miaSocial\.sendInActiveConversation\(/);
   // The local conversation send path is gone from the submit handler.
   assert.doesNotMatch(handler, /appendChat\(/);
   assert.doesNotMatch(handler, /window\.mia\.sendChat\(/);
@@ -254,7 +254,7 @@ test("cloud-only: the sidebar message list is built from social rows alone", () 
   assert.doesNotMatch(appSource, /visiblePersonas\.map/);
 });
 
-test("fellow cloud rooms are not hidden from the sidebar", () => {
+test("fellow cloud conversations are not hidden from the sidebar", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
 
   assert.doesNotMatch(appSource, /if\s*\(\s*isFellow\s*\)\s*return\s+null/);
@@ -265,8 +265,8 @@ test("creating or messaging a fellow opens its conversation through the unified 
   const fellowManagerSource = fs.readFileSync(path.join(root, "src/renderer/fellow/fellow-manager.js"), "utf8");
 
   assert.match(appSource, /async function openFellowConversation\(fellowKey\)/);
-  assert.match(appSource, /window\.miaSocial\.ensureFellowRoom\(fellow\)/);
-  assert.match(appSource, /window\.miaSocial\.setActiveRoomId\(room\.id\)/);
+  assert.match(appSource, /window\.miaSocial\.ensureFellowConversation\(fellow\)/);
+  assert.match(appSource, /window\.miaSocial\.setActiveConversationId\(conversation\.id\)/);
   assert.match(appSource, /if \(savedKey\) await openFellowConversation\(savedKey\);/);
   assert.match(fellowManagerSource, /window\.miaOpenFellowConversation\(fellowKey\)/);
 });
@@ -354,12 +354,12 @@ test("social bootstrap delegates desktop-local fellow sync through fellow comman
   const socialSource = fs.readFileSync(path.join(root, "src/renderer/social/social.js"), "utf8");
   const commandsSource = fs.readFileSync(path.join(root, "src/renderer/fellow/fellow-commands.js"), "utf8");
 
-  assert.match(socialSource, /window\.miaFellowCommands\.ensureDesktopLocalFellowRoom\(\{/);
+  assert.match(socialSource, /window\.miaFellowCommands\.ensureDesktopLocalFellowConversation\(\{/);
   assert.match(socialSource, /window\.miaFellowCommands\.syncDesktopLocalFellowRuntimeBinding\(\{/);
   assert.doesNotMatch(socialSource, /api\.saveFellowRuntime\(fellowKey/);
-  assert.doesNotMatch(socialSource, /api\.ensureFellowRoom\(fellow\.key,/);
+  assert.doesNotMatch(socialSource, /api\.ensureFellowConversation\(fellow\.key,/);
   assert.match(commandsSource, /function desktopLocalRuntimeConfig/);
-  assert.match(commandsSource, /async function ensureDesktopLocalFellowRoom/);
+  assert.match(commandsSource, /async function ensureDesktopLocalFellowConversation/);
 });
 
 test("fellow creation dialog separates runtime location from agent engine", () => {
@@ -396,10 +396,10 @@ test("opening a fellow conversation preserves existing cloud runtime kind", () =
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const socialSource = fs.readFileSync(path.join(root, "src/renderer/social/social.js"), "utf8");
 
-  assert.match(socialSource, /function fellowRoomForKey\(fellowKey\)/);
-  assert.match(appSource, /const existingRoom = window\.miaSocial\?\.fellowRoomForKey\?\.\(key\)/);
-  assert.match(appSource, /if \(existingRoom\?\.id\)/);
-  assert.match(appSource, /window\.miaSocial\.setActiveRoomId\(existingRoom\.id\)/);
+  assert.match(socialSource, /function fellowConversationForKey\(fellowKey\)/);
+  assert.match(appSource, /const existingConversation = window\.miaSocial\?\.fellowConversationForKey\?\.\(key\)/);
+  assert.match(appSource, /if \(existingConversation\?\.id\)/);
+  assert.match(appSource, /window\.miaSocial\.setActiveConversationId\(existingConversation\.id\)/);
 });
 
 test("renderer app state factory owns default mutable state", () => {

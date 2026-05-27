@@ -101,12 +101,12 @@ try {
 } catch {
   ({ createCloudAgentDispatcher } = require("./src/cloud-agent/dispatcher.js"));
 }
-let dmRoomId = null;
-let ensureDmRoom = null;
+let dmConversationId = null;
+let ensureDmConversation = null;
 try {
-  ({ dmRoomId, ensureDmRoom } = require("../src/cloud/dm-room.js"));
+  ({ dmConversationId, ensureDmConversation } = require("../src/cloud/dm-conversation.js"));
 } catch {
-  ({ dmRoomId, ensureDmRoom } = require("./src/cloud/dm-room.js"));
+  ({ dmConversationId, ensureDmConversation } = require("./src/cloud/dm-conversation.js"));
 }
 
 const host = process.env.MIA_CLOUD_HOST || "127.0.0.1";
@@ -257,7 +257,7 @@ function parseJson(value, fallback) {
   }
 }
 
-function roomMemberOwnerPublic(user) {
+function conversationMemberOwnerPublic(user) {
   if (!user) return null;
   const { avatarImage, avatarCrop, avatarColor, ...identity } = user;
   return identity;
@@ -755,7 +755,7 @@ function attachEventSocket(hub, ws, userId, { eventLog, sinceSeq = 0 } = {}) {
 // Push a state-changing event: persist it in the user_events log so that
 // disconnected clients can replay it on reconnect via since_seq, AND
 // broadcast it to currently-connected sockets with the assigned seq
-// attached. ALL caller paths that mutate shared state (social.*, room.*,
+// attached. ALL caller paths that mutate shared state (social.*, conversation.*,
 // workspace_updated, message_created) must go through this — bridges
 // only see the seq-tagged version so duplicate detection works.
 //
@@ -801,7 +801,7 @@ function broadcastTransientEvent(hub, userId, payload) {
 // (clientOpId) replays the same response instead of executing again.
 // Necessary because the network can deliver the same POST twice (mobile
 // switching networks, browser auto-retry, our own auto-reconnect) and
-// we don't want to create two friend requests / two rooms / two
+// we don't want to create two friend requests / two conversations / two
 // messages from one user intent.
 //
 // Usage at top of a POST/PATCH/DELETE handler, AFTER reading body:
@@ -993,16 +993,16 @@ function safeAttachmentUrl(value) {
   return "";
 }
 
-function userIsMemberOfRoom(socialStore, roomId, userId) {
-  if (roomId.startsWith("dm:")) {
-    const parts = roomId.split(":");
+function userIsMemberOfConversation(socialStore, conversationId, userId) {
+  if (conversationId.startsWith("dm:")) {
+    const parts = conversationId.split(":");
     if (parts.length !== 3) return false;
     const [, a, b] = parts;
     if (userId !== a && userId !== b) return false;
     const other = userId === a ? b : a;
     return socialStore.areFriends(userId, other);
   }
-  return socialStore.listRoomMembers(roomId).some(
+  return socialStore.listConversationMembers(conversationId).some(
     (m) => m.member_kind === "user" && m.member_ref === userId
   );
 }
@@ -1127,7 +1127,7 @@ function sanitizeCommandResult(commandResult) {
 //  / cleanConversation removed in Phase 4 cutover — their callers (the
 //  workspace + conversations + messages endpoints) are gone. Per-message
 //  attachment sanitization still happens via sanitizeCloudMessageAttachments
-//  above and persistCloudAttachments at the room-message POST path.)
+//  above and persistCloudAttachments at the conversation-message POST path.)
 
 function serveAuthorizedFile(req, res, cloudStore, auth, pathname) {
   const match = pathname.match(/^\/api\/files\/([a-zA-Z0-9_-]+)$/);
@@ -1289,21 +1289,21 @@ async function handleRequest(req, res, context) {
         return writeError(res, 400, e.message);
       }
       if (action === "accept") {
-        const room = ensureDmRoom(context.socialStore, updated.from_user, auth.user.id);
+        const conversation = ensureDmConversation(context.socialStore, updated.from_user, auth.user.id);
         const senderPublic = context.cloudStore.getUserPublic(updated.from_user);
         const accepterPublic = context.cloudStore.getUserPublic(auth.user.id);
         // notify both
         broadcastPersistedEvent(context, updated.from_user, {
           type: "social.friend_added",
           friend: accepterPublic,
-          room
+          conversation
         });
         broadcastPersistedEvent(context, auth.user.id, {
           type: "social.friend_added",
           friend: senderPublic,
-          room
+          conversation
         });
-        return writeJson(res, 200, { request: updated, friend: senderPublic, room });
+        return writeJson(res, 200, { request: updated, friend: senderPublic, conversation });
       }
       // reject: do NOT notify sender (QQ-style)
       return writeJson(res, 200, { request: updated });
@@ -1335,18 +1335,18 @@ async function handleRequest(req, res, context) {
       return writeJson(res, 200, { ok: true });
     }
 
-    if (req.method === "GET" && url.pathname === "/api/rooms") {
+    if (req.method === "GET" && url.pathname === "/api/conversations") {
       ensureCloudAgentBootstrap(context, auth.user.id);
-      const rooms = context.socialStore.listRoomsForUser(auth.user.id);
-      return writeJson(res, 200, { rooms });
+      const conversations = context.socialStore.listConversationsForUser(auth.user.id);
+      return writeJson(res, 200, { conversations });
     }
 
-    // POST /api/rooms — create a group room. Idempotent on optional
-    // `clientGroupId`: if any room this user is in already has decorations
-    // .clientGroupId === clientGroupId, return that room instead of creating
+    // POST /api/conversations — create a group conversation. Idempotent on optional
+    // `clientGroupId`: if any conversation this user is in already has decorations
+    // .clientGroupId === clientGroupId, return that conversation instead of creating
     // a new one. This prevents the desktop sync from re-creating duplicates
     // when the local group was uploaded earlier through a different path.
-    if (req.method === "POST" && url.pathname === "/api/rooms") {
+    if (req.method === "POST" && url.pathname === "/api/conversations") {
       const body = await readJson(req);
       if (replayIfCached(context, res, auth.user.id, body)) return;
       const name = String(body.name || "").trim();
@@ -1357,11 +1357,11 @@ async function handleRequest(req, res, context) {
 
       // Idempotency check
       if (clientGroupId) {
-        const userRooms = context.socialStore.listRoomsForUser(auth.user.id);
-        const existing = userRooms.find((r) => r && r.decorations && r.decorations.clientGroupId === clientGroupId);
+        const userConversations = context.socialStore.listConversationsForUser(auth.user.id);
+        const existing = userConversations.find((r) => r && r.decorations && r.decorations.clientGroupId === clientGroupId);
         if (existing) {
-          const members = context.socialStore.listRoomMembers(existing.id);
-          return writeJson(res, 200, { room: existing, members, reused: true });
+          const members = context.socialStore.listConversationMembers(existing.id);
+          return writeJson(res, 200, { conversation: existing, members, reused: true });
         }
       }
 
@@ -1371,44 +1371,44 @@ async function handleRequest(req, res, context) {
           return writeError(res, 403, "user is not your friend: " + friendId);
         }
       }
-      const roomId = "g_" + require("node:crypto").randomBytes(8).toString("hex");
+      const conversationId = "g_" + require("node:crypto").randomBytes(8).toString("hex");
       const decorations = clientGroupId ? { clientGroupId } : null;
-      context.socialStore.createRoom({ id: roomId, name, decorations });
-      context.socialStore.addRoomMember({ roomId, memberKind: "user", memberRef: auth.user.id });
+      context.socialStore.createConversation({ id: conversationId, name, decorations });
+      context.socialStore.addConversationMember({ conversationId, memberKind: "user", memberRef: auth.user.id });
       for (const fellow of memberFellows) {
         const fellowId = String(fellow.fellowId || "").trim();
         if (!fellowId) continue;
-        context.socialStore.addRoomMember({ roomId, memberKind: "fellow", memberRef: fellowId, ownerId: auth.user.id });
+        context.socialStore.addConversationMember({ conversationId, memberKind: "fellow", memberRef: fellowId, ownerId: auth.user.id });
       }
       for (const friendId of memberFriendUserIds) {
-        context.socialStore.addRoomMember({ roomId, memberKind: "user", memberRef: String(friendId) });
+        context.socialStore.addConversationMember({ conversationId, memberKind: "user", memberRef: String(friendId) });
       }
-      const room = context.socialStore.getRoom(roomId);
-      const members = context.socialStore.listRoomMembers(roomId);
+      const conversation = context.socialStore.getConversation(conversationId);
+      const members = context.socialStore.listConversationMembers(conversationId);
       const creatorPublic = context.cloudStore.getUserPublic(auth.user.id);
-      // Broadcast social.room_invited to all user-members except creator
+      // Broadcast social.conversation_invited to all user-members except creator
       for (const m of members) {
         if (m.member_kind === "user" && m.member_ref !== auth.user.id) {
-          broadcastPersistedEvent(context, m.member_ref, { type: "social.room_invited", room, invitedBy: creatorPublic });
+          broadcastPersistedEvent(context, m.member_ref, { type: "social.conversation_invited", conversation, invitedBy: creatorPublic });
         }
       }
-      const payload = { room, members };
+      const payload = { conversation, members };
       rememberOp(context, auth.user.id, body, 201, payload);
       return writeJson(res, 201, payload);
     }
 
-    const roomAsFellowMatch = url.pathname.match(/^\/api\/rooms\/([A-Za-z0-9_.:-]+)\/messages\/as-fellow$/);
-    const roomMembersMatch = url.pathname.match(/^\/api\/rooms\/([A-Za-z0-9_.:-]+)\/members$/);
-    const roomMsgDeleteMatch = url.pathname.match(/^\/api\/rooms\/([A-Za-z0-9_.:-]+)\/messages\/([A-Za-z0-9_-]+)$/);
-    const roomMsgsMatch = !roomAsFellowMatch && url.pathname.match(/^\/api\/rooms\/([A-Za-z0-9_.:-]+)\/messages$/);
-    const roomDetailMatch = !roomAsFellowMatch && !roomMembersMatch && !roomMsgsMatch && !roomMsgDeleteMatch && url.pathname.match(/^\/api\/rooms\/([A-Za-z0-9_.:-]+)$/);
+    const conversationAsFellowMatch = url.pathname.match(/^\/api\/conversations\/([A-Za-z0-9_.:-]+)\/messages\/as-fellow$/);
+    const conversationMembersMatch = url.pathname.match(/^\/api\/conversations\/([A-Za-z0-9_.:-]+)\/members$/);
+    const conversationMsgDeleteMatch = url.pathname.match(/^\/api\/conversations\/([A-Za-z0-9_.:-]+)\/messages\/([A-Za-z0-9_-]+)$/);
+    const conversationMsgsMatch = !conversationAsFellowMatch && url.pathname.match(/^\/api\/conversations\/([A-Za-z0-9_.:-]+)\/messages$/);
+    const conversationDetailMatch = !conversationAsFellowMatch && !conversationMembersMatch && !conversationMsgsMatch && !conversationMsgDeleteMatch && url.pathname.match(/^\/api\/conversations\/([A-Za-z0-9_.:-]+)$/);
 
-    // POST /api/rooms/:id/members — add member to existing group
-    if (req.method === "POST" && roomMembersMatch) {
-      const roomId = roomMembersMatch[1];
-      if (roomId.startsWith("dm:")) return writeError(res, 400, "DM rooms cannot be modified");
-      if (!userIsMemberOfRoom(context.socialStore, roomId, auth.user.id)) {
-        return writeError(res, 403, "not a member of this room");
+    // POST /api/conversations/:id/members — add member to existing group
+    if (req.method === "POST" && conversationMembersMatch) {
+      const conversationId = conversationMembersMatch[1];
+      if (conversationId.startsWith("dm:")) return writeError(res, 400, "DM conversations cannot be modified");
+      if (!userIsMemberOfConversation(context.socialStore, conversationId, auth.user.id)) {
+        return writeError(res, 403, "not a member of this conversation");
       }
       const body = await readJson(req);
       const memberKind = String(body.memberKind || "");
@@ -1419,11 +1419,11 @@ async function handleRequest(req, res, context) {
         if (!context.socialStore.areFriends(auth.user.id, memberRef)) {
           return writeError(res, 403, "user is not your friend: " + memberRef);
         }
-        context.socialStore.addRoomMember({ roomId, memberKind: "user", memberRef });
-        const member = context.socialStore.getRoomMember(roomId, "user", memberRef);
-        const room = context.socialStore.getRoom(roomId);
+        context.socialStore.addConversationMember({ conversationId, memberKind: "user", memberRef });
+        const member = context.socialStore.getConversationMember(conversationId, "user", memberRef);
+        const conversation = context.socialStore.getConversation(conversationId);
         const inviterPublic = context.cloudStore.getUserPublic(auth.user.id);
-        broadcastPersistedEvent(context, memberRef, { type: "social.room_invited", room, invitedBy: inviterPublic });
+        broadcastPersistedEvent(context, memberRef, { type: "social.conversation_invited", conversation, invitedBy: inviterPublic });
         return writeJson(res, 201, { ok: true, member });
       }
       // memberKind === 'fellow'
@@ -1431,44 +1431,44 @@ async function handleRequest(req, res, context) {
       if (ownerId !== auth.user.id) {
         return writeError(res, 403, "you can only add your own fellows");
       }
-      context.socialStore.addRoomMember({ roomId, memberKind: "fellow", memberRef, ownerId: auth.user.id });
-      const member = context.socialStore.getRoomMember(roomId, "fellow", memberRef);
+      context.socialStore.addConversationMember({ conversationId, memberKind: "fellow", memberRef, ownerId: auth.user.id });
+      const member = context.socialStore.getConversationMember(conversationId, "fellow", memberRef);
       return writeJson(res, 201, { ok: true, member });
     }
 
-    // DELETE /api/rooms/:id/members — remove a member by {memberKind, memberRef}.
+    // DELETE /api/conversations/:id/members — remove a member by {memberKind, memberRef}.
     // Same lenient "any member can edit" rule as PATCH; the operation is
-    // bounded by the room scope and doesn't expose other rooms' state.
-    if (req.method === "DELETE" && roomMembersMatch) {
-      const roomId = roomMembersMatch[1];
-      if (roomId.startsWith("dm:")) return writeError(res, 400, "DM rooms cannot be modified");
-      if (!userIsMemberOfRoom(context.socialStore, roomId, auth.user.id)) {
-        return writeError(res, 403, "not a member of this room");
+    // bounded by the conversation scope and doesn't expose other conversations' state.
+    if (req.method === "DELETE" && conversationMembersMatch) {
+      const conversationId = conversationMembersMatch[1];
+      if (conversationId.startsWith("dm:")) return writeError(res, 400, "DM conversations cannot be modified");
+      if (!userIsMemberOfConversation(context.socialStore, conversationId, auth.user.id)) {
+        return writeError(res, 403, "not a member of this conversation");
       }
       const body = await readJson(req);
       const memberKind = String(body.memberKind || "");
       const memberRef = String(body.memberRef || "").trim();
       if (!memberKind || !memberRef) return writeError(res, 400, "memberKind and memberRef are required");
-      context.socialStore.removeRoomMember(roomId, memberKind, memberRef);
-      // Broadcast room.updated so every client refreshes its member cache.
-      const room = context.socialStore.getRoom(roomId);
-      for (const m of context.socialStore.listRoomMembers(roomId)) {
+      context.socialStore.removeConversationMember(conversationId, memberKind, memberRef);
+      // Broadcast conversation.updated so every client refreshes its member cache.
+      const conversation = context.socialStore.getConversation(conversationId);
+      for (const m of context.socialStore.listConversationMembers(conversationId)) {
         if (m.member_kind === "user") {
-          broadcastPersistedEvent(context, m.member_ref, { type: "room.updated", room });
+          broadcastPersistedEvent(context, m.member_ref, { type: "conversation.updated", conversation });
         }
       }
       return writeJson(res, 200, { ok: true });
     }
 
-    // POST /api/rooms/:id/messages/as-fellow — post AS a fellow
-    if (req.method === "POST" && roomAsFellowMatch) {
-      const roomId = roomAsFellowMatch[1];
+    // POST /api/conversations/:id/messages/as-fellow — post AS a fellow
+    if (req.method === "POST" && conversationAsFellowMatch) {
+      const conversationId = conversationAsFellowMatch[1];
       const body = await readJson(req);
       const fellowId = String(body.fellowId || "").trim();
       if (!fellowId) return writeError(res, 400, "fellowId is required");
-      const fellowMember = context.socialStore.getRoomMember(roomId, "fellow", fellowId);
+      const fellowMember = context.socialStore.getConversationMember(conversationId, "fellow", fellowId);
       if (!fellowMember || fellowMember.owner_id !== auth.user.id) {
-        return writeError(res, 403, "you are not the owner of this fellow in this room");
+        return writeError(res, 403, "you are not the owner of this fellow in this conversation");
       }
       if (replayIfCached(context, res, auth.user.id, body)) return;
       const attachments = persistCloudAttachments(
@@ -1477,7 +1477,7 @@ async function handleRequest(req, res, context) {
         Array.isArray(body.attachments) ? body.attachments : []
       );
       const message = context.messagesStore.appendMessage({
-        roomId,
+        conversationId,
         senderKind: "fellow",
         senderRef: fellowId,
         senderOwnerId: auth.user.id,
@@ -1488,9 +1488,9 @@ async function handleRequest(req, res, context) {
         status: "complete",
         errorJson: body.errorJson || null,
       });
-      for (const m of context.socialStore.listRoomMembers(roomId)) {
+      for (const m of context.socialStore.listConversationMembers(conversationId)) {
         if (m.member_kind === "user") {
-          broadcastPersistedEvent(context, m.member_ref, { type: "room.message_appended", roomId, message });
+          broadcastPersistedEvent(context, m.member_ref, { type: "conversation.message_appended", conversationId, message });
         }
       }
       const payload = { message };
@@ -1498,82 +1498,82 @@ async function handleRequest(req, res, context) {
       return writeJson(res, 201, payload);
     }
 
-    if (req.method === "GET" && roomDetailMatch) {
-      const roomId = roomDetailMatch[1];
-      if (!userIsMemberOfRoom(context.socialStore, roomId, auth.user.id)) {
-        return writeError(res, 403, "not a member of this room");
+    if (req.method === "GET" && conversationDetailMatch) {
+      const conversationId = conversationDetailMatch[1];
+      if (!userIsMemberOfConversation(context.socialStore, conversationId, auth.user.id)) {
+        return writeError(res, 403, "not a member of this conversation");
       }
-      const room = context.socialStore.getRoom(roomId);
-      if (!room) return writeError(res, 404, "room not found");
-      const members = context.socialStore.listRoomMembers(roomId);
+      const conversation = context.socialStore.getConversation(conversationId);
+      if (!conversation) return writeError(res, 404, "conversation not found");
+      const members = context.socialStore.listConversationMembers(conversationId);
       // M1: enrich fellow members with owner public user so renderer shows username
       const enriched = members.map((m) => {
         if (m.member_kind === "fellow" && m.owner_id) {
-          return { ...m, owner: roomMemberOwnerPublic(context.cloudStore.getUserPublic(m.owner_id)) };
+          return { ...m, owner: conversationMemberOwnerPublic(context.cloudStore.getUserPublic(m.owner_id)) };
         }
         return m;
       });
-      return writeJson(res, 200, { room, members: enriched });
+      return writeJson(res, 200, { conversation, members: enriched });
     }
 
-    // PATCH /api/rooms/:id — update room metadata (name, decorations).
+    // PATCH /api/conversations/:id — update conversation metadata (name, decorations).
     // Used by sidebar context menu for rename and pin. Any member of the
-    // room can edit metadata; this is intentionally lenient because the
+    // conversation can edit metadata; this is intentionally lenient because the
     // operations are non-destructive and mia has no group-admin model.
-    if (req.method === "PATCH" && roomDetailMatch) {
-      const roomId = roomDetailMatch[1];
-      if (!userIsMemberOfRoom(context.socialStore, roomId, auth.user.id)) {
-        return writeError(res, 403, "not a member of this room");
+    if (req.method === "PATCH" && conversationDetailMatch) {
+      const conversationId = conversationDetailMatch[1];
+      if (!userIsMemberOfConversation(context.socialStore, conversationId, auth.user.id)) {
+        return writeError(res, 403, "not a member of this conversation");
       }
-      const existing = context.socialStore.getRoom(roomId);
-      if (!existing) return writeError(res, 404, "room not found");
+      const existing = context.socialStore.getConversation(conversationId);
+      if (!existing) return writeError(res, 404, "conversation not found");
       const body = await readJson(req);
       if (replayIfCached(context, res, auth.user.id, body)) return;
       const patch = {};
       if (Object.prototype.hasOwnProperty.call(body, "name")) {
         const name = String(body.name || "").trim();
         if (!name || name.length > 80) return writeError(res, 400, "name must be 1..80 chars");
-        if (roomId.startsWith("dm:")) return writeError(res, 400, "DM rooms cannot be renamed");
+        if (conversationId.startsWith("dm:")) return writeError(res, 400, "DM conversations cannot be renamed");
         patch.name = name;
       }
       if (Object.prototype.hasOwnProperty.call(body, "decorations")) {
         patch.decorations = body.decorations && typeof body.decorations === "object" ? body.decorations : null;
       }
-      const room = context.socialStore.updateRoom(roomId, patch);
-      const members = context.socialStore.listRoomMembers(roomId);
-      // Broadcast room.updated to all user-members so other devices/clients refresh.
+      const conversation = context.socialStore.updateConversation(conversationId, patch);
+      const members = context.socialStore.listConversationMembers(conversationId);
+      // Broadcast conversation.updated to all user-members so other devices/clients refresh.
       for (const m of members) {
         if (m.member_kind === "user") {
-          broadcastPersistedEvent(context, m.member_ref, { type: "room.updated", room });
+          broadcastPersistedEvent(context, m.member_ref, { type: "conversation.updated", conversation });
         }
       }
-      const payload = { room };
+      const payload = { conversation };
       rememberOp(context, auth.user.id, body, 200, payload);
       return writeJson(res, 200, payload);
     }
 
-    // DELETE /api/rooms/:id — remove the room. ON DELETE CASCADE in the
-    // schema removes room_members + messages automatically. Any member can
+    // DELETE /api/conversations/:id — remove the conversation. ON DELETE CASCADE in the
+    // schema removes conversation_members + messages automatically. Any member can
     // initiate (same lenient rule as PATCH).
-    if (req.method === "DELETE" && roomDetailMatch) {
-      const roomId = roomDetailMatch[1];
-      if (!userIsMemberOfRoom(context.socialStore, roomId, auth.user.id)) {
-        return writeError(res, 403, "not a member of this room");
+    if (req.method === "DELETE" && conversationDetailMatch) {
+      const conversationId = conversationDetailMatch[1];
+      if (!userIsMemberOfConversation(context.socialStore, conversationId, auth.user.id)) {
+        return writeError(res, 403, "not a member of this conversation");
       }
-      const existing = context.socialStore.getRoom(roomId);
-      if (!existing) return writeError(res, 404, "room not found");
+      const existing = context.socialStore.getConversation(conversationId);
+      if (!existing) return writeError(res, 404, "conversation not found");
       // DELETE bodies are usually empty, but the client can pass a body
       // with a clientOpId. Reading it is best-effort.
       let body = {};
       try { body = await readJson(req); } catch { /* empty body is fine */ }
       if (replayIfCached(context, res, auth.user.id, body)) return;
-      const members = context.socialStore.listRoomMembers(roomId);
-      context.socialStore.deleteRoom(roomId);
-      // Broadcast room.deleted BEFORE removing connections — let clients
-      // close any open subscriptions on this room.
+      const members = context.socialStore.listConversationMembers(conversationId);
+      context.socialStore.deleteConversation(conversationId);
+      // Broadcast conversation.deleted BEFORE removing connections — let clients
+      // close any open subscriptions on this conversation.
       for (const m of members) {
         if (m.member_kind === "user") {
-          broadcastPersistedEvent(context, m.member_ref, { type: "room.deleted", roomId });
+          broadcastPersistedEvent(context, m.member_ref, { type: "conversation.deleted", conversationId });
         }
       }
       const payload = { ok: true };
@@ -1581,32 +1581,32 @@ async function handleRequest(req, res, context) {
       return writeJson(res, 200, payload);
     }
 
-    if (req.method === "GET" && roomMsgsMatch) {
-      const roomId = roomMsgsMatch[1];
-      if (!userIsMemberOfRoom(context.socialStore, roomId, auth.user.id)) {
-        return writeError(res, 403, "not a member of this room");
+    if (req.method === "GET" && conversationMsgsMatch) {
+      const conversationId = conversationMsgsMatch[1];
+      if (!userIsMemberOfConversation(context.socialStore, conversationId, auth.user.id)) {
+        return writeError(res, 403, "not a member of this conversation");
       }
       const sinceSeq = Number(url.searchParams.get("since_seq") || 0);
       const limit = Number(url.searchParams.get("limit") || 100);
       // Pass the requesting user so messages they've locally deleted (hidden)
       // are excluded — survives re-sync and new devices.
-      const messages = context.messagesStore.listMessagesSince(roomId, sinceSeq, limit, auth.user.id);
+      const messages = context.messagesStore.listMessagesSince(conversationId, sinceSeq, limit, auth.user.id);
       return writeJson(res, 200, { messages });
     }
 
-    if (req.method === "POST" && roomMsgsMatch) {
-      const roomId = roomMsgsMatch[1];
-      if (!userIsMemberOfRoom(context.socialStore, roomId, auth.user.id)) {
-        return writeError(res, 403, "not a member of this room");
+    if (req.method === "POST" && conversationMsgsMatch) {
+      const conversationId = conversationMsgsMatch[1];
+      if (!userIsMemberOfConversation(context.socialStore, conversationId, auth.user.id)) {
+        return writeError(res, 403, "not a member of this conversation");
       }
       const body = await readJson(req);
       if (replayIfCached(context, res, auth.user.id, body)) return;
-      // DM rooms are lazy-created on first message (per spec §6)
-      if (roomId.startsWith("dm:") && !context.socialStore.getRoom(roomId)) {
-        const parts = roomId.split(":");
+      // DM conversations are lazy-created on first message (per spec §6)
+      if (conversationId.startsWith("dm:") && !context.socialStore.getConversation(conversationId)) {
+        const parts = conversationId.split(":");
         const [, a, b] = parts;
         const other = auth.user.id === a ? b : a;
-        ensureDmRoom(context.socialStore, auth.user.id, other);
+        ensureDmConversation(context.socialStore, auth.user.id, other);
       }
       const attachments = persistCloudAttachments(
         context.cloudStore,
@@ -1614,7 +1614,7 @@ async function handleRequest(req, res, context) {
         Array.isArray(body.attachments) ? body.attachments : []
       );
       const message = context.messagesStore.appendMessage({
-        roomId,
+        conversationId,
         senderKind: "user",
         senderRef: auth.user.id,
         bodyMd: body.bodyMd || "",
@@ -1624,11 +1624,11 @@ async function handleRequest(req, res, context) {
         turnId: body.turnId || null,
         status: "complete",
       });
-      // 1. Broadcast room.message_appended to all user-members
-      const allMembers = context.socialStore.listRoomMembers(roomId);
+      // 1. Broadcast conversation.message_appended to all user-members
+      const allMembers = context.socialStore.listConversationMembers(conversationId);
       for (const m of allMembers) {
         if (m.member_kind === "user") {
-          broadcastPersistedEvent(context, m.member_ref, { type: "room.message_appended", roomId, message });
+          broadcastPersistedEvent(context, m.member_ref, { type: "conversation.message_appended", conversationId, message });
         }
       }
       // 2. Handle fellow mentions — dispatch invocation request to fellow
@@ -1641,7 +1641,7 @@ async function handleRequest(req, res, context) {
         if (!mention || mention.kind !== "fellow") continue;
         const fellowId = String(mention.fellowId || "").trim();
         if (!fellowId) continue;
-        const fellowMember = context.socialStore.getRoomMember(roomId, "fellow", fellowId);
+        const fellowMember = context.socialStore.getConversationMember(conversationId, "fellow", fellowId);
         if (!fellowMember) continue;
         if (context.cloudAgentDispatcher?.canHandleFellow?.({
           userId: fellowMember.owner_id,
@@ -1650,7 +1650,7 @@ async function handleRequest(req, res, context) {
         })) {
           context.cloudAgentDispatcher.invokeFellow({
             userId: fellowMember.owner_id,
-            roomId,
+            conversationId,
             fellowId,
             message
           }).catch((error) => {
@@ -1658,10 +1658,10 @@ async function handleRequest(req, res, context) {
           });
           continue;
         }
-        const recentMessages = context.messagesStore.listMessagesSince(roomId, Math.max(0, message.seq - 6), 6);
+        const recentMessages = context.messagesStore.listMessagesSince(conversationId, Math.max(0, message.seq - 6), 6);
         broadcastPersistedEvent(context, fellowMember.owner_id, {
-          type: "room.fellow_invocation_requested",
-          roomId,
+          type: "conversation.fellow_invocation_requested",
+          conversationId,
           fellowId,
           invokedBy: context.cloudStore.getUserPublic(auth.user.id),
           triggeringMessage: message,
@@ -1671,7 +1671,7 @@ async function handleRequest(req, res, context) {
       if (context.cloudAgentDispatcher) {
         context.cloudAgentDispatcher.handleUserMessage({
           userId: auth.user.id,
-          roomId,
+          conversationId,
           message
         }).catch((error) => {
           console.warn("[cloud-agent] dispatch failed:", error?.message || error);
@@ -1682,26 +1682,26 @@ async function handleRequest(req, res, context) {
       return writeJson(res, 201, payload);
     }
 
-    // DELETE /api/rooms/:id/messages/:msgId — WeChat-style local delete: hide
+    // DELETE /api/conversations/:id/messages/:msgId — WeChat-style local delete: hide
     // the message from THIS user's view only, then tell their other devices to
-    // drop it too. Other room members keep their copy; a member can never
+    // drop it too. Other conversation members keep their copy; a member can never
     // delete a message out of someone else's history. (A future "recall" would
     // be a separate, sender-only, broadcast-to-all action.)
-    if (req.method === "DELETE" && roomMsgDeleteMatch) {
-      const roomId = roomMsgDeleteMatch[1];
-      const messageId = roomMsgDeleteMatch[2];
-      if (!userIsMemberOfRoom(context.socialStore, roomId, auth.user.id)) {
-        return writeError(res, 403, "not a member of this room");
+    if (req.method === "DELETE" && conversationMsgDeleteMatch) {
+      const conversationId = conversationMsgDeleteMatch[1];
+      const messageId = conversationMsgDeleteMatch[2];
+      if (!userIsMemberOfConversation(context.socialStore, conversationId, auth.user.id)) {
+        return writeError(res, 403, "not a member of this conversation");
       }
       const existing = context.messagesStore.getMessage(messageId);
-      if (!existing || existing.room_id !== roomId) {
+      if (!existing || existing.conversation_id !== conversationId) {
         return writeError(res, 404, "message not found");
       }
-      context.messagesStore.hideMessageForUser(roomId, messageId, auth.user.id);
+      context.messagesStore.hideMessageForUser(conversationId, messageId, auth.user.id);
       // Only the deleting user's own devices learn about it — never broadcast
       // to the other members.
-      broadcastPersistedEvent(context, auth.user.id, { type: "room.message_deleted", roomId, messageId });
-      return writeJson(res, 200, { ok: true, roomId, messageId });
+      broadcastPersistedEvent(context, auth.user.id, { type: "conversation.message_deleted", conversationId, messageId });
+      return writeJson(res, 200, { ok: true, conversationId, messageId });
     }
 
     if (req.method === "POST" && url.pathname === "/api/auth/logout") {
@@ -1730,24 +1730,24 @@ async function handleRequest(req, res, context) {
       return writeJson(res, 200, payload);
     }
 
-    // PUT /api/me/fellows/:fellowId/room — ensure the stable private room
+    // PUT /api/me/fellows/:fellowId/conversation — ensure the stable private conversation
     // for a fellow exists. Unlike the legacy session endpoint below, this
-    // room id is tied to the fellow identity, not a local chat session.
-    const stableFellowRoomMatch = url.pathname.match(/^\/api\/me\/fellows\/([A-Za-z0-9_.-]+)\/room$/);
-    if (req.method === "PUT" && stableFellowRoomMatch) {
-      const fellowId = stableFellowRoomMatch[1];
+    // conversation id is tied to the fellow identity, not a local chat session.
+    const stableFellowConversationMatch = url.pathname.match(/^\/api\/me\/fellows\/([A-Za-z0-9_.-]+)\/conversation$/);
+    if (req.method === "PUT" && stableFellowConversationMatch) {
+      const fellowId = stableFellowConversationMatch[1];
       const body = await readJson(req);
       if (replayIfCached(context, res, auth.user.id, body)) return;
       const existingFellow = context.fellowsStore.getFellow(auth.user.id, fellowId);
       const name = String(body.title || "").trim() || existingFellow?.name || fellowId;
-      const roomId = `fellow:${auth.user.id}:${fellowId}`;
-      let room = context.socialStore.getRoom(roomId);
+      const conversationId = `fellow:${auth.user.id}:${fellowId}`;
+      let conversation = context.socialStore.getConversation(conversationId);
       const hasRuntimeKind = Object.prototype.hasOwnProperty.call(body, "runtimeKind");
       const requestedRuntimeKind = String(body.runtimeKind || "").trim() || undefined;
-      const existingRuntimeKind = room?.decorations?.runtimeKind;
+      const existingRuntimeKind = conversation?.decorations?.runtimeKind;
       const runtimeKind = hasRuntimeKind ? requestedRuntimeKind : existingRuntimeKind;
       const decorations = runtimeKind ? { fellowKey: fellowId, runtimeKind } : { fellowKey: fellowId };
-      const created = !room;
+      const created = !conversation;
       let changed = false;
       const sameJson = (a, b) => JSON.stringify(a || null) === JSON.stringify(b || null);
       const hasMember = (members, kind, ref, ownerId = null) => members.some((member) =>
@@ -1757,35 +1757,35 @@ async function handleRequest(req, res, context) {
       );
 
       if (created) {
-        room = context.socialStore.createRoom({ id: roomId, type: "fellow", name, decorations });
+        conversation = context.socialStore.createConversation({ id: conversationId, type: "fellow", name, decorations });
         changed = true;
-      } else if (room.name !== name || !sameJson(room.decorations, decorations)) {
-        room = context.socialStore.updateRoom(roomId, { name, decorations });
+      } else if (conversation.name !== name || !sameJson(conversation.decorations, decorations)) {
+        conversation = context.socialStore.updateConversation(conversationId, { name, decorations });
         changed = true;
       }
-      let members = context.socialStore.listRoomMembers(roomId);
+      let members = context.socialStore.listConversationMembers(conversationId);
       if (!hasMember(members, "user", auth.user.id)) {
-        context.socialStore.addRoomMember({ roomId, memberKind: "user", memberRef: auth.user.id });
+        context.socialStore.addConversationMember({ conversationId, memberKind: "user", memberRef: auth.user.id });
         changed = true;
       }
       if (!hasMember(members, "fellow", fellowId, auth.user.id)) {
-        context.socialStore.addRoomMember({ roomId, memberKind: "fellow", memberRef: fellowId, ownerId: auth.user.id });
+        context.socialStore.addConversationMember({ conversationId, memberKind: "fellow", memberRef: fellowId, ownerId: auth.user.id });
         changed = true;
       }
-      room = context.socialStore.getRoom(roomId);
-      members = context.socialStore.listRoomMembers(roomId);
+      conversation = context.socialStore.getConversation(conversationId);
+      members = context.socialStore.listConversationMembers(conversationId);
       if (changed) {
-        broadcastPersistedEvent(context, auth.user.id, { type: "room.updated", room });
+        broadcastPersistedEvent(context, auth.user.id, { type: "conversation.updated", conversation });
       }
-      const payload = { ok: true, room, members, created };
+      const payload = { ok: true, conversation, members, created };
       rememberOp(context, auth.user.id, body, 200, payload);
       return writeJson(res, 200, payload);
     }
 
-    // PUT /api/me/fellow-rooms/:sessionId — upsert a single-owner
-    // fellow-chat room. Phase 4 conversation-model unification: fellow
-    // private chats now live in the same rooms+messages tables as
-    // cloud DMs and groups. Each fellow chat session becomes a room
+    // PUT /api/me/fellow-conversations/:sessionId — upsert a single-owner
+    // fellow-chat conversation. Phase 4 conversation-model unification: fellow
+    // private chats now live in the same conversations+messages tables as
+    // cloud DMs and groups. Each fellow chat session becomes a conversation
     // with id "fellow:<userId>:<sessionId>", type "fellow", and two
     // member rows: the owner (kind=user) and the fellow (kind=fellow,
     // ownerId=userId).
@@ -1793,44 +1793,44 @@ async function handleRequest(req, res, context) {
     // Body: { fellowKey, title?, runtimeKind?, clientOpId? }
     //
     // Idempotent on (owner, sessionId): repeated calls return the same
-    // room. Updates to name only happen if `title` is provided and
+    // conversation. Updates to name only happen if `title` is provided and
     // differs.
-    const fellowRoomMatch = url.pathname.match(/^\/api\/me\/fellow-rooms\/([A-Za-z0-9_.:-]+)$/);
-    if (req.method === "PUT" && fellowRoomMatch) {
-      const sessionId = fellowRoomMatch[1];
+    const fellowConversationMatch = url.pathname.match(/^\/api\/me\/fellow-conversations\/([A-Za-z0-9_.:-]+)$/);
+    if (req.method === "PUT" && fellowConversationMatch) {
+      const sessionId = fellowConversationMatch[1];
       const body = await readJson(req);
       if (replayIfCached(context, res, auth.user.id, body)) return;
       const fellowKey = String(body.fellowKey || "").trim();
       if (!fellowKey) return writeError(res, 400, "fellowKey is required");
       const title = String(body.title || "").trim();
       const requestedRuntimeKind = String(body.runtimeKind || "").trim();
-      const roomId = `fellow:${auth.user.id}:${sessionId}`;
-      let room = context.socialStore.getRoom(roomId);
+      const conversationId = `fellow:${auth.user.id}:${sessionId}`;
+      let conversation = context.socialStore.getConversation(conversationId);
       const decorations = {
-        ...(room?.decorations || {}),
+        ...(conversation?.decorations || {}),
         fellowKey,
         sessionId,
-        runtimeKind: room?.decorations?.runtimeKind || requestedRuntimeKind || "desktop-local"
+        runtimeKind: conversation?.decorations?.runtimeKind || requestedRuntimeKind || "desktop-local"
       };
       const sameJson = (a, b) => JSON.stringify(a || null) === JSON.stringify(b || null);
-      if (!room) {
-        context.socialStore.createRoom({
-          id: roomId,
+      if (!conversation) {
+        context.socialStore.createConversation({
+          id: conversationId,
           type: "fellow",
           name: title || null,
           decorations
         });
-        context.socialStore.addRoomMember({ roomId, memberKind: "user", memberRef: auth.user.id });
-        context.socialStore.addRoomMember({ roomId, memberKind: "fellow", memberRef: fellowKey, ownerId: auth.user.id });
-        room = context.socialStore.getRoom(roomId);
-      } else if ((title && title !== room.name) || !sameJson(room.decorations, decorations)) {
-        room = context.socialStore.updateRoom(roomId, {
-          ...(title && title !== room.name ? { name: title } : {}),
+        context.socialStore.addConversationMember({ conversationId, memberKind: "user", memberRef: auth.user.id });
+        context.socialStore.addConversationMember({ conversationId, memberKind: "fellow", memberRef: fellowKey, ownerId: auth.user.id });
+        conversation = context.socialStore.getConversation(conversationId);
+      } else if ((title && title !== conversation.name) || !sameJson(conversation.decorations, decorations)) {
+        conversation = context.socialStore.updateConversation(conversationId, {
+          ...(title && title !== conversation.name ? { name: title } : {}),
           decorations
         });
       }
-      const members = context.socialStore.listRoomMembers(roomId);
-      const payload = { room, members };
+      const members = context.socialStore.listConversationMembers(conversationId);
+      const payload = { conversation, members };
       rememberOp(context, auth.user.id, body, 200, payload);
       return writeJson(res, 200, payload);
     }
@@ -1849,7 +1849,7 @@ async function handleRequest(req, res, context) {
     // GET/PUT /api/me/fellows/:id/runtime — web-side AI private chat controls.
     // Runtime bindings are stored per runtimeKind. cloud-hermes is consumed by
     // the cloud worker; desktop-local is consumed by the user's desktop app
-    // when it answers a synced fellow room.
+    // when it answers a synced fellow conversation.
     const fellowRuntimeMatch = url.pathname.match(/^\/api\/me\/fellows\/([A-Za-z0-9_.-]+)\/runtime$/);
     if (req.method === "GET" && fellowRuntimeMatch) {
       const fellowId = fellowRuntimeMatch[1];
@@ -1960,8 +1960,8 @@ async function handleRequest(req, res, context) {
     }
 
     // /api/workspace, /api/workspace/sync removed. Fellow chats live in
-    // rooms+messages now (Phase 4); all conversations route through
-    // /api/rooms[/...]. The legacy workspaces table is left in place
+    // conversations+messages now (Phase 4); all conversations route through
+    // /api/conversations[/...]. The legacy workspaces table is left in place
     // but no endpoint reads or writes it anymore.
 
     if (req.method === "GET" && url.pathname === "/api/bridge/devices") {
@@ -1983,7 +1983,7 @@ async function handleRequest(req, res, context) {
     }
 
     // /api/conversations + /api/messages also removed — all writes go
-    // through /api/rooms/:id/messages now. Bridge still uses an
+    // through /api/conversations/:id/messages now. Bridge still uses an
     // internal storage path; see the /api/bridge/run handler.
 
     if (req.method === "POST" && url.pathname === "/api/bridge/run") {
@@ -1995,10 +1995,10 @@ async function handleRequest(req, res, context) {
         return writeError(res, 409, onlineCount > 1 ? "请选择要连接的本机设备。" : "本机 Agent Bridge 不在线。");
       }
       // Phase 4 cutover: conversationId is now interpreted as a fellow
-      // room id (rooms+messages). The bridge writes the assistant reply
-      // through messagesStore.appendMessage into that room, and the
-      // standard room.message_appended event is broadcast as part of
-      // the room sequence so other devices see it consistently.
+      // conversation id (conversations+messages). The bridge writes the assistant reply
+      // through messagesStore.appendMessage into that conversation, and the
+      // standard conversation.message_appended event is broadcast as part of
+      // the conversation sequence so other devices see it consistently.
       const conversationId = String(body.conversationId || "");
       const requestAttachments = persistCloudAttachments(cloudStore, auth.user.id, Array.isArray(body.attachments) ? body.attachments : []);
       const bridgeRun = cloudStore.createBridgeRun(auth.user.id, {
@@ -2023,21 +2023,21 @@ async function handleRequest(req, res, context) {
           attachments
         });
         broadcastTransientEvent(context.eventHub, auth.user.id, { type: "bridge_run_updated", run: completed });
-        // Persist the assistant reply into rooms+messages if the
-        // conversationId looks like a real room id.
+        // Persist the assistant reply into conversations+messages if the
+        // conversationId looks like a real conversation id.
         let message = null;
-        if (conversationId && context.socialStore.getRoom(conversationId)) {
+        if (conversationId && context.socialStore.getConversation(conversationId)) {
           const text = String(result.text || "").trim() || "本机 Agent 已完成。";
           message = context.messagesStore.appendMessage({
-            roomId: conversationId,
+            conversationId: conversationId,
             senderKind: "fellow",
-            senderRef: (context.socialStore.getRoom(conversationId)?.decorations?.fellowKey || "agent"),
+            senderRef: (context.socialStore.getConversation(conversationId)?.decorations?.fellowKey || "agent"),
             senderOwnerId: auth.user.id,
             bodyMd: text,
             attachments,
             status: "complete"
           });
-          broadcastPersistedEvent(context, auth.user.id, { type: "room.message_appended", roomId: conversationId, message });
+          broadcastPersistedEvent(context, auth.user.id, { type: "conversation.message_appended", conversationId: conversationId, message });
         }
         return writeJson(res, 200, { run: completed, message });
       } catch (error) {
@@ -2232,7 +2232,7 @@ function createMiaCloudServer(options = {}) {
   context.skillsStore.seedFromCatalog(loadSkillsCatalog());
   context.runtimeBindingsStore = createRuntimeBindingsStore(context.cloudStore.getDb());
   context.cloudAgentRunsStore = createCloudAgentRunsStore(context.cloudStore.getDb());
-  // Inject fellowsStore so listRoomMembers can enrich fellow members
+  // Inject fellowsStore so listConversationMembers can enrich fellow members
   // with name/avatar from the owner's fellow definitions in one shot.
   context.socialStore._attachFellowsStore?.(context.fellowsStore);
   // Hourly purge of stale idempotency cache rows (Phase 1.D). Without

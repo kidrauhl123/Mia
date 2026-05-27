@@ -1,4 +1,4 @@
-// Renderer-side group-room feature: group message rendering, @mention send,
+// Renderer-side group-conversation feature: group message rendering, @mention send,
 // and the create-group dialog.
 // Loaded by <script src="./social/social-groups.js"> AFTER social.js.
 // Uses window.miaSocial._internalCtx to share state.
@@ -13,10 +13,10 @@
   }
 
   // Build the adapter-facing ctx ({ self, fellows, friends }) from
-  // social's internal ctx + the renderer's runtime state. All cloud-room
+  // social's internal ctx + the renderer's runtime state. All cloud-conversation
   // sender resolution must go through this; raw cloud-message schema fields
   // (sender kind / member kind / refs) are off-limits to this file —
-  // consume MessageSpec from cloud-room-source.js instead.
+  // consume MessageSpec from cloud-conversation-source.js instead.
   function _adapterCtx() {
     if (ctx && typeof ctx.adapterCtx === "function") return ctx.adapterCtx();
     const { moduleState, deps } = ctx;
@@ -29,11 +29,11 @@
     };
   }
 
-  function _cloudRoomSourceFor(roomId, msgs, members) {
-    const factory = global.miaCloudRoomSource;
-    if (!factory || typeof factory.createCloudRoomSource !== "function") return null;
-    return factory.createCloudRoomSource({
-      room: { id: roomId },
+  function _cloudConversationSourceFor(conversationId, msgs, members) {
+    const factory = global.miaCloudConversationSource;
+    if (!factory || typeof factory.createCloudConversationSource !== "function") return null;
+    return factory.createCloudConversationSource({
+      conversation: { id: conversationId },
       messages: msgs,
       members: members || [],
       ctx: _adapterCtx()
@@ -48,8 +48,8 @@
   // existing CSS expects; deviating produces "bubble that isn't a bubble".
   function buildGroupMessageArticle(msg, accentColor, members) {
     const { moduleState, escapeHtml, renderMsgBody } = ctx;
-    const roomId = moduleState.activeRoomId || "";
-    const source = _cloudRoomSourceFor(roomId, [msg], members);
+    const conversationId = moduleState.activeConversationId || "";
+    const source = _cloudConversationSourceFor(conversationId, [msg], members);
     const spec = source ? source.listMessages()[0] : null;
     const isOwn = Boolean(spec && spec.isOwn);
     const roleClass = isOwn ? "user" : "assistant";
@@ -81,9 +81,9 @@
       ? `<time class="message-time" datetime="${escapeHtml(createdAt)}">${escapeHtml(window.miaTimeFormat.formatMessageTime(createdAt))}</time>`
       : "";
 
-    // Index in the room's message cache — used by the chat-level contextmenu
+    // Index in the conversation's message cache — used by the chat-level contextmenu
     // dispatcher in app.js to look up the message for the floating menu.
-    const cache = moduleState.messageCache.get(roomId);
+    const cache = moduleState.messageCache.get(conversationId);
     const messageIndex = cache ? cache.messages.findIndex((m) => m.id === msg.id) : -1;
 
     // In-place translation block (same .message-translation markup as 1-on-1).
@@ -106,7 +106,7 @@
       ${avatarHtml}
       <div class="message-stack">
         ${senderLabel ? `<span class="message-sender">${escapeHtml(senderLabel)}</span>` : ""}
-        <div class="bubble" data-message-index="${messageIndex}" data-message-source="cloud-room" data-message-id="${escapeHtml(msg.id || "")}">${bodyHtml}</div>
+        <div class="bubble" data-message-index="${messageIndex}" data-message-source="cloud-conversation" data-message-id="${escapeHtml(msg.id || "")}">${bodyHtml}</div>
         ${attachmentHtml}
         ${translationHtml}
         ${timeHtml}
@@ -116,25 +116,25 @@
     return article;
   }
 
-  async function fetchAndCacheRoomMembers(roomId) {
+  async function fetchAndCacheConversationMembers(conversationId) {
     if (!window.mia || !window.mia.social) return;
     try {
-      const res = await window.mia.social.getRoom(roomId);
+      const res = await window.mia.social.getConversation(conversationId);
       if (res.ok && res.data && Array.isArray(res.data.members)) {
-        ctx.roomMembersCache.set(roomId, res.data.members);
+        ctx.conversationMembersCache.set(conversationId, res.data.members);
       }
     } catch (err) {
-      console.warn("[social-groups] fetchAndCacheRoomMembers failed:", roomId, err?.message || err);
+      console.warn("[social-groups] fetchAndCacheConversationMembers failed:", conversationId, err?.message || err);
     }
   }
 
   // ── group send ────────────────────────────────────────────────────────────
   // Message sending is intentionally owned by social.js so cloud DM, fellow,
-  // and group rooms share one optimistic-send/reconcile pipeline.
+  // and group conversations share one optimistic-send/reconcile pipeline.
 
-  async function sendInActiveGroupRoom(text) {
-    if (global.miaSocial && typeof global.miaSocial.sendInActiveRoom === "function") {
-      return global.miaSocial.sendInActiveRoom(text);
+  async function sendInActiveGroupConversation(text) {
+    if (global.miaSocial && typeof global.miaSocial.sendInActiveConversation === "function") {
+      return global.miaSocial.sendInActiveConversation(text);
     }
     console.warn("[social-groups] unified social send path is unavailable");
   }
@@ -142,7 +142,7 @@
   // ── openCreateGroupDialog ─────────────────────────────────────────────────
   // Reuses the existing #groupCreateDialog DOM (rail #1's UI). Members are a
   // single mixed list of friends + own fellows — the frontend treats them as
-  // unified "contacts"; the kind tag is only needed when posting to /api/rooms.
+  // unified "contacts"; the kind tag is only needed when posting to /api/conversations.
 
   function openCreateGroupDialog() {
     const dialog = document.getElementById("groupCreateDialog");
@@ -150,7 +150,7 @@
       console.error("[social-groups] groupCreateDialog DOM missing");
       return;
     }
-    const { moduleState, deps, roomMembersCache, dedup } = ctx;
+    const { moduleState, deps, conversationMembersCache, dedup } = ctx;
     const membersBox = document.getElementById("groupCreateMembers");
     const hostSection = document.getElementById("groupCreateHost")?.closest(".group-create-section");
     const nameInput = document.getElementById("groupCreateName");
@@ -162,7 +162,7 @@
     const MAX_MEMBERS = 5;
     const selected = new Map(); // key `${kind}:${id}` → { kind, id, name }
 
-    // Cloud rooms have no "host fellow" concept — hide that section while open.
+    // Cloud conversations have no "host fellow" concept — hide that section while open.
     const prevHostDisplay = hostSection ? hostSection.style.display : "";
     if (hostSection) hostSection.style.display = "none";
 
@@ -213,11 +213,13 @@
     }
 
     // Build mixed contact list: friends + own fellows in a single section.
+    // Fellows come from the canonical adapter ctx (cloud + local merged via
+    // miaFellowDirectory). Reading runtime.fellows directly dropped cloud
+    // fellows (e.g. mia, whose agent runs in the cloud) from the picker.
     membersBox.innerHTML = "";
-    const friends = moduleState.friends || [];
-    const localFellows = deps ? (deps.getState().runtime?.fellows || deps.getState().runtime?.personas || []) : [];
+    const { friends, fellows: ownedFellows } = _adapterCtx();
 
-    if (friends.length === 0 && localFellows.length === 0) {
+    if (friends.length === 0 && ownedFellows.length === 0) {
       const empty = document.createElement("div");
       empty.className = "group-create-members-empty";
       empty.textContent = "还没有联系人";
@@ -231,7 +233,7 @@
         color: "#34c759"
       }));
     }
-    for (const fellow of localFellows) {
+    for (const fellow of ownedFellows) {
       const id = fellow.key || fellow.id;
       membersBox.appendChild(buildRow({
         kind: "fellow",
@@ -271,18 +273,18 @@
 
       confirmBtn.disabled = true;
       try {
-        // Phase 5 cutover: every group is a cloud room. Login required.
+        // Phase 5 cutover: every group is a cloud conversation. Login required.
         const memberFellows = fellowEntries.map((e) => ({ fellowId: e.id }));
-        const res = await window.mia.social.createRoom({ name, memberFellows, memberFriendUserIds });
+        const res = await window.mia.social.createConversation({ name, memberFellows, memberFriendUserIds });
         if (!res.ok) { alert("创建失败：" + (res.error || "")); confirmBtn.disabled = false; return; }
-        const newRoom = res.data?.room || res.data;
-        if (newRoom && newRoom.id) {
-          moduleState.rooms = dedup([...moduleState.rooms, newRoom]);
-          if (!moduleState.messageCache.has(newRoom.id)) {
-            moduleState.messageCache.set(newRoom.id, { messages: [], maxSeq: 0 });
+        const newConversation = res.data?.conversation || res.data;
+        if (newConversation && newConversation.id) {
+          moduleState.conversations = dedup([...moduleState.conversations, newConversation]);
+          if (!moduleState.messageCache.has(newConversation.id)) {
+            moduleState.messageCache.set(newConversation.id, { messages: [], maxSeq: 0 });
           }
           if (res.data?.members && Array.isArray(res.data.members)) {
-            roomMembersCache.set(newRoom.id, res.data.members);
+            conversationMembersCache.set(newConversation.id, res.data.members);
           }
           close();
           if (deps && typeof deps.render === "function") deps.render();
@@ -308,8 +310,8 @@
   global.miaSocialGroups = {
     attach,
     buildGroupMessageArticle,
-    fetchAndCacheRoomMembers,
-    sendInActiveGroupRoom,
+    fetchAndCacheConversationMembers,
+    sendInActiveGroupConversation,
     openCreateGroupDialog
   };
 

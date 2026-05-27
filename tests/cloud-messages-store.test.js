@@ -15,9 +15,9 @@ function setup() {
   const messages = createMessagesStore(db);
   const alice = cloudStore.registerUser({ username: "alice", password: "Pa55word!" }).user;
   const bob = cloudStore.registerUser({ username: "bob", password: "Pa55word!" }).user;
-  social.createRoom({ id: "r-msg", name: null, avatar: null, hostMember: null, decorations: null, contextCard: null });
-  social.addRoomMember({ roomId: "r-msg", memberKind: "user", memberRef: alice.id, ownerId: null });
-  social.addRoomMember({ roomId: "r-msg", memberKind: "user", memberRef: bob.id, ownerId: null });
+  social.createConversation({ id: "r-msg", name: null, avatar: null, hostMember: null, decorations: null, contextCard: null });
+  social.addConversationMember({ conversationId: "r-msg", memberKind: "user", memberRef: alice.id, ownerId: null });
+  social.addConversationMember({ conversationId: "r-msg", memberKind: "user", memberRef: bob.id, ownerId: null });
   return { cloudStore, social, messages, alice, bob, tmpDir };
 }
 
@@ -26,12 +26,12 @@ function teardown(ctx) {
   fs.rmSync(ctx.tmpDir, { recursive: true, force: true });
 }
 
-test("appendMessage assigns ascending per-room seq starting at 1", () => {
+test("appendMessage assigns ascending per-conversation seq starting at 1", () => {
   const ctx = setup();
   try {
-    const m1 = ctx.messages.appendMessage({ roomId: "r-msg", senderKind: "user", senderRef: ctx.alice.id, bodyMd: "hi" });
-    const m2 = ctx.messages.appendMessage({ roomId: "r-msg", senderKind: "user", senderRef: ctx.bob.id, bodyMd: "yo" });
-    const m3 = ctx.messages.appendMessage({ roomId: "r-msg", senderKind: "user", senderRef: ctx.alice.id, bodyMd: "k" });
+    const m1 = ctx.messages.appendMessage({ conversationId: "r-msg", senderKind: "user", senderRef: ctx.alice.id, bodyMd: "hi" });
+    const m2 = ctx.messages.appendMessage({ conversationId: "r-msg", senderKind: "user", senderRef: ctx.bob.id, bodyMd: "yo" });
+    const m3 = ctx.messages.appendMessage({ conversationId: "r-msg", senderKind: "user", senderRef: ctx.alice.id, bodyMd: "k" });
     assert.equal(m1.seq, 1);
     assert.equal(m2.seq, 2);
     assert.equal(m3.seq, 3);
@@ -39,13 +39,13 @@ test("appendMessage assigns ascending per-room seq starting at 1", () => {
   } finally { teardown(ctx); }
 });
 
-test("appendMessage seq is per-room not global", () => {
+test("appendMessage seq is per-conversation not global", () => {
   const ctx = setup();
   try {
-    ctx.social.createRoom({ id: "r-other", name: null, avatar: null, hostMember: null, decorations: null, contextCard: null });
-    ctx.social.addRoomMember({ roomId: "r-other", memberKind: "user", memberRef: ctx.alice.id, ownerId: null });
-    ctx.messages.appendMessage({ roomId: "r-msg", senderKind: "user", senderRef: ctx.alice.id, bodyMd: "1" });
-    const otherFirst = ctx.messages.appendMessage({ roomId: "r-other", senderKind: "user", senderRef: ctx.alice.id, bodyMd: "1" });
+    ctx.social.createConversation({ id: "r-other", name: null, avatar: null, hostMember: null, decorations: null, contextCard: null });
+    ctx.social.addConversationMember({ conversationId: "r-other", memberKind: "user", memberRef: ctx.alice.id, ownerId: null });
+    ctx.messages.appendMessage({ conversationId: "r-msg", senderKind: "user", senderRef: ctx.alice.id, bodyMd: "1" });
+    const otherFirst = ctx.messages.appendMessage({ conversationId: "r-other", senderKind: "user", senderRef: ctx.alice.id, bodyMd: "1" });
     assert.equal(otherFirst.seq, 1);
   } finally { teardown(ctx); }
 });
@@ -54,7 +54,7 @@ test("listMessagesSince returns only seq > sinceSeq, ascending", () => {
   const ctx = setup();
   try {
     for (let i = 1; i <= 5; i++) {
-      ctx.messages.appendMessage({ roomId: "r-msg", senderKind: "user", senderRef: ctx.alice.id, bodyMd: "m" + i });
+      ctx.messages.appendMessage({ conversationId: "r-msg", senderKind: "user", senderRef: ctx.alice.id, bodyMd: "m" + i });
     }
     const after2 = ctx.messages.listMessagesSince("r-msg", 2);
     assert.equal(after2.length, 3);
@@ -71,7 +71,7 @@ test("listMessagesSince respects limit", () => {
   const ctx = setup();
   try {
     for (let i = 1; i <= 10; i++) {
-      ctx.messages.appendMessage({ roomId: "r-msg", senderKind: "user", senderRef: ctx.alice.id, bodyMd: "m" + i });
+      ctx.messages.appendMessage({ conversationId: "r-msg", senderKind: "user", senderRef: ctx.alice.id, bodyMd: "m" + i });
     }
     const page = ctx.messages.listMessagesSince("r-msg", 0, 3);
     assert.equal(page.length, 3);
@@ -83,7 +83,7 @@ test("appendMessage persists attachments + mentions + turn_id", () => {
   const ctx = setup();
   try {
     const m = ctx.messages.appendMessage({
-      roomId: "r-msg",
+      conversationId: "r-msg",
       senderKind: "user",
       senderRef: ctx.alice.id,
       bodyMd: "@bob look",
@@ -102,11 +102,11 @@ test("appendMessage persists attachments + mentions + turn_id", () => {
 test("deleteMessage removes the row and returns it; missing id returns null", () => {
   const ctx = setup();
   try {
-    const m1 = ctx.messages.appendMessage({ roomId: "r-msg", senderKind: "user", senderRef: ctx.alice.id, bodyMd: "keep" });
-    const m2 = ctx.messages.appendMessage({ roomId: "r-msg", senderKind: "user", senderRef: ctx.alice.id, bodyMd: "drop" });
+    const m1 = ctx.messages.appendMessage({ conversationId: "r-msg", senderKind: "user", senderRef: ctx.alice.id, bodyMd: "keep" });
+    const m2 = ctx.messages.appendMessage({ conversationId: "r-msg", senderKind: "user", senderRef: ctx.alice.id, bodyMd: "drop" });
     const deleted = ctx.messages.deleteMessage(m2.id);
     assert.equal(deleted.id, m2.id);
-    assert.equal(deleted.room_id, "r-msg");
+    assert.equal(deleted.conversation_id, "r-msg");
     assert.equal(ctx.messages.getMessage(m2.id), null);
     // Surviving message is untouched; remaining list is just m1.
     assert.equal(ctx.messages.getMessage(m1.id).body_md, "keep");
@@ -119,8 +119,8 @@ test("deleteMessage removes the row and returns it; missing id returns null", ()
 test("hideMessageForUser hides a message for one viewer only; row survives", () => {
   const ctx = setup();
   try {
-    const m1 = ctx.messages.appendMessage({ roomId: "r-msg", senderKind: "user", senderRef: ctx.alice.id, bodyMd: "keep" });
-    const m2 = ctx.messages.appendMessage({ roomId: "r-msg", senderKind: "user", senderRef: ctx.alice.id, bodyMd: "bob hides this" });
+    const m1 = ctx.messages.appendMessage({ conversationId: "r-msg", senderKind: "user", senderRef: ctx.alice.id, bodyMd: "keep" });
+    const m2 = ctx.messages.appendMessage({ conversationId: "r-msg", senderKind: "user", senderRef: ctx.alice.id, bodyMd: "bob hides this" });
     // Bob hides Alice's message from his own view; returns the row so the
     // caller can 404 on a missing id.
     const hidden = ctx.messages.hideMessageForUser("r-msg", m2.id, ctx.bob.id);
@@ -138,7 +138,7 @@ test("hideMessageForUser hides a message for one viewer only; row survives", () 
 test("hideMessageForUser is idempotent; missing id returns null", () => {
   const ctx = setup();
   try {
-    const m = ctx.messages.appendMessage({ roomId: "r-msg", senderKind: "user", senderRef: ctx.alice.id, bodyMd: "x" });
+    const m = ctx.messages.appendMessage({ conversationId: "r-msg", senderKind: "user", senderRef: ctx.alice.id, bodyMd: "x" });
     ctx.messages.hideMessageForUser("r-msg", m.id, ctx.bob.id);
     ctx.messages.hideMessageForUser("r-msg", m.id, ctx.bob.id);
     assert.equal(ctx.messages.listMessagesSince("r-msg", 0, 100, ctx.bob.id).length, 0);
@@ -149,7 +149,7 @@ test("hideMessageForUser is idempotent; missing id returns null", () => {
 test("updateMessageStatus transitions streaming -> complete", () => {
   const ctx = setup();
   try {
-    const m = ctx.messages.appendMessage({ roomId: "r-msg", senderKind: "fellow", senderRef: "codex", senderOwnerId: ctx.alice.id, bodyMd: "...", status: "streaming" });
+    const m = ctx.messages.appendMessage({ conversationId: "r-msg", senderKind: "fellow", senderRef: "codex", senderOwnerId: ctx.alice.id, bodyMd: "...", status: "streaming" });
     ctx.messages.updateMessageStatus(m.id, "complete");
     const fetched = ctx.messages.getMessage(m.id);
     assert.equal(fetched.status, "complete");
@@ -160,7 +160,7 @@ test("appendMessage round-trips selected skill chips on the message", () => {
   const ctx = setup();
   try {
     const withSkills = ctx.messages.appendMessage({
-      roomId: "r-msg",
+      conversationId: "r-msg",
       senderKind: "user",
       senderRef: ctx.alice.id,
       bodyMd: "plan my trip",
@@ -168,10 +168,10 @@ test("appendMessage round-trips selected skill chips on the message", () => {
     });
     assert.equal(withSkills.skills_json, JSON.stringify([{ id: "trip-planner", name: "行程规划" }]));
 
-    const noSkills = ctx.messages.appendMessage({ roomId: "r-msg", senderKind: "user", senderRef: ctx.alice.id, bodyMd: "hi" });
+    const noSkills = ctx.messages.appendMessage({ conversationId: "r-msg", senderKind: "user", senderRef: ctx.alice.id, bodyMd: "hi" });
     assert.equal(noSkills.skills_json, null);
 
-    const emptySkills = ctx.messages.appendMessage({ roomId: "r-msg", senderKind: "user", senderRef: ctx.alice.id, bodyMd: "hi", skills: [] });
+    const emptySkills = ctx.messages.appendMessage({ conversationId: "r-msg", senderKind: "user", senderRef: ctx.alice.id, bodyMd: "hi", skills: [] });
     assert.equal(emptySkills.skills_json, null);
   } finally { teardown(ctx); }
 });

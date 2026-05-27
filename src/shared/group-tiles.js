@@ -9,7 +9,7 @@
 //
 // Inputs:
 //   members: [{ member_kind: "user" | "fellow", member_ref: string }, ...]
-//            (Server-canonical shape from /api/rooms/:id. Local groups
+//            (Server-canonical shape from /api/conversations/:id. Local groups
 //            are converted via localGroupAsMembers() first so the
 //            resolver itself only sees one shape.)
 //   ctx:

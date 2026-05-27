@@ -37,8 +37,8 @@ test("cloud desktop sync lives behind a main/cloud Module instead of main.js", (
   assert.match(mainSource, /createCloudDesktopSyncClient/, "main should instantiate the cloud desktop sync Module");
   assert.doesNotMatch(mainSource, /async function cloudApi/, "main must not own low-level cloud HTTP requests");
   assert.doesNotMatch(mainSource, /async function syncMiaCloudWorkspace/, "main must not own workspace sync orchestration");
-  assert.doesNotMatch(mainSource, /async function pushAllFellowSessionsToCloudRooms/, "main must not own fellow room backfill");
-  assert.doesNotMatch(mainSource, /async function mirrorFellowSessionToCloudRoom/, "main must not own fellow-room message mirroring");
+  assert.doesNotMatch(mainSource, /async function pushAllFellowSessionsToCloudConversations/, "main must not own fellow conversation backfill");
+  assert.doesNotMatch(mainSource, /async function mirrorFellowSessionToCloudConversation/, "main must not own fellow-conversation message mirroring");
 });
 
 test("relay client socket state and RPC routing live behind a main/relay Module", () => {

@@ -41,15 +41,15 @@ test("unreadBadgeHtml: custom maxDisplay=9 → '9+' at 10", () => {
 
 // ── computeUnreadForConversation: Map readState (social / web shape) ────
 test("computeUnreadForConversation: Map readState returns mapped count", () => {
-  const map = new Map([["room-1", 3], ["room-2", 0]]);
-  assert.equal(computeUnreadForConversation({ id: "room-1" }, map), 3);
-  assert.equal(computeUnreadForConversation({ id: "room-2" }, map), 0);
-  assert.equal(computeUnreadForConversation({ id: "room-missing" }, map), 0);
+  const map = new Map([["conversation-1", 3], ["conversation-2", 0]]);
+  assert.equal(computeUnreadForConversation({ id: "conversation-1" }, map), 3);
+  assert.equal(computeUnreadForConversation({ id: "conversation-2" }, map), 0);
+  assert.equal(computeUnreadForConversation({ id: "conversation-missing" }, map), 0);
 });
 
-test("computeUnreadForConversation: Map with roomId field works too", () => {
+test("computeUnreadForConversation: Map with conversationId field works too", () => {
   const map = new Map([["r1", 7]]);
-  assert.equal(computeUnreadForConversation({ roomId: "r1" }, map), 7);
+  assert.equal(computeUnreadForConversation({ conversationId: "r1" }, map), 7);
 });
 
 // ── computeUnreadForConversation: readAt readState (session shape) ──────

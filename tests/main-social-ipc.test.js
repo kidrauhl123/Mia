@@ -14,7 +14,7 @@ function fakeIpcMain() {
   };
 }
 
-test("posting a room message dispatches the returned user message to main room AI", async () => {
+test("posting a conversation message dispatches the returned user message to main conversation AI", async () => {
   const ipcMain = fakeIpcMain();
   const message = {
     id: "m_1",
@@ -28,14 +28,14 @@ test("posting a room message dispatches the returned user message to main room A
   registerSocialIpc({
     ipcMain,
     socialApi: {
-      postRoomMessage: async () => ({ message })
+      postConversationMessage: async () => ({ message })
     },
     fellowRuntimeDispatcher: {
       handleCloudEvent: async (event) => calls.dispatched.push(event)
     }
   });
 
-  const result = await ipcMain.handlers.get(IpcChannel.SocialPostRoomMessage)(
+  const result = await ipcMain.handlers.get(IpcChannel.SocialPostConversationMessage)(
     null,
     "fellow:u_1:session_1",
     { bodyMd: "你好" }
@@ -43,8 +43,8 @@ test("posting a room message dispatches the returned user message to main room A
 
   assert.deepEqual(result, { ok: true, data: { message } });
   assert.deepEqual(calls.dispatched, [{
-    type: "room.message_appended",
-    roomId: "fellow:u_1:session_1",
+    type: "conversation.message_appended",
+    conversationId: "fellow:u_1:session_1",
     message
   }]);
 });

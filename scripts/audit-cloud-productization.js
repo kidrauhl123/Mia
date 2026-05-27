@@ -354,7 +354,7 @@ function runAudit({ rootDir = root } = {}) {
   const requirements = [
     item("cloud.unified-account-data", "统一账号数据按 userId 隔离", [
       checkFile(rootDir, "src/cloud/sqlite-store.js"),
-      checkSource(rootDir, "src/cloud/sqlite-store.js", /users[\s\S]*sessions[\s\S]*files[\s\S]*bridge_devices[\s\S]*bridge_runs[\s\S]*rooms[\s\S]*messages[\s\S]*fellows[\s\S]*user_settings/, "SQLite tables cover users/sessions/files/devices/runs/rooms/messages/fellows/user_settings"),
+      checkSource(rootDir, "src/cloud/sqlite-store.js", /users[\s\S]*sessions[\s\S]*files[\s\S]*bridge_devices[\s\S]*bridge_runs[\s\S]*conversations[\s\S]*messages[\s\S]*fellows[\s\S]*user_settings/, "SQLite tables cover users/sessions/files/devices/runs/conversations/messages/fellows/user_settings"),
       checkSource(rootDir, "src/cloud/sqlite-store.js", /WHERE user_id = \?/g, "queries scope data by user_id"),
       checkFile(rootDir, "tests/cloud-sqlite-store.test.js"),
       checkSource(rootDir, "tests/fellows-store.test.js", /listFellows scopes to owner/, "cross-account fellow scoping regression")
@@ -385,21 +385,21 @@ function runAudit({ rootDir = root } = {}) {
       checkSource(rootDir, "tests/serve-cloud-bridge.test.js", /accepts image uploads at the documented eighteen megabyte limit|active-content image uploads/, "image upload + SVG rejection regressions")
     ]),
     item("cloud.realtime-sync", "按用户隔离的实时同步", [
-      checkSource(rootDir, "scripts/serve-cloud.js", /\/api\/events|broadcastPersistedEvent|broadcastTransientEvent|room.message_appended|user_settings.updated/, "event websocket + persisted event types"),
-      checkSource(rootDir, "src/web/app.js", /startCloudEvents[\s\S]*room\.message_appended/, "web consumes realtime events"),
+      checkSource(rootDir, "scripts/serve-cloud.js", /\/api\/events|broadcastPersistedEvent|broadcastTransientEvent|conversation.message_appended|user_settings.updated/, "event websocket + persisted event types"),
+      checkSource(rootDir, "src/web/app.js", /startCloudEvents[\s\S]*conversation\.message_appended/, "web consumes realtime events"),
       checkSource(rootDir, "src/main.js", /startCloudEvents/, "desktop consumes cloud events"),
       checkSource(rootDir, "tests/sync-replay.test.js", /reconnect with since_seq replays/, "since_seq replay test guards offline drop")
     ]),
     item("cloud.desktop-sync", "桌面端同账号云同步和 Bridge 自动接入", [
       checkSource(rootDir, "src/main.js", /cloudLogin|syncMiaCloudWorkspace|startCloudBridge/, "desktop login/sync/bridge IPC path"),
-      checkSource(rootDir, "src/main/cloud/desktop-sync-client.js", /pushAllFellows[\s\S]*ensureFellowRoom/, "desktop sync ensures stable fellow cloud rooms"),
-      checkSource(rootDir, "tests/main-cloud-desktop-sync-client.test.js", /syncWorkspace syncs fellow identity and stable rooms without reading local sessions/, "desktop sync no longer backfills local sessions on login"),
+      checkSource(rootDir, "src/main/cloud/desktop-sync-client.js", /pushAllFellows[\s\S]*ensureFellowConversation/, "desktop sync ensures stable fellow cloud conversations"),
+      checkSource(rootDir, "tests/main-cloud-desktop-sync-client.test.js", /syncWorkspace syncs fellow identity and stable conversations without reading local sessions/, "desktop sync no longer backfills local sessions on login"),
       checkSource(rootDir, "src/preload.js", /cloudStatus[\s\S]*cloudLogin[\s\S]*cloudSync|cloudLogin[\s\S]*cloudSync[\s\S]*cloudLogout/, "preload exposes cloud account actions"),
-      checkSource(rootDir, "src/renderer/app.js", /sendInActiveRoom\(roomText\b[\s\S]*?return;/, "renderer sends active cloud rooms through the unified social path"),
+      checkSource(rootDir, "src/renderer/app.js", /sendInActiveConversation\(conversationText\b[\s\S]*?return;/, "renderer sends active cloud conversations through the unified social path"),
       checkSourceAbsent(rootDir, "src/renderer/app.js", /pushCloudMessageQuietly|cloudPushMessage/, "renderer does not mirror local sends through legacy cloud push"),
       checkSourceAbsent(rootDir, "src/preload.js", /cloudPushMessage/, "preload omits legacy cloud push bridge"),
       checkSourceAbsent(rootDir, "src/shared/ipc-channels.js", /CloudPushMessage/, "shared IPC omits legacy cloud push channel"),
-      checkSource(rootDir, "tests/fellow-rooms.test.js", /Fellow-room messages POST works through the unified/, "fellow chat room integration test")
+      checkSource(rootDir, "tests/fellow-conversations.test.js", /Fellow-conversation messages POST works through the unified/, "fellow chat conversation integration test")
     ]),
     item("gate.same-account-bridge-control", "同账号 Web/手机端可直接调用桌面 Agent，设备鉴权不复用 Agent permission", [
       checkSource(rootDir, "src/main/cloud/cloud-bridge-client.js", /async function runCloudBridgeRequest[\s\S]*permissionMode: "default"/, "desktop bridge keeps Agent permissionMode on the Agent run"),

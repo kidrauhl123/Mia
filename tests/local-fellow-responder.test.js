@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 
 const {
   createLocalFellowResponder,
-  shouldHandleLocalCloudRoomAi
+  shouldHandleLocalCloudConversationAi
 } = require("../src/main/social/local-fellow-responder.js");
 
 function setup(overrides = {}) {
@@ -13,8 +13,8 @@ function setup(overrides = {}) {
       calls.engine.push(args);
       return { choices: [{ message: { content: "hi from codex" } }] };
     },
-    postRoomMessageAsFellow: async (roomId, body) => {
-      calls.post.push({ roomId, body });
+    postConversationMessageAsFellow: async (conversationId, body) => {
+      calls.post.push({ conversationId, body });
       return { ok: true };
     },
     emitCloudEvent: (event) => calls.cloudEvents.push(event),
@@ -25,7 +25,7 @@ function setup(overrides = {}) {
 }
 
 const base = {
-  roomId: "g_1",
+  conversationId: "g_1",
   fellowId: "codex",
   dedupKey: "m_1:codex",
   systemPrompt: "sys",
@@ -41,7 +41,7 @@ test("respond runs the local engine and posts the reply as the fellow", async ()
   assert.deepEqual(calls.engine[0], {
     fellowKey: "codex",
     personaKey: "codex",
-    sessionId: "room:g_1",
+    sessionId: "conversation:g_1",
     messages: [
       { role: "system", content: "sys" },
       { role: "user", content: "hi" }
@@ -51,7 +51,7 @@ test("respond runs the local engine and posts the reply as the fellow", async ()
     allowSlashCommands: false
   });
   assert.deepEqual(calls.post, [{
-    roomId: "g_1",
+    conversationId: "g_1",
     body: {
       fellowId: "codex",
       bodyMd: "hi from codex",
@@ -96,13 +96,13 @@ test("activeSkillIdsFromMessage parses skills_json into id list, tolerating junk
   assert.deepEqual(activeSkillIdsFromMessage({}), []);
 });
 
-test("respond emits a transient room run start before the local engine call", async () => {
+test("respond emits a transient conversation run start before the local engine call", async () => {
   const { responder, calls } = setup();
 
   await responder.respond(base);
 
   assert.equal(calls.cloudEvents[0].type, "cloud_agent_run_started");
-  assert.equal(calls.cloudEvents[0].roomId, "g_1");
+  assert.equal(calls.cloudEvents[0].conversationId, "g_1");
   assert.equal(calls.cloudEvents[0].fellowId, "codex");
   assert.equal(calls.cloudEvents[0].triggerMessageId, "m_1");
   assert.match(calls.cloudEvents[0].runId, /^local_/);
@@ -137,11 +137,11 @@ test("respond uses the same clientOpId for the same dedupKey", async () => {
   assert.equal(second.calls.post[0].body.clientOpId, "op_fellow_reply_m_1_codex");
 });
 
-test("respond uses room scoped chat sessions for fellow rooms", async () => {
+test("respond uses conversation scoped chat sessions for fellow conversations", async () => {
   const { responder, calls } = setup();
 
   await responder.respond({
-    roomId: "fellow:u_1:alice",
+    conversationId: "fellow:u_1:alice",
     fellowId: "alice",
     dedupKey: "m_2:alice",
     systemPrompt: "You are Alice",
@@ -149,7 +149,7 @@ test("respond uses room scoped chat sessions for fellow rooms", async () => {
   });
 
   assert.equal(calls.engine[0].fellowKey, "alice");
-  assert.equal(calls.engine[0].sessionId, "room:fellow:u_1:alice");
+  assert.equal(calls.engine[0].sessionId, "conversation:fellow:u_1:alice");
 });
 
 test("respond dedups by dedupKey", async () => {
@@ -168,7 +168,7 @@ test("respond retries after post failure and dedups after post success", async (
       calls.engine.push(args);
       return { choices: [{ message: { content: "retry reply" } }] };
     },
-    postRoomMessageAsFellow: async () => {
+    postConversationMessageAsFellow: async () => {
       calls.post.push({});
       if (calls.post.length === 1) return { ok: false, error: "temporary" };
       return { ok: true };
@@ -198,7 +198,7 @@ test("respond posts a visible fellow error when the local engine fails", async (
   assert.equal(result, true);
   assert.equal(calls.engine.length, 1);
   assert.equal(calls.post.length, 1);
-  assert.equal(calls.post[0].roomId, "g_1");
+  assert.equal(calls.post[0].conversationId, "g_1");
   assert.equal(calls.post[0].body.fellowId, "codex");
   assert.match(calls.post[0].body.bodyMd, /模型配额已耗尽/);
   assert.deepEqual(calls.post[0].body.errorJson, {
@@ -218,16 +218,16 @@ test("respond skips empty replies and incomplete invocations", async () => {
 
   await responder.respond(base);
   await responder.respond({ ...base, dedupKey: "" });
-  await responder.respond({ ...base, roomId: "" });
+  await responder.respond({ ...base, conversationId: "" });
   await responder.respond({ ...base, fellowId: "" });
 
   assert.equal(calls.engine.length, 1);
   assert.equal(calls.post.length, 0);
 });
 
-test("shouldHandleLocalCloudRoomAi keeps visible desktop rooms responsive when daemon is enabled", () => {
-  assert.equal(shouldHandleLocalCloudRoomAi({ isDaemon: false, daemonEnabled: true }), true);
-  assert.equal(shouldHandleLocalCloudRoomAi({ isDaemon: false, daemonEnabled: false }), true);
-  assert.equal(shouldHandleLocalCloudRoomAi({ isDaemon: true, daemonEnabled: true }), false);
-  assert.equal(shouldHandleLocalCloudRoomAi({ isDaemon: true, daemonEnabled: false }), false);
+test("shouldHandleLocalCloudConversationAi keeps visible desktop conversations responsive when daemon is enabled", () => {
+  assert.equal(shouldHandleLocalCloudConversationAi({ isDaemon: false, daemonEnabled: true }), true);
+  assert.equal(shouldHandleLocalCloudConversationAi({ isDaemon: false, daemonEnabled: false }), true);
+  assert.equal(shouldHandleLocalCloudConversationAi({ isDaemon: true, daemonEnabled: true }), false);
+  assert.equal(shouldHandleLocalCloudConversationAi({ isDaemon: true, daemonEnabled: false }), false);
 });

@@ -117,8 +117,8 @@
     window.miaComposer.updateSlashCommandState();
   }
 
-  // Set a reply draft from any source (fellow message OR cloud-room message)
-  // and render the composer reply chip. Cloud-room bubbles call this so the
+  // Set a reply draft from any source (fellow message OR cloud-conversation message)
+  // and render the composer reply chip. Cloud-conversation bubbles call this so the
   // same designed reply UI shows for groups/DMs as for private fellow chat.
   function setReplyDraft(reference) {
     if (!state) return;

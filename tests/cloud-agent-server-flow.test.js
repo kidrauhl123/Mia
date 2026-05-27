@@ -64,7 +64,7 @@ function closeWs(ws) {
   try { ws.close(); } catch { /* test cleanup */ }
 }
 
-test("POST /api/rooms/:id/messages appends cloud fellow reply through existing room messages", async () => {
+test("POST /api/conversations/:id/messages appends cloud fellow reply through existing conversation messages", async () => {
   const dataDir = tempDir("mia-cloud-agent-server-");
   const hermesCalls = [];
   const server = createMiaCloudServer({
@@ -95,13 +95,13 @@ test("POST /api/rooms/:id/messages appends cloud fellow reply through existing r
       method: "POST",
       body: { username: "alice", password: "123456" }
     });
-    const roomId = `fellow:${account.user.id}:mia`;
+    const conversationId = `fellow:${account.user.id}:mia`;
     const authHeaders = { authorization: `Bearer ${account.token}` };
     eventsWs = new WebSocket(eventsWsUrl(baseUrl), wsTokenProtocol(account.token));
     await waitForMessage(eventsWs, (message) => message.type === "events_ready");
 
-    const runStarted = waitForMessage(eventsWs, (message) => message.type === "cloud_agent_run_started" && message.roomId === roomId);
-    const sent = await jsonFetch(baseUrl, `/api/rooms/${roomId}/messages`, {
+    const runStarted = waitForMessage(eventsWs, (message) => message.type === "cloud_agent_run_started" && message.conversationId === conversationId);
+    const sent = await jsonFetch(baseUrl, `/api/conversations/${conversationId}/messages`, {
       method: "POST",
       headers: authHeaders,
       body: {
@@ -123,7 +123,7 @@ test("POST /api/rooms/:id/messages appends cloud fellow reply through existing r
     const started = await runStarted;
     assert.equal(started.hermesRunId, "hr_server_1");
 
-    const listed = await jsonFetch(baseUrl, `/api/rooms/${roomId}/messages`, {
+    const listed = await jsonFetch(baseUrl, `/api/conversations/${conversationId}/messages`, {
       headers: authHeaders
     });
     assert.deepEqual(listed.messages.map((m) => m.sender_kind), ["user", "fellow"]);
@@ -171,17 +171,17 @@ test("POST group mention invokes cloud-hermes fellow without desktop-local event
       body: { username: "alice", password: "123456" }
     });
     const authHeaders = { authorization: `Bearer ${account.token}` };
-    const group = await jsonFetch(baseUrl, "/api/rooms", {
+    const group = await jsonFetch(baseUrl, "/api/conversations", {
       method: "POST",
       headers: authHeaders,
       body: { name: "Cloud Group", memberFellows: [{ fellowId: "mia" }] }
     });
-    const roomId = group.room.id;
+    const conversationId = group.conversation.id;
     eventsWs = new WebSocket(eventsWsUrl(baseUrl), wsTokenProtocol(account.token));
     await waitForMessage(eventsWs, (message) => message.type === "events_ready");
-    const runStarted = waitForMessage(eventsWs, (message) => message.type === "cloud_agent_run_started" && message.roomId === roomId);
+    const runStarted = waitForMessage(eventsWs, (message) => message.type === "cloud_agent_run_started" && message.conversationId === conversationId);
 
-    await jsonFetch(baseUrl, `/api/rooms/${roomId}/messages`, {
+    await jsonFetch(baseUrl, `/api/conversations/${conversationId}/messages`, {
       method: "POST",
       headers: authHeaders,
       body: {
@@ -194,14 +194,14 @@ test("POST group mention invokes cloud-hermes fellow without desktop-local event
     await server.mia.cloudAgentDispatcher.idle();
     const started = await runStarted;
     assert.equal(started.fellowId, "mia");
-    const listed = await jsonFetch(baseUrl, `/api/rooms/${roomId}/messages`, {
+    const listed = await jsonFetch(baseUrl, `/api/conversations/${conversationId}/messages`, {
       headers: authHeaders
     });
     assert.deepEqual(listed.messages.map((m) => m.sender_kind), ["user", "fellow"]);
     assert.equal(listed.messages[1].sender_ref, "mia");
     assert.equal(listed.messages[1].body_md, "group cloud reply");
     assert.equal(hermesCalls.length, 1);
-    assert.equal(hermesCalls[0].roomId, roomId);
+    assert.equal(hermesCalls[0].conversationId, conversationId);
   } finally {
     closeWs(eventsWs);
     await close(server);

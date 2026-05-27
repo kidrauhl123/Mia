@@ -12,7 +12,7 @@ function ensureDefaultCloudFellow(context, userId, options = {}) {
   const ownerUserId = String(userId || "").trim();
   if (!ownerUserId) throw new Error("ensureDefaultCloudFellow: userId required");
   const fellowId = String(options.fellowId || DEFAULT_CLOUD_FELLOW_ID).trim();
-  const roomId = `fellow:${ownerUserId}:${fellowId}`;
+  const conversationId = `fellow:${ownerUserId}:${fellowId}`;
 
   let fellow = context.fellowsStore.getFellow(ownerUserId, fellowId);
   if (!fellow) {
@@ -39,35 +39,35 @@ function ensureDefaultCloudFellow(context, userId, options = {}) {
     }
   });
 
-  let room = context.socialStore.getRoom(roomId);
-  if (!room) {
-    room = context.socialStore.createRoom({
-      id: roomId,
+  let conversation = context.socialStore.getConversation(conversationId);
+  if (!conversation) {
+    conversation = context.socialStore.createConversation({
+      id: conversationId,
       type: "fellow",
       name: fellow.name,
       decorations: { fellowKey: fellowId, sessionId: fellowId, runtimeKind: "cloud-hermes" }
     });
   } else {
     const decorations = {
-      ...(room.decorations || {}),
-      fellowKey: room.decorations?.fellowKey || fellowId,
-      sessionId: room.decorations?.sessionId || fellowId,
-      runtimeKind: room.decorations?.runtimeKind || "cloud-hermes"
+      ...(conversation.decorations || {}),
+      fellowKey: conversation.decorations?.fellowKey || fellowId,
+      sessionId: conversation.decorations?.sessionId || fellowId,
+      runtimeKind: conversation.decorations?.runtimeKind || "cloud-hermes"
     };
-    room = context.socialStore.updateRoom(roomId, {
-      name: room.name || fellow.name,
+    conversation = context.socialStore.updateConversation(conversationId, {
+      name: conversation.name || fellow.name,
       decorations
     });
   }
 
-  context.socialStore.addRoomMember({ roomId, memberKind: "user", memberRef: ownerUserId });
-  context.socialStore.addRoomMember({ roomId, memberKind: "fellow", memberRef: fellowId, ownerId: ownerUserId });
+  context.socialStore.addConversationMember({ conversationId, memberKind: "user", memberRef: ownerUserId });
+  context.socialStore.addConversationMember({ conversationId, memberKind: "fellow", memberRef: fellowId, ownerId: ownerUserId });
 
   return {
     fellow,
     binding,
-    room: context.socialStore.getRoom(roomId),
-    members: context.socialStore.listRoomMembers(roomId)
+    conversation: context.socialStore.getConversation(conversationId),
+    members: context.socialStore.listConversationMembers(conversationId)
   };
 }
 

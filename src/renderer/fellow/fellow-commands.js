@@ -39,8 +39,8 @@
     return ["chat", "files", "terminal", "code"];
   }
 
-  function roomFromResult(result) {
-    return result?.data?.room || result?.room || null;
+  function conversationFromResult(result) {
+    return result?.data?.conversation || result?.conversation || null;
   }
 
   function savedFellowFromResult(result, fallback) {
@@ -82,7 +82,7 @@
       });
       if (!runtime?.ok) throw new Error(runtime?.error || "保存云端运行配置失败");
     }
-    const ensured = await api.social.ensureFellowRoom(key, {
+    const ensured = await api.social.ensureFellowConversation(key, {
       title: identity.name || key,
       runtimeKind: "cloud-hermes"
     });
@@ -94,8 +94,8 @@
         ...social.moduleState.fellows.filter((item) => String(item?.key || item?.id || "") !== key)
       ];
     }
-    const room = social?.upsertFellowRoom?.(roomFromResult(ensured)) || roomFromResult(ensured);
-    return { key, fellow: cloudFellow, room, runtime: state.runtime };
+    const conversation = social?.upsertFellowConversation?.(conversationFromResult(ensured)) || conversationFromResult(ensured);
+    return { key, fellow: cloudFellow, conversation, runtime: state.runtime };
   }
 
   async function saveDesktopLocalFellow({
@@ -110,7 +110,7 @@
       ? fellows.find((item) => item.key === fellow.key)
       : [...fellows].reverse().find((item) => item.name === String(fellow.name || "").trim()) || fellows[0];
     await loadChatSessions();
-    return { key: saved?.key || "", fellow: saved || null, room: null, runtime };
+    return { key: saved?.key || "", fellow: saved || null, conversation: null, runtime };
   }
 
   async function saveFellow(options = {}) {
@@ -354,18 +354,18 @@
     return response?.data?.binding || response?.binding || { fellowId: fellowKey, ...body };
   }
 
-  async function ensureDesktopLocalFellowRoom({
+  async function ensureDesktopLocalFellowConversation({
     api = global?.mia?.social,
     state = {},
     fellow = {},
     engineContracts = global?.miaEngineContracts,
     modelSettings = global?.miaModelSettings,
     engineOptions = global?.miaEngineOptions,
-    onRoom = null
+    onConversation = null
   } = {}) {
     const fellowKey = String(fellow?.key || fellow?.id || "").trim();
-    if (!fellowKey || typeof api?.ensureFellowRoom !== "function") return { key: fellowKey, room: null, binding: null };
-    const result = await api.ensureFellowRoom(fellowKey, {
+    if (!fellowKey || typeof api?.ensureFellowConversation !== "function") return { key: fellowKey, conversation: null, binding: null };
+    const result = await api.ensureFellowConversation(fellowKey, {
       title: fellow.name || fellow.displayName || fellowKey,
       runtimeKind: "desktop-local"
     });
@@ -378,9 +378,9 @@
       engineOptions
     });
     if (result && result.ok === false) throw new Error(result.error || result.message || result.data?.error || "创建本机 Fellow 云端会话失败");
-    const room = roomFromResult(result);
-    const savedRoom = room && typeof onRoom === "function" ? onRoom(room) : room;
-    return { key: fellowKey, room: savedRoom || null, binding };
+    const conversation = conversationFromResult(result);
+    const savedConversation = conversation && typeof onConversation === "function" ? onConversation(conversation) : conversation;
+    return { key: fellowKey, conversation: savedConversation || null, binding };
   }
 
   function modelEntryForValue(entries = [], value = "") {
@@ -495,7 +495,7 @@
     saveFellowRuntimeConfig,
     desktopLocalRuntimeConfig,
     syncDesktopLocalFellowRuntimeBinding,
-    ensureDesktopLocalFellowRoom,
+    ensureDesktopLocalFellowConversation,
     saveDesktopLocalFellowRuntimeControl,
     saveFellowRuntimeControl
   };

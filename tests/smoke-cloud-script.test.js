@@ -163,7 +163,7 @@ test("cloud smoke script can require and execute a bridge run", async () => {
     assert.match(stdout, /OK file policy - active svg rejected/);
     // (was: OK message validation - blank message rejected. /api/messages
     //  deleted in Phase 4 cutover; blank-message validation now lives in
-    //  /api/rooms/:id/messages and is covered by op-idempotency tests.)
+    //  /api/conversations/:id/messages and is covered by op-idempotency tests.)
     assert.match(stdout, /OK bridge devices - 1 online/);
     assert.match(stdout, /OK bridge run - Script Smoke Bridge -> run_/);
     assert.match(stdout, /OK logout - token invalidated/);

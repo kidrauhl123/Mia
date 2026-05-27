@@ -238,11 +238,11 @@ test("schema v2 creates social tables and indexes", () => {
   try {
     const db = store.getDb();
     const tables = db.prepare(`SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`).all().map((r) => r.name);
-    for (const t of ["friendships", "friend_requests", "rooms", "room_members", "messages"]) {
+    for (const t of ["friendships", "friend_requests", "conversations", "conversation_members", "messages"]) {
       assert.ok(tables.includes(t), `missing table: ${t}`);
     }
     const idx = db.prepare(`SELECT name FROM sqlite_master WHERE type='index' ORDER BY name`).all().map((r) => r.name);
-    for (const i of ["idx_friend_requests_to", "idx_friend_requests_code", "idx_room_members_user", "idx_messages_room_seq"]) {
+    for (const i of ["idx_friend_requests_to", "idx_friend_requests_code", "idx_conversation_members_user", "idx_messages_conversation_seq"]) {
       assert.ok(idx.includes(i), `missing index: ${i}`);
     }
     const version = db.prepare("SELECT MAX(version) AS v FROM schema_migrations").get().v;

@@ -963,13 +963,13 @@
 
   <!-- Message source adapters (raw schema → RenderableMessageSpec) -->
   <script src="./message-sources/fellow-session-source.js"></script>
-  <script src="./message-sources/cloud-room-source.js"></script>
+  <script src="./message-sources/cloud-conversation-source.js"></script>
 
   <!-- Single message-bubble DOM producer -->
   <script src="./message-bubble-renderer.js"></script>
 
   <!-- Unified sidebar card renderer (private / group). Used by app.js to
-       render fellow chats, DM rooms, local groups and cloud rooms with the
+       render fellow chats, DM conversations, local groups and cloud conversations with the
        same path — no special-casing real-friend conversations. -->
   <script src="./sidebar-card-renderer.js"></script>
 
@@ -977,11 +977,11 @@
        all share the SAME shape; storage backend never leaks into menu UI). -->
   <script src="./conversation-context-menu.js"></script>
 
-  <!-- Social: friends, DM rooms, add-friend dialog -->
+  <!-- Social: friends, DM conversations, add-friend dialog -->
   <script src="./social/social.js"></script>
   <!-- Social groups: group create dialog and group chat rendering -->
   <script src="./social/social-groups.js"></script>
-  <!-- Group info / settings dialog (cloud rooms) -->
+  <!-- Group info / settings dialog (cloud conversations) -->
   <script src="./social/group-info-dialog.js"></script>
   <!-- Click-on-avatar contact card -->
   <script src="./social/contact-card.js"></script>

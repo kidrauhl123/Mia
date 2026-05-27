@@ -18,7 +18,7 @@ const ALLOWED_FILES = [
   // Storage layer — persisting and reading raw kind literals against the
   // SQLite rows themselves is the canonical source of truth, not a bypass.
   "cloud/social-store.js",
-  // Cloud agent service layer dispatches from raw room/message rows before
+  // Cloud agent service layer dispatches from raw conversation/message rows before
   // renderer message-source adapters exist; comparisons are against storage
   // fields, not rendered MessageSpec state.
   "cloud-agent/dispatcher.js"

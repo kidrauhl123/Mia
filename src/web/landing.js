@@ -19,7 +19,7 @@
     },
     route: {
       title: "路由任务",
-      subtitle: "Cloud room mention routes back to owner desktop",
+      subtitle: "Cloud conversation mention routes back to owner desktop",
       status: "Routing",
       permission: "owner desktop"
     },
@@ -31,9 +31,9 @@
     },
     reply: {
       title: "同步结果",
-      subtitle: "Reply returns to the same cloud room",
+      subtitle: "Reply returns to the same cloud conversation",
       status: "Synced",
-      permission: "room message"
+      permission: "conversation message"
     }
   };
 

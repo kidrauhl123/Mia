@@ -1,6 +1,6 @@
 // Per-user cross-device settings (Phase 3). Holds:
-//   pins:        ["room_id_a", "fellow_key_b", ...]   — pinned conversation refs
-//   readMarks:   { "room_id_a": last_seen_seq, ... } — last seq the user has read
+//   pins:        ["conversation_id_a", "fellow_key_b", ...]   — pinned conversation refs
+//   readMarks:   { "conversation_id_a": last_seen_seq, ... } — last seq the user has read
 //   appearance:  { theme, listStyle, ... }            — UI preferences
 //
 // One row per user, JSON-bagged so we don't migrate the schema for every

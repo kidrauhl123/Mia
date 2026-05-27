@@ -151,10 +151,10 @@
   function renderComposerSkills() {
     if (!state || !els || !els.composerSkills) return;
     // Chips belong to the conversation they were attached in. If the active
-    // room changed (switched fellow), drop them — a new conversation starts
+    // conversation changed (switched fellow), drop them — a new conversation starts
     // empty. Self-heals on every render, so switching anywhere clears them.
-    const activeRoomId = window.miaSocial?.getActiveRoomId?.() || "";
-    if ((state.composerActiveSkills || []).length && state.composerSkillsRoomId !== activeRoomId) {
+    const activeConversationId = window.miaSocial?.getActiveConversationId?.() || "";
+    if ((state.composerActiveSkills || []).length && state.composerSkillsConversationId !== activeConversationId) {
       state.composerActiveSkills = [];
       state.composerSkillSelected = false;
     }
@@ -169,9 +169,9 @@
 
   function addComposerSkill(skill) {
     if (!state || !skill || !skill.id) return;
-    // Bind the chips to the room that is active now (the caller navigated here
+    // Bind the chips to the conversation that is active now (the caller navigated here
     // first), so renderComposerSkills clears them once the user switches away.
-    state.composerSkillsRoomId = window.miaSocial?.getActiveRoomId?.() || "";
+    state.composerSkillsConversationId = window.miaSocial?.getActiveConversationId?.() || "";
     state.composerActiveSkills = state.composerActiveSkills || [];
     if (!state.composerActiveSkills.some((item) => item.id === skill.id)) {
       state.composerActiveSkills = [...state.composerActiveSkills, { id: String(skill.id), name: skill.name || skill.id }];

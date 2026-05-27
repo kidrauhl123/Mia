@@ -75,7 +75,7 @@ test("src/web exposes cloud-only fellow creation from the sidebar plus menu", ()
   assert.match(source, /runtimeKind:\s*"cloud-hermes"/);
   assert.match(source, /\/api\/me\/fellows\/\$\{encodeURIComponent\(key\)\}/);
   assert.match(source, /\/api\/me\/fellows\/\$\{encodeURIComponent\(key\)\}\/runtime/);
-  assert.match(source, /\/api\/me\/fellows\/\$\{encodeURIComponent\(key\)\}\/room/);
+  assert.match(source, /\/api\/me\/fellows\/\$\{encodeURIComponent\(key\)\}\/conversation/);
   assert.match(source, /avatarImage:\s*draft\.avatarImage/);
   assert.match(source, /avatarCrop:\s*draft\.avatarCrop/);
   assert.doesNotMatch(source, /id="webFellowRuntimeLocation"/);
@@ -239,10 +239,10 @@ test("src/web/app.js has no inline '> 99 ? 99+' truncation literals", () => {
   );
 });
 
-test("src/web/app.js only shows private AI controls in fellow rooms", () => {
+test("src/web/app.js only shows private AI controls in fellow conversations", () => {
   const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
-  assert.match(source, /function renderComposerControls\(room = null\)/);
-  assert.match(source, /roomTypeForControls\(room\)\s*===\s*"fellow"/);
+  assert.match(source, /function renderComposerControls\(conversation = null\)/);
+  assert.match(source, /conversationTypeForControls\(conversation\)\s*===\s*"fellow"/);
   assert.match(source, /composerBottom\?\.classList\.toggle\("hidden",\s*!show\)/);
   assert.match(source, /saveWebAiControl\("model"/);
   assert.match(source, /saveWebAiControl\("effort"/);
@@ -306,7 +306,7 @@ test("src/web/app.js supports desktop-style markdown links and code copy", () =>
 
 test("src/web/app.js lets web controls update desktop-local fellow runtime bindings", () => {
   const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
-  assert.match(source, /function runtimeKindForFellowRoom\(room, fellow\)[\s\S]*return sessionHistory\.runtimeKind\(room, "desktop-local"\);/);
+  assert.match(source, /function runtimeKindForFellowConversation\(conversation, fellow\)[\s\S]*return sessionHistory\.runtimeKind\(conversation, "desktop-local"\);/);
   assert.doesNotMatch(source, /return runtimeKind \|\| "cloud-hermes";/);
   assert.doesNotMatch(source, /runtimeKind === "desktop-local"\)\s*return null/);
   assert.doesNotMatch(source, /Desktop controls/);
@@ -343,8 +343,8 @@ test("src/web/app.js switches conversations before awaiting network hydration", 
   const match = source.match(/function setActiveConversation\(id\) \{([\s\S]*?)\n\}/);
   assert.ok(match, "setActiveConversation should be a synchronous optimistic renderer");
   const body = match[1];
-  assert.doesNotMatch(body, /await ensureRoomMessages/);
-  assert.doesNotMatch(body, /await ensureRoomMembers/);
+  assert.doesNotMatch(body, /await ensureConversationMessages/);
+  assert.doesNotMatch(body, /await ensureConversationMembers/);
   assert.match(source, /async function hydrateActiveConversation\(id\)/);
   assert.ok(
     body.indexOf("renderActiveChat();") >= 0 && body.indexOf("renderActiveChat();") < body.indexOf("hydrateActiveConversation(id);"),
@@ -352,18 +352,18 @@ test("src/web/app.js switches conversations before awaiting network hydration", 
   );
 });
 
-test("src/web/app.js restores the topbar chat history selector for fellow rooms", () => {
+test("src/web/app.js restores the topbar chat history selector for fellow conversations", () => {
   const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
   assert.match(source, /const sessionHistory = window\.miaSessionHistory/);
   assert.match(source, /sessionMenuButton: document\.getElementById\("sessionMenuButton"\)/);
   assert.match(source, /function renderSessionMenu\(\)/);
-  assert.match(source, /function sessionRoomsForRoom\(room\)/);
-  assert.match(source, /sessionHistory\.sessionRoomsForRoom/);
-  assert.match(source, /sessionHistory\.sidebarRooms\(state\.rooms/);
-  assert.match(source, /sessionHistory\.fellowDisplayTitle\(room, state\.fellows, "对话"\)/);
+  assert.match(source, /function sessionConversationsForConversation\(conversation\)/);
+  assert.match(source, /sessionHistory\.sessionConversationsForConversation/);
+  assert.match(source, /sessionHistory\.sidebarConversations\(state\.conversations/);
+  assert.match(source, /sessionHistory\.fellowDisplayTitle\(conversation, state\.fellows, "对话"\)/);
   assert.match(source, /sessionHistory\.createFellowSessionPayload/);
   assert.match(source, /function createNewSessionForActive\(\)/);
-  assert.match(source, /\/api\/me\/fellow-rooms\/\$\{encodeURIComponent\(payload\.sessionId\)\}/);
+  assert.match(source, /\/api\/me\/fellow-conversations\/\$\{encodeURIComponent\(payload\.sessionId\)\}/);
   assert.match(source, /sessionMenuOpen/);
   assert.match(source, /currentSessionTitle/);
   assert.match(source, /newSession\?\.classList\.toggle\("hidden", !canCreate\)/);
@@ -421,7 +421,7 @@ test("src/web/app.js routes through window.miaUnread", () => {
   );
 });
 
-test("src/web/app.js persists room readMarks as message seq, not timestamps", () => {
+test("src/web/app.js persists conversation readMarks as message seq, not timestamps", () => {
   const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
   assert.equal(
     /\[id\]:\s*Date\.now\(\)/.test(source),
@@ -436,6 +436,6 @@ test("src/web/app.js persists room readMarks as message seq, not timestamps", ()
   assert.match(
     source,
     /readMarks:\s*\{\s*\[id\]:\s*lastSeenSeqForConversation\(id\)\s*\}/,
-    "setActiveConversation should persist the room's cached max seq as the read mark"
+    "setActiveConversation should persist the conversation's cached max seq as the read mark"
   );
 });

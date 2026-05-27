@@ -116,7 +116,7 @@ test("login normalizes the cloud URL, resets local auth, then starts sockets wit
   assert.equal(getSettings().token, "tok_new");
 });
 
-test("syncWorkspace syncs fellow identity and stable rooms without reading local sessions", async () => {
+test("syncWorkspace syncs fellow identity and stable conversations without reading local sessions", async () => {
   const { client, calls } = setup({
     loadChatStore: () => {
       throw new Error("local session store must not be read during login sync");
@@ -128,7 +128,7 @@ test("syncWorkspace syncs fellow identity and stable rooms without reading local
   assert.deepEqual(calls.fetch.map((request) => [request.method, request.url]), [
     ["PATCH", "https://cloud.example/api/me/profile"],
     ["PUT", "https://cloud.example/api/me/fellows/codex"],
-    ["PUT", "https://cloud.example/api/me/fellows/codex/room"],
+    ["PUT", "https://cloud.example/api/me/fellows/codex/conversation"],
     ["GET", "https://cloud.example/api/me"]
   ]);
   assert.equal(calls.fetch[0].headers.Authorization, "Bearer tok_1");
@@ -148,7 +148,7 @@ test("syncWorkspace syncs fellow identity and stable rooms without reading local
   assert.deepEqual(calls.writes.at(-1), { user: { id: "u_1", username: "refreshed" } });
 });
 
-test("pushDesktopMessage keeps legacy local-mode fellow room message mirroring", async () => {
+test("pushDesktopMessage keeps legacy local-mode fellow conversation message mirroring", async () => {
   const { client, calls } = setup();
 
   await client.pushDesktopMessage({
@@ -158,8 +158,8 @@ test("pushDesktopMessage keeps legacy local-mode fellow room message mirroring",
   });
 
   assert.deepEqual(calls.fetch.map((request) => [request.method, request.url]), [
-    ["PUT", "https://cloud.example/api/me/fellow-rooms/s_2"],
-    ["POST", "https://cloud.example/api/rooms/fellow%3Au_1%3As_2/messages"]
+    ["PUT", "https://cloud.example/api/me/fellow-conversations/s_2"],
+    ["POST", "https://cloud.example/api/conversations/fellow%3Au_1%3As_2/messages"]
   ]);
   assert.deepEqual(calls.fetch[1].body, {
     bodyMd: "single message",
@@ -168,14 +168,14 @@ test("pushDesktopMessage keeps legacy local-mode fellow room message mirroring",
   });
 });
 
-test("pushAllFellows ensures a stable cloud room for each local fellow", async () => {
+test("pushAllFellows ensures a stable cloud conversation for each local fellow", async () => {
   const { client, calls } = setup();
 
   await client.pushAllFellows();
 
   assert.deepEqual(calls.fetch.map((request) => [request.method, request.url]), [
     ["PUT", "https://cloud.example/api/me/fellows/codex"],
-    ["PUT", "https://cloud.example/api/me/fellows/codex/room"]
+    ["PUT", "https://cloud.example/api/me/fellows/codex/conversation"]
   ]);
   assert.deepEqual(calls.fetch[1].body, {
     title: "Codex",
@@ -183,7 +183,7 @@ test("pushAllFellows ensures a stable cloud room for each local fellow", async (
   });
 });
 
-test("pushAllFellows ensures rooms even when local user metadata is missing", async () => {
+test("pushAllFellows ensures conversations even when local user metadata is missing", async () => {
   const { client, calls } = setup({
     initialSettings: {
       enabled: true,
@@ -197,7 +197,7 @@ test("pushAllFellows ensures rooms even when local user metadata is missing", as
 
   assert.deepEqual(calls.fetch.map((request) => [request.method, request.url]), [
     ["PUT", "https://cloud.example/api/me/fellows/codex"],
-    ["PUT", "https://cloud.example/api/me/fellows/codex/room"]
+    ["PUT", "https://cloud.example/api/me/fellows/codex/conversation"]
   ]);
   assert.deepEqual(calls.fetch[1].body, {
     title: "Codex",

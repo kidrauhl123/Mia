@@ -7,7 +7,7 @@
 
   function safeJsonArray(s) { try { const v = JSON.parse(s); return Array.isArray(v) ? v : []; } catch { return []; } }
 
-  function createCloudRoomSource({ room, messages, members, ctx }) {
+  function createCloudConversationSource({ conversation, messages, members, ctx }) {
     const { normalizeSpec } = spec();
     const { resolveContact, ContactKind } = contact();
     const selfId = ctx.self?.id || "";
@@ -54,8 +54,8 @@
             avatar = fallbackFellowAvatar(m.sender_ref, member.fellow_color || avatar.color);
           }
         } else {
-          const roomFellowKey = room.decorations?.fellowKey || (String(room.id || "").startsWith("fellow:") ? String(room.id || "").split(":").slice(2).join(":") : "");
-          displayName = roomFellowKey === m.sender_ref && room.name ? room.name : m.sender_ref;
+          const conversationFellowKey = conversation.decorations?.fellowKey || (String(conversation.id || "").startsWith("fellow:") ? String(conversation.id || "").split(":").slice(2).join(":") : "");
+          displayName = conversationFellowKey === m.sender_ref && conversation.name ? conversation.name : m.sender_ref;
         }
         return {
           kind: ContactKind.Fellow,
@@ -76,9 +76,9 @@
         const author = authorForMessage(m);
         const isOwnUser = m.sender_kind === SenderKind.User && m.sender_ref === selfId;
         return normalizeSpec({
-          source: "cloud-room",
-          conversationId: room.id,
-          messageId: m.id || `${room.id}#${m.seq || idx}`,
+          source: "cloud-conversation",
+          conversationId: conversation.id,
+          messageId: m.id || `${conversation.id}#${m.seq || idx}`,
           messageIndex: idx,
           role: m.sender_kind === SenderKind.Fellow ? "assistant" : (m.sender_kind === SenderKind.System ? "system" : "user"),
           authorName: author.displayName,
@@ -90,14 +90,14 @@
           isOwn: isOwnUser,
           isPending: Boolean(m._localPending || m.status === "sending" || m.status === "pending"),
           // delete = WeChat-style local hide (any member may remove a message
-          // from their own view); pin has no per-message meaning in a shared room.
+          // from their own view); pin has no per-message meaning in a shared conversation.
           capabilities: { reply: true, copy: true, pin: false, delete: true }
         });
       });
     }
 
     // Resolve a raw `@word` mention token (without the leading "@") against
-    // this room's member list. Returns `{ kind: "fellow", fellowId }` when
+    // this conversation's member list. Returns `{ kind: "fellow", fellowId }` when
     // the token matches a fellow member, or `null` otherwise. Consumers must
     // NOT reach into `members` themselves — go through this resolver so the
     // fellow membership rule lives in one place.
@@ -108,8 +108,8 @@
       return null;
     }
 
-    return { kind: "cloud-room", id: room.id, listMessages, resolveMention };
+    return { kind: "cloud-conversation", id: conversation.id, listMessages, resolveMention };
   }
 
-  global.miaCloudRoomSource = { createCloudRoomSource };
+  global.miaCloudConversationSource = { createCloudConversationSource };
 })(typeof window !== "undefined" ? window : globalThis);

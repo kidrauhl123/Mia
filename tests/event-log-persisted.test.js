@@ -129,7 +129,7 @@ test("transient events (device_updated etc) do NOT land in user_events", async (
 
     // No actions taken that would mutate state — only the registration
     // happened (which doesn't fire any persisted event since the user has
-    // no friends/rooms yet).
+    // no friends/conversations yet).
     const store = openStoreReadonly(ctx.tmpDir);
     try {
       const log = createEventLogStore(store.getDb());

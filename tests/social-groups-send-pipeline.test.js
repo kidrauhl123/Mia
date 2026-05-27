@@ -17,22 +17,22 @@ function loadSocialGroups() {
   const mockWindow = {
     mia: {
       social: {
-        postRoomMessage: async () => {
-          throw new Error("social-groups must not post room messages directly");
+        postConversationMessage: async () => {
+          throw new Error("social-groups must not post conversation messages directly");
         },
       },
     },
     miaSocial: {
-      sendInActiveRoom: async (text) => delegated.push(text),
+      sendInActiveConversation: async (text) => delegated.push(text),
       _internalCtx: {
         moduleState: {
-          activeRoomId: "g_1",
+          activeConversationId: "g_1",
           myUserId: "u_me",
           messageCache: new Map([["g_1", { messages: [], maxSeq: 0 }]]),
           friends: []
         },
         deps: null,
-        roomMembersCache: new Map(),
+        conversationMembersCache: new Map(),
         escapeHtml: (v) => String(v || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;"),
         renderMsgBody: (v) => String(v || ""),
         renderSendStatus: (msg) => msg.status === "error"
@@ -63,10 +63,10 @@ function loadSocialGroups() {
   return { groups: mockWindow.miaSocialGroups, delegated };
 }
 
-test("sendInActiveGroupRoom delegates to the unified social send path", async () => {
+test("sendInActiveGroupConversation delegates to the unified social send path", async () => {
   const { groups, delegated } = loadSocialGroups();
 
-  await groups.sendInActiveGroupRoom("hello group");
+  await groups.sendInActiveGroupConversation("hello group");
 
   assert.deepEqual(delegated, ["hello group"]);
 });

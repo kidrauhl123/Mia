@@ -194,10 +194,10 @@ test("cancelFriendRequest is idempotent if already cancelled", () => {
   } finally { cleanup(ctx); }
 });
 
-test("createRoom + getRoom roundtrip stores JSON fields", () => {
+test("createConversation + getConversation roundtrip stores JSON fields", () => {
   const ctx = makeStores();
   try {
-    const created = ctx.social.createRoom({
+    const created = ctx.social.createConversation({
       id: "r-1",
       name: "Test",
       avatar: null,
@@ -209,58 +209,58 @@ test("createRoom + getRoom roundtrip stores JSON fields", () => {
     assert.equal(created.name, "Test");
     assert.deepEqual(created.decorations, { pinnedGoal: null, todos: [] });
     assert.equal(created.hostMember, null);
-    const fetched = ctx.social.getRoom("r-1");
+    const fetched = ctx.social.getConversation("r-1");
     assert.deepEqual(fetched.decorations, { pinnedGoal: null, todos: [] });
   } finally { cleanup(ctx); }
 });
 
-test("addRoomMember + listRoomMembers", () => {
+test("addConversationMember + listConversationMembers", () => {
   const ctx = makeStores();
   try {
-    ctx.social.createRoom({ id: "r-2", name: "Pair", avatar: null, hostMember: null, decorations: null, contextCard: null });
-    ctx.social.addRoomMember({ roomId: "r-2", memberKind: "user", memberRef: ctx.alice.id, ownerId: null });
-    ctx.social.addRoomMember({ roomId: "r-2", memberKind: "user", memberRef: ctx.bob.id, ownerId: null });
-    const members = ctx.social.listRoomMembers("r-2");
+    ctx.social.createConversation({ id: "r-2", name: "Pair", avatar: null, hostMember: null, decorations: null, contextCard: null });
+    ctx.social.addConversationMember({ conversationId: "r-2", memberKind: "user", memberRef: ctx.alice.id, ownerId: null });
+    ctx.social.addConversationMember({ conversationId: "r-2", memberKind: "user", memberRef: ctx.bob.id, ownerId: null });
+    const members = ctx.social.listConversationMembers("r-2");
     assert.equal(members.length, 2);
     const refs = members.map((m) => m.member_ref).sort();
     assert.deepEqual(refs, [ctx.alice.id, ctx.bob.id].sort());
   } finally { cleanup(ctx); }
 });
 
-test("listRoomsForUser returns rooms where user is a member", () => {
+test("listConversationsForUser returns conversations where user is a member", () => {
   const ctx = makeStores();
   try {
-    ctx.social.createRoom({ id: "r-3", name: "R3", avatar: null, hostMember: null, decorations: null, contextCard: null });
-    ctx.social.addRoomMember({ roomId: "r-3", memberKind: "user", memberRef: ctx.alice.id, ownerId: null });
-    ctx.social.addRoomMember({ roomId: "r-3", memberKind: "user", memberRef: ctx.bob.id, ownerId: null });
-    ctx.social.createRoom({ id: "r-4", name: "R4", avatar: null, hostMember: null, decorations: null, contextCard: null });
-    ctx.social.addRoomMember({ roomId: "r-4", memberKind: "user", memberRef: ctx.bob.id, ownerId: null });
-    const aliceRooms = ctx.social.listRoomsForUser(ctx.alice.id).map((r) => r.id).sort();
-    assert.deepEqual(aliceRooms, ["r-3"]);
-    const bobRooms = ctx.social.listRoomsForUser(ctx.bob.id).map((r) => r.id).sort();
-    assert.deepEqual(bobRooms, ["r-3", "r-4"]);
+    ctx.social.createConversation({ id: "r-3", name: "R3", avatar: null, hostMember: null, decorations: null, contextCard: null });
+    ctx.social.addConversationMember({ conversationId: "r-3", memberKind: "user", memberRef: ctx.alice.id, ownerId: null });
+    ctx.social.addConversationMember({ conversationId: "r-3", memberKind: "user", memberRef: ctx.bob.id, ownerId: null });
+    ctx.social.createConversation({ id: "r-4", name: "R4", avatar: null, hostMember: null, decorations: null, contextCard: null });
+    ctx.social.addConversationMember({ conversationId: "r-4", memberKind: "user", memberRef: ctx.bob.id, ownerId: null });
+    const aliceConversations = ctx.social.listConversationsForUser(ctx.alice.id).map((r) => r.id).sort();
+    assert.deepEqual(aliceConversations, ["r-3"]);
+    const bobConversations = ctx.social.listConversationsForUser(ctx.bob.id).map((r) => r.id).sort();
+    assert.deepEqual(bobConversations, ["r-3", "r-4"]);
   } finally { cleanup(ctx); }
 });
 
-test("deleteRoom cascade-removes room_members", () => {
+test("deleteConversation cascade-removes conversation_members", () => {
   const ctx = makeStores();
   try {
-    ctx.social.createRoom({ id: "r-5", name: "X", avatar: null, hostMember: null, decorations: null, contextCard: null });
-    ctx.social.addRoomMember({ roomId: "r-5", memberKind: "user", memberRef: ctx.alice.id, ownerId: null });
-    ctx.social.deleteRoom("r-5");
-    assert.equal(ctx.social.getRoom("r-5"), null);
-    assert.deepEqual(ctx.social.listRoomMembers("r-5"), []);
+    ctx.social.createConversation({ id: "r-5", name: "X", avatar: null, hostMember: null, decorations: null, contextCard: null });
+    ctx.social.addConversationMember({ conversationId: "r-5", memberKind: "user", memberRef: ctx.alice.id, ownerId: null });
+    ctx.social.deleteConversation("r-5");
+    assert.equal(ctx.social.getConversation("r-5"), null);
+    assert.deepEqual(ctx.social.listConversationMembers("r-5"), []);
   } finally { cleanup(ctx); }
 });
 
-test("removeRoomMember", () => {
+test("removeConversationMember", () => {
   const ctx = makeStores();
   try {
-    ctx.social.createRoom({ id: "r-6", name: "Y", avatar: null, hostMember: null, decorations: null, contextCard: null });
-    ctx.social.addRoomMember({ roomId: "r-6", memberKind: "user", memberRef: ctx.alice.id, ownerId: null });
-    ctx.social.addRoomMember({ roomId: "r-6", memberKind: "user", memberRef: ctx.bob.id, ownerId: null });
-    ctx.social.removeRoomMember("r-6", "user", ctx.bob.id);
-    const refs = ctx.social.listRoomMembers("r-6").map((m) => m.member_ref);
+    ctx.social.createConversation({ id: "r-6", name: "Y", avatar: null, hostMember: null, decorations: null, contextCard: null });
+    ctx.social.addConversationMember({ conversationId: "r-6", memberKind: "user", memberRef: ctx.alice.id, ownerId: null });
+    ctx.social.addConversationMember({ conversationId: "r-6", memberKind: "user", memberRef: ctx.bob.id, ownerId: null });
+    ctx.social.removeConversationMember("r-6", "user", ctx.bob.id);
+    const refs = ctx.social.listConversationMembers("r-6").map((m) => m.member_ref);
     assert.deepEqual(refs, [ctx.alice.id]);
   } finally { cleanup(ctx); }
 });
