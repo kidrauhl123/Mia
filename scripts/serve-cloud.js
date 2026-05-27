@@ -1042,7 +1042,9 @@ function clientFile(file) {
 // Composer skill chips sent with a message. Untrusted client input → cap the
 // count, validate each id against a safe pattern, and bound the display name,
 // before it is stored and (on the owner's desktop) used to drive skill loading.
-const SKILL_ID_PATTERN = /^[A-Za-z0-9._/-]+$/;
+// Skill ids are "<libraryId>:<id>" (e.g. mia:trip-planner) — the colon is part
+// of the canonical id, so it must be allowed alongside slug characters.
+const SKILL_ID_PATTERN = /^[A-Za-z0-9._:/-]+$/;
 function sanitizeMessageSkills(raw) {
   if (!Array.isArray(raw)) return null;
   const out = [];
@@ -2282,5 +2284,6 @@ if (require.main === module) {
 }
 
 module.exports = {
-  createMiaCloudServer
+  createMiaCloudServer,
+  sanitizeMessageSkills
 };
