@@ -395,7 +395,7 @@ function runAudit({ rootDir = root } = {}) {
       checkSource(rootDir, "src/main/cloud/desktop-sync-client.js", /pushAllFellows[\s\S]*ensureFellowRoom/, "desktop sync ensures stable fellow cloud rooms"),
       checkSource(rootDir, "tests/main-cloud-desktop-sync-client.test.js", /syncWorkspace syncs fellow identity and stable rooms without reading local sessions/, "desktop sync no longer backfills local sessions on login"),
       checkSource(rootDir, "src/preload.js", /cloudStatus[\s\S]*cloudLogin[\s\S]*cloudSync|cloudLogin[\s\S]*cloudSync[\s\S]*cloudLogout/, "preload exposes cloud account actions"),
-      checkSource(rootDir, "src/renderer/app.js", /sendInActiveRoom\(roomText\)[\s\S]*return;/, "renderer sends active cloud rooms through the unified social path"),
+      checkSource(rootDir, "src/renderer/app.js", /sendInActiveRoom\(roomText\b[\s\S]*?return;/, "renderer sends active cloud rooms through the unified social path"),
       checkSourceAbsent(rootDir, "src/renderer/app.js", /pushCloudMessageQuietly|cloudPushMessage/, "renderer does not mirror local sends through legacy cloud push"),
       checkSourceAbsent(rootDir, "src/preload.js", /cloudPushMessage/, "preload omits legacy cloud push bridge"),
       checkSourceAbsent(rootDir, "src/shared/ipc-channels.js", /CloudPushMessage/, "shared IPC omits legacy cloud push channel"),
