@@ -776,6 +776,10 @@
       const { SenderKind } = conversationKinds();
       if (message.sender_kind === SenderKind.Fellow) {
         moduleState.cloudAgentRunsByRoom.delete(roomId);
+        // First fellow reply in an untitled conversation → auto-title it.
+        if (deps && typeof deps.maybeGenerateRoomTitle === "function") {
+          Promise.resolve(deps.maybeGenerateRoomTitle(roomId)).catch(() => {});
+        }
       }
 
       // Unread bookkeeping: count messages that aren't mine and didn't land

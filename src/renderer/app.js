@@ -1,6 +1,6 @@
 const fallbackSlashCommands = window.miaAppState.fallbackSlashCommands;
 const SETUP_GUIDE_DISMISSED_KEY = window.miaAppState.SETUP_GUIDE_DISMISSED_KEY;
-const { ConversationKind, MemberKind } = (typeof window !== "undefined" && window.miaConversationKinds) || require("../shared/conversation-kinds");
+const { ConversationKind, MemberKind, SenderKind } = (typeof window !== "undefined" && window.miaConversationKinds) || require("../shared/conversation-kinds");
 const { prepareOutgoingMessage } = (typeof window !== "undefined" && window.miaSendPipeline) || require("../shared/send-pipeline");
 const sessionHistory = (typeof window !== "undefined" && window.miaSessionHistory) || require("../shared/session-history");
 const SIDEBAR_WIDTH_MIN = 220;
@@ -1759,6 +1759,48 @@ async function maybeGenerateTitleForSession(session) {
   }
 }
 
+// Cloud fellow conversations are created named "新对话". Once the fellow has
+// actually replied, summarize the opening exchange into a title (reusing the
+// same engine title generator the old local path used) and rename the room.
+// Only the room's owner receives a fellow reply event, so this runs once on
+// the machine that has the engine. The primary fellow room (shown as the
+// fellow's name, name === "") is left alone — only rooms still literally named
+// "新对话" get retitled.
+async function maybeGenerateCloudRoomTitle(roomId) {
+  const social = window.miaSocial;
+  if (!roomId || !social) return;
+  const room = social.getRoomById?.(roomId);
+  if (!room || roomTypeForComposer(room, roomId) !== "fellow") return;
+  if (String(room.name || "").trim() !== "新对话") return;
+  if (state.generatingTitleIds.has(roomId)) return;
+  const cache = social.moduleState?.messageCache?.get(roomId);
+  const msgs = (cache?.messages || []).filter((message) => message.body_md && !message._localPending);
+  const hasUser = msgs.some((message) => message.sender_kind === SenderKind.User);
+  const hasFellow = msgs.some((message) => message.sender_kind === SenderKind.Fellow);
+  if (!hasUser || !hasFellow) return;
+  state.generatingTitleIds.add(roomId);
+  try {
+    const titleMessages = msgs.slice(0, 4).map((message) => ({
+      role: message.sender_kind === SenderKind.Fellow ? "assistant" : "user",
+      content: message.body_md
+    }));
+    const result = await window.mia.generateSessionTitle({
+      personaKey: fellowKeyForRoom(room),
+      sessionId: `title:${roomId}`,
+      messages: titleMessages
+    });
+    const title = String(result?.title || "").trim();
+    if (!title || title === "新对话") return;
+    const res = await window.mia.social.updateRoom(roomId, { name: title });
+    if (res?.ok && (res.data?.room || res.room)) social.upsertFellowRoom?.(res.data?.room || res.room);
+    renderSessionMenu();
+  } catch (error) {
+    console.warn("[title] cloud room title generation failed:", error?.message || error);
+  } finally {
+    state.generatingTitleIds.delete(roomId);
+  }
+}
+
 
 function renderMessageHtml(message, ctx) {
   // ctx = {
@@ -2560,6 +2602,7 @@ async function initializeRuntime() {
       render,
       els,
       appendTransientChat,
+      maybeGenerateRoomTitle: maybeGenerateCloudRoomTitle,
     });
     // Bootstrap social data if signed in to cloud (token present).
     // (cloud.enabled, not cloud.loggedIn — the latter never existed, so
