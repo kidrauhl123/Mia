@@ -140,6 +140,35 @@ test("PUT /api/me/fellows/:fellowId/conversation preserves runtimeKind when omit
   } finally { await stopServer(ctx); }
 });
 
+test("PUT /api/me/fellows/:fellowId/conversation does not overwrite generated titles", async () => {
+  const ctx = await startServer();
+  try {
+    const A = await register(ctx.port, "generated-title");
+    const first = await api(ctx.port, "PUT", "/api/me/fellows/alice/conversation", {
+      token: A.token,
+      body: { title: "爱丽丝", runtimeKind: "desktop-local" }
+    });
+    assert.equal(first.status, 200);
+
+    const renamed = await api(ctx.port, "PATCH", `/api/conversations/${first.body.conversation.id}`, {
+      token: A.token,
+      body: { name: "周报整理" }
+    });
+    assert.equal(renamed.status, 200);
+    assert.equal(renamed.body.conversation.name, "周报整理");
+
+    const ensured = await api(ctx.port, "PUT", "/api/me/fellows/alice/conversation", {
+      token: A.token,
+      body: { title: "爱丽丝", runtimeKind: "desktop-local" }
+    });
+
+    assert.equal(ensured.status, 200);
+    assert.equal(ensured.body.conversation.id, first.body.conversation.id);
+    assert.equal(ensured.body.conversation.name, "周报整理");
+    assert.equal(ensured.body.conversation.updatedAt, renamed.body.conversation.updatedAt);
+  } finally { await stopServer(ctx); }
+});
+
 test("stable fellow conversations with dotted fellow keys can be fetched and messaged", async () => {
   const ctx = await startServer();
   try {

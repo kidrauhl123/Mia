@@ -9,7 +9,7 @@
   "use strict";
 
   let state, els;
-  let setText, formatConversationTime, hasPersistableMessages, sessionsForPersona;
+  let setText, formatConversationTime;
   let loadSkills, showNarrowContent, render;
   let closeGroupContextMenu, openEditFellowDialog, deleteFellow, setFellowPinned;
 
@@ -18,8 +18,6 @@
     els = deps.els;
     setText = deps.setText;
     formatConversationTime = deps.formatConversationTime;
-    hasPersistableMessages = deps.hasPersistableMessages;
-    sessionsForPersona = deps.sessionsForPersona;
     loadSkills = deps.loadSkills;
     showNarrowContent = deps.showNarrowContent;
     render = deps.render;
@@ -92,20 +90,9 @@
   }
 
   function contactSessionSummary(fellow) {
-    if (!state) return { count: 0, preview: "", time: "" };
-    const sessions = state.chatStore.sessions[fellow.key] || [];
-    const meaningful = sessions.filter(hasPersistableMessages);
-    const latest = sessions[0];
-    const messages = latest?.messages || [];
-    const last = [...messages].reverse().find((message) => String(message.content || "").trim() && !message.transient);
-    const preview = last
-      ? String(last.content || "")
-      : `${fellowSubtitle(fellow)} · 暂无对话`;
-    return {
-      count: meaningful.length || sessions.length,
-      preview,
-      time: formatConversationTime(latest?.updatedAt || latest?.createdAt)
-    };
+    // Cloud-only: the contacts list no longer derives a preview from local
+    // sessions; it shows the fellow's subtitle.
+    return { count: 0, preview: `${fellowSubtitle(fellow)} · 暂无对话`, time: "" };
   }
 
   function contactPetLabel(pet = {}) {

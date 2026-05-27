@@ -738,15 +738,35 @@
         if (!moduleState.messageCache.has(conversation.id)) {
           moduleState.messageCache.set(conversation.id, { messages: [], maxSeq: 0 });
         }
+        // Warm from the local cache first (instant, offline-ok), then fetch only
+        // messages newer than what we already have — no full re-pull each launch.
+        // The cursor is the persisted cache's max seq (a contiguous tail), NOT the
+        // in-memory snapshot preview seq, which has a gap below it. When nothing is
+        // persisted yet the cursor is 0, so this is a full backfill.
+        let cachedMaxSeq = 0;
+        if (typeof api.getCachedConversationMessages === "function") {
+          try {
+            const cachedRes = await api.getCachedConversationMessages(conversation.id, 50);
+            const cached = cachedRes?.ok ? (cachedRes.data?.messages || []) : [];
+            if (cached.length) {
+              _mergeMessagesIntoCache(conversation.id, cached);
+              cachedMaxSeq = cached.reduce((m, x) => Math.max(m, Number(x.seq) || 0), 0);
+            }
+          } catch (err) {
+            console.warn("[social] getCachedConversationMessages failed for", conversation.id, err);
+          }
+        }
         try {
-          const msgRes = await api.listConversationMessages(conversation.id, 0, 100);
+          const msgRes = await api.listConversationMessages(conversation.id, cachedMaxSeq, 100);
           if (msgRes.ok) {
-            const msgs = (msgRes.data?.messages || []).slice().sort((a, b) => a.seq - b.seq);
-            const maxSeq = msgs.reduce((m, x) => Math.max(m, Number(x.seq) || 0), 0);
-            moduleState.messageCache.set(conversation.id, { messages: msgs, maxSeq });
+            const fresh = (msgRes.data?.messages || []).map((m) => messageWithFallbackRunTrace(conversation.id, m));
+            _mergeMessagesIntoCache(conversation.id, fresh);
           }
         } catch (err) {
           console.warn("[social] listConversationMessages failed for", conversation.id, err);
+        }
+        if (deps && typeof deps.maybeGenerateConversationTitle === "function") {
+          Promise.resolve(deps.maybeGenerateConversationTitle(conversation.id)).catch(() => {});
         }
       }));
 
@@ -1842,6 +1862,85 @@
 
   function getActiveConversationId() { return moduleState.activeConversationId; }
   function getConversationById(conversationId) { return moduleState.conversations.find((r) => r.id === conversationId) || null; }
+  // Merge a batch of fetched/cached messages into a conversation's cache entry,
+  // de-duping by id and keeping seq order. Existing entries win on id collision
+  // (same as the WS append path); only genuinely new messages are added.
+  function _mergeMessagesIntoCache(conversationId, incoming) {
+    if (!moduleState.messageCache.has(conversationId)) {
+      moduleState.messageCache.set(conversationId, { messages: [], maxSeq: 0 });
+    }
+    const entry = moduleState.messageCache.get(conversationId);
+    if (!Array.isArray(incoming) || incoming.length === 0) return entry;
+    const byId = new Map(entry.messages.map((m) => [m.id, m]));
+    let changed = false;
+    for (const msg of incoming) {
+      if (!msg || !msg.id) continue;
+      if (!byId.has(msg.id)) { byId.set(msg.id, msg); changed = true; }
+      const seq = Number(msg.seq) || 0;
+      if (seq > entry.maxSeq) entry.maxSeq = seq;
+    }
+    if (changed) {
+      entry.messages = [...byId.values()].sort((a, b) => (Number(a.seq) || 0) - (Number(b.seq) || 0));
+    }
+    return entry;
+  }
+
+  const _ensuringConversations = new Set();
+
+  // TG-style local-first open: paint the locally-cached recent history instantly
+  // (no network), then fetch only messages newer than what we have (delta keyed
+  // on seq). The cloud write-through (main-side) keeps the local cache fresh, so
+  // from the second launch onward an opened conversation shows its history
+  // immediately instead of flashing a single preview message.
+  async function _ensureConversationMessages(conversationId) {
+    const api = window.mia && window.mia.social;
+    if (!conversationId || !api || _ensuringConversations.has(conversationId)) return;
+    _ensuringConversations.add(conversationId);
+    try {
+      // 1. Local persisted cache → instant paint. Its max seq is the delta cursor:
+      //    the cache holds a contiguous recent tail, so "since cachedMaxSeq" is safe.
+      //    The in-memory snapshot preview (a single latest message) must NOT be used
+      //    as the cursor — it has a gap below it and would skip the whole history.
+      let cachedMaxSeq = 0;
+      if (typeof api.getCachedConversationMessages === "function") {
+        try {
+          const cachedRes = await api.getCachedConversationMessages(conversationId, 50);
+          const cached = cachedRes?.ok ? (cachedRes.data?.messages || []) : [];
+          if (cached.length) {
+            _mergeMessagesIntoCache(conversationId, cached);
+            cachedMaxSeq = cached.reduce((m, x) => Math.max(m, Number(x.seq) || 0), 0);
+            if (conversationId === moduleState.activeConversationId) _reRenderActiveChat();
+          }
+        } catch (err) {
+          console.warn("[social] getCachedConversationMessages failed for", conversationId, err);
+        }
+      }
+      // 2. Fetch from cloud: a full backfill when nothing is persisted yet
+      //    (cachedMaxSeq === 0 → since_seq 0), otherwise only the delta newer than
+      //    the persisted tail.
+      try {
+        const res = await api.listConversationMessages(conversationId, cachedMaxSeq, 100);
+        if (res?.ok) {
+          const fresh = (res.data?.messages || []).map((m) => messageWithFallbackRunTrace(conversationId, m));
+          if (fresh.length) {
+            _mergeMessagesIntoCache(conversationId, fresh);
+            if (conversationId === moduleState.activeConversationId) {
+              _reRenderActiveChat();
+              // Messages that arrived while offline are now on-screen — advance the
+              // read mark past them (the initial open marked read at the stale seq).
+              markConversationRead(conversationId);
+            }
+            _schedulePersistSnapshot();
+          }
+        }
+      } catch (err) {
+        console.warn("[social] delta listConversationMessages failed for", conversationId, err);
+      }
+    } finally {
+      _ensuringConversations.delete(conversationId);
+    }
+  }
+
   function setActiveConversationId(id) {
     const next = id || null;
     // Any actual navigation (switching conversations, or leaving to a local fellow chat
@@ -1850,7 +1949,11 @@
     // instead of restoring a stale offset.
     if (next !== moduleState.activeConversationId) _lastRenderedConversationId = null;
     moduleState.activeConversationId = next;
-    if (id) markConversationRead(id);
+    if (id) {
+      markConversationRead(id);
+      // Fire-and-forget: keep the click snappy; cache paint + delta sync re-render async.
+      _ensureConversationMessages(id);
+    }
   }
   function markConversationRead(conversationId) {
     if (!conversationId) return;

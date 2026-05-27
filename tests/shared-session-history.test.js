@@ -20,6 +20,7 @@ test("session-history contract is available in Node and browser contexts", () =>
   assert.equal(sessionHistory.conversationType({ id: "fellow:u:mia" }), "fellow");
   assert.equal(browserContract.conversationType({ id: "dm:a:b" }), "dm");
   assert.equal(browserContract.fellowKey({ id: "fellow:u:sess", decorations: { fellowKey: "mia" } }), "mia");
+  assert.equal(typeof browserContract.isUntitledFellowConversation, "function");
 });
 
 test("session-history groups fellow conversations by fellow key and sorts by latest message", () => {
@@ -71,6 +72,35 @@ test("session-history derives title and new-session payload consistently", () =>
     runtimeKind: "cloud-hermes",
     sessionId: "sess_new"
   });
+});
+
+test("session-history treats default and fellow-name titles as untitled fellow sessions", () => {
+  assert.equal(sessionHistory.isUntitledFellowConversation({
+    id: "fellow:u:s1",
+    type: "fellow",
+    name: "新对话",
+    decorations: { fellowKey: "kongling" }
+  }, {
+    fellows: [{ id: "kongling", name: "空铃" }]
+  }), true);
+
+  assert.equal(sessionHistory.isUntitledFellowConversation({
+    id: "fellow:u:kongling",
+    type: "fellow",
+    name: "空铃",
+    decorations: { fellowKey: "kongling" }
+  }, {
+    fellows: [{ id: "kongling", name: "空铃" }]
+  }), true);
+
+  assert.equal(sessionHistory.isUntitledFellowConversation({
+    id: "fellow:u:kongling",
+    type: "fellow",
+    name: "聊项目日报",
+    decorations: { fellowKey: "kongling" }
+  }, {
+    fellows: [{ id: "kongling", name: "空铃" }]
+  }), false);
 });
 
 test("session-history collapses fellow sessions for sidebars but keeps the active blank session selected", () => {

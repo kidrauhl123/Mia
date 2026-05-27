@@ -1,8 +1,9 @@
 // Context menu for cloud-conversation (DM + group) message bubbles.
 //
-// Cloud-conversation messages don't live in a fellow session, so the fellow-chat menu
-// in src/renderer/chat/message-menu.js (which depends on activeSession() /
-// messageAtIndex) can't be reused directly. This module renders the SAME
+// Cloud-conversation messages are the only conversation messages now; this is
+// the live message menu (the legacy fellow-chat menu in
+// src/renderer/chat/message-menu.js is retained only for non-cloud surfaces).
+// This module renders the SAME
 // designed menu — same #messageContextMenu element, same .message-context-menu
 // CSS, same menuItemHtml icons + separator + danger styling — but wires the
 // actions to cloud-conversation operations:

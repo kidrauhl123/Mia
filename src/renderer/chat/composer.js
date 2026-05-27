@@ -14,7 +14,7 @@
   let state, els, mia;
   let fallbackSlashCommands;
   let loadSkills, renderAttachmentThumb, renderSendButton, resizeChatInput;
-  let appendTransientChat, cryptoRandomId, activeSession;
+  let appendTransientChat, cryptoRandomId;
 
   // Module-local hover-close timer for the skill picker.
   let skillPickerHoverCloseTimer = 0;
@@ -30,7 +30,6 @@
     resizeChatInput = deps.resizeChatInput;
     appendTransientChat = deps.appendTransientChat;
     cryptoRandomId = deps.cryptoRandomId;
-    activeSession = deps.activeSession;
   }
 
   function filteredSlashCommands() {

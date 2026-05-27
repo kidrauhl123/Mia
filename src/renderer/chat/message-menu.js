@@ -12,7 +12,6 @@
 
   let state, els, mia;
   let messageAtIndex, messageReferenceForIndex, messageContextText, menuItemHtml;
-  let activeSession, persistSessionQuietly, replacePersistedSessionQuietly;
   let renderChat, renderSessionMenu, renderComposerReply;
   let escapeHtml, renderMarkdown, copyTextToClipboard;
   let nowIso, cryptoRandomId;
@@ -26,9 +25,6 @@
     messageReferenceForIndex = deps.messageReferenceForIndex;
     messageContextText = deps.messageContextText;
     menuItemHtml = deps.menuItemHtml;
-    activeSession = deps.activeSession;
-    persistSessionQuietly = deps.persistSessionQuietly;
-    replacePersistedSessionQuietly = deps.replacePersistedSessionQuietly;
     renderChat = deps.renderChat;
     renderSessionMenu = deps.renderSessionMenu;
     renderComposerReply = deps.renderComposerReply;
@@ -155,7 +151,6 @@
   async function translateMessage(message, index = state.messageContextMenu.messageIndex, selectionText = "") {
     const text = messageContextText(message, selectionText);
     const messageIndex = Number(index);
-    const session = activeSession();
     const target = messageAtIndex(messageIndex);
     if (!text || !target) return;
     if (state.isGenerating) {
@@ -204,7 +199,6 @@
       };
     }
     renderChat();
-    await persistSessionQuietly(session);
   }
 
   async function toggleMessagePinned(index) {
@@ -212,20 +206,13 @@
     if (!message) return;
     message.pinned = !message.pinned;
     message.pinnedAt = message.pinned ? nowIso() : "";
-    const session = activeSession();
-    session.updatedAt = nowIso();
     renderChat();
-    await replacePersistedSessionQuietly(session);
   }
 
   async function deleteMessageAt(index) {
-    const session = activeSession();
-    if (!messageAtIndex(index)) return;
-    session.messages.splice(index, 1);
-    session.updatedAt = nowIso();
-    renderChat();
-    renderSessionMenu();
-    await replacePersistedSessionQuietly(session);
+    // Cloud-only: message deletion runs through the social message menu
+    // (openSocialMessageMenu). This local-path handler is no longer reachable.
+    void index;
   }
 
   function renderMessageContextMenu() {

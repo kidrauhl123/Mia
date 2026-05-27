@@ -1760,9 +1760,13 @@ async function handleRequest(req, res, context) {
       if (created) {
         conversation = context.socialStore.createConversation({ id: conversationId, type: "fellow", name, decorations });
         changed = true;
-      } else if (conversation.name !== name || !sameJson(conversation.decorations, decorations)) {
-        conversation = context.socialStore.updateConversation(conversationId, { name, decorations });
-        changed = true;
+      } else {
+        const currentName = String(conversation.name || "").trim();
+        const namePatch = !currentName && name ? { name } : {};
+        if (Object.keys(namePatch).length || !sameJson(conversation.decorations, decorations)) {
+          conversation = context.socialStore.updateConversation(conversationId, { ...namePatch, decorations });
+          changed = true;
+        }
       }
       let members = context.socialStore.listConversationMembers(conversationId);
       if (!hasMember(members, "user", auth.user.id)) {

@@ -112,6 +112,17 @@
     return fellow?.name || conversation?.decorations?.fellowName || key || fallback;
   }
 
+  function isUntitledFellowConversation(conversation, options = {}) {
+    if (conversationType(conversation, conversation?.id || "") !== "fellow") return false;
+    const title = String(conversation?.name || "").trim();
+    const defaultTitle = String(options.defaultTitle || "新对话").trim();
+    if (!title || (defaultTitle && title === defaultTitle)) return true;
+    const key = fellowKey(conversation);
+    const fellow = findFellow(key, options.fellows);
+    const fellowName = String(fellow?.name || conversation?.decorations?.fellowName || "").trim();
+    return Boolean(fellowName && title === fellowName);
+  }
+
   function canCreateSession(conversation) {
     return conversationType(conversation, conversation?.id || "") === "fellow" && Boolean(fellowKey(conversation));
   }
@@ -134,6 +145,7 @@
     sessionConversationsForConversation,
     sidebarConversations,
     fellowDisplayTitle,
+    isUntitledFellowConversation,
     canCreateSession,
     createFellowSessionPayload
   };

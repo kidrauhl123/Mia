@@ -73,6 +73,73 @@
     return html;
   }
 
+  function previewMarkdownSource(value) {
+    const lines = String(value || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+    const parts = [];
+    let fence = null;
+    for (const line of lines) {
+      const fenceMatch = line.match(/^```([A-Za-z0-9_+.-]*)\s*$/);
+      if (fence) {
+        if (fenceMatch) {
+          const code = fence.join(" ").replace(/\s+/g, " ").trim();
+          if (code) parts.push("`" + code + "`");
+          fence = null;
+        } else if (line.trim()) {
+          fence.push(line.trim());
+        }
+        continue;
+      }
+      if (fenceMatch) {
+        fence = [];
+        continue;
+      }
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const heading = trimmed.match(/^#{1,3}\s+(.+)$/);
+      const unordered = trimmed.match(/^[-*]\s+(.+)$/);
+      const ordered = trimmed.match(/^(\d+[.)])\s+(.+)$/);
+      const quote = trimmed.match(/^>\s?(.+)$/);
+      if (heading) parts.push(heading[1]);
+      else if (unordered) parts.push("• " + unordered[1]);
+      else if (ordered) parts.push(ordered[1] + " " + ordered[2]);
+      else if (quote) parts.push(quote[1]);
+      else parts.push(trimmed);
+    }
+    if (fence && fence.length) parts.push("`" + fence.join(" ").replace(/\s+/g, " ").trim() + "`");
+    return parts.join(" ");
+  }
+
+  function renderPreviewMarkdown(value) {
+    const codes = [];
+    let protectedText = previewMarkdownSource(value).replace(/`([^`\n]+)`/g, (_match, code) => {
+      const index = codes.push(code) - 1;
+      return `MIAPREVIEWCODE${index}TOKEN`;
+    });
+    const links = [];
+    protectedText = protectedText.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, (_match, text, url) => {
+      const index = links.push({ text, url }) - 1;
+      return `MIAPREVIEWLINK${index}TOKEN`;
+    });
+    let html = escapeHtml(protectedText);
+    html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+    html = html.replace(/~~(.+?)~~/g, "<del>$1</del>");
+    html = html.replace(/(^|[\s(])\*([^*\n]+)\*(?=$|[\s).,!?，。！？])/g, "$1<em>$2</em>");
+    for (let index = 0; index < codes.length; index++) {
+      html = html.replace(
+        `MIAPREVIEWCODE${index}TOKEN`,
+        `<code class="sidebar-inline-code">${escapeHtml(codes[index])}</code>`
+      );
+    }
+    for (let index = 0; index < links.length; index++) {
+      const { text, url } = links[index];
+      html = html.replace(
+        `MIAPREVIEWLINK${index}TOKEN`,
+        `<span class="sidebar-preview-link" title="${escapeHtml(url)}">${escapeHtml(text)}</span>`
+      );
+    }
+    return html;
+  }
+
   function codeLanguageId(language = "") {
     const raw = String(language || "").trim().toLowerCase();
     const aliases = {
@@ -269,6 +336,7 @@
     iconParkIcon,
     menuItemHtml,
     renderInlineMarkdown,
+    renderPreviewMarkdown,
     codeLanguageId,
     codeLanguageLabel,
     highlightPlainSegment,

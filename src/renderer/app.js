@@ -452,10 +452,6 @@ function nowIso() {
   return new Date().toISOString();
 }
 
-function sortSessions(sessions) {
-  return [...sessions].sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
-}
-
 // Resolve a cloud-conversation member record into an avatar tile. The kinds
 // recognized here ("user" / "fellow") mirror cloud-conversation-source.js's
 // authorForMessage dispatch — same data shape, same resolution rules,
@@ -871,112 +867,10 @@ function queueGeneratedFileFetches(messages = []) {
 }
 
 
-function sessionsForPersona(personaKey = state.activeKey) {
-  if (!state.chatStore.sessions[personaKey]) state.chatStore.sessions[personaKey] = [];
-  if (!state.chatStore.sessions[personaKey].length) {
-    const now = nowIso();
-    state.chatStore.sessions[personaKey].push({
-      id: cryptoRandomId(),
-      personaKey,
-      title: "新对话",
-      titleGenerated: false,
-      createdAt: now,
-      updatedAt: now,
-      messages: []
-    });
-  }
-  state.chatStore.sessions[personaKey] = sortSessions(state.chatStore.sessions[personaKey]);
-  return state.chatStore.sessions[personaKey];
-}
-
-function hasSuccessfulExchange(session) {
-  const messages = session?.messages || [];
-  const hasUser = messages.some((message) => message.role === "user" && String(message.content || "").trim() && !message.transient);
-  const hasAssistant = messages.some((message) => message.role === "assistant" && String(message.content || "").trim() && !message.transient);
-  return hasUser && hasAssistant;
-}
-
-function hasPersistableMessages(session) {
-  return (session?.messages || []).some((message) => (
-    String(message.content || "").trim() || (Array.isArray(message.attachments) && message.attachments.length)
-  ) && !message.transient);
-}
-
-function pruneEmptyDrafts(personaKey = state.activeKey, keepId = "") {
-  if (!state.chatStore.sessions[personaKey]) return;
-  state.chatStore.sessions[personaKey] = state.chatStore.sessions[personaKey].filter((session) => {
-    if (session.id === keepId) return true;
-    return hasSuccessfulExchange(session) || (session.messages || []).length > 0;
-  });
-}
-
 function cryptoRandomId() {
   if (window.crypto?.randomUUID) return window.crypto.randomUUID();
   return `session_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
-
-function activeSession() {
-  const sessions = sessionsForPersona();
-  const selected = sessions.find((session) => session.id === state.activeSessionIdByPersona[state.activeKey]);
-  const session = selected || sessions[0];
-  state.activeSessionIdByPersona[state.activeKey] = session.id;
-  return session;
-}
-
-function sessionForPersonaSession(personaKey, sessionId) {
-  const key = String(personaKey || state.activeKey || "");
-  const sessions = sessionsForPersona(key);
-  const selected = sessions.find((session) => session.id === sessionId);
-  const session = selected || sessions[0];
-  if (session) state.activeSessionIdByPersona[key] = session.id;
-  return session;
-}
-
-async function persistSession(session = activeSession()) {
-  if (!hasPersistableMessages(session)) return;
-  state.chatStore = await window.mia.saveChatSession({
-    personaKey: session.personaKey || state.activeKey,
-    session
-  });
-}
-
-async function persistSessionQuietly(session = activeSession()) {
-  try {
-    await persistSession(session);
-    return true;
-  } catch (error) {
-    console.error("Failed to persist chat session", error);
-    return false;
-  }
-}
-
-async function replacePersistedSessionQuietly(session = activeSession()) {
-  try {
-    state.chatStore = await window.mia.saveChatSession({
-      personaKey: session.personaKey || state.activeKey,
-      session,
-      replaceMessages: true
-    });
-    return true;
-  } catch (error) {
-    console.error("Failed to replace chat session", error);
-    return false;
-  }
-}
-
-async function loadChatSessions(options = {}) {
-  const previousActive = { ...state.activeSessionIdByPersona };
-  state.chatStore = await window.mia.loadChatSessions();
-  const personas = state.runtime?.fellows || state.runtime?.personas || [];
-  for (const persona of personas) {
-    const sessions = sessionsForPersona(persona.key);
-    const previous = previousActive[persona.key];
-    state.activeSessionIdByPersona[persona.key] = options.preserveActive && sessions.some((session) => session.id === previous)
-      ? previous
-      : sessions[0]?.id;
-  }
-}
-
 
 const EFFORT_LABELS = { minimal: "Minimal", low: "Low", medium: "Medium", high: "High", xhigh: "Extra high" };
 const APPROVAL_LABELS = {
@@ -1424,7 +1318,6 @@ async function deleteFellow(fellowKey) {
       fellow,
       api: window.mia,
       social: window.miaSocial,
-      loadChatSessions
     });
     if (result.runtime) state.runtime = result.runtime;
     if (!result.deleted) return;
@@ -1647,19 +1540,19 @@ function updateCurrentSessionTitle(title) {
   requestAnimationFrame(() => els.currentSessionTitle.classList.add("title-updated"));
 }
 
-// Cloud fellow conversations are created named "新对话". Once the fellow has
-// actually replied, summarize the opening exchange into a title (reusing the
-// same engine title generator the old local path used) and rename the conversation.
-// Only the conversation's owner receives a fellow reply event, so this runs once on
-// the machine that has the engine. The primary fellow conversation (shown as the
-// fellow's name, name === "") is left alone — only conversations still literally named
-// "新对话" get retitled.
+// Once the fellow has actually replied, summarize the opening exchange into a
+// title (reusing the same engine title generator the old local path used) and
+// rename the conversation. Stable fellow conversations may initially be named
+// after the fellow itself, so treat that the same as "新对话".
 async function maybeGenerateCloudConversationTitle(conversationId) {
   const social = window.miaSocial;
   if (!conversationId || !social) return;
   const conversation = social.getConversationById?.(conversationId);
   if (!conversation || conversationTypeForComposer(conversation, conversationId) !== "fellow") return;
-  if (String(conversation.name || "").trim() !== "新对话") return;
+  if (!sessionHistory.isUntitledFellowConversation(conversation, {
+    fellows: window.miaFellowManager?.allOwnedFellows?.() || [],
+    defaultTitle: "新对话"
+  })) return;
   if (state.generatingTitleIds.has(conversationId)) return;
   const cache = social.moduleState?.messageCache?.get(conversationId);
   const msgs = (cache?.messages || []).filter((message) => message.body_md && !message._localPending);
@@ -2128,88 +2021,30 @@ function activePersona() {
 
 
 
-function appendChat(role, content, options = {}) {
-  const session = options.session || activeSession();
-  const message = { role, content, createdAt: nowIso(), transient: Boolean(options.transient) };
-  if (options.replyTo?.content) {
-    message.replyTo = {
-      role: String(options.replyTo.role || ""),
-      author: String(options.replyTo.author || ""),
-      content: String(options.replyTo.content || ""),
-      createdAt: String(options.replyTo.createdAt || ""),
-      messageIndex: Number.isInteger(options.replyTo.messageIndex) ? options.replyTo.messageIndex : -1
-    };
-  }
-  if (options.translation?.status || options.translation?.text) {
-    message.translation = {
-      status: String(options.translation.status || ""),
-      text: String(options.translation.text || ""),
-      error: String(options.translation.error || ""),
-      translatedAt: String(options.translation.translatedAt || "")
-    };
-  }
-  if (Array.isArray(options.attachments) && options.attachments.length) {
-    message.attachments = options.attachments.map((attachment) => ({
-      id: String(attachment.id || cryptoRandomId()),
-      name: String(attachment.name || "附件"),
-      path: String(attachment.path || ""),
-      mime: String(attachment.mime || attachment.type || ""),
-      size: Number(attachment.size) || 0,
-      kind: String(attachment.kind || window.miaFormat.attachmentKind(attachment)),
-      thumbnailDataUrl: String(attachment.thumbnailDataUrl || attachment.thumbnail || attachment.previewDataUrl || ""),
-      dataUrl: String(attachment.dataUrl || "")
-    }));
-  }
-  if (options.commandResult && typeof options.commandResult === "object") {
-    message.commandResult = {
-      ...options.commandResult,
-      rows: Array.isArray(options.commandResult.rows)
-        ? options.commandResult.rows.map((row) => ({
-          id: String(row.id || ""),
-          title: String(row.title || ""),
-          preview: String(row.preview || ""),
-          project: String(row.project || ""),
-          updatedAt: Number(row.updatedAt) || 0
-        }))
-        : []
-    };
-  }
-  if (Array.isArray(options.tools) && options.tools.length) {
-    message.tools = options.tools.map((tool) => ({
-      id: String(tool.id || ""),
-      name: String(tool.name || ""),
-      preview: String(tool.preview || ""),
-      status: tool.status || "completed",
-      duration: typeof tool.duration === "number" ? tool.duration : null,
-      error: Boolean(tool.error)
-    }));
-  }
-  const reasoning = window.miaTraceBlocks.traceReasoningForDisplay(options.reasoning, message.tools, content);
-  if (reasoning) message.reasoning = reasoning;
-  session.messages.push(message);
-  session.updatedAt = nowIso();
-  const shouldMarkRead = role === "assistant" && !message.transient;
-  if (shouldMarkRead) window.miaSessionReadState.markPersonaRead(session.personaKey || state.activeKey, false, { clearManual: false });
-  state.forceScrollToBottom = true;
-  renderChat();
-  renderSessionMenu();
-  if (options.persist) {
-    persistSessionQuietly(session).then(() => {
-      if (shouldMarkRead) window.miaSessionReadState.persistReadStateQuietly();
-    });
-  } else if (shouldMarkRead) {
-    window.miaSessionReadState.persistReadStateQuietly();
-  }
-  return message;
-}
 
+// Ephemeral, client-only feedback shown in the active conversation (never posted
+// to cloud). Pushed into the active conversation's render cache with a sentinel
+// seq so it sorts to the bottom; it clears on the next conversation reload.
 function appendTransientChat(role, content) {
-  const session = activeSession();
-  session.messages.push({ role, content, createdAt: nowIso(), transient: true });
-  session.updatedAt = nowIso();
+  const social = window.miaSocial;
+  const conversationId = social?.getActiveConversationId?.();
+  const cache = social?.moduleState?.messageCache;
+  if (!conversationId || !cache) {
+    console.warn("[chat] transient:", role, String(content || ""));
+    return;
+  }
+  if (!cache.has(conversationId)) cache.set(conversationId, { messages: [], maxSeq: 0 });
+  cache.get(conversationId).messages.push({
+    id: `transient_${cryptoRandomId()}`,
+    seq: Number.MAX_SAFE_INTEGER,
+    sender_kind: role === "user" ? SenderKind.User : SenderKind.Fellow,
+    sender_ref: "",
+    body_md: String(content || ""),
+    created_at: new Date().toISOString(),
+    transient: true
+  });
   state.forceScrollToBottom = true;
-  renderChat();
-  renderSessionMenu();
+  render();
 }
 
 
@@ -2404,7 +2239,6 @@ async function initializeRuntime() {
       resizeChatInput: () => window.miaMessageHelpers.resizeChatInput(),
       appendTransientChat,
       cryptoRandomId,
-      activeSession,
     });
   }
   if (window.miaFellowManager && window.miaFellowManager.initFellowManager) {
@@ -2413,8 +2247,6 @@ async function initializeRuntime() {
       els,
       setText,
       formatConversationTime,
-      hasPersistableMessages,
-      sessionsForPersona,
       loadSkills: () => window.miaLoaders.loadSkills(),
       showNarrowContent,
       render,
@@ -2488,9 +2320,6 @@ async function initializeRuntime() {
       messageReferenceForIndex: window.miaMessageHelpers.messageReferenceForIndex,
       messageContextText: window.miaMessageHelpers.messageContextText,
       menuItemHtml: window.miaMarkdown.menuItemHtml,
-      activeSession,
-      persistSessionQuietly,
-      replacePersistedSessionQuietly,
       renderChat,
       renderSessionMenu,
       renderComposerReply: window.miaMessageHelpers.renderComposerReply,
@@ -3577,7 +3406,6 @@ els.fellowForm?.addEventListener("submit", async (event) => {
     api: window.mia,
     social: window.miaSocial,
     cloudModelEntries: platformHermesModelEntries,
-    loadChatSessions
   });
   if (saved.runtime) state.runtime = saved.runtime;
   const savedKey = saved.key || "";
@@ -3864,7 +3692,7 @@ els.chat.addEventListener("click", async (event) => {
       const content = result?.content && typeof result.content === "object"
         ? result.content.content
         : result?.content;
-      appendChat("assistant", String(content || "已切换外部会话。"), { persist: true });
+      appendTransientChat("assistant", String(content || "已切换外部会话。"));
     } catch (error) {
       appendTransientChat("assistant", `恢复外部会话失败: ${error.message}`);
     } finally {
@@ -4006,8 +3834,7 @@ function scheduleStreamRender() {
   pendingStreamRender = true;
   requestAnimationFrame(() => {
     pendingStreamRender = false;
-    const s = state.streaming;
-    if (s && s.sessionId === activeSession().id) renderChat();
+    if (state.streaming) renderChat();
     renderHeaderStatus();
   });
 }
@@ -4101,10 +3928,9 @@ function renderHeaderStatus() {
     els.activeChatMeta.innerHTML = `<span class="typing-status">正在输入<span class="typing-dots"><i></i><i></i><i></i></span></span>`;
     return;
   }
-  const count = sessionsForPersona(active.key).length;
   const startupLoading = state.startupTasks[0]?.label;
-  const trailing = startupLoading ? ` · 正在${window.miaMarkdown.escapeHtml(startupLoading)}` : "";
-  els.activeChatMeta.innerHTML = `${count} 个会话 · 在线${trailing}`;
+  const trailing = startupLoading ? `正在${window.miaMarkdown.escapeHtml(startupLoading)}` : "在线";
+  els.activeChatMeta.innerHTML = trailing;
 }
 
 window.mia.onChatEvent((envelope) => {

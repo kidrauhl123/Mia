@@ -158,6 +158,36 @@ test("bootstrapAfterLogin ensures local fellow conversations before listing conv
   });
 });
 
+test("bootstrapAfterLogin asks untitled loaded conversations to generate titles", async () => {
+  const s = loadSocial();
+  const titleCandidates = [];
+  s.initSocialModule({
+    getState: () => ({ runtime: {} }),
+    render: () => {},
+    els: {},
+    appendTransientChat: () => {},
+    maybeGenerateConversationTitle: (conversationId) => {
+      titleCandidates.push(conversationId);
+    }
+  });
+  s.__mockWindow.mia.social = {
+    myUsername: async () => ({ ok: true, data: { id: "u_1", username: "jung" } }),
+    listFriends: async () => ({ ok: true, data: { friends: [] } }),
+    listFriendRequests: async () => ({ ok: true, data: { requests: [] } }),
+    listFellows: async () => ({ ok: true, data: { fellows: [] } }),
+    settingsGet: async () => ({}),
+    listConversations: async () => ({ ok: true, data: { conversations: [{ id: "fellow:u_1:kongling", type: "fellow", name: "空铃" }] } }),
+    listConversationMessages: async () => ({ ok: true, data: { messages: [
+      { id: "m1", seq: 1, sender_kind: "user", body_md: "你好" },
+      { id: "m2", seq: 2, sender_kind: "fellow", body_md: "你好，有什么可以帮你的吗？" }
+    ] } })
+  };
+
+  await s.bootstrapAfterLogin();
+
+  assert.deepEqual(titleCandidates, ["fellow:u_1:kongling"]);
+});
+
 test("bootstrapAfterLogin syncs external fellow runtime config for web controls", async () => {
   const s = loadSocial();
   const calls = [];
@@ -1065,4 +1095,76 @@ test("handleCloudEvent preserves transient run trace when final fellow message l
   assert.equal(cached.trace.tools[0].name, "shell");
   assert.equal(cached.trace.tools[0].status, "completed");
   assert.equal(s.moduleState.cloudAgentRunsByConversation.has("fellow:u_a:mia"), false);
+});
+
+async function flushMicrotasks(times = 15) {
+  for (let i = 0; i < times; i++) await Promise.resolve();
+}
+
+function makeMessages(from, to) {
+  const out = [];
+  for (let seq = from; seq <= to; seq++) {
+    out.push({ id: `m${seq}`, seq, sender_kind: "user", sender_ref: "u_a", body_md: `b${seq}` });
+  }
+  return out;
+}
+
+// Regression: the local-first delta cursor must come from the persisted cache,
+// not the in-memory snapshot preview (a single latest message). Using the
+// preview seq as the cursor made "since_seq = latest" fetch nothing, so the
+// conversation stayed stuck on one message.
+test("opening a conversation with an EMPTY local cache backfills from seq 0, not the snapshot-preview seq", async () => {
+  const s = loadSocial();
+  installCloudConversationSource(s.__mockWindow);
+  s.__mockWindow.miaAvatar = { avatarThumbBackgroundStyle: () => "" };
+  s.initSocialModule({ getState: () => ({ runtime: {} }), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.myUserId = "u_me";
+  s.moduleState.cloudSettings = { version: 1, readMarks: {}, unreadOverrides: {} };
+  s.moduleState.conversations = [{ id: "dm:u_a:u_b", type: "dm" }];
+  // Cold start: only the latest message (seq 9) is hydrated from the localStorage snapshot.
+  s.moduleState.messageCache.set("dm:u_a:u_b", { maxSeq: 9, messages: makeMessages(9, 9) });
+
+  const listCalls = [];
+  s.__mockWindow.mia.social = {
+    getCachedConversationMessages: async () => ({ ok: true, data: { messages: [] } }), // empty SQLite cache
+    listConversationMessages: async (_id, sinceSeq) => {
+      listCalls.push(sinceSeq);
+      return { ok: true, data: { messages: makeMessages(1, 9) } };
+    },
+    settingsPut: async () => ({})
+  };
+
+  await withMutedConsoleWarn(async () => {
+    s.setActiveConversationId("dm:u_a:u_b");
+    await flushMicrotasks();
+  });
+
+  assert.deepEqual(listCalls, [0], "empty cache → full backfill (since_seq 0), not the preview seq 9");
+  assert.equal(s.moduleState.messageCache.get("dm:u_a:u_b").messages.length, 9, "full history merged in, not stuck on one preview message");
+});
+
+test("opening a conversation with a WARM local cache fetches only the delta after the cached max seq", async () => {
+  const s = loadSocial();
+  installCloudConversationSource(s.__mockWindow);
+  s.__mockWindow.miaAvatar = { avatarThumbBackgroundStyle: () => "" };
+  s.initSocialModule({ getState: () => ({ runtime: {} }), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.myUserId = "u_me";
+  s.moduleState.cloudSettings = { version: 1, readMarks: {}, unreadOverrides: {} };
+  s.moduleState.conversations = [{ id: "dm:u_a:u_b", type: "dm" }];
+  s.moduleState.messageCache.set("dm:u_a:u_b", { maxSeq: 9, messages: makeMessages(9, 9) });
+
+  const listCalls = [];
+  s.__mockWindow.mia.social = {
+    getCachedConversationMessages: async () => ({ ok: true, data: { messages: makeMessages(1, 9) } }), // warm SQLite cache, max seq 9
+    listConversationMessages: async (_id, sinceSeq) => { listCalls.push(sinceSeq); return { ok: true, data: { messages: [] } }; },
+    settingsPut: async () => ({})
+  };
+
+  await withMutedConsoleWarn(async () => {
+    s.setActiveConversationId("dm:u_a:u_b");
+    await flushMicrotasks();
+  });
+
+  assert.deepEqual(listCalls, [9], "warm cache → delta since the cached max seq (9)");
+  assert.equal(s.moduleState.messageCache.get("dm:u_a:u_b").messages.length, 9, "cached history merged for instant paint");
 });
