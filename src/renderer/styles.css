@@ -661,6 +661,38 @@ body.sidebar-resizing * {
   padding: 12px;
   color: var(--muted);
   font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.persona-empty .link {
+  background: none;
+  border: none;
+  color: var(--accent, #2563eb);
+  cursor: pointer;
+  padding: 0;
+  font-size: 13px;
+}
+
+.cloud-login-guide {
+  max-width: 360px;
+  margin: 18vh auto 0;
+  text-align: center;
+  color: var(--muted);
+}
+
+.cloud-login-guide h2 {
+  margin: 0 0 8px;
+  color: var(--text, inherit);
+  font-size: 18px;
+}
+
+.cloud-login-guide p {
+  margin: 0 0 18px;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .avatar,

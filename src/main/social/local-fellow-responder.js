@@ -41,7 +41,7 @@ function userFacingFailureMessage(message) {
   return "我这次没能生成回复：本地模型运行失败，请稍后重试或切换模型。";
 }
 
-function createLocalFellowResponder({ sendChat, postRoomMessageAsFellow, emitCloudEvent = () => {}, log = () => {} }) {
+function createLocalFellowResponder({ sendChat, postRoomMessageAsFellow, emitCloudEvent = () => {}, getPendingRoomSkills = () => [], log = () => {} }) {
   const processed = new Set();
   const inFlight = new Set();
 
@@ -97,6 +97,14 @@ function createLocalFellowResponder({ sendChat, postRoomMessageAsFellow, emitClo
         allowSlashCommands: false
       };
       if (runtimeConfig && typeof runtimeConfig === "object") chatArgs.runtimeConfig = runtimeConfig;
+      // Composer skill chips: peek the active skill ids the renderer published
+      // for this room and merge them into this turn so the chip actually reaches
+      // the engine (sendChat folds them into capabilities.enabledSkills). We do
+      // not clear them here — the chip is sticky while attached, so every turn
+      // loads it and a failed turn doesn't drop it; the renderer clears by
+      // sending without chips.
+      const pendingSkillIds = getPendingRoomSkills(roomId);
+      if (Array.isArray(pendingSkillIds) && pendingSkillIds.length) chatArgs.activeSkillIds = pendingSkillIds;
       const result = await sendChat(chatArgs);
       text = responseText(result);
     } catch (error) {

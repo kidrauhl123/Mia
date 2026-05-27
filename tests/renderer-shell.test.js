@@ -35,8 +35,9 @@ test("logged-in active pane never falls back to local fellow sessions", () => {
 
   assert.match(appSource, /if\s*\(cloudSignedIn\)\s*\{\s*state\.activeKey = "";/);
   assert.match(appSource, /const active = cloudSignedIn\s*\?\s*null\s*:/);
-  assert.match(appSource, /if\s*\(state\.runtime\?\.cloud\?\.enabled\)\s*\{\s*els\.chat\.innerHTML = "";\s*return;\s*\}/);
-  assert.match(appSource, /if\s*\(state\.runtime\?\.cloud\?\.enabled\)\s*return;/);
+  assert.match(appSource, /if\s*\(state\.runtime\?\.cloud\?\.enabled\)\s*\{[\s\S]*?els\.chat\.innerHTML = "";\s*return;\s*\}/);
+  // Cloud-only: signed-out users get the login guide, never a local message list.
+  assert.match(appSource, /els\.chat\.innerHTML = renderCloudLoginGuide\(\);/);
 });
 
 test("desktop cloud fellow rooms keep private AI composer controls visible", () => {
@@ -224,13 +225,15 @@ test("desktop avatar video crop updates do not restart playback unless trim chan
   assert.equal(seeks[0], 1.5);
 });
 
-test("private chat async replies are anchored to the submit session", () => {
+test("cloud-only: submit routes through the active cloud room, not a local session", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const start = appSource.indexOf('els.chatForm.addEventListener("submit"');
+  const handler = appSource.slice(start, appSource.indexOf("\n});", start) + 4);
 
-  assert.match(appSource, /const submitPersonaKey = state\.activeKey;/);
-  assert.match(appSource, /const submitSessionId = session\.id;/);
-  assert.match(appSource, /const liveSession = sessionForPersonaSession\(submitPersonaKey, submitSessionId\);/);
-  assert.match(appSource, /appendChat\("assistant", answer,[\s\S]*session: liveSession/);
+  assert.match(handler, /window\.miaSocial\.sendInActiveRoom\(/);
+  // The local conversation send path is gone from the submit handler.
+  assert.doesNotMatch(handler, /appendChat\(/);
+  assert.doesNotMatch(handler, /window\.mia\.sendChat\(/);
 });
 
 test("renderer no longer mirrors local sends through legacy cloud push", () => {
@@ -243,10 +246,12 @@ test("renderer no longer mirrors local sends through legacy cloud push", () => {
   assert.doesNotMatch(channelSource, /CloudPushMessage/);
 });
 
-test("logged-in message list uses social rows instead of local fellow rows", () => {
+test("cloud-only: the sidebar message list is built from social rows alone", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
 
-  assert.match(appSource, /cloudSignedIn\s*\?\s*\[\]\s*:\s*visiblePersonas\.map/s);
+  assert.match(appSource, /sortMessageCardsForSidebar\(socialRows\)/);
+  // No local fellow personas feed the conversation list anymore.
+  assert.doesNotMatch(appSource, /visiblePersonas\.map/);
 });
 
 test("fellow cloud rooms are not hidden from the sidebar", () => {

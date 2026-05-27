@@ -1832,6 +1832,36 @@ cloudBridgeRuntime = createCloudBridgeClient({
   randomUUID: () => crypto.randomUUID()
 });
 for (const line of pendingCloudLogs.splice(0)) cloudBridgeRuntime.appendLog(line);
+// Composer skill chips are a desktop-local, per-room hint. While a chip is
+// attached to a fellow room, the renderer (re)publishes the current chip set
+// on every send (an empty set clears it); the local fellow responder PEEKS
+// (does not delete) so every turn while the chip is attached loads the skills
+// and a failed turn doesn't drop them. Keyed by roomId; covers the common
+// "own desktop answers own fellow" case without changing the cloud schema.
+const PENDING_ROOM_SKILLS_CAP = 50;
+const pendingRoomSkills = new Map();
+function getPendingRoomSkills(roomId) {
+  return pendingRoomSkills.get(String(roomId || "")) || [];
+}
+ipcMain.handle(IpcChannel.SocialSetPendingRoomSkills, (_event, roomId, skillIds) => {
+  const key = String(roomId || "").trim();
+  if (!key) return { ok: false };
+  const ids = (Array.isArray(skillIds) ? skillIds : [])
+    .map((id) => String(id || "").trim())
+    .filter(Boolean)
+    .slice(0, 32);
+  if (!ids.length) {
+    pendingRoomSkills.delete(key);
+    return { ok: true };
+  }
+  // Bounded FIFO: evict the oldest room when a new room would exceed the cap.
+  pendingRoomSkills.delete(key);
+  if (pendingRoomSkills.size >= PENDING_ROOM_SKILLS_CAP) {
+    pendingRoomSkills.delete(pendingRoomSkills.keys().next().value);
+  }
+  pendingRoomSkills.set(key, ids);
+  return { ok: true };
+});
 const localFellowResponder = createLocalFellowResponder({
   sendChat,
   postRoomMessageAsFellow: (roomId, body) => socialApi.postRoomMessageAsFellow(roomId, body),
@@ -1841,6 +1871,7 @@ const localFellowResponder = createLocalFellowResponder({
       payload: message
     });
   },
+  getPendingRoomSkills,
   log: (line) => appendCloudLog(line)
 });
 function shouldHandleCloudRoomAi() {

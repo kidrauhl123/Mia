@@ -61,6 +61,29 @@ test("respond runs the local engine and posts the reply as the fellow", async ()
   }]);
 });
 
+test("respond folds composer skill chips for the room into the engine turn", async () => {
+  const peeked = [];
+  const { responder, calls } = setup({
+    getPendingRoomSkills: (roomId) => {
+      peeked.push(roomId);
+      return ["pdf-fill", "data-viz"];
+    }
+  });
+
+  await responder.respond(base);
+
+  assert.deepEqual(peeked, ["g_1"]);
+  assert.deepEqual(calls.engine[0].activeSkillIds, ["pdf-fill", "data-viz"]);
+});
+
+test("respond omits activeSkillIds when no chips are pending for the room", async () => {
+  const { responder, calls } = setup({ getPendingRoomSkills: () => [] });
+
+  await responder.respond(base);
+
+  assert.ok(!("activeSkillIds" in calls.engine[0]));
+});
+
 test("respond emits a transient room run start before the local engine call", async () => {
   const { responder, calls } = setup();
 

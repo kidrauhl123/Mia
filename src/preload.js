@@ -128,6 +128,7 @@ contextBridge.exposeInMainWorld("mia", {
     getRoom: (roomId) => ipcRenderer.invoke(IpcChannel.SocialGetRoom, roomId),
     listRoomMessages: (roomId, sinceSeq, limit) => ipcRenderer.invoke(IpcChannel.SocialListRoomMessages, roomId, sinceSeq, limit),
     postRoomMessage: (roomId, body) => ipcRenderer.invoke(IpcChannel.SocialPostRoomMessage, roomId, body),
+    setPendingRoomSkills: (roomId, skillIds) => ipcRenderer.invoke(IpcChannel.SocialSetPendingRoomSkills, roomId, skillIds),
     deleteRoomMessage: (roomId, messageId) => ipcRenderer.invoke(IpcChannel.SocialDeleteRoomMessage, roomId, messageId),
     myUsername: () => ipcRenderer.invoke(IpcChannel.SocialMyUsername),
     createRoom: (payload) => ipcRenderer.invoke(IpcChannel.SocialCreateRoom, payload),

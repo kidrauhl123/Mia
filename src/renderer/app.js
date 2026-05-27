@@ -1334,32 +1334,12 @@ function render() {
     if (els.sessionMenuButton) els.sessionMenuButton.classList.remove("hidden");
     if (composerBottom) composerBottom.classList.remove("hidden");
   }
-  const filter = state.personaFilter.trim().toLowerCase();
-  const visiblePersonas = filter
-    ? personas.filter((persona) => `${persona.name || ""} ${persona.key || ""}`.toLowerCase().includes(filter))
-    : personas;
-  // Two data sources feed the sidebar: local fellow personas (instant) +
-  // cloud rooms (async, populated by social.bootstrapAfterLogin). If we
-  // render the moment the local data is ready, the cloud rows pop in
-  // seconds later and the user sees a two-step paint — exactly the
-  // "割裂" they complained about. For logged-in users, hold the sidebar
-  // until cloud bootstrap finishes so personas + rooms land in one paint.
+  // Cloud-only: the sidebar lists cloud rooms exclusively. Local fellow
+  // personas are no longer a conversation source — a fellow surfaces as its
+  // cloud fellow room once bootstrap completes.
   const cloudReady = !cloudSignedIn || !social || social.isBootstrapped?.();
   const socialRows = cloudReady ? (social?.renderSidebarRows?.() || []) : [];
-  const localConversationRows = cloudSignedIn
-    ? []
-    : visiblePersonas.map((persona) => ({
-      type: "fellow",
-      key: persona.key,
-      pinned: Boolean(persona.pinned),
-      pinnedAt: persona.pinnedAt || "",
-      updatedAt: conversationUpdatedAt(persona),
-      persona
-    }));
-  const messageRows = !cloudReady ? [] : window.miaFellowManager.sortMessageCardsForSidebar([
-    ...localConversationRows,
-    ...socialRows
-  ]);
+  const messageRows = !cloudReady ? [] : window.miaFellowManager.sortMessageCardsForSidebar(socialRows);
 
   els.personaList.innerHTML = "";
   for (const row of messageRows) {
@@ -1374,7 +1354,11 @@ function render() {
   if (!messageRows.length) {
     const empty = document.createElement("div");
     empty.className = "persona-empty";
-    empty.textContent = cloudReady ? "没有匹配的消息" : "正在同步会话…";
+    if (!cloudSignedIn) {
+      empty.innerHTML = `<span>登录后开始对话</span><button type="button" class="link" data-action="cloud-login">登录</button>`;
+    } else {
+      empty.textContent = cloudReady ? "没有匹配的消息" : "正在同步会话…";
+    }
     els.personaList.appendChild(empty);
   }
   renderView();
@@ -1871,6 +1855,16 @@ function renderCommandResultHtml(commandResult) {
   return `<div class="command-result session-list">${rows}</div>`;
 }
 
+function renderCloudLoginGuide() {
+  return `
+    <div class="cloud-login-guide">
+      <h2>登录 Mia Cloud</h2>
+      <p>Mia 的对话都在云端同步。登录后即可与你的 Fellow 聊天。</p>
+      <button type="button" class="primary" data-action="cloud-login">登录 / 注册</button>
+    </div>
+  `;
+}
+
 function renderChat() {
   // Branch: a cloud room (DM / group / fellow) is active → social paints
   // the message list. Header is painted by render() above.
@@ -1882,70 +1876,12 @@ function renderChat() {
     return;
   }
   if (state.runtime?.cloud?.enabled) {
+    // Signed in but no room selected → empty canvas; the sidebar invites picking one.
     els.chat.innerHTML = "";
     return;
   }
-  const wasNearBottom = !els.chat || (els.chat.scrollHeight - els.chat.scrollTop - els.chat.clientHeight < 80);
-  const session = activeSession();
-  const messages = session.messages;
-  queueGeneratedFileFetches(messages);
-  const user = state.runtime?.user || { displayName: "Boss", avatarText: "B", avatarColor: "#111827" };
-  const active = activePersona();
-  const activeAgentEngine = active?.agentEngine || active?.agent_engine || "hermes";
-  const usesHermes = !["claude-code", "codex"].includes(activeAgentEngine);
-  els.chat.innerHTML = "";
-  if (window.miaSetupGuide?.shouldShowSetupGuide({ messages })) {
-    els.chat.insertAdjacentHTML("beforeend", window.miaSetupGuide.renderSetupGuide());
-  }
-  for (const [messageIndex, message] of messages.entries()) {
-    const html = renderMessageHtml(message, {
-      messageIndex,
-      user,
-      persona: active,
-      showTaskAffordance: true
-    });
-    els.chat.insertAdjacentHTML("beforeend", html);
-  }
-  const s = state.streaming;
-  const hasStreamingContent = s && (
-    s.text ||
-    s.tools.length ||
-    window.miaTraceBlocks.traceReasoningForDisplay(s.reasoning, s.tools, s.text)
-  );
-  if (s && s.sessionId === session.id && hasStreamingContent) {
-    const article = document.createElement("article");
-    article.className = "message assistant streaming";
-    const personaForStream = active;
-    const fellowAvatarImage = personaForStream?.avatarImage || window.miaAvatar.avatarAssetForKey(personaForStream?.key);
-    const traceHtml = window.miaTraceBlocks.renderTraceBlocks({
-      reasoning: s.reasoning,
-      tools: s.tools,
-      content: s.text,
-      expanded: true,
-      scopeKey: `run:${s.runId || ""}`
-    });
-    const textHtml = s.text ? `<div class="bubble">${window.miaMarkdown.renderMarkdown(s.text)}</div>${renderMessageTime(s.createdAt)}` : "";
-    article.innerHTML = `
-      ${window.miaAvatar.avatarHtml({
-        className: "avatar message-avatar",
-        image: fellowAvatarImage,
-        crop: personaForStream?.avatarCrop,
-        color: personaForStream?.color || "#23444d",
-        attrs: `data-sender-kind="fellow" data-sender-ref="${window.miaMarkdown.escapeHtml(personaForStream?.key || "")}" title="${window.miaMarkdown.escapeHtml(personaForStream?.name || "")}"`
-      })}
-      <div class="message-stack">${traceHtml}${textHtml}</div>
-    `;
-    els.chat.appendChild(article);
-  }
-  window.miaAvatar?.hydrateAvatarVideos?.(els.chat);
-  if (state.forceScrollToBottom || wasNearBottom) {
-    els.chat.scrollTop = els.chat.scrollHeight;
-  }
-  state.forceScrollToBottom = false;
-  for (const node of els.chat.querySelectorAll("details.trace-row[data-trace-key]")) {
-    const key = node.dataset.traceKey;
-    if (key) state.animatedTraceKeys.add(key);
-  }
+  // Cloud-only app: not signed in → guide to login. There is no local conversation path.
+  els.chat.innerHTML = renderCloudLoginGuide();
 }
 
 function roomTypeForComposer(room, roomId = "") {
@@ -2665,6 +2601,15 @@ els.openSettings.addEventListener("click", () => {
     window.miaSettingsRemote.refreshDaemonPairing().catch(console.error);
     window.miaSettingsRemote.refreshRelayPairing().catch(console.error);
   }
+});
+// Cloud-only: login guides (empty chat / empty sidebar) open Settings → account.
+document.addEventListener("click", (event) => {
+  if (!event.target?.closest?.("[data-action='cloud-login']")) return;
+  state.settingsOpen = true;
+  state.activeSettingsTab = "account";
+  renderView();
+  window.miaSettingsRemote.refreshDaemonPairing?.().catch(console.error);
+  window.miaSettingsRemote.refreshRelayPairing?.().catch(console.error);
 });
 els.closeSettings.addEventListener("click", () => {
   state.settingsOpen = false;
@@ -4080,135 +4025,19 @@ els.chatForm.addEventListener("submit", async (event) => {
     }
     els.chatInput.value = "";
     window.miaMessageHelpers.resizeChatInput();
+    // Composer skill chips: while a chip is attached to a fellow room, every
+    // turn should load it, so (re)publish the current chip set on each send —
+    // an empty set clears it. Desktop-local hint the local responder peeks.
+    if (activeRoomFellowContext()) {
+      const activeSkillIds = (state.composerActiveSkills || []).map((skill) => skill.id).filter(Boolean);
+      try { await window.mia.social.setPendingRoomSkills?.(roomId, activeSkillIds); }
+      catch (err) { console.warn("[skills] setPendingRoomSkills failed:", err?.message || err); }
+    }
     await window.miaSocial.sendInActiveRoom(roomText);
     return;
   }
-  if (state.runtime?.cloud?.enabled) return;
-  if (state.isGenerating) {
-    await window.mia.stopChat?.();
-    return;
-  }
-  const replyTo = state.replyDraft ? { ...state.replyDraft } : null;
-  const fellows = state.runtime?.fellows || state.runtime?.personas || [];
-  const activeFellow = fellows.find((p) => p.key === state.activeKey) || null;
-  let prepared;
-  try {
-    prepared = prepareOutgoingMessage(
-      {
-        text: els.chatInput.value,
-        attachments: state.pendingAttachments,
-        replyTo
-      },
-      {
-        members: activeFellow
-          ? [{ kind: MemberKind.Fellow, ref: activeFellow.key, name: activeFellow.name || activeFellow.key }]
-          : []
-      }
-    );
-  } catch (err) {
-    if (err && err.code === "EMPTY_MESSAGE") return;
-    throw err;
-  }
-  const text = prepared.bodyMd;
-  const attachments = prepared.attachments;
-  const submitPersonaKey = state.activeKey;
-  const session = activeSession();
-  const submitSessionId = session.id;
-  const shouldGenerateTitle = !session.titleGenerated && !hasSuccessfulExchange(session);
-  els.chatInput.value = "";
-  state.pendingAttachments = [];
-  state.replyDraft = null;
-  window.miaMessageHelpers.renderComposerReply();
-  window.miaComposer.renderComposerAttachments();
-  window.miaMessageHelpers.resizeChatInput();
-  renderSendButton();
-  const userText = text || "请查看附件。";
-  appendChat("user", userText, { attachments, replyTo });
-  state.streaming = null;
-  state.isGenerating = true;
-  renderSendButton();
-  renderHeaderStatus();
-  try {
-    await persistSessionQuietly(session);
-    const outgoingBase = await window.miaComposer.outgoingMessageForSubmit(text);
-    const outgoingText = window.miaMessageMenu
-      ? window.miaMessageMenu.replyContextPrompt(outgoingBase, replyTo)
-      : outgoingBase;
-    const history = messagesForActive()
-      .filter((message) => message.content || (Array.isArray(message.attachments) && message.attachments.length))
-      .map((message) => ({ role: message.role, content: message.content, attachments: message.attachments || [] }));
-    const lastUserIndex = history.map((message) => message.role).lastIndexOf("user");
-    if (lastUserIndex >= 0) history[lastUserIndex] = { ...history[lastUserIndex], content: outgoingText };
-    const response = await window.mia.sendChat({
-      fellowKey: submitPersonaKey,
-      personaKey: submitPersonaKey,
-      sessionId: submitSessionId,
-      messages: history,
-      activeSkillIds: (state.composerActiveSkills || []).map((skill) => skill.id)
-    });
-    const responseMessage = response.choices?.[0]?.message || {};
-    const responseAttachments = Array.isArray(responseMessage.attachments) ? responseMessage.attachments : [];
-    const responseCommandResult = responseMessage.commandResult || response.mia?.commandResult || null;
-    const answer = responseMessage.content || (responseAttachments.length ? "" : "(No response)");
-    const traceSnapshot = state.streaming
-      ? { reasoning: state.streaming.reasoning || "", tools: state.streaming.tools.slice() }
-      : { reasoning: "", tools: [] };
-    state.streaming = null;
-    const liveSession = sessionForPersonaSession(submitPersonaKey, submitSessionId);
-    appendChat("assistant", answer, {
-      reasoning: traceSnapshot.reasoning,
-      tools: traceSnapshot.tools,
-      attachments: responseAttachments,
-      commandResult: responseCommandResult,
-      session: liveSession
-    });
-    // The `session` captured at the top of this handler is now orphan:
-    // persistSessionQuietly(session) at the start of the try block reassigned
-    // state.chatStore via IPC (saveChatSession returns a freshly normalized
-    // store), so the original session object no longer lives inside it.
-    // appendChat above pushed the assistant message into the LIVE session
-    // (state.chatStore.sessions[...]), not into the orphan ref. Persisting
-    // the orphan here would save its stale messages and clobber the assistant
-    // we just appended — that's the "回复被吞" regression introduced by
-    // 0eb1458. Re-resolve to the live session before persisting.
-    await persistSessionQuietly(liveSession);
-    window.miaSessionReadState.persistReadStateQuietly();
-    if (shouldGenerateTitle) {
-      const current = sessionForPersonaSession(submitPersonaKey, submitSessionId);
-      const result = await window.mia.generateSessionTitle({
-        personaKey: submitPersonaKey,
-        sessionId: `title:${current.id}`,
-        messages: current.messages.slice(0, 4)
-      });
-      current.title = result.title || userText.slice(0, 24) || "新对话";
-      current.titleGenerated = true;
-      current.updatedAt = nowIso();
-      await persistSessionQuietly(current);
-      renderSessionMenu();
-    }
-    await refreshRuntime();
-  } catch (error) {
-    // Re-resolve session — see comment on `liveSession` above for why the
-    // captured `session` is orphan once persistSessionQuietly has reassigned
-    // state.chatStore. The "生成已停止" branch persists whatever's in memory
-    // (typically just the user message); the error branch first appends an
-    // assistant-side error message via appendChat (which targets the live
-    // session via activeSession()), then persists.
-    if (String(error.message || "").includes("生成已停止")) {
-      await persistSessionQuietly(sessionForPersonaSession(submitPersonaKey, submitSessionId));
-    } else {
-      const failedSession = sessionForPersonaSession(submitPersonaKey, submitSessionId);
-      appendChat("assistant", `Request failed: ${error.message}`, { session: failedSession });
-      await persistSessionQuietly(failedSession);
-    }
-    await refreshRuntime();
-  } finally {
-    state.isGenerating = false;
-    state.streaming = null;
-    renderSendButton();
-    renderHeaderStatus();
-    els.chatInput.focus();
-  }
+  // Cloud-only: with no active room there is nothing to send. The chat area
+  // shows the login guide for signed-out users.
 });
 
 let pendingStreamRender = false;
