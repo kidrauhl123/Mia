@@ -59,6 +59,7 @@ test("preset image with a neutral crop renders with the preset's tuned crop", ()
 
   assert.equal(img.className, "avatar-image");
   assert.match(img.getAttribute("style"), new RegExp(`scale\\(${expected.zoom}\\)`));
+  assert.match(img.getAttribute("style"), new RegExp(`object-position:${expected.x}% ${expected.y}%`));
   assert.ok(!/scale\(1\)/.test(img.getAttribute("style")), "should not be the neutral zoom");
 });
 
