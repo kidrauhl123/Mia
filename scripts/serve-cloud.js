@@ -1039,6 +1039,25 @@ function clientFile(file) {
   };
 }
 
+// Composer skill chips sent with a message. Untrusted client input → cap the
+// count, validate each id against a safe pattern, and bound the display name,
+// before it is stored and (on the owner's desktop) used to drive skill loading.
+const SKILL_ID_PATTERN = /^[A-Za-z0-9._/-]+$/;
+function sanitizeMessageSkills(raw) {
+  if (!Array.isArray(raw)) return null;
+  const out = [];
+  const seen = new Set();
+  for (const item of raw) {
+    if (out.length >= 16) break;
+    const id = String((item && item.id) || "").trim();
+    if (!id || id.length > 128 || !SKILL_ID_PATTERN.test(id) || seen.has(id)) continue;
+    seen.add(id);
+    const name = String((item && item.name) || id).trim().slice(0, 128);
+    out.push({ id, name });
+  }
+  return out.length ? out : null;
+}
+
 function persistCloudAttachments(cloudStore, userId, attachments = []) {
   return attachments.map((attachment) => {
     if (attachment?.dataUrl) return clientFile(cloudStore.saveImageDataUrl(userId, attachment));
@@ -1599,6 +1618,7 @@ async function handleRequest(req, res, context) {
         bodyMd: body.bodyMd || "",
         attachments: attachments.length ? attachments : null,
         mentions: body.mentions || null,
+        skills: sanitizeMessageSkills(body.skills),
         turnId: body.turnId || null,
         status: "complete",
       });

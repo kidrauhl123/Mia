@@ -2441,6 +2441,31 @@ body.topbar-click-capture .topbar {
   color: #fff;
 }
 
+/* Skill chips that rode in with a sent message, shown at the top of its bubble. */
+.message-skills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.message-skill-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 450;
+  white-space: nowrap;
+}
+
+.message.user .message-skill-chip {
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+}
+
 .composer-attachments::-webkit-scrollbar {
   display: none;
 }

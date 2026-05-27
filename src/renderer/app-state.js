@@ -63,6 +63,7 @@
       installingSkillIds: new Set(),
       composerActiveSkills: [],
       composerSkillSelected: false,
+      composerSkillsRoomId: "",
       skillContextMenu: { open: false, x: 0, y: 0, skillId: "" },
       fellowContextMenu: { open: false, x: 0, y: 0, fellowKey: "" },
       messageContextMenu: { open: false, x: 0, y: 0, messageIndex: -1, selectionText: "" },

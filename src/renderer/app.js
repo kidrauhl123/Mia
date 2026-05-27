@@ -1116,6 +1116,9 @@ function render() {
   if (!runtime) return;
   renderSendButton();
   window.miaMessageHelpers.renderComposerReply();
+  // Re-evaluate composer skill chips every render so switching rooms drops
+  // chips that belonged to the previous conversation (self-heal in composer).
+  window.miaComposer?.renderComposerSkills?.();
   const editingModel = els.modelForm.contains(document.activeElement);
   const editingProfile = Boolean(els.profileForm?.contains(document.activeElement));
   const editingAppearance = Boolean(els.appearanceForm?.contains(document.activeElement));
@@ -4025,15 +4028,22 @@ els.chatForm.addEventListener("submit", async (event) => {
     }
     els.chatInput.value = "";
     window.miaMessageHelpers.resizeChatInput();
-    // Composer skill chips: while a chip is attached to a fellow room, every
-    // turn should load it, so (re)publish the current chip set on each send —
-    // an empty set clears it. Desktop-local hint the local responder peeks.
-    if (activeRoomFellowContext()) {
-      const activeSkillIds = (state.composerActiveSkills || []).map((skill) => skill.id).filter(Boolean);
-      try { await window.mia.social.setPendingRoomSkills?.(roomId, activeSkillIds); }
-      catch (err) { console.warn("[skills] setPendingRoomSkills failed:", err?.message || err); }
+    // Composer skill chips ride along with the message — stored on it, shown in
+    // the bubble, used by the fellow responder. Only send them for a fellow room
+    // (they drive that fellow's AI) and only when they were attached in THIS room
+    // (guards a programmatic room switch with no intervening render). Clear them
+    // on send regardless: the chip belongs to this message, not the next one.
+    const chips = (state.composerActiveSkills || []).filter((skill) => skill && skill.id);
+    const chipsBelongHere = chips.length && state.composerSkillsRoomId === roomId && Boolean(activeRoomFellowContext());
+    const messageSkills = chipsBelongHere
+      ? chips.map((skill) => ({ id: String(skill.id), name: skill.name || skill.id }))
+      : null;
+    if (chips.length) {
+      state.composerActiveSkills = [];
+      state.composerSkillSelected = false;
+      window.miaComposer.renderComposerSkills();
     }
-    await window.miaSocial.sendInActiveRoom(roomText);
+    await window.miaSocial.sendInActiveRoom(roomText, messageSkills ? { skills: messageSkills } : {});
     return;
   }
   // Cloud-only: with no active room there is nothing to send. The chat area

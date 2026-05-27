@@ -169,10 +169,12 @@
   }
 
   // Attach the skill as a composer chip and open that Fellow's chat (Marvis-style).
-  function attachSkillToComposer(fellowKey, skillId) {
+  // Await navigation first so the chip binds to the destination room, not the
+  // one we're leaving (openFellowChat resolves the cloud room asynchronously).
+  async function attachSkillToComposer(fellowKey, skillId) {
     const skill = (state.skillLibrary.skills || []).find((item) => item.id === skillId);
     const name = skill ? window.miaSkillHelpers.skillDisplayName(skill) : skillId;
-    window.miaFellowManager?.openFellowChat?.(fellowKey);
+    await window.miaFellowManager?.openFellowChat?.(fellowKey);
     window.miaComposer?.addComposerSkill?.({ id: skillId, name });
   }
 

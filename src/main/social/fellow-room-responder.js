@@ -1,6 +1,7 @@
 "use strict";
 
 const { MemberKind, SenderKind } = require("../../shared/conversation-kinds.js");
+const { activeSkillIdsFromMessage } = require("./local-fellow-responder.js");
 
 const PROCESSED_CAP = 500;
 
@@ -128,7 +129,8 @@ function createMainFellowRoomResponder({
           formatRecentMessages(recentMessages)
         ].join("\n"),
         userPrompt: message.body_md || "",
-        turnId: message.turn_id || null
+        turnId: message.turn_id || null,
+        activeSkillIds: activeSkillIdsFromMessage(message)
       });
       if (didRespond) markProcessed(message.id);
     } finally {

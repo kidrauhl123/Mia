@@ -106,7 +106,6 @@
     SocialGetRoom: "social:get-room",
     SocialListRoomMessages: "social:list-room-messages",
     SocialPostRoomMessage: "social:post-room-message",
-    SocialSetPendingRoomSkills: "social:set-pending-room-skills",
     SocialDeleteRoomMessage: "social:delete-room-message",
     SocialMyUsername: "social:my-username",
     SocialCreateRoom: "social:create-room",

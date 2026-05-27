@@ -41,7 +41,31 @@ function userFacingFailureMessage(message) {
   return "我这次没能生成回复：本地模型运行失败，请稍后重试或切换模型。";
 }
 
-function createLocalFellowResponder({ sendChat, postRoomMessageAsFellow, emitCloudEvent = () => {}, getPendingRoomSkills = () => [], log = () => {} }) {
+// Composer "使用" chips travel with the user's cloud message (skills_json). Pull
+// the selected skill ids off the triggering message so the responder can drive
+// the agent with them — one source of truth, works across devices.
+function activeSkillIdsFromMessage(message) {
+  const raw = message && message.skills_json;
+  if (!raw) return [];
+  let parsed;
+  try { parsed = JSON.parse(raw); } catch { return []; }
+  if (!Array.isArray(parsed)) return [];
+  const ids = [];
+  const seen = new Set();
+  for (const skill of parsed) {
+    if (ids.length >= 16) break;
+    // Accept only a plain string id or a { id: string } object — never coerce
+    // arbitrary objects/numbers (which would stringify to junk skill ids).
+    const value = typeof skill === "string" ? skill : (skill && typeof skill.id === "string" ? skill.id : "");
+    const id = value.trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+  return ids;
+}
+
+function createLocalFellowResponder({ sendChat, postRoomMessageAsFellow, emitCloudEvent = () => {}, log = () => {} }) {
   const processed = new Set();
   const inFlight = new Set();
 
@@ -68,7 +92,7 @@ function createLocalFellowResponder({ sendChat, postRoomMessageAsFellow, emitClo
     }
   }
 
-  async function respond({ roomId, fellowId, dedupKey, systemPrompt, userPrompt, turnId = null, runtimeConfig = null }) {
+  async function respond({ roomId, fellowId, dedupKey, systemPrompt, userPrompt, turnId = null, runtimeConfig = null, activeSkillIds = [] }) {
     if (!roomId || !fellowId || !dedupKey) return;
     if (processed.has(dedupKey)) return;
     if (inFlight.has(dedupKey)) return;
@@ -97,14 +121,10 @@ function createLocalFellowResponder({ sendChat, postRoomMessageAsFellow, emitClo
         allowSlashCommands: false
       };
       if (runtimeConfig && typeof runtimeConfig === "object") chatArgs.runtimeConfig = runtimeConfig;
-      // Composer skill chips: peek the active skill ids the renderer published
-      // for this room and merge them into this turn so the chip actually reaches
-      // the engine (sendChat folds them into capabilities.enabledSkills). We do
-      // not clear them here — the chip is sticky while attached, so every turn
-      // loads it and a failed turn doesn't drop it; the renderer clears by
-      // sending without chips.
-      const pendingSkillIds = getPendingRoomSkills(roomId);
-      if (Array.isArray(pendingSkillIds) && pendingSkillIds.length) chatArgs.activeSkillIds = pendingSkillIds;
+      // Composer skill chips that rode in on the triggering message: merge them
+      // into this turn so the chip actually reaches the engine (sendChat folds
+      // them into capabilities.enabledSkills and prepends a "use these" directive).
+      if (Array.isArray(activeSkillIds) && activeSkillIds.length) chatArgs.activeSkillIds = activeSkillIds;
       const result = await sendChat(chatArgs);
       text = responseText(result);
     } catch (error) {
@@ -169,6 +189,7 @@ function createLocalFellowResponder({ sendChat, postRoomMessageAsFellow, emitClo
 }
 
 module.exports = {
+  activeSkillIdsFromMessage,
   clientOpIdForDedupKey,
   createLocalFellowResponder,
   runIdForDedupKey,

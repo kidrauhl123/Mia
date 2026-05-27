@@ -35,13 +35,22 @@
 - `renderChat` / 侧栏 / 提交处理器三处本地分支已删；未登录走登录引导。
 - renderer 物理上只剩云一条会话路。renderer-shell 26/26 通过。
 
-### Slice 3 — 完成 ✅（取 desktop 本地旁路）
-落地：IPC `social:set-pending-room-skills` + main `pendingRoomSkills` Map（FIFO 上限 50）+
-`getPendingRoomSkills` 注入 responder；renderer 在 fellow room 每次发消息都重发当前 chip 集
-（空集即清除）。responder **peek（不删）** 该房间技能，合进该轮 `sendChat` 的 `activeSkillIds`。
-语义为"粘性"：chip 在就每轮加载、失败轮不丢；renderer 发空集清除。
-（codex adversarial-review 后由 consume-and-delete 改为 peek + cap，消除竞态/泄漏/失败丢技能。）
-新增 2 个行为测试。
+### Slice 3 — 技能 chip 随消息走（最终：存进云消息）✅
+**演进**：最初做了 desktop 本地旁路（`social:set-pending-room-skills` + `pendingRoomSkills` Map），
+但用户指出 chip 应该①发送后从输入框清除、②跟着消息进到用户气泡里。于是改成
+**skill 作为消息字段存进云**，并**删除整个旁路**（一处真相、多设备一致、可持久 + 可显示）。
+
+落地：
+- 云：`messages.skills_json` 列（v12 迁移）；`appendMessage({skills})` 存；POST 房间消息透传 `body.skills`。
+- 引擎方向：`local-fellow-responder` 不再读旁路，改从触发它的那条消息取 skill
+  （`activeSkillIdsFromMessage`，在 `fellow-invocation` / `fellow-room-responder` 里接入）→
+  `sendChat` 的 `activeSkillIds` → 合进 `enabledSkills` + 注入"就用这些 Skill"指令
+  （`buildActiveSkillsDirective`，关键：仅"启用"在全开场景是无操作，指令才让 AI 真用）。
+- 显示：气泡顶部渲染 chip（`_renderMsgSkills` 读 `skills_json`），乐观消息也带上即时显示。
+- 清除：发送时 snapshot 后清空 `composerActiveSkills`，chip 随消息走。
+- chip 不跨 fellow：绑定到加它时的房间，`render()` 每次重算，切房间自动清空。
+
+**需要重新部署 VPS**（动了云 server）。删除的旁路：IPC channel / preload / main Map / 注入。
 
 #### 原始现状（参考）
 现状：`local-fellow-responder.respond()` 在 desktop 本地跑，由云事件回灌触发，

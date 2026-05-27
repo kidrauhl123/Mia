@@ -15,8 +15,8 @@ function createMessagesStore(db) {
   const insertMessage = db.prepare(`
     INSERT INTO messages (
       id, room_id, seq, turn_id, sender_kind, sender_ref, sender_owner_id,
-      body_md, attachments_json, mentions_json, status, error_json, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      body_md, attachments_json, mentions_json, skills_json, status, error_json, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const selectMessage = db.prepare("SELECT * FROM messages WHERE id = ?");
   const selectSince = db.prepare(`
@@ -47,6 +47,7 @@ function createMessagesStore(db) {
       bodyMd = "",
       attachments = null,
       mentions = null,
+      skills = null,
       turnId = null,
       status = "complete",
       errorJson = null,
@@ -67,6 +68,7 @@ function createMessagesStore(db) {
         String(bodyMd),
         attachments ? JSON.stringify(attachments) : null,
         mentions ? JSON.stringify(mentions) : null,
+        skills && Array.isArray(skills) && skills.length ? JSON.stringify(skills) : null,
         String(status),
         errorJson ? JSON.stringify(errorJson) : null,
         createdAt

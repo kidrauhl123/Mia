@@ -479,6 +479,28 @@ function createSkillsLoader(deps = {}) {
     ].join("\n");
   }
 
+  // Composer "使用" chips: the user explicitly picked these skills for THIS
+  // turn. Their full content is already injected by buildEnabledSkillsContext
+  // (the caller merges them into enabledSkills), so this only needs to be the
+  // directive that tells the agent to actually USE them — distinct from the
+  // "use whichever is relevant" framing of the enabled-skills block.
+  function buildActiveSkillsDirective(activeSkillIds) {
+    const ids = Array.isArray(activeSkillIds) ? activeSkillIds : [];
+    const names = [];
+    const seen = new Set();
+    for (const id of ids) {
+      const key = String(id || "").trim();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      const found = resolveLocalSkill(key);
+      if (!found) continue; // unresolved → no content was injected, so don't name it
+      names.push(found.skill?.name || key);
+    }
+    if (!names.length) return "";
+    const list = names.map((name) => `「${name}」`).join("、");
+    return `用户为这条消息明确选择了 Skill：${list}。请优先严格按这些 Skill 的指南完成本次任务（其完整内容已在上文 Skill 区块中给出）。`;
+  }
+
   function expandLeadingSkillCommand(text, { mode = "inline" } = {}) {
     const trimmed = String(text || "");
     const match = trimmed.match(/^\s*\/([A-Za-z0-9_\/-]+)(?:[\s:]+([\s\S]+))?$/);
@@ -540,6 +562,7 @@ function createSkillsLoader(deps = {}) {
     installMarketplaceSkill,
     packageLocalSkill,
     buildEnabledSkillsContext,
+    buildActiveSkillsDirective,
     installMarketplacePlugin,
     // Used by chat-engine adapters
     expandLeadingSkillCommand,

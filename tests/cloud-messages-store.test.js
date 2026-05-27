@@ -155,3 +155,23 @@ test("updateMessageStatus transitions streaming -> complete", () => {
     assert.equal(fetched.status, "complete");
   } finally { teardown(ctx); }
 });
+
+test("appendMessage round-trips selected skill chips on the message", () => {
+  const ctx = setup();
+  try {
+    const withSkills = ctx.messages.appendMessage({
+      roomId: "r-msg",
+      senderKind: "user",
+      senderRef: ctx.alice.id,
+      bodyMd: "plan my trip",
+      skills: [{ id: "trip-planner", name: "行程规划" }]
+    });
+    assert.equal(withSkills.skills_json, JSON.stringify([{ id: "trip-planner", name: "行程规划" }]));
+
+    const noSkills = ctx.messages.appendMessage({ roomId: "r-msg", senderKind: "user", senderRef: ctx.alice.id, bodyMd: "hi" });
+    assert.equal(noSkills.skills_json, null);
+
+    const emptySkills = ctx.messages.appendMessage({ roomId: "r-msg", senderKind: "user", senderRef: ctx.alice.id, bodyMd: "hi", skills: [] });
+    assert.equal(emptySkills.skills_json, null);
+  } finally { teardown(ctx); }
+});

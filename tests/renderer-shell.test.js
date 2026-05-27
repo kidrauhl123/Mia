@@ -19,7 +19,7 @@ test("renderer app shell loads state module before the entrypoint", () => {
 test("cloud room composer uses one social send path for dm and group rooms", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
 
-  assert.match(appSource, /await window\.miaSocial\.sendInActiveRoom\(roomText\);/);
+  assert.match(appSource, /await window\.miaSocial\.sendInActiveRoom\(roomText\b/);
   assert.doesNotMatch(appSource, /sendInActiveGroupRoom\(roomText\)/);
 });
 

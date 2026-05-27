@@ -134,3 +134,21 @@ test("installMarketplaceSkill rejects a missing package", async () => {
     fs.rmSync(home, { recursive: true, force: true });
   }
 });
+
+test("buildActiveSkillsDirective names selected, resolvable skills as a 'use this now' directive", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-skills-loader-"));
+  try {
+    const loader = makeLoader(home);
+    await loader.installMarketplaceSkill({ id: "demo-skill", zipBuffer: makeZip() });
+
+    const directive = loader.buildActiveSkillsDirective(["demo-skill"]);
+    assert.match(directive, /明确选择了 Skill/);
+    assert.match(directive, /「demo-skill」/);
+
+    // No selection, or an unresolvable id, yields no directive (so nothing is forced).
+    assert.equal(loader.buildActiveSkillsDirective([]), "");
+    assert.equal(loader.buildActiveSkillsDirective(["does-not-exist"]), "");
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});

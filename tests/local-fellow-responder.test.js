@@ -61,27 +61,39 @@ test("respond runs the local engine and posts the reply as the fellow", async ()
   }]);
 });
 
-test("respond folds composer skill chips for the room into the engine turn", async () => {
-  const peeked = [];
-  const { responder, calls } = setup({
-    getPendingRoomSkills: (roomId) => {
-      peeked.push(roomId);
-      return ["pdf-fill", "data-viz"];
-    }
-  });
+test("respond folds the message's skill chips into the engine turn", async () => {
+  const { responder, calls } = setup();
 
-  await responder.respond(base);
+  await responder.respond({ ...base, activeSkillIds: ["pdf-fill", "data-viz"] });
 
-  assert.deepEqual(peeked, ["g_1"]);
   assert.deepEqual(calls.engine[0].activeSkillIds, ["pdf-fill", "data-viz"]);
 });
 
-test("respond omits activeSkillIds when no chips are pending for the room", async () => {
-  const { responder, calls } = setup({ getPendingRoomSkills: () => [] });
+test("respond omits activeSkillIds when the message carried no chips", async () => {
+  const { responder, calls } = setup();
 
   await responder.respond(base);
 
   assert.ok(!("activeSkillIds" in calls.engine[0]));
+});
+
+test("activeSkillIdsFromMessage parses skills_json into id list, tolerating junk", () => {
+  const { activeSkillIdsFromMessage } = require("../src/main/social/local-fellow-responder.js");
+
+  assert.deepEqual(
+    activeSkillIdsFromMessage({ skills_json: JSON.stringify([{ id: "trip-planner", name: "行程" }, { id: "weekly" }]) }),
+    ["trip-planner", "weekly"]
+  );
+  // Junk is rejected, not coerced: numbers, id-less objects, nulls dropped;
+  // raw string ids accepted; duplicates deduped.
+  assert.deepEqual(
+    activeSkillIdsFromMessage({ skills_json: JSON.stringify([{ id: "trip-planner" }, 123, { name: "no-id" }, "raw-id", { id: "trip-planner" }, null]) }),
+    ["trip-planner", "raw-id"]
+  );
+  assert.deepEqual(activeSkillIdsFromMessage({ skills_json: null }), []);
+  assert.deepEqual(activeSkillIdsFromMessage({ skills_json: "not json" }), []);
+  assert.deepEqual(activeSkillIdsFromMessage({ skills_json: JSON.stringify({ not: "an array" }) }), []);
+  assert.deepEqual(activeSkillIdsFromMessage({}), []);
 });
 
 test("respond emits a transient room run start before the local engine call", async () => {

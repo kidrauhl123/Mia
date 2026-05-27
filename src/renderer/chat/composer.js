@@ -150,6 +150,14 @@
   // via 「使用」 on the skills page. Removable; cleared by the user.
   function renderComposerSkills() {
     if (!state || !els || !els.composerSkills) return;
+    // Chips belong to the conversation they were attached in. If the active
+    // room changed (switched fellow), drop them — a new conversation starts
+    // empty. Self-heals on every render, so switching anywhere clears them.
+    const activeRoomId = window.miaSocial?.getActiveRoomId?.() || "";
+    if ((state.composerActiveSkills || []).length && state.composerSkillsRoomId !== activeRoomId) {
+      state.composerActiveSkills = [];
+      state.composerSkillSelected = false;
+    }
     const skills = state.composerActiveSkills || [];
     els.composerSkills.classList.toggle("hidden", skills.length === 0);
     // Last chip is the Backspace target; "selected" highlights it before delete.
@@ -161,6 +169,9 @@
 
   function addComposerSkill(skill) {
     if (!state || !skill || !skill.id) return;
+    // Bind the chips to the room that is active now (the caller navigated here
+    // first), so renderComposerSkills clears them once the user switches away.
+    state.composerSkillsRoomId = window.miaSocial?.getActiveRoomId?.() || "";
     state.composerActiveSkills = state.composerActiveSkills || [];
     if (!state.composerActiveSkills.some((item) => item.id === skill.id)) {
       state.composerActiveSkills = [...state.composerActiveSkills, { id: String(skill.id), name: skill.name || skill.id }];

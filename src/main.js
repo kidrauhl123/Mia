@@ -1469,7 +1469,10 @@ async function sendChat({ fellowKey, personaKey, sessionId, messages, group, web
     const { fellow } = requireFellow(manifest, key, "还没有可用的 fellow，请先在引导里创建一个再发起对话。");
     const turnRuntimeConfig = normalizeTurnRuntimeConfig(runtimeConfig);
     let fellowForTurn = fellowWithRuntimeConfig(fellow, turnRuntimeConfig);
-    // Composer "使用" chips: temporarily enable these skills for this turn only.
+    // Composer "使用" chips: enable these skills for this turn (so their content
+    // is injected) AND prepend a directive to the user's message so the agent
+    // actually USES them this turn — merely enabling is a no-op when the skill
+    // is already in the Fellow's enabled set (the "AI picks" case).
     if (Array.isArray(activeSkillIds) && activeSkillIds.length) {
       const caps = fellowForTurn.capabilities || {};
       fellowForTurn = {
@@ -1479,6 +1482,17 @@ async function sendChat({ fellowKey, personaKey, sessionId, messages, group, web
           enabledSkills: [...new Set([...(caps.enabledSkills || []), ...activeSkillIds.map((id) => String(id))])]
         }
       };
+      const directive = skillsLoader.buildActiveSkillsDirective(activeSkillIds);
+      if (directive && Array.isArray(messages)) {
+        const next = messages.slice();
+        for (let i = next.length - 1; i >= 0; i--) {
+          if (next[i] && next[i].role === "user") {
+            next[i] = { ...next[i], content: `${directive}\n\n${next[i].content || ""}` };
+            break;
+          }
+        }
+        messages = next;
+      }
     }
     const chatEngine = resolveChatEngineAdapter(fellowForTurn);
     const agentEngine = chatEngine.id;
@@ -1832,36 +1846,6 @@ cloudBridgeRuntime = createCloudBridgeClient({
   randomUUID: () => crypto.randomUUID()
 });
 for (const line of pendingCloudLogs.splice(0)) cloudBridgeRuntime.appendLog(line);
-// Composer skill chips are a desktop-local, per-room hint. While a chip is
-// attached to a fellow room, the renderer (re)publishes the current chip set
-// on every send (an empty set clears it); the local fellow responder PEEKS
-// (does not delete) so every turn while the chip is attached loads the skills
-// and a failed turn doesn't drop them. Keyed by roomId; covers the common
-// "own desktop answers own fellow" case without changing the cloud schema.
-const PENDING_ROOM_SKILLS_CAP = 50;
-const pendingRoomSkills = new Map();
-function getPendingRoomSkills(roomId) {
-  return pendingRoomSkills.get(String(roomId || "")) || [];
-}
-ipcMain.handle(IpcChannel.SocialSetPendingRoomSkills, (_event, roomId, skillIds) => {
-  const key = String(roomId || "").trim();
-  if (!key) return { ok: false };
-  const ids = (Array.isArray(skillIds) ? skillIds : [])
-    .map((id) => String(id || "").trim())
-    .filter(Boolean)
-    .slice(0, 32);
-  if (!ids.length) {
-    pendingRoomSkills.delete(key);
-    return { ok: true };
-  }
-  // Bounded FIFO: evict the oldest room when a new room would exceed the cap.
-  pendingRoomSkills.delete(key);
-  if (pendingRoomSkills.size >= PENDING_ROOM_SKILLS_CAP) {
-    pendingRoomSkills.delete(pendingRoomSkills.keys().next().value);
-  }
-  pendingRoomSkills.set(key, ids);
-  return { ok: true };
-});
 const localFellowResponder = createLocalFellowResponder({
   sendChat,
   postRoomMessageAsFellow: (roomId, body) => socialApi.postRoomMessageAsFellow(roomId, body),
@@ -1871,7 +1855,6 @@ const localFellowResponder = createLocalFellowResponder({
       payload: message
     });
   },
-  getPendingRoomSkills,
   log: (line) => appendCloudLog(line)
 });
 function shouldHandleCloudRoomAi() {

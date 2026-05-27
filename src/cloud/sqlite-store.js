@@ -723,6 +723,7 @@ function migrate(db) {
       body_md         TEXT NOT NULL DEFAULT '',
       attachments_json TEXT,
       mentions_json   TEXT,
+      skills_json     TEXT,
       status          TEXT NOT NULL,
       error_json      TEXT,
       created_at      TEXT NOT NULL,
@@ -958,6 +959,14 @@ function migrate(db) {
     db.exec("ALTER TABLE skill_installs ADD COLUMN installed_version TEXT NOT NULL DEFAULT ''");
   }
   db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (11, ?)")
+    .run(nowIso());
+  // v12: composer "使用" skill chips travel with the message — the skills the
+  // user explicitly selected for that turn, rendered in the bubble and used by
+  // the fellow responder to drive the agent.
+  if (!hasColumn(db, "messages", "skills_json")) {
+    db.exec("ALTER TABLE messages ADD COLUMN skills_json TEXT");
+  }
+  db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (12, ?)")
     .run(nowIso());
 }
 

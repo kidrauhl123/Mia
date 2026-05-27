@@ -1022,10 +1022,12 @@
     const cache = moduleState.messageCache.get(moduleState.activeRoomId);
     const messageIndex = cache ? cache.messages.findIndex((m) => m.id === msg.id) : -1;
     const bodyHtml = _renderMsgBody((spec ? spec.bodyMd : msg.body_md) || "");
+    const skillsHtml = _renderMsgSkills(msg);
     // Render the bubble unconditionally (matching the group builder) so even an
     // attachment-only / empty-body message keeps a right-clickable carrier with
-    // the data attributes the app.js contextmenu dispatcher looks for.
-    const bubbleHtml = `<div class="bubble" data-message-index="${messageIndex}" data-message-source="cloud-room" data-message-id="${escapeHtml(msg.id || "")}">${bodyHtml}</div>`;
+    // the data attributes the app.js contextmenu dispatcher looks for. Skill
+    // chips the user selected for this message render at the top of the bubble.
+    const bubbleHtml = `<div class="bubble" data-message-index="${messageIndex}" data-message-source="cloud-room" data-message-id="${escapeHtml(msg.id || "")}">${skillsHtml}${bodyHtml}</div>`;
     const attachmentHtml = renderAttachmentChips(spec?.attachments || msg.attachments || []);
     const createdAt = msg.created_at || msg.createdAt || "";
     const timeHtml = createdAt
@@ -1226,6 +1228,22 @@
     return escapeHtml(md);
   }
 
+  // Skill chips the user attached to this message (composer 「使用」). Stored on
+  // the message (skills_json) so they persist and render in the bubble.
+  function _renderMsgSkills(msg) {
+    const raw = msg && msg.skills_json;
+    if (!raw) return "";
+    let skills;
+    try { skills = JSON.parse(raw); } catch { return ""; }
+    if (!Array.isArray(skills) || !skills.length) return "";
+    const chips = skills
+      .map((skill) => String((skill && (skill.name || skill.id)) || "").trim())
+      .filter(Boolean)
+      .map((label) => `<span class="message-skill-chip">${escapeHtml(label)}</span>`)
+      .join("");
+    return chips ? `<div class="message-skills">${chips}</div>` : "";
+  }
+
   // stick=true (default, and for your own outgoing messages) always jumps to the
   // bottom. For messages arriving from others, pass stick=false so a reader who
   // has scrolled up to read history isn't yanked down — they only follow along
@@ -1247,7 +1265,7 @@
     }
   }
 
-  function _appendLocalOutgoingRoomMessage(roomId, prepared) {
+  function _appendLocalOutgoingRoomMessage(roomId, prepared, skills = null) {
     if (!roomId || !prepared || !prepared.bodyMd) return null;
     if (!moduleState.messageCache.has(roomId)) {
       moduleState.messageCache.set(roomId, { messages: [], maxSeq: 0 });
@@ -1260,6 +1278,9 @@
       body_md: prepared.bodyMd,
       attachments: prepared.attachments || [],
       mentions: prepared.mentions || [],
+      // Mirror the server's skills_json so the bubble renders chips immediately,
+      // before the echoed message comes back.
+      skills_json: skills && skills.length ? JSON.stringify(skills) : null,
       status: "sending",
       created_at: new Date().toISOString(),
       _localPending: true
@@ -1602,12 +1623,16 @@
 
   // ── Cloud-room send: DM, fellow rooms, and groups share one path. ─────────
 
-  async function sendInActiveRoom(text) {
+  async function sendInActiveRoom(text, options = {}) {
     const roomId = moduleState.activeRoomId;
     if (!roomId) return;
     const room = moduleState.rooms.find((r) => r.id === roomId) || { id: roomId };
     const roomType = roomTypeFor(room, roomId);
     const members = _roomMembersCache.get(roomId) || [];
+    // Composer skill chips selected for this message (the user's 「使用」).
+    const skills = Array.isArray(options.skills) && options.skills.length
+      ? options.skills.map((s) => ({ id: String(s.id || ""), name: String(s.name || s.id || "") })).filter((s) => s.id)
+      : null;
     let prepared;
     try {
       prepared = sendPipelineShared().prepareOutgoingMessage(
@@ -1619,12 +1644,13 @@
       console.warn("[social] sendInActiveRoom prepare failed:", err?.message || err);
       return;
     }
-    const localMsg = _appendLocalOutgoingRoomMessage(roomId, prepared);
+    const localMsg = _appendLocalOutgoingRoomMessage(roomId, prepared, skills);
     const mentions = postMentionsForRoom(roomType, prepared.mentions);
     try {
       const res = await window.mia.social.postRoomMessage(roomId, {
         bodyMd: prepared.bodyMd,
-        ...(mentions.length ? { mentions } : {})
+        ...(mentions.length ? { mentions } : {}),
+        ...(skills ? { skills } : {})
       });
       if (!res.ok) {
         console.warn("[social] postRoomMessage failed:", res.error);
