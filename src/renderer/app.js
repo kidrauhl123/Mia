@@ -2022,29 +2022,25 @@ function activePersona() {
 
 
 
-// Ephemeral, client-only feedback shown in the active conversation (never posted
-// to cloud). Pushed into the active conversation's render cache with a sentinel
-// seq so it sorts to the bottom; it clears on the next conversation reload.
+// Ephemeral, client-only feedback (operation errors / status). Shown as a
+// transient toast — NOT injected into the conversation cache, so it never
+// pollutes sidebar previews, persisted snapshots, or leaks across conversations.
 function appendTransientChat(role, content) {
-  const social = window.miaSocial;
-  const conversationId = social?.getActiveConversationId?.();
-  const cache = social?.moduleState?.messageCache;
-  if (!conversationId || !cache) {
-    console.warn("[chat] transient:", role, String(content || ""));
-    return;
+  void role;
+  const text = String(content || "").trim();
+  if (!text || typeof document === "undefined") return;
+  let host = document.getElementById("miaToastHost");
+  if (!host) {
+    host = document.createElement("div");
+    host.id = "miaToastHost";
+    document.body.appendChild(host);
   }
-  if (!cache.has(conversationId)) cache.set(conversationId, { messages: [], maxSeq: 0 });
-  cache.get(conversationId).messages.push({
-    id: `transient_${cryptoRandomId()}`,
-    seq: Number.MAX_SAFE_INTEGER,
-    sender_kind: role === "user" ? SenderKind.User : SenderKind.Fellow,
-    sender_ref: "",
-    body_md: String(content || ""),
-    created_at: new Date().toISOString(),
-    transient: true
-  });
-  state.forceScrollToBottom = true;
-  render();
+  const toast = document.createElement("div");
+  toast.className = "mia-toast";
+  toast.textContent = text;
+  host.appendChild(toast);
+  setTimeout(() => toast.classList.add("mia-toast-out"), 3200);
+  setTimeout(() => toast.remove(), 3600);
 }
 
 

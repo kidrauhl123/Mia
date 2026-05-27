@@ -676,6 +676,36 @@ body.sidebar-resizing * {
   font-size: 13px;
 }
 
+#miaToastHost {
+  position: fixed;
+  left: 50%;
+  bottom: 32px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 9999;
+  pointer-events: none;
+}
+
+.mia-toast {
+  max-width: 60vw;
+  padding: 9px 16px;
+  border-radius: 10px;
+  background: rgba(30, 30, 32, 0.92);
+  color: #fff;
+  font-size: 13px;
+  line-height: 1.4;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+  opacity: 1;
+  transition: opacity 0.35s ease, transform 0.35s ease;
+}
+
+.mia-toast-out {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
 .cloud-login-guide {
   max-width: 360px;
   margin: 18vh auto 0;
