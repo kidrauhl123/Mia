@@ -871,6 +871,10 @@ async function runRemoteChatRequest(body, eventSink = null) {
       error: Boolean(tool.error)
     }));
   }
+  const assistantTracePayload = {
+    ...(savedAssistant.reasoning ? { reasoning: savedAssistant.reasoning } : {}),
+    ...(Array.isArray(savedAssistant.tools) && savedAssistant.tools.length ? { tools: savedAssistant.tools } : {})
+  };
   // Persist by RELOADING the store after the await and appending only the two new
   // messages to the target session. The pre-await `store` snapshot is stale — any
   // writes that landed during `await sendChat` (foreground chat, another task) are
@@ -919,6 +923,7 @@ async function runRemoteChatRequest(body, eventSink = null) {
       Promise.resolve(socialApi.postConversationMessageAsFellow(conversationId, {
         fellowId: fellow.key,
         bodyMd: assistantText,
+        ...(Object.keys(assistantTracePayload).length ? { trace: assistantTracePayload } : {}),
         clientOpId: `op_task_${target.id}_${assistantMessageId}`
       })).catch((error) => appendDaemonLog(`Task reply conversation post failed: ${error?.message || error}`));
     }
@@ -1444,7 +1449,7 @@ function fellowWithRuntimeConfig(fellow, runtimeConfig = {}) {
   };
 }
 
-async function sendChat({ fellowKey, personaKey, sessionId, messages, group, webContents, utility = false, background = false, allowSlashCommands = true, runtimeConfig = null, activeSkillIds = [] }) {
+async function sendChat({ fellowKey, personaKey, sessionId, messages, group, webContents, emit: externalEmit = null, utility = false, background = false, allowSlashCommands = true, runtimeConfig = null, activeSkillIds = [] }) {
   utility = Boolean(utility);
   let abortController;
   if (group || utility || background) {
@@ -1462,7 +1467,9 @@ async function sendChat({ fellowKey, personaKey, sessionId, messages, group, web
     activeChatAbortController = abortController;
   }
   const { signal } = abortController;
-  const { emit } = !utility
+  const { emit } = typeof externalEmit === "function"
+    ? { emit: externalEmit }
+    : !utility
     ? createChatEventEmitter({ webContents, sessionId })
     : { emit: null };
   try {

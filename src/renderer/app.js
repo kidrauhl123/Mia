@@ -502,56 +502,6 @@ function conversationCardSpecFromRow(row, personas) {
   const avatarHelper = window.miaAvatar;
   const userProfile = state.runtime?.user || {};
 
-  // ── fellow private chat (existing) ───────────────────────────────────────
-  if (row.type === "fellow") {
-    const persona = row.persona;
-    const preview = conversationPreview(persona);
-    const unread = window.miaSessionReadState.unreadCountForPersona(persona.key);
-    return {
-      kind: "private",
-      active: persona.key === state.activeKey,
-      pinned: Boolean(persona.pinned),
-      muted: Boolean(persona.muted),
-      name: persona.name,
-      typeLabel: "私聊",
-      preview: preview.text || "暂无对话",
-      time: preview.time,
-      unread,
-      avatar: {
-        image: persona.avatarImage || avatarHelper?.avatarAssetForKey(persona.key),
-        crop: persona.avatarCrop,
-        color: persona.color || "#5e5ce6"
-      },
-      dataAttrs: { fellowAvatar: persona.key },
-      onClick: () => {
-        state.activeKey = persona.key;
-        if (window.miaSocial) window.miaSocial.setActiveConversationId(null);
-        const latest = sessionsForPersona(persona.key)[0];
-        state.activeSessionIdByPersona[persona.key] = latest?.id;
-        state.replyDraft = null;
-        window.miaSessionReadState.markPersonaRead(persona.key);
-        state.sessionMenuOpen = false;
-        showNarrowContent();
-        render();
-      },
-      onContextMenu: (x, y) => window.miaConversationContextMenu.openPrivateConversationMenu(
-        { id: persona.key, name: persona.name, pinned: Boolean(persona.pinned), unread, muted: Boolean(persona.muted) },
-        {
-          togglePinned: () => setFellowPinned(persona.key, !persona.pinned),
-          rename: () => openEditFellowDialog(persona.key),
-          toggleRead: (next) => {
-            if (next) window.miaSessionReadState.markPersonaUnread(persona.key);
-            else window.miaSessionReadState.markPersonaRead(persona.key);
-            render();
-          },
-          toggleMuted: (next) => { setFellowMuted(persona.key, next); render(); },
-          remove: persona.key === "mia" ? null : () => deleteFellow(persona.key)
-        },
-        x, y
-      )
-    };
-  }
-
   // ── cloud private conversation (DM with a friend OR fellow session) ─────────────
   //     Same card shape; the only branch is "who's the other party" — a
   //     friend (dm conversation) or a fellow (fellow conversation) — and that flows
@@ -920,22 +870,6 @@ function queueGeneratedFileFetches(messages = []) {
   }
 }
 
-
-function conversationPreview(persona) {
-  const sessions = sessionsForPersona(persona.key);
-  const latest = sessions[0];
-  const messages = latest?.messages || [];
-  const last = [...messages].reverse().find((message) => String(message.content || "").trim() && !message.transient);
-  return {
-    text: last ? last.content : "",
-    time: formatConversationTime(latest?.updatedAt || latest?.createdAt)
-  };
-}
-
-function conversationUpdatedAt(persona) {
-  const latest = sessionsForPersona(persona.key)[0];
-  return latest?.updatedAt || latest?.createdAt || "";
-}
 
 function sessionsForPersona(personaKey = state.activeKey) {
   if (!state.chatStore.sessions[personaKey]) state.chatStore.sessions[personaKey] = [];

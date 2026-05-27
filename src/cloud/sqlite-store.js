@@ -724,6 +724,7 @@ function migrate(db) {
       attachments_json TEXT,
       mentions_json   TEXT,
       skills_json     TEXT,
+      trace_json      TEXT,
       status          TEXT NOT NULL,
       error_json      TEXT,
       created_at      TEXT NOT NULL,
@@ -967,6 +968,14 @@ function migrate(db) {
     db.exec("ALTER TABLE messages ADD COLUMN skills_json TEXT");
   }
   db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (12, ?)")
+    .run(nowIso());
+  // v13: assistant trace blocks (reasoning + tool-call summaries) are stored
+  // with fellow-authored messages so cloud conversations render the same agent
+  // activity UI as local sessions.
+  if (!hasColumn(db, "messages", "trace_json")) {
+    db.exec("ALTER TABLE messages ADD COLUMN trace_json TEXT");
+  }
+  db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (13, ?)")
     .run(nowIso());
 }
 

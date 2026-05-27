@@ -187,12 +187,132 @@
   }
 
   function eventText(event = {}) {
-    for (const key of ["delta", "content_delta", "text_delta", "text", "content"]) {
+    for (const key of ["reasoning", "delta", "content_delta", "text_delta", "text", "content", "final_response"]) {
       if (typeof event[key] === "string") return event[key];
     }
     const data = event.data && typeof event.data === "object" ? event.data : null;
     if (data) return eventText(data);
     return "";
+  }
+
+  function normalizeToolStatus(status) {
+    const value = String(status || "").trim();
+    if (value === "complete" || value === "completed") return "completed";
+    if (value === "error" || value === "failed") return "error";
+    return "running";
+  }
+
+  function ensureRunTraceMaps(run) {
+    if (!run.toolsById) run.toolsById = new Map();
+    if (!run.toolsByName) run.toolsByName = new Map();
+    if (!Array.isArray(run.tools)) run.tools = [];
+  }
+
+  function toolFromRun(run, event = {}) {
+    ensureRunTraceMaps(run);
+    const id = String(event.id || "");
+    const name = String(event.tool || event.name || event.data?.tool || "");
+    let tool = id ? run.toolsById.get(id) : null;
+    if (!tool && name) {
+      const queue = run.toolsByName.get(name);
+      tool = queue && queue.find((item) => item.status === "running");
+    }
+    if (!tool && !id && !name) {
+      tool = [...run.tools].reverse().find((item) => item.status === "running");
+    }
+    return tool || null;
+  }
+
+  function addRunTool(run, event = {}) {
+    ensureRunTraceMaps(run);
+    const tool = {
+      id: String(event.id || `tool_${run.tools.length}`),
+      name: String(event.tool || event.name || event.data?.tool || "工具"),
+      preview: String(event.preview || event.input || ""),
+      status: "running",
+      duration: null,
+      error: false
+    };
+    run.tools.push(tool);
+    run.toolsById.set(tool.id, tool);
+    const queue = run.toolsByName.get(tool.name) || [];
+    queue.push(tool);
+    run.toolsByName.set(tool.name, queue);
+  }
+
+  function appendRunReasoning(run, event = {}) {
+    run.reasoning = `${run.reasoning || ""}${eventText(event)}`;
+    if (run.reasoning && !run.reasoning.endsWith("\n")) run.reasoning += "\n";
+  }
+
+  function applyCloudAgentRunEvent(run, event = {}) {
+    const name = eventType(event);
+    if (name === "message.delta" || name === "text_delta") {
+      run.text += eventText(event);
+    } else if (name === "message.complete" || name === "message.completed") {
+      run.text = eventText(event) || run.text;
+    } else if (name === "run.completed" || name === "complete") {
+      run.text = eventText(event) || run.text;
+      run.status = "complete";
+    } else if (name === "run.failed" || name === "error") {
+      run.status = "error";
+    } else if (name === "run.cancelled") {
+      run.status = "cancelled";
+    } else if (name === "reasoning.available" || name === "reasoning_delta") {
+      appendRunReasoning(run, event);
+    } else if (name === "tool.started" || name === "tool_call_started") {
+      addRunTool(run, event);
+    } else if (name === "tool.delta" || name === "tool_call_delta") {
+      const tool = toolFromRun(run, event);
+      if (tool) tool.preview = String(event.preview || event.delta || tool.preview || "");
+    } else if (name === "tool.completed" || name === "tool_call_completed") {
+      const tool = toolFromRun(run, event);
+      if (tool) {
+        tool.status = event.error || event.data?.error ? "error" : normalizeToolStatus(event.status || "completed");
+        tool.duration = typeof event.duration === "number" ? event.duration : null;
+        tool.error = Boolean(event.error || event.data?.error);
+        if (event.preview) tool.preview = String(event.preview);
+      }
+    }
+  }
+
+  function parseTraceJson(value) {
+    if (!value) return null;
+    let parsed = value;
+    if (typeof value === "string") {
+      try { parsed = JSON.parse(value); } catch { return null; }
+    }
+    if (!parsed || typeof parsed !== "object") return null;
+    const reasoning = String(parsed.reasoning || "").trim();
+    const tools = Array.isArray(parsed.tools)
+      ? parsed.tools.map((tool, idx) => {
+        if (!tool || typeof tool !== "object") return null;
+        const name = String(tool.name || "").trim();
+        if (!name) return null;
+        return {
+          id: String(tool.id || `tool_${idx}`),
+          name,
+          preview: String(tool.preview || ""),
+          status: normalizeToolStatus(tool.status),
+          duration: typeof tool.duration === "number" ? tool.duration : null,
+          error: Boolean(tool.error)
+        };
+      }).filter(Boolean)
+      : [];
+    if (!reasoning && !tools.length) return null;
+    return { reasoning, tools };
+  }
+
+  function renderTraceFor({ reasoning, tools, content, expanded, scopeKey }) {
+    const renderer = global.miaTraceBlocks;
+    if (!renderer || typeof renderer.renderTraceBlocks !== "function") return "";
+    return renderer.renderTraceBlocks({
+      reasoning,
+      tools,
+      content,
+      expanded,
+      scopeKey
+    });
   }
 
   function cloudRunFor(conversationId, runId = "") {
@@ -202,9 +322,12 @@
       conversationId,
       runId,
       text: "",
+      reasoning: "",
       status: "running",
       createdAt: new Date().toISOString(),
-      tools: []
+      tools: [],
+      toolsById: new Map(),
+      toolsByName: new Map()
     };
     moduleState.cloudAgentRunsByConversation.set(conversationId, run);
     return run;
@@ -740,28 +863,7 @@
       if (!conversationId) return;
       const run = cloudRunFor(conversationId, payload.runId || "");
       run.fellowId = payload.fellowId || run.fellowId || "";
-      const name = eventType(hermesEvent);
-      if (name === "message.delta") {
-        run.text += eventText(hermesEvent);
-      } else if (name === "message.complete" || name === "message.completed") {
-        run.text = eventText(hermesEvent) || run.text;
-      } else if (name === "run.completed") {
-        run.text = eventText(hermesEvent) || run.text;
-        run.status = "complete";
-      } else if (name === "run.failed") {
-        run.status = "error";
-      } else if (name === "run.cancelled") {
-        run.status = "cancelled";
-      } else if (name === "tool.started") {
-        run.tools.push({
-          name: String(hermesEvent.tool || hermesEvent.name || hermesEvent.data?.tool || "工具"),
-          status: "running"
-        });
-      } else if (name === "tool.completed") {
-        const toolName = String(hermesEvent.tool || hermesEvent.name || hermesEvent.data?.tool || "");
-        const tool = [...run.tools].reverse().find((item) => !toolName || item.name === toolName);
-        if (tool) tool.status = hermesEvent.error || hermesEvent.data?.error ? "error" : "complete";
-      }
+      applyCloudAgentRunEvent(run, hermesEvent);
       if (deps && typeof deps.render === "function") deps.render();
       return;
     }
@@ -873,6 +975,11 @@
 
   // ── renderSidebarRows ─────────────────────────────────────────────────────
 
+  function lastSidebarMessage(entry) {
+    const messages = Array.isArray(entry?.messages) ? entry.messages : [];
+    return messages.length ? messages[messages.length - 1] : null;
+  }
+
   function renderSidebarRows() {
     const sidebarConversations = sessionHistoryShared().sidebarConversations(moduleState.conversations, {
       activeConversationId: moduleState.activeConversationId,
@@ -880,17 +987,15 @@
     });
     return sidebarConversations.map((conversation) => {
       const cacheEntry = moduleState.messageCache.get(conversation.id);
-      const lastMsg = cacheEntry && cacheEntry.messages.length
-        ? cacheEntry.messages[cacheEntry.messages.length - 1]
-        : null;
+      const lastMsg = lastSidebarMessage(cacheEntry);
       const lastMessagePreview = lastMsg ? String(lastMsg.body_md || "").slice(0, 80) : "";
 
-      // updatedAt: prefer last message time if newer than conversation.updatedAt
-      let updatedAt = conversation.updatedAt ? new Date(conversation.updatedAt).getTime() : 0;
-      if (lastMsg && lastMsg.created_at) {
-        const msgTs = new Date(lastMsg.created_at).getTime();
-        if (msgTs > updatedAt) updatedAt = msgTs;
-      }
+      // Sidebar activity follows the last message the chat can actually render.
+      // Metadata-only conversation.updated events (title/runtime/member refresh)
+      // should not reorder a row or change its displayed time.
+      const updatedAt = lastMsg
+        ? (new Date(lastMsg.created_at || lastMsg.createdAt || 0).getTime() || 0)
+        : (new Date(conversation.updatedAt || conversation.updated_at || 0).getTime() || 0);
       const pinned = isConversationPinned(conversation.id);
       const pinnedAt = pinned ? (_ensureCloudSettings().updatedAt || conversation.updatedAt || updatedAt || "") : "";
 
@@ -1036,6 +1141,16 @@
     const messageIndex = cache ? cache.messages.findIndex((m) => m.id === msg.id) : -1;
     const bodyHtml = _renderMsgBody((spec ? spec.bodyMd : msg.body_md) || "");
     const skillsHtml = _renderMsgSkills(msg);
+    const trace = !isUser ? parseTraceJson(msg.trace_json || msg.trace) : null;
+    const traceHtml = trace
+      ? renderTraceFor({
+        reasoning: trace.reasoning,
+        tools: trace.tools,
+        content: (spec ? spec.bodyMd : msg.body_md) || "",
+        expanded: false,
+        scopeKey: `cloud-msg:${msg.id || ""}`
+      })
+      : "";
     // Render the bubble unconditionally (matching the group builder) so even an
     // attachment-only / empty-body message keeps a right-clickable carrier with
     // the data attributes the app.js contextmenu dispatcher looks for. Skill
@@ -1055,6 +1170,7 @@
     article.innerHTML = `
       ${avatarHtml}
       <div class="message-stack">
+        ${traceHtml}
         ${bubbleHtml}
         ${attachmentHtml}
         ${_renderMsgTranslation(msg)}
@@ -1067,7 +1183,7 @@
 
   function _buildCloudAgentStreamingArticle(conversationId, accentColor, members = []) {
     const run = moduleState.cloudAgentRunsByConversation.get(conversationId);
-    if (!run || (!run.text && !run.tools.length && run.status !== "running")) return null;
+    if (!run || (!run.text && !run.reasoning && !run.tools.length && run.status !== "running")) return null;
     const conversation = moduleState.conversations.find((r) => r.id === conversationId) || { id: conversationId };
     const fellowKey = run.fellowId || conversation.decorations?.fellowKey || (conversation.id?.startsWith("fellow:") ? conversation.id.split(":")[2] : "mia");
     const synthetic = {
@@ -1094,14 +1210,21 @@
       })
       : `<div class="avatar message-avatar" data-sender-kind="fellow" data-sender-ref="${escapeHtml(fellowKey)}" style="${escapeHtml(avatarFallbackStyle(avatarHelpers, avatar.image, avatar.crop, avatarColor))}" title="${escapeHtml(authorName || "")}">${escapeHtml(avatarLetter)}</div>`;
     const bodyHtml = run.text ? _renderMsgBody(run.text) : "";
+    const traceHtml = renderTraceFor({
+      reasoning: run.reasoning,
+      tools: run.tools,
+      content: run.text,
+      expanded: true,
+      scopeKey: `cloud-run:${run.runId || conversationId}`
+    });
     const isGroupConversation = conversationTypeFor(conversation, conversationId) === "group";
     const typingText = isGroupConversation
       ? `${run.typingLabel || authorName || fellowKey}正在输入`
       : "正在输入";
-    const statusHtml = run.status === "running" && (run.text || !run.tools.length)
+    const statusHtml = run.status === "running" && (run.text || (!run.tools.length && !run.reasoning))
       ? `<span class="typing-status">${escapeHtml(typingText)}<span class="typing-dots"><i></i><i></i><i></i></span></span>`
       : "";
-    const toolsHtml = run.tools.length
+    const toolsHtml = !traceHtml && run.tools.length
       ? `<div class="message-attachments">${run.tools.slice(-3).map((tool) => `<span class="message-attachment"><span>TOOL</span><strong>${escapeHtml(tool.name || "工具")}</strong><em>${escapeHtml(tool.status || "")}</em></span>`).join("")}</div>`
       : "";
     const article = document.createElement("article");
@@ -1109,6 +1232,7 @@
     article.innerHTML = `
       ${avatarHtml}
       <div class="message-stack">
+        ${traceHtml}
         ${bodyHtml ? `<div class="bubble">${bodyHtml}</div>` : ""}
         ${statusHtml ? `<div class="bubble">${statusHtml}</div>` : ""}
         ${toolsHtml}

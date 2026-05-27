@@ -38,7 +38,10 @@ test("respond runs the local engine and posts the reply as the fellow", async ()
   await responder.respond(base);
 
   assert.equal(calls.engine.length, 1);
-  assert.deepEqual(calls.engine[0], {
+  const engineCall = { ...calls.engine[0] };
+  assert.equal(typeof engineCall.emit, "function");
+  delete engineCall.emit;
+  assert.deepEqual(engineCall, {
     fellowKey: "codex",
     personaKey: "codex",
     sessionId: "conversation:g_1",

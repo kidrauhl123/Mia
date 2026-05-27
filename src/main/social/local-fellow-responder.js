@@ -25,6 +25,94 @@ function responseText(result) {
   return String(message.content || result?.content || "").trim();
 }
 
+function normalizeToolStatus(status) {
+  const value = String(status || "").trim();
+  if (value === "complete" || value === "completed") return "completed";
+  if (value === "error" || value === "failed") return "error";
+  return "running";
+}
+
+function toolFromTrace(trace, data = {}) {
+  const id = String(data?.id || "");
+  const name = String(data?.name || "");
+  let tool = id ? trace.toolsById.get(id) : null;
+  if (!tool && name) {
+    const queue = trace.toolsByName.get(name);
+    tool = queue && queue.find((item) => item.status === "running");
+  }
+  return tool || null;
+}
+
+function createTraceCollector() {
+  const trace = {
+    reasoning: "",
+    tools: [],
+    toolsById: new Map(),
+    toolsByName: new Map()
+  };
+
+  function collect(kind, data = {}) {
+    switch (kind) {
+      case "reasoning_delta":
+        trace.reasoning += String(data?.text || "");
+        if (trace.reasoning && !trace.reasoning.endsWith("\n")) trace.reasoning += "\n";
+        break;
+      case "tool_call_started": {
+        const tool = {
+          id: String(data?.id || `tool_${trace.tools.length}`),
+          name: String(data?.name || "工具"),
+          preview: String(data?.preview || ""),
+          status: "running",
+          duration: null,
+          error: false
+        };
+        trace.tools.push(tool);
+        trace.toolsById.set(tool.id, tool);
+        const queue = trace.toolsByName.get(tool.name) || [];
+        queue.push(tool);
+        trace.toolsByName.set(tool.name, queue);
+        break;
+      }
+      case "tool_call_delta": {
+        const tool = toolFromTrace(trace, data);
+        if (tool) tool.preview = String(data?.preview || tool.preview || "");
+        break;
+      }
+      case "tool_call_completed": {
+        const tool = toolFromTrace(trace, data);
+        if (tool) {
+          tool.status = data?.error ? "error" : normalizeToolStatus(data?.status || "completed");
+          tool.duration = typeof data?.duration === "number" ? data.duration : null;
+          tool.error = Boolean(data?.error);
+          if (data?.preview) tool.preview = String(data.preview);
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  function payload() {
+    const reasoning = String(trace.reasoning || "").trim();
+    const tools = trace.tools.map((tool) => ({
+      id: String(tool.id || ""),
+      name: String(tool.name || ""),
+      preview: String(tool.preview || ""),
+      status: normalizeToolStatus(tool.status),
+      duration: typeof tool.duration === "number" ? tool.duration : null,
+      error: Boolean(tool.error)
+    })).filter((tool) => tool.name);
+    if (!reasoning && !tools.length) return null;
+    return {
+      ...(reasoning ? { reasoning } : {}),
+      ...(tools.length ? { tools } : {})
+    };
+  }
+
+  return { collect, payload };
+}
+
 function runIdForDedupKey(dedupKey) {
   return `local_${clientOpIdForDedupKey(dedupKey).replace(/^op_/, "")}`;
 }
@@ -100,6 +188,7 @@ function createLocalFellowResponder({ sendChat, postConversationMessageAsFellow,
 
     let text = "";
     const runId = runIdForDedupKey(dedupKey);
+    const trace = createTraceCollector();
     emitCloudEvent({
       type: "cloud_agent_run_started",
       runId,
@@ -125,6 +214,17 @@ function createLocalFellowResponder({ sendChat, postConversationMessageAsFellow,
       // into this turn so the chip actually reaches the engine (sendChat folds
       // them into capabilities.enabledSkills and prepends a "use these" directive).
       if (Array.isArray(activeSkillIds) && activeSkillIds.length) chatArgs.activeSkillIds = activeSkillIds;
+      chatArgs.emit = (kind, data = {}) => {
+        if (!kind || kind === "session_started") return;
+        trace.collect(kind, data);
+        emitCloudEvent({
+          type: "cloud_agent_run_event",
+          runId,
+          conversationId,
+          fellowId,
+          event: { type: kind, ...(data && typeof data === "object" ? data : {}) }
+        });
+      };
       const result = await sendChat(chatArgs);
       text = responseText(result);
     } catch (error) {
@@ -161,11 +261,13 @@ function createLocalFellowResponder({ sendChat, postConversationMessageAsFellow,
     }
 
     try {
+      const tracePayload = trace.payload();
       const result = await postConversationMessageAsFellow(conversationId, {
         fellowId,
         bodyMd: text,
         turnId,
-        clientOpId: clientOpIdForDedupKey(dedupKey)
+        clientOpId: clientOpIdForDedupKey(dedupKey),
+        ...(tracePayload ? { trace: tracePayload } : {})
       });
       if (result && result.ok === false) throw new Error(result.error || result.message || "post failed");
       remember(dedupKey);

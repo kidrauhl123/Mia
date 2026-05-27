@@ -8,6 +8,34 @@ function randomId(prefix) {
   return prefix + "_" + crypto.randomBytes(8).toString("hex");
 }
 
+function normalizeTrace(input) {
+  if (!input || typeof input !== "object") return null;
+  const reasoning = String(input.reasoning || "").trim();
+  const rawTools = Array.isArray(input.tools) ? input.tools : [];
+  const tools = rawTools.slice(0, 50).map((tool, idx) => {
+    if (!tool || typeof tool !== "object") return null;
+    const statusValue = String(tool.status || "").trim();
+    const status = statusValue === "complete" || statusValue === "completed"
+      ? "completed"
+      : (statusValue === "error" || statusValue === "failed" ? "error" : "running");
+    const name = String(tool.name || "").trim();
+    if (!name) return null;
+    return {
+      id: String(tool.id || `tool_${idx}`),
+      name,
+      preview: String(tool.preview || ""),
+      status,
+      duration: typeof tool.duration === "number" ? tool.duration : null,
+      error: Boolean(tool.error)
+    };
+  }).filter(Boolean);
+  if (!reasoning && !tools.length) return null;
+  return {
+    ...(reasoning ? { reasoning } : {}),
+    ...(tools.length ? { tools } : {})
+  };
+}
+
 function createMessagesStore(db) {
   const selectMaxSeq = db.prepare(
     "SELECT COALESCE(MAX(seq), 0) AS max_seq FROM messages WHERE conversation_id = ?"
@@ -15,8 +43,8 @@ function createMessagesStore(db) {
   const insertMessage = db.prepare(`
     INSERT INTO messages (
       id, conversation_id, seq, turn_id, sender_kind, sender_ref, sender_owner_id,
-      body_md, attachments_json, mentions_json, skills_json, status, error_json, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      body_md, attachments_json, mentions_json, skills_json, trace_json, status, error_json, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const selectMessage = db.prepare("SELECT * FROM messages WHERE id = ?");
   const selectSince = db.prepare(`
@@ -48,12 +76,14 @@ function createMessagesStore(db) {
       attachments = null,
       mentions = null,
       skills = null,
+      trace = null,
       turnId = null,
       status = "complete",
       errorJson = null,
     } = args;
     const id = randomId("m");
     const createdAt = nowIso();
+    const tracePayload = normalizeTrace(trace);
     db.exec("BEGIN");
     try {
       const seq = selectMaxSeq.get(String(conversationId)).max_seq + 1;
@@ -69,6 +99,7 @@ function createMessagesStore(db) {
         attachments ? JSON.stringify(attachments) : null,
         mentions ? JSON.stringify(mentions) : null,
         skills && Array.isArray(skills) && skills.length ? JSON.stringify(skills) : null,
+        tracePayload ? JSON.stringify(tracePayload) : null,
         String(status),
         errorJson ? JSON.stringify(errorJson) : null,
         createdAt
@@ -123,4 +154,4 @@ function createMessagesStore(db) {
   return { appendMessage, getMessage, listMessagesSince, updateMessageStatus, deleteMessage, hideMessageForUser };
 }
 
-module.exports = { createMessagesStore };
+module.exports = { createMessagesStore, normalizeTrace };

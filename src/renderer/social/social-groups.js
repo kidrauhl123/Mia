@@ -4,7 +4,7 @@
 // Uses window.miaSocial._internalCtx to share state.
 
 (function (global) {
-  const { MemberKind } = (typeof window !== "undefined" && window.miaConversationKinds) || require("../../shared/conversation-kinds");
+  const { MemberKind, SenderKind } = (typeof window !== "undefined" && window.miaConversationKinds) || require("../../shared/conversation-kinds");
 
   let ctx = null; // set by attach()
 
@@ -42,6 +42,55 @@
 
   // ── group message article (with sender attribution) ───────────────────────
 
+  function normalizeToolStatus(status) {
+    const value = String(status || "").trim();
+    if (value === "complete" || value === "completed") return "completed";
+    if (value === "error" || value === "failed") return "error";
+    return "running";
+  }
+
+  function parseTraceJson(value) {
+    if (!value) return null;
+    let parsed = value;
+    if (typeof value === "string") {
+      try { parsed = JSON.parse(value); } catch { return null; }
+    }
+    if (!parsed || typeof parsed !== "object") return null;
+    const reasoning = String(parsed.reasoning || "").trim();
+    const tools = Array.isArray(parsed.tools)
+      ? parsed.tools.map((tool, idx) => {
+        if (!tool || typeof tool !== "object") return null;
+        const name = String(tool.name || "").trim();
+        if (!name) return null;
+        return {
+          id: String(tool.id || `tool_${idx}`),
+          name,
+          preview: String(tool.preview || ""),
+          status: normalizeToolStatus(tool.status),
+          duration: typeof tool.duration === "number" ? tool.duration : null,
+          error: Boolean(tool.error)
+        };
+      }).filter(Boolean)
+      : [];
+    if (!reasoning && !tools.length) return null;
+    return { reasoning, tools };
+  }
+
+  function renderTraceForMessage(msg, content) {
+    if (msg.sender_kind !== SenderKind.Fellow) return "";
+    const trace = parseTraceJson(msg.trace_json || msg.trace);
+    if (!trace) return "";
+    const renderer = global.miaTraceBlocks;
+    if (!renderer || typeof renderer.renderTraceBlocks !== "function") return "";
+    return renderer.renderTraceBlocks({
+      reasoning: trace.reasoning,
+      tools: trace.tools,
+      content,
+      expanded: false,
+      scopeKey: `cloud-msg:${msg.id || ""}`
+    });
+  }
+
   // Group bubble mirrors fellow chat's renderMessageHtml shape EXACTLY
   // (same .avatar div, .message-stack, .bubble with data-message-index +
   // data-message-source, message-time after bubble). This is what the
@@ -70,6 +119,7 @@
       })
       : `<div class="avatar message-avatar" data-sender-kind="${escapeHtml(msg.sender_kind || "")}" data-sender-ref="${escapeHtml(msg.sender_ref || "")}" style="background-color:${escapeHtml(avatarColor)};" title="${escapeHtml(spec?.authorName || "")}">${escapeHtml(avatarLetter)}</div>`;
     const bodyHtml = renderMsgBody((spec ? spec.bodyMd : msg.body_md) || "");
+    const traceHtml = renderTraceForMessage(msg, (spec ? spec.bodyMd : msg.body_md) || "");
     const attachmentHtml = typeof ctx.renderAttachmentChips === "function"
       ? ctx.renderAttachmentChips(spec?.attachments || msg.attachments || [])
       : "";
@@ -106,6 +156,7 @@
       ${avatarHtml}
       <div class="message-stack">
         ${senderLabel ? `<span class="message-sender">${escapeHtml(senderLabel)}</span>` : ""}
+        ${traceHtml}
         <div class="bubble" data-message-index="${messageIndex}" data-message-source="cloud-conversation" data-message-id="${escapeHtml(msg.id || "")}">${bodyHtml}</div>
         ${attachmentHtml}
         ${translationHtml}

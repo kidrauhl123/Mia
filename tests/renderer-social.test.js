@@ -334,6 +334,22 @@ test("renderSidebarRows carries cloud pin state for sidebar sorting", () => {
   assert.equal(rows[0].pinnedAt, "2026-05-21T20:02:00.000Z");
 });
 
+test("renderSidebarRows uses the last rendered message time instead of metadata-only updates", () => {
+  const s = loadSocial();
+  s.moduleState.myUserId = "u_alice";
+  s.moduleState.friends = [{ id: "u_bob", username: "bob", account: "bob" }];
+  s.moduleState.conversations = [{ id: "dm:u_alice:u_bob", type: "dm", name: null, updatedAt: "2026-05-21T20:23:00.000Z" }];
+  s.moduleState.messageCache.set("dm:u_alice:u_bob", {
+    messages: [{ id: "m1", seq: 1, body_md: "visible", created_at: "2026-05-21T20:01:00.000Z" }],
+    maxSeq: 1,
+  });
+
+  const rows = s.renderSidebarRows();
+
+  assert.equal(rows[0].conversation.lastMessagePreview, "visible");
+  assert.equal(rows[0].updatedAt, new Date("2026-05-21T20:01:00.000Z").getTime());
+});
+
 test("manual unread survives settings responses that omit local override bags", async () => {
   const s = loadSocial();
   const writes = [];
@@ -908,6 +924,94 @@ test("renderConversationChat does not label tool-only agent activity as typing",
   assert.equal(chat.children.length, 1);
   assert.match(chat.children[0].innerHTML, /TOOL/);
   assert.doesNotMatch(chat.children[0].innerHTML, /typing-status/);
+});
+
+test("renderConversationChat renders normalized cloud run trace blocks", () => {
+  const s = loadSocial();
+  installCloudConversationSource(s.__mockWindow);
+  s.__mockWindow.miaTraceBlocks = {
+    renderTraceBlocks({ reasoning, tools }) {
+      return `<div class="trace"><span class="reasoning">${String(reasoning || "")}</span>${(tools || []).map((tool) => `<span class="tool">${tool.name}:${tool.status}</span>`).join("")}</div>`;
+    }
+  };
+  s.initSocialModule({ getState: () => ({ user: { id: "u_a" }, fellows: [{ key: "mia", name: "Mia" }] }), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.myUserId = "u_a";
+  s.moduleState.activeConversationId = "fellow:u_a:mia";
+  s.moduleState.conversations = [{ id: "fellow:u_a:mia", type: "fellow", name: "Mia", decorations: { fellowKey: "mia" } }];
+  s.moduleState.messageCache.set("fellow:u_a:mia", { messages: [], maxSeq: 0 });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_started",
+    payload: { conversationId: "fellow:u_a:mia", runId: "car_1", fellowId: "mia" },
+  });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { conversationId: "fellow:u_a:mia", runId: "car_1", event: { type: "reasoning_delta", text: "检查上下文" } },
+  });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { conversationId: "fellow:u_a:mia", runId: "car_1", event: { type: "tool_call_started", id: "tool_1", name: "shell", preview: "ls" } },
+  });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { conversationId: "fellow:u_a:mia", runId: "car_1", event: { type: "tool_call_completed", id: "tool_1", name: "shell", duration: 1.25 } },
+  });
+
+  const chat = {
+    children: [],
+    appendChild(child) { this.children.push(child); return child; },
+    set innerHTML(value) { this.children = []; this._html = value; },
+    get innerHTML() { return this._html || ""; },
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+  };
+  s.renderConversationChat(chat);
+
+  assert.equal(chat.children.length, 1);
+  assert.match(chat.children[0].innerHTML, /trace/);
+  assert.match(chat.children[0].innerHTML, /检查上下文/);
+  assert.match(chat.children[0].innerHTML, /shell:completed/);
+});
+
+test("renderConversationChat renders persisted trace_json on fellow messages", () => {
+  const s = loadSocial();
+  installCloudConversationSource(s.__mockWindow);
+  s.__mockWindow.miaTraceBlocks = {
+    renderTraceBlocks({ reasoning, tools }) {
+      return `<div class="trace"><span>${String(reasoning || "")}</span>${(tools || []).map((tool) => `<span>${tool.name}</span>`).join("")}</div>`;
+    }
+  };
+  s.initSocialModule({ getState: () => ({ user: { id: "u_a" }, fellows: [{ key: "mia", name: "Mia" }] }), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.myUserId = "u_a";
+  s.moduleState.activeConversationId = "fellow:u_a:mia";
+  s.moduleState.conversations = [{ id: "fellow:u_a:mia", type: "fellow", name: "Mia", decorations: { fellowKey: "mia" } }];
+  s.moduleState.messageCache.set("fellow:u_a:mia", {
+    messages: [{
+      id: "m_trace",
+      seq: 1,
+      sender_kind: "fellow",
+      sender_ref: "mia",
+      body_md: "done",
+      created_at: "",
+      trace_json: JSON.stringify({ reasoning: "做了计划", tools: [{ name: "search", status: "completed" }] })
+    }],
+    maxSeq: 1
+  });
+
+  const chat = {
+    children: [],
+    appendChild(child) { this.children.push(child); return child; },
+    set innerHTML(value) { this.children = []; this._html = value; },
+    get innerHTML() { return this._html || ""; },
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+  };
+  s.renderConversationChat(chat);
+
+  assert.equal(chat.children.length, 1);
+  assert.match(chat.children[0].innerHTML, /做了计划/);
+  assert.match(chat.children[0].innerHTML, /search/);
 });
 
 test("handleCloudEvent fellow reply clears transient cloud agent stream", () => {

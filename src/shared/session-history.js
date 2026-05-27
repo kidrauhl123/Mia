@@ -37,6 +37,18 @@
     ).getTime() || 0;
   }
 
+  function hasCachedMessages(conversation, messageCache) {
+    const cache = messageCache?.get?.(conversation?.id);
+    return Array.isArray(cache?.messages) && cache.messages.length > 0;
+  }
+
+  function compareConversationActivity(a, b, messageCache) {
+    const aHasMessages = hasCachedMessages(a, messageCache);
+    const bHasMessages = hasCachedMessages(b, messageCache);
+    if (aHasMessages !== bHasMessages) return bHasMessages ? 1 : -1;
+    return conversationSortTime(b, messageCache) - conversationSortTime(a, messageCache);
+  }
+
   function findFellow(key, fellows = []) {
     const wanted = String(key || "");
     return (Array.isArray(fellows) ? fellows : [])
@@ -65,7 +77,7 @@
     return (Array.isArray(conversations) ? conversations : [])
       .filter((candidate) => conversationType(candidate, candidate?.id || "") === "fellow")
       .filter((candidate) => fellowKey(candidate) === key)
-      .sort((a, b) => conversationSortTime(b, options.messageCache) - conversationSortTime(a, options.messageCache));
+      .sort((a, b) => compareConversationActivity(a, b, options.messageCache));
   }
 
   function preferredFellowSidebarConversation(current, candidate, options = {}) {
@@ -73,7 +85,7 @@
     const activeConversationId = String(options.activeConversationId || "");
     if (candidate?.id && candidate.id === activeConversationId) return candidate;
     if (current?.id && current.id === activeConversationId) return current;
-    return conversationSortTime(candidate, options.messageCache) > conversationSortTime(current, options.messageCache)
+    return compareConversationActivity(candidate, current, options.messageCache) < 0
       ? candidate
       : current;
   }

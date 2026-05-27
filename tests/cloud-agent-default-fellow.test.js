@@ -76,6 +76,7 @@ test("ensureDefaultCloudFellow creates fellow, binding, conversation, and member
     assert.equal(out1.conversation.id, `fellow:${account.user.id}:mia`);
     assert.equal(out1.conversation.type, "fellow");
     assert.equal(out2.conversation.id, out1.conversation.id);
+    assert.equal(out2.conversation.updatedAt, out1.conversation.updatedAt);
 
     const binding = ctx.runtimeBindingsStore.getEnabledBinding(account.user.id, "mia", "cloud-hermes");
     assert.equal(binding.runtimeKind, "cloud-hermes");

@@ -48,16 +48,19 @@ function ensureDefaultCloudFellow(context, userId, options = {}) {
       decorations: { fellowKey: fellowId, sessionId: fellowId, runtimeKind: "cloud-hermes" }
     });
   } else {
+    const sameJson = (a, b) => JSON.stringify(a || null) === JSON.stringify(b || null);
     const decorations = {
       ...(conversation.decorations || {}),
       fellowKey: conversation.decorations?.fellowKey || fellowId,
       sessionId: conversation.decorations?.sessionId || fellowId,
       runtimeKind: conversation.decorations?.runtimeKind || "cloud-hermes"
     };
-    conversation = context.socialStore.updateConversation(conversationId, {
-      name: conversation.name || fellow.name,
-      decorations
-    });
+    const patch = {};
+    if (!conversation.name && fellow.name) patch.name = fellow.name;
+    if (!sameJson(conversation.decorations, decorations)) patch.decorations = decorations;
+    if (Object.keys(patch).length) {
+      conversation = context.socialStore.updateConversation(conversationId, patch);
+    }
   }
 
   context.socialStore.addConversationMember({ conversationId, memberKind: "user", memberRef: ownerUserId });

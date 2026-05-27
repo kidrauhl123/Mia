@@ -41,6 +41,11 @@ function loadSocialGroups() {
       },
     },
     miaConversationKinds: require("../src/shared/conversation-kinds.js"),
+    miaTraceBlocks: {
+      renderTraceBlocks({ reasoning, tools }) {
+        return `<div class="trace"><span>${String(reasoning || "")}</span>${(tools || []).map((tool) => `<span>${tool.name}</span>`).join("")}</div>`;
+      }
+    },
   };
   const context = vm.createContext({
     window: mockWindow,
@@ -86,4 +91,23 @@ test("buildGroupMessageArticle renders failed outgoing status from shared helper
   assert.match(article.innerHTML, /message-send-status is-error/);
   assert.match(article.innerHTML, /发送失败/);
   assert.match(article.innerHTML, /title="network down"/);
+});
+
+test("buildGroupMessageArticle renders persisted fellow trace_json", () => {
+  const { groups } = loadSocialGroups();
+
+  const article = groups.buildGroupMessageArticle({
+    id: "m_trace",
+    sender_kind: "fellow",
+    sender_ref: "codex",
+    body_md: "done",
+    trace_json: JSON.stringify({
+      reasoning: "分析需求",
+      tools: [{ name: "search", status: "completed" }]
+    })
+  }, "#5e5ce6", []);
+
+  assert.match(article.innerHTML, /trace/);
+  assert.match(article.innerHTML, /分析需求/);
+  assert.match(article.innerHTML, /search/);
 });

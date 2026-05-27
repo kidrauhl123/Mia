@@ -65,6 +65,75 @@ function createCloudAgentDispatcher(deps = {}) {
     return [];
   }
 
+  function eventType(event = {}) {
+    return String(event.type || event.event || "");
+  }
+
+  function eventText(event = {}) {
+    for (const key of ["reasoning", "delta", "content_delta", "text_delta", "text", "content", "final_response"]) {
+      if (typeof event[key] === "string") return event[key];
+    }
+    const data = event.data && typeof event.data === "object" ? event.data : null;
+    return data ? eventText(data) : "";
+  }
+
+  function createTraceCollector() {
+    const trace = {
+      reasoning: "",
+      tools: []
+    };
+
+    function collect(event = {}) {
+      const name = eventType(event);
+      if (name === "reasoning.available" || name === "reasoning_delta") {
+        trace.reasoning += eventText(event);
+        if (trace.reasoning && !trace.reasoning.endsWith("\n")) trace.reasoning += "\n";
+        return;
+      }
+      if (name === "tool.started" || name === "tool_call_started") {
+        trace.tools.push({
+          id: String(event.id || `tool_${trace.tools.length}`),
+          name: String(event.tool || event.name || event.data?.tool || "工具"),
+          preview: String(event.preview || event.input || ""),
+          status: "running",
+          duration: null,
+          error: false
+        });
+        return;
+      }
+      if (name === "tool.delta" || name === "tool_call_delta") {
+        const id = String(event.id || "");
+        const toolName = String(event.tool || event.name || event.data?.tool || "");
+        const tool = [...trace.tools].reverse().find((item) => (id && item.id === id) || (!id && (!toolName || item.name === toolName) && item.status === "running"));
+        if (tool) tool.preview = String(event.preview || event.delta || tool.preview || "");
+        return;
+      }
+      if (name === "tool.completed" || name === "tool_call_completed") {
+        const id = String(event.id || "");
+        const toolName = String(event.tool || event.name || event.data?.tool || "");
+        const tool = [...trace.tools].reverse().find((item) => (id && item.id === id) || (!id && (!toolName || item.name === toolName) && item.status === "running"));
+        if (tool) {
+          tool.status = event.error || event.data?.error ? "error" : "completed";
+          tool.duration = typeof event.duration === "number" ? event.duration : null;
+          tool.error = Boolean(event.error || event.data?.error);
+          if (event.preview) tool.preview = String(event.preview);
+        }
+      }
+    }
+
+    function payload() {
+      const reasoning = String(trace.reasoning || "").trim();
+      const tools = trace.tools.filter((tool) => tool.name);
+      if (!reasoning && !tools.length) return null;
+      return {
+        ...(reasoning ? { reasoning } : {}),
+        ...(tools.length ? { tools } : {})
+      };
+    }
+
+    return { collect, payload };
+  }
+
   function recentMessagesForDispatch(conversationId, message) {
     const sinceSeq = Math.max(0, Number(message?.seq || 0) - 6);
     return normalizeMessages(messagesStore.listMessagesSince(conversationId, sinceSeq, 6));
@@ -162,6 +231,7 @@ function createCloudAgentDispatcher(deps = {}) {
     if (!binding) return null;
     const runtimeConfig = binding.config || {};
     const fellow = fellowsStore.getFellow(userId, fellowId) || { id: fellowId, name: fellowId };
+    const trace = createTraceCollector();
 
     const run = cloudAgentRunsStore.createRun({
       userId,
@@ -205,6 +275,7 @@ function createCloudAgentDispatcher(deps = {}) {
           });
         },
         onEvent(event) {
+          trace.collect(event);
           broadcastTransientEvent(userId, {
             type: "cloud_agent_run_event",
             runId: run.id,
@@ -229,6 +300,7 @@ function createCloudAgentDispatcher(deps = {}) {
         senderOwnerId: userId,
         bodyMd: result.content || "",
         attachments: replyAttachments.length ? replyAttachments : null,
+        trace: trace.payload(),
         status: "complete"
       });
       cloudAgentRunsStore.markComplete(run.id);

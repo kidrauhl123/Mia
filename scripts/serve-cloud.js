@@ -1484,6 +1484,7 @@ async function handleRequest(req, res, context) {
         bodyMd: body.bodyMd || "",
         attachments: attachments.length ? attachments : null,
         mentions: body.mentions || null,
+        trace: body.trace || null,
         turnId: body.turnId || null,
         status: "complete",
         errorJson: body.errorJson || null,

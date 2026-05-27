@@ -38,6 +38,21 @@ test("session-history groups fellow conversations by fellow key and sorts by lat
   assert.deepEqual(grouped.map((conversation) => conversation.id), ["fellow:u:s2", "fellow:u:s1"]);
 });
 
+test("session-history prefers message-bearing fellow sessions over newer metadata-only sessions", () => {
+  const messages = new Map([
+    ["fellow:u:with-message", { messages: [{ created_at: "2026-01-01T10:00:00.000Z" }] }],
+    ["fellow:u:metadata-only", { messages: [] }]
+  ]);
+  const conversations = [
+    { id: "fellow:u:with-message", type: "fellow", decorations: { fellowKey: "mia" }, updatedAt: "2026-01-01T10:00:00.000Z" },
+    { id: "fellow:u:metadata-only", type: "fellow", decorations: { fellowKey: "mia" }, updatedAt: "2026-01-01T11:00:00.000Z" }
+  ];
+
+  const sidebar = sessionHistory.sidebarConversations(conversations, { messageCache: messages });
+
+  assert.deepEqual(sidebar.map((conversation) => conversation.id), ["fellow:u:with-message"]);
+});
+
 test("session-history derives title and new-session payload consistently", () => {
   const conversation = {
     id: "fellow:u:s1",
