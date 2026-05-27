@@ -1970,6 +1970,25 @@ function useSkillInActiveConversation(skill) {
 }
 window.miaUseSkillInActiveConversation = useSkillInActiveConversation;
 
+// Cloud session expired/invalid (a cloud call came back 401). The token is in
+// the runtime so cloud.enabled stays true and the app looks "logged in" while
+// every call silently fails. Clear it and re-render so the cloud-only shell
+// falls back to the login guide instead of a stuck, empty screen.
+let cloudAuthExpiredHandling = false;
+async function handleCloudAuthExpired() {
+  if (cloudAuthExpiredHandling) return;
+  if (!state.runtime?.cloud?.enabled) return;
+  cloudAuthExpiredHandling = true;
+  try {
+    state.runtime = await window.mia.cloudLogout();
+  } catch (error) {
+    console.warn("[cloud] auto-logout after auth failure failed:", error?.message || error);
+  } finally {
+    render();
+    setTimeout(() => { cloudAuthExpiredHandling = false; }, 3000);
+  }
+}
+
 function activeFellowRuntimeControlContext() {
   const conversationContext = activeConversationFellowContext();
   if (conversationContext) {
@@ -2614,6 +2633,7 @@ async function initializeRuntime() {
       els,
       appendTransientChat,
       maybeGenerateConversationTitle: maybeGenerateCloudConversationTitle,
+      onCloudAuthExpired: handleCloudAuthExpired,
     });
     // Bootstrap social data if signed in to cloud (token present).
     // (cloud.enabled, not cloud.loggedIn — the latter never existed, so

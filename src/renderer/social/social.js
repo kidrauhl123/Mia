@@ -544,6 +544,13 @@
         api.listFriendRequests("outgoing"),
         typeof api.listFellows === "function" ? api.listFellows() : Promise.resolve({ ok: true, data: { fellows: [] } }),
       ]);
+      // Dead/expired token: every call comes back 401. cloud.enabled is still
+      // true (token present), so without this the app sits "logged in" but empty.
+      // Hand off to the auth-expired handler (logout + login guide) and stop.
+      if (!meRes.ok && meRes.status === 401) {
+        if (deps && typeof deps.onCloudAuthExpired === "function") deps.onCloudAuthExpired();
+        return;
+      }
       if (meRes.ok) {
         const freshUserId = meRes.data.id || "";
         // Account switch since the cached snapshot was written → drop the
@@ -1661,6 +1668,7 @@
       if (!res.ok) {
         console.warn("[social] postConversationMessage failed:", res.error);
         if (localMsg) _markLocalOutgoingConversationMessageFailed(conversationId, localMsg.id, res.error);
+        if (res.status === 401 && deps && typeof deps.onCloudAuthExpired === "function") deps.onCloudAuthExpired();
         return;
       }
       const sentMsg = res.data?.message;
