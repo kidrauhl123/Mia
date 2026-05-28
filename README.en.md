@@ -1,110 +1,41 @@
 # Mia
 
-Mia is a fresh Electron desktop app for an app-owned Hermes runtime.
+Treat a roomful of AIs like coworkers.
 
-This demo intentionally does not inspect, modify, or reuse a user's existing
-Hermes installation. On first launch it creates its own runtime area under the
-app data directory:
+Mia is a desktop app that puts Claude, Codex, Hermes and other AI tools into one chat window. No app switching, no commands to memorize — just talk to them like you would on a messenger, and they get things done.
 
-```text
-~/Library/Application Support/Mia/runtime/
-  hermes-engine/
-    README.md
-    .venv/
-      ...
-  engine-home/
-    config.yaml
-    SOUL.md
-    api-server.key
-    fellows/
-      manifest.json
-      mia.fellow.json
-      mia.md
-```
+## What it does
 
-`fellows/` is the product-facing structure. Each Fellow has metadata in
-`<id>.fellow.json` and a persona seed in `<id>.md`.
+- **Chat is the entry point.** Friends, group chats, message history — except some of your "friends" happen to be AIs.
+- **AIs as coworkers, not black boxes.** Each Fellow has a name, avatar, persona, skills and permissions. @-mention whoever you need.
+- **AIs that actually touch your machine.** Writing code, reading files, running commands, generating images — they always ask first. If you don't approve, they don't move.
+- **Synced across devices.** Desktop, web and phone all work. Pick up wherever you left off.
 
-## Run
+## Who it's for
 
-From Finder on macOS, double-click:
+- People who want AIs to feel like teammates you can call on, instead of starting from a blank chat every time.
+- People already using Claude Code, Codex and similar CLIs who want one GUI for all of them.
+- People who want AI to do real work, but only after explicit approval for anything sensitive.
 
-```text
-open-mia.command
-```
+## Get started
 
-Or run from a terminal:
+- macOS (Apple Silicon): [Download DMG](https://aiweb.buytb01.com/downloads/mia-macos-arm64-latest.dmg)
+- macOS Intel / Windows: coming soon
+- Web: <https://aiweb.buytb01.com>
 
-```bash
-npm install
-npm start
-```
+Open Mia, sign in, and your first Fellow is already waiting.
 
-## Current Demo Scope
+## FAQ
 
-- Creates a private Mia runtime home from zero.
-- Seeds a default Fellow manifest, metadata file, and persona seed.
-- Installs the official NousResearch Hermes source archive into Mia's private runtime.
-- Starts/stops the private Hermes API server on an available loopback port.
-- Sends chat through Hermes `POST /v1/runs` plus `GET /v1/runs/{run_id}/events` SSE, with `fellow_key`, `account_id`, `route_profile`, and `X-Mia-Fellow`.
-- Provides a desktop UI for model presets, API key storage, OpenAI Codex OAuth, chat, and adding Fellows.
-- Keeps model credentials inside Mia's private runtime. Existing Hermes installs are not read.
+**How is this different from the ChatGPT desktop app?**
+Mia isn't a single-model client. It brings multiple AIs into one chat surface so you can pick the right one for the job — and let them work together.
 
-By default, Mia installs Hermes from the official NousResearch repository
-archive, without using the local `hermes-team-dev` checkout:
+**Does my conversation go to the cloud?**
+Accounts, friends and group chats sync through the cloud so you can switch devices. When an AI reads your local files or runs commands, that stays on your machine.
 
-```bash
-python3.11 -m venv ~/Library/Application\ Support/Mia/runtime/hermes-engine/.venv
-~/Library/Application\ Support/Mia/runtime/hermes-engine/.venv/bin/python -m pip install --upgrade \
-  "hermes-agent[web] @ https://github.com/NousResearch/hermes-agent/archive/main.tar.gz"
-```
+**Do I need to know how to code?**
+No. Mia ships with its own runtime and works out of the box. If you already have Claude Code or Codex installed locally, Mia picks them up automatically.
 
-Mia requires Python 3.11 or newer for the official Hermes package. It will
-try `python3.13`, `python3.12`, `python3.11`, then `python3`. Override the
-interpreter with:
+---
 
-```bash
-MIA_PYTHON=/path/to/python3.11 npm start
-```
-
-Pin a specific official branch, tag, or commit with:
-
-```bash
-MIA_ENGINE_REF=<tag-or-commit-sha> npm start
-```
-
-Mia defaults to the official `web` extra because the desktop app needs the
-local Hermes API server. Override extras when building a broader Hermes bundle:
-
-```bash
-MIA_ENGINE_EXTRAS=all npm start
-```
-
-For local Hermes development only, override the official package install with a
-source checkout:
-
-```bash
-MIA_ENGINE_SOURCE=/path/to/hermes-agent npm start
-```
-
-## Use
-
-1. Launch the app with `npm start`.
-2. Wait for the Runtime status to show a running local Hermes API.
-3. In Model, choose a preset such as xAI, Anthropic, OpenRouter, OpenAI Codex OAuth, DeepSeek, Gemini, or LM Studio.
-4. Paste the API key for an API-key provider and save, or use the OpenAI Codex panel to sign in through the browser with a ChatGPT/Codex subscription account.
-5. Chat with the current Fellow or create a new Fellow from the right-side editor.
-
-Mia starts Hermes through `python -m mia_plugins gateway run`. The
-plugin layer loads `engine-home/fellows/<id>.md` from the current
-`X-Mia-Fellow` header and injects it into vanilla Hermes without modifying
-Hermes core. Chat sessions use Hermes run IDs and structured SSE events
-internally, while the current renderer still receives a compatibility
-`choices[0].message.content` response.
-
-OpenAI Codex OAuth uses Hermes's `openai-codex` provider and stores tokens in
-Mia's private `engine-home/auth.json`, not in the user's existing Hermes
-home.
-
-A packaged product should pin an official package version or vendor a signed
-official build artifact instead of depending on a developer machine path.
+> Looking for technical details or want to contribute? See `CLAUDE.md` and `AGENTS.md`.
