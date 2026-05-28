@@ -11,6 +11,8 @@
 (function () {
   "use strict";
 
+  const { MemberKind } = (typeof window !== "undefined" && window.miaConversationKinds) || require("../../shared/conversation-kinds.js");
+
   let state, els, mia;
   let fallbackSlashCommands;
   let loadSkills, renderAttachmentThumb, renderSendButton, resizeChatInput;
@@ -98,7 +100,7 @@
       return;
     }
     els.slashCommandMenu.innerHTML = commands.map((item, index) => `
-      <button type="button" class="slash-command-item${index === state.slashSelectedIndex ? " active" : ""}" data-command="${window.miaMarkdown.escapeHtml(item.command)}">
+      <button type="button" class="slash-command-item${index === state.slashSelectedIndex ? " active" : ""}" data-command="${window.miaMarkdown.escapeHtml(item.command)}" data-slash-index="${index}">
         <span class="slash-command-token">${window.miaMarkdown.escapeHtml(item.command)}</span>
         <span class="slash-command-description">${window.miaMarkdown.escapeHtml(item.description)}</span>
       </button>
@@ -108,6 +110,13 @@
         event.preventDefault();
         const command = commands.find((item) => item.command === button.dataset.command);
         if (command) sendSlashCommand(command);
+      });
+      // Hover follows keyboard so we never paint two highlighted rows.
+      button.addEventListener("mousemove", () => {
+        const idx = Number(button.dataset.slashIndex || 0);
+        if (idx === state.slashSelectedIndex) return;
+        state.slashSelectedIndex = idx;
+        renderSlashCommandMenu();
       });
     });
   }
@@ -455,6 +464,170 @@
     els.chatInput.focus();
   }
 
+  // ── @mention picker ─────────────────────────────────────────────────────
+  //
+  // Telegram-style: typing "@" in a group conversation pops a floating list
+  // of members; arrow keys + Enter select; Esc closes. Picking inserts
+  // "@<display name> " at the current "@..." token and lets send-pipeline's
+  // existing parseMentions take it from there — there is no separate
+  // "queued mentions" array, the text body itself is the source of truth.
+  //
+  // Token detection mirrors send-pipeline.MENTION_REGEX: ASCII identifier
+  // chars (alnum, _, ., -) plus CJK ranges. The picker only opens when the
+  // active conversation is a group and the @ is at start-of-text or
+  // immediately after whitespace, so emails ("foo@bar.com") never trigger.
+
+  const MENTION_TOKEN_CHAR = /[A-Za-z0-9_.\-一-龥぀-ヿ]/;
+
+  function activeConversationMembers() {
+    const social = typeof window !== "undefined" ? window.miaSocial : null;
+    if (!social) return [];
+    const conversationId = social.getActiveConversationId?.();
+    if (!conversationId) return [];
+    const conversation = social.getConversationById?.(conversationId);
+    if (!conversation || conversation.type !== "group") return [];
+    return social.getConversationMembers?.(conversationId) || [];
+  }
+
+  function mentionDisplayName(member) {
+    if (!member) return "";
+    if (member.member_kind === MemberKind.Fellow) {
+      return String(member.fellow_name || member.member_ref || "").trim();
+    }
+    const social = typeof window !== "undefined" ? window.miaSocial : null;
+    const myUserId = social?.getActiveConversationId ? (state?.runtime?.cloud?.user?.id || "") : "";
+    if (myUserId && member.member_ref === myUserId) {
+      return state?.runtime?.cloud?.user?.username || "我";
+    }
+    const friend = social?.friendById?.(member.member_ref);
+    return friend?.username || friend?.account || member.member_ref;
+  }
+
+  function mentionInsertText(member) {
+    const name = mentionDisplayName(member);
+    if (member.member_kind === MemberKind.Fellow) {
+      // Fellow names (including CJK) are matched by display name in
+      // send-pipeline.parseMentions, so inserting the display name works.
+      return name;
+    }
+    // Same path for user mentions.
+    return name;
+  }
+
+  function detectMentionTokenAtCaret(value, cursor) {
+    if (cursor <= 0) return null;
+    let i = cursor - 1;
+    while (i >= 0 && MENTION_TOKEN_CHAR.test(value[i])) i -= 1;
+    if (i < 0 || value[i] !== "@") return null;
+    // "@" must be at start of text or directly after whitespace so that
+    // tokens like "foo@bar" never open the picker.
+    if (i > 0 && !/\s/.test(value[i - 1])) return null;
+    return { start: i, filter: value.slice(i + 1, cursor) };
+  }
+
+  function filteredMentionMembers() {
+    if (!state) return [];
+    const members = activeConversationMembers();
+    if (!members.length) return [];
+    const filter = String(state.mentionFilter || "").toLowerCase();
+    return members
+      .map((member) => ({ member, name: mentionDisplayName(member) }))
+      .filter(({ name }) => name && (!filter || name.toLowerCase().includes(filter)));
+  }
+
+  function updateMentionMenuState() {
+    if (!state || !els || !els.chatInput) return;
+    const value = els.chatInput.value;
+    const cursor = els.chatInput.selectionStart || 0;
+    const token = detectMentionTokenAtCaret(value, cursor);
+    if (!token || !activeConversationMembers().length) {
+      if (state.mentionMenuOpen) {
+        state.mentionMenuOpen = false;
+        renderMentionMenu();
+      }
+      state.mentionStart = -1;
+      state.mentionFilter = "";
+      return;
+    }
+    state.mentionMenuOpen = true;
+    state.mentionStart = token.start;
+    state.mentionFilter = token.filter;
+    const items = filteredMentionMembers();
+    if (state.mentionSelectedIndex >= items.length) {
+      state.mentionSelectedIndex = Math.max(0, items.length - 1);
+    }
+    if (state.mentionSelectedIndex < 0) state.mentionSelectedIndex = 0;
+    renderMentionMenu();
+  }
+
+  function renderMentionMenu() {
+    if (!state || !els || !els.mentionMenu) return;
+    els.mentionMenu.classList.toggle("hidden", !state.mentionMenuOpen);
+    if (!state.mentionMenuOpen) {
+      els.mentionMenu.innerHTML = "";
+      return;
+    }
+    const items = filteredMentionMembers();
+    if (!items.length) {
+      els.mentionMenu.innerHTML = `<div class="mention-menu-empty">没有匹配的成员</div>`;
+      return;
+    }
+    const escape = window.miaMarkdown.escapeHtml;
+    const accent = window.miaMemberColor?.memberAccentColor || (() => "#5e5ce6");
+    els.mentionMenu.innerHTML = items.map(({ member, name }, index) => {
+      const ref = member.member_ref || "";
+      const kindLabel = member.member_kind === MemberKind.Fellow ? "Fellow" : "User";
+      const dot = `<span class="mention-menu-dot" style="background:${escape(accent(ref))}"></span>`;
+      return `<button type="button" class="mention-menu-item${index === state.mentionSelectedIndex ? " active" : ""}" data-mention-index="${index}">${dot}<span class="mention-menu-name">${escape(name)}</span><span class="mention-menu-kind">${escape(kindLabel)}</span></button>`;
+    }).join("");
+    els.mentionMenu.querySelectorAll("[data-mention-index]").forEach((button) => {
+      button.addEventListener("mousedown", (event) => {
+        event.preventDefault();
+        const idx = Number(button.dataset.mentionIndex || 0);
+        const list = filteredMentionMembers();
+        if (list[idx]) applyMentionPick(list[idx].member);
+      });
+      // Hover steers the keyboard selection so the bar follows the mouse
+      // instead of showing two highlighted rows at once (one keyboard,
+      // one mouse).
+      button.addEventListener("mousemove", () => {
+        const idx = Number(button.dataset.mentionIndex || 0);
+        if (idx === state.mentionSelectedIndex) return;
+        state.mentionSelectedIndex = idx;
+        renderMentionMenu();
+      });
+    });
+  }
+
+  function applyMentionPick(member) {
+    if (!state || !els || !els.chatInput) return;
+    if (state.mentionStart < 0) return;
+    const value = els.chatInput.value;
+    const cursor = els.chatInput.selectionStart || 0;
+    const insert = `@${mentionInsertText(member)} `;
+    const next = value.slice(0, state.mentionStart) + insert + value.slice(cursor);
+    els.chatInput.value = next;
+    const caret = state.mentionStart + insert.length;
+    els.chatInput.setSelectionRange(caret, caret);
+    state.mentionMenuOpen = false;
+    state.mentionStart = -1;
+    state.mentionFilter = "";
+    state.mentionSelectedIndex = 0;
+    renderMentionMenu();
+    if (typeof resizeChatInput === "function") resizeChatInput();
+    if (typeof renderSendButton === "function") renderSendButton();
+    els.chatInput.focus();
+  }
+
+  function closeMentionMenu() {
+    if (!state) return;
+    state.mentionMenuOpen = false;
+    state.mentionStart = -1;
+    state.mentionFilter = "";
+    state.mentionSelectedIndex = 0;
+    renderMentionMenu();
+  }
+
   window.miaComposer = {
     initComposer,
     filteredSlashCommands,
@@ -483,5 +656,10 @@
     commandTextForSend,
     sendSlashCommand,
     fillSlashCommand,
+    updateMentionMenuState,
+    renderMentionMenu,
+    filteredMentionMembers,
+    applyMentionPick,
+    closeMentionMenu,
   };
 })();

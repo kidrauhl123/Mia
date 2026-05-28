@@ -169,6 +169,7 @@ const els = {
   composerSkills: document.getElementById("composerSkills"),
   composerAttachmentInput: document.getElementById("composerAttachmentInput"),
   slashCommandMenu: document.getElementById("slashCommandMenu"),
+  mentionMenu: document.getElementById("mentionMenu"),
   skillPicker: document.getElementById("skillPicker"),
   skillPickerSearch: document.getElementById("skillPickerSearch"),
   skillPickerBody: document.getElementById("skillPickerBody"),
@@ -3475,6 +3476,34 @@ els.modelForm.addEventListener("submit", async (event) => {
 els.chatInput.addEventListener("keydown", (event) => {
   if (window.miaMessageHelpers.isComposerComposing(event)) return;
   if (window.miaComposer.handleComposerSkillBackspace(event)) return;
+  if (state.mentionMenuOpen) {
+    const items = window.miaComposer.filteredMentionMembers();
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      state.mentionSelectedIndex = items.length ? (state.mentionSelectedIndex + 1) % items.length : 0;
+      window.miaComposer.renderMentionMenu();
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      state.mentionSelectedIndex = items.length ? (state.mentionSelectedIndex - 1 + items.length) % items.length : 0;
+      window.miaComposer.renderMentionMenu();
+      return;
+    }
+    if ((event.key === "Enter" && !event.shiftKey) || event.key === "Tab") {
+      const pick = items[state.mentionSelectedIndex];
+      if (pick) {
+        event.preventDefault();
+        window.miaComposer.applyMentionPick(pick.member);
+        return;
+      }
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      window.miaComposer.closeMentionMenu();
+      return;
+    }
+  }
   if (state.slashMenuOpen) {
     const commands = window.miaComposer.filteredSlashCommands();
     if (event.key === "ArrowDown") {
@@ -3524,12 +3553,14 @@ els.chatInput.addEventListener("compositionend", () => {
   els.chatInput.dataset.composing = "false";
   window.miaMessageHelpers.resizeChatInput();
   window.miaComposer.updateSlashCommandState();
+  window.miaComposer.updateMentionMenuState();
   renderSendButton();
 });
 
 els.chatInput.addEventListener("input", () => {
   window.miaMessageHelpers.resizeChatInput();
   window.miaComposer.updateSlashCommandState();
+  window.miaComposer.updateMentionMenuState();
   renderSendButton();
 });
 els.chatInput.addEventListener("contextmenu", (event) => {
@@ -3540,7 +3571,14 @@ els.chatInput.addEventListener("contextmenu", (event) => {
   els.chatInput.focus();
   window.mia?.showEditContextMenu?.({ x: event.clientX, y: event.clientY });
 });
-els.chatInput.addEventListener("click", () => window.miaComposer.updateSlashCommandState());
+els.chatInput.addEventListener("click", () => {
+  window.miaComposer.updateSlashCommandState();
+  window.miaComposer.updateMentionMenuState();
+});
+els.chatInput.addEventListener("blur", () => {
+  // Delay close so a click on the menu still fires before we hide it.
+  setTimeout(() => window.miaComposer.closeMentionMenu(), 120);
+});
 els.composerAdd?.addEventListener("click", (event) => {
   event.preventDefault();
   event.stopPropagation();
