@@ -137,17 +137,6 @@
       </section>
     </aside>
 
-    <aside id="tasksSidebar" class="sidebar tasks-sidebar hidden">
-      <header class="sidebar-tools tasks-sidebar-tools">
-        <label class="search-box">
-          <span>⌕</span>
-          <input id="taskSearch" autocomplete="off" placeholder="搜索任务">
-        </label>
-        <button id="newTask" class="icon-button" type="button" title="新建任务">＋</button>
-      </header>
-      <section id="tasksNav" class="tasks-nav"></section>
-    </aside>
-
     <div id="sidebarResizeHandle" class="sidebar-resize-handle" role="separator" aria-orientation="vertical" aria-label="调整中栏宽度"></div>
 
     <section id="chatView" class="workspace">
@@ -293,19 +282,53 @@
     </section>
 
     <section id="tasksView" class="workspace tasks-workspace hidden">
-      <header class="topbar">
+      <header class="topbar tasks-topbar">
         <button class="narrow-back-button" type="button" data-narrow-back title="返回任务" aria-label="返回任务">‹</button>
         <div class="group-title">
-          <div>
-            <h1><span id="tasksPageTitle">任务</span></h1>
-            <p id="tasksPageMeta">日常任务和定时执行的统一入口</p>
+          <div class="tasks-topbar-title">
+            <div id="taskModeToggle" class="task-mode-toggle" role="tablist"></div>
           </div>
         </div>
-        <div class="top-actions" id="taskActions"></div>
+        <div class="task-create-split">
+          <button id="newTask" class="task-create-main" type="button">通过聊天创建</button>
+          <button id="taskCreateMenuToggle" class="task-create-chevron" type="button" title="切换创建方式" aria-haspopup="menu" aria-expanded="false">
+            <svg viewBox="0 0 12 12" aria-hidden="true" width="10" height="10"><path d="M2 4l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <div id="taskCreateMenu" class="create-menu task-create-menu hidden" role="menu">
+            <button type="button" data-create-mode="chat" role="menuitem">
+              <span class="create-menu-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </span>
+              <span class="create-menu-label">通过聊天创建</span>
+            </button>
+            <button type="button" data-create-mode="manual" role="menuitem">
+              <span class="create-menu-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M14 4l6 6-10 10H4v-6L14 4z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </span>
+              <span class="create-menu-label">手动创建</span>
+            </button>
+          </div>
+        </div>
       </header>
       <section class="tasks-layout">
-        <div id="tasksContent" class="tasks-content"></div>
+        <div id="taskChipRow" class="task-chip-row" aria-label="任务分类"></div>
+        <section id="tasksContent" class="task-card-grid" aria-label="任务列表"></section>
       </section>
+    </section>
+
+    <section id="taskPreviewDialog" class="skill-preview-dialog task-preview-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="taskPreviewTitle">
+      <div class="skill-preview-card task-preview-card">
+        <header class="skill-preview-toolbar task-preview-toolbar">
+          <div class="skill-preview-title">
+            <div>
+              <h2 id="taskPreviewTitle">任务</h2>
+              <p id="taskPreviewMeta"></p>
+            </div>
+          </div>
+          <button id="closeTaskPreview" class="icon-button" type="button" title="关闭">×</button>
+        </header>
+        <article id="taskPreviewBody" class="task-preview-body"></article>
+      </div>
     </section>
 
     <section id="settingsView" class="settings-modal hidden" role="dialog" aria-modal="true">

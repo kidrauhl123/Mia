@@ -16,8 +16,8 @@ test("renderer styles are split into feature stylesheets", () => {
   assert.match(chatCss, /\.chat-layout/);
   assert.match(chatCss, /\.trace/);
   assert.match(groupsCss, /\.group-create-card/);
-  assert.match(tasksCss, /\.task-row/);
+  assert.match(tasksCss, /\.task-card/);
   assert.doesNotMatch(baseCss, /\.chat-layout/);
   assert.doesNotMatch(baseCss, /\.group-create-card/);
-  assert.doesNotMatch(baseCss, /\.task-row/);
+  assert.doesNotMatch(baseCss, /\.task-card/);
 });

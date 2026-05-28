@@ -113,17 +113,15 @@
       pendingAttachments: [],
       slashSelectedIndex: 0,
       slashFilter: "",
-      isGenerating: false,
-      streaming: null,
       openTraceKeys: new Set(),
       animatedTraceKeys: new Set(),
       codexModels: [],
       tasks: [],
       taskFilter: "",
+      taskMode: "active",
+      taskHistoryFilter: "all",
       selectedTaskId: "",
       selectedRunId: "",
-      historyExpanded: false,
-      disabledExpanded: false,
       tasksUnread: new Map()
     };
   }

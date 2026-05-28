@@ -11,7 +11,19 @@ function safeRecordRun(store, taskId, run) {
 }
 
 function createFireRunner({ store, runRemoteChatRequest, emit, logger = console }) {
+  const inflight = new Set();
+
   async function fire(task) {
+    if (inflight.has(task.id)) {
+      const run = safeRecordRun(store, task.id, {
+        firedAt: Date.now(),
+        finishedAt: Date.now(),
+        status: "skipped",
+        error: "previous run still in progress"
+      });
+      return run;
+    }
+    inflight.add(task.id);
     const runId = "r-" + crypto.randomBytes(6).toString("hex");
     const firedAt = Date.now();
     const conversationId = task.conversationId || task.sessionId;
@@ -27,15 +39,13 @@ function createFireRunner({ store, runRemoteChatRequest, emit, logger = console 
         background: true,
         meta: { taskId: task.id, taskRunId: runId, firedAt }
       });
-      // Identify the message id of the assistant reply we just appended.
-      // runRemoteChatRequest currently appends to session.messages; the last
-      // assistant message is ours.
+      // Identify the assistant reply returned by the remote run.
       const messages = result?.session?.messages || [];
       const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
       const outputMessageId = result?.assistantMessageId || lastAssistant?.id || null;
       // Persist the reply text on the run itself. The task store is written only
-      // by the daemon, so this copy is race-free — unlike the chat session, whose
-      // cross-process writes can drop the appended message (known issue).
+      // by the daemon, so this copy is race-free and does not depend on local
+      // conversation persistence.
       const outputText = String(lastAssistant?.content || "");
       const run = safeRecordRun(store, task.id, {
         id: runId,
@@ -72,6 +82,8 @@ function createFireRunner({ store, runRemoteChatRequest, emit, logger = console 
         error: run?.error || String(e?.message || e)
       });
       return run;
+    } finally {
+      inflight.delete(task.id);
     }
   }
   return { fire };

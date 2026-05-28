@@ -247,15 +247,8 @@ const els = {
   tasksUnreadBadge: document.getElementById("tasksUnreadBadge"),
   contactsUnreadBadge: document.getElementById("contactsUnreadBadge"),
   chatUnreadBadge: document.getElementById("chatUnreadBadge"),
-  tasksSidebar: document.getElementById("tasksSidebar"),
-  tasksNav: document.getElementById("tasksNav"),
   tasksView: document.getElementById("tasksView"),
-  tasksContent: document.getElementById("tasksContent"),
-  tasksPageTitle: document.getElementById("tasksPageTitle"),
-  tasksPageMeta: document.getElementById("tasksPageMeta"),
-  taskActions: document.getElementById("taskActions"),
-  taskSearch: document.getElementById("taskSearch"),
-  newTask: document.getElementById("newTask")
+  tasksContent: document.getElementById("tasksContent")
 };
 
 function setText(el, value) {
@@ -1208,7 +1201,6 @@ function renderView() {
   syncNarrowLayout();
   els.conversationSidebar?.classList.toggle("hidden", state.activeView !== "chat");
   els.contactsSidebar?.classList.toggle("hidden", state.activeView !== "contacts");
-  els.tasksSidebar?.classList.toggle("hidden", state.activeView !== "tasks");
   els.chatView.classList.toggle("hidden", state.activeView !== "chat");
   els.contactsView?.classList.toggle("hidden", state.activeView !== "contacts");
   els.skillsView?.classList.toggle("hidden", state.activeView !== "skills");
@@ -1256,7 +1248,6 @@ function renderView() {
   });
   window.miaSkillLibrary.renderSkillLibrary();
   window.miaFellowManager.renderContacts();
-  window.miaTasksPanel?.renderTaskSidebar();
   window.miaTasksPanel?.renderTaskView();
 }
 
@@ -2360,7 +2351,6 @@ async function initializeRuntime() {
   window.miaTasksPanel.loadTasksFromDaemon().then(() => {
     window.miaTasksPanel.subscribeTaskEvents();
     if (state.activeView === "tasks") {
-      window.miaTasksPanel.renderTaskSidebar();
       window.miaTasksPanel.renderTaskView();
     }
   });
@@ -2527,13 +2517,7 @@ els.skillSearch?.addEventListener("input", () => {
   state.skillFilter = els.skillSearch.value;
   window.miaSkillLibrary.renderSkillLibrary();
 });
-els.taskSearch?.addEventListener("input", (e) => {
-  state.taskFilter = e.target.value;
-  window.miaTasksPanel?.renderTaskSidebar();
-});
-els.newTask?.addEventListener("click", () => {
-  window.miaTasksPanel?.openTaskCreate();
-});
+window.miaTasksPanel?.bindCreateControls?.();
 document.querySelectorAll("[data-skill-filter]").forEach((button) => {
   button.addEventListener("click", () => {
     state.skillCategoryFilter = button.dataset.skillFilter || "";
@@ -2550,7 +2534,6 @@ document.querySelectorAll("[data-view]").forEach((button) => {
     renderView();
     if (state.activeView === "tasks") {
       window.miaTasksPanel?.loadTasksFromDaemon().then(() => {
-        window.miaTasksPanel?.renderTaskSidebar();
         window.miaTasksPanel?.renderTaskView();
       });
     }

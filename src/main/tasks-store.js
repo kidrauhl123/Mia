@@ -118,8 +118,13 @@ function createTasksStore(filePath) {
       updatedAt: Date.now()
     };
     if (partial.trigger) {
-      merged.trigger = { ...state.tasks[idx].trigger, ...partial.trigger };
-      validateInput({ ...merged, prompt: merged.prompt });
+      const oldTrigger = state.tasks[idx].trigger;
+      // When type changes, replace wholesale so stale fields (e.g. cron) don't
+      // linger on a now-oneshot trigger and pollute exports/migrations.
+      merged.trigger = partial.trigger.type && partial.trigger.type !== oldTrigger.type
+        ? { ...partial.trigger }
+        : { ...oldTrigger, ...partial.trigger };
+      validateInput(merged);
     }
     state.tasks[idx] = merged;
     save(state);
@@ -150,25 +155,6 @@ function createTasksStore(filePath) {
     return changed;
   }
 
-  // Called by the renderer's session-delete flow when that handler exists.
-  // As of v1, mia only supports deleting a fellow (which deletes its
-  // session bucket as a unit) — that path uses orphanByFellow above.
-  // Kept for the future per-session delete flow.
-  function orphanBySession(sessionId) {
-    const state = load();
-    let changed = 0;
-    state.tasks.forEach((t) => {
-      if (t.sessionId === sessionId && t.status !== "done") {
-        t.status = "paused";
-        t.orphanReason = "session_deleted";
-        t.updatedAt = Date.now();
-        changed += 1;
-      }
-    });
-    if (changed) save(state);
-    return changed;
-  }
-
   function recordRun(id, run) {
     const state = load();
     const task = state.tasks.find((t) => t.id === id);
@@ -182,13 +168,18 @@ function createTasksStore(filePath) {
       outputText: run.outputText || "",
       error: run.error
     };
+    if (run.status === "missed") {
+      runEntry.missedCount = run.missedCount;
+      runEntry.firstMissedAt = run.firstMissedAt;
+      runEntry.lastMissedAt = run.lastMissedAt;
+    }
     task.runs.push(runEntry);
     task.updatedAt = Date.now();
     save(state);
     return runEntry;
   }
 
-  return { list, get, create, update, delete: deleteTask, pause, resume, orphanByFellow, orphanBySession, recordRun };
+  return { list, get, create, update, delete: deleteTask, pause, resume, orphanByFellow, recordRun };
 }
 
 module.exports = { createTasksStore };

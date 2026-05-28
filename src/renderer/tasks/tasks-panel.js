@@ -1,7 +1,7 @@
 // Tasks panel module
-// Extracted from app.js (formerly lines 3973-4373). Mirrors the group.js
-// extraction pattern: IIFE + window.miaTasksPanel namespace + initTasksPanel
-// for dependency injection. Behavior is identical to the previous inline code.
+// Single full-width card-grid layout (mirrors skill-library): chip row +
+// card grid in main content; task detail / run detail open in an overlay
+// preview dialog (#taskPreviewDialog).
 (function () {
   "use strict";
 
@@ -17,11 +17,34 @@
     throw new Error("miaUnread is not loaded");
   }
 
-  // Injected at init time. All functions below use these bare identifiers as
-  // they did when inline in app.js — keeping diffs minimal.
   let state, els, mia;
   let escapeHtml, setText, formatRunTime;
   let render, renderView, renderChat;
+
+  // Top-level pill toggle in topbar: 活跃任务 vs 历史.
+  const MODES = [
+    { key: "active",  label: "活跃任务" },
+    { key: "history", label: "历史" }
+  ];
+  // Sub-chip filters inside 历史 mode, by run outcome.
+  const HISTORY_FILTERS = [
+    { key: "all",    label: "全部",      match: () => true },
+    { key: "ok",     label: "成功",      match: (r) => r.status === "ok" },
+    { key: "failed", label: "失败/错过", match: (r) => r.status === "failed" || r.status === "missed" }
+  ];
+
+  // Single source of truth for run-status presentation. Any new run.status
+  // value must extend this map so historyRow, run detail header, and card
+  // status all stay in sync.
+  const RUN_STATUS_ICONS  = { ok: "✓", failed: "✗", missed: "⊘", skipped: "·" };
+  const RUN_STATUS_LABELS = { ok: "完成", failed: "失败", missed: "错过", skipped: "跳过" };
+  function runStatusIcon(status)  { return RUN_STATUS_ICONS[status]  || "·"; }
+  function runStatusLabel(status) { return RUN_STATUS_LABELS[status] || status || "—"; }
+  function runStatusSuffix(run) {
+    if (run.status === "failed") return " 失败";
+    if (run.status === "missed") return ` 离线错过 ${run.missedCount || 1} 次`;
+    return "";
+  }
 
   function initTasksPanel(deps) {
     state = deps.state;
@@ -33,6 +56,10 @@
     render = deps.render;
     renderView = deps.renderView;
     renderChat = deps.renderChat;
+    if (state) {
+      if (!state.taskMode) state.taskMode = "active";
+      if (!state.taskHistoryFilter) state.taskHistoryFilter = "all";
+    }
   }
 
   function fellowName(fellowId) {
@@ -44,155 +71,200 @@
 
   function formatNextTime(ms) {
     if (ms == null) return "—";
-    const d = new Date(ms);
-    return d.toLocaleString("zh-CN", { hour: "2-digit", minute: "2-digit" });
-  }
-
-  function computeNextFireForUi(task) {
-    return task.nextFireAt != null ? task.nextFireAt : null;
+    return new Date(ms).toLocaleString("zh-CN", { hour: "2-digit", minute: "2-digit" });
   }
 
   function isTodayMs(ms, now) {
     if (ms == null) return false;
-    const a = new Date(ms);
-    const b = new Date(now);
+    const a = new Date(ms); const b = new Date(now);
     return a.getFullYear() === b.getFullYear()
       && a.getMonth() === b.getMonth()
       && a.getDate() === b.getDate();
   }
 
-  function groupTasksForSidebar(tasks, now = Date.now()) {
-    const SEVEN_DAYS = 7 * 24 * 3600 * 1000;
-    const today = [];
-    const upcoming = [];
-    const disabled = [];
-    const history = [];
-
-    for (const task of tasks) {
-      if (task.status !== "active") {
-        disabled.push(task);
-        continue;
-      }
-      const next = computeNextFireForUi(task);
-      if (next == null) {
-        disabled.push(task);
-        continue;
-      }
-      if (isTodayMs(next, now)) today.push({ task, nextFire: next });
-      else if (next - now <= SEVEN_DAYS) upcoming.push({ task, nextFire: next });
-      else upcoming.push({ task, nextFire: next });
-    }
-    today.sort((a, b) => a.nextFire - b.nextFire);
-    upcoming.sort((a, b) => a.nextFire - b.nextFire);
-
-    for (const task of tasks) {
-      for (const run of (task.runs || []).slice(-50)) {
-        history.push({ task, run });
-      }
-    }
-    history.sort((a, b) => b.run.firedAt - a.run.firedAt);
-
-    return { today, upcoming, history, disabled };
+  // 活跃任务 view: tasks the user has set up that may still fire.
+  // Paused is included — user might want to resume — but done/failed are not.
+  function activeTasks(tasks) {
+    return tasks
+      .filter((t) => t.status === "active" || t.status === "paused")
+      .sort((a, b) => {
+        // Active before paused; within each group sort by nextFireAt asc.
+        if (a.status !== b.status) return a.status === "active" ? -1 : 1;
+        const an = a.nextFireAt ?? Infinity;
+        const bn = b.nextFireAt ?? Infinity;
+        return an - bn;
+      });
   }
 
-  function renderTaskSidebar() {
-    if (!els.tasksNav) return;
-    const filter = state.taskFilter.trim().toLowerCase();
-    const filtered = state.tasks.filter((t) =>
-      !filter || `${t.title} ${t.prompt}`.toLowerCase().includes(filter)
-    );
-    const groups = groupTasksForSidebar(filtered);
-
-    function row(task, label, dotClass, taskId) {
-      const unread = state.tasksUnread.get(taskId) || 0;
-      const badge = unreadShared().unreadBadgeHtml(unread);
-      const badgeHtml = badge
-        ? badge.replace("<span ", "<em ").replace("</span>", "</em>").replace('class="unread-badge"', 'class="task-unread"')
-        : "";
-      return `
-        <button class="task-row${state.selectedTaskId === taskId && !state.selectedRunId ? " active" : ""}"
-                type="button" data-task-id="${escapeHtml(taskId)}">
-          <span class="task-dot ${dotClass}"></span>
-          <span class="task-row-body">
-            <strong>${escapeHtml(task.title)}</strong>
-            <small>${escapeHtml(label)} · ${escapeHtml(fellowName(task.fellowId))}</small>
-          </span>
-          ${badgeHtml}
-        </button>
-      `;
+  // 历史 view: flatten all runs from all tasks into one timeline.
+  // Each run carries a back-pointer to its parent task for display + click-through.
+  function allRuns(tasks) {
+    const out = [];
+    for (const task of tasks) {
+      for (const run of (task.runs || [])) {
+        out.push({ run, task });
+      }
     }
-
-    function historyRow(task, run) {
-      const icon = run.status === "ok" ? "✓" : run.status === "failed" ? "✗" : "·";
-      const selected = state.selectedRunId === run.id ? " active" : "";
-      return `
-        <button class="task-row history${selected}" type="button"
-                data-task-id="${escapeHtml(task.id)}" data-run-id="${escapeHtml(run.id)}">
-          <span class="task-status">${icon}</span>
-          <span class="task-row-body">
-            <strong>${escapeHtml(task.title)}</strong>
-            <small>${escapeHtml(formatRunTime(run.firedAt))}${run.status === "failed" ? " 失败" : ""}</small>
-          </span>
-        </button>
-      `;
-    }
-
-    let html = "";
-    if (groups.today.length) {
-      html += `<div class="task-group-head">今天 (${groups.today.length})</div>`;
-      html += groups.today.map((g) => row(g.task, formatNextTime(g.nextFire), "active", g.task.id)).join("");
-    }
-    if (groups.upcoming.length) {
-      html += `<div class="task-group-head">即将 (${groups.upcoming.length})</div>`;
-      html += groups.upcoming.map((g) => row(g.task, formatNextTime(g.nextFire), "upcoming", g.task.id)).join("");
-    }
-    if (groups.history.length) {
-      const open = state.historyExpanded;
-      html += `<div class="task-group-head collapsible" data-toggle="history">历史 (${groups.history.length}) ${open ? "⌃" : "⌄"}</div>`;
-      if (open) html += groups.history.slice(0, 50).map((g) => historyRow(g.task, g.run)).join("");
-    }
-    if (groups.disabled.length) {
-      const open = state.disabledExpanded;
-      html += `<div class="task-group-head collapsible" data-toggle="disabled">已停用 (${groups.disabled.length}) ${open ? "⌃" : "⌄"}</div>`;
-      if (open) html += groups.disabled.map((t) => row(t, "暂停 / 已完成", "disabled", t.id)).join("");
-    }
-    if (!html) html = `<div class="task-empty-side">还没有定时任务</div>`;
-    els.tasksNav.innerHTML = html;
-
-    els.tasksNav.querySelectorAll("[data-task-id]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        state.selectedTaskId = btn.dataset.taskId;
-        state.selectedRunId = btn.dataset.runId || "";
-        state.tasksUnread.delete(state.selectedTaskId);
-        updateTasksRailBadge();
-        renderTaskSidebar();
-        renderTaskView();
-      });
-    });
-    els.tasksNav.querySelectorAll("[data-toggle]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        if (btn.dataset.toggle === "history") state.historyExpanded = !state.historyExpanded;
-        if (btn.dataset.toggle === "disabled") state.disabledExpanded = !state.disabledExpanded;
-        renderTaskSidebar();
-      });
-    });
+    out.sort((a, b) => (b.run.firedAt || 0) - (a.run.firedAt || 0));
+    return out;
   }
+
+  function filterTasks(tasks, needle) {
+    const q = (needle || "").trim().toLowerCase();
+    if (!q) return tasks;
+    return tasks.filter((t) => `${t.title} ${t.prompt}`.toLowerCase().includes(q));
+  }
+  function filterRuns(entries, needle) {
+    const q = (needle || "").trim().toLowerCase();
+    if (!q) return entries;
+    return entries.filter(({ task, run }) =>
+      `${task.title} ${task.prompt} ${run.outputText || ""}`.toLowerCase().includes(q));
+  }
+
+  // ── Main render: chip row + card grid + preview dialog ────────────────────
 
   function renderTaskView() {
     if (!els.tasksContent) return;
-    setText(els.tasksPageTitle, "任务");
-    const activeCount = state.tasks.filter((t) => t.status === "active").length;
-    setText(els.tasksPageMeta, `${activeCount} 个活跃`);
-    if (!state.selectedTaskId) { renderTasksEmpty(); return; }
-    const task = state.tasks.find((t) => t.id === state.selectedTaskId);
-    if (!task) { renderTasksEmpty(); return; }
-    if (state.selectedRunId) { renderRunDetail(task); return; }
-    renderTaskDetail(task);
+    const mode = state.taskMode || "active";
+    renderModeToggle(mode);
+    if (mode === "history") renderHistoryView();
+    else renderActiveView();
+    renderTaskPreview();
   }
 
-  function renderTasksEmpty() {
+  function renderModeToggle(mode) {
+    const host = document.getElementById("taskModeToggle");
+    if (!host) return;
+    const counts = {
+      active: state.tasks.filter((t) => t.status === "active" || t.status === "paused").length,
+      history: state.tasks.reduce((n, t) => n + ((t.runs || []).length), 0)
+    };
+    host.innerHTML = MODES.map((m) => `
+      <button type="button" role="tab" class="${m.key === mode ? "active" : ""}" data-mode="${m.key}">
+        ${escapeHtml(m.label)}<span style="margin-left:6px;color:var(--faint);font-size:12px;">${counts[m.key]}</span>
+      </button>
+    `).join("");
+    host.querySelectorAll("[data-mode]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        if (state.taskMode === btn.dataset.mode) return;
+        state.taskMode = btn.dataset.mode;
+        renderTaskView();
+      });
+    });
+  }
+
+  function renderActiveView() {
+    const chipRow = document.getElementById("taskChipRow");
+    if (chipRow) { chipRow.innerHTML = ""; chipRow.hidden = true; }
+    const tasks = filterTasks(activeTasks(state.tasks), state.taskFilter);
+    if (tasks.length === 0) {
+      els.tasksContent.innerHTML = renderActiveEmpty();
+      els.tasksContent.querySelector("[data-action='new-task']")
+        ?.addEventListener("click", openTaskCreate);
+      return;
+    }
+    els.tasksContent.innerHTML = tasks.map(cardHtml).join("");
+    els.tasksContent.querySelectorAll("[data-task-id]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        state.selectedTaskId = btn.dataset.taskId;
+        state.selectedRunId = "";
+        state.tasksUnread.delete(state.selectedTaskId);
+        updateTasksRailBadge();
+        renderTaskView();
+      });
+    });
+  }
+
+  function renderHistoryView() {
+    const chipRow = document.getElementById("taskChipRow");
+    const filterKey = state.taskHistoryFilter || "all";
+    const allEntries = filterRuns(allRuns(state.tasks), state.taskFilter);
+    if (chipRow) {
+      chipRow.hidden = false;
+      const counts = Object.fromEntries(
+        HISTORY_FILTERS.map((f) => [f.key, allEntries.filter((e) => f.match(e.run)).length])
+      );
+      chipRow.innerHTML = HISTORY_FILTERS.map((f) => `
+        <button type="button" class="${f.key === filterKey ? "active" : ""}" data-history-filter="${f.key}">
+          ${escapeHtml(f.label)}<span>${counts[f.key]}</span>
+        </button>
+      `).join("");
+      chipRow.querySelectorAll("[data-history-filter]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          state.taskHistoryFilter = btn.dataset.historyFilter;
+          renderTaskView();
+        });
+      });
+    }
+    const match = (HISTORY_FILTERS.find((f) => f.key === filterKey) || HISTORY_FILTERS[0]).match;
+    const visible = allEntries.filter((e) => match(e.run));
+    if (visible.length === 0) {
+      els.tasksContent.innerHTML = `<div class="tasks-empty"><p>当前筛选下没有运行记录</p></div>`;
+      return;
+    }
+    els.tasksContent.innerHTML = visible.map(runCardHtml).join("");
+    els.tasksContent.querySelectorAll("[data-run-card]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        state.selectedTaskId = btn.dataset.taskId;
+        state.selectedRunId = btn.dataset.runId;
+        state.tasksUnread.delete(state.selectedTaskId);
+        updateTasksRailBadge();
+        renderTaskView();
+      });
+    });
+  }
+
+  function cardHtml(task) {
+    const unread = state.tasksUnread.get(task.id) || 0;
+    const badgeRaw = unreadShared().unreadBadgeHtml(unread);
+    const badge = badgeRaw
+      ? badgeRaw.replace('class="unread-badge"', 'class="task-card-unread"')
+      : "";
+    const dotClass = dotClassFor(task);
+    const lastRun = (task.runs || [])[(task.runs || []).length - 1];
+    const statusText = cardStatusText(task, lastRun);
+    return `
+      <button class="task-card" type="button" data-task-id="${escapeHtml(task.id)}">
+        <div class="task-card-title">
+          <span class="task-card-dot ${dotClass}"></span>
+          <strong>${escapeHtml(task.title)}</strong>
+        </div>
+        <div class="task-card-meta">${escapeHtml(fellowName(task.fellowId))} · ${escapeHtml(scheduleText(task))}</div>
+        <div class="task-card-foot">
+          <em class="task-card-status">${escapeHtml(statusText)}</em>
+          ${badge}
+        </div>
+      </button>
+    `;
+  }
+
+  function dotClassFor(task) {
+    if (task.status !== "active") {
+      const last = (task.runs || [])[(task.runs || []).length - 1];
+      if (last?.status === "missed") return "missed";
+      if (last?.status === "failed") return "failed";
+      return "disabled";
+    }
+    if (task.nextFireAt == null) return "disabled";
+    return isTodayMs(task.nextFireAt, Date.now()) ? "active" : "upcoming";
+  }
+
+  function cardStatusText(task, lastRun) {
+    if (task.status === "active" && task.nextFireAt) {
+      return `下次 ${formatNextTime(task.nextFireAt)}`;
+    }
+    if (task.status === "paused") return "已暂停";
+    if (task.status === "done")   return "已完成";
+    if (task.status === "failed") return "已失败";
+    if (lastRun) {
+      return `${runStatusLabel(lastRun.status)} · ${formatRunTime(lastRun.firedAt)}`;
+    }
+    return "—";
+  }
+
+  function renderActiveEmpty() {
     if ((state.tasks || []).length === 0) {
-      els.tasksContent.innerHTML = `
+      return `
         <div class="tasks-empty">
           <div class="tasks-empty-emoji">📅</div>
           <h2>还没有定时任务</h2>
@@ -200,17 +272,326 @@
           <button class="secondary" type="button" data-action="new-task">＋ 手动新建任务</button>
         </div>
       `;
-      els.tasksContent.querySelector("[data-action='new-task']")
-        ?.addEventListener("click", openTaskCreate);
-      return;
     }
-    els.tasksContent.innerHTML = `
-      <div class="tasks-empty">
-        <div class="tasks-empty-emoji">←</div>
-        <p>选择左侧任务查看详情</p>
-      </div>
+    return `<div class="tasks-empty"><p>没有匹配的活跃任务</p></div>`;
+  }
+
+  function runCardHtml({ run, task }) {
+    const icon = runStatusIcon(run.status);
+    const label = runStatusLabel(run.status);
+    const detail = run.status === "missed"
+      ? `离线期间错过 ${run.missedCount || 1} 次触发`
+      : (run.outputText || run.error || "本次没有产生输出")
+          .toString()
+          .replace(/\s+/g, " ")
+          .trim();
+    return `
+      <button class="task-card task-run-card" type="button"
+              data-run-card data-task-id="${escapeHtml(task.id)}" data-run-id="${escapeHtml(run.id)}">
+        <div class="task-card-title">
+          <span class="task-run-icon ${run.status}">${icon}</span>
+          <strong>${escapeHtml(task.title)}</strong>
+        </div>
+        <div class="task-card-meta">${escapeHtml(detail)}</div>
+        <div class="task-card-foot">
+          <em class="task-card-status">${escapeHtml(label)} · ${escapeHtml(formatRunTime(run.firedAt))}</em>
+          <em class="task-card-fellow">${escapeHtml(fellowName(task.fellowId))}</em>
+        </div>
+      </button>
     `;
   }
+
+  // ── Preview dialog (overlay): task detail OR run detail ──────────────────
+
+  let _previewKeydownAbort = null;
+
+  function renderTaskPreview() {
+    const dialog = document.getElementById("taskPreviewDialog");
+    if (!dialog) return;
+    const task = state.selectedTaskId
+      ? state.tasks.find((t) => t.id === state.selectedTaskId)
+      : null;
+    if (!task) {
+      hidePreviewDialog();
+      return;
+    }
+    showPreviewDialog();
+    if (state.selectedRunId) renderRunDetail(task);
+    else renderTaskDetail(task);
+  }
+
+  function showPreviewDialog() {
+    const dialog = document.getElementById("taskPreviewDialog");
+    if (!dialog) return;
+    dialog.classList.remove("hidden");
+    if (_previewKeydownAbort) return;
+    _previewKeydownAbort = new AbortController();
+    const { signal } = _previewKeydownAbort;
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") closePreviewDialog();
+    }, { signal });
+    dialog.addEventListener("click", (e) => {
+      if (e.target === dialog) closePreviewDialog();
+    }, { signal });
+    document.getElementById("closeTaskPreview")?.addEventListener("click", closePreviewDialog, { signal });
+  }
+
+  function hidePreviewDialog() {
+    document.getElementById("taskPreviewDialog")?.classList.add("hidden");
+    if (_previewKeydownAbort) {
+      _previewKeydownAbort.abort();
+      _previewKeydownAbort = null;
+    }
+  }
+
+  function closePreviewDialog() {
+    state.selectedTaskId = "";
+    state.selectedRunId = "";
+    hidePreviewDialog();
+    renderTaskView();
+  }
+
+  function renderTaskDetail(task) {
+    const body = document.getElementById("taskPreviewBody");
+    if (!body) return;
+    setText(document.getElementById("taskPreviewTitle"), task.title);
+    setText(document.getElementById("taskPreviewMeta"),
+      `${fellowName(task.fellowId)} · ${scheduleText(task)}`);
+
+    const pauseLabel  = task.status === "paused" ? "启用" : "暂停";
+    const pauseAction = task.status === "paused" ? "resume" : "pause";
+    const closed = task.status === "done" || task.status === "failed";
+    const statusText = ({ active: "进行中", paused: "已暂停", done: "已完成", failed: "已失败" })[task.status] || task.status;
+    const nextText = task.status === "active" && task.nextFireAt
+      ? ` · 下次 ${escapeHtml(formatRunTime(task.nextFireAt))}` : "";
+    const conversationId = task.conversationId || task.sessionId || "";
+
+    body.innerHTML = `
+      <div class="task-detail-actions">
+        <button class="secondary" type="button" data-action="run-now">运行一次</button>
+        ${closed ? "" : `<button class="secondary" type="button" data-action="${pauseAction}">${pauseLabel}</button>`}
+        <button class="link" type="button" data-jump-conversation="${escapeHtml(conversationId)}">打开对话 →</button>
+        <button class="secondary danger" type="button" data-action="delete">删除</button>
+      </div>
+
+      <section class="task-meta">
+        <div class="task-meta-item"><small>执行时间</small><span>${escapeHtml(scheduleText(task))}</span></div>
+        <div class="task-meta-item"><small>状态</small><span>${escapeHtml(statusText)}${nextText}</span></div>
+      </section>
+
+      <section class="task-prompt-view">
+        <small>要求说明</small>
+        <p>${escapeHtml(task.prompt)}</p>
+      </section>
+
+      <section class="task-history">
+        <h3>历史记录 (${task.runs.length})</h3>
+        ${(task.runs || []).slice(-50).reverse().map(historyRowHtml).join("")}
+        ${(task.runs || []).length === 0 ? `<div class="task-history-empty">还没有运行过</div>` : ""}
+      </section>
+    `;
+    attachTaskDetailHandlers(task);
+  }
+
+  function historyRowHtml(run) {
+    return `
+      <button class="task-history-row" type="button" data-run-id="${escapeHtml(run.id)}">
+        <span>${runStatusIcon(run.status)}</span>
+        <span>${escapeHtml(formatRunTime(run.firedAt))}</span>
+        <span>${escapeHtml(runStatusLabel(run.status))}${escapeHtml(runStatusSuffix(run))}</span>
+        <em>→ 查看输出</em>
+      </button>
+    `;
+  }
+
+  function renderRunDetail(task) {
+    const body = document.getElementById("taskPreviewBody");
+    if (!body) return;
+    const run = (task.runs || []).find((r) => r.id === state.selectedRunId);
+    if (!run) { state.selectedRunId = ""; renderTaskDetail(task); return; }
+
+    setText(document.getElementById("taskPreviewTitle"),
+      `${task.title} · ${formatRunTime(run.firedAt)} ${runStatusLabel(run.status)}`);
+    setText(document.getElementById("taskPreviewMeta"),
+      `${fellowName(task.fellowId)} · ${scheduleText(task)}`);
+
+    const outputText = run.outputText || "";
+    const missedSummary = run.status === "missed"
+      ? `<div class="run-detail-empty">daemon 离线期间错过 ${run.missedCount} 次触发（${escapeHtml(formatRunTime(run.firstMissedAt))} ~ ${escapeHtml(formatRunTime(run.lastMissedAt))}），未补跑。</div>`
+      : null;
+    const outputHtml = missedSummary
+      || (outputText
+        ? `<div class="run-output-text">${window.miaMarkdown.renderMarkdown(outputText)}</div>`
+        : `<div class="run-detail-empty">${run.error ? `运行失败：${escapeHtml(run.error)}` : "本次没有产生输出。"}</div>`);
+
+    body.innerHTML = `
+      <div class="run-detail-actions" style="margin-bottom:16px;">
+        <button class="link" type="button" data-action="back-to-task">← 返回任务</button>
+        <button class="link" type="button" data-action="open-conversation">打开对话 →</button>
+        <button class="secondary" type="button" data-action="run-now">运行一次</button>
+      </div>
+      <details class="run-detail-prompt">
+        <summary>原始指令</summary>
+        <pre>${escapeHtml(task.prompt)}</pre>
+      </details>
+      <section class="run-detail-output">
+        <h3>AI 输出</h3>
+        <div class="run-output-shell">${outputHtml}</div>
+      </section>
+    `;
+
+    body.querySelector("[data-action='back-to-task']")?.addEventListener("click", () => {
+      state.selectedRunId = "";
+      renderTaskView();
+    });
+    body.querySelector("[data-action='open-conversation']")?.addEventListener("click", () => {
+      jumpToTaskConversation(task);
+    });
+    body.querySelector("[data-action='run-now']")?.addEventListener("click", async () => {
+      try { await window.mia.tasks.runNow(task.id); } catch (e) { console.warn("run-now failed", e); }
+      await loadTasksFromDaemon();
+      renderTaskView();
+    });
+  }
+
+  function attachTaskDetailHandlers(task) {
+    const body = document.getElementById("taskPreviewBody");
+    if (!body) return;
+    body.querySelectorAll("[data-action]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const action = btn.dataset.action;
+        try {
+          if (action === "run-now") await window.mia.tasks.runNow(task.id);
+          if (action === "pause")   await window.mia.tasks.pause(task.id);
+          if (action === "resume")  await window.mia.tasks.resume(task.id);
+          if (action === "delete") {
+            if (!confirm(`删除任务「${task.title}」？已发生的历史记录会保留在对话里。`)) return;
+            await window.mia.tasks.delete(task.id);
+            state.selectedTaskId = "";
+            state.selectedRunId = "";
+          }
+        } catch (e) { console.warn("[task action]", action, e); }
+        await loadTasksFromDaemon();
+        renderTaskView();
+      });
+    });
+    body.querySelectorAll("[data-run-id]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        state.selectedRunId = btn.dataset.runId;
+        renderTaskView();
+      });
+    });
+    body.querySelectorAll("[data-jump-conversation]").forEach((btn) => {
+      btn.addEventListener("click", () => { jumpToTaskConversation(task); });
+    });
+  }
+
+  function jumpToTaskConversation(task) {
+    const conversationId = task.conversationId || task.sessionId;
+    if (!conversationId) return;
+    const fellowKey = task.fellowId || "";
+    state.activeKey = "";
+    state.activeContactKey = fellowKey;
+    state.activeView = "chat";
+    state.selectedTaskId = "";
+    state.selectedRunId = "";
+    hidePreviewDialog();
+    __global.miaSocial?.setActiveConversationId?.(conversationId);
+    if (typeof render === "function") render();
+    else { renderView(); if (typeof renderChat === "function") renderChat(); }
+  }
+
+  function scheduleText(task) {
+    const t = task.trigger || {};
+    const pad = (n) => String(n).padStart(2, "0");
+    if (t.type === "oneshot") {
+      if (!t.at) return "一次性";
+      const d = new Date(t.at);
+      return Number.isNaN(d.getTime())
+        ? "一次性"
+        : `一次性 · ${d.toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}`;
+    }
+    if (t.type === "cron") {
+      const parts = String(t.cron || "").trim().split(/\s+/);
+      if (parts.length !== 5) return t.cron || "—";
+      const [m, h, dom, , dow] = parts;
+      const time = `${pad(h)}:${pad(m)}`;
+      const days = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+      if (dom === "*" && dow === "*") return `每天 ${time}`;
+      if (dom === "*" && dow !== "*") return `每${days[Number(dow)] || "周" + dow} ${time}`;
+      if (dom !== "*" && dow === "*") return `每月 ${dom} 号 ${time}`;
+      return t.cron;
+    }
+    return "—";
+  }
+
+  // ── Topbar create controls: split button + chevron dropdown ─────────────
+
+  const CHAT_CREATE_PROMPT =
+    "我想设置一个定时任务。先简要说明 Mia 的定时任务怎么用，然后问我几个问题，了解我希望你做什么、什么时候运行。";
+
+  let _createControlsBound = false;
+  function bindCreateControls() {
+    if (_createControlsBound) return;
+    _createControlsBound = true;
+    const mainBtn = document.getElementById("newTask");
+    const chevron = document.getElementById("taskCreateMenuToggle");
+    const menu = document.getElementById("taskCreateMenu");
+    mainBtn?.addEventListener("click", () => { closeCreateMenu(); createTaskViaChat(); });
+    chevron?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const open = !menu?.classList.contains("hidden");
+      open ? closeCreateMenu() : openCreateMenu();
+    });
+    menu?.querySelectorAll("[data-create-mode]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        closeCreateMenu();
+        if (btn.dataset.createMode === "chat") createTaskViaChat();
+        else openTaskCreate();
+      });
+    });
+    document.addEventListener("click", (e) => {
+      if (menu?.classList.contains("hidden")) return;
+      if (menu.contains(e.target) || chevron?.contains(e.target)) return;
+      closeCreateMenu();
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !menu?.classList.contains("hidden")) closeCreateMenu();
+    });
+  }
+
+  function openCreateMenu() {
+    document.getElementById("taskCreateMenu")?.classList.remove("hidden");
+    document.getElementById("taskCreateMenuToggle")?.setAttribute("aria-expanded", "true");
+  }
+  function closeCreateMenu() {
+    document.getElementById("taskCreateMenu")?.classList.add("hidden");
+    document.getElementById("taskCreateMenuToggle")?.setAttribute("aria-expanded", "false");
+  }
+
+  // Switch to chat view and seed the composer with a task-setup prompt. The
+  // composer keeps its text across conversation switches, so this works even
+  // if the user hasn't picked a conversation yet — they'll see the prompt
+  // waiting once they enter any chat.
+  function createTaskViaChat() {
+    state.activeView = "chat";
+    state.selectedTaskId = "";
+    state.selectedRunId = "";
+    hidePreviewDialog();
+    if (typeof render === "function") render();
+    else { renderView(); if (typeof renderChat === "function") renderChat(); }
+    const chatInput = document.getElementById("chatInput");
+    if (chatInput) {
+      chatInput.value = CHAT_CREATE_PROMPT;
+      window.miaMessageHelpers?.resizeChatInput?.();
+      chatInput.focus();
+      // Place caret at end so the user can keep typing if they want to refine.
+      const end = chatInput.value.length;
+      chatInput.setSelectionRange?.(end, end);
+    }
+  }
+
+  // ── Create dialog (unchanged behaviour) ──────────────────────────────────
 
   let _taskCreateBound = false;
 
@@ -262,9 +643,6 @@
     if (el) { el.hidden = true; el.textContent = ""; }
   }
 
-  // The 执行时间 row swaps its detail controls to match the chosen frequency:
-  // a one-shot needs a date + time; recurring modes need a time plus an optional
-  // weekday / day-of-month, which submitTaskCreate folds into a cron expression.
   function renderTimeControls(freq) {
     const host = document.getElementById("ntTimeControls");
     if (!host) return;
@@ -294,8 +672,7 @@
     document.getElementById("cancelTaskCreate")?.addEventListener("click", closeTaskCreate);
     dialog?.addEventListener("click", (e) => { if (e.target === dialog) closeTaskCreate(); });
     document.getElementById("taskCreateForm")?.addEventListener("submit", (e) => {
-      e.preventDefault();
-      submitTaskCreate();
+      e.preventDefault(); submitTaskCreate();
     });
     document.getElementById("ntName")?.addEventListener("input", () => updateCount("ntName", "ntNameCount", 50));
     document.getElementById("ntPrompt")?.addEventListener("input", () => updateCount("ntPrompt", "ntPromptCount", 8000));
@@ -322,8 +699,7 @@
     const time = document.getElementById("ntTime")?.value || "";
     if (!time) return showError("请选择执行时间。");
     const [hh, mm] = time.split(":");
-    const h = Number(hh);
-    const m = Number(mm);
+    const h = Number(hh); const m = Number(mm);
 
     let trigger;
     if (freq === "oneshot") {
@@ -360,7 +736,6 @@
       state.selectedTaskId = created?.id || "";
       state.selectedRunId = "";
       await loadTasksFromDaemon();
-      renderTaskSidebar();
       renderTaskView();
     } catch (e) {
       showError("创建失败：" + (e?.message || e));
@@ -378,180 +753,7 @@
     return conversation?.id || null;
   }
 
-  function renderRunDetail(task) {
-    const run = (task.runs || []).find((r) => r.id === state.selectedRunId);
-    if (!run) {
-      state.selectedRunId = "";
-      renderTaskDetail(task);
-      return;
-    }
-    // Plain text, not a chat bubble — the run-detail is a report, not a conversation.
-    const outputText = run.outputText || "";
-    const outputHtml = outputText
-      ? `<div class="run-output-text">${window.miaMarkdown.renderMarkdown(outputText)}</div>`
-      : `<div class="run-detail-empty">${run.error ? `运行失败：${escapeHtml(run.error)}` : "本次没有产生输出。"}</div>`;
-    const statusLabel = run.status === "ok" ? "完成" : run.status === "failed" ? "失败" : "跳过";
-    els.tasksContent.innerHTML = `
-      <article class="run-detail">
-        <header class="run-detail-head">
-          <button class="link" type="button" data-action="back-to-task">← 返回任务</button>
-          <h2>${escapeHtml(task.title)} · ${escapeHtml(formatRunTime(run.firedAt))} ${escapeHtml(statusLabel)}</h2>
-          <div class="run-detail-actions">
-            <button class="link" type="button" data-action="open-conversation">打开对话 →</button>
-            <button class="secondary" type="button" data-action="run-now">运行一次</button>
-          </div>
-        </header>
-        <details class="run-detail-prompt">
-          <summary>原始指令</summary>
-          <pre>${escapeHtml(task.prompt)}</pre>
-        </details>
-        <section class="run-detail-output">
-          <h3>AI 输出</h3>
-          <div class="run-output-shell">
-            ${outputHtml}
-          </div>
-        </section>
-      </article>
-    `;
-    els.tasksContent.querySelector("[data-action='back-to-task']")?.addEventListener("click", () => {
-      state.selectedRunId = "";
-      renderTaskSidebar();
-      renderTaskView();
-    });
-    els.tasksContent.querySelector("[data-action='open-conversation']")?.addEventListener("click", () => {
-      jumpToTaskConversation(task);
-    });
-    els.tasksContent.querySelector("[data-action='run-now']")?.addEventListener("click", async () => {
-      try { await window.mia.tasks.runNow(task.id); } catch (e) { console.warn("run-now failed", e); }
-      await loadTasksFromDaemon();
-      renderTaskView();
-    });
-  }
-
-  function jumpToTaskConversation(task) {
-    const conversationId = task.conversationId || task.sessionId;
-    if (!conversationId) return;
-    const fellowKey = task.fellowId || "";
-    state.activeKey = "";
-    state.activeContactKey = fellowKey;
-    state.activeView = "chat";
-    __global.miaSocial?.setActiveConversationId?.(conversationId);
-    if (typeof render === "function") render();
-    else { renderView(); if (typeof renderChat === "function") renderChat(); }
-  }
-
-  function scheduleText(task) {
-    const t = task.trigger || {};
-    const pad = (n) => String(n).padStart(2, "0");
-    if (t.type === "oneshot") {
-      if (!t.at) return "一次性";
-      const d = new Date(t.at);
-      return Number.isNaN(d.getTime())
-        ? "一次性"
-        : `一次性 · ${d.toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}`;
-    }
-    if (t.type === "cron") {
-      const parts = String(t.cron || "").trim().split(/\s+/);
-      if (parts.length !== 5) return t.cron || "—";
-      const [m, h, dom, , dow] = parts;
-      const time = `${pad(h)}:${pad(m)}`;
-      const days = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
-      if (dom === "*" && dow === "*") return `每天 ${time}`;
-      if (dom === "*" && dow !== "*") return `每${days[Number(dow)] || "周" + dow} ${time}`;
-      if (dom !== "*" && dow === "*") return `每月 ${dom} 号 ${time}`;
-      return t.cron;
-    }
-    return "—";
-  }
-
-  function renderTaskDetail(task) {
-    const conversationId = task.conversationId || task.sessionId || "";
-    const conversationTitle = conversationTitleFor(task) || conversationId;
-    const pauseLabel = task.status === "paused" ? "启用" : "暂停";
-    const pauseAction = task.status === "paused" ? "resume" : "pause";
-    const closed = task.status === "done" || task.status === "failed";
-    const statusText = { active: "进行中", paused: "已暂停", done: "已完成", failed: "已失败" }[task.status] || task.status;
-    const nextText = task.status === "active" && task.nextFireAt ? ` · 下次 ${escapeHtml(formatRunTime(task.nextFireAt))}` : "";
-    els.tasksContent.innerHTML = `
-      <article class="task-detail">
-        <header class="task-detail-head">
-          <div class="task-detail-source">
-            <small>来源对话</small>
-            <strong>${escapeHtml(conversationTitle)} · ${escapeHtml(fellowName(task.fellowId))}</strong>
-            <button class="link" type="button" data-jump-conversation="${escapeHtml(conversationId)}">[打开 →]</button>
-          </div>
-          <div class="task-detail-actions">
-            <button class="secondary" type="button" data-action="run-now">运行一次</button>
-            ${closed ? "" : `<button class="secondary" type="button" data-action="${pauseAction}">${pauseLabel}</button>`}
-            <button class="secondary danger" type="button" data-action="delete">删除</button>
-          </div>
-        </header>
-
-        <section class="task-meta">
-          <div class="task-meta-item"><small>执行时间</small><span>${escapeHtml(scheduleText(task))}</span></div>
-          <div class="task-meta-item"><small>状态</small><span>${escapeHtml(statusText)}${nextText}</span></div>
-        </section>
-
-        <section class="task-prompt-view">
-          <small>要求说明</small>
-          <p>${escapeHtml(task.prompt)}</p>
-        </section>
-
-        <section class="task-history">
-          <h3>历史记录 (${task.runs.length})</h3>
-          ${(task.runs || []).slice(-20).reverse().map((run) => `
-            <button class="task-history-row" type="button" data-run-id="${escapeHtml(run.id)}">
-              <span>${run.status === "ok" ? "✓" : run.status === "failed" ? "✗" : "·"}</span>
-              <span>${escapeHtml(formatRunTime(run.firedAt))}</span>
-              <span>${run.status === "failed" ? "失败" : run.status === "skipped" ? "跳过" : "完成"}</span>
-              <em>→ 查看本次输出</em>
-            </button>
-          `).join("")}
-          ${(task.runs || []).length === 0 ? `<div class="task-history-empty">还没有运行过</div>` : ""}
-        </section>
-      </article>
-    `;
-    attachTaskDetailHandlers(task);
-  }
-
-  function conversationTitleFor(task) {
-    const conversationId = task.conversationId || task.sessionId;
-    const conversation = conversationId ? __global.miaSocial?.getConversationById?.(conversationId) : null;
-    return conversation?.name || conversation?.title || null;
-  }
-
-  function attachTaskDetailHandlers(task) {
-    els.tasksContent.querySelectorAll("[data-action]").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        const action = btn.dataset.action;
-        try {
-          if (action === "run-now") await window.mia.tasks.runNow(task.id);
-          if (action === "pause")   await window.mia.tasks.pause(task.id);
-          if (action === "resume")  await window.mia.tasks.resume(task.id);
-          if (action === "delete") {
-            if (!confirm(`删除任务「${task.title}」？已发生的历史记录会保留在对话里。`)) return;
-            await window.mia.tasks.delete(task.id);
-            state.selectedTaskId = "";
-          }
-        } catch (e) { console.warn("[task action]", action, e); }
-        await loadTasksFromDaemon();
-        renderTaskSidebar();
-        renderTaskView();
-      });
-    });
-    els.tasksContent.querySelectorAll("[data-run-id]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        state.selectedRunId = btn.dataset.runId;
-        renderTaskSidebar();
-        renderTaskView();
-      });
-    });
-    els.tasksContent.querySelectorAll("[data-jump-conversation]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        jumpToTaskConversation(task);
-      });
-    });
-  }
+  // ── Data loading + SSE subscription ──────────────────────────────────────
 
   async function loadTasksFromDaemon() {
     try {
@@ -567,17 +769,17 @@
     if (_tasksUnsubscribe) return;
     _tasksUnsubscribe = window.mia.tasks.subscribe(async (envelope) => {
       await loadTasksFromDaemon();
-      if (envelope.type === "finished" || envelope.type === "failed") {
+      // Count completions, failures, and offline-missed sweeps as unread —
+      // user-facing meaning is "something happened on this task while you
+      // weren't looking", regardless of outcome status.
+      if (["finished", "failed", "missed"].includes(envelope.type)) {
         const taskId = envelope.payload?.taskId;
         if (taskId && state.selectedTaskId !== taskId) {
           state.tasksUnread.set(taskId, (state.tasksUnread.get(taskId) || 0) + 1);
         }
       }
       updateTasksRailBadge();
-      if (state.activeView === "tasks") {
-        renderTaskSidebar();
-        renderTaskView();
-      }
+      if (state.activeView === "tasks") renderTaskView();
     });
   }
 
@@ -586,8 +788,6 @@
     const total = [...state.tasksUnread.values()].reduce((a, b) => a + b, 0);
     if (total > 0) {
       els.tasksUnreadBadge.classList.remove("hidden");
-      // Extract truncated text from the shared badge HTML so this rail
-      // count uses the same "99+" boundary as every other unread display.
       const badge = unreadShared().unreadBadgeHtml(total);
       const m = badge.match(/>([^<]*)</);
       els.tasksUnreadBadge.textContent = m ? m[1] : String(total);
@@ -598,14 +798,11 @@
 
   window.miaTasksPanel = {
     initTasksPanel,
+    bindCreateControls,
     openTaskCreate,
-    renderTaskSidebar,
     renderTaskView,
-    renderTaskDetail,
-    renderRunDetail,
-    renderTasksEmpty,
     loadTasksFromDaemon,
     subscribeTaskEvents,
-    updateTasksRailBadge,
+    updateTasksRailBadge
   };
 })();

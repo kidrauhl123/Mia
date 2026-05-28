@@ -40,7 +40,7 @@ const { createSettingsStore } = require("./main/settings-store.js");
 const { createWindowStateManager } = require("./main/window-state.js");
 const { createSkillsLoader } = require("./main/skills-loader.js");
 const { createTasksStore } = require("./main/tasks-store.js");
-const { createScheduler } = require("./main/scheduler.js");
+const { createScheduler, sweepMissedCronTasks } = require("./main/scheduler.js");
 const { createFireRunner } = require("./main/scheduler-fire.js");
 const { createTasksEventBus } = require("./main/tasks-events.js");
 const { createTasksRoutes } = require("./main/tasks-routes.js");
@@ -977,6 +977,7 @@ function initSchedulerSubsystem() {
   });
   if (IS_DAEMON_PROCESS) {
     sweepExpiredOneshotTasks(tasksStore);
+    sweepMissedCronTasks(tasksStore, Date.now(), (type, payload) => tasksEvents.emit(type, payload));
     scheduler.start();
     appendDaemonLog("Scheduler started");
   }
