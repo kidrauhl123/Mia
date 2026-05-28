@@ -13,7 +13,7 @@ function escapeHtml(value) {
 }
 
 function loadTraceBlocks() {
-  const source = fs.readFileSync(path.join(__dirname, "..", "src", "renderer", "chat", "trace-blocks.js"), "utf8");
+  const source = fs.readFileSync(path.join(__dirname, "..", "src", "shared", "trace-blocks.js"), "utf8");
   const state = { openTraceKeys: new Set(), animatedTraceKeys: new Set() };
   const mockWindow = { miaMarkdown: { escapeHtml } };
   const context = vm.createContext({ window: mockWindow, Set, String, Array, Math });
