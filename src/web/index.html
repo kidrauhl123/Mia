@@ -13,7 +13,7 @@
     <link rel="icon" href="./favicon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="./apple-touch-icon.png">
     <link rel="stylesheet" href="./styles.css">
-    <link rel="stylesheet" href="./landing.css">
+    <link rel="stylesheet" href="./landing.css?v=20260528-chat-copy">
   </head>
   <body class="landing-body" data-page="landing">
     <div class="landing-progress" aria-hidden="true"><span></span></div>
@@ -25,9 +25,6 @@
       </a>
       <nav class="landing-nav-links" aria-label="Mia website">
         <a href="#product">产品</a>
-        <a href="#partners">伙伴</a>
-        <a href="#engines">内核</a>
-        <a href="#trust">信任</a>
         <a href="#download">下载</a>
       </nav>
       <a class="landing-nav-action" href="/app/">打开 Mia Web</a>
@@ -36,11 +33,9 @@
     <main class="landing-page">
       <section id="product" class="hero-section" aria-labelledby="landingTitle">
         <div class="hero-copy" data-reveal>
-          <p class="hero-kicker">Mia Multi-Agent Workspace</p>
-          <h1 id="landingTitle">把 Claude Code、Codex 变成你的 AI 伙伴。</h1>
-          <p class="hero-lede">
-            在一个舒服的聊天 GUI 里管理多个 Fellow，跨桌面和 Web 保持同步。
-          </p>
+          <p class="hero-kicker">Multi-Agent Workspace</p>
+          <h1 id="landingTitle">Mia AI 伙伴工作台</h1>
+          <p class="hero-lede">在一个舒服的聊天 GUI 里管理多个 Fellow，连接 Claude Code、Codex 和 Hermes，并在桌面与 Web 间同步。</p>
           <div class="hero-actions">
             <a class="landing-primary" href="/downloads/mia-macos-arm64-latest.dmg" download="Mia-macOS-Apple-Silicon.dmg">
               下载 macOS Apple Silicon
@@ -63,203 +58,105 @@
             </div>
             <div class="app-shell-preview">
               <aside class="app-rail" aria-label="Mia navigation preview">
-                <span class="rail-logo">M</span>
+                <span class="rail-avatar user-avatar" aria-hidden="true"></span>
+                <i class="is-active"></i>
                 <i></i>
                 <i></i>
-                <i></i>
+                <b></b>
               </aside>
               <section class="conversation-list" aria-label="Fellow and conversation list preview">
-                <article class="conversation-item active">
-                  <span class="conversation-avatar engine-avatar claude" aria-hidden="true"></span>
+                <div class="conversation-search">
+                  <span aria-hidden="true"></span>
+                  <strong>搜索</strong>
+                  <b aria-hidden="true">+</b>
+                </div>
+                <article class="conversation-item">
+                  <span class="conversation-avatar avatar-boy" aria-hidden="true"></span>
+                  <div>
+                    <strong>标野</strong>
+                    <small>本机命令已准备好，等你确认执行...</small>
+                  </div>
+                  <time>18:44</time>
+                </article>
+                <article class="conversation-item">
+                  <span class="conversation-avatar avatar-group" aria-hidden="true"></span>
+                  <div>
+                    <strong>日报项目组</strong>
+                    <small>空铃写卖点，Codex 改代码，Hermes 出草稿...</small>
+                  </div>
+                  <time>17:36</time>
+                </article>
+                <article class="conversation-item">
+                  <span class="conversation-avatar avatar-cat" aria-hidden="true"></span>
                   <div>
                     <strong>空铃</strong>
-                    <small>Claude Code / owner Mac</small>
+                    <small>我把卖点和页面节奏整理好了...</small>
                   </div>
+                  <time>15:15</time>
                 </article>
-                <article class="conversation-item">
-                  <span class="conversation-avatar engine-avatar codex" aria-hidden="true">
-                    <img src="./assets/engine-icons/codex-color.svg" alt="">
-                  </span>
+                <article class="conversation-item active">
+                  <span class="conversation-avatar avatar-girl" aria-hidden="true"></span>
                   <div>
-                    <strong>Codex</strong>
-                    <small>Local bridge ready</small>
+                    <strong>匠妹</strong>
+                    <small>发布页方案已同步到桌面端，随时继续...</small>
                   </div>
-                </article>
-                <article class="conversation-item">
-                  <span class="conversation-avatar engine-avatar hermes" aria-hidden="true"></span>
-                  <div>
-                    <strong>Hermes</strong>
-                    <small>Cloud runtime ready</small>
-                  </div>
-                </article>
-                <article class="conversation-item">
-                  <span class="conversation-avatar sync-avatar" aria-hidden="true"></span>
-                  <div>
-                    <strong>#release</strong>
-                    <small>Web + Desktop synced</small>
-                  </div>
+                  <time>13:46</time>
                 </article>
               </section>
               <section class="chat-preview" aria-label="Mia chat preview">
                 <div class="chat-preview-head">
-                  <div>
-                    <strong data-stage-title>伙伴群聊</strong>
-                    <small data-stage-subtitle>Claude Code / Codex / Hermes</small>
+                  <span class="conversation-avatar avatar-girl" aria-hidden="true"></span>
+                  <div class="chat-title">
+                    <strong data-stage-title>匠妹</strong>
+                    <small data-stage-subtitle>私聊</small>
                   </div>
-                  <span>Synced</span>
+                  <p>明天发布页怎么排？</p>
                 </div>
-                <div class="engine-dock" aria-label="Agent engine preview">
-                  <span><i class="engine-logo claude" aria-hidden="true"></i>Claude Code</span>
-                  <span><i class="engine-logo codex" aria-hidden="true"><img src="./assets/engine-icons/codex-color.svg" alt=""></i>Codex</span>
-                  <span><i class="engine-logo hermes" aria-hidden="true"></i>Hermes</span>
-                </div>
-                <div class="chat-bubbles">
-                  <p>帮我一起看下这个发布页，谁负责文案，谁负责代码？</p>
-                  <p class="agent">空铃：我先整理卖点和页面结构。</p>
-                  <p class="own">Codex：我会改代码；涉及本机命令前会先走权限确认。</p>
-                </div>
-                <div class="permission-sheet">
-                  <span>Permission request</span>
-                  <strong data-stage-permission>ask before shell</strong>
-                  <div>
-                    <button type="button">允许本次</button>
-                    <button type="button">拒绝</button>
+                <div class="chat-transcript">
+                  <div class="message-row own">
+                    <p>明天发布页和桌面端同步，谁来跟？</p>
+                    <span class="conversation-avatar user-avatar" aria-hidden="true"></span>
                   </div>
+                  <div class="message-row agent">
+                    <span class="conversation-avatar avatar-girl" aria-hidden="true"></span>
+                    <p>我来拆结构：空铃写卖点，Codex 改代码，Hermes 先出一版草稿。</p>
+                  </div>
+                  <div class="message-row own compact">
+                    <p>好</p>
+                    <span class="conversation-avatar user-avatar" aria-hidden="true"></span>
+                  </div>
+                  <div class="message-row agent">
+                    <span class="conversation-avatar avatar-girl" aria-hidden="true"></span>
+                    <p>需要本机命令时 Mia 会先确认权限，结果会同步回这段对话。</p>
+                  </div>
+                </div>
+                <div class="composer-preview" aria-label="Mia composer preview">
+                  <div>
+                    <span aria-hidden="true">+</span>
+                    <strong>输入消息，Enter 发送，Shift+Enter 换行</strong>
+                    <b aria-hidden="true">↗</b>
+                  </div>
+                  <p>
+                    <i class="engine-logo claude" aria-hidden="true"></i>
+                    <span>Claude Code</span>
+                    <i class="engine-logo codex" aria-hidden="true"><img src="./assets/engine-icons/codex-color.svg" alt=""></i>
+                    <span>Codex</span>
+                    <i class="engine-logo hermes" aria-hidden="true"></i>
+                    <span>Hermes</span>
+                    <em>Ask</em>
+                  </p>
                 </div>
               </section>
             </div>
           </section>
-
-          <aside class="floating-card sync-card" aria-label="Cloud sync preview">
-            <span>Multi-device</span>
-            <strong>Desktop + Web</strong>
-            <small>消息、伙伴和上下文保持同步。</small>
-          </aside>
-          <aside class="floating-card bridge-card" aria-label="Local bridge preview">
-            <span>Agent cores</span>
-            <strong>Claude Code / Codex</strong>
-            <small>复用你本机已经登录的内核。</small>
-          </aside>
-        </div>
-      </section>
-
-      <section id="partners" class="visual-strip" aria-label="Mia visual product states">
-        <article class="visual-card fellow-card" data-reveal>
-          <span>Multiple fellows</span>
-          <strong>多个伙伴同时在场</strong>
-          <div class="mini-profile" aria-hidden="true">
-            <i></i>
-            <b></b>
-            <b></b>
-          </div>
-        </article>
-        <article id="engines" class="visual-card engine-card" data-reveal>
-          <span>Agent cores</span>
-          <strong>Claude Code / Codex / Hermes</strong>
-          <div class="mini-engine" aria-hidden="true">
-            <i><span class="engine-logo claude"></span>Claude Code</i>
-            <i><span class="engine-logo codex"><img src="./assets/engine-icons/codex-color.svg" alt=""></span>Codex</i>
-            <i><span class="engine-logo hermes"></span>Hermes</i>
-          </div>
-        </article>
-        <article class="visual-card device-card" data-reveal>
-          <span>Multi-device</span>
-          <strong>桌面端和 Web 互通</strong>
-          <div class="mini-device" aria-hidden="true">
-            <i></i>
-            <i></i>
-          </div>
-        </article>
-        <article class="visual-card conversation-card" data-reveal>
-          <span>Chat GUI</span>
-          <strong>像聊天一样调度 Agent</strong>
-          <div class="mini-conversation" aria-hidden="true">
-            <i></i>
-            <i></i>
-            <i></i>
-          </div>
-        </article>
-      </section>
-
-      <section id="workflow" class="workflow-section" aria-label="Mia workflow stages">
-        <article class="workflow-step is-active" data-scroll-stage="1" data-stage-target="select" data-reveal>
-          <span>01</span>
-          <strong>创建伙伴</strong>
-          <p>每个 Fellow 有自己的头像、身份和技能。</p>
-        </article>
-        <article class="workflow-step" data-scroll-stage="2" data-stage-target="route" data-reveal>
-          <span>02</span>
-          <strong>选择内核</strong>
-          <p>Claude Code、Codex、Hermes 按任务切换。</p>
-        </article>
-        <article class="workflow-step" data-scroll-stage="3" data-stage-target="approve" data-reveal>
-          <span>03</span>
-          <strong>开始聊天</strong>
-          <p>消息、文件、工具调用都在同一个 GUI 里。</p>
-        </article>
-        <article class="workflow-step" data-scroll-stage="4" data-stage-target="reply" data-reveal>
-          <span>04</span>
-          <strong>多端同步</strong>
-          <p>Web 端发起，桌面端执行，结果回到同一段对话。</p>
-        </article>
-      </section>
-
-      <section id="system" class="feature-section" aria-labelledby="systemTitle">
-        <div class="section-copy" data-reveal>
-          <p class="section-kicker">Product surface</p>
-          <h2 id="systemTitle">核心卖点是伙伴和聊天体验。</h2>
-          <p>Mia 不要求用户记住每个 CLI 怎么启动。你看到的是伙伴、对话、状态和权限；底层内核留在该在的位置。</p>
-        </div>
-        <div class="feature-grid">
-          <article data-reveal>
-            <span>Multiple fellows</span>
-            <strong>多个 AI 伙伴</strong>
-            <p>不同 Fellow 可以有不同身份、头像、技能和模型配置，不再只有一个泛化助手。</p>
-          </article>
-          <article data-reveal>
-            <span>Agent cores</span>
-            <strong>兼容多 Agent 内核</strong>
-            <p>Hermes 提供开箱体验；Claude Code 和 Codex 继续复用你本机的账号、PATH 和文件系统。</p>
-          </article>
-          <article data-reveal>
-            <span>Multi-device</span>
-            <strong>桌面端和 Web 互通</strong>
-            <p>Web 端可以进入对话；需要本机工具时，通过在线桌面 bridge 回到 owner desktop。</p>
-          </article>
-          <article data-reveal>
-            <span>Chat UX</span>
-            <strong>舒服的前端 GUI</strong>
-            <p>会话列表、群聊、附件、权限卡片、工具进度和回复都围绕聊天体验组织。</p>
-          </article>
-        </div>
-      </section>
-
-      <section id="trust" class="trust-section" aria-labelledby="trustTitle">
-        <div class="section-copy" data-reveal>
-          <p class="section-kicker">Trust boundary</p>
-          <h2 id="trustTitle">兼容很多内核，但执行边界要清楚。</h2>
-        </div>
-        <div class="trust-list">
-          <article data-reveal>
-            <strong>Hermes packaged. Claude Code and Codex stay yours.</strong>
-            <span>内置 Hermes 负责默认体验；Claude Code / Codex 仍由你的本机环境和账号控制。</span>
-          </article>
-          <article data-reveal>
-            <strong>权限先问，再执行</strong>
-            <span>用户能看到任务计划、命令意图和执行位置，而不是只看流式回复。</span>
-          </article>
-          <article data-reveal>
-            <strong>多端互通，不等于云端接管</strong>
-            <span>远程请求只有在 owner desktop 在线并绑定时才会进入本机执行路径。</span>
-          </article>
         </div>
       </section>
 
       <section id="download" class="download-section" aria-labelledby="downloadTitle">
         <div class="download-copy" data-reveal>
           <p class="section-kicker">Get started</p>
-          <h2 id="downloadTitle">先把伙伴工作台装起来。</h2>
-          <p>当前提供 macOS Apple Silicon 版本。Mia Web 可直接进入云端对话，完整本机 Agent 能力由桌面端提供。</p>
+          <h2 id="downloadTitle">下载 Mia</h2>
+          <p>当前提供 macOS Apple Silicon 版本。Web 端可以直接进入对话，本机 Agent 能力由桌面端提供。</p>
           <div class="hero-actions">
             <a class="landing-primary" href="/downloads/mia-macos-arm64-latest.dmg" download="Mia-macOS-Apple-Silicon.dmg">
               下载 Apple Silicon
@@ -267,26 +164,9 @@
             <a class="landing-secondary" href="/app/">打开 Mia Web</a>
           </div>
         </div>
-        <div class="download-cards" data-reveal>
-          <article class="available">
-            <span>Available</span>
-            <strong>macOS Apple Silicon</strong>
-            <small>M 系列芯片 Mac，推荐安装。</small>
-          </article>
-          <article>
-            <span>Coming soon</span>
-            <strong>macOS Intel</strong>
-            <small>即将支持。</small>
-          </article>
-          <article>
-            <span>Coming soon</span>
-            <strong>Windows</strong>
-            <small>即将支持。</small>
-          </article>
-        </div>
       </section>
     </main>
 
-    <script src="./landing.js" defer></script>
+    <script src="./landing.js?v=20260528-chat-copy" defer></script>
   </body>
 </html>

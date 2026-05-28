@@ -1,6 +1,6 @@
 // Fellow manager module
 // Extracted from app.js. Contains the contact-list / contact-detail view,
-// the per-fellow capability panel (plugins + skills + connectors), and the
+// the per-fellow skill capability panel, and the
 // fellow right-click context menu. Heavy renderer-only module — no IPC of
 // its own beyond what's injected.
 //
@@ -123,7 +123,7 @@
 
   function defaultFellowCapabilities() {
     return {
-      inheritEngineDefaults: true,
+      inheritEngineDefaults: false,
       enabledPlugins: [],
       disabledPlugins: [],
       enabledSkills: [],
@@ -142,7 +142,7 @@
     const raw = fellow.capabilities && typeof fellow.capabilities === "object" ? fellow.capabilities : {};
     return {
       ...defaultFellowCapabilities(),
-      inheritEngineDefaults: raw.inheritEngineDefaults !== false && raw.inherit_engine_defaults !== false,
+      inheritEngineDefaults: raw.inheritEngineDefaults === true || raw.inherit_engine_defaults === true,
       enabledPlugins: normalizeCapabilityIds(raw.enabledPlugins || raw.enabled_plugins),
       disabledPlugins: normalizeCapabilityIds(raw.disabledPlugins || raw.disabled_plugins),
       enabledSkills: normalizeCapabilityIds(raw.enabledSkills || raw.enabled_skills),
@@ -194,31 +194,24 @@
   }
 
   function fellowCapabilityItems(fellow = {}) {
-    if (!state) return { plugins: [], skills: [], connectors: [] };
+    if (!state) return { skills: [] };
     const engine = fellow.agentEngine || fellow.agent_engine || "hermes";
-    const plugins = (state.skillLibrary.extensions || [])
-      .filter((item) => item.installState === "installed" && capabilityForEngine(item, engine))
-      .slice(0, 24);
     const skills = (state.skillLibrary.skills || [])
       .filter((item) => capabilityForEngine(item, engine))
       .slice(0, 32);
-    const connectors = (state.skillLibrary.connectors || [])
-      .filter((item) => capabilityForEngine(item, engine))
-      .slice(0, 16);
-    return { plugins, skills, connectors };
+    return { skills };
   }
 
   function capabilityChecked(capabilities, id, enabledKey, disabledKey) {
-    if (capabilities.inheritEngineDefaults) return !capabilities[disabledKey].includes(id);
     return capabilities[enabledKey].includes(id);
   }
 
-  function renderCapabilityCheckbox({ item, checked, disabled, type }) {
+  function renderCapabilityCheckbox({ item, checked, type }) {
     const title = item.label || item.name || item.id;
     const meta = item.engineLabel || item.sourceLabel || item.category || item.status || "";
     return `
       <label class="capability-row">
-        <input type="checkbox" data-capability-type="${window.miaMarkdown.escapeHtml(type)}" data-capability-id="${window.miaMarkdown.escapeHtml(item.id)}" ${checked ? "checked" : ""} ${disabled ? "disabled" : ""}>
+        <input type="checkbox" data-capability-type="${window.miaMarkdown.escapeHtml(type)}" data-capability-id="${window.miaMarkdown.escapeHtml(item.id)}" ${checked ? "checked" : ""}>
         <span>
           <strong>${window.miaMarkdown.escapeHtml(title)}</strong>
           ${meta ? `<small>${window.miaMarkdown.escapeHtml(meta)}</small>` : ""}
@@ -229,48 +222,24 @@
 
   function renderFellowCapabilitiesPanel(fellow) {
     const capabilities = fellowCapabilities(fellow);
-    const { plugins, skills, connectors } = fellowCapabilityItems(fellow);
-    const disabled = capabilities.inheritEngineDefaults;
+    const { skills } = fellowCapabilityItems(fellow);
     const engine = fellow.agentEngine || fellow.agent_engine || "hermes";
     return `
       <section class="contact-capabilities">
         <header>
           <div>
             <strong>能力</strong>
-            <p>${window.miaMarkdown.escapeHtml(engineLabel(engine))} · ${plugins.length} 插件 · ${skills.length} 技能 · ${connectors.length} 连接</p>
+            <p>${window.miaMarkdown.escapeHtml(engineLabel(engine))} · ${skills.length} 技能</p>
           </div>
-          <label class="capability-default-toggle">
-            <input type="checkbox" data-capability-default ${capabilities.inheritEngineDefaults ? "checked" : ""}>
-            <span>使用引擎默认能力</span>
-          </label>
         </header>
-        <div class="capability-columns${disabled ? " inherited" : ""}">
-          <section>
-            <h3>插件</h3>
-            ${plugins.length ? plugins.map((item) => renderCapabilityCheckbox({
-              item,
-              checked: capabilityChecked(capabilities, item.id, "enabledPlugins", "disabledPlugins"),
-              disabled,
-              type: "plugin"
-            })).join("") : `<div class="capability-empty">当前引擎没有已安装插件</div>`}
-          </section>
+        <div class="capability-columns">
           <section>
             <h3>技能</h3>
             ${skills.length ? skills.map((item) => renderCapabilityCheckbox({
               item,
               checked: capabilityChecked(capabilities, item.id, "enabledSkills", "disabledSkills"),
-              disabled,
               type: "skill"
             })).join("") : `<div class="capability-empty">当前引擎没有可选技能</div>`}
-          </section>
-          <section>
-            <h3>应用连接</h3>
-            ${connectors.length ? connectors.map((item) => renderCapabilityCheckbox({
-              item,
-              checked: capabilities.enabledConnectors.includes(item.id),
-              disabled,
-              type: "connector"
-            })).join("") : `<div class="capability-empty">没有发现连接配置</div>`}
           </section>
         </div>
       </section>
@@ -404,42 +373,26 @@
   function toggleCapabilityId(capabilities, id, enabledKey, disabledKey, checked) {
     const next = {
       ...capabilities,
+      inheritEngineDefaults: false,
       [enabledKey]: [...capabilities[enabledKey]],
       [disabledKey]: [...capabilities[disabledKey]]
     };
-    if (next.inheritEngineDefaults) {
-      next[disabledKey] = checked
-        ? next[disabledKey].filter((item) => item !== id)
-        : [...new Set([...next[disabledKey], id])];
-    } else {
-      next[enabledKey] = checked
-        ? [...new Set([...next[enabledKey], id])]
-        : next[enabledKey].filter((item) => item !== id);
-    }
+    next[enabledKey] = checked
+      ? [...new Set([...next[enabledKey], id])]
+      : next[enabledKey].filter((item) => item !== id);
+    next[disabledKey] = next[disabledKey].filter((item) => item !== id);
     return next;
   }
 
   function wireFellowCapabilities(fellow) {
     if (!els || !els.contactDetail || !fellow) return;
-    const defaultToggle = els.contactDetail.querySelector("[data-capability-default]");
-    defaultToggle?.addEventListener("change", async () => {
-      const capabilities = fellowCapabilities(fellow);
-      capabilities.inheritEngineDefaults = Boolean(defaultToggle.checked);
-      await saveFellowCapabilities(fellow, capabilities);
-    });
     els.contactDetail.querySelectorAll("[data-capability-type][data-capability-id]").forEach((input) => {
       input.addEventListener("change", async () => {
         const id = input.dataset.capabilityId || "";
         const type = input.dataset.capabilityType || "";
         let capabilities = fellowCapabilities(fellow);
-        if (type === "plugin") {
-          capabilities = toggleCapabilityId(capabilities, id, "enabledPlugins", "disabledPlugins", input.checked);
-        } else if (type === "skill") {
+        if (type === "skill") {
           capabilities = toggleCapabilityId(capabilities, id, "enabledSkills", "disabledSkills", input.checked);
-        } else if (type === "connector") {
-          capabilities.enabledConnectors = input.checked
-            ? [...new Set([...capabilities.enabledConnectors, id])]
-            : capabilities.enabledConnectors.filter((item) => item !== id);
         }
         await saveFellowCapabilities(fellow, capabilities);
       });

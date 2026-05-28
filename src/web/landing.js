@@ -12,28 +12,28 @@
 
   const stageCopy = {
     select: {
-      title: "创建伙伴",
-      subtitle: "Each Fellow has identity, skills and engine",
-      status: "3 Fellows online",
-      permission: "fellow profile"
+      title: "伙伴",
+      subtitle: "Fellows + skills",
+      status: "3 online",
+      permission: "profile"
     },
     route: {
-      title: "选择内核",
+      title: "内核",
       subtitle: "Claude Code / Codex / Hermes",
-      status: "Engine ready",
-      permission: "engine selected"
+      status: "Ready",
+      permission: "engine"
     },
     approve: {
-      title: "聊天执行",
-      subtitle: "Messages, files and tools in one GUI",
+      title: "聊天",
+      subtitle: "Messages + tools",
       status: "Bridge online",
       permission: "ask before shell"
     },
     reply: {
-      title: "多端同步",
-      subtitle: "Desktop and Web share the same conversation",
+      title: "同步",
+      subtitle: "Desktop + Web",
       status: "Synced",
-      permission: "conversation message"
+      permission: "message"
     }
   };
 

@@ -608,6 +608,10 @@
   background: rgba(255, 255, 255, 0.54);
 }
 
+:root:not([data-theme="dark"]) .assistant .message-code-block {
+  background: rgba(0, 0, 0, 0.045);
+}
+
 :root[data-theme="dark"] .message-code-block {
   background: rgba(255, 255, 255, 0.06);
 }
