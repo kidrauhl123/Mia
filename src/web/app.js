@@ -206,6 +206,23 @@ function isPublicImageSrc(value) {
   return /^(https?:|data:|\.?\/assets\/|\/api\/files\/)/i.test(String(value || ""));
 }
 
+// Avatar URLs stored on cloud sometimes use a desktop-bundle-relative form
+// like "./assets/avatars/12.png" — desktop's renderer resolves that against
+// the bundle root, but the web app loads from "/app/" so the same string
+// resolves to "/app/assets/..." and nginx's SPA fallback returns the index
+// HTML, producing a broken image. Strip the leading "." (or bare prefix)
+// so all asset references hit the root-served "/assets/..." path. data:
+// URLs, http(s):// and root-relative paths are passed through untouched.
+function normalizeAvatarUrl(value) {
+  const src = String(value || "").trim();
+  if (!src) return "";
+  if (/^(https?:\/\/|data:|\/\/)/i.test(src)) return src;
+  if (src.startsWith("/")) return src;
+  if (src.startsWith("./")) return src.slice(1); // "./assets/x" → "/assets/x"
+  if (src.startsWith("assets/")) return `/${src}`;
+  return src;
+}
+
 const avatarMedia = window.miaAvatarMedia || {
   isVideo: () => false,
   trimFromCrop: () => ({ start: 0, duration: 3 })
@@ -413,7 +430,10 @@ function webAvatarDefaultCropForSrc(src) {
 function avatarBackgroundStyle(image, customCrop, fallbackColor) {
   if (!image) return `background-color:${fallbackColor};color:#fff;display:inline-flex;align-items:center;justify-content:center;`;
   if (avatarMedia.isVideo?.(image)) return "background-color:transparent;";
+  // Look up presets against the raw value (preset keys may use "./assets/")
+  // before normalizing the URL for the actual background-image declaration.
   const preset = AVATAR_PRESETS[image] || null;
+  const src = normalizeAvatarUrl(image);
   // Treat (50, 50, 1) as "no crop set" so we fall back to the preset crop
   // for human avatars even when the synced conversation didn't carry one.
   const isNeutral = !customCrop || (
@@ -426,7 +446,7 @@ function avatarBackgroundStyle(image, customCrop, fallbackColor) {
   const y = Number.isFinite(Number(crop.y)) ? Number(crop.y) : 50;
   const zoom = Number.isFinite(Number(crop.zoom)) ? Number(crop.zoom) : 1;
   const size = Math.round(zoom * 100);
-  return `background-color:transparent;background-image:url('${image}');background-size:${size}%;background-position:${x}% ${y}%;background-repeat:no-repeat;`;
+  return `background-color:transparent;background-image:url('${src}');background-size:${size}%;background-position:${x}% ${y}%;background-repeat:no-repeat;`;
 }
 
 function avatarVideoStyle(crop = {}) {
@@ -438,7 +458,8 @@ function avatarVideoStyle(crop = {}) {
 
 function avatarVideoHtml(image, crop = {}) {
   const trim = avatarMedia.trimFromCrop?.(crop) || { start: 0, duration: 3 };
-  return `<video class="avatar-video" src="${escapeHtml(image)}" muted loop autoplay playsinline aria-hidden="true" data-avatar-start="${escapeHtml(trim.start)}" data-avatar-duration="${escapeHtml(trim.duration)}" style="${avatarVideoStyle(crop)}"></video>`;
+  const src = normalizeAvatarUrl(image);
+  return `<video class="avatar-video" src="${escapeHtml(src)}" muted loop autoplay playsinline aria-hidden="true" data-avatar-start="${escapeHtml(trim.start)}" data-avatar-duration="${escapeHtml(trim.duration)}" style="${avatarVideoStyle(crop)}"></video>`;
 }
 
 function avatarHtml({ className = "avatar", image = "", crop = null, color = "#5e5ce6", text = "", attrs = "" } = {}) {

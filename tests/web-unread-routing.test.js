@@ -492,6 +492,41 @@ test("src/web/app.js resolves fellow avatars via conversationMembersCache when t
   );
 });
 
+test("src/web/app.js normalizes cloud-stored avatar URLs so root-served assets resolve correctly under /app/", () => {
+  const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
+  assert.match(
+    source,
+    /function normalizeAvatarUrl\(/,
+    "web/app.js must define normalizeAvatarUrl so './assets/...' paths don't 404 under /app/'s SPA fallback"
+  );
+  // Extract the helper body and exercise it by eval so we catch behavior
+  // regressions, not just presence.
+  const helperMatch = source.match(/function normalizeAvatarUrl\(value\) \{[\s\S]*?\n\}/);
+  assert.ok(helperMatch, "normalizeAvatarUrl body must be extractable for behavior assertions");
+  // eslint-disable-next-line no-new-func
+  const normalizeAvatarUrl = new Function(`${helperMatch[0]}; return normalizeAvatarUrl;`)();
+  assert.equal(normalizeAvatarUrl(""), "", "empty input → empty");
+  assert.equal(normalizeAvatarUrl(null), "", "null → empty");
+  assert.equal(normalizeAvatarUrl("./assets/avatars/12.png"), "/assets/avatars/12.png", "./assets → /assets");
+  assert.equal(normalizeAvatarUrl("/assets/avatars/12.png"), "/assets/avatars/12.png", "/assets passes through");
+  assert.equal(normalizeAvatarUrl("assets/avatars/12.png"), "/assets/avatars/12.png", "bare assets/... → /assets/...");
+  assert.equal(normalizeAvatarUrl("https://cdn.example.com/x.png"), "https://cdn.example.com/x.png", "absolute https passes through");
+  assert.equal(normalizeAvatarUrl("data:image/png;base64,AAAA"), "data:image/png;base64,AAAA", "data URL passes through");
+  assert.equal(normalizeAvatarUrl("//cdn.example.com/x.png"), "//cdn.example.com/x.png", "protocol-relative passes through");
+  // Both leaf rendering helpers must consume normalizeAvatarUrl, otherwise
+  // future changes could swap in a path that bypasses it.
+  assert.match(
+    source,
+    /function avatarBackgroundStyle[\s\S]*?normalizeAvatarUrl\(/,
+    "avatarBackgroundStyle must route the image through normalizeAvatarUrl"
+  );
+  assert.match(
+    source,
+    /function avatarVideoHtml[\s\S]*?normalizeAvatarUrl\(/,
+    "avatarVideoHtml must route the src through normalizeAvatarUrl"
+  );
+});
+
 test("src/web/app.js persists conversation readMarks as message seq, not timestamps", () => {
   const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
   assert.equal(
