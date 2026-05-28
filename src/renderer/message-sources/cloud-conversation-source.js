@@ -62,13 +62,12 @@
         }
         // Avatar priority mirrors displayName: own fellow first, then
         // server-enriched member row, then identity-deterministic preset
-        // from the shared resolver. The resolver always returns a usable
-        // {image, crop, color} so we never produce a blank tile.
+        // from the shared resolver. Color is always hashed from the id by
+        // the resolver — there is no per-fellow stored color.
         const avatar = resolveAvatarForContact({
           id: m.sender_ref,
           avatarImage: (ownedByMe && localFellow.avatar?.image) || member?.fellow_avatar_image,
-          avatarCrop: (ownedByMe && localFellow.avatar?.crop) || member?.fellow_avatar_crop,
-          color: (ownedByMe && localFellow.avatar?.color) || member?.fellow_color
+          avatarCrop: (ownedByMe && localFellow.avatar?.crop) || member?.fellow_avatar_crop
         });
         return {
           kind: ContactKind.Fellow,

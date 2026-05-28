@@ -19,7 +19,6 @@ function ensureDefaultCloudFellow(context, userId, options = {}) {
     fellow = context.fellowsStore.upsertFellow(ownerUserId, {
       id: fellowId,
       name: options.name || "Mia",
-      color: options.color || "#2563eb",
       avatarImage: options.avatarImage || "",
       avatarCrop: null,
       bio: options.bio || "Mia Fellow",

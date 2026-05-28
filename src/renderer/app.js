@@ -545,6 +545,7 @@ function conversationCardSpecFromRow(row, personas) {
     const conversation = row.conversation;
     const activeConversationId = social?.getActiveConversationId?.();
     const isFellow = conversation.type === "fellow";
+    const memberAccent = window.miaMemberColor.memberAccentColor;
     let name, avatar;
     if (isFellow) {
       const fellowKey = conversation.decorations?.fellowKey || (conversation.id?.split(":")[2] || "");
@@ -553,7 +554,7 @@ function conversationCardSpecFromRow(row, personas) {
       avatar = {
         image: fellow?.avatarImage || avatarHelper?.avatarAssetForKey(fellowKey),
         crop: fellow?.avatarCrop,
-        color: fellow?.color || "#5e5ce6"
+        color: memberAccent(fellowKey)
       };
     } else {
       const other = conversation.otherUser || {};
@@ -561,7 +562,7 @@ function conversationCardSpecFromRow(row, personas) {
       avatar = {
         image: other.avatarImage,
         crop: other.avatarCrop,
-        color: other.avatarColor || "#5e5ce6"
+        color: memberAccent(other.id || other.account || name)
       };
     }
     const pinned = Boolean(social?.isConversationPinned?.(conversation.id));

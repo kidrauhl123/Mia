@@ -176,6 +176,11 @@ let state = {
   activeSettingsTab: "account",
   createMenuOpen: false,
   sessionMenuOpen: false,
+  // Per-row open/closed memory for trace blocks (reasoning + tool cards) so
+  // expansion state survives re-renders. Same shape as desktop state — see
+  // src/shared/trace-blocks.js + renderer/app.js trace toggle handler.
+  openTraceKeys: new Set(),
+  animatedTraceKeys: new Set(),
 };
 
 let eventsSocket = null;
@@ -848,12 +853,87 @@ function cloudRunFor(conversationId, runId = "") {
     conversationId,
     runId,
     text: "",
+    reasoning: "",
     status: "running",
     createdAt: new Date().toISOString(),
     tools: [],
+    toolsById: new Map(),
+    toolsByName: new Map(),
   };
   state.cloudAgentRunsByConversation.set(conversationId, run);
   return run;
+}
+
+function normalizeToolStatus(status) {
+  const value = String(status || "").trim();
+  if (value === "complete" || value === "completed") return "completed";
+  if (value === "error" || value === "failed") return "error";
+  return "running";
+}
+
+function ensureRunTraceMaps(run) {
+  if (!run.toolsById) run.toolsById = new Map();
+  if (!run.toolsByName) run.toolsByName = new Map();
+  if (!Array.isArray(run.tools)) run.tools = [];
+}
+
+function findRunTool(run, event = {}) {
+  ensureRunTraceMaps(run);
+  const id = String(event.id || "");
+  const name = String(event.tool || event.name || event.data?.tool || "");
+  let tool = id ? run.toolsById.get(id) : null;
+  if (!tool && name) {
+    const queue = run.toolsByName.get(name);
+    tool = queue && queue.find((item) => item.status === "running");
+  }
+  if (!tool && !id && !name) {
+    tool = [...run.tools].reverse().find((item) => item.status === "running");
+  }
+  return tool || null;
+}
+
+function addRunTool(run, event = {}) {
+  ensureRunTraceMaps(run);
+  const tool = {
+    id: String(event.id || `tool_${run.tools.length}`),
+    name: String(event.tool || event.name || event.data?.tool || "工具"),
+    preview: String(event.preview || event.input || ""),
+    status: "running",
+    duration: null,
+    error: false,
+  };
+  run.tools.push(tool);
+  run.toolsById.set(tool.id, tool);
+  const queue = run.toolsByName.get(tool.name) || [];
+  queue.push(tool);
+  run.toolsByName.set(tool.name, queue);
+}
+
+function parseTraceJson(value) {
+  if (!value) return null;
+  let parsed = value;
+  if (typeof value === "string") {
+    try { parsed = JSON.parse(value); } catch { return null; }
+  }
+  if (!parsed || typeof parsed !== "object") return null;
+  const reasoning = String(parsed.reasoning || "").trim();
+  const tools = Array.isArray(parsed.tools)
+    ? parsed.tools.map((tool, idx) => {
+      if (!tool || typeof tool !== "object") return null;
+      const name = String(tool.name || "").trim();
+      if (!name) return null;
+      return {
+        id: String(tool.id || `tool_${idx}`),
+        name,
+        preview: String(tool.preview || ""),
+        status: normalizeToolStatus(tool.status),
+        duration: typeof tool.duration === "number" ? tool.duration : null,
+        error: Boolean(tool.error),
+      };
+    }).filter(Boolean)
+    : [];
+  if (!reasoning && !tools.length) return null;
+  return { reasoning, tools };
 }
 
 function handleCloudEvent(envelope) {
@@ -923,12 +1003,22 @@ function handleCloudEvent(envelope) {
       run.status = "error";
     } else if (name === "run.cancelled") {
       run.status = "cancelled";
-    } else if (name === "tool.started") {
-      run.tools.push({ name: String(event.tool || event.name || event.data?.tool || "工具"), status: "running" });
-    } else if (name === "tool.completed") {
-      const toolName = String(event.tool || event.name || event.data?.tool || "");
-      const tool = [...run.tools].reverse().find((item) => !toolName || item.name === toolName);
-      if (tool) tool.status = event.error || event.data?.error ? "error" : "complete";
+    } else if (name === "reasoning.available" || name === "reasoning_delta") {
+      run.reasoning = `${run.reasoning || ""}${hermesEventText(event)}`;
+      if (run.reasoning && !run.reasoning.endsWith("\n")) run.reasoning += "\n";
+    } else if (name === "tool.started" || name === "tool_call_started") {
+      addRunTool(run, event);
+    } else if (name === "tool.delta" || name === "tool_call_delta") {
+      const tool = findRunTool(run, event);
+      if (tool) tool.preview = String(event.preview || event.delta || tool.preview || "");
+    } else if (name === "tool.completed" || name === "tool_call_completed") {
+      const tool = findRunTool(run, event);
+      if (tool) {
+        tool.status = event.error || event.data?.error ? "error" : normalizeToolStatus(event.status || "completed");
+        tool.duration = typeof event.duration === "number" ? event.duration : null;
+        tool.error = Boolean(event.error || event.data?.error);
+        if (event.preview) tool.preview = String(event.preview);
+      }
     }
     if (conversationId === state.activeConversationId) renderActiveChat();
   } else if (type === "device_updated") {
@@ -1791,26 +1881,39 @@ function buildConversationMessageArticle(msg, conversation) {
   const senderLabel = spec.authorName;
   const senderAvatar = spec.avatar?.image || "";
   const senderCrop = spec.avatar?.crop || null;
-  const senderColor = spec.avatar?.color || "";
+  const senderColor = spec.avatar?.color || window.miaMemberColor.memberAccentColor(msg.sender_ref || senderLabel);
   const cls = isOwn ? "message user" : "message assistant";
   const initial = isOwn
     ? (state.user?.username?.[0] || "M").toUpperCase()
     : (senderLabel?.[0] || "?").toUpperCase();
-  const fallbackColor = isOwn ? "#0162db" : (senderColor || "#5e5ce6");
+  const avatarColor = isOwn ? "#0162db" : senderColor;
   const avatarMarkup = avatarHtml({
     className: "avatar",
     image: senderAvatar,
     crop: senderCrop,
-    color: fallbackColor,
+    color: avatarColor,
     text: initial
   });
-  const bodyHtml = spec.bodyMd ? `<div class="bubble">${renderMarkdown(spec.bodyMd)}</div>` : "";
+  const senderTitleHtml = senderLabel && !isOwn
+    ? `<span class="bubble-sender" style="color:${senderColor};">${escapeHtml(senderLabel)}</span>`
+    : "";
+  const bodyHtml = spec.bodyMd ? `<div class="bubble">${senderTitleHtml}${renderMarkdown(spec.bodyMd)}</div>` : "";
   const attachmentHtml = renderAttachmentChips(spec.attachments || msg.attachments || []);
+  const trace = !isOwn ? parseTraceJson(msg.trace_json || msg.trace) : null;
+  const traceHtml = trace
+    ? window.miaTraceBlocks.renderTraceBlocks({
+      reasoning: trace.reasoning,
+      tools: trace.tools,
+      content: spec.bodyMd || "",
+      expanded: false,
+      scopeKey: `web-msg:${msg.id || msg.seq || ""}`,
+    })
+    : "";
   return `
     <article class="${cls}">
       ${avatarMarkup}
       <div class="message-stack">
-        ${senderLabel && !isOwn ? `<span class="message-sender">${escapeHtml(senderLabel)}</span>` : ""}
+        ${traceHtml}
         ${bodyHtml}
         ${attachmentHtml}
         <span class="message-time">${escapeHtml(formatMessageTime(spec.createdAt))}</span>
@@ -1846,13 +1949,17 @@ function buildCloudAgentStreamingArticle(conversation, run) {
     text: (spec.authorName?.[0] || "?").toUpperCase()
   });
   const textHtml = run.text ? `<div class="bubble">${renderMarkdown(run.text)}</div>` : "";
-  const toolsHtml = run.tools.length
-    ? `<div class="message-attachments">${run.tools.slice(-3).map((tool) => `<span class="message-attachment"><span>TOOL</span><strong>${escapeHtml(tool.name || "工具")}</strong><em>${escapeHtml(tool.status || "")}</em></span>`).join("")}</div>`
-    : "";
+  const traceHtml = window.miaTraceBlocks.renderTraceBlocks({
+    reasoning: run.reasoning,
+    tools: run.tools,
+    content: run.text || "",
+    expanded: true,
+    scopeKey: `web-run:${run.runId || conversation.id}`,
+  });
   return `
     <article class="message assistant streaming">
       ${avatarMarkup}
-      <div class="message-stack">${textHtml}${toolsHtml}</div>
+      <div class="message-stack">${traceHtml}${textHtml}</div>
     </article>
   `;
 }
@@ -1981,6 +2088,7 @@ function renderActiveChat() {
       : `<p class="persona-empty">还没有消息。</p>`;
     if (!messages.length && streaming) els.chat.innerHTML = streaming;
     hydrateAvatarVideos(els.chat);
+    if (window.miaTraceBlocks?.markRenderedTraceBlocks) window.miaTraceBlocks.markRenderedTraceBlocks(els.chat);
     if (messages.length || streaming) els.chat.scrollTop = els.chat.scrollHeight;
     setComposerEnabled(true, "输入消息，Enter 发送，Shift+Enter 换行");
     return;
@@ -2874,6 +2982,24 @@ els.chat.addEventListener("click", async (event) => {
   if (await copyTextToClipboard(code.textContent)) flashCopiedCode(code);
 });
 
+els.chat.addEventListener("toggle", (event) => {
+  const row = event.target.closest?.("details.trace-row[data-trace-key]");
+  if (!row || !els.chat.contains(row)) return;
+  const key = row.dataset.traceKey;
+  if (!key) return;
+  if (row.open) {
+    state.openTraceKeys.add(key);
+    state.openTraceKeys.delete(`!${key}`);
+    row.dataset.userOpen = "true";
+    delete row.dataset.autoOpen;
+  } else {
+    state.openTraceKeys.delete(key);
+    state.openTraceKeys.add(`!${key}`);
+    delete row.dataset.userOpen;
+    delete row.dataset.autoOpen;
+  }
+}, true);
+
 els.chat.addEventListener("keydown", async (event) => {
   if (event.key !== "Enter" && event.key !== " ") return;
   const link = event.target.closest("a.message-link[data-external-link]");
@@ -2946,6 +3072,10 @@ bindAppearanceInput(els.appearanceShowAssistantAvatar, "showAssistantAvatar", (e
 // rail rail-rail button → chat is the only view; already active by default
 
 // ── init ───────────────────────────────────────────────────────────────────
+
+if (window.miaTraceBlocks && typeof window.miaTraceBlocks.initTraceBlocks === "function") {
+  window.miaTraceBlocks.initTraceBlocks({ state });
+}
 
 loadSession();
 setAuthView();

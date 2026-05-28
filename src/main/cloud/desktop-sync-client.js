@@ -1,5 +1,10 @@
 "use strict";
 
+const {
+  DEFAULT_SKILL_MARKET_CACHE_TTL_MS,
+  normalizeSkillMarketParams
+} = require("../skills/skill-market-cache.js");
+
 function createCloudDesktopSyncClient({
   getCloudSettings,
   writeCloudSettings,
@@ -17,7 +22,10 @@ function createCloudDesktopSyncClient({
   startCloudEvents,
   startCloudBridge,
   stopCloudEvents,
-  stopCloudBridge
+  stopCloudBridge,
+  skillMarketCache = null,
+  skillMarketCacheTtlMs = DEFAULT_SKILL_MARKET_CACHE_TTL_MS,
+  now = () => Date.now()
 }) {
   function settings() {
     return typeof getCloudSettings === "function" ? getCloudSettings() : {};
@@ -64,7 +72,6 @@ function createCloudDesktopSyncClient({
         method: "PUT",
         body: {
           name: fellow.name,
-          color: fellow.color || "",
           avatarImage: fellow.avatarImage || "",
           avatarCrop: fellow.avatarCrop || null,
           bio: fellow.bio || "",
@@ -158,15 +165,51 @@ function createCloudDesktopSyncClient({
     return data && data.settings ? data.settings : null;
   }
 
-  async function listMarketSkills({ category = "", q = "" } = {}) {
-    const params = new URLSearchParams();
-    if (category) params.set("category", category);
-    if (q) params.set("q", q);
-    const qs = params.toString();
+  function skillMarketCacheUserId(current = settings()) {
+    return String(current?.user?.id || current?.user?.username || "").trim();
+  }
+
+  async function fetchMarketSkillsFromCloud(params) {
+    const query = new URLSearchParams();
+    if (params.category) query.set("category", params.category);
+    if (params.q) query.set("q", params.q);
+    if (params.limit) query.set("limit", String(params.limit));
+    const qs = query.toString();
     const data = await cloudApi(`/api/skills${qs ? `?${qs}` : ""}`, { method: "GET" });
     return {
       skills: Array.isArray(data.skills) ? data.skills : [],
       categories: Array.isArray(data.categories) ? data.categories : []
+    };
+  }
+
+  async function listMarketSkills(params = {}) {
+    const normalized = normalizeSkillMarketParams(params);
+    const current = settings();
+    const userId = skillMarketCacheUserId(current);
+    if (!params?.forceRefresh && skillMarketCache && userId) {
+      const cached = skillMarketCache.getMarketPage(userId, normalized, {
+        nowMs: now(),
+        ttlMs: skillMarketCacheTtlMs
+      });
+      if (cached) {
+        return {
+          skills: cached.skills,
+          categories: cached.categories,
+          cached: true,
+          stale: cached.stale,
+          updatedAt: cached.updatedAt
+        };
+      }
+    }
+    const page = await fetchMarketSkillsFromCloud(normalized);
+    if (skillMarketCache && userId) {
+      skillMarketCache.upsertMarketPage(userId, normalized, page, now());
+    }
+    return {
+      ...page,
+      cached: false,
+      stale: false,
+      updatedAt: new Date(now()).toISOString()
     };
   }
 

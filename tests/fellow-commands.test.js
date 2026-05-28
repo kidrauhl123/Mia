@@ -174,7 +174,6 @@ test("saveFellowCapabilities updates cloud-hermes identity and local fellow cach
       key: "alice",
       name: "Alice",
       runtimeKind: "cloud-hermes",
-      color: "#111111",
       bio: "helper",
       personaText: "Persona"
     },
@@ -187,7 +186,6 @@ test("saveFellowCapabilities updates cloud-hermes identity and local fellow cach
     "alice",
     {
       name: "Alice",
-      color: "#111111",
       avatarImage: "",
       avatarCrop: null,
       bio: "helper",

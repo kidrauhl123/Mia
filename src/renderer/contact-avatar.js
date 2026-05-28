@@ -5,7 +5,7 @@
     const el = document.createElement("span");
     el.className = `avatar contact-avatar${options.className ? " " + options.className : ""}`;
     const avatar = contact && contact.avatar ? contact.avatar : { image: "", crop: null, color: "" };
-    const color = avatar.color || "#5e5ce6";
+    const color = avatar.color || global.miaMemberColor?.memberAccentColor(contact?.id || contact?.key || contact?.displayName || "") || "#5e5ce6";
     if (avatar.image) {
       global.miaAvatar.paintAvatar(el, { image: avatar.image, crop: avatar.crop, color });
       return el;

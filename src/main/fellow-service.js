@@ -85,7 +85,6 @@ function createFellowService({
       agentEngine: fellowInput.agentEngine || fellowInput.agent_engine || existingFellow?.agentEngine || "hermes",
       engineConfig: normalizeFellowEngineConfig(fellowInput.engineConfig || fellowInput.engine_config || existingFellow?.engineConfig),
       platform: "api_server",
-      color: fellowInput.color || "#0f766e",
       avatarImage: fellowInput.avatarImage || fellowInput.avatar || "",
       avatarCrop: normalizeAvatarCrop(fellowInput.avatarCrop),
       bio: fellowInput.description || fellowInput.bio || fellows.find((item) => item.key === key)?.bio || "",

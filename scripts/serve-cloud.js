@@ -53,7 +53,7 @@ try {
 } catch {
   ({ createHermesSkillsSource } = require("./src/cloud/hermes-skills-source.js"));
 }
-const DEFAULT_SKILL_MARKET_LIMIT = 5000;
+const DEFAULT_SKILL_MARKET_LIMIT = 120;
 const MAX_SKILL_MARKET_LIMIT = 10000;
 let skillSafety = null;
 try {
@@ -1910,7 +1910,6 @@ async function handleRequest(req, res, context) {
       const fellow = context.fellowsStore.upsertFellow(auth.user.id, {
         id,
         name: body.name,
-        color: body.color,
         avatarImage: body.avatarImage,
         avatarCrop: body.avatarCrop,
         bio: body.bio,

@@ -86,14 +86,15 @@
   }
 
   function fellowAvatarFor(member, fellows) {
+    const color = global.miaMemberColor.memberAccentColor(member.member_ref);
     if (member.fellow_avatar_image) {
-      return { image: member.fellow_avatar_image, crop: member.fellow_avatar_crop, color: member.fellow_color || "#5e5ce6" };
+      return { image: member.fellow_avatar_image, crop: member.fellow_avatar_crop, color };
     }
     const f = (fellows || []).find((x) => (x.id || x.key) === member.member_ref);
     return {
       image: f?.avatarImage || global.miaAvatar?.avatarAssetForKey?.(member.member_ref),
       crop: f?.avatarCrop,
-      color: f?.color || "#5e5ce6"
+      color
     };
   }
 

@@ -184,7 +184,13 @@
   function resolveAvatarForContact(input = {}) {
     const id = String(input.id || "");
     const rawImage = String(input.avatarImage || "").trim();
-    const color = String(input.color || "").trim() || DEFAULT_AVATAR_COLOR;
+    // Color is identity-derived: every conversation participant (fellow or
+    // user) gets the same hashed palette color so the avatar tile, bubble
+    // name title, and any other per-member chip stay in sync without any
+    // per-member color preference stored anywhere.
+    const memberColor = (typeof globalThis !== "undefined" && globalThis.miaMemberColor)
+      || (typeof require === "function" ? require("./member-color.js") : null);
+    const color = memberColor && id ? memberColor.memberAccentColor(id) : DEFAULT_AVATAR_COLOR;
     if (rawImage) {
       return {
         image: rawImage,

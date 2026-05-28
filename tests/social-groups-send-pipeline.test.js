@@ -41,6 +41,7 @@ function loadSocialGroups() {
       },
     },
     miaConversationKinds: require("../src/shared/conversation-kinds.js"),
+    miaMemberColor: require("../src/shared/member-color.js"),
     miaTraceBlocks: {
       renderTraceBlocks({ reasoning, tools }) {
         return `<div class="trace"><span>${String(reasoning || "")}</span>${(tools || []).map((tool) => `<span>${tool.name}</span>`).join("")}</div>`;

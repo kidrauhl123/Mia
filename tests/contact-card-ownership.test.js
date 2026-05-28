@@ -39,6 +39,7 @@ function loadCard() {
   };
   const window = {
     miaConversationKinds: { MemberKind: { Fellow: "fellow", User: "user" } },
+    miaMemberColor: require("../src/shared/member-color.js"),
     innerWidth: 1000,
     innerHeight: 800,
   };

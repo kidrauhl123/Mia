@@ -52,6 +52,21 @@
   margin: 0 0 9px;
 }
 
+.bubble-sender {
+  display: block;
+  font-size: 0.82em;
+  font-weight: 600;
+  line-height: 1.2;
+  margin-bottom: 4px;
+}
+
+.bubble-sender + p,
+.bubble-sender + ul,
+.bubble-sender + ol,
+.bubble-sender + pre {
+  margin-top: 0;
+}
+
 .bubble p:last-child,
 .bubble ul:last-child,
 .bubble ol:last-child,

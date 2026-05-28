@@ -35,9 +35,12 @@
     const stack = document.createElement("div");
     stack.className = "message-stack";
     const showAuthor = spec.authorName && !spec.isOwn && role !== "system";
+    const accentColor = global.miaMemberColor?.memberAccentColor(spec.authorId || spec.authorName || "");
+    const senderTitleHtml = showAuthor
+      ? `<span class="bubble-sender"${accentColor ? ` style="color:${accentColor};"` : ""}>${escapeHtml(spec.authorName)}</span>`
+      : "";
     stack.innerHTML = `
-      ${showAuthor ? `<span class="message-sender">${escapeHtml(spec.authorName)}</span>` : ""}
-      <div class="bubble">${renderMd(spec.bodyMd || "")}</div>
+      <div class="bubble">${senderTitleHtml}${renderMd(spec.bodyMd || "")}</div>
       <span class="message-time">${escapeHtml(shortTime(spec.createdAt))}</span>
     `;
     article.appendChild(stack);

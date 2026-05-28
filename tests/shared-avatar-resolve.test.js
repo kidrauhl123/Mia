@@ -83,6 +83,7 @@ test("avatarCropForImage: neutral crop on a known preset switches to that preset
 });
 
 test("resolveAvatarForContact: explicit avatarImage wins and carries its crop", () => {
+  const memberColor = require("../src/shared/member-color.js");
   const result = avatarResolve.resolveAvatarForContact({
     id: "fellow_42",
     avatarImage: "data:image/png;base64,AAAA",
@@ -91,7 +92,9 @@ test("resolveAvatarForContact: explicit avatarImage wins and carries its crop", 
   });
   assert.equal(result.image, "data:image/png;base64,AAAA");
   assert.deepEqual(result.crop, { x: 60, y: 20, zoom: 1.4 });
-  assert.equal(result.color, "#ff9f0a");
+  // Color is always identity-derived; the `color` field on input is ignored
+  // so fellow / user members never split into separate color-resolution paths.
+  assert.equal(result.color, memberColor.memberAccentColor("fellow_42"));
 });
 
 test("resolveAvatarForContact: empty avatarImage falls back to identity-hashed preset", () => {
@@ -109,9 +112,10 @@ test("resolveAvatarForContact: same id always yields the same fallback (determin
   assert.deepEqual(first, second);
 });
 
-test("resolveAvatarForContact: missing color resolves to the shared default", () => {
+test("resolveAvatarForContact: color comes from the shared id-hashed palette", () => {
+  const memberColor = require("../src/shared/member-color.js");
   const r = avatarResolve.resolveAvatarForContact({ id: "anon" });
-  assert.equal(r.color, avatarResolve.DEFAULT_AVATAR_COLOR);
+  assert.equal(r.color, memberColor.memberAccentColor("anon"));
 });
 
 test("resolveAvatarForContact: a neutral explicit crop on a preset image switches to that preset's crop", () => {

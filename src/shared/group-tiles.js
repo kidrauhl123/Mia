@@ -62,13 +62,13 @@
       if (kind === "user") {
         // Self is just another user-kind member; no "boss" position. We
         // still look up self separately because the friend list never
-        // includes the viewer.
+        // includes the viewer. Color is derived from the id by the resolver;
+        // no per-contact color field is consulted.
         if (self && ref === self.id) {
           out.push(resolveTile({
             id: self.id,
             avatarImage: self.avatarImage,
-            avatarCrop: self.avatarCrop,
-            color: self.avatarColor
+            avatarCrop: self.avatarCrop
           }));
           continue;
         }
@@ -76,8 +76,7 @@
         out.push(resolveTile({
           id: ref,
           avatarImage: friend?.avatarImage,
-          avatarCrop: friend?.avatarCrop,
-          color: friend?.avatarColor
+          avatarCrop: friend?.avatarCrop
         }));
         continue;
       }
@@ -91,8 +90,7 @@
         out.push(resolveTile({
           id: ref,
           avatarImage: fellow?.avatarImage || m.fellow_avatar_image,
-          avatarCrop: fellow?.avatarCrop || m.fellow_avatar_crop,
-          color: fellow?.color || m.fellow_color
+          avatarCrop: fellow?.avatarCrop || m.fellow_avatar_crop
         }));
         continue;
       }

@@ -319,7 +319,7 @@
         button.querySelector(".fellow-photo"),
         fellow.avatarImage || window.miaAvatar.avatarAssetForKey(fellow.key),
         fellow.avatarCrop,
-        fellow.color || "#5e5ce6"
+        window.miaMemberColor.memberAccentColor(fellow.key || fellow.id)
       );
       els.contactList.appendChild(button);
     }

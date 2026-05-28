@@ -172,9 +172,10 @@
     const local = isMine ? localFellow(ref) : null;
 
     const name = local?.name || member?.fellow_name || ref;
+    const memberAccent = window.miaMemberColor.memberAccentColor;
     const avatar = local
-      ? { image: local.avatarImage, crop: local.avatarCrop, color: local.color }
-      : { image: member?.fellow_avatar_image, crop: member?.fellow_avatar_crop, color: member?.fellow_color || "#5e5ce6" };
+      ? { image: local.avatarImage, crop: local.avatarCrop, color: memberAccent(ref) }
+      : { image: member?.fellow_avatar_image, crop: member?.fellow_avatar_crop, color: memberAccent(ref) };
 
     const card = document.createElement("div");
     card.className = "contact-card";

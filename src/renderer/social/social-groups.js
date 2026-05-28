@@ -105,7 +105,9 @@
     const authorName = spec ? spec.authorName : "";
     const senderLabel = isOwn ? "" : (authorName || "");
     const avatar = (spec && spec.avatar) || { image: "", crop: null, color: "" };
-    const avatarColor = avatar.color || accentColor || "#5e5ce6";
+    const memberAccent = window.miaMemberColor.memberAccentColor;
+    const senderColor = memberAccent(msg.sender_ref || authorName);
+    const avatarColor = avatar.color || senderColor;
     const avatarHelpers = window.miaAvatar;
     const avatarLetter = avatar.image ? "" : ((authorName || "?")[0] || "?").toUpperCase();
     const avatarHtml = avatarHelpers?.avatarHtml
@@ -152,12 +154,14 @@
 
     const article = document.createElement("article");
     article.className = `message ${roleClass}`;
+    const senderTitleHtml = senderLabel
+      ? `<span class="bubble-sender" style="color:${escapeHtml(senderColor)};">${escapeHtml(senderLabel)}</span>`
+      : "";
     article.innerHTML = `
       ${avatarHtml}
       <div class="message-stack">
-        ${senderLabel ? `<span class="message-sender">${escapeHtml(senderLabel)}</span>` : ""}
         ${traceHtml}
-        <div class="bubble" data-message-index="${messageIndex}" data-message-source="cloud-conversation" data-message-id="${escapeHtml(msg.id || "")}">${bodyHtml}</div>
+        <div class="bubble" data-message-index="${messageIndex}" data-message-source="cloud-conversation" data-message-id="${escapeHtml(msg.id || "")}">${senderTitleHtml}${bodyHtml}</div>
         ${attachmentHtml}
         ${translationHtml}
         ${timeHtml}
@@ -284,6 +288,7 @@
         color: "#34c759"
       }));
     }
+    const memberAccent = window.miaMemberColor.memberAccentColor;
     for (const fellow of ownedFellows) {
       const id = fellow.key || fellow.id;
       membersBox.appendChild(buildRow({
@@ -291,7 +296,7 @@
         id,
         name: fellow.name || id,
         runtimeKind: fellow.runtimeKind || fellow.runtime_kind || "cloud-hermes",
-        color: fellow.color || "#5e5ce6",
+        color: memberAccent(id),
         // Cloud fellows (e.g. mia) have no inline avatarImage; fall back to the
         // key-derived preset asset, same as the conversation list / applyFellowAvatar.
         image: fellow.avatarImage || window.miaAvatar?.avatarAssetForKey?.(fellow.key || id),

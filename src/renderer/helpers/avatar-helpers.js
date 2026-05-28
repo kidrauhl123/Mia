@@ -390,7 +390,11 @@
   function applyFellowAvatar(el, fellow) {
     if (!el) return;
     const image = fellow?.avatarImage || avatarAssetForKey(fellow?.key);
-    applyAvatarMedia(el, image, fellow?.avatarCrop, fellow?.color || "#5e5ce6");
+    const id = fellow?.id || fellow?.key || "";
+    const color = (typeof window !== "undefined" && window.miaMemberColor)
+      ? window.miaMemberColor.memberAccentColor(id)
+      : "#5e5ce6";
+    applyAvatarMedia(el, image, fellow?.avatarCrop, color);
   }
 
   function applyAvatar(el, text, color, image) {

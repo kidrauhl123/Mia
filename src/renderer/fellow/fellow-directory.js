@@ -1,6 +1,9 @@
 (function (global) {
   "use strict";
 
+  const memberColor = (typeof globalThis !== "undefined" && globalThis.miaMemberColor)
+    || (typeof require === "function" ? require("../../shared/member-color.js") : { memberAccentColor: () => "#5e5ce6" });
+
   function firstNonEmpty(...values) {
     for (const value of values) {
       const next = String(value || "").trim();
@@ -82,7 +85,7 @@
       id: input.id || key,
       name: firstNonEmpty(input.name, input.displayName, input.username, key),
       bio: normalizedBio(input),
-      color: input.color || input.avatarColor || "#5e5ce6",
+      color: memberColor.memberAccentColor(key),
       avatarImage: input.avatarImage || input.avatar_image || "",
       avatarCrop: input.avatarCrop || input.avatar_crop || null,
       personaText: input.personaText || input.persona_text || "",

@@ -61,7 +61,6 @@
     const key = fellow.key || cloudFellowKeyFromName(fellow.name, existingFellowKeys(state, social));
     const identity = {
       name: String(fellow.name || "").trim(),
-      color: fellow.color || "#2563eb",
       avatarImage: fellow.avatarImage || "",
       avatarCrop: fellow.avatarCrop || null,
       bio: fellow.description || fellow.bio || "",
@@ -159,7 +158,6 @@
   function identityForCapabilities(fellow = {}, capabilities) {
     return {
       name: fellow.name || fellow.key || fellow.id,
-      color: fellow.color || "#5e5ce6",
       avatarImage: fellow.avatarImage || "",
       avatarCrop: fellow.avatarCrop || null,
       bio: fellow.bio || fellow.description || "",

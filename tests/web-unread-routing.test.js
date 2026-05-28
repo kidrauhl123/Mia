@@ -399,7 +399,7 @@ test("src/web/app.js renders web bubbles through desktop markdown", () => {
   const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
   assert.match(source, /function renderMarkdown\(value\)/);
   assert.match(source, /window\.miaMarkdown\?\.renderMarkdown/);
-  assert.match(source, /<div class="bubble">\$\{renderMarkdown\(spec\.bodyMd\)\}<\/div>/);
+  assert.match(source, /<div class="bubble">\$\{senderTitleHtml\}\$\{renderMarkdown\(spec\.bodyMd\)\}<\/div>/);
   assert.match(source, /<div class="bubble">\$\{renderMarkdown\(run\.text\)\}<\/div>/);
   assert.doesNotMatch(source, /escapeHtml\(run\.text\)\.replace\(\/\\n\/g, "<br>"\)/);
   assert.doesNotMatch(source, /escapeHtml\(body\)\.replace\(\/&lt;br&gt;\/g, "<br>"\)/);
@@ -635,6 +635,78 @@ test("src/web/app.js normalizes cloud-stored avatar URLs so root-served assets r
     source,
     /function avatarVideoHtml[\s\S]*?normalizeAvatarUrl\(/,
     "avatarVideoHtml must route the src through normalizeAvatarUrl"
+  );
+});
+
+test("src/web/app/index.html loads shared/trace-blocks.js before app.js", () => {
+  const html = fs.readFileSync(path.join(ROOT, "src/web/app/index.html"), "utf8");
+  const traceIdx = html.indexOf("shared/trace-blocks.js");
+  const appIdx = html.indexOf("../app.js");
+  assert.ok(traceIdx >= 0, "index.html must include shared/trace-blocks.js so window.miaTraceBlocks is defined");
+  assert.ok(traceIdx < appIdx, "shared/trace-blocks.js must load before app.js");
+});
+
+test("scripts/build-cloud-release.js copies shared/trace-blocks.js into the web tree", () => {
+  const source = fs.readFileSync(path.join(ROOT, "scripts/build-cloud-release.js"), "utf8");
+  assert.match(
+    source,
+    /copyFile\("src\/shared\/trace-blocks\.js",\s*path\.join\(webDir,\s*"shared",\s*"trace-blocks\.js"\)\)/,
+    "build-cloud-release.js must copy src/shared/trace-blocks.js to the web bundle"
+  );
+});
+
+test("src/web/app.js wires reasoning + tool trace events into the cloud agent run", () => {
+  const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
+  assert.match(source, /reasoning:\s*""/, "cloudRunFor must seed run.reasoning");
+  assert.match(source, /toolsById:\s*new Map\(\)/, "cloudRunFor must seed toolsById map");
+  assert.match(source, /reasoning\.available|reasoning_delta/, "WS handler must accept reasoning events");
+  assert.match(source, /tool\.delta|tool_call_delta/, "WS handler must accept tool.delta events");
+  assert.match(source, /addRunTool\(run/, "tool.started must go through addRunTool");
+});
+
+test("src/web/app.js parses persisted trace_json + renders trace blocks for assistant messages", () => {
+  const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
+  assert.match(source, /function parseTraceJson\(/, "web must define a parseTraceJson helper");
+  assert.match(
+    source,
+    /buildConversationMessageArticle[\s\S]*?parseTraceJson\(msg\.trace_json/,
+    "buildConversationMessageArticle must parse msg.trace_json"
+  );
+  assert.match(
+    source,
+    /buildConversationMessageArticle[\s\S]*?window\.miaTraceBlocks\.renderTraceBlocks/,
+    "buildConversationMessageArticle must call renderTraceBlocks for persisted assistant messages"
+  );
+});
+
+test("src/web/app.js streams trace blocks instead of the 3-chip placeholder", () => {
+  const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
+  assert.match(
+    source,
+    /buildCloudAgentStreamingArticle[\s\S]*?window\.miaTraceBlocks\.renderTraceBlocks/,
+    "buildCloudAgentStreamingArticle must render the streaming run through miaTraceBlocks"
+  );
+  const streamingMatch = source.match(/function buildCloudAgentStreamingArticle[\s\S]*?\n\}\n/);
+  assert.ok(streamingMatch, "buildCloudAgentStreamingArticle should be locatable");
+  assert.doesNotMatch(streamingMatch[0], /run\.tools\.slice\(-3\)/, "streaming must not fall back to the 3-chip preview");
+});
+
+test("src/web/app.js delegates trace row toggles to state.openTraceKeys", () => {
+  const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
+  assert.match(source, /openTraceKeys:\s*new Set\(\)/, "state must hold a Set for trace open keys");
+  assert.match(
+    source,
+    /els\.chat\.addEventListener\("toggle"[\s\S]*?details\.trace-row\[data-trace-key\][\s\S]*?openTraceKeys\.add/,
+    "chat container must remember trace expansion via openTraceKeys"
+  );
+});
+
+test("src/web/app.js initialises miaTraceBlocks with the web state on bootstrap", () => {
+  const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
+  assert.match(
+    source,
+    /window\.miaTraceBlocks[\s\S]{0,200}?initTraceBlocks\(\{\s*state\s*\}\)/,
+    "app.js must call miaTraceBlocks.initTraceBlocks({state}) once at init"
   );
 });
 

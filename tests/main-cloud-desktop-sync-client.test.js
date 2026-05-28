@@ -117,7 +117,6 @@ test("syncWorkspace syncs fellow identity and stable conversations without readi
   assert.equal(calls.fetch[0].headers.Authorization, "Bearer tok_1");
   assert.deepEqual(calls.fetch[1].body, {
     name: "Codex",
-    color: "#123456",
     avatarImage: "data:image/png;base64,abc",
     avatarCrop: { x: 1 },
     bio: "assistant",
@@ -166,6 +165,90 @@ test("pushAllFellows ensures conversations even when local user metadata is miss
     title: "Codex",
     runtimeKind: "desktop-local"
   });
+});
+
+test("listMarketSkills serves a fresh local cache without hitting the cloud", async () => {
+  const cacheCalls = [];
+  const skillMarketCache = {
+    getMarketPage: (userId, params, options) => {
+      cacheCalls.push(["get", userId, params, options]);
+      return {
+        skills: [{ id: "cached", name: "cached" }],
+        categories: [{ category: "office", count: 1 }],
+        fresh: true,
+        stale: false,
+        updatedAt: "2026-05-28T00:00:00.000Z",
+        updatedAtMs: 1000
+      };
+    },
+    upsertMarketPage: (...args) => cacheCalls.push(["upsert", ...args])
+  };
+  const { client, calls } = setup({ skillMarketCache, skillMarketCacheTtlMs: 300000 });
+
+  const page = await client.listMarketSkills({ category: " office ", q: " ppt ", limit: "120" });
+
+  assert.deepEqual(page, {
+    skills: [{ id: "cached", name: "cached" }],
+    categories: [{ category: "office", count: 1 }],
+    cached: true,
+    stale: false,
+    updatedAt: "2026-05-28T00:00:00.000Z"
+  });
+  assert.equal(calls.fetch.length, 0);
+  assert.deepEqual(cacheCalls, [[
+    "get",
+    "u_1",
+    { category: "office", q: "ppt", limit: 120 },
+    { nowMs: 123456, ttlMs: 300000 }
+  ]]);
+});
+
+test("listMarketSkills returns stale cache first and forceRefresh updates the cache", async () => {
+  const cacheCalls = [];
+  const skillMarketCache = {
+    getMarketPage: (userId, params, options) => {
+      cacheCalls.push(["get", userId, params, options]);
+      return {
+        skills: [{ id: "old", name: "old" }],
+        categories: [{ category: "old", count: 1 }],
+        fresh: false,
+        stale: true,
+        updatedAt: "2026-05-28T00:00:00.000Z",
+        updatedAtMs: 1000
+      };
+    },
+    upsertMarketPage: (...args) => cacheCalls.push(["upsert", ...args])
+  };
+  const { client, calls } = setup({
+    skillMarketCache,
+    skillMarketCacheTtlMs: 300000,
+    responses: [jsonResponse({
+      skills: [{ id: "fresh", name: "fresh" }],
+      categories: [{ category: "fresh", count: 1 }]
+    })]
+  });
+
+  const stale = await client.listMarketSkills({ limit: 120 });
+  assert.deepEqual(stale.skills.map((skill) => skill.name), ["old"]);
+  assert.equal(stale.cached, true);
+  assert.equal(stale.stale, true);
+  assert.equal(calls.fetch.length, 0);
+
+  const fresh = await client.listMarketSkills({ limit: 120, forceRefresh: true });
+  assert.deepEqual(fresh.skills.map((skill) => skill.name), ["fresh"]);
+  assert.equal(fresh.cached, false);
+  assert.equal(fresh.stale, false);
+  assert.equal(calls.fetch[0].url, "https://cloud.example/api/skills?limit=120");
+  assert.deepEqual(cacheCalls.at(-1), [
+    "upsert",
+    "u_1",
+    { category: "", q: "", limit: 120 },
+    {
+      skills: [{ id: "fresh", name: "fresh" }],
+      categories: [{ category: "fresh", count: 1 }]
+    },
+    123456
+  ]);
 });
 
 test("logout clears local cloud auth even when remote logout fails and stops sockets", async () => {
