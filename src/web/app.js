@@ -1897,7 +1897,11 @@ function buildConversationMessageArticle(msg, conversation) {
   const senderTitleHtml = senderLabel && !isOwn
     ? `<span class="bubble-sender" style="color:${senderColor};">${escapeHtml(senderLabel)}</span>`
     : "";
-  const bodyHtml = spec.bodyMd ? `<div class="bubble">${senderTitleHtml}${renderMarkdown(spec.bodyMd)}</div>` : "";
+  const renderedBody = spec.bodyMd ? renderMarkdown(spec.bodyMd) : "";
+  const highlightedBody = renderedBody && window.miaMentionRender
+    ? window.miaMentionRender.highlightMentions(renderedBody, members || [])
+    : renderedBody;
+  const bodyHtml = spec.bodyMd ? `<div class="bubble">${senderTitleHtml}${highlightedBody}</div>` : "";
   const attachmentHtml = renderAttachmentChips(spec.attachments || msg.attachments || []);
   const trace = !isOwn ? parseTraceJson(msg.trace_json || msg.trace) : null;
   const traceHtml = trace

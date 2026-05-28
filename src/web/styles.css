@@ -3216,6 +3216,21 @@ p {
   margin-top: 0;
 }
 
+.mention {
+  display: inline;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: rgb(var(--accent-rgb, 94 92 230) / 0.14);
+  color: rgb(var(--accent-rgb, 94 92 230));
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.message.user .mention {
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+}
+
 /* ── narrow viewport: rail → bottom bar ──────────────────────────────────── */
 
 @media (max-width: 640px) {

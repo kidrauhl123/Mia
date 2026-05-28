@@ -575,6 +575,7 @@ function main() {
   copyFile("src/shared/send-pipeline.js", path.join(webDir, "shared", "send-pipeline.js"));
   copyFile("src/shared/fellow-runtime-control.js", path.join(webDir, "shared", "fellow-runtime-control.js"));
   copyFile("src/shared/trace-blocks.js", path.join(webDir, "shared", "trace-blocks.js"));
+  copyFile("src/shared/mention-render.js", path.join(webDir, "shared", "mention-render.js"));
   copyFile("src/renderer/helpers/markdown-helpers.js", path.join(webDir, "helpers", "markdown-helpers.js"));
   copyFile("src/renderer/message-sources/cloud-conversation-source.js", path.join(webDir, "message-sources", "cloud-conversation-source.js"));
   writeIcoFromPng(path.join(webDir, "icon-192.png"), path.join(webDir, "favicon.ico"));

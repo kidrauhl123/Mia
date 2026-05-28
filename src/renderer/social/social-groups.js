@@ -120,7 +120,10 @@
         attrs: `data-sender-kind="${escapeHtml(msg.sender_kind || "")}" data-sender-ref="${escapeHtml(msg.sender_ref || "")}" title="${escapeHtml(spec?.authorName || "")}"`
       })
       : `<div class="avatar message-avatar" data-sender-kind="${escapeHtml(msg.sender_kind || "")}" data-sender-ref="${escapeHtml(msg.sender_ref || "")}" style="background-color:${escapeHtml(avatarColor)};" title="${escapeHtml(spec?.authorName || "")}">${escapeHtml(avatarLetter)}</div>`;
-    const bodyHtml = renderMsgBody((spec ? spec.bodyMd : msg.body_md) || "");
+    const rawBodyHtml = renderMsgBody((spec ? spec.bodyMd : msg.body_md) || "");
+    const bodyHtml = global.miaMentionRender
+      ? global.miaMentionRender.highlightMentions(rawBodyHtml, members || [])
+      : rawBodyHtml;
     const traceHtml = renderTraceForMessage(msg, (spec ? spec.bodyMd : msg.body_md) || "");
     const attachmentHtml = typeof ctx.renderAttachmentChips === "function"
       ? ctx.renderAttachmentChips(spec?.attachments || msg.attachments || [])
