@@ -13,7 +13,7 @@
     <link rel="icon" href="./favicon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="./apple-touch-icon.png">
     <link rel="stylesheet" href="./styles.css">
-    <link rel="stylesheet" href="./landing.css?v=20260528-chat-copy">
+    <link rel="stylesheet" href="./landing.css?v=20260528-role-avatars">
   </head>
   <body class="landing-body" data-page="landing">
     <div class="landing-progress" aria-hidden="true"><span></span></div>
@@ -50,105 +50,151 @@
             <span></span>
             <span></span>
           </div>
-          <section class="product-window" aria-label="Mia desktop workspace">
-            <div class="window-toolbar">
-              <div class="traffic" aria-hidden="true"><span></span><span></span><span></span></div>
-              <strong>Mia Workspace</strong>
-              <b data-stage-status>3 Fellows online</b>
-            </div>
-            <div class="app-shell-preview">
-              <aside class="app-rail" aria-label="Mia navigation preview">
-                <span class="rail-avatar user-avatar" aria-hidden="true"></span>
-                <i class="is-active"></i>
-                <i></i>
-                <i></i>
-                <b></b>
-              </aside>
-              <section class="conversation-list" aria-label="Fellow and conversation list preview">
-                <div class="conversation-search">
-                  <span aria-hidden="true"></span>
-                  <strong>搜索</strong>
-                  <b aria-hidden="true">+</b>
-                </div>
-                <article class="conversation-item">
-                  <span class="conversation-avatar avatar-boy" aria-hidden="true"></span>
-                  <div>
-                    <strong>标野</strong>
-                    <small>本机命令已准备好，等你确认执行...</small>
+          <div class="preview-gallery" aria-label="Mia 群聊和私聊界面预览">
+            <section class="product-window preview-window group-window" aria-label="Mia group chat workspace">
+              <div class="window-toolbar">
+                <div class="traffic" aria-hidden="true"><span></span><span></span><span></span></div>
+                <strong>群聊协作</strong>
+                <b data-stage-status>3 Fellows online</b>
+              </div>
+              <div class="app-shell-preview">
+                <aside class="app-rail" aria-label="Mia navigation preview">
+                  <span class="rail-avatar user-avatar" aria-hidden="true"></span>
+                  <i class="is-active"></i>
+                  <i></i>
+                  <b></b>
+                </aside>
+                <section class="conversation-list" aria-label="Fellow and conversation list preview">
+                  <div class="conversation-search">
+                    <span aria-hidden="true"></span>
+                    <strong>搜索</strong>
+                    <b aria-hidden="true">+</b>
                   </div>
-                  <time>18:44</time>
-                </article>
-                <article class="conversation-item">
-                  <span class="conversation-avatar avatar-group" aria-hidden="true"></span>
-                  <div>
-                    <strong>日报项目组</strong>
-                    <small>空铃写卖点，Codex 改代码，Hermes 出草稿...</small>
+                  <article class="conversation-item active">
+                    <span class="conversation-avatar avatar-group" aria-hidden="true"></span>
+                    <div>
+                      <strong>发布项目组</strong>
+                      <small>内容策划、前端工程师、翻译编辑已就位...</small>
+                    </div>
+                    <time>17:36</time>
+                  </article>
+                  <article class="conversation-item">
+                    <span class="conversation-avatar avatar-strategy" aria-hidden="true"></span>
+                    <div>
+                      <strong>内容策划</strong>
+                      <small>首屏卖点已经收好，等你看...</small>
+                    </div>
+                    <time>15:15</time>
+                  </article>
+                  <article class="conversation-item">
+                    <span class="conversation-avatar avatar-engineer" aria-hidden="true"></span>
+                    <div>
+                      <strong>前端工程师</strong>
+                      <small>本机命令准备好，执行前会确认...</small>
+                    </div>
+                    <time>14:20</time>
+                  </article>
+                </section>
+                <section class="chat-preview" aria-label="Mia group chat preview">
+                  <div class="chat-preview-head">
+                    <span class="conversation-avatar avatar-group" aria-hidden="true"></span>
+                    <div class="chat-title">
+                      <strong data-stage-title>发布项目组</strong>
+                      <small data-stage-subtitle>群聊 · Claude Code / Codex / Hermes</small>
+                    </div>
                   </div>
-                  <time>17:36</time>
-                </article>
-                <article class="conversation-item">
-                  <span class="conversation-avatar avatar-cat" aria-hidden="true"></span>
-                  <div>
-                    <strong>空铃</strong>
-                    <small>我把卖点和页面节奏整理好了...</small>
+                  <div class="chat-transcript">
+                    <div class="message-row own">
+                      <p>明早发布页上线，大家怎么分工？</p>
+                      <span class="conversation-avatar user-avatar" aria-hidden="true"></span>
+                    </div>
+                    <div class="message-row agent">
+                      <span class="conversation-avatar avatar-strategy" aria-hidden="true"></span>
+                      <p>我负责卖点和页面节奏。</p>
+                    </div>
+                    <div class="message-row agent">
+                      <span class="conversation-avatar avatar-engineer" aria-hidden="true"></span>
+                      <p>我负责代码和发布检查。</p>
+                    </div>
+                    <div class="message-row agent">
+                      <span class="conversation-avatar avatar-editor" aria-hidden="true"></span>
+                      <p>我先补一版中英文草稿。</p>
+                    </div>
                   </div>
-                  <time>15:15</time>
-                </article>
-                <article class="conversation-item active">
-                  <span class="conversation-avatar avatar-girl" aria-hidden="true"></span>
-                  <div>
-                    <strong>匠妹</strong>
-                    <small>发布页方案已同步到桌面端，随时继续...</small>
+                  <div class="composer-preview" aria-label="Mia group composer preview">
+                    <div>
+                      <span aria-hidden="true">+</span>
+                      <strong>在群聊里调度多个伙伴</strong>
+                      <b aria-hidden="true">↗</b>
+                    </div>
+                    <p>
+                      <i class="engine-logo claude" aria-hidden="true"></i>
+                      <span>Claude Code</span>
+                      <i class="engine-logo codex" aria-hidden="true"><img src="./assets/engine-icons/codex-color.svg" alt=""></i>
+                      <span>Codex</span>
+                      <i class="engine-logo hermes" aria-hidden="true"></i>
+                      <span>Hermes</span>
+                    </p>
                   </div>
-                  <time>13:46</time>
-                </article>
-              </section>
-              <section class="chat-preview" aria-label="Mia chat preview">
-                <div class="chat-preview-head">
-                  <span class="conversation-avatar avatar-girl" aria-hidden="true"></span>
-                  <div class="chat-title">
-                    <strong data-stage-title>匠妹</strong>
-                    <small data-stage-subtitle>私聊</small>
+                </section>
+              </div>
+            </section>
+
+            <section class="product-window preview-window private-window" aria-label="Mia private chat workspace">
+              <div class="window-toolbar">
+                <div class="traffic" aria-hidden="true"><span></span><span></span><span></span></div>
+                <strong>私聊跟进</strong>
+                <b>Synced</b>
+              </div>
+              <div class="app-shell-preview">
+                <aside class="app-rail" aria-label="Mia private navigation preview">
+                  <span class="rail-avatar user-avatar" aria-hidden="true"></span>
+                  <i></i>
+                  <i class="is-active"></i>
+                  <b></b>
+                </aside>
+                <section class="chat-preview" aria-label="Mia private chat preview">
+                  <div class="chat-preview-head">
+                    <span class="conversation-avatar avatar-assistant" aria-hidden="true"></span>
+                    <div class="chat-title">
+                      <strong>发布助理</strong>
+                      <small>私聊 · 桌面 + Web 同步</small>
+                    </div>
                   </div>
-                  <p>明天发布页怎么排？</p>
-                </div>
-                <div class="chat-transcript">
-                  <div class="message-row own">
-                    <p>明天发布页和桌面端同步，谁来跟？</p>
-                    <span class="conversation-avatar user-avatar" aria-hidden="true"></span>
+                  <div class="chat-transcript">
+                    <div class="message-row own">
+                      <p>帮我把刚才的方案收一下。</p>
+                      <span class="conversation-avatar user-avatar" aria-hidden="true"></span>
+                    </div>
+                    <div class="message-row agent">
+                      <span class="conversation-avatar avatar-assistant" aria-hidden="true"></span>
+                      <p>已整理成待办：文案、代码、截图、发布检查。</p>
+                    </div>
+                    <div class="message-row own compact">
+                      <p>执行</p>
+                      <span class="conversation-avatar user-avatar" aria-hidden="true"></span>
+                    </div>
+                    <div class="message-row agent">
+                      <span class="conversation-avatar avatar-assistant" aria-hidden="true"></span>
+                      <p>需要本机命令，我会先弹出确认，再把结果同步回来。</p>
+                    </div>
                   </div>
-                  <div class="message-row agent">
-                    <span class="conversation-avatar avatar-girl" aria-hidden="true"></span>
-                    <p>我来拆结构：空铃写卖点，Codex 改代码，Hermes 先出一版草稿。</p>
+                  <div class="composer-preview" aria-label="Mia private composer preview">
+                    <div>
+                      <span aria-hidden="true">+</span>
+                      <strong>输入消息，Enter 发送</strong>
+                      <b aria-hidden="true">↗</b>
+                    </div>
+                    <p>
+                      <i class="engine-logo codex" aria-hidden="true"><img src="./assets/engine-icons/codex-color.svg" alt=""></i>
+                      <span>Codex</span>
+                      <em>Ask</em>
+                    </p>
                   </div>
-                  <div class="message-row own compact">
-                    <p>好</p>
-                    <span class="conversation-avatar user-avatar" aria-hidden="true"></span>
-                  </div>
-                  <div class="message-row agent">
-                    <span class="conversation-avatar avatar-girl" aria-hidden="true"></span>
-                    <p>需要本机命令时 Mia 会先确认权限，结果会同步回这段对话。</p>
-                  </div>
-                </div>
-                <div class="composer-preview" aria-label="Mia composer preview">
-                  <div>
-                    <span aria-hidden="true">+</span>
-                    <strong>输入消息，Enter 发送，Shift+Enter 换行</strong>
-                    <b aria-hidden="true">↗</b>
-                  </div>
-                  <p>
-                    <i class="engine-logo claude" aria-hidden="true"></i>
-                    <span>Claude Code</span>
-                    <i class="engine-logo codex" aria-hidden="true"><img src="./assets/engine-icons/codex-color.svg" alt=""></i>
-                    <span>Codex</span>
-                    <i class="engine-logo hermes" aria-hidden="true"></i>
-                    <span>Hermes</span>
-                    <em>Ask</em>
-                  </p>
-                </div>
-              </section>
-            </div>
-          </section>
+                </section>
+              </div>
+            </section>
+          </div>
         </div>
       </section>
 
@@ -167,6 +213,6 @@
       </section>
     </main>
 
-    <script src="./landing.js?v=20260528-chat-copy" defer></script>
+    <script src="./landing.js?v=20260528-role-avatars" defer></script>
   </body>
 </html>

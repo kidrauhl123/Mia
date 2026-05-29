@@ -256,7 +256,7 @@ body {
 .product-scene {
   position: relative;
   width: min(1040px, 100%);
-  min-height: 520px;
+  min-height: 492px;
   margin: 0 auto;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.28);
@@ -491,39 +491,42 @@ body {
 
 .user-avatar {
   background:
-    linear-gradient(180deg, transparent 0 55%, #1b8e57 56%),
-    radial-gradient(circle at 50% 34%, #91633e 0 18%, transparent 19%),
-    linear-gradient(135deg, #76a7f3, #d7ecff);
+    radial-gradient(circle at 50% 42%, #ffffff 0 17%, transparent 18%),
+    linear-gradient(180deg, transparent 0 58%, #21a467 59%),
+    linear-gradient(135deg, #8fc4ff, #ddecff);
 }
 
-.avatar-boy {
+.avatar-strategy {
   background:
-    radial-gradient(circle at 50% 36%, #f3c49f 0 18%, transparent 19%),
-    radial-gradient(circle at 50% 30%, #503427 0 29%, transparent 30%),
-    linear-gradient(135deg, #fff0dc, #ffd4c8);
+    radial-gradient(circle at 50% 50%, #ffffff 0 16%, transparent 17%),
+    conic-gradient(from 20deg, #8bd3ff 0 28%, #d7f2ff 28% 55%, #72b8ff 55% 78%, #b7e7ff 78% 100%);
 }
 
-.avatar-cat {
+.avatar-engineer {
   background:
-    radial-gradient(circle at 50% 45%, #f8fbff 0 26%, transparent 27%),
-    radial-gradient(circle at 32% 20%, #a7ddff 0 15%, transparent 16%),
-    radial-gradient(circle at 70% 20%, #a7ddff 0 15%, transparent 16%),
-    linear-gradient(135deg, #dbefff, #7ab8ff);
+    linear-gradient(90deg, transparent 0 32%, #6a5cff 33% 67%, transparent 68%),
+    radial-gradient(circle at 50% 50%, #ffffff 0 20%, transparent 21%),
+    linear-gradient(135deg, #c9c7ff, #7e78ff);
 }
 
-.avatar-girl {
+.avatar-editor {
   background:
-    radial-gradient(circle at 48% 42%, #ffe2d1 0 20%, transparent 21%),
-    radial-gradient(circle at 50% 32%, #d8bf75 0 31%, transparent 32%),
-    linear-gradient(135deg, #fff6d9, #f1dc9e);
+    radial-gradient(circle at 50% 50%, #ffffff 0 16%, transparent 17%),
+    linear-gradient(135deg, #f0d778 0 36%, #fff1ad 36% 64%, #dcb95b 64%);
+}
+
+.avatar-assistant {
+  background:
+    radial-gradient(circle at 50% 50%, #ffffff 0 15%, transparent 16%),
+    linear-gradient(135deg, #f6d6c6 0 38%, #ffe8dc 38% 64%, #d7a48c 64%);
 }
 
 .avatar-group {
   background:
-    radial-gradient(circle at 28% 34%, #76a7f3 0 12%, transparent 13%),
-    radial-gradient(circle at 62% 30%, #ffb2d1 0 14%, transparent 15%),
-    radial-gradient(circle at 52% 66%, #b7d9ff 0 13%, transparent 14%),
-    linear-gradient(135deg, #eef4ff, #f8f2ff);
+    radial-gradient(circle at 30% 36%, #7fb4ff 0 12%, transparent 13%),
+    radial-gradient(circle at 64% 34%, #ffb6d0 0 12%, transparent 13%),
+    radial-gradient(circle at 50% 68%, #afe3ff 0 12%, transparent 13%),
+    linear-gradient(135deg, #f5f6ff, #fff8fb);
 }
 
 .engine-logo,
@@ -758,6 +761,199 @@ body {
   font-style: normal;
 }
 
+.preview-gallery {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.82fr);
+  gap: 18px;
+  width: min(950px, calc(100% - 52px));
+  margin: 26px auto 0;
+  align-items: center;
+}
+
+.preview-window {
+  width: 100%;
+  margin: 0;
+  border-radius: 18px;
+}
+
+.private-window {
+  transform: translateY(28px);
+}
+
+.preview-window .window-toolbar {
+  min-height: 42px;
+  padding: 0 12px;
+}
+
+.preview-window .traffic {
+  gap: 6px;
+}
+
+.preview-window .traffic span {
+  width: 8px;
+  height: 8px;
+}
+
+.preview-window .window-toolbar strong {
+  font-size: 12px;
+}
+
+.preview-window .window-toolbar b {
+  font-size: 11px;
+}
+
+.preview-window .app-shell-preview {
+  grid-template-columns: 46px 180px minmax(0, 1fr);
+  min-height: 342px;
+}
+
+.private-window .app-shell-preview {
+  grid-template-columns: 46px minmax(0, 1fr);
+}
+
+.preview-window .app-rail {
+  gap: 14px;
+  padding: 12px 0 10px;
+}
+
+.rail-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+}
+
+.preview-window .app-rail i {
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+}
+
+.preview-window .app-rail b {
+  width: 24px;
+  height: 4px;
+}
+
+.preview-window .conversation-search {
+  grid-template-columns: 14px 1fr auto;
+  gap: 8px;
+  min-height: 52px;
+  padding: 8px;
+}
+
+.preview-window .conversation-search span {
+  width: 12px;
+  height: 12px;
+  border-width: 2px;
+  box-shadow: 7px 7px 0 -5px currentColor;
+}
+
+.preview-window .conversation-search strong {
+  min-height: 32px;
+  padding: 0 11px;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.preview-window .conversation-search b {
+  font-size: 20px;
+}
+
+.preview-window .conversation-item {
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  gap: 8px;
+  min-height: 66px;
+  padding: 9px 10px;
+}
+
+.preview-window .conversation-item > span {
+  width: 34px;
+  height: 34px;
+}
+
+.preview-window .conversation-item time {
+  font-size: 11px;
+}
+
+.preview-window .conversation-item strong,
+.preview-window .chat-preview-head strong {
+  font-size: 14px;
+}
+
+.preview-window .conversation-item small,
+.preview-window .chat-preview-head small {
+  font-size: 11px;
+}
+
+.preview-window .chat-preview-head {
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 9px;
+  min-height: 52px;
+  padding: 8px 12px;
+}
+
+.preview-window .chat-preview-head .conversation-avatar {
+  width: 34px;
+  height: 34px;
+}
+
+.preview-window .chat-transcript {
+  gap: 12px;
+  padding: 16px 15px 13px;
+}
+
+.preview-window .message-row {
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.preview-window .message-row.own {
+  grid-template-columns: minmax(0, 1fr) 32px;
+}
+
+.preview-window .message-row .conversation-avatar {
+  width: 32px;
+  height: 32px;
+}
+
+.preview-window .message-row p {
+  max-width: min(300px, 100%);
+  padding: 9px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.preview-window .message-row.compact p {
+  max-width: 64px;
+  border-radius: 17px;
+  padding: 9px 12px;
+}
+
+.preview-window .composer-preview > div {
+  grid-template-columns: 22px 1fr 22px;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 12px;
+}
+
+.preview-window .composer-preview > div span,
+.preview-window .composer-preview > div b {
+  font-size: 20px;
+}
+
+.preview-window .composer-preview > div strong {
+  font-size: 12px;
+}
+
+.preview-window .composer-preview p {
+  gap: 7px;
+  min-height: 30px;
+  padding: 0 12px;
+  font-size: 11px;
+}
+
 .download-section {
   width: min(720px, 100%);
   margin: 34px auto 72px;
@@ -825,6 +1021,20 @@ body {
     margin-top: 36px;
   }
 
+  .preview-gallery {
+    grid-template-columns: 1fr;
+    width: min(100% - 34px, 760px);
+    gap: 16px;
+    margin: 28px auto 0;
+  }
+
+  .preview-window,
+  .private-window {
+    width: 100%;
+    margin: 0;
+    transform: none;
+  }
+
   .download-section {
     width: min(720px, 100%);
   }
@@ -873,6 +1083,18 @@ body {
     border-radius: 18px;
   }
 
+  .preview-gallery {
+    grid-template-columns: 1fr;
+    width: 100%;
+    gap: 14px;
+    margin-top: 0;
+  }
+
+  .preview-window,
+  .private-window {
+    transform: none;
+  }
+
   .window-toolbar {
     min-height: 48px;
   }
@@ -884,6 +1106,12 @@ body {
   .app-shell-preview {
     grid-template-columns: 54px 1fr;
     min-height: 620px;
+  }
+
+  .preview-window .app-shell-preview,
+  .private-window .app-shell-preview {
+    grid-template-columns: 46px minmax(0, 1fr);
+    min-height: 428px;
   }
 
   .conversation-list {
@@ -917,6 +1145,11 @@ body {
 
   .message-row,
   .message-row.own {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .preview-window .message-row,
+  .preview-window .message-row.own {
     grid-template-columns: minmax(0, 1fr);
   }
 
