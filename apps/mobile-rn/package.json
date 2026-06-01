@@ -15,6 +15,7 @@
     "expo-secure-store": "~56.0.4",
     "expo-status-bar": "~56.0.4",
     "expo-updates": "~56.0.17",
+    "expo-video": "~56.1.2",
     "punycode": "^2.3.1",
     "react": "19.2.3",
     "react-native": "0.85.3",

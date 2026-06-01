@@ -9,7 +9,7 @@ const config: ExpoConfig = {
   icon: "./assets/icon.png",
   scheme: "mia",
   userInterfaceStyle: "light",
-  runtimeVersion: { policy: "appVersion" },
+  runtimeVersion: "2",
   updates: {
     url: "https://u.expo.dev/77e99873-77e9-4e75-82c1-96143c4e846b",
   },
@@ -30,7 +30,7 @@ const config: ExpoConfig = {
   web: {
     favicon: "./assets/favicon.png",
   },
-  plugins: ["expo-secure-store"],
+  plugins: ["expo-secure-store", "expo-video"],
   extra: {
     apiBase: "https://aiweb.buytb01.com",
     eas: {
