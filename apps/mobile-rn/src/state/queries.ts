@@ -52,3 +52,12 @@ export function useFriends() {
     queryFn: () => api.api("/api/social/friends").then((d) => d.friends || []),
   });
 }
+
+// 完整自己资料(非 compact),带 avatarImage + avatarCrop —— 自己头像与群拼贴里的"自己"用。
+export function useMe() {
+  const api = useApi();
+  return useQuery<any>({
+    queryKey: ["me-full"],
+    queryFn: () => api.api("/api/me").then((d) => d.user || d),
+  });
+}

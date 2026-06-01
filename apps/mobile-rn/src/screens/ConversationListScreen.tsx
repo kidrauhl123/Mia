@@ -1,7 +1,7 @@
 import { View, FlatList, Pressable, StyleSheet } from "react-native";
 import { useQueries } from "@tanstack/react-query";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { useConversations, useFellows, useFriends } from "../state/queries";
+import { useConversations, useFellows, useFriends, useMe } from "../state/queries";
 import { useApi } from "../state/clientProvider";
 import { useAuth } from "../state/auth";
 import { buildConversationListItems } from "../logic/conversationList";
@@ -21,6 +21,7 @@ export default function ConversationListScreen({ navigation }: Props) {
   const { data: conversations = [], isLoading, refetch, isRefetching } = useConversations();
   const { data: fellows = [] } = useFellows();
   const { data: friends = [] } = useFriends();
+  const { data: me } = useMe();
 
   // dm / group 需要成员才能解析对方头像 / 群拼贴 —— 按需补拉(react-query 缓存)。
   const memberConvs = conversations.filter((c) => {
@@ -40,9 +41,12 @@ export default function ConversationListScreen({ navigation }: Props) {
     if (m) membersByConv[c.id] = m;
   });
 
-  const self = session?.user
-    ? { id: session.user.id, username: session.user.username, avatarImage: session.user.avatarImage }
-    : undefined;
+  // 自己:优先完整资料(带头像 + 裁剪),回退到会话里的精简 user。
+  const self = me
+    ? { id: me.id, username: me.username, avatarImage: me.avatarImage, avatarCrop: me.avatarCrop }
+    : session?.user
+      ? { id: session.user.id, username: session.user.username, avatarImage: session.user.avatarImage }
+      : undefined;
 
   const items = buildConversationListItems({ conversations, fellows, friends, self, membersByConv, unreadByConversation: {} });
 

@@ -1,17 +1,22 @@
 import { View, StyleSheet } from "react-native";
 import { useAuth } from "../state/auth";
-import Avatar from "../components/Avatar";
+import { useMe } from "../state/queries";
+import { resolveAvatar } from "../logic/avatar";
+import AvatarMedia from "../components/AvatarMedia";
 import Button from "../ui/Button";
 import { Brand, Label, Sub } from "../ui/Text";
 import { color, space } from "../theme";
 
 export default function MeScreen() {
   const { session, setSession } = useAuth();
-  const username = session?.user?.username || "未登录";
+  const { data: me } = useMe();
+  const id = me?.id || session?.user?.id || "";
+  const username = me?.username || session?.user?.username || "未登录";
+  const avatar = resolveAvatar(id, username, me?.avatarImage || "", me?.avatarCrop || null);
   return (
     <View style={styles.root}>
       <View style={styles.head}>
-        <Avatar title={username} size={64} />
+        <AvatarMedia tile={avatar} size={64} />
         <View style={styles.headText}>
           <Brand style={styles.name}>{username}</Brand>
           <Sub>{session?.apiBase}</Sub>

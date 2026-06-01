@@ -59,6 +59,25 @@ export function identityDisplayText(displayName: string, fallback = "?"): string
   return Array.from(String(displayName || fallback || "").trim()).slice(0, 2).join("") || "?";
 }
 
+// 与 shared/avatar-media.js 一致:按扩展名 / data:video 判定动态头像(视频)。
+const VIDEO_EXT_RE = /\.(mp4|m4v|mov|webm|ogv|ogg)(?:[?#].*)?$/i;
+export function isVideoAvatar(src: string): boolean {
+  const s = String(src || "").trim();
+  if (!s) return false;
+  return /^data:video\//i.test(s) || VIDEO_EXT_RE.test(s);
+}
+
+// 裁剪几何(对齐桌面 background-size:zoom*100% + background-position:x% y%):
+// 在 size×size 圆形容器内,内层图尺寸 = size*zoom,按 x/y% 定位。
+export function avatarCropGeometry(size: number, crop?: Record<string, unknown> | null) {
+  const c = (crop || {}) as { x?: number; y?: number; zoom?: number };
+  const x = Number.isFinite(Number(c.x)) ? Number(c.x) : 50;
+  const y = Number.isFinite(Number(c.y)) ? Number(c.y) : 50;
+  const zoom = Number.isFinite(Number(c.zoom)) ? Number(c.zoom) : 1;
+  const inner = Math.round(size * zoom);
+  return { inner, left: (size - inner) * (x / 100), top: (size - inner) * (y / 100) };
+}
+
 export function avatarCropForImage(image: string, crop: Record<string, unknown> | null = null): Record<string, unknown> | null {
   return normalizeAvatarImage(image) ? (crop || { ...DEFAULT_AVATAR_CROP }) : null;
 }
