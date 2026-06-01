@@ -182,6 +182,7 @@ let state = {
   openTraceKeys: new Set(),
   animatedTraceKeys: new Set(),
 };
+const pendingConversationMemberFetches = new Set();
 
 let eventsSocket = null;
 let eventsReconnectTimer = 0;
@@ -559,6 +560,7 @@ function clearSession() {
   state.settings = { pins: [], readMarks: {}, appearance: {} };
   state.messageCache.clear?.();
   state.conversationMembersCache.clear?.();
+  pendingConversationMemberFetches.clear();
   state.incomingRequests = [];
   state.outgoingRequests = [];
   state.messageCache.clear();
@@ -748,14 +750,27 @@ async function ensureConversationMessages(conversationId) {
   }
 }
 
-async function ensureConversationMembers(conversationId) {
-  if (!conversationId || state.conversationMembersCache.has(conversationId)) return;
+async function ensureConversationMembers(conversationId, options = {}) {
+  if (!conversationId) return null;
+  if (state.conversationMembersCache.has(conversationId)) return state.conversationMembersCache.get(conversationId);
+  if (pendingConversationMemberFetches.has(conversationId)) return null;
+  pendingConversationMemberFetches.add(conversationId);
   try {
     const data = await api(`/api/conversations/${conversationId}`);
-    if (Array.isArray(data.members)) state.conversationMembersCache.set(conversationId, data.members);
+    if (Array.isArray(data.members)) {
+      state.conversationMembersCache.set(conversationId, data.members);
+      if (options.renderOnHydrate) {
+        renderConversationList();
+        if (state.activeConversationId === conversationId) renderActiveChat();
+      }
+      return data.members;
+    }
   } catch (err) {
     console.warn("[web] ensureConversationMembers failed:", err);
+  } finally {
+    pendingConversationMemberFetches.delete(conversationId);
   }
+  return null;
 }
 
 function lastSeenSeqForConversation(conversationId) {
@@ -1675,6 +1690,9 @@ function combinedConversationItems() {
     let avatarText = "";
     let memberTiles = null;
     if (isGroup) {
+      if (!state.conversationMembersCache.has(r.id)) {
+        ensureConversationMembers(r.id, { renderOnHydrate: true });
+      }
       const records = state.conversationMembersCache.get(r.id) || [];
       memberTiles = window.miaGroupTiles.resolveGroupMemberTiles(records, groupTilesCtx());
     } else if (isDM) {
@@ -2181,6 +2199,9 @@ function renderActiveChat() {
       // the chat-header avatar matches the row the user just clicked.
       // applyAvatarMedia only knows the single-image case; we paint tiles
       // directly into els.activeAvatar instead.
+      if (!state.conversationMembersCache.has(conversation.id)) {
+        ensureConversationMembers(conversation.id, { renderOnHydrate: true });
+      }
       const records = state.conversationMembersCache.get(conversation.id) || [];
       const tiles = window.miaGroupTiles.resolveGroupMemberTiles(records, groupTilesCtx());
       const tileSpans = tiles.map((tile) => avatarHtml({

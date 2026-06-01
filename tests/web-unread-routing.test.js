@@ -224,6 +224,37 @@ test("src/web/app.js paints group chat headers as a mosaic, not a single-letter 
   );
 });
 
+test("src/web/app.js hydrates missing group members before leaving group avatars blank", () => {
+  const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
+  const ensureMatch = source.match(/async function ensureConversationMembers\(conversationId, options = \{\}\)\s*\{[\s\S]*?\n\}/);
+  assert.ok(ensureMatch, "ensureConversationMembers must accept render options");
+  assert.match(
+    ensureMatch[0],
+    /pendingConversationMemberFetches/,
+    "missing group member fetches must be deduped while a render loop is active"
+  );
+  assert.match(
+    ensureMatch[0],
+    /options\.renderOnHydrate[\s\S]*renderConversationList\(\)/,
+    "member hydration must repaint the sidebar once group avatar tiles are available"
+  );
+  assert.match(
+    ensureMatch[0],
+    /state\.activeConversationId === conversationId[\s\S]*renderActiveChat\(\)/,
+    "member hydration must repaint the active group header too"
+  );
+  assert.match(
+    source,
+    /ensureConversationMembers\(r\.id,\s*\{\s*renderOnHydrate:\s*true\s*\}\)/,
+    "conversation list rendering must trigger hydration for group rows whose member cache is missing"
+  );
+  assert.match(
+    source,
+    /ensureConversationMembers\(conversation\.id,\s*\{\s*renderOnHydrate:\s*true\s*\}\)/,
+    "active group rendering must trigger hydration for headers whose member cache is missing"
+  );
+});
+
 test("src/web/app.js normalizes model + provider icon URLs through the same boundary as avatars", () => {
   const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
   // setModelAvatar must hand the looked-up icon path through
