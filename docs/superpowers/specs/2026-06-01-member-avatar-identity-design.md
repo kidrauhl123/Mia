@@ -22,21 +22,25 @@ Mia 现在已经有几个共享 Module 试图统一头像：
 
 用户要求根本解决：任何成员，不管是真人还是 fellow，不管在 web、desktop 还是 mobile，头像逻辑必须一致。新用户或新 fellow 没有头像时，不再随机或 hash 到预设图片，而是统一使用稳定颜色和名字前两个字。
 
+补充要求：现有内置预设头像系统也要移除。这包括用户可选入口、无头像 fallback、以及运行时对当前内置预设资源路径的依赖。历史数据里已经保存的当前预设头像路径要被识别为 legacy preset，并降级为“无真实头像”，统一渲染为颜色 + 名字前两个字，而不是破图或继续显示旧预设图。用户自行上传、远程 URL、data URL 等真实头像仍然保留。
+
 ## 2. 目标
 
 1. 建立唯一的成员身份解析 contract：`MemberIdentity`。
 2. 所有头像 fallback 都由 shared Module 决定，UI 层不再判断“没头像怎么办”。
 3. 新用户、新 fellow、未知成员的默认头像统一为“稳定颜色 + 名字前两个字”。
 4. 颜色只由 `src/shared/member-color.js` 的一个算法产生。
-5. Web、desktop、mobile 的会话列表、聊天 header、消息气泡、群头像 mosaic、联系人卡都消费同一种 avatar descriptor。
-6. Cloud conversation detail 对 user member 和 fellow member 返回同构 identity。
-7. 保留 compact bootstrap 的性能收益，但 compact payload 不再被当成头像权威。
-8. 通过回归测试防止新渲染路径重新分叉。
+5. 移除当前内置预设头像作为用户可选项、无头像 fallback 和运行时渲染依赖，并在代码引用清空后删除对应 catalog / asset 文件。
+6. 历史保存的当前内置预设头像路径统一 normalize 为空头像，走颜色 + 两字 fallback。
+7. Web、desktop、mobile 的会话列表、聊天 header、消息气泡、群头像 mosaic、联系人卡都消费同一种 avatar descriptor。
+8. Cloud conversation detail 对 user member 和 fellow member 返回同构 identity。
+9. 保留 compact bootstrap 的性能收益，但 compact payload 不再被当成头像权威。
+10. 通过回归测试防止新渲染路径重新分叉。
 
 ## 3. 非目标
 
-- 本期不迁移头像媒体存储方式。`avatar.image` 仍可以是 data URL、相对资源路径、远程 URL 或空字符串。
-- 本期不移除用户显式选择的预设头像。预设图片仍是合法 `avatarImage`；只是“无头像 fallback”不再自动 hash 到预设图片。
+- 本期不迁移真实头像媒体存储方式。`avatar.image` 仍可以是 data URL、非预设相对资源路径、远程 URL 或空字符串。
+- 本期不保留当前内置预设头像。旧数据里指向当前内置预设资源的 `avatarImage` 不再视为合法真实头像。
 - 本期不重写整个 web 或 renderer 大文件，只在头像身份解析相关路径做收敛。
 - 本期不改变 conversation canonical owner ADR：登录 Mia Cloud 后，cloud 仍是 conversation state 的写权威。
 - 本期不改变 fellow runtime / model / permission 设置，只统一 fellow 身份展示。
@@ -69,6 +73,7 @@ src/shared/member-identity.js
 规则：
 
 - `avatar.image` 只有在真实头像存在时才有值。
+- `avatar.image` 如果来自当前内置预设头像资源路径，必须 normalize 为 `""`。
 - 没有真实头像时，`avatar.image === ""`。
 - `avatar.color` 始终来自 `memberAccentColor(identityKey)`。
 - `avatar.text` 始终来自 `displayName` 的前两个可见字符。
@@ -116,6 +121,7 @@ resolveMemberIdentity(query, ctx)
 ```js
 identityDisplayText(displayName, fallback)
 identityColor(identity)
+normalizeAvatarImage(image)
 avatarForIdentity(identitySource)
 ```
 
@@ -125,6 +131,7 @@ Fallback 必须统一：
 - `avatar.text = Array.from(displayName.trim()).slice(0, 2).join("") || "?"`。
 - `avatar.color = memberAccentColor(identityKey)`。
 - `identityKey` 对 user 为 user id；对 fellow 为 `ownerId ? ownerId + ":" + fellowId : fellowId`，避免不同用户拥有同 key fellow 时颜色冲突。
+- `normalizeAvatarImage(image)` 对当前内置预设头像路径返回 `""`，包括 web/desktop/mobile 曾使用过的 `assets/avatars`、`assets/avatars-pet`、`avatar-thumbs`、以及同类 legacy preset 路径；匹配时要处理 `./`、`/`、绝对 app resource URL 等路径形态。
 - 任何 UI 层不得再用 `title[0]`、`initials(...)`、本地 `avatarColor(...)` 或 hash preset 作为无头像 fallback。
 
 ## 5. Cloud 数据流
@@ -164,8 +171,8 @@ Fallback 必须统一：
     ownerId: "u_1",
     displayName: "空铃",
     avatar: {
-      image: "./assets/avatars/12.png",
-      crop: { "x": 47.3214, "y": 16.9763, "zoom": 1.8 },
+      image: "",
+      crop: null,
       color: "#b08fd8",
       text: "空铃"
     }
@@ -246,7 +253,7 @@ Desktop renderer must use `resolveMemberIdentity` for:
 - Fellow manager display rows.
 - Group creation member picker.
 
-`applyFellowAvatar`, `applyUserAvatar`, and raw `avatarAssetForKey` remain only as compatibility wrappers during transition. Rendering code should prefer:
+`applyFellowAvatar` and `applyUserAvatar` may remain only as compatibility wrappers during transition, but they must consume `MemberIdentity.avatar`. Raw `avatarAssetForKey` must be removed from rendering paths; if a temporary compatibility helper remains, it may only detect legacy preset paths and normalize them to empty avatar.
 
 ```js
 const identity = resolveMemberIdentity(query, ctx);
@@ -287,8 +294,9 @@ All platforms must follow the same rendering rules:
 2. If `avatar.image` is empty, render a circle with `avatar.color` and centered `avatar.text`.
 3. Do not infer fallback text from the conversation title at the render site.
 4. Do not infer fallback color at the render site.
-5. Do not fallback to `avatarAssetForKey` unless the user explicitly selected that preset as `avatarImage`.
-6. Do not treat user and fellow differently in renderer fallback logic.
+5. Do not fallback to `avatarAssetForKey`.
+6. Do not render current bundled preset avatar assets even if old persisted data points at them.
+7. Do not treat user and fellow differently in renderer fallback logic.
 
 ## 10. Testing Strategy
 
@@ -299,11 +307,13 @@ All platforms must follow the same rendering rules:
 - `resolveMemberIdentity` uses `member.identity` for user members when friends list is missing.
 - `avatar.text` uses the first two visible characters, not a one-character fallback.
 - `memberAccentColor` is the only color source.
+- Current bundled preset avatar paths normalize to `avatar.image === ""` and use text fallback.
 
 ### Cloud tests
 
 - `GET /api/conversations/:id` returns `member.identity` for user members.
 - `GET /api/conversations/:id` returns `member.identity` for fellow members.
+- `GET /api/conversations/:id` does not return current bundled preset paths as `identity.avatar.image`.
 - Compact auth and bootstrap responses remain small and do not carry avatar media.
 
 ### Web tests
@@ -312,6 +322,7 @@ All platforms must follow the same rendering rules:
 - Web active header uses member identity.
 - Web compact fellow does not block member-row identity from supplying the real avatar.
 - Web fallback for new user and new fellow is color + two-character text.
+- Web no longer exposes current bundled preset avatar picker options.
 
 ### Desktop tests
 
@@ -319,12 +330,14 @@ All platforms must follow the same rendering rules:
 - Cloud conversation message source uses `MemberIdentity`.
 - Group info and contact cards use `MemberIdentity`.
 - Direct `avatarAssetForKey` fallback does not reappear in rendering paths.
+- Old persisted current preset paths render as color + two-character text, not broken images.
 
 ### Mobile tests
 
 - `buildConversationListItems` outputs `avatar`.
 - Mobile contacts list consumes avatar descriptors for both friends and fellows.
 - Mobile fallback matches shared user/fellow fallback.
+- Mobile does not carry a separate preset fallback or first-letter fallback.
 
 ## 11. Acceptance Criteria
 
@@ -332,7 +345,8 @@ All platforms must follow the same rendering rules:
 2. A new user with no uploaded avatar renders as stable color + first two display-name characters everywhere.
 3. A new fellow with no uploaded avatar renders as stable color + first two display-name characters everywhere.
 4. No renderer path falls back to identity-hashed preset images for missing avatars.
-5. Compact bootstrap remains fast and does not carry large avatar media.
-6. Conversation detail is the canonical source for per-member identity in conversation surfaces.
-7. Relevant targeted tests and `npm run check` pass.
-
+5. Current bundled preset avatar options, catalogs, and asset files are removed after product code no longer references them.
+6. Old persisted current preset avatar references render as stable color + first two display-name characters everywhere.
+7. Compact bootstrap remains fast and does not carry large avatar media.
+8. Conversation detail is the canonical source for per-member identity in conversation surfaces.
+9. Relevant targeted tests and `npm run check` pass.
