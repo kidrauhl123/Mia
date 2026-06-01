@@ -69,6 +69,16 @@ test("desktop cloud fellow conversations expose the restored chat history menu",
   assert.match(socialApiSource, /async ensureFellowSessionConversation\(sessionId, body = \{\}\)/);
 });
 
+test("desktop cloud human and group conversations hide the chat history session selector", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+
+  assert.match(appSource, /const activeIsGroup = activeCloudConversationType === "group";/);
+  assert.match(appSource, /const activeIsHumanDm = activeCloudConversationType === "dm";/);
+  assert.match(appSource, /const hideSessionSelector = activeIsGroup \|\| activeIsHumanDm;/);
+  assert.match(appSource, /if \(hideSessionSelector\) state\.sessionMenuOpen = false;/);
+  assert.match(appSource, /sessionMenuButton\.classList\.toggle\("hidden",\s*hideSessionSelector\)/);
+});
+
 test("cloud-only renderer and preload do not expose local chat session CRUD", () => {
   const preloadSource = fs.readFileSync(path.join(root, "src/preload.js"), "utf8");
   const tasksSource = fs.readFileSync(path.join(root, "src/renderer/tasks/tasks-panel.js"), "utf8");

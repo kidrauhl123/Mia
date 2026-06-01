@@ -98,6 +98,55 @@ test("PUT then GET /api/me/fellows roundtrips identity fields", async () => {
   } finally { await stopServer(ctx); }
 });
 
+test("web bootstrap can request compact user and fellow identities without avatar blobs", async () => {
+  const ctx = await startServer();
+  try {
+    const A = await register(ctx.port, "compact");
+    const avatarImage = "data:image/png;base64," + "A".repeat(200_000);
+    const personaText = "You are Codex.\n" + "x".repeat(100_000);
+    const profile = await api(ctx.port, "PATCH", "/api/me/profile", {
+      token: A.token,
+      body: {
+        avatarImage,
+        avatarCrop: { x: 10, y: 20, w: 100, h: 100 },
+        avatarColor: "#112233",
+        clientOpId: "op_profile_compact"
+      }
+    });
+    assert.equal(profile.status, 200);
+    const put = await api(ctx.port, "PUT", "/api/me/fellows/codex", {
+      token: A.token,
+      body: {
+        name: "Codex",
+        avatarImage,
+        avatarCrop: { x: 10, y: 20, w: 100, h: 100 },
+        personaText,
+        clientOpId: "op_fellow_compact"
+      }
+    });
+    assert.equal(put.status, 200);
+
+    const me = await api(ctx.port, "GET", "/api/me?compact=1", { token: A.token });
+    assert.equal(me.status, 200);
+    assert.equal(me.body.user.id, A.user.id);
+    assert.equal(Object.prototype.hasOwnProperty.call(me.body.user, "avatarImage"), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(me.body.user, "avatarCrop"), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(me.body.user, "avatarColor"), false);
+
+    const list = await api(ctx.port, "GET", "/api/me/fellows?compact=1", { token: A.token });
+    assert.equal(list.status, 200);
+    const codex = list.body.fellows.find((fellow) => fellow.id === "codex");
+    assert.ok(codex);
+    assert.equal(codex.name, "Codex");
+    assert.equal(Object.prototype.hasOwnProperty.call(codex, "avatarImage"), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(codex, "avatarCrop"), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(codex, "personaText"), false);
+
+    assert.ok(JSON.stringify(me.body).length < 1_000, "compact /api/me should stay small");
+    assert.ok(JSON.stringify(list.body).length < 5_000, "compact fellow list should stay small");
+  } finally { await stopServer(ctx); }
+});
+
 test("GET and PUT /api/me/fellows/:id/runtime roundtrip cloud AI controls", async () => {
   const ctx = await startServer();
   try {

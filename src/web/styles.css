@@ -898,9 +898,11 @@ p {
   right: 0;
   z-index: 40;
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 8px;
   width: min(286px, calc(100vw - 24px));
   max-height: 430px;
+  overflow: hidden;
   padding: 8px;
   border: 1px solid var(--line);
   border-radius: 14px;
@@ -956,7 +958,9 @@ p {
 .session-list {
   display: grid;
   gap: 2px;
-  overflow: auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .session-row {
@@ -1561,31 +1565,63 @@ p {
 .composer {
   position: relative;
   display: grid;
-  gap: 4px;
+  gap: 6px;
   margin: 0;
-  padding: 0 18px 6px;
-  border-top: 1px solid var(--line);
+  padding: 8px 18px 12px;
   background: var(--surface-soft);
 }
 
-.composer-input-row {
+/* Borderless card: depth from a soft shadow, not a dividing line.
+   Mirrors the desktop renderer composer card. */
+.composer-card {
   display: grid;
-  grid-template-columns: 26px minmax(0, 1fr) 34px;
-  align-items: center;
+  gap: 2px;
+  padding: 8px 8px 7px 16px;
+  border-radius: 22px;
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 8px 24px rgba(15, 20, 40, 0.07);
+  transition: box-shadow 160ms ease;
+}
+
+.composer-card:focus-within {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 0 0 3px rgb(var(--accent-rgb) / 0.10), 0 10px 28px rgba(15, 20, 40, 0.09);
+}
+
+:root[data-theme="dark"] .composer-card {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.30), 0 10px 28px rgba(0, 0, 0, 0.30);
+}
+
+:root[data-theme="dark"] .composer-card:focus-within {
+  box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.18), 0 12px 30px rgba(0, 0, 0, 0.36);
+}
+
+/* Top row: textarea grows, send pinned top-right. */
+.composer-top-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32px;
+  align-items: start;
   gap: 8px;
-  min-height: 42px;
-  margin: 0 -18px;
-  padding: 0 18px;
-  border-bottom: 1px solid var(--line);
+  min-width: 0;
+}
+
+/* Toolbar row inside the card: + button then switchers. */
+.composer-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  margin-top: 1px;
 }
 
 .composer-add-button {
   position: relative;
   display: grid;
-  width: 26px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  margin-left: -6px;
   place-items: center;
-  border-radius: 7px;
+  border-radius: 50%;
   background: transparent;
   color: var(--muted);
   font-size: 0;
@@ -1598,7 +1634,7 @@ p {
   left: 50%;
   top: 50%;
   width: 15px;
-  height: 1.5px;
+  height: 1.6px;
   border-radius: 999px;
   background: currentColor;
   transform: translate(-50%, -50%);
@@ -1610,16 +1646,17 @@ p {
 
 .composer-add-button:hover {
   background: var(--hover);
+  color: var(--text);
 }
 
 .composer textarea {
-  min-height: 41px;
+  min-height: 32px;
   max-height: 156px;
-  height: 41px;
+  height: 32px;
   border: 0;
   outline: 0;
   resize: none;
-  padding: 10px 0 7px;
+  padding: 6px 0 4px;
   background: transparent;
   color: var(--text);
   overflow-y: hidden;
@@ -1629,37 +1666,38 @@ p {
   color: var(--faint);
 }
 
+/* Circle-arrow send (matches the desktop arrow-up icon): accent when enabled,
+   faint when disabled. Web has no Lottie player, so it stays a static SVG. */
 .send-button {
   display: grid;
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
   place-items: center;
-  border-radius: 10px;
+  border-radius: 50%;
   background: transparent;
-  color: var(--muted);
-  font-size: 22px;
+  color: var(--accent);
+  font-size: 0;
+  transition: color 120ms ease, transform 160ms cubic-bezier(0.2, 0.7, 0.2, 1), opacity 120ms ease;
+}
+
+.send-button svg {
+  width: 30px;
+  height: 30px;
 }
 
 .send-button:hover {
-  background: var(--hover);
-  color: var(--accent);
+  transform: scale(1.08);
 }
 
-.send-button:disabled,
-.composer textarea:disabled {
-  cursor: wait;
-  opacity: 0.55;
+.send-button:active {
+  transform: scale(0.94);
 }
 
-.composer-bottom {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  min-width: 0;
-  min-height: 26px;
-  color: var(--muted);
-  font-size: 12px;
+.send-button:disabled {
+  color: var(--faint);
+  cursor: default;
+  transform: none;
 }
 
 .composer-controls {
@@ -2440,10 +2478,6 @@ p {
 
   .message-attachment.image {
     width: min(100%, 320px);
-  }
-
-  .composer-bottom {
-    min-height: 22px;
   }
 
   .model-switch-status {

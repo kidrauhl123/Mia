@@ -125,6 +125,8 @@
     if (!state || !els) return;
     els.composerAddMenu?.classList.toggle("hidden", !state.composerAddMenuOpen);
     els.composerAdd?.classList.toggle("active", state.composerAddMenuOpen);
+    const addLottie = els.composerAdd?.querySelector("[data-lottie]");
+    if (addLottie) window.miaLottieIcons?.setOpen(addLottie, state.composerAddMenuOpen);
     if (!els.composerAddMenu) return;
     els.composerAddMenu.innerHTML = `
       <button type="button" data-composer-add="attachment">添加附件</button>

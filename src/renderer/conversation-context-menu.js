@@ -132,9 +132,6 @@
     if (actions.openInfo) {
       items.push({ icon: "edit", label: "群信息", key: "info" });
     }
-    if (actions.rename || actions.notSupported?.rename) {
-      items.push({ icon: "edit", label: "重命名", key: "rename" });
-    }
     pushReadItem(items, conversation, actions);
     pushMutedItem(items, conversation, actions);
     if (actions.remove || actions.notSupported?.remove) {
@@ -167,6 +164,7 @@
       const attrs = `data-conv-action="${it.key}"${it.disabled ? " disabled" : ""}`;
       return menuItemHtml(it.icon, it.label, attrs, it.danger);
     }).join("");
+    window.miaLottieIcons?.init(menu);
     menu.querySelectorAll("[data-conv-action]").forEach((btn) => {
       if (btn.disabled) return;
       btn.addEventListener("click", () => dispatch(btn.dataset.convAction));

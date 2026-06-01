@@ -22,24 +22,24 @@
       <span id="userDisplayName" class="visually-hidden">Boss</span>
       <div class="rail-divider"></div>
       <button class="rail-button active" type="button" data-view="chat" title="消息" aria-label="消息">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        <span class="rail-lottie" data-lottie="forum" data-lottie-rest="60" data-lottie-play="70,130" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
         <em id="personaCount">0</em>
         <span id="chatUnreadBadge" class="rail-badge hidden" aria-hidden="true">0</span>
       </button>
       <button class="rail-button" type="button" data-view="contacts" title="联系人" aria-label="联系人">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2 M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0z"/></svg>
+        <span class="rail-lottie" data-lottie="contacts" data-lottie-rest="60" data-lottie-play="70,130" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2 M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0z"/></svg></span>
         <span id="contactsUnreadBadge" class="rail-badge hidden" aria-hidden="true">0</span>
       </button>
       <button class="rail-button" type="button" data-view="skills" title="能力库" aria-label="能力库">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7v14 M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/></svg>
+        <span class="rail-lottie" data-lottie="extension" data-lottie-rest="60" data-lottie-play="70,130" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 7v14 M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/></svg></span>
       </button>
       <button class="rail-button" type="button" data-view="tasks" title="任务" aria-label="任务">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18 M8 3v4 M16 3v4 M8 13h3 M8 17h7"/></svg>
+        <span class="rail-lottie" data-lottie="checklist" data-lottie-rest="60" data-lottie-play="70,130" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18 M8 3v4 M16 3v4 M8 13h3 M8 17h7"/></svg></span>
         <span id="tasksUnreadBadge" class="rail-badge hidden" aria-hidden="true">0</span>
       </button>
       <div class="rail-spacer"></div>
       <button id="openSettings" class="rail-button" type="button" title="设置" aria-label="设置">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16 M4 12h16 M4 18h16"/></svg>
+        <span class="rail-lottie" data-lottie="settings" data-lottie-rest="60" data-lottie-play="70,130" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 6h16 M4 12h16 M4 18h16"/></svg></span>
       </button>
     </aside>
 
@@ -54,8 +54,10 @@
           <button id="convMenuAddFriend" type="button">
             <span class="create-menu-icon" aria-hidden="true">
               <svg viewBox="0 0 48 48" fill="none" focusable="false">
-                <circle cx="24" cy="24" r="6" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-                <path d="M30 18V26C30 28.2091 31.7909 30 34 30C36.2091 30 38 28.2091 38 26V24C38 16.268 31.732 10 24 10C16.268 10 10 16.268 10 24C10 31.732 16.268 38 24 38" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M24 11C24 14.866 20.866 18 17 18C13.134 18 10 14.866 10 11C10 7.13401 13.134 4 17 4C20.866 4 24 7.13401 24 11Z" fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round"/>
+                <path d="M5 40C5 33.3726 10.3726 28 17 28C19.5 28 21.82 28.764 23.74 30.07" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M30 35H42" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
+                <path d="M36 29V41" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
               </svg>
             </span>
             <span class="create-menu-label">添加好友</span>
@@ -101,8 +103,10 @@
           <button id="contactMenuAddFriend" type="button">
             <span class="create-menu-icon" aria-hidden="true">
               <svg viewBox="0 0 48 48" fill="none" focusable="false">
-                <circle cx="24" cy="24" r="6" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-                <path d="M30 18V26C30 28.2091 31.7909 30 34 30C36.2091 30 38 28.2091 38 26V24C38 16.268 31.732 10 24 10C16.268 10 10 16.268 10 24C10 31.732 16.268 38 24 38" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M24 11C24 14.866 20.866 18 17 18C13.134 18 10 14.866 10 11C10 7.13401 13.134 4 17 4C20.866 4 24 7.13401 24 11Z" fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round"/>
+                <path d="M5 40C5 33.3726 10.3726 28 17 28C19.5 28 21.82 28.764 23.74 30.07" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M30 35H42" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
+                <path d="M36 29V41" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
               </svg>
             </span>
             <span class="create-menu-label">添加好友</span>
@@ -186,20 +190,55 @@
         </div>
         <form id="chatForm" class="composer">
           <div id="agentPermissionBanner" class="agent-permission-banner hidden" aria-live="polite"></div>
-          <div class="composer-input-row">
-            <button id="composerAdd" class="composer-add-button" type="button" title="添加" aria-label="添加">+</button>
-            <div class="composer-input-field">
-              <div id="composerSkills" class="composer-skills hidden"></div>
-              <textarea id="chatInput" placeholder="输入消息，Enter 发送，Shift+Enter 换行"></textarea>
-            </div>
-            <button id="sendChat" class="send-button" type="submit" title="发送" aria-label="发送">↗</button>
-          </div>
           <div id="composerReply" class="composer-reply hidden"></div>
+          <div id="composerAttachments" class="composer-attachments hidden"></div>
+          <div class="composer-card">
+            <div class="composer-top-row">
+              <div class="composer-input-field">
+                <div id="composerSkills" class="composer-skills hidden"></div>
+                <textarea id="chatInput" placeholder="输入消息，Enter 发送，Shift+Enter 换行"></textarea>
+              </div>
+              <button id="sendChat" class="send-button" type="submit" title="发送" aria-label="发送"><span class="send-lottie" data-lottie="send" data-lottie-trigger="boomerang" data-lottie-play="0,200" data-lottie-rest="200" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8.5 13.5L12 10l3.5 3.5"/></svg></span></button>
+            </div>
+            <div class="composer-toolbar">
+              <button id="composerAdd" class="composer-add-button" type="button" title="添加" aria-label="添加"><span class="composer-add-lottie" data-lottie="plusToX" data-lottie-trigger="toggle" aria-hidden="true"></span></button>
+              <div class="composer-controls">
+                <label class="model-switcher" title="切换当前模型">
+                  <span class="model-avatar" aria-hidden="true">◇</span>
+                  <span id="quickModelLabel" class="model-current-label">GPT-5.3 Codex</span>
+                  <select id="quickModelSelect" aria-label="切换当前模型">
+                    <option value="custom">Custom</option>
+                    <option value="openai-codex">GPT-5.3 Codex</option>
+                    <option value="xai">Grok 4.1 Fast</option>
+                    <option value="anthropic">Claude Sonnet 4.6</option>
+                    <option value="openrouter">Claude Sonnet 4.6</option>
+                    <option value="deepseek">DeepSeek Chat</option>
+                    <option value="gemini">Gemini 2.5 Pro</option>
+                    <option value="lmstudio">Local Model</option>
+                  </select>
+                </label>
+                <span class="composer-dot" aria-hidden="true">·</span>
+                <label class="effort-switcher" title="切换推理强度">
+                  <span id="effortLabel" class="effort-label">Medium</span>
+                  <select id="effortSelect" aria-label="切换推理强度">
+                    <!-- options populated dynamically from hermes SETTINGS_SCHEMA at startup -->
+                  </select>
+                </label>
+                <span class="composer-dot" aria-hidden="true">·</span>
+                <label class="permission-switcher" title="危险命令权限模式">
+                  <span id="permissionLabel" class="permission-label">Ask</span>
+                  <select id="permissionMode" aria-label="权限模式">
+                    <!-- options populated dynamically from hermes SETTINGS_SCHEMA at startup -->
+                  </select>
+                </label>
+              </div>
+              <span id="modelSwitchStatus" class="model-switch-status"></span>
+            </div>
+          </div>
           <div id="composerAddMenu" class="composer-add-menu hidden">
             <button type="button" data-composer-add="attachment">添加附件或图片</button>
             <button type="button" data-composer-add="skill">插件 / 技能</button>
           </div>
-          <div id="composerAttachments" class="composer-attachments hidden"></div>
           <input id="composerAttachmentInput" class="hidden" type="file" multiple>
           <div id="slashCommandMenu" class="slash-command-menu hidden"></div>
           <div id="mentionMenu" class="mention-menu hidden"></div>
@@ -209,39 +248,6 @@
               <button id="closeSkillPicker" class="icon-button" type="button" title="关闭" aria-label="关闭">×</button>
             </header>
             <div id="skillPickerBody" class="skill-picker-body"></div>
-          </div>
-          <div class="composer-bottom">
-            <div class="composer-controls">
-              <label class="model-switcher" title="切换当前模型">
-                <span class="model-avatar" aria-hidden="true">◇</span>
-                <span id="quickModelLabel" class="model-current-label">GPT-5.3 Codex</span>
-                <select id="quickModelSelect" aria-label="切换当前模型">
-                  <option value="custom">Custom</option>
-                  <option value="openai-codex">GPT-5.3 Codex</option>
-                  <option value="xai">Grok 4.1 Fast</option>
-                  <option value="anthropic">Claude Sonnet 4.6</option>
-                  <option value="openrouter">Claude Sonnet 4.6</option>
-                  <option value="deepseek">DeepSeek Chat</option>
-                  <option value="gemini">Gemini 2.5 Pro</option>
-                  <option value="lmstudio">Local Model</option>
-                </select>
-              </label>
-              <span class="composer-dot" aria-hidden="true">·</span>
-              <label class="effort-switcher" title="切换推理强度">
-                <span id="effortLabel" class="effort-label">Medium</span>
-                <select id="effortSelect" aria-label="切换推理强度">
-                  <!-- options populated dynamically from hermes SETTINGS_SCHEMA at startup -->
-                </select>
-              </label>
-              <span class="composer-dot" aria-hidden="true">·</span>
-              <label class="permission-switcher" title="危险命令权限模式">
-                <span id="permissionLabel" class="permission-label">Ask</span>
-                <select id="permissionMode" aria-label="权限模式">
-                  <!-- options populated dynamically from hermes SETTINGS_SCHEMA at startup -->
-                </select>
-              </label>
-            </div>
-            <span id="modelSwitchStatus" class="model-switch-status"></span>
           </div>
         </form>
       </section>
@@ -996,6 +1002,9 @@
   <script src="./social/contact-card.js"></script>
   <!-- Lightweight context menu for cloud DM + cloud group bubbles -->
   <script src="./social/social-message-menu.js"></script>
+  <!-- Animated icons (Lottie, SVG renderer; color via currentColor) -->
+  <script src="./assets/lottie/lottie_light.min.js"></script>
+  <script src="./lottie-icons.js"></script>
   <!-- Main app entry — assembles everything -->
   <script src="./app.js"></script>
 </body>

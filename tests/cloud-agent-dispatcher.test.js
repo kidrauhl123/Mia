@@ -104,6 +104,62 @@ test("cloud-hermes DM runs the fellow and appends a reply", async () => {
   }
 });
 
+test("desktop-local DM broadcasts a fellow invocation and does not run inline", async () => {
+  const ctx = setup();
+  const broadcasts = [];
+  const hermesCalls = [];
+  try {
+    ctx.runtimeBindingsStore.upsertBinding({
+      userId: ctx.user.id,
+      fellowId: "mia",
+      runtimeKind: "cloud-hermes",
+      enabled: false,
+      config: {}
+    });
+    ctx.runtimeBindingsStore.upsertBinding({
+      userId: ctx.user.id,
+      fellowId: "mia",
+      runtimeKind: "desktop-local",
+      enabled: true,
+      config: { model: "claude-sonnet-4-6" }
+    });
+    const dispatcher = makeDispatcher(ctx, {
+      broadcastPersistedEvent(userId, event) {
+        broadcasts.push({ userId, event });
+      },
+      hermesRunsClient: {
+        async runChat(args) {
+          hermesCalls.push(args);
+          return { runId: "hr_dm", content: "should not run", events: [] };
+        }
+      }
+    });
+    const message = ctx.messagesStore.appendMessage({
+      conversationId: ctx.conversation.id,
+      senderKind: "user",
+      senderRef: ctx.user.id,
+      bodyMd: "hello"
+    });
+    const reply = await dispatcher.handleUserMessage({
+      userId: ctx.user.id,
+      conversationId: ctx.conversation.id,
+      message
+    });
+    assert.equal(reply, null);
+    assert.equal(hermesCalls.length, 0);
+    assert.equal(broadcasts.length, 1);
+    assert.equal(broadcasts[0].userId, ctx.user.id);
+    assert.equal(broadcasts[0].event.type, "conversation.fellow_invocation_requested");
+    assert.equal(broadcasts[0].event.conversationId, ctx.conversation.id);
+    assert.equal(broadcasts[0].event.fellowId, "mia");
+    assert.equal(broadcasts[0].event.runtimeKind, "desktop-local");
+    assert.equal(broadcasts[0].event.runtimeConfig.model, "claude-sonnet-4-6");
+    assert.equal(broadcasts[0].event.triggeringMessage.id, message.id);
+  } finally {
+    ctx.cleanup();
+  }
+});
+
 test("single-fellow group skips the conductor and replies directly", async () => {
   const ctx = setup();
   const hermesCalls = [];

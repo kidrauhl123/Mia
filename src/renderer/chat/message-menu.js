@@ -234,6 +234,7 @@
       ${menuItemHtml({ icon: "pin", label: message.pinned ? "取消置顶" : "置顶", attrs: 'data-message-action="pin"' })}
       ${menuItemHtml({ icon: "delete", label: "删除", attrs: 'data-message-action="delete"', className: "danger" })}
     `;
+    window.miaLottieIcons?.init(menu);
     const rect = menu.getBoundingClientRect();
     const width = rect.width || 116;
     const height = rect.height || 210;

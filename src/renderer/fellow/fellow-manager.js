@@ -8,6 +8,10 @@
 (function () {
   "use strict";
 
+  // Sentinel activeContactKey for the pinned "新的好友" entry — the right pane
+  // shows the incoming friend-request list instead of a fellow profile.
+  const FRIEND_REQUESTS_KEY = "__friend_requests__";
+
   let state, els;
   let setText, formatConversationTime;
   let loadSkills, showNarrowContent, render;
@@ -252,21 +256,28 @@
       loadSkills().catch(() => {});
     }
     const fellows = allOwnedFellows();
-    if (!fellows.length) {
+    const pendingRequests = window.miaSocial?.pendingRequestCount?.() || 0;
+    if (!fellows.length && !pendingRequests) {
       els.contactList.innerHTML = `<div class="contact-empty">还没有联系人</div>`;
       els.contactDetail.innerHTML = `<div class="contact-empty detail-empty">添加一个伙伴后会显示在这里</div>`;
       return;
     }
-    if (!fellows.some((fellow) => fellow.key === state.activeContactKey)) {
-      state.activeContactKey = fellows[0].key;
+    const onRequests = state.activeContactKey === FRIEND_REQUESTS_KEY;
+    if (onRequests && !pendingRequests) {
+      // The pending list emptied (all accepted/rejected) — fall back to a real contact.
+      state.activeContactKey = fellows[0]?.key || null;
+    } else if (!onRequests && !fellows.some((fellow) => fellow.key === state.activeContactKey)) {
+      state.activeContactKey = fellows[0]?.key || (pendingRequests ? FRIEND_REQUESTS_KEY : null);
     }
     const filter = state.contactFilter.trim().toLowerCase();
     const visibleContacts = sortFellowsForSidebar(filter
       ? fellows.filter((fellow) => `${fellow.name || ""} ${fellow.key || ""} ${fellow.bio || ""}`.toLowerCase().includes(filter))
       : fellows);
     els.contactList.innerHTML = "";
+    if (pendingRequests && !filter) {
+      els.contactList.appendChild(buildFriendRequestRow(pendingRequests));
+    }
     for (const fellow of visibleContacts) {
-      const summary = contactSessionSummary(fellow);
       const button = document.createElement("button");
       button.type = "button";
       button.className = `contact-row${fellow.key === state.activeContactKey ? " active" : ""}`;
@@ -274,9 +285,7 @@
         <span class="avatar fellow-photo"></span>
         <span class="contact-row-main">
           <strong>${window.miaMarkdown.escapeHtml(fellow.name)}</strong>
-          <small>${window.miaMarkdown.escapeHtml(fellowSubtitle(fellow))}</small>
         </span>
-        <span class="contact-row-side">${window.miaMarkdown.escapeHtml(summary.time || "")}</span>
       `;
       button.addEventListener("click", () => {
         state.activeContactKey = fellow.key;
@@ -292,10 +301,33 @@
       );
       els.contactList.appendChild(button);
     }
-    if (!visibleContacts.length) {
+    if (!visibleContacts.length && filter) {
       els.contactList.innerHTML = `<div class="contact-empty">没有匹配的联系人</div>`;
     }
-    renderContactDetail(fellows.find((fellow) => fellow.key === state.activeContactKey) || visibleContacts[0] || fellows[0]);
+    if (state.activeContactKey === FRIEND_REQUESTS_KEY && pendingRequests) {
+      setText(els.contactPageTitle, "新的好友");
+      setText(els.contactPageMeta, "");
+      window.miaSocial.renderRequestsInto(els.contactDetail);
+    } else {
+      renderContactDetail(fellows.find((fellow) => fellow.key === state.activeContactKey) || visibleContacts[0] || fellows[0]);
+    }
+  }
+
+  function buildFriendRequestRow(count) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `contact-row${state.activeContactKey === FRIEND_REQUESTS_KEY ? " active" : ""}`;
+    button.innerHTML = `
+      <span class="avatar contact-request-avatar">${window.miaMarkdown.iconParkIcon("add-friend", "contact-request-icon")}</span>
+      <span class="contact-row-main"><strong>新的好友</strong></span>
+      <span class="contact-row-side"><span class="contact-request-badge">${window.miaUnread.unreadBadgeText(count)}</span></span>
+    `;
+    button.addEventListener("click", () => {
+      state.activeContactKey = FRIEND_REQUESTS_KEY;
+      showNarrowContent();
+      renderContacts();
+    });
+    return button;
   }
 
   function renderContactDetail(fellow) {
@@ -469,6 +501,7 @@
   }
 
   window.miaFellowManager = {
+    FRIEND_REQUESTS_KEY,
     initFellowManager,
     fellowByKey,
     sortFellowsForSidebar,

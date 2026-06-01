@@ -2113,6 +2113,18 @@
       const displayName = escapeHtml(
         otherUser.username || otherUser.account || fallbackId || "—"
       );
+
+      const avatar = document.createElement("span");
+      avatar.className = "avatar request-avatar";
+      window.miaAvatar.applyAvatarMedia(
+        avatar,
+        otherUser.avatarImage,
+        otherUser.avatarCrop,
+        otherUser.avatarColor || window.miaMemberColor.memberAccentColor(otherUser.id || fallbackId || displayName),
+        (otherUser.username || otherUser.account || fallbackId || "?").slice(0, 1).toUpperCase()
+      );
+      row.appendChild(avatar);
+
       const nameSpan = document.createElement("span");
       nameSpan.style.cssText = "flex:1; font-weight:500;";
       nameSpan.innerHTML = displayName;
@@ -2175,6 +2187,23 @@
 
       container.appendChild(row);
     }
+  }
+
+  function pendingRequestCount() {
+    return moduleState.incomingRequests.length;
+  }
+
+  // Paint the incoming friend-request list into an arbitrary container (the
+  // contacts right pane). Reuses _renderRequestList with no modal, so accept /
+  // reject fall back to the global render() and repaint the pane in place.
+  function renderRequestsInto(container) {
+    if (!container) return;
+    container.innerHTML = `
+      <article class="contact-profile contact-requests">
+        <section class="contact-note"><div id="socialContactRequestPane"></div></section>
+      </article>
+    `;
+    _renderRequestList(container.querySelector("#socialContactRequestPane"), moduleState.incomingRequests, "incoming", null);
   }
 
   // ── Cloud-conversation send: DM, fellow conversations, and groups share one path. ─────────
@@ -2600,6 +2629,8 @@
     handleCloudEvent,
     renderSidebarRows,
     renderConversationChat,
+    pendingRequestCount,
+    renderRequestsInto,
     openAddFriendDialog,
     openCreateGroupDialog,
     sendInActiveConversation,

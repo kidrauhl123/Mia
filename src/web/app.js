@@ -643,7 +643,7 @@ async function handleLogout() {
 
 async function bootstrap() {
   try {
-    const me = await api("/api/me");
+    const me = await api("/api/me?compact=1");
     state.user = me.user || me;
     saveSession();
   } catch (err) {
@@ -660,7 +660,7 @@ async function bootstrap() {
     // Phase 2: fellow identities (name + avatar + persona) so conversation
     // messages from a fellow render with proper attribution rather than
     // a bare fellow-id string.
-    api("/api/me/fellows").then((d) => { state.fellows = Array.isArray(d.fellows) ? d.fellows : []; }).catch(() => {}),
+    api("/api/me/fellows?compact=1").then((d) => { state.fellows = Array.isArray(d.fellows) ? d.fellows : []; }).catch(() => {}),
     // Phase 3: cross-device user settings (pin / read marks / appearance).
     api("/api/me/settings").then((d) => { if (d.settings) state.settings = d.settings; }).catch(() => {}),
     // Bridge devices: lets Phase B decide whether the owner's desktop is

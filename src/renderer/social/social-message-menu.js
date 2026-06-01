@@ -103,6 +103,7 @@
       ${menuItemHtml({ icon: "delete", label: "删除", attrs: 'data-social-message-action="delete"', className: "danger" })}
     `;
     menu.classList.remove("hidden");
+    window.miaLottieIcons?.init(menu);
 
     const rect = menu.getBoundingClientRect();
     const width = rect.width || 140;

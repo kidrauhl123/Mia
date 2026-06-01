@@ -367,7 +367,6 @@ function renderSendButton() {
   const canSend = hasContent && (!cloudSignedIn || hasActiveCloudConversation);
   const generating = isActiveRunRunning();
   els.sendChat.classList.toggle("stop", generating);
-  els.sendChat.textContent = generating ? "" : "↗";
   els.sendChat.title = generating ? "停止生成" : "发送";
   els.sendChat.setAttribute("aria-label", generating ? "停止生成" : "发送");
   els.sendChat.disabled = !generating && !canSend;
@@ -1157,7 +1156,10 @@ function render() {
     ...personas.map((persona) => String(persona.key || persona.id || "")),
     ...syncedFellowKeys
   ].filter(Boolean));
-  if (!contactKeys.has(state.activeContactKey) && contactKeys.size) {
+  // The pinned "新的好友" entry uses a sentinel key that is intentionally not a
+  // contact — leave it alone here, fellow-manager.renderContacts() owns its fallback.
+  if (state.activeContactKey !== window.miaFellowManager?.FRIEND_REQUESTS_KEY
+    && !contactKeys.has(state.activeContactKey) && contactKeys.size) {
     state.activeContactKey = personas.find((persona) => persona.key === state.activeKey)?.key
       || personas[0]?.key
       || [...syncedFellowKeys][0]
@@ -1170,15 +1172,21 @@ function render() {
     ? social?.getConversationById?.(activeCloudConversationId)
     : null;
   const groupInfoBtn = document.getElementById("groupInfoButton");
-  const composerBottom = document.querySelector(".composer-bottom");
+  const composerBottom = document.querySelector(".composer-toolbar .composer-controls");
   if (activeCloudConversation) {
     paintActiveCloudConversationHeader(activeCloudConversation, { personas, social: window.miaSocial });
     paintHeaderStatus();
     const activeCloudConversationType = conversationTypeForComposer(activeCloudConversation, activeCloudConversation.id || activeCloudConversationId);
     const activeIsGroup = activeCloudConversationType === "group";
+    const activeIsHumanDm = activeCloudConversationType === "dm";
+    const hideSessionSelector = activeIsGroup || activeIsHumanDm;
     const showPrivateAiControls = activeCloudConversationType === "fellow";
     if (groupInfoBtn) groupInfoBtn.classList.toggle("hidden", !activeIsGroup);
-    if (els.sessionMenuButton) els.sessionMenuButton.classList.remove("hidden");
+    if (hideSessionSelector) state.sessionMenuOpen = false;
+    if (els.sessionMenuButton) {
+      els.sessionMenuButton.classList.remove("hidden");
+      els.sessionMenuButton.classList.toggle("hidden", hideSessionSelector);
+    }
     if (composerBottom) composerBottom.classList.toggle("hidden", !showPrivateAiControls);
   } else if (cloudSignedIn) {
     if (els.activeChatAvatar) {
@@ -2565,6 +2573,8 @@ document.querySelectorAll("[data-skill-filter]").forEach((button) => {
     window.miaSkillLibrary.renderSkillLibrary();
   });
 });
+
+window.miaLottieIcons?.init();
 
 document.querySelectorAll("[data-view]").forEach((button) => {
   button.addEventListener("click", () => {

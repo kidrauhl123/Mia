@@ -137,13 +137,14 @@
           <section class="chat-layout">
             <div id="chat" class="chat" aria-live="polite"></div>
             <form id="chatForm" class="composer">
-              <div class="composer-input-row">
-                <button id="composerAdd" class="composer-add-button" type="button" title="添加" aria-label="添加">+</button>
-                <textarea id="chatInput" placeholder="输入消息，Enter 发送，Shift+Enter 换行"></textarea>
-                <button id="sendButton" class="send-button" type="submit" title="发送" aria-label="发送">↗</button>
-              </div>
-              <div id="composerBottom" class="composer-bottom hidden">
-                <div class="composer-controls">
+              <div class="composer-card">
+                <div class="composer-top-row">
+                  <textarea id="chatInput" placeholder="输入消息，Enter 发送，Shift+Enter 换行"></textarea>
+                  <button id="sendButton" class="send-button" type="submit" title="发送" aria-label="发送"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8.5 13.5L12 10l3.5 3.5"/></svg></button>
+                </div>
+                <div class="composer-toolbar">
+                  <button id="composerAdd" class="composer-add-button" type="button" title="添加" aria-label="添加"></button>
+                  <div id="composerBottom" class="composer-controls hidden">
                   <label class="model-switcher" title="切换当前模型">
                     <span id="quickModelAvatar" class="model-avatar" aria-hidden="true">◇</span>
                     <span id="quickModelLabel" class="model-current-label">GPT-5.3 Codex</span>
@@ -168,6 +169,7 @@
                     <span id="permissionLabel" class="permission-label">Ask</span>
                     <select id="permissionMode" aria-label="权限模式"></select>
                   </label>
+                  </div>
                 </div>
               </div>
             </form>

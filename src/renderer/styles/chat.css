@@ -2,7 +2,7 @@
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
   min-height: 0;
-  background: var(--surface-muted);
+  background: var(--chat-background);
 }
 
 .chat {

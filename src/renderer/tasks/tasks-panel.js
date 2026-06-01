@@ -32,6 +32,31 @@
     { key: "ok",     label: "成功",      match: (r) => r.status === "ok" },
     { key: "failed", label: "失败/错过", match: (r) => r.status === "failed" || r.status === "missed" }
   ];
+  let modeToggleIndicatorHost = null;
+  let modeToggleIndicatorResizeBound = false;
+
+  function syncModeToggleIndicator(host) {
+    modeToggleIndicatorHost = host || modeToggleIndicatorHost;
+    if (!modeToggleIndicatorHost) return;
+
+    const update = () => {
+      const active = modeToggleIndicatorHost.querySelector("button.active");
+      if (!active || typeof active.getBoundingClientRect !== "function") return;
+      const hostRect = modeToggleIndicatorHost.getBoundingClientRect();
+      const activeRect = active.getBoundingClientRect();
+      modeToggleIndicatorHost.style.setProperty("--pill-x", `${activeRect.left - hostRect.left}px`);
+      modeToggleIndicatorHost.style.setProperty("--pill-w", `${activeRect.width}px`);
+      modeToggleIndicatorHost.style.setProperty("--pill-ready", "1");
+    };
+
+    if (typeof requestAnimationFrame === "function") requestAnimationFrame(update);
+    else update();
+
+    if (!modeToggleIndicatorResizeBound && typeof window !== "undefined") {
+      modeToggleIndicatorResizeBound = true;
+      window.addEventListener("resize", () => syncModeToggleIndicator(modeToggleIndicatorHost));
+    }
+  }
 
   // Single source of truth for run-status presentation. Any new run.status
   // value must extend this map so historyRow, run detail header, and card
@@ -151,6 +176,7 @@
         renderTaskView();
       });
     });
+    syncModeToggleIndicator(host);
   }
 
   function renderActiveView() {

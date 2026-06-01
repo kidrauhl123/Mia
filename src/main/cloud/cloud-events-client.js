@@ -83,8 +83,6 @@ function createCloudEventsClient({
     if (message.type !== CloudEvent.EventsReady) return;
     if (message.resetTo != null && Number.isFinite(Number(message.resetTo))) {
       writeCloudSettings({ lastEventSeq: Number(message.resetTo) });
-    } else if (Number.isFinite(Number(message.serverSeq))) {
-      saveLastEventSeq(message.serverSeq);
     }
   }
 

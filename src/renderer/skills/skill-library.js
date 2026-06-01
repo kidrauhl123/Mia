@@ -23,6 +23,31 @@
   };
   const MARKET_SKILL_PAGE_LIMIT = 120;
   const marketRefreshKeys = new Set();
+  let modeToggleIndicatorHost = null;
+  let modeToggleIndicatorResizeBound = false;
+
+  function syncModeToggleIndicator(host) {
+    modeToggleIndicatorHost = host || modeToggleIndicatorHost;
+    if (!modeToggleIndicatorHost) return;
+
+    const update = () => {
+      const active = modeToggleIndicatorHost.querySelector("button.active");
+      if (!active || typeof active.getBoundingClientRect !== "function") return;
+      const hostRect = modeToggleIndicatorHost.getBoundingClientRect();
+      const activeRect = active.getBoundingClientRect();
+      modeToggleIndicatorHost.style.setProperty("--pill-x", `${activeRect.left - hostRect.left}px`);
+      modeToggleIndicatorHost.style.setProperty("--pill-w", `${activeRect.width}px`);
+      modeToggleIndicatorHost.style.setProperty("--pill-ready", "1");
+    };
+
+    if (typeof requestAnimationFrame === "function") requestAnimationFrame(update);
+    else update();
+
+    if (!modeToggleIndicatorResizeBound && typeof window !== "undefined") {
+      modeToggleIndicatorResizeBound = true;
+      window.addEventListener("resize", () => syncModeToggleIndicator(modeToggleIndicatorHost));
+    }
+  }
 
   function initSkillLibrary(deps) {
     state = deps.state;
@@ -166,6 +191,7 @@
     els.skillModeToggle.querySelectorAll("[data-skill-mode]").forEach((button) => {
       button.addEventListener("click", () => switchSkillMode(button.dataset.skillMode === "market"));
     });
+    syncModeToggleIndicator(els.skillModeToggle);
   }
 
   function switchSkillMode(toMarket) {

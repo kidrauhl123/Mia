@@ -98,7 +98,7 @@ test("start opens one /api/events websocket with resume cursor", () => {
   assert.equal(sockets.length, 2);
 });
 
-test("events_ready updates resume cursor and broadcasts renderer status", () => {
+test("events_ready does not advance resume cursor until replayed events are applied", () => {
   const { client, calls } = setup();
 
   client.handleMessage(JSON.stringify({
@@ -107,14 +107,38 @@ test("events_ready updates resume cursor and broadcasts renderer status", () => 
     serverSeq: 42
   }));
   client.handleMessage(JSON.stringify({
+    type: "conversation.message_appended",
+    seq: 41,
+    conversationId: "g_1",
+    message: { id: "m_41", seq: 1, sender_kind: "user", body_md: "missed one" }
+  }));
+  client.handleMessage(JSON.stringify({
+    type: "conversation.fellow_invocation_requested",
+    seq: 42,
+    conversationId: "g_1",
+    fellowId: "codex",
+    triggeringMessage: { id: "m_41", body_md: "@codex 看看" }
+  }));
+
+  assert.deepEqual(calls.settingsWrites, [{ lastEventSeq: 41 }, { lastEventSeq: 42 }]);
+  assert.equal(calls.broadcasts.length, 3);
+  assert.equal(calls.broadcasts[0].channel, "cloud:event");
+  assert.deepEqual(calls.broadcasts[0].envelope, {
+    type: "events_ready",
+    cloud: { enabled: true }
+  });
+});
+
+test("events_ready resetTo rewinds an invalid resume cursor", () => {
+  const { client, calls } = setup();
+
+  client.handleMessage(JSON.stringify({
     type: "events_ready",
     resetTo: 7,
     serverSeq: 100
   }));
 
-  assert.deepEqual(calls.settingsWrites, [{ lastEventSeq: 42 }, { lastEventSeq: 7 }]);
-  assert.equal(calls.broadcasts.length, 2);
-  assert.equal(calls.broadcasts[0].channel, "cloud:event");
+  assert.deepEqual(calls.settingsWrites, [{ lastEventSeq: 7 }]);
   assert.deepEqual(calls.broadcasts[0].envelope, {
     type: "events_ready",
     cloud: { enabled: true }
@@ -147,7 +171,7 @@ test("status exposes the cloud events socket health separately from the bridge",
     connecting: false,
     connected: true,
     lastError: "",
-    lastEventSeq: 8
+    lastEventSeq: 3
   });
 
   sockets[0].emit("close");

@@ -271,6 +271,22 @@ function conversationMemberOwnerPublic(user) {
   return identity;
 }
 
+function compactPublicUser(user) {
+  if (!user) return null;
+  const { avatarImage, avatarCrop, avatarColor, ...identity } = user;
+  return identity;
+}
+
+function compactFellowIdentity(fellow) {
+  if (!fellow) return null;
+  const { avatarImage, avatarCrop, personaText, ...identity } = fellow;
+  return identity;
+}
+
+function wantsCompactPayload(url) {
+  return /^(1|true|yes)$/i.test(String(url?.searchParams?.get("compact") || ""));
+}
+
 function normalizeMemberRuntimeKind(value) {
   const runtimeKind = String(value || "").trim();
   return runtimeKind === "cloud-hermes" || runtimeKind === "desktop-local" ? runtimeKind : "";
@@ -1753,7 +1769,8 @@ async function handleRequest(req, res, context) {
 
     if (req.method === "GET" && url.pathname === "/api/me") {
       ensureCloudAgentBootstrap(context, auth.user.id);
-      return writeJson(res, 200, { user: auth.user });
+      const user = wantsCompactPayload(url) ? compactPublicUser(auth.user) : auth.user;
+      return writeJson(res, 200, { user });
     }
 
     // PATCH /api/me/profile — update the signed-in user's display avatar so
@@ -1888,7 +1905,8 @@ async function handleRequest(req, res, context) {
     // proper attribution. Desktop-local runtime config stays local; cloud
     // runtime bindings live under the /runtime endpoint below.
     if (req.method === "GET" && url.pathname === "/api/me/fellows") {
-      const fellows = context.fellowsStore.listFellows(auth.user.id);
+      let fellows = context.fellowsStore.listFellows(auth.user.id);
+      if (wantsCompactPayload(url)) fellows = fellows.map(compactFellowIdentity);
       return writeJson(res, 200, { fellows });
     }
 
