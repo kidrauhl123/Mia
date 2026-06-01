@@ -6,7 +6,7 @@ import { theme } from "../theme";
 
 export default function LoginScreen() {
   const { setSession } = useAuth();
-  const [server, setServer] = useState("");
+  const [server, setServer] = useState(DEFAULT_API_BASE);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
