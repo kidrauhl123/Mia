@@ -19,6 +19,9 @@ export interface Conversation {
   name?: string;
   title?: string;
   type?: string;
+  fellow_id?: string;
+  fellowKey?: string;
+  decorations?: { fellowKey?: string; fellowName?: string; runtimeKind?: string };
   last_message_text?: string;
   last_activity_at?: string;
   updated_at?: string;

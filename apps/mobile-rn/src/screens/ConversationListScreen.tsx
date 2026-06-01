@@ -1,6 +1,6 @@
 import { View, Text, FlatList, Pressable, StyleSheet } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { useConversations } from "../state/queries";
+import { useConversations, useFellows } from "../state/queries";
 import { buildConversationListItems } from "../logic/conversationList";
 import Avatar from "../components/Avatar";
 import ConnBanner from "../components/ConnBanner";
@@ -11,7 +11,8 @@ type Props = NativeStackScreenProps<MessagesStackParamList, "Conversations">;
 
 export default function ConversationListScreen({ navigation }: Props) {
   const { data: conversations = [], isLoading, refetch, isRefetching } = useConversations();
-  const items = buildConversationListItems({ conversations, unreadByConversation: {} });
+  const { data: fellows = [] } = useFellows();
+  const items = buildConversationListItems({ conversations, fellows, unreadByConversation: {} });
 
   return (
     <View style={styles.root}>
