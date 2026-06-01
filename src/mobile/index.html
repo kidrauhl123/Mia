@@ -1,124 +1,85 @@
 <!doctype html>
 <html lang="zh-CN">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <meta name="theme-color" content="#ffffff">
-    <title>Mia Mobile</title>
-    <link rel="manifest" href="/mobile/manifest.json">
-    <link rel="stylesheet" href="/mobile/styles.css?v=mobile-slash-commands-1">
-  </head>
-  <body>
-    <main class="app">
-      <section id="setupView" class="setup-view hidden">
-        <div class="setup-panel">
-          <h1>Mia</h1>
-          <p>连接你电脑上的 Mia 后台服务。</p>
-          <label>
-            电脑地址
-            <input id="baseUrlInput" inputmode="url" autocomplete="off" placeholder="http://192.168.1.2:27861">
-          </label>
-          <label>
-            配对 Token
-            <input id="tokenInput" autocomplete="off" placeholder="从桌面端设置里复制">
-          </label>
-          <button id="savePairing" class="primary" type="button">连接</button>
-          <p id="setupError" class="error"></p>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+  <meta name="theme-color" content="#f5f5f8">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>Mia</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <!-- 登录视图 -->
+  <section id="loginView" class="login-view">
+    <div class="login-panel">
+      <h1>Mia</h1>
+      <input id="serverInput" inputmode="url" placeholder="服务器(默认生产)">
+      <input id="usernameInput" type="text" autocomplete="username" placeholder="用户名">
+      <input id="passwordInput" type="password" autocomplete="current-password" placeholder="密码">
+      <button id="loginBtn" class="primary" type="button">登录</button>
+      <button id="registerBtn" type="button">创建账号</button>
+      <p id="loginError" class="error"></p>
+    </div>
+  </section>
+
+  <!-- 主壳 -->
+  <section id="mainView" class="main-view hidden">
+    <!-- 列表视图(消息 Tab) -->
+    <div id="listScreen" class="screen">
+      <header class="bar"><span class="bar-title">消息</span></header>
+      <div id="connBar" class="conn-bar hidden">连接中…</div>
+      <ul id="conversationList" class="conv-list"></ul>
+    </div>
+
+    <!-- 聊天视图 -->
+    <div id="chatScreen" class="screen hidden">
+      <header class="bar">
+        <button id="chatBack" class="back" type="button" aria-label="返回">‹</button>
+        <span id="chatTitle" class="bar-title"></span>
+      </header>
+      <div id="chatMessages" class="chat-messages"></div>
+      <div id="composer" class="composer">
+        <input id="composerInput" type="text" placeholder="输入消息…">
+        <button id="sendBtn" class="primary" type="button">发送</button>
+      </div>
+      <!-- 权限底部 sheet -->
+      <div id="approvalSheet" class="approval-sheet hidden">
+        <div class="approval-title">⚠ 请求权限</div>
+        <div id="approvalPreview" class="approval-preview"></div>
+        <div class="approval-actions">
+          <button data-decision="deny" type="button">拒绝</button>
+          <button data-decision="allow_once" class="primary" type="button">允许</button>
+          <button data-decision="allow_always" type="button">始终</button>
         </div>
-      </section>
+      </div>
+    </div>
 
-      <section id="mainView" class="main-view hidden">
-        <section id="listView" class="pane">
-          <header class="topbar">
-            <div>
-              <h1 id="pageTitle">消息</h1>
-              <p id="connectionMeta">连接中</p>
-            </div>
-            <button id="refreshButton" class="icon-button" type="button" title="刷新">↻</button>
-          </header>
-          <div id="conversationList" class="list"></div>
-        </section>
+    <!-- 联系人 / 我 -->
+    <div id="contactsScreen" class="screen hidden"><header class="bar"><span class="bar-title">联系人</span></header><ul id="contactsList" class="conv-list"></ul></div>
+    <div id="meScreen" class="screen hidden"><header class="bar"><span class="bar-title">我</span></header><div class="me-body"><div id="meName"></div><button id="logoutBtn" type="button">退出登录</button></div></div>
 
-        <section id="fellowsView" class="pane hidden">
-          <header class="topbar">
-            <div>
-              <h1>伙伴</h1>
-              <p id="fellowMeta"></p>
-            </div>
-          </header>
-          <div id="fellowList" class="list"></div>
-        </section>
+    <!-- 底部 Tab -->
+    <nav id="tabBar" class="tab-bar">
+      <button class="tab active" data-tab="list" type="button"><span>💬</span>消息</button>
+      <button class="tab" data-tab="contacts" type="button"><span>👥</span>联系人</button>
+      <button class="tab" data-tab="me" type="button"><span>⚙</span>我</button>
+    </nav>
+  </section>
 
-        <section id="settingsPane" class="pane hidden">
-          <header class="topbar">
-            <div>
-              <h1>设置</h1>
-              <p>手机端本地保存连接信息</p>
-            </div>
-          </header>
-          <div class="settings-list">
-            <label>
-              电脑地址
-              <input id="settingsBaseUrl" inputmode="url" autocomplete="off">
-            </label>
-            <label>
-              Token
-              <input id="settingsToken" autocomplete="off">
-            </label>
-            <button id="saveSettings" class="secondary" type="button">保存并重连</button>
-            <button id="clearPairing" class="danger" type="button">清除配对</button>
-          </div>
-        </section>
-
-        <section id="chatView" class="chat-view hidden">
-          <header class="chat-topbar">
-            <button id="backButton" class="icon-button" type="button" title="返回">‹</button>
-            <span id="chatAvatar" class="avatar"></span>
-            <div>
-              <h1 id="chatTitle">伙伴</h1>
-              <p id="chatMeta">在线</p>
-            </div>
-            <button id="newSessionButton" class="icon-button" type="button" title="新对话">＋</button>
-          </header>
-          <div class="chat-controls" aria-label="聊天设置">
-            <label class="control-pill control-pill-wide">
-              <span>历史</span>
-              <select id="sessionSelect"></select>
-            </label>
-            <label class="control-pill">
-              <span>模型</span>
-              <select id="modelSelect"></select>
-            </label>
-            <label class="control-pill">
-              <span>强度</span>
-              <select id="effortSelect"></select>
-            </label>
-            <label class="control-pill">
-              <span>权限</span>
-              <select id="permissionSelect"></select>
-            </label>
-          </div>
-          <div id="messageList" class="messages"></div>
-          <input id="attachmentInput" class="hidden-file-input" type="file" multiple>
-          <div id="attachmentTray" class="attachment-tray hidden" aria-label="待发送附件"></div>
-          <div id="slashCommandMenu" class="slash-command-menu hidden"></div>
-          <form id="composer" class="composer">
-            <button id="attachButton" class="attach-button" type="button" title="添加附件" aria-label="添加附件">＋</button>
-            <textarea id="chatInput" rows="1" placeholder="输入消息"></textarea>
-            <button id="sendButton" class="send-button" type="submit" disabled>↗</button>
-          </form>
-        </section>
-
-        <nav id="bottomNav" class="bottom-nav">
-          <button class="nav-button active" type="button" data-tab="messages">消息</button>
-          <button class="nav-button" type="button" data-tab="fellows">伙伴</button>
-          <button class="nav-button" type="button" data-tab="settings">设置</button>
-        </nav>
-      </section>
-    </main>
-    <script src="/shared/engine-contracts.js"></script>
-    <script src="/shared/time-format.js"></script>
-    <script src="/shared/send-pipeline.js"></script>
-    <script src="/mobile/app.js?v=mobile-slash-commands-1"></script>
-  </body>
+  <!-- shared 依赖(顺序敏感)。build-mobile-www 会把这些拼成扁平路径 -->
+  <script src="./shared/conversation-kinds.js"></script>
+  <script src="./shared/message-spec.js"></script>
+  <script src="./shared/contact.js"></script>
+  <script src="./shared/avatar-resolve.js"></script>
+  <script src="./shared/unread.js"></script>
+  <script src="./shared/send-pipeline.js"></script>
+  <script src="./shared/agent-permissions.js"></script>
+  <script src="./shared/trace-blocks.js"></script>
+  <script src="./shared/cloud-client.js"></script>
+  <script src="./message-sources/cloud-conversation-source.js"></script>
+  <script src="./lib/conversation-list-model.js"></script>
+  <script src="./lib/approval-queue.js"></script>
+  <script src="./lib/optimistic-send.js"></script>
+  <script src="./app.js"></script>
+</body>
 </html>
