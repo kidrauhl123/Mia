@@ -1,41 +1,26 @@
-// Behaviour tests for the shared avatar resolver. The "Mia has no avatar"
-// regression is the canonical motivator: a fellow whose cloud-side
-// avatar_image is empty must still render with a deterministic image
-// everywhere, and the same id must always map to the same preset so
-// desktop and web agree.
+// Behaviour tests for the shared avatar resolver. Missing avatars render as
+// stable color + two-character text. Bundled preset avatar paths are legacy
+// data and must normalize to the same empty-avatar fallback.
 
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 
 const avatarResolve = require("../src/shared/avatar-resolve");
 
-test("avatarAssetForKey is deterministic for the same id", () => {
-  const a = avatarResolve.avatarAssetForKey("mia");
-  const b = avatarResolve.avatarAssetForKey("mia");
-  assert.equal(a, b);
+test("avatar preset catalog exports are empty compatibility shims", () => {
+  assert.equal(avatarResolve.avatarAssetForKey("mia"), "");
+  assert.deepEqual(avatarResolve.defaultAvatarAssets(), []);
+  assert.deepEqual(avatarResolve.avatarPresets, []);
+  assert.deepEqual(avatarResolve.avatarPresetGroupTabs, []);
+  assert.deepEqual(avatarResolve.avatarPresetGroups.human, []);
+  assert.deepEqual(avatarResolve.avatarPresetGroups.pet, []);
 });
 
-test("avatarAssetForKey spreads ids across the 16-preset table", () => {
-  const samples = ["mia", "kongling", "zongye", "fellow_alice", "fellow_bob", "fellow_carol"];
-  const indexes = new Set(samples.map((id) => avatarResolve.avatarAssetForKey(id)));
-  assert.ok(indexes.size >= 4, `hash should pick varied presets; got ${indexes.size}`);
-  for (const src of indexes) {
-    assert.match(src, /\.\/assets\/avatars\/(0[1-9]|1[0-6])\.png/);
-  }
-});
-
-test("avatarAssetForKey treats empty id as 'mia' so anonymous contacts get a stable preset", () => {
-  assert.equal(avatarResolve.avatarAssetForKey(""), avatarResolve.avatarAssetForKey("mia"));
-});
-
-test("avatarPresetBySrc finds canonical preset entries (including legacy avatar-icons path)", () => {
-  const direct = avatarResolve.avatarPresetBySrc("./assets/avatars/06.png");
-  assert.ok(direct, "direct preset path must resolve");
-  assert.equal(direct.name, "珊瑚");
-  // Legacy "./assets/avatar-icons/" form must alias to "./assets/avatars/".
-  const aliased = avatarResolve.avatarPresetBySrc("./assets/avatar-icons/06.png");
-  assert.ok(aliased, "legacy avatar-icons alias must still resolve");
-  assert.equal(aliased.src, "./assets/avatars/06.png");
+test("avatarPresetBySrc treats former bundled preset paths as legacy, not selectable presets", () => {
+  assert.equal(avatarResolve.avatarPresetBySrc("./assets/avatars/06.png"), null);
+  assert.equal(avatarResolve.avatarPresetBySrc("./assets/avatar-icons/06.png"), null);
+  assert.equal(avatarResolve.avatarPresetGroupForSrc("./assets/avatars-pet/06.png"), "");
+  assert.equal(avatarResolve.avatarThumbForSrc("./assets/avatars/06.png"), "");
 });
 
 test("avatarPresetBySrc returns null for paths that aren't preset entries", () => {
@@ -44,12 +29,9 @@ test("avatarPresetBySrc returns null for paths that aren't preset entries", () =
   assert.equal(avatarResolve.avatarPresetBySrc("./assets/avatars/99.png"), null);
 });
 
-test("avatarDefaultCropForSrc returns preset crop for known presets, neutral for unknowns", () => {
-  const preset = avatarResolve.avatarDefaultCropForSrc("./assets/avatars/06.png");
-  assert.equal(typeof preset.x, "number");
-  assert.notDeepStrictEqual(preset, avatarResolve.DEFAULT_AVATAR_CROP);
-  const unknown = avatarResolve.avatarDefaultCropForSrc("./assets/avatars/99.png");
-  assert.deepEqual(unknown, avatarResolve.DEFAULT_AVATAR_CROP);
+test("avatarDefaultCropForSrc returns neutral crop now that bundled presets are removed", () => {
+  assert.deepEqual(avatarResolve.avatarDefaultCropForSrc("./assets/avatars/06.png"), avatarResolve.DEFAULT_AVATAR_CROP);
+  assert.deepEqual(avatarResolve.avatarDefaultCropForSrc("./assets/avatars/99.png"), avatarResolve.DEFAULT_AVATAR_CROP);
 });
 
 test("normalizeAvatarCrop clamps x/y to [0,100] and zoom to [1,2.4]", () => {
@@ -74,12 +56,9 @@ test("isNeutralAvatarCrop matches the (50, 50, 1) default and flags real crops a
   assert.equal(avatarResolve.isNeutralAvatarCrop({ x: 50, y: 14, zoom: 1.72 }), false);
 });
 
-test("avatarCropForImage: neutral crop on a known preset switches to that preset's crop", () => {
-  const preset = avatarResolve.avatarCropForImage("./assets/avatars/06.png", { x: 50, y: 50, zoom: 1 });
-  assert.notDeepStrictEqual(preset, { x: 50, y: 50, zoom: 1 });
-  // Explicit non-neutral crop on a preset image is preserved verbatim.
-  const explicit = avatarResolve.avatarCropForImage("./assets/avatars/06.png", { x: 25, y: 25, zoom: 1.5 });
-  assert.deepEqual(explicit, { x: 25, y: 25, zoom: 1.5 });
+test("avatarCropForImage returns null for former bundled preset paths", () => {
+  assert.equal(avatarResolve.avatarCropForImage("./assets/avatars/06.png", { x: 50, y: 50, zoom: 1 }), null);
+  assert.equal(avatarResolve.avatarCropForImage("./assets/avatars/06.png", { x: 25, y: 25, zoom: 1.5 }), null);
 });
 
 test("resolveAvatarForContact: explicit avatarImage wins and carries its crop", () => {
@@ -97,13 +76,11 @@ test("resolveAvatarForContact: explicit avatarImage wins and carries its crop", 
   assert.equal(result.color, memberColor.memberAccentColor("fellow_42"));
 });
 
-test("resolveAvatarForContact: empty avatarImage falls back to identity-hashed preset", () => {
+test("resolveAvatarForContact: empty avatarImage returns color and text fallback", () => {
   const mia = avatarResolve.resolveAvatarForContact({ id: "mia", avatarImage: "" });
-  assert.ok(mia.image, "image must not be empty after fallback");
-  assert.match(mia.image, /\.\/assets\/avatars\/\d{2}\.png/);
-  assert.equal(mia.image, avatarResolve.avatarAssetForKey("mia"));
-  // The crop must be the preset crop for that file, not the neutral crop.
-  assert.deepEqual(mia.crop, avatarResolve.avatarDefaultCropForSrc(mia.image));
+  assert.equal(mia.image, "");
+  assert.equal(mia.crop, null);
+  assert.equal(mia.text, "mi");
 });
 
 test("resolveAvatarForContact: same id always yields the same fallback (deterministic across calls)", () => {
@@ -118,12 +95,47 @@ test("resolveAvatarForContact: color comes from the shared id-hashed palette", (
   assert.equal(r.color, memberColor.memberAccentColor("anon"));
 });
 
-test("resolveAvatarForContact: a neutral explicit crop on a preset image switches to that preset's crop", () => {
+test("resolveAvatarForContact: empty avatarImage returns text fallback instead of a preset image", () => {
+  const memberColor = require("../src/shared/member-color.js");
+  const r = avatarResolve.resolveAvatarForContact({
+    id: "fellow:kongling",
+    displayName: "空铃"
+  });
+  assert.equal(r.image, "");
+  assert.equal(r.crop, null);
+  assert.equal(r.text, "空铃");
+  assert.equal(r.color, memberColor.memberAccentColor("fellow:kongling"));
+});
+
+test("resolveAvatarForContact: legacy bundled preset paths are treated as missing avatars", () => {
+  const cases = [
+    "./assets/avatars/12.png",
+    "/assets/avatars/12.png",
+    "assets/avatars-pet/03.png",
+    "app://bundle/assets/avatar-thumbs/01.png",
+    "./assets/avatar-icons/06.png"
+  ];
+  for (const avatarImage of cases) {
+    const r = avatarResolve.resolveAvatarForContact({
+      id: "user_legacy",
+      displayName: "旧用户",
+      avatarImage,
+      avatarCrop: { x: 10, y: 20, zoom: 2 }
+    });
+    assert.equal(r.image, "", avatarImage);
+    assert.equal(r.crop, null, avatarImage);
+    assert.equal(r.text, "旧用", avatarImage);
+  }
+});
+
+test("resolveAvatarForContact: a former preset image is normalized to text fallback", () => {
   const r = avatarResolve.resolveAvatarForContact({
     id: "kongling",
+    displayName: "空铃",
     avatarImage: "./assets/avatars/12.png",
     avatarCrop: { x: 50, y: 50, zoom: 1 }
   });
-  assert.notDeepStrictEqual(r.crop, { x: 50, y: 50, zoom: 1 });
-  assert.deepEqual(r.crop, avatarResolve.avatarDefaultCropForSrc("./assets/avatars/12.png"));
+  assert.equal(r.image, "");
+  assert.equal(r.crop, null);
+  assert.equal(r.text, "空铃");
 });

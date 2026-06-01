@@ -109,7 +109,7 @@
     const senderColor = memberAccent(msg.sender_ref || authorName);
     const avatarColor = avatar.color || senderColor;
     const avatarHelpers = window.miaAvatar;
-    const avatarLetter = avatar.image ? "" : ((authorName || "?")[0] || "?").toUpperCase();
+    const avatarLetter = avatar.image ? "" : (avatar.text || ((authorName || "?").trim().slice(0, 2) || "?"));
     const avatarHtml = avatarHelpers?.avatarHtml
       ? avatarHelpers.avatarHtml({
         className: "avatar message-avatar",
@@ -284,26 +284,41 @@
       membersBox.appendChild(empty);
     }
     for (const friend of friends) {
+      const name = friend.username || friend.account || friend.id;
+      const avatar = window.miaAvatarResolve.resolveAvatarForContact({
+        id: friend.id,
+        displayName: name,
+        avatarImage: friend.avatarImage || "",
+        avatarCrop: friend.avatarCrop || null
+      });
       membersBox.appendChild(buildRow({
         kind: "friend",
         id: friend.id,
-        name: friend.username || friend.account || friend.id,
-        color: "#34c759"
+        name,
+        color: avatar.color,
+        image: avatar.image,
+        crop: avatar.crop,
+        text: avatar.text
       }));
     }
-    const memberAccent = window.miaMemberColor.memberAccentColor;
     for (const fellow of ownedFellows) {
       const id = fellow.key || fellow.id;
+      const name = fellow.name || id;
+      const avatar = window.miaAvatarResolve.resolveAvatarForContact({
+        id,
+        displayName: name,
+        avatarImage: fellow.avatarImage || "",
+        avatarCrop: fellow.avatarCrop || null
+      });
       membersBox.appendChild(buildRow({
         kind: "fellow",
         id,
-        name: fellow.name || id,
+        name,
         runtimeKind: fellow.runtimeKind || fellow.runtime_kind || "cloud-hermes",
-        color: memberAccent(id),
-        // Cloud fellows (e.g. mia) have no inline avatarImage; fall back to the
-        // key-derived preset asset, same as the conversation list / applyFellowAvatar.
-        image: fellow.avatarImage || window.miaAvatar?.avatarAssetForKey?.(fellow.key || id),
-        crop: fellow.avatarCrop
+        color: avatar.color,
+        image: avatar.image,
+        crop: avatar.crop,
+        text: avatar.text
       }));
     }
 

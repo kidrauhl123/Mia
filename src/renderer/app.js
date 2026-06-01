@@ -520,8 +520,8 @@ function groupTilesCtx(personas) {
     self,
     friends: social?.moduleState?.friends || [],
     fellows: personas || []
-    // shared/avatar-resolve.js owns the "no avatarImage → preset by hash"
-    // fallback now, so consumers don't need to hand it in via ctx.
+    // shared/avatar-resolve.js owns the "no avatarImage → text fallback"
+    // behavior now, so consumers don't need any local fallback table.
   };
 }
 
@@ -545,25 +545,26 @@ function conversationCardSpecFromRow(row, personas) {
     const conversation = row.conversation;
     const activeConversationId = social?.getActiveConversationId?.();
     const isFellow = conversation.type === "fellow";
-    const memberAccent = window.miaMemberColor.memberAccentColor;
     let name, avatar;
     if (isFellow) {
       const fellowKey = conversation.decorations?.fellowKey || (conversation.id?.split(":")[2] || "");
       const fellow = personas.find((p) => (p.id || p.key) === fellowKey);
       name = sessionHistory.fellowDisplayTitle(conversation, personas, "对话");
-      avatar = {
-        image: fellow?.avatarImage || avatarHelper?.avatarAssetForKey(fellowKey),
-        crop: fellow?.avatarCrop,
-        color: memberAccent(fellowKey)
-      };
+      avatar = window.miaAvatarResolve.resolveAvatarForContact({
+        id: fellowKey,
+        displayName: name || fellow?.name || fellowKey,
+        avatarImage: fellow?.avatarImage || "",
+        avatarCrop: fellow?.avatarCrop || null
+      });
     } else {
       const other = conversation.otherUser || {};
       name = other.username || other.account || "好友";
-      avatar = {
-        image: other.avatarImage,
-        crop: other.avatarCrop,
-        color: memberAccent(other.id || other.account || name)
-      };
+      avatar = window.miaAvatarResolve.resolveAvatarForContact({
+        id: other.id || other.account || name,
+        displayName: name,
+        avatarImage: other.avatarImage || "",
+        avatarCrop: other.avatarCrop || null
+      });
     }
     const pinned = Boolean(social?.isConversationPinned?.(conversation.id));
     const muted = Boolean(social?.isConversationMuted?.(conversation.id));
@@ -1651,12 +1652,19 @@ function renderMessageHtml(message, ctx) {
          <button class="link" type="button" data-jump-task="${window.miaMarkdown.escapeHtml(taskMeta.id)}">打开任务</button>
        </div>`
     : "";
-  const label = message.role === "user" ? (user.avatarText || window.miaAvatar.initials(user.displayName)) : window.miaAvatar.initials(persona?.name || "A");
-  const color = message.role === "user" ? user.avatarColor : (persona?.color || "#23444d");
-  const fellowAvatarImage = persona?.avatarImage || window.miaAvatar.avatarAssetForKey(persona?.key);
-  const fellowAvatar = window.miaAvatar.avatarImageSrc(fellowAvatarImage);
-  const userAvatarImage = user.avatarImage || "";
-  const userAvatar = window.miaAvatar.avatarImageSrc(userAvatarImage);
+  const userAvatarSpec = window.miaAvatarResolve.resolveAvatarForContact({
+    id: state.runtime?.cloud?.user?.id || user.id || user.username || user.displayName || "self",
+    displayName: user.displayName || user.username || "Boss",
+    avatarImage: user.avatarImage || "",
+    avatarCrop: user.avatarCrop || null
+  });
+  const fellowAvatarSpec = window.miaAvatarResolve.resolveAvatarForContact({
+    id: persona?.key || persona?.id || "assistant",
+    displayName: persona?.name || "Assistant",
+    avatarImage: persona?.avatarImage || "",
+    avatarCrop: persona?.avatarCrop || null
+  });
+  const activeAvatarSpec = message.role === "assistant" ? fellowAvatarSpec : userAvatarSpec;
   const traceHtml = message.role === "assistant"
     ? window.miaTraceBlocks.renderTraceBlocks({
       reasoning: message.reasoning,
@@ -1683,15 +1691,12 @@ function renderMessageHtml(message, ctx) {
     ? (persona?.key || "")
     : (state.runtime?.cloud?.user?.id || "");
   const avatarTitle = message.role === "assistant" ? (persona?.name || "") : (user.displayName || "");
-  const avatarImage = message.role === "assistant" ? fellowAvatarImage : userAvatarImage;
-  const avatarCrop = message.role === "assistant" ? persona?.avatarCrop : user.avatarCrop;
-  const avatarText = message.role === "user" && !userAvatar ? label : "";
   const avatarHtml = window.miaAvatar.avatarHtml({
     className: "avatar message-avatar",
-    image: avatarImage,
-    crop: avatarCrop,
-    color: color || "#111827",
-    text: avatarText,
+    image: activeAvatarSpec.image,
+    crop: activeAvatarSpec.crop,
+    color: activeAvatarSpec.color || "#111827",
+    text: activeAvatarSpec.image ? "" : activeAvatarSpec.text,
     attrs: `data-sender-kind="${senderKind}" data-sender-ref="${window.miaMarkdown.escapeHtml(senderRef)}" title="${window.miaMarkdown.escapeHtml(avatarTitle)}"`
   });
   return `<article class="message ${roleClass}">
@@ -2324,7 +2329,6 @@ async function initializeRuntime() {
       els,
       mia: window.mia,
       fellowByKey: window.miaFellowManager.fellowByKey,
-      avatarAssetForKey: window.miaAvatar.avatarAssetForKey,
       cryptoRandomId,
       avatarBackgroundStyle: window.miaAvatar.avatarBackgroundStyle,
       escapeHtml: window.miaMarkdown.escapeHtml,

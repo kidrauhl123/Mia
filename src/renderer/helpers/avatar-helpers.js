@@ -1,13 +1,11 @@
 // Avatar helpers module
-// Extracted from app.js. All Fellow / user avatar logic — preset library,
-// crop normalization, image rendering, and DOM apply functions.
+// Extracted from app.js. All Fellow / user avatar logic — crop normalization,
+// image rendering, text fallback, and DOM apply functions.
 //
 // Pure data and DOM helpers; no state.* references.  escapeHtml is the only
 // external function dependency (injected via initAvatarHelpers).
 //
-// Constants live in the module and are also exposed on window.miaAvatar
-// so the avatar dialog code in app.js can still read avatarPresetGroups /
-// avatarPresetGroupTabs / DEFAULT_AVATAR_CROP without a separate import.
+// Constants live in the module and are also exposed on window.miaAvatar.
 (function () {
   "use strict";
 
@@ -32,9 +30,9 @@
     return (name || "?").trim().slice(0, 2).toUpperCase();
   }
 
-  // Presets, identity hash, and crop math now live in shared/avatar-resolve.js
-  // so web and renderer stay aligned. Local aliases preserve the existing
-  // call-site names without forcing every caller to spell out the namespace.
+  // Crop math and text fallback now live in shared/avatar-resolve.js so web
+  // and renderer stay aligned. Local aliases preserve existing call-site names
+  // while the remaining preset exports act as empty compatibility shims.
   function avatarResolve() {
     if (typeof window !== "undefined" && window.miaAvatarResolve) return window.miaAvatarResolve;
     throw new Error("avatar-helpers: shared/avatar-resolve.js must load before this module");
@@ -86,7 +84,7 @@
   const normalizeCrop = avatarResolve().normalizeAvatarCrop;
 
   function avatarBackgroundStyle(image, crop = {}, color = "#5e5ce6") {
-    const src = avatarImageSrc(image) || image || "";
+    const src = avatarImageSrc(image);
     if (avatarMedia().isVideo(src)) return "background-color:transparent;";
     const effectiveCrop = avatarCropForImage(image, crop);
     const c = normalizeCrop(effectiveCrop);
@@ -165,7 +163,7 @@
   }
 
   function updateAvatarVideoElement(video, image, crop = {}) {
-    const src = avatarImageSrc(image) || image || "";
+    const src = avatarImageSrc(image);
     const c = normalizeCrop(crop);
     const trim = avatarMedia().trimFromCrop(c);
     const trimKey = avatarTrimKey(trim);
@@ -190,7 +188,7 @@
   }
 
   function createAvatarVideoElement(image, crop = {}) {
-    const src = avatarImageSrc(image) || image || "";
+    const src = avatarImageSrc(image);
     const video = document.createElement("video");
     video.className = "avatar-video";
     video.setAttribute("src", src);
@@ -248,7 +246,7 @@
   }
 
   function updateAvatarImageElement(imageEl, image, crop = {}) {
-    const src = avatarImageSrc(image) || image || "";
+    const src = avatarImageSrc(image);
     if (imageEl.getAttribute("src") !== src) {
       imageEl.setAttribute("src", src);
     }
@@ -272,7 +270,7 @@
 
   function applyAvatarMedia(el, image, crop = {}, color = "#5e5ce6", fallbackText = "", options = {}) {
     if (!el) return;
-    const src = avatarImageSrc(image) || image || "";
+    const src = avatarImageSrc(image);
     el.style.background = "";
     el.style.backgroundImage = "";
     el.style.backgroundSize = "";
@@ -322,7 +320,7 @@
   // letter), so this also routes them through the shared video-reuse pool.
   function paintAvatar(el, avatar = {}, options = {}) {
     if (!el) return;
-    applyAvatarMedia(el, avatar.image || "", avatar.crop, avatar.color || "#5e5ce6", options.fallbackText || "", options);
+    applyAvatarMedia(el, avatar.image || "", avatar.crop, avatar.color || "#5e5ce6", avatar.text || options.fallbackText || "", options);
   }
 
   function avatarMediaAttrs(image = "", crop = {}, color = "#5e5ce6", text = "") {
@@ -337,7 +335,7 @@
   }
 
   function avatarHtml({ tag = "div", className = "avatar", image = "", crop = {}, color = "#5e5ce6", text = "", attrs = "" } = {}) {
-    const src = avatarImageSrc(image) || image || "";
+    const src = avatarImageSrc(image);
     const hasImage = Boolean(src);
     const style = hasImage
       ? "background-color:transparent;"
@@ -389,12 +387,14 @@
 
   function applyFellowAvatar(el, fellow) {
     if (!el) return;
-    const image = fellow?.avatarImage || avatarAssetForKey(fellow?.key);
     const id = fellow?.id || fellow?.key || "";
-    const color = (typeof window !== "undefined" && window.miaMemberColor)
-      ? window.miaMemberColor.memberAccentColor(id)
-      : "#5e5ce6";
-    applyAvatarMedia(el, image, fellow?.avatarCrop, color);
+    const avatar = avatarResolve().resolveAvatarForContact({
+      id,
+      displayName: fellow?.name || fellow?.displayName || fellow?.key || id,
+      avatarImage: fellow?.avatarImage || "",
+      avatarCrop: fellow?.avatarCrop || null
+    });
+    applyAvatarMedia(el, avatar.image, avatar.crop, avatar.color, avatar.text);
   }
 
   function applyAvatar(el, text, color, image) {
@@ -419,13 +419,14 @@
 
   function applyUserAvatar(el, user = {}) {
     if (!el) return;
-    const image = user.avatarImage || "";
-    const text = user.avatarText || initials(user.displayName || "Boss");
-    if (image) {
-      applyAvatarMedia(el, image, user.avatarCrop, user.avatarColor || "#111827");
-      return;
-    }
-    applyAvatar(el, text, user.avatarColor || "#111827", "");
+    const displayName = user.displayName || user.username || user.account || user.avatarText || "Boss";
+    const avatar = avatarResolve().resolveAvatarForContact({
+      id: user.id || user.username || user.account || "self",
+      displayName,
+      avatarImage: user.avatarImage || "",
+      avatarCrop: user.avatarCrop || null
+    });
+    applyAvatarMedia(el, avatar.image, avatar.crop, avatar.color || user.avatarColor || "#111827", avatar.text);
   }
 
   window.miaAvatar = {

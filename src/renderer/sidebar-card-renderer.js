@@ -7,13 +7,13 @@
 // Spec shapes:
 //   private: {
 //     active, pinned, name, typeLabel, preview, time, unread,
-//     avatar: { image, crop, color },  // a single member's display
+//     avatar: { image, crop, color, text },  // a single member's display
 //     onClick(), onContextMenu(x, y),
 //     dataAttrs?: { ... }              // optional name → value
 //   }
 //   group: {
 //     active, pinned, name, typeLabel, preview, time, unread,
-//     members: [{ image, crop, color }, ...],
+//     members: [{ image, crop, color, text }, ...],
 //     onClick(), onContextMenu(x, y),
 //     dataAttrs?: { ... }
 //   }
@@ -46,8 +46,8 @@
     return global.miaIconParkPin || global.ICON_PARK_PIN_SVG || '<svg class="icon-park-pin" viewBox="0 0 48 48" aria-hidden="true" focusable="false"><path d="M10.6963 17.5042C13.3347 14.8657 16.4701 14.9387 19.8781 16.8076L32.62 9.74509L31.8989 4.78683L43.2126 16.1005L38.2656 15.3907L31.1918 28.1214C32.9752 31.7589 33.1337 34.6647 30.4953 37.3032C30.4953 37.3032 26.235 33.0429 22.7171 29.525L6.44305 41.5564L18.4382 25.2461C14.9202 21.7281 10.6963 17.5042 10.6963 17.5042Z"/></svg>';
   }
 
-  function applyAvatarStyle(el, image, crop, color) {
-    global.miaAvatar.paintAvatar(el, { image, crop, color });
+  function applyAvatarStyle(el, image, crop, color, text) {
+    global.miaAvatar.paintAvatar(el, { image, crop, color, text });
   }
 
   function buildStatusHtml({ pinned, unread, muted }) {
@@ -96,7 +96,7 @@
       </span>
     `;
     const avatarEl = btn.querySelector(".avatar.fellow-photo");
-    applyAvatarStyle(avatarEl, spec.avatar?.image, spec.avatar?.crop, spec.avatar?.color);
+    applyAvatarStyle(avatarEl, spec.avatar?.image, spec.avatar?.crop, spec.avatar?.color, spec.avatar?.text);
     attachHandlers(btn, spec);
     return btn;
   }
@@ -127,7 +127,7 @@
       avatarEl.classList.add("avatar");
       avatarEl.innerHTML = "";
       avatarEl.removeAttribute("data-count");
-      applyAvatarStyle(avatarEl, spec.customAvatar.image, spec.customAvatar.crop, "#5e5ce6");
+      applyAvatarStyle(avatarEl, spec.customAvatar.image, spec.customAvatar.crop, "#5e5ce6", spec.customAvatar.text);
     } else {
       const members = Array.isArray(spec.members) ? spec.members : [];
       global.miaGroupAvatar.applyGroupAvatar(avatarEl, members);

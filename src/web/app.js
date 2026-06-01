@@ -208,18 +208,20 @@ function initials(value) {
 }
 
 function isPublicImageSrc(value) {
-  return /^(https?:|data:|\.?\/assets\/|\/api\/files\/)/i.test(String(value || ""));
+  const normalized = window.miaAvatarResolve?.normalizeAvatarImage
+    ? window.miaAvatarResolve.normalizeAvatarImage(value)
+    : String(value || "").trim();
+  return /^(https?:|data:|\.?\/assets\/|\/api\/files\/)/i.test(String(normalized || ""));
 }
 
-// Avatar URLs stored on cloud sometimes use a desktop-bundle-relative form
-// like "./assets/avatars/12.png" — desktop's renderer resolves that against
-// the bundle root, but the web app loads from "/app/" so the same string
-// resolves to "/app/assets/..." and nginx's SPA fallback returns the index
-// HTML, producing a broken image. Strip the leading "." (or bare prefix)
-// so all asset references hit the root-served "/assets/..." path. data:
-// URLs, http(s):// and root-relative paths are passed through untouched.
+// Avatar URLs stored on cloud sometimes use a desktop-bundle-relative form.
+// Current bundled avatar presets are legacy and normalize to empty; real
+// non-avatar assets still get rewritten to root-served "/assets/..." paths.
+// data: URLs, http(s):// and root-relative paths are passed through untouched.
 function normalizeAvatarUrl(value) {
-  const src = String(value || "").trim();
+  const src = window.miaAvatarResolve?.normalizeAvatarImage
+    ? window.miaAvatarResolve.normalizeAvatarImage(value)
+    : String(value || "").trim();
   if (!src) return "";
   if (/^(https?:\/\/|data:|\/\/)/i.test(src)) return src;
   if (src.startsWith("/")) return src;
@@ -337,16 +339,10 @@ function renderAttachmentChips(attachments = []) {
   return `<div class="message-attachments">${attachments.map(renderAttachmentChip).join("")}</div>`;
 }
 
-// Avatar presets, identity hash, crop math: shared module so web and
-// desktop never drift apart on "what avatar does this fellow have." See
-// src/shared/avatar-resolve.js. Aliases below keep the existing call sites
-// readable instead of forcing every reference through window.miaAvatarResolve.
+// Avatar crop/media helpers: shared module so web and desktop never drift
+// apart on "what avatar does this member have." Missing avatars stay empty
+// and render as color + two-character text.
 const avatarResolve = window.miaAvatarResolve;
-const WEB_AVATAR_PRESETS = avatarResolve.avatarPresets;
-const WEB_AVATAR_PRESET_GROUPS = avatarResolve.avatarPresetGroups;
-const WEB_AVATAR_PRESET_GROUP_TABS = avatarResolve.avatarPresetGroupTabs;
-const webAvatarPresetBySrc = avatarResolve.avatarPresetBySrc;
-const webAvatarPresetGroupForSrc = avatarResolve.avatarPresetGroupForSrc;
 const webNormalizeAvatarCrop = avatarResolve.normalizeAvatarCrop;
 
 // Web-side wrapper: shared/avatar-resolve.js doesn't branch on "is this a
@@ -362,10 +358,8 @@ function webAvatarDefaultCropForSrc(src) {
 function avatarBackgroundStyle(image, customCrop, fallbackColor) {
   if (!image) return `background-color:${fallbackColor};color:#fff;display:inline-flex;align-items:center;justify-content:center;`;
   if (avatarMedia.isVideo?.(image)) return "background-color:transparent;";
-  // Look up presets against the raw value (preset keys still use the
-  // "./assets/" form) before normalizing the URL for the actual
-  // background-image declaration. avatarCropForImage applies the shared
-  // "neutral crop → preset crop" rule so the call site doesn't have to.
+  // Normalize legacy bundled-preset paths to empty before producing the
+  // actual background-image declaration.
   const src = normalizeAvatarUrl(image);
   const crop = avatarResolve.avatarCropForImage(image, customCrop);
   const x = Number.isFinite(Number(crop.x)) ? Number(crop.x) : 50;
@@ -461,9 +455,14 @@ function hydrateAvatarVideos(root = document) {
 function renderUserAvatar() {
   if (!els.userAvatar) return;
   const user = state.user || {};
-  const color = user.avatarColor || "#111827";
-  const image = user.avatarImage || "";
-  applyAvatarMedia(els.userAvatar, image, user.avatarCrop, color, initials(user.username || user.email || "Mia"));
+  const displayName = user.displayName || user.username || user.email || "Mia";
+  const avatar = avatarResolve.resolveAvatarForContact({
+    id: user.id || user.username || user.email || "self",
+    displayName,
+    avatarImage: user.avatarImage || "",
+    avatarCrop: user.avatarCrop || null
+  });
+  applyAvatarMedia(els.userAvatar, avatar.image, avatar.crop, avatar.color, avatar.text);
   els.userAvatar.title = user.username ? `账号与同步：${user.username}` : "账号与同步";
 }
 
@@ -1178,14 +1177,12 @@ function fellowByKey(key) {
 }
 
 // Locate the most authoritative metadata for a fellow shown in this
-// conversation, then hand it to shared/avatar-resolve.js so the result is
-// always a usable {image, crop, color} — never the blank single-letter
-// bubble we used to fall back to. Resolution order:
-//   1. state.fellows  — fellows the viewer owns (freshest copy).
-//   2. cached member row — covers cross-owner fellows the server already
-//      enriched with fellow_avatar_image / _crop / _color.
-//   3. nothing local — resolveAvatarForContact still picks a deterministic
-//      preset by hashing the fellow id, matching the desktop fallback.
+// conversation, then hand it to shared/avatar-resolve.js so the result is a
+// unified {image, crop, color, text}. Resolution order:
+//   1. state.fellows — fellows the viewer owns (freshest copy).
+//   2. member.identity.avatar — server-canonical cross-owner identity.
+//   3. legacy member fields — tolerated only for older payloads.
+//   4. empty avatar — stable color + two-character text fallback.
 function fellowAvatarFor(conversation, fellowKey) {
   const wanted = String(fellowKey || "");
   if (!wanted) return null;
@@ -1193,6 +1190,7 @@ function fellowAvatarFor(conversation, fellowKey) {
   if (owned) {
     return avatarResolve.resolveAvatarForContact({
       id: wanted,
+      displayName: owned.name || owned.displayName || wanted,
       avatarImage: owned.avatarImage,
       avatarCrop: owned.avatarCrop,
       color: owned.color
@@ -1201,10 +1199,12 @@ function fellowAvatarFor(conversation, fellowKey) {
   const members = state.conversationMembersCache.get(conversation?.id) || [];
   const member = members.find((m) => m.member_kind === MemberKind.Fellow && m.member_ref === wanted);
   if (member) {
+    const identityAvatar = member.identity?.avatar || {};
     return avatarResolve.resolveAvatarForContact({
       id: wanted,
-      avatarImage: member.fellow_avatar_image,
-      avatarCrop: member.fellow_avatar_crop,
+      displayName: member.identity?.displayName || member.fellow_name || wanted,
+      avatarImage: identityAvatar.image || member.fellow_avatar_image,
+      avatarCrop: identityAvatar.crop || member.fellow_avatar_crop,
       color: member.fellow_color
     });
   }
@@ -1619,6 +1619,7 @@ function combinedConversationItems() {
     let avatar = "";
     let avatarCrop = null;
     let color = "";
+    let avatarText = "";
     let memberTiles = null;
     if (isGroup) {
       const records = state.conversationMembersCache.get(r.id) || [];
@@ -1631,6 +1632,7 @@ function combinedConversationItems() {
         avatar = friend.avatarImage || "";
         avatarCrop = friend.avatarCrop || null;
         color = friend.avatarColor || "";
+        avatarText = avatarResolve.identityDisplayText(friend.username || friend.account || friend.id, otherId);
       }
     } else if (isFellow) {
       const fellowKey = r.decorations?.fellowKey || (r.id?.split(":")[2] || "");
@@ -1639,6 +1641,7 @@ function combinedConversationItems() {
         avatar = fa.image;
         avatarCrop = fa.crop;
         color = fa.color;
+        avatarText = fa.text;
       }
     }
     return {
@@ -1653,6 +1656,7 @@ function combinedConversationItems() {
       avatar,
       avatarCrop,
       color,
+      avatarText,
       memberTiles,
       pinned: isConversationPinned(r.id)
     };
@@ -1679,7 +1683,7 @@ function renderConversationList() {
   }
 
   els.conversationList.innerHTML = items.map((it) => {
-    const avatarLabel = (it.title[0] || "?").toUpperCase();
+    const avatarLabel = it.avatarText || avatarResolve.identityDisplayText(it.title, "?");
     let color = "#5e5ce6";
     if (it.kind === "conversation") color = it.color || (it.isDM ? "#5e5ce6" : "#34c759");
     if (it.kind === "desktop") color = it.color || "#ff9f0a";
@@ -1695,7 +1699,8 @@ function renderConversationList() {
           className: "group-avatar-tile",
           image: tile.image,
           crop: tile.crop,
-          color: fallback
+          color: fallback,
+          text: tile.text
         });
       }).join("");
       avatarMarkup = `<span class="avatar group-avatar" data-count="${tiles.length}">${tileSpans}</span>`;
@@ -1920,16 +1925,14 @@ function buildConversationMessageArticle(msg, conversation) {
   const senderCrop = spec.avatar?.crop || null;
   const senderColor = spec.avatar?.color || window.miaMemberColor.memberAccentColor(msg.sender_ref || senderLabel);
   const cls = isOwn ? "message user" : "message assistant";
-  const initial = isOwn
-    ? (state.user?.username?.[0] || "M").toUpperCase()
-    : (senderLabel?.[0] || "?").toUpperCase();
+  const fallbackText = spec.avatar?.text || avatarResolve.identityDisplayText(isOwn ? state.user?.username : senderLabel, "?");
   const avatarColor = isOwn ? "#0162db" : senderColor;
   const avatarMarkup = avatarHtml({
     className: "avatar",
     image: senderAvatar,
     crop: senderCrop,
     color: avatarColor,
-    text: initial
+    text: fallbackText
   });
   const senderTitleHtml = senderLabel && !isOwn
     ? `<span class="bubble-sender" style="color:${senderColor};">${escapeHtml(senderLabel)}</span>`
@@ -1987,7 +1990,7 @@ function buildCloudAgentStreamingArticle(conversation, run) {
     image: avatar.image,
     crop: avatar.crop,
     color: avatar.color || "#5e5ce6",
-    text: (spec.authorName?.[0] || "?").toUpperCase()
+    text: avatar.text || avatarResolve.identityDisplayText(spec.authorName, "?")
   });
   const textHtml = run.text ? `<div class="bubble">${renderMarkdown(run.text)}</div>` : "";
   const traceHtml = window.miaTraceBlocks.renderTraceBlocks({
@@ -2131,7 +2134,8 @@ function renderActiveChat() {
         className: "group-avatar-tile",
         image: tile.image,
         crop: tile.crop,
-        color: tile.color || "#5e5ce6"
+        color: tile.color || "#5e5ce6",
+        text: tile.text
       })).join("");
       els.activeAvatar.className = "avatar group-avatar";
       els.activeAvatar.setAttribute("data-count", String(tiles.length));
@@ -2142,6 +2146,7 @@ function renderActiveChat() {
       let peerAvatar = "";
       let peerCrop = null;
       let peerColor = "";
+      let peerText = "";
       if (isDM) {
         const parts = conversation.id.split(":");
         const otherId = parts[1] === state.user?.id ? parts[2] : parts[1];
@@ -2149,11 +2154,13 @@ function renderActiveChat() {
         peerAvatar = friend?.avatarImage || "";
         peerCrop = friend?.avatarCrop || null;
         peerColor = friend?.avatarColor || "";
+        peerText = avatarResolve.identityDisplayText(friend?.username || friend?.account || title, otherId);
       } else {
         const fa = fellowAvatarFor(conversation, fellowKeyForConversation(conversation));
         peerAvatar = fa?.image || "";
         peerCrop = fa?.crop || null;
         peerColor = fa?.color || "";
+        peerText = fa?.text || avatarResolve.identityDisplayText(title, "?");
       }
       // Reset any leftover group state from a previous render.
       els.activeAvatar.className = "avatar";
@@ -2164,7 +2171,7 @@ function renderActiveChat() {
         peerAvatar,
         peerCrop,
         peerColor || (isDM ? "#5e5ce6" : "#ff9f0a"),
-        (title[0] || "?").toUpperCase()
+        peerText
       );
     }
     els.activeTitle.textContent = title;
@@ -2306,60 +2313,31 @@ function cloudFellowKeyFromName(name, existingKeys = []) {
 }
 
 function webFellowDefaultDraft() {
-  const first = WEB_AVATAR_PRESET_GROUPS.human[0];
   return {
     name: "",
     personaText: "",
-    avatarImage: first.src,
-    avatarCrop: webAvatarDefaultCropForSrc(first.src),
-    avatarPresetGroup: "human",
+    avatarImage: "",
+    avatarCrop: null,
     saving: false
   };
 }
 
 function setWebFellowAvatarDraft(draft, image, crop = null) {
-  const src = String(image || "").trim();
+  const src = avatarResolve.normalizeAvatarImage(image);
   draft.avatarImage = src;
-  draft.avatarCrop = webNormalizeAvatarCrop(crop || webAvatarDefaultCropForSrc(src));
-  draft.avatarPresetGroup = webAvatarPresetGroupForSrc(src);
+  draft.avatarCrop = src ? webNormalizeAvatarCrop(crop || webAvatarDefaultCropForSrc(src)) : null;
 }
 
 function renderWebFellowAvatarPreview(root, draft) {
   const preview = root?.querySelector?.("#webFellowAvatarPreview");
   if (!preview) return;
-  applyAvatarMedia(preview, draft.avatarImage, draft.avatarCrop, "#eef0ff", "");
+  applyAvatarMedia(preview, draft.avatarImage, draft.avatarCrop, "#eef0ff", avatarResolve.identityDisplayText(draft.name, "智能体"));
   preview.title = "点击调整头像";
 }
 
 function renderWebFellowAvatarDefaults(root, draft) {
-  const tabs = root?.querySelector?.("#webFellowAvatarDefaultTabs");
-  const defaults = root?.querySelector?.("#webFellowAvatarDefaults");
-  if (!tabs || !defaults) return;
-  const active = WEB_AVATAR_PRESET_GROUPS[draft.avatarPresetGroup] ? draft.avatarPresetGroup : "human";
-  draft.avatarPresetGroup = active;
-  tabs.innerHTML = WEB_AVATAR_PRESET_GROUP_TABS.map((group) => `
-    <button type="button" class="${active === group.key ? "active" : ""}" data-avatar-group="${escapeHtml(group.key)}" role="tab" aria-selected="${active === group.key ? "true" : "false"}">${escapeHtml(group.label)}</button>
-  `).join("");
-  defaults.innerHTML = (WEB_AVATAR_PRESET_GROUPS[active] || []).map((preset) => `
-    <button type="button" class="avatar-default${draft.avatarImage === preset.src ? " active" : ""}" data-avatar="${escapeHtml(preset.src)}" data-avatar-name="${escapeHtml(preset.name)}" title="${escapeHtml(preset.name)}" aria-label="${escapeHtml(preset.name)}" style="${avatarBackgroundStyle(preset.src, webAvatarDefaultCropForSrc(preset.src), "#eef0ff")}"></button>
-  `).join("");
-  tabs.querySelectorAll("[data-avatar-group]").forEach((button) => {
-    button.addEventListener("click", () => {
-      if (!WEB_AVATAR_PRESET_GROUPS[button.dataset.avatarGroup]) return;
-      draft.avatarPresetGroup = button.dataset.avatarGroup;
-      renderWebFellowAvatarDefaults(root, draft);
-    });
-  });
-  defaults.querySelectorAll("[data-avatar]").forEach((button) => {
-    button.addEventListener("click", () => {
-      setWebFellowAvatarDraft(draft, button.dataset.avatar, webAvatarDefaultCropForSrc(button.dataset.avatar));
-      draft.name = button.dataset.avatarName || draft.name;
-      const nameInput = root.querySelector("#webFellowName");
-      if (nameInput) nameInput.value = draft.name;
-      renderWebFellowAvatarPreview(root, draft);
-      renderWebFellowAvatarDefaults(root, draft);
-    });
-  });
+  void root;
+  void draft;
 }
 
 function readWebFellowAvatarFile(file, draft, root) {
@@ -2583,10 +2561,6 @@ function openCreateFellowDialog() {
             </button>
             <span>也可以把图片拖到这里</span>
           </div>
-        </section>
-        <section class="avatar-default-panel" aria-label="默认头像">
-          <div id="webFellowAvatarDefaultTabs" class="avatar-default-tabs" role="tablist" aria-label="默认头像风格"></div>
-          <section id="webFellowAvatarDefaults" class="avatar-defaults" aria-label="默认头像"></section>
         </section>
         <details class="persona-details">
           <summary>人设</summary>

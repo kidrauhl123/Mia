@@ -13,17 +13,15 @@
 //            are converted via localGroupAsMembers() first so the
 //            resolver itself only sees one shape.)
 //   ctx:
-//     self    — { id, avatarImage, avatarCrop, avatarColor }
-//     friends — [{ id, avatarImage, avatarCrop, avatarColor }, ...]
-//     fellows — [{ id|key, avatarImage, avatarCrop, color }, ...]
+//     self    — { id, displayName, username, avatarImage, avatarCrop, avatarColor }
+//     friends — [{ id, displayName, username, avatarImage, avatarCrop, avatarColor }, ...]
+//     fellows — [{ id|key, name, avatarImage, avatarCrop, color }, ...]
 //
-// "What if the contact has no avatarImage" is no longer the resolver's
+// "What if the contact has no avatarImage" is no longer the caller's
 // concern: shared/avatar-resolve.js's resolveAvatarForContact always returns
-// a usable {image, crop, color}, picking an identity-deterministic preset
-// when there's nothing else. Callers do NOT need to pass an
-// avatarAssetForKey override anymore.
+// a usable {image, crop, color, text}, with no preset-image fallback.
 //
-// Returns: [{ image, crop, color }, ...] in member order.
+// Returns: [{ image, crop, color, text }, ...] in member order.
 
 (function attachGroupTiles(root, factory) {
   const api = factory();
@@ -42,12 +40,13 @@
     const resolver = avatarResolver();
     if (resolver && typeof resolver.resolveAvatarForContact === "function") {
       const result = resolver.resolveAvatarForContact(input);
-      return { image: result.image, crop: result.crop, color: result.color };
+      return { image: result.image, crop: result.crop, color: result.color, text: result.text };
     }
     return {
       image: input.avatarImage || "",
       crop: input.avatarCrop || null,
-      color: input.color || "#5e5ce6"
+      color: input.color || "#5e5ce6",
+      text: String(input.displayName || input.id || "?").trim().slice(0, 2) || "?"
     };
   }
 
@@ -67,16 +66,20 @@
         if (self && ref === self.id) {
           out.push(resolveTile({
             id: self.id,
+            displayName: self.displayName || self.username || self.account || self.id,
             avatarImage: self.avatarImage,
             avatarCrop: self.avatarCrop
           }));
           continue;
         }
         const friend = (friends || []).find((f) => f.id === ref);
+        const hasFriend = Boolean(friend);
+        const identityAvatar = m.identity?.avatar || {};
         out.push(resolveTile({
           id: ref,
-          avatarImage: friend?.avatarImage,
-          avatarCrop: friend?.avatarCrop
+          displayName: friend?.displayName || friend?.username || friend?.account || m.identity?.displayName || ref,
+          avatarImage: hasFriend ? friend.avatarImage : identityAvatar.image,
+          avatarCrop: hasFriend ? friend.avatarCrop : identityAvatar.crop
         }));
         continue;
       }
@@ -85,12 +88,15 @@
         // copy of fellows we own), then the server-enriched fields on the
         // member row (cross-owner fellows the server joined into
         // listConversationMembers). resolveAvatarForContact handles the
-        // identity-hash fallback when neither side has an image.
+        // stable text fallback when neither side has an image.
         const fellow = (fellows || []).find((f) => (f.id || f.key) === ref);
+        const hasFellow = Boolean(fellow);
+        const identityAvatar = m.identity?.avatar || {};
         out.push(resolveTile({
           id: ref,
-          avatarImage: fellow?.avatarImage || m.fellow_avatar_image,
-          avatarCrop: fellow?.avatarCrop || m.fellow_avatar_crop
+          displayName: fellow?.name || fellow?.displayName || m.identity?.displayName || m.fellow_name || ref,
+          avatarImage: hasFellow ? fellow.avatarImage : (identityAvatar.image || m.fellow_avatar_image),
+          avatarCrop: hasFellow ? fellow.avatarCrop : (identityAvatar.crop || m.fellow_avatar_crop)
         }));
         continue;
       }

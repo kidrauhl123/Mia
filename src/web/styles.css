@@ -2926,55 +2926,6 @@ p {
   font-size: 12px;
 }
 
-.avatar-default-panel {
-  display: grid;
-  gap: 9px;
-}
-
-.avatar-default-tabs {
-  display: inline-flex;
-  width: max-content;
-  padding: 3px;
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  background: var(--field);
-}
-
-.avatar-default-tabs button {
-  min-width: 52px;
-  height: 26px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.avatar-default-tabs button.active {
-  background: var(--surface);
-  color: var(--text);
-  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08);
-}
-
-.avatar-defaults {
-  display: grid;
-  grid-template-columns: repeat(8, 34px);
-  gap: 7px;
-}
-
-.avatar-default {
-  width: 34px;
-  height: 34px;
-  border: 2px solid transparent;
-  border-radius: 50%;
-  background-repeat: no-repeat;
-}
-
-.avatar-default.active {
-  border-color: var(--accent);
-}
-
 .persona-details {
   border: 1px solid var(--line);
   border-radius: 10px;

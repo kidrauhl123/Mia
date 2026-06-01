@@ -33,6 +33,15 @@
     function authorForMessage(m) {
       if (m.sender_kind === SenderKind.User) {
         if (m.sender_ref === selfId) return resolveContact({ kind: ContactKind.Self }, ctx);
+        const member = memberArr.find((mem) => mem.member_kind === MemberKind.User && mem.member_ref === m.sender_ref);
+        if (member?.identity) {
+          return {
+            kind: ContactKind.User,
+            id: member.identity.id || m.sender_ref,
+            displayName: member.identity.displayName || m.sender_ref,
+            avatar: member.identity.avatar || { image: "", crop: null, color: "", text: "" }
+          };
+        }
         return resolveContact({ kind: ContactKind.User, ref: m.sender_ref }, ctx);
       }
       if (m.sender_kind === SenderKind.Fellow) {
@@ -49,6 +58,8 @@
         let displayName;
         if (ownedByMe) {
           displayName = localFellow.displayName;
+        } else if (member?.identity?.displayName) {
+          displayName = member.identity.displayName;
         } else if (member && member.fellow_name) {
           displayName = member.fellow_name;
         } else {
@@ -60,15 +71,17 @@
             ? conversation.name
             : m.sender_ref;
         }
-        // Avatar priority mirrors displayName: own fellow first, then
-        // server-enriched member row, then identity-deterministic preset
-        // from the shared resolver. Color is always hashed from the id by
-        // the resolver — there is no per-fellow stored color.
-        const avatar = resolveAvatarForContact({
-          id: m.sender_ref,
-          avatarImage: (ownedByMe && localFellow.avatar?.image) || member?.fellow_avatar_image,
-          avatarCrop: (ownedByMe && localFellow.avatar?.crop) || member?.fellow_avatar_crop
-        });
+        // Avatar priority mirrors displayName: own fellow first, then the
+        // server-canonical member identity, then legacy member fields. An
+        // empty avatar stays empty and renders as shared text fallback.
+        const avatar = (!ownedByMe && member?.identity?.avatar)
+          ? member.identity.avatar
+          : resolveAvatarForContact({
+              id: m.sender_ref,
+              displayName,
+              avatarImage: ownedByMe ? localFellow.avatar?.image : member?.fellow_avatar_image,
+              avatarCrop: ownedByMe ? localFellow.avatar?.crop : member?.fellow_avatar_crop
+            });
         return {
           kind: ContactKind.Fellow,
           id: m.sender_ref,
@@ -77,9 +90,9 @@
         };
       }
       if (m.sender_kind === SenderKind.System) {
-        return { kind: "system", id: "system", displayName: "系统", avatar: { image: "", crop: null, color: "#888" } };
+        return { kind: "system", id: "system", displayName: "系统", avatar: { image: "", crop: null, color: "#888", text: "系统" } };
       }
-      return { kind: "", id: "", displayName: m.sender_ref || "", avatar: { image: "", crop: null, color: "#888" } };
+      return { kind: "", id: "", displayName: m.sender_ref || "", avatar: { image: "", crop: null, color: "#888", text: String(m.sender_ref || "?").slice(0, 2) || "?" } };
     }
 
     function listMessages() {

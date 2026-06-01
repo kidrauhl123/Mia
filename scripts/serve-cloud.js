@@ -116,6 +116,12 @@ try {
 } catch {
   ({ dmConversationId, ensureDmConversation } = require("./src/cloud/dm-conversation.js"));
 }
+let avatarResolve = null;
+try {
+  avatarResolve = require("../src/shared/avatar-resolve.js");
+} catch {
+  avatarResolve = require("./src/shared/avatar-resolve.js");
+}
 
 const host = process.env.MIA_CLOUD_HOST || "127.0.0.1";
 const port = Number(process.env.MIA_CLOUD_PORT || process.env.PORT || 4175);
@@ -271,10 +277,58 @@ function conversationMemberOwnerPublic(user) {
   return identity;
 }
 
+function userDisplayNameForIdentity(user, fallback = "") {
+  return String(user?.displayName || user?.username || user?.email || fallback || "用户").trim() || "用户";
+}
+
+function fellowDisplayNameForIdentity(fellow, fallback = "") {
+  return String(fellow?.name || fellow?.displayName || fallback || "Fellow").trim() || "Fellow";
+}
+
+function memberIdentityForUser(user, fallbackRef = "") {
+  const id = String(user?.id || fallbackRef || "");
+  const displayName = userDisplayNameForIdentity(user, fallbackRef);
+  return {
+    kind: "user",
+    id,
+    ownerId: "",
+    displayName,
+    avatar: avatarResolve.resolveAvatarForContact({
+      id,
+      displayName,
+      avatarImage: user?.avatarImage || "",
+      avatarCrop: user?.avatarCrop || null
+    })
+  };
+}
+
+function memberIdentityForFellow(fellow, fallbackRef = "", ownerId = "") {
+  const id = String(fellow?.id || fallbackRef || "");
+  const owner = String(ownerId || fellow?.ownerUserId || fellow?.ownerId || "");
+  const displayName = fellowDisplayNameForIdentity(fellow, fallbackRef);
+  return {
+    kind: "fellow",
+    id,
+    ownerId: owner,
+    displayName,
+    avatar: avatarResolve.resolveAvatarForContact({
+      id: owner ? `${owner}:${id}` : id,
+      displayName,
+      avatarImage: fellow?.avatarImage || "",
+      avatarCrop: fellow?.avatarCrop || null
+    })
+  };
+}
+
 function compactPublicUser(user) {
   if (!user) return null;
   const { avatarImage, avatarCrop, avatarColor, ...identity } = user;
   return identity;
+}
+
+function compactAuthAccount(account) {
+  if (!account || typeof account !== "object") return account;
+  return { ...account, user: compactPublicUser(account.user) };
 }
 
 function compactFellowIdentity(fellow) {
@@ -1253,13 +1307,13 @@ async function handleRequest(req, res, context) {
     if (req.method === "POST" && url.pathname === "/api/auth/register") {
       const account = cloudStore.registerUser(await readJson(req));
       ensureCloudAgentBootstrap(context, account.user.id);
-      return writeJson(res, 201, account);
+      return writeJson(res, 201, compactAuthAccount(account));
     }
 
     if (req.method === "POST" && url.pathname === "/api/auth/login") {
       const account = cloudStore.loginUser({ ...(await readJson(req)), ip: clientIp(req) });
       ensureCloudAgentBootstrap(context, account.user.id);
-      return writeJson(res, 200, account);
+      return writeJson(res, 200, compactAuthAccount(account));
     }
 
     const auth = cloudStore.authenticateToken(tokenFromRequest(req));
@@ -1568,10 +1622,34 @@ async function handleRequest(req, res, context) {
       // resolve display names without profile-avatar payloads.
       const enriched = members.map((m) => {
         if (m.member_kind === "user") {
-          return { ...m, user: conversationMemberOwnerPublic(context.cloudStore.getUserPublic(m.member_ref)) };
+          const user = context.cloudStore.getUserPublic(m.member_ref);
+          return {
+            ...m,
+            user: conversationMemberOwnerPublic(user),
+            identity: memberIdentityForUser(user, m.member_ref)
+          };
         }
         if (m.member_kind === "fellow" && m.owner_id) {
-          return { ...m, owner: conversationMemberOwnerPublic(context.cloudStore.getUserPublic(m.owner_id)) };
+          const owner = context.cloudStore.getUserPublic(m.owner_id);
+          const conversationFellowKey = conversation?.decorations?.fellowKey
+            || (String(conversation?.id || "").startsWith("fellow:")
+              ? String(conversation.id).split(":").slice(2).join(":")
+              : "");
+          const fallbackName = m.fellow_name
+            || (conversationFellowKey === m.member_ref && conversation?.name ? conversation.name : "")
+            || m.member_ref;
+          const fellow = context.fellowsStore.getFellow(m.owner_id, m.member_ref) || {
+            id: m.member_ref,
+            ownerUserId: m.owner_id,
+            name: fallbackName,
+            avatarImage: m.fellow_avatar_image || "",
+            avatarCrop: m.fellow_avatar_crop || null
+          };
+          return {
+            ...m,
+            owner: conversationMemberOwnerPublic(owner),
+            identity: memberIdentityForFellow(fellow, m.member_ref, m.owner_id)
+          };
         }
         return m;
       });

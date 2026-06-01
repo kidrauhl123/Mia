@@ -929,9 +929,8 @@
       },
       fellows,
       friends: moduleState.friends || []
-      // The identity-deterministic preset fallback lives inside
-      // shared/avatar-resolve.js now; consumers no longer need ctx to
-      // carry avatarAssetForKey.
+      // The text fallback lives inside shared/avatar-resolve.js now;
+      // consumers no longer need any local fallback table.
     };
   }
 
@@ -1498,7 +1497,7 @@
     const avatar = (spec && spec.avatar) || { image: "", crop: null, color: "" };
     const avatarColor = avatar.color || accentColor || "#5e5ce6";
     const avatarHelpers = window.miaAvatar;
-    const avatarLetter = avatar.image ? "" : ((authorName || "?")[0] || "?").toUpperCase();
+    const avatarLetter = avatar.image ? "" : (avatar.text || ((authorName || "?").trim().slice(0, 2) || "?"));
     const avatarHtml = avatarHelpers?.avatarHtml
       ? avatarHelpers.avatarHtml({
         className: "avatar message-avatar",
@@ -1572,7 +1571,7 @@
     const avatar = (spec && spec.avatar) || { image: "", crop: null, color: "" };
     const avatarColor = avatar.color || accentColor || "#5e5ce6";
     const avatarHelpers = window.miaAvatar;
-    const avatarLetter = avatar.image ? "" : ((authorName || "?")[0] || "?").toUpperCase();
+    const avatarLetter = avatar.image ? "" : (avatar.text || ((authorName || "?").trim().slice(0, 2) || "?"));
     const avatarHtml = avatarHelpers?.avatarHtml
       ? avatarHelpers.avatarHtml({
         className: "avatar message-avatar",

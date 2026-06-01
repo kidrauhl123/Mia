@@ -82,8 +82,6 @@
       profileDialogOpen: false,
       fellowDialogOpen: false,
       fellowDialogMode: "create",
-      fellowAvatarPresetGroup: "human",
-      profileAvatarPresetGroup: "human",
       petGenerateOpen: false,
       petGenerateFellowKey: "",
       petReferences: [],

@@ -6,7 +6,7 @@
   "use strict";
 
   let state, els, mia;
-  let fellowByKey, avatarAssetForKey, cryptoRandomId, avatarBackgroundStyle;
+  let fellowByKey, cryptoRandomId, avatarBackgroundStyle;
   let escapeHtml, setText, renderView, refreshRuntime, appendTransientChat;
 
   function initPetDialog(deps) {
@@ -14,7 +14,6 @@
     els = deps.els;
     mia = deps.mia || (typeof window !== "undefined" ? window.mia : null);
     fellowByKey = deps.fellowByKey;
-    avatarAssetForKey = deps.avatarAssetForKey;
     cryptoRandomId = deps.cryptoRandomId;
     avatarBackgroundStyle = deps.avatarBackgroundStyle;
     escapeHtml = deps.escapeHtml;
@@ -29,7 +28,7 @@
     if (!fellow) return;
     state.petGenerateOpen = true;
     state.petGenerateFellowKey = fellow.key;
-    const reference = fellow.avatarImage || avatarAssetForKey(fellow.key);
+    const reference = fellow.avatarImage || "";
     state.petReferences = reference ? [{ id: cryptoRandomId(), src: reference }] : [];
     if (els.petPrompt) els.petPrompt.value = "";
     if (els.petStylePreset) els.petStylePreset.value = "codex";

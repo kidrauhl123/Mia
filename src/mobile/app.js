@@ -65,7 +65,18 @@
   function escapeHtml(v) {
     return String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[c]));
   }
-  function avatarText(title) { return (String(title || "?").trim()[0] || "?").toUpperCase(); }
+  function resolveAvatar({ id = "", displayName = "", avatarImage = "", avatarCrop = null } = {}) {
+    return window.miaAvatarResolve.resolveAvatarForContact({ id, displayName, avatarImage, avatarCrop });
+  }
+  function avatarMarkup(avatar = {}) {
+    const image = String(avatar.image || "").trim();
+    const color = avatar.color || "#5e5ce6";
+    const text = avatar.text || "?";
+    const style = image
+      ? `background-image:url('${escapeHtml(image)}');background-size:cover;background-position:center;background-color:transparent;`
+      : `background:${escapeHtml(color)};`;
+    return `<div class="conv-avatar" style="${style}">${image ? "" : escapeHtml(text)}</div>`;
+  }
   function safeParse(s) { try { return JSON.parse(s); } catch { return null; } }
 
   // ── 登录 ──
@@ -114,7 +125,7 @@
     items.forEach((it) => {
       const li = document.createElement("li");
       li.className = "conv-row";
-      li.innerHTML = `<div class="conv-avatar">${avatarText(it.title)}</div>
+      li.innerHTML = `${avatarMarkup(it.avatar)}
         <div class="conv-text"><div class="conv-title">${escapeHtml(it.title)}</div>
         <div class="conv-sub">${escapeHtml(it.subtitle)}</div></div>
         ${it.unread ? `<span class="conv-badge">${it.unread}</span>` : ""}`;
@@ -128,12 +139,20 @@
     if (!ul) return;
     ul.innerHTML = "";
     const rows = []
-      .concat((state.friends || []).map((f) => ({ title: f.username || f.id, sub: "好友" })))
-      .concat((state.fellows || []).map((f) => ({ title: f.name || f.id, sub: "Fellow" })));
+      .concat((state.friends || []).map((f) => ({
+        title: f.username || f.account || f.id,
+        sub: "好友",
+        avatar: resolveAvatar({ id: f.id, displayName: f.username || f.account || f.id, avatarImage: f.avatarImage || "", avatarCrop: f.avatarCrop || null })
+      })))
+      .concat((state.fellows || []).map((f) => ({
+        title: f.name || f.id,
+        sub: "Fellow",
+        avatar: resolveAvatar({ id: f.id || f.key, displayName: f.name || f.id || f.key, avatarImage: f.avatarImage || "", avatarCrop: f.avatarCrop || null })
+      })));
     rows.forEach((r) => {
       const li = document.createElement("li");
       li.className = "conv-row";
-      li.innerHTML = `<div class="conv-avatar">${avatarText(r.title)}</div>
+      li.innerHTML = `${avatarMarkup(r.avatar)}
         <div class="conv-text"><div class="conv-title">${escapeHtml(r.title)}</div>
         <div class="conv-sub">${escapeHtml(r.sub)}</div></div>`;
       ul.appendChild(li);

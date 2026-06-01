@@ -3,7 +3,6 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
-const { avatarAssetForKey } = require("../src/shared/avatar-resolve");
 
 function loadSource() {
   const sharedSpec = fs.readFileSync(path.join(__dirname, "..", "src", "shared", "message-spec.js"), "utf8");
@@ -87,7 +86,7 @@ test("CloudConversationSource hydrates own fellow avatar from ctx.fellows", () =
   assert.equal(spec.avatar.image, "data:codex-pic");
 });
 
-test("CloudConversationSource falls back to stable fellow avatar asset", () => {
+test("CloudConversationSource falls back to stable fellow text avatar", () => {
   const src = loadSource();
   const conversation = { id: "fellow:user_me:mia", type: "fellow", name: "Mia", decorations: { fellowKey: "mia" } };
   const messages = [{ id: "msg5", sender_kind: "fellow", sender_ref: "mia", body_md: "yo", created_at: "", seq: 1 }];
@@ -100,7 +99,9 @@ test("CloudConversationSource falls back to stable fellow avatar asset", () => {
   const source = src.createCloudConversationSource({ conversation, messages, members: [], ctx });
   const spec = source.listMessages()[0];
   assert.equal(spec.authorName, "Mia");
-  assert.equal(spec.avatar.image, avatarAssetForKey("mia"));
+  assert.equal(spec.avatar.image, "");
+  assert.equal(spec.avatar.crop, null);
+  assert.equal(spec.avatar.text, "Mi");
 });
 
 test("CloudConversationSource system message gets role=system", () => {

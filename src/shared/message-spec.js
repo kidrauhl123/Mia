@@ -18,8 +18,8 @@ function normalizeSpec(input = {}) {
     role: ["user", "assistant", "system"].includes(input.role) ? input.role : "assistant",
     authorName: input.authorName || "",
     avatar: input.avatar && typeof input.avatar === "object"
-      ? { image: input.avatar.image || "", crop: input.avatar.crop || null, color: input.avatar.color || "" }
-      : { image: "", crop: null, color: "" },
+      ? { image: input.avatar.image || "", crop: input.avatar.crop || null, color: input.avatar.color || "", text: input.avatar.text || "" }
+      : { image: "", crop: null, color: "", text: "" },
     bodyMd: typeof input.bodyMd === "string" ? input.bodyMd : "",
     createdAt: input.createdAt || "",
     attachments: Array.isArray(input.attachments) ? input.attachments : [],

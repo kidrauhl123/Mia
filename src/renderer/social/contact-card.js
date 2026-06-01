@@ -54,6 +54,19 @@
     global.miaAvatar.paintAvatar(avatarEl, avatar || {});
   }
 
+  function resolveCardAvatar(input = {}) {
+    if (global.miaAvatarResolve?.resolveAvatarForContact) {
+      return global.miaAvatarResolve.resolveAvatarForContact(input);
+    }
+    const text = String(input.displayName || input.id || "?").trim().slice(0, 2) || "?";
+    return {
+      image: input.avatarImage || "",
+      crop: input.avatarCrop || null,
+      color: global.miaMemberColor?.memberAccentColor?.(input.id || "") || "#5e5ce6",
+      text
+    };
+  }
+
   function localFellow(ref) {
     const runtime = _ctx?.deps?.getState?.()?.runtime || {};
     const cloudFellows = Array.isArray(_ctx?.moduleState?.fellows) ? _ctx.moduleState.fellows : [];
@@ -171,11 +184,14 @@
     // to, my own local fellow settings.
     const local = isMine ? localFellow(ref) : null;
 
-    const name = local?.name || member?.fellow_name || ref;
-    const memberAccent = window.miaMemberColor.memberAccentColor;
-    const avatar = local
-      ? { image: local.avatarImage, crop: local.avatarCrop, color: memberAccent(ref) }
-      : { image: member?.fellow_avatar_image, crop: member?.fellow_avatar_crop, color: memberAccent(ref) };
+    const name = local?.name || member?.identity?.displayName || member?.fellow_name || ref;
+    const identityAvatar = member?.identity?.avatar || {};
+    const avatar = resolveCardAvatar({
+      id: local ? ref : (ownerId ? `${ownerId}:${ref}` : ref),
+      displayName: name,
+      avatarImage: local ? local.avatarImage : (identityAvatar.image || member?.fellow_avatar_image || ""),
+      avatarCrop: local ? local.avatarCrop : (identityAvatar.crop || member?.fellow_avatar_crop || null)
+    });
 
     const card = document.createElement("div");
     card.className = "contact-card";
@@ -378,11 +394,12 @@
     const isSelf = ref === me.id;
     const f = isSelf ? me : friend(ref);
     const name = f?.username || f?.account || ref;
-    const avatar = {
-      image: f?.avatarImage || "",
-      crop: f?.avatarCrop || null,
-      color: f?.avatarColor || "#5e5ce6"
-    };
+    const avatar = resolveCardAvatar({
+      id: ref,
+      displayName: name,
+      avatarImage: f?.avatarImage || "",
+      avatarCrop: f?.avatarCrop || null
+    });
     const card = document.createElement("div");
     card.className = "contact-card";
     card.setAttribute("role", "dialog");

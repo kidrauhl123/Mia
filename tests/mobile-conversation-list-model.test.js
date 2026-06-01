@@ -12,9 +12,12 @@ test("按最后活动时间倒序,带未读数与末句", () => {
   });
   assert.equal(items[0].id, "fellow::bob");
   assert.equal(items[0].unread, 0);
+  assert.equal(items[0].avatar.image, "");
+  assert.equal(items[0].avatar.text, "Bo");
   assert.equal(items[1].id, "dm:a");
   assert.equal(items[1].unread, 3);
   assert.equal(items[1].subtitle, "hi");
+  assert.equal(items[1].avatar.text, "Al");
 });
 
 test("缺字段时安全降级", () => {
@@ -22,4 +25,6 @@ test("缺字段时安全降级", () => {
   assert.equal(items[0].title, "dm:x");
   assert.equal(items[0].subtitle, "");
   assert.equal(items[0].unread, 0);
+  assert.equal(items[0].avatar.image, "");
+  assert.equal(items[0].avatar.text, "dm");
 });

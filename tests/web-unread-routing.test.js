@@ -373,7 +373,8 @@ test("src/web/app.js mirrors desktop rail avatar and model icon behavior", () =>
   const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
   assert.match(source, /userAvatar: document\.getElementById\("userAvatar"\)/);
   assert.match(source, /function renderUserAvatar\(\)/);
-  assert.match(source, /applyAvatarMedia\(els\.userAvatar, image, user\.avatarCrop/);
+  assert.match(source, /avatarResolve\.resolveAvatarForContact\(\{[\s\S]*displayName[\s\S]*avatarImage: user\.avatarImage/);
+  assert.match(source, /applyAvatarMedia\(els\.userAvatar, avatar\.image, avatar\.crop, avatar\.color, avatar\.text\)/);
   assert.match(source, /quickModelAvatar: document\.getElementById\("quickModelAvatar"\)/);
   assert.match(source, /function modelIconSrc\(model = \{\}\)/);
   assert.match(source, /function setModelAvatar\(engine, entry = \{\}, config = \{\}\)/);
@@ -615,12 +616,20 @@ test("src/web/app.js normalizes cloud-stored avatar URLs so root-served assets r
   const helperMatch = source.match(/function normalizeAvatarUrl\(value\) \{[\s\S]*?\n\}/);
   assert.ok(helperMatch, "normalizeAvatarUrl body must be extractable for behavior assertions");
   // eslint-disable-next-line no-new-func
-  const normalizeAvatarUrl = new Function(`${helperMatch[0]}; return normalizeAvatarUrl;`)();
+  const normalizeAvatarUrl = new Function(`
+    const window = { miaAvatarResolve: { normalizeAvatarImage(value) {
+      const src = String(value || "").trim();
+      return /(^|\\/)assets\\/(avatars|avatars-pet|avatar-thumbs|avatar-thumbs-pet|avatar-icons)\\/\\d{2}\\.png$/i.test(src.replace(/^\\.\\//, "").replace(/^\\//, "")) ? "" : src;
+    } } };
+    ${helperMatch[0]};
+    return normalizeAvatarUrl;
+  `)();
   assert.equal(normalizeAvatarUrl(""), "", "empty input → empty");
   assert.equal(normalizeAvatarUrl(null), "", "null → empty");
-  assert.equal(normalizeAvatarUrl("./assets/avatars/12.png"), "/assets/avatars/12.png", "./assets → /assets");
-  assert.equal(normalizeAvatarUrl("/assets/avatars/12.png"), "/assets/avatars/12.png", "/assets passes through");
-  assert.equal(normalizeAvatarUrl("assets/avatars/12.png"), "/assets/avatars/12.png", "bare assets/... → /assets/...");
+  assert.equal(normalizeAvatarUrl("./assets/avatars/12.png"), "", "former preset path → empty");
+  assert.equal(normalizeAvatarUrl("/assets/avatars/12.png"), "", "root former preset path → empty");
+  assert.equal(normalizeAvatarUrl("assets/avatars/12.png"), "", "bare former preset path → empty");
+  assert.equal(normalizeAvatarUrl("./assets/model-icons/gpt-5.png"), "/assets/model-icons/gpt-5.png", "non-avatar assets still normalize to /assets");
   assert.equal(normalizeAvatarUrl("https://cdn.example.com/x.png"), "https://cdn.example.com/x.png", "absolute https passes through");
   assert.equal(normalizeAvatarUrl("data:image/png;base64,AAAA"), "data:image/png;base64,AAAA", "data URL passes through");
   assert.equal(normalizeAvatarUrl("//cdn.example.com/x.png"), "//cdn.example.com/x.png", "protocol-relative passes through");

@@ -7,7 +7,6 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const sessionHistory = require("../src/shared/session-history");
-const { avatarAssetForKey } = require("../src/shared/avatar-resolve");
 
 function loadSocial(options = {}) {
   const src = fs.readFileSync(path.join(__dirname, "..", "src", "renderer", "social", "social.js"), "utf8");
@@ -1022,7 +1021,8 @@ test("renderConversationChat self identity prefers local profile, not cloud user
 
   assert.equal(chat.children.length, 1);
   assert.match(chat.children[0].innerHTML, /title="Boss"/);
-  assert.match(chat.children[0].innerHTML, new RegExp(avatarAssetForKey("u_me").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.match(chat.children[0].innerHTML, />Bo<\/div>/);
+  assert.doesNotMatch(chat.children[0].innerHTML, /assets\/avatars/);
   assert.doesNotMatch(chat.children[0].innerHTML, />7<\/div>/);
   assert.doesNotMatch(chat.children[0].innerHTML, /title="7"/);
 });

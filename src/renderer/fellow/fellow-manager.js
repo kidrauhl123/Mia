@@ -37,6 +37,15 @@
     return fellows.find((item) => item.key === key) || null;
   }
 
+  function avatarForFellow(fellow = {}) {
+    return window.miaAvatarResolve.resolveAvatarForContact({
+      id: fellow.key || fellow.id,
+      displayName: fellow.name || fellow.key || fellow.id,
+      avatarImage: fellow.avatarImage || "",
+      avatarCrop: fellow.avatarCrop || null
+    });
+  }
+
   function allOwnedFellows() {
     if (!state) return [];
     const socialFellows = window.miaSocial?._internalCtx?.adapterCtx?.()?.fellows
@@ -293,11 +302,13 @@
         renderContacts();
       });
       button.addEventListener("dblclick", () => openFellowChat(fellow.key));
+      const avatar = avatarForFellow(fellow);
       window.miaAvatar.applyAvatarMedia(
         button.querySelector(".fellow-photo"),
-        fellow.avatarImage || window.miaAvatar.avatarAssetForKey(fellow.key),
-        fellow.avatarCrop,
-        window.miaMemberColor.memberAccentColor(fellow.key || fellow.id)
+        avatar.image,
+        avatar.crop,
+        avatar.color,
+        avatar.text
       );
       els.contactList.appendChild(button);
     }
@@ -366,11 +377,13 @@
         ${fellow.canConfigureCapabilities !== false ? renderFellowCapabilitiesPanel(fellow) : ""}
       </article>
     `;
+    const avatar = avatarForFellow(fellow);
     window.miaAvatar.applyAvatarMedia(
       els.contactDetail.querySelector(".contact-profile-avatar"),
-      fellow.avatarImage || window.miaAvatar.avatarAssetForKey(fellow.key),
-      fellow.avatarCrop,
-      fellow.color || "#5e5ce6"
+      avatar.image,
+      avatar.crop,
+      avatar.color,
+      avatar.text
     );
     els.contactDetail.querySelector('[data-contact-action="message"]')?.addEventListener("click", () => openFellowChat(fellow.key));
     els.contactDetail.querySelectorAll('[data-contact-action="edit"]').forEach((button) => {

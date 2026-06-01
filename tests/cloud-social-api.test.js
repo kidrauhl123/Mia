@@ -475,6 +475,12 @@ test("GET /api/conversations/:id returns user member public identity without pro
     assert.equal(Object.prototype.hasOwnProperty.call(bobMember.user, "avatarImage"), false);
     assert.equal(Object.prototype.hasOwnProperty.call(bobMember.user, "avatarCrop"), false);
     assert.equal(Object.prototype.hasOwnProperty.call(bobMember.user, "avatarColor"), false);
+    assert.equal(bobMember.identity.kind, "user");
+    assert.equal(bobMember.identity.id, bob.user.id);
+    assert.equal(bobMember.identity.displayName, "bob");
+    assert.equal(bobMember.identity.avatar.image, avatarImage);
+    assert.deepEqual(bobMember.identity.avatar.crop, { x: 1, y: 2, zoom: 3 });
+    assert.equal(bobMember.identity.avatar.text, "bo");
   } finally { await stopServer(ctx); }
 });
 
@@ -507,6 +513,42 @@ test("GET /api/conversations/:id returns fellow owner without profile avatar pay
     assert.equal(Object.prototype.hasOwnProperty.call(fellowMember.owner, "avatarImage"), false);
     assert.equal(Object.prototype.hasOwnProperty.call(fellowMember.owner, "avatarCrop"), false);
     assert.equal(Object.prototype.hasOwnProperty.call(fellowMember.owner, "avatarColor"), false);
+    assert.equal(fellowMember.identity.kind, "fellow");
+    assert.equal(fellowMember.identity.id, "bot");
+    assert.equal(fellowMember.identity.ownerId, alice.user.id);
+    assert.equal(fellowMember.identity.displayName, "Bot");
+    assert.equal(fellowMember.identity.avatar.image, "");
+    assert.equal(fellowMember.identity.avatar.text, "Bo");
+  } finally { await stopServer(ctx); }
+});
+
+test("GET /api/conversations/:id normalizes legacy fellow preset avatars in member identity", async () => {
+  const ctx = await startServer();
+  try {
+    const alice = await register(ctx.port, "alice");
+    const put = await api(ctx.port, "PUT", "/api/me/fellows/kongling", {
+      token: alice.token,
+      body: {
+        name: "空铃",
+        avatarImage: "./assets/avatars/12.png",
+        avatarCrop: { x: 47, y: 17, zoom: 1.8 }
+      }
+    });
+    assert.equal(put.status, 200);
+    const ensured = await api(ctx.port, "PUT", "/api/me/fellows/kongling/conversation", {
+      token: alice.token,
+      body: { title: "空铃", runtimeKind: "desktop-local" }
+    });
+    assert.equal(ensured.status, 200);
+
+    const detail = await api(ctx.port, "GET", "/api/conversations/" + ensured.body.conversation.id, { token: alice.token });
+    assert.equal(detail.status, 200);
+    const fellowMember = detail.body.members.find((member) => member.member_kind === "fellow");
+    assert.equal(fellowMember.identity.displayName, "空铃");
+    assert.equal(fellowMember.identity.avatar.image, "");
+    assert.equal(fellowMember.identity.avatar.crop, null);
+    assert.equal(fellowMember.identity.avatar.text, "空铃");
+    assert.notEqual(fellowMember.identity.avatar.color, "");
   } finally { await stopServer(ctx); }
 });
 

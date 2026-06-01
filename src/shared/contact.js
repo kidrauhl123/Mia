@@ -17,10 +17,11 @@ function avatarResolver() {
   return null;
 }
 
-function avatarForRecord(id, record = {}) {
+function avatarForRecord(id, record = {}, displayName = "") {
   const resolver = avatarResolver();
   const input = {
     id: String(id || ""),
+    displayName: displayName || record.displayName || record.name || record.username || record.account || record.avatarText || "",
     avatarImage: record.avatarImage || "",
     avatarCrop: record.avatarCrop || null,
     color: record.color || record.avatarColor || ""
@@ -31,29 +32,36 @@ function avatarForRecord(id, record = {}) {
   // Defensive fallback for sandboxes that load contact.js without
   // avatar-resolve.js (e.g. an isolated test). Behaviour matches the old
   // "may be empty" shape rather than silently inventing a different default.
-  return { image: input.avatarImage, crop: input.avatarCrop, color: input.color || "#5e5ce6" };
+  return {
+    image: input.avatarImage,
+    crop: input.avatarCrop,
+    color: input.color || "#5e5ce6",
+    text: String(input.displayName || input.id || "?").trim().slice(0, 2) || "?"
+  };
 }
 
 function resolveContact(query, ctx = {}) {
   const { kind, ref } = query || {};
   if (kind === ContactKind.Self) {
     const u = ctx.self || {};
+    const displayName = u.displayName || u.username || u.account || u.avatarText || "";
     return {
       kind: ContactKind.Self,
       id: u.id || "",
-      displayName: u.displayName || u.username || u.account || u.avatarText || "",
-      avatar: avatarForRecord(u.id, u)
+      displayName,
+      avatar: avatarForRecord(u.id, u, displayName)
     };
   }
   if (kind === ContactKind.Fellow) {
     const fellows = Array.isArray(ctx.fellows) ? ctx.fellows : [];
     const f = fellows.find((x) => x.key === ref || x.id === ref);
     const id = String((f && (f.key || f.id)) || ref || "");
+    const displayName = (f && (f.name || f.key)) || String(ref || "");
     return {
       kind: ContactKind.Fellow,
       id,
-      displayName: (f && (f.name || f.key)) || String(ref || ""),
-      avatar: avatarForRecord(id, f || {})
+      displayName,
+      avatar: avatarForRecord(id, f || {}, displayName)
     };
   }
   if (kind === ContactKind.User) {
@@ -61,11 +69,12 @@ function resolveContact(query, ctx = {}) {
     const friends = Array.isArray(ctx.friends) ? ctx.friends : [];
     const f = friends.find((x) => x.id === ref);
     const id = String((f && f.id) || ref || "");
+    const displayName = (f && (f.username || f.account || f.id)) || String(ref || "");
     return {
       kind: ContactKind.User,
       id,
-      displayName: (f && (f.username || f.account || f.id)) || String(ref || ""),
-      avatar: avatarForRecord(id, f || {})
+      displayName,
+      avatar: avatarForRecord(id, f || {}, displayName)
     };
   }
   return {

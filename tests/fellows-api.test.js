@@ -147,6 +147,36 @@ test("web bootstrap can request compact user and fellow identities without avata
   } finally { await stopServer(ctx); }
 });
 
+test("auth login returns compact user identity even when the profile avatar is large", async () => {
+  const ctx = await startServer();
+  try {
+    const username = "logincompact";
+    const password = "passworD1!";
+    const A = await register(ctx.port, username);
+    const avatarImage = "data:image/png;base64," + "A".repeat(200_000);
+    const profile = await api(ctx.port, "PATCH", "/api/me/profile", {
+      token: A.token,
+      body: {
+        avatarImage,
+        avatarCrop: { x: 10, y: 20, w: 100, h: 100 },
+        avatarColor: "#112233",
+        clientOpId: "op_profile_login_compact"
+      }
+    });
+    assert.equal(profile.status, 200);
+
+    const login = await api(ctx.port, "POST", "/api/auth/login", {
+      body: { username: A.user.username, password }
+    });
+    assert.equal(login.status, 200);
+    assert.equal(login.body.user.id, A.user.id);
+    assert.equal(Object.prototype.hasOwnProperty.call(login.body.user, "avatarImage"), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(login.body.user, "avatarCrop"), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(login.body.user, "avatarColor"), false);
+    assert.ok(JSON.stringify(login.body).length < 1_000, "login response should stay small");
+  } finally { await stopServer(ctx); }
+});
+
 test("GET and PUT /api/me/fellows/:id/runtime roundtrip cloud AI controls", async () => {
   const ctx = await startServer();
   try {

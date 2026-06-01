@@ -50,9 +50,9 @@
 
   function groupTilesCtx() {
     // Canonical identity/avatar context (self + cloud&local fellows + friends +
-    // avatarAssetForKey), shared with cloud-conversation message rendering. Group
-    // tiles need exactly this shape, so reuse it rather than re-deriving self/
-    // fellows here — re-deriving dropped cloud fellows and a usable self avatar.
+    // shared text fallback), shared with cloud-conversation message rendering.
+    // Group tiles need exactly this shape, so reuse it rather than re-deriving
+    // self/fellows here — re-deriving dropped cloud fellows and self identity.
     return _ctx.adapterCtx();
   }
 
@@ -86,16 +86,13 @@
   }
 
   function fellowAvatarFor(member, fellows) {
-    const color = global.miaMemberColor.memberAccentColor(member.member_ref);
-    if (member.fellow_avatar_image) {
-      return { image: member.fellow_avatar_image, crop: member.fellow_avatar_crop, color };
-    }
     const f = (fellows || []).find((x) => (x.id || x.key) === member.member_ref);
-    return {
-      image: f?.avatarImage || global.miaAvatar?.avatarAssetForKey?.(member.member_ref),
-      crop: f?.avatarCrop,
-      color
-    };
+    return global.miaAvatarResolve.resolveAvatarForContact({
+      id: member.owner_id ? `${member.owner_id}:${member.member_ref}` : member.member_ref,
+      displayName: f?.name || member.identity?.displayName || member.fellow_name || member.member_ref,
+      avatarImage: f?.avatarImage || member.identity?.avatar?.image || member.fellow_avatar_image || "",
+      avatarCrop: f?.avatarCrop || member.identity?.avatar?.crop || member.fellow_avatar_crop || null
+    });
   }
 
   function userNameFor(member, friends, self) {
