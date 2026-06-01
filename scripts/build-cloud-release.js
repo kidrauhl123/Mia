@@ -12,6 +12,7 @@ const webDir = path.join(distDir, "web");
 const hermesImageDir = path.join(distDir, "hermes-image");
 const rootPackage = require("../package.json");
 const { pluginFiles } = require("../src/main/engine-plugins-service.js");
+const releaseAssetStamp = new Date().toISOString().replace(/[^0-9A-Za-z]/g, "").slice(0, 14);
 
 function copyFile(source, target) {
   fs.mkdirSync(path.dirname(target), { recursive: true });
@@ -83,6 +84,18 @@ function commandOutput(command, args) {
   } catch {
     return "";
   }
+}
+
+function assetVersionForRelease() {
+  const gitCommit = commandOutput("git", ["rev-parse", "--short=12", "HEAD"]);
+  return `${gitCommit || rootPackage.version || "dev"}-${releaseAssetStamp}`.replace(/[^A-Za-z0-9._-]/g, "");
+}
+
+function rewriteWebAssetVersions() {
+  const indexPath = path.join(webDir, "app", "index.html");
+  const assetVersion = assetVersionForRelease();
+  const source = fs.readFileSync(indexPath, "utf8");
+  fs.writeFileSync(indexPath, source.replace(/\?v=[^"'\s<>]+/g, `?v=${assetVersion}`));
 }
 
 function sha256File(filePath) {
@@ -274,6 +287,26 @@ server {
         add_header Cache-Control "public, max-age=3600";
     }
 
+    location = / {
+        try_files /index.html =404;
+        add_header Cache-Control "no-cache";
+    }
+
+    location = /index.html {
+        try_files /index.html =404;
+        add_header Cache-Control "no-cache";
+    }
+
+    location = /app/ {
+        try_files /app/index.html =404;
+        add_header Cache-Control "no-cache";
+    }
+
+    location = /app/index.html {
+        try_files /app/index.html =404;
+        add_header Cache-Control "no-cache";
+    }
+
     location = /admin {
         proxy_pass http://127.0.0.1:4175;
         proxy_http_version 1.1;
@@ -453,6 +486,16 @@ function verifyRelease() {
   if (!/location\s+=\s+\/manifest\.webmanifest\s+\{[\s\S]*application\/manifest\+json\s+webmanifest/.test(nginxSite)) {
     throw new Error("Release nginx site must serve /manifest.webmanifest with application/manifest+json.");
   }
+  if (!/location\s+=\s+\/app\/\s+\{[\s\S]*add_header\s+Cache-Control\s+"no-cache";/.test(nginxSite)) {
+    throw new Error("Release nginx site must revalidate the /app/ HTML shell.");
+  }
+  const webAppHtml = fs.readFileSync(assertFile("web/app/index.html"), "utf8");
+  if (!webAppHtml.includes(`../app.js?v=${assetVersionForRelease()}`)) {
+    throw new Error("Release web app shell must use the release asset version for app.js.");
+  }
+  if (/20260601-avatar-root/.test(webAppHtml)) {
+    throw new Error("Release web app shell must not ship stale hard-coded avatar asset versions.");
+  }
   if (!/location\s+\/admin\/\s+\{[\s\S]*proxy_pass\s+http:\/\/127\.0\.0\.1:4175/.test(nginxSite)) {
     throw new Error("Release nginx site must proxy /admin/ to the Mia Cloud API.");
   }
@@ -586,6 +629,7 @@ function main() {
   copyFile("src/shared/mention-render.js", path.join(webDir, "shared", "mention-render.js"));
   copyFile("src/renderer/helpers/markdown-helpers.js", path.join(webDir, "helpers", "markdown-helpers.js"));
   copyFile("src/renderer/message-sources/cloud-conversation-source.js", path.join(webDir, "message-sources", "cloud-conversation-source.js"));
+  rewriteWebAssetVersions();
   writeIcoFromPng(path.join(webDir, "icon-192.png"), path.join(webDir, "favicon.ico"));
   copyFile("scripts/smoke-cloud.js", path.join(distDir, "smoke-cloud.js"));
   copyFile("scripts/prepare-cloud-smoke-account.js", path.join(distDir, "prepare-cloud-smoke-account.js"));

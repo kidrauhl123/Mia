@@ -5,6 +5,7 @@ const path = require("node:path");
 
 const appSource = fs.readFileSync(path.join(__dirname, "..", "src", "web", "app.js"), "utf8");
 const appHtml = fs.readFileSync(path.join(__dirname, "..", "src", "web", "app", "index.html"), "utf8");
+const releaseBuilder = fs.readFileSync(path.join(__dirname, "..", "scripts", "build-cloud-release.js"), "utf8");
 
 test("web bootstrap requests compact identity payloads before rendering conversations", () => {
   assert.match(appSource, /api\("\/api\/me\?compact=1"\)/);
@@ -19,5 +20,10 @@ test("web bootstrap hydrates full avatar identities after the compact first pain
 });
 
 test("web app shell cache-busts the avatar identity app bundle", () => {
-  assert.match(appHtml, /src="\.\.\/app\.js\?v=20260601-avatar-root"/);
+  assert.match(appHtml, /src="\.\.\/app\.js\?v=[^"]+"/);
+  assert.match(releaseBuilder, /function rewriteWebAssetVersions\(\)/);
+  assert.match(releaseBuilder, /assetVersionForRelease\(\)/);
+  assert.match(releaseBuilder, /source\.replace\(\s*\/\\\?v=/);
+  assert.match(releaseBuilder, /location = \/app\//);
+  assert.match(releaseBuilder, /add_header Cache-Control "no-cache"/);
 });
