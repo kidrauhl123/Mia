@@ -3,11 +3,16 @@ import type { ExpoConfig } from "expo/config";
 const config: ExpoConfig = {
   name: "Mia",
   slug: "mia-mobile",
+  owner: "jung755",
   version: "1.0.0",
   orientation: "portrait",
   icon: "./assets/icon.png",
   scheme: "mia",
   userInterfaceStyle: "light",
+  runtimeVersion: { policy: "appVersion" },
+  updates: {
+    url: "https://u.expo.dev/77e99873-77e9-4e75-82c1-96143c4e846b",
+  },
   android: {
     package: "app.mia.mobile",
     adaptiveIcon: {
@@ -28,6 +33,9 @@ const config: ExpoConfig = {
   plugins: ["expo-secure-store"],
   extra: {
     apiBase: "https://aiweb.buytb01.com",
+    eas: {
+      projectId: "77e99873-77e9-4e75-82c1-96143c4e846b",
+    },
   },
 };
 
