@@ -23,6 +23,7 @@
 
   let client = null;
   const approvals = window.miaApprovalQueue.createApprovalQueue();
+  const { SenderKind } = window.miaConversationKinds;
 
   // ── 会话存取 ──
   function loadSession() {
@@ -156,11 +157,11 @@
 
   // 把服务端消息行转成渲染用的最小结构(MVP)
   function normalizeServerRow(m, idx) {
-    const isOwn = m.sender_kind === "user" && m.sender_ref === (state.user && state.user.id);
+    const isOwn = m.sender_kind === SenderKind.User && m.sender_ref === (state.user && state.user.id);
     return {
       messageId: m.id || `${state.activeConversationId}#${m.seq || idx}`,
       clientTraceId: m.client_trace_id || "",
-      role: m.sender_kind === "fellow" ? "assistant" : (m.sender_kind === "system" ? "system" : "user"),
+      role: m.sender_kind === SenderKind.Fellow ? "assistant" : (m.sender_kind === SenderKind.System ? "system" : "user"),
       bodyMd: String(m.body_md || ""),
       trace: m.trace_json ? safeParse(m.trace_json) : null,
       isOwn, isPending: false, createdAt: m.created_at || ""

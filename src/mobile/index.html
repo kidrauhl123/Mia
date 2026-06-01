@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f5f5f8">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <title>Mia</title>
-  <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="/mobile/styles.css">
 </head>
 <body>
   <!-- 登录视图 -->
@@ -66,20 +66,22 @@
     </nav>
   </section>
 
-  <!-- shared 依赖(顺序敏感)。build-mobile-www 会把这些拼成扁平路径 -->
-  <script src="./shared/conversation-kinds.js"></script>
-  <script src="./shared/message-spec.js"></script>
-  <script src="./shared/contact.js"></script>
-  <script src="./shared/avatar-resolve.js"></script>
-  <script src="./shared/unread.js"></script>
-  <script src="./shared/send-pipeline.js"></script>
-  <script src="./shared/agent-permissions.js"></script>
-  <script src="./shared/trace-blocks.js"></script>
-  <script src="./shared/cloud-client.js"></script>
-  <script src="./message-sources/cloud-conversation-source.js"></script>
-  <script src="./lib/conversation-list-model.js"></script>
-  <script src="./lib/approval-queue.js"></script>
-  <script src="./lib/optimistic-send.js"></script>
-  <script src="./app.js"></script>
+  <!-- shared 依赖(顺序敏感):engine-contracts 先于一切 feature 代码。
+       绝对路径与桌面端 renderer / daemon 一致;serve-mobile 与 Capacitor 均从 webDir 根提供。 -->
+  <script src="/shared/engine-contracts.js"></script>
+  <script src="/shared/conversation-kinds.js"></script>
+  <script src="/shared/message-spec.js"></script>
+  <script src="/shared/contact.js"></script>
+  <script src="/shared/avatar-resolve.js"></script>
+  <script src="/shared/unread.js"></script>
+  <script src="/shared/send-pipeline.js"></script>
+  <script src="/shared/agent-permissions.js"></script>
+  <script src="/shared/trace-blocks.js"></script>
+  <script src="/shared/cloud-client.js"></script>
+  <script src="/message-sources/cloud-conversation-source.js"></script>
+  <script src="/mobile/lib/conversation-list-model.js"></script>
+  <script src="/mobile/lib/approval-queue.js"></script>
+  <script src="/mobile/lib/optimistic-send.js"></script>
+  <script src="/mobile/app.js"></script>
 </body>
 </html>
