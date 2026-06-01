@@ -1,0 +1,9 @@
+{
+  "appId": "app.mia.mobile",
+  "appName": "Mia",
+  "webDir": "dist/mobile-www",
+  "server": {
+    "androidScheme": "https",
+    "iosScheme": "https"
+  }
+}

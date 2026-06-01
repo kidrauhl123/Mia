@@ -12,6 +12,9 @@
     "web": "node scripts/serve-web.js",
     "mobile:build": "node scripts/build-mobile-www.js",
     "mobile": "node scripts/build-mobile-www.js && node scripts/serve-mobile.js",
+    "mobile:add:ios": "npx cap add ios",
+    "mobile:add:android": "npx cap add android",
+    "mobile:sync": "node scripts/build-mobile-www.js && npx cap sync",
     "cloud": "node scripts/serve-cloud.js",
     "cloud:release": "node scripts/build-cloud-release.js",
     "cloud:release:handoff": "node scripts/print-cloud-release-handoff.js",
@@ -53,11 +56,15 @@
     "pbsRelease": "20251007"
   },
   "devDependencies": {
+    "@capacitor/cli": "^6.2.1",
+    "@capacitor/core": "^6.2.1",
     "electron": "^39.2.6",
     "electron-builder": "^26.0.12"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.139",
+    "@capacitor/android": "^6.2.1",
+    "@capacitor/ios": "^6.2.1",
     "@openai/codex-sdk": "^0.130.0",
     "adm-zip": "^0.5.17",
     "cron-parser": "^4.9.0",
