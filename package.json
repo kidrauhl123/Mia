@@ -105,7 +105,7 @@
       ],
       "icon": "build/icon.icns",
       "category": "public.app-category.productivity",
-      "identity": null,
+      "identity": "XiaoChuan Technology Co., Ltd. (S4NWU843M5)",
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
       "extraResources": [
