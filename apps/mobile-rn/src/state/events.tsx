@@ -18,6 +18,21 @@ const Ctx = createContext<EventsCtx>({
   resolveApproval: () => {},
 });
 
+// 从 Hermes 内层事件里取审批预览文本(命令/原因等),镜像 web 的 approvalPreview。
+function approvalPreview(event: any = {}): string {
+  const pick = (o: any) => {
+    for (const k of ["command", "cmd", "preview", "reason", "detail", "description", "message"]) {
+      if (o && typeof o[k] === "string" && o[k].trim()) return o[k].trim();
+    }
+    return "";
+  };
+  return (
+    pick(event) ||
+    pick(event.data) ||
+    String(event.tool || event.tool_name || event.name || "请求执行操作")
+  );
+}
+
 export function EventsProvider({ children }: { children: React.ReactNode }) {
   const { apiBase, session } = useAuth();
   const qc = useQueryClient();
@@ -42,23 +57,35 @@ export function EventsProvider({ children }: { children: React.ReactNode }) {
       onEvent: (env) => {
         if (typeof env.seq === "number" && env.seq > lastSeq.current) lastSeq.current = env.seq;
         const t = env.type || "";
-        if (t === "message" || t === "message.created") {
-          const row: MessageRow = env.message || env.data || {};
-          const cid = row.conversation_id || env.conversation_id;
+        if (t === "conversation.message_appended") {
+          const row: MessageRow = env.message || {};
+          const cid = row.conversation_id || env.conversationId || env.conversation_id;
           if (cid) {
             const incoming = normalizeServerRow(row, session.user?.id);
             qc.setQueryData<ChatMessage[]>(["messages", cid], (old) => mergeMessage(old || [], incoming));
           }
-        } else if (t === "approval.request") {
-          queue.onRequest({
-            conversationId: env.conversation_id,
-            runId: env.run_id || env.runId,
-            preview: env.preview || env.tool_name || (env.payload && env.payload.title) || "请求执行操作",
-          });
-          syncActive();
-        } else if (t === "approval.responded") {
-          queue.onResponded(env.run_id || env.runId);
-          syncActive();
+        } else if (t === "cloud_agent_run_event") {
+          // 审批等交互事件包在 cloud_agent_run_event.event 里(与桌面/web 一致)。
+          const inner = env.event || {};
+          const name = String(inner.type || inner.event || "");
+          const runId = env.runId || env.run_id || "";
+          if (name === "approval.request") {
+            queue.onRequest({
+              conversationId: env.conversationId || env.conversation_id,
+              runId,
+              preview: approvalPreview(inner),
+            });
+            syncActive();
+          } else if (
+            name === "approval.responded" ||
+            name === "approval.resolved" ||
+            name === "run.completed" ||
+            name === "run.failed" ||
+            name === "run.cancelled"
+          ) {
+            if (runId) queue.onResponded(runId);
+            syncActive();
+          }
         }
       },
     });

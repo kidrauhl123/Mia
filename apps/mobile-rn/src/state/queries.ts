@@ -21,7 +21,7 @@ export function useConversationMessages(conversationId: string) {
     enabled: !!conversationId,
     queryFn: () =>
       api
-        .api(`/api/conversations/${encodeURIComponent(conversationId)}/messages?limit=200`)
+        .api(`/api/conversations/${conversationId}/messages?limit=200`)
         .then((d) => (d.messages || []).map((r: MessageRow, i: number) => normalizeServerRow(r, selfId, i))),
   });
 }
@@ -32,7 +32,7 @@ export function useConversationMembers(conversationId: string) {
     queryKey: ["members", conversationId],
     enabled: !!conversationId,
     queryFn: () =>
-      api.api(`/api/conversations/${encodeURIComponent(conversationId)}`).then((d) => d.members || []),
+      api.api(`/api/conversations/${conversationId}`).then((d) => d.members || []),
   });
 }
 

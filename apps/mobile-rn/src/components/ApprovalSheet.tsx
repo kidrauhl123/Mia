@@ -19,7 +19,7 @@ export default function ApprovalSheet() {
     resolveApproval(runId);
     try {
       await api.api(
-        `/api/conversations/${encodeURIComponent(conversationId)}/runs/${encodeURIComponent(runId)}/approval`,
+        `/api/conversations/${conversationId}/runs/${encodeURIComponent(runId)}/approval`,
         { method: "POST", body: { decision, choice: decisionToHermesChoice(decision) } }
       );
     } catch {

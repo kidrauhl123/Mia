@@ -42,11 +42,11 @@ export default function ChatScreen({ route }: Props) {
     setText("");
     setMsgs((old) => [...old, pending]);
     try {
-      const res = await api.api(`/api/conversations/${encodeURIComponent(conversationId)}/messages`, {
+      const res = await api.api(`/api/conversations/${conversationId}/messages`, {
         method: "POST",
         body: {
-          body_md: pending.bodyMd,
-          client_trace_id: pending.clientTraceId,
+          bodyMd: pending.bodyMd,
+          turnId: pending.clientTraceId,
           mentions: pending.mentions,
           attachments: pending.attachments,
         },
