@@ -1,4 +1,10 @@
-const DEFAULT_CLOUD_FELLOW_ID = "mia";
+const {
+  DEFAULT_FELLOW_ID,
+  defaultCloudFellowCapabilities
+} = require("../shared/fellow-identity.js");
+const { fellowConversationId } = require("../shared/session-history.js");
+
+const DEFAULT_CLOUD_FELLOW_ID = DEFAULT_FELLOW_ID;
 
 function defaultPersonaText() {
   return [
@@ -12,7 +18,7 @@ function ensureDefaultCloudFellow(context, userId, options = {}) {
   const ownerUserId = String(userId || "").trim();
   if (!ownerUserId) throw new Error("ensureDefaultCloudFellow: userId required");
   const fellowId = String(options.fellowId || DEFAULT_CLOUD_FELLOW_ID).trim();
-  const conversationId = `fellow:${ownerUserId}:${fellowId}`;
+  const conversationId = fellowConversationId(ownerUserId, fellowId);
 
   let fellow = context.fellowsStore.getFellow(ownerUserId, fellowId);
   if (!fellow) {
@@ -22,7 +28,7 @@ function ensureDefaultCloudFellow(context, userId, options = {}) {
       avatarImage: options.avatarImage || "",
       avatarCrop: null,
       bio: options.bio || "Mia Fellow",
-      capabilities: options.capabilities || ["chat", "files", "terminal", "code"],
+      capabilities: options.capabilities || defaultCloudFellowCapabilities(),
       personaText: options.personaText || defaultPersonaText()
     });
   }

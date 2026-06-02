@@ -1,0 +1,274 @@
+/* ============================================================
+   Mia — Hero artistic gradient (fluid mesh, clean / noise-dithered)
+   Layered on top of mia.css. Controlled by:
+     body[data-palette="sunset|aurora|fuchsia|brand"]
+     body[data-grad="soft|medium|bold"]
+   ============================================================ */
+
+/* default selection if none set */
+body { --grad-veil: 0.13; --grad-sat: 1.06; }
+body[data-grad="soft"]   { --grad-veil: 0.34; --grad-sat: 0.96; }
+body[data-grad="medium"] { --grad-veil: 0.13; --grad-sat: 1.06; }
+body[data-grad="bold"]   { --grad-veil: 0.02; --grad-sat: 1.20; }
+
+/* ---- palettes: the mesh blob recipe ---- */
+body[data-palette="sunset"] {
+  --mesh:
+    radial-gradient(46% 42% at 50% 4%, rgba(255,255,255,0.58), transparent 72%),
+    radial-gradient(58% 72% at 6% 18%,  #ff8a4c, transparent 60%),
+    radial-gradient(52% 66% at 94% 20%, #ff5c9d, transparent 60%),
+    radial-gradient(66% 80% at 82% 72%, #7c5cff, transparent 62%),
+    radial-gradient(62% 76% at 12% 80%, #b249ff, transparent 62%),
+    linear-gradient(135deg, #ffcaa0, #ff9bbf 42%, #9d7bff 100%);
+}
+body[data-palette="aurora"] {
+  --mesh:
+    radial-gradient(46% 42% at 50% 4%, rgba(255,255,255,0.52), transparent 72%),
+    radial-gradient(58% 72% at 8% 16%,  #4fc3ff, transparent 60%),
+    radial-gradient(52% 66% at 92% 20%, #7c5cff, transparent 60%),
+    radial-gradient(66% 80% at 82% 72%, #29d6b3, transparent 62%),
+    radial-gradient(62% 76% at 12% 80%, #5e7bff, transparent 62%),
+    linear-gradient(135deg, #c7ecff, #bcc6ff 45%, #93ebd6 100%);
+}
+body[data-palette="fuchsia"] {
+  --mesh:
+    radial-gradient(46% 42% at 50% 4%, rgba(255,255,255,0.52), transparent 72%),
+    radial-gradient(58% 72% at 6% 16%,  #ff6fae, transparent 60%),
+    radial-gradient(52% 66% at 94% 20%, #ff8a4c, transparent 60%),
+    radial-gradient(66% 80% at 84% 72%, #a44bff, transparent 62%),
+    radial-gradient(62% 76% at 12% 80%, #ff5c9d, transparent 62%),
+    linear-gradient(135deg, #ffc7e0, #ffb6a0 45%, #cb9eff 100%);
+}
+body[data-palette="brand"] {
+  --mesh:
+    radial-gradient(46% 42% at 50% 4%, rgba(255,255,255,0.62), transparent 72%),
+    radial-gradient(60% 74% at 8% 16%,  #8f8bff, transparent 62%),
+    radial-gradient(54% 68% at 92% 22%, #b39bff, transparent 62%),
+    radial-gradient(66% 80% at 82% 72%, #6d5ef6, transparent 62%),
+    radial-gradient(62% 76% at 12% 80%, #c0b4ff, transparent 62%),
+    linear-gradient(140deg, #eae8ff, #f1ecfe 50%, #ddd6ff 100%);
+}
+
+/* ---- per-palette page ambient (very faint, fills the WHOLE page) ---- */
+body[data-palette="sunset"] {
+  --amb:
+    radial-gradient(60% 55% at 0% 8%,    #ff8a4c, transparent 66%),
+    radial-gradient(58% 55% at 100% 26%, #ff5c9d, transparent 66%),
+    radial-gradient(72% 64% at 90% 100%, #7c5cff, transparent 66%),
+    radial-gradient(60% 58% at 2% 100%,  #b249ff, transparent 66%);
+}
+body[data-palette="aurora"] {
+  --amb:
+    radial-gradient(60% 55% at 0% 8%,    #4fc3ff, transparent 66%),
+    radial-gradient(58% 55% at 100% 26%, #7c5cff, transparent 66%),
+    radial-gradient(72% 64% at 90% 100%, #29d6b3, transparent 66%),
+    radial-gradient(60% 58% at 2% 100%,  #5e7bff, transparent 66%);
+}
+body[data-palette="fuchsia"] {
+  --amb:
+    radial-gradient(60% 55% at 0% 8%,    #ff6fae, transparent 66%),
+    radial-gradient(58% 55% at 100% 26%, #ff8a4c, transparent 66%),
+    radial-gradient(72% 64% at 90% 100%, #a44bff, transparent 66%),
+    radial-gradient(60% 58% at 2% 100%,  #ff5c9d, transparent 66%);
+}
+body[data-palette="brand"] {
+  --amb:
+    radial-gradient(60% 55% at 0% 8%,    #8f8bff, transparent 66%),
+    radial-gradient(58% 55% at 100% 26%, #b39bff, transparent 66%),
+    radial-gradient(72% 64% at 90% 100%, #6d5ef6, transparent 66%),
+    radial-gradient(60% 58% at 2% 100%,  #c0b4ff, transparent 66%);
+}
+
+/* ---- hero stage ---- */
+.hero { isolation: isolate; z-index: 2; }
+.hero-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.hg-mesh {
+  position: absolute;
+  inset: -12% -6% 0 -6%;      /* bleed top & sides; bottom flush so the fade maps cleanly */
+  background: var(--mesh, none);
+  filter: saturate(var(--grad-sat, 1.06));
+  transition: filter 0.5s ease;
+  /* long, early dissolve so the bold mesh is gone well before the section edge */
+  -webkit-mask-image: linear-gradient(to bottom, #000 26%, transparent 74%);
+  mask-image: linear-gradient(to bottom, #000 26%, transparent 74%);
+  /* gentle colour "breathing" — stays in the palette family, doesn't move the mask */
+  animation: meshBreath 22s ease-in-out infinite alternate;
+}
+.hg-mesh::before {            /* drifting colour layer for fluid, silk-like motion */
+  content: "";
+  position: absolute;
+  inset: -8%;
+  background: var(--amb, none);
+  opacity: 0.55;
+  animation: meshFlow 30s ease-in-out infinite alternate;
+  will-change: transform;
+}
+@keyframes meshBreath {
+  0%   { filter: saturate(var(--grad-sat, 1.06)) hue-rotate(0deg); }
+  50%  { filter: saturate(calc(var(--grad-sat, 1.06) * 1.07)) hue-rotate(6deg); }
+  100% { filter: saturate(var(--grad-sat, 1.06)) hue-rotate(-5deg); }
+}
+@keyframes meshFlow {
+  0%   { transform: translate3d(0, 0, 0) scale(1.04) rotate(0deg); }
+  100% { transform: translate3d(3%, 2%, 0) scale(1.16) rotate(-4deg); }
+}
+.hg-mesh::after {             /* legibility / intensity veil */
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, var(--grad-veil, 0.13));
+  transition: background 0.5s ease;
+}
+.hg-noise {                   /* fine grain kills banding -> clean not dirty */
+  position: absolute;
+  inset: 0;
+  opacity: 0.42;
+  mix-blend-mode: soft-light;
+  -webkit-mask-image: linear-gradient(to bottom, #000 26%, transparent 74%);
+  mask-image: linear-gradient(to bottom, #000 26%, transparent 74%);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+.hg-fade { display: none; }   /* superseded by the mask above + page ambient */
+
+/* ============================================================
+   PAGE-WIDE AMBIENT - one continuous, very faint colour wash behind
+   the whole document so sections never read as different colours.
+   Fixed, so it behaves like ambient lighting as you scroll.
+   ============================================================ */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: var(--amb, none);
+  opacity: 0.09;
+}
+/* unify section bases: let the ambient show through everywhere */
+section.block,
+section.tint,
+.footer { background: transparent; }
+
+/* hero content rides above the gradient */
+.hero .wrap { position: relative; z-index: 2; }
+/* mascot logo in the nav */
+.brand-logo { height: 30px; width: auto; display: block; }
+/* artistic, rounded wordmark — nudged down a touch to sit with the mascot */
+.brand span { font-family: "Fredoka", var(--app-font); font-weight: 600; letter-spacing: 0.005em; position: relative; top: 2px; }
+/* the product card lifts off & fades on scroll (driven by JS) */
+.hero-product { will-change: transform, opacity; }
+
+/* generous runway so a pure-ambient buffer sits below the colour, matching the page */
+.hero { padding-top: 92px; padding-bottom: 48px; }
+
+/* nav: transparent over the gradient at top, cream-frosted once scrolled
+   (a solid bar at the top created a hard band against both the gradient and
+   the cream sections — this lets each state match what's behind it) */
+.nav {
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border-bottom-color: transparent;
+}
+.nav.scrolled {
+  background: rgba(246, 245, 241, 0.82);
+  -webkit-backdrop-filter: saturate(1.4) blur(20px);
+  backdrop-filter: saturate(1.4) blur(20px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hg-mesh, .hg-mesh::after { transition: none; }
+  .hg-mesh, .hg-mesh::before { animation: none; }
+}
+
+/* ============================================================
+   Palette switcher (preview tool — removable)
+   ============================================================ */
+.grad-switch {
+  position: fixed;
+  bottom: 22px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 9px 14px 9px 16px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  -webkit-backdrop-filter: saturate(1.5) blur(20px);
+  backdrop-filter: saturate(1.5) blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 18px 50px rgba(28, 26, 60, 0.18), 0 2px 6px rgba(28, 26, 60, 0.08);
+  font-family: var(--app-font);
+}
+.grad-switch .gs-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-2);
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+.grad-switch .gs-group {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.grad-switch .gs-sep { width: 1px; height: 22px; background: var(--line-strong); }
+.gs-swatch {
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+  outline: none;
+  transition: transform 0.18s cubic-bezier(0.16,1,0.3,1), border-color 0.18s;
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,0.06);
+}
+.gs-swatch:hover { transform: scale(1.12); }
+.gs-swatch[aria-pressed="true"] { border-color: var(--ink); transform: scale(1.12); }
+.gs-swatch[data-p="sunset"]  { background: linear-gradient(135deg, #ff8a4c, #ff5c9d 50%, #7c5cff); }
+.gs-swatch[data-p="aurora"]  { background: linear-gradient(135deg, #4fc3ff, #7c5cff 50%, #29d6b3); }
+.gs-swatch[data-p="fuchsia"] { background: linear-gradient(135deg, #ff6fae, #ff8a4c 50%, #a44bff); }
+.gs-swatch[data-p="brand"]   { background: linear-gradient(135deg, #8f8bff, #b39bff 50%, #6d5ef6); }
+
+.gs-seg {
+  display: inline-flex;
+  background: rgba(26,25,23,0.06);
+  border-radius: 999px;
+  padding: 3px;
+}
+.gs-seg button {
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-3);
+  padding: 4px 11px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color 0.18s, background 0.18s, box-shadow 0.18s;
+}
+.gs-seg button[aria-pressed="true"] {
+  color: var(--ink);
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+}
+.gs-close {
+  border: 0; background: transparent; cursor: pointer;
+  color: var(--ink-3); font-size: 18px; line-height: 1;
+  padding: 2px 4px; border-radius: 6px;
+}
+.gs-close:hover { color: var(--ink); background: rgba(0,0,0,0.05); }
+
+@media (max-width: 680px) {
+  .grad-switch { flex-wrap: wrap; justify-content: center; max-width: calc(100vw - 24px); gap: 10px; }
+  .grad-switch .gs-label { width: 100%; text-align: center; }
+}

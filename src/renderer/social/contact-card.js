@@ -67,6 +67,47 @@
     };
   }
 
+  function contact() {
+    return global.miaContact || null;
+  }
+
+  function sessionHistory() {
+    return global.miaSessionHistory || null;
+  }
+
+  function fellowGlobalIdFromConversation(conversationId, ref) {
+    const id = String(conversationId || "");
+    const key = String(ref || "");
+    if (!id.startsWith("fellow:") || !key) return "";
+    const helper = sessionHistory();
+    const fellowKey = helper?.fellowKey?.({ id }) || "";
+    return fellowKey === key ? id : "";
+  }
+
+  function fellowAvatarIdentityId(ref, fellow = {}, member = null, conversationId = "") {
+    const identity = member?.identity || {};
+    const me = selfUser();
+    const ownerUserId = fellow?.ownerUserId
+      || fellow?.owner_user_id
+      || fellow?.ownerId
+      || fellow?.owner_id
+      || member?.owner_user_id
+      || member?.owner_id
+      || identity.ownerUserId
+      || identity.owner_id
+      || (fellow ? me.id : "");
+    const globalId = fellow?.globalId
+      || fellow?.global_id
+      || identity.globalId
+      || identity.global_id
+      || fellowGlobalIdFromConversation(conversationId, ref);
+    return contact()?.fellowAvatarIdentityId?.(ref, {
+      ...(fellow || {}),
+      ownerUserId,
+      globalId
+    }) || globalId || (ownerUserId && ref ? sessionHistory()?.fellowConversationId?.(ownerUserId, ref) : "") || ref;
+  }
+
   function localFellow(ref) {
     const runtime = _ctx?.deps?.getState?.()?.runtime || {};
     const cloudFellows = Array.isArray(_ctx?.moduleState?.fellows) ? _ctx.moduleState.fellows : [];
@@ -186,8 +227,9 @@
 
     const name = local?.name || member?.identity?.displayName || member?.fellow_name || ref;
     const identityAvatar = member?.identity?.avatar || {};
+    const avatarId = fellowAvatarIdentityId(ref, local || {}, member || null, conversationId);
     const avatar = resolveCardAvatar({
-      id: local ? ref : (ownerId ? `${ownerId}:${ref}` : ref),
+      id: avatarId,
       displayName: name,
       avatarImage: local ? local.avatarImage : (identityAvatar.image || member?.fellow_avatar_image || ""),
       avatarCrop: local ? local.avatarCrop : (identityAvatar.crop || member?.fellow_avatar_crop || null)

@@ -60,7 +60,7 @@ function createExternalAgentCommandService(deps = {}) {
   const ensureClaudeBridgePlugin = deps.ensureClaudeBridgePlugin || (() => ({ fingerprint: "" }));
   const loadAgentSessionMap = deps.loadAgentSessionMap || (() => ({}));
   const listExternalAgentSessions = deps.listExternalAgentSessions || defaultListExternalAgentSessions;
-  const relaySettings = deps.relaySettings || (() => ({}));
+  const sourceDeviceId = deps.sourceDeviceId || (() => "");
 
   function agentCommandRoots(engine, projectPath = cwd()) {
     if (typeof agentCommandProvider.agentCommandRoots !== "function") return [];
@@ -200,9 +200,8 @@ function createExternalAgentCommandService(deps = {}) {
   }
 
   function commandResultDeviceMeta() {
-    const relay = relaySettings();
     return {
-      sourceDeviceId: String(relay.deviceId || "").trim()
+      sourceDeviceId: String(sourceDeviceId() || "").trim()
     };
   }
 

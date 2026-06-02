@@ -1,0 +1,54 @@
+{
+  "name": "@mia/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./avatar": {
+      "types": "./avatar.d.ts",
+      "default": "./avatar.js"
+    },
+    "./contact": {
+      "types": "./contact.d.ts",
+      "default": "./contact.js"
+    },
+    "./group-tiles": {
+      "types": "./group-tiles.d.ts",
+      "default": "./group-tiles.js"
+    },
+    "./send-pipeline": {
+      "types": "./send-pipeline.d.ts",
+      "default": "./send-pipeline.js"
+    },
+    "./approval-queue": {
+      "types": "./approval-queue.d.ts",
+      "default": "./approval-queue.js"
+    },
+    "./optimistic-send": {
+      "types": "./optimistic-send.d.ts",
+      "default": "./optimistic-send.js"
+    },
+    "./session-history": {
+      "types": "./session-history.d.ts",
+      "default": "./session-history.js"
+    },
+    "./cloud-client": {
+      "types": "./cloud-client.d.ts",
+      "default": "./cloud-client.js"
+    },
+    "./fellow-identity": {
+      "types": "./fellow-identity.d.ts",
+      "default": "./fellow-identity.js"
+    },
+    "./unread": {
+      "types": "./unread.d.ts",
+      "default": "./unread.js"
+    }
+  }
+}

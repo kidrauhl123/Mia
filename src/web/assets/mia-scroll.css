@@ -1,0 +1,420 @@
+/* ============================================================
+   Mia — Pinned scrollytelling + momentum scroll + richer reveals
+   (Phantom-style: a sticky product window while copy advances)
+   ============================================================ */
+
+/* ---------- section shell ---------- */
+/* ============================================================
+   PINNED HERO SEQUENCE
+   The hero pins; scrolling drives ONLY the card up (1:1, no inertia),
+   the background snaps light->dark instantly, then the heading fades
+   in dead-centre while the card flies off the top.
+   ============================================================ */
+.hero-track { position: relative; height: 340vh; }
+.hero.hero-pin {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  min-height: 560px;
+  overflow: hidden;
+  padding: 84px 0 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  background: #ffffff;
+}
+.hero.hero-pin .hero-inner { transition: none; will-change: transform; }
+/* artistic gradient only at the TOP; it fades to the white homepage below,
+   so the snap reads as a clean WHITE -> dark (not a gradient) */
+.hero.hero-pin .hg-mesh,
+.hero.hero-pin .hg-noise {
+  -webkit-mask-image: linear-gradient(to bottom, #000 24%, transparent 54%);
+  mask-image: linear-gradient(to bottom, #000 24%, transparent 54%);
+}
+/* the instant dark snap */
+.hero-snapbg {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: #3c315b;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s linear, background-color 0.3s ease;
+}
+/* the heading: dead-centre, fades in only (never slides) */
+.hero-pin-heading {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 0 24px;
+  opacity: 0;
+  pointer-events: none;
+}
+.hero-pin-heading .hph-kicker {
+  color: rgba(255,255,255,0.5);
+  font-size: 14px; font-weight: 600; letter-spacing: 0.03em;
+  margin-bottom: 18px;
+}
+.hero-pin-heading h2 {
+  margin: 0;
+  color: #ffffff;
+  font-size: clamp(30px, 5vw, 64px);
+  font-weight: 640;
+  letter-spacing: -0.04em;
+  line-height: 1.05;
+  max-width: 15ch;
+  text-wrap: balance;
+}
+
+.scrolly {
+  position: relative;
+  z-index: 1;
+  padding: 60px 0 90px;
+  background: #ffffff;
+  transition: background-color 0.45s ease;
+}
+/* step 1 stays dark (continues the hero moment); from step 2 it turns light */
+.scrolly.steps-dark { background: #3c315b; }
+.scrolly.steps-dark .sstep h3 { color: #ffffff; }
+.scrolly.steps-dark .sstep p { color: rgba(255,255,255,0.66); }
+.scrolly.steps-dark .sstep-idx { color: rgba(255,255,255,0.6); }
+.scrolly.steps-dark .sstep-idx i { background: rgba(255,255,255,0.13); color: rgba(255,255,255,0.85); }
+.scrolly.steps-dark .sstep-tags span { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.18); color: rgba(255,255,255,0.82); }
+.scrolly.steps-dark .sv-progress i { background: rgba(255,255,255,0.22); }
+.scrolly.steps-dark .sv-progress i.on { background: #ffffff; }
+.scrolly.steps-dark .sv-window { box-shadow: 0 50px 120px rgba(0,0,0,0.5), 0 10px 30px rgba(0,0,0,0.28); border-color: rgba(255,255,255,0.1); }
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-track { height: auto; }
+  .hero.hero-pin { position: static; height: auto; min-height: 0; padding: 92px 0 60px; display: block; }
+  .hero-snapbg { display: none; }
+  .hero-pin-heading { position: static; opacity: 1; padding: 60px 24px 10px; }
+}
+/* fixed full-viewport colour layer: the deep, high-impact dark section behind
+   the scrollytelling (Phantom-style light → dark journey). Fades in over #work. */
+.work-bg {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  opacity: 0;
+  pointer-events: none;
+  background: linear-gradient(170deg, #140e36 0%, #221a55 60%, #2c2168 100%);
+  transition: opacity 0.7s ease;
+}
+.scrolly-head {
+  text-align: center;
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 0 0 8px;
+  position: sticky;
+  top: 36vh;
+  opacity: 1;
+  will-change: opacity, transform;
+}
+.scrolly-head .kicker { display: inline-block; }
+.scrolly-head h2 {
+  font-size: clamp(30px, 4.4vw, 60px);
+  line-height: 1.04;
+  font-weight: 640;
+  letter-spacing: -0.038em;
+  margin: 0 auto;
+  max-width: 16ch;
+  text-wrap: balance;
+}
+
+/* ---------- two-column scrolly grid ---------- */
+.scrolly-grid {
+  display: grid;
+  grid-template-columns: 0.92fr 1.08fr;
+  gap: clamp(32px, 6vw, 96px);
+  align-items: start;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+/* left: advancing copy steps */
+.scrolly-steps { position: relative; padding-bottom: 66vh; }
+.sstep {
+  min-height: 82vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  opacity: 0.32;
+  transform: translateY(8px);
+  transition: opacity 0.6s cubic-bezier(0.16,1,0.3,1), transform 0.6s cubic-bezier(0.16,1,0.3,1);
+}
+.sstep.active { opacity: 1; transform: none; }
+.sstep .sstep-idx {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-3);
+  letter-spacing: 0.04em;
+  margin-bottom: 18px;
+}
+.sstep .sstep-idx i {
+  font-style: normal;
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  display: grid; place-items: center;
+  background: rgba(26,25,23,0.06);
+  color: var(--ink-2);
+  font-size: 12px; font-weight: 700;
+  transition: background 0.4s, color 0.4s;
+}
+.sstep.active .sstep-idx i { background: var(--accent); color: #fff; }
+.sstep h3 {
+  font-size: clamp(24px, 2.9vw, 38px);
+  line-height: 1.1;
+  font-weight: 620;
+  letter-spacing: -0.03em;
+  margin: 0 0 14px;
+  text-wrap: balance;
+}
+.sstep p {
+  font-size: clamp(15px, 1.5vw, 18px);
+  line-height: 1.6;
+  color: var(--ink-2);
+  max-width: 38ch;
+  margin: 0;
+}
+.sstep .sstep-tags {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  margin-top: 22px;
+}
+.sstep .sstep-tags span {
+  font-size: 12.5px; font-weight: 500;
+  padding: 6px 12px; border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  color: var(--ink-2);
+}
+
+/* right: sticky product window */
+.scrolly-visual {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.sv-stage {
+  width: 100%;
+  max-width: 520px;
+  perspective: 1600px;
+}
+.sv-window {
+  position: relative;
+  border-radius: 18px;
+  background: rgba(0,0,0,0.035);
+  box-shadow: var(--shadow-window);
+  border: 1px solid rgba(0,0,0,0.06);
+  overflow: hidden;
+}
+.sv-grid {
+  display: grid;
+  grid-template-columns: 54px 1fr;
+  height: 520px;
+}
+/* progress meter under the window */
+.sv-progress {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  margin-top: 22px;
+}
+.sv-progress i {
+  width: 30px; height: 4px; border-radius: 999px;
+  background: rgba(26,25,23,0.14);
+  transition: background 0.4s, width 0.4s;
+}
+.sv-progress i.on { background: var(--accent); width: 44px; }
+
+/* ---------- window: rail ---------- */
+.sv-rail {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 12px 0 16px;
+  background: rgba(0,0,0,0.02);
+}
+.sv-rail .mw-traffic { height: 22px; }
+.sv-rail-avatar {
+  width: 32px; height: 32px; border-radius: 50%;
+  background: linear-gradient(145deg, #6f6cf0, #5450dc);
+  color: #fff; display: grid; place-items: center;
+  font-weight: 600; font-size: 13px; margin: 6px 0 6px;
+}
+.sv-rail-btn {
+  width: 36px; height: 36px; border-radius: 10px;
+  display: grid; place-items: center;
+  color: var(--ink-3);
+  transition: background 0.4s, color 0.4s;
+}
+.sv-rail-btn svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.sv-rail-btn.on { background: rgba(94,92,230,0.12); color: var(--accent); }
+
+/* ---------- window: main area + scenes ---------- */
+.sv-main {
+  position: relative;
+  background: var(--app-canvas);
+  display: grid;
+  grid-template-rows: 52px minmax(0,1fr);
+  min-width: 0;
+}
+.sv-topbar {
+  display: flex; align-items: center; gap: 11px;
+  padding: 0 18px; border-bottom: 1px solid var(--line);
+  min-width: 0;
+}
+.sv-topbar .mw-av { width: 32px; height: 32px; }
+.sv-top-name { font-size: 14.5px; font-weight: 600; display: flex; align-items: center; gap: 7px; }
+.sv-top-meta { font-size: 11px; color: var(--ink-3); }
+.sv-top-id {
+  margin-left: auto;
+  font-size: 10.5px; font-weight: 600;
+  color: var(--accent);
+  background: rgba(94,92,230,0.1);
+  padding: 4px 9px; border-radius: 7px;
+}
+
+.sv-body { position: relative; min-width: 0; }
+.sv-scene {
+  position: absolute;
+  inset: 0;
+  padding: 18px;
+  display: flex; flex-direction: column; gap: 12px;
+  opacity: 0;
+  transform: translateY(14px) scale(0.99);
+  transition: opacity 0.5s cubic-bezier(0.16,1,0.3,1), transform 0.6s cubic-bezier(0.16,1,0.3,1);
+  pointer-events: none;
+  overflow: hidden;
+}
+.sv-scene.active {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+
+/* message bubbles inside scenes */
+.sv-scene .mw-msg { max-width: 86%; }
+.sv-scene .mw-bubble { font-size: 13.5px; }
+.sv-scene .demo-sender { font-size: 11px; color: var(--ink-3); margin: 0 0 4px 2px; font-weight: 500; }
+
+/* device sync scene */
+.sv-devices { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
+.sv-dev {
+  display: flex; align-items: center; gap: 13px;
+  padding: 14px 16px; border-radius: 14px;
+  background: var(--surface); box-shadow: var(--shadow-sm);
+}
+.sv-dev .ic { width: 38px; height: 38px; border-radius: 11px; flex: none; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); }
+.sv-dev .ic svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.sv-dev b { font-size: 14px; font-weight: 600; display: block; }
+.sv-dev span { font-size: 12px; color: var(--ink-3); }
+.sv-dev .sync {
+  margin-left: auto; font-size: 11px; font-weight: 600; color: var(--green);
+  display: inline-flex; align-items: center; gap: 5px;
+}
+.sv-dev .sync::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px rgba(48,209,88,0.16); }
+
+/* engine picker scene */
+.sv-engines { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
+.sv-eng {
+  display: flex; align-items: center; gap: 13px;
+  padding: 13px 16px; border-radius: 14px;
+  background: var(--surface); box-shadow: var(--shadow-sm);
+  border: 1.5px solid transparent;
+  transition: border-color 0.3s;
+}
+.sv-eng.sel { border-color: rgba(94,92,230,0.4); }
+.sv-eng .logo { width: 38px; height: 38px; border-radius: 11px; flex: none; display: grid; place-items: center; background: var(--bg-soft); }
+.sv-eng .logo img { width: 22px; height: 22px; }
+.sv-eng b { font-size: 14px; font-weight: 600; display: block; }
+.sv-eng span { font-size: 12px; color: var(--ink-3); }
+.sv-eng .pick {
+  margin-left: auto; width: 22px; height: 22px; border-radius: 50%;
+  border: 2px solid var(--line-strong);
+}
+.sv-eng.sel .pick { border-color: var(--accent); background: var(--accent) content-box; padding: 4px; box-shadow: inset 0 0 0 2px #fff; }
+
+/* permission banner reuse */
+.sv-scene .mw-perm { margin: 2px 0; }
+
+/* ---------- richer reveal: clip + rise ---------- */
+.reveal-up {
+  opacity: 0;
+  transform: translateY(40px);
+  transition: opacity 0.9s cubic-bezier(0.16,1,0.3,1), transform 0.9s cubic-bezier(0.16,1,0.3,1);
+  transition-delay: var(--d, 0s);
+}
+.reveal-up.in { opacity: 1; transform: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .sstep { opacity: 1; transform: none; }
+  .sv-scene { transition: none; }
+  .reveal-up { opacity: 1 !important; transform: none !important; }
+}
+
+/* ---------- responsive: stack on small screens ---------- */
+@media (max-width: 900px) {
+  .scrolly-grid { grid-template-columns: 1fr; gap: 0; }
+  .scrolly-visual {
+    position: sticky;
+    top: 56px;
+    height: auto;
+    padding: 14px 0 24px;
+    /* frosted backdrop so steps scrolling underneath stay legible */
+    background: linear-gradient(to bottom, var(--bg) 78%, transparent);
+    z-index: 5;
+  }
+  .sv-grid { height: 440px; }
+  .sstep { min-height: 64vh; }
+  .scrolly-steps { margin-top: 8px; }
+}
+@media (max-width: 560px) {
+  .sv-grid { grid-template-columns: 48px 1fr; height: 460px; }
+}
+
+/* ============================================================
+   STEPS on light lavender — dark text (the dark was only the brief
+   white->dark->light moment in the pinned hero; content returns to light)
+   ============================================================ */
+.scrolly .sstep-tags span {
+  background: rgba(255,255,255,0.7);
+  border-color: rgba(60,49,91,0.14);
+}
+.sv-window {
+  box-shadow: var(--shadow-window);
+}
+
+/* the journey ends on white */
+.footer { background: #ffffff; border-top-color: rgba(40,30,90,0.08); }
+
+/* ============================================================
+   CARD MODE — steps 3 & 4 drop the app chrome and show a clean
+   Phantom-style card instead of the product window.
+   ============================================================ */
+.sv-window.card-mode {
+  background: #f3f1fb;
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--line);
+}
+.sv-window.card-mode .sv-grid { grid-template-columns: 1fr; }
+.sv-window.card-mode .sv-rail { display: none; }
+.sv-window.card-mode .sv-topbar { display: none; }
+.sv-window.card-mode .sv-main {
+  background: transparent;
+  grid-template-rows: 1fr;
+}
+.sv-window.card-mode .sv-scene {
+  padding: 36px;
+  justify-content: center;
+  gap: 14px;
+}

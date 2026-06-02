@@ -688,7 +688,7 @@ async function bootstrap() {
         if (isGroup) return true;
         const isFellow = r.type === "fellow" || r.id?.startsWith("fellow:");
         if (!isFellow) return false;
-        const fellowKey = r.decorations?.fellowKey || (r.id?.split(":")[2] || "");
+        const fellowKey = sessionHistory.fellowKey(r);
         return !state.fellows.some((f) => String(f.id || f.key || "") === fellowKey);
       })
       .map((r) => ensureConversationMembers(r.id))
@@ -1214,6 +1214,24 @@ function fellowByKey(key) {
   return state.fellows.find((fellow) => String(fellow.id || fellow.key || "") === wanted) || null;
 }
 
+function fellowAvatarIdentityId(fellowKey, fellow = {}, member = null) {
+  const identity = member?.identity || {};
+  const ownerUserId = fellow?.ownerUserId || fellow?.owner_user_id || fellow?.ownerId || fellow?.owner_id || member?.owner_user_id || member?.owner_id || identity.ownerUserId || identity.owner_id || "";
+  const globalId = fellow?.globalId || fellow?.global_id || identity.globalId || identity.global_id || "";
+  return window.miaContact?.fellowAvatarIdentityId?.(fellowKey, {
+    ...(fellow || {}),
+    ownerUserId,
+    globalId
+  }) || globalId || (ownerUserId && fellowKey ? sessionHistory.fellowConversationId(ownerUserId, fellowKey) : "") || fellowKey;
+}
+
+function fellowGlobalIdFromConversation(conversation, fellowKey) {
+  const id = String(conversation?.id || "");
+  const key = String(fellowKey || "");
+  if (!id.startsWith("fellow:") || !key) return "";
+  return id.split(":").slice(2).join(":") === key ? id : "";
+}
+
 function hasAvatarIdentityFields(record) {
   if (typeof avatarResolve.hasAvatarIdentityFields === "function") {
     return avatarResolve.hasAvatarIdentityFields(record);
@@ -1249,9 +1267,16 @@ function fellowAvatarFor(conversation, fellowKey) {
   const members = state.conversationMembersCache.get(conversation?.id) || [];
   const member = members.find((m) => m.member_kind === MemberKind.Fellow && m.member_ref === wanted);
   const ownedHasAvatarFields = hasAvatarIdentityFields(owned);
+  const fallbackFellow = {
+    key: wanted,
+    id: wanted,
+    name: conversation?.name || wanted,
+    globalId: fellowGlobalIdFromConversation(conversation, wanted)
+  };
+  const avatarId = fellowAvatarIdentityId(wanted, owned || fallbackFellow, member || null);
   if (owned && ownedHasAvatarFields) {
     return avatarResolve.resolveAvatarForContact({
-      id: wanted,
+      id: avatarId,
       displayName: owned.name || owned.displayName || wanted,
       avatarImage: owned.avatarImage,
       avatarCrop: owned.avatarCrop,
@@ -1260,8 +1285,11 @@ function fellowAvatarFor(conversation, fellowKey) {
   }
   if (member) {
     const identityAvatar = member.identity?.avatar || {};
+    if (!ownedHasAvatarFields && member.identity?.avatar && (identityAvatar.image || identityAvatar.color || identityAvatar.text)) {
+      return identityAvatar;
+    }
     return avatarResolve.resolveAvatarForContact({
-      id: wanted,
+      id: avatarId,
       displayName: owned?.name || owned?.displayName || member.identity?.displayName || member.fellow_name || wanted,
       avatarImage: identityAvatar.image || member.fellow_avatar_image,
       avatarCrop: identityAvatar.crop || member.fellow_avatar_crop,
@@ -1270,13 +1298,13 @@ function fellowAvatarFor(conversation, fellowKey) {
   }
   if (owned) {
     return avatarResolve.resolveAvatarForContact({
-      id: wanted,
+      id: avatarId,
       displayName: owned.name || owned.displayName || wanted,
       avatarImage: "",
       avatarCrop: null
     });
   }
-  return avatarResolve.resolveAvatarForContact({ id: wanted });
+  return avatarResolve.resolveAvatarForContact({ id: avatarId, displayName: fallbackFellow.name });
 }
 
 function runtimeKindForFellowConversation(conversation, fellow) {
@@ -1709,7 +1737,7 @@ function combinedConversationItems() {
       color = resolved.color;
       avatarText = resolved.text;
     } else if (isFellow) {
-      const fellowKey = r.decorations?.fellowKey || (r.id?.split(":")[2] || "");
+      const fellowKey = sessionHistory.fellowKey(r);
       const fa = fellowAvatarFor(r, fellowKey);
       if (fa) {
         avatar = fa.image;
@@ -2045,7 +2073,7 @@ function buildCloudAgentStreamingArticle(conversation, run) {
   // Typing-only state ("running" with no body yet) renders as header dots,
   // not a placeholder bubble in the message stream. See renderActiveChat.
   if (!run.text && !run.tools.length && !run.reasoning) return "";
-  const fellowKey = run.fellowId || conversation.decorations?.fellowKey || (conversation.id?.startsWith("fellow:") ? conversation.id.split(":")[2] : "mia");
+  const fellowKey = run.fellowId || sessionHistory.fellowKey(conversation) || "mia";
   const msg = {
     id: `cloud-agent-stream-${run.runId || conversation.id}`,
     sender_kind: "fellow",
@@ -2551,7 +2579,7 @@ async function saveCloudOnlyFellowFromWeb(draft) {
     avatarCrop: draft.avatarCrop,
     bio: draft.personaText || "",
     personaText: draft.personaText || "",
-    capabilities: ["chat", "files", "terminal", "code"]
+    capabilities: { legacyCapabilities: ["chat", "files", "terminal", "code"] }
   };
   const saved = await api(`/api/me/fellows/${encodeURIComponent(key)}`, {
     method: "PUT",

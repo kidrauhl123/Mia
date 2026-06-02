@@ -1,7 +1,7 @@
 # 原生手机端设计 · React Native + Expo
 
 日期:2026-06-01
-状态:设计待确认
+状态:已采用
 取代:`2026-06-01-mobile-view-design.md`(Capacitor 路线)、`2026-06-01-mobile-ota-update-design.md`(Capacitor OTA)
 
 ## 背景与方向
@@ -10,8 +10,8 @@
 **云端零改动** —— 既有 REST + WebSocket API、数据契约、协议(`clientOpId` 幂等、`mia-token.<token>`
 subprotocol、`since_seq` 续传)全部照用;重写的只是客户端视图层。
 
-现有 Capacitor 产物(`src/mobile/`、`android/`、`scripts/build-mobile-www.js`、`scripts/serve-mobile.js`、
-capacitor 依赖)**暂留作参照与回退**,RN 达到同等能力后再退役,本 spec 不删它们。
+旧 Capacitor/WebView 端已经退役。仓库里的手机端入口是 `apps/mobile-rn/`;共享协议与纯逻辑从
+`packages/shared` 引入,不再通过 `src/mobile` 维持第二套实现。
 
 ## 决策摘要
 
@@ -44,14 +44,14 @@ apps/mobile-rn/
     api/
       types.ts         领域类型:Conversation / Message / Member / Fellow / Friend /
                        ApprovalEvent / WsEnvelope
-      client.ts        REST:fetch 封装 + Bearer + clientOpId 幂等(cloud-client.js 的 TS 移植)
-      events.ts        WebSocket:mia-token subprotocol + since_seq + 退避重连(同上移植)
+      client.ts        REST:fetch 封装 + Bearer + clientOpId 幂等(@mia/shared/cloud-client 薄适配)
+      events.ts        WebSocket:mia-token subprotocol + since_seq + 退避重连(同上薄适配)
     state/
       auth.tsx         token(secure-store)+ AuthContext + 登录/登出
       queries.ts       react-query hooks:useConversations / useMessages / useFellows /
                        useFriends / useSettings
       events.tsx       WS 连接生命周期 + 事件分发到 query cache / 审批队列
-    logic/             纯函数,jest 单测(直接移植已写好的 JS 纯模块)
+    logic/             纯函数,jest 单测;跨端规则从 @mia/shared 复用
       sendPipeline.ts        prepareOutgoingMessage(trim/校验/mentions/clientTraceId)
       conversationList.ts    buildConversationListItems
       approvalQueue.ts       createApprovalQueue(底部 sheet 队列状态机)
@@ -72,14 +72,15 @@ apps/mobile-rn/
 边界:`api/*` 是唯一碰网络的层;`logic/*` 纯函数无副作用(可单测);screens/components 只做渲染 +
 调 hooks。WS 副作用(连接/重连/分发)收在 `state/events.tsx`。
 
-## 复用映射(从已写好的 JS 纯模块 → TS)
+## 复用映射
 
-这几个当初就是按"与端无关纯函数"写的,1:1 移植,几乎零设计变更:
-- `src/mobile/lib/conversation-list-model.js` → `logic/conversationList.ts`
-- `src/mobile/lib/approval-queue.js` → `logic/approvalQueue.ts`
-- `src/mobile/lib/optimistic-send.js` → `logic/optimisticSend.ts`
-- `src/shared/send-pipeline.js` 的 `prepareOutgoingMessage` → `logic/sendPipeline.ts`
-- `src/shared/cloud-client.js`(REST + WS)→ `api/client.ts` + `api/events.ts`
+端无关规则必须来自 `packages/shared`;RN 本地文件只保留 UI 组合或薄 re-export:
+- `@mia/shared/send-pipeline` 的 `prepareOutgoingMessage` → `logic/sendPipeline.ts`
+- `@mia/shared/approval-queue` → `logic/approvalQueue.ts`
+- `@mia/shared/optimistic-send` → `logic/optimisticSend.ts`
+- `@mia/shared/cloud-client`(REST + WS)→ `api/client.ts` + `api/events.ts`
+- `@mia/shared/avatar` / `contact` / `group-tiles` / `session-history` → 对应 `logic/*` 薄适配
+- `logic/conversationList.ts` 仍是 RN 视图模型,但必须通过共享 session/avatar helper 解析身份
 - `src/shared/agent-permissions.js` 的 decision/choice 常量与 `decisionToHermesChoice` → `api/types.ts` 内常量
 
 > RN 不复用浏览器端 DOM 模块(trace-blocks / cloud-conversation-source / styles.css);
@@ -130,5 +131,4 @@ apps/mobile-rn/
 
 - 推送(expo-notifications)—— 另开 spec。
 - iOS 出包 / 上架(同代码,后续)。
-- Capacitor 产物退役清理(RN 达标后单独收尾)。
 - 既有 web↔desktop 功能差距的补齐。

@@ -13,6 +13,9 @@
   --user-bubble: #5e5ce6;
   --user-bubble-soft: #dedcff;
 
+  /* authentic Mia app chat canvas — neutral cool near-white (NOT the warm marketing beige) */
+  --app-canvas: #f5f5f7;
+
   --claude: #d97706;
   --codex: #10a37f;
   --hermes: #5e5ce6;
@@ -395,7 +398,7 @@ h1.hero-title {
 
 /* chat workspace */
 .mw-chat {
-  background: var(--bg-soft);
+  background: var(--app-canvas);
   border-radius: 0 13px 13px 0;
   display: grid; grid-template-rows: 52px minmax(0,1fr) auto;
   min-width: 0;

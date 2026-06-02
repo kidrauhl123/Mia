@@ -71,6 +71,31 @@ test("compact owned fellow does not hide the enriched member-row avatar", () => 
   }]);
 });
 
+test("group tile hashes owned fellow fallback by global fellow identity", () => {
+  const members = [{ member_kind: "fellow", member_ref: "mia", owner_id: "user_me" }];
+  const tiles = resolveGroupMemberTiles(members, {
+    fellows: [{ id: "mia", name: "Mia", ownerUserId: "user_me" }]
+  });
+  assert.equal(tiles[0].image, "");
+  assert.equal(tiles[0].crop, null);
+  assert.equal(tiles[0].color, memberAccentColor("fellow:user_me:mia"));
+  assert.equal(tiles[0].text, "Mi");
+});
+
+test("group tile hashes cross-owner fellow fallback by member owner identity", () => {
+  const members = [{
+    member_kind: "fellow",
+    member_ref: "mia",
+    owner_id: "user_friend",
+    fellow_name: "Mia"
+  }];
+  const tiles = resolveGroupMemberTiles(members, { fellows: [] });
+  assert.equal(tiles[0].image, "");
+  assert.equal(tiles[0].crop, null);
+  assert.equal(tiles[0].color, memberAccentColor("fellow:user_friend:mia"));
+  assert.equal(tiles[0].text, "Mi");
+});
+
 test("compact self profile does not hide the enriched member-row avatar", () => {
   const members = [
     {

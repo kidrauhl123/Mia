@@ -147,7 +147,8 @@ test("deleteFellow removes a desktop-local fellow through the local runtime comm
 });
 
 test("saveFellowCapabilities updates cloud-hermes identity and local fellow cache", async () => {
-  const capabilities = { inheritEngineDefaults: false, enabledSkills: ["search"] };
+  const { normalizeFellowCapabilities } = require("../src/shared/fellow-identity.js");
+  const capabilities = normalizeFellowCapabilities({ inheritEngineDefaults: false, enabledSkills: ["search"] });
   const social = {
     moduleState: {
       fellows: [

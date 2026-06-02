@@ -123,6 +123,16 @@ test("src/web/app/index.html loads shared session-history before app.js", () => 
   assert.ok(historyIdx < appIdx, "session-history must be loaded before app.js");
 });
 
+test("src/web fellow avatars use shared fellow identity instead of bare fellow key", () => {
+  const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
+
+  assert.match(source, /function fellowAvatarIdentityId\(fellowKey, fellow = \{\}, member = null\)/);
+  assert.match(source, /function fellowGlobalIdFromConversation\(conversation, fellowKey\)/);
+  assert.match(source, /window\.miaContact\?\.fellowAvatarIdentityId\?\.\(fellowKey/);
+  assert.match(source, /const avatarId = fellowAvatarIdentityId\(wanted, owned \|\| fallbackFellow, member \|\| null\);/);
+  assert.doesNotMatch(source, /resolveAvatarForContact\(\{\s*id:\s*wanted\b/);
+});
+
 test("src/web/app/index.html loads shared fellow runtime control before app.js", () => {
   const html = fs.readFileSync(path.join(ROOT, "src/web/app/index.html"), "utf8");
   const controlIdx = html.indexOf("shared/fellow-runtime-control.js");
@@ -154,8 +164,22 @@ test("scripts/build-cloud-release.js copies shared/unread.js into the web tree",
   const build = fs.readFileSync(path.join(ROOT, "scripts/build-cloud-release.js"), "utf8");
   assert.match(
     build,
-    /copyFile\(["']src\/shared\/unread\.js["'][^)]+["']shared["'][^)]+["']unread\.js["']\)/,
-    "build-cloud-release must copy src/shared/unread.js to web/shared/unread.js"
+    /copyFile\(["']packages\/shared\/unread\.js["'][^)]+["']shared["'][^)]+["']unread\.js["']\)/,
+    "build-cloud-release must copy packages/shared/unread.js to web/shared/unread.js"
+  );
+});
+
+test("scripts/build-cloud-release.js copies package-owned send pipeline and cloud client into the web tree", () => {
+  const build = fs.readFileSync(path.join(ROOT, "scripts/build-cloud-release.js"), "utf8");
+  assert.match(
+    build,
+    /copyFile\(["']packages\/shared\/send-pipeline\.js["'][^)]+["']shared["'][^)]+["']send-pipeline\.js["']\)/,
+    "build-cloud-release must copy packages/shared/send-pipeline.js to web/shared/send-pipeline.js"
+  );
+  assert.match(
+    build,
+    /copyFile\(["']packages\/shared\/cloud-client\.js["'][^)]+["']shared["'][^)]+["']cloud-client\.js["']\)/,
+    "build-cloud-release must copy packages/shared/cloud-client.js to web/shared/cloud-client.js"
   );
 });
 
@@ -163,8 +187,8 @@ test("scripts/build-cloud-release.js copies shared/avatar-resolve.js into the we
   const build = fs.readFileSync(path.join(ROOT, "scripts/build-cloud-release.js"), "utf8");
   assert.match(
     build,
-    /copyFile\(["']src\/shared\/avatar-resolve\.js["'][^)]+["']shared["'][^)]+["']avatar-resolve\.js["']\)/,
-    "build-cloud-release must copy src/shared/avatar-resolve.js to web/shared/avatar-resolve.js"
+    /copyFile\(["']packages\/shared\/avatar\.js["'][^)]+["']shared["'][^)]+["']avatar-resolve\.js["']\)/,
+    "build-cloud-release must copy packages/shared/avatar.js to web/shared/avatar-resolve.js"
   );
 });
 
@@ -172,13 +196,55 @@ test("scripts/build-cloud-release.js copies shared/member-color.js for web avata
   const build = fs.readFileSync(path.join(ROOT, "scripts/build-cloud-release.js"), "utf8");
   assert.match(
     build,
-    /copyFile\(["']src\/shared\/member-color\.js["'][^)]+["']shared["'][^)]+["']member-color\.js["']\)/,
-    "build-cloud-release must copy src/shared/member-color.js to web/shared/member-color.js"
+    /copyFile\(["']packages\/shared\/avatar\.js["'][^)]+["']shared["'][^)]+["']member-color\.js["']\)/,
+    "build-cloud-release must copy packages/shared/avatar.js to web/shared/member-color.js"
   );
   assert.match(
     build,
     /["']web\/shared\/member-color\.js["']/,
     "verifyRelease must assert web/shared/member-color.js exists instead of allowing nginx to serve HTML fallback"
+  );
+});
+
+test("scripts/build-cloud-release.js copies shared/avatar-media.js from package avatar", () => {
+  const build = fs.readFileSync(path.join(ROOT, "scripts/build-cloud-release.js"), "utf8");
+  assert.match(
+    build,
+    /copyFile\(["']packages\/shared\/avatar\.js["'][^)]+["']shared["'][^)]+["']avatar-media\.js["']\)/,
+    "build-cloud-release must copy packages/shared/avatar.js to web/shared/avatar-media.js"
+  );
+  assert.match(
+    build,
+    /["']web\/shared\/avatar-media\.js["']/,
+    "verifyRelease must assert web/shared/avatar-media.js exists instead of allowing nginx to serve HTML fallback"
+  );
+});
+
+test("scripts/build-cloud-release.js ships package-owned contact as the web shared contact module", () => {
+  const build = fs.readFileSync(path.join(ROOT, "scripts/build-cloud-release.js"), "utf8");
+  assert.match(
+    build,
+    /copyFile\(["']packages\/shared\/contact\.js["'][^)]+["']shared["'][^)]+["']contact\.js["']\)/,
+    "build-cloud-release must copy packages/shared/contact.js to web/shared/contact.js"
+  );
+  assert.match(
+    build,
+    /["']web\/shared\/contact\.js["']/,
+    "verifyRelease must assert web/shared/contact.js exists instead of allowing nginx to serve HTML fallback"
+  );
+});
+
+test("scripts/build-cloud-release.js ships package-owned group tiles as the web shared group module", () => {
+  const build = fs.readFileSync(path.join(ROOT, "scripts/build-cloud-release.js"), "utf8");
+  assert.match(
+    build,
+    /copyFile\(["']packages\/shared\/group-tiles\.js["'][^)]+["']shared["'][^)]+["']group-tiles\.js["']\)/,
+    "build-cloud-release must copy packages/shared/group-tiles.js to web/shared/group-tiles.js"
+  );
+  assert.match(
+    build,
+    /["']web\/shared\/group-tiles\.js["']/,
+    "verifyRelease must assert web/shared/group-tiles.js exists instead of allowing nginx to serve HTML fallback"
   );
 });
 
@@ -295,15 +361,15 @@ test("src/web/app.js normalizes model + provider icon URLs through the same boun
   );
 });
 
-test("src/renderer/index.html loads shared/avatar-resolve.js before helpers/avatar-helpers.js", () => {
+test("src/renderer/index.html loads package avatar before helpers/avatar-helpers.js", () => {
   const html = fs.readFileSync(path.join(ROOT, "src/renderer/index.html"), "utf8");
-  const resolveIdx = html.indexOf("shared/avatar-resolve.js");
+  const resolveIdx = html.indexOf("packages/shared/avatar.js");
   const helpersIdx = html.indexOf("helpers/avatar-helpers.js");
-  assert.ok(resolveIdx >= 0, "renderer must reference shared/avatar-resolve.js");
+  assert.ok(resolveIdx >= 0, "renderer must reference packages/shared/avatar.js");
   assert.ok(helpersIdx >= 0, "renderer must reference helpers/avatar-helpers.js");
   assert.ok(
     resolveIdx < helpersIdx,
-    "shared/avatar-resolve.js must load before helpers/avatar-helpers.js so the renderer's preset aliases resolve at module-eval time"
+    "packages/shared/avatar.js must load before helpers/avatar-helpers.js so the renderer's preset aliases resolve at module-eval time"
   );
 });
 
@@ -320,8 +386,8 @@ test("scripts/build-cloud-release.js copies shared/session-history.js into the w
   const build = fs.readFileSync(path.join(ROOT, "scripts/build-cloud-release.js"), "utf8");
   assert.match(
     build,
-    /copyFile\(["']src\/shared\/session-history\.js["'][^)]+["']shared["'][^)]+["']session-history\.js["']\)/,
-    "build-cloud-release must copy src/shared/session-history.js to web/shared/session-history.js"
+    /copyFile\(["']packages\/shared\/session-history\.js["'][^)]+["']shared["'][^)]+["']session-history\.js["']\)/,
+    "build-cloud-release must copy packages/shared/session-history.js to web/shared/session-history.js"
   );
 });
 
@@ -350,16 +416,28 @@ test("scripts/build-cloud-release.js copies cloud shared modules into the api tr
   assert.match(
     build,
     /copyFile\(["']src\/shared\/avatar-resolve\.js["'],\s*path\.join\(apiDir,\s*["']src["'],\s*["']shared["'],\s*["']avatar-resolve\.js["']\)\)/,
-    "build-cloud-release must copy avatar-resolve.js because api/server.js resolves member identities"
+    "build-cloud-release must copy the avatar-resolve compatibility entry because api/server.js resolves member identities"
   );
   assert.match(
     build,
     /copyFile\(["']src\/shared\/member-color\.js["'],\s*path\.join\(apiDir,\s*["']src["'],\s*["']shared["'],\s*["']member-color\.js["']\)\)/,
-    "build-cloud-release must copy member-color.js because avatar-resolve.js requires it on the API"
+    "build-cloud-release must copy the member-color compatibility entry for API shared modules"
+  );
+  assert.match(
+    build,
+    /copyFile\(["']src\/shared\/avatar-media\.js["'],\s*path\.join\(apiDir,\s*["']src["'],\s*["']shared["'],\s*["']avatar-media\.js["']\)\)/,
+    "build-cloud-release must copy the avatar-media compatibility entry for API shared modules"
+  );
+  assert.match(
+    build,
+    /copyFile\(["']packages\/shared\/avatar\.js["'],\s*path\.join\(apiDir,\s*["']packages["'],\s*["']shared["'],\s*["']avatar\.js["']\)\)/,
+    "build-cloud-release must copy packages/shared/avatar.js because API compatibility entries require it"
   );
   assert.match(build, /api\/src\/shared\/conversation-kinds\.js/);
   assert.match(build, /api\/src\/shared\/engine-contracts\.js/);
   assert.match(build, /api\/src\/shared\/member-color\.js/);
+  assert.match(build, /api\/src\/shared\/avatar-media\.js/);
+  assert.match(build, /api\/packages\/shared\/avatar\.js/);
   assert.match(build, /api\/src\/shared\/group-fellow-routing\.js/);
   assert.match(build, /api\/src\/shared\/skill-safety\.js/);
   assert.match(build, /api\/src\/shared\/avatar-resolve\.js/);

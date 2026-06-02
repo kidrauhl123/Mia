@@ -51,7 +51,7 @@ function createFellowService({
     const { fellow } = requireFellow(manifest, id, "Fellow not found.", { fallback: false });
     return {
       fellow,
-      personaText: readFellowPersona(fellow.key, fellow.name, fellow.bio),
+      personaText: fellow.personaText || readFellowPersona(fellow.key, fellow.name, fellow.bio),
       pet: petStatusForFellow(fellow.key)
     };
   }
@@ -64,7 +64,7 @@ function createFellowService({
 
     const manifest = loadFellowManifest();
     const fellows = Array.isArray(manifest.fellows) ? manifest.fellows : [];
-    const existingFellow = fellows.find((item) => item.key === key);
+    let existingFellow = fellows.find((item) => item.key === key);
     if (!fellowInput.key) {
       const existingKeys = new Set(fellows.map((item) => item.key));
       const baseKey = key;
@@ -75,6 +75,7 @@ function createFellowService({
         key = `${baseKey}_${index}`;
         index += 1;
       }
+      existingFellow = fellows.find((item) => item.key === key);
     }
     const next = normalizeFellow({
       ...(existingFellow || {}),
@@ -85,28 +86,35 @@ function createFellowService({
       agentEngine: fellowInput.agentEngine || fellowInput.agent_engine || existingFellow?.agentEngine || "hermes",
       engineConfig: normalizeFellowEngineConfig(fellowInput.engineConfig || fellowInput.engine_config || existingFellow?.engineConfig),
       platform: "api_server",
+      color: fellowInput.color || fellowInput.avatarColor || existingFellow?.color || "",
       avatarImage: fellowInput.avatarImage || fellowInput.avatar || "",
       avatarCrop: normalizeAvatarCrop(fellowInput.avatarCrop),
       bio: fellowInput.description || fellowInput.bio || fellows.find((item) => item.key === key)?.bio || "",
       capabilities: normalizeFellowCapabilities(fellowInput.capabilities || existingFellow?.capabilities)
     });
-    const index = fellows.findIndex((item) => item.key === key);
-    if (index >= 0) fellows[index] = next;
-    else fellows.push(next);
-    manifest.fellows = fellows;
-    saveFellowManifest(manifest);
 
     const hadExplicitPersona = Object.prototype.hasOwnProperty.call(fellowInput || {}, "personaText");
     const explicitText = hadExplicitPersona ? String(fellowInput.personaText || "").trim() : "";
-    const body = hadExplicitPersona
-      ? fellowPersonaBody(name, explicitText || next.bio)
-      : fs.existsSync(fellowPersonaPath(key))
-        ? readFellowPersona(key, name, next.bio)
-        : fellowPersonaBody(name, fellowInput.description || fellowInput.bio || "");
+    let body = "";
+    if (hadExplicitPersona) {
+      body = fellowPersonaBody(name, explicitText || next.bio);
+    } else if (existingFellow?.personaText) {
+      body = String(existingFellow.personaText || "").trim();
+    } else if (fs.existsSync(fellowPersonaPath(key))) {
+      body = readFellowPersona(key, name, next.bio);
+    } else {
+      body = fellowPersonaBody(name, fellowInput.description || fellowInput.bio || "");
+    }
+    const nextWithPersona = normalizeFellow({ ...next, personaText: body });
+    const index = fellows.findIndex((item) => item.key === key);
+    if (index >= 0) fellows[index] = nextWithPersona;
+    else fellows.push(nextWithPersona);
+    manifest.fellows = fellows;
+    saveFellowManifest(manifest);
     fs.writeFileSync(path.join(p.fellowDir, `${key}.md`), body);
-    writeFellowSidecar(next);
+    writeFellowSidecar(nextWithPersona);
     try {
-      Promise.resolve(pushFellowToCloud(next))
+      Promise.resolve(pushFellowToCloud(nextWithPersona))
         .catch((error) => appendCloudLog(`Cloud fellow push failed: ${error?.message || error}`));
     } catch (error) {
       appendCloudLog(`Cloud fellow push failed: ${error?.message || error}`);

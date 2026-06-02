@@ -1562,7 +1562,7 @@
     // conversation header instead of a placeholder bubble — see paintHeaderStatus.
     if (!run || (!run.text && !run.reasoning && !run.tools.length)) return null;
     const conversation = moduleState.conversations.find((r) => r.id === conversationId) || { id: conversationId };
-    const fellowKey = run.fellowId || conversation.decorations?.fellowKey || (conversation.id?.startsWith("fellow:") ? conversation.id.split(":")[2] : "mia");
+    const fellowKey = run.fellowId || sessionHistoryShared().fellowKey(conversation) || "mia";
     const synthetic = {
       id: `cloud-agent-stream-${run.runId || conversationId}`,
       sender_kind: "fellow",

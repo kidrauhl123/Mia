@@ -312,8 +312,11 @@
     for (const fellow of ownedFellows) {
       const id = fellow.key || fellow.id;
       const name = fellow.name || id;
-      const avatar = window.miaAvatarResolve.resolveAvatarForContact({
-        id,
+      const avatar = window.miaContact?.resolveContact?.(
+        { kind: window.miaContact.ContactKind.Fellow, ref: id },
+        { fellows: ownedFellows }
+      )?.avatar || window.miaAvatarResolve.resolveAvatarForContact({
+        id: window.miaContact?.fellowAvatarIdentityId?.(id, fellow) || id,
         displayName: name,
         avatarImage: fellow.avatarImage || "",
         avatarCrop: fellow.avatarCrop || null

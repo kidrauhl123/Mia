@@ -50,7 +50,7 @@ function messageMentionedFellowIds(message = {}) {
     if (!mention || typeof mention !== "object") continue;
     const kind = String(mention.kind || mention.member_kind || "").trim();
     if (kind && kind !== MemberKind.Fellow) continue;
-    const fellowId = String(mention.fellowId || mention.fellow_id || mention.member_ref || mention.id || "").trim();
+    const fellowId = String(mention.fellowId || mention.fellow_id || mention.member_ref || mention.ref || mention.id || "").trim();
     if (!fellowId || seen.has(fellowId)) continue;
     seen.add(fellowId);
     ids.push(fellowId);

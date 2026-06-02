@@ -76,8 +76,8 @@ function loadSocial(options = {}) {
 function installCloudConversationSource(mockWindow) {
   const root = path.join(__dirname, "..");
   const sharedSpec = fs.readFileSync(path.join(root, "src", "shared", "message-spec.js"), "utf8");
-  const sharedAvatarResolve = fs.readFileSync(path.join(root, "src", "shared", "avatar-resolve.js"), "utf8");
-  const sharedContact = fs.readFileSync(path.join(root, "src", "shared", "contact.js"), "utf8");
+  const sharedAvatarResolve = fs.readFileSync(path.join(root, "packages", "shared", "avatar.js"), "utf8");
+  const sharedContact = fs.readFileSync(path.join(root, "packages", "shared", "contact.js"), "utf8");
   const sharedKinds = fs.readFileSync(path.join(root, "src", "shared", "conversation-kinds.js"), "utf8");
   const source = fs.readFileSync(path.join(root, "src", "renderer", "message-sources", "cloud-conversation-source.js"), "utf8");
   const context = vm.createContext({ window: mockWindow, globalThis: mockWindow, console });
@@ -968,8 +968,7 @@ test("renderConversationChat uses cloud fellow avatar when no local fellow exist
   s.__mockWindow.miaAvatar = {
     avatarThumbBackgroundStyle: (image, _crop, color) => image
       ? `background-color:transparent;background-image:url('${image}');`
-      : `background-color:${color || "#5e5ce6"};`,
-    avatarAssetForKey: (key) => `asset:${key}`
+      : `background-color:${color || "#5e5ce6"};`
   };
   s.initSocialModule({
     getState: () => ({ runtime: { user: { avatarImage: "data:self-avatar" } } }),

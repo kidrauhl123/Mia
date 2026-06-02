@@ -17,6 +17,35 @@
   let loadSkills, showNarrowContent, render;
   let closeGroupContextMenu, openEditFellowDialog, deleteFellow, setFellowPinned;
 
+  function fellowIdentity() {
+    if (typeof window !== "undefined" && window.miaFellowIdentity) return window.miaFellowIdentity;
+    if (typeof require === "function") {
+      try { return require("../../shared/fellow-identity.js"); } catch { /* fallback below */ }
+    }
+    return null;
+  }
+
+  function contact() {
+    if (typeof window !== "undefined" && window.miaContact) return window.miaContact;
+    if (typeof require === "function") {
+      try { return require("../../shared/contact.js"); } catch { /* fallback below */ }
+    }
+    return null;
+  }
+
+  function fellowAvatarIdentityId(fellow = {}) {
+    const localId = fellow.key || fellow.id || "";
+    const ownerUserId = fellow.ownerUserId || fellow.owner_user_id || fellow.ownerId || fellow.owner_id || "";
+    return contact()?.fellowAvatarIdentityId?.(localId, fellow)
+      || fellow.globalId
+      || fellow.global_id
+      || fellow.fellowGlobalId
+      || fellow.fellow_global_id
+      || fellowIdentity()?.fellowGlobalId?.(ownerUserId, localId)
+      || (ownerUserId && localId ? "fellow:" + ownerUserId + ":" + localId : "")
+      || localId;
+  }
+
   function initFellowManager(deps) {
     state = deps.state;
     els = deps.els;
@@ -38,8 +67,15 @@
   }
 
   function avatarForFellow(fellow = {}) {
+    const api = contact();
+    if (api?.resolveContact && api?.ContactKind) {
+      return api.resolveContact(
+        { kind: api.ContactKind.Fellow, ref: fellow.key || fellow.id },
+        { fellows: [fellow] }
+      ).avatar;
+    }
     return window.miaAvatarResolve.resolveAvatarForContact({
-      id: fellow.key || fellow.id,
+      id: fellowAvatarIdentityId(fellow),
       displayName: fellow.name || fellow.key || fellow.id,
       avatarImage: fellow.avatarImage || "",
       avatarCrop: fellow.avatarCrop || null
@@ -135,33 +171,27 @@
   }
 
   function defaultFellowCapabilities() {
-    return {
-      inheritEngineDefaults: false,
+    return fellowIdentity()?.normalizeFellowCapabilities?.({}) || {
+      inheritEngineDefaults: true,
       enabledPlugins: [],
       disabledPlugins: [],
       enabledSkills: [],
       disabledSkills: [],
-      enabledConnectors: []
+      enabledConnectors: [],
+      legacyCapabilities: []
     };
   }
 
   function normalizeCapabilityIds(input) {
-    return Array.isArray(input)
-      ? [...new Set(input.map((item) => String(item || "").trim()).filter(Boolean))]
-      : [];
+    return fellowIdentity()?.normalizeCapabilityIds?.(input)
+      || (Array.isArray(input) ? [...new Set(input.map((item) => String(item || "").trim()).filter(Boolean))] : []);
   }
 
   function fellowCapabilities(fellow = {}) {
+    const normalizer = fellowIdentity()?.normalizeFellowCapabilities;
+    if (typeof normalizer === "function") return normalizer(fellow.capabilities);
     const raw = fellow.capabilities && typeof fellow.capabilities === "object" ? fellow.capabilities : {};
-    return {
-      ...defaultFellowCapabilities(),
-      inheritEngineDefaults: raw.inheritEngineDefaults === true || raw.inherit_engine_defaults === true,
-      enabledPlugins: normalizeCapabilityIds(raw.enabledPlugins || raw.enabled_plugins),
-      disabledPlugins: normalizeCapabilityIds(raw.disabledPlugins || raw.disabled_plugins),
-      enabledSkills: normalizeCapabilityIds(raw.enabledSkills || raw.enabled_skills),
-      disabledSkills: normalizeCapabilityIds(raw.disabledSkills || raw.disabled_skills),
-      enabledConnectors: normalizeCapabilityIds(raw.enabledConnectors || raw.enabled_connectors)
-    };
+    return { ...defaultFellowCapabilities(), ...raw };
   }
 
   function capabilityForEngine(item = {}, engine = "") {

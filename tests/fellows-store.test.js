@@ -5,6 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { createCloudStore } = require("../src/cloud/sqlite-store");
 const { createFellowsStore } = require("../src/cloud/fellows-store");
+const { normalizeFellowCapabilities } = require("../src/shared/fellow-identity.js");
 
 function freshStore() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-fellows-"));
@@ -37,7 +38,7 @@ test("upsertFellow creates, then updates, preserving createdAt", () => {
     assert.equal(inserted.id, "codex");
     assert.equal(inserted.name, "Codex");
     assert.deepEqual(inserted.avatarCrop, { x: 10, y: 20, w: 100, h: 100 });
-    assert.deepEqual(inserted.capabilities, ["chat", "tools"]);
+    assert.deepEqual(inserted.capabilities, normalizeFellowCapabilities(["chat", "tools"]));
 
     const updated = fellows.upsertFellow(u, {
       id: "codex",
@@ -49,6 +50,7 @@ test("upsertFellow creates, then updates, preserving createdAt", () => {
     });
     assert.equal(updated.name, "Codex v2");
     assert.equal(updated.bio, "Better helper");
+    assert.deepEqual(updated.capabilities, normalizeFellowCapabilities(["chat", "tools", "files"]));
     assert.equal(updated.createdAt, inserted.createdAt, "createdAt preserved across upserts");
     assert.ok(updated.updatedAt >= inserted.updatedAt, "updatedAt does not regress");
   } finally { ctx.cleanup(); }
@@ -68,6 +70,13 @@ test("listFellows scopes to owner", () => {
     assert.equal(aList.length, 2);
     assert.equal(bList.length, 1);
     assert.equal(bList[0].name, "Alpha-of-B");
+    assert.equal(fellows.getFellow(a, "f1").globalId, "fellow:ua:f1");
+    assert.equal(fellows.getFellow(b, "f1").globalId, "fellow:ub:f1");
+    assert.notEqual(
+      fellows.getFellow(a, "f1").globalId,
+      fellows.getFellow(b, "f1").globalId,
+      "same local fellow id must still have a unique shareable identity per owner"
+    );
   } finally { ctx.cleanup(); }
 });
 
@@ -90,8 +99,8 @@ test("upsertFellow preserves object-shaped capabilities", () => {
       capabilities
     });
 
-    assert.deepEqual(saved.capabilities, capabilities);
-    assert.deepEqual(fellows.getFellow(u, "mia").capabilities, capabilities);
+    assert.deepEqual(saved.capabilities, normalizeFellowCapabilities(capabilities));
+    assert.deepEqual(fellows.getFellow(u, "mia").capabilities, normalizeFellowCapabilities(capabilities));
   } finally { ctx.cleanup(); }
 });
 

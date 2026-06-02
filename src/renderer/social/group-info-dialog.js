@@ -88,7 +88,11 @@
   function fellowAvatarFor(member, fellows) {
     const f = (fellows || []).find((x) => (x.id || x.key) === member.member_ref);
     return global.miaAvatarResolve.resolveAvatarForContact({
-      id: member.owner_id ? `${member.owner_id}:${member.member_ref}` : member.member_ref,
+      id: global.miaContact?.fellowAvatarIdentityId?.(member.member_ref, {
+        ...(f || {}),
+        ownerUserId: member.owner_id,
+        globalId: member.identity?.globalId
+      }) || member.member_ref,
       displayName: f?.name || member.identity?.displayName || member.fellow_name || member.member_ref,
       avatarImage: f?.avatarImage || member.identity?.avatar?.image || member.fellow_avatar_image || "",
       avatarCrop: f?.avatarCrop || member.identity?.avatar?.crop || member.fellow_avatar_crop || null

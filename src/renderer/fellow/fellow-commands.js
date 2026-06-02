@@ -33,10 +33,19 @@
     return [...local, ...cloud].map((item) => String(item?.key || item?.id || "").trim()).filter(Boolean);
   }
 
+  function fellowIdentity() {
+    if (global.miaFellowIdentity) return global.miaFellowIdentity;
+    if (typeof require === "function") {
+      try { return require("../../shared/fellow-identity.js"); } catch { /* fallback below */ }
+    }
+    return null;
+  }
+
   function serializableCapabilities(value) {
-    if (Array.isArray(value)) return value;
-    if (value && typeof value === "object") return value;
-    return ["chat", "files", "terminal", "code"];
+    const normalizer = fellowIdentity()?.normalizeFellowCapabilities;
+    return typeof normalizer === "function"
+      ? normalizer(value)
+      : (value && typeof value === "object" ? value : { legacyCapabilities: ["chat", "files", "terminal", "code"] });
   }
 
   function conversationFromResult(result) {

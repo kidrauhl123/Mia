@@ -3,11 +3,12 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const { memberAccentColor } = require("../src/shared/member-color");
 
 function loadSource() {
   const sharedSpec = fs.readFileSync(path.join(__dirname, "..", "src", "shared", "message-spec.js"), "utf8");
-  const sharedAvatarResolve = fs.readFileSync(path.join(__dirname, "..", "src", "shared", "avatar-resolve.js"), "utf8");
-  const sharedContact = fs.readFileSync(path.join(__dirname, "..", "src", "shared", "contact.js"), "utf8");
+  const sharedAvatarResolve = fs.readFileSync(path.join(__dirname, "..", "packages", "shared", "avatar.js"), "utf8");
+  const sharedContact = fs.readFileSync(path.join(__dirname, "..", "packages", "shared", "contact.js"), "utf8");
   const sharedKinds = fs.readFileSync(path.join(__dirname, "..", "src", "shared", "conversation-kinds.js"), "utf8");
   const src = fs.readFileSync(path.join(__dirname, "..", "src", "renderer", "message-sources", "cloud-conversation-source.js"), "utf8");
   const window = {};
@@ -112,6 +113,24 @@ test("CloudConversationSource uses member identity avatar when owned fellow cont
   assert.deepEqual(spec.avatar.crop, { start: 0, duration: 3 });
 });
 
+test("CloudConversationSource hashes owned empty fellow avatar by global identity", () => {
+  const src = loadSource();
+  const conversation = { id: "fellow:user_me:mia", type: "fellow", name: "Mia", decorations: { fellowKey: "mia" } };
+  const messages = [{ id: "msg_owned_empty", sender_kind: "fellow", sender_ref: "mia", body_md: "yo", created_at: "", seq: 1 }];
+  const members = [{ member_kind: "fellow", member_ref: "mia", owner_id: "user_me" }];
+  const ctx = {
+    self: { id: "user_me", username: "me" },
+    fellows: [{ key: "mia", id: "mia", ownerUserId: "user_me", name: "Mia", avatarImage: "" }],
+    friends: []
+  };
+  const source = src.createCloudConversationSource({ conversation, messages, members, ctx });
+  const spec = source.listMessages()[0];
+  assert.equal(spec.avatar.image, "");
+  assert.equal(spec.avatar.crop, null);
+  assert.equal(spec.avatar.color, memberAccentColor("fellow:user_me:mia"));
+  assert.equal(spec.avatar.text, "Mi");
+});
+
 test("CloudConversationSource falls back to stable fellow text avatar", () => {
   const src = loadSource();
   const conversation = { id: "fellow:user_me:mia", type: "fellow", name: "Mia", decorations: { fellowKey: "mia" } };
@@ -119,8 +138,7 @@ test("CloudConversationSource falls back to stable fellow text avatar", () => {
   const ctx = {
     self: { id: "user_me", username: "me" },
     fellows: [],
-    friends: [],
-    avatarAssetForKey: (key) => `asset:${key}`
+    friends: []
   };
   const source = src.createCloudConversationSource({ conversation, messages, members: [], ctx });
   const spec = source.listMessages()[0];

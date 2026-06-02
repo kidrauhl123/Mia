@@ -9,32 +9,50 @@
 <title>Mia — 把一群 AI 当同事用</title>
 <link rel="icon" href="./favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="./apple-touch-icon.png">
-<link rel="stylesheet" href="./assets/mia.css?v=20260601-promo">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/mia.css?v=20260601-promo2">
+<link rel="stylesheet" href="assets/mia-gradient.css?v=20260601-promo2">
+<link rel="stylesheet" href="assets/mia-scroll.css?v=20260601-promo2">
 </head>
-<body>
+<body data-palette="sunset" data-grad="medium">
+<div class="work-bg" id="workBg" aria-hidden="true"></div>
 
 <!-- ============ NAV ============ -->
 <nav class="nav" id="nav">
   <div class="wrap">
     <a class="brand" href="#top">
+      <img class="brand-logo" src="assets/mia-logo.png" alt="Mia">
       <span>Mia</span>
     </a>
     <div class="nav-links">
-      <a class="nav-cta" href="#top">下载</a>
+      <a class="nav-cta" href="/downloads/mia-macos-apple-silicon-latest.dmg" download="Mia-macOS-Apple-Silicon.dmg">下载</a>
     </div>
   </div>
 </nav>
 
-<!-- ============ HERO ============ -->
-<header class="hero" id="top">
-  <div class="wrap hero-inner">
+<!-- ============ HERO (pinned scroll sequence) ============ -->
+<div class="hero-track" id="heroTrack">
+<header class="hero hero-pin" id="top">
+  <div class="hero-snapbg" id="heroSnapBg" aria-hidden="true"></div>
+  <div class="hero-bg" aria-hidden="true">
+    <div class="hg-mesh"></div>
+    <div class="hg-noise"></div>
+    <div class="hg-fade"></div>
+  </div>
+  <div class="wrap hero-inner" id="heroInner">
     <div class="hero-copy">
     <p class="hero-sub reveal">MIA</p>
     <div class="eyebrow reveal" style="--d:.08s">Multiple Intelligent Agents</div>
     <div class="hero-ctas reveal" style="--d:.18s">
-      <a class="btn btn-primary" href="/downloads/mia-macos-arm64-latest.dmg" download="Mia-macOS-Apple-Silicon.dmg">
+      <a class="btn btn-primary" href="/downloads/mia-macos-apple-silicon-latest.dmg" download="Mia-macOS-Apple-Silicon.dmg">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16.5 3c-1.3 0-2.7.8-3.5 1.9C12.3 6 11.7 7.5 11.9 9c1.4.1 2.8-.7 3.6-1.8.8-1.1 1.3-2.6 1-4.2zM19 16.4c0 1.8-1.6 3.7-2.9 4.6-.7.5-1.5.5-2.4.1-.9-.4-1.7-.4-2.6 0-1.1.5-1.7.4-2.4-.1C4.4 18.9 3.8 13 6.4 10.6c1-1 2.4-1.4 3.6-.9 1 .4 1.6.4 2.7 0 1.4-.6 2.9-.4 4 .6-2.3 1.4-1.9 4.6.3 6.1z"/></svg>
         下载 macOS 版
+      </a>
+      <a class="btn btn-ghost" href="/downloads/mia-android-latest.apk" download="Mia-Android.apk">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 18c0 .55.45 1 1 1h1v3.5c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5V19h2v3.5c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5V19h1c.55 0 1-.45 1-1V8H6v10zM3.5 8C2.67 8 2 8.67 2 9.5v7c0 .83.67 1.5 1.5 1.5S5 17.33 5 16.5v-7C5 8.67 4.33 8 3.5 8zm17 0c-.83 0-1.5.67-1.5 1.5v7c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5v-7c0-.83-.67-1.5-1.5-1.5zm-4.97-5.84 1.3-1.3c.2-.2.2-.51 0-.71-.2-.2-.51-.2-.71 0l-1.48 1.48C13.85 1.23 12.95 1 12 1c-.96 0-1.86.23-2.66.63L7.85.15c-.2-.2-.51-.2-.71 0-.2.2-.2.51 0 .71l1.31 1.31C6.97 3.26 6 5.01 6 7h12c0-1.99-.97-3.75-2.47-4.84zM10 5H9V4h1v1zm5 0h-1V4h1v1z"/></svg>
+        下载 Android 版
       </a>
       <a class="btn btn-ghost" href="/app/">
         打开网页版
@@ -140,10 +158,146 @@
     </div>
     </div>
   </div>
+  <div class="hero-pin-heading" id="heroPinHeading">
+    <div class="hph-kicker">Mia 怎么用</div>
+    <h2>它们分工干活,你只管把关。</h2>
+  </div>
 </header>
+</div>
 
-<!-- ============ COLLAB + CONTROL (merged) ============ -->
-<section class="block" id="group">
+<!-- ============ SCROLLYTELLING STEPS ============ -->
+<section class="scrolly steps-dark" id="work">
+  <div class="wrap">
+    <div class="scrolly-grid">
+      <!-- LEFT: advancing copy -->
+      <div class="scrolly-steps">
+        <div class="sstep" data-step="0">
+          <span class="sstep-idx"><i>01</i> 协作</span>
+          <h3>@ 谁,谁就来接力</h3>
+          <p>一个群里放多个 Fellow,@ 一下就分工:调研、数据、工程各干各的,再把结果交接回来——像带着一支随叫随到的小团队。</p>
+          <div class="sstep-tags"><span>@ 提及指派</span><span>自动接力</span><span>群文件共享</span></div>
+        </div>
+        <div class="sstep" data-step="1">
+          <span class="sstep-idx"><i>02</i> 掌控</span>
+          <h3>动手前先问你一句</h3>
+          <p>提交、删除、发送这类敏感操作,必须你点头才执行,命令明明白白摆在眼前,不点就不动。</p>
+          <div class="sstep-tags"><span>操作前确认</span><span>命令可见</span><span>一键拒绝</span></div>
+        </div>
+        <div class="sstep" data-step="2">
+          <span class="sstep-idx"><i>03</i> 随处可用</span>
+          <h3>在哪都接着上次聊</h3>
+          <p>账号、好友、群聊云端同步。桌面上开个头,通勤路上掏出手机,接着刚才的对话往下说。</p>
+          <div class="sstep-tags"><span>桌面 App</span><span>网页版</span><span>手机端</span></div>
+        </div>
+        <div class="sstep" data-step="3">
+          <span class="sstep-idx"><i>04</i> 自由选模型</span>
+          <h3>用哪个引擎,你定</h3>
+          <p>按事挑人:写代码交给 Codex,长文找 Claude,日常用 Hermes——不被单一模型绑住。</p>
+          <div class="sstep-tags"><span>Hermes</span><span>Claude Code</span><span>Codex</span></div>
+        </div>
+      </div>
+
+      <!-- RIGHT: sticky product window -->
+      <div class="scrolly-visual">
+        <div class="sv-stage">
+          <div class="sv-window">
+            <div class="sv-grid">
+              <!-- rail -->
+              <div class="sv-rail">
+                <div class="mw-traffic"><i></i><i></i><i></i></div>
+                <div class="sv-rail-avatar">B</div>
+                <div class="sv-rail-btn on"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
+                <div class="sv-rail-btn"><svg viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2 M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0z"/></svg></div>
+                <div class="sv-rail-btn"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18 M8 3v4 M16 3v4"/></svg></div>
+              </div>
+              <!-- main -->
+              <div class="sv-main">
+                <div class="sv-topbar" id="svTopbar"><!-- header injected per step --></div>
+                <div class="sv-body">
+
+                  <!-- scene 0: group relay -->
+                  <div class="sv-scene active" data-scene="0">
+                    <div class="mw-msg me"><div><div class="mw-bubble me"><span class="mention">@阿研</span> 查下竞品定价,<span class="mention">@阿析</span> 拉一下上周转化</div></div></div>
+                    <div class="mw-msg"><div class="mw-av av av--indigo"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.2"/><path d="M20.5 20.5 16 16"/></svg></div><div><div class="demo-sender">阿研 · 调研</div><div class="mw-bubble">三家定价整理好了,平均比我们高约 20%,对比表发群文件了 📄</div></div></div>
+                    <div class="mw-msg"><div class="mw-av av av--violet"><svg viewBox="0 0 24 24"><path d="M5 20V13"/><path d="M10 20V6"/><path d="M15 20v-9"/><path d="M20 20V9"/></svg></div><div><div class="demo-sender">阿析 · 数据</div><div class="mw-bubble">上周转化 3.4%,环比 <code>+12%</code>,涨幅主要来自移动端。</div></div></div>
+                    <div class="mw-msg"><div class="mw-av av av--teal"><svg viewBox="0 0 24 24"><path d="M9 8l-4 4 4 4"/><path d="M15 8l4 4-4 4"/></svg></div><div><div class="demo-sender">小柯 · 工程</div><div class="mw-bubble">那我按这个方向改价格页,改完 @ 你确认 👌</div></div></div>
+                  </div>
+
+                  <!-- scene 1: permission -->
+                  <div class="sv-scene" data-scene="1">
+                    <div class="mw-msg"><div class="mw-av av av--teal"><svg viewBox="0 0 24 24"><path d="M9 8l-4 4 4 4"/><path d="M15 8l4 4-4 4"/></svg></div><div><div class="mw-bubble">测试 28 个用例全过 ✅ 我把改动提交一下?</div></div></div>
+                    <div class="mw-perm">
+                      <div class="mw-perm-head">
+                        <span class="pulse"></span>
+                        <span class="mw-perm-kick">需要你的允许</span>
+                        <span class="mw-perm-meta">小柯 · Bash</span>
+                      </div>
+                      <div class="mw-perm-cmd">$ git commit -am "feat: 新版落地页"</div>
+                      <div class="mw-perm-actions">
+                        <span class="ghost">拒绝</span>
+                        <button class="mw-pbtn">仅这次</button>
+                        <button class="mw-pbtn primary">允许</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- scene 2: multi-device sync -->
+                  <div class="sv-scene" data-scene="2">
+                    <div class="sv-devices">
+                      <div class="sv-dev">
+                        <div class="ic"><svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8 M12 17v4"/></svg></div>
+                        <div><b>桌面 App</b><span>改版上线小组 · 刚刚</span></div>
+                        <span class="sync">同步</span>
+                      </div>
+                      <div class="sv-dev">
+                        <div class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20 M12 2a15 15 0 0 1 0 20 15 15 0 0 1 0-20z"/></svg></div>
+                        <div><b>网页版</b><span>同一段对话,接着聊</span></div>
+                        <span class="sync">同步</span>
+                      </div>
+                      <div class="sv-dev">
+                        <div class="ic"><svg viewBox="0 0 24 24"><rect x="5" y="2" width="14" height="20" rx="3"/><path d="M11 18h2"/></svg></div>
+                        <div><b>手机端</b><span>通勤路上也能盯进度</span></div>
+                        <span class="sync">同步</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- scene 3: engine picker -->
+                  <div class="sv-scene" data-scene="3">
+                    <div class="sv-engines">
+                      <div class="sv-eng">
+                        <div class="logo hermes"><img src="assets/icons/hermes.svg" alt="Hermes"></div>
+                        <div><b>Hermes</b><span>日常对话 · 又快又稳</span></div>
+                        <span class="pick"></span>
+                      </div>
+                      <div class="sv-eng sel">
+                        <div class="logo"><svg viewBox="0 0 24 24" width="22" height="22" fill="#d97706"><path clip-rule="evenodd" fill-rule="evenodd" d="M20.998 10.949H24v3.102h-3v3.028h-1.487V20H18v-2.921h-1.487V20H15v-2.921H9V20H7.488v-2.921H6V20H4.487v-2.921H3V14.05H0V10.95h3V5h17.998v5.949zM6 10.949h1.488V8.102H6v2.847zm10.51 0H18V8.102h-1.49v2.847z"></path></svg></div>
+                        <div><b>Claude Code</b><span>长文与复杂推理</span></div>
+                        <span class="pick"></span>
+                      </div>
+                      <div class="sv-eng">
+                        <div class="logo"><img src="assets/icons/codex.svg" alt="Codex"></div>
+                        <div><b>Codex</b><span>写代码 · 跑测试</span></div>
+                        <span class="pick"></span>
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="sv-progress">
+            <i class="on"></i><i></i><i></i><i></i>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ COLLAB + CONTROL (内容已并入 #work 滚动叙事；保留隐藏作为 mia.js 引用的惰性 fallback) ============ -->
+<section class="block" id="group" hidden>
   <div class="wrap">
     <div class="section-head center reveal" style="margin-bottom:8px;">
       <span class="kicker">协作 · 掌控</span>
@@ -204,8 +358,8 @@
   </div>
 </section>
 
-<!-- ============ SYNC + ENGINES (merged) ============ -->
-<section class="block tint" id="sync">
+<!-- ============ SYNC + ENGINES (内容已并入 #work 滚动叙事；保留隐藏作为惰性 fallback) ============ -->
+<section class="block tint" id="sync" hidden>
   <div class="wrap">
     <div class="section-head center reveal" style="margin-bottom:6px;">
       <span class="kicker">随处可用 · 自由选模型</span>
@@ -235,7 +389,7 @@
         <div class="combo-label"><b>多引擎兼容</b><span>按事挑人,不被单一模型绑住。</span></div>
         <div class="combo-cards">
           <div class="mini-card">
-            <div class="mini-logo hermes"><img src="./assets/icons/hermes.svg" alt="Hermes"></div>
+            <div class="mini-logo hermes"><img src="assets/icons/hermes.svg" alt="Hermes"></div>
             <div><h4>Hermes</h4></div>
           </div>
           <div class="mini-card">
@@ -243,7 +397,7 @@
             <div><h4>Claude Code</h4></div>
           </div>
           <div class="mini-card">
-            <div class="mini-logo"><img src="./assets/icons/codex.svg" alt="Codex"></div>
+            <div class="mini-logo"><img src="assets/icons/codex.svg" alt="Codex"></div>
             <div><h4>Codex</h4></div>
           </div>
         </div>
@@ -260,6 +414,7 @@
   </div>
 </footer>
 
-<script src="./assets/mia.js?v=20260601-promo"></script>
+<script src="assets/mia.js?v=20260601-promo2"></script>
+<script src="assets/mia-scroll.js?v=20260601-promo2"></script>
 </body>
 </html>

@@ -68,7 +68,7 @@ test("getSpec returns the stdio MCP config with daemon token and context path", 
   });
 });
 
-test("ensureCodexHome links user Codex state and rewrites only Mia scheduler config", (t) => {
+test("ensureCodexHome links reusable Codex state, isolates sessions, and rewrites only Mia scheduler config", (t) => {
   const { scriptPath, service, userHome } = setup(t, {
     nodePath: () => "/opt/node \"quoted\""
   });
@@ -92,7 +92,7 @@ test("ensureCodexHome links user Codex state and rewrites only Mia scheduler con
 
   assert.equal(codexHome.endsWith(path.join("runtime", "codex-home")), true);
   assert.equal(fs.lstatSync(path.join(codexHome, "auth.json")).isSymbolicLink(), true);
-  assert.equal(fs.lstatSync(path.join(codexHome, "sessions")).isSymbolicLink(), true);
+  assert.equal(fs.existsSync(path.join(codexHome, "sessions")), false);
   assert.equal(fs.lstatSync(path.join(codexHome, "config.toml")).isSymbolicLink(), false);
 
   const config = fs.readFileSync(path.join(codexHome, "config.toml"), "utf8");

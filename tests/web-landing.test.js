@@ -12,12 +12,19 @@ function read(relativePath) {
 test("web root is a promo landing page with download and app entry points", () => {
   const html = read("src/web/index.html");
   const css = read("src/web/assets/mia.css");
+  const gradientCss = read("src/web/assets/mia-gradient.css");
+  const scrollCss = read("src/web/assets/mia-scroll.css");
   const js = read("src/web/assets/mia.js");
+  const scrollJs = read("src/web/assets/mia-scroll.js");
 
   assert.match(html, /Mia 把一群 AI 当同事用/);
   assert.match(html, /Multiple Intelligent Agents/);
-  assert.match(html, /href="\.\/assets\/mia\.css\?v=20260601-promo"/);
-  assert.match(html, /src="\.\/assets\/mia\.js\?v=20260601-promo"/);
+  assert.match(html, /href="assets\/mia\.css\?v=20260601-promo2"/);
+  assert.match(html, /href="assets\/mia-gradient\.css\?v=20260601-promo2"/);
+  assert.match(html, /href="assets\/mia-scroll\.css\?v=20260601-promo2"/);
+  assert.match(html, /src="assets\/mia\.js\?v=20260601-promo2"/);
+  assert.match(html, /src="assets\/mia-scroll\.js\?v=20260601-promo2"/);
+  assert.match(html, /src="assets\/mia-logo\.png"/);
   assert.match(html, /class="[^"]*\bmiawin\b[^"]*"/);
   assert.match(html, /class="[^"]*\bmw-search\b[^"]*"/);
   assert.match(html, /class="[^"]*\bmw-chat\b[^"]*"/);
@@ -30,9 +37,14 @@ test("web root is a promo landing page with download and app entry points", () =
   assert.match(css, /prefers-reduced-motion/);
   assert.match(css, /#5e5ce6/);
   assert.match(css, /#30d158/);
+  assert.match(gradientCss, /body\[data-palette="sunset"\]/);
+  assert.match(scrollCss, /\.hero-track/);
+  assert.match(scrollCss, /\.scrolly-grid/);
   assert.match(js, /requestAnimationFrame/);
   assert.match(js, /IntersectionObserver/);
   assert.match(js, /prefers-reduced-motion: reduce/);
+  assert.match(scrollJs, /IntersectionObserver/);
+  assert.match(scrollJs, /prefers-reduced-motion: reduce/);
   assert.match(html, /href="\/downloads\/mia-macos-arm64-latest\.dmg"/);
   assert.match(html, /download="Mia-macOS-Apple-Silicon\.dmg"/);
   assert.match(html, /href="\/app\/"/);
@@ -82,4 +94,11 @@ test("cloud release builder can publish the Apple Silicon DMG as a web download"
   assert.match(source, /copyDesktopDownloadArtifacts/);
   assert.match(source, /web\/assets\/mia\.css/);
   assert.match(source, /web\/assets\/mia\.js/);
+  assert.match(source, /web\/assets\/mia-gradient\.css/);
+  assert.match(source, /web\/assets\/mia-scroll\.css/);
+  assert.match(source, /web\/assets\/mia-scroll\.js/);
+  assert.match(source, /web\/assets\/mia-logo\.png/);
+  assert.match(source, /function shouldCopyReleaseEntry/);
+  assert.match(source, /\.DS_Store/);
+  assert.match(source, /filter: shouldCopyReleaseEntry/);
 });

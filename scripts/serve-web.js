@@ -7,6 +7,7 @@ const path = require("node:path");
 
 const root = path.join(__dirname, "..", "src", "web");
 const sourceRoot = path.join(__dirname, "..", "src");
+const packageRoot = path.join(__dirname, "..", "packages");
 const host = process.env.MIA_WEB_HOST || "127.0.0.1";
 const port = Number(process.env.MIA_WEB_PORT || 4174);
 const apiTarget = process.env.MIA_WEB_API_TARGET || "http://127.0.0.1:4175";
@@ -27,7 +28,22 @@ function safePath(requestPath) {
   const decoded = decodeURIComponent(requestPath.split("?")[0] || "/");
   const target = decoded === "/" ? "index.html" : decoded.replace(/^\/+/, "");
   const candidates = [{ filePath: path.normalize(path.join(root, target)), base: root }];
-  if (target.startsWith("shared/")) {
+  if (
+    target === "shared/avatar-resolve.js"
+      || target === "shared/avatar-media.js"
+      || target === "shared/member-color.js"
+      || target === "shared/session-history.js"
+      || target === "shared/contact.js"
+      || target === "shared/group-tiles.js"
+      || target === "shared/send-pipeline.js"
+      || target === "shared/cloud-client.js"
+      || target === "shared/unread.js"
+  ) {
+    const packageTarget = target === "shared/avatar-resolve.js" || target === "shared/avatar-media.js" || target === "shared/member-color.js"
+      ? "shared/avatar.js"
+      : target;
+    candidates.push({ filePath: path.normalize(path.join(packageRoot, packageTarget)), base: packageRoot });
+  } else if (target.startsWith("shared/")) {
     candidates.push({ filePath: path.normalize(path.join(sourceRoot, target)), base: sourceRoot });
   } else if (target.startsWith("message-sources/")) {
     candidates.push({ filePath: path.normalize(path.join(sourceRoot, "renderer", target)), base: sourceRoot });

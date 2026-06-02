@@ -5,6 +5,13 @@
     || (typeof require === "function" ? require("../../shared/member-color.js") : { memberAccentColor: () => "#5e5ce6" });
   const avatarResolve = (typeof globalThis !== "undefined" && globalThis.miaAvatarResolve)
     || (typeof require === "function" ? require("../../shared/avatar-resolve.js") : { normalizeAvatarImage: (v) => String(v || "") });
+  const fellowIdentity = (typeof globalThis !== "undefined" && globalThis.miaFellowIdentity)
+    || (typeof require === "function" ? require("../../shared/fellow-identity.js") : {
+      normalizeFellowColor: (v) => {
+        const value = String(v || "").trim().toLowerCase();
+        return /^#[0-9a-f]{3}([0-9a-f]{3})?([0-9a-f]{2})?$/.test(value) ? value : "";
+      }
+    });
 
   function firstNonEmpty(...values) {
     for (const value of values) {
@@ -78,6 +85,8 @@
     );
     const runtime = options.runtime || {};
     const agentEngine = normalizeAgentEngine(input.agentEngine || input.agent_engine || input.engine, runtimeKind);
+    const color = fellowIdentity.normalizeFellowColor(input.color || input.avatarColor || input.avatar_color)
+      || memberColor.memberAccentColor(key);
     const sourceKinds = Array.isArray(input.sourceKinds)
       ? input.sourceKinds.map((item) => String(item || "").trim()).filter(Boolean)
       : [sourceKind];
@@ -87,7 +96,7 @@
       id: input.id || key,
       name: firstNonEmpty(input.name, input.displayName, input.username, key),
       bio: normalizedBio(input),
-      color: memberColor.memberAccentColor(key),
+      color,
       avatarImage: avatarResolve.normalizeAvatarImage(input.avatarImage || input.avatar_image || ""),
       avatarCrop: input.avatarCrop || input.avatar_crop || null,
       personaText: input.personaText || input.persona_text || "",

@@ -4,22 +4,23 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 
-const SHARED_DIR = path.join(__dirname, "..", "src", "shared");
-
-// Each entry: { file: shared module filename, global: expected window.* attach name }
+// Each entry: { file: module path from repo root, global: expected window.* attach name }
 const SHARED_MODULES = [
-  { file: "engine-contracts.js", global: "miaEngineContracts" },
-  { file: "ipc-channels.js", global: "miaIpcChannels" },
-  { file: "contact.js", global: "miaContact" },
-  { file: "message-spec.js", global: "miaMessageSpec" },
-  { file: "time-format.js", global: "miaTimeFormat" },
-  { file: "cloud-events.js", global: "miaCloudEvents" },
-  { file: "unread.js", global: "miaUnread" },
-  { file: "conversation-kinds.js", global: "miaConversationKinds" },
-  { file: "send-pipeline.js", global: "miaSendPipeline" },
-  { file: "avatar-media.js", global: "miaAvatarMedia" },
-  { file: "avatar-resolve.js", global: "miaAvatarResolve" },
-  { file: "fellow-runtime-control.js", global: "miaFellowRuntimeControl" }
+  { file: "src/shared/engine-contracts.js", global: "miaEngineContracts" },
+  { file: "src/shared/ipc-channels.js", global: "miaIpcChannels" },
+  { file: "packages/shared/contact.js", global: "miaContact" },
+  { file: "src/shared/message-spec.js", global: "miaMessageSpec" },
+  { file: "src/shared/time-format.js", global: "miaTimeFormat" },
+  { file: "src/shared/cloud-events.js", global: "miaCloudEvents" },
+  { file: "packages/shared/unread.js", global: "miaUnread" },
+  { file: "src/shared/conversation-kinds.js", global: "miaConversationKinds" },
+  { file: "packages/shared/send-pipeline.js", global: "miaSendPipeline" },
+  { file: "packages/shared/cloud-client.js", global: "miaCloudClient" },
+  { file: "packages/shared/group-tiles.js", global: "miaGroupTiles" },
+  { file: "packages/shared/avatar.js", global: "miaAvatarMedia" },
+  { file: "packages/shared/avatar.js", global: "miaAvatarResolve" },
+  { file: "packages/shared/avatar.js", global: "miaMemberColor" },
+  { file: "src/shared/fellow-runtime-control.js", global: "miaFellowRuntimeControl" }
 ];
 
 function runInBrowserSandbox(filePath) {
@@ -37,7 +38,7 @@ function runInBrowserSandbox(filePath) {
 
 for (const { file, global } of SHARED_MODULES) {
   test(`${file} attaches window.${global} without throwing when 'module' is undefined`, () => {
-    const win = runInBrowserSandbox(path.join(SHARED_DIR, file));
+    const win = runInBrowserSandbox(path.join(__dirname, "..", file));
     assert.ok(win[global], `expected window.${global} to be set`);
     assert.equal(typeof win[global], "object");
   });
@@ -45,10 +46,31 @@ for (const { file, global } of SHARED_MODULES) {
 
 test("renderer/index.html loads every shared module via <script>", () => {
   const html = fs.readFileSync(path.join(__dirname, "..", "src", "renderer", "index.html"), "utf8");
-  for (const { file } of SHARED_MODULES) {
+  for (const { file } of SHARED_MODULES.filter((entry) => entry.file.startsWith("src/shared/"))) {
+    const filename = path.basename(file);
     assert.ok(
-      html.includes(`../shared/${file}`),
-      `renderer/index.html missing <script src="../shared/${file}">`
+      html.includes(`../shared/${filename}`),
+      `renderer/index.html missing <script src="../shared/${filename}">`
     );
   }
+  assert.ok(
+    html.includes("../../packages/shared/contact.js"),
+    "renderer/index.html missing <script src=\"../../packages/shared/contact.js\">"
+  );
+  assert.ok(
+    html.includes("../../packages/shared/group-tiles.js"),
+    "renderer/index.html missing <script src=\"../../packages/shared/group-tiles.js\">"
+  );
+  assert.ok(
+    html.includes("../../packages/shared/send-pipeline.js"),
+    "renderer/index.html missing <script src=\"../../packages/shared/send-pipeline.js\">"
+  );
+  assert.ok(
+    html.includes("../../packages/shared/unread.js"),
+    "renderer/index.html missing <script src=\"../../packages/shared/unread.js\">"
+  );
+  assert.ok(
+    html.includes("../../packages/shared/avatar.js"),
+    "renderer/index.html missing <script src=\"../../packages/shared/avatar.js\">"
+  );
 });

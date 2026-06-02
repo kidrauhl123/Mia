@@ -6,7 +6,7 @@ const vm = require("node:vm");
 
 function loadSource() {
   const sharedSpec = fs.readFileSync(path.join(__dirname, "..", "src", "shared", "message-spec.js"), "utf8");
-  const sharedContact = fs.readFileSync(path.join(__dirname, "..", "src", "shared", "contact.js"), "utf8");
+  const sharedContact = fs.readFileSync(path.join(__dirname, "..", "packages", "shared", "contact.js"), "utf8");
   const src = fs.readFileSync(path.join(__dirname, "..", "src", "renderer", "message-sources", "fellow-session-source.js"), "utf8");
   const window = {};
   const ctx = vm.createContext({ window, globalThis: window, module: { exports: {} }, require, console });

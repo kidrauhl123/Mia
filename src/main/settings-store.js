@@ -1,13 +1,12 @@
 // Settings store (main process)
 // Extracted from src/main.js. Owns the on-disk settings JSON files —
-// model / profile / appearance / permission / effort / daemon / relay /
+// model / profile / appearance / permission / effort / daemon /
 // cloud — including defaults, normalization, read, and write.
 //
 // CloudWorkspace JSON cache lives here too. daemonToken stays in main.js
 // because it's an auth primitive that wires into HTTP/IPC authorization, not a
 // user setting.
 
-const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -195,15 +194,6 @@ function createSettingsStore(deps = {}) {
     };
   }
 
-  function defaultRelaySettings() {
-    return {
-      enabled: false,
-      url: process.env.MIA_RELAY_URL || "wss://agi.buytb01.com/relay",
-      deviceId: `mia-${crypto.randomUUID()}`,
-      secret: crypto.randomBytes(32).toString("hex")
-    };
-  }
-
   function defaultEffortSettings() {
     return {
       level: "medium"
@@ -317,50 +307,6 @@ function createSettingsStore(deps = {}) {
     return next;
   }
 
-  function normalizeRelayUrl(value) {
-    const raw = String(value || "").trim();
-    try {
-      const url = new URL(raw || defaultRelaySettings().url);
-      if (url.protocol !== "ws:" && url.protocol !== "wss:") return defaultRelaySettings().url;
-      if (!url.pathname || url.pathname === "/") url.pathname = "/relay";
-      return url.toString();
-    } catch {
-      return defaultRelaySettings().url;
-    }
-  }
-
-  function relaySettings() {
-    const p = runtimePaths();
-    let saved = readJson(p.relaySettings, null);
-    if (!saved || typeof saved !== "object" || !saved.deviceId || !saved.secret) {
-      saved = { ...defaultRelaySettings(), ...(saved && typeof saved === "object" ? saved : {}) };
-      fs.mkdirSync(path.dirname(p.relaySettings), { recursive: true });
-      fs.writeFileSync(p.relaySettings, JSON.stringify(saved, null, 2) + "\n", { mode: 0o600 });
-    }
-    return {
-      ...defaultRelaySettings(),
-      ...saved,
-      enabled: Boolean(saved.enabled),
-      url: normalizeRelayUrl(saved.url),
-      deviceId: String(saved.deviceId || defaultRelaySettings().deviceId).trim(),
-      secret: String(saved.secret || defaultRelaySettings().secret).trim()
-    };
-  }
-
-  function writeRelaySettings(settings = {}) {
-    const p = runtimePaths();
-    const current = relaySettings();
-    const next = {
-      enabled: settings.enabled !== undefined ? Boolean(settings.enabled) : current.enabled,
-      url: normalizeRelayUrl(settings.url || current.url),
-      deviceId: String(settings.deviceId || current.deviceId).trim(),
-      secret: String(settings.secret || current.secret).trim()
-    };
-    fs.mkdirSync(path.dirname(p.relaySettings), { recursive: true });
-    fs.writeFileSync(p.relaySettings, JSON.stringify(next, null, 2) + "\n", { mode: 0o600 });
-    return next;
-  }
-
   function defaultCloudSettings() {
     return {
       enabled: false,
@@ -439,7 +385,6 @@ function createSettingsStore(deps = {}) {
     writeAppearanceSettings,
     defaultPermissionSettings,
     defaultDaemonSettings,
-    defaultRelaySettings,
     defaultEffortSettings,
     normalizeEffortLevel,
     normalizeStoredEffortLevel,
@@ -453,9 +398,6 @@ function createSettingsStore(deps = {}) {
     normalizeDaemonPort,
     daemonSettings,
     writeDaemonSettings,
-    normalizeRelayUrl,
-    relaySettings,
-    writeRelaySettings,
     defaultCloudSettings,
     normalizeCloudUrl,
     cloudSettings,

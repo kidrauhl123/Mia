@@ -1092,7 +1092,7 @@ body.sidebar-resizing * {
 .contact-row .fellow-photo {
   width: 26px;
   height: 26px;
-  border-radius: 7px;
+  border-radius: 50%;
 }
 
 .contact-row-main strong {
@@ -1525,6 +1525,8 @@ body.topbar-click-capture .topbar {
 
 .contact-profile-avatar {
   position: relative;
+  display: grid;
+  place-items: center;
   overflow: hidden;
   width: 96px;
   height: 96px;
@@ -1532,6 +1534,8 @@ body.topbar-click-capture .topbar {
   border-radius: 50%;
   background-color: transparent;
   background-repeat: no-repeat;
+  color: #fff;
+  font-weight: 430;
   box-shadow: none;
 }
 
@@ -4423,7 +4427,7 @@ body.topbar-click-capture .topbar {
   margin: 0;
 }
 
-.mobile-pairing-card {
+.cloud-account-card {
   align-content: start;
   gap: 0;
   max-width: 680px;
@@ -4479,42 +4483,6 @@ body.topbar-click-capture .topbar {
   display: flex;
   gap: 8px;
   align-items: center;
-}
-
-.connection-switch {
-  position: relative;
-  flex: 0 0 auto;
-  width: 36px;
-  height: 20px;
-  border: 0;
-  border-radius: 999px;
-  background: rgb(0 0 0 / 0.11);
-  transition: background 120ms ease, opacity 120ms ease;
-}
-
-.connection-switch span {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 16px;
-  height: 16px;
-  border-radius: 999px;
-  background: var(--surface);
-  box-shadow: 0 1px 3px rgb(0 0 0 / 0.18);
-  transition: transform 120ms ease;
-}
-
-.connection-switch.active {
-  background: var(--accent);
-}
-
-.connection-switch.active span {
-  transform: translateX(16px);
-}
-
-.connection-switch:disabled {
-  opacity: 0.55;
-  cursor: default;
 }
 
 .settings-switch {
@@ -4580,90 +4548,10 @@ body.topbar-click-capture .topbar {
   border-color: var(--line-strong);
 }
 
-.connection-qr {
-  display: grid;
-  place-items: center;
-  width: 164px;
-  height: 164px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: #fff;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 400;
-}
-
 @media (max-width: 720px) {
   .cloud-login-grid {
     grid-template-columns: 1fr;
   }
-}
-
-.connection-qr svg {
-  display: block;
-  width: 156px;
-  height: 156px;
-}
-
-.link-reveal {
-  min-height: 20px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 400;
-}
-
-.link-reveal:hover {
-  color: var(--accent);
-}
-
-.mobile-relay-url-field {
-  display: grid;
-  gap: 5px;
-  width: min(460px, 100%);
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 400;
-}
-
-.mobile-relay-url-field input {
-  width: 100%;
-  min-height: 34px;
-  padding: 0 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  outline: 0;
-  background: var(--field);
-  color: var(--text);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 400;
-}
-
-.mobile-relay-url-field input:focus {
-  border-color: var(--line-strong);
-}
-
-.pairing-link {
-  width: min(460px, 100%);
-  min-height: 36px;
-  padding: 8px 10px;
-  border: 0;
-  border-radius: 8px;
-  background: var(--field);
-  color: var(--text);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 400;
-  line-height: 1.35;
-  overflow-wrap: anywhere;
-  text-align: left;
-}
-
-.pairing-link:hover {
-  background: var(--field);
 }
 
 .pairing-hint {

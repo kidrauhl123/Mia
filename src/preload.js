@@ -6,14 +6,9 @@ contextBridge.exposeInMainWorld("mia", {
   notifyFirstPaint: () => ipcRenderer.send(IpcChannel.UiFirstPaint),
   runtimeStatus: () => ipcRenderer.invoke(IpcChannel.RuntimeStatus),
   daemonStatus: () => ipcRenderer.invoke(IpcChannel.DaemonStatus),
-  daemonPairing: () => ipcRenderer.invoke(IpcChannel.DaemonPairing),
   startDaemon: () => ipcRenderer.invoke(IpcChannel.DaemonStart),
   stopDaemon: () => ipcRenderer.invoke(IpcChannel.DaemonStop),
   saveDaemonSettings: (settings) => ipcRenderer.invoke(IpcChannel.DaemonSettingsSave, settings),
-  relayStatus: () => ipcRenderer.invoke(IpcChannel.RelayStatus),
-  startRelay: () => ipcRenderer.invoke(IpcChannel.RelayStart),
-  stopRelay: () => ipcRenderer.invoke(IpcChannel.RelayStop),
-  saveRelaySettings: (settings) => ipcRenderer.invoke(IpcChannel.RelaySettingsSave, settings),
   cloudStatus: () => ipcRenderer.invoke(IpcChannel.CloudStatus),
   cloudLogin: (payload) => ipcRenderer.invoke(IpcChannel.CloudLogin, payload),
   cloudSync: () => ipcRenderer.invoke(IpcChannel.CloudSync),
@@ -23,7 +18,6 @@ contextBridge.exposeInMainWorld("mia", {
     ipcRenderer.on(IpcChannel.CloudEvent, listener);
     return () => ipcRenderer.removeListener(IpcChannel.CloudEvent, listener);
   },
-  qrSvg: (text) => ipcRenderer.invoke(IpcChannel.UtilQrSvg, text),
   openExternal: (url) => ipcRenderer.invoke(IpcChannel.UtilOpenExternal, url),
   installEngine: () => ipcRenderer.invoke(IpcChannel.EngineInstall),
   startEngine: () => ipcRenderer.invoke(IpcChannel.EngineStart),

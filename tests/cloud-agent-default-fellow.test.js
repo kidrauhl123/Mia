@@ -10,6 +10,7 @@ const { createFellowsStore } = require("../src/cloud/fellows-store.js");
 const { createRuntimeBindingsStore } = require("../src/cloud-agent/runtime-bindings-store.js");
 const { ensureDefaultCloudFellow } = require("../src/cloud-agent/default-fellow.js");
 const { createMiaCloudServer } = require("../scripts/serve-cloud.js");
+const { normalizeFellowCapabilities } = require("../src/shared/fellow-identity.js");
 
 function tempDir(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -71,6 +72,7 @@ test("ensureDefaultCloudFellow creates fellow, binding, conversation, and member
     const out2 = ensureDefaultCloudFellow(ctx, account.user.id);
 
     assert.equal(out1.fellow.id, "mia");
+    assert.equal(out1.fellow.globalId, `fellow:${account.user.id}:mia`);
     assert.equal(out1.fellow.bio, "Mia Fellow");
     assert.doesNotMatch(out1.fellow.personaText, /云端 Agent|本地运行/);
     assert.equal(out1.conversation.id, `fellow:${account.user.id}:mia`);
@@ -110,7 +112,7 @@ test("ensureDefaultCloudFellow preserves an existing default fellow identity", (
 
     assert.equal(out.fellow.name, "My Cloud Pal");
     assert.equal(out.fellow.bio, "custom bio");
-    assert.deepEqual(out.fellow.capabilities, ["chat"]);
+    assert.deepEqual(out.fellow.capabilities, normalizeFellowCapabilities(["chat"]));
     assert.equal(out.fellow.personaText, "custom persona");
   } finally {
     ctx.cleanup();

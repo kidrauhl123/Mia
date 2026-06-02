@@ -14,6 +14,11 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
+const {
+  normalizeCapabilityIds,
+  normalizeFellowColor,
+  normalizeFellowCapabilities
+} = require("../shared/fellow-identity.js");
 
 function createFellowManifest(deps = {}) {
   const {
@@ -74,24 +79,6 @@ function createFellowManifest(deps = {}) {
     return next;
   }
 
-  function normalizeCapabilityIds(input) {
-    return Array.isArray(input)
-      ? [...new Set(input.map((item) => String(item || "").trim()).filter(Boolean))].slice(0, 500)
-      : [];
-  }
-
-  function normalizeFellowCapabilities(input = {}) {
-    const value = input && typeof input === "object" ? input : {};
-    return {
-      inheritEngineDefaults: value.inheritEngineDefaults !== false && value.inherit_engine_defaults !== false,
-      enabledPlugins: normalizeCapabilityIds(value.enabledPlugins || value.enabled_plugins),
-      disabledPlugins: normalizeCapabilityIds(value.disabledPlugins || value.disabled_plugins),
-      enabledSkills: normalizeCapabilityIds(value.enabledSkills || value.enabled_skills),
-      disabledSkills: normalizeCapabilityIds(value.disabledSkills || value.disabled_skills),
-      enabledConnectors: normalizeCapabilityIds(value.enabledConnectors || value.enabled_connectors)
-    };
-  }
-
   function defaultManifest() {
     const manifest = defaultFellowManifest();
     return {
@@ -116,6 +103,7 @@ function createFellowManifest(deps = {}) {
       agentEngine: normalizeFellowAgentEngine(item?.agentEngine || item?.agent_engine || item?.engine),
       engineConfig: normalizeFellowEngineConfig(item?.engineConfig || item?.engine_config),
       platform: String(item?.platform || "api_server").trim() || "api_server",
+      color: normalizeFellowColor(item?.color || item?.avatarColor || item?.avatar_color),
       avatarImage: String(item?.avatarImage || item?.avatar_image || "").trim(),
       avatarCrop: normalizeAvatarCrop(item?.avatarCrop || item?.avatar_crop),
       pinned: Boolean(item?.pinned || item?.is_pinned || pinnedAt),
@@ -123,6 +111,7 @@ function createFellowManifest(deps = {}) {
       muted: Boolean(item?.muted || item?.is_muted || mutedAt),
       mutedAt,
       bio: String(item?.bio || item?.description || "").trim(),
+      personaText: String(item?.personaText || item?.persona_text || "").trim(),
       capabilities: normalizeFellowCapabilities(item?.capabilities)
     };
   }
@@ -203,6 +192,7 @@ function createFellowManifest(deps = {}) {
       display_name: fellow.name,
       agent_engine: normalizeFellowAgentEngine(fellow.agentEngine || fellow.agent_engine),
       engine_config: normalizeFellowEngineConfig(fellow.engineConfig || fellow.engine_config),
+      color: normalizeFellowColor(fellow.color || fellow.avatarColor || fellow.avatar_color),
       avatar_image: fellow.avatarImage || "",
       avatar_crop: fellow.avatarCrop || { x: 50, y: 50, zoom: 1 },
       pinned: Boolean(fellow.pinned),
@@ -210,6 +200,7 @@ function createFellowManifest(deps = {}) {
       muted: Boolean(fellow.muted),
       muted_at: fellow.mutedAt || "",
       bio: fellow.bio || "",
+      persona_text: fellow.personaText || "",
       capabilities: normalizeFellowCapabilities(fellow.capabilities),
       created_at: new Date().toISOString()
     };

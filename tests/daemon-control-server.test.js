@@ -13,12 +13,9 @@ function setup(t, overrides = {}) {
   const calls = {
     initialize: 0,
     settingsWrites: [],
-    relayStarts: 0,
-    relayStops: 0,
     scheduler: 0
   };
   let daemonSettings = { enabled: true, host: "127.0.0.1", port: 27861 };
-  let relaySettings = { enabled: false };
   const remoteRouter = {
     matches({ method, path: requestPath }) {
       return method === "GET" && requestPath === "/api/runtime/status";
@@ -30,7 +27,6 @@ function setup(t, overrides = {}) {
   const server = createDaemonControlServer({
     isDaemonProcess: true,
     serviceLabel: "ai.mia.daemon",
-    dirname: path.join(dir, "app"),
     pid: () => 1234,
     uptime: () => 12.4,
     networkInterfaces: () => ({}),
@@ -49,14 +45,6 @@ function setup(t, overrides = {}) {
       home: path.join(dir, "home"),
       daemonLaunchAgent: path.join(dir, "ai.mia.daemon.plist")
     }),
-    getRelaySettings: () => relaySettings,
-    writeRelaySettings: (settings) => {
-      relaySettings = { ...relaySettings, ...settings };
-      return relaySettings;
-    },
-    relayStatus: () => ({ relay: relaySettings.enabled }),
-    startRelayClient: async () => { calls.relayStarts += 1; return { started: true }; },
-    stopRelayClient: () => { calls.relayStops += 1; return { stopped: true }; },
     remoteRouter: () => remoteRouter,
     initSchedulerSubsystem: () => { calls.scheduler += 1; },
     tasksRoutes: () => ({ handle: async () => false, handleEventsStream: () => {} }),
@@ -67,19 +55,16 @@ function setup(t, overrides = {}) {
   return { calls, dir, server, setDaemonSettings: (patch) => { daemonSettings = { ...daemonSettings, ...patch }; } };
 }
 
-test("status and pairing links are owned by the daemon control server runtime", () => {
+test("status is owned by the daemon control server runtime", () => {
   const { server } = setup({ after: () => {} });
 
   server.appendLog("secret-token visible");
   const status = server.status();
-  const pairing = server.pairingInfo();
 
   assert.equal(status.processMode, "daemon");
   assert.equal(status.serviceLabel, "ai.mia.daemon");
   assert.equal(status.running, false);
   assert.deepEqual(status.logs, ["[REDACTED] visible"]);
-  assert.equal(pairing.token, "secret-token");
-  assert.match(pairing.links[0], /^http:\/\/127\.0\.0\.1:27861\/mobile\/#token=secret-token$/);
 });
 
 test("start serves health, protects remote routes, and delegates authorized remote routes", async (t) => {
@@ -126,27 +111,4 @@ test("ping rejects a daemon running from a different runtime home", async (t) =>
   const result = await server.ping(undefined, 500, { expectedRuntimeHome: path.join(dir, "home") });
 
   assert.deepEqual(result, { ok: false, baseUrl: `http://127.0.0.1:${port}` });
-});
-
-test("relay control requests stay in the daemon control server adapter", async (t) => {
-  const port = await freePort();
-  const { calls, server } = setup(t);
-  const status = await server.start({ host: "127.0.0.1", port });
-
-  const started = await fetch(`${status.baseUrl}/api/relay/start`, {
-    method: "POST",
-    headers: { Authorization: "Bearer secret-token", "Content-Type": "application/json" },
-    body: JSON.stringify({ url: "wss://relay.example/ws" })
-  }).then((response) => response.json());
-  const stopped = await fetch(`${status.baseUrl}/api/relay/stop`, {
-    method: "POST",
-    headers: { Authorization: "Bearer secret-token" }
-  }).then((response) => response.json());
-
-  assert.deepEqual(started, { relay: true });
-  assert.deepEqual(stopped, { stopped: true });
-  assert.equal(calls.relayStarts, 1);
-  assert.equal(calls.relayStops, 1);
-
-  server.stop();
 });

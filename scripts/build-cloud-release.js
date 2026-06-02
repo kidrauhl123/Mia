@@ -19,10 +19,14 @@ function copyFile(source, target) {
   fs.copyFileSync(path.join(root, source), target);
 }
 
+function shouldCopyReleaseEntry(sourcePath) {
+  return path.basename(sourcePath) !== ".DS_Store";
+}
+
 function copyDir(source, target) {
   fs.rmSync(target, { recursive: true, force: true });
   fs.mkdirSync(path.dirname(target), { recursive: true });
-  fs.cpSync(path.join(root, source), target, { recursive: true });
+  fs.cpSync(path.join(root, source), target, { recursive: true, filter: shouldCopyReleaseEntry });
 }
 
 function newestDesktopArm64Dmg() {
@@ -109,6 +113,7 @@ function listFiles(dir, prefix = "") {
     .sort((a, b) => a.name.localeCompare(b.name));
   const files = [];
   for (const entry of entries) {
+    if (entry.name === ".DS_Store") continue;
     const relative = path.posix.join(prefix, entry.name);
     const fullPath = path.join(dir, entry.name);
     if (entry.isDirectory()) files.push(...listFiles(fullPath, relative));
@@ -375,7 +380,13 @@ function verifyRelease() {
     "api/src/shared/conversation-kinds.js",
     "api/src/shared/engine-contracts.js",
     "api/src/shared/member-color.js",
+    "api/src/shared/avatar-media.js",
     "api/src/shared/avatar-resolve.js",
+    "api/packages/shared/avatar.js",
+    "api/src/shared/fellow-identity.js",
+    "api/packages/shared/fellow-identity.js",
+    "api/src/shared/session-history.js",
+    "api/packages/shared/session-history.js",
     "api/src/shared/group-fellow-routing.js",
     "api/src/shared/skill-safety.js",
     "api/src/shared/agent-permissions.js",
@@ -389,13 +400,24 @@ function verifyRelease() {
     "web/styles.css",
     "web/assets/mia.css",
     "web/assets/mia.js",
+    "web/assets/mia-gradient.css",
+    "web/assets/mia-scroll.css",
+    "web/assets/mia-scroll.js",
+    "web/assets/mia-logo.png",
     "web/favicon.svg",
     "web/favicon.ico",
     "web/apple-touch-icon.png",
     "web/icon-192.png",
     "web/icon-512.png",
     "web/manifest.webmanifest",
+    "web/shared/avatar-resolve.js",
+    "web/shared/avatar-media.js",
+    "web/shared/contact.js",
+    "web/shared/group-tiles.js",
     "web/shared/member-color.js",
+    "web/shared/unread.js",
+    "web/shared/send-pipeline.js",
+    "web/shared/cloud-client.js",
     "web/shared/fellow-runtime-control.js",
     "web/shared/agent-permissions.js",
     "smoke-cloud.js",
@@ -434,7 +456,13 @@ function verifyRelease() {
     "api/src/shared/conversation-kinds.js",
     "api/src/shared/engine-contracts.js",
     "api/src/shared/member-color.js",
+    "api/src/shared/avatar-media.js",
     "api/src/shared/avatar-resolve.js",
+    "api/packages/shared/avatar.js",
+    "api/src/shared/fellow-identity.js",
+    "api/packages/shared/fellow-identity.js",
+    "api/src/shared/session-history.js",
+    "api/packages/shared/session-history.js",
     "api/src/shared/group-fellow-routing.js",
     "api/src/shared/skill-safety.js",
     "api/src/shared/agent-permissions.js",
@@ -605,7 +633,13 @@ function main() {
   copyFile("src/shared/conversation-kinds.js", path.join(apiDir, "src", "shared", "conversation-kinds.js"));
   copyFile("src/shared/engine-contracts.js", path.join(apiDir, "src", "shared", "engine-contracts.js"));
   copyFile("src/shared/member-color.js", path.join(apiDir, "src", "shared", "member-color.js"));
+  copyFile("src/shared/avatar-media.js", path.join(apiDir, "src", "shared", "avatar-media.js"));
   copyFile("src/shared/avatar-resolve.js", path.join(apiDir, "src", "shared", "avatar-resolve.js"));
+  copyFile("packages/shared/avatar.js", path.join(apiDir, "packages", "shared", "avatar.js"));
+  copyFile("src/shared/fellow-identity.js", path.join(apiDir, "src", "shared", "fellow-identity.js"));
+  copyFile("packages/shared/fellow-identity.js", path.join(apiDir, "packages", "shared", "fellow-identity.js"));
+  copyFile("src/shared/session-history.js", path.join(apiDir, "src", "shared", "session-history.js"));
+  copyFile("packages/shared/session-history.js", path.join(apiDir, "packages", "shared", "session-history.js"));
   copyFile("src/shared/group-fellow-routing.js", path.join(apiDir, "src", "shared", "group-fellow-routing.js"));
   copyFile("src/shared/skill-safety.js", path.join(apiDir, "src", "shared", "skill-safety.js"));
   copyFile("src/shared/agent-permissions.js", path.join(apiDir, "src", "shared", "agent-permissions.js"));
@@ -618,16 +652,17 @@ function main() {
   copyDir("src/renderer/assets/engine-icons", path.join(webDir, "assets", "engine-icons"));
   copyFile("src/shared/time-format.js", path.join(webDir, "shared", "time-format.js"));
   copyFile("src/shared/message-spec.js", path.join(webDir, "shared", "message-spec.js"));
-  copyFile("src/shared/contact.js", path.join(webDir, "shared", "contact.js"));
+  copyFile("packages/shared/contact.js", path.join(webDir, "shared", "contact.js"));
   copyFile("src/shared/engine-contracts.js", path.join(webDir, "shared", "engine-contracts.js"));
   copyFile("src/shared/conversation-kinds.js", path.join(webDir, "shared", "conversation-kinds.js"));
-  copyFile("src/shared/member-color.js", path.join(webDir, "shared", "member-color.js"));
-  copyFile("src/shared/avatar-media.js", path.join(webDir, "shared", "avatar-media.js"));
-  copyFile("src/shared/avatar-resolve.js", path.join(webDir, "shared", "avatar-resolve.js"));
-  copyFile("src/shared/session-history.js", path.join(webDir, "shared", "session-history.js"));
-  copyFile("src/shared/unread.js", path.join(webDir, "shared", "unread.js"));
-  copyFile("src/shared/group-tiles.js", path.join(webDir, "shared", "group-tiles.js"));
-  copyFile("src/shared/send-pipeline.js", path.join(webDir, "shared", "send-pipeline.js"));
+  copyFile("packages/shared/avatar.js", path.join(webDir, "shared", "member-color.js"));
+  copyFile("packages/shared/avatar.js", path.join(webDir, "shared", "avatar-media.js"));
+  copyFile("packages/shared/avatar.js", path.join(webDir, "shared", "avatar-resolve.js"));
+  copyFile("packages/shared/session-history.js", path.join(webDir, "shared", "session-history.js"));
+  copyFile("packages/shared/unread.js", path.join(webDir, "shared", "unread.js"));
+  copyFile("packages/shared/group-tiles.js", path.join(webDir, "shared", "group-tiles.js"));
+  copyFile("packages/shared/send-pipeline.js", path.join(webDir, "shared", "send-pipeline.js"));
+  copyFile("packages/shared/cloud-client.js", path.join(webDir, "shared", "cloud-client.js"));
   copyFile("src/shared/fellow-runtime-control.js", path.join(webDir, "shared", "fellow-runtime-control.js"));
   copyFile("src/shared/agent-permissions.js", path.join(webDir, "shared", "agent-permissions.js"));
   copyFile("src/shared/trace-blocks.js", path.join(webDir, "shared", "trace-blocks.js"));

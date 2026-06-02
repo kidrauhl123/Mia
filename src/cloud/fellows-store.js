@@ -13,6 +13,12 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+const {
+  firstNonEmpty,
+  normalizeFellowCapabilities,
+  normalizeFellowIdentity
+} = require("../shared/fellow-identity.js");
+
 function parseJsonOr(value, fallback) {
   try {
     const parsed = JSON.parse(String(value || ""));
@@ -20,27 +26,21 @@ function parseJsonOr(value, fallback) {
   } catch { return fallback; }
 }
 
-function serializableCapabilities(value) {
-  if (Array.isArray(value)) return value;
-  if (value && typeof value === "object") return value;
-  return [];
-}
-
 function rowToFellow(row) {
   if (!row) return null;
-  return {
+  return normalizeFellowIdentity({
     id: row.id,
-    ownerUserId: row.owner_user_id,
+    owner_user_id: row.owner_user_id,
     name: row.name,
     color: row.color || "",
-    avatarImage: row.avatar_image || "",
-    avatarCrop: parseJsonOr(row.avatar_crop_json, null),
+    avatar_image: row.avatar_image || "",
+    avatar_crop_json: row.avatar_crop_json || "",
     bio: row.bio || "",
-    capabilities: parseJsonOr(row.capabilities_json, []),
-    personaText: row.persona_text || "",
-    createdAt: row.created_at,
-    updatedAt: row.updated_at
-  };
+    capabilities: normalizeFellowCapabilities(parseJsonOr(row.capabilities_json, {})),
+    persona_text: row.persona_text || "",
+    created_at: row.created_at,
+    updated_at: row.updated_at
+  });
 }
 
 function createFellowsStore(db) {
@@ -66,20 +66,22 @@ function createFellowsStore(db) {
 
   function upsertFellow(ownerUserId, fellow) {
     if (!ownerUserId) throw new Error("upsertFellow: ownerUserId required");
-    if (!fellow || !fellow.id || !fellow.name) throw new Error("upsertFellow: fellow.id and fellow.name required");
+    const normalized = normalizeFellowIdentity(fellow);
+    const explicitName = firstNonEmpty(fellow?.name, fellow?.displayName, fellow?.display_name);
+    if (!normalized || !explicitName) throw new Error("upsertFellow: fellow.id and fellow.name required");
     const now = nowIso();
-    const existing = selectStmt.get(String(ownerUserId), String(fellow.id));
+    const existing = selectStmt.get(String(ownerUserId), normalized.id);
     const createdAt = existing ? existing.created_at : now;
     const row = upsertStmt.get(
-      String(fellow.id),
+      normalized.id,
       String(ownerUserId),
-      String(fellow.name),
-      String(fellow.color || ""),
-      String(fellow.avatarImage || ""),
-      fellow.avatarCrop ? JSON.stringify(fellow.avatarCrop) : "",
-      String(fellow.bio || ""),
-      JSON.stringify(serializableCapabilities(fellow.capabilities)),
-      String(fellow.personaText || ""),
+      normalized.name,
+      normalized.color,
+      normalized.avatarImage,
+      normalized.avatarCrop ? JSON.stringify(normalized.avatarCrop) : "",
+      normalized.bio,
+      JSON.stringify(normalized.capabilities),
+      normalized.personaText,
       createdAt,
       now
     );

@@ -11,7 +11,9 @@ const sourceCandidates = ["mac", "mac-arm64", "mac-x64"]
   .map((dir) => path.join(root, "release", dir))
   .filter((dir) => fs.existsSync(path.join(dir, `${productName}.app`)));
 const source = sourceCandidates[0];
-const target = path.join(root, "release", `${productName}-${version}-${process.arch}-unsigned.dmg`);
+// Human-facing chip label so users can tell builds apart (more variants to come).
+const chipLabel = { arm64: "Apple-Silicon", x64: "Intel" }[process.arch] || process.arch;
+const target = path.join(root, "release", `${productName}-${version}-${chipLabel}.dmg`);
 
 if (process.platform !== "darwin") {
   throw new Error("create-mac-dmg.js only runs on macOS.");

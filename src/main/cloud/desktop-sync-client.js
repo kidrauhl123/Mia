@@ -1,6 +1,11 @@
 "use strict";
 
 const {
+  normalizeFellowColor,
+  normalizeFellowCapabilities
+} = require("../../shared/fellow-identity.js");
+
+const {
   DEFAULT_SKILL_MARKET_CACHE_TTL_MS,
   normalizeSkillMarketParams
 } = require("../skills/skill-market-cache.js");
@@ -60,9 +65,9 @@ function createCloudDesktopSyncClient({
     const current = settings();
     if (!current.enabled || !current.token || !fellow || !fellow.key) return;
     try {
-      let personaText = "";
+      let personaText = String(fellow.personaText || fellow.persona_text || "").trim();
       try {
-        if (typeof fellowPersonaPath === "function" && typeof fileExists === "function" && fileExists(fellowPersonaPath(fellow.key))) {
+        if (!personaText && typeof fellowPersonaPath === "function" && typeof fileExists === "function" && fileExists(fellowPersonaPath(fellow.key))) {
           personaText = readFellowPersona(fellow.key, fellow.name, fellow.bio);
         }
       } catch {
@@ -72,10 +77,11 @@ function createCloudDesktopSyncClient({
         method: "PUT",
         body: {
           name: fellow.name,
+          color: normalizeFellowColor(fellow.color),
           avatarImage: fellow.avatarImage || "",
           avatarCrop: fellow.avatarCrop || null,
           bio: fellow.bio || "",
-          capabilities: Object.keys(fellow.capabilities || {}).filter((key) => fellow.capabilities[key]),
+          capabilities: normalizeFellowCapabilities(fellow.capabilities),
           personaText
         }
       });

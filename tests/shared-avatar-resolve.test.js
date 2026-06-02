@@ -7,9 +7,7 @@ const assert = require("node:assert/strict");
 
 const avatarResolve = require("../src/shared/avatar-resolve");
 
-test("avatar preset catalog exports are empty compatibility shims", () => {
-  assert.equal(avatarResolve.avatarAssetForKey("mia"), "");
-  assert.deepEqual(avatarResolve.defaultAvatarAssets(), []);
+test("avatar preset catalog exports are empty", () => {
   assert.deepEqual(avatarResolve.avatarPresets, []);
   assert.deepEqual(avatarResolve.avatarPresetGroupTabs, []);
   assert.deepEqual(avatarResolve.avatarPresetGroups.human, []);

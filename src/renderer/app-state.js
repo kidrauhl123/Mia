@@ -50,8 +50,6 @@
       sidebarWidth: options.sidebarWidth,
       sidebarResize: { dragging: false, startX: 0, startWidth: 0 },
       activeSettingsTab: "account",
-      mobileLanLinkExpanded: false,
-      mobileRelayLinkExpanded: false,
       personaFilter: "",
       contactFilter: "",
       skillFilter: "",

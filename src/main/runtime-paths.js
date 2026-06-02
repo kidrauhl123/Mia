@@ -48,7 +48,6 @@ function createRuntimePaths(deps = {}) {
       agentSessions: path.join(home, "mia-agent-sessions.json"),
       daemonSettings: path.join(home, "mia-daemon.json"),
       daemonToken: path.join(home, "mia-daemon.key"),
-      relaySettings: path.join(home, "mia-relay.json"),
       cloudSettings: path.join(home, "mia-cloud.json"),
       cloudWorkspace: path.join(home, "mia-cloud-workspace.json"),
       petRemoteSettings: path.join(home, "mia-pet-remote.json"),

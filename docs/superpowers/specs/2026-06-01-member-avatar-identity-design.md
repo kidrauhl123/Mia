@@ -7,10 +7,9 @@
 
 Mia 现在已经有几个共享 Module 试图统一头像：
 
-- `src/shared/avatar-resolve.js` 负责预设头像、裁剪、媒体类型和 fallback。
-- `src/shared/contact.js` 把 self / fellow / user 解析成 contact。
-- `src/shared/group-tiles.js` 把群成员解析成头像 tile。
-- `src/shared/member-color.js` 提供成员颜色。
+- `packages/shared/avatar.js` 负责头像 fallback、裁剪、媒体类型、视频 trim 和成员颜色；`src/shared/avatar-resolve.js`、`src/shared/avatar-media.js`、`src/shared/member-color.js` 只保留 Node 兼容入口。
+- `packages/shared/contact.js` 把 self / fellow / user 解析成 contact；`src/shared/contact.js` 只保留 Node 兼容入口。
+- `packages/shared/group-tiles.js` 把群成员解析成头像 tile；`src/shared/group-tiles.js` 只保留 Node 兼容入口。
 
 但实际 UI 仍然在多处绕开这些 Module：
 
@@ -29,7 +28,7 @@ Mia 现在已经有几个共享 Module 试图统一头像：
 1. 建立唯一的成员身份解析 contract：`MemberIdentity`。
 2. 所有头像 fallback 都由 shared Module 决定，UI 层不再判断“没头像怎么办”。
 3. 新用户、新 fellow、未知成员的默认头像统一为“稳定颜色 + 名字前两个字”。
-4. 颜色只由 `src/shared/member-color.js` 的一个算法产生。
+4. 颜色只由 `packages/shared/avatar.js` 的一个算法产生。
 5. 移除当前内置预设头像作为用户可选项、无头像 fallback 和运行时渲染依赖，并在代码引用清空后删除对应 catalog / asset 文件。
 6. 历史保存的当前内置预设头像路径统一 normalize 为空头像，走颜色 + 两字 fallback。
 7. Web、desktop、mobile 的会话列表、聊天 header、消息气泡、群头像 mosaic、联系人卡都消费同一种 avatar descriptor。
@@ -60,6 +59,7 @@ src/shared/member-identity.js
   kind: "user" | "fellow",
   id: "user_or_fellow_id",
   ownerId: "owner_user_id_or_empty",
+  globalId: "fellow:<ownerId>:<fellowId> for fellows, empty for users",
   displayName: "空铃",
   avatar: {
     image: "",
@@ -130,7 +130,8 @@ Fallback 必须统一：
 - `displayName` 为空时，user 使用 `member_ref || "用户"`，fellow 使用 `member_ref || "Fellow"`。
 - `avatar.text = Array.from(displayName.trim()).slice(0, 2).join("") || "?"`。
 - `avatar.color = memberAccentColor(identityKey)`。
-- `identityKey` 对 user 为 user id；对 fellow 为 `ownerId ? ownerId + ":" + fellowId : fellowId`，避免不同用户拥有同 key fellow 时颜色冲突。
+- `identityKey` 对 user 为 user id；对 fellow 优先使用 `globalId`，没有 owner 时退回 fellow id，避免不同用户拥有同 key fellow 时颜色冲突。
+- fellow `identity.globalId` 使用 `packages/shared/fellow-identity.fellowGlobalId(ownerId, id)` 生成；本地 `id/key` 仍可重复，但跨用户分享、成员身份和事件 payload 必须带 `globalId`。
 - `normalizeAvatarImage(image)` 对当前内置预设头像路径返回 `""`，包括 web/desktop/mobile 曾使用过的 `assets/avatars`、`assets/avatars-pet`、`avatar-thumbs`、以及同类 legacy preset 路径；匹配时要处理 `./`、`/`、绝对 app resource URL 等路径形态。
 - 任何 UI 层不得再用 `title[0]`、`initials(...)`、本地 `avatarColor(...)` 或 hash preset 作为无头像 fallback。
 
@@ -149,6 +150,7 @@ Fallback 必须统一：
     kind: "user",
     id: "u_1",
     ownerId: "",
+    globalId: "",
     displayName: "老板",
     avatar: {
       image: "data:image/png;base64,...",
@@ -169,6 +171,7 @@ Fallback 必须统一：
     kind: "fellow",
     id: "kongling",
     ownerId: "u_1",
+    globalId: "fellow:u_1:kongling",
     displayName: "空铃",
     avatar: {
       image: "",
@@ -262,9 +265,9 @@ window.miaAvatar.paintAvatar(el, identity.avatar);
 
 ## 8. Mobile 端设计
 
-Mobile is in scope.
+Mobile is in scope through `apps/mobile-rn`; the old `src/mobile` WebView app has been retired.
 
-`src/mobile/lib/conversation-list-model.js` must return avatar descriptors, not just title/subtitle:
+`apps/mobile-rn/src/logic/conversationList.ts` must return avatar descriptors/tiles, not just title/subtitle:
 
 ```js
 {
@@ -272,19 +275,19 @@ Mobile is in scope.
   title,
   subtitle,
   unread,
-  avatar,
+  tiles,
   raw
 }
 ```
 
-`src/mobile/app.js` must use the shared identity resolver for:
+RN mobile must use shared identity/avatar helpers for:
 
 - Conversation list avatar.
 - Contacts list avatar.
 - Chat title/header avatar when present.
 - Future message sender avatar rendering.
 
-Mobile may keep a simpler DOM layout, but the data contract must match web and desktop.
+The RN layout can stay platform-native, but the identity data contract must match web and desktop.
 
 ## 9. Rendering Rules
 

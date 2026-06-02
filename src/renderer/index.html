@@ -525,8 +525,7 @@
           </section>
 
           <section class="settings-panel" data-settings-panel="account">
-            <div class="runtime-card mobile-pairing-card">
-              <p id="mobileDaemonStatus" class="visually-hidden" aria-live="polite">后台状态检查中</p>
+            <div class="runtime-card cloud-account-card">
               <section class="connection-row">
                 <div class="connection-row-head">
                   <div>
@@ -546,39 +545,6 @@
                     <button id="cloudRegister" class="secondary" type="button">注册</button>
                   </div>
                   <p id="cloudLoginHint" class="pairing-hint">使用和 Web 端相同的用户名、密码。</p>
-                </section>
-              </section>
-              <section class="connection-row">
-                <div class="connection-row-head">
-                  <div>
-                    <strong>局域网访问</strong>
-                    <p id="mobileDaemonUrl">仅同一网络内可用，公共网络可能会禁止设备互访。</p>
-                  </div>
-                  <button id="mobileLanToggle" class="connection-switch" type="button" role="switch" aria-checked="false" aria-label="局域网访问">
-                    <span></span>
-                  </button>
-                </div>
-                <section id="mobilePairingBox" class="connection-details hidden">
-                  <div id="mobilePairingQr" class="connection-qr" aria-label="局域网配对二维码"></div>
-                  <button id="mobilePairingReveal" class="link-reveal" type="button">显示链接</button>
-                  <button id="mobilePairingLink" class="pairing-link hidden" type="button" title="点击复制配对链接" aria-label="点击复制配对链接"></button>
-                  <p id="mobilePairingHint" class="pairing-hint">扫描二维码即可连接。</p>
-                </section>
-              </section>
-              <section class="connection-row">
-                <div class="connection-row-head">
-                  <div>
-                    <strong>远程访问</strong>
-                    <p id="mobileRelayHint">通过 Mia Relay 中继连接，不要求手机和电脑在同一网络。</p>
-                  </div>
-                  <button id="mobileRelayToggle" class="connection-switch" type="button" role="switch" aria-checked="false" aria-label="远程访问">
-                    <span></span>
-                  </button>
-                </div>
-                <section id="mobileRelayBox" class="connection-details hidden">
-                  <div id="mobileRelayQr" class="connection-qr" aria-label="远程配对二维码"></div>
-                  <button id="mobileRelayReveal" class="link-reveal" type="button">显示链接</button>
-                  <button id="mobileRelayLink" class="pairing-link hidden" type="button" title="点击复制远程配对链接" aria-label="点击复制远程配对链接"></button>
                 </section>
               </section>
             </div>
@@ -920,8 +886,7 @@
   </section>
 
   <!-- Shared helpers (loaded first — others depend on them) -->
-  <script src="../shared/avatar-media.js"></script>
-  <script src="../shared/avatar-resolve.js"></script>
+  <script src="../../packages/shared/avatar.js"></script>
   <script src="./helpers/avatar-helpers.js"></script>
   <script src="./helpers/group-avatar.js"></script>
   <script src="./helpers/markdown-helpers.js"></script>
@@ -929,17 +894,16 @@
   <script src="./helpers/scrollbar-overlay.js"></script>
   <script src="../shared/engine-contracts.js"></script>
   <script src="../shared/ipc-channels.js"></script>
-  <script src="../shared/contact.js"></script>
+  <script src="../../packages/shared/contact.js"></script>
   <script src="../shared/message-spec.js"></script>
   <script src="../shared/time-format.js"></script>
   <script src="../shared/cloud-events.js"></script>
-  <script src="../shared/unread.js"></script>
+  <script src="../../packages/shared/unread.js"></script>
   <script src="../shared/conversation-kinds.js"></script>
-  <script src="../shared/member-color.js"></script>
   <script src="../shared/mention-render.js"></script>
-  <script src="../shared/session-history.js"></script>
-  <script src="../shared/group-tiles.js"></script>
-  <script src="../shared/send-pipeline.js"></script>
+  <script src="../../packages/shared/session-history.js"></script>
+  <script src="../../packages/shared/group-tiles.js"></script>
+  <script src="../../packages/shared/send-pipeline.js"></script>
   <script src="../shared/fellow-runtime-control.js"></script>
   <script src="./app-state.js"></script>
   <!-- Feature modules -->

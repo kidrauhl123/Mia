@@ -49,9 +49,9 @@ test("no js file outside adapters/shared/storage inline-compares sender_kind or 
   assert.deepStrictEqual(
     offenders,
     [],
-    `Files bypassing message adapter by inline sender_kind/member_kind compare:\n  ${offenders.join("\n  ")}\n` +
+      `Files bypassing message adapter by inline sender_kind/member_kind compare:\n  ${offenders.join("\n  ")}\n` +
       `Route through src/renderer/message-sources/*-source.js (consume MessageSpec fields) ` +
-      `or use src/shared/contact.js resolveContact({ kind, ref }, ctx). ` +
+      `or use packages/shared/contact.js resolveContact({ kind, ref }, ctx). ` +
       `If you need a new exception (e.g., a legitimate storage-layer file), add it to ALLOWED_FILES with a comment.`
   );
 });

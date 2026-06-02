@@ -31,11 +31,26 @@
   }
 
   // Crop math and text fallback now live in shared/avatar-resolve.js so web
-  // and renderer stay aligned. Local aliases preserve existing call-site names
-  // while the remaining preset exports act as empty compatibility shims.
+  // and renderer stay aligned. Local aliases preserve existing call-site names.
   function avatarResolve() {
     if (typeof window !== "undefined" && window.miaAvatarResolve) return window.miaAvatarResolve;
     throw new Error("avatar-helpers: shared/avatar-resolve.js must load before this module");
+  }
+
+  function contact() {
+    return (typeof window !== "undefined" && window.miaContact) ? window.miaContact : null;
+  }
+
+  function fellowAvatarIdentityId(fellow = {}) {
+    const localId = fellow.key || fellow.id || "";
+    const ownerUserId = fellow.ownerUserId || fellow.owner_user_id || fellow.ownerId || fellow.owner_id || "";
+    return contact()?.fellowAvatarIdentityId?.(localId, fellow)
+      || fellow.globalId
+      || fellow.global_id
+      || fellow.fellowGlobalId
+      || fellow.fellow_global_id
+      || (ownerUserId && localId ? "fellow:" + ownerUserId + ":" + localId : "")
+      || localId;
   }
 
   const AVATAR_MIN_ZOOM = avatarResolve().AVATAR_MIN_ZOOM;
@@ -45,8 +60,6 @@
   const avatarPresetGroups = avatarResolve().avatarPresetGroups;
   const avatarPresets = avatarResolve().avatarPresets;
 
-  const avatarAssetForKey = avatarResolve().avatarAssetForKey;
-  const defaultAvatarAssets = avatarResolve().defaultAvatarAssets;
   const canonicalAvatarSrc = avatarResolve().canonicalAvatarSrc;
   const avatarPresetBySrc = avatarResolve().avatarPresetBySrc;
   const avatarPresetGroupForSrc = avatarResolve().avatarPresetGroupForSrc;
@@ -387,7 +400,7 @@
 
   function applyFellowAvatar(el, fellow) {
     if (!el) return;
-    const id = fellow?.id || fellow?.key || "";
+    const id = fellowAvatarIdentityId(fellow || {});
     const avatar = avatarResolve().resolveAvatarForContact({
       id,
       displayName: fellow?.name || fellow?.displayName || fellow?.key || id,
@@ -395,26 +408,6 @@
       avatarCrop: fellow?.avatarCrop || null
     });
     applyAvatarMedia(el, avatar.image, avatar.crop, avatar.color, avatar.text);
-  }
-
-  function applyAvatar(el, text, color, image) {
-    if (!el) return;
-    removeAvatarVideos(el);
-    removeAvatarImages(el);
-    el.classList?.remove("media-avatar");
-    el.classList?.remove("video-avatar");
-    el.textContent = text || "?";
-    el.style.background = color || "#111827";
-    el.style.backgroundImage = "";
-    el.style.backgroundSize = "";
-    el.style.backgroundPosition = "";
-    const src = avatarImageSrc(image);
-    if (src) {
-      el.textContent = "";
-      el.style.backgroundImage = `url("${src.replaceAll('"', "%22")}")`;
-      el.style.backgroundSize = "cover";
-      el.style.backgroundPosition = "center";
-    }
   }
 
   function applyUserAvatar(el, user = {}) {
@@ -438,8 +431,6 @@
     avatarPresetGroups,
     avatarPresets,
     initials,
-    avatarAssetForKey,
-    defaultAvatarAssets,
     canonicalAvatarSrc,
     avatarPresetBySrc,
     avatarPresetGroupForSrc,
@@ -460,7 +451,6 @@
     hydrateAvatarMedia,
     hydrateAvatarVideos,
     applyFellowAvatar,
-    applyAvatar,
     applyUserAvatar,
   };
 })();

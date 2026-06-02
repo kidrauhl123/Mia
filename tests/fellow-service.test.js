@@ -96,19 +96,28 @@ test("saveFellow creates normalized fellow, persona, sidecar, and best-effort cl
   assert.equal(manifest.fellows[0].key, "alice");
   assert.equal(manifest.fellows[0].agentEngine, "codex");
   assert.equal(manifest.fellows[0].engineConfig.model, "gpt-5.3");
+  assert.equal(manifest.fellows[0].color, "#123456");
+  assert.match(manifest.fellows[0].personaText, /Sharp reviewer/);
   assert.match(fs.readFileSync(path.join(paths.fellowDir, "alice.md"), "utf8"), /Sharp reviewer/);
-  assert.equal(readJson(path.join(paths.fellowDir, "alice.fellow.json"), {}).display_name, "Alice");
+  const sidecar = readJson(path.join(paths.fellowDir, "alice.fellow.json"), {});
+  assert.equal(sidecar.display_name, "Alice");
+  assert.equal(sidecar.color, "#123456");
+  assert.match(sidecar.persona_text, /Sharp reviewer/);
   assert.equal(calls.cloudPushes.length, 1);
   assert.equal(calls.cloudPushes[0].key, "alice");
+  assert.equal(calls.cloudPushes[0].color, "#123456");
+  assert.match(calls.cloudPushes[0].personaText, /Sharp reviewer/);
 });
 
 test("saveFellow assigns a unique key when a generated slug collides with another name", (t) => {
   const { fellowManifest, service } = setup(t);
 
-  service.saveFellow({ name: "Alice" });
+  service.saveFellow({ name: "Alice", personaText: "Alice persona" });
   service.saveFellow({ name: "Alice!" });
 
-  assert.deepEqual(fellowManifest.loadFellowManifest().fellows.map((fellow) => fellow.key), ["alice", "alice_2"]);
+  const fellows = fellowManifest.loadFellowManifest().fellows;
+  assert.deepEqual(fellows.map((fellow) => fellow.key), ["alice", "alice_2"]);
+  assert.doesNotMatch(fellows.find((fellow) => fellow.key === "alice_2").personaText, /Alice persona/);
 });
 
 test("engine, pin, and mute updates rewrite manifest and metadata sidecar", (t) => {

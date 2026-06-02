@@ -25,7 +25,8 @@
 
   function createCloudConversationSource({ conversation, messages, members, ctx }) {
     const { normalizeSpec } = spec();
-    const { resolveContact, ContactKind } = contact();
+    const contactApi = contact();
+    const { resolveContact, ContactKind } = contactApi;
     const { resolveAvatarForContact, hasAvatarIdentityFields } = avatarResolve();
     const selfId = ctx.self?.id || "";
     const memberArr = Array.isArray(members) ? members : [];
@@ -33,6 +34,22 @@
     function fellowRecord(ref) {
       return (Array.isArray(ctx.fellows) ? ctx.fellows : [])
         .find((f) => f && (f.key === ref || f.id === ref)) || null;
+    }
+
+    function fellowAvatarIdentityId(ref, fellow = {}, member = {}) {
+      const identity = member?.identity || {};
+      const record = {
+        ...(fellow || {}),
+        member_ref: ref,
+        globalId: fellow?.globalId || fellow?.global_id || identity.globalId || identity.global_id,
+        fellowGlobalId: fellow?.fellowGlobalId || fellow?.fellow_global_id,
+        ownerUserId: fellow?.ownerUserId || fellow?.owner_user_id || fellow?.ownerId || fellow?.owner_id
+          || member?.owner_user_id || member?.owner_id || identity.ownerUserId || identity.owner_id
+      };
+      return contactApi.fellowAvatarIdentityId?.(ref, record)
+        || record.globalId
+        || (record.ownerUserId && ref ? "fellow:" + record.ownerUserId + ":" + ref : "")
+        || ref;
     }
 
     function authorForMessage(m) {
@@ -85,7 +102,7 @@
         const avatar = (!ownAvatarIsHydrated && member?.identity?.avatar)
           ? member.identity.avatar
           : resolveAvatarForContact({
-              id: m.sender_ref,
+              id: fellowAvatarIdentityId(m.sender_ref, rawFellow || {}, member || {}),
               displayName,
               avatarImage: ownAvatarIsHydrated ? rawFellow.avatarImage : member?.fellow_avatar_image,
               avatarCrop: ownAvatarIsHydrated ? rawFellow.avatarCrop : member?.fellow_avatar_crop

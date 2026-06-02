@@ -33,12 +33,32 @@ export interface Conversation {
 export interface Member {
   member_kind?: string;
   member_ref?: string;
+  owner_id?: string;
+  owner_user_id?: string;
   fellow_name?: string;
+  fellow_avatar_image?: string;
+  fellow_avatar_crop?: Record<string, unknown> | null;
+  identity?: {
+    globalId?: string;
+    global_id?: string;
+    ownerUserId?: string;
+    owner_id?: string;
+    displayName?: string;
+    avatar?: AvatarDescriptor;
+  };
 }
 
 export interface Fellow {
   id?: string;
   key?: string;
+  globalId?: string;
+  global_id?: string;
+  fellowGlobalId?: string;
+  fellow_global_id?: string;
+  ownerUserId?: string;
+  owner_user_id?: string;
+  ownerId?: string;
+  owner_id?: string;
   name?: string;
   avatarImage?: string;
   avatarCrop?: Record<string, unknown> | null;

@@ -1,14 +1,11 @@
 "use strict";
 
-const fs = require("node:fs");
 const http = require("node:http");
 const os = require("node:os");
-const path = require("node:path");
 
 function createDaemonControlServer({
   isDaemonProcess = false,
   serviceLabel = "ai.mia.daemon",
-  dirname,
   pid = () => process.pid,
   uptime = () => process.uptime(),
   networkInterfaces = () => os.networkInterfaces(),
@@ -20,12 +17,6 @@ function createDaemonControlServer({
   normalizeDaemonHost,
   normalizeDaemonPort,
   runtimePaths,
-  getRelaySettings,
-  writeRelaySettings,
-  relayStatus,
-  startRelayClient,
-  stopRelayClient,
-  recordRelayError = () => {},
   remoteRouter,
   initSchedulerSubsystem,
   tasksRoutes,
@@ -109,17 +100,6 @@ function createDaemonControlServer({
     };
   }
 
-  function pairingInfo() {
-    const current = status();
-    const token = daemonToken();
-    const links = current.connectUrls.map((baseUrl) => `${baseUrl}/mobile/#token=${encodeURIComponent(token)}`);
-    return {
-      ...current,
-      token,
-      links
-    };
-  }
-
   async function observedStatus(timeoutMs = 500) {
     const current = status();
     if (state.running) return current;
@@ -169,77 +149,6 @@ function createDaemonControlServer({
     res.end(body);
   }
 
-  function writeBuffer(res, statusCode, body, contentType) {
-    const buffer = Buffer.isBuffer(body) ? body : Buffer.from(body || "");
-    res.writeHead(statusCode, {
-      "Content-Type": contentType,
-      "Content-Length": buffer.length,
-      "Cache-Control": "public, max-age=3600"
-    });
-    res.end(buffer);
-  }
-
-  function contentTypeForAsset(filePath) {
-    const ext = path.extname(filePath).toLowerCase();
-    if (ext === ".js") return "application/javascript; charset=utf-8";
-    if (ext === ".css") return "text/css; charset=utf-8";
-    if (ext === ".html") return "text/html; charset=utf-8";
-    if (ext === ".json") return "application/json; charset=utf-8";
-    if (ext === ".png") return "image/png";
-    if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
-    if (ext === ".webp") return "image/webp";
-    if (ext === ".svg") return "image/svg+xml";
-    return "application/octet-stream";
-  }
-
-  function serveMobileAsset(pathname, res) {
-    if (pathname === "/shared/engine-contracts.js" || pathname === "/shared/time-format.js" || pathname === "/shared/send-pipeline.js") {
-      const filePath = path.join(dirname, "shared", path.basename(pathname));
-      if (!fs.existsSync(filePath)) return false;
-      writeText(res, 200, fs.readFileSync(filePath, "utf8"), "application/javascript; charset=utf-8");
-      return true;
-    }
-
-    if (pathname.startsWith("/assets/")) {
-      const root = path.join(dirname, "renderer", "assets");
-      const requested = path.normalize(path.join(root, pathname.replace(/^\/assets\//, "")));
-      if (!requested.startsWith(`${root}${path.sep}`) || !fs.existsSync(requested) || !fs.statSync(requested).isFile()) {
-        return false;
-      }
-      writeBuffer(res, 200, fs.readFileSync(requested), contentTypeForAsset(requested));
-      return true;
-    }
-
-    let asset = "index.html";
-    if (pathname === "/mobile" || pathname === "/mobile/") asset = "index.html";
-    else if (pathname === "/mobile/app.js") asset = "app.js";
-    else if (pathname === "/mobile/styles.css") asset = "styles.css";
-    else if (pathname === "/mobile/manifest.json") {
-      writeText(res, 200, JSON.stringify({
-        name: "Mia Mobile",
-        short_name: "Mia",
-        start_url: "/mobile/",
-        scope: "/mobile/",
-        display: "standalone",
-        orientation: "portrait",
-        background_color: "#ffffff",
-        theme_color: "#5e5ce6"
-      }, null, 2), "application/manifest+json; charset=utf-8");
-      return true;
-    } else {
-      return false;
-    }
-    const filePath = path.join(dirname, "mobile", asset);
-    if (!fs.existsSync(filePath)) return false;
-    const type = asset.endsWith(".js")
-      ? "application/javascript; charset=utf-8"
-      : asset.endsWith(".css")
-        ? "text/css; charset=utf-8"
-        : "text/html; charset=utf-8";
-    writeText(res, 200, fs.readFileSync(filePath, "utf8"), type);
-    return true;
-  }
-
   function readBody(req, maxBytes = 48 * 1024 * 1024) {
     return new Promise((resolve, reject) => {
       let body = "";
@@ -279,9 +188,6 @@ function createDaemonControlServer({
       res.end();
       return;
     }
-    if (req.method === "GET" && serveMobileAsset(url.pathname, res)) {
-      return;
-    }
     if (req.method === "GET" && url.pathname === "/health") {
       writeJson(res, 200, {
         status: "ok",
@@ -298,22 +204,6 @@ function createDaemonControlServer({
       return;
     }
     try {
-      if (req.method === "GET" && url.pathname === "/api/relay/status") {
-        writeJson(res, 200, relayStatus(false));
-        return;
-      }
-      if (req.method === "POST" && url.pathname === "/api/relay/start") {
-        const body = await readBody(req);
-        writeRelaySettings({ ...body, enabled: true });
-        await startRelayClient();
-        writeJson(res, 200, relayStatus(false));
-        return;
-      }
-      if (req.method === "POST" && url.pathname === "/api/relay/stop") {
-        writeRelaySettings({ enabled: false });
-        writeJson(res, 200, stopRelayClient());
-        return;
-      }
       const routePath = `${url.pathname}${url.search || ""}`;
       const router = remoteRouter();
       if (router?.matches({ method: req.method, path: routePath })) {
@@ -403,11 +293,6 @@ function createDaemonControlServer({
     state.starting = false;
     writeDaemonSettings({ ...settings, host, port });
     appendLog(`Mia daemon listening at ${state.baseUrl}`);
-    if (getRelaySettings().enabled) {
-      startRelayClient().catch((error) => {
-        recordRelayError(error, "Relay auto-start failed");
-      });
-    }
     return status();
   }
 
@@ -446,47 +331,17 @@ function createDaemonControlServer({
     return { ok: false, baseUrl: urls[0] || "" };
   }
 
-  async function notifyRelay(action, body = {}) {
-    const probe = await ping(getDaemonSettings(), 500);
-    if (!probe.ok || !probe.baseUrl) return null;
-    const response = await fetchImpl(`${probe.baseUrl}/api/relay/${action}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${daemonToken()}`
-      },
-      body: JSON.stringify(body),
-      signal: timeoutSignal(1200)
-    });
-    if (!response.ok) return null;
-    return response.json();
-  }
-
-  async function fetchRelayStatus() {
-    const probe = await ping(getDaemonSettings(), 500);
-    if (!probe.ok || !probe.baseUrl) return null;
-    const response = await fetchImpl(`${probe.baseUrl}/api/relay/status`, {
-      headers: { Authorization: `Bearer ${daemonToken()}` },
-      signal: timeoutSignal(1200)
-    });
-    if (!response.ok) return null;
-    return response.json();
-  }
-
   return {
     appendLog,
     setLastError,
     connectUrls: daemonConnectUrls,
     pingUrls: daemonPingUrls,
     status,
-    pairingInfo,
     observedStatus,
     handleRequest,
     start,
     stop,
-    ping,
-    notifyRelay,
-    fetchRelayStatus
+    ping
   };
 }
 

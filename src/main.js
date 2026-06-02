@@ -4,10 +4,10 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const QRCode = require("qrcode");
 const WebSocket = require("ws");
 const { IpcChannel } = require("./shared/ipc-channels");
 const { MemberKind } = require("./shared/conversation-kinds");
+const { fellowConversationId } = require("./shared/session-history");
 const runtimeResources = require("./runtime-resource-paths");
 const {
   adapterForEngine,
@@ -55,7 +55,6 @@ const { createCloudEventsClient } = require("./main/cloud/cloud-events-client.js
 const { createCloudBridgeClient } = require("./main/cloud/cloud-bridge-client.js");
 const { createCloudDesktopSyncClient } = require("./main/cloud/desktop-sync-client.js");
 const { openSkillMarketCache } = require("./main/skills/skill-market-cache.js");
-const { createRelayClient, relayPairingLink } = require("./main/relay/relay-client.js");
 const { createRemoteControlRouter } = require("./main/remote/remote-control-router.js");
 const { createModelSettingsService } = require("./main/model-settings-service.js");
 const { createConversationTitleService } = require("./main/conversation-title-service.js");
@@ -94,7 +93,6 @@ const startupTimer = createStartupTimer({ scope: "startup" });
 const MIA_GATEWAY_SERVICE_LABEL = "ai.mia.hermes.gateway";
 const MIA_DAEMON_SERVICE_LABEL = "ai.mia.daemon";
 const MIA_DAEMON_DEFAULT_PORT = Number(process.env.MIA_DAEMON_PORT || 27861);
-const MOBILE_ASSET_VERSION = "mobile-slash-commands-1";
 const MIA_CLOUD_DEFAULT_URL = process.env.MIA_CLOUD_URL || "https://aiweb.buytb01.com";
 const IS_DAEMON_PROCESS = process.argv.includes("--daemon") || process.env.MIA_DAEMON === "1";
 const ALLOW_MULTIPLE_INSTANCES = process.env.MIA_ALLOW_MULTIPLE_INSTANCES === "1";
@@ -260,7 +258,6 @@ const fellowManifestModule = createFellowManifest({
   settingsStore,
 });
 const {
-  defaultFellowManifest,
   normalizeFellowAgentEngine,
   normalizeFellowEngineConfig,
   normalizeAvatarCrop,
@@ -348,7 +345,6 @@ const runtimeInitializerService = createRuntimeInitializerService({
   defaultPermissionSettings: () => settingsStore.defaultPermissionSettings(),
   defaultEffortSettings: () => settingsStore.defaultEffortSettings(),
   defaultDaemonSettings: () => settingsStore.defaultDaemonSettings(),
-  defaultRelaySettings: () => settingsStore.defaultRelaySettings(),
   defaultUserProfile: () => settingsStore.defaultUserProfile(),
   defaultAppearanceSettings: () => settingsStore.defaultAppearanceSettings(),
   loadFellowManifest,
@@ -391,7 +387,7 @@ const externalAgentCommandService = createExternalAgentCommandService({
   setAgentSessionEntry: agentSessionStore.setEntry,
   ensureClaudeBridgePlugin: () => claudeBridgePluginService.ensureInstalled(),
   loadAgentSessionMap: agentSessionStore.loadMap,
-  relaySettings: () => settingsStore.relaySettings()
+  sourceDeviceId: () => cloudBridgeRuntime?.status()?.deviceId || ""
 });
 let authService = null;
 const providerConnections = createProviderConnections({
@@ -439,7 +435,6 @@ let remoteControlRouter = null;
 let daemonControlServer = null;
 let daemonTasksClient = null;
 let activeChatAbortController = null;
-let relayRuntime = null;
 let cloudEventSocketRuntime = null;
 let cloudBridgeRuntime = null;
 let cloudDesktopSyncRuntime = null;
@@ -524,29 +519,8 @@ function getDaemonStatus() {
   return daemonControlServer.status();
 }
 
-function getDaemonPairingInfo() {
-  return daemonControlServer.pairingInfo();
-}
-
 async function getObservedDaemonStatus(timeoutMs = 500) {
   return daemonControlServer.observedStatus(timeoutMs);
-}
-
-function relayStatus(includeSecret = false) {
-  if (relayRuntime) return relayRuntime.status(includeSecret);
-  const settings = settingsStore.relaySettings();
-  return {
-    enabled: settings.enabled,
-    connected: false,
-    connecting: false,
-    url: settings.url,
-    deviceId: settings.deviceId,
-    mobilePeers: 0,
-    pairingLink: relayPairingLink(settings, MOBILE_ASSET_VERSION),
-    lastError: "",
-    logs: [],
-    ...(includeSecret ? { secret: settings.secret } : {})
-  };
 }
 
 function getRuntimeStatus(created = []) {
@@ -555,7 +529,7 @@ function getRuntimeStatus(created = []) {
   const codexAuth = authService.status();
   const settings = settingsWithoutSecret();
   const connectedProviders = connectedProviderSummaries(codexAuth);
-  const fellows = Array.isArray(manifest.fellows) ? manifest.fellows : defaultFellowManifest().fellows;
+  const fellows = Array.isArray(manifest.fellows) ? manifest.fellows : [];
   return {
     appData: p.root,
     runtimeRoot: p.runtime,
@@ -581,7 +555,6 @@ function getRuntimeStatus(created = []) {
       role: "desktop"
     },
     daemon: getDaemonStatus(),
-    relay: relayStatus(false),
     cloud: cloudStatus(false),
     auth: codexAuth,
     user: settingsStore.userProfile(),
@@ -715,7 +688,7 @@ function resolveRemoteChatFellow({ fellowKey }) {
   const manifest = loadFellowManifest();
   const fellows = Array.isArray(manifest.fellows) ? manifest.fellows : [];
   const key = String(fellowKey || manifest.default_fellow || fellows[0]?.key || "mia").trim();
-  const fellow = fellows.find((item) => item.key === key) || fellows[0] || defaultFellowManifest().fellows[0];
+  const fellow = fellows.find((item) => item.key === key) || fellows[0] || null;
   return { fellow };
 }
 
@@ -869,7 +842,7 @@ async function runRemoteChatRequest(body, eventSink = null) {
   if (body?.background && assistantText.trim()) {
     const cloud = settingsStore.cloudSettings();
     if (cloud.enabled && cloud.token && cloud.user?.id) {
-      const targetConversationId = conversationId || `fellow:${cloud.user.id}:${fellow.key}`;
+      const targetConversationId = conversationId || fellowConversationId(cloud.user.id, fellow.key);
       Promise.resolve(socialApi.postConversationMessageAsFellow(targetConversationId, {
         fellowId: fellow.key,
         bodyMd: assistantText,
@@ -1096,14 +1069,6 @@ function stopCloudBridge() {
 
 function startCloudBridge() {
   return cloudBridgeRuntime ? cloudBridgeRuntime.start() : cloudStatus(false);
-}
-
-function stopRelayClient() {
-  return relayRuntime ? relayRuntime.stop() : relayStatus(true);
-}
-
-async function startRelayClient() {
-  return relayRuntime ? relayRuntime.start() : relayStatus(true);
 }
 
 async function startEngine() {
@@ -1596,21 +1561,9 @@ remoteControlRouter = createRemoteControlRouter({
   runRemoteChatRequest
 });
 
-relayRuntime = createRelayClient({
-  WebSocketImpl: WebSocket,
-  getSettings: () => settingsStore.relaySettings(),
-  mobileAssetVersion: MOBILE_ASSET_VERSION,
-  daemonToken,
-  initializeRuntime,
-  hostname: () => os.hostname() || "Mia Desktop",
-  randomUUID: () => crypto.randomUUID(),
-  remoteRouter: remoteControlRouter
-});
-
 daemonControlServer = createDaemonControlServer({
   isDaemonProcess: IS_DAEMON_PROCESS,
   serviceLabel: MIA_DAEMON_SERVICE_LABEL,
-  dirname: __dirname,
   daemonToken,
   initializeRuntime,
   choosePort: engineHealthService.choosePort,
@@ -1619,12 +1572,6 @@ daemonControlServer = createDaemonControlServer({
   normalizeDaemonHost: (host) => settingsStore.normalizeDaemonHost(host),
   normalizeDaemonPort: (port) => settingsStore.normalizeDaemonPort(port),
   runtimePaths,
-  getRelaySettings: () => settingsStore.relaySettings(),
-  writeRelaySettings: (settings) => settingsStore.writeRelaySettings(settings),
-  relayStatus,
-  startRelayClient,
-  stopRelayClient,
-  recordRelayError: (error, label) => relayRuntime?.recordError(error, label),
   remoteRouter: () => remoteControlRouter,
   initSchedulerSubsystem,
   tasksRoutes: () => tasksRoutes,
@@ -1654,46 +1601,21 @@ registerWindowIpc({ ipcMain, startupTimer, runtimeLifecycle });
 ipcMain.handle(IpcChannel.RuntimeInitialize, async () => {
   const status = initializeRuntime();
   status.daemon = await getObservedDaemonStatus(350);
-  if (!IS_DAEMON_PROCESS) {
-    status.relay = { ...status.relay, ...(await daemonControlServer.fetchRelayStatus().catch(() => null) || {}) };
-  }
   return status;
 });
 ipcMain.handle(IpcChannel.RuntimeStatus, async () => {
   const status = getRuntimeStatus();
   status.daemon = await getObservedDaemonStatus(350);
-  if (!IS_DAEMON_PROCESS) {
-    status.relay = { ...status.relay, ...(await daemonControlServer.fetchRelayStatus().catch(() => null) || {}) };
-  }
   return status;
 });
 ipcMain.handle(IpcChannel.DaemonStatus, async () => {
   return getObservedDaemonStatus(500);
-});
-ipcMain.handle(IpcChannel.DaemonPairing, async () => {
-  const settings = settingsStore.daemonSettings();
-  const ping = await daemonControlServer.ping(settings, 500);
-  const current = getDaemonStatus();
-  return { ...getDaemonPairingInfo(), running: current.running || ping.ok, baseUrl: ping.baseUrl || current.baseUrl };
 });
 ipcMain.handle(IpcChannel.DaemonStart, () => startDaemonService());
 ipcMain.handle(IpcChannel.DaemonStop, () => stopDaemonService());
 ipcMain.handle(IpcChannel.DaemonSettingsSave, (_event, settings) => {
   settingsStore.writeDaemonSettings(settings);
   return getDaemonStatus();
-});
-ipcMain.handle(IpcChannel.UtilQrSvg, (_event, text) => {
-  const value = String(text || "").trim();
-  if (!value) return "";
-  return QRCode.toString(value, {
-    type: "svg",
-    margin: 1,
-    width: 184,
-    color: {
-      dark: "#111111",
-      light: "#ffffff"
-    }
-  });
 });
 ipcMain.handle(IpcChannel.UtilOpenExternal, async (_event, url) => {
   let parsed;
@@ -1705,37 +1627,6 @@ ipcMain.handle(IpcChannel.UtilOpenExternal, async (_event, url) => {
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
   await shell.openExternal(parsed.href);
   return true;
-});
-ipcMain.handle(IpcChannel.RelayStatus, async () => {
-  if (!IS_DAEMON_PROCESS) {
-    const daemonRelay = await daemonControlServer.fetchRelayStatus().catch(() => null);
-    if (daemonRelay) return { ...relayStatus(true), ...daemonRelay };
-  }
-  return relayStatus(true);
-});
-ipcMain.handle(IpcChannel.RelayStart, async () => {
-  settingsStore.writeRelaySettings({ enabled: true });
-  if (!IS_DAEMON_PROCESS) {
-    const daemonRelay = await daemonControlServer.notifyRelay("start");
-    if (daemonRelay) return { ...relayStatus(true), ...daemonRelay };
-  }
-  return startRelayClient();
-});
-ipcMain.handle(IpcChannel.RelayStop, () => {
-  settingsStore.writeRelaySettings({ enabled: false });
-  if (!IS_DAEMON_PROCESS) {
-    daemonControlServer.notifyRelay("stop").catch(() => {});
-  }
-  return stopRelayClient();
-});
-ipcMain.handle(IpcChannel.RelaySettingsSave, async (_event, settings) => {
-  const next = settingsStore.writeRelaySettings(settings);
-  if (!IS_DAEMON_PROCESS) {
-    const daemonRelay = await daemonControlServer.notifyRelay(next.enabled ? "start" : "stop", next);
-    if (daemonRelay) return { ...relayStatus(true), ...daemonRelay };
-  }
-  if (next.enabled) return startRelayClient();
-  return stopRelayClient();
 });
 ipcMain.handle(IpcChannel.CloudStatus, () => cloudStatus(false));
 ipcMain.handle(IpcChannel.CloudLogin, async (_event, payload) => {

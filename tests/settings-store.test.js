@@ -24,7 +24,6 @@ function setup(t, overrides = {}) {
     effortSettings: path.join(home, "mia-effort.json"),
     permissionSettings: path.join(home, "mia-permissions.json"),
     daemonSettings: path.join(home, "mia-daemon.json"),
-    relaySettings: path.join(home, "mia-relay.json"),
     cloudSettings: path.join(home, "mia-cloud.json"),
     windowSettings: path.join(home, "mia-window.json")
   };

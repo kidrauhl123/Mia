@@ -5,11 +5,17 @@
 import type { AvatarDescriptor, Conversation, Member } from "../api/types";
 import { conversationType, fellowKey, fellowDisplayTitle } from "./sessionHistory";
 import { resolveAvatarForContact } from "./avatar";
-import { resolveContact, ContactKind, type ResolveCtx } from "./contact";
+import { resolveContact, ContactKind, fellowAvatarIdentityId, type ResolveCtx } from "./contact";
 import { resolveGroupMemberTiles } from "./groupTiles";
 
 export interface AvatarResolveCtx extends ResolveCtx {
   membersByConv?: Record<string, Member[]>;
+}
+
+function fellowGlobalIdFromConversation(c: Conversation, key: string): string {
+  const id = String(c.id || "");
+  if (!id.startsWith("fellow:") || !key) return "";
+  return id.split(":").slice(2).join(":") === key ? id : "";
 }
 
 export function conversationAvatarTiles(c: Conversation, ctx: AvatarResolveCtx = {}): AvatarDescriptor[] {
@@ -19,13 +25,19 @@ export function conversationAvatarTiles(c: Conversation, ctx: AvatarResolveCtx =
   if (type === "fellow") {
     const key = fellowKey(c);
     const fellow: any = (ctx.fellows || []).find((f) => (f.id || f.key) === key);
+    const fellowRecord = fellow || {
+      id: key,
+      key,
+      name: c.name || key,
+      globalId: fellowGlobalIdFromConversation(c, key),
+    };
     // 用与列表标题一致的 displayName(含 c.name 回退),色按 fellow 身份哈希
     return [
       resolveAvatarForContact({
-        id: fellow?.id || fellow?.key || key,
+        id: fellowAvatarIdentityId(fellowRecord.key || fellowRecord.id || key, fellowRecord),
         displayName: fellowDisplayTitle(c, ctx.fellows || []),
-        avatarImage: fellow?.avatarImage || "",
-        avatarCrop: fellow?.avatarCrop || null,
+        avatarImage: fellowRecord.avatarImage || "",
+        avatarCrop: fellowRecord.avatarCrop || null,
       }),
     ];
   }

@@ -26,7 +26,6 @@ function runtimeFor(dir) {
     effortSettings: path.join(home, "mia-effort.json"),
     daemonSettings: path.join(home, "mia-daemon.json"),
     daemonToken: path.join(home, "mia-daemon.key"),
-    relaySettings: path.join(home, "mia-relay.json"),
     userProfile: path.join(home, "mia-user.json"),
     appearanceSettings: path.join(home, "mia-appearance.json"),
     soul: path.join(home, "SOUL.md"),
@@ -60,7 +59,6 @@ function setup(t, overrides = {}) {
     defaultPermissionSettings: () => ({ mode: "ask" }),
     defaultEffortSettings: () => ({ level: "medium" }),
     defaultDaemonSettings: () => ({ enabled: true }),
-    defaultRelaySettings: () => ({ enabled: false }),
     defaultUserProfile: () => ({ displayName: "Boss" }),
     defaultAppearanceSettings: () => ({ theme: "system" }),
     loadFellowManifest: () => manifest,
@@ -102,7 +100,6 @@ test("initializeRuntimeCore creates runtime directories, default files, fellows,
   assert.deepEqual(readJson(runtime.permissionSettings), { mode: "ask" });
   assert.deepEqual(readJson(runtime.effortSettings), { level: "medium" });
   assert.deepEqual(readJson(runtime.daemonSettings), { enabled: true });
-  assert.deepEqual(readJson(runtime.relaySettings), { enabled: false });
   assert.deepEqual(readJson(runtime.userProfile), { displayName: "Boss" });
   assert.deepEqual(readJson(runtime.appearanceSettings), { theme: "system" });
   assert.equal(fs.existsSync(path.join(runtime.home, "mia-sessions.json")), false);
@@ -138,6 +135,18 @@ test("initializeRuntimeCore does not overwrite existing user-owned runtime files
   assert.equal(status.created.includes("runtime/engine-home/api-server.key"), false);
   assert.equal(status.created.includes("runtime/engine-home/mia-model.json"), false);
   assert.equal(status.created.includes("runtime/engine-home/fellows/mei.md"), false);
+});
+
+test("initializeRuntimeCore materializes personaText from the fellow manifest", (t) => {
+  const { runtime, service } = setup(t, {
+    loadFellowManifest: () => ({
+      fellows: [{ key: "mei", name: "Mei", bio: "curious", personaText: "manifest persona body" }]
+    })
+  });
+
+  service.initializeRuntimeCore();
+
+  assert.equal(fs.readFileSync(path.join(runtime.fellowDir, "mei.md"), "utf8"), "manifest persona body");
 });
 
 test("initializeRuntimeCore logs Claude bridge setup failure without aborting runtime initialization", (t) => {

@@ -16,7 +16,6 @@ function createRuntimeInitializerService(deps = {}) {
   const defaultPermissionSettings = deps.defaultPermissionSettings || (() => ({ mode: "ask" }));
   const defaultEffortSettings = deps.defaultEffortSettings || (() => ({ level: "medium" }));
   const defaultDaemonSettings = deps.defaultDaemonSettings || (() => ({}));
-  const defaultRelaySettings = deps.defaultRelaySettings || (() => ({}));
   const defaultUserProfile = deps.defaultUserProfile || (() => ({}));
   const defaultAppearanceSettings = deps.defaultAppearanceSettings || (() => ({}));
   const loadFellowManifest = deps.loadFellowManifest || (() => ({ fellows: [] }));
@@ -55,7 +54,7 @@ function createRuntimeInitializerService(deps = {}) {
       } else if (fsImpl.existsSync(legacyMdPath)) {
         body = fsImpl.readFileSync(legacyMdPath, "utf8");
       } else {
-        body = fellowPersonaBody(fellow.name, fellow.bio);
+        body = fellow.personaText || fellow.persona_text || fellowPersonaBody(fellow.name, fellow.bio);
       }
       if (writeFileIfMissing(mdPath, body)) {
         created.push(`runtime/engine-home/fellows/${fellow.key}.md`);
@@ -123,10 +122,6 @@ function createRuntimeInitializerService(deps = {}) {
 
     if (writeFileIfMissing(p.daemonToken, `${randomBytes(32).toString("hex")}\n`, 0o600)) {
       created.push("runtime/engine-home/mia-daemon.key");
-    }
-
-    if (writeFileIfMissing(p.relaySettings, JSON.stringify(defaultRelaySettings(), null, 2) + "\n", 0o600)) {
-      created.push("runtime/engine-home/mia-relay.json");
     }
 
     if (writeFileIfMissing(p.userProfile, JSON.stringify(defaultUserProfile(), null, 2) + "\n")) {

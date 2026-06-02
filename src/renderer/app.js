@@ -8,7 +8,6 @@ const SIDEBAR_WIDTH_MAX = 380;
 const SIDEBAR_WIDTH_DEFAULT = 280;
 let skillPickerHoverCloseTimer = 0;
 let avatarTrimDrag = null;
-const qrSvgCache = new Map();
 const fellowRuntimeControlCache = new Map();
 const platformModelCatalog = { loaded: false, loading: false, entries: [] };
 const ICON_PARK_PIN_SVG = '<svg class="icon-park-pin" viewBox="0 0 48 48" aria-hidden="true" focusable="false"><path d="M10.6963 17.5042C13.3347 14.8657 16.4701 14.9387 19.8781 16.8076L32.62 9.74509L31.8989 4.78683L43.2126 16.1005L38.2656 15.3907L31.1918 28.1214C32.9752 31.7589 33.1337 34.6647 30.4953 37.3032C30.4953 37.3032 26.235 33.0429 22.7171 29.525L6.44305 41.5564L18.4382 25.2461C14.9202 21.7281 10.6963 17.5042 10.6963 17.5042Z"/></svg>';
@@ -221,7 +220,6 @@ const els = {
   codexLogin: document.getElementById("codexLogin"),
   codexCancel: document.getElementById("codexCancel"),
   codexLogs: document.getElementById("codexLogs"),
-  mobileDaemonStatus: document.getElementById("mobileDaemonStatus"),
   cloudAccountHint: document.getElementById("cloudAccountHint"),
   cloudLoginBox: document.getElementById("cloudLoginBox"),
   cloudUsername: document.getElementById("cloudUsername"),
@@ -231,20 +229,6 @@ const els = {
   cloudSync: document.getElementById("cloudSync"),
   cloudLogout: document.getElementById("cloudLogout"),
   cloudLoginHint: document.getElementById("cloudLoginHint"),
-  mobileDaemonUrl: document.getElementById("mobileDaemonUrl"),
-  mobileLanToggle: document.getElementById("mobileLanToggle"),
-  mobilePairingBox: document.getElementById("mobilePairingBox"),
-  mobilePairingQr: document.getElementById("mobilePairingQr"),
-  mobilePairingReveal: document.getElementById("mobilePairingReveal"),
-  mobilePairingLink: document.getElementById("mobilePairingLink"),
-  mobilePairingHint: document.getElementById("mobilePairingHint"),
-  mobileRelayBox: document.getElementById("mobileRelayBox"),
-  mobileRelayQr: document.getElementById("mobileRelayQr"),
-  mobileRelayReveal: document.getElementById("mobileRelayReveal"),
-  mobileRelayUrl: document.getElementById("mobileRelayUrl"),
-  mobileRelayToggle: document.getElementById("mobileRelayToggle"),
-  mobileRelayLink: document.getElementById("mobileRelayLink"),
-  mobileRelayHint: document.getElementById("mobileRelayHint"),
   tasksUnreadBadge: document.getElementById("tasksUnreadBadge"),
   contactsUnreadBadge: document.getElementById("contactsUnreadBadge"),
   chatUnreadBadge: document.getElementById("chatUnreadBadge"),
@@ -254,33 +238,6 @@ const els = {
 
 function setText(el, value) {
   if (el) el.textContent = value;
-}
-
-function renderQr(el, text) {
-  if (!el) return;
-  const value = String(text || "").trim();
-  el.dataset.qrText = value;
-  if (!value) {
-    el.innerHTML = "";
-    el.classList.add("hidden");
-    return;
-  }
-  el.classList.remove("hidden");
-  if (qrSvgCache.has(value)) {
-    el.innerHTML = qrSvgCache.get(value);
-    return;
-  }
-  el.textContent = "生成二维码中";
-  if (!window.mia?.qrSvg) {
-    el.textContent = "二维码不可用";
-    return;
-  }
-  window.mia.qrSvg(value).then((svg) => {
-    qrSvgCache.set(value, svg);
-    if (el.dataset.qrText === value) el.innerHTML = svg;
-  }).catch(() => {
-    if (el.dataset.qrText === value) el.textContent = "二维码生成失败";
-  });
 }
 
 
@@ -356,6 +313,24 @@ function allOwnedFellowsForIdentity(personas = []) {
     return window.miaFellowDirectory.listOwnedFellows({ cloudFellows, localFellows, runtime });
   }
   return [...cloudFellows, ...localFellows];
+}
+
+function fellowAvatarIdentityId(fellowKey, fellow = {}) {
+  const ownerUserId = fellow?.ownerUserId || fellow?.owner_user_id || fellow?.ownerId || fellow?.owner_id || "";
+  return window.miaContact?.fellowAvatarIdentityId?.(fellowKey, fellow)
+    || fellow?.globalId
+    || fellow?.global_id
+    || fellow?.fellowGlobalId
+    || fellow?.fellow_global_id
+    || (ownerUserId && fellowKey ? sessionHistory.fellowConversationId(ownerUserId, fellowKey) : "")
+    || fellowKey;
+}
+
+function fellowGlobalIdFromConversation(conversation, fellowKey) {
+  const id = String(conversation?.id || "");
+  const key = String(fellowKey || "");
+  if (!id.startsWith("fellow:") || !key) return "";
+  return id.split(":").slice(2).join(":") === key ? id : "";
 }
 
 // Reconcile #activeChatMeta with the active cloud-agent run state. While the
@@ -563,14 +538,24 @@ function conversationCardSpecFromRow(row, personas) {
     const isFellow = conversation.type === "fellow";
     let name, avatar;
     if (isFellow) {
-      const fellowKey = conversation.decorations?.fellowKey || (conversation.id?.split(":")[2] || "");
+      const fellowKey = sessionHistory.fellowKey(conversation);
       const fellow = identityFellows.find((p) => (p.id || p.key) === fellowKey);
-      name = sessionHistory.fellowDisplayTitle(conversation, identityFellows, "对话");
-      avatar = window.miaAvatarResolve.resolveAvatarForContact({
+      const fellowRecord = fellow || {
+        key: fellowKey,
         id: fellowKey,
-        displayName: name || fellow?.name || fellowKey,
-        avatarImage: fellow?.avatarImage || "",
-        avatarCrop: fellow?.avatarCrop || null
+        name: conversation.name || fellowKey,
+        globalId: fellowGlobalIdFromConversation(conversation, fellowKey)
+      };
+      name = sessionHistory.fellowDisplayTitle(conversation, identityFellows, "对话");
+      const resolved = window.miaContact?.resolveContact?.(
+        { kind: window.miaContact.ContactKind.Fellow, ref: fellowKey },
+        { fellows: fellow ? identityFellows : [fellowRecord] }
+      );
+      avatar = resolved?.avatar || window.miaAvatarResolve.resolveAvatarForContact({
+        id: fellowAvatarIdentityId(fellowKey, fellowRecord),
+        displayName: name || fellowRecord.name || fellowKey,
+        avatarImage: fellowRecord.avatarImage || "",
+        avatarCrop: fellowRecord.avatarCrop || null
       });
     } else {
       const other = conversation.otherUser || {};
@@ -728,12 +713,18 @@ function paintActiveCloudConversationHeader(conversation, { personas, social }) 
   }
 
   if (conversationType === "fellow") {
-    const fellowKey = conversation.decorations?.fellowKey || (conversation.id?.split(":")[2] || "");
+    const fellowKey = sessionHistory.fellowKey(conversation);
     const fellow = identityFellows.find((p) => (p.id || p.key) === fellowKey);
+    const fellowRecord = fellow || {
+      key: fellowKey,
+      id: fellowKey,
+      name: conversation.name,
+      globalId: fellowGlobalIdFromConversation(conversation, fellowKey)
+    };
     if (avatarEl) {
       avatarEl.removeAttribute("data-count");
       avatarEl.className = "profile-avatar";
-      avatarHelper.applyFellowAvatar(avatarEl, fellow || { key: fellowKey, name: conversation.name });
+      avatarHelper.applyFellowAvatar(avatarEl, fellowRecord);
     }
     setText(nameEl, sessionHistory.fellowDisplayTitle(conversation, identityFellows, "对话"));
     if (metaEl) metaEl.textContent = "私聊";
@@ -1060,8 +1051,6 @@ function render() {
       ...(runtime.engineLogs || [])
     ].filter(Boolean).join("\n");
   }
-  window.miaSettingsRemote.renderMobilePairing(runtime.daemon || {});
-  window.miaSettingsRemote.renderRelayPairing(runtime.relay || {});
   window.miaSettingsRemote.renderCloudAccount(runtime.cloud || {});
   const auth = runtime.auth || {};
   const editingModelSelect = document.activeElement === els.modelSelect || document.activeElement === els.quickModelSelect || document.activeElement === els.effortSelect;
@@ -1683,7 +1672,7 @@ function renderMessageHtml(message, ctx) {
     avatarCrop: user.avatarCrop || null
   });
   const fellowAvatarSpec = window.miaAvatarResolve.resolveAvatarForContact({
-    id: persona?.key || persona?.id || "assistant",
+    id: fellowAvatarIdentityId(persona?.key || persona?.id || "assistant", persona || {}),
     displayName: persona?.name || "Assistant",
     avatarImage: persona?.avatarImage || "",
     avatarCrop: persona?.avatarCrop || null
@@ -1733,7 +1722,7 @@ function renderCommandResultHtml(commandResult) {
   if (!commandResult || commandResult.type !== "session-list" || !Array.isArray(commandResult.rows)) return "";
   const engine = String(commandResult.engine || "");
   const sourceDeviceId = String(commandResult.sourceDeviceId || "");
-  const currentDeviceId = String(state.runtime?.relay?.deviceId || "");
+  const currentDeviceId = String(state.runtime?.cloud?.deviceId || "");
   const isForeignDeviceList = Boolean(sourceDeviceId && currentDeviceId && sourceDeviceId !== currentDeviceId);
   const rows = commandResult.rows.slice(0, 10).map((row) => {
     const title = String(row.title || row.id || "Session");
@@ -2136,17 +2125,18 @@ async function createNewCloudSessionForActive(conversation) {
     runtimeKindFallback: "desktop-local"
   });
   const fellowKey = payload.fellowKey;
-  if (!fellowKey || !window.mia?.social?.ensureFellowSessionConversation) return;
+  const ownerUserId = String(state.runtime?.cloud?.user?.id || state.runtime?.cloud?.user?.userId || "").trim();
+  if (!fellowKey || !ownerUserId || !window.mia?.social?.ensureFellowSessionConversation) return;
 
   // Optimistic create: the cloud conversation id is deterministic
-  // (`fellow:<fellowKey>:<sessionId>`), so build the conversation locally and
+  // (`fellow:<ownerUserId>:<sessionId>`), so build the conversation locally and
   // switch into it with zero wait, then ensure it on the cloud in the
   // background. ensureFellowSessionConversation is idempotent, so a slow or
   // failed call is safe — we keep the local session and the first sent message
   // re-ensures it.
   const now = new Date().toISOString();
   const optimisticConversation = {
-    id: `fellow:${fellowKey}:${payload.sessionId}`,
+    id: sessionHistory.fellowConversationId(ownerUserId, payload.sessionId),
     type: "fellow",
     name: payload.title,
     decorations: { fellowKey, sessionId: payload.sessionId, runtimeKind: payload.runtimeKind },
@@ -2254,7 +2244,6 @@ async function initializeRuntime() {
       state,
       els,
       setText,
-      renderQr,
     });
   }
   if (window.miaSkillHelpers && window.miaSkillHelpers.initSkillHelpers) {
@@ -2463,10 +2452,6 @@ els.openSettings.addEventListener("click", () => {
   state.settingsOpen = true;
   if (state.activeSettingsTab === "profile") state.activeSettingsTab = "appearance";
   renderView();
-  if (state.activeSettingsTab === "account") {
-    window.miaSettingsRemote.refreshDaemonPairing().catch(console.error);
-    window.miaSettingsRemote.refreshRelayPairing().catch(console.error);
-  }
 });
 // Cloud-only: login guides (empty chat / empty sidebar) open Settings → account.
 document.addEventListener("click", (event) => {
@@ -2474,8 +2459,6 @@ document.addEventListener("click", (event) => {
   state.settingsOpen = true;
   state.activeSettingsTab = "account";
   renderView();
-  window.miaSettingsRemote.refreshDaemonPairing?.().catch(console.error);
-  window.miaSettingsRemote.refreshRelayPairing?.().catch(console.error);
 });
 els.closeSettings.addEventListener("click", () => {
   state.settingsOpen = false;
@@ -2714,20 +2697,7 @@ document.querySelectorAll("[data-settings-tab]").forEach((button) => {
   button.addEventListener("click", () => {
     state.activeSettingsTab = button.dataset.settingsTab;
     renderView();
-    if (state.activeSettingsTab === "account") {
-      window.miaSettingsRemote.refreshDaemonPairing().catch(console.error);
-      window.miaSettingsRemote.refreshRelayPairing().catch(console.error);
-    }
   });
-});
-
-els.mobileLanToggle?.addEventListener("click", async () => {
-  const enabled = els.mobileLanToggle.getAttribute("aria-checked") === "true";
-  try {
-    await window.miaSettingsRemote.applyDaemonHost(enabled ? "127.0.0.1" : "0.0.0.0");
-  } catch (error) {
-    setText(els.mobilePairingHint, `切换失败：${error.message}`);
-  }
 });
 
 async function submitCloudLogin(mode) {
@@ -2780,99 +2750,6 @@ els.cloudLogout?.addEventListener("click", async () => {
     setText(els.cloudLoginHint, `退出失败：${error.message || error}`);
   } finally {
     els.cloudLogout.disabled = false;
-  }
-});
-
-els.mobilePairingReveal?.addEventListener("click", () => {
-  state.mobileLanLinkExpanded = !state.mobileLanLinkExpanded;
-  window.miaSettingsRemote.renderMobilePairing(state.runtime?.daemon || {});
-});
-
-els.mobilePairingLink?.addEventListener("click", async () => {
-  const link = window.miaSettingsRemote.currentMobilePairingLink();
-  if (!link) {
-    setText(els.mobilePairingHint, "当前没有可复制的配对链接。");
-    return;
-  }
-  try {
-    await navigator.clipboard.writeText(link);
-    setText(els.mobilePairingHint, "已复制。把链接发到手机浏览器打开即可。");
-  } catch {
-    setText(els.mobilePairingHint, "复制失败，可以长按链接文本手动复制。");
-  }
-});
-
-els.mobileRelayReveal?.addEventListener("click", () => {
-  state.mobileRelayLinkExpanded = !state.mobileRelayLinkExpanded;
-  window.miaSettingsRemote.renderRelayPairing(state.runtime?.relay || {});
-});
-
-els.mobileRelayToggle?.addEventListener("click", async () => {
-  const enabled = Boolean(state.runtime?.relay?.enabled);
-  setText(els.mobileRelayHint, enabled ? "正在关闭远程访问..." : "正在连接 relay...");
-  try {
-    const relayUrl = String(els.mobileRelayUrl?.value || "").trim();
-    if (relayUrl && window.mia.saveRelaySettings) {
-      await window.mia.saveRelaySettings({ url: relayUrl, enabled });
-    }
-    const relay = enabled
-      ? await window.mia.stopRelay()
-      : await window.mia.startRelay();
-    state.runtime = {
-      ...(state.runtime || {}),
-      relay: {
-        ...relay,
-        secret: undefined
-      }
-    };
-    window.miaSettingsRemote.renderRelayPairing(relay);
-  } catch (error) {
-    setText(els.mobileRelayHint, `远程访问切换失败：${error.message}`);
-    await refreshRuntime();
-  }
-});
-
-async function saveRelayUrlFromField() {
-  const url = String(els.mobileRelayUrl?.value || "").trim();
-  if (!url || !window.mia?.saveRelaySettings) return;
-  setText(els.mobileRelayHint, "正在保存 Relay 地址...");
-  try {
-    const relay = await window.mia.saveRelaySettings({
-      url,
-      enabled: Boolean(state.runtime?.relay?.enabled)
-    });
-    state.runtime = {
-      ...(state.runtime || {}),
-      relay: {
-        ...relay,
-        secret: undefined
-      }
-    };
-    window.miaSettingsRemote.renderRelayPairing(relay);
-  } catch (error) {
-    setText(els.mobileRelayHint, `Relay 地址保存失败：${error.message}`);
-  }
-}
-
-els.mobileRelayUrl?.addEventListener("change", saveRelayUrlFromField);
-els.mobileRelayUrl?.addEventListener("keydown", (event) => {
-  if (event.key !== "Enter") return;
-  event.preventDefault();
-  els.mobileRelayUrl?.blur();
-  saveRelayUrlFromField();
-});
-
-els.mobileRelayLink?.addEventListener("click", async () => {
-  const link = window.miaSettingsRemote.currentRelayPairingLink();
-  if (!link) {
-    setText(els.mobileRelayHint, "当前没有可复制的远程配对链接。");
-    return;
-  }
-  try {
-    await navigator.clipboard.writeText(link);
-    setText(els.mobileRelayHint, "已复制远程配对链接。手机和电脑不需要在同一网络。");
-  } catch {
-    setText(els.mobileRelayHint, "复制失败，可以长按链接文本手动复制。");
   }
 });
 
@@ -3786,7 +3663,7 @@ els.chat.addEventListener("click", async (event) => {
     const sessionIdToResume = String(resumeButton.dataset.commandResumeId || "").trim();
     if (!sessionIdToResume || resumeButton.disabled) return;
     const sourceDeviceId = String(resumeButton.dataset.commandSourceDeviceId || "").trim();
-    const currentDeviceId = String(state.runtime?.relay?.deviceId || "").trim();
+    const currentDeviceId = String(state.runtime?.cloud?.deviceId || "").trim();
     if (sourceDeviceId && currentDeviceId && sourceDeviceId !== currentDeviceId) {
       appendTransientChat("assistant", "这条 /resume 列表来自另一台设备。请在当前设备重新发送 /resume，生成本机可恢复的 session 列表。");
       return;

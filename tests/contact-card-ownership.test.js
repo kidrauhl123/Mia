@@ -17,10 +17,18 @@ function mockEl() {
     style: {},
     innerHTML: "",
     children: [],
+    _queries: {},
     attrs: {},
     setAttribute(k, v) { this.attrs[k] = v; },
     addEventListener() {},
     appendChild(c) { this.children.push(c); return c; },
+    querySelector(selector) {
+      if (selector === ".contact-card-avatar") {
+        if (!this._queries[selector]) this._queries[selector] = mockEl();
+        return this._queries[selector];
+      }
+      return null;
+    },
     remove() {},
     contains() { return false; },
     getBoundingClientRect() { return { right: 0, left: 0, top: 0, width: 100, height: 100 }; },
@@ -37,9 +45,25 @@ function loadCard() {
     removeEventListener() {},
     getElementById() { return null; },
   };
+  const sharedAvatar = require("../packages/shared/avatar.js");
   const window = {
     miaConversationKinds: { MemberKind: { Fellow: "fellow", User: "user" } },
     miaMemberColor: require("../src/shared/member-color.js"),
+    miaAvatarResolve: {
+      ...sharedAvatar,
+      resolveAvatarForContact: (input) => {
+        window.lastAvatarResolveInput = input;
+        return sharedAvatar.resolveAvatarForContact(input);
+      }
+    },
+    miaContact: require("../packages/shared/contact.js"),
+    miaSessionHistory: require("../packages/shared/session-history.js"),
+    miaAvatar: {
+      paintAvatar: (el, avatar) => {
+        el.paintedAvatar = avatar;
+        window.lastPaintedAvatar = avatar;
+      }
+    },
     innerWidth: 1000,
     innerHeight: 800,
   };
@@ -122,6 +146,15 @@ test("cloud fellow I own renders editable controls instead of a separate cloud-o
   assert.match(html, /Mia Cloud/);
   assert.match(html, /data-fellow-field="model"/);
   assert.match(html, /data-card-action="edit-fellow"/);
+});
+
+test("cloud fellow card avatar uses the global fellow identity color", () => {
+  const { card, window } = loadCard();
+  card.attach(ctxWithCloudOwnedFellow());
+  card.openCard({ kind: "fellow", ref: "mia", conversationId: "fellow:bob:mia", anchor: null });
+
+  assert.equal(window.lastAvatarResolveInput.id, "fellow:bob:mia");
+  assert.equal(window.lastPaintedAvatar.color, window.miaMemberColor.memberAccentColor("fellow:bob:mia"));
 });
 
 test("owned cloud fellow card reads runtime binding before exposing controls", () => {

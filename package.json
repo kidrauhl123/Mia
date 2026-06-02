@@ -2,6 +2,10 @@
   "name": "mia",
   "version": "0.1.0",
   "private": true,
+  "workspaces": [
+    "apps/mobile-rn",
+    "packages/shared"
+  ],
   "productName": "Mia",
   "description": "Mia desktop demo with an app-owned Hermes runtime home.",
   "main": "src/main.js",
@@ -10,11 +14,6 @@
     "open": "electron .",
     "start": "electron .",
     "web": "node scripts/serve-web.js",
-    "mobile:build": "node scripts/build-mobile-www.js",
-    "mobile": "node scripts/build-mobile-www.js && node scripts/serve-mobile.js",
-    "mobile:add:ios": "npx cap add ios",
-    "mobile:add:android": "npx cap add android",
-    "mobile:sync": "node scripts/build-mobile-www.js && npx cap sync",
     "cloud": "node scripts/serve-cloud.js",
     "cloud:release": "node scripts/build-cloud-release.js",
     "cloud:release:handoff": "node scripts/print-cloud-release-handoff.js",
@@ -38,7 +37,6 @@
     "cloud:smoke:account": "node scripts/prepare-cloud-smoke-account.js",
     "desktop:permission-smoke": "node scripts/smoke-desktop-permission.js",
     "bridge": "node scripts/local-agent-bridge.js",
-    "relay": "node src/relay/server.js",
     "check": "node src/check.js",
     "hermes:runtime": "bash scripts/build-hermes-runtime.sh",
     "hermes:runtime:mac-arm64": "bash scripts/build-hermes-runtime.sh mac-arm64",
@@ -56,20 +54,15 @@
     "pbsRelease": "20251007"
   },
   "devDependencies": {
-    "@capacitor/cli": "^6.2.1",
-    "@capacitor/core": "^6.2.1",
     "electron": "^39.2.6",
     "electron-builder": "^26.0.12"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.139",
-    "@capacitor/android": "^6.2.1",
-    "@capacitor/ios": "^6.2.1",
     "@openai/codex-sdk": "^0.130.0",
     "adm-zip": "^0.5.17",
     "cron-parser": "^4.9.0",
     "js-yaml": "^4.1.1",
-    "qrcode": "^1.5.4",
     "ws": "^8.20.1"
   },
   "build": {
@@ -82,6 +75,7 @@
     "compression": "maximum",
     "files": [
       "package.json",
+      "packages/shared/**/*",
       "src/**/*",
       "resources/official-library/**/*",
       "resources/conductor/**/*",
@@ -109,6 +103,7 @@
       "target": [
         "dir"
       ],
+      "icon": "build/icon.icns",
       "category": "public.app-category.productivity",
       "identity": null,
       "hardenedRuntime": false,

@@ -1,6 +1,7 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { resolveContact, ContactKind } = require("../src/shared/contact");
+const { resolveContact, ContactKind, fellowAvatarIdentityId } = require("../src/shared/contact");
+const avatarResolve = require("../src/shared/avatar-resolve");
 
 const ctx = {
   self: { id: "user_me", username: "me", avatarImage: "data:me", avatarCrop: {x:50,y:50,zoom:1}, avatarColor: "#111" },
@@ -36,6 +37,38 @@ test("resolveContact fellow by key", () => {
   assert.equal(c.avatar.image, "");
   assert.equal(c.avatar.crop, null);
   assert.equal(c.avatar.text, "Co");
+});
+
+test("resolveContact fellow avatar hashes canonical global fellow identity", () => {
+  const c = resolveContact({ kind: "fellow", ref: "mia" }, {
+    fellows: [{ key: "mia", id: "mia", ownerUserId: "user_me", name: "Mia" }]
+  });
+  const expected = avatarResolve.resolveAvatarForContact({
+    id: "fellow:user_me:mia",
+    displayName: "Mia",
+    avatarImage: "",
+    avatarCrop: null
+  });
+
+  assert.equal(fellowAvatarIdentityId("mia", { ownerUserId: "user_me" }), "fellow:user_me:mia");
+  assert.deepEqual(c.avatar, expected);
+});
+
+test("resolveContact fellow avatar honors server-provided globalId over owner fallback", () => {
+  const c = resolveContact({ kind: "fellow", ref: "mia" }, {
+    fellows: [{ key: "mia", id: "mia", ownerUserId: "stale_owner", globalId: "fellow:user_live:mia", name: "Mia" }]
+  });
+
+  assert.equal(fellowAvatarIdentityId("mia", {
+    ownerUserId: "stale_owner",
+    globalId: "fellow:user_live:mia"
+  }), "fellow:user_live:mia");
+  assert.deepEqual(c.avatar, avatarResolve.resolveAvatarForContact({
+    id: "fellow:user_live:mia",
+    displayName: "Mia",
+    avatarImage: "",
+    avatarCrop: null
+  }));
 });
 
 test("resolveContact friend by id", () => {

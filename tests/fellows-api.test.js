@@ -69,6 +69,7 @@ async function register(port, account) {
 
 test("PUT then GET /api/me/fellows roundtrips identity fields", async () => {
   const ctx = await startServer();
+  const { normalizeFellowCapabilities } = require("../src/shared/fellow-identity.js");
   try {
     const A = await register(ctx.port, "phi");
     const put = await api(ctx.port, "PUT", "/api/me/fellows/codex", {
@@ -86,14 +87,19 @@ test("PUT then GET /api/me/fellows roundtrips identity fields", async () => {
     });
     assert.equal(put.status, 200);
     assert.equal(put.body.fellow.id, "codex");
+    assert.equal(put.body.fellow.globalId, `fellow:${A.user.id}:codex`);
     assert.equal(put.body.fellow.name, "Codex");
-    assert.deepEqual(put.body.fellow.capabilities, ["chat", "tools"]);
+    assert.equal(put.body.fellow.color, "#0f766e");
+    assert.deepEqual(put.body.fellow.capabilities, normalizeFellowCapabilities(["chat", "tools"]));
 
     const list = await api(ctx.port, "GET", "/api/me/fellows", { token: A.token });
     assert.equal(list.status, 200);
     const codex = list.body.fellows.find((fellow) => fellow.id === "codex");
     assert.ok(codex);
+    assert.equal(codex.globalId, `fellow:${A.user.id}:codex`);
     assert.equal(codex.name, "Codex");
+    assert.equal(codex.color, "#0f766e");
+    assert.deepEqual(codex.capabilities, normalizeFellowCapabilities(["chat", "tools"]));
     assert.deepEqual(codex.avatarCrop, { x: 10, y: 20, w: 100, h: 100 });
   } finally { await stopServer(ctx); }
 });
@@ -137,6 +143,7 @@ test("web bootstrap can request compact user and fellow identities without avata
     assert.equal(list.status, 200);
     const codex = list.body.fellows.find((fellow) => fellow.id === "codex");
     assert.ok(codex);
+    assert.equal(codex.globalId, `fellow:${A.user.id}:codex`);
     assert.equal(codex.name, "Codex");
     assert.equal(Object.prototype.hasOwnProperty.call(codex, "avatarImage"), false);
     assert.equal(Object.prototype.hasOwnProperty.call(codex, "avatarCrop"), false);
@@ -223,6 +230,29 @@ test("GET and PUT /api/me/fellows/:id/runtime roundtrip cloud AI controls", asyn
   } finally { await stopServer(ctx); }
 });
 
+test("conversation member identity exposes shareable fellow global id", async () => {
+  const ctx = await startServer();
+  try {
+    const A = await register(ctx.port, "memberglobal");
+    const group = await api(ctx.port, "POST", "/api/conversations", {
+      token: A.token,
+      body: {
+        name: "Fellow Identity Group",
+        memberFellows: [{ fellowId: "mia" }]
+      }
+    });
+    assert.equal(group.status, 201);
+
+    const detail = await api(ctx.port, "GET", `/api/conversations/${group.body.conversation.id}`, { token: A.token });
+    assert.equal(detail.status, 200);
+    const fellowMember = detail.body.members.find((member) => member.member_kind === "fellow");
+    assert.ok(fellowMember);
+    assert.equal(fellowMember.identity.id, "mia");
+    assert.equal(fellowMember.identity.ownerId, A.user.id);
+    assert.equal(fellowMember.identity.globalId, `fellow:${A.user.id}:mia`);
+  } finally { await stopServer(ctx); }
+});
+
 test("PUT same clientOpId twice creates only one fellow upsert event in user_events", async () => {
   const ctx = await startServer();
   try {
@@ -293,6 +323,7 @@ test("fellow.upserted is broadcast live to a connected event socket", async () =
     ]);
     ws.close();
     assert.equal(evt.fellow.id, "codex");
+    assert.equal(evt.fellow.globalId, `fellow:${A.user.id}:codex`);
     assert.equal(evt.fellow.name, "Codex");
     assert.ok(Number.isFinite(Number(evt.seq)));
   } finally { await stopServer(ctx); }

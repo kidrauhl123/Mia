@@ -56,6 +56,7 @@ function setup(overrides = {}) {
         avatarImage: "data:image/png;base64,abc",
         avatarCrop: { x: 1 },
         bio: "assistant",
+        personaText: "manifest persona",
         capabilities: { chat: true, image: false }
       }]
     }),
@@ -105,6 +106,7 @@ test("login normalizes the cloud URL, resets local auth, then starts sockets wit
 
 test("syncWorkspace syncs fellow identity and stable conversations without reading local sessions", async () => {
   const { client, calls } = setup();
+  const { normalizeFellowCapabilities } = require("../src/shared/fellow-identity.js");
 
   await client.syncWorkspace();
 
@@ -117,11 +119,12 @@ test("syncWorkspace syncs fellow identity and stable conversations without readi
   assert.equal(calls.fetch[0].headers.Authorization, "Bearer tok_1");
   assert.deepEqual(calls.fetch[1].body, {
     name: "Codex",
+    color: "#123456",
     avatarImage: "data:image/png;base64,abc",
     avatarCrop: { x: 1 },
     bio: "assistant",
-    capabilities: ["chat"],
-    personaText: "persona text"
+    capabilities: normalizeFellowCapabilities({ chat: true, image: false }),
+    personaText: "manifest persona"
   });
   assert.deepEqual(calls.fetch[2].body, {
     title: "Codex",

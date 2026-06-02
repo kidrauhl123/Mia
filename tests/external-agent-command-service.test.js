@@ -30,7 +30,7 @@ function makeService(overrides = {}) {
     ensureClaudeBridgePlugin: () => ({ fingerprint: "bridge_fp" }),
     loadAgentSessionMap: () => ({}),
     listExternalAgentSessions: () => [],
-    relaySettings: () => ({ deviceId: "device_1" }),
+    sourceDeviceId: () => "device_1",
     ...overrides
   });
   return { service, calls };

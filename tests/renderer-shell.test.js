@@ -55,7 +55,7 @@ test("desktop cloud fellow conversations expose the restored chat history menu",
   const preloadSource = fs.readFileSync(path.join(root, "src/preload.js"), "utf8");
   const socialApiSource = fs.readFileSync(path.join(root, "src/main/social/social-api.js"), "utf8");
 
-  assert.match(html, /shared\/session-history\.js/);
+  assert.match(html, /packages\/shared\/session-history\.js/);
   assert.match(appSource, /const sessionHistory = \(typeof window !== "undefined" && window\.miaSessionHistory\)/);
   assert.match(appSource, /if \(els\.sessionMenuButton\) els\.sessionMenuButton\.classList\.remove\("hidden"\);/);
   assert.match(appSource, /function renderCloudConversationSessionMenu\(activeConversation\)/);
@@ -202,7 +202,7 @@ test("desktop avatar picker supports video avatars with one trim row", () => {
   const avatarSource = fs.readFileSync(path.join(root, "src/renderer/helpers/avatar-helpers.js"), "utf8");
   const styleSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
 
-  assert.match(html, /shared\/avatar-media\.js/);
+  assert.match(html, /packages\/shared\/avatar\.js/);
   assert.match(html, /id="profileAvatarFile"[^>]+accept="image\/\*,video\/\*"/);
   assert.match(html, /id="fellowAvatarFile"[^>]+accept="image\/\*,video\/\*"/);
   assert.match(html, /id="avatarTrimControls"/);
@@ -247,7 +247,7 @@ test("desktop avatar picker supports video avatars with one trim row", () => {
 
 test("desktop avatar helpers tolerate null crop values", () => {
   const avatarSource = fs.readFileSync(path.join(root, "src/renderer/helpers/avatar-helpers.js"), "utf8");
-  const resolveSource = fs.readFileSync(path.join(root, "src/shared/avatar-resolve.js"), "utf8");
+  const resolveSource = fs.readFileSync(path.join(root, "packages/shared/avatar.js"), "utf8");
   const context = vm.createContext({ window: {}, console });
   vm.runInContext(resolveSource, context);
   vm.runInContext(avatarSource, context);
@@ -261,16 +261,14 @@ test("desktop avatar helpers tolerate null crop values", () => {
 
 test("desktop avatar video crop updates do not restart playback unless trim changes", () => {
   const avatarSource = fs.readFileSync(path.join(root, "src/renderer/helpers/avatar-helpers.js"), "utf8");
-  const mediaSource = fs.readFileSync(path.join(root, "src/shared/avatar-media.js"), "utf8");
-  const resolveSource = fs.readFileSync(path.join(root, "src/shared/avatar-resolve.js"), "utf8");
+  const sharedAvatarSource = fs.readFileSync(path.join(root, "packages/shared/avatar.js"), "utf8");
   const context = vm.createContext({
     window: {},
     console,
     setTimeout
   });
   context.globalThis = context.window;
-  vm.runInContext(mediaSource, context, { filename: "src/shared/avatar-media.js" });
-  vm.runInContext(resolveSource, context, { filename: "src/shared/avatar-resolve.js" });
+  vm.runInContext(sharedAvatarSource, context, { filename: "packages/shared/avatar.js" });
   vm.runInContext(avatarSource, context, { filename: "src/renderer/helpers/avatar-helpers.js" });
 
   const seeks = [];
@@ -379,6 +377,28 @@ test("contacts merge local fellows with owned cloud fellows", () => {
   assert.doesNotMatch(socialSource, /cloudOnly:\s*(true|false)/);
   assert.match(appSource, /const syncedFellowKeys = new Set/);
   assert.match(appSource, /const contactKeys = new Set/);
+});
+
+test("contact fellow avatars resolve through shared fellow identity", () => {
+  const fellowManagerSource = fs.readFileSync(path.join(root, "src/renderer/fellow/fellow-manager.js"), "utf8");
+
+  assert.match(fellowManagerSource, /function avatarForFellow\(fellow = \{\}\)/);
+  assert.match(fellowManagerSource, /api\.resolveContact\(/);
+  assert.match(fellowManagerSource, /kind:\s*api\.ContactKind\.Fellow/);
+  assert.match(fellowManagerSource, /fellowAvatarIdentityId\(fellow\)/);
+  assert.doesNotMatch(fellowManagerSource, /id:\s*fellow\.key\s*\|\|\s*fellow\.id/);
+});
+
+test("contact fallback avatars share text color and round shape styling", () => {
+  const styleSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+  const profileBlock = styleSource.match(/\.contact-profile-avatar\s*\{[\s\S]*?\n\}/)?.[0] || "";
+  const rowBlock = styleSource.match(/\.contact-row \.fellow-photo\s*\{[\s\S]*?\n\}/)?.[0] || "";
+
+  assert.match(profileBlock, /display:\s*grid;/);
+  assert.match(profileBlock, /place-items:\s*center;/);
+  assert.match(profileBlock, /color:\s*#fff;/);
+  assert.match(rowBlock, /border-radius:\s*50%;/);
+  assert.doesNotMatch(rowBlock, /border-radius:\s*7px;/);
 });
 
 test("cloud conversation headers use the shared avatar identity path", () => {

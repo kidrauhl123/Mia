@@ -1,7 +1,7 @@
 // Task 2.1 routing test: web's bubble render must read MessageSpec fields only,
 // which it gets by calling window.miaCloudConversationSource.createCloudConversationSource
 // (the canonical adapter). This test simulates a browser-ish environment:
-//   - loads src/shared/contact.js + src/shared/message-spec.js + the adapter
+//   - loads packages/shared/contact.js + src/shared/message-spec.js + the adapter
 //     via vm with a `window` global (no `require`/no `module` in scope)
 //   - asserts the adapter is reachable through window.miaCloudConversationSource
 //   - asserts a sample DM message resolves through it to a MessageSpec the web
@@ -19,8 +19,8 @@ function loadInBrowserLikeContext() {
   const ctx = vm.createContext({ window, globalThis: window, console });
   const files = [
     "src/shared/message-spec.js",
-    "src/shared/avatar-resolve.js",
-    "src/shared/contact.js",
+    "packages/shared/avatar.js",
+    "packages/shared/contact.js",
     "src/shared/conversation-kinds.js",
     "src/renderer/message-sources/cloud-conversation-source.js"
   ];

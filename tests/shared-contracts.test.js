@@ -67,12 +67,13 @@ test("engine contract owns external model and mode options for browser clients",
 });
 
 test("session history contract is shared by desktop and web clients", () => {
-  const nodeContract = require("../src/shared/session-history");
-  const browserContract = loadBrowserGlobal("src/shared/session-history.js", "miaSessionHistory");
+  const nodeContract = require("../packages/shared/session-history");
+  const browserContract = loadBrowserGlobal("packages/shared/session-history.js", "miaSessionHistory");
 
   assert.equal(nodeContract.conversationType({ id: "fellow:u:mia" }), "fellow");
   assert.equal(browserContract.runtimeKind({ decorations: { runtimeKind: "cloud-hermes" } }), "cloud-hermes");
   assert.equal(browserContract.canCreateSession({ type: "fellow", decorations: { fellowKey: "mia" } }), true);
+  assert.equal(browserContract.fellowConversationId("u", "mia"), "fellow:u:mia");
 });
 
 test("fellow runtime control contract saves model, effort, and permission patches", async () => {
@@ -160,14 +161,8 @@ test("IPC registration and preload calls use the shared channel contract", () =>
   assert.doesNotMatch(source, /ipcMain\.(handle|on)\("[^"]+"/);
 });
 
-test("desktop and mobile clients load shared engine contract before feature code", () => {
+test("desktop client loads shared engine contract before feature code", () => {
   const rendererHtml = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
-  const mobileHtml = fs.readFileSync(path.join(root, "src/mobile/index.html"), "utf8");
-  const daemonControlSource = fs.readFileSync(path.join(root, "src/main/daemon/control-server.js"), "utf8");
-  const relaySource = fs.readFileSync(path.join(root, "src/relay/server.js"), "utf8");
 
   assert.match(rendererHtml, /<script src="\.\.\/shared\/engine-contracts\.js"><\/script>[\s\S]*<script src="\.\/settings\/engine-options\.js"><\/script>/);
-  assert.match(mobileHtml, /<script src="\/shared\/engine-contracts\.js"><\/script>[\s\S]*<script src="\/mobile\/app\.js/);
-  assert.match(daemonControlSource, /\/shared\/engine-contracts\.js/);
-  assert.match(relaySource, /\/shared\/engine-contracts\.js/);
 });

@@ -5,6 +5,17 @@ const { test } = require("node:test");
 
 const root = path.resolve(__dirname, "..");
 
+function walkFiles(dir) {
+  const out = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === "node_modules" || entry.name === ".expo") continue;
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...walkFiles(full));
+    else out.push(full);
+  }
+  return out;
+}
+
 test("project structure check covers cloud release helpers and rejects root source duplicates", () => {
   const source = fs.readFileSync(path.join(root, "src/check.js"), "utf8");
   assert.match(source, /scripts\/diagnose-deploy-ssh\.js/);
@@ -13,6 +24,198 @@ test("project structure check covers cloud release helpers and rejects root sour
   assert.match(source, /main\.js/);
   assert.match(source, /desktop-bridge-permission\.js/);
   assert.match(source, /Unexpected root-level duplicate source file/);
+});
+
+test("React Native shared logic stays behind package adapters instead of duplicated ports", () => {
+  const adapters = {
+    "src/logic/avatar.ts": "@mia/shared/avatar",
+    "src/logic/contact.ts": "@mia/shared/contact",
+    "src/logic/groupTiles.ts": "@mia/shared/group-tiles",
+    "src/logic/sessionHistory.ts": "@mia/shared/session-history",
+    "src/logic/sendPipeline.ts": "@mia/shared/send-pipeline",
+    "src/logic/approvalQueue.ts": "@mia/shared/approval-queue",
+    "src/logic/optimisticSend.ts": "@mia/shared/optimistic-send",
+    "src/api/client.ts": "@mia/shared/cloud-client",
+    "src/api/events.ts": "@mia/shared/cloud-client"
+  };
+  const rootPackageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+  assert.deepEqual(rootPackageJson.workspaces, ["apps/mobile-rn", "packages/shared"]);
+  assert.equal(fs.existsSync(path.join(root, "apps/mobile-rn", "package-lock.json")), false);
+
+  const packageJson = JSON.parse(fs.readFileSync(path.join(root, "apps/mobile-rn", "package.json"), "utf8"));
+  assert.equal(packageJson.dependencies?.["@mia/shared"], "file:../../packages/shared");
+
+  for (const [relativePath, packagePath] of Object.entries(adapters)) {
+    const source = fs.readFileSync(path.join(root, "apps/mobile-rn", relativePath), "utf8");
+    assert.match(source, new RegExp(packagePath.replace("/", "\\/")), `${relativePath} should import ${packagePath}`);
+    assert.doesNotMatch(source, /\b(function|class|const|let|var)\b|=>/, `${relativePath} must stay a thin re-export adapter`);
+  }
+
+  for (const file of walkFiles(path.join(root, "apps/mobile-rn", "src"))) {
+    if (!/\.(ts|tsx)$/.test(file)) continue;
+    const source = fs.readFileSync(file, "utf8");
+    assert.doesNotMatch(
+      source,
+      /src\/shared|\.\.\/\.\.\/\.\.\/\.\.\/src\/shared|\.\.\/\.\.\/\.\.\/\.\.\/packages\/shared/,
+      `${path.relative(root, file)} must not import legacy shared Modules or package directories directly`
+    );
+  }
+});
+
+test("legacy Capacitor mobile web entry is retired in favor of apps/mobile-rn", () => {
+  const rootPackageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+  const scripts = rootPackageJson.scripts || {};
+  assert.equal(fs.existsSync(path.join(root, "apps/mobile-rn")), true, "React Native app should be the only mobile app entry");
+
+  for (const scriptName of ["mobile", "mobile:build", "mobile:add:ios", "mobile:add:android", "mobile:sync"]) {
+    assert.equal(scripts[scriptName], undefined, `${scriptName} must not keep the retired Capacitor app alive`);
+  }
+
+  for (const depName of ["@capacitor/cli", "@capacitor/core", "@capacitor/android", "@capacitor/ios"]) {
+    assert.equal(rootPackageJson.dependencies?.[depName], undefined, `${depName} must not remain as a runtime dependency`);
+    assert.equal(rootPackageJson.devDependencies?.[depName], undefined, `${depName} must not remain as a dev dependency`);
+  }
+
+  for (const relativePath of [
+    "src/mobile",
+    "scripts/build-mobile-www.js",
+    "scripts/serve-mobile.js",
+    "capacitor.config.json",
+    "android"
+  ]) {
+    assert.equal(fs.existsSync(path.join(root, relativePath)), false, `${relativePath} should be removed`);
+  }
+});
+
+test("packages/shared owns avatar implementation instead of wrapping src/shared", () => {
+  const packageSource = fs.readFileSync(path.join(root, "packages/shared/avatar.js"), "utf8");
+  const legacyEntries = [
+    "src/shared/avatar-resolve.js",
+    "src/shared/avatar-media.js",
+    "src/shared/member-color.js"
+  ].map((relativePath) => fs.readFileSync(path.join(root, relativePath), "utf8"));
+
+  assert.doesNotMatch(
+    packageSource,
+    /src\/shared|require\(["']\.\.\/\.\.\/src\/shared\/(avatar-resolve|avatar-media|member-color)\.js["']\)/,
+    "packages/shared/avatar.js must not depend on legacy src/shared avatar entries"
+  );
+  assert.match(packageSource, /miaAvatarResolve/, "package avatar must expose the avatar resolver browser global contract");
+  assert.match(packageSource, /miaAvatarMedia/, "package avatar must expose the avatar media browser global contract");
+  assert.match(packageSource, /miaMemberColor/, "package avatar must expose the member color browser global contract");
+
+  for (const source of legacyEntries) {
+    assert.match(source, /packages\/shared\/avatar\.js/, "src/shared avatar entries should be compatibility entries");
+  }
+});
+
+test("packages/shared owns session history implementation instead of wrapping src/shared", () => {
+  const packageSource = fs.readFileSync(path.join(root, "packages/shared/session-history.js"), "utf8");
+  const legacySource = fs.readFileSync(path.join(root, "src/shared/session-history.js"), "utf8");
+
+  assert.doesNotMatch(
+    packageSource,
+    /src\/shared|require\(["']\.\.\/\.\.\/src\/shared\/session-history\.js["']\)/,
+    "packages/shared/session-history.js must not depend on the legacy src/shared entry"
+  );
+  assert.match(packageSource, /miaSessionHistory/, "package session-history must still expose the browser global contract");
+  assert.match(legacySource, /packages\/shared\/session-history\.js/, "src/shared/session-history.js should be a compatibility entry");
+});
+
+test("packages/shared owns contact implementation instead of wrapping src/shared", () => {
+  const packageSource = fs.readFileSync(path.join(root, "packages/shared/contact.js"), "utf8");
+  const legacySource = fs.readFileSync(path.join(root, "src/shared/contact.js"), "utf8");
+
+  assert.doesNotMatch(
+    packageSource,
+    /src\/shared|require\(["']\.\.\/\.\.\/src\/shared\/contact\.js["']\)/,
+    "packages/shared/contact.js must not depend on the legacy src/shared entry"
+  );
+  assert.match(packageSource, /miaContact/, "package contact must still expose the browser global contract");
+  assert.match(legacySource, /packages\/shared\/contact\.js/, "src/shared/contact.js should be a compatibility entry");
+});
+
+test("packages/shared owns group tile implementation instead of wrapping src/shared", () => {
+  const packageSource = fs.readFileSync(path.join(root, "packages/shared/group-tiles.js"), "utf8");
+  const legacySource = fs.readFileSync(path.join(root, "src/shared/group-tiles.js"), "utf8");
+
+  assert.doesNotMatch(
+    packageSource,
+    /src\/shared|require\(["']\.\.\/\.\.\/src\/shared\/group-tiles\.js["']\)/,
+    "packages/shared/group-tiles.js must not depend on the legacy src/shared entry"
+  );
+  assert.match(packageSource, /miaGroupTiles/, "package group-tiles must still expose the browser global contract");
+  assert.match(legacySource, /packages\/shared\/group-tiles\.js/, "src/shared/group-tiles.js should be a compatibility entry");
+});
+
+test("packages/shared owns send pipeline, cloud client, and unread implementations", () => {
+  const entries = [
+    { name: "send-pipeline", global: "miaSendPipeline", legacy: true },
+    { name: "cloud-client", global: "miaCloudClient", legacy: true },
+    { name: "unread", global: "miaUnread", legacy: true },
+    { name: "approval-queue", global: "miaApprovalQueue", legacy: false },
+    { name: "optimistic-send", global: "miaOptimisticSend", legacy: false }
+  ];
+  for (const { name, global, legacy } of entries) {
+    const packageSource = fs.readFileSync(path.join(root, "packages/shared", `${name}.js`), "utf8");
+    assert.doesNotMatch(
+      packageSource,
+      new RegExp(`src\\/shared|require\\(["']\\.\\.\\/\\.\\.\\/src\\/shared\\/${name}\\.js["']\\)`),
+      `packages/shared/${name}.js must not depend on the legacy src/shared entry`
+    );
+    assert.match(packageSource, new RegExp(global), `packages/shared/${name}.js must expose ${global}`);
+    if (legacy) {
+      const legacySource = fs.readFileSync(path.join(root, "src/shared", `${name}.js`), "utf8");
+      assert.match(legacySource, new RegExp(`packages\\/shared\\/${name}\\.js`), `src/shared/${name}.js should be a compatibility entry`);
+    }
+  }
+});
+
+test("fellow conversation keys are resolved through the shared session helper", () => {
+  for (const relativePath of [
+    "src/renderer/app.js",
+    "src/renderer/social/social.js",
+    "src/web/app.js",
+    "apps/mobile-rn/src"
+  ]) {
+    const full = path.join(root, relativePath);
+    const files = fs.statSync(full).isDirectory()
+      ? walkFiles(full).filter((file) => /\.(js|ts|tsx)$/.test(file))
+      : [full];
+    for (const file of files) {
+      const source = fs.readFileSync(file, "utf8");
+      assert.doesNotMatch(
+        source,
+        /\.split\((["'])\:\1\)\s*\[\s*2\s*\]/,
+        `${path.relative(root, file)} must use sessionHistory.fellowKey() instead of truncating fellow ids with split(":")[2]`
+      );
+    }
+  }
+});
+
+test("runtime code composes fellow conversation ids through shared session history", () => {
+  for (const relativePath of [
+    "src",
+    "scripts",
+    "packages/shared",
+    "apps/mobile-rn/src"
+  ]) {
+    const full = path.join(root, relativePath);
+    const files = fs.statSync(full).isDirectory()
+      ? walkFiles(full).filter((file) => /\.(js|ts|tsx)$/.test(file))
+      : [full];
+    for (const file of files) {
+      const projectPath = path.relative(root, file);
+      if (projectPath === "src/shared/session-history.js") continue;
+      if (projectPath === "packages/shared/session-history.js") continue;
+      const source = fs.readFileSync(file, "utf8");
+      assert.doesNotMatch(
+        source,
+        /`fellow:\$\{[^}]+\}:\$\{[^}]+\}`/,
+        `${projectPath} must use sessionHistory.fellowConversationId() instead of hand-composing fellow conversation ids`
+      );
+    }
+  }
 });
 
 test("cloud bridge remote run is account-authenticated and does not add a separate local approval gate", () => {
@@ -41,26 +244,33 @@ test("cloud desktop sync lives behind a main/cloud Module instead of main.js", (
   assert.doesNotMatch(mainSource, /async function mirrorFellowSessionToCloudConversation/, "main must not own fellow-conversation message mirroring");
 });
 
-test("relay client socket state and RPC routing live behind a main/relay Module", () => {
+test("legacy mobile pairing and relay web control path are retired", () => {
+  const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
-  const relaySource = fs.readFileSync(path.join(root, "src/main/relay/relay-client.js"), "utf8");
-  assert.match(relaySource, /function createRelayClient/, "relay client Module should exist");
-  assert.match(mainSource, /createRelayClient/, "main should instantiate the relay client Module");
-  assert.doesNotMatch(mainSource, /let relayClient/, "main must not own relay websocket");
-  assert.doesNotMatch(mainSource, /relayReconnectTimer/, "main must not own relay reconnect timer");
-  assert.doesNotMatch(mainSource, /let relayState/, "main must not own relay mutable state");
-  assert.doesNotMatch(mainSource, /async function handleRelayRpc/, "main must not own relay RPC routing");
-  assert.doesNotMatch(mainSource, /function handleRelayMessage/, "main must not own relay socket message routing");
+  const preloadSource = fs.readFileSync(path.join(root, "src/preload.js"), "utf8");
+  const ipcSource = fs.readFileSync(path.join(root, "src/shared/ipc-channels.js"), "utf8");
+  const daemonSource = fs.readFileSync(path.join(root, "src/main/daemon/control-server.js"), "utf8");
+  const rendererHtml = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
+  const rendererApp = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const remoteSettings = fs.readFileSync(path.join(root, "src/renderer/settings/settings-remote.js"), "utf8");
+
+  assert.equal(packageJson.scripts?.relay, undefined, "root relay script should be removed with the old mobile web control path");
+  for (const relativePath of ["src/relay/server.js", "src/main/relay/relay-client.js"]) {
+    assert.equal(fs.existsSync(path.join(root, relativePath)), false, `${relativePath} should be removed`);
+  }
+  for (const source of [mainSource, preloadSource, ipcSource, daemonSource, rendererHtml, rendererApp, remoteSettings]) {
+    assert.doesNotMatch(source, /RelayStatus|RelayStart|RelayStop|RelaySettingsSave|DaemonPairing/);
+    assert.doesNotMatch(source, /relayStatus|startRelay|stopRelay|saveRelaySettings|daemonPairing|pairingInfo|relaySettings/);
+    assert.doesNotMatch(source, /\/mobile\/|\/mobile\b|mobilePairing|mobileRelay|mobileLan/);
+  }
 });
 
-test("remote control API routes are shared by daemon HTTP and relay adapters", () => {
+test("remote control API routes are shared by the daemon HTTP adapter", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
-  const relaySource = fs.readFileSync(path.join(root, "src/main/relay/relay-client.js"), "utf8");
   const routerSource = fs.readFileSync(path.join(root, "src/main/remote/remote-control-router.js"), "utf8");
   const modelSource = fs.readFileSync(path.join(root, "src/main/model-settings-service.js"), "utf8");
   assert.match(routerSource, /function createRemoteControlRouter/, "remote control router Module should exist");
   assert.match(mainSource, /createRemoteControlRouter/, "main should instantiate the shared remote router");
-  assert.match(relaySource, /remoteRouter\.route/, "relay should use the shared remote router");
   assert.match(modelSource, /function createModelSettingsService/, "model settings service should own model save normalization");
   assert.match(mainSource, /createModelSettingsService/, "main should instantiate the shared model settings service");
   assert.doesNotMatch(routerSource, /modelSettings\(\)/, "remote router must not duplicate model settings normalization");
@@ -68,8 +278,6 @@ test("remote control API routes are shared by daemon HTTP and relay adapters", (
   assert.doesNotMatch(routerSource, /writeModelSettings\(next\)/, "remote router must not write model settings directly");
   assert.doesNotMatch(mainSource, /url\.pathname === "\/api\/chat\/send"/, "main must not duplicate remote chat route matching");
   assert.doesNotMatch(mainSource, /url\.pathname === "\/api\/model\/save"/, "main must not duplicate remote model route matching");
-  assert.doesNotMatch(relaySource, /requestPath === "\/api\/chat\/send"/, "relay must not duplicate remote chat route matching");
-  assert.doesNotMatch(relaySource, /requestPath === "\/api\/model\/save"/, "relay must not duplicate remote model route matching");
 });
 
 test("cloud-only conversation path has no local chat-session persistence service", () => {
@@ -77,13 +285,11 @@ test("cloud-only conversation path has no local chat-session persistence service
   const titleSource = fs.readFileSync(path.join(root, "src/main/conversation-title-service.js"), "utf8");
   const routerSource = fs.readFileSync(path.join(root, "src/main/remote/remote-control-router.js"), "utf8");
   const ipcSource = fs.readFileSync(path.join(root, "src/shared/ipc-channels.js"), "utf8");
-  const mobileSource = fs.readFileSync(path.join(root, "src/mobile/app.js"), "utf8");
   assert.match(titleSource, /function createConversationTitleService/, "conversation title service should exist");
   assert.match(mainSource, /createConversationTitleService/, "main should instantiate the conversation title service");
   assert.doesNotMatch(mainSource, /createChatSessionService|createChatStore|loadChatStore|saveChatStore|routeChatWrite/);
   assert.doesNotMatch(routerSource, /api\/chat\/sessions|api\/chat\/session|read-state\/save/);
   assert.doesNotMatch(ipcSource, /ChatSessionsLoad|ChatSessionSave|ChatReadStateSave|ChatSessionCreate|ChatSessionRename/);
-  assert.doesNotMatch(mobileSource, /api\/chat\/sessions|api\/chat\/session|read-state\/save/);
 });
 
 test("chat attachment normalization and transfer live behind a main chat-attachments module", () => {

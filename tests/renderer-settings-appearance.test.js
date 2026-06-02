@@ -110,5 +110,4 @@ test("hover background toggle does not erase controls that already have a fill",
   assert.match(cssBlock(".session-trigger:hover"), /background:\s*var\(--field\);/);
   assert.match(cssBlock(".agent-permission-button:hover:not(:disabled)"), /background:\s*var\(--field\);/);
   assert.match(cssBlock(".settings-panel .secondary:hover:not(:disabled)"), /background:\s*rgb\(0 0 0 \/ 0\.055\);/);
-  assert.match(cssBlock(".pairing-link:hover"), /background:\s*var\(--field\);/);
 });

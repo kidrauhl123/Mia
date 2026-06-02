@@ -12,10 +12,10 @@ function plain(value) {
 }
 
 function loadBrowserGlobal() {
-  const source = fs.readFileSync(path.join(root, "src/shared/avatar-media.js"), "utf8");
+  const source = fs.readFileSync(path.join(root, "packages/shared/avatar.js"), "utf8");
   const context = { window: {} };
   context.globalThis = context.window;
-  vm.runInNewContext(source, context, { filename: "src/shared/avatar-media.js" });
+  vm.runInNewContext(source, context, { filename: "packages/shared/avatar.js" });
   return context.window.miaAvatarMedia;
 }
 

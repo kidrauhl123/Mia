@@ -5,13 +5,13 @@ const vm = require("node:vm");
 const { test } = require("node:test");
 
 const root = path.join(__dirname, "..");
-const sessionHistory = require("../src/shared/session-history");
+const sessionHistory = require("../packages/shared/session-history");
 
 function loadBrowserGlobal() {
-  const source = fs.readFileSync(path.join(root, "src/shared/session-history.js"), "utf8");
+  const source = fs.readFileSync(path.join(root, "packages/shared/session-history.js"), "utf8");
   const context = { window: {} };
   context.globalThis = context.window;
-  vm.runInNewContext(source, context, { filename: "src/shared/session-history.js" });
+  vm.runInNewContext(source, context, { filename: "packages/shared/session-history.js" });
   return context.window.miaSessionHistory;
 }
 
@@ -20,7 +20,17 @@ test("session-history contract is available in Node and browser contexts", () =>
   assert.equal(sessionHistory.conversationType({ id: "fellow:u:mia" }), "fellow");
   assert.equal(browserContract.conversationType({ id: "dm:a:b" }), "dm");
   assert.equal(browserContract.fellowKey({ id: "fellow:u:sess", decorations: { fellowKey: "mia" } }), "mia");
+  assert.equal(browserContract.fellowConversationId("u", "mia"), "fellow:u:mia");
   assert.equal(typeof browserContract.isUntitledFellowConversation, "function");
+});
+
+test("session-history owns fellow conversation id composition", () => {
+  const conversationId = sessionHistory.fellowConversationId(" user_1 ", "provider:mia");
+
+  assert.equal(conversationId, "fellow:user_1:provider:mia");
+  assert.equal(sessionHistory.fellowKey({ id: conversationId }), "provider:mia");
+  assert.throws(() => sessionHistory.fellowConversationId("", "mia"), /ownerUserId required/);
+  assert.throws(() => sessionHistory.fellowConversationId("u", ""), /fellowKey required/);
 });
 
 test("session-history groups fellow conversations by fellow key and sorts by latest message", () => {

@@ -26,9 +26,6 @@ const required = [
   "src/renderer/index.html",
   "src/renderer/app.js",
   "src/renderer/styles.css",
-  "src/mobile/index.html",
-  "src/mobile/app.js",
-  "src/mobile/styles.css",
   "src/web/index.html",
   "src/web/app.js",
   "src/web/styles.css",
@@ -36,6 +33,12 @@ const required = [
   "src/web/apple-touch-icon.png",
   "src/web/icon-192.png",
   "src/web/icon-512.png",
+  "src/web/assets/mia.css",
+  "src/web/assets/mia.js",
+  "src/web/assets/mia-gradient.css",
+  "src/web/assets/mia-scroll.css",
+  "src/web/assets/mia-scroll.js",
+  "src/web/assets/mia-logo.png",
   "src/web/manifest.webmanifest",
   "scripts/serve-web.js",
   "scripts/serve-cloud.js",
@@ -51,7 +54,6 @@ const required = [
   "scripts/smoke-cloud.js",
   "scripts/local-agent-bridge.js",
   "docs/cloud-deployment.md",
-  "src/relay/server.js",
   "scripts/create-mac-dmg.js",
   "skills/_builtin/pet-generator/SKILL.md",
   "skills/_builtin/pet-generator/scripts/prepare_pet_run.py",
@@ -86,7 +88,25 @@ const required = [
   "src/renderer/helpers/markdown-helpers.js",
   "src/renderer/helpers/format-helpers.js",
   "src/renderer/helpers/scrollbar-overlay.js",
+  "packages/shared/package.json",
+  "packages/shared/index.js",
+  "packages/shared/index.d.ts",
+  "packages/shared/avatar.js",
+  "packages/shared/avatar.d.ts",
+  "packages/shared/contact.js",
+  "packages/shared/contact.d.ts",
+  "packages/shared/group-tiles.js",
+  "packages/shared/group-tiles.d.ts",
+  "packages/shared/send-pipeline.js",
+  "packages/shared/send-pipeline.d.ts",
+  "packages/shared/session-history.js",
+  "packages/shared/session-history.d.ts",
+  "packages/shared/cloud-client.js",
+  "packages/shared/cloud-client.d.ts",
+  "packages/shared/fellow-identity.js",
+  "packages/shared/fellow-identity.d.ts",
   "src/shared/avatar-resolve.js",
+  "src/shared/fellow-identity.js",
   "resources/conductor/default-prompts/dispatch.md",
   "resources/conductor/default-prompts/summarize.md",
   "resources/conductor/default-prompts/nudge.md",
@@ -112,7 +132,7 @@ for (const file of forbiddenRootDuplicates) {
   }
 }
 
-for (const file of ["src/main.js", "src/main/chat-engine-adapters.js", "src/main/chat-engine-registry.js", "src/main/chat-events.js", "src/main/chat-response.js", "src/main/claude-code-chat-adapter.js", "src/main/codex-chat-adapter.js", "src/main/fellow-registry.js", "src/main/hermes-chat-adapter.js", "src/cloud/sqlite-store.js", "src/cloud/desktop-bridge-permission.js", "src/permission-modes.js", "src/runtime-resource-paths.js", "src/preload.js", "src/renderer/fellow/fellow-directory.js", "src/renderer/app.js", "src/mobile/app.js", "src/web/app.js", "scripts/serve-web.js", "scripts/serve-cloud.js", "scripts/build-cloud-release.js", "scripts/print-cloud-release-handoff.js", "scripts/verify-cloud-production.js", "scripts/audit-cloud-productization.js", "scripts/diagnose-deploy-ssh.js", "scripts/print-cloud-blockers.js", "scripts/doctor-cloud.js", "scripts/smoke-cloud.js", "scripts/local-agent-bridge.js", "src/relay/server.js"]) {
+for (const file of ["src/main.js", "src/main/chat-engine-adapters.js", "src/main/chat-engine-registry.js", "src/main/chat-events.js", "src/main/chat-response.js", "src/main/claude-code-chat-adapter.js", "src/main/codex-chat-adapter.js", "src/main/fellow-registry.js", "src/main/hermes-chat-adapter.js", "src/cloud/sqlite-store.js", "src/cloud/desktop-bridge-permission.js", "src/permission-modes.js", "src/runtime-resource-paths.js", "src/preload.js", "src/renderer/fellow/fellow-directory.js", "src/renderer/app.js", "src/web/app.js", "packages/shared/index.js", "packages/shared/avatar.js", "packages/shared/contact.js", "packages/shared/group-tiles.js", "packages/shared/send-pipeline.js", "packages/shared/approval-queue.js", "packages/shared/optimistic-send.js", "packages/shared/session-history.js", "packages/shared/cloud-client.js", "packages/shared/fellow-identity.js", "scripts/serve-web.js", "scripts/serve-cloud.js", "scripts/build-cloud-release.js", "scripts/print-cloud-release-handoff.js", "scripts/verify-cloud-production.js", "scripts/audit-cloud-productization.js", "scripts/diagnose-deploy-ssh.js", "scripts/print-cloud-blockers.js", "scripts/doctor-cloud.js", "scripts/smoke-cloud.js", "scripts/local-agent-bridge.js"]) {
   childProcess.execFileSync(process.execPath, ["--check", path.join(__dirname, "..", file)], {
     stdio: "inherit"
   });

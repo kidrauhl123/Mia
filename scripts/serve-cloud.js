@@ -35,6 +35,12 @@ try {
 } catch {
   ({ createFellowsStore } = require("./src/cloud/fellows-store.js"));
 }
+let fellowConversationId = null;
+try {
+  ({ fellowConversationId } = require("../src/shared/session-history.js"));
+} catch {
+  ({ fellowConversationId } = require("./src/shared/session-history.js"));
+}
 let createSkillsStore = null;
 try {
   ({ createSkillsStore } = require("../src/cloud/skills-store.js"));
@@ -121,6 +127,12 @@ try {
   avatarResolve = require("../src/shared/avatar-resolve.js");
 } catch {
   avatarResolve = require("./src/shared/avatar-resolve.js");
+}
+let fellowIdentity = null;
+try {
+  fellowIdentity = require("../src/shared/fellow-identity.js");
+} catch {
+  fellowIdentity = require("./src/shared/fellow-identity.js");
 }
 
 const host = process.env.MIA_CLOUD_HOST || "127.0.0.1";
@@ -306,13 +318,15 @@ function memberIdentityForFellow(fellow, fallbackRef = "", ownerId = "") {
   const id = String(fellow?.id || fallbackRef || "");
   const owner = String(ownerId || fellow?.ownerUserId || fellow?.ownerId || "");
   const displayName = fellowDisplayNameForIdentity(fellow, fallbackRef);
+  const globalId = fellow?.globalId || fellowIdentity.fellowGlobalId(owner, id);
   return {
     kind: "fellow",
     id,
     ownerId: owner,
+    globalId,
     displayName,
     avatar: avatarResolve.resolveAvatarForContact({
-      id: owner ? `${owner}:${id}` : id,
+      id: globalId || (owner ? `${owner}:${id}` : id),
       displayName,
       avatarImage: fellow?.avatarImage || "",
       avatarCrop: fellow?.avatarCrop || null
@@ -460,8 +474,24 @@ function serveWebAsset(req, res, webRoot, pathname) {
   if (!relative || relative.endsWith("/")) relative = path.join(relative, "index.html");
   const root = path.resolve(webRoot);
   const sourceRoot = path.resolve(__dirname, "..", "src");
+  const packageRoot = path.resolve(__dirname, "..", "packages");
   const candidates = [{ resolved: path.resolve(webRoot, relative), allowedRoot: root }];
-  if (relative.startsWith("shared/")) {
+  if (
+    relative === "shared/avatar-resolve.js"
+      || relative === "shared/avatar-media.js"
+      || relative === "shared/member-color.js"
+      || relative === "shared/session-history.js"
+      || relative === "shared/contact.js"
+      || relative === "shared/group-tiles.js"
+      || relative === "shared/send-pipeline.js"
+      || relative === "shared/cloud-client.js"
+      || relative === "shared/unread.js"
+  ) {
+    const packageRelative = relative === "shared/avatar-resolve.js" || relative === "shared/avatar-media.js" || relative === "shared/member-color.js"
+      ? "shared/avatar.js"
+      : relative;
+    candidates.push({ resolved: path.resolve(packageRoot, packageRelative), allowedRoot: packageRoot });
+  } else if (relative.startsWith("shared/")) {
     candidates.push({ resolved: path.resolve(sourceRoot, relative), allowedRoot: sourceRoot });
   } else if (relative.startsWith("message-sources/")) {
     candidates.push({ resolved: path.resolve(sourceRoot, "renderer", relative), allowedRoot: sourceRoot });
@@ -1877,7 +1907,7 @@ async function handleRequest(req, res, context) {
       if (replayIfCached(context, res, auth.user.id, body)) return;
       const existingFellow = context.fellowsStore.getFellow(auth.user.id, fellowId);
       const name = String(body.title || "").trim() || existingFellow?.name || fellowId;
-      const conversationId = `fellow:${auth.user.id}:${fellowId}`;
+      const conversationId = fellowConversationId(auth.user.id, fellowId);
       let conversation = context.socialStore.getConversation(conversationId);
       const hasRuntimeKind = Object.prototype.hasOwnProperty.call(body, "runtimeKind");
       const requestedRuntimeKind = String(body.runtimeKind || "").trim() || undefined;
@@ -1945,7 +1975,7 @@ async function handleRequest(req, res, context) {
       if (!fellowKey) return writeError(res, 400, "fellowKey is required");
       const title = String(body.title || "").trim();
       const requestedRuntimeKind = String(body.runtimeKind || "").trim();
-      const conversationId = `fellow:${auth.user.id}:${sessionId}`;
+      const conversationId = fellowConversationId(auth.user.id, sessionId);
       let conversation = context.socialStore.getConversation(conversationId);
       const decorations = {
         ...(conversation?.decorations || {}),
@@ -2039,6 +2069,7 @@ async function handleRequest(req, res, context) {
       const fellow = context.fellowsStore.upsertFellow(auth.user.id, {
         id,
         name: body.name,
+        color: body.color,
         avatarImage: body.avatarImage,
         avatarCrop: body.avatarCrop,
         bio: body.bio,

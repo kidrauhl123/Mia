@@ -37,7 +37,7 @@ function makeEl() {
 
 function loadAvatar() {
   const resolveSrc = fs.readFileSync(
-    path.join(__dirname, "..", "src", "shared", "avatar-resolve.js"),
+    path.join(__dirname, "..", "packages", "shared", "avatar.js"),
     "utf8"
   );
   const src = fs.readFileSync(
