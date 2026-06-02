@@ -20,6 +20,27 @@ function makeLoader(home) {
   });
 }
 
+function makeBundledLoader(home) {
+  const root = path.resolve(__dirname, "..");
+  return createSkillsLoader({
+    runtimePaths: () => ({ home }),
+    readJson: (filePath, fallback) => {
+      try {
+        return JSON.parse(fs.readFileSync(filePath, "utf8"));
+      } catch {
+        return fallback;
+      }
+    },
+    officialLibraryManifestPath: () => path.join(root, "resources", "official-library", "library.json"),
+    resolveOfficialLibraryRoot: (value = "") => path.join(root, String(value || "")),
+    getEngineState: () => ({ running: false }),
+    apiKey: () => "",
+    appendEngineLog: () => {},
+    isChildPath: (parent, child) =>
+      path.resolve(String(child)).startsWith(path.resolve(String(parent)) + path.sep)
+  });
+}
+
 // A multi-file skill package: SKILL.md + a nested script.
 function makeZip() {
   const zip = new AdmZip();
@@ -181,6 +202,25 @@ test("buildEnabledSkillsContext injects enabled skills' content, empty when none
 
     // unknown ids are skipped
     assert.equal(loader.buildEnabledSkillsContext({ capabilities: { enabledSkills: ["nope"] } }), "");
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("bundled library exposes a Mia scheduler skill for reminder requests", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-skills-loader-"));
+  try {
+    const loader = makeBundledLoader(home);
+    const library = await loader.loadLocalSkills();
+    const skill = library.skills.find((item) => item.name === "mia-scheduler");
+
+    assert.ok(skill, "mia-scheduler appears in bundled official skills");
+    assert.equal(skill.source, "mia-official");
+    assert.match(skill.description, /提醒|定时|schedule/i);
+
+    const ctx = loader.buildEnabledSkillsContext({ capabilities: { enabledSkills: ["mia-scheduler"] } });
+    assert.match(ctx, /schedule_create/);
+    assert.match(ctx, /不要使用 shell/);
   } finally {
     fs.rmSync(home, { recursive: true, force: true });
   }

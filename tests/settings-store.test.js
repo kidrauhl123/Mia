@@ -139,6 +139,34 @@ test("userProfile merges saved profile over defaults", (t) => {
   });
 });
 
+test("fresh userProfile has no hard-coded personal identity", (t) => {
+  const { store } = setup(t);
+
+  assert.deepEqual(store.userProfile(), {
+    displayName: "",
+    avatarText: "",
+    avatarColor: "#111827",
+    avatarImage: "",
+    avatarCrop: { x: 50, y: 50, zoom: 1 }
+  });
+});
+
+test("writeUserProfile keeps empty profile fields empty", (t) => {
+  const { runtime, store } = setup(t);
+
+  const next = store.writeUserProfile({
+    displayName: "",
+    avatarText: "",
+    avatarColor: "",
+    avatarImage: "",
+    avatarCrop: null
+  });
+
+  assert.equal(next.displayName, "");
+  assert.equal(next.avatarText, "");
+  assert.deepEqual(readJson(runtime.userProfile, {}), next);
+});
+
 test("writeUserProfile normalizes visible profile fields and avatar crop", (t) => {
   const { runtime, store } = setup(t);
 

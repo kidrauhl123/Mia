@@ -15,7 +15,7 @@ function tmpStore() {
 test("createFireRunner.fire: ok path records run with outputMessageId", async () => {
   const store = tmpStore();
   const t = store.create({
-    title: "x", fellowId: "f", conversationId: "fellow:u1:f", originMessageId: "m",
+    title: "x", fellowId: "f", sessionId: "conversation:fellow:u1:f", originMessageId: "m",
     trigger: { type: "cron", cron: "0 9 * * *" }, timezone: "UTC", prompt: "do"
   });
   const calls = [];
@@ -43,6 +43,7 @@ test("createFireRunner.fire: ok path records run with outputMessageId", async ()
   assert.equal(calls.length, 1);
   assert.equal(calls[0].fellowKey, "f");
   assert.equal(calls[0].conversationId, "fellow:u1:f");
+  assert.equal(calls[0].agentSessionId, "conversation:fellow:u1:f");
   assert.equal(calls[0].sessionId, undefined);
   assert.equal(calls[0].text, "do");
   // Task runs go through the independent (background) abort path.

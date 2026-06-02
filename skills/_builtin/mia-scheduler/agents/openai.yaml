@@ -1,0 +1,4 @@
+interface:
+  display_name: "Mia Scheduler"
+  short_description: "Create and manage Mia scheduled reminders and recurring tasks."
+  default_prompt: "Use $mia-scheduler to create a Mia scheduled task for the user's reminder request."

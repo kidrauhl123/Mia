@@ -1,4 +1,5 @@
 const crypto = require("node:crypto");
+const { miaRuntimeSystemPrompt } = require("./mia-runtime-context.js");
 
 function defaultNowSeconds() {
   return Math.floor(Date.now() / 1000);
@@ -33,6 +34,7 @@ function createHermesChatAdapter(deps = {}) {
   const randomUUID = deps.randomUUID || (() => crypto.randomUUID());
   const responseModel = deps.responseModel || "hermes-agent";
   const buildEnabledSkillsContext = deps.buildEnabledSkillsContext || (() => "");
+  const runtimeSystemPrompt = deps.runtimeSystemPrompt || miaRuntimeSystemPrompt;
 
   function slashCommandResponse({ id, content }) {
     return {
@@ -71,7 +73,7 @@ function createHermesChatAdapter(deps = {}) {
     return runId;
   }
 
-  async function sendChat({ fellow, sessionId, messages, group, signal, emit, runtimeConfig = null }) {
+  async function sendChat({ fellow, sessionId, messages, group, signal, emit, scheduledFire = false, runtimeConfig = null }) {
     // Tell the scheduler MCP which fellow/session this turn belongs to, so a
     // schedule_create call fires the reminder back into this conversation.
     const lastUserMessage = Array.isArray(messages)
@@ -85,11 +87,19 @@ function createHermesChatAdapter(deps = {}) {
     }
     // Inject the Fellow's enabled skills into the user turn so Hermes uses them.
     const enabledSkills = buildEnabledSkillsContext(fellow);
-    const runMessages = enabledSkills && lastUserMessage
+    const skillMessages = enabledSkills && lastUserMessage
       ? messages.map((m) => (m === lastUserMessage
-          ? { ...m, text: `${enabledSkills}\n\n${m.text != null ? m.text : (m.content || "")}` }
+          ? {
+              ...m,
+              content: `${enabledSkills}\n\n${m.content != null ? m.content : (m.text || "")}`,
+              text: `${enabledSkills}\n\n${m.text != null ? m.text : (m.content || "")}`
+            }
           : m))
       : messages;
+    const runtimeContext = String(runtimeSystemPrompt({ scheduledFire }) || "").trim();
+    const runMessages = runtimeContext
+      ? [{ role: "system", content: runtimeContext }, ...skillMessages]
+      : skillMessages;
     const runBody = buildRunPayload({
       fellow,
       sessionId,

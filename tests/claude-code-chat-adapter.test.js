@@ -76,7 +76,9 @@ test("sendChat streams partials, stores session, and returns chat response", asy
   assert.equal(queryCall.prompt, "GROUP:ctx\nexpanded");
   assert.equal(queryCall.options.cwd, "/repo");
   assert.equal(queryCall.options.pathToClaudeCodeExecutable, "/bin/claude");
-  assert.equal(queryCall.options.systemPrompt.append, "persona");
+  assert.match(queryCall.options.systemPrompt.append, /Mia 是聊天式多 Agent 应用/);
+  assert.match(queryCall.options.systemPrompt.append, /不要使用 shell/);
+  assert.match(queryCall.options.systemPrompt.append, /persona/);
   assert.equal(queryCall.options.plugins[0].path, "/bridge");
   assert.equal(queryCall.options.model, "sonnet");
   assert.equal(queryCall.options.effort, "claude-code:high");
@@ -139,7 +141,8 @@ test("sendChat can persist native sessions for utility turns", async () => {
     "set-session", "claude-code", "kongling", "conversation:fellow:u_1:kongling", "sess_native", "fp1"
   ]);
   const queryCall = deps.calls.find((call) => call[0] === "query")[1];
-  assert.equal(queryCall.options.systemPrompt.append, "persona");
+  assert.match(queryCall.options.systemPrompt.append, /Mia 是聊天式多 Agent 应用/);
+  assert.match(queryCall.options.systemPrompt.append, /persona/);
 });
 
 test("sendChat resumes utility turns when native persistence is enabled", async () => {

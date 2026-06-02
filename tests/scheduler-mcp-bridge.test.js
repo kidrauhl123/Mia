@@ -54,11 +54,12 @@ test("getSpec returns the stdio MCP config with daemon token and context path", 
   const { scriptPath, service } = setup(t);
   fs.mkdirSync(path.dirname(scriptPath), { recursive: true });
   fs.writeFileSync(scriptPath, "server");
+  const runtimeScriptPath = path.join(path.dirname(service.contextPath()), "scheduler-mcp-server.js");
 
   assert.deepEqual(service.getSpec(), {
     type: "stdio",
     command: "/usr/local/bin/node",
-    args: [scriptPath],
+    args: [runtimeScriptPath],
     env: {
       MIA_DAEMON_URL: "http://127.0.0.1:27861",
       MIA_DAEMON_TOKEN: "token_1",
@@ -66,6 +67,7 @@ test("getSpec returns the stdio MCP config with daemon token and context path", 
     },
     alwaysLoad: true
   });
+  assert.equal(fs.readFileSync(runtimeScriptPath, "utf8"), "server");
 });
 
 test("ensureCodexHome links reusable Codex state, isolates sessions, and rewrites only Mia scheduler config", (t) => {
@@ -96,10 +98,13 @@ test("ensureCodexHome links reusable Codex state, isolates sessions, and rewrite
   assert.equal(fs.lstatSync(path.join(codexHome, "config.toml")).isSymbolicLink(), false);
 
   const config = fs.readFileSync(path.join(codexHome, "config.toml"), "utf8");
+  const runtimeScriptPath = path.join(path.dirname(service.contextPath()), "scheduler-mcp-server.js");
   assert.match(config, /model = "gpt"/);
   assert.match(config, /\[mcp_servers\.other\]\ncommand = "keep"/);
   assert.doesNotMatch(config, /command = "old"/);
   assert.match(config, /\[mcp_servers\.mia-scheduler\]/);
   assert.match(config, /command = "\/opt\/node \\"quoted\\""/);
+  assert.match(config, new RegExp(`args = \\["${runtimeScriptPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"\\]`));
+  assert.equal(fs.readFileSync(runtimeScriptPath, "utf8"), "server");
   assert.match(config, /MIA_DAEMON_TOKEN = "token_1"/);
 });

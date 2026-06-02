@@ -240,6 +240,47 @@ function setText(el, value) {
   if (el) el.textContent = value;
 }
 
+function firstNonEmpty(...values) {
+  for (const value of values) {
+    const text = String(value || "").trim();
+    if (text) return text;
+  }
+  return "";
+}
+
+function runtimeUserIdentity(runtime = state.runtime) {
+  const cloudUser = runtime?.cloud?.enabled && runtime?.cloud?.user ? runtime.cloud.user : null;
+  const localUser = runtime?.user || {};
+  const displayName = firstNonEmpty(
+    cloudUser?.displayName,
+    cloudUser?.display_name,
+    cloudUser?.name,
+    cloudUser?.username,
+    cloudUser?.email,
+    localUser.displayName,
+    localUser.name,
+    localUser.username,
+    localUser.account
+  );
+  const username = firstNonEmpty(cloudUser?.username, cloudUser?.account, localUser.username, localUser.account);
+  const avatarText = firstNonEmpty(
+    cloudUser?.avatarText,
+    cloudUser?.avatar_text,
+    localUser.avatarText,
+    displayName ? window.miaAvatar?.initials?.(displayName) : ""
+  );
+  return {
+    id: firstNonEmpty(cloudUser?.id, cloudUser?.userId, cloudUser?.user_id, localUser.id),
+    username,
+    account: firstNonEmpty(cloudUser?.account, localUser.account),
+    displayName,
+    avatarText,
+    avatarColor: firstNonEmpty(cloudUser?.avatarColor, cloudUser?.avatar_color, localUser.avatarColor, "#111827"),
+    avatarImage: firstNonEmpty(cloudUser?.avatarImage, cloudUser?.avatar_image, localUser.avatarImage),
+    avatarCrop: cloudUser?.avatarCrop || cloudUser?.avatar_crop || localUser.avatarCrop || null
+  };
+}
+
 
 function applySidebarWidth(width = state.sidebarWidth, persist = false) {
   const next = clampSidebarWidth(width);
@@ -991,6 +1032,8 @@ function updateModelFieldVisibility(runtime = state.runtime) {
 function render() {
   const runtime = state.runtime;
   if (!runtime) return;
+  const cloudSignedIn = Boolean(runtime?.cloud?.enabled);
+  els.appShell?.setAttribute("data-auth-state", cloudSignedIn ? "signed-in" : "signed-out");
   renderSendButton();
   window.miaMessageHelpers.renderComposerReply();
   // Re-evaluate composer skill chips every render so switching conversations drops
@@ -1019,11 +1062,11 @@ function render() {
     if (els.appearanceSelectionStyle) els.appearanceSelectionStyle.value = window.miaSettingsAppearance.normalizeSelectionStyle(appearance.selectionStyle);
     window.miaSettingsAppearance.syncAppearanceControls(appearance);
   }
-  const user = runtime.user || { displayName: "Boss", avatarText: "B", avatarColor: "#111827", avatarImage: "" };
+  const user = runtimeUserIdentity(runtime);
   window.miaAvatar.applyUserAvatar(els.userAvatar, user);
-  setText(els.userDisplayName, user.displayName || "Boss");
+  setText(els.userDisplayName, user.displayName || "");
   if (!editingProfile && els.profileForm) {
-    els.profileDisplayName.value = user.displayName || "Boss";
+    els.profileDisplayName.value = user.displayName || "";
     window.miaFellowDialog.setProfileAvatarDraft(user.avatarImage || "", user.avatarCrop);
   }
 
@@ -1146,7 +1189,6 @@ function render() {
   // connecting only. An earlier version gated on loggedIn, which was
   // always undefined, so the gate never fired and personas always
   // painted first.
-  const cloudSignedIn = Boolean(state.runtime?.cloud?.enabled);
   const activeCloudConversationId = social?.getActiveConversationId?.();
   // Only fall back to personas[0] when no persona matches AND no group is active.
   // Without this guard, clicking a group (whose id doesn't match any persona key)
@@ -1259,6 +1301,13 @@ function renderView() {
   if (state.activeSettingsTab === "mobile") state.activeSettingsTab = "account";
   if (!document.querySelector(`[data-settings-tab="${state.activeSettingsTab}"]`)) {
     state.activeSettingsTab = "account";
+  }
+  const cloudSignedIn = Boolean(state.runtime?.cloud?.enabled);
+  els.appShell?.setAttribute("data-auth-state", cloudSignedIn ? "signed-in" : "signed-out");
+  if (!cloudSignedIn) {
+    state.activeView = "chat";
+    state.fellowMenuOpen = false;
+    state.contactMenuOpen = false;
   }
   syncNarrowLayout();
   els.conversationSidebar?.classList.toggle("hidden", state.activeView !== "chat");
@@ -1667,7 +1716,7 @@ function renderMessageHtml(message, ctx) {
     : "";
   const userAvatarSpec = window.miaAvatarResolve.resolveAvatarForContact({
     id: state.runtime?.cloud?.user?.id || user.id || user.username || user.displayName || "self",
-    displayName: user.displayName || user.username || "Boss",
+    displayName: user.displayName || user.username || "你",
     avatarImage: user.avatarImage || "",
     avatarCrop: user.avatarCrop || null
   });
@@ -3245,11 +3294,11 @@ els.confirmAvatarCrop?.addEventListener("click", async () => {
     // is preserved by reading whatever is currently in the input.
     try {
       const displayName = (els.profileDisplayName?.value || "").trim()
-        || state.runtime?.user?.displayName
-        || "Boss";
+        || runtimeUserIdentity().displayName
+        || "";
       state.runtime = await window.mia.saveProfile({
         displayName,
-        avatarText: window.miaAvatar.initials(displayName),
+        avatarText: displayName ? window.miaAvatar.initials(displayName) : "",
         avatarImage: state.profileAvatarDraft.image || els.profileAvatarImage?.value || "",
         avatarCrop: window.miaAvatar.normalizeCrop(state.profileAvatarDraft.crop),
       });
@@ -3270,10 +3319,10 @@ els.resetAvatarCrop?.addEventListener("click", () => {
 
 els.profileForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const displayName = els.profileDisplayName.value.trim() || "Boss";
+  const displayName = els.profileDisplayName.value.trim();
   state.runtime = await window.mia.saveProfile({
     displayName,
-    avatarText: window.miaAvatar.initials(displayName),
+    avatarText: displayName ? window.miaAvatar.initials(displayName) : "",
     avatarImage: state.profileAvatarDraft.image || els.profileAvatarImage.value,
     avatarCrop: window.miaAvatar.normalizeCrop(state.profileAvatarDraft.crop)
   });

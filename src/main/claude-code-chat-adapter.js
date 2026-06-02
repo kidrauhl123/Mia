@@ -1,4 +1,5 @@
 const crypto = require("node:crypto");
+const { withMiaRuntimeContext } = require("./mia-runtime-context.js");
 
 function firstTextValue(value) {
   if (typeof value === "string") return value;
@@ -62,7 +63,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
   const randomUUID = deps.randomUUID || (() => crypto.randomUUID());
   const cwd = deps.cwd || (() => process.cwd());
 
-  async function sendChat({ fellow, sessionId, messages, group, signal, abortController, emit, utility = false, persistAgentSession = !utility }) {
+  async function sendChat({ fellow, sessionId, messages, group, signal, abortController, emit, utility = false, scheduledFire = false, persistAgentSession = !utility }) {
     const engine = "claude-code";
     const shouldPersistAgentSession = Boolean(persistAgentSession);
     const commandPath = shellCommandPath("claude");
@@ -82,7 +83,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
     const promptWithGroup = group && group.contextBlock
       ? injectGroupContextForSdk(prompt, group.contextBlock)
       : prompt;
-    const persona = readFellowPersona(fellow.key, fellow.name, fellow.bio).trim();
+    const persona = withMiaRuntimeContext(readFellowPersona(fellow.key, fellow.name, fellow.bio), { scheduledFire }).trim();
     const { query } = await claudeAgentSdk();
     let bridgePluginPath = "";
     let bridgeFingerprint = "";

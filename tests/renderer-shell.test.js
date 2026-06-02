@@ -40,6 +40,26 @@ test("logged-in active pane never falls back to local fellow sessions", () => {
   assert.match(appSource, /els\.chat\.innerHTML = renderCloudLoginGuide\(\);/);
 });
 
+test("signed-out desktop shell is a login gate without default Boss identity", () => {
+  const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const styleSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+  const avatarSource = fs.readFileSync(path.join(root, "src/renderer/helpers/avatar-helpers.js"), "utf8");
+  const dialogSource = fs.readFileSync(path.join(root, "src/renderer/fellow/fellow-dialog.js"), "utf8");
+  const settingsSource = fs.readFileSync(path.join(root, "src/main/settings-store.js"), "utf8");
+
+  for (const source of [html, appSource, avatarSource, dialogSource, settingsSource]) {
+    assert.doesNotMatch(source, /\bBoss\b/);
+  }
+  assert.match(html, /<main class="app-shell" data-auth-state="signed-out">/);
+  assert.match(appSource, /function runtimeUserIdentity\(runtime = state\.runtime\)/);
+  assert.match(appSource, /runtime\?\.cloud\?\.enabled[\s\S]*runtime\?\.cloud\?\.user/);
+  assert.match(appSource, /setAttribute\("data-auth-state", cloudSignedIn \? "signed-in" : "signed-out"\)/);
+  assert.match(styleSource, /\.app-shell\[data-auth-state="signed-out"\] \.nav-rail/);
+  assert.match(styleSource, /\.app-shell\[data-auth-state="signed-out"\] \.composer/);
+  assert.match(styleSource, /\.app-shell\[data-auth-state="signed-out"\] #chatView/);
+});
+
 test("desktop cloud fellow conversations keep private AI composer controls visible", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
 
@@ -63,7 +83,7 @@ test("desktop cloud fellow conversations expose the restored chat history menu",
   assert.match(appSource, /sessionHistory\.createFellowSessionPayload/);
   assert.match(appSource, /sessionHistory\.fellowDisplayTitle/);
   assert.match(appSource, /function createNewCloudSessionForActive\(conversation\)/);
-  assert.match(socialSource, /sessionHistoryShared\(\)\.sidebarConversations\(visibleSocialConversations\(moduleState\.conversations\)/);
+  assert.match(socialSource, /sessionHistoryShared\(\)\.sidebarConversations\(visibleSocialConversations\(moduleState\.conversations,\s*\{/);
   assert.match(appSource, /window\.mia\.social\.ensureFellowSessionConversation/);
   assert.match(preloadSource, /ensureFellowSessionConversation: \(sessionId, body\) => ipcRenderer\.invoke\(IpcChannel\.SocialEnsureFellowSessionConversation, sessionId, body\)/);
   assert.match(socialApiSource, /async ensureFellowSessionConversation\(sessionId, body = \{\}\)/);
@@ -398,6 +418,9 @@ test("contact fallback avatars share text color and round shape styling", () => 
   assert.match(profileBlock, /place-items:\s*center;/);
   assert.match(profileBlock, /color:\s*#fff;/);
   assert.match(rowBlock, /border-radius:\s*50%;/);
+  assert.match(rowBlock, /font-size:\s*11px;/);
+  assert.match(rowBlock, /line-height:\s*1;/);
+  assert.match(rowBlock, /white-space:\s*nowrap;/);
   assert.doesNotMatch(rowBlock, /border-radius:\s*7px;/);
 });
 

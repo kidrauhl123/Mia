@@ -13,6 +13,17 @@
   padding: 14px 18px 10px;
 }
 
+.app-shell[data-auth-state="signed-out"] .chat-layout {
+  grid-template-rows: minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.app-shell[data-auth-state="signed-out"] .chat {
+  align-content: center;
+  justify-items: center;
+  padding: 32px;
+}
+
 .message {
   display: flex;
   gap: 8px;

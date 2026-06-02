@@ -62,6 +62,7 @@ function createDeps(overrides = {}) {
       return overrides.expandedPrompt ?? text;
     },
     ensureCodexHome: () => overrides.codexHomePath ?? "",
+    getSchedulerMcpSpec: () => overrides.schedulerMcpSpec ?? null,
     getAgentSessionId: () => overrides.externalSessionId || "",
     injectGroupContextForSdk: (prompt, contextBlock) => `GROUP:${contextBlock}\n${prompt}`,
     lastUserPrompt: overrides.lastUserPrompt || (() => "hello"),
@@ -80,6 +81,10 @@ test("mapCodexPermissionMode maps known permission modes", () => {
     approvalPolicy: "on-request"
   });
   assert.deepEqual(mapCodexPermissionMode("bypassPermissions"), {
+    sandboxMode: "danger-full-access",
+    approvalPolicy: "never"
+  });
+  assert.deepEqual(mapCodexPermissionMode("yolo"), {
     sandboxMode: "danger-full-access",
     approvalPolicy: "never"
   });
@@ -113,6 +118,8 @@ test("sendChat starts new thread with persona on first turn", async () => {
   assert.equal(deps.calls[2][1].model, "gpt-test");
   assert.equal(deps.calls[2][1].sandboxMode, "read-only");
   assert.match(deps.calls[3][1], /^GROUP:ctx\n以下是 Mia 给当前 Fellow 的人设/);
+  assert.match(deps.calls[3][1], /Mia 是聊天式多 Agent 应用/);
+  assert.match(deps.calls[3][1], /不要使用 shell/);
   assert.match(deps.calls[3][1], /persona/);
   assert.match(deps.calls[3][1], /expanded/);
   assert.deepEqual(deps.calls[3][2], {});
@@ -136,7 +143,9 @@ test("sendChat resumes existing thread without persona injection", async () => {
 
   assert.equal(deps.calls[2][0], "resumeThread");
   assert.equal(deps.calls[2][1], "thread_old");
-  assert.equal(deps.calls[3][1], "expanded");
+  assert.match(deps.calls[3][1], /Mia 是聊天式多 Agent 应用/);
+  assert.match(deps.calls[3][1], /expanded/);
+  assert.doesNotMatch(deps.calls[3][1], /以下是 Mia 给当前 Fellow 的人设/);
   assert.equal(deps.calls.some((call) => call[0] === "set-session"), false);
   assert.equal(response.id, "thread_old");
 });
@@ -272,7 +281,12 @@ test("sendChat streams Codex agent message deltas when emit is provided", async 
 });
 
 test("sendChat uses Codex app-server runner for interactive approval-capable turns", async () => {
-  const deps = createDeps({ expandedPrompt: "expanded" });
+  const schedulerMcpSpec = {
+    command: "/opt/node",
+    args: ["/tmp/mia-scheduler.js"],
+    env: { MIA_DAEMON_URL: "http://127.0.0.1:27861" }
+  };
+  const deps = createDeps({ expandedPrompt: "expanded", schedulerMcpSpec });
   const permissionCoordinator = { requestPermission: async () => ({ decision: "allow", scope: "once" }) };
   deps.permissionCoordinator = permissionCoordinator;
   deps.runCodexAppServerTurn = async (args) => {
@@ -298,6 +312,7 @@ test("sendChat uses Codex app-server runner for interactive approval-capable tur
   assert.equal(call.options.approvalPolicy, "untrusted");
   assert.equal(call.options.sandboxMode, "workspace-write");
   assert.equal(call.permissionCoordinator, permissionCoordinator);
+  assert.deepEqual(call.mcpServers, { "mia-scheduler": schedulerMcpSpec });
   assert.equal(call.fellowKey, "alice");
   assert.equal(call.sessionId, "s1");
   assert.equal(response.id, "app_thread_1");

@@ -52,6 +52,31 @@ function createSchedulerMcpBridge(deps = {}) {
     return path.join(runtimePaths().runtime, "scheduler-mcp", "context.json");
   }
 
+  function runtimeServerScriptPath() {
+    return path.join(runtimePaths().runtime, "scheduler-mcp", "scheduler-mcp-server.js");
+  }
+
+  function materializeServerScript() {
+    const sourcePath = serverScriptPath();
+    if (!sourcePath || !fsImpl.existsSync(sourcePath)) return "";
+    let source = "";
+    try {
+      source = fsImpl.readFileSync(sourcePath, "utf8");
+    } catch {
+      return "";
+    }
+    const targetPath = runtimeServerScriptPath();
+    fsImpl.mkdirSync(path.dirname(targetPath), { recursive: true });
+    let current = null;
+    try {
+      current = fsImpl.readFileSync(targetPath, "utf8");
+    } catch {
+      // Missing or unreadable target: rewrite below.
+    }
+    if (current !== source) fsImpl.writeFileSync(targetPath, source, "utf8");
+    return targetPath;
+  }
+
   function writeContext({ fellowId = "", sessionId = "", originMessageId = "" } = {}) {
     const filePath = contextPath();
     fsImpl.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -71,8 +96,8 @@ function createSchedulerMcpBridge(deps = {}) {
   function getSpec() {
     const baseUrl = daemonBaseUrl();
     if (!baseUrl) return null;
-    const scriptPath = serverScriptPath();
-    if (!fsImpl.existsSync(scriptPath)) return null;
+    const scriptPath = materializeServerScript();
+    if (!scriptPath) return null;
     const command = resolveNodePath();
     if (!command) return null;
     return {
@@ -150,8 +175,8 @@ function createSchedulerMcpBridge(deps = {}) {
   function ensureCodexHome() {
     const baseUrl = daemonBaseUrl();
     if (!baseUrl) return "";
-    const scriptPath = serverScriptPath();
-    if (!fsImpl.existsSync(scriptPath)) return "";
+    const scriptPath = materializeServerScript();
+    if (!scriptPath) return "";
     const command = resolveNodePath();
     if (!command) return "";
 

@@ -75,6 +75,8 @@ const { createAgentSessionStore } = require("./main/agent-session-store.js");
 const { createAgentPermissionCoordinator } = require("./main/agent-permission-coordinator.js");
 const { runCodexAppServerTurn } = require("./main/codex-app-server-runner.js");
 const { createSchedulerMcpBridge } = require("./main/scheduler-mcp-bridge.js");
+const { schedulerSkillIdsForTurn } = require("./main/scheduler-skill-detector.js");
+const { deliverTaskReplyToConversation } = require("./main/task-reply-delivery.js");
 const { createSystemHermesService } = require("./main/system-hermes-service.js");
 const { createEngineRuntimeConfigService } = require("./main/engine-runtime-config-service.js");
 const { createEngineHealthService } = require("./main/engine-health-service.js");
@@ -788,6 +790,10 @@ async function runRemoteChatRequest(body, eventSink = null) {
     messages: runMessages,
     webContents: tracedEventSink,
     background: Boolean(body?.background),
+    // A fired scheduled task carries meta.taskId. Switch the agent into
+    // execution mode for this turn so the replayed task prompt is run, not
+    // re-interpreted as a fresh "create a task" request.
+    scheduledFire: Boolean(body?.meta?.taskId),
     persistAgentSession: true
   });
   const responseMessage = response?.choices?.[0]?.message || {};
@@ -840,19 +846,25 @@ async function runRemoteChatRequest(body, eventSink = null) {
   // the same path web/cloud fellow replies use — so it shows up and notifies in
   // the message list (and syncs to web / other devices). Only for background
   // (task) runs; foreground and web chats already reach the conversation themselves.
+  let deliveredAssistantMessageId = assistantMessageId;
   if (body?.background && assistantText.trim()) {
     const cloud = settingsStore.cloudSettings();
-    if (cloud.enabled && cloud.token && cloud.user?.id) {
-      const targetConversationId = conversationId || fellowConversationId(cloud.user.id, fellow.key);
-      Promise.resolve(socialApi.postConversationMessageAsFellow(targetConversationId, {
-        fellowId: fellow.key,
-        bodyMd: assistantText,
-        ...(Object.keys(assistantTracePayload).length ? { trace: assistantTracePayload } : {}),
-        clientOpId: `op_task_${body?.meta?.taskRunId || agentSessionId}_${assistantMessageId}`
-      })).catch((error) => appendDaemonLog(`Task reply conversation post failed: ${error?.message || error}`));
-    }
+    const fallbackConversationId = cloud?.user?.id ? fellowConversationId(cloud.user.id, fellow.key) : "";
+    const delivery = await deliverTaskReplyToConversation({
+      socialApi,
+      settingsStore,
+      fellow,
+      conversationId,
+      fallbackConversationId,
+      assistantText,
+      assistantTracePayload,
+      taskRunId: body?.meta?.taskRunId || agentSessionId,
+      fallbackMessageId: assistantMessageId
+    });
+    deliveredAssistantMessageId = delivery.messageId || assistantMessageId;
+    savedAssistant.id = deliveredAssistantMessageId;
   }
-  return { fellow, session: responseConversation, response, userMessageId, assistantMessageId };
+  return { fellow, session: responseConversation, response, userMessageId, assistantMessageId: deliveredAssistantMessageId };
 }
 
 let tasksStore = null;
@@ -1311,6 +1323,7 @@ function createActiveCodexChatAdapter() {
     ensureCodexHome: schedulerMcpBridge.ensureCodexHome,
     expandLeadingSkillCommand: skillsLoader.expandLeadingSkillCommand,
     getAgentSessionId: agentSessionStore.getId,
+    getSchedulerMcpSpec: schedulerMcpBridge.getSpec,
     injectGroupContextForSdk: _passthroughGroupContext,
     lastUserPrompt: hermesRunService.lastUserPrompt,
     normalizeEffortLevel: settingsStore.normalizeEffortLevel,
@@ -1363,7 +1376,7 @@ function fellowWithRuntimeConfig(fellow, runtimeConfig = {}) {
   };
 }
 
-async function sendChat({ fellowKey, personaKey, sessionId, messages, group, webContents, emit: externalEmit = null, utility = false, persistAgentSession = undefined, background = false, allowSlashCommands = true, runtimeConfig = null, activeSkillIds = [] }) {
+async function sendChat({ fellowKey, personaKey, sessionId, messages, group, webContents, emit: externalEmit = null, utility = false, persistAgentSession = undefined, background = false, scheduledFire = false, allowSlashCommands = true, runtimeConfig = null, activeSkillIds = [] }) {
   utility = Boolean(utility);
   const shouldPersistAgentSession = persistAgentSession == null
     ? !utility
@@ -1404,16 +1417,17 @@ async function sendChat({ fellowKey, personaKey, sessionId, messages, group, web
     // is injected) AND prepend a directive to the user's message so the agent
     // actually USES them this turn — merely enabling is a no-op when the skill
     // is already in the Fellow's enabled set (the "AI picks" case).
-    if (Array.isArray(activeSkillIds) && activeSkillIds.length) {
+    const turnActiveSkillIds = schedulerSkillIdsForTurn({ messages, activeSkillIds, utility, group, background });
+    if (turnActiveSkillIds.length) {
       const caps = fellowForTurn.capabilities || {};
       fellowForTurn = {
         ...fellowForTurn,
         capabilities: {
           ...caps,
-          enabledSkills: [...new Set([...(caps.enabledSkills || []), ...activeSkillIds.map((id) => String(id))])]
+          enabledSkills: [...new Set([...(caps.enabledSkills || []), ...turnActiveSkillIds.map((id) => String(id))])]
         }
       };
-      const directive = skillsLoader.buildActiveSkillsDirective(activeSkillIds);
+      const directive = skillsLoader.buildActiveSkillsDirective(turnActiveSkillIds);
       if (directive && Array.isArray(messages)) {
         const next = messages.slice();
         for (let i = next.length - 1; i >= 0; i--) {
@@ -1446,6 +1460,7 @@ async function sendChat({ fellowKey, personaKey, sessionId, messages, group, web
       abortController,
       emit,
       utility,
+      scheduledFire,
       persistAgentSession: shouldPersistAgentSession,
       slashText,
       runtimeConfig: turnRuntimeConfig

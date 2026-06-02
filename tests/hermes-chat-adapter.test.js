@@ -164,6 +164,34 @@ test("sendChat writes scheduler MCP context for the current fellow/session", asy
   ]);
 });
 
+test("sendChat injects Mia runtime context as Hermes system instructions", async () => {
+  const buildCalls = [];
+  const deps = createDeps({
+    buildRunPayload: (input) => {
+      buildCalls.push(input);
+      return {
+        model: "hermes-agent",
+        input: input.messages?.at(-1)?.content || "",
+        session_id: input.sessionId || "default",
+        account_id: input.fellow.key,
+        metadata: { fellow_key: input.fellow.key }
+      };
+    }
+  });
+  const adapter = createHermesChatAdapter(deps);
+
+  await adapter.sendChat({
+    fellow,
+    sessionId: "s1",
+    messages: [{ role: "user", content: "hi" }],
+    signal: null
+  });
+
+  assert.equal(buildCalls[0].messages[0].role, "system");
+  assert.match(buildCalls[0].messages[0].content, /Mia 是聊天式多 Agent 应用/);
+  assert.match(buildCalls[0].messages[0].content, /不要使用 shell/);
+});
+
 test("sendStateless uses ephemeral session and omits fellow overlay headers", async () => {
   const deps = createDeps();
   const adapter = createHermesChatAdapter(deps);

@@ -135,3 +135,21 @@ test("session-history collapses fellow sessions for sidebars but keeps the activ
     { id: "rongcha", name: "荣茶" }
   ]), "荣茶");
 });
+
+test("session-history honors the device-local last selected fellow session in sidebar collapse", () => {
+  const messages = new Map([
+    ["fellow:u:first", { messages: [{ created_at: "2026-01-03T00:00:00.000Z" }] }],
+    ["fellow:u:last-selected", { messages: [{ created_at: "2026-01-01T00:00:00.000Z" }] }]
+  ]);
+  const conversations = [
+    { id: "fellow:u:first", type: "fellow", decorations: { fellowKey: "nhnh" } },
+    { id: "fellow:u:last-selected", type: "fellow", decorations: { fellowKey: "nhnh" } }
+  ];
+
+  const sidebar = sessionHistory.sidebarConversations(conversations, {
+    messageCache: messages,
+    preferredConversationIdByFellowKey: { nhnh: "fellow:u:last-selected" }
+  });
+
+  assert.deepEqual(sidebar.map((conversation) => conversation.id), ["fellow:u:last-selected"]);
+});
