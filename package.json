@@ -46,7 +46,7 @@
     "prepack": "npm run hermes:runtime",
     "pack": "electron-builder --dir",
     "dist": "npm run dist:mac",
-    "dist:mac": "npm run hermes:runtime:mac-arm64 && electron-builder --mac dir && node scripts/create-mac-dmg.js"
+    "dist:mac": "npm run hermes:runtime:mac-arm64 && electron-builder --mac dir zip --publish never && node scripts/create-mac-dmg.js"
   },
   "hermes": {
     "version": "2026.5.29",
@@ -62,6 +62,7 @@
     "@openai/codex-sdk": "^0.130.0",
     "adm-zip": "^0.5.17",
     "cron-parser": "^4.9.0",
+    "electron-updater": "^6.8.3",
     "js-yaml": "^4.1.1",
     "ws": "^8.20.1"
   },
@@ -73,6 +74,11 @@
     },
     "asar": true,
     "compression": "maximum",
+    "publish": {
+      "provider": "github",
+      "owner": "kidrauhl123",
+      "repo": "Mia"
+    },
     "files": [
       "package.json",
       "packages/shared/**/*",
@@ -101,7 +107,8 @@
     ],
     "mac": {
       "target": [
-        "dir"
+        "dir",
+        "zip"
       ],
       "icon": "build/icon.icns",
       "category": "public.app-category.productivity",

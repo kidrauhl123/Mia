@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, screen, shell } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, screen, shell } = require("electron");
 const { spawn, spawnSync } = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
@@ -37,6 +37,7 @@ const { createFellowService } = require("./main/fellow-service.js");
 const { createRuntimePaths } = require("./main/runtime-paths.js");
 const { createSettingsStore } = require("./main/settings-store.js");
 const { createWindowStateManager } = require("./main/window-state.js");
+const { createAutoUpdateService } = require("./main/updater/auto-update-service.js");
 const { createSkillsLoader } = require("./main/skills-loader.js");
 const { createTasksStore } = require("./main/tasks-store.js");
 const { createScheduler, sweepMissedCronTasks } = require("./main/scheduler.js");
@@ -1878,6 +1879,15 @@ ipcMain.handle(IpcChannel.PetRecall, (_event, key) => fellowPetService.recall(ke
 
 registerTasksIpc({ ipcMain, callDaemonTasks: (...args) => daemonTasksClient.call(...args) });
 
+const autoUpdateService = createAutoUpdateService({
+  // Lazy: constructs the electron-updater singleton only when the foreground
+  // window calls start(), so it's never materialized in the daemon process.
+  getAutoUpdater: () => require("electron-updater").autoUpdater,
+  dialog,
+  isPackaged: app.isPackaged,
+  getMainWindow: () => BrowserWindow.getAllWindows()[0] || null,
+});
+
 app.whenReady().then(async () => {
   startupTimer.mark("app:ready");
   if (!IS_DAEMON_PROCESS && !shouldRunDesktopInstance) return;
@@ -1914,6 +1924,7 @@ app.whenReady().then(async () => {
   }
   const win = createWindow();
   startupTimer.mark("window:created");
+  autoUpdateService.start();
   daemonTasksClient.startEvents();
   startCloudEvents();
   startCloudBridge(); // self-gates: defers to the daemon when it's enabled
