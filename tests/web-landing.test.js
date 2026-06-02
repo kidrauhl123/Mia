@@ -45,8 +45,10 @@ test("web root is a promo landing page with download and app entry points", () =
   assert.match(js, /prefers-reduced-motion: reduce/);
   assert.match(scrollJs, /IntersectionObserver/);
   assert.match(scrollJs, /prefers-reduced-motion: reduce/);
-  assert.match(html, /href="\/downloads\/mia-macos-arm64-latest\.dmg"/);
+  assert.match(html, /href="\/downloads\/mia-macos-apple-silicon-latest\.dmg"/);
   assert.match(html, /download="Mia-macOS-Apple-Silicon\.dmg"/);
+  assert.match(html, /href="\/downloads\/mia-android-latest\.apk"/);
+  assert.match(html, /下载 Android 版/);
   assert.match(html, /href="\/app\/"/);
   assert.match(html, />\s*打开网页版\s*</);
   assert.match(html, /下载 macOS 版/);
