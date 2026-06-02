@@ -2453,7 +2453,7 @@
     setActiveConversationId(savedId);
   }
 
-  function markConversationRead(conversationId) {
+  async function markConversationRead(conversationId, _retried = false) {
     if (!conversationId) return;
     moduleState.unreadByConversation.delete(conversationId);
     const cache = moduleState.messageCache.get(conversationId);
@@ -2464,14 +2464,28 @@
     const nextOverrides = { ...(s.unreadOverrides || {}) };
     delete nextOverrides[conversationId];
     moduleState.cloudSettings = { ...s, readMarks: nextReadMarks, unreadOverrides: nextOverrides };
-    window.mia?.social?.settingsPut?.({
-      pins: s.pins,
-      readMarks: nextReadMarks,
-      appearance: s.appearance,
-      mutedConversations: s.mutedConversations || [],
-      unreadOverrides: nextOverrides,
-      expectedVersion: s.version || 0
-    }).catch((err) => console.warn("[social] mark-read settingsPut failed:", err?.message || err));
+    try {
+      const updated = await window.mia?.social?.settingsPut?.({
+        pins: s.pins,
+        readMarks: nextReadMarks,
+        appearance: s.appearance,
+        mutedConversations: s.mutedConversations || [],
+        unreadOverrides: nextOverrides,
+        expectedVersion: s.version || 0
+      });
+      // Capture the server's new version; without this the local version stays
+      // stale (or 0 before the first bootstrap) and every later write 409s.
+      if (updated && typeof updated === "object") moduleState.cloudSettings = normalizeCloudSettings(updated, moduleState.cloudSettings || s);
+    } catch (err) {
+      // 409: our version is stale (common during startup, when a restored
+      // conversation marks read before bootstrapCloudSettings lands). Re-pull the
+      // authoritative version and retry once, re-applying the mark on top.
+      if (!_retried && /409|version conflict/i.test(String(err?.message || ""))) {
+        await bootstrapCloudSettings();
+        return markConversationRead(conversationId, true);
+      }
+      console.warn("[social] mark-read settingsPut failed:", err?.message || err);
+    }
   }
 
   // Phase 3: pin state lives in cloud user_settings (server-canonical).

@@ -10,7 +10,7 @@
    the background snaps light->dark instantly, then the heading fades
    in dead-centre while the card flies off the top.
    ============================================================ */
-.hero-track { position: relative; height: 340vh; }
+.hero-track { position: relative; height: 540vh; }
 .hero.hero-pin {
   position: sticky;
   top: 0;
@@ -39,13 +39,13 @@
   background: #3c315b;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.12s linear, background-color 0.3s ease;
+  transition: opacity 0.12s linear, background-color 0.12s linear;
 }
 /* the heading: dead-centre, fades in only (never slides) */
 .hero-pin-heading {
   position: absolute;
   inset: 0;
-  z-index: 1;
+  z-index: 3;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -54,7 +54,31 @@
   padding: 0 24px;
   opacity: 0;
   pointer-events: none;
+  will-change: opacity, transform;
 }
+/* act-2 group-relay demo card, floating on the dark purple */
+.hero-demo {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: min(660px, 92vw);
+  transform: translate(-50%, 58vh);
+  z-index: 5;
+  opacity: 0;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+.hero-demo .miawin { margin: 0; background: #ffffff; }
+.hero-demo .miawin--2 .miawin-grid {
+  grid-template-columns: 56px minmax(0, 1fr);
+  height: min(496px, 66vh);
+}
+.hero-demo .mw-body { overflow: hidden; }
+/* dark-purple rail with light, self-adapting icons (card floats on dark) */
+.hero-demo .mw-rail { background: #2b2350; }
+.hero-demo .mw-rail-btn { color: rgba(255,255,255,0.62); }
+.hero-demo .mw-rail-btn.on { background: rgba(255,255,255,0.16); color: #ffffff; }
+.hero-demo .mw-rail-div { background: rgba(255,255,255,0.18); }
 .hero-pin-heading .hph-kicker {
   color: rgba(255,255,255,0.5);
   font-size: 14px; font-weight: 600; letter-spacing: 0.03em;
@@ -70,6 +94,8 @@
   max-width: 15ch;
   text-wrap: balance;
 }
+/* heading 2 sits on the WHITE snap — needs dark ink */
+#heroPinHeading2 h2 { color: var(--ink); }
 
 .scrolly {
   position: relative;
@@ -78,16 +104,21 @@
   background: #ffffff;
   transition: background-color 0.45s ease;
 }
-/* step 1 stays dark (continues the hero moment); from step 2 it turns light */
-.scrolly.steps-dark { background: #3c315b; }
-.scrolly.steps-dark .sstep h3 { color: #ffffff; }
-.scrolly.steps-dark .sstep p { color: rgba(255,255,255,0.66); }
-.scrolly.steps-dark .sstep-idx { color: rgba(255,255,255,0.6); }
-.scrolly.steps-dark .sstep-idx i { background: rgba(255,255,255,0.13); color: rgba(255,255,255,0.85); }
-.scrolly.steps-dark .sstep-tags span { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.18); color: rgba(255,255,255,0.82); }
-.scrolly.steps-dark .sv-progress i { background: rgba(255,255,255,0.22); }
-.scrolly.steps-dark .sv-progress i.on { background: #ffffff; }
-.scrolly.steps-dark .sv-window { box-shadow: 0 50px 120px rgba(0,0,0,0.5), 0 10px 30px rgba(0,0,0,0.28); border-color: rgba(255,255,255,0.1); }
+/* step 1 stays dark (continues the hero moment); from step 2 it turns light.
+   Desktop-only: on ≤900px the stacked layout uses a sticky shared visual, so
+   the whole steps section stays light and the dark beat is carried by the
+   full-bleed heading panel instead (see mia-mobile.css). */
+@media (min-width: 901px) {
+  .scrolly.steps-dark { background: #3c315b; }
+  .scrolly.steps-dark .sstep h3 { color: #ffffff; }
+  .scrolly.steps-dark .sstep p { color: rgba(255,255,255,0.66); }
+  .scrolly.steps-dark .sstep-idx { color: rgba(255,255,255,0.6); }
+  .scrolly.steps-dark .sstep-idx i { background: rgba(255,255,255,0.13); color: rgba(255,255,255,0.85); }
+  .scrolly.steps-dark .sstep-tags span { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.18); color: rgba(255,255,255,0.82); }
+  .scrolly.steps-dark .sv-progress i { background: rgba(255,255,255,0.22); }
+  .scrolly.steps-dark .sv-progress i.on { background: #ffffff; }
+  .scrolly.steps-dark .sv-window { box-shadow: 0 50px 120px rgba(0,0,0,0.5), 0 10px 30px rgba(0,0,0,0.28); border-color: rgba(255,255,255,0.1); }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .hero-track { height: auto; }
@@ -417,4 +448,22 @@
   padding: 36px;
   justify-content: center;
   gap: 14px;
+}
+
+/* merged "随处可用 · 自由选模型" scene: devices + engines side by side */
+.sv-combo {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 28px;
+  width: 100%;
+  align-content: center;
+}
+.sv-combo-h {
+  font-size: 12px; font-weight: 600; letter-spacing: 0.04em;
+  color: var(--ink-3); margin: 0 0 12px 2px;
+}
+.sv-combo .sv-devices,
+.sv-combo .sv-engines { display: flex; flex-direction: column; gap: 10px; }
+@media (max-width: 560px) {
+  .sv-combo { grid-template-columns: 1fr; gap: 18px; }
 }

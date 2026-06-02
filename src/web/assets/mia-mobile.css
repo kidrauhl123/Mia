@@ -1,0 +1,197 @@
+/* ============================================================
+   Mia — Mobile / narrow-screen layer  (≤900px tablet, ≤680px phone)
+   The hero is a pinned scroll sequence: the content scrubs up, the
+   background SNAPS from white to dark, and the heading fades in centred.
+   On phones the desktop 3-column app window collapses to a single chat
+   card — which still works as the element that scrubs away — so we KEEP
+   the snap here too, and only the steps below switch to clean stacked
+   cards (the desktop scrollytelling dimming doesn't stack well).
+   ============================================================ */
+
+/* the bespoke per-step visual is mobile-only */
+.sstep-viz { display: none; }
+
+@media (max-width: 900px) {
+  /* hero pinned sequence stays ON — just size it for a phone viewport */
+  .hero-track { height: 520vh; }
+  /* group-relay demo card: single-column chat on phones (rail hidden above) */
+  .hero-demo { width: 92vw; }
+  .hero-demo .miawin--2 .miawin-grid { grid-template-columns: 1fr; height: min(62vh, 440px); }
+  .hero-demo .mw-rail { display: none; }
+  .hero-demo .mw-top { padding-top: 14px; }
+  .hero.hero-pin {
+    padding-top: 72px;
+    min-height: 0;
+  }
+  .hero.hero-pin .hero-inner { gap: 28px; }
+
+  /* heading overlay: a touch smaller on narrow screens */
+  .hero-pin-heading h2 {
+    font-size: clamp(27px, 7vw, 42px);
+    max-width: 18ch;
+  }
+
+  /* STEPS — match the widescreen choreography: each step is a FULL-SCREEN
+     colour panel you scroll through (the desktop sticky-window + dimming
+     scrollytelling collapses into a mess when stacked). The dark step 1
+     continues straight on from the hero snap, then white → yellow → pink,
+     every colour filling the whole viewport. */
+  .scrolly { background: #f1edfb; padding: 0; transition: none; }
+  .work-bg { transition: none; }   /* instant full-screen colour snap */
+  .scrolly-visual { display: none !important; }   /* hide the shared sticky window */
+  .scrolly > .wrap { max-width: none; padding: 0; }
+  .scrolly-grid { display: block; }
+  .scrolly-steps { position: relative; padding: 0; margin: 0; height: 100vh; }
+  /* fixed full-screen stage: exactly ONE step is shown at a time, centred,
+     while the shared #workBg snaps the whole screen to its colour. No two
+     panels are ever on screen together, so there is no seam and no
+     dark-text-on-dark. The 400vh .scrolly-steps box above is the scroll room. */
+  .sstep {
+    position: fixed;
+    left: 0; right: 0; top: 0;
+    height: 100vh;
+    width: 100%;
+    margin: 0;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 96px 28px;
+    background: transparent;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    z-index: 1;
+  }
+  .sstep.active { opacity: 1; visibility: visible; pointer-events: auto; }
+  .sstep h3 { font-size: clamp(28px, 8vw, 40px); margin: 0 0 14px; }
+  .sstep p { font-size: 16px; margin: 0; max-width: 30ch; }
+  .sstep .sstep-idx { margin-bottom: 18px; }
+  .sstep .sstep-idx i { background: var(--accent); color: #fff; }
+  .sstep .sstep-tags { margin-top: 24px; }
+
+  /* the background colour comes entirely from the shared #workBg snap layer,
+     so the panels themselves stay transparent */
+  .sstep[data-step="0"], .sstep[data-step="1"],
+  .sstep[data-step="2"], .sstep[data-step="3"] { background: transparent; }
+
+  /* dark step 1: light text, like the widescreen steps-dark state */
+  .sstep[data-step="0"] h3 { color: #ffffff; }
+  .sstep[data-step="0"] p { color: rgba(255,255,255,0.7); }
+  .sstep[data-step="0"] .sstep-idx { color: rgba(255,255,255,0.6); }
+  .sstep[data-step="0"] .sstep-idx i { background: rgba(255,255,255,0.16); color: #fff; }
+  .sstep[data-step="0"] .sstep-tags span {
+    background: rgba(255,255,255,0.08);
+    border-color: rgba(255,255,255,0.2);
+    color: rgba(255,255,255,0.85);
+  }
+
+  /* the little pill tags read as clutter next to the bespoke visual — drop them on mobile */
+  .sstep .sstep-tags { display: none; }
+
+  /* per-step VISUAL — bespoke graphic (icons + motion, minimal text) instead
+     of cloning the text-heavy desktop chat scenes */
+  .sstep-viz {
+    display: block;
+    position: relative;
+    margin-top: 34px;
+    height: 184px;
+    border-radius: 22px;
+    overflow: hidden;
+    background: rgba(255,255,255,0.62);
+    border: 1px solid rgba(0,0,0,0.06);
+    box-shadow: 0 18px 44px rgba(28,22,60,0.12);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+  }
+  .sstep[data-step="0"] .sstep-viz {
+    background: rgba(255,255,255,0.07);
+    border-color: rgba(255,255,255,0.14);
+    box-shadow: none;
+  }
+
+  /* (1) relay: a hub broadcasting to three agent dots */
+  .viz-relay { display: flex; align-items: center; justify-content: center; }
+  .vr-core {
+    width: 56px; height: 56px; border-radius: 50%; z-index: 2;
+    background: linear-gradient(145deg, #6f6cf0, #5450dc); color: #fff;
+    display: grid; place-items: center; font: 700 22px/1 system-ui;
+    box-shadow: 0 6px 20px rgba(84,80,220,0.55);
+  }
+  .vr-ring {
+    position: absolute; width: 56px; height: 56px; border-radius: 50%;
+    border: 1.5px solid rgba(143,139,255,0.7); animation: vrpulse 2.8s ease-out infinite;
+  }
+  .vr-ring.r2 { animation-delay: 1.4s; }
+  @keyframes vrpulse { 0% { transform: scale(1); opacity: 0.7; } 100% { transform: scale(3); opacity: 0; } }
+  .vr-dot {
+    position: absolute; width: 42px; height: 42px; border-radius: 50%; background: #fff;
+    display: grid; place-items: center; box-shadow: 0 6px 16px rgba(0,0,0,0.28);
+  }
+  .vr-dot svg { width: 21px; height: 21px; fill: none; stroke: #5450dc; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .vr-dot.d1 { top: 30px; left: 22%; } .vr-dot.d2 { top: 30px; right: 22%; } .vr-dot.d3 { bottom: 30px; left: 50%; transform: translateX(-50%); }
+
+  /* (2) permission: command chip + approve/deny */
+  .viz-perm { display: flex; flex-direction: column; justify-content: center; gap: 14px; padding: 0 22px; }
+  .vp-cmd {
+    display: flex; align-items: center; gap: 10px; background: #fff;
+    border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.06);
+  }
+  .vp-cmd svg { width: 19px; height: 19px; fill: none; stroke: #5450dc; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  .vp-cmd code { font: 600 14px/1 ui-monospace, SFMono-Regular, monospace; color: var(--ink); }
+  .vp-pulse { width: 9px; height: 9px; border-radius: 50%; background: #f59e0b; margin-left: auto; animation: vpp 1.7s infinite; }
+  @keyframes vpp { 0% { box-shadow: 0 0 0 0 rgba(245,158,11,0.5); } 70% { box-shadow: 0 0 0 10px rgba(245,158,11,0); } 100% { box-shadow: 0 0 0 0 rgba(245,158,11,0); } }
+  .vp-actions { display: flex; gap: 10px; }
+  .vp-deny, .vp-allow { display: inline-flex; align-items: center; gap: 6px; border-radius: 10px; padding: 11px 16px; font: 600 14px/1 system-ui; }
+  .vp-deny { background: #f1f0f4; color: var(--ink-3); }
+  .vp-deny svg { width: 15px; height: 15px; stroke: currentColor; stroke-width: 2.2; fill: none; stroke-linecap: round; }
+  .vp-allow { background: var(--accent); color: #fff; flex: 1; justify-content: center; }
+  .vp-allow svg { width: 16px; height: 16px; stroke: #fff; stroke-width: 2.4; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* (3) sync: three devices with a flowing dot along the line */
+  .viz-sync { display: flex; align-items: center; justify-content: space-between; padding: 0 34px; }
+  .vs-line { position: absolute; left: 46px; right: 46px; top: 50%; height: 2px; background: rgba(60,49,91,0.16); }
+  .vs-flow { position: absolute; top: 50%; width: 10px; height: 10px; border-radius: 50%; margin-top: -5px; background: #5450dc; box-shadow: 0 0 12px rgba(84,80,220,0.8); animation: vsflow 2.6s ease-in-out infinite; }
+  @keyframes vsflow { 0% { left: 46px; } 50% { left: calc(100% - 56px); } 100% { left: 46px; } }
+  .vs-dev { position: relative; z-index: 2; width: 60px; height: 60px; border-radius: 16px; background: #fff; display: grid; place-items: center; box-shadow: 0 6px 16px rgba(0,0,0,0.12); }
+  .vs-dev svg { width: 27px; height: 27px; fill: none; stroke: #5450dc; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* (4) engines: three logos, the middle one selected */
+  .viz-eng { display: flex; align-items: center; justify-content: center; gap: 18px; }
+  .ve-chip { position: relative; width: 64px; height: 64px; border-radius: 18px; background: #fff; display: grid; place-items: center; box-shadow: 0 6px 16px rgba(0,0,0,0.1); }
+  .ve-chip img, .ve-chip svg { width: 30px; height: 30px; }
+  .ve-chip.sel { outline: 2.5px solid var(--accent); outline-offset: 2px; transform: scale(1.08); }
+  .ve-tick { position: absolute; top: -8px; right: -8px; width: 22px; height: 22px; border-radius: 50%; background: var(--accent); display: grid; place-items: center; box-shadow: 0 2px 6px rgba(84,80,220,0.5); }
+  .ve-tick svg { width: 13px; height: 13px; stroke: #fff; stroke-width: 2.6; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* (merged 3+4) device sync row + engine chips row in one card */
+  .sstep-viz.viz-combo { height: auto; display: flex; flex-direction: column; gap: 18px; padding: 22px 16px; justify-content: center; }
+  .viz-combo .vc-sync { position: relative; display: flex; align-items: center; justify-content: space-between; padding: 4px 24px; }
+  .viz-combo .vc-sync .vs-dev { width: 52px; height: 52px; border-radius: 14px; }
+  .viz-combo .vc-sync .vs-dev svg { width: 24px; height: 24px; }
+  .viz-combo .vc-eng { display: flex; align-items: center; justify-content: center; gap: 16px; }
+  .viz-combo .vc-eng .ve-chip { width: 54px; height: 54px; border-radius: 16px; }
+  .viz-combo .vc-eng .ve-chip img, .viz-combo .vc-eng .ve-chip svg { width: 26px; height: 26px; }
+}
+
+/* ---- phones: collapse the desktop app window to a single chat card ---- */
+@media (max-width: 680px) {
+  /* show a believable mobile chat instead of "view on a bigger screen" */
+  .miawin { display: block !important; }
+  .miawin-mobile-note { display: none !important; }
+  .hero-product {
+    max-width: 360px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .miawin-grid {
+    grid-template-columns: 1fr;
+    height: 432px;            /* shorter so the whole hero fits one screen */
+  }
+  .mw-rail,
+  .mw-list { display: none; }
+  .mw-chat { border-radius: 16px; }
+  /* the chat header loses the rail's traffic lights, so add a little air */
+  .mw-top { padding-top: 16px; }
+}

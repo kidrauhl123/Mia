@@ -46,7 +46,9 @@
     "prepack": "npm run hermes:runtime",
     "pack": "electron-builder --dir",
     "dist": "npm run dist:mac",
-    "dist:mac": "npm run hermes:runtime:mac-arm64 && electron-builder --mac dir zip --publish never && node scripts/create-mac-dmg.js"
+    "dist:mac": "npm run hermes:runtime:mac-arm64 && electron-builder --mac dir zip --publish never && node scripts/create-mac-dmg.js",
+    "release:mac": "npm run dist:mac && node scripts/publish-mac-update.js",
+    "release:mac:publish": "node scripts/publish-mac-update.js"
   },
   "hermes": {
     "version": "2026.5.29",
