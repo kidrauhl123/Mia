@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld("mia", {
   },
   openExternal: (url) => ipcRenderer.invoke(IpcChannel.UtilOpenExternal, url),
   installEngine: () => ipcRenderer.invoke(IpcChannel.EngineInstall),
+  repairEngine: () => ipcRenderer.invoke(IpcChannel.EngineRepair),
   startEngine: () => ipcRenderer.invoke(IpcChannel.EngineStart),
   stopEngine: () => ipcRenderer.invoke(IpcChannel.EngineStop),
   uninstallStandaloneEngine: () => ipcRenderer.invoke(IpcChannel.EngineUninstallStandalone),

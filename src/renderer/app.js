@@ -1546,6 +1546,27 @@ function hermesDetectionLine(runtime, hermes) {
   return "未安装 · 点开后可安装独立副本";
 }
 
+function renderHermesInstallState(runtime = state.runtime) {
+  const hermes = runtime?.agentInventory?.agents?.find((agent) => agent.id === "hermes");
+  if (state.hermesInstallError) return state.hermesInstallError;
+  if (!hermes) return "";
+  if (hermes.health === "broken") return "Hermes 安装不完整，可修复或重装。";
+  if (hermes.source === "mia-managed" && hermes.usableInMia) return "Hermes 已安装到 Mia 私有目录。";
+  if (hermes.source === "system" && !hermes.usableInMia) return "检测到系统 Hermes，Mia 仍需要私有运行环境。";
+  return "";
+}
+
+function hermesSetupAction(runtime = state.runtime) {
+  const hermes = runtime?.agentInventory?.agents?.find((agent) => agent.id === "hermes");
+  if (hermes?.installAction === "repair-hermes" || hermes?.health === "broken") {
+    return { action: "repair-hermes", label: "修复 Hermes" };
+  }
+  if (state.hermesInstallError) {
+    return { action: "retry-install-hermes", label: "重试安装" };
+  }
+  return { action: "install-hermes", label: "安装 Hermes" };
+}
+
 function renderEngineDetection(runtime) {
   const engines = runtime?.agentEngines || {};
   const inventory = agentInventoryById(runtime);
@@ -1854,12 +1875,20 @@ function hasUsableLocalAgent(runtime = state.runtime) {
 }
 
 function renderNoAgentGuide() {
+  const hermesState = renderHermesInstallState();
+  const hermesAction = hermesSetupAction();
+  const hermesActionButton = hermesAction.action === "repair-hermes"
+    ? `<button type="button" class="primary" data-setup-action="repair-hermes">修复 Hermes</button>`
+    : hermesAction.action === "retry-install-hermes"
+      ? `<button type="button" class="primary" data-setup-action="retry-install-hermes">重试安装</button>`
+      : `<button type="button" class="primary" data-setup-action="install-hermes">安装 Hermes</button>`;
   return `
     <div class="cloud-login-guide no-agent-guide">
       <h2>本机 Agent 尚未连接</h2>
       <p>要开始本机聊天，请安装 Hermes 或配置已有 Agent。你也可以登录 Mia Cloud，同步并使用云端对话。</p>
+      ${hermesState ? `<p>${window.miaMarkdown.escapeHtml(hermesState)}</p>` : ""}
       <div class="setup-actions">
-        <button type="button" class="primary" data-setup-action="install-hermes">安装 Hermes</button>
+        ${hermesActionButton}
         <button type="button" class="secondary" data-setup-action="open-agent-settings">查看本机引擎</button>
         <button type="button" class="secondary" data-action="cloud-login">登录 Mia Cloud</button>
       </div>
@@ -3954,6 +3983,31 @@ function afterEnginePicked(engine) {
   renderView();
 }
 
+async function runHermesSetupAction(button, action) {
+  const repair = action === "repair-hermes";
+  const retry = action === "retry-install-hermes";
+  button.disabled = true;
+  const original = button.textContent;
+  button.textContent = repair ? "修复中…" : retry ? "重试中…" : "安装中…";
+  try {
+    state.hermesInstallError = "";
+    state.runtime = repair ? await window.mia.repairEngine() : await window.mia.installEngine();
+    await window.miaLoaders.loadModelCatalog();
+    state.agentSetupSkipped = false;
+    try { localStorage.removeItem(AGENT_SETUP_SKIPPED_KEY); } catch { /* ignore */ }
+    afterEnginePicked("hermes");
+  } catch (error) {
+    const verb = repair ? "修复" : "安装";
+    state.hermesInstallError = `Hermes ${verb}失败：${error.message || error}`;
+    appendTransientChat("assistant", state.hermesInstallError);
+    await refreshRuntime();
+  } finally {
+    button.disabled = false;
+    button.textContent = original;
+  }
+  return true;
+}
+
 async function handleSetupGuideAction(button) {
   const action = button?.dataset?.setupAction || "";
   if (!action) return false;
@@ -3992,24 +4046,8 @@ async function handleSetupGuideAction(button) {
     afterEnginePicked(engine);
     return true;
   }
-  if (action === "install-hermes") {
-    button.disabled = true;
-    const original = button.textContent;
-    button.textContent = "安装中…";
-    try {
-      state.runtime = await window.mia.installEngine();
-      await window.miaLoaders.loadModelCatalog();
-      state.agentSetupSkipped = false;
-      try { localStorage.removeItem(AGENT_SETUP_SKIPPED_KEY); } catch { /* ignore */ }
-      afterEnginePicked("hermes");
-    } catch (error) {
-      appendTransientChat("assistant", `Hermes install failed: ${error.message}`);
-      await refreshRuntime();
-    } finally {
-      button.disabled = false;
-      button.textContent = original;
-    }
-    return true;
+  if (["install-hermes", "retry-install-hermes", "repair-hermes"].includes(action)) {
+    return runHermesSetupAction(button, action);
   }
   if (action === "create-first-fellow") {
     openInitialFellowDialog();

@@ -43,6 +43,7 @@
       agentSetupSkipped: readLocal(storage, AGENT_SETUP_SKIPPED_KEY) === "1",
       onboardingStep: readLocal(storage, "mia.onboardingStep", "engine"),
       onboardingPickedEngine: "",
+      hermesInstallError: "",
       forceScrollToBottom: false,
       sessionMenuOpen: false,
       activeView: "chat",

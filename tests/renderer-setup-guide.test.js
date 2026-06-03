@@ -87,6 +87,26 @@ test("setup guide allows installed Claude Code and Codex while keeping OpenClaw 
   assert.doesNotMatch(html, /使用 OpenClaw/);
 });
 
+test("setup guide renders broken Hermes with repair action", () => {
+  const state = {
+    runtime: {
+      fellows: [],
+      agentInventory: inventory([
+        { id: "hermes", label: "Hermes", installed: true, usableInMia: false, installable: true, installAction: "repair-hermes", health: "broken", source: "mia-managed" }
+      ])
+    },
+    onboardingStep: "engine",
+    agentSetupSkipped: false,
+    setupGuideDismissed: false
+  };
+  const guide = loadSetupGuide(state);
+  const html = guide.renderSetupGuide();
+
+  assert.match(html, /Hermes/);
+  assert.match(html, /data-setup-action="repair-hermes"/);
+  assert.match(html, /修复 Hermes/);
+});
+
 test("setup guide stays hidden after user skips agent setup", () => {
   const state = {
     runtime: { fellows: [], agentInventory: inventory([]) },

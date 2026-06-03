@@ -98,6 +98,8 @@
       return parts.join(" · ");
     }
     if (agent.installed && agent.detectionOnly) return "已检测到，暂未接入 Mia 聊天";
+    if (agent.id === "hermes" && agent.health === "broken") return "Mia 独立副本安装不完整，可修复";
+    if (agent.id === "hermes" && state?.hermesInstallError) return "上次安装失败，可重试";
     if (agent.id === "hermes" && agent.installed) return "已检测到系统 Hermes，当前 Mia 仍需要独立副本";
     if (agent.id === "hermes") return "未安装，可安装到 Mia 私有目录";
     if (agent.id === "claude-code") return "未检测到，需要先安装 Claude Code";
@@ -108,6 +110,12 @@
   function agentAction(agent) {
     if (agent.usableInMia && ["hermes", "claude-code", "codex"].includes(agent.id)) {
       return { action: "use-engine", label: `使用 ${agent.label}` };
+    }
+    if (agent.id === "hermes" && agent.installAction === "repair-hermes") {
+      return { action: "repair-hermes", label: "修复 Hermes" };
+    }
+    if (agent.id === "hermes" && state?.hermesInstallError) {
+      return { action: "retry-install-hermes", label: "重试安装" };
     }
     if (agent.id === "hermes" && agent.installAction === "install-hermes") {
       return { action: "install-hermes", label: "安装 Hermes" };

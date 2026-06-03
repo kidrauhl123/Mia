@@ -1788,6 +1788,7 @@ ipcMain.handle(IpcChannel.SocialMyUsername, () => {
   }
 });
 ipcMain.handle(IpcChannel.EngineInstall, () => engineInstallService.install());
+ipcMain.handle(IpcChannel.EngineRepair, () => engineInstallService.repair());
 ipcMain.handle(IpcChannel.EngineStart, () => startEngine());
 ipcMain.handle(IpcChannel.EngineStop, () => stopEngine());
 ipcMain.handle(IpcChannel.EngineUninstallStandalone, () => uninstallStandaloneEngine());

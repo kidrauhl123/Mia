@@ -59,6 +59,16 @@ test("renderer chat uses setup guide and supports no-agent continuation", () => 
   assert.match(stylesSource, /engine-row-logo\.openclaw/);
 });
 
+test("renderer exposes Hermes install retry and repair states", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const preloadSource = fs.readFileSync(path.join(root, "src/preload.js"), "utf8");
+
+  assert.match(preloadSource, /repairEngine/);
+  assert.match(appSource, /function renderHermesInstallState/);
+  assert.match(appSource, /data-setup-action="repair-hermes"/);
+  assert.match(appSource, /data-setup-action="retry-install-hermes"/);
+});
+
 test("engine detection renderer preserves legacy runtime status fallbacks", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const renderSource = appSource.slice(
