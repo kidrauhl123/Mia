@@ -593,6 +593,15 @@ test("engine installation lifecycle lives behind a main engine-install service",
   assert.doesNotMatch(runtimePathsSource, /installation helpers .*stay in main\.js/s, "runtime paths docs must not claim installation stays in main");
 });
 
+test("Hermes install source selection lives behind a main service", () => {
+  const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
+  const sourceService = fs.readFileSync(path.join(root, "src/main/hermes-install-source-service.js"), "utf8");
+
+  assert.match(sourceService, /function createHermesInstallSourceService/);
+  assert.doesNotMatch(mainSource, /function resolveInstallSource/);
+  assert.doesNotMatch(mainSource, /MIA_ENGINE_MIRROR_URL/);
+});
+
 test("runtime directory initialization lives behind a main runtime-initializer service", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
   const initializerSource = fs.readFileSync(path.join(root, "src/main/runtime-initializer-service.js"), "utf8");
