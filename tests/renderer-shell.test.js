@@ -42,6 +42,8 @@ test("logged-in active pane never falls back to local fellow sessions", () => {
 
 test("renderer chat uses setup guide and supports no-agent continuation", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const htmlSource = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
+  const stylesSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
   const noAgentGuideSource = appSource.slice(
     appSource.indexOf("function renderNoAgentGuide()"),
     appSource.indexOf("function renderChat()")
@@ -52,6 +54,57 @@ test("renderer chat uses setup guide and supports no-agent continuation", () => 
   assert.match(appSource, /continue-no-agent/);
   assert.match(noAgentGuideSource, /data-action="cloud-login"/);
   assert.match(appSource, /AGENT_SETUP_SKIPPED_KEY/);
+  assert.match(appSource, /engineRowOpenClaw/);
+  assert.match(htmlSource, /id="engineRowOpenClaw"/);
+  assert.match(stylesSource, /engine-row-logo\.openclaw/);
+});
+
+test("engine detection renderer preserves legacy runtime status fallbacks", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const renderSource = appSource.slice(
+    appSource.indexOf("function agentInventoryById(runtime)"),
+    appSource.indexOf("function renderSessionMenu()")
+  );
+  const sandbox = {
+    els: {
+      engineRowHermes: { textContent: "" },
+      engineRowClaude: { textContent: "" },
+      engineRowCodex: { textContent: "" },
+      engineRowOpenClaw: { textContent: "" }
+    }
+  };
+  vm.runInNewContext(`${renderSource}; this.renderEngineDetection = renderEngineDetection;`, sandbox);
+
+  sandbox.renderEngineDetection({
+    engineSource: "bundled",
+    engineRunning: true,
+    agentEngines: {
+      claudeCode: { available: true, path: "/usr/local/bin/claude", version: "1.2.3 build" },
+      codex: { available: true, path: "/usr/local/bin/codex", version: "4.5.6 build" },
+      openClaw: { available: true, detectionOnly: true }
+    }
+  });
+
+  assert.equal(sandbox.els.engineRowHermes.textContent, "随安装包内置 · 运行中");
+  assert.equal(sandbox.els.engineRowClaude.textContent, "/usr/local/bin/claude · 1.2.3 build");
+  assert.equal(sandbox.els.engineRowCodex.textContent, "/usr/local/bin/codex · 4.5.6 build");
+  assert.equal(sandbox.els.engineRowOpenClaw.textContent, "已检测到 · 暂未接入 Mia 聊天");
+
+  sandbox.renderEngineDetection({
+    engineSource: "managed",
+    engineRunning: false,
+    agentEngines: {}
+  });
+
+  assert.equal(sandbox.els.engineRowHermes.textContent, "独立副本已安装");
+
+  sandbox.renderEngineDetection({
+    engineInstalled: true,
+    engineRunning: true,
+    agentEngines: {}
+  });
+
+  assert.equal(sandbox.els.engineRowHermes.textContent, "独立副本运行中");
 });
 
 test("signed-out desktop shell is a login gate without default Boss identity", () => {

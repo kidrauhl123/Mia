@@ -52,6 +52,7 @@ const els = {
   engineRowHermes: document.getElementById("engineRowHermes"),
   engineRowClaude: document.getElementById("engineRowClaude"),
   engineRowCodex: document.getElementById("engineRowCodex"),
+  engineRowOpenClaw: document.getElementById("engineRowOpenClaw"),
   engineRowHermesButton: document.querySelector('[data-engine-row="hermes"]'),
   personaSearch: document.getElementById("personaSearch"),
   personaCount: document.getElementById("personaCount"),
@@ -1494,40 +1495,79 @@ function messagesForActive() {
   }));
 }
 
+function agentInventoryById(runtime) {
+  const agents = runtime?.agentInventory?.agents || [];
+  return Object.fromEntries(agents.map((agent) => [agent.id, agent]));
+}
+
+function shortAgentVersion(agent) {
+  const version = String(agent?.version || "").trim();
+  if (!version) return "";
+  return version.split(/\s+/).slice(0, 2).join(" ");
+}
+
+function detectedAgentLine(agent) {
+  if (!agent) return "未检测到";
+  if (agent.usableInMia) {
+    const parts = [agent.path || "已检测到", shortAgentVersion(agent)].filter(Boolean);
+    return parts.join(" · ");
+  }
+  if (agent.installed && agent.detectionOnly) return "已检测到 · 暂未接入 Mia 聊天";
+  if (agent.installed) return "已检测到 · 当前不可直接用于 Mia";
+  return "未检测到";
+}
+
+function legacyAgentStatus(id, legacy) {
+  if (!legacy) return null;
+  const installed = Boolean(legacy.installed ?? legacy.available);
+  const detectionOnly = Boolean(legacy.detectionOnly);
+  const usableInMia = legacy.usableInMia === undefined
+    ? Boolean(legacy.available && !detectionOnly)
+    : Boolean(legacy.usableInMia);
+  return { id, ...legacy, installed, detectionOnly, usableInMia };
+}
+
+function hermesDetectionLine(runtime, hermes) {
+  const source = hermes?.source || runtime?.engineSource;
+  const usesBundled = source === "mia-bundled" || source === "bundled";
+  const usesManaged = source === "mia-managed" || source === "managed";
+  const legacyInstalled = !hermes && Boolean(runtime?.engineInstalled);
+  const usableInMia = hermes ? Boolean(hermes.usableInMia) : Boolean(usesBundled || usesManaged || legacyInstalled);
+
+  if (usableInMia && usesBundled) {
+    return runtime?.engineRunning ? "随安装包内置 · 运行中" : "随安装包内置 · 就绪";
+  }
+  if (usableInMia && (usesManaged || legacyInstalled)) {
+    return runtime?.engineRunning ? "独立副本运行中" : "独立副本已安装";
+  }
+  if (hermes?.installed) {
+    return "已检测到系统 Hermes · Mia 当前需要独立副本";
+  }
+  return "未安装 · 点开后可安装独立副本";
+}
+
 function renderEngineDetection(runtime) {
   const engines = runtime?.agentEngines || {};
+  const inventory = agentInventoryById(runtime);
 
   if (els.engineRowHermes) {
-    const source = runtime?.engineSource;
-    let line;
-    if (source === "bundled") {
-      line = runtime?.engineRunning ? "随安装包内置 · 运行中" : "随安装包内置 · 就绪";
-    } else if (source === "managed") {
-      line = runtime?.engineRunning ? "独立副本运行中" : "独立副本已安装";
-    } else {
-      line = "未安装 · 点开后可安装独立副本";
-    }
-    els.engineRowHermes.textContent = line;
+    els.engineRowHermes.textContent = hermesDetectionLine(runtime, inventory.hermes);
   }
 
   if (els.engineRowClaude) {
-    const cc = engines.claudeCode || {};
-    if (cc.available) {
-      const v = cc.version ? ` · ${cc.version.split(" ")[0]}` : "";
-      els.engineRowClaude.textContent = `${cc.path || "已检测到"}${v}`;
-    } else {
-      els.engineRowClaude.textContent = "未检测到";
-    }
+    els.engineRowClaude.textContent = detectedAgentLine(
+      inventory["claude-code"] || legacyAgentStatus("claude-code", engines.claudeCode)
+    );
   }
 
   if (els.engineRowCodex) {
-    const cx = engines.codex || {};
-    if (cx.available) {
-      const v = cx.version ? ` · ${cx.version.split(" ")[0]}` : "";
-      els.engineRowCodex.textContent = `${cx.path || "已检测到"}${v}`;
-    } else {
-      els.engineRowCodex.textContent = "未检测到";
-    }
+    els.engineRowCodex.textContent = detectedAgentLine(inventory.codex || legacyAgentStatus("codex", engines.codex));
+  }
+
+  if (els.engineRowOpenClaw) {
+    els.engineRowOpenClaw.textContent = detectedAgentLine(
+      inventory.openclaw || legacyAgentStatus("openclaw", engines.openClaw)
+    );
   }
 }
 

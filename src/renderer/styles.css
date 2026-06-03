@@ -2207,6 +2207,7 @@ body.topbar-click-capture .topbar {
 .setup-engine-dot.hermes      { background: #5e5ce6; }
 .setup-engine-dot.claude-code { background: #d97706; }
 .setup-engine-dot.codex       { background: #10a37f; }
+.setup-engine-dot.openclaw  { background: #7c3aed; }
 
 .setup-engine-row.unavailable .setup-engine-dot {
   opacity: 0.45;
@@ -4888,6 +4889,22 @@ textarea:focus {
 
 .engine-row-logo.codex::before {
   display: none;
+}
+
+.engine-row-logo.openclaw {
+  background: linear-gradient(135deg, #1f2937, #7c3aed);
+  color: #fff;
+}
+
+.engine-row-logo.openclaw::before {
+  content: "OC";
+  width: auto;
+  height: auto;
+  background: transparent;
+  -webkit-mask: none;
+  mask: none;
+  font-size: 10px;
+  font-weight: 800;
 }
 
 .engine-row-logo img {
