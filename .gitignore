@@ -6,6 +6,7 @@ release/
 vendor/hermes-runtime/
 .mia-cloud/
 .superpowers/
+.worktrees/
 test-results/
 .DS_Store
 npm-debug.log*
