@@ -120,7 +120,7 @@ test("commandVersion returns the first version line from stdout or stderr", (t) 
   assert.equal(service.commandVersion(""), "");
 });
 
-test("localAgentEngines reports Hermes default and caches CLI probes until reset", (t) => {
+test("localAgentEngines reports the legacy engine view and caches CLI probes until reset", (t) => {
   let now = 1000;
   const { calls, service } = makeService(t, {
     now: () => now,
@@ -148,15 +148,15 @@ test("localAgentEngines reports Hermes default and caches CLI probes until reset
   service.resetCache();
   const refreshed = service.localAgentEngines();
 
-  assert.equal(first.hermes.available, true);
-  assert.deepEqual(first.hermes.system, { available: false, disabled: true });
+  assert.equal(first.hermes.available, false);
+  assert.deepEqual(first.hermes.system, { available: false, path: "", version: "" });
   assert.equal(first.claudeCode.path, "/bin/claude");
   assert.equal(first.claudeCode.version, "claude 1.2.3");
   assert.equal(first.codex.path, "/bin/codex");
   assert.equal(first.codex.version, "codex 2.3.4");
   assert.equal(cached, first);
   assert.notEqual(refreshed, first);
-  assert.equal(calls.filter((call) => call[0] === "zsh").length, 4);
+  assert.equal(calls.filter((call) => call[0] === "zsh").length, 10);
 });
 
 test("agentInventory separates system Hermes detection from Mia Hermes usability", (t) => {
@@ -216,6 +216,11 @@ test("agentInventory recommends Hermes install when no usable agent is detected"
   const { service } = makeService(t, {
     isHermesInstalled: () => false,
     hermesSource: () => "",
+    fs: {
+      accessSync: () => {
+        throw new Error("missing");
+      }
+    },
     spawnSync: () => ({ status: 1, stdout: "", stderr: "" })
   });
 
