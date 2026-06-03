@@ -170,6 +170,7 @@
         ${hasUsableAgent ? "" : `
           <div class="setup-actions" style="justify-content: flex-start;">
             <button class="setup-action secondary" type="button" data-setup-action="continue-no-agent">暂不安装，继续进入 Mia</button>
+            <button class="setup-action secondary" type="button" data-action="cloud-login">登录 Mia Cloud</button>
           </div>
         `}
       </article>

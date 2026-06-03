@@ -58,6 +58,7 @@ test("setup guide renders no-agent inventory with Hermes install and skip action
   assert.match(html, /本机 Agent/);
   assert.match(html, /data-setup-action="install-hermes"/);
   assert.match(html, /data-setup-action="continue-no-agent"/);
+  assert.match(html, /data-action="cloud-login"/);
   assert.match(html, /OpenClaw/);
   assert.doesNotMatch(html, /使用 OpenClaw/);
 });

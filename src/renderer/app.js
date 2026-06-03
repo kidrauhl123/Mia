@@ -1,5 +1,6 @@
 const fallbackSlashCommands = window.miaAppState.fallbackSlashCommands;
 const SETUP_GUIDE_DISMISSED_KEY = window.miaAppState.SETUP_GUIDE_DISMISSED_KEY;
+const AGENT_SETUP_SKIPPED_KEY = window.miaAppState.AGENT_SETUP_SKIPPED_KEY;
 const { ConversationKind, MemberKind, SenderKind } = (typeof window !== "undefined" && window.miaConversationKinds) || require("../shared/conversation-kinds");
 const { prepareOutgoingMessage } = (typeof window !== "undefined" && window.miaSendPipeline) || require("../shared/send-pipeline");
 const sessionHistory = (typeof window !== "undefined" && window.miaSessionHistory) || require("../shared/session-history");
@@ -1805,9 +1806,28 @@ function renderCloudLoginGuide() {
   `;
 }
 
+function hasUsableLocalAgent(runtime = state.runtime) {
+  const inventory = runtime?.agentInventory;
+  if (inventory?.summary) return Boolean(inventory.summary.hasUsableAgent);
+  const engines = runtime?.agentEngines || {};
+  return Boolean(runtime?.engineInstalled || engines.claudeCode?.available || engines.codex?.available);
+}
+
+function renderNoAgentGuide() {
+  return `
+    <div class="cloud-login-guide no-agent-guide">
+      <h2>本机 Agent 尚未连接</h2>
+      <p>要开始本机聊天，请安装 Hermes 或配置已有 Agent。你也可以登录 Mia Cloud，同步并使用云端对话。</p>
+      <div class="setup-actions">
+        <button type="button" class="primary" data-setup-action="install-hermes">安装 Hermes</button>
+        <button type="button" class="secondary" data-setup-action="open-agent-settings">查看本机引擎</button>
+        <button type="button" class="secondary" data-action="cloud-login">登录 Mia Cloud</button>
+      </div>
+    </div>
+  `;
+}
+
 function renderChat() {
-  // Branch: a cloud conversation (DM / group / fellow) is active → social paints
-  // the message list. Header is painted by render() above.
   const activeConversationId = window.miaSocial?.getActiveConversationId?.();
   if (activeConversationId) {
     if (window.miaSocial && typeof window.miaSocial.renderConversationChat === "function") {
@@ -1815,12 +1835,19 @@ function renderChat() {
     }
     return;
   }
+  const messages = [];
+  if (window.miaSetupGuide?.shouldShowSetupGuide?.({ messages })) {
+    els.chat.innerHTML = window.miaSetupGuide.renderSetupGuide();
+    return;
+  }
+  if (state.agentSetupSkipped && !hasUsableLocalAgent()) {
+    els.chat.innerHTML = renderNoAgentGuide();
+    return;
+  }
   if (state.runtime?.cloud?.enabled) {
-    // Signed in but no conversation selected → empty canvas; the sidebar invites picking one.
     els.chat.innerHTML = "";
     return;
   }
-  // Cloud-only app: not signed in → guide to login. There is no local conversation path.
   els.chat.innerHTML = renderCloudLoginGuide();
 }
 
@@ -3902,6 +3929,23 @@ async function handleSetupGuideAction(button) {
     renderView();
     return true;
   }
+  if (action === "open-agent-settings") {
+    state.settingsOpen = true;
+    state.activeSettingsTab = "model";
+    renderView();
+    return true;
+  }
+  if (action === "continue-no-agent") {
+    state.agentSetupSkipped = true;
+    state.setupGuideDismissed = true;
+    try {
+      localStorage.setItem(AGENT_SETUP_SKIPPED_KEY, "1");
+      localStorage.setItem(SETUP_GUIDE_DISMISSED_KEY, "1");
+    } catch { /* ignore */ }
+    advanceOnboarding("done");
+    renderChat();
+    return true;
+  }
   if (action === "use-engine") {
     const engine = String(button.dataset.engine || "");
     if (!["hermes", "claude-code", "codex"].includes(engine)) return true;
@@ -3915,6 +3959,8 @@ async function handleSetupGuideAction(button) {
     try {
       state.runtime = await window.mia.installEngine();
       await window.miaLoaders.loadModelCatalog();
+      state.agentSetupSkipped = false;
+      try { localStorage.removeItem(AGENT_SETUP_SKIPPED_KEY); } catch { /* ignore */ }
       afterEnginePicked("hermes");
     } catch (error) {
       appendTransientChat("assistant", `Hermes install failed: ${error.message}`);

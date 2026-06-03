@@ -40,6 +40,20 @@ test("logged-in active pane never falls back to local fellow sessions", () => {
   assert.match(appSource, /els\.chat\.innerHTML = renderCloudLoginGuide\(\);/);
 });
 
+test("renderer chat uses setup guide and supports no-agent continuation", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const noAgentGuideSource = appSource.slice(
+    appSource.indexOf("function renderNoAgentGuide()"),
+    appSource.indexOf("function renderChat()")
+  );
+
+  assert.match(appSource, /window\.miaSetupGuide\?\.shouldShowSetupGuide/);
+  assert.match(appSource, /renderNoAgentGuide/);
+  assert.match(appSource, /continue-no-agent/);
+  assert.match(noAgentGuideSource, /data-action="cloud-login"/);
+  assert.match(appSource, /AGENT_SETUP_SKIPPED_KEY/);
+});
+
 test("signed-out desktop shell is a login gate without default Boss identity", () => {
   const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
