@@ -26,6 +26,7 @@ function createEngineInstallService(deps = {}) {
   const initializeRuntime = deps.initializeRuntime || (() => {});
   const stopEngine = deps.stopEngine || (() => {});
   const ensureEnginePlugins = deps.ensureEnginePlugins || (() => {});
+  const resetAgentEngineCache = deps.resetAgentEngineCache || (() => {});
   const getRuntimeStatus = deps.getRuntimeStatus || ((created) => ({ created }));
   const now = deps.now || (() => new Date());
 
@@ -172,6 +173,7 @@ function createEngineInstallService(deps = {}) {
       installed_at: now().toISOString()
     }, null, 2) + "\n");
     ensureEnginePlugins();
+    resetAgentEngineCache();
     return getRuntimeStatus(["runtime/hermes-engine"]);
   }
 
@@ -220,6 +222,7 @@ function createEngineInstallService(deps = {}) {
       spec: packageSpec,
       installed_at: now().toISOString()
     }, null, 2) + "\n");
+    resetAgentEngineCache();
     return getRuntimeStatus(["runtime/hermes-engine"]);
   }
 

@@ -483,7 +483,9 @@ test("local Agent CLI discovery and version caching live behind a main local-age
   const localAgentSource = fs.readFileSync(path.join(root, "src/main/local-agent-engine-service.js"), "utf8");
 
   assert.match(localAgentSource, /function createLocalAgentEngineService/, "local Agent engine service should exist");
+  assert.match(localAgentSource, /function agentInventory/, "local Agent engine service should own normalized inventory");
   assert.match(mainSource, /createLocalAgentEngineService/, "main should instantiate local Agent engine discovery");
+  assert.doesNotMatch(mainSource, /function agentInventory/, "main must not own normalized local Agent inventory");
   assert.doesNotMatch(mainSource, /const CLI_PATH_SEGMENTS/, "main must not own CLI PATH candidates");
   assert.doesNotMatch(mainSource, /function cliPathEnv/, "main must not own CLI PATH expansion");
   assert.doesNotMatch(mainSource, /function shellCommandPath/, "main must not own shell command discovery");

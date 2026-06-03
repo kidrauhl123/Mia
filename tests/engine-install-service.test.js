@@ -41,7 +41,11 @@ function setup(t, overrides = {}) {
     initializeRuntime: () => calls.push({ type: "initializeRuntime" }),
     stopEngine: () => calls.push({ type: "stopEngine" }),
     ensureEnginePlugins: () => calls.push({ type: "ensureEnginePlugins" }),
-    getRuntimeStatus: (created) => ({ created, engineInstalled: true }),
+    resetAgentEngineCache: () => calls.push({ type: "resetAgentEngineCache" }),
+    getRuntimeStatus: (created) => {
+      calls.push({ type: "getRuntimeStatus", created });
+      return { created, engineInstalled: true };
+    },
     now: () => new Date("2026-05-25T00:00:00.000Z"),
     officialPackage: "hermes-agent",
     officialRepoUrl: "https://github.com/NousResearch/hermes-agent/",
@@ -192,7 +196,9 @@ test("installFromDevSource replaces managed engine with filtered source copy and
   assert.deepEqual(calls.map((call) => call.type), [
     "initializeRuntime",
     "stopEngine",
-    "ensureEnginePlugins"
+    "ensureEnginePlugins",
+    "resetAgentEngineCache",
+    "getRuntimeStatus"
   ]);
   assert.deepEqual(status, { created: ["runtime/hermes-engine"], engineInstalled: true });
   assert.equal(fs.existsSync(path.join(runtime.engine, "old.py")), false);
@@ -236,7 +242,9 @@ test("installFromOfficialPackage builds venv, retries without extras, verifies p
     "spawn",
     "spawn",
     "ensureEnginePlugins",
-    "spawn"
+    "spawn",
+    "resetAgentEngineCache",
+    "getRuntimeStatus"
   ]);
   assert.deepEqual(seen.map((entry) => [entry.command, ...entry.args]), [
     ["/opt/python3.11", "-m", "venv", ".venv"],

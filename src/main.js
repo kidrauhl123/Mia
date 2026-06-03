@@ -167,6 +167,7 @@ const engineInstallService = createEngineInstallService({
   initializeRuntime,
   stopEngine,
   ensureEnginePlugins: () => enginePluginsService.ensureInstalled(),
+  resetAgentEngineCache: () => localAgentEngineService.resetCache(),
   getRuntimeStatus
 });
 const engineRuntimeConfigService = createEngineRuntimeConfigService({
@@ -234,7 +235,9 @@ const launchdService = createLaunchdService({
 const localAgentEngineService = createLocalAgentEngineService({
   homeDir: () => os.homedir(),
   env: process.env,
-  spawnSync
+  spawnSync,
+  isHermesInstalled: () => engineInstallService.isInstalled(),
+  hermesSource: () => engineInstallService.engineSource()
 });
 const systemHermesService = createSystemHermesService({
   runtimePaths,
@@ -533,6 +536,7 @@ function getRuntimeStatus(created = []) {
   const settings = settingsWithoutSecret();
   const connectedProviders = connectedProviderSummaries(codexAuth);
   const fellows = Array.isArray(manifest.fellows) ? manifest.fellows : [];
+  const agentInventory = localAgentEngineService.agentInventory();
   return {
     appData: p.root,
     runtimeRoot: p.runtime,
@@ -562,6 +566,7 @@ function getRuntimeStatus(created = []) {
     auth: codexAuth,
     user: settingsStore.userProfile(),
     appearance: settingsStore.appearanceSettings(),
+    agentInventory,
     agentEngines: localAgentEngineService.localAgentEngines(),
     permissions: settingsStore.permissionStatus(),
     effort: settingsStore.effortStatus(),
