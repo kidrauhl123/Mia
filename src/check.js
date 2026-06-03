@@ -40,6 +40,7 @@ const required = [
   "src/web/assets/mia-scroll.js",
   "src/web/assets/mia-logo.png",
   "src/web/manifest.webmanifest",
+  "electron-builder.with-hermes.json",
   "scripts/serve-web.js",
   "scripts/serve-cloud.js",
   "scripts/build-cloud-release.js",
@@ -168,6 +169,10 @@ assert.equal(adapterForEngine("codex").responseModel, "codex-cli");
 assert.equal(resolveChatEngineAdapter({ agent_engine: "claude-code" }).transport, "claude-agent-sdk");
 
 const mainSource = fs.readFileSync(path.join(__dirname, "main.js"), "utf8");
+const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
+const withHermesBuilderConfig = JSON.parse(
+  fs.readFileSync(path.join(__dirname, "..", "electron-builder.with-hermes.json"), "utf8")
+);
 // defaultModelSettings was moved to src/main/settings-store.js; assert against the extracted module.
 const settingsStoreSource = fs.readFileSync(path.join(__dirname, "main", "settings-store.js"), "utf8");
 const defaultModelBody = settingsStoreSource.match(/function defaultModelSettings\(\) \{[\s\S]*?\n {2}\}/)?.[0] || "";
@@ -182,6 +187,17 @@ assert.doesNotMatch(cloudServerSource, /\b(readDb|writeDb|emptyDb|authenticatedT
 assert.doesNotMatch(cloudServerSource, /\bdb\.users\b|\bdb\.sessions\b|\bdb\.workspaces\b|\bdb\.files\b/);
 assert.match(cloudServerSource, /allowQueryTokenAuth/);
 assert.doesNotMatch(cloudServerSource, /authenticateToken\([^)]*url\.searchParams\.get\("token"\)/);
+
+assert.doesNotMatch(packageJson.scripts.prepack || "", /hermes:runtime/);
+assert.doesNotMatch(packageJson.scripts.pack || "", /hermes:runtime/);
+assert.doesNotMatch(packageJson.scripts["dist:mac"], /hermes:runtime/);
+assert.doesNotMatch(packageJson.scripts["dist:win"], /hermes:runtime/);
+assert.match(packageJson.scripts["dist:mac:with-hermes"], /hermes:runtime:mac-arm64/);
+assert.match(packageJson.scripts["dist:win:with-hermes"], /hermes:runtime:win-x64/);
+assert.doesNotMatch(JSON.stringify(packageJson.build.mac || {}), /vendor\/hermes-runtime/);
+assert.doesNotMatch(JSON.stringify(packageJson.build.win || {}), /vendor\/hermes-runtime/);
+assert.match(JSON.stringify(withHermesBuilderConfig.mac || {}), /vendor\/hermes-runtime\/mac-arm64/);
+assert.match(JSON.stringify(withHermesBuilderConfig.win || {}), /vendor\/hermes-runtime\/win-x64/);
 
 const {
   runtimeTargetId,
