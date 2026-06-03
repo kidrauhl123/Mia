@@ -552,6 +552,7 @@ test("renderer app state factory owns default mutable state", () => {
   const localStorage = {
     getItem(key) {
       if (key === "mia.setupGuideDismissed.v2") return "1";
+      if (key === "mia.agentSetupSkipped.v1") return "1";
       if (key === "mia.onboardingStep") return "model";
       return "";
     }
@@ -571,6 +572,7 @@ test("renderer app state factory owns default mutable state", () => {
   });
 
   assert.equal(state.setupGuideDismissed, true);
+  assert.equal(state.agentSetupSkipped, true);
   assert.equal(state.onboardingStep, "model");
   assert.equal(state.isNarrowWindow, true);
   assert.equal(state.sidebarWidth, 300);
