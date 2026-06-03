@@ -68,6 +68,44 @@ test("shellCommandPath falls back to executable files in user CLI directories", 
   assert.equal(service.shellCommandPath("codex"), executable);
 });
 
+test("shellCommandPath uses `where` on Windows and returns the first resolved path", (t) => {
+  const calls = [];
+  const { service } = makeService(t, {
+    platform: "win32",
+    spawnSync: (command, args) => {
+      calls.push([command, args]);
+      if (command === "where" && args[0] === "claude") {
+        return {
+          status: 0,
+          stdout: "C:\\Users\\me\\AppData\\Roaming\\npm\\claude.cmd\r\nC:\\other\\claude.exe\r\n",
+          stderr: ""
+        };
+      }
+      return { status: 1, stdout: "", stderr: "" };
+    }
+  });
+
+  // The resolved path keeps its extension so the engine SDKs get a runnable
+  // executable, and we never shell out to zsh (absent on Windows).
+  assert.equal(service.shellCommandPath("claude"), "C:\\Users\\me\\AppData\\Roaming\\npm\\claude.cmd");
+  assert.equal(calls.filter((call) => call[0] === "zsh").length, 0);
+  assert.deepEqual(calls, [["where", ["claude"]]]);
+});
+
+test("shellCommandPath returns empty on Windows when `where` finds nothing", (t) => {
+  const calls = [];
+  const { service } = makeService(t, {
+    platform: "win32",
+    spawnSync: (command, args) => {
+      calls.push([command, args]);
+      return { status: 1, stdout: "", stderr: "" };
+    }
+  });
+
+  assert.equal(service.shellCommandPath("codex"), "");
+  assert.equal(calls.filter((call) => call[0] === "zsh").length, 0);
+});
+
 test("commandVersion returns the first version line from stdout or stderr", (t) => {
   const { service } = makeService(t, {
     spawnSync: (command, args) => {

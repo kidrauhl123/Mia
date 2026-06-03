@@ -112,6 +112,10 @@ case "$HOST_OS:$HOST_ARCH" in
   darwin:arm64)   HOST_TARGET="mac-arm64";;
   darwin:x86_64)  HOST_TARGET="mac-x64";;
   linux:x86_64)   HOST_TARGET="linux-x64";;
+  # Windows under git-bash/msys reports uname -s as MINGW64_NT-* / MSYS_NT-* /
+  # CYGWIN_NT-* (lowercased here). GitHub's windows-latest runner is x86_64, so
+  # this is the in-CI path that builds the win-x64 runtime on its native host.
+  mingw*:x86_64|msys*:x86_64|cygwin*:x86_64) HOST_TARGET="win-x64";;
   *)              HOST_TARGET="";;
 esac
 if [[ -z "$HOST_TARGET" || "$HOST_TARGET" != "$TARGET_ID" ]]; then

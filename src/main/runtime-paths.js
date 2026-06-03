@@ -95,7 +95,10 @@ function createRuntimePaths(deps = {}) {
     const sitePackages = bundledSitePackages();
     if (sitePackages) parts.push(sitePackages);
     if (process.env.PYTHONPATH) parts.push(process.env.PYTHONPATH);
-    return parts.join(":");
+    // path.delimiter is ";" on Windows, ":" elsewhere — a hardcoded ":" would
+    // collapse the whole PYTHONPATH into one bogus entry on Windows, so the
+    // bundled site-packages + mia_plugins would never import.
+    return parts.join(path.delimiter);
   }
 
   function engineMarkerPath() {

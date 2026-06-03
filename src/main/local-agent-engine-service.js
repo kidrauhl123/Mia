@@ -24,6 +24,7 @@ function createLocalAgentEngineService(deps = {}) {
   const spawnSync = deps.spawnSync || defaultSpawnSync;
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   const fsImpl = deps.fs || fs;
+  const platform = deps.platform || process.platform;
   const cacheMs = Number.isFinite(Number(deps.cacheMs)) ? Number(deps.cacheMs) : 15000;
   let agentEngineCache = { at: 0, value: null };
 
@@ -69,9 +70,27 @@ function createLocalAgentEngineService(deps = {}) {
     }
   }
 
+  // Windows has no zsh and uses .exe/.cmd/.bat executables, so the posix
+  // `command -v` + bare-name file scan never resolves a CLI there. `where`
+  // searches the real PATH with PATHEXT and returns the full path (extension
+  // included), which is exactly what the engine SDKs need to spawn it.
+  function windowsCommandPath(name) {
+    const result = spawnSync("where", [name], {
+      encoding: "utf8",
+      timeout: 1500,
+      env: processEnvWithCliPath()
+    });
+    if (!result.error && result.status === 0) {
+      const found = String(result.stdout || "").split(/\r?\n/).map((line) => line.trim()).find(Boolean) || "";
+      if (found) return found;
+    }
+    return "";
+  }
+
   function shellCommandPath(command) {
     const name = commandNameOnly(command);
     if (!name) return "";
+    if (platform === "win32") return windowsCommandPath(name);
     const result = spawnSync("zsh", ["-lc", `command -v ${name}`], {
       encoding: "utf8",
       timeout: 1500,

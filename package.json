@@ -48,7 +48,9 @@
     "dist": "npm run dist:mac",
     "dist:mac": "npm run hermes:runtime:mac-arm64 && electron-builder --mac dir zip --publish never && node scripts/create-mac-dmg.js",
     "release:mac": "npm run dist:mac && node scripts/publish-mac-update.js",
-    "release:mac:publish": "node scripts/publish-mac-update.js"
+    "release:mac:publish": "node scripts/publish-mac-update.js",
+    "dist:win": "npm run hermes:runtime:win-x64 && electron-builder --win nsis --publish never",
+    "release:win:publish": "node scripts/publish-win-update.js"
   },
   "hermes": {
     "version": "2026.5.29",
@@ -130,6 +132,27 @@
     "dmg": {
       "sign": false,
       "format": "ULFO"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icon.ico",
+      "artifactName": "${productName}-${version}-Setup.${ext}",
+      "extraResources": [
+        {
+          "from": "vendor/hermes-runtime/win-x64",
+          "to": "hermes-runtime",
+          "filter": [
+            "**/*"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
     }
   }
 }
