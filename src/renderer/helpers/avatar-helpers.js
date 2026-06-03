@@ -412,9 +412,9 @@
 
   function applyUserAvatar(el, user = {}) {
     if (!el) return;
-    const displayName = user.displayName || user.username || user.account || user.avatarText || "Boss";
+    const displayName = user.displayName || user.username || user.account || user.avatarText || "";
     const avatar = avatarResolve().resolveAvatarForContact({
-      id: user.id || user.username || user.account || "self",
+      id: user.id || user.username || user.account || user.displayName || "self",
       displayName,
       avatarImage: user.avatarImage || "",
       avatarCrop: user.avatarCrop || null

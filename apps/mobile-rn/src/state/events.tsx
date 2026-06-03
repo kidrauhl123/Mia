@@ -64,6 +64,13 @@ export function EventsProvider({ children }: { children: React.ReactNode }) {
             const incoming = normalizeServerRow(row, session.user?.id);
             qc.setQueryData<ChatMessage[]>(["messages", cid], (old) => mergeMessage(old || [], incoming));
           }
+        } else if (t === "conversation.message_deleted") {
+          // 本设备或其它设备的微信式本地隐藏:从对应会话列表里移除。
+          const cid = env.conversationId || env.conversation_id;
+          const mid = env.messageId || env.message_id;
+          if (cid && mid) {
+            qc.setQueryData<ChatMessage[]>(["messages", cid], (old) => (old || []).filter((m) => m.messageId !== mid));
+          }
         } else if (t === "cloud_agent_run_event") {
           // 审批等交互事件包在 cloud_agent_run_event.event 里(与桌面/web 一致)。
           const inner = env.event || {};

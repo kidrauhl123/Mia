@@ -2,6 +2,7 @@
   "use strict";
 
   const SETUP_GUIDE_DISMISSED_KEY = "mia.setupGuideDismissed.v2";
+  const AGENT_SETUP_SKIPPED_KEY = "mia.agentSetupSkipped.v1";
 
   const fallbackSlashCommands = Object.freeze([
     { command: "/new", description: "Start a new session (fresh session ID + history)" },
@@ -39,8 +40,10 @@
       startupTasks: [],
       firstRun: false,
       setupGuideDismissed: readLocal(storage, SETUP_GUIDE_DISMISSED_KEY) === "1",
+      agentSetupSkipped: readLocal(storage, AGENT_SETUP_SKIPPED_KEY) === "1",
       onboardingStep: readLocal(storage, "mia.onboardingStep", "engine"),
       onboardingPickedEngine: "",
+      hermesInstallError: "",
       forceScrollToBottom: false,
       sessionMenuOpen: false,
       activeView: "chat",
@@ -140,6 +143,7 @@
 
   window.miaAppState = {
     SETUP_GUIDE_DISMISSED_KEY,
+    AGENT_SETUP_SKIPPED_KEY,
     fallbackSlashCommands,
     createInitialState
   };

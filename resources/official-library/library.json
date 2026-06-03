@@ -8,7 +8,7 @@
       "id": "friend-pet",
       "name": "mia-official",
       "label": "Mia 官方库",
-      "description": "当前包含 Mia 官方维护的伙伴桌宠生成 Skill。",
+      "description": "当前包含 Mia 官方维护的伙伴桌宠与定时任务 Skill。",
       "engine": "mia",
       "root": "skills/_builtin",
       "idPrefix": "mia-official"

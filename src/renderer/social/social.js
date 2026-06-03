@@ -13,10 +13,20 @@
   // lands back on it instead of an empty chat pane. Same renderer-prefs convention
   // as mia.sidebarWidth; not synced across devices on purpose.
   const LAST_CONVERSATION_KEY = "mia.lastActiveConversationId";
+  const LAST_FELLOW_CONVERSATION_KEY = "mia.lastFellowConversationByKey";
+
+  function rendererLocalStorage() {
+    try {
+      if (typeof window !== "undefined" && window.localStorage) return window.localStorage;
+    } catch {
+      // localStorage may be unavailable in restricted renderer contexts.
+    }
+    return null;
+  }
 
   function readLastActiveConversationId() {
     try {
-      return (typeof window !== "undefined" && window.localStorage?.getItem(LAST_CONVERSATION_KEY)) || "";
+      return rendererLocalStorage()?.getItem(LAST_CONVERSATION_KEY) || "";
     } catch {
       return "";
     }
@@ -24,10 +34,33 @@
 
   function writeLastActiveConversationId(id) {
     try {
-      if (typeof window === "undefined" || !window.localStorage) return;
-      if (id) window.localStorage.setItem(LAST_CONVERSATION_KEY, id);
+      const storage = rendererLocalStorage();
+      if (storage && id) storage.setItem(LAST_CONVERSATION_KEY, id);
     } catch {
       // localStorage may be unavailable in restricted renderer contexts.
+    }
+  }
+
+  function readLastFellowConversationByKey() {
+    try {
+      const raw = rendererLocalStorage()?.getItem(LAST_FELLOW_CONVERSATION_KEY) || "";
+      const parsed = raw ? JSON.parse(raw) : {};
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+      return Object.fromEntries(Object.entries(parsed)
+        .map(([key, value]) => [String(key || "").trim(), String(value || "").trim()])
+        .filter(([key, value]) => key && value));
+    } catch {
+      return {};
+    }
+  }
+
+  function writeLastFellowConversationByKey(value) {
+    try {
+      const storage = rendererLocalStorage();
+      if (!storage) return;
+      storage.setItem(LAST_FELLOW_CONVERSATION_KEY, JSON.stringify(value || {}));
+    } catch {
+      // Best-effort device-local preference.
     }
   }
 
@@ -66,6 +99,12 @@
         if (id.startsWith("g_") || id.startsWith("g-")) return "group";
         return "";
       },
+      fellowKey: (conversation) => {
+        const decorated = conversation?.decorations?.fellowKey || conversation?.fellowKey || conversation?.fellow_id || "";
+        if (decorated) return String(decorated);
+        const id = String(conversation?.id || "");
+        return id.startsWith("fellow:") ? id.split(":").slice(2).join(":") : "";
+      },
       sidebarConversations: (conversations) => conversations
     };
   }
@@ -97,6 +136,7 @@
     myUserId: "",
     cloudAgentRunsByConversation: new Map(),
     pendingPermissionsById: new Map(),
+    lastFellowConversationByKey: readLastFellowConversationByKey(),
     // unreadByConversation: conversationId → count. Bumped by WS conversation.message_appended when
     // the message is from someone else and the conversation isn't currently open.
     // Cleared by setActiveConversationId (and on bootstrap — incomingRequests path
@@ -728,9 +768,16 @@
     return UUID_RE.test(fellowConversationRef(conversation.id));
   }
 
-  function visibleSocialConversations(conversations) {
+  function visibleSocialConversations(conversations, options = {}) {
     if (!Array.isArray(conversations)) return [];
-    return conversations.filter((conversation) => !isLegacyFellowSessionConversation(conversation));
+    const keepLegacyIds = new Set([
+      String(options.activeConversationId || "").trim(),
+      ...Object.values(options.preferredConversationIdByFellowKey || {}).map((id) => String(id || "").trim())
+    ].filter(Boolean));
+    return conversations.filter((conversation) =>
+      !isLegacyFellowSessionConversation(conversation)
+      || keepLegacyIds.has(String(conversation?.id || ""))
+    );
   }
 
   function upsertConversation(conversation) {
@@ -758,6 +805,11 @@
       return (conversation?.type === "fellow" || conversationId.startsWith("fellow:"))
         && (decorated === key || conversationId.split(":").slice(2).join(":") === key);
     });
+    const preferredId = String(moduleState.lastFellowConversationByKey?.[key] || "").trim();
+    const preferred = preferredId
+      ? matches.find((conversation) => conversation.id === preferredId)
+      : null;
+    if (preferred) return preferred;
     return matches.find((conversation) => !isLegacyFellowSessionConversation(conversation)) || matches[0] || null;
   }
 
@@ -1349,9 +1401,13 @@
   }
 
   function renderSidebarRows() {
-    const sidebarConversations = sessionHistoryShared().sidebarConversations(visibleSocialConversations(moduleState.conversations), {
+    const sidebarConversations = sessionHistoryShared().sidebarConversations(visibleSocialConversations(moduleState.conversations, {
       activeConversationId: moduleState.activeConversationId,
-      messageCache: moduleState.messageCache
+      preferredConversationIdByFellowKey: moduleState.lastFellowConversationByKey
+    }), {
+      activeConversationId: moduleState.activeConversationId,
+      messageCache: moduleState.messageCache,
+      preferredConversationIdByFellowKey: moduleState.lastFellowConversationByKey
     });
     return sidebarConversations.map((conversation) => {
       const cacheEntry = moduleState.messageCache.get(conversation.id);
@@ -2365,11 +2421,26 @@
     moduleState.activeConversationId = next;
     if (id) {
       writeLastActiveConversationId(id);
+      rememberFellowConversation(id);
       markConversationRead(id);
       // Fire-and-forget: keep the click snappy; cache paint + delta sync re-render async.
       _ensureConversationMessages(id);
     }
     renderAgentPermissionBanner();
+  }
+
+  function rememberFellowConversation(conversationId) {
+    const id = String(conversationId || "").trim();
+    if (!id) return;
+    const conversation = moduleState.conversations.find((row) => row.id === id) || { id };
+    if (sessionHistoryShared().conversationType(conversation, id) !== "fellow") return;
+    const key = sessionHistoryShared().fellowKey(conversation);
+    if (!key) return;
+    moduleState.lastFellowConversationByKey = {
+      ...(moduleState.lastFellowConversationByKey || {}),
+      [key]: id
+    };
+    writeLastFellowConversationByKey(moduleState.lastFellowConversationByKey);
   }
   // Relaunch restore: land on the conversation the user last had open. Skipped if
   // the user already navigated during bootstrap, or if the saved conversation no
@@ -2382,7 +2453,7 @@
     setActiveConversationId(savedId);
   }
 
-  function markConversationRead(conversationId) {
+  async function markConversationRead(conversationId, _retried = false) {
     if (!conversationId) return;
     moduleState.unreadByConversation.delete(conversationId);
     const cache = moduleState.messageCache.get(conversationId);
@@ -2393,14 +2464,28 @@
     const nextOverrides = { ...(s.unreadOverrides || {}) };
     delete nextOverrides[conversationId];
     moduleState.cloudSettings = { ...s, readMarks: nextReadMarks, unreadOverrides: nextOverrides };
-    window.mia?.social?.settingsPut?.({
-      pins: s.pins,
-      readMarks: nextReadMarks,
-      appearance: s.appearance,
-      mutedConversations: s.mutedConversations || [],
-      unreadOverrides: nextOverrides,
-      expectedVersion: s.version || 0
-    }).catch((err) => console.warn("[social] mark-read settingsPut failed:", err?.message || err));
+    try {
+      const updated = await window.mia?.social?.settingsPut?.({
+        pins: s.pins,
+        readMarks: nextReadMarks,
+        appearance: s.appearance,
+        mutedConversations: s.mutedConversations || [],
+        unreadOverrides: nextOverrides,
+        expectedVersion: s.version || 0
+      });
+      // Capture the server's new version; without this the local version stays
+      // stale (or 0 before the first bootstrap) and every later write 409s.
+      if (updated && typeof updated === "object") moduleState.cloudSettings = normalizeCloudSettings(updated, moduleState.cloudSettings || s);
+    } catch (err) {
+      // 409: our version is stale (common during startup, when a restored
+      // conversation marks read before bootstrapCloudSettings lands). Re-pull the
+      // authoritative version and retry once, re-applying the mark on top.
+      if (!_retried && /409|version conflict/i.test(String(err?.message || ""))) {
+        await bootstrapCloudSettings();
+        return markConversationRead(conversationId, true);
+      }
+      console.warn("[social] mark-read settingsPut failed:", err?.message || err);
+    }
   }
 
   // Phase 3: pin state lives in cloud user_settings (server-canonical).

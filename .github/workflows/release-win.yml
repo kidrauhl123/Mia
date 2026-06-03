@@ -1,0 +1,53 @@
+# Build and publish the Windows in-app update feed when a v* tag is pushed.
+#
+# Why a Windows runner: the NSIS installer and the win-x64 Hermes runtime must
+# be produced on a native Windows x86_64 host — scripts/build-hermes-runtime.sh
+# refuses to cross-build (it pip-installs hermes-agent for the host arch only),
+# and the runner's git-bash satisfies its `bash` shebang.
+#
+# macOS is unchanged: you still build + sign + publish it locally with
+# `npm run release:mac:publish`. Both publish to the same `v<version>` GitHub
+# release — a mac client reads latest-mac.yml, a Windows client reads latest.yml.
+#
+# Signing is intentionally not configured yet: NSIS auto-update works unsigned;
+# unsigned installs just show a first-run SmartScreen warning. Add cert secrets
+# + win.certificateFile/Password later to drop the warning.
+
+name: release-win
+
+on:
+  push:
+    tags:
+      - "v*"
+
+# Never run two publishers against the same tag at once.
+concurrency:
+  group: release-win-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  build-publish:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Build Windows installer + Hermes win-x64 runtime
+        run: npm run dist:win
+
+      - name: Smoke-test the bundled Hermes runtime on Windows
+        run: node scripts/smoke-win-runtime.js
+
+      - name: Publish update feed to GitHub release
+        run: node scripts/publish-win-update.js
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

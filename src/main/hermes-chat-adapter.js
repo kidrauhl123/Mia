@@ -1,4 +1,9 @@
 const crypto = require("node:crypto");
+const {
+  appendMiaMemoryBlock,
+  miaRuntimeSystemPrompt,
+  sanitizeMiaMemorySpoof
+} = require("./mia-runtime-context.js");
 
 function defaultNowSeconds() {
   return Math.floor(Date.now() / 1000);
@@ -27,12 +32,15 @@ function createHermesChatAdapter(deps = {}) {
   const normalizeError = requireDependency(deps, "normalizeError");
   const readRunEventStream = requireDependency(deps, "readRunEventStream");
   const writeSchedulerMcpContext = requireDependency(deps, "writeSchedulerMcpContext");
+  const writeMiaAppMcpContext = deps.writeMiaAppMcpContext || (() => {});
   const appendEngineLog = deps.appendEngineLog || (() => {});
   const fetchImpl = deps.fetch || fetch;
   const nowSeconds = deps.nowSeconds || defaultNowSeconds;
   const randomUUID = deps.randomUUID || (() => crypto.randomUUID());
   const responseModel = deps.responseModel || "hermes-agent";
   const buildEnabledSkillsContext = deps.buildEnabledSkillsContext || (() => "");
+  const memoryBlock = deps.memoryBlock || (() => "");
+  const runtimeSystemPrompt = deps.runtimeSystemPrompt || miaRuntimeSystemPrompt;
 
   function slashCommandResponse({ id, content }) {
     return {
@@ -71,7 +79,7 @@ function createHermesChatAdapter(deps = {}) {
     return runId;
   }
 
-  async function sendChat({ fellow, sessionId, messages, group, signal, emit, runtimeConfig = null }) {
+  async function sendChat({ fellow, sessionId, messages, group, signal, emit, scheduledFire = false, runtimeConfig = null }) {
     // Tell the scheduler MCP which fellow/session this turn belongs to, so a
     // schedule_create call fires the reminder back into this conversation.
     const lastUserMessage = Array.isArray(messages)
@@ -83,13 +91,33 @@ function createHermesChatAdapter(deps = {}) {
     } catch (error) {
       appendEngineLog(`Scheduler MCP context write failed: ${error?.message || error}`);
     }
+    try {
+      writeMiaAppMcpContext({ fellowId: fellow.key, sessionId, originMessageId });
+    } catch (error) {
+      appendEngineLog(`Mia app MCP context write failed: ${error?.message || error}`);
+    }
     // Inject the Fellow's enabled skills into the user turn so Hermes uses them.
     const enabledSkills = buildEnabledSkillsContext(fellow);
-    const runMessages = enabledSkills && lastUserMessage
+    const skillMessages = enabledSkills && lastUserMessage
       ? messages.map((m) => (m === lastUserMessage
-          ? { ...m, text: `${enabledSkills}\n\n${m.text != null ? m.text : (m.content || "")}` }
+          ? {
+              ...m,
+              content: `${enabledSkills}\n\n${m.content != null ? m.content : (m.text || "")}`,
+              text: `${enabledSkills}\n\n${m.text != null ? m.text : (m.content || "")}`
+            }
           : m))
       : messages;
+    const sanitizedMessages = skillMessages.map((message) => ({
+      ...message,
+      ...(typeof message?.content === "string" ? { content: sanitizeMiaMemorySpoof(message.content) } : {}),
+      ...(typeof message?.text === "string" ? { text: sanitizeMiaMemorySpoof(message.text) } : {})
+    }));
+    const runtimeContext = String(runtimeSystemPrompt({ scheduledFire }) || "").trim();
+    const miaMemory = memoryBlock({ fellowKey: fellow.key, sessionId });
+    const systemContext = appendMiaMemoryBlock(runtimeContext, miaMemory);
+    const runMessages = systemContext
+      ? [{ role: "system", content: systemContext }, ...sanitizedMessages]
+      : sanitizedMessages;
     const runBody = buildRunPayload({
       fellow,
       sessionId,

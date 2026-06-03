@@ -1,5 +1,6 @@
 // src/main/scheduler-fire.js
 const crypto = require("node:crypto");
+const { taskAgentSessionId, taskCloudConversationId } = require("./task-conversation.js");
 
 function safeRecordRun(store, taskId, run) {
   try {
@@ -26,12 +27,14 @@ function createFireRunner({ store, runRemoteChatRequest, emit, logger = console 
     inflight.add(task.id);
     const runId = "r-" + crypto.randomBytes(6).toString("hex");
     const firedAt = Date.now();
-    const conversationId = task.conversationId || task.sessionId;
+    const conversationId = taskCloudConversationId(task);
+    const agentSessionId = taskAgentSessionId(task);
     emit("started", { taskId: task.id, runId, conversationId });
     try {
       const result = await runRemoteChatRequest({
         fellowKey: task.fellowId,
         conversationId,
+        agentSessionId,
         text: task.prompt,
         displayText: task.prompt,
         // Run independently of the interactive single-flight abort controller so

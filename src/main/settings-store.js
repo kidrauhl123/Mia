@@ -48,8 +48,8 @@ function createSettingsStore(deps = {}) {
 
   function defaultUserProfile() {
     return {
-      displayName: "Boss",
-      avatarText: "B",
+      displayName: "",
+      avatarText: "",
       avatarColor: "#111827",
       avatarImage: "",
       avatarCrop: { x: 50, y: 50, zoom: 1 }
@@ -128,12 +128,13 @@ function createSettingsStore(deps = {}) {
   function writeUserProfile(profile = {}) {
     const p = runtimePaths();
     const current = userProfile();
+    const has = (key) => Object.prototype.hasOwnProperty.call(profile, key);
     const next = {
-      displayName: String(profile.displayName || current.displayName || "Boss").trim() || "Boss",
-      avatarText: String(profile.avatarText || current.avatarText || "B").trim().slice(0, 2).toUpperCase() || "B",
-      avatarColor: String(profile.avatarColor || current.avatarColor || "#111827").trim() || "#111827",
-      avatarImage: String(profile.avatarImage || current.avatarImage || "").trim(),
-      avatarCrop: normalizeAvatarCrop(profile.avatarCrop || current.avatarCrop)
+      displayName: String(has("displayName") ? profile.displayName : current.displayName).trim(),
+      avatarText: String(has("avatarText") ? profile.avatarText : current.avatarText).trim().slice(0, 2).toUpperCase(),
+      avatarColor: String(has("avatarColor") ? profile.avatarColor : current.avatarColor).trim() || "#111827",
+      avatarImage: String(has("avatarImage") ? profile.avatarImage : current.avatarImage).trim(),
+      avatarCrop: normalizeAvatarCrop(has("avatarCrop") ? profile.avatarCrop : current.avatarCrop)
     };
     fs.mkdirSync(path.dirname(p.userProfile), { recursive: true });
     fs.writeFileSync(p.userProfile, JSON.stringify(next, null, 2) + "\n");

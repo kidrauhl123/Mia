@@ -26,6 +26,7 @@
     CloudEvent: "cloud:event",
     UtilOpenExternal: "util:open-external",
     EngineInstall: "engine:install",
+    EngineRepair: "engine:repair",
     EngineStart: "engine:start",
     EngineStop: "engine:stop",
     EngineUninstallStandalone: "engine:uninstall-standalone",

@@ -2,6 +2,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const { taskConversationFields } = require("./task-conversation.js");
 
 function atomicWrite(filePath, content) {
   const tmp = filePath + ".tmp." + crypto.randomBytes(6).toString("hex");
@@ -83,13 +84,13 @@ function createTasksStore(filePath) {
   function create(input) {
     validateInput(input);
     const now = Date.now();
-    const conversationId = String(input.conversationId || input.sessionId);
+    const { conversationId, sessionId } = taskConversationFields(input);
     const task = {
       id: "t-" + crypto.randomBytes(8).toString("hex"),
       title: String(input.title || "未命名任务"),
       fellowId: String(input.fellowId),
       conversationId,
-      sessionId: conversationId,
+      sessionId,
       originMessageId: String(input.originMessageId || ""),
       trigger: { ...input.trigger },
       timezone: String(input.timezone || "UTC"),

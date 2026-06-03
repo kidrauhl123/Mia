@@ -43,12 +43,44 @@
     renderProfileAvatarDraft();
   }
 
+  function firstNonEmpty(...values) {
+    for (const value of values) {
+      const text = String(value || "").trim();
+      if (text) return text;
+    }
+    return "";
+  }
+
+  function currentProfileUser() {
+    const cloudUser = state?.runtime?.cloud?.enabled ? state.runtime?.cloud?.user : null;
+    const localUser = state?.runtime?.user || {};
+    const displayName = firstNonEmpty(
+      cloudUser?.displayName,
+      cloudUser?.display_name,
+      cloudUser?.name,
+      cloudUser?.username,
+      cloudUser?.email,
+      localUser.displayName,
+      localUser.name,
+      localUser.username,
+      localUser.account
+    );
+    return {
+      ...localUser,
+      ...(cloudUser || {}),
+      displayName,
+      avatarImage: firstNonEmpty(cloudUser?.avatarImage, cloudUser?.avatar_image, localUser.avatarImage),
+      avatarCrop: cloudUser?.avatarCrop || cloudUser?.avatar_crop || localUser.avatarCrop || window.miaAvatar.DEFAULT_AVATAR_CROP,
+      avatarColor: firstNonEmpty(cloudUser?.avatarColor, cloudUser?.avatar_color, localUser.avatarColor, "#111827")
+    };
+  }
+
   function renderProfileAvatarDraft() {
     if (!state || !els || !els.profileAvatarPreview) return;
     const draft = state.profileAvatarDraft;
-    const user = state.runtime?.user || {};
+    const user = currentProfileUser();
     const crop = window.miaAvatar.normalizeCrop(draft.crop);
-    const label = window.miaAvatarResolve?.identityDisplayText?.(els.profileDisplayName?.value || user.displayName || "Boss", "Boss") || "Bo";
+    const label = window.miaAvatarResolve?.identityDisplayText?.(els.profileDisplayName?.value || user.displayName || "", "我") || "我";
     window.miaAvatar.applyAvatarMedia(els.profileAvatarPreview, draft.image, crop, user.avatarColor || "#111827", label);
     els.profileAvatarPreview.title = draft.image ? "点击调整头像裁剪" : "选择头像";
     els.profileAvatarPreview.setAttribute("role", "button");
@@ -59,9 +91,9 @@
 
   function openProfileDialog() {
     if (!state || !els) return;
-    const user = state.runtime?.user || { displayName: "Boss", avatarImage: "", avatarCrop: window.miaAvatar.DEFAULT_AVATAR_CROP };
+    const user = currentProfileUser();
     state.profileDialogOpen = true;
-    if (els.profileDisplayName) els.profileDisplayName.value = user.displayName || "Boss";
+    if (els.profileDisplayName) els.profileDisplayName.value = user.displayName || "";
     setProfileAvatarDraft(user.avatarImage || "", user.avatarCrop);
     renderView();
     setTimeout(() => els.profileDisplayName?.focus(), 0);

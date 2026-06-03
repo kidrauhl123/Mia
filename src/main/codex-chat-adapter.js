@@ -2,11 +2,19 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const {
+  appendMiaMemoryBlock,
+  miaRuntimeSystemPrompt,
+  sanitizeMiaMemorySpoof,
+  withMiaRuntimeContext
+} = require("./mia-runtime-context.js");
 
 function mapCodexPermissionMode(value) {
   const id = String(value || "default").trim();
   if (id === "acceptEdits") return { sandboxMode: "workspace-write", approvalPolicy: "on-request" };
-  if (id === "bypassPermissions") return { sandboxMode: "danger-full-access", approvalPolicy: "never" };
+  if (id === "bypassPermissions" || id === "yolo" || id === "off" || id === "never") {
+    return { sandboxMode: "danger-full-access", approvalPolicy: "never" };
+  }
   if (id === "readOnly") return { sandboxMode: "read-only", approvalPolicy: "never" };
   return { sandboxMode: "workspace-write", approvalPolicy: "untrusted" };
 }
@@ -176,15 +184,18 @@ function createCodexChatAdapter(deps = {}) {
   const getAgentSessionId = requireDependency(deps, "getAgentSessionId");
   const setAgentSessionId = requireDependency(deps, "setAgentSessionId");
   const chatCompletionResponse = requireDependency(deps, "chatCompletionResponse");
+  const memoryBlock = deps.memoryBlock || (() => "");
   const ensureCodexHome = requireDependency(deps, "ensureCodexHome");
   const writeSchedulerMcpContext = requireDependency(deps, "writeSchedulerMcpContext");
+  const getMiaAppMcpSpec = deps.getMiaAppMcpSpec || (() => null);
+  const getSchedulerMcpSpec = deps.getSchedulerMcpSpec || (() => null);
   const runCodexAppServerTurn = deps.runCodexAppServerTurn || null;
   const permissionCoordinator = deps.permissionCoordinator || null;
   const appendEngineLog = deps.appendEngineLog || (() => {});
   const randomUUID = deps.randomUUID || (() => crypto.randomUUID());
   const cwd = deps.cwd || (() => process.cwd());
 
-  async function sendChat({ fellow, sessionId, messages, group, signal, emit = null, utility = false, persistAgentSession = !utility }) {
+  async function sendChat({ fellow, sessionId, messages, group, signal, emit = null, utility = false, scheduledFire = false, persistAgentSession = !utility }) {
     const engine = "codex";
     const shouldPersistAgentSession = Boolean(persistAgentSession);
     const commandPath = shellCommandPath("codex");
@@ -199,11 +210,18 @@ function createCodexChatAdapter(deps = {}) {
     } catch {
       // Non-fatal; scheduler MCP context missing means tool works without context defaults
     }
-    const userText = [buildEnabledSkillsContext(fellow), expandLeadingSkillCommand(lastUser, { mode: "inline" }) || lastUser]
+    const miaMemory = memoryBlock({ fellowKey: fellow.key, sessionId });
+    const runtimeContext = externalSessionId && (!utility || group) ? miaRuntimeSystemPrompt({ scheduledFire }) : "";
+    const runtimeInstructions = !externalSessionId ? runtimeContext : appendMiaMemoryBlock(runtimeContext, miaMemory);
+    const expandedPrompt = sanitizeMiaMemorySpoof(expandLeadingSkillCommand(lastUser, { mode: "inline" }) || lastUser);
+    const userText = [runtimeInstructions, buildEnabledSkillsContext(fellow), expandedPrompt]
       .filter(Boolean)
       .join("\n\n");
     const persona = !externalSessionId
-      ? readFellowPersona(fellow.key, fellow.name, fellow.bio).trim()
+      ? appendMiaMemoryBlock(
+          withMiaRuntimeContext(readFellowPersona(fellow.key, fellow.name, fellow.bio), { scheduledFire }),
+          miaMemory
+        ).trim()
       : "";
     const prompt = (() => {
       if (!persona) return userText;
@@ -223,16 +241,25 @@ function createCodexChatAdapter(deps = {}) {
     let codexHomePath = "";
     try {
       codexHomePath = ensureCodexHome();
-    } catch {
-      // Non-fatal; fall back to user's default CODEX_HOME
+    } catch (error) {
+      throw new Error(`Mia Codex profile setup failed: ${error?.message || error}`);
     }
-    const env = codexHomePath
-      ? { ...baseEnv, CODEX_HOME: codexHomePath }
-      : baseEnv;
+    if (!codexHomePath) throw new Error("Mia Codex profile setup failed: missing CODEX_HOME.");
+    const env = { ...baseEnv, CODEX_HOME: codexHomePath };
     const permission = mapCodexPermissionMode(fellow.engineConfig?.permissionMode || fellow.agentPermissionMode || "default");
     const effectivePermission = typeof emit === "function"
       ? permission
       : { ...permission, approvalPolicy: "never" };
+    const schedulerMcpSpec = (() => {
+      try { return getSchedulerMcpSpec(); } catch { return null; }
+    })();
+    const miaAppMcpSpec = (() => {
+      try { return getMiaAppMcpSpec({ fellowId: fellow.key, sessionId, originMessageId }); } catch { return null; }
+    })();
+    const mcpServers = {
+      ...(miaAppMcpSpec ? { "mia-app": miaAppMcpSpec } : {}),
+      ...(schedulerMcpSpec ? { "mia-scheduler": schedulerMcpSpec } : {})
+    };
     const threadOptions = {
       workingDirectory: cwd(),
       skipGitRepoCheck: true,
@@ -257,6 +284,7 @@ function createCodexChatAdapter(deps = {}) {
         permissionCoordinator,
         fellowKey: fellow.key,
         sessionId,
+        mcpServers,
         appendLog: appendEngineLog
       });
       capturedSessionId = externalSessionId || turn?.threadId || "";

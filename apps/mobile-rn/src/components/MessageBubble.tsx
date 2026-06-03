@@ -1,16 +1,32 @@
-import { View, StyleSheet } from "react-native";
+import { View, Pressable, StyleSheet } from "react-native";
+import * as Haptics from "expo-haptics";
 import Markdown from "react-native-markdown-display";
 import { color, radius, space } from "../theme";
 import TraceBlock from "./TraceBlock";
 import type { ChatMessage } from "../api/types";
 
 // 对齐桌面 .bubble:对方=浅灰深字、自己=靛蓝白字,圆角 18,padding 10/15。
-export default function MessageBubble({ msg }: { msg: ChatMessage }) {
+export default function MessageBubble({
+  msg,
+  onLongPress,
+}: {
+  msg: ChatMessage;
+  onLongPress?: (m: ChatMessage) => void;
+}) {
   const own = msg.isOwn;
   const textColor = own ? color.userBubbleText : color.ink;
   return (
     <View style={[styles.row, own ? styles.rowOwn : styles.rowOther]}>
-      <View
+      <Pressable
+        onLongPress={
+          onLongPress
+            ? () => {
+                Haptics.selectionAsync();
+                onLongPress(msg);
+              }
+            : undefined
+        }
+        delayLongPress={300}
         style={[
           styles.bubble,
           own ? styles.own : styles.other,
@@ -29,7 +45,7 @@ export default function MessageBubble({ msg }: { msg: ChatMessage }) {
         >
           {msg.bodyMd || ""}
         </Markdown>
-      </View>
+      </Pressable>
     </View>
   );
 }

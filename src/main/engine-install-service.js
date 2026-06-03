@@ -1,6 +1,7 @@
 const { spawnSync: defaultSpawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { createHermesInstallSourceService } = require("./hermes-install-source-service.js");
 
 function createEngineInstallService(deps = {}) {
   const runtimePaths = deps.runtimePaths;
@@ -26,6 +27,7 @@ function createEngineInstallService(deps = {}) {
   const initializeRuntime = deps.initializeRuntime || (() => {});
   const stopEngine = deps.stopEngine || (() => {});
   const ensureEnginePlugins = deps.ensureEnginePlugins || (() => {});
+  const resetAgentEngineCache = deps.resetAgentEngineCache || (() => {});
   const getRuntimeStatus = deps.getRuntimeStatus || ((created) => ({ created }));
   const now = deps.now || (() => new Date());
 
@@ -41,6 +43,22 @@ function createEngineInstallService(deps = {}) {
   const officialExtras = configuredValue("officialExtras", "MIA_ENGINE_EXTRAS", "web");
   const officialPython = configuredValue("officialPython", "MIA_PYTHON", "");
   const devEngineSource = configuredValue("devEngineSource", "MIA_ENGINE_SOURCE", "");
+  const installSourceService = deps.installSourceService || createHermesInstallSourceService({
+    env,
+    officialPackage,
+    officialRepoUrl,
+    officialRef,
+    officialUrl,
+    officialExtras
+  });
+
+  function throwIfCancelled(signal) {
+    if (signal?.aborted) {
+      const error = new Error("Hermes install cancelled.");
+      error.code = "MIA_HERMES_INSTALL_CANCELLED";
+      throw error;
+    }
+  }
 
   function officialEngineUrl() {
     if (String(officialUrl || "").trim()) return officialUrl.trim();
@@ -88,16 +106,19 @@ function createEngineInstallService(deps = {}) {
 
   function isInstalled() {
     if (bundledPython() && bundledSitePackages()) return true;
-    const p = runtimePaths();
-    const sourceEntrypoint = path.join(p.engine, "hermes_cli", "main.py");
     const marker = readJson(engineMarkerPath(), {});
-    if (marker?.source === "official-github-archive" || marker?.source === "official-python-package") {
+    const managedSources = new Set(["official-github-archive", "official-python-package", "mia-mirror"]);
+    if (managedSources.has(marker?.source)) {
       return fsImpl.existsSync(venvPythonPath());
     }
     if (marker?.source === "maintained-local-source") {
-      return fsImpl.existsSync(sourceEntrypoint);
+      return fsImpl.existsSync(localSourceEntrypoint());
     }
     return false;
+  }
+
+  function localSourceEntrypoint() {
+    return path.join(runtimePaths().engine, "hermes_cli", "main.py");
   }
 
   function enginePython() {
@@ -111,6 +132,8 @@ function createEngineInstallService(deps = {}) {
   function engineSource() {
     if (bundledPython() && bundledSitePackages()) return "bundled";
     if (fsImpl.existsSync(venvPythonPath())) return "managed";
+    const marker = readJson(engineMarkerPath(), {});
+    if (marker?.source === "maintained-local-source" && fsImpl.existsSync(localSourceEntrypoint())) return "local-source";
     return "none";
   }
 
@@ -140,7 +163,9 @@ function createEngineInstallService(deps = {}) {
     return result;
   }
 
-  function installFromDevSource() {
+  function installFromDevSource(options = {}) {
+    const { signal = null } = options;
+    throwIfCancelled(signal);
     initializeRuntime();
     stopEngine();
     const p = runtimePaths();
@@ -148,6 +173,7 @@ function createEngineInstallService(deps = {}) {
       throw new Error(`Hermes source missing: ${devEngineSource}`);
     }
 
+    throwIfCancelled(signal);
     fsImpl.rmSync(p.engine, { recursive: true, force: true });
     const skip = new Set([
       ".git",
@@ -165,6 +191,7 @@ function createEngineInstallService(deps = {}) {
       dereference: false,
       filter: (source) => !skip.has(path.basename(source))
     });
+    throwIfCancelled(signal);
     fsImpl.writeFileSync(engineMarkerPath(), JSON.stringify({
       product: "mia",
       source: "maintained-local-source",
@@ -172,60 +199,85 @@ function createEngineInstallService(deps = {}) {
       installed_at: now().toISOString()
     }, null, 2) + "\n");
     ensureEnginePlugins();
+    resetAgentEngineCache();
     return getRuntimeStatus(["runtime/hermes-engine"]);
   }
 
-  function installFromOfficialPackage() {
+  function installFromOfficialPackage(options = {}) {
+    const { signal = null } = options;
+    throwIfCancelled(signal);
     initializeRuntime();
     stopEngine();
     const p = runtimePaths();
-    const packageSpec = officialEngineRequirement(officialExtras);
-    const basePackageSpec = officialEngineRequirement("");
+    const source = installSourceService.resolveInstallSource();
+    const packageSpec = source.requirement;
+    const basePackageSpec = source.baseRequirement;
     const python = selectOfficialEnginePython();
 
     clearLogs();
+    throwIfCancelled(signal);
     fsImpl.rmSync(p.engine, { recursive: true, force: true });
     fsImpl.mkdirSync(p.engine, { recursive: true });
     fsImpl.writeFileSync(path.join(p.engine, "README.md"), [
       "# Mia Hermes Engine",
       "",
-      `This runtime installs the official Hermes source archive: ${officialEngineUrl()}`,
+      `This runtime installs the official Hermes source archive or verified Mia mirror: ${source.url}`,
+      source.upstreamUrl && source.upstreamUrl !== source.url ? `Upstream Hermes source: ${source.upstreamUrl}` : "",
+      source.checksum ? `Expected sha256: ${source.checksum}` : "",
       `Python executable used for installation: ${python}`,
       "Set MIA_ENGINE_SOURCE only for local Hermes development builds.",
       ""
-    ].join("\n"));
+    ].filter((line) => line !== "").join("\n"));
 
+    throwIfCancelled(signal);
     runInstallCommand(python, ["-m", "venv", ".venv"], p.engine);
+    throwIfCancelled(signal);
     runInstallCommand(venvPythonPath(), ["-m", "pip", "install", "--upgrade", "pip"], p.engine);
     try {
+      throwIfCancelled(signal);
       runInstallCommand(venvPythonPath(), ["-m", "pip", "install", "--upgrade", packageSpec], p.engine);
     } catch (error) {
       if (!officialExtras) throw error;
       appendLog(`Official Hermes install with extras failed; retrying base install: ${error.message}`);
+      throwIfCancelled(signal);
       runInstallCommand(venvPythonPath(), ["-m", "pip", "install", "--upgrade", basePackageSpec], p.engine);
     }
+    throwIfCancelled(signal);
     runInstallCommand(venvPythonPath(), ["-c", "import hermes_cli.main, fastapi, uvicorn; print('hermes_cli + web deps import OK')"], p.engine);
     ensureEnginePlugins();
+    throwIfCancelled(signal);
     runInstallCommand(venvPythonPath(), ["-c", "import mia_plugins; print('mia_plugins import OK')"], p.engine);
 
     fsImpl.writeFileSync(engineMarkerPath(), JSON.stringify({
       product: "mia",
-      source: "official-github-archive",
-      package: officialPackage,
-      repo: officialRepoUrl,
-      ref: officialRef,
-      url: officialEngineUrl(),
-      extras: officialExtras || null,
+      source: source.kind,
+      package: source.package,
+      repo: source.repo,
+      ref: source.ref,
+      url: source.url,
+      upstream_url: source.upstreamUrl,
+      extras: source.extras || null,
+      checksum_sha256: source.checksum || "",
       python,
       spec: packageSpec,
       installed_at: now().toISOString()
     }, null, 2) + "\n");
+    resetAgentEngineCache();
     return getRuntimeStatus(["runtime/hermes-engine"]);
   }
 
-  function install() {
-    if (devEngineSource) return installFromDevSource();
-    return installFromOfficialPackage();
+  function install(options = {}) {
+    throwIfCancelled(options.signal);
+    if (devEngineSource) return installFromDevSource(options);
+    return installFromOfficialPackage(options);
+  }
+
+  function repair(options = {}) {
+    throwIfCancelled(options.signal);
+    initializeRuntime();
+    stopEngine();
+    fsImpl.rmSync(runtimePaths().engine, { recursive: true, force: true });
+    return install(options);
   }
 
   return {
@@ -240,6 +292,7 @@ function createEngineInstallService(deps = {}) {
     installFromDevSource,
     installFromOfficialPackage,
     install,
+    repair,
     venvPythonPath,
     engineMarkerPath
   };

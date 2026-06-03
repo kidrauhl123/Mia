@@ -1,5 +1,6 @@
 const fallbackSlashCommands = window.miaAppState.fallbackSlashCommands;
 const SETUP_GUIDE_DISMISSED_KEY = window.miaAppState.SETUP_GUIDE_DISMISSED_KEY;
+const AGENT_SETUP_SKIPPED_KEY = window.miaAppState.AGENT_SETUP_SKIPPED_KEY;
 const { ConversationKind, MemberKind, SenderKind } = (typeof window !== "undefined" && window.miaConversationKinds) || require("../shared/conversation-kinds");
 const { prepareOutgoingMessage } = (typeof window !== "undefined" && window.miaSendPipeline) || require("../shared/send-pipeline");
 const sessionHistory = (typeof window !== "undefined" && window.miaSessionHistory) || require("../shared/session-history");
@@ -51,6 +52,7 @@ const els = {
   engineRowHermes: document.getElementById("engineRowHermes"),
   engineRowClaude: document.getElementById("engineRowClaude"),
   engineRowCodex: document.getElementById("engineRowCodex"),
+  engineRowOpenClaw: document.getElementById("engineRowOpenClaw"),
   engineRowHermesButton: document.querySelector('[data-engine-row="hermes"]'),
   personaSearch: document.getElementById("personaSearch"),
   personaCount: document.getElementById("personaCount"),
@@ -238,6 +240,47 @@ const els = {
 
 function setText(el, value) {
   if (el) el.textContent = value;
+}
+
+function firstNonEmpty(...values) {
+  for (const value of values) {
+    const text = String(value || "").trim();
+    if (text) return text;
+  }
+  return "";
+}
+
+function runtimeUserIdentity(runtime = state.runtime) {
+  const cloudUser = runtime?.cloud?.enabled && runtime?.cloud?.user ? runtime.cloud.user : null;
+  const localUser = runtime?.user || {};
+  const displayName = firstNonEmpty(
+    cloudUser?.displayName,
+    cloudUser?.display_name,
+    cloudUser?.name,
+    cloudUser?.username,
+    cloudUser?.email,
+    localUser.displayName,
+    localUser.name,
+    localUser.username,
+    localUser.account
+  );
+  const username = firstNonEmpty(cloudUser?.username, cloudUser?.account, localUser.username, localUser.account);
+  const avatarText = firstNonEmpty(
+    cloudUser?.avatarText,
+    cloudUser?.avatar_text,
+    localUser.avatarText,
+    displayName ? window.miaAvatar?.initials?.(displayName) : ""
+  );
+  return {
+    id: firstNonEmpty(cloudUser?.id, cloudUser?.userId, cloudUser?.user_id, localUser.id),
+    username,
+    account: firstNonEmpty(cloudUser?.account, localUser.account),
+    displayName,
+    avatarText,
+    avatarColor: firstNonEmpty(cloudUser?.avatarColor, cloudUser?.avatar_color, localUser.avatarColor, "#111827"),
+    avatarImage: firstNonEmpty(cloudUser?.avatarImage, cloudUser?.avatar_image, localUser.avatarImage),
+    avatarCrop: cloudUser?.avatarCrop || cloudUser?.avatar_crop || localUser.avatarCrop || null
+  };
 }
 
 
@@ -991,6 +1034,8 @@ function updateModelFieldVisibility(runtime = state.runtime) {
 function render() {
   const runtime = state.runtime;
   if (!runtime) return;
+  const cloudSignedIn = Boolean(runtime?.cloud?.enabled);
+  els.appShell?.setAttribute("data-auth-state", cloudSignedIn ? "signed-in" : "signed-out");
   renderSendButton();
   window.miaMessageHelpers.renderComposerReply();
   // Re-evaluate composer skill chips every render so switching conversations drops
@@ -1019,11 +1064,11 @@ function render() {
     if (els.appearanceSelectionStyle) els.appearanceSelectionStyle.value = window.miaSettingsAppearance.normalizeSelectionStyle(appearance.selectionStyle);
     window.miaSettingsAppearance.syncAppearanceControls(appearance);
   }
-  const user = runtime.user || { displayName: "Boss", avatarText: "B", avatarColor: "#111827", avatarImage: "" };
+  const user = runtimeUserIdentity(runtime);
   window.miaAvatar.applyUserAvatar(els.userAvatar, user);
-  setText(els.userDisplayName, user.displayName || "Boss");
+  setText(els.userDisplayName, user.displayName || "");
   if (!editingProfile && els.profileForm) {
-    els.profileDisplayName.value = user.displayName || "Boss";
+    els.profileDisplayName.value = user.displayName || "";
     window.miaFellowDialog.setProfileAvatarDraft(user.avatarImage || "", user.avatarCrop);
   }
 
@@ -1146,7 +1191,6 @@ function render() {
   // connecting only. An earlier version gated on loggedIn, which was
   // always undefined, so the gate never fired and personas always
   // painted first.
-  const cloudSignedIn = Boolean(state.runtime?.cloud?.enabled);
   const activeCloudConversationId = social?.getActiveConversationId?.();
   // Only fall back to personas[0] when no persona matches AND no group is active.
   // Without this guard, clicking a group (whose id doesn't match any persona key)
@@ -1259,6 +1303,13 @@ function renderView() {
   if (state.activeSettingsTab === "mobile") state.activeSettingsTab = "account";
   if (!document.querySelector(`[data-settings-tab="${state.activeSettingsTab}"]`)) {
     state.activeSettingsTab = "account";
+  }
+  const cloudSignedIn = Boolean(state.runtime?.cloud?.enabled);
+  els.appShell?.setAttribute("data-auth-state", cloudSignedIn ? "signed-in" : "signed-out");
+  if (!cloudSignedIn) {
+    state.activeView = "chat";
+    state.fellowMenuOpen = false;
+    state.contactMenuOpen = false;
   }
   syncNarrowLayout();
   els.conversationSidebar?.classList.toggle("hidden", state.activeView !== "chat");
@@ -1444,40 +1495,100 @@ function messagesForActive() {
   }));
 }
 
+function agentInventoryById(runtime) {
+  const agents = runtime?.agentInventory?.agents || [];
+  return Object.fromEntries(agents.map((agent) => [agent.id, agent]));
+}
+
+function shortAgentVersion(agent) {
+  const version = String(agent?.version || "").trim();
+  if (!version) return "";
+  return version.split(/\s+/).slice(0, 2).join(" ");
+}
+
+function detectedAgentLine(agent) {
+  if (!agent) return "未检测到";
+  if (agent.usableInMia) {
+    const parts = [agent.path || "已检测到", shortAgentVersion(agent)].filter(Boolean);
+    return parts.join(" · ");
+  }
+  if (agent.installed && agent.detectionOnly) return "已检测到 · 暂未接入 Mia 聊天";
+  if (agent.installed) return "已检测到 · 当前不可直接用于 Mia";
+  return "未检测到";
+}
+
+function legacyAgentStatus(id, legacy) {
+  if (!legacy) return null;
+  const installed = Boolean(legacy.installed ?? legacy.available);
+  const detectionOnly = Boolean(legacy.detectionOnly);
+  const usableInMia = legacy.usableInMia === undefined
+    ? Boolean(legacy.available && !detectionOnly)
+    : Boolean(legacy.usableInMia);
+  return { id, ...legacy, installed, detectionOnly, usableInMia };
+}
+
+function hermesDetectionLine(runtime, hermes) {
+  const source = hermes?.source || runtime?.engineSource;
+  const usesBundled = source === "mia-bundled" || source === "bundled";
+  const usesManaged = ["mia-managed", "managed", "local-source", "maintained-local-source"].includes(source);
+  const legacyInstalled = !hermes && Boolean(runtime?.engineInstalled);
+  const usableInMia = hermes ? Boolean(hermes.usableInMia) : Boolean(usesBundled || usesManaged || legacyInstalled);
+
+  if (usableInMia && usesBundled) {
+    return runtime?.engineRunning ? "随安装包内置 · 运行中" : "随安装包内置 · 就绪";
+  }
+  if (usableInMia && (usesManaged || legacyInstalled)) {
+    return runtime?.engineRunning ? "独立副本运行中" : "独立副本已安装";
+  }
+  if (hermes?.installed) {
+    return "已检测到系统 Hermes · Mia 当前需要独立副本";
+  }
+  return "未安装 · 点开后可安装独立副本";
+}
+
+function renderHermesInstallState(runtime = state.runtime) {
+  const hermes = runtime?.agentInventory?.agents?.find((agent) => agent.id === "hermes");
+  if (state.hermesInstallError) return state.hermesInstallError;
+  if (!hermes) return "";
+  if (hermes.health === "broken") return "Hermes 安装不完整，可修复或重装。";
+  if (hermes.source === "mia-managed" && hermes.usableInMia) return "Hermes 已安装到 Mia 私有目录。";
+  if (hermes.source === "system" && !hermes.usableInMia) return "检测到系统 Hermes，Mia 仍需要私有运行环境。";
+  return "";
+}
+
+function hermesSetupAction(runtime = state.runtime) {
+  const hermes = runtime?.agentInventory?.agents?.find((agent) => agent.id === "hermes");
+  if (hermes?.installAction === "repair-hermes" || hermes?.health === "broken") {
+    return { action: "repair-hermes", label: "修复 Hermes" };
+  }
+  if (state.hermesInstallError) {
+    return { action: "retry-install-hermes", label: "重试安装" };
+  }
+  return { action: "install-hermes", label: "安装 Hermes" };
+}
+
 function renderEngineDetection(runtime) {
   const engines = runtime?.agentEngines || {};
+  const inventory = agentInventoryById(runtime);
 
   if (els.engineRowHermes) {
-    const source = runtime?.engineSource;
-    let line;
-    if (source === "bundled") {
-      line = runtime?.engineRunning ? "随安装包内置 · 运行中" : "随安装包内置 · 就绪";
-    } else if (source === "managed") {
-      line = runtime?.engineRunning ? "独立副本运行中" : "独立副本已安装";
-    } else {
-      line = "未安装 · 点开后可安装独立副本";
-    }
-    els.engineRowHermes.textContent = line;
+    els.engineRowHermes.textContent = hermesDetectionLine(runtime, inventory.hermes);
   }
 
   if (els.engineRowClaude) {
-    const cc = engines.claudeCode || {};
-    if (cc.available) {
-      const v = cc.version ? ` · ${cc.version.split(" ")[0]}` : "";
-      els.engineRowClaude.textContent = `${cc.path || "已检测到"}${v}`;
-    } else {
-      els.engineRowClaude.textContent = "未检测到";
-    }
+    els.engineRowClaude.textContent = detectedAgentLine(
+      inventory["claude-code"] || legacyAgentStatus("claude-code", engines.claudeCode)
+    );
   }
 
   if (els.engineRowCodex) {
-    const cx = engines.codex || {};
-    if (cx.available) {
-      const v = cx.version ? ` · ${cx.version.split(" ")[0]}` : "";
-      els.engineRowCodex.textContent = `${cx.path || "已检测到"}${v}`;
-    } else {
-      els.engineRowCodex.textContent = "未检测到";
-    }
+    els.engineRowCodex.textContent = detectedAgentLine(inventory.codex || legacyAgentStatus("codex", engines.codex));
+  }
+
+  if (els.engineRowOpenClaw) {
+    els.engineRowOpenClaw.textContent = detectedAgentLine(
+      inventory.openclaw || legacyAgentStatus("openclaw", engines.openClaw)
+    );
   }
 }
 
@@ -1667,7 +1778,7 @@ function renderMessageHtml(message, ctx) {
     : "";
   const userAvatarSpec = window.miaAvatarResolve.resolveAvatarForContact({
     id: state.runtime?.cloud?.user?.id || user.id || user.username || user.displayName || "self",
-    displayName: user.displayName || user.username || "Boss",
+    displayName: user.displayName || user.username || "你",
     avatarImage: user.avatarImage || "",
     avatarCrop: user.avatarCrop || null
   });
@@ -1756,9 +1867,36 @@ function renderCloudLoginGuide() {
   `;
 }
 
+function hasUsableLocalAgent(runtime = state.runtime) {
+  const inventory = runtime?.agentInventory;
+  if (inventory?.summary) return Boolean(inventory.summary.hasUsableAgent);
+  const engines = runtime?.agentEngines || {};
+  return Boolean(runtime?.engineInstalled || engines.claudeCode?.available || engines.codex?.available);
+}
+
+function renderNoAgentGuide() {
+  const hermesState = renderHermesInstallState();
+  const hermesAction = hermesSetupAction();
+  const hermesActionButton = hermesAction.action === "repair-hermes"
+    ? `<button type="button" class="primary" data-setup-action="repair-hermes">修复 Hermes</button>`
+    : hermesAction.action === "retry-install-hermes"
+      ? `<button type="button" class="primary" data-setup-action="retry-install-hermes">重试安装</button>`
+      : `<button type="button" class="primary" data-setup-action="install-hermes">安装 Hermes</button>`;
+  return `
+    <div class="cloud-login-guide no-agent-guide">
+      <h2>本机 Agent 尚未连接</h2>
+      <p>要开始本机聊天，请安装 Hermes 或配置已有 Agent。你也可以登录 Mia Cloud，同步并使用云端对话。</p>
+      ${hermesState ? `<p>${window.miaMarkdown.escapeHtml(hermesState)}</p>` : ""}
+      <div class="setup-actions">
+        ${hermesActionButton}
+        <button type="button" class="secondary" data-setup-action="open-agent-settings">查看本机引擎</button>
+        <button type="button" class="secondary" data-action="cloud-login">登录 Mia Cloud</button>
+      </div>
+    </div>
+  `;
+}
+
 function renderChat() {
-  // Branch: a cloud conversation (DM / group / fellow) is active → social paints
-  // the message list. Header is painted by render() above.
   const activeConversationId = window.miaSocial?.getActiveConversationId?.();
   if (activeConversationId) {
     if (window.miaSocial && typeof window.miaSocial.renderConversationChat === "function") {
@@ -1766,12 +1904,19 @@ function renderChat() {
     }
     return;
   }
+  const messages = [];
+  if (window.miaSetupGuide?.shouldShowSetupGuide?.({ messages })) {
+    els.chat.innerHTML = window.miaSetupGuide.renderSetupGuide();
+    return;
+  }
+  if (state.agentSetupSkipped && !hasUsableLocalAgent()) {
+    els.chat.innerHTML = renderNoAgentGuide();
+    return;
+  }
   if (state.runtime?.cloud?.enabled) {
-    // Signed in but no conversation selected → empty canvas; the sidebar invites picking one.
     els.chat.innerHTML = "";
     return;
   }
-  // Cloud-only app: not signed in → guide to login. There is no local conversation path.
   els.chat.innerHTML = renderCloudLoginGuide();
 }
 
@@ -3245,11 +3390,11 @@ els.confirmAvatarCrop?.addEventListener("click", async () => {
     // is preserved by reading whatever is currently in the input.
     try {
       const displayName = (els.profileDisplayName?.value || "").trim()
-        || state.runtime?.user?.displayName
-        || "Boss";
+        || runtimeUserIdentity().displayName
+        || "";
       state.runtime = await window.mia.saveProfile({
         displayName,
-        avatarText: window.miaAvatar.initials(displayName),
+        avatarText: displayName ? window.miaAvatar.initials(displayName) : "",
         avatarImage: state.profileAvatarDraft.image || els.profileAvatarImage?.value || "",
         avatarCrop: window.miaAvatar.normalizeCrop(state.profileAvatarDraft.crop),
       });
@@ -3270,10 +3415,10 @@ els.resetAvatarCrop?.addEventListener("click", () => {
 
 els.profileForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const displayName = els.profileDisplayName.value.trim() || "Boss";
+  const displayName = els.profileDisplayName.value.trim();
   state.runtime = await window.mia.saveProfile({
     displayName,
-    avatarText: window.miaAvatar.initials(displayName),
+    avatarText: displayName ? window.miaAvatar.initials(displayName) : "",
     avatarImage: state.profileAvatarDraft.image || els.profileAvatarImage.value,
     avatarCrop: window.miaAvatar.normalizeCrop(state.profileAvatarDraft.crop)
   });
@@ -3838,6 +3983,31 @@ function afterEnginePicked(engine) {
   renderView();
 }
 
+async function runHermesSetupAction(button, action) {
+  const repair = action === "repair-hermes";
+  const retry = action === "retry-install-hermes";
+  button.disabled = true;
+  const original = button.textContent;
+  button.textContent = repair ? "修复中…" : retry ? "重试中…" : "安装中…";
+  try {
+    state.hermesInstallError = "";
+    state.runtime = repair ? await window.mia.repairEngine() : await window.mia.installEngine();
+    await window.miaLoaders.loadModelCatalog();
+    state.agentSetupSkipped = false;
+    try { localStorage.removeItem(AGENT_SETUP_SKIPPED_KEY); } catch { /* ignore */ }
+    afterEnginePicked("hermes");
+  } catch (error) {
+    const verb = repair ? "修复" : "安装";
+    state.hermesInstallError = `Hermes ${verb}失败：${error.message || error}`;
+    appendTransientChat("assistant", state.hermesInstallError);
+    await refreshRuntime();
+  } finally {
+    button.disabled = false;
+    button.textContent = original;
+  }
+  return true;
+}
+
 async function handleSetupGuideAction(button) {
   const action = button?.dataset?.setupAction || "";
   if (!action) return false;
@@ -3853,28 +4023,31 @@ async function handleSetupGuideAction(button) {
     renderView();
     return true;
   }
+  if (action === "open-agent-settings") {
+    state.settingsOpen = true;
+    state.activeSettingsTab = "model";
+    renderView();
+    return true;
+  }
+  if (action === "continue-no-agent") {
+    state.agentSetupSkipped = true;
+    state.setupGuideDismissed = true;
+    try {
+      localStorage.setItem(AGENT_SETUP_SKIPPED_KEY, "1");
+      localStorage.setItem(SETUP_GUIDE_DISMISSED_KEY, "1");
+    } catch { /* ignore */ }
+    advanceOnboarding("done");
+    renderChat();
+    return true;
+  }
   if (action === "use-engine") {
     const engine = String(button.dataset.engine || "");
     if (!["hermes", "claude-code", "codex"].includes(engine)) return true;
     afterEnginePicked(engine);
     return true;
   }
-  if (action === "install-hermes") {
-    button.disabled = true;
-    const original = button.textContent;
-    button.textContent = "安装中…";
-    try {
-      state.runtime = await window.mia.installEngine();
-      await window.miaLoaders.loadModelCatalog();
-      afterEnginePicked("hermes");
-    } catch (error) {
-      appendTransientChat("assistant", `Hermes install failed: ${error.message}`);
-      await refreshRuntime();
-    } finally {
-      button.disabled = false;
-      button.textContent = original;
-    }
-    return true;
+  if (["install-hermes", "retry-install-hermes", "repair-hermes"].includes(action)) {
+    return runHermesSetupAction(button, action);
   }
   if (action === "create-first-fellow") {
     openInitialFellowDialog();

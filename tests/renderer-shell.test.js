@@ -40,6 +40,111 @@ test("logged-in active pane never falls back to local fellow sessions", () => {
   assert.match(appSource, /els\.chat\.innerHTML = renderCloudLoginGuide\(\);/);
 });
 
+test("renderer chat uses setup guide and supports no-agent continuation", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const htmlSource = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
+  const stylesSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+  const noAgentGuideSource = appSource.slice(
+    appSource.indexOf("function renderNoAgentGuide()"),
+    appSource.indexOf("function renderChat()")
+  );
+
+  assert.match(appSource, /window\.miaSetupGuide\?\.shouldShowSetupGuide/);
+  assert.match(appSource, /renderNoAgentGuide/);
+  assert.match(appSource, /continue-no-agent/);
+  assert.match(noAgentGuideSource, /data-action="cloud-login"/);
+  assert.match(appSource, /AGENT_SETUP_SKIPPED_KEY/);
+  assert.match(appSource, /engineRowOpenClaw/);
+  assert.match(htmlSource, /id="engineRowOpenClaw"/);
+  assert.match(stylesSource, /engine-row-logo\.openclaw/);
+});
+
+test("renderer exposes Hermes install retry and repair states", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const preloadSource = fs.readFileSync(path.join(root, "src/preload.js"), "utf8");
+
+  assert.match(preloadSource, /repairEngine/);
+  assert.match(appSource, /function renderHermesInstallState/);
+  assert.match(appSource, /data-setup-action="repair-hermes"/);
+  assert.match(appSource, /data-setup-action="retry-install-hermes"/);
+});
+
+test("engine detection renderer preserves legacy runtime status fallbacks", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const renderSource = appSource.slice(
+    appSource.indexOf("function agentInventoryById(runtime)"),
+    appSource.indexOf("function renderSessionMenu()")
+  );
+  const sandbox = {
+    els: {
+      engineRowHermes: { textContent: "" },
+      engineRowClaude: { textContent: "" },
+      engineRowCodex: { textContent: "" },
+      engineRowOpenClaw: { textContent: "" }
+    }
+  };
+  vm.runInNewContext(`${renderSource}; this.renderEngineDetection = renderEngineDetection;`, sandbox);
+
+  sandbox.renderEngineDetection({
+    engineSource: "bundled",
+    engineRunning: true,
+    agentEngines: {
+      claudeCode: { available: true, path: "/usr/local/bin/claude", version: "1.2.3 build" },
+      codex: { available: true, path: "/usr/local/bin/codex", version: "4.5.6 build" },
+      openClaw: { available: true, detectionOnly: true }
+    }
+  });
+
+  assert.equal(sandbox.els.engineRowHermes.textContent, "随安装包内置 · 运行中");
+  assert.equal(sandbox.els.engineRowClaude.textContent, "/usr/local/bin/claude · 1.2.3 build");
+  assert.equal(sandbox.els.engineRowCodex.textContent, "/usr/local/bin/codex · 4.5.6 build");
+  assert.equal(sandbox.els.engineRowOpenClaw.textContent, "已检测到 · 暂未接入 Mia 聊天");
+
+  sandbox.renderEngineDetection({
+    engineSource: "managed",
+    engineRunning: false,
+    agentEngines: {}
+  });
+
+  assert.equal(sandbox.els.engineRowHermes.textContent, "独立副本已安装");
+
+  sandbox.renderEngineDetection({
+    engineSource: "local-source",
+    engineRunning: true,
+    agentEngines: {}
+  });
+
+  assert.equal(sandbox.els.engineRowHermes.textContent, "独立副本运行中");
+
+  sandbox.renderEngineDetection({
+    engineInstalled: true,
+    engineRunning: true,
+    agentEngines: {}
+  });
+
+  assert.equal(sandbox.els.engineRowHermes.textContent, "独立副本运行中");
+});
+
+test("signed-out desktop shell is a login gate without default Boss identity", () => {
+  const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const styleSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+  const avatarSource = fs.readFileSync(path.join(root, "src/renderer/helpers/avatar-helpers.js"), "utf8");
+  const dialogSource = fs.readFileSync(path.join(root, "src/renderer/fellow/fellow-dialog.js"), "utf8");
+  const settingsSource = fs.readFileSync(path.join(root, "src/main/settings-store.js"), "utf8");
+
+  for (const source of [html, appSource, avatarSource, dialogSource, settingsSource]) {
+    assert.doesNotMatch(source, /\bBoss\b/);
+  }
+  assert.match(html, /<main class="app-shell" data-auth-state="signed-out">/);
+  assert.match(appSource, /function runtimeUserIdentity\(runtime = state\.runtime\)/);
+  assert.match(appSource, /runtime\?\.cloud\?\.enabled[\s\S]*runtime\?\.cloud\?\.user/);
+  assert.match(appSource, /setAttribute\("data-auth-state", cloudSignedIn \? "signed-in" : "signed-out"\)/);
+  assert.match(styleSource, /\.app-shell\[data-auth-state="signed-out"\] \.nav-rail/);
+  assert.match(styleSource, /\.app-shell\[data-auth-state="signed-out"\] \.composer/);
+  assert.match(styleSource, /\.app-shell\[data-auth-state="signed-out"\] #chatView/);
+});
+
 test("desktop cloud fellow conversations keep private AI composer controls visible", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
 
@@ -63,7 +168,7 @@ test("desktop cloud fellow conversations expose the restored chat history menu",
   assert.match(appSource, /sessionHistory\.createFellowSessionPayload/);
   assert.match(appSource, /sessionHistory\.fellowDisplayTitle/);
   assert.match(appSource, /function createNewCloudSessionForActive\(conversation\)/);
-  assert.match(socialSource, /sessionHistoryShared\(\)\.sidebarConversations\(visibleSocialConversations\(moduleState\.conversations\)/);
+  assert.match(socialSource, /sessionHistoryShared\(\)\.sidebarConversations\(visibleSocialConversations\(moduleState\.conversations,\s*\{/);
   assert.match(appSource, /window\.mia\.social\.ensureFellowSessionConversation/);
   assert.match(preloadSource, /ensureFellowSessionConversation: \(sessionId, body\) => ipcRenderer\.invoke\(IpcChannel\.SocialEnsureFellowSessionConversation, sessionId, body\)/);
   assert.match(socialApiSource, /async ensureFellowSessionConversation\(sessionId, body = \{\}\)/);
@@ -398,6 +503,9 @@ test("contact fallback avatars share text color and round shape styling", () => 
   assert.match(profileBlock, /place-items:\s*center;/);
   assert.match(profileBlock, /color:\s*#fff;/);
   assert.match(rowBlock, /border-radius:\s*50%;/);
+  assert.match(rowBlock, /font-size:\s*11px;/);
+  assert.match(rowBlock, /line-height:\s*1;/);
+  assert.match(rowBlock, /white-space:\s*nowrap;/);
   assert.doesNotMatch(rowBlock, /border-radius:\s*7px;/);
 });
 
@@ -529,6 +637,7 @@ test("renderer app state factory owns default mutable state", () => {
   const localStorage = {
     getItem(key) {
       if (key === "mia.setupGuideDismissed.v2") return "1";
+      if (key === "mia.agentSetupSkipped.v1") return "1";
       if (key === "mia.onboardingStep") return "model";
       return "";
     }
@@ -548,6 +657,7 @@ test("renderer app state factory owns default mutable state", () => {
   });
 
   assert.equal(state.setupGuideDismissed, true);
+  assert.equal(state.agentSetupSkipped, true);
   assert.equal(state.onboardingStep, "model");
   assert.equal(state.isNarrowWindow, true);
   assert.equal(state.sidebarWidth, 300);

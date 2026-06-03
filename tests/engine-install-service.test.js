@@ -41,7 +41,11 @@ function setup(t, overrides = {}) {
     initializeRuntime: () => calls.push({ type: "initializeRuntime" }),
     stopEngine: () => calls.push({ type: "stopEngine" }),
     ensureEnginePlugins: () => calls.push({ type: "ensureEnginePlugins" }),
-    getRuntimeStatus: (created) => ({ created, engineInstalled: true }),
+    resetAgentEngineCache: () => calls.push({ type: "resetAgentEngineCache" }),
+    getRuntimeStatus: (created) => {
+      calls.push({ type: "getRuntimeStatus", created });
+      return { created, engineInstalled: true };
+    },
     now: () => new Date("2026-05-25T00:00:00.000Z"),
     officialPackage: "hermes-agent",
     officialRepoUrl: "https://github.com/NousResearch/hermes-agent/",
@@ -124,6 +128,13 @@ test("engine source and executable prefer bundled runtime, then managed venv, th
   assert.equal(managed.service.enginePython(), managed.service.venvPythonPath());
   assert.equal(managed.service.engineSource(), "managed");
 
+  const local = setup(t);
+  fs.mkdirSync(path.join(local.runtime.engine, "hermes_cli"), { recursive: true });
+  fs.writeFileSync(path.join(local.runtime.engine, "hermes_cli", "main.py"), "");
+  fs.writeFileSync(local.service.engineMarkerPath(), JSON.stringify({ source: "maintained-local-source" }));
+  assert.equal(local.service.enginePython(), "python3");
+  assert.equal(local.service.engineSource(), "local-source");
+
   const missing = setup(t);
   assert.equal(missing.service.enginePython(), "python3");
   assert.equal(missing.service.engineSource(), "none");
@@ -141,6 +152,12 @@ test("isInstalled recognizes bundled, official managed, and maintained local sou
   fs.writeFileSync(official.service.venvPythonPath(), "");
   fs.writeFileSync(official.service.engineMarkerPath(), JSON.stringify({ source: "official-github-archive" }));
   assert.equal(official.service.isInstalled(), true);
+
+  const mirror = setup(t);
+  fs.mkdirSync(path.dirname(mirror.service.venvPythonPath()), { recursive: true });
+  fs.writeFileSync(mirror.service.venvPythonPath(), "");
+  fs.writeFileSync(mirror.service.engineMarkerPath(), JSON.stringify({ source: "mia-mirror" }));
+  assert.equal(mirror.service.isInstalled(), true);
 
   const local = setup(t);
   fs.mkdirSync(path.join(local.runtime.engine, "hermes_cli"), { recursive: true });
@@ -192,7 +209,9 @@ test("installFromDevSource replaces managed engine with filtered source copy and
   assert.deepEqual(calls.map((call) => call.type), [
     "initializeRuntime",
     "stopEngine",
-    "ensureEnginePlugins"
+    "ensureEnginePlugins",
+    "resetAgentEngineCache",
+    "getRuntimeStatus"
   ]);
   assert.deepEqual(status, { created: ["runtime/hermes-engine"], engineInstalled: true });
   assert.equal(fs.existsSync(path.join(runtime.engine, "old.py")), false);
@@ -236,7 +255,9 @@ test("installFromOfficialPackage builds venv, retries without extras, verifies p
     "spawn",
     "spawn",
     "ensureEnginePlugins",
-    "spawn"
+    "spawn",
+    "resetAgentEngineCache",
+    "getRuntimeStatus"
   ]);
   assert.deepEqual(seen.map((entry) => [entry.command, ...entry.args]), [
     ["/opt/python3.11", "-m", "venv", ".venv"],
@@ -253,12 +274,79 @@ test("installFromOfficialPackage builds venv, retries without extras, verifies p
     product: "mia",
     source: "official-github-archive",
     package: "hermes-agent",
-    repo: "https://github.com/NousResearch/hermes-agent/",
+    repo: "https://github.com/NousResearch/hermes-agent",
     ref: "main",
     url: "https://github.com/NousResearch/hermes-agent/archive/main.tar.gz",
+    upstream_url: "https://github.com/NousResearch/hermes-agent/archive/main.tar.gz",
     extras: "web",
+    checksum_sha256: "",
     python: "/opt/python3.11",
     spec: "hermes-agent[web] @ https://github.com/NousResearch/hermes-agent/archive/main.tar.gz",
     installed_at: "2026-05-25T00:00:00.000Z"
   });
+});
+
+test("installFromOfficialPackage records source metadata and checksum", (t) => {
+  const { runtime, service } = setup(t, {
+    officialPython: "/opt/python3.11",
+    installSourceService: {
+      resolveInstallSource: () => ({
+        kind: "mia-mirror",
+        package: "hermes-agent",
+        repo: "https://github.com/NousResearch/hermes-agent",
+        ref: "main",
+        url: "https://cdn.example.test/hermes.tar.gz",
+        upstreamUrl: "https://github.com/NousResearch/hermes-agent/archive/main.tar.gz",
+        extras: "web",
+        requirement: "hermes-agent[web] @ https://cdn.example.test/hermes.tar.gz",
+        baseRequirement: "hermes-agent @ https://cdn.example.test/hermes.tar.gz",
+        checksum: "a".repeat(64)
+      })
+    },
+    spawnSync: (command, args) => {
+      if (args[0] === "-c" && String(args[1] || "").includes("version_info")) {
+        return { status: 0, stdout: "3.11.8\n", stderr: "" };
+      }
+      return { status: 0, stdout: "", stderr: "" };
+    }
+  });
+
+  service.installFromOfficialPackage();
+
+  const marker = readJson(path.join(runtime.engine, "mia-runtime.json"), {});
+  assert.equal(marker.source, "mia-mirror");
+  assert.equal(marker.url, "https://cdn.example.test/hermes.tar.gz");
+  assert.equal(marker.upstream_url, "https://github.com/NousResearch/hermes-agent/archive/main.tar.gz");
+  assert.equal(marker.checksum_sha256, "a".repeat(64));
+});
+
+test("repair removes broken managed install before reinstalling", (t) => {
+  const { calls, runtime, service } = setup(t, {
+    officialPython: "/opt/python3.11",
+    spawnSync: (command, args, options) => {
+      calls.push({ type: "spawn", command, args, options });
+      if (args[0] === "-c" && String(args[1] || "").includes("version_info")) {
+        return { status: 0, stdout: "3.11.8\n", stderr: "" };
+      }
+      return { status: 0, stdout: "", stderr: "" };
+    }
+  });
+  fs.mkdirSync(runtime.engine, { recursive: true });
+  fs.writeFileSync(path.join(runtime.engine, "broken.txt"), "broken");
+
+  service.repair();
+
+  assert.equal(fs.existsSync(path.join(runtime.engine, "broken.txt")), false);
+  assert.ok(calls.some((call) => call.type === "stopEngine"));
+});
+
+test("install throws a user-visible cancellation error when signal is aborted", (t) => {
+  const controller = new AbortController();
+  controller.abort();
+  const { service } = setup(t);
+
+  assert.throws(
+    () => service.install({ signal: controller.signal }),
+    /Hermes install cancelled/
+  );
 });

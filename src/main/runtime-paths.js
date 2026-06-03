@@ -41,6 +41,7 @@ function createRuntimePaths(deps = {}) {
       authJson: path.join(home, "auth.json"),
       userProfile: path.join(home, "mia-user.json"),
       modelSettings: path.join(home, "mia-model.json"),
+      memory: path.join(home, "mia-memory.json"),
       providerConnections: path.join(home, "mia-providers.json"),
       permissionSettings: path.join(home, "mia-permissions.json"),
       agentPermissionRules: path.join(home, "mia-agent-permissions.json"),
@@ -95,7 +96,10 @@ function createRuntimePaths(deps = {}) {
     const sitePackages = bundledSitePackages();
     if (sitePackages) parts.push(sitePackages);
     if (process.env.PYTHONPATH) parts.push(process.env.PYTHONPATH);
-    return parts.join(":");
+    // path.delimiter is ";" on Windows, ":" elsewhere — a hardcoded ":" would
+    // collapse the whole PYTHONPATH into one bogus entry on Windows, so the
+    // bundled site-packages + mia_plugins would never import.
+    return parts.join(path.delimiter);
   }
 
   function engineMarkerPath() {

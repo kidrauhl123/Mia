@@ -70,6 +70,13 @@
     if (run.status === "missed") return ` 离线错过 ${run.missedCount || 1} 次`;
     return "";
   }
+  function cloudConversationId(value) {
+    const text = String(value || "").trim();
+    return text.startsWith("conversation:") ? text.slice("conversation:".length) : text;
+  }
+  function taskConversationId(task) {
+    return cloudConversationId(task?.conversationId || task?.sessionId || "");
+  }
 
   function initTasksPanel(deps) {
     state = deps.state;
@@ -160,13 +167,21 @@
   function renderModeToggle(mode) {
     const host = document.getElementById("taskModeToggle");
     if (!host) return;
+    const active = activeTasks(state.tasks);
+    const historyEntries = allRuns(state.tasks);
     const counts = {
-      active: state.tasks.filter((t) => t.status === "active" || t.status === "paused").length,
-      history: state.tasks.reduce((n, t) => n + ((t.runs || []).length), 0)
+      active: active.length,
+      history: historyEntries.length
+    };
+    const unreadCounts = {
+      active: active.reduce((n, task) => n + taskUnreadCount(task), 0),
+      history: state.tasks
+        .filter((task) => (task.runs || []).length > 0)
+        .reduce((n, task) => n + taskUnreadCount(task), 0)
     };
     host.innerHTML = MODES.map((m) => `
       <button type="button" role="tab" class="${m.key === mode ? "active" : ""}" data-mode="${m.key}">
-        ${escapeHtml(m.label)}<span style="margin-left:6px;color:var(--faint);font-size:12px;">${counts[m.key]}</span>
+        ${escapeHtml(m.label)}<span class="task-mode-count">${counts[m.key]}</span>${modeUnreadBadgeHtml(unreadCounts[m.key])}
       </button>
     `).join("");
     host.querySelectorAll("[data-mode]").forEach((btn) => {
@@ -177,6 +192,20 @@
       });
     });
     syncModeToggleIndicator(host);
+  }
+
+  function taskUnreadCount(task) {
+    return state.tasksUnread?.get?.(task?.id) || 0;
+  }
+
+  function modeUnreadBadgeHtml(unread) {
+    const badge = unreadShared().unreadBadgeHtml(unread);
+    return badge ? badge.replace('class="unread-badge"', 'class="task-mode-unread"') : "";
+  }
+
+  function cardUnreadBadgeHtml(task) {
+    const badge = unreadShared().unreadBadgeHtml(taskUnreadCount(task));
+    return badge ? badge.replace('class="unread-badge"', 'class="task-card-unread"') : "";
   }
 
   function renderActiveView() {
@@ -241,11 +270,7 @@
   }
 
   function cardHtml(task) {
-    const unread = state.tasksUnread.get(task.id) || 0;
-    const badgeRaw = unreadShared().unreadBadgeHtml(unread);
-    const badge = badgeRaw
-      ? badgeRaw.replace('class="unread-badge"', 'class="task-card-unread"')
-      : "";
+    const badge = cardUnreadBadgeHtml(task);
     const dotClass = dotClassFor(task);
     const lastRun = (task.runs || [])[(task.runs || []).length - 1];
     const statusText = cardStatusText(task, lastRun);
@@ -305,6 +330,7 @@
   function runCardHtml({ run, task }) {
     const icon = runStatusIcon(run.status);
     const label = runStatusLabel(run.status);
+    const badge = cardUnreadBadgeHtml(task);
     const detail = run.status === "missed"
       ? `离线期间错过 ${run.missedCount || 1} 次触发`
       : (run.outputText || run.error || "本次没有产生输出")
@@ -321,6 +347,7 @@
         <div class="task-card-meta">${escapeHtml(detail)}</div>
         <div class="task-card-foot">
           <em class="task-card-status">${escapeHtml(label)} · ${escapeHtml(formatRunTime(run.firedAt))}</em>
+          ${badge}
           <em class="task-card-fellow">${escapeHtml(fellowName(task.fellowId))}</em>
         </div>
       </button>
@@ -389,32 +416,53 @@
     const closed = task.status === "done" || task.status === "failed";
     const statusText = ({ active: "进行中", paused: "已暂停", done: "已完成", failed: "已失败" })[task.status] || task.status;
     const nextText = task.status === "active" && task.nextFireAt
-      ? ` · 下次 ${escapeHtml(formatRunTime(task.nextFireAt))}` : "";
-    const conversationId = task.conversationId || task.sessionId || "";
+      ? `下次 ${formatRunTime(task.nextFireAt)}` : "没有待执行时间";
+    const conversationId = taskConversationId(task);
+    const runCount = (task.runs || []).length;
+    const latestRun = (task.runs || [])[runCount - 1] || null;
+    const statusClass = ({ active: "active", paused: "paused", failed: "failed", done: "done" })[task.status] || "done";
 
     body.innerHTML = `
-      <div class="task-detail-actions">
-        <button class="secondary" type="button" data-action="run-now">运行一次</button>
-        ${closed ? "" : `<button class="secondary" type="button" data-action="${pauseAction}">${pauseLabel}</button>`}
-        <button class="link" type="button" data-jump-conversation="${escapeHtml(conversationId)}">打开对话 →</button>
-        <button class="secondary danger" type="button" data-action="delete">删除</button>
+      <div class="task-detail-shell">
+        <aside class="task-detail-sidebar">
+          <div class="task-status-panel">
+            <span class="task-status-pill ${escapeHtml(statusClass)}">${escapeHtml(statusText)}</span>
+            <strong>${escapeHtml(scheduleText(task))}</strong>
+            <small>${escapeHtml(nextText)}</small>
+          </div>
+          <div class="task-side-meta">
+            <div><small>执行者</small><span>${escapeHtml(fellowName(task.fellowId))}</span></div>
+            <div><small>历史</small><span>${runCount} 次运行</span></div>
+            ${latestRun ? `<div><small>最近一次</small><span>${escapeHtml(formatRunTime(latestRun.firedAt))}</span></div>` : ""}
+          </div>
+          <div class="task-primary-actions">
+            <button class="task-action-primary" type="button" data-action="run-now">运行一次</button>
+            ${closed ? "" : `<button class="secondary" type="button" data-action="${pauseAction}">${pauseLabel}</button>`}
+            <button class="secondary" type="button" data-jump-conversation="${escapeHtml(conversationId)}">打开对话</button>
+          </div>
+          <button class="task-delete-action" type="button" data-action="delete">删除任务</button>
+        </aside>
+
+        <main class="task-detail-main">
+          <section class="task-section task-section-prompt">
+            <div class="task-section-head">
+              <h3>要求说明</h3>
+            </div>
+            <p>${escapeHtml(task.prompt)}</p>
+          </section>
+
+          <section class="task-section">
+            <div class="task-section-head">
+              <h3>历史记录</h3>
+              <span>${runCount}</span>
+            </div>
+            <div class="task-history-list">
+              ${(task.runs || []).slice(-50).reverse().map(historyRowHtml).join("")}
+              ${runCount === 0 ? `<div class="task-history-empty">还没有运行过</div>` : ""}
+            </div>
+          </section>
+        </main>
       </div>
-
-      <section class="task-meta">
-        <div class="task-meta-item"><small>执行时间</small><span>${escapeHtml(scheduleText(task))}</span></div>
-        <div class="task-meta-item"><small>状态</small><span>${escapeHtml(statusText)}${nextText}</span></div>
-      </section>
-
-      <section class="task-prompt-view">
-        <small>要求说明</small>
-        <p>${escapeHtml(task.prompt)}</p>
-      </section>
-
-      <section class="task-history">
-        <h3>历史记录 (${task.runs.length})</h3>
-        ${(task.runs || []).slice(-50).reverse().map(historyRowHtml).join("")}
-        ${(task.runs || []).length === 0 ? `<div class="task-history-empty">还没有运行过</div>` : ""}
-      </section>
     `;
     attachTaskDetailHandlers(task);
   }
@@ -451,19 +499,41 @@
         : `<div class="run-detail-empty">${run.error ? `运行失败：${escapeHtml(run.error)}` : "本次没有产生输出。"}</div>`);
 
     body.innerHTML = `
-      <div class="run-detail-actions" style="margin-bottom:16px;">
-        <button class="link" type="button" data-action="back-to-task">← 返回任务</button>
-        <button class="link" type="button" data-action="open-conversation">打开对话 →</button>
-        <button class="secondary" type="button" data-action="run-now">运行一次</button>
+      <div class="task-detail-shell">
+        <aside class="task-detail-sidebar">
+          <div class="task-status-panel">
+            <span class="task-status-pill ${escapeHtml(run.status || "done")}">${escapeHtml(runStatusLabel(run.status))}</span>
+            <strong>${escapeHtml(formatRunTime(run.firedAt))}</strong>
+            <small>${escapeHtml(runStatusSuffix(run).trim() || "运行记录")}</small>
+          </div>
+          <div class="task-side-meta">
+            <div><small>任务</small><span>${escapeHtml(task.title)}</span></div>
+            <div><small>执行者</small><span>${escapeHtml(fellowName(task.fellowId))}</span></div>
+            <div><small>执行时间</small><span>${escapeHtml(scheduleText(task))}</span></div>
+          </div>
+          <div class="task-primary-actions">
+            <button class="secondary" type="button" data-action="back-to-task">返回任务</button>
+            <button class="secondary" type="button" data-action="open-conversation">打开对话</button>
+            <button class="task-action-primary" type="button" data-action="run-now">运行一次</button>
+          </div>
+        </aside>
+
+        <main class="task-detail-main">
+          <section class="task-section run-detail-output">
+            <div class="task-section-head">
+              <h3>AI 输出</h3>
+              <span>${escapeHtml(runStatusLabel(run.status))}</span>
+            </div>
+            <div class="run-output-shell">${outputHtml}</div>
+          </section>
+          <section class="task-section run-detail-prompt">
+            <details>
+              <summary>原始指令</summary>
+              <pre>${escapeHtml(task.prompt)}</pre>
+            </details>
+          </section>
+        </main>
       </div>
-      <details class="run-detail-prompt">
-        <summary>原始指令</summary>
-        <pre>${escapeHtml(task.prompt)}</pre>
-      </details>
-      <section class="run-detail-output">
-        <h3>AI 输出</h3>
-        <div class="run-output-shell">${outputHtml}</div>
-      </section>
     `;
 
     body.querySelector("[data-action='back-to-task']")?.addEventListener("click", () => {
@@ -513,7 +583,7 @@
   }
 
   function jumpToTaskConversation(task) {
-    const conversationId = task.conversationId || task.sessionId;
+    const conversationId = taskConversationId(task);
     if (!conversationId) return;
     const fellowKey = task.fellowId || "";
     state.activeKey = "";

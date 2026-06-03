@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { View, FlatList, StyleSheet, KeyboardAvoidingView, Platform } from "react-native";
+import * as Clipboard from "expo-clipboard";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQueryClient } from "@tanstack/react-query";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
@@ -9,6 +10,7 @@ import { useAuth } from "../state/auth";
 import { buildPendingMessage } from "../logic/optimisticSend";
 import { normalizeServerRow, mergeMessage } from "../logic/normalizeMessage";
 import MessageBubble from "../components/MessageBubble";
+import MessageActions from "../components/MessageActions";
 import ApprovalSheet from "../components/ApprovalSheet";
 import Input from "../ui/Input";
 import Button from "../ui/Button";
@@ -27,10 +29,26 @@ export default function ChatScreen({ route }: Props) {
   const { data: messages = [] } = useConversationMessages(conversationId);
   const { data: members = [] } = useConversationMembers(conversationId);
   const [text, setText] = useState("");
+  const [actionMsg, setActionMsg] = useState<ChatMessage | null>(null);
 
   const key = ["messages", conversationId];
   const setMsgs = (fn: (old: ChatMessage[]) => ChatMessage[]) =>
     qc.setQueryData<ChatMessage[]>(key, (old) => fn(old || []));
+
+  // 投递一条已乐观入列的消息;成功并入服务端行,失败标 failed 供重发。
+  const postMessage = async (payload: { bodyMd: string; clientTraceId: string; mentions?: unknown[]; attachments?: unknown[] }) => {
+    try {
+      const res = await api.api(`/api/conversations/${conversationId}/messages`, {
+        method: "POST",
+        body: { bodyMd: payload.bodyMd, turnId: payload.clientTraceId, mentions: payload.mentions, attachments: payload.attachments },
+      });
+      const row = res.message || res;
+      const norm = normalizeServerRow({ ...row, client_trace_id: row.client_trace_id || payload.clientTraceId }, session?.user?.id);
+      setMsgs((old) => mergeMessage(old, norm));
+    } catch {
+      setMsgs((old) => old.map((m) => (m.clientTraceId === payload.clientTraceId ? { ...m, isPending: false, failed: true } : m)));
+    }
+  };
 
   const send = async () => {
     let pending;
@@ -41,21 +59,29 @@ export default function ChatScreen({ route }: Props) {
     }
     setText("");
     setMsgs((old) => [...old, pending]);
+    await postMessage({ bodyMd: pending.bodyMd, clientTraceId: pending.clientTraceId, mentions: pending.mentions, attachments: pending.attachments });
+  };
+
+  const copyMessage = (m: ChatMessage) => {
+    Clipboard.setStringAsync(m.bodyMd || "");
+  };
+
+  // 重发:把失败消息标回 pending,用原 clientTraceId(turnId 幂等)重投。
+  const resendMessage = async (m: ChatMessage) => {
+    setMsgs((old) => old.map((x) => (x.messageId === m.messageId ? { ...x, failed: false, isPending: true } : x)));
+    await postMessage({ bodyMd: m.bodyMd, clientTraceId: m.clientTraceId });
+  };
+
+  // 删除:未送达的(pending/failed)只本地移除;已送达的走云端微信式本地隐藏,失败则还原。
+  const deleteMessage = async (m: ChatMessage) => {
+    const localOnly = m.isPending || m.failed;
+    const snapshot = qc.getQueryData<ChatMessage[]>(key);
+    setMsgs((old) => old.filter((x) => x.messageId !== m.messageId));
+    if (localOnly) return;
     try {
-      const res = await api.api(`/api/conversations/${conversationId}/messages`, {
-        method: "POST",
-        body: {
-          bodyMd: pending.bodyMd,
-          turnId: pending.clientTraceId,
-          mentions: pending.mentions,
-          attachments: pending.attachments,
-        },
-      });
-      const row = res.message || res;
-      const norm = normalizeServerRow({ ...row, client_trace_id: row.client_trace_id || pending.clientTraceId }, session?.user?.id);
-      setMsgs((old) => mergeMessage(old, norm));
+      await api.api(`/api/conversations/${conversationId}/messages/${m.messageId}`, { method: "DELETE" });
     } catch {
-      setMsgs((old) => old.map((m) => (m.clientTraceId === pending!.clientTraceId ? { ...m, failed: true } : m)));
+      if (snapshot) qc.setQueryData<ChatMessage[]>(key, snapshot);
     }
   };
 
@@ -74,7 +100,7 @@ export default function ChatScreen({ route }: Props) {
         inverted
         keyExtractor={(m) => m.messageId}
         contentContainerStyle={{ padding: 12 }}
-        renderItem={({ item }) => <MessageBubble msg={item} />}
+        renderItem={({ item }) => <MessageBubble msg={item} onLongPress={setActionMsg} />}
       />
       <View style={[styles.composer, { paddingBottom: space.sm + insets.bottom }]}>
         <Input
@@ -87,6 +113,13 @@ export default function ChatScreen({ route }: Props) {
         />
         <Button label="发送" style={styles.send} onPress={send} />
       </View>
+      <MessageActions
+        msg={actionMsg}
+        onClose={() => setActionMsg(null)}
+        onCopy={copyMessage}
+        onResend={resendMessage}
+        onDelete={deleteMessage}
+      />
       <ApprovalSheet />
     </KeyboardAvoidingView>
   );

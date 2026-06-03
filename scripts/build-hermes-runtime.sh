@@ -112,6 +112,10 @@ case "$HOST_OS:$HOST_ARCH" in
   darwin:arm64)   HOST_TARGET="mac-arm64";;
   darwin:x86_64)  HOST_TARGET="mac-x64";;
   linux:x86_64)   HOST_TARGET="linux-x64";;
+  # Windows under git-bash/msys reports uname -s as MINGW64_NT-* / MSYS_NT-* /
+  # CYGWIN_NT-* (lowercased here). GitHub's windows-latest runner is x86_64, so
+  # this is the in-CI path that builds the win-x64 runtime on its native host.
+  mingw*:x86_64|msys*:x86_64|cygwin*:x86_64) HOST_TARGET="win-x64";;
   *)              HOST_TARGET="";;
 esac
 if [[ -z "$HOST_TARGET" || "$HOST_TARGET" != "$TARGET_ID" ]]; then
@@ -134,18 +138,26 @@ PIP_ARGS=(
 if [[ -n "${PIP_INDEX_URL:-}" ]]; then
   PIP_ARGS+=(--index-url "$PIP_INDEX_URL" --extra-index-url https://pypi.org/simple)
 fi
-PIP_ARGS+=("$HERMES_SPEC")
+# gateway.platforms.api_server (the HTTP interface Mia talks to) imports aiohttp,
+# but the hermes-agent[web] extra only pulls fastapi/uvicorn — aiohttp must be
+# installed explicitly or the API server silently refuses to start ("aiohttp not
+# installed") and the engine never passes its health check.
+PIP_ARGS+=("$HERMES_SPEC" "aiohttp")
 "$PYTHON_BIN" "${PIP_ARGS[@]}"
 
 # ---------------------------------------------------------------------------
 # 3. Sanity check: required modules import in the bundled site-packages
 # ---------------------------------------------------------------------------
-echo "[3/4] Importing hermes_cli + gateway + fastapi via bundled Python..."
+echo "[3/4] Importing hermes_cli + gateway + aiohttp via bundled Python..."
+# api_server guards its `from aiohttp import web` in a try/except, so importing
+# the module does NOT fail when aiohttp is missing. Import aiohttp explicitly so
+# a missing API-server dependency fails the build instead of silently shipping a
+# runtime whose API server never binds.
 PYTHONPATH="$SITE_PACKAGES" "$PYTHON_BIN" -c "
-import hermes_cli, gateway.platforms.api_server, fastapi, uvicorn
+import hermes_cli, gateway.platforms.api_server, aiohttp
 print('hermes_cli', hermes_cli.__version__)
 print('gateway api_server import OK')
-print('fastapi', fastapi.__version__)
+print('aiohttp', aiohttp.__version__)
 "
 
 # ---------------------------------------------------------------------------

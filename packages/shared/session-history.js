@@ -124,9 +124,23 @@
     const activeConversationId = String(options.activeConversationId || "");
     if (candidate?.id && candidate.id === activeConversationId) return candidate;
     if (current?.id && current.id === activeConversationId) return current;
+    const key = fellowKey(candidate) || fellowKey(current);
+    const preferredId = preferredConversationIdForFellowKey(options.preferredConversationIdByFellowKey, key);
+    if (preferredId) {
+      if (candidate?.id && candidate.id === preferredId) return candidate;
+      if (current?.id && current.id === preferredId) return current;
+    }
     return compareConversationActivity(candidate, current, options.messageCache) < 0
       ? candidate
       : current;
+  }
+
+  function preferredConversationIdForFellowKey(preferences, key) {
+    const fellow = String(key || "");
+    if (!fellow || !preferences) return "";
+    if (typeof preferences.get === "function") return String(preferences.get(fellow) || "");
+    if (typeof preferences === "object") return String(preferences[fellow] || "");
+    return "";
   }
 
   function sidebarConversations(conversations = [], options = {}) {

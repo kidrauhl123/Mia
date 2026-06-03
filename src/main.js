@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, screen, shell } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, screen, shell } = require("electron");
 const { spawn, spawnSync } = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
@@ -28,6 +28,7 @@ const { requireFellow } = require("./main/fellow-registry.js");
 const { createClaudeCodeChatAdapter } = require("./main/claude-code-chat-adapter.js");
 const { createCodexChatAdapter } = require("./main/codex-chat-adapter.js");
 const { createHermesChatAdapter } = require("./main/hermes-chat-adapter.js");
+const { createMiaMemoryService } = require("./main/mia-memory-service.js");
 const { createRuntimeInitializerService } = require("./main/runtime-initializer-service.js");
 const { createRuntimeLifecycleService } = require("./main/runtime-lifecycle-service.js");
 const { createStartupTimer } = require("./main/startup-timing.js");
@@ -37,12 +38,14 @@ const { createFellowService } = require("./main/fellow-service.js");
 const { createRuntimePaths } = require("./main/runtime-paths.js");
 const { createSettingsStore } = require("./main/settings-store.js");
 const { createWindowStateManager } = require("./main/window-state.js");
+const { createAutoUpdateService } = require("./main/updater/auto-update-service.js");
 const { createSkillsLoader } = require("./main/skills-loader.js");
 const { createTasksStore } = require("./main/tasks-store.js");
 const { createScheduler, sweepMissedCronTasks } = require("./main/scheduler.js");
 const { createFireRunner } = require("./main/scheduler-fire.js");
 const { createTasksEventBus } = require("./main/tasks-events.js");
 const { createTasksRoutes } = require("./main/tasks-routes.js");
+const { createMiaAppMcpBridge } = require("./main/mia-app-mcp-bridge.js");
 const { createSocialApi } = require("./main/social/social-api.js");
 const { registerSocialIpc } = require("./main/social/social-ipc.js");
 const { openConversationMessageCache } = require("./main/social/conversation-message-cache.js");
@@ -74,6 +77,8 @@ const { createAgentSessionStore } = require("./main/agent-session-store.js");
 const { createAgentPermissionCoordinator } = require("./main/agent-permission-coordinator.js");
 const { runCodexAppServerTurn } = require("./main/codex-app-server-runner.js");
 const { createSchedulerMcpBridge } = require("./main/scheduler-mcp-bridge.js");
+const { schedulerSkillIdsForTurn } = require("./main/scheduler-skill-detector.js");
+const { deliverTaskReplyToConversation } = require("./main/task-reply-delivery.js");
 const { createSystemHermesService } = require("./main/system-hermes-service.js");
 const { createEngineRuntimeConfigService } = require("./main/engine-runtime-config-service.js");
 const { createEngineHealthService } = require("./main/engine-health-service.js");
@@ -148,6 +153,7 @@ const {
 } = runtimePathsModule;
 
 let settingsStore = null;
+const miaMemoryService = createMiaMemoryService({ runtimePaths });
 const claudeBridgePluginService = createClaudeBridgePluginService({ runtimePaths });
 const enginePluginsService = createEnginePluginsService({ runtimePaths });
 const engineInstallService = createEngineInstallService({
@@ -164,6 +170,7 @@ const engineInstallService = createEngineInstallService({
   initializeRuntime,
   stopEngine,
   ensureEnginePlugins: () => enginePluginsService.ensureInstalled(),
+  resetAgentEngineCache: () => localAgentEngineService.resetCache(),
   getRuntimeStatus
 });
 const engineRuntimeConfigService = createEngineRuntimeConfigService({
@@ -193,6 +200,7 @@ const engineRuntimeConfigService = createEngineRuntimeConfigService({
   // Lazy: schedulerMcpBridge is created later in this module; the thunk is
   // only invoked at writeRuntimeConfig time (runtime), by which point it
   // exists. Lets the Hermes config.yaml carry the mia-scheduler MCP.
+  getMiaAppMcpSpec: () => miaAppMcpBridge.getSpec(),
   getSchedulerMcpSpec: () => schedulerMcpBridge.getSpec()
 });
 const {
@@ -231,7 +239,9 @@ const launchdService = createLaunchdService({
 const localAgentEngineService = createLocalAgentEngineService({
   homeDir: () => os.homedir(),
   env: process.env,
-  spawnSync
+  spawnSync,
+  isHermesInstalled: () => engineInstallService.isInstalled(),
+  hermesSource: () => engineInstallService.engineSource()
 });
 const systemHermesService = createSystemHermesService({
   runtimePaths,
@@ -448,6 +458,14 @@ const schedulerMcpBridge = createSchedulerMcpBridge({
   serverScriptPath: () => path.join(__dirname, "main", "scheduler-mcp-server.js"),
   homeDir: () => os.homedir()
 });
+const miaAppMcpBridge = createMiaAppMcpBridge({
+  runtimePaths,
+  daemonStatus: () => daemonControlServer?.status() || {},
+  daemonSettings: () => settingsStore.daemonSettings(),
+  daemonToken,
+  nodePath: () => localAgentEngineService.shellCommandPath("node"),
+  serverScriptPath: () => path.join(__dirname, "main", "mia-app-mcp-server.js")
+});
 
 function readJson(filePath, fallback) {
   try {
@@ -530,6 +548,7 @@ function getRuntimeStatus(created = []) {
   const settings = settingsWithoutSecret();
   const connectedProviders = connectedProviderSummaries(codexAuth);
   const fellows = Array.isArray(manifest.fellows) ? manifest.fellows : [];
+  const agentInventory = localAgentEngineService.agentInventory();
   return {
     appData: p.root,
     runtimeRoot: p.runtime,
@@ -559,6 +578,7 @@ function getRuntimeStatus(created = []) {
     auth: codexAuth,
     user: settingsStore.userProfile(),
     appearance: settingsStore.appearanceSettings(),
+    agentInventory,
     agentEngines: localAgentEngineService.localAgentEngines(),
     permissions: settingsStore.permissionStatus(),
     effort: settingsStore.effortStatus(),
@@ -787,6 +807,10 @@ async function runRemoteChatRequest(body, eventSink = null) {
     messages: runMessages,
     webContents: tracedEventSink,
     background: Boolean(body?.background),
+    // A fired scheduled task carries meta.taskId. Switch the agent into
+    // execution mode for this turn so the replayed task prompt is run, not
+    // re-interpreted as a fresh "create a task" request.
+    scheduledFire: Boolean(body?.meta?.taskId),
     persistAgentSession: true
   });
   const responseMessage = response?.choices?.[0]?.message || {};
@@ -839,19 +863,25 @@ async function runRemoteChatRequest(body, eventSink = null) {
   // the same path web/cloud fellow replies use — so it shows up and notifies in
   // the message list (and syncs to web / other devices). Only for background
   // (task) runs; foreground and web chats already reach the conversation themselves.
+  let deliveredAssistantMessageId = assistantMessageId;
   if (body?.background && assistantText.trim()) {
     const cloud = settingsStore.cloudSettings();
-    if (cloud.enabled && cloud.token && cloud.user?.id) {
-      const targetConversationId = conversationId || fellowConversationId(cloud.user.id, fellow.key);
-      Promise.resolve(socialApi.postConversationMessageAsFellow(targetConversationId, {
-        fellowId: fellow.key,
-        bodyMd: assistantText,
-        ...(Object.keys(assistantTracePayload).length ? { trace: assistantTracePayload } : {}),
-        clientOpId: `op_task_${body?.meta?.taskRunId || agentSessionId}_${assistantMessageId}`
-      })).catch((error) => appendDaemonLog(`Task reply conversation post failed: ${error?.message || error}`));
-    }
+    const fallbackConversationId = cloud?.user?.id ? fellowConversationId(cloud.user.id, fellow.key) : "";
+    const delivery = await deliverTaskReplyToConversation({
+      socialApi,
+      settingsStore,
+      fellow,
+      conversationId,
+      fallbackConversationId,
+      assistantText,
+      assistantTracePayload,
+      taskRunId: body?.meta?.taskRunId || agentSessionId,
+      fallbackMessageId: assistantMessageId
+    });
+    deliveredAssistantMessageId = delivery.messageId || assistantMessageId;
+    savedAssistant.id = deliveredAssistantMessageId;
   }
-  return { fellow, session: responseConversation, response, userMessageId, assistantMessageId };
+  return { fellow, session: responseConversation, response, userMessageId, assistantMessageId: deliveredAssistantMessageId };
 }
 
 let tasksStore = null;
@@ -1274,7 +1304,9 @@ function createActiveHermesChatAdapter() {
     normalizeError: hermesRunService.normalizeError,
     readRunEventStream: hermesRunService.readRunEventStream,
     responseModel: adapterForEngine("hermes").responseModel,
+    memoryBlock: miaMemoryService.memoryBlock,
     writeSchedulerMcpContext: schedulerMcpBridge.writeContext,
+    writeMiaAppMcpContext: miaAppMcpBridge.writeContext,
     appendEngineLog
   });
 }
@@ -1288,9 +1320,11 @@ function createActiveClaudeCodeChatAdapter() {
     expandLeadingSkillCommand: skillsLoader.expandLeadingSkillCommand,
     buildEnabledSkillsContext: skillsLoader.buildEnabledSkillsContext,
     getAgentSessionEntry: agentSessionStore.getEntry,
+    getMiaAppMcpSpec: miaAppMcpBridge.getSpec,
     getSchedulerMcpSpec: schedulerMcpBridge.getSpec,
     injectGroupContextForSdk: _passthroughGroupContext,
     lastUserPrompt: hermesRunService.lastUserPrompt,
+    memoryBlock: miaMemoryService.memoryBlock,
     normalizeEffortLevel: settingsStore.normalizeEffortLevel,
     permissionCoordinator: agentPermissionCoordinator,
     processEnvStrings,
@@ -1310,8 +1344,11 @@ function createActiveCodexChatAdapter() {
     ensureCodexHome: schedulerMcpBridge.ensureCodexHome,
     expandLeadingSkillCommand: skillsLoader.expandLeadingSkillCommand,
     getAgentSessionId: agentSessionStore.getId,
+    getMiaAppMcpSpec: miaAppMcpBridge.getSpec,
+    getSchedulerMcpSpec: schedulerMcpBridge.getSpec,
     injectGroupContextForSdk: _passthroughGroupContext,
     lastUserPrompt: hermesRunService.lastUserPrompt,
+    memoryBlock: miaMemoryService.memoryBlock,
     normalizeEffortLevel: settingsStore.normalizeEffortLevel,
     permissionCoordinator: agentPermissionCoordinator,
     processEnvStrings,
@@ -1362,7 +1399,7 @@ function fellowWithRuntimeConfig(fellow, runtimeConfig = {}) {
   };
 }
 
-async function sendChat({ fellowKey, personaKey, sessionId, messages, group, webContents, emit: externalEmit = null, utility = false, persistAgentSession = undefined, background = false, allowSlashCommands = true, runtimeConfig = null, activeSkillIds = [] }) {
+async function sendChat({ fellowKey, personaKey, sessionId, messages, group, webContents, emit: externalEmit = null, utility = false, persistAgentSession = undefined, background = false, scheduledFire = false, allowSlashCommands = true, runtimeConfig = null, activeSkillIds = [] }) {
   utility = Boolean(utility);
   const shouldPersistAgentSession = persistAgentSession == null
     ? !utility
@@ -1403,16 +1440,17 @@ async function sendChat({ fellowKey, personaKey, sessionId, messages, group, web
     // is injected) AND prepend a directive to the user's message so the agent
     // actually USES them this turn — merely enabling is a no-op when the skill
     // is already in the Fellow's enabled set (the "AI picks" case).
-    if (Array.isArray(activeSkillIds) && activeSkillIds.length) {
+    const turnActiveSkillIds = schedulerSkillIdsForTurn({ messages, activeSkillIds, utility, group, background });
+    if (turnActiveSkillIds.length) {
       const caps = fellowForTurn.capabilities || {};
       fellowForTurn = {
         ...fellowForTurn,
         capabilities: {
           ...caps,
-          enabledSkills: [...new Set([...(caps.enabledSkills || []), ...activeSkillIds.map((id) => String(id))])]
+          enabledSkills: [...new Set([...(caps.enabledSkills || []), ...turnActiveSkillIds.map((id) => String(id))])]
         }
       };
-      const directive = skillsLoader.buildActiveSkillsDirective(activeSkillIds);
+      const directive = skillsLoader.buildActiveSkillsDirective(turnActiveSkillIds);
       if (directive && Array.isArray(messages)) {
         const next = messages.slice();
         for (let i = next.length - 1; i >= 0; i--) {
@@ -1445,6 +1483,7 @@ async function sendChat({ fellowKey, personaKey, sessionId, messages, group, web
       abortController,
       emit,
       utility,
+      scheduledFire,
       persistAgentSession: shouldPersistAgentSession,
       slashText,
       runtimeConfig: turnRuntimeConfig
@@ -1767,6 +1806,7 @@ ipcMain.handle(IpcChannel.SocialMyUsername, () => {
   }
 });
 ipcMain.handle(IpcChannel.EngineInstall, () => engineInstallService.install());
+ipcMain.handle(IpcChannel.EngineRepair, () => engineInstallService.repair());
 ipcMain.handle(IpcChannel.EngineStart, () => startEngine());
 ipcMain.handle(IpcChannel.EngineStop, () => stopEngine());
 ipcMain.handle(IpcChannel.EngineUninstallStandalone, () => uninstallStandaloneEngine());
@@ -1878,6 +1918,15 @@ ipcMain.handle(IpcChannel.PetRecall, (_event, key) => fellowPetService.recall(ke
 
 registerTasksIpc({ ipcMain, callDaemonTasks: (...args) => daemonTasksClient.call(...args) });
 
+const autoUpdateService = createAutoUpdateService({
+  // Lazy: constructs the electron-updater singleton only when the foreground
+  // window calls start(), so it's never materialized in the daemon process.
+  getAutoUpdater: () => require("electron-updater").autoUpdater,
+  dialog,
+  isPackaged: app.isPackaged,
+  getMainWindow: () => BrowserWindow.getAllWindows()[0] || null,
+});
+
 app.whenReady().then(async () => {
   startupTimer.mark("app:ready");
   if (!IS_DAEMON_PROCESS && !shouldRunDesktopInstance) return;
@@ -1914,6 +1963,7 @@ app.whenReady().then(async () => {
   }
   const win = createWindow();
   startupTimer.mark("window:created");
+  autoUpdateService.start();
   daemonTasksClient.startEvents();
   startCloudEvents();
   startCloudBridge(); // self-gates: defers to the daemon when it's enabled

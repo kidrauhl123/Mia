@@ -43,10 +43,15 @@
     "hermes:runtime:mac-x64": "bash scripts/build-hermes-runtime.sh mac-x64",
     "hermes:runtime:linux-x64": "bash scripts/build-hermes-runtime.sh linux-x64",
     "hermes:runtime:win-x64": "bash scripts/build-hermes-runtime.sh win-x64",
-    "prepack": "npm run hermes:runtime",
     "pack": "electron-builder --dir",
     "dist": "npm run dist:mac",
-    "dist:mac": "npm run hermes:runtime:mac-arm64 && electron-builder --mac dir && node scripts/create-mac-dmg.js"
+    "dist:mac": "electron-builder --mac dir zip --publish never && node scripts/create-mac-dmg.js",
+    "dist:mac:with-hermes": "npm run hermes:runtime:mac-arm64 && electron-builder --mac dir zip --config electron-builder.with-hermes.json --publish never && node scripts/create-mac-dmg.js",
+    "release:mac": "npm run dist:mac && node scripts/publish-mac-update.js",
+    "release:mac:publish": "node scripts/publish-mac-update.js",
+    "dist:win": "electron-builder --win nsis --publish never",
+    "dist:win:with-hermes": "npm run hermes:runtime:win-x64 && electron-builder --win nsis --config electron-builder.with-hermes.json --publish never",
+    "release:win:publish": "node scripts/publish-win-update.js"
   },
   "hermes": {
     "version": "2026.5.29",
@@ -62,6 +67,7 @@
     "@openai/codex-sdk": "^0.130.0",
     "adm-zip": "^0.5.17",
     "cron-parser": "^4.9.0",
+    "electron-updater": "^6.8.3",
     "js-yaml": "^4.1.1",
     "ws": "^8.20.1"
   },
@@ -73,6 +79,11 @@
     },
     "asar": true,
     "compression": "maximum",
+    "publish": {
+      "provider": "github",
+      "owner": "kidrauhl123",
+      "repo": "Mia"
+    },
     "files": [
       "package.json",
       "packages/shared/**/*",
@@ -101,26 +112,30 @@
     ],
     "mac": {
       "target": [
-        "dir"
+        "dir",
+        "zip"
       ],
       "icon": "build/icon.icns",
       "category": "public.app-category.productivity",
       "identity": "XiaoChuan Technology Co., Ltd. (S4NWU843M5)",
       "hardenedRuntime": false,
-      "gatekeeperAssess": false,
-      "extraResources": [
-        {
-          "from": "vendor/hermes-runtime/mac-arm64",
-          "to": "hermes-runtime",
-          "filter": [
-            "**/*"
-          ]
-        }
-      ]
+      "gatekeeperAssess": false
     },
     "dmg": {
       "sign": false,
       "format": "ULFO"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icon.ico",
+      "artifactName": "${productName}-${version}-Setup.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
     }
   }
 }

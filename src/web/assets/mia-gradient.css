@@ -159,6 +159,15 @@ section.tint,
 .hero .wrap { position: relative; z-index: 2; }
 /* mascot logo in the nav */
 .brand-logo { height: 30px; width: auto; display: block; }
+/* animated watercolor mascot that paints the logo in on load.
+   transparent WebM (mp4 fallback) — real alpha, sits on any background. */
+.hero-mascot {
+  display: block;
+  width: clamp(132px, 15vw, 188px);
+  height: auto;
+  margin: 0 0 6px -6px;
+  pointer-events: none;
+}
 /* artistic, rounded wordmark — nudged down a touch to sit with the mascot */
 .brand span { font-family: "Fredoka", var(--app-font); font-weight: 600; letter-spacing: 0.005em; position: relative; top: 2px; }
 /* the product card lifts off & fades on scroll (driven by JS) */

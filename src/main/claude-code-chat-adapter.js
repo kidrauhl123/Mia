@@ -1,4 +1,9 @@
 const crypto = require("node:crypto");
+const {
+  appendMiaMemoryBlock,
+  sanitizeMiaMemorySpoof,
+  withMiaRuntimeContext
+} = require("./mia-runtime-context.js");
 
 function firstTextValue(value) {
   if (typeof value === "string") return value;
@@ -56,13 +61,15 @@ function createClaudeCodeChatAdapter(deps = {}) {
   const processEnvStrings = requireDependency(deps, "processEnvStrings");
   const normalizeEffortLevel = requireDependency(deps, "normalizeEffortLevel");
   const chatCompletionResponse = requireDependency(deps, "chatCompletionResponse");
+  const memoryBlock = deps.memoryBlock || (() => "");
+  const getMiaAppMcpSpec = deps.getMiaAppMcpSpec || (() => null);
   const getSchedulerMcpSpec = requireDependency(deps, "getSchedulerMcpSpec");
   const writeSchedulerMcpContext = requireDependency(deps, "writeSchedulerMcpContext");
   const permissionCoordinator = deps.permissionCoordinator || null;
   const randomUUID = deps.randomUUID || (() => crypto.randomUUID());
   const cwd = deps.cwd || (() => process.cwd());
 
-  async function sendChat({ fellow, sessionId, messages, group, signal, abortController, emit, utility = false, persistAgentSession = !utility }) {
+  async function sendChat({ fellow, sessionId, messages, group, signal, abortController, emit, utility = false, scheduledFire = false, persistAgentSession = !utility }) {
     const engine = "claude-code";
     const shouldPersistAgentSession = Boolean(persistAgentSession);
     const commandPath = shellCommandPath("claude");
@@ -76,13 +83,18 @@ function createClaudeCodeChatAdapter(deps = {}) {
     } catch (error) {
       appendEngineLog(`Scheduler MCP context write failed: ${error?.message || error}`);
     }
-    const prompt = [buildEnabledSkillsContext(fellow), expandLeadingSkillCommand(lastUser, { mode: "native" }) || lastUser]
+    const expandedPrompt = sanitizeMiaMemorySpoof(expandLeadingSkillCommand(lastUser, { mode: "native" }) || lastUser);
+    const prompt = [buildEnabledSkillsContext(fellow), expandedPrompt]
       .filter(Boolean)
       .join("\n\n");
     const promptWithGroup = group && group.contextBlock
       ? injectGroupContextForSdk(prompt, group.contextBlock)
       : prompt;
-    const persona = readFellowPersona(fellow.key, fellow.name, fellow.bio).trim();
+    const miaMemory = memoryBlock({ fellowKey: fellow.key, sessionId });
+    const persona = appendMiaMemoryBlock(
+      withMiaRuntimeContext(readFellowPersona(fellow.key, fellow.name, fellow.bio), { scheduledFire }),
+      miaMemory
+    ).trim();
     const { query } = await claudeAgentSdk();
     let bridgePluginPath = "";
     let bridgeFingerprint = "";
@@ -100,6 +112,13 @@ function createClaudeCodeChatAdapter(deps = {}) {
     const schedulerMcpSpec = (() => {
       try { return getSchedulerMcpSpec(); } catch { return null; }
     })();
+    const miaAppMcpSpec = (() => {
+      try { return getMiaAppMcpSpec({ fellowId: fellow.key, sessionId, originMessageId }); } catch { return null; }
+    })();
+    const mcpServers = {
+      ...(miaAppMcpSpec ? { "mia-app": miaAppMcpSpec } : {}),
+      ...(schedulerMcpSpec ? { "mia-scheduler": schedulerMcpSpec } : {})
+    };
     const options = {
       abortController,
       cwd: cwd(),
@@ -115,7 +134,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
       },
       includePartialMessages: Boolean(emit),
       ...(bridgePluginPath ? { plugins: [{ type: "local", path: bridgePluginPath }], skills: "all" } : {}),
-      ...(schedulerMcpSpec ? { mcpServers: { "mia-scheduler": schedulerMcpSpec } } : {})
+      ...(Object.keys(mcpServers).length ? { mcpServers } : {})
     };
     if (externalSessionId) options.resume = externalSessionId;
     if (fellow.engineConfig?.model) options.model = String(fellow.engineConfig.model);

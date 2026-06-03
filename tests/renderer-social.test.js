@@ -296,6 +296,38 @@ test("bootstrapAfterLogin keeps legacy UUID fellow sessions for history but hide
   assert.deepEqual(s.renderSidebarRows().map((row) => row.conversation.id), ["fellow:u_1:mia"]);
 });
 
+test("renderSidebarRows keeps the active legacy fellow session as the sidebar representative", () => {
+  const s = loadSocial();
+  s.__mockWindow.miaSessionHistory = sessionHistory;
+  const legacy = {
+    id: "fellow:u_1:9b7c6d5e-1111-4222-8333-123456789abc",
+    type: "fellow",
+    name: "提醒工具不可用",
+    decorations: { fellowKey: "haha", sessionId: "9b7c6d5e-1111-4222-8333-123456789abc" }
+  };
+  const stable = {
+    id: "fellow:u_1:haha",
+    type: "fellow",
+    name: "哈哈哈",
+    decorations: { fellowKey: "haha", sessionId: "haha" }
+  };
+  s.moduleState.conversations = [legacy, stable];
+  s.moduleState.activeConversationId = legacy.id;
+  s.moduleState.messageCache.set(legacy.id, {
+    messages: [{ created_at: "2026-06-02T11:31:00.000Z", body_md: "当前对话里我没有可用的 schedule_* 工具" }],
+    maxSeq: 1
+  });
+  s.moduleState.messageCache.set(stable.id, {
+    messages: [{ created_at: "2026-06-02T09:44:00.000Z", body_md: "可以，我已经帮你设置好了。" }],
+    maxSeq: 1
+  });
+
+  const rows = s.renderSidebarRows();
+
+  assert.equal(rows[0].conversation.id, legacy.id);
+  assert.match(rows[0].conversation.lastMessagePreview, /schedule_\*/);
+});
+
 test("bootstrapAfterLogin syncs external fellow runtime config for web controls", async () => {
   const s = loadSocial();
   const calls = [];
@@ -397,6 +429,50 @@ test("fellowConversationForKey returns an existing cloud-hermes fellow conversat
   const conversation = s.fellowConversationForKey("alice");
   assert.equal(conversation.id, "fellow:u_1:alice");
   assert.equal(conversation.decorations.runtimeKind, "cloud-hermes");
+});
+
+test("selecting a fellow session stores it as the sidebar representative for that fellow", () => {
+  const store = {};
+  const s = loadSocial();
+  s.__mockWindow.miaSessionHistory = sessionHistory;
+  s.__mockWindow.localStorage = {
+    getItem: (key) => store[key] || "",
+    setItem: (key, value) => { store[key] = String(value); }
+  };
+  s.initSocialModule({
+    getState: () => ({ runtime: {} }),
+    render: () => {},
+    els: {},
+    appendTransientChat: () => {}
+  });
+  s.moduleState.conversations = [
+    {
+      id: "fellow:u_1:first",
+      type: "fellow",
+      decorations: { fellowKey: "nhnh" },
+      updatedAt: "2026-01-03T00:00:00.000Z"
+    },
+    {
+      id: "fellow:u_1:last-selected",
+      type: "fellow",
+      decorations: { fellowKey: "nhnh" },
+      updatedAt: "2026-01-01T00:00:00.000Z"
+    }
+  ];
+  s.moduleState.messageCache.set("fellow:u_1:first", {
+    messages: [{ created_at: "2026-01-03T00:00:00.000Z", body_md: "newer" }],
+    maxSeq: 1
+  });
+  s.moduleState.messageCache.set("fellow:u_1:last-selected", {
+    messages: [{ created_at: "2026-01-01T00:00:00.000Z", body_md: "selected" }],
+    maxSeq: 1
+  });
+
+  s.setActiveConversationId("fellow:u_1:last-selected");
+
+  assert.equal(s.fellowConversationForKey("nhnh").id, "fellow:u_1:last-selected");
+  assert.equal(s.renderSidebarRows()[0].conversation.id, "fellow:u_1:last-selected");
+  assert.equal(JSON.parse(store["mia.lastFellowConversationByKey"]).nhnh, "fellow:u_1:last-selected");
 });
 
 test("bootstrapAfterLogin warns when fellow conversation ensure returns ok false", async () => {

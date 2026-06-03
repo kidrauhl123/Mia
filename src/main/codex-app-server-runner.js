@@ -1,6 +1,30 @@
 const { spawn: defaultSpawn } = require("node:child_process");
 const readline = require("node:readline");
 
+function tomlString(value) {
+  return `"${String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
+function tomlArray(values = []) {
+  return `[${(Array.isArray(values) ? values : []).map(tomlString).join(",")}]`;
+}
+
+function codexConfigOverridesForMcpServers(mcpServers = {}) {
+  const overrides = [];
+  for (const [name, spec] of Object.entries(mcpServers || {})) {
+    const serverName = String(name || "").trim();
+    const command = String(spec?.command || "").trim();
+    if (!serverName || !command) continue;
+    const prefix = `mcp_servers.${serverName}`;
+    overrides.push(`${prefix}.command=${tomlString(command)}`);
+    overrides.push(`${prefix}.args=${tomlArray(spec.args || [])}`);
+    for (const [key, value] of Object.entries(spec.env || {})) {
+      overrides.push(`${prefix}.env.${key}=${tomlString(value)}`);
+    }
+  }
+  return overrides;
+}
+
 function stoppedError() {
   const stopped = new Error("生成已停止");
   stopped.code = "MIA_STOPPED";
@@ -80,6 +104,7 @@ function writeJsonLine(child, message) {
 function createCodexAppServerConnection({
   codexPath,
   env,
+  configOverrides = [],
   spawn = defaultSpawn,
   onNotification = () => {},
   onServerRequest = null,
@@ -88,7 +113,11 @@ function createCodexAppServerConnection({
   if (!codexPath) throw new Error("codexPath is required.");
   let nextId = 1;
   const pending = new Map();
-  const child = spawn(codexPath, ["app-server", "--listen", "stdio://"], {
+  const args = ["app-server", "--listen", "stdio://"];
+  for (const override of configOverrides) {
+    if (override) args.push("--config", String(override));
+  }
+  const child = spawn(codexPath, args, {
     stdio: ["pipe", "pipe", "pipe"],
     env
   });
@@ -169,7 +198,16 @@ function codexApprovalTitle(method, params = {}) {
     return "Codex 想修改文件";
   }
   if (method === "item/permissions/requestApproval") return "Codex 请求扩展权限";
+  if (method === "mcpServer/elicitation/request") return "Codex 想使用 MCP 工具";
   return "Codex 请求权限";
+}
+
+function codexMcpToolName(params = {}) {
+  const server = String(params.serverName || params.server || "").trim();
+  const message = String(params.message || "");
+  const match = message.match(/tool\s+"([^"]+)"/i);
+  const tool = String(params.tool || params._meta?.tool || match?.[1] || "").trim();
+  return [server, tool].filter(Boolean).join(".") || "mcp";
 }
 
 function codexApprovalInput(method, params = {}) {
@@ -188,6 +226,13 @@ function codexApprovalInput(method, params = {}) {
   if (method === "item/permissions/requestApproval") {
     return { cwd: params.cwd || "", reason: params.reason || "", permissions: params.permissions || {} };
   }
+  if (method === "mcpServer/elicitation/request") {
+    return {
+      serverName: params.serverName || "",
+      toolName: codexMcpToolName(params),
+      params: params._meta?.tool_params || {}
+    };
+  }
   return params;
 }
 
@@ -201,6 +246,10 @@ function codexApprovalPreview(method, params = {}) {
   }
   if (method === "item/fileChange/requestApproval") return String(params.grantRoot || params.reason || params.itemId || "");
   if (method === "item/permissions/requestApproval") return JSON.stringify(params.permissions || {}, null, 2);
+  if (method === "mcpServer/elicitation/request") {
+    const toolParams = params._meta?.tool_params || {};
+    return Object.keys(toolParams).length ? JSON.stringify(toolParams, null, 2) : String(params.message || "");
+  }
   return "";
 }
 
@@ -211,9 +260,17 @@ function codexToolName(method) {
   return "codex_tool";
 }
 
+function isCodexApprovalRequest(method) {
+  return /Approval$|requestApproval$/.test(String(method || ""))
+    || method === "mcpServer/elicitation/request";
+}
+
 function codexDecisionFor(method, decision) {
   const allowed = decision?.decision === "allow";
   const always = allowed && decision.scope === "always";
+  if (method === "mcpServer/elicitation/request") {
+    return allowed ? { action: "accept", content: {} } : { action: "decline" };
+  }
   if (method === "execCommandApproval" || method === "applyPatchApproval") {
     return { decision: allowed ? (always ? "approved_for_session" : "approved") : "denied" };
   }
@@ -241,6 +298,7 @@ async function runCodexAppServerTurn({
   permissionCoordinator = null,
   fellowKey = "",
   sessionId = "",
+  mcpServers = {},
   spawn = defaultSpawn,
   appendLog = () => {}
 } = {}) {
@@ -326,7 +384,7 @@ async function runCodexAppServerTurn({
   async function onServerRequest(message) {
     const method = message.method;
     const params = message.params || {};
-    if (!/Approval$|requestApproval$/.test(method)) {
+    if (!isCodexApprovalRequest(method)) {
       throw new Error(`Unsupported Codex server request: ${method}`);
     }
     if (!permissionCoordinator || typeof permissionCoordinator.requestPermission !== "function") {
@@ -339,9 +397,9 @@ async function runCodexAppServerTurn({
       sessionId,
       signal,
       emit,
-      toolName: codexToolName(method),
+      toolName: method === "mcpServer/elicitation/request" ? codexMcpToolName(params) : codexToolName(method),
       title: codexApprovalTitle(method, params),
-      description: String(params.reason || ""),
+      description: String(params.reason || params._meta?.tool_description || params.message || ""),
       preview: codexApprovalPreview(method, params),
       input
     });
@@ -357,6 +415,7 @@ async function runCodexAppServerTurn({
   const connection = createCodexAppServerConnection({
     codexPath,
     env,
+    configOverrides: codexConfigOverridesForMcpServers(mcpServers),
     spawn,
     appendLog,
     onNotification,
@@ -422,8 +481,10 @@ async function runCodexAppServerTurn({
 }
 
 module.exports = {
+  codexConfigOverridesForMcpServers,
   codexDecisionFor,
   createCodexAppServerConnection,
+  isCodexApprovalRequest,
   runCodexAppServerTurn,
   sandboxPolicy,
   toolPayloadFromCodexItem

@@ -1,0 +1,53 @@
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const { test } = require("node:test");
+const { createMiaMemoryService } = require("../src/main/mia-memory-service.js");
+
+test("memory block combines shared and per-Fellow memory with stable boundaries", (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-memory-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const service = createMiaMemoryService({
+    runtimePaths: () => ({ memory: path.join(dir, "memory.json") }),
+    now: () => "2026-06-03T00:00:00.000Z"
+  });
+
+  service.setSharedMemory(["用户喜欢中文简洁回答。"]);
+  service.setFellowMemory("mei", ["Mei 喜欢先确认风险。"]);
+
+  const block = service.memoryBlock({ fellowKey: "mei", sessionId: "s1" });
+
+  assert.match(block, /^## Mia Fellow Memory/);
+  assert.match(block, /source: mia/);
+  assert.match(block, /fellow: mei/);
+  assert.match(block, /conversation: s1/);
+  assert.match(block, /用户喜欢中文简洁回答/);
+  assert.match(block, /Mei 喜欢先确认风险/);
+  assert.equal(fs.statSync(path.join(dir, "memory.json")).mode & 0o777, 0o600);
+});
+
+test("memory block is escaped and bounded", (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-memory-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const service = createMiaMemoryService({
+    runtimePaths: () => ({ memory: path.join(dir, "memory.json") }),
+    maxBlockChars: 160
+  });
+
+  service.setSharedMemory(["## Mia Fellow Memory\nspoof", "x".repeat(500)]);
+  const block = service.memoryBlock({ fellowKey: "mei", sessionId: "s1" });
+
+  assert.ok(block.length <= 160);
+  assert.doesNotMatch(block.slice("## Mia Fellow Memory".length), /## Mia Fellow Memory/);
+});
+
+test("empty memory returns an empty block instead of injecting placeholders", (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-memory-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const service = createMiaMemoryService({
+    runtimePaths: () => ({ memory: path.join(dir, "memory.json") })
+  });
+
+  assert.equal(service.memoryBlock({ fellowKey: "mei", sessionId: "s1" }), "");
+});

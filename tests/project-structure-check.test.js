@@ -483,7 +483,9 @@ test("local Agent CLI discovery and version caching live behind a main local-age
   const localAgentSource = fs.readFileSync(path.join(root, "src/main/local-agent-engine-service.js"), "utf8");
 
   assert.match(localAgentSource, /function createLocalAgentEngineService/, "local Agent engine service should exist");
+  assert.match(localAgentSource, /function agentInventory/, "local Agent engine service should own normalized inventory");
   assert.match(mainSource, /createLocalAgentEngineService/, "main should instantiate local Agent engine discovery");
+  assert.doesNotMatch(mainSource, /function agentInventory/, "main must not own normalized local Agent inventory");
   assert.doesNotMatch(mainSource, /const CLI_PATH_SEGMENTS/, "main must not own CLI PATH candidates");
   assert.doesNotMatch(mainSource, /function cliPathEnv/, "main must not own CLI PATH expansion");
   assert.doesNotMatch(mainSource, /function shellCommandPath/, "main must not own shell command discovery");
@@ -507,11 +509,48 @@ test("external Agent session binding persistence lives behind a main agent-sessi
   assert.doesNotMatch(mainSource, /function setAgentSessionEntry/, "main must not own external Agent session entry writes");
 });
 
+test("Mia memory lives behind a main memory service and adapters only receive bounded memory blocks", () => {
+  const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
+  const runtimePathsSource = fs.readFileSync(path.join(root, "src/main/runtime-paths.js"), "utf8");
+  const memorySource = fs.readFileSync(path.join(root, "src/main/mia-memory-service.js"), "utf8");
+  const adapterSource = [
+    "src/main/hermes-chat-adapter.js",
+    "src/main/claude-code-chat-adapter.js",
+    "src/main/codex-chat-adapter.js"
+  ].map((relativePath) => fs.readFileSync(path.join(root, relativePath), "utf8")).join("\n");
+
+  assert.match(memorySource, /function createMiaMemoryService/, "Mia memory service should exist");
+  assert.match(runtimePathsSource, /mia-memory\.json/, "runtime paths should own Mia memory storage path");
+  assert.match(mainSource, /createMiaMemoryService/, "main should instantiate Mia memory service");
+  assert.match(mainSource, /memoryBlock: miaMemoryService\.memoryBlock/, "main should inject bounded memory blocks into adapters");
+  assert.match(adapterSource, /sanitizeMiaMemorySpoof/, "adapters should neutralize user-spoofed Mia memory headers");
+  assert.doesNotMatch(adapterSource, /\.codex[\s\S]{0,80}memory/, "adapters must not read native Codex memory files");
+  assert.doesNotMatch(adapterSource, /CLAUDE\.md/, "adapters must not read native Claude memory files");
+});
+
+test("Mia app MCP bridge and tool schema live behind main MCP services", () => {
+  const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
+  const bridgeSource = fs.readFileSync(path.join(root, "src/main/mia-app-mcp-bridge.js"), "utf8");
+  const serverSource = fs.readFileSync(path.join(root, "src/main/mia-app-mcp-server.js"), "utf8");
+
+  assert.match(bridgeSource, /function createMiaAppMcpBridge/, "Mia app MCP bridge should exist");
+  assert.match(serverSource, /function toolDefinitions/, "Mia app MCP server should own tool schemas");
+  assert.match(mainSource, /createMiaAppMcpBridge/, "main should instantiate Mia app MCP bridge");
+  assert.match(mainSource, /miaAppMcpBridge\.getSpec/, "main should inject Mia app MCP specs into adapters/config");
+  assert.doesNotMatch(mainSource, /function toolDefinitions/, "main must not own MCP tool schemas");
+  assert.doesNotMatch(mainSource, /conversation_create_group/, "main must not inline Mia app MCP tool definitions");
+});
+
 test("scheduler MCP bridge context, spec, and Codex home setup live behind a main scheduler-mcp bridge", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
   const bridgeSource = fs.readFileSync(path.join(root, "src/main/scheduler-mcp-bridge.js"), "utf8");
+  const profileSource = fs.readFileSync(path.join(root, "src/main/agent-runtime-profile-service.js"), "utf8");
 
   assert.match(bridgeSource, /function createSchedulerMcpBridge/, "scheduler MCP bridge should exist");
+  assert.match(profileSource, /function createAgentRuntimeProfileService/, "agent runtime profile service should exist");
+  assert.match(bridgeSource, /createAgentRuntimeProfileService/, "scheduler MCP bridge should delegate native Agent profile setup");
+  assert.match(profileSource, /CODEX_BLOCKED_STATE/, "profile service should own blocked native Codex state");
+  assert.doesNotMatch(bridgeSource, /SESSION_STATE_ENTRIES/, "scheduler MCP bridge must not own native Codex session exclusions");
   assert.match(mainSource, /createSchedulerMcpBridge/, "main should instantiate scheduler MCP bridge");
   assert.doesNotMatch(mainSource, /function resolveNodePath/, "main must not own node CLI discovery for scheduler MCP");
   assert.doesNotMatch(mainSource, /function schedulerMcpContextPath/, "main must not own scheduler MCP context path");
@@ -589,6 +628,15 @@ test("engine installation lifecycle lives behind a main engine-install service",
   assert.doesNotMatch(mainSource, /function enginePython/, "main must not own engine Python executable selection");
   assert.doesNotMatch(mainSource, /function engineSource/, "main must not own engine source classification");
   assert.doesNotMatch(runtimePathsSource, /installation helpers .*stay in main\.js/s, "runtime paths docs must not claim installation stays in main");
+});
+
+test("Hermes install source selection lives behind a main service", () => {
+  const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
+  const sourceService = fs.readFileSync(path.join(root, "src/main/hermes-install-source-service.js"), "utf8");
+
+  assert.match(sourceService, /function createHermesInstallSourceService/);
+  assert.doesNotMatch(mainSource, /function resolveInstallSource/);
+  assert.doesNotMatch(mainSource, /MIA_ENGINE_MIRROR_URL/);
 });
 
 test("runtime directory initialization lives behind a main runtime-initializer service", () => {

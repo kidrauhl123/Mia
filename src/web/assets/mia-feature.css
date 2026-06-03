@@ -1,0 +1,258 @@
+/* ============================================================
+   Mia — Feature section: 多端互通 · 多内核兼容
+   Clean two-card layout (replaces the old single-step scrollytelling).
+   ============================================================ */
+.feat {
+  position: relative;
+  z-index: 1;
+  padding: clamp(36px, 5vw, 64px) 0 clamp(76px, 10vw, 132px);
+  background: #ffffff;
+}
+
+.feat-head {
+  text-align: center;
+  max-width: 660px;
+  margin: 0 auto clamp(40px, 6vw, 66px);
+}
+.feat-kicker {
+  display: inline-block;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+  margin-bottom: 16px;
+}
+.feat-head h2 {
+  font-size: clamp(30px, 4.4vw, 50px);
+  font-weight: 640;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  margin: 0 0 16px;
+  color: var(--ink);
+  text-wrap: balance;
+}
+.feat-head p {
+  font-size: clamp(15px, 1.5vw, 18px);
+  line-height: 1.6;
+  color: var(--ink-2);
+  margin: 0;
+  text-wrap: pretty;
+}
+
+/* ── merged feature card: one clean card, two blocks, no boxy nesting ── */
+.feat-merged {
+  max-width: 600px;
+  margin: 0 auto;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: clamp(26px, 3vw, 38px);
+  display: flex;
+  flex-direction: column;
+  gap: clamp(22px, 2.6vw, 30px);
+}
+.fm-cap {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+}
+.fm-desc {
+  margin: 8px 0 18px;
+  font-size: 14.5px;
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+.fm-rule { height: 1px; background: var(--line); }
+
+/* devices: icon+label tiles joined by short connectors */
+.fm-devs { display: flex; align-items: center; gap: 10px; }
+.fm-dev {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 6px;
+  border-radius: 14px;
+  background: var(--bg);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.fm-dev svg { width: 26px; height: 26px; fill: none; stroke: var(--ink); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.fm-conn { width: 14px; height: 2px; border-radius: 2px; background: var(--line-strong); flex: none; }
+
+/* engines: logo+name chips in a row */
+.fm-engs { display: flex; gap: 10px; }
+.fm-eng {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 13px 8px;
+  border-radius: 14px;
+  background: var(--bg);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.fm-eng img, .fm-eng svg { width: 22px; height: 22px; }
+
+@media (max-width: 560px) {
+  .fm-dev { font-size: 12px; padding: 13px 4px; }
+  .fm-eng { flex-direction: column; gap: 6px; font-size: 12.5px; }
+}
+
+.feat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: clamp(18px, 2.2vw, 26px);
+  max-width: 1000px;
+  margin: 0 auto;
+}
+.feat-card {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(26px, 3vw, 40px);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: clamp(26px, 3vw, 38px);
+  box-shadow: var(--shadow);
+}
+.feat-tag {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 5px 12px;
+  border-radius: 999px;
+}
+.feat-card-top h3 {
+  font-size: clamp(20px, 2.2vw, 25px);
+  font-weight: 620;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  margin: 14px 0 10px;
+  color: var(--ink);
+}
+.feat-card-top p {
+  font-size: 14.5px;
+  line-height: 1.6;
+  color: var(--ink-2);
+  margin: 0;
+}
+
+/* ---- 多端互通: three device tiles linked by a synced line ---- */
+.feat-devices {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-top: auto;
+  padding: 26px 4px 4px;
+}
+.feat-devices::before {
+  content: "";
+  position: absolute;
+  left: 44px;
+  right: 44px;
+  top: 58px;
+  height: 2px;
+  background: repeating-linear-gradient(90deg, var(--line-strong) 0 6px, transparent 6px 12px);
+  z-index: 0;
+}
+.feat-synced {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 4px 12px;
+  border-radius: 999px;
+}
+.feat-dev {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 11px;
+}
+.feat-ic {
+  width: 66px;
+  height: 66px;
+  border-radius: 18px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  display: grid;
+  place-items: center;
+  box-shadow: var(--shadow-sm);
+}
+.feat-ic svg {
+  width: 28px;
+  height: 28px;
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.feat-dev b {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+/* ---- 多内核兼容: engine list ---- */
+.feat-engines {
+  list-style: none;
+  margin: auto 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.feat-engines li {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 14px;
+  padding: 13px 16px;
+  border-radius: 15px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+.feat-logo {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: var(--surface);
+  display: grid;
+  place-items: center;
+  box-shadow: var(--shadow-sm);
+}
+.feat-logo img,
+.feat-logo svg { width: 24px; height: 24px; }
+.feat-eng-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.feat-eng-role {
+  font-size: 12.5px;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .feat-grid { grid-template-columns: 1fr; }
+  .feat-eng-role { display: none; }
+}

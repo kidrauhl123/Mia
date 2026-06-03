@@ -126,6 +126,25 @@ test("topbar mode toggles animate a shared selected capsule indicator", () => {
   );
 });
 
+test("task preview dialog uses a structured inspector layout", () => {
+  const taskCss = fs.readFileSync(path.join(root, "src/renderer/styles/tasks.css"), "utf8");
+  const taskPanel = fs.readFileSync(path.join(root, "src/renderer/tasks/tasks-panel.js"), "utf8");
+
+  assert.match(taskPanel, /task-detail-shell/);
+  assert.match(taskPanel, /task-detail-sidebar/);
+  assert.match(taskPanel, /task-detail-main/);
+  assert.match(taskPanel, /task-primary-actions/);
+  assert.match(taskPanel, /task-status-pill/);
+  assert.match(taskPanel, /task-section/);
+  assert.doesNotMatch(taskPanel, /run-detail-actions\" style=/);
+
+  assert.match(taskCss, /\.task-detail-shell\s*\{[^}]*grid-template-columns:\s*minmax\(220px,\s*260px\)\s+minmax\(0,\s*1fr\);/);
+  assert.match(taskCss, /\.task-detail-sidebar\s*\{[^}]*position:\s*sticky;/);
+  assert.match(taskCss, /\.task-primary-actions\s*\{[^}]*grid-template-columns:\s*1fr;/);
+  assert.match(taskCss, /\.task-section\s*\{[^}]*border:\s*1px solid var\(--line\);/);
+  assert.match(taskCss, /@media\s*\(max-width:\s*760px\)\s*\{[\s\S]*\.task-detail-shell\s*\{[^}]*grid-template-columns:\s*1fr;/);
+});
+
 test("chat history session menus constrain long history lists to an internal scroller", () => {
   const rendererCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
   const webCss = fs.readFileSync(path.join(root, "src/web/styles.css"), "utf8");

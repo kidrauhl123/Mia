@@ -11,15 +11,15 @@
   <link rel="stylesheet" href="./styles/skills.css">
 </head>
 <body>
-  <main class="app-shell">
+  <main class="app-shell" data-auth-state="signed-out">
     <aside class="nav-rail" aria-label="主导航">
       <div class="traffic-spacer" id="trafficSpacer">
         <button class="traffic-light close" type="button" data-action="close" aria-label="关闭"></button>
         <button class="traffic-light minimize" type="button" data-action="minimize" aria-label="最小化"></button>
         <button class="traffic-light green" type="button" data-action="green" aria-label="全屏"></button>
       </div>
-      <div id="userAvatar" class="profile-avatar rail-avatar" role="button" tabindex="0" title="编辑个人资料">B</div>
-      <span id="userDisplayName" class="visually-hidden">Boss</span>
+      <div id="userAvatar" class="profile-avatar rail-avatar" role="button" tabindex="0" title="编辑个人资料"></div>
+      <span id="userDisplayName" class="visually-hidden"></span>
       <div class="rail-divider"></div>
       <button class="rail-button active" type="button" data-view="chat" title="消息" aria-label="消息">
         <span class="rail-lottie" data-lottie="forum" data-lottie-rest="60" data-lottie-play="70,130" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
@@ -521,6 +521,13 @@
                   <small id="engineRowCodex">检测中…</small>
                 </span>
               </div>
+              <div class="engine-row static" data-engine-row="openclaw">
+                <span class="engine-row-logo openclaw" aria-hidden="true"></span>
+                <span class="engine-row-body">
+                  <strong>OpenClaw</strong>
+                  <small id="engineRowOpenClaw">检测中…</small>
+                </span>
+              </div>
             </section>
           </section>
 
@@ -564,7 +571,7 @@
         </header>
         <label>
           名字
-          <input id="profileDisplayName" autocomplete="off" placeholder="例如 Boss">
+          <input id="profileDisplayName" autocomplete="off" placeholder="例如 小明">
         </label>
         <section class="avatar-picker">
           <div id="profileAvatarPreview" class="avatar-crop-preview"></div>

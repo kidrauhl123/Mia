@@ -68,6 +68,44 @@ test("shellCommandPath falls back to executable files in user CLI directories", 
   assert.equal(service.shellCommandPath("codex"), executable);
 });
 
+test("shellCommandPath uses `where` on Windows and returns the first resolved path", (t) => {
+  const calls = [];
+  const { service } = makeService(t, {
+    platform: "win32",
+    spawnSync: (command, args) => {
+      calls.push([command, args]);
+      if (command === "where" && args[0] === "claude") {
+        return {
+          status: 0,
+          stdout: "C:\\Users\\me\\AppData\\Roaming\\npm\\claude.cmd\r\nC:\\other\\claude.exe\r\n",
+          stderr: ""
+        };
+      }
+      return { status: 1, stdout: "", stderr: "" };
+    }
+  });
+
+  // The resolved path keeps its extension so the engine SDKs get a runnable
+  // executable, and we never shell out to zsh (absent on Windows).
+  assert.equal(service.shellCommandPath("claude"), "C:\\Users\\me\\AppData\\Roaming\\npm\\claude.cmd");
+  assert.equal(calls.filter((call) => call[0] === "zsh").length, 0);
+  assert.deepEqual(calls, [["where", ["claude"]]]);
+});
+
+test("shellCommandPath returns empty on Windows when `where` finds nothing", (t) => {
+  const calls = [];
+  const { service } = makeService(t, {
+    platform: "win32",
+    spawnSync: (command, args) => {
+      calls.push([command, args]);
+      return { status: 1, stdout: "", stderr: "" };
+    }
+  });
+
+  assert.equal(service.shellCommandPath("codex"), "");
+  assert.equal(calls.filter((call) => call[0] === "zsh").length, 0);
+});
+
 test("commandVersion returns the first version line from stdout or stderr", (t) => {
   const { service } = makeService(t, {
     spawnSync: (command, args) => {
@@ -82,7 +120,7 @@ test("commandVersion returns the first version line from stdout or stderr", (t) 
   assert.equal(service.commandVersion(""), "");
 });
 
-test("localAgentEngines reports Hermes default and caches CLI probes until reset", (t) => {
+test("localAgentEngines reports the legacy engine view and caches CLI probes until reset", (t) => {
   let now = 1000;
   const { calls, service } = makeService(t, {
     now: () => now,
@@ -110,13 +148,124 @@ test("localAgentEngines reports Hermes default and caches CLI probes until reset
   service.resetCache();
   const refreshed = service.localAgentEngines();
 
-  assert.equal(first.hermes.available, true);
-  assert.deepEqual(first.hermes.system, { available: false, disabled: true });
+  assert.equal(first.hermes.available, false);
+  assert.deepEqual(first.hermes.system, { available: false, path: "", version: "" });
   assert.equal(first.claudeCode.path, "/bin/claude");
   assert.equal(first.claudeCode.version, "claude 1.2.3");
   assert.equal(first.codex.path, "/bin/codex");
   assert.equal(first.codex.version, "codex 2.3.4");
   assert.equal(cached, first);
   assert.notEqual(refreshed, first);
-  assert.equal(calls.filter((call) => call[0] === "zsh").length, 4);
+  assert.equal(calls.filter((call) => call[0] === "zsh").length, 10);
+});
+
+test("agentInventory separates system Hermes detection from Mia Hermes usability", (t) => {
+  let now = 1000;
+  const { service } = makeService(t, {
+    now: () => now,
+    isHermesInstalled: () => true,
+    hermesSource: () => "managed",
+    spawnSync: (command, args) => {
+      if (command === "zsh" && args[1] === "command -v hermes") {
+        return { status: 0, stdout: "/bin/hermes\n", stderr: "" };
+      }
+      if (command === "zsh" && args[1] === "command -v claude") {
+        return { status: 0, stdout: "/bin/claude\n", stderr: "" };
+      }
+      if (command === "zsh" && args[1] === "command -v codex") {
+        return { status: 0, stdout: "/bin/codex\n", stderr: "" };
+      }
+      if (command === "zsh" && args[1] === "command -v openclaw") {
+        return { status: 0, stdout: "/bin/openclaw\n", stderr: "" };
+      }
+      if (command === "/bin/hermes") return { status: 0, stdout: "hermes 0.4.0\n", stderr: "" };
+      if (command === "/bin/claude") return { status: 0, stdout: "claude 1.2.3\n", stderr: "" };
+      if (command === "/bin/codex") return { status: 0, stdout: "codex 2.3.4\n", stderr: "" };
+      if (command === "/bin/openclaw") return { status: 0, stdout: "openclaw 0.1.0\n", stderr: "" };
+      return { status: 1, stdout: "", stderr: "" };
+    }
+  });
+
+  const inventory = service.agentInventory();
+  now += 1000;
+  const cached = service.agentInventory();
+  const agentsById = Object.fromEntries(inventory.agents.map((agent) => [agent.id, agent]));
+
+  assert.equal(cached, inventory);
+  assert.equal(inventory.summary.installedCount, 4);
+  assert.equal(inventory.summary.usableCount, 3);
+  assert.equal(inventory.summary.missingCount, 0);
+  assert.equal(inventory.summary.hasUsableAgent, true);
+  assert.equal(inventory.summary.recommendedAction, "continue");
+  assert.equal(agentsById.hermes.installed, true);
+  assert.equal(agentsById.hermes.usableInMia, true);
+  assert.equal(agentsById.hermes.source, "mia-managed");
+  assert.deepEqual(agentsById.hermes.system, {
+    available: true,
+    path: "/bin/hermes",
+    version: "hermes 0.4.0"
+  });
+  assert.equal(agentsById["claude-code"].usableInMia, true);
+  assert.equal(agentsById.codex.usableInMia, true);
+  assert.equal(agentsById.openclaw.installed, true);
+  assert.equal(agentsById.openclaw.usableInMia, false);
+  assert.equal(agentsById.openclaw.detectionOnly, true);
+});
+
+test("agentInventory recommends Hermes install when no usable agent is detected", (t) => {
+  const { service } = makeService(t, {
+    isHermesInstalled: () => false,
+    hermesSource: () => "",
+    fs: {
+      accessSync: () => {
+        throw new Error("missing");
+      }
+    },
+    spawnSync: () => ({ status: 1, stdout: "", stderr: "" })
+  });
+
+  const inventory = service.agentInventory();
+  const agentsById = Object.fromEntries(inventory.agents.map((agent) => [agent.id, agent]));
+  const legacy = service.localAgentEngines();
+
+  assert.equal(inventory.summary.installedCount, 0);
+  assert.equal(inventory.summary.usableCount, 0);
+  assert.equal(inventory.summary.missingCount, 4);
+  assert.equal(inventory.summary.hasUsableAgent, false);
+  assert.equal(inventory.summary.recommendedAction, "install-hermes");
+  assert.equal(agentsById.hermes.installable, true);
+  assert.equal(agentsById.hermes.installAction, "install-hermes");
+  assert.equal(agentsById.hermes.health, "missing");
+  assert.equal(agentsById.openclaw.installable, false);
+  assert.equal(legacy.hermes.available, false);
+  assert.equal(legacy.claudeCode.available, false);
+  assert.equal(legacy.codex.available, false);
+  assert.equal(legacy.openClaw.available, false);
+});
+
+test("agentInventory treats Mia local-source Hermes as usable managed runtime", (t) => {
+  const { service } = makeService(t, {
+    isHermesInstalled: () => true,
+    hermesSource: () => "local-source",
+    fs: {
+      accessSync: () => {
+        throw new Error("missing");
+      }
+    },
+    spawnSync: () => ({ status: 1, stdout: "", stderr: "" })
+  });
+
+  const inventory = service.agentInventory();
+  const hermes = inventory.agents.find((agent) => agent.id === "hermes");
+  const legacy = service.localAgentEngines();
+
+  assert.equal(hermes.installed, true);
+  assert.equal(hermes.usableInMia, true);
+  assert.equal(hermes.source, "mia-managed");
+  assert.equal(hermes.health, "ready");
+  assert.equal(inventory.summary.installedCount, 1);
+  assert.equal(inventory.summary.usableCount, 1);
+  assert.equal(inventory.summary.hasUsableAgent, true);
+  assert.equal(legacy.hermes.available, true);
+  assert.equal(legacy.hermes.source, "mia-managed");
 });

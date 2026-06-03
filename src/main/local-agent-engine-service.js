@@ -12,6 +12,41 @@ const SYSTEM_CLI_PATH_SEGMENTS = [
   "/sbin"
 ];
 
+const AGENT_DEFINITIONS = Object.freeze([
+  {
+    id: "hermes",
+    legacyKey: "hermes",
+    label: "Hermes",
+    commands: ["hermes"],
+    installable: true,
+    detectionOnly: false
+  },
+  {
+    id: "claude-code",
+    legacyKey: "claudeCode",
+    label: "Claude Code",
+    commands: ["claude"],
+    installable: false,
+    detectionOnly: false
+  },
+  {
+    id: "codex",
+    legacyKey: "codex",
+    label: "Codex",
+    commands: ["codex"],
+    installable: false,
+    detectionOnly: false
+  },
+  {
+    id: "openclaw",
+    legacyKey: "openClaw",
+    label: "OpenClaw",
+    commands: ["openclaw", "claw"],
+    installable: false,
+    detectionOnly: true
+  }
+]);
+
 function commandNameOnly(command) {
   const value = String(command || "").trim();
   if (!/^[A-Za-z0-9._-]+$/.test(value)) return "";
@@ -24,7 +59,15 @@ function createLocalAgentEngineService(deps = {}) {
   const spawnSync = deps.spawnSync || defaultSpawnSync;
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   const fsImpl = deps.fs || fs;
+  const platform = deps.platform || process.platform;
+  const isHermesInstalled = typeof deps.isHermesInstalled === "function"
+    ? deps.isHermesInstalled
+    : () => false;
+  const hermesSource = typeof deps.hermesSource === "function"
+    ? deps.hermesSource
+    : () => "";
   const cacheMs = Number.isFinite(Number(deps.cacheMs)) ? Number(deps.cacheMs) : 15000;
+  let agentInventoryCache = { at: 0, value: null };
   let agentEngineCache = { at: 0, value: null };
 
   function currentEnv() {
@@ -69,9 +112,27 @@ function createLocalAgentEngineService(deps = {}) {
     }
   }
 
+  // Windows has no zsh and uses .exe/.cmd/.bat executables, so the posix
+  // `command -v` + bare-name file scan never resolves a CLI there. `where`
+  // searches the real PATH with PATHEXT and returns the full path (extension
+  // included), which is exactly what the engine SDKs need to spawn it.
+  function windowsCommandPath(name) {
+    const result = spawnSync("where", [name], {
+      encoding: "utf8",
+      timeout: 1500,
+      env: processEnvWithCliPath()
+    });
+    if (!result.error && result.status === 0) {
+      const found = String(result.stdout || "").split(/\r?\n/).map((line) => line.trim()).find(Boolean) || "";
+      if (found) return found;
+    }
+    return "";
+  }
+
   function shellCommandPath(command) {
     const name = commandNameOnly(command);
     if (!name) return "";
+    if (platform === "win32") return windowsCommandPath(name);
     const result = spawnSync("zsh", ["-lc", `command -v ${name}`], {
       encoding: "utf8",
       timeout: 1500,
@@ -100,34 +161,140 @@ function createLocalAgentEngineService(deps = {}) {
   }
 
   function resetCache() {
+    agentInventoryCache = { at: 0, value: null };
     agentEngineCache = { at: 0, value: null };
+  }
+
+  function firstCommandPath(commands) {
+    for (const command of commands) {
+      const found = shellCommandPath(command);
+      if (found) {
+        return {
+          command,
+          path: found,
+          version: commandVersion(found)
+        };
+      }
+    }
+    return { command: commands[0] || "", path: "", version: "" };
+  }
+
+  function miaHermesSource() {
+    const source = String(hermesSource() || "").trim();
+    if (source === "bundled") return "mia-bundled";
+    if (source === "managed") return "mia-managed";
+    if (source === "local-source" || source === "maintained-local-source") return "mia-managed";
+    return "";
+  }
+
+  function miaHermesUsable() {
+    const source = miaHermesSource();
+    return Boolean(source && isHermesInstalled());
+  }
+
+  function agentStatus(definition) {
+    const probe = firstCommandPath(definition.commands);
+    const systemAvailable = Boolean(probe.path);
+    const hermesRuntimeUsable = definition.id === "hermes" ? miaHermesUsable() : false;
+    const installed = Boolean(systemAvailable || hermesRuntimeUsable);
+    const usableInMia = definition.id === "hermes"
+      ? hermesRuntimeUsable
+      : Boolean(systemAvailable && !definition.detectionOnly);
+    const source = definition.id === "hermes" && hermesRuntimeUsable
+      ? miaHermesSource()
+      : systemAvailable
+        ? "system"
+        : "missing";
+    const health = usableInMia ? "ready" : installed ? "detected" : "missing";
+    return {
+      id: definition.id,
+      label: definition.label,
+      commands: definition.commands.slice(),
+      command: probe.command,
+      installed,
+      usableInMia,
+      installable: Boolean(definition.installable),
+      installAction: definition.id === "hermes" && !usableInMia ? "install-hermes" : "",
+      detectionOnly: Boolean(definition.detectionOnly),
+      path: probe.path,
+      version: probe.version,
+      source,
+      health,
+      system: {
+        available: systemAvailable,
+        path: probe.path,
+        version: probe.version
+      }
+    };
+  }
+
+  function agentInventory() {
+    const at = now();
+    if (agentInventoryCache.value && at - agentInventoryCache.at < cacheMs) return agentInventoryCache.value;
+    const agents = AGENT_DEFINITIONS.map(agentStatus);
+    const installedCount = agents.filter((agent) => agent.installed).length;
+    const usableCount = agents.filter((agent) => agent.usableInMia).length;
+    const value = {
+      generatedAt: at,
+      agents,
+      summary: {
+        installedCount,
+        usableCount,
+        missingCount: agents.length - installedCount,
+        hasUsableAgent: usableCount > 0,
+        recommendedAction: usableCount > 0 ? "continue" : "install-hermes"
+      }
+    };
+    agentInventoryCache = { at, value };
+    return value;
+  }
+
+  function inventoryAgent(id) {
+    return agentInventory().agents.find((agent) => agent.id === id) || null;
   }
 
   function localAgentEngines() {
     const at = now();
     if (agentEngineCache.value && at - agentEngineCache.at < cacheMs) return agentEngineCache.value;
-    const claudePath = shellCommandPath("claude");
-    const codexPath = shellCommandPath("codex");
+    const hermes = inventoryAgent("hermes") || {};
+    const claudeCode = inventoryAgent("claude-code") || {};
+    const codex = inventoryAgent("codex") || {};
+    const openClaw = inventoryAgent("openclaw") || {};
     const value = {
       hermes: {
         id: "hermes",
         label: "默认",
-        available: true,
-        system: { available: false, disabled: true }
+        available: Boolean(hermes.usableInMia),
+        installed: Boolean(hermes.installed),
+        path: hermes.path || "",
+        version: hermes.version || "",
+        source: hermes.source || "missing",
+        system: hermes.system || { available: false, path: "", version: "" }
       },
       claudeCode: {
         id: "claude-code",
         label: "Claude Code",
-        available: Boolean(claudePath),
-        path: claudePath,
-        version: commandVersion(claudePath)
+        available: Boolean(claudeCode.usableInMia),
+        installed: Boolean(claudeCode.installed),
+        path: claudeCode.path || "",
+        version: claudeCode.version || ""
       },
       codex: {
         id: "codex",
         label: "Codex",
-        available: Boolean(codexPath),
-        path: codexPath,
-        version: commandVersion(codexPath)
+        available: Boolean(codex.usableInMia),
+        installed: Boolean(codex.installed),
+        path: codex.path || "",
+        version: codex.version || ""
+      },
+      openClaw: {
+        id: "openclaw",
+        label: "OpenClaw",
+        available: Boolean(openClaw.usableInMia),
+        installed: Boolean(openClaw.installed),
+        path: openClaw.path || "",
+        version: openClaw.version || "",
+        detectionOnly: true
       }
     };
     agentEngineCache = { at, value };
@@ -135,6 +302,7 @@ function createLocalAgentEngineService(deps = {}) {
   }
 
   return {
+    agentInventory,
     cliPathEnv,
     cliPathSegments,
     commandNameOnly,
