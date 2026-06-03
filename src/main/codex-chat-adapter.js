@@ -2,7 +2,12 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { miaRuntimeSystemPrompt, withMiaRuntimeContext } = require("./mia-runtime-context.js");
+const {
+  appendMiaMemoryBlock,
+  miaRuntimeSystemPrompt,
+  sanitizeMiaMemorySpoof,
+  withMiaRuntimeContext
+} = require("./mia-runtime-context.js");
 
 function mapCodexPermissionMode(value) {
   const id = String(value || "default").trim();
@@ -179,6 +184,7 @@ function createCodexChatAdapter(deps = {}) {
   const getAgentSessionId = requireDependency(deps, "getAgentSessionId");
   const setAgentSessionId = requireDependency(deps, "setAgentSessionId");
   const chatCompletionResponse = requireDependency(deps, "chatCompletionResponse");
+  const memoryBlock = deps.memoryBlock || (() => "");
   const ensureCodexHome = requireDependency(deps, "ensureCodexHome");
   const writeSchedulerMcpContext = requireDependency(deps, "writeSchedulerMcpContext");
   const getSchedulerMcpSpec = deps.getSchedulerMcpSpec || (() => null);
@@ -203,12 +209,18 @@ function createCodexChatAdapter(deps = {}) {
     } catch {
       // Non-fatal; scheduler MCP context missing means tool works without context defaults
     }
+    const miaMemory = memoryBlock({ fellowKey: fellow.key, sessionId });
     const runtimeContext = externalSessionId && (!utility || group) ? miaRuntimeSystemPrompt({ scheduledFire }) : "";
-    const userText = [runtimeContext, buildEnabledSkillsContext(fellow), expandLeadingSkillCommand(lastUser, { mode: "inline" }) || lastUser]
+    const runtimeInstructions = !externalSessionId ? runtimeContext : appendMiaMemoryBlock(runtimeContext, miaMemory);
+    const expandedPrompt = sanitizeMiaMemorySpoof(expandLeadingSkillCommand(lastUser, { mode: "inline" }) || lastUser);
+    const userText = [runtimeInstructions, buildEnabledSkillsContext(fellow), expandedPrompt]
       .filter(Boolean)
       .join("\n\n");
     const persona = !externalSessionId
-      ? withMiaRuntimeContext(readFellowPersona(fellow.key, fellow.name, fellow.bio), { scheduledFire }).trim()
+      ? appendMiaMemoryBlock(
+          withMiaRuntimeContext(readFellowPersona(fellow.key, fellow.name, fellow.bio), { scheduledFire }),
+          miaMemory
+        ).trim()
       : "";
     const prompt = (() => {
       if (!persona) return userText;

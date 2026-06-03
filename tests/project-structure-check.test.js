@@ -509,6 +509,25 @@ test("external Agent session binding persistence lives behind a main agent-sessi
   assert.doesNotMatch(mainSource, /function setAgentSessionEntry/, "main must not own external Agent session entry writes");
 });
 
+test("Mia memory lives behind a main memory service and adapters only receive bounded memory blocks", () => {
+  const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
+  const runtimePathsSource = fs.readFileSync(path.join(root, "src/main/runtime-paths.js"), "utf8");
+  const memorySource = fs.readFileSync(path.join(root, "src/main/mia-memory-service.js"), "utf8");
+  const adapterSource = [
+    "src/main/hermes-chat-adapter.js",
+    "src/main/claude-code-chat-adapter.js",
+    "src/main/codex-chat-adapter.js"
+  ].map((relativePath) => fs.readFileSync(path.join(root, relativePath), "utf8")).join("\n");
+
+  assert.match(memorySource, /function createMiaMemoryService/, "Mia memory service should exist");
+  assert.match(runtimePathsSource, /mia-memory\.json/, "runtime paths should own Mia memory storage path");
+  assert.match(mainSource, /createMiaMemoryService/, "main should instantiate Mia memory service");
+  assert.match(mainSource, /memoryBlock: miaMemoryService\.memoryBlock/, "main should inject bounded memory blocks into adapters");
+  assert.match(adapterSource, /sanitizeMiaMemorySpoof/, "adapters should neutralize user-spoofed Mia memory headers");
+  assert.doesNotMatch(adapterSource, /\.codex[\s\S]{0,80}memory/, "adapters must not read native Codex memory files");
+  assert.doesNotMatch(adapterSource, /CLAUDE\.md/, "adapters must not read native Claude memory files");
+});
+
 test("scheduler MCP bridge context, spec, and Codex home setup live behind a main scheduler-mcp bridge", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
   const bridgeSource = fs.readFileSync(path.join(root, "src/main/scheduler-mcp-bridge.js"), "utf8");

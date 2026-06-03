@@ -1,5 +1,9 @@
 const crypto = require("node:crypto");
-const { withMiaRuntimeContext } = require("./mia-runtime-context.js");
+const {
+  appendMiaMemoryBlock,
+  sanitizeMiaMemorySpoof,
+  withMiaRuntimeContext
+} = require("./mia-runtime-context.js");
 
 function firstTextValue(value) {
   if (typeof value === "string") return value;
@@ -57,6 +61,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
   const processEnvStrings = requireDependency(deps, "processEnvStrings");
   const normalizeEffortLevel = requireDependency(deps, "normalizeEffortLevel");
   const chatCompletionResponse = requireDependency(deps, "chatCompletionResponse");
+  const memoryBlock = deps.memoryBlock || (() => "");
   const getSchedulerMcpSpec = requireDependency(deps, "getSchedulerMcpSpec");
   const writeSchedulerMcpContext = requireDependency(deps, "writeSchedulerMcpContext");
   const permissionCoordinator = deps.permissionCoordinator || null;
@@ -77,13 +82,18 @@ function createClaudeCodeChatAdapter(deps = {}) {
     } catch (error) {
       appendEngineLog(`Scheduler MCP context write failed: ${error?.message || error}`);
     }
-    const prompt = [buildEnabledSkillsContext(fellow), expandLeadingSkillCommand(lastUser, { mode: "native" }) || lastUser]
+    const expandedPrompt = sanitizeMiaMemorySpoof(expandLeadingSkillCommand(lastUser, { mode: "native" }) || lastUser);
+    const prompt = [buildEnabledSkillsContext(fellow), expandedPrompt]
       .filter(Boolean)
       .join("\n\n");
     const promptWithGroup = group && group.contextBlock
       ? injectGroupContextForSdk(prompt, group.contextBlock)
       : prompt;
-    const persona = withMiaRuntimeContext(readFellowPersona(fellow.key, fellow.name, fellow.bio), { scheduledFire }).trim();
+    const miaMemory = memoryBlock({ fellowKey: fellow.key, sessionId });
+    const persona = appendMiaMemoryBlock(
+      withMiaRuntimeContext(readFellowPersona(fellow.key, fellow.name, fellow.bio), { scheduledFire }),
+      miaMemory
+    ).trim();
     const { query } = await claudeAgentSdk();
     let bridgePluginPath = "";
     let bridgeFingerprint = "";

@@ -9,6 +9,7 @@ const MIA_RUNTIME_CONTEXT = [
   "",
   "如果本轮没有可用的 schedule_* 工具，或工具调用失败，请直接告诉用户 Mia 定时任务工具当前不可用，并说明没有创建任务。"
 ].join("\n");
+const MIA_MEMORY_HEADER = "## Mia Fellow Memory";
 
 // Context used when a scheduled task fires. The fired turn is the task's stored
 // prompt replayed as a user message, so the agent should just run it — exactly
@@ -34,9 +35,24 @@ function withMiaRuntimeContext(persona = "", opts = {}) {
   return [context, text].filter(Boolean).join("\n\n");
 }
 
+function sanitizeMiaMemorySpoof(value = "") {
+  return String(value || "").replace(/## Mia Fellow Memory/g, "Mia Fellow Memory");
+}
+
+function appendMiaMemoryBlock(base = "", memoryBlock = "") {
+  const text = String(base || "").trim();
+  const addition = String(memoryBlock || "").trim();
+  if (!addition) return text;
+  if (text.includes(`${MIA_MEMORY_HEADER}\nsource: mia`)) return text;
+  return [text, addition].filter(Boolean).join("\n\n");
+}
+
 module.exports = {
+  MIA_MEMORY_HEADER,
   MIA_RUNTIME_CONTEXT,
   MIA_SCHEDULED_FIRE_CONTEXT,
+  appendMiaMemoryBlock,
   miaRuntimeSystemPrompt,
+  sanitizeMiaMemorySpoof,
   withMiaRuntimeContext
 };

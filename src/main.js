@@ -28,6 +28,7 @@ const { requireFellow } = require("./main/fellow-registry.js");
 const { createClaudeCodeChatAdapter } = require("./main/claude-code-chat-adapter.js");
 const { createCodexChatAdapter } = require("./main/codex-chat-adapter.js");
 const { createHermesChatAdapter } = require("./main/hermes-chat-adapter.js");
+const { createMiaMemoryService } = require("./main/mia-memory-service.js");
 const { createRuntimeInitializerService } = require("./main/runtime-initializer-service.js");
 const { createRuntimeLifecycleService } = require("./main/runtime-lifecycle-service.js");
 const { createStartupTimer } = require("./main/startup-timing.js");
@@ -151,6 +152,7 @@ const {
 } = runtimePathsModule;
 
 let settingsStore = null;
+const miaMemoryService = createMiaMemoryService({ runtimePaths });
 const claudeBridgePluginService = createClaudeBridgePluginService({ runtimePaths });
 const enginePluginsService = createEnginePluginsService({ runtimePaths });
 const engineInstallService = createEngineInstallService({
@@ -1292,6 +1294,7 @@ function createActiveHermesChatAdapter() {
     normalizeError: hermesRunService.normalizeError,
     readRunEventStream: hermesRunService.readRunEventStream,
     responseModel: adapterForEngine("hermes").responseModel,
+    memoryBlock: miaMemoryService.memoryBlock,
     writeSchedulerMcpContext: schedulerMcpBridge.writeContext,
     appendEngineLog
   });
@@ -1309,6 +1312,7 @@ function createActiveClaudeCodeChatAdapter() {
     getSchedulerMcpSpec: schedulerMcpBridge.getSpec,
     injectGroupContextForSdk: _passthroughGroupContext,
     lastUserPrompt: hermesRunService.lastUserPrompt,
+    memoryBlock: miaMemoryService.memoryBlock,
     normalizeEffortLevel: settingsStore.normalizeEffortLevel,
     permissionCoordinator: agentPermissionCoordinator,
     processEnvStrings,
@@ -1331,6 +1335,7 @@ function createActiveCodexChatAdapter() {
     getSchedulerMcpSpec: schedulerMcpBridge.getSpec,
     injectGroupContextForSdk: _passthroughGroupContext,
     lastUserPrompt: hermesRunService.lastUserPrompt,
+    memoryBlock: miaMemoryService.memoryBlock,
     normalizeEffortLevel: settingsStore.normalizeEffortLevel,
     permissionCoordinator: agentPermissionCoordinator,
     processEnvStrings,

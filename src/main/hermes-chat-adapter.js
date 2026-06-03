@@ -1,5 +1,9 @@
 const crypto = require("node:crypto");
-const { miaRuntimeSystemPrompt } = require("./mia-runtime-context.js");
+const {
+  appendMiaMemoryBlock,
+  miaRuntimeSystemPrompt,
+  sanitizeMiaMemorySpoof
+} = require("./mia-runtime-context.js");
 
 function defaultNowSeconds() {
   return Math.floor(Date.now() / 1000);
@@ -34,6 +38,7 @@ function createHermesChatAdapter(deps = {}) {
   const randomUUID = deps.randomUUID || (() => crypto.randomUUID());
   const responseModel = deps.responseModel || "hermes-agent";
   const buildEnabledSkillsContext = deps.buildEnabledSkillsContext || (() => "");
+  const memoryBlock = deps.memoryBlock || (() => "");
   const runtimeSystemPrompt = deps.runtimeSystemPrompt || miaRuntimeSystemPrompt;
 
   function slashCommandResponse({ id, content }) {
@@ -96,10 +101,17 @@ function createHermesChatAdapter(deps = {}) {
             }
           : m))
       : messages;
+    const sanitizedMessages = skillMessages.map((message) => ({
+      ...message,
+      ...(typeof message?.content === "string" ? { content: sanitizeMiaMemorySpoof(message.content) } : {}),
+      ...(typeof message?.text === "string" ? { text: sanitizeMiaMemorySpoof(message.text) } : {})
+    }));
     const runtimeContext = String(runtimeSystemPrompt({ scheduledFire }) || "").trim();
-    const runMessages = runtimeContext
-      ? [{ role: "system", content: runtimeContext }, ...skillMessages]
-      : skillMessages;
+    const miaMemory = memoryBlock({ fellowKey: fellow.key, sessionId });
+    const systemContext = appendMiaMemoryBlock(runtimeContext, miaMemory);
+    const runMessages = systemContext
+      ? [{ role: "system", content: systemContext }, ...sanitizedMessages]
+      : sanitizedMessages;
     const runBody = buildRunPayload({
       fellow,
       sessionId,
