@@ -44,6 +44,9 @@ jobs:
       - name: Build Windows installer + Hermes win-x64 runtime
         run: npm run dist:win
 
+      - name: Smoke-test the bundled Hermes runtime on Windows
+        run: node scripts/smoke-win-runtime.js
+
       - name: Publish update feed to GitHub release
         run: node scripts/publish-win-update.js
         env:
