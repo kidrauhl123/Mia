@@ -242,3 +242,30 @@ test("agentInventory recommends Hermes install when no usable agent is detected"
   assert.equal(legacy.codex.available, false);
   assert.equal(legacy.openClaw.available, false);
 });
+
+test("agentInventory treats Mia local-source Hermes as usable managed runtime", (t) => {
+  const { service } = makeService(t, {
+    isHermesInstalled: () => true,
+    hermesSource: () => "local-source",
+    fs: {
+      accessSync: () => {
+        throw new Error("missing");
+      }
+    },
+    spawnSync: () => ({ status: 1, stdout: "", stderr: "" })
+  });
+
+  const inventory = service.agentInventory();
+  const hermes = inventory.agents.find((agent) => agent.id === "hermes");
+  const legacy = service.localAgentEngines();
+
+  assert.equal(hermes.installed, true);
+  assert.equal(hermes.usableInMia, true);
+  assert.equal(hermes.source, "mia-managed");
+  assert.equal(hermes.health, "ready");
+  assert.equal(inventory.summary.installedCount, 1);
+  assert.equal(inventory.summary.usableCount, 1);
+  assert.equal(inventory.summary.hasUsableAgent, true);
+  assert.equal(legacy.hermes.available, true);
+  assert.equal(legacy.hermes.source, "mia-managed");
+});

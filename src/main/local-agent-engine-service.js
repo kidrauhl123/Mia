@@ -183,6 +183,7 @@ function createLocalAgentEngineService(deps = {}) {
     const source = String(hermesSource() || "").trim();
     if (source === "bundled") return "mia-bundled";
     if (source === "managed") return "mia-managed";
+    if (source === "local-source" || source === "maintained-local-source") return "mia-managed";
     return "";
   }
 

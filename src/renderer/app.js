@@ -1530,7 +1530,7 @@ function legacyAgentStatus(id, legacy) {
 function hermesDetectionLine(runtime, hermes) {
   const source = hermes?.source || runtime?.engineSource;
   const usesBundled = source === "mia-bundled" || source === "bundled";
-  const usesManaged = source === "mia-managed" || source === "managed";
+  const usesManaged = ["mia-managed", "managed", "local-source", "maintained-local-source"].includes(source);
   const legacyInstalled = !hermes && Boolean(runtime?.engineInstalled);
   const usableInMia = hermes ? Boolean(hermes.usableInMia) : Boolean(usesBundled || usesManaged || legacyInstalled);
 

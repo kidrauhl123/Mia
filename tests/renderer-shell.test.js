@@ -99,6 +99,14 @@ test("engine detection renderer preserves legacy runtime status fallbacks", () =
   assert.equal(sandbox.els.engineRowHermes.textContent, "独立副本已安装");
 
   sandbox.renderEngineDetection({
+    engineSource: "local-source",
+    engineRunning: true,
+    agentEngines: {}
+  });
+
+  assert.equal(sandbox.els.engineRowHermes.textContent, "独立副本运行中");
+
+  sandbox.renderEngineDetection({
     engineInstalled: true,
     engineRunning: true,
     agentEngines: {}

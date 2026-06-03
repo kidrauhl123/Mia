@@ -89,16 +89,18 @@ function createEngineInstallService(deps = {}) {
 
   function isInstalled() {
     if (bundledPython() && bundledSitePackages()) return true;
-    const p = runtimePaths();
-    const sourceEntrypoint = path.join(p.engine, "hermes_cli", "main.py");
     const marker = readJson(engineMarkerPath(), {});
     if (marker?.source === "official-github-archive" || marker?.source === "official-python-package") {
       return fsImpl.existsSync(venvPythonPath());
     }
     if (marker?.source === "maintained-local-source") {
-      return fsImpl.existsSync(sourceEntrypoint);
+      return fsImpl.existsSync(localSourceEntrypoint());
     }
     return false;
+  }
+
+  function localSourceEntrypoint() {
+    return path.join(runtimePaths().engine, "hermes_cli", "main.py");
   }
 
   function enginePython() {
@@ -112,6 +114,8 @@ function createEngineInstallService(deps = {}) {
   function engineSource() {
     if (bundledPython() && bundledSitePackages()) return "bundled";
     if (fsImpl.existsSync(venvPythonPath())) return "managed";
+    const marker = readJson(engineMarkerPath(), {});
+    if (marker?.source === "maintained-local-source" && fsImpl.existsSync(localSourceEntrypoint())) return "local-source";
     return "none";
   }
 

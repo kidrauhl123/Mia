@@ -128,6 +128,13 @@ test("engine source and executable prefer bundled runtime, then managed venv, th
   assert.equal(managed.service.enginePython(), managed.service.venvPythonPath());
   assert.equal(managed.service.engineSource(), "managed");
 
+  const local = setup(t);
+  fs.mkdirSync(path.join(local.runtime.engine, "hermes_cli"), { recursive: true });
+  fs.writeFileSync(path.join(local.runtime.engine, "hermes_cli", "main.py"), "");
+  fs.writeFileSync(local.service.engineMarkerPath(), JSON.stringify({ source: "maintained-local-source" }));
+  assert.equal(local.service.enginePython(), "python3");
+  assert.equal(local.service.engineSource(), "local-source");
+
   const missing = setup(t);
   assert.equal(missing.service.enginePython(), "python3");
   assert.equal(missing.service.engineSource(), "none");
