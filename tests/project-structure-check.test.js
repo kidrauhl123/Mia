@@ -512,8 +512,13 @@ test("external Agent session binding persistence lives behind a main agent-sessi
 test("scheduler MCP bridge context, spec, and Codex home setup live behind a main scheduler-mcp bridge", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
   const bridgeSource = fs.readFileSync(path.join(root, "src/main/scheduler-mcp-bridge.js"), "utf8");
+  const profileSource = fs.readFileSync(path.join(root, "src/main/agent-runtime-profile-service.js"), "utf8");
 
   assert.match(bridgeSource, /function createSchedulerMcpBridge/, "scheduler MCP bridge should exist");
+  assert.match(profileSource, /function createAgentRuntimeProfileService/, "agent runtime profile service should exist");
+  assert.match(bridgeSource, /createAgentRuntimeProfileService/, "scheduler MCP bridge should delegate native Agent profile setup");
+  assert.match(profileSource, /CODEX_BLOCKED_STATE/, "profile service should own blocked native Codex state");
+  assert.doesNotMatch(bridgeSource, /SESSION_STATE_ENTRIES/, "scheduler MCP bridge must not own native Codex session exclusions");
   assert.match(mainSource, /createSchedulerMcpBridge/, "main should instantiate scheduler MCP bridge");
   assert.doesNotMatch(mainSource, /function resolveNodePath/, "main must not own node CLI discovery for scheduler MCP");
   assert.doesNotMatch(mainSource, /function schedulerMcpContextPath/, "main must not own scheduler MCP context path");

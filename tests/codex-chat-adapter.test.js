@@ -61,7 +61,7 @@ function createDeps(overrides = {}) {
       calls.push(["expand", text, options.mode]);
       return overrides.expandedPrompt ?? text;
     },
-    ensureCodexHome: () => overrides.codexHomePath ?? "",
+    ensureCodexHome: overrides.ensureCodexHome || (() => overrides.codexHomePath ?? "/runtime/codex-home"),
     getSchedulerMcpSpec: () => overrides.schedulerMcpSpec ?? null,
     getAgentSessionId: () => overrides.externalSessionId || "",
     injectGroupContextForSdk: (prompt, contextBlock) => `GROUP:${contextBlock}\n${prompt}`,
@@ -111,7 +111,7 @@ test("sendChat starts new thread with persona on first turn", async () => {
   });
 
   assert.deepEqual(deps.calls[0], ["expand", "hello", "inline"]);
-  assert.deepEqual(deps.calls[1], ["constructor", { codexPathOverride: "/bin/codex", env: { PATH: "/bin" } }]);
+  assert.deepEqual(deps.calls[1], ["constructor", { codexPathOverride: "/bin/codex", env: { PATH: "/bin", CODEX_HOME: "/runtime/codex-home" } }]);
   assert.equal(deps.calls[2][0], "startThread");
   assert.equal(deps.calls[2][1].workingDirectory, "/repo");
   assert.equal(deps.calls[2][1].modelReasoningEffort, "codex:high");
@@ -128,6 +128,22 @@ test("sendChat starts new thread with persona on first turn", async () => {
   ]);
   assert.equal(response.id, "thread_1");
   assert.equal(response.choices[0].message.content, "codex out");
+});
+
+test("sendChat fails closed when Mia Codex home cannot be created", async () => {
+  const deps = createDeps({
+    ensureCodexHome: () => { throw new Error("disk denied"); }
+  });
+  const adapter = createCodexChatAdapter(deps);
+
+  await assert.rejects(
+    () => adapter.sendChat({
+      fellow: { key: "alice", name: "Alice", bio: "" },
+      sessionId: "s1",
+      messages: [{ role: "user", content: "hi" }]
+    }),
+    /Mia Codex profile setup failed: disk denied/
+  );
 });
 
 test("sendChat resumes existing thread without persona injection", async () => {
@@ -199,6 +215,7 @@ test("sendChat surfaces generated image paths when Codex returns empty text", as
   const imageDir = path.join(codexHome, "generated_images", "thread_1");
   const imagePath = path.join(imageDir, "ig_generated.png");
   const deps = createDeps({
+    codexHomePath: codexHome,
     finalResponse: "",
     env: { PATH: "/bin", CODEX_HOME: codexHome },
     onRun: async () => {

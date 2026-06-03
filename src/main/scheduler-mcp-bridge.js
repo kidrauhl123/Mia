@@ -1,6 +1,7 @@
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { createAgentRuntimeProfileService } = require("./agent-runtime-profile-service.js");
 
 function toTomlStr(value) {
   return `"${String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
@@ -36,6 +37,11 @@ function createSchedulerMcpBridge(deps = {}) {
     ? deps.serverScriptPath
     : () => path.join(__dirname, "scheduler-mcp-server.js");
   const homeDir = typeof deps.homeDir === "function" ? deps.homeDir : () => os.homedir();
+  const runtimeProfileService = deps.runtimeProfileService || createAgentRuntimeProfileService({
+    runtimePaths,
+    fs: fsImpl,
+    homeDir
+  });
   let cachedNodePath = null;
 
   function resolveNodePath() {
@@ -113,50 +119,6 @@ function createSchedulerMcpBridge(deps = {}) {
     };
   }
 
-  // Conversation history must NOT be shared with the user's own Codex CLI:
-  // linking these makes every Fellow turn append to (and reload) the same
-  // sessions pool the user fills via their terminal, which bloats a single
-  // thread to hundreds of thousands of tokens — slow turns and "new session"
-  // timeouts while Codex scans a giant session_index. Mia tracks its own
-  // (engine, fellow, session) → thread id map in agent-session-store, so it
-  // never needs the shared sessions/history to resume. Auth, model cache and
-  // sqlite state are still linked so the user's existing login is reused.
-  const SESSION_STATE_ENTRIES = new Set([
-    "sessions",
-    "history.jsonl",
-    "session_index.jsonl"
-  ]);
-
-  function linkUserCodexState(userCodexHome, miaCodexHome) {
-    if (!fsImpl.existsSync(userCodexHome)) return;
-    let entries = [];
-    try { entries = fsImpl.readdirSync(userCodexHome); } catch { return; }
-    for (const name of entries) {
-      if (name === "config.toml") continue;
-      if (SESSION_STATE_ENTRIES.has(name)) continue;
-      const target = path.join(userCodexHome, name);
-      const link = path.join(miaCodexHome, name);
-      let existing = null;
-      try { existing = fsImpl.lstatSync(link); } catch { /* missing is fine */ }
-      if (existing) {
-        if (!existing.isSymbolicLink()) {
-          try { fsImpl.rmSync(link, { recursive: true, force: true }); }
-          catch { /* ignore stale cleanup failures */ }
-        } else {
-          continue;
-        }
-      }
-      try {
-        let stat = null;
-        try { stat = fsImpl.statSync(target); } catch { /* broken target, skip */ }
-        if (!stat) continue;
-        fsImpl.symlinkSync(target, link, stat.isDirectory() ? "dir" : "file");
-      } catch {
-        // Ignore individual symlink failures: partial Codex state is still useful.
-      }
-    }
-  }
-
   function schedulerTomlSection({ baseUrl, command, scriptPath }) {
     return [
       "",
@@ -173,18 +135,16 @@ function createSchedulerMcpBridge(deps = {}) {
   }
 
   function ensureCodexHome() {
+    const profile = runtimeProfileService.ensureCodexProfile();
+    const miaCodexHome = profile.home;
+    const userCodexHome = profile.userHome;
+
     const baseUrl = daemonBaseUrl();
-    if (!baseUrl) return "";
+    if (!baseUrl) return miaCodexHome;
     const scriptPath = materializeServerScript();
-    if (!scriptPath) return "";
+    if (!scriptPath) return miaCodexHome;
     const command = resolveNodePath();
-    if (!command) return "";
-
-    const miaCodexHome = path.join(runtimePaths().runtime, "codex-home");
-    fsImpl.mkdirSync(miaCodexHome, { recursive: true });
-
-    const userCodexHome = path.join(homeDir(), ".codex");
-    linkUserCodexState(userCodexHome, miaCodexHome);
+    if (!command) return miaCodexHome;
 
     let baseConfig = "";
     try {

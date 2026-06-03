@@ -228,12 +228,11 @@ function createCodexChatAdapter(deps = {}) {
     let codexHomePath = "";
     try {
       codexHomePath = ensureCodexHome();
-    } catch {
-      // Non-fatal; fall back to user's default CODEX_HOME
+    } catch (error) {
+      throw new Error(`Mia Codex profile setup failed: ${error?.message || error}`);
     }
-    const env = codexHomePath
-      ? { ...baseEnv, CODEX_HOME: codexHomePath }
-      : baseEnv;
+    if (!codexHomePath) throw new Error("Mia Codex profile setup failed: missing CODEX_HOME.");
+    const env = { ...baseEnv, CODEX_HOME: codexHomePath };
     const permission = mapCodexPermissionMode(fellow.engineConfig?.permissionMode || fellow.agentPermissionMode || "default");
     const effectivePermission = typeof emit === "function"
       ? permission
