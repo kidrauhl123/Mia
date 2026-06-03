@@ -15,11 +15,14 @@ function createDeps(overrides = {}) {
   const fetchCalls = [];
   const streamCalls = [];
   const schedulerContextWrites = [];
+  const miaAppContextWrites = [];
   const deps = {
     fetchCalls,
     streamCalls,
     schedulerContextWrites,
+    miaAppContextWrites,
     writeSchedulerMcpContext: (ctx) => { schedulerContextWrites.push(ctx); },
+    writeMiaAppMcpContext: (ctx) => { miaAppContextWrites.push(ctx); },
     apiKey: () => "secret",
     baseUrl: () => "http://hermes.test",
     buildGroupHeader: (contextBlock) => `group:${contextBlock}`,
@@ -161,6 +164,9 @@ test("sendChat writes scheduler MCP context for the current fellow/session", asy
     signal: null
   });
   assert.deepEqual(deps.schedulerContextWrites, [
+    { fellowId: "alice", sessionId: "s1", originMessageId: "m2" }
+  ]);
+  assert.deepEqual(deps.miaAppContextWrites, [
     { fellowId: "alice", sessionId: "s1", originMessageId: "m2" }
   ]);
 });

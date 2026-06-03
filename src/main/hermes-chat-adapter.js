@@ -32,6 +32,7 @@ function createHermesChatAdapter(deps = {}) {
   const normalizeError = requireDependency(deps, "normalizeError");
   const readRunEventStream = requireDependency(deps, "readRunEventStream");
   const writeSchedulerMcpContext = requireDependency(deps, "writeSchedulerMcpContext");
+  const writeMiaAppMcpContext = deps.writeMiaAppMcpContext || (() => {});
   const appendEngineLog = deps.appendEngineLog || (() => {});
   const fetchImpl = deps.fetch || fetch;
   const nowSeconds = deps.nowSeconds || defaultNowSeconds;
@@ -89,6 +90,11 @@ function createHermesChatAdapter(deps = {}) {
       writeSchedulerMcpContext({ fellowId: fellow.key, sessionId, originMessageId });
     } catch (error) {
       appendEngineLog(`Scheduler MCP context write failed: ${error?.message || error}`);
+    }
+    try {
+      writeMiaAppMcpContext({ fellowId: fellow.key, sessionId, originMessageId });
+    } catch (error) {
+      appendEngineLog(`Mia app MCP context write failed: ${error?.message || error}`);
     }
     // Inject the Fellow's enabled skills into the user turn so Hermes uses them.
     const enabledSkills = buildEnabledSkillsContext(fellow);

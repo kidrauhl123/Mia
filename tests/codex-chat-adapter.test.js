@@ -62,6 +62,7 @@ function createDeps(overrides = {}) {
       return overrides.expandedPrompt ?? text;
     },
     ensureCodexHome: overrides.ensureCodexHome || (() => overrides.codexHomePath ?? "/runtime/codex-home"),
+    getMiaAppMcpSpec: () => overrides.miaAppMcpSpec ?? null,
     getSchedulerMcpSpec: () => overrides.schedulerMcpSpec ?? null,
     getAgentSessionId: () => overrides.externalSessionId || "",
     injectGroupContextForSdk: (prompt, contextBlock) => `GROUP:${contextBlock}\n${prompt}`,
@@ -320,12 +321,17 @@ test("sendChat streams Codex agent message deltas when emit is provided", async 
 });
 
 test("sendChat uses Codex app-server runner for interactive approval-capable turns", async () => {
+  const miaAppMcpSpec = {
+    command: "/opt/node",
+    args: ["/tmp/mia-app.js"],
+    env: { MIA_DAEMON_URL: "http://127.0.0.1:27861", MIA_APP_CONTEXT_FILE: "/tmp/mia-app-context.json" }
+  };
   const schedulerMcpSpec = {
     command: "/opt/node",
     args: ["/tmp/mia-scheduler.js"],
     env: { MIA_DAEMON_URL: "http://127.0.0.1:27861" }
   };
-  const deps = createDeps({ expandedPrompt: "expanded", schedulerMcpSpec });
+  const deps = createDeps({ expandedPrompt: "expanded", miaAppMcpSpec, schedulerMcpSpec });
   const permissionCoordinator = { requestPermission: async () => ({ decision: "allow", scope: "once" }) };
   deps.permissionCoordinator = permissionCoordinator;
   deps.runCodexAppServerTurn = async (args) => {
@@ -351,7 +357,10 @@ test("sendChat uses Codex app-server runner for interactive approval-capable tur
   assert.equal(call.options.approvalPolicy, "untrusted");
   assert.equal(call.options.sandboxMode, "workspace-write");
   assert.equal(call.permissionCoordinator, permissionCoordinator);
-  assert.deepEqual(call.mcpServers, { "mia-scheduler": schedulerMcpSpec });
+  assert.deepEqual(call.mcpServers, {
+    "mia-app": miaAppMcpSpec,
+    "mia-scheduler": schedulerMcpSpec
+  });
   assert.equal(call.fellowKey, "alice");
   assert.equal(call.sessionId, "s1");
   assert.equal(response.id, "app_thread_1");

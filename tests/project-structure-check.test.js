@@ -528,6 +528,19 @@ test("Mia memory lives behind a main memory service and adapters only receive bo
   assert.doesNotMatch(adapterSource, /CLAUDE\.md/, "adapters must not read native Claude memory files");
 });
 
+test("Mia app MCP bridge and tool schema live behind main MCP services", () => {
+  const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
+  const bridgeSource = fs.readFileSync(path.join(root, "src/main/mia-app-mcp-bridge.js"), "utf8");
+  const serverSource = fs.readFileSync(path.join(root, "src/main/mia-app-mcp-server.js"), "utf8");
+
+  assert.match(bridgeSource, /function createMiaAppMcpBridge/, "Mia app MCP bridge should exist");
+  assert.match(serverSource, /function toolDefinitions/, "Mia app MCP server should own tool schemas");
+  assert.match(mainSource, /createMiaAppMcpBridge/, "main should instantiate Mia app MCP bridge");
+  assert.match(mainSource, /miaAppMcpBridge\.getSpec/, "main should inject Mia app MCP specs into adapters/config");
+  assert.doesNotMatch(mainSource, /function toolDefinitions/, "main must not own MCP tool schemas");
+  assert.doesNotMatch(mainSource, /conversation_create_group/, "main must not inline Mia app MCP tool definitions");
+});
+
 test("scheduler MCP bridge context, spec, and Codex home setup live behind a main scheduler-mcp bridge", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
   const bridgeSource = fs.readFileSync(path.join(root, "src/main/scheduler-mcp-bridge.js"), "utf8");

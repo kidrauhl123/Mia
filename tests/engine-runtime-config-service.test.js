@@ -116,6 +116,17 @@ test("writeRuntimeConfig writes the private Hermes config with auth, model, appr
 
 test("writeRuntimeConfig adds the mia-scheduler MCP server when a spec is available", (t) => {
   const { runtime, service } = setup(t, {
+    getMiaAppMcpSpec: () => ({
+      type: "stdio",
+      command: "/usr/local/bin/node",
+      args: ["/opt/mia/mia-app-mcp-server.js"],
+      env: {
+        MIA_DAEMON_URL: "http://127.0.0.1:8765",
+        MIA_DAEMON_TOKEN: "tok-123",
+        MIA_APP_CONTEXT_FILE: "/tmp/mia-app-ctx.json"
+      },
+      alwaysLoad: true
+    }),
     getSchedulerMcpSpec: () => ({
       type: "stdio",
       command: "/usr/local/bin/node",
@@ -133,6 +144,15 @@ test("writeRuntimeConfig adds the mia-scheduler MCP server when a spec is availa
 
   const config = fs.readFileSync(path.join(runtime.home, "config.yaml"), "utf8");
   const parsed = yaml.load(config);
+  assert.deepEqual(parsed.mcp_servers["mia-app"], {
+    command: "/usr/local/bin/node",
+    args: ["/opt/mia/mia-app-mcp-server.js"],
+    env: {
+      MIA_DAEMON_URL: "http://127.0.0.1:8765",
+      MIA_DAEMON_TOKEN: "tok-123",
+      MIA_APP_CONTEXT_FILE: "/tmp/mia-app-ctx.json"
+    }
+  });
   assert.deepEqual(parsed.mcp_servers["mia-scheduler"], {
     command: "/usr/local/bin/node",
     args: ["/opt/mia/scheduler-mcp-server.js"],
@@ -143,6 +163,8 @@ test("writeRuntimeConfig adds the mia-scheduler MCP server when a spec is availa
     }
   });
   // The SDK-only keys are not carried into the Hermes config.
+  assert.ok(!("type" in parsed.mcp_servers["mia-app"]));
+  assert.ok(!("alwaysLoad" in parsed.mcp_servers["mia-app"]));
   assert.ok(!("type" in parsed.mcp_servers["mia-scheduler"]));
   assert.ok(!("alwaysLoad" in parsed.mcp_servers["mia-scheduler"]));
 });

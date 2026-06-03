@@ -62,6 +62,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
   const normalizeEffortLevel = requireDependency(deps, "normalizeEffortLevel");
   const chatCompletionResponse = requireDependency(deps, "chatCompletionResponse");
   const memoryBlock = deps.memoryBlock || (() => "");
+  const getMiaAppMcpSpec = deps.getMiaAppMcpSpec || (() => null);
   const getSchedulerMcpSpec = requireDependency(deps, "getSchedulerMcpSpec");
   const writeSchedulerMcpContext = requireDependency(deps, "writeSchedulerMcpContext");
   const permissionCoordinator = deps.permissionCoordinator || null;
@@ -111,6 +112,13 @@ function createClaudeCodeChatAdapter(deps = {}) {
     const schedulerMcpSpec = (() => {
       try { return getSchedulerMcpSpec(); } catch { return null; }
     })();
+    const miaAppMcpSpec = (() => {
+      try { return getMiaAppMcpSpec({ fellowId: fellow.key, sessionId, originMessageId }); } catch { return null; }
+    })();
+    const mcpServers = {
+      ...(miaAppMcpSpec ? { "mia-app": miaAppMcpSpec } : {}),
+      ...(schedulerMcpSpec ? { "mia-scheduler": schedulerMcpSpec } : {})
+    };
     const options = {
       abortController,
       cwd: cwd(),
@@ -126,7 +134,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
       },
       includePartialMessages: Boolean(emit),
       ...(bridgePluginPath ? { plugins: [{ type: "local", path: bridgePluginPath }], skills: "all" } : {}),
-      ...(schedulerMcpSpec ? { mcpServers: { "mia-scheduler": schedulerMcpSpec } } : {})
+      ...(Object.keys(mcpServers).length ? { mcpServers } : {})
     };
     if (externalSessionId) options.resume = externalSessionId;
     if (fellow.engineConfig?.model) options.model = String(fellow.engineConfig.model);

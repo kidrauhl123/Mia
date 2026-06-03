@@ -45,6 +45,7 @@ const { createScheduler, sweepMissedCronTasks } = require("./main/scheduler.js")
 const { createFireRunner } = require("./main/scheduler-fire.js");
 const { createTasksEventBus } = require("./main/tasks-events.js");
 const { createTasksRoutes } = require("./main/tasks-routes.js");
+const { createMiaAppMcpBridge } = require("./main/mia-app-mcp-bridge.js");
 const { createSocialApi } = require("./main/social/social-api.js");
 const { registerSocialIpc } = require("./main/social/social-ipc.js");
 const { openConversationMessageCache } = require("./main/social/conversation-message-cache.js");
@@ -199,6 +200,7 @@ const engineRuntimeConfigService = createEngineRuntimeConfigService({
   // Lazy: schedulerMcpBridge is created later in this module; the thunk is
   // only invoked at writeRuntimeConfig time (runtime), by which point it
   // exists. Lets the Hermes config.yaml carry the mia-scheduler MCP.
+  getMiaAppMcpSpec: () => miaAppMcpBridge.getSpec(),
   getSchedulerMcpSpec: () => schedulerMcpBridge.getSpec()
 });
 const {
@@ -455,6 +457,14 @@ const schedulerMcpBridge = createSchedulerMcpBridge({
   nodePath: () => localAgentEngineService.shellCommandPath("node"),
   serverScriptPath: () => path.join(__dirname, "main", "scheduler-mcp-server.js"),
   homeDir: () => os.homedir()
+});
+const miaAppMcpBridge = createMiaAppMcpBridge({
+  runtimePaths,
+  daemonStatus: () => daemonControlServer?.status() || {},
+  daemonSettings: () => settingsStore.daemonSettings(),
+  daemonToken,
+  nodePath: () => localAgentEngineService.shellCommandPath("node"),
+  serverScriptPath: () => path.join(__dirname, "main", "mia-app-mcp-server.js")
 });
 
 function readJson(filePath, fallback) {
@@ -1296,6 +1306,7 @@ function createActiveHermesChatAdapter() {
     responseModel: adapterForEngine("hermes").responseModel,
     memoryBlock: miaMemoryService.memoryBlock,
     writeSchedulerMcpContext: schedulerMcpBridge.writeContext,
+    writeMiaAppMcpContext: miaAppMcpBridge.writeContext,
     appendEngineLog
   });
 }
@@ -1309,6 +1320,7 @@ function createActiveClaudeCodeChatAdapter() {
     expandLeadingSkillCommand: skillsLoader.expandLeadingSkillCommand,
     buildEnabledSkillsContext: skillsLoader.buildEnabledSkillsContext,
     getAgentSessionEntry: agentSessionStore.getEntry,
+    getMiaAppMcpSpec: miaAppMcpBridge.getSpec,
     getSchedulerMcpSpec: schedulerMcpBridge.getSpec,
     injectGroupContextForSdk: _passthroughGroupContext,
     lastUserPrompt: hermesRunService.lastUserPrompt,
@@ -1332,6 +1344,7 @@ function createActiveCodexChatAdapter() {
     ensureCodexHome: schedulerMcpBridge.ensureCodexHome,
     expandLeadingSkillCommand: skillsLoader.expandLeadingSkillCommand,
     getAgentSessionId: agentSessionStore.getId,
+    getMiaAppMcpSpec: miaAppMcpBridge.getSpec,
     getSchedulerMcpSpec: schedulerMcpBridge.getSpec,
     injectGroupContextForSdk: _passthroughGroupContext,
     lastUserPrompt: hermesRunService.lastUserPrompt,

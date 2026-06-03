@@ -187,6 +187,7 @@ function createCodexChatAdapter(deps = {}) {
   const memoryBlock = deps.memoryBlock || (() => "");
   const ensureCodexHome = requireDependency(deps, "ensureCodexHome");
   const writeSchedulerMcpContext = requireDependency(deps, "writeSchedulerMcpContext");
+  const getMiaAppMcpSpec = deps.getMiaAppMcpSpec || (() => null);
   const getSchedulerMcpSpec = deps.getSchedulerMcpSpec || (() => null);
   const runCodexAppServerTurn = deps.runCodexAppServerTurn || null;
   const permissionCoordinator = deps.permissionCoordinator || null;
@@ -252,6 +253,13 @@ function createCodexChatAdapter(deps = {}) {
     const schedulerMcpSpec = (() => {
       try { return getSchedulerMcpSpec(); } catch { return null; }
     })();
+    const miaAppMcpSpec = (() => {
+      try { return getMiaAppMcpSpec({ fellowId: fellow.key, sessionId, originMessageId }); } catch { return null; }
+    })();
+    const mcpServers = {
+      ...(miaAppMcpSpec ? { "mia-app": miaAppMcpSpec } : {}),
+      ...(schedulerMcpSpec ? { "mia-scheduler": schedulerMcpSpec } : {})
+    };
     const threadOptions = {
       workingDirectory: cwd(),
       skipGitRepoCheck: true,
@@ -276,7 +284,7 @@ function createCodexChatAdapter(deps = {}) {
         permissionCoordinator,
         fellowKey: fellow.key,
         sessionId,
-        mcpServers: schedulerMcpSpec ? { "mia-scheduler": schedulerMcpSpec } : {},
+        mcpServers,
         appendLog: appendEngineLog
       });
       capturedSessionId = externalSessionId || turn?.threadId || "";

@@ -30,6 +30,7 @@ function createDeps(messages, overrides = {}) {
       return overrides.expandedPrompt ?? text;
     },
     getAgentSessionEntry: () => overrides.savedEntry || {},
+    getMiaAppMcpSpec: () => overrides.miaAppMcpSpec ?? null,
     getSchedulerMcpSpec: () => overrides.schedulerMcpSpec ?? null,
     injectGroupContextForSdk: (prompt, contextBlock) => `GROUP:${contextBlock}\n${prompt}`,
     lastUserPrompt: overrides.lastUserPrompt || (() => "hello"),
@@ -115,6 +116,41 @@ test("sendChat resumes only when bridge fingerprint matches", async () => {
   });
   const queryCall = deps.calls.find((call) => call[0] === "query")[1];
   assert.equal(queryCall.options.resume, "old_session");
+});
+
+test("sendChat exposes mia-app MCP while preserving scheduler compatibility", async () => {
+  const schedulerMcpSpec = {
+    type: "stdio",
+    command: "/opt/node",
+    args: ["/tmp/mia-scheduler.js"],
+    env: { MIA_DAEMON_URL: "http://127.0.0.1:27861" }
+  };
+  const miaAppMcpSpec = {
+    type: "stdio",
+    command: "/opt/node",
+    args: ["/tmp/mia-app.js"],
+    env: { MIA_DAEMON_URL: "http://127.0.0.1:27861", MIA_APP_CONTEXT_FILE: "/tmp/mia-app-context.json" }
+  };
+  const deps = createDeps([
+    { type: "assistant", message: { content: [{ text: "ok" }] } }
+  ], { schedulerMcpSpec, miaAppMcpSpec });
+  const adapter = createClaudeCodeChatAdapter(deps);
+
+  await adapter.sendChat({
+    fellow: { key: "alice", name: "Alice", bio: "" },
+    sessionId: "s1",
+    messages: [{ role: "user", content: "hello" }],
+    signal: null,
+    abortController: {},
+    emit: null,
+    utility: false
+  });
+
+  const queryCall = deps.calls.find((call) => call[0] === "query")[1];
+  assert.deepEqual(queryCall.options.mcpServers, {
+    "mia-app": miaAppMcpSpec,
+    "mia-scheduler": schedulerMcpSpec
+  });
 });
 
 test("sendChat can persist native sessions for utility turns", async () => {
