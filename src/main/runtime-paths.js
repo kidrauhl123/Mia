@@ -1,7 +1,7 @@
 // Runtime paths (main process)
 // Extracted from src/main.js. Owns the layout of the on-disk runtime
-// directory under app.getPath("userData") — every JSON file path, every
-// runtime subdirectory, and the bundled Hermes Python runtime lookup.
+// directory under MIA_HOME/app.getPath("userData") — every JSON file path,
+// every runtime subdirectory, and the bundled Hermes Python runtime lookup.
 //
 // CommonJS factory pattern: createRuntimePaths({...deps}) returns the
 // runtimePaths() function + the small bundled-runtime helpers. Engine
@@ -15,13 +15,15 @@ function createRuntimePaths(deps = {}) {
     runtimeResources,
     MIA_GATEWAY_SERVICE_LABEL,
     MIA_DAEMON_SERVICE_LABEL,
+    env = process.env,
   } = deps;
 
   function runtimePaths() {
-    const root = app.getPath("userData");
-    const runtime = path.join(root, "runtime");
+    const configuredHome = String(env.MIA_HOME || "").trim();
+    const home = configuredHome ? path.resolve(configuredHome) : path.join(app.getPath("userData"), "runtime", "engine-home");
+    const runtime = path.dirname(home);
+    const root = path.dirname(runtime);
     const engine = path.join(runtime, "hermes-engine");
-    const home = path.join(runtime, "engine-home");
     const pluginsDir = path.join(runtime, "mia-plugins");
     return {
       root,

@@ -2,8 +2,10 @@ const { BrowserWindow, Menu } = require("electron");
 const { IpcChannel } = require("../../shared/ipc-channels");
 
 function registerWindowIpc({ ipcMain, startupTimer, runtimeLifecycle }) {
-  ipcMain.on(IpcChannel.UiFirstPaint, () => {
+  ipcMain.on(IpcChannel.UiFirstPaint, (event) => {
     startupTimer.mark("renderer:first-paint");
+    const w = BrowserWindow.fromWebContents(event.sender);
+    if (w && typeof w.miaShowWhenReady === "function") w.miaShowWhenReady();
     runtimeLifecycle().scheduleBackgroundStartup();
   });
 

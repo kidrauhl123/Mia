@@ -665,6 +665,20 @@ test("runtime initializer does not eagerly read provider defaults before provide
   );
 });
 
+test("foreground window stays hidden until the renderer is ready to avoid startup blanking", () => {
+  const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
+  const createWindowSource = mainSource.match(/function createWindow\(\) \{[\s\S]*?\n\}/)?.[0] || "";
+
+  assert.match(createWindowSource, /show:\s*false/, "BrowserWindow should not show before renderer first paint");
+  assert.match(createWindowSource, /backgroundColor:\s*"#[0-9A-Fa-f]{6}"/, "window should have a non-white startup background");
+  assert.match(createWindowSource, /const showWhenReady = \(\) => \{[\s\S]*?win\.show\(\)/, "window should show through a single guarded helper");
+  assert.match(createWindowSource, /win\.miaShowWhenReady = showWhenReady/, "window IPC should be able to reveal the window on renderer first paint");
+  assert.match(createWindowSource, /win\.once\("ready-to-show", showWhenReady\)/, "window should show when Electron reports a first paint");
+
+  const windowIpcSource = fs.readFileSync(path.join(root, "src/main/ipc/window-ipc.js"), "utf8");
+  assert.match(windowIpcSource, /IpcChannel\.UiFirstPaint[\s\S]*?miaShowWhenReady\(\)/, "renderer first paint IPC should reveal the real window immediately");
+});
+
 test("daemon HTTP control server lives behind a main daemon Module", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
   const controlSource = fs.readFileSync(path.join(root, "src/main/daemon/control-server.js"), "utf8");

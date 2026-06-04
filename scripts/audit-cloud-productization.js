@@ -2,8 +2,10 @@
 "use strict";
 
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const childProcess = require("node:child_process");
+const AdmZip = require("adm-zip");
 const asar = require("@electron/asar");
 const {
   evaluateHealth,
@@ -148,18 +150,58 @@ function extractAsarText(archivePath, filePath) {
   }
 }
 
+function resolvePackagedAppAsar(rootDir) {
+  const unpackedPath = path.join(rootDir, "release", "mac-arm64", "Mia.app", "Contents", "Resources", "app.asar");
+  if (fs.existsSync(unpackedPath)) {
+    return {
+      archivePath: unpackedPath,
+      label: "release/mac-arm64/Mia.app/Contents/Resources/app.asar",
+      cleanup: () => {}
+    };
+  }
+
+  let pkg = {};
+  try {
+    pkg = JSON.parse(fs.readFileSync(path.join(rootDir, "package.json"), "utf8"));
+  } catch {
+    pkg = {};
+  }
+  const productName = pkg.productName || "Mia";
+  const version = pkg.version || "0.0.0";
+  const zipName = `${productName}-${version}-arm64-mac.zip`;
+  const zipPath = path.join(rootDir, "release", zipName);
+  if (!fs.existsSync(zipPath)) return null;
+
+  try {
+    const zip = new AdmZip(zipPath);
+    const entryName = `${productName}.app/Contents/Resources/app.asar`;
+    const entry = zip.getEntry(entryName);
+    if (!entry) return null;
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-packaged-asar-"));
+    const archivePath = path.join(tempDir, "app.asar");
+    fs.writeFileSync(archivePath, entry.getData());
+    return {
+      archivePath,
+      label: `release/${zipName}::${entryName}`,
+      cleanup: () => fs.rmSync(tempDir, { recursive: true, force: true })
+    };
+  } catch {
+    return null;
+  }
+}
+
 function checkPackagedDesktopPermissionGate(rootDir) {
-  const archivePath = path.join(rootDir, "release", "mac-arm64", "Mia.app", "Contents", "Resources", "app.asar");
-  if (!fs.existsSync(archivePath)) {
+  const packagedAsar = resolvePackagedAppAsar(rootDir);
+  if (!packagedAsar) {
     return {
       ok: false,
       label: "packaged same-account bridge policy",
-      evidence: "release/mac-arm64/Mia.app/Contents/Resources/app.asar missing"
+      evidence: "packaged app.asar missing from release/mac-arm64 or current mac zip"
     };
   }
   try {
-    const mainSource = extractAsarText(archivePath, "src/main.js");
-    const bridgeClientSource = extractAsarText(archivePath, "src/main/cloud/cloud-bridge-client.js");
+    const mainSource = extractAsarText(packagedAsar.archivePath, "src/main.js");
+    const bridgeClientSource = extractAsarText(packagedAsar.archivePath, "src/main/cloud/cloud-bridge-client.js");
     const bridgeSource = runCloudBridgeRequestSource(bridgeClientSource || mainSource);
     const hasBridgeEntrypoint = /startCloudBridge/.test(mainSource)
       && (/createCloudBridgeClient/.test(mainSource) || /async function runCloudBridgeRequest/.test(mainSource));
@@ -175,8 +217,8 @@ function checkPackagedDesktopPermissionGate(rootDir) {
       ok: required.every(Boolean),
       label: "packaged same-account bridge policy",
       evidence: required.every(Boolean)
-        ? "packaged Mia.app connects Cloud bridge with account-authenticated WebSocket and starts the local Agent without a separate remote-connection approval gate"
-        : "packaged Mia.app is missing current same-account bridge auth/startup policy or still contains a local remote-connection approval gate"
+        ? `packaged Mia.app (${packagedAsar.label}) connects Cloud bridge with account-authenticated WebSocket and starts the local Agent without a separate remote-connection approval gate`
+        : `packaged Mia.app (${packagedAsar.label}) is missing current same-account bridge auth/startup policy or still contains a local remote-connection approval gate`
     };
   } catch (error) {
     return {
@@ -184,6 +226,8 @@ function checkPackagedDesktopPermissionGate(rootDir) {
       label: "packaged same-account bridge policy",
       evidence: error?.message || String(error)
     };
+  } finally {
+    packagedAsar.cleanup();
   }
 }
 

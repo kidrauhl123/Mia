@@ -1,4 +1,6 @@
 const assert = require("node:assert/strict");
+const AdmZip = require("adm-zip");
+const asar = require("@electron/asar");
 const childProcess = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
@@ -67,6 +69,40 @@ test("packaged desktop audit verifies the current same-account bridge policy is 
   assert.equal(check.ok, true, check.evidence);
   assert.equal(check.label, "packaged same-account bridge policy");
   assert.match(check.evidence, /without a separate remote-connection approval gate/);
+});
+
+test("packaged desktop audit can read the final mac zip without requiring unpacked dir output", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-packaged-zip-audit-"));
+  try {
+    const sourceDir = path.join(tempDir, "asar-source");
+    const asarPath = path.join(tempDir, "app.asar");
+    fs.mkdirSync(path.join(sourceDir, "src/main/cloud"), { recursive: true });
+    fs.writeFileSync(path.join(tempDir, "package.json"), JSON.stringify({ productName: "Mia", version: "9.9.9" }));
+    fs.writeFileSync(path.join(sourceDir, "src/main.js"), [
+      "const MIA_ALLOW_MULTIPLE_INSTANCES = true;",
+      "const cloudWebSocketProtocols = [];",
+      "function startCloudBridge() { return createCloudBridgeClient(); }",
+      "function createCloudBridgeClient() { return {}; }",
+    ].join("\n"));
+    fs.writeFileSync(path.join(sourceDir, "src/main/cloud/cloud-bridge-client.js"), [
+      "async function runCloudBridgeRequest(ws, message = {}) {",
+      "  return { permissionMode: \"default\" };",
+      "}",
+    ].join("\n"));
+    await asar.createPackage(sourceDir, asarPath);
+
+    const releaseDir = path.join(tempDir, "release");
+    fs.mkdirSync(releaseDir, { recursive: true });
+    const zip = new AdmZip();
+    zip.addLocalFile(asarPath, "Mia.app/Contents/Resources");
+    zip.writeZip(path.join(releaseDir, "Mia-9.9.9-arm64-mac.zip"));
+
+    const check = checkPackagedDesktopPermissionGate(tempDir);
+    assert.equal(check.ok, true, check.evidence);
+    assert.match(check.evidence, /Mia-9\.9\.9-arm64-mac\.zip/);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
 });
 
 test("release archive checksum audit rejects stale sidecars", () => {

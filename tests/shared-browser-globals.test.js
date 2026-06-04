@@ -17,6 +17,7 @@ const SHARED_MODULES = [
   { file: "packages/shared/send-pipeline.js", global: "miaSendPipeline" },
   { file: "packages/shared/cloud-client.js", global: "miaCloudClient" },
   { file: "packages/shared/group-tiles.js", global: "miaGroupTiles" },
+  { file: "packages/shared/self-identity.js", global: "miaSelfIdentity" },
   { file: "packages/shared/avatar.js", global: "miaAvatarMedia" },
   { file: "packages/shared/avatar.js", global: "miaAvatarResolve" },
   { file: "packages/shared/avatar.js", global: "miaMemberColor" },
@@ -64,6 +65,10 @@ test("renderer/index.html loads every shared module via <script>", () => {
   assert.ok(
     html.includes("../../packages/shared/send-pipeline.js"),
     "renderer/index.html missing <script src=\"../../packages/shared/send-pipeline.js\">"
+  );
+  assert.ok(
+    html.includes("../../packages/shared/self-identity.js"),
+    "renderer/index.html missing <script src=\"../../packages/shared/self-identity.js\">"
   );
   assert.ok(
     html.includes("../../packages/shared/unread.js"),

@@ -88,19 +88,25 @@ const { registerTasksIpc } = require("./main/ipc/tasks-ipc.js");
 // (cloud/desktop-sync helpers removed in Phase 4 cutover — fellow chats
 //  now sync via conversations+messages, no need for the workspace-shape mappers.)
 
-app.setName("Mia");
-const isolatedUserDataDir = String(process.env.MIA_USER_DATA_DIR || "").trim();
-if (isolatedUserDataDir) {
-  app.setPath("userData", path.resolve(isolatedUserDataDir));
-}
-const startupTimer = createStartupTimer({ scope: "startup" });
-
 const MIA_GATEWAY_SERVICE_LABEL = "ai.mia.hermes.gateway";
 const MIA_DAEMON_SERVICE_LABEL = "ai.mia.daemon";
 const MIA_DAEMON_DEFAULT_PORT = Number(process.env.MIA_DAEMON_PORT || 27861);
 const MIA_CLOUD_DEFAULT_URL = process.env.MIA_CLOUD_URL || "https://aiweb.buytb01.com";
 const IS_DAEMON_PROCESS = process.argv.includes("--daemon") || process.env.MIA_DAEMON === "1";
 const ALLOW_MULTIPLE_INSTANCES = process.env.MIA_ALLOW_MULTIPLE_INSTANCES === "1";
+
+app.setName("Mia");
+const defaultUserDataDir = app.getPath("userData");
+const isolatedUserDataDir = String(process.env.MIA_USER_DATA_DIR || "").trim();
+if (IS_DAEMON_PROCESS && !String(process.env.MIA_HOME || "").trim()) {
+  process.env.MIA_HOME = path.join(defaultUserDataDir, "runtime", "engine-home");
+}
+if (isolatedUserDataDir) {
+  app.setPath("userData", path.resolve(isolatedUserDataDir));
+} else if (IS_DAEMON_PROCESS) {
+  app.setPath("userData", path.join(defaultUserDataDir, "daemon-profile"));
+}
+const startupTimer = createStartupTimer({ scope: "startup" });
 
 function localDeviceName() {
   const hostname = String(os.hostname() || "").trim();
@@ -142,6 +148,7 @@ const runtimePathsModule = createRuntimePaths({
   runtimeResources,
   MIA_GATEWAY_SERVICE_LABEL,
   MIA_DAEMON_SERVICE_LABEL,
+  env: process.env,
 });
 const {
   runtimePaths,
@@ -1557,6 +1564,8 @@ function createWindow() {
     minHeight: minWindowHeight,
     title: "Mia",
     titleBarStyle: "hidden",
+    show: false,
+    backgroundColor: "#f0f0f3",
     acceptFirstMouse: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -1577,7 +1586,19 @@ function createWindow() {
   win.on("blur", () => sendWindowEvent(IpcChannel.WindowFocusState, false));
   win.on("enter-full-screen", () => sendWindowEvent(IpcChannel.WindowFullscreen, true));
   win.on("leave-full-screen", () => sendWindowEvent(IpcChannel.WindowFullscreen, false));
-  win.webContents.once("did-finish-load", () => startupTimer.mark("renderer:did-finish-load"));
+  let windowShown = false;
+  const showWhenReady = () => {
+    if (windowShown || win.isDestroyed()) return;
+    windowShown = true;
+    win.show();
+    startupTimer.mark("window:shown");
+  };
+  win.miaShowWhenReady = showWhenReady;
+  win.once("ready-to-show", showWhenReady);
+  win.webContents.once("did-finish-load", () => {
+    startupTimer.mark("renderer:did-finish-load");
+    showWhenReady();
+  });
   win.loadFile(path.join(__dirname, "renderer", "index.html"), compactOnboarding ? { query: { mode: "agent-setup" } } : {});
   startupTimer.mark("window:load-file");
   return win;

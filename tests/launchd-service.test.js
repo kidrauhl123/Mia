@@ -77,11 +77,15 @@ test("daemon launch agent uses the app executable and daemon environment", (t) =
   const { runtime, service } = setup(t, { defaultApp: () => true });
 
   const args = service.daemonProgramArguments();
+  const daemonEnv = service.daemonEnvironment();
   const plist = service.daemonLaunchAgentPlist();
 
   assert.deepEqual(args, ["/Applications/Mia.app/Contents/MacOS/Mia", service.appPath(), "--daemon"]);
+  assert.equal(daemonEnv.MIA_HOME, runtime.home);
+  assert.equal(daemonEnv.MIA_USER_DATA_DIR, path.join(path.dirname(path.dirname(runtime.home)), "daemon-profile"));
   assert.match(plist, /<string>ai\.mia\.daemon<\/string>/);
   assert.match(plist, /<key>MIA_DAEMON<\/key>\n      <string>1<\/string>/);
+  assert.match(plist, /<key>MIA_USER_DATA_DIR<\/key>/);
   assert.match(plist, /<key>PATH<\/key>\n      <string>\/usr\/local\/bin:\/usr\/bin<\/string>/);
   assert.match(plist, new RegExp(`<string>${runtime.logsDir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/daemon\\.error\\.log</string>`));
 });

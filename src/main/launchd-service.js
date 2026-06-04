@@ -157,6 +157,7 @@ function createLaunchdService(deps = {}) {
     const p = runtimePaths();
     return {
       MIA_DAEMON: "1",
+      MIA_USER_DATA_DIR: path.join(p.root || path.dirname(path.dirname(p.home)), "daemon-profile"),
       HERMES_HOME: effectiveHermesHome(),
       MIA_HOME: p.home,
       HERMES_LANGUAGE: env.HERMES_LANGUAGE || "zh",
