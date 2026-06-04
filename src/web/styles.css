@@ -2733,12 +2733,29 @@ p {
 
 .runtime-card.mobile-pairing-card {
   display: grid;
-  gap: 18px;
+  gap: 0;
+  overflow: hidden;
+  border-radius: 14px;
+  background: var(--surface);
 }
 
 .connection-row {
+  position: relative;
   display: grid;
   gap: 10px;
+  padding: 16px 22px;
+  background: var(--surface);
+}
+
+.connection-row:not(:last-of-type)::after {
+  content: "";
+  position: absolute;
+  right: 22px;
+  bottom: 0;
+  left: 22px;
+  height: 1px;
+  background: var(--line);
+  pointer-events: none;
 }
 
 .connection-row-head {
@@ -3078,7 +3095,7 @@ p {
 }
 
 .settings-section-label {
-  margin: 14px 2px 6px;
+  margin: 16px 4px 8px;
   color: var(--faint);
   font-size: 11px;
   font-weight: 400;
@@ -3086,28 +3103,41 @@ p {
 }
 
 .settings-row {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(170px, 1fr) minmax(160px, 280px);
   align-items: center;
-  gap: 16px;
-  min-height: 56px;
-  padding: 8px 16px;
-  border-right: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
-  border-left: 1px solid var(--line);
+  gap: 18px;
+  min-height: 66px;
+  padding: 12px 22px;
+  border: 0;
   background: var(--surface);
 }
 
 .settings-row:first-of-type,
 .settings-row.settings-group-start {
-  border-top: 1px solid var(--line);
-  border-radius: 12px 12px 0 0;
+  border-radius: 14px 14px 0 0;
 }
 
 .settings-row:last-of-type,
 .settings-row.settings-group-end {
-  border-bottom: 1px solid var(--line);
-  border-radius: 0 0 12px 12px;
+  border-radius: 0 0 14px 14px;
+}
+
+.settings-row.settings-group-start.settings-group-end,
+.settings-row:first-of-type:last-of-type {
+  border-radius: 14px;
+}
+
+.settings-row:not(:last-of-type):not(.settings-group-end)::after {
+  content: "";
+  position: absolute;
+  right: 22px;
+  bottom: 0;
+  left: 22px;
+  height: 1px;
+  background: var(--line);
+  pointer-events: none;
 }
 
 .settings-row > div:first-child {
@@ -3140,9 +3170,9 @@ p {
   max-width: 170px;
   min-height: 34px;
   padding: 0 28px 0 12px;
-  border: 1px solid var(--line);
+  border: 1px solid transparent;
   border-radius: 8px;
-  background: var(--surface-soft);
+  background-color: var(--field);
   color: var(--text);
   font-weight: 400;
   appearance: none;
@@ -3155,7 +3185,7 @@ p {
 
 .settings-row > select:focus {
   outline: none;
-  border-color: rgb(var(--accent-rgb) / 0.42);
+  border-color: transparent;
   box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.12);
 }
 
@@ -3163,18 +3193,18 @@ p {
   width: 36px;
   height: 22px;
   padding: 0;
-  border: 1px solid var(--line);
+  border: 1px solid transparent;
   border-radius: 6px;
-  background: transparent;
+  background: var(--field);
   cursor: pointer;
 }
 
 .settings-row select {
   min-width: 120px;
   padding: 6px 10px;
-  border: 1px solid var(--line);
+  border: 1px solid transparent;
   border-radius: 8px;
-  background: var(--surface);
+  background-color: var(--field);
   color: var(--text);
 }
 

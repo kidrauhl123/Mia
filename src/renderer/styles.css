@@ -4524,9 +4524,23 @@ body.onboarding-window .setup-action {
   line-height: 1.2;
 }
 
-.settings-row > select {
+.settings-content .settings-row > select {
   justify-self: end;
+  width: 100%;
   max-width: 170px;
+  border-color: transparent;
+  background-color: var(--field);
+  box-shadow: none;
+}
+
+.settings-content .settings-row > select:hover {
+  border-color: transparent;
+  background-color: var(--hover);
+}
+
+.settings-content .settings-row > select:focus {
+  border-color: transparent;
+  box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.12);
 }
 
 .settings-panel .primary {
@@ -4580,15 +4594,16 @@ body.onboarding-window .setup-action {
 .settings-content input,
 .settings-content select {
   min-height: 34px;
-  border-color: var(--line);
+  border-color: transparent;
   border-radius: 8px;
-  background: var(--surface-soft);
+  background-color: var(--field);
   font-weight: 400;
 }
 
 .settings-content input:focus,
 .settings-content select:focus {
-  border-color: var(--line-strong);
+  border-color: transparent;
+  box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.12);
 }
 
 .form-save-status {
@@ -4636,26 +4651,34 @@ body.onboarding-window .setup-action {
   gap: 0;
   max-width: 680px;
   overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 12px;
+  border: 0;
+  border-radius: 14px;
   background: var(--surface);
 }
 
 .connection-row {
+  position: relative;
   display: grid;
   gap: 10px;
   max-width: none;
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--line);
-  background: transparent;
+  padding: 16px 22px;
+  border-bottom: 0;
+  background: var(--surface);
 }
 
 .connection-row:first-of-type {
-  padding-top: 14px;
+  padding-top: 16px;
 }
 
-.connection-row:last-of-type {
-  border-bottom: 0;
+.connection-row:not(:last-of-type)::after {
+  content: "";
+  position: absolute;
+  right: 22px;
+  bottom: 0;
+  left: 22px;
+  height: 1px;
+  background: var(--line);
+  pointer-events: none;
 }
 
 .connection-row-head {
@@ -4782,20 +4805,20 @@ body.onboarding-window .setup-action {
   gap: 2px;
   min-height: 34px;
   padding: 5px 7px;
-  border: 1px solid var(--line);
+  border: 1px solid transparent;
   border-radius: 8px;
-  background: var(--surface-soft);
+  background: var(--field);
   color: var(--text);
   text-align: left;
 }
 
 .font-choice:hover {
-  border-color: var(--line-strong);
-  background: transparent;
+  border-color: transparent;
+  background: var(--hover);
 }
 
 .font-choice.active {
-  border-color: var(--accent);
+  border-color: transparent;
   background: var(--accent);
   color: #fff;
   box-shadow: none;
