@@ -579,16 +579,20 @@ function conversationCardSpecFromRow(row, personas) {
     if (isFellow) {
       const fellowKey = sessionHistory.fellowKey(conversation);
       const fellow = identityFellows.find((p) => (p.id || p.key) === fellowKey);
-      const fellowRecord = fellow || {
-        key: fellowKey,
-        id: fellowKey,
-        name: conversation.name || fellowKey,
-        globalId: fellowGlobalIdFromConversation(conversation, fellowKey)
+      // The conversation id always carries owner:key, so derive the canonical
+      // global id from it. The merged fellow record sometimes lacks
+      // ownerUserId, which made fellowAvatarIdentityId fall back to the bare key
+      // and hash to a different color here than in the chat header / bubbles
+      // (same fellow, two background colors).
+      const fellowGlobalId = fellowGlobalIdFromConversation(conversation, fellowKey);
+      const fellowRecord = {
+        ...(fellow || { key: fellowKey, id: fellowKey, name: conversation.name || fellowKey }),
+        globalId: (fellow && (fellow.globalId || fellow.global_id)) || fellowGlobalId
       };
       name = sessionHistory.fellowDisplayTitle(conversation, identityFellows, "对话");
       const resolved = window.miaContact?.resolveContact?.(
         { kind: window.miaContact.ContactKind.Fellow, ref: fellowKey },
-        { fellows: fellow ? identityFellows : [fellowRecord] }
+        { fellows: [fellowRecord] }
       );
       avatar = resolved?.avatar || window.miaAvatarResolve.resolveAvatarForContact({
         id: fellowAvatarIdentityId(fellowKey, fellowRecord),
