@@ -50,7 +50,9 @@ function createSettingsStore(deps = {}) {
     return {
       displayName: "",
       avatarText: "",
-      avatarColor: "#111827",
+      // Empty = no user-set accent color → the avatar/name fall back to the id
+      // hash. Only a color chosen in the profile editor is stored here.
+      avatarColor: "",
       avatarImage: "",
       avatarCrop: { x: 50, y: 50, zoom: 1 }
     };
@@ -132,7 +134,7 @@ function createSettingsStore(deps = {}) {
     const next = {
       displayName: String(has("displayName") ? profile.displayName : current.displayName).trim(),
       avatarText: String(has("avatarText") ? profile.avatarText : current.avatarText).trim().slice(0, 2).toUpperCase(),
-      avatarColor: String(has("avatarColor") ? profile.avatarColor : current.avatarColor).trim() || "#111827",
+      avatarColor: String(has("avatarColor") ? profile.avatarColor : current.avatarColor).trim(),
       avatarImage: String(has("avatarImage") ? profile.avatarImage : current.avatarImage).trim(),
       avatarCrop: normalizeAvatarCrop(has("avatarCrop") ? profile.avatarCrop : current.avatarCrop)
     };

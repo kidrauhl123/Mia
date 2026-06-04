@@ -145,7 +145,7 @@ test("fresh userProfile has no hard-coded personal identity", (t) => {
   assert.deepEqual(store.userProfile(), {
     displayName: "",
     avatarText: "",
-    avatarColor: "#111827",
+    avatarColor: "",
     avatarImage: "",
     avatarCrop: { x: 50, y: 50, zoom: 1 }
   });

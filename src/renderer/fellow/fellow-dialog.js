@@ -26,7 +26,8 @@
     const src = window.miaAvatar.canonicalAvatarSrc(image);
     state.fellowAvatarDraft = {
       image: src,
-      crop: src ? window.miaAvatar.normalizeCrop(crop || window.miaAvatar.avatarDefaultCropForSrc(src)) : null
+      crop: src ? window.miaAvatar.normalizeCrop(crop || window.miaAvatar.avatarDefaultCropForSrc(src)) : null,
+      color: state.fellowAvatarDraft?.color || ""
     };
     if (els.fellowAvatar) els.fellowAvatar.value = state.fellowAvatarDraft.image;
     renderFellowAvatarDraft();
@@ -37,10 +38,30 @@
     const src = window.miaAvatar.canonicalAvatarSrc(image);
     state.profileAvatarDraft = {
       image: src,
-      crop: src ? window.miaAvatar.normalizeCrop(crop || window.miaAvatar.avatarDefaultCropForSrc(src)) : null
+      crop: src ? window.miaAvatar.normalizeCrop(crop || window.miaAvatar.avatarDefaultCropForSrc(src)) : null,
+      color: state.profileAvatarDraft?.color || ""
     };
     if (els.profileAvatarImage) els.profileAvatarImage.value = state.profileAvatarDraft.image;
     renderProfileAvatarDraft();
+  }
+
+  // Renders the "头像颜色" swatch row: an 自动 (hash) chip + the shared palette.
+  // Picking one sets the draft color; 自动 clears it back to the id hash.
+  function renderColorSwatches(container, currentColor, onPick) {
+    if (!container) return;
+    const palette = (window.miaMemberColor && window.miaMemberColor.PALETTE) || [];
+    const current = String(currentColor || "").toLowerCase();
+    const chips = [
+      `<button type="button" class="avatar-color-chip avatar-color-auto${current ? "" : " is-selected"}" data-color="">自动</button>`
+    ];
+    for (const c of palette) {
+      const sel = current === String(c).toLowerCase() ? " is-selected" : "";
+      chips.push(`<button type="button" class="avatar-color-chip${sel}" data-color="${c}" style="background:${c};" title="${c}" aria-label="${c}"></button>`);
+    }
+    container.innerHTML = chips.join("");
+    container.querySelectorAll(".avatar-color-chip").forEach((btn) => {
+      btn.addEventListener("click", () => onPick(btn.dataset.color || ""));
+    });
   }
 
   function firstNonEmpty(...values) {
@@ -71,7 +92,7 @@
       displayName,
       avatarImage: firstNonEmpty(cloudUser?.avatarImage, cloudUser?.avatar_image, localUser.avatarImage),
       avatarCrop: cloudUser?.avatarCrop || cloudUser?.avatar_crop || localUser.avatarCrop || window.miaAvatar.DEFAULT_AVATAR_CROP,
-      avatarColor: firstNonEmpty(cloudUser?.avatarColor, cloudUser?.avatar_color, localUser.avatarColor, "#111827")
+      avatarColor: firstNonEmpty(cloudUser?.avatarColor, cloudUser?.avatar_color, localUser.avatarColor)
     };
   }
 
@@ -87,14 +108,18 @@
       id: user.id || "",
       displayName: els.profileDisplayName?.value || user.displayName || "",
       avatarImage: draft.image || "",
-      avatarCrop: draft.crop || null
+      avatarCrop: draft.crop || null,
+      color: draft.color || ""
     });
     window.miaAvatar.applyAvatarMedia(els.profileAvatarPreview, avatar.image, avatar.crop, avatar.color, avatar.text);
     els.profileAvatarPreview.title = draft.image ? "点击调整头像裁剪" : "选择头像";
     els.profileAvatarPreview.setAttribute("role", "button");
     els.profileAvatarPreview.setAttribute("tabindex", "0");
     els.profileAvatarPreview.setAttribute("aria-label", "调整头像裁剪");
-    renderProfileAvatarDefaults();
+    renderColorSwatches(document.getElementById("profileAvatarColors"), draft.color || "", (color) => {
+      if (state.profileAvatarDraft) state.profileAvatarDraft.color = color;
+      renderProfileAvatarDraft();
+    });
   }
 
   function openProfileDialog() {
@@ -103,6 +128,8 @@
     state.profileDialogOpen = true;
     if (els.profileDisplayName) els.profileDisplayName.value = user.displayName || "";
     setProfileAvatarDraft(user.avatarImage || "", user.avatarCrop);
+    if (state.profileAvatarDraft) state.profileAvatarDraft.color = user.avatarColor || "";
+    renderProfileAvatarDraft();
     renderView();
     setTimeout(() => els.profileDisplayName?.focus(), 0);
   }
@@ -135,7 +162,8 @@
         id: draft.identityId || name,
         displayName: name,
         avatarImage: draft.image || "",
-        avatarCrop: draft.crop || null
+        avatarCrop: draft.crop || null,
+        color: draft.color || ""
       });
       window.miaAvatar.applyAvatarMedia(els.fellowAvatarPreview, avatar.image, avatar.crop, avatar.color, avatar.text);
       els.fellowAvatarPreview.title = "点击调整头像裁剪";
@@ -143,7 +171,10 @@
       els.fellowAvatarPreview.setAttribute("tabindex", "0");
       els.fellowAvatarPreview.setAttribute("aria-label", "调整头像裁剪");
     }
-    renderFellowAvatarDefaults();
+    renderColorSwatches(document.getElementById("fellowAvatarColors"), state.fellowAvatarDraft?.color || "", (color) => {
+      if (state.fellowAvatarDraft) state.fellowAvatarDraft.color = color;
+      renderFellowAvatarDraft();
+    });
   }
 
   function renderAvatarCropEditor() {
@@ -481,6 +512,7 @@
       state.fellowAvatarDraft.identityId = actualFellow
         ? (window.miaContact?.fellowAvatarIdentityId?.(actualFellow.key || actualFellow.id, actualFellow) || actualFellow.key || actualFellow.id || "")
         : "";
+      state.fellowAvatarDraft.color = actualFellow?.color || actualFellow?.avatarColor || "";
     }
     renderFellowAvatarDraft();
     els.fellowSeed.value = actualFellow ? personaText : (seed?.bio || "");

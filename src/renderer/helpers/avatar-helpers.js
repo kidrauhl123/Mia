@@ -427,9 +427,10 @@
       id: user.id || user.username || user.account || user.displayName || "self",
       displayName,
       avatarImage: user.avatarImage || "",
-      avatarCrop: user.avatarCrop || null
+      avatarCrop: user.avatarCrop || null,
+      color: user.avatarColor || ""
     });
-    applyAvatarMedia(el, avatar.image, avatar.crop, avatar.color || user.avatarColor || "#111827", avatar.text);
+    applyAvatarMedia(el, avatar.image, avatar.crop, avatar.color, avatar.text);
   }
 
   window.miaAvatar = {

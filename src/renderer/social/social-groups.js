@@ -168,8 +168,10 @@
 
     const article = document.createElement("article");
     article.className = `message ${roleClass}`;
+    // Name color tracks the resolved avatar color, so a member's set accent
+    // color shows here too; falls back to the id hash when none is set.
     const senderTitleHtml = senderLabel
-      ? `<span class="bubble-sender" style="color:${escapeHtml(senderColor)};">${escapeHtml(senderLabel)}</span>`
+      ? `<span class="bubble-sender" style="color:${escapeHtml(avatarColor)};">${escapeHtml(senderLabel)}</span>`
       : "";
     article.innerHTML = `
       ${avatarHtml}

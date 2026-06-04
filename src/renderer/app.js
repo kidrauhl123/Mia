@@ -266,7 +266,7 @@ function runtimeUserIdentity(runtime = state.runtime) {
     account: self.account,
     displayName: self.displayName,
     avatarText,
-    avatarColor: self.avatarColor || "#111827",
+    avatarColor: self.avatarColor,
     avatarImage: self.avatarImage,
     avatarCrop: self.avatarCrop
   };
@@ -3359,6 +3359,7 @@ els.confirmAvatarCrop?.addEventListener("click", async () => {
         avatarText: displayName ? window.miaAvatar.initials(displayName) : "",
         avatarImage: state.profileAvatarDraft.image || els.profileAvatarImage?.value || "",
         avatarCrop: window.miaAvatar.normalizeCrop(state.profileAvatarDraft.crop),
+        avatarColor: state.profileAvatarDraft.color || "",
       });
       render();
     } catch (err) {
@@ -3388,7 +3389,8 @@ els.profileForm?.addEventListener("submit", async (event) => {
     displayName,
     avatarText: displayName ? window.miaAvatar.initials(displayName) : "",
     avatarImage: state.profileAvatarDraft.image || els.profileAvatarImage.value,
-    avatarCrop: window.miaAvatar.normalizeCrop(state.profileAvatarDraft.crop)
+    avatarCrop: window.miaAvatar.normalizeCrop(state.profileAvatarDraft.crop),
+    avatarColor: state.profileAvatarDraft.color || ""
   });
   window.miaFellowDialog.closeProfileDialog();
   render();
@@ -3470,6 +3472,7 @@ els.fellowForm?.addEventListener("submit", async (event) => {
     agentEngine: els.fellowAgentEngine?.value || "hermes",
     avatarImage: state.fellowAvatarDraft.image || els.fellowAvatar.value,
     avatarCrop: window.miaAvatar.normalizeCrop(state.fellowAvatarDraft.crop),
+    color: state.fellowAvatarDraft.color || "",
     description: state.fellowDialogMode === "create" ? els.fellowSeed.value : "",
     personaText: els.fellowSeed.value
   };

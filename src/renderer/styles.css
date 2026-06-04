@@ -3968,6 +3968,50 @@ body.onboarding-window .setup-action {
   align-items: center;
 }
 
+.avatar-colors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 4px;
+}
+
+.avatar-color-chip {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  background-clip: padding-box;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.avatar-color-chip:hover {
+  transform: scale(1.12);
+}
+
+.avatar-color-chip.is-selected {
+  border-color: var(--text);
+  box-shadow: 0 0 0 1px var(--bg) inset;
+}
+
+.avatar-color-auto {
+  width: auto;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--field);
+  border: 1px solid var(--line);
+}
+
+.avatar-color-auto.is-selected {
+  color: var(--text);
+  border-color: var(--text);
+}
+
 .avatar-crop-preview {
   position: relative;
   overflow: hidden;

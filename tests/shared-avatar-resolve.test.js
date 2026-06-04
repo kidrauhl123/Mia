@@ -69,9 +69,13 @@ test("resolveAvatarForContact: explicit avatarImage wins and carries its crop", 
   });
   assert.equal(result.image, "data:image/png;base64,AAAA");
   assert.deepEqual(result.crop, { x: 60, y: 20, zoom: 1.4 });
-  // Color is always identity-derived; the `color` field on input is ignored
-  // so fellow / user members never split into separate color-resolution paths.
-  assert.equal(result.color, memberColor.memberAccentColor("fellow_42"));
+  // A user-set accent color wins (this is what the color picker stores); only
+  // members with no color fall back to the id hash.
+  assert.equal(result.color, "#ff9f0a");
+  assert.equal(
+    avatarResolve.resolveAvatarForContact({ id: "fellow_42" }).color,
+    memberColor.memberAccentColor("fellow_42")
+  );
 });
 
 test("resolveAvatarForContact: empty avatarImage returns color and text fallback", () => {

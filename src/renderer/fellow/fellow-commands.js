@@ -72,6 +72,7 @@
       name: String(fellow.name || "").trim(),
       avatarImage: fellow.avatarImage || "",
       avatarCrop: fellow.avatarCrop || null,
+      color: fellow.color || "",
       bio: fellow.description || fellow.bio || "",
       personaText: fellow.personaText || fellow.description || fellow.bio || "",
       capabilities: serializableCapabilities(fellow.capabilities)
