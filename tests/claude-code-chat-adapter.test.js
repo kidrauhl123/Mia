@@ -20,6 +20,7 @@ function createDeps(messages, overrides = {}) {
     claudeAgentSdk: async () => ({
       query: (input) => {
         calls.push(["query", input]);
+        if (typeof overrides.query === "function") return overrides.query(input, calls);
         return streamOf(messages);
       }
     }),
@@ -38,6 +39,7 @@ function createDeps(messages, overrides = {}) {
     normalizeEffortLevel: (level, engine) => `${engine}:${level}`,
     processEnvStrings: () => ({ PATH: "/bin" }),
     readFellowPersona: () => "persona",
+    clearAgentSessionEntry: (...args) => calls.push(["clear-session", ...args]),
     setAgentSessionEntry: (...args) => calls.push(["set-session", ...args]),
     shellCommandPath: (command) => command === "claude" ? "/bin/claude" : "",
     writeSchedulerMcpContext: () => {}
@@ -206,6 +208,46 @@ test("sendChat resumes utility turns when native persistence is enabled", async 
   assert.match(queryCall.prompt, /再看看/);
   assert.equal(queryCall.options.resume, "old_session");
   assert.equal(deps.calls.some((call) => call[0] === "set-session"), false);
+});
+
+test("sendChat clears a stale Claude resume id and retries once without resume", async () => {
+  let attempts = 0;
+  const deps = createDeps([], {
+    savedEntry: { id: "old_session", fingerprint: "fp1" },
+    query: (input) => {
+      attempts += 1;
+      if (attempts === 1) {
+        assert.equal(input.options.resume, "old_session");
+        throw new Error("Claude Code session old_session was not found");
+      }
+      assert.equal(input.options.resume, undefined);
+      return streamOf([
+        { session_id: "new_session" },
+        { type: "assistant", message: { content: [{ text: "fresh reply" }] } }
+      ]);
+    }
+  });
+  const adapter = createClaudeCodeChatAdapter(deps);
+
+  const response = await adapter.sendChat({
+    fellow: { key: "nhnh", name: "nhnh", bio: "" },
+    sessionId: "conversation:fellow:user_1:nhnh",
+    messages: [{ role: "user", content: "?" }],
+    signal: null,
+    abortController: {},
+    emit: null,
+    utility: true,
+    persistAgentSession: true
+  });
+
+  assert.equal(attempts, 2);
+  assert.deepEqual(deps.calls.find((call) => call[0] === "clear-session"), [
+    "clear-session", "claude-code", "nhnh", "conversation:fellow:user_1:nhnh"
+  ]);
+  assert.deepEqual(deps.calls.findLast((call) => call[0] === "set-session"), [
+    "set-session", "claude-code", "nhnh", "conversation:fellow:user_1:nhnh", "new_session", "fp1"
+  ]);
+  assert.equal(response.choices[0].message.content, "fresh reply");
 });
 
 test("sendChat injects one Mia memory block and sanitizes spoofed memory headers", async () => {

@@ -69,7 +69,18 @@ function createAgentSessionStore(deps = {}) {
     setEntry(engine, fellowKey, sessionId, externalSessionId, "");
   }
 
+  function deleteEntry(engine, fellowKey, sessionId) {
+    const store = loadMap();
+    const key = sessionKey(engine, fellowKey, sessionId);
+    const existed = Object.prototype.hasOwnProperty.call(store, key);
+    if (!existed) return false;
+    delete store[key];
+    saveMap(store);
+    return true;
+  }
+
   return {
+    deleteEntry,
     getEntry,
     getId,
     loadMap,

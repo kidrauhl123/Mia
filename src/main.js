@@ -1337,6 +1337,7 @@ function createActiveClaudeCodeChatAdapter() {
     ensureClaudeBridgePlugin: () => claudeBridgePluginService.ensureInstalled(),
     expandLeadingSkillCommand: skillsLoader.expandLeadingSkillCommand,
     buildEnabledSkillsContext: skillsLoader.buildEnabledSkillsContext,
+    clearAgentSessionEntry: agentSessionStore.deleteEntry,
     getAgentSessionEntry: agentSessionStore.getEntry,
     getMiaAppMcpSpec: miaAppMcpBridge.getSpec,
     getSchedulerMcpSpec: schedulerMcpBridge.getSpec,

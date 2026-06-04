@@ -41,6 +41,14 @@ function stoppedError() {
   return stopped;
 }
 
+function isStaleClaudeResumeError(error) {
+  const message = String(error?.message || error || "");
+  if (!message) return false;
+  const referencesResume = /\b(resume|session|conversation|thread)\b/i.test(message);
+  const staleSignal = /(not\s+found|missing|invalid|unknown|does\s+not\s+exist|no\s+conversation|cannot\s+resume|can't\s+resume|failed\s+to\s+resume|unable\s+to\s+resume)/i.test(message);
+  return referencesResume && staleSignal;
+}
+
 function requireDependency(deps, key) {
   if (typeof deps[key] !== "function") throw new Error(`${key} dependency is required.`);
   return deps[key];
@@ -58,6 +66,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
   const appendEngineLog = requireDependency(deps, "appendEngineLog");
   const getAgentSessionEntry = requireDependency(deps, "getAgentSessionEntry");
   const setAgentSessionEntry = requireDependency(deps, "setAgentSessionEntry");
+  const clearAgentSessionEntry = deps.clearAgentSessionEntry || (() => false);
   const processEnvStrings = requireDependency(deps, "processEnvStrings");
   const normalizeEffortLevel = requireDependency(deps, "normalizeEffortLevel");
   const chatCompletionResponse = requireDependency(deps, "chatCompletionResponse");
@@ -173,93 +182,119 @@ function createClaudeCodeChatAdapter(deps = {}) {
       };
     }
 
-    const stream = query({ prompt: promptWithGroup, options });
     let capturedSessionId = externalSessionId;
     const chunks = [];
     let activeTextId = null;
     const reasoningId = `reasoning_${randomUUID()}`;
     const blockIndex = new Map();
-    for await (const message of stream) {
-      if (signal?.aborted) break;
-      if (message?.session_id && !capturedSessionId) {
-        capturedSessionId = message.session_id;
-        if (shouldPersistAgentSession) setAgentSessionEntry(engine, fellow.key, sessionId, capturedSessionId, bridgeFingerprint);
-      }
+    let processedStreamMessage = false;
 
-      if (emit && message?.type === "stream_event") {
-        const ev = message.event;
-        if (!ev) continue;
-        if (ev.type === "content_block_start" && ev.content_block) {
-          const idx = ev.index;
-          const block = ev.content_block;
-          if (block.type === "text") {
-            if (!activeTextId) activeTextId = `text_${randomUUID()}`;
-            blockIndex.set(idx, { kind: "text", id: activeTextId });
-          } else if (block.type === "thinking") {
-            blockIndex.set(idx, { kind: "thinking", id: reasoningId });
-          } else if (block.type === "tool_use") {
-            const toolId = String(block.id || `tool_${idx}`);
-            const toolName = String(block.name || "tool");
-            const preview = block.input ? JSON.stringify(block.input, null, 2) : "";
-            blockIndex.set(idx, { kind: "tool_use", id: toolId, name: toolName, input: preview });
-            emit("tool_call_started", { id: toolId, name: toolName, preview });
+    async function consumeClaudeStream(runOptions) {
+      const stream = query({ prompt: promptWithGroup, options: runOptions });
+      for await (const message of stream) {
+        if (signal?.aborted) break;
+        processedStreamMessage = true;
+        if (message?.session_id && !capturedSessionId) {
+          capturedSessionId = message.session_id;
+          if (shouldPersistAgentSession) setAgentSessionEntry(engine, fellow.key, sessionId, capturedSessionId, bridgeFingerprint);
+        }
+
+        if (emit && message?.type === "stream_event") {
+          const ev = message.event;
+          if (!ev) continue;
+          if (ev.type === "content_block_start" && ev.content_block) {
+            const idx = ev.index;
+            const block = ev.content_block;
+            if (block.type === "text") {
+              if (!activeTextId) activeTextId = `text_${randomUUID()}`;
+              blockIndex.set(idx, { kind: "text", id: activeTextId });
+            } else if (block.type === "thinking") {
+              blockIndex.set(idx, { kind: "thinking", id: reasoningId });
+            } else if (block.type === "tool_use") {
+              const toolId = String(block.id || `tool_${idx}`);
+              const toolName = String(block.name || "tool");
+              const preview = block.input ? JSON.stringify(block.input, null, 2) : "";
+              blockIndex.set(idx, { kind: "tool_use", id: toolId, name: toolName, input: preview });
+              emit("tool_call_started", { id: toolId, name: toolName, preview });
+            }
+          } else if (ev.type === "content_block_delta" && ev.delta) {
+            const meta = blockIndex.get(ev.index);
+            if (!meta) continue;
+            if (ev.delta.type === "text_delta" && meta.kind === "text") {
+              emit("text_delta", { id: meta.id, text: String(ev.delta.text || "") });
+            } else if (ev.delta.type === "thinking_delta" && meta.kind === "thinking") {
+              emit("reasoning_delta", { id: meta.id, text: String(ev.delta.thinking || "") });
+            } else if (ev.delta.type === "input_json_delta" && meta.kind === "tool_use") {
+              meta.input = `${meta.input || ""}${String(ev.delta.partial_json || "")}`;
+              emit("tool_call_delta", {
+                id: meta.id,
+                name: meta.name,
+                preview: meta.input.slice(0, 4000)
+              });
+            }
           }
-        } else if (ev.type === "content_block_delta" && ev.delta) {
-          const meta = blockIndex.get(ev.index);
-          if (!meta) continue;
-          if (ev.delta.type === "text_delta" && meta.kind === "text") {
-            emit("text_delta", { id: meta.id, text: String(ev.delta.text || "") });
-          } else if (ev.delta.type === "thinking_delta" && meta.kind === "thinking") {
-            emit("reasoning_delta", { id: meta.id, text: String(ev.delta.thinking || "") });
-          } else if (ev.delta.type === "input_json_delta" && meta.kind === "tool_use") {
-            meta.input = `${meta.input || ""}${String(ev.delta.partial_json || "")}`;
-            emit("tool_call_delta", {
-              id: meta.id,
-              name: meta.name,
-              preview: meta.input.slice(0, 4000)
-            });
+          continue;
+        }
+
+        if (message?.type === "assistant") {
+          const beta = message.message;
+          const contentBlocks = Array.isArray(beta?.content) ? beta.content : [];
+          const text = claudeMessageText(message);
+          if (text) chunks.push(text);
+          if (!emit) continue;
+          activeTextId = null;
+          if (!runOptions.includePartialMessages && text) {
+            emit("text_delta", { id: `text_${randomUUID()}`, text });
+          }
+          for (const block of contentBlocks) {
+            if (block?.type === "tool_use" && !runOptions.includePartialMessages) {
+              const toolId = String(block.id || `tool_${randomUUID()}`);
+              const toolName = String(block.name || "tool");
+              const preview = block.input ? JSON.stringify(block.input).slice(0, 160) : "";
+              emit("tool_call_started", { id: toolId, name: toolName, preview });
+            }
+          }
+          continue;
+        }
+
+        if (emit && message?.type === "user") {
+          const beta = message.message;
+          const contentBlocks = Array.isArray(beta?.content) ? beta.content : [];
+          for (const block of contentBlocks) {
+            if (block?.type === "tool_result") {
+              const toolId = String(block.tool_use_id || "");
+              const resultPreview = firstTextValue(block.content).slice(0, 4000);
+              emit("tool_call_completed", {
+                id: toolId,
+                name: "",
+                preview: resultPreview,
+                duration: null,
+                error: Boolean(block.is_error)
+              });
+            }
           }
         }
-        continue;
       }
+    }
 
-      if (message?.type === "assistant") {
-        const beta = message.message;
-        const contentBlocks = Array.isArray(beta?.content) ? beta.content : [];
-        const text = claudeMessageText(message);
-        if (text) chunks.push(text);
-        if (!emit) continue;
+    try {
+      await consumeClaudeStream(options);
+    } catch (error) {
+      if (!processedStreamMessage && externalSessionId && isStaleClaudeResumeError(error)) {
+        appendEngineLog(`Claude Code resume session failed; clearing saved session and retrying without resume: ${error?.message || error}`);
+        try {
+          clearAgentSessionEntry(engine, fellow.key, sessionId);
+        } catch (clearError) {
+          appendEngineLog(`Claude Code saved session cleanup failed: ${clearError?.message || clearError}`);
+        }
+        capturedSessionId = "";
         activeTextId = null;
-        if (!options.includePartialMessages && text) {
-          emit("text_delta", { id: `text_${randomUUID()}`, text });
-        }
-        for (const block of contentBlocks) {
-          if (block?.type === "tool_use" && !options.includePartialMessages) {
-            const toolId = String(block.id || `tool_${randomUUID()}`);
-            const toolName = String(block.name || "tool");
-            const preview = block.input ? JSON.stringify(block.input).slice(0, 160) : "";
-            emit("tool_call_started", { id: toolId, name: toolName, preview });
-          }
-        }
-        continue;
-      }
-
-      if (emit && message?.type === "user") {
-        const beta = message.message;
-        const contentBlocks = Array.isArray(beta?.content) ? beta.content : [];
-        for (const block of contentBlocks) {
-          if (block?.type === "tool_result") {
-            const toolId = String(block.tool_use_id || "");
-            const resultPreview = firstTextValue(block.content).slice(0, 4000);
-            emit("tool_call_completed", {
-              id: toolId,
-              name: "",
-              preview: resultPreview,
-              duration: null,
-              error: Boolean(block.is_error)
-            });
-          }
-        }
+        blockIndex.clear();
+        const retryOptions = { ...options };
+        delete retryOptions.resume;
+        await consumeClaudeStream(retryOptions);
+      } else {
+        throw error;
       }
     }
     if (capturedSessionId && !externalSessionId && shouldPersistAgentSession) {

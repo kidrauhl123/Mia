@@ -72,3 +72,17 @@ test("setId and setEntry update the store and ignore empty external ids", (t) =>
     "engine:claude-code:alice:local_2": { id: "thread_2", fingerprint: "fp_1" }
   });
 });
+
+test("deleteEntry removes a stored session and reports whether it existed", (t) => {
+  const { service } = setup(t);
+  service.saveMap({
+    "engine:codex:alice:local_1": "thread_1",
+    "engine:claude-code:alice:local_2": { id: "thread_2", fingerprint: "fp_1" }
+  });
+
+  assert.equal(service.deleteEntry("codex", "alice", "local_1"), true);
+  assert.equal(service.deleteEntry("codex", "alice", "missing"), false);
+  assert.deepEqual(service.loadMap(), {
+    "engine:claude-code:alice:local_2": { id: "thread_2", fingerprint: "fp_1" }
+  });
+});
