@@ -106,6 +106,11 @@ const els = {
   chatView: document.getElementById("chatView"),
   contactsView: document.getElementById("contactsView"),
   skillsView: document.getElementById("skillsView"),
+  fellowStoreView: document.getElementById("fellowStoreView"),
+  fellowStoreCap: document.getElementById("fellowStoreCap"),
+  fellowStoreGrid: document.getElementById("fellowStoreGrid"),
+  fellowStoreScrim: document.getElementById("fellowStoreScrim"),
+  fellowStoreSheet: document.getElementById("fellowStoreSheet"),
   settingsView: document.getElementById("settingsView"),
   engineStatus: document.getElementById("engineStatus"),
   hermesHome: document.getElementById("hermesHome"),
@@ -118,6 +123,8 @@ const els = {
   contactMenuAddFriend: document.getElementById("contactMenuAddFriend"),
   contactMenuAddFellow: document.getElementById("contactMenuAddFellow"),
   contactMenuNewGroup: document.getElementById("contactMenuNewGroup"),
+  contactMenuDiscoverFellows: document.getElementById("contactMenuDiscoverFellows"),
+  convMenuDiscoverFellows: document.getElementById("convMenuDiscoverFellows"),
   contactList: document.getElementById("contactList"),
   contactPageTitle: document.getElementById("contactPageTitle"),
   contactPageMeta: document.getElementById("contactPageMeta"),
@@ -1311,6 +1318,7 @@ function renderView() {
   els.chatView.classList.toggle("hidden", state.activeView !== "chat");
   els.contactsView?.classList.toggle("hidden", state.activeView !== "contacts");
   els.skillsView?.classList.toggle("hidden", state.activeView !== "skills");
+  els.fellowStoreView?.classList.toggle("hidden", state.activeView !== "fellow-store");
   els.tasksView?.classList.toggle("hidden", state.activeView !== "tasks");
   els.appShell?.setAttribute("data-active-view", state.activeView);
   els.settingsView.classList.toggle("hidden", !state.settingsOpen);
@@ -2480,6 +2488,16 @@ async function initializeRuntime() {
       openSkillDirectory,
     });
   }
+  if (window.miaFellowStore && window.miaFellowStore.initFellowStore) {
+    window.miaFellowStore.initFellowStore({
+      state,
+      els,
+      mia: window.mia,
+      escapeHtml: window.miaMarkdown.escapeHtml,
+      openFellowConversation,
+      render,
+    });
+  }
   if (window.miaTasksPanel && window.miaTasksPanel.initTasksPanel) {
     window.miaTasksPanel.initTasksPanel({
       state,
@@ -3063,6 +3081,17 @@ els.newPersona.addEventListener("click", (event) => {
   state.fellowMenuOpen = !state.fellowMenuOpen;
   renderView();
 });
+
+function openFellowStore() {
+  state.fellowMenuOpen = false;
+  state.contactMenuOpen = false;
+  state.activeView = "fellow-store";
+  showNarrowContent();
+  renderView();
+  window.miaFellowStore?.renderFellowStore?.();
+}
+els.convMenuDiscoverFellows?.addEventListener("click", openFellowStore);
+els.contactMenuDiscoverFellows?.addEventListener("click", openFellowStore);
 
 els.convMenuAddFriend?.addEventListener("click", () => {
   state.fellowMenuOpen = false;

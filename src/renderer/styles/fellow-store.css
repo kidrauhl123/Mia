@@ -1,0 +1,230 @@
+/* 发现 AI 同事 —— 预设 fellow 商店。
+   中右打通成一整块画布（跨 sidebar/handle/workspace 三列），
+   顶部分类胶囊复用 .skill-mode-toggle 的滑动白胶囊，卡片网格复用 .skill-card 调性。 */
+
+.fellow-store-workspace {
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-column: 2 / -1;
+  background: var(--surface-muted);
+}
+
+/* 没有中栏可拖，隐藏调宽手柄 */
+.app-shell[data-active-view="fellow-store"] #sidebarResizeHandle {
+  display: none;
+}
+
+.fellow-store-topbar {
+  align-items: flex-start;
+  border-bottom: 0;
+  background: var(--surface-muted);
+  padding-top: 18px;
+  padding-bottom: 0;
+}
+
+.fellow-store-topbar .group-title { gap: 2px; }
+.fellow-store-title-main {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 620;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+.fellow-store-title-sub {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  color: var(--faint);
+}
+.fellow-store-search { max-width: 240px; margin-left: auto; }
+
+.fellow-store-layout {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 14px;
+  min-height: 0;
+  padding: 14px 24px 24px;
+  background: var(--surface-muted);
+  overflow: hidden;
+}
+
+/* 顶部分类胶囊 —— 滑动白胶囊 */
+.fellow-store-cap {
+  position: relative;
+  display: inline-flex;
+  align-self: start;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--field);
+  isolation: isolate;
+}
+.fellow-store-cap::before {
+  content: "";
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 0;
+  width: var(--pill-w, 0px);
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: 0 1px 3px rgba(17, 24, 39, 0.10);
+  opacity: var(--pill-ready, 0);
+  transform: translateX(var(--pill-x, 0px));
+  pointer-events: none;
+  z-index: 0;
+  transition: transform 200ms cubic-bezier(0.2, 0.7, 0.2, 1), width 200ms cubic-bezier(0.2, 0.7, 0.2, 1), opacity 120ms ease;
+}
+.fellow-store-cap button {
+  position: relative;
+  z-index: 1;
+  padding: 6px 15px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 460;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 140ms ease;
+}
+.fellow-store-cap button.active { color: var(--text); font-weight: 580; }
+
+/* 卡片网格 */
+.fellow-store-grid-scroll { overflow: auto; min-height: 0; }
+.fellow-store-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
+  align-content: start;
+}
+
+.fellow-store-card {
+  display: grid;
+  gap: 14px;
+  padding: 18px 20px;
+  border-radius: 18px;
+  background: var(--surface);
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(17, 24, 39, 0.04), 0 6px 20px rgba(17, 24, 39, 0.04);
+  transition: box-shadow 0.16s ease, transform 0.16s ease;
+  animation: fellow-store-rise 0.42s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.fellow-store-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 2px 6px rgba(17, 24, 39, 0.06), 0 14px 32px rgba(17, 24, 39, 0.10);
+}
+@keyframes fellow-store-rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+.fellow-store-card-head { display: flex; align-items: center; gap: 13px; min-width: 0; }
+.fellow-store-avatar {
+  flex: 0 0 auto;
+  width: 50px;
+  height: 50px;
+  border-radius: 15px;
+  display: grid;
+  place-items: center;
+  font-size: 25px;
+}
+.fellow-store-card-head .meta { min-width: 0; }
+.fellow-store-card-head strong {
+  display: block;
+  overflow: hidden;
+  font-size: 15.5px;
+  font-weight: 580;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fellow-store-card-head .tag {
+  margin-top: 3px;
+  overflow: hidden;
+  font-size: 12.5px;
+  color: var(--faint);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fellow-store-card p.line {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.fellow-store-empty {
+  padding: 48px 12px;
+  color: var(--faint);
+  text-align: center;
+  font-size: 13px;
+}
+
+/* 详情覆盖层 —— 盖在画布上展开 */
+.fellow-store-scrim {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background: rgba(20, 24, 40, 0.28);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+  z-index: 30;
+}
+.fellow-store-scrim.open { opacity: 1; pointer-events: auto; }
+.fellow-store-sheet {
+  width: min(520px, 100%);
+  max-height: 86%;
+  overflow: auto;
+  padding: 28px;
+  border-radius: 24px;
+  background: var(--surface);
+  box-shadow: 0 30px 80px rgba(16, 20, 39, 0.30);
+  transform: translateY(14px) scale(0.98);
+  transition: transform 0.24s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.fellow-store-scrim.open .fellow-store-sheet { transform: none; }
+.fellow-store-sheet-head { display: flex; align-items: center; gap: 16px; }
+.fellow-store-sheet .fellow-store-avatar { width: 64px; height: 64px; border-radius: 19px; font-size: 32px; }
+.fellow-store-sheet-head h2 { margin: 0; font-size: 21px; font-weight: 640; letter-spacing: -0.01em; color: var(--text); }
+.fellow-store-sheet-head .tag { margin-top: 4px; font-size: 13px; color: var(--faint); }
+.fellow-store-sheet .desc { margin: 18px 0 0; font-size: 14.5px; line-height: 1.6; color: var(--text); }
+.fellow-store-demo {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: rgb(var(--accent-rgb) / 0.10);
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--text);
+}
+.fellow-store-demo b { color: var(--accent); font-weight: 600; }
+.fellow-store-actions { display: flex; gap: 10px; margin-top: 26px; }
+.fellow-store-btn {
+  height: 46px;
+  border: 0;
+  border-radius: 14px;
+  font: inherit;
+  font-size: 14.5px;
+  font-weight: 580;
+  cursor: pointer;
+  transition: filter 0.14s ease, color 0.14s ease;
+}
+.fellow-store-btn.primary { flex: 1; background: var(--accent); color: #fff; }
+.fellow-store-btn.primary:hover { filter: brightness(1.06); }
+.fellow-store-btn.primary:disabled { opacity: 0.6; cursor: default; }
+.fellow-store-btn.ghost { flex: 0 0 auto; padding: 0 20px; background: var(--field); color: var(--muted); }
+.fellow-store-btn.ghost:hover { color: var(--text); }
+
+@media (prefers-reduced-motion: reduce) {
+  .fellow-store-cap::before,
+  .fellow-store-card,
+  .fellow-store-sheet,
+  .fellow-store-scrim { transition: none; animation: none; }
+}

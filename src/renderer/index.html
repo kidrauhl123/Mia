@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="./styles/groups.css">
   <link rel="stylesheet" href="./styles/tasks.css">
   <link rel="stylesheet" href="./styles/skills.css">
+  <link rel="stylesheet" href="./styles/fellow-store.css">
 </head>
 <body>
   <main class="app-shell" data-auth-state="signed-out">
@@ -51,6 +52,15 @@
         </label>
         <button id="newPersona" class="icon-button" type="button" title="新建">＋</button>
         <div id="fellowCreateMenu" class="create-menu hidden">
+          <button id="convMenuDiscoverFellows" type="button">
+            <span class="create-menu-icon" aria-hidden="true">
+              <svg viewBox="0 0 48 48" fill="none" focusable="false">
+                <circle cx="24" cy="24" r="20" stroke="currentColor" stroke-width="4"/>
+                <path d="M31 17L27 27L17 31L21 21L31 17Z" fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round"/>
+              </svg>
+            </span>
+            <span class="create-menu-label">发现 AI 同事</span>
+          </button>
           <button id="convMenuAddFriend" type="button">
             <span class="create-menu-icon" aria-hidden="true">
               <svg viewBox="0 0 48 48" fill="none" focusable="false">
@@ -100,6 +110,15 @@
         </label>
         <button id="newContact" class="icon-button" type="button" title="新建">＋</button>
         <div id="contactCreateMenu" class="create-menu hidden">
+          <button id="contactMenuDiscoverFellows" type="button">
+            <span class="create-menu-icon" aria-hidden="true">
+              <svg viewBox="0 0 48 48" fill="none" focusable="false">
+                <circle cx="24" cy="24" r="20" stroke="currentColor" stroke-width="4"/>
+                <path d="M31 17L27 27L17 31L21 21L31 17Z" fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round"/>
+              </svg>
+            </span>
+            <span class="create-menu-label">发现 AI 同事</span>
+          </button>
           <button id="contactMenuAddFriend" type="button">
             <span class="create-menu-icon" aria-hidden="true">
               <svg viewBox="0 0 48 48" fill="none" focusable="false">
@@ -279,6 +298,25 @@
 
         <section id="skillCardGrid" class="skill-card-grid" aria-label="Skill 列表"></section>
       </section>
+    </section>
+
+    <section id="fellowStoreView" class="workspace fellow-store-workspace hidden">
+      <header class="topbar fellow-store-topbar">
+        <button class="narrow-back-button" type="button" data-narrow-back title="返回" aria-label="返回">‹</button>
+        <div class="group-title">
+          <h1 class="fellow-store-title-main">发现 AI 同事</h1>
+          <p class="fellow-store-title-sub">为大学生挑好的 AI 搭子，点开就能用</p>
+        </div>
+      </header>
+      <section class="fellow-store-layout">
+        <div id="fellowStoreCap" class="fellow-store-cap" aria-label="分类"></div>
+        <div class="fellow-store-grid-scroll">
+          <section id="fellowStoreGrid" class="fellow-store-grid" aria-label="AI 同事列表"></section>
+        </div>
+      </section>
+      <div id="fellowStoreScrim" class="fellow-store-scrim">
+        <div id="fellowStoreSheet" class="fellow-store-sheet"></div>
+      </div>
     </section>
 
     <section id="tasksView" class="workspace tasks-workspace hidden">
@@ -931,6 +969,7 @@
   <script src="./fellow/fellow-commands.js"></script>
   <script src="./fellow/fellow-dialog.js"></script>
   <script src="./fellow/fellow-manager.js"></script>
+  <script src="./fellow/fellow-store.js"></script>
   <script src="./tasks/tasks-panel.js"></script>
   <script src="../shared/trace-blocks.js"></script>
   <script src="./chat/message-helpers.js"></script>
