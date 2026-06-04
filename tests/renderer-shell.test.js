@@ -95,6 +95,17 @@ test("renderer exposes official Hermes install actions without private install w
   assert.doesNotMatch(appSource, /可安装到 Mia 私有目录|Mia 私有 Hermes|独立 Hermes|随安装包内置|使用 Mia 私有配置和记忆/);
 });
 
+test("fellow dialogs use filled controls instead of legacy bordered fields", () => {
+  const stylesSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+
+  assert.match(stylesSource, /\.fellow-form \{[\s\S]*?border:\s*0;/);
+  assert.match(stylesSource, /\.pet-generate-card \{[\s\S]*?border:\s*0;/);
+  assert.match(stylesSource, /\.fellow-form input,[\s\S]*?\.pet-generate-card select \{[\s\S]*?border:\s*0;[\s\S]*?background-color:\s*var\(--field\);/);
+  assert.match(stylesSource, /\.persona-details \{[\s\S]*?border:\s*0;[\s\S]*?background:\s*var\(--field\);/);
+  assert.match(stylesSource, /\.avatar-drop \{[\s\S]*?border:\s*0;[\s\S]*?background:\s*var\(--field\);/);
+  assert.match(stylesSource, /\.pet-reference-empty \{[\s\S]*?border:\s*0;[\s\S]*?background:\s*var\(--field\);/);
+});
+
 test("engine detection renderer preserves legacy runtime status fallbacks", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const renderSource = appSource.slice(

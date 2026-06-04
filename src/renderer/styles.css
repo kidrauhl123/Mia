@@ -3823,7 +3823,7 @@ body.onboarding-window .setup-action {
   gap: 14px;
   width: min(430px, calc(100vw - 48px));
   padding: 18px;
-  border: 1px solid var(--line);
+  border: 0;
   border-radius: 14px;
   background: var(--surface);
   box-shadow: 0 24px 70px rgba(16, 20, 39, 0.18);
@@ -3844,7 +3844,7 @@ body.onboarding-window .setup-action {
   gap: 14px;
   width: min(510px, calc(100vw - 48px));
   padding: 18px;
-  border: 1px solid var(--line);
+  border: 0;
   border-radius: 14px;
   background: var(--surface);
   box-shadow: 0 24px 70px rgba(16, 20, 39, 0.18);
@@ -3892,12 +3892,29 @@ body.onboarding-window .setup-action {
 .pet-generate-card select {
   width: 100%;
   min-width: 0;
-  border: 1px solid var(--line);
+  border: 0;
   border-radius: 10px;
   outline: 0;
   padding: 10px 12px;
-  background-color: var(--surface);
+  background-color: var(--field);
   color: var(--text);
+}
+
+.fellow-form input:hover,
+.fellow-form select:hover,
+.fellow-form textarea:hover,
+.pet-generate-card textarea:hover,
+.pet-generate-card select:hover {
+  background-color: var(--hover);
+}
+
+.fellow-form input:focus,
+.fellow-form select:focus,
+.fellow-form textarea:focus,
+.pet-generate-card textarea:focus,
+.pet-generate-card select:focus {
+  background-color: var(--field);
+  box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.12);
 }
 
 .fellow-form textarea,
@@ -3907,7 +3924,8 @@ body.onboarding-window .setup-action {
 }
 
 .persona-details {
-  border: 1px solid var(--line);
+  overflow: hidden;
+  border: 0;
   border-radius: 10px;
   background: var(--field);
 }
@@ -3956,13 +3974,14 @@ body.onboarding-window .setup-action {
   width: 82px;
   height: 82px;
   border-radius: 50%;
-  border: 1px solid var(--line);
+  border: 0;
   background-repeat: no-repeat;
-  box-shadow: inset 0 0 0 4px rgba(255, 255, 255, 0.55);
+  background-color: var(--field);
+  box-shadow: inset 0 0 0 4px rgb(255 255 255 / 0.42);
 }
 
 .avatar-crop-preview:hover {
-  border-color: var(--accent);
+  box-shadow: inset 0 0 0 4px rgb(255 255 255 / 0.42), 0 0 0 3px rgb(var(--accent-rgb) / 0.12);
 }
 
 .avatar-drop {
@@ -3971,15 +3990,15 @@ body.onboarding-window .setup-action {
   align-content: center;
   min-height: 82px;
   padding: 10px;
-  border: 1px dashed var(--line-strong);
+  border: 0;
   border-radius: 12px;
   background: var(--field);
   color: var(--muted);
 }
 
 .avatar-drop.dragging {
-  border-color: var(--accent);
   background: var(--active);
+  box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.14);
 }
 
 .avatar-file-button {
@@ -3988,6 +4007,7 @@ body.onboarding-window .setup-action {
   justify-content: center;
   gap: 7px;
   width: max-content;
+  background-color: var(--surface);
 }
 
 .avatar-file-button svg {
@@ -4033,9 +4053,10 @@ body.onboarding-window .setup-action {
   position: relative;
   width: 72px;
   height: 72px;
-  border: 1px solid var(--line);
+  border: 0;
   border-radius: 12px;
   background-repeat: no-repeat;
+  background-color: var(--field);
 }
 
 .pet-reference-thumb button {
@@ -4058,7 +4079,7 @@ body.onboarding-window .setup-action {
   place-items: center;
   width: 100%;
   min-height: 72px;
-  border: 1px dashed var(--line);
+  border: 0;
   border-radius: 12px;
   color: var(--faint);
   background: var(--field);
