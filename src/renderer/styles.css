@@ -3999,7 +3999,22 @@ body.onboarding-window .setup-action {
 .avatar-color-custom {
   position: relative;
   overflow: hidden;
+  /* Fallback ring if the Lottie player is unavailable. */
   background: conic-gradient(from 90deg, #e17076, #f0a574, #7bc862, #6ec9cb, #65aadd, #b08fd8, #ee7aae, #e17076);
+}
+
+.avatar-color-lottie {
+  position: absolute;
+  inset: 0;
+  display: block;
+  pointer-events: none;
+}
+
+.avatar-color-lottie svg {
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+  transform: scale(1.08); /* slight overscan so the square animation fills the circle */
 }
 
 .avatar-color-custom input[type="color"] {

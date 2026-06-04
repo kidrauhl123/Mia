@@ -124,5 +124,17 @@
     (root || document).querySelectorAll("[data-lottie]").forEach(mount);
   }
 
-  window.miaLottieIcons = { init, setOpen };
+  // Destroy instances inside `root` (or all). Use when a still-connected
+  // container is being torn down — e.g. a looping icon in a dialog that hides
+  // (not removes) on close, which sweepOrphans can't reclaim on its own.
+  function destroy(root) {
+    for (const [container, entry] of reg) {
+      if (!root || container === root || (root.contains && root.contains(container))) {
+        entry.anim.destroy();
+        reg.delete(container);
+      }
+    }
+  }
+
+  window.miaLottieIcons = { init, setOpen, destroy };
 })();

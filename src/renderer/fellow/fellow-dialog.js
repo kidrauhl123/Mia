@@ -49,32 +49,50 @@
   // opens the native color picker for a fully custom hex. No "auto" chip — a
   // member with no chosen color simply falls back to the id hash by default, so
   // most people never have to think about it.
+  //
+  // The row is built once (and the rainbow's looping Lottie mounted once) so
+  // typing in the name field — which re-renders the preview every keystroke —
+  // doesn't tear down and reload the animation; later calls only update which
+  // chip looks selected. teardownColorSwatches() frees the Lottie on close.
   function renderColorSwatches(container, currentColor, onPick) {
     if (!container) return;
     const palette = (window.miaMemberColor && window.miaMemberColor.PALETTE) || [];
     const current = String(currentColor || "").toLowerCase();
     const isPreset = palette.some((c) => String(c).toLowerCase() === current);
-    const chips = [];
-    for (const c of palette) {
-      const sel = current === String(c).toLowerCase() ? " is-selected" : "";
-      chips.push(`<button type="button" class="avatar-color-chip${sel}" data-color="${c}" style="background:${c};" title="${c}" aria-label="${c}"></button>`);
+    if (container.dataset.built !== "1") {
+      const chips = palette.map((c) =>
+        `<button type="button" class="avatar-color-chip" data-color="${c}" style="background:${c};" title="${c}" aria-label="${c}"></button>`
+      );
+      // Rainbow chip → system color picker (same native <input type=color> the
+      // settings page uses). The looping Lottie fills the circle behind it.
+      chips.push(
+        `<label class="avatar-color-chip avatar-color-custom" title="自定义颜色">` +
+        `<span class="avatar-color-lottie" data-lottie="rainbow" data-lottie-trigger="loop" aria-hidden="true"></span>` +
+        `<input type="color" aria-label="自定义颜色"></label>`
+      );
+      container.innerHTML = chips.join("");
+      container.dataset.built = "1";
+      container.querySelectorAll("button.avatar-color-chip").forEach((btn) => {
+        btn.addEventListener("click", () => onPick(btn.dataset.color || ""));
+      });
+      const customInput = container.querySelector(".avatar-color-custom input[type=color]");
+      if (customInput) customInput.addEventListener("change", () => onPick(customInput.value));
+      window.miaLottieIcons?.init?.(container);
     }
-    // Rainbow chip → system color picker (same native <input type=color> the
-    // settings page uses) for fine-grained custom colors.
-    const customSel = current && !isPreset ? " is-selected" : "";
-    const inputVal = /^#[0-9a-f]{6}$/.test(current) ? current : "#0162db";
-    chips.push(
-      `<label class="avatar-color-chip avatar-color-custom${customSel}" title="自定义颜色">` +
-      `<input type="color" value="${inputVal}" aria-label="自定义颜色"></label>`
-    );
-    container.innerHTML = chips.join("");
-    container.querySelectorAll("button.avatar-color-chip").forEach((btn) => {
-      btn.addEventListener("click", () => onPick(btn.dataset.color || ""));
+    container.querySelectorAll(".avatar-color-chip").forEach((el) => {
+      const isCustom = el.classList.contains("avatar-color-custom");
+      const sel = isCustom ? Boolean(current && !isPreset) : (String(el.dataset.color || "").toLowerCase() === current);
+      el.classList.toggle("is-selected", sel);
     });
     const customInput = container.querySelector(".avatar-color-custom input[type=color]");
-    if (customInput) {
-      customInput.addEventListener("change", () => onPick(customInput.value));
-    }
+    if (customInput && /^#[0-9a-f]{6}$/.test(current)) customInput.value = current;
+  }
+
+  function teardownColorSwatches(container) {
+    if (!container) return;
+    window.miaLottieIcons?.destroy?.(container);
+    container.innerHTML = "";
+    delete container.dataset.built;
   }
 
   function firstNonEmpty(...values) {
@@ -150,6 +168,7 @@
   function closeProfileDialog() {
     if (!state) return;
     state.profileDialogOpen = false;
+    teardownColorSwatches(document.getElementById("profileAvatarColors"));
     renderView();
   }
 
@@ -537,6 +556,7 @@
   function closeFellowDialog() {
     if (!state) return;
     state.fellowDialogOpen = false;
+    teardownColorSwatches(document.getElementById("fellowAvatarColors"));
     renderView();
   }
 
