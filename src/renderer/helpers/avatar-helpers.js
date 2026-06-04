@@ -283,6 +283,14 @@
 
   function applyAvatarMedia(el, image, crop = {}, color = "#5e5ce6", fallbackText = "", options = {}) {
     if (!el) return;
+    // No uploaded avatar → render the deterministic generated SVG (color circle
+    // + initials baked in) as an image, so every surface shows the identical
+    // avatar regardless of its CSS class. Replaces the old per-call-site
+    // "background color + textContent" fallback that drifted between classes.
+    if (!avatarImageSrc(image)) {
+      image = avatarResolve().generatedAvatarDataUri(color || "#5e5ce6", fallbackText || "");
+      crop = null;
+    }
     const src = avatarImageSrc(image);
     el.style.background = "";
     el.style.backgroundImage = "";
@@ -348,12 +356,14 @@
   }
 
   function avatarHtml({ tag = "div", className = "avatar", image = "", crop = {}, color = "#5e5ce6", text = "", attrs = "" } = {}) {
-    const src = avatarImageSrc(image);
-    const hasImage = Boolean(src);
+    // Real images mount via hydrateAvatarMedia. For the no-image case bake the
+    // generated SVG straight into the background so it is correct even before
+    // hydration and matches what applyAvatarMedia paints (same memoized URI).
+    const hasImage = Boolean(avatarImageSrc(image));
     const style = hasImage
       ? "background-color:transparent;"
-      : avatarThumbBackgroundStyle(image, crop, color);
-    return `<${tag} class="${escapeHtml(className)}" ${attrs} ${avatarMediaAttrs(image || "", crop, color, text)} style="${style}">${hasImage ? "" : escapeHtml(text || "")}</${tag}>`;
+      : `background-color:transparent;background-image:url('${escapeHtml(avatarResolve().generatedAvatarDataUri(color || "#5e5ce6", text || ""))}');background-size:cover;background-position:center;background-repeat:no-repeat;`;
+    return `<${tag} class="${escapeHtml(className)}" ${attrs} ${avatarMediaAttrs(image || "", crop, color, text)} style="${style}">${""}</${tag}>`;
   }
 
   function parseAvatarCrop(value) {

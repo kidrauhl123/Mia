@@ -52,13 +52,16 @@ function loadAvatar() {
   return window.miaAvatar;
 }
 
-test("former preset image path renders as text fallback, not an image", () => {
+test("former preset image path renders as a generated fallback, not the preset image", () => {
   const avatar = loadAvatar();
   const el = makeEl();
   avatar.applyAvatarMedia(el, "./assets/avatars/01.png", {}, "#65aadd", "旧用");
-  assert.equal(el._children.length, 0);
-  assert.equal(el.textContent, "旧用");
-  assert.equal(el.style.backgroundColor, "#65aadd");
+  const img = el._children[0];
+  assert.ok(img, "renders a generated avatar image");
+  const src = img.getAttribute("src");
+  assert.match(src, /^data:image\/svg\+xml,/);  // deterministic generated fallback
+  assert.doesNotMatch(src, /assets\/avatars/);  // never the removed preset image
+  assert.match(decodeURIComponent(src), /旧用/);  // initials baked into the SVG
 });
 
 test("non-preset image with a neutral crop stays neutral", () => {
@@ -69,10 +72,15 @@ test("non-preset image with a neutral crop stays neutral", () => {
   assert.match(img.getAttribute("style"), /scale\(1\)/);
 });
 
-test("former preset image with an explicit user crop still renders as fallback", () => {
+test("former preset image with an explicit user crop still renders as the generated fallback", () => {
   const avatar = loadAvatar();
   const el = makeEl();
   avatar.applyAvatarMedia(el, "./assets/avatars/01.png", { x: 30, y: 70, zoom: 1.3 }, "#65aadd", "旧用");
-  assert.equal(el._children.length, 0);
-  assert.equal(el.textContent, "旧用");
+  const img = el._children[0];
+  assert.ok(img, "renders a generated avatar image");
+  assert.match(img.getAttribute("src"), /^data:image\/svg\+xml,/);
+  assert.doesNotMatch(img.getAttribute("src"), /assets\/avatars/);
+  // The crop that belonged to the removed preset image is dropped — the
+  // generated fallback shows neutral (scale 1), not the stale user crop.
+  assert.match(img.getAttribute("style"), /scale\(1\)/);
 });
