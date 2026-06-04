@@ -13,10 +13,10 @@
 桌面端是 Electron 应用。运行时分三层：
 
 - **主进程**（Electron，`src/main.js`）—— UI + IPC + Agent 编排
-- **Hermes 运行时**（密封 Python，位于 `vendor/hermes-runtime/<target>/`，由 `scripts/build-hermes-runtime.sh` 在 `prepack` 阶段构建）—— **打包进安装包**，自带不依赖用户环境
+- **Hermes 运行时**（密封 Python，位于 `vendor/hermes-runtime/<target>/`，由 `scripts/build-hermes-runtime.sh` 按平台构建）—— 默认轻量安装包不内置；`dist:*:with-hermes` 才会打包，打包后不依赖用户 Python 环境
 - **Claude Code / Codex 等外部 CLI** —— **不打包**，通过 `shellCommandPath()`（`src/main.js`）从用户系统 `PATH` 里查找
 
-为什么 Hermes 自带、其它 CLI 不自带：Hermes 是**上游开源 Agent runtime**（上游代码在 `~/github/Alkaka-reference/hermes-agent/`，**不是 mia 写的**），mia 走 **vendor pin、不 fork**，自带是为了让普通用户开箱即用、不装 Python；Claude Code / Codex 是用户已经在自己电脑上用的工具，mia 复用它们，不重复安装也不锁版本。
+为什么 Hermes 可以自带、其它 CLI 不自带：Hermes 是**上游开源 Agent runtime**（上游代码在 `~/github/Alkaka-reference/hermes-agent/`，**不是 mia 写的**），mia 走 **vendor pin、不 fork**，`with-hermes` 包自带是为了让普通用户开箱即用、不装 Python；Claude Code / Codex 是用户已经在自己电脑上用的工具，mia 复用它们，不重复安装也不锁版本。
 
 判断"Hermes 当前真实行为"以 `vendor/hermes-runtime/<target>/site-packages/` 里的 pinned 副本为准；查 upstream 当前设计 / API 演进看 `~/github/Alkaka-reference/hermes-agent/`。两者必然 drift，正常。
 
@@ -97,6 +97,12 @@ src/
 任一答不上：停下来问用户。
 
 ## 工程约束
+
+### Git / 提交消息
+
+- commit 标题必须写中文摘要，允许保留 conventional commit 前缀，例如 `fix(agent): 清理失效的 Claude Code 会话映射`。
+- 不要写只有英文的 commit subject；GitHub 列表第一眼要能让中文读者看懂这次改了什么。
+- body 可以继续用中文补充原因、验证命令和残余风险；如果没有必要，不要为了凑格式写空泛描述。
 
 ### 进程边界 / IPC
 
