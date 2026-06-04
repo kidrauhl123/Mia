@@ -84,14 +84,14 @@ test("lottie icons support autoplaying loop animations for scanning state", () =
   assert.match(lottieSource, /autoplay:\s*triggerMode === "loop"/);
 });
 
-test("renderer exposes Hermes install retry and repair states", () => {
+test("renderer does not expose Hermes private install actions", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
-  const preloadSource = fs.readFileSync(path.join(root, "src/preload.js"), "utf8");
 
-  assert.match(preloadSource, /repairEngine/);
-  assert.match(appSource, /function renderHermesInstallState/);
-  assert.match(appSource, /data-setup-action="repair-hermes"/);
-  assert.match(appSource, /data-setup-action="retry-install-hermes"/);
+  assert.doesNotMatch(appSource, /data-setup-action="install-hermes"/);
+  assert.doesNotMatch(appSource, /data-setup-action="repair-hermes"/);
+  assert.doesNotMatch(appSource, /data-setup-action="retry-install-hermes"/);
+  assert.doesNotMatch(appSource, /runHermesSetupAction/);
+  assert.doesNotMatch(appSource, /可安装到 Mia 私有目录/);
 });
 
 test("engine detection renderer preserves legacy runtime status fallbacks", () => {
@@ -120,7 +120,7 @@ test("engine detection renderer preserves legacy runtime status fallbacks", () =
     }
   });
 
-  assert.equal(sandbox.els.engineRowHermes.textContent, "随安装包内置 · 运行中");
+  assert.equal(sandbox.els.engineRowHermes.textContent, "已接入 Mia");
   assert.equal(sandbox.els.engineRowClaude.textContent, "/usr/local/bin/claude · 1.2.3 build");
   assert.equal(sandbox.els.engineRowCodex.textContent, "/usr/local/bin/codex · 4.5.6 build");
   assert.equal(sandbox.els.engineRowOpenClaw.textContent, "已检测到 · 暂未接入 Mia 聊天");
@@ -131,7 +131,7 @@ test("engine detection renderer preserves legacy runtime status fallbacks", () =
     agentEngines: {}
   });
 
-  assert.equal(sandbox.els.engineRowHermes.textContent, "Mia 私有 Hermes 已安装");
+  assert.equal(sandbox.els.engineRowHermes.textContent, "已接入 Mia");
 
   sandbox.renderEngineDetection({
     engineSource: "local-source",
@@ -139,7 +139,7 @@ test("engine detection renderer preserves legacy runtime status fallbacks", () =
     agentEngines: {}
   });
 
-  assert.equal(sandbox.els.engineRowHermes.textContent, "Mia 私有 Hermes 运行中");
+  assert.equal(sandbox.els.engineRowHermes.textContent, "已接入 Mia");
 
   sandbox.renderEngineDetection({
     engineSource: "system",
@@ -147,7 +147,7 @@ test("engine detection renderer preserves legacy runtime status fallbacks", () =
     agentEngines: {}
   });
 
-  assert.equal(sandbox.els.engineRowHermes.textContent, "系统 Hermes 就绪");
+  assert.equal(sandbox.els.engineRowHermes.textContent, "已接入 Mia");
 
   sandbox.renderEngineDetection({
     engineInstalled: true,
@@ -155,7 +155,7 @@ test("engine detection renderer preserves legacy runtime status fallbacks", () =
     agentEngines: {}
   });
 
-  assert.equal(sandbox.els.engineRowHermes.textContent, "Mia 私有 Hermes 运行中");
+  assert.equal(sandbox.els.engineRowHermes.textContent, "已接入 Mia");
 });
 
 test("signed-out desktop shell is a login gate without default Boss identity", () => {

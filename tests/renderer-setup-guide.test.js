@@ -30,7 +30,7 @@ function inventory(agents, summary = {}) {
       usableCount: agents.filter((agent) => agent.usableInMia).length,
       missingCount: agents.filter((agent) => !agent.installed).length,
       hasUsableAgent: agents.some((agent) => agent.usableInMia),
-      recommendedAction: agents.some((agent) => agent.usableInMia) ? "continue" : "install-hermes",
+      recommendedAction: "continue",
       ...summary
     }
   };
@@ -77,7 +77,7 @@ test("setup guide renders agent inventory as status-only results", () => {
   const state = {
     runtime: {
       agentInventory: inventory([
-        { id: "hermes", label: "Hermes", installed: false, usableInMia: false, installable: true, installAction: "install-hermes", health: "missing", source: "missing" },
+        { id: "hermes", label: "Hermes", installed: false, usableInMia: false, installable: false, installAction: "", health: "missing", source: "missing" },
         { id: "claude-code", label: "Claude Code", installed: false, usableInMia: false, installable: false, health: "missing", source: "missing" },
         { id: "codex", label: "Codex", installed: false, usableInMia: false, installable: false, health: "missing", source: "missing" },
         { id: "openclaw", label: "OpenClaw", installed: false, usableInMia: false, installable: false, detectionOnly: true, health: "missing", source: "missing" }
@@ -110,7 +110,7 @@ test("setup guide allows installed Claude Code and Codex while keeping OpenClaw 
   const state = {
     runtime: {
       agentInventory: inventory([
-        { id: "hermes", label: "Hermes", installed: false, usableInMia: false, installable: true, installAction: "install-hermes", health: "missing", source: "missing" },
+        { id: "hermes", label: "Hermes", installed: false, usableInMia: false, installable: false, installAction: "", health: "missing", source: "missing" },
         { id: "claude-code", label: "Claude Code", installed: true, usableInMia: true, installable: false, path: "/bin/claude", version: "claude 1.2.3", health: "ready", source: "system" },
         { id: "codex", label: "Codex", installed: true, usableInMia: true, installable: false, path: "/bin/codex", version: "codex 2.3.4", health: "ready", source: "system" },
         { id: "openclaw", label: "OpenClaw", installed: true, usableInMia: false, installable: false, detectionOnly: true, path: "/bin/openclaw", version: "openclaw 0.1.0", health: "detected", source: "system" }
@@ -148,18 +148,18 @@ test("setup guide allows system Hermes without requiring Mia private install", (
   const guide = loadSetupGuide(state);
   const html = guide.renderSetupGuide();
 
-  assert.match(html, /\/bin\/hermes · Hermes Agent · 使用 Mia 私有配置和记忆/);
+  assert.match(html, /\/bin\/hermes · Hermes Agent/);
   assert.doesNotMatch(html, /仍需要独立副本/);
   assert.doesNotMatch(html, /data-setup-action="install-hermes"/);
   assert.doesNotMatch(html, /data-setup-action="use-engine"/);
 });
 
-test("setup guide renders broken Hermes with repair action", () => {
+test("setup guide renders broken Hermes as status-only", () => {
   const state = {
     runtime: {
       fellows: [],
       agentInventory: inventory([
-        { id: "hermes", label: "Hermes", installed: true, usableInMia: false, installable: true, installAction: "repair-hermes", health: "broken", source: "mia-managed" }
+        { id: "hermes", label: "Hermes", installed: true, usableInMia: false, installable: false, installAction: "", health: "broken", source: "broken" }
       ])
     },
     onboardingStep: "engine",
@@ -171,7 +171,7 @@ test("setup guide renders broken Hermes with repair action", () => {
 
   assert.match(html, /Hermes/);
   assert.doesNotMatch(html, /data-setup-action="repair-hermes"/);
-  assert.match(html, /Mia 私有 Hermes 安装不完整，可修复/);
+  assert.match(html, /Hermes 状态异常/);
 });
 
 test("setup guide stays hidden after user skips agent setup", () => {

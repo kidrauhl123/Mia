@@ -24,8 +24,8 @@
         label: "Hermes",
         installed: Boolean(runtime?.engineInstalled),
         usableInMia: Boolean(runtime?.engineInstalled),
-        installable: true,
-        installAction: runtime?.engineInstalled ? "" : "install-hermes",
+        installable: false,
+        installAction: "",
         source: runtime?.engineSource || "missing",
         health: runtime?.engineInstalled ? "ready" : "missing"
       },
@@ -109,24 +109,14 @@
 
   function agentStatusText(agent) {
     if (agent.health === "checking" || agent.source === "checking") return "正在检查";
-    if (agent.id === "hermes" && agent.usableInMia) {
-      if (agent.source === "mia-bundled") return "随 Mia 安装包内置，可用于本机聊天";
-      if (agent.source === "mia-managed") return "Mia 私有 Hermes 已安装，可用于本机聊天";
-      if (agent.source === "system") {
-        const parts = [agent.path || "系统 Hermes", versionLabel(agent)].filter(Boolean);
-        return `${parts.join(" · ")} · 使用 Mia 私有配置和记忆`;
-      }
-      return "Hermes 可用于本机聊天";
-    }
     if (agent.usableInMia) {
-      const parts = [agent.path || "已检测到", versionLabel(agent)].filter(Boolean);
+      const parts = [agent.path || "已接入 Mia", versionLabel(agent)].filter(Boolean);
       return parts.join(" · ");
     }
     if (agent.installed && agent.detectionOnly) return "已检测到，暂未接入 Mia 聊天";
-    if (agent.id === "hermes" && agent.health === "broken") return "Mia 私有 Hermes 安装不完整，可修复";
-    if (agent.id === "hermes" && state?.hermesInstallError) return "上次安装失败，可重试";
+    if (agent.id === "hermes" && agent.health === "broken") return "Hermes 状态异常";
     if (agent.id === "hermes" && agent.installed) return "已检测到 Hermes，但当前安装方式暂不能由 Mia 启动";
-    if (agent.id === "hermes") return "未安装，可安装到 Mia 私有目录";
+    if (agent.id === "hermes") return "未检测到";
     if (agent.id === "claude-code") return "未检测到，需要先安装 Claude Code";
     if (agent.id === "codex") return "未检测到，需要先安装 Codex CLI";
     return "未检测到";
