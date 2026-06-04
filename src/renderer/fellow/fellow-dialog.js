@@ -126,10 +126,18 @@
   function renderFellowAvatarDraft() {
     if (!state || !els) return;
     const draft = state.fellowAvatarDraft;
-    const crop = window.miaAvatar.normalizeCrop(draft.crop);
     if (els.fellowAvatarPreview) {
-      const label = window.miaAvatarResolve?.identityDisplayText?.(els.fellowName?.value || "Fellow", "Fellow") || "Fe";
-      window.miaAvatar.applyAvatarMedia(els.fellowAvatarPreview, draft.image, crop, "#eef0ff", label);
+      // Same canonical resolution as every other surface: a custom image is
+      // kept, otherwise the accent color + initials follow the fellow identity /
+      // name — no more hardcoded lavender that mismatched the real avatar.
+      const name = els.fellowName?.value || "Fellow";
+      const avatar = window.miaAvatarResolve.resolveAvatarForContact({
+        id: draft.identityId || name,
+        displayName: name,
+        avatarImage: draft.image || "",
+        avatarCrop: draft.crop || null
+      });
+      window.miaAvatar.applyAvatarMedia(els.fellowAvatarPreview, avatar.image, avatar.crop, avatar.color, avatar.text);
       els.fellowAvatarPreview.title = "点击调整头像裁剪";
       els.fellowAvatarPreview.setAttribute("role", "button");
       els.fellowAvatarPreview.setAttribute("tabindex", "0");
@@ -466,6 +474,15 @@
     renderFellowAgentEngineSelect(actualFellow?.agentEngine || actualFellow?.agent_engine || seed?.agentEngine || state.preferredAgentEngine || "hermes");
     const avatarImage = actualFellow?.avatarImage || "";
     setFellowAvatarDraft(avatarImage, window.miaAvatar.avatarCropForImage(avatarImage, actualFellow?.avatarCrop));
+    // Canonical avatar identity of the fellow being edited, so the preview's
+    // background matches the hashed accent color shown everywhere else (create
+    // mode has no id yet → the preview follows the name field).
+    if (state.fellowAvatarDraft) {
+      state.fellowAvatarDraft.identityId = actualFellow
+        ? (window.miaContact?.fellowAvatarIdentityId?.(actualFellow.key || actualFellow.id, actualFellow) || actualFellow.key || actualFellow.id || "")
+        : "";
+    }
+    renderFellowAvatarDraft();
     els.fellowSeed.value = actualFellow ? personaText : (seed?.bio || "");
     if (els.fellowPersonaDetails) els.fellowPersonaDetails.open = Boolean(seed);
     renderView();

@@ -3452,6 +3452,12 @@ els.appearanceShowAssistantAvatar?.addEventListener("click", () => {
   window.miaSettingsAppearance.toggleSettingsSwitch(els.appearanceShowAssistantAvatar);
 });
 
+// Live-update the fellow avatar preview as the name is typed (mirrors the
+// profile dialog), so a generated avatar follows the name in create mode.
+els.fellowName?.addEventListener("input", () => {
+  window.miaFellowDialog?.renderFellowAvatarDraft?.();
+});
+
 els.fellowForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
   const existingFellow = els.fellowKey?.value
