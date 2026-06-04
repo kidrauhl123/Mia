@@ -73,11 +73,11 @@ test("setup guide keeps the scanning state while agent inventory is still checki
   assert.doesNotMatch(html, /扫描结果/);
 });
 
-test("setup guide renders agent inventory as status-only results", () => {
+test("setup guide offers official Hermes install when no local agent is available", () => {
   const state = {
     runtime: {
       agentInventory: inventory([
-        { id: "hermes", label: "Hermes", installed: false, usableInMia: false, installable: false, installAction: "", health: "missing", source: "missing" },
+        { id: "hermes", label: "Hermes", installed: false, usableInMia: false, installable: true, installAction: "install-hermes", health: "missing", source: "missing" },
         { id: "claude-code", label: "Claude Code", installed: false, usableInMia: false, installable: false, health: "missing", source: "missing" },
         { id: "codex", label: "Codex", installed: false, usableInMia: false, installable: false, health: "missing", source: "missing" },
         { id: "openclaw", label: "OpenClaw", installed: false, usableInMia: false, installable: false, detectionOnly: true, health: "missing", source: "missing" }
@@ -95,11 +95,12 @@ test("setup guide renders agent inventory as status-only results", () => {
   assert.match(html, /Agent 内核设置/);
   assert.match(html, /扫描结果/);
   assert.match(html, /data-setup-action="finish-agent-scan"/);
-  assert.doesNotMatch(html, /data-setup-action="install-hermes"/);
+  assert.match(html, /data-setup-action="install-hermes"/);
   assert.doesNotMatch(html, /data-setup-action="use-engine"/);
   assert.doesNotMatch(html, /data-action="cloud-login"/);
   assert.match(html, /OpenClaw/);
-  assert.doesNotMatch(html, /安装 Hermes/);
+  assert.match(html, /安装官方 Hermes/);
+  assert.doesNotMatch(html, /私有目录|Mia 私有 Hermes|独立副本/);
   assert.doesNotMatch(html, /使用 OpenClaw/);
   assert.match(html, /setup-engine-icon hermes/);
   assert.match(html, /assets\/provider-icons\/nousresearch\.svg/);
@@ -110,7 +111,7 @@ test("setup guide allows installed Claude Code and Codex while keeping OpenClaw 
   const state = {
     runtime: {
       agentInventory: inventory([
-        { id: "hermes", label: "Hermes", installed: false, usableInMia: false, installable: false, installAction: "", health: "missing", source: "missing" },
+        { id: "hermes", label: "Hermes", installed: false, usableInMia: false, installable: true, installAction: "install-hermes", health: "missing", source: "missing" },
         { id: "claude-code", label: "Claude Code", installed: true, usableInMia: true, installable: false, path: "/bin/claude", version: "claude 1.2.3", health: "ready", source: "system" },
         { id: "codex", label: "Codex", installed: true, usableInMia: true, installable: false, path: "/bin/codex", version: "codex 2.3.4", health: "ready", source: "system" },
         { id: "openclaw", label: "OpenClaw", installed: true, usableInMia: false, installable: false, detectionOnly: true, path: "/bin/openclaw", version: "openclaw 0.1.0", health: "detected", source: "system" }
@@ -130,6 +131,7 @@ test("setup guide allows installed Claude Code and Codex while keeping OpenClaw 
   assert.match(html, /assets\/provider-icons\/claude-color\.svg/);
   assert.match(html, /assets\/provider-icons\/codex-color\.svg/);
   assert.match(html, /assets\/provider-icons\/openclaw-color\.svg/);
+  assert.doesNotMatch(html, /data-setup-action="install-hermes"/);
   assert.doesNotMatch(html, /使用 OpenClaw/);
 });
 
@@ -154,12 +156,12 @@ test("setup guide allows system Hermes without requiring Mia private install", (
   assert.doesNotMatch(html, /data-setup-action="use-engine"/);
 });
 
-test("setup guide renders broken Hermes as status-only", () => {
+test("setup guide renders broken Hermes with official repair action", () => {
   const state = {
     runtime: {
       fellows: [],
       agentInventory: inventory([
-        { id: "hermes", label: "Hermes", installed: true, usableInMia: false, installable: false, installAction: "", health: "broken", source: "broken" }
+        { id: "hermes", label: "Hermes", installed: true, usableInMia: false, installable: true, installAction: "repair-hermes", health: "broken", source: "broken" }
       ])
     },
     onboardingStep: "engine",
@@ -170,8 +172,10 @@ test("setup guide renders broken Hermes as status-only", () => {
   const html = guide.renderSetupGuide();
 
   assert.match(html, /Hermes/);
-  assert.doesNotMatch(html, /data-setup-action="repair-hermes"/);
-  assert.match(html, /Hermes 状态异常/);
+  assert.match(html, /data-setup-action="repair-hermes"/);
+  assert.match(html, /修复官方 Hermes/);
+  assert.match(html, /官方 Hermes 状态异常，可修复/);
+  assert.doesNotMatch(html, /私有目录|Mia 私有 Hermes|独立副本/);
 });
 
 test("setup guide stays hidden after user skips agent setup", () => {

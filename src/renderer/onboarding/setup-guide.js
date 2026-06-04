@@ -24,8 +24,8 @@
         label: "Hermes",
         installed: Boolean(runtime?.engineInstalled),
         usableInMia: Boolean(runtime?.engineInstalled),
-        installable: false,
-        installAction: "",
+        installable: true,
+        installAction: runtime?.engineInstalled ? "" : "install-hermes",
         source: runtime?.engineSource || "missing",
         health: runtime?.engineInstalled ? "ready" : "missing"
       },
@@ -114,15 +114,25 @@
       return parts.join(" · ");
     }
     if (agent.installed && agent.detectionOnly) return "已检测到，暂未接入 Mia 聊天";
-    if (agent.id === "hermes" && agent.health === "broken") return "Hermes 状态异常";
-    if (agent.id === "hermes" && agent.installed) return "已检测到 Hermes，但当前安装方式暂不能由 Mia 启动";
-    if (agent.id === "hermes") return "未检测到";
+    if (agent.id === "hermes" && agent.health === "broken") return "官方 Hermes 状态异常，可修复";
+    if (agent.id === "hermes" && state?.hermesInstallError) return "上次安装官方 Hermes 失败，可重试";
+    if (agent.id === "hermes" && agent.installed) return "已检测到 Hermes，但当前安装方式暂不能用于 Mia";
+    if (agent.id === "hermes") return "未检测到，可安装官方 Hermes";
     if (agent.id === "claude-code") return "未检测到，需要先安装 Claude Code";
     if (agent.id === "codex") return "未检测到，需要先安装 Codex CLI";
     return "未检测到";
   }
 
   function agentAction(agent) {
+    if (agent.id !== "hermes") return null;
+    if (agent.health === "broken" || agent.installAction === "repair-hermes") {
+      return { action: "repair-hermes", label: "修复官方 Hermes" };
+    }
+    const hasUsableAgent = inventoryAgents().some((item) => item.usableInMia);
+    if (!agent.usableInMia && !agent.installed && !hasUsableAgent) {
+      if (state?.hermesInstallError) return { action: "retry-install-hermes", label: "重试安装官方 Hermes" };
+      return { action: "install-hermes", label: "安装官方 Hermes" };
+    }
     return null;
   }
 
@@ -131,8 +141,9 @@
     const stateClass = available ? "" : " unavailable";
     const action = agentAction(agent);
     const actionAttr = action ? `data-setup-action="${action.action}" data-engine="${agent.id}"` : "";
+    const primaryAction = available || action?.action === "install-hermes" || action?.action === "retry-install-hermes" || action?.action === "repair-hermes";
     const button = action
-      ? `<button class="setup-engine-action${available ? " primary" : ""}" type="button" ${actionAttr}>${escapeHtml(action.label)}</button>`
+      ? `<button class="setup-engine-action${primaryAction ? " primary" : ""}" type="button" ${actionAttr}>${escapeHtml(action.label)}</button>`
       : "";
     return `
       <div class="setup-engine-row${stateClass}" data-engine-id="${escapeHtml(agent.id)}">

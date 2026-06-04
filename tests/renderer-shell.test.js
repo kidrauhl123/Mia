@@ -84,14 +84,15 @@ test("lottie icons support autoplaying loop animations for scanning state", () =
   assert.match(lottieSource, /autoplay:\s*triggerMode === "loop"/);
 });
 
-test("renderer does not expose Hermes private install actions", () => {
+test("renderer exposes official Hermes install actions without private install wording", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
 
-  assert.doesNotMatch(appSource, /data-setup-action="install-hermes"/);
-  assert.doesNotMatch(appSource, /data-setup-action="repair-hermes"/);
-  assert.doesNotMatch(appSource, /data-setup-action="retry-install-hermes"/);
-  assert.doesNotMatch(appSource, /runHermesSetupAction/);
-  assert.doesNotMatch(appSource, /可安装到 Mia 私有目录/);
+  assert.match(appSource, /install-hermes/);
+  assert.match(appSource, /repair-hermes/);
+  assert.match(appSource, /retry-install-hermes/);
+  assert.match(appSource, /runHermesSetupAction/);
+  assert.match(appSource, /安装官方 Hermes/);
+  assert.doesNotMatch(appSource, /可安装到 Mia 私有目录|Mia 私有 Hermes|独立 Hermes|随安装包内置|使用 Mia 私有配置和记忆/);
 });
 
 test("engine detection renderer preserves legacy runtime status fallbacks", () => {

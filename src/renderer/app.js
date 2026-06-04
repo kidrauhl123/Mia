@@ -1522,13 +1522,36 @@ function legacyAgentStatus(id, legacy) {
 }
 
 function hermesDetectionLine(runtime, hermes) {
-  if (hermes) return detectedAgentLine(hermes);
+  if (hermes) {
+    if (hermes.usableInMia || hermes.installed) return detectedAgentLine(hermes);
+    return "未检测到 · 可安装官方 Hermes";
+  }
   const legacySource = String(runtime?.engineSource || "");
   const legacyUsable = Boolean(
     runtime?.engineInstalled
     || ["bundled", "managed", "local-source", "maintained-local-source", "system"].includes(legacySource)
   );
-  return legacyUsable ? "已接入 Mia" : "未检测到";
+  return legacyUsable ? "已接入 Mia" : "未检测到 · 可安装官方 Hermes";
+}
+
+function renderHermesInstallState(runtime = state.runtime) {
+  const hermes = runtime?.agentInventory?.agents?.find((agent) => agent.id === "hermes");
+  if (state.hermesInstallError) return state.hermesInstallError;
+  if (!hermes) return "";
+  if (hermes.health === "broken") return "官方 Hermes 状态异常，可修复。";
+  if (hermes.source === "system" && !hermes.usableInMia) return "检测到 Hermes，但当前安装方式暂不能用于 Mia。";
+  return "";
+}
+
+function hermesSetupAction(runtime = state.runtime) {
+  const hermes = runtime?.agentInventory?.agents?.find((agent) => agent.id === "hermes");
+  if (hermes?.installAction === "repair-hermes" || hermes?.health === "broken") {
+    return { action: "repair-hermes", label: "修复官方 Hermes" };
+  }
+  if (state.hermesInstallError) {
+    return { action: "retry-install-hermes", label: "重试安装官方 Hermes" };
+  }
+  return { action: "install-hermes", label: "安装官方 Hermes" };
 }
 
 function renderEngineDetection(runtime) {
@@ -1839,11 +1862,15 @@ function hasUsableLocalAgent(runtime = state.runtime) {
 }
 
 function renderNoAgentGuide() {
+  const hermesState = renderHermesInstallState();
+  const hermesAction = hermesSetupAction();
   return `
     <div class="cloud-login-guide no-agent-guide">
       <h2>本机 Agent 尚未连接</h2>
-      <p>要开始本机聊天，请先配置可用的本机 Agent。你也可以登录 Mia Cloud，同步并使用云端对话。</p>
+      <p>要开始本机聊天，请安装官方 Hermes 或配置已有 Agent。你也可以登录 Mia Cloud，同步并使用云端对话。</p>
+      ${hermesState ? `<p>${window.miaMarkdown.escapeHtml(hermesState)}</p>` : ""}
       <div class="setup-actions">
+        <button type="button" class="primary" data-setup-action="${hermesAction.action}">${window.miaMarkdown.escapeHtml(hermesAction.label)}</button>
         <button type="button" class="secondary" data-setup-action="open-agent-settings">查看本机引擎</button>
         <button type="button" class="secondary" data-action="cloud-login">登录 Mia Cloud</button>
       </div>
@@ -3930,6 +3957,31 @@ function afterEnginePicked(engine) {
   });
 }
 
+async function runHermesSetupAction(button, action) {
+  const repair = action === "repair-hermes";
+  const retry = action === "retry-install-hermes";
+  button.disabled = true;
+  const original = button.textContent;
+  button.textContent = repair ? "修复中..." : retry ? "重试中..." : "安装中...";
+  try {
+    state.hermesInstallError = "";
+    state.runtime = repair ? await window.mia.repairEngine() : await window.mia.installEngine();
+    await window.miaLoaders.loadModelCatalog();
+    state.agentSetupSkipped = false;
+    try { localStorage.removeItem(AGENT_SETUP_SKIPPED_KEY); } catch { /* ignore */ }
+    afterEnginePicked("hermes");
+  } catch (error) {
+    const verb = repair ? "修复" : "安装";
+    state.hermesInstallError = `官方 Hermes ${verb}失败：${error.message || error}`;
+    appendTransientChat("assistant", state.hermesInstallError);
+    await refreshRuntime();
+  } finally {
+    button.disabled = false;
+    button.textContent = original;
+    renderView();
+  }
+}
+
 async function handleSetupGuideAction(button) {
   const action = button?.dataset?.setupAction || "";
   if (!action) return false;
@@ -3959,6 +4011,10 @@ async function handleSetupGuideAction(button) {
   if (action === "finish-agent-scan") {
     await completeAgentSetup("", { skipped: !hasUsableLocalAgent() });
     renderView();
+    return true;
+  }
+  if (["install-hermes", "retry-install-hermes", "repair-hermes"].includes(action)) {
+    await runHermesSetupAction(button, action);
     return true;
   }
   if (action === "use-engine") {
