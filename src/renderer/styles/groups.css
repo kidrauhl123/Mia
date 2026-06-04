@@ -185,23 +185,26 @@
 }
 .group-create-members {
   display: grid;
-  gap: 1px;
+  align-content: start;
+  gap: 2px;
   max-height: 248px;
   overflow-y: auto;
-  padding: 0;
-  border-radius: 0;
+  padding: 6px 0;
+  border-radius: 12px;
   border: 0;
-  background: transparent;
+  background: var(--field);
 }
 .group-create-member-row {
   display: grid;
-  grid-template-columns: 36px minmax(0, 1fr) auto;
+  grid-template-columns: 26px minmax(0, 1fr) 22px;
   align-items: center;
-  gap: 12px;
-  width: 100%;
-  padding: 8px 10px;
+  gap: 8px;
+  width: calc(100% - 12px);
+  min-height: 32px;
+  margin: 0 6px;
+  padding: 3px 8px;
   border: 0;
-  border-radius: 10px;
+  border-radius: 8px;
   background: transparent;
   color: var(--text);
   text-align: left;
@@ -212,30 +215,37 @@
   appearance: none;
 }
 .group-create-member-row:hover { background: var(--hover); }
+.group-create-member-row.is-selected {
+  background: var(--list-active);
+}
 .group-create-member-row .member-avatar {
   position: relative;
   display: block;
-  width: 36px;
-  height: 36px;
+  width: 26px;
+  height: 26px;
   border-radius: 50%;
   background-size: cover;
   background-position: center;
   background-color: var(--field);
-  border: 1px solid var(--line);
+  border: 0;
   box-sizing: border-box;
   overflow: hidden;
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
 }
 .group-create-member-row .member-name {
   min-width: 0;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 430;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .group-create-member-row .member-check {
-  width: 18px;
-  height: 18px;
+  justify-self: end;
+  width: 17px;
+  height: 17px;
   border-radius: 50%;
   border: 1.5px solid var(--line-strong);
   background: transparent;

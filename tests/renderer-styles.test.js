@@ -22,6 +22,16 @@ test("renderer styles are split into feature stylesheets", () => {
   assert.doesNotMatch(baseCss, /\.task-card/);
 });
 
+test("group create member picker uses compact filled contact rows", () => {
+  const groupsCss = fs.readFileSync(path.join(root, "src/renderer/styles/groups.css"), "utf8");
+
+  assert.match(groupsCss, /\.group-create-members\s*\{[\s\S]*?border:\s*0;[\s\S]*?background:\s*var\(--field\);/);
+  assert.match(groupsCss, /\.group-create-member-row\s*\{[\s\S]*?grid-template-columns:\s*26px minmax\(0,\s*1fr\) 22px;/);
+  assert.match(groupsCss, /\.group-create-member-row\s*\{[\s\S]*?min-height:\s*32px;/);
+  assert.match(groupsCss, /\.group-create-member-row \.member-avatar\s*\{[\s\S]*?width:\s*26px;[\s\S]*?height:\s*26px;[\s\S]*?border:\s*0;/);
+  assert.match(groupsCss, /\.group-create-member-row\.is-selected\s*\{[\s\S]*?background:\s*var\(--list-active\);/);
+});
+
 test("chat topbar stays on the white surface while the transcript canvas is gray", () => {
   const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
   const chatCss = fs.readFileSync(path.join(root, "src/renderer/styles/chat.css"), "utf8");
