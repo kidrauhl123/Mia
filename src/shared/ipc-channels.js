@@ -9,6 +9,7 @@
     WindowMinimize: "window:minimize",
     WindowGreen: "window:green",
     WindowState: "window:state",
+    WindowShowMain: "window:show-main",
     WindowFocusState: "window:focus-state",
     WindowFullscreen: "window:fullscreen",
     EditContextMenu: "edit:context-menu",

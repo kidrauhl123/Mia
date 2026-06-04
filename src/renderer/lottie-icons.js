@@ -17,6 +17,8 @@
 //      "hover": boomerang on the closest button's mouseenter. For context-menu
 //        items, which are rebuilt (innerHTML) on every open — call init(menuEl)
 //        after rendering; init() first sweeps orphaned (detached) instances.
+//      "loop": autoplay and loop until the element is removed. Used for startup
+//        loading states that must animate without user input.
 (function () {
   const BASE_PATH = "./assets/lottie/";
 
@@ -80,8 +82,8 @@
     const anim = window.lottie.loadAnimation({
       container,
       renderer: "svg",
-      loop: false,
-      autoplay: false,
+      loop: triggerMode === "loop",
+      autoplay: triggerMode === "loop",
       path: `${BASE_PATH}${name}.json`,
     });
     const entry = { anim, open: false, restFrame, segment: seg };
@@ -91,7 +93,9 @@
       // Drop the static fallback <svg> shipped in the markup; lottie appended its own.
       const fallback = container.querySelector("svg:first-child");
       if (fallback && container.children.length > 1) fallback.remove();
-      anim.goToAndStop(restFrame, true); // idle / closed state
+      if (triggerMode !== "loop") {
+        anim.goToAndStop(restFrame, true); // idle / closed state
+      }
     });
 
     if (triggerMode === "boomerang" || triggerMode === "hover") {

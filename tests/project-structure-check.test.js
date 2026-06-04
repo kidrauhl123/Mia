@@ -561,20 +561,21 @@ test("scheduler MCP bridge context, spec, and Codex home setup live behind a mai
   assert.doesNotMatch(mainSource, /function ensureCodexHome/, "main must not own Codex home MCP config merging");
 });
 
-test("disabled system Hermes policy lives behind a main system-hermes service without dead probe code", () => {
+test("system Hermes probing lives behind a main system-hermes service", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
   const systemSource = fs.readFileSync(path.join(root, "src/main/system-hermes-service.js"), "utf8");
 
   assert.match(systemSource, /function createSystemHermesService/, "system Hermes service should exist");
   assert.match(mainSource, /createSystemHermesService/, "main should instantiate system Hermes policy");
-  assert.doesNotMatch(mainSource, /function readShebangPython/, "main must not keep disabled system Hermes shebang probing");
+  assert.match(systemSource, /function readShebangPython/, "system Hermes service should own shebang probing");
+  assert.doesNotMatch(mainSource, /function readShebangPython/, "main must not keep system Hermes shebang probing");
   assert.doesNotMatch(mainSource, /function systemHermesCachePath/, "main must not own system Hermes cache paths");
   assert.doesNotMatch(mainSource, /function loadSystemHermesCache/, "main must not own system Hermes cache reads");
   assert.doesNotMatch(mainSource, /function persistSystemHermesCache/, "main must not own system Hermes cache writes");
-  assert.doesNotMatch(mainSource, /SYSTEM_HERMES_PROBE/, "main must not embed disabled system Hermes probe scripts");
+  assert.doesNotMatch(mainSource, /SYSTEM_HERMES_PROBE/, "main must not embed system Hermes probe scripts");
   assert.doesNotMatch(mainSource, /systemHermesRefreshing/, "main must not keep disabled system Hermes refresh state");
   assert.doesNotMatch(mainSource, /function refreshSystemHermesAsync/, "main must not own system Hermes refresh policy");
-  assert.doesNotMatch(mainSource, /function userHermesHomePath/, "main must not own disabled user Hermes home lookup");
+  assert.doesNotMatch(mainSource, /function userHermesHomePath/, "main must not own user Hermes home lookup");
   assert.doesNotMatch(mainSource, /function importFromSystemHermes/, "main must not keep unreachable system Hermes import logic");
   assert.doesNotMatch(mainSource, /function stripAnsi/, "main must not keep dotenv parsing helpers for disabled system Hermes");
   assert.doesNotMatch(mainSource, /function loadHermesDotenv/, "main must not own system Hermes dotenv imports");

@@ -180,14 +180,7 @@
       </header>
 
       <section class="chat-layout">
-        <div id="chat" class="chat">
-          <article class="setup-guide bootstrap">
-            <div class="setup-guide-main">
-              <strong>正在准备 Mia</strong>
-              <p>正在创建本地 runtime、读取伙伴和会话。</p>
-            </div>
-          </article>
-        </div>
+        <div id="chat" class="chat"></div>
         <form id="chatForm" class="composer">
           <div id="agentPermissionBanner" class="agent-permission-banner hidden" aria-live="polite"></div>
           <div id="composerReply" class="composer-reply hidden"></div>
@@ -461,7 +454,9 @@
             <div class="settings-section-label">本机引擎</div>
             <section class="engine-detection wide" id="engineDetection">
               <button class="engine-row" type="button" data-engine-row="hermes" aria-expanded="false">
-                <span class="engine-row-logo hermes" aria-hidden="true"></span>
+                <span class="engine-row-logo asset hermes" aria-hidden="true">
+                  <img src="./assets/provider-icons/nousresearch.svg" alt="">
+                </span>
                 <span class="engine-row-body">
                   <strong>Hermes</strong>
                   <small id="engineRowHermes">检测中…</small>
@@ -506,15 +501,17 @@
                 </section>
               </form>
               <div class="engine-row static" data-engine-row="claude-code">
-                <span class="engine-row-logo claude" aria-hidden="true"></span>
+                <span class="engine-row-logo asset claude" aria-hidden="true">
+                  <img src="./assets/provider-icons/claude-color.svg" alt="">
+                </span>
                 <span class="engine-row-body">
                   <strong>Claude Code</strong>
                   <small id="engineRowClaude">检测中…</small>
                 </span>
               </div>
               <div class="engine-row static" data-engine-row="codex">
-                <span class="engine-row-logo codex" aria-hidden="true">
-                  <img src="./assets/engine-icons/codex-color.svg" alt="">
+                <span class="engine-row-logo asset codex" aria-hidden="true">
+                  <img src="./assets/provider-icons/codex-color.svg" alt="">
                 </span>
                 <span class="engine-row-body">
                   <strong>Codex</strong>
@@ -522,7 +519,9 @@
                 </span>
               </div>
               <div class="engine-row static" data-engine-row="openclaw">
-                <span class="engine-row-logo openclaw" aria-hidden="true"></span>
+                <span class="engine-row-logo asset openclaw" aria-hidden="true">
+                  <img src="./assets/provider-icons/openclaw-color.svg" alt="">
+                </span>
                 <span class="engine-row-body">
                   <strong>OpenClaw</strong>
                   <small id="engineRowOpenClaw">检测中…</small>

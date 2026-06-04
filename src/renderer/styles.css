@@ -394,20 +394,22 @@ body.window-blurred .traffic-spacer:hover .traffic-light.green {
   display: block;
 }
 
-/* Lottie bakes colors into its JSON; repaint fills through currentColor so
-   theme/accent changes still reach filled dots and solid icon parts. */
-[data-lottie] svg path {
+/* App icon Lotties bake colors into their JSON; repaint fills through
+   currentColor so theme/accent changes still reach filled dots and solid icon
+   parts. The startup scan animation is a full-color illustration, so it is
+   excluded and keeps its source colors. */
+[data-lottie]:not(.setup-scan-lottie) svg path {
   fill: currentColor !important;
 }
 
 /* Rail SVG styles set stroke on fallback icons; generated filled Lottie paths
    must clear that inheritance or dots/accent shapes gain a visible ring. */
-[data-lottie] svg path:not([fill-opacity="0"]) {
+[data-lottie]:not(.setup-scan-lottie) svg path:not([fill-opacity="0"]) {
   stroke: none !important;
 }
 
 /* Only hollow Lottie paths are outlines. */
-[data-lottie] svg path[fill-opacity="0"] {
+[data-lottie]:not(.setup-scan-lottie) svg path[fill-opacity="0"] {
   stroke: currentColor !important;
 }
 
@@ -2184,7 +2186,7 @@ body.topbar-click-capture .topbar {
 
 .setup-engine-row {
   display: grid;
-  grid-template-columns: 12px minmax(0, 1fr) auto;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
   padding: 11px 12px;
@@ -2194,23 +2196,46 @@ body.topbar-click-capture .topbar {
 }
 
 .setup-engine-row.unavailable {
-  opacity: 0.65;
+  opacity: 1;
 }
 
-.setup-engine-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--faint);
+.setup-engine-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  overflow: hidden;
 }
 
-.setup-engine-dot.hermes      { background: #5e5ce6; }
-.setup-engine-dot.claude-code { background: #d97706; }
-.setup-engine-dot.codex       { background: #10a37f; }
-.setup-engine-dot.openclaw  { background: #7c3aed; }
+.setup-engine-icon img {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  display: block;
+}
 
-.setup-engine-row.unavailable .setup-engine-dot {
-  opacity: 0.45;
+.setup-engine-icon.openclaw img {
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+}
+
+.setup-engine-icon.monogram {
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.setup-engine-row.unavailable .setup-engine-icon {
+  opacity: 0.82;
+}
+
+.setup-engine-row.unavailable .setup-engine-body,
+.setup-engine-row.unavailable .setup-engine-action {
+  opacity: 0.62;
 }
 
 .setup-engine-body {
@@ -2285,6 +2310,145 @@ body.topbar-click-capture .topbar {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.5;
+}
+
+body.onboarding-window {
+  background: var(--surface);
+}
+
+body.onboarding-window .app-shell {
+  grid-template-columns: minmax(0, 1fr);
+  padding: 0;
+  background: var(--surface);
+}
+
+body.onboarding-window .nav-rail,
+body.onboarding-window .sidebar,
+body.onboarding-window .sidebar-resize-handle,
+body.onboarding-window .topbar,
+body.onboarding-window .composer,
+body.onboarding-window #contactsView,
+body.onboarding-window #skillsView,
+body.onboarding-window #tasksView {
+  display: none;
+}
+
+body.onboarding-window #chatView {
+  display: grid;
+  grid-column: 1 / -1;
+  border-radius: 0;
+  background: var(--surface);
+  box-shadow: none;
+}
+
+body.onboarding-window #chatView > :first-child {
+  grid-template-rows: minmax(0, 1fr);
+  min-height: 100vh;
+  background: var(--surface);
+}
+
+body.onboarding-window .chat {
+  align-content: start;
+  justify-items: stretch;
+  padding: 0;
+  overflow: hidden;
+}
+
+body.onboarding-window .setup-guide {
+  width: 100%;
+  min-height: 100vh;
+  margin: 0;
+  gap: 8px;
+  padding: 20px 24px 14px;
+  border: 0;
+  border-radius: 0;
+  background: var(--surface);
+  box-shadow: none;
+  -webkit-app-region: drag;
+}
+
+body.onboarding-window .setup-guide.scanning {
+  align-content: center;
+  justify-items: center;
+  gap: 10px;
+  padding: 26px 28px;
+  text-align: center;
+}
+
+.setup-scan-lottie {
+  display: grid;
+  place-items: center;
+  width: 76px;
+  height: 76px;
+  color: var(--accent);
+  -webkit-app-region: no-drag;
+}
+
+.setup-scan-lottie svg {
+  width: 76px;
+  height: 76px;
+}
+
+body.onboarding-window .setup-guide-main {
+  gap: 3px;
+  padding-bottom: 0;
+}
+
+body.onboarding-window .setup-guide strong {
+  font-size: 16px;
+}
+
+body.onboarding-window .setup-guide p {
+  font-size: 12px;
+  line-height: 1.32;
+}
+
+body.onboarding-window .setup-engine-list {
+  gap: 2px;
+  -webkit-app-region: no-drag;
+}
+
+body.onboarding-window .setup-engine-row {
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 10px;
+  min-height: 40px;
+  padding: 3px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+body.onboarding-window .setup-engine-row.unavailable {
+  opacity: 1;
+}
+
+body.onboarding-window .setup-engine-icon {
+  width: 26px;
+  height: 26px;
+}
+
+body.onboarding-window .setup-engine-icon img {
+  width: 22px;
+  height: 22px;
+}
+
+body.onboarding-window .setup-engine-icon.openclaw img {
+  width: 24px;
+  height: 24px;
+  border-radius: 0;
+}
+
+body.onboarding-window .setup-actions {
+  justify-content: flex-start;
+  max-width: none;
+  padding-top: 2px;
+  -webkit-app-region: no-drag;
+}
+
+body.onboarding-window .setup-action {
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
 }
 
 .setup-status-grid {
@@ -4857,7 +5021,7 @@ textarea:focus {
   color: var(--muted);
 }
 
-.engine-row-logo::before {
+.engine-row-logo:not(.asset)::before {
   content: "";
   display: block;
   width: 30px;
@@ -4867,36 +5031,23 @@ textarea:focus {
   mask: center / contain no-repeat;
 }
 
-.engine-row-logo.hermes {
-  color: #5e5ce6;
-}
-
-.engine-row-logo.hermes::before {
+.engine-row-logo.hermes:not(.asset)::before {
   -webkit-mask-image: url("./assets/engine-icons/hermesagent.svg");
   mask-image: url("./assets/engine-icons/hermesagent.svg");
 }
 
-.engine-row-logo.claude {
-  color: #d97757;
-}
-
-.engine-row-logo.claude::before {
+.engine-row-logo.claude:not(.asset)::before {
   width: 31px;
   height: 31px;
   -webkit-mask-image: url("./assets/engine-icons/claudecode.svg");
   mask-image: url("./assets/engine-icons/claudecode.svg");
 }
 
-.engine-row-logo.codex::before {
+.engine-row-logo.codex:not(.asset)::before {
   display: none;
 }
 
-.engine-row-logo.openclaw {
-  background: linear-gradient(135deg, #1f2937, #7c3aed);
-  color: #fff;
-}
-
-.engine-row-logo.openclaw::before {
+.engine-row-logo.openclaw:not(.asset)::before {
   content: "OC";
   width: auto;
   height: auto;
@@ -5307,4 +5458,12 @@ pre {
   .setup-action {
     flex: 1 1 auto;
   }
+}
+
+body.onboarding-window .setup-actions {
+  justify-content: flex-start;
+}
+
+body.onboarding-window .setup-action {
+  flex: 0 0 auto;
 }

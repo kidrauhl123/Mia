@@ -455,7 +455,7 @@
     ) || "desktop-local";
     renderFellowRuntimeLocationSelect(runtimeKind);
     if (els.fellowRuntimeLocation) els.fellowRuntimeLocation.disabled = Boolean(actualFellow);
-    renderFellowAgentEngineSelect(actualFellow?.agentEngine || actualFellow?.agent_engine || seed?.agentEngine || "hermes");
+    renderFellowAgentEngineSelect(actualFellow?.agentEngine || actualFellow?.agent_engine || seed?.agentEngine || state.preferredAgentEngine || "hermes");
     const avatarImage = actualFellow?.avatarImage || "";
     setFellowAvatarDraft(avatarImage, window.miaAvatar.avatarCropForImage(avatarImage, actualFellow?.avatarCrop));
     els.fellowSeed.value = actualFellow ? personaText : (seed?.bio || "");

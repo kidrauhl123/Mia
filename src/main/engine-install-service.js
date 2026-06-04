@@ -15,6 +15,9 @@ function createEngineInstallService(deps = {}) {
   const bundledSitePackages = deps.bundledSitePackages || (() => "");
   const buildPythonPath = deps.buildPythonPath || (() => "");
   const engineMarkerPath = deps.engineMarkerPath || (() => path.join(runtimePaths().engine, "mia-runtime.json"));
+  const systemHermesPython = typeof deps.systemHermesPython === "function"
+    ? deps.systemHermesPython
+    : () => "";
   const readJson = deps.readJson || ((filePath, fallback) => {
     try {
       return JSON.parse(fsImpl.readFileSync(filePath, "utf8"));
@@ -111,9 +114,8 @@ function createEngineInstallService(deps = {}) {
     if (managedSources.has(marker?.source)) {
       return fsImpl.existsSync(venvPythonPath());
     }
-    if (marker?.source === "maintained-local-source") {
-      return fsImpl.existsSync(localSourceEntrypoint());
-    }
+    if (localSourceInstalled(marker)) return true;
+    if (systemHermesPythonPath()) return true;
     return false;
   }
 
@@ -121,11 +123,22 @@ function createEngineInstallService(deps = {}) {
     return path.join(runtimePaths().engine, "hermes_cli", "main.py");
   }
 
+  function localSourceInstalled(marker = readJson(engineMarkerPath(), {})) {
+    return marker?.source === "maintained-local-source" && fsImpl.existsSync(localSourceEntrypoint());
+  }
+
+  function systemHermesPythonPath() {
+    return String(systemHermesPython() || "").trim();
+  }
+
   function enginePython() {
     const bundled = bundledPython();
     if (bundled) return bundled;
     const managedPython = venvPythonPath();
     if (fsImpl.existsSync(managedPython)) return managedPython;
+    if (localSourceInstalled()) return "python3";
+    const systemPython = systemHermesPythonPath();
+    if (systemPython) return systemPython;
     return "python3";
   }
 
@@ -133,7 +146,8 @@ function createEngineInstallService(deps = {}) {
     if (bundledPython() && bundledSitePackages()) return "bundled";
     if (fsImpl.existsSync(venvPythonPath())) return "managed";
     const marker = readJson(engineMarkerPath(), {});
-    if (marker?.source === "maintained-local-source" && fsImpl.existsSync(localSourceEntrypoint())) return "local-source";
+    if (localSourceInstalled(marker)) return "local-source";
+    if (systemHermesPythonPath()) return "system";
     return "none";
   }
 
@@ -289,6 +303,7 @@ function createEngineInstallService(deps = {}) {
     enginePython,
     engineSource,
     runInstallCommand,
+    systemHermesPythonPath,
     installFromDevSource,
     installFromOfficialPackage,
     install,

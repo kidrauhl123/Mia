@@ -57,13 +57,23 @@ test("lottie icon styles keep filled shapes from gaining outline strokes", () =>
   );
   assert.match(
     baseCss,
-    /\[data-lottie\]\s+svg\s+path\[fill-opacity="0"\]\s*\{[^}]*stroke:\s*currentColor\s*!important;/,
+    /\[data-lottie\]:not\(\.setup-scan-lottie\)\s+svg\s+path\[fill-opacity="0"\]\s*\{[^}]*stroke:\s*currentColor\s*!important;/,
     "only hollow Lottie outline paths should receive the theme stroke"
   );
   assert.match(
     baseCss,
-    /\[data-lottie\]\s+svg\s+path:not\(\[fill-opacity="0"\]\)\s*\{[^}]*stroke:\s*none\s*!important;/,
+    /\[data-lottie\]:not\(\.setup-scan-lottie\)\s+svg\s+path:not\(\[fill-opacity="0"\]\)\s*\{[^}]*stroke:\s*none\s*!important;/,
     "filled Lottie paths must clear inherited rail SVG strokes"
+  );
+  assert.match(
+    baseCss,
+    /\[data-lottie\]:not\(\.setup-scan-lottie\)\s+svg\s+path\s*\{[^}]*fill:\s*currentColor\s*!important;/,
+    "theme repainting should apply only to app icon Lotties"
+  );
+  assert.doesNotMatch(
+    baseCss,
+    /\.setup-scan-lottie\s+svg\s+path\s*\{[^}]*fill:\s*currentColor/,
+    "startup scan animation should keep the source LottieFiles colors"
   );
   assert.match(
     baseCss,

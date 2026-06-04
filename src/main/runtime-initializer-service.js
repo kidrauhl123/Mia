@@ -81,7 +81,7 @@ function createRuntimeInitializerService(deps = {}) {
       "# Mia Hermes Engine",
       "",
       "This directory is reserved for Mia's bundled or downloaded Hermes engine.",
-      "The demo intentionally does not inspect or modify any user-installed Hermes checkout.",
+      "Mia may launch a user-installed Hermes binary, but never writes into its checkout or home.",
       ""
     ].join("\n"))) {
       created.push("runtime/hermes-engine/README.md");

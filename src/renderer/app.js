@@ -33,6 +33,13 @@ const state = window.miaAppState.createInitialState({
   sidebarWidth: savedSidebarWidth(),
   windowWidth: window.innerWidth
 });
+const agentSetupLaunch = new URLSearchParams(window.location.search || "").get("mode") === "agent-setup";
+if (agentSetupLaunch && !state.onboardingStep && !state.setupGuideDismissed && !state.agentSetupSkipped) {
+  state.onboardingStep = "engine";
+}
+if (window.miaSetupGuide && window.miaSetupGuide.initSetupGuide) {
+  window.miaSetupGuide.initSetupGuide({ state, escapeHtml: window.miaMarkdown.escapeHtml });
+}
 
 const els = {
   appShell: document.querySelector(".app-shell"),
@@ -1033,7 +1040,17 @@ function updateModelFieldVisibility(runtime = state.runtime) {
 
 function render() {
   const runtime = state.runtime;
-  if (!runtime) return;
+  if (!runtime) {
+    if (window.miaSetupGuide?.shouldShowSetupGuide?.({ messages: [] })) {
+      document.body.classList.toggle("onboarding-window", true);
+      els.chat.innerHTML = window.miaSetupGuide.renderSetupGuide();
+      window.miaLottieIcons?.init?.(els.chat);
+      return;
+    }
+    document.body.classList.toggle("onboarding-window", false);
+    if (els.chat) els.chat.innerHTML = "";
+    return;
+  }
   const cloudSignedIn = Boolean(runtime?.cloud?.enabled);
   els.appShell?.setAttribute("data-auth-state", cloudSignedIn ? "signed-in" : "signed-out");
   renderSendButton();
@@ -1531,19 +1548,23 @@ function hermesDetectionLine(runtime, hermes) {
   const source = hermes?.source || runtime?.engineSource;
   const usesBundled = source === "mia-bundled" || source === "bundled";
   const usesManaged = ["mia-managed", "managed", "local-source", "maintained-local-source"].includes(source);
+  const usesSystem = source === "system";
   const legacyInstalled = !hermes && Boolean(runtime?.engineInstalled);
-  const usableInMia = hermes ? Boolean(hermes.usableInMia) : Boolean(usesBundled || usesManaged || legacyInstalled);
+  const usableInMia = hermes ? Boolean(hermes.usableInMia) : Boolean(usesBundled || usesManaged || usesSystem || legacyInstalled);
 
   if (usableInMia && usesBundled) {
     return runtime?.engineRunning ? "随安装包内置 · 运行中" : "随安装包内置 · 就绪";
   }
+  if (usableInMia && usesSystem) {
+    return runtime?.engineRunning ? "系统 Hermes 运行中" : "系统 Hermes 就绪";
+  }
   if (usableInMia && (usesManaged || legacyInstalled)) {
-    return runtime?.engineRunning ? "独立副本运行中" : "独立副本已安装";
+    return runtime?.engineRunning ? "Mia 私有 Hermes 运行中" : "Mia 私有 Hermes 已安装";
   }
   if (hermes?.installed) {
-    return "已检测到系统 Hermes · Mia 当前需要独立副本";
+    return "已检测到 Hermes · 当前安装方式暂不能由 Mia 启动";
   }
-  return "未安装 · 点开后可安装独立副本";
+  return "未安装 · 可安装到 Mia 私有目录";
 }
 
 function renderHermesInstallState(runtime = state.runtime) {
@@ -1552,7 +1573,8 @@ function renderHermesInstallState(runtime = state.runtime) {
   if (!hermes) return "";
   if (hermes.health === "broken") return "Hermes 安装不完整，可修复或重装。";
   if (hermes.source === "mia-managed" && hermes.usableInMia) return "Hermes 已安装到 Mia 私有目录。";
-  if (hermes.source === "system" && !hermes.usableInMia) return "检测到系统 Hermes，Mia 仍需要私有运行环境。";
+  if (hermes.source === "system" && hermes.usableInMia) return "将使用系统 Hermes 程序，并使用 Mia 私有配置和记忆。";
+  if (hermes.source === "system" && !hermes.usableInMia) return "检测到 Hermes，但当前安装方式暂不能由 Mia 启动。";
   return "";
 }
 
@@ -1898,7 +1920,9 @@ function renderNoAgentGuide() {
 
 function renderChat() {
   const activeConversationId = window.miaSocial?.getActiveConversationId?.();
+  let onboardingWindow = false;
   if (activeConversationId) {
+    document.body.classList.toggle("onboarding-window", false);
     if (window.miaSocial && typeof window.miaSocial.renderConversationChat === "function") {
       window.miaSocial.renderConversationChat(els.chat);
     }
@@ -1906,9 +1930,13 @@ function renderChat() {
   }
   const messages = [];
   if (window.miaSetupGuide?.shouldShowSetupGuide?.({ messages })) {
+    onboardingWindow = true;
+    document.body.classList.toggle("onboarding-window", true);
     els.chat.innerHTML = window.miaSetupGuide.renderSetupGuide();
+    window.miaLottieIcons?.init?.(els.chat);
     return;
   }
+  document.body.classList.toggle("onboarding-window", onboardingWindow);
   if (state.agentSetupSkipped && !hasUsableLocalAgent()) {
     els.chat.innerHTML = renderNoAgentGuide();
     return;
@@ -2372,6 +2400,9 @@ async function refreshRuntime() {
 async function initializeRuntime() {
   const runtime = await trackStartupTask("初始化 runtime", () => window.mia.initializeRuntime());
   state.firstRun = Array.isArray(runtime?.created) && runtime.created.length > 0;
+  if (state.firstRun && !state.onboardingStep && !state.setupGuideDismissed && !state.agentSetupSkipped) {
+    advanceOnboarding("engine");
+  }
   state.runtime = runtime;
   // Initialize extracted renderer modules BEFORE any subsequent trackStartupTask
   // call, because trackStartupTask itself triggers render() at start and finish;
@@ -2571,6 +2602,9 @@ async function initializeRuntime() {
     }
   }
   render();
+  if (state.runtime?.agentInventory?.summary?.scanning) {
+    setTimeout(refreshRuntime, 120);
+  }
   setTimeout(() => {
     Promise.allSettled([
       trackStartupTask("加载 Hermes 模型列表", () => window.miaLoaders.loadModelCatalog()),
@@ -3971,16 +4005,28 @@ function advanceOnboarding(step) {
   try { localStorage.setItem("mia.onboardingStep", step); } catch { /* ignore */ }
 }
 
-function afterEnginePicked(engine) {
-  state.onboardingPickedEngine = engine;
-  advanceOnboarding("create-fellow");
-  // For Hermes: pop the model-settings panel so the user can add provider + API
-  // key right away. For CC/Codex auth happens externally — skip.
-  if (engine === "hermes") {
-    state.settingsOpen = true;
-    state.activeSettingsTab = "model";
+async function completeAgentSetup(engine, options = {}) {
+  const pickedEngine = String(engine || "").trim();
+  if (pickedEngine) {
+    state.onboardingPickedEngine = pickedEngine;
+    state.preferredAgentEngine = pickedEngine;
+    try { localStorage.setItem("mia.preferredAgentEngine.v1", pickedEngine); } catch { /* ignore */ }
   }
-  renderView();
+  state.agentSetupSkipped = Boolean(options.skipped);
+  state.setupGuideDismissed = true;
+  try {
+    if (state.agentSetupSkipped) localStorage.setItem(AGENT_SETUP_SKIPPED_KEY, "1");
+    else localStorage.removeItem(AGENT_SETUP_SKIPPED_KEY);
+    localStorage.setItem(SETUP_GUIDE_DISMISSED_KEY, "1");
+  } catch { /* ignore */ }
+  advanceOnboarding("done");
+  await window.mia.window?.showMain?.();
+}
+
+function afterEnginePicked(engine) {
+  completeAgentSetup(engine).finally(() => {
+    renderView();
+  });
 }
 
 async function runHermesSetupAction(button, action) {
@@ -4030,14 +4076,13 @@ async function handleSetupGuideAction(button) {
     return true;
   }
   if (action === "continue-no-agent") {
-    state.agentSetupSkipped = true;
-    state.setupGuideDismissed = true;
-    try {
-      localStorage.setItem(AGENT_SETUP_SKIPPED_KEY, "1");
-      localStorage.setItem(SETUP_GUIDE_DISMISSED_KEY, "1");
-    } catch { /* ignore */ }
-    advanceOnboarding("done");
-    renderChat();
+    await completeAgentSetup("", { skipped: true });
+    renderView();
+    return true;
+  }
+  if (action === "finish-agent-scan") {
+    await completeAgentSetup("", { skipped: !hasUsableLocalAgent() });
+    renderView();
     return true;
   }
   if (action === "use-engine") {
@@ -4048,10 +4093,6 @@ async function handleSetupGuideAction(button) {
   }
   if (["install-hermes", "retry-install-hermes", "repair-hermes"].includes(action)) {
     return runHermesSetupAction(button, action);
-  }
-  if (action === "create-first-fellow") {
-    openInitialFellowDialog();
-    return true;
   }
   return false;
 }

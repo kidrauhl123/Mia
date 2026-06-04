@@ -156,6 +156,15 @@ let settingsStore = null;
 const miaMemoryService = createMiaMemoryService({ runtimePaths });
 const claudeBridgePluginService = createClaudeBridgePluginService({ runtimePaths });
 const enginePluginsService = createEnginePluginsService({ runtimePaths });
+let localAgentEngineService = null;
+const systemHermesService = createSystemHermesService({
+  runtimePaths,
+  readJson,
+  env: process.env,
+  homeDir: () => os.homedir(),
+  spawnSync,
+  resetAgentEngineCache: () => localAgentEngineService?.resetCache?.()
+});
 const engineInstallService = createEngineInstallService({
   runtimePaths,
   venvPythonPath,
@@ -163,6 +172,7 @@ const engineInstallService = createEngineInstallService({
   bundledSitePackages,
   buildPythonPath,
   engineMarkerPath,
+  systemHermesPython: () => systemHermesService.pythonPath(),
   readJson,
   spawnSync,
   appendLog: appendEngineLog,
@@ -171,7 +181,7 @@ const engineInstallService = createEngineInstallService({
   stopEngine,
   ensureEnginePlugins: () => enginePluginsService.ensureInstalled(),
   resetAgentEngineCache: () => localAgentEngineService.resetCache(),
-  getRuntimeStatus
+  getRuntimeStatus: (created) => getRuntimeStatus(created, { scanAgents: false })
 });
 const engineRuntimeConfigService = createEngineRuntimeConfigService({
   runtimePaths,
@@ -236,17 +246,12 @@ const launchdService = createLaunchdService({
   spawnSync,
   appendLog: appendEngineLog
 });
-const localAgentEngineService = createLocalAgentEngineService({
+localAgentEngineService = createLocalAgentEngineService({
   homeDir: () => os.homedir(),
   env: process.env,
   spawnSync,
   isHermesInstalled: () => engineInstallService.isInstalled(),
   hermesSource: () => engineInstallService.engineSource()
-});
-const systemHermesService = createSystemHermesService({
-  runtimePaths,
-  readJson,
-  resetAgentEngineCache: localAgentEngineService.resetCache
 });
 
 settingsStore = createSettingsStore({
@@ -541,14 +546,20 @@ async function getObservedDaemonStatus(timeoutMs = 500) {
   return daemonControlServer.observedStatus(timeoutMs);
 }
 
-function getRuntimeStatus(created = []) {
+function getRuntimeStatus(created = [], options = {}) {
   const p = runtimePaths();
   const manifest = loadFellowManifest();
   const codexAuth = authService.status();
   const settings = settingsWithoutSecret();
   const connectedProviders = connectedProviderSummaries(codexAuth);
   const fellows = Array.isArray(manifest.fellows) ? manifest.fellows : [];
-  const agentInventory = localAgentEngineService.agentInventory();
+  const scanAgents = options.scanAgents !== false;
+  const agentInventory = scanAgents
+    ? localAgentEngineService.agentInventory()
+    : localAgentEngineService.pendingAgentInventory();
+  const agentEngines = scanAgents
+    ? localAgentEngineService.localAgentEngines()
+    : localAgentEngineService.pendingLocalAgentEngines();
   return {
     appData: p.root,
     runtimeRoot: p.runtime,
@@ -579,7 +590,7 @@ function getRuntimeStatus(created = []) {
     user: settingsStore.userProfile(),
     appearance: settingsStore.appearanceSettings(),
     agentInventory,
-    agentEngines: localAgentEngineService.localAgentEngines(),
+    agentEngines,
     permissions: settingsStore.permissionStatus(),
     effort: settingsStore.effortStatus(),
     model: {
@@ -1512,12 +1523,38 @@ function stopChat() {
   return { stopped: false };
 }
 
+function shouldOpenAgentSetupWindow() {
+  if (process.env.MIA_FORCE_AGENT_SETUP_WINDOW === "1") return true;
+  if (process.env.MIA_FORCE_AGENT_SETUP_WINDOW === "0") return false;
+  try {
+    return !fs.existsSync(runtimePaths().runtime);
+  } catch {
+    return false;
+  }
+}
+
 function createWindow() {
   const initialWindow = windowStateManager.initialWindowState();
+  const compactOnboarding = shouldOpenAgentSetupWindow();
+  if (compactOnboarding) {
+    const onboardingWidth = 420;
+    const onboardingHeight = 360;
+    const workArea = screen.getPrimaryDisplay().workArea;
+    initialWindow.bounds = {
+      ...initialWindow.bounds,
+      x: Math.round(workArea.x + (workArea.width - onboardingWidth) / 2),
+      y: Math.round(workArea.y + (workArea.height - onboardingHeight) / 2),
+      width: onboardingWidth,
+      height: onboardingHeight
+    };
+    initialWindow.maximized = false;
+  }
+  const minWindowWidth = compactOnboarding ? 380 : 420;
+  const minWindowHeight = compactOnboarding ? 320 : 560;
   const win = new BrowserWindow({
     ...initialWindow.bounds,
-    minWidth: 420,
-    minHeight: 560,
+    minWidth: minWindowWidth,
+    minHeight: minWindowHeight,
     title: "Mia",
     titleBarStyle: "hidden",
     acceptFirstMouse: true,
@@ -1529,10 +1566,10 @@ function createWindow() {
     }
   });
   if (process.platform === "darwin" && typeof win.setWindowButtonVisibility === "function") {
-    win.setWindowButtonVisibility(false);
+    win.setWindowButtonVisibility(compactOnboarding);
   }
   if (initialWindow.maximized) win.maximize();
-  windowStateManager.attachWindowStatePersistence(win);
+  if (!compactOnboarding) windowStateManager.attachWindowStatePersistence(win);
   const sendWindowEvent = (channel, payload) => {
     if (!win.isDestroyed()) win.webContents.send(channel, payload);
   };
@@ -1541,7 +1578,7 @@ function createWindow() {
   win.on("enter-full-screen", () => sendWindowEvent(IpcChannel.WindowFullscreen, true));
   win.on("leave-full-screen", () => sendWindowEvent(IpcChannel.WindowFullscreen, false));
   win.webContents.once("did-finish-load", () => startupTimer.mark("renderer:did-finish-load"));
-  win.loadFile(path.join(__dirname, "renderer", "index.html"));
+  win.loadFile(path.join(__dirname, "renderer", "index.html"), compactOnboarding ? { query: { mode: "agent-setup" } } : {});
   startupTimer.mark("window:load-file");
   return win;
 }

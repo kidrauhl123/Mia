@@ -73,12 +73,12 @@
   }
 
   function shouldShowSetupGuide({ messages }) {
-    if (!state || !state.runtime) return false;
-    const fellows = state.runtime.fellows || state.runtime.personas || [];
-    if (fellows.length === 0) return !state.agentSetupSkipped;
+    if (!state) return false;
+    if (state.agentSetupSkipped) return false;
     if (state.setupGuideDismissed) return false;
+    if (state.onboardingStep !== "engine") return false;
     if (messages.length > 0) return false;
-    return false;
+    return true;
   }
 
   function versionLabel(agent) {
@@ -87,10 +87,35 @@
     return version.split(/\s+/).slice(0, 2).join(" ");
   }
 
+  const AGENT_ICON_PATHS = {
+    hermes: "./assets/provider-icons/nousresearch.svg",
+    "claude-code": "./assets/provider-icons/claude-color.svg",
+    codex: "./assets/provider-icons/codex-color.svg",
+    openclaw: "./assets/provider-icons/openclaw-color.svg"
+  };
+
+  function agentIcon(agent) {
+    const src = AGENT_ICON_PATHS[agent.id];
+    if (src) {
+      return `
+        <span class="setup-engine-icon ${escapeHtml(agent.id)}" aria-hidden="true">
+          <img src="${escapeHtml(src)}" alt="">
+        </span>
+      `;
+    }
+    const label = String(agent.label || agent.id || "?").trim();
+    return `<span class="setup-engine-icon monogram" aria-hidden="true">${escapeHtml(label.slice(0, 2).toUpperCase())}</span>`;
+  }
+
   function agentStatusText(agent) {
+    if (agent.health === "checking" || agent.source === "checking") return "正在检查";
     if (agent.id === "hermes" && agent.usableInMia) {
       if (agent.source === "mia-bundled") return "随 Mia 安装包内置，可用于本机聊天";
-      if (agent.source === "mia-managed") return "Mia 独立副本已安装，可用于本机聊天";
+      if (agent.source === "mia-managed") return "Mia 私有 Hermes 已安装，可用于本机聊天";
+      if (agent.source === "system") {
+        const parts = [agent.path || "系统 Hermes", versionLabel(agent)].filter(Boolean);
+        return `${parts.join(" · ")} · 使用 Mia 私有配置和记忆`;
+      }
       return "Hermes 可用于本机聊天";
     }
     if (agent.usableInMia) {
@@ -98,9 +123,9 @@
       return parts.join(" · ");
     }
     if (agent.installed && agent.detectionOnly) return "已检测到，暂未接入 Mia 聊天";
-    if (agent.id === "hermes" && agent.health === "broken") return "Mia 独立副本安装不完整，可修复";
+    if (agent.id === "hermes" && agent.health === "broken") return "Mia 私有 Hermes 安装不完整，可修复";
     if (agent.id === "hermes" && state?.hermesInstallError) return "上次安装失败，可重试";
-    if (agent.id === "hermes" && agent.installed) return "已检测到系统 Hermes，当前 Mia 仍需要独立副本";
+    if (agent.id === "hermes" && agent.installed) return "已检测到 Hermes，但当前安装方式暂不能由 Mia 启动";
     if (agent.id === "hermes") return "未安装，可安装到 Mia 私有目录";
     if (agent.id === "claude-code") return "未检测到，需要先安装 Claude Code";
     if (agent.id === "codex") return "未检测到，需要先安装 Codex CLI";
@@ -108,18 +133,6 @@
   }
 
   function agentAction(agent) {
-    if (agent.usableInMia && ["hermes", "claude-code", "codex"].includes(agent.id)) {
-      return { action: "use-engine", label: `使用 ${agent.label}` };
-    }
-    if (agent.id === "hermes" && agent.installAction === "repair-hermes") {
-      return { action: "repair-hermes", label: "修复 Hermes" };
-    }
-    if (agent.id === "hermes" && state?.hermesInstallError) {
-      return { action: "retry-install-hermes", label: "重试安装" };
-    }
-    if (agent.id === "hermes" && agent.installAction === "install-hermes") {
-      return { action: "install-hermes", label: "安装 Hermes" };
-    }
     return null;
   }
 
@@ -133,7 +146,7 @@
       : "";
     return `
       <div class="setup-engine-row${stateClass}" data-engine-id="${escapeHtml(agent.id)}">
-        <span class="setup-engine-dot ${escapeHtml(agent.id)}"></span>
+        ${agentIcon(agent)}
         <div class="setup-engine-body">
           <strong>${escapeHtml(agent.label)}</strong>
           <small>${escapeHtml(agentStatusText(agent))}</small>
@@ -145,25 +158,24 @@
 
   function renderSetupGuide() {
     if (!state) return "";
+    if (!state.runtime || state.runtime?.agentInventory?.summary?.scanning) {
+      return `
+        <article class="setup-guide scanning">
+          <div class="setup-scan-lottie" data-lottie="chemistry" data-lottie-trigger="loop" aria-hidden="true"></div>
+          <div class="setup-guide-main">
+            <span class="setup-kicker">Agent 内核设置</span>
+            <strong>正在扫描本机 Agent</strong>
+            <p>正在检查 Hermes、Claude Code、Codex 和 OpenClaw 的本机安装状态。</p>
+          </div>
+        </article>
+      `;
+    }
     const runtime = state.runtime || {};
-    const fellows = runtime.fellows || runtime.personas || [];
-
-    // If no fellow exists, force flow into onboarding regardless of prior dismiss.
-    if (fellows.length === 0 && state.onboardingStep === "done") {
-      state.onboardingStep = "engine";
-    }
-
-    if (state.onboardingStep === "create-fellow") {
-      return renderSetupGuideCreateFellowStep();
-    }
 
     const agents = inventoryAgents(runtime);
-    const hasUsableAgent = agents.some((agent) => agent.usableInMia);
-    const kicker = hasUsableAgent ? "第 1 步 / 共 2 步" : "本机 Agent";
-    const title = hasUsableAgent ? "选个 Agent 引擎" : "这台电脑还没有可用 Agent";
-    const body = hasUsableAgent
-      ? "这是你的第一个伙伴默认会用的引擎，以后任意时候都能换。"
-      : "可以先安装 Hermes，也可以跳过安装进入 Mia。";
+    const kicker = "Agent 内核设置";
+    const title = "扫描结果";
+    const body = "Mia 会使用自己的配置、会话和记忆，不改原生 Agent 自己的数据。";
 
     return `
       <article class="setup-guide">
@@ -175,29 +187,8 @@
         <div class="setup-engine-list">
           ${agents.map(engineChoiceRow).join("")}
         </div>
-        ${hasUsableAgent ? "" : `
-          <div class="setup-actions" style="justify-content: flex-start;">
-            <button class="setup-action secondary" type="button" data-setup-action="continue-no-agent">暂不安装，继续进入 Mia</button>
-            <button class="setup-action secondary" type="button" data-action="cloud-login">登录 Mia Cloud</button>
-          </div>
-        `}
-      </article>
-    `;
-  }
-
-  function renderSetupGuideCreateFellowStep() {
-    if (!state) return "";
-    const engine = state.onboardingPickedEngine || "hermes";
-    const label = engine === "hermes" ? "Hermes" : engine === "claude-code" ? "Claude Code" : "Codex";
-    return `
-      <article class="setup-guide">
-        <div class="setup-guide-main">
-          <span class="setup-kicker">第 2 步 / 共 2 步</span>
-          <strong>创建你的第一个伙伴</strong>
-          <p>名字、头像、人设都已经预填好，点 "开始创建" 后可以随便改。引擎已选：<b>${escapeHtml(label)}</b>。</p>
-        </div>
         <div class="setup-actions" style="justify-content: flex-start;">
-          <button class="setup-action primary" type="button" data-setup-action="create-first-fellow">开始创建</button>
+          <button class="setup-action primary" type="button" data-setup-action="finish-agent-scan">进入 Mia</button>
         </div>
       </article>
     `;
@@ -209,6 +200,5 @@
     shouldShowSetupGuide,
     engineChoiceRow,
     renderSetupGuide,
-    renderSetupGuideCreateFellowStep,
   };
 })();

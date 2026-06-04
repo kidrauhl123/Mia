@@ -184,18 +184,20 @@ function createLocalAgentEngineService(deps = {}) {
     if (source === "bundled") return "mia-bundled";
     if (source === "managed") return "mia-managed";
     if (source === "local-source" || source === "maintained-local-source") return "mia-managed";
+    if (source === "system") return "system";
     return "";
   }
 
-  function miaHermesUsable() {
+  function hermesUsable(systemAvailable) {
     const source = miaHermesSource();
+    if (source === "system") return Boolean(systemAvailable && isHermesInstalled());
     return Boolean(source && isHermesInstalled());
   }
 
   function agentStatus(definition) {
     const probe = firstCommandPath(definition.commands);
     const systemAvailable = Boolean(probe.path);
-    const hermesRuntimeUsable = definition.id === "hermes" ? miaHermesUsable() : false;
+    const hermesRuntimeUsable = definition.id === "hermes" ? hermesUsable(systemAvailable) : false;
     const installed = Boolean(systemAvailable || hermesRuntimeUsable);
     const usableInMia = definition.id === "hermes"
       ? hermesRuntimeUsable
@@ -247,6 +249,47 @@ function createLocalAgentEngineService(deps = {}) {
     };
     agentInventoryCache = { at, value };
     return value;
+  }
+
+  function pendingAgentStatus(definition) {
+    return {
+      id: definition.id,
+      label: definition.label,
+      commands: definition.commands.slice(),
+      command: definition.commands[0] || "",
+      installed: false,
+      usableInMia: false,
+      installable: Boolean(definition.installable),
+      installAction: "",
+      detectionOnly: Boolean(definition.detectionOnly),
+      path: "",
+      version: "",
+      source: "checking",
+      health: "checking",
+      system: {
+        available: false,
+        path: "",
+        version: ""
+      }
+    };
+  }
+
+  function pendingAgentInventory() {
+    const at = now();
+    if (agentInventoryCache.value && at - agentInventoryCache.at < cacheMs) return agentInventoryCache.value;
+    const agents = AGENT_DEFINITIONS.map(pendingAgentStatus);
+    return {
+      generatedAt: at,
+      agents,
+      summary: {
+        installedCount: 0,
+        usableCount: 0,
+        missingCount: 0,
+        hasUsableAgent: false,
+        recommendedAction: "scan",
+        scanning: true
+      }
+    };
   }
 
   function inventoryAgent(id) {
@@ -301,6 +344,48 @@ function createLocalAgentEngineService(deps = {}) {
     return value;
   }
 
+  function pendingLocalAgentEngines() {
+    const at = now();
+    if (agentEngineCache.value && at - agentEngineCache.at < cacheMs) return agentEngineCache.value;
+    return {
+      hermes: {
+        id: "hermes",
+        label: "默认",
+        available: false,
+        installed: false,
+        path: "",
+        version: "",
+        source: "checking",
+        system: { available: false, path: "", version: "" }
+      },
+      claudeCode: {
+        id: "claude-code",
+        label: "Claude Code",
+        available: false,
+        installed: false,
+        path: "",
+        version: ""
+      },
+      codex: {
+        id: "codex",
+        label: "Codex",
+        available: false,
+        installed: false,
+        path: "",
+        version: ""
+      },
+      openClaw: {
+        id: "openclaw",
+        label: "OpenClaw",
+        available: false,
+        installed: false,
+        path: "",
+        version: "",
+        detectionOnly: true
+      }
+    };
+  }
+
   return {
     agentInventory,
     cliPathEnv,
@@ -308,6 +393,8 @@ function createLocalAgentEngineService(deps = {}) {
     commandNameOnly,
     commandVersion,
     localAgentEngines,
+    pendingAgentInventory,
+    pendingLocalAgentEngines,
     processEnvWithCliPath,
     resetCache,
     shellCommandPath

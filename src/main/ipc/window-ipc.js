@@ -18,6 +18,16 @@ function registerWindowIpc({ ipcMain, startupTimer, runtimeLifecycle }) {
     if (!w) return;
     w.setFullScreen(!w.isFullScreen());
   });
+  ipcMain.handle(IpcChannel.WindowShowMain, (event) => {
+    const w = BrowserWindow.fromWebContents(event.sender);
+    if (!w) return;
+    w.setMinimumSize(420, 560);
+    w.setSize(1040, 700);
+    w.center();
+    if (process.platform === "darwin" && typeof w.setWindowButtonVisibility === "function") {
+      w.setWindowButtonVisibility(false);
+    }
+  });
   ipcMain.handle(IpcChannel.WindowState, (event) => {
     const w = BrowserWindow.fromWebContents(event.sender);
     if (!w) return { focused: true, fullscreen: false };

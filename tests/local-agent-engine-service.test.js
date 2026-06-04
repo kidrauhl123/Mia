@@ -159,6 +159,23 @@ test("localAgentEngines reports the legacy engine view and caches CLI probes unt
   assert.equal(calls.filter((call) => call[0] === "zsh").length, 10);
 });
 
+test("pendingAgentInventory reports checking state without spawning CLI probes", (t) => {
+  const { calls, service } = makeService(t);
+
+  const inventory = service.pendingAgentInventory();
+  const legacy = service.pendingLocalAgentEngines();
+  const agentsById = Object.fromEntries(inventory.agents.map((agent) => [agent.id, agent]));
+
+  assert.equal(calls.length, 0);
+  assert.equal(inventory.summary.scanning, true);
+  assert.equal(inventory.summary.recommendedAction, "scan");
+  assert.equal(agentsById.hermes.health, "checking");
+  assert.equal(agentsById.hermes.source, "checking");
+  assert.equal(agentsById.hermes.installed, false);
+  assert.equal(legacy.hermes.source, "checking");
+  assert.equal(legacy.claudeCode.available, false);
+});
+
 test("agentInventory separates system Hermes detection from Mia Hermes usability", (t) => {
   let now = 1000;
   const { service } = makeService(t, {
@@ -210,6 +227,39 @@ test("agentInventory separates system Hermes detection from Mia Hermes usability
   assert.equal(agentsById.openclaw.installed, true);
   assert.equal(agentsById.openclaw.usableInMia, false);
   assert.equal(agentsById.openclaw.detectionOnly, true);
+});
+
+test("agentInventory treats system Hermes as usable when Mia can launch its Python runtime", (t) => {
+  const { service } = makeService(t, {
+    isHermesInstalled: () => true,
+    hermesSource: () => "system",
+    fs: {
+      accessSync: () => {
+        throw new Error("missing");
+      }
+    },
+    spawnSync: (command, args) => {
+      if (command === "zsh" && args[1] === "command -v hermes") {
+        return { status: 0, stdout: "/bin/hermes\n", stderr: "" };
+      }
+      if (command === "/bin/hermes") return { status: 0, stdout: "Hermes Agent v0.11.0\n", stderr: "" };
+      return { status: 1, stdout: "", stderr: "" };
+    }
+  });
+
+  const inventory = service.agentInventory();
+  const hermes = inventory.agents.find((agent) => agent.id === "hermes");
+  const legacy = service.localAgentEngines();
+
+  assert.equal(hermes.installed, true);
+  assert.equal(hermes.usableInMia, true);
+  assert.equal(hermes.source, "system");
+  assert.equal(hermes.health, "ready");
+  assert.equal(hermes.installAction, "");
+  assert.equal(inventory.summary.usableCount, 1);
+  assert.equal(inventory.summary.recommendedAction, "continue");
+  assert.equal(legacy.hermes.available, true);
+  assert.equal(legacy.hermes.source, "system");
 });
 
 test("agentInventory recommends Hermes install when no usable agent is detected", (t) => {

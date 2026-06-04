@@ -114,7 +114,7 @@ test("selectOfficialEnginePython fails clearly when no candidate is new enough",
   );
 });
 
-test("engine source and executable prefer bundled runtime, then managed venv, then python3", (t) => {
+test("engine source and executable prefer bundled runtime, managed venv, local source, system Hermes, then python3", (t) => {
   const bundled = setup(t, {
     bundledPython: () => "/app/hermes-runtime/bin/python",
     bundledSitePackages: () => "/app/hermes-runtime/site-packages"
@@ -134,6 +134,12 @@ test("engine source and executable prefer bundled runtime, then managed venv, th
   fs.writeFileSync(local.service.engineMarkerPath(), JSON.stringify({ source: "maintained-local-source" }));
   assert.equal(local.service.enginePython(), "python3");
   assert.equal(local.service.engineSource(), "local-source");
+
+  const system = setup(t, {
+    systemHermesPython: () => "/Users/test/.hermes/hermes-agent/venv/bin/python3"
+  });
+  assert.equal(system.service.enginePython(), "/Users/test/.hermes/hermes-agent/venv/bin/python3");
+  assert.equal(system.service.engineSource(), "system");
 
   const missing = setup(t);
   assert.equal(missing.service.enginePython(), "python3");
@@ -164,6 +170,11 @@ test("isInstalled recognizes bundled, official managed, and maintained local sou
   fs.writeFileSync(path.join(local.runtime.engine, "hermes_cli", "main.py"), "");
   fs.writeFileSync(local.service.engineMarkerPath(), JSON.stringify({ source: "maintained-local-source" }));
   assert.equal(local.service.isInstalled(), true);
+
+  const system = setup(t, {
+    systemHermesPython: () => "/Users/test/.hermes/hermes-agent/venv/bin/python3"
+  });
+  assert.equal(system.service.isInstalled(), true);
 
   const missing = setup(t);
   assert.equal(missing.service.isInstalled(), false);

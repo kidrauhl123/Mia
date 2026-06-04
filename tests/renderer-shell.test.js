@@ -50,13 +50,38 @@ test("renderer chat uses setup guide and supports no-agent continuation", () => 
   );
 
   assert.match(appSource, /window\.miaSetupGuide\?\.shouldShowSetupGuide/);
+  assert.match(appSource, /document\.body\.classList\.toggle\("onboarding-window", true\)/);
+  assert.match(appSource, /document\.body\.classList\.toggle\("onboarding-window", false\)/);
+  assert.match(appSource, /window\.miaLottieIcons\?\.init\?\.\(els\.chat\)/);
+  assert.doesNotMatch(htmlSource, /正在准备 Mia/);
+  assert.doesNotMatch(htmlSource, /正在创建本地 runtime/);
   assert.match(appSource, /renderNoAgentGuide/);
-  assert.match(appSource, /continue-no-agent/);
+  assert.match(appSource, /finish-agent-scan/);
   assert.match(noAgentGuideSource, /data-action="cloud-login"/);
   assert.match(appSource, /AGENT_SETUP_SKIPPED_KEY/);
   assert.match(appSource, /engineRowOpenClaw/);
   assert.match(htmlSource, /id="engineRowOpenClaw"/);
+  assert.match(htmlSource, /assets\/provider-icons\/nousresearch\.svg/);
+  assert.match(htmlSource, /assets\/provider-icons\/claude-color\.svg/);
+  assert.match(htmlSource, /assets\/provider-icons\/codex-color\.svg/);
+  assert.match(htmlSource, /assets\/provider-icons\/openclaw-color\.svg/);
   assert.match(stylesSource, /engine-row-logo\.openclaw/);
+  assert.match(stylesSource, /body\.onboarding-window \.setup-guide \{[\s\S]*?border:\s*0;/);
+  assert.match(stylesSource, /body\.onboarding-window \.setup-guide \{[\s\S]*?-webkit-app-region:\s*drag;/);
+  assert.match(stylesSource, /body\.onboarding-window \.setup-engine-row \{[\s\S]*?border:\s*0;/);
+  assert.match(stylesSource, /body\.onboarding-window \.setup-engine-list[\s\S]*?-webkit-app-region:\s*no-drag;/);
+  assert.match(stylesSource, /\.setup-scan-lottie/);
+  assert.match(stylesSource, /body\.onboarding-window \.setup-engine-row \{[\s\S]*?grid-template-columns:\s*28px minmax\(0,\s*1fr\);/);
+  assert.match(stylesSource, /\.setup-engine-row\.unavailable \{[\s\S]*?opacity:\s*1;/);
+  assert.match(appSource, /setTimeout\(refreshRuntime,\s*120\)/);
+});
+
+test("lottie icons support autoplaying loop animations for scanning state", () => {
+  const lottieSource = fs.readFileSync(path.join(root, "src/renderer/lottie-icons.js"), "utf8");
+
+  assert.match(lottieSource, /triggerMode === "loop"/);
+  assert.match(lottieSource, /loop:\s*triggerMode === "loop"/);
+  assert.match(lottieSource, /autoplay:\s*triggerMode === "loop"/);
 });
 
 test("renderer exposes Hermes install retry and repair states", () => {
@@ -106,7 +131,7 @@ test("engine detection renderer preserves legacy runtime status fallbacks", () =
     agentEngines: {}
   });
 
-  assert.equal(sandbox.els.engineRowHermes.textContent, "独立副本已安装");
+  assert.equal(sandbox.els.engineRowHermes.textContent, "Mia 私有 Hermes 已安装");
 
   sandbox.renderEngineDetection({
     engineSource: "local-source",
@@ -114,7 +139,15 @@ test("engine detection renderer preserves legacy runtime status fallbacks", () =
     agentEngines: {}
   });
 
-  assert.equal(sandbox.els.engineRowHermes.textContent, "独立副本运行中");
+  assert.equal(sandbox.els.engineRowHermes.textContent, "Mia 私有 Hermes 运行中");
+
+  sandbox.renderEngineDetection({
+    engineSource: "system",
+    engineRunning: false,
+    agentEngines: {}
+  });
+
+  assert.equal(sandbox.els.engineRowHermes.textContent, "系统 Hermes 就绪");
 
   sandbox.renderEngineDetection({
     engineInstalled: true,
@@ -122,7 +155,7 @@ test("engine detection renderer preserves legacy runtime status fallbacks", () =
     agentEngines: {}
   });
 
-  assert.equal(sandbox.els.engineRowHermes.textContent, "独立副本运行中");
+  assert.equal(sandbox.els.engineRowHermes.textContent, "Mia 私有 Hermes 运行中");
 });
 
 test("signed-out desktop shell is a login gate without default Boss identity", () => {
@@ -199,8 +232,36 @@ test("cloud-only renderer and preload do not expose local chat session CRUD", ()
 
 test("main window accepts the first mouse click after regaining focus", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
+  const preloadSource = fs.readFileSync(path.join(root, "src/preload.js"), "utf8");
+  const ipcSource = fs.readFileSync(path.join(root, "src/shared/ipc-channels.js"), "utf8");
+  const windowIpcSource = fs.readFileSync(path.join(root, "src/main/ipc/window-ipc.js"), "utf8");
 
   assert.match(mainSource, /acceptFirstMouse:\s*true/);
+  assert.match(mainSource, /function shouldOpenAgentSetupWindow/);
+  assert.doesNotMatch(mainSource, /fellows\.length === 0/);
+  assert.match(mainSource, /const onboardingWidth = 420;/);
+  assert.match(mainSource, /const onboardingHeight = 360;/);
+  assert.match(mainSource, /mode:\s*"agent-setup"/);
+  assert.match(mainSource, /const minWindowWidth = compactOnboarding \? 380 : 420;/);
+  assert.match(mainSource, /const minWindowHeight = compactOnboarding \? 320 : 560;/);
+  assert.match(mainSource, /getRuntimeStatus\(created,\s*\{\s*scanAgents:\s*false\s*\}\)/);
+  assert.match(ipcSource, /WindowShowMain:\s*"window:show-main"/);
+  assert.match(preloadSource, /showMain: \(\) => ipcRenderer\.invoke\(IpcChannel\.WindowShowMain\)/);
+  assert.match(windowIpcSource, /setMinimumSize\(420,\s*560\)/);
+  assert.match(windowIpcSource, /setSize\(1040,\s*700\)/);
+});
+
+test("agent setup completion does not force first fellow creation", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const setupSource = fs.readFileSync(path.join(root, "src/renderer/onboarding/setup-guide.js"), "utf8");
+  const appStateSource = fs.readFileSync(path.join(root, "src/renderer/app-state.js"), "utf8");
+
+  assert.match(appStateSource, /readLocal\(storage, "mia\.onboardingStep", ""\)/);
+  assert.match(appSource, /agentSetupLaunch/);
+  assert.match(appSource, /function completeAgentSetup/);
+  assert.match(appSource, /window\.mia\.window\?\.showMain\?\.\(\)/);
+  assert.doesNotMatch(appSource, /advanceOnboarding\("create-fellow"\)/);
+  assert.doesNotMatch(setupSource, /创建你的第一个伙伴/);
 });
 
 test("chat code blocks use a right-aligned language copy button without code frame borders", () => {
