@@ -1,8 +1,6 @@
 (function (global) {
   "use strict";
 
-  const memberColor = (typeof globalThis !== "undefined" && globalThis.miaMemberColor)
-    || (typeof require === "function" ? require("../../shared/member-color.js") : { memberAccentColor: () => "#5e5ce6" });
   const avatarResolve = (typeof globalThis !== "undefined" && globalThis.miaAvatarResolve)
     || (typeof require === "function" ? require("../../shared/avatar-resolve.js") : { normalizeAvatarImage: (v) => String(v || "") });
   const fellowIdentity = (typeof globalThis !== "undefined" && globalThis.miaFellowIdentity)
@@ -85,8 +83,19 @@
     );
     const runtime = options.runtime || {};
     const agentEngine = normalizeAgentEngine(input.agentEngine || input.agent_engine || input.engine, runtimeKind);
-    const color = fellowIdentity.normalizeFellowColor(input.color || input.avatarColor || input.avatar_color)
-      || memberColor.memberAccentColor(key);
+    // Leave color empty when the user has not set one — resolveAvatarForContact
+    // then hashes the canonical (global) id. Baking memberAccentColor(key) here
+    // made record-based surfaces (the sidebar list) honor a key-only hash that
+    // disagreed with the global-id hash the chat header / bubbles use, so the
+    // same fellow showed two different background colors.
+    const color = fellowIdentity.normalizeFellowColor(input.color || input.avatarColor || input.avatar_color);
+    // Owned fellows belong to the signed-in user, so stamp the owner id when the
+    // record lacks it; fellowAvatarIdentityId then yields fellow:<owner>:<key>
+    // (matching the conversation id) instead of falling back to the bare key.
+    const ownerUserId = firstNonEmpty(
+      input.ownerUserId, input.owner_user_id, input.ownerId, input.owner_id,
+      runtime.cloud?.user?.id, runtime.cloud?.user?.userId, runtime.cloud?.user?.user_id
+    );
     const sourceKinds = Array.isArray(input.sourceKinds)
       ? input.sourceKinds.map((item) => String(item || "").trim()).filter(Boolean)
       : [sourceKind];
@@ -94,6 +103,7 @@
       ...input,
       key,
       id: input.id || key,
+      ownerUserId: ownerUserId || input.ownerUserId || undefined,
       name: firstNonEmpty(input.name, input.displayName, input.username, key),
       bio: normalizedBio(input),
       color,

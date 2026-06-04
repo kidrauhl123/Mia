@@ -176,16 +176,19 @@ test("packages/shared fellow identity normalizes cloud and local identity shapes
   );
 });
 
-test("fellow directory preserves canonical fellow color with stable fallback", () => {
+test("fellow directory keeps a user color but leaves it empty when unset (resolver hashes the id)", () => {
   const { normalizeOwnedFellow } = require("../src/renderer/fellow/fellow-directory.js");
-  const { memberAccentColor } = require("../src/shared/member-color.js");
 
+  // A real user-set color is preserved (and lowercased).
   assert.equal(
     normalizeOwnedFellow({ id: "codex", name: "Codex", color: "#0F766E" }, { sourceKind: "cloud" }).color,
     "#0f766e"
   );
+  // No / invalid color → empty. Baking memberAccentColor(key) here made the
+  // sidebar honor a key-only hash that disagreed with the global-id hash used
+  // elsewhere; leaving it empty lets resolveAvatarForContact hash the canonical id.
   assert.equal(
     normalizeOwnedFellow({ id: "codex", name: "Codex", color: "invalid" }, { sourceKind: "cloud" }).color,
-    memberAccentColor("codex")
+    ""
   );
 });
