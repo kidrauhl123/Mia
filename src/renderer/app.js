@@ -3375,6 +3375,12 @@ els.resetAvatarCrop?.addEventListener("click", () => {
   window.miaFellowDialog.renderAvatarCropEditor();
 });
 
+// Live-update the avatar preview as the name is typed, so a generated avatar
+// follows the name instead of freezing the previous name's initials.
+els.profileDisplayName?.addEventListener("input", () => {
+  window.miaFellowDialog?.renderProfileAvatarDraft?.();
+});
+
 els.profileForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
   const displayName = els.profileDisplayName.value.trim();

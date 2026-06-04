@@ -79,9 +79,17 @@
     if (!state || !els || !els.profileAvatarPreview) return;
     const draft = state.profileAvatarDraft;
     const user = currentProfileUser();
-    const crop = window.miaAvatar.normalizeCrop(draft.crop);
-    const label = window.miaAvatarResolve?.identityDisplayText?.(els.profileDisplayName?.value || user.displayName || "", "我") || "我";
-    window.miaAvatar.applyAvatarMedia(els.profileAvatarPreview, draft.image, crop, user.avatarColor || "#111827", label);
+    // Resolve the preview the same way every other surface does: a custom
+    // uploaded image is kept; otherwise the color (hashed from the user id) and
+    // initials follow the name field live, so changing the name updates the
+    // avatar instead of freezing the previous name's letters.
+    const avatar = window.miaAvatarResolve.resolveAvatarForContact({
+      id: user.id || "",
+      displayName: els.profileDisplayName?.value || user.displayName || "",
+      avatarImage: draft.image || "",
+      avatarCrop: draft.crop || null
+    });
+    window.miaAvatar.applyAvatarMedia(els.profileAvatarPreview, avatar.image, avatar.crop, avatar.color, avatar.text);
     els.profileAvatarPreview.title = draft.image ? "点击调整头像裁剪" : "选择头像";
     els.profileAvatarPreview.setAttribute("role", "button");
     els.profileAvatarPreview.setAttribute("tabindex", "0");
