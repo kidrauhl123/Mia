@@ -968,21 +968,27 @@
     const fellows = window.miaFellowDirectory
       ? window.miaFellowDirectory.listOwnedFellows({ cloudFellows, localFellows, runtime })
       : [...cloudFellows, ...localFellows];
+    const self = window.miaSelfIdentity.resolveSelfIdentity({
+      cloudUser,
+      localUser,
+      myUserId: moduleState.myUserId,
+      myUsername: moduleState.myUsername
+    });
     return {
       self: {
-        id: moduleState.myUserId || cloudUser.id || localUser.id || "",
-        displayName: localUser.displayName || cloudUser.displayName || "",
-        avatarText: localUser.avatarText || "",
-        username: localUser.displayName || moduleState.myUsername || cloudUser.username || cloudUser.account || localUser.account || "",
-        account: cloudUser.account || localUser.account || "",
-        avatarImage: localUser.avatarImage || cloudUser.avatarImage || "",
-        avatarCrop: localUser.avatarCrop || cloudUser.avatarCrop || null,
-        avatarColor: localUser.avatarColor || cloudUser.avatarColor || "#5e5ce6"
+        id: self.id,
+        displayName: self.displayName,
+        avatarText: self.avatarText,
+        username: self.username,
+        account: self.account,
+        avatarImage: self.avatarImage,
+        avatarCrop: self.avatarCrop,
+        avatarColor: self.avatarColor || "#5e5ce6"
       },
       fellows,
       friends: moduleState.friends || []
-      // The text fallback lives inside shared/avatar-resolve.js now;
-      // consumers no longer need any local fallback table.
+      // Self identity precedence lives in shared/self-identity.js so the rail
+      // account button and these chat avatars can never drift apart again.
     };
   }
 

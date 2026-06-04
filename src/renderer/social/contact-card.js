@@ -135,6 +135,14 @@
 
   function selfUser() {
     const runtime = _ctx?.deps?.getState?.()?.runtime || {};
+    if (global.miaSelfIdentity) {
+      return global.miaSelfIdentity.resolveSelfIdentity({
+        cloudUser: runtime.cloud?.user || {},
+        localUser: runtime.user || {},
+        myUserId: _ctx?.moduleState?.myUserId,
+        myUsername: _ctx?.moduleState?.myUsername
+      });
+    }
     const local = runtime.user || {};
     const cloud = runtime.cloud?.user || {};
     return {
@@ -435,7 +443,11 @@
     const me = selfUser();
     const isSelf = ref === me.id;
     const f = isSelf ? me : friend(ref);
-    const name = f?.username || f?.account || ref;
+    // Self uses the canonical resolved display name so the card matches the
+    // chat bubbles and rail; friends still show their username/account.
+    const name = isSelf
+      ? (me.displayName || me.username || ref)
+      : (f?.username || f?.account || ref);
     const avatar = resolveCardAvatar({
       id: ref,
       displayName: name,

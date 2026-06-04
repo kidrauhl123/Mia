@@ -22,9 +22,19 @@
     if (ctx && typeof ctx.adapterCtx === "function") return ctx.adapterCtx();
     const { moduleState, deps } = ctx;
     const runtimeState = deps && typeof deps.getState === "function" ? deps.getState() : {};
-    const fellows = runtimeState.runtime?.fellows || runtimeState.runtime?.personas || [];
+    const runtime = runtimeState.runtime || {};
+    const fellows = runtime.fellows || runtime.personas || [];
+    const selfIdentity = typeof window !== "undefined" && window.miaSelfIdentity;
+    const self = selfIdentity
+      ? selfIdentity.resolveSelfIdentity({
+          cloudUser: runtime.cloud?.user || {},
+          localUser: runtime.user || {},
+          myUserId: moduleState.myUserId,
+          myUsername: moduleState.myUsername
+        })
+      : { id: moduleState.myUserId || "", username: moduleState.myUsername || "" };
     return {
-      self: { id: moduleState.myUserId || "", username: moduleState.myUsername || "" },
+      self,
       fellows,
       friends: moduleState.friends || []
     };

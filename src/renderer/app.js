@@ -260,33 +260,17 @@ function firstNonEmpty(...values) {
 function runtimeUserIdentity(runtime = state.runtime) {
   const cloudUser = runtime?.cloud?.enabled && runtime?.cloud?.user ? runtime.cloud.user : null;
   const localUser = runtime?.user || {};
-  const displayName = firstNonEmpty(
-    cloudUser?.displayName,
-    cloudUser?.display_name,
-    cloudUser?.name,
-    cloudUser?.username,
-    cloudUser?.email,
-    localUser.displayName,
-    localUser.name,
-    localUser.username,
-    localUser.account
-  );
-  const username = firstNonEmpty(cloudUser?.username, cloudUser?.account, localUser.username, localUser.account);
-  const avatarText = firstNonEmpty(
-    cloudUser?.avatarText,
-    cloudUser?.avatar_text,
-    localUser.avatarText,
-    displayName ? window.miaAvatar?.initials?.(displayName) : ""
-  );
+  const self = window.miaSelfIdentity.resolveSelfIdentity({ cloudUser, localUser });
+  const avatarText = self.displayName ? window.miaAvatar?.initials?.(self.displayName) : "";
   return {
-    id: firstNonEmpty(cloudUser?.id, cloudUser?.userId, cloudUser?.user_id, localUser.id),
-    username,
-    account: firstNonEmpty(cloudUser?.account, localUser.account),
-    displayName,
+    id: self.id,
+    username: self.username,
+    account: self.account,
+    displayName: self.displayName,
     avatarText,
-    avatarColor: firstNonEmpty(cloudUser?.avatarColor, cloudUser?.avatar_color, localUser.avatarColor, "#111827"),
-    avatarImage: firstNonEmpty(cloudUser?.avatarImage, cloudUser?.avatar_image, localUser.avatarImage),
-    avatarCrop: cloudUser?.avatarCrop || cloudUser?.avatar_crop || localUser.avatarCrop || null
+    avatarColor: self.avatarColor || "#111827",
+    avatarImage: self.avatarImage,
+    avatarCrop: self.avatarCrop
   };
 }
 

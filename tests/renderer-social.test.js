@@ -33,6 +33,7 @@ function loadSocial(options = {}) {
     requestAnimationFrame: options.requestAnimationFrame,
     mia: {},
     miaFellowCommands: require("../src/renderer/fellow/fellow-commands.js"),
+    miaSelfIdentity: require("../packages/shared/self-identity.js"),
     miaSendPipeline: require("../src/shared/send-pipeline.js"),
     miaMarkdown: {
       escapeHtml: (v) => String(v || "").replace(/&/g, "&amp;").replace(/</g, "&lt;"),
@@ -1078,7 +1079,11 @@ test("renderConversationChat uses cloud fellow avatar when no local fellow exist
   assert.doesNotMatch(chat.children[0].innerHTML, /asset:mia/);
 });
 
-test("renderConversationChat self identity prefers local profile, not cloud username", () => {
+test("renderConversationChat self identity uses the cloud account, not a stale local profile name", () => {
+  // The local profile (mia-user.json) is one global file shared across every
+  // account; the signed-in cloud account is canonical. A leftover local "Boss"
+  // must not shadow the current account. Real bug: account "755439" (cloud
+  // username, no display_name) showed the previous account's local "Boss".
   const s = loadSocial();
   installCloudConversationSource(s.__mockWindow);
   s.__mockWindow.miaAvatar = {
@@ -1089,7 +1094,7 @@ test("renderConversationChat self identity prefers local profile, not cloud user
   s.initSocialModule({
     getState: () => ({
       runtime: {
-        cloud: { user: { id: "u_me", username: "7" } },
+        cloud: { user: { id: "u_me", username: "755439" } },
         user: { displayName: "Boss", avatarText: "B", avatarColor: "#111827", avatarImage: "" }
       }
     }),
@@ -1098,7 +1103,7 @@ test("renderConversationChat self identity prefers local profile, not cloud user
     appendTransientChat: () => {}
   });
   s.moduleState.myUserId = "u_me";
-  s.moduleState.myUsername = "7";
+  s.moduleState.myUsername = "755439";
   s.moduleState.activeConversationId = "fellow:u_me:mia";
   s.moduleState.conversations = [{ id: "fellow:u_me:mia", type: "fellow", name: "Mia", decorations: { fellowKey: "mia" } }];
   s.moduleState.messageCache.set("fellow:u_me:mia", {
@@ -1118,11 +1123,11 @@ test("renderConversationChat self identity prefers local profile, not cloud user
   s.renderConversationChat(chat);
 
   assert.equal(chat.children.length, 1);
-  assert.match(chat.children[0].innerHTML, /title="Boss"/);
-  assert.match(chat.children[0].innerHTML, />Bo<\/div>/);
+  assert.match(chat.children[0].innerHTML, /title="755439"/);
+  assert.match(chat.children[0].innerHTML, />75<\/div>/);
   assert.doesNotMatch(chat.children[0].innerHTML, /assets\/avatars/);
-  assert.doesNotMatch(chat.children[0].innerHTML, />7<\/div>/);
-  assert.doesNotMatch(chat.children[0].innerHTML, /title="7"/);
+  assert.doesNotMatch(chat.children[0].innerHTML, /title="Boss"/);
+  assert.doesNotMatch(chat.children[0].innerHTML, />Bo<\/div>/);
 });
 
 test("sendInActiveConversation posts group mentions in cloud fellow format", async () => {
