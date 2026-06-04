@@ -4458,30 +4458,43 @@ body.onboarding-window .setup-action {
 }
 
 .settings-row {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(170px, 1fr) minmax(160px, 280px);
   align-items: center;
-  gap: 16px;
-  min-height: 56px;
-  padding: 8px 16px;
-  border-right: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
-  border-left: 1px solid var(--line);
+  gap: 18px;
+  min-height: 66px;
+  padding: 12px 22px;
+  border: 0;
   background: var(--surface);
 }
 
 .settings-row:first-of-type,
 .settings-row.settings-group-start {
-  border-top: 1px solid var(--line);
-  border-radius: 12px 12px 0 0;
+  border-radius: 14px 14px 0 0;
 }
 
 .settings-row:last-of-type,
 .settings-row.accent-settings-row,
 .settings-row.appearance-last-row,
 .settings-row.settings-group-end {
-  border-bottom: 1px solid var(--line);
-  border-radius: 0 0 12px 12px;
+  border-radius: 0 0 14px 14px;
+}
+
+.settings-row.settings-group-start.settings-group-end,
+.settings-row:first-of-type:last-of-type {
+  border-radius: 14px;
+}
+
+.settings-row:not(:last-of-type):not(.settings-group-end):not(.accent-settings-row):not(.appearance-last-row)::after {
+  content: "";
+  position: absolute;
+  right: 22px;
+  bottom: 0;
+  left: 22px;
+  height: 1px;
+  background: var(--line);
+  pointer-events: none;
 }
 
 .settings-row > div:first-child {
@@ -4504,7 +4517,7 @@ body.onboarding-window .setup-action {
 }
 
 .settings-section-label {
-  margin: 14px 2px 6px;
+  margin: 16px 4px 8px;
   color: var(--faint);
   font-size: 11px;
   font-weight: 400;
