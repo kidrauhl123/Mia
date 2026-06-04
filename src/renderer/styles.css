@@ -2181,18 +2181,34 @@ body.topbar-click-capture .topbar {
 
 .setup-engine-list {
   display: grid;
-  gap: 8px;
+  gap: 0;
+  overflow: hidden;
+  border-radius: 14px;
+  background: var(--surface);
 }
 
 .setup-engine-row {
+  position: relative;
   display: grid;
   grid-template-columns: 30px minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
-  padding: 11px 12px;
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  background: var(--surface);
+  min-height: 54px;
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.setup-engine-row:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  right: 14px;
+  bottom: 0;
+  left: 14px;
+  height: 1px;
+  background: var(--line);
+  pointer-events: none;
 }
 
 .setup-engine-row.unavailable {
@@ -2405,6 +2421,9 @@ body.onboarding-window .setup-guide p {
 
 body.onboarding-window .setup-engine-list {
   gap: 2px;
+  overflow: visible;
+  border-radius: 0;
+  background: transparent;
   -webkit-app-region: no-drag;
 }
 
@@ -2416,6 +2435,10 @@ body.onboarding-window .setup-engine-row {
   border: 0;
   border-radius: 0;
   background: transparent;
+}
+
+body.onboarding-window .setup-engine-row::after {
+  display: none;
 }
 
 body.onboarding-window .setup-engine-row.unavailable {
@@ -5009,8 +5032,8 @@ textarea:focus {
   display: grid;
   gap: 0;
   padding: 0;
-  border: 1px solid var(--line);
-  border-radius: 12px;
+  border: 0;
+  border-radius: 14px;
   background: var(--surface);
 }
 
@@ -5020,15 +5043,15 @@ textarea:focus {
 }
 
 .engine-row {
+  position: relative;
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) 18px;
+  grid-template-columns: 30px minmax(0, 1fr) 16px;
   align-items: center;
-  gap: 14px;
+  gap: 13px;
   width: 100%;
-  min-height: 66px;
-  padding: 11px 18px;
+  min-height: 56px;
+  padding: 8px 22px;
   border: 0;
-  border-bottom: 1px solid var(--line);
   border-radius: 0;
   background: transparent;
   text-align: left;
@@ -5037,12 +5060,19 @@ textarea:focus {
   color: inherit;
 }
 
-.engine-row[aria-expanded="true"] {
-  border-bottom: 0;
+.engine-row:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  right: 22px;
+  bottom: 0;
+  left: 22px;
+  height: 1px;
+  background: var(--line);
+  pointer-events: none;
 }
 
-.engine-row:last-child {
-  border-bottom: 0;
+.engine-row[aria-expanded="true"]::after {
+  display: none;
 }
 
 .engine-row.static {
@@ -5052,16 +5082,16 @@ textarea:focus {
 .engine-row-logo {
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
+  width: 30px;
+  height: 30px;
   color: var(--muted);
 }
 
 .engine-row-logo:not(.asset)::before {
   content: "";
   display: block;
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   background: currentColor;
   -webkit-mask: center / contain no-repeat;
   mask: center / contain no-repeat;
@@ -5073,8 +5103,8 @@ textarea:focus {
 }
 
 .engine-row-logo.claude:not(.asset)::before {
-  width: 31px;
-  height: 31px;
+  width: 28px;
+  height: 28px;
   -webkit-mask-image: url("./assets/engine-icons/claudecode.svg");
   mask-image: url("./assets/engine-icons/claudecode.svg");
 }
@@ -5096,25 +5126,25 @@ textarea:focus {
 
 .engine-row-logo img {
   display: block;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   object-fit: contain;
 }
 
 .engine-row-body {
   display: grid;
-  gap: 4px;
+  gap: 2px;
   min-width: 0;
 }
 
 .engine-row-body strong {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 500;
   color: var(--text);
 }
 
 .engine-row-body small {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -5134,11 +5164,23 @@ textarea:focus {
 }
 
 .engine-detail-panel {
+  position: relative;
   gap: 0;
   margin: 0;
   padding: 0;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 0;
   background: var(--surface);
+}
+
+.engine-detail-panel:not(.hidden)::after {
+  content: "";
+  position: absolute;
+  right: 22px;
+  bottom: 0;
+  left: 22px;
+  height: 1px;
+  background: var(--line);
+  pointer-events: none;
 }
 
 .engine-detail-panel .connected-providers,
