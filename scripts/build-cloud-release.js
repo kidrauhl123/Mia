@@ -29,24 +29,36 @@ function copyDir(source, target) {
   fs.cpSync(path.join(root, source), target, { recursive: true, filter: shouldCopyReleaseEntry });
 }
 
-function newestDesktopArm64Dmg() {
+function newestDesktopAppleSiliconDmg() {
   const releaseDir = path.join(root, "release");
-  const sourcePattern = "Mia-*-arm64-unsigned.dmg";
+  const sourcePatterns = [
+    {
+      label: "Mia-*-Apple-Silicon.dmg",
+      test: (file) => /^Mia-.*-Apple-Silicon\.dmg$/.test(file)
+    },
+    {
+      label: "Mia-*-arm64-unsigned.dmg",
+      test: (file) => /^Mia-.*-arm64-unsigned\.dmg$/.test(file)
+    }
+  ];
   if (!fs.existsSync(releaseDir)) return "";
   return fs.readdirSync(releaseDir)
-    .filter((file) => /^Mia-.*-arm64-unsigned\.dmg$/.test(file))
     .map((file) => {
+      const sourcePattern = sourcePatterns.find((pattern) => pattern.test(file));
+      if (!sourcePattern) return null;
       const fullPath = path.join(releaseDir, file);
-      return { fullPath, mtimeMs: fs.statSync(fullPath).mtimeMs, sourcePattern };
+      return { fullPath, mtimeMs: fs.statSync(fullPath).mtimeMs, sourcePattern: sourcePattern.label };
     })
+    .filter(Boolean)
     .sort((a, b) => b.mtimeMs - a.mtimeMs)[0]?.fullPath || "";
 }
 
 function copyDesktopDownloadArtifacts() {
   const downloadsDir = path.join(webDir, "downloads");
   fs.mkdirSync(downloadsDir, { recursive: true });
-  const dmg = newestDesktopArm64Dmg();
+  const dmg = newestDesktopAppleSiliconDmg();
   if (!dmg) return;
+  fs.copyFileSync(dmg, path.join(downloadsDir, "mia-macos-apple-silicon-latest.dmg"));
   fs.copyFileSync(dmg, path.join(downloadsDir, "mia-macos-arm64-latest.dmg"));
 }
 

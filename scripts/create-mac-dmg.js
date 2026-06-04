@@ -6,34 +6,30 @@ const root = path.resolve(__dirname, "..");
 const pkg = require(path.join(root, "package.json"));
 const productName = pkg.productName || "Mia";
 const version = pkg.version || "0.0.0";
+const appName = `${productName}.app`;
 // electron-builder writes to release/mac/ on x64 host, release/mac-arm64/ on arm64.
 const sourceCandidates = ["mac", "mac-arm64", "mac-x64"]
-  .map((dir) => path.join(root, "release", dir))
-  .filter((dir) => fs.existsSync(path.join(dir, `${productName}.app`)));
+  .map((dir) => path.join(root, "release", dir, appName))
+  .filter((appPath) => fs.existsSync(appPath));
 const source = sourceCandidates[0];
-// Human-facing chip label so users can tell builds apart (more variants to come).
-const chipLabel = { arm64: "Apple-Silicon", x64: "Intel" }[process.arch] || process.arch;
-const target = path.join(root, "release", `${productName}-${version}-${chipLabel}.dmg`);
+const target = path.join(root, "release", `${productName}-${version}-Apple-Silicon.dmg`);
+const electronBuilder = path.join(root, "node_modules", ".bin", "electron-builder");
 
 if (process.platform !== "darwin") {
   throw new Error("create-mac-dmg.js only runs on macOS.");
 }
 
 if (!source) {
-  throw new Error(`Missing packaged app under release/mac{,-arm64,-x64}/${productName}.app`);
+  throw new Error(`Missing packaged app under release/mac{,-arm64,-x64}/${appName}`);
 }
 
-fs.mkdirSync(path.dirname(target), { recursive: true });
-execFileSync("hdiutil", [
-  "create",
-  "-volname",
-  productName,
-  "-srcfolder",
+execFileSync(electronBuilder, [
+  "--mac",
+  "dmg",
+  "--prepackaged",
   source,
-  "-ov",
-  "-format",
-  "UDZO",
-  target
-], { stdio: "inherit" });
+  "--publish",
+  "never"
+], { cwd: root, stdio: "inherit" });
 
 console.log(target);

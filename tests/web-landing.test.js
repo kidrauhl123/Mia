@@ -91,8 +91,9 @@ test("web app shell lives under /app and keeps parent-relative assets", () => {
 test("cloud release builder can publish the Apple Silicon DMG as a web download", () => {
   const source = read("scripts/build-cloud-release.js");
 
+  assert.match(source, /mia-macos-apple-silicon-latest\.dmg/);
   assert.match(source, /mia-macos-arm64-latest\.dmg/);
-  assert.match(source, /Mia-\*-arm64-unsigned\.dmg/);
+  assert.match(source, /Mia-\*-Apple-Silicon\.dmg/);
   assert.match(source, /copyDesktopDownloadArtifacts/);
   assert.match(source, /web\/assets\/mia\.css/);
   assert.match(source, /web\/assets\/mia\.js/);

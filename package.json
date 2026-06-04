@@ -1,6 +1,6 @@
 {
   "name": "mia",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "workspaces": [
     "apps/mobile-rn",
@@ -45,8 +45,8 @@
     "hermes:runtime:win-x64": "bash scripts/build-hermes-runtime.sh win-x64",
     "pack": "electron-builder --dir",
     "dist": "npm run dist:mac",
-    "dist:mac": "electron-builder --mac dir zip --publish never && node scripts/create-mac-dmg.js",
-    "dist:mac:with-hermes": "npm run hermes:runtime:mac-arm64 && electron-builder --mac dir zip --config electron-builder.with-hermes.json --publish never && node scripts/create-mac-dmg.js",
+    "dist:mac": "electron-builder --mac dir zip dmg --publish never",
+    "dist:mac:with-hermes": "npm run hermes:runtime:mac-arm64 && electron-builder --mac dir zip dmg --config electron-builder.with-hermes.json --publish never",
     "release:mac": "npm run dist:mac && node scripts/publish-mac-update.js",
     "release:mac:publish": "node scripts/publish-mac-update.js",
     "dist:win": "electron-builder --win nsis --publish never",
@@ -122,8 +122,31 @@
       "gatekeeperAssess": false
     },
     "dmg": {
+      "artifactName": "${productName}-${version}-Apple-Silicon.${ext}",
+      "title": "${productName}",
       "sign": false,
-      "format": "ULFO"
+      "writeUpdateInfo": false,
+      "format": "ULFO",
+      "background": "build/dmg-background.png",
+      "iconSize": 96,
+      "iconTextSize": 14,
+      "window": {
+        "width": 600,
+        "height": 420
+      },
+      "contents": [
+        {
+          "x": 180,
+          "y": 238,
+          "type": "file"
+        },
+        {
+          "x": 420,
+          "y": 238,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
     },
     "win": {
       "target": [
