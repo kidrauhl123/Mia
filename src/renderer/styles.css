@@ -3996,20 +3996,22 @@ body.onboarding-window .setup-action {
   box-shadow: 0 0 0 1px var(--bg) inset;
 }
 
-.avatar-color-auto {
-  width: auto;
-  height: 24px;
-  padding: 0 10px;
-  border-radius: 12px;
-  font-size: 12px;
-  color: var(--muted);
-  background: var(--field);
-  border: 1px solid var(--line);
+.avatar-color-custom {
+  position: relative;
+  overflow: hidden;
+  background: conic-gradient(from 90deg, #e17076, #f0a574, #7bc862, #6ec9cb, #65aadd, #b08fd8, #ee7aae, #e17076);
 }
 
-.avatar-color-auto.is-selected {
-  color: var(--text);
-  border-color: var(--text);
+.avatar-color-custom input[type="color"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  cursor: pointer;
 }
 
 .avatar-crop-preview {

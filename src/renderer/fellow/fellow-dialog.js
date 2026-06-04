@@ -45,23 +45,36 @@
     renderProfileAvatarDraft();
   }
 
-  // Renders the "头像颜色" swatch row: an 自动 (hash) chip + the shared palette.
-  // Picking one sets the draft color; 自动 clears it back to the id hash.
+  // Renders the "头像颜色" swatch row: the shared palette + a rainbow chip that
+  // opens the native color picker for a fully custom hex. No "auto" chip — a
+  // member with no chosen color simply falls back to the id hash by default, so
+  // most people never have to think about it.
   function renderColorSwatches(container, currentColor, onPick) {
     if (!container) return;
     const palette = (window.miaMemberColor && window.miaMemberColor.PALETTE) || [];
     const current = String(currentColor || "").toLowerCase();
-    const chips = [
-      `<button type="button" class="avatar-color-chip avatar-color-auto${current ? "" : " is-selected"}" data-color="">自动</button>`
-    ];
+    const isPreset = palette.some((c) => String(c).toLowerCase() === current);
+    const chips = [];
     for (const c of palette) {
       const sel = current === String(c).toLowerCase() ? " is-selected" : "";
       chips.push(`<button type="button" class="avatar-color-chip${sel}" data-color="${c}" style="background:${c};" title="${c}" aria-label="${c}"></button>`);
     }
+    // Rainbow chip → system color picker (same native <input type=color> the
+    // settings page uses) for fine-grained custom colors.
+    const customSel = current && !isPreset ? " is-selected" : "";
+    const inputVal = /^#[0-9a-f]{6}$/.test(current) ? current : "#0162db";
+    chips.push(
+      `<label class="avatar-color-chip avatar-color-custom${customSel}" title="自定义颜色">` +
+      `<input type="color" value="${inputVal}" aria-label="自定义颜色"></label>`
+    );
     container.innerHTML = chips.join("");
-    container.querySelectorAll(".avatar-color-chip").forEach((btn) => {
+    container.querySelectorAll("button.avatar-color-chip").forEach((btn) => {
       btn.addEventListener("click", () => onPick(btn.dataset.color || ""));
     });
+    const customInput = container.querySelector(".avatar-color-custom input[type=color]");
+    if (customInput) {
+      customInput.addEventListener("change", () => onPick(customInput.value));
+    }
   }
 
   function firstNonEmpty(...values) {
