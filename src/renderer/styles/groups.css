@@ -214,10 +214,7 @@
   -webkit-appearance: none;
   appearance: none;
 }
-.group-create-member-row:hover { background: var(--hover); }
-.group-create-member-row.is-selected {
-  background: var(--list-active);
-}
+.group-create-member-row:hover { background: var(--hover-background); }
 .group-create-member-row .member-avatar {
   position: relative;
   display: block;
