@@ -210,6 +210,54 @@ test("desktop-local DM broadcasts a bot invocation and does not run inline", asy
   }
 });
 
+test("desktop-local refuses a contaminated bot binding owned by another user", async () => {
+  const ctx = setup();
+  const broadcasts = [];
+  try {
+    const bob = ctx.cloudStore.registerUser({ username: "bob_desktop_contaminated", password: "123456" }).user;
+    const conversation = ctx.socialStore.createConversation({
+      id: `botc_${bob.id}_bot_mia`,
+      type: "bot",
+      name: "Contaminated Desktop Mia",
+      decorations: { botId: "bot_mia", runtimeKind: "desktop-local" }
+    });
+    ctx.socialStore.addConversationMember({ conversationId: conversation.id, memberKind: "user", memberRef: bob.id });
+    ctx.socialStore.addConversationMember({ conversationId: conversation.id, memberKind: "bot", memberRef: "bot_mia", ownerId: bob.id });
+    ctx.runtimeBindingsStore.upsertBinding({
+      userId: bob.id,
+      botId: "bot_mia",
+      runtimeKind: "desktop-local",
+      enabled: true,
+      config: { model: "claude" }
+    });
+    const dispatcher = makeDispatcher(ctx, {
+      broadcastPersistedEvent(userId, event) {
+        broadcasts.push({ userId, event });
+      }
+    });
+    const message = ctx.messagesStore.appendMessage({
+      conversationId: conversation.id,
+      senderKind: "user",
+      senderRef: bob.id,
+      bodyMd: "hello"
+    });
+
+    const reply = await dispatcher.handleUserMessage({
+      userId: bob.id,
+      conversationId: conversation.id,
+      message
+    });
+
+    assert.equal(reply, null);
+    assert.equal(
+      broadcasts.some((entry) => entry.event.type === "conversation.bot_invocation_requested"),
+      false
+    );
+  } finally {
+    ctx.cleanup();
+  }
+});
+
 test("single-bot group skips the conductor and replies directly", async () => {
   const ctx = setup();
   const hermesCalls = [];

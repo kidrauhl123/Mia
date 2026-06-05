@@ -179,8 +179,8 @@ function createCloudAgentDispatcher(deps = {}) {
     });
   }
 
-  async function runHermesInline({ ownerId, botId, runtimeConfig, conversationId, message, members, bots }) {
-    const bot = botsStore.getBot(botId);
+  async function runHermesInline({ ownerId, botId, bot: validatedBot = null, runtimeConfig, conversationId, message, members, bots }) {
+    const bot = validatedBot || botsStore.getBot(botId);
     if (!bot || String(bot.ownerUserId || "") !== String(ownerId || "")) {
       log(`[cloud-agent] refusing bot run for unowned bot ${botId}`);
       return null;
@@ -300,11 +300,17 @@ function createCloudAgentDispatcher(deps = {}) {
   }
 
   async function dispatchBot({ ownerId, botId, conversationId, message, members, bots, recentMessages }) {
+    const bot = botsStore.getBot(botId);
+    if (!bot || String(bot.ownerUserId || "") !== String(ownerId || "")) {
+      log(`[cloud-agent] refusing bot dispatch for unowned bot ${botId}`);
+      return null;
+    }
     const cloudBinding = runtimeBindingsStore.getEnabledBinding(ownerId, botId, "cloud-hermes");
     if (cloudBinding) {
       return runHermesInline({
         ownerId,
         botId,
+        bot,
         runtimeConfig: cloudBinding.config || {},
         conversationId,
         message,
