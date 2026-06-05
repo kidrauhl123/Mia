@@ -27,7 +27,7 @@ function setup(t, overrides = {}) {
     runtimePaths: () => runtime,
     readJson,
     defaultUserProfile: () => ({ displayName: "Boss" }),
-    cleanRunSessionId: (sessionId, fellowKey) => `clean-${fellowKey}-${sessionId}`,
+    cleanRunSessionId: (sessionId, botId) => `clean-${botId}-${sessionId}`,
     enginePython: () => path.join(dir, "python"),
     effectiveHermesHome: () => path.join(dir, "hermes-home"),
     buildPythonPath: () => path.join(dir, "plugins"),
@@ -48,7 +48,7 @@ test("run sends a localized Hermes slash-command script with session and user co
 
   const content = service.run({
     text: "/model gpt-5",
-    fellow: { key: "f1", name: "小明" },
+    bot: { key: "f1", name: "小明" },
     sessionId: "s9"
   });
 
@@ -74,7 +74,7 @@ test("run sends a localized Hermes slash-command script with session and user co
   assert.equal(calls[0].options.timeout, 45000);
 });
 
-test("run falls back to Mia names when fellow or profile names are empty", (t) => {
+test("run falls back to Mia names when bot or profile names are empty", (t) => {
   const { calls, service } = setup(t, {
     defaultUserProfile: () => ({ displayName: "" }),
     spawnSync: (command, args, options) => {
@@ -83,7 +83,7 @@ test("run falls back to Mia names when fellow or profile names are empty", (t) =
     }
   });
 
-  assert.equal(service.run({ text: "/status", fellow: { key: "f1", name: "" }, sessionId: "" }), "");
+  assert.equal(service.run({ text: "/status", bot: { key: "f1", name: "" }, sessionId: "" }), "");
   assert.deepEqual(JSON.parse(calls[0].args[2]), {
     text: "/status",
     sessionKey: "clean-f1-",
@@ -97,7 +97,7 @@ test("run surfaces process errors and non-zero exits", (t) => {
     spawnSync: () => ({ status: 1, stdout: "", stderr: "command failed" })
   });
   assert.throws(
-    () => failed.service.run({ text: "/bad", fellow: { key: "f1" }, sessionId: "s1" }),
+    () => failed.service.run({ text: "/bad", bot: { key: "f1" }, sessionId: "s1" }),
     /command failed/
   );
 
@@ -105,7 +105,7 @@ test("run surfaces process errors and non-zero exits", (t) => {
     spawnSync: () => ({ error: new Error("spawn boom"), status: null, stdout: "", stderr: "" })
   });
   assert.throws(
-    () => errored.service.run({ text: "/bad", fellow: { key: "f1" }, sessionId: "s1" }),
+    () => errored.service.run({ text: "/bad", bot: { key: "f1" }, sessionId: "s1" }),
     /spawn boom/
   );
 });

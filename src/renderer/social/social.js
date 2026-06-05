@@ -567,9 +567,9 @@
   }
 
   function permissionBotName(request = {}) {
-    const explicit = String(request.botName || request.botName || "").trim();
+    const explicit = String(request.botName || "").trim();
     if (explicit) return explicit;
-    const key = String(request.botId || request.botKey || request.botKey || "").trim();
+    const key = String(request.botId || request.botKey || "").trim();
     if (!key) return "";
     const bot = moduleState.bots.find((item) => {
       const candidates = [item?.key, item?.id, item?.botId, item?.bot_id].map((value) => String(value || "").trim());
@@ -1640,7 +1640,7 @@
     // conversation header instead of a placeholder bubble — see paintHeaderStatus.
     if (!run || (!run.text && !run.reasoning && !run.tools.length)) return null;
     const conversation = moduleState.conversations.find((r) => r.id === conversationId) || { id: conversationId };
-    const botKey = run.botId || run.botId || sessionHistoryShared().botId(conversation) || "mia";
+    const botKey = run.botId || sessionHistoryShared().botId(conversation) || "mia";
     const synthetic = {
       id: `cloud-agent-stream-${run.runId || conversationId}`,
       sender_kind: "bot",

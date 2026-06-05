@@ -1,6 +1,6 @@
 // Renderer for sidebar conversation cards. ONE shape for 1-on-1 chats
-// (fellow private or cloud DM) and ONE shape for group chats (local bot
-// group or cloud conversation with friends + fellows). The caller normalizes its
+// (bot private or cloud DM) and ONE shape for group chats (local bot
+// group or cloud conversation with friends + bots). The caller normalizes its
 // row into a spec; the actual avatar / time / pin / unread / context-menu
 // behavior is the same regardless of where the conversation lives.
 //

@@ -19,7 +19,7 @@ const PET_MESSAGE_DURATION_MS = 8500;
 const DEFAULT_PET_REMOTE_HOST = "root@23.95.43.168";
 const DEFAULT_PET_REMOTE_ROOT = "~/.mia/pet-runs";
 
-function fellowPetId(key) {
+function botPetId(key) {
   const cleaned = String(key || "")
     .trim()
     .toLowerCase()
@@ -27,23 +27,23 @@ function fellowPetId(key) {
     .replace(/[^a-z0-9.-]+/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-+|-+$/g, "");
-  return `mia-${cleaned || "fellow"}`;
+  return `mia-${cleaned || "bot"}`;
 }
 
-function legacyFellowPetId(key) {
+function legacyBotPetId(key) {
   const cleaned = String(key || "")
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9_.-]+/g, "-")
     .replace(/^-+|-+$/g, "");
-  return `mia-${cleaned || "fellow"}`;
+  return `mia-${cleaned || "bot"}`;
 }
 
 function petIdAliasesForKey(key) {
   const raw = String(key || "").trim();
   const values = [
-    fellowPetId(raw),
-    legacyFellowPetId(raw),
+    botPetId(raw),
+    legacyBotPetId(raw),
     raw,
     raw.replace(/_/g, "-"),
     raw.replace(/-/g, "_")
@@ -51,10 +51,10 @@ function petIdAliasesForKey(key) {
   return [...new Set(values)];
 }
 
-function buildFellowPetPrompt(fellow, userPrompt = "") {
+function buildBotPetPrompt(bot, userPrompt = "") {
   const extra = String(userPrompt || "").trim();
   const base = [
-    `把 Mia Fellow「${fellow.name}」做成可以放在桌面的本地小伙伴。`,
+    `把 Mia Bot「${bot.name}」做成可以放在桌面的本地小伙伴。`,
     "参考图是角色原始形象图；保留主要发色、脸部气质、服装和装饰识别点。",
     "做成小体积、清晰轮廓、适合 192x208 动画格子的 Q 版桌宠。",
     "不要加文字、背景、光效、场景或 UI 元素。"
@@ -62,13 +62,13 @@ function buildFellowPetPrompt(fellow, userPrompt = "") {
   return extra ? `${base}\n\n用户补充描述：\n${extra}` : base;
 }
 
-function createFellowPetService(deps = {}) {
+function createBotPetService(deps = {}) {
   const app = deps.app;
   const BrowserWindow = deps.BrowserWindow;
   const screen = deps.screen;
   const runtimePaths = deps.runtimePaths;
   const readJson = deps.readJson;
-  const loadFellowManifest = deps.loadFellowManifest || (() => ({ bots: [] }));
+  const loadBotManifest = deps.loadBotManifest || (() => ({ bots: [] }));
   const dataUrlToBuffer = deps.dataUrlToBuffer || (() => null);
   const initializeRuntime = deps.initializeRuntime || (() => {});
   const spawnProcess = deps.spawnProcess || spawn;
@@ -115,7 +115,7 @@ function createFellowPetService(deps = {}) {
     ];
   }
 
-  function findFellowPetPackage(key) {
+  function findBotPetPackage(key) {
     const ids = petIdAliasesForKey(key);
     for (const root of petRootCandidates()) {
       for (const id of ids) {
@@ -126,12 +126,12 @@ function createFellowPetService(deps = {}) {
     return null;
   }
 
-  function statusForFellow(key) {
+  function statusForBot(key) {
     const id = String(key || "");
-    const pet = findFellowPetPackage(id);
+    const pet = findBotPetPackage(id);
     return {
       key: id,
-      petId: pet?.id || fellowPetId(id),
+      petId: pet?.id || botPetId(id),
       hasAsset: Boolean(pet),
       placed: petWindows.has(id),
       displayName: pet?.displayName || "",
@@ -140,8 +140,8 @@ function createFellowPetService(deps = {}) {
     };
   }
 
-  function statusesForFellows(bots = []) {
-    return Object.fromEntries((bots || []).map((fellow) => [fellow.key, statusForFellow(fellow.key)]));
+  function statusesForBots(bots = []) {
+    return Object.fromEntries((bots || []).map((bot) => [bot.key, statusForBot(bot.key)]));
   }
 
   function petGeneratorRoot() {
@@ -307,17 +307,17 @@ function createFellowPetService(deps = {}) {
 
   function startGeneration(input = {}) {
     initializeRuntime();
-    const key = String(input.botKey || input.botId || input.key || input.fellowKey || "").trim();
-    const manifest = loadFellowManifest();
-    const fellow = (manifest.bots || []).find((item) => item.key === key);
-    if (!fellow) throw new Error("Fellow not found.");
+    const key = String(input.botKey || input.botId || input.key || "").trim();
+    const manifest = loadBotManifest();
+    const bot = (manifest.bots || []).find((item) => item.key === key);
+    if (!bot) throw new Error("Bot not found.");
     const generatorRoot = petGeneratorRoot();
     const script = path.join(generatorRoot, "hatch_generate.py");
     if (!fs.existsSync(script)) throw new Error(`Mia pet generator not found: ${script}`);
 
     const p = runtimePaths();
     const jobId = randomUUID();
-    const petId = fellowPetId(fellow.key);
+    const petId = botPetId(bot.key);
     const runDir = path.join(p.petJobsDir, `${petId}-${jobId.slice(0, 8)}`);
     const refDir = path.join(runDir, "mia-references");
     const referenceImages = Array.isArray(input.referenceImages) ? input.referenceImages : [];
@@ -327,11 +327,11 @@ function createFellowPetService(deps = {}) {
     const stylePreset = String(input.stylePreset || "codex").trim() || "codex";
     const userPrompt = String(input.prompt || "").trim();
     const style = styleSettingsForPet(stylePreset);
-    const prompt = buildFellowPetPrompt(fellow, userPrompt);
+    const prompt = buildBotPetPrompt(bot, userPrompt);
     const job = {
       id: jobId,
-      botKey: fellow.key,
-      botName: fellow.name,
+      botKey: bot.key,
+      botName: bot.name,
       petId,
       status: "running",
       startedAt: nowIso(),
@@ -350,8 +350,8 @@ function createFellowPetService(deps = {}) {
       script,
       "--prompt", prompt,
       "--pet-id", petId,
-      "--display-name", fellow.name,
-      "--description", `${fellow.name} 的 Mia 桌宠。`,
+      "--display-name", bot.name,
+      "--description", `${bot.name} 的 Mia 桌宠。`,
       "--style-notes", style.styleNotes,
       "--style-contract", style.styleContract,
       "--row-concurrency", "3",
@@ -388,7 +388,7 @@ function createFellowPetService(deps = {}) {
     });
     child.on?.("close", (code) => {
       job.finishedAt = nowIso();
-      if (code === 0 && findFellowPetPackage(fellow.key)) {
+      if (code === 0 && findBotPetPackage(bot.key)) {
         job.status = "completed";
       } else {
         job.status = "failed";
@@ -409,8 +409,8 @@ function createFellowPetService(deps = {}) {
     }, false);
   }
 
-  function notifyMessage(fellowKey, text) {
-    const key = String(fellowKey || "").trim();
+  function notifyMessage(botId, text) {
+    const key = String(botId || "").trim();
     const content = String(text || "").trim();
     if (!key || !content) return;
     const win = petWindows.get(key);
@@ -419,7 +419,7 @@ function createFellowPetService(deps = {}) {
     resizePetWindow(win, PET_WINDOW_MESSAGE);
     try {
       win.webContents.send("pet:message", {
-        fellowKey: key,
+        botId: key,
         text: content,
         durationMs: PET_MESSAGE_DURATION_MS,
         ts: nowMs()
@@ -441,10 +441,10 @@ function createFellowPetService(deps = {}) {
   function place(key) {
     initializeRuntime();
     const id = String(key || "").trim();
-    const pet = findFellowPetPackage(id);
-    if (!pet) throw new Error("这个 Fellow 还没有可用桌宠资产。");
+    const pet = findBotPetPackage(id);
+    if (!pet) throw new Error("这个 Bot 还没有可用桌宠资产。");
     const existing = petWindows.get(id);
-    if (existing && !existing.isDestroyed()) return statusForFellow(id);
+    if (existing && !existing.isDestroyed()) return statusForBot(id);
     const petWindowWidth = PET_WINDOW_COMPACT.width;
     const petWindowHeight = PET_WINDOW_COMPACT.height;
 
@@ -496,7 +496,7 @@ function createFellowPetService(deps = {}) {
       if (timer) clearTimeoutFn(timer);
       petMessageTimers.delete(id);
     });
-    return statusForFellow(id);
+    return statusForBot(id);
   }
 
   function recall(key) {
@@ -507,12 +507,12 @@ function createFellowPetService(deps = {}) {
     const timer = petMessageTimers.get(id);
     if (timer) clearTimeoutFn(timer);
     petMessageTimers.delete(id);
-    return statusForFellow(id);
+    return statusForBot(id);
   }
 
   return {
     miaSkillsRoot,
-    findFellowPetPackage,
+    findBotPetPackage,
     jobs,
     materializePetReference,
     notifyMessage,
@@ -523,17 +523,17 @@ function createFellowPetService(deps = {}) {
     recall,
     resolveOfficialLibraryRoot,
     startGeneration,
-    statusForFellow,
-    statusesForFellows,
+    statusForBot,
+    statusesForBots,
     styleSettingsForPet
   };
 }
 
 module.exports = {
   PET_JOB_STEPS,
-  buildFellowPetPrompt,
-  createFellowPetService,
-  fellowPetId,
-  legacyFellowPetId,
+  buildBotPetPrompt,
+  createBotPetService,
+  botPetId,
+  legacyBotPetId,
   petIdAliasesForKey
 };

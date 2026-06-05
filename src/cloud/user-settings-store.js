@@ -1,5 +1,5 @@
 // Per-user cross-device settings (Phase 3). Holds:
-//   pins:        ["conversation_id_a", "fellow_key_b", ...]   — pinned conversation refs
+//   pins:        ["conversation_id_a", "bot_ref_b", ...]   — pinned conversation refs
 //   readMarks:   { "conversation_id_a": last_seen_seq, ... } — last seq the user has read
 //   appearance:  { theme, listStyle, ... }            — UI preferences
 //

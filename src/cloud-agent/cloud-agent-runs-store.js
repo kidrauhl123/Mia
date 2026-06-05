@@ -40,11 +40,6 @@ function normalizeError(error) {
 }
 
 function createCloudAgentRunsStore(db) {
-  const columns = db.prepare("PRAGMA table_info(cloud_agent_runs)").all().map((row) => row.name);
-  if (columns.includes("fellow_id") && !columns.includes("bot_id")) {
-    db.exec("ALTER TABLE cloud_agent_runs RENAME COLUMN fellow_id TO bot_id");
-  }
-
   const insertStmt = db.prepare(`
     INSERT INTO cloud_agent_runs (
       id, user_id, bot_id, conversation_id, trigger_message_id, hermes_run_id,

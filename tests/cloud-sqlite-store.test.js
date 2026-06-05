@@ -254,108 +254,29 @@ test("schema v2 creates social tables and indexes", () => {
   }
 });
 
-test("schema creates bots tables and removes legacy fellow tables", () => {
+test("schema creates bot-only identity and runtime tables", () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-bot-schema-test-"));
   const dbPath = path.join(tmpDir, "cloud.sqlite");
-  const legacy = new DatabaseSync(dbPath);
-  try {
-    legacy.exec(`
-      CREATE TABLE fellows (
-        id TEXT NOT NULL,
-        owner_user_id TEXT NOT NULL,
-        name TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        PRIMARY KEY (owner_user_id, id)
-      );
-      CREATE TABLE fellow_runtime_bindings (
-        user_id TEXT NOT NULL,
-        fellow_id TEXT NOT NULL,
-        runtime_kind TEXT NOT NULL,
-        enabled INTEGER NOT NULL DEFAULT 1,
-        config_json TEXT NOT NULL DEFAULT '{}',
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        PRIMARY KEY (user_id, fellow_id, runtime_kind)
-      );
-      CREATE TABLE conversations (
-        id TEXT PRIMARY KEY,
-        type TEXT NOT NULL DEFAULT 'group',
-        name TEXT,
-        avatar TEXT,
-        host_member_json TEXT,
-        decorations_json TEXT,
-        context_card_json TEXT,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
-      CREATE TABLE conversation_members (
-        conversation_id TEXT NOT NULL,
-        member_kind TEXT NOT NULL,
-        member_ref TEXT NOT NULL,
-        owner_id TEXT,
-        ai_perms_json TEXT,
-        joined_at TEXT NOT NULL,
-        PRIMARY KEY (conversation_id, member_kind, member_ref)
-      );
-      CREATE TABLE messages (
-        id TEXT PRIMARY KEY,
-        conversation_id TEXT NOT NULL,
-        seq INTEGER NOT NULL,
-        turn_id TEXT,
-        sender_kind TEXT NOT NULL,
-        sender_ref TEXT NOT NULL,
-        sender_owner_id TEXT,
-        body_md TEXT NOT NULL DEFAULT '',
-        attachments_json TEXT,
-        mentions_json TEXT,
-        skills_json TEXT,
-        trace_json TEXT,
-        status TEXT NOT NULL,
-        error_json TEXT,
-        created_at TEXT NOT NULL,
-        UNIQUE (conversation_id, seq)
-      );
-      INSERT INTO fellows (id, owner_user_id, name, created_at, updated_at)
-        VALUES ('codex', 'u1', 'Codex', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
-      INSERT INTO fellow_runtime_bindings (user_id, fellow_id, runtime_kind, created_at, updated_at)
-        VALUES ('u1', 'codex', 'local', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
-      INSERT INTO conversations (id, type, created_at, updated_at)
-        VALUES ('fellow:u1:codex', 'fellow', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
-      INSERT INTO conversations (id, type, created_at, updated_at)
-        VALUES ('group-with-bot', 'fellow', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
-      INSERT INTO conversation_members (conversation_id, member_kind, member_ref, owner_id, joined_at)
-        VALUES ('group-with-bot', 'fellow', 'codex', 'u1', '2026-01-01T00:00:00.000Z');
-      INSERT INTO messages (id, conversation_id, seq, sender_kind, sender_ref, sender_owner_id, status, created_at)
-        VALUES ('msg_fellow', 'group-with-bot', 1, 'fellow', 'codex', 'u1', 'sent', '2026-01-01T00:00:00.000Z');
-    `);
-  } finally {
-    legacy.close();
-  }
-
   const store = createCloudStore({ dataDir: tmpDir, dbPath });
   try {
     const db = store.getDb();
     const tables = db.prepare(`SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`).all().map((r) => r.name);
     assert.ok(tables.includes("bots"), "missing table: bots");
     assert.ok(tables.includes("bot_runtime_bindings"), "missing table: bot_runtime_bindings");
-    assert.ok(!tables.includes("fellows"), "legacy fellows table should be dropped");
-    assert.ok(!tables.includes("fellow_runtime_bindings"), "legacy fellow_runtime_bindings table should be dropped");
 
     const idx = db.prepare(`SELECT name FROM sqlite_master WHERE type='index' ORDER BY name`).all().map((r) => r.name);
     assert.ok(idx.includes("idx_bots_owner"), "missing index: idx_bots_owner");
-    assert.ok(!idx.includes("idx_fellows_owner"), "legacy idx_fellows_owner should not exist");
 
     const botColumns = db.prepare("PRAGMA table_info(bots)").all().map((r) => r.name);
     for (const column of ["id", "owner_user_id", "display_name", "status_badge_json", "capabilities_json", "persona_text"]) {
       assert.ok(botColumns.includes(column), `missing bots column: ${column}`);
     }
     assert.equal(db.prepare("SELECT pk FROM pragma_table_info('bots') WHERE name = 'id'").get().pk, 1);
+    const runtimeColumns = db.prepare("PRAGMA table_info(bot_runtime_bindings)").all().map((r) => r.name);
+    for (const column of ["user_id", "bot_id", "runtime_kind", "enabled", "config_json"]) {
+      assert.ok(runtimeColumns.includes(column), `missing bot_runtime_bindings column: ${column}`);
+    }
     assert.ok(db.prepare("PRAGMA table_info(users)").all().some((r) => r.name === "status_badge_json"));
-    assert.equal(db.prepare("SELECT type FROM conversations WHERE id = 'group-with-bot'").get().type, "bot");
-    assert.equal(db.prepare("SELECT COUNT(*) AS count FROM conversations WHERE id LIKE 'fellow:%'").get().count, 0);
-    assert.equal(db.prepare("SELECT COUNT(*) AS count FROM conversation_members WHERE member_kind = 'fellow'").get().count, 0);
-    assert.equal(db.prepare("SELECT COUNT(*) AS count FROM messages WHERE sender_kind = 'fellow'").get().count, 0);
   } finally {
     store.close();
     fs.rmSync(tmpDir, { recursive: true, force: true });

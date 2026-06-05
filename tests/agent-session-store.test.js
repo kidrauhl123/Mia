@@ -23,12 +23,12 @@ function setup(t) {
   const service = createAgentSessionStore({
     runtimePaths: () => runtime,
     readJson,
-    normalizeFellowAgentEngine: (engine) => `engine:${String(engine || "").trim() || "hermes"}`
+    normalizeBotAgentEngine: (engine) => `engine:${String(engine || "").trim() || "hermes"}`
   });
   return { runtime, service };
 }
 
-test("sessionKey normalizes engine, fellow, and local session defaults", (t) => {
+test("sessionKey normalizes engine, bot, and local session defaults", (t) => {
   const { service } = setup(t);
 
   assert.equal(service.sessionKey(" codex ", " alice ", " local_1 "), "engine:codex:alice:local_1");

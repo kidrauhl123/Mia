@@ -20,7 +20,7 @@ function memberName(member, bots) {
   if (member?.member_kind === MemberKind.Bot) {
     const bot = (Array.isArray(bots) ? bots : [])
       .find((item) => (item.key || item.id) === member.member_ref);
-    return bot?.name || bot?.displayName || member.bot_name || member.fellow_name || member.member_ref || "Bot";
+    return bot?.name || bot?.displayName || member.bot_name || member.bot_name || member.member_ref || "Bot";
   }
   const user = member?.user && typeof member.user === "object" ? member.user : null;
   return member?.username || member?.displayName || member?.display_name || user?.username || user?.displayName || member?.member_ref || "用户";

@@ -497,7 +497,7 @@ test("desktop bot controls save through bot runtime control adapter", () => {
   assert.match(appSource, /async function saveActiveBotRuntimeControl/);
   assert.match(appSource, /window\.miaBotCommands\.saveBotRuntimeControl\(\{/);
   assert.match(appSource, /window\.miaBotCommands\.getBotRuntimeBinding\(\{/);
-  assert.doesNotMatch(appSource, new RegExp("window\\.mia\\.social\\.save" + "FellowRuntime\\(context\\." + "fellow" + "Key"));
+  assert.doesNotMatch(appSource, new RegExp("window\\.mia\\.social\\.save" + "BotRuntime\\(context\\." + "fellow" + "Key"));
   assert.doesNotMatch(appSource, /async function saveActiveCloudBotRuntimeConfig/);
   assert.match(commandsSource, /async function saveBotRuntimeControl/);
   assert.match(commandsSource, /async function saveDesktopLocalBotRuntimeControl/);
@@ -816,7 +816,7 @@ test("social bootstrap delegates desktop-local bot sync through bot command adap
 
   assert.match(socialSource, /window\.miaBotCommands\.ensureDesktopLocalBotConversation\(\{/);
   assert.match(socialSource, /window\.miaBotCommands\.syncDesktopLocalBotRuntimeBinding\(\{/);
-  assert.doesNotMatch(socialSource, new RegExp("api\\.save" + "FellowRuntime\\(" + "fellow" + "Key"));
+  assert.doesNotMatch(socialSource, new RegExp("api\\.save" + "BotRuntime\\(" + "fellow" + "Key"));
   assert.doesNotMatch(socialSource, /api\.ensureFellowConversation\(fellow\.key,/);
   assert.match(commandsSource, /function desktopLocalRuntimeConfig/);
   assert.match(commandsSource, /async function ensureDesktopLocalBotConversation/);

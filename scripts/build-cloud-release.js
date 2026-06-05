@@ -431,7 +431,7 @@ function verifyRelease() {
     "web/shared/unread.js",
     "web/shared/send-pipeline.js",
     "web/shared/cloud-client.js",
-    "web/shared/fellow-runtime-control.js",
+    "web/shared/bot-runtime-control.js",
     "web/shared/agent-permissions.js",
     "smoke-cloud.js",
     "prepare-cloud-smoke-account.js",
@@ -678,7 +678,7 @@ function main() {
   copyFile("packages/shared/group-tiles.js", path.join(webDir, "shared", "group-tiles.js"));
   copyFile("packages/shared/send-pipeline.js", path.join(webDir, "shared", "send-pipeline.js"));
   copyFile("packages/shared/cloud-client.js", path.join(webDir, "shared", "cloud-client.js"));
-  copyFile("src/shared/fellow-runtime-control.js", path.join(webDir, "shared", "fellow-runtime-control.js"));
+  copyFile("src/shared/bot-runtime-control.js", path.join(webDir, "shared", "bot-runtime-control.js"));
   copyFile("src/shared/agent-permissions.js", path.join(webDir, "shared", "agent-permissions.js"));
   copyFile("src/shared/trace-blocks.js", path.join(webDir, "shared", "trace-blocks.js"));
   copyFile("src/shared/mention-render.js", path.join(webDir, "shared", "mention-render.js"));

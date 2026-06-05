@@ -114,7 +114,7 @@
     return ctx.escapeHtml(fallbackName || identity?.displayName || "");
   }
 
-  // Group bubble mirrors fellow chat's renderMessageHtml shape EXACTLY
+  // Group bubble mirrors bot chat's renderMessageHtml shape EXACTLY
   // (same .avatar div, .message-stack, .bubble with data-message-index +
   // data-message-source, message-time after bubble). This is what the
   // existing CSS expects; deviating produces "bubble that isn't a bubble".
@@ -223,7 +223,7 @@
   }
 
   // ── group send ────────────────────────────────────────────────────────────
-  // Message sending is intentionally owned by social.js so cloud DM, fellow,
+  // Message sending is intentionally owned by social.js so cloud DM, bot,
   // and group conversations share one optimistic-send/reconcile pipeline.
 
   async function sendInActiveGroupConversation(text) {
@@ -256,7 +256,7 @@
     const MAX_MEMBERS = 5;
     const selected = new Map(); // key `${kind}:${id}` → { kind, id, name }
 
-    // Cloud conversations have no "host fellow" concept — hide that section while open.
+    // Cloud conversations have no "host bot" concept — hide that section while open.
     const prevHostDisplay = hostSection ? hostSection.style.display : "";
     if (hostSection) hostSection.style.display = "none";
 

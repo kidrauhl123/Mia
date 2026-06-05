@@ -411,21 +411,21 @@ test("Claude bridge plugin generation lives behind a main claude-bridge-plugin s
   assert.doesNotMatch(mainSource, /fs\.symlinkSync\(skillPath/, "main must not own bridge skill symlink creation");
 });
 
-test("fellow pet assets, generation jobs, and pet windows live behind a main fellow-pet service", () => {
+test("bot pet assets, generation jobs, and pet windows live behind a main bot-pet service", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
-  const petSource = fs.readFileSync(path.join(root, "src/main/fellow-pet-service.js"), "utf8");
+  const petSource = fs.readFileSync(path.join(root, "src/main/bot-pet-service.js"), "utf8");
 
-  assert.match(petSource, /function createFellowPetService/, "fellow pet service should exist");
-  assert.match(mainSource, /createFellowPetService/, "main should instantiate the fellow pet service");
+  assert.match(petSource, /function createBotPetService/, "bot pet service should exist");
+  assert.match(mainSource, /createBotPetService/, "main should instantiate the bot pet service");
   assert.doesNotMatch(mainSource, /const petWindows = new Map/, "main must not own pet window state");
   assert.doesNotMatch(mainSource, /const petJobs = new Map/, "main must not own pet generation job state");
-  assert.doesNotMatch(mainSource, /function fellowPetId/, "main must not own pet id normalization");
-  assert.doesNotMatch(mainSource, /function findFellowPetPackage/, "main must not own pet asset discovery");
-  assert.doesNotMatch(mainSource, /function petStatusForFellow/, "main must not own pet status shaping");
-  assert.doesNotMatch(mainSource, /function startFellowPetGeneration/, "main must not own pet generation orchestration");
-  assert.doesNotMatch(mainSource, /function notifyFellowPetMessage/, "main must not own pet window notifications");
-  assert.doesNotMatch(mainSource, /function placeFellowPet/, "main must not own pet window placement");
-  assert.doesNotMatch(mainSource, /function recallFellowPet/, "main must not own pet window teardown");
+  assert.doesNotMatch(mainSource, /function botPetId/, "main must not own pet id normalization");
+  assert.doesNotMatch(mainSource, /function findBotPetPackage/, "main must not own pet asset discovery");
+  assert.doesNotMatch(mainSource, /function petStatusForBot/, "main must not own pet status shaping");
+  assert.doesNotMatch(mainSource, /function startBotPetGeneration/, "main must not own pet generation orchestration");
+  assert.doesNotMatch(mainSource, /function notifyBotPetMessage/, "main must not own pet window notifications");
+  assert.doesNotMatch(mainSource, /function placeBotPet/, "main must not own pet window placement");
+  assert.doesNotMatch(mainSource, /function recallBotPet/, "main must not own pet window teardown");
   assert.doesNotMatch(mainSource, /function officialLibraryManifestPath/, "main must not own packaged library resource lookup");
   assert.doesNotMatch(mainSource, /function resolveOfficialLibraryRoot/, "main must not own packaged library root resolution");
 });

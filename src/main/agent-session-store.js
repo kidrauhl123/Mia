@@ -14,7 +14,7 @@ function createAgentSessionStore(deps = {}) {
   if (typeof runtimePaths !== "function") throw new Error("runtimePaths dependency is required.");
 
   const readJson = deps.readJson || defaultReadJson;
-  const normalizeFellowAgentEngine = deps.normalizeFellowAgentEngine || ((engine) => String(engine || "").trim());
+  const normalizeBotAgentEngine = deps.normalizeBotAgentEngine || ((engine) => String(engine || "").trim());
   const fsImpl = deps.fs || fs;
 
   function sessionFilePath() {
@@ -33,17 +33,17 @@ function createAgentSessionStore(deps = {}) {
     if (typeof fsImpl.chmodSync === "function") fsImpl.chmodSync(filePath, 0o600);
   }
 
-  function sessionKey(engine, fellowKey, sessionId) {
+  function sessionKey(engine, botId, sessionId) {
     return [
-      normalizeFellowAgentEngine(engine),
-      String(fellowKey || "mia").trim() || "mia",
+      normalizeBotAgentEngine(engine),
+      String(botId || "mia").trim() || "mia",
       String(sessionId || "default").trim() || "default"
     ].join(":");
   }
 
-  function getEntry(engine, fellowKey, sessionId) {
+  function getEntry(engine, botId, sessionId) {
     const store = loadMap();
-    const entry = store[sessionKey(engine, fellowKey, sessionId)];
+    const entry = store[sessionKey(engine, botId, sessionId)];
     if (!entry) return { id: "", fingerprint: "" };
     if (typeof entry === "string") return { id: entry.trim(), fingerprint: "" };
     return {
@@ -52,26 +52,26 @@ function createAgentSessionStore(deps = {}) {
     };
   }
 
-  function getId(engine, fellowKey, sessionId) {
-    return getEntry(engine, fellowKey, sessionId).id;
+  function getId(engine, botId, sessionId) {
+    return getEntry(engine, botId, sessionId).id;
   }
 
-  function setEntry(engine, fellowKey, sessionId, externalSessionId, fingerprint) {
+  function setEntry(engine, botId, sessionId, externalSessionId, fingerprint) {
     const id = String(externalSessionId || "").trim();
     if (!id) return;
     const fp = String(fingerprint || "").trim();
     const store = loadMap();
-    store[sessionKey(engine, fellowKey, sessionId)] = fp ? { id, fingerprint: fp } : id;
+    store[sessionKey(engine, botId, sessionId)] = fp ? { id, fingerprint: fp } : id;
     saveMap(store);
   }
 
-  function setId(engine, fellowKey, sessionId, externalSessionId) {
-    setEntry(engine, fellowKey, sessionId, externalSessionId, "");
+  function setId(engine, botId, sessionId, externalSessionId) {
+    setEntry(engine, botId, sessionId, externalSessionId, "");
   }
 
-  function deleteEntry(engine, fellowKey, sessionId) {
+  function deleteEntry(engine, botId, sessionId) {
     const store = loadMap();
-    const key = sessionKey(engine, fellowKey, sessionId);
+    const key = sessionKey(engine, botId, sessionId);
     const existed = Object.prototype.hasOwnProperty.call(store, key);
     if (!existed) return false;
     delete store[key];

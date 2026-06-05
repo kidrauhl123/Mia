@@ -4,7 +4,7 @@
   if (root) root.miaConversationKinds = api;
 })(typeof window !== "undefined" ? window : (typeof globalThis !== "undefined" ? globalThis : null), function buildConversationKinds() {
   const ConversationKind = Object.freeze({
-    FellowPrivate: "fellow",
+    BotPrivate: "bot",
     LocalGroup: "local-group",
     CloudDM: "dm",
     CloudGroup: "group"
@@ -12,13 +12,11 @@
 
   const MemberKind = Object.freeze({
     Bot: "bot",
-    Fellow: "fellow",
     User: "user"
   });
 
   const SenderKind = Object.freeze({
     Bot: "bot",
-    Fellow: "fellow",
     User: "user",
     System: "system"
   });
@@ -36,7 +34,7 @@
 
   function isPrivate(conv) {
     const k = kindOf(conv);
-    return k === ConversationKind.FellowPrivate || k === ConversationKind.CloudDM;
+    return k === ConversationKind.BotPrivate || k === ConversationKind.CloudDM;
   }
 
   function isCloudBacked(conv) {

@@ -511,13 +511,13 @@ function createSkillsLoader(deps = {}) {
     };
   }
 
-  // Build a prompt block injecting the FULL content of the skills a Fellow has
-  // enabled (fellow.capabilities.enabledSkills). Injected into every turn so the
+  // Build a prompt block injecting the FULL content of the skills a Bot has
+  // enabled (bot.capabilities.enabledSkills). Injected into every turn so the
   // agent actually has these skills regardless of engine-native skill loading —
-  // this is what makes the per-Fellow skill selection functional. Returns "" if
-  // the Fellow has no enabled skills.
-  function buildEnabledSkillsContext(fellow) {
-    const caps = fellow && typeof fellow.capabilities === "object" && fellow.capabilities ? fellow.capabilities : {};
+  // this is what makes the per-Bot skill selection functional. Returns "" if
+  // the Bot has no enabled skills.
+  function buildEnabledSkillsContext(bot) {
+    const caps = bot && typeof bot.capabilities === "object" && bot.capabilities ? bot.capabilities : {};
     const ids = Array.isArray(caps.enabledSkills) ? caps.enabledSkills : [];
     if (!ids.length) return "";
     const blocks = [];
@@ -532,7 +532,7 @@ function createSkillsLoader(deps = {}) {
     }
     if (!blocks.length) return "";
     return [
-      "当前 Fellow 启用了以下 Skill。哪个与用户请求相关就严格按其指南执行，不相关则忽略：",
+      "当前 Bot 启用了以下 Skill。哪个与用户请求相关就严格按其指南执行，不相关则忽略：",
       "",
       blocks.join("\n\n")
     ].join("\n");

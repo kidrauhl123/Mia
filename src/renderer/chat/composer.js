@@ -161,7 +161,7 @@
   function renderComposerSkills() {
     if (!state || !els || !els.composerSkills) return;
     // Chips belong to the conversation they were attached in. If the active
-    // conversation changed (switched fellow), drop them — a new conversation starts
+    // conversation changed (switched bot), drop them — a new conversation starts
     // empty. Self-heals on every render, so switching anywhere clears them.
     const activeConversationId = window.miaSocial?.getActiveConversationId?.() || "";
     if ((state.composerActiveSkills || []).length && state.composerSkillsConversationId !== activeConversationId) {

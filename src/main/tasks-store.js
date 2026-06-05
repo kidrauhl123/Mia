@@ -69,7 +69,7 @@ function createTasksStore(filePath) {
     const state = readJSON(filePath, { tasks: [] });
     const tasks = Array.isArray(state.tasks) ? state.tasks : [];
     const currentTasks = tasks.filter((task) =>
-      task && typeof task === "object" && task.botId && !Object.prototype.hasOwnProperty.call(task, "fellowId")
+      task && typeof task === "object" && task.botId
     );
     if (currentTasks.length !== tasks.length || !Array.isArray(state.tasks)) {
       const nextState = { ...state, tasks: currentTasks };

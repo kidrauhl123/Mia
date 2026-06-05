@@ -4,8 +4,8 @@ const {
   normalizeAgentEngine
 } = require("../shared/engine-contracts");
 
-function resolveChatEngineAdapter(fellow = {}) {
-  return adapterForEngine(fellow.agentEngine || fellow.agent_engine || fellow.engine);
+function resolveChatEngineAdapter(bot = {}) {
+  return adapterForEngine(bot.agentEngine || bot.agent_engine || bot.engine);
 }
 
 module.exports = {

@@ -8,7 +8,7 @@ const { computeUnreadForConversation, totalUnreadFromConversations, unreadBadgeH
 const { prepareOutgoingMessage } = window.miaSendPipeline;
 const { MemberKind, SenderKind } = window.miaConversationKinds;
 const sessionHistory = window.miaSessionHistory || {};
-const botRuntimeControl = window.miaFellowRuntimeControl || {};
+const botRuntimeControl = window.miaBotRuntimeControl || {};
 const engineContracts = window.miaEngineContracts || {};
 const normalizeAgentEngine = engineContracts.normalizeAgentEngine || ((value) => {
   const id = String(value || "hermes").trim().toLowerCase().replace(/_/g, "-");
@@ -1214,7 +1214,7 @@ function botAvatarIdentityId(botKey, bot = {}, member = null) {
   const identity = member?.identity || {};
   const ownerUserId = bot?.ownerUserId || bot?.owner_user_id || bot?.ownerId || bot?.owner_id || member?.owner_user_id || member?.owner_id || identity.ownerUserId || identity.owner_id || "";
   const globalId = bot?.globalId || bot?.global_id || identity.globalId || identity.global_id || "";
-  const sharedIdentityId = window.miaContact?.botAvatarIdentityId || window.miaContact?.fellowAvatarIdentityId;
+  const sharedIdentityId = window.miaContact?.botAvatarIdentityId;
   const canonicalId = globalId || (ownerUserId && botKey ? `botc_${ownerUserId}_${botKey}` : "") || botKey;
   return sharedIdentityId?.(canonicalId, {
     ...(bot || {}),
@@ -1362,15 +1362,15 @@ async function ensureBotRuntime(botKey, runtimeKind = "cloud-hermes") {
   if (!botKey) return null;
   const key = runtimeCacheKey(botKey, runtimeKind);
   if (state.botRuntimeCache.has(key)) return state.botRuntimeCache.get(key);
-  if (typeof botRuntimeControl.getFellowRuntimeBinding !== "function") {
+  if (typeof botRuntimeControl.getBotRuntimeBinding !== "function") {
     state.botRuntimeCache.set(key, null);
     return null;
   }
   try {
-    return await botRuntimeControl.getFellowRuntimeBinding({
+    return await botRuntimeControl.getBotRuntimeBinding({
       api,
       cache: state.botRuntimeCache,
-      fellowKey: botKey,
+      botId: botKey,
       runtimeKind
     });
   } catch (err) {
@@ -1526,15 +1526,15 @@ async function saveWebAiControl(kind, value) {
   const modelEntries = kind === "model" ? selectEntriesForModel(engine, runtimeKind, config) : [];
   setModelSwitchStatus("保存中...", true);
   try {
-    if (typeof botRuntimeControl.saveFellowRuntimeControl !== "function") {
+    if (typeof botRuntimeControl.saveBotRuntimeControl !== "function") {
       throw new Error("Bot runtime control is unavailable.");
     }
-    const result = await botRuntimeControl.saveFellowRuntimeControl({
+    const result = await botRuntimeControl.saveBotRuntimeControl({
       api,
       cache: state.botRuntimeCache,
       bot: { key: botKey, id: botKey, runtimeKind },
       botKey,
-      fellowKey: botKey,
+      botId: botKey,
       runtimeKind,
       field: kind,
       value,

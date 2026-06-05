@@ -296,7 +296,7 @@ async function runCodexAppServerTurn({
   signal = null,
   emit = null,
   permissionCoordinator = null,
-  fellowKey = "",
+  botId = "",
   sessionId = "",
   mcpServers = {},
   spawn = defaultSpawn,
@@ -393,7 +393,7 @@ async function runCodexAppServerTurn({
     const input = codexApprovalInput(method, params);
     const decision = await permissionCoordinator.requestPermission({
       engine: "codex",
-      fellowKey,
+      botId,
       sessionId,
       signal,
       emit,

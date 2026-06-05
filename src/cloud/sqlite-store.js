@@ -101,7 +101,7 @@ function defaultWorkspace(user, now = nowIso, id = randomId) {
       }]
     }],
     contacts: [
-      { id: "contact_mia", title: "Mia", meta: "默认 Fellow", avatar: "./assets/avatar-01.png", status: "可用", note: "负责日常对话、信息整理和轻量任务推进。" },
+      { id: "contact_mia", title: "Mia", meta: "默认 Bot", avatar: "./assets/avatar-01.png", status: "可用", note: "负责日常对话、信息整理和轻量任务推进。" },
       { id: "contact_codex", title: "Codex", meta: "代码与自动化", avatar: "./assets/avatar-08.png", status: "本地桥接待接入", note: "通过桌面端 Bridge 调用本机 Codex / Claude Code / Hermes。" }
     ],
     skills: [
@@ -792,13 +792,6 @@ function migrate(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_op_idempotency_created ON op_idempotency(created_at);
 
-    DROP TABLE IF EXISTS fellow_runtime_bindings;
-    DROP TABLE IF EXISTS fellows;
-    UPDATE conversations SET type = 'bot' WHERE type = 'fellow';
-    DELETE FROM conversations WHERE id LIKE 'fellow:%';
-    DELETE FROM conversation_members WHERE member_kind = 'fellow';
-    DELETE FROM messages WHERE sender_kind = 'fellow';
-
     -- v5: globally unique bot identity definitions on cloud. Runtime config
     -- stays desktop-local because it pins to a specific host machine.
     CREATE TABLE IF NOT EXISTS bots (
@@ -845,7 +838,7 @@ function migrate(db) {
     CREATE TABLE IF NOT EXISTS cloud_agent_runs (
       id                 TEXT PRIMARY KEY,
       user_id            TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      fellow_id          TEXT NOT NULL,
+      bot_id          TEXT NOT NULL,
       conversation_id            TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
       trigger_message_id TEXT NOT NULL,
       hermes_run_id      TEXT NOT NULL DEFAULT '',
@@ -933,7 +926,7 @@ function migrate(db) {
   if (!hasColumn(db, "conversations", "type")) {
     db.exec("ALTER TABLE conversations ADD COLUMN type TEXT NOT NULL DEFAULT 'group'");
     db.exec("UPDATE conversations SET type = 'dm' WHERE id LIKE 'dm:%'");
-    db.exec("UPDATE conversations SET type = 'bot' WHERE id LIKE 'fellow:%'");
+    db.exec("UPDATE conversations SET type = 'bot' WHERE id LIKE 'bot:%'");
   }
   db.exec("CREATE INDEX IF NOT EXISTS idx_conversations_type ON conversations(type)");
   db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (1, ?)")
@@ -978,14 +971,14 @@ function migrate(db) {
     .run(nowIso());
   // v12: composer "使用" skill chips travel with the message — the skills the
   // user explicitly selected for that turn, rendered in the bubble and used by
-  // the fellow responder to drive the agent.
+  // the bot responder to drive the agent.
   if (!hasColumn(db, "messages", "skills_json")) {
     db.exec("ALTER TABLE messages ADD COLUMN skills_json TEXT");
   }
   db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (12, ?)")
     .run(nowIso());
   // v13: assistant trace blocks (reasoning + tool-call summaries) are stored
-  // with fellow-authored messages so cloud conversations render the same agent
+  // with bot-authored messages so cloud conversations render the same agent
   // activity UI as local sessions.
   if (!hasColumn(db, "messages", "trace_json")) {
     db.exec("ALTER TABLE messages ADD COLUMN trace_json TEXT");

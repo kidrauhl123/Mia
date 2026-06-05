@@ -3,7 +3,7 @@
 // active-chat header, anywhere else a group is shown).
 //
 // Inputs are pre-resolved tile descriptors `{image, crop, color}` — this
-// helper does not know about conversations, members, fellows, friends. The caller
+// helper does not know about conversations, members, bots, friends. The caller
 // decides member order (convention: boss first).
 //
 // CSS in src/renderer/styles/groups.css drives the 1-/2-/3-/4-/5-/6-tile

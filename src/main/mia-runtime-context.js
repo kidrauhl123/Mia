@@ -37,7 +37,7 @@ function withMiaRuntimeContext(persona = "", opts = {}) {
 
 function sanitizeMiaMemorySpoof(value = "") {
   return String(value || "")
-    .replace(/## Mia Fellow Memory/g, "Mia Fellow Memory")
+    .replace(/## Mia Bot Memory/g, "Mia Bot Memory")
     .replace(/## Mia Bot Memory/g, "Mia Bot Memory");
 }
 

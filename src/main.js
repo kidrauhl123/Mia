@@ -67,7 +67,7 @@ const { createProviderConnections } = require("./main/provider-connections.js");
 const { createAuthService } = require("./main/auth-service.js");
 const { createEngineCatalogService } = require("./main/engine-catalog-service.js");
 const { createExternalAgentCommandService } = require("./main/external-agent-command-service.js");
-const { createFellowPetService } = require("./main/fellow-pet-service.js");
+const { createBotPetService } = require("./main/bot-pet-service.js");
 const { createHermesRunService } = require("./main/hermes-run-service.js");
 const { createHermesSlashCommandService } = require("./main/hermes-slash-command-service.js");
 const { createLaunchdService } = require("./main/launchd-service.js");
@@ -85,7 +85,7 @@ const { createEngineHealthService } = require("./main/engine-health-service.js")
 const { createEngineInstallService } = require("./main/engine-install-service.js");
 const { registerWindowIpc } = require("./main/ipc/window-ipc.js");
 const { registerTasksIpc } = require("./main/ipc/tasks-ipc.js");
-// (cloud/desktop-sync helpers removed in Phase 4 cutover — fellow chats
+// (cloud/desktop-sync helpers removed in Phase 4 cutover — bot chats
 //  now sync via conversations+messages, no need for the workspace-shape mappers.)
 
 const MIA_GATEWAY_SERVICE_LABEL = "ai.mia.hermes.gateway";
@@ -208,10 +208,10 @@ const engineRuntimeConfigService = createEngineRuntimeConfigService({
   // Surface the user's skills to the Hermes runtime so it auto-uses them by
   // description (no slash command). Installed/authored skills live under
   // <home>/skills; bundled official skills (skill-creator etc.) under _builtin.
-  // Lazy thunk: invoked at writeRuntimeConfig time, after fellowPetService init.
+  // Lazy thunk: invoked at writeRuntimeConfig time, after botPetService init.
   externalSkillDirs: () => {
     const dirs = [path.join(runtimePaths().home, "skills")];
-    try { dirs.push(path.join(fellowPetService.miaSkillsRoot(), "_builtin")); } catch { /* bundled root not found */ }
+    try { dirs.push(path.join(botPetService.miaSkillsRoot(), "_builtin")); } catch { /* bundled root not found */ }
     return dirs;
   },
   // Lazy: schedulerMcpBridge is created later in this module; the thunk is
@@ -294,7 +294,7 @@ const {
 const agentSessionStore = createAgentSessionStore({
   runtimePaths,
   readJson,
-  normalizeFellowAgentEngine: normalizeBotAgentEngine
+  normalizeBotAgentEngine: normalizeBotAgentEngine
 });
 const agentPermissionCoordinator = createAgentPermissionCoordinator({
   runtimePaths,
@@ -321,7 +321,7 @@ const {
   safeFetchFileAttachment
 } = chatAttachments;
 
-const fellowPetService = createFellowPetService({
+const botPetService = createBotPetService({
   app,
   BrowserWindow,
   screen,
@@ -329,7 +329,7 @@ const fellowPetService = createFellowPetService({
   resourcesPath: process.resourcesPath || "",
   runtimePaths,
   readJson,
-  loadFellowManifest: loadBotManifest,
+  loadBotManifest: loadBotManifest,
   dataUrlToBuffer,
   initializeRuntime,
   spawnProcess: spawn,
@@ -381,8 +381,8 @@ const runtimeInitializerService = createRuntimeInitializerService({
 const skillsLoader = createSkillsLoader({
   runtimePaths,
   readJson,
-  officialLibraryManifestPath: fellowPetService.officialLibraryManifestPath,
-  resolveOfficialLibraryRoot: fellowPetService.resolveOfficialLibraryRoot,
+  officialLibraryManifestPath: botPetService.officialLibraryManifestPath,
+  resolveOfficialLibraryRoot: botPetService.resolveOfficialLibraryRoot,
   getEngineState: () => engineState,
   apiKey,
   appendEngineLog,
@@ -393,7 +393,7 @@ const agentCommandProvider = createAgentCommandProvider({
   claudeAgentSdk,
   cwd: () => process.cwd(),
   homeDir: () => app.getPath("home"),
-  normalizeFellowAgentEngine: normalizeBotAgentEngine,
+  normalizeBotAgentEngine: normalizeBotAgentEngine,
   shellCommandPath: localAgentEngineService.shellCommandPath,
 });
 const externalAgentCommandService = createExternalAgentCommandService({
@@ -610,8 +610,8 @@ function getRuntimeStatus(created = [], options = {}) {
     },
     connectedProviders,
     bots,
-    pets: fellowPetService.statusesForFellows(bots),
-    petJobs: fellowPetService.jobs()
+    pets: botPetService.statusesForBots(bots),
+    petJobs: botPetService.jobs()
   };
 }
 
@@ -1483,7 +1483,7 @@ async function sendChat({ botKey, botId, sessionId, messages, group, webContents
     const agentEngine = chatEngine.id;
     const shouldNotifyPet = !utility && !String(sessionId || "").startsWith("title:");
     const completeWithPetMessage = (response) => {
-      if (shouldNotifyPet) fellowPetService.notifyMessage(botForTurn.key, responseMessageContent(response));
+      if (shouldNotifyPet) botPetService.notifyMessage(botForTurn.key, responseMessageContent(response));
       return response;
     };
     if (emit) {
@@ -1629,12 +1629,12 @@ const botService = createBotService({
   },
   emitTaskEvent: (event, payload) => tasksEvents.emit(event, payload),
   rescanScheduler: () => scheduler.rescan(),
-  recallBotPet: (key) => fellowPetService.recall(key),
+  recallBotPet: (key) => botPetService.recall(key),
   pushBotToCloud,
   deleteBotFromCloud,
   appendCloudLog,
   getRuntimeStatus,
-  petStatusForBot: (key) => fellowPetService.statusForFellow(key)
+  petStatusForBot: (key) => botPetService.statusForBot(key)
 });
 
 remoteControlRouter = createRemoteControlRouter({
@@ -1968,10 +1968,10 @@ ipcMain.handle(IpcChannel.BotMute, (_event, payload) => botService.setBotMuted(p
 ipcMain.handle(IpcChannel.BotDelete, (_event, payload) => botService.deleteBot(payload));
 ipcMain.handle(IpcChannel.ConductorLoadPrompts, () => loadConductorPrompts());
 ipcMain.handle(IpcChannel.PersonaSave, (_event, persona) => botService.saveBot(persona));
-ipcMain.handle(IpcChannel.PetJobs, () => fellowPetService.jobs());
-ipcMain.handle(IpcChannel.PetGenerate, (_event, payload) => fellowPetService.startGeneration(payload));
-ipcMain.handle(IpcChannel.PetPlace, (_event, key) => fellowPetService.place(key));
-ipcMain.handle(IpcChannel.PetRecall, (_event, key) => fellowPetService.recall(key));
+ipcMain.handle(IpcChannel.PetJobs, () => botPetService.jobs());
+ipcMain.handle(IpcChannel.PetGenerate, (_event, payload) => botPetService.startGeneration(payload));
+ipcMain.handle(IpcChannel.PetPlace, (_event, key) => botPetService.place(key));
+ipcMain.handle(IpcChannel.PetRecall, (_event, key) => botPetService.recall(key));
 
 registerTasksIpc({ ipcMain, callDaemonTasks: (...args) => daemonTasksClient.call(...args) });
 

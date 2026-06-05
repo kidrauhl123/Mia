@@ -85,7 +85,7 @@ test("src/web exposes cloud-only bot creation from the sidebar plus menu", () =>
   assert.doesNotMatch(source, /convMenuNewFellow: document\.getElementById/);
   assert.doesNotMatch(source, /id="webCreateFellowForm"/);
   assert.doesNotMatch(source, /#webFellowAvatarPreview/);
-  assert.doesNotMatch(source, /id="webFellowRuntimeLocation"/);
+  assert.doesNotMatch(source, /id="webBotRuntimeLocation"/);
   assert.doesNotMatch(source, /desktop-local[\s\S]{0,160}openCreateFellowDialog/);
 });
 
@@ -135,18 +135,18 @@ test("src/web bot avatars use shared bot identity instead of bare bot key", () =
 
   assert.match(source, /function botAvatarIdentityId\(botKey, bot = \{\}, member = null\)/);
   assert.match(source, /function botGlobalIdFromConversation\(conversation, botKey\)/);
-  assert.match(source, /window\.miaContact\?\.botAvatarIdentityId \|\| window\.miaContact\?\.fellowAvatarIdentityId/);
+  assert.match(source, /const sharedIdentityId = window\.miaContact\?\.botAvatarIdentityId;/);
   assert.match(source, /const avatarId = botAvatarIdentityId\(wanted, owned \|\| fallbackBot, member \|\| null\);/);
   assert.doesNotMatch(source, /resolveAvatarForContact\(\{\s*id:\s*wanted\b/);
 });
 
-test("src/web/app/index.html loads shared fellow runtime control before app.js", () => {
+test("src/web/app/index.html loads shared bot runtime control before app.js", () => {
   const html = fs.readFileSync(path.join(ROOT, "src/web/app/index.html"), "utf8");
-  const controlIdx = html.indexOf("shared/fellow-runtime-control.js");
+  const controlIdx = html.indexOf("shared/bot-runtime-control.js");
   const appIdx = html.indexOf("../app.js");
-  assert.ok(controlIdx >= 0, "index.html must reference shared/fellow-runtime-control.js");
+  assert.ok(controlIdx >= 0, "index.html must reference shared/bot-runtime-control.js");
   assert.ok(appIdx >= 0, "index.html must load app.js");
-  assert.ok(controlIdx < appIdx, "fellow runtime control must be loaded before app.js");
+  assert.ok(controlIdx < appIdx, "bot runtime control must be loaded before app.js");
 });
 
 test("src/web/app/index.html loads desktop markdown helper before app.js", () => {
@@ -417,8 +417,8 @@ test("scripts/build-cloud-release.js copies cloud shared modules into the api tr
   );
   assert.doesNotMatch(
     build,
-    /copyFile\(["']src\/shared\/group-fellow-routing\.js["']/,
-    "build-cloud-release must not ship unused legacy group-fellow-routing.js"
+    /copyFile\(["']src\/shared\/group-bot-routing\.js["']/,
+    "build-cloud-release must not ship unused legacy group-bot-routing.js"
   );
   assert.match(
     build,
@@ -470,7 +470,7 @@ test("scripts/build-cloud-release.js copies cloud shared modules into the api tr
   assert.match(build, /api\/packages\/shared\/bot-identity\.js/);
   assert.match(build, /api\/packages\/shared\/identity\.js/);
   assert.doesNotMatch(build, /fellow-identity\.js/);
-  assert.doesNotMatch(build, /api\/src\/shared\/group-fellow-routing\.js/);
+  assert.doesNotMatch(build, /api\/src\/shared\/group-bot-routing\.js/);
   assert.match(build, /api\/src\/cloud-agent\/default-bot\.js/);
   assert.doesNotMatch(build, /api\/src\/cloud-agent\/default-fellow\.js/);
   assert.match(build, /api\/src\/shared\/skill-safety\.js/);
@@ -487,7 +487,7 @@ test("cloud release runtime does not import legacy group fellow routing", () => 
 
   for (const file of runtimeFiles) {
     const source = fs.readFileSync(path.join(ROOT, file), "utf8");
-    assert.doesNotMatch(source, /group-fellow-routing/, `${file} must not import legacy group-fellow-routing.js`);
+    assert.doesNotMatch(source, /group-bot-routing/, `${file} must not import legacy group-bot-routing.js`);
   }
 });
 
@@ -618,25 +618,25 @@ test("src/web/app.js lets web controls update desktop-local bot runtime bindings
   assert.match(source, /selectEntriesForModel\(engine, runtimeKind, config\)/);
   assert.match(source, /config\.modelEntries/);
   assert.match(source, /const editable = Boolean\(botKey\);/);
-  assert.match(source, /window\.miaFellowRuntimeControl/);
-  assert.match(source, /saveFellowRuntimeControl\(\{/);
+  assert.match(source, /window\.miaBotRuntimeControl/);
+  assert.match(source, /saveBotRuntimeControl\(\{/);
   assert.doesNotMatch(source, /body:\s*\{ runtimeKind, enabled: true, config \}/);
 });
 
-test("shared fellow runtime control owns Web PUT runtime writes", () => {
+test("shared bot runtime control owns Web PUT runtime writes", () => {
   const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
-  const shared = fs.readFileSync(path.join(ROOT, "src/shared/fellow-runtime-control.js"), "utf8");
+  const shared = fs.readFileSync(path.join(ROOT, "src/shared/bot-runtime-control.js"), "utf8");
   assert.match(source, /method === "POST" \|\| method === "PUT" \|\| method === "PATCH" \|\| method === "DELETE"/);
-  assert.match(shared, /\/api\/me\/bots\/\$\{encodeURIComponent\(fellowKey\)\}\/runtime/);
+  assert.match(shared, /\/api\/me\/bots\/\$\{encodeURIComponent\(botKey\)\}\/runtime/);
   assert.match(shared, /method:\s*"PUT"/);
-  assert.doesNotMatch(source, /\/api\/me\/bots\/\$\{encodeURIComponent\(fellowKey\)\}\/runtime[\s\S]*method:\s*"PUT"/);
+  assert.doesNotMatch(source, /\/api\/me\/bots\/\$\{encodeURIComponent\(botKey\)\}\/runtime[\s\S]*method:\s*"PUT"/);
 });
 
-test("cloud release copies shared fellow runtime control into web assets", () => {
+test("cloud release copies shared bot runtime control into web assets", () => {
   const build = fs.readFileSync(path.join(ROOT, "scripts/build-cloud-release.js"), "utf8");
-  assert.match(build, /src\/shared\/fellow-runtime-control\.js/);
-  assert.match(build, /path\.join\(webDir, "shared", "fellow-runtime-control\.js"\)/);
-  assert.match(build, /"web\/shared\/fellow-runtime-control\.js"/);
+  assert.match(build, /src\/shared\/bot-runtime-control\.js/);
+  assert.match(build, /path\.join\(webDir, "shared", "bot-runtime-control\.js"\)/);
+  assert.match(build, /"web\/shared\/bot-runtime-control\.js"/);
 });
 
 test("src/web/app.js switches conversations before awaiting network hydration", () => {

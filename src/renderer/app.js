@@ -560,7 +560,7 @@ function nowIso() {
 }
 
 // Resolve a cloud-conversation member record into an avatar tile. The kinds
-// recognized here ("user" / "fellow") mirror cloud-conversation-source.js's
+// recognized here ("user" / "bot") mirror cloud-conversation-source.js's
 // authorForMessage dispatch — same data shape, same resolution rules,
 // so member tiles in the rail and sender avatars in the message stream
 // stay in lockstep. Destructured access keeps the offending operator pattern
@@ -1324,7 +1324,7 @@ function render() {
     if (composerBottom) composerBottom.classList.remove("hidden");
   }
   // Cloud-only: the sidebar lists cloud conversations exclusively. Local bot
-  // personas are no longer a conversation source — a fellow surfaces as its
+  // personas are no longer a conversation source — a bot surfaces as its
   // cloud bot conversation once bootstrap completes.
   const cloudReady = !cloudSignedIn || !social || social.isBootstrapped?.();
   const socialRows = cloudReady ? (social?.renderSidebarRows?.() || []) : [];
@@ -3991,7 +3991,7 @@ els.chat.addEventListener("toggle", (event) => {
 els.chatForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (window.miaMessageHelpers.isComposerComposing()) return;
-  // Branch: a cloud conversation (dm / group / fellow) is active → send via social.
+  // Branch: a cloud conversation (dm / group / bot) is active → send via social.
   if (window.miaSocial?.getActiveConversationId?.()) {
     const conversationId = window.miaSocial.getActiveConversationId();
     let conversationText = els.chatInput.value;
@@ -4009,7 +4009,7 @@ els.chatForm.addEventListener("submit", async (event) => {
     window.miaMessageHelpers.resizeChatInput();
     // Composer skill chips ride along with the message — stored on it, shown in
     // the bubble, used by the bot responder. Only send them for a bot conversation
-    // (they drive that fellow's AI) and only when they were attached in THIS conversation
+    // (they drive that bot's AI) and only when they were attached in THIS conversation
     // (guards a programmatic conversation switch with no intervening render). Clear them
     // on send regardless: the chip belongs to this message, not the next one.
     const chips = (state.composerActiveSkills || []).filter((skill) => skill && skill.id);
@@ -4134,7 +4134,7 @@ function openInitialBotDialog() {
     agentEngine: engine,
     bio: "你是 Mia，一个轻松友好的桌面 AI 伙伴，回答简洁、口语化。"
   };
-  // Reuse existing fellow create dialog with prefilled values.
+  // Reuse existing bot create dialog with prefilled values.
   if (typeof window.miaBotDialog?.openBotDialog === "function") {
     window.miaBotDialog.openBotDialog(null, seed);
   } else {

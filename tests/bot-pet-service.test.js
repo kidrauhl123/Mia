@@ -7,9 +7,9 @@ const { pathToFileURL } = require("node:url");
 const { test } = require("node:test");
 
 const {
-  createFellowPetService,
-  fellowPetId
-} = require("../src/main/fellow-pet-service.js");
+  createBotPetService,
+  botPetId
+} = require("../src/main/bot-pet-service.js");
 
 class FakePetWindow extends EventEmitter {
   constructor(options) {
@@ -97,7 +97,7 @@ function makeService(overrides = {}) {
   fs.writeFileSync(path.join(appPath, "resources", "pet-generator", "hatch_generate.py"), "# generator");
   FakePetWindow.instances = [];
   const timers = [];
-  const service = createFellowPetService({
+  const service = createBotPetService({
     app: {
       getAppPath: () => appPath,
       getPath: () => path.join(runtime.root, "home")
@@ -116,7 +116,7 @@ function makeService(overrides = {}) {
         return fallback;
       }
     },
-    loadFellowManifest: () => ({
+    loadBotManifest: () => ({
       bots: [{ key: "alice_bot", name: "Alice Bot" }]
     }),
     dataUrlToBuffer: (value) => {
@@ -148,12 +148,12 @@ function makeService(overrides = {}) {
   return { service, runtime, timers };
 }
 
-test("status, place, notify, and recall track a fellow pet window lifecycle", () => {
+test("status, place, notify, and recall track a bot pet window lifecycle", () => {
   const { service, runtime, timers } = makeService();
-  const petId = fellowPetId("alice_bot");
+  const petId = botPetId("alice_bot");
   writePetPackage(runtime.petDir, petId, { displayName: "Alice Desktop Pet" });
 
-  assert.deepEqual(service.statusForFellow("alice_bot"), {
+  assert.deepEqual(service.statusForBot("alice_bot"), {
     key: "alice_bot",
     petId,
     hasAsset: true,
@@ -202,7 +202,7 @@ test("startGeneration materializes references, spawns hatch_generate, and comple
     referenceImages: [dataUrl]
   });
 
-  const petId = fellowPetId("alice_bot");
+  const petId = botPetId("alice_bot");
   assert.equal(job.status, "running");
   assert.equal(job.botKey, "alice_bot");
   assert.equal(job.botName, "Alice Bot");

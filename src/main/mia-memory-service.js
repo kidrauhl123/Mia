@@ -5,7 +5,7 @@ const MIA_MEMORY_HEADER = "## Mia Bot Memory";
 
 function cleanLine(value) {
   return String(value || "")
-    .replace(/## Mia Fellow Memory/g, "Mia Fellow Memory")
+    .replace(/## Mia Bot Memory/g, "Mia Bot Memory")
     .replace(/## Mia Bot Memory/g, "Mia Bot Memory")
     .replace(/\r/g, "")
     .trim();

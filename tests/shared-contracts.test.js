@@ -78,7 +78,7 @@ test("session history contract is shared by desktop and web clients", () => {
 });
 
 test("bot runtime control contract saves model, effort, and permission patches", async () => {
-  const contract = require("../src/shared/fellow-runtime-control");
+  const contract = require("../src/shared/bot-runtime-control");
   const calls = [];
   const cache = new Map();
   const api = async (url, options = {}) => {
@@ -103,7 +103,7 @@ test("bot runtime control contract saves model, effort, and permission patches",
     };
   };
 
-  await contract.saveFellowRuntimeControl({
+  await contract.saveBotRuntimeControl({
     api,
     cache,
     botKey: "mia",
@@ -112,7 +112,7 @@ test("bot runtime control contract saves model, effort, and permission patches",
     value: "mia-default",
     modelEntries: [{ value: "mia-default", model: "gpt-5.3", label: "GPT" }]
   });
-  await contract.saveFellowRuntimeControl({
+  await contract.saveBotRuntimeControl({
     api,
     cache,
     botKey: "mia",
@@ -120,7 +120,7 @@ test("bot runtime control contract saves model, effort, and permission patches",
     field: "effort",
     value: "high"
   });
-  await contract.saveFellowRuntimeControl({
+  await contract.saveBotRuntimeControl({
     api,
     cache,
     botKey: "mia",

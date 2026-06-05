@@ -14,15 +14,15 @@ test("generateTitle delegates title chat and falls back safely", async () => {
   });
 
   assert.deepEqual(await service.generateTitle({
-    fellowKey: "mia",
-    conversationId: "fellow:u_1:mia",
+    botId: "mia",
+    conversationId: "bot:u_1:mia",
     messages: [
       { role: "user", content: "帮我总结今天的任务安排" },
       { role: "assistant", content: "好的" }
     ]
   }), { title: "短标题" });
-  assert.equal(calls[0].fellowKey, "mia");
-  assert.equal(calls[0].sessionId, "title:fellow:u_1:mia");
+  assert.equal(calls[0].botId, "mia");
+  assert.equal(calls[0].sessionId, "title:bot:u_1:mia");
   assert.equal(calls[0].utility, true);
   assert.equal(calls[0].persistAgentSession, false);
 

@@ -37,12 +37,6 @@ function migrate(db) {
       ON messages (conversation_id, seq);
   `);
 
-  const bootstrapColumns = db.prepare("PRAGMA table_info(social_bootstrap)").all();
-  const legacyBotsColumn = "fellow" + "s_json";
-  if (bootstrapColumns.some((column) => column.name === legacyBotsColumn)) {
-    db.exec("DROP TABLE social_bootstrap");
-  }
-
   db.exec(`
     CREATE TABLE IF NOT EXISTS social_bootstrap (
       user_id            TEXT PRIMARY KEY,
