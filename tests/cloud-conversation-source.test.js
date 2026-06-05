@@ -113,6 +113,35 @@ test("CloudConversationSource uses member identity avatar when owned fellow cont
   assert.deepEqual(spec.avatar.crop, { start: 0, duration: 3 });
 });
 
+test("CloudConversationSource preserves member identity status badge", () => {
+  const src = loadSource();
+  const conversation = { id: "g_badge" };
+  const messages = [{ id: "msg_badge", sender_kind: "bot", sender_ref: "mia", body_md: "yo", created_at: "", seq: 1 }];
+  const members = [{
+    member_kind: "bot",
+    member_ref: "mia",
+    owner_id: "user_me",
+    identity: {
+      kind: "bot",
+      id: "mia",
+      displayName: "Mia",
+      avatar: { image: "", crop: null, color: "#5e5ce6", text: "Mi" },
+      statusBadge: { kind: "emoji", emoji: "⭐", label: "Premium" }
+    }
+  }];
+  const ctx = {
+    self: { id: "user_me", username: "me" },
+    bots: [],
+    friends: []
+  };
+  const source = src.createCloudConversationSource({ conversation, messages, members, ctx });
+  const spec = source.listMessages()[0];
+  assert.equal(spec.authorIdentity.kind, "bot");
+  assert.equal(spec.authorIdentity.id, "mia");
+  assert.equal(spec.authorIdentity.displayName, "Mia");
+  assert.deepEqual(JSON.parse(JSON.stringify(spec.statusBadge)), { kind: "emoji", emoji: "⭐", label: "Premium" });
+});
+
 test("CloudConversationSource hashes owned empty fellow avatar by global identity", () => {
   const src = loadSource();
   const conversation = { id: "botc_user_me_mia", type: "bot", name: "Mia", decorations: { botId: "mia" } };

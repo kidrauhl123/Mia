@@ -21,6 +21,32 @@
       ? require("../../shared/conversation-kinds")
       : { MemberKind: { Fellow: "fellow", User: "user" }, SenderKind: { Fellow: "fellow", User: "user", System: "system" } });
 
+  function hasOwn(obj, key) {
+    return Boolean(obj && typeof obj === "object" && Object.prototype.hasOwnProperty.call(obj, key));
+  }
+
+  function firstNonEmpty(...values) {
+    for (const value of values) {
+      const text = String(value || "").trim();
+      if (text) return text;
+    }
+    return "";
+  }
+
+  function statusBadgeFrom(...sources) {
+    for (const source of sources) {
+      if (hasOwn(source, "statusBadge")) return source.statusBadge;
+      if (hasOwn(source, "status_badge")) return source.status_badge;
+    }
+    return undefined;
+  }
+
+  function attachStatusBadge(target, ...sources) {
+    const badge = statusBadgeFrom(...sources);
+    if (typeof badge !== "undefined") target.statusBadge = badge;
+    return target;
+  }
+
   function safeJsonArray(s) { try { const v = JSON.parse(s); return Array.isArray(v) ? v : []; } catch { return []; } }
 
   function createCloudConversationSource({ conversation, messages, members, ctx }) {
@@ -57,12 +83,12 @@
         if (m.sender_ref === selfId) return resolveContact({ kind: "self" }, ctx);
         const member = memberArr.find((mem) => mem.member_kind === MemberKind.User && mem.member_ref === m.sender_ref);
         if (member?.identity) {
-          return {
+          return attachStatusBadge({
             kind: UserKind,
             id: member.identity.id || m.sender_ref,
             displayName: member.identity.displayName || m.sender_ref,
             avatar: member.identity.avatar || { image: "", crop: null, color: "", text: "" }
-          };
+          }, member.identity);
         }
         return resolveContact({ kind: UserKind, ref: m.sender_ref }, ctx);
       }
@@ -93,12 +119,13 @@
               avatarImage: ownAvatarIsHydrated ? rawBot.avatarImage : member?.bot_avatar_image,
               avatarCrop: ownAvatarIsHydrated ? rawBot.avatarCrop : member?.bot_avatar_crop
             });
-        return {
+        return attachStatusBadge({
           kind: BotKind,
-          id: m.sender_ref,
+          id: firstNonEmpty(member?.identity?.id, rawBot?.id, rawBot?.botId, rawBot?.bot_id, m.sender_ref),
+          ownerUserId: firstNonEmpty(member?.identity?.ownerUserId, member?.identity?.owner_user_id, rawBot?.ownerUserId, rawBot?.owner_user_id, member?.owner_user_id, member?.owner_id),
           displayName,
           avatar
-        };
+        }, member?.identity, rawBot);
       }
       if (m.sender_kind === SenderKind.System) {
         return { kind: "system", id: "system", displayName: "系统", avatar: { image: "", crop: null, color: "#888", text: "系统" } };
@@ -111,12 +138,23 @@
       return msgs.map((m, idx) => {
         const author = authorForMessage(m);
         const isOwnUser = m.sender_kind === SenderKind.User && m.sender_ref === selfId;
-        return normalizeSpec({
+        const authorIdentity = (author.kind === UserKind || author.kind === BotKind)
+          ? {
+              kind: author.kind,
+              id: author.id,
+              ...(author.ownerUserId ? { ownerUserId: author.ownerUserId } : {}),
+              displayName: author.displayName,
+              avatar: author.avatar,
+              ...(hasOwn(author, "statusBadge") ? { statusBadge: author.statusBadge } : {})
+            }
+          : null;
+        const specInput = {
           source: "cloud-conversation",
           conversationId: conversation.id,
           messageId: m.id || `${conversation.id}#${m.seq || idx}`,
           messageIndex: idx,
           role: m.sender_kind === "bot" ? "assistant" : (m.sender_kind === SenderKind.System ? "system" : "user"),
+          authorIdentity,
           authorName: author.displayName,
           avatar: author.avatar,
           bodyMd: String(m.body_md || ""),
@@ -128,7 +166,9 @@
           // delete = WeChat-style local hide (any member may remove a message
           // from their own view); pin has no per-message meaning in a shared conversation.
           capabilities: { reply: true, copy: true, pin: false, delete: true }
-        });
+        };
+        if (hasOwn(author, "statusBadge")) specInput.statusBadge = author.statusBadge;
+        return normalizeSpec(specInput);
       });
     }
 

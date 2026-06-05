@@ -102,6 +102,18 @@
     });
   }
 
+  function renderNameWithBadgeHtml({ identity, fallbackName, statusBadge } = {}) {
+    const renderer = global.miaNameWithBadge;
+    if (renderer && typeof renderer.renderNameWithBadgeHtml === "function") {
+      try {
+        return renderer.renderNameWithBadgeHtml({ identity, fallbackName, statusBadge });
+      } catch {
+        // Optional badge payloads must not break group message rendering.
+      }
+    }
+    return ctx.escapeHtml(fallbackName || identity?.displayName || "");
+  }
+
   // Group bubble mirrors fellow chat's renderMessageHtml shape EXACTLY
   // (same .avatar div, .message-stack, .bubble with data-message-index +
   // data-message-source, message-time after bubble). This is what the
@@ -171,7 +183,11 @@
     // Name color tracks the resolved avatar color, so a member's set accent
     // color shows here too; falls back to the id hash when none is set.
     const senderTitleHtml = senderLabel
-      ? `<span class="bubble-sender" style="color:${escapeHtml(avatarColor)};">${escapeHtml(senderLabel)}</span>`
+      ? `<span class="bubble-sender" style="color:${escapeHtml(avatarColor)};">${renderNameWithBadgeHtml({
+          identity: spec?.authorIdentity,
+          fallbackName: senderLabel,
+          statusBadge: spec?.statusBadge
+        })}</span>`
       : "";
     article.innerHTML = `
       ${avatarHtml}

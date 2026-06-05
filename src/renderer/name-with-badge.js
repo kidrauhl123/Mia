@@ -5,6 +5,16 @@
     return String(value || "").trim();
   }
 
+  function escapeHtml(value) {
+    return String(value ?? "").replace(/[&<>"']/g, (ch) => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      "\"": "&quot;",
+      "'": "&#39;"
+    }[ch]));
+  }
+
   function firstNonEmpty(...values) {
     for (const value of values) {
       const text = clean(value);
@@ -80,5 +90,24 @@
     return wrapper;
   }
 
-  global.miaNameWithBadge = { renderNameWithBadge };
+  function renderBadgeHtml(badge) {
+    const titleAttr = badge.label ? ` title="${escapeHtml(badge.label)}"` : "";
+    const className = `name-with-badge-badge name-with-badge-badge-${badge.kind}`;
+    if (badge.kind === "emoji") {
+      return `<span class="${className}"${titleAttr}>${escapeHtml(badge.emoji)}</span>`;
+    }
+    const assetAttr = ` data-asset-id="${escapeHtml(badge.assetId)}"`;
+    const collectibleAttr = badge.kind === "gift" && badge.collectibleId
+      ? ` data-collectible-id="${escapeHtml(badge.collectibleId)}"`
+      : "";
+    return `<span class="${className}"${titleAttr}${assetAttr}${collectibleAttr}></span>`;
+  }
+
+  function renderNameWithBadgeHtml({ identity, fallbackName, statusBadge } = {}) {
+    const text = `<span class="name-with-badge-text">${escapeHtml(displayNameFor(identity, fallbackName))}</span>`;
+    const badge = badgeFor(identity, statusBadge);
+    return `<span class="name-with-badge">${text}${badge ? renderBadgeHtml(badge) : ""}</span>`;
+  }
+
+  global.miaNameWithBadge = { renderNameWithBadge, renderNameWithBadgeHtml };
 })(typeof window !== "undefined" ? window : globalThis);

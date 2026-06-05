@@ -99,3 +99,17 @@ test("renderNameWithBadge uses fallbackName without exposing identity keys", () 
   assert.equal(fallback.textContent, "Codex");
   assert.equal(internalKey.textContent, "未知");
 });
+
+test("renderNameWithBadge explicit null statusBadge suppresses identity badge", () => {
+  const renderer = loadRenderer();
+  const el = renderer.renderNameWithBadge({
+    identity: {
+      displayName: "Mia",
+      statusBadge: { kind: "emoji", emoji: "⭐", label: "Premium" }
+    },
+    statusBadge: null
+  });
+
+  assert.equal(el.children.length, 1);
+  assert.equal(el.textContent, "Mia");
+});

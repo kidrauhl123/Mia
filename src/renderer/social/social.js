@@ -161,6 +161,29 @@
       .replace(/"/g, "&quot;");
   }
 
+  function renderNameWithBadgeHtml({ identity, fallbackName, statusBadge } = {}) {
+    const renderer = global.miaNameWithBadge;
+    if (renderer && typeof renderer.renderNameWithBadgeHtml === "function") {
+      try {
+        return renderer.renderNameWithBadgeHtml({ identity, fallbackName, statusBadge });
+      } catch {
+        // Keep cloud message rendering resilient to optional badge payloads.
+      }
+    }
+    return escapeHtml(fallbackName || identity?.displayName || "");
+  }
+
+  function senderTitleHtml(spec, color = "") {
+    if (!spec || spec.isOwn || !spec.authorName) return "";
+    const style = color ? ` style="color:${escapeHtml(color)};"` : "";
+    const name = renderNameWithBadgeHtml({
+      identity: spec.authorIdentity,
+      fallbackName: spec.authorName,
+      statusBadge: spec.statusBadge
+    });
+    return `<span class="bubble-sender"${style}>${name}</span>`;
+  }
+
   function avatarColor(key) {
     // Derive a stable hex color from the conversation id using a simple hash.
     let hash = 0;
@@ -1584,7 +1607,8 @@
     // attachment-only / empty-body message keeps a right-clickable carrier with
     // the data attributes the app.js contextmenu dispatcher looks for. Skill
     // chips the user selected for this message render at the top of the bubble.
-    const bubbleHtml = `<div class="bubble" data-message-index="${messageIndex}" data-message-source="cloud-conversation" data-message-id="${escapeHtml(msg.id || "")}">${skillsHtml}${bodyHtml}</div>`;
+    const senderHtml = senderTitleHtml(spec, avatarColor);
+    const bubbleHtml = `<div class="bubble" data-message-index="${messageIndex}" data-message-source="cloud-conversation" data-message-id="${escapeHtml(msg.id || "")}">${senderHtml}${skillsHtml}${bodyHtml}</div>`;
     const attachmentHtml = renderAttachmentChips(spec?.attachments || msg.attachments || []);
     const createdAt = msg.created_at || msg.createdAt || "";
     const timeHtml = createdAt

@@ -298,6 +298,70 @@ test("local assistant bubble avatars render with bot sender kind for contact car
   assert.doesNotMatch(html, /data-sender-kind="fellow"/);
 });
 
+test("sidebar card specs carry identity status badges when available", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const conversationCardSpecFromRow = eval(`(
+    function () {
+      const state = {};
+      const window = {
+        miaSocial: {
+          getActiveConversationId: () => "",
+          isConversationPinned: () => false,
+          isConversationMuted: () => false,
+          getUnreadForConversation: () => 0,
+          getConversationMembers: () => [],
+          setActiveConversationId() {}
+        },
+        miaContact: {
+          IdentityKind: { Bot: "bot" },
+          resolveContact: () => ({ avatar: {} })
+        },
+        miaAvatarResolve: { resolveAvatarForContact: () => ({}) },
+        miaConversationContextMenu: {
+          openPrivateConversationMenu() {},
+          openGroupConversationMenu() {}
+        },
+        miaGroupTiles: { resolveGroupMemberTiles: () => [] }
+      };
+      const sessionHistory = {
+        botId: (conversation) => conversation.decorations?.botId || "mia",
+        botDisplayTitle: () => "Mia"
+      };
+      function allOwnedFellowsForIdentity(personas) { return personas || []; }
+      function fellowGlobalIdFromConversation() { return "bot_global"; }
+      function fellowAvatarIdentityId() { return "bot_global"; }
+      function formatConversationTime() { return ""; }
+      function groupTilesCtx() { return {}; }
+      function showNarrowContent() {}
+      function render() {}
+      ${extractFunctionSource(appSource, "firstNonEmpty")}
+      ${extractFunctionSource(appSource, "hasOwn")}
+      ${extractFunctionSource(appSource, "statusBadgeFrom")}
+      ${extractFunctionSource(appSource, "nameBadgeIdentity")}
+      ${extractFunctionSource(appSource, "conversationCardSpecFromRow")}
+      return conversationCardSpecFromRow;
+    }
+  )()`);
+  const badge = { kind: "emoji", emoji: "⭐", label: "Premium" };
+
+  const privateSpec = conversationCardSpecFromRow({
+    type: "private-conversation",
+    updatedAt: "",
+    conversation: { id: "botc_u_me_mia", type: "bot", name: "Mia", decorations: { botId: "mia" } }
+  }, [{ key: "mia", id: "mia", name: "Mia", statusBadge: badge }]);
+  const groupSpec = conversationCardSpecFromRow({
+    type: "group-conversation",
+    updatedAt: "",
+    conversation: { id: "g_badge", type: "group", name: "Squad", statusBadge: badge }
+  }, []);
+
+  assert.equal(privateSpec.identity.kind, "bot");
+  assert.equal(privateSpec.identity.id, "mia");
+  assert.equal(privateSpec.identity.displayName, "Mia");
+  assert.deepEqual(privateSpec.statusBadge, badge);
+  assert.deepEqual(groupSpec.statusBadge, badge);
+});
+
 test("desktop cloud human and group conversations hide the chat history session selector", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
 

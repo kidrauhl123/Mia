@@ -89,6 +89,30 @@ function installCloudConversationSource(mockWindow) {
   vm.runInContext(source, context);
 }
 
+function installNameWithBadge(mockWindow) {
+  const source = fs.readFileSync(path.join(__dirname, "..", "src", "renderer", "name-with-badge.js"), "utf8");
+  const context = vm.createContext({ window: mockWindow, globalThis: mockWindow, document: { createElement: () => ({}) }, console });
+  vm.runInContext(source, context);
+}
+
+function installSocialGroups(mockWindow) {
+  const source = fs.readFileSync(path.join(__dirname, "..", "src", "renderer", "social", "social-groups.js"), "utf8");
+  const context = vm.createContext({
+    window: mockWindow,
+    globalThis: mockWindow,
+    document: {
+      createElement: () => ({
+        className: "",
+        set innerHTML(value) { this._html = String(value || ""); },
+        get innerHTML() { return this._html || ""; }
+      })
+    },
+    console
+  });
+  vm.runInContext(source, context);
+  mockWindow.miaSocialGroups.attach(mockWindow.miaSocial._internalCtx);
+}
+
 async function withMutedConsoleWarn(fn) {
   const original = console.warn;
   console.warn = () => {};
@@ -1080,6 +1104,94 @@ test("renderConversationChat uses cloud fellow avatar when no local fellow exist
   assert.equal(chat.children.length, 1);
   assert.match(chat.children[0].innerHTML, /data:cloud-mia-avatar/);
   assert.doesNotMatch(chat.children[0].innerHTML, /asset:mia/);
+});
+
+test("renderConversationChat renders private cloud sender status badge", () => {
+  const s = loadSocial();
+  installCloudConversationSource(s.__mockWindow);
+  installNameWithBadge(s.__mockWindow);
+  s.__mockWindow.miaAvatar = {
+    avatarThumbBackgroundStyle: (image, _crop, color) => image
+      ? `background-color:transparent;background-image:url('${image}');`
+      : `background-color:${color || "#5e5ce6"};`
+  };
+  s.initSocialModule({ getState: () => ({ runtime: {} }), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.myUserId = "u_me";
+  s.moduleState.bots = [{
+    id: "mia",
+    name: "Mia",
+    statusBadge: { kind: "emoji", emoji: "⭐", label: "Premium" }
+  }];
+  s.moduleState.activeConversationId = "botc_u_me_mia";
+  s.moduleState.conversations = [{ id: "botc_u_me_mia", type: "bot", name: "Mia", decorations: { botId: "mia" } }];
+  s.moduleState.messageCache.set("botc_u_me_mia", {
+    maxSeq: 1,
+    messages: [{ id: "m_badge", seq: 1, sender_kind: "bot", sender_ref: "mia", body_md: "hello", created_at: "" }]
+  });
+  const chat = {
+    children: [],
+    appendChild(child) { this.children.push(child); return child; },
+    set innerHTML(value) { this.children = []; this._html = value; },
+    get innerHTML() { return this._html || ""; },
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+  };
+
+  s.renderConversationChat(chat);
+
+  assert.equal(chat.children.length, 1);
+  assert.match(chat.children[0].innerHTML, /name-with-badge/);
+  assert.match(chat.children[0].innerHTML, /name-with-badge-badge-emoji/);
+  assert.match(chat.children[0].innerHTML, /⭐/);
+});
+
+test("renderConversationChat renders group sender status badge", () => {
+  const s = loadSocial();
+  installCloudConversationSource(s.__mockWindow);
+  installNameWithBadge(s.__mockWindow);
+  installSocialGroups(s.__mockWindow);
+  s.__mockWindow.miaMemberColor = { memberAccentColor: () => "#2563eb" };
+  s.__mockWindow.miaAvatar = {
+    avatarThumbBackgroundStyle: (image, _crop, color) => image
+      ? `background-color:transparent;background-image:url('${image}');`
+      : `background-color:${color || "#5e5ce6"};`
+  };
+  s.initSocialModule({ getState: () => ({ runtime: {} }), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.myUserId = "u_me";
+  s.moduleState.activeConversationId = "g_badge";
+  s.moduleState.conversations = [{ id: "g_badge", type: "group", name: "Squad" }];
+  s._internalCtx.conversationMembersCache.set("g_badge", [{
+    member_kind: "bot",
+    member_ref: "mia",
+    identity: {
+      kind: "bot",
+      id: "mia",
+      displayName: "Mia",
+      avatar: { image: "", crop: null, color: "#5e5ce6", text: "Mi" },
+      statusBadge: { kind: "emoji", emoji: "⭐", label: "Premium" }
+    }
+  }]);
+  s.moduleState.messageCache.set("g_badge", {
+    maxSeq: 1,
+    messages: [{ id: "m_group_badge", seq: 1, sender_kind: "bot", sender_ref: "mia", body_md: "hello", created_at: "" }]
+  });
+  const chat = {
+    children: [],
+    appendChild(child) { this.children.push(child); return child; },
+    set innerHTML(value) { this.children = []; this._html = value; },
+    get innerHTML() { return this._html || ""; },
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+  };
+
+  s.renderConversationChat(chat);
+
+  assert.equal(chat.children.length, 1);
+  assert.match(chat.children[0].innerHTML, /name-with-badge/);
+  assert.match(chat.children[0].innerHTML, /name-with-badge-badge-emoji/);
+  assert.match(chat.children[0].innerHTML, /⭐/);
 });
 
 test("renderConversationChat self identity uses the cloud account, not a stale local profile name", () => {

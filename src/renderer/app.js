@@ -262,6 +262,45 @@ function firstNonEmpty(...values) {
   return "";
 }
 
+function hasOwn(obj, key) {
+  return Boolean(obj && typeof obj === "object" && Object.prototype.hasOwnProperty.call(obj, key));
+}
+
+function statusBadgeFrom(...sources) {
+  for (const source of sources) {
+    if (hasOwn(source, "statusBadge")) return source.statusBadge;
+    if (hasOwn(source, "status_badge")) return source.status_badge;
+  }
+  return undefined;
+}
+
+function nameBadgeIdentity(kind, record, displayName, fallbackId = "") {
+  const source = record && typeof record === "object" ? record : {};
+  const identity = source.identity && typeof source.identity === "object" ? source.identity : source;
+  const id = firstNonEmpty(
+    identity.id,
+    identity.botId,
+    identity.bot_id,
+    source.id,
+    source.botId,
+    source.bot_id,
+    source.key,
+    source.account,
+    fallbackId
+  );
+  if (!id) return null;
+  const out = {
+    kind,
+    id,
+    displayName: firstNonEmpty(identity.displayName, identity.display_name, identity.name, displayName)
+  };
+  const ownerUserId = firstNonEmpty(identity.ownerUserId, identity.owner_user_id, source.ownerUserId, source.owner_user_id);
+  if (ownerUserId) out.ownerUserId = ownerUserId;
+  const badge = statusBadgeFrom(identity, source);
+  if (typeof badge !== "undefined") out.statusBadge = badge;
+  return out;
+}
+
 function runtimeUserIdentity(runtime = state.runtime) {
   const cloudUser = runtime?.cloud?.enabled && runtime?.cloud?.user ? runtime.cloud.user : null;
   const localUser = runtime?.user || {};
@@ -574,7 +613,7 @@ function conversationCardSpecFromRow(row, personas) {
     const conversation = row.conversation;
     const activeConversationId = social?.getActiveConversationId?.();
     const isFellow = conversation.type === "bot";
-    let name, avatar;
+    let name, avatar, identity, statusBadge;
     if (isFellow) {
       const fellowKey = sessionHistory.botId(conversation);
       const fellow = identityFellows.find((p) => (p.id || p.key) === fellowKey);
@@ -599,15 +638,19 @@ function conversationCardSpecFromRow(row, personas) {
         avatarImage: fellowRecord.avatarImage || "",
         avatarCrop: fellowRecord.avatarCrop || null
       });
+      identity = nameBadgeIdentity("bot", fellowRecord, name, fellowKey);
+      statusBadge = statusBadgeFrom(fellowRecord);
     } else {
       const other = conversation.otherUser || {};
-      name = other.username || other.account || "好友";
+      name = other.displayName || other.username || other.account || "好友";
       avatar = window.miaAvatarResolve.resolveAvatarForContact({
         id: other.id || other.account || name,
         displayName: name,
         avatarImage: other.avatarImage || "",
         avatarCrop: other.avatarCrop || null
       });
+      identity = nameBadgeIdentity("user", other.identity || other, name, other.id || other.account || "");
+      statusBadge = statusBadgeFrom(other.identity, other);
     }
     const pinned = Boolean(social?.isConversationPinned?.(conversation.id));
     const muted = Boolean(social?.isConversationMuted?.(conversation.id));
@@ -623,6 +666,8 @@ function conversationCardSpecFromRow(row, personas) {
       time: formatConversationTime(row.updatedAt),
       unread,
       avatar,
+      identity,
+      statusBadge,
       onClick: () => {
         state.activeKey = "";
         window.miaSocial.setActiveConversationId(conversation.id);
@@ -664,6 +709,13 @@ function conversationCardSpecFromRow(row, personas) {
     const cgMuted = Boolean(social?.isConversationMuted?.(conversation.id));
     const cgUnread = social?.getUnreadForConversation?.(conversation.id) || 0;
     const cgName = conversation.name || "群聊";
+    const cgIdentity = conversation.identity && typeof conversation.identity === "object"
+      ? {
+          ...conversation.identity,
+          displayName: firstNonEmpty(conversation.identity.displayName, conversation.identity.display_name, cgName)
+        }
+      : null;
+    const cgStatusBadge = statusBadgeFrom(conversation.identity, conversation);
     return {
       kind: "group",
       active: conversation.id === activeConversationId,
@@ -676,6 +728,8 @@ function conversationCardSpecFromRow(row, personas) {
       unread: cgUnread,
       members: tiles,
       customAvatar: conversation.decorations?.avatar || null,
+      identity: cgIdentity,
+      statusBadge: cgStatusBadge,
       onClick: () => {
         state.activeKey = "";
         window.miaSocial.setActiveConversationId(conversation.id);
