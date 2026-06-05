@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { test } = require("node:test");
+const { DatabaseSync } = require("node:sqlite");
 
 const { openConversationMessageCache } = require("../src/main/social/conversation-message-cache.js");
 
@@ -201,6 +202,48 @@ test("social bootstrap falls back to cached bot and dm conversation ids", () => 
     assert.deepEqual(snapshot.bots, []);
   } finally {
     cache.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("old social bootstrap cache without bots_json is rebuilt destructively", () => {
+  const { dir, dbPath } = tempCache();
+  const oldDb = new DatabaseSync(dbPath);
+  try {
+    oldDb.exec(`
+      CREATE TABLE social_bootstrap (
+        user_id TEXT PRIMARY KEY,
+        conversations_json TEXT NOT NULL,
+        friends_json TEXT NOT NULL,
+        members_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      INSERT INTO social_bootstrap (user_id, conversations_json, friends_json, members_json, updated_at)
+        VALUES ('u1', '[]', '[]', '{}', '2026-01-01T00:00:00.000Z');
+    `);
+  } finally {
+    oldDb.close();
+  }
+
+  const cache = openConversationMessageCache(dbPath);
+  try {
+    assert.equal(cache.getSocialBootstrap("u1"), null);
+    cache.updateSocialBootstrap("u1", {
+      conversations: [],
+      friends: [],
+      bots: [{ id: "mia", key: "mia" }],
+      members: {}
+    });
+    assert.deepEqual(cache.getSocialBootstrap("u1").bots.map((item) => item.key), ["mia"]);
+  } finally {
+    cache.close();
+  }
+  const migratedDb = new DatabaseSync(dbPath);
+  try {
+    const columns = migratedDb.prepare("PRAGMA table_info(social_bootstrap)").all().map((row) => row.name);
+    assert.ok(columns.includes("bots_json"));
+  } finally {
+    migratedDb.close();
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });

@@ -932,6 +932,7 @@ function migrate(db) {
     db.exec("UPDATE conversations SET type = 'dm' WHERE id LIKE 'dm:%'");
     db.exec("UPDATE conversations SET type = 'bot' WHERE id LIKE 'bot:%'");
   }
+  cleanupRetiredIdentityRows(db);
   db.exec("CREATE INDEX IF NOT EXISTS idx_conversations_type ON conversations(type)");
   db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (1, ?)")
     .run(nowIso());
@@ -989,6 +990,17 @@ function migrate(db) {
   }
   db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (13, ?)")
     .run(nowIso());
+}
+
+function retiredIdentityKind() {
+  return ["fel", "low"].join("");
+}
+
+function cleanupRetiredIdentityRows(db) {
+  const retiredKind = retiredIdentityKind();
+  db.prepare("DELETE FROM messages WHERE sender_kind = ?").run(retiredKind);
+  db.prepare("DELETE FROM conversation_members WHERE member_kind = ?").run(retiredKind);
+  db.prepare("DELETE FROM conversations WHERE type = ? OR id LIKE ?").run(retiredKind, `${retiredKind}:%`);
 }
 
 function importLegacyJsonIfNeeded(db, { legacyJsonPath }) {

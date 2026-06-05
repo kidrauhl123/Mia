@@ -282,3 +282,83 @@ test("schema creates bot-only identity and runtime tables", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
+
+test("migrate destructively removes old private bot conversation rows", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-bot-cleanup-test-"));
+  const dbPath = path.join(tmpDir, "cloud.sqlite");
+  const oldDb = new DatabaseSync(dbPath);
+  try {
+    oldDb.exec(`
+      CREATE TABLE conversations (
+        id TEXT PRIMARY KEY,
+        type TEXT NOT NULL DEFAULT 'group',
+        name TEXT,
+        avatar TEXT,
+        host_member_json TEXT,
+        decorations_json TEXT,
+        context_card_json TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE conversation_members (
+        conversation_id TEXT NOT NULL,
+        member_kind TEXT NOT NULL,
+        member_ref TEXT NOT NULL,
+        owner_id TEXT,
+        ai_perms_json TEXT,
+        joined_at TEXT NOT NULL,
+        PRIMARY KEY (conversation_id, member_kind, member_ref)
+      );
+      CREATE TABLE messages (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL,
+        seq INTEGER NOT NULL,
+        turn_id TEXT,
+        sender_kind TEXT NOT NULL,
+        sender_ref TEXT NOT NULL,
+        sender_owner_id TEXT,
+        body_md TEXT NOT NULL DEFAULT '',
+        attachments_json TEXT,
+        mentions_json TEXT,
+        skills_json TEXT,
+        trace_json TEXT,
+        status TEXT NOT NULL,
+        error_json TEXT,
+        created_at TEXT NOT NULL,
+        UNIQUE (conversation_id, seq)
+      );
+      INSERT INTO conversations (id, type, created_at, updated_at)
+        VALUES ('fellow:u1:codex', 'fellow', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
+      INSERT INTO conversations (id, type, created_at, updated_at)
+        VALUES ('group-with-old-bot', 'group', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
+      INSERT INTO conversations (id, type, created_at, updated_at)
+        VALUES ('group-marked-old', 'fellow', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
+      INSERT INTO conversations (id, type, created_at, updated_at)
+        VALUES ('botc_u1_mia', 'bot', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
+      INSERT INTO conversation_members (conversation_id, member_kind, member_ref, joined_at)
+        VALUES ('group-with-old-bot', 'fellow', 'codex', '2026-01-01T00:00:00.000Z');
+      INSERT INTO conversation_members (conversation_id, member_kind, member_ref, joined_at)
+        VALUES ('botc_u1_mia', 'bot', 'mia', '2026-01-01T00:00:00.000Z');
+      INSERT INTO messages (id, conversation_id, seq, sender_kind, sender_ref, status, created_at)
+        VALUES ('old_msg', 'group-with-old-bot', 1, 'fellow', 'codex', 'sent', '2026-01-01T00:00:00.000Z');
+      INSERT INTO messages (id, conversation_id, seq, sender_kind, sender_ref, status, created_at)
+        VALUES ('bot_msg', 'botc_u1_mia', 1, 'bot', 'mia', 'sent', '2026-01-01T00:00:00.000Z');
+    `);
+  } finally {
+    oldDb.close();
+  }
+
+  const store = createCloudStore({ dataDir: tmpDir, dbPath });
+  try {
+    const db = store.getDb();
+    assert.equal(db.prepare("SELECT COUNT(*) AS count FROM conversations WHERE type = 'fellow' OR id LIKE 'fellow:%'").get().count, 0);
+    assert.equal(db.prepare("SELECT COUNT(*) AS count FROM conversation_members WHERE member_kind = 'fellow'").get().count, 0);
+    assert.equal(db.prepare("SELECT COUNT(*) AS count FROM messages WHERE sender_kind = 'fellow'").get().count, 0);
+    assert.equal(db.prepare("SELECT COUNT(*) AS count FROM conversations WHERE id = 'botc_u1_mia'").get().count, 1);
+    assert.equal(db.prepare("SELECT COUNT(*) AS count FROM conversation_members WHERE member_kind = 'bot'").get().count, 1);
+    assert.equal(db.prepare("SELECT COUNT(*) AS count FROM messages WHERE sender_kind = 'bot'").get().count, 1);
+  } finally {
+    store.close();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});

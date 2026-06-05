@@ -6,7 +6,7 @@ const { test } = require("node:test");
 const root = path.resolve(__dirname, "..");
 const scannedRoots = ["src", "packages", "apps/mobile-rn/src", "scripts"];
 const scannedExtension = /\.(js|ts|tsx|css|html|json|md)$/;
-const legacyFellowIdentifier = /\bfellow\b|Fellow|fellows|fellow_/;
+const legacyFellowIdentifier = /fellow/i;
 
 function walkFiles(dir) {
   const files = [];
@@ -28,16 +28,36 @@ function collectLegacyFellowIdentifiers() {
     if (!fs.existsSync(fullRoot)) continue;
     for (const file of walkFiles(fullRoot)) {
       const relativePath = path.relative(root, file);
-      const lines = fs.readFileSync(file, "utf8").split(/\r?\n/);
-      lines.forEach((line, index) => {
-        if (legacyFellowIdentifier.test(line)) {
-          offenders.push(`${relativePath}:${index + 1}: ${line.trim()}`);
-        }
-      });
+      offenders.push(...collectLegacyFellowIdentifiersInFile(relativePath, fs.readFileSync(file, "utf8")));
     }
   }
   return offenders;
 }
+
+function collectLegacyFellowIdentifiersInFile(relativePath, source) {
+  const offenders = [];
+  if (legacyFellowIdentifier.test(relativePath)) {
+    offenders.push(`${relativePath}: path contains legacy fellow identifier`);
+  }
+  const lines = String(source || "").split(/\r?\n/);
+  lines.forEach((line, index) => {
+    if (legacyFellowIdentifier.test(line)) {
+      offenders.push(`${relativePath}:${index + 1}: ${line.trim()}`);
+    }
+  });
+  return offenders;
+}
+
+test("legacy identifier guard catches camelCase content and path names", () => {
+  assert.deepEqual(
+    collectLegacyFellowIdentifiersInFile("src/main/bot-runtime-control.js", "const fellowKey = 'mia';"),
+    ["src/main/bot-runtime-control.js:1: const fellowKey = 'mia';"]
+  );
+  assert.deepEqual(
+    collectLegacyFellowIdentifiersInFile("src/shared/fellow-runtime-control.js", "const botKey = 'mia';"),
+    ["src/shared/fellow-runtime-control.js: path contains legacy fellow identifier"]
+  );
+});
 
 test("production source does not contain legacy fellow identifiers", () => {
   const offenders = collectLegacyFellowIdentifiers();

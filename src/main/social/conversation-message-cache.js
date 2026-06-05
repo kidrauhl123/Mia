@@ -20,6 +20,11 @@ const { DatabaseSync } = require("node:sqlite");
 
 const DEFAULT_RECENT_LIMIT = 50;
 const DEFAULT_PRUNE_KEEP = 300;
+
+function hasColumn(db, tableName, columnName) {
+  return db.prepare(`PRAGMA table_info(${tableName})`).all().some((row) => row.name === columnName);
+}
+
 function migrate(db) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS messages (
@@ -36,6 +41,10 @@ function migrate(db) {
     CREATE INDEX IF NOT EXISTS idx_messages_conversation_seq
       ON messages (conversation_id, seq);
   `);
+
+  if (!hasColumn(db, "social_bootstrap", "bots_json")) {
+    db.exec("DROP TABLE IF EXISTS social_bootstrap");
+  }
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS social_bootstrap (
