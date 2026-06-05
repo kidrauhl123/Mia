@@ -66,7 +66,17 @@ function createTasksStore(filePath) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
 
   function load() {
-    return readJSON(filePath, { tasks: [] });
+    const state = readJSON(filePath, { tasks: [] });
+    const tasks = Array.isArray(state.tasks) ? state.tasks : [];
+    const currentTasks = tasks.filter((task) =>
+      task && typeof task === "object" && task.botId && !Object.prototype.hasOwnProperty.call(task, "fellowId")
+    );
+    if (currentTasks.length !== tasks.length || !Array.isArray(state.tasks)) {
+      const nextState = { ...state, tasks: currentTasks };
+      save(nextState);
+      return nextState;
+    }
+    return { ...state, tasks: currentTasks };
   }
 
   function save(state) {

@@ -1632,6 +1632,9 @@ async function handleRequest(req, res, context) {
       const body = await readJson(req);
       const botId = String(body.botId || "").trim();
       if (!botId) return writeError(res, 400, "botId is required");
+      const bot = context.botsStore.getBot(botId);
+      if (!bot) return writeError(res, 404, "bot not found");
+      if (bot.ownerUserId !== auth.user.id) return writeError(res, 403, "you can only post as your own bot");
       const botMember = context.socialStore.getConversationMember(conversationId, "bot", botId);
       if (!botMember || botMember.owner_id !== auth.user.id) {
         return writeError(res, 403, "you are not the owner of this bot in this conversation");
@@ -1927,11 +1930,12 @@ async function handleRequest(req, res, context) {
     if (req.method === "PUT" && botConversationMatch) {
       const sessionId = botConversationMatch[1];
       const body = await readJson(req);
-      if (replayIfCached(context, res, auth.user.id, body)) return;
       const botId = String(body.botId || "").trim();
       if (!botId) return writeError(res, 400, "botId is required");
       const bot = context.botsStore.getBot(botId);
-      if (bot && bot.ownerUserId !== auth.user.id) return writeError(res, 403, "you can only open your own bots");
+      if (!bot) return writeError(res, 404, "bot not found");
+      if (bot.ownerUserId !== auth.user.id) return writeError(res, 403, "you can only open your own bots");
+      if (replayIfCached(context, res, auth.user.id, body)) return;
       const title = String(body.title || "").trim();
       const requestedRuntimeKind = String(body.runtimeKind || "").trim();
       const conversationId = botConversationId(sessionId);

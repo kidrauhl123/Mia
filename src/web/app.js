@@ -145,9 +145,8 @@ let state = {
   conversations: [],
   friends: [],
   // Cloud-mirrored bot identities. Populated from /api/me/bots on login and
-  // kept in sync via bot.upserted / bot.deleted WS events. Stored in the
-  // legacy `fellows` state bucket for renderer-facing identity helpers.
-  fellows: [],
+  // kept in sync via bot.upserted / bot.deleted WS events.
+  bots: [],
   // Cross-device user settings (Phase 3). Holds pins + read marks +
   // appearance. Populated from /api/me/settings on bootstrap; updated
   // optimistically via pushSettings() + reconciled by
@@ -554,7 +553,7 @@ function clearSession() {
   state.user = null;
   state.conversations = [];
   state.friends = [];
-  state.fellows = [];
+  state.bots = [];
   state.settings = { pins: [], readMarks: {}, appearance: {} };
   state.messageCache.clear?.();
   state.conversationMembersCache.clear?.();
@@ -658,7 +657,7 @@ async function bootstrap() {
     api("/api/social/friend-requests?direction=outgoing").then((d) => { state.outgoingRequests = Array.isArray(d.requests) ? d.requests : []; }).catch(() => {}),
     // Bot identities (name + avatar + persona) so bot conversation messages
     // render with proper attribution rather than bare ids.
-    api("/api/me/bots?compact=1").then((d) => { state.fellows = Array.isArray(d.bots) ? d.bots : []; }).catch(() => {}),
+    api("/api/me/bots?compact=1").then((d) => { state.bots = Array.isArray(d.bots) ? d.bots : []; }).catch(() => {}),
     // Phase 3: cross-device user settings (pin / read marks / appearance).
     api("/api/me/settings").then((d) => { if (d.settings) state.settings = d.settings; }).catch(() => {}),
     // Bridge devices: lets Phase B decide whether the owner's desktop is
@@ -686,7 +685,7 @@ async function bootstrap() {
         const isFellow = r.type === "bot" || r.id?.startsWith("botc_");
         if (!isFellow) return false;
         const fellowKey = sessionHistory.botId(r);
-        return !state.fellows.some((f) => String(f.id || f.key || "") === fellowKey);
+        return !state.bots.some((f) => String(f.id || f.key || "") === fellowKey);
       })
       .map((r) => ensureConversationMembers(r.id))
   );
@@ -708,7 +707,7 @@ async function hydrateFullIdentities() {
     changed = true;
   }
   if (fellowsResult.status === "fulfilled") {
-    state.fellows = Array.isArray(fellowsResult.value.bots) ? fellowsResult.value.bots : state.fellows;
+    state.bots = Array.isArray(fellowsResult.value.bots) ? fellowsResult.value.bots : state.bots;
     changed = true;
   }
   if (!changed) return;
@@ -1038,7 +1037,7 @@ function handleCloudEvent(envelope) {
     const run = cloudRunFor(conversationId, envelope.runId || "");
     run.runId = envelope.runId || run.runId;
     run.hermesRunId = envelope.hermesRunId || run.hermesRunId || "";
-    run.fellowId = envelope.fellowId || run.fellowId || "";
+    run.botId = envelope.botId || run.botId || "";
     run.status = "running";
     if (conversationId === state.activeConversationId) renderActiveChat();
   } else if (type === "cloud_agent_run_event") {
@@ -1046,7 +1045,7 @@ function handleCloudEvent(envelope) {
     const event = envelope.event || {};
     if (!conversationId) return;
     const run = cloudRunFor(conversationId, envelope.runId || "");
-    run.fellowId = envelope.fellowId || run.fellowId || "";
+    run.botId = envelope.botId || run.botId || "";
     const name = hermesEventType(event);
     if (name === "message.delta") {
       run.text += hermesEventText(event);
@@ -1138,26 +1137,26 @@ function handleCloudEvent(envelope) {
       renderConversationList();
       renderActiveChat();
     }
-  } else if (type === "fellow.upserted") {
-    // Phase 2: another device created/edited a fellow — replace by id so
+  } else if (type === "bot.upserted") {
+    // Phase 2: another device created/edited a bot — replace by id so
     // names/avatars stay current across this browser too.
-    const fellow = envelope.fellow;
-    if (fellow && fellow.id) {
-      state.fellows = [fellow, ...state.fellows.filter((f) => f.id !== fellow.id)];
+    const bot = envelope.bot;
+    if (bot && bot.id) {
+      state.bots = [bot, ...state.bots.filter((f) => f.id !== bot.id)];
       renderConversationList();
       renderActiveChat();
       renderSessionMenu();
     }
-  } else if (type === "fellow.runtime_updated") {
+  } else if (type === "bot.runtime_updated") {
     const binding = envelope.binding;
-    if (binding?.fellowId && binding?.runtimeKind) {
-      state.fellowRuntimeCache.set(runtimeCacheKey(binding.fellowId, binding.runtimeKind), binding);
+    if (binding?.botId && binding?.runtimeKind) {
+      state.fellowRuntimeCache.set(runtimeCacheKey(binding.botId, binding.runtimeKind), binding);
       renderActiveChat();
     }
-  } else if (type === "fellow.deleted") {
-    const fellowId = envelope.fellowId;
-    if (fellowId) {
-      state.fellows = state.fellows.filter((f) => f.id !== fellowId);
+  } else if (type === "bot.deleted") {
+    const botId = envelope.botId;
+    if (botId) {
+      state.bots = state.bots.filter((f) => f.id !== botId);
       renderConversationList();
       renderActiveChat();
     }
@@ -1193,7 +1192,7 @@ function conversationDisplayTitle(conversation) {
     return friendUsernameById(otherId);
   }
   if (conversation.type === "bot" || conversation.id?.startsWith("botc_")) {
-    return sessionHistory.botDisplayTitle(conversation, state.fellows, "对话");
+    return sessionHistory.botDisplayTitle(conversation, state.bots, "对话");
   }
   return conversation.name || "未命名群聊";
 }
@@ -1208,7 +1207,7 @@ function fellowKeyForConversation(conversation) {
 
 function fellowByKey(key) {
   const wanted = String(key || "");
-  return state.fellows.find((fellow) => String(fellow.id || fellow.key || "") === wanted) || null;
+  return state.bots.find((fellow) => String(fellow.id || fellow.key || "") === wanted) || null;
 }
 
 function fellowAvatarIdentityId(fellowKey, fellow = {}, member = null) {
@@ -1253,7 +1252,7 @@ function userAvatarForContact(user, id, displayName) {
 // Locate the most authoritative metadata for a fellow shown in this
 // conversation, then hand it to shared/avatar-resolve.js so the result is a
 // unified {image, crop, color, text}. Resolution order:
-//   1. state.fellows — fellows the viewer owns (freshest copy).
+//   1. state.bots — fellows the viewer owns (freshest copy).
 //   2. member.identity.avatar — server-canonical cross-owner identity.
 //   3. legacy member fields — tolerated only for older payloads.
 //   4. empty avatar — stable color + two-character text fallback.
@@ -1513,7 +1512,7 @@ async function saveWebAiControl(kind, value) {
   }
   const key = runtimeCacheKey(fellowKey, runtimeKind);
   const current = runtimeBindingFor(fellowKey, runtimeKind) || await ensureFellowRuntime(fellowKey, runtimeKind) || {
-    fellowId: fellowKey,
+    botId: fellowKey,
     runtimeKind,
     enabled: true,
     config: {}
@@ -1568,7 +1567,7 @@ function activeSessionConversation() {
 
 function sessionTitleForConversation(conversation) {
   return sessionHistory.sessionTitle(conversation, {
-    fellows: state.fellows,
+    bots: state.bots,
     defaultTitle: "新对话",
     groupTitle: "群聊",
     dmTitle: conversationDisplayTitle,
@@ -1694,7 +1693,7 @@ function groupTilesCtx() {
   return {
     self: state.user || null,
     friends: state.friends || [],
-    fellows: state.fellows || []
+    bots: state.bots || []
   };
 }
 
@@ -2013,7 +2012,7 @@ function buildConversationMessageArticle(msg, conversation) {
   // Sender resolution routes through the canonical adapter (cloud-conversation-source).
   // Web reads only MessageSpec fields — no schema branching here.
   const members = state.conversationMembersCache.get(conversation.id) || [];
-  const ctx = { self: state.user, friends: state.friends, fellows: state.fellows };
+  const ctx = { self: state.user, friends: state.friends, bots: state.bots };
   const source = window.miaCloudConversationSource.createCloudConversationSource({
     conversation, messages: [msg], members, ctx
   });
@@ -2070,17 +2069,17 @@ function buildCloudAgentStreamingArticle(conversation, run) {
   // Typing-only state ("running" with no body yet) renders as header dots,
   // not a placeholder bubble in the message stream. See renderActiveChat.
   if (!run.text && !run.tools.length && !run.reasoning) return "";
-  const fellowKey = run.botId || run.fellowId || sessionHistory.botId(conversation) || "mia";
+  const botKey = run.botId || sessionHistory.botId(conversation) || "mia";
   const msg = {
     id: `cloud-agent-stream-${run.runId || conversation.id}`,
-    sender_kind: "fellow",
-    sender_ref: fellowKey,
+    sender_kind: "bot",
+    sender_ref: botKey,
     body_md: run.text || "",
     created_at: run.createdAt || new Date().toISOString(),
     seq: 0,
   };
   const members = state.conversationMembersCache.get(conversation.id) || [];
-  const ctx = { self: state.user, friends: state.friends, fellows: state.fellows };
+  const ctx = { self: state.user, friends: state.friends, bots: state.bots };
   const source = window.miaCloudConversationSource.createCloudConversationSource({ conversation, messages: [msg], members, ctx });
   const spec = source.listMessages()[0];
   const avatar = spec.avatar || {};
@@ -2568,7 +2567,7 @@ function openWebAvatarCropEditor({ draft, root, image, crop }) {
 async function saveCloudOnlyFellowFromWeb(draft) {
   const name = String(draft.name || "").trim();
   if (!name) throw new Error("请输入智能体名称。");
-  const key = cloudFellowKeyFromName(name, state.fellows.map((fellow) => fellow.id || fellow.key));
+  const key = cloudFellowKeyFromName(name, state.bots.map((fellow) => fellow.id || fellow.key));
   const identity = {
     name,
     color: "#2563eb",
@@ -2603,7 +2602,7 @@ async function saveCloudOnlyFellowFromWeb(draft) {
     }
   });
   const fellow = { ...(saved.bot || identity), key, id: key };
-  state.fellows = [fellow, ...state.fellows.filter((item) => String(item.id || item.key || "") !== key)];
+  state.bots = [fellow, ...state.bots.filter((item) => String(item.id || item.key || "") !== key)];
   if (runtime.binding) state.fellowRuntimeCache.set(runtimeCacheKey(key, "cloud-hermes"), runtime.binding);
   if (ensured.conversation) {
     state.conversations = [ensured.conversation, ...state.conversations.filter((conversation) => conversation.id !== ensured.conversation.id)];

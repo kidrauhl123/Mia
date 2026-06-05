@@ -157,7 +157,7 @@ function createRuntimeInitializerService(deps = {}) {
 
   return {
     initializeRuntimeCore,
-    migrateLegacyPersonas,
+    initializeBots,
     writeFileIfMissing
   };
 }

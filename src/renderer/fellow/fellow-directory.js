@@ -3,9 +3,9 @@
 
   const avatarResolve = (typeof globalThis !== "undefined" && globalThis.miaAvatarResolve)
     || (typeof require === "function" ? require("../../shared/avatar-resolve.js") : { normalizeAvatarImage: (v) => String(v || "") });
-  const fellowIdentity = (typeof globalThis !== "undefined" && globalThis.miaFellowIdentity)
-    || (typeof require === "function" ? require("../../shared/fellow-identity.js") : {
-      normalizeFellowColor: (v) => {
+  const botIdentity = (typeof globalThis !== "undefined" && globalThis.miaBotIdentity)
+    || (typeof require === "function" ? require("../../shared/bot-identity.js") : {
+      normalizeBotColor: (v) => {
         const value = String(v || "").trim().toLowerCase();
         return /^#[0-9a-f]{3}([0-9a-f]{3})?([0-9a-f]{2})?$/.test(value) ? value : "";
       }
@@ -88,7 +88,7 @@
     // made record-based surfaces (the sidebar list) honor a key-only hash that
     // disagreed with the global-id hash the chat header / bubbles use, so the
     // same fellow showed two different background colors.
-    const color = fellowIdentity.normalizeFellowColor(input.color || input.avatarColor || input.avatar_color);
+    const color = botIdentity.normalizeBotColor(input.color || input.avatarColor || input.avatar_color);
     // Owned fellows belong to the signed-in user, so stamp the owner id when the
     // record lacks it; fellowAvatarIdentityId then yields fellow:<owner>:<key>
     // (matching the conversation id) instead of falling back to the bare key.

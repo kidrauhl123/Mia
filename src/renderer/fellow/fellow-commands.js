@@ -26,23 +26,22 @@
 
   function existingFellowKeys(state = {}, social = {}) {
     const local = [
-      ...(Array.isArray(state.runtime?.fellows) ? state.runtime.fellows : []),
-      ...(Array.isArray(state.runtime?.personas) ? state.runtime.personas : [])
+      ...(Array.isArray(state.runtime?.bots) ? state.runtime.bots : [])
     ];
-    const cloud = social?.moduleState?.fellows || [];
+    const cloud = social?.moduleState?.bots || [];
     return [...local, ...cloud].map((item) => String(item?.key || item?.id || "").trim()).filter(Boolean);
   }
 
   function fellowIdentity() {
-    if (global.miaFellowIdentity) return global.miaFellowIdentity;
+    if (global.miaBotIdentity) return global.miaBotIdentity;
     if (typeof require === "function") {
-      try { return require("../../shared/fellow-identity.js"); } catch { /* fallback below */ }
+      try { return require("../../shared/bot-identity.js"); } catch { /* fallback below */ }
     }
     return null;
   }
 
   function serializableCapabilities(value) {
-    const normalizer = fellowIdentity()?.normalizeFellowCapabilities;
+    const normalizer = fellowIdentity()?.normalizeBotCapabilities;
     return typeof normalizer === "function"
       ? normalizer(value)
       : (value && typeof value === "object" ? value : { legacyCapabilities: ["chat", "files", "terminal", "code"] });
@@ -99,9 +98,10 @@
     if (!ensured?.ok) throw new Error(ensured?.error || "创建云端会话失败");
     const cloudFellow = { ...savedFellowFromResult(saved, identity), key, id: key };
     if (social?.moduleState) {
-      social.moduleState.fellows = [
+      const bots = Array.isArray(social.moduleState.bots) ? social.moduleState.bots : [];
+      social.moduleState.bots = [
         cloudFellow,
-        ...social.moduleState.fellows.filter((item) => String(item?.key || item?.id || "") !== key)
+        ...bots.filter((item) => String(item?.key || item?.id || "") !== key)
       ];
     }
     const conversation = social?.upsertFellowConversation?.(conversationFromResult(ensured)) || conversationFromResult(ensured);
@@ -114,7 +114,7 @@
   } = {}) {
     if (typeof api?.saveBot !== "function") throw new Error("本机 Bot 保存接口不可用。");
     const runtime = await api.saveBot(fellow);
-    const fellows = runtime?.fellows || runtime?.personas || [];
+    const fellows = runtime?.bots || [];
     const saved = fellow.key
       ? fellows.find((item) => item.key === fellow.key)
       : [...fellows].reverse().find((item) => item.name === String(fellow.name || "").trim()) || fellows[0];
@@ -139,7 +139,8 @@
     const result = await api.social.deleteBot(key);
     if (result && result.ok === false) throw new Error(result.error || "删除云端 Fellow 失败");
     if (social?.moduleState) {
-      social.moduleState.fellows = social.moduleState.fellows
+      const bots = Array.isArray(social.moduleState.bots) ? social.moduleState.bots : [];
+      social.moduleState.bots = bots
         .filter((item) => String(item?.key || item?.id || "") !== key);
     }
     await social?.bootstrapAfterLogin?.();
@@ -192,9 +193,10 @@
     const saved = savedFellowFromResult(response, { ...fellow, capabilities });
     const nextFellow = { ...saved, key: saved.key || saved.id || key, id: saved.id || saved.key || key };
     if (social?.moduleState) {
-      social.moduleState.fellows = [
+      const bots = Array.isArray(social.moduleState.bots) ? social.moduleState.bots : [];
+      social.moduleState.bots = [
         nextFellow,
-        ...social.moduleState.fellows.filter((item) => String(item?.key || item?.id || "") !== key)
+        ...bots.filter((item) => String(item?.key || item?.id || "") !== key)
       ];
     }
     return { key, fellow: nextFellow, runtime: state.runtime };
@@ -209,7 +211,7 @@
     if (!key) return { key: "", fellow: null, runtime: null };
     if (typeof api?.saveBot !== "function") throw new Error("本机 Bot 保存接口不可用。");
     const runtime = await api.saveBot({ ...fellow, capabilities });
-    const fellows = runtime?.fellows || runtime?.personas || [];
+    const fellows = runtime?.bots || [];
     const saved = fellows.find((item) => item.key === key || item.id === key) || null;
     return { key, fellow: saved, runtime };
   }

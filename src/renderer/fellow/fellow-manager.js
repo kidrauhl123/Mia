@@ -18,9 +18,9 @@
   let closeGroupContextMenu, openEditFellowDialog, deleteFellow, setFellowPinned;
 
   function fellowIdentity() {
-    if (typeof window !== "undefined" && window.miaFellowIdentity) return window.miaFellowIdentity;
+    if (typeof window !== "undefined" && window.miaBotIdentity) return window.miaBotIdentity;
     if (typeof require === "function") {
-      try { return require("../../shared/fellow-identity.js"); } catch { /* fallback below */ }
+      try { return require("../../shared/bot-identity.js"); } catch { /* fallback below */ }
     }
     return null;
   }
@@ -36,13 +36,12 @@
   function fellowAvatarIdentityId(fellow = {}) {
     const localId = fellow.key || fellow.id || "";
     const ownerUserId = fellow.ownerUserId || fellow.owner_user_id || fellow.ownerId || fellow.owner_id || "";
-    return contact()?.fellowAvatarIdentityId?.(localId, fellow)
+    return contact()?.botAvatarIdentityId?.(localId, fellow)
       || fellow.globalId
       || fellow.global_id
       || fellow.fellowGlobalId
       || fellow.fellow_global_id
-      || fellowIdentity()?.fellowGlobalId?.(ownerUserId, localId)
-      || (ownerUserId && localId ? "fellow:" + ownerUserId + ":" + localId : "")
+      || (ownerUserId && localId ? "botc_" + ownerUserId + "_" + localId : "")
       || localId;
   }
 
@@ -84,12 +83,11 @@
 
   function allOwnedFellows() {
     if (!state) return [];
-    const socialFellows = window.miaSocial?._internalCtx?.adapterCtx?.()?.fellows
-      || window.miaSocial?.moduleState?.fellows
+    const socialFellows = window.miaSocial?._internalCtx?.adapterCtx?.()?.bots
+      || window.miaSocial?.moduleState?.bots
       || [];
     const localFellows = [
-      ...(Array.isArray(state.runtime?.fellows) ? state.runtime.fellows : []),
-      ...(Array.isArray(state.runtime?.personas) ? state.runtime.personas : [])
+      ...(Array.isArray(state.runtime?.bots) ? state.runtime.bots : [])
     ];
     return window.miaFellowDirectory.listOwnedFellows({
       cloudFellows: socialFellows,
@@ -171,7 +169,7 @@
   }
 
   function defaultFellowCapabilities() {
-    return fellowIdentity()?.normalizeFellowCapabilities?.({}) || {
+    return fellowIdentity()?.normalizeBotCapabilities?.({}) || {
       inheritEngineDefaults: true,
       enabledPlugins: [],
       disabledPlugins: [],
@@ -188,7 +186,7 @@
   }
 
   function fellowCapabilities(fellow = {}) {
-    const normalizer = fellowIdentity()?.normalizeFellowCapabilities;
+    const normalizer = fellowIdentity()?.normalizeBotCapabilities;
     if (typeof normalizer === "function") return normalizer(fellow.capabilities);
     const raw = fellow.capabilities && typeof fellow.capabilities === "object" ? fellow.capabilities : {};
     return { ...defaultFellowCapabilities(), ...raw };

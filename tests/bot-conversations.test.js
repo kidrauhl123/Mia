@@ -61,10 +61,63 @@ async function register(port, account) {
   return r.body;
 }
 
+async function saveBot(port, token, botId, name = botId) {
+  const r = await api(port, "PUT", `/api/me/bots/${encodeURIComponent(botId)}`, {
+    token,
+    body: { name }
+  });
+  assert.equal(r.status, 200);
+  return r.body.bot;
+}
+
+test("PUT /api/me/bot-conversations/:sessionId rejects never-created bots", async () => {
+  const ctx = await startServer();
+  try {
+    const A = await register(ctx.port, "missing-bot-chat");
+    const r = await api(ctx.port, "PUT", "/api/me/bot-conversations/missing", {
+      token: A.token,
+      body: { botId: "missing", title: "Missing Bot", runtimeKind: "desktop-local" }
+    });
+    assert.equal(r.status, 404);
+    assert.match(String(r.body?.error || ""), /bot not found/);
+  } finally { await stopServer(ctx); }
+});
+
+test("deleted bots cannot keep posting through stale bot conversation membership", async () => {
+  const ctx = await startServer();
+  try {
+    const A = await register(ctx.port, "deleted-bot-chat");
+    await saveBot(ctx.port, A.token, "codex", "Codex");
+    const ensureBody = { botId: "codex", title: "Codex", runtimeKind: "desktop-local", clientOpId: "op_codex_session" };
+    const ensured = await api(ctx.port, "PUT", "/api/me/bot-conversations/codex-session", {
+      token: A.token,
+      body: ensureBody
+    });
+    assert.equal(ensured.status, 200);
+
+    const deleted = await api(ctx.port, "DELETE", "/api/me/bots/codex", { token: A.token });
+    assert.equal(deleted.status, 200);
+
+    const stalePost = await api(ctx.port, "POST", `/api/conversations/${ensured.body.conversation.id}/messages/as-bot`, {
+      token: A.token,
+      body: { botId: "codex", bodyMd: "stale bot reply" }
+    });
+    assert.equal(stalePost.status, 404);
+    assert.match(String(stalePost.body?.error || ""), /bot not found/);
+
+    const staleEnsure = await api(ctx.port, "PUT", "/api/me/bot-conversations/codex-session", {
+      token: A.token,
+      body: ensureBody
+    });
+    assert.equal(staleEnsure.status, 404);
+  } finally { await stopServer(ctx); }
+});
+
 test("PUT /api/me/bot-conversations/:sessionId creates a stable bot conversation", async () => {
   const ctx = await startServer();
   try {
     const A = await register(ctx.port, "jung");
+    await saveBot(ctx.port, A.token, "alice", "爱丽丝");
     const first = await api(ctx.port, "PUT", "/api/me/bot-conversations/alice", {
       token: A.token,
       body: { botId: "alice", title: "爱丽丝", runtimeKind: "desktop-local" }
@@ -93,6 +146,7 @@ test("PUT /api/me/bot-conversations/:sessionId preserves runtimeKind when omitte
   const ctx = await startServer();
   try {
     const A = await register(ctx.port, "runtime");
+    await saveBot(ctx.port, A.token, "alice", "爱丽丝");
     const first = await api(ctx.port, "PUT", "/api/me/bot-conversations/alice", {
       token: A.token,
       body: { botId: "alice", title: "爱丽丝", runtimeKind: "desktop-local" }
@@ -116,6 +170,7 @@ test("PUT /api/me/bot-conversations/:sessionId updates the title on subsequent e
   const ctx = await startServer();
   try {
     const A = await register(ctx.port, "generated-title");
+    await saveBot(ctx.port, A.token, "alice", "爱丽丝");
     const first = await api(ctx.port, "PUT", "/api/me/bot-conversations/alice", {
       token: A.token,
       body: { botId: "alice", title: "爱丽丝", runtimeKind: "desktop-local" }
@@ -144,6 +199,7 @@ test("stable bot conversations with dotted bot keys can be fetched and messaged"
   const ctx = await startServer();
   try {
     const A = await register(ctx.port, "dotted");
+    await saveBot(ctx.port, A.token, "my.bot", "My Bot");
     const ensured = await api(ctx.port, "PUT", "/api/me/bot-conversations/my.bot", {
       token: A.token,
       body: { botId: "my.bot", title: "My Bot", runtimeKind: "desktop-local" }
@@ -167,6 +223,7 @@ test("PUT /api/me/bot-conversations/:sessionId creates a bot-type conversation o
   const ctx = await startServer();
   try {
     const A = await register(ctx.port, "rho");
+    await saveBot(ctx.port, A.token, "codex", "Codex");
     const sessionId = "sess_abc";
     const r = await api(ctx.port, "PUT", `/api/me/bot-conversations/${sessionId}`, {
       token: A.token,
@@ -186,6 +243,7 @@ test("PUT /api/me/bot-conversations/:sessionId preserves requested runtimeKind f
   const ctx = await startServer();
   try {
     const A = await register(ctx.port, "rho-cloud");
+    await saveBot(ctx.port, A.token, "mia", "Mia");
     const r = await api(ctx.port, "PUT", "/api/me/bot-conversations/sess_cloud", {
       token: A.token,
       body: { botId: "mia", title: "新对话", runtimeKind: "cloud-hermes" }
@@ -201,6 +259,7 @@ test("PUT /api/me/bot-conversations is idempotent (same sessionId returns same c
   const ctx = await startServer();
   try {
     const A = await register(ctx.port, "sigma");
+    await saveBot(ctx.port, A.token, "codex", "Codex");
     const r1 = await api(ctx.port, "PUT", "/api/me/bot-conversations/sess1", { token: A.token, body: { botId: "codex", title: "v1" } });
     const r2 = await api(ctx.port, "PUT", "/api/me/bot-conversations/sess1", { token: A.token, body: { botId: "codex", title: "v2" } });
     assert.equal(r1.body.conversation.id, r2.body.conversation.id);
@@ -213,6 +272,8 @@ test("bot conversations show up in GET /api/conversations alongside DMs and grou
   const ctx = await startServer();
   try {
     const A = await register(ctx.port, "tau");
+    await saveBot(ctx.port, A.token, "codex", "Codex");
+    await saveBot(ctx.port, A.token, "mia", "Mia");
     await api(ctx.port, "PUT", "/api/me/bot-conversations/sess1", { token: A.token, body: { botId: "codex", title: "Codex chat" } });
     await api(ctx.port, "PUT", "/api/me/bot-conversations/sess2", { token: A.token, body: { botId: "mia", title: "Mia chat" } });
     const list = await api(ctx.port, "GET", "/api/conversations", { token: A.token });
@@ -227,6 +288,7 @@ test("Bot-conversation messages POST works through the unified /api/conversation
   const ctx = await startServer();
   try {
     const A = await register(ctx.port, "upsilon");
+    await saveBot(ctx.port, A.token, "codex", "Codex");
     const conversation = await api(ctx.port, "PUT", "/api/me/bot-conversations/sess1", { token: A.token, body: { botId: "codex", title: "x" } });
     const conversationId = conversation.body.conversation.id;
     const sent = await api(ctx.port, "POST", `/api/conversations/${conversationId}/messages`, { token: A.token, body: { bodyMd: "hello bot chat", clientOpId: "op_msg_1" } });

@@ -555,6 +555,11 @@ test("contacts merge local fellows with owned cloud fellows", () => {
   assert.match(fellowManagerSource, /function allOwnedFellows\(\)/);
   assert.match(fellowManagerSource, /window\.miaFellowDirectory\.listOwnedFellows/);
   assert.match(fellowManagerSource, /const fellows = allOwnedFellows\(\);/);
+  assert.match(fellowManagerSource, /adapterCtx\?\.\(\)\?\.bots/);
+  assert.match(fellowManagerSource, /moduleState\?\.bots/);
+  assert.match(fellowManagerSource, /state\.runtime\?\.bots/);
+  assert.doesNotMatch(fellowManagerSource, /runtime\?\.fellows/);
+  assert.doesNotMatch(fellowManagerSource, /runtime\?\.personas/);
   assert.doesNotMatch(fellowManagerSource, /cloudOnly/);
   assert.doesNotMatch(socialSource, /cloudOnly:\s*(true|false)/);
   assert.match(appSource, /const syncedFellowKeys = new Set/);

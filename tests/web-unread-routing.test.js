@@ -613,13 +613,28 @@ test("src/web/app.js restores the topbar chat history selector for fellow conver
   assert.match(source, /function sessionConversationsForConversation\(conversation\)/);
   assert.match(source, /sessionHistory\.sessionConversationsForConversation/);
   assert.match(source, /sessionHistory\.sidebarConversations\(state\.conversations/);
-  assert.match(source, /sessionHistory\.botDisplayTitle\(conversation, state\.fellows, "对话"\)/);
+  assert.match(source, /sessionHistory\.botDisplayTitle\(conversation, state\.bots, "对话"\)/);
   assert.match(source, /sessionHistory\.createBotSessionPayload/);
   assert.match(source, /function createNewSessionForActive\(\)/);
   assert.match(source, /\/api\/me\/bot-conversations\/\$\{encodeURIComponent\(payload\.sessionId\)\}/);
   assert.match(source, /sessionMenuOpen/);
   assert.match(source, /currentSessionTitle/);
   assert.match(source, /newSession\?\.classList\.toggle\("hidden", !canCreate\)/);
+});
+
+test("src/web/app.js handles bot cloud events and bot message source context", () => {
+  const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
+
+  assert.match(source, /type === "bot\.upserted"/);
+  assert.match(source, /type === "bot\.runtime_updated"/);
+  assert.match(source, /type === "bot\.deleted"/);
+  assert.doesNotMatch(source, /type === "fellow\.upserted"/);
+  assert.doesNotMatch(source, /type === "fellow\.runtime_updated"/);
+  assert.doesNotMatch(source, /type === "fellow\.deleted"/);
+  assert.match(source, /const ctx = \{ self: state\.user, friends: state\.friends, bots: state\.bots \}/);
+  assert.doesNotMatch(source, /const ctx = \{ self: state\.user, friends: state\.friends, fellows: state\.fellows \}/);
+  assert.match(source, /sender_kind:\s*"bot"/);
+  assert.doesNotMatch(source, /sender_kind:\s*"fellow"/);
 });
 
 test("src/web/styles.css carries desktop-style AI control switchers", () => {

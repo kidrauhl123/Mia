@@ -61,6 +61,48 @@ test("createTasksStore: create assigns id and persists", () => {
   assert.equal(store2.list().length, 1);
 });
 
+test("createTasksStore: drops persisted legacy fellowId-only tasks on load", () => {
+  const file = tmpFile();
+  fs.writeFileSync(file, JSON.stringify({
+    tasks: [
+      {
+        id: "legacy",
+        title: "old",
+        fellowId: "codex",
+        conversationId: "botc_u1_codex",
+        trigger: { type: "cron", cron: "0 9 * * *" },
+        timezone: "UTC",
+        prompt: "old",
+        status: "active",
+        runs: [],
+        createdAt: 1,
+        updatedAt: 1
+      },
+      {
+        id: "current",
+        title: "new",
+        botId: "mia",
+        conversationId: "botc_u1_mia",
+        sessionId: "botc_u1_mia",
+        trigger: { type: "cron", cron: "0 9 * * *" },
+        timezone: "UTC",
+        prompt: "new",
+        status: "active",
+        runs: [],
+        createdAt: 2,
+        updatedAt: 2
+      }
+    ]
+  }, null, 2));
+
+  const store = createTasksStore(file);
+
+  assert.deepEqual(store.list().map((task) => task.id), ["current"]);
+  assert.equal(store.get("legacy"), null);
+  const persisted = JSON.parse(fs.readFileSync(file, "utf8"));
+  assert.deepEqual(persisted.tasks.map((task) => task.id), ["current"]);
+});
+
 test("createTasksStore: rejects trigger.type=event in v1", () => {
   const store = createTasksStore(tmpFile());
   assert.throws(

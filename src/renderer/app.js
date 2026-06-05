@@ -324,17 +324,17 @@ function typingDotsHtml(label) {
 
 function typingLabelForActiveRun(social, conversation) {
   const run = social?.activeConversationRun?.();
-  const fellowId = run?.fellowId || "";
-  if (!fellowId) return "";
+  const botId = run?.botId || "";
+  if (!botId) return "";
   // Only group conversations need to identify the speaker — DM / fellow chats
   // already have the fellow's name in the header itself.
   if (conversation?.type !== "group") return "";
-  const personas = allOwnedFellowsForIdentity(state.runtime?.fellows || state.runtime?.personas || []);
-  const owned = personas.find((p) => (p.key || p.id) === fellowId);
+  const personas = allOwnedFellowsForIdentity(state.runtime?.bots || []);
+  const owned = personas.find((p) => (p.key || p.id) === botId);
   if (owned?.name) return owned.name;
   const members = social?.getConversationMembers?.(conversation.id) || [];
-  const member = members.find((m) => m.member_kind === MemberKind.Fellow && m.member_ref === fellowId);
-  return member?.fellow_name || fellowId;
+  const member = members.find((m) => m.member_kind === MemberKind.Fellow && m.member_ref === botId);
+  return member?.fellow_name || botId;
 }
 
 function allOwnedFellowsForIdentity(personas = []) {
@@ -342,11 +342,10 @@ function allOwnedFellowsForIdentity(personas = []) {
   if (window.miaFellowManager?.allOwnedFellows) {
     return window.miaFellowManager.allOwnedFellows();
   }
-  const cloudFellows = window.miaSocial?.moduleState?.fellows || [];
+  const cloudFellows = window.miaSocial?.moduleState?.bots || [];
   const localFellows = [
     ...((Array.isArray(personas) && personas.length) ? personas : []),
-    ...(Array.isArray(runtime.fellows) ? runtime.fellows : []),
-    ...(Array.isArray(runtime.personas) ? runtime.personas : [])
+    ...(Array.isArray(runtime.bots) ? runtime.bots : [])
   ];
   if (window.miaFellowDirectory?.listOwnedFellows) {
     return window.miaFellowDirectory.listOwnedFellows({ cloudFellows, localFellows, runtime });
@@ -386,7 +385,7 @@ function paintHeaderStatus() {
     return;
   }
   if (!conversation) return;
-  const personas = state.runtime?.fellows || state.runtime?.personas || [];
+  const personas = state.runtime?.bots || [];
   paintActiveCloudConversationHeader(conversation, { personas, social });
 }
 
@@ -1189,7 +1188,7 @@ function render() {
   window.miaModelSettings.syncPermissionControl(runtime);
   syncConversationFellowRuntimeControls();
 
-  const personas = runtime.fellows || runtime.personas || [];
+  const personas = runtime.bots || [];
   const social = window.miaSocial;
   // cloud.enabled = token present (signed in). NOTE: there is no
   // cloud.loggedIn field — cloudStatus() exposes enabled/connected/
@@ -1205,7 +1204,7 @@ function render() {
   } else if (!personas.some((persona) => persona.key === state.activeKey) && personas.length && !activeCloudConversationId) {
     state.activeKey = personas[0].key;
   }
-  const syncedFellowKeys = new Set((social?.moduleState?.fellows || [])
+  const syncedFellowKeys = new Set((social?.moduleState?.bots || [])
     .map((fellow) => String(fellow?.key || fellow?.id || "").trim())
     .filter(Boolean));
   const contactKeys = new Set([
@@ -1432,7 +1431,7 @@ async function deleteFellow(fellowKey) {
     });
     if (result.runtime) state.runtime = result.runtime;
     if (!result.deleted) return;
-    const fellows = window.miaFellowManager?.allOwnedFellows?.() || state.runtime?.fellows || state.runtime?.personas || [];
+    const fellows = window.miaFellowManager?.allOwnedFellows?.() || state.runtime?.bots || [];
     const next = fellows[0]?.key || "mia";
     if (!fellows.some((item) => item.key === state.activeKey)) state.activeKey = next;
     if (!fellows.some((item) => item.key === state.activeContactKey)) state.activeContactKey = state.activeKey;
@@ -1984,7 +1983,7 @@ async function handleCloudAuthExpired() {
 function activeFellowRuntimeControlContext() {
   const conversationContext = activeConversationFellowContext();
   if (conversationContext) {
-    const personas = state.runtime?.fellows || state.runtime?.personas || [];
+    const personas = state.runtime?.bots || [];
     const fellow = personas.find((persona) => (persona.key || persona.id) === conversationContext.fellowKey) || {};
     return {
       ...conversationContext,
@@ -2219,7 +2218,7 @@ function activeConversationFellowKey() {
 }
 
 function activePersona() {
-  const personas = state.runtime?.fellows || state.runtime?.personas || [];
+  const personas = state.runtime?.bots || [];
   const conversationFellowKey = activeConversationFellowKey();
   if (conversationFellowKey) {
     const conversationPersona = personas.find((persona) => (persona.key || persona.id) === conversationFellowKey);
@@ -2930,12 +2929,12 @@ if (window.mia.onEnginesChanged) {
 if (window.mia.onCloudEvent) {
   let cloudEventRefreshTimer = 0;
   window.mia.onCloudEvent((envelope = {}) => {
-    const runtimeBinding = envelope.type === "fellow.runtime_updated"
+    const runtimeBinding = envelope.type === "bot.runtime_updated"
       ? envelope.binding
       : envelope.payload?.binding;
-    if (runtimeBinding?.fellowId && runtimeBinding?.runtimeKind) {
+    if (runtimeBinding?.botId && runtimeBinding?.runtimeKind) {
       fellowRuntimeControlCache.set(
-        fellowRuntimeCacheKey(runtimeBinding.fellowId, runtimeBinding.runtimeKind),
+        fellowRuntimeCacheKey(runtimeBinding.botId, runtimeBinding.runtimeKind),
         runtimeBinding
       );
     }
