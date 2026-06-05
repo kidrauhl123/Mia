@@ -44,13 +44,13 @@ function createDeps(overrides = {}) {
   };
 }
 
-const fellow = { key: "alice" };
+const bot = { key: "alice" };
 
 test("claude adapter returns local slash command response without SDK call", async () => {
   const deps = createDeps({ externalSlashResult: "local help" });
   const adapters = createChatEngineAdapters(deps);
   const response = await adapters["claude-code"].send({
-    fellow,
+    bot,
     sessionId: "s1",
     slashText: "/help"
   });
@@ -61,7 +61,7 @@ test("claude adapter returns local slash command response without SDK call", asy
   assert.deepEqual(response.mia, {
     transport: "local-command",
     engine: "claude-code",
-    fellow_key: "alice"
+    bot_id: "alice"
   });
   assert.deepEqual(deps.calls, [["external-slash", "claude-code", "/help"]]);
 });
@@ -70,7 +70,7 @@ test("codex adapter falls through to SDK call when slash is not local", async ()
   const deps = createDeps({ externalSlashResult: null });
   const adapters = createChatEngineAdapters(deps);
   const response = await adapters.codex.send({
-    fellow,
+    bot,
     sessionId: "s2",
     slashText: "/unknown"
   });
@@ -91,7 +91,7 @@ test("claude adapter preserves structured local command result", async () => {
   });
   const adapters = createChatEngineAdapters(deps);
   const response = await adapters["claude-code"].send({
-    fellow,
+    bot,
     sessionId: "s1",
     slashText: "/resume"
   });
@@ -106,7 +106,7 @@ test("hermes adapter starts runtime before local slash command", async () => {
   const deps = createDeps({ hermesSlashResult: "settings saved" });
   const adapters = createChatEngineAdapters(deps);
   const response = await adapters.hermes.send({
-    fellow,
+    bot,
     sessionId: "s3",
     slashText: "/model"
   });
@@ -127,7 +127,7 @@ test("hermes adapter starts runtime before normal run", async () => {
   const deps = createDeps();
   const adapters = createChatEngineAdapters(deps);
   const response = await adapters.hermes.send({
-    fellow,
+    bot,
     sessionId: "s4",
     slashText: ""
   });
@@ -144,7 +144,7 @@ test("sendWithChatEngineAdapter falls back to hermes adapter", async () => {
   const adapters = createChatEngineAdapters(deps);
   const response = await sendWithChatEngineAdapter(adapters, {
     chatEngine: { id: "unknown" },
-    fellow,
+    bot,
     sessionId: "s5",
     slashText: ""
   });
@@ -188,13 +188,13 @@ test("stateless adapters dispatch claude and codex without hermes startup", asyn
 
   assert.deepEqual(await adapters["claude-code"].send({
     chatEngine: { id: "claude-code" },
-    fellow,
+    bot,
     systemPrompt: "sys",
     userPrompt: "user"
   }), { content: "claude" });
   assert.deepEqual(await adapters.codex.send({
     chatEngine: { id: "codex" },
-    fellow,
+    bot,
     systemPrompt: "sys2",
     userPrompt: "user2"
   }), { content: "codex" });
@@ -211,7 +211,7 @@ test("stateless hermes adapter ensures runtime first", async () => {
 
   assert.deepEqual(await adapters.hermes.send({
     chatEngine: { id: "hermes" },
-    fellow,
+    bot,
     systemPrompt: "sys",
     userPrompt: "user"
   }), { content: "hermes" });
@@ -227,7 +227,7 @@ test("sendWithStatelessChatEngineAdapter falls back to hermes adapter", async ()
 
   assert.deepEqual(await sendWithStatelessChatEngineAdapter(adapters, {
     chatEngine: { id: "unknown" },
-    fellow,
+    bot,
     systemPrompt: "",
     userPrompt: "user"
   }), { content: "hermes" });

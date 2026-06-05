@@ -96,11 +96,11 @@ function loadTasksPanel() {
 test("tasks history unread appears on the history tab and unread run cards", () => {
   const { panel, elements } = loadTasksPanel();
   const state = {
-    runtime: { fellows: [{ id: "nhnh", key: "nhnh", name: "nhnh" }] },
+    runtime: { bots: [{ id: "nhnh", key: "nhnh", name: "nhnh" }] },
     tasks: [{
       id: "task_1",
       title: "吃饭提醒",
-      fellowId: "nhnh",
+      botId: "nhnh",
       status: "done",
       prompt: "提醒我吃饭。",
       trigger: { type: "oneshot", at: Date.now() - 60_000 },

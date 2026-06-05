@@ -32,7 +32,7 @@ function loadSocial(options = {}) {
   const mockWindow = {
     requestAnimationFrame: options.requestAnimationFrame,
     mia: {},
-    miaFellowCommands: require("../src/renderer/fellow/fellow-commands.js"),
+    miaBotCommands: require("../src/renderer/bot/bot-commands.js"),
     miaSelfIdentity: require("../packages/shared/self-identity.js"),
     miaSendPipeline: require("../src/shared/send-pipeline.js"),
     miaMarkdown: {
@@ -89,6 +89,30 @@ function installCloudConversationSource(mockWindow) {
   vm.runInContext(source, context);
 }
 
+function installNameWithBadge(mockWindow) {
+  const source = fs.readFileSync(path.join(__dirname, "..", "src", "renderer", "name-with-badge.js"), "utf8");
+  const context = vm.createContext({ window: mockWindow, globalThis: mockWindow, document: { createElement: () => ({}) }, console });
+  vm.runInContext(source, context);
+}
+
+function installSocialGroups(mockWindow) {
+  const source = fs.readFileSync(path.join(__dirname, "..", "src", "renderer", "social", "social-groups.js"), "utf8");
+  const context = vm.createContext({
+    window: mockWindow,
+    globalThis: mockWindow,
+    document: {
+      createElement: () => ({
+        className: "",
+        set innerHTML(value) { this._html = String(value || ""); },
+        get innerHTML() { return this._html || ""; }
+      })
+    },
+    console
+  });
+  vm.runInContext(source, context);
+  mockWindow.miaSocialGroups.attach(mockWindow.miaSocial._internalCtx);
+}
+
 async function withMutedConsoleWarn(fn) {
   const original = console.warn;
   console.warn = () => {};
@@ -109,7 +133,7 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
-test("bootstrapAfterLogin ensures local fellow conversations before listing conversations", async () => {
+test("bootstrapAfterLogin ensures local bot conversations before listing conversations", async () => {
   const s = loadSocial();
   const calls = [];
   s.initSocialModule({
@@ -118,7 +142,7 @@ test("bootstrapAfterLogin ensures local fellow conversations before listing conv
         model: { provider: "deepseek", model: "deepseek-chat" },
         effort: { level: "high" },
         permissions: { mode: "yolo" },
-        fellows: [{ key: "alice", name: "爱丽丝" }]
+        bots: [{ key: "alice", name: "爱丽丝" }]
       }
     }),
     render: () => {},
@@ -130,17 +154,17 @@ test("bootstrapAfterLogin ensures local fellow conversations before listing conv
     listFriends: async () => ({ ok: true, data: { friends: [] } }),
     listFriendRequests: async () => ({ ok: true, data: { requests: [] } }),
     settingsGet: async () => ({}),
-    ensureFellowConversation: async (fellowId, body) => {
-      calls.push({ kind: "ensure", fellowId, body });
-      return { ok: true, data: { conversation: { id: "fellow:u_1:alice", type: "fellow" } } };
+    ensureBotSessionConversation: async (botId, body) => {
+      calls.push({ kind: "ensure", botId, body });
+      return { ok: true, data: { conversation: { id: "botc_u_1_alice", type: "bot" } } };
     },
-    saveFellowRuntime: async (fellowId, body) => {
-      calls.push({ kind: "runtime", fellowId, body });
-      return { ok: true, data: { binding: { fellowId, ...body } } };
+    saveBotRuntime: async (botId, body) => {
+      calls.push({ kind: "runtime", botId, body });
+      return { ok: true, data: { binding: { botId, ...body } } };
     },
     listConversations: async () => {
       calls.push({ kind: "listConversations" });
-      return { ok: true, data: { conversations: [{ id: "fellow:u_1:alice", type: "fellow", name: "爱丽丝" }] } };
+      return { ok: true, data: { conversations: [{ id: "botc_u_1_alice", type: "bot", name: "爱丽丝" }] } };
     },
     listConversationMessages: async () => ({ ok: true, data: { messages: [] } })
   };
@@ -148,9 +172,9 @@ test("bootstrapAfterLogin ensures local fellow conversations before listing conv
   await s.bootstrapAfterLogin();
 
   assert.deepEqual(calls.map((call) => call.kind), ["ensure", "runtime", "listConversations"]);
-  assert.equal(calls[0].fellowId, "alice");
-  assert.deepEqual(JSON.parse(JSON.stringify(calls[0].body)), { title: "爱丽丝", runtimeKind: "desktop-local" });
-  assert.equal(calls[1].fellowId, "alice");
+  assert.equal(calls[0].botId, "alice");
+  assert.deepEqual(JSON.parse(JSON.stringify(calls[0].body)), { botId: "alice", title: "爱丽丝", runtimeKind: "desktop-local" });
+  assert.equal(calls[1].botId, "alice");
   assert.deepEqual(JSON.parse(JSON.stringify(calls[1].body)), {
     runtimeKind: "desktop-local",
     enabled: true,
@@ -180,18 +204,18 @@ test("bootstrapAfterLogin asks untitled loaded conversations to generate titles"
     myUsername: async () => ({ ok: true, data: { id: "u_1", username: "jung" } }),
     listFriends: async () => ({ ok: true, data: { friends: [] } }),
     listFriendRequests: async () => ({ ok: true, data: { requests: [] } }),
-    listFellows: async () => ({ ok: true, data: { fellows: [] } }),
+    listBots: async () => ({ ok: true, data: { bots: [] } }),
     settingsGet: async () => ({}),
-    listConversations: async () => ({ ok: true, data: { conversations: [{ id: "fellow:u_1:kongling", type: "fellow", name: "空铃" }] } }),
+    listConversations: async () => ({ ok: true, data: { conversations: [{ id: "botc_u_1_kongling", type: "bot", name: "空铃" }] } }),
     listConversationMessages: async () => ({ ok: true, data: { messages: [
       { id: "m1", seq: 1, sender_kind: "user", body_md: "你好" },
-      { id: "m2", seq: 2, sender_kind: "fellow", body_md: "你好，有什么可以帮你的吗？" }
+      { id: "m2", seq: 2, sender_kind: "bot", body_md: "你好，有什么可以帮你的吗？" }
     ] } })
   };
 
   await s.bootstrapAfterLogin();
 
-  assert.deepEqual(titleCandidates, ["fellow:u_1:kongling"]);
+  assert.deepEqual(titleCandidates, ["botc_u_1_kongling"]);
 });
 
 test("bootstrapAfterLogin paints cached SQLite social data before slow cloud conversations return", async () => {
@@ -209,23 +233,23 @@ test("bootstrapAfterLogin paints cached SQLite social data before slow cloud con
       ok: true,
       data: {
         userId,
-        conversations: [{ id: "fellow:u_1:mia", type: "fellow", name: "Mia" }],
+        conversations: [{ id: "botc_u_1_mia", type: "bot", name: "Mia" }],
         friends: [],
-        fellows: [{ id: "mia", key: "mia", name: "Mia" }],
+        bots: [{ id: "mia", key: "mia", name: "Mia" }],
         members: {}
       }
     }),
     getCachedConversationMessages: async () => ({
       ok: true,
-      data: { messages: [{ id: "m1", seq: 1, sender_kind: "fellow", sender_ref: "mia", body_md: "cached hello" }] }
+      data: { messages: [{ id: "m1", seq: 1, sender_kind: "bot", sender_ref: "mia", body_md: "cached hello" }] }
     }),
     myUsername: async () => ({ ok: true, data: { id: "u_1", username: "jung" } }),
     listFriends: async () => ({ ok: true, data: { friends: [] } }),
     listFriendRequests: async () => ({ ok: true, data: { requests: [] } }),
-    listFellows: async () => ({ ok: true, data: { fellows: [] } }),
+    listBots: async () => ({ ok: true, data: { bots: [] } }),
     settingsGet: async () => ({}),
     listConversations: async () => new Promise((resolve) => {
-      releaseCloudConversations = () => resolve({ ok: true, data: { conversations: [{ id: "fellow:u_1:mia", type: "fellow", name: "Mia" }] } });
+      releaseCloudConversations = () => resolve({ ok: true, data: { conversations: [{ id: "botc_u_1_mia", type: "bot", name: "Mia" }] } });
     }),
     listConversationMessages: async () => ({ ok: true, data: { messages: [] } }),
   };
@@ -234,27 +258,27 @@ test("bootstrapAfterLogin paints cached SQLite social data before slow cloud con
   await flushMicrotasks();
 
   assert.equal(s.moduleState.bootstrapped, true);
-  assert.deepEqual(s.moduleState.conversations.map((item) => item.id), ["fellow:u_1:mia"]);
-  assert.equal(s.moduleState.messageCache.get("fellow:u_1:mia").messages[0].body_md, "cached hello");
+  assert.deepEqual(s.moduleState.conversations.map((item) => item.id), ["botc_u_1_mia"]);
+  assert.equal(s.moduleState.messageCache.get("botc_u_1_mia").messages[0].body_md, "cached hello");
   assert.equal(renderCount, 1);
 
   releaseCloudConversations();
   await boot;
 });
 
-test("bootstrapAfterLogin keeps legacy UUID fellow sessions for history but hides them from sidebar", async () => {
+test("bootstrapAfterLogin keeps legacy UUID bot sessions for history but hides them from sidebar", async () => {
   const s = loadSocial();
   const legacy = {
-    id: "fellow:u_1:9b7c6d5e-1111-4222-8333-123456789abc",
-    type: "fellow",
+    id: "botc_u_1_9b7c6d5e-1111-4222-8333-123456789abc",
+    type: "bot",
     name: "old session",
-    decorations: { fellowKey: "mia", sessionId: "9b7c6d5e-1111-4222-8333-123456789abc" }
+    decorations: { botId: "mia", sessionId: "9b7c6d5e-1111-4222-8333-123456789abc" }
   };
   const stable = {
-    id: "fellow:u_1:mia",
-    type: "fellow",
+    id: "botc_u_1_mia",
+    type: "bot",
     name: "Mia",
-    decorations: { fellowKey: "mia", sessionId: "mia" }
+    decorations: { botId: "mia", sessionId: "mia" }
   };
   s.initSocialModule({
     getState: () => ({ runtime: { cloud: { user: { id: "u_1" } } } }),
@@ -265,13 +289,13 @@ test("bootstrapAfterLogin keeps legacy UUID fellow sessions for history but hide
   s.__mockWindow.mia.social = {
     getCachedSocialBootstrap: async (userId) => ({
       ok: true,
-      data: { userId, conversations: [legacy, stable], friends: [], fellows: [{ id: "mia", name: "Mia" }], members: {} }
+      data: { userId, conversations: [legacy, stable], friends: [], bots: [{ id: "mia", name: "Mia" }], members: {} }
     }),
     getCachedConversationMessages: async () => ({ ok: true, data: { messages: [] } }),
     myUsername: async () => ({ ok: true, data: { id: "u_1", username: "jung" } }),
     listFriends: async () => ({ ok: true, data: { friends: [] } }),
     listFriendRequests: async () => ({ ok: true, data: { requests: [] } }),
-    listFellows: async () => ({ ok: true, data: { fellows: [{ id: "mia", name: "Mia" }] } }),
+    listBots: async () => ({ ok: true, data: { bots: [{ id: "mia", name: "Mia" }] } }),
     settingsGet: async () => ({}),
     listConversations: async () => ({ ok: true, data: { conversations: [legacy, stable] } }),
     listConversationMessages: async () => ({ ok: true, data: { messages: [] } }),
@@ -280,37 +304,40 @@ test("bootstrapAfterLogin keeps legacy UUID fellow sessions for history but hide
   await s.bootstrapAfterLogin();
 
   assert.deepEqual(s.moduleState.conversations.map((item) => item.id), [
-    "fellow:u_1:9b7c6d5e-1111-4222-8333-123456789abc",
-    "fellow:u_1:mia"
+    "botc_u_1_9b7c6d5e-1111-4222-8333-123456789abc",
+    "botc_u_1_mia"
   ]);
-  assert.equal(s.fellowConversationForKey("mia").id, "fellow:u_1:mia");
+  assert.equal(s.botConversationForKey("mia").id, "botc_u_1_mia");
   assert.deepEqual(
     sessionHistory
       .sessionConversationsForConversation(stable, s.moduleState.conversations, { messageCache: s.moduleState.messageCache })
       .map((item) => item.id)
       .sort(),
     [
-      "fellow:u_1:9b7c6d5e-1111-4222-8333-123456789abc",
-      "fellow:u_1:mia"
+      "botc_u_1_9b7c6d5e-1111-4222-8333-123456789abc",
+      "botc_u_1_mia"
     ].sort()
   );
-  assert.deepEqual(s.renderSidebarRows().map((row) => row.conversation.id), ["fellow:u_1:mia"]);
+  assert.deepEqual(s.renderSidebarRows().map((row) => row.conversation.id), [
+    "botc_u_1_9b7c6d5e-1111-4222-8333-123456789abc",
+    "botc_u_1_mia"
+  ]);
 });
 
-test("renderSidebarRows keeps the active legacy fellow session as the sidebar representative", () => {
+test("renderSidebarRows keeps the active legacy bot session as the sidebar representative", () => {
   const s = loadSocial();
   s.__mockWindow.miaSessionHistory = sessionHistory;
   const legacy = {
-    id: "fellow:u_1:9b7c6d5e-1111-4222-8333-123456789abc",
-    type: "fellow",
+    id: "botc_u_1_9b7c6d5e-1111-4222-8333-123456789abc",
+    type: "bot",
     name: "提醒工具不可用",
-    decorations: { fellowKey: "haha", sessionId: "9b7c6d5e-1111-4222-8333-123456789abc" }
+    decorations: { botId: "haha", sessionId: "9b7c6d5e-1111-4222-8333-123456789abc" }
   };
   const stable = {
-    id: "fellow:u_1:haha",
-    type: "fellow",
+    id: "botc_u_1_haha",
+    type: "bot",
     name: "哈哈哈",
-    decorations: { fellowKey: "haha", sessionId: "haha" }
+    decorations: { botId: "haha", sessionId: "haha" }
   };
   s.moduleState.conversations = [legacy, stable];
   s.moduleState.activeConversationId = legacy.id;
@@ -329,7 +356,7 @@ test("renderSidebarRows keeps the active legacy fellow session as the sidebar re
   assert.match(rows[0].conversation.lastMessagePreview, /schedule_\*/);
 });
 
-test("bootstrapAfterLogin syncs external fellow runtime config for web controls", async () => {
+test("bootstrapAfterLogin syncs external bot runtime config for web controls", async () => {
   const s = loadSocial();
   const calls = [];
   s.__mockWindow.miaEngineContracts = require("../src/shared/engine-contracts.js");
@@ -342,7 +369,7 @@ test("bootstrapAfterLogin syncs external fellow runtime config for web controls"
   s.initSocialModule({
     getState: () => ({
       runtime: {
-        fellows: [{
+        bots: [{
           key: "codex",
           name: "Codex",
           agentEngine: "codex",
@@ -359,13 +386,13 @@ test("bootstrapAfterLogin syncs external fellow runtime config for web controls"
     listFriends: async () => ({ ok: true, data: { friends: [] } }),
     listFriendRequests: async () => ({ ok: true, data: { requests: [] } }),
     settingsGet: async () => ({}),
-    ensureFellowConversation: async (fellowId, body) => {
-      calls.push({ kind: "ensure", fellowId, body });
-      return { ok: true, data: { conversation: { id: "fellow:u_1:codex", type: "fellow" } } };
+    ensureBotSessionConversation: async (botId, body) => {
+      calls.push({ kind: "ensure", botId, body });
+      return { ok: true, data: { conversation: { id: "botc_u_1_codex", type: "bot" } } };
     },
-    saveFellowRuntime: async (fellowId, body) => {
-      calls.push({ kind: "runtime", fellowId, body });
-      return { ok: true, data: { binding: { fellowId, ...body } } };
+    saveBotRuntime: async (botId, body) => {
+      calls.push({ kind: "runtime", botId, body });
+      return { ok: true, data: { binding: { botId, ...body } } };
     },
     listConversations: async () => ({ ok: true, data: { conversations: [] } }),
     listConversationMessages: async () => ({ ok: true, data: { messages: [] } })
@@ -386,53 +413,53 @@ test("bootstrapAfterLogin syncs external fellow runtime config for web controls"
   });
 });
 
-test("ensureFellowConversation upserts the ensured conversation into the sidebar cache", async () => {
+test("ensureBotConversation upserts the ensured conversation into the sidebar cache", async () => {
   const s = loadSocial();
   const calls = [];
   s.__mockWindow.mia.social = {
-    ensureFellowConversation: async (fellowId, body) => {
-      calls.push({ fellowId, body });
-      return { ok: true, data: { ok: true, conversation: { id: "fellow:u_1:alice", type: "fellow", name: "爱丽丝" } } };
+    ensureBotSessionConversation: async (botId, body) => {
+      calls.push({ botId, body });
+      return { ok: true, data: { ok: true, conversation: { id: "botc_u_1_alice", type: "bot", name: "爱丽丝" } } };
     }
   };
 
-  const conversation = await s.ensureFellowConversation({ key: "alice", name: "爱丽丝" });
+  const conversation = await s.ensureBotConversation({ key: "alice", name: "爱丽丝" });
 
-  assert.equal(conversation.id, "fellow:u_1:alice");
-  assert.equal(s.moduleState.conversations.some((item) => item.id === "fellow:u_1:alice"), true);
+  assert.equal(conversation.id, "botc_u_1_alice");
+  assert.equal(s.moduleState.conversations.some((item) => item.id === "botc_u_1_alice"), true);
   assert.deepEqual(JSON.parse(JSON.stringify(calls[0])), {
-    fellowId: "alice",
-    body: { title: "爱丽丝", runtimeKind: "desktop-local" }
+    botId: "alice",
+    body: { botId: "alice", title: "爱丽丝", runtimeKind: "desktop-local" }
   });
 });
 
-test("upsertFellowConversation caches a cloud-hermes fellow conversation", async () => {
+test("upsertBotConversation caches a cloud-hermes bot conversation", async () => {
   const s = loadSocial();
   const conversation = {
-    id: "fellow:u_1:alice",
-    type: "fellow",
+    id: "botc_u_1_alice",
+    type: "bot",
     name: "Alice",
-    decorations: { fellowKey: "alice", runtimeKind: "cloud-hermes" }
+    decorations: { botId: "alice", runtimeKind: "cloud-hermes" }
   };
-  const saved = s.upsertFellowConversation(conversation);
+  const saved = s.upsertBotConversation(conversation);
   assert.equal(saved.id, conversation.id);
   assert.equal(s.getConversationById(conversation.id).decorations.runtimeKind, "cloud-hermes");
 });
 
-test("fellowConversationForKey returns an existing cloud-hermes fellow conversation", async () => {
+test("botConversationForKey returns an existing cloud-hermes bot conversation", async () => {
   const s = loadSocial();
-  s.upsertFellowConversation({
-    id: "fellow:u_1:alice",
-    type: "fellow",
+  s.upsertBotConversation({
+    id: "botc_u_1_alice",
+    type: "bot",
     name: "Alice",
-    decorations: { fellowKey: "alice", runtimeKind: "cloud-hermes" }
+    decorations: { botId: "alice", runtimeKind: "cloud-hermes" }
   });
-  const conversation = s.fellowConversationForKey("alice");
-  assert.equal(conversation.id, "fellow:u_1:alice");
+  const conversation = s.botConversationForKey("alice");
+  assert.equal(conversation.id, "botc_u_1_alice");
   assert.equal(conversation.decorations.runtimeKind, "cloud-hermes");
 });
 
-test("selecting a fellow session stores it as the sidebar representative for that fellow", () => {
+test("selecting a bot session stores it as the sidebar representative for that bot", () => {
   const store = {};
   const s = loadSocial();
   s.__mockWindow.miaSessionHistory = sessionHistory;
@@ -448,35 +475,35 @@ test("selecting a fellow session stores it as the sidebar representative for tha
   });
   s.moduleState.conversations = [
     {
-      id: "fellow:u_1:first",
-      type: "fellow",
-      decorations: { fellowKey: "nhnh" },
+      id: "botc_u_1_first",
+      type: "bot",
+      decorations: { botId: "nhnh" },
       updatedAt: "2026-01-03T00:00:00.000Z"
     },
     {
-      id: "fellow:u_1:last-selected",
-      type: "fellow",
-      decorations: { fellowKey: "nhnh" },
+      id: "botc_u_1_last-selected",
+      type: "bot",
+      decorations: { botId: "nhnh" },
       updatedAt: "2026-01-01T00:00:00.000Z"
     }
   ];
-  s.moduleState.messageCache.set("fellow:u_1:first", {
+  s.moduleState.messageCache.set("botc_u_1_first", {
     messages: [{ created_at: "2026-01-03T00:00:00.000Z", body_md: "newer" }],
     maxSeq: 1
   });
-  s.moduleState.messageCache.set("fellow:u_1:last-selected", {
+  s.moduleState.messageCache.set("botc_u_1_last-selected", {
     messages: [{ created_at: "2026-01-01T00:00:00.000Z", body_md: "selected" }],
     maxSeq: 1
   });
 
-  s.setActiveConversationId("fellow:u_1:last-selected");
+  s.setActiveConversationId("botc_u_1_last-selected");
 
-  assert.equal(s.fellowConversationForKey("nhnh").id, "fellow:u_1:last-selected");
-  assert.equal(s.renderSidebarRows()[0].conversation.id, "fellow:u_1:last-selected");
-  assert.equal(JSON.parse(store["mia.lastFellowConversationByKey"]).nhnh, "fellow:u_1:last-selected");
+  assert.equal(s.botConversationForKey("nhnh").id, "botc_u_1_last-selected");
+  assert.equal(s.renderSidebarRows()[0].conversation.id, "botc_u_1_last-selected");
+  assert.equal(JSON.parse(store["mia.lastBotConversationByKey"]).nhnh, "botc_u_1_last-selected");
 });
 
-test("bootstrapAfterLogin warns when fellow conversation ensure returns ok false", async () => {
+test("bootstrapAfterLogin warns when bot conversation ensure returns ok false", async () => {
   const s = loadSocial();
   const calls = [];
   const warnings = [];
@@ -484,7 +511,7 @@ test("bootstrapAfterLogin warns when fellow conversation ensure returns ok false
   console.warn = (...args) => warnings.push(args);
   try {
     s.initSocialModule({
-      getState: () => ({ runtime: { fellows: [{ key: "alice", name: "爱丽丝" }] } }),
+      getState: () => ({ runtime: { bots: [{ key: "alice", name: "爱丽丝" }] } }),
       render: () => {},
       els: {},
       appendTransientChat: () => {}
@@ -494,8 +521,8 @@ test("bootstrapAfterLogin warns when fellow conversation ensure returns ok false
       listFriends: async () => ({ ok: true, data: { friends: [] } }),
       listFriendRequests: async () => ({ ok: true, data: { requests: [] } }),
       settingsGet: async () => ({}),
-      ensureFellowConversation: async (fellowId) => {
-        calls.push({ kind: "ensure", fellowId });
+      ensureBotSessionConversation: async (botId) => {
+        calls.push({ kind: "ensure", botId });
         return { ok: false, error: "boom" };
       },
       listConversations: async () => {
@@ -680,11 +707,11 @@ test("handleCloudEvent conversation.updated upserts unknown conversations", () =
 
   s.handleCloudEvent({
     type: "conversation.updated",
-    payload: { conversation: { id: "fellow:u_1:alice", type: "fellow", name: "爱丽丝" } }
+    payload: { conversation: { id: "botc_u_1_alice", type: "bot", name: "爱丽丝" } }
   });
 
-  assert.equal(s.moduleState.conversations.some((conversation) => conversation.id === "fellow:u_1:alice"), true);
-  assert.equal(s.moduleState.messageCache.has("fellow:u_1:alice"), true);
+  assert.equal(s.moduleState.conversations.some((conversation) => conversation.id === "botc_u_1_alice"), true);
+  assert.equal(s.moduleState.messageCache.has("botc_u_1_alice"), true);
 });
 
 test("renderSidebarRows includes group conversations with type group-conversation", () => {
@@ -693,14 +720,14 @@ test("renderSidebarRows includes group conversations with type group-conversatio
   s.moduleState.conversations = [
     { id: "dm:u_me:u_a", type: "dm", updatedAt: "2026-05-21T20:00:00.000Z", name: null },
     { id: "g_squad", type: "group", updatedAt: "2026-05-21T21:00:00.000Z", name: "Squad" },
-    { id: "fellow:u_me:mia", type: "fellow", updatedAt: "2026-05-21T22:00:00.000Z", name: "Mia" }
+    { id: "botc_u_me_mia", type: "bot", updatedAt: "2026-05-21T22:00:00.000Z", name: "Mia" }
   ];
   s.moduleState.friends = [{ id: "u_a", username: "alice" }];
   const rows = s.renderSidebarRows();
   assert.equal(rows.length, 3);
   const groupRow = rows.find((r) => r.type === "group-conversation");
   assert.equal(groupRow.conversation.name, "Squad");
-  const fellowRow = rows.find((item) => item.conversation?.id === "fellow:u_me:mia");
+  const fellowRow = rows.find((item) => item.conversation?.id === "botc_u_me_mia");
   assert.equal(fellowRow.type, "private-conversation");
 });
 
@@ -790,7 +817,7 @@ test("sendInActiveConversation shows outgoing cloud messages before the network 
   s.moduleState.conversations = [{ id: "g_fast", type: "group", name: "Fast" }];
   s.moduleState.messageCache.set("g_fast", { messages: [], maxSeq: 0 });
   s._internalCtx.conversationMembersCache.set("g_fast", [
-    { member_kind: "fellow", member_ref: "codex", fellow_name: "Codex" }
+    { member_kind: "bot", member_ref: "codex", bot_name: "Codex" }
   ]);
 
   const sendPromise = s.sendInActiveConversation("hello immediately");
@@ -949,9 +976,9 @@ test("renderConversationChat marks failed outgoing cloud messages", async () => 
   s.__mockWindow.mia.social = {
     postConversationMessage: async () => ({ ok: false, error: "network down" })
   };
-  s.moduleState.activeConversationId = "fellow:u_me:mia";
-  s.moduleState.conversations = [{ id: "fellow:u_me:mia", type: "fellow", name: "Mia" }];
-  s.moduleState.messageCache.set("fellow:u_me:mia", { messages: [], maxSeq: 0 });
+  s.moduleState.activeConversationId = "botc_u_me_mia";
+  s.moduleState.conversations = [{ id: "botc_u_me_mia", type: "bot", name: "Mia" }];
+  s.moduleState.messageCache.set("botc_u_me_mia", { messages: [], maxSeq: 0 });
 
   await withMutedConsoleWarn(() => s.sendInActiveConversation("hello failed"));
 
@@ -972,7 +999,7 @@ test("renderConversationChat marks failed outgoing cloud messages", async () => 
   assert.match(chat.children[0].innerHTML, /title="network down"/);
 });
 
-test("renderConversationChat resolves self and fellow avatars from one contact context", () => {
+test("renderConversationChat resolves self and bot avatars from one contact context", () => {
   const s = loadSocial();
   installCloudConversationSource(s.__mockWindow);
   s.__mockWindow.miaAvatar = {
@@ -997,7 +1024,7 @@ test("renderConversationChat resolves self and fellow avatars from one contact c
           avatarCrop: { x: 50, y: 50, zoom: 1 },
           avatarColor: "#111827"
         },
-        fellows: [{
+        bots: [{
           key: "mia",
           name: "Mia",
           avatarImage: "data:mia-avatar",
@@ -1012,13 +1039,13 @@ test("renderConversationChat resolves self and fellow avatars from one contact c
   });
   s.moduleState.myUserId = "u_me";
   s.moduleState.myUsername = "boss";
-  s.moduleState.activeConversationId = "fellow:u_me:mia";
-  s.moduleState.conversations = [{ id: "fellow:u_me:mia", type: "fellow", name: "Mia", decorations: { fellowKey: "mia" } }];
-  s.moduleState.messageCache.set("fellow:u_me:mia", {
+  s.moduleState.activeConversationId = "botc_u_me_mia";
+  s.moduleState.conversations = [{ id: "botc_u_me_mia", type: "bot", name: "Mia", decorations: { botId: "mia" } }];
+  s.moduleState.messageCache.set("botc_u_me_mia", {
     maxSeq: 2,
     messages: [
       { id: "m_user", seq: 1, sender_kind: "user", sender_ref: "u_me", body_md: "hi", created_at: "" },
-      { id: "m_fellow", seq: 2, sender_kind: "fellow", sender_ref: "mia", body_md: "hello", created_at: "" }
+      { id: "m_fellow", seq: 2, sender_kind: "bot", sender_ref: "mia", body_md: "hello", created_at: "" }
     ]
   });
   const chat = {
@@ -1039,7 +1066,7 @@ test("renderConversationChat resolves self and fellow avatars from one contact c
   assert.doesNotMatch(chat.children[0].innerHTML, /data:cloud-avatar/);
 });
 
-test("renderConversationChat uses cloud fellow avatar when no local fellow exists", () => {
+test("renderConversationChat uses cloud bot avatar when no local bot exists", () => {
   const s = loadSocial();
   installCloudConversationSource(s.__mockWindow);
   s.__mockWindow.miaAvatar = {
@@ -1055,12 +1082,12 @@ test("renderConversationChat uses cloud fellow avatar when no local fellow exist
   });
   s.moduleState.myUserId = "u_me";
   s.moduleState.myUsername = "boss";
-  s.moduleState.fellows = [{ id: "mia", name: "Mia", avatarImage: "data:cloud-mia-avatar", color: "#2563eb" }];
-  s.moduleState.activeConversationId = "fellow:u_me:mia";
-  s.moduleState.conversations = [{ id: "fellow:u_me:mia", type: "fellow", name: "Mia", decorations: { fellowKey: "mia" } }];
-  s.moduleState.messageCache.set("fellow:u_me:mia", {
+  s.moduleState.bots = [{ id: "mia", name: "Mia", avatarImage: "data:cloud-mia-avatar", color: "#2563eb" }];
+  s.moduleState.activeConversationId = "botc_u_me_mia";
+  s.moduleState.conversations = [{ id: "botc_u_me_mia", type: "bot", name: "Mia", decorations: { botId: "mia" } }];
+  s.moduleState.messageCache.set("botc_u_me_mia", {
     maxSeq: 1,
-    messages: [{ id: "m_fellow", seq: 1, sender_kind: "fellow", sender_ref: "mia", body_md: "hello", created_at: "" }]
+    messages: [{ id: "m_fellow", seq: 1, sender_kind: "bot", sender_ref: "mia", body_md: "hello", created_at: "" }]
   });
   const chat = {
     children: [],
@@ -1079,7 +1106,7 @@ test("renderConversationChat uses cloud fellow avatar when no local fellow exist
   assert.doesNotMatch(chat.children[0].innerHTML, /asset:mia/);
 });
 
-test("renderConversationChat preserves an owned fellow's explicit avatar color", () => {
+test("renderConversationChat preserves an owned bot's explicit avatar color", () => {
   const s = loadSocial();
   installCloudConversationSource(s.__mockWindow);
   s.__mockWindow.miaAvatar = {
@@ -1091,7 +1118,7 @@ test("renderConversationChat preserves an owned fellow's explicit avatar color",
     getState: () => ({
       runtime: {
         cloud: { user: { id: "u_me", username: "boss" } },
-        fellows: [{ key: "ha", name: "哈哈哈", avatarImage: "", color: "#aa88dd" }]
+        bots: [{ key: "ha", name: "哈哈哈", avatarImage: "", color: "#aa88dd" }]
       }
     }),
     render: () => {},
@@ -1100,11 +1127,11 @@ test("renderConversationChat preserves an owned fellow's explicit avatar color",
   });
   s.moduleState.myUserId = "u_me";
   s.moduleState.myUsername = "boss";
-  s.moduleState.activeConversationId = "fellow:u_me:ha";
-  s.moduleState.conversations = [{ id: "fellow:u_me:ha", type: "fellow", name: "哈哈哈", decorations: { fellowKey: "ha" } }];
-  s.moduleState.messageCache.set("fellow:u_me:ha", {
+  s.moduleState.activeConversationId = "botc_u_me_ha";
+  s.moduleState.conversations = [{ id: "botc_u_me_ha", type: "bot", name: "哈哈哈", decorations: { botId: "ha" } }];
+  s.moduleState.messageCache.set("botc_u_me_ha", {
     maxSeq: 1,
-    messages: [{ id: "m_fellow", seq: 1, sender_kind: "fellow", sender_ref: "ha", body_md: "hello", created_at: "" }]
+    messages: [{ id: "m_bot", seq: 1, sender_kind: "bot", sender_ref: "ha", body_md: "hello", created_at: "" }]
   });
   const chat = {
     children: [],
@@ -1120,6 +1147,94 @@ test("renderConversationChat preserves an owned fellow's explicit avatar color",
 
   assert.equal(chat.children.length, 1);
   assert.match(chat.children[0].innerHTML, /background-color:#aa88dd/);
+});
+
+test("renderConversationChat renders private cloud sender status badge", () => {
+  const s = loadSocial();
+  installCloudConversationSource(s.__mockWindow);
+  installNameWithBadge(s.__mockWindow);
+  s.__mockWindow.miaAvatar = {
+    avatarThumbBackgroundStyle: (image, _crop, color) => image
+      ? `background-color:transparent;background-image:url('${image}');`
+      : `background-color:${color || "#5e5ce6"};`
+  };
+  s.initSocialModule({ getState: () => ({ runtime: {} }), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.myUserId = "u_me";
+  s.moduleState.bots = [{
+    id: "mia",
+    name: "Mia",
+    statusBadge: { kind: "emoji", emoji: "⭐", label: "Premium" }
+  }];
+  s.moduleState.activeConversationId = "botc_u_me_mia";
+  s.moduleState.conversations = [{ id: "botc_u_me_mia", type: "bot", name: "Mia", decorations: { botId: "mia" } }];
+  s.moduleState.messageCache.set("botc_u_me_mia", {
+    maxSeq: 1,
+    messages: [{ id: "m_badge", seq: 1, sender_kind: "bot", sender_ref: "mia", body_md: "hello", created_at: "" }]
+  });
+  const chat = {
+    children: [],
+    appendChild(child) { this.children.push(child); return child; },
+    set innerHTML(value) { this.children = []; this._html = value; },
+    get innerHTML() { return this._html || ""; },
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+  };
+
+  s.renderConversationChat(chat);
+
+  assert.equal(chat.children.length, 1);
+  assert.match(chat.children[0].innerHTML, /name-with-badge/);
+  assert.match(chat.children[0].innerHTML, /name-with-badge-badge-emoji/);
+  assert.match(chat.children[0].innerHTML, /⭐/);
+});
+
+test("renderConversationChat renders group sender status badge", () => {
+  const s = loadSocial();
+  installCloudConversationSource(s.__mockWindow);
+  installNameWithBadge(s.__mockWindow);
+  installSocialGroups(s.__mockWindow);
+  s.__mockWindow.miaMemberColor = { memberAccentColor: () => "#2563eb" };
+  s.__mockWindow.miaAvatar = {
+    avatarThumbBackgroundStyle: (image, _crop, color) => image
+      ? `background-color:transparent;background-image:url('${image}');`
+      : `background-color:${color || "#5e5ce6"};`
+  };
+  s.initSocialModule({ getState: () => ({ runtime: {} }), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.myUserId = "u_me";
+  s.moduleState.activeConversationId = "g_badge";
+  s.moduleState.conversations = [{ id: "g_badge", type: "group", name: "Squad" }];
+  s._internalCtx.conversationMembersCache.set("g_badge", [{
+    member_kind: "bot",
+    member_ref: "mia",
+    identity: {
+      kind: "bot",
+      id: "mia",
+      displayName: "Mia",
+      avatar: { image: "", crop: null, color: "#5e5ce6", text: "Mi" },
+      statusBadge: { kind: "emoji", emoji: "⭐", label: "Premium" }
+    }
+  }]);
+  s.moduleState.messageCache.set("g_badge", {
+    maxSeq: 1,
+    messages: [{ id: "m_group_badge", seq: 1, sender_kind: "bot", sender_ref: "mia", body_md: "hello", created_at: "" }]
+  });
+  const chat = {
+    children: [],
+    appendChild(child) { this.children.push(child); return child; },
+    set innerHTML(value) { this.children = []; this._html = value; },
+    get innerHTML() { return this._html || ""; },
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+  };
+
+  s.renderConversationChat(chat);
+
+  assert.equal(chat.children.length, 1);
+  assert.match(chat.children[0].innerHTML, /name-with-badge/);
+  assert.match(chat.children[0].innerHTML, /name-with-badge-badge-emoji/);
+  assert.match(chat.children[0].innerHTML, /⭐/);
 });
 
 test("renderConversationChat self identity uses the cloud account, not a stale local profile name", () => {
@@ -1147,9 +1262,9 @@ test("renderConversationChat self identity uses the cloud account, not a stale l
   });
   s.moduleState.myUserId = "u_me";
   s.moduleState.myUsername = "755439";
-  s.moduleState.activeConversationId = "fellow:u_me:mia";
-  s.moduleState.conversations = [{ id: "fellow:u_me:mia", type: "fellow", name: "Mia", decorations: { fellowKey: "mia" } }];
-  s.moduleState.messageCache.set("fellow:u_me:mia", {
+  s.moduleState.activeConversationId = "botc_u_me_mia";
+  s.moduleState.conversations = [{ id: "botc_u_me_mia", type: "bot", name: "Mia", decorations: { botId: "mia" } }];
+  s.moduleState.messageCache.set("botc_u_me_mia", {
     maxSeq: 1,
     messages: [{ id: "m_user", seq: 1, sender_kind: "user", sender_ref: "u_me", body_md: "hi", created_at: "" }]
   });
@@ -1195,9 +1310,9 @@ test("renderConversationChat hashes empty self avatar color by cloud user id", (
   });
   s.moduleState.myUserId = "user_me";
   s.moduleState.myUsername = "755439";
-  s.moduleState.activeConversationId = "fellow:user_me:ha";
-  s.moduleState.conversations = [{ id: "fellow:user_me:ha", type: "fellow", name: "哈哈哈", decorations: { fellowKey: "ha" } }];
-  s.moduleState.messageCache.set("fellow:user_me:ha", {
+  s.moduleState.activeConversationId = "botc_user_me_ha";
+  s.moduleState.conversations = [{ id: "botc_user_me_ha", type: "bot", name: "哈哈哈", decorations: { botId: "ha" } }];
+  s.moduleState.messageCache.set("botc_user_me_ha", {
     maxSeq: 1,
     messages: [{ id: "m_user", seq: 1, sender_kind: "user", sender_ref: "user_me", body_md: "?", created_at: "" }]
   });
@@ -1218,7 +1333,7 @@ test("renderConversationChat hashes empty self avatar color by cloud user id", (
   assert.doesNotMatch(chat.children[0].innerHTML, /background-color:#5e5ce6/);
 });
 
-test("sendInActiveConversation posts group mentions in cloud fellow format", async () => {
+test("sendInActiveConversation posts group mentions in cloud bot format", async () => {
   const s = loadSocial();
   const posted = [];
   s.moduleState.myUserId = "u_me";
@@ -1232,14 +1347,14 @@ test("sendInActiveConversation posts group mentions in cloud fellow format", asy
   s.moduleState.conversations = [{ id: "g_mentions", type: "group", name: "Mentions" }];
   s.moduleState.messageCache.set("g_mentions", { messages: [], maxSeq: 0 });
   s._internalCtx.conversationMembersCache.set("g_mentions", [
-    { member_kind: "fellow", member_ref: "codex", fellow_name: "Codex" }
+    { member_kind: "bot", member_ref: "codex", bot_name: "Codex" }
   ]);
 
   await s.sendInActiveConversation("hi @Codex");
 
   assert.equal(posted.length, 1);
   assert.deepEqual(JSON.parse(JSON.stringify(posted[0].body.mentions)), [
-    { kind: "fellow", fellowId: "codex" }
+    { kind: "bot", botId: "codex" }
   ]);
 });
 
@@ -1269,17 +1384,17 @@ test("handleCloudEvent cloud_agent_run events track transient conversation strea
   s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
   s.handleCloudEvent({
     type: "cloud_agent_run_started",
-    payload: { conversationId: "fellow:u_a:mia", runId: "car_1", hermesRunId: "hr_1", fellowId: "mia" },
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", hermesRunId: "hr_1", botId: "mia" },
   });
   s.handleCloudEvent({
     type: "cloud_agent_run_event",
-    payload: { conversationId: "fellow:u_a:mia", runId: "car_1", event: { type: "message.delta", delta: "hello " } },
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", event: { type: "message.delta", delta: "hello " } },
   });
   s.handleCloudEvent({
     type: "cloud_agent_run_event",
-    payload: { conversationId: "fellow:u_a:mia", runId: "car_1", event: { type: "tool.started", tool: "shell" } },
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", event: { type: "tool.started", tool: "shell" } },
   });
-  const run = s.moduleState.cloudAgentRunsByConversation.get("fellow:u_a:mia");
+  const run = s.moduleState.cloudAgentRunsByConversation.get("botc_u_a_mia");
   assert.equal(run.hermesRunId, "hr_1");
   assert.equal(run.text, "hello ");
   assert.equal(run.tools.map((tool) => tool.name).join(","), "shell");
@@ -1290,12 +1405,12 @@ test("handleCloudEvent tracks pending agent permission requests on the active ru
   s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
   s.handleCloudEvent({
     type: "cloud_agent_run_started",
-    payload: { conversationId: "fellow:u_a:mia", runId: "car_perm", fellowId: "mia" },
+    payload: { conversationId: "botc_u_a_mia", runId: "car_perm", botId: "mia" },
   });
   s.handleCloudEvent({
     type: "cloud_agent_run_event",
     payload: {
-      conversationId: "fellow:u_a:mia",
+      conversationId: "botc_u_a_mia",
       runId: "car_perm",
       event: {
         type: "permission_request",
@@ -1308,7 +1423,7 @@ test("handleCloudEvent tracks pending agent permission requests on the active ru
     },
   });
 
-  const run = s.moduleState.cloudAgentRunsByConversation.get("fellow:u_a:mia");
+  const run = s.moduleState.cloudAgentRunsByConversation.get("botc_u_a_mia");
   assert.equal(run.pendingPermissions.length, 1);
   assert.equal(run.pendingPermissions[0].requestId, "perm_1");
   assert.equal(s.moduleState.pendingPermissionsById.get("perm_1").preview, "npm test");
@@ -1316,7 +1431,7 @@ test("handleCloudEvent tracks pending agent permission requests on the active ru
   s.handleCloudEvent({
     type: "cloud_agent_run_event",
     payload: {
-      conversationId: "fellow:u_a:mia",
+      conversationId: "botc_u_a_mia",
       runId: "car_perm",
       event: { type: "permission_resolved", requestId: "perm_1" }
     },
@@ -1328,9 +1443,9 @@ test("handleCloudEvent tracks pending agent permission requests on the active ru
 test("permission banner title omits repeated actor names", () => {
   const s = loadSocial();
   const compact = s._internalCtx.compactPermissionTitle;
-  s.moduleState.fellows = [{ key: "codex", name: "空铃" }];
+  s.moduleState.bots = [{ key: "codex", name: "空铃" }];
 
-  assert.equal(compact({ title: "Codex 想执行命令", fellowKey: "codex" }), "空铃想执行命令");
+  assert.equal(compact({ title: "Codex 想执行命令", botId: "codex" }), "空铃想执行命令");
   assert.equal(compact({ title: "Codex 想执行命令" }), "Codex想执行命令");
   assert.equal(compact({ title: "空铃 想使用 Bash" }), "空铃想使用 Bash");
   assert.equal(compact({ title: "请求扩展权限" }), "请求扩展权限");
@@ -1358,8 +1473,8 @@ test("successful permission decision removes the pending banner after one click"
     return { ok: true };
   };
   s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
-  s.moduleState.activeConversationId = "fellow:u_a:mia";
-  const run = s._internalCtx.cloudRunFor("fellow:u_a:mia", "car_perm");
+  s.moduleState.activeConversationId = "botc_u_a_mia";
+  const run = s._internalCtx.cloudRunFor("botc_u_a_mia", "car_perm");
   s._internalCtx.addRunPermission(run, { requestId: "perm_1", title: "Codex 想执行命令" });
   s._internalCtx.renderAgentPermissionBanner();
 
@@ -1402,8 +1517,8 @@ test("permission decision handles primary pointerdown before click fallback", as
     return { ok: true };
   };
   s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
-  s.moduleState.activeConversationId = "fellow:u_a:mia";
-  const run = s._internalCtx.cloudRunFor("fellow:u_a:mia", "car_perm");
+  s.moduleState.activeConversationId = "botc_u_a_mia";
+  const run = s._internalCtx.cloudRunFor("botc_u_a_mia", "car_perm");
   s._internalCtx.addRunPermission(run, { requestId: "perm_1", title: "Codex 想执行命令" });
   s._internalCtx.renderAgentPermissionBanner();
 
@@ -1437,8 +1552,8 @@ test("permission banner preserves bottom stickiness when it changes composer hei
     requestAnimationFrame: (fn) => { scheduled.push(fn); return scheduled.length; }
   });
   s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
-  s.moduleState.activeConversationId = "fellow:u_a:mia";
-  const run = s._internalCtx.cloudRunFor("fellow:u_a:mia", "car_perm");
+  s.moduleState.activeConversationId = "botc_u_a_mia";
+  const run = s._internalCtx.cloudRunFor("botc_u_a_mia", "car_perm");
   s._internalCtx.addRunPermission(run, { requestId: "perm_1", preview: "vm_stat" });
 
   s._internalCtx.renderAgentPermissionBanner();
@@ -1454,7 +1569,7 @@ test("handleCloudEvent does not infer group typing state from conductor-mode use
   s.moduleState.conversations = [{ id: "g_typing", type: "group" }];
   s._internalCtx.conversationMembersCache.set("g_typing", [
     { member_kind: "user", member_ref: "u_me" },
-    { member_kind: "fellow", member_ref: "codex", fellow_name: "小栗" }
+    { member_kind: "bot", member_ref: "codex", bot_name: "小栗" }
   ]);
 
   s.handleCloudEvent({
@@ -1484,16 +1599,16 @@ test("cloud agent run start exposes typing state to the conversation header", ()
     appendTransientChat: () => {},
     paintHeaderStatus: () => { headerPaints += 1; }
   });
-  s.moduleState.activeConversationId = "fellow:u_a:mia";
-  s.moduleState.conversations = [{ id: "fellow:u_a:mia", type: "fellow", decorations: { fellowKey: "mia" } }];
-  s.moduleState.messageCache.set("fellow:u_a:mia", { messages: [], maxSeq: 0 });
+  s.moduleState.activeConversationId = "botc_u_a_mia";
+  s.moduleState.conversations = [{ id: "botc_u_a_mia", type: "bot", decorations: { botId: "mia" } }];
+  s.moduleState.messageCache.set("botc_u_a_mia", { messages: [], maxSeq: 0 });
   s.handleCloudEvent({
     type: "cloud_agent_run_started",
-    payload: { conversationId: "fellow:u_a:mia", runId: "car_1", fellowId: "mia" },
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", botId: "mia" },
   });
 
   assert.equal(s.activeConversationRun().status, "running");
-  assert.equal(s.activeConversationRun().fellowId, "mia");
+  assert.equal(s.activeConversationRun().botId, "mia");
   scheduled.forEach((fn) => fn());
   assert.equal(headerPaints, 1);
 
@@ -1514,16 +1629,16 @@ test("cloud agent run start exposes typing state to the conversation header", ()
 test("renderConversationChat does not label tool-only agent activity as typing", () => {
   const s = loadSocial();
   s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
-  s.moduleState.activeConversationId = "fellow:u_a:mia";
-  s.moduleState.conversations = [{ id: "fellow:u_a:mia", type: "fellow", decorations: { fellowKey: "mia" } }];
-  s.moduleState.messageCache.set("fellow:u_a:mia", { messages: [], maxSeq: 0 });
+  s.moduleState.activeConversationId = "botc_u_a_mia";
+  s.moduleState.conversations = [{ id: "botc_u_a_mia", type: "bot", decorations: { botId: "mia" } }];
+  s.moduleState.messageCache.set("botc_u_a_mia", { messages: [], maxSeq: 0 });
   s.handleCloudEvent({
     type: "cloud_agent_run_started",
-    payload: { conversationId: "fellow:u_a:mia", runId: "car_1", fellowId: "mia" },
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", botId: "mia" },
   });
   s.handleCloudEvent({
     type: "cloud_agent_run_event",
-    payload: { conversationId: "fellow:u_a:mia", runId: "car_1", event: { type: "tool.started", tool: "search" } },
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", event: { type: "tool.started", tool: "search" } },
   });
 
   const chat = {
@@ -1550,26 +1665,26 @@ test("renderConversationChat renders normalized cloud run trace blocks", () => {
       return `<div class="trace"><span class="reasoning">${String(reasoning || "")}</span>${(tools || []).map((tool) => `<span class="tool">${tool.name}:${tool.status}</span>`).join("")}</div>`;
     }
   };
-  s.initSocialModule({ getState: () => ({ user: { id: "u_a" }, fellows: [{ key: "mia", name: "Mia" }] }), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.initSocialModule({ getState: () => ({ user: { id: "u_a" }, bots: [{ key: "mia", name: "Mia" }] }), render: () => {}, els: {}, appendTransientChat: () => {} });
   s.moduleState.myUserId = "u_a";
-  s.moduleState.activeConversationId = "fellow:u_a:mia";
-  s.moduleState.conversations = [{ id: "fellow:u_a:mia", type: "fellow", name: "Mia", decorations: { fellowKey: "mia" } }];
-  s.moduleState.messageCache.set("fellow:u_a:mia", { messages: [], maxSeq: 0 });
+  s.moduleState.activeConversationId = "botc_u_a_mia";
+  s.moduleState.conversations = [{ id: "botc_u_a_mia", type: "bot", name: "Mia", decorations: { botId: "mia" } }];
+  s.moduleState.messageCache.set("botc_u_a_mia", { messages: [], maxSeq: 0 });
   s.handleCloudEvent({
     type: "cloud_agent_run_started",
-    payload: { conversationId: "fellow:u_a:mia", runId: "car_1", fellowId: "mia" },
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", botId: "mia" },
   });
   s.handleCloudEvent({
     type: "cloud_agent_run_event",
-    payload: { conversationId: "fellow:u_a:mia", runId: "car_1", event: { type: "reasoning_delta", text: "检查上下文" } },
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", event: { type: "reasoning_delta", text: "检查上下文" } },
   });
   s.handleCloudEvent({
     type: "cloud_agent_run_event",
-    payload: { conversationId: "fellow:u_a:mia", runId: "car_1", event: { type: "tool_call_started", id: "tool_1", name: "shell", preview: "ls" } },
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", event: { type: "tool_call_started", id: "tool_1", name: "shell", preview: "ls" } },
   });
   s.handleCloudEvent({
     type: "cloud_agent_run_event",
-    payload: { conversationId: "fellow:u_a:mia", runId: "car_1", event: { type: "tool_call_completed", id: "tool_1", name: "shell", duration: 1.25 } },
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", event: { type: "tool_call_completed", id: "tool_1", name: "shell", duration: 1.25 } },
   });
 
   const chat = {
@@ -1602,16 +1717,16 @@ test("renderConversationChat marks rendered trace rows after painting", () => {
   };
   s.initSocialModule({ getState: () => ({ user: { id: "u_a" } }), render: () => {}, els: {}, appendTransientChat: () => {} });
   s.moduleState.myUserId = "u_a";
-  s.moduleState.activeConversationId = "fellow:u_a:mia";
-  s.moduleState.conversations = [{ id: "fellow:u_a:mia", type: "fellow", name: "Mia", decorations: { fellowKey: "mia" } }];
-  s.moduleState.messageCache.set("fellow:u_a:mia", { messages: [], maxSeq: 0 });
+  s.moduleState.activeConversationId = "botc_u_a_mia";
+  s.moduleState.conversations = [{ id: "botc_u_a_mia", type: "bot", name: "Mia", decorations: { botId: "mia" } }];
+  s.moduleState.messageCache.set("botc_u_a_mia", { messages: [], maxSeq: 0 });
   s.handleCloudEvent({
     type: "cloud_agent_run_started",
-    payload: { conversationId: "fellow:u_a:mia", runId: "car_1", fellowId: "mia" },
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", botId: "mia" },
   });
   s.handleCloudEvent({
     type: "cloud_agent_run_event",
-    payload: { conversationId: "fellow:u_a:mia", runId: "car_1", event: { type: "tool_call_started", id: "tool_1", name: "shell" } },
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", event: { type: "tool_call_started", id: "tool_1", name: "shell" } },
   });
 
   const chat = {
@@ -1628,7 +1743,7 @@ test("renderConversationChat marks rendered trace rows after painting", () => {
   assert.equal(markedRoot, chat);
 });
 
-test("renderConversationChat renders persisted trace_json on fellow messages", () => {
+test("renderConversationChat renders persisted trace_json on bot messages", () => {
   const s = loadSocial();
   installCloudConversationSource(s.__mockWindow);
   s.__mockWindow.miaTraceBlocks = {
@@ -1636,15 +1751,15 @@ test("renderConversationChat renders persisted trace_json on fellow messages", (
       return `<div class="trace"><span>${String(reasoning || "")}</span>${(tools || []).map((tool) => `<span>${tool.name}</span>`).join("")}</div>`;
     }
   };
-  s.initSocialModule({ getState: () => ({ user: { id: "u_a" }, fellows: [{ key: "mia", name: "Mia" }] }), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.initSocialModule({ getState: () => ({ user: { id: "u_a" }, bots: [{ key: "mia", name: "Mia" }] }), render: () => {}, els: {}, appendTransientChat: () => {} });
   s.moduleState.myUserId = "u_a";
-  s.moduleState.activeConversationId = "fellow:u_a:mia";
-  s.moduleState.conversations = [{ id: "fellow:u_a:mia", type: "fellow", name: "Mia", decorations: { fellowKey: "mia" } }];
-  s.moduleState.messageCache.set("fellow:u_a:mia", {
+  s.moduleState.activeConversationId = "botc_u_a_mia";
+  s.moduleState.conversations = [{ id: "botc_u_a_mia", type: "bot", name: "Mia", decorations: { botId: "mia" } }];
+  s.moduleState.messageCache.set("botc_u_a_mia", {
     messages: [{
       id: "m_trace",
       seq: 1,
-      sender_kind: "fellow",
+      sender_kind: "bot",
       sender_ref: "mia",
       body_md: "done",
       created_at: "",
@@ -1669,57 +1784,57 @@ test("renderConversationChat renders persisted trace_json on fellow messages", (
   assert.match(chat.children[0].innerHTML, /search/);
 });
 
-test("handleCloudEvent fellow reply clears transient cloud agent stream", () => {
+test("handleCloudEvent bot reply clears transient cloud agent stream", () => {
   const s = loadSocial();
   s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
   s.handleCloudEvent({
     type: "cloud_agent_run_started",
-    payload: { conversationId: "fellow:u_a:mia", runId: "car_1" },
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1" },
   });
-  assert.ok(s.moduleState.cloudAgentRunsByConversation.has("fellow:u_a:mia"));
+  assert.ok(s.moduleState.cloudAgentRunsByConversation.has("botc_u_a_mia"));
   s.handleCloudEvent({
     type: "conversation.message_appended",
     payload: {
-      conversationId: "fellow:u_a:mia",
-      message: { id: "m1", seq: 1, sender_kind: "fellow", sender_ref: "mia", body_md: "done" },
+      conversationId: "botc_u_a_mia",
+      message: { id: "m1", seq: 1, sender_kind: "bot", sender_ref: "mia", body_md: "done" },
     },
   });
-  assert.equal(s.moduleState.cloudAgentRunsByConversation.has("fellow:u_a:mia"), false);
+  assert.equal(s.moduleState.cloudAgentRunsByConversation.has("botc_u_a_mia"), false);
 });
 
-test("handleCloudEvent preserves transient run trace when final fellow message lacks trace_json", () => {
+test("handleCloudEvent preserves transient run trace when final bot message lacks trace_json", () => {
   const s = loadSocial();
   s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
   s.handleCloudEvent({
     type: "cloud_agent_run_started",
-    payload: { conversationId: "fellow:u_a:mia", runId: "car_1", fellowId: "mia" },
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", botId: "mia" },
   });
   s.handleCloudEvent({
     type: "cloud_agent_run_event",
-    payload: { conversationId: "fellow:u_a:mia", runId: "car_1", event: { type: "reasoning_delta", text: "检查文件" } },
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", event: { type: "reasoning_delta", text: "检查文件" } },
   });
   s.handleCloudEvent({
     type: "cloud_agent_run_event",
-    payload: { conversationId: "fellow:u_a:mia", runId: "car_1", event: { type: "tool_call_started", id: "tool_1", name: "shell", preview: "wc -l package.json" } },
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", event: { type: "tool_call_started", id: "tool_1", name: "shell", preview: "wc -l package.json" } },
   });
   s.handleCloudEvent({
     type: "cloud_agent_run_event",
-    payload: { conversationId: "fellow:u_a:mia", runId: "car_1", event: { type: "tool_call_completed", id: "tool_1", name: "shell" } },
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", event: { type: "tool_call_completed", id: "tool_1", name: "shell" } },
   });
 
   s.handleCloudEvent({
     type: "conversation.message_appended",
     payload: {
-      conversationId: "fellow:u_a:mia",
-      message: { id: "m1", seq: 1, sender_kind: "fellow", sender_ref: "mia", body_md: "done" },
+      conversationId: "botc_u_a_mia",
+      message: { id: "m1", seq: 1, sender_kind: "bot", sender_ref: "mia", body_md: "done" },
     },
   });
 
-  const cached = s.moduleState.messageCache.get("fellow:u_a:mia").messages[0];
+  const cached = s.moduleState.messageCache.get("botc_u_a_mia").messages[0];
   assert.equal(cached.trace.reasoning, "检查文件");
   assert.equal(cached.trace.tools[0].name, "shell");
   assert.equal(cached.trace.tools[0].status, "completed");
-  assert.equal(s.moduleState.cloudAgentRunsByConversation.has("fellow:u_a:mia"), false);
+  assert.equal(s.moduleState.cloudAgentRunsByConversation.has("botc_u_a_mia"), false);
 });
 
 test("social module does not read the legacy localStorage snapshot on load", () => {
@@ -1747,7 +1862,7 @@ test("bootstrapAfterLogin does not write the legacy localStorage snapshot", asyn
     myUsername: async () => ({ ok: true, data: { id: "u_me", username: "me" } }),
     listFriends: async () => ({ ok: true, data: { friends: [] } }),
     listFriendRequests: async () => ({ ok: true, data: { requests: [] } }),
-    listFellows: async () => ({ ok: true, data: { fellows: [] } }),
+    listBots: async () => ({ ok: true, data: { bots: [] } }),
     listConversations: async () => ({ ok: true, data: { conversations: [] } }),
     settingsGet: async () => ({ ok: true, data: { settings: { version: 1, readMarks: {}, unreadOverrides: {} } } })
   };
@@ -1809,17 +1924,17 @@ test("backfill upgrades stale in-memory messages with persisted trace_json", asy
   s.initSocialModule({ getState: () => ({ runtime: {} }), render: () => {}, els: {}, appendTransientChat: () => {} });
   s.moduleState.myUserId = "u_me";
   s.moduleState.cloudSettings = { version: 1, readMarks: {}, unreadOverrides: {} };
-  s.moduleState.conversations = [{ id: "fellow:u_me:mia", type: "fellow", decorations: { fellowKey: "mia" } }];
+  s.moduleState.conversations = [{ id: "botc_u_me_mia", type: "bot", decorations: { botId: "mia" } }];
   // A stale row may exist in renderer memory before the server returns richer fields.
-  s.moduleState.messageCache.set("fellow:u_me:mia", {
+  s.moduleState.messageCache.set("botc_u_me_mia", {
     maxSeq: 3,
-    messages: [{ id: "m3", seq: 3, sender_kind: "fellow", sender_ref: "mia", body_md: "done" }]
+    messages: [{ id: "m3", seq: 3, sender_kind: "bot", sender_ref: "mia", body_md: "done" }]
   });
 
   const tracedMessage = {
     id: "m3",
     seq: 3,
-    sender_kind: "fellow",
+    sender_kind: "bot",
     sender_ref: "mia",
     body_md: "done",
     trace_json: JSON.stringify({ reasoning: "检查文件", tools: [{ id: "tool_1", name: "shell", status: "completed" }] })
@@ -1831,11 +1946,11 @@ test("backfill upgrades stale in-memory messages with persisted trace_json", asy
   };
 
   await withMutedConsoleWarn(async () => {
-    s.setActiveConversationId("fellow:u_me:mia");
+    s.setActiveConversationId("botc_u_me_mia");
     await flushMicrotasks();
   });
 
-  const cached = s.moduleState.messageCache.get("fellow:u_me:mia").messages[0];
+  const cached = s.moduleState.messageCache.get("botc_u_me_mia").messages[0];
   assert.equal(cached.trace_json, tracedMessage.trace_json);
 });
 
@@ -1846,9 +1961,9 @@ test("warm cache backfill overlaps recent messages to repair missing trace_json"
   s.initSocialModule({ getState: () => ({ runtime: {} }), render: () => {}, els: {}, appendTransientChat: () => {} });
   s.moduleState.myUserId = "u_me";
   s.moduleState.cloudSettings = { version: 1, readMarks: {}, unreadOverrides: {} };
-  s.moduleState.conversations = [{ id: "fellow:u_me:mia", type: "fellow", decorations: { fellowKey: "mia" } }];
+  s.moduleState.conversations = [{ id: "botc_u_me_mia", type: "bot", decorations: { botId: "mia" } }];
 
-  const staleCached = { id: "m3", seq: 3, sender_kind: "fellow", sender_ref: "mia", body_md: "done" };
+  const staleCached = { id: "m3", seq: 3, sender_kind: "bot", sender_ref: "mia", body_md: "done" };
   const tracedMessage = {
     ...staleCached,
     trace_json: JSON.stringify({ reasoning: "检查文件", tools: [{ id: "tool_1", name: "shell", status: "completed" }] })
@@ -1864,11 +1979,11 @@ test("warm cache backfill overlaps recent messages to repair missing trace_json"
   };
 
   await withMutedConsoleWarn(async () => {
-    s.setActiveConversationId("fellow:u_me:mia");
+    s.setActiveConversationId("botc_u_me_mia");
     await flushMicrotasks();
   });
 
-  const cached = s.moduleState.messageCache.get("fellow:u_me:mia").messages[0];
+  const cached = s.moduleState.messageCache.get("botc_u_me_mia").messages[0];
   assert.deepEqual(listCalls, [0]);
   assert.equal(cached.trace_json, tracedMessage.trace_json);
 });

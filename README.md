@@ -2,15 +2,15 @@
 
 Mia 是一个桌面优先的多 Agent 聊天平台。
 
-它把 Hermes、Claude Code、Codex 这类本地 Agent，以及云端 Fellow，放进同一套聊天、联系人、群聊、权限、同步和发布体系里。用户不需要记每个 CLI 的命令，也不需要在一堆工具窗口之间来回切换。打开 Mia，像找同事一样找一个 AI Fellow，说清楚要做什么，然后让它在受控权限下执行。
+它把 Hermes、Claude Code、Codex 这类本地 Agent，以及云端 Bot，放进同一套聊天、联系人、群聊、权限、同步和发布体系里。用户不需要记每个 CLI 的命令，也不需要在一堆工具窗口之间来回切换。打开 Mia，像找同事一样找一个 AI Bot，说清楚要做什么，然后让它在受控权限下执行。
 
-一句话：**聊天是入口，Fellow 是 AI 同事，桌面端是执行现场，Cloud/Web/移动端是同步和远程入口。**
+一句话：**聊天是入口，Bot 是 AI 同事，桌面端是执行现场，Cloud/Web/移动端是同步和远程入口。**
 
 ## 当前状态
 
 - 桌面端是主产品形态，基于 Electron。
 - macOS Apple Silicon 是当前主要打包目标；Windows 打包脚本已存在但仍按实际验证结果发布。
-- Web/Cloud 已有账号、好友、群聊、Fellow、文件、实时同步和桌面 Bridge 能力。
+- Web/Cloud 已有账号、好友、群聊、Bot、文件、实时同步和桌面 Bridge 能力。
 - `apps/mobile-rn/` 下有 React Native 移动端工程，但当前 README 以桌面端和 Cloud/Web 为主。
 - 版本号见 `package.json`，当前为 `0.1.1`。
 
@@ -25,10 +25,10 @@ Mia 是一个桌面优先的多 Agent 聊天平台。
 
 传统 AI 客户端通常是“一个模型，一个窗口，一段上下文”。Mia 的目标不同：
 
-- **把 AI 当联系人管理**：Fellow 有名字、头像、人设、技能、运行时和权限配置。
+- **把 AI 当联系人管理**：Bot 有名字、头像、人设、技能、运行时和权限配置。
 - **把任务放回聊天上下文**：私聊、群聊、@ 提及、回复、附件、历史消息都是一等对象。
 - **把本地执行纳入权限系统**：读文件、跑命令、写代码、使用工具都要经过明确的 Agent 权限模式。
-- **把多端当作同一个产品**：桌面端负责本地执行，Cloud/Web 负责账号、同步、远程触发和云端 Fellow。
+- **把多端当作同一个产品**：桌面端负责本地执行，Cloud/Web 负责账号、同步、远程触发和云端 Bot。
 - **把多引擎接进同一个界面**：Hermes、Claude Code、Codex 走各自 adapter，但用户看到的是统一聊天体验。
 
 ## 主要能力
@@ -37,18 +37,18 @@ Mia 是一个桌面优先的多 Agent 聊天平台。
 
 - 账号注册、登录、会话同步。
 - 好友请求、好友列表、DM、群聊。
-- Fellow 私聊和群聊 @ 提及。
+- Bot 私聊和群聊 @ 提及。
 - 消息增量同步、删除/隐藏、附件、流式回复。
 - 桌面端有本地消息缓存，Cloud 仍是同步源。
 
-### Fellow 与 Agent
+### Bot 与 Agent
 
-- Fellow 身份：名字、头像、简介、人设、颜色、置顶、技能能力。
+- Bot 身份：名字、头像、简介、人设、颜色、置顶、技能能力。
 - Agent 引擎：Hermes、Claude Code、Codex。
 - Claude Code / Codex 使用用户本机已安装的 CLI，不随 Mia 打包。
 - Hermes 可通过官方安装流程或 `with-hermes` 打包形态使用密封 runtime。
-- Fellow 可以挂载技能，技能来源包括内置 skill、官方库和本地 skill 目录。
-- Cloud Fellow 可在云端 Docker worker 中运行，使用平台配置的 LiteLLM 模型网关。
+- Bot 可以挂载技能，技能来源包括内置 skill、官方库和本地 skill 目录。
+- Cloud Bot 可在云端 Docker worker 中运行，使用平台配置的 LiteLLM 模型网关。
 
 ### 本地执行与权限
 
@@ -60,7 +60,7 @@ Mia 是一个桌面优先的多 Agent 聊天平台。
 
 ### Cloud/Web
 
-- Cloud API 使用 SQLite 持久化用户、会话、文件、设备、Fellow、运行记录和事件。
+- Cloud API 使用 SQLite 持久化用户、会话、文件、设备、Bot、运行记录和事件。
 - Web 端消费 Cloud API 和实时事件，用于远程聊天和同步。
 - `/api/events` 和 `/api/bridge` 使用 WebSocket，token 走 `Sec-WebSocket-Protocol`，避免落入 URL 日志。
 - Cloud Hermes worker 使用 Docker 隔离，每个用户独立 root、home、workspace 和 Hermes home。
@@ -105,7 +105,7 @@ npm run open
 
 ### 本地 Agent 前提
 
-Mia 不会替用户安装或分发 Claude Code / Codex CLI。要使用对应 Fellow，需要本机已能找到命令：
+Mia 不会替用户安装或分发 Claude Code / Codex CLI。要使用对应 Bot，需要本机已能找到命令：
 
 ```bash
 claude --version
@@ -173,7 +173,7 @@ SSH、systemd、nginx、LiteLLM、Docker worker 和回滚细节见 [docs/cloud-d
 src/
   main.js                 Electron 主进程装配入口
   main/                   主进程领域模块：Agent adapter、IPC、Cloud、daemon、remote、skills
-  renderer/               桌面端渲染层：聊天、Fellow、设置、技能、任务、社交 UI
+  renderer/               桌面端渲染层：聊天、Bot、设置、技能、任务、社交 UI
   cloud/                  Cloud 数据层和共享服务
   web/                    Web 客户端
   shared/                 main / preload / renderer / web 共用 contract 和纯函数
@@ -211,7 +211,7 @@ adapter 在 `chat-engine-registry` 中统一注册。新增引擎应沿用这个
 
 ### Cloud source of truth
 
-Cloud 负责账号、社交关系、Cloud conversation、文件、Fellow identity、运行记录和事件同步。桌面端可以有本地缓存，但不能把本地缓存当作跨设备真源。
+Cloud 负责账号、社交关系、Cloud conversation、文件、Bot identity、运行记录和事件同步。桌面端可以有本地缓存，但不能把本地缓存当作跨设备真源。
 
 ### Runtime packaging
 
@@ -231,7 +231,7 @@ npm run check
 
 ```bash
 node --test tests/claude-code-chat-adapter.test.js
-node --test tests/local-fellow-responder.test.js
+node --test tests/local-bot-responder.test.js
 node --test tests/serve-cloud-bridge.test.js
 ```
 
@@ -259,7 +259,7 @@ npm test
 
 ### Mia 和普通聊天机器人客户端有什么不同？
 
-Mia 不是单模型聊天壳。它把 Fellow、Agent runtime、权限、社交同步和多端入口统一起来。目标是让 AI 像同事一样被叫出来做事，而不是每次从一个空白模型对话开始。
+Mia 不是单模型聊天壳。它把 Bot、Agent runtime、权限、社交同步和多端入口统一起来。目标是让 AI 像同事一样被叫出来做事，而不是每次从一个空白模型对话开始。
 
 ### 我的本地文件会自动上传到 Cloud 吗？
 

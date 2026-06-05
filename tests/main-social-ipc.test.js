@@ -33,7 +33,7 @@ test("posting a conversation message returns the cloud envelope and runs no desk
 
   const result = await ipcMain.handlers.get(IpcChannel.SocialPostConversationMessage)(
     null,
-    "fellow:u_1:session_1",
+    "botc_u_1_session_1",
     { bodyMd: "你好" }
   );
 
@@ -74,7 +74,7 @@ test("social list IPC writes bootstrap data through to the local cache", async (
     ipcMain,
     socialApi: {
       listFriends: async () => ({ friends: [{ id: "u_friend" }] }),
-      listFellows: async () => ({ fellows: [{ id: "mia" }] }),
+      listBots: async () => ({ bots: [{ id: "mia" }] }),
       listConversations: async () => ({ conversations: [{ id: "c_live" }] })
     },
     messageCache: fakeCache,
@@ -82,13 +82,13 @@ test("social list IPC writes bootstrap data through to the local cache", async (
   });
 
   await ipcMain.handlers.get(IpcChannel.SocialListFriends)(null);
-  await ipcMain.handlers.get(IpcChannel.SocialListFellows)(null);
+  await ipcMain.handlers.get(IpcChannel.SocialListBots)(null);
   await ipcMain.handlers.get(IpcChannel.SocialListConversations)(null);
   const cached = await ipcMain.handlers.get(IpcChannel.SocialGetCachedBootstrap)(null, "u_me");
 
   assert.deepEqual(patches, [
     { userId: "u_me", patch: { friends: [{ id: "u_friend" }] } },
-    { userId: "u_me", patch: { fellows: [{ id: "mia" }] } },
+    { userId: "u_me", patch: { bots: [{ id: "mia" }] } },
     { userId: "u_me", patch: { conversations: [{ id: "c_live" }] } }
   ]);
   assert.deepEqual(cached, { ok: true, data: { userId: "u_me", conversations: [{ id: "c_cached" }] } });
@@ -101,7 +101,7 @@ test("updating a conversation writes the returned title through to the social bo
     getSocialBootstrap: (userId) => userId === "u_me" ? {
       userId,
       conversations: [
-        { id: "fellow:u_me:kongling", type: "fellow", name: "空铃" },
+        { id: "bot:u_me:kongling", type: "bot", name: "空铃" },
         { id: "g_1", type: "group", name: "Group" }
       ]
     } : null,
@@ -111,7 +111,7 @@ test("updating a conversation writes the returned title through to the social bo
     ipcMain,
     socialApi: {
       updateConversation: async () => ({
-        conversation: { id: "fellow:u_me:kongling", type: "fellow", name: "查看package.json行数" }
+        conversation: { id: "bot:u_me:kongling", type: "bot", name: "查看package.json行数" }
       })
     },
     messageCache: fakeCache,
@@ -120,7 +120,7 @@ test("updating a conversation writes the returned title through to the social bo
 
   const result = await ipcMain.handlers.get(IpcChannel.SocialUpdateConversation)(
     null,
-    "fellow:u_me:kongling",
+    "bot:u_me:kongling",
     { name: "查看package.json行数" }
   );
 
@@ -129,7 +129,7 @@ test("updating a conversation writes the returned title through to the social bo
     userId: "u_me",
     patch: {
       conversations: [
-        { id: "fellow:u_me:kongling", type: "fellow", name: "查看package.json行数" },
+        { id: "bot:u_me:kongling", type: "bot", name: "查看package.json行数" },
         { id: "g_1", type: "group", name: "Group" }
       ]
     }

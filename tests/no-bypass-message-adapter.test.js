@@ -41,7 +41,7 @@ test("no js file outside adapters/shared/storage inline-compares sender_kind or 
     if (ALLOWED_FILES.includes(rel)) continue;
     const text = fs.readFileSync(file, "utf8");
     // Match only inline STRING-LITERAL compares (e.g., `=== "fellow"`).
-    // `member_kind === MemberKind.Fellow` is the canonical form and passes.
+    // `member_kind === MemberKind.Bot` is the canonical bot form and passes.
     if (/(sender_kind|member_kind)\s*(===|!==)\s*["']/.test(text)) {
       offenders.push(rel);
     }

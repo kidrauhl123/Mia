@@ -262,7 +262,7 @@
   font-size: 12px;
   color: var(--muted);
 }
-.task-card-fellow { font-style: normal; }
+.task-card-bot { font-style: normal; }
 
 .task-run-icon {
   display: inline-flex;
@@ -611,13 +611,13 @@
 }
 .task-fire-affordance .link:hover { text-decoration: underline; }
 
-/* ── Manual task create dialog (reuses .fellow-dialog / .fellow-form) ────── */
-.task-create-dialog .fellow-form { width: min(520px, calc(100vw - 48px)); }
+/* ── Manual task create dialog (reuses .bot-dialog / .bot-form) ────── */
+.task-create-dialog .bot-form { width: min(520px, calc(100vw - 48px)); }
 .task-create-dialog .req { color: #e5484d; font-style: normal; }
 
-.task-create-dialog .fellow-form input,
-.task-create-dialog .fellow-form select,
-.task-create-dialog .fellow-form textarea,
+.task-create-dialog .bot-form input,
+.task-create-dialog .bot-form select,
+.task-create-dialog .bot-form textarea,
 .task-time-row > select,
 .task-time-controls > input,
 .task-time-controls > select {
@@ -627,9 +627,9 @@
   color: var(--text);
   outline: 0;
 }
-.task-create-dialog .fellow-form input:focus,
-.task-create-dialog .fellow-form select:focus,
-.task-create-dialog .fellow-form textarea:focus,
+.task-create-dialog .bot-form input:focus,
+.task-create-dialog .bot-form select:focus,
+.task-create-dialog .bot-form textarea:focus,
 .task-time-row > select:focus,
 .task-time-controls > input:focus,
 .task-time-controls > select:focus {
@@ -653,6 +653,6 @@
 .task-time-controls > input,
 .task-time-controls > select { flex: 1 1 0; min-width: 0; padding: 10px 12px; }
 .task-time-controls > select { padding-right: 28px; }
-.task-create-dialog .fellow-form select { padding: 10px 30px 10px 12px; }
+.task-create-dialog .bot-form select { padding: 10px 30px 10px 12px; }
 
 .task-create-error { color: #e5484d; font-size: 13px; }

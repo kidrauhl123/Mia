@@ -22,7 +22,7 @@ function rowToRun(row) {
   return {
     id: row.id,
     userId: row.user_id,
-    fellowId: row.fellow_id,
+    botId: row.bot_id,
     conversationId: row.conversation_id,
     triggerMessageId: row.trigger_message_id,
     hermesRunId: row.hermes_run_id || "",
@@ -42,12 +42,12 @@ function normalizeError(error) {
 function createCloudAgentRunsStore(db) {
   const insertStmt = db.prepare(`
     INSERT INTO cloud_agent_runs (
-      id, user_id, fellow_id, conversation_id, trigger_message_id, hermes_run_id,
+      id, user_id, bot_id, conversation_id, trigger_message_id, hermes_run_id,
       status, error_json, created_at, updated_at
     ) VALUES (?, ?, ?, ?, ?, '', 'queued', '', ?, ?)
   `);
   const selectStmt = db.prepare(`
-    SELECT id, user_id, fellow_id, conversation_id, trigger_message_id, hermes_run_id,
+    SELECT id, user_id, bot_id, conversation_id, trigger_message_id, hermes_run_id,
            status, error_json, created_at, updated_at
     FROM cloud_agent_runs WHERE id = ?
   `);
@@ -69,16 +69,16 @@ function createCloudAgentRunsStore(db) {
 
   function createRun(args = {}) {
     const userId = String(args.userId || "").trim();
-    const fellowId = String(args.fellowId || "").trim();
+    const botId = String(args.botId || "").trim();
     const conversationId = String(args.conversationId || "").trim();
     const triggerMessageId = String(args.triggerMessageId || "").trim();
     if (!userId) throw new Error("createRun: userId required");
-    if (!fellowId) throw new Error("createRun: fellowId required");
+    if (!botId) throw new Error("createRun: botId required");
     if (!conversationId) throw new Error("createRun: conversationId required");
     if (!triggerMessageId) throw new Error("createRun: triggerMessageId required");
     const id = randomId("car");
     const now = nowIso();
-    insertStmt.run(id, userId, fellowId, conversationId, triggerMessageId, now, now);
+    insertStmt.run(id, userId, botId, conversationId, triggerMessageId, now, now);
     return getRun(id);
   }
 

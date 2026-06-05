@@ -9,7 +9,7 @@ const SIDEBAR_WIDTH_MAX = 380;
 const SIDEBAR_WIDTH_DEFAULT = 280;
 let skillPickerHoverCloseTimer = 0;
 let avatarTrimDrag = null;
-const fellowRuntimeControlCache = new Map();
+const botRuntimeControlCache = new Map();
 const platformModelCatalog = { loaded: false, loading: false, entries: [] };
 const ICON_PARK_PIN_SVG = '<svg class="icon-park-pin" viewBox="0 0 48 48" aria-hidden="true" focusable="false"><path d="M10.6963 17.5042C13.3347 14.8657 16.4701 14.9387 19.8781 16.8076L32.62 9.74509L31.8989 4.78683L43.2126 16.1005L38.2656 15.3907L31.1918 28.1214C32.9752 31.7589 33.1337 34.6647 30.4953 37.3032C30.4953 37.3032 26.235 33.0429 22.7171 29.525L6.44305 41.5564L18.4382 25.2461C14.9202 21.7281 10.6963 17.5042 10.6963 17.5042Z"/></svg>';
 
@@ -61,32 +61,32 @@ const els = {
   engineRowHermesButton: document.querySelector('[data-engine-row="hermes"]'),
   personaSearch: document.getElementById("personaSearch"),
   personaCount: document.getElementById("personaCount"),
-  fellowCreateMenu: document.getElementById("fellowCreateMenu"),
-  addFellow: document.getElementById("addFellow"),
+  botCreateMenu: document.getElementById("botCreateMenu"),
+  addBot: document.getElementById("addBot"),
   convMenuAddFriend: document.getElementById("convMenuAddFriend"),
   convMenuNewGroup: document.getElementById("convMenuNewGroup"),
-  fellowDialog: document.getElementById("fellowDialog"),
-  fellowForm: document.getElementById("fellowForm"),
-  fellowDialogTitle: document.getElementById("fellowDialogTitle"),
-  fellowKey: document.getElementById("fellowKey"),
-  fellowName: document.getElementById("fellowName"),
-  fellowRuntimeLocationField: document.getElementById("fellowRuntimeLocationField"),
-  fellowRuntimeLocation: document.getElementById("fellowRuntimeLocation"),
-  fellowAgentEngineField: document.getElementById("fellowAgentEngineField"),
-  fellowAgentEngine: document.getElementById("fellowAgentEngine"),
-  fellowAvatar: document.getElementById("fellowAvatar"),
-  fellowAvatarFile: document.getElementById("fellowAvatarFile"),
-  chooseFellowAvatar: document.getElementById("chooseFellowAvatar"),
-  fellowAvatarDrop: document.getElementById("fellowAvatarDrop"),
-  fellowAvatarPreview: document.getElementById("fellowAvatarPreview"),
-  fellowAvatarDefaultTabs: document.getElementById("fellowAvatarDefaultTabs"),
-  fellowAvatarDefaults: document.getElementById("fellowAvatarDefaults"),
+  botDialog: document.getElementById("botDialog"),
+  botForm: document.getElementById("botForm"),
+  botDialogTitle: document.getElementById("botDialogTitle"),
+  botKey: document.getElementById("botKey"),
+  botName: document.getElementById("botName"),
+  botRuntimeLocationField: document.getElementById("botRuntimeLocationField"),
+  botRuntimeLocation: document.getElementById("botRuntimeLocation"),
+  botAgentEngineField: document.getElementById("botAgentEngineField"),
+  botAgentEngine: document.getElementById("botAgentEngine"),
+  botAvatar: document.getElementById("botAvatar"),
+  botAvatarFile: document.getElementById("botAvatarFile"),
+  chooseBotAvatar: document.getElementById("chooseBotAvatar"),
+  botAvatarDrop: document.getElementById("botAvatarDrop"),
+  botAvatarPreview: document.getElementById("botAvatarPreview"),
+  botAvatarDefaultTabs: document.getElementById("botAvatarDefaultTabs"),
+  botAvatarDefaults: document.getElementById("botAvatarDefaults"),
   profileAvatarDefaultTabs: document.getElementById("profileAvatarDefaultTabs"),
   profileAvatarDefaults: document.getElementById("profileAvatarDefaults"),
-  fellowPersonaDetails: document.getElementById("fellowPersonaDetails"),
-  fellowSeed: document.getElementById("fellowSeed"),
-  closeFellowDialog: document.getElementById("closeFellowDialog"),
-  cancelFellow: document.getElementById("cancelFellow"),
+  botPersonaDetails: document.getElementById("botPersonaDetails"),
+  botSeed: document.getElementById("botSeed"),
+  closeBotDialog: document.getElementById("closeBotDialog"),
+  cancelBot: document.getElementById("cancelBot"),
   avatarCropDialog: document.getElementById("avatarCropDialog"),
   avatarCropStage: document.getElementById("avatarCropStage"),
   avatarTrimControls: document.getElementById("avatarTrimControls"),
@@ -106,11 +106,11 @@ const els = {
   chatView: document.getElementById("chatView"),
   contactsView: document.getElementById("contactsView"),
   skillsView: document.getElementById("skillsView"),
-  fellowStoreView: document.getElementById("fellowStoreView"),
-  fellowStoreCap: document.getElementById("fellowStoreCap"),
-  fellowStoreGrid: document.getElementById("fellowStoreGrid"),
-  fellowStoreScrim: document.getElementById("fellowStoreScrim"),
-  fellowStoreSheet: document.getElementById("fellowStoreSheet"),
+  botStoreView: document.getElementById("botStoreView"),
+  botStoreCap: document.getElementById("botStoreCap"),
+  botStoreGrid: document.getElementById("botStoreGrid"),
+  botStoreScrim: document.getElementById("botStoreScrim"),
+  botStoreSheet: document.getElementById("botStoreSheet"),
   settingsView: document.getElementById("settingsView"),
   engineStatus: document.getElementById("engineStatus"),
   hermesHome: document.getElementById("hermesHome"),
@@ -121,9 +121,11 @@ const els = {
   newContact: document.getElementById("newContact"),
   contactCreateMenu: document.getElementById("contactCreateMenu"),
   contactMenuAddFriend: document.getElementById("contactMenuAddFriend"),
-  contactMenuAddFellow: document.getElementById("contactMenuAddFellow"),
+  contactMenuAddBot: document.getElementById("contactMenuAddBot"),
   contactMenuNewGroup: document.getElementById("contactMenuNewGroup"),
   discoverModeToggle: document.getElementById("discoverModeToggle"),
+  contactMenuDiscoverBots: document.getElementById("contactMenuDiscoverBots"),
+  convMenuDiscoverBots: document.getElementById("convMenuDiscoverBots"),
   contactList: document.getElementById("contactList"),
   contactPageTitle: document.getElementById("contactPageTitle"),
   contactPageMeta: document.getElementById("contactPageMeta"),
@@ -142,7 +144,7 @@ const els = {
   skillPreviewMeta: document.getElementById("skillPreviewMeta"),
   skillPreviewBody: document.getElementById("skillPreviewBody"),
   skillContextMenu: document.getElementById("skillContextMenu"),
-  fellowContextMenu: document.getElementById("fellowContextMenu"),
+  botContextMenu: document.getElementById("botContextMenu"),
   messageContextMenu: document.getElementById("messageContextMenu"),
   profileDialog: document.getElementById("profileDialog"),
   profileForm: document.getElementById("profileForm"),
@@ -261,6 +263,45 @@ function firstNonEmpty(...values) {
   return "";
 }
 
+function hasOwn(obj, key) {
+  return Boolean(obj && typeof obj === "object" && Object.prototype.hasOwnProperty.call(obj, key));
+}
+
+function statusBadgeFrom(...sources) {
+  for (const source of sources) {
+    if (hasOwn(source, "statusBadge")) return source.statusBadge;
+    if (hasOwn(source, "status_badge")) return source.status_badge;
+  }
+  return undefined;
+}
+
+function nameBadgeIdentity(kind, record, displayName, fallbackId = "") {
+  const source = record && typeof record === "object" ? record : {};
+  const identity = source.identity && typeof source.identity === "object" ? source.identity : source;
+  const id = firstNonEmpty(
+    identity.id,
+    identity.botId,
+    identity.bot_id,
+    source.id,
+    source.botId,
+    source.bot_id,
+    source.key,
+    source.account,
+    fallbackId
+  );
+  if (!id) return null;
+  const out = {
+    kind,
+    id,
+    displayName: firstNonEmpty(identity.displayName, identity.display_name, identity.name, displayName)
+  };
+  const ownerUserId = firstNonEmpty(identity.ownerUserId, identity.owner_user_id, source.ownerUserId, source.owner_user_id);
+  if (ownerUserId) out.ownerUserId = ownerUserId;
+  const badge = statusBadgeFrom(identity, source);
+  if (typeof badge !== "undefined") out.statusBadge = badge;
+  return out;
+}
+
 function runtimeUserIdentity(runtime = state.runtime) {
   const cloudUser = runtime?.cloud?.enabled && runtime?.cloud?.user ? runtime.cloud.user : null;
   const localUser = runtime?.user || {};
@@ -323,52 +364,51 @@ function typingDotsHtml(label) {
 
 function typingLabelForActiveRun(social, conversation) {
   const run = social?.activeConversationRun?.();
-  const fellowId = run?.fellowId || "";
-  if (!fellowId) return "";
-  // Only group conversations need to identify the speaker — DM / fellow chats
-  // already have the fellow's name in the header itself.
+  const botId = run?.botId || "";
+  if (!botId) return "";
+  // Only group conversations need to identify the speaker — DM / bot chats
+  // already have the bot's name in the header itself.
   if (conversation?.type !== "group") return "";
-  const personas = allOwnedFellowsForIdentity(state.runtime?.fellows || state.runtime?.personas || []);
-  const owned = personas.find((p) => (p.key || p.id) === fellowId);
+  const personas = allOwnedBotsForIdentity(state.runtime?.bots || []);
+  const owned = personas.find((p) => (p.key || p.id) === botId);
   if (owned?.name) return owned.name;
   const members = social?.getConversationMembers?.(conversation.id) || [];
-  const member = members.find((m) => m.member_kind === MemberKind.Fellow && m.member_ref === fellowId);
-  return member?.fellow_name || fellowId;
+  const member = members.find((m) => m.member_kind === MemberKind.Bot && m.member_ref === botId);
+  return member?.bot_name || botId;
 }
 
-function allOwnedFellowsForIdentity(personas = []) {
+function allOwnedBotsForIdentity(personas = []) {
   const runtime = state.runtime || {};
-  if (window.miaFellowManager?.allOwnedFellows) {
-    return window.miaFellowManager.allOwnedFellows();
+  if (window.miaBotManager?.allOwnedBots) {
+    return window.miaBotManager.allOwnedBots();
   }
-  const cloudFellows = window.miaSocial?.moduleState?.fellows || [];
-  const localFellows = [
+  const cloudBots = window.miaSocial?.moduleState?.bots || [];
+  const localBots = [
     ...((Array.isArray(personas) && personas.length) ? personas : []),
-    ...(Array.isArray(runtime.fellows) ? runtime.fellows : []),
-    ...(Array.isArray(runtime.personas) ? runtime.personas : [])
+    ...(Array.isArray(runtime.bots) ? runtime.bots : [])
   ];
-  if (window.miaFellowDirectory?.listOwnedFellows) {
-    return window.miaFellowDirectory.listOwnedFellows({ cloudFellows, localFellows, runtime });
+  if (window.miaBotDirectory?.listOwnedBots) {
+    return window.miaBotDirectory.listOwnedBots({ cloudBots, localBots, runtime });
   }
-  return [...cloudFellows, ...localFellows];
+  return [...cloudBots, ...localBots];
 }
 
-function fellowAvatarIdentityId(fellowKey, fellow = {}) {
-  const ownerUserId = fellow?.ownerUserId || fellow?.owner_user_id || fellow?.ownerId || fellow?.owner_id || "";
-  return window.miaContact?.fellowAvatarIdentityId?.(fellowKey, fellow)
-    || fellow?.globalId
-    || fellow?.global_id
-    || fellow?.fellowGlobalId
-    || fellow?.fellow_global_id
-    || (ownerUserId && fellowKey ? sessionHistory.fellowConversationId(ownerUserId, fellowKey) : "")
-    || fellowKey;
+function botAvatarIdentityId(botKey, bot = {}) {
+  const ownerUserId = bot?.ownerUserId || bot?.owner_user_id || bot?.ownerId || bot?.owner_id || "";
+  return window.miaContact?.botAvatarIdentityId?.(botKey, bot)
+    || bot?.globalId
+    || bot?.global_id
+    || bot?.botGlobalId
+    || bot?.bot_global_id
+    || (ownerUserId && botKey ? `botc_${ownerUserId}_${botKey}` : "")
+    || botKey;
 }
 
-function fellowGlobalIdFromConversation(conversation, fellowKey) {
+function botGlobalIdFromConversation(conversation, botKey) {
   const id = String(conversation?.id || "");
-  const key = String(fellowKey || "");
-  if (!id.startsWith("fellow:") || !key) return "";
-  return id.split(":").slice(2).join(":") === key ? id : "";
+  const key = String(botKey || "");
+  if (!id.startsWith("botc_") || !key) return "";
+  return id;
 }
 
 // Reconcile #activeChatMeta with the active cloud-agent run state. While the
@@ -385,7 +425,7 @@ function paintHeaderStatus() {
     return;
   }
   if (!conversation) return;
-  const personas = state.runtime?.fellows || state.runtime?.personas || [];
+  const personas = state.runtime?.bots || [];
   paintActiveCloudConversationHeader(conversation, { personas, social });
 }
 
@@ -521,7 +561,7 @@ function nowIso() {
 }
 
 // Resolve a cloud-conversation member record into an avatar tile. The kinds
-// recognized here ("user" / "fellow") mirror cloud-conversation-source.js's
+// recognized here ("user" / "bot") mirror cloud-conversation-source.js's
 // authorForMessage dispatch — same data shape, same resolution rules,
 // so member tiles in the rail and sender avatars in the message stream
 // stay in lockstep. Destructured access keeps the offending operator pattern
@@ -549,60 +589,62 @@ function groupTilesCtx(personas) {
   return {
     self,
     friends: social?.moduleState?.friends || [],
-    fellows: allOwnedFellowsForIdentity(personas || [])
+    bots: allOwnedBotsForIdentity(personas || [])
     // shared/avatar-resolve.js owns the "no avatarImage → text fallback"
     // behavior now, so consumers don't need any local fallback table.
   };
 }
 
 // Normalize any sidebar row kind into a unified ConversationCard spec the
-// sidebar-card-renderer can paint. Fellow private + cloud DM both become
-// {kind:"private"} with one member; local fellow group + cloud conversation both
+// sidebar-card-renderer can paint. Bot private + cloud DM both become
+// {kind:"private"} with one member; local bot group + cloud conversation both
 // become {kind:"group"} with stacked tiles. Single render path; "real
 // human friend" is just another member kind, not a different conversation
 // species.
 function conversationCardSpecFromRow(row, personas) {
   if (!row) return null;
   const social = window.miaSocial;
-  const identityFellows = allOwnedFellowsForIdentity(personas || []);
+  const identityBots = allOwnedBotsForIdentity(personas || []);
 
-  // ── cloud private conversation (DM with a friend OR fellow session) ─────────────
+  // ── cloud private conversation (DM with a friend OR bot session) ─────────────
   //     Same card shape; the only branch is "who's the other party" — a
-  //     friend (dm conversation) or a fellow (fellow conversation) — and that flows
+  //     friend (dm conversation) or a bot (bot conversation) — and that flows
   //     through one resolver into a single spec.
   if (row.type === "private-conversation") {
     const conversation = row.conversation;
     const activeConversationId = social?.getActiveConversationId?.();
-    const isFellow = conversation.type === "fellow";
-    let name, avatar;
-    if (isFellow) {
-      const fellowKey = sessionHistory.fellowKey(conversation);
-      const fellow = identityFellows.find((p) => (p.id || p.key) === fellowKey);
+    const isBot = conversation.type === "bot";
+    let name, avatar, identity, statusBadge;
+    if (isBot) {
+      const botKey = sessionHistory.botId(conversation);
+      const bot = identityBots.find((p) => (p.id || p.key) === botKey);
       // The conversation id always carries owner:key, so derive the canonical
-      // global id from it. The merged fellow record sometimes lacks
-      // ownerUserId, which made fellowAvatarIdentityId fall back to the bare key
+      // global id from it. The merged bot record sometimes lacks
+      // ownerUserId, which made botAvatarIdentityId fall back to the bare key
       // and hash to a different color here than in the chat header / bubbles
-      // (same fellow, two background colors).
-      const fellowGlobalId = fellowGlobalIdFromConversation(conversation, fellowKey);
-      const fellowRecord = {
-        ...(fellow || { key: fellowKey, id: fellowKey, name: conversation.name || fellowKey }),
-        globalId: (fellow && (fellow.globalId || fellow.global_id)) || fellowGlobalId
+      // (same bot, two background colors).
+      const botGlobalId = botGlobalIdFromConversation(conversation, botKey);
+      const botRecord = {
+        ...(bot || { key: botKey, id: botKey, name: conversation.name || botKey }),
+        globalId: (bot && (bot.globalId || bot.global_id)) || botGlobalId
       };
-      name = sessionHistory.fellowDisplayTitle(conversation, identityFellows, "对话");
-      // Resolve from the canonical conversation/global id, while preserving an
-      // explicit user-picked color when one exists. With no explicit color,
-      // resolveAvatarForContact hashes the canonical id consistently across
-      // the sidebar, header, and bubbles.
-      avatar = window.miaAvatarResolve.resolveAvatarForContact({
-        id: fellowGlobalId || fellowAvatarIdentityId(fellowKey, fellowRecord),
-        displayName: name || fellowRecord.name || fellowKey,
-        avatarImage: fellowRecord.avatarImage || "",
-        avatarCrop: fellowRecord.avatarCrop || null,
-        color: fellowRecord.color || fellowRecord.avatarColor || fellowRecord.avatar_color || ""
+      name = sessionHistory.botDisplayTitle(conversation, identityBots, "对话");
+      const resolved = window.miaContact?.resolveContact?.(
+        { kind: window.miaContact.IdentityKind.Bot, ref: botKey },
+        { bots: [botRecord] }
+      );
+      avatar = resolved?.avatar || window.miaAvatarResolve.resolveAvatarForContact({
+        id: botAvatarIdentityId(botKey, botRecord),
+        displayName: name || botRecord.name || botKey,
+        avatarImage: botRecord.avatarImage || "",
+        avatarCrop: botRecord.avatarCrop || null,
+        color: botRecord.color || botRecord.avatarColor || botRecord.avatar_color || ""
       });
+      identity = nameBadgeIdentity("bot", botRecord, name, botKey);
+      statusBadge = statusBadgeFrom(botRecord);
     } else {
       const other = conversation.otherUser || {};
-      name = other.username || other.account || "好友";
+      name = other.displayName || other.username || other.account || "好友";
       avatar = window.miaAvatarResolve.resolveAvatarForContact({
         id: other.id || other.account || name,
         displayName: name,
@@ -610,6 +652,8 @@ function conversationCardSpecFromRow(row, personas) {
         avatarCrop: other.avatarCrop || null,
         color: other.avatarColor || other.avatar_color || other.color || ""
       });
+      identity = nameBadgeIdentity("user", other.identity || other, name, other.id || other.account || "");
+      statusBadge = statusBadgeFrom(other.identity, other);
     }
     const pinned = Boolean(social?.isConversationPinned?.(conversation.id));
     const muted = Boolean(social?.isConversationMuted?.(conversation.id));
@@ -625,6 +669,8 @@ function conversationCardSpecFromRow(row, personas) {
       time: formatConversationTime(row.updatedAt),
       unread,
       avatar,
+      identity,
+      statusBadge,
       onClick: () => {
         state.activeKey = "";
         window.miaSocial.setActiveConversationId(conversation.id);
@@ -648,14 +694,14 @@ function conversationCardSpecFromRow(row, personas) {
           },
           // DM display name follows the peer's username, so server rejects
           // PATCH name on dm:* conversations — surface that to the menu.
-          ...(isFellow ? {} : { notSupported: { rename: "私聊对方名称由对方用户名决定，无法在此重命名" } })
+          ...(isBot ? {} : { notSupported: { rename: "私聊对方名称由对方用户名决定，无法在此重命名" } })
         },
         x, y
       )
     };
   }
 
-  // ── cloud group (friends + fellows mixed) — same shape as local group ────
+  // ── cloud group (friends + bots mixed) — same shape as local group ────
   if (row.type === "group-conversation") {
     const conversation = row.conversation;
     const activeConversationId = social?.getActiveConversationId?.();
@@ -666,6 +712,13 @@ function conversationCardSpecFromRow(row, personas) {
     const cgMuted = Boolean(social?.isConversationMuted?.(conversation.id));
     const cgUnread = social?.getUnreadForConversation?.(conversation.id) || 0;
     const cgName = conversation.name || "群聊";
+    const cgIdentity = conversation.identity && typeof conversation.identity === "object"
+      ? {
+          ...conversation.identity,
+          displayName: firstNonEmpty(conversation.identity.displayName, conversation.identity.display_name, cgName)
+        }
+      : null;
+    const cgStatusBadge = statusBadgeFrom(conversation.identity, conversation);
     return {
       kind: "group",
       active: conversation.id === activeConversationId,
@@ -678,6 +731,8 @@ function conversationCardSpecFromRow(row, personas) {
       unread: cgUnread,
       members: tiles,
       customAvatar: conversation.decorations?.avatar || null,
+      identity: cgIdentity,
+      statusBadge: cgStatusBadge,
       onClick: () => {
         state.activeKey = "";
         window.miaSocial.setActiveConversationId(conversation.id);
@@ -716,7 +771,7 @@ function conversationCardSpecFromRow(row, personas) {
 }
 
 // Paint #activeChatAvatar / #activeChatName / #activeChatMeta for the
-// currently-active cloud conversation (type ∈ {dm, group, fellow}). Mirrors the
+// currently-active cloud conversation (type ∈ {dm, group, bot}). Mirrors the
 // local-group branch — both paths route through miaGroupAvatar for
 // any conversation that has more than one member, so the sidebar and the
 // chat header always agree.
@@ -726,14 +781,14 @@ function paintActiveCloudConversationHeader(conversation, { personas, social }) 
   const metaEl = els.activeChatMeta;
   const avatarHelper = window.miaAvatar;
   const groupAvatarHelper = window.miaGroupAvatar;
-  const identityFellows = allOwnedFellowsForIdentity(personas || []);
+  const identityBots = allOwnedBotsForIdentity(personas || []);
   // id-prefix fallback for pre-v7 cloud deployments that don't yet return
   // conversation.type. social.renderSidebarRows already normalizes this; mirror it
   // here so a conversation loaded outside the sidebar pipeline (active conversation loaded
   // from cache, etc.) still routes correctly.
   const conversationType = conversation.type
     || (conversation.id?.startsWith("dm:") ? "dm"
-      : conversation.id?.startsWith("fellow:") ? "fellow"
+      : conversation.id?.startsWith("botc_") ? "bot"
       : (conversation.id?.startsWith("g_") || conversation.id?.startsWith("g-")) ? "group"
       : "dm");
 
@@ -756,21 +811,21 @@ function paintActiveCloudConversationHeader(conversation, { personas, social }) 
     return;
   }
 
-  if (conversationType === "fellow") {
-    const fellowKey = sessionHistory.fellowKey(conversation);
-    const fellow = identityFellows.find((p) => (p.id || p.key) === fellowKey);
-    const fellowRecord = fellow || {
-      key: fellowKey,
-      id: fellowKey,
+  if (conversationType === "bot") {
+    const botKey = sessionHistory.botId(conversation);
+    const bot = identityBots.find((p) => (p.id || p.key) === botKey);
+    const botRecord = bot || {
+      key: botKey,
+      id: botKey,
       name: conversation.name,
-      globalId: fellowGlobalIdFromConversation(conversation, fellowKey)
+      globalId: botGlobalIdFromConversation(conversation, botKey)
     };
     if (avatarEl) {
       avatarEl.removeAttribute("data-count");
       avatarEl.className = "profile-avatar";
-      avatarHelper.applyFellowAvatar(avatarEl, fellowRecord);
+      avatarHelper.applyBotAvatar(avatarEl, botRecord);
     }
-    setText(nameEl, sessionHistory.fellowDisplayTitle(conversation, identityFellows, "对话"));
+    setText(nameEl, sessionHistory.botDisplayTitle(conversation, identityBots, "对话"));
     if (metaEl) metaEl.textContent = "私聊";
     return;
   }
@@ -1081,7 +1136,7 @@ function render() {
   setText(els.userDisplayName, user.displayName || "");
   if (!editingProfile && els.profileForm) {
     els.profileDisplayName.value = user.displayName || "";
-    window.miaFellowDialog.setProfileAvatarDraft(user.avatarImage || "", user.avatarCrop);
+    window.miaBotDialog.setProfileAvatarDraft(user.avatarImage || "", user.avatarCrop);
   }
 
   if (els.engineStatus) {
@@ -1189,9 +1244,9 @@ function render() {
     modelAvatar.style.backgroundImage = activeIcon ? `url("${activeIcon}")` : "";
   }
   window.miaModelSettings.syncPermissionControl(runtime);
-  syncConversationFellowRuntimeControls();
+  syncConversationBotRuntimeControls();
 
-  const personas = runtime.fellows || runtime.personas || [];
+  const personas = runtime.bots || [];
   const social = window.miaSocial;
   // cloud.enabled = token present (signed in). NOTE: there is no
   // cloud.loggedIn field — cloudStatus() exposes enabled/connected/
@@ -1207,20 +1262,20 @@ function render() {
   } else if (!personas.some((persona) => persona.key === state.activeKey) && personas.length && !activeCloudConversationId) {
     state.activeKey = personas[0].key;
   }
-  const syncedFellowKeys = new Set((social?.moduleState?.fellows || [])
-    .map((fellow) => String(fellow?.key || fellow?.id || "").trim())
+  const syncedBotKeys = new Set((social?.moduleState?.bots || [])
+    .map((bot) => String(bot?.key || bot?.id || "").trim())
     .filter(Boolean));
   const contactKeys = new Set([
     ...personas.map((persona) => String(persona.key || persona.id || "")),
-    ...syncedFellowKeys
+    ...syncedBotKeys
   ].filter(Boolean));
   // The pinned "新的好友" entry uses a sentinel key that is intentionally not a
-  // contact — leave it alone here, fellow-manager.renderContacts() owns its fallback.
-  if (state.activeContactKey !== window.miaFellowManager?.FRIEND_REQUESTS_KEY
+  // contact — leave it alone here, bot-manager.renderContacts() owns its fallback.
+  if (state.activeContactKey !== window.miaBotManager?.FRIEND_REQUESTS_KEY
     && !contactKeys.has(state.activeContactKey) && contactKeys.size) {
     state.activeContactKey = personas.find((persona) => persona.key === state.activeKey)?.key
       || personas[0]?.key
-      || [...syncedFellowKeys][0]
+      || [...syncedBotKeys][0]
       || "";
   }
   els.personaCount.textContent = "";
@@ -1238,7 +1293,7 @@ function render() {
     const activeIsGroup = activeCloudConversationType === "group";
     const activeIsHumanDm = activeCloudConversationType === "dm";
     const hideSessionSelector = activeIsGroup || activeIsHumanDm;
-    const showPrivateAiControls = activeCloudConversationType === "fellow";
+    const showPrivateAiControls = activeCloudConversationType === "bot";
     if (groupInfoBtn) groupInfoBtn.classList.toggle("hidden", !activeIsGroup);
     if (hideSessionSelector) state.sessionMenuOpen = false;
     if (els.sessionMenuButton) {
@@ -1260,7 +1315,7 @@ function render() {
     if (els.activeChatAvatar) {
       els.activeChatAvatar.className = "profile-avatar";
     }
-    window.miaAvatar.applyFellowAvatar(els.activeChatAvatar, active);
+    window.miaAvatar.applyBotAvatar(els.activeChatAvatar, active);
     setText(els.activeChatName, active.name || "Mia");
     if (els.activeChatMeta) {
       const startupLoading = state.startupTasks[0]?.label;
@@ -1272,12 +1327,12 @@ function render() {
     if (els.sessionMenuButton) els.sessionMenuButton.classList.remove("hidden");
     if (composerBottom) composerBottom.classList.remove("hidden");
   }
-  // Cloud-only: the sidebar lists cloud conversations exclusively. Local fellow
-  // personas are no longer a conversation source — a fellow surfaces as its
-  // cloud fellow conversation once bootstrap completes.
+  // Cloud-only: the sidebar lists cloud conversations exclusively. Local bot
+  // personas are no longer a conversation source — a bot surfaces as its
+  // cloud bot conversation once bootstrap completes.
   const cloudReady = !cloudSignedIn || !social || social.isBootstrapped?.();
   const socialRows = cloudReady ? (social?.renderSidebarRows?.() || []) : [];
-  const messageRows = !cloudReady ? [] : window.miaFellowManager.sortMessageCardsForSidebar(socialRows);
+  const messageRows = !cloudReady ? [] : window.miaBotManager.sortMessageCardsForSidebar(socialRows);
 
   els.personaList.innerHTML = "";
   for (const row of messageRows) {
@@ -1315,7 +1370,7 @@ function renderView() {
   els.appShell?.setAttribute("data-auth-state", cloudSignedIn ? "signed-in" : "signed-out");
   if (!cloudSignedIn) {
     state.activeView = "chat";
-    state.fellowMenuOpen = false;
+    state.botMenuOpen = false;
     state.contactMenuOpen = false;
   }
   syncNarrowLayout();
@@ -1324,7 +1379,7 @@ function renderView() {
   els.chatView.classList.toggle("hidden", state.activeView !== "chat");
   els.contactsView?.classList.toggle("hidden", state.activeView !== "contacts");
   els.skillsView?.classList.toggle("hidden", state.activeView !== "skills");
-  els.fellowStoreView?.classList.toggle("hidden", state.activeView !== "fellow-store");
+  els.botStoreView?.classList.toggle("hidden", state.activeView !== "bot-store");
   els.tasksView?.classList.toggle("hidden", state.activeView !== "tasks");
   els.appShell?.setAttribute("data-active-view", state.activeView);
   els.discoverModeToggle?.querySelectorAll("[data-discover-mode]").forEach((btn) => {
@@ -1333,7 +1388,7 @@ function renderView() {
   if (typeof syncDiscoverModeIndicator === "function") syncDiscoverModeIndicator();
   els.settingsView.classList.toggle("hidden", !state.settingsOpen);
   els.profileDialog?.classList.toggle("hidden", !state.profileDialogOpen);
-  els.fellowCreateMenu?.classList.toggle("hidden", !state.fellowMenuOpen);
+  els.botCreateMenu?.classList.toggle("hidden", !state.botMenuOpen);
   els.contactCreateMenu?.classList.toggle("hidden", !state.contactMenuOpen);
   // Contacts unread = number of pending incoming friend requests.
   const incomingCount = window.miaSocial?.moduleState?.incomingRequests?.length || 0;
@@ -1355,17 +1410,17 @@ function renderView() {
       els.chatUnreadBadge.classList.add("hidden");
     }
   }
-  els.fellowDialog?.classList.toggle("hidden", !state.fellowDialogOpen);
+  els.botDialog?.classList.toggle("hidden", !state.botDialogOpen);
   els.petGenerateDialog?.classList.toggle("hidden", !state.petGenerateOpen);
   els.avatarCropDialog?.classList.toggle("hidden", !state.avatarCropEditor.open);
   window.miaSkillLibrary.renderSkillPreview();
-  window.miaFellowManager.renderFellowContextMenu();
+  window.miaBotManager.renderBotContextMenu();
   window.miaPetDialog?.renderPetGenerateDialog();
   window.miaPetDialog?.renderPetJobs();
   document.querySelectorAll("[data-view]").forEach((button) => {
     // 联系人 图标在「联系人」和「发现 AI 同事」两个子页下都高亮
     const active = button.dataset.view === state.activeView
-      || (button.dataset.view === "contacts" && state.activeView === "fellow-store");
+      || (button.dataset.view === "contacts" && state.activeView === "bot-store");
     button.classList.toggle("active", active);
   });
   document.querySelectorAll("[data-settings-tab]").forEach((button) => {
@@ -1375,7 +1430,7 @@ function renderView() {
     panel.classList.toggle("hidden", panel.dataset.settingsPanel !== state.activeSettingsTab);
   });
   window.miaSkillLibrary.renderSkillLibrary();
-  window.miaFellowManager.renderContacts();
+  window.miaBotManager.renderContacts();
   window.miaTasksPanel?.renderTaskView();
 }
 
@@ -1391,23 +1446,23 @@ function formatRunTime(ms) {
 }
 
 
-async function openEditFellowDialog(fellowKey) {
+async function openEditBotDialog(botKey) {
   try {
-    const ownedFellow = window.miaFellowManager?.fellowByKey?.(fellowKey);
-    if (ownedFellow?.runtimeKind === "cloud-hermes") {
-      window.miaFellowDialog.openFellowDialog(ownedFellow, ownedFellow.personaText || ownedFellow.bio || "");
+    const ownedBot = window.miaBotManager?.botByKey?.(botKey);
+    if (ownedBot?.runtimeKind === "cloud-hermes") {
+      window.miaBotDialog.openBotDialog(ownedBot, ownedBot.personaText || ownedBot.bio || "");
       return;
     }
-    const details = await window.mia.loadFellowDetails(fellowKey);
-    window.miaFellowDialog.openFellowDialog(details.fellow, details.personaText || "");
+    const details = await window.mia.loadBotDetails(botKey);
+    window.miaBotDialog.openBotDialog(details.bot, details.personaText || "");
   } catch (error) {
-    appendTransientChat("assistant", `编辑 Fellow 失败: ${error.message}`);
+    appendTransientChat("assistant", `编辑 Bot 失败: ${error.message}`);
   }
 }
 
-async function setFellowPinned(fellowKey, pinned) {
+async function setBotPinned(botKey, pinned) {
   try {
-    state.runtime = await window.mia.setFellowPinned({ key: fellowKey, pinned });
+    state.runtime = await window.mia.setBotPinned({ key: botKey, pinned });
     render();
   } catch (error) {
     appendTransientChat("assistant", `置顶失败: ${error.message}`);
@@ -1415,9 +1470,9 @@ async function setFellowPinned(fellowKey, pinned) {
   }
 }
 
-async function setFellowMuted(fellowKey, muted) {
+async function setBotMuted(botKey, muted) {
   try {
-    state.runtime = await window.mia.setFellowMuted({ key: fellowKey, muted });
+    state.runtime = await window.mia.setBotMuted({ key: botKey, muted });
     render();
   } catch (error) {
     appendTransientChat("assistant", `免打扰设置失败: ${error.message}`);
@@ -1425,26 +1480,26 @@ async function setFellowMuted(fellowKey, muted) {
   }
 }
 
-async function deleteFellow(fellowKey) {
-  const fellow = window.miaFellowManager.fellowByKey(fellowKey);
-  if (!fellow) return;
-  if (fellow.canDelete === false) return;
-  const detail = "这会删除该 Fellow，并清理当前账号可管理的配置和会话。";
-  const ok = window.confirm(`删除「${fellow.name || fellow.key}」？\n\n${detail}`);
+async function deleteBot(botKey) {
+  const bot = window.miaBotManager.botByKey(botKey);
+  if (!bot) return;
+  if (bot.canDelete === false) return;
+  const detail = "这会删除该 Bot，并清理当前账号可管理的配置和会话。";
+  const ok = window.confirm(`删除「${bot.name || bot.key}」？\n\n${detail}`);
   if (!ok) return;
   try {
-    const result = await window.miaFellowCommands.deleteFellow({
+    const result = await window.miaBotCommands.deleteBot({
       state,
-      fellow,
+      bot,
       api: window.mia,
       social: window.miaSocial,
     });
     if (result.runtime) state.runtime = result.runtime;
     if (!result.deleted) return;
-    const fellows = window.miaFellowManager?.allOwnedFellows?.() || state.runtime?.fellows || state.runtime?.personas || [];
-    const next = fellows[0]?.key || "mia";
-    if (!fellows.some((item) => item.key === state.activeKey)) state.activeKey = next;
-    if (!fellows.some((item) => item.key === state.activeContactKey)) state.activeContactKey = state.activeKey;
+    const bots = window.miaBotManager?.allOwnedBots?.() || state.runtime?.bots || [];
+    const next = bots[0]?.key || "mia";
+    if (!bots.some((item) => item.key === state.activeKey)) state.activeKey = next;
+    if (!bots.some((item) => item.key === state.activeContactKey)) state.activeContactKey = state.activeKey;
     render();
   } catch (error) {
     appendTransientChat("assistant", `删除伙伴失败: ${error.message}`);
@@ -1503,7 +1558,7 @@ function messagesForActive() {
   const cache = social?.moduleState?.messageCache?.get(conversationId);
   return (cache?.messages || []).map((message) => ({
     ...message,
-    role: message.sender_kind === SenderKind.Fellow
+    role: message.sender_kind === SenderKind.Bot
       ? "assistant"
       : (message.sender_kind === SenderKind.System ? "system" : "user"),
     content: message.body_md || ""
@@ -1628,7 +1683,7 @@ function cloudConversationSortTime(conversation) {
 
 function cloudSessionTitle(conversation) {
   return sessionHistory.sessionTitle(conversation, {
-    fellows: window.miaFellowManager?.allOwnedFellows?.() || [],
+    bots: window.miaBotManager?.allOwnedBots?.() || [],
     defaultTitle: "新对话",
     groupTitle: "群聊",
     dmTitleFallback: "私聊"
@@ -1650,7 +1705,7 @@ async function renameCloudSessionConversation(conversation) {
     alert(`重命名失败：${response?.error || "未知错误"}`);
     return;
   }
-  window.miaSocial?.upsertFellowConversation?.(response.data?.conversation || response.conversation || { ...conversation, name: title.trim() });
+  window.miaSocial?.upsertBotConversation?.(response.data?.conversation || response.conversation || { ...conversation, name: title.trim() });
 }
 
 async function selectCloudSessionConversation(conversation, { skipMessageLoad = false } = {}) {
@@ -1720,40 +1775,40 @@ function updateCurrentSessionTitle(title) {
   requestAnimationFrame(() => els.currentSessionTitle.classList.add("title-updated"));
 }
 
-// Once the fellow has actually replied, summarize the opening exchange into a
+// Once the bot has actually replied, summarize the opening exchange into a
 // title (reusing the same engine title generator the old local path used) and
-// rename the conversation. Stable fellow conversations may initially be named
-// after the fellow itself, so treat that the same as "新对话".
+// rename the conversation. Stable bot conversations may initially be named
+// after the bot itself, so treat that the same as "新对话".
 async function maybeGenerateCloudConversationTitle(conversationId) {
   const social = window.miaSocial;
   if (!conversationId || !social) return;
   const conversation = social.getConversationById?.(conversationId);
-  if (!conversation || conversationTypeForComposer(conversation, conversationId) !== "fellow") return;
-  if (!sessionHistory.isUntitledFellowConversation(conversation, {
-    fellows: window.miaFellowManager?.allOwnedFellows?.() || [],
+  if (!conversation || conversationTypeForComposer(conversation, conversationId) !== "bot") return;
+  if (!sessionHistory.isUntitledBotConversation(conversation, {
+    bots: window.miaBotManager?.allOwnedBots?.() || [],
     defaultTitle: "新对话"
   })) return;
   if (state.generatingTitleIds.has(conversationId)) return;
   const cache = social.moduleState?.messageCache?.get(conversationId);
   const msgs = (cache?.messages || []).filter((message) => message.body_md && !message._localPending);
   const hasUser = msgs.some((message) => message.sender_kind === SenderKind.User);
-  const hasFellow = msgs.some((message) => message.sender_kind === SenderKind.Fellow);
-  if (!hasUser || !hasFellow) return;
+  const hasBot = msgs.some((message) => message.sender_kind === SenderKind.Bot);
+  if (!hasUser || !hasBot) return;
   state.generatingTitleIds.add(conversationId);
   try {
     const titleMessages = msgs.slice(0, 4).map((message) => ({
-      role: message.sender_kind === SenderKind.Fellow ? "assistant" : "user",
+      role: message.sender_kind === SenderKind.Bot ? "assistant" : "user",
       content: message.body_md
     }));
     const result = await window.mia.generateConversationTitle({
-      fellowKey: fellowKeyForConversation(conversation),
+      botKey: botKeyForConversation(conversation),
       conversationId,
       messages: titleMessages
     });
     const title = String(result?.title || "").trim();
     if (!title || title === "新对话") return;
     const res = await window.mia.social.updateConversation(conversationId, { name: title });
-    if (res?.ok && (res.data?.conversation || res.conversation)) social.upsertFellowConversation?.(res.data?.conversation || res.conversation);
+    if (res?.ok && (res.data?.conversation || res.conversation)) social.upsertBotConversation?.(res.data?.conversation || res.conversation);
     renderSessionMenu();
   } catch (error) {
     console.warn("[title] cloud conversation title generation failed:", error?.message || error);
@@ -1791,14 +1846,14 @@ function renderMessageHtml(message, ctx) {
     avatarCrop: user.avatarCrop || null,
     color: user.avatarColor || user.avatar_color || user.color || ""
   });
-  const fellowAvatarSpec = window.miaAvatarResolve.resolveAvatarForContact({
-    id: fellowAvatarIdentityId(persona?.key || persona?.id || "assistant", persona || {}),
+  const botAvatarSpec = window.miaAvatarResolve.resolveAvatarForContact({
+    id: botAvatarIdentityId(persona?.key || persona?.id || "assistant", persona || {}),
     displayName: persona?.name || "Assistant",
     avatarImage: persona?.avatarImage || "",
     avatarCrop: persona?.avatarCrop || null,
     color: persona?.color || persona?.avatarColor || persona?.avatar_color || ""
   });
-  const activeAvatarSpec = message.role === "assistant" ? fellowAvatarSpec : userAvatarSpec;
+  const activeAvatarSpec = message.role === "assistant" ? botAvatarSpec : userAvatarSpec;
   const traceHtml = message.role === "assistant"
     ? window.miaTraceBlocks.renderTraceBlocks({
       reasoning: message.reasoning,
@@ -1818,9 +1873,9 @@ function renderMessageHtml(message, ctx) {
   const roleClass = message.role === "user" ? "user" : "assistant";
   // Tag the avatar so the same app.js handlers fire here as in cloud DM /
   // group bubbles: left-click → contact card, right-click → dropdown. In a
-  // local fellow session the AI avatar opens its editable 模型/推理强度/权限
+  // local bot session the AI avatar opens its editable 模型/推理强度/权限
   // card; the user avatar opens the self card. (一视同仁 across all chats.)
-  const senderKind = message.role === "assistant" ? "fellow" : "user";
+  const senderKind = message.role === "assistant" ? "bot" : "user";
   const senderRef = message.role === "assistant"
     ? (persona?.key || "")
     : (state.runtime?.cloud?.user?.id || "");
@@ -1871,7 +1926,7 @@ function renderCloudLoginGuide() {
   return `
     <div class="cloud-login-guide">
       <h2>登录 Mia Cloud</h2>
-      <p>Mia 的对话都在云端同步。登录后即可与你的 Fellow 聊天。</p>
+      <p>Mia 的对话都在云端同步。登录后即可与你的 Bot 聊天。</p>
       <button type="button" class="primary" data-action="cloud-login">登录 / 注册</button>
     </div>
   `;
@@ -1935,36 +1990,36 @@ function conversationTypeForComposer(conversation, conversationId = "") {
   return sessionHistory.conversationType(conversation, conversationId);
 }
 
-function fellowKeyForConversation(conversation) {
-  return sessionHistory.fellowKey(conversation);
+function botKeyForConversation(conversation) {
+  return sessionHistory.botId(conversation);
 }
 
-function runtimeKindForFellowConversation(conversation) {
+function runtimeKindForBotConversation(conversation) {
   return sessionHistory.runtimeKind(conversation, "desktop-local");
 }
 
-function activeConversationFellowContext() {
+function activeConversationBotContext() {
   const social = window.miaSocial;
   const conversationId = social?.getActiveConversationId?.();
   if (!conversationId) return null;
   const conversation = social?.getConversationById?.(conversationId) || { id: conversationId };
-  if (conversationTypeForComposer(conversation, conversationId) !== "fellow") return null;
-  const fellowKey = fellowKeyForConversation(conversation);
-  if (!fellowKey) return null;
+  if (conversationTypeForComposer(conversation, conversationId) !== "bot") return null;
+  const botKey = botKeyForConversation(conversation);
+  if (!botKey) return null;
   return {
     conversation,
     conversationId,
-    fellowKey,
-    runtimeKind: runtimeKindForFellowConversation(conversation)
+    botKey,
+    runtimeKind: runtimeKindForBotConversation(conversation)
   };
 }
 
 // Composer "使用": attach the skill to the conversation the user is currently
-// viewing in the messages page — no fellow picker. Returns false when there is
-// no active fellow conversation so the caller can prompt the user to open one.
+// viewing in the messages page — no bot picker. Returns false when there is
+// no active bot conversation so the caller can prompt the user to open one.
 function useSkillInActiveConversation(skill) {
   if (!skill || !skill.id) return false;
-  if (!activeConversationFellowContext()) return false;
+  if (!activeConversationBotContext()) return false;
   state.activeView = "chat";
   showNarrowContent();
   window.miaComposer?.addComposerSkill?.({ id: String(skill.id), name: skill.name || skill.id });
@@ -1992,35 +2047,35 @@ async function handleCloudAuthExpired() {
   }
 }
 
-function activeFellowRuntimeControlContext() {
-  const conversationContext = activeConversationFellowContext();
+function activeBotRuntimeControlContext() {
+  const conversationContext = activeConversationBotContext();
   if (conversationContext) {
-    const personas = state.runtime?.fellows || state.runtime?.personas || [];
-    const fellow = personas.find((persona) => (persona.key || persona.id) === conversationContext.fellowKey) || {};
+    const personas = state.runtime?.bots || [];
+    const bot = personas.find((persona) => (persona.key || persona.id) === conversationContext.botKey) || {};
     return {
       ...conversationContext,
-      fellow: {
-        ...fellow,
-        key: conversationContext.fellowKey,
-        id: fellow.id || fellow.key || conversationContext.fellowKey,
+      bot: {
+        ...bot,
+        key: conversationContext.botKey,
+        id: bot.id || bot.key || conversationContext.botKey,
         runtimeKind: conversationContext.runtimeKind
       }
     };
   }
-  const fellow = activePersona();
-  const fellowKey = String(fellow?.key || fellow?.id || "").trim();
-  if (!fellowKey) return null;
+  const bot = activePersona();
+  const botKey = String(bot?.key || bot?.id || "").trim();
+  if (!botKey) return null;
   return {
     conversation: null,
     conversationId: "",
-    fellowKey,
-    runtimeKind: fellow.runtimeKind || fellow.runtime_kind || "desktop-local",
-    fellow: { ...fellow, key: fellowKey }
+    botKey,
+    runtimeKind: bot.runtimeKind || bot.runtime_kind || "desktop-local",
+    bot: { ...bot, key: botKey }
   };
 }
 
-function fellowRuntimeCacheKey(fellowKey, runtimeKind = "cloud-hermes") {
-  return window.miaFellowCommands.runtimeCacheKey(fellowKey, runtimeKind);
+function botRuntimeCacheKey(botKey, runtimeKind = "cloud-hermes") {
+  return window.miaBotCommands.runtimeCacheKey(botKey, runtimeKind);
 }
 
 function normalizePlatformModelEntry(entry = {}) {
@@ -2067,9 +2122,9 @@ function platformHermesPermissionEntries() {
   ];
 }
 
-function syncLocalFellowRuntimeBindingsSoon() {
-  if (typeof window.miaSocial?.syncLocalFellowRuntimeBindings !== "function") return;
-  window.miaSocial.syncLocalFellowRuntimeBindings()
+function syncLocalBotRuntimeBindingsSoon() {
+  if (typeof window.miaSocial?.syncLocalBotRuntimeBindings !== "function") return;
+  window.miaSocial.syncLocalBotRuntimeBindings()
     .catch((error) => console.warn("[renderer] desktop-local runtime sync failed:", error?.message || error));
 }
 
@@ -2092,11 +2147,11 @@ function setComposerSelectOptions(select, entries, selectedValue) {
   return select.selectedOptions?.[0]?.textContent || "";
 }
 
-async function ensureFellowRuntimeBinding(fellowKey, runtimeKind = "cloud-hermes") {
-  return window.miaFellowCommands.getFellowRuntimeBinding({
+async function ensureBotRuntimeBinding(botKey, runtimeKind = "cloud-hermes") {
+  return window.miaBotCommands.getBotRuntimeBinding({
     api: window.mia,
-    cache: fellowRuntimeControlCache,
-    fellowKey,
+    cache: botRuntimeControlCache,
+    botKey,
     runtimeKind
   });
 }
@@ -2110,26 +2165,26 @@ function normalizeAgentEngineForRuntime(value) {
   return "hermes";
 }
 
-function agentEngineForRuntimeControl(context = activeFellowRuntimeControlContext()) {
+function agentEngineForRuntimeControl(context = activeBotRuntimeControlContext()) {
   if (context?.runtimeKind === "cloud-hermes") return "hermes";
   return normalizeAgentEngineForRuntime(
-    context?.fellow?.agentEngine
-      || context?.fellow?.agent_engine
+    context?.bot?.agentEngine
+      || context?.bot?.agent_engine
       || window.miaEngineOptions.activeAgentEngine()
   );
 }
 
-function modelEntriesForRuntimeControl(context = activeFellowRuntimeControlContext()) {
+function modelEntriesForRuntimeControl(context = activeBotRuntimeControlContext()) {
   const engine = agentEngineForRuntimeControl(context);
   if (context?.runtimeKind === "cloud-hermes") return platformHermesModelEntries();
   if (engine === "claude-code" || engine === "codex") return window.miaEngineOptions.externalModelEntries(engine);
   return window.miaModelSettings.connectedModelEntries(state.runtime);
 }
 
-function syncConversationFellowRuntimeControls() {
-  const context = activeConversationFellowContext();
+function syncConversationBotRuntimeControls() {
+  const context = activeConversationBotContext();
   if (!context || context.runtimeKind !== "cloud-hermes") return false;
-  const binding = fellowRuntimeControlCache.get(fellowRuntimeCacheKey(context.fellowKey, context.runtimeKind));
+  const binding = botRuntimeControlCache.get(botRuntimeCacheKey(context.botKey, context.runtimeKind));
   const config = binding?.config || {};
   const modelEntries = platformHermesModelEntries();
   const modelLabel = setComposerSelectOptions(els.quickModelSelect, modelEntries, config.model || modelEntries[0]?.id || "mia-default");
@@ -2151,19 +2206,19 @@ function syncConversationFellowRuntimeControls() {
   setText(els.modelSwitchStatus, "Hermes");
   if (!platformModelCatalog.loaded && !platformModelCatalog.loading) {
     loadPlatformModelCatalog().then(() => {
-      const latest = activeConversationFellowContext();
+      const latest = activeConversationBotContext();
       if (latest?.conversationId === context.conversationId) render();
     });
   }
   if (!binding) {
-    ensureFellowRuntimeBinding(context.fellowKey, context.runtimeKind)
+    ensureBotRuntimeBinding(context.botKey, context.runtimeKind)
       .then(() => {
-        const latest = activeConversationFellowContext();
+        const latest = activeConversationBotContext();
         if (latest?.conversationId === context.conversationId) render();
       })
       .catch((error) => {
         setText(els.modelSwitchStatus, "云端配置读取失败");
-        console.warn("[renderer] cloud fellow runtime load failed:", error?.message || error);
+        console.warn("[renderer] cloud bot runtime load failed:", error?.message || error);
       });
   }
   return true;
@@ -2175,16 +2230,16 @@ function setRuntimeControlDisabled(disabled) {
   if (els.permissionMode) els.permissionMode.disabled = disabled;
 }
 
-async function saveActiveFellowRuntimeControl(field, value, pendingText, successText, errorPrefix, modelEntries = []) {
-  const context = activeFellowRuntimeControlContext();
+async function saveActiveBotRuntimeControl(field, value, pendingText, successText, errorPrefix, modelEntries = []) {
+  const context = activeBotRuntimeControlContext();
   if (!context) return false;
   setText(els.modelSwitchStatus, pendingText);
   setRuntimeControlDisabled(true);
   try {
-    const result = await window.miaFellowCommands.saveFellowRuntimeControl({
+    const result = await window.miaBotCommands.saveBotRuntimeControl({
       api: window.mia,
-      cache: fellowRuntimeControlCache,
-      fellow: context.fellow,
+      cache: botRuntimeControlCache,
+      bot: context.bot,
       runtimeKind: context.runtimeKind,
       field,
       value,
@@ -2193,7 +2248,7 @@ async function saveActiveFellowRuntimeControl(field, value, pendingText, success
     });
     if (!result?.saved) return false;
     if (result.runtime) state.runtime = result.runtime;
-    if (context.runtimeKind !== "cloud-hermes") syncLocalFellowRuntimeBindingsSoon();
+    if (context.runtimeKind !== "cloud-hermes") syncLocalBotRuntimeBindingsSoon();
     setText(els.modelSwitchStatus, successText);
     if (field === "model" && context.runtimeKind !== "cloud-hermes" && agentEngineForRuntimeControl(context) === "hermes") {
       const entry = modelEntries.find((item) => [item.id, item.value, item.model].some((candidate) => String(candidate || "") === String(value || "")));
@@ -2211,7 +2266,7 @@ async function saveActiveFellowRuntimeControl(field, value, pendingText, success
     setText(els.modelSwitchStatus, "保存失败");
     appendTransientChat("assistant", `${errorPrefix}: ${error.message || error}`);
     if (context.runtimeKind === "cloud-hermes") {
-      syncConversationFellowRuntimeControls();
+      syncConversationBotRuntimeControls();
     } else {
       await refreshRuntime();
     }
@@ -2221,19 +2276,19 @@ async function saveActiveFellowRuntimeControl(field, value, pendingText, success
   return true;
 }
 
-function activeConversationFellowKey() {
+function activeConversationBotKey() {
   const social = window.miaSocial;
   const conversationId = social?.getActiveConversationId?.();
   if (!conversationId) return "";
   const conversation = social?.getConversationById?.(conversationId) || { id: conversationId };
-  return conversationTypeForComposer(conversation, conversationId) === "fellow" ? fellowKeyForConversation(conversation) : "";
+  return conversationTypeForComposer(conversation, conversationId) === "bot" ? botKeyForConversation(conversation) : "";
 }
 
 function activePersona() {
-  const personas = state.runtime?.fellows || state.runtime?.personas || [];
-  const conversationFellowKey = activeConversationFellowKey();
-  if (conversationFellowKey) {
-    const conversationPersona = personas.find((persona) => (persona.key || persona.id) === conversationFellowKey);
+  const personas = state.runtime?.bots || [];
+  const conversationBotKey = activeConversationBotKey();
+  if (conversationBotKey) {
+    const conversationPersona = personas.find((persona) => (persona.key || persona.id) === conversationBotKey);
     if (conversationPersona) return conversationPersona;
     return null;
   }
@@ -2267,77 +2322,77 @@ function appendTransientChat(role, content) {
 
 async function createNewSessionForActive() {
   const cloudConversation = activeCloudConversationForSessionMenu();
-  if (cloudConversation && conversationTypeForComposer(cloudConversation, cloudConversation.id || "") === "fellow") {
+  if (cloudConversation && conversationTypeForComposer(cloudConversation, cloudConversation.id || "") === "bot") {
     await createNewCloudSessionForActive(cloudConversation);
     return;
   }
-  // Cloud-only: 新对话 only applies to an active fellow conversation (handled
-  // above). With no active fellow conversation there is nothing to create.
+  // Cloud-only: 新对话 only applies to an active bot conversation (handled
+  // above). With no active bot conversation there is nothing to create.
 }
 
 async function createNewCloudSessionForActive(conversation) {
-  const payload = sessionHistory.createFellowSessionPayload(conversation, cryptoRandomId(), {
+  const payload = sessionHistory.createBotSessionPayload(conversation, cryptoRandomId(), {
     title: "新对话",
     runtimeKindFallback: "desktop-local"
   });
-  const fellowKey = payload.fellowKey;
+  const botId = payload.botId;
   const ownerUserId = String(state.runtime?.cloud?.user?.id || state.runtime?.cloud?.user?.userId || "").trim();
-  if (!fellowKey || !ownerUserId || !window.mia?.social?.ensureFellowSessionConversation) return;
+  if (!botId || !ownerUserId || !window.mia?.social?.ensureBotSessionConversation) return;
 
   // Optimistic create: the cloud conversation id is deterministic
-  // (`fellow:<ownerUserId>:<sessionId>`), so build the conversation locally and
+  // (`botc_<sessionId>`), so build the conversation locally and
   // switch into it with zero wait, then ensure it on the cloud in the
-  // background. ensureFellowSessionConversation is idempotent, so a slow or
+  // background. ensureBotSessionConversation is idempotent, so a slow or
   // failed call is safe — we keep the local session and the first sent message
   // re-ensures it.
   const now = new Date().toISOString();
   const optimisticConversation = {
-    id: sessionHistory.fellowConversationId(ownerUserId, payload.sessionId),
-    type: "fellow",
+    id: `botc_${payload.sessionId}`,
+    type: "bot",
     name: payload.title,
-    decorations: { fellowKey, sessionId: payload.sessionId, runtimeKind: payload.runtimeKind },
+    decorations: { botId, sessionId: payload.sessionId, runtimeKind: payload.runtimeKind },
     created_at: now,
     updated_at: now
   };
-  window.miaSocial?.upsertFellowConversation?.(optimisticConversation);
+  window.miaSocial?.upsertBotConversation?.(optimisticConversation);
   await selectCloudSessionConversation(optimisticConversation, { skipMessageLoad: true });
 
-  window.mia.social.ensureFellowSessionConversation(payload.sessionId, {
-    fellowKey,
+  window.mia.social.ensureBotSessionConversation(payload.sessionId, {
+    botId,
     title: payload.title,
     runtimeKind: payload.runtimeKind
   }).then((response) => {
     if (response?.ok) {
       const createdConversation = response.data?.conversation || response.conversation;
-      if (createdConversation?.id) window.miaSocial?.upsertFellowConversation?.(createdConversation);
+      if (createdConversation?.id) window.miaSocial?.upsertBotConversation?.(createdConversation);
     } else {
-      console.warn("[renderer] ensureFellowSessionConversation failed:", response?.error || "unknown");
+      console.warn("[renderer] ensureBotSessionConversation failed:", response?.error || "unknown");
       appendTransientChat("assistant", "会话云端同步失败，发消息时会自动重试。");
     }
   }).catch((error) => {
-    console.warn("[renderer] ensureFellowSessionConversation error:", error?.message || error);
+    console.warn("[renderer] ensureBotSessionConversation error:", error?.message || error);
   });
 }
 
-function fellowByKey(fellowKey) {
-  const key = String(fellowKey || "");
-  // Canonical owned-fellow list (cloud + local) so cloud fellows resolve too.
-  const fellows = window.miaFellowManager?.allOwnedFellows?.() || [];
-  return fellows.find((item) => String(item?.key || item?.id || "") === key) || { key };
+function botByKey(botKey) {
+  const key = String(botKey || "");
+  // Canonical owned-bot list (cloud + local) so cloud bots resolve too.
+  const bots = window.miaBotManager?.allOwnedBots?.() || [];
+  return bots.find((item) => String(item?.key || item?.id || "") === key) || { key };
 }
 
-async function openFellowConversation(fellowKey) {
-  const key = String(fellowKey || "").trim();
+async function openBotConversation(botKey) {
+  const key = String(botKey || "").trim();
   if (!key) return;
-  const fellow = fellowByKey(key);
+  const bot = botByKey(key);
   state.activeContactKey = key;
   state.activeView = "chat";
   state.sessionMenuOpen = false;
   state.replyDraft = null;
   showNarrowContent();
 
-  if (state.runtime?.cloud?.enabled && window.miaSocial?.ensureFellowConversation) {
-    const existingConversation = window.miaSocial?.fellowConversationForKey?.(key);
+  if (state.runtime?.cloud?.enabled && window.miaSocial?.ensureBotConversation) {
+    const existingConversation = window.miaSocial?.botConversationForKey?.(key);
     if (existingConversation?.id) {
       state.activeKey = "";
       window.miaSocial.setActiveConversationId(existingConversation.id);
@@ -2346,7 +2401,7 @@ async function openFellowConversation(fellowKey) {
       requestAnimationFrame(() => els.chatInput?.focus());
       return;
     }
-    const conversation = await window.miaSocial.ensureFellowConversation(fellow);
+    const conversation = await window.miaSocial.ensureBotConversation(bot);
     if (conversation?.id) {
       state.activeKey = "";
       window.miaSocial.setActiveConversationId(conversation.id);
@@ -2364,7 +2419,7 @@ async function openFellowConversation(fellowKey) {
   render();
 }
 
-window.miaOpenFellowConversation = openFellowConversation;
+window.miaOpenBotConversation = openBotConversation;
 
 async function refreshRuntime() {
   const previousDaemon = state.runtime?.daemon || {};
@@ -2443,8 +2498,8 @@ async function initializeRuntime() {
       providerLabels,
     });
   }
-  if (window.miaFellowDialog && window.miaFellowDialog.initFellowDialog) {
-    window.miaFellowDialog.initFellowDialog({ state, els, renderView, render });
+  if (window.miaBotDialog && window.miaBotDialog.initBotDialog) {
+    window.miaBotDialog.initBotDialog({ state, els, renderView, render });
   }
   if (window.miaTraceBlocks && window.miaTraceBlocks.initTraceBlocks) {
     window.miaTraceBlocks.initTraceBlocks({ state });
@@ -2475,8 +2530,8 @@ async function initializeRuntime() {
       cryptoRandomId,
     });
   }
-  if (window.miaFellowManager && window.miaFellowManager.initFellowManager) {
-    window.miaFellowManager.initFellowManager({
+  if (window.miaBotManager && window.miaBotManager.initBotManager) {
+    window.miaBotManager.initBotManager({
       state,
       els,
       setText,
@@ -2484,9 +2539,9 @@ async function initializeRuntime() {
       loadSkills: () => window.miaLoaders.loadSkills(),
       showNarrowContent,
       render,
-      openEditFellowDialog,
-      deleteFellow,
-      setFellowPinned,
+      openEditBotDialog,
+      deleteBot,
+      setBotPinned,
     });
   }
   if (window.miaSkillLibrary && window.miaSkillLibrary.initSkillLibrary) {
@@ -2503,13 +2558,13 @@ async function initializeRuntime() {
       openSkillDirectory,
     });
   }
-  if (window.miaFellowStore && window.miaFellowStore.initFellowStore) {
-    window.miaFellowStore.initFellowStore({
+  if (window.miaBotStore && window.miaBotStore.initBotStore) {
+    window.miaBotStore.initBotStore({
       state,
       els,
       mia: window.mia,
       escapeHtml: window.miaMarkdown.escapeHtml,
-      openFellowConversation,
+      openBotConversation,
       render,
     });
   }
@@ -2531,7 +2586,7 @@ async function initializeRuntime() {
       state,
       els,
       mia: window.mia,
-      fellowByKey: window.miaFellowManager.fellowByKey,
+      botByKey: window.miaBotManager.botByKey,
       cryptoRandomId,
       avatarBackgroundStyle: window.miaAvatar.avatarBackgroundStyle,
       escapeHtml: window.miaMarkdown.escapeHtml,
@@ -2571,7 +2626,7 @@ async function initializeRuntime() {
       nowIso,
       cryptoRandomId,
       closeSkillContextMenu: window.miaSkillLibrary.closeSkillContextMenu,
-      closeFellowContextMenu: window.miaFellowManager.closeFellowContextMenu,
+      closeBotContextMenu: window.miaBotManager.closeBotContextMenu,
     });
   }
   if (window.miaSocial && window.miaSocial.initSocialModule) {
@@ -2656,7 +2711,7 @@ document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
   closeImagePreview();
   if (state.skillContextMenu.open) window.miaSkillLibrary.closeSkillContextMenu();
-  if (state.fellowContextMenu.open) window.miaFellowManager.closeFellowContextMenu();
+  if (state.botContextMenu.open) window.miaBotManager.closeBotContextMenu();
   if (state.messageContextMenu.open) window.miaMessageMenu?.closeMessageContextMenu();
   window.miaComposer.closeComposerAddMenu();
   if (state.skillPreviewOpen) {
@@ -2673,7 +2728,7 @@ document.addEventListener("click", (event) => {
   if (state.skillContextMenu.open && !els.skillContextMenu?.contains(event.target)) window.miaSkillLibrary.closeSkillContextMenu();
 });
 document.addEventListener("click", (event) => {
-  if (state.fellowContextMenu.open && !els.fellowContextMenu?.contains(event.target)) window.miaFellowManager.closeFellowContextMenu();
+  if (state.botContextMenu.open && !els.botContextMenu?.contains(event.target)) window.miaBotManager.closeBotContextMenu();
 });
 document.addEventListener("click", (event) => {
   if (state.messageContextMenu.open && !els.messageContextMenu?.contains(event.target)) window.miaMessageMenu?.closeMessageContextMenu();
@@ -2705,7 +2760,7 @@ els.chat?.addEventListener("contextmenu", (event) => {
   if (!bubble || !els.chat.contains(bubble)) return;
   // Cloud-conversation bubbles (cloud DM + cloud group) carry data-message-source +
   // data-message-id and live in social.moduleState.messageCache, not the
-  // fellow session, so dispatch to the lightweight social message menu.
+  // bot session, so dispatch to the lightweight social message menu.
   if (bubble.dataset.messageSource === "cloud-conversation") {
     const social = window.miaSocial;
     const messageId = bubble.dataset.messageId;
@@ -2731,9 +2786,9 @@ document.addEventListener("click", (event) => {
   renderSessionMenu();
 });
 document.addEventListener("click", (event) => {
-  if (!state.fellowMenuOpen) return;
-  if (els.fellowCreateMenu?.contains(event.target) || els.newPersona?.contains(event.target)) return;
-  state.fellowMenuOpen = false;
+  if (!state.botMenuOpen) return;
+  if (els.botCreateMenu?.contains(event.target) || els.newPersona?.contains(event.target)) return;
+  state.botMenuOpen = false;
   renderView();
 });
 document.addEventListener("click", (event) => {
@@ -2764,7 +2819,7 @@ els.personaSearch.addEventListener("input", () => {
 });
 els.contactSearch?.addEventListener("input", () => {
   state.contactFilter = els.contactSearch.value;
-  window.miaFellowManager.renderContacts();
+  window.miaBotManager.renderContacts();
 });
 els.skillSearch?.addEventListener("input", () => {
   state.skillFilter = els.skillSearch.value;
@@ -2784,12 +2839,12 @@ document.querySelectorAll("[data-view]").forEach((button) => {
   button.addEventListener("click", () => {
     // 联系人 rail 图标进的是 发现/联系人 section，落到上次停留的子页（默认发现）
     state.activeView = button.dataset.view === "contacts"
-      ? (state.discoverSectionView || "fellow-store")
+      ? (state.discoverSectionView || "bot-store")
       : button.dataset.view;
     showNarrowContent();
     if (button.dataset.view === "settings") state.settingsOpen = true;
     if (button.dataset.view === "skills" && !state.skillLibrary.skills.length && !state.skillsLoading) window.miaLoaders.loadSkills();
-    if (state.activeView === "fellow-store") window.miaFellowStore?.renderFellowStore?.();
+    if (state.activeView === "bot-store") window.miaBotStore?.renderBotStore?.();
     renderView();
     if (state.activeView === "tasks") {
       window.miaTasksPanel?.loadTasksFromDaemon().then(() => {
@@ -2945,12 +3000,12 @@ if (window.mia.onEnginesChanged) {
 if (window.mia.onCloudEvent) {
   let cloudEventRefreshTimer = 0;
   window.mia.onCloudEvent((envelope = {}) => {
-    const runtimeBinding = envelope.type === "fellow.runtime_updated"
+    const runtimeBinding = envelope.type === "bot.runtime_updated"
       ? envelope.binding
       : envelope.payload?.binding;
-    if (runtimeBinding?.fellowId && runtimeBinding?.runtimeKind) {
-      fellowRuntimeControlCache.set(
-        fellowRuntimeCacheKey(runtimeBinding.fellowId, runtimeBinding.runtimeKind),
+    if (runtimeBinding?.botId && runtimeBinding?.runtimeKind) {
+      botRuntimeControlCache.set(
+        botRuntimeCacheKey(runtimeBinding.botId, runtimeBinding.runtimeKind),
         runtimeBinding
       );
     }
@@ -3052,9 +3107,9 @@ els.authMethod.addEventListener("change", () => {
 
 els.quickModelSelect?.addEventListener("change", async () => {
   window.miaModelSettings.syncQuickModelLabel();
-  const context = activeFellowRuntimeControlContext();
+  const context = activeBotRuntimeControlContext();
   const modelEntries = modelEntriesForRuntimeControl(context);
-  await saveActiveFellowRuntimeControl(
+  await saveActiveBotRuntimeControl(
     "model",
     els.quickModelSelect.value || modelEntries[0]?.id || modelEntries[0]?.value || modelEntries[0]?.model || "",
     "保存模型...",
@@ -3067,7 +3122,7 @@ els.quickModelSelect?.addEventListener("change", async () => {
 els.effortSelect?.addEventListener("change", async () => {
   const level = els.effortSelect.value;
   window.miaModelSettings.syncEffortControl(state.runtime);
-  await saveActiveFellowRuntimeControl(
+  await saveActiveBotRuntimeControl(
     "effortLevel",
     level || "medium",
     "保存推理强度...",
@@ -3079,7 +3134,7 @@ els.effortSelect?.addEventListener("change", async () => {
 els.permissionMode?.addEventListener("change", async () => {
   const mode = els.permissionMode.value;
   setText(els.permissionLabel, window.miaModelSettings.permissionLabelForMode(mode));
-  await saveActiveFellowRuntimeControl(
+  await saveActiveBotRuntimeControl(
     "permissionMode",
     mode || "ask",
     "保存权限...",
@@ -3097,14 +3152,14 @@ els.modelSelect?.addEventListener("change", () => {
 
 els.newPersona.addEventListener("click", (event) => {
   event.stopPropagation();
-  state.fellowMenuOpen = !state.fellowMenuOpen;
+  state.botMenuOpen = !state.botMenuOpen;
   renderView();
 });
 
 // 发现 AI 同事 | 联系人 —— 顶栏滑动胶囊（仿技能 我的技能/探索发现）。
-// discover = 整屏卡片网格(fellow 商店)；contacts = 列表(浮动白卡)+详情。
+// discover = 整屏卡片网格(bot 商店)；contacts = 列表(浮动白卡)+详情。
 const DISCOVER_MODES = [
-  { view: "fellow-store", label: "发现 AI 同事" },
+  { view: "bot-store", label: "发现 AI 同事" },
   { view: "contacts", label: "联系人" }
 ];
 function renderDiscoverModeToggle() {
@@ -3116,12 +3171,12 @@ function renderDiscoverModeToggle() {
   host.querySelectorAll("[data-discover-mode]").forEach((btn) => {
     btn.addEventListener("click", () => {
       if (state.activeView === btn.dataset.discoverMode) return;
-      state.fellowMenuOpen = false;
+      state.botMenuOpen = false;
       state.contactMenuOpen = false;
       state.activeView = btn.dataset.discoverMode;
       state.discoverSectionView = state.activeView; // 记住子页，rail 回来时恢复
       showNarrowContent();
-      if (state.activeView === "fellow-store") window.miaFellowStore?.renderFellowStore?.();
+      if (state.activeView === "bot-store") window.miaBotStore?.renderBotStore?.();
       renderView();
     });
   });
@@ -3140,19 +3195,29 @@ function syncDiscoverModeIndicator() {
   host.style.setProperty("--pill-ready", "1");
 }
 renderDiscoverModeToggle();
+function openBotStore() {
+  state.botMenuOpen = false;
+  state.contactMenuOpen = false;
+  state.activeView = "bot-store";
+  showNarrowContent();
+  renderView();
+  window.miaBotStore?.renderBotStore?.();
+}
+els.convMenuDiscoverBots?.addEventListener("click", openBotStore);
+els.contactMenuDiscoverBots?.addEventListener("click", openBotStore);
 
 els.convMenuAddFriend?.addEventListener("click", () => {
-  state.fellowMenuOpen = false;
+  state.botMenuOpen = false;
   renderView();
   window.miaSocial?.openAddFriendDialog?.();
 });
-els.addFellow?.addEventListener("click", () => {
-  state.fellowMenuOpen = false;
+els.addBot?.addEventListener("click", () => {
+  state.botMenuOpen = false;
   renderView();
-  window.miaFellowDialog.openFellowDialog();
+  window.miaBotDialog.openBotDialog();
 });
 els.convMenuNewGroup?.addEventListener("click", () => {
-  state.fellowMenuOpen = false;
+  state.botMenuOpen = false;
   renderView();
   window.miaSocial?.openCreateGroupDialog?.();
 });
@@ -3166,26 +3231,26 @@ els.contactMenuAddFriend?.addEventListener("click", () => {
   renderView();
   window.miaSocial?.openAddFriendDialog?.();
 });
-els.contactMenuAddFellow?.addEventListener("click", () => {
+els.contactMenuAddBot?.addEventListener("click", () => {
   state.contactMenuOpen = false;
   renderView();
-  window.miaFellowDialog.openFellowDialog();
+  window.miaBotDialog.openBotDialog();
 });
 els.contactMenuNewGroup?.addEventListener("click", () => {
   state.contactMenuOpen = false;
   renderView();
   window.miaSocial?.openCreateGroupDialog?.();
 });
-els.userAvatar?.addEventListener("click", () => window.miaFellowDialog.openProfileDialog());
+els.userAvatar?.addEventListener("click", () => window.miaBotDialog.openProfileDialog());
 els.userAvatar?.addEventListener("keydown", (event) => {
   if (event.key !== "Enter" && event.key !== " ") return;
   event.preventDefault();
-  window.miaFellowDialog.openProfileDialog();
+  window.miaBotDialog.openProfileDialog();
 });
-els.closeProfileDialog?.addEventListener("click", () => window.miaFellowDialog.closeProfileDialog());
-els.cancelProfile?.addEventListener("click", () => window.miaFellowDialog.closeProfileDialog());
-els.closeFellowDialog?.addEventListener("click", () => window.miaFellowDialog.closeFellowDialog());
-els.cancelFellow?.addEventListener("click", () => window.miaFellowDialog.closeFellowDialog());
+els.closeProfileDialog?.addEventListener("click", () => window.miaBotDialog.closeProfileDialog());
+els.cancelProfile?.addEventListener("click", () => window.miaBotDialog.closeProfileDialog());
+els.closeBotDialog?.addEventListener("click", () => window.miaBotDialog.closeBotDialog());
+els.cancelBot?.addEventListener("click", () => window.miaBotDialog.closeBotDialog());
 els.closePetGenerateDialog?.addEventListener("click", () => window.miaPetDialog?.closePetGenerateDialog());
 els.cancelPetGenerate?.addEventListener("click", () => window.miaPetDialog?.closePetGenerateDialog());
 els.addPetReference?.addEventListener("click", () => els.petReferenceFile?.click());
@@ -3200,10 +3265,10 @@ els.petJobButton?.addEventListener("click", (event) => {
 });
 els.petGenerateForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const fellow = window.miaFellowManager.fellowByKey(state.petGenerateFellowKey);
-  if (!fellow) return;
-  const job = await window.mia.generateFellowPet({
-    fellowKey: fellow.key,
+  const bot = window.miaBotManager.botByKey(state.petGenerateBotKey);
+  if (!bot) return;
+  const job = await window.mia.generateBotPet({
+    botKey: bot.key,
     prompt: els.petPrompt?.value || "",
     stylePreset: els.petStylePreset?.value || "codex",
     referenceImages: state.petReferences.map((item) => item.src)
@@ -3213,38 +3278,38 @@ els.petGenerateForm?.addEventListener("submit", async (event) => {
   window.miaPetDialog?.closePetGenerateDialog();
   window.miaPetDialog?.renderPetJobs();
 });
-els.chooseFellowAvatar?.addEventListener("click", () => els.fellowAvatarFile?.click());
-els.fellowAvatarFile?.addEventListener("change", () => {
-  window.miaFellowDialog.readFellowAvatarFile(els.fellowAvatarFile.files?.[0]);
-  els.fellowAvatarFile.value = "";
+els.chooseBotAvatar?.addEventListener("click", () => els.botAvatarFile?.click());
+els.botAvatarFile?.addEventListener("change", () => {
+  window.miaBotDialog.readBotAvatarFile(els.botAvatarFile.files?.[0]);
+  els.botAvatarFile.value = "";
 });
-els.fellowAvatarPreview?.addEventListener("click", () => {
-  const draft = state.fellowAvatarDraft;
+els.botAvatarPreview?.addEventListener("click", () => {
+  const draft = state.botAvatarDraft;
   if (!draft?.image) return;
-  window.miaFellowDialog.openAvatarCropEditor(draft.image, draft.crop);
+  window.miaBotDialog.openAvatarCropEditor(draft.image, draft.crop);
 });
-els.fellowAvatarPreview?.addEventListener("keydown", (event) => {
+els.botAvatarPreview?.addEventListener("keydown", (event) => {
   if (event.key !== "Enter" && event.key !== " ") return;
   event.preventDefault();
-  const draft = state.fellowAvatarDraft;
+  const draft = state.botAvatarDraft;
   if (!draft?.image) return;
-  window.miaFellowDialog.openAvatarCropEditor(draft.image, draft.crop);
+  window.miaBotDialog.openAvatarCropEditor(draft.image, draft.crop);
 });
-els.fellowAvatarDrop?.addEventListener("dragover", (event) => {
+els.botAvatarDrop?.addEventListener("dragover", (event) => {
   event.preventDefault();
-  els.fellowAvatarDrop.classList.add("dragging");
+  els.botAvatarDrop.classList.add("dragging");
 });
-els.fellowAvatarDrop?.addEventListener("dragleave", () => {
-  els.fellowAvatarDrop.classList.remove("dragging");
+els.botAvatarDrop?.addEventListener("dragleave", () => {
+  els.botAvatarDrop.classList.remove("dragging");
 });
-els.fellowAvatarDrop?.addEventListener("drop", (event) => {
+els.botAvatarDrop?.addEventListener("drop", (event) => {
   event.preventDefault();
-  els.fellowAvatarDrop.classList.remove("dragging");
-  window.miaFellowDialog.readFellowAvatarFile(event.dataTransfer?.files?.[0]);
+  els.botAvatarDrop.classList.remove("dragging");
+  window.miaBotDialog.readBotAvatarFile(event.dataTransfer?.files?.[0]);
 });
 els.chooseProfileAvatar?.addEventListener("click", () => els.profileAvatarFile?.click());
 els.profileAvatarFile?.addEventListener("change", () => {
-  window.miaFellowDialog.readProfileAvatarFile(els.profileAvatarFile.files?.[0]);
+  window.miaBotDialog.readProfileAvatarFile(els.profileAvatarFile.files?.[0]);
   els.profileAvatarFile.value = "";
 });
 els.profileAvatarPreview?.addEventListener("click", () => {
@@ -3253,7 +3318,7 @@ els.profileAvatarPreview?.addEventListener("click", () => {
     els.profileAvatarFile?.click();
     return;
   }
-  window.miaFellowDialog.openAvatarCropEditor(draft.image, draft.crop, "profile");
+  window.miaBotDialog.openAvatarCropEditor(draft.image, draft.crop, "profile");
 });
 els.profileAvatarPreview?.addEventListener("keydown", (event) => {
   if (event.key !== "Enter" && event.key !== " ") return;
@@ -3263,7 +3328,7 @@ els.profileAvatarPreview?.addEventListener("keydown", (event) => {
     els.profileAvatarFile?.click();
     return;
   }
-  window.miaFellowDialog.openAvatarCropEditor(draft.image, draft.crop, "profile");
+  window.miaBotDialog.openAvatarCropEditor(draft.image, draft.crop, "profile");
 });
 els.profileAvatarDrop?.addEventListener("dragover", (event) => {
   event.preventDefault();
@@ -3275,7 +3340,7 @@ els.profileAvatarDrop?.addEventListener("dragleave", () => {
 els.profileAvatarDrop?.addEventListener("drop", (event) => {
   event.preventDefault();
   els.profileAvatarDrop.classList.remove("dragging");
-  window.miaFellowDialog.readProfileAvatarFile(event.dataTransfer?.files?.[0]);
+  window.miaBotDialog.readProfileAvatarFile(event.dataTransfer?.files?.[0]);
 });
 els.avatarCropStage?.addEventListener("pointerdown", (event) => {
   event.preventDefault();
@@ -3303,7 +3368,7 @@ els.avatarCropStage?.addEventListener("pointermove", (event) => {
   const sensitivity = Math.min(rawPerPx, 3);
   // Negative: dragging image right exposes its left side (crop x decreases).
   const percentPerPx = -sensitivity;
-  window.miaFellowDialog.updateAvatarCropEditor({
+  window.miaBotDialog.updateAvatarCropEditor({
     x: state.avatarCropEditor.crop.x + dx * percentPerPx,
     y: state.avatarCropEditor.crop.y + dy * percentPerPx
   });
@@ -3318,7 +3383,7 @@ els.avatarCropStage?.addEventListener("pointercancel", () => {
 els.avatarCropStage?.addEventListener("wheel", (event) => {
   event.preventDefault();
   const direction = event.deltaY > 0 ? -1 : 1;
-  window.miaFellowDialog.updateAvatarCropEditor({
+  window.miaBotDialog.updateAvatarCropEditor({
     zoom: state.avatarCropEditor.crop.zoom + direction * 0.03
   });
 });
@@ -3345,7 +3410,7 @@ function setAvatarTrimRange(start, duration) {
   const trim = media?.normalizeTrim?.({ start: nextStart, duration: nextDuration }) || { start: nextStart, duration: nextDuration };
   if (els.avatarTrimStart) els.avatarTrimStart.value = String(trim.start);
   if (els.avatarTrimDuration) els.avatarTrimDuration.value = String(trim.duration);
-  window.miaFellowDialog.updateAvatarCropEditor(trim);
+  window.miaBotDialog.updateAvatarCropEditor(trim);
 }
 function beginAvatarTrimDrag(event) {
   if (!state.avatarCropEditor?.open || !window.miaAvatarMedia?.isVideo?.(state.avatarCropEditor.image)) return;
@@ -3398,32 +3463,32 @@ els.avatarTrimTimeline?.addEventListener("pointermove", updateAvatarTrimDrag);
 els.avatarTrimTimeline?.addEventListener("pointerup", endAvatarTrimDrag);
 els.avatarTrimTimeline?.addEventListener("pointercancel", endAvatarTrimDrag);
 els.avatarTrimPreview?.addEventListener("loadedmetadata", () => {
-  window.miaFellowDialog.updateAvatarTrimControls?.();
+  window.miaBotDialog.updateAvatarTrimControls?.();
 });
 if (els.avatarTrimStart) els.avatarTrimStart.addEventListener("input", () => {
   const trim = window.miaAvatarMedia?.normalizeTrim?.({
     ...state.avatarCropEditor.crop,
     start: els.avatarTrimStart.value
   }) || { start: 0, duration: 3 };
-  window.miaFellowDialog.updateAvatarCropEditor(trim);
+  window.miaBotDialog.updateAvatarCropEditor(trim);
 });
 if (els.avatarTrimDuration) els.avatarTrimDuration.addEventListener("input", () => {
   const trim = window.miaAvatarMedia?.normalizeTrim?.({
     ...state.avatarCropEditor.crop,
     duration: els.avatarTrimDuration.value
   }) || { start: 0, duration: 3 };
-  window.miaFellowDialog.updateAvatarCropEditor(trim);
+  window.miaBotDialog.updateAvatarCropEditor(trim);
 });
 els.confirmAvatarCrop?.addEventListener("click", async () => {
   if (state.avatarCropEditor.target === "groupConversation") {
     const image = state.avatarCropEditor.image;
     const crop = state.avatarCropEditor.crop;
-    window.miaFellowDialog.closeAvatarCropEditor();
+    window.miaBotDialog.closeAvatarCropEditor();
     window.miaGroupInfoDialog?.applyAvatarFromCropEditor(image, crop);
     return;
   }
   if (state.avatarCropEditor.target === "profile") {
-    window.miaFellowDialog.setProfileAvatarDraft(state.avatarCropEditor.image, state.avatarCropEditor.crop);
+    window.miaBotDialog.setProfileAvatarDraft(state.avatarCropEditor.image, state.avatarCropEditor.crop);
     // Auto-persist the avatar so closing the profile dialog without clicking
     // "保存资料" doesn't silently drop the new avatar. The display name field
     // is preserved by reading whatever is currently in the input.
@@ -3443,20 +3508,20 @@ els.confirmAvatarCrop?.addEventListener("click", async () => {
       console.error("[profile] avatar auto-save failed:", err);
     }
   } else {
-    window.miaFellowDialog.setFellowAvatarDraft(state.avatarCropEditor.image, state.avatarCropEditor.crop);
+    window.miaBotDialog.setBotAvatarDraft(state.avatarCropEditor.image, state.avatarCropEditor.crop);
   }
-  window.miaFellowDialog.closeAvatarCropEditor();
+  window.miaBotDialog.closeAvatarCropEditor();
 });
-els.cancelAvatarCrop?.addEventListener("click", () => window.miaFellowDialog.closeAvatarCropEditor());
+els.cancelAvatarCrop?.addEventListener("click", () => window.miaBotDialog.closeAvatarCropEditor());
 els.resetAvatarCrop?.addEventListener("click", () => {
   state.avatarCropEditor.crop = window.miaAvatar.normalizeCrop(window.miaAvatar.avatarDefaultCropForSrc(state.avatarCropEditor.image));
-  window.miaFellowDialog.renderAvatarCropEditor();
+  window.miaBotDialog.renderAvatarCropEditor();
 });
 
 // Live-update the avatar preview as the name is typed, so a generated avatar
 // follows the name instead of freezing the previous name's initials.
 els.profileDisplayName?.addEventListener("input", () => {
-  window.miaFellowDialog?.renderProfileAvatarDraft?.();
+  window.miaBotDialog?.renderProfileAvatarDraft?.();
 });
 
 els.profileForm?.addEventListener("submit", async (event) => {
@@ -3469,7 +3534,7 @@ els.profileForm?.addEventListener("submit", async (event) => {
     avatarCrop: window.miaAvatar.normalizeCrop(state.profileAvatarDraft.crop),
     avatarColor: state.profileAvatarDraft.color || ""
   });
-  window.miaFellowDialog.closeProfileDialog();
+  window.miaBotDialog.closeProfileDialog();
   render();
 });
 
@@ -3531,33 +3596,33 @@ els.appearanceShowAssistantAvatar?.addEventListener("click", () => {
   window.miaSettingsAppearance.toggleSettingsSwitch(els.appearanceShowAssistantAvatar);
 });
 
-// Live-update the fellow avatar preview as the name is typed (mirrors the
+// Live-update the bot avatar preview as the name is typed (mirrors the
 // profile dialog), so a generated avatar follows the name in create mode.
-els.fellowName?.addEventListener("input", () => {
-  window.miaFellowDialog?.renderFellowAvatarDraft?.();
+els.botName?.addEventListener("input", () => {
+  window.miaBotDialog?.renderBotAvatarDraft?.();
 });
 
-els.fellowForm?.addEventListener("submit", async (event) => {
+els.botForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const existingFellow = els.fellowKey?.value
-    ? window.miaFellowManager?.fellowByKey?.(els.fellowKey.value)
+  const existingBot = els.botKey?.value
+    ? window.miaBotManager?.botByKey?.(els.botKey.value)
     : null;
-  const runtimeKind = existingFellow?.runtimeKind || String(els.fellowRuntimeLocation?.value || "desktop-local");
-  const fellow = {
-    key: els.fellowKey?.value || "",
-    name: els.fellowName.value,
-    agentEngine: els.fellowAgentEngine?.value || "hermes",
-    avatarImage: state.fellowAvatarDraft.image || els.fellowAvatar.value,
-    avatarCrop: window.miaAvatar.normalizeCrop(state.fellowAvatarDraft.crop),
-    color: state.fellowAvatarDraft.color || "",
-    description: state.fellowDialogMode === "create" ? els.fellowSeed.value : "",
-    personaText: els.fellowSeed.value
+  const runtimeKind = existingBot?.runtimeKind || String(els.botRuntimeLocation?.value || "desktop-local");
+  const bot = {
+    key: els.botKey?.value || "",
+    name: els.botName.value,
+    agentEngine: els.botAgentEngine?.value || "hermes",
+    avatarImage: state.botAvatarDraft.image || els.botAvatar.value,
+    avatarCrop: window.miaAvatar.normalizeCrop(state.botAvatarDraft.crop),
+    color: state.botAvatarDraft.color || "",
+    description: state.botDialogMode === "create" ? els.botSeed.value : "",
+    personaText: els.botSeed.value
   };
-  const saved = await window.miaFellowCommands.saveFellow({
+  const saved = await window.miaBotCommands.saveBot({
     state,
-    fellow,
+    bot,
     runtimeKind,
-    isCreate: state.fellowDialogMode !== "edit",
+    isCreate: state.botDialogMode !== "edit",
     api: window.mia,
     social: window.miaSocial,
     cloudModelEntries: platformHermesModelEntries,
@@ -3566,8 +3631,8 @@ els.fellowForm?.addEventListener("submit", async (event) => {
   const savedKey = saved.key || "";
   const cloudConversation = saved.conversation || null;
   if (runtimeKind !== "cloud-hermes" && savedKey) state.activeKey = savedKey;
-  state.fellowDialogOpen = false;
-  // If this was the initial onboarding create-fellow step, mark onboarding done.
+  state.botDialogOpen = false;
+  // If this was the initial onboarding create-bot step, mark onboarding done.
   if (state.onboardingStep && state.onboardingStep !== "done") {
     advanceOnboarding("done");
     state.setupGuideDismissed = true;
@@ -3579,7 +3644,7 @@ els.fellowForm?.addEventListener("submit", async (event) => {
     window.miaSocial?.setActiveConversationId(cloudConversation.id);
     state.forceScrollToBottom = true;
     render();
-  } else if (savedKey) await openFellowConversation(savedKey);
+  } else if (savedKey) await openBotConversation(savedKey);
   else render();
 });
 
@@ -3868,7 +3933,7 @@ els.chat.addEventListener("click", async (event) => {
       return;
     }
     const engine = resumeButton.dataset.commandResumeEngine || window.miaEngineOptions.activeAgentEngine();
-    const fellow = activePersona() || { key: state.activeKey };
+    const bot = activePersona() || { key: state.activeKey };
     resumeButton.disabled = true;
     resumeButton.classList.add("loading");
     try {
@@ -3878,7 +3943,7 @@ els.chat.addEventListener("click", async (event) => {
         args: [sessionIdToResume],
         context: {
           sessionId: window.miaSocial?.getActiveConversationId?.() || "",
-          fellow
+          bot
         }
       });
       const content = result?.content && typeof result.content === "object"
@@ -3982,7 +4047,7 @@ els.chat.addEventListener("toggle", (event) => {
 els.chatForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (window.miaMessageHelpers.isComposerComposing()) return;
-  // Branch: a cloud conversation (dm / group / fellow) is active → send via social.
+  // Branch: a cloud conversation (dm / group / bot) is active → send via social.
   if (window.miaSocial?.getActiveConversationId?.()) {
     const conversationId = window.miaSocial.getActiveConversationId();
     let conversationText = els.chatInput.value;
@@ -3999,12 +4064,12 @@ els.chatForm.addEventListener("submit", async (event) => {
     els.chatInput.value = "";
     window.miaMessageHelpers.resizeChatInput();
     // Composer skill chips ride along with the message — stored on it, shown in
-    // the bubble, used by the fellow responder. Only send them for a fellow conversation
-    // (they drive that fellow's AI) and only when they were attached in THIS conversation
+    // the bubble, used by the bot responder. Only send them for a bot conversation
+    // (they drive that bot's AI) and only when they were attached in THIS conversation
     // (guards a programmatic conversation switch with no intervening render). Clear them
     // on send regardless: the chip belongs to this message, not the next one.
     const chips = (state.composerActiveSkills || []).filter((skill) => skill && skill.id);
-    const chipsBelongHere = chips.length && state.composerSkillsConversationId === conversationId && Boolean(activeConversationFellowContext());
+    const chipsBelongHere = chips.length && state.composerSkillsConversationId === conversationId && Boolean(activeConversationBotContext());
     const messageSkills = chipsBelongHere
       ? chips.map((skill) => ({ id: String(skill.id), name: skill.name || skill.id }))
       : null;
@@ -4118,16 +4183,16 @@ async function handleSetupGuideAction(button) {
   return false;
 }
 
-function openInitialFellowDialog() {
+function openInitialBotDialog() {
   const engine = state.onboardingPickedEngine || "hermes";
   const seed = {
     name: "Mia",
     agentEngine: engine,
     bio: "你是 Mia，一个轻松友好的桌面 AI 伙伴，回答简洁、口语化。"
   };
-  // Reuse existing fellow create dialog with prefilled values.
-  if (typeof window.miaFellowDialog?.openFellowDialog === "function") {
-    window.miaFellowDialog.openFellowDialog(null, seed);
+  // Reuse existing bot create dialog with prefilled values.
+  if (typeof window.miaBotDialog?.openBotDialog === "function") {
+    window.miaBotDialog.openBotDialog(null, seed);
   } else {
     // Fallback: at least open settings
     state.settingsOpen = true;

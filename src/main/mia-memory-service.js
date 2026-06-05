@@ -1,11 +1,12 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
-const MIA_MEMORY_HEADER = "## Mia Fellow Memory";
+const MIA_MEMORY_HEADER = "## Mia Bot Memory";
 
 function cleanLine(value) {
   return String(value || "")
-    .replace(/## Mia Fellow Memory/g, "Mia Fellow Memory")
+    .replace(/## Mia Bot Memory/g, "Mia Bot Memory")
+    .replace(/## Mia Bot Memory/g, "Mia Bot Memory")
     .replace(/\r/g, "")
     .trim();
 }
@@ -27,11 +28,11 @@ function createMiaMemoryService(deps = {}) {
       const store = JSON.parse(fsImpl.readFileSync(memoryPath(), "utf8"));
       return {
         shared: Array.isArray(store.shared) ? store.shared : [],
-        fellows: store.fellows && typeof store.fellows === "object" ? store.fellows : {},
+        bots: store.bots && typeof store.bots === "object" ? store.bots : {},
         updatedAt: store.updatedAt || ""
       };
     } catch {
-      return { shared: [], fellows: {}, updatedAt: "" };
+      return { shared: [], bots: {}, updatedAt: "" };
     }
   }
 
@@ -52,32 +53,33 @@ function createMiaMemoryService(deps = {}) {
     writeStore(store);
   }
 
-  function setFellowMemory(fellowKey, lines) {
+  function setBotMemory(botId, lines) {
     const store = readStore();
-    const key = cleanLine(fellowKey) || "mia";
-    store.fellows[key] = cleanLines(lines);
+    const key = cleanLine(botId) || "mia";
+    store.bots = store.bots && typeof store.bots === "object" ? store.bots : {};
+    store.bots[key] = cleanLines(lines);
     store.updatedAt = now();
     writeStore(store);
   }
 
-  function memoryBlock({ fellowKey = "mia", sessionId = "default" } = {}) {
+  function memoryBlock({ botId = "mia", sessionId = "default" } = {}) {
     const store = readStore();
-    const key = cleanLine(fellowKey) || "mia";
+    const key = cleanLine(botId) || "mia";
     const shared = cleanLines(store.shared);
-    const fellowLines = cleanLines(store.fellows?.[key]);
-    if (!shared.length && !fellowLines.length) return "";
+    const botLines = cleanLines(store.bots?.[key]);
+    if (!shared.length && !botLines.length) return "";
 
     const block = [
       MIA_MEMORY_HEADER,
       "source: mia",
-      `fellow: ${key}`,
+      `bot: ${key}`,
       `conversation: ${cleanLine(sessionId) || "default"}`,
       "",
       "### Shared User Memory",
       ...shared,
       "",
-      "### Fellow Memory",
-      ...fellowLines
+      "### Bot Memory",
+      ...botLines
     ].join("\n").trim();
     return block.slice(0, maxBlockChars);
   }
@@ -85,7 +87,7 @@ function createMiaMemoryService(deps = {}) {
   return {
     memoryBlock,
     readStore,
-    setFellowMemory,
+    setBotMemory,
     setSharedMemory
   };
 }

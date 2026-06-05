@@ -13,7 +13,7 @@
     ctx = internalCtx;
   }
 
-  // Build the adapter-facing ctx ({ self, fellows, friends }) from
+  // Build the adapter-facing ctx ({ self, bots, friends }) from
   // social's internal ctx + the renderer's runtime state. All cloud-conversation
   // sender resolution must go through this; raw cloud-message schema fields
   // (sender kind / member kind / refs) are off-limits to this file —
@@ -23,7 +23,7 @@
     const { moduleState, deps } = ctx;
     const runtimeState = deps && typeof deps.getState === "function" ? deps.getState() : {};
     const runtime = runtimeState.runtime || {};
-    const fellows = runtime.fellows || runtime.personas || [];
+    const bots = runtime.bots || runtime.personas || [];
     const selfIdentity = typeof window !== "undefined" && window.miaSelfIdentity;
     const self = selfIdentity
       ? selfIdentity.resolveSelfIdentity({
@@ -35,7 +35,7 @@
       : { id: moduleState.myUserId || "", username: moduleState.myUsername || "" };
     return {
       self,
-      fellows,
+      bots,
       friends: moduleState.friends || []
     };
   }
@@ -88,7 +88,7 @@
   }
 
   function renderTraceForMessage(msg, content) {
-    if (msg.sender_kind !== SenderKind.Fellow) return "";
+    if (msg.sender_kind !== SenderKind.Bot) return "";
     const trace = parseTraceJson(msg.trace_json || msg.trace);
     if (!trace) return "";
     const renderer = global.miaTraceBlocks;
@@ -102,7 +102,19 @@
     });
   }
 
-  // Group bubble mirrors fellow chat's renderMessageHtml shape EXACTLY
+  function renderNameWithBadgeHtml({ identity, fallbackName, statusBadge } = {}) {
+    const renderer = global.miaNameWithBadge;
+    if (renderer && typeof renderer.renderNameWithBadgeHtml === "function") {
+      try {
+        return renderer.renderNameWithBadgeHtml({ identity, fallbackName, statusBadge });
+      } catch {
+        // Optional badge payloads must not break group message rendering.
+      }
+    }
+    return ctx.escapeHtml(fallbackName || identity?.displayName || "");
+  }
+
+  // Group bubble mirrors bot chat's renderMessageHtml shape EXACTLY
   // (same .avatar div, .message-stack, .bubble with data-message-index +
   // data-message-source, message-time after bubble). This is what the
   // existing CSS expects; deviating produces "bubble that isn't a bubble".
@@ -171,7 +183,11 @@
     // Name color tracks the resolved avatar color, so a member's set accent
     // color shows here too; falls back to the id hash when none is set.
     const senderTitleHtml = senderLabel
-      ? `<span class="bubble-sender" style="color:${escapeHtml(avatarColor)};">${escapeHtml(senderLabel)}</span>`
+      ? `<span class="bubble-sender" style="color:${escapeHtml(avatarColor)};">${renderNameWithBadgeHtml({
+          identity: spec?.authorIdentity,
+          fallbackName: senderLabel,
+          statusBadge: spec?.statusBadge
+        })}</span>`
       : "";
     article.innerHTML = `
       ${avatarHtml}
@@ -207,7 +223,7 @@
   }
 
   // ── group send ────────────────────────────────────────────────────────────
-  // Message sending is intentionally owned by social.js so cloud DM, fellow,
+  // Message sending is intentionally owned by social.js so cloud DM, bot,
   // and group conversations share one optimistic-send/reconcile pipeline.
 
   async function sendInActiveGroupConversation(text) {
@@ -219,7 +235,7 @@
 
   // ── openCreateGroupDialog ─────────────────────────────────────────────────
   // Reuses the existing #groupCreateDialog DOM (rail #1's UI). Members are a
-  // single mixed list of friends + own fellows — the frontend treats them as
+  // single mixed list of friends + own bots — the frontend treats them as
   // unified "contacts"; the kind tag is only needed when posting to /api/conversations.
 
   function openCreateGroupDialog() {
@@ -240,7 +256,7 @@
     const MAX_MEMBERS = 5;
     const selected = new Map(); // key `${kind}:${id}` → { kind, id, name }
 
-    // Cloud conversations have no "host fellow" concept — hide that section while open.
+    // Cloud conversations have no "host bot" concept — hide that section while open.
     const prevHostDisplay = hostSection ? hostSection.style.display : "";
     if (hostSection) hostSection.style.display = "none";
 
@@ -290,14 +306,14 @@
       return row;
     }
 
-    // Build mixed contact list: friends + own fellows in a single section.
-    // Fellows come from the canonical adapter ctx (cloud + local merged via
-    // miaFellowDirectory). Reading runtime.fellows directly dropped cloud
-    // fellows (e.g. mia, whose agent runs in the cloud) from the picker.
+    // Build mixed contact list: friends + own bots in a single section.
+    // Bots come from the canonical adapter ctx (cloud + local merged via
+    // miaBotDirectory). Reading runtime.bots directly dropped cloud
+    // bots (e.g. mia, whose agent runs in the cloud) from the picker.
     membersBox.innerHTML = "";
-    const { friends, fellows: ownedFellows } = _adapterCtx();
+    const { friends, bots: ownedBots } = _adapterCtx();
 
-    if (friends.length === 0 && ownedFellows.length === 0) {
+    if (friends.length === 0 && ownedBots.length === 0) {
       const empty = document.createElement("div");
       empty.className = "group-create-members-empty";
       empty.textContent = "还没有联系人";
@@ -322,24 +338,24 @@
         text: avatar.text
       }));
     }
-    for (const fellow of ownedFellows) {
-      const id = fellow.key || fellow.id;
-      const name = fellow.name || id;
+    for (const bot of ownedBots) {
+      const id = bot.key || bot.id;
+      const name = bot.name || id;
       const avatar = window.miaContact?.resolveContact?.(
-        { kind: window.miaContact.ContactKind.Fellow, ref: id },
-        { fellows: ownedFellows }
+        { kind: window.miaContact.IdentityKind?.Bot || "bot", ref: id },
+        { bots: ownedBots }
       )?.avatar || window.miaAvatarResolve.resolveAvatarForContact({
-        id: window.miaContact?.fellowAvatarIdentityId?.(id, fellow) || id,
+        id: window.miaContact?.botAvatarIdentityId?.(id, bot) || id,
         displayName: name,
-        avatarImage: fellow.avatarImage || "",
-        avatarCrop: fellow.avatarCrop || null,
-        color: fellow.color || fellow.avatarColor || fellow.avatar_color || ""
+        avatarImage: bot.avatarImage || "",
+        avatarCrop: bot.avatarCrop || null,
+        color: bot.color || bot.avatarColor || bot.avatar_color || ""
       });
       membersBox.appendChild(buildRow({
-        kind: "fellow",
+        kind: "bot",
         id,
         name,
-        runtimeKind: fellow.runtimeKind || fellow.runtime_kind || "cloud-hermes",
+        runtimeKind: bot.runtimeKind || bot.runtime_kind || "cloud-hermes",
         color: avatar.color,
         image: avatar.image,
         crop: avatar.crop,
@@ -371,16 +387,16 @@
       const entries = Array.from(selected.values());
       const name = (nameInput.value || "").trim() || entries.map((e) => e.name).join(" · ");
       const memberFriendUserIds = entries.filter((e) => e.kind === "friend").map((e) => e.id);
-      const fellowEntries = entries.filter((e) => e.kind === MemberKind.Fellow);
+      const botEntries = entries.filter((e) => e.kind === "bot");
 
       confirmBtn.disabled = true;
       try {
         // Phase 5 cutover: every group is a cloud conversation. Login required.
-        const memberFellows = fellowEntries.map((e) => ({
-          fellowId: e.id,
+        const memberBots = botEntries.map((e) => ({
+          botId: e.id,
           runtimeKind: e.runtimeKind || "cloud-hermes"
         }));
-        const res = await window.mia.social.createConversation({ name, memberFellows, memberFriendUserIds });
+        const res = await window.mia.social.createConversation({ name, memberBots, memberFriendUserIds });
         if (!res.ok) { alert("创建失败：" + (res.error || "")); confirmBtn.disabled = false; return; }
         const newConversation = res.data?.conversation || res.data;
         if (newConversation && newConversation.id) {

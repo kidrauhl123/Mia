@@ -3,7 +3,7 @@
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) root.miaSendPipeline = api;
 })(typeof window !== "undefined" ? window : (typeof globalThis !== "undefined" ? globalThis : null), function buildSendPipeline() {
-  const MemberKind = Object.freeze({ Fellow: "fellow", User: "user" });
+  const MemberKind = Object.freeze({ Bot: "bot", User: "user" });
   const DEFAULT_MAX_LENGTH = 8000;
   const MENTION_REGEX = /(\\@|@([A-Za-z0-9_.\-一-龥぀-ヿ]+))/g;
 
@@ -18,9 +18,12 @@
     const byNameLower = new Map();
     for (const m of list) {
       if (!m) continue;
-      const ref = m.ref || m.member_ref || m.fellowId || m.id || m.key || "";
       const name = m.name || m.displayName || m.username || "";
-      const kind = m.kind || m.member_kind || MemberKind.Fellow;
+      const kind = m.kind || m.member_kind || "";
+      if (kind !== MemberKind.Bot && kind !== MemberKind.User) continue;
+      const ref = kind === MemberKind.Bot
+        ? (m.ref || m.member_ref || m.botId || m.bot_id || m.id || "")
+        : (m.ref || m.member_ref || m.userId || m.user_id || m.id || "");
       if (ref && !byRef.has(ref)) byRef.set(ref, { kind, ref });
       if (name) {
         const lower = name.toLowerCase();

@@ -135,7 +135,7 @@ test("run messages execute Codex through the bridge Module and return normalized
   await Promise.resolve();
 
   assert.equal(calls.chat.length, 1);
-  assert.equal(calls.chat[0].fellow.engineConfig.permissionMode, "default");
+  assert.equal(calls.chat[0].bot.engineConfig.permissionMode, "default");
   assert.equal(calls.chat[0].sessionId, "cloud:c_1");
   assert.equal(calls.chat[0].messages[0].content, "生成猫图");
   assert.deepEqual(calls.chat[0].messages[0].attachments, [{ name: "brief.txt", path: "/tmp/brief.txt" }]);

@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { createCloudStore } = require("../src/cloud/sqlite-store.js");
+const { createBotsStore } = require("../src/cloud/bots-store.js");
 const { createSocialStore } = require("../src/cloud/social-store.js");
 
 function makeStores() {
@@ -224,6 +225,67 @@ test("addConversationMember + listConversationMembers", () => {
     assert.equal(members.length, 2);
     const refs = members.map((m) => m.member_ref).sort();
     assert.deepEqual(refs, [ctx.alice.id, ctx.bob.id].sort());
+  } finally { cleanup(ctx); }
+});
+
+test("listConversationMembers enriches bot members from attached bots store", () => {
+  const ctx = makeStores();
+  try {
+    const bots = createBotsStore(ctx.cloudStore.getDb());
+    bots.upsertBot(ctx.alice.id, {
+      id: "codex",
+      displayName: "Codex",
+      color: "#0f766e",
+      avatarImage: "/avatar/codex.png",
+      avatarCrop: { x: 1, y: 2, w: 40, h: 40 },
+      statusBadge: { kind: "lottie", assetId: "ready", label: "Ready" }
+    });
+    ctx.social._attachBotsStore(bots);
+    ctx.social.createConversation({ id: "r-bot", name: "Bot room", avatar: null, hostMember: null, decorations: null, contextCard: null });
+    ctx.social.addConversationMember({ conversationId: "r-bot", memberKind: "user", memberRef: ctx.alice.id, ownerId: null });
+    ctx.social.addConversationMember({ conversationId: "r-bot", memberKind: "bot", memberRef: "codex", ownerId: ctx.alice.id });
+
+    const botMember = ctx.social.listConversationMembers("r-bot").find((member) => member.member_kind === "bot");
+    assert.equal(botMember.bot_name, "Codex");
+    assert.equal(botMember.bot_avatar_image, "/avatar/codex.png");
+    assert.deepEqual(botMember.bot_avatar_crop, { x: 1, y: 2, w: 40, h: 40 });
+    assert.equal(botMember.bot_color, "#0f766e");
+    assert.deepEqual(botMember.identity, {
+      kind: "bot",
+      id: "codex",
+      ownerUserId: ctx.alice.id,
+      displayName: "Codex",
+      avatar: {
+        image: "/avatar/codex.png",
+        crop: { x: 1, y: 2, w: 40, h: 40 },
+        color: "#0f766e",
+        text: "Codex"
+      },
+      statusBadge: { kind: "lottie", assetId: "ready", label: "Ready" }
+    });
+  } finally { cleanup(ctx); }
+});
+
+test("listConversationMembers falls back to member owner_id when bot identity has no owner", () => {
+  const ctx = makeStores();
+  try {
+    ctx.social._attachBotsStore({
+      getBot(botId) {
+        assert.equal(botId, "codex");
+        return {
+          kind: "bot",
+          id: "codex",
+          displayName: "Codex",
+          avatar: { image: "", crop: null, color: "", text: "Codex" },
+          statusBadge: null
+        };
+      }
+    });
+    ctx.social.createConversation({ id: "r-bot-owner-fallback", name: "Bot room", avatar: null, hostMember: null, decorations: null, contextCard: null });
+    ctx.social.addConversationMember({ conversationId: "r-bot-owner-fallback", memberKind: "bot", memberRef: "codex", ownerId: ctx.alice.id });
+
+    const botMember = ctx.social.listConversationMembers("r-bot-owner-fallback")[0];
+    assert.equal(botMember.identity.ownerUserId, ctx.alice.id);
   } finally { cleanup(ctx); }
 });
 

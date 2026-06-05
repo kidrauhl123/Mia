@@ -398,10 +398,10 @@ function runAudit({ rootDir = root } = {}) {
   const requirements = [
     item("cloud.unified-account-data", "统一账号数据按 userId 隔离", [
       checkFile(rootDir, "src/cloud/sqlite-store.js"),
-      checkSource(rootDir, "src/cloud/sqlite-store.js", /users[\s\S]*sessions[\s\S]*files[\s\S]*bridge_devices[\s\S]*bridge_runs[\s\S]*conversations[\s\S]*messages[\s\S]*fellows[\s\S]*user_settings/, "SQLite tables cover users/sessions/files/devices/runs/conversations/messages/fellows/user_settings"),
+      checkSource(rootDir, "src/cloud/sqlite-store.js", /users[\s\S]*sessions[\s\S]*files[\s\S]*bridge_devices[\s\S]*bridge_runs[\s\S]*conversations[\s\S]*messages[\s\S]*bots[\s\S]*user_settings/, "SQLite tables cover users/sessions/files/devices/runs/conversations/messages/bots/user_settings"),
       checkSource(rootDir, "src/cloud/sqlite-store.js", /WHERE user_id = \?/g, "queries scope data by user_id"),
       checkFile(rootDir, "tests/cloud-sqlite-store.test.js"),
-      checkSource(rootDir, "tests/fellows-store.test.js", /listFellows scopes to owner/, "cross-account fellow scoping regression")
+      checkSource(rootDir, "tests/bots-store.test.js", /listBots scopes to owner/, "cross-account bot scoping regression")
     ]),
     item("cloud.durable-sqlite", "SQLite 持久化、迁移和 legacy JSON bootstrap", [
       checkSource(rootDir, "src/cloud/sqlite-store.js", /DatabaseSync.*node:sqlite|node:sqlite[\s\S]*DatabaseSync/, "uses node:sqlite DatabaseSync"),
@@ -436,14 +436,14 @@ function runAudit({ rootDir = root } = {}) {
     ]),
     item("cloud.desktop-sync", "桌面端同账号云同步和 Bridge 自动接入", [
       checkSource(rootDir, "src/main.js", /cloudLogin|syncMiaCloudWorkspace|startCloudBridge/, "desktop login/sync/bridge IPC path"),
-      checkSource(rootDir, "src/main/cloud/desktop-sync-client.js", /pushAllFellows[\s\S]*ensureFellowConversation/, "desktop sync ensures stable fellow cloud conversations"),
-      checkSource(rootDir, "tests/main-cloud-desktop-sync-client.test.js", /syncWorkspace syncs fellow identity and stable conversations without reading local sessions/, "desktop sync no longer backfills local sessions on login"),
+      checkSource(rootDir, "src/main/cloud/desktop-sync-client.js", /pushAllBots[\s\S]*ensureBotConversation/, "desktop sync ensures stable bot cloud conversations"),
+      checkSource(rootDir, "tests/main-cloud-desktop-sync-client.test.js", /syncWorkspace syncs bot identity and stable conversations without reading local sessions/, "desktop sync no longer backfills local sessions on login"),
       checkSource(rootDir, "src/preload.js", /cloudStatus[\s\S]*cloudLogin[\s\S]*cloudSync|cloudLogin[\s\S]*cloudSync[\s\S]*cloudLogout/, "preload exposes cloud account actions"),
       checkSource(rootDir, "src/renderer/app.js", /sendInActiveConversation\(conversationText\b[\s\S]*?return;/, "renderer sends active cloud conversations through the unified social path"),
       checkSourceAbsent(rootDir, "src/renderer/app.js", /pushCloudMessageQuietly|cloudPushMessage/, "renderer does not mirror local sends through legacy cloud push"),
       checkSourceAbsent(rootDir, "src/preload.js", /cloudPushMessage/, "preload omits legacy cloud push bridge"),
       checkSourceAbsent(rootDir, "src/shared/ipc-channels.js", /CloudPushMessage/, "shared IPC omits legacy cloud push channel"),
-      checkSource(rootDir, "tests/fellow-conversations.test.js", /Fellow-conversation messages POST works through the unified/, "fellow chat conversation integration test")
+      checkSource(rootDir, "tests/bot-conversations.test.js", /Bot-conversation messages POST works through the unified/, "bot chat conversation integration test")
     ]),
     item("gate.same-account-bridge-control", "同账号 Web/手机端可直接调用桌面 Agent，设备鉴权不复用 Agent permission", [
       checkSource(rootDir, "src/main/cloud/cloud-bridge-client.js", /async function runCloudBridgeRequest[\s\S]*permissionMode: "default"/, "desktop bridge keeps Agent permissionMode on the Agent run"),

@@ -69,6 +69,15 @@ async function register(port, username) {
   return { user: login.body.user, token: login.body.token };
 }
 
+async function createBot(port, account, botId, displayName = botId) {
+  const response = await api(port, "PUT", "/api/me/bots/" + encodeURIComponent(botId), {
+    token: account.token,
+    body: { displayName }
+  });
+  if (response.status !== 200) throw new Error("create bot failed: " + JSON.stringify(response));
+  return response.body.bot;
+}
+
 async function friendUp(port, a, b) {
   const created = await api(port, "POST", "/api/social/friend-requests", {
     token: a.token,
@@ -484,7 +493,7 @@ test("GET /api/conversations/:id returns user member public identity without pro
   } finally { await stopServer(ctx); }
 });
 
-test("GET /api/conversations/:id returns fellow owner without profile avatar payloads", async () => {
+test("GET /api/conversations/:id returns bot owner without profile avatar payloads", async () => {
   const ctx = await startServer();
   try {
     const alice = await register(ctx.port, "alice");
@@ -499,56 +508,60 @@ test("GET /api/conversations/:id returns fellow owner without profile avatar pay
     });
     assert.equal(profile.status, 200);
 
-    const ensured = await api(ctx.port, "PUT", "/api/me/fellows/bot/conversation", {
+    await api(ctx.port, "PUT", "/api/me/bots/bot_mia", {
       token: alice.token,
-      body: { title: "Bot", runtimeKind: "desktop-local" }
+      body: { displayName: "Bot" }
+    });
+    const ensured = await api(ctx.port, "PUT", "/api/me/bot-conversations/session_owner", {
+      token: alice.token,
+      body: { botId: "bot_mia", title: "Bot", runtimeKind: "desktop-local" }
     });
     assert.equal(ensured.status, 200);
 
     const detail = await api(ctx.port, "GET", "/api/conversations/" + ensured.body.conversation.id, { token: alice.token });
     assert.equal(detail.status, 200);
-    const fellowMember = detail.body.members.find((member) => member.member_kind === "fellow");
-    assert.equal(fellowMember.owner.id, alice.user.id);
-    assert.equal(fellowMember.owner.username, alice.user.username);
-    assert.equal(Object.prototype.hasOwnProperty.call(fellowMember.owner, "avatarImage"), false);
-    assert.equal(Object.prototype.hasOwnProperty.call(fellowMember.owner, "avatarCrop"), false);
-    assert.equal(Object.prototype.hasOwnProperty.call(fellowMember.owner, "avatarColor"), false);
-    assert.equal(fellowMember.identity.kind, "fellow");
-    assert.equal(fellowMember.identity.id, "bot");
-    assert.equal(fellowMember.identity.ownerId, alice.user.id);
-    assert.equal(fellowMember.identity.displayName, "Bot");
-    assert.equal(fellowMember.identity.avatar.image, "");
-    assert.equal(fellowMember.identity.avatar.text, "Bo");
+    const botMember = detail.body.members.find((member) => member.member_kind === "bot");
+    assert.equal(botMember.owner.id, alice.user.id);
+    assert.equal(botMember.owner.username, alice.user.username);
+    assert.equal(Object.prototype.hasOwnProperty.call(botMember.owner, "avatarImage"), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(botMember.owner, "avatarCrop"), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(botMember.owner, "avatarColor"), false);
+    assert.equal(botMember.identity.kind, "bot");
+    assert.equal(botMember.identity.id, "bot_mia");
+    assert.equal(botMember.identity.ownerUserId, alice.user.id);
+    assert.equal(botMember.identity.displayName, "Bot");
+    assert.equal(botMember.identity.avatar.image, "");
+    assert.equal(botMember.identity.avatar.text, "Bo");
   } finally { await stopServer(ctx); }
 });
 
-test("GET /api/conversations/:id normalizes legacy fellow preset avatars in member identity", async () => {
+test("GET /api/conversations/:id normalizes bot preset avatars in member identity", async () => {
   const ctx = await startServer();
   try {
     const alice = await register(ctx.port, "alice");
-    const put = await api(ctx.port, "PUT", "/api/me/fellows/kongling", {
+    const put = await api(ctx.port, "PUT", "/api/me/bots/bot_kongling", {
       token: alice.token,
       body: {
-        name: "空铃",
+        displayName: "空铃",
         avatarImage: "./assets/avatars/12.png",
         avatarCrop: { x: 47, y: 17, zoom: 1.8 }
       }
     });
     assert.equal(put.status, 200);
-    const ensured = await api(ctx.port, "PUT", "/api/me/fellows/kongling/conversation", {
+    const ensured = await api(ctx.port, "PUT", "/api/me/bot-conversations/session_kongling", {
       token: alice.token,
-      body: { title: "空铃", runtimeKind: "desktop-local" }
+      body: { botId: "bot_kongling", title: "空铃", runtimeKind: "desktop-local" }
     });
     assert.equal(ensured.status, 200);
 
     const detail = await api(ctx.port, "GET", "/api/conversations/" + ensured.body.conversation.id, { token: alice.token });
     assert.equal(detail.status, 200);
-    const fellowMember = detail.body.members.find((member) => member.member_kind === "fellow");
-    assert.equal(fellowMember.identity.displayName, "空铃");
-    assert.equal(fellowMember.identity.avatar.image, "");
-    assert.equal(fellowMember.identity.avatar.crop, null);
-    assert.equal(fellowMember.identity.avatar.text, "空铃");
-    assert.notEqual(fellowMember.identity.avatar.color, "");
+    const botMember = detail.body.members.find((member) => member.member_kind === "bot");
+    assert.equal(botMember.identity.displayName, "空铃");
+    assert.equal(botMember.identity.avatar.image, "");
+    assert.equal(botMember.identity.avatar.crop, null);
+    assert.equal(botMember.identity.avatar.text, "空铃");
+    assert.notEqual(botMember.identity.avatar.color, "");
   } finally { await stopServer(ctx); }
 });
 
@@ -685,17 +698,18 @@ test("end-to-end: two users meet, friend up, exchange DM messages with seq", asy
   } finally { await stopServer(ctx); }
 });
 
-// ── Phase 4.1: Group conversations + fellow members + cross-user invocation ──
+// ── Group conversations + bot members + cross-user invocation ──
 
 async function setupGroupScenario(port) {
   const alice = await register(port, "alice");
   const bob = await register(port, "bob");
   const created = await api(port, "POST", "/api/social/friend-requests", { token: alice.token, body: { toUsername: "bob" } });
   await api(port, "POST", "/api/social/friend-requests/" + created.body.request.id + "/respond", { token: bob.token, body: { action: "accept" } });
+  await createBot(port, alice, "bot_codex", "Codex");
   return { alice, bob };
 }
 
-test("POST /api/conversations creates group with creator + fellow + friend members", async () => {
+test("POST /api/conversations creates group with creator + bot + friend members", async () => {
   const ctx = await startServer();
   try {
     const { alice, bob } = await setupGroupScenario(ctx.port);
@@ -703,7 +717,7 @@ test("POST /api/conversations creates group with creator + fellow + friend membe
       token: alice.token,
       body: {
         name: "Test Squad",
-        memberFellows: [{ fellowId: "codex", runtimeKind: "cloud-hermes" }],
+        memberBots: [{ botId: "bot_codex", runtimeKind: "cloud-hermes" }],
         memberFriendUserIds: [bob.user.id]
       }
     });
@@ -711,14 +725,14 @@ test("POST /api/conversations creates group with creator + fellow + friend membe
     assert.ok(r.body.conversation.id.startsWith("g_"));
     assert.equal(r.body.conversation.name, "Test Squad");
     const members = r.body.members;
-    assert.equal(members.length, 3); // alice + codex + bob
+    assert.equal(members.length, 3); // alice + bot_codex + bob
     const userMembers = members.filter((m) => m.member_kind === "user").map((m) => m.member_ref).sort();
     assert.deepEqual(userMembers, [alice.user.id, bob.user.id].sort());
-    const fellowMembers = members.filter((m) => m.member_kind === "fellow");
-    assert.equal(fellowMembers.length, 1);
-    assert.equal(fellowMembers[0].member_ref, "codex");
-    assert.equal(fellowMembers[0].owner_id, alice.user.id);
-    assert.deepEqual(JSON.parse(fellowMembers[0].ai_perms_json), { runtimeKind: "cloud-hermes" });
+    const botMembers = members.filter((m) => m.member_kind === "bot");
+    assert.equal(botMembers.length, 1);
+    assert.equal(botMembers[0].member_ref, "bot_codex");
+    assert.equal(botMembers[0].owner_id, alice.user.id);
+    assert.deepEqual(JSON.parse(botMembers[0].ai_perms_json), { runtimeKind: "cloud-hermes" });
   } finally { await stopServer(ctx); }
 });
 
@@ -729,7 +743,7 @@ test("POST /api/conversations refuses non-friend in memberFriendUserIds", async 
     const stranger = await register(ctx.port, "stranger");
     const r = await api(ctx.port, "POST", "/api/conversations", {
       token: alice.token,
-      body: { name: "x", memberFellows: [], memberFriendUserIds: [stranger.user.id] }
+        body: { name: "x", memberBots: [], memberFriendUserIds: [stranger.user.id] }
     });
     assert.equal(r.status, 403);
   } finally { await stopServer(ctx); }
@@ -746,7 +760,7 @@ test("POST /api/conversations/:id/members adds friend after group exists", async
     // create group with bob
     const grp = await api(ctx.port, "POST", "/api/conversations", {
       token: alice.token,
-      body: { name: "G", memberFellows: [], memberFriendUserIds: [bob.user.id] }
+      body: { name: "G", memberBots: [], memberFriendUserIds: [bob.user.id] }
     });
     // add charlie later
     const add = await api(ctx.port, "POST", "/api/conversations/" + grp.body.conversation.id + "/members", {
@@ -759,35 +773,67 @@ test("POST /api/conversations/:id/members adds friend after group exists", async
   } finally { await stopServer(ctx); }
 });
 
-test("POST /api/conversations/:id/members rejects pulling someone else's fellow", async () => {
+test("POST /api/conversations/:id/members rejects pulling someone else's bot", async () => {
   const ctx = await startServer();
   try {
     const { alice, bob } = await setupGroupScenario(ctx.port);
     const grp = await api(ctx.port, "POST", "/api/conversations", {
       token: alice.token,
-      body: { name: "G", memberFellows: [], memberFriendUserIds: [bob.user.id] }
+      body: { name: "G", memberBots: [], memberFriendUserIds: [bob.user.id] }
     });
-    // bob tries to pull alice's fellow (owner_id=alice.user.id) — should fail
+    // bob tries to pull alice's bot (owner_id=alice.user.id) — should fail
     const add = await api(ctx.port, "POST", "/api/conversations/" + grp.body.conversation.id + "/members", {
       token: bob.token,
-      body: { memberKind: "fellow", memberRef: "codex", ownerId: alice.user.id }
+      body: { memberKind: "bot", memberRef: "bot_codex", ownerId: alice.user.id }
     });
     assert.equal(add.status, 403);
   } finally { await stopServer(ctx); }
 });
 
-test("POST /messages/as-fellow allows owner to post on behalf of own fellow", async () => {
+test("bot member routes reject spoofing another user's bot id", async () => {
+  const ctx = await startServer();
+  try {
+    const { alice, bob } = await setupGroupScenario(ctx.port);
+    await createBot(ctx.port, alice, "bot_alice", "Alice Bot");
+
+    const create = await api(ctx.port, "POST", "/api/conversations", {
+      token: bob.token,
+      body: { name: "Spoof Create", memberBots: [{ botId: "bot_alice" }], memberFriendUserIds: [alice.user.id] }
+    });
+    assert.equal(create.status, 403);
+
+    const group = await api(ctx.port, "POST", "/api/conversations", {
+      token: bob.token,
+      body: { name: "Bob Group", memberBots: [], memberFriendUserIds: [alice.user.id] }
+    });
+    assert.equal(group.status, 201);
+
+    const add = await api(ctx.port, "POST", "/api/conversations/" + group.body.conversation.id + "/members", {
+      token: bob.token,
+      body: { memberKind: "bot", memberRef: "bot_alice", ownerId: bob.user.id }
+    });
+    assert.equal(add.status, 403);
+
+    const post = await api(ctx.port, "POST", "/api/conversations/" + group.body.conversation.id + "/messages/as-bot", {
+      token: bob.token,
+      body: { botId: "bot_alice", bodyMd: "spoof" }
+    });
+    assert.equal(post.status, 403);
+  } finally { await stopServer(ctx); }
+});
+
+test("POST /messages/as-bot allows owner to post on behalf of own bot", async () => {
   const ctx = await startServer();
   try {
     const { alice, bob } = await setupGroupScenario(ctx.port);
     const grp = await api(ctx.port, "POST", "/api/conversations", {
       token: alice.token,
-      body: { name: "G", memberFellows: [{ fellowId: "codex" }], memberFriendUserIds: [bob.user.id] }
+      body: { name: "G", memberBots: [{ botId: "bot_codex" }], memberFriendUserIds: [bob.user.id] }
     });
-    const r = await api(ctx.port, "POST", "/api/conversations/" + grp.body.conversation.id + "/messages/as-fellow", {
+    const r = await api(ctx.port, "POST", "/api/conversations/" + grp.body.conversation.id + "/messages/as-bot", {
       token: alice.token,
       body: {
-        fellowId: "codex",
+        botId: "bot_codex",
         bodyMd: "Hello from Codex",
         trace: {
           reasoning: "检查上下文",
@@ -796,8 +842,8 @@ test("POST /messages/as-fellow allows owner to post on behalf of own fellow", as
       }
     });
     assert.equal(r.status, 201);
-    assert.equal(r.body.message.sender_kind, "fellow");
-    assert.equal(r.body.message.sender_ref, "codex");
+    assert.equal(r.body.message.sender_kind, "bot");
+    assert.equal(r.body.message.sender_ref, "bot_codex");
     assert.equal(r.body.message.sender_owner_id, alice.user.id);
     assert.equal(r.body.message.body_md, "Hello from Codex");
     assert.deepEqual(JSON.parse(r.body.message.trace_json), {
@@ -807,39 +853,39 @@ test("POST /messages/as-fellow allows owner to post on behalf of own fellow", as
   } finally { await stopServer(ctx); }
 });
 
-test("POST /messages/as-fellow rejects non-owner", async () => {
+test("POST /messages/as-bot rejects non-owner", async () => {
   const ctx = await startServer();
   try {
     const { alice, bob } = await setupGroupScenario(ctx.port);
     const grp = await api(ctx.port, "POST", "/api/conversations", {
       token: alice.token,
-      body: { name: "G", memberFellows: [{ fellowId: "codex" }], memberFriendUserIds: [bob.user.id] }
+      body: { name: "G", memberBots: [{ botId: "bot_codex" }], memberFriendUserIds: [bob.user.id] }
     });
-    // bob tries to post as alice's codex
-    const r = await api(ctx.port, "POST", "/api/conversations/" + grp.body.conversation.id + "/messages/as-fellow", {
+    // bob tries to post as alice's bot_codex
+    const r = await api(ctx.port, "POST", "/api/conversations/" + grp.body.conversation.id + "/messages/as-bot", {
       token: bob.token,
-      body: { fellowId: "codex", bodyMd: "fake" }
+      body: { botId: "bot_codex", bodyMd: "fake" }
     });
     assert.equal(r.status, 403);
   } finally { await stopServer(ctx); }
 });
 
-test("fellow mention in group message triggers conversation.fellow_invocation_requested to owner", async () => {
+test("bot mention in group message triggers conversation.bot_invocation_requested to owner", async () => {
   const ctx = await startServer();
   try {
     const { alice, bob } = await setupGroupScenario(ctx.port);
     const grp = await api(ctx.port, "POST", "/api/conversations", {
       token: alice.token,
-      body: { name: "G", memberFellows: [{ fellowId: "codex" }], memberFriendUserIds: [bob.user.id] }
+      body: { name: "G", memberBots: [{ botId: "bot_codex" }], memberFriendUserIds: [bob.user.id] }
     });
     const aliceWs = await openEventsWs(ctx.port, alice.token);
     try {
       await api(ctx.port, "POST", "/api/conversations/" + grp.body.conversation.id + "/messages", {
         token: bob.token,
-        body: { bodyMd: "@codex help me", mentions: [{ kind: "fellow", fellowId: "codex" }] }
+        body: { bodyMd: "@bot_codex help me", mentions: [{ kind: "bot", botId: "bot_codex" }] }
       });
-      const inv = await waitForEvent(aliceWs.events, (e) => e.type === "conversation.fellow_invocation_requested");
-      assert.equal(inv.fellowId, "codex");
+      const inv = await waitForEvent(aliceWs.events, (e) => e.type === "conversation.bot_invocation_requested");
+      assert.equal(inv.botId, "bot_codex");
       assert.equal(inv.invokedBy.id, bob.user.id);
       assert.ok(Array.isArray(inv.recentMessages));
       assert.ok(inv.triggeringMessage.body_md.includes("help me"));

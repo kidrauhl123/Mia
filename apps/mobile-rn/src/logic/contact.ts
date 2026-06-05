@@ -1,7 +1,13 @@
-export { ContactKind, avatarForRecord, avatarForFellowRecord, fellowAvatarIdentityId, resolveContact } from "@mia/shared/contact";
+export {
+  IdentityKind as ContactKind,
+  avatarForRecord,
+  avatarForBotRecord,
+  botAvatarIdentityId,
+  resolveContact,
+} from "@mia/shared/contact";
 export type {
-  ContactKindT,
-  FellowRecord,
+  IdentityKindT as ContactKindT,
+  BotRecord,
   FriendRecord,
   ResolveCtx,
   ResolvedContact,

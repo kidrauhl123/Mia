@@ -1,8 +1,8 @@
 import { normalizeServerRow, mergeMessage } from "../src/logic/normalizeMessage";
 import type { ChatMessage } from "../src/api/types";
 
-test("fellow 消息 → assistant,不 own", () => {
-  const m = normalizeServerRow({ id: "m1", sender_kind: "fellow", sender_ref: "claude", body_md: "hi" }, "u1");
+test("bot 消息 → assistant,不 own", () => {
+  const m = normalizeServerRow({ id: "m1", sender_kind: "bot", sender_ref: "claude", body_md: "hi" }, "u1");
   expect(m.role).toBe("assistant");
   expect(m.isOwn).toBe(false);
 });
@@ -15,7 +15,7 @@ test("自己的 user 消息 → own", () => {
 
 test("trace_json 解析", () => {
   const m = normalizeServerRow(
-    { id: "m3", sender_kind: "fellow", trace_json: JSON.stringify({ reasoning: "think" }) },
+    { id: "m3", sender_kind: "bot", trace_json: JSON.stringify({ reasoning: "think" }) },
     "u1"
   );
   expect(m.trace?.reasoning).toBe("think");
@@ -33,7 +33,7 @@ test("mergeMessage: clientTraceId 替换 pending", () => {
 });
 
 test("mergeMessage: messageId 去重不重复追加", () => {
-  const a = normalizeServerRow({ id: "s9", sender_kind: "fellow", body_md: "a" }, "u1");
+  const a = normalizeServerRow({ id: "s9", sender_kind: "bot", body_md: "a" }, "u1");
   let list = mergeMessage([], a);
   list = mergeMessage(list, a);
   expect(list.length).toBe(1);

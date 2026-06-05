@@ -69,15 +69,16 @@ test("engine contract owns external model and mode options for browser clients",
 test("session history contract is shared by desktop and web clients", () => {
   const nodeContract = require("../packages/shared/session-history");
   const browserContract = loadBrowserGlobal("packages/shared/session-history.js", "miaSessionHistory");
+  const botIdentity = require("../packages/shared/bot-identity");
 
-  assert.equal(nodeContract.conversationType({ id: "fellow:u:mia" }), "fellow");
+  assert.equal(nodeContract.conversationType({ id: "botc_u_mia" }), "bot");
   assert.equal(browserContract.runtimeKind({ decorations: { runtimeKind: "cloud-hermes" } }), "cloud-hermes");
-  assert.equal(browserContract.canCreateSession({ type: "fellow", decorations: { fellowKey: "mia" } }), true);
-  assert.equal(browserContract.fellowConversationId("u", "mia"), "fellow:u:mia");
+  assert.equal(browserContract.canCreateSession({ type: "bot", decorations: { botId: "mia" } }), true);
+  assert.equal(botIdentity.botConversationId("u_mia"), "botc_u_mia");
 });
 
-test("fellow runtime control contract saves model, effort, and permission patches", async () => {
-  const contract = require("../src/shared/fellow-runtime-control");
+test("bot runtime control contract saves model, effort, and permission patches", async () => {
+  const contract = require("../src/shared/bot-runtime-control");
   const calls = [];
   const cache = new Map();
   const api = async (url, options = {}) => {
@@ -85,7 +86,7 @@ test("fellow runtime control contract saves model, effort, and permission patche
     if (!options.method) {
       return {
         binding: {
-          fellowId: "mia",
+          botId: "mia",
           runtimeKind: "cloud-hermes",
           enabled: true,
           config: { model: "old-model", effortLevel: "low" }
@@ -94,7 +95,7 @@ test("fellow runtime control contract saves model, effort, and permission patche
     }
     return {
       binding: {
-        fellowId: "mia",
+        botId: "mia",
         runtimeKind: options.body.runtimeKind,
         enabled: options.body.enabled,
         config: options.body.config
@@ -102,34 +103,34 @@ test("fellow runtime control contract saves model, effort, and permission patche
     };
   };
 
-  await contract.saveFellowRuntimeControl({
+  await contract.saveBotRuntimeControl({
     api,
     cache,
-    fellowKey: "mia",
+    botKey: "mia",
     runtimeKind: "cloud-hermes",
     field: "model",
     value: "mia-default",
     modelEntries: [{ value: "mia-default", model: "gpt-5.3", label: "GPT" }]
   });
-  await contract.saveFellowRuntimeControl({
+  await contract.saveBotRuntimeControl({
     api,
     cache,
-    fellowKey: "mia",
+    botKey: "mia",
     runtimeKind: "cloud-hermes",
     field: "effort",
     value: "high"
   });
-  await contract.saveFellowRuntimeControl({
+  await contract.saveBotRuntimeControl({
     api,
     cache,
-    fellowKey: "mia",
+    botKey: "mia",
     runtimeKind: "cloud-hermes",
     field: "permission",
     value: "auto"
   });
 
   const putCalls = calls.filter((call) => call.options.method === "PUT");
-  assert.equal(calls[0].url, "/api/me/fellows/mia/runtime?kind=cloud-hermes");
+  assert.equal(calls[0].url, "/api/me/bots/mia/runtime?kind=cloud-hermes");
   assert.equal(putCalls.length, 3);
   assert.deepEqual(putCalls[0].options.body.config, { model: "gpt-5.3", effortLevel: "low" });
   assert.deepEqual(putCalls[1].options.body.config, { model: "gpt-5.3", effortLevel: "high" });
@@ -139,6 +140,51 @@ test("fellow runtime control contract saves model, effort, and permission patche
     effortLevel: "high",
     permissionMode: "auto"
   });
+});
+
+test("bot runtime control accepts botId for runtime reads", async () => {
+  const contract = require("../src/shared/bot-runtime-control");
+  const calls = [];
+  const binding = await contract.getBotRuntimeBinding({
+    api: async (url, options = {}) => {
+      calls.push({ url, options });
+      return {
+        binding: {
+          botId: "mia",
+          runtimeKind: "cloud-hermes",
+          enabled: true,
+          config: { model: "mia-default" }
+        }
+      };
+    },
+    botId: "mia",
+    runtimeKind: "cloud-hermes"
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, "/api/me/bots/mia/runtime?kind=cloud-hermes");
+  assert.equal(binding.botId, "mia");
+});
+
+test("bot runtime control accepts botId for direct config saves", async () => {
+  const contract = require("../src/shared/bot-runtime-control");
+  const calls = [];
+  const result = await contract.saveBotRuntimeConfig({
+    api: async (url, options = {}) => {
+      calls.push({ url, options });
+      if (!options.method) return { binding: { botId: "mia", runtimeKind: "cloud-hermes", enabled: true, config: {} } };
+      return { binding: { botId: "mia", runtimeKind: options.body.runtimeKind, enabled: true, config: options.body.config } };
+    },
+    botId: "mia",
+    runtimeKind: "cloud-hermes",
+    patch: { model: "mia-default" }
+  });
+
+  assert.equal(result.saved, true);
+  assert.equal(calls[0].url, "/api/me/bots/mia/runtime?kind=cloud-hermes");
+  assert.equal(calls[1].url, "/api/me/bots/mia/runtime");
+  assert.equal(calls[1].options.method, "PUT");
+  assert.deepEqual(calls[1].options.body.config, { model: "mia-default" });
 });
 
 test("main chat engine registry reuses the shared engine contract", () => {

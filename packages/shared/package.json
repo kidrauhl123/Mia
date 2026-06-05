@@ -14,6 +14,10 @@
       "types": "./avatar.d.ts",
       "default": "./avatar.js"
     },
+    "./identity": {
+      "types": "./identity.d.ts",
+      "default": "./identity.js"
+    },
     "./contact": {
       "types": "./contact.d.ts",
       "default": "./contact.js"
@@ -42,9 +46,9 @@
       "types": "./cloud-client.d.ts",
       "default": "./cloud-client.js"
     },
-    "./fellow-identity": {
-      "types": "./fellow-identity.d.ts",
-      "default": "./fellow-identity.js"
+    "./bot-identity": {
+      "types": "./bot-identity.d.ts",
+      "default": "./bot-identity.js"
     },
     "./unread": {
       "types": "./unread.d.ts",

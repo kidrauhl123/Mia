@@ -1,7 +1,7 @@
 const MIA_RUNTIME_CONTEXT = [
   "## Mia Runtime Context",
   "",
-  "Mia 是聊天式多 Agent 应用。用户正在 Mia 里和当前 Fellow 对话，Fellow 的回复会回到这个 Mia 会话。",
+  "Mia 是聊天式多 Agent 应用。用户正在 Mia 里和当前 Bot 对话，Bot 的回复会回到这个 Mia 会话。",
   "",
   "Mia 定时任务规则：用户要求提醒、定时、倒计时、闹钟、每天/每周/每月周期任务，或管理活跃任务时，必须优先使用 Mia scheduler MCP 工具：schedule_create、schedule_list、schedule_update、schedule_delete、schedule_pause、schedule_resume。",
   "",
@@ -9,7 +9,7 @@ const MIA_RUNTIME_CONTEXT = [
   "",
   "如果本轮没有可用的 schedule_* 工具，或工具调用失败，请直接告诉用户 Mia 定时任务工具当前不可用，并说明没有创建任务。"
 ].join("\n");
-const MIA_MEMORY_HEADER = "## Mia Fellow Memory";
+const MIA_MEMORY_HEADER = "## Mia Bot Memory";
 
 // Context used when a scheduled task fires. The fired turn is the task's stored
 // prompt replayed as a user message, so the agent should just run it — exactly
@@ -21,7 +21,7 @@ const MIA_MEMORY_HEADER = "## Mia Fellow Memory";
 const MIA_SCHEDULED_FIRE_CONTEXT = [
   "## Mia Runtime Context",
   "",
-  "Mia 是聊天式多 Agent 应用。用户正在 Mia 里和当前 Fellow 对话，Fellow 的回复会回到这个 Mia 会话。"
+  "Mia 是聊天式多 Agent 应用。用户正在 Mia 里和当前 Bot 对话，Bot 的回复会回到这个 Mia 会话。"
 ].join("\n");
 
 function miaRuntimeSystemPrompt(opts = {}) {
@@ -36,7 +36,9 @@ function withMiaRuntimeContext(persona = "", opts = {}) {
 }
 
 function sanitizeMiaMemorySpoof(value = "") {
-  return String(value || "").replace(/## Mia Fellow Memory/g, "Mia Fellow Memory");
+  return String(value || "")
+    .replace(/## Mia Bot Memory/g, "Mia Bot Memory")
+    .replace(/## Mia Bot Memory/g, "Mia Bot Memory");
 }
 
 function appendMiaMemoryBlock(base = "", memoryBlock = "") {

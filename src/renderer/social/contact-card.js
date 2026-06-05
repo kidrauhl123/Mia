@@ -2,8 +2,8 @@
 //
 // Two interactions on a group-message avatar:
 //   - Left click → open this card. AI cards show current 模型 / effort /
-//     权限 (pulled from the local fellow registry; opens the full
-//     fellow-dialog for editing). Human cards show username + 私聊 button.
+//     权限 (pulled from the local bot registry; opens the full
+//     bot-dialog for editing). Human cards show username + 私聊 button.
 //   - Right click → small action menu (e.g. @提到, 私聊).
 //
 // The card is a floating popover anchored to the clicked avatar; clicking
@@ -19,7 +19,7 @@
   let _popover = null;
   let _onOutside = null;
   let _onEsc = null;
-  const fellowRuntimeBindingCache = new Map();
+  const botRuntimeBindingCache = new Map();
 
   function attach(internalCtx) { _ctx = internalCtx; }
 
@@ -75,57 +75,49 @@
     return global.miaSessionHistory || null;
   }
 
-  function fellowGlobalIdFromConversation(conversationId, ref) {
-    const id = String(conversationId || "");
-    const key = String(ref || "");
-    if (!id.startsWith("fellow:") || !key) return "";
-    const helper = sessionHistory();
-    const fellowKey = helper?.fellowKey?.({ id }) || "";
-    return fellowKey === key ? id : "";
-  }
-
-  function fellowAvatarIdentityId(ref, fellow = {}, member = null, conversationId = "") {
+  function botAvatarIdentityId(ref, bot = {}, member = null, conversationId = "") {
     const identity = member?.identity || {};
     const me = selfUser();
-    const ownerUserId = fellow?.ownerUserId
-      || fellow?.owner_user_id
-      || fellow?.ownerId
-      || fellow?.owner_id
+    const ownerUserId = bot?.ownerUserId
+      || bot?.owner_user_id
+      || bot?.ownerId
+      || bot?.owner_id
       || member?.owner_user_id
       || member?.owner_id
       || identity.ownerUserId
       || identity.owner_id
-      || (fellow ? me.id : "");
-    const globalId = fellow?.globalId
-      || fellow?.global_id
+      || (bot ? me.id : "");
+    const globalId = bot?.globalId
+      || bot?.global_id
       || identity.globalId
-      || identity.global_id
-      || fellowGlobalIdFromConversation(conversationId, ref);
-    return contact()?.fellowAvatarIdentityId?.(ref, {
-      ...(fellow || {}),
+      || identity.global_id;
+    return globalId
+      || (ownerUserId && ref ? `botc_${ownerUserId}_${ref}` : "")
+      || contact()?.botAvatarIdentityId?.(ref, {
+      ...(bot || {}),
       ownerUserId,
       globalId
-    }) || globalId || (ownerUserId && ref ? sessionHistory()?.fellowConversationId?.(ownerUserId, ref) : "") || ref;
+    }) || ref;
   }
 
-  function localFellow(ref) {
+  function localBot(ref) {
     const runtime = _ctx?.deps?.getState?.()?.runtime || {};
-    const cloudFellows = Array.isArray(_ctx?.moduleState?.fellows) ? _ctx.moduleState.fellows : [];
-    const localFellows = [
-      ...(Array.isArray(runtime.fellows) ? runtime.fellows : []),
+    const cloudBots = Array.isArray(_ctx?.moduleState?.bots) ? _ctx.moduleState.bots : [];
+    const localBots = [
+      ...(Array.isArray(runtime.bots) ? runtime.bots : []),
       ...(Array.isArray(runtime.personas) ? runtime.personas : [])
     ];
-    const fellows = _ctx?.adapterCtx?.()?.fellows
-      || (global.miaFellowDirectory
-        ? global.miaFellowDirectory.listOwnedFellows({ cloudFellows, localFellows, runtime })
-        : [...cloudFellows, ...localFellows]);
+    const bots = _ctx?.adapterCtx?.()?.bots
+      || (global.miaBotDirectory
+        ? global.miaBotDirectory.listOwnedBots({ cloudBots: cloudBots, localBots: localBots, runtime })
+        : [...cloudBots, ...localBots]);
     const target = String(ref || "");
-    return fellows.find((f) => String(f.key || "") === target || String(f.id || "") === target) || null;
+    return bots.find((f) => String(f.key || "") === target || String(f.id || "") === target) || null;
   }
 
-  function findFellowConversationMember(conversationId, ref) {
+  function findBotConversationMember(conversationId, ref) {
     const members = _ctx?.conversationMembersCache?.get?.(conversationId) || [];
-    return members.find((m) => m.member_kind === MemberKind.Fellow && m.member_ref === ref) || null;
+    return members.find((m) => m.member_kind === MemberKind.Bot && m.member_ref === ref) || null;
   }
 
   function friend(ref) {
@@ -152,13 +144,13 @@
     };
   }
 
-  function runtimeCacheKey(fellowKey, runtimeKind) {
-    return global.miaFellowCommands?.runtimeCacheKey?.(fellowKey, runtimeKind)
-      || `${fellowKey}:${runtimeKind || "cloud-hermes"}`;
+  function runtimeCacheKey(botKey, runtimeKind) {
+    return global.miaBotCommands?.runtimeCacheKey?.(botKey, runtimeKind)
+      || `${botKey}:${runtimeKind || "cloud-hermes"}`;
   }
 
-  function bindingForFellow(fellowKey, runtimeKind) {
-    return fellowRuntimeBindingCache.get(runtimeCacheKey(fellowKey, runtimeKind)) || null;
+  function bindingForBot(botKey, runtimeKind) {
+    return botRuntimeBindingCache.get(runtimeCacheKey(botKey, runtimeKind)) || null;
   }
 
   function ensureOption(select, value, label) {
@@ -178,72 +170,72 @@
     const config = binding?.config || {};
     if (!card?.querySelector) return;
     if (config.model) {
-      const select = card.querySelector('[data-fellow-field="model"]');
+      const select = card.querySelector('[data-bot-field="model"]');
       ensureOption(select, config.model, config.model);
       const label = card.querySelector(".model-current-label");
       if (label) label.textContent = select?.selectedOptions?.[0]?.textContent || config.model;
     }
     if (config.effortLevel) {
-      const select = card.querySelector('[data-fellow-field="effortLevel"]');
+      const select = card.querySelector('[data-bot-field="effortLevel"]');
       ensureOption(select, config.effortLevel, config.effortLevel);
       const label = card.querySelector(".effort-label");
       if (label) label.textContent = select?.selectedOptions?.[0]?.textContent || config.effortLevel;
     }
     if (config.permissionMode) {
-      const select = card.querySelector('[data-fellow-field="permissionMode"]');
+      const select = card.querySelector('[data-bot-field="permissionMode"]');
       ensureOption(select, config.permissionMode, config.permissionMode);
       const label = card.querySelector(".permission-label");
       if (label) label.textContent = select?.selectedOptions?.[0]?.textContent || config.permissionMode;
     }
   }
 
-  function hydrateFellowRuntimeBinding(card, fellow, runtimeKind) {
-    const fellowKey = String(fellow?.key || fellow?.id || "").trim();
-    if (!fellowKey || runtimeKind !== "cloud-hermes") return;
-    if (typeof global.miaFellowCommands?.getFellowRuntimeBinding !== "function") return;
-    global.miaFellowCommands.getFellowRuntimeBinding({
+  function hydrateBotRuntimeBinding(card, bot, runtimeKind) {
+    const botKey = String(bot?.key || bot?.id || "").trim();
+    if (!botKey || runtimeKind !== "cloud-hermes") return;
+    if (typeof global.miaBotCommands?.getBotRuntimeBinding !== "function") return;
+    global.miaBotCommands.getBotRuntimeBinding({
       api: global.mia,
-      cache: fellowRuntimeBindingCache,
-      fellowKey,
+      cache: botRuntimeBindingCache,
+      botKey,
       runtimeKind
     }).then((binding) => {
       if (!binding) return;
-      fellowRuntimeBindingCache.set(runtimeCacheKey(fellowKey, runtimeKind), binding);
+      botRuntimeBindingCache.set(runtimeCacheKey(botKey, runtimeKind), binding);
       if (_popover === card) applyRuntimeBindingToCard(card, binding);
     }).catch((error) => {
-      console.warn?.("[contact-card] fellow runtime binding load failed:", error?.message || error);
+      console.warn?.("[contact-card] bot runtime binding load failed:", error?.message || error);
     });
   }
 
-  // Fellow card with live engineConfig selectors (model / effort / permission)
+  // Bot card with live engineConfig selectors (model / effort / permission)
   // that mirror the topbar composer-bottom controls in private chat.
-  function renderFellowCard(args) {
+  function renderBotCard(args) {
     const { ref, conversationId } = args;
-    const member = findFellowConversationMember(conversationId, ref);
+    const member = findBotConversationMember(conversationId, ref);
     const ownerId = member?.owner_id || "";
     const me = selfUser();
     // In a shared conversation, trust the member row's owner_id (never elevate just
-    // because a fellow key happens to collide with one of our local keys). Only
-    // when there's NO conversation member (private fellow chat) does a local fellow
+    // because a bot key happens to collide with one of our local keys). Only
+    // when there's NO conversation member (private bot chat) does a local bot
     // count as ours — there's no owner_id to read there.
-    const isMine = member ? (ownerId === me.id) : Boolean(localFellow(ref));
-    // Bind the local fellow ONLY when it's actually ours. A same-key fellow
+    const isMine = member ? (ownerId === me.id) : Boolean(localBot(ref));
+    // Bind the local bot ONLY when it's actually ours. A same-key bot
     // owned by another conversation member must fall through to the remote-only card —
     // otherwise its name/avatar/controls would mirror, and edits would persist
-    // to, my own local fellow settings.
-    const local = isMine ? localFellow(ref) : null;
+    // to, my own local bot settings.
+    const local = isMine ? localBot(ref) : null;
 
-    const name = local?.name || member?.identity?.displayName || member?.fellow_name || ref;
+    const name = local?.name || member?.identity?.displayName || member?.bot_name || ref;
     const identityAvatar = member?.identity?.avatar || {};
-    const avatarId = fellowAvatarIdentityId(ref, local || {}, member || null, conversationId);
+    const avatarId = botAvatarIdentityId(ref, local || {}, member || null, conversationId);
     const avatar = resolveCardAvatar({
       id: avatarId,
       displayName: name,
-      avatarImage: local ? local.avatarImage : (identityAvatar.image || member?.fellow_avatar_image || ""),
-      avatarCrop: local ? local.avatarCrop : (identityAvatar.crop || member?.fellow_avatar_crop || null),
+      avatarImage: local ? (local.avatarImage || local.avatar_image) : (identityAvatar.image || member?.bot_avatar_image || ""),
+      avatarCrop: local ? (local.avatarCrop || local.avatar_crop) : (identityAvatar.crop || member?.bot_avatar_crop || null),
       color: local
         ? (local.color || local.avatarColor || local.avatar_color || "")
-        : (identityAvatar.color || member?.fellow_color || member?.avatarColor || member?.avatar_color || "")
+        : (identityAvatar.color || member?.bot_color || member?.avatarColor || member?.avatar_color || "")
     });
 
     const card = document.createElement("div");
@@ -259,7 +251,7 @@
             <span class="contact-card-kind">远端</span>
           </div>
         </div>
-        <p class="contact-card-empty">这位 Fellow 不属于你，只能看到名字。</p>
+        <p class="contact-card-empty">这位 Bot 不属于你，只能看到名字。</p>
         <div class="contact-card-actions">
           <button type="button" data-card-action="close" class="button-primary">关闭</button>
         </div>
@@ -279,8 +271,8 @@
     const engine = local.agentEngine || local.agent_engine || "hermes";
     const isExternal = engine === "claude-code" || engine === "codex";
     const isCloudHermes = runtimeKind === "cloud-hermes";
-    const fellowKey = String(local.key || local.id || ref || "").trim();
-    const runtimeBinding = isCloudHermes ? bindingForFellow(fellowKey, runtimeKind) : null;
+    const botKey = String(local.key || local.id || ref || "").trim();
+    const runtimeBinding = isCloudHermes ? bindingForBot(botKey, runtimeKind) : null;
     const config = isCloudHermes
       ? { ...(local.engineConfig || local.engine_config || {}), ...(runtimeBinding?.config || {}) }
       : (local.engineConfig || local.engine_config || {});
@@ -368,7 +360,7 @@
               <span class="model-avatar" style="${modelLogoStyle}" aria-hidden="true">${modelLogoSrc ? "" : "◇"}</span>
               <span class="model-current-label">${escapeHtml(currentModelLabel)}</span>
               ${modelEntries.length
-                ? `<select data-fellow-field="model" aria-label="切换模型">${options(modelEntries, "id", "label", currentModelEntry?.id)}</select>`
+                ? `<select data-bot-field="model" aria-label="切换模型">${options(modelEntries, "id", "label", currentModelEntry?.id)}</select>`
                 : ""}
             </label>
           </dd>
@@ -379,7 +371,7 @@
             <label class="effort-switcher" title="切换推理强度">
               <span class="effort-label">${escapeHtml(currentEffortLabel)}</span>
               ${effortEntries.length
-                ? `<select data-fellow-field="effortLevel" aria-label="切换推理强度">${options(effortEntries, "value", "label", currentEffort)}</select>`
+                ? `<select data-bot-field="effortLevel" aria-label="切换推理强度">${options(effortEntries, "value", "label", currentEffort)}</select>`
                 : ""}
             </label>
           </dd>
@@ -390,14 +382,14 @@
             <label class="permission-switcher" title="权限模式">
               <span class="permission-label">${escapeHtml(currentPermissionLabel)}</span>
               ${permissionEntries.length
-                ? `<select data-fellow-field="permissionMode" aria-label="权限模式">${options(permissionEntries, "value", "label", currentPermission)}</select>`
+                ? `<select data-bot-field="permissionMode" aria-label="权限模式">${options(permissionEntries, "value", "label", currentPermission)}</select>`
                 : ""}
             </label>
           </dd>
         </div>
       </dl>
       <div class="contact-card-actions">
-        ${isMine ? `<button type="button" data-card-action="edit-fellow" class="button-soft">编辑人设</button>` : ""}
+        ${isMine ? `<button type="button" data-card-action="edit-bot" class="button-soft">编辑人设</button>` : ""}
         <button type="button" data-card-action="close" class="button-primary">关闭</button>
       </div>
     `;
@@ -405,9 +397,9 @@
 
     async function persistField(field, value) {
       try {
-        await global.miaFellowCommands?.saveFellowRuntimeControl?.({
+        await global.miaBotCommands?.saveBotRuntimeControl?.({
           api: global.mia,
-          fellow: local,
+          bot: local,
           runtimeKind,
           field,
           value,
@@ -419,21 +411,21 @@
     }
 
     card.addEventListener("change", (event) => {
-      const sel = event.target.closest("[data-fellow-field]");
+      const sel = event.target.closest("[data-bot-field]");
       if (!sel) return;
       const newLabel = sel.options[sel.selectedIndex]?.textContent || "";
       const labelSpan = sel.parentElement?.querySelector(".model-current-label, .effort-label, .permission-label");
       if (labelSpan) labelSpan.textContent = newLabel;
-      persistField(sel.dataset.fellowField, sel.value);
+      persistField(sel.dataset.botField, sel.value);
     });
-    if (isCloudHermes) hydrateFellowRuntimeBinding(card, local, runtimeKind);
+    if (isCloudHermes) hydrateBotRuntimeBinding(card, local, runtimeKind);
     card.addEventListener("click", (event) => {
       const btn = event.target.closest("[data-card-action]");
       if (!btn) return;
       event.stopPropagation();
-      if (btn.dataset.cardAction === "edit-fellow") {
+      if (btn.dataset.cardAction === "edit-bot") {
         closeCard();
-        global.miaFellowDialog?.openFellowDialog?.(local, local.personaText || "");
+        global.miaBotDialog?.openBotDialog?.(local, local.personaText || "");
       } else {
         closeCard();
       }
@@ -485,8 +477,8 @@
 
   function openCard({ kind, ref, conversationId, anchor }) {
     closeCard();
-    const card = kind === MemberKind.Fellow
-      ? renderFellowCard({ ref, conversationId })
+    const card = kind === MemberKind.Bot
+      ? renderBotCard({ ref, conversationId })
       : renderUserCard({ ref, conversationId });
     document.body.appendChild(card);
     _popover = card;
@@ -506,7 +498,7 @@
     menu.className = "skill-context-menu";
     const items = [];
     items.push(`<button type="button" data-card-menu="card">查看名片</button>`);
-    if (kind === MemberKind.Fellow) {
+    if (kind === MemberKind.Bot) {
       items.push(`<button type="button" data-card-menu="mention">在输入框 @ 提到</button>`);
     }
     menu.innerHTML = items.join("");

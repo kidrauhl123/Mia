@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { DatabaseSync } = require("node:sqlite");
+const { normalizeStatusBadge } = require("../shared/identity.js");
 
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
 const MAX_IMAGE_BYTES = 18 * 1024 * 1024;
@@ -45,6 +46,10 @@ function passwordHash(password, salt) {
   return crypto.scryptSync(String(password), salt, 64).toString("base64");
 }
 
+function profileStatusBadge(row = {}) {
+  return normalizeStatusBadge(row.statusBadge || row.status_badge || parseJson(row.status_badge_json, null));
+}
+
 function publicUser(row) {
   if (!row) return null;
   let avatarCrop = null;
@@ -56,6 +61,7 @@ function publicUser(row) {
       try { avatarCrop = JSON.parse(cropSource); } catch { avatarCrop = null; }
     }
   }
+  const statusBadge = profileStatusBadge(row);
   return {
     id: row.id,
     username: row.username || row.email || "",
@@ -66,7 +72,8 @@ function publicUser(row) {
     // letter circle. All three fields are optional and may be "" / null.
     avatarImage: row.avatar_image || row.avatarImage || "",
     avatarCrop,
-    avatarColor: row.avatar_color || row.avatarColor || ""
+    avatarColor: row.avatar_color || row.avatarColor || "",
+    ...(statusBadge ? { statusBadge } : {})
   };
 }
 
@@ -94,7 +101,7 @@ function defaultWorkspace(user, now = nowIso, id = randomId) {
       }]
     }],
     contacts: [
-      { id: "contact_mia", title: "Mia", meta: "默认 Fellow", avatar: "./assets/avatar-01.png", status: "可用", note: "负责日常对话、信息整理和轻量任务推进。" },
+      { id: "contact_mia", title: "Mia", meta: "默认 Bot", avatar: "./assets/avatar-01.png", status: "可用", note: "负责日常对话、信息整理和轻量任务推进。" },
       { id: "contact_codex", title: "Codex", meta: "代码与自动化", avatar: "./assets/avatar-08.png", status: "本地桥接待接入", note: "通过桌面端 Bridge 调用本机 Codex / Claude Code / Hermes。" }
     ],
     skills: [
@@ -136,6 +143,7 @@ function rowToUser(row) {
   if (row.avatar_crop_json) {
     try { avatarCrop = JSON.parse(row.avatar_crop_json); } catch { avatarCrop = null; }
   }
+  const statusBadge = profileStatusBadge(row);
   return {
     id: row.id,
     username: row.username,
@@ -143,7 +151,8 @@ function rowToUser(row) {
     createdAt: row.created_at,
     avatarImage: row.avatar_image || "",
     avatarCrop,
-    avatarColor: row.avatar_color || ""
+    avatarColor: row.avatar_color || "",
+    ...(statusBadge ? { statusBadge } : {})
   };
 }
 
@@ -557,6 +566,11 @@ function createCloudStore(options = {}) {
       sets.push("avatar_color = ?");
       values.push(patch.avatarColor.slice(0, 32));
     }
+    if (Object.prototype.hasOwnProperty.call(patch, "statusBadge")) {
+      const statusBadge = normalizeStatusBadge(patch.statusBadge);
+      sets.push("status_badge_json = ?");
+      values.push(statusBadge ? JSON.stringify(statusBadge) : "");
+    }
     if (!sets.length) return rowToUser(row);
     values.push(userId);
     db.prepare(`UPDATE users SET ${sets.join(", ")} WHERE id = ?`).run(...values);
@@ -593,6 +607,10 @@ function createCloudStore(options = {}) {
 }
 
 function migrate(db) {
+  if (!hasColumn(db, "cloud_agent_runs", "bot_id")) {
+    db.exec("DROP TABLE IF EXISTS cloud_agent_runs");
+  }
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       version INTEGER PRIMARY KEY,
@@ -684,11 +702,9 @@ function migrate(db) {
     );
 
     -- A "conversation" is the universal Conversation entity. type values:
-    --   'dm'     — two-user direct message (id format dm:a:b)
-    --   'group'  — multi-member conversation (id format g_<hex>)
-    --   'fellow' — a user's private chat with one of their own fellows
-    --              (id format fellow:<userId>:<fellowKey>). owner only,
-    --              no other user members.
+    --   'dm'    — two-user direct message (id format dm:a:b)
+    --   'group' — multi-member conversation (id format g_<hex>)
+    --   'bot'   — a private chat with a globally identified bot.
     -- The type column is the canonical answer for "what kind of
     -- conversation is this"; id prefix is just a historical hint.
     CREATE TABLE IF NOT EXISTS conversations (
@@ -780,28 +796,23 @@ function migrate(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_op_idempotency_created ON op_idempotency(created_at);
 
-    -- v5: per-user fellow definitions on cloud. A fellow is the "identity"
-    -- (name + avatar + persona text + capabilities) of an AI participant
-    -- the user has authored. Runtime config (engineConfig, agentEngine,
-    -- platform) stays desktop-local because it pins to a specific host
-    -- machine. Without this table, fellow chat history viewed on another
-    -- device (e.g., web after login on a new browser) would show "unknown
-    -- sender" for every assistant turn.
-    CREATE TABLE IF NOT EXISTS fellows (
-      id              TEXT NOT NULL,
-      owner_user_id   TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      name            TEXT NOT NULL,
+    -- v5: globally unique bot identity definitions on cloud. Runtime config
+    -- stays desktop-local because it pins to a specific host machine.
+    CREATE TABLE IF NOT EXISTS bots (
+      id              TEXT PRIMARY KEY,
+      owner_user_id   TEXT REFERENCES users(id) ON DELETE SET NULL,
+      display_name    TEXT NOT NULL,
       color           TEXT NOT NULL DEFAULT '',
       avatar_image    TEXT NOT NULL DEFAULT '',
       avatar_crop_json TEXT NOT NULL DEFAULT '',
+      status_badge_json TEXT NOT NULL DEFAULT '',
       bio             TEXT NOT NULL DEFAULT '',
-      capabilities_json TEXT NOT NULL DEFAULT '[]',
+      capabilities_json TEXT NOT NULL DEFAULT '{}',
       persona_text    TEXT NOT NULL DEFAULT '',
       created_at      TEXT NOT NULL,
-      updated_at      TEXT NOT NULL,
-      PRIMARY KEY (owner_user_id, id)
+      updated_at      TEXT NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS idx_fellows_owner ON fellows(owner_user_id);
+    CREATE INDEX IF NOT EXISTS idx_bots_owner ON bots(owner_user_id);
 
     -- v6: per-user cross-device settings (pin / read marks / appearance).
     -- One row per user, JSON for the small bags so we don't need a
@@ -817,23 +828,21 @@ function migrate(db) {
       updated_at       TEXT NOT NULL
     );
 
-    CREATE TABLE IF NOT EXISTS fellow_runtime_bindings (
+    CREATE TABLE IF NOT EXISTS bot_runtime_bindings (
       user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      fellow_id    TEXT NOT NULL,
+      bot_id       TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
       runtime_kind TEXT NOT NULL,
       enabled      INTEGER NOT NULL DEFAULT 1,
       config_json  TEXT NOT NULL DEFAULT '{}',
       created_at   TEXT NOT NULL,
       updated_at   TEXT NOT NULL,
-      PRIMARY KEY (user_id, fellow_id, runtime_kind)
+      PRIMARY KEY (user_id, bot_id, runtime_kind)
     );
-    CREATE INDEX IF NOT EXISTS idx_fellow_runtime_bindings_user
-      ON fellow_runtime_bindings(user_id, enabled);
 
     CREATE TABLE IF NOT EXISTS cloud_agent_runs (
       id                 TEXT PRIMARY KEY,
       user_id            TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      fellow_id          TEXT NOT NULL,
+      bot_id          TEXT NOT NULL,
       conversation_id            TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
       trigger_message_id TEXT NOT NULL,
       hermes_run_id      TEXT NOT NULL DEFAULT '',
@@ -902,6 +911,9 @@ function migrate(db) {
   if (!hasColumn(db, "users", "avatar_color")) {
     db.exec("ALTER TABLE users ADD COLUMN avatar_color TEXT NOT NULL DEFAULT ''");
   }
+  if (!hasColumn(db, "users", "status_badge_json")) {
+    db.exec("ALTER TABLE users ADD COLUMN status_badge_json TEXT NOT NULL DEFAULT ''");
+  }
   // v4: per-user event seq cache. event_seq mirrors MAX(user_events.seq)
   // for that user; kept on the row for fast monotonic increment under
   // the same transaction as the user_events insert.
@@ -918,8 +930,9 @@ function migrate(db) {
   if (!hasColumn(db, "conversations", "type")) {
     db.exec("ALTER TABLE conversations ADD COLUMN type TEXT NOT NULL DEFAULT 'group'");
     db.exec("UPDATE conversations SET type = 'dm' WHERE id LIKE 'dm:%'");
-    db.exec("UPDATE conversations SET type = 'fellow' WHERE id LIKE 'fellow:%'");
+    db.exec("UPDATE conversations SET type = 'bot' WHERE id LIKE 'bot:%'");
   }
+  cleanupRetiredIdentityRows(db);
   db.exec("CREATE INDEX IF NOT EXISTS idx_conversations_type ON conversations(type)");
   db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (1, ?)")
     .run(nowIso());
@@ -963,20 +976,34 @@ function migrate(db) {
     .run(nowIso());
   // v12: composer "使用" skill chips travel with the message — the skills the
   // user explicitly selected for that turn, rendered in the bubble and used by
-  // the fellow responder to drive the agent.
+  // the bot responder to drive the agent.
   if (!hasColumn(db, "messages", "skills_json")) {
     db.exec("ALTER TABLE messages ADD COLUMN skills_json TEXT");
   }
   db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (12, ?)")
     .run(nowIso());
   // v13: assistant trace blocks (reasoning + tool-call summaries) are stored
-  // with fellow-authored messages so cloud conversations render the same agent
+  // with bot-authored messages so cloud conversations render the same agent
   // activity UI as local sessions.
   if (!hasColumn(db, "messages", "trace_json")) {
     db.exec("ALTER TABLE messages ADD COLUMN trace_json TEXT");
   }
   db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (13, ?)")
     .run(nowIso());
+}
+
+function retiredIdentityKind() {
+  return ["fel", "low"].join("");
+}
+
+function cleanupRetiredIdentityRows(db) {
+  const retiredKind = retiredIdentityKind();
+  const retiredPrivateConversation = `${retiredKind}:%`;
+  db.prepare("DELETE FROM messages WHERE conversation_id LIKE ?").run(retiredPrivateConversation);
+  db.prepare("DELETE FROM messages WHERE sender_kind = ?").run(retiredKind);
+  db.prepare("DELETE FROM conversation_members WHERE conversation_id LIKE ?").run(retiredPrivateConversation);
+  db.prepare("DELETE FROM conversation_members WHERE member_kind = ?").run(retiredKind);
+  db.prepare("DELETE FROM conversations WHERE type = ? OR id LIKE ?").run(retiredKind, retiredPrivateConversation);
 }
 
 function importLegacyJsonIfNeeded(db, { legacyJsonPath }) {

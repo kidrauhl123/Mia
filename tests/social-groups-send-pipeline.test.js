@@ -95,12 +95,12 @@ test("buildGroupMessageArticle renders failed outgoing status from shared helper
   assert.match(article.innerHTML, /title="network down"/);
 });
 
-test("buildGroupMessageArticle renders persisted fellow trace_json", () => {
+test("buildGroupMessageArticle renders persisted bot trace_json", () => {
   const { groups } = loadSocialGroups();
 
   const article = groups.buildGroupMessageArticle({
     id: "m_trace",
-    sender_kind: "fellow",
+    sender_kind: "bot",
     sender_ref: "codex",
     body_md: "done",
     trace_json: JSON.stringify({
@@ -121,7 +121,7 @@ test("fetchAndCacheConversationMembers rerenders after sidebar member cache fill
     data: {
       members: [
         { member_kind: "user", member_ref: "u_me", identity: { displayName: "我", avatar: { image: "", crop: null } } },
-        { member_kind: "fellow", member_ref: "kongling", fellow_name: "空铃" }
+        { member_kind: "bot", member_ref: "kongling", bot_name: "空铃" }
       ],
       conversation: { id: conversationId }
     }

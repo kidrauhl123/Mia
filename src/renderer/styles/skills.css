@@ -367,7 +367,7 @@
 .skill-dot.build { background: #7c3aed; }
 .skill-dot.ops { background: #475569; }
 
-/* 「使用」→ 选 Fellow 的弹出选择器 */
+/* 「使用」→ 选 Bot 的弹出选择器 */
 .skill-use-picker {
   position: fixed;
   z-index: 50;

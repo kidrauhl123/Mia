@@ -117,9 +117,9 @@
     window.miaComposer.updateSlashCommandState();
   }
 
-  // Set a reply draft from any source (fellow message OR cloud-conversation message)
+  // Set a reply draft from any source (bot message OR cloud-conversation message)
   // and render the composer reply chip. Cloud-conversation bubbles call this so the
-  // same designed reply UI shows for groups/DMs as for private fellow chat.
+  // same designed reply UI shows for groups/DMs as for private bot chat.
   function setReplyDraft(reference) {
     if (!state) return;
     state.replyDraft = reference || null;

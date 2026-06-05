@@ -3,24 +3,24 @@ const assert = require("node:assert/strict");
 const { highlightMentions } = require("../src/shared/mention-render.js");
 
 const members = [
-  { member_kind: "fellow", member_ref: "kongling", fellow_name: "空铃" },
-  { member_kind: "fellow", member_ref: "mia", fellow_name: "Mia" },
+  { member_kind: "bot", member_ref: "kongling", bot_name: "空铃" },
+  { member_kind: "bot", member_ref: "mia", bot_name: "Mia" },
   { member_kind: "user", member_ref: "user_42", username: "boss" }
 ];
 
-test("wraps matching fellow tokens by ref", () => {
+test("wraps matching bot tokens by ref", () => {
   const html = highlightMentions("@kongling 在吗", members);
-  assert.match(html, /<span class="mention" data-member-kind="fellow" data-member-ref="kongling">@空铃<\/span> 在吗/);
+  assert.match(html, /<span class="mention" data-member-kind="bot" data-member-ref="kongling">@空铃<\/span> 在吗/);
 });
 
-test("wraps matching fellow tokens by display name (case insensitive)", () => {
+test("wraps matching bot tokens by display name (case insensitive)", () => {
   const html = highlightMentions("@mia 看看", members);
-  assert.match(html, /<span class="mention" data-member-kind="fellow" data-member-ref="mia">@Mia<\/span>/);
+  assert.match(html, /<span class="mention" data-member-kind="bot" data-member-ref="mia">@Mia<\/span>/);
 });
 
-test("wraps CJK tokens that match the fellow's display name", () => {
+test("wraps CJK tokens that match the bot display name", () => {
   const html = highlightMentions("@空铃 来一下", members);
-  assert.match(html, /<span class="mention" data-member-kind="fellow" data-member-ref="kongling">@空铃<\/span>/);
+  assert.match(html, /<span class="mention" data-member-kind="bot" data-member-ref="kongling">@空铃<\/span>/);
 });
 
 test("wraps user mentions when the token matches a user member", () => {

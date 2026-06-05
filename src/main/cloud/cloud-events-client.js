@@ -14,7 +14,7 @@ function createCloudEventsClient({
   broadcastRendererEvent,
   cloudEventChannel,
   appendCloudLog,
-  fellowRuntimeDispatcher,
+  botRuntimeDispatcher,
   messageCache = null,
   setTimeoutFn = setTimeout,
   clearTimeoutFn = clearTimeout,
@@ -122,13 +122,13 @@ function createCloudEventsClient({
       emitToRenderer({ type: message.type, payload: message });
       return;
     }
-    if (message.type === "fellow.upserted" || message.type === "fellow.deleted" || message.type === "fellow.runtime_updated") {
+    if (message.type === CloudEvent.BotUpserted || message.type === CloudEvent.BotDeleted || message.type === "bot.runtime_updated") {
       emitToRenderer({ type: message.type, payload: message });
       return;
     }
-    if (message.type === CloudEvent.ConversationFellowInvocationRequested) {
-      fellowRuntimeDispatcher?.handleCloudEvent?.(message)
-        ?.catch((error) => log(`Cloud fellow invocation failed: ${error?.message || error}`));
+    if (message.type === CloudEvent.ConversationBotInvocationRequested) {
+      botRuntimeDispatcher?.handleCloudEvent?.(message)
+        ?.catch((error) => log(`Cloud bot invocation failed: ${error?.message || error}`));
       emitToRenderer({ type: message.type, payload: message });
       return;
     }

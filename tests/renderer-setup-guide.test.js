@@ -190,7 +190,7 @@ test("setup guide stays hidden after user skips agent setup", () => {
   assert.equal(guide.shouldShowSetupGuide({ messages: [] }), false);
 });
 
-test("setup guide is not triggered only because there are no fellows", () => {
+test("setup guide is not triggered only because there are no bots", () => {
   const state = {
     runtime: { fellows: [], agentInventory: inventory([]) },
     firstRun: false,

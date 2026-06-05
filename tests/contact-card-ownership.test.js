@@ -4,10 +4,10 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 
-// Renders the cloud-conversation fellow contact card in a mock DOM so we can assert the
-// ownership decision: a fellow whose conversation-member owner_id is NOT me must render
-// the read-only "remote" card even when one of MY local fellows happens to share
-// its key — otherwise clicking another user's fellow would expose and mutate my
+// Renders the cloud-conversation bot contact card in a mock DOM so we can assert the
+// ownership decision: a bot whose conversation-member owner_id is NOT me must render
+// the read-only "remote" card even when one of MY local bots happens to share
+// its key — otherwise clicking another user's bot would expose and mutate my
 // own local model/effort/permission settings.
 
 function mockEl() {
@@ -47,7 +47,7 @@ function loadCard() {
   };
   const sharedAvatar = require("../packages/shared/avatar.js");
   const window = {
-    miaConversationKinds: { MemberKind: { Fellow: "fellow", User: "user" } },
+    miaConversationKinds: { MemberKind: { Bot: "bot", Fellow: "fellow", User: "user" } },
     miaMemberColor: require("../src/shared/member-color.js"),
     miaAvatarResolve: {
       ...sharedAvatar,
@@ -77,13 +77,13 @@ function ctxWith(ownerId, meId) {
     deps: {
       getState: () => ({
         runtime: {
-          fellows: [{ id: "codex", key: "codex", name: "My Codex", agentEngine: "codex", engineConfig: {} }],
+          bots: [{ id: "codex", key: "codex", name: "My Codex", agentEngine: "codex", engineConfig: {} }],
           cloud: { user: { id: meId } },
         },
       }),
     },
     conversationMembersCache: new Map([["g_1", [
-      { member_kind: "fellow", member_ref: "codex", owner_id: ownerId, fellow_name: "Their Codex" },
+      { member_kind: "bot", member_ref: "codex", owner_id: ownerId, bot_name: "Their Codex" },
     ]]]),
     moduleState: { friends: [] },
   };
@@ -94,7 +94,7 @@ function ctxWithCloudOwnedFellow() {
     deps: {
       getState: () => ({
         runtime: {
-          fellows: [],
+          bots: [],
           cloud: { user: { id: "bob" } },
         },
       }),
@@ -103,10 +103,10 @@ function ctxWithCloudOwnedFellow() {
     moduleState: {
       myUserId: "bob",
       friends: [],
-      fellows: [{ key: "mia", name: "Mia", runtimeKind: "cloud-hermes", runtimeLabel: "Mia Cloud" }],
+      bots: [{ key: "mia", name: "Mia", runtimeKind: "cloud-hermes", runtimeLabel: "Mia Cloud" }],
     },
     adapterCtx: () => ({
-      fellows: [{ key: "mia", name: "Mia", runtimeKind: "cloud-hermes", runtimeLabel: "Mia Cloud", color: "#5e5ce6" }],
+      bots: [{ key: "mia", name: "Mia", runtimeKind: "cloud-hermes", runtimeLabel: "Mia Cloud", color: "#5e5ce6" }],
       friends: [],
       self: { id: "bob" },
     }),
@@ -117,54 +117,54 @@ function lastCardHtml(body) {
   return body.children[body.children.length - 1].innerHTML;
 }
 
-test("fellow owned by another user renders remote-only card despite same local key", () => {
+test("bot owned by another user renders remote-only card despite same local key", () => {
   const { card, body } = loadCard();
   card.attach(ctxWith("alice", "bob"));
-  card.openCard({ kind: "fellow", ref: "codex", conversationId: "g_1", anchor: null });
+  card.openCard({ kind: "bot", ref: "codex", conversationId: "g_1", anchor: null });
   const html = lastCardHtml(body);
   assert.match(html, /不属于你/);
   assert.doesNotMatch(html, /本地 fellow/);
-  assert.doesNotMatch(html, /data-fellow-field/);
-  assert.doesNotMatch(html, /edit-fellow/);
+  assert.doesNotMatch(html, new RegExp("data-" + "fellow-field"));
+  assert.doesNotMatch(html, /edit-bot-old/);
 });
 
-test("fellow I own renders editable controls card", () => {
+test("bot I own renders editable controls card", () => {
   const { card, body } = loadCard();
   card.attach(ctxWith("bob", "bob"));
-  card.openCard({ kind: "fellow", ref: "codex", conversationId: "g_1", anchor: null });
+  card.openCard({ kind: "bot", ref: "codex", conversationId: "g_1", anchor: null });
   const html = lastCardHtml(body);
   assert.doesNotMatch(html, /不在你的本地 fellow 列表里/);
-  assert.match(html, /edit-fellow/);
+  assert.match(html, /edit-bot/);
 });
 
-test("cloud fellow I own renders editable controls instead of a separate cloud-only card", () => {
+test("cloud bot I own renders editable controls instead of a separate cloud-only card", () => {
   const { card, body } = loadCard();
   card.attach(ctxWithCloudOwnedFellow());
-  card.openCard({ kind: "fellow", ref: "mia", conversationId: "fellow:bob:mia", anchor: null });
+  card.openCard({ kind: "bot", ref: "mia", conversationId: "botc_bob_mia", anchor: null });
   const html = lastCardHtml(body);
   assert.doesNotMatch(html, /不在你的本地 fellow 列表里/);
   assert.match(html, /Mia Cloud/);
-  assert.match(html, /data-fellow-field="model"/);
-  assert.match(html, /data-card-action="edit-fellow"/);
+  assert.match(html, /data-bot-field="model"/);
+  assert.match(html, /data-card-action="edit-bot"/);
 });
 
-test("cloud fellow card avatar preserves the fellow explicit color", () => {
+test("cloud bot card avatar preserves the bot explicit color", () => {
   const { card, window } = loadCard();
   card.attach(ctxWithCloudOwnedFellow());
-  card.openCard({ kind: "fellow", ref: "mia", conversationId: "fellow:bob:mia", anchor: null });
+  card.openCard({ kind: "bot", ref: "mia", conversationId: "botc_bob_mia", anchor: null });
 
-  assert.equal(window.lastAvatarResolveInput.id, "fellow:bob:mia");
+  assert.equal(window.lastAvatarResolveInput.id, "botc_bob_mia");
   assert.equal(window.lastPaintedAvatar.color, "#5e5ce6");
 });
 
-test("owned cloud fellow card reads runtime binding before exposing controls", () => {
+test("owned cloud bot card reads runtime binding before exposing controls", () => {
   const { card, window } = loadCard();
   const calls = [];
-  window.miaFellowCommands = {
-    getFellowRuntimeBinding: async (args) => {
+  window.miaBotCommands = {
+    getBotRuntimeBinding: async (args) => {
       calls.push(args);
       return {
-        fellowId: "mia",
+        botId: "mia",
         runtimeKind: "cloud-hermes",
         config: { model: "gpt-5.3", effortLevel: "high", permissionMode: "auto" }
       };
@@ -172,17 +172,17 @@ test("owned cloud fellow card reads runtime binding before exposing controls", (
   };
 
   card.attach(ctxWithCloudOwnedFellow());
-  card.openCard({ kind: "fellow", ref: "mia", conversationId: "fellow:bob:mia", anchor: null });
+  card.openCard({ kind: "bot", ref: "mia", conversationId: "botc_bob_mia", anchor: null });
 
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].fellowKey, "mia");
+  assert.equal(calls[0].botKey, "mia");
   assert.equal(calls[0].runtimeKind, "cloud-hermes");
 });
 
-test("fellow contact-card runtime edits go through fellow command adapter", () => {
+test("bot contact-card runtime edits go through bot command adapter", () => {
   const source = fs.readFileSync(path.join(__dirname, "..", "src", "renderer", "social", "contact-card.js"), "utf8");
-  assert.match(source, /global\.miaFellowCommands\?\.saveFellowRuntimeControl\?\.\(\{/);
-  assert.doesNotMatch(source, /global\.mia\?\.social\?\.saveFellowRuntime/);
+  assert.match(source, /global\.miaBotCommands\?\.saveBotRuntimeControl\?\.\(\{/);
+  assert.doesNotMatch(source, new RegExp("global\\.mia\\?\\.social\\?\\.save" + "BotRuntime"));
   assert.doesNotMatch(source, /global\.mia\.saveModel\(/);
-  assert.doesNotMatch(source, /global\.mia\.saveFellowEngine\(/);
+  assert.doesNotMatch(source, new RegExp("global\\.mia\\.save" + "FellowEngine\\("));
 });

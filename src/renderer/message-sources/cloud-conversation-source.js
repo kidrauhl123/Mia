@@ -19,103 +19,116 @@
   const { MemberKind, SenderKind } = global.miaConversationKinds
     || (typeof require === "function"
       ? require("../../shared/conversation-kinds")
-      : { MemberKind: { Fellow: "fellow", User: "user" }, SenderKind: { Fellow: "fellow", User: "user", System: "system" } });
+      : { MemberKind: { Bot: "bot", User: "user" }, SenderKind: { Bot: "bot", User: "user", System: "system" } });
+
+  function hasOwn(obj, key) {
+    return Boolean(obj && typeof obj === "object" && Object.prototype.hasOwnProperty.call(obj, key));
+  }
+
+  function firstNonEmpty(...values) {
+    for (const value of values) {
+      const text = String(value || "").trim();
+      if (text) return text;
+    }
+    return "";
+  }
+
+  function statusBadgeFrom(...sources) {
+    for (const source of sources) {
+      if (hasOwn(source, "statusBadge")) return source.statusBadge;
+      if (hasOwn(source, "status_badge")) return source.status_badge;
+    }
+    return undefined;
+  }
+
+  function attachStatusBadge(target, ...sources) {
+    const badge = statusBadgeFrom(...sources);
+    if (typeof badge !== "undefined") target.statusBadge = badge;
+    return target;
+  }
 
   function safeJsonArray(s) { try { const v = JSON.parse(s); return Array.isArray(v) ? v : []; } catch { return []; } }
 
   function createCloudConversationSource({ conversation, messages, members, ctx }) {
     const { normalizeSpec } = spec();
     const contactApi = contact();
-    const { resolveContact, ContactKind } = contactApi;
+    const { resolveContact, IdentityKind } = contactApi;
+    const UserKind = IdentityKind?.User || "user";
+    const BotKind = IdentityKind?.Bot || "bot";
     const { resolveAvatarForContact, hasAvatarIdentityFields } = avatarResolve();
     const selfId = ctx.self?.id || "";
     const memberArr = Array.isArray(members) ? members : [];
 
-    function fellowRecord(ref) {
-      return (Array.isArray(ctx.fellows) ? ctx.fellows : [])
+    function botRecord(ref) {
+      return (Array.isArray(ctx.bots) ? ctx.bots : [])
         .find((f) => f && (f.key === ref || f.id === ref)) || null;
     }
 
-    function fellowAvatarIdentityId(ref, fellow = {}, member = {}) {
+    function botAvatarIdentityId(ref, bot = {}, member = {}) {
       const identity = member?.identity || {};
       const record = {
-        ...(fellow || {}),
+        ...(bot || {}),
         member_ref: ref,
-        globalId: fellow?.globalId || fellow?.global_id || identity.globalId || identity.global_id,
-        fellowGlobalId: fellow?.fellowGlobalId || fellow?.fellow_global_id,
-        ownerUserId: fellow?.ownerUserId || fellow?.owner_user_id || fellow?.ownerId || fellow?.owner_id
+        globalId: bot?.globalId || bot?.global_id || identity.globalId || identity.global_id,
+        ownerUserId: bot?.ownerUserId || bot?.owner_user_id || bot?.ownerId || bot?.owner_id
           || member?.owner_user_id || member?.owner_id || identity.ownerUserId || identity.owner_id
       };
-      return contactApi.fellowAvatarIdentityId?.(ref, record)
+      return contactApi.botAvatarIdentityId?.(ref, record)
         || record.globalId
-        || (record.ownerUserId && ref ? "fellow:" + record.ownerUserId + ":" + ref : "")
         || ref;
     }
 
     function authorForMessage(m) {
       if (m.sender_kind === SenderKind.User) {
-        if (m.sender_ref === selfId) return resolveContact({ kind: ContactKind.Self }, ctx);
+        if (m.sender_ref === selfId) return resolveContact({ kind: "self" }, ctx);
         const member = memberArr.find((mem) => mem.member_kind === MemberKind.User && mem.member_ref === m.sender_ref);
         if (member?.identity) {
-          return {
-            kind: ContactKind.User,
+          return attachStatusBadge({
+            kind: UserKind,
             id: member.identity.id || m.sender_ref,
             displayName: member.identity.displayName || m.sender_ref,
             avatar: member.identity.avatar || { image: "", crop: null, color: "", text: "" }
-          };
+          }, member.identity);
         }
-        return resolveContact({ kind: ContactKind.User, ref: m.sender_ref }, ctx);
+        return resolveContact({ kind: UserKind, ref: m.sender_ref }, ctx);
       }
-      if (m.sender_kind === SenderKind.Fellow) {
-        const member = memberArr.find((mem) => mem.member_kind === MemberKind.Fellow && mem.member_ref === m.sender_ref);
-        // displayName priority: own fellow registry → server-enriched
-        // fellow_name on member row → conversation name (for a 1:1 fellow
-        // chat that hasn't been auto-titled) → raw sender_ref. Owner
-        // attribution intentionally omitted — UX showed it as
-        // "(${ownerUsername})" before but users found it noisy ("不要括号
-        // 展示其主人"). If we need owner context later it belongs in the
-        // contact card, not the message label.
-        const rawFellow = fellowRecord(m.sender_ref);
-        const localFellow = resolveContact({ kind: ContactKind.Fellow, ref: m.sender_ref }, ctx);
-        const ownedByMe = Boolean(rawFellow);
-        const ownAvatarIsHydrated = Boolean(rawFellow && hasAvatarIdentityFields?.(rawFellow));
+      if (m.sender_kind === "bot") {
+        const member = memberArr.find((mem) => mem.member_kind === "bot" && mem.member_ref === m.sender_ref);
+        const rawBot = botRecord(m.sender_ref);
+        const localBot = resolveContact({ kind: BotKind, ref: m.sender_ref }, ctx);
+        const ownedByMe = Boolean(rawBot);
+        const ownAvatarIsHydrated = Boolean(rawBot && hasAvatarIdentityFields?.(rawBot));
         let displayName;
         if (ownedByMe) {
-          displayName = localFellow.displayName;
+          displayName = rawBot.displayName || rawBot.display_name || rawBot.name || localBot.displayName;
         } else if (member?.identity?.displayName) {
           displayName = member.identity.displayName;
-        } else if (member && member.fellow_name) {
-          displayName = member.fellow_name;
+        } else if (member && member.bot_name) {
+          displayName = member.bot_name;
         } else {
-          const conversationFellowKey = conversation.decorations?.fellowKey
-            || (String(conversation.id || "").startsWith("fellow:")
-              ? String(conversation.id || "").split(":").slice(2).join(":")
-              : "");
-          displayName = conversationFellowKey === m.sender_ref && conversation.name
+          const conversationBotKey = conversation.decorations?.botId || conversation.botId || conversation.bot_id || "";
+          displayName = conversationBotKey === m.sender_ref && conversation.name
             ? conversation.name
             : m.sender_ref;
         }
-        // Avatar priority mirrors displayName: own fellow first, then the
-        // server-canonical member identity, then legacy member fields. An
-        // explicit empty avatar stays empty and renders as shared text fallback;
-        // compact own-fellow rows do not hide server-enriched member identity.
         const avatar = (!ownAvatarIsHydrated && member?.identity?.avatar)
           ? member.identity.avatar
           : resolveAvatarForContact({
-              id: fellowAvatarIdentityId(m.sender_ref, rawFellow || {}, member || {}),
+              id: botAvatarIdentityId(m.sender_ref, rawBot || {}, member || {}),
               displayName,
-              avatarImage: ownAvatarIsHydrated ? rawFellow.avatarImage : member?.fellow_avatar_image,
-              avatarCrop: ownAvatarIsHydrated ? rawFellow.avatarCrop : member?.fellow_avatar_crop,
+              avatarImage: ownAvatarIsHydrated ? (rawBot.avatarImage || rawBot.avatar_image) : member?.bot_avatar_image,
+              avatarCrop: ownAvatarIsHydrated ? (rawBot.avatarCrop || rawBot.avatar_crop) : member?.bot_avatar_crop,
               color: ownAvatarIsHydrated
-                ? (rawFellow.color || rawFellow.avatarColor || rawFellow.avatar_color || "")
-                : (member?.identity?.avatar?.color || member?.fellow_color || member?.avatarColor || member?.avatar_color || "")
+                ? (rawBot.color || rawBot.avatarColor || rawBot.avatar_color || "")
+                : (member?.identity?.avatar?.color || member?.bot_color || member?.avatarColor || member?.avatar_color || "")
             });
-        return {
-          kind: ContactKind.Fellow,
-          id: m.sender_ref,
+        return attachStatusBadge({
+          kind: BotKind,
+          id: firstNonEmpty(member?.identity?.id, rawBot?.id, rawBot?.botId, rawBot?.bot_id, m.sender_ref),
+          ownerUserId: firstNonEmpty(member?.identity?.ownerUserId, member?.identity?.owner_user_id, rawBot?.ownerUserId, rawBot?.owner_user_id, member?.owner_user_id, member?.owner_id),
           displayName,
           avatar
-        };
+        }, member?.identity, rawBot);
       }
       if (m.sender_kind === SenderKind.System) {
         return { kind: "system", id: "system", displayName: "系统", avatar: { image: "", crop: null, color: "#888", text: "系统" } };
@@ -128,12 +141,23 @@
       return msgs.map((m, idx) => {
         const author = authorForMessage(m);
         const isOwnUser = m.sender_kind === SenderKind.User && m.sender_ref === selfId;
-        return normalizeSpec({
+        const authorIdentity = (author.kind === UserKind || author.kind === BotKind)
+          ? {
+              kind: author.kind,
+              id: author.id,
+              ...(author.ownerUserId ? { ownerUserId: author.ownerUserId } : {}),
+              displayName: author.displayName,
+              avatar: author.avatar,
+              ...(hasOwn(author, "statusBadge") ? { statusBadge: author.statusBadge } : {})
+            }
+          : null;
+        const specInput = {
           source: "cloud-conversation",
           conversationId: conversation.id,
           messageId: m.id || `${conversation.id}#${m.seq || idx}`,
           messageIndex: idx,
-          role: m.sender_kind === SenderKind.Fellow ? "assistant" : (m.sender_kind === SenderKind.System ? "system" : "user"),
+          role: m.sender_kind === "bot" ? "assistant" : (m.sender_kind === SenderKind.System ? "system" : "user"),
+          authorIdentity,
           authorName: author.displayName,
           avatar: author.avatar,
           bodyMd: String(m.body_md || ""),
@@ -145,19 +169,23 @@
           // delete = WeChat-style local hide (any member may remove a message
           // from their own view); pin has no per-message meaning in a shared conversation.
           capabilities: { reply: true, copy: true, pin: false, delete: true }
-        });
+        };
+        if (hasOwn(author, "statusBadge")) specInput.statusBadge = author.statusBadge;
+        return normalizeSpec(specInput);
       });
     }
 
     // Resolve a raw `@word` mention token (without the leading "@") against
-    // this conversation's member list. Returns `{ kind: "fellow", fellowId }` when
-    // the token matches a fellow member, or `null` otherwise. Consumers must
+    // this conversation's member list. Returns `{ kind: "bot", botId }` when
+    // the token matches a bot member, or `null` otherwise. Consumers must
     // NOT reach into `members` themselves — go through this resolver so the
-    // fellow membership rule lives in one place.
+    // bot membership rule lives in one place.
     function resolveMention(token) {
       if (!token) return null;
-      const fellow = memberArr.find((mem) => mem.member_kind === MemberKind.Fellow && mem.member_ref === token);
-      if (fellow) return { kind: ContactKind.Fellow, fellowId: token };
+      const wanted = String(token || "").trim();
+      const bot = memberArr.find((mem) => mem.member_kind === "bot"
+        && (mem.member_ref === wanted || mem.bot_name === wanted || mem.identity?.displayName === wanted));
+      if (bot) return { kind: "bot", botId: bot.member_ref };
       return null;
     }
 

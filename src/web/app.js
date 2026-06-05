@@ -1,5 +1,5 @@
 // Mia Web — chat + settings only.
-// Conversation list = cloud DM, group conversations, and cloud-mirrored fellow conversations.
+// Conversation list = cloud DM, group conversations, and cloud-mirrored bot conversations.
 
 const STORAGE_KEY = "mia.web.session";
 const API_BASE = "";
@@ -8,7 +8,7 @@ const { computeUnreadForConversation, totalUnreadFromConversations, unreadBadgeH
 const { prepareOutgoingMessage } = window.miaSendPipeline;
 const { MemberKind, SenderKind } = window.miaConversationKinds;
 const sessionHistory = window.miaSessionHistory || {};
-const fellowRuntimeControl = window.miaFellowRuntimeControl || {};
+const botRuntimeControl = window.miaBotRuntimeControl || {};
 const engineContracts = window.miaEngineContracts || {};
 const normalizeAgentEngine = engineContracts.normalizeAgentEngine || ((value) => {
   const id = String(value || "hermes").trim().toLowerCase().replace(/_/g, "-");
@@ -95,7 +95,7 @@ const els = {
   conversationCreateMenu: document.getElementById("conversationCreateMenu"),
   convMenuAddFriend: document.getElementById("convMenuAddFriend"),
   convMenuNewGroup: document.getElementById("convMenuNewGroup"),
-  convMenuNewFellow: document.getElementById("convMenuNewFellow"),
+  convMenuNewBot: document.getElementById("convMenuNewBot"),
   unreadCount: document.getElementById("unreadCount"),
   mobileBack: document.getElementById("mobileBack"),
   userAvatar: document.getElementById("userAvatar"),
@@ -144,12 +144,9 @@ let state = {
   theme: "light",
   conversations: [],
   friends: [],
-  // Cloud-mirrored fellow identities (Phase 2). Populated from
-  // /api/me/fellows on login and kept in sync via fellow.upserted /
-  // fellow.deleted WS events. Used as the `fellows` context for the
-  // cloud-conversation-source adapter so conversation messages render fellow names +
-  // avatars instead of fellow-id strings.
-  fellows: [],
+  // Cloud-mirrored bot identities. Populated from /api/me/bots on login and
+  // kept in sync via bot.upserted / bot.deleted WS events.
+  bots: [],
   // Cross-device user settings (Phase 3). Holds pins + read marks +
   // appearance. Populated from /api/me/settings on bootstrap; updated
   // optimistically via pushSettings() + reconciled by
@@ -161,11 +158,11 @@ let state = {
   messageCache: new Map(),
   conversationMembersCache: new Map(),
   // (Phase 4 cutover: state.workspace removed. Every conversation now
-  //  lives in state.conversations — fellow chats are conversations-of-type-fellow.)
+  //  lives in state.conversations — bot chats are conversations-of-type-bot.)
   bridgeDevices: [],
   bridgeBusy: false,
   cloudAgentRunsByConversation: new Map(),
-  fellowRuntimeCache: new Map(),
+  botRuntimeCache: new Map(),
   platformModels: [],
   activeConversationId: "",
   // Per-conversation unread counters. Incremented when a WS message arrives
@@ -558,7 +555,7 @@ function clearSession() {
   state.user = null;
   state.conversations = [];
   state.friends = [];
-  state.fellows = [];
+  state.bots = [];
   state.settings = { pins: [], readMarks: {}, appearance: {} };
   state.messageCache.clear?.();
   state.conversationMembersCache.clear?.();
@@ -570,17 +567,17 @@ function clearSession() {
   state.bridgeDevices = [];
   state.bridgeBusy = false;
   state.cloudAgentRunsByConversation.clear?.();
-  state.fellowRuntimeCache.clear?.();
+  state.botRuntimeCache.clear?.();
   state.activeConversationId = "";
   stopCloudEvents();
   localStorage.removeItem(STORAGE_KEY);
 }
 
 // All conversations are conversations after Phase 4 cutover.
-// Type is encoded in the id prefix (dm:, g_, fellow:) and also lives in
+// Type is encoded in the id prefix (dm:, g_, botc_) and also lives in
 // conversation.type. Old workspace-conversation helper is gone.
 function isConversationId(id) {
-  return typeof id === "string" && (id.startsWith("dm:") || id.startsWith("g_") || id.startsWith("fellow:"));
+  return typeof id === "string" && (id.startsWith("dm:") || id.startsWith("g_") || id.startsWith("botc_"));
 }
 
 async function api(path, options = {}) {
@@ -660,10 +657,9 @@ async function bootstrap() {
     api("/api/social/friends").then((d) => { state.friends = Array.isArray(d.friends) ? d.friends : []; }).catch(() => {}),
     api("/api/social/friend-requests?direction=incoming").then((d) => { state.incomingRequests = Array.isArray(d.requests) ? d.requests : []; }).catch(() => {}),
     api("/api/social/friend-requests?direction=outgoing").then((d) => { state.outgoingRequests = Array.isArray(d.requests) ? d.requests : []; }).catch(() => {}),
-    // Phase 2: fellow identities (name + avatar + persona) so conversation
-    // messages from a fellow render with proper attribution rather than
-    // a bare fellow-id string.
-    api("/api/me/fellows?compact=1").then((d) => { state.fellows = Array.isArray(d.fellows) ? d.fellows : []; }).catch(() => {}),
+    // Bot identities (name + avatar + persona) so bot conversation messages
+    // render with proper attribution rather than bare ids.
+    api("/api/me/bots?compact=1").then((d) => { state.bots = Array.isArray(d.bots) ? d.bots : []; }).catch(() => {}),
     // Phase 3: cross-device user settings (pin / read marks / appearance).
     api("/api/me/settings").then((d) => { if (d.settings) state.settings = d.settings; }).catch(() => {}),
     // Bridge devices: lets Phase B decide whether the owner's desktop is
@@ -680,18 +676,18 @@ async function bootstrap() {
     await ensureConversationMembers(state.activeConversationId);
   }
   // Prefetch members for every group conversation so the sidebar mosaic
-  // shows real avatars on first paint, and for cross-owner fellow chats
-  // so fellowAvatarFor can resolve the fellow's enriched avatar instead
-  // of falling back to the blank single-letter bubble.
+  // shows real avatars on first paint, and for cross-owner bot chats
+  // so botAvatarFor can resolve the bot's enriched avatar instead of
+  // falling back to the blank single-letter bubble.
   await Promise.all(
     state.conversations
       .filter((r) => {
-        const isGroup = r.type === "group" || (!r.id?.startsWith("dm:") && !r.id?.startsWith("fellow:") && (r.id?.startsWith("g_") || r.id?.startsWith("g-")));
+        const isGroup = r.type === "group" || (!r.id?.startsWith("dm:") && !r.id?.startsWith("botc_") && (r.id?.startsWith("g_") || r.id?.startsWith("g-")));
         if (isGroup) return true;
-        const isFellow = r.type === "fellow" || r.id?.startsWith("fellow:");
-        if (!isFellow) return false;
-        const fellowKey = sessionHistory.fellowKey(r);
-        return !state.fellows.some((f) => String(f.id || f.key || "") === fellowKey);
+        const isBot = r.type === "bot" || r.id?.startsWith("botc_");
+        if (!isBot) return false;
+        const botKey = sessionHistory.botId(r);
+        return !state.bots.some((bot) => String(bot.id || bot.key || "") === botKey);
       })
       .map((r) => ensureConversationMembers(r.id))
   );
@@ -703,17 +699,17 @@ async function bootstrap() {
 
 async function hydrateFullIdentities() {
   if (!state.token) return;
-  const [meResult, fellowsResult] = await Promise.allSettled([
+  const [meResult, botsResult] = await Promise.allSettled([
     api("/api/me"),
-    api("/api/me/fellows")
+    api("/api/me/bots")
   ]);
   let changed = false;
   if (meResult.status === "fulfilled") {
     state.user = meResult.value.user || meResult.value || state.user;
     changed = true;
   }
-  if (fellowsResult.status === "fulfilled") {
-    state.fellows = Array.isArray(fellowsResult.value.fellows) ? fellowsResult.value.fellows : state.fellows;
+  if (botsResult.status === "fulfilled") {
+    state.bots = Array.isArray(botsResult.value.bots) ? botsResult.value.bots : state.bots;
     changed = true;
   }
   if (!changed) return;
@@ -1009,7 +1005,7 @@ function handleCloudEvent(envelope) {
       entry.messages.push(msg);
       entry.maxSeq = Math.max(entry.maxSeq, Number(msg.seq || 0));
       state.messageCache.set(conversationId, entry);
-      if (msg.sender_kind === SenderKind.Fellow) state.cloudAgentRunsByConversation.delete(conversationId);
+      if (msg.sender_kind === SenderKind.Bot) state.cloudAgentRunsByConversation.delete(conversationId);
       // Bump unread if the message isn't mine and the conversation isn't currently open.
       // Self-id check goes through shared/contact: resolveContact returns kind="self"
       // only when ref matches ctx.self.id (works for any sender kind).
@@ -1043,7 +1039,7 @@ function handleCloudEvent(envelope) {
     const run = cloudRunFor(conversationId, envelope.runId || "");
     run.runId = envelope.runId || run.runId;
     run.hermesRunId = envelope.hermesRunId || run.hermesRunId || "";
-    run.fellowId = envelope.fellowId || run.fellowId || "";
+    run.botId = envelope.botId || run.botId || "";
     run.status = "running";
     if (conversationId === state.activeConversationId) renderActiveChat();
   } else if (type === "cloud_agent_run_event") {
@@ -1051,7 +1047,7 @@ function handleCloudEvent(envelope) {
     const event = envelope.event || {};
     if (!conversationId) return;
     const run = cloudRunFor(conversationId, envelope.runId || "");
-    run.fellowId = envelope.fellowId || run.fellowId || "";
+    run.botId = envelope.botId || run.botId || "";
     const name = hermesEventType(event);
     if (name === "message.delta") {
       run.text += hermesEventText(event);
@@ -1143,26 +1139,26 @@ function handleCloudEvent(envelope) {
       renderConversationList();
       renderActiveChat();
     }
-  } else if (type === "fellow.upserted") {
-    // Phase 2: another device created/edited a fellow — replace by id so
+  } else if (type === "bot.upserted") {
+    // Phase 2: another device created/edited a bot — replace by id so
     // names/avatars stay current across this browser too.
-    const fellow = envelope.fellow;
-    if (fellow && fellow.id) {
-      state.fellows = [fellow, ...state.fellows.filter((f) => f.id !== fellow.id)];
+    const bot = envelope.bot;
+    if (bot && bot.id) {
+      state.bots = [bot, ...state.bots.filter((f) => f.id !== bot.id)];
       renderConversationList();
       renderActiveChat();
       renderSessionMenu();
     }
-  } else if (type === "fellow.runtime_updated") {
+  } else if (type === "bot.runtime_updated") {
     const binding = envelope.binding;
-    if (binding?.fellowId && binding?.runtimeKind) {
-      state.fellowRuntimeCache.set(runtimeCacheKey(binding.fellowId, binding.runtimeKind), binding);
+    if (binding?.botId && binding?.runtimeKind) {
+      state.botRuntimeCache.set(runtimeCacheKey(binding.botId, binding.runtimeKind), binding);
       renderActiveChat();
     }
-  } else if (type === "fellow.deleted") {
-    const fellowId = envelope.fellowId;
-    if (fellowId) {
-      state.fellows = state.fellows.filter((f) => f.id !== fellowId);
+  } else if (type === "bot.deleted") {
+    const botId = envelope.botId;
+    if (botId) {
+      state.bots = state.bots.filter((f) => f.id !== botId);
       renderConversationList();
       renderActiveChat();
     }
@@ -1180,7 +1176,7 @@ function handleCloudEvent(envelope) {
   }
 }
 
-// ── conversation list (conversations + desktop-synced fellow chats merged) ────────
+// ── conversation list (conversations + desktop-synced bot chats merged) ───────────
 
 function friendById(userId) {
   if (userId === state.user?.id) return state.user;
@@ -1197,8 +1193,8 @@ function conversationDisplayTitle(conversation) {
     const otherId = parts[1] === state.user?.id ? parts[2] : parts[1];
     return friendUsernameById(otherId);
   }
-  if (conversation.type === "fellow" || conversation.id?.startsWith("fellow:")) {
-    return sessionHistory.fellowDisplayTitle(conversation, state.fellows, "对话");
+  if (conversation.type === "bot" || conversation.id?.startsWith("botc_")) {
+    return sessionHistory.botDisplayTitle(conversation, state.bots, "对话");
   }
   return conversation.name || "未命名群聊";
 }
@@ -1207,31 +1203,35 @@ function conversationTypeForControls(conversation) {
   return sessionHistory.conversationType(conversation, conversation?.id || "");
 }
 
-function fellowKeyForConversation(conversation) {
-  return sessionHistory.fellowKey(conversation);
+function botKeyForConversation(conversation) {
+  return sessionHistory.botId(conversation);
 }
 
-function fellowByKey(key) {
+function botByKey(key) {
   const wanted = String(key || "");
-  return state.fellows.find((fellow) => String(fellow.id || fellow.key || "") === wanted) || null;
+  return state.bots.find((bot) => String(bot.id || bot.key || "") === wanted) || null;
 }
 
-function fellowAvatarIdentityId(fellowKey, fellow = {}, member = null) {
+function botAvatarIdentityId(botKey, bot = {}, member = null) {
   const identity = member?.identity || {};
-  const ownerUserId = fellow?.ownerUserId || fellow?.owner_user_id || fellow?.ownerId || fellow?.owner_id || member?.owner_user_id || member?.owner_id || identity.ownerUserId || identity.owner_id || "";
-  const globalId = fellow?.globalId || fellow?.global_id || identity.globalId || identity.global_id || "";
-  return window.miaContact?.fellowAvatarIdentityId?.(fellowKey, {
-    ...(fellow || {}),
+  const ownerUserId = bot?.ownerUserId || bot?.owner_user_id || bot?.ownerId || bot?.owner_id || member?.owner_user_id || member?.owner_id || identity.ownerUserId || identity.owner_id || "";
+  const globalId = bot?.globalId || bot?.global_id || identity.globalId || identity.global_id || "";
+  const sharedIdentityId = window.miaContact?.botAvatarIdentityId;
+  const canonicalId = globalId || (ownerUserId && botKey ? `botc_${ownerUserId}_${botKey}` : "") || botKey;
+  return sharedIdentityId?.(canonicalId, {
+    ...(bot || {}),
+    id: canonicalId,
+    botId: botKey,
     ownerUserId,
     globalId
-  }) || globalId || (ownerUserId && fellowKey ? sessionHistory.fellowConversationId(ownerUserId, fellowKey) : "") || fellowKey;
+  }) || canonicalId;
 }
 
-function fellowGlobalIdFromConversation(conversation, fellowKey) {
+function botGlobalIdFromConversation(conversation, botKey) {
   const id = String(conversation?.id || "");
-  const key = String(fellowKey || "");
-  if (!id.startsWith("fellow:") || !key) return "";
-  return id.split(":").slice(2).join(":") === key ? id : "";
+  const key = String(botKey || "");
+  if (!id.startsWith("botc_") || !key) return "";
+  return id;
 }
 
 function hasAvatarIdentityFields(record) {
@@ -1256,27 +1256,27 @@ function userAvatarForContact(user, id, displayName) {
   });
 }
 
-// Locate the most authoritative metadata for a fellow shown in this
+// Locate the most authoritative metadata for a bot shown in this
 // conversation, then hand it to shared/avatar-resolve.js so the result is a
 // unified {image, crop, color, text}. Resolution order:
-//   1. state.fellows — fellows the viewer owns (freshest copy).
+//   1. state.bots — bots the viewer owns (freshest copy).
 //   2. member.identity.avatar — server-canonical cross-owner identity.
-//   3. legacy member fields — tolerated only for older payloads.
+//   3. bot member fields — compact server-enriched identity.
 //   4. empty avatar — stable color + two-character text fallback.
-function fellowAvatarFor(conversation, fellowKey) {
-  const wanted = String(fellowKey || "");
+function botAvatarFor(conversation, botKey) {
+  const wanted = String(botKey || "");
   if (!wanted) return null;
-  const owned = fellowByKey(wanted);
+  const owned = botByKey(wanted);
   const members = state.conversationMembersCache.get(conversation?.id) || [];
-  const member = members.find((m) => m.member_kind === MemberKind.Fellow && m.member_ref === wanted);
+  const member = members.find((m) => m.member_kind === MemberKind.Bot && m.member_ref === wanted);
   const ownedHasAvatarFields = hasAvatarIdentityFields(owned);
-  const fallbackFellow = {
+  const fallbackBot = {
     key: wanted,
     id: wanted,
     name: conversation?.name || wanted,
-    globalId: fellowGlobalIdFromConversation(conversation, wanted)
+    globalId: botGlobalIdFromConversation(conversation, wanted)
   };
-  const avatarId = fellowAvatarIdentityId(wanted, owned || fallbackFellow, member || null);
+  const avatarId = botAvatarIdentityId(wanted, owned || fallbackBot, member || null);
   if (owned && ownedHasAvatarFields) {
     return avatarResolve.resolveAvatarForContact({
       id: avatarId,
@@ -1293,10 +1293,10 @@ function fellowAvatarFor(conversation, fellowKey) {
     }
     return avatarResolve.resolveAvatarForContact({
       id: avatarId,
-      displayName: owned?.name || owned?.displayName || member.identity?.displayName || member.fellow_name || wanted,
-      avatarImage: identityAvatar.image || member.fellow_avatar_image,
-      avatarCrop: identityAvatar.crop || member.fellow_avatar_crop,
-      color: identityAvatar.color || member.fellow_color || member.avatarColor || member.avatar_color || ""
+      displayName: owned?.name || owned?.displayName || member.identity?.displayName || member.bot_name || wanted,
+      avatarImage: identityAvatar.image || member.bot_avatar_image,
+      avatarCrop: identityAvatar.crop || member.bot_avatar_crop,
+      color: identityAvatar.color || member.bot_color || member.avatarColor || member.avatar_color || ""
     });
   }
   if (owned) {
@@ -1308,11 +1308,11 @@ function fellowAvatarFor(conversation, fellowKey) {
       color: owned.color || owned.avatarColor || owned.avatar_color || ""
     });
   }
-  return avatarResolve.resolveAvatarForContact({ id: avatarId, displayName: fallbackFellow.name });
+  return avatarResolve.resolveAvatarForContact({ id: avatarId, displayName: fallbackBot.name });
 }
 
-function runtimeKindForFellowConversation(conversation, fellow) {
-  void fellow;
+function runtimeKindForBotConversation(conversation, bot) {
+  void bot;
   return sessionHistory.runtimeKind(conversation, "desktop-local");
 }
 
@@ -1328,15 +1328,15 @@ function engineForRuntimeBinding(runtimeKind, binding) {
   return engineForRuntimeKind(runtimeKind);
 }
 
-function runtimeCacheKey(fellowKey, runtimeKind) {
-  if (typeof fellowRuntimeControl.runtimeCacheKey === "function") {
-    return fellowRuntimeControl.runtimeCacheKey(fellowKey, runtimeKind || "cloud-hermes");
+function runtimeCacheKey(botKey, runtimeKind) {
+  if (typeof botRuntimeControl.runtimeCacheKey === "function") {
+    return botRuntimeControl.runtimeCacheKey(botKey, runtimeKind || "cloud-hermes");
   }
-  return `${fellowKey}:${runtimeKind || "cloud-hermes"}`;
+  return `${botKey}:${runtimeKind || "cloud-hermes"}`;
 }
 
-function runtimeBindingFor(fellowKey, runtimeKind) {
-  return state.fellowRuntimeCache.get(runtimeCacheKey(fellowKey, runtimeKind)) || null;
+function runtimeBindingFor(botKey, runtimeKind) {
+  return state.botRuntimeCache.get(runtimeCacheKey(botKey, runtimeKind)) || null;
 }
 
 function normalizePlatformModel(model = {}) {
@@ -1362,24 +1362,24 @@ async function loadPlatformModels() {
   }
 }
 
-async function ensureFellowRuntime(fellowKey, runtimeKind = "cloud-hermes") {
-  if (!fellowKey) return null;
-  const key = runtimeCacheKey(fellowKey, runtimeKind);
-  if (state.fellowRuntimeCache.has(key)) return state.fellowRuntimeCache.get(key);
-  if (typeof fellowRuntimeControl.getFellowRuntimeBinding !== "function") {
-    state.fellowRuntimeCache.set(key, null);
+async function ensureBotRuntime(botKey, runtimeKind = "cloud-hermes") {
+  if (!botKey) return null;
+  const key = runtimeCacheKey(botKey, runtimeKind);
+  if (state.botRuntimeCache.has(key)) return state.botRuntimeCache.get(key);
+  if (typeof botRuntimeControl.getBotRuntimeBinding !== "function") {
+    state.botRuntimeCache.set(key, null);
     return null;
   }
   try {
-    return await fellowRuntimeControl.getFellowRuntimeBinding({
+    return await botRuntimeControl.getBotRuntimeBinding({
       api,
-      cache: state.fellowRuntimeCache,
-      fellowKey,
+      cache: state.botRuntimeCache,
+      botId: botKey,
       runtimeKind
     });
   } catch (err) {
-    console.warn("[web] fellow runtime GET failed:", err);
-    state.fellowRuntimeCache.set(key, null);
+    console.warn("[web] bot runtime GET failed:", err);
+    state.botRuntimeCache.set(key, null);
     return null;
   }
 }
@@ -1464,17 +1464,17 @@ function setModelSwitchStatus() {
 }
 
 function renderComposerControls(conversation = null) {
-  const show = conversationTypeForControls(conversation) === "fellow";
+  const show = conversationTypeForControls(conversation) === "bot";
   els.composerBottom?.classList.toggle("hidden", !show);
   if (!show) return;
 
-  const fellowKey = fellowKeyForConversation(conversation);
-  const fellow = fellowByKey(fellowKey);
-  const runtimeKind = runtimeKindForFellowConversation(conversation, fellow);
-  const binding = runtimeBindingFor(fellowKey, runtimeKind);
+  const botKey = botKeyForConversation(conversation);
+  const bot = botByKey(botKey);
+  const runtimeKind = runtimeKindForBotConversation(conversation, bot);
+  const binding = runtimeBindingFor(botKey, runtimeKind);
   const config = binding?.config || {};
   const engine = engineForRuntimeBinding(runtimeKind, binding);
-  const editable = Boolean(fellowKey);
+  const editable = Boolean(botKey);
 
   const cloudModelEntries = selectEntriesForModel(engine, runtimeKind, config);
   const modelValue = config.model || (runtimeKind === "desktop-local" && (engine === "claude-code" || engine === "codex") ? "default" : cloudModelEntries[0]?.value || "mia-default");
@@ -1501,8 +1501,8 @@ function renderComposerControls(conversation = null) {
   if (els.permissionMode) els.permissionMode.disabled = !editable;
   setModelSwitchStatus(engineLabel(engine), editable);
 
-  if (editable && !state.fellowRuntimeCache.has(runtimeCacheKey(fellowKey, runtimeKind))) {
-    ensureFellowRuntime(fellowKey, runtimeKind).then(() => {
+  if (editable && !state.botRuntimeCache.has(runtimeCacheKey(botKey, runtimeKind))) {
+    ensureBotRuntime(botKey, runtimeKind).then(() => {
       if (state.activeConversationId === conversation.id) renderActiveChat();
     });
   }
@@ -1510,17 +1510,17 @@ function renderComposerControls(conversation = null) {
 
 async function saveWebAiControl(kind, value) {
   const conversation = state.conversations.find((r) => r.id === state.activeConversationId);
-  if (conversationTypeForControls(conversation) !== "fellow") return;
-  const fellowKey = fellowKeyForConversation(conversation);
-  const runtimeKind = runtimeKindForFellowConversation(conversation, fellowByKey(fellowKey));
-  if (!fellowKey) {
-    showToast("当前对话没有可配置的 fellow。");
+  if (conversationTypeForControls(conversation) !== "bot") return;
+  const botKey = botKeyForConversation(conversation);
+  const runtimeKind = runtimeKindForBotConversation(conversation, botByKey(botKey));
+  if (!botKey) {
+    showToast("当前对话没有可配置的智能体。");
     renderComposerControls(conversation);
     return;
   }
-  const key = runtimeCacheKey(fellowKey, runtimeKind);
-  const current = runtimeBindingFor(fellowKey, runtimeKind) || await ensureFellowRuntime(fellowKey, runtimeKind) || {
-    fellowId: fellowKey,
+  const key = runtimeCacheKey(botKey, runtimeKind);
+  const current = runtimeBindingFor(botKey, runtimeKind) || await ensureBotRuntime(botKey, runtimeKind) || {
+    botId: botKey,
     runtimeKind,
     enabled: true,
     config: {}
@@ -1530,20 +1530,21 @@ async function saveWebAiControl(kind, value) {
   const modelEntries = kind === "model" ? selectEntriesForModel(engine, runtimeKind, config) : [];
   setModelSwitchStatus("保存中...", true);
   try {
-    if (typeof fellowRuntimeControl.saveFellowRuntimeControl !== "function") {
-      throw new Error("Fellow runtime control is unavailable.");
+    if (typeof botRuntimeControl.saveBotRuntimeControl !== "function") {
+      throw new Error("Bot runtime control is unavailable.");
     }
-    const result = await fellowRuntimeControl.saveFellowRuntimeControl({
+    const result = await botRuntimeControl.saveBotRuntimeControl({
       api,
-      cache: state.fellowRuntimeCache,
-      fellow: { key: fellowKey, id: fellowKey, runtimeKind },
-      fellowKey,
+      cache: state.botRuntimeCache,
+      bot: { key: botKey, id: botKey, runtimeKind },
+      botKey,
+      botId: botKey,
       runtimeKind,
       field: kind,
       value,
       modelEntries
     });
-    if (result?.binding) state.fellowRuntimeCache.set(key, result.binding);
+    if (result?.binding) state.botRuntimeCache.set(key, result.binding);
     renderComposerControls(conversation);
     setModelSwitchStatus("已更新", true);
   } catch (err) {
@@ -1575,7 +1576,7 @@ function activeSessionConversation() {
 
 function sessionTitleForConversation(conversation) {
   return sessionHistory.sessionTitle(conversation, {
-    fellows: state.fellows,
+    bots: state.bots,
     defaultTitle: "新对话",
     groupTitle: "群聊",
     dmTitle: conversationDisplayTitle,
@@ -1626,17 +1627,17 @@ function selectSessionConversation(conversation) {
 async function createNewSessionForActive() {
   const conversation = activeSessionConversation();
   if (!sessionHistory.canCreateSession(conversation)) return;
-  const payload = sessionHistory.createFellowSessionPayload(conversation, cryptoRandomId(), {
+  const payload = sessionHistory.createBotSessionPayload(conversation, cryptoRandomId(), {
     title: "新对话",
     runtimeKindFallback: "desktop-local"
   });
-  const fellowKey = payload.fellowKey;
-  if (!fellowKey) return;
+  const botId = payload.botId;
+  if (!botId) return;
   try {
-    const res = await api(`/api/me/fellow-conversations/${encodeURIComponent(payload.sessionId)}`, {
+    const res = await api(`/api/me/bot-conversations/${encodeURIComponent(payload.sessionId)}`, {
       method: "PUT",
       body: {
-        fellowKey,
+        botId,
         title: payload.title,
         runtimeKind: payload.runtimeKind
       }
@@ -1701,7 +1702,7 @@ function groupTilesCtx() {
   return {
     self: state.user || null,
     friends: state.friends || [],
-    fellows: state.fellows || []
+    bots: state.bots || []
   };
 }
 
@@ -1717,8 +1718,8 @@ function combinedConversationItems() {
     // id-prefix fallback for cloud deployments that haven't shipped the v7
     // type column yet. Remove once every server is on schema ≥ v7.
     const isDM = r.type === "dm" || r.id?.startsWith("dm:");
-    const isFellow = r.type === "fellow" || r.id?.startsWith("fellow:");
-    const isGroup = r.type === "group" || (!isDM && !isFellow && (r.id?.startsWith("g_") || r.id?.startsWith("g-")));
+    const isBot = r.type === "bot" || r.id?.startsWith("botc_");
+    const isGroup = r.type === "group" || (!isDM && !isBot && (r.id?.startsWith("g_") || r.id?.startsWith("g-")));
     let avatar = "";
     let avatarCrop = null;
     let color = "";
@@ -1740,9 +1741,9 @@ function combinedConversationItems() {
       avatarCrop = resolved.crop;
       color = resolved.color;
       avatarText = resolved.text;
-    } else if (isFellow) {
-      const fellowKey = sessionHistory.fellowKey(r);
-      const fa = fellowAvatarFor(r, fellowKey);
+    } else if (isBot) {
+      const botKey = sessionHistory.botId(r);
+      const fa = botAvatarFor(r, botKey);
       if (fa) {
         avatar = fa.image;
         avatarCrop = fa.crop;
@@ -1757,7 +1758,7 @@ function combinedConversationItems() {
       preview: conversationLastMessageText(r),
       sortKey: conversationSortKey(r),
       isDM,
-      isFellow,
+      isBot,
       isGroup,
       avatar,
       avatarCrop,
@@ -2020,7 +2021,7 @@ function buildConversationMessageArticle(msg, conversation) {
   // Sender resolution routes through the canonical adapter (cloud-conversation-source).
   // Web reads only MessageSpec fields — no schema branching here.
   const members = state.conversationMembersCache.get(conversation.id) || [];
-  const ctx = { self: state.user, friends: state.friends, fellows: state.fellows };
+  const ctx = { self: state.user, friends: state.friends, bots: state.bots };
   const source = window.miaCloudConversationSource.createCloudConversationSource({
     conversation, messages: [msg], members, ctx
   });
@@ -2077,17 +2078,17 @@ function buildCloudAgentStreamingArticle(conversation, run) {
   // Typing-only state ("running" with no body yet) renders as header dots,
   // not a placeholder bubble in the message stream. See renderActiveChat.
   if (!run.text && !run.tools.length && !run.reasoning) return "";
-  const fellowKey = run.fellowId || sessionHistory.fellowKey(conversation) || "mia";
+  const botKey = run.botId || sessionHistory.botId(conversation) || "mia";
   const msg = {
     id: `cloud-agent-stream-${run.runId || conversation.id}`,
-    sender_kind: "fellow",
-    sender_ref: fellowKey,
+    sender_kind: "bot",
+    sender_ref: botKey,
     body_md: run.text || "",
     created_at: run.createdAt || new Date().toISOString(),
     seq: 0,
   };
   const members = state.conversationMembersCache.get(conversation.id) || [];
-  const ctx = { self: state.user, friends: state.friends, fellows: state.fellows };
+  const ctx = { self: state.user, friends: state.friends, bots: state.bots };
   const source = window.miaCloudConversationSource.createCloudConversationSource({ conversation, messages: [msg], members, ctx });
   const spec = source.listMessages()[0];
   const avatar = spec.avatar || {};
@@ -2189,7 +2190,7 @@ function renderCommandResultHtml(commandResult) {
   return rows ? `<div class="command-result session-list">${rows}</div>` : "";
 }
 
-// (buildDesktopMessageArticle removed in Phase 4 cutover — fellow chats
+// (buildDesktopMessageArticle removed in Phase 4 cutover — bot chats
 //  render through buildConversationMessageArticle now.)
 
 function setComposerEnabled(enabled, placeholder) {
@@ -2226,8 +2227,8 @@ function renderActiveChat() {
     const title = conversationDisplayTitle(conversation);
     const conversationType = conversationTypeForControls(conversation);
     const isDM = conversationType === "dm";
-    const isFellow = conversationType === "fellow";
-    const isGroup = !isDM && !isFellow;
+    const isBot = conversationType === "bot";
+    const isGroup = !isDM && !isBot;
     if (isGroup) {
       // Group conversations need the same stacked-tile mosaic the sidebar
       // paints (combinedConversationItems uses miaGroupTiles for this), so
@@ -2266,7 +2267,7 @@ function renderActiveChat() {
         peerColor = resolved.color;
         peerText = resolved.text;
       } else {
-        const fa = fellowAvatarFor(conversation, fellowKeyForConversation(conversation));
+        const fa = botAvatarFor(conversation, botKeyForConversation(conversation));
         peerAvatar = fa?.image || "";
         peerCrop = fa?.crop || null;
         peerColor = fa?.color || "";
@@ -2289,7 +2290,7 @@ function renderActiveChat() {
     if (activeRun?.status === "running") {
       els.activeMeta.innerHTML = `<span class="typing-status">正在输入<span class="typing-dots"><i></i><i></i><i></i></span></span>`;
     } else {
-      els.activeMeta.textContent = isDM ? "私聊" : isFellow ? "AI 私聊" : "群聊";
+      els.activeMeta.textContent = isDM ? "私聊" : isBot ? "AI 私聊" : "群聊";
     }
     renderSessionMenu();
     renderComposerControls(conversation);
@@ -2322,8 +2323,8 @@ async function hydrateActiveConversation(id) {
   await ensureConversationMessages(id);
   await ensureConversationMembers(id);
   const conversation = state.conversations.find((item) => item.id === id);
-  if (conversationTypeForControls(conversation) === "fellow") {
-    await ensureFellowRuntime(fellowKeyForConversation(conversation), runtimeKindForFellowConversation(conversation, fellowByKey(fellowKeyForConversation(conversation))));
+  if (conversationTypeForControls(conversation) === "bot") {
+    await ensureBotRuntime(botKeyForConversation(conversation), runtimeKindForBotConversation(conversation, botByKey(botKeyForConversation(conversation))));
   }
   if (state.activeConversationId !== id) return;
   // Phase 3: persist the read mark to cloud so other devices clear their badge.
@@ -2387,32 +2388,32 @@ async function sendInActive() {
     return;
   }
 
-  // (workspace conversation send removed — fellow chats are conversations and
+  // (workspace conversation send removed — bot chats are conversations and
   //  go through the isConversationId branch above. If we ever want web-triggered
-  //  agent execution for a fellow conversation, dispatch a bridge run AFTER the
+  //  agent execution for a bot conversation, dispatch a bridge run AFTER the
   //  /api/conversations/:id/messages POST above; the bridge handler now writes
   //  the assistant reply into the same conversation via messagesStore.)
 }
 
-// ── create cloud fellow dialog ─────────────────────────────────────────────
+// ── create cloud bot dialog ────────────────────────────────────────────────
 
-let _createFellowModal = null;
+let _createBotModal = null;
 let _avatarCropModal = null;
 
-function webSlugFromFellowName(name) {
-  return String(name || "fellow")
+function webSlugFromBotName(name) {
+  return String(name || "bot")
     .trim()
     .toLowerCase()
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "")
-    .slice(0, 48) || "fellow";
+    .slice(0, 48) || "bot";
 }
 
-function cloudFellowKeyFromName(name, existingKeys = []) {
+function cloudBotKeyFromName(name, existingKeys = []) {
   const used = new Set(existingKeys.map((key) => String(key || "").trim()).filter(Boolean));
-  const base = webSlugFromFellowName(name);
+  const base = webSlugFromBotName(name);
   let key = base;
   let index = 2;
   while (used.has(key)) {
@@ -2422,7 +2423,7 @@ function cloudFellowKeyFromName(name, existingKeys = []) {
   return key;
 }
 
-function webFellowDefaultDraft() {
+function webBotDefaultDraft() {
   return {
     name: "",
     personaText: "",
@@ -2432,25 +2433,25 @@ function webFellowDefaultDraft() {
   };
 }
 
-function setWebFellowAvatarDraft(draft, image, crop = null) {
+function setWebBotAvatarDraft(draft, image, crop = null) {
   const src = avatarResolve.normalizeAvatarImage(image);
   draft.avatarImage = src;
   draft.avatarCrop = src ? webNormalizeAvatarCrop(crop || webAvatarDefaultCropForSrc(src)) : null;
 }
 
-function renderWebFellowAvatarPreview(root, draft) {
-  const preview = root?.querySelector?.("#webFellowAvatarPreview");
+function renderWebBotAvatarPreview(root, draft) {
+  const preview = root?.querySelector?.("#webBotAvatarPreview");
   if (!preview) return;
   applyAvatarMedia(preview, draft.avatarImage, draft.avatarCrop, "#eef0ff", avatarResolve.identityDisplayText(draft.name, "智能体"));
   preview.title = "点击调整头像";
 }
 
-function renderWebFellowAvatarDefaults(root, draft) {
+function renderWebBotAvatarDefaults(root, draft) {
   void root;
   void draft;
 }
 
-function readWebFellowAvatarFile(file, draft, root) {
+function readWebBotAvatarFile(file, draft, root) {
   if (!file) return;
   const isImage = file.type?.startsWith("image/");
   const isVideo = file.type?.startsWith("video/");
@@ -2551,9 +2552,9 @@ function openWebAvatarCropEditor({ draft, root, image, crop }) {
       render();
     });
     _avatarCropModal.querySelector('[data-action="confirm"]')?.addEventListener("click", () => {
-      setWebFellowAvatarDraft(draft, editor.image, editor.crop);
-      renderWebFellowAvatarPreview(root, draft);
-      renderWebFellowAvatarDefaults(root, draft);
+      setWebBotAvatarDraft(draft, editor.image, editor.crop);
+      renderWebBotAvatarPreview(root, draft);
+      renderWebBotAvatarDefaults(root, draft);
       close();
     });
   };
@@ -2572,10 +2573,10 @@ function openWebAvatarCropEditor({ draft, root, image, crop }) {
   render();
 }
 
-async function saveCloudOnlyFellowFromWeb(draft) {
+async function saveCloudOnlyBotFromWeb(draft) {
   const name = String(draft.name || "").trim();
   if (!name) throw new Error("请输入智能体名称。");
-  const key = cloudFellowKeyFromName(name, state.fellows.map((fellow) => fellow.id || fellow.key));
+  const key = cloudBotKeyFromName(name, state.bots.map((bot) => bot.id || bot.key));
   const identity = {
     name,
     color: "#2563eb",
@@ -2585,11 +2586,11 @@ async function saveCloudOnlyFellowFromWeb(draft) {
     personaText: draft.personaText || "",
     capabilities: { legacyCapabilities: ["chat", "files", "terminal", "code"] }
   };
-  const saved = await api(`/api/me/fellows/${encodeURIComponent(key)}`, {
+  const saved = await api(`/api/me/bots/${encodeURIComponent(key)}`, {
     method: "PUT",
     body: identity
   });
-  const runtime = await api(`/api/me/fellows/${encodeURIComponent(key)}/runtime`, {
+  const runtime = await api(`/api/me/bots/${encodeURIComponent(key)}/runtime`, {
     method: "PUT",
     body: {
       runtimeKind: "cloud-hermes",
@@ -2601,50 +2602,51 @@ async function saveCloudOnlyFellowFromWeb(draft) {
       }
     }
   });
-  const ensured = await api(`/api/me/fellows/${encodeURIComponent(key)}/conversation`, {
+  const ensured = await api(`/api/me/bot-conversations/${encodeURIComponent(key)}`, {
     method: "PUT",
     body: {
+      botId: key,
       title: name,
       runtimeKind: "cloud-hermes"
     }
   });
-  const fellow = { ...(saved.fellow || identity), key, id: key };
-  state.fellows = [fellow, ...state.fellows.filter((item) => String(item.id || item.key || "") !== key)];
-  if (runtime.binding) state.fellowRuntimeCache.set(runtimeCacheKey(key, "cloud-hermes"), runtime.binding);
+  const bot = { ...(saved.bot || identity), key, id: key };
+  state.bots = [bot, ...state.bots.filter((item) => String(item.id || item.key || "") !== key)];
+  if (runtime.binding) state.botRuntimeCache.set(runtimeCacheKey(key, "cloud-hermes"), runtime.binding);
   if (ensured.conversation) {
     state.conversations = [ensured.conversation, ...state.conversations.filter((conversation) => conversation.id !== ensured.conversation.id)];
     if (Array.isArray(ensured.members)) state.conversationMembersCache.set(ensured.conversation.id, ensured.members);
   }
-  return { key, fellow, conversation: ensured.conversation || null };
+  return { key, bot, conversation: ensured.conversation || null };
 }
 
-function openCreateFellowDialog() {
-  if (!_createFellowModal) {
-    _createFellowModal = document.createElement("section");
-    _createFellowModal.className = "settings-modal web-fellow-dialog";
-    document.body.appendChild(_createFellowModal);
+function openCreateBotDialog() {
+  if (!_createBotModal) {
+    _createBotModal = document.createElement("section");
+    _createBotModal.className = "settings-modal web-bot-dialog";
+    document.body.appendChild(_createBotModal);
   }
   state.createMenuOpen = false;
   renderCreateMenu();
-  const draft = webFellowDefaultDraft();
-  _createFellowModal.classList.remove("hidden");
+  const draft = webBotDefaultDraft();
+  _createBotModal.classList.remove("hidden");
 
   function close() {
-    _createFellowModal.classList.add("hidden");
+    _createBotModal.classList.add("hidden");
     document.removeEventListener("keydown", onEsc);
-    _createFellowModal.removeEventListener("click", onBackdrop);
+    _createBotModal.removeEventListener("click", onBackdrop);
   }
   function onEsc(event) {
     if (event.key === "Escape") close();
   }
   function onBackdrop(event) {
-    if (event.target === _createFellowModal) close();
+    if (event.target === _createBotModal) close();
   }
 
   function render() {
-    _createFellowModal.innerHTML = `
-      <form id="webCreateFellowForm" class="fellow-form">
-        <header class="fellow-dialog-head">
+    _createBotModal.innerHTML = `
+      <form id="webCreateBotForm" class="bot-form">
+        <header class="bot-dialog-head">
           <div>
             <h2>创建智能体</h2>
           </div>
@@ -2652,20 +2654,20 @@ function openCreateFellowDialog() {
         </header>
         <label>
           姓名
-          <input id="webFellowName" autocomplete="off" value="${escapeHtml(draft.name)}">
+          <input id="webBotName" autocomplete="off" value="${escapeHtml(draft.name)}">
         </label>
         <label>
           运行位置
-          <div class="web-fellow-runtime-fixed">
-            <span class="web-fellow-runtime-logo" aria-hidden="true">M</span>
+          <div class="web-bot-runtime-fixed">
+            <span class="web-bot-runtime-logo" aria-hidden="true">M</span>
             <strong>Mia Cloud</strong>
           </div>
         </label>
         <section class="avatar-picker">
-          <div id="webFellowAvatarPreview" class="avatar-crop-preview" role="button" tabindex="0" aria-label="调整头像"></div>
-          <div id="webFellowAvatarDrop" class="avatar-drop">
-            <input id="webFellowAvatarFile" type="file" accept="image/*,video/*" class="hidden">
-            <button id="webChooseFellowAvatar" class="secondary avatar-file-button" type="button" title="选择图片" aria-label="选择图片">
+          <div id="webBotAvatarPreview" class="avatar-crop-preview" role="button" tabindex="0" aria-label="调整头像"></div>
+          <div id="webBotAvatarDrop" class="avatar-drop">
+            <input id="webBotAvatarFile" type="file" accept="image/*,video/*" class="hidden">
+            <button id="webChooseBotAvatar" class="secondary avatar-file-button" type="button" title="选择图片" aria-label="选择图片">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M17 8l-5-5-5 5 M12 3v12"/></svg>
               选择图片
             </button>
@@ -2675,36 +2677,36 @@ function openCreateFellowDialog() {
         <details class="persona-details">
           <summary>人设</summary>
           <label>
-            <span>会保存在 Mia Cloud，并作为该 Fellow 的系统人设注入。</span>
-            <textarea id="webFellowSeed" placeholder="可留空，后续在对话中慢慢形成">${escapeHtml(draft.personaText)}</textarea>
+            <span>会保存在 Mia Cloud，并作为该智能体的系统人设注入。</span>
+            <textarea id="webBotSeed" placeholder="可留空，后续在对话中慢慢形成">${escapeHtml(draft.personaText)}</textarea>
           </label>
         </details>
-        <footer class="fellow-dialog-actions">
+        <footer class="bot-dialog-actions">
           <button class="secondary" type="button" data-action="close">取消</button>
-          <button class="primary" type="submit" ${draft.saving ? "disabled" : ""}>${draft.saving ? "保存中..." : "保存伙伴"}</button>
+          <button class="primary" type="submit" ${draft.saving ? "disabled" : ""}>${draft.saving ? "保存中..." : "保存智能体"}</button>
         </footer>
       </form>
     `;
-    renderWebFellowAvatarPreview(_createFellowModal, draft);
-    renderWebFellowAvatarDefaults(_createFellowModal, draft);
-    const nameInput = _createFellowModal.querySelector("#webFellowName");
-    const seedInput = _createFellowModal.querySelector("#webFellowSeed");
-    const fileInput = _createFellowModal.querySelector("#webFellowAvatarFile");
-    const drop = _createFellowModal.querySelector("#webFellowAvatarDrop");
+    renderWebBotAvatarPreview(_createBotModal, draft);
+    renderWebBotAvatarDefaults(_createBotModal, draft);
+    const nameInput = _createBotModal.querySelector("#webBotName");
+    const seedInput = _createBotModal.querySelector("#webBotSeed");
+    const fileInput = _createBotModal.querySelector("#webBotAvatarFile");
+    const drop = _createBotModal.querySelector("#webBotAvatarDrop");
     nameInput?.addEventListener("input", () => { draft.name = nameInput.value; });
     seedInput?.addEventListener("input", () => { draft.personaText = seedInput.value; });
-    _createFellowModal.querySelector('[data-action="close"]')?.addEventListener("click", close);
-    _createFellowModal.querySelector("#webChooseFellowAvatar")?.addEventListener("click", () => fileInput?.click());
-    _createFellowModal.querySelector("#webFellowAvatarPreview")?.addEventListener("click", () => {
-      openWebAvatarCropEditor({ draft, root: _createFellowModal, image: draft.avatarImage, crop: draft.avatarCrop });
+    _createBotModal.querySelector('[data-action="close"]')?.addEventListener("click", close);
+    _createBotModal.querySelector("#webChooseBotAvatar")?.addEventListener("click", () => fileInput?.click());
+    _createBotModal.querySelector("#webBotAvatarPreview")?.addEventListener("click", () => {
+      openWebAvatarCropEditor({ draft, root: _createBotModal, image: draft.avatarImage, crop: draft.avatarCrop });
     });
-    _createFellowModal.querySelector("#webFellowAvatarPreview")?.addEventListener("keydown", (event) => {
+    _createBotModal.querySelector("#webBotAvatarPreview")?.addEventListener("keydown", (event) => {
       if (event.key !== "Enter" && event.key !== " ") return;
       event.preventDefault();
-      openWebAvatarCropEditor({ draft, root: _createFellowModal, image: draft.avatarImage, crop: draft.avatarCrop });
+      openWebAvatarCropEditor({ draft, root: _createBotModal, image: draft.avatarImage, crop: draft.avatarCrop });
     });
     fileInput?.addEventListener("change", () => {
-      readWebFellowAvatarFile(fileInput.files?.[0], draft, _createFellowModal);
+      readWebBotAvatarFile(fileInput.files?.[0], draft, _createBotModal);
       fileInput.value = "";
     });
     drop?.addEventListener("dragover", (event) => {
@@ -2715,16 +2717,16 @@ function openCreateFellowDialog() {
     drop?.addEventListener("drop", (event) => {
       event.preventDefault();
       drop.classList.remove("dragging");
-      readWebFellowAvatarFile(event.dataTransfer?.files?.[0], draft, _createFellowModal);
+      readWebBotAvatarFile(event.dataTransfer?.files?.[0], draft, _createBotModal);
     });
-    _createFellowModal.querySelector("#webCreateFellowForm")?.addEventListener("submit", async (event) => {
+    _createBotModal.querySelector("#webCreateBotForm")?.addEventListener("submit", async (event) => {
       event.preventDefault();
       draft.name = nameInput?.value || draft.name;
       draft.personaText = seedInput?.value || draft.personaText;
       draft.saving = true;
       render();
       try {
-        const saved = await saveCloudOnlyFellowFromWeb(draft);
+        const saved = await saveCloudOnlyBotFromWeb(draft);
         close();
         renderConversationList();
         if (saved.conversation?.id) setActiveConversation(saved.conversation.id);
@@ -2737,9 +2739,9 @@ function openCreateFellowDialog() {
   }
 
   document.addEventListener("keydown", onEsc);
-  _createFellowModal.addEventListener("click", onBackdrop);
+  _createBotModal.addEventListener("click", onBackdrop);
   render();
-  setTimeout(() => _createFellowModal.querySelector("#webFellowName")?.focus(), 0);
+  setTimeout(() => _createBotModal.querySelector("#webBotName")?.focus(), 0);
 }
 
 // ── add-friend dialog ──────────────────────────────────────────────────────
@@ -2985,7 +2987,7 @@ function openCreateGroupDialog() {
     const namesList = ids.map((id) => friendUsernameById(id));
     const name = (nameInput?.value || "").trim() || namesList.join(" · ");
     try {
-      const res = await api("/api/conversations", { method: "POST", body: { name, memberFriendUserIds: ids, memberFellows: [] } });
+      const res = await api("/api/conversations", { method: "POST", body: { name, memberFriendUserIds: ids, memberBots: [] } });
       const conversation = res.conversation || res.data?.conversation;
       if (conversation) {
         state.conversations = [conversation, ...state.conversations.filter((r) => r.id !== conversation.id)];
@@ -3103,7 +3105,7 @@ els.newConversation.addEventListener("click", (event) => {
 });
 els.convMenuAddFriend?.addEventListener("click", () => openAddFriendDialog());
 els.convMenuNewGroup?.addEventListener("click", () => openCreateGroupDialog());
-els.convMenuNewFellow?.addEventListener("click", () => openCreateFellowDialog());
+els.convMenuNewBot?.addEventListener("click", () => openCreateBotDialog());
 document.addEventListener("click", (event) => {
   if (!state.createMenuOpen) return;
   if (els.conversationCreateMenu?.contains(event.target) || els.newConversation?.contains(event.target)) return;

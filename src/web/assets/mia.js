@@ -6,7 +6,7 @@
 
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  // Refined icon-based Fellow avatars (no more character art)
+  // Refined icon-based Bot avatars (no more character art)
   const ICON = {
     coder:    '<path d="M9 8l-4 4 4 4"/><path d="M15 8l4 4-4 4"/>',
     detective:'<circle cx="11" cy="11" r="6.2"/><path d="M20.5 20.5 16 16"/>',
@@ -109,11 +109,11 @@
   const heroScript = [
     { type: 'user', html: '帮我把新版落地页的测试跑一下,过了就提交' },
     { type: 'typing', av: AV.coder, ms: 1100 },
-    { type: 'fellow', av: AV.coder, html: '好的,我来跑 <code>npm test</code> →' },
-    { type: 'fellow', av: AV.coder, html: '✅ 28 个用例全过。测试都过了,我把改动提交一下?' },
+    { type: 'bot', av: AV.coder, html: '好的,我来跑 <code>npm test</code> →' },
+    { type: 'bot', av: AV.coder, html: '✅ 28 个用例全过。测试都过了,我把改动提交一下?' },
     { type: 'perm' },
     { type: 'user', html: '允许 ✓', mini: true },
-    { type: 'fellow', av: AV.coder, html: '已提交 <code>feat: 新版落地页</code> 🎉 要我顺手发个上线通知到群里吗?' },
+    { type: 'bot', av: AV.coder, html: '已提交 <code>feat: 新版落地页</code> 🎉 要我顺手发个上线通知到群里吗?' },
   ];
 
   function heroPerm() {
@@ -167,7 +167,7 @@
           scrollChat(heroBody);
           await wait(step.ms || 1000);
           t.remove();
-        } else if (step.type === 'fellow') {
+        } else if (step.type === 'bot') {
           const n = bubble({ av: step.av, html: step.html });
           heroBody.appendChild(n);
           show(n);

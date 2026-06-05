@@ -31,18 +31,17 @@
     return "";
   }
 
-  function fellowAvatarIdentityId(ref, fellow = {}, member = {}) {
+  function botAvatarIdentityId(ref, bot = {}, member = {}) {
     const identity = member.identity || {};
     const record = {
-      ...(fellow || {}),
+      ...(bot || {}),
       member_ref: ref,
-      globalId: firstNonEmpty(fellow?.globalId, fellow?.global_id, identity.globalId, identity.global_id),
-      fellowGlobalId: firstNonEmpty(fellow?.fellowGlobalId, fellow?.fellow_global_id),
+      botId: firstNonEmpty(bot?.botId, bot?.bot_id, identity.botId, identity.bot_id),
       ownerUserId: firstNonEmpty(
-        fellow?.ownerUserId,
-        fellow?.owner_user_id,
-        fellow?.ownerId,
-        fellow?.owner_id,
+        bot?.ownerUserId,
+        bot?.owner_user_id,
+        bot?.ownerId,
+        bot?.owner_id,
         member.owner_user_id,
         member.owner_id,
         identity.ownerUserId,
@@ -50,12 +49,10 @@
       )
     };
     const helper = contactResolver();
-    if (helper && typeof helper.fellowAvatarIdentityId === "function") {
-      return helper.fellowAvatarIdentityId(ref, record);
+    if (helper && typeof helper.botAvatarIdentityId === "function") {
+      return helper.botAvatarIdentityId(ref, record);
     }
-    const localId = firstNonEmpty(ref, record.key, record.id);
-    if (record.globalId) return record.globalId;
-    return record.ownerUserId && localId ? "fellow:" + record.ownerUserId + ":" + localId : localId;
+    return firstNonEmpty(ref, record.id, record.botId, record.bot_id, record.member_ref);
   }
 
   function resolveTile(input) {
@@ -87,7 +84,7 @@
 
   function resolveGroupMemberTiles(members, ctx = {}) {
     if (!Array.isArray(members)) return [];
-    const { self, friends, fellows } = ctx;
+    const { self, friends, bots } = ctx;
     const out = [];
     for (const m of members) {
       if (!m) continue;
@@ -118,19 +115,19 @@
         }));
         continue;
       }
-      if (kind === "fellow") {
-        const fellow = (fellows || []).find((f) => (f.id || f.key) === ref);
-        const hasFellow = Boolean(fellow);
-        const hasFellowAvatar = hasAvatarIdentityFields(fellow);
+      if (kind === "bot") {
+        const bot = (bots || []).find((b) => (b.id || b.botId || b.bot_id) === ref);
+        const hasBot = Boolean(bot);
+        const hasBotAvatar = hasAvatarIdentityFields(bot);
         const identityAvatar = m.identity?.avatar || {};
         out.push(resolveTile({
-          id: fellowAvatarIdentityId(ref, fellow || {}, m),
-          displayName: fellow?.name || fellow?.displayName || m.identity?.displayName || m.fellow_name || ref,
-          avatarImage: hasFellow && hasFellowAvatar ? fellow.avatarImage : (identityAvatar.image || m.fellow_avatar_image),
-          avatarCrop: hasFellow && hasFellowAvatar ? fellow.avatarCrop : (identityAvatar.crop || m.fellow_avatar_crop),
-          color: hasFellow && hasFellowAvatar
-            ? (fellow.color || fellow.avatarColor || fellow.avatar_color || "")
-            : (identityAvatar.color || m.fellow_color || m.avatarColor || m.avatar_color || "")
+          id: botAvatarIdentityId(ref, bot || {}, m),
+          displayName: bot?.displayName || bot?.display_name || bot?.name || m.identity?.displayName || m.bot_name || ref,
+          avatarImage: hasBot && hasBotAvatar ? (bot.avatarImage || bot.avatar_image) : (identityAvatar.image || m.bot_avatar_image),
+          avatarCrop: hasBot && hasBotAvatar ? (bot.avatarCrop || bot.avatar_crop) : (identityAvatar.crop || m.bot_avatar_crop),
+          color: hasBot && hasBotAvatar
+            ? (bot.color || bot.avatarColor || bot.avatar_color || "")
+            : (identityAvatar.color || m.bot_color || m.avatarColor || m.avatar_color || "")
         }));
       }
     }
@@ -141,7 +138,7 @@
     const members = [];
     if (selfId) members.push({ member_kind: "user", member_ref: selfId });
     for (const m of (group?.members || [])) {
-      if (m && m.fellowId) members.push({ member_kind: "fellow", member_ref: m.fellowId });
+      if (m && m.botId) members.push({ member_kind: "bot", member_ref: m.botId });
     }
     return members;
   }

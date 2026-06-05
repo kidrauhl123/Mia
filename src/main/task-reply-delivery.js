@@ -15,7 +15,7 @@ function postedMessageId(result, fallbackMessageId = "") {
 async function deliverTaskReplyToConversation({
   socialApi,
   settingsStore,
-  fellow,
+  bot,
   conversationId,
   fallbackConversationId = "",
   assistantText,
@@ -39,8 +39,9 @@ async function deliverTaskReplyToConversation({
   const trace = assistantTracePayload && typeof assistantTracePayload === "object"
     ? assistantTracePayload
     : {};
-  const result = await socialApi.postConversationMessageAsFellow(targetConversationId, {
-    fellowId: fellow?.key || fellow?.id || "",
+  const replyBot = bot || {};
+  const result = await socialApi.postConversationMessageAsBot(targetConversationId, {
+    botId: replyBot?.key || replyBot?.id || "",
     bodyMd: text,
     ...(Object.keys(trace).length ? { trace } : {}),
     clientOpId: `op_task_${taskRunId || targetConversationId}_${fallbackMessageId || "reply"}`

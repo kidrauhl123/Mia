@@ -575,15 +575,15 @@ h2.h2 {
 }
 
 /* ============================================================
-   FELLOWS GRID
+   BOTS GRID
    ============================================================ */
-.fellows {
+.bots {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 18px;
   margin-top: 56px;
 }
-.fellow-card {
+.bot-card {
   position: relative;
   border-radius: var(--radius);
   background: var(--surface);
@@ -592,10 +592,10 @@ h2.h2 {
   overflow: hidden;
   transition: transform 0.4s cubic-bezier(0.16,1,0.3,1), box-shadow 0.4s, border-color 0.3s;
 }
-.fellow-card:hover { transform: translateY(-6px); box-shadow: var(--shadow-lg); border-color: transparent; }
-.fellow-card .glow { display: none; }
-.fellow-card:hover .glow { opacity: 1; }
-.fellow-portrait {
+.bot-card:hover { transform: translateY(-6px); box-shadow: var(--shadow-lg); border-color: transparent; }
+.bot-card .glow { display: none; }
+.bot-card:hover .glow { opacity: 1; }
+.bot-portrait {
   width: 96px; height: 96px;
   border-radius: 24px;
   background: var(--bg-soft);
@@ -603,22 +603,22 @@ h2.h2 {
   margin-bottom: 18px;
   box-shadow: var(--shadow-sm);
 }
-.fellow-portrait img { position: absolute; width: 132%; left: -16%; top: -6%; }
-.fellow-card h3 { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; display: flex; align-items: center; gap: 8px; }
-.fellow-role { font-size: 13px; color: var(--ink-3); font-weight: 500; margin-top: 3px; }
-.fellow-card p { font-size: 14.5px; color: var(--ink-2); line-height: 1.55; margin-top: 12px; }
-.fellow-skills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 16px; }
+.bot-portrait img { position: absolute; width: 132%; left: -16%; top: -6%; }
+.bot-card h3 { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; display: flex; align-items: center; gap: 8px; }
+.bot-role { font-size: 13px; color: var(--ink-3); font-weight: 500; margin-top: 3px; }
+.bot-card p { font-size: 14.5px; color: var(--ink-2); line-height: 1.55; margin-top: 12px; }
+.bot-skills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 16px; }
 .skill-chip {
   font-size: 12px; font-weight: 500;
   padding: 4px 10px; border-radius: 7px;
   background: var(--bg-soft); color: var(--ink-2);
 }
-.fellow-engine {
+.bot-engine {
   display: inline-flex; align-items: center; gap: 6px;
   font-size: 11px; color: var(--ink-3); margin-top: 16px;
   padding-top: 14px; border-top: 1px solid var(--line); width: 100%;
 }
-.fellow-engine .edot { width: 8px; height: 8px; border-radius: 50%; }
+.bot-engine .edot { width: 8px; height: 8px; border-radius: 50%; }
 
 /* ============================================================
    FEATURE SPLIT (image + text)
@@ -819,7 +819,7 @@ h2.h2 {
   .hero-copy { max-width: 600px; }
   .split { grid-template-columns: 1fr; gap: 40px; }
   .split.flip .split-visual { order: 0; }
-  .fellows { grid-template-columns: repeat(2, 1fr); }
+  .bots { grid-template-columns: repeat(2, 1fr); }
   .devices { grid-template-columns: 1fr; }
   .engines { grid-template-columns: 1fr; }
   .trust { grid-template-columns: 1fr; }
@@ -828,7 +828,7 @@ h2.h2 {
 @media (max-width: 680px) {
   .wrap { padding: 0 20px; }
   section.block { padding: 80px 0; }
-  .fellows { grid-template-columns: 1fr; }
+  .bots { grid-template-columns: 1fr; }
   .miawin { display: none; }
   .miawin-mobile-note { display: block; }
   .hero-stage { max-width: 420px; }
@@ -838,7 +838,7 @@ h2.h2 {
 .miawin-mobile-note { display: none; }
 
 /* ============================================================
-   FELLOW AVATAR SYSTEM (refined, icon-based — replaces portraits)
+   BOT AVATAR SYSTEM (refined, icon-based — replaces portraits)
    ============================================================ */
 .av {
   display: grid;
@@ -860,7 +860,7 @@ h2.h2 {
 .av--amber  { --av-bg: #f5ecdc; --av-fg: #bd7d1e; }
 .av--slate  { --av-bg: #eaedf2; --av-fg: #5d697e; }
 
-/* floating glass fellow chips (replace character cut-outs) */
+/* floating glass bot chips (replace character cut-outs) */
 .float-chip {
   position: absolute;
   z-index: 1;

@@ -79,25 +79,25 @@ function createHermesChatAdapter(deps = {}) {
     return runId;
   }
 
-  async function sendChat({ fellow, sessionId, messages, group, signal, emit, scheduledFire = false, runtimeConfig = null }) {
-    // Tell the scheduler MCP which fellow/session this turn belongs to, so a
+  async function sendChat({ bot, sessionId, messages, group, signal, emit, scheduledFire = false, runtimeConfig = null }) {
+    // Tell the scheduler MCP which bot/session this turn belongs to, so a
     // schedule_create call fires the reminder back into this conversation.
     const lastUserMessage = Array.isArray(messages)
       ? [...messages].reverse().find((m) => m?.role === "user")
       : null;
     const originMessageId = String(lastUserMessage?.id || "");
     try {
-      writeSchedulerMcpContext({ fellowId: fellow.key, sessionId, originMessageId });
+      writeSchedulerMcpContext({ botId: bot.key, sessionId, originMessageId });
     } catch (error) {
       appendEngineLog(`Scheduler MCP context write failed: ${error?.message || error}`);
     }
     try {
-      writeMiaAppMcpContext({ fellowId: fellow.key, sessionId, originMessageId });
+      writeMiaAppMcpContext({ botId: bot.key, sessionId, originMessageId });
     } catch (error) {
       appendEngineLog(`Mia app MCP context write failed: ${error?.message || error}`);
     }
-    // Inject the Fellow's enabled skills into the user turn so Hermes uses them.
-    const enabledSkills = buildEnabledSkillsContext(fellow);
+    // Inject the bot's enabled skills into the user turn so Hermes uses them.
+    const enabledSkills = buildEnabledSkillsContext(bot);
     const skillMessages = enabledSkills && lastUserMessage
       ? messages.map((m) => (m === lastUserMessage
           ? {
@@ -113,13 +113,13 @@ function createHermesChatAdapter(deps = {}) {
       ...(typeof message?.text === "string" ? { text: sanitizeMiaMemorySpoof(message.text) } : {})
     }));
     const runtimeContext = String(runtimeSystemPrompt({ scheduledFire }) || "").trim();
-    const miaMemory = memoryBlock({ fellowKey: fellow.key, sessionId });
+    const miaMemory = memoryBlock({ botId: bot.key, sessionId });
     const systemContext = appendMiaMemoryBlock(runtimeContext, miaMemory);
     const runMessages = systemContext
       ? [{ role: "system", content: systemContext }, ...sanitizedMessages]
       : sanitizedMessages;
     const runBody = buildRunPayload({
-      fellow,
+      bot,
       sessionId,
       messages: runMessages,
       model: runtimeConfig?.model,
@@ -129,8 +129,8 @@ function createHermesChatAdapter(deps = {}) {
     const headers = {
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey()}`,
-      "X-Mia-Fellow": fellow.key,
-      "X-Alkaka-Fellow": fellow.key
+      "X-Mia-Bot": bot.key,
+      "X-Alkaka-Bot": bot.key
     };
     if (group && group.contextBlock) {
       headers["X-Mia-Group-Context"] = buildGroupHeader(group.contextBlock);
@@ -157,26 +157,26 @@ function createHermesChatAdapter(deps = {}) {
         transport: "runs",
         run_id: runId,
         session_id: runBody.session_id,
-        fellow_key: fellow.key,
+        bot_id: bot.key,
         events: stream.events
       }
     };
   }
 
-  async function sendStateless({ fellow, systemPrompt, userPrompt, signal }) {
-    const accountId = fellow.account_id || fellow.key;
-    const routeProfile = fellow.route_profile || accountId;
+  async function sendStateless({ bot, systemPrompt, userPrompt, signal }) {
+    const accountId = bot.account_id || bot.key;
+    const routeProfile = bot.route_profile || accountId;
     const runBody = {
       model: responseModel,
       input: userPrompt,
       session_id: `_stateless_${randomUUID()}`,
       account_id: accountId,
       metadata: {
-        fellow_key: fellow.key,
-        persona_key: fellow.key,
+        bot_id: bot.key,
+        persona_key: bot.key,
         account_id: accountId,
         route_profile: routeProfile,
-        display_name: fellow.name
+        display_name: bot.name
       }
     };
     if (systemPrompt) runBody.instructions = systemPrompt;

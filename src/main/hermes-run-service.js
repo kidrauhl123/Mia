@@ -1,8 +1,8 @@
 const crypto = require("node:crypto");
 
-function cleanRunSessionId(value, fellowKey) {
+function cleanRunSessionId(value, botKey) {
   const raw = String(value || "").trim();
-  const fallback = `${fellowKey || "mia"}:default`;
+  const fallback = `${botKey || "mia"}:default`;
   return (raw || fallback)
     .replace(/[^A-Za-z0-9_.:-]+/g, "_")
     .slice(0, 120) || fallback;
@@ -89,7 +89,7 @@ function createHermesRunService(deps = {}) {
       .filter((message) => message.content || message.attachments.length);
   }
 
-  function buildRunPayload({ fellow, sessionId, messages, model = "", effortLevel = "", permissionMode = "" }) {
+  function buildRunPayload({ bot, sessionId, messages, model = "", effortLevel = "", permissionMode = "" }) {
     const normalized = normalizeRunMessages(messages);
     const instructions = normalized
       .filter((message) => message.role === "system")
@@ -115,22 +115,22 @@ function createHermesRunService(deps = {}) {
         ].filter(Boolean).join("\n\n")
       }))
       .filter((message) => message.content);
-    const accountId = fellow.account_id || fellow.key;
-    const routeProfile = fellow.route_profile || accountId;
+    const accountId = bot.account_id || bot.key;
+    const routeProfile = bot.route_profile || accountId;
     const selectedModel = String(model || "").trim() || "hermes-agent";
     const selectedEffort = String(effortLevel || "").trim();
     const selectedPermission = String(permissionMode || "").trim();
     const body = {
       model: selectedModel,
       input,
-      session_id: cleanRunSessionId(sessionId, fellow.key),
+      session_id: cleanRunSessionId(sessionId, bot.key),
       account_id: accountId,
       metadata: {
-        fellow_key: fellow.key,
-        persona_key: fellow.key,
+        bot_id: bot.key,
+        persona_key: bot.key,
         account_id: accountId,
         route_profile: routeProfile,
-        display_name: fellow.name
+        display_name: bot.name
       }
     };
     if (selectedEffort) body.metadata.effort_level = selectedEffort;

@@ -2,12 +2,14 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { CloudEvent } = require("../src/shared/cloud-events");
 
-test("CloudEvent has all 12 known event types", () => {
+test("CloudEvent has known event types", () => {
   assert.equal(CloudEvent.SocialFriendRequestReceived, "social.friend_request_received");
   assert.equal(CloudEvent.SocialFriendAdded, "social.friend_added");
   assert.equal(CloudEvent.SocialConversationInvited, "social.conversation_invited");
   assert.equal(CloudEvent.ConversationMessageAppended, "conversation.message_appended");
-  assert.equal(CloudEvent.ConversationFellowInvocationRequested, "conversation.fellow_invocation_requested");
+  assert.equal(CloudEvent.ConversationBotInvocationRequested, "conversation.bot_invocation_requested");
+  assert.equal(CloudEvent.BotUpserted, "bot.upserted");
+  assert.equal(CloudEvent.BotDeleted, "bot.deleted");
   assert.equal(CloudEvent.WorkspaceUpdated, "workspace_updated");
   assert.equal(CloudEvent.MessageCreated, "message_created");
   assert.equal(CloudEvent.BridgeRunUpdated, "bridge_run_updated");

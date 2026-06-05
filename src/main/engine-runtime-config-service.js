@@ -126,7 +126,7 @@ function createEngineRuntimeConfigService(deps = {}) {
       `  reasoning_effort: ${JSON.stringify(reasoningEffort)}`,
       // Scheduling is owned by mia's app-maintained scheduler (the
       // mia-scheduler MCP below), which delivers reminders back into the
-      // chat. Disable Hermes' built-in cronjob toolset so the fellow routes
+      // chat. Disable Hermes' built-in cronjob toolset so the bot routes
       // through the app scheduler instead of Hermes' own cron (whose output
       // never reaches the desktop UI).
       "  disabled_toolsets:",
@@ -156,7 +156,7 @@ function createEngineRuntimeConfigService(deps = {}) {
     })();
     if (schedulerSpec && schedulerSpec.command) {
       // Reuse the same scheduler MCP server that Claude Code / Codex get, so
-      // the Hermes fellow can call schedule_* and have the app deliver the
+      // the Hermes bot can call schedule_* and have the app deliver the
       // reminder. Hermes reads command/args/env per mcp_servers entry and
       // infers stdio transport when no url is present (see Hermes mcp_tool).
       mcpServers["mia-scheduler"] = {
@@ -172,7 +172,7 @@ function createEngineRuntimeConfigService(deps = {}) {
     lines.push(
       "mia:",
       "  runtime_schema: 1",
-      "  fellows_manifest: fellows/manifest.json",
+      "  bots_manifest: bots/manifest.json",
       ""
     );
     atomicWriteFile(configPath, lines.join("\n"), 0o600);

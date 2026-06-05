@@ -1,6 +1,6 @@
 // Setup guide / onboarding module
-// Extracted from app.js. Renders the "no fellow yet" / "pick an engine" /
-// "create first fellow" guide that takes over the chat panel during onboarding.
+// Extracted from app.js. Renders the "no bot yet" / "pick an engine" /
+// "create first bot" guide that takes over the chat panel during onboarding.
 //
 // Defensive `if (!state)` guards keep early calls safe.
 (function () {

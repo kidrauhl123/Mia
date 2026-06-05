@@ -1,0 +1,327 @@
+/* 发现 AI 同事 / 联系人 —— 整屏灰底，顶栏 mode 胶囊，内容是浮在灰底上的白卡（仿技能/任务）。
+   发现 = 整块卡片网格；联系人 = 浮动白卡列表 + 详情内容卡片直接浮在灰底上。 */
+
+/* ── app-shell 改成「顶条一行 + 内容一行」，顶条横跨中栏+右栏 ── */
+.app-shell[data-active-view="contacts"],
+.app-shell[data-active-view="bot-store"] {
+  grid-template-rows: auto minmax(0, 1fr);
+  background: var(--surface-muted);   /* 整壳灰底，浮卡之间的间隙也是这个灰 */
+}
+.discover-top-bar { display: none; }
+.app-shell[data-active-view="contacts"] .discover-top-bar,
+.app-shell[data-active-view="bot-store"] .discover-top-bar {
+  display: flex;
+  align-items: center;
+  grid-column: 2 / -1;
+  grid-row: 1;
+  padding: 14px 22px 6px;
+  background: var(--surface-muted);
+  border-radius: 0 14px 0 0;          /* 同技能：左上角直角、右上角圆 */
+  -webkit-app-region: drag;           /* 顶条空白处可拖窗（同 .topbar），胶囊保持可点 */
+}
+.discover-mode-toggle { -webkit-app-region: no-drag; }
+/* rail 跨两行；列表/详情/网格都在第二行；发现模式无中栏可拖 */
+.app-shell[data-active-view="contacts"] .nav-rail,
+.app-shell[data-active-view="bot-store"] .nav-rail { grid-row: 1 / -1; grid-column: 1; }
+.app-shell[data-active-view="contacts"] .contacts-sidebar { grid-row: 2; grid-column: 2; }
+.app-shell[data-active-view="contacts"] #sidebarResizeHandle { grid-row: 2; grid-column: 3; display: none; }
+.app-shell[data-active-view="contacts"] #contactsView { grid-row: 2; grid-column: 4; }
+.app-shell[data-active-view="bot-store"] #botStoreView { grid-row: 2; grid-column: 2 / -1; }
+.app-shell[data-active-view="bot-store"] #sidebarResizeHandle { display: none; }
+
+/* 两视图都去掉了自带顶栏，内容占满整格 */
+.bot-store-workspace,
+.contacts-workspace { grid-template-rows: minmax(0, 1fr); }
+.bot-store-workspace { grid-column: 2 / -1; }
+
+/* ── 顶栏 mode 胶囊：滑动白胶囊（仿 skill-mode-toggle） ── */
+.discover-mode-toggle {
+  position: relative;
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--field);
+  isolation: isolate;
+}
+.discover-mode-toggle::before {
+  content: "";
+  position: absolute;
+  top: 3px; bottom: 3px; left: 0;
+  width: var(--pill-w, 0px);
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: 0 1px 3px rgba(17, 24, 39, 0.08);
+  opacity: var(--pill-ready, 0);
+  transform: translateX(var(--pill-x, 0px));
+  pointer-events: none;
+  z-index: 0;
+  transition: transform 180ms cubic-bezier(0.2, 0.7, 0.2, 1), width 180ms cubic-bezier(0.2, 0.7, 0.2, 1), opacity 120ms ease;
+}
+.discover-mode-toggle button {
+  position: relative;
+  z-index: 1;
+  padding: 5px 16px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 450;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 140ms ease;
+}
+.discover-mode-toggle button.active { color: var(--text); font-weight: 560; }
+
+/* ── 联系人模式：中栏列表 = 一张悬浮白卡（四角圆润 + 与详情卡片同款阴影/描边）──
+   整块是单一白卡（搜索+列表），靠 margin 在灰壳上浮起；阴影/描边与 .contact-note / .contact-capabilities 完全一致 */
+.app-shell[data-active-view="contacts"] .contacts-sidebar {
+  background: var(--surface);
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgba(16, 20, 39, 0.05), inset 0 0 0 1px rgba(0, 0, 0, 0.035);
+  margin: 12px 14px 14px 12px;
+  overflow: hidden;
+  gap: 0;
+}
+.app-shell[data-active-view="contacts"] .contacts-sidebar .sidebar-tools {
+  background: transparent;
+  border-bottom: 0;
+  min-height: 0;
+  padding: 12px 12px 6px;
+}
+.app-shell[data-active-view="contacts"] .contacts-sidebar .contact-section {
+  background: transparent;
+}
+/* 详情：与顶条同灰、无阴影无圆角接缝；里面的内容卡片直接浮在灰底上 */
+.app-shell[data-active-view="contacts"] #contactsView {
+  background: var(--surface-muted);
+  box-shadow: none;
+  border-radius: 0 0 14px 0;
+}
+.app-shell[data-active-view="bot-store"] #botStoreView {
+  box-shadow: none;
+  border-radius: 0 0 14px 0;
+}
+
+.bot-store-layout {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 14px;
+  min-height: 0;
+  padding: 8px 24px 24px;
+  background: var(--surface-muted);
+  overflow: hidden;
+}
+
+/* 顶部分类胶囊 —— 滑动白胶囊 */
+.bot-store-cap {
+  position: relative;
+  display: inline-flex;
+  align-self: start;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--field);
+  isolation: isolate;
+}
+.bot-store-cap::before {
+  content: "";
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 0;
+  width: var(--pill-w, 0px);
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: 0 1px 3px rgba(17, 24, 39, 0.10);
+  opacity: var(--pill-ready, 0);
+  transform: translateX(var(--pill-x, 0px));
+  pointer-events: none;
+  z-index: 0;
+  transition: transform 200ms cubic-bezier(0.2, 0.7, 0.2, 1), width 200ms cubic-bezier(0.2, 0.7, 0.2, 1), opacity 120ms ease;
+}
+.bot-store-cap button {
+  position: relative;
+  z-index: 1;
+  padding: 6px 15px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 460;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 140ms ease;
+}
+.bot-store-cap button.active { color: var(--text); font-weight: 580; }
+
+/* 卡片网格 */
+.bot-store-grid-scroll { overflow: auto; min-height: 0; }
+.bot-store-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
+  align-content: start;
+}
+
+.bot-store-card {
+  display: grid;
+  gap: 14px;
+  padding: 18px 20px;
+  border-radius: 18px;
+  background: var(--surface);
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(17, 24, 39, 0.04), 0 6px 20px rgba(17, 24, 39, 0.04);
+  transition: box-shadow 0.16s ease, transform 0.16s ease;
+  animation: bot-store-rise 0.42s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.bot-store-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 2px 6px rgba(17, 24, 39, 0.06), 0 14px 32px rgba(17, 24, 39, 0.10);
+}
+@keyframes bot-store-rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+.bot-store-card-head { display: flex; align-items: center; gap: 13px; min-width: 0; }
+.bot-store-avatar {
+  flex: 0 0 auto;
+  width: 50px;
+  height: 50px;
+  border-radius: 15px;
+  display: grid;
+  place-items: center;
+  font-size: 25px;
+}
+.bot-store-card-head .meta { min-width: 0; }
+.bot-store-card-head strong {
+  display: block;
+  overflow: hidden;
+  font-size: 15.5px;
+  font-weight: 580;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bot-store-card-head .tag {
+  margin-top: 3px;
+  overflow: hidden;
+  font-size: 12.5px;
+  color: var(--faint);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bot-store-card p.line {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.bot-store-empty {
+  padding: 48px 12px;
+  color: var(--faint);
+  text-align: center;
+  font-size: 13px;
+}
+
+/* 详情覆盖层 —— 盖在画布上展开 */
+.bot-store-scrim {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background: rgba(20, 24, 40, 0.28);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+  z-index: 30;
+}
+.bot-store-scrim.open { opacity: 1; pointer-events: auto; }
+.bot-store-sheet {
+  width: min(520px, 100%);
+  max-height: 86%;
+  overflow: auto;
+  padding: 28px;
+  border-radius: 24px;
+  background: var(--surface);
+  box-shadow: 0 30px 80px rgba(16, 20, 39, 0.30);
+  transform: translateY(14px) scale(0.98);
+  transition: transform 0.24s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.bot-store-scrim.open .bot-store-sheet { transform: none; }
+.bot-store-sheet-head { display: flex; align-items: center; gap: 16px; }
+.bot-store-sheet .bot-store-avatar { width: 64px; height: 64px; border-radius: 19px; font-size: 32px; }
+.bot-store-sheet-head h2 { margin: 0; font-size: 21px; font-weight: 640; letter-spacing: -0.01em; color: var(--text); }
+.bot-store-sheet-head .tag { margin-top: 4px; font-size: 13px; color: var(--faint); }
+.bot-store-sheet .desc { margin: 18px 0 0; font-size: 14.5px; line-height: 1.6; color: var(--text); }
+.bot-store-demo {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: rgb(var(--accent-rgb) / 0.10);
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--text);
+}
+.bot-store-demo b { color: var(--accent); font-weight: 600; }
+.bot-store-actions { display: flex; gap: 10px; margin-top: 26px; }
+.bot-store-btn {
+  height: 46px;
+  border: 0;
+  border-radius: 14px;
+  font: inherit;
+  font-size: 14.5px;
+  font-weight: 580;
+  cursor: pointer;
+  transition: filter 0.14s ease, color 0.14s ease;
+}
+.bot-store-btn.primary { flex: 1; background: var(--accent); color: #fff; }
+.bot-store-btn.primary:hover { filter: brightness(1.06); }
+.bot-store-btn.primary:disabled { opacity: 0.6; cursor: default; }
+.bot-store-btn.ghost { flex: 0 0 auto; padding: 0 20px; background: var(--field); color: var(--muted); }
+.bot-store-btn.ghost:hover { color: var(--text); }
+
+@media (prefers-reduced-motion: reduce) {
+  .bot-store-cap::before,
+  .bot-store-card,
+  .bot-store-sheet,
+  .bot-store-scrim { transition: none; animation: none; }
+}
+
+/* ── 窄窗(≤720px)：保留顶部胶囊条，内容(单列)放它下面 ──
+   沿用桌面的「顶条一行 + 内容一行」结构，胶囊条照常显示在 row1（否则窄屏切不了 发现/联系人）。
+   只做两件必要的事:① 详情桌面在 col4，窄屏只有两列须拉回 col2，否则跑屏外;② 列表去掉浮卡外观。 */
+@media (max-width: 720px) {
+  .app-shell[data-active-view="contacts"] #contactsView {
+    grid-column: 2;
+  }
+  .contacts-workspace {
+    grid-template-rows: auto minmax(0, 1fr);   /* 给 narrow-back 留一行 */
+  }
+  /* 窄屏列表恢复满屏白底，去掉浮卡的外边距/圆角/阴影 */
+  .app-shell[data-active-view="contacts"] .contacts-sidebar {
+    margin: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .app-shell[data-active-view="contacts"] .contacts-sidebar .sidebar-tools,
+  .app-shell[data-active-view="contacts"] .contacts-sidebar .contact-section {
+    background: var(--surface);
+  }
+  /* 顶条窄屏收一点内边距、去掉桌面的右上圆角 */
+  .app-shell[data-active-view="contacts"] .discover-top-bar,
+  .app-shell[data-active-view="bot-store"] .discover-top-bar {
+    padding: 10px 14px 6px;
+    border-radius: 0;
+  }
+}

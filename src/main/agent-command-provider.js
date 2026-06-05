@@ -121,7 +121,7 @@ function scanAgentCommandsDirectory(dir, baseDir, namespace, appendEngineLog = n
 }
 
 function createAgentCommandProvider(deps = {}) {
-  const normalizeFellowAgentEngine = deps.normalizeFellowAgentEngine || ((engine) => String(engine || ""));
+  const normalizeBotAgentEngine = deps.normalizeBotAgentEngine || ((engine) => String(engine || ""));
   const shellCommandPath = deps.shellCommandPath || (() => "");
   const claudeAgentSdk = deps.claudeAgentSdk || null;
   const appendEngineLog = deps.appendEngineLog || null;
@@ -129,7 +129,7 @@ function createAgentCommandProvider(deps = {}) {
   const homeDir = deps.homeDir || (() => os.homedir());
 
   function agentCommandRoots(engine, projectPath = cwd()) {
-    const normalized = normalizeFellowAgentEngine(engine);
+    const normalized = normalizeBotAgentEngine(engine);
     if (normalized !== "claude-code") return [];
     const roots = [];
     const project = String(projectPath || "").trim() || cwd();
@@ -177,7 +177,7 @@ function createAgentCommandProvider(deps = {}) {
   }
 
   async function loadExternalAgentCommands(input = {}) {
-    const engine = normalizeFellowAgentEngine(input.engine);
+    const engine = normalizeBotAgentEngine(input.engine);
     const projectPath = String(input.projectPath || cwd()).trim() || cwd();
     const native = engine === "claude-code"
       ? await loadClaudeNativeCommands(projectPath)

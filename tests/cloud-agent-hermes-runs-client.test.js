@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 
 const { createHermesRunsClient } = require("../src/cloud-agent/hermes-runs-client.js");
 
-test("runChat passes fellow display name and persona instructions to Hermes", async () => {
+test("runChat passes bot display name and persona instructions to Hermes", async () => {
   const requests = [];
   const client = createHermesRunsClient({
     async fetch(url, options = {}) {
@@ -20,16 +20,17 @@ test("runChat passes fellow display name and persona instructions to Hermes", as
     apiKey: "k",
     userId: "user_1",
     conversationId: "g_1",
-    fellow: {
-      id: "kongling",
-      name: "空铃",
-      personaText: "你是空铃，群聊里的 Fellow。"
+    bot: {
+      id: "bot_kongling",
+      displayName: "空铃",
+      personaText: "你是空铃，群聊里的 Bot。"
     },
     input: "空铃在干啥"
   });
 
   assert.equal(requests[0].body.metadata.display_name, "空铃");
-  assert.equal(requests[0].body.instructions, "你是空铃，群聊里的 Fellow。");
+  assert.equal(requests[0].body.metadata.bot_id, "bot_kongling");
+  assert.equal(requests[0].body.instructions, "你是空铃，群聊里的 Bot。");
 });
 
 test("readEvents parses SSE split across stream chunks and surfaces approval.request live", async () => {
@@ -58,7 +59,7 @@ test("readEvents parses SSE split across stream chunks and surfaces approval.req
     apiKey: "k",
     userId: "u",
     conversationId: "c",
-    fellow: { id: "f", name: "F" },
+    bot: { id: "bot_f", displayName: "F" },
     input: "hi",
     onEvent: (event) => seen.push(event.event || event.type)
   });

@@ -21,7 +21,7 @@ function createConversationTitleService({
 } = {}) {
   if (typeof sendChat !== "function") throw new Error("sendChat dependency is required.");
 
-  async function generateTitle({ fellowKey, personaKey, conversationId, sessionId, messages } = {}) {
+  async function generateTitle({ botId, personaKey, conversationId, sessionId, messages } = {}) {
     const clipped = (Array.isArray(messages) ? messages : [])
       .filter((message) => ["user", "assistant"].includes(message.role) && String(message.content || "").trim())
       .slice(0, 4);
@@ -30,7 +30,7 @@ function createConversationTitleService({
     const titleRunId = conversationId || sessionId || randomUUID();
     try {
       const response = await sendChat({
-        fellowKey: fellowKey || personaKey,
+        botId: botId || personaKey,
         sessionId: `title:${titleRunId}`,
         messages: [{
           role: "user",

@@ -1,5 +1,5 @@
 export const MemberKind: {
-  readonly Fellow: "fellow";
+  readonly Bot: "bot";
   readonly User: "user";
 };
 

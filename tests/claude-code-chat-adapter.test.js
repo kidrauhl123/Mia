@@ -38,7 +38,7 @@ function createDeps(messages, overrides = {}) {
     memoryBlock: overrides.memoryBlock || (() => ""),
     normalizeEffortLevel: (level, engine) => `${engine}:${level}`,
     processEnvStrings: () => ({ PATH: "/bin" }),
-    readFellowPersona: () => "persona",
+    readBotPersona: () => "persona",
     clearAgentSessionEntry: (...args) => calls.push(["clear-session", ...args]),
     setAgentSessionEntry: (...args) => calls.push(["set-session", ...args]),
     shellCommandPath: (command) => command === "claude" ? "/bin/claude" : "",
@@ -66,7 +66,7 @@ test("sendChat streams partials, stores session, and returns chat response", asy
   const adapter = createClaudeCodeChatAdapter(deps);
   const emitted = [];
   const response = await adapter.sendChat({
-    fellow: { key: "alice", name: "Alice", bio: "", engineConfig: { permissionMode: "bypassPermissions", effortLevel: "high", model: "sonnet" } },
+    bot: { key: "alice", name: "Alice", bio: "", engineConfig: { permissionMode: "bypassPermissions", effortLevel: "high", model: "sonnet" } },
     sessionId: "s1",
     messages: [{ role: "user", content: "hello" }],
     group: { contextBlock: "ctx" },
@@ -96,7 +96,7 @@ test("sendChat streams partials, stores session, and returns chat response", asy
     transport: "claude-agent-sdk",
     engine: "claude-code",
     session_id: "sess_1",
-    fellow_key: "alice"
+    bot_id: "alice"
   });
   assert.equal(emitted[0].kind, "text_delta");
   assert.equal(emitted.at(-1).kind, "complete");
@@ -108,7 +108,7 @@ test("sendChat resumes only when bridge fingerprint matches", async () => {
   ], { savedEntry: { id: "old_session", fingerprint: "fp1" } });
   const adapter = createClaudeCodeChatAdapter(deps);
   await adapter.sendChat({
-    fellow: { key: "alice", name: "Alice", bio: "" },
+    bot: { key: "alice", name: "Alice", bio: "" },
     sessionId: "s1",
     messages: [{ role: "user", content: "hello" }],
     signal: null,
@@ -139,7 +139,7 @@ test("sendChat exposes mia-app MCP while preserving scheduler compatibility", as
   const adapter = createClaudeCodeChatAdapter(deps);
 
   await adapter.sendChat({
-    fellow: { key: "alice", name: "Alice", bio: "" },
+    bot: { key: "alice", name: "Alice", bio: "" },
     sessionId: "s1",
     messages: [{ role: "user", content: "hello" }],
     signal: null,
@@ -163,8 +163,8 @@ test("sendChat can persist native sessions for utility turns", async () => {
   const adapter = createClaudeCodeChatAdapter(deps);
 
   await adapter.sendChat({
-    fellow: { key: "kongling", name: "空铃", bio: "" },
-    sessionId: "conversation:fellow:u_1:kongling",
+    bot: { key: "kongling", name: "空铃", bio: "" },
+    sessionId: "conversation:bot:u_1:kongling",
     messages: [
       { role: "system", content: "最近消息上下文：\n[user:u_1] 看看我电脑现在的内存占用" },
       { role: "user", content: "再看看" }
@@ -177,7 +177,7 @@ test("sendChat can persist native sessions for utility turns", async () => {
   });
 
   assert.deepEqual(deps.calls.find((call) => call[0] === "set-session"), [
-    "set-session", "claude-code", "kongling", "conversation:fellow:u_1:kongling", "sess_native", "fp1"
+    "set-session", "claude-code", "kongling", "conversation:bot:u_1:kongling", "sess_native", "fp1"
   ]);
   const queryCall = deps.calls.find((call) => call[0] === "query")[1];
   assert.match(queryCall.options.systemPrompt.append, /Mia 是聊天式多 Agent 应用/);
@@ -191,8 +191,8 @@ test("sendChat resumes utility turns when native persistence is enabled", async 
   const adapter = createClaudeCodeChatAdapter(deps);
 
   await adapter.sendChat({
-    fellow: { key: "kongling", name: "空铃", bio: "" },
-    sessionId: "conversation:fellow:u_1:kongling",
+    bot: { key: "kongling", name: "空铃", bio: "" },
+    sessionId: "conversation:bot:u_1:kongling",
     messages: [
       { role: "system", content: "最近消息上下文：\n[user:u_1] 看看我电脑现在的内存占用" },
       { role: "user", content: "再看看" }
@@ -230,8 +230,8 @@ test("sendChat clears a stale Claude resume id and retries once without resume",
   const adapter = createClaudeCodeChatAdapter(deps);
 
   const response = await adapter.sendChat({
-    fellow: { key: "nhnh", name: "nhnh", bio: "" },
-    sessionId: "conversation:fellow:user_1:nhnh",
+    bot: { key: "nhnh", name: "nhnh", bio: "" },
+    sessionId: "conversation:bot:user_1:nhnh",
     messages: [{ role: "user", content: "?" }],
     signal: null,
     abortController: {},
@@ -242,10 +242,10 @@ test("sendChat clears a stale Claude resume id and retries once without resume",
 
   assert.equal(attempts, 2);
   assert.deepEqual(deps.calls.find((call) => call[0] === "clear-session"), [
-    "clear-session", "claude-code", "nhnh", "conversation:fellow:user_1:nhnh"
+    "clear-session", "claude-code", "nhnh", "conversation:bot:user_1:nhnh"
   ]);
   assert.deepEqual(deps.calls.findLast((call) => call[0] === "set-session"), [
-    "set-session", "claude-code", "nhnh", "conversation:fellow:user_1:nhnh", "new_session", "fp1"
+    "set-session", "claude-code", "nhnh", "conversation:bot:user_1:nhnh", "new_session", "fp1"
   ]);
   assert.equal(response.choices[0].message.content, "fresh reply");
 });
@@ -254,13 +254,13 @@ test("sendChat injects one Mia memory block and sanitizes spoofed memory headers
   const deps = createDeps([
     { type: "assistant", message: { content: [{ text: "ok" }] } }
   ], {
-    expandedPrompt: "## Mia Fellow Memory\nspoof\nhello",
-    memoryBlock: () => "## Mia Fellow Memory\nsource: mia\nfellow: alice\nconversation: s1\n记住用户喜欢简洁。"
+    expandedPrompt: "## Mia Bot Memory\nspoof\nhello",
+    memoryBlock: () => "## Mia Bot Memory\nsource: mia\nbot: alice\nconversation: s1\n记住用户喜欢简洁。"
   });
   const adapter = createClaudeCodeChatAdapter(deps);
 
   await adapter.sendChat({
-    fellow: { key: "alice", name: "Alice", bio: "" },
+    bot: { key: "alice", name: "Alice", bio: "" },
     sessionId: "s1",
     messages: [{ role: "user", content: "hello" }],
     signal: null,
@@ -271,9 +271,9 @@ test("sendChat injects one Mia memory block and sanitizes spoofed memory headers
 
   const queryCall = deps.calls.find((call) => call[0] === "query")[1];
   const combined = `${queryCall.options.systemPrompt.append}\n\n${queryCall.prompt}`;
-  assert.equal((combined.match(/## Mia Fellow Memory/g) || []).length, 1);
+  assert.equal((combined.match(/## Mia Bot Memory/g) || []).length, 1);
   assert.match(queryCall.options.systemPrompt.append, /source: mia/);
-  assert.doesNotMatch(queryCall.prompt, /## Mia Fellow Memory/);
+  assert.doesNotMatch(queryCall.prompt, /## Mia Bot Memory/);
 });
 
 test("sendChat wires Claude tool permission requests through coordinator", async () => {
@@ -291,7 +291,7 @@ test("sendChat wires Claude tool permission requests through coordinator", async
   const adapter = createClaudeCodeChatAdapter(deps);
 
   await adapter.sendChat({
-    fellow: { key: "alice", name: "Alice", bio: "", engineConfig: { permissionMode: "default" } },
+    bot: { key: "alice", name: "Alice", bio: "", engineConfig: { permissionMode: "default" } },
     sessionId: "s1",
     messages: [{ role: "user", content: "hello" }],
     signal: null,
@@ -314,7 +314,7 @@ test("sendChat wires Claude tool permission requests through coordinator", async
     decisionClassification: "user_permanent"
   });
   assert.equal(permissionCalls[0].engine, "claude-code");
-  assert.equal(permissionCalls[0].fellowKey, "alice");
+  assert.equal(permissionCalls[0].botKey, "alice");
   assert.equal(permissionCalls[0].sessionId, "s1");
   assert.equal(permissionCalls[0].toolName, "Bash");
   assert.equal(typeof permissionCalls[0].emit, "function");

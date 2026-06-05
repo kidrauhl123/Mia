@@ -119,20 +119,20 @@ function createHermesSlashCommandService(deps = {}) {
     }
   });
   const defaultUserProfile = deps.defaultUserProfile || (() => ({ displayName: "Mia" }));
-  const cleanRunSessionId = deps.cleanRunSessionId || ((sessionId, fellowKey) => sessionId || fellowKey || "default");
+  const cleanRunSessionId = deps.cleanRunSessionId || ((sessionId, botId) => sessionId || botId || "default");
   const enginePython = deps.enginePython || (() => "python3");
   const effectiveHermesHome = deps.effectiveHermesHome || (() => runtimePaths().home);
   const buildPythonPath = deps.buildPythonPath || (() => "");
   const spawnSync = deps.spawnSync || defaultSpawnSync;
   const env = deps.env || process.env;
 
-  function run({ text, fellow = {}, sessionId = "" }) {
+  function run({ text, bot = {}, sessionId = "" }) {
     const p = runtimePaths();
-    const sessionKey = cleanRunSessionId(sessionId, fellow.key);
+    const sessionKey = cleanRunSessionId(sessionId, bot.key);
     const payload = JSON.stringify({
       text,
       sessionKey,
-      chatName: fellow.name || "Mia",
+      chatName: bot.name || "Mia",
       userName: readJson(p.userProfile, defaultUserProfile()).displayName || "Mia"
     });
     const result = spawnSync(enginePython(), ["-c", hermesSlashCommandScript(), payload], {

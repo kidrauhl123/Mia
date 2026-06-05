@@ -29,17 +29,17 @@ try {
 } catch {
   ({ createEventLogStore } = require("./src/cloud/event-log-store.js"));
 }
-let createFellowsStore = null;
+let createBotsStore = null;
 try {
-  ({ createFellowsStore } = require("../src/cloud/fellows-store.js"));
+  ({ createBotsStore } = require("../src/cloud/bots-store.js"));
 } catch {
-  ({ createFellowsStore } = require("./src/cloud/fellows-store.js"));
+  ({ createBotsStore } = require("./src/cloud/bots-store.js"));
 }
-let fellowConversationId = null;
+let botConversationId = null;
 try {
-  ({ fellowConversationId } = require("../src/shared/session-history.js"));
+  ({ botConversationId } = require("../src/shared/bot-identity.js"));
 } catch {
-  ({ fellowConversationId } = require("./src/shared/session-history.js"));
+  ({ botConversationId } = require("./src/shared/bot-identity.js"));
 }
 let createSkillsStore = null;
 try {
@@ -85,35 +85,17 @@ try {
 } catch {
   ({ createCloudAgentRunsStore } = require("./src/cloud-agent/cloud-agent-runs-store.js"));
 }
-let ensureDefaultCloudFellow = null;
+let createCloudAgentDispatcher = null;
 try {
-  ({ ensureDefaultCloudFellow } = require("../src/cloud-agent/default-fellow.js"));
+  ({ createCloudAgentDispatcher } = require("../src/cloud-agent/dispatcher.js"));
 } catch {
-  ({ ensureDefaultCloudFellow } = require("./src/cloud-agent/default-fellow.js"));
-}
-let createHermesWorkerManager = null;
-try {
-  ({ createHermesWorkerManager } = require("../src/cloud-agent/hermes-worker-manager.js"));
-} catch {
-  ({ createHermesWorkerManager } = require("./src/cloud-agent/hermes-worker-manager.js"));
-}
-let createHermesRunsClient = null;
-try {
-  ({ createHermesRunsClient } = require("../src/cloud-agent/hermes-runs-client.js"));
-} catch {
-  ({ createHermesRunsClient } = require("./src/cloud-agent/hermes-runs-client.js"));
+  ({ createCloudAgentDispatcher } = require("./src/cloud-agent/dispatcher.js"));
 }
 let createAttachmentMaterializer = null;
 try {
   ({ createAttachmentMaterializer } = require("../src/cloud-agent/attachment-materializer.js"));
 } catch {
   ({ createAttachmentMaterializer } = require("./src/cloud-agent/attachment-materializer.js"));
-}
-let createCloudAgentDispatcher = null;
-try {
-  ({ createCloudAgentDispatcher } = require("../src/cloud-agent/dispatcher.js"));
-} catch {
-  ({ createCloudAgentDispatcher } = require("./src/cloud-agent/dispatcher.js"));
 }
 let dmConversationId = null;
 let ensureDmConversation = null;
@@ -128,13 +110,6 @@ try {
 } catch {
   avatarResolve = require("./src/shared/avatar-resolve.js");
 }
-let fellowIdentity = null;
-try {
-  fellowIdentity = require("../src/shared/fellow-identity.js");
-} catch {
-  fellowIdentity = require("./src/shared/fellow-identity.js");
-}
-
 const host = process.env.MIA_CLOUD_HOST || "127.0.0.1";
 const port = Number(process.env.MIA_CLOUD_PORT || process.env.PORT || 4175);
 const defaultDataDir = process.env.MIA_CLOUD_DATA || path.join(process.cwd(), ".mia-cloud");
@@ -293,8 +268,8 @@ function userDisplayNameForIdentity(user, fallback = "") {
   return String(user?.displayName || user?.username || user?.email || fallback || "用户").trim() || "用户";
 }
 
-function fellowDisplayNameForIdentity(fellow, fallback = "") {
-  return String(fellow?.name || fellow?.displayName || fallback || "Fellow").trim() || "Fellow";
+function botDisplayNameForIdentity(bot, fallback = "") {
+  return String(bot?.displayName || bot?.name || fallback || "Bot").trim() || "Bot";
 }
 
 function memberIdentityForUser(user, fallbackRef = "") {
@@ -314,23 +289,22 @@ function memberIdentityForUser(user, fallbackRef = "") {
   };
 }
 
-function memberIdentityForFellow(fellow, fallbackRef = "", ownerId = "") {
-  const id = String(fellow?.id || fallbackRef || "");
-  const owner = String(ownerId || fellow?.ownerUserId || fellow?.ownerId || "");
-  const displayName = fellowDisplayNameForIdentity(fellow, fallbackRef);
-  const globalId = fellow?.globalId || fellowIdentity.fellowGlobalId(owner, id);
+function memberIdentityForBot(bot, fallbackRef = "", ownerId = "") {
+  const id = String(bot?.id || fallbackRef || "");
+  const owner = String(ownerId || bot?.ownerUserId || bot?.ownerId || "");
+  const displayName = botDisplayNameForIdentity(bot, fallbackRef);
   return {
-    kind: "fellow",
+    kind: "bot",
     id,
-    ownerId: owner,
-    globalId,
+    ownerUserId: owner,
     displayName,
     avatar: avatarResolve.resolveAvatarForContact({
-      id: globalId || (owner ? `${owner}:${id}` : id),
+      id: owner ? `${owner}:${id}` : id,
       displayName,
-      avatarImage: fellow?.avatarImage || "",
-      avatarCrop: fellow?.avatarCrop || null
-    })
+      avatarImage: bot?.avatarImage || "",
+      avatarCrop: bot?.avatarCrop || null
+    }),
+    statusBadge: bot?.statusBadge || null
   };
 }
 
@@ -345,9 +319,9 @@ function compactAuthAccount(account) {
   return { ...account, user: compactPublicUser(account.user) };
 }
 
-function compactFellowIdentity(fellow) {
-  if (!fellow) return null;
-  const { avatarImage, avatarCrop, personaText, ...identity } = fellow;
+function compactBotIdentity(bot) {
+  if (!bot) return null;
+  const { avatarImage, avatarCrop, avatar, personaText, ...identity } = bot;
   return identity;
 }
 
@@ -1134,6 +1108,45 @@ function userIsMemberOfConversation(socialStore, conversationId, userId) {
   );
 }
 
+function mentionedBotIds(body = {}) {
+  const ids = [];
+  const seen = new Set();
+  const mentions = Array.isArray(body.mentions) ? body.mentions : [];
+  for (const mention of mentions) {
+    const kind = String(mention?.kind || mention?.member_kind || "").trim();
+    if (kind && kind !== "bot") continue;
+    const botId = String(mention?.botId || mention?.bot_id || mention?.member_ref || mention?.ref || mention?.id || "").trim();
+    if (!botId || seen.has(botId)) continue;
+    seen.add(botId);
+    ids.push(botId);
+  }
+  return ids;
+}
+
+function broadcastBotInvocations(context, conversationId, message, body, invokedBy) {
+  const requested = new Set(mentionedBotIds(body));
+  if (!requested.size) return;
+  const members = context.socialStore.listConversationMembers(conversationId);
+  const recentMessages = context.messagesStore.listMessagesSince(conversationId, 0, 20);
+  for (const member of members) {
+    if (member.member_kind !== "bot" || !member.owner_id || !requested.has(member.member_ref)) continue;
+    const bot = context.botsStore.getBot(member.member_ref);
+    if (!bot || bot.ownerUserId !== member.owner_id) continue;
+    const aiPerms = parseJson(member.ai_perms_json, {});
+    broadcastPersistedEvent(context, member.owner_id, {
+      type: "conversation.bot_invocation_requested",
+      conversationId,
+      botId: member.member_ref,
+      runtimeKind: aiPerms.runtimeKind || "desktop-local",
+      runtimeConfig: aiPerms,
+      invokedBy,
+      triggeringMessage: message,
+      recentMessages,
+      members
+    });
+  }
+}
+
 function tokenFromRequest(req) {
   const auth = String(req.headers.authorization || "");
   return auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : "";
@@ -1283,8 +1296,8 @@ function serveAuthorizedFile(req, res, cloudStore, auth, pathname) {
 }
 
 function ensureCloudAgentBootstrap(context, userId) {
-  if (!context?.fellowsStore || !context?.runtimeBindingsStore || !context?.socialStore) return null;
-  return ensureDefaultCloudFellow(context, userId);
+  if (!context?.botsStore || !context?.runtimeBindingsStore || !context?.socialStore || !userId) return null;
+  return null;
 }
 
 async function handleRequest(req, res, context) {
@@ -1478,7 +1491,7 @@ async function handleRequest(req, res, context) {
       if (replayIfCached(context, res, auth.user.id, body)) return;
       const name = String(body.name || "").trim();
       if (!name || name.length > 80) return writeError(res, 400, "name is required and must be 1..80 chars");
-      const memberFellows = Array.isArray(body.memberFellows) ? body.memberFellows : [];
+      const memberBots = Array.isArray(body.memberBots) ? body.memberBots : [];
       const memberFriendUserIds = Array.isArray(body.memberFriendUserIds) ? body.memberFriendUserIds : [];
       const clientGroupId = String(body.clientGroupId || "").trim() || null;
 
@@ -1498,18 +1511,27 @@ async function handleRequest(req, res, context) {
           return writeError(res, 403, "user is not your friend: " + friendId);
         }
       }
+      for (const bot of memberBots) {
+        const botId = String(bot.botId || "").trim();
+        if (!botId) continue;
+        const existingBot = context.botsStore.getBot(botId);
+        if (!existingBot) return writeError(res, 404, "bot not found");
+        if (existingBot.ownerUserId !== auth.user.id) {
+          return writeError(res, 403, "you can only add your own bots");
+        }
+      }
       const conversationId = "g_" + require("node:crypto").randomBytes(8).toString("hex");
       const decorations = clientGroupId ? { clientGroupId } : null;
       context.socialStore.createConversation({ id: conversationId, name, decorations });
       context.socialStore.addConversationMember({ conversationId, memberKind: "user", memberRef: auth.user.id });
-      for (const fellow of memberFellows) {
-        const fellowId = String(fellow.fellowId || "").trim();
-        if (!fellowId) continue;
-        const runtimeKind = normalizeMemberRuntimeKind(fellow.runtimeKind);
+      for (const bot of memberBots) {
+        const botId = String(bot.botId || "").trim();
+        if (!botId) continue;
+        const runtimeKind = normalizeMemberRuntimeKind(bot.runtimeKind);
         context.socialStore.addConversationMember({
           conversationId,
-          memberKind: "fellow",
-          memberRef: fellowId,
+          memberKind: "bot",
+          memberRef: botId,
           ownerId: auth.user.id,
           aiPerms: runtimeKind ? { runtimeKind } : null
         });
@@ -1531,11 +1553,11 @@ async function handleRequest(req, res, context) {
       return writeJson(res, 201, payload);
     }
 
-    const conversationAsFellowMatch = url.pathname.match(/^\/api\/conversations\/([A-Za-z0-9_.:-]+)\/messages\/as-fellow$/);
+    const conversationAsBotMatch = url.pathname.match(/^\/api\/conversations\/([A-Za-z0-9_.:-]+)\/messages\/as-bot$/);
     const conversationMembersMatch = url.pathname.match(/^\/api\/conversations\/([A-Za-z0-9_.:-]+)\/members$/);
     const conversationMsgDeleteMatch = url.pathname.match(/^\/api\/conversations\/([A-Za-z0-9_.:-]+)\/messages\/([A-Za-z0-9_-]+)$/);
-    const conversationMsgsMatch = !conversationAsFellowMatch && url.pathname.match(/^\/api\/conversations\/([A-Za-z0-9_.:-]+)\/messages$/);
-    const conversationDetailMatch = !conversationAsFellowMatch && !conversationMembersMatch && !conversationMsgsMatch && !conversationMsgDeleteMatch && url.pathname.match(/^\/api\/conversations\/([A-Za-z0-9_.:-]+)$/);
+    const conversationMsgsMatch = !conversationAsBotMatch && url.pathname.match(/^\/api\/conversations\/([A-Za-z0-9_.:-]+)\/messages$/);
+    const conversationDetailMatch = !conversationAsBotMatch && !conversationMembersMatch && !conversationMsgsMatch && !conversationMsgDeleteMatch && url.pathname.match(/^\/api\/conversations\/([A-Za-z0-9_.:-]+)$/);
 
     // POST /api/conversations/:id/members — add member to existing group
     if (req.method === "POST" && conversationMembersMatch) {
@@ -1548,7 +1570,7 @@ async function handleRequest(req, res, context) {
       const memberKind = String(body.memberKind || "");
       const memberRef = String(body.memberRef || "").trim();
       if (!memberKind || !memberRef) return writeError(res, 400, "memberKind and memberRef are required");
-      if (memberKind !== "user" && memberKind !== "fellow") return writeError(res, 400, "memberKind must be 'user' or 'fellow'");
+      if (memberKind !== "user" && memberKind !== "bot") return writeError(res, 400, "memberKind must be 'user' or 'bot'");
       if (memberKind === "user") {
         if (!context.socialStore.areFriends(auth.user.id, memberRef)) {
           return writeError(res, 403, "user is not your friend: " + memberRef);
@@ -1560,20 +1582,25 @@ async function handleRequest(req, res, context) {
         broadcastPersistedEvent(context, memberRef, { type: "social.conversation_invited", conversation, invitedBy: inviterPublic });
         return writeJson(res, 201, { ok: true, member });
       }
-      // memberKind === 'fellow'
+      // memberKind === 'bot'
       const ownerId = String(body.ownerId || "").trim();
       if (ownerId !== auth.user.id) {
-        return writeError(res, 403, "you can only add your own fellows");
+        return writeError(res, 403, "you can only add your own bots");
+      }
+      const existingBot = context.botsStore.getBot(memberRef);
+      if (!existingBot) return writeError(res, 404, "bot not found");
+      if (existingBot.ownerUserId !== auth.user.id) {
+        return writeError(res, 403, "you can only add your own bots");
       }
       const runtimeKind = normalizeMemberRuntimeKind(body.runtimeKind);
       context.socialStore.addConversationMember({
         conversationId,
-        memberKind: "fellow",
+        memberKind: "bot",
         memberRef,
         ownerId: auth.user.id,
         aiPerms: runtimeKind ? { runtimeKind } : null
       });
-      const member = context.socialStore.getConversationMember(conversationId, "fellow", memberRef);
+      const member = context.socialStore.getConversationMember(conversationId, "bot", memberRef);
       return writeJson(res, 201, { ok: true, member });
     }
 
@@ -1601,15 +1628,18 @@ async function handleRequest(req, res, context) {
       return writeJson(res, 200, { ok: true });
     }
 
-    // POST /api/conversations/:id/messages/as-fellow — post AS a fellow
-    if (req.method === "POST" && conversationAsFellowMatch) {
-      const conversationId = conversationAsFellowMatch[1];
+    // POST /api/conversations/:id/messages/as-bot — post AS a bot
+    if (req.method === "POST" && conversationAsBotMatch) {
+      const conversationId = conversationAsBotMatch[1];
       const body = await readJson(req);
-      const fellowId = String(body.fellowId || "").trim();
-      if (!fellowId) return writeError(res, 400, "fellowId is required");
-      const fellowMember = context.socialStore.getConversationMember(conversationId, "fellow", fellowId);
-      if (!fellowMember || fellowMember.owner_id !== auth.user.id) {
-        return writeError(res, 403, "you are not the owner of this fellow in this conversation");
+      const botId = String(body.botId || "").trim();
+      if (!botId) return writeError(res, 400, "botId is required");
+      const bot = context.botsStore.getBot(botId);
+      if (!bot) return writeError(res, 404, "bot not found");
+      if (bot.ownerUserId !== auth.user.id) return writeError(res, 403, "you can only post as your own bot");
+      const botMember = context.socialStore.getConversationMember(conversationId, "bot", botId);
+      if (!botMember || botMember.owner_id !== auth.user.id) {
+        return writeError(res, 403, "you are not the owner of this bot in this conversation");
       }
       if (replayIfCached(context, res, auth.user.id, body)) return;
       const attachments = persistCloudAttachments(
@@ -1619,8 +1649,8 @@ async function handleRequest(req, res, context) {
       );
       const message = context.messagesStore.appendMessage({
         conversationId,
-        senderKind: "fellow",
-        senderRef: fellowId,
+        senderKind: "bot",
+        senderRef: botId,
         senderOwnerId: auth.user.id,
         bodyMd: body.bodyMd || "",
         attachments: attachments.length ? attachments : null,
@@ -1659,26 +1689,24 @@ async function handleRequest(req, res, context) {
             identity: memberIdentityForUser(user, m.member_ref)
           };
         }
-        if (m.member_kind === "fellow" && m.owner_id) {
+        if (m.member_kind === "bot" && m.owner_id) {
           const owner = context.cloudStore.getUserPublic(m.owner_id);
-          const conversationFellowKey = conversation?.decorations?.fellowKey
-            || (String(conversation?.id || "").startsWith("fellow:")
-              ? String(conversation.id).split(":").slice(2).join(":")
-              : "");
-          const fallbackName = m.fellow_name
-            || (conversationFellowKey === m.member_ref && conversation?.name ? conversation.name : "")
+          const conversationBotId = conversation?.decorations?.botId || "";
+          const fallbackName = m.bot_name
+            || (conversationBotId === m.member_ref && conversation?.name ? conversation.name : "")
             || m.member_ref;
-          const fellow = context.fellowsStore.getFellow(m.owner_id, m.member_ref) || {
+          const bot = context.botsStore.getBot(m.member_ref) || {
             id: m.member_ref,
             ownerUserId: m.owner_id,
-            name: fallbackName,
-            avatarImage: m.fellow_avatar_image || "",
-            avatarCrop: m.fellow_avatar_crop || null
+            displayName: fallbackName,
+            avatarImage: m.bot_avatar_image || "",
+            avatarCrop: m.bot_avatar_crop || null,
+            color: m.bot_color || ""
           };
           return {
             ...m,
             owner: conversationMemberOwnerPublic(owner),
-            identity: memberIdentityForFellow(fellow, m.member_ref, m.owner_id)
+            identity: memberIdentityForBot(bot, m.member_ref, m.owner_id)
           };
         }
         return m;
@@ -1801,6 +1829,7 @@ async function handleRequest(req, res, context) {
           broadcastPersistedEvent(context, m.member_ref, { type: "conversation.message_appended", conversationId, message });
         }
       }
+      broadcastBotInvocations(context, conversationId, message, body, context.cloudStore.getUserPublic(auth.user.id) || { id: auth.user.id });
       if (context.cloudAgentDispatcher) {
         context.cloudAgentDispatcher.handleUserMessage({
           userId: auth.user.id,
@@ -1890,96 +1919,37 @@ async function handleRequest(req, res, context) {
       const updated = cloudStore.updateUserProfile(auth.user.id, {
         avatarImage: typeof body.avatarImage === "string" ? body.avatarImage : undefined,
         avatarCrop: body.avatarCrop === null || (body.avatarCrop && typeof body.avatarCrop === "object") ? body.avatarCrop : undefined,
-        avatarColor: typeof body.avatarColor === "string" ? body.avatarColor : undefined
+        avatarColor: typeof body.avatarColor === "string" ? body.avatarColor : undefined,
+        ...(Object.prototype.hasOwnProperty.call(body, "statusBadge")
+          ? { statusBadge: body.statusBadge }
+          : Object.prototype.hasOwnProperty.call(body, "status_badge")
+            ? { statusBadge: body.status_badge }
+            : {})
       });
       const payload = { user: updated };
       rememberOp(context, auth.user.id, body, 200, payload);
       return writeJson(res, 200, payload);
     }
 
-    // PUT /api/me/fellows/:fellowId/conversation — ensure the stable private conversation
-    // for a fellow exists. Unlike the legacy session endpoint below, this
-    // conversation id is tied to the fellow identity, not a local chat session.
-    const stableFellowConversationMatch = url.pathname.match(/^\/api\/me\/fellows\/([A-Za-z0-9_.-]+)\/conversation$/);
-    if (req.method === "PUT" && stableFellowConversationMatch) {
-      const fellowId = stableFellowConversationMatch[1];
+    // PUT /api/me/bot-conversations/:sessionId — upsert a single-owner
+    // bot chat conversation backed by conversations+messages.
+    const botConversationMatch = url.pathname.match(/^\/api\/me\/bot-conversations\/([A-Za-z0-9_.:-]+)$/);
+    if (req.method === "PUT" && botConversationMatch) {
+      const sessionId = botConversationMatch[1];
       const body = await readJson(req);
+      const botId = String(body.botId || "").trim();
+      if (!botId) return writeError(res, 400, "botId is required");
+      const bot = context.botsStore.getBot(botId);
+      if (!bot) return writeError(res, 404, "bot not found");
+      if (bot.ownerUserId !== auth.user.id) return writeError(res, 403, "you can only open your own bots");
       if (replayIfCached(context, res, auth.user.id, body)) return;
-      const existingFellow = context.fellowsStore.getFellow(auth.user.id, fellowId);
-      const name = String(body.title || "").trim() || existingFellow?.name || fellowId;
-      const conversationId = fellowConversationId(auth.user.id, fellowId);
-      let conversation = context.socialStore.getConversation(conversationId);
-      const hasRuntimeKind = Object.prototype.hasOwnProperty.call(body, "runtimeKind");
-      const requestedRuntimeKind = String(body.runtimeKind || "").trim() || undefined;
-      const existingRuntimeKind = conversation?.decorations?.runtimeKind;
-      const runtimeKind = hasRuntimeKind ? requestedRuntimeKind : existingRuntimeKind;
-      const decorations = runtimeKind ? { fellowKey: fellowId, runtimeKind } : { fellowKey: fellowId };
-      const created = !conversation;
-      let changed = false;
-      const sameJson = (a, b) => JSON.stringify(a || null) === JSON.stringify(b || null);
-      const hasMember = (members, kind, ref, ownerId = null) => members.some((member) =>
-        member.member_kind === kind &&
-        member.member_ref === ref &&
-        (ownerId == null || member.owner_id === ownerId)
-      );
-
-      if (created) {
-        conversation = context.socialStore.createConversation({ id: conversationId, type: "fellow", name, decorations });
-        changed = true;
-      } else {
-        const currentName = String(conversation.name || "").trim();
-        const namePatch = !currentName && name ? { name } : {};
-        if (Object.keys(namePatch).length || !sameJson(conversation.decorations, decorations)) {
-          conversation = context.socialStore.updateConversation(conversationId, { ...namePatch, decorations });
-          changed = true;
-        }
-      }
-      let members = context.socialStore.listConversationMembers(conversationId);
-      if (!hasMember(members, "user", auth.user.id)) {
-        context.socialStore.addConversationMember({ conversationId, memberKind: "user", memberRef: auth.user.id });
-        changed = true;
-      }
-      if (!hasMember(members, "fellow", fellowId, auth.user.id)) {
-        context.socialStore.addConversationMember({ conversationId, memberKind: "fellow", memberRef: fellowId, ownerId: auth.user.id });
-        changed = true;
-      }
-      conversation = context.socialStore.getConversation(conversationId);
-      members = context.socialStore.listConversationMembers(conversationId);
-      if (changed) {
-        broadcastPersistedEvent(context, auth.user.id, { type: "conversation.updated", conversation });
-      }
-      const payload = { ok: true, conversation, members, created };
-      rememberOp(context, auth.user.id, body, 200, payload);
-      return writeJson(res, 200, payload);
-    }
-
-    // PUT /api/me/fellow-conversations/:sessionId — upsert a single-owner
-    // fellow-chat conversation. Phase 4 conversation-model unification: fellow
-    // private chats now live in the same conversations+messages tables as
-    // cloud DMs and groups. Each fellow chat session becomes a conversation
-    // with id "fellow:<userId>:<sessionId>", type "fellow", and two
-    // member rows: the owner (kind=user) and the fellow (kind=fellow,
-    // ownerId=userId).
-    //
-    // Body: { fellowKey, title?, runtimeKind?, clientOpId? }
-    //
-    // Idempotent on (owner, sessionId): repeated calls return the same
-    // conversation. Updates to name only happen if `title` is provided and
-    // differs.
-    const fellowConversationMatch = url.pathname.match(/^\/api\/me\/fellow-conversations\/([A-Za-z0-9_.:-]+)$/);
-    if (req.method === "PUT" && fellowConversationMatch) {
-      const sessionId = fellowConversationMatch[1];
-      const body = await readJson(req);
-      if (replayIfCached(context, res, auth.user.id, body)) return;
-      const fellowKey = String(body.fellowKey || "").trim();
-      if (!fellowKey) return writeError(res, 400, "fellowKey is required");
       const title = String(body.title || "").trim();
       const requestedRuntimeKind = String(body.runtimeKind || "").trim();
-      const conversationId = fellowConversationId(auth.user.id, sessionId);
+      const conversationId = botConversationId(sessionId);
       let conversation = context.socialStore.getConversation(conversationId);
       const decorations = {
         ...(conversation?.decorations || {}),
-        fellowKey,
+        botId,
         sessionId,
         runtimeKind: conversation?.decorations?.runtimeKind || requestedRuntimeKind || "desktop-local"
       };
@@ -1987,12 +1957,12 @@ async function handleRequest(req, res, context) {
       if (!conversation) {
         context.socialStore.createConversation({
           id: conversationId,
-          type: "fellow",
-          name: title || null,
+          type: "bot",
+          name: title || bot?.displayName || null,
           decorations
         });
         context.socialStore.addConversationMember({ conversationId, memberKind: "user", memberRef: auth.user.id });
-        context.socialStore.addConversationMember({ conversationId, memberKind: "fellow", memberRef: fellowKey, ownerId: auth.user.id });
+        context.socialStore.addConversationMember({ conversationId, memberKind: "bot", memberRef: botId, ownerId: auth.user.id });
         conversation = context.socialStore.getConversation(conversationId);
       } else if ((title && title !== conversation.name) || !sameJson(conversation.decorations, decorations)) {
         conversation = context.socialStore.updateConversation(conversationId, {
@@ -2006,29 +1976,19 @@ async function handleRequest(req, res, context) {
       return writeJson(res, 200, payload);
     }
 
-    // GET /api/me/fellows — list this user's cloud-mirrored fellow
-    // definitions. Phase 2 of the sync redesign: fellow identity (name +
-    // avatar + persona + capabilities) lives in cloud so web / a freshly-
-    // installed desktop / another machine can render fellow chats with
-    // proper attribution. Desktop-local runtime config stays local; cloud
-    // runtime bindings live under the /runtime endpoint below.
-    if (req.method === "GET" && url.pathname === "/api/me/fellows") {
-      let fellows = context.fellowsStore.listFellows(auth.user.id);
-      if (wantsCompactPayload(url)) fellows = fellows.map(compactFellowIdentity);
-      return writeJson(res, 200, { fellows });
+    if (req.method === "GET" && url.pathname === "/api/me/bots") {
+      let bots = context.botsStore.listBots(auth.user.id);
+      if (wantsCompactPayload(url)) bots = bots.map(compactBotIdentity);
+      return writeJson(res, 200, { bots });
     }
 
-    // GET/PUT /api/me/fellows/:id/runtime — web-side AI private chat controls.
-    // Runtime bindings are stored per runtimeKind. cloud-hermes is consumed by
-    // the cloud worker; desktop-local is consumed by the user's desktop app
-    // when it answers a synced fellow conversation.
-    const fellowRuntimeMatch = url.pathname.match(/^\/api\/me\/fellows\/([A-Za-z0-9_.-]+)\/runtime$/);
-    if (req.method === "GET" && fellowRuntimeMatch) {
-      const fellowId = fellowRuntimeMatch[1];
+    const botRuntimeMatch = url.pathname.match(/^\/api\/me\/bots\/([A-Za-z0-9_.-]+)\/runtime$/);
+    if (req.method === "GET" && botRuntimeMatch) {
+      const botId = botRuntimeMatch[1];
       const runtimeKind = String(url.searchParams.get("kind") || "cloud-hermes").trim() || "cloud-hermes";
-      const binding = context.runtimeBindingsStore.getBinding(auth.user.id, fellowId, runtimeKind) || {
+      const binding = context.runtimeBindingsStore.getBinding(auth.user.id, botId, runtimeKind) || {
         userId: auth.user.id,
-        fellowId,
+        botId,
         runtimeKind,
         enabled: false,
         config: {}
@@ -2036,48 +1996,47 @@ async function handleRequest(req, res, context) {
       return writeJson(res, 200, { binding });
     }
 
-    if (req.method === "PUT" && fellowRuntimeMatch) {
-      const fellowId = fellowRuntimeMatch[1];
+    if (req.method === "PUT" && botRuntimeMatch) {
+      const botId = botRuntimeMatch[1];
       const body = await readJson(req);
       if (replayIfCached(context, res, auth.user.id, body)) return;
-      const fellow = context.fellowsStore.getFellow(auth.user.id, fellowId);
-      if (!fellow) return writeError(res, 404, "fellow not found");
+      const bot = context.botsStore.getBot(botId);
+      if (!bot) return writeError(res, 404, "bot not found");
+      if (bot.ownerUserId !== auth.user.id) return writeError(res, 403, "you can only update your own bots");
       const runtimeKind = String(body.runtimeKind || "cloud-hermes").trim() || "cloud-hermes";
       const config = sanitizeRuntimeConfig(body.config);
       const binding = context.runtimeBindingsStore.upsertBinding({
         userId: auth.user.id,
-        fellowId,
+        botId,
         runtimeKind,
         enabled: body.enabled !== false,
         config
       });
-      broadcastPersistedEvent(context, auth.user.id, { type: "fellow.runtime_updated", binding });
+      broadcastPersistedEvent(context, auth.user.id, { type: "bot.runtime_updated", binding });
       const payload = { binding };
       rememberOp(context, auth.user.id, body, 200, payload);
       return writeJson(res, 200, payload);
     }
 
-    // PUT /api/me/fellows/:id — upsert one fellow. Body shape mirrors the
-    // desktop fellow-manifest's identity fields (key→id is supplied via
-    // URL). Broadcasts fellow.upserted so other devices stream it in.
-    const fellowDetailMatch = url.pathname.match(/^\/api\/me\/fellows\/([A-Za-z0-9_.-]+)$/);
-    if (req.method === "PUT" && fellowDetailMatch) {
-      const id = fellowDetailMatch[1];
+    const botDetailMatch = url.pathname.match(/^\/api\/me\/bots\/([A-Za-z0-9_.-]+)$/);
+    if (req.method === "PUT" && botDetailMatch) {
+      const id = botDetailMatch[1];
       const body = await readJson(req);
       if (replayIfCached(context, res, auth.user.id, body)) return;
-      if (!body.name || typeof body.name !== "string") return writeError(res, 400, "name is required");
-      const fellow = context.fellowsStore.upsertFellow(auth.user.id, {
-        id,
-        name: body.name,
-        color: body.color,
-        avatarImage: body.avatarImage,
-        avatarCrop: body.avatarCrop,
-        bio: body.bio,
-        capabilities: body.capabilities,
-        personaText: body.personaText
-      });
-      broadcastPersistedEvent(context, auth.user.id, { type: "fellow.upserted", fellow });
-      const payload = { fellow };
+      const displayName = body.displayName || body.display_name || body.name;
+      if (!displayName || typeof displayName !== "string") return writeError(res, 400, "displayName is required");
+      let bot;
+      try {
+        bot = context.botsStore.upsertBot(auth.user.id, {
+          ...body,
+          id,
+          displayName
+        });
+      } catch (error) {
+        return writeError(res, 409, error?.message || "bot upsert failed");
+      }
+      broadcastPersistedEvent(context, auth.user.id, { type: "bot.upserted", bot });
+      const payload = { bot };
       rememberOp(context, auth.user.id, body, 200, payload);
       return writeJson(res, 200, payload);
     }
@@ -2116,22 +2075,23 @@ async function handleRequest(req, res, context) {
       return writeJson(res, 200, payload);
     }
 
-    // DELETE /api/me/fellows/:id
-    if (req.method === "DELETE" && fellowDetailMatch) {
-      const id = fellowDetailMatch[1];
+    // DELETE /api/me/bots/:id
+    if (req.method === "DELETE" && botDetailMatch) {
+      const id = botDetailMatch[1];
       let body = {};
       try { body = await readJson(req); } catch { /* empty */ }
       if (replayIfCached(context, res, auth.user.id, body)) return;
-      const existing = context.fellowsStore.getFellow(auth.user.id, id);
-      if (!existing) return writeError(res, 404, "fellow not found");
-      context.fellowsStore.deleteFellow(auth.user.id, id);
-      broadcastPersistedEvent(context, auth.user.id, { type: "fellow.deleted", fellowId: id });
+      const existing = context.botsStore.getBot(id);
+      if (!existing) return writeError(res, 404, "bot not found");
+      if (existing.ownerUserId !== auth.user.id) return writeError(res, 403, "you can only delete your own bots");
+      context.botsStore.deleteBot(auth.user.id, id);
+      broadcastPersistedEvent(context, auth.user.id, { type: "bot.deleted", botId: id });
       const payload = { ok: true };
       rememberOp(context, auth.user.id, body, 200, payload);
       return writeJson(res, 200, payload);
     }
 
-    // /api/workspace, /api/workspace/sync removed. Fellow chats live in
+    // /api/workspace, /api/workspace/sync removed. Bot chats live in
     // conversations+messages now (Phase 4); all conversations route through
     // /api/conversations[/...]. The legacy workspaces table is left in place
     // but no endpoint reads or writes it anymore.
@@ -2166,7 +2126,7 @@ async function handleRequest(req, res, context) {
         const onlineCount = bridgeDevices(bridgeHub, auth.user.id).length;
         return writeError(res, 409, onlineCount > 1 ? "请选择要连接的本机设备。" : "本机 Agent Bridge 不在线。");
       }
-      // Phase 4 cutover: conversationId is now interpreted as a fellow
+      // Phase 4 cutover: conversationId is now interpreted as a bot
       // conversation id (conversations+messages). The bridge writes the assistant reply
       // through messagesStore.appendMessage into that conversation, and the
       // standard conversation.message_appended event is broadcast as part of
@@ -2202,8 +2162,8 @@ async function handleRequest(req, res, context) {
           const text = String(result.text || "").trim() || "本机 Agent 已完成。";
           message = context.messagesStore.appendMessage({
             conversationId: conversationId,
-            senderKind: "fellow",
-            senderRef: (context.socialStore.getConversation(conversationId)?.decorations?.fellowKey || "agent"),
+            senderKind: "bot",
+            senderRef: (context.socialStore.getConversation(conversationId)?.decorations?.botId || "agent"),
             senderOwnerId: auth.user.id,
             bodyMd: text,
             attachments,
@@ -2418,7 +2378,7 @@ function createMiaCloudServer(options = {}) {
   context.socialStore = createSocialStore(context.cloudStore.getDb());
   context.messagesStore = createMessagesStore(context.cloudStore.getDb());
   context.eventLog = createEventLogStore(context.cloudStore.getDb());
-  context.fellowsStore = createFellowsStore(context.cloudStore.getDb());
+  context.botsStore = createBotsStore(context.cloudStore.getDb());
   context.skillsStore = createSkillsStore(context.cloudStore.getDb(), {
     uploadDir: context.cloudStore.uploadDir,
     dataDir: context.cloudStore.dataDir
@@ -2434,9 +2394,26 @@ function createMiaCloudServer(options = {}) {
       : null);
   context.runtimeBindingsStore = createRuntimeBindingsStore(context.cloudStore.getDb());
   context.cloudAgentRunsStore = createCloudAgentRunsStore(context.cloudStore.getDb());
-  // Inject fellowsStore so listConversationMembers can enrich fellow members
-  // with name/avatar from the owner's fellow definitions in one shot.
-  context.socialStore._attachFellowsStore?.(context.fellowsStore);
+  if (options.cloudAgentWorkerManager && options.cloudAgentHermesClient && createCloudAgentDispatcher) {
+    context.cloudAgentDispatcher = createCloudAgentDispatcher({
+      socialStore: context.socialStore,
+      messagesStore: context.messagesStore,
+      botsStore: context.botsStore,
+      runtimeBindingsStore: context.runtimeBindingsStore,
+      cloudAgentRunsStore: context.cloudAgentRunsStore,
+      workerManager: options.cloudAgentWorkerManager,
+      hermesRunsClient: options.cloudAgentHermesClient,
+      attachmentMaterializer: createAttachmentMaterializer
+        ? createAttachmentMaterializer({ cloudStore: context.cloudStore })
+        : null,
+      broadcastPersistedEvent: (userId, payload) => broadcastPersistedEvent(context, userId, payload),
+      broadcastTransientEvent: (userId, payload) => broadcastTransientEvent(context.eventHub, userId, payload),
+      getUserPublic: (userId) => context.cloudStore.getUserPublic(userId)
+    });
+  }
+  // Inject botsStore so listConversationMembers can enrich bot members
+  // with name/avatar from the owner's bot definitions in one shot.
+  context.socialStore._attachBotsStore?.(context.botsStore);
   // Hourly purge of stale idempotency cache rows (Phase 1.D). Without
   // this the table grows monotonically. Default cutoff 24h matches the
   // store helper's default; tunable via env if pathological retries
@@ -2448,29 +2425,6 @@ function createMiaCloudServer(options = {}) {
   }, 60 * 60 * 1000);
   if (context.eventLogPurgeTimer.unref) context.eventLogPurgeTimer.unref();
   context.userSettingsStore = createUserSettingsStore(context.cloudStore.getDb());
-  const workerManager = options.cloudAgentWorkerManager || createHermesWorkerManager({
-    rootDir: options.cloudAgentRootDir,
-    mode: options.cloudAgentMode,
-    staticBaseUrl: options.cloudAgentHermesBaseUrl,
-    apiKey: options.cloudAgentHermesApiKey
-  });
-  const hermesRunsClient = options.cloudAgentHermesClient || createHermesRunsClient();
-  const attachmentMaterializer = options.cloudAgentAttachmentMaterializer || createAttachmentMaterializer({
-    cloudStore: context.cloudStore
-  });
-  context.cloudAgentDispatcher = createCloudAgentDispatcher({
-    socialStore: context.socialStore,
-    messagesStore: context.messagesStore,
-    fellowsStore: context.fellowsStore,
-    runtimeBindingsStore: context.runtimeBindingsStore,
-    cloudAgentRunsStore: context.cloudAgentRunsStore,
-    workerManager,
-    hermesRunsClient,
-    attachmentMaterializer,
-    getUserPublic: (userId) => context.cloudStore.getUserPublic(userId),
-    broadcastTransientEvent: (userId, payload) => broadcastTransientEvent(context.eventHub, userId, payload),
-    broadcastPersistedEvent: (userId, payload) => broadcastPersistedEvent(context, userId, payload)
-  });
   const server = http.createServer((req, res) => handleRequest(req, res, context));
   const wss = new WebSocketServer({ noServer: true });
   server.on("upgrade", (req, socket, head) => handleBridgeUpgrade(req, socket, head, context, wss));

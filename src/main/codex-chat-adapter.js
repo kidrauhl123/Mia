@@ -177,7 +177,7 @@ function createCodexChatAdapter(deps = {}) {
   const expandLeadingSkillCommand = requireDependency(deps, "expandLeadingSkillCommand");
   const buildEnabledSkillsContext = deps.buildEnabledSkillsContext || (() => "");
   const injectGroupContextForSdk = requireDependency(deps, "injectGroupContextForSdk");
-  const readFellowPersona = requireDependency(deps, "readFellowPersona");
+  const readBotPersona = requireDependency(deps, "readBotPersona");
   const codexSdk = requireDependency(deps, "codexSdk");
   const processEnvStrings = requireDependency(deps, "processEnvStrings");
   const normalizeEffortLevel = requireDependency(deps, "normalizeEffortLevel");
@@ -195,31 +195,31 @@ function createCodexChatAdapter(deps = {}) {
   const randomUUID = deps.randomUUID || (() => crypto.randomUUID());
   const cwd = deps.cwd || (() => process.cwd());
 
-  async function sendChat({ fellow, sessionId, messages, group, signal, emit = null, utility = false, scheduledFire = false, persistAgentSession = !utility }) {
+  async function sendChat({ bot, sessionId, messages, group, signal, emit = null, utility = false, scheduledFire = false, persistAgentSession = !utility }) {
     const engine = "codex";
     const shouldPersistAgentSession = Boolean(persistAgentSession);
     const commandPath = shellCommandPath("codex");
     if (!commandPath) throw new Error("本机没有检测到 Codex CLI。请先安装并确认 `codex --version` 可用。");
-    const externalSessionId = shouldPersistAgentSession ? getAgentSessionId(engine, fellow.key, sessionId) : "";
+    const externalSessionId = shouldPersistAgentSession ? getAgentSessionId(engine, bot.key, sessionId) : "";
     const lastUser = lastUserPrompt(messages);
     // Best-effort: grab id from last user message for scheduler context
     const lastUserMessage = Array.isArray(messages) ? [...messages].reverse().find((m) => m?.role === "user") : null;
     const originMessageId = String(lastUserMessage?.id || "");
     try {
-      writeSchedulerMcpContext({ fellowId: fellow.key, sessionId, originMessageId });
+      writeSchedulerMcpContext({ botId: bot.key, sessionId, originMessageId });
     } catch {
       // Non-fatal; scheduler MCP context missing means tool works without context defaults
     }
-    const miaMemory = memoryBlock({ fellowKey: fellow.key, sessionId });
+    const miaMemory = memoryBlock({ botId: bot.key, sessionId });
     const runtimeContext = externalSessionId && (!utility || group) ? miaRuntimeSystemPrompt({ scheduledFire }) : "";
     const runtimeInstructions = !externalSessionId ? runtimeContext : appendMiaMemoryBlock(runtimeContext, miaMemory);
     const expandedPrompt = sanitizeMiaMemorySpoof(expandLeadingSkillCommand(lastUser, { mode: "inline" }) || lastUser);
-    const userText = [runtimeInstructions, buildEnabledSkillsContext(fellow), expandedPrompt]
+    const userText = [runtimeInstructions, buildEnabledSkillsContext(bot), expandedPrompt]
       .filter(Boolean)
       .join("\n\n");
     const persona = !externalSessionId
       ? appendMiaMemoryBlock(
-          withMiaRuntimeContext(readFellowPersona(fellow.key, fellow.name, fellow.bio), { scheduledFire }),
+          withMiaRuntimeContext(readBotPersona(bot.key, bot.name, bot.bio), { scheduledFire }),
           miaMemory
         ).trim()
       : "";
@@ -227,7 +227,7 @@ function createCodexChatAdapter(deps = {}) {
       if (!persona) return userText;
       const sections = [];
       sections.push([
-        "以下是 Mia 给当前 Fellow 的人设，请在本次对话中遵守：",
+        "以下是 Mia 给当前 Bot 的人设，请在本次对话中遵守：",
         "",
         persona
       ].join("\n"));
@@ -246,7 +246,7 @@ function createCodexChatAdapter(deps = {}) {
     }
     if (!codexHomePath) throw new Error("Mia Codex profile setup failed: missing CODEX_HOME.");
     const env = { ...baseEnv, CODEX_HOME: codexHomePath };
-    const permission = mapCodexPermissionMode(fellow.engineConfig?.permissionMode || fellow.agentPermissionMode || "default");
+    const permission = mapCodexPermissionMode(bot.engineConfig?.permissionMode || bot.agentPermissionMode || "default");
     const effectivePermission = typeof emit === "function"
       ? permission
       : { ...permission, approvalPolicy: "never" };
@@ -254,7 +254,7 @@ function createCodexChatAdapter(deps = {}) {
       try { return getSchedulerMcpSpec(); } catch { return null; }
     })();
     const miaAppMcpSpec = (() => {
-      try { return getMiaAppMcpSpec({ fellowId: fellow.key, sessionId, originMessageId }); } catch { return null; }
+      try { return getMiaAppMcpSpec({ botId: bot.key, sessionId, originMessageId }); } catch { return null; }
     })();
     const mcpServers = {
       ...(miaAppMcpSpec ? { "mia-app": miaAppMcpSpec } : {}),
@@ -263,10 +263,10 @@ function createCodexChatAdapter(deps = {}) {
     const threadOptions = {
       workingDirectory: cwd(),
       skipGitRepoCheck: true,
-      modelReasoningEffort: normalizeEffortLevel(fellow.engineConfig?.effortLevel || "medium", "codex"),
+      modelReasoningEffort: normalizeEffortLevel(bot.engineConfig?.effortLevel || "medium", "codex"),
       ...effectivePermission
     };
-    if (fellow.engineConfig?.model) threadOptions.model = String(fellow.engineConfig.model);
+    if (bot.engineConfig?.model) threadOptions.model = String(bot.engineConfig.model);
     const startedAtMs = Date.now();
     let turn;
     let capturedSessionId = externalSessionId;
@@ -282,7 +282,7 @@ function createCodexChatAdapter(deps = {}) {
         signal,
         emit,
         permissionCoordinator,
-        fellowKey: fellow.key,
+        botKey: bot.key,
         sessionId,
         mcpServers,
         appendLog: appendEngineLog
@@ -302,7 +302,7 @@ function createCodexChatAdapter(deps = {}) {
     }
     const imagePaths = recentGeneratedImagePaths(capturedSessionId, { env, startedAtMs });
     if (capturedSessionId && !externalSessionId && shouldPersistAgentSession) {
-      setAgentSessionId(engine, fellow.key, sessionId, capturedSessionId);
+      setAgentSessionId(engine, bot.key, sessionId, capturedSessionId);
     }
     if (signal?.aborted) throw stoppedError();
     return chatCompletionResponse({
@@ -314,7 +314,7 @@ function createCodexChatAdapter(deps = {}) {
         transport,
         engine,
         session_id: capturedSessionId || "",
-        fellow_key: fellow.key
+        bot_id: bot.key
       }
     });
   }

@@ -29,7 +29,7 @@ test("adapterForEngine exposes stable metadata for chat routing", () => {
   assert.equal(adapterForEngine("unknown"), CHAT_ENGINE_ADAPTERS.hermes);
 });
 
-test("resolveChatEngineAdapter reads current and legacy fellow fields", () => {
+test("resolveChatEngineAdapter reads current and legacy bot fields", () => {
   assert.equal(resolveChatEngineAdapter({ agentEngine: "codex" }).id, "codex");
   assert.equal(resolveChatEngineAdapter({ agent_engine: "claude-code" }).id, "claude-code");
   assert.equal(resolveChatEngineAdapter({ engine: "openai-codex" }).id, "codex");

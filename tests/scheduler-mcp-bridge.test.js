@@ -30,12 +30,12 @@ function setup(t, overrides = {}) {
 test("writeContext persists per-turn scheduler context under runtime", (t) => {
   const { runtime, service } = setup(t);
 
-  service.writeContext({ fellowId: "fellow_1", sessionId: "session_1", originMessageId: "message_1" });
+  service.writeContext({ botId: "bot_1", sessionId: "session_1", originMessageId: "message_1" });
 
   const contextPath = path.join(runtime.runtime, "scheduler-mcp", "context.json");
   assert.equal(service.contextPath(), contextPath);
   assert.deepEqual(JSON.parse(fs.readFileSync(contextPath, "utf8")), {
-    fellowId: "fellow_1",
+    botId: "bot_1",
     sessionId: "session_1",
     originMessageId: "message_1"
   });

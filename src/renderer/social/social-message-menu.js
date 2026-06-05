@@ -1,7 +1,7 @@
 // Context menu for cloud-conversation (DM + group) message bubbles.
 //
 // Cloud-conversation messages are the only conversation messages now; this is
-// the live message menu (the legacy fellow-chat menu in
+// the live message menu (the legacy bot-chat menu in
 // src/renderer/chat/message-menu.js is retained only for non-cloud surfaces).
 // This module renders the SAME
 // designed menu — same #messageContextMenu element, same .message-context-menu
@@ -15,7 +15,7 @@
 // 置顶 is intentionally omitted: a shared cloud conversation has no per-message pin.
 //
 // Wired from app.js's chat-level contextmenu dispatcher, which routes bubbles
-// carrying data-message-source="cloud-conversation" here instead of the fellow menu.
+// carrying data-message-source="cloud-conversation" here instead of the bot menu.
 
 (function (global) {
   "use strict";
@@ -85,9 +85,9 @@
     // Tear down a still-open instance of THIS menu first, or its document
     // listeners (outside-click / escape) leak when reopened via right-click.
     closeMenu();
-    // If fellow chat had its menu open, close it first.
-    const closeFellow = global.miaMessageMenu?.closeMessageContextMenu;
-    if (typeof closeFellow === "function") closeFellow();
+    // If bot chat had its menu open, close it first.
+    const closeBot = global.miaMessageMenu?.closeMessageContextMenu;
+    if (typeof closeBot === "function") closeBot();
 
     const social = global.miaSocial;
     const conversationId = social?.getActiveConversationId?.();

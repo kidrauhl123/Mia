@@ -1,6 +1,10 @@
 const test = require("node:test");
 const assert = require("node:assert");
+const fs = require("node:fs");
+const path = require("node:path");
 const { createCloudClient } = require("../src/shared/cloud-client");
+
+const ROOT = path.join(__dirname, "..");
 
 test("api(): GET 带 Bearer,无 clientOpId", async () => {
   const calls = [];
@@ -78,4 +82,39 @@ test("WS 客户端:连接用 mia-token subprotocol,分发 message,断线调度�
   assert.equal(got[0].type, "x");
   sockets[0].emit("close", {});
   assert.equal(scheduled.length, 1);
+});
+
+test("mobile RN API types use canonical bot sender and identity fields", () => {
+  const source = fs.readFileSync(path.join(ROOT, "apps/mobile-rn/src/api/types.ts"), "utf8");
+
+  assert.match(source, /export type SenderKind = "user" \| "bot" \| "system";/);
+  assert.match(source, /type\?: "dm" \| "group" \| "bot" \| string;/);
+  assert.match(source, /bot_id\?: string;/);
+  assert.match(source, /botId\?: string;/);
+  assert.match(source, /decorations\?: \{ botId\?: string; botName\?: string; runtimeKind\?: string \};/);
+  assert.match(source, /identity\?: \{ avatar\?: AvatarDescriptor; statusBadge\?: StatusBadge \| null \};/);
+  assert.match(source, /member_kind\?: "user" \| "bot" \| string;/);
+  assert.match(source, /bot_name\?: string;/);
+  assert.match(source, /bot_avatar_image\?: string;/);
+  assert.match(source, /bot_avatar_crop\?: Record<string, unknown> \| null;/);
+  assert.match(source, /identity\?: Identity;/);
+  assert.doesNotMatch(source, /export type SenderKind = "user" \| "fellow" \| "system";/);
+  assert.doesNotMatch(source, /fellow_id\?: string;/);
+  assert.doesNotMatch(source, /fellowKey\?: string;/);
+  assert.doesNotMatch(source, /fellow_name\?: string;/);
+  assert.doesNotMatch(source, /fellow_avatar_image\?: string;/);
+});
+
+test("mobile RN message fixtures and normalization use sender_kind bot", () => {
+  const normalizeSource = fs.readFileSync(path.join(ROOT, "apps/mobile-rn/src/logic/normalizeMessage.ts"), "utf8");
+  const conversationListSource = fs.readFileSync(path.join(ROOT, "apps/mobile-rn/src/logic/conversationList.ts"), "utf8");
+  const botMessageFixture = { id: "m_bot", sender_kind: "bot", sender_ref: "bot_mia", body_md: "hi" };
+  const botConversationFixture = { id: "botc_user_bot_mia", type: "bot", bot_id: "bot_mia" };
+
+  assert.equal(botMessageFixture.sender_kind, "bot");
+  assert.equal(botConversationFixture.bot_id, "bot_mia");
+  assert.match(normalizeSource, /m\.sender_kind === "bot" \? "assistant"/);
+  assert.doesNotMatch(normalizeSource, /m\.sender_kind === "fellow" \? "assistant"/);
+  assert.match(conversationListSource, /bots\?: Bot\[]/);
+  assert.match(conversationListSource, /conversationListTitle\(c, bots\)/);
 });

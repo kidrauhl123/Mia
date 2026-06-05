@@ -63,29 +63,36 @@ test("src/web/app/index.html includes the desktop-style chat history menu", () =
   assert.match(html, />\s*聊天记录\s*</);
 });
 
-test("src/web exposes cloud-only fellow creation from the sidebar plus menu", () => {
+test("src/web exposes cloud-only bot creation from the sidebar plus menu", () => {
   const html = fs.readFileSync(path.join(ROOT, "src/web/app/index.html"), "utf8");
   const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
 
-  assert.match(html, /id="convMenuNewFellow"/);
+  assert.match(html, /id="convMenuNewBot"/);
   assert.match(html, />\s*创建智能体\s*</);
-  assert.match(source, /convMenuNewFellow: document\.getElementById\("convMenuNewFellow"\)/);
-  assert.match(source, /function openCreateFellowDialog\(\)/);
-  assert.match(source, /function saveCloudOnlyFellowFromWeb\(/);
+  assert.match(source, /convMenuNewBot: document\.getElementById\("convMenuNewBot"\)/);
+  assert.match(source, /id="webCreateBotForm"/);
+  assert.match(source, /#webBotAvatarPreview/);
+  assert.match(source, /function openCreateBotDialog\(\)/);
+  assert.match(source, /function saveCloudOnlyBotFromWeb\(/);
+  assert.match(source, /\/api\/me\/bots\?compact=1/);
   assert.match(source, /runtimeKind:\s*"cloud-hermes"/);
-  assert.match(source, /\/api\/me\/fellows\/\$\{encodeURIComponent\(key\)\}/);
-  assert.match(source, /\/api\/me\/fellows\/\$\{encodeURIComponent\(key\)\}\/runtime/);
-  assert.match(source, /\/api\/me\/fellows\/\$\{encodeURIComponent\(key\)\}\/conversation/);
+  assert.match(source, /\/api\/me\/bots\/\$\{encodeURIComponent\(key\)\}/);
+  assert.match(source, /\/api\/me\/bots\/\$\{encodeURIComponent\(key\)\}\/runtime/);
+  assert.match(source, /\/api\/me\/bot-conversations\/\$\{encodeURIComponent\(key\)\}/);
   assert.match(source, /avatarImage:\s*draft\.avatarImage/);
   assert.match(source, /avatarCrop:\s*draft\.avatarCrop/);
-  assert.doesNotMatch(source, /id="webFellowRuntimeLocation"/);
+  assert.doesNotMatch(html, /id="convMenuNewFellow"/);
+  assert.doesNotMatch(source, /convMenuNewFellow: document\.getElementById/);
+  assert.doesNotMatch(source, /id="webCreateFellowForm"/);
+  assert.doesNotMatch(source, /#webFellowAvatarPreview/);
+  assert.doesNotMatch(source, /id="webBotRuntimeLocation"/);
   assert.doesNotMatch(source, /desktop-local[\s\S]{0,160}openCreateFellowDialog/);
 });
 
 test("src/web sidebar plus menu matches the desktop menu order, labels, and icons", () => {
   const desktopHtml = fs.readFileSync(path.join(ROOT, "src/renderer/index.html"), "utf8");
   const webHtml = fs.readFileSync(path.join(ROOT, "src/web/app/index.html"), "utf8");
-  const desktopItems = extractCreateMenuItems(desktopHtml, "fellowCreateMenu");
+  const desktopItems = extractCreateMenuItems(desktopHtml, "botCreateMenu");
   const webItems = extractCreateMenuItems(webHtml, "conversationCreateMenu");
 
   assert.deepEqual(
@@ -123,23 +130,23 @@ test("src/web/app/index.html loads shared session-history before app.js", () => 
   assert.ok(historyIdx < appIdx, "session-history must be loaded before app.js");
 });
 
-test("src/web fellow avatars use shared fellow identity instead of bare fellow key", () => {
+test("src/web bot avatars use shared bot identity instead of bare bot key", () => {
   const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
 
-  assert.match(source, /function fellowAvatarIdentityId\(fellowKey, fellow = \{\}, member = null\)/);
-  assert.match(source, /function fellowGlobalIdFromConversation\(conversation, fellowKey\)/);
-  assert.match(source, /window\.miaContact\?\.fellowAvatarIdentityId\?\.\(fellowKey/);
-  assert.match(source, /const avatarId = fellowAvatarIdentityId\(wanted, owned \|\| fallbackFellow, member \|\| null\);/);
+  assert.match(source, /function botAvatarIdentityId\(botKey, bot = \{\}, member = null\)/);
+  assert.match(source, /function botGlobalIdFromConversation\(conversation, botKey\)/);
+  assert.match(source, /const sharedIdentityId = window\.miaContact\?\.botAvatarIdentityId;/);
+  assert.match(source, /const avatarId = botAvatarIdentityId\(wanted, owned \|\| fallbackBot, member \|\| null\);/);
   assert.doesNotMatch(source, /resolveAvatarForContact\(\{\s*id:\s*wanted\b/);
 });
 
-test("src/web/app/index.html loads shared fellow runtime control before app.js", () => {
+test("src/web/app/index.html loads shared bot runtime control before app.js", () => {
   const html = fs.readFileSync(path.join(ROOT, "src/web/app/index.html"), "utf8");
-  const controlIdx = html.indexOf("shared/fellow-runtime-control.js");
+  const controlIdx = html.indexOf("shared/bot-runtime-control.js");
   const appIdx = html.indexOf("../app.js");
-  assert.ok(controlIdx >= 0, "index.html must reference shared/fellow-runtime-control.js");
+  assert.ok(controlIdx >= 0, "index.html must reference shared/bot-runtime-control.js");
   assert.ok(appIdx >= 0, "index.html must load app.js");
-  assert.ok(controlIdx < appIdx, "fellow runtime control must be loaded before app.js");
+  assert.ok(controlIdx < appIdx, "bot runtime control must be loaded before app.js");
 });
 
 test("src/web/app/index.html loads desktop markdown helper before app.js", () => {
@@ -346,7 +353,7 @@ test("src/web/app.js normalizes model + provider icon URLs through the same boun
   // setModelAvatar must hand the looked-up icon path through
   // normalizeAvatarUrl before assigning background-image — otherwise the
   // "./assets/model-icons/..." form 404s under the /app/ SPA fallback the
-  // same way the fellow avatars used to.
+  // same way the previous bot avatars used to.
   const setterMatch = source.match(/function setModelAvatar\([\s\S]*?\n\}/);
   assert.ok(setterMatch, "setModelAvatar must exist");
   assert.match(
@@ -405,8 +412,13 @@ test("scripts/build-cloud-release.js copies cloud shared modules into the api tr
   );
   assert.match(
     build,
-    /copyFile\(["']src\/shared\/group-fellow-routing\.js["'],\s*path\.join\(apiDir,\s*["']src["'],\s*["']shared["'],\s*["']group-fellow-routing\.js["']\)\)/,
-    "build-cloud-release must copy group-fellow-routing.js for api cloud-agent modules"
+    /copyFile\(["']src\/shared\/cloud-events\.js["'],\s*path\.join\(apiDir,\s*["']src["'],\s*["']shared["'],\s*["']cloud-events\.js["']\)\)/,
+    "build-cloud-release must copy cloud-events.js because cloud-agent dispatcher imports it"
+  );
+  assert.doesNotMatch(
+    build,
+    /copyFile\(["']src\/shared\/group-bot-routing\.js["']/,
+    "build-cloud-release must not ship unused legacy group-bot-routing.js"
   );
   assert.match(
     build,
@@ -433,14 +445,56 @@ test("scripts/build-cloud-release.js copies cloud shared modules into the api tr
     /copyFile\(["']packages\/shared\/avatar\.js["'],\s*path\.join\(apiDir,\s*["']packages["'],\s*["']shared["'],\s*["']avatar\.js["']\)\)/,
     "build-cloud-release must copy packages/shared/avatar.js because API compatibility entries require it"
   );
+  assert.match(
+    build,
+    /copyFile\(["']src\/shared\/bot-identity\.js["'],\s*path\.join\(apiDir,\s*["']src["'],\s*["']shared["'],\s*["']bot-identity\.js["']\)\)/,
+    "build-cloud-release must copy src/shared/bot-identity.js for API bot identity helpers"
+  );
+  assert.match(
+    build,
+    /copyFile\(["']src\/shared\/identity\.js["'],\s*path\.join\(apiDir,\s*["']src["'],\s*["']shared["'],\s*["']identity\.js["']\)\)/,
+    "build-cloud-release must copy src/shared/identity.js because cloud stores require it"
+  );
+  assert.match(
+    build,
+    /copyFile\(["']packages\/shared\/bot-identity\.js["'],\s*path\.join\(apiDir,\s*["']packages["'],\s*["']shared["'],\s*["']bot-identity\.js["']\)\)/,
+    "build-cloud-release must copy packages/shared/bot-identity.js for API bot identity helpers"
+  );
+  assert.match(
+    build,
+    /copyFile\(["']packages\/shared\/identity\.js["'],\s*path\.join\(apiDir,\s*["']packages["'],\s*["']shared["'],\s*["']identity\.js["']\)\)/,
+    "build-cloud-release must copy packages/shared/identity.js because bot-identity.js requires it"
+  );
   assert.match(build, /api\/src\/shared\/conversation-kinds\.js/);
+  assert.match(build, /api\/src\/shared\/cloud-events\.js/);
   assert.match(build, /api\/src\/shared\/engine-contracts\.js/);
   assert.match(build, /api\/src\/shared\/member-color\.js/);
   assert.match(build, /api\/src\/shared\/avatar-media\.js/);
   assert.match(build, /api\/packages\/shared\/avatar\.js/);
-  assert.match(build, /api\/src\/shared\/group-fellow-routing\.js/);
+  assert.match(build, /api\/src\/shared\/bot-identity\.js/);
+  assert.match(build, /api\/src\/shared\/identity\.js/);
+  assert.match(build, /api\/packages\/shared\/bot-identity\.js/);
+  assert.match(build, /api\/packages\/shared\/identity\.js/);
+  assert.doesNotMatch(build, /fellow-identity\.js/);
+  assert.doesNotMatch(build, /api\/src\/shared\/group-bot-routing\.js/);
+  assert.match(build, /api\/src\/cloud-agent\/default-bot\.js/);
+  assert.doesNotMatch(build, /api\/src\/cloud-agent\/default-fellow\.js/);
   assert.match(build, /api\/src\/shared\/skill-safety\.js/);
   assert.match(build, /api\/src\/shared\/avatar-resolve\.js/);
+});
+
+test("cloud release runtime does not import legacy group bot routing", () => {
+  const runtimeFiles = [
+    "scripts/serve-cloud.js",
+    ...fs.readdirSync(path.join(ROOT, "src/cloud-agent"))
+      .filter((file) => file.endsWith(".js"))
+      .map((file) => `src/cloud-agent/${file}`)
+  ];
+
+  for (const file of runtimeFiles) {
+    const source = fs.readFileSync(path.join(ROOT, file), "utf8");
+    assert.doesNotMatch(source, /group-bot-routing/, `${file} must not import legacy group-bot-routing.js`);
+  }
 });
 
 test("scripts/build-cloud-release.js ships the git-versioned skill catalog", () => {
@@ -491,17 +545,17 @@ test("src/web/app.js has no inline '> 99 ? 99+' truncation literals", () => {
   );
 });
 
-test("src/web/app.js only shows private AI controls in fellow conversations", () => {
+test("src/web/app.js only shows private AI controls in bot conversations", () => {
   const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
   assert.match(source, /function renderComposerControls\(conversation = null\)/);
-  assert.match(source, /conversationTypeForControls\(conversation\)\s*===\s*"fellow"/);
+  assert.match(source, /conversationTypeForControls\(conversation\)\s*===\s*"bot"/);
   assert.match(source, /composerBottom\?\.classList\.toggle\("hidden",\s*!show\)/);
   assert.match(source, /saveWebAiControl\("model"/);
   assert.match(source, /saveWebAiControl\("effort"/);
   assert.match(source, /saveWebAiControl\("permission"/);
 });
 
-test("src/web/app.js uses platform model catalog for cloud fellow controls", () => {
+test("src/web/app.js uses platform model catalog for cloud bot controls", () => {
   const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
   assert.match(source, /platformModels/);
   assert.match(source, /loadPlatformModels/);
@@ -557,9 +611,9 @@ test("src/web/app.js supports desktop-style markdown links and code copy", () =>
   assert.match(source, /\.bubble code\.inline-code/);
 });
 
-test("src/web/app.js lets web controls update desktop-local fellow runtime bindings", () => {
+test("src/web/app.js lets web controls update desktop-local bot runtime bindings", () => {
   const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
-  assert.match(source, /function runtimeKindForFellowConversation\(conversation, fellow\)[\s\S]*return sessionHistory\.runtimeKind\(conversation, "desktop-local"\);/);
+  assert.match(source, /function runtimeKindForBotConversation\(conversation, bot\)[\s\S]*return sessionHistory\.runtimeKind\(conversation, "desktop-local"\);/);
   assert.doesNotMatch(source, /return runtimeKind \|\| "cloud-hermes";/);
   assert.doesNotMatch(source, /runtimeKind === "desktop-local"\)\s*return null/);
   assert.doesNotMatch(source, /Desktop controls/);
@@ -569,26 +623,26 @@ test("src/web/app.js lets web controls update desktop-local fellow runtime bindi
   assert.match(source, /config\.agentEngine/);
   assert.match(source, /selectEntriesForModel\(engine, runtimeKind, config\)/);
   assert.match(source, /config\.modelEntries/);
-  assert.match(source, /const editable = Boolean\(fellowKey\);/);
-  assert.match(source, /window\.miaFellowRuntimeControl/);
-  assert.match(source, /saveFellowRuntimeControl\(\{/);
+  assert.match(source, /const editable = Boolean\(botKey\);/);
+  assert.match(source, /window\.miaBotRuntimeControl/);
+  assert.match(source, /saveBotRuntimeControl\(\{/);
   assert.doesNotMatch(source, /body:\s*\{ runtimeKind, enabled: true, config \}/);
 });
 
-test("shared fellow runtime control owns Web PUT runtime writes", () => {
+test("shared bot runtime control owns Web PUT runtime writes", () => {
   const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
-  const shared = fs.readFileSync(path.join(ROOT, "src/shared/fellow-runtime-control.js"), "utf8");
+  const shared = fs.readFileSync(path.join(ROOT, "src/shared/bot-runtime-control.js"), "utf8");
   assert.match(source, /method === "POST" \|\| method === "PUT" \|\| method === "PATCH" \|\| method === "DELETE"/);
-  assert.match(shared, /\/api\/me\/fellows\/\$\{encodeURIComponent\(fellowKey\)\}\/runtime/);
+  assert.match(shared, /\/api\/me\/bots\/\$\{encodeURIComponent\(botKey\)\}\/runtime/);
   assert.match(shared, /method:\s*"PUT"/);
-  assert.doesNotMatch(source, /\/api\/me\/fellows\/\$\{encodeURIComponent\(fellowKey\)\}\/runtime[\s\S]*method:\s*"PUT"/);
+  assert.doesNotMatch(source, /\/api\/me\/bots\/\$\{encodeURIComponent\(botKey\)\}\/runtime[\s\S]*method:\s*"PUT"/);
 });
 
-test("cloud release copies shared fellow runtime control into web assets", () => {
+test("cloud release copies shared bot runtime control into web assets", () => {
   const build = fs.readFileSync(path.join(ROOT, "scripts/build-cloud-release.js"), "utf8");
-  assert.match(build, /src\/shared\/fellow-runtime-control\.js/);
-  assert.match(build, /path\.join\(webDir, "shared", "fellow-runtime-control\.js"\)/);
-  assert.match(build, /"web\/shared\/fellow-runtime-control\.js"/);
+  assert.match(build, /src\/shared\/bot-runtime-control\.js/);
+  assert.match(build, /path\.join\(webDir, "shared", "bot-runtime-control\.js"\)/);
+  assert.match(build, /"web\/shared\/bot-runtime-control\.js"/);
 });
 
 test("src/web/app.js switches conversations before awaiting network hydration", () => {
@@ -605,7 +659,7 @@ test("src/web/app.js switches conversations before awaiting network hydration", 
   );
 });
 
-test("src/web/app.js restores the topbar chat history selector for fellow conversations", () => {
+test("src/web/app.js restores the topbar chat history selector for bot conversations", () => {
   const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
   assert.match(source, /const sessionHistory = window\.miaSessionHistory/);
   assert.match(source, /sessionMenuButton: document\.getElementById\("sessionMenuButton"\)/);
@@ -613,13 +667,54 @@ test("src/web/app.js restores the topbar chat history selector for fellow conver
   assert.match(source, /function sessionConversationsForConversation\(conversation\)/);
   assert.match(source, /sessionHistory\.sessionConversationsForConversation/);
   assert.match(source, /sessionHistory\.sidebarConversations\(state\.conversations/);
-  assert.match(source, /sessionHistory\.fellowDisplayTitle\(conversation, state\.fellows, "对话"\)/);
-  assert.match(source, /sessionHistory\.createFellowSessionPayload/);
+  assert.match(source, /sessionHistory\.botDisplayTitle\(conversation, state\.bots, "对话"\)/);
+  assert.match(source, /sessionHistory\.createBotSessionPayload/);
   assert.match(source, /function createNewSessionForActive\(\)/);
-  assert.match(source, /\/api\/me\/fellow-conversations\/\$\{encodeURIComponent\(payload\.sessionId\)\}/);
+  assert.match(source, /\/api\/me\/bot-conversations\/\$\{encodeURIComponent\(payload\.sessionId\)\}/);
   assert.match(source, /sessionMenuOpen/);
   assert.match(source, /currentSessionTitle/);
   assert.match(source, /newSession\?\.classList\.toggle\("hidden", !canCreate\)/);
+});
+
+test("src/web/app.js handles bot cloud events and bot message source context", () => {
+  const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
+
+  assert.match(source, /type === "bot\.upserted"/);
+  assert.match(source, /type === "bot\.runtime_updated"/);
+  assert.match(source, /type === "bot\.deleted"/);
+  assert.doesNotMatch(source, /type === "fellow\.upserted"/);
+  assert.doesNotMatch(source, /type === "fellow\.runtime_updated"/);
+  assert.doesNotMatch(source, /type === "fellow\.deleted"/);
+  assert.match(source, /const ctx = \{ self: state\.user, friends: state\.friends, bots: state\.bots \}/);
+  assert.doesNotMatch(source, /const ctx = \{ self: state\.user, friends: state\.friends, fellows: state\.fellows \}/);
+  assert.match(source, /sender_kind:\s*"bot"/);
+  assert.doesNotMatch(source, /sender_kind:\s*"fellow"/);
+});
+
+test("src/web/app.js clears cloud-agent streaming on persisted bot replies", () => {
+  const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
+  const handlerMatch = source.match(/type === "conversation\.message_appended"[\s\S]*?renderRailUnreadBadge\(\);/);
+  assert.ok(handlerMatch, "conversation.message_appended handler must exist");
+  assert.match(
+    handlerMatch[0],
+    /msg\.sender_kind === SenderKind\.Bot/,
+    "final bot messages must clear transient cloud-agent streaming rows"
+  );
+  assert.doesNotMatch(
+    handlerMatch[0],
+    /msg\.sender_kind === SenderKind\.Fellow/,
+    "web must not wait for legacy fellow sender kind to clear bot streams"
+  );
+});
+
+test("src/web/app.js uses bot members for bot avatar fallback and web group creation", () => {
+  const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
+  const helperMatch = source.match(/function botAvatarFor\(conversation, botKey\)\s*\{[\s\S]*?\n\}\n/);
+  assert.ok(helperMatch, "botAvatarFor body must be defined");
+  assert.match(helperMatch[0], /m\.member_kind === MemberKind\.Bot/);
+  assert.doesNotMatch(helperMatch[0], /m\.member_kind === MemberKind\.Fellow/);
+  assert.match(source, /memberBots:\s*\[\]/);
+  assert.doesNotMatch(source, /memberFellows:\s*\[\]/);
 });
 
 test("src/web/styles.css carries desktop-style AI control switchers", () => {
@@ -711,42 +806,42 @@ test("src/web/app.js skips unread bump when readMark already covers the replayed
   );
 });
 
-test("src/web/app.js resolves fellow avatars via conversationMembersCache when the fellow isn't owned", () => {
+test("src/web/app.js resolves bot avatars via conversationMembersCache when the bot isn't owned", () => {
   const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
   assert.match(
     source,
-    /function fellowAvatarFor\(/,
-    "web/app.js must expose a fellowAvatarFor helper so cross-owner fellow avatars don't fall back to single-letter bubbles"
+    /function botAvatarFor\(/,
+    "web/app.js must expose a botAvatarFor helper so cross-owner bot avatars don't fall back to single-letter bubbles"
   );
   // Conversation list path must use the new helper.
   assert.match(
     source,
-    /fellowAvatarFor\(r,\s*fellowKey\)/,
-    "conversation list must route fellow avatar lookup through fellowAvatarFor"
+    /botAvatarFor\(r,\s*botKey\)/,
+    "conversation list must route bot avatar lookup through botAvatarFor"
   );
   // Active chat header path must use the new helper.
   assert.match(
     source,
-    /fellowAvatarFor\(conversation,\s*fellowKeyForConversation\(conversation\)\)/,
-    "active chat header must route fellow avatar lookup through fellowAvatarFor"
+    /botAvatarFor\(conversation,\s*botKeyForConversation\(conversation\)\)/,
+    "active chat header must route bot avatar lookup through botAvatarFor"
   );
-  // The helper must consult conversationMembersCache for enriched fellow_avatar_image.
-  const helperMatch = source.match(/function fellowAvatarFor\(conversation, fellowKey\)\s*\{[\s\S]*?\n\}\n/);
-  assert.ok(helperMatch, "fellowAvatarFor body must be defined");
+  // The helper must consult conversationMembersCache for enriched bot_avatar_image.
+  const helperMatch = source.match(/function botAvatarFor\(conversation, botKey\)\s*\{[\s\S]*?\n\}\n/);
+  assert.ok(helperMatch, "botAvatarFor body must be defined");
   assert.match(
     helperMatch[0],
     /state\.conversationMembersCache/,
-    "fellowAvatarFor must consult conversationMembersCache for cross-owner fellows"
+    "botAvatarFor must consult conversationMembersCache for cross-owner bots"
   );
   assert.match(
     helperMatch[0],
     /hasAvatarIdentityFields/,
-    "fellowAvatarFor must distinguish compact owned fellow rows from explicit empty avatar rows"
+    "botAvatarFor must distinguish compact owned bot rows from explicit empty avatar rows"
   );
   assert.match(
     helperMatch[0],
-    /fellow_avatar_image/,
-    "fellowAvatarFor must read the server-enriched fellow_avatar_image field"
+    /bot_avatar_image/,
+    "botAvatarFor must read the server-enriched bot_avatar_image field"
   );
 });
 

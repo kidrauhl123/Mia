@@ -21,7 +21,7 @@ const SHARED_MODULES = [
   { file: "packages/shared/avatar.js", global: "miaAvatarMedia" },
   { file: "packages/shared/avatar.js", global: "miaAvatarResolve" },
   { file: "packages/shared/avatar.js", global: "miaMemberColor" },
-  { file: "src/shared/fellow-runtime-control.js", global: "miaFellowRuntimeControl" }
+  { file: "src/shared/bot-runtime-control.js", global: "miaBotRuntimeControl" }
 ];
 
 function runInBrowserSandbox(filePath) {

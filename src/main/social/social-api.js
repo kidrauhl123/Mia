@@ -70,19 +70,19 @@ function createSocialApi({ getSettings, normalizeUrl }) {
     async listConversations() {
       return jsonFetch({ ...ctx(), method: "GET", path: "/api/conversations" });
     },
-    async listFellows() {
-      return jsonFetch({ ...ctx(), method: "GET", path: "/api/me/fellows" });
+    async listBots() {
+      return jsonFetch({ ...ctx(), method: "GET", path: "/api/me/bots" });
     },
-    async saveFellowIdentity(fellowId, body = {}) {
+    async saveBotIdentity(botId, body = {}) {
       return jsonFetch({
         ...ctx(),
         method: "PUT",
-        path: `/api/me/fellows/${encodeURIComponent(fellowId)}`,
+        path: `/api/me/bots/${encodeURIComponent(botId)}`,
         body: withOpId(body)
       });
     },
-    async deleteFellow(fellowId) {
-      return jsonFetch({ ...ctx(), method: "DELETE", path: `/api/me/fellows/${encodeURIComponent(fellowId)}` });
+    async deleteBot(botId) {
+      return jsonFetch({ ...ctx(), method: "DELETE", path: `/api/me/bots/${encodeURIComponent(botId)}` });
     },
     async listPlatformModels() {
       return jsonFetch({ ...ctx(), method: "GET", path: "/api/me/model-catalog" });
@@ -103,27 +103,35 @@ function createSocialApi({ getSettings, normalizeUrl }) {
     async deleteConversationMessage(conversationId, messageId) {
       return jsonFetch({ ...ctx(), method: "DELETE", path: `/api/conversations/${conversationId}/messages/${encodeURIComponent(messageId)}` });
     },
-    async createConversation({ name, memberFellows, memberFriendUserIds, clientGroupId } = {}) {
+    async createConversation({ name, memberBots, memberFriendUserIds, clientGroupId } = {}) {
       // clientGroupId is the conversation-creation-specific idempotency key (links
       // a local group to its cloud counterpart); we still attach a generic
       // clientOpId so a *retry* of the same POST doesn't run twice even
       // when there's no clientGroupId provided. Both checks coexist on
       // the server.
-      const body = { name, memberFellows, memberFriendUserIds };
+      const body = { name, memberBots, memberFriendUserIds };
       if (clientGroupId) body.clientGroupId = clientGroupId;
       return jsonFetch({ ...ctx(), method: "POST", path: "/api/conversations", body: withOpId(body) });
     },
-    async ensureFellowConversation(fellowId, body = {}) {
-      return jsonFetch({ ...ctx(), method: "PUT", path: `/api/me/fellows/${encodeURIComponent(fellowId)}/conversation`, body: withOpId(body) });
+    async ensureBotConversation(botId, body = {}) {
+      const id = String(botId || "").trim();
+      if (!id) throw new Error("botId is required");
+      return this.ensureBotSessionConversation(id, { ...body, botId: id });
     },
-    async ensureFellowSessionConversation(sessionId, body = {}) {
-      return jsonFetch({ ...ctx(), method: "PUT", path: `/api/me/fellow-conversations/${encodeURIComponent(sessionId)}`, body: withOpId(body) });
+    async ensureBotSessionConversation(sessionId, body = {}) {
+      const botId = String(body.botId || body.botKey || "").trim();
+      return jsonFetch({
+        ...ctx(),
+        method: "PUT",
+        path: `/api/me/bot-conversations/${encodeURIComponent(sessionId)}`,
+        body: withOpId({ ...body, ...(botId ? { botId } : {}) })
+      });
     },
-    async getFellowRuntime(fellowId, runtimeKind = "cloud-hermes") {
-      return jsonFetch({ ...ctx(), method: "GET", path: `/api/me/fellows/${encodeURIComponent(fellowId)}/runtime?kind=${encodeURIComponent(runtimeKind)}` });
+    async getBotRuntime(botId, runtimeKind = "cloud-hermes") {
+      return jsonFetch({ ...ctx(), method: "GET", path: `/api/me/bots/${encodeURIComponent(botId)}/runtime?kind=${encodeURIComponent(runtimeKind)}` });
     },
-    async saveFellowRuntime(fellowId, body = {}) {
-      return jsonFetch({ ...ctx(), method: "PUT", path: `/api/me/fellows/${encodeURIComponent(fellowId)}/runtime`, body: withOpId(body) });
+    async saveBotRuntime(botId, body = {}) {
+      return jsonFetch({ ...ctx(), method: "PUT", path: `/api/me/bots/${encodeURIComponent(botId)}/runtime`, body: withOpId(body) });
     },
     async updateConversation(conversationId, patch) {
       return jsonFetch({ ...ctx(), method: "PATCH", path: `/api/conversations/${conversationId}`, body: patch || {} });
@@ -137,8 +145,8 @@ function createSocialApi({ getSettings, normalizeUrl }) {
     async removeConversationMember(conversationId, { memberKind, memberRef }) {
       return jsonFetch({ ...ctx(), method: "DELETE", path: `/api/conversations/${conversationId}/members`, body: { memberKind, memberRef } });
     },
-    async postConversationMessageAsFellow(conversationId, body) {
-      return jsonFetch({ ...ctx(), method: "POST", path: `/api/conversations/${conversationId}/messages/as-fellow`, body: withOpId(body) });
+    async postConversationMessageAsBot(conversationId, body) {
+      return jsonFetch({ ...ctx(), method: "POST", path: `/api/conversations/${conversationId}/messages/as-bot`, body: withOpId(body) });
     }
   };
 }

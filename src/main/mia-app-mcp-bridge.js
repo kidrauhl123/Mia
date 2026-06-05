@@ -58,10 +58,10 @@ function createMiaAppMcpBridge(deps = {}) {
     return targetPath;
   }
 
-  function writeContext({ fellowId = "", sessionId = "", originMessageId = "" } = {}) {
+  function writeContext({ botId = "", sessionId = "", originMessageId = "" } = {}) {
     const filePath = contextPath();
     fsImpl.mkdirSync(path.dirname(filePath), { recursive: true });
-    const payload = { fellowId, sessionId };
+    const payload = { botId, sessionId };
     if (originMessageId) payload.originMessageId = originMessageId;
     fsImpl.writeFileSync(filePath, JSON.stringify(payload, null, 2), "utf8");
   }

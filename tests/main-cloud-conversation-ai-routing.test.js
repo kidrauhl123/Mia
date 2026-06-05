@@ -9,28 +9,28 @@ function read(rel) {
   return fs.readFileSync(path.join(ROOT, rel), "utf8");
 }
 
-test("main owns cloud conversation fellow invocation execution without group coordination", () => {
+test("main owns cloud conversation bot invocation execution without group coordination", () => {
   const main = read("src/main.js");
   const cloudEventsClient = read("src/main/cloud/cloud-events-client.js");
 
-  assert.match(main, /createLocalFellowResponder/, "main must instantiate the local fellow responder Module");
+  assert.match(main, /createLocalBotResponder/, "main must instantiate the local bot responder Module");
   assert.match(main, /createCloudEventsClient/, "main must instantiate the cloud events client Module");
   assert.doesNotMatch(main, /createMainGroupConductor/, "main must not instantiate a desktop group conductor");
-  assert.doesNotMatch(main, /createMainFellowConversationResponder/, "main must not instantiate a desktop DM auto-responder");
-  assert.match(main, /createMainFellowRuntimeDispatcher/, "main must instantiate the unified fellow runtime dispatcher Module");
+  assert.doesNotMatch(main, /createMainBotConversationResponder/, "main must not instantiate a desktop DM auto-responder");
+  assert.match(main, /createMainBotRuntimeDispatcher/, "main must instantiate the unified bot runtime dispatcher Module");
   assert.match(main, /shouldHandleLocalCloudConversationAi/, "main must gate AI execution so foreground and daemon do not both answer");
   assert.match(
     cloudEventsClient,
-    /message\.type === CloudEvent\.ConversationFellowInvocationRequested[\s\S]*fellowRuntimeDispatcher\?\.handleCloudEvent\?\.\(message\)/,
-    "explicit fellow invocation events must enter the unified fellow runtime dispatcher"
+    /message\.type === CloudEvent\.ConversationBotInvocationRequested[\s\S]*botRuntimeDispatcher\?\.handleCloudEvent\?\.\(message\)/,
+    "explicit bot invocation events must enter the unified bot runtime dispatcher"
   );
-  const dispatcher = read("src/main/social/fellow-runtime-dispatcher.js");
-  assert.match(dispatcher, /localFellowResponder\.respond/, "dispatcher must own explicit desktop-local invocation execution");
+  const dispatcher = read("src/main/social/bot-runtime-dispatcher.js");
+  assert.match(dispatcher, /localBotResponder\.respond/, "dispatcher must own explicit desktop-local invocation execution");
   assert.doesNotMatch(dispatcher, /mainGroupConductor/, "dispatcher must not run group conductor fan-out from message events");
-  assert.doesNotMatch(dispatcher, /mainFellowConversationResponder/, "dispatcher must not re-derive invocation from raw message events");
+  assert.doesNotMatch(dispatcher, /mainBotConversationResponder/, "dispatcher must not re-derive invocation from raw message events");
   assert.doesNotMatch(
     cloudEventsClient,
-    /"conversation\.(fellow_invocation_requested|message_appended)"/,
+    /"conversation\.(bot_invocation_requested|message_appended)"/,
     "cloud events client must use shared CloudEvent conversation constants, not raw event strings"
   );
   assert.doesNotMatch(main, /function handleCloudEventsMessage/, "main must not own cloud event routing implementation");
@@ -77,9 +77,9 @@ test("renderer social module no longer runs local engines for cloud conversation
     "renderer must not run conductor dispatch from conversation.message_appended"
   );
   assert.equal(
-    /handleFellowInvocation\(payload\)/.test(social),
+    /handleBotInvocation\(payload\)/.test(social),
     false,
-    "renderer must not run explicit @ fellow invocation from cloud events"
+    "renderer must not run explicit @ bot invocation from cloud events"
   );
   assert.equal(
     /group-conductor\.js/.test(html),
@@ -87,30 +87,30 @@ test("renderer social module no longer runs local engines for cloud conversation
     "renderer must not load the old conductor script after main owns conductor execution"
   );
   assert.equal(
-    /sendChatStateless|postConversationMessageAsFellow|handleFellowInvocation/.test(groups),
+    /sendChatStateless|postConversationMessageAsBot|handleBotInvocation/.test(groups),
     false,
     "renderer social-groups must not retain local engine invocation code"
   );
 });
 
-test("renderer IPC surface cannot post cloud conversation messages as a fellow", () => {
+test("renderer IPC surface cannot post cloud conversation messages as a bot", () => {
   const preload = read("src/preload.js");
   const channels = read("src/shared/ipc-channels.js");
   const socialIpc = read("src/main/social/social-ipc.js");
 
   assert.equal(
-    /postConversationMessageAsFellow/.test(preload),
+    /postConversationMessageAsBot/.test(preload),
     false,
-    "preload must not expose fellow-authored conversation posting to renderer"
+    "preload must not expose bot-authored conversation posting to renderer"
   );
   assert.equal(
-    /SocialPostMessageAsFellow/.test(channels),
+    /SocialPostMessageAsBot/.test(channels),
     false,
-    "shared IPC channels must not keep the renderer-to-main fellow posting channel"
+    "shared IPC channels must not keep the renderer-to-main bot posting channel"
   );
   assert.equal(
-    /SocialPostMessageAsFellow/.test(socialIpc),
+    /SocialPostMessageAsBot/.test(socialIpc),
     false,
-    "social IPC registration must not accept renderer fellow posting requests"
+    "social IPC registration must not accept renderer bot posting requests"
   );
 });

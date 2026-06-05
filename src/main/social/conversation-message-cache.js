@@ -20,18 +20,9 @@ const { DatabaseSync } = require("node:sqlite");
 
 const DEFAULT_RECENT_LIMIT = 50;
 const DEFAULT_PRUNE_KEEP = 300;
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-function fellowConversationRef(conversationId) {
-  const parts = String(conversationId || "").split(":");
-  if (parts.length < 3 || parts[0] !== "fellow") return "";
-  return parts.slice(2).join(":");
-}
-
-function isLegacyFellowSessionConversation(conversation = {}) {
-  if (!conversation || conversation.type !== "fellow") return false;
-  const ref = fellowConversationRef(conversation.id);
-  return UUID_RE.test(ref);
+function hasColumn(db, tableName, columnName) {
+  return db.prepare(`PRAGMA table_info(${tableName})`).all().some((row) => row.name === columnName);
 }
 
 function migrate(db) {
@@ -49,12 +40,18 @@ function migrate(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_messages_conversation_seq
       ON messages (conversation_id, seq);
+  `);
 
+  if (!hasColumn(db, "social_bootstrap", "bots_json")) {
+    db.exec("DROP TABLE IF EXISTS social_bootstrap");
+  }
+
+  db.exec(`
     CREATE TABLE IF NOT EXISTS social_bootstrap (
       user_id            TEXT PRIMARY KEY,
       conversations_json TEXT NOT NULL,
       friends_json       TEXT NOT NULL,
-      fellows_json       TEXT NOT NULL,
+      bots_json          TEXT NOT NULL,
       members_json       TEXT NOT NULL,
       updated_at         TEXT NOT NULL
     );
@@ -93,21 +90,21 @@ function openConversationMessageCache(dbPath) {
   `);
   const deleteConvStmt = db.prepare("DELETE FROM messages WHERE conversation_id = ?");
   const socialBootstrapStmt = db.prepare(`
-    SELECT conversations_json, friends_json, fellows_json, members_json, updated_at
+    SELECT conversations_json, friends_json, bots_json, members_json, updated_at
     FROM social_bootstrap
     WHERE user_id = ?
   `);
   const socialBootstrapUpsertStmt = db.prepare(`
-    INSERT INTO social_bootstrap (user_id, conversations_json, friends_json, fellows_json, members_json, updated_at)
+    INSERT INTO social_bootstrap (user_id, conversations_json, friends_json, bots_json, members_json, updated_at)
     VALUES (?, ?, ?, ?, ?, ?)
     ON CONFLICT (user_id) DO UPDATE SET
       conversations_json = excluded.conversations_json,
       friends_json = excluded.friends_json,
-      fellows_json = excluded.fellows_json,
+      bots_json = excluded.bots_json,
       members_json = excluded.members_json,
       updated_at = excluded.updated_at
   `);
-  const socialBootstrapAllStmt = db.prepare("SELECT user_id, conversations_json, friends_json, fellows_json, members_json FROM social_bootstrap");
+  const socialBootstrapAllStmt = db.prepare("SELECT user_id, conversations_json, friends_json, bots_json, members_json FROM social_bootstrap");
   const cachedConversationIdsStmt = db.prepare(`
     SELECT conversation_id, MAX(seq) AS max_seq
     FROM messages
@@ -221,13 +218,13 @@ function openConversationMessageCache(dbPath) {
     if (!row) return null;
     const conversations = parseJson(row.conversations_json, []);
     const friends = parseJson(row.friends_json, []);
-    const fellows = parseJson(row.fellows_json, []);
+    const bots = parseJson(row.bots_json, []);
     const members = parseJson(row.members_json, {});
     return {
       userId,
       conversations: Array.isArray(conversations) ? conversations : [],
       friends: Array.isArray(friends) ? friends : [],
-      fellows: Array.isArray(fellows) ? fellows : [],
+      bots: Array.isArray(bots) ? bots : [],
       members: members && typeof members === "object" && !Array.isArray(members) ? members : {},
       updatedAt: row.updated_at || ""
     };
@@ -244,7 +241,7 @@ function openConversationMessageCache(dbPath) {
       userId: uid,
       conversations,
       friends: [],
-      fellows: [],
+      bots: [],
       members: {},
       updatedAt: ""
     };
@@ -252,9 +249,8 @@ function openConversationMessageCache(dbPath) {
 
   function inferredConversationForUser(conversationId, userId) {
     const id = String(conversationId || "");
-    if (id.startsWith(`fellow:${userId}:`)) {
-      const conversation = { id, type: "fellow" };
-      return isLegacyFellowSessionConversation(conversation) ? null : conversation;
+    if (id.startsWith("botc_")) {
+      return { id, type: "bot" };
     }
     if (id.startsWith("dm:")) {
       const parts = id.split(":").slice(1);
@@ -279,14 +275,14 @@ function openConversationMessageCache(dbPath) {
       userId: uid,
       conversations: [],
       friends: [],
-      fellows: [],
+      bots: [],
       members: {}
     };
     const next = {
       userId: uid,
       conversations: Array.isArray(patch.conversations) ? patch.conversations : current.conversations,
       friends: Array.isArray(patch.friends) ? patch.friends : current.friends,
-      fellows: Array.isArray(patch.fellows) ? patch.fellows : current.fellows,
+      bots: Array.isArray(patch.bots) ? patch.bots : current.bots,
       members: patch.members && typeof patch.members === "object" && !Array.isArray(patch.members)
         ? { ...(current.members || {}), ...patch.members }
         : (current.members || {}),
@@ -296,7 +292,7 @@ function openConversationMessageCache(dbPath) {
       uid,
       JSON.stringify(next.conversations),
       JSON.stringify(next.friends),
-      JSON.stringify(next.fellows),
+      JSON.stringify(next.bots),
       JSON.stringify(next.members),
       next.updatedAt
     );

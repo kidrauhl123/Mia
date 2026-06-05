@@ -39,7 +39,7 @@ function mkRes() {
 test("GET /api/tasks returns list", async () => {
   const c = ctx();
   c.store.create({
-    title: "t", fellowId: "f", sessionId: "s", originMessageId: "m",
+    title: "t", botId: "f", sessionId: "s", originMessageId: "m",
     trigger: { type: "cron", cron: "0 9 * * *" }, timezone: "UTC", prompt: "p"
   });
   const res = mkRes();
@@ -57,7 +57,7 @@ test("POST /api/tasks creates and emits 'created'", async () => {
     { method: "POST", url: "/api/tasks" },
     res,
     {
-      title: "x", fellowId: "f", sessionId: "s", originMessageId: "m",
+      title: "x", botId: "f", sessionId: "s", originMessageId: "m",
       trigger: { type: "cron", cron: "0 9 * * *" }, timezone: "UTC", prompt: "p"
     }
   );
@@ -69,7 +69,7 @@ test("POST /api/tasks creates and emits 'created'", async () => {
 test("POST /api/tasks/:id/run-now triggers runNow", async () => {
   const c = ctx();
   const t = c.store.create({
-    title: "x", fellowId: "f", sessionId: "s", originMessageId: "m",
+    title: "x", botId: "f", sessionId: "s", originMessageId: "m",
     trigger: { type: "cron", cron: "0 9 * * *" }, timezone: "UTC", prompt: "p"
   });
   const res = mkRes();
@@ -82,7 +82,7 @@ test("DELETE /api/tasks/:id removes and emits 'deleted'", async () => {
   const events = [];
   c.events.subscribe((e) => events.push(e));
   const t = c.store.create({
-    title: "x", fellowId: "f", sessionId: "s", originMessageId: "m",
+    title: "x", botId: "f", sessionId: "s", originMessageId: "m",
     trigger: { type: "cron", cron: "0 9 * * *" }, timezone: "UTC", prompt: "p"
   });
   const res = mkRes();

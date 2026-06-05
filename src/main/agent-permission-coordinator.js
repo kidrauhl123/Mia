@@ -103,7 +103,7 @@ function publicRequest(pending) {
   return {
     requestId: pending.requestId,
     engine: pending.engine,
-    fellowKey: pending.fellowKey,
+    botId: pending.botId,
     sessionId: pending.sessionId,
     toolName: pending.toolName,
     title: pending.title,
@@ -205,7 +205,7 @@ function createAgentPermissionCoordinator(deps = {}) {
     const pendingRequest = {
       requestId: String(request.requestId || `perm_${randomUUID()}`),
       engine,
-      fellowKey: String(request.fellowKey || "").trim(),
+      botId: String(request.botId || "").trim(),
       sessionId: String(request.sessionId || "").trim(),
       toolName,
       title: String(request.title || `${engine} 请求使用 ${toolName}`).trim(),

@@ -1,6 +1,11 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const vm = require("node:vm");
 const { MessageCapability, defaultCapabilities, normalizeSpec } = require("../src/shared/message-spec");
+
+const root = path.join(__dirname, "..");
 
 test("MessageCapability has reply / copy / pin / delete", () => {
   assert.equal(MessageCapability.Reply, "reply");
@@ -18,7 +23,7 @@ test("defaultCapabilities returns object with all flags false", () => {
 });
 
 test("normalizeSpec fills missing fields with safe defaults", () => {
-  const s = normalizeSpec({ source: "fellow-session", conversationId: "c1", messageId: "m1", role: "user" });
+  const s = normalizeSpec({ source: "bot-session", conversationId: "botc_1", messageId: "m1", role: "user" });
   assert.equal(s.role, "user");
   assert.equal(s.bodyMd, "");
   assert.equal(s.attachments.length, 0);
@@ -36,4 +41,99 @@ test("normalizeSpec preserves provided fields", () => {
   assert.equal(s.bodyMd, "hi");
   assert.equal(s.capabilities.reply, true);
   assert.equal(s.capabilities.delete, false);
+});
+
+test("normalizeSpec preserves authorIdentity and derives badge", () => {
+  const s = normalizeSpec({
+    source: "cloud-conversation",
+    conversationId: "botc_1",
+    messageId: "m1",
+    role: "assistant",
+    authorIdentity: {
+      kind: "bot",
+      id: "bot_mia",
+      displayName: "Mia",
+      statusBadge: { kind: "emoji", emoji: "⭐" }
+    },
+    bodyMd: "hi"
+  });
+
+  assert.equal(s.authorIdentity.kind, "bot");
+  assert.equal(s.authorIdentity.id, "bot_mia");
+  assert.equal(s.authorName, "Mia");
+  assert.deepEqual(s.statusBadge, { kind: "emoji", emoji: "⭐" });
+});
+
+test("normalizeSpec derives a user badge from stored profile JSON", () => {
+  const s = normalizeSpec({
+    source: "cloud-conversation",
+    conversationId: "dm:u1:u2",
+    messageId: "m_profile",
+    role: "user",
+    authorIdentity: {
+      kind: "user",
+      id: "u1",
+      displayName: "Alice",
+      status_badge_json: JSON.stringify({ kind: "emoji", emoji: "✅" })
+    },
+    bodyMd: "done"
+  });
+
+  assert.equal(s.authorIdentity.kind, "user");
+  assert.equal(s.authorName, "Alice");
+  assert.deepEqual(s.statusBadge, { kind: "emoji", emoji: "✅" });
+});
+
+test("normalizeSpec honors authorIdentity statusBadge null over stored JSON", () => {
+  const s = normalizeSpec({
+    source: "cloud-conversation",
+    conversationId: "dm:u1:u2",
+    messageId: "m_suppressed_profile",
+    role: "user",
+    authorIdentity: {
+      kind: "user",
+      id: "u1",
+      displayName: "Alice",
+      statusBadge: null,
+      status_badge_json: JSON.stringify({ kind: "emoji", emoji: "✅" })
+    },
+    bodyMd: "done"
+  });
+
+  assert.equal(Object.prototype.hasOwnProperty.call(s.authorIdentity, "statusBadge"), false);
+  assert.equal(s.statusBadge, null);
+});
+
+test("normalizeSpec honors top-level statusBadge null over snake_case status_badge", () => {
+  const s = normalizeSpec({
+    source: "cloud-conversation",
+    conversationId: "dm:u1:u2",
+    messageId: "m_suppressed_top_level",
+    role: "user",
+    statusBadge: null,
+    status_badge: { kind: "emoji", emoji: "✅" }
+  });
+
+  assert.equal(s.statusBadge, null);
+});
+
+test("browser normalizeSpec preserves authorIdentity without miaIdentity preloaded", () => {
+  const source = fs.readFileSync(path.join(root, "src/shared/message-spec.js"), "utf8");
+  const context = { window: {} };
+  context.globalThis = context.window;
+  vm.runInNewContext(source, context, { filename: "src/shared/message-spec.js" });
+
+  const s = context.window.miaMessageSpec.normalizeSpec({
+    authorIdentity: {
+      kind: "bot",
+      id: "bot_mia",
+      displayName: "Mia",
+      statusBadge: { kind: "emoji", emoji: "⭐" }
+    }
+  });
+
+  assert.equal(s.authorIdentity.kind, "bot");
+  assert.equal(s.authorName, "Mia");
+  assert.equal(s.statusBadge.kind, "emoji");
+  assert.equal(s.statusBadge.emoji, "⭐");
 });

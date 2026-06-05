@@ -11,10 +11,10 @@ const required = [
   "src/main/chat-response.js",
   "src/main/claude-code-chat-adapter.js",
   "src/main/codex-chat-adapter.js",
-  "src/main/fellow-registry.js",
+  "src/main/bot-registry.js",
   "src/main/hermes-chat-adapter.js",
   "src/main/conversation-title-service.js",
-  "src/main/fellow-manifest.js",
+  "src/main/bot-manifest.js",
   "src/main/runtime-paths.js",
   "src/main/settings-store.js",
   "src/main/skills-loader.js",
@@ -69,10 +69,10 @@ const required = [
   "resources/pet-generator/hatch_generate.py",
   "resources/pet-generator/petctl.py",
   "src/renderer/tasks/tasks-panel.js",
-  "src/renderer/fellow/pet-dialog.js",
-  "src/renderer/fellow/fellow-directory.js",
-  "src/renderer/fellow/fellow-dialog.js",
-  "src/renderer/fellow/fellow-manager.js",
+  "src/renderer/bot/pet-dialog.js",
+  "src/renderer/bot/bot-directory.js",
+  "src/renderer/bot/bot-dialog.js",
+  "src/renderer/bot/bot-manager.js",
   "src/shared/trace-blocks.js",
   "src/renderer/chat/message-helpers.js",
   "src/renderer/chat/composer.js",
@@ -106,10 +106,10 @@ const required = [
   "packages/shared/session-history.d.ts",
   "packages/shared/cloud-client.js",
   "packages/shared/cloud-client.d.ts",
-  "packages/shared/fellow-identity.js",
-  "packages/shared/fellow-identity.d.ts",
+  "packages/shared/bot-identity.js",
+  "packages/shared/bot-identity.d.ts",
   "src/shared/avatar-resolve.js",
-  "src/shared/fellow-identity.js",
+  "src/shared/bot-identity.js",
   "resources/conductor/default-prompts/dispatch.md",
   "resources/conductor/default-prompts/summarize.md",
   "resources/conductor/default-prompts/nudge.md",
@@ -135,7 +135,7 @@ for (const file of forbiddenRootDuplicates) {
   }
 }
 
-for (const file of ["src/main.js", "src/main/chat-engine-adapters.js", "src/main/chat-engine-registry.js", "src/main/chat-events.js", "src/main/chat-response.js", "src/main/claude-code-chat-adapter.js", "src/main/codex-chat-adapter.js", "src/main/fellow-registry.js", "src/main/hermes-chat-adapter.js", "src/cloud/sqlite-store.js", "src/cloud/desktop-bridge-permission.js", "src/permission-modes.js", "src/runtime-resource-paths.js", "src/preload.js", "src/renderer/fellow/fellow-directory.js", "src/renderer/app.js", "src/web/app.js", "packages/shared/index.js", "packages/shared/avatar.js", "packages/shared/contact.js", "packages/shared/group-tiles.js", "packages/shared/send-pipeline.js", "packages/shared/approval-queue.js", "packages/shared/optimistic-send.js", "packages/shared/session-history.js", "packages/shared/cloud-client.js", "packages/shared/fellow-identity.js", "scripts/serve-web.js", "scripts/serve-cloud.js", "scripts/build-cloud-release.js", "scripts/print-cloud-release-handoff.js", "scripts/verify-cloud-production.js", "scripts/audit-cloud-productization.js", "scripts/diagnose-deploy-ssh.js", "scripts/print-cloud-blockers.js", "scripts/doctor-cloud.js", "scripts/smoke-cloud.js", "scripts/local-agent-bridge.js"]) {
+for (const file of ["src/main.js", "src/main/chat-engine-adapters.js", "src/main/chat-engine-registry.js", "src/main/chat-events.js", "src/main/chat-response.js", "src/main/claude-code-chat-adapter.js", "src/main/codex-chat-adapter.js", "src/main/bot-registry.js", "src/main/hermes-chat-adapter.js", "src/cloud/sqlite-store.js", "src/cloud/desktop-bridge-permission.js", "src/permission-modes.js", "src/runtime-resource-paths.js", "src/preload.js", "src/renderer/bot/bot-directory.js", "src/renderer/app.js", "src/web/app.js", "packages/shared/index.js", "packages/shared/avatar.js", "packages/shared/contact.js", "packages/shared/group-tiles.js", "packages/shared/send-pipeline.js", "packages/shared/approval-queue.js", "packages/shared/optimistic-send.js", "packages/shared/session-history.js", "packages/shared/cloud-client.js", "packages/shared/bot-identity.js", "scripts/serve-web.js", "scripts/serve-cloud.js", "scripts/build-cloud-release.js", "scripts/print-cloud-release-handoff.js", "scripts/verify-cloud-production.js", "scripts/audit-cloud-productization.js", "scripts/diagnose-deploy-ssh.js", "scripts/print-cloud-blockers.js", "scripts/doctor-cloud.js", "scripts/smoke-cloud.js", "scripts/local-agent-bridge.js"]) {
   childProcess.execFileSync(process.execPath, ["--check", path.join(__dirname, "..", file)], {
     stdio: "inherit"
   });

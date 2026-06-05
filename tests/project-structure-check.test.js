@@ -24,6 +24,14 @@ test("project structure check covers cloud release helpers and rejects root sour
   assert.match(source, /main\.js/);
   assert.match(source, /desktop-bridge-permission\.js/);
   assert.match(source, /Unexpected root-level duplicate source file/);
+  assert.match(source, /src\/main\/bot-registry\.js/);
+  assert.match(source, /src\/main\/bot-manifest\.js/);
+  assert.match(source, /packages\/shared\/bot-identity\.js/);
+  assert.match(source, /src\/shared\/bot-identity\.js/);
+  assert.doesNotMatch(source, /src\/main\/fellow-registry\.js/);
+  assert.doesNotMatch(source, /src\/main\/fellow-manifest\.js/);
+  assert.doesNotMatch(source, /packages\/shared\/fellow-identity\.js/);
+  assert.doesNotMatch(source, /src\/shared\/fellow-identity\.js/);
 });
 
 test("React Native shared logic stays behind package adapters instead of duplicated ports", () => {
@@ -171,7 +179,7 @@ test("packages/shared owns send pipeline, cloud client, and unread implementatio
   }
 });
 
-test("fellow conversation keys are resolved through the shared session helper", () => {
+test("bot conversation keys are resolved through the shared session helper", () => {
   for (const relativePath of [
     "src/renderer/app.js",
     "src/renderer/social/social.js",
@@ -187,13 +195,13 @@ test("fellow conversation keys are resolved through the shared session helper", 
       assert.doesNotMatch(
         source,
         /\.split\((["'])\:\1\)\s*\[\s*2\s*\]/,
-        `${path.relative(root, file)} must use sessionHistory.fellowKey() instead of truncating fellow ids with split(":")[2]`
+        `${path.relative(root, file)} must use sessionHistory.botId() instead of truncating bot ids from conversation ids`
       );
     }
   }
 });
 
-test("runtime code composes fellow conversation ids through shared session history", () => {
+test("runtime code composes bot conversation ids through shared bot identity helpers", () => {
   for (const relativePath of [
     "src",
     "scripts",
@@ -211,8 +219,8 @@ test("runtime code composes fellow conversation ids through shared session histo
       const source = fs.readFileSync(file, "utf8");
       assert.doesNotMatch(
         source,
-        /`fellow:\$\{[^}]+\}:\$\{[^}]+\}`/,
-        `${projectPath} must use sessionHistory.fellowConversationId() instead of hand-composing fellow conversation ids`
+        /`bot:\$\{[^}]+\}:\$\{[^}]+\}`/,
+        `${projectPath} must use botIdentity.botConversationId() instead of hand-composing bot conversation ids`
       );
     }
   }
@@ -304,19 +312,19 @@ test("chat attachment normalization and transfer live behind a main chat-attachm
   assert.doesNotMatch(mainSource, /function attachmentContext/, "main must not own attachment prompt context");
 });
 
-test("fellow write-side management lives behind a main fellow service", () => {
+test("bot write-side management lives behind a main bot service", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
-  const manifestSource = fs.readFileSync(path.join(root, "src/main/fellow-manifest.js"), "utf8");
-  const fellowSource = fs.readFileSync(path.join(root, "src/main/fellow-service.js"), "utf8");
-  assert.match(fellowSource, /function createFellowService/, "fellow service should exist");
-  assert.match(mainSource, /createFellowService/, "main should instantiate the fellow service");
-  assert.doesNotMatch(mainSource, /function getFellowDetails/, "main must not own fellow detail composition");
-  assert.doesNotMatch(mainSource, /function saveFellow\(/, "main must not own fellow save logic");
-  assert.doesNotMatch(mainSource, /function saveFellowEngineConfig/, "main must not own fellow engine config persistence");
-  assert.doesNotMatch(mainSource, /function setFellowPinned/, "main must not own fellow pin persistence");
-  assert.doesNotMatch(mainSource, /function setFellowMuted/, "main must not own fellow mute persistence");
-  assert.doesNotMatch(mainSource, /function deleteFellow\(/, "main must not own fellow deletion cleanup");
-  assert.doesNotMatch(manifestSource, /write-side CRUD .* stays in main\.js/, "fellow manifest docs must not claim writes stay in main");
+  const manifestSource = fs.readFileSync(path.join(root, "src/main/bot-manifest.js"), "utf8");
+  const botSource = fs.readFileSync(path.join(root, "src/main/bot-service.js"), "utf8");
+  assert.match(botSource, /function createBotService/, "bot service should exist");
+  assert.match(mainSource, /createBotService/, "main should instantiate the bot service");
+  assert.doesNotMatch(mainSource, /function getBotDetails/, "main must not own bot detail composition");
+  assert.doesNotMatch(mainSource, /function saveBot\(/, "main must not own bot save logic");
+  assert.doesNotMatch(mainSource, /function saveBotEngineConfig/, "main must not own bot engine config persistence");
+  assert.doesNotMatch(mainSource, /function setBotPinned/, "main must not own bot pin persistence");
+  assert.doesNotMatch(mainSource, /function setBotMuted/, "main must not own bot mute persistence");
+  assert.doesNotMatch(mainSource, /function deleteBot\(/, "main must not own bot deletion cleanup");
+  assert.doesNotMatch(manifestSource, /write-side CRUD .* stays in main\.js/, "bot manifest docs must not claim writes stay in main");
 });
 
 test("provider connection persistence lives behind a main provider connections Module", () => {
@@ -403,21 +411,21 @@ test("Claude bridge plugin generation lives behind a main claude-bridge-plugin s
   assert.doesNotMatch(mainSource, /fs\.symlinkSync\(skillPath/, "main must not own bridge skill symlink creation");
 });
 
-test("fellow pet assets, generation jobs, and pet windows live behind a main fellow-pet service", () => {
+test("bot pet assets, generation jobs, and pet windows live behind a main bot-pet service", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
-  const petSource = fs.readFileSync(path.join(root, "src/main/fellow-pet-service.js"), "utf8");
+  const petSource = fs.readFileSync(path.join(root, "src/main/bot-pet-service.js"), "utf8");
 
-  assert.match(petSource, /function createFellowPetService/, "fellow pet service should exist");
-  assert.match(mainSource, /createFellowPetService/, "main should instantiate the fellow pet service");
+  assert.match(petSource, /function createBotPetService/, "bot pet service should exist");
+  assert.match(mainSource, /createBotPetService/, "main should instantiate the bot pet service");
   assert.doesNotMatch(mainSource, /const petWindows = new Map/, "main must not own pet window state");
   assert.doesNotMatch(mainSource, /const petJobs = new Map/, "main must not own pet generation job state");
-  assert.doesNotMatch(mainSource, /function fellowPetId/, "main must not own pet id normalization");
-  assert.doesNotMatch(mainSource, /function findFellowPetPackage/, "main must not own pet asset discovery");
-  assert.doesNotMatch(mainSource, /function petStatusForFellow/, "main must not own pet status shaping");
-  assert.doesNotMatch(mainSource, /function startFellowPetGeneration/, "main must not own pet generation orchestration");
-  assert.doesNotMatch(mainSource, /function notifyFellowPetMessage/, "main must not own pet window notifications");
-  assert.doesNotMatch(mainSource, /function placeFellowPet/, "main must not own pet window placement");
-  assert.doesNotMatch(mainSource, /function recallFellowPet/, "main must not own pet window teardown");
+  assert.doesNotMatch(mainSource, /function botPetId/, "main must not own pet id normalization");
+  assert.doesNotMatch(mainSource, /function findBotPetPackage/, "main must not own pet asset discovery");
+  assert.doesNotMatch(mainSource, /function petStatusForBot/, "main must not own pet status shaping");
+  assert.doesNotMatch(mainSource, /function startBotPetGeneration/, "main must not own pet generation orchestration");
+  assert.doesNotMatch(mainSource, /function notifyBotPetMessage/, "main must not own pet window notifications");
+  assert.doesNotMatch(mainSource, /function placeBotPet/, "main must not own pet window placement");
+  assert.doesNotMatch(mainSource, /function recallBotPet/, "main must not own pet window teardown");
   assert.doesNotMatch(mainSource, /function officialLibraryManifestPath/, "main must not own packaged library resource lookup");
   assert.doesNotMatch(mainSource, /function resolveOfficialLibraryRoot/, "main must not own packaged library root resolution");
 });

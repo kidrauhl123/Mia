@@ -29,7 +29,7 @@ test("CloudConversationSource DM friend message uses friend avatar", () => {
   ];
   const ctx = {
     self: { id: "user_me", username: "me" },
-    fellows: [],
+    bots: [],
     friends: [{ id: "user_friend", username: "alice", avatarImage: "data:alice" }]
   };
   const source = src.createCloudConversationSource({ conversation, messages, members: [], ctx });
@@ -45,24 +45,24 @@ test("CloudConversationSource own message marks isOwn=true", () => {
   const src = loadSource();
   const conversation = { id: "dm:user_me:user_friend" };
   const messages = [{ id: "msg2", sender_kind: "user", sender_ref: "user_me", body_md: "ok", created_at: "", seq: 2 }];
-  const ctx = { self: { id: "user_me", username: "me" }, fellows: [], friends: [] };
+  const ctx = { self: { id: "user_me", username: "me" }, bots: [], friends: [] };
   const source = src.createCloudConversationSource({ conversation, messages, members: [], ctx });
   const spec = source.listMessages()[0];
   assert.equal(spec.isOwn, true);
   assert.equal(spec.authorName, "me");
 });
 
-test("CloudConversationSource group fellow message resolves fellow contact via members", () => {
+test("CloudConversationSource group bot message resolves bot contact via members", () => {
   const src = loadSource();
   const conversation = { id: "g_conversation1", name: "Mixed" };
-  const messages = [{ id: "msg3", sender_kind: "fellow", sender_ref: "codex", body_md: "yo", created_at: "", seq: 3 }];
+  const messages = [{ id: "msg3", sender_kind: "bot", sender_ref: "codex", body_md: "yo", created_at: "", seq: 3 }];
   const members = [
-    { member_kind: "fellow", member_ref: "codex", owner_id: "user_friend" },
+    { member_kind: "bot", member_ref: "codex", owner_id: "user_friend" },
     { member_kind: "user", member_ref: "user_friend" }
   ];
   const ctx = {
     self: { id: "user_me", username: "me" },
-    fellows: [],
+    bots: [],
     friends: [{ id: "user_friend", username: "alice" }]
   };
   const source = src.createCloudConversationSource({ conversation, messages, members, ctx });
@@ -72,14 +72,14 @@ test("CloudConversationSource group fellow message resolves fellow contact via m
   assert.equal(spec.authorName, "codex");
 });
 
-test("CloudConversationSource hydrates own fellow avatar from ctx.fellows", () => {
+test("CloudConversationSource hydrates own bot avatar from ctx.bots", () => {
   const src = loadSource();
   const conversation = { id: "g_conversation2" };
-  const messages = [{ id: "msg4", sender_kind: "fellow", sender_ref: "codex", body_md: "yo", created_at: "", seq: 1 }];
-  const members = [{ member_kind: "fellow", member_ref: "codex", owner_id: "user_me" }];
+  const messages = [{ id: "msg4", sender_kind: "bot", sender_ref: "codex", body_md: "yo", created_at: "", seq: 1 }];
+  const members = [{ member_kind: "bot", member_ref: "codex", owner_id: "user_me" }];
   const ctx = {
     self: { id: "user_me", username: "me" },
-    fellows: [{ key: "codex", name: "Codex", avatarImage: "data:codex-pic", color: "#5e5ce6" }],
+    bots: [{ key: "codex", name: "Codex", avatarImage: "data:codex-pic", color: "#5e5ce6" }],
     friends: []
   };
   const source = src.createCloudConversationSource({ conversation, messages, members, ctx });
@@ -87,23 +87,23 @@ test("CloudConversationSource hydrates own fellow avatar from ctx.fellows", () =
   assert.equal(spec.avatar.image, "data:codex-pic");
 });
 
-test("CloudConversationSource uses member identity avatar when owned fellow context is compact", () => {
+test("CloudConversationSource uses member identity avatar when owned bot context is compact", () => {
   const src = loadSource();
   const conversation = { id: "g_conversation_compact" };
-  const messages = [{ id: "msg_compact", sender_kind: "fellow", sender_ref: "craft", body_md: "yo", created_at: "", seq: 1 }];
+  const messages = [{ id: "msg_compact", sender_kind: "bot", sender_ref: "craft", body_md: "yo", created_at: "", seq: 1 }];
   const members = [{
-    member_kind: "fellow",
+    member_kind: "bot",
     member_ref: "craft",
     owner_id: "user_me",
     identity: {
       displayName: "匠妹",
       avatar: { image: "data:video/mp4;base64,real", crop: { start: 0, duration: 3 } }
     },
-    fellow_avatar_image: "legacy-copy.png"
+    bot_avatar_image: "legacy-copy.png"
   }];
   const ctx = {
     self: { id: "user_me", username: "me" },
-    fellows: [{ key: "craft", name: "匠妹" }],
+    bots: [{ key: "craft", name: "匠妹" }],
     friends: []
   };
   const source = src.createCloudConversationSource({ conversation, messages, members, ctx });
@@ -113,32 +113,61 @@ test("CloudConversationSource uses member identity avatar when owned fellow cont
   assert.deepEqual(spec.avatar.crop, { start: 0, duration: 3 });
 });
 
-test("CloudConversationSource hashes owned empty fellow avatar by global identity", () => {
+test("CloudConversationSource preserves member identity status badge", () => {
   const src = loadSource();
-  const conversation = { id: "fellow:user_me:mia", type: "fellow", name: "Mia", decorations: { fellowKey: "mia" } };
-  const messages = [{ id: "msg_owned_empty", sender_kind: "fellow", sender_ref: "mia", body_md: "yo", created_at: "", seq: 1 }];
-  const members = [{ member_kind: "fellow", member_ref: "mia", owner_id: "user_me" }];
+  const conversation = { id: "g_badge" };
+  const messages = [{ id: "msg_badge", sender_kind: "bot", sender_ref: "mia", body_md: "yo", created_at: "", seq: 1 }];
+  const members = [{
+    member_kind: "bot",
+    member_ref: "mia",
+    owner_id: "user_me",
+    identity: {
+      kind: "bot",
+      id: "mia",
+      displayName: "Mia",
+      avatar: { image: "", crop: null, color: "#5e5ce6", text: "Mi" },
+      statusBadge: { kind: "emoji", emoji: "⭐", label: "Premium" }
+    }
+  }];
   const ctx = {
     self: { id: "user_me", username: "me" },
-    fellows: [{ key: "mia", id: "mia", ownerUserId: "user_me", name: "Mia", avatarImage: "" }],
+    bots: [],
+    friends: []
+  };
+  const source = src.createCloudConversationSource({ conversation, messages, members, ctx });
+  const spec = source.listMessages()[0];
+  assert.equal(spec.authorIdentity.kind, "bot");
+  assert.equal(spec.authorIdentity.id, "mia");
+  assert.equal(spec.authorIdentity.displayName, "Mia");
+  assert.deepEqual(JSON.parse(JSON.stringify(spec.statusBadge)), { kind: "emoji", emoji: "⭐", label: "Premium" });
+});
+
+test("CloudConversationSource hashes owned empty bot avatar by global identity", () => {
+  const src = loadSource();
+  const conversation = { id: "botc_user_me_mia", type: "bot", name: "Mia", decorations: { botId: "mia" } };
+  const messages = [{ id: "msg_owned_empty", sender_kind: "bot", sender_ref: "mia", body_md: "yo", created_at: "", seq: 1 }];
+  const members = [{ member_kind: "bot", member_ref: "mia", owner_id: "user_me" }];
+  const ctx = {
+    self: { id: "user_me", username: "me" },
+    bots: [{ key: "mia", id: "mia", ownerUserId: "user_me", name: "Mia", avatarImage: "" }],
     friends: []
   };
   const source = src.createCloudConversationSource({ conversation, messages, members, ctx });
   const spec = source.listMessages()[0];
   assert.equal(spec.avatar.image, "");
   assert.equal(spec.avatar.crop, null);
-  assert.equal(spec.avatar.color, memberAccentColor("fellow:user_me:mia"));
+  assert.equal(spec.avatar.color, memberAccentColor("mia"));
   assert.equal(spec.avatar.text, "Mi");
 });
 
-test("CloudConversationSource preserves an owned fellow's explicit avatar color", () => {
+test("CloudConversationSource preserves an owned bot's explicit avatar color", () => {
   const src = loadSource();
-  const conversation = { id: "fellow:user_me:ha", type: "fellow", name: "哈哈哈", decorations: { fellowKey: "ha" } };
-  const messages = [{ id: "msg_owned_color", sender_kind: "fellow", sender_ref: "ha", body_md: "yo", created_at: "", seq: 1 }];
-  const members = [{ member_kind: "fellow", member_ref: "ha", owner_id: "user_me" }];
+  const conversation = { id: "botc_user_me_ha", type: "bot", name: "哈哈哈", decorations: { botId: "ha" } };
+  const messages = [{ id: "msg_owned_color", sender_kind: "bot", sender_ref: "ha", body_md: "yo", created_at: "", seq: 1 }];
+  const members = [{ member_kind: "bot", member_ref: "ha", owner_id: "user_me" }];
   const ctx = {
     self: { id: "user_me", username: "me" },
-    fellows: [{ key: "ha", id: "ha", ownerUserId: "user_me", name: "哈哈哈", avatarImage: "", color: "#aa88dd" }],
+    bots: [{ key: "ha", id: "ha", ownerUserId: "user_me", name: "哈哈哈", avatarImage: "", color: "#aa88dd" }],
     friends: []
   };
   const source = src.createCloudConversationSource({ conversation, messages, members, ctx });
@@ -149,13 +178,13 @@ test("CloudConversationSource preserves an owned fellow's explicit avatar color"
   assert.equal(spec.avatar.text, "哈哈");
 });
 
-test("CloudConversationSource falls back to stable fellow text avatar", () => {
+test("CloudConversationSource falls back to stable bot text avatar", () => {
   const src = loadSource();
-  const conversation = { id: "fellow:user_me:mia", type: "fellow", name: "Mia", decorations: { fellowKey: "mia" } };
-  const messages = [{ id: "msg5", sender_kind: "fellow", sender_ref: "mia", body_md: "yo", created_at: "", seq: 1 }];
+  const conversation = { id: "botc_user_me_mia", type: "bot", name: "Mia", decorations: { botId: "mia" } };
+  const messages = [{ id: "msg5", sender_kind: "bot", sender_ref: "mia", body_md: "yo", created_at: "", seq: 1 }];
   const ctx = {
     self: { id: "user_me", username: "me" },
-    fellows: [],
+    bots: [],
     friends: []
   };
   const source = src.createCloudConversationSource({ conversation, messages, members: [], ctx });
@@ -170,7 +199,7 @@ test("CloudConversationSource system message gets role=system", () => {
   const src = loadSource();
   const conversation = { id: "g_conversation3" };
   const messages = [{ id: "sys1", sender_kind: "system", sender_ref: "sys", body_md: "user joined", created_at: "", seq: 1 }];
-  const source = src.createCloudConversationSource({ conversation, messages, members: [], ctx: { self: {}, fellows: [], friends: [] } });
+  const source = src.createCloudConversationSource({ conversation, messages, members: [], ctx: { self: {}, bots: [], friends: [] } });
   const spec = source.listMessages()[0];
   assert.equal(spec.role, "system");
   assert.equal(spec.authorName, "系统");
@@ -180,7 +209,7 @@ test("CloudConversationSource capabilities: copy + reply + delete true, pin fals
   const src = loadSource();
   const conversation = { id: "dm:a:b" };
   const messages = [{ id: "m", sender_kind: "user", sender_ref: "a", body_md: "x", created_at: "", seq: 1 }];
-  const source = src.createCloudConversationSource({ conversation, messages, members: [], ctx: { self: {}, fellows: [], friends: [] } });
+  const source = src.createCloudConversationSource({ conversation, messages, members: [], ctx: { self: {}, bots: [], friends: [] } });
   const cap = source.listMessages()[0].capabilities;
   assert.equal(cap.copy, true);
   assert.equal(cap.reply, true);

@@ -7,8 +7,8 @@
 // Inputs:
 //   html    — already-rendered (markdown) HTML for the message body.
 //   members — array of conversation members in any of the shapes used
-//             elsewhere ({ kind|member_kind, ref|member_ref|fellowId|id,
-//             name|displayName|fellow_name|username }).
+//             elsewhere ({ kind|member_kind, ref|member_ref|botId|id,
+//             name|displayName|bot_name|username }).
 //
 // Output: same HTML with text-region @tokens that match a member wrapped in
 //   <span class="mention" data-member-kind="..." data-member-ref="...">@name</span>
@@ -35,15 +35,15 @@
   }
 
   function memberRef(member) {
-    return member?.ref || member?.member_ref || member?.fellowId || member?.fellow_id || member?.id || member?.key || "";
+    return member?.ref || member?.member_ref || member?.botId || member?.bot_id || member?.id || member?.key || "";
   }
 
   function memberName(member) {
-    return member?.name || member?.displayName || member?.fellow_name || member?.username || memberRef(member) || "";
+    return member?.name || member?.displayName || member?.bot_name || member?.username || memberRef(member) || "";
   }
 
   function memberKind(member) {
-    return member?.kind || member?.member_kind || "fellow";
+    return member?.kind || member?.member_kind || "bot";
   }
 
   function buildLookup(members) {

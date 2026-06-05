@@ -1,12 +1,11 @@
 import type { AvatarDescriptor } from "./avatar";
 
-export const ContactKind: {
-  readonly Self: "self";
-  readonly Fellow: "fellow";
+export const IdentityKind: {
   readonly User: "user";
+  readonly Bot: "bot";
 };
 
-export type ContactKindT = (typeof ContactKind)[keyof typeof ContactKind];
+export type IdentityKindT = (typeof IdentityKind)[keyof typeof IdentityKind];
 
 export interface SelfRecord {
   id?: string;
@@ -15,30 +14,29 @@ export interface SelfRecord {
   displayName?: string;
   avatarText?: string;
   avatarImage?: string;
+  avatar_image?: string;
   avatarCrop?: Record<string, unknown> | null;
+  avatar_crop?: Record<string, unknown> | null;
   avatarColor?: string;
   avatar_color?: string;
   color?: string;
 }
 
-export interface FellowRecord {
+export interface BotRecord {
   id?: string;
-  key?: string;
-  fellowId?: string;
-  fellow_id?: string;
+  botId?: string;
+  bot_id?: string;
   member_ref?: string;
-  globalId?: string;
-  global_id?: string;
-  fellowGlobalId?: string;
-  fellow_global_id?: string;
   ownerUserId?: string;
   owner_user_id?: string;
-  ownerId?: string;
-  owner_id?: string;
   name?: string;
   displayName?: string;
+  display_name?: string;
+  username?: string;
   avatarImage?: string;
+  avatar_image?: string;
   avatarCrop?: Record<string, unknown> | null;
+  avatar_crop?: Record<string, unknown> | null;
   avatarColor?: string;
   avatar_color?: string;
   color?: string;
@@ -50,7 +48,9 @@ export interface FriendRecord {
   account?: string;
   displayName?: string;
   avatarImage?: string;
+  avatar_image?: string;
   avatarCrop?: Record<string, unknown> | null;
+  avatar_crop?: Record<string, unknown> | null;
   avatarColor?: string;
   avatar_color?: string;
   color?: string;
@@ -58,18 +58,19 @@ export interface FriendRecord {
 
 export interface ResolveCtx {
   self?: SelfRecord;
-  fellows?: FellowRecord[];
+  bots?: BotRecord[];
   friends?: FriendRecord[];
 }
 
 export interface ResolvedContact {
   kind: string;
   id: string;
+  ownerUserId?: string;
   displayName: string;
   avatar: AvatarDescriptor;
 }
 
-export function resolveContact(query: { kind: ContactKindT; ref?: string }, ctx?: ResolveCtx): ResolvedContact;
+export function resolveContact(query: { kind: IdentityKindT | "self"; ref?: string }, ctx?: ResolveCtx): ResolvedContact;
 export function avatarForRecord(id: string, record?: Record<string, unknown>, displayName?: string): AvatarDescriptor;
-export function avatarForFellowRecord(id: string, record?: Record<string, unknown>, displayName?: string): AvatarDescriptor;
-export function fellowAvatarIdentityId(id?: string, record?: Record<string, unknown>): string;
+export function avatarForBotRecord(id: string, record?: Record<string, unknown>, displayName?: string): AvatarDescriptor;
+export function botAvatarIdentityId(id?: string, record?: Record<string, unknown>): string;

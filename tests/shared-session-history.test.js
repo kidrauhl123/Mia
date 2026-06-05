@@ -17,139 +17,130 @@ function loadBrowserGlobal() {
 
 test("session-history contract is available in Node and browser contexts", () => {
   const browserContract = loadBrowserGlobal();
-  assert.equal(sessionHistory.conversationType({ id: "fellow:u:mia" }), "fellow");
+  assert.equal(sessionHistory.conversationType({ id: "botc_1" }), "bot");
   assert.equal(browserContract.conversationType({ id: "dm:a:b" }), "dm");
-  assert.equal(browserContract.fellowKey({ id: "fellow:u:sess", decorations: { fellowKey: "mia" } }), "mia");
-  assert.equal(browserContract.fellowConversationId("u", "mia"), "fellow:u:mia");
-  assert.equal(typeof browserContract.isUntitledFellowConversation, "function");
+  assert.equal(browserContract.botId({ id: "botc_1", decorations: { botId: "bot_mia" } }), "bot_mia");
+  assert.equal(typeof browserContract.createBotSessionPayload, "function");
+  assert.equal(typeof browserContract.isUntitledBotConversation, "function");
 });
 
-test("session-history owns fellow conversation id composition", () => {
-  const conversationId = sessionHistory.fellowConversationId(" user_1 ", "provider:mia");
-
-  assert.equal(conversationId, "fellow:user_1:provider:mia");
-  assert.equal(sessionHistory.fellowKey({ id: conversationId }), "provider:mia");
-  assert.throws(() => sessionHistory.fellowConversationId("", "mia"), /ownerUserId required/);
-  assert.throws(() => sessionHistory.fellowConversationId("u", ""), /fellowKey required/);
-});
-
-test("session-history groups fellow conversations by fellow key and sorts by latest message", () => {
+test("session-history groups bot conversations by bot id and sorts by latest message", () => {
   const messages = new Map([
-    ["fellow:u:s1", { messages: [{ created_at: "2026-01-01T00:00:00.000Z" }] }],
-    ["fellow:u:s2", { messages: [{ created_at: "2026-01-02T00:00:00.000Z" }] }]
+    ["botc_s1", { messages: [{ created_at: "2026-01-01T00:00:00.000Z" }] }],
+    ["botc_s2", { messages: [{ created_at: "2026-01-02T00:00:00.000Z" }] }]
   ]);
   const conversations = [
-    { id: "fellow:u:s1", type: "fellow", decorations: { fellowKey: "mia" } },
-    { id: "fellow:u:s2", type: "fellow", decorations: { fellowKey: "mia" } },
-    { id: "fellow:u:c1", type: "fellow", decorations: { fellowKey: "codex" } },
+    { id: "botc_s1", type: "bot", decorations: { botId: "bot_mia" } },
+    { id: "botc_s2", type: "bot", decorations: { botId: "bot_mia" } },
+    { id: "botc_c1", type: "bot", decorations: { botId: "bot_codex" } },
     { id: "g_1", type: "group", name: "群聊" }
   ];
 
   const grouped = sessionHistory.sessionConversationsForConversation(conversations[0], conversations, { messageCache: messages });
-  assert.deepEqual(grouped.map((conversation) => conversation.id), ["fellow:u:s2", "fellow:u:s1"]);
+  assert.deepEqual(grouped.map((conversation) => conversation.id), ["botc_s2", "botc_s1"]);
 });
 
-test("session-history prefers message-bearing fellow sessions over newer metadata-only sessions", () => {
+test("session-history prefers message-bearing bot sessions over newer metadata-only sessions", () => {
   const messages = new Map([
-    ["fellow:u:with-message", { messages: [{ created_at: "2026-01-01T10:00:00.000Z" }] }],
-    ["fellow:u:metadata-only", { messages: [] }]
+    ["botc_with-message", { messages: [{ created_at: "2026-01-01T10:00:00.000Z" }] }],
+    ["botc_metadata-only", { messages: [] }]
   ]);
   const conversations = [
-    { id: "fellow:u:with-message", type: "fellow", decorations: { fellowKey: "mia" }, updatedAt: "2026-01-01T10:00:00.000Z" },
-    { id: "fellow:u:metadata-only", type: "fellow", decorations: { fellowKey: "mia" }, updatedAt: "2026-01-01T11:00:00.000Z" }
+    { id: "botc_with-message", type: "bot", decorations: { botId: "bot_mia" }, updatedAt: "2026-01-01T10:00:00.000Z" },
+    { id: "botc_metadata-only", type: "bot", decorations: { botId: "bot_mia" }, updatedAt: "2026-01-01T11:00:00.000Z" }
   ];
 
   const sidebar = sessionHistory.sidebarConversations(conversations, { messageCache: messages });
 
-  assert.deepEqual(sidebar.map((conversation) => conversation.id), ["fellow:u:with-message"]);
+  assert.deepEqual(sidebar.map((conversation) => conversation.id), ["botc_with-message"]);
 });
 
 test("session-history derives title and new-session payload consistently", () => {
   const conversation = {
-    id: "fellow:u:s1",
-    type: "fellow",
-    decorations: { fellowKey: "mia", runtimeKind: "cloud-hermes" }
+    id: "botc_s1",
+    type: "bot",
+    decorations: { botId: "bot_mia", runtimeKind: "cloud-hermes" }
   };
   const title = sessionHistory.sessionTitle(conversation, {
-    fellows: [{ id: "mia", name: "Mia" }]
+    bots: [{ id: "bot_mia", displayName: "Mia" }]
   });
-  const payload = sessionHistory.createFellowSessionPayload(conversation, "sess_new", { title: "新对话" });
+  const payload = sessionHistory.createBotSessionPayload(conversation, "sess_new", { title: "新对话" });
 
   assert.equal(title, "Mia");
   assert.deepEqual(payload, {
-    fellowKey: "mia",
+    botId: "bot_mia",
     title: "新对话",
     runtimeKind: "cloud-hermes",
     sessionId: "sess_new"
   });
 });
 
-test("session-history treats default and fellow-name titles as untitled fellow sessions", () => {
-  assert.equal(sessionHistory.isUntitledFellowConversation({
-    id: "fellow:u:s1",
-    type: "fellow",
+test("session-history treats default and bot-name titles as untitled bot sessions", () => {
+  assert.equal(sessionHistory.isUntitledBotConversation({
+    id: "botc_s1",
+    type: "bot",
     name: "新对话",
-    decorations: { fellowKey: "kongling" }
+    decorations: { botId: "bot_kongling" }
   }, {
-    fellows: [{ id: "kongling", name: "空铃" }]
+    bots: [{ id: "bot_kongling", displayName: "空铃" }]
   }), true);
 
-  assert.equal(sessionHistory.isUntitledFellowConversation({
-    id: "fellow:u:kongling",
-    type: "fellow",
+  assert.equal(sessionHistory.isUntitledBotConversation({
+    id: "botc_kongling",
+    type: "bot",
     name: "空铃",
-    decorations: { fellowKey: "kongling" }
+    decorations: { botId: "bot_kongling" }
   }, {
-    fellows: [{ id: "kongling", name: "空铃" }]
+    bots: [{ id: "bot_kongling", displayName: "空铃" }]
   }), true);
 
-  assert.equal(sessionHistory.isUntitledFellowConversation({
-    id: "fellow:u:kongling",
-    type: "fellow",
+  assert.equal(sessionHistory.isUntitledBotConversation({
+    id: "botc_kongling",
+    type: "bot",
     name: "聊项目日报",
-    decorations: { fellowKey: "kongling" }
+    decorations: { botId: "bot_kongling" }
   }, {
-    fellows: [{ id: "kongling", name: "空铃" }]
+    bots: [{ id: "bot_kongling", displayName: "空铃" }]
   }), false);
 });
 
-test("session-history collapses fellow sessions for sidebars but keeps the active blank session selected", () => {
+test("session-history collapses bot sessions for sidebars but keeps the active blank session selected", () => {
   const messages = new Map([
-    ["fellow:u:old", { messages: [{ created_at: "2026-01-03T00:00:00.000Z" }] }],
-    ["fellow:u:new", { messages: [] }]
+    ["botc_old", { messages: [{ created_at: "2026-01-03T00:00:00.000Z" }] }],
+    ["botc_new", { messages: [] }]
   ]);
   const conversations = [
-    { id: "fellow:u:old", type: "fellow", name: "旧标题", decorations: { fellowKey: "rongcha" } },
-    { id: "fellow:u:new", type: "fellow", name: "新对话", decorations: { fellowKey: "rongcha" }, created_at: "2026-01-01T00:00:00.000Z" },
+    { id: "botc_old", type: "bot", name: "旧标题", decorations: { botId: "bot_rongcha" } },
+    { id: "botc_new", type: "bot", name: "新对话", decorations: { botId: "bot_rongcha" }, created_at: "2026-01-01T00:00:00.000Z" },
     { id: "dm:a:b", type: "dm" },
     { id: "g_1", type: "group" }
   ];
 
   const sidebar = sessionHistory.sidebarConversations(conversations, {
-    activeConversationId: "fellow:u:new",
+    activeConversationId: "botc_new",
     messageCache: messages
   });
 
-  assert.deepEqual(sidebar.map((conversation) => conversation.id).sort(), ["dm:a:b", "fellow:u:new", "g_1"].sort());
-  assert.equal(sessionHistory.fellowDisplayTitle(sidebar.find((conversation) => conversation.id === "fellow:u:new"), [
-    { id: "rongcha", name: "荣茶" }
+  assert.deepEqual(sidebar.map((conversation) => conversation.id).sort(), ["dm:a:b", "botc_new", "g_1"].sort());
+  assert.equal(sessionHistory.botDisplayTitle(sidebar.find((conversation) => conversation.id === "botc_new"), [
+    { id: "bot_rongcha", displayName: "荣茶" }
   ]), "荣茶");
 });
 
-test("session-history honors the device-local last selected fellow session in sidebar collapse", () => {
+test("session-history honors the device-local last selected bot session in sidebar collapse", () => {
   const messages = new Map([
-    ["fellow:u:first", { messages: [{ created_at: "2026-01-03T00:00:00.000Z" }] }],
-    ["fellow:u:last-selected", { messages: [{ created_at: "2026-01-01T00:00:00.000Z" }] }]
+    ["botc_first", { messages: [{ created_at: "2026-01-03T00:00:00.000Z" }] }],
+    ["botc_last-selected", { messages: [{ created_at: "2026-01-01T00:00:00.000Z" }] }]
   ]);
   const conversations = [
-    { id: "fellow:u:first", type: "fellow", decorations: { fellowKey: "nhnh" } },
-    { id: "fellow:u:last-selected", type: "fellow", decorations: { fellowKey: "nhnh" } }
+    { id: "botc_first", type: "bot", decorations: { botId: "bot_nhnh" } },
+    { id: "botc_last-selected", type: "bot", decorations: { botId: "bot_nhnh" } }
   ];
 
   const sidebar = sessionHistory.sidebarConversations(conversations, {
     messageCache: messages,
-    preferredConversationIdByFellowKey: { nhnh: "fellow:u:last-selected" }
+    preferredConversationIdByBotId: { bot_nhnh: "botc_last-selected" }
   });
 
-  assert.deepEqual(sidebar.map((conversation) => conversation.id), ["fellow:u:last-selected"]);
+  assert.deepEqual(sidebar.map((conversation) => conversation.id), ["botc_last-selected"]);
 });

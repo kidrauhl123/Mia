@@ -10,7 +10,7 @@
 //   - 群名 (conversation.name)
 //   - 群目标 (decorations.pinnedGoal) — shown to the conductor's
 //     dispatch prompt as the group summary fallback.
-//   - 群主 (decorations.hostMember = { kind: "fellow", fellowId })
+//   - 群主 (decorations.hostMember = { kind: "bot", botId })
 //   - 成员管理 (POST/DELETE /api/conversations/:id/members)
 //   - 重置群上下文 (decorations.contextCard = null)
 
@@ -49,10 +49,10 @@
   }
 
   function groupTilesCtx() {
-    // Canonical identity/avatar context (self + cloud&local fellows + friends +
+    // Canonical identity/avatar context (self + cloud&local bots + friends +
     // shared text fallback), shared with cloud-conversation message rendering.
     // Group tiles need exactly this shape, so reuse it rather than re-deriving
-    // self/fellows here — re-deriving dropped cloud fellows and self identity.
+    // self/bots here would duplicate the shared adapter rules.
     return _ctx.adapterCtx();
   }
 
@@ -79,24 +79,24 @@
 
   // —— render ——
 
-  function fellowNameFor(member, fellows) {
-    if (member.fellow_name) return member.fellow_name;
-    const f = (fellows || []).find((x) => (x.id || x.key) === member.member_ref);
+  function botNameFor(member, bots) {
+    if (member.bot_name) return member.bot_name;
+    const f = (bots || []).find((x) => (x.id || x.key) === member.member_ref);
     return f?.name || member.member_ref;
   }
 
-  function fellowAvatarFor(member, fellows) {
-    const f = (fellows || []).find((x) => (x.id || x.key) === member.member_ref);
+  function botAvatarFor(member, bots) {
+    const f = (bots || []).find((x) => (x.id || x.key) === member.member_ref);
     return global.miaAvatarResolve.resolveAvatarForContact({
-      id: global.miaContact?.fellowAvatarIdentityId?.(member.member_ref, {
+      id: global.miaContact?.botAvatarIdentityId?.(member.member_ref, {
         ...(f || {}),
         ownerUserId: member.owner_id,
         globalId: member.identity?.globalId
       }) || member.member_ref,
-      displayName: f?.name || member.identity?.displayName || member.fellow_name || member.member_ref,
-      avatarImage: f?.avatarImage || member.identity?.avatar?.image || member.fellow_avatar_image || "",
-      avatarCrop: f?.avatarCrop || member.identity?.avatar?.crop || member.fellow_avatar_crop || null,
-      color: f?.color || f?.avatarColor || f?.avatar_color || member.identity?.avatar?.color || member.fellow_color || ""
+      displayName: f?.name || member.identity?.displayName || member.bot_name || member.member_ref,
+      avatarImage: f?.avatarImage || member.identity?.avatar?.image || member.bot_avatar_image || "",
+      avatarCrop: f?.avatarCrop || member.identity?.avatar?.crop || member.bot_avatar_crop || null,
+      color: f?.color || f?.avatarColor || f?.avatar_color || member.identity?.avatar?.color || member.bot_color || ""
     });
   }
 
@@ -106,10 +106,10 @@
     return friend?.username || friend?.account || member.member_ref;
   }
 
-  function renderMembersSection(box, conversation, members, fellows, friends, self) {
+  function renderMembersSection(box, conversation, members, bots, friends, self) {
     box.innerHTML = "";
-    const hostFellowId = conversation.decorations?.hostMember?.fellowId || null;
-    const fellowMembers = members.filter((m) => m.member_kind === MemberKind.Fellow);
+    const hostBotId = conversation.decorations?.hostMember?.botId || null;
+    const botMembers = members.filter((m) => m.member_kind === MemberKind.Bot);
     for (const member of members) {
       const row = document.createElement("div");
       row.className = "group-info-member-row";
@@ -120,16 +120,15 @@
       let label = "";
       let isHost = false;
       let avatar;
-      if (member.member_kind === MemberKind.Fellow) {
-        label = fellowNameFor(member, fellows);
-        avatar = fellowAvatarFor(member, fellows);
-        isHost = member.member_ref === hostFellowId;
+      if (member.member_kind === MemberKind.Bot) {
+        label = botNameFor(member, bots);
+        avatar = botAvatarFor(member, bots);
+        isHost = member.member_ref === hostBotId;
       } else {
         label = userNameFor(member, friends, self);
-        // Resolve user avatar (self or friend) through the canonical contact
-        // resolver — server members carry no user avatar, only fellow_avatar_image.
+        // Resolve user avatar (self or friend) through the canonical contact resolver.
         avatar = global.miaContact.resolveContact(
-          { kind: global.miaContact.ContactKind.User, ref: member.member_ref },
+          { kind: global.miaContact.IdentityKind?.User || "user", ref: member.member_ref },
           { self, friends }
         ).avatar;
       }
@@ -156,8 +155,8 @@
       trigger.textContent = "⋯";
       const menu = document.createElement("span");
       menu.className = "group-info-member-action-menu hidden";
-      const canBeHost = member.member_kind === MemberKind.Fellow;
-      const canRemove = fellowMembers.length + (member.member_kind === MemberKind.User ? 1 : 0) > 1;
+      const canBeHost = member.member_kind === MemberKind.Bot;
+      const canRemove = botMembers.length + (member.member_kind === MemberKind.User ? 1 : 0) > 1;
       menu.innerHTML = `
         ${canBeHost ? `<button type="button" data-group-member-action="set-host" ${isHost ? "disabled" : ""}>设为群主</button>` : ""}
         <button type="button" data-group-member-action="remove" ${canRemove ? "" : "disabled"}>${
@@ -174,7 +173,7 @@
         if (!btn || btn.disabled) return;
         menu.classList.add("hidden");
         if (btn.dataset.groupMemberAction === "set-host") {
-          await patchDecorations(conversation, { hostMember: { kind: MemberKind.Fellow, fellowId: member.member_ref } });
+          await patchDecorations(conversation, { hostMember: { kind: "bot", botId: member.member_ref } });
           reload(conversation.id);
         } else if (btn.dataset.groupMemberAction === "remove") {
           if (!confirm(`确定移除「${label}」？`)) return;
@@ -212,9 +211,9 @@
     const conversation = _ctx.moduleState.conversations.find((r) => r.id === conversationId);
     if (!conversation) return;
     const members = _ctx.conversationMembersCache.get(conversationId) || [];
-    // Canonical context (self + cloud&local fellows + friends) — see groupTilesCtx().
+    // Canonical context (self + cloud&local bots + friends) — see groupTilesCtx().
     const actx = _ctx.adapterCtx();
-    const fellows = actx.fellows;
+    const bots = actx.bots;
     const self = actx.self;
 
     const avatarBtn = document.getElementById("groupInfoAvatarPreview");
@@ -226,7 +225,7 @@
     const goalInput = document.getElementById("groupInfoGoal");
     if (goalInput && document.activeElement !== goalInput) goalInput.value = conversation.decorations?.pinnedGoal || "";
 
-    renderMembersSection(document.getElementById("groupInfoMembers"), conversation, members, fellows, _ctx.moduleState.friends || [], self);
+    renderMembersSection(document.getElementById("groupInfoMembers"), conversation, members, bots, _ctx.moduleState.friends || [], self);
   }
 
   function openDialog(conversationOrId) {
@@ -306,7 +305,7 @@
       reader.addEventListener("load", () => {
         const dataUrl = String(reader.result || "");
         _pendingAvatarApply = conversationId;
-        global.miaFellowDialog.openAvatarCropEditor(dataUrl, { x: 50, y: 50, zoom: 1.12 }, "groupConversation");
+        global.miaBotDialog.openAvatarCropEditor(dataUrl, { x: 50, y: 50, zoom: 1.12 }, "groupConversation");
       });
       reader.readAsDataURL(file);
       avatarFile.value = "";

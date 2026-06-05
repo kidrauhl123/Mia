@@ -85,13 +85,13 @@ function registerSocialIpc({ ipcMain, socialApi, messageCache = null, getCloudUs
     writeSocialBootstrapPatch({ messageCache, getCloudUserId, patch: { conversations: resultArray(result, "conversations") }, log });
     return result;
   }));
-  ipcMain.handle(IpcChannel.SocialListFellows, safeCall(async () => {
-    const result = await socialApi.listFellows();
-    writeSocialBootstrapPatch({ messageCache, getCloudUserId, patch: { fellows: resultArray(result, "fellows") }, log });
+  ipcMain.handle(IpcChannel.SocialListBots, safeCall(async () => {
+    const result = await socialApi.listBots();
+    writeSocialBootstrapPatch({ messageCache, getCloudUserId, patch: { bots: resultArray(result, "bots") }, log });
     return result;
   }));
-  ipcMain.handle(IpcChannel.SocialSaveFellowIdentity, safeCall((fellowId, body) => socialApi.saveFellowIdentity(fellowId, body)));
-  ipcMain.handle(IpcChannel.SocialDeleteFellow, safeCall((fellowId) => socialApi.deleteFellow(fellowId)));
+  ipcMain.handle(IpcChannel.SocialSaveBotIdentity, safeCall((botId, body) => socialApi.saveBotIdentity(botId, body)));
+  ipcMain.handle(IpcChannel.SocialDeleteBot, safeCall((botId) => socialApi.deleteBot(botId)));
   ipcMain.handle(IpcChannel.SocialListPlatformModels, safeCall(() => socialApi.listPlatformModels()));
   ipcMain.handle(IpcChannel.SocialGetConversation, safeCall(async (conversationId) => {
     const result = await socialApi.getConversation(conversationId);
@@ -121,10 +121,10 @@ function registerSocialIpc({ ipcMain, socialApi, messageCache = null, getCloudUs
   ipcMain.handle(IpcChannel.SocialPostConversationMessage, safeCall((conversationId, body) => socialApi.postConversationMessage(conversationId, body)));
   ipcMain.handle(IpcChannel.SocialDeleteConversationMessage, safeCall((conversationId, messageId) => socialApi.deleteConversationMessage(conversationId, messageId)));
   ipcMain.handle(IpcChannel.SocialCreateConversation, safeCall((payload) => socialApi.createConversation(payload)));
-  ipcMain.handle(IpcChannel.SocialEnsureFellowConversation, safeCall((fellowId, body) => socialApi.ensureFellowConversation(fellowId, body)));
-  ipcMain.handle(IpcChannel.SocialEnsureFellowSessionConversation, safeCall((sessionId, body) => socialApi.ensureFellowSessionConversation(sessionId, body)));
-  ipcMain.handle(IpcChannel.SocialGetFellowRuntime, safeCall((fellowId, runtimeKind) => socialApi.getFellowRuntime(fellowId, runtimeKind)));
-  ipcMain.handle(IpcChannel.SocialSaveFellowRuntime, safeCall((fellowId, body) => socialApi.saveFellowRuntime(fellowId, body)));
+  ipcMain.handle(IpcChannel.SocialEnsureBotConversation, safeCall((botId, body) => socialApi.ensureBotConversation(botId, body)));
+  ipcMain.handle(IpcChannel.SocialEnsureBotSessionConversation, safeCall((sessionId, body) => socialApi.ensureBotSessionConversation(sessionId, body)));
+  ipcMain.handle(IpcChannel.SocialGetBotRuntime, safeCall((botId, runtimeKind) => socialApi.getBotRuntime(botId, runtimeKind)));
+  ipcMain.handle(IpcChannel.SocialSaveBotRuntime, safeCall((botId, body) => socialApi.saveBotRuntime(botId, body)));
   ipcMain.handle(IpcChannel.SocialUpdateConversation, safeCall(async (conversationId, patch) => {
     const result = await socialApi.updateConversation(conversationId, patch);
     const conversation = resultObject(result, "conversation");

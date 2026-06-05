@@ -10,5 +10,8 @@ test("desktop preload can load local shared contracts", () => {
   const preloadSource = fs.readFileSync(path.join(root, "src/preload.js"), "utf8");
 
   assert.match(preloadSource, /require\("\.\/shared\/ipc-channels"\)/);
+  assert.match(preloadSource, /generateBotPet: \(payload\) => ipcRenderer\.invoke\(IpcChannel\.PetGenerate, payload\)/);
+  assert.match(preloadSource, /placeBotPet: \(key\) => ipcRenderer\.invoke\(IpcChannel\.PetPlace, key\)/);
+  assert.match(preloadSource, /recallBotPet: \(key\) => ipcRenderer\.invoke\(IpcChannel\.PetRecall, key\)/);
   assert.match(mainSource, /preload: path\.join\(__dirname, "preload\.js"\)[\s\S]*sandbox: false/);
 });

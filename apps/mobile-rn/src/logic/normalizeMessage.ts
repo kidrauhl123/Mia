@@ -13,7 +13,7 @@ function safeParse(s?: string): any {
 export function normalizeServerRow(m: MessageRow, selfId: string | undefined, index = 0): ChatMessage {
   const isOwn = m.sender_kind === "user" && !!selfId && m.sender_ref === selfId;
   const role: ChatMessage["role"] =
-    m.sender_kind === "fellow" ? "assistant" : m.sender_kind === "system" ? "system" : "user";
+    m.sender_kind === "bot" ? "assistant" : m.sender_kind === "system" ? "system" : "user";
   return {
     messageId: m.id || `${m.conversation_id || ""}#${m.seq ?? index}`,
     clientTraceId: m.client_trace_id || "",

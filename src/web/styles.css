@@ -2784,7 +2784,7 @@ p {
   background: var(--surface-muted);
 }
 
-.web-fellow-dialog,
+.web-bot-dialog,
 .web-avatar-crop-modal {
   padding: 24px;
   background: rgba(16, 20, 39, 0.24);
@@ -2794,7 +2794,7 @@ p {
   z-index: 90;
 }
 
-.fellow-form {
+.bot-form {
   display: grid;
   gap: 14px;
   width: min(430px, calc(100vw - 48px));
@@ -2808,22 +2808,22 @@ p {
   box-shadow: var(--shadow);
 }
 
-.fellow-dialog-head,
-.fellow-dialog-actions {
+.bot-dialog-head,
+.bot-dialog-actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
 
-.fellow-dialog-head h2,
+.bot-dialog-head h2,
 .avatar-crop-head h2 {
   margin: 0;
   font-size: 18px;
   line-height: 1.2;
 }
 
-.fellow-form label,
+.bot-form label,
 .persona-details label {
   display: grid;
   gap: 7px;
@@ -2832,8 +2832,8 @@ p {
   font-weight: 400;
 }
 
-.fellow-form input,
-.fellow-form textarea {
+.bot-form input,
+.bot-form textarea {
   width: 100%;
   min-width: 0;
   border: 1px solid var(--line);
@@ -2844,12 +2844,12 @@ p {
   color: var(--text);
 }
 
-.fellow-form textarea {
+.bot-form textarea {
   min-height: 118px;
   resize: vertical;
 }
 
-.web-fellow-runtime-fixed {
+.web-bot-runtime-fixed {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -2863,7 +2863,7 @@ p {
   color: var(--text);
 }
 
-.web-fellow-runtime-logo {
+.web-bot-runtime-logo {
   display: grid;
   place-items: center;
   width: 24px;
@@ -2971,7 +2971,7 @@ p {
   padding: 0 12px 12px;
 }
 
-.fellow-dialog-actions {
+.bot-dialog-actions {
   justify-content: flex-end;
 }
 
