@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld("mia", {
   initializeRuntime: () => ipcRenderer.invoke(IpcChannel.RuntimeInitialize),
   notifyFirstPaint: () => ipcRenderer.send(IpcChannel.UiFirstPaint),
   runtimeStatus: () => ipcRenderer.invoke(IpcChannel.RuntimeStatus),
+  startupBackgroundServices: () => ipcRenderer.invoke(IpcChannel.StartupBackgroundServices),
   daemonStatus: () => ipcRenderer.invoke(IpcChannel.DaemonStatus),
   startDaemon: () => ipcRenderer.invoke(IpcChannel.DaemonStart),
   stopDaemon: () => ipcRenderer.invoke(IpcChannel.DaemonStop),

@@ -16,6 +16,7 @@
     RuntimeInitialize: "runtime:initialize",
     RuntimeStatus: "runtime:status",
     RuntimeEnginesChanged: "runtime:engines-changed",
+    StartupBackgroundServices: "startup:background-services",
     DaemonStatus: "daemon:status",
     DaemonStart: "daemon:start",
     DaemonStop: "daemon:stop",

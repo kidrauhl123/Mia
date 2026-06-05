@@ -6,6 +6,7 @@ function registerWindowIpc({ ipcMain, startupTimer, runtimeLifecycle }) {
     startupTimer.mark("renderer:first-paint");
     const w = BrowserWindow.fromWebContents(event.sender);
     if (w && typeof w.miaShowWhenReady === "function") w.miaShowWhenReady();
+    if (w?.miaSkipAutomaticBackgroundStartup) return;
     runtimeLifecycle().scheduleBackgroundStartup();
   });
 

@@ -31,6 +31,7 @@ const { createHermesChatAdapter } = require("./main/hermes-chat-adapter.js");
 const { createMiaMemoryService } = require("./main/mia-memory-service.js");
 const { createRuntimeInitializerService } = require("./main/runtime-initializer-service.js");
 const { createRuntimeLifecycleService } = require("./main/runtime-lifecycle-service.js");
+const { createStartupBackgroundService } = require("./main/startup-background-service.js");
 const { createStartupTimer } = require("./main/startup-timing.js");
 const { createChatAttachments } = require("./main/chat-attachments.js");
 const { createFellowManifest } = require("./main/fellow-manifest.js");
@@ -544,6 +545,17 @@ function runtimeLifecycle() {
 function initializeRuntime() {
   return runtimeLifecycle().initializeRuntime();
 }
+
+const startupBackgroundService = createStartupBackgroundService({
+  appendDaemonLog,
+  appendEngineLog,
+  getRuntimeStatus,
+  refreshSystemHermesAsync: systemHermesService.refresh,
+  setDaemonLastError: (message) => daemonControlServer?.setLastError(message),
+  setEngineLastError: (message) => { engineState.lastError = message; },
+  startDaemonService,
+  startEngine
+});
 
 function getDaemonStatus() {
   return daemonControlServer.status();
@@ -1575,6 +1587,7 @@ function createWindow() {
       sandbox: false
     }
   });
+  win.miaSkipAutomaticBackgroundStartup = compactOnboarding;
   if (process.platform === "darwin" && typeof win.setWindowButtonVisibility === "function") {
     win.setWindowButtonVisibility(compactOnboarding);
   }
@@ -1706,6 +1719,7 @@ ipcMain.handle(IpcChannel.RuntimeStatus, async () => {
   status.daemon = await getObservedDaemonStatus(350);
   return status;
 });
+ipcMain.handle(IpcChannel.StartupBackgroundServices, () => startupBackgroundService.run());
 ipcMain.handle(IpcChannel.DaemonStatus, async () => {
   return getObservedDaemonStatus(500);
 });
@@ -2027,7 +2041,7 @@ app.whenReady().then(async () => {
   startCloudEvents();
   startCloudBridge(); // self-gates: defers to the daemon when it's enabled
   syncMiaCloudWorkspace().catch((error) => appendCloudLog(`Cloud workspace sync failed: ${error?.message || error}`));
-  if (process.env.MIA_DISABLE_BACKGROUND_STARTUP !== "1") {
+  if (!win.miaSkipAutomaticBackgroundStartup && process.env.MIA_DISABLE_BACKGROUND_STARTUP !== "1") {
     win.webContents.once("did-finish-load", () => {
       setTimeout(() => runtimeLifecycle().scheduleBackgroundStartup(), 2500);
     });
