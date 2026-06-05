@@ -70,8 +70,8 @@
     if (global.miaConversationKinds) return global.miaConversationKinds;
     if (typeof require !== "undefined") return require("../../shared/conversation-kinds");
     return {
-      MemberKind: { Bot: "bot", Bot: "bot", User: "user" },
-      SenderKind: { Bot: "bot", Bot: "bot", User: "user", System: "system" }
+      MemberKind: { Bot: "bot", User: "user" },
+      SenderKind: { Bot: "bot", User: "user", System: "system" }
     };
   }
 

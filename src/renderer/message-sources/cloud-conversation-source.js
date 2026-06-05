@@ -19,7 +19,7 @@
   const { MemberKind, SenderKind } = global.miaConversationKinds
     || (typeof require === "function"
       ? require("../../shared/conversation-kinds")
-      : { MemberKind: { Fellow: "fellow", User: "user" }, SenderKind: { Fellow: "fellow", User: "user", System: "system" } });
+      : { MemberKind: { Bot: "bot", User: "user" }, SenderKind: { Bot: "bot", User: "user", System: "system" } });
 
   function hasOwn(obj, key) {
     return Boolean(obj && typeof obj === "object" && Object.prototype.hasOwnProperty.call(obj, key));
