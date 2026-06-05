@@ -1,5 +1,6 @@
 module.exports = {
   avatar: require("./avatar.js"),
+  identity: require("./identity.js"),
   contact: require("./contact.js"),
   groupTiles: require("./group-tiles.js"),
   sendPipeline: require("./send-pipeline.js"),

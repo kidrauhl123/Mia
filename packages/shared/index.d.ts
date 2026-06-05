@@ -1,4 +1,5 @@
 export * as avatar from "./avatar";
+export * as identity from "./identity";
 export * as contact from "./contact";
 export * as groupTiles from "./group-tiles";
 export * as sendPipeline from "./send-pipeline";
