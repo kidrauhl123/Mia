@@ -69,6 +69,15 @@ async function register(port, username) {
   return { user: login.body.user, token: login.body.token };
 }
 
+async function createBot(port, account, botId, displayName = botId) {
+  const response = await api(port, "PUT", "/api/me/bots/" + encodeURIComponent(botId), {
+    token: account.token,
+    body: { displayName }
+  });
+  if (response.status !== 200) throw new Error("create bot failed: " + JSON.stringify(response));
+  return response.body.bot;
+}
+
 async function friendUp(port, a, b) {
   const created = await api(port, "POST", "/api/social/friend-requests", {
     token: a.token,
@@ -696,6 +705,7 @@ async function setupGroupScenario(port) {
   const bob = await register(port, "bob");
   const created = await api(port, "POST", "/api/social/friend-requests", { token: alice.token, body: { toUsername: "bob" } });
   await api(port, "POST", "/api/social/friend-requests/" + created.body.request.id + "/respond", { token: bob.token, body: { action: "accept" } });
+  await createBot(port, alice, "bot_codex", "Codex");
   return { alice, bob };
 }
 
@@ -777,6 +787,38 @@ test("POST /api/conversations/:id/members rejects pulling someone else's bot", a
       body: { memberKind: "bot", memberRef: "bot_codex", ownerId: alice.user.id }
     });
     assert.equal(add.status, 403);
+  } finally { await stopServer(ctx); }
+});
+
+test("bot member routes reject spoofing another user's bot id", async () => {
+  const ctx = await startServer();
+  try {
+    const { alice, bob } = await setupGroupScenario(ctx.port);
+    await createBot(ctx.port, alice, "bot_alice", "Alice Bot");
+
+    const create = await api(ctx.port, "POST", "/api/conversations", {
+      token: bob.token,
+      body: { name: "Spoof Create", memberBots: [{ botId: "bot_alice" }], memberFriendUserIds: [alice.user.id] }
+    });
+    assert.equal(create.status, 403);
+
+    const group = await api(ctx.port, "POST", "/api/conversations", {
+      token: bob.token,
+      body: { name: "Bob Group", memberBots: [], memberFriendUserIds: [alice.user.id] }
+    });
+    assert.equal(group.status, 201);
+
+    const add = await api(ctx.port, "POST", "/api/conversations/" + group.body.conversation.id + "/members", {
+      token: bob.token,
+      body: { memberKind: "bot", memberRef: "bot_alice", ownerId: bob.user.id }
+    });
+    assert.equal(add.status, 403);
+
+    const post = await api(ctx.port, "POST", "/api/conversations/" + group.body.conversation.id + "/messages/as-bot", {
+      token: bob.token,
+      body: { botId: "bot_alice", bodyMd: "spoof" }
+    });
+    assert.equal(post.status, 403);
   } finally { await stopServer(ctx); }
 });
 

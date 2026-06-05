@@ -1497,6 +1497,15 @@ async function handleRequest(req, res, context) {
           return writeError(res, 403, "user is not your friend: " + friendId);
         }
       }
+      for (const bot of memberBots) {
+        const botId = String(bot.botId || "").trim();
+        if (!botId) continue;
+        const existingBot = context.botsStore.getBot(botId);
+        if (!existingBot) return writeError(res, 404, "bot not found");
+        if (existingBot.ownerUserId !== auth.user.id) {
+          return writeError(res, 403, "you can only add your own bots");
+        }
+      }
       const conversationId = "g_" + require("node:crypto").randomBytes(8).toString("hex");
       const decorations = clientGroupId ? { clientGroupId } : null;
       context.socialStore.createConversation({ id: conversationId, name, decorations });
@@ -1562,6 +1571,11 @@ async function handleRequest(req, res, context) {
       // memberKind === 'bot'
       const ownerId = String(body.ownerId || "").trim();
       if (ownerId !== auth.user.id) {
+        return writeError(res, 403, "you can only add your own bots");
+      }
+      const existingBot = context.botsStore.getBot(memberRef);
+      if (!existingBot) return writeError(res, 404, "bot not found");
+      if (existingBot.ownerUserId !== auth.user.id) {
         return writeError(res, 403, "you can only add your own bots");
       }
       const runtimeKind = normalizeMemberRuntimeKind(body.runtimeKind);
