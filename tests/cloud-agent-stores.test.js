@@ -7,6 +7,7 @@ const path = require("node:path");
 const { createCloudStore } = require("../src/cloud/sqlite-store.js");
 const { createRuntimeBindingsStore } = require("../src/cloud-agent/runtime-bindings-store.js");
 const { createCloudAgentRunsStore } = require("../src/cloud-agent/cloud-agent-runs-store.js");
+const { DatabaseSync } = require("node:sqlite");
 
 function freshStore() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-cloud-agent-stores-"));
@@ -127,5 +128,56 @@ test("cloud agent run lifecycle records hermes run id and completion", () => {
     assert.deepEqual(failed.error, { message: "boom" });
   } finally {
     ctx.cleanup();
+  }
+});
+
+test("cloud store destructively rebuilds old cloud_agent_runs table without bot_id", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-cloud-agent-runs-migrate-"));
+  const dbPath = path.join(dir, "cloud.sqlite");
+  const legacy = new DatabaseSync(dbPath);
+  try {
+    legacy.exec(`
+      CREATE TABLE cloud_agent_runs (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        actor_id TEXT NOT NULL,
+        conversation_id TEXT NOT NULL,
+        trigger_message_id TEXT NOT NULL,
+        hermes_run_id TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL,
+        error_json TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      INSERT INTO cloud_agent_runs (
+        id, user_id, actor_id, conversation_id, trigger_message_id, status, created_at, updated_at
+      ) VALUES (
+        'old_run', 'u1', 'old_actor', 'botc_old', 'm_old', 'queued', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
+      );
+    `);
+  } finally {
+    legacy.close();
+  }
+
+  const store = createCloudStore({ dataDir: dir, dbPath });
+  try {
+    const db = store.getDb();
+    const columns = db.prepare("PRAGMA table_info(cloud_agent_runs)").all().map((row) => row.name);
+    assert.ok(columns.includes("bot_id"));
+    assert.equal(db.prepare("SELECT COUNT(*) AS count FROM cloud_agent_runs").get().count, 0);
+
+    insertUser(db, "u1");
+    insertConversation(db, "botc_new");
+    const runs = createCloudAgentRunsStore(db);
+    const run = runs.createRun({
+      userId: "u1",
+      botId: "bot_mia",
+      conversationId: "botc_new",
+      triggerMessageId: "m1"
+    });
+    assert.equal(run.botId, "bot_mia");
+  } finally {
+    store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });

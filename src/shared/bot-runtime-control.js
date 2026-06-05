@@ -55,9 +55,10 @@
     api,
     cache = null,
     botKey = "",
+    botId = "",
     runtimeKind = "cloud-hermes"
   } = {}) {
-    const key = String(botKey || "").trim();
+    const key = botKeyFrom({ botKey, botId });
     const kind = normalizeRuntimeKind(runtimeKind);
     if (!key) return null;
     const cacheKey = runtimeCacheKey(key, kind);
@@ -99,11 +100,12 @@
     api,
     cache = null,
     botKey = "",
+    botId = "",
     runtimeKind = "cloud-hermes",
     patch = {},
     current = undefined
   } = {}) {
-    const key = String(botKey || "").trim();
+    const key = botKeyFrom({ botKey, botId });
     const kind = normalizeRuntimeKind(runtimeKind);
     if (!key) return { saved: false, binding: null };
     const existing = current !== undefined

@@ -607,6 +607,10 @@ function createCloudStore(options = {}) {
 }
 
 function migrate(db) {
+  if (!hasColumn(db, "cloud_agent_runs", "bot_id")) {
+    db.exec("DROP TABLE IF EXISTS cloud_agent_runs");
+  }
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       version INTEGER PRIMARY KEY,

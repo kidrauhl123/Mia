@@ -142,6 +142,51 @@ test("bot runtime control contract saves model, effort, and permission patches",
   });
 });
 
+test("bot runtime control accepts botId for runtime reads", async () => {
+  const contract = require("../src/shared/bot-runtime-control");
+  const calls = [];
+  const binding = await contract.getBotRuntimeBinding({
+    api: async (url, options = {}) => {
+      calls.push({ url, options });
+      return {
+        binding: {
+          botId: "mia",
+          runtimeKind: "cloud-hermes",
+          enabled: true,
+          config: { model: "mia-default" }
+        }
+      };
+    },
+    botId: "mia",
+    runtimeKind: "cloud-hermes"
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, "/api/me/bots/mia/runtime?kind=cloud-hermes");
+  assert.equal(binding.botId, "mia");
+});
+
+test("bot runtime control accepts botId for direct config saves", async () => {
+  const contract = require("../src/shared/bot-runtime-control");
+  const calls = [];
+  const result = await contract.saveBotRuntimeConfig({
+    api: async (url, options = {}) => {
+      calls.push({ url, options });
+      if (!options.method) return { binding: { botId: "mia", runtimeKind: "cloud-hermes", enabled: true, config: {} } };
+      return { binding: { botId: "mia", runtimeKind: options.body.runtimeKind, enabled: true, config: options.body.config } };
+    },
+    botId: "mia",
+    runtimeKind: "cloud-hermes",
+    patch: { model: "mia-default" }
+  });
+
+  assert.equal(result.saved, true);
+  assert.equal(calls[0].url, "/api/me/bots/mia/runtime?kind=cloud-hermes");
+  assert.equal(calls[1].url, "/api/me/bots/mia/runtime");
+  assert.equal(calls[1].options.method, "PUT");
+  assert.deepEqual(calls[1].options.body.config, { model: "mia-default" });
+});
+
 test("main chat engine registry reuses the shared engine contract", () => {
   const shared = require("../src/shared/engine-contracts");
   const registry = require("../src/main/chat-engine-registry");
