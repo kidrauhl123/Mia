@@ -443,7 +443,7 @@ function runAudit({ rootDir = root } = {}) {
       checkSourceAbsent(rootDir, "src/renderer/app.js", /pushCloudMessageQuietly|cloudPushMessage/, "renderer does not mirror local sends through legacy cloud push"),
       checkSourceAbsent(rootDir, "src/preload.js", /cloudPushMessage/, "preload omits legacy cloud push bridge"),
       checkSourceAbsent(rootDir, "src/shared/ipc-channels.js", /CloudPushMessage/, "shared IPC omits legacy cloud push channel"),
-      checkSource(rootDir, "tests/fellow-conversations.test.js", /Fellow-conversation messages POST works through the unified/, "fellow chat conversation integration test")
+      checkSource(rootDir, "tests/bot-conversations.test.js", /Bot-conversation messages POST works through the unified/, "bot chat conversation integration test")
     ]),
     item("gate.same-account-bridge-control", "同账号 Web/手机端可直接调用桌面 Agent，设备鉴权不复用 Agent permission", [
       checkSource(rootDir, "src/main/cloud/cloud-bridge-client.js", /async function runCloudBridgeRequest[\s\S]*permissionMode: "default"/, "desktop bridge keeps Agent permissionMode on the Agent run"),

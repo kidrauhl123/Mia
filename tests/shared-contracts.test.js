@@ -69,14 +69,15 @@ test("engine contract owns external model and mode options for browser clients",
 test("session history contract is shared by desktop and web clients", () => {
   const nodeContract = require("../packages/shared/session-history");
   const browserContract = loadBrowserGlobal("packages/shared/session-history.js", "miaSessionHistory");
+  const botIdentity = require("../packages/shared/bot-identity");
 
-  assert.equal(nodeContract.conversationType({ id: "fellow:u:mia" }), "fellow");
+  assert.equal(nodeContract.conversationType({ id: "botc_u_mia" }), "bot");
   assert.equal(browserContract.runtimeKind({ decorations: { runtimeKind: "cloud-hermes" } }), "cloud-hermes");
-  assert.equal(browserContract.canCreateSession({ type: "fellow", decorations: { fellowKey: "mia" } }), true);
-  assert.equal(browserContract.fellowConversationId("u", "mia"), "fellow:u:mia");
+  assert.equal(browserContract.canCreateSession({ type: "bot", decorations: { botId: "mia" } }), true);
+  assert.equal(botIdentity.botConversationId("u_mia"), "botc_u_mia");
 });
 
-test("fellow runtime control contract saves model, effort, and permission patches", async () => {
+test("bot runtime control contract saves model, effort, and permission patches", async () => {
   const contract = require("../src/shared/fellow-runtime-control");
   const calls = [];
   const cache = new Map();
@@ -85,7 +86,7 @@ test("fellow runtime control contract saves model, effort, and permission patche
     if (!options.method) {
       return {
         binding: {
-          fellowId: "mia",
+          botId: "mia",
           runtimeKind: "cloud-hermes",
           enabled: true,
           config: { model: "old-model", effortLevel: "low" }
@@ -94,7 +95,7 @@ test("fellow runtime control contract saves model, effort, and permission patche
     }
     return {
       binding: {
-        fellowId: "mia",
+        botId: "mia",
         runtimeKind: options.body.runtimeKind,
         enabled: options.body.enabled,
         config: options.body.config
@@ -105,7 +106,7 @@ test("fellow runtime control contract saves model, effort, and permission patche
   await contract.saveFellowRuntimeControl({
     api,
     cache,
-    fellowKey: "mia",
+    botKey: "mia",
     runtimeKind: "cloud-hermes",
     field: "model",
     value: "mia-default",
@@ -114,7 +115,7 @@ test("fellow runtime control contract saves model, effort, and permission patche
   await contract.saveFellowRuntimeControl({
     api,
     cache,
-    fellowKey: "mia",
+    botKey: "mia",
     runtimeKind: "cloud-hermes",
     field: "effort",
     value: "high"
@@ -122,14 +123,14 @@ test("fellow runtime control contract saves model, effort, and permission patche
   await contract.saveFellowRuntimeControl({
     api,
     cache,
-    fellowKey: "mia",
+    botKey: "mia",
     runtimeKind: "cloud-hermes",
     field: "permission",
     value: "auto"
   });
 
   const putCalls = calls.filter((call) => call.options.method === "PUT");
-  assert.equal(calls[0].url, "/api/me/fellows/mia/runtime?kind=cloud-hermes");
+  assert.equal(calls[0].url, "/api/me/bots/mia/runtime?kind=cloud-hermes");
   assert.equal(putCalls.length, 3);
   assert.deepEqual(putCalls[0].options.body.config, { model: "gpt-5.3", effortLevel: "low" });
   assert.deepEqual(putCalls[1].options.body.config, { model: "gpt-5.3", effortLevel: "high" });

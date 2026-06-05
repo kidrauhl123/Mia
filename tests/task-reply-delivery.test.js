@@ -16,7 +16,7 @@ test("deliverTaskReplyToConversation posts to normalized cloud conversation and 
       cloudSettings: () => ({ enabled: true, token: "t", user: { id: "user_1" } })
     },
     bot: { key: "nhnh" },
-    conversationId: "conversation:fellow:user_1:session_1",
+    conversationId: "conversation:botc_user_1_session_1",
     assistantText: "该吃饭啦",
     assistantTracePayload: { reasoning: "到点提醒" },
     taskRunId: "r_1",
@@ -25,7 +25,7 @@ test("deliverTaskReplyToConversation posts to normalized cloud conversation and 
 
   assert.equal(result.messageId, "m_cloud_1");
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].conversationId, "fellow:user_1:session_1");
+  assert.equal(calls[0].conversationId, "botc_user_1_session_1");
   assert.deepEqual(calls[0].body, {
     botId: "nhnh",
     bodyMd: "该吃饭啦",
@@ -46,7 +46,7 @@ test("deliverTaskReplyToConversation fails when task reply cannot be delivered",
         cloudSettings: () => ({ enabled: true, token: "t", user: { id: "user_1" } })
       },
       bot: { key: "nhnh" },
-      conversationId: "conversation:fellow:user_1:session_1",
+      conversationId: "conversation:botc_user_1_session_1",
       assistantText: "该吃饭啦",
       taskRunId: "r_1",
       fallbackMessageId: "local_msg_1"

@@ -85,6 +85,18 @@ try {
 } catch {
   ({ createCloudAgentRunsStore } = require("./src/cloud-agent/cloud-agent-runs-store.js"));
 }
+let createCloudAgentDispatcher = null;
+try {
+  ({ createCloudAgentDispatcher } = require("../src/cloud-agent/dispatcher.js"));
+} catch {
+  ({ createCloudAgentDispatcher } = require("./src/cloud-agent/dispatcher.js"));
+}
+let createAttachmentMaterializer = null;
+try {
+  ({ createAttachmentMaterializer } = require("../src/cloud-agent/attachment-materializer.js"));
+} catch {
+  ({ createAttachmentMaterializer } = require("./src/cloud-agent/attachment-materializer.js"));
+}
 let dmConversationId = null;
 let ensureDmConversation = null;
 try {
@@ -2371,6 +2383,23 @@ function createMiaCloudServer(options = {}) {
       : null);
   context.runtimeBindingsStore = createRuntimeBindingsStore(context.cloudStore.getDb());
   context.cloudAgentRunsStore = createCloudAgentRunsStore(context.cloudStore.getDb());
+  if (options.cloudAgentWorkerManager && options.cloudAgentHermesClient && createCloudAgentDispatcher) {
+    context.cloudAgentDispatcher = createCloudAgentDispatcher({
+      socialStore: context.socialStore,
+      messagesStore: context.messagesStore,
+      botsStore: context.botsStore,
+      runtimeBindingsStore: context.runtimeBindingsStore,
+      cloudAgentRunsStore: context.cloudAgentRunsStore,
+      workerManager: options.cloudAgentWorkerManager,
+      hermesRunsClient: options.cloudAgentHermesClient,
+      attachmentMaterializer: createAttachmentMaterializer
+        ? createAttachmentMaterializer({ cloudStore: context.cloudStore })
+        : null,
+      broadcastPersistedEvent: (userId, payload) => broadcastPersistedEvent(context, userId, payload),
+      broadcastTransientEvent: (userId, payload) => broadcastTransientEvent(context.eventHub, userId, payload),
+      getUserPublic: (userId) => context.cloudStore.getUserPublic(userId)
+    });
+  }
   // Inject botsStore so listConversationMembers can enrich bot members
   // with name/avatar from the owner's bot definitions in one shot.
   context.socialStore._attachBotsStore?.(context.botsStore);

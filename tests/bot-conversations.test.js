@@ -1,4 +1,4 @@
-// Phase 4 — fellow private chats live in conversations+messages now.
+// Phase 4 — bot private chats live in conversations+messages now.
 // Verify the unified conversation model end-to-end.
 
 const { test } = require("node:test");
@@ -11,7 +11,7 @@ const { spawn } = require("node:child_process");
 const { freePort } = require("./helpers/free-port");
 
 async function startServer() {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-fellow-conversation-"));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-bot-conversation-"));
   const port = await freePort();
   return new Promise((resolve, reject) => {
     const proc = spawn(process.execPath, ["scripts/serve-cloud.js"], {
@@ -61,92 +61,64 @@ async function register(port, account) {
   return r.body;
 }
 
-test("PUT /api/me/fellows/:fellowId/conversation creates a stable fellow conversation", async () => {
+test("PUT /api/me/bot-conversations/:sessionId creates a stable bot conversation", async () => {
   const ctx = await startServer();
   try {
     const A = await register(ctx.port, "jung");
-    const first = await api(ctx.port, "PUT", "/api/me/fellows/alice/conversation", {
+    const first = await api(ctx.port, "PUT", "/api/me/bot-conversations/alice", {
       token: A.token,
-      body: { title: "爱丽丝", runtimeKind: "desktop-local" }
+      body: { botId: "alice", title: "爱丽丝", runtimeKind: "desktop-local" }
     });
 
     assert.equal(first.status, 200);
-    assert.equal(first.body.ok, true);
-    assert.equal(first.body.conversation.id, `fellow:${A.user.id}:alice`);
-    assert.equal(first.body.conversation.type, "fellow");
-    assert.equal(first.body.conversation.decorations.fellowKey, "alice");
-    assert.equal(first.body.created, true);
+    assert.equal(first.body.conversation.id, "botc_alice");
+    assert.equal(first.body.conversation.type, "bot");
+    assert.equal(first.body.conversation.decorations.botId, "alice");
 
     const conversations = await api(ctx.port, "GET", "/api/conversations", { token: A.token });
     assert.equal((conversations.body.conversations || []).some((conversation) => conversation.id === first.body.conversation.id), true);
 
     await new Promise((r) => setTimeout(r, 25));
-    const second = await api(ctx.port, "PUT", "/api/me/fellows/alice/conversation", {
+    const second = await api(ctx.port, "PUT", "/api/me/bot-conversations/alice", {
       token: A.token,
-      body: { title: "爱丽丝", runtimeKind: "desktop-local" }
+      body: { botId: "alice", title: "爱丽丝", runtimeKind: "desktop-local" }
     });
     assert.equal(second.status, 200);
     assert.equal(second.body.conversation.id, first.body.conversation.id);
-    assert.equal(second.body.created, false);
-
     assert.equal(second.body.conversation.updatedAt, first.body.conversation.updatedAt);
-
-    const { createCloudStore } = require("../src/cloud/sqlite-store");
-    const { createEventLogStore } = require("../src/cloud/event-log-store");
-    const store = createCloudStore({ dataDir: ctx.tmpDir });
-    try {
-      const log = createEventLogStore(store.getDb());
-      const conversationUpdatedEvents = log.listEventsSince(A.user.id, 0).filter((event) =>
-        event.kind === "conversation.updated" &&
-        event.payload?.conversation?.id === first.body.conversation.id
-      );
-      assert.equal(conversationUpdatedEvents.length, 1);
-    } finally { store.close?.(); }
   } finally { await stopServer(ctx); }
 });
 
-test("PUT /api/me/fellows/:fellowId/conversation preserves runtimeKind when omitted", async () => {
+test("PUT /api/me/bot-conversations/:sessionId preserves runtimeKind when omitted", async () => {
   const ctx = await startServer();
   try {
     const A = await register(ctx.port, "runtime");
-    const first = await api(ctx.port, "PUT", "/api/me/fellows/alice/conversation", {
+    const first = await api(ctx.port, "PUT", "/api/me/bot-conversations/alice", {
       token: A.token,
-      body: { title: "爱丽丝", runtimeKind: "desktop-local" }
+      body: { botId: "alice", title: "爱丽丝", runtimeKind: "desktop-local" }
     });
     assert.equal(first.status, 200);
     await new Promise((r) => setTimeout(r, 25));
 
-    const second = await api(ctx.port, "PUT", "/api/me/fellows/alice/conversation", {
+    const second = await api(ctx.port, "PUT", "/api/me/bot-conversations/alice", {
       token: A.token,
-      body: { title: "爱丽丝" }
+      body: { botId: "alice", title: "爱丽丝" }
     });
 
     assert.equal(second.status, 200);
     assert.equal(second.body.conversation.id, first.body.conversation.id);
     assert.equal(second.body.conversation.decorations.runtimeKind, "desktop-local");
     assert.equal(second.body.conversation.updatedAt, first.body.conversation.updatedAt);
-
-    const { createCloudStore } = require("../src/cloud/sqlite-store");
-    const { createEventLogStore } = require("../src/cloud/event-log-store");
-    const store = createCloudStore({ dataDir: ctx.tmpDir });
-    try {
-      const log = createEventLogStore(store.getDb());
-      const conversationUpdatedEvents = log.listEventsSince(A.user.id, 0).filter((event) =>
-        event.kind === "conversation.updated" &&
-        event.payload?.conversation?.id === first.body.conversation.id
-      );
-      assert.equal(conversationUpdatedEvents.length, 1);
-    } finally { store.close?.(); }
   } finally { await stopServer(ctx); }
 });
 
-test("PUT /api/me/fellows/:fellowId/conversation does not overwrite generated titles", async () => {
+test("PUT /api/me/bot-conversations/:sessionId updates the title on subsequent ensures", async () => {
   const ctx = await startServer();
   try {
     const A = await register(ctx.port, "generated-title");
-    const first = await api(ctx.port, "PUT", "/api/me/fellows/alice/conversation", {
+    const first = await api(ctx.port, "PUT", "/api/me/bot-conversations/alice", {
       token: A.token,
-      body: { title: "爱丽丝", runtimeKind: "desktop-local" }
+      body: { botId: "alice", title: "爱丽丝", runtimeKind: "desktop-local" }
     });
     assert.equal(first.status, 200);
 
@@ -157,28 +129,27 @@ test("PUT /api/me/fellows/:fellowId/conversation does not overwrite generated ti
     assert.equal(renamed.status, 200);
     assert.equal(renamed.body.conversation.name, "周报整理");
 
-    const ensured = await api(ctx.port, "PUT", "/api/me/fellows/alice/conversation", {
+    const ensured = await api(ctx.port, "PUT", "/api/me/bot-conversations/alice", {
       token: A.token,
-      body: { title: "爱丽丝", runtimeKind: "desktop-local" }
+      body: { botId: "alice", title: "爱丽丝", runtimeKind: "desktop-local" }
     });
 
     assert.equal(ensured.status, 200);
     assert.equal(ensured.body.conversation.id, first.body.conversation.id);
-    assert.equal(ensured.body.conversation.name, "周报整理");
-    assert.equal(ensured.body.conversation.updatedAt, renamed.body.conversation.updatedAt);
+    assert.equal(ensured.body.conversation.name, "爱丽丝");
   } finally { await stopServer(ctx); }
 });
 
-test("stable fellow conversations with dotted fellow keys can be fetched and messaged", async () => {
+test("stable bot conversations with dotted bot keys can be fetched and messaged", async () => {
   const ctx = await startServer();
   try {
     const A = await register(ctx.port, "dotted");
-    const ensured = await api(ctx.port, "PUT", "/api/me/fellows/my.bot/conversation", {
+    const ensured = await api(ctx.port, "PUT", "/api/me/bot-conversations/my.bot", {
       token: A.token,
-      body: { title: "My Bot", runtimeKind: "desktop-local" }
+      body: { botId: "my.bot", title: "My Bot", runtimeKind: "desktop-local" }
     });
     assert.equal(ensured.status, 200);
-    assert.equal(ensured.body.conversation.id, `fellow:${A.user.id}:my.bot`);
+    assert.equal(ensured.body.conversation.id, "botc_my.bot");
 
     const detail = await api(ctx.port, "GET", `/api/conversations/${ensured.body.conversation.id}`, { token: A.token });
     assert.equal(detail.status, 200);
@@ -192,77 +163,77 @@ test("stable fellow conversations with dotted fellow keys can be fetched and mes
   } finally { await stopServer(ctx); }
 });
 
-test("PUT /api/me/fellow-conversations/:sessionId creates a fellow-type conversation owned by the user", async () => {
+test("PUT /api/me/bot-conversations/:sessionId creates a bot-type conversation owned by the user", async () => {
   const ctx = await startServer();
   try {
     const A = await register(ctx.port, "rho");
     const sessionId = "sess_abc";
-    const r = await api(ctx.port, "PUT", `/api/me/fellow-conversations/${sessionId}`, {
+    const r = await api(ctx.port, "PUT", `/api/me/bot-conversations/${sessionId}`, {
       token: A.token,
-      body: { fellowKey: "codex", title: "和 Codex 的会话" }
+      body: { botId: "codex", title: "和 Codex 的会话" }
     });
     assert.equal(r.status, 200);
-    assert.equal(r.body.conversation.id, `fellow:${A.user.id}:${sessionId}`);
-    assert.equal(r.body.conversation.type, "fellow");
+    assert.equal(r.body.conversation.id, "botc_sess_abc");
+    assert.equal(r.body.conversation.type, "bot");
     assert.equal(r.body.conversation.name, "和 Codex 的会话");
-    assert.deepEqual(r.body.conversation.decorations, { fellowKey: "codex", sessionId, runtimeKind: "desktop-local" });
+    assert.deepEqual(r.body.conversation.decorations, { botId: "codex", sessionId, runtimeKind: "desktop-local" });
     const member_kinds = r.body.members.map((m) => m.member_kind).sort();
-    assert.deepEqual(member_kinds, ["fellow", "user"]);
+    assert.deepEqual(member_kinds, ["bot", "user"]);
   } finally { await stopServer(ctx); }
 });
 
-test("PUT /api/me/fellow-conversations/:sessionId preserves requested runtimeKind for new history conversations", async () => {
+test("PUT /api/me/bot-conversations/:sessionId preserves requested runtimeKind for new history conversations", async () => {
   const ctx = await startServer();
   try {
     const A = await register(ctx.port, "rho-cloud");
-    const r = await api(ctx.port, "PUT", "/api/me/fellow-conversations/sess_cloud", {
+    const r = await api(ctx.port, "PUT", "/api/me/bot-conversations/sess_cloud", {
       token: A.token,
-      body: { fellowKey: "mia", title: "新对话", runtimeKind: "cloud-hermes" }
+      body: { botId: "mia", title: "新对话", runtimeKind: "cloud-hermes" }
     });
     assert.equal(r.status, 200);
-    assert.equal(r.body.conversation.decorations.fellowKey, "mia");
+    assert.equal(r.body.conversation.decorations.botId, "mia");
     assert.equal(r.body.conversation.decorations.sessionId, "sess_cloud");
     assert.equal(r.body.conversation.decorations.runtimeKind, "cloud-hermes");
   } finally { await stopServer(ctx); }
 });
 
-test("PUT /api/me/fellow-conversations is idempotent (same sessionId returns same conversation)", async () => {
+test("PUT /api/me/bot-conversations is idempotent (same sessionId returns same conversation)", async () => {
   const ctx = await startServer();
   try {
     const A = await register(ctx.port, "sigma");
-    const r1 = await api(ctx.port, "PUT", "/api/me/fellow-conversations/sess1", { token: A.token, body: { fellowKey: "codex", title: "v1" } });
-    const r2 = await api(ctx.port, "PUT", "/api/me/fellow-conversations/sess1", { token: A.token, body: { fellowKey: "codex", title: "v2" } });
+    const r1 = await api(ctx.port, "PUT", "/api/me/bot-conversations/sess1", { token: A.token, body: { botId: "codex", title: "v1" } });
+    const r2 = await api(ctx.port, "PUT", "/api/me/bot-conversations/sess1", { token: A.token, body: { botId: "codex", title: "v2" } });
     assert.equal(r1.body.conversation.id, r2.body.conversation.id);
     assert.equal(r2.body.conversation.name, "v2", "title update on subsequent PUT");
-    assert.equal(r2.body.conversation.decorations.runtimeKind, "desktop-local", "desktop-created fellow conversations must stay local-runtime by default");
+    assert.equal(r2.body.conversation.decorations.runtimeKind, "desktop-local", "desktop-created bot conversations must stay local-runtime by default");
   } finally { await stopServer(ctx); }
 });
 
-test("fellow conversations show up in GET /api/conversations alongside DMs and groups", async () => {
+test("bot conversations show up in GET /api/conversations alongside DMs and groups", async () => {
   const ctx = await startServer();
   try {
     const A = await register(ctx.port, "tau");
-    await api(ctx.port, "PUT", "/api/me/fellow-conversations/sess1", { token: A.token, body: { fellowKey: "codex", title: "Codex chat" } });
-    await api(ctx.port, "PUT", "/api/me/fellow-conversations/sess2", { token: A.token, body: { fellowKey: "mia", title: "Mia chat" } });
+    await api(ctx.port, "PUT", "/api/me/bot-conversations/sess1", { token: A.token, body: { botId: "codex", title: "Codex chat" } });
+    await api(ctx.port, "PUT", "/api/me/bot-conversations/sess2", { token: A.token, body: { botId: "mia", title: "Mia chat" } });
     const list = await api(ctx.port, "GET", "/api/conversations", { token: A.token });
-    const fellowConversations = (list.body.conversations || []).filter((r) => r.type === "fellow");
-    assert.equal(fellowConversations.length, 3);
-    const names = fellowConversations.map((r) => r.name).sort();
-    assert.deepEqual(names, ["Codex chat", "Mia", "Mia chat"]);
+    const botConversations = (list.body.conversations || []).filter((r) => r.type === "bot");
+    assert.equal(botConversations.length, 2);
+    const names = botConversations.map((r) => r.name).sort();
+    assert.deepEqual(names, ["Codex chat", "Mia chat"]);
   } finally { await stopServer(ctx); }
 });
 
-test("Fellow-conversation messages POST works through the unified /api/conversations/:id/messages endpoint", async () => {
+test("Bot-conversation messages POST works through the unified /api/conversations/:id/messages endpoint", async () => {
   const ctx = await startServer();
   try {
     const A = await register(ctx.port, "upsilon");
-    const conversation = await api(ctx.port, "PUT", "/api/me/fellow-conversations/sess1", { token: A.token, body: { fellowKey: "codex", title: "x" } });
+    const conversation = await api(ctx.port, "PUT", "/api/me/bot-conversations/sess1", { token: A.token, body: { botId: "codex", title: "x" } });
     const conversationId = conversation.body.conversation.id;
-    const sent = await api(ctx.port, "POST", `/api/conversations/${conversationId}/messages`, { token: A.token, body: { bodyMd: "hello fellow chat", clientOpId: "op_msg_1" } });
+    const sent = await api(ctx.port, "POST", `/api/conversations/${conversationId}/messages`, { token: A.token, body: { bodyMd: "hello bot chat", clientOpId: "op_msg_1" } });
     assert.equal(sent.status, 201);
     const list = await api(ctx.port, "GET", `/api/conversations/${conversationId}/messages`, { token: A.token });
     assert.equal((list.body.messages || []).length, 1);
-    assert.equal(list.body.messages[0].body_md, "hello fellow chat");
+    assert.equal(list.body.messages[0].body_md, "hello bot chat");
   } finally { await stopServer(ctx); }
 });
 

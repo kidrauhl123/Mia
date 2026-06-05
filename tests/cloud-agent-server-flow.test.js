@@ -64,7 +64,28 @@ function closeWs(ws) {
   try { ws.close(); } catch { /* test cleanup */ }
 }
 
-test("POST /api/conversations/:id/messages appends cloud fellow reply through existing conversation messages", async () => {
+async function upsertCloudHermesBot(baseUrl, authHeaders, botId, displayName = botId, personaText = "") {
+  await jsonFetch(baseUrl, `/api/me/bots/${encodeURIComponent(botId)}`, {
+    method: "PUT",
+    headers: authHeaders,
+    body: {
+      displayName,
+      capabilities: ["chat"],
+      personaText: personaText || `You are ${displayName}.`
+    }
+  });
+  await jsonFetch(baseUrl, `/api/me/bots/${encodeURIComponent(botId)}/runtime`, {
+    method: "PUT",
+    headers: authHeaders,
+    body: {
+      runtimeKind: "cloud-hermes",
+      enabled: true,
+      config: { model: "mia-default" }
+    }
+  });
+}
+
+test("POST /api/conversations/:id/messages appends cloud bot reply through existing conversation messages", async () => {
   const dataDir = tempDir("mia-cloud-agent-server-");
   const hermesCalls = [];
   const server = createMiaCloudServer({
@@ -95,8 +116,14 @@ test("POST /api/conversations/:id/messages appends cloud fellow reply through ex
       method: "POST",
       body: { username: "alice", password: "123456" }
     });
-    const conversationId = `fellow:${account.user.id}:mia`;
     const authHeaders = { authorization: `Bearer ${account.token}` };
+    await upsertCloudHermesBot(baseUrl, authHeaders, "mia", "Mia");
+    const ensured = await jsonFetch(baseUrl, "/api/me/bot-conversations/mia", {
+      method: "PUT",
+      headers: authHeaders,
+      body: { botId: "mia", title: "Mia", runtimeKind: "cloud-hermes" }
+    });
+    const conversationId = ensured.conversation.id;
     eventsWs = new WebSocket(eventsWsUrl(baseUrl), wsTokenProtocol(account.token));
     await waitForMessage(eventsWs, (message) => message.type === "events_ready");
 
@@ -126,7 +153,7 @@ test("POST /api/conversations/:id/messages appends cloud fellow reply through ex
     const listed = await jsonFetch(baseUrl, `/api/conversations/${conversationId}/messages`, {
       headers: authHeaders
     });
-    assert.deepEqual(listed.messages.map((m) => m.sender_kind), ["user", "fellow"]);
+    assert.deepEqual(listed.messages.map((m) => m.sender_kind), ["user", "bot"]);
     assert.equal(listed.messages[1].sender_ref, "mia");
     assert.equal(listed.messages[1].body_md, "server cloud reply");
     assert.equal(hermesCalls.length, 1);
@@ -140,7 +167,7 @@ test("POST /api/conversations/:id/messages appends cloud fellow reply through ex
   }
 });
 
-test("POST group mention invokes cloud-hermes fellow without desktop-local event fallback", async () => {
+test("POST group mention invokes cloud-hermes bot without desktop-local event fallback", async () => {
   const dataDir = tempDir("mia-cloud-agent-group-");
   const hermesCalls = [];
   const server = createMiaCloudServer({
@@ -171,10 +198,11 @@ test("POST group mention invokes cloud-hermes fellow without desktop-local event
       body: { username: "alice", password: "123456" }
     });
     const authHeaders = { authorization: `Bearer ${account.token}` };
+    await upsertCloudHermesBot(baseUrl, authHeaders, "mia", "Mia");
     const group = await jsonFetch(baseUrl, "/api/conversations", {
       method: "POST",
       headers: authHeaders,
-      body: { name: "Cloud Group", memberFellows: [{ fellowId: "mia" }] }
+      body: { name: "Cloud Group", memberBots: [{ botId: "mia", runtimeKind: "cloud-hermes" }] }
     });
     const conversationId = group.conversation.id;
     eventsWs = new WebSocket(eventsWsUrl(baseUrl), wsTokenProtocol(account.token));
@@ -186,18 +214,18 @@ test("POST group mention invokes cloud-hermes fellow without desktop-local event
       headers: authHeaders,
       body: {
         bodyMd: "@mia 看看这个",
-        mentions: [{ kind: "fellow", fellowId: "mia" }],
+        mentions: [{ kind: "bot", botId: "mia" }],
         clientOpId: "op_cloud_group_1"
       }
     });
 
     await server.mia.cloudAgentDispatcher.idle();
     const started = await runStarted;
-    assert.equal(started.fellowId, "mia");
+    assert.equal(started.botId, "mia");
     const listed = await jsonFetch(baseUrl, `/api/conversations/${conversationId}/messages`, {
       headers: authHeaders
     });
-    assert.deepEqual(listed.messages.map((m) => m.sender_kind), ["user", "fellow"]);
+    assert.deepEqual(listed.messages.map((m) => m.sender_kind), ["user", "bot"]);
     assert.equal(listed.messages[1].sender_ref, "mia");
     assert.equal(listed.messages[1].body_md, "group cloud reply");
     assert.equal(hermesCalls.length, 1);
@@ -209,7 +237,7 @@ test("POST group mention invokes cloud-hermes fellow without desktop-local event
   }
 });
 
-test("POST group message routes named fellow only and gives the agent group identity", async () => {
+test("POST group message routes named bot only and gives the agent group identity", async () => {
   const dataDir = tempDir("mia-cloud-agent-named-group-");
   const hermesCalls = [];
   const server = createMiaCloudServer({
@@ -227,8 +255,8 @@ test("POST group message routes named fellow only and gives the agent group iden
     cloudAgentHermesClient: {
       async runChat(args) {
         hermesCalls.push(args);
-        args.onRunCreated?.(`hr_${args.fellow.id}`);
-        return { runId: `hr_${args.fellow.id}`, content: `${args.fellow.name} reply`, events: [] };
+        args.onRunCreated?.(`hr_${args.bot.id}`);
+        return { runId: `hr_${args.bot.id}`, content: `${args.bot.displayName || args.bot.name} reply`, events: [] };
       }
     }
   });
@@ -239,32 +267,16 @@ test("POST group message routes named fellow only and gives the agent group iden
       body: { username: "alice", password: "123456" }
     });
     const authHeaders = { authorization: `Bearer ${account.token}` };
-    await jsonFetch(baseUrl, "/api/me/fellows/kongling", {
-      method: "PUT",
-      headers: authHeaders,
-      body: {
-        name: "空铃",
-        capabilities: ["chat"],
-        personaText: "你是空铃，群聊里的 Fellow。"
-      }
-    });
-    await jsonFetch(baseUrl, "/api/me/fellows/kongling/runtime", {
-      method: "PUT",
-      headers: authHeaders,
-      body: {
-        runtimeKind: "cloud-hermes",
-        enabled: true,
-        config: { model: "mia-default" }
-      }
-    });
+    await upsertCloudHermesBot(baseUrl, authHeaders, "mia", "Mia");
+    await upsertCloudHermesBot(baseUrl, authHeaders, "kongling", "空铃", "你是空铃，群聊里的 Bot。");
     const group = await jsonFetch(baseUrl, "/api/conversations", {
       method: "POST",
       headers: authHeaders,
       body: {
         name: "Cloud Group",
-        memberFellows: [
-          { fellowId: "mia", runtimeKind: "cloud-hermes" },
-          { fellowId: "kongling", runtimeKind: "cloud-hermes" }
+        memberBots: [
+          { botId: "mia", runtimeKind: "cloud-hermes" },
+          { botId: "kongling", runtimeKind: "cloud-hermes" }
         ]
       }
     });
@@ -280,7 +292,7 @@ test("POST group message routes named fellow only and gives the agent group iden
     await server.mia.cloudAgentDispatcher.idle();
 
     assert.equal(hermesCalls.length, 1);
-    assert.equal(hermesCalls[0].fellow.id, "kongling");
+    assert.equal(hermesCalls[0].bot.id, "kongling");
     assert.match(hermesCalls[0].input, /你是 空铃/);
     assert.match(hermesCalls[0].input, /群成员/);
     assert.match(hermesCalls[0].input, /Mia/);
@@ -291,7 +303,7 @@ test("POST group message routes named fellow only and gives the agent group iden
   }
 });
 
-test("POST group short message reaches the single-fellow handler through the HTTP entrypoint", async () => {
+test("POST group short message reaches the single-bot handler through the HTTP entrypoint", async () => {
   const dataDir = tempDir("mia-cloud-agent-ack-group-");
   const hermesCalls = [];
   const server = createMiaCloudServer({
@@ -320,10 +332,11 @@ test("POST group short message reaches the single-fellow handler through the HTT
       body: { username: "alice", password: "123456" }
     });
     const authHeaders = { authorization: `Bearer ${account.token}` };
+    await upsertCloudHermesBot(baseUrl, authHeaders, "mia", "Mia");
     const group = await jsonFetch(baseUrl, "/api/conversations", {
       method: "POST",
       headers: authHeaders,
-      body: { name: "Cloud Group", memberFellows: [{ fellowId: "mia", runtimeKind: "cloud-hermes" }] }
+      body: { name: "Cloud Group", memberBots: [{ botId: "mia", runtimeKind: "cloud-hermes" }] }
     });
 
     await jsonFetch(baseUrl, `/api/conversations/${group.conversation.id}/messages`, {
@@ -337,7 +350,7 @@ test("POST group short message reaches the single-fellow handler through the HTT
     await server.mia.cloudAgentDispatcher.idle();
 
     assert.equal(hermesCalls.length, 1);
-    assert.equal(hermesCalls[0].fellow.id, "mia");
+    assert.equal(hermesCalls[0].bot.id, "mia");
   } finally {
     await close(server);
     fs.rmSync(dataDir, { recursive: true, force: true });

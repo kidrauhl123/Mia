@@ -10,7 +10,8 @@
 
   function fellowKeyFrom(options = {}) {
     const fellow = options.fellow || {};
-    return String(options.fellowKey || fellow.key || fellow.id || fellow.fellowId || "").trim();
+    const bot = options.bot || {};
+    return String(options.botKey || options.botId || bot.key || bot.id || options.fellowKey || fellow.key || fellow.id || fellow.fellowId || "").trim();
   }
 
   function runtimeCacheKey(fellowKey, runtimeKind = "cloud-hermes") {
@@ -28,9 +29,12 @@
 
   async function readRuntime(api, fellowKey, runtimeKind) {
     if (typeof api === "function") {
-      return responsePayload(await api(`/api/me/fellows/${encodeURIComponent(fellowKey)}/runtime?kind=${encodeURIComponent(runtimeKind)}`));
+      return responsePayload(await api(`/api/me/bots/${encodeURIComponent(fellowKey)}/runtime?kind=${encodeURIComponent(runtimeKind)}`));
     }
     const runtimeApi = api?.social || api;
+    if (typeof runtimeApi?.getBotRuntime === "function") {
+      return responsePayload(await runtimeApi.getBotRuntime(fellowKey, runtimeKind));
+    }
     if (typeof runtimeApi?.getFellowRuntime === "function") {
       return responsePayload(await runtimeApi.getFellowRuntime(fellowKey, runtimeKind));
     }
@@ -39,12 +43,15 @@
 
   async function writeRuntime(api, fellowKey, body) {
     if (typeof api === "function") {
-      return responsePayload(await api(`/api/me/fellows/${encodeURIComponent(fellowKey)}/runtime`, {
+      return responsePayload(await api(`/api/me/bots/${encodeURIComponent(fellowKey)}/runtime`, {
         method: "PUT",
         body
       }));
     }
     const runtimeApi = api?.social || api;
+    if (typeof runtimeApi?.saveBotRuntime === "function") {
+      return responsePayload(await runtimeApi.saveBotRuntime(fellowKey, body));
+    }
     if (typeof runtimeApi?.saveFellowRuntime === "function") {
       return responsePayload(await runtimeApi.saveFellowRuntime(fellowKey, body));
     }
@@ -109,7 +116,7 @@
     const existing = current !== undefined
       ? current
       : await getFellowRuntimeBinding({ api, cache, fellowKey: key, runtimeKind: kind });
-    const base = existing || { fellowId: key, runtimeKind: kind, enabled: true, config: {} };
+    const base = existing || { botId: key, runtimeKind: kind, enabled: true, config: {} };
     const config = { ...(base.config || {}), ...(patch || {}) };
     const body = { runtimeKind: kind, enabled: true, config };
     const payload = await writeRuntime(api, key, body);
@@ -121,14 +128,17 @@
   async function saveFellowRuntimeControl({
     api,
     cache = null,
+    bot = {},
+    botKey = "",
+    botId = "",
     fellow = {},
     fellowKey = "",
-    runtimeKind = fellow?.runtimeKind || fellow?.runtime_kind || "cloud-hermes",
+    runtimeKind = bot?.runtimeKind || bot?.runtime_kind || fellow?.runtimeKind || fellow?.runtime_kind || "cloud-hermes",
     field = "",
     value = "",
     modelEntries = []
   } = {}) {
-    const key = fellowKeyFrom({ fellow, fellowKey });
+    const key = fellowKeyFrom({ bot, botKey, botId, fellow, fellowKey });
     const kind = normalizeRuntimeKind(runtimeKind);
     if (!key) return { saved: false, binding: null };
     const patch = patchForRuntimeField(field, value, modelEntries);
