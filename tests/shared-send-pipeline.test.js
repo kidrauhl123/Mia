@@ -151,21 +151,30 @@ test("parseMentions ignores unsupported member kinds", () => {
   assert.deepEqual(parseMentions("@bot_old hi", unsupported), []);
 });
 
-test("members accept legacy shapes (member_ref / member_kind / botId / id+name)", () => {
-  const legacy = [
+test("members accept explicit bot/user shapes", () => {
+  const explicit = [
     { member_ref: "bot_codex", name: "Codex", member_kind: "bot" },
-    { botId: "bot_claude", name: "Claude" },
+    { botId: "bot_claude", name: "Claude", kind: "bot" },
     { id: "user_bob", name: "Bob", kind: "user" }
   ];
   const out = prepareOutgoingMessage(
     { text: "@bot_codex @bot_claude @bob" },
-    { members: legacy }
+    { members: explicit }
   );
   assert.deepEqual(out.mentions, [
     { kind: MemberKind.Bot, ref: "bot_codex" },
     { kind: MemberKind.Bot, ref: "bot_claude" },
     { kind: MemberKind.User, ref: "user_bob" }
   ]);
+});
+
+test("parseMentions does not infer stale key-only or missing-kind members", () => {
+  const stale = [
+    { key: "codex", name: "Codex" },
+    { botId: "bot_claude", name: "Claude" },
+    { id: "user_bob", name: "Bob" }
+  ];
+  assert.deepEqual(parseMentions("@codex @bot_claude @bob", stale), []);
 });
 
 test("attaches to globalThis as miaSendPipeline (IIFE double-source)", () => {
