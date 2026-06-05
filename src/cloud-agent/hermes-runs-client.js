@@ -4,18 +4,18 @@ function cleanBaseUrl(value) {
   return base;
 }
 
-function fellowKey(fellow) {
-  const key = String(fellow?.id || fellow?.key || "").trim();
-  if (!key) throw new Error("fellow id required");
+function botKey(bot) {
+  const key = String(bot?.id || bot?.key || "").trim();
+  if (!key) throw new Error("bot id required");
   return key;
 }
 
-function fellowDisplayName(fellow, fallback) {
-  return String(fellow?.name || fellow?.displayName || fellow?.display_name || fallback || "").trim();
+function botDisplayName(bot, fallback) {
+  return String(bot?.displayName || bot?.display_name || bot?.name || fallback || "").trim();
 }
 
-function fellowInstructions(fellow) {
-  return String(fellow?.personaText || fellow?.persona_text || "").trim();
+function botInstructions(bot) {
+  return String(bot?.personaText || bot?.persona_text || "").trim();
 }
 
 function parseErrorMessage(text) {
@@ -140,10 +140,10 @@ function createHermesRunsClient(deps = {}) {
   }
 
   async function runChat(args = {}) {
-    const key = fellowKey(args.fellow);
-    const displayName = fellowDisplayName(args.fellow, key);
+    const key = botKey(args.bot);
+    const displayName = botDisplayName(args.bot, key);
     const instructions = String(args.instructions || "").trim()
-      || (args.metadataRole === "group-conductor" ? "" : fellowInstructions(args.fellow));
+      || (args.metadataRole === "group-conductor" ? "" : botInstructions(args.bot));
     const userId = String(args.userId || "").trim();
     const conversationId = String(args.conversationId || "").trim();
     if (!userId) throw new Error("userId required");
@@ -165,7 +165,7 @@ function createHermesRunsClient(deps = {}) {
         }))
         : [],
       metadata: {
-        fellow_key: key,
+        bot_id: key,
         persona_key: key,
         account_id: userId,
         route_profile: "cloud-hermes",
@@ -186,8 +186,8 @@ function createHermesRunsClient(deps = {}) {
     };
     if (instructions) body.instructions = instructions;
     const headers = {
-      "X-Mia-Fellow": key,
-      "X-Alkaka-Fellow": key,
+      "X-Mia-Bot": key,
+      "X-Alkaka-Bot": key,
       "X-Hermes-Session-Key": sessionId
     };
     const runId = await createRun({

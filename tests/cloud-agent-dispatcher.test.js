@@ -7,30 +7,30 @@ const path = require("node:path");
 const { createCloudStore } = require("../src/cloud/sqlite-store.js");
 const { createSocialStore } = require("../src/cloud/social-store.js");
 const { createMessagesStore } = require("../src/cloud/messages-store.js");
-const { createFellowsStore } = require("../src/cloud/fellows-store.js");
+const { createBotsStore } = require("../src/cloud/bots-store.js");
 const { createRuntimeBindingsStore } = require("../src/cloud-agent/runtime-bindings-store.js");
 const { createCloudAgentRunsStore } = require("../src/cloud-agent/cloud-agent-runs-store.js");
-const { ensureDefaultCloudFellow } = require("../src/cloud-agent/default-fellow.js");
+const { ensureDefaultCloudBot } = require("../src/cloud-agent/default-bot.js");
 const { createCloudAgentDispatcher } = require("../src/cloud-agent/dispatcher.js");
 
 function setup() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-cloud-agent-dispatcher-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bot_mia-cloud-agent-dispatcher-"));
   const cloudStore = createCloudStore({ dataDir: dir });
   const db = cloudStore.getDb();
   const socialStore = createSocialStore(db);
-  const fellowsStore = createFellowsStore(db);
-  socialStore._attachFellowsStore(fellowsStore);
+  const botsStore = createBotsStore(db);
+  socialStore._attachBotsStore(botsStore);
   const messagesStore = createMessagesStore(db);
   const runtimeBindingsStore = createRuntimeBindingsStore(db);
   const cloudAgentRunsStore = createCloudAgentRunsStore(db);
   const user = cloudStore.registerUser({ username: "alice", password: "123456" }).user;
-  const baseContext = { socialStore, fellowsStore, runtimeBindingsStore };
-  const { conversation } = ensureDefaultCloudFellow(baseContext, user.id);
+  const baseContext = { socialStore, botsStore, runtimeBindingsStore };
+  const { conversation } = ensureDefaultCloudBot(baseContext, user.id);
   return {
     dir,
     cloudStore,
     socialStore,
-    fellowsStore,
+    botsStore,
     messagesStore,
     runtimeBindingsStore,
     cloudAgentRunsStore,
@@ -47,7 +47,7 @@ function makeDispatcher(ctx, overrides = {}) {
   return createCloudAgentDispatcher({
     socialStore: ctx.socialStore,
     messagesStore: ctx.messagesStore,
-    fellowsStore: ctx.fellowsStore,
+    botsStore: ctx.botsStore,
     runtimeBindingsStore: ctx.runtimeBindingsStore,
     cloudAgentRunsStore: ctx.cloudAgentRunsStore,
     workerManager: {
@@ -66,13 +66,13 @@ function makeDispatcher(ctx, overrides = {}) {
   });
 }
 
-test("cloud-hermes DM runs the fellow and appends a reply", async () => {
+test("cloud-hermes DM runs the bot and appends a reply", async () => {
   const ctx = setup();
   const hermesCalls = [];
   try {
     ctx.runtimeBindingsStore.upsertBinding({
       userId: ctx.user.id,
-      fellowId: "mia",
+      botId: "bot_mia",
       runtimeKind: "cloud-hermes",
       enabled: true,
       config: { model: "hermes-agent" }
@@ -96,7 +96,7 @@ test("cloud-hermes DM runs the fellow and appends a reply", async () => {
       conversationId: ctx.conversation.id,
       message
     });
-    assert.equal(reply.sender_ref, "mia");
+    assert.equal(reply.sender_ref, "bot_mia");
     assert.equal(reply.body_md, "hi");
     assert.equal(hermesCalls.length, 1);
   } finally {
@@ -104,21 +104,21 @@ test("cloud-hermes DM runs the fellow and appends a reply", async () => {
   }
 });
 
-test("desktop-local DM broadcasts a fellow invocation and does not run inline", async () => {
+test("desktop-local DM broadcasts a bot invocation and does not run inline", async () => {
   const ctx = setup();
   const broadcasts = [];
   const hermesCalls = [];
   try {
     ctx.runtimeBindingsStore.upsertBinding({
       userId: ctx.user.id,
-      fellowId: "mia",
+      botId: "bot_mia",
       runtimeKind: "cloud-hermes",
       enabled: false,
       config: {}
     });
     ctx.runtimeBindingsStore.upsertBinding({
       userId: ctx.user.id,
-      fellowId: "mia",
+      botId: "bot_mia",
       runtimeKind: "desktop-local",
       enabled: true,
       config: { model: "claude-sonnet-4-6" }
@@ -149,9 +149,9 @@ test("desktop-local DM broadcasts a fellow invocation and does not run inline", 
     assert.equal(hermesCalls.length, 0);
     assert.equal(broadcasts.length, 1);
     assert.equal(broadcasts[0].userId, ctx.user.id);
-    assert.equal(broadcasts[0].event.type, "conversation.fellow_invocation_requested");
+    assert.equal(broadcasts[0].event.type, "conversation.bot_invocation_requested");
     assert.equal(broadcasts[0].event.conversationId, ctx.conversation.id);
-    assert.equal(broadcasts[0].event.fellowId, "mia");
+    assert.equal(broadcasts[0].event.botId, "bot_mia");
     assert.equal(broadcasts[0].event.runtimeKind, "desktop-local");
     assert.equal(broadcasts[0].event.runtimeConfig.model, "claude-sonnet-4-6");
     assert.equal(broadcasts[0].event.triggeringMessage.id, message.id);
@@ -160,20 +160,20 @@ test("desktop-local DM broadcasts a fellow invocation and does not run inline", 
   }
 });
 
-test("single-fellow group skips the conductor and replies directly", async () => {
+test("single-bot group skips the conductor and replies directly", async () => {
   const ctx = setup();
   const hermesCalls = [];
   try {
     const group = ctx.socialStore.createConversation({
       id: "g_single",
       type: "group",
-      name: "Single fellow group"
+      name: "Single bot group"
     });
     ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "user", memberRef: ctx.user.id });
-    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "fellow", memberRef: "mia", ownerId: ctx.user.id });
+    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "bot", memberRef: "bot_mia", ownerId: ctx.user.id });
     ctx.runtimeBindingsStore.upsertBinding({
       userId: ctx.user.id,
-      fellowId: "mia",
+      botId: "bot_mia",
       runtimeKind: "cloud-hermes",
       enabled: true,
       config: { model: "hermes-agent" }
@@ -197,28 +197,28 @@ test("single-fellow group skips the conductor and replies directly", async () =>
       conversationId: group.id,
       message
     });
-    assert.equal(reply.sender_ref, "mia");
-    assert.equal(hermesCalls.length, 1, "no conductor turn for a one-fellow group");
+    assert.equal(reply.sender_ref, "bot_mia");
+    assert.equal(hermesCalls.length, 1, "no conductor turn for a one-bot group");
     assert.match(hermesCalls[0].input, /群成员/);
   } finally {
     ctx.cleanup();
   }
 });
 
-test("multi-fellow group routes by name in the body", async () => {
+test("multi-bot group routes by name in the body", async () => {
   const ctx = setup();
   const hermesCalls = [];
   try {
-    ctx.fellowsStore.upsertFellow(ctx.user.id, { id: "mia", name: "Mia", capabilities: ["chat"] });
-    ctx.fellowsStore.upsertFellow(ctx.user.id, { id: "kongling", name: "空铃", capabilities: ["chat"] });
+    ctx.botsStore.upsertBot(ctx.user.id, { id: "bot_mia", name: "Mia", capabilities: ["chat"] });
+    ctx.botsStore.upsertBot(ctx.user.id, { id: "bot_kongling", name: "空铃", capabilities: ["chat"] });
     const group = ctx.socialStore.createConversation({ id: "g_named", type: "group", name: "Group" });
     ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "user", memberRef: ctx.user.id });
-    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "fellow", memberRef: "mia", ownerId: ctx.user.id });
-    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "fellow", memberRef: "kongling", ownerId: ctx.user.id });
-    for (const fellowId of ["mia", "kongling"]) {
+    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "bot", memberRef: "bot_mia", ownerId: ctx.user.id });
+    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "bot", memberRef: "bot_kongling", ownerId: ctx.user.id });
+    for (const botId of ["bot_mia", "bot_kongling"]) {
       ctx.runtimeBindingsStore.upsertBinding({
         userId: ctx.user.id,
-        fellowId,
+        botId,
         runtimeKind: "cloud-hermes",
         enabled: true,
         config: { model: "hermes-agent" }
@@ -243,27 +243,27 @@ test("multi-fellow group routes by name in the body", async () => {
       conversationId: group.id,
       message
     });
-    assert.equal(reply.sender_ref, "kongling");
-    assert.equal(hermesCalls.length, 1, "no conductor turn when the message names a fellow");
+    assert.equal(reply.sender_ref, "bot_kongling");
+    assert.equal(hermesCalls.length, 1, "no conductor turn when the message names a bot");
   } finally {
     ctx.cleanup();
   }
 });
 
-test("multi-fellow group falls back to the conductor when no name matches", async () => {
+test("multi-bot group falls back to the conductor when no name matches", async () => {
   const ctx = setup();
   const hermesCalls = [];
   try {
-    ctx.fellowsStore.upsertFellow(ctx.user.id, { id: "mia", name: "Mia", capabilities: ["chat"] });
-    ctx.fellowsStore.upsertFellow(ctx.user.id, { id: "kongling", name: "空铃", capabilities: ["chat"] });
+    ctx.botsStore.upsertBot(ctx.user.id, { id: "bot_mia", name: "Mia", capabilities: ["chat"] });
+    ctx.botsStore.upsertBot(ctx.user.id, { id: "bot_kongling", name: "空铃", capabilities: ["chat"] });
     const group = ctx.socialStore.createConversation({ id: "g_conductor", type: "group", name: "Group" });
     ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "user", memberRef: ctx.user.id });
-    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "fellow", memberRef: "mia", ownerId: ctx.user.id });
-    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "fellow", memberRef: "kongling", ownerId: ctx.user.id });
-    for (const fellowId of ["mia", "kongling"]) {
+    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "bot", memberRef: "bot_mia", ownerId: ctx.user.id });
+    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "bot", memberRef: "bot_kongling", ownerId: ctx.user.id });
+    for (const botId of ["bot_mia", "bot_kongling"]) {
       ctx.runtimeBindingsStore.upsertBinding({
         userId: ctx.user.id,
-        fellowId,
+        botId,
         runtimeKind: "cloud-hermes",
         enabled: true,
         config: { model: "hermes-agent" }
@@ -274,7 +274,7 @@ test("multi-fellow group falls back to the conductor when no name matches", asyn
         async runChat(args) {
           hermesCalls.push(args);
           if (args.metadataRole === "group-conductor") {
-            return { runId: "hr_c", content: '{"speak":["kongling"]}', events: [] };
+            return { runId: "hr_c", content: '{"speak":["bot_kongling"]}', events: [] };
           }
           return { runId: "hr_r", content: "ok", events: [] };
         }
@@ -291,26 +291,26 @@ test("multi-fellow group falls back to the conductor when no name matches", asyn
       conversationId: group.id,
       message
     });
-    assert.equal(reply.sender_ref, "kongling");
+    assert.equal(reply.sender_ref, "bot_kongling");
     assert.deepEqual(hermesCalls.map((call) => call.metadataRole || "reply"), ["group-conductor", "reply"]);
   } finally {
     ctx.cleanup();
   }
 });
 
-test("conductor garbage falls back to the first fellow member", async () => {
+test("conductor garbage falls back to the first bot member", async () => {
   const ctx = setup();
   try {
-    ctx.fellowsStore.upsertFellow(ctx.user.id, { id: "mia", name: "Mia", capabilities: ["chat"] });
-    ctx.fellowsStore.upsertFellow(ctx.user.id, { id: "kongling", name: "空铃", capabilities: ["chat"] });
+    ctx.botsStore.upsertBot(ctx.user.id, { id: "bot_mia", name: "Mia", capabilities: ["chat"] });
+    ctx.botsStore.upsertBot(ctx.user.id, { id: "bot_kongling", name: "空铃", capabilities: ["chat"] });
     const group = ctx.socialStore.createConversation({ id: "g_garbage", type: "group", name: "Group" });
     ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "user", memberRef: ctx.user.id });
-    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "fellow", memberRef: "mia", ownerId: ctx.user.id });
-    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "fellow", memberRef: "kongling", ownerId: ctx.user.id });
-    for (const fellowId of ["mia", "kongling"]) {
+    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "bot", memberRef: "bot_mia", ownerId: ctx.user.id });
+    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "bot", memberRef: "bot_kongling", ownerId: ctx.user.id });
+    for (const botId of ["bot_mia", "bot_kongling"]) {
       ctx.runtimeBindingsStore.upsertBinding({
         userId: ctx.user.id,
-        fellowId,
+        botId,
         runtimeKind: "cloud-hermes",
         enabled: true,
         config: { model: "hermes-agent" }
@@ -335,26 +335,26 @@ test("conductor garbage falls back to the first fellow member", async () => {
       conversationId: group.id,
       message
     });
-    assert.ok(reply, "expected a fellow to fall back into replying");
-    assert.match(reply.sender_ref, /mia|kongling/);
+    assert.ok(reply, "expected a bot to fall back into replying");
+    assert.match(reply.sender_ref, /bot_mia|bot_kongling/);
     assert.equal(reply.body_md, "fallback reply");
   } finally {
     ctx.cleanup();
   }
 });
 
-test("desktop-only fellow gets a fellow_invocation_requested broadcast and no inline run", async () => {
+test("desktop-only bot gets a bot_invocation_requested broadcast and no inline run", async () => {
   const ctx = setup();
   const broadcasts = [];
   const hermesCalls = [];
   try {
-    ctx.fellowsStore.upsertFellow(ctx.user.id, { id: "spec-master", name: "Spec Master", capabilities: ["chat"] });
+    ctx.botsStore.upsertBot(ctx.user.id, { id: "bot_spec_master", name: "Spec Master", capabilities: ["chat"] });
     const group = ctx.socialStore.createConversation({ id: "g_local", type: "group", name: "Group" });
     ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "user", memberRef: ctx.user.id });
-    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "fellow", memberRef: "spec-master", ownerId: ctx.user.id });
+    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "bot", memberRef: "bot_spec_master", ownerId: ctx.user.id });
     ctx.runtimeBindingsStore.upsertBinding({
       userId: ctx.user.id,
-      fellowId: "spec-master",
+      botId: "bot_spec_master",
       runtimeKind: "desktop-local",
       enabled: true,
       config: { model: "claude" }
@@ -383,9 +383,9 @@ test("desktop-only fellow gets a fellow_invocation_requested broadcast and no in
     });
     assert.equal(reply, null);
     assert.equal(hermesCalls.length, 0);
-    const invocation = broadcasts.find((entry) => entry.event.type === "conversation.fellow_invocation_requested");
+    const invocation = broadcasts.find((entry) => entry.event.type === "conversation.bot_invocation_requested");
     assert.ok(invocation, "expected a desktop invocation broadcast");
-    assert.equal(invocation.event.fellowId, "spec-master");
+    assert.equal(invocation.event.botId, "bot_spec_master");
     assert.equal(invocation.userId, ctx.user.id);
     assert.equal(invocation.event.runtimeConfig?.model, "claude");
   } finally {
@@ -393,20 +393,20 @@ test("desktop-only fellow gets a fellow_invocation_requested broadcast and no in
   }
 });
 
-test("@mention bypasses the conductor and picks only the mentioned fellow", async () => {
+test("@mention bypasses the conductor and picks only the mentioned bot", async () => {
   const ctx = setup();
   const hermesCalls = [];
   try {
-    ctx.fellowsStore.upsertFellow(ctx.user.id, { id: "mia", name: "Mia", capabilities: ["chat"] });
-    ctx.fellowsStore.upsertFellow(ctx.user.id, { id: "kongling", name: "空铃", capabilities: ["chat"] });
+    ctx.botsStore.upsertBot(ctx.user.id, { id: "bot_mia", name: "Mia", capabilities: ["chat"] });
+    ctx.botsStore.upsertBot(ctx.user.id, { id: "bot_kongling", name: "空铃", capabilities: ["chat"] });
     const group = ctx.socialStore.createConversation({ id: "g_mention", type: "group", name: "Group" });
     ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "user", memberRef: ctx.user.id });
-    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "fellow", memberRef: "mia", ownerId: ctx.user.id });
-    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "fellow", memberRef: "kongling", ownerId: ctx.user.id });
-    for (const fellowId of ["mia", "kongling"]) {
+    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "bot", memberRef: "bot_mia", ownerId: ctx.user.id });
+    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "bot", memberRef: "bot_kongling", ownerId: ctx.user.id });
+    for (const botId of ["bot_mia", "bot_kongling"]) {
       ctx.runtimeBindingsStore.upsertBinding({
         userId: ctx.user.id,
-        fellowId,
+        botId,
         runtimeKind: "cloud-hermes",
         enabled: true,
         config: { model: "hermes-agent" }
@@ -425,33 +425,33 @@ test("@mention bypasses the conductor and picks only the mentioned fellow", asyn
       senderKind: "user",
       senderRef: ctx.user.id,
       bodyMd: "hey",
-      mentions: [{ kind: "fellow", fellowId: "kongling" }]
+      mentions: [{ kind: "bot", botId: "bot_kongling" }]
     });
     const reply = await dispatcher.handleUserMessage({
       userId: ctx.user.id,
       conversationId: group.id,
       message
     });
-    assert.equal(reply.sender_ref, "kongling");
+    assert.equal(reply.sender_ref, "bot_kongling");
     assert.deepEqual(hermesCalls.map((call) => call.metadataRole || "reply"), ["reply"]);
   } finally {
     ctx.cleanup();
   }
 });
 
-test("explicit fellowId on invokeFellow runs that fellow regardless of routing", async () => {
+test("explicit botId on invokeBot runs that bot regardless of routing", async () => {
   const ctx = setup();
   const hermesCalls = [];
   try {
-    ctx.fellowsStore.upsertFellow(ctx.user.id, { id: "mia", name: "Mia", capabilities: ["chat"] });
-    ctx.fellowsStore.upsertFellow(ctx.user.id, { id: "kongling", name: "空铃", capabilities: ["chat"] });
+    ctx.botsStore.upsertBot(ctx.user.id, { id: "bot_mia", name: "Mia", capabilities: ["chat"] });
+    ctx.botsStore.upsertBot(ctx.user.id, { id: "bot_kongling", name: "空铃", capabilities: ["chat"] });
     const group = ctx.socialStore.createConversation({ id: "g_explicit", type: "group", name: "Group" });
     ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "user", memberRef: ctx.user.id });
-    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "fellow", memberRef: "mia", ownerId: ctx.user.id });
-    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "fellow", memberRef: "kongling", ownerId: ctx.user.id });
+    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "bot", memberRef: "bot_mia", ownerId: ctx.user.id });
+    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "bot", memberRef: "bot_kongling", ownerId: ctx.user.id });
     ctx.runtimeBindingsStore.upsertBinding({
       userId: ctx.user.id,
-      fellowId: "kongling",
+      botId: "bot_kongling",
       runtimeKind: "cloud-hermes",
       enabled: true,
       config: { model: "hermes-agent" }
@@ -470,13 +470,13 @@ test("explicit fellowId on invokeFellow runs that fellow regardless of routing",
       senderRef: ctx.user.id,
       bodyMd: "anything"
     });
-    const reply = await dispatcher.invokeFellow({
+    const reply = await dispatcher.invokeBot({
       userId: ctx.user.id,
       conversationId: group.id,
-      fellowId: "kongling",
+      botId: "bot_kongling",
       message
     });
-    assert.equal(reply.sender_ref, "kongling");
+    assert.equal(reply.sender_ref, "bot_kongling");
     assert.equal(hermesCalls.length, 1);
   } finally {
     ctx.cleanup();
@@ -489,7 +489,7 @@ test("respondApproval routes the owner's decision to the run's Hermes worker", a
   try {
     const run = ctx.cloudAgentRunsStore.createRun({
       userId: ctx.user.id,
-      fellowId: "mia",
+      botId: "bot_mia",
       conversationId: ctx.conversation.id,
       triggerMessageId: "m1"
     });

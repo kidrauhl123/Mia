@@ -67,7 +67,7 @@ test("worker manager writes platform LiteLLM config per user", () => {
   assert.equal(manager.envForUser("user_a").MIA_CLOUD_AGENT_MODEL_API_KEY, "sk-litellm");
 });
 
-test("Hermes runs client sends Fellow headers and returns final text", async () => {
+test("Hermes runs client sends Bot headers and returns final text", async () => {
   const calls = [];
   const callbacks = [];
   const fakeFetch = async (url, options = {}) => {
@@ -101,8 +101,8 @@ test("Hermes runs client sends Fellow headers and returns final text", async () 
     baseUrl: "http://worker",
     apiKey: "secret",
     userId: "u1",
-    fellow: { id: "mia", name: "Mia" },
-    conversationId: "fellow:u1:mia",
+    bot: { id: "bot_mia", displayName: "Mia" },
+    conversationId: "botc_u1_bot_mia",
     model: "hermes-agent",
     effortLevel: "high",
     permissionMode: "auto",
@@ -120,17 +120,22 @@ test("Hermes runs client sends Fellow headers and returns final text", async () 
   assert.equal(out.runId, "run_1");
   assert.equal(out.content, "hello");
   assert.equal(calls[0].url, "http://worker/v1/runs");
-  assert.equal(calls[0].headers["X-Mia-Fellow"], "mia");
-  assert.equal(calls[0].headers["X-Alkaka-Fellow"], "mia");
-  assert.equal(calls[0].headers["X-Hermes-Session-Key"], "cloud:u1:mia:fellow:u1:mia");
+  assert.equal(calls[0].headers["X-Mia-Bot"], "bot_mia");
+  assert.equal(calls[0].headers["X-Alkaka-Bot"], "bot_mia");
+  assert.equal(calls[0].headers["X-Mia-Fellow"], undefined);
+  assert.equal(calls[0].headers["X-Alkaka-Fellow"], undefined);
+  assert.equal(calls[0].headers["X-Hermes-Session-Key"], "cloud:u1:bot_mia:botc_u1_bot_mia");
   assert.equal(calls[0].headers.Authorization, "Bearer secret");
   assert.equal(calls[1].headers.Authorization, "Bearer secret");
   const body = JSON.parse(calls[0].body);
   assert.equal(body.model, "hermes-agent");
-  assert.equal(body.session_id, "cloud:u1:mia:fellow:u1:mia");
+  assert.equal(body.session_id, "cloud:u1:bot_mia:botc_u1_bot_mia");
   assert.deepEqual(body.conversation_history, [{ role: "user", content: "hi" }]);
   assert.deepEqual(body.attachments, [{ id: "file_1", name: "note.txt", mimeType: "text/plain", size: 12, kind: "text", path: "/data/attachments/run/note.txt" }]);
   assert.equal(body.metadata.account_id, "u1");
+  assert.equal(body.metadata.bot_id, "bot_mia");
+  assert.equal(body.metadata.persona_key, "bot_mia");
+  assert.equal(body.metadata.fellow_key, undefined);
   assert.equal(body.metadata.effort_level, "high");
   assert.equal(body.metadata.permission_mode, "auto");
   assert.deepEqual(body.metadata.attachments, [{ id: "file_1", name: "note.txt", mimeType: "text/plain", path: "/data/attachments/run/note.txt" }]);
@@ -157,7 +162,7 @@ test("Hermes runs client accepts an isolated session id for conductor-style call
   await client.runChat({
     baseUrl: "http://worker",
     userId: "u1",
-    fellow: { id: "alice", name: "Alice" },
+    bot: { id: "bot_alice", displayName: "Alice" },
     conversationId: "g_1",
     sessionId: "cloud:u1:conductor:g_1:m_1",
     metadataRole: "group-conductor",
