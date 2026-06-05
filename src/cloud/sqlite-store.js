@@ -998,9 +998,12 @@ function retiredIdentityKind() {
 
 function cleanupRetiredIdentityRows(db) {
   const retiredKind = retiredIdentityKind();
+  const retiredPrivateConversation = `${retiredKind}:%`;
+  db.prepare("DELETE FROM messages WHERE conversation_id LIKE ?").run(retiredPrivateConversation);
   db.prepare("DELETE FROM messages WHERE sender_kind = ?").run(retiredKind);
+  db.prepare("DELETE FROM conversation_members WHERE conversation_id LIKE ?").run(retiredPrivateConversation);
   db.prepare("DELETE FROM conversation_members WHERE member_kind = ?").run(retiredKind);
-  db.prepare("DELETE FROM conversations WHERE type = ? OR id LIKE ?").run(retiredKind, `${retiredKind}:%`);
+  db.prepare("DELETE FROM conversations WHERE type = ? OR id LIKE ?").run(retiredKind, retiredPrivateConversation);
 }
 
 function importLegacyJsonIfNeeded(db, { legacyJsonPath }) {

@@ -336,9 +336,13 @@ test("migrate destructively removes old private bot conversation rows", () => {
       INSERT INTO conversations (id, type, created_at, updated_at)
         VALUES ('botc_u1_mia', 'bot', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
       INSERT INTO conversation_members (conversation_id, member_kind, member_ref, joined_at)
+        VALUES ('fellow:u1:codex', 'user', 'u1', '2026-01-01T00:00:00.000Z');
+      INSERT INTO conversation_members (conversation_id, member_kind, member_ref, joined_at)
         VALUES ('group-with-old-bot', 'fellow', 'codex', '2026-01-01T00:00:00.000Z');
       INSERT INTO conversation_members (conversation_id, member_kind, member_ref, joined_at)
         VALUES ('botc_u1_mia', 'bot', 'mia', '2026-01-01T00:00:00.000Z');
+      INSERT INTO messages (id, conversation_id, seq, sender_kind, sender_ref, status, created_at)
+        VALUES ('old_user_msg', 'fellow:u1:codex', 1, 'user', 'u1', 'sent', '2026-01-01T00:00:00.000Z');
       INSERT INTO messages (id, conversation_id, seq, sender_kind, sender_ref, status, created_at)
         VALUES ('old_msg', 'group-with-old-bot', 1, 'fellow', 'codex', 'sent', '2026-01-01T00:00:00.000Z');
       INSERT INTO messages (id, conversation_id, seq, sender_kind, sender_ref, status, created_at)
@@ -353,7 +357,9 @@ test("migrate destructively removes old private bot conversation rows", () => {
     const db = store.getDb();
     assert.equal(db.prepare("SELECT COUNT(*) AS count FROM conversations WHERE type = 'fellow' OR id LIKE 'fellow:%'").get().count, 0);
     assert.equal(db.prepare("SELECT COUNT(*) AS count FROM conversation_members WHERE member_kind = 'fellow'").get().count, 0);
+    assert.equal(db.prepare("SELECT COUNT(*) AS count FROM conversation_members WHERE conversation_id LIKE 'fellow:%'").get().count, 0);
     assert.equal(db.prepare("SELECT COUNT(*) AS count FROM messages WHERE sender_kind = 'fellow'").get().count, 0);
+    assert.equal(db.prepare("SELECT COUNT(*) AS count FROM messages WHERE conversation_id LIKE 'fellow:%'").get().count, 0);
     assert.equal(db.prepare("SELECT COUNT(*) AS count FROM conversations WHERE id = 'botc_u1_mia'").get().count, 1);
     assert.equal(db.prepare("SELECT COUNT(*) AS count FROM conversation_members WHERE member_kind = 'bot'").get().count, 1);
     assert.equal(db.prepare("SELECT COUNT(*) AS count FROM messages WHERE sender_kind = 'bot'").get().count, 1);
