@@ -193,7 +193,7 @@ test("signed-out desktop shell is a login gate without default Boss identity", (
 test("desktop cloud fellow conversations keep private AI composer controls visible", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
 
-  assert.match(appSource, /activeCloudConversationType\s*===\s*"fellow"/);
+  assert.match(appSource, /activeCloudConversationType\s*===\s*"bot"/);
   assert.match(appSource, /composerBottom\.classList\.toggle\("hidden",\s*!showPrivateAiControls\)/);
   assert.doesNotMatch(appSource, /if\s*\(composerBottom\)\s*composerBottom\.classList\.add\("hidden"\);/);
 });
@@ -211,8 +211,8 @@ test("desktop cloud fellow conversations expose the restored chat history menu",
   assert.match(appSource, /if \(els\.sessionMenuButton\) els\.sessionMenuButton\.classList\.remove\("hidden"\);/);
   assert.match(appSource, /function renderCloudConversationSessionMenu\(activeConversation\)/);
   assert.match(appSource, /sessionHistory\.sessionConversationsForConversation/);
-  assert.match(appSource, /sessionHistory\.createFellowSessionPayload/);
-  assert.match(appSource, /sessionHistory\.fellowDisplayTitle/);
+  assert.match(appSource, /sessionHistory\.createBotSessionPayload/);
+  assert.match(appSource, /sessionHistory\.botDisplayTitle/);
   assert.match(appSource, /function createNewCloudSessionForActive\(conversation\)/);
   assert.match(socialSource, /sessionHistoryShared\(\)\.sidebarConversations\(visibleSocialConversations\(moduleState\.conversations,\s*\{/);
   assert.match(channelSource, /SocialEnsureBotSessionConversation/);
@@ -693,10 +693,10 @@ test("fellow creation branches cloud-hermes without saving local manifest", () =
   assert.doesNotMatch(appSource, /async function createCloudHermesFellow/);
   assert.doesNotMatch(appSource, /window\.mia\.social\.saveFellowIdentity\(key,/);
   assert.match(commandsSource, /async function saveCloudHermesFellow/);
-  assert.match(commandsSource, /api\.social\.saveFellowIdentity\(key,/);
+  assert.match(commandsSource, /api\.social\.saveBotIdentity\(key,/);
   assert.match(commandsSource, /runtimeKind:\s*"cloud-hermes"/);
   assert.match(commandsSource, /async function saveDesktopLocalFellow/);
-  assert.match(commandsSource, /api\.saveFellow\(fellow\)/);
+  assert.match(commandsSource, /api\.saveBot\(fellow\)/);
 });
 
 test("opening a fellow conversation preserves existing cloud runtime kind", () => {

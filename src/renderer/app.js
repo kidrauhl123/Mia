@@ -361,15 +361,15 @@ function fellowAvatarIdentityId(fellowKey, fellow = {}) {
     || fellow?.global_id
     || fellow?.fellowGlobalId
     || fellow?.fellow_global_id
-    || (ownerUserId && fellowKey ? sessionHistory.fellowConversationId(ownerUserId, fellowKey) : "")
+    || (ownerUserId && fellowKey ? `botc_${ownerUserId}_${fellowKey}` : "")
     || fellowKey;
 }
 
 function fellowGlobalIdFromConversation(conversation, fellowKey) {
   const id = String(conversation?.id || "");
   const key = String(fellowKey || "");
-  if (!id.startsWith("fellow:") || !key) return "";
-  return id.split(":").slice(2).join(":") === key ? id : "";
+  if (!id.startsWith("botc_") || !key) return "";
+  return id;
 }
 
 // Reconcile #activeChatMeta with the active cloud-agent run state. While the
@@ -574,10 +574,10 @@ function conversationCardSpecFromRow(row, personas) {
   if (row.type === "private-conversation") {
     const conversation = row.conversation;
     const activeConversationId = social?.getActiveConversationId?.();
-    const isFellow = conversation.type === "fellow";
+    const isFellow = conversation.type === "bot";
     let name, avatar;
     if (isFellow) {
-      const fellowKey = sessionHistory.fellowKey(conversation);
+      const fellowKey = sessionHistory.botId(conversation);
       const fellow = identityFellows.find((p) => (p.id || p.key) === fellowKey);
       // The conversation id always carries owner:key, so derive the canonical
       // global id from it. The merged fellow record sometimes lacks
@@ -589,7 +589,7 @@ function conversationCardSpecFromRow(row, personas) {
         ...(fellow || { key: fellowKey, id: fellowKey, name: conversation.name || fellowKey }),
         globalId: (fellow && (fellow.globalId || fellow.global_id)) || fellowGlobalId
       };
-      name = sessionHistory.fellowDisplayTitle(conversation, identityFellows, "对话");
+      name = sessionHistory.botDisplayTitle(conversation, identityFellows, "对话");
       const resolved = window.miaContact?.resolveContact?.(
         { kind: window.miaContact.ContactKind.Fellow, ref: fellowKey },
         { fellows: [fellowRecord] }
@@ -732,7 +732,7 @@ function paintActiveCloudConversationHeader(conversation, { personas, social }) 
   // from cache, etc.) still routes correctly.
   const conversationType = conversation.type
     || (conversation.id?.startsWith("dm:") ? "dm"
-      : conversation.id?.startsWith("fellow:") ? "fellow"
+      : conversation.id?.startsWith("botc_") ? "bot"
       : (conversation.id?.startsWith("g_") || conversation.id?.startsWith("g-")) ? "group"
       : "dm");
 
@@ -755,8 +755,8 @@ function paintActiveCloudConversationHeader(conversation, { personas, social }) 
     return;
   }
 
-  if (conversationType === "fellow") {
-    const fellowKey = sessionHistory.fellowKey(conversation);
+  if (conversationType === "bot") {
+    const fellowKey = sessionHistory.botId(conversation);
     const fellow = identityFellows.find((p) => (p.id || p.key) === fellowKey);
     const fellowRecord = fellow || {
       key: fellowKey,
@@ -769,7 +769,7 @@ function paintActiveCloudConversationHeader(conversation, { personas, social }) 
       avatarEl.className = "profile-avatar";
       avatarHelper.applyFellowAvatar(avatarEl, fellowRecord);
     }
-    setText(nameEl, sessionHistory.fellowDisplayTitle(conversation, identityFellows, "对话"));
+    setText(nameEl, sessionHistory.botDisplayTitle(conversation, identityFellows, "对话"));
     if (metaEl) metaEl.textContent = "私聊";
     return;
   }
@@ -1236,7 +1236,7 @@ function render() {
     const activeIsGroup = activeCloudConversationType === "group";
     const activeIsHumanDm = activeCloudConversationType === "dm";
     const hideSessionSelector = activeIsGroup || activeIsHumanDm;
-    const showPrivateAiControls = activeCloudConversationType === "fellow";
+    const showPrivateAiControls = activeCloudConversationType === "bot";
     if (groupInfoBtn) groupInfoBtn.classList.toggle("hidden", !activeIsGroup);
     if (hideSessionSelector) state.sessionMenuOpen = false;
     if (els.sessionMenuButton) {
@@ -1719,9 +1719,9 @@ async function maybeGenerateCloudConversationTitle(conversationId) {
   const social = window.miaSocial;
   if (!conversationId || !social) return;
   const conversation = social.getConversationById?.(conversationId);
-  if (!conversation || conversationTypeForComposer(conversation, conversationId) !== "fellow") return;
-  if (!sessionHistory.isUntitledFellowConversation(conversation, {
-    fellows: window.miaFellowManager?.allOwnedFellows?.() || [],
+  if (!conversation || conversationTypeForComposer(conversation, conversationId) !== "bot") return;
+  if (!sessionHistory.isUntitledBotConversation(conversation, {
+    bots: window.miaFellowManager?.allOwnedFellows?.() || [],
     defaultTitle: "新对话"
   })) return;
   if (state.generatingTitleIds.has(conversationId)) return;
@@ -1925,7 +1925,7 @@ function conversationTypeForComposer(conversation, conversationId = "") {
 }
 
 function fellowKeyForConversation(conversation) {
-  return sessionHistory.fellowKey(conversation);
+  return sessionHistory.botId(conversation);
 }
 
 function runtimeKindForFellowConversation(conversation) {
@@ -1937,7 +1937,7 @@ function activeConversationFellowContext() {
   const conversationId = social?.getActiveConversationId?.();
   if (!conversationId) return null;
   const conversation = social?.getConversationById?.(conversationId) || { id: conversationId };
-  if (conversationTypeForComposer(conversation, conversationId) !== "fellow") return null;
+  if (conversationTypeForComposer(conversation, conversationId) !== "bot") return null;
   const fellowKey = fellowKeyForConversation(conversation);
   if (!fellowKey) return null;
   return {
@@ -2215,7 +2215,7 @@ function activeConversationFellowKey() {
   const conversationId = social?.getActiveConversationId?.();
   if (!conversationId) return "";
   const conversation = social?.getConversationById?.(conversationId) || { id: conversationId };
-  return conversationTypeForComposer(conversation, conversationId) === "fellow" ? fellowKeyForConversation(conversation) : "";
+  return conversationTypeForComposer(conversation, conversationId) === "bot" ? fellowKeyForConversation(conversation) : "";
 }
 
 function activePersona() {
@@ -2256,43 +2256,43 @@ function appendTransientChat(role, content) {
 
 async function createNewSessionForActive() {
   const cloudConversation = activeCloudConversationForSessionMenu();
-  if (cloudConversation && conversationTypeForComposer(cloudConversation, cloudConversation.id || "") === "fellow") {
+  if (cloudConversation && conversationTypeForComposer(cloudConversation, cloudConversation.id || "") === "bot") {
     await createNewCloudSessionForActive(cloudConversation);
     return;
   }
-  // Cloud-only: 新对话 only applies to an active fellow conversation (handled
+  // Cloud-only: 新对话 only applies to an active bot conversation (handled
   // above). With no active fellow conversation there is nothing to create.
 }
 
 async function createNewCloudSessionForActive(conversation) {
-  const payload = sessionHistory.createFellowSessionPayload(conversation, cryptoRandomId(), {
+  const payload = sessionHistory.createBotSessionPayload(conversation, cryptoRandomId(), {
     title: "新对话",
     runtimeKindFallback: "desktop-local"
   });
-  const fellowKey = payload.fellowKey;
+  const botId = payload.botId;
   const ownerUserId = String(state.runtime?.cloud?.user?.id || state.runtime?.cloud?.user?.userId || "").trim();
-  if (!fellowKey || !ownerUserId || !window.mia?.social?.ensureFellowSessionConversation) return;
+  if (!botId || !ownerUserId || !window.mia?.social?.ensureBotSessionConversation) return;
 
   // Optimistic create: the cloud conversation id is deterministic
-  // (`fellow:<ownerUserId>:<sessionId>`), so build the conversation locally and
+  // (`botc_<sessionId>`), so build the conversation locally and
   // switch into it with zero wait, then ensure it on the cloud in the
-  // background. ensureFellowSessionConversation is idempotent, so a slow or
+  // background. ensureBotSessionConversation is idempotent, so a slow or
   // failed call is safe — we keep the local session and the first sent message
   // re-ensures it.
   const now = new Date().toISOString();
   const optimisticConversation = {
-    id: sessionHistory.fellowConversationId(ownerUserId, payload.sessionId),
-    type: "fellow",
+    id: `botc_${payload.sessionId}`,
+    type: "bot",
     name: payload.title,
-    decorations: { fellowKey, sessionId: payload.sessionId, runtimeKind: payload.runtimeKind },
+    decorations: { botId, sessionId: payload.sessionId, runtimeKind: payload.runtimeKind },
     created_at: now,
     updated_at: now
   };
   window.miaSocial?.upsertFellowConversation?.(optimisticConversation);
   await selectCloudSessionConversation(optimisticConversation, { skipMessageLoad: true });
 
-  window.mia.social.ensureFellowSessionConversation(payload.sessionId, {
-    fellowKey,
+  window.mia.social.ensureBotSessionConversation(payload.sessionId, {
+    botId,
     title: payload.title,
     runtimeKind: payload.runtimeKind
   }).then((response) => {
@@ -2300,11 +2300,11 @@ async function createNewCloudSessionForActive(conversation) {
       const createdConversation = response.data?.conversation || response.conversation;
       if (createdConversation?.id) window.miaSocial?.upsertFellowConversation?.(createdConversation);
     } else {
-      console.warn("[renderer] ensureFellowSessionConversation failed:", response?.error || "unknown");
+      console.warn("[renderer] ensureBotSessionConversation failed:", response?.error || "unknown");
       appendTransientChat("assistant", "会话云端同步失败，发消息时会自动重试。");
     }
   }).catch((error) => {
-    console.warn("[renderer] ensureFellowSessionConversation error:", error?.message || error);
+    console.warn("[renderer] ensureBotSessionConversation error:", error?.message || error);
   });
 }
 

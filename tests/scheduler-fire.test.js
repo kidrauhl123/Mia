@@ -15,7 +15,7 @@ function tmpStore() {
 test("createFireRunner.fire: ok path records run with outputMessageId", async () => {
   const store = tmpStore();
   const t = store.create({
-    title: "x", fellowId: "f", sessionId: "conversation:fellow:u1:f", originMessageId: "m",
+    title: "x", fellowId: "f", sessionId: "conversation:botc_u1_f", originMessageId: "m",
     trigger: { type: "cron", cron: "0 9 * * *" }, timezone: "UTC", prompt: "do"
   });
   const calls = [];
@@ -25,7 +25,7 @@ test("createFireRunner.fire: ok path records run with outputMessageId", async ()
     runRemoteChatRequest: async (body) => {
       calls.push(body);
       return {
-        fellow: { key: "f" },
+        bot: { key: "f" },
         session: {
           id: "s",
           messages: [
@@ -41,9 +41,10 @@ test("createFireRunner.fire: ok path records run with outputMessageId", async ()
   });
   await runner.fire(store.get(t.id));
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].fellowKey, "f");
-  assert.equal(calls[0].conversationId, "fellow:u1:f");
-  assert.equal(calls[0].agentSessionId, "conversation:fellow:u1:f");
+  assert.equal(calls[0].botKey, "f");
+  assert.equal(calls[0].botId, "f");
+  assert.equal(calls[0].conversationId, "botc_u1_f");
+  assert.equal(calls[0].agentSessionId, "conversation:botc_u1_f");
   assert.equal(calls[0].sessionId, undefined);
   assert.equal(calls[0].text, "do");
   // Task runs go through the independent (background) abort path.
@@ -57,7 +58,7 @@ test("createFireRunner.fire: ok path records run with outputMessageId", async ()
   // The finished event carries the reply so the desktop can merge it into the
   // executor's conversation (delivery-by-event, not direct cross-process write).
   const finished = emits.find((e) => e.type === "finished");
-  assert.equal(finished.payload.fellowId, "f");
+  assert.equal(finished.payload.botId, "f");
   assert.equal(finished.payload.outputText, "done");
   assert.equal(finished.payload.createdAt, "2026-05-20T09:00:01Z");
 });
@@ -65,7 +66,7 @@ test("createFireRunner.fire: ok path records run with outputMessageId", async ()
 test("createFireRunner.fire: error path records run with status=failed", async () => {
   const store = tmpStore();
   const t = store.create({
-    title: "x", fellowId: "f", conversationId: "fellow:u1:f", originMessageId: "m",
+    title: "x", fellowId: "f", conversationId: "botc_u1_f", originMessageId: "m",
     trigger: { type: "cron", cron: "0 9 * * *" }, timezone: "UTC", prompt: "do"
   });
   const runner = createFireRunner({
@@ -82,14 +83,14 @@ test("createFireRunner.fire: error path records run with status=failed", async (
 test("createFireRunner.fire: emits lifecycle events", async () => {
   const store = tmpStore();
   const t = store.create({
-    title: "x", fellowId: "f", conversationId: "fellow:u1:f", originMessageId: "m",
+    title: "x", fellowId: "f", conversationId: "botc_u1_f", originMessageId: "m",
     trigger: { type: "cron", cron: "0 9 * * *" }, timezone: "UTC", prompt: "do"
   });
   const events = [];
   const runner = createFireRunner({
     store,
     runRemoteChatRequest: async () => ({
-      fellow: { key: "f" },
+      bot: { key: "f" },
       session: { id: "s", messages: [{ role: "assistant", content: "x" }] },
       response: { id: "msg" }
     }),
@@ -104,7 +105,7 @@ test("createFireRunner.fire: emits lifecycle events", async () => {
 test("createFireRunner.fire: tolerates task deletion during run", async () => {
   const store = tmpStore();
   const t = store.create({
-    title: "x", fellowId: "f", conversationId: "fellow:u1:f", originMessageId: "m",
+    title: "x", fellowId: "f", conversationId: "botc_u1_f", originMessageId: "m",
     trigger: { type: "cron", cron: "0 9 * * *" }, timezone: "UTC", prompt: "do"
   });
   const events = [];
@@ -114,7 +115,7 @@ test("createFireRunner.fire: tolerates task deletion during run", async () => {
       // Simulate task being deleted during the chat call
       store.delete(t.id);
       return {
-        fellow: { key: "f" },
+        bot: { key: "f" },
         session: { id: "s", messages: [{ role: "assistant", content: "x", id: "msg-1" }] },
         response: { id: "msg-1" },
         assistantMessageId: "msg-1"

@@ -1065,7 +1065,7 @@
         api.listFriends(),
         api.listFriendRequests("incoming"),
         api.listFriendRequests("outgoing"),
-        typeof api.listFellows === "function" ? api.listFellows() : Promise.resolve({ ok: true, data: { fellows: [] } }),
+        typeof api.listBots === "function" ? api.listBots() : Promise.resolve({ ok: true, data: { bots: [] } }),
       ]);
       // Dead/expired token: every call comes back 401. cloud.enabled is still
       // true (token present), so without this the app sits "logged in" but empty.
@@ -1088,7 +1088,7 @@
         moduleState.myUserId = freshUserId;
       }
       if (friendsRes.ok) moduleState.friends = friendsRes.data?.friends || [];
-      if (fellowsRes.ok) moduleState.fellows = fellowsRes.data?.fellows || [];
+      if (fellowsRes.ok) moduleState.fellows = fellowsRes.data?.bots || [];
       if (incomingRes.ok) moduleState.incomingRequests = incomingRes.data?.requests || [];
       if (outgoingRes.ok) moduleState.outgoingRequests = outgoingRes.data?.requests || [];
 
@@ -1624,7 +1624,7 @@
     // conversation header instead of a placeholder bubble — see paintHeaderStatus.
     if (!run || (!run.text && !run.reasoning && !run.tools.length)) return null;
     const conversation = moduleState.conversations.find((r) => r.id === conversationId) || { id: conversationId };
-    const fellowKey = run.fellowId || sessionHistoryShared().fellowKey(conversation) || "mia";
+    const fellowKey = run.botId || run.fellowId || sessionHistoryShared().botId(conversation) || "mia";
     const synthetic = {
       id: `cloud-agent-stream-${run.runId || conversationId}`,
       sender_kind: "fellow",
@@ -2439,8 +2439,8 @@
     const id = String(conversationId || "").trim();
     if (!id) return;
     const conversation = moduleState.conversations.find((row) => row.id === id) || { id };
-    if (sessionHistoryShared().conversationType(conversation, id) !== "fellow") return;
-    const key = sessionHistoryShared().fellowKey(conversation);
+    if (sessionHistoryShared().conversationType(conversation, id) !== "bot") return;
+    const key = sessionHistoryShared().botId(conversation);
     if (!key) return;
     moduleState.lastFellowConversationByKey = {
       ...(moduleState.lastFellowConversationByKey || {}),

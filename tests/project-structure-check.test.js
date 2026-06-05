@@ -187,7 +187,7 @@ test("fellow conversation keys are resolved through the shared session helper", 
       assert.doesNotMatch(
         source,
         /\.split\((["'])\:\1\)\s*\[\s*2\s*\]/,
-        `${path.relative(root, file)} must use sessionHistory.fellowKey() instead of truncating fellow ids with split(":")[2]`
+        `${path.relative(root, file)} must use sessionHistory.botId() instead of truncating bot ids from conversation ids`
       );
     }
   }

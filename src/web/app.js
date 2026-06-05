@@ -144,11 +144,9 @@ let state = {
   theme: "light",
   conversations: [],
   friends: [],
-  // Cloud-mirrored fellow identities (Phase 2). Populated from
-  // /api/me/fellows on login and kept in sync via fellow.upserted /
-  // fellow.deleted WS events. Used as the `fellows` context for the
-  // cloud-conversation-source adapter so conversation messages render fellow names +
-  // avatars instead of fellow-id strings.
+  // Cloud-mirrored bot identities. Populated from /api/me/bots on login and
+  // kept in sync via bot.upserted / bot.deleted WS events. Stored in the
+  // legacy `fellows` state bucket for renderer-facing identity helpers.
   fellows: [],
   // Cross-device user settings (Phase 3). Holds pins + read marks +
   // appearance. Populated from /api/me/settings on bootstrap; updated
@@ -578,7 +576,7 @@ function clearSession() {
 // Type is encoded in the id prefix (dm:, g_, fellow:) and also lives in
 // conversation.type. Old workspace-conversation helper is gone.
 function isConversationId(id) {
-  return typeof id === "string" && (id.startsWith("dm:") || id.startsWith("g_") || id.startsWith("fellow:"));
+  return typeof id === "string" && (id.startsWith("dm:") || id.startsWith("g_") || id.startsWith("botc_"));
 }
 
 async function api(path, options = {}) {
@@ -658,10 +656,9 @@ async function bootstrap() {
     api("/api/social/friends").then((d) => { state.friends = Array.isArray(d.friends) ? d.friends : []; }).catch(() => {}),
     api("/api/social/friend-requests?direction=incoming").then((d) => { state.incomingRequests = Array.isArray(d.requests) ? d.requests : []; }).catch(() => {}),
     api("/api/social/friend-requests?direction=outgoing").then((d) => { state.outgoingRequests = Array.isArray(d.requests) ? d.requests : []; }).catch(() => {}),
-    // Phase 2: fellow identities (name + avatar + persona) so conversation
-    // messages from a fellow render with proper attribution rather than
-    // a bare fellow-id string.
-    api("/api/me/fellows?compact=1").then((d) => { state.fellows = Array.isArray(d.fellows) ? d.fellows : []; }).catch(() => {}),
+    // Bot identities (name + avatar + persona) so bot conversation messages
+    // render with proper attribution rather than bare ids.
+    api("/api/me/bots?compact=1").then((d) => { state.fellows = Array.isArray(d.bots) ? d.bots : []; }).catch(() => {}),
     // Phase 3: cross-device user settings (pin / read marks / appearance).
     api("/api/me/settings").then((d) => { if (d.settings) state.settings = d.settings; }).catch(() => {}),
     // Bridge devices: lets Phase B decide whether the owner's desktop is
@@ -684,11 +681,11 @@ async function bootstrap() {
   await Promise.all(
     state.conversations
       .filter((r) => {
-        const isGroup = r.type === "group" || (!r.id?.startsWith("dm:") && !r.id?.startsWith("fellow:") && (r.id?.startsWith("g_") || r.id?.startsWith("g-")));
+        const isGroup = r.type === "group" || (!r.id?.startsWith("dm:") && !r.id?.startsWith("botc_") && (r.id?.startsWith("g_") || r.id?.startsWith("g-")));
         if (isGroup) return true;
-        const isFellow = r.type === "fellow" || r.id?.startsWith("fellow:");
+        const isFellow = r.type === "bot" || r.id?.startsWith("botc_");
         if (!isFellow) return false;
-        const fellowKey = sessionHistory.fellowKey(r);
+        const fellowKey = sessionHistory.botId(r);
         return !state.fellows.some((f) => String(f.id || f.key || "") === fellowKey);
       })
       .map((r) => ensureConversationMembers(r.id))
@@ -703,7 +700,7 @@ async function hydrateFullIdentities() {
   if (!state.token) return;
   const [meResult, fellowsResult] = await Promise.allSettled([
     api("/api/me"),
-    api("/api/me/fellows")
+    api("/api/me/bots")
   ]);
   let changed = false;
   if (meResult.status === "fulfilled") {
@@ -711,7 +708,7 @@ async function hydrateFullIdentities() {
     changed = true;
   }
   if (fellowsResult.status === "fulfilled") {
-    state.fellows = Array.isArray(fellowsResult.value.fellows) ? fellowsResult.value.fellows : state.fellows;
+    state.fellows = Array.isArray(fellowsResult.value.bots) ? fellowsResult.value.bots : state.fellows;
     changed = true;
   }
   if (!changed) return;
@@ -1195,8 +1192,8 @@ function conversationDisplayTitle(conversation) {
     const otherId = parts[1] === state.user?.id ? parts[2] : parts[1];
     return friendUsernameById(otherId);
   }
-  if (conversation.type === "fellow" || conversation.id?.startsWith("fellow:")) {
-    return sessionHistory.fellowDisplayTitle(conversation, state.fellows, "对话");
+  if (conversation.type === "bot" || conversation.id?.startsWith("botc_")) {
+    return sessionHistory.botDisplayTitle(conversation, state.fellows, "对话");
   }
   return conversation.name || "未命名群聊";
 }
@@ -1206,7 +1203,7 @@ function conversationTypeForControls(conversation) {
 }
 
 function fellowKeyForConversation(conversation) {
-  return sessionHistory.fellowKey(conversation);
+  return sessionHistory.botId(conversation);
 }
 
 function fellowByKey(key) {
@@ -1222,14 +1219,14 @@ function fellowAvatarIdentityId(fellowKey, fellow = {}, member = null) {
     ...(fellow || {}),
     ownerUserId,
     globalId
-  }) || globalId || (ownerUserId && fellowKey ? sessionHistory.fellowConversationId(ownerUserId, fellowKey) : "") || fellowKey;
+  }) || globalId || (ownerUserId && fellowKey ? `botc_${ownerUserId}_${fellowKey}` : "") || fellowKey;
 }
 
 function fellowGlobalIdFromConversation(conversation, fellowKey) {
   const id = String(conversation?.id || "");
   const key = String(fellowKey || "");
-  if (!id.startsWith("fellow:") || !key) return "";
-  return id.split(":").slice(2).join(":") === key ? id : "";
+  if (!id.startsWith("botc_") || !key) return "";
+  return id;
 }
 
 function hasAvatarIdentityFields(record) {
@@ -1460,7 +1457,7 @@ function setModelSwitchStatus() {
 }
 
 function renderComposerControls(conversation = null) {
-  const show = conversationTypeForControls(conversation) === "fellow";
+  const show = conversationTypeForControls(conversation) === "bot";
   els.composerBottom?.classList.toggle("hidden", !show);
   if (!show) return;
 
@@ -1506,7 +1503,7 @@ function renderComposerControls(conversation = null) {
 
 async function saveWebAiControl(kind, value) {
   const conversation = state.conversations.find((r) => r.id === state.activeConversationId);
-  if (conversationTypeForControls(conversation) !== "fellow") return;
+  if (conversationTypeForControls(conversation) !== "bot") return;
   const fellowKey = fellowKeyForConversation(conversation);
   const runtimeKind = runtimeKindForFellowConversation(conversation, fellowByKey(fellowKey));
   if (!fellowKey) {
@@ -1622,17 +1619,17 @@ function selectSessionConversation(conversation) {
 async function createNewSessionForActive() {
   const conversation = activeSessionConversation();
   if (!sessionHistory.canCreateSession(conversation)) return;
-  const payload = sessionHistory.createFellowSessionPayload(conversation, cryptoRandomId(), {
+  const payload = sessionHistory.createBotSessionPayload(conversation, cryptoRandomId(), {
     title: "新对话",
     runtimeKindFallback: "desktop-local"
   });
-  const fellowKey = payload.fellowKey;
-  if (!fellowKey) return;
+  const botId = payload.botId;
+  if (!botId) return;
   try {
-    const res = await api(`/api/me/fellow-conversations/${encodeURIComponent(payload.sessionId)}`, {
+    const res = await api(`/api/me/bot-conversations/${encodeURIComponent(payload.sessionId)}`, {
       method: "PUT",
       body: {
-        fellowKey,
+        botId,
         title: payload.title,
         runtimeKind: payload.runtimeKind
       }
@@ -1713,7 +1710,7 @@ function combinedConversationItems() {
     // id-prefix fallback for cloud deployments that haven't shipped the v7
     // type column yet. Remove once every server is on schema ≥ v7.
     const isDM = r.type === "dm" || r.id?.startsWith("dm:");
-    const isFellow = r.type === "fellow" || r.id?.startsWith("fellow:");
+    const isFellow = r.type === "bot" || r.id?.startsWith("botc_");
     const isGroup = r.type === "group" || (!isDM && !isFellow && (r.id?.startsWith("g_") || r.id?.startsWith("g-")));
     let avatar = "";
     let avatarCrop = null;
@@ -1737,7 +1734,7 @@ function combinedConversationItems() {
       color = resolved.color;
       avatarText = resolved.text;
     } else if (isFellow) {
-      const fellowKey = sessionHistory.fellowKey(r);
+      const fellowKey = sessionHistory.botId(r);
       const fa = fellowAvatarFor(r, fellowKey);
       if (fa) {
         avatar = fa.image;
@@ -2073,7 +2070,7 @@ function buildCloudAgentStreamingArticle(conversation, run) {
   // Typing-only state ("running" with no body yet) renders as header dots,
   // not a placeholder bubble in the message stream. See renderActiveChat.
   if (!run.text && !run.tools.length && !run.reasoning) return "";
-  const fellowKey = run.fellowId || sessionHistory.fellowKey(conversation) || "mia";
+  const fellowKey = run.botId || run.fellowId || sessionHistory.botId(conversation) || "mia";
   const msg = {
     id: `cloud-agent-stream-${run.runId || conversation.id}`,
     sender_kind: "fellow",
@@ -2222,7 +2219,7 @@ function renderActiveChat() {
     const title = conversationDisplayTitle(conversation);
     const conversationType = conversationTypeForControls(conversation);
     const isDM = conversationType === "dm";
-    const isFellow = conversationType === "fellow";
+    const isFellow = conversationType === "bot";
     const isGroup = !isDM && !isFellow;
     if (isGroup) {
       // Group conversations need the same stacked-tile mosaic the sidebar
@@ -2318,7 +2315,7 @@ async function hydrateActiveConversation(id) {
   await ensureConversationMessages(id);
   await ensureConversationMembers(id);
   const conversation = state.conversations.find((item) => item.id === id);
-  if (conversationTypeForControls(conversation) === "fellow") {
+  if (conversationTypeForControls(conversation) === "bot") {
     await ensureFellowRuntime(fellowKeyForConversation(conversation), runtimeKindForFellowConversation(conversation, fellowByKey(fellowKeyForConversation(conversation))));
   }
   if (state.activeConversationId !== id) return;
@@ -2581,11 +2578,11 @@ async function saveCloudOnlyFellowFromWeb(draft) {
     personaText: draft.personaText || "",
     capabilities: { legacyCapabilities: ["chat", "files", "terminal", "code"] }
   };
-  const saved = await api(`/api/me/fellows/${encodeURIComponent(key)}`, {
+  const saved = await api(`/api/me/bots/${encodeURIComponent(key)}`, {
     method: "PUT",
     body: identity
   });
-  const runtime = await api(`/api/me/fellows/${encodeURIComponent(key)}/runtime`, {
+  const runtime = await api(`/api/me/bots/${encodeURIComponent(key)}/runtime`, {
     method: "PUT",
     body: {
       runtimeKind: "cloud-hermes",
@@ -2597,14 +2594,15 @@ async function saveCloudOnlyFellowFromWeb(draft) {
       }
     }
   });
-  const ensured = await api(`/api/me/fellows/${encodeURIComponent(key)}/conversation`, {
+  const ensured = await api(`/api/me/bot-conversations/${encodeURIComponent(key)}`, {
     method: "PUT",
     body: {
+      botId: key,
       title: name,
       runtimeKind: "cloud-hermes"
     }
   });
-  const fellow = { ...(saved.fellow || identity), key, id: key };
+  const fellow = { ...(saved.bot || identity), key, id: key };
   state.fellows = [fellow, ...state.fellows.filter((item) => String(item.id || item.key || "") !== key)];
   if (runtime.binding) state.fellowRuntimeCache.set(runtimeCacheKey(key, "cloud-hermes"), runtime.binding);
   if (ensured.conversation) {

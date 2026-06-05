@@ -73,9 +73,9 @@ test("src/web exposes cloud-only fellow creation from the sidebar plus menu", ()
   assert.match(source, /function openCreateFellowDialog\(\)/);
   assert.match(source, /function saveCloudOnlyFellowFromWeb\(/);
   assert.match(source, /runtimeKind:\s*"cloud-hermes"/);
-  assert.match(source, /\/api\/me\/fellows\/\$\{encodeURIComponent\(key\)\}/);
-  assert.match(source, /\/api\/me\/fellows\/\$\{encodeURIComponent\(key\)\}\/runtime/);
-  assert.match(source, /\/api\/me\/fellows\/\$\{encodeURIComponent\(key\)\}\/conversation/);
+  assert.match(source, /\/api\/me\/bots\/\$\{encodeURIComponent\(key\)\}/);
+  assert.match(source, /\/api\/me\/bots\/\$\{encodeURIComponent\(key\)\}\/runtime/);
+  assert.match(source, /\/api\/me\/bot-conversations\/\$\{encodeURIComponent\(key\)\}/);
   assert.match(source, /avatarImage:\s*draft\.avatarImage/);
   assert.match(source, /avatarCrop:\s*draft\.avatarCrop/);
   assert.doesNotMatch(source, /id="webFellowRuntimeLocation"/);
@@ -494,7 +494,7 @@ test("src/web/app.js has no inline '> 99 ? 99+' truncation literals", () => {
 test("src/web/app.js only shows private AI controls in fellow conversations", () => {
   const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
   assert.match(source, /function renderComposerControls\(conversation = null\)/);
-  assert.match(source, /conversationTypeForControls\(conversation\)\s*===\s*"fellow"/);
+  assert.match(source, /conversationTypeForControls\(conversation\)\s*===\s*"bot"/);
   assert.match(source, /composerBottom\?\.classList\.toggle\("hidden",\s*!show\)/);
   assert.match(source, /saveWebAiControl\("model"/);
   assert.match(source, /saveWebAiControl\("effort"/);
@@ -579,9 +579,9 @@ test("shared fellow runtime control owns Web PUT runtime writes", () => {
   const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
   const shared = fs.readFileSync(path.join(ROOT, "src/shared/fellow-runtime-control.js"), "utf8");
   assert.match(source, /method === "POST" \|\| method === "PUT" \|\| method === "PATCH" \|\| method === "DELETE"/);
-  assert.match(shared, /\/api\/me\/fellows\/\$\{encodeURIComponent\(fellowKey\)\}\/runtime/);
+  assert.match(shared, /\/api\/me\/bots\/\$\{encodeURIComponent\(fellowKey\)\}\/runtime/);
   assert.match(shared, /method:\s*"PUT"/);
-  assert.doesNotMatch(source, /\/api\/me\/fellows\/\$\{encodeURIComponent\(fellowKey\)\}\/runtime[\s\S]*method:\s*"PUT"/);
+  assert.doesNotMatch(source, /\/api\/me\/bots\/\$\{encodeURIComponent\(fellowKey\)\}\/runtime[\s\S]*method:\s*"PUT"/);
 });
 
 test("cloud release copies shared fellow runtime control into web assets", () => {
@@ -613,10 +613,10 @@ test("src/web/app.js restores the topbar chat history selector for fellow conver
   assert.match(source, /function sessionConversationsForConversation\(conversation\)/);
   assert.match(source, /sessionHistory\.sessionConversationsForConversation/);
   assert.match(source, /sessionHistory\.sidebarConversations\(state\.conversations/);
-  assert.match(source, /sessionHistory\.fellowDisplayTitle\(conversation, state\.fellows, "对话"\)/);
-  assert.match(source, /sessionHistory\.createFellowSessionPayload/);
+  assert.match(source, /sessionHistory\.botDisplayTitle\(conversation, state\.fellows, "对话"\)/);
+  assert.match(source, /sessionHistory\.createBotSessionPayload/);
   assert.match(source, /function createNewSessionForActive\(\)/);
-  assert.match(source, /\/api\/me\/fellow-conversations\/\$\{encodeURIComponent\(payload\.sessionId\)\}/);
+  assert.match(source, /\/api\/me\/bot-conversations\/\$\{encodeURIComponent\(payload\.sessionId\)\}/);
   assert.match(source, /sessionMenuOpen/);
   assert.match(source, /currentSessionTitle/);
   assert.match(source, /newSession\?\.classList\.toggle\("hidden", !canCreate\)/);

@@ -53,7 +53,7 @@
   }
 
   function savedFellowFromResult(result, fallback) {
-    return result?.data?.fellow || result?.fellow || fallback;
+    return result?.data?.bot || result?.bot || fallback;
   }
 
   async function saveCloudHermesFellow({
@@ -64,7 +64,7 @@
     isCreate = false,
     cloudModelEntries = () => []
   } = {}) {
-    if (!state.runtime?.cloud?.enabled || typeof api?.social?.saveFellowIdentity !== "function") {
+    if (!state.runtime?.cloud?.enabled || typeof api?.social?.saveBotIdentity !== "function") {
       throw new Error("请先登录 Mia Cloud。");
     }
     const key = fellow.key || cloudFellowKeyFromName(fellow.name, existingFellowKeys(state, social));
@@ -77,10 +77,10 @@
       personaText: fellow.personaText || fellow.description || fellow.bio || "",
       capabilities: serializableCapabilities(fellow.capabilities)
     };
-    const saved = await api.social.saveFellowIdentity(key, identity);
+    const saved = await api.social.saveBotIdentity(key, identity);
     if (!saved?.ok) throw new Error(saved?.error || "创建云端 Fellow 失败");
     if (isCreate) {
-      const runtime = await api.social.saveFellowRuntime(key, {
+      const runtime = await api.social.saveBotRuntime(key, {
         runtimeKind: "cloud-hermes",
         enabled: true,
         config: {
@@ -91,7 +91,8 @@
       });
       if (!runtime?.ok) throw new Error(runtime?.error || "保存云端运行配置失败");
     }
-    const ensured = await api.social.ensureFellowConversation(key, {
+    const ensured = await api.social.ensureBotSessionConversation(key, {
+      botId: key,
       title: identity.name || key,
       runtimeKind: "cloud-hermes"
     });
@@ -111,8 +112,8 @@
     api = global.mia,
     fellow = {}
   } = {}) {
-    if (typeof api?.saveFellow !== "function") throw new Error("本机 Fellow 保存接口不可用。");
-    const runtime = await api.saveFellow(fellow);
+    if (typeof api?.saveBot !== "function") throw new Error("本机 Bot 保存接口不可用。");
+    const runtime = await api.saveBot(fellow);
     const fellows = runtime?.fellows || runtime?.personas || [];
     const saved = fellow.key
       ? fellows.find((item) => item.key === fellow.key)
@@ -134,8 +135,8 @@
   } = {}) {
     const key = String(fellow.key || fellow.id || "").trim();
     if (!key) return { deleted: false, runtime: state.runtime };
-    if (typeof api?.social?.deleteFellow !== "function") throw new Error("云端 Fellow 删除接口不可用。");
-    const result = await api.social.deleteFellow(key);
+    if (typeof api?.social?.deleteBot !== "function") throw new Error("云端 Bot 删除接口不可用。");
+    const result = await api.social.deleteBot(key);
     if (result && result.ok === false) throw new Error(result.error || "删除云端 Fellow 失败");
     if (social?.moduleState) {
       social.moduleState.fellows = social.moduleState.fellows
@@ -152,8 +153,8 @@
   } = {}) {
     const key = String(fellow.key || fellow.id || "").trim();
     if (!key) return { deleted: false, runtime: state.runtime };
-    if (typeof api?.deleteFellow !== "function") throw new Error("本机 Fellow 删除接口不可用。");
-    const runtime = await api.deleteFellow({ key });
+    if (typeof api?.deleteBot !== "function") throw new Error("本机 Bot 删除接口不可用。");
+    const runtime = await api.deleteBot({ key });
     return { deleted: true, runtime };
   }
 
@@ -185,8 +186,8 @@
   } = {}) {
     const key = String(fellow.key || fellow.id || "").trim();
     if (!key) return { key: "", fellow: null, runtime: state.runtime };
-    if (typeof api?.social?.saveFellowIdentity !== "function") throw new Error("云端 Fellow 保存接口不可用。");
-    const response = await api.social.saveFellowIdentity(key, identityForCapabilities(fellow, capabilities));
+    if (typeof api?.social?.saveBotIdentity !== "function") throw new Error("云端 Bot 保存接口不可用。");
+    const response = await api.social.saveBotIdentity(key, identityForCapabilities(fellow, capabilities));
     if (response && response.ok === false) throw new Error(response.error || "保存云端 Fellow 能力失败");
     const saved = savedFellowFromResult(response, { ...fellow, capabilities });
     const nextFellow = { ...saved, key: saved.key || saved.id || key, id: saved.id || saved.key || key };
@@ -206,8 +207,8 @@
   } = {}) {
     const key = String(fellow.key || fellow.id || "").trim();
     if (!key) return { key: "", fellow: null, runtime: null };
-    if (typeof api?.saveFellow !== "function") throw new Error("本机 Fellow 保存接口不可用。");
-    const runtime = await api.saveFellow({ ...fellow, capabilities });
+    if (typeof api?.saveBot !== "function") throw new Error("本机 Bot 保存接口不可用。");
+    const runtime = await api.saveBot({ ...fellow, capabilities });
     const fellows = runtime?.fellows || runtime?.personas || [];
     const saved = fellows.find((item) => item.key === key || item.id === key) || null;
     return { key, fellow: saved, runtime };
@@ -235,8 +236,8 @@
     if (!key || kind !== "cloud-hermes") return null;
     const cacheKey = runtimeCacheKey(key, kind);
     if (cache?.has?.(cacheKey)) return cache.get(cacheKey);
-    if (typeof api?.social?.getFellowRuntime !== "function") throw new Error("云端 Fellow 运行配置读取接口不可用。");
-    const response = await api.social.getFellowRuntime(key, kind);
+    if (typeof api?.social?.getBotRuntime !== "function") throw new Error("云端 Bot 运行配置读取接口不可用。");
+    const response = await api.social.getBotRuntime(key, kind);
     if (!response?.ok) throw new Error(response?.error || "读取云端运行配置失败");
     const binding = response.data?.binding || null;
     cache?.set?.(cacheKey, binding);
@@ -254,13 +255,13 @@
     const kind = String(runtimeKind || "cloud-hermes").trim();
     if (!key || kind !== "cloud-hermes") return { saved: false, binding: null };
     const current = await getFellowRuntimeBinding({ api, cache, fellowKey: key, runtimeKind: kind }) || {
-      fellowId: key,
+      botId: key,
       runtimeKind: kind,
       enabled: true,
       config: {}
     };
-    if (typeof api?.social?.saveFellowRuntime !== "function") throw new Error("云端 Fellow 运行配置保存接口不可用。");
-    const response = await api.social.saveFellowRuntime(key, {
+    if (typeof api?.social?.saveBotRuntime !== "function") throw new Error("云端 Bot 运行配置保存接口不可用。");
+    const response = await api.social.saveBotRuntime(key, {
       runtimeKind: kind,
       enabled: true,
       config: { ...(current.config || {}), ...(patch || {}) }
@@ -347,15 +348,15 @@
     engineOptions = global?.miaEngineOptions
   } = {}) {
     const fellowKey = String(fellow?.key || fellow?.id || "").trim();
-    if (!fellowKey || typeof api?.saveFellowRuntime !== "function") return null;
+    if (!fellowKey || typeof api?.saveBotRuntime !== "function") return null;
     const body = {
       runtimeKind: "desktop-local",
       enabled: true,
       config: desktopLocalRuntimeConfig({ state, fellow, engineContracts, modelSettings, engineOptions })
     };
-    const response = await api.saveFellowRuntime(fellowKey, body);
+    const response = await api.saveBotRuntime(fellowKey, body);
     if (response && response.ok === false) throw new Error(response.error || "保存本机 Fellow 运行配置失败");
-    return response?.data?.binding || response?.binding || { fellowId: fellowKey, ...body };
+    return response?.data?.binding || response?.binding || { botId: fellowKey, ...body };
   }
 
   async function ensureDesktopLocalFellowConversation({
@@ -368,8 +369,9 @@
     onConversation = null
   } = {}) {
     const fellowKey = String(fellow?.key || fellow?.id || "").trim();
-    if (!fellowKey || typeof api?.ensureFellowConversation !== "function") return { key: fellowKey, conversation: null, binding: null };
-    const result = await api.ensureFellowConversation(fellowKey, {
+    if (!fellowKey || typeof api?.ensureBotSessionConversation !== "function") return { key: fellowKey, conversation: null, binding: null };
+    const result = await api.ensureBotSessionConversation(fellowKey, {
+      botId: fellowKey,
       title: fellow.name || fellow.displayName || fellowKey,
       runtimeKind: "desktop-local"
     });
@@ -415,10 +417,10 @@
     if (!key) return { saved: false, runtime: null };
 
     if (engine === "claude-code" || engine === "codex") {
-      if (typeof api?.saveFellowEngine !== "function") return { saved: false, runtime: null };
+      if (typeof api?.saveBotEngine !== "function") return { saved: false, runtime: null };
       const engineConfig = patchForRuntimeField(field, value, modelEntries);
       if (!Object.keys(engineConfig).length) return { saved: false, runtime: null };
-      const runtime = await api.saveFellowEngine({
+      const runtime = await api.saveBotEngine({
         key,
         agentEngine: engine,
         engineConfig

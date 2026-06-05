@@ -87,10 +87,7 @@
         } else if (member && member.fellow_name) {
           displayName = member.fellow_name;
         } else {
-          const conversationFellowKey = conversation.decorations?.fellowKey
-            || (String(conversation.id || "").startsWith("fellow:")
-              ? String(conversation.id || "").split(":").slice(2).join(":")
-              : "");
+          const conversationFellowKey = conversation.decorations?.botId || conversation.botId || conversation.bot_id || "";
           displayName = conversationFellowKey === m.sender_ref && conversation.name
             ? conversation.name
             : m.sender_ref;
