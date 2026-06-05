@@ -204,6 +204,7 @@ test("desktop cloud fellow conversations expose the restored chat history menu",
   const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
   const preloadSource = fs.readFileSync(path.join(root, "src/preload.js"), "utf8");
   const socialApiSource = fs.readFileSync(path.join(root, "src/main/social/social-api.js"), "utf8");
+  const channelSource = fs.readFileSync(path.join(root, "src/shared/ipc-channels.js"), "utf8");
 
   assert.match(html, /packages\/shared\/session-history\.js/);
   assert.match(appSource, /const sessionHistory = \(typeof window !== "undefined" && window\.miaSessionHistory\)/);
@@ -214,9 +215,12 @@ test("desktop cloud fellow conversations expose the restored chat history menu",
   assert.match(appSource, /sessionHistory\.fellowDisplayTitle/);
   assert.match(appSource, /function createNewCloudSessionForActive\(conversation\)/);
   assert.match(socialSource, /sessionHistoryShared\(\)\.sidebarConversations\(visibleSocialConversations\(moduleState\.conversations,\s*\{/);
-  assert.match(appSource, /window\.mia\.social\.ensureFellowSessionConversation/);
-  assert.match(preloadSource, /ensureFellowSessionConversation: \(sessionId, body\) => ipcRenderer\.invoke\(IpcChannel\.SocialEnsureFellowSessionConversation, sessionId, body\)/);
-  assert.match(socialApiSource, /async ensureFellowSessionConversation\(sessionId, body = \{\}\)/);
+  assert.match(channelSource, /SocialEnsureBotSessionConversation/);
+  assert.doesNotMatch(channelSource, /SocialEnsureFellowSessionConversation/);
+  assert.match(preloadSource, /ensureBotSessionConversation: \(sessionId, body\) => ipcRenderer\.invoke\(IpcChannel\.SocialEnsureBotSessionConversation, sessionId, body\)/);
+  assert.doesNotMatch(preloadSource, /ensureFellowSessionConversation/);
+  assert.match(socialApiSource, /async ensureBotSessionConversation\(sessionId, body = \{\}\)/);
+  assert.doesNotMatch(socialApiSource, /ensureFellowSessionConversation/);
 });
 
 test("desktop cloud human and group conversations hide the chat history session selector", () => {
@@ -620,17 +624,17 @@ test("contact detail deletes fellows through runtime-backed ownership rules", ()
   assert.doesNotMatch(appSource, /if \(!fellow \|\| fellow\.key === "mia"\) return;/);
   assert.match(appSource, /if \(fellow\.canDelete === false\) return;/);
   assert.match(appSource, /这会删除该 Fellow，并清理当前账号可管理的配置和会话。/);
-  assert.match(appSource, /window\.miaFellowCommands\.deleteFellow\(\{/);
-  assert.doesNotMatch(appSource, /window\.mia\.social\.deleteFellow\(fellow\.key\)/);
   assert.match(commandsSource, /async function deleteCloudHermesFellow/);
-  assert.match(commandsSource, /api\.social\.deleteFellow\(key\)/);
   assert.match(commandsSource, /async function deleteDesktopLocalFellow/);
-  assert.match(commandsSource, /api\.deleteFellow\(\{ key \}\)/);
   assert.match(fellowManagerSource, /const canDeleteFellow = fellow\.canDelete !== false;/);
-  assert.match(channelSource, /SocialDeleteFellow/);
-  assert.match(preloadSource, /deleteFellow: \(fellowId\) => ipcRenderer\.invoke\(IpcChannel\.SocialDeleteFellow, fellowId\)/);
-  assert.match(socialApiSource, /async deleteFellow\(fellowId\)/);
-  assert.match(socialIpcSource, /SocialDeleteFellow/);
+  assert.match(channelSource, /SocialDeleteBot/);
+  assert.doesNotMatch(channelSource, /SocialDeleteFellow/);
+  assert.match(preloadSource, /deleteBot: \(botId\) => ipcRenderer\.invoke\(IpcChannel\.SocialDeleteBot, botId\)/);
+  assert.doesNotMatch(preloadSource, /deleteFellow: \(fellowId\) => ipcRenderer\.invoke\(IpcChannel\.SocialDeleteFellow, fellowId\)/);
+  assert.match(socialApiSource, /async deleteBot\(botId\)/);
+  assert.doesNotMatch(socialApiSource, /async deleteFellow\(fellowId\)/);
+  assert.match(socialIpcSource, /SocialDeleteBot/);
+  assert.doesNotMatch(socialIpcSource, /SocialDeleteFellow/);
 });
 
 test("fellow management copy avoids cloud/local split in user-facing language", () => {

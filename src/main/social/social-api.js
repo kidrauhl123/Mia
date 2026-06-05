@@ -143,8 +143,8 @@ function createSocialApi({ getSettings, normalizeUrl }) {
     async removeConversationMember(conversationId, { memberKind, memberRef }) {
       return jsonFetch({ ...ctx(), method: "DELETE", path: `/api/conversations/${conversationId}/members`, body: { memberKind, memberRef } });
     },
-    async postConversationMessageAsFellow(conversationId, body) {
-      return jsonFetch({ ...ctx(), method: "POST", path: `/api/conversations/${conversationId}/messages/as-fellow`, body: withOpId(body) });
+    async postConversationMessageAsBot(conversationId, body) {
+      return jsonFetch({ ...ctx(), method: "POST", path: `/api/conversations/${conversationId}/messages/as-bot`, body: withOpId(body) });
     }
   };
 }

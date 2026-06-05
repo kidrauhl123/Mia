@@ -7,7 +7,7 @@ const path = require("node:path");
 const WebSocket = require("ws");
 const { IpcChannel } = require("./shared/ipc-channels");
 const { MemberKind } = require("./shared/conversation-kinds");
-const { fellowConversationId } = require("./shared/session-history");
+const { botConversationId } = require("./shared/bot-identity");
 const runtimeResources = require("./runtime-resource-paths");
 const {
   adapterForEngine,
@@ -883,11 +883,11 @@ async function runRemoteChatRequest(body, eventSink = null) {
   let deliveredAssistantMessageId = assistantMessageId;
   if (body?.background && assistantText.trim()) {
     const cloud = settingsStore.cloudSettings();
-    const fallbackConversationId = cloud?.user?.id ? fellowConversationId(cloud.user.id, bot.key) : "";
+    const fallbackConversationId = cloud?.user?.id ? botConversationId(`${cloud.user.id}_${bot.key}`) : "";
     const delivery = await deliverTaskReplyToConversation({
       socialApi,
       settingsStore,
-      fellow: bot,
+      bot,
       conversationId,
       fallbackConversationId,
       assistantText,
@@ -1796,7 +1796,7 @@ cloudBridgeRuntime = createCloudBridgeClient({
 for (const line of pendingCloudLogs.splice(0)) cloudBridgeRuntime.appendLog(line);
 const localBotResponder = createLocalBotResponder({
   sendChat,
-  postConversationMessageAsBot: (conversationId, body) => socialApi.postConversationMessageAsFellow(conversationId, body),
+  postConversationMessageAsBot: (conversationId, body) => socialApi.postConversationMessageAsBot(conversationId, body),
   emitCloudEvent: (message) => {
     broadcastRendererEvent(IpcChannel.CloudEvent, {
       type: message.type,

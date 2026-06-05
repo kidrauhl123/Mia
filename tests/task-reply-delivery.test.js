@@ -7,7 +7,7 @@ test("deliverTaskReplyToConversation posts to normalized cloud conversation and 
   const calls = [];
   const result = await deliverTaskReplyToConversation({
     socialApi: {
-      postConversationMessageAsFellow: async (conversationId, body) => {
+      postConversationMessageAsBot: async (conversationId, body) => {
         calls.push({ conversationId, body });
         return { message: { id: "m_cloud_1" } };
       }
@@ -15,7 +15,7 @@ test("deliverTaskReplyToConversation posts to normalized cloud conversation and 
     settingsStore: {
       cloudSettings: () => ({ enabled: true, token: "t", user: { id: "user_1" } })
     },
-    fellow: { key: "nhnh" },
+    bot: { key: "nhnh" },
     conversationId: "conversation:fellow:user_1:session_1",
     assistantText: "该吃饭啦",
     assistantTracePayload: { reasoning: "到点提醒" },
@@ -27,7 +27,7 @@ test("deliverTaskReplyToConversation posts to normalized cloud conversation and 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].conversationId, "fellow:user_1:session_1");
   assert.deepEqual(calls[0].body, {
-    fellowId: "nhnh",
+    botId: "nhnh",
     bodyMd: "该吃饭啦",
     trace: { reasoning: "到点提醒" },
     clientOpId: "op_task_r_1_local_msg_1"
@@ -38,14 +38,14 @@ test("deliverTaskReplyToConversation fails when task reply cannot be delivered",
   await assert.rejects(
     deliverTaskReplyToConversation({
       socialApi: {
-        postConversationMessageAsFellow: async () => {
-          throw new Error("you are not the owner of this fellow in this conversation");
+        postConversationMessageAsBot: async () => {
+          throw new Error("you are not the owner of this bot in this conversation");
         }
       },
       settingsStore: {
         cloudSettings: () => ({ enabled: true, token: "t", user: { id: "user_1" } })
       },
-      fellow: { key: "nhnh" },
+      bot: { key: "nhnh" },
       conversationId: "conversation:fellow:user_1:session_1",
       assistantText: "该吃饭啦",
       taskRunId: "r_1",

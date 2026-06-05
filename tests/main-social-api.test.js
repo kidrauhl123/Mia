@@ -109,6 +109,36 @@ test("deleteConversation sends DELETE to the conversation route", async () => {
   } finally { await teardown(ctx); }
 });
 
+test("postConversationMessageAsBot sends POST to the canonical bot message route", async () => {
+  const seen = [];
+  const ctx = await spawnFakeCloud((req, res) => {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      seen.push({ method: req.method, url: req.url, body });
+      res.writeHead(201, { "content-type": "application/json" });
+      res.end(JSON.stringify({ message: { id: "m_bot_1", sender_kind: "bot" } }));
+    });
+  });
+  try {
+    const api = createSocialApi({
+      getSettings: () => ({ enabled: true, token: "t", url: ctx.baseUrl }),
+      normalizeUrl: (u) => u
+    });
+    const result = await api.postConversationMessageAsBot("bot:u_1:sess_1", {
+      botId: "mia",
+      bodyMd: "你好"
+    });
+    assert.equal(result.message.id, "m_bot_1");
+    assert.equal(seen[0].method, "POST");
+    assert.equal(seen[0].url, "/api/conversations/bot:u_1:sess_1/messages/as-bot");
+    const sent = JSON.parse(seen[0].body);
+    assert.equal(sent.botId, "mia");
+    assert.equal(sent.bodyMd, "你好");
+    assert.match(sent.clientOpId, /^op_/);
+  } finally { await teardown(ctx); }
+});
+
 test("ensureBotConversation sends PUT to the stable bot conversation route", async () => {
   const seen = [];
   const ctx = await spawnFakeCloud(async (req, res) => {
