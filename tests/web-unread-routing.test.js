@@ -637,6 +637,32 @@ test("src/web/app.js handles bot cloud events and bot message source context", (
   assert.doesNotMatch(source, /sender_kind:\s*"fellow"/);
 });
 
+test("src/web/app.js clears cloud-agent streaming on persisted bot replies", () => {
+  const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
+  const handlerMatch = source.match(/type === "conversation\.message_appended"[\s\S]*?renderRailUnreadBadge\(\);/);
+  assert.ok(handlerMatch, "conversation.message_appended handler must exist");
+  assert.match(
+    handlerMatch[0],
+    /msg\.sender_kind === SenderKind\.Bot/,
+    "final bot messages must clear transient cloud-agent streaming rows"
+  );
+  assert.doesNotMatch(
+    handlerMatch[0],
+    /msg\.sender_kind === SenderKind\.Fellow/,
+    "web must not wait for legacy fellow sender kind to clear bot streams"
+  );
+});
+
+test("src/web/app.js uses bot members for bot avatar fallback and web group creation", () => {
+  const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
+  const helperMatch = source.match(/function fellowAvatarFor\(conversation, fellowKey\)\s*\{[\s\S]*?\n\}\n/);
+  assert.ok(helperMatch, "fellowAvatarFor body must be defined");
+  assert.match(helperMatch[0], /m\.member_kind === MemberKind\.Bot/);
+  assert.doesNotMatch(helperMatch[0], /m\.member_kind === MemberKind\.Fellow/);
+  assert.match(source, /memberBots:\s*\[\]/);
+  assert.doesNotMatch(source, /memberFellows:\s*\[\]/);
+});
+
 test("src/web/styles.css carries desktop-style AI control switchers", () => {
   const css = fs.readFileSync(path.join(ROOT, "src/web/styles.css"), "utf8");
   assert.match(css, /\.model-switcher/);

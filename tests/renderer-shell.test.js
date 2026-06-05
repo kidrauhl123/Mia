@@ -223,6 +223,23 @@ test("desktop cloud fellow conversations expose the restored chat history menu",
   assert.doesNotMatch(socialApiSource, /ensureFellowSessionConversation/);
 });
 
+test("desktop renderer direct bot protocol branches do not key off legacy fellow sender/member kinds", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const composerSource = fs.readFileSync(path.join(root, "src/renderer/chat/composer.js"), "utf8");
+  const contactCardSource = fs.readFileSync(path.join(root, "src/renderer/social/contact-card.js"), "utf8");
+
+  assert.match(contactCardSource, /kind === MemberKind\.Bot/);
+  assert.doesNotMatch(contactCardSource, /kind === MemberKind\.Fellow\s*\?/);
+
+  assert.match(composerSource, /member\.member_kind === MemberKind\.Bot/);
+  assert.match(composerSource, /member\.member_kind === MemberKind\.Bot \? "Bot" : "User"/);
+  assert.doesNotMatch(composerSource, /member\.member_kind === MemberKind\.Fellow \? "Fellow" : "User"/);
+
+  assert.match(appSource, /message\.sender_kind === SenderKind\.Bot\s*\?\s*"assistant"/);
+  assert.match(appSource, /const hasBot = msgs\.some\(\(message\) => message\.sender_kind === SenderKind\.Bot\)/);
+  assert.doesNotMatch(appSource, /const hasFellow = msgs\.some\(\(message\) => message\.sender_kind === SenderKind\.Fellow\)/);
+});
+
 test("desktop cloud human and group conversations hide the chat history session selector", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
 

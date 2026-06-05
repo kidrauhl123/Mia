@@ -1130,6 +1130,8 @@ function broadcastBotInvocations(context, conversationId, message, body, invoked
   const recentMessages = context.messagesStore.listMessagesSince(conversationId, 0, 20);
   for (const member of members) {
     if (member.member_kind !== "bot" || !member.owner_id || !requested.has(member.member_ref)) continue;
+    const bot = context.botsStore.getBot(member.member_ref);
+    if (!bot || bot.ownerUserId !== member.owner_id) continue;
     const aiPerms = parseJson(member.ai_perms_json, {});
     broadcastPersistedEvent(context, member.owner_id, {
       type: "conversation.bot_invocation_requested",

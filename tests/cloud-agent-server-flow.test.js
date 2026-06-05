@@ -59,6 +59,24 @@ function waitForMessage(ws, predicate) {
   });
 }
 
+function assertNoMessage(ws, predicate, durationMs = 150) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      ws.off("message", onMessage);
+      resolve();
+    }, durationMs);
+    function onMessage(raw) {
+      const message = JSON.parse(String(raw));
+      if (!predicate(message)) return;
+      clearTimeout(timer);
+      ws.off("message", onMessage);
+      reject(new Error(`Unexpected websocket message: ${message.type}`));
+    }
+    ws.on("message", onMessage);
+    ws.on("error", reject);
+  });
+}
+
 function closeWs(ws) {
   if (!ws || ws.readyState === WebSocket.CLOSING || ws.readyState === WebSocket.CLOSED) return;
   try { ws.close(); } catch { /* test cleanup */ }
@@ -81,6 +99,27 @@ async function upsertCloudHermesBot(baseUrl, authHeaders, botId, displayName = b
       runtimeKind: "cloud-hermes",
       enabled: true,
       config: { model: "mia-default" }
+    }
+  });
+}
+
+async function upsertDesktopLocalBot(baseUrl, authHeaders, botId, displayName = botId) {
+  await jsonFetch(baseUrl, `/api/me/bots/${encodeURIComponent(botId)}`, {
+    method: "PUT",
+    headers: authHeaders,
+    body: {
+      displayName,
+      capabilities: ["chat"],
+      personaText: `You are ${displayName}.`
+    }
+  });
+  await jsonFetch(baseUrl, `/api/me/bots/${encodeURIComponent(botId)}/runtime`, {
+    method: "PUT",
+    headers: authHeaders,
+    body: {
+      runtimeKind: "desktop-local",
+      enabled: true,
+      config: { agentEngine: "codex" }
     }
   });
 }
@@ -230,6 +269,54 @@ test("POST group mention invokes cloud-hermes bot without desktop-local event fa
     assert.equal(listed.messages[1].body_md, "group cloud reply");
     assert.equal(hermesCalls.length, 1);
     assert.equal(hermesCalls[0].conversationId, conversationId);
+  } finally {
+    closeWs(eventsWs);
+    await close(server);
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("POST group mention does not invoke deleted bots from stale group membership", async () => {
+  const dataDir = tempDir("mia-cloud-agent-deleted-bot-");
+  const server = createMiaCloudServer({ dataDir });
+  const baseUrl = await listen(server);
+  let eventsWs = null;
+  try {
+    const account = await jsonFetch(baseUrl, "/api/auth/register", {
+      method: "POST",
+      body: { username: "alice", password: "123456" }
+    });
+    const authHeaders = { authorization: `Bearer ${account.token}` };
+    await upsertDesktopLocalBot(baseUrl, authHeaders, "codex", "Codex");
+    const group = await jsonFetch(baseUrl, "/api/conversations", {
+      method: "POST",
+      headers: authHeaders,
+      body: { name: "Stale Bot Group", memberBots: [{ botId: "codex", runtimeKind: "desktop-local" }] }
+    });
+    eventsWs = new WebSocket(eventsWsUrl(baseUrl), wsTokenProtocol(account.token));
+    await waitForMessage(eventsWs, (message) => message.type === "events_ready");
+
+    await jsonFetch(baseUrl, "/api/me/bots/codex", {
+      method: "DELETE",
+      headers: authHeaders
+    });
+
+    const noInvocation = assertNoMessage(
+      eventsWs,
+      (message) => message.type === "conversation.bot_invocation_requested" && message.botId === "codex"
+    );
+
+    await jsonFetch(baseUrl, `/api/conversations/${group.conversation.id}/messages`, {
+      method: "POST",
+      headers: authHeaders,
+      body: {
+        bodyMd: "@codex should not run",
+        mentions: [{ kind: "bot", botId: "codex" }],
+        clientOpId: "op_deleted_bot_mention"
+      }
+    });
+
+    await noInvocation;
   } finally {
     closeWs(eventsWs);
     await close(server);

@@ -333,8 +333,8 @@ function typingLabelForActiveRun(social, conversation) {
   const owned = personas.find((p) => (p.key || p.id) === botId);
   if (owned?.name) return owned.name;
   const members = social?.getConversationMembers?.(conversation.id) || [];
-  const member = members.find((m) => m.member_kind === MemberKind.Fellow && m.member_ref === botId);
-  return member?.fellow_name || botId;
+  const member = members.find((m) => m.member_kind === MemberKind.Bot && m.member_ref === botId);
+  return member?.bot_name || member?.fellow_name || botId;
 }
 
 function allOwnedFellowsForIdentity(personas = []) {
@@ -1493,7 +1493,7 @@ function messagesForActive() {
   const cache = social?.moduleState?.messageCache?.get(conversationId);
   return (cache?.messages || []).map((message) => ({
     ...message,
-    role: message.sender_kind === SenderKind.Fellow
+    role: message.sender_kind === SenderKind.Bot
       ? "assistant"
       : (message.sender_kind === SenderKind.System ? "system" : "user"),
     content: message.body_md || ""
@@ -1727,12 +1727,12 @@ async function maybeGenerateCloudConversationTitle(conversationId) {
   const cache = social.moduleState?.messageCache?.get(conversationId);
   const msgs = (cache?.messages || []).filter((message) => message.body_md && !message._localPending);
   const hasUser = msgs.some((message) => message.sender_kind === SenderKind.User);
-  const hasFellow = msgs.some((message) => message.sender_kind === SenderKind.Fellow);
-  if (!hasUser || !hasFellow) return;
+  const hasBot = msgs.some((message) => message.sender_kind === SenderKind.Bot);
+  if (!hasUser || !hasBot) return;
   state.generatingTitleIds.add(conversationId);
   try {
     const titleMessages = msgs.slice(0, 4).map((message) => ({
-      role: message.sender_kind === SenderKind.Fellow ? "assistant" : "user",
+      role: message.sender_kind === SenderKind.Bot ? "assistant" : "user",
       content: message.body_md
     }));
     const result = await window.mia.generateConversationTitle({

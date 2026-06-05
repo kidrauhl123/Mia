@@ -108,7 +108,7 @@
   function renderMembersSection(box, conversation, members, bots, friends, self) {
     box.innerHTML = "";
     const hostBotId = conversation.decorations?.hostMember?.botId || null;
-    const botMembers = members.filter((m) => m.member_kind === "bot");
+    const botMembers = members.filter((m) => m.member_kind === MemberKind.Bot);
     for (const member of members) {
       const row = document.createElement("div");
       row.className = "group-info-member-row";
@@ -119,7 +119,7 @@
       let label = "";
       let isHost = false;
       let avatar;
-      if (member.member_kind === "bot") {
+      if (member.member_kind === MemberKind.Bot) {
         label = botNameFor(member, bots);
         avatar = botAvatarFor(member, bots);
         isHost = member.member_ref === hostBotId;
@@ -154,7 +154,7 @@
       trigger.textContent = "⋯";
       const menu = document.createElement("span");
       menu.className = "group-info-member-action-menu hidden";
-      const canBeHost = member.member_kind === "bot";
+      const canBeHost = member.member_kind === MemberKind.Bot;
       const canRemove = botMembers.length + (member.member_kind === MemberKind.User ? 1 : 0) > 1;
       menu.innerHTML = `
         ${canBeHost ? `<button type="button" data-group-member-action="set-host" ${isHost ? "disabled" : ""}>设为群主</button>` : ""}

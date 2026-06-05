@@ -1003,7 +1003,7 @@ function handleCloudEvent(envelope) {
       entry.messages.push(msg);
       entry.maxSeq = Math.max(entry.maxSeq, Number(msg.seq || 0));
       state.messageCache.set(conversationId, entry);
-      if (msg.sender_kind === SenderKind.Fellow) state.cloudAgentRunsByConversation.delete(conversationId);
+      if (msg.sender_kind === SenderKind.Bot) state.cloudAgentRunsByConversation.delete(conversationId);
       // Bump unread if the message isn't mine and the conversation isn't currently open.
       // Self-id check goes through shared/contact: resolveContact returns kind="self"
       // only when ref matches ctx.self.id (works for any sender kind).
@@ -1261,7 +1261,7 @@ function fellowAvatarFor(conversation, fellowKey) {
   if (!wanted) return null;
   const owned = fellowByKey(wanted);
   const members = state.conversationMembersCache.get(conversation?.id) || [];
-  const member = members.find((m) => m.member_kind === MemberKind.Fellow && m.member_ref === wanted);
+  const member = members.find((m) => m.member_kind === MemberKind.Bot && m.member_ref === wanted);
   const ownedHasAvatarFields = hasAvatarIdentityFields(owned);
   const fallbackFellow = {
     key: wanted,
@@ -2978,7 +2978,7 @@ function openCreateGroupDialog() {
     const namesList = ids.map((id) => friendUsernameById(id));
     const name = (nameInput?.value || "").trim() || namesList.join(" · ");
     try {
-      const res = await api("/api/conversations", { method: "POST", body: { name, memberFriendUserIds: ids, memberFellows: [] } });
+      const res = await api("/api/conversations", { method: "POST", body: { name, memberFriendUserIds: ids, memberBots: [] } });
       const conversation = res.conversation || res.data?.conversation;
       if (conversation) {
         state.conversations = [conversation, ...state.conversations.filter((r) => r.id !== conversation.id)];

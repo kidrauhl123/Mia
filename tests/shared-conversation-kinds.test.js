@@ -17,11 +17,13 @@ test("ConversationKind values match the literals used across the codebase", () =
 });
 
 test("MemberKind values match member_kind literals", () => {
+  assert.equal(MemberKind.Bot, "bot");
   assert.equal(MemberKind.Fellow, "fellow");
   assert.equal(MemberKind.User, "user");
 });
 
 test("SenderKind values match sender_kind literals", () => {
+  assert.equal(SenderKind.Bot, "bot");
   assert.equal(SenderKind.Fellow, "fellow");
   assert.equal(SenderKind.User, "user");
   assert.equal(SenderKind.System, "system");

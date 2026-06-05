@@ -70,8 +70,8 @@
     if (global.miaConversationKinds) return global.miaConversationKinds;
     if (typeof require !== "undefined") return require("../../shared/conversation-kinds");
     return {
-      MemberKind: { Fellow: "fellow", User: "user" },
-      SenderKind: { Fellow: "fellow", User: "user", System: "system" }
+      MemberKind: { Bot: "bot", Fellow: "fellow", User: "user" },
+      SenderKind: { Bot: "bot", Fellow: "fellow", User: "user", System: "system" }
     };
   }
 
@@ -404,7 +404,8 @@
   }
 
   function messageWithFallbackRunTrace(conversationId, message) {
-    if (!message || message.sender_kind !== "bot") return message;
+    const { SenderKind } = conversationKinds();
+    if (!message || message.sender_kind !== SenderKind.Bot) return message;
     if (parseTraceJson(message.trace_json || message.trace)) return message;
     const trace = tracePayloadFromRun(moduleState.cloudAgentRunsByConversation.get(conversationId));
     return trace ? { ...message, trace } : message;
@@ -1298,7 +1299,7 @@
       }
       if (cachedMessage.seq > entry.maxSeq) entry.maxSeq = cachedMessage.seq;
       const { SenderKind } = conversationKinds();
-      if (cachedMessage.sender_kind === "bot") {
+      if (cachedMessage.sender_kind === SenderKind.Bot) {
         clearRunPermissions(moduleState.cloudAgentRunsByConversation.get(conversationId));
         moduleState.cloudAgentRunsByConversation.delete(conversationId);
         renderAgentPermissionBanner();
@@ -1386,8 +1387,8 @@
       return;
     }
 
-    if (type === "conversation.fellow_invocation_requested") {
-      // Main process owns local fellow execution so the same path works in the
+    if (type === "conversation.bot_invocation_requested") {
+      // Main process owns local bot execution so the same path works in the
       // foreground app and the headless daemon. Renderer only observes events.
       return;
     }
@@ -1636,9 +1637,9 @@
         crop: avatar.crop,
         color: avatarColor,
         text: avatarLetter,
-        attrs: `data-sender-kind="fellow" data-sender-ref="${escapeHtml(fellowKey)}" title="${escapeHtml(authorName || "")}"`
+        attrs: `data-sender-kind="bot" data-sender-ref="${escapeHtml(fellowKey)}" title="${escapeHtml(authorName || "")}"`
       })
-      : `<div class="avatar message-avatar" data-sender-kind="fellow" data-sender-ref="${escapeHtml(fellowKey)}" style="${escapeHtml(avatarFallbackStyle(avatarHelpers, avatar.image, avatar.crop, avatarColor))}" title="${escapeHtml(authorName || "")}">${escapeHtml(avatarLetter)}</div>`;
+      : `<div class="avatar message-avatar" data-sender-kind="bot" data-sender-ref="${escapeHtml(fellowKey)}" style="${escapeHtml(avatarFallbackStyle(avatarHelpers, avatar.image, avatar.crop, avatarColor))}" title="${escapeHtml(authorName || "")}">${escapeHtml(avatarLetter)}</div>`;
     const bodyHtml = run.text ? _renderMsgBody(run.text) : "";
     const traceHtml = renderTraceFor({
       reasoning: run.reasoning,
@@ -1717,7 +1718,7 @@
     const runtime = (deps && typeof deps.getState === "function" && deps.getState()?.runtime) || {};
     const bots = runtime.bots || runtime.personas || [];
     const { MemberKind } = conversationKinds();
-    const conversationFellow = (_conversationMembersCache.get(conversationId) || []).find((m) => m.member_kind === "bot");
+    const conversationFellow = (_conversationMembersCache.get(conversationId) || []).find((m) => m.member_kind === MemberKind.Bot);
     const fellowKey = (conversationFellow && conversationFellow.member_ref) || (bots[0] && (bots[0].key || bots[0].id)) || "";
     if (!fellowKey) {
       msg.translation = { status: "error", text: "", error: "没有可用于翻译的 fellow。" };

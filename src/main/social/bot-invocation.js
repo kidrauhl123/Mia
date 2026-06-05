@@ -8,7 +8,7 @@ function contextLines(recentMessages) {
     .map((message) => {
       const senderKind = String(message?.sender_kind || "");
       const senderRef = String(message?.sender_ref || "");
-      const tag = senderKind === "bot" || senderKind === SenderKind.Fellow
+      const tag = senderKind === SenderKind.Bot
         ? `bot:${senderRef}`
         : (senderKind === SenderKind.System ? "system" : `user:${senderRef}`);
       return `[${tag}] ${message?.body_md || ""}`;
@@ -17,7 +17,7 @@ function contextLines(recentMessages) {
 }
 
 function memberName(member, bots) {
-  if (member?.member_kind === "bot" || member?.member_kind === MemberKind.Fellow) {
+  if (member?.member_kind === MemberKind.Bot) {
     const bot = (Array.isArray(bots) ? bots : [])
       .find((item) => (item.key || item.id) === member.member_ref);
     return bot?.name || bot?.displayName || member.bot_name || member.fellow_name || member.member_ref || "Bot";
@@ -29,7 +29,7 @@ function memberName(member, bots) {
 function memberLines(members, bots) {
   return (Array.isArray(members) ? members : [])
     .map((member) => {
-      const kind = member?.member_kind === "bot" || member?.member_kind === MemberKind.Fellow ? "bot" : MemberKind.User;
+      const kind = member?.member_kind === MemberKind.Bot ? "bot" : MemberKind.User;
       return `- ${memberName(member, bots)} (${kind}:${member?.member_ref || ""})`;
     })
     .join("\n");

@@ -88,7 +88,7 @@
   }
 
   function renderTraceForMessage(msg, content) {
-    if (msg.sender_kind !== "bot") return "";
+    if (msg.sender_kind !== SenderKind.Bot) return "";
     const trace = parseTraceJson(msg.trace_json || msg.trace);
     if (!trace) return "";
     const renderer = global.miaTraceBlocks;

@@ -91,11 +91,13 @@
       || fellow?.global_id
       || identity.globalId
       || identity.global_id;
-    return contact()?.botAvatarIdentityId?.(ref, {
+    return globalId
+      || (ownerUserId && ref ? `botc_${ownerUserId}_${ref}` : "")
+      || contact()?.botAvatarIdentityId?.(ref, {
       ...(fellow || {}),
       ownerUserId,
       globalId
-    }) || globalId || ref;
+    }) || ref;
   }
 
   function localFellow(ref) {
@@ -115,7 +117,7 @@
 
   function findFellowConversationMember(conversationId, ref) {
     const members = _ctx?.conversationMembersCache?.get?.(conversationId) || [];
-    return members.find((m) => m.member_kind === "bot" && m.member_ref === ref) || null;
+    return members.find((m) => m.member_kind === MemberKind.Bot && m.member_ref === ref) || null;
   }
 
   function friend(ref) {
@@ -223,14 +225,14 @@
     // to, my own local fellow settings.
     const local = isMine ? localFellow(ref) : null;
 
-    const name = local?.name || member?.identity?.displayName || member?.fellow_name || ref;
+    const name = local?.name || member?.identity?.displayName || member?.bot_name || member?.fellow_name || ref;
     const identityAvatar = member?.identity?.avatar || {};
     const avatarId = fellowAvatarIdentityId(ref, local || {}, member || null, conversationId);
     const avatar = resolveCardAvatar({
       id: avatarId,
       displayName: name,
-      avatarImage: local ? local.avatarImage : (identityAvatar.image || member?.fellow_avatar_image || ""),
-      avatarCrop: local ? local.avatarCrop : (identityAvatar.crop || member?.fellow_avatar_crop || null)
+      avatarImage: local ? local.avatarImage : (identityAvatar.image || member?.bot_avatar_image || member?.fellow_avatar_image || ""),
+      avatarCrop: local ? local.avatarCrop : (identityAvatar.crop || member?.bot_avatar_crop || member?.fellow_avatar_crop || null)
     });
 
     const card = document.createElement("div");
@@ -471,7 +473,7 @@
 
   function openCard({ kind, ref, conversationId, anchor }) {
     closeCard();
-    const card = kind === MemberKind.Fellow
+    const card = kind === MemberKind.Bot
       ? renderFellowCard({ ref, conversationId })
       : renderUserCard({ ref, conversationId });
     document.body.appendChild(card);
@@ -492,7 +494,7 @@
     menu.className = "skill-context-menu";
     const items = [];
     items.push(`<button type="button" data-card-menu="card">查看名片</button>`);
-    if (kind === MemberKind.Fellow) {
+    if (kind === MemberKind.Bot) {
       items.push(`<button type="button" data-card-menu="mention">在输入框 @ 提到</button>`);
     }
     menu.innerHTML = items.join("");

@@ -11,11 +11,13 @@
   });
 
   const MemberKind = Object.freeze({
+    Bot: "bot",
     Fellow: "fellow",
     User: "user"
   });
 
   const SenderKind = Object.freeze({
+    Bot: "bot",
     Fellow: "fellow",
     User: "user",
     System: "system"

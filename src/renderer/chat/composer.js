@@ -493,8 +493,8 @@
 
   function mentionDisplayName(member) {
     if (!member) return "";
-    if (member.member_kind === MemberKind.Fellow) {
-      return String(member.fellow_name || member.member_ref || "").trim();
+    if (member.member_kind === MemberKind.Bot) {
+      return String(member.bot_name || member.fellow_name || member.member_ref || "").trim();
     }
     const social = typeof window !== "undefined" ? window.miaSocial : null;
     const myUserId = social?.getActiveConversationId ? (state?.runtime?.cloud?.user?.id || "") : "";
@@ -507,8 +507,8 @@
 
   function mentionInsertText(member) {
     const name = mentionDisplayName(member);
-    if (member.member_kind === MemberKind.Fellow) {
-      // Fellow names (including CJK) are matched by display name in
+    if (member.member_kind === MemberKind.Bot) {
+      // Bot names (including CJK) are matched by display name in
       // send-pipeline.parseMentions, so inserting the display name works.
       return name;
     }
@@ -585,7 +585,7 @@
     const accent = window.miaMemberColor?.memberAccentColor || (() => "#5e5ce6");
     els.mentionMenu.innerHTML = items.map(({ member, name }, index) => {
       const ref = member.member_ref || "";
-      const kindLabel = member.member_kind === MemberKind.Fellow ? "Fellow" : "User";
+      const kindLabel = member.member_kind === MemberKind.Bot ? "Bot" : "User";
       const dot = `<span class="mention-menu-dot" style="background:${escape(accent(ref))}"></span>`;
       return `<button type="button" class="mention-menu-item${index === state.mentionSelectedIndex ? " active" : ""}" data-mention-index="${index}">${dot}<span class="mention-menu-name">${escape(name)}</span><span class="mention-menu-kind">${escape(kindLabel)}</span></button>`;
     }).join("");
