@@ -1,0 +1,50 @@
+const { test } = require("node:test");
+const assert = require("node:assert/strict");
+
+const { buildBotInvocation } = require("../src/main/social/bot-invocation.js");
+
+test("buildBotInvocation turns an explicit @ event into responder args", () => {
+  const args = buildBotInvocation({
+    type: "conversation.bot_invocation_requested",
+    conversationId: "g_1",
+    botId: "codex",
+    invokedBy: { username: "alice" },
+    triggeringMessage: {
+      id: "m_1",
+      turn_id: "turn_1",
+      sender_kind: "user",
+      sender_ref: "u_alice",
+      body_md: "@codex 看看这个"
+    },
+    recentMessages: [
+      { sender_kind: "user", sender_ref: "u_alice", body_md: "先看背景" },
+      { sender_kind: "bot", sender_ref: "codex", body_md: "收到" }
+    ]
+  }, [
+    { key: "codex", name: "Codex" }
+  ]);
+
+  assert.equal(args.conversationId, "g_1");
+  assert.equal(args.botId, "codex");
+  assert.equal(args.dedupKey, "m_1:codex");
+  assert.equal(args.userPrompt, "@codex 看看这个");
+  assert.equal(args.turnId, "turn_1");
+  assert.match(args.systemPrompt, /你是 Codex/);
+  assert.match(args.systemPrompt, /alice/);
+  assert.match(args.systemPrompt, /\[user:u_alice\] 先看背景/);
+  assert.match(args.systemPrompt, /\[bot:codex\] 收到/);
+});
+
+test("buildBotInvocation returns null for missing trigger, conversation, bot, or local bot", () => {
+  const bots = [{ key: "codex", name: "Codex" }];
+  const base = {
+    conversationId: "g_1",
+    botId: "codex",
+    triggeringMessage: { id: "m_1", body_md: "hi" }
+  };
+
+  assert.equal(buildBotInvocation({ ...base, triggeringMessage: null }, bots), null);
+  assert.equal(buildBotInvocation({ ...base, conversationId: "" }, bots), null);
+  assert.equal(buildBotInvocation({ ...base, botId: "" }, bots), null);
+  assert.equal(buildBotInvocation({ ...base, botId: "remote" }, bots), null);
+});

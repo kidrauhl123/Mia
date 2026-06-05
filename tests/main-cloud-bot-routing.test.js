@@ -9,25 +9,25 @@ function read(rel) {
   return fs.readFileSync(path.join(root, rel), "utf8");
 }
 
-test("main wires the desktop fellow runtime dispatcher and listens for invocation requests", () => {
+test("main wires the desktop bot runtime dispatcher and listens for invocation requests", () => {
   const main = read("src/main.js");
   const routedSource = `${main}\n${read("src/main/cloud/cloud-events-client.js")}`;
 
-  assert.match(main, /createLocalFellowResponder/);
-  assert.match(main, /createMainFellowRuntimeDispatcher/);
+  assert.match(main, /createLocalBotResponder/);
+  assert.match(main, /createMainBotRuntimeDispatcher/);
   assert.doesNotMatch(main, /createMainGroupConductor/);
-  assert.doesNotMatch(main, /createMainFellowConversationResponder/);
+  assert.doesNotMatch(main, /createMainBotConversationResponder/);
   assert.match(
     routedSource,
-    /message\.type === CloudEvent\.ConversationFellowInvocationRequested[\s\S]*fellowRuntimeDispatcher\?\.handleCloudEvent\?\.\(message\)/
+    /message\.type === CloudEvent\.ConversationBotInvocationRequested[\s\S]*botRuntimeDispatcher\?\.handleCloudEvent\?\.\(message\)/
   );
-  const dispatcher = read("src/main/social/fellow-runtime-dispatcher.js");
-  assert.match(dispatcher, /localFellowResponder\.respond/);
+  const dispatcher = read("src/main/social/bot-runtime-dispatcher.js");
+  assert.match(dispatcher, /localBotResponder\.respond/);
   assert.doesNotMatch(dispatcher, /mainGroupConductor/);
-  assert.doesNotMatch(dispatcher, /mainFellowConversationResponder/);
+  assert.doesNotMatch(dispatcher, /mainBotConversationResponder/);
 });
 
-test("renderer no longer executes local fellow replies for cloud conversation events", () => {
+test("renderer no longer executes local bot replies for cloud conversation events", () => {
   const social = read("src/renderer/social/social.js");
   const groups = read("src/renderer/social/social-groups.js");
   const html = read("src/renderer/index.html");
@@ -38,9 +38,9 @@ test("renderer no longer executes local fellow replies for cloud conversation ev
     "renderer must not run conductor dispatch from conversation.message_appended"
   );
   assert.equal(
-    /handleFellowInvocation\(payload\)/.test(social),
+    /handleBotInvocation\(payload\)/.test(social),
     false,
-    "renderer must not run explicit @ fellow invocation from cloud events"
+    "renderer must not run explicit @ bot invocation from cloud events"
   );
   assert.equal(
     /group-conductor\.js/.test(html),
@@ -48,7 +48,7 @@ test("renderer no longer executes local fellow replies for cloud conversation ev
     "renderer must not load the old conductor script after main owns conductor execution"
   );
   assert.equal(
-    /sendChatStateless|postConversationMessageAsFellow|handleFellowInvocation/.test(groups),
+    /sendChatStateless|postConversationMessageAsBot|handleBotInvocation/.test(groups),
     false,
     "renderer social-groups must not retain local engine invocation code"
   );
