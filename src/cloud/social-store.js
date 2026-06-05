@@ -173,7 +173,7 @@ function createSocialStore(db) {
     if (!row) return null;
     return {
       id: row.id,
-      type: row.type || (row.id?.startsWith("dm:") ? "dm" : row.id?.startsWith("fellow:") ? "fellow" : "group"),
+      type: row.type || (row.id?.startsWith("dm:") ? "dm" : row.id?.startsWith("botc_") ? "bot" : "group"),
       name: row.name,
       avatar: row.avatar,
       hostMember: row.host_member_json ? JSON.parse(row.host_member_json) : null,
@@ -187,7 +187,7 @@ function createSocialStore(db) {
   function inferType(id) {
     if (typeof id !== "string") return "group";
     if (id.startsWith("dm:")) return "dm";
-    if (id.startsWith("fellow:")) return "fellow";
+    if (id.startsWith("botc_")) return "bot";
     return "group";
   }
 
@@ -245,26 +245,37 @@ function createSocialStore(db) {
     deleteMember.run(String(conversationId), String(memberKind), String(memberRef));
   }
 
-  let _fellowsStore = null;
-  function _attachFellowsStore(store) { _fellowsStore = store || null; }
+  let _botsStore = null;
+  function _attachBotsStore(store) { _botsStore = store || null; }
 
   function listConversationMembers(conversationId) {
     const rows = selectMembers.all(String(conversationId));
-    if (!_fellowsStore) return rows;
-    // Enrich fellow members with name/avatar from the owner's fellow
-    // definitions so cross-owner fellow attribution can show the actual
-    // AI's name in chat bubbles + group-info dialog without each client
-    // having to fetch every other user's fellow list.
+    if (!_botsStore) return rows;
+    // Enrich bot members with identity fields needed by chat bubbles and
+    // group-info dialogs without forcing clients to fetch bot definitions.
     return rows.map((row) => {
-      if (row.member_kind !== "fellow" || !row.owner_id) return row;
-      const def = _fellowsStore.getFellow(row.owner_id, row.member_ref);
+      if (row.member_kind !== "bot") return row;
+      const def = _botsStore.getBot(row.member_ref);
       if (!def) return row;
       return {
         ...row,
-        fellow_name: def.name || "",
-        fellow_avatar_image: def.avatarImage || "",
-        fellow_avatar_crop: def.avatarCrop || null,
-        fellow_color: def.color || ""
+        bot_name: def.displayName || def.name || "",
+        bot_avatar_image: def.avatarImage || def.avatar?.image || "",
+        bot_avatar_crop: def.avatarCrop || def.avatar?.crop || null,
+        bot_color: def.color || def.avatar?.color || "",
+        identity: {
+          kind: "bot",
+          id: def.id,
+          ownerUserId: def.ownerUserId || "",
+          displayName: def.displayName || def.name || "",
+          avatar: {
+            image: def.avatarImage || def.avatar?.image || "",
+            crop: def.avatarCrop || def.avatar?.crop || null,
+            color: def.color || def.avatar?.color || "",
+            text: def.displayName || def.name || def.id
+          },
+          statusBadge: def.statusBadge || null
+        }
       };
     });
   }
@@ -307,7 +318,7 @@ function createSocialStore(db) {
     listConversationsForUser,
     updateConversationMemberPerms,
     getConversationMember,
-    _attachFellowsStore,
+    _attachBotsStore,
   };
 }
 

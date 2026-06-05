@@ -684,11 +684,9 @@ function migrate(db) {
     );
 
     -- A "conversation" is the universal Conversation entity. type values:
-    --   'dm'     — two-user direct message (id format dm:a:b)
-    --   'group'  — multi-member conversation (id format g_<hex>)
-    --   'fellow' — a user's private chat with one of their own fellows
-    --              (id format fellow:<userId>:<fellowKey>). owner only,
-    --              no other user members.
+    --   'dm'    — two-user direct message (id format dm:a:b)
+    --   'group' — multi-member conversation (id format g_<hex>)
+    --   'bot'   — a private chat with a globally identified bot.
     -- The type column is the canonical answer for "what kind of
     -- conversation is this"; id prefix is just a historical hint.
     CREATE TABLE IF NOT EXISTS conversations (
@@ -780,28 +778,30 @@ function migrate(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_op_idempotency_created ON op_idempotency(created_at);
 
-    -- v5: per-user fellow definitions on cloud. A fellow is the "identity"
-    -- (name + avatar + persona text + capabilities) of an AI participant
-    -- the user has authored. Runtime config (engineConfig, agentEngine,
-    -- platform) stays desktop-local because it pins to a specific host
-    -- machine. Without this table, fellow chat history viewed on another
-    -- device (e.g., web after login on a new browser) would show "unknown
-    -- sender" for every assistant turn.
-    CREATE TABLE IF NOT EXISTS fellows (
-      id              TEXT NOT NULL,
-      owner_user_id   TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      name            TEXT NOT NULL,
+    DROP TABLE IF EXISTS fellow_runtime_bindings;
+    DROP TABLE IF EXISTS fellows;
+    UPDATE conversations SET type = 'bot' WHERE type = 'fellow';
+    DELETE FROM conversations WHERE id LIKE 'fellow:%';
+    DELETE FROM conversation_members WHERE member_kind = 'fellow';
+    DELETE FROM messages WHERE sender_kind = 'fellow';
+
+    -- v5: globally unique bot identity definitions on cloud. Runtime config
+    -- stays desktop-local because it pins to a specific host machine.
+    CREATE TABLE IF NOT EXISTS bots (
+      id              TEXT PRIMARY KEY,
+      owner_user_id   TEXT REFERENCES users(id) ON DELETE SET NULL,
+      display_name    TEXT NOT NULL,
       color           TEXT NOT NULL DEFAULT '',
       avatar_image    TEXT NOT NULL DEFAULT '',
       avatar_crop_json TEXT NOT NULL DEFAULT '',
+      status_badge_json TEXT NOT NULL DEFAULT '',
       bio             TEXT NOT NULL DEFAULT '',
-      capabilities_json TEXT NOT NULL DEFAULT '[]',
+      capabilities_json TEXT NOT NULL DEFAULT '{}',
       persona_text    TEXT NOT NULL DEFAULT '',
       created_at      TEXT NOT NULL,
-      updated_at      TEXT NOT NULL,
-      PRIMARY KEY (owner_user_id, id)
+      updated_at      TEXT NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS idx_fellows_owner ON fellows(owner_user_id);
+    CREATE INDEX IF NOT EXISTS idx_bots_owner ON bots(owner_user_id);
 
     -- v6: per-user cross-device settings (pin / read marks / appearance).
     -- One row per user, JSON for the small bags so we don't need a
@@ -817,18 +817,16 @@ function migrate(db) {
       updated_at       TEXT NOT NULL
     );
 
-    CREATE TABLE IF NOT EXISTS fellow_runtime_bindings (
+    CREATE TABLE IF NOT EXISTS bot_runtime_bindings (
       user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      fellow_id    TEXT NOT NULL,
+      bot_id       TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
       runtime_kind TEXT NOT NULL,
       enabled      INTEGER NOT NULL DEFAULT 1,
       config_json  TEXT NOT NULL DEFAULT '{}',
       created_at   TEXT NOT NULL,
       updated_at   TEXT NOT NULL,
-      PRIMARY KEY (user_id, fellow_id, runtime_kind)
+      PRIMARY KEY (user_id, bot_id, runtime_kind)
     );
-    CREATE INDEX IF NOT EXISTS idx_fellow_runtime_bindings_user
-      ON fellow_runtime_bindings(user_id, enabled);
 
     CREATE TABLE IF NOT EXISTS cloud_agent_runs (
       id                 TEXT PRIMARY KEY,
@@ -902,6 +900,9 @@ function migrate(db) {
   if (!hasColumn(db, "users", "avatar_color")) {
     db.exec("ALTER TABLE users ADD COLUMN avatar_color TEXT NOT NULL DEFAULT ''");
   }
+  if (!hasColumn(db, "users", "status_badge_json")) {
+    db.exec("ALTER TABLE users ADD COLUMN status_badge_json TEXT NOT NULL DEFAULT ''");
+  }
   // v4: per-user event seq cache. event_seq mirrors MAX(user_events.seq)
   // for that user; kept on the row for fast monotonic increment under
   // the same transaction as the user_events insert.
@@ -918,7 +919,7 @@ function migrate(db) {
   if (!hasColumn(db, "conversations", "type")) {
     db.exec("ALTER TABLE conversations ADD COLUMN type TEXT NOT NULL DEFAULT 'group'");
     db.exec("UPDATE conversations SET type = 'dm' WHERE id LIKE 'dm:%'");
-    db.exec("UPDATE conversations SET type = 'fellow' WHERE id LIKE 'fellow:%'");
+    db.exec("UPDATE conversations SET type = 'bot' WHERE id LIKE 'fellow:%'");
   }
   db.exec("CREATE INDEX IF NOT EXISTS idx_conversations_type ON conversations(type)");
   db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (1, ?)")
