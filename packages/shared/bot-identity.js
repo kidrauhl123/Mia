@@ -110,7 +110,7 @@ function defaultCloudBotCapabilities() {
 function normalizeBotIdentity(input = {}, options = {}) {
   if (!input || typeof input !== "object") return null;
   const id = normalizeBotId(input.id || input.botId || input.bot_id || options.id);
-  if (!id || id.startsWith("fellow:") || id.startsWith("bot:")) return null;
+  if (!id || id.includes(":")) return null;
   const displayName = firstNonEmpty(input.displayName, input.display_name, input.name, input.username, id);
   return {
     kind: "bot",

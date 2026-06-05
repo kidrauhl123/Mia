@@ -18,10 +18,10 @@
     const byNameLower = new Map();
     for (const m of list) {
       if (!m) continue;
-      const ref = m.ref || m.member_ref || m.botId || m.bot_id || m.fellowId || m.id || m.key || "";
+      const ref = m.ref || m.member_ref || m.botId || m.bot_id || m.id || m.key || "";
       const name = m.name || m.displayName || m.username || "";
-      const rawKind = m.kind || m.member_kind || MemberKind.Bot;
-      const kind = rawKind === "fellow" ? MemberKind.Bot : rawKind;
+      const kind = m.kind || m.member_kind || MemberKind.Bot;
+      if (kind !== MemberKind.Bot && kind !== MemberKind.User) continue;
       if (ref && !byRef.has(ref)) byRef.set(ref, { kind, ref });
       if (name) {
         const lower = name.toLowerCase();

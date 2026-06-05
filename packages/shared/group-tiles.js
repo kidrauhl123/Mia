@@ -113,16 +113,16 @@
         }));
         continue;
       }
-      if (kind === "bot" || kind === "fellow") {
+      if (kind === "bot") {
         const bot = (bots || []).find((b) => (b.id || b.botId || b.bot_id) === ref);
         const hasBot = Boolean(bot);
         const hasBotAvatar = hasAvatarIdentityFields(bot);
         const identityAvatar = m.identity?.avatar || {};
         out.push(resolveTile({
           id: botAvatarIdentityId(ref, bot || {}, m),
-          displayName: bot?.displayName || bot?.display_name || bot?.name || m.identity?.displayName || m.bot_name || m.fellow_name || ref,
-          avatarImage: hasBot && hasBotAvatar ? (bot.avatarImage || bot.avatar_image) : (identityAvatar.image || m.bot_avatar_image || m.fellow_avatar_image),
-          avatarCrop: hasBot && hasBotAvatar ? (bot.avatarCrop || bot.avatar_crop) : (identityAvatar.crop || m.bot_avatar_crop || m.fellow_avatar_crop)
+          displayName: bot?.displayName || bot?.display_name || bot?.name || m.identity?.displayName || m.bot_name || ref,
+          avatarImage: hasBot && hasBotAvatar ? (bot.avatarImage || bot.avatar_image) : (identityAvatar.image || m.bot_avatar_image),
+          avatarCrop: hasBot && hasBotAvatar ? (bot.avatarCrop || bot.avatar_crop) : (identityAvatar.crop || m.bot_avatar_crop)
         }));
       }
     }
@@ -133,7 +133,7 @@
     const members = [];
     if (selfId) members.push({ member_kind: "user", member_ref: selfId });
     for (const m of (group?.members || [])) {
-      if (m && (m.botId || m.fellowId)) members.push({ member_kind: "bot", member_ref: m.botId || m.fellowId });
+      if (m && m.botId) members.push({ member_kind: "bot", member_ref: m.botId });
     }
     return members;
   }

@@ -146,6 +146,11 @@ test("parseMentions returns [] when no members", () => {
   assert.deepEqual(parseMentions("@codex hi", null), []);
 });
 
+test("parseMentions ignores unsupported member kinds", () => {
+  const unsupported = [{ member_ref: "bot_old", member_kind: "fellow" }];
+  assert.deepEqual(parseMentions("@bot_old hi", unsupported), []);
+});
+
 test("members accept legacy shapes (member_ref / member_kind / botId / id+name)", () => {
   const legacy = [
     { member_ref: "bot_codex", name: "Codex", member_kind: "bot" },

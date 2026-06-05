@@ -1,6 +1,11 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const vm = require("node:vm");
 const { MessageCapability, defaultCapabilities, normalizeSpec } = require("../src/shared/message-spec");
+
+const root = path.join(__dirname, "..");
 
 test("MessageCapability has reply / copy / pin / delete", () => {
   assert.equal(MessageCapability.Reply, "reply");
@@ -57,4 +62,25 @@ test("normalizeSpec preserves authorIdentity and derives badge", () => {
   assert.equal(s.authorIdentity.id, "bot_mia");
   assert.equal(s.authorName, "Mia");
   assert.deepEqual(s.statusBadge, { kind: "emoji", emoji: "⭐" });
+});
+
+test("browser normalizeSpec preserves authorIdentity without miaIdentity preloaded", () => {
+  const source = fs.readFileSync(path.join(root, "src/shared/message-spec.js"), "utf8");
+  const context = { window: {} };
+  context.globalThis = context.window;
+  vm.runInNewContext(source, context, { filename: "src/shared/message-spec.js" });
+
+  const s = context.window.miaMessageSpec.normalizeSpec({
+    authorIdentity: {
+      kind: "bot",
+      id: "bot_mia",
+      displayName: "Mia",
+      statusBadge: { kind: "emoji", emoji: "⭐" }
+    }
+  });
+
+  assert.equal(s.authorIdentity.kind, "bot");
+  assert.equal(s.authorName, "Mia");
+  assert.equal(s.statusBadge.kind, "emoji");
+  assert.equal(s.statusBadge.emoji, "⭐");
 });

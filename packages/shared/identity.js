@@ -22,8 +22,8 @@
     return "";
   }
 
-  function hasIllegalIdentityPrefix(id) {
-    return id.startsWith("user:") || id.startsWith("bot:") || id.startsWith("fellow:");
+  function hasIllegalIdentitySeparator(id) {
+    return id.includes(":");
   }
 
   function normalizeAvatar(input = {}) {
@@ -61,7 +61,7 @@
     if (!input || typeof input !== "object") return null;
     const kind = clean(input.kind);
     const id = clean(input.id);
-    if (!id || hasIllegalIdentityPrefix(id)) return null;
+    if (!id || hasIllegalIdentitySeparator(id)) return null;
     if (kind !== IdentityKind.User && kind !== IdentityKind.Bot) return null;
     const displayName = firstNonEmpty(input.displayName, input.display_name, input.name, id);
     const out = {
