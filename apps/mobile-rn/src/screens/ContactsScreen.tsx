@@ -1,5 +1,5 @@
 import { View, FlatList, StyleSheet } from "react-native";
-import { useFellows, useFriends } from "../state/queries";
+import { useBots, useFriends } from "../state/queries";
 import Avatar from "../components/Avatar";
 import type { AvatarDescriptor } from "../api/types";
 import { resolveAvatar } from "../logic/conversationList";
@@ -14,17 +14,17 @@ interface Row {
 }
 
 export default function ContactsScreen() {
-  const { data: fellows = [] } = useFellows();
+  const { data: bots = [] } = useBots();
   const { data: friends = [] } = useFriends();
   const rows: Row[] = [
     ...friends.map((f, i) => {
       const title = f.username || f.account || String(f.id);
       return { key: `fr:${f.id || i}`, title, sub: "好友", avatar: resolveAvatar(f.id || title, title, f.avatarImage || "", f.avatarCrop || null) };
     }),
-    ...fellows.map((f, i) => {
-      const id = f.id || f.key || String(i);
-      const title = f.name || String(id);
-      return { key: `fe:${id}`, title, sub: "Fellow", avatar: resolveAvatar(id, title, f.avatarImage || "", f.avatarCrop || null) };
+    ...bots.map((bot, i) => {
+      const id = bot.id || bot.botId || bot.bot_id || bot.key || String(i);
+      const title = bot.displayName || bot.display_name || bot.name || String(id);
+      return { key: `bot:${id}`, title, sub: "智能体", avatar: resolveAvatar(id, title, bot.avatarImage || bot.avatar_image || "", bot.avatarCrop || bot.avatar_crop || null) };
     }),
   ];
   return (

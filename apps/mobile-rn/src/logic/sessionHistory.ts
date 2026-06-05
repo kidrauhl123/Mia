@@ -3,11 +3,10 @@ export {
   conversationListTitle,
   conversationSortTime,
   conversationType,
-  createFellowSessionPayload,
-  fellowConversationId,
-  fellowDisplayTitle,
-  fellowKey,
-  isUntitledFellowConversation,
+  createBotSessionPayload,
+  botDisplayTitle,
+  botId,
+  isUntitledBotConversation,
   runtimeKind,
   sessionConversationsForConversation,
   sessionTitle,
@@ -17,6 +16,6 @@ export {
 export type {
   ConversationLike,
   ConversationType,
-  FellowLike,
+  BotLike,
   SessionHistoryOptions,
 } from "@mia/shared/session-history";

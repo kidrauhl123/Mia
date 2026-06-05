@@ -1,7 +1,7 @@
 import { View, FlatList, Pressable, StyleSheet } from "react-native";
 import { useQueries } from "@tanstack/react-query";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { useConversations, useFellows, useFriends, useMe } from "../state/queries";
+import { useBots, useConversations, useFriends, useMe } from "../state/queries";
 import { useApi } from "../state/clientProvider";
 import { useAuth } from "../state/auth";
 import { buildConversationListItems } from "../logic/conversationList";
@@ -19,7 +19,7 @@ export default function ConversationListScreen({ navigation }: Props) {
   const api = useApi();
   const { session } = useAuth();
   const { data: conversations = [], isLoading, refetch, isRefetching } = useConversations();
-  const { data: fellows = [] } = useFellows();
+  const { data: bots = [] } = useBots();
   const { data: friends = [] } = useFriends();
   const { data: me } = useMe();
 
@@ -48,7 +48,7 @@ export default function ConversationListScreen({ navigation }: Props) {
       ? { id: session.user.id, username: session.user.username, avatarImage: session.user.avatarImage }
       : undefined;
 
-  const items = buildConversationListItems({ conversations, fellows, friends, self, membersByConv, unreadByConversation: {} });
+  const items = buildConversationListItems({ conversations, bots, friends, self, membersByConv, unreadByConversation: {} });
 
   return (
     <View style={styles.root}>

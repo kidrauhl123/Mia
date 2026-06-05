@@ -1,4 +1,4 @@
-import type { AvatarDescriptor, Conversation, Fellow, Friend, Member } from "../api/types";
+import type { AvatarDescriptor, Bot, Conversation, Friend, Member } from "../api/types";
 import { sidebarConversations, conversationListTitle, conversationType } from "./sessionHistory";
 import { conversationAvatarTiles, type AvatarResolveCtx } from "./conversationAvatar";
 import type { SelfRecord } from "./contact";
@@ -20,21 +20,21 @@ function activityTime(c: Conversation): number {
   return Number.isFinite(ms) ? ms : 0;
 }
 
-// 按主体聚合 + 按类型解析头像(fellow / dm 用户 / group 拼贴),对齐桌面/web。
+// 按主体聚合 + 按类型解析头像(bot / dm 用户 / group 拼贴),对齐桌面/web。
 export function buildConversationListItems(deps: {
   conversations: Conversation[];
-  fellows?: Fellow[];
+  bots?: Bot[];
   friends?: Friend[];
   self?: SelfRecord;
   membersByConv?: Record<string, Member[]>;
   unreadByConversation?: Record<string, number>;
   activeConversationId?: string;
 }): ConversationListItem[] {
-  const fellows = deps.fellows || [];
+  const bots = deps.bots || [];
   const unread = deps.unreadByConversation || {};
   const ctx: AvatarResolveCtx = {
     self: deps.self,
-    fellows,
+    bots,
     friends: deps.friends || [],
     membersByConv: deps.membersByConv || {},
   };
@@ -42,7 +42,7 @@ export function buildConversationListItems(deps: {
   aggregated.sort((a, b) => activityTime(b) - activityTime(a));
   return aggregated.map((c) => ({
     id: c.id,
-    title: conversationListTitle(c, fellows),
+    title: conversationListTitle(c, bots),
     subtitle: String(c.last_message_text || ""),
     unread: Number(unread[c.id]) || 0,
     tiles: conversationAvatarTiles(c, ctx),

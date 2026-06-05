@@ -15,8 +15,8 @@ test("超长抛 MESSAGE_TOO_LONG", () => {
   expect(() => prepareOutgoingMessage({ text: "x".repeat(11) }, { maxLength: 10 })).toThrow(/exceeds/);
 });
 
-test("parseMentions 匹配 fellow 成员", () => {
-  const members = [{ member_kind: "fellow", member_ref: "claude" }];
-  expect(parseMentions("hey @claude 看下", members)).toEqual([{ kind: "fellow", ref: "claude" }]);
+test("parseMentions 匹配 bot 成员", () => {
+  const members = [{ member_kind: "bot", member_ref: "claude" }];
+  expect(parseMentions("hey @claude 看下", members)).toEqual([{ kind: "bot", ref: "claude" }]);
   expect(parseMentions("no mention", members)).toEqual([]);
 });

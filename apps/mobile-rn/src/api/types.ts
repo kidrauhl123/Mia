@@ -1,4 +1,4 @@
-export type SenderKind = "user" | "fellow" | "system";
+export type SenderKind = "user" | "bot" | "system";
 
 export interface MessageRow {
   id?: string;
@@ -18,50 +18,49 @@ export interface Conversation {
   id: string;
   name?: string;
   title?: string;
-  type?: string;
+  type?: "dm" | "group" | "bot" | string;
   avatar?: string; // 群可能有存储的头像图
-  fellow_id?: string;
-  fellowKey?: string;
-  decorations?: { fellowKey?: string; fellowName?: string; runtimeKind?: string };
+  bot_id?: string;
+  botId?: string;
+  decorations?: { botId?: string; botName?: string; runtimeKind?: string };
   last_message_text?: string;
   last_activity_at?: string;
   updated_at?: string;
   created_at?: string;
-  identity?: { avatar?: AvatarDescriptor };
+  identity?: { avatar?: AvatarDescriptor; statusBadge?: StatusBadge | null };
 }
 
 export interface Member {
-  member_kind?: string;
+  member_kind?: "user" | "bot" | string;
   member_ref?: string;
   owner_id?: string;
   owner_user_id?: string;
-  fellow_name?: string;
-  fellow_avatar_image?: string;
-  fellow_avatar_crop?: Record<string, unknown> | null;
-  identity?: {
-    globalId?: string;
-    global_id?: string;
-    ownerUserId?: string;
-    owner_id?: string;
-    displayName?: string;
-    avatar?: AvatarDescriptor;
-  };
+  bot_name?: string;
+  bot_avatar_image?: string;
+  bot_avatar_crop?: Record<string, unknown> | null;
+  identity?: Identity;
 }
 
-export interface Fellow {
+export interface Bot {
   id?: string;
   key?: string;
+  botId?: string;
+  bot_id?: string;
   globalId?: string;
   global_id?: string;
-  fellowGlobalId?: string;
-  fellow_global_id?: string;
   ownerUserId?: string;
   owner_user_id?: string;
   ownerId?: string;
   owner_id?: string;
+  displayName?: string;
+  display_name?: string;
   name?: string;
   avatarImage?: string;
+  avatar_image?: string;
   avatarCrop?: Record<string, unknown> | null;
+  avatar_crop?: Record<string, unknown> | null;
+  statusBadge?: StatusBadge | null;
+  status_badge?: StatusBadge | null;
 }
 
 export interface Friend {
@@ -77,6 +76,23 @@ export interface AvatarDescriptor {
   crop: Record<string, unknown> | null;
   color: string;
   text: string;
+}
+
+export type StatusBadge =
+  | { kind: "emoji"; emoji: string; label?: string }
+  | { kind: "lottie"; assetId: string; label?: string; loop?: "limited" | "always" | string }
+  | { kind: "gift"; assetId: string; label?: string; collectibleId?: string };
+
+export interface Identity {
+  kind?: "user" | "bot" | string;
+  id?: string;
+  globalId?: string;
+  global_id?: string;
+  ownerUserId?: string;
+  owner_id?: string;
+  displayName?: string;
+  avatar?: AvatarDescriptor;
+  statusBadge?: StatusBadge | null;
 }
 
 export interface WsEnvelope {

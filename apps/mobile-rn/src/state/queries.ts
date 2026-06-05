@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useApi } from "./clientProvider";
 import { useAuth } from "./auth";
 import { normalizeServerRow } from "../logic/normalizeMessage";
-import type { Conversation, Fellow, Friend, MessageRow, Member, ChatMessage } from "../api/types";
+import type { Bot, Conversation, Friend, MessageRow, Member, ChatMessage } from "../api/types";
 
 export function useConversations() {
   const api = useApi();
@@ -36,12 +36,12 @@ export function useConversationMembers(conversationId: string) {
   });
 }
 
-export function useFellows() {
+export function useBots() {
   const api = useApi();
   // 非 compact:带 avatarImage,列表/联系人头像才能和桌面一致显示真实头像。
-  return useQuery<Fellow[]>({
-    queryKey: ["fellows"],
-    queryFn: () => api.api("/api/me/fellows").then((d) => d.fellows || []),
+  return useQuery<Bot[]>({
+    queryKey: ["bots"],
+    queryFn: () => api.api("/api/me/bots").then((d) => d.bots || []),
   });
 }
 
