@@ -1,0 +1,45 @@
+.name-with-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  min-width: 0;
+  vertical-align: middle;
+}
+
+.name-with-badge-text {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.name-with-badge-badge {
+  display: inline-flex;
+  flex: 0 0 16px;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  min-width: 16px;
+  height: 16px;
+  overflow: hidden;
+  line-height: 16px;
+}
+
+.name-with-badge-badge-emoji {
+  font-size: 13px;
+}
+
+.name-with-badge-badge-lottie,
+.name-with-badge-badge-gift {
+  box-sizing: border-box;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  opacity: 0.72;
+}
+
+.persona-name .name-with-badge,
+.bubble-sender .name-with-badge {
+  width: 100%;
+}

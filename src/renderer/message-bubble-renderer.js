@@ -19,6 +19,40 @@
     if (!value) return "";
     return timeFormat().formatMessageTime(value);
   }
+  function nameWithBadgeRenderer() {
+    const renderer = global.miaNameWithBadge?.renderNameWithBadge;
+    return typeof renderer === "function" ? renderer : null;
+  }
+  function authorDisplayName(spec) {
+    return spec.authorName || spec.authorIdentity?.displayName || "";
+  }
+  function appendSenderTitle(bubble, spec, accentColor) {
+    const fallbackName = authorDisplayName(spec);
+    const sender = document.createElement("span");
+    sender.className = "bubble-sender";
+    if (accentColor) sender.style.color = accentColor;
+
+    const renderName = nameWithBadgeRenderer();
+    if (renderName) {
+      try {
+        const nameEl = renderName({
+          identity: spec.authorIdentity,
+          fallbackName,
+          statusBadge: spec.statusBadge
+        });
+        if (nameEl) {
+          sender.appendChild(nameEl);
+          bubble.appendChild(sender);
+          return;
+        }
+      } catch {
+        // Keep message rendering resilient if an optional badge payload is bad.
+      }
+    }
+
+    sender.textContent = fallbackName;
+    bubble.appendChild(sender);
+  }
 
   function createMessageBubble(spec, options = {}) {
     const article = document.createElement("article");
@@ -34,15 +68,17 @@
 
     const stack = document.createElement("div");
     stack.className = "message-stack";
-    const showAuthor = spec.authorName && !spec.isOwn && role !== "system";
+    const showAuthor = authorDisplayName(spec) && !spec.isOwn && role !== "system";
     const accentColor = global.miaMemberColor?.memberAccentColor(spec.authorId || spec.authorName || "");
-    const senderTitleHtml = showAuthor
-      ? `<span class="bubble-sender"${accentColor ? ` style="color:${accentColor};"` : ""}>${escapeHtml(spec.authorName)}</span>`
-      : "";
-    stack.innerHTML = `
-      <div class="bubble">${senderTitleHtml}${renderMd(spec.bodyMd || "")}</div>
-      <span class="message-time">${escapeHtml(shortTime(spec.createdAt))}</span>
-    `;
+    const bubble = document.createElement("div");
+    bubble.className = "bubble";
+    if (showAuthor) appendSenderTitle(bubble, spec, accentColor);
+    bubble.insertAdjacentHTML("beforeend", renderMd(spec.bodyMd || ""));
+    const timeEl = document.createElement("span");
+    timeEl.className = "message-time";
+    timeEl.textContent = shortTime(spec.createdAt);
+    stack.appendChild(bubble);
+    stack.appendChild(timeEl);
     article.appendChild(stack);
 
     article.addEventListener("contextmenu", (event) => {

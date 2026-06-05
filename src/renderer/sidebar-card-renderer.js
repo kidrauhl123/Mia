@@ -42,6 +42,34 @@
     return escapeHtml(text);
   }
 
+  function nameWithBadgeRenderer() {
+    const renderer = global.miaNameWithBadge?.renderNameWithBadge;
+    return typeof renderer === "function" ? renderer : null;
+  }
+
+  function attachNameWithBadge(root, spec, fallbackName) {
+    const renderName = nameWithBadgeRenderer();
+    if (!renderName || (!spec.identity && typeof spec.statusBadge === "undefined")) return;
+    const target = root.querySelector?.(".persona-name");
+    if (!target) return;
+    let nameEl = null;
+    try {
+      nameEl = renderName({
+        identity: spec.identity,
+        fallbackName,
+        statusBadge: spec.statusBadge
+      });
+    } catch {
+      return;
+    }
+    if (!nameEl) return;
+    if (typeof target.replaceChildren === "function") target.replaceChildren(nameEl);
+    else {
+      target.textContent = "";
+      target.appendChild(nameEl);
+    }
+  }
+
   function pinSvg() {
     return global.miaIconParkPin || global.ICON_PARK_PIN_SVG || '<svg class="icon-park-pin" viewBox="0 0 48 48" aria-hidden="true" focusable="false"><path d="M10.6963 17.5042C13.3347 14.8657 16.4701 14.9387 19.8781 16.8076L32.62 9.74509L31.8989 4.78683L43.2126 16.1005L38.2656 15.3907L31.1918 28.1214C32.9752 31.7589 33.1337 34.6647 30.4953 37.3032C30.4953 37.3032 26.235 33.0429 22.7171 29.525L6.44305 41.5564L18.4382 25.2461C14.9202 21.7281 10.6963 17.5042 10.6963 17.5042Z"/></svg>';
   }
@@ -97,6 +125,7 @@
     `;
     const avatarEl = btn.querySelector(".avatar.fellow-photo");
     applyAvatarStyle(avatarEl, spec.avatar?.image, spec.avatar?.crop, spec.avatar?.color, spec.avatar?.text);
+    attachNameWithBadge(btn, spec, spec.name || "");
     attachHandlers(btn, spec);
     return btn;
   }
@@ -120,6 +149,7 @@
       </span>
     `;
     const avatarEl = btn.querySelector(".avatar.group-avatar");
+    attachNameWithBadge(btn, spec, spec.name || "未命名群聊");
     // Custom override: user uploaded a single image for this group. Bypass
     // the member mosaic and paint that image directly.
     if (spec.customAvatar && spec.customAvatar.image) {
