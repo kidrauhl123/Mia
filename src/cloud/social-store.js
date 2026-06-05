@@ -266,7 +266,7 @@ function createSocialStore(db) {
         identity: {
           kind: "bot",
           id: def.id,
-          ownerUserId: def.ownerUserId || "",
+          ownerUserId: def.ownerUserId || row.owner_id || "",
           displayName: def.displayName || def.name || "",
           avatar: {
             image: def.avatarImage || def.avatar?.image || "",

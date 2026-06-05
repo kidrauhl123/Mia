@@ -266,6 +266,29 @@ test("listConversationMembers enriches bot members from attached bots store", ()
   } finally { cleanup(ctx); }
 });
 
+test("listConversationMembers falls back to member owner_id when bot identity has no owner", () => {
+  const ctx = makeStores();
+  try {
+    ctx.social._attachBotsStore({
+      getBot(botId) {
+        assert.equal(botId, "codex");
+        return {
+          kind: "bot",
+          id: "codex",
+          displayName: "Codex",
+          avatar: { image: "", crop: null, color: "", text: "Codex" },
+          statusBadge: null
+        };
+      }
+    });
+    ctx.social.createConversation({ id: "r-bot-owner-fallback", name: "Bot room", avatar: null, hostMember: null, decorations: null, contextCard: null });
+    ctx.social.addConversationMember({ conversationId: "r-bot-owner-fallback", memberKind: "bot", memberRef: "codex", ownerId: ctx.alice.id });
+
+    const botMember = ctx.social.listConversationMembers("r-bot-owner-fallback")[0];
+    assert.equal(botMember.identity.ownerUserId, ctx.alice.id);
+  } finally { cleanup(ctx); }
+});
+
 test("listConversationsForUser returns conversations where user is a member", () => {
   const ctx = makeStores();
   try {
