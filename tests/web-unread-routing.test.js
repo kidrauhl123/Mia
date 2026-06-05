@@ -433,11 +433,24 @@ test("scripts/build-cloud-release.js copies cloud shared modules into the api tr
     /copyFile\(["']packages\/shared\/avatar\.js["'],\s*path\.join\(apiDir,\s*["']packages["'],\s*["']shared["'],\s*["']avatar\.js["']\)\)/,
     "build-cloud-release must copy packages/shared/avatar.js because API compatibility entries require it"
   );
+  assert.match(
+    build,
+    /copyFile\(["']src\/shared\/bot-identity\.js["'],\s*path\.join\(apiDir,\s*["']src["'],\s*["']shared["'],\s*["']bot-identity\.js["']\)\)/,
+    "build-cloud-release must copy src/shared/bot-identity.js for API bot identity helpers"
+  );
+  assert.match(
+    build,
+    /copyFile\(["']packages\/shared\/bot-identity\.js["'],\s*path\.join\(apiDir,\s*["']packages["'],\s*["']shared["'],\s*["']bot-identity\.js["']\)\)/,
+    "build-cloud-release must copy packages/shared/bot-identity.js for API bot identity helpers"
+  );
   assert.match(build, /api\/src\/shared\/conversation-kinds\.js/);
   assert.match(build, /api\/src\/shared\/engine-contracts\.js/);
   assert.match(build, /api\/src\/shared\/member-color\.js/);
   assert.match(build, /api\/src\/shared\/avatar-media\.js/);
   assert.match(build, /api\/packages\/shared\/avatar\.js/);
+  assert.match(build, /api\/src\/shared\/bot-identity\.js/);
+  assert.match(build, /api\/packages\/shared\/bot-identity\.js/);
+  assert.doesNotMatch(build, /fellow-identity\.js/);
   assert.match(build, /api\/src\/shared\/group-fellow-routing\.js/);
   assert.match(build, /api\/src\/shared\/skill-safety\.js/);
   assert.match(build, /api\/src\/shared\/avatar-resolve\.js/);

@@ -64,7 +64,7 @@ test("no fellowMember/fellowById helper definitions (removed in task 4.3)", () =
     offenders,
     [],
     `These files redefine fellowMember/fellowById helpers removed in task 4.3:\n  ${offenders.join("\n  ")}\n` +
-      `Use shared/contact.js resolveContact({ kind: ContactKind.Fellow, ref: id }, ctx).`
+      `Use shared/contact.js resolveContact({ kind: IdentityKind.Bot, ref: id }, ctx).`
   );
 });
 

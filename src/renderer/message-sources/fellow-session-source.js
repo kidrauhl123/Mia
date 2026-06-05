@@ -10,9 +10,9 @@
 
   function createFellowSessionSource({ session, persona, ctx }) {
     const { normalizeSpec } = spec();
-    const { resolveContact, ContactKind } = contact();
-    const fellowContact = resolveContact({ kind: ContactKind.Fellow, ref: persona.key || persona.id }, ctx);
-    const selfContact = resolveContact({ kind: ContactKind.Self }, ctx);
+    const { resolveContact, IdentityKind } = contact();
+    const fellowContact = resolveContact({ kind: IdentityKind.Bot, ref: persona.id || persona.key }, ctx);
+    const selfContact = resolveContact({ kind: "self" }, ctx);
 
     function listMessages() {
       const msgs = Array.isArray(session.messages) ? session.messages : [];

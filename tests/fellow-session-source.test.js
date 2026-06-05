@@ -23,10 +23,10 @@ test("FellowSessionSource maps user message to spec", () => {
   ]};
   const ctx = {
     self: { id: "user_me", username: "me", avatarImage: "data:me" },
-    fellows: [{ key: "codex", name: "Codex", avatarImage: "data:codex" }],
+    bots: [{ id: "codex", key: "codex", name: "Codex", avatarImage: "data:codex" }],
     friends: []
   };
-  const source = src.createFellowSessionSource({ session, persona: ctx.fellows[0], ctx });
+  const source = src.createFellowSessionSource({ session, persona: ctx.bots[0], ctx });
   const specs = source.listMessages();
   assert.equal(specs.length, 1);
   assert.equal(specs[0].source, "fellow-session");
@@ -35,17 +35,17 @@ test("FellowSessionSource maps user message to spec", () => {
   assert.equal(specs[0].authorName, "me");
 });
 
-test("FellowSessionSource maps assistant message with fellow avatar", () => {
+test("FellowSessionSource maps assistant message with bot avatar", () => {
   const src = loadSource();
   const session = { id: "s1", personaKey: "codex", messages: [
     { role: "assistant", content: "hello", createdAt: "2026-05-22T01:01:00.000Z" }
   ]};
   const ctx = {
     self: { id: "user_me", username: "me" },
-    fellows: [{ key: "codex", name: "Codex", avatarImage: "data:codex" }],
+    bots: [{ id: "codex", key: "codex", name: "Codex", avatarImage: "data:codex" }],
     friends: []
   };
-  const source = src.createFellowSessionSource({ session, persona: ctx.fellows[0], ctx });
+  const source = src.createFellowSessionSource({ session, persona: ctx.bots[0], ctx });
   const spec = source.listMessages()[0];
   assert.equal(spec.role, "assistant");
   assert.equal(spec.isOwn, false);
@@ -56,8 +56,8 @@ test("FellowSessionSource maps assistant message with fellow avatar", () => {
 test("FellowSessionSource exposes capabilities reply+copy+pin+delete", () => {
   const src = loadSource();
   const session = { id: "s1", personaKey: "codex", messages: [{ role: "user", content: "x", createdAt: "" }] };
-  const ctx = { self: {}, fellows: [{ key: "codex" }], friends: [] };
-  const source = src.createFellowSessionSource({ session, persona: ctx.fellows[0], ctx });
+  const ctx = { self: {}, bots: [{ id: "codex", key: "codex" }], friends: [] };
+  const source = src.createFellowSessionSource({ session, persona: ctx.bots[0], ctx });
   const cap = source.listMessages()[0].capabilities;
   assert.equal(cap.reply, true);
   assert.equal(cap.copy, true);

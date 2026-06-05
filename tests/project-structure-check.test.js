@@ -24,6 +24,14 @@ test("project structure check covers cloud release helpers and rejects root sour
   assert.match(source, /main\.js/);
   assert.match(source, /desktop-bridge-permission\.js/);
   assert.match(source, /Unexpected root-level duplicate source file/);
+  assert.match(source, /src\/main\/bot-registry\.js/);
+  assert.match(source, /src\/main\/bot-manifest\.js/);
+  assert.match(source, /packages\/shared\/bot-identity\.js/);
+  assert.match(source, /src\/shared\/bot-identity\.js/);
+  assert.doesNotMatch(source, /src\/main\/fellow-registry\.js/);
+  assert.doesNotMatch(source, /src\/main\/fellow-manifest\.js/);
+  assert.doesNotMatch(source, /packages\/shared\/fellow-identity\.js/);
+  assert.doesNotMatch(source, /src\/shared\/fellow-identity\.js/);
 });
 
 test("React Native shared logic stays behind package adapters instead of duplicated ports", () => {

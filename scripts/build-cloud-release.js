@@ -395,8 +395,8 @@ function verifyRelease() {
     "api/src/shared/avatar-media.js",
     "api/src/shared/avatar-resolve.js",
     "api/packages/shared/avatar.js",
-    "api/src/shared/fellow-identity.js",
-    "api/packages/shared/fellow-identity.js",
+    "api/src/shared/bot-identity.js",
+    "api/packages/shared/bot-identity.js",
     "api/src/shared/session-history.js",
     "api/packages/shared/session-history.js",
     "api/src/shared/group-fellow-routing.js",
@@ -471,8 +471,8 @@ function verifyRelease() {
     "api/src/shared/avatar-media.js",
     "api/src/shared/avatar-resolve.js",
     "api/packages/shared/avatar.js",
-    "api/src/shared/fellow-identity.js",
-    "api/packages/shared/fellow-identity.js",
+    "api/src/shared/bot-identity.js",
+    "api/packages/shared/bot-identity.js",
     "api/src/shared/session-history.js",
     "api/packages/shared/session-history.js",
     "api/src/shared/group-fellow-routing.js",
@@ -648,8 +648,8 @@ function main() {
   copyFile("src/shared/avatar-media.js", path.join(apiDir, "src", "shared", "avatar-media.js"));
   copyFile("src/shared/avatar-resolve.js", path.join(apiDir, "src", "shared", "avatar-resolve.js"));
   copyFile("packages/shared/avatar.js", path.join(apiDir, "packages", "shared", "avatar.js"));
-  copyFile("src/shared/fellow-identity.js", path.join(apiDir, "src", "shared", "fellow-identity.js"));
-  copyFile("packages/shared/fellow-identity.js", path.join(apiDir, "packages", "shared", "fellow-identity.js"));
+  copyFile("src/shared/bot-identity.js", path.join(apiDir, "src", "shared", "bot-identity.js"));
+  copyFile("packages/shared/bot-identity.js", path.join(apiDir, "packages", "shared", "bot-identity.js"));
   copyFile("src/shared/session-history.js", path.join(apiDir, "src", "shared", "session-history.js"));
   copyFile("packages/shared/session-history.js", path.join(apiDir, "packages", "shared", "session-history.js"));
   copyFile("src/shared/group-fellow-routing.js", path.join(apiDir, "src", "shared", "group-fellow-routing.js"));

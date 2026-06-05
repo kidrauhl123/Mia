@@ -67,10 +67,10 @@
 
   function avatarForFellow(fellow = {}) {
     const api = contact();
-    if (api?.resolveContact && api?.ContactKind) {
+    if (api?.resolveContact && api?.IdentityKind) {
       return api.resolveContact(
-        { kind: api.ContactKind.Fellow, ref: fellow.key || fellow.id },
-        { fellows: [fellow] }
+        { kind: api.IdentityKind.Bot, ref: fellow.id || fellow.key },
+        { bots: [fellow] }
       ).avatar;
     }
     return window.miaAvatarResolve.resolveAvatarForContact({

@@ -6,6 +6,22 @@ const vm = require("node:vm");
 
 const root = path.join(__dirname, "..");
 
+function extractFunctionSource(source, functionName) {
+  const start = source.indexOf(`function ${functionName}`);
+  assert.notEqual(start, -1, `${functionName} should exist`);
+  const bodyStart = source.indexOf("{", start);
+  let depth = 0;
+  for (let index = bodyStart; index < source.length; index += 1) {
+    const ch = source[index];
+    if (ch === "{") depth += 1;
+    if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) return source.slice(start, index + 1);
+    }
+  }
+  throw new Error(`Could not extract ${functionName}`);
+}
+
 test("renderer app shell loads state module before the entrypoint", () => {
   const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
@@ -238,6 +254,48 @@ test("desktop renderer direct bot protocol branches do not key off legacy fellow
   assert.match(appSource, /message\.sender_kind === SenderKind\.Bot\s*\?\s*"assistant"/);
   assert.match(appSource, /const hasBot = msgs\.some\(\(message\) => message\.sender_kind === SenderKind\.Bot\)/);
   assert.doesNotMatch(appSource, /const hasFellow = msgs\.some\(\(message\) => message\.sender_kind === SenderKind\.Fellow\)/);
+});
+
+test("local assistant bubble avatars render with bot sender kind for contact cards", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const renderMessageHtml = eval(`(
+    function () {
+      const state = { runtime: { cloud: { user: { id: "user_me" } } }, tasks: [] };
+      const ICON_PARK_PIN_SVG = "";
+      const window = {
+        miaMarkdown: {
+          escapeHtml: (value) => String(value ?? ""),
+          renderMarkdown: (value) => String(value ?? "")
+        },
+        miaAvatarResolve: {
+          resolveAvatarForContact: (input) => ({ image: input.avatarImage || "", crop: input.avatarCrop || null, color: "#5e5ce6", text: input.displayName || input.id || "?" })
+        },
+        miaTraceBlocks: { renderTraceBlocks: () => "" },
+        miaMessageHelpers: { replyQuoteHtml: () => "" },
+        miaMessageMenu: { translationHtml: () => "" },
+        miaAvatar: {
+          avatarHtml: ({ attrs }) => '<span class="avatar message-avatar" ' + attrs + '></span>'
+        }
+      };
+      function fellowAvatarIdentityId(ref) { return "botc_user_me_" + ref; }
+      function formatRunTime() { return ""; }
+      function renderMessageTime() { return ""; }
+      function renderCommandResultHtml() { return ""; }
+      function generatedAttachmentsForMessage() { return []; }
+      function hydrateAttachmentPreview(value) { return value; }
+      function renderAttachmentChips() { return ""; }
+      ${extractFunctionSource(appSource, "renderMessageHtml")}
+      return renderMessageHtml;
+    }
+  )()`);
+
+  const html = renderMessageHtml(
+    { role: "assistant", content: "hello", createdAt: "now" },
+    { messageIndex: 0, user: { id: "user_me", displayName: "Me" }, persona: { key: "codex", name: "Codex" } }
+  );
+
+  assert.match(html, /data-sender-kind="bot"/);
+  assert.doesNotMatch(html, /data-sender-kind="fellow"/);
 });
 
 test("desktop cloud human and group conversations hide the chat history session selector", () => {
@@ -588,7 +646,8 @@ test("contact fellow avatars resolve through shared fellow identity", () => {
 
   assert.match(fellowManagerSource, /function avatarForFellow\(fellow = \{\}\)/);
   assert.match(fellowManagerSource, /api\.resolveContact\(/);
-  assert.match(fellowManagerSource, /kind:\s*api\.ContactKind\.Fellow/);
+  assert.match(fellowManagerSource, /kind:\s*api\.IdentityKind\.Bot/);
+  assert.doesNotMatch(fellowManagerSource, /ContactKind\.Fellow/);
   assert.match(fellowManagerSource, /fellowAvatarIdentityId\(fellow\)/);
   assert.doesNotMatch(fellowManagerSource, /id:\s*fellow\.key\s*\|\|\s*fellow\.id/);
 });

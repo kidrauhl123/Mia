@@ -590,8 +590,8 @@ function conversationCardSpecFromRow(row, personas) {
       };
       name = sessionHistory.botDisplayTitle(conversation, identityFellows, "对话");
       const resolved = window.miaContact?.resolveContact?.(
-        { kind: window.miaContact.ContactKind.Fellow, ref: fellowKey },
-        { fellows: [fellowRecord] }
+        { kind: window.miaContact.IdentityKind.Bot, ref: fellowKey },
+        { bots: [fellowRecord] }
       );
       avatar = resolved?.avatar || window.miaAvatarResolve.resolveAvatarForContact({
         id: fellowAvatarIdentityId(fellowKey, fellowRecord),
@@ -1808,7 +1808,7 @@ function renderMessageHtml(message, ctx) {
   // group bubbles: left-click → contact card, right-click → dropdown. In a
   // local fellow session the AI avatar opens its editable 模型/推理强度/权限
   // card; the user avatar opens the self card. (一视同仁 across all chats.)
-  const senderKind = message.role === "assistant" ? "fellow" : "user";
+  const senderKind = message.role === "assistant" ? "bot" : "user";
   const senderRef = message.role === "assistant"
     ? (persona?.key || "")
     : (state.runtime?.cloud?.user?.id || "");
