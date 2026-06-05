@@ -22,5 +22,5 @@ export type Identity = {
 };
 
 export function normalizeStatusBadge(input: unknown): StatusBadge | null;
-export function normalizeIdentity(input?: Record<string, unknown>): Identity | null;
-export function identityKey(identity?: Record<string, unknown> | null): string;
+export function normalizeIdentity(input?: unknown): Identity | null;
+export function identityKey(identity?: unknown): string;

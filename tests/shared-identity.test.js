@@ -12,6 +12,8 @@ const {
 const packageIdentity = require("../packages/shared/identity.js");
 const packageIdentityByPath = require("../packages/shared/identity");
 const sharedPackage = require("../packages/shared");
+const workspaceIdentity = require("@mia/shared/identity");
+const workspaceShared = require("@mia/shared");
 
 test("normalizeIdentity returns a clean user identity", () => {
   const identity = normalizeIdentity({
@@ -70,6 +72,8 @@ test("package-facing identity exports resolve", () => {
   assert.equal(packageIdentity.IdentityKind.Bot, "bot");
   assert.equal(packageIdentityByPath.IdentityKind.Bot, "bot");
   assert.equal(sharedPackage.identity.identityKey({ kind: "bot", id: "bot_x", displayName: "X" }), "bot:bot_x");
+  assert.equal(workspaceIdentity.IdentityKind.Bot, "bot");
+  assert.equal(workspaceShared.identity.identityKey({ kind: "bot", id: "bot_x", displayName: "X" }), "bot:bot_x");
 });
 
 test("packages shared identity attaches miaIdentity in a browser VM", () => {
