@@ -15,7 +15,7 @@
 // 置顶 is intentionally omitted: a shared cloud conversation has no per-message pin.
 //
 // Wired from app.js's chat-level contextmenu dispatcher, which routes bubbles
-// carrying data-message-source="cloud-conversation" here instead of the fellow menu.
+// carrying data-message-source="cloud-conversation" here instead of the bot menu.
 
 (function (global) {
   "use strict";

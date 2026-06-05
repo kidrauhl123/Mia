@@ -85,7 +85,7 @@ test("src/web exposes cloud-only fellow creation from the sidebar plus menu", ()
 test("src/web sidebar plus menu matches the desktop menu order, labels, and icons", () => {
   const desktopHtml = fs.readFileSync(path.join(ROOT, "src/renderer/index.html"), "utf8");
   const webHtml = fs.readFileSync(path.join(ROOT, "src/web/app/index.html"), "utf8");
-  const desktopItems = extractCreateMenuItems(desktopHtml, "fellowCreateMenu");
+  const desktopItems = extractCreateMenuItems(desktopHtml, "botCreateMenu");
   const webItems = extractCreateMenuItems(webHtml, "conversationCreateMenu");
 
   assert.deepEqual(

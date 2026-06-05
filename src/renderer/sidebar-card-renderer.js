@@ -1,5 +1,5 @@
 // Renderer for sidebar conversation cards. ONE shape for 1-on-1 chats
-// (fellow private or cloud DM) and ONE shape for group chats (local fellow
+// (fellow private or cloud DM) and ONE shape for group chats (local bot
 // group or cloud conversation with friends + fellows). The caller normalizes its
 // row into a spec; the actual avatar / time / pin / unread / context-menu
 // behavior is the same regardless of where the conversation lives.
@@ -110,7 +110,7 @@
     btn.type = "button";
     btn.className = `persona message-card private-message-card${spec.active ? " active" : ""}${spec.pinned ? " pinned" : ""}`;
     btn.innerHTML = `
-      <span class="avatar fellow-photo"></span>
+      <span class="avatar bot-photo"></span>
       <span class="persona-main">
         <span class="persona-name-row">
           <span class="persona-name">${escapeHtml(spec.name || "")}</span>
@@ -123,7 +123,7 @@
         </span>
       </span>
     `;
-    const avatarEl = btn.querySelector(".avatar.fellow-photo");
+    const avatarEl = btn.querySelector(".avatar.bot-photo");
     applyAvatarStyle(avatarEl, spec.avatar?.image, spec.avatar?.crop, spec.avatar?.color, spec.avatar?.text);
     attachNameWithBadge(btn, spec, spec.name || "");
     attachHandlers(btn, spec);

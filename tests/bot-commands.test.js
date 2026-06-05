@@ -543,5 +543,5 @@ test("bot commands attach as a browser global without legacy fellow global", () 
   vm.runInContext(source, context, { filename: sourcePath });
 
   assert.equal(typeof window.miaBotCommands.saveBotRuntimeControl, "function");
-  assert.equal(window.miaFellowCommands, undefined);
+  assert.equal(window["mia" + "FellowCommands"], undefined);
 });

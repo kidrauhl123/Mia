@@ -15,7 +15,7 @@
   let renderChat, renderSessionMenu, renderComposerReply;
   let escapeHtml, renderMarkdown, copyTextToClipboard;
   let nowIso, cryptoRandomId;
-  let closeSkillContextMenu, closeFellowContextMenu, closeGroupContextMenu;
+  let closeSkillContextMenu, closeBotContextMenu, closeGroupContextMenu;
 
   function initMessageMenu(deps) {
     state = deps.state;
@@ -34,7 +34,7 @@
     nowIso = deps.nowIso;
     cryptoRandomId = deps.cryptoRandomId;
     closeSkillContextMenu = deps.closeSkillContextMenu;
-    closeFellowContextMenu = deps.closeFellowContextMenu;
+    closeBotContextMenu = deps.closeBotContextMenu;
     closeGroupContextMenu = deps.closeGroupContextMenu;
   }
 
@@ -84,9 +84,9 @@
     // unification, so closeGroupContextMenu is no longer injected. Calling an
     // undefined dep here threw a TypeError *after* the handler had already
     // preventDefault()ed the native menu — which silently killed the right-
-    // click menu in every local fellow (private AI) chat. Guard all three.
+    // click menu in every local bot (private AI) chat. Guard all three.
     closeSkillContextMenu?.();
-    closeFellowContextMenu?.();
+    closeBotContextMenu?.();
     closeGroupContextMenu?.();
     const selectionText = String(selection?.text || "").trim();
     state.messageContextMenu = { open: true, x, y, messageIndex: index, selectionText };

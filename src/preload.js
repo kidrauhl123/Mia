@@ -77,9 +77,9 @@ contextBridge.exposeInMainWorld("mia", {
   deleteBot: (payload) => ipcRenderer.invoke(IpcChannel.BotDelete, payload),
   savePersona: (persona) => ipcRenderer.invoke(IpcChannel.PersonaSave, persona),
   loadPetJobs: () => ipcRenderer.invoke(IpcChannel.PetJobs),
-  generateFellowPet: (payload) => ipcRenderer.invoke(IpcChannel.PetGenerate, payload),
-  placeFellowPet: (key) => ipcRenderer.invoke(IpcChannel.PetPlace, key),
-  recallFellowPet: (key) => ipcRenderer.invoke(IpcChannel.PetRecall, key),
+  generateBotPet: (payload) => ipcRenderer.invoke(IpcChannel.PetGenerate, payload),
+  placeBotPet: (key) => ipcRenderer.invoke(IpcChannel.PetPlace, key),
+  recallBotPet: (key) => ipcRenderer.invoke(IpcChannel.PetRecall, key),
   tasks: {
     list: () => ipcRenderer.invoke(IpcChannel.TasksList),
     get: (id) => ipcRenderer.invoke(IpcChannel.TasksGet, id),

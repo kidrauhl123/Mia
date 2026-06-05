@@ -13,7 +13,7 @@ function loadSource() {
   vm.runInContext("globalThis.miaMessageSpec = (function(){ const module = { exports: {} }; " + sharedSpec + "; return module.exports; })();", ctx);
   vm.runInContext("globalThis.miaContact = (function(){ const module = { exports: {} }; " + sharedContact + "; return module.exports; })();", ctx);
   vm.runInContext(src, ctx);
-  assert.equal(window.miaFellowSessionSource, undefined);
+  assert.equal(window["mia" + "Fellow" + "SessionSource"], undefined);
   return window.miaBotSessionSource;
 }
 

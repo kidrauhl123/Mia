@@ -385,12 +385,12 @@
       const entries = Array.from(selected.values());
       const name = (nameInput.value || "").trim() || entries.map((e) => e.name).join(" · ");
       const memberFriendUserIds = entries.filter((e) => e.kind === "friend").map((e) => e.id);
-      const fellowEntries = entries.filter((e) => e.kind === "bot");
+      const botEntries = entries.filter((e) => e.kind === "bot");
 
       confirmBtn.disabled = true;
       try {
         // Phase 5 cutover: every group is a cloud conversation. Login required.
-        const memberBots = fellowEntries.map((e) => ({
+        const memberBots = botEntries.map((e) => ({
           botId: e.id,
           runtimeKind: e.runtimeKind || "cloud-hermes"
         }));

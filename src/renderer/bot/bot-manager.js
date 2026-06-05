@@ -319,7 +319,7 @@
       button.type = "button";
       button.className = `contact-row${bot.key === state.activeContactKey ? " active" : ""}`;
       button.innerHTML = `
-        <span class="avatar fellow-photo"></span>
+        <span class="avatar bot-photo"></span>
         <span class="contact-row-main">
           <strong>${window.miaMarkdown.escapeHtml(bot.name)}</strong>
         </span>
@@ -332,7 +332,7 @@
       button.addEventListener("dblclick", () => openBotChat(bot.key));
       const avatar = avatarForBot(bot);
       window.miaAvatar.applyAvatarMedia(
-        button.querySelector(".fellow-photo"),
+        button.querySelector(".bot-photo"),
         avatar.image,
         avatar.crop,
         avatar.color,

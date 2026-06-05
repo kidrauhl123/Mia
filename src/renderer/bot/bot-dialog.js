@@ -203,7 +203,7 @@
       els.botAvatarPreview.setAttribute("tabindex", "0");
       els.botAvatarPreview.setAttribute("aria-label", "调整头像裁剪");
     }
-    renderColorSwatches(document.getElementById("fellowAvatarColors"), state.botAvatarDraft?.color || "", (color) => {
+    renderColorSwatches(document.getElementById("botAvatarColors"), state.botAvatarDraft?.color || "", (color) => {
       if (state.botAvatarDraft) state.botAvatarDraft.color = color;
       renderBotAvatarDraft();
     });
@@ -556,7 +556,7 @@
   function closeBotDialog() {
     if (!state) return;
     state.botDialogOpen = false;
-    teardownColorSwatches(document.getElementById("fellowAvatarColors"));
+    teardownColorSwatches(document.getElementById("botAvatarColors"));
     renderView();
   }
 

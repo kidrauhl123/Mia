@@ -61,32 +61,32 @@ const els = {
   engineRowHermesButton: document.querySelector('[data-engine-row="hermes"]'),
   personaSearch: document.getElementById("personaSearch"),
   personaCount: document.getElementById("personaCount"),
-  fellowCreateMenu: document.getElementById("fellowCreateMenu"),
-  addFellow: document.getElementById("addFellow"),
+  botCreateMenu: document.getElementById("botCreateMenu"),
+  addBot: document.getElementById("addBot"),
   convMenuAddFriend: document.getElementById("convMenuAddFriend"),
   convMenuNewGroup: document.getElementById("convMenuNewGroup"),
-  botDialog: document.getElementById("fellowDialog"),
-  botForm: document.getElementById("fellowForm"),
-  botDialogTitle: document.getElementById("fellowDialogTitle"),
-  botKey: document.getElementById("fellowKey"),
-  botName: document.getElementById("fellowName"),
-  botRuntimeLocationField: document.getElementById("fellowRuntimeLocationField"),
-  botRuntimeLocation: document.getElementById("fellowRuntimeLocation"),
-  botAgentEngineField: document.getElementById("fellowAgentEngineField"),
-  botAgentEngine: document.getElementById("fellowAgentEngine"),
-  botAvatar: document.getElementById("fellowAvatar"),
-  botAvatarFile: document.getElementById("fellowAvatarFile"),
-  chooseBotAvatar: document.getElementById("chooseFellowAvatar"),
-  botAvatarDrop: document.getElementById("fellowAvatarDrop"),
-  botAvatarPreview: document.getElementById("fellowAvatarPreview"),
-  botAvatarDefaultTabs: document.getElementById("fellowAvatarDefaultTabs"),
-  botAvatarDefaults: document.getElementById("fellowAvatarDefaults"),
+  botDialog: document.getElementById("botDialog"),
+  botForm: document.getElementById("botForm"),
+  botDialogTitle: document.getElementById("botDialogTitle"),
+  botKey: document.getElementById("botKey"),
+  botName: document.getElementById("botName"),
+  botRuntimeLocationField: document.getElementById("botRuntimeLocationField"),
+  botRuntimeLocation: document.getElementById("botRuntimeLocation"),
+  botAgentEngineField: document.getElementById("botAgentEngineField"),
+  botAgentEngine: document.getElementById("botAgentEngine"),
+  botAvatar: document.getElementById("botAvatar"),
+  botAvatarFile: document.getElementById("botAvatarFile"),
+  chooseBotAvatar: document.getElementById("chooseBotAvatar"),
+  botAvatarDrop: document.getElementById("botAvatarDrop"),
+  botAvatarPreview: document.getElementById("botAvatarPreview"),
+  botAvatarDefaultTabs: document.getElementById("botAvatarDefaultTabs"),
+  botAvatarDefaults: document.getElementById("botAvatarDefaults"),
   profileAvatarDefaultTabs: document.getElementById("profileAvatarDefaultTabs"),
   profileAvatarDefaults: document.getElementById("profileAvatarDefaults"),
-  botPersonaDetails: document.getElementById("fellowPersonaDetails"),
-  botSeed: document.getElementById("fellowSeed"),
+  botPersonaDetails: document.getElementById("botPersonaDetails"),
+  botSeed: document.getElementById("botSeed"),
   closeBotDialog: document.getElementById("closeBotDialog"),
-  cancelBot: document.getElementById("cancelFellow"),
+  cancelBot: document.getElementById("cancelBot"),
   avatarCropDialog: document.getElementById("avatarCropDialog"),
   avatarCropStage: document.getElementById("avatarCropStage"),
   avatarTrimControls: document.getElementById("avatarTrimControls"),
@@ -106,11 +106,11 @@ const els = {
   chatView: document.getElementById("chatView"),
   contactsView: document.getElementById("contactsView"),
   skillsView: document.getElementById("skillsView"),
-  botStoreView: document.getElementById("fellowStoreView"),
-  botStoreCap: document.getElementById("fellowStoreCap"),
-  botStoreGrid: document.getElementById("fellowStoreGrid"),
-  botStoreScrim: document.getElementById("fellowStoreScrim"),
-  botStoreSheet: document.getElementById("fellowStoreSheet"),
+  botStoreView: document.getElementById("botStoreView"),
+  botStoreCap: document.getElementById("botStoreCap"),
+  botStoreGrid: document.getElementById("botStoreGrid"),
+  botStoreScrim: document.getElementById("botStoreScrim"),
+  botStoreSheet: document.getElementById("botStoreSheet"),
   settingsView: document.getElementById("settingsView"),
   engineStatus: document.getElementById("engineStatus"),
   hermesHome: document.getElementById("hermesHome"),
@@ -121,10 +121,10 @@ const els = {
   newContact: document.getElementById("newContact"),
   contactCreateMenu: document.getElementById("contactCreateMenu"),
   contactMenuAddFriend: document.getElementById("contactMenuAddFriend"),
-  contactMenuAddFellow: document.getElementById("contactMenuAddFellow"),
+  contactMenuAddBot: document.getElementById("contactMenuAddBot"),
   contactMenuNewGroup: document.getElementById("contactMenuNewGroup"),
-  contactMenuDiscoverFellows: document.getElementById("contactMenuDiscoverFellows"),
-  convMenuDiscoverFellows: document.getElementById("convMenuDiscoverFellows"),
+  contactMenuDiscoverBots: document.getElementById("contactMenuDiscoverBots"),
+  convMenuDiscoverBots: document.getElementById("convMenuDiscoverBots"),
   contactList: document.getElementById("contactList"),
   contactPageTitle: document.getElementById("contactPageTitle"),
   contactPageMeta: document.getElementById("contactPageMeta"),
@@ -143,7 +143,7 @@ const els = {
   skillPreviewMeta: document.getElementById("skillPreviewMeta"),
   skillPreviewBody: document.getElementById("skillPreviewBody"),
   skillContextMenu: document.getElementById("skillContextMenu"),
-  botContextMenu: document.getElementById("fellowContextMenu"),
+  botContextMenu: document.getElementById("botContextMenu"),
   messageContextMenu: document.getElementById("messageContextMenu"),
   profileDialog: document.getElementById("profileDialog"),
   profileForm: document.getElementById("profileForm"),
@@ -595,8 +595,8 @@ function groupTilesCtx(personas) {
 }
 
 // Normalize any sidebar row kind into a unified ConversationCard spec the
-// sidebar-card-renderer can paint. Fellow private + cloud DM both become
-// {kind:"private"} with one member; local fellow group + cloud conversation both
+// sidebar-card-renderer can paint. Bot private + cloud DM both become
+// {kind:"private"} with one member; local bot group + cloud conversation both
 // become {kind:"group"} with stacked tiles. Single render path; "real
 // human friend" is just another member kind, not a different conversation
 // species.
@@ -605,7 +605,7 @@ function conversationCardSpecFromRow(row, personas) {
   const social = window.miaSocial;
   const identityBots = allOwnedBotsForIdentity(personas || []);
 
-  // ── cloud private conversation (DM with a friend OR fellow session) ─────────────
+  // ── cloud private conversation (DM with a friend OR bot session) ─────────────
   //     Same card shape; the only branch is "who's the other party" — a
   //     friend (dm conversation) or a bot (bot conversation) — and that flows
   //     through one resolver into a single spec.
@@ -698,7 +698,7 @@ function conversationCardSpecFromRow(row, personas) {
     };
   }
 
-  // ── cloud group (friends + fellows mixed) — same shape as local group ────
+  // ── cloud group (friends + bots mixed) — same shape as local group ────
   if (row.type === "group-conversation") {
     const conversation = row.conversation;
     const activeConversationId = social?.getActiveConversationId?.();
@@ -768,7 +768,7 @@ function conversationCardSpecFromRow(row, personas) {
 }
 
 // Paint #activeChatAvatar / #activeChatName / #activeChatMeta for the
-// currently-active cloud conversation (type ∈ {dm, group, fellow}). Mirrors the
+// currently-active cloud conversation (type ∈ {dm, group, bot}). Mirrors the
 // local-group branch — both paths route through miaGroupAvatar for
 // any conversation that has more than one member, so the sidebar and the
 // chat header always agree.
@@ -1323,9 +1323,9 @@ function render() {
     if (els.sessionMenuButton) els.sessionMenuButton.classList.remove("hidden");
     if (composerBottom) composerBottom.classList.remove("hidden");
   }
-  // Cloud-only: the sidebar lists cloud conversations exclusively. Local fellow
+  // Cloud-only: the sidebar lists cloud conversations exclusively. Local bot
   // personas are no longer a conversation source — a fellow surfaces as its
-  // cloud fellow conversation once bootstrap completes.
+  // cloud bot conversation once bootstrap completes.
   const cloudReady = !cloudSignedIn || !social || social.isBootstrapped?.();
   const socialRows = cloudReady ? (social?.renderSidebarRows?.() || []) : [];
   const messageRows = !cloudReady ? [] : window.miaBotManager.sortMessageCardsForSidebar(socialRows);
@@ -1380,7 +1380,7 @@ function renderView() {
   els.appShell?.setAttribute("data-active-view", state.activeView);
   els.settingsView.classList.toggle("hidden", !state.settingsOpen);
   els.profileDialog?.classList.toggle("hidden", !state.profileDialogOpen);
-  els.fellowCreateMenu?.classList.toggle("hidden", !state.botMenuOpen);
+  els.botCreateMenu?.classList.toggle("hidden", !state.botMenuOpen);
   els.contactCreateMenu?.classList.toggle("hidden", !state.contactMenuOpen);
   // Contacts unread = number of pending incoming friend requests.
   const incomingCount = window.miaSocial?.moduleState?.incomingRequests?.length || 0;
@@ -1442,8 +1442,8 @@ async function openEditBotDialog(botKey) {
       window.miaBotDialog.openBotDialog(ownedBot, ownedBot.personaText || ownedBot.bio || "");
       return;
     }
-    const details = await window.mia.loadFellowDetails(botKey);
-    window.miaBotDialog.openBotDialog(details.bot || details.fellow, details.personaText || "");
+    const details = await window.mia.loadBotDetails(botKey);
+    window.miaBotDialog.openBotDialog(details.bot, details.personaText || "");
   } catch (error) {
     appendTransientChat("assistant", `编辑 Bot 失败: ${error.message}`);
   }
@@ -1451,7 +1451,7 @@ async function openEditBotDialog(botKey) {
 
 async function setBotPinned(botKey, pinned) {
   try {
-    state.runtime = await window.mia.setFellowPinned({ key: botKey, pinned });
+    state.runtime = await window.mia.setBotPinned({ key: botKey, pinned });
     render();
   } catch (error) {
     appendTransientChat("assistant", `置顶失败: ${error.message}`);
@@ -1461,7 +1461,7 @@ async function setBotPinned(botKey, pinned) {
 
 async function setBotMuted(botKey, muted) {
   try {
-    state.runtime = await window.mia.setFellowMuted({ key: botKey, muted });
+    state.runtime = await window.mia.setBotMuted({ key: botKey, muted });
     render();
   } catch (error) {
     appendTransientChat("assistant", `免打扰设置失败: ${error.message}`);
@@ -1764,10 +1764,10 @@ function updateCurrentSessionTitle(title) {
   requestAnimationFrame(() => els.currentSessionTitle.classList.add("title-updated"));
 }
 
-// Once the fellow has actually replied, summarize the opening exchange into a
+// Once the bot has actually replied, summarize the opening exchange into a
 // title (reusing the same engine title generator the old local path used) and
-// rename the conversation. Stable fellow conversations may initially be named
-// after the fellow itself, so treat that the same as "新对话".
+// rename the conversation. Stable bot conversations may initially be named
+// after the bot itself, so treat that the same as "新对话".
 async function maybeGenerateCloudConversationTitle(conversationId) {
   const social = window.miaSocial;
   if (!conversationId || !social) return;
@@ -1860,7 +1860,7 @@ function renderMessageHtml(message, ctx) {
   const roleClass = message.role === "user" ? "user" : "assistant";
   // Tag the avatar so the same app.js handlers fire here as in cloud DM /
   // group bubbles: left-click → contact card, right-click → dropdown. In a
-  // local fellow session the AI avatar opens its editable 模型/推理强度/权限
+  // local bot session the AI avatar opens its editable 模型/推理强度/权限
   // card; the user avatar opens the self card. (一视同仁 across all chats.)
   const senderKind = message.role === "assistant" ? "bot" : "user";
   const senderRef = message.role === "assistant"
@@ -1913,7 +1913,7 @@ function renderCloudLoginGuide() {
   return `
     <div class="cloud-login-guide">
       <h2>登录 Mia Cloud</h2>
-      <p>Mia 的对话都在云端同步。登录后即可与你的 Fellow 聊天。</p>
+      <p>Mia 的对话都在云端同步。登录后即可与你的 Bot 聊天。</p>
       <button type="button" class="primary" data-action="cloud-login">登录 / 注册</button>
     </div>
   `;
@@ -2314,7 +2314,7 @@ async function createNewSessionForActive() {
     return;
   }
   // Cloud-only: 新对话 only applies to an active bot conversation (handled
-  // above). With no active fellow conversation there is nothing to create.
+  // above). With no active bot conversation there is nothing to create.
 }
 
 async function createNewCloudSessionForActive(conversation) {
@@ -2747,7 +2747,7 @@ els.chat?.addEventListener("contextmenu", (event) => {
   if (!bubble || !els.chat.contains(bubble)) return;
   // Cloud-conversation bubbles (cloud DM + cloud group) carry data-message-source +
   // data-message-id and live in social.moduleState.messageCache, not the
-  // fellow session, so dispatch to the lightweight social message menu.
+  // bot session, so dispatch to the lightweight social message menu.
   if (bubble.dataset.messageSource === "cloud-conversation") {
     const social = window.miaSocial;
     const messageId = bubble.dataset.messageId;
@@ -2774,7 +2774,7 @@ document.addEventListener("click", (event) => {
 });
 document.addEventListener("click", (event) => {
   if (!state.botMenuOpen) return;
-  if (els.fellowCreateMenu?.contains(event.target) || els.newPersona?.contains(event.target)) return;
+  if (els.botCreateMenu?.contains(event.target) || els.newPersona?.contains(event.target)) return;
   state.botMenuOpen = false;
   renderView();
 });
@@ -3147,15 +3147,15 @@ function openBotStore() {
   renderView();
   window.miaBotStore?.renderBotStore?.();
 }
-els.convMenuDiscoverFellows?.addEventListener("click", openBotStore);
-els.contactMenuDiscoverFellows?.addEventListener("click", openBotStore);
+els.convMenuDiscoverBots?.addEventListener("click", openBotStore);
+els.contactMenuDiscoverBots?.addEventListener("click", openBotStore);
 
 els.convMenuAddFriend?.addEventListener("click", () => {
   state.botMenuOpen = false;
   renderView();
   window.miaSocial?.openAddFriendDialog?.();
 });
-els.addFellow?.addEventListener("click", () => {
+els.addBot?.addEventListener("click", () => {
   state.botMenuOpen = false;
   renderView();
   window.miaBotDialog.openBotDialog();
@@ -3175,7 +3175,7 @@ els.contactMenuAddFriend?.addEventListener("click", () => {
   renderView();
   window.miaSocial?.openAddFriendDialog?.();
 });
-els.contactMenuAddFellow?.addEventListener("click", () => {
+els.contactMenuAddBot?.addEventListener("click", () => {
   state.contactMenuOpen = false;
   renderView();
   window.miaBotDialog.openBotDialog();
@@ -3211,7 +3211,7 @@ els.petGenerateForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
   const bot = window.miaBotManager.botByKey(state.petGenerateBotKey);
   if (!bot) return;
-  const job = await window.mia.generateFellowPet({
+  const job = await window.mia.generateBotPet({
     botKey: bot.key,
     prompt: els.petPrompt?.value || "",
     stylePreset: els.petStylePreset?.value || "codex",
@@ -3576,7 +3576,7 @@ els.botForm?.addEventListener("submit", async (event) => {
   const cloudConversation = saved.conversation || null;
   if (runtimeKind !== "cloud-hermes" && savedKey) state.activeKey = savedKey;
   state.botDialogOpen = false;
-  // If this was the initial onboarding create-fellow step, mark onboarding done.
+  // If this was the initial onboarding create-bot step, mark onboarding done.
   if (state.onboardingStep && state.onboardingStep !== "done") {
     advanceOnboarding("done");
     state.setupGuideDismissed = true;
@@ -3877,7 +3877,7 @@ els.chat.addEventListener("click", async (event) => {
       return;
     }
     const engine = resumeButton.dataset.commandResumeEngine || window.miaEngineOptions.activeAgentEngine();
-    const fellow = activePersona() || { key: state.activeKey };
+    const bot = activePersona() || { key: state.activeKey };
     resumeButton.disabled = true;
     resumeButton.classList.add("loading");
     try {
@@ -3887,7 +3887,7 @@ els.chat.addEventListener("click", async (event) => {
         args: [sessionIdToResume],
         context: {
           sessionId: window.miaSocial?.getActiveConversationId?.() || "",
-          fellow
+          bot
         }
       });
       const content = result?.content && typeof result.content === "object"
@@ -4008,7 +4008,7 @@ els.chatForm.addEventListener("submit", async (event) => {
     els.chatInput.value = "";
     window.miaMessageHelpers.resizeChatInput();
     // Composer skill chips ride along with the message — stored on it, shown in
-    // the bubble, used by the fellow responder. Only send them for a fellow conversation
+    // the bubble, used by the bot responder. Only send them for a bot conversation
     // (they drive that fellow's AI) and only when they were attached in THIS conversation
     // (guards a programmatic conversation switch with no intervening render). Clear them
     // on send regardless: the chip belongs to this message, not the next one.

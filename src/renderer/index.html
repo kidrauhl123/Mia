@@ -52,8 +52,8 @@
           <input id="personaSearch" autocomplete="off" placeholder="搜索">
         </label>
         <button id="newPersona" class="icon-button" type="button" title="新建">＋</button>
-        <div id="fellowCreateMenu" class="create-menu hidden">
-          <button id="convMenuDiscoverFellows" type="button">
+        <div id="botCreateMenu" class="create-menu hidden">
+          <button id="convMenuDiscoverBots" type="button">
             <span class="create-menu-icon" aria-hidden="true">
               <svg viewBox="0 0 48 48" fill="none" focusable="false">
                 <circle cx="24" cy="24" r="20" stroke="currentColor" stroke-width="4"/>
@@ -73,7 +73,7 @@
             </span>
             <span class="create-menu-label">添加好友</span>
           </button>
-          <button id="addFellow" type="button">
+          <button id="addBot" type="button">
             <span class="create-menu-icon" aria-hidden="true">
               <svg viewBox="0 0 48 48" fill="none" focusable="false">
                 <circle cx="24" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
@@ -111,7 +111,7 @@
         </label>
         <button id="newContact" class="icon-button" type="button" title="新建">＋</button>
         <div id="contactCreateMenu" class="create-menu hidden">
-          <button id="contactMenuDiscoverFellows" type="button">
+          <button id="contactMenuDiscoverBots" type="button">
             <span class="create-menu-icon" aria-hidden="true">
               <svg viewBox="0 0 48 48" fill="none" focusable="false">
                 <circle cx="24" cy="24" r="20" stroke="currentColor" stroke-width="4"/>
@@ -131,7 +131,7 @@
             </span>
             <span class="create-menu-label">添加好友</span>
           </button>
-          <button id="contactMenuAddFellow" type="button">
+          <button id="contactMenuAddBot" type="button">
             <span class="create-menu-icon" aria-hidden="true">
               <svg viewBox="0 0 48 48" fill="none" focusable="false">
                 <circle cx="24" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
@@ -170,7 +170,7 @@
           <div id="activeChatAvatar" class="profile-avatar">A</div>
           <div>
             <h1><span id="activeChatName">Mia</span></h1>
-            <p id="activeChatMeta">Fellow</p>
+            <p id="activeChatMeta">Bot</p>
           </div>
         </div>
         <div class="top-actions">
@@ -272,7 +272,7 @@
         <div class="group-title">
           <div>
             <h1><span id="contactPageTitle">联系人</span></h1>
-            <p id="contactPageMeta">Fellow 通讯录</p>
+            <p id="contactPageMeta">Bot 通讯录</p>
           </div>
         </div>
       </header>
@@ -301,7 +301,7 @@
       </section>
     </section>
 
-    <section id="fellowStoreView" class="workspace bot-store-workspace hidden">
+    <section id="botStoreView" class="workspace bot-store-workspace hidden">
       <header class="topbar bot-store-topbar">
         <button class="narrow-back-button" type="button" data-narrow-back title="返回" aria-label="返回">‹</button>
         <div class="group-title">
@@ -310,13 +310,13 @@
         </div>
       </header>
       <section class="bot-store-layout">
-        <div id="fellowStoreCap" class="bot-store-cap" aria-label="分类"></div>
+        <div id="botStoreCap" class="bot-store-cap" aria-label="分类"></div>
         <div class="bot-store-grid-scroll">
-          <section id="fellowStoreGrid" class="bot-store-grid" aria-label="AI 同事列表"></section>
+          <section id="botStoreGrid" class="bot-store-grid" aria-label="AI 同事列表"></section>
         </div>
       </section>
-      <div id="fellowStoreScrim" class="bot-store-scrim">
-        <div id="fellowStoreSheet" class="bot-store-sheet"></div>
+      <div id="botStoreScrim" class="bot-store-scrim">
+        <div id="botStoreSheet" class="bot-store-sheet"></div>
       </div>
     </section>
 
@@ -479,7 +479,7 @@
               <section class="settings-row appearance-last-row">
                 <div>
                   <strong>伙伴头像</strong>
-                  <p>在聊天里显示 Fellow 头像。</p>
+                  <p>在聊天里显示 Bot 头像。</p>
                 </div>
                 <button id="appearanceShowAssistantAvatar" class="settings-switch" type="button" role="switch" aria-checked="true" aria-label="显示伙伴头像">
                   <span></span>
@@ -599,9 +599,9 @@
       </div>
     </section>
 
-    <section id="profileDialog" class="fellow-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="profileDialogTitle">
-      <form id="profileForm" class="fellow-form">
-        <header class="fellow-dialog-head">
+    <section id="profileDialog" class="bot-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="profileDialogTitle">
+      <form id="profileForm" class="bot-form">
+        <header class="bot-dialog-head">
           <div>
             <h2 id="profileDialogTitle">编辑个人资料</h2>
           </div>
@@ -624,61 +624,61 @@
           </div>
         </section>
         <div class="avatar-colors" id="profileAvatarColors" role="radiogroup" aria-label="头像颜色"></div>
-        <footer class="fellow-dialog-actions">
+        <footer class="bot-dialog-actions">
           <button id="cancelProfile" class="secondary" type="button">取消</button>
           <button class="primary" type="submit">保存资料</button>
         </footer>
       </form>
     </section>
 
-    <section id="fellowDialog" class="fellow-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="fellowDialogTitle">
-      <form id="fellowForm" class="fellow-form">
-        <header class="fellow-dialog-head">
+    <section id="botDialog" class="bot-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="botDialogTitle">
+      <form id="botForm" class="bot-form">
+        <header class="bot-dialog-head">
           <div>
-            <h2 id="fellowDialogTitle">添加伙伴</h2>
+            <h2 id="botDialogTitle">添加伙伴</h2>
           </div>
-          <button id="closeFellowDialog" class="icon-button" type="button" title="关闭">×</button>
+          <button id="closeBotDialog" class="icon-button" type="button" title="关闭">×</button>
         </header>
-        <input id="fellowKey" type="hidden">
+        <input id="botKey" type="hidden">
         <label>
           姓名
-          <input id="fellowName" autocomplete="off">
+          <input id="botName" autocomplete="off">
         </label>
-        <label id="fellowRuntimeLocationField">
+        <label id="botRuntimeLocationField">
           运行位置
-          <select id="fellowRuntimeLocation">
+          <select id="botRuntimeLocation">
             <option value="desktop-local">当前设备</option>
             <option value="cloud-hermes">Mia Cloud</option>
           </select>
         </label>
         <section class="avatar-picker">
-          <div id="fellowAvatarPreview" class="avatar-crop-preview"></div>
-          <div id="fellowAvatarDrop" class="avatar-drop">
-            <input id="fellowAvatarFile" type="file" accept="image/*,video/*" class="hidden">
-            <input id="fellowAvatar" type="hidden">
-            <button id="chooseFellowAvatar" class="secondary avatar-file-button" type="button" title="选择图片" aria-label="选择图片">
+          <div id="botAvatarPreview" class="avatar-crop-preview"></div>
+          <div id="botAvatarDrop" class="avatar-drop">
+            <input id="botAvatarFile" type="file" accept="image/*,video/*" class="hidden">
+            <input id="botAvatar" type="hidden">
+            <button id="chooseBotAvatar" class="secondary avatar-file-button" type="button" title="选择图片" aria-label="选择图片">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M17 8l-5-5-5 5 M12 3v12"/></svg>
               选择图片
             </button>
             <span>也可以把图片拖到这里</span>
           </div>
         </section>
-        <div class="avatar-colors" id="fellowAvatarColors" role="radiogroup" aria-label="头像颜色"></div>
-        <label id="fellowAgentEngineField" class="hidden">
+        <div class="avatar-colors" id="botAvatarColors" role="radiogroup" aria-label="头像颜色"></div>
+        <label id="botAgentEngineField" class="hidden">
           Agent 引擎
-          <select id="fellowAgentEngine">
+          <select id="botAgentEngine">
             <option value="hermes">默认</option>
           </select>
         </label>
-        <details id="fellowPersonaDetails" class="persona-details">
+        <details id="botPersonaDetails" class="persona-details">
           <summary>人设</summary>
           <label>
-            <span>保存在 Hermes fellows/&lt;id&gt;.md，会作为该 Fellow 的系统人设注入。</span>
-            <textarea id="fellowSeed" placeholder="可留空，后续在对话中慢慢形成"></textarea>
+            <span>保存在 Hermes fellows/&lt;id&gt;.md，会作为该 Bot 的系统人设注入。</span>
+            <textarea id="botSeed" placeholder="可留空，后续在对话中慢慢形成"></textarea>
           </label>
         </details>
-        <footer class="fellow-dialog-actions">
-          <button id="cancelFellow" class="secondary" type="button">取消</button>
+        <footer class="bot-dialog-actions">
+          <button id="cancelBot" class="secondary" type="button">取消</button>
           <button class="primary" type="submit">保存伙伴</button>
         </footer>
       </form>
@@ -686,7 +686,7 @@
 
     <section id="petGenerateDialog" class="pet-generate-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="petGenerateTitle">
       <form id="petGenerateForm" class="pet-generate-card">
-        <header class="fellow-dialog-head">
+        <header class="bot-dialog-head">
           <div>
             <h2 id="petGenerateTitle">生成桌宠</h2>
             <p id="petGenerateSubtitle"></p>
@@ -695,7 +695,7 @@
         </header>
         <label>
           补充描述
-          <textarea id="petPrompt" placeholder="可选：补充这个 Fellow 的动作、气质或细节偏好"></textarea>
+          <textarea id="petPrompt" placeholder="可选：补充这个 Bot 的动作、气质或细节偏好"></textarea>
         </label>
         <label>
           风格
@@ -713,7 +713,7 @@
           </div>
           <div id="petReferenceList" class="pet-reference-list"></div>
         </section>
-        <footer class="fellow-dialog-actions">
+        <footer class="bot-dialog-actions">
           <button id="cancelPetGenerate" class="secondary" type="button">取消</button>
           <button class="primary" type="submit">开始生成</button>
         </footer>
@@ -768,7 +768,7 @@
       </div>
     </section>
     <div id="skillContextMenu" class="skill-context-menu hidden" role="menu"></div>
-    <div id="fellowContextMenu" class="skill-context-menu fellow-context-menu hidden" role="menu"></div>
+    <div id="botContextMenu" class="skill-context-menu bot-context-menu hidden" role="menu"></div>
     <div id="messageContextMenu" class="skill-context-menu message-context-menu hidden" role="menu"></div>
     <button id="petJobButton" class="pet-job-button hidden" type="button"></button>
     <div id="petJobPanel" class="pet-job-panel hidden"></div>
@@ -879,10 +879,10 @@
     </div>
   </section>
 
-  <!-- Manual task create dialog — reuses .fellow-dialog / .fellow-form modal style -->
-  <section id="taskCreateDialog" class="fellow-dialog task-create-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="taskCreateTitle">
-    <form id="taskCreateForm" class="fellow-form">
-      <header class="fellow-dialog-head">
+  <!-- Manual task create dialog — reuses .bot-dialog / .bot-form modal style -->
+  <section id="taskCreateDialog" class="bot-dialog task-create-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="taskCreateTitle">
+    <form id="taskCreateForm" class="bot-form">
+      <header class="bot-dialog-head">
         <div>
           <h2 id="taskCreateTitle">新建自动任务</h2>
         </div>
@@ -899,7 +899,7 @@
 
       <label>
         <span>执行的 Agent <i class="req">*</i></span>
-        <select id="ntFellow"></select>
+        <select id="ntBot"></select>
       </label>
 
       <label>
@@ -925,7 +925,7 @@
 
       <div class="task-create-error" id="ntError" hidden></div>
 
-      <footer class="fellow-dialog-actions">
+      <footer class="bot-dialog-actions">
         <button id="cancelTaskCreate" class="secondary" type="button">取消</button>
         <button class="primary" type="submit">确定</button>
       </footer>
@@ -953,7 +953,7 @@
   <script src="../../packages/shared/group-tiles.js"></script>
   <script src="../../packages/shared/send-pipeline.js"></script>
   <script src="../../packages/shared/self-identity.js"></script>
-  <script src="../shared/fellow-runtime-control.js"></script>
+  <script src="../shared/bot-runtime-control.js"></script>
   <script src="./app-state.js"></script>
   <!-- Feature modules -->
   <script src="./loaders.js"></script>
@@ -991,11 +991,11 @@
   <script src="./message-bubble-renderer.js"></script>
 
   <!-- Unified sidebar card renderer (private / group). Used by app.js to
-       render fellow chats, DM conversations, local groups and cloud conversations with the
+       render bot chats, DM conversations, local groups and cloud conversations with the
        same path — no special-casing real-friend conversations. -->
   <script src="./sidebar-card-renderer.js"></script>
 
-  <!-- Unified conversation context menu (private + group, fellow/DM/local/cloud
+  <!-- Unified conversation context menu (private + group, bot/DM/local/cloud
        all share the SAME shape; storage backend never leaks into menu UI). -->
   <script src="./conversation-context-menu.js"></script>
 

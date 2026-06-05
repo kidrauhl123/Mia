@@ -2,10 +2,10 @@
 //
 // Two openers — `openPrivateConversationMenu` and `openGroupConversationMenu`
 // — paint the SAME menu items regardless of whether the conversation lives
-// in a local fellow record, a local group store, a cloud DM, or a cloud
+// in a local bot record, a local group store, a cloud DM, or a cloud
 // group. UI does not branch on storage backend. The caller injects an
 // `actions` object whose method implementations dispatch to the right
-// backend (setFellowPinned vs setGroupPinned vs setCloudConversationPinned, etc).
+// backend (setBotPinned vs setGroupPinned vs setCloudConversationPinned, etc).
 //
 // Missing capabilities (e.g., cloud rename has no backend yet) are signaled
 // by omitting the corresponding action method — the menu hides that item

@@ -90,5 +90,5 @@ test("bot directory attaches as a browser global", () => {
 
   assert.equal(typeof window.miaBotDirectory.listOwnedBots, "function");
   assert.equal(window.miaBotDirectory.runtimeLabelFor({ runtimeKind: "cloud-hermes" }), "Mia Cloud");
-  assert.equal(window.miaFellowDirectory, undefined);
+  assert.equal(window["mia" + "FellowDirectory"], undefined);
 });

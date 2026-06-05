@@ -303,12 +303,12 @@ body.window-blurred .traffic-spacer:hover .traffic-light.green {
 }
 
 .avatar.media-avatar,
-.fellow-photo.media-avatar,
+.bot-photo.media-avatar,
 .profile-avatar.media-avatar,
 .contact-avatar.media-avatar,
 .contact-profile-avatar.media-avatar,
 .avatar.video-avatar,
-.fellow-photo.video-avatar,
+.bot-photo.video-avatar,
 .profile-avatar.video-avatar,
 .contact-avatar.video-avatar,
 .contact-profile-avatar.video-avatar {
@@ -851,7 +851,7 @@ body.sidebar-resizing * {
 }
 
 .avatar,
-.fellow-photo {
+.bot-photo {
   width: 42px;
   height: 42px;
   border-radius: 50%;
@@ -1114,7 +1114,7 @@ body.sidebar-resizing * {
   white-space: nowrap;
 }
 
-.contact-row .fellow-photo {
+.contact-row .bot-photo {
   width: 26px;
   height: 26px;
   border-radius: 50%;
@@ -1883,7 +1883,7 @@ body.topbar-click-capture .topbar {
   text-overflow: ellipsis;
 }
 
-.fellow-context-menu {
+.bot-context-menu {
   min-width: 138px;
 }
 
@@ -3808,7 +3808,7 @@ body.onboarding-window .setup-action {
   background: rgba(16, 20, 39, 0.18);
 }
 
-.fellow-dialog {
+.bot-dialog {
   position: fixed;
   inset: 0;
   z-index: 24;
@@ -3818,7 +3818,7 @@ body.onboarding-window .setup-action {
   background: rgba(16, 20, 39, 0.22);
 }
 
-.fellow-form {
+.bot-form {
   display: grid;
   gap: 14px;
   width: min(430px, calc(100vw - 48px));
@@ -3850,27 +3850,27 @@ body.onboarding-window .setup-action {
   box-shadow: 0 24px 70px rgba(16, 20, 39, 0.18);
 }
 
-.fellow-dialog-head,
-.fellow-dialog-actions {
+.bot-dialog-head,
+.bot-dialog-actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
 
-.fellow-dialog-head h2 {
+.bot-dialog-head h2 {
   font-size: 18px;
   line-height: 1.2;
 }
 
-.fellow-dialog-head p {
+.bot-dialog-head p {
   margin-top: 4px;
   color: var(--muted);
   font-size: 12px;
   font-weight: 400;
 }
 
-.fellow-form label {
+.bot-form label {
   display: grid;
   gap: 7px;
   color: var(--muted);
@@ -3885,9 +3885,9 @@ body.onboarding-window .setup-action {
   font-weight: 400;
 }
 
-.fellow-form input,
-.fellow-form select,
-.fellow-form textarea,
+.bot-form input,
+.bot-form select,
+.bot-form textarea,
 .pet-generate-card textarea,
 .pet-generate-card select {
   width: 100%;
@@ -3900,24 +3900,24 @@ body.onboarding-window .setup-action {
   color: var(--text);
 }
 
-.fellow-form input:hover,
-.fellow-form select:hover,
-.fellow-form textarea:hover,
+.bot-form input:hover,
+.bot-form select:hover,
+.bot-form textarea:hover,
 .pet-generate-card textarea:hover,
 .pet-generate-card select:hover {
   background-color: var(--hover);
 }
 
-.fellow-form input:focus,
-.fellow-form select:focus,
-.fellow-form textarea:focus,
+.bot-form input:focus,
+.bot-form select:focus,
+.bot-form textarea:focus,
 .pet-generate-card textarea:focus,
 .pet-generate-card select:focus {
   background-color: var(--field);
   box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.12);
 }
 
-.fellow-form textarea,
+.bot-form textarea,
 .pet-generate-card textarea {
   min-height: 118px;
   resize: vertical;
@@ -4085,7 +4085,7 @@ body.onboarding-window .setup-action {
   font-size: 12px;
 }
 
-.fellow-dialog-actions {
+.bot-dialog-actions {
   justify-content: flex-end;
 }
 

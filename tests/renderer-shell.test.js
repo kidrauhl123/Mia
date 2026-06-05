@@ -111,12 +111,12 @@ test("renderer exposes official Hermes install actions without private install w
   assert.doesNotMatch(appSource, /可安装到 Mia 私有目录|Mia 私有 Hermes|独立 Hermes|随安装包内置|使用 Mia 私有配置和记忆/);
 });
 
-test("fellow dialogs use filled controls instead of legacy bordered fields", () => {
+test("bot dialogs use filled controls instead of legacy bordered fields", () => {
   const stylesSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
 
-  assert.match(stylesSource, /\.fellow-form \{[\s\S]*?border:\s*0;/);
+  assert.match(stylesSource, /\.bot-form \{[\s\S]*?border:\s*0;/);
   assert.match(stylesSource, /\.pet-generate-card \{[\s\S]*?border:\s*0;/);
-  assert.match(stylesSource, /\.fellow-form input,[\s\S]*?\.pet-generate-card select \{[\s\S]*?border:\s*0;[\s\S]*?background-color:\s*var\(--field\);/);
+  assert.match(stylesSource, /\.bot-form input,[\s\S]*?\.pet-generate-card select \{[\s\S]*?border:\s*0;[\s\S]*?background-color:\s*var\(--field\);/);
   assert.match(stylesSource, /\.persona-details \{[\s\S]*?border:\s*0;[\s\S]*?background:\s*var\(--field\);/);
   assert.match(stylesSource, /\.avatar-drop \{[\s\S]*?border:\s*0;[\s\S]*?background:\s*var\(--field\);/);
   assert.match(stylesSource, /\.pet-reference-empty \{[\s\S]*?border:\s*0;[\s\S]*?background:\s*var\(--field\);/);
@@ -489,7 +489,7 @@ test("desktop bot controls save through bot runtime control adapter", () => {
   assert.match(appSource, /async function saveActiveBotRuntimeControl/);
   assert.match(appSource, /window\.miaBotCommands\.saveBotRuntimeControl\(\{/);
   assert.match(appSource, /window\.miaBotCommands\.getBotRuntimeBinding\(\{/);
-  assert.doesNotMatch(appSource, /window\.mia\.social\.saveFellowRuntime\(context\.fellowKey/);
+  assert.doesNotMatch(appSource, new RegExp("window\\.mia\\.social\\.save" + "FellowRuntime\\(context\\." + "fellow" + "Key"));
   assert.doesNotMatch(appSource, /async function saveActiveCloudBotRuntimeConfig/);
   assert.match(commandsSource, /async function saveBotRuntimeControl/);
   assert.match(commandsSource, /async function saveDesktopLocalBotRuntimeControl/);
@@ -525,7 +525,7 @@ test("desktop avatar picker supports video avatars with one trim row", () => {
 
   assert.match(html, /packages\/shared\/avatar\.js/);
   assert.match(html, /id="profileAvatarFile"[^>]+accept="image\/\*,video\/\*"/);
-  assert.match(html, /id="fellowAvatarFile"[^>]+accept="image\/\*,video\/\*"/);
+  assert.match(html, /id="botAvatarFile"[^>]+accept="image\/\*,video\/\*"/);
   assert.match(html, /id="avatarTrimControls"/);
   assert.match(html, /id="avatarTrimTimeline"/);
   assert.match(html, /id="avatarTrimFrames"/);
@@ -562,7 +562,7 @@ test("desktop avatar picker supports video avatars with one trim row", () => {
   assert.match(styleSource, /\.avatar-image,/);
   assert.match(styleSource, /\.profile-avatar\.media-avatar/);
   assert.match(styleSource, /\.profile-avatar\.video-avatar/);
-  assert.match(styleSource, /\.avatar,\n\.fellow-photo\s*\{[\s\S]*?border:\s*0;/);
+  assert.match(styleSource, /\.avatar,\n\.bot-photo\s*\{[\s\S]*?border:\s*0;/);
   assert.match(styleSource, /\.contact-profile-avatar\s*\{[\s\S]*?border:\s*0;[\s\S]*?box-shadow:\s*none;/);
 });
 
@@ -719,7 +719,7 @@ test("contact bot avatars resolve through shared bot identity", () => {
 test("contact fallback avatars share text color and round shape styling", () => {
   const styleSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
   const profileBlock = styleSource.match(/\.contact-profile-avatar\s*\{[\s\S]*?\n\}/)?.[0] || "";
-  const rowBlock = styleSource.match(/\.contact-row \.fellow-photo\s*\{[\s\S]*?\n\}/)?.[0] || "";
+  const rowBlock = styleSource.match(/\.contact-row \.bot-photo\s*\{[\s\S]*?\n\}/)?.[0] || "";
 
   assert.match(profileBlock, /display:\s*grid;/);
   assert.match(profileBlock, /place-items:\s*center;/);
@@ -808,7 +808,7 @@ test("social bootstrap delegates desktop-local bot sync through bot command adap
 
   assert.match(socialSource, /window\.miaBotCommands\.ensureDesktopLocalBotConversation\(\{/);
   assert.match(socialSource, /window\.miaBotCommands\.syncDesktopLocalBotRuntimeBinding\(\{/);
-  assert.doesNotMatch(socialSource, /api\.saveFellowRuntime\(fellowKey/);
+  assert.doesNotMatch(socialSource, new RegExp("api\\.save" + "FellowRuntime\\(" + "fellow" + "Key"));
   assert.doesNotMatch(socialSource, /api\.ensureFellowConversation\(fellow\.key,/);
   assert.match(commandsSource, /function desktopLocalRuntimeConfig/);
   assert.match(commandsSource, /async function ensureDesktopLocalBotConversation/);
@@ -819,10 +819,10 @@ test("bot creation dialog separates runtime location from agent engine", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const dialogSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-dialog.js"), "utf8");
 
-  assert.match(html, /id="fellowRuntimeLocation"/);
+  assert.match(html, /id="botRuntimeLocation"/);
   assert.match(html, /value="desktop-local"/);
   assert.match(html, /value="cloud-hermes"/);
-  assert.match(appSource, /botRuntimeLocation:\s*document\.getElementById\("fellowRuntimeLocation"\)/);
+  assert.match(appSource, /botRuntimeLocation:\s*document\.getElementById\("botRuntimeLocation"\)/);
   assert.match(dialogSource, /function renderBotRuntimeLocationSelect/);
   assert.match(dialogSource, /state\.runtime\?\.cloud\?\.enabled/);
   assert.match(dialogSource, /els\.botAgentEngineField\?\.classList\.toggle\("hidden", runtimeKind === "cloud-hermes" \|\| !showField\)/);

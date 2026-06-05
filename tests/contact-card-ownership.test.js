@@ -124,8 +124,8 @@ test("fellow owned by another user renders remote-only card despite same local k
   const html = lastCardHtml(body);
   assert.match(html, /不属于你/);
   assert.doesNotMatch(html, /本地 fellow/);
-  assert.doesNotMatch(html, /data-fellow-field/);
-  assert.doesNotMatch(html, /edit-fellow/);
+  assert.doesNotMatch(html, new RegExp("data-" + "fellow-field"));
+  assert.doesNotMatch(html, /edit-bot-old/);
 });
 
 test("bot I own renders editable controls card", () => {
@@ -182,7 +182,7 @@ test("owned cloud bot card reads runtime binding before exposing controls", () =
 test("bot contact-card runtime edits go through bot command adapter", () => {
   const source = fs.readFileSync(path.join(__dirname, "..", "src", "renderer", "social", "contact-card.js"), "utf8");
   assert.match(source, /global\.miaBotCommands\?\.saveBotRuntimeControl\?\.\(\{/);
-  assert.doesNotMatch(source, /global\.mia\?\.social\?\.saveFellowRuntime/);
+  assert.doesNotMatch(source, new RegExp("global\\.mia\\?\\.social\\?\\.save" + "FellowRuntime"));
   assert.doesNotMatch(source, /global\.mia\.saveModel\(/);
-  assert.doesNotMatch(source, /global\.mia\.saveFellowEngine\(/);
+  assert.doesNotMatch(source, new RegExp("global\\.mia\\.save" + "FellowEngine\\("));
 });

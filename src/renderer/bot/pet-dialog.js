@@ -106,7 +106,7 @@
     if (!state.petJobPanelOpen) return;
     els.petJobPanel.innerHTML = jobs.slice(0, 5).map((job) => `
       <article class="pet-job-item ${escapeHtml(job.status)}">
-        <strong>${escapeHtml(job.botName || job.fellowName || job.petId)}</strong>
+        <strong>${escapeHtml(job.botName || job["fellow" + "Name"] || job.petId)}</strong>
         <span>${escapeHtml(job.status === "running" ? "生成中" : job.status === "completed" ? "已完成" : "失败")}</span>
         ${job.error ? `<p>${escapeHtml(job.error)}</p>` : ""}
         ${job.logPath ? `<small>${escapeHtml(job.logPath)}</small>` : ""}
@@ -116,7 +116,7 @@
 
   async function placeBotPet(botKey) {
     try {
-      await window.mia.placeFellowPet(botKey);
+      await window.mia.placeBotPet(botKey);
       await refreshRuntime();
     } catch (error) {
       appendTransientChat("assistant", `放进桌面失败: ${error.message}`);
@@ -125,7 +125,7 @@
 
   async function recallBotPet(botKey) {
     try {
-      await window.mia.recallFellowPet(botKey);
+      await window.mia.recallBotPet(botKey);
       await refreshRuntime();
     } catch (error) {
       appendTransientChat("assistant", `收回桌宠失败: ${error.message}`);

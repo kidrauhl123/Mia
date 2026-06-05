@@ -99,7 +99,7 @@
       },
       avatarCropEditor: {
         open: false,
-        target: "fellow",
+        target: "bot",
         image: "",
         crop: { x: 50, y: 50, zoom: 1, start: 0, duration: 3 },
         dragging: false,

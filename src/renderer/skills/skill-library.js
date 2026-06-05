@@ -235,13 +235,13 @@
   }
 
   // 「使用」: attach the skill to the conversation the user is currently viewing
-  // on the messages page (no fellow picker). If no fellow conversation is open,
+  // on the messages page (no bot picker). If no bot conversation is open,
   // prompt them to open one first.
   function useSkillInComposer(skillId) {
     const skill = (state.skillLibrary.skills || []).find((item) => item.id === skillId);
     const name = skill ? window.miaSkillHelpers.skillDisplayName(skill) : skillId;
     const attached = window.miaUseSkillInActiveConversation?.({ id: skillId, name });
-    if (!attached) window.alert("请先在消息页打开一个 Fellow 对话，再使用技能。");
+    if (!attached) window.alert("请先在消息页打开一个 Bot 对话，再使用技能。");
   }
 
   function renderSkillPreview() {
