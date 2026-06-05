@@ -24,7 +24,7 @@ const { createChatEventEmitter } = require("./main/chat-events.js");
 const { chatCompletionResponse, responseMessageContent } = require("./main/chat-response.js");
 const { createAgentCommandProvider } = require("./main/agent-command-provider.js");
 const { createClaudeBridgePluginService } = require("./main/claude-bridge-plugin-service.js");
-const { requireFellow } = require("./main/fellow-registry.js");
+const { requireBot } = require("./main/bot-registry.js");
 const { createClaudeCodeChatAdapter } = require("./main/claude-code-chat-adapter.js");
 const { createCodexChatAdapter } = require("./main/codex-chat-adapter.js");
 const { createHermesChatAdapter } = require("./main/hermes-chat-adapter.js");
@@ -33,8 +33,8 @@ const { createRuntimeInitializerService } = require("./main/runtime-initializer-
 const { createRuntimeLifecycleService } = require("./main/runtime-lifecycle-service.js");
 const { createStartupTimer } = require("./main/startup-timing.js");
 const { createChatAttachments } = require("./main/chat-attachments.js");
-const { createFellowManifest } = require("./main/fellow-manifest.js");
-const { createFellowService } = require("./main/fellow-service.js");
+const { createBotManifest } = require("./main/bot-manifest.js");
+const { createBotService } = require("./main/bot-service.js");
 const { createRuntimePaths } = require("./main/runtime-paths.js");
 const { createSettingsStore } = require("./main/settings-store.js");
 const { createWindowStateManager } = require("./main/window-state.js");
@@ -50,10 +50,10 @@ const { createSocialApi } = require("./main/social/social-api.js");
 const { registerSocialIpc } = require("./main/social/social-ipc.js");
 const { openConversationMessageCache } = require("./main/social/conversation-message-cache.js");
 const {
-  createLocalFellowResponder,
+  createLocalBotResponder,
   shouldHandleLocalCloudConversationAi
-} = require("./main/social/local-fellow-responder.js");
-const { createMainFellowRuntimeDispatcher } = require("./main/social/fellow-runtime-dispatcher.js");
+} = require("./main/social/local-bot-responder.js");
+const { createMainBotRuntimeDispatcher } = require("./main/social/bot-runtime-dispatcher.js");
 const { createCloudEventsClient } = require("./main/cloud/cloud-events-client.js");
 const { createCloudBridgeClient } = require("./main/cloud/cloud-bridge-client.js");
 const { createCloudDesktopSyncClient } = require("./main/cloud/desktop-sync-client.js");
@@ -273,28 +273,28 @@ settingsStore = createSettingsStore({
 });
 const windowStateManager = createWindowStateManager({ settingsStore, screen });
 
-const fellowManifestModule = createFellowManifest({
+const botManifestModule = createBotManifest({
   runtimePaths,
   readJson,
   normalizeAgentEngine,
   settingsStore,
 });
 const {
-  normalizeFellowAgentEngine,
-  normalizeFellowEngineConfig,
+  normalizeBotAgentEngine,
+  normalizeBotEngineConfig,
   normalizeAvatarCrop,
-  loadFellowManifest,
-  saveFellowManifest,
-  fellowPersonaBody,
-  fellowMetadata,
-  fellowPersonaPath,
-  readFellowPersona,
-} = fellowManifestModule;
+  loadBotManifest,
+  saveBotManifest,
+  botPersonaBody,
+  botMetadata,
+  botPersonaPath,
+  readBotPersona,
+} = botManifestModule;
 
 const agentSessionStore = createAgentSessionStore({
   runtimePaths,
   readJson,
-  normalizeFellowAgentEngine
+  normalizeFellowAgentEngine: normalizeBotAgentEngine
 });
 const agentPermissionCoordinator = createAgentPermissionCoordinator({
   runtimePaths,
@@ -329,7 +329,7 @@ const fellowPetService = createFellowPetService({
   resourcesPath: process.resourcesPath || "",
   runtimePaths,
   readJson,
-  loadFellowManifest,
+  loadFellowManifest: loadBotManifest,
   dataUrlToBuffer,
   initializeRuntime,
   spawnProcess: spawn,
@@ -369,10 +369,10 @@ const runtimeInitializerService = createRuntimeInitializerService({
   defaultDaemonSettings: () => settingsStore.defaultDaemonSettings(),
   defaultUserProfile: () => settingsStore.defaultUserProfile(),
   defaultAppearanceSettings: () => settingsStore.defaultAppearanceSettings(),
-  loadFellowManifest,
-  saveFellowManifest,
-  fellowPersonaBody,
-  fellowMetadata,
+  loadFellowManifest: loadBotManifest,
+  saveFellowManifest: saveBotManifest,
+  fellowPersonaBody: botPersonaBody,
+  fellowMetadata: botMetadata,
   ensureClaudeBridgePlugin: () => claudeBridgePluginService.ensureInstalled(),
   appendEngineLog,
   getRuntimeStatus
@@ -393,15 +393,15 @@ const agentCommandProvider = createAgentCommandProvider({
   claudeAgentSdk,
   cwd: () => process.cwd(),
   homeDir: () => app.getPath("home"),
-  normalizeFellowAgentEngine,
+  normalizeFellowAgentEngine: normalizeBotAgentEngine,
   shellCommandPath: localAgentEngineService.shellCommandPath,
 });
 const externalAgentCommandService = createExternalAgentCommandService({
   agentCommandProvider,
   cwd: () => process.cwd(),
   homeDir: () => app.getPath("home"),
-  normalizeFellowAgentEngine,
-  normalizeFellowEngineConfig,
+  normalizeBotAgentEngine,
+  normalizeBotEngineConfig,
   normalizeEffortLevel: settingsStore.normalizeEffortLevel,
   localAgentEngines: localAgentEngineService.localAgentEngines,
   getAgentSessionId: agentSessionStore.getId,
@@ -555,7 +555,7 @@ async function getObservedDaemonStatus(timeoutMs = 500) {
 
 function getRuntimeStatus(created = [], options = {}) {
   const p = runtimePaths();
-  const manifest = loadFellowManifest();
+  const manifest = loadBotManifest();
   const codexAuth = authService.status();
   const settings = settingsWithoutSecret();
   const connectedProviders = connectedProviderSummaries(codexAuth);
@@ -721,13 +721,13 @@ function normalizeRemoteUserMessage(input) {
   };
 }
 
-function resolveRemoteChatFellow({ fellowKey }) {
+function resolveRemoteChatBot({ botKey }) {
   initializeRuntime();
-  const manifest = loadFellowManifest();
+  const manifest = loadBotManifest();
   const fellows = Array.isArray(manifest.fellows) ? manifest.fellows : [];
-  const key = String(fellowKey || manifest.default_fellow || fellows[0]?.key || "mia").trim();
-  const fellow = fellows.find((item) => item.key === key) || fellows[0] || null;
-  return { fellow };
+  const key = String(botKey || manifest.default_fellow || fellows[0]?.key || "mia").trim();
+  const bot = fellows.find((item) => item.key === key) || fellows[0] || null;
+  return { bot };
 }
 
 function collectChatTraceEnvelope(trace, envelope = {}) {
@@ -794,7 +794,7 @@ async function runRemoteChatRequest(body, eventSink = null) {
     throw new Error("text or a user message is required.");
   }
 
-  const { fellow } = resolveRemoteChatFellow({ fellowKey: body?.fellowKey || body?.personaKey });
+  const { bot } = resolveRemoteChatBot({ botKey: body?.botKey || body?.botId });
   const conversationId = String(body?.conversationId || body?.sessionId || "").trim();
   const agentSessionId = String(body?.agentSessionId || conversationId || `remote:${crypto.randomUUID()}`);
   const now = new Date().toISOString();
@@ -820,7 +820,7 @@ async function runRemoteChatRequest(body, eventSink = null) {
   } : null;
 
   const response = await sendChat({
-    fellowKey: fellow.key,
+    botKey: bot.key,
     sessionId: agentSessionId,
     messages: runMessages,
     webContents: tracedEventSink,
@@ -871,24 +871,23 @@ async function runRemoteChatRequest(body, eventSink = null) {
   const responseConversation = {
     id: agentSessionId,
     conversationId,
-    personaKey: fellow.key,
+    botId: bot.key,
     messages: [savedUser, savedAssistant],
     updatedAt: savedAssistant.createdAt
   };
-  // When signed into Mia Cloud, the conversation the user sees IS a per-fellow
-  // cloud conversation keyed by FELLOW (`fellow:<userId>:<fellowKey>`). A
-  // scheduled task runs locally, so post its reply into that conversation AS the fellow —
-  // the same path web/cloud fellow replies use — so it shows up and notifies in
+  // When signed into Mia Cloud, the conversation the user sees is a per-bot
+  // cloud conversation. A scheduled task runs locally, so post its reply as the bot
+  // through the existing conversation message delivery path so it shows up and notifies in
   // the message list (and syncs to web / other devices). Only for background
   // (task) runs; foreground and web chats already reach the conversation themselves.
   let deliveredAssistantMessageId = assistantMessageId;
   if (body?.background && assistantText.trim()) {
     const cloud = settingsStore.cloudSettings();
-    const fallbackConversationId = cloud?.user?.id ? fellowConversationId(cloud.user.id, fellow.key) : "";
+    const fallbackConversationId = cloud?.user?.id ? fellowConversationId(cloud.user.id, bot.key) : "";
     const delivery = await deliverTaskReplyToConversation({
       socialApi,
       settingsStore,
-      fellow,
+      fellow: bot,
       conversationId,
       fallbackConversationId,
       assistantText,
@@ -899,7 +898,7 @@ async function runRemoteChatRequest(body, eventSink = null) {
     deliveredAssistantMessageId = delivery.messageId || assistantMessageId;
     savedAssistant.id = deliveredAssistantMessageId;
   }
-  return { fellow, session: responseConversation, response, userMessageId, assistantMessageId: deliveredAssistantMessageId };
+  return { bot, session: responseConversation, response, userMessageId, assistantMessageId: deliveredAssistantMessageId };
 }
 
 let tasksStore = null;
@@ -1036,12 +1035,12 @@ function cloudDesktopSync() {
   return cloudDesktopSyncRuntime;
 }
 
-function pushFellowToCloud(fellow) {
-  return cloudDesktopSync().pushFellow(fellow);
+function pushBotToCloud(bot) {
+  return cloudDesktopSync().pushBot(bot);
 }
 
-function deleteFellowFromCloud(fellowKey) {
-  return cloudDesktopSync().deleteFellow(fellowKey);
+function deleteBotFromCloud(botKey) {
+  return cloudDesktopSync().deleteBot(botKey);
 }
 
 function syncMiaCloudWorkspace() {
@@ -1286,13 +1285,13 @@ function createActiveStatelessChatEngineAdapters() {
   });
 }
 
-async function sendChatStateless({ fellowKey, systemPrompt, userPrompt, signal }) {
-  const manifest = loadFellowManifest();
-  const { fellow } = requireFellow(manifest, fellowKey, "还没有可用的 fellow，请先在引导里创建一个再发起对话。");
-  const chatEngine = resolveChatEngineAdapter(fellow);
+async function sendChatStateless({ botKey, systemPrompt, userPrompt, signal }) {
+  const manifest = loadBotManifest();
+  const { bot } = requireBot(manifest, botKey, "还没有可用的 bot，请先在引导里创建一个再发起对话。");
+  const chatEngine = resolveChatEngineAdapter(bot);
   return sendWithStatelessChatEngineAdapter(createActiveStatelessChatEngineAdapters(), {
     chatEngine,
-    fellow,
+    bot,
     systemPrompt,
     userPrompt,
     signal
@@ -1347,7 +1346,7 @@ function createActiveClaudeCodeChatAdapter() {
     normalizeEffortLevel: settingsStore.normalizeEffortLevel,
     permissionCoordinator: agentPermissionCoordinator,
     processEnvStrings,
-    readFellowPersona,
+    readBotPersona,
     setAgentSessionEntry: agentSessionStore.setEntry,
     shellCommandPath: localAgentEngineService.shellCommandPath,
     writeSchedulerMcpContext: schedulerMcpBridge.writeContext
@@ -1371,7 +1370,7 @@ function createActiveCodexChatAdapter() {
     normalizeEffortLevel: settingsStore.normalizeEffortLevel,
     permissionCoordinator: agentPermissionCoordinator,
     processEnvStrings,
-    readFellowPersona,
+    readBotPersona,
     runCodexAppServerTurn,
     setAgentSessionId: agentSessionStore.setId,
     shellCommandPath: localAgentEngineService.shellCommandPath,
@@ -1407,18 +1406,18 @@ function normalizeTurnRuntimeConfig(runtimeConfig = null) {
   return config;
 }
 
-function fellowWithRuntimeConfig(fellow, runtimeConfig = {}) {
-  if (!runtimeConfig || !Object.keys(runtimeConfig).length) return fellow;
+function botWithRuntimeConfig(bot, runtimeConfig = {}) {
+  if (!runtimeConfig || !Object.keys(runtimeConfig).length) return bot;
   return {
-    ...fellow,
+    ...bot,
     engineConfig: {
-      ...(fellow.engineConfig || fellow.engine_config || {}),
+      ...(bot.engineConfig || bot.engine_config || {}),
       ...runtimeConfig
     }
   };
 }
 
-async function sendChat({ fellowKey, personaKey, sessionId, messages, group, webContents, emit: externalEmit = null, utility = false, persistAgentSession = undefined, background = false, scheduledFire = false, allowSlashCommands = true, runtimeConfig = null, activeSkillIds = [] }) {
+async function sendChat({ botKey, botId, sessionId, messages, group, webContents, emit: externalEmit = null, utility = false, persistAgentSession = undefined, background = false, scheduledFire = false, allowSlashCommands = true, runtimeConfig = null, activeSkillIds = [] }) {
   utility = Boolean(utility);
   const shouldPersistAgentSession = persistAgentSession == null
     ? !utility
@@ -1441,7 +1440,7 @@ async function sendChat({ fellowKey, personaKey, sessionId, messages, group, web
   const { signal } = abortController;
   // chat:event drives background/remote trace capture (see runRemoteChatRequest's
   // tracedEventSink). Interactive cloud-conversation chats publish their own
-  // cloud:event stream via local-fellow-responder — those
+  // cloud:event stream via local-bot-responder — those
   // callers either pass externalEmit or set utility/group/background to skip
   // this emitter.
   const { emit } = typeof externalEmit === "function"
@@ -1450,20 +1449,20 @@ async function sendChat({ fellowKey, personaKey, sessionId, messages, group, web
     ? createChatEventEmitter({ webContents, sessionId })
     : { emit: null };
   try {
-    const manifest = loadFellowManifest();
-    const key = fellowKey || personaKey;
-    const { fellow } = requireFellow(manifest, key, "还没有可用的 fellow，请先在引导里创建一个再发起对话。");
+    const manifest = loadBotManifest();
+    const key = botKey || botId;
+    const { bot } = requireBot(manifest, key, "还没有可用的 bot，请先在引导里创建一个再发起对话。");
     const turnRuntimeConfig = normalizeTurnRuntimeConfig(runtimeConfig);
-    let fellowForTurn = fellowWithRuntimeConfig(fellow, turnRuntimeConfig);
+    let botForTurn = botWithRuntimeConfig(bot, turnRuntimeConfig);
     // Composer "使用" chips: enable these skills for this turn (so their content
     // is injected) AND prepend a directive to the user's message so the agent
     // actually USES them this turn — merely enabling is a no-op when the skill
-    // is already in the Fellow's enabled set (the "AI picks" case).
+    // is already in the bot's enabled set (the "AI picks" case).
     const turnActiveSkillIds = schedulerSkillIdsForTurn({ messages, activeSkillIds, utility, group, background });
     if (turnActiveSkillIds.length) {
-      const caps = fellowForTurn.capabilities || {};
-      fellowForTurn = {
-        ...fellowForTurn,
+      const caps = botForTurn.capabilities || {};
+      botForTurn = {
+        ...botForTurn,
         capabilities: {
           ...caps,
           enabledSkills: [...new Set([...(caps.enabledSkills || []), ...turnActiveSkillIds.map((id) => String(id))])]
@@ -1481,20 +1480,20 @@ async function sendChat({ fellowKey, personaKey, sessionId, messages, group, web
         messages = next;
       }
     }
-    const chatEngine = resolveChatEngineAdapter(fellowForTurn);
+    const chatEngine = resolveChatEngineAdapter(botForTurn);
     const agentEngine = chatEngine.id;
     const shouldNotifyPet = !utility && !String(sessionId || "").startsWith("title:");
     const completeWithPetMessage = (response) => {
-      if (shouldNotifyPet) fellowPetService.notifyMessage(fellowForTurn.key, responseMessageContent(response));
+      if (shouldNotifyPet) fellowPetService.notifyMessage(botForTurn.key, responseMessageContent(response));
       return response;
     };
     if (emit) {
-      emit("session_started", { fellowKey: fellowForTurn.key, engine: agentEngine });
+      emit("session_started", { botKey: botForTurn.key, engine: agentEngine });
     }
     const slashText = allowSlashCommands ? hermesRunService.slashCommandText(messages) : "";
     const response = await sendWithChatEngineAdapter(createActiveChatEngineAdapters(), {
       chatEngine,
-      fellow: fellowForTurn,
+      bot: botForTurn,
       sessionId,
       messages,
       group,
@@ -1619,30 +1618,30 @@ const conversationTitleService = createConversationTitleService({
   sendChat
 });
 
-const fellowService = createFellowService({
+const botService = createBotService({
   initializeRuntime,
   runtimePaths,
-  fellowManifest: fellowManifestModule,
+  botManifest: botManifestModule,
   loadAgentSessionMap: agentSessionStore.loadMap,
   saveAgentSessionMap: agentSessionStore.saveMap,
-  orphanTasksByFellow: (key) => {
+  orphanTasksByBot: (key) => {
     initSchedulerSubsystem();
     return tasksStore.orphanByFellow(key);
   },
   emitTaskEvent: (event, payload) => tasksEvents.emit(event, payload),
   rescanScheduler: () => scheduler.rescan(),
-  recallFellowPet: (key) => fellowPetService.recall(key),
-  pushFellowToCloud,
-  deleteFellowFromCloud,
+  recallBotPet: (key) => fellowPetService.recall(key),
+  pushBotToCloud,
+  deleteBotFromCloud,
   appendCloudLog,
   getRuntimeStatus,
-  petStatusForFellow: (key) => fellowPetService.statusForFellow(key)
+  petStatusForBot: (key) => fellowPetService.statusForFellow(key)
 });
 
 remoteControlRouter = createRemoteControlRouter({
   isDaemonProcess: IS_DAEMON_PROCESS,
   getRuntimeStatus,
-  loadFellowManifest,
+  loadBotManifest,
   loadHermesModelCatalog: () => engineCatalogService.loadHermesModelCatalog(),
   loadCodexModels: () => engineCatalogService.loadCodexModels(),
   loadEngineCapabilities: () => engineCatalogService.loadEngineCapabilities(),
@@ -1651,7 +1650,7 @@ remoteControlRouter = createRemoteControlRouter({
   saveChatAttachment,
   readLocalFileAttachment,
   executeExternalAgentCommand: (body) => externalAgentCommandService.executeCommand(body),
-  saveFellowEngineConfig: (body) => fellowService.saveFellowEngineConfig(body),
+  saveFellowEngineConfig: (body) => botService.saveBotEngineConfig(body),
   saveModelSelection: (settings) => modelSettingsService.saveModelSelection(settings),
   writeEffortSettings: (body) => settingsStore.writeEffortSettings(body),
   writePermissionSettings: (body) => settingsStore.writePermissionSettings(body),
@@ -1772,10 +1771,10 @@ cloudDesktopSyncRuntime = createCloudDesktopSyncClient({
   appendLog: (line) => appendCloudLog(line),
   fetchImpl: fetch,
   timeoutSignal: (timeoutMs) => AbortSignal.timeout(timeoutMs),
-  loadFellowManifest,
-  fellowPersonaPath,
+  loadBotManifest,
+  botPersonaPath,
   fileExists: (filePath) => fs.existsSync(filePath),
-  readFellowPersona,
+  readBotPersona,
   runtimePaths,
   readJson,
   startCloudEvents,
@@ -1795,9 +1794,9 @@ cloudBridgeRuntime = createCloudBridgeClient({
   randomUUID: () => crypto.randomUUID()
 });
 for (const line of pendingCloudLogs.splice(0)) cloudBridgeRuntime.appendLog(line);
-const localFellowResponder = createLocalFellowResponder({
+const localBotResponder = createLocalBotResponder({
   sendChat,
-  postConversationMessageAsFellow: (conversationId, body) => socialApi.postConversationMessageAsFellow(conversationId, body),
+  postConversationMessageAsBot: (conversationId, body) => socialApi.postConversationMessageAsFellow(conversationId, body),
   emitCloudEvent: (message) => {
     broadcastRendererEvent(IpcChannel.CloudEvent, {
       type: message.type,
@@ -1812,10 +1811,10 @@ function shouldHandleCloudConversationAi() {
     daemonEnabled: settingsStore.daemonSettings().enabled
   });
 }
-const mainFellowRuntimeDispatcher = createMainFellowRuntimeDispatcher({
+const mainBotRuntimeDispatcher = createMainBotRuntimeDispatcher({
   shouldHandle: shouldHandleCloudConversationAi,
-  listFellows: () => loadFellowManifest().fellows || [],
-  localFellowResponder,
+  listBots: () => loadBotManifest().fellows || [],
+  localBotResponder,
   log: (line) => appendCloudLog(line)
 });
 // Desktop-local message cache (TG-style local-first render + delta sync). If
@@ -1839,7 +1838,7 @@ cloudEventSocketRuntime = createCloudEventsClient({
   broadcastRendererEvent,
   cloudEventChannel: IpcChannel.CloudEvent,
   appendCloudLog,
-  fellowRuntimeDispatcher: mainFellowRuntimeDispatcher,
+  botRuntimeDispatcher: mainBotRuntimeDispatcher,
   messageCache: conversationMessageCache
 });
 registerSocialIpc({
@@ -1962,14 +1961,14 @@ function loadConductorPrompts() {
   };
 }
 
-ipcMain.handle(IpcChannel.FellowDetails, (_event, key) => fellowService.getFellowDetails(key));
-ipcMain.handle(IpcChannel.FellowSave, (_event, fellow) => fellowService.saveFellow(fellow));
-ipcMain.handle(IpcChannel.FellowEngineSave, (_event, payload) => fellowService.saveFellowEngineConfig(payload));
-ipcMain.handle(IpcChannel.FellowPin, (_event, payload) => fellowService.setFellowPinned(payload));
-ipcMain.handle(IpcChannel.FellowMute, (_event, payload) => fellowService.setFellowMuted(payload));
-ipcMain.handle(IpcChannel.FellowDelete, (_event, payload) => fellowService.deleteFellow(payload));
+ipcMain.handle(IpcChannel.BotDetails, (_event, key) => botService.getBotDetails(key));
+ipcMain.handle(IpcChannel.BotSave, (_event, bot) => botService.saveBot(bot));
+ipcMain.handle(IpcChannel.BotEngineSave, (_event, payload) => botService.saveBotEngineConfig(payload));
+ipcMain.handle(IpcChannel.BotPin, (_event, payload) => botService.setBotPinned(payload));
+ipcMain.handle(IpcChannel.BotMute, (_event, payload) => botService.setBotMuted(payload));
+ipcMain.handle(IpcChannel.BotDelete, (_event, payload) => botService.deleteBot(payload));
 ipcMain.handle(IpcChannel.ConductorLoadPrompts, () => loadConductorPrompts());
-ipcMain.handle(IpcChannel.PersonaSave, (_event, persona) => fellowService.saveFellow(persona));
+ipcMain.handle(IpcChannel.PersonaSave, (_event, persona) => botService.saveBot(persona));
 ipcMain.handle(IpcChannel.PetJobs, () => fellowPetService.jobs());
 ipcMain.handle(IpcChannel.PetGenerate, (_event, payload) => fellowPetService.startGeneration(payload));
 ipcMain.handle(IpcChannel.PetPlace, (_event, key) => fellowPetService.place(key));

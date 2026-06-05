@@ -13,11 +13,11 @@ function clientOpIdForDedupKey(dedupKey) {
     .replace(/[^A-Za-z0-9_-]+/g, "_")
     .replace(/^_+|_+$/g, "")
     .slice(0, 160);
-  return `op_fellow_reply_${safe || "unknown"}`;
+  return `op_bot_reply_${safe || "unknown"}`;
 }
 
 function errorClientOpIdForDedupKey(dedupKey) {
-  return clientOpIdForDedupKey(dedupKey).replace(/^op_fellow_reply_/, "op_fellow_reply_error_");
+  return clientOpIdForDedupKey(dedupKey).replace(/^op_bot_reply_/, "op_bot_reply_error_");
 }
 
 function responseText(result) {
@@ -153,7 +153,7 @@ function activeSkillIdsFromMessage(message) {
   return ids;
 }
 
-function createLocalFellowResponder({ sendChat, postConversationMessageAsFellow, emitCloudEvent = () => {}, log = () => {} }) {
+function createLocalBotResponder({ sendChat, postConversationMessageAsBot, emitCloudEvent = () => {}, log = () => {} }) {
   const processed = new Set();
   const inFlight = new Set();
 
@@ -162,11 +162,11 @@ function createLocalFellowResponder({ sendChat, postConversationMessageAsFellow,
     if (processed.size > PROCESSED_CAP) processed.delete(processed.values().next().value);
   }
 
-  async function postFailureMessage({ conversationId, fellowId, dedupKey, turnId, stage, error }) {
+  async function postFailureMessage({ conversationId, botId, dedupKey, turnId, stage, error }) {
     const message = String(error?.message || error || "unknown error");
     try {
-      const result = await postConversationMessageAsFellow(conversationId, {
-        fellowId,
+      const result = await postConversationMessageAsBot(conversationId, {
+        botId,
         bodyMd: userFacingFailureMessage(message),
         turnId,
         errorJson: { stage, message },
@@ -175,13 +175,13 @@ function createLocalFellowResponder({ sendChat, postConversationMessageAsFellow,
       if (result && result.ok === false) throw new Error(result.error || result.message || "post failed");
       return true;
     } catch (postError) {
-      log(`[local-fellow-responder] failure post failed: ${postError?.message || postError}`);
+      log(`[local-bot-responder] failure post failed: ${postError?.message || postError}`);
       return false;
     }
   }
 
-  async function respond({ conversationId, fellowId, dedupKey, systemPrompt, userPrompt, turnId = null, runtimeConfig = null, activeSkillIds = [] }) {
-    if (!conversationId || !fellowId || !dedupKey) return;
+  async function respond({ conversationId, botId, dedupKey, systemPrompt, userPrompt, turnId = null, runtimeConfig = null, activeSkillIds = [] }) {
+    if (!conversationId || !botId || !dedupKey) return;
     if (processed.has(dedupKey)) return;
     if (inFlight.has(dedupKey)) return;
     inFlight.add(dedupKey);
@@ -193,13 +193,13 @@ function createLocalFellowResponder({ sendChat, postConversationMessageAsFellow,
       type: "cloud_agent_run_started",
       runId,
       conversationId,
-      fellowId,
+      botId,
       triggerMessageId: triggerMessageIdForDedupKey(dedupKey)
     });
     try {
       const chatArgs = {
-        fellowKey: fellowId,
-        personaKey: fellowId,
+        botKey: botId,
+        botId,
         sessionId: `conversation:${conversationId}`,
         messages: [
           { role: "system", content: systemPrompt || "" },
@@ -222,24 +222,24 @@ function createLocalFellowResponder({ sendChat, postConversationMessageAsFellow,
           type: "cloud_agent_run_event",
           runId,
           conversationId,
-          fellowId,
+          botId,
           event: { type: kind, ...(data && typeof data === "object" ? data : {}) }
         });
       };
       const result = await sendChat(chatArgs);
       text = responseText(result);
     } catch (error) {
-      log(`[local-fellow-responder] engine failed: ${error?.message || error}`);
+      log(`[local-bot-responder] engine failed: ${error?.message || error}`);
       emitCloudEvent({
         type: "cloud_agent_run_event",
         runId,
         conversationId,
-        fellowId,
+        botId,
         event: { type: "run.failed", error: String(error?.message || error) }
       });
       const didPostFailure = await postFailureMessage({
         conversationId,
-        fellowId,
+        botId,
         dedupKey,
         turnId,
         stage: "engine",
@@ -254,7 +254,7 @@ function createLocalFellowResponder({ sendChat, postConversationMessageAsFellow,
         type: "cloud_agent_run_event",
         runId,
         conversationId,
-        fellowId,
+        botId,
         event: { type: "run.failed", error: "empty response" }
       });
       inFlight.delete(dedupKey);
@@ -263,8 +263,8 @@ function createLocalFellowResponder({ sendChat, postConversationMessageAsFellow,
 
     try {
       const tracePayload = trace.payload();
-      const result = await postConversationMessageAsFellow(conversationId, {
-        fellowId,
+      const result = await postConversationMessageAsBot(conversationId, {
+        botId,
         bodyMd: text,
         turnId,
         clientOpId: clientOpIdForDedupKey(dedupKey),
@@ -275,12 +275,12 @@ function createLocalFellowResponder({ sendChat, postConversationMessageAsFellow,
       inFlight.delete(dedupKey);
       return true;
     } catch (error) {
-      log(`[local-fellow-responder] post failed: ${error?.message || error}`);
+      log(`[local-bot-responder] post failed: ${error?.message || error}`);
       emitCloudEvent({
         type: "cloud_agent_run_event",
         runId,
         conversationId,
-        fellowId,
+        botId,
         event: { type: "run.failed", error: String(error?.message || error) }
       });
       inFlight.delete(dedupKey);
@@ -294,7 +294,7 @@ function createLocalFellowResponder({ sendChat, postConversationMessageAsFellow,
 module.exports = {
   activeSkillIdsFromMessage,
   clientOpIdForDedupKey,
-  createLocalFellowResponder,
+  createLocalBotResponder,
   runIdForDedupKey,
   responseText,
   shouldHandleLocalCloudConversationAi

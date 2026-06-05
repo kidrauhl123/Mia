@@ -1,9 +1,9 @@
 "use strict";
 
 const {
-  normalizeFellowColor,
-  normalizeFellowCapabilities
-} = require("../../shared/fellow-identity.js");
+  normalizeBotColor,
+  normalizeBotCapabilities
+} = require("../../shared/bot-identity.js");
 
 const {
   DEFAULT_SKILL_MARKET_CACHE_TTL_MS,
@@ -18,10 +18,10 @@ function createCloudDesktopSyncClient({
   appendLog,
   fetchImpl = fetch,
   timeoutSignal = (timeoutMs) => AbortSignal.timeout(timeoutMs),
-  loadFellowManifest,
-  fellowPersonaPath,
+  loadBotManifest,
+  botPersonaPath,
   fileExists,
-  readFellowPersona,
+  readBotPersona,
   runtimePaths,
   readJson,
   startCloudEvents,
@@ -61,68 +61,71 @@ function createCloudDesktopSyncClient({
     return data;
   }
 
-  async function pushFellow(fellow) {
+  async function pushBot(bot) {
     const current = settings();
-    if (!current.enabled || !current.token || !fellow || !fellow.key) return;
+    if (!current.enabled || !current.token || !bot || !bot.key) return;
     try {
-      let personaText = String(fellow.personaText || fellow.persona_text || "").trim();
+      let personaText = String(bot.personaText || bot.persona_text || "").trim();
       try {
-        if (!personaText && typeof fellowPersonaPath === "function" && typeof fileExists === "function" && fileExists(fellowPersonaPath(fellow.key))) {
-          personaText = readFellowPersona(fellow.key, fellow.name, fellow.bio);
+        if (!personaText && typeof botPersonaPath === "function" && typeof fileExists === "function" && fileExists(botPersonaPath(bot.key))) {
+          personaText = readBotPersona(bot.key, bot.name, bot.bio);
         }
       } catch {
         // Persona text is best-effort; identity sync should still proceed.
       }
-      await cloudApi(`/api/me/fellows/${encodeURIComponent(fellow.key)}`, {
+      await cloudApi(`/api/me/bots/${encodeURIComponent(bot.key)}`, {
         method: "PUT",
         body: {
-          name: fellow.name,
-          color: normalizeFellowColor(fellow.color),
-          avatarImage: fellow.avatarImage || "",
-          avatarCrop: fellow.avatarCrop || null,
-          bio: fellow.bio || "",
-          capabilities: normalizeFellowCapabilities(fellow.capabilities),
+          displayName: bot.name || bot.displayName || bot.key,
+          name: bot.name || bot.displayName || bot.key,
+          color: normalizeBotColor(bot.color),
+          avatarImage: bot.avatarImage || "",
+          avatarCrop: bot.avatarCrop || null,
+          bio: bot.bio || "",
+          capabilities: normalizeBotCapabilities(bot.capabilities),
           personaText
         }
       });
     } catch (error) {
-      log(`Cloud fellow push failed for ${fellow.key}: ${error?.message || error}`);
+      log(`Cloud bot push failed for ${bot.key}: ${error?.message || error}`);
     }
   }
 
-  async function ensureFellowConversation(fellow) {
+  async function ensureBotConversation(bot) {
     const current = settings();
-    if (!current.enabled || !current.token || !fellow?.key) return;
+    if (!current.enabled || !current.token || !bot?.key) return;
     try {
-      await cloudApi(`/api/me/fellows/${encodeURIComponent(fellow.key)}/conversation`, {
+      await cloudApi(`/api/me/bot-conversations/${encodeURIComponent(bot.key)}`, {
         method: "PUT",
         body: {
-          title: fellow.name || fellow.key,
+          botId: bot.key,
+          title: bot.name || bot.displayName || bot.key,
           runtimeKind: "desktop-local"
         }
       });
     } catch (error) {
-      log(`Cloud fellow conversation ensure failed for ${fellow.key}: ${error?.message || error}`);
+      log(`Cloud bot conversation ensure failed for ${bot.key}: ${error?.message || error}`);
     }
   }
 
-  async function deleteFellow(fellowKey) {
+  async function deleteBot(botKey) {
     const current = settings();
-    if (!current.enabled || !current.token || !fellowKey) return;
+    if (!current.enabled || !current.token || !botKey) return;
     try {
-      await cloudApi(`/api/me/fellows/${encodeURIComponent(fellowKey)}`, { method: "DELETE" });
+      await cloudApi(`/api/me/bots/${encodeURIComponent(botKey)}`, { method: "DELETE" });
     } catch (error) {
-      log(`Cloud fellow delete failed for ${fellowKey}: ${error?.message || error}`);
+      log(`Cloud bot delete failed for ${botKey}: ${error?.message || error}`);
     }
   }
 
-  async function pushAllFellows() {
+  async function pushAllBots() {
     const current = settings();
     if (!current.enabled || !current.token) return;
-    const manifest = loadFellowManifest();
-    for (const fellow of (manifest.fellows || [])) {
-      await pushFellow(fellow);
-      await ensureFellowConversation(fellow);
+    const manifest = loadBotManifest();
+    const bots = Array.isArray(manifest.bots) ? manifest.bots : (manifest.fellows || []);
+    for (const bot of bots) {
+      await pushBot(bot);
+      await ensureBotConversation(bot);
     }
   }
 
@@ -151,7 +154,7 @@ function createCloudDesktopSyncClient({
     const current = settings();
     if (!current.enabled || !current.token) return status(false);
     await pushUserProfile();
-    await pushAllFellows();
+    await pushAllBots();
     try {
       const data = await cloudApi("/api/me");
       writeCloudSettings({ user: data?.user || current.user });
@@ -278,7 +281,7 @@ function createCloudDesktopSyncClient({
   }
 
   return {
-    deleteFellow,
+    deleteBot,
     getUserSettings,
     installMarketSkill,
     downloadSkillPackage,
@@ -288,8 +291,8 @@ function createCloudDesktopSyncClient({
     login,
     logout,
     putUserSettings,
-    pushAllFellows,
-    pushFellow,
+    pushAllBots,
+    pushBot,
     pushUserProfile,
     syncWorkspace
   };

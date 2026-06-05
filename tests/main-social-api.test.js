@@ -109,7 +109,7 @@ test("deleteConversation sends DELETE to the conversation route", async () => {
   } finally { await teardown(ctx); }
 });
 
-test("ensureFellowConversation sends PUT to the stable fellow conversation route", async () => {
+test("ensureBotConversation sends PUT to the stable bot conversation route", async () => {
   const seen = [];
   const ctx = await spawnFakeCloud(async (req, res) => {
     let body = "";
@@ -117,7 +117,7 @@ test("ensureFellowConversation sends PUT to the stable fellow conversation route
     req.on("end", () => {
       seen.push({ method: req.method, url: req.url, body });
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ ok: true, conversation: { id: "fellow:u_1:alice" }, created: true }));
+      res.end(JSON.stringify({ ok: true, conversation: { id: "bot:u_1:alice" }, created: true }));
     });
   });
   try {
@@ -125,17 +125,17 @@ test("ensureFellowConversation sends PUT to the stable fellow conversation route
       getSettings: () => ({ enabled: true, token: "t", url: ctx.baseUrl }),
       normalizeUrl: (u) => u
     });
-    const result = await api.ensureFellowConversation("alice", { title: "爱丽丝" });
-    assert.equal(result.conversation.id, "fellow:u_1:alice");
+    const result = await api.ensureBotConversation("alice", { title: "爱丽丝" });
+    assert.equal(result.conversation.id, "bot:u_1:alice");
     assert.equal(seen[0].method, "PUT");
-    assert.equal(seen[0].url, "/api/me/fellows/alice/conversation");
+    assert.equal(seen[0].url, "/api/me/bots/alice/conversation");
     const sentBody = JSON.parse(seen[0].body);
     assert.equal(sentBody.title, "爱丽丝");
     assert.match(sentBody.clientOpId, /^op_/);
   } finally { await teardown(ctx); }
 });
 
-test("ensureFellowSessionConversation sends PUT to the per-session fellow conversation route", async () => {
+test("ensureBotSessionConversation sends PUT to the per-session bot conversation route", async () => {
   const seen = [];
   const ctx = await spawnFakeCloud(async (req, res) => {
     let body = "";
@@ -143,7 +143,7 @@ test("ensureFellowSessionConversation sends PUT to the per-session fellow conver
     req.on("end", () => {
       seen.push({ method: req.method, url: req.url, body });
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ ok: true, conversation: { id: "fellow:u_1:sess_1" }, created: true }));
+      res.end(JSON.stringify({ ok: true, conversation: { id: "bot:u_1:sess_1" }, created: true }));
     });
   });
   try {
@@ -151,40 +151,40 @@ test("ensureFellowSessionConversation sends PUT to the per-session fellow conver
       getSettings: () => ({ enabled: true, token: "t", url: ctx.baseUrl }),
       normalizeUrl: (u) => u
     });
-    const result = await api.ensureFellowSessionConversation("sess_1", {
-      fellowKey: "mia",
+    const result = await api.ensureBotSessionConversation("sess_1", {
+      botId: "mia",
       title: "新对话",
       runtimeKind: "cloud-hermes"
     });
-    assert.equal(result.conversation.id, "fellow:u_1:sess_1");
+    assert.equal(result.conversation.id, "bot:u_1:sess_1");
     assert.equal(seen[0].method, "PUT");
-    assert.equal(seen[0].url, "/api/me/fellow-conversations/sess_1");
+    assert.equal(seen[0].url, "/api/me/bot-conversations/sess_1");
     const sentBody = JSON.parse(seen[0].body);
-    assert.equal(sentBody.fellowKey, "mia");
+    assert.equal(sentBody.botId, "mia");
     assert.equal(sentBody.runtimeKind, "cloud-hermes");
     assert.match(sentBody.clientOpId, /^op_/);
   } finally { await teardown(ctx); }
 });
 
-test("listFellows fetches cloud fellow identities", async () => {
+test("listBots fetches cloud bot identities", async () => {
   const seen = [];
   const ctx = await spawnFakeCloud((req, res) => {
     seen.push({ method: req.method, url: req.url });
     res.writeHead(200, { "content-type": "application/json" });
-    res.end(JSON.stringify({ fellows: [{ id: "mia", name: "Mia", avatarImage: "data:mia-cloud" }] }));
+    res.end(JSON.stringify({ bots: [{ id: "mia", name: "Mia", avatarImage: "data:mia-cloud" }] }));
   });
   try {
     const api = createSocialApi({
       getSettings: () => ({ enabled: true, token: "t", url: ctx.baseUrl }),
       normalizeUrl: (u) => u
     });
-    const result = await api.listFellows();
-    assert.equal(result.fellows[0].avatarImage, "data:mia-cloud");
-    assert.deepEqual(seen[0], { method: "GET", url: "/api/me/fellows" });
+    const result = await api.listBots();
+    assert.equal(result.bots[0].avatarImage, "data:mia-cloud");
+    assert.deepEqual(seen[0], { method: "GET", url: "/api/me/bots" });
   } finally { await teardown(ctx); }
 });
 
-test("saveFellowIdentity upserts a cloud fellow identity", async () => {
+test("saveBotIdentity upserts a cloud bot identity", async () => {
   const seen = [];
   const ctx = await spawnFakeCloud((req, res) => {
     let body = "";
@@ -192,7 +192,7 @@ test("saveFellowIdentity upserts a cloud fellow identity", async () => {
     req.on("end", () => {
       seen.push({ method: req.method, url: req.url, body });
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ fellow: { id: "alice", name: "Alice" } }));
+      res.end(JSON.stringify({ bot: { id: "alice", name: "Alice" } }));
     });
   });
   try {
@@ -200,17 +200,17 @@ test("saveFellowIdentity upserts a cloud fellow identity", async () => {
       getSettings: () => ({ enabled: true, token: "t", url: ctx.baseUrl }),
       normalizeUrl: (u) => u
     });
-    const result = await api.saveFellowIdentity("alice", {
+    const result = await api.saveBotIdentity("alice", {
       name: "Alice",
       color: "#2563eb",
       avatarImage: "data:image/png;base64,x",
       avatarCrop: { x: 50, y: 50, zoom: 1 },
-      bio: "A cloud Fellow",
+      bio: "A cloud Bot",
       personaText: "You are Alice."
     });
-    assert.equal(result.fellow.id, "alice");
+    assert.equal(result.bot.id, "alice");
     assert.equal(seen[0].method, "PUT");
-    assert.equal(seen[0].url, "/api/me/fellows/alice");
+    assert.equal(seen[0].url, "/api/me/bots/alice");
     const sent = JSON.parse(seen[0].body);
     assert.equal(sent.name, "Alice");
     assert.equal(sent.personaText, "You are Alice.");
@@ -218,7 +218,7 @@ test("saveFellowIdentity upserts a cloud fellow identity", async () => {
   } finally { await teardown(ctx); }
 });
 
-test("deleteFellow removes a cloud fellow identity", async () => {
+test("deleteBot removes a cloud bot identity", async () => {
   const seen = [];
   const ctx = await spawnFakeCloud((req, res) => {
     seen.push({ method: req.method, url: req.url });
@@ -230,9 +230,9 @@ test("deleteFellow removes a cloud fellow identity", async () => {
       getSettings: () => ({ enabled: true, token: "t", url: ctx.baseUrl }),
       normalizeUrl: (u) => u
     });
-    const result = await api.deleteFellow("mia");
+    const result = await api.deleteBot("mia");
     assert.equal(result.ok, true);
-    assert.deepEqual(seen[0], { method: "DELETE", url: "/api/me/fellows/mia" });
+    assert.deepEqual(seen[0], { method: "DELETE", url: "/api/me/bots/mia" });
   } finally { await teardown(ctx); }
 });
 
@@ -254,7 +254,7 @@ test("listPlatformModels fetches platform model catalog", async () => {
   } finally { await teardown(ctx); }
 });
 
-test("saveFellowRuntime sends PUT with an idempotency key", async () => {
+test("saveBotRuntime sends PUT with an idempotency key", async () => {
   const seen = [];
   const ctx = await spawnFakeCloud(async (req, res) => {
     let body = "";
@@ -262,7 +262,7 @@ test("saveFellowRuntime sends PUT with an idempotency key", async () => {
     req.on("end", () => {
       seen.push({ method: req.method, url: req.url, body });
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ binding: { fellowId: "alice", runtimeKind: "cloud-hermes" } }));
+      res.end(JSON.stringify({ binding: { botId: "alice", runtimeKind: "cloud-hermes" } }));
     });
   });
   try {
@@ -270,13 +270,13 @@ test("saveFellowRuntime sends PUT with an idempotency key", async () => {
       getSettings: () => ({ enabled: true, token: "t", url: ctx.baseUrl }),
       normalizeUrl: (u) => u
     });
-    const result = await api.saveFellowRuntime("alice", {
+    const result = await api.saveBotRuntime("alice", {
       runtimeKind: "cloud-hermes",
       config: { model: "hermes-agent" }
     });
-    assert.equal(result.binding.fellowId, "alice");
+    assert.equal(result.binding.botId, "alice");
     assert.equal(seen[0].method, "PUT");
-    assert.equal(seen[0].url, "/api/me/fellows/alice/runtime");
+    assert.equal(seen[0].url, "/api/me/bots/alice/runtime");
     const sentBody = JSON.parse(seen[0].body);
     assert.equal(sentBody.runtimeKind, "cloud-hermes");
     assert.match(sentBody.clientOpId, /^op_/);

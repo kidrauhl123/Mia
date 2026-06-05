@@ -60,7 +60,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
   const expandLeadingSkillCommand = requireDependency(deps, "expandLeadingSkillCommand");
   const buildEnabledSkillsContext = deps.buildEnabledSkillsContext || (() => "");
   const injectGroupContextForSdk = requireDependency(deps, "injectGroupContextForSdk");
-  const readFellowPersona = requireDependency(deps, "readFellowPersona");
+  const readBotPersona = requireDependency(deps, "readBotPersona");
   const claudeAgentSdk = requireDependency(deps, "claudeAgentSdk");
   const ensureClaudeBridgePlugin = requireDependency(deps, "ensureClaudeBridgePlugin");
   const appendEngineLog = requireDependency(deps, "appendEngineLog");
@@ -78,7 +78,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
   const randomUUID = deps.randomUUID || (() => crypto.randomUUID());
   const cwd = deps.cwd || (() => process.cwd());
 
-  async function sendChat({ fellow, sessionId, messages, group, signal, abortController, emit, utility = false, scheduledFire = false, persistAgentSession = !utility }) {
+  async function sendChat({ bot, sessionId, messages, group, signal, abortController, emit, utility = false, scheduledFire = false, persistAgentSession = !utility }) {
     const engine = "claude-code";
     const shouldPersistAgentSession = Boolean(persistAgentSession);
     const commandPath = shellCommandPath("claude");
@@ -88,20 +88,20 @@ function createClaudeCodeChatAdapter(deps = {}) {
     const lastUserMessage = Array.isArray(messages) ? [...messages].reverse().find((m) => m?.role === "user") : null;
     const originMessageId = String(lastUserMessage?.id || "");
     try {
-      writeSchedulerMcpContext({ fellowId: fellow.key, sessionId, originMessageId });
+      writeSchedulerMcpContext({ botId: bot.key, sessionId, originMessageId });
     } catch (error) {
       appendEngineLog(`Scheduler MCP context write failed: ${error?.message || error}`);
     }
     const expandedPrompt = sanitizeMiaMemorySpoof(expandLeadingSkillCommand(lastUser, { mode: "native" }) || lastUser);
-    const prompt = [buildEnabledSkillsContext(fellow), expandedPrompt]
+    const prompt = [buildEnabledSkillsContext(bot), expandedPrompt]
       .filter(Boolean)
       .join("\n\n");
     const promptWithGroup = group && group.contextBlock
       ? injectGroupContextForSdk(prompt, group.contextBlock)
       : prompt;
-    const miaMemory = memoryBlock({ fellowKey: fellow.key, sessionId });
+    const miaMemory = memoryBlock({ botId: bot.key, sessionId });
     const persona = appendMiaMemoryBlock(
-      withMiaRuntimeContext(readFellowPersona(fellow.key, fellow.name, fellow.bio), { scheduledFire }),
+      withMiaRuntimeContext(readBotPersona(bot.key, bot.name, bot.bio), { scheduledFire }),
       miaMemory
     ).trim();
     const { query } = await claudeAgentSdk();
@@ -114,7 +114,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
     } catch (error) {
       appendEngineLog(`Claude bridge plugin refresh failed: ${error?.message || error}`);
     }
-    const savedEntry = shouldPersistAgentSession ? getAgentSessionEntry(engine, fellow.key, sessionId) : {};
+    const savedEntry = shouldPersistAgentSession ? getAgentSessionEntry(engine, bot.key, sessionId) : {};
     const externalSessionId = savedEntry.id && savedEntry.fingerprint === bridgeFingerprint
       ? savedEntry.id
       : "";
@@ -122,7 +122,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
       try { return getSchedulerMcpSpec(); } catch { return null; }
     })();
     const miaAppMcpSpec = (() => {
-      try { return getMiaAppMcpSpec({ fellowId: fellow.key, sessionId, originMessageId }); } catch { return null; }
+      try { return getMiaAppMcpSpec({ botId: bot.key, sessionId, originMessageId }); } catch { return null; }
     })();
     const mcpServers = {
       ...(miaAppMcpSpec ? { "mia-app": miaAppMcpSpec } : {}),
@@ -135,7 +135,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
       env: processEnvStrings(),
       tools: { type: "preset", preset: "claude_code" },
       settingSources: ["project", "user", "local"],
-      permissionMode: normalizeClaudePermissionMode(fellow.engineConfig?.permissionMode || fellow.agentPermissionMode || "default"),
+      permissionMode: normalizeClaudePermissionMode(bot.engineConfig?.permissionMode || bot.agentPermissionMode || "default"),
       systemPrompt: {
         type: "preset",
         preset: "claude_code",
@@ -146,8 +146,8 @@ function createClaudeCodeChatAdapter(deps = {}) {
       ...(Object.keys(mcpServers).length ? { mcpServers } : {})
     };
     if (externalSessionId) options.resume = externalSessionId;
-    if (fellow.engineConfig?.model) options.model = String(fellow.engineConfig.model);
-    options.effort = normalizeEffortLevel(fellow.engineConfig?.effortLevel || "medium", "claude-code");
+    if (bot.engineConfig?.model) options.model = String(bot.engineConfig.model);
+    options.effort = normalizeEffortLevel(bot.engineConfig?.effortLevel || "medium", "claude-code");
     if (options.permissionMode === "bypassPermissions") options.allowDangerouslySkipPermissions = true;
     if (permissionCoordinator && options.permissionMode !== "bypassPermissions") {
       options.canUseTool = async (toolName, input = {}, context = {}) => {
@@ -155,12 +155,12 @@ function createClaudeCodeChatAdapter(deps = {}) {
         try { preview = input ? JSON.stringify(input, null, 2).slice(0, 4000) : ""; } catch { preview = ""; }
         const decision = await permissionCoordinator.requestPermission({
           engine,
-          fellowKey: fellow.key,
+          botKey: bot.key,
           sessionId,
           signal: context.signal || signal,
           emit,
           toolName,
-          title: context.title || `${fellow.name || "Claude Code"} 想使用 ${context.displayName || toolName}`,
+          title: context.title || `${bot.name || "Claude Code"} 想使用 ${context.displayName || toolName}`,
           description: context.description || context.decisionReason || "",
           preview,
           input
@@ -196,7 +196,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
         processedStreamMessage = true;
         if (message?.session_id && !capturedSessionId) {
           capturedSessionId = message.session_id;
-          if (shouldPersistAgentSession) setAgentSessionEntry(engine, fellow.key, sessionId, capturedSessionId, bridgeFingerprint);
+          if (shouldPersistAgentSession) setAgentSessionEntry(engine, bot.key, sessionId, capturedSessionId, bridgeFingerprint);
         }
 
         if (emit && message?.type === "stream_event") {
@@ -283,7 +283,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
       if (!processedStreamMessage && externalSessionId && isStaleClaudeResumeError(error)) {
         appendEngineLog(`Claude Code resume session failed; clearing saved session and retrying without resume: ${error?.message || error}`);
         try {
-          clearAgentSessionEntry(engine, fellow.key, sessionId);
+          clearAgentSessionEntry(engine, bot.key, sessionId);
         } catch (clearError) {
           appendEngineLog(`Claude Code saved session cleanup failed: ${clearError?.message || clearError}`);
         }
@@ -298,7 +298,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
       }
     }
     if (capturedSessionId && !externalSessionId && shouldPersistAgentSession) {
-      setAgentSessionEntry(engine, fellow.key, sessionId, capturedSessionId, bridgeFingerprint);
+      setAgentSessionEntry(engine, bot.key, sessionId, capturedSessionId, bridgeFingerprint);
     }
     if (signal?.aborted) {
       if (emit) emit("complete", { finishReason: "cancelled", aborted: true });
@@ -313,7 +313,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
         transport: "claude-agent-sdk",
         engine,
         session_id: capturedSessionId || "",
-        fellow_key: fellow.key
+        bot_id: bot.key
       }
     });
   }

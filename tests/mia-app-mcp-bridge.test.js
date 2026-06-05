@@ -18,7 +18,7 @@ test("Mia app MCP spec exposes stdio command and scoped daemon token", (t) => {
     serverScriptPath: () => sourceServer
   });
 
-  const spec = bridge.getSpec({ fellowId: "mei", sessionId: "s1" });
+  const spec = bridge.getSpec({ botId: "mei", sessionId: "s1" });
 
   assert.equal(spec.type, "stdio");
   assert.equal(spec.command, "/opt/node");
@@ -27,7 +27,7 @@ test("Mia app MCP spec exposes stdio command and scoped daemon token", (t) => {
   assert.equal(spec.env.MIA_APP_CONTEXT_FILE.endsWith("context.json"), true);
   assert.deepEqual(spec.args, [path.join(dir, "runtime", "mia-app-mcp", "mia-app-mcp-server.js")]);
   assert.deepEqual(JSON.parse(fs.readFileSync(spec.env.MIA_APP_CONTEXT_FILE, "utf8")), {
-    fellowId: "mei",
+    botId: "mei",
     sessionId: "s1"
   });
 });

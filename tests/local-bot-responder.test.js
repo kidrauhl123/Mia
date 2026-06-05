@@ -2,18 +2,18 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 
 const {
-  createLocalFellowResponder,
+  createLocalBotResponder,
   shouldHandleLocalCloudConversationAi
-} = require("../src/main/social/local-fellow-responder.js");
+} = require("../src/main/social/local-bot-responder.js");
 
 function setup(overrides = {}) {
   const calls = { engine: [], post: [], log: [], cloudEvents: [] };
-  const responder = createLocalFellowResponder({
+  const responder = createLocalBotResponder({
     sendChat: async (args) => {
       calls.engine.push(args);
       return { choices: [{ message: { content: "hi from codex" } }] };
     },
-    postConversationMessageAsFellow: async (conversationId, body) => {
+    postConversationMessageAsBot: async (conversationId, body) => {
       calls.post.push({ conversationId, body });
       return { ok: true };
     },
@@ -26,14 +26,14 @@ function setup(overrides = {}) {
 
 const base = {
   conversationId: "g_1",
-  fellowId: "codex",
+  botId: "codex",
   dedupKey: "m_1:codex",
   systemPrompt: "sys",
   userPrompt: "hi",
   turnId: "t_1"
 };
 
-test("respond runs the local engine and posts the reply as the fellow", async () => {
+test("respond runs the local engine and posts the reply as the bot", async () => {
   const { responder, calls } = setup();
   await responder.respond(base);
 
@@ -42,8 +42,8 @@ test("respond runs the local engine and posts the reply as the fellow", async ()
   assert.equal(typeof engineCall.emit, "function");
   delete engineCall.emit;
   assert.deepEqual(engineCall, {
-    fellowKey: "codex",
-    personaKey: "codex",
+    botKey: "codex",
+    botId: "codex",
     sessionId: "conversation:g_1",
     messages: [
       { role: "system", content: "sys" },
@@ -57,10 +57,10 @@ test("respond runs the local engine and posts the reply as the fellow", async ()
   assert.deepEqual(calls.post, [{
     conversationId: "g_1",
     body: {
-      fellowId: "codex",
+      botId: "codex",
       bodyMd: "hi from codex",
       turnId: "t_1",
-      clientOpId: "op_fellow_reply_m_1_codex"
+      clientOpId: "op_bot_reply_m_1_codex"
     }
   }]);
 });
@@ -82,7 +82,7 @@ test("respond omits activeSkillIds when the message carried no chips", async () 
 });
 
 test("activeSkillIdsFromMessage parses skills_json into id list, tolerating junk", () => {
-  const { activeSkillIdsFromMessage } = require("../src/main/social/local-fellow-responder.js");
+  const { activeSkillIdsFromMessage } = require("../src/main/social/local-bot-responder.js");
 
   assert.deepEqual(
     activeSkillIdsFromMessage({ skills_json: JSON.stringify([{ id: "trip-planner", name: "行程" }, { id: "weekly" }]) }),
@@ -107,7 +107,7 @@ test("respond emits a transient conversation run start before the local engine c
 
   assert.equal(calls.cloudEvents[0].type, "cloud_agent_run_started");
   assert.equal(calls.cloudEvents[0].conversationId, "g_1");
-  assert.equal(calls.cloudEvents[0].fellowId, "codex");
+  assert.equal(calls.cloudEvents[0].botId, "codex");
   assert.equal(calls.cloudEvents[0].triggerMessageId, "m_1");
   assert.match(calls.cloudEvents[0].runId, /^local_/);
 });
@@ -169,23 +169,23 @@ test("respond uses the same clientOpId for the same dedupKey", async () => {
   await first.responder.respond(base);
   await second.responder.respond(base);
 
-  assert.equal(first.calls.post[0].body.clientOpId, "op_fellow_reply_m_1_codex");
-  assert.equal(second.calls.post[0].body.clientOpId, "op_fellow_reply_m_1_codex");
+  assert.equal(first.calls.post[0].body.clientOpId, "op_bot_reply_m_1_codex");
+  assert.equal(second.calls.post[0].body.clientOpId, "op_bot_reply_m_1_codex");
 });
 
-test("respond uses conversation scoped chat sessions for fellow conversations", async () => {
+test("respond uses conversation scoped chat sessions for bot conversations", async () => {
   const { responder, calls } = setup();
 
   await responder.respond({
-    conversationId: "fellow:u_1:alice",
-    fellowId: "alice",
+    conversationId: "bot:u_1:alice",
+    botId: "alice",
     dedupKey: "m_2:alice",
     systemPrompt: "You are Alice",
     userPrompt: "你好"
   });
 
-  assert.equal(calls.engine[0].fellowKey, "alice");
-  assert.equal(calls.engine[0].sessionId, "conversation:fellow:u_1:alice");
+  assert.equal(calls.engine[0].botKey, "alice");
+  assert.equal(calls.engine[0].sessionId, "conversation:bot:u_1:alice");
 });
 
 test("respond dedups by dedupKey", async () => {
@@ -199,12 +199,12 @@ test("respond dedups by dedupKey", async () => {
 
 test("respond retries after post failure and dedups after post success", async () => {
   const calls = { engine: [], post: [], log: [] };
-  const responder = createLocalFellowResponder({
+  const responder = createLocalBotResponder({
     sendChat: async (args) => {
       calls.engine.push(args);
       return { choices: [{ message: { content: "retry reply" } }] };
     },
-    postConversationMessageAsFellow: async () => {
+    postConversationMessageAsBot: async () => {
       calls.post.push({});
       if (calls.post.length === 1) return { ok: false, error: "temporary" };
       return { ok: true };
@@ -221,7 +221,7 @@ test("respond retries after post failure and dedups after post success", async (
   assert.equal(calls.log.some((line) => line.includes("temporary")), true);
 });
 
-test("respond posts a visible fellow error when the local engine fails", async () => {
+test("respond posts a visible bot error when the local engine fails", async () => {
   const { responder, calls } = setup({
     sendChat: async (args) => {
       calls.engine.push(args);
@@ -235,13 +235,13 @@ test("respond posts a visible fellow error when the local engine fails", async (
   assert.equal(calls.engine.length, 1);
   assert.equal(calls.post.length, 1);
   assert.equal(calls.post[0].conversationId, "g_1");
-  assert.equal(calls.post[0].body.fellowId, "codex");
+  assert.equal(calls.post[0].body.botId, "codex");
   assert.match(calls.post[0].body.bodyMd, /模型配额已耗尽/);
   assert.deepEqual(calls.post[0].body.errorJson, {
     stage: "engine",
     message: "HTTP 429: Gemini quota exhausted"
   });
-  assert.equal(calls.post[0].body.clientOpId, "op_fellow_reply_error_m_1_codex");
+  assert.equal(calls.post[0].body.clientOpId, "op_bot_reply_error_m_1_codex");
 });
 
 test("respond skips empty replies and incomplete invocations", async () => {
@@ -255,7 +255,7 @@ test("respond skips empty replies and incomplete invocations", async () => {
   await responder.respond(base);
   await responder.respond({ ...base, dedupKey: "" });
   await responder.respond({ ...base, conversationId: "" });
-  await responder.respond({ ...base, fellowId: "" });
+  await responder.respond({ ...base, botId: "" });
 
   assert.equal(calls.engine.length, 1);
   assert.equal(calls.post.length, 0);

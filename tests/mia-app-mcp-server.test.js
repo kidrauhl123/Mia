@@ -5,13 +5,13 @@ const {
   toolDefinitions
 } = require("../src/main/mia-app-mcp-server.js");
 
-test("mia-app MCP exposes scheduler, skills, social, and fellow tools", () => {
+test("mia-app MCP exposes scheduler, skills, social, and bot tools", () => {
   const names = toolDefinitions().map((tool) => tool.name).sort();
   assert.deepEqual(names, [
+    "bot_list",
     "conversation_create_group",
     "conversation_list",
     "conversation_post_message",
-    "fellow_list",
     "schedule_create",
     "schedule_delete",
     "schedule_list",

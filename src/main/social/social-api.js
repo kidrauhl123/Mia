@@ -70,19 +70,19 @@ function createSocialApi({ getSettings, normalizeUrl }) {
     async listConversations() {
       return jsonFetch({ ...ctx(), method: "GET", path: "/api/conversations" });
     },
-    async listFellows() {
-      return jsonFetch({ ...ctx(), method: "GET", path: "/api/me/fellows" });
+    async listBots() {
+      return jsonFetch({ ...ctx(), method: "GET", path: "/api/me/bots" });
     },
-    async saveFellowIdentity(fellowId, body = {}) {
+    async saveBotIdentity(botId, body = {}) {
       return jsonFetch({
         ...ctx(),
         method: "PUT",
-        path: `/api/me/fellows/${encodeURIComponent(fellowId)}`,
+        path: `/api/me/bots/${encodeURIComponent(botId)}`,
         body: withOpId(body)
       });
     },
-    async deleteFellow(fellowId) {
-      return jsonFetch({ ...ctx(), method: "DELETE", path: `/api/me/fellows/${encodeURIComponent(fellowId)}` });
+    async deleteBot(botId) {
+      return jsonFetch({ ...ctx(), method: "DELETE", path: `/api/me/bots/${encodeURIComponent(botId)}` });
     },
     async listPlatformModels() {
       return jsonFetch({ ...ctx(), method: "GET", path: "/api/me/model-catalog" });
@@ -113,17 +113,23 @@ function createSocialApi({ getSettings, normalizeUrl }) {
       if (clientGroupId) body.clientGroupId = clientGroupId;
       return jsonFetch({ ...ctx(), method: "POST", path: "/api/conversations", body: withOpId(body) });
     },
-    async ensureFellowConversation(fellowId, body = {}) {
-      return jsonFetch({ ...ctx(), method: "PUT", path: `/api/me/fellows/${encodeURIComponent(fellowId)}/conversation`, body: withOpId(body) });
+    async ensureBotConversation(botId, body = {}) {
+      return jsonFetch({ ...ctx(), method: "PUT", path: `/api/me/bots/${encodeURIComponent(botId)}/conversation`, body: withOpId(body) });
     },
-    async ensureFellowSessionConversation(sessionId, body = {}) {
-      return jsonFetch({ ...ctx(), method: "PUT", path: `/api/me/fellow-conversations/${encodeURIComponent(sessionId)}`, body: withOpId(body) });
+    async ensureBotSessionConversation(sessionId, body = {}) {
+      const botId = String(body.botId || body.botKey || "").trim();
+      return jsonFetch({
+        ...ctx(),
+        method: "PUT",
+        path: `/api/me/bot-conversations/${encodeURIComponent(sessionId)}`,
+        body: withOpId({ ...body, ...(botId ? { botId } : {}) })
+      });
     },
-    async getFellowRuntime(fellowId, runtimeKind = "cloud-hermes") {
-      return jsonFetch({ ...ctx(), method: "GET", path: `/api/me/fellows/${encodeURIComponent(fellowId)}/runtime?kind=${encodeURIComponent(runtimeKind)}` });
+    async getBotRuntime(botId, runtimeKind = "cloud-hermes") {
+      return jsonFetch({ ...ctx(), method: "GET", path: `/api/me/bots/${encodeURIComponent(botId)}/runtime?kind=${encodeURIComponent(runtimeKind)}` });
     },
-    async saveFellowRuntime(fellowId, body = {}) {
-      return jsonFetch({ ...ctx(), method: "PUT", path: `/api/me/fellows/${encodeURIComponent(fellowId)}/runtime`, body: withOpId(body) });
+    async saveBotRuntime(botId, body = {}) {
+      return jsonFetch({ ...ctx(), method: "PUT", path: `/api/me/bots/${encodeURIComponent(botId)}/runtime`, body: withOpId(body) });
     },
     async updateConversation(conversationId, patch) {
       return jsonFetch({ ...ctx(), method: "PATCH", path: `/api/conversations/${conversationId}`, body: patch || {} });

@@ -40,7 +40,7 @@ function setup(overrides = {}) {
   const calls = {
     broadcasts: [],
     conductor: [],
-    fellowConversation: [],
+    botConversation: [],
     logs: [],
     responder: [],
     runtimeDispatcher: [],
@@ -67,7 +67,7 @@ function setup(overrides = {}) {
     cloudEventChannel: "cloud:event",
     appendCloudLog: (line) => calls.logs.push(line),
     shouldHandleCloudConversationAi: () => true,
-    fellowRuntimeDispatcher: {
+    botRuntimeDispatcher: {
       handleCloudEvent: async (message) => calls.runtimeDispatcher.push(message)
     },
     setTimeoutFn: (fn, delayMs) => {
@@ -113,10 +113,10 @@ test("events_ready does not advance resume cursor until replayed events are appl
     message: { id: "m_41", seq: 1, sender_kind: "user", body_md: "missed one" }
   }));
   client.handleMessage(JSON.stringify({
-    type: "conversation.fellow_invocation_requested",
+    type: "conversation.bot_invocation_requested",
     seq: 42,
     conversationId: "g_1",
-    fellowId: "codex",
+    botId: "codex",
     triggeringMessage: { id: "m_41", body_md: "@codex 看看" }
   }));
 
@@ -196,14 +196,14 @@ test("start replaces a stale cloud events socket that never became ready", () =>
   assert.equal(client.status().connecting, true);
 });
 
-test("fellow invocation events are dispatched to main; raw message events are not", async () => {
+test("bot invocation events are dispatched to main; raw message events are not", async () => {
   const { client, calls } = setup();
 
   client.handleMessage(JSON.stringify({
-    type: "conversation.fellow_invocation_requested",
+    type: "conversation.bot_invocation_requested",
     seq: 4,
     conversationId: "g_1",
-    fellowId: "codex",
+    botId: "codex",
     triggeringMessage: { id: "m_1", body_md: "@codex 看看" }
   }));
   client.handleMessage(JSON.stringify({
@@ -216,11 +216,11 @@ test("fellow invocation events are dispatched to main; raw message events are no
 
   assert.deepEqual(calls.settingsWrites, [{ lastEventSeq: 4 }, { lastEventSeq: 5 }]);
   assert.deepEqual(calls.runtimeDispatcher.map((message) => message.type), [
-    "conversation.fellow_invocation_requested"
+    "conversation.bot_invocation_requested"
   ]);
-  assert.equal(calls.runtimeDispatcher[0].fellowId, "codex");
+  assert.equal(calls.runtimeDispatcher[0].botId, "codex");
   assert.deepEqual(calls.responder, []);
-  assert.equal(calls.broadcasts.map((item) => item.envelope.type).join(","), "conversation.fellow_invocation_requested,conversation.message_appended");
+  assert.equal(calls.broadcasts.map((item) => item.envelope.type).join(","), "conversation.bot_invocation_requested,conversation.message_appended");
 });
 
 test("conversation.message_appended events are written through to the local message cache", async () => {
@@ -234,11 +234,11 @@ test("conversation.message_appended events are written through to the local mess
   client.handleMessage(JSON.stringify({
     type: "conversation.message_appended",
     seq: 5,
-    conversationId: "fellow:u_1:mia",
+    conversationId: "bot:u_1:mia",
     message: {
       id: "m_2",
       seq: 2,
-      sender_kind: "fellow",
+      sender_kind: "bot",
       sender_ref: "mia",
       body_md: "done",
       trace_json: JSON.stringify({ reasoning: "检查文件" })
@@ -247,11 +247,11 @@ test("conversation.message_appended events are written through to the local mess
   await Promise.resolve();
 
   assert.deepEqual(cached, [{
-    conversationId: "fellow:u_1:mia",
+    conversationId: "bot:u_1:mia",
     messages: [{
       id: "m_2",
       seq: 2,
-      sender_kind: "fellow",
+      sender_kind: "bot",
       sender_ref: "mia",
       body_md: "done",
       trace_json: JSON.stringify({ reasoning: "检查文件" })
@@ -260,14 +260,14 @@ test("conversation.message_appended events are written through to the local mess
   assert.equal(calls.broadcasts[0].envelope.type, "conversation.message_appended");
 });
 
-test("fellow runtime updates are forwarded to the renderer", () => {
+test("bot runtime updates are forwarded to the renderer", () => {
   const { client, calls } = setup();
 
   client.handleMessage(JSON.stringify({
-    type: "fellow.runtime_updated",
+    type: "bot.runtime_updated",
     seq: 9,
     binding: {
-      fellowId: "mia",
+      botId: "mia",
       runtimeKind: "cloud-hermes",
       config: { model: "hermes-agent" }
     }
@@ -276,12 +276,12 @@ test("fellow runtime updates are forwarded to the renderer", () => {
   assert.deepEqual(calls.settingsWrites, [{ lastEventSeq: 9 }]);
   assert.equal(calls.broadcasts.length, 1);
   assert.deepEqual(calls.broadcasts[0].envelope, {
-    type: "fellow.runtime_updated",
+    type: "bot.runtime_updated",
     payload: {
-      type: "fellow.runtime_updated",
+      type: "bot.runtime_updated",
       seq: 9,
       binding: {
-        fellowId: "mia",
+        botId: "mia",
         runtimeKind: "cloud-hermes",
         config: { model: "hermes-agent" }
       }

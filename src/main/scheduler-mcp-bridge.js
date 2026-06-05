@@ -83,10 +83,10 @@ function createSchedulerMcpBridge(deps = {}) {
     return targetPath;
   }
 
-  function writeContext({ fellowId = "", sessionId = "", originMessageId = "" } = {}) {
+  function writeContext({ botId = "", sessionId = "", originMessageId = "" } = {}) {
     const filePath = contextPath();
     fsImpl.mkdirSync(path.dirname(filePath), { recursive: true });
-    fsImpl.writeFileSync(filePath, JSON.stringify({ fellowId, sessionId, originMessageId }, null, 2), "utf8");
+    fsImpl.writeFileSync(filePath, JSON.stringify({ botId, sessionId, originMessageId }, null, 2), "utf8");
   }
 
   function daemonBaseUrl() {

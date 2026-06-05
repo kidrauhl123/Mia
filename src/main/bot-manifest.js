@@ -1,14 +1,14 @@
-// Fellow manifest + persona helpers (main process)
-// Extracted from src/main.js. Owns the read-side of the on-disk fellow
+// Bot manifest + persona helpers (main process)
+// Extracted from src/main.js. Owns the read-side of the on-disk bot
 // data:
-//   - fellows/manifest.json (the list + each fellow's normalized record)
-//   - fellows/<key>.md (each fellow's persona prompt body)
+//   - fellows/manifest.json (the list + each bot's normalized record)
+//   - fellows/<key>.md (each bot's persona prompt body)
 //   - fellows/<key>.fellow.json (metadata sidecar)
 //
-// Plus the normalization helpers used everywhere (normalizeFellow,
-// normalizeFellowEngineConfig, mergeFellowEngineConfig, etc.).
+// Plus the normalization helpers used everywhere (normalizeBot,
+// normalizeBotEngineConfig, mergeBotEngineConfig, etc.).
 //
-// Write-side CRUD lives in fellow-service.js, which composes these record
+// Write-side CRUD lives in bot-service.js, which composes these record
 // helpers with cloud sync, task cleanup, chat cleanup, and pet cleanup.
 
 const crypto = require("node:crypto");
@@ -16,11 +16,11 @@ const fs = require("node:fs");
 const path = require("node:path");
 const {
   normalizeCapabilityIds,
-  normalizeFellowColor,
-  normalizeFellowCapabilities
-} = require("../shared/fellow-identity.js");
+  normalizeBotColor,
+  normalizeBotCapabilities
+} = require("../shared/bot-identity.js");
 
-function createFellowManifest(deps = {}) {
+function createBotManifest(deps = {}) {
   const {
     runtimePaths,
     readJson,
@@ -28,9 +28,9 @@ function createFellowManifest(deps = {}) {
     settingsStore,
   } = deps;
 
-  function defaultFellowManifest() {
+  function defaultBotManifest() {
     // Empty by design — first launch goes through an onboarding flow that asks
-    // the user to create their initial fellow. No pre-baked placeholder.
+    // the user to create their initial bot. No pre-baked placeholder.
     return {
       schema_version: 1,
       product: "mia",
@@ -39,11 +39,11 @@ function createFellowManifest(deps = {}) {
     };
   }
 
-  function normalizeFellowAgentEngine(value) {
+  function normalizeBotAgentEngine(value) {
     return normalizeAgentEngine(value);
   }
 
-  function normalizeFellowEngineConfig(input = {}) {
+  function normalizeBotEngineConfig(input = {}) {
     const value = input && typeof input === "object" ? input : {};
     const next = {};
     const model = String(value.model || "").trim();
@@ -55,8 +55,8 @@ function createFellowManifest(deps = {}) {
     return next;
   }
 
-  function mergeFellowEngineConfig(current = {}, update = {}) {
-    const next = normalizeFellowEngineConfig(current);
+  function mergeBotEngineConfig(current = {}, update = {}) {
+    const next = normalizeBotEngineConfig(current);
     if (Object.prototype.hasOwnProperty.call(update || {}, "model")) {
       const model = String(update.model || "").trim();
       if (model) next.model = model;
@@ -80,7 +80,7 @@ function createFellowManifest(deps = {}) {
   }
 
   function defaultManifest() {
-    const manifest = defaultFellowManifest();
+    const manifest = defaultBotManifest();
     return {
       schema_version: manifest.schema_version,
       product: manifest.product,
@@ -89,9 +89,9 @@ function createFellowManifest(deps = {}) {
     };
   }
 
-  function normalizeFellow(item) {
-    const key = String(item?.key || item?.account_id || "").trim().toLowerCase().replace(/[^a-z0-9_.-]+/g, "_");
-    const name = String(item?.name || item?.display_name || key || "Mia").trim();
+  function normalizeBot(item) {
+    const key = String(item?.key || item?.id || item?.account_id || "").trim().toLowerCase().replace(/[^a-z0-9_.-]+/g, "_");
+    const name = String(item?.name || item?.displayName || item?.display_name || key || "Mia").trim();
     if (!key || !name) return null;
     const pinnedAt = String(item?.pinnedAt || item?.pinned_at || "").trim();
     const mutedAt = String(item?.mutedAt || item?.muted_at || "").trim();
@@ -100,10 +100,10 @@ function createFellowManifest(deps = {}) {
       name,
       account_id: String(item?.account_id || key).trim() || key,
       route_profile: String(item?.route_profile || item?.account_id || key).trim() || key,
-      agentEngine: normalizeFellowAgentEngine(item?.agentEngine || item?.agent_engine || item?.engine),
-      engineConfig: normalizeFellowEngineConfig(item?.engineConfig || item?.engine_config),
+      agentEngine: normalizeBotAgentEngine(item?.agentEngine || item?.agent_engine || item?.engine),
+      engineConfig: normalizeBotEngineConfig(item?.engineConfig || item?.engine_config),
       platform: String(item?.platform || "api_server").trim() || "api_server",
-      color: normalizeFellowColor(item?.color || item?.avatarColor || item?.avatar_color),
+      color: normalizeBotColor(item?.color || item?.avatarColor || item?.avatar_color),
       avatarImage: String(item?.avatarImage || item?.avatar_image || "").trim(),
       avatarCrop: normalizeAvatarCrop(item?.avatarCrop || item?.avatar_crop),
       pinned: Boolean(item?.pinned || item?.is_pinned || pinnedAt),
@@ -112,7 +112,7 @@ function createFellowManifest(deps = {}) {
       mutedAt,
       bio: String(item?.bio || item?.description || "").trim(),
       personaText: String(item?.personaText || item?.persona_text || "").trim(),
-      capabilities: normalizeFellowCapabilities(item?.capabilities)
+      capabilities: normalizeBotCapabilities(item?.capabilities)
     };
   }
 
@@ -141,85 +141,87 @@ function createFellowManifest(deps = {}) {
     return normalized;
   }
 
-  function normalizeFellowManifest(input) {
-    const source = input && typeof input === "object" ? input : defaultFellowManifest();
-    const rawFellows = Array.isArray(source.fellows)
+  function normalizeBotManifest(input) {
+    const source = input && typeof input === "object" ? input : defaultBotManifest();
+    const rawBots = Array.isArray(source.bots)
+      ? source.bots
+      : Array.isArray(source.fellows)
       ? source.fellows
       : Array.isArray(source.personas)
         ? source.personas
-        : defaultFellowManifest().fellows;
-    const fellows = rawFellows.map(normalizeFellow).filter(Boolean);
+        : defaultBotManifest().fellows;
+    const fellows = rawBots.map(normalizeBot).filter(Boolean);
     return {
       schema_version: 1,
       product: "mia",
-      default_fellow: String(source.default_fellow || source.default_persona || fellows[0]?.key || ""),
+      default_fellow: String(source.default_bot || source.default_fellow || source.default_persona || fellows[0]?.key || ""),
       fellows
     };
   }
 
-  function loadFellowManifest() {
+  function loadBotManifest() {
     const p = runtimePaths();
     if (fs.existsSync(p.fellowManifest)) {
-      return normalizeFellowManifest(readJson(p.fellowManifest, defaultFellowManifest()));
+      return normalizeBotManifest(readJson(p.fellowManifest, defaultBotManifest()));
     }
     if (fs.existsSync(p.legacyPersonaManifest)) {
-      return normalizeFellowManifest(readJson(p.legacyPersonaManifest, defaultManifest()));
+      return normalizeBotManifest(readJson(p.legacyPersonaManifest, defaultManifest()));
     }
-    return defaultFellowManifest();
+    return defaultBotManifest();
   }
 
-  function saveFellowManifest(manifest) {
+  function saveBotManifest(manifest) {
     const p = runtimePaths();
-    const normalized = normalizeFellowManifest(manifest);
+    const normalized = normalizeBotManifest(manifest);
     fs.mkdirSync(path.dirname(p.fellowManifest), { recursive: true });
     fs.writeFileSync(p.fellowManifest, JSON.stringify(normalized, null, 2) + "\n");
     return normalized;
   }
 
-  function fellowPersonaBody(name, description = "") {
+  function botPersonaBody(name, description = "") {
     return [
       `# ${name}`,
       "",
-      `你是${name}，Mia App 里的 Fellow。`,
+      `你是${name}，Mia App 里的 Bot。`,
       description ? String(description).trim() : "请保持清楚、可靠、可执行的沟通风格。",
       ""
     ].join("\n");
   }
 
-  function fellowMetadata(fellow) {
+  function botMetadata(bot) {
     return {
-      account_id: fellow.key,
-      display_name: fellow.name,
-      agent_engine: normalizeFellowAgentEngine(fellow.agentEngine || fellow.agent_engine),
-      engine_config: normalizeFellowEngineConfig(fellow.engineConfig || fellow.engine_config),
-      color: normalizeFellowColor(fellow.color || fellow.avatarColor || fellow.avatar_color),
-      avatar_image: fellow.avatarImage || "",
-      avatar_crop: fellow.avatarCrop || { x: 50, y: 50, zoom: 1 },
-      pinned: Boolean(fellow.pinned),
-      pinned_at: fellow.pinnedAt || "",
-      muted: Boolean(fellow.muted),
-      muted_at: fellow.mutedAt || "",
-      bio: fellow.bio || "",
-      persona_text: fellow.personaText || "",
-      capabilities: normalizeFellowCapabilities(fellow.capabilities),
+      account_id: bot.key,
+      display_name: bot.name,
+      agent_engine: normalizeBotAgentEngine(bot.agentEngine || bot.agent_engine),
+      engine_config: normalizeBotEngineConfig(bot.engineConfig || bot.engine_config),
+      color: normalizeBotColor(bot.color || bot.avatarColor || bot.avatar_color),
+      avatar_image: bot.avatarImage || "",
+      avatar_crop: bot.avatarCrop || { x: 50, y: 50, zoom: 1 },
+      pinned: Boolean(bot.pinned),
+      pinned_at: bot.pinnedAt || "",
+      muted: Boolean(bot.muted),
+      muted_at: bot.mutedAt || "",
+      bio: bot.bio || "",
+      persona_text: bot.personaText || "",
+      capabilities: normalizeBotCapabilities(bot.capabilities),
       created_at: new Date().toISOString()
     };
   }
 
-  function fellowPersonaPath(key) {
+  function botPersonaPath(key) {
     return path.join(runtimePaths().fellowDir, `${String(key || "").trim()}.md`);
   }
 
-  function readFellowPersona(key, fallbackName = "Mia", fallbackBio = "") {
-    const personaPath = fellowPersonaPath(key);
+  function readBotPersona(key, fallbackName = "Mia", fallbackBio = "") {
+    const personaPath = botPersonaPath(key);
     try {
       return fs.readFileSync(personaPath, "utf8");
     } catch {
-      return fellowPersonaBody(fallbackName, fallbackBio);
+      return botPersonaBody(fallbackName, fallbackBio);
     }
   }
 
-  function fellowKeyFromName(name) {
+  function botKeyFromName(name) {
     const slug = String(name || "")
       .trim()
       .toLowerCase()
@@ -227,29 +229,29 @@ function createFellowManifest(deps = {}) {
       .replace(/^_+|_+$/g, "")
       .slice(0, 40);
     if (slug) return slug;
-    const hash = crypto.createHash("sha1").update(String(name || "fellow")).digest("hex").slice(0, 10);
-    return `fellow_${hash}`;
+    const hash = crypto.createHash("sha1").update(String(name || "bot")).digest("hex").slice(0, 10);
+    return `bot_${hash}`;
   }
 
   return {
-    defaultFellowManifest,
-    normalizeFellowAgentEngine,
-    normalizeFellowEngineConfig,
-    mergeFellowEngineConfig,
+    defaultBotManifest,
+    normalizeBotAgentEngine,
+    normalizeBotEngineConfig,
+    mergeBotEngineConfig,
     normalizeCapabilityIds,
-    normalizeFellowCapabilities,
+    normalizeBotCapabilities,
     defaultManifest,
-    normalizeFellow,
+    normalizeBot,
     normalizeAvatarCrop,
-    normalizeFellowManifest,
-    loadFellowManifest,
-    saveFellowManifest,
-    fellowPersonaBody,
-    fellowMetadata,
-    fellowPersonaPath,
-    readFellowPersona,
-    fellowKeyFromName,
+    normalizeBotManifest,
+    loadBotManifest,
+    saveBotManifest,
+    botPersonaBody,
+    botMetadata,
+    botPersonaPath,
+    readBotPersona,
+    botKeyFromName,
   };
 }
 
-module.exports = { createFellowManifest };
+module.exports = { createBotManifest };

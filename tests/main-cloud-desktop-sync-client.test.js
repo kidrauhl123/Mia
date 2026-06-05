@@ -48,8 +48,8 @@ function setup(overrides = {}) {
       return responses.shift() || jsonResponse({ ok: true, user: { id: "u_1", username: "refreshed" } });
     },
     timeoutSignal: () => "timeout-signal",
-    loadFellowManifest: () => ({
-      fellows: [{
+    loadBotManifest: () => ({
+      bots: [{
         key: "codex",
         name: "Codex",
         color: "#123456",
@@ -60,9 +60,9 @@ function setup(overrides = {}) {
         capabilities: { chat: true, image: false }
       }]
     }),
-    fellowPersonaPath: (key) => `/personas/${key}.md`,
+    botPersonaPath: (key) => `/personas/${key}.md`,
     fileExists: (filePath) => filePath === "/personas/codex.md",
-    readFellowPersona: () => "persona text",
+    readBotPersona: () => "persona text",
     runtimePaths: () => ({ userProfile: "/profile.json" }),
     readJson: (filePath) => filePath === "/profile.json"
       ? { avatarImage: "data:image/png;base64,user", avatarCrop: { y: 2 }, avatarColor: "#ffcc00" }
@@ -104,51 +104,54 @@ test("login normalizes the cloud URL, resets local auth, then starts sockets wit
   assert.equal(getSettings().token, "tok_new");
 });
 
-test("syncWorkspace syncs fellow identity and stable conversations without reading local sessions", async () => {
+test("syncWorkspace syncs bot identity and stable conversations without reading local sessions", async () => {
   const { client, calls } = setup();
-  const { normalizeFellowCapabilities } = require("../src/shared/fellow-identity.js");
+  const { normalizeBotCapabilities } = require("../src/shared/bot-identity.js");
 
   await client.syncWorkspace();
 
   assert.deepEqual(calls.fetch.map((request) => [request.method, request.url]), [
     ["PATCH", "https://cloud.example/api/me/profile"],
-    ["PUT", "https://cloud.example/api/me/fellows/codex"],
-    ["PUT", "https://cloud.example/api/me/fellows/codex/conversation"],
+    ["PUT", "https://cloud.example/api/me/bots/codex"],
+    ["PUT", "https://cloud.example/api/me/bot-conversations/codex"],
     ["GET", "https://cloud.example/api/me"]
   ]);
   assert.equal(calls.fetch[0].headers.Authorization, "Bearer tok_1");
   assert.deepEqual(calls.fetch[1].body, {
+    displayName: "Codex",
     name: "Codex",
     color: "#123456",
     avatarImage: "data:image/png;base64,abc",
     avatarCrop: { x: 1 },
     bio: "assistant",
-    capabilities: normalizeFellowCapabilities({ chat: true, image: false }),
+    capabilities: normalizeBotCapabilities({ chat: true, image: false }),
     personaText: "manifest persona"
   });
   assert.deepEqual(calls.fetch[2].body, {
+    botId: "codex",
     title: "Codex",
     runtimeKind: "desktop-local"
   });
   assert.deepEqual(calls.writes.at(-1), { user: { id: "u_1", username: "refreshed" } });
 });
 
-test("pushAllFellows ensures a stable cloud conversation for each local fellow", async () => {
+test("pushAllBots ensures a stable cloud conversation for each local bot", async () => {
   const { client, calls } = setup();
 
-  await client.pushAllFellows();
+  await client.pushAllBots();
 
   assert.deepEqual(calls.fetch.map((request) => [request.method, request.url]), [
-    ["PUT", "https://cloud.example/api/me/fellows/codex"],
-    ["PUT", "https://cloud.example/api/me/fellows/codex/conversation"]
+    ["PUT", "https://cloud.example/api/me/bots/codex"],
+    ["PUT", "https://cloud.example/api/me/bot-conversations/codex"]
   ]);
   assert.deepEqual(calls.fetch[1].body, {
+    botId: "codex",
     title: "Codex",
     runtimeKind: "desktop-local"
   });
 });
 
-test("pushAllFellows ensures conversations even when local user metadata is missing", async () => {
+test("pushAllBots ensures conversations even when local user metadata is missing", async () => {
   const { client, calls } = setup({
     initialSettings: {
       enabled: true,
@@ -158,13 +161,14 @@ test("pushAllFellows ensures conversations even when local user metadata is miss
     }
   });
 
-  await client.pushAllFellows();
+  await client.pushAllBots();
 
   assert.deepEqual(calls.fetch.map((request) => [request.method, request.url]), [
-    ["PUT", "https://cloud.example/api/me/fellows/codex"],
-    ["PUT", "https://cloud.example/api/me/fellows/codex/conversation"]
+    ["PUT", "https://cloud.example/api/me/bots/codex"],
+    ["PUT", "https://cloud.example/api/me/bot-conversations/codex"]
   ]);
   assert.deepEqual(calls.fetch[1].body, {
+    botId: "codex",
     title: "Codex",
     runtimeKind: "desktop-local"
   });

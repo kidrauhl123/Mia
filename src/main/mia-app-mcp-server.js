@@ -15,7 +15,7 @@ const READ_TOOLS = new Set([
   "skill_search",
   "skill_show",
   "conversation_list",
-  "fellow_list"
+  "bot_list"
 ]);
 const WRITE_TOOLS = new Set([
   "schedule_create",
@@ -42,7 +42,7 @@ function toolDefinitions() {
     { name: "conversation_list", description: "List Mia conversations available to the current user.", inputSchema: { type: "object" } },
     { name: "conversation_create_group", description: "Create a Mia group conversation.", inputSchema: { type: "object" } },
     { name: "conversation_post_message", description: "Post a message into a Mia conversation.", inputSchema: { type: "object" } },
-    { name: "fellow_list", description: "List Mia Fellows and basic runtime metadata.", inputSchema: { type: "object" } }
+    { name: "bot_list", description: "List Mia bots and basic runtime metadata.", inputSchema: { type: "object" } }
   ];
 }
 
@@ -121,7 +121,7 @@ async function callTool(name, args = {}) {
     case "schedule_create": {
       const { status, body } = await daemonFetch("POST", "/api/tasks", {
         title: args.title,
-        fellowId: ctx.fellowId || args.fellowId || "",
+        botId: ctx.botId || args.botId || "",
         sessionId: ctx.sessionId || args.sessionId || "",
         originMessageId: ctx.originMessageId || args.originMessageId || "",
         trigger: args.trigger,
@@ -167,8 +167,8 @@ async function callTool(name, args = {}) {
       return daemonJson("POST", `/api/conversations/${encodeURIComponent(args.conversationId)}/messages`, {
         bodyMd: args.bodyMd || args.body || args.message || ""
       });
-    case "fellow_list":
-      return daemonJson("GET", "/api/fellows", null);
+    case "bot_list":
+      return daemonJson("GET", "/api/bots", null);
     default:
       throw new Error(`Unknown tool: ${name}`);
   }

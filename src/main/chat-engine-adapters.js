@@ -15,14 +15,14 @@ function normalizeLocalCommandResult(result) {
   return { content: String(result || ""), commandResult: null };
 }
 
-function commandResponse({ commandId, chatCompletionResponse, engine, model, result, content, fellowKey }) {
+function commandResponse({ commandId, chatCompletionResponse, engine, model, result, content, botKey }) {
   const normalized = normalizeLocalCommandResult(result ?? content);
   return chatCompletionResponse({
     id: commandId(),
     model,
     content: normalized.content,
     commandResult: normalized.commandResult,
-    mia: { transport: "local-command", engine, fellow_key: fellowKey }
+    mia: { transport: "local-command", engine, bot_id: botKey }
   });
 }
 
@@ -42,7 +42,7 @@ function createChatEngineAdapters(deps = {}) {
         if (context.slashText) {
           const localResult = deps.runExternalSlashCommand({
             text: context.slashText,
-            fellow: context.fellow,
+            bot: context.bot,
             engine,
             sessionId: context.sessionId
           });
@@ -53,7 +53,7 @@ function createChatEngineAdapters(deps = {}) {
               engine,
               model: adapter.responseModel,
               result: localResult,
-              fellowKey: context.fellow.key
+              botKey: context.bot.key
             });
           }
         }
@@ -68,7 +68,7 @@ function createChatEngineAdapters(deps = {}) {
         if (context.slashText) {
           const localResult = deps.runExternalSlashCommand({
             text: context.slashText,
-            fellow: context.fellow,
+            bot: context.bot,
             engine,
             sessionId: context.sessionId
           });
@@ -79,7 +79,7 @@ function createChatEngineAdapters(deps = {}) {
               engine,
               model: adapter.responseModel,
               result: localResult,
-              fellowKey: context.fellow.key
+              botKey: context.bot.key
             });
           }
         }
@@ -93,7 +93,7 @@ function createChatEngineAdapters(deps = {}) {
         if (context.slashText) {
           const content = deps.runHermesSlashCommand({
             text: context.slashText,
-            fellow: context.fellow,
+            bot: context.bot,
             sessionId: context.sessionId
           });
           return deps.hermesSlashCommandResponse({

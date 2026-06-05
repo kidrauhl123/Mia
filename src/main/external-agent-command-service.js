@@ -10,7 +10,7 @@ const EXTERNAL_AGENT_BUILT_IN_COMMANDS = [
   { command: "/model", name: "/model", description: "查看当前本地引擎模型", namespace: "builtin", type: "builtin" },
   { command: "/cost", name: "/cost", description: "查看本次 GUI 可见的用量信息", namespace: "builtin", type: "builtin" },
   { command: "/memory", name: "/memory", description: "查看当前项目 CLAUDE.md 记忆文件状态", namespace: "builtin", type: "builtin" },
-  { command: "/config", name: "/config", description: "查看当前 Fellow 的本地引擎配置入口", namespace: "builtin", type: "builtin" },
+  { command: "/config", name: "/config", description: "查看当前 Bot 的本地引擎配置入口", namespace: "builtin", type: "builtin" },
   { command: "/status", name: "/status", description: "查看本地 CLI、模型、权限和外部会话", namespace: "builtin", type: "builtin" },
   { command: "/permissions", name: "/permissions", description: "查看当前本地引擎权限", namespace: "builtin", type: "builtin" },
   { command: "/resume", name: "/resume", description: "把当前 Mia 会话绑定到指定外部 session", namespace: "builtin", type: "builtin" },
@@ -50,8 +50,8 @@ function createExternalAgentCommandService(deps = {}) {
 
   const cwd = typeof deps.cwd === "function" ? deps.cwd : () => process.cwd();
   const homeDir = typeof deps.homeDir === "function" ? deps.homeDir : () => os.homedir();
-  const normalizeFellowAgentEngine = deps.normalizeFellowAgentEngine || ((engine) => String(engine || ""));
-  const normalizeFellowEngineConfig = deps.normalizeFellowEngineConfig || (() => ({}));
+  const normalizeBotAgentEngine = deps.normalizeBotAgentEngine || ((engine) => String(engine || ""));
+  const normalizeBotEngineConfig = deps.normalizeBotEngineConfig || (() => ({}));
   const normalizeEffortLevel = deps.normalizeEffortLevel || ((level) => String(level || "medium"));
   const localAgentEngines = deps.localAgentEngines || (() => ({}));
   const getAgentSessionId = deps.getAgentSessionId || (() => "");
@@ -82,14 +82,14 @@ function createExternalAgentCommandService(deps = {}) {
   }
 
   function executeCommand(input = {}) {
-    const engine = normalizeFellowAgentEngine(input.engine);
+    const engine = normalizeBotAgentEngine(input.engine);
     const command = String(input.commandName || input.command || "").trim().toLowerCase();
     const args = Array.isArray(input.args) ? input.args.map(String) : [];
     const projectPath = String(input.context?.projectPath || input.projectPath || cwd()).trim() || cwd();
     if (EXTERNAL_AGENT_BUILT_IN_COMMANDS.some((item) => item.command === command)) {
       const result = runSlashCommand({
         text: [command, ...args].join(" "),
-        fellow: input.context?.fellow || {},
+        bot: input.context?.bot || {},
         engine,
         sessionId: input.context?.sessionId || ""
       });
@@ -127,17 +127,17 @@ function createExternalAgentCommandService(deps = {}) {
     };
   }
 
-  function externalAgentStatus({ fellow, engine, sessionId }) {
+  function externalAgentStatus({ bot, engine, sessionId }) {
     const info = localAgentEngines();
     const engineInfo = engine === "claude-code" ? info.claudeCode : info.codex;
-    const config = normalizeFellowEngineConfig(fellow.engineConfig);
+    const config = normalizeBotEngineConfig(bot.engineConfig);
     const model = config.model || (engine === "claude-code" ? "Claude Code 默认模型" : "Codex 默认模型");
     const permission = config.permissionMode || "default";
     const effort = normalizeEffortLevel(config.effortLevel || "medium", engine);
-    const externalSessionId = getAgentSessionId(engine, fellow.key, sessionId) || "尚未创建";
+    const externalSessionId = getAgentSessionId(engine, bot.key, sessionId) || "尚未创建";
     const label = engine === "claude-code" ? "Claude Code" : "Codex";
     return [
-      `${fellow.name || "当前 Fellow"} 使用 ${label} 本地引擎。`,
+      `${bot.name || "当前 Bot"} 使用 ${label} 本地引擎。`,
       `模型：${model}`,
       `推理强度：${effort}`,
       `权限：${permission}`,
@@ -147,23 +147,23 @@ function createExternalAgentCommandService(deps = {}) {
     ].filter(Boolean).join("\n");
   }
 
-  function miaConversationTitleForAgentBinding(localConversationId, fellow) {
+  function miaConversationTitleForAgentBinding(localConversationId, bot) {
     const id = String(localConversationId || "").trim();
-    const fellowKey = String(fellow?.key || "").trim();
+    const botKey = String(bot?.key || "").trim();
     if (!id || id.startsWith("title:") || id.startsWith("utility:")) return null;
     if (id.startsWith("group:")) return null;
     return {
-      title: id.startsWith("fellow:") ? "Mia 云端对话" : "Mia 对话",
-      preview: `${fellow?.name || fellowKey || "当前 Fellow"} 的 Mia 对话`,
+      title: id.startsWith("bot:") ? "Mia 云端对话" : "Mia 对话",
+      preview: `${bot?.name || botKey || "当前 Bot"} 的 Mia 对话`,
       updatedAt: 0
     };
   }
 
-  function listBoundExternalAgentSessions({ engine, fellow, limit = 10 } = {}) {
-    const normalizedEngine = normalizeFellowAgentEngine(engine);
-    const fellowKey = String(fellow?.key || "").trim();
-    if (!fellowKey) return [];
-    const prefix = `${normalizedEngine}:${fellowKey}:`;
+  function listBoundExternalAgentSessions({ engine, bot, limit = 10 } = {}) {
+    const normalizedEngine = normalizeBotAgentEngine(engine);
+    const botKey = String(bot?.key || "").trim();
+    if (!botKey) return [];
+    const prefix = `${normalizedEngine}:${botKey}:`;
     const metadata = new Map(listExternalAgentSessions(normalizedEngine, { homeDir: homeDir(), limit: 160 })
       .map((item) => [item.id, item]));
     const rowsByExternalId = new Map();
@@ -172,7 +172,7 @@ function createExternalAgentCommandService(deps = {}) {
       const localConversationId = key.slice(prefix.length);
       const externalId = agentSessionEntryId(entry);
       if (!externalId || rowsByExternalId.has(externalId)) continue;
-      const local = miaConversationTitleForAgentBinding(localConversationId, fellow);
+      const local = miaConversationTitleForAgentBinding(localConversationId, bot);
       if (!local) continue;
       const external = metadata.get(externalId) || {};
       rowsByExternalId.set(externalId, {
@@ -205,16 +205,16 @@ function createExternalAgentCommandService(deps = {}) {
     };
   }
 
-  function runSlashCommand({ text, fellow, engine, sessionId }) {
+  function runSlashCommand({ text, bot, engine, sessionId }) {
     const { command, argText } = commandInvocation(text);
-    if (command === "/status") return externalAgentStatus({ fellow, engine, sessionId });
+    if (command === "/status") return externalAgentStatus({ bot, engine, sessionId });
     if (command === "/model") {
-      const config = normalizeFellowEngineConfig(fellow.engineConfig);
-      return `当前模型：${config.model || (engine === "claude-code" ? "Claude Code 默认模型" : "Codex 默认模型")}。\n可以用底部模型选择器切换这个 Fellow 的本地引擎模型。`;
+      const config = normalizeBotEngineConfig(bot.engineConfig);
+      return `当前模型：${config.model || (engine === "claude-code" ? "Claude Code 默认模型" : "Codex 默认模型")}。\n可以用底部模型选择器切换这个 Bot 的本地引擎模型。`;
     }
     if (command === "/permissions" || command === "/permission") {
-      const config = normalizeFellowEngineConfig(fellow.engineConfig);
-      return `当前权限模式：${config.permissionMode || "default"}。\n可以用底部权限选择器切换这个 Fellow 的本地引擎权限。`;
+      const config = normalizeBotEngineConfig(bot.engineConfig);
+      return `当前权限模式：${config.permissionMode || "default"}。\n可以用底部权限选择器切换这个 Bot 的本地引擎权限。`;
     }
     if (command === "/clear") {
       return "Mia 还没有把 /clear 接到当前会话清空动作。现在可以用顶部新对话按钮开启干净会话。";
@@ -232,10 +232,10 @@ function createExternalAgentCommandService(deps = {}) {
       return "本地外部引擎的模型和权限在输入框下方选择器里查看和切换；更底层的账号、默认模型、权限策略仍以用户本机 CLI 配置为准。";
     }
     if (command === "/resume") {
-      const current = getAgentSessionId(engine, fellow.key, sessionId);
+      const current = getAgentSessionId(engine, bot.key, sessionId);
       const next = argText.split(/\s+/).filter(Boolean)[0] || "";
       if (!next) {
-        const boundRows = listBoundExternalAgentSessions({ engine, fellow, limit: 10 })
+        const boundRows = listBoundExternalAgentSessions({ engine, bot, limit: 10 })
           .filter((item) => item.id !== current)
           .slice(0, 10);
         const rows = (boundRows.length ? boundRows : listExternalAgentSessions(engine, { homeDir: homeDir(), limit: 30 })
@@ -273,9 +273,9 @@ function createExternalAgentCommandService(deps = {}) {
       if (engine === "claude-code") {
         let fingerprint = "";
         try { fingerprint = ensureClaudeBridgePlugin().fingerprint || ""; } catch { /* bridge refresh failure falls back to legacy storage */ }
-        setAgentSessionEntry(engine, fellow.key, sessionId, next, fingerprint);
+        setAgentSessionEntry(engine, bot.key, sessionId, next, fingerprint);
       } else {
-        setAgentSessionId(engine, fellow.key, sessionId, next);
+        setAgentSessionId(engine, bot.key, sessionId, next);
       }
       return `已把当前 Mia 会话绑定到外部 session：${next}\n下一条消息会从这个 session 继续。`;
     }
