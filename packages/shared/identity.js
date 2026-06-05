@@ -26,6 +26,17 @@
     return id.includes(":");
   }
 
+  function parseJsonObject(input, fallback = null) {
+    if (!input) return fallback;
+    if (typeof input === "object") return input;
+    try {
+      const parsed = JSON.parse(String(input || ""));
+      return parsed && typeof parsed === "object" ? parsed : fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
   function normalizeAvatar(input = {}) {
     const avatar = input && typeof input === "object" ? input : {};
     return {
@@ -70,7 +81,7 @@
       displayName,
       avatar: normalizeAvatar(input.avatar || input)
     };
-    const badge = normalizeStatusBadge(input.statusBadge || input.status_badge);
+    const badge = normalizeStatusBadge(input.statusBadge || input.status_badge || parseJsonObject(input.status_badge_json, null));
     if (badge) out.statusBadge = badge;
     if (kind === IdentityKind.Bot) {
       const ownerUserId = firstNonEmpty(input.ownerUserId, input.owner_user_id, input.ownerId, input.owner_id);

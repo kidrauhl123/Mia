@@ -30,6 +30,17 @@ function firstNonEmpty(...values) {
   return "";
 }
 
+function parseJsonObject(input, fallback = null) {
+  if (!input) return fallback;
+  if (typeof input === "object") return input;
+  try {
+    const parsed = JSON.parse(String(input || ""));
+    return parsed && typeof parsed === "object" ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 function normalizeLocalAvatar(input = {}) {
   const avatar = input && typeof input === "object" ? input : {};
   return {
@@ -72,7 +83,7 @@ function normalizeLocalIdentity(input = {}) {
     displayName: firstNonEmpty(input.displayName, input.display_name, input.name, id),
     avatar: normalizeLocalAvatar(input.avatar || input)
   };
-  const badge = normalizeLocalStatusBadge(input.statusBadge || input.status_badge);
+  const badge = normalizeLocalStatusBadge(input.statusBadge || input.status_badge || parseJsonObject(input.status_badge_json, null));
   if (badge) out.statusBadge = badge;
   if (kind === "bot") {
     const ownerUserId = firstNonEmpty(input.ownerUserId, input.owner_user_id, input.ownerId, input.owner_id);

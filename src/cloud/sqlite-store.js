@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { DatabaseSync } = require("node:sqlite");
+const { normalizeStatusBadge } = require("../shared/identity.js");
 
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
 const MAX_IMAGE_BYTES = 18 * 1024 * 1024;
@@ -45,6 +46,10 @@ function passwordHash(password, salt) {
   return crypto.scryptSync(String(password), salt, 64).toString("base64");
 }
 
+function profileStatusBadge(row = {}) {
+  return normalizeStatusBadge(row.statusBadge || row.status_badge || parseJson(row.status_badge_json, null));
+}
+
 function publicUser(row) {
   if (!row) return null;
   let avatarCrop = null;
@@ -56,6 +61,7 @@ function publicUser(row) {
       try { avatarCrop = JSON.parse(cropSource); } catch { avatarCrop = null; }
     }
   }
+  const statusBadge = profileStatusBadge(row);
   return {
     id: row.id,
     username: row.username || row.email || "",
@@ -66,7 +72,8 @@ function publicUser(row) {
     // letter circle. All three fields are optional and may be "" / null.
     avatarImage: row.avatar_image || row.avatarImage || "",
     avatarCrop,
-    avatarColor: row.avatar_color || row.avatarColor || ""
+    avatarColor: row.avatar_color || row.avatarColor || "",
+    ...(statusBadge ? { statusBadge } : {})
   };
 }
 
@@ -136,6 +143,7 @@ function rowToUser(row) {
   if (row.avatar_crop_json) {
     try { avatarCrop = JSON.parse(row.avatar_crop_json); } catch { avatarCrop = null; }
   }
+  const statusBadge = profileStatusBadge(row);
   return {
     id: row.id,
     username: row.username,
@@ -143,7 +151,8 @@ function rowToUser(row) {
     createdAt: row.created_at,
     avatarImage: row.avatar_image || "",
     avatarCrop,
-    avatarColor: row.avatar_color || ""
+    avatarColor: row.avatar_color || "",
+    ...(statusBadge ? { statusBadge } : {})
   };
 }
 
@@ -556,6 +565,11 @@ function createCloudStore(options = {}) {
     if (typeof patch.avatarColor === "string") {
       sets.push("avatar_color = ?");
       values.push(patch.avatarColor.slice(0, 32));
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, "statusBadge")) {
+      const statusBadge = normalizeStatusBadge(patch.statusBadge);
+      sets.push("status_badge_json = ?");
+      values.push(statusBadge ? JSON.stringify(statusBadge) : "");
     }
     if (!sets.length) return rowToUser(row);
     values.push(userId);

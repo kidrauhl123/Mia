@@ -108,3 +108,14 @@ test("normalizeIdentity falls back to trimmed non-empty aliases", () => {
   assert.equal(identity.ownerUserId, "owner_1");
   assert.deepEqual(identity.statusBadge, { kind: "gift", assetId: "rose", collectibleId: "nft_1" });
 });
+
+test("normalizeIdentity derives statusBadge from stored JSON fields", () => {
+  const identity = normalizeIdentity({
+    kind: "user",
+    id: "u_profile",
+    displayName: "Profile",
+    status_badge_json: JSON.stringify({ kind: "emoji", emoji: "✅" })
+  });
+
+  assert.deepEqual(identity.statusBadge, { kind: "emoji", emoji: "✅" });
+});

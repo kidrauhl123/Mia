@@ -1919,7 +1919,12 @@ async function handleRequest(req, res, context) {
       const updated = cloudStore.updateUserProfile(auth.user.id, {
         avatarImage: typeof body.avatarImage === "string" ? body.avatarImage : undefined,
         avatarCrop: body.avatarCrop === null || (body.avatarCrop && typeof body.avatarCrop === "object") ? body.avatarCrop : undefined,
-        avatarColor: typeof body.avatarColor === "string" ? body.avatarColor : undefined
+        avatarColor: typeof body.avatarColor === "string" ? body.avatarColor : undefined,
+        ...(Object.prototype.hasOwnProperty.call(body, "statusBadge")
+          ? { statusBadge: body.statusBadge }
+          : Object.prototype.hasOwnProperty.call(body, "status_badge")
+            ? { statusBadge: body.status_badge }
+            : {})
       });
       const payload = { user: updated };
       rememberOp(context, auth.user.id, body, 200, payload);

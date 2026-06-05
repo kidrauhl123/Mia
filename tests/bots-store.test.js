@@ -127,6 +127,35 @@ test("upsertBot preserves object-shaped capabilities", () => {
   } finally { ctx.cleanup(); }
 });
 
+test("getBot parses status_badge_json into statusBadge", () => {
+  const ctx = freshStore();
+  try {
+    const db = ctx.store.getDb();
+    const bots = createBotsStore(db);
+    const u = makeUser(ctx.store);
+    const now = new Date().toISOString();
+    db.prepare(`
+      INSERT INTO bots (
+        id, owner_user_id, display_name, status_badge_json, capabilities_json, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "bot_rose",
+      u,
+      "Rose",
+      JSON.stringify({ kind: "gift", asset_id: "rose", collectible_id: "nft_rose_1" }),
+      "{}",
+      now,
+      now
+    );
+
+    assert.deepEqual(bots.getBot("bot_rose").statusBadge, {
+      kind: "gift",
+      assetId: "rose",
+      collectibleId: "nft_rose_1"
+    });
+  } finally { ctx.cleanup(); }
+});
+
 test("upsertBot requires ownerUserId, bot id, and explicit display name", () => {
   const ctx = freshStore();
   try {

@@ -79,6 +79,7 @@ test("PUT then GET /api/me/bots roundtrips identity fields", async () => {
         color: "#0f766e",
         avatarImage: "data:image/png;base64,fake",
         avatarCrop: { x: 10, y: 20, w: 100, h: 100 },
+        statusBadge: { kind: "gift", assetId: "rose", collectibleId: "nft_rose_1" },
         bio: "Coding helper",
         capabilities: ["chat", "tools"],
         personaText: "You are Codex.",
@@ -90,6 +91,7 @@ test("PUT then GET /api/me/bots roundtrips identity fields", async () => {
     assert.equal(put.body.bot.ownerUserId, A.user.id);
     assert.equal(put.body.bot.displayName, "Codex");
     assert.equal(put.body.bot.color, "#0f766e");
+    assert.deepEqual(put.body.bot.statusBadge, { kind: "gift", assetId: "rose", collectibleId: "nft_rose_1" });
     assert.deepEqual(put.body.bot.capabilities, normalizeBotCapabilities(["chat", "tools"]));
 
     const list = await api(ctx.port, "GET", "/api/me/bots", { token: A.token });
@@ -99,8 +101,30 @@ test("PUT then GET /api/me/bots roundtrips identity fields", async () => {
     assert.equal(codex.ownerUserId, A.user.id);
     assert.equal(codex.displayName, "Codex");
     assert.equal(codex.color, "#0f766e");
+    assert.deepEqual(codex.statusBadge, { kind: "gift", assetId: "rose", collectibleId: "nft_rose_1" });
     assert.deepEqual(codex.capabilities, normalizeBotCapabilities(["chat", "tools"]));
     assert.deepEqual(codex.avatarCrop, { x: 10, y: 20, w: 100, h: 100 });
+  } finally { await stopServer(ctx); }
+});
+
+test("PATCH /api/me/profile accepts snake_case status badge and GET /api/me returns it", async () => {
+  const ctx = await startServer();
+  try {
+    const A = await register(ctx.port, "profilebadge");
+    const badge = { kind: "emoji", emoji: "✅" };
+    const profile = await api(ctx.port, "PATCH", "/api/me/profile", {
+      token: A.token,
+      body: {
+        status_badge: badge,
+        clientOpId: "op_profile_badge"
+      }
+    });
+    assert.equal(profile.status, 200);
+    assert.deepEqual(profile.body.user.statusBadge, badge);
+
+    const me = await api(ctx.port, "GET", "/api/me", { token: A.token });
+    assert.equal(me.status, 200);
+    assert.deepEqual(me.body.user.statusBadge, badge);
   } finally { await stopServer(ctx); }
 });
 

@@ -86,6 +86,20 @@ test("renderNameWithBadge renders lottie and gift badges as asset spans", () => 
   assert.equal(gift.children[1].hasAttribute("title"), false);
 });
 
+test("renderNameWithBadge accepts snake_case gift badges from identity", () => {
+  const renderer = loadRenderer();
+  const el = renderer.renderNameWithBadge({
+    identity: {
+      display_name: "Collector",
+      status_badge: { kind: "gift", asset_id: "rose", collectible_id: "nft_rose_1" }
+    }
+  });
+
+  assert.equal(el.children[0].textContent, "Collector");
+  assert.equal(el.children[1].dataset.assetId, "rose");
+  assert.equal(el.children[1].dataset.collectibleId, "nft_rose_1");
+});
+
 test("renderNameWithBadge uses fallbackName without exposing identity keys", () => {
   const renderer = loadRenderer();
   const fallback = renderer.renderNameWithBadge({
