@@ -208,7 +208,7 @@
   background: transparent;
   color: var(--text);
   text-align: left;
-  cursor: pointer;
+  cursor: default;
   font: inherit;
   transition: background 120ms;
   -webkit-appearance: none;
