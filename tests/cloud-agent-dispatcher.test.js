@@ -104,6 +104,56 @@ test("cloud-hermes DM runs the bot and appends a reply", async () => {
   }
 });
 
+test("cloud-hermes refuses a contaminated bot binding owned by another user", async () => {
+  const ctx = setup();
+  const hermesCalls = [];
+  try {
+    const bob = ctx.cloudStore.registerUser({ username: "bob_contaminated", password: "123456" }).user;
+    const conversation = ctx.socialStore.createConversation({
+      id: `botc_${bob.id}_bot_mia`,
+      type: "bot",
+      name: "Contaminated Mia",
+      decorations: { botId: "bot_mia", runtimeKind: "cloud-hermes" }
+    });
+    ctx.socialStore.addConversationMember({ conversationId: conversation.id, memberKind: "user", memberRef: bob.id });
+    ctx.socialStore.addConversationMember({ conversationId: conversation.id, memberKind: "bot", memberRef: "bot_mia", ownerId: bob.id });
+    ctx.runtimeBindingsStore.upsertBinding({
+      userId: bob.id,
+      botId: "bot_mia",
+      runtimeKind: "cloud-hermes",
+      enabled: true,
+      config: { model: "hermes-agent" }
+    });
+    const dispatcher = makeDispatcher(ctx, {
+      hermesRunsClient: {
+        async runChat(args) {
+          hermesCalls.push(args);
+          return { runId: "hr_contaminated", content: "wrong owner", events: [] };
+        }
+      }
+    });
+    const message = ctx.messagesStore.appendMessage({
+      conversationId: conversation.id,
+      senderKind: "user",
+      senderRef: bob.id,
+      bodyMd: "hello"
+    });
+
+    const reply = await dispatcher.handleUserMessage({
+      userId: bob.id,
+      conversationId: conversation.id,
+      message
+    });
+
+    assert.equal(reply, null);
+    assert.equal(hermesCalls.length, 0);
+    const messages = ctx.messagesStore.listMessagesSince(conversation.id, 0, 20);
+    assert.equal(messages.some((row) => row.sender_kind === "bot" && row.sender_owner_id === ctx.user.id), false);
+  } finally {
+    ctx.cleanup();
+  }
+});
+
 test("desktop-local DM broadcasts a bot invocation and does not run inline", async () => {
   const ctx = setup();
   const broadcasts = [];

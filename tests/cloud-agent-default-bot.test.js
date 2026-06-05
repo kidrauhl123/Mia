@@ -95,6 +95,27 @@ test("ensureDefaultCloudBot preserves an existing default bot identity", () => {
   }
 });
 
+test("ensureDefaultCloudBot rejects a default bot id owned by another user", () => {
+  const ctx = freshStores();
+  try {
+    const alice = ctx.cloudStore.registerUser({ username: "alice_owner", password: "123456" });
+    const bob = ctx.cloudStore.registerUser({ username: "bob_rejected", password: "123456" });
+    ensureDefaultCloudBot(ctx, alice.user.id);
+
+    assert.throws(
+      () => ensureDefaultCloudBot(ctx, bob.user.id),
+      /bot id already belongs to another owner/
+    );
+
+    assert.equal(ctx.runtimeBindingsStore.getBinding(bob.user.id, "bot_mia", "cloud-hermes"), null);
+    const bobConversationId = `botc_${bob.user.id}_bot_mia`;
+    assert.equal(ctx.socialStore.getConversation(bobConversationId), null);
+    assert.equal(ctx.socialStore.getConversationMember(bobConversationId, "bot", "bot_mia"), null);
+  } finally {
+    ctx.cleanup();
+  }
+});
+
 test("ensureDefaultCloudBot backfills missing cloud runtimeKind on default bot conversations", () => {
   const ctx = freshStores();
   try {

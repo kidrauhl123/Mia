@@ -21,6 +21,9 @@ function ensureDefaultCloudBot(context, ownerUserId, botId = DEFAULT_CLOUD_BOT_I
   if (!id) throw new Error("ensureDefaultCloudBot: botId required");
 
   let bot = context.botsStore.getBot(id);
+  if (bot && String(bot.ownerUserId || "") !== userId) {
+    throw new Error("bot id already belongs to another owner");
+  }
   if (!bot) {
     bot = context.botsStore.upsertBot(userId, {
       id,

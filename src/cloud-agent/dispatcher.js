@@ -180,7 +180,11 @@ function createCloudAgentDispatcher(deps = {}) {
   }
 
   async function runHermesInline({ ownerId, botId, runtimeConfig, conversationId, message, members, bots }) {
-    const bot = botsStore.getBot(botId) || { id: botId, displayName: botId };
+    const bot = botsStore.getBot(botId);
+    if (!bot || String(bot.ownerUserId || "") !== String(ownerId || "")) {
+      log(`[cloud-agent] refusing bot run for unowned bot ${botId}`);
+      return null;
+    }
     const rosterMembers = Array.isArray(members) ? members : socialStore.listConversationMembers(conversationId);
     const rosterBots = Array.isArray(bots) ? bots : botsStore.listBots(ownerId);
     const trace = createTraceCollector();
@@ -247,7 +251,7 @@ function createCloudAgentDispatcher(deps = {}) {
         conversationId,
         senderKind: BOT_SENDER_KIND,
         senderRef: bot.id,
-        senderOwnerId: bot.ownerUserId || ownerId,
+        senderOwnerId: ownerId,
         bodyMd: result.content || "",
         attachments: replyAttachments.length ? replyAttachments : null,
         trace: trace.payload(),
