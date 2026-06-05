@@ -125,6 +125,20 @@ test("PATCH /api/me/profile accepts snake_case status badge and GET /api/me retu
     const me = await api(ctx.port, "GET", "/api/me", { token: A.token });
     assert.equal(me.status, 200);
     assert.deepEqual(me.body.user.statusBadge, badge);
+
+    const cleared = await api(ctx.port, "PATCH", "/api/me/profile", {
+      token: A.token,
+      body: {
+        statusBadge: null,
+        clientOpId: "op_profile_badge_clear"
+      }
+    });
+    assert.equal(cleared.status, 200);
+    assert.equal(cleared.body.user.statusBadge, undefined);
+
+    const afterClear = await api(ctx.port, "GET", "/api/me", { token: A.token });
+    assert.equal(afterClear.status, 200);
+    assert.equal(afterClear.body.user.statusBadge, undefined);
   } finally { await stopServer(ctx); }
 });
 
