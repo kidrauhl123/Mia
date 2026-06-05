@@ -298,41 +298,30 @@
   .fellow-store-scrim { transition: none; animation: none; }
 }
 
-/* ── 窄窗(≤720px)：复位桌面网格重构，回到原有的单列堆叠布局 ──
-   桌面把 发现/联系人 改成「顶条一行 + 内容一行」并显式排格；窄屏下这些会盖掉
-   styles.css 的窄屏两列布局，导致详情跑到屏外。这里在窄屏把它们复位。 */
+/* ── 窄窗(≤720px)：保留顶部胶囊条，内容(单列)放它下面 ──
+   沿用桌面的「顶条一行 + 内容一行」结构，胶囊条照常显示在 row1（否则窄屏切不了 发现/联系人）。
+   只做两件必要的事:① 详情桌面在 col4，窄屏只有两列须拉回 col2，否则跑屏外;② 列表去掉浮卡外观。 */
 @media (max-width: 720px) {
-  .app-shell[data-active-view="contacts"],
-  .app-shell[data-active-view="fellow-store"] {
-    grid-template-rows: none;
-  }
-  .app-shell[data-active-view="contacts"] .discover-top-bar,
-  .app-shell[data-active-view="fellow-store"] .discover-top-bar {
-    display: none;
-  }
-  .app-shell[data-active-view="contacts"] .nav-rail,
-  .app-shell[data-active-view="fellow-store"] .nav-rail {
-    grid-row: 1;
-  }
-  .app-shell[data-active-view="contacts"] .contacts-sidebar,
-  .app-shell[data-active-view="contacts"] #contactsView,
-  .app-shell[data-active-view="fellow-store"] #fellowStoreView {
-    grid-row: 1;
+  .app-shell[data-active-view="contacts"] #contactsView {
     grid-column: 2;
   }
-  /* 窄屏下列表恢复满屏白底，不要桌面那张浮卡的圆角/阴影/外边距 */
+  .contacts-workspace {
+    grid-template-rows: auto minmax(0, 1fr);   /* 给 narrow-back 留一行 */
+  }
+  /* 窄屏列表恢复满屏白底，去掉浮卡的外边距/圆角/阴影 */
   .app-shell[data-active-view="contacts"] .contacts-sidebar {
     margin: 0;
     border-radius: 0;
     box-shadow: none;
-    background: var(--surface);
   }
   .app-shell[data-active-view="contacts"] .contacts-sidebar .sidebar-tools,
   .app-shell[data-active-view="contacts"] .contacts-sidebar .contact-section {
     background: var(--surface);
   }
-  .fellow-store-workspace,
-  .contacts-workspace {
-    grid-template-rows: auto minmax(0, 1fr);
+  /* 顶条窄屏收一点内边距、去掉桌面的右上圆角 */
+  .app-shell[data-active-view="contacts"] .discover-top-bar,
+  .app-shell[data-active-view="fellow-store"] .discover-top-bar {
+    padding: 10px 14px 6px;
+    border-radius: 0;
   }
 }

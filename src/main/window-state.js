@@ -1,5 +1,5 @@
 const DEFAULT_WINDOW_BOUNDS = Object.freeze({ width: 1040, height: 700 });
-const MIN_WINDOW_BOUNDS = Object.freeze({ width: 420, height: 560 });
+const MIN_WINDOW_BOUNDS = Object.freeze({ width: 500, height: 560 });
 const MIN_VISIBLE_SIZE = Object.freeze({ width: 120, height: 80 });
 
 function finiteNumber(value) {

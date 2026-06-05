@@ -1557,7 +1557,7 @@ function createWindow() {
     };
     initialWindow.maximized = false;
   }
-  const minWindowWidth = compactOnboarding ? 380 : 420;
+  const minWindowWidth = compactOnboarding ? 380 : 500;
   const minWindowHeight = compactOnboarding ? 320 : 560;
   const win = new BrowserWindow({
     ...initialWindow.bounds,
