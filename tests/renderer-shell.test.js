@@ -122,6 +122,14 @@ test("bot dialogs use filled controls instead of legacy bordered fields", () => 
   assert.match(stylesSource, /\.pet-reference-empty \{[\s\S]*?border:\s*0;[\s\S]*?background:\s*var\(--field\);/);
 });
 
+test("pet dialog consumes bot-named generation job fields", () => {
+  const petDialogSource = fs.readFileSync(path.join(root, "src/renderer/bot/pet-dialog.js"), "utf8");
+
+  assert.match(petDialogSource, /job\.botName \|\| job\.petId/);
+  assert.doesNotMatch(petDialogSource, /job\[[\s\S]*?Name[\s\S]*?\]/);
+  assert.doesNotMatch(petDialogSource, /fellow\s*\+|Fellow\s*\+|\[\s*["']fellow|\[\s*["']Fellow/);
+});
+
 test("engine detection renderer preserves legacy runtime status fallbacks", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const renderSource = appSource.slice(

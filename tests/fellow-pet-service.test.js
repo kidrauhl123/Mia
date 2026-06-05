@@ -196,7 +196,7 @@ test("startGeneration materializes references, spawns hatch_generate, and comple
 
   const dataUrl = `data:image/png;base64,${Buffer.from("image").toString("base64")}`;
   const job = service.startGeneration({
-    fellowKey: "alice_bot",
+    botKey: "alice_bot",
     prompt: "wear a scarf",
     stylePreset: "soft",
     referenceImages: [dataUrl]
@@ -204,6 +204,8 @@ test("startGeneration materializes references, spawns hatch_generate, and comple
 
   const petId = fellowPetId("alice_bot");
   assert.equal(job.status, "running");
+  assert.equal(job.botKey, "alice_bot");
+  assert.equal(job.botName, "Alice Bot");
   assert.equal(job.petId, petId);
   assert.equal(spawnCalls[0].command, "python3");
   assert.ok(spawnCalls[0].args.includes("--prompt"));
@@ -216,5 +218,9 @@ test("startGeneration materializes references, spawns hatch_generate, and comple
   child.emit("close", 0);
 
   assert.equal(service.jobs()[0].status, "completed");
+  assert.equal(service.jobs()[0].botKey, "alice_bot");
+  assert.equal(service.jobs()[0].botName, "Alice Bot");
+  assert.equal(Object.hasOwn(service.jobs()[0], "fellowKey"), false);
+  assert.equal(Object.hasOwn(service.jobs()[0], "fellowName"), false);
   assert.equal(service.jobs()[0].packageDir, path.join(runtime.petDir, petId));
 });

@@ -281,8 +281,8 @@ function createFellowPetService(deps = {}) {
   function petJobSnapshot(job) {
     return {
       id: job.id,
-      fellowKey: job.fellowKey,
-      fellowName: job.fellowName,
+      botKey: job.botKey,
+      botName: job.botName,
       petId: job.petId,
       status: job.status,
       startedAt: job.startedAt,
@@ -307,7 +307,7 @@ function createFellowPetService(deps = {}) {
 
   function startGeneration(input = {}) {
     initializeRuntime();
-    const key = String(input.fellowKey || input.key || "").trim();
+    const key = String(input.botKey || input.botId || input.key || input.fellowKey || "").trim();
     const manifest = loadFellowManifest();
     const fellow = (manifest.bots || []).find((item) => item.key === key);
     if (!fellow) throw new Error("Fellow not found.");
@@ -330,8 +330,8 @@ function createFellowPetService(deps = {}) {
     const prompt = buildFellowPetPrompt(fellow, userPrompt);
     const job = {
       id: jobId,
-      fellowKey: fellow.key,
-      fellowName: fellow.name,
+      botKey: fellow.key,
+      botName: fellow.name,
       petId,
       status: "running",
       startedAt: nowIso(),
