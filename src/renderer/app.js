@@ -590,12 +590,12 @@ function conversationCardSpecFromRow(row, personas) {
         globalId: (fellow && (fellow.globalId || fellow.global_id)) || fellowGlobalId
       };
       name = sessionHistory.fellowDisplayTitle(conversation, identityFellows, "对话");
-      const resolved = window.miaContact?.resolveContact?.(
-        { kind: window.miaContact.ContactKind.Fellow, ref: fellowKey },
-        { fellows: [fellowRecord] }
-      );
-      avatar = resolved?.avatar || window.miaAvatarResolve.resolveAvatarForContact({
-        id: fellowAvatarIdentityId(fellowKey, fellowRecord),
+      // Resolve straight from the conversation's global id (fellow:owner:key)
+      // with no color field, so the sidebar always matches the id-hash color the
+      // chat header and bubbles use. Reading the merged record's color surfaced
+      // a stale baked color in this one surface — same fellow, two colors.
+      avatar = window.miaAvatarResolve.resolveAvatarForContact({
+        id: fellowGlobalId || fellowAvatarIdentityId(fellowKey, fellowRecord),
         displayName: name || fellowRecord.name || fellowKey,
         avatarImage: fellowRecord.avatarImage || "",
         avatarCrop: fellowRecord.avatarCrop || null
