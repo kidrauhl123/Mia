@@ -1,5 +1,5 @@
 // Avatar helpers module
-// Extracted from app.js. All Fellow / user avatar logic — crop normalization,
+// Extracted from app.js. All Bot / user avatar logic — crop normalization,
 // image rendering, text fallback, and DOM apply functions.
 //
 // Pure data and DOM helpers; no state.* references.  escapeHtml is the only
@@ -41,15 +41,15 @@
     return (typeof window !== "undefined" && window.miaContact) ? window.miaContact : null;
   }
 
-  function fellowAvatarIdentityId(fellow = {}) {
-    const localId = fellow.key || fellow.id || "";
-    const ownerUserId = fellow.ownerUserId || fellow.owner_user_id || fellow.ownerId || fellow.owner_id || "";
-    return contact()?.fellowAvatarIdentityId?.(localId, fellow)
-      || fellow.globalId
-      || fellow.global_id
-      || fellow.fellowGlobalId
-      || fellow.fellow_global_id
-      || (ownerUserId && localId ? "fellow:" + ownerUserId + ":" + localId : "")
+  function botAvatarIdentityId(bot = {}) {
+    const localId = bot.key || bot.id || "";
+    const ownerUserId = bot.ownerUserId || bot.owner_user_id || bot.ownerId || bot.owner_id || "";
+    return contact()?.botAvatarIdentityId?.(localId, bot)
+      || bot.globalId
+      || bot.global_id
+      || bot.botGlobalId
+      || bot.bot_global_id
+      || (ownerUserId && localId ? "botc_" + ownerUserId + "_" + localId : "")
       || localId;
   }
 
@@ -268,7 +268,7 @@
     imageEl.draggable = false;
     // Resolve the crop the same way the CSS-background path does: a known preset
     // image with a neutral crop gets the preset's tuned face crop. Without this
-    // an uncropped preset (e.g. the seeded Mia fellow's fallback avatar) renders
+    // an uncropped preset (e.g. the seeded Mia bot's fallback avatar) renders
     // full-frame here while thumbnails render it face-cropped — the same image
     // framed two ways. avatarCropForImage is a no-op for non-preset images.
     imageEl.setAttribute("style", videoObjectStyle(normalizeCrop(avatarCropForImage(image, crop))));
@@ -408,14 +408,14 @@
     });
   }
 
-  function applyFellowAvatar(el, fellow) {
+  function applyBotAvatar(el, bot) {
     if (!el) return;
-    const id = fellowAvatarIdentityId(fellow || {});
+    const id = botAvatarIdentityId(bot || {});
     const avatar = avatarResolve().resolveAvatarForContact({
       id,
-      displayName: fellow?.name || fellow?.displayName || fellow?.key || id,
-      avatarImage: fellow?.avatarImage || "",
-      avatarCrop: fellow?.avatarCrop || null
+      displayName: bot?.name || bot?.displayName || bot?.key || id,
+      avatarImage: bot?.avatarImage || "",
+      avatarCrop: bot?.avatarCrop || null
     });
     applyAvatarMedia(el, avatar.image, avatar.crop, avatar.color, avatar.text);
   }
@@ -461,7 +461,7 @@
     avatarHtml,
     hydrateAvatarMedia,
     hydrateAvatarVideos,
-    applyFellowAvatar,
+    applyBotAvatar,
     applyUserAvatar,
   };
 })();

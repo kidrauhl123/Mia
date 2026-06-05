@@ -6,14 +6,14 @@
   "use strict";
 
   let state, els, mia;
-  let fellowByKey, cryptoRandomId, avatarBackgroundStyle;
+  let botByKey, cryptoRandomId, avatarBackgroundStyle;
   let escapeHtml, setText, renderView, refreshRuntime, appendTransientChat;
 
   function initPetDialog(deps) {
     state = deps.state;
     els = deps.els;
     mia = deps.mia || (typeof window !== "undefined" ? window.mia : null);
-    fellowByKey = deps.fellowByKey;
+    botByKey = deps.botByKey;
     cryptoRandomId = deps.cryptoRandomId;
     avatarBackgroundStyle = deps.avatarBackgroundStyle;
     escapeHtml = deps.escapeHtml;
@@ -23,12 +23,12 @@
     appendTransientChat = deps.appendTransientChat;
   }
 
-  function openPetGenerateDialog(fellowKey) {
-    const fellow = fellowByKey(fellowKey);
-    if (!fellow) return;
+  function openPetGenerateDialog(botKey) {
+    const bot = botByKey(botKey);
+    if (!bot) return;
     state.petGenerateOpen = true;
-    state.petGenerateFellowKey = fellow.key;
-    const reference = fellow.avatarImage || "";
+    state.petGenerateBotKey = bot.key;
+    const reference = bot.avatarImage || "";
     state.petReferences = reference ? [{ id: cryptoRandomId(), src: reference }] : [];
     if (els.petPrompt) els.petPrompt.value = "";
     if (els.petStylePreset) els.petStylePreset.value = "codex";
@@ -37,16 +37,16 @@
 
   function closePetGenerateDialog() {
     state.petGenerateOpen = false;
-    state.petGenerateFellowKey = "";
+    state.petGenerateBotKey = "";
     state.petReferences = [];
     renderView();
   }
 
   function renderPetGenerateDialog() {
     if (!els.petGenerateDialog || !state.petGenerateOpen) return;
-    const fellow = fellowByKey(state.petGenerateFellowKey);
-    if (!fellow) return;
-    setText(els.petGenerateTitle, `生成「${fellow.name}」桌宠`);
+    const bot = botByKey(state.petGenerateBotKey);
+    if (!bot) return;
+    setText(els.petGenerateTitle, `生成「${bot.name}」桌宠`);
     setText(els.petGenerateSubtitle, "会在后台调用 AlkakaPet/Hatch Pet 流程，耗时可能较长。");
     if (!els.petReferenceList) return;
     els.petReferenceList.innerHTML = state.petReferences.length
@@ -106,7 +106,7 @@
     if (!state.petJobPanelOpen) return;
     els.petJobPanel.innerHTML = jobs.slice(0, 5).map((job) => `
       <article class="pet-job-item ${escapeHtml(job.status)}">
-        <strong>${escapeHtml(job.fellowName || job.petId)}</strong>
+        <strong>${escapeHtml(job.botName || job.fellowName || job.petId)}</strong>
         <span>${escapeHtml(job.status === "running" ? "生成中" : job.status === "completed" ? "已完成" : "失败")}</span>
         ${job.error ? `<p>${escapeHtml(job.error)}</p>` : ""}
         ${job.logPath ? `<small>${escapeHtml(job.logPath)}</small>` : ""}
@@ -114,18 +114,18 @@
     `).join("");
   }
 
-  async function placeFellowPet(fellowKey) {
+  async function placeBotPet(botKey) {
     try {
-      await window.mia.placeFellowPet(fellowKey);
+      await window.mia.placeFellowPet(botKey);
       await refreshRuntime();
     } catch (error) {
       appendTransientChat("assistant", `放进桌面失败: ${error.message}`);
     }
   }
 
-  async function recallFellowPet(fellowKey) {
+  async function recallBotPet(botKey) {
     try {
-      await window.mia.recallFellowPet(fellowKey);
+      await window.mia.recallFellowPet(botKey);
       await refreshRuntime();
     } catch (error) {
       appendTransientChat("assistant", `收回桌宠失败: ${error.message}`);
@@ -140,7 +140,7 @@
     readPetReferenceFile,
     refreshPetJobs,
     renderPetJobs,
-    placeFellowPet,
-    recallFellowPet,
+    placeBotPet,
+    recallBotPet,
   };
 })();

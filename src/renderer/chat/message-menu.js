@@ -179,7 +179,7 @@
         text
       ].join("\n");
       const response = await window.mia.sendChat({
-        fellowKey: state.activeKey,
+        botKey: state.activeKey,
         personaKey: state.activeKey,
         sessionId: `utility:translate:${cryptoRandomId()}`,
         utility: true,

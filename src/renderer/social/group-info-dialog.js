@@ -304,7 +304,7 @@
       reader.addEventListener("load", () => {
         const dataUrl = String(reader.result || "");
         _pendingAvatarApply = conversationId;
-        global.miaFellowDialog.openAvatarCropEditor(dataUrl, { x: 50, y: 50, zoom: 1.12 }, "groupConversation");
+        global.miaBotDialog.openAvatarCropEditor(dataUrl, { x: 50, y: 50, zoom: 1.12 }, "groupConversation");
       });
       reader.readAsDataURL(file);
       avatarFile.value = "";

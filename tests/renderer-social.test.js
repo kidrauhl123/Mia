@@ -32,7 +32,7 @@ function loadSocial(options = {}) {
   const mockWindow = {
     requestAnimationFrame: options.requestAnimationFrame,
     mia: {},
-    miaFellowCommands: require("../src/renderer/fellow/fellow-commands.js"),
+    miaBotCommands: require("../src/renderer/bot/bot-commands.js"),
     miaSelfIdentity: require("../packages/shared/self-identity.js"),
     miaSendPipeline: require("../src/shared/send-pipeline.js"),
     miaMarkdown: {
@@ -266,7 +266,7 @@ test("bootstrapAfterLogin paints cached SQLite social data before slow cloud con
   await boot;
 });
 
-test("bootstrapAfterLogin keeps legacy UUID fellow sessions for history but hides them from sidebar", async () => {
+test("bootstrapAfterLogin keeps legacy UUID bot sessions for history but hides them from sidebar", async () => {
   const s = loadSocial();
   const legacy = {
     id: "botc_u_1_9b7c6d5e-1111-4222-8333-123456789abc",
@@ -307,7 +307,7 @@ test("bootstrapAfterLogin keeps legacy UUID fellow sessions for history but hide
     "botc_u_1_9b7c6d5e-1111-4222-8333-123456789abc",
     "botc_u_1_mia"
   ]);
-  assert.equal(s.fellowConversationForKey("mia").id, "botc_u_1_mia");
+  assert.equal(s.botConversationForKey("mia").id, "botc_u_1_mia");
   assert.deepEqual(
     sessionHistory
       .sessionConversationsForConversation(stable, s.moduleState.conversations, { messageCache: s.moduleState.messageCache })
@@ -324,7 +324,7 @@ test("bootstrapAfterLogin keeps legacy UUID fellow sessions for history but hide
   ]);
 });
 
-test("renderSidebarRows keeps the active legacy fellow session as the sidebar representative", () => {
+test("renderSidebarRows keeps the active legacy bot session as the sidebar representative", () => {
   const s = loadSocial();
   s.__mockWindow.miaSessionHistory = sessionHistory;
   const legacy = {
@@ -356,7 +356,7 @@ test("renderSidebarRows keeps the active legacy fellow session as the sidebar re
   assert.match(rows[0].conversation.lastMessagePreview, /schedule_\*/);
 });
 
-test("bootstrapAfterLogin syncs external fellow runtime config for web controls", async () => {
+test("bootstrapAfterLogin syncs external bot runtime config for web controls", async () => {
   const s = loadSocial();
   const calls = [];
   s.__mockWindow.miaEngineContracts = require("../src/shared/engine-contracts.js");
@@ -413,7 +413,7 @@ test("bootstrapAfterLogin syncs external fellow runtime config for web controls"
   });
 });
 
-test("ensureFellowConversation upserts the ensured conversation into the sidebar cache", async () => {
+test("ensureBotConversation upserts the ensured conversation into the sidebar cache", async () => {
   const s = loadSocial();
   const calls = [];
   s.__mockWindow.mia.social = {
@@ -423,7 +423,7 @@ test("ensureFellowConversation upserts the ensured conversation into the sidebar
     }
   };
 
-  const conversation = await s.ensureFellowConversation({ key: "alice", name: "爱丽丝" });
+  const conversation = await s.ensureBotConversation({ key: "alice", name: "爱丽丝" });
 
   assert.equal(conversation.id, "botc_u_1_alice");
   assert.equal(s.moduleState.conversations.some((item) => item.id === "botc_u_1_alice"), true);
@@ -433,7 +433,7 @@ test("ensureFellowConversation upserts the ensured conversation into the sidebar
   });
 });
 
-test("upsertFellowConversation caches a cloud-hermes fellow conversation", async () => {
+test("upsertBotConversation caches a cloud-hermes bot conversation", async () => {
   const s = loadSocial();
   const conversation = {
     id: "botc_u_1_alice",
@@ -441,25 +441,25 @@ test("upsertFellowConversation caches a cloud-hermes fellow conversation", async
     name: "Alice",
     decorations: { botId: "alice", runtimeKind: "cloud-hermes" }
   };
-  const saved = s.upsertFellowConversation(conversation);
+  const saved = s.upsertBotConversation(conversation);
   assert.equal(saved.id, conversation.id);
   assert.equal(s.getConversationById(conversation.id).decorations.runtimeKind, "cloud-hermes");
 });
 
-test("fellowConversationForKey returns an existing cloud-hermes fellow conversation", async () => {
+test("botConversationForKey returns an existing cloud-hermes bot conversation", async () => {
   const s = loadSocial();
-  s.upsertFellowConversation({
+  s.upsertBotConversation({
     id: "botc_u_1_alice",
     type: "bot",
     name: "Alice",
     decorations: { botId: "alice", runtimeKind: "cloud-hermes" }
   });
-  const conversation = s.fellowConversationForKey("alice");
+  const conversation = s.botConversationForKey("alice");
   assert.equal(conversation.id, "botc_u_1_alice");
   assert.equal(conversation.decorations.runtimeKind, "cloud-hermes");
 });
 
-test("selecting a fellow session stores it as the sidebar representative for that fellow", () => {
+test("selecting a bot session stores it as the sidebar representative for that bot", () => {
   const store = {};
   const s = loadSocial();
   s.__mockWindow.miaSessionHistory = sessionHistory;
@@ -498,12 +498,12 @@ test("selecting a fellow session stores it as the sidebar representative for tha
 
   s.setActiveConversationId("botc_u_1_last-selected");
 
-  assert.equal(s.fellowConversationForKey("nhnh").id, "botc_u_1_last-selected");
+  assert.equal(s.botConversationForKey("nhnh").id, "botc_u_1_last-selected");
   assert.equal(s.renderSidebarRows()[0].conversation.id, "botc_u_1_last-selected");
-  assert.equal(JSON.parse(store["mia.lastFellowConversationByKey"]).nhnh, "botc_u_1_last-selected");
+  assert.equal(JSON.parse(store["mia.lastBotConversationByKey"]).nhnh, "botc_u_1_last-selected");
 });
 
-test("bootstrapAfterLogin warns when fellow conversation ensure returns ok false", async () => {
+test("bootstrapAfterLogin warns when bot conversation ensure returns ok false", async () => {
   const s = loadSocial();
   const calls = [];
   const warnings = [];

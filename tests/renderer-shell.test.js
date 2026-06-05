@@ -191,7 +191,7 @@ test("signed-out desktop shell is a login gate without default Boss identity", (
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const styleSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
   const avatarSource = fs.readFileSync(path.join(root, "src/renderer/helpers/avatar-helpers.js"), "utf8");
-  const dialogSource = fs.readFileSync(path.join(root, "src/renderer/fellow/fellow-dialog.js"), "utf8");
+  const dialogSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-dialog.js"), "utf8");
   const settingsSource = fs.readFileSync(path.join(root, "src/main/settings-store.js"), "utf8");
 
   for (const source of [html, appSource, avatarSource, dialogSource, settingsSource]) {
@@ -277,7 +277,7 @@ test("local assistant bubble avatars render with bot sender kind for contact car
           avatarHtml: ({ attrs }) => '<span class="avatar message-avatar" ' + attrs + '></span>'
         }
       };
-      function fellowAvatarIdentityId(ref) { return "botc_user_me_" + ref; }
+      function botAvatarIdentityId(ref) { return "botc_user_me_" + ref; }
       function formatRunTime() { return ""; }
       function renderMessageTime() { return ""; }
       function renderCommandResultHtml() { return ""; }
@@ -327,9 +327,9 @@ test("sidebar card specs carry identity status badges when available", () => {
         botId: (conversation) => conversation.decorations?.botId || "mia",
         botDisplayTitle: () => "Mia"
       };
-      function allOwnedFellowsForIdentity(personas) { return personas || []; }
-      function fellowGlobalIdFromConversation() { return "bot_global"; }
-      function fellowAvatarIdentityId() { return "bot_global"; }
+      function allOwnedBotsForIdentity(personas) { return personas || []; }
+      function botGlobalIdFromConversation() { return "bot_global"; }
+      function botAvatarIdentityId() { return "bot_global"; }
       function formatConversationTime() { return ""; }
       function groupTilesCtx() { return {}; }
       function showNarrowContent() {}
@@ -381,7 +381,7 @@ test("cloud-only renderer and preload do not expose local chat session CRUD", ()
     assert.doesNotMatch(source, /loadChatSessions|saveChatSession|saveChatReadState|createChatSession|renameChatSession/);
   }
   assert.doesNotMatch(tasksSource, /state\.chatStore|activeSessionIdByPersona/);
-  assert.match(tasksSource, /ensureFellowConversation/);
+  assert.match(tasksSource, /ensureBotConversation/);
   assert.match(tasksSource, /conversationId/);
 });
 
@@ -477,25 +477,25 @@ test("agent permission banner blends into the composer and keeps allow buttons c
   assert.doesNotMatch(primary, /min-width:/);
 });
 
-test("desktop fellow controls save through fellow runtime control adapter", () => {
+test("desktop bot controls save through bot runtime control adapter", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
-  const commandsSource = fs.readFileSync(path.join(root, "src/renderer/fellow/fellow-commands.js"), "utf8");
+  const commandsSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-commands.js"), "utf8");
   const quickControlSource = appSource.slice(
     appSource.indexOf("els.quickModelSelect?.addEventListener"),
     appSource.indexOf("els.modelSelect?.addEventListener")
   );
 
-  assert.match(appSource, /function runtimeKindForFellowConversation\(conversation\)\s*\{[\s\S]*return sessionHistory\.runtimeKind\(conversation, "desktop-local"\);/);
-  assert.match(appSource, /async function saveActiveFellowRuntimeControl/);
-  assert.match(appSource, /window\.miaFellowCommands\.saveFellowRuntimeControl\(\{/);
-  assert.match(appSource, /window\.miaFellowCommands\.getFellowRuntimeBinding\(\{/);
+  assert.match(appSource, /function runtimeKindForBotConversation\(conversation\)\s*\{[\s\S]*return sessionHistory\.runtimeKind\(conversation, "desktop-local"\);/);
+  assert.match(appSource, /async function saveActiveBotRuntimeControl/);
+  assert.match(appSource, /window\.miaBotCommands\.saveBotRuntimeControl\(\{/);
+  assert.match(appSource, /window\.miaBotCommands\.getBotRuntimeBinding\(\{/);
   assert.doesNotMatch(appSource, /window\.mia\.social\.saveFellowRuntime\(context\.fellowKey/);
-  assert.doesNotMatch(appSource, /async function saveActiveCloudFellowRuntimeConfig/);
-  assert.match(commandsSource, /async function saveFellowRuntimeControl/);
-  assert.match(commandsSource, /async function saveDesktopLocalFellowRuntimeControl/);
-  assert.match(quickControlSource, /saveActiveFellowRuntimeControl\(\s*"model"/);
-  assert.match(quickControlSource, /saveActiveFellowRuntimeControl\(\s*"effortLevel"/);
-  assert.match(quickControlSource, /saveActiveFellowRuntimeControl\(\s*"permissionMode"/);
+  assert.doesNotMatch(appSource, /async function saveActiveCloudBotRuntimeConfig/);
+  assert.match(commandsSource, /async function saveBotRuntimeControl/);
+  assert.match(commandsSource, /async function saveDesktopLocalBotRuntimeControl/);
+  assert.match(quickControlSource, /saveActiveBotRuntimeControl\(\s*"model"/);
+  assert.match(quickControlSource, /saveActiveBotRuntimeControl\(\s*"effortLevel"/);
+  assert.match(quickControlSource, /saveActiveBotRuntimeControl\(\s*"permissionMode"/);
   assert.doesNotMatch(quickControlSource, /window\.mia\.saveFellowEngine\(/);
   assert.doesNotMatch(quickControlSource, /window\.mia\.saveModel\(/);
   assert.doesNotMatch(quickControlSource, /window\.mia\.saveEffort\(/);
@@ -519,7 +519,7 @@ test("desktop Hermes conversation model picker uses platform model catalog", () 
 test("desktop avatar picker supports video avatars with one trim row", () => {
   const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
-  const dialogSource = fs.readFileSync(path.join(root, "src/renderer/fellow/fellow-dialog.js"), "utf8");
+  const dialogSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-dialog.js"), "utf8");
   const avatarSource = fs.readFileSync(path.join(root, "src/renderer/helpers/avatar-helpers.js"), "utf8");
   const styleSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
 
@@ -670,50 +670,50 @@ test("fellow cloud conversations are not hidden from the sidebar", () => {
   assert.doesNotMatch(appSource, /if\s*\(\s*isFellow\s*\)\s*return\s+null/);
 });
 
-test("creating or messaging a fellow opens its conversation through the unified fellow route", () => {
+test("creating or messaging a bot opens its conversation through the unified bot route", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
-  const fellowManagerSource = fs.readFileSync(path.join(root, "src/renderer/fellow/fellow-manager.js"), "utf8");
+  const botManagerSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-manager.js"), "utf8");
 
-  assert.match(appSource, /async function openFellowConversation\(fellowKey\)/);
-  assert.match(appSource, /window\.miaSocial\.ensureFellowConversation\(fellow\)/);
+  assert.match(appSource, /async function openBotConversation\(botKey\)/);
+  assert.match(appSource, /window\.miaSocial\.ensureBotConversation\(bot\)/);
   assert.match(appSource, /window\.miaSocial\.setActiveConversationId\(conversation\.id\)/);
-  assert.match(appSource, /if \(savedKey\) await openFellowConversation\(savedKey\);/);
-  assert.match(fellowManagerSource, /window\.miaOpenFellowConversation\??\.?\(fellowKey\)/);
+  assert.match(appSource, /if \(savedKey\) await openBotConversation\(savedKey\);/);
+  assert.match(botManagerSource, /window\.miaOpenBotConversation\??\.?\(botKey\)/);
 });
 
-test("contacts merge local fellows with owned cloud fellows", () => {
+test("contacts merge local bots with owned cloud bots", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
-  const fellowDirectorySource = fs.readFileSync(path.join(root, "src/renderer/fellow/fellow-directory.js"), "utf8");
-  const fellowManagerSource = fs.readFileSync(path.join(root, "src/renderer/fellow/fellow-manager.js"), "utf8");
+  const botDirectorySource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-directory.js"), "utf8");
+  const botManagerSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-manager.js"), "utf8");
   const socialSource = fs.readFileSync(path.join(root, "src/renderer/social/social.js"), "utf8");
 
-  assert.match(html, /fellow\/fellow-directory\.js/);
-  assert.match(fellowDirectorySource, /function listOwnedFellows/);
-  assert.match(socialSource, /window\.miaFellowDirectory[\s\S]*listOwnedFellows/);
-  assert.match(fellowManagerSource, /function allOwnedFellows\(\)/);
-  assert.match(fellowManagerSource, /window\.miaFellowDirectory\.listOwnedFellows/);
-  assert.match(fellowManagerSource, /const fellows = allOwnedFellows\(\);/);
-  assert.match(fellowManagerSource, /adapterCtx\?\.\(\)\?\.bots/);
-  assert.match(fellowManagerSource, /moduleState\?\.bots/);
-  assert.match(fellowManagerSource, /state\.runtime\?\.bots/);
-  assert.doesNotMatch(fellowManagerSource, /runtime\?\.fellows/);
-  assert.doesNotMatch(fellowManagerSource, /runtime\?\.personas/);
-  assert.doesNotMatch(fellowManagerSource, /cloudOnly/);
+  assert.match(html, /bot\/bot-directory\.js/);
+  assert.match(botDirectorySource, /function listOwnedBots/);
+  assert.match(socialSource, /window\.miaBotDirectory[\s\S]*listOwnedBots/);
+  assert.match(botManagerSource, /function allOwnedBots\(\)/);
+  assert.match(botManagerSource, /window\.miaBotDirectory\.listOwnedBots/);
+  assert.match(botManagerSource, /const bots = allOwnedBots\(\);/);
+  assert.match(botManagerSource, /adapterCtx\?\.\(\)\?\.bots/);
+  assert.match(botManagerSource, /moduleState\?\.bots/);
+  assert.match(botManagerSource, /state\.runtime\?\.bots/);
+  assert.doesNotMatch(botManagerSource, /runtime\?\.fellows/);
+  assert.doesNotMatch(botManagerSource, /runtime\?\.personas/);
+  assert.doesNotMatch(botManagerSource, /cloudOnly/);
   assert.doesNotMatch(socialSource, /cloudOnly:\s*(true|false)/);
-  assert.match(appSource, /const syncedFellowKeys = new Set/);
+  assert.match(appSource, /const syncedBotKeys = new Set/);
   assert.match(appSource, /const contactKeys = new Set/);
 });
 
-test("contact fellow avatars resolve through shared fellow identity", () => {
-  const fellowManagerSource = fs.readFileSync(path.join(root, "src/renderer/fellow/fellow-manager.js"), "utf8");
+test("contact bot avatars resolve through shared bot identity", () => {
+  const botManagerSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-manager.js"), "utf8");
 
-  assert.match(fellowManagerSource, /function avatarForFellow\(fellow = \{\}\)/);
-  assert.match(fellowManagerSource, /api\.resolveContact\(/);
-  assert.match(fellowManagerSource, /kind:\s*api\.IdentityKind\.Bot/);
-  assert.doesNotMatch(fellowManagerSource, /ContactKind\.Fellow/);
-  assert.match(fellowManagerSource, /fellowAvatarIdentityId\(fellow\)/);
-  assert.doesNotMatch(fellowManagerSource, /id:\s*fellow\.key\s*\|\|\s*fellow\.id/);
+  assert.match(botManagerSource, /function avatarForBot\(bot = \{\}\)/);
+  assert.match(botManagerSource, /api\.resolveContact\(/);
+  assert.match(botManagerSource, /kind:\s*api\.IdentityKind\.Bot/);
+  assert.doesNotMatch(botManagerSource, /ContactKind\.Fellow/);
+  assert.match(botManagerSource, /botAvatarIdentityId\(bot\)/);
+  assert.doesNotMatch(botManagerSource, /id:\s*bot\.key\s*\|\|\s*bot\.id/);
 });
 
 test("contact fallback avatars share text color and round shape styling", () => {
@@ -736,42 +736,42 @@ test("cloud conversation headers use the shared avatar identity path", () => {
   const socialSource = fs.readFileSync(path.join(root, "src/renderer/social/social.js"), "utf8");
 
   assert.match(socialSource, /otherUserForConversation/);
-  assert.match(appSource, /function allOwnedFellowsForIdentity/);
+  assert.match(appSource, /function allOwnedBotsForIdentity/);
   assert.match(appSource, /social\?\.otherUserForConversation\?\.\(conversation\)/);
   assert.match(appSource, /miaAvatarResolve\.resolveAvatarForContact/);
   assert.match(appSource, /avatarHelper\.paintAvatar\(avatarEl,\s*avatar\)/);
 });
 
-test("contact detail shows engine logo and fellow device label", () => {
+test("contact detail shows engine logo and bot device label", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
-  const fellowManagerSource = fs.readFileSync(path.join(root, "src/renderer/fellow/fellow-manager.js"), "utf8");
+  const botManagerSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-manager.js"), "utf8");
   const styleSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
 
   assert.match(mainSource, /function localDeviceName\(\)/);
   assert.match(mainSource, /localDevice:\s*\{\s*name:\s*localDeviceName\(\)/);
-  assert.match(fellowManagerSource, /function fellowDeviceLabel\(fellow = \{\}\)/);
-  assert.match(fellowManagerSource, /function engineLogoHtml\(engine = ""\)/);
-  assert.match(fellowManagerSource, /engine-row-logo contact-engine-logo/);
-  assert.match(fellowManagerSource, /fellowDeviceLabel\(fellow\)/);
-  assert.doesNotMatch(fellowManagerSource, /"本地伙伴"/);
+  assert.match(botManagerSource, /function botDeviceLabel\(bot = \{\}\)/);
+  assert.match(botManagerSource, /function engineLogoHtml\(engine = ""\)/);
+  assert.match(botManagerSource, /engine-row-logo contact-engine-logo/);
+  assert.match(botManagerSource, /botDeviceLabel\(bot\)/);
+  assert.doesNotMatch(botManagerSource, /"本地伙伴"/);
   assert.match(styleSource, /\.contact-engine-badge \.contact-engine-logo/);
 });
 
-test("contact detail deletes fellows through runtime-backed ownership rules", () => {
+test("contact detail deletes bots through runtime-backed ownership rules", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
-  const fellowManagerSource = fs.readFileSync(path.join(root, "src/renderer/fellow/fellow-manager.js"), "utf8");
-  const commandsSource = fs.readFileSync(path.join(root, "src/renderer/fellow/fellow-commands.js"), "utf8");
+  const botManagerSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-manager.js"), "utf8");
+  const commandsSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-commands.js"), "utf8");
   const preloadSource = fs.readFileSync(path.join(root, "src/preload.js"), "utf8");
   const channelSource = fs.readFileSync(path.join(root, "src/shared/ipc-channels.js"), "utf8");
   const socialApiSource = fs.readFileSync(path.join(root, "src/main/social/social-api.js"), "utf8");
   const socialIpcSource = fs.readFileSync(path.join(root, "src/main/social/social-ipc.js"), "utf8");
 
-  assert.doesNotMatch(appSource, /if \(!fellow \|\| fellow\.key === "mia"\) return;/);
-  assert.match(appSource, /if \(fellow\.canDelete === false\) return;/);
-  assert.match(appSource, /这会删除该 Fellow，并清理当前账号可管理的配置和会话。/);
-  assert.match(commandsSource, /async function deleteCloudHermesFellow/);
-  assert.match(commandsSource, /async function deleteDesktopLocalFellow/);
-  assert.match(fellowManagerSource, /const canDeleteFellow = fellow\.canDelete !== false;/);
+  assert.doesNotMatch(appSource, /if \(!bot \|\| bot\.key === "mia"\) return;/);
+  assert.match(appSource, /if \(bot\.canDelete === false\) return;/);
+  assert.match(appSource, /这会删除该 Bot，并清理当前账号可管理的配置和会话。/);
+  assert.match(commandsSource, /async function deleteCloudHermesBot/);
+  assert.match(commandsSource, /async function deleteDesktopLocalBot/);
+  assert.match(botManagerSource, /const canDeleteBot = bot\.canDelete !== false;/);
   assert.match(channelSource, /SocialDeleteBot/);
   assert.doesNotMatch(channelSource, /SocialDeleteFellow/);
   assert.match(preloadSource, /deleteBot: \(botId\) => ipcRenderer\.invoke\(IpcChannel\.SocialDeleteBot, botId\)/);
@@ -782,7 +782,7 @@ test("contact detail deletes fellows through runtime-backed ownership rules", ()
   assert.doesNotMatch(socialIpcSource, /SocialDeleteFellow/);
 });
 
-test("fellow management copy avoids cloud/local split in user-facing language", () => {
+test("bot management copy avoids cloud/local split in user-facing language", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const contactCardSource = fs.readFileSync(path.join(root, "src/renderer/social/contact-card.js"), "utf8");
 
@@ -791,65 +791,65 @@ test("fellow management copy avoids cloud/local split in user-facing language", 
   assert.match(contactCardSource, /不属于你/);
 });
 
-test("contact capability saves go through fellow command adapters", () => {
-  const fellowManagerSource = fs.readFileSync(path.join(root, "src/renderer/fellow/fellow-manager.js"), "utf8");
-  const commandsSource = fs.readFileSync(path.join(root, "src/renderer/fellow/fellow-commands.js"), "utf8");
+test("contact capability saves go through bot command adapters", () => {
+  const botManagerSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-manager.js"), "utf8");
+  const commandsSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-commands.js"), "utf8");
 
-  assert.match(fellowManagerSource, /window\.miaFellowCommands\.saveFellowCapabilities\(\{/);
-  assert.doesNotMatch(fellowManagerSource, /window\.mia\.social\.saveFellowIdentity/);
-  assert.doesNotMatch(fellowManagerSource, /window\.mia\.saveFellow\(\{/);
-  assert.match(commandsSource, /async function saveCloudHermesFellowCapabilities/);
-  assert.match(commandsSource, /async function saveDesktopLocalFellowCapabilities/);
+  assert.match(botManagerSource, /window\.miaBotCommands\.saveBotCapabilities\(\{/);
+  assert.doesNotMatch(botManagerSource, /window\.mia\.social\.saveFellowIdentity/);
+  assert.doesNotMatch(botManagerSource, /window\.mia\.saveFellow\(\{/);
+  assert.match(commandsSource, /async function saveCloudHermesBotCapabilities/);
+  assert.match(commandsSource, /async function saveDesktopLocalBotCapabilities/);
 });
 
-test("social bootstrap delegates desktop-local fellow sync through fellow command adapters", () => {
+test("social bootstrap delegates desktop-local bot sync through bot command adapters", () => {
   const socialSource = fs.readFileSync(path.join(root, "src/renderer/social/social.js"), "utf8");
-  const commandsSource = fs.readFileSync(path.join(root, "src/renderer/fellow/fellow-commands.js"), "utf8");
+  const commandsSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-commands.js"), "utf8");
 
-  assert.match(socialSource, /window\.miaFellowCommands\.ensureDesktopLocalFellowConversation\(\{/);
-  assert.match(socialSource, /window\.miaFellowCommands\.syncDesktopLocalFellowRuntimeBinding\(\{/);
+  assert.match(socialSource, /window\.miaBotCommands\.ensureDesktopLocalBotConversation\(\{/);
+  assert.match(socialSource, /window\.miaBotCommands\.syncDesktopLocalBotRuntimeBinding\(\{/);
   assert.doesNotMatch(socialSource, /api\.saveFellowRuntime\(fellowKey/);
   assert.doesNotMatch(socialSource, /api\.ensureFellowConversation\(fellow\.key,/);
   assert.match(commandsSource, /function desktopLocalRuntimeConfig/);
-  assert.match(commandsSource, /async function ensureDesktopLocalFellowConversation/);
+  assert.match(commandsSource, /async function ensureDesktopLocalBotConversation/);
 });
 
-test("fellow creation dialog separates runtime location from agent engine", () => {
+test("bot creation dialog separates runtime location from agent engine", () => {
   const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
-  const dialogSource = fs.readFileSync(path.join(root, "src/renderer/fellow/fellow-dialog.js"), "utf8");
+  const dialogSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-dialog.js"), "utf8");
 
   assert.match(html, /id="fellowRuntimeLocation"/);
   assert.match(html, /value="desktop-local"/);
   assert.match(html, /value="cloud-hermes"/);
-  assert.match(appSource, /fellowRuntimeLocation:\s*document\.getElementById\("fellowRuntimeLocation"\)/);
-  assert.match(dialogSource, /function renderFellowRuntimeLocationSelect/);
+  assert.match(appSource, /botRuntimeLocation:\s*document\.getElementById\("fellowRuntimeLocation"\)/);
+  assert.match(dialogSource, /function renderBotRuntimeLocationSelect/);
   assert.match(dialogSource, /state\.runtime\?\.cloud\?\.enabled/);
-  assert.match(dialogSource, /els\.fellowAgentEngineField\?\.classList\.toggle\("hidden", runtimeKind === "cloud-hermes" \|\| !showField\)/);
+  assert.match(dialogSource, /els\.botAgentEngineField\?\.classList\.toggle\("hidden", runtimeKind === "cloud-hermes" \|\| !showField\)/);
 });
 
-test("fellow creation branches cloud-hermes without saving local manifest", () => {
+test("bot creation branches cloud-hermes without saving local manifest", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
-  const commandsSource = fs.readFileSync(path.join(root, "src/renderer/fellow/fellow-commands.js"), "utf8");
+  const commandsSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-commands.js"), "utf8");
 
-  assert.match(html, /fellow\/fellow-commands\.js/);
-  assert.match(appSource, /window\.miaFellowCommands\.saveFellow\(\{/);
-  assert.doesNotMatch(appSource, /async function createCloudHermesFellow/);
+  assert.match(html, /bot\/bot-commands\.js/);
+  assert.match(appSource, /window\.miaBotCommands\.saveBot\(\{/);
+  assert.doesNotMatch(appSource, /async function createCloudHermesBot/);
   assert.doesNotMatch(appSource, /window\.mia\.social\.saveFellowIdentity\(key,/);
-  assert.match(commandsSource, /async function saveCloudHermesFellow/);
+  assert.match(commandsSource, /async function saveCloudHermesBot/);
   assert.match(commandsSource, /api\.social\.saveBotIdentity\(key,/);
   assert.match(commandsSource, /runtimeKind:\s*"cloud-hermes"/);
-  assert.match(commandsSource, /async function saveDesktopLocalFellow/);
-  assert.match(commandsSource, /api\.saveBot\(fellow\)/);
+  assert.match(commandsSource, /async function saveDesktopLocalBot/);
+  assert.match(commandsSource, /api\.saveBot\(bot\)/);
 });
 
-test("opening a fellow conversation preserves existing cloud runtime kind", () => {
+test("opening a bot conversation preserves existing cloud runtime kind", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const socialSource = fs.readFileSync(path.join(root, "src/renderer/social/social.js"), "utf8");
 
-  assert.match(socialSource, /function fellowConversationForKey\(fellowKey\)/);
-  assert.match(appSource, /const existingConversation = window\.miaSocial\?\.fellowConversationForKey\?\.\(key\)/);
+  assert.match(socialSource, /function botConversationForKey\(botKey\)/);
+  assert.match(appSource, /const existingConversation = window\.miaSocial\?\.botConversationForKey\?\.\(key\)/);
   assert.match(appSource, /if \(existingConversation\?\.id\)/);
   assert.match(appSource, /window\.miaSocial\.setActiveConversationId\(existingConversation\.id\)/);
 });

@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="./styles/groups.css">
   <link rel="stylesheet" href="./styles/tasks.css">
   <link rel="stylesheet" href="./styles/skills.css">
-  <link rel="stylesheet" href="./styles/fellow-store.css">
+  <link rel="stylesheet" href="./styles/bot-store.css">
 </head>
 <body>
   <main class="app-shell" data-auth-state="signed-out">
@@ -301,22 +301,22 @@
       </section>
     </section>
 
-    <section id="fellowStoreView" class="workspace fellow-store-workspace hidden">
-      <header class="topbar fellow-store-topbar">
+    <section id="fellowStoreView" class="workspace bot-store-workspace hidden">
+      <header class="topbar bot-store-topbar">
         <button class="narrow-back-button" type="button" data-narrow-back title="返回" aria-label="返回">‹</button>
         <div class="group-title">
-          <h1 class="fellow-store-title-main">发现 AI 同事</h1>
-          <p class="fellow-store-title-sub">为大学生挑好的 AI 搭子，点开就能用</p>
+          <h1 class="bot-store-title-main">发现 AI 同事</h1>
+          <p class="bot-store-title-sub">为大学生挑好的 AI 搭子，点开就能用</p>
         </div>
       </header>
-      <section class="fellow-store-layout">
-        <div id="fellowStoreCap" class="fellow-store-cap" aria-label="分类"></div>
-        <div class="fellow-store-grid-scroll">
-          <section id="fellowStoreGrid" class="fellow-store-grid" aria-label="AI 同事列表"></section>
+      <section class="bot-store-layout">
+        <div id="fellowStoreCap" class="bot-store-cap" aria-label="分类"></div>
+        <div class="bot-store-grid-scroll">
+          <section id="fellowStoreGrid" class="bot-store-grid" aria-label="AI 同事列表"></section>
         </div>
       </section>
-      <div id="fellowStoreScrim" class="fellow-store-scrim">
-        <div id="fellowStoreSheet" class="fellow-store-sheet"></div>
+      <div id="fellowStoreScrim" class="bot-store-scrim">
+        <div id="fellowStoreSheet" class="bot-store-sheet"></div>
       </div>
     </section>
 
@@ -965,12 +965,12 @@
   <script src="./settings/settings-remote.js"></script>
   <script src="./skills/skill-helpers.js"></script>
   <script src="./skills/skill-library.js"></script>
-  <script src="./fellow/pet-dialog.js"></script>
-  <script src="./fellow/fellow-directory.js"></script>
-  <script src="./fellow/fellow-commands.js"></script>
-  <script src="./fellow/fellow-dialog.js"></script>
-  <script src="./fellow/fellow-manager.js"></script>
-  <script src="./fellow/fellow-store.js"></script>
+  <script src="./bot/pet-dialog.js"></script>
+  <script src="./bot/bot-directory.js"></script>
+  <script src="./bot/bot-commands.js"></script>
+  <script src="./bot/bot-dialog.js"></script>
+  <script src="./bot/bot-manager.js"></script>
+  <script src="./bot/bot-store.js"></script>
   <script src="./tasks/tasks-panel.js"></script>
   <script src="../shared/trace-blocks.js"></script>
   <script src="./chat/message-helpers.js"></script>
@@ -984,7 +984,7 @@
   <script src="./name-with-badge.js"></script>
 
   <!-- Message source adapters (raw schema → RenderableMessageSpec) -->
-  <script src="./message-sources/fellow-session-source.js"></script>
+  <script src="./message-sources/bot-session-source.js"></script>
   <script src="./message-sources/cloud-conversation-source.js"></script>
 
   <!-- Single message-bubble DOM producer -->

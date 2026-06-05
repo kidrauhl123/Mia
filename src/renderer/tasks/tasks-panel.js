@@ -585,9 +585,9 @@
   function jumpToTaskConversation(task) {
     const conversationId = taskConversationId(task);
     if (!conversationId) return;
-    const fellowKey = task.botId || "";
+    const botKey = task.botId || "";
     state.activeKey = "";
-    state.activeContactKey = fellowKey;
+    state.activeContactKey = botKey;
     state.activeView = "chat";
     state.selectedTaskId = "";
     state.selectedRunId = "";
@@ -820,7 +820,7 @@
 
     let conversationId;
     try {
-      conversationId = await resolveConversationForFellow(botId);
+      conversationId = await resolveConversationForBot(botId);
     } catch (e) {
       return showError("无法为该 Agent 准备云端对话：" + (e?.message || e));
     }
@@ -838,14 +838,14 @@
     }
   }
 
-  async function resolveConversationForFellow(fellowKey) {
-    const key = String(fellowKey || "").trim();
+  async function resolveConversationForBot(botKey) {
+    const key = String(botKey || "").trim();
     if (!key) return null;
-    const existing = __global.miaSocial?.fellowConversationForKey?.(key);
+    const existing = __global.miaSocial?.botConversationForKey?.(key);
     if (existing?.id) return existing.id;
     const bots = state.runtime?.bots || state.runtime?.personas || [];
-    const fellow = bots.find((item) => item?.key === key || item?.id === key) || { key };
-    const conversation = await __global.miaSocial?.ensureFellowConversation?.(fellow);
+    const bot = bots.find((item) => item?.key === key || item?.id === key) || { key };
+    const conversation = await __global.miaSocial?.ensureBotConversation?.(bot);
     return conversation?.id || null;
   }
 

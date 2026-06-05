@@ -494,7 +494,7 @@
   function mentionDisplayName(member) {
     if (!member) return "";
     if (member.member_kind === MemberKind.Bot) {
-      return String(member.bot_name || member.fellow_name || member.member_ref || "").trim();
+      return String(member.bot_name || member.member_ref || "").trim();
     }
     const social = typeof window !== "undefined" ? window.miaSocial : null;
     const myUserId = social?.getActiveConversationId ? (state?.runtime?.cloud?.user?.id || "") : "";

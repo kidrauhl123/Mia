@@ -1,9 +1,12 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const vm = require("node:vm");
 
-const commands = require("../src/renderer/fellow/fellow-commands.js");
+const commands = require("../src/renderer/bot/bot-commands.js");
 
-test("saveFellow creates a cloud-hermes fellow through identity, runtime, and conversation commands", async () => {
+test("saveBot creates a cloud-hermes bot through identity, runtime, and conversation commands", async () => {
   const calls = [];
   const state = {
     runtime: {
@@ -15,7 +18,7 @@ test("saveFellow creates a cloud-hermes fellow through identity, runtime, and co
     moduleState: {
       bots: [{ id: "mia", name: "Mia" }]
     },
-    upsertFellowConversation(conversation) {
+    upsertBotConversation(conversation) {
       calls.push(["upsertConversation", conversation.id]);
       return conversation;
     }
@@ -37,14 +40,14 @@ test("saveFellow creates a cloud-hermes fellow through identity, runtime, and co
     }
   };
 
-  const result = await commands.saveFellow({
+  const result = await commands.saveBot({
     state,
     api,
     social,
     runtimeKind: "cloud-hermes",
     isCreate: true,
     cloudModelEntries: () => [{ id: "mia-fast", label: "Mia Fast" }],
-    fellow: {
+    bot: {
       name: "Alice",
       avatarImage: "alice.png",
       avatarCrop: { x: 50, y: 50, zoom: 1 },
@@ -60,7 +63,7 @@ test("saveFellow creates a cloud-hermes fellow through identity, runtime, and co
   assert.equal(social.moduleState.bots[0].id, "alice");
 });
 
-test("saveFellow saves a desktop-local fellow through the local runtime command", async () => {
+test("saveBot saves a desktop-local bot through the local runtime command", async () => {
   const calls = [];
   const runtime = {
     bots: [
@@ -69,19 +72,19 @@ test("saveFellow saves a desktop-local fellow through the local runtime command"
     ]
   };
   const api = {
-    async saveBot(fellow) {
-      calls.push(["local", fellow]);
+    async saveBot(bot) {
+      calls.push(["local", bot]);
       return runtime;
     }
   };
 
-  const result = await commands.saveFellow({
+  const result = await commands.saveBot({
     state: { runtime: { cloud: { enabled: true } } },
     api,
     social: {},
     runtimeKind: "desktop-local",
     isCreate: true,
-    fellow: { name: "Alice", agentEngine: "codex" }
+    bot: { name: "Alice", agentEngine: "codex" }
   });
 
   assert.equal(result.key, "alice");
@@ -90,7 +93,7 @@ test("saveFellow saves a desktop-local fellow through the local runtime command"
   assert.equal(calls[0][1].agentEngine, "codex");
 });
 
-test("deleteFellow removes a cloud-hermes fellow through cloud identity commands", async () => {
+test("deleteBot removes a cloud-hermes bot through cloud identity commands", async () => {
   const calls = [];
   const social = {
     moduleState: {
@@ -105,18 +108,18 @@ test("deleteFellow removes a cloud-hermes fellow through cloud identity commands
   };
   const api = {
     social: {
-      async deleteBot(fellowId) {
-        calls.push(["cloudDelete", fellowId]);
+      async deleteBot(botId) {
+        calls.push(["cloudDelete", botId]);
         return { ok: true };
       }
     }
   };
 
-  const result = await commands.deleteFellow({
+  const result = await commands.deleteBot({
     state: { runtime: { cloud: { enabled: true } } },
     api,
     social,
-    fellow: { key: "alice", runtimeKind: "cloud-hermes" }
+    bot: { key: "alice", runtimeKind: "cloud-hermes" }
   });
 
   assert.equal(result.deleted, true);
@@ -124,7 +127,7 @@ test("deleteFellow removes a cloud-hermes fellow through cloud identity commands
   assert.deepEqual(social.moduleState.bots.map((item) => item.id), ["mia"]);
 });
 
-test("deleteFellow removes a desktop-local fellow through the local runtime command", async () => {
+test("deleteBot removes a desktop-local bot through the local runtime command", async () => {
   const calls = [];
   const runtime = { bots: [{ key: "mia", name: "Mia" }] };
   const api = {
@@ -134,11 +137,11 @@ test("deleteFellow removes a desktop-local fellow through the local runtime comm
     }
   };
 
-  const result = await commands.deleteFellow({
+  const result = await commands.deleteBot({
     state: { runtime: {} },
     api,
     social: {},
-    fellow: { key: "alice", runtimeKind: "desktop-local" }
+    bot: { key: "alice", runtimeKind: "desktop-local" }
   });
 
   assert.equal(result.deleted, true);
@@ -146,7 +149,7 @@ test("deleteFellow removes a desktop-local fellow through the local runtime comm
   assert.deepEqual(calls, [["localDelete", { key: "alice" }]]);
 });
 
-test("saveFellowCapabilities updates cloud-hermes identity and local fellow cache", async () => {
+test("saveBotCapabilities updates cloud-hermes identity and local bot cache", async () => {
   const { normalizeBotCapabilities } = require("../src/shared/bot-identity.js");
   const capabilities = normalizeBotCapabilities({ inheritEngineDefaults: false, enabledSkills: ["search"] });
   const social = {
@@ -167,11 +170,11 @@ test("saveFellowCapabilities updates cloud-hermes identity and local fellow cach
     }
   };
 
-  const result = await commands.saveFellowCapabilities({
+  const result = await commands.saveBotCapabilities({
     state: { runtime: { cloud: { enabled: true } } },
     api,
     social,
-    fellow: {
+    bot: {
       key: "alice",
       name: "Alice",
       runtimeKind: "cloud-hermes",
@@ -200,22 +203,22 @@ test("saveFellowCapabilities updates cloud-hermes identity and local fellow cach
   ]);
 });
 
-test("saveFellowCapabilities updates desktop-local fellows through local saveFellow", async () => {
+test("saveBotCapabilities updates desktop-local bots through local saveBot", async () => {
   const capabilities = { inheritEngineDefaults: true, disabledPlugins: ["shell"] };
   const runtime = { bots: [{ key: "alice", name: "Alice", capabilities }] };
   const calls = [];
   const api = {
-    async saveBot(fellow) {
-      calls.push(["local", fellow]);
+    async saveBot(bot) {
+      calls.push(["local", bot]);
       return runtime;
     }
   };
 
-  const result = await commands.saveFellowCapabilities({
+  const result = await commands.saveBotCapabilities({
     state: { runtime: {} },
     api,
     social: {},
-    fellow: {
+    bot: {
       key: "alice",
       name: "Alice",
       runtimeKind: "desktop-local",
@@ -237,7 +240,7 @@ test("saveFellowCapabilities updates desktop-local fellows through local saveFel
   ]]);
 });
 
-test("getFellowRuntimeBinding reads and caches cloud-hermes runtime bindings", async () => {
+test("getBotRuntimeBinding reads and caches cloud-hermes runtime bindings", async () => {
   const calls = [];
   const cache = new Map();
   const api = {
@@ -249,9 +252,9 @@ test("getFellowRuntimeBinding reads and caches cloud-hermes runtime bindings", a
     }
   };
 
-  const first = await commands.getFellowRuntimeBinding({ api, cache, fellowKey: "alice", runtimeKind: "cloud-hermes" });
-  const second = await commands.getFellowRuntimeBinding({ api, cache, fellowKey: "alice", runtimeKind: "cloud-hermes" });
-  const skipped = await commands.getFellowRuntimeBinding({ api, cache, fellowKey: "alice", runtimeKind: "desktop-local" });
+  const first = await commands.getBotRuntimeBinding({ api, cache, botKey: "alice", runtimeKind: "cloud-hermes" });
+  const second = await commands.getBotRuntimeBinding({ api, cache, botKey: "alice", runtimeKind: "cloud-hermes" });
+  const skipped = await commands.getBotRuntimeBinding({ api, cache, botKey: "alice", runtimeKind: "desktop-local" });
 
   assert.deepEqual(first, { botId: "alice", runtimeKind: "cloud-hermes", config: { model: "mia-default" } });
   assert.equal(second, first);
@@ -259,7 +262,7 @@ test("getFellowRuntimeBinding reads and caches cloud-hermes runtime bindings", a
   assert.deepEqual(calls, [["get", "alice", "cloud-hermes"]]);
 });
 
-test("saveFellowRuntimeConfig merges patch with current cloud runtime binding", async () => {
+test("saveBotRuntimeConfig merges patch with current cloud runtime binding", async () => {
   const calls = [];
   const cache = new Map();
   const api = {
@@ -275,10 +278,10 @@ test("saveFellowRuntimeConfig merges patch with current cloud runtime binding", 
     }
   };
 
-  const result = await commands.saveFellowRuntimeConfig({
+  const result = await commands.saveBotRuntimeConfig({
     api,
     cache,
-    fellowKey: "alice",
+    botKey: "alice",
     runtimeKind: "cloud-hermes",
     patch: { effortLevel: "high", permissionMode: "ask" }
   });
@@ -303,7 +306,7 @@ test("saveFellowRuntimeConfig merges patch with current cloud runtime binding", 
   assert.equal(cache.get("alice:cloud-hermes"), result.binding);
 });
 
-test("syncDesktopLocalFellowRuntimeBinding stores hermes config from current device settings", async () => {
+test("syncDesktopLocalBotRuntimeBinding stores hermes config from current device settings", async () => {
   const calls = [];
   const api = {
     async saveBotRuntime(botId, body) {
@@ -319,10 +322,10 @@ test("syncDesktopLocalFellowRuntimeBinding stores hermes config from current dev
     }
   };
 
-  const result = await commands.syncDesktopLocalFellowRuntimeBinding({
+  const result = await commands.syncDesktopLocalBotRuntimeBinding({
     api,
     state,
-    fellow: { key: "alice", name: "Alice" },
+    bot: { key: "alice", name: "Alice" },
     modelSettings: {
       connectedModelEntries: () => [
         { id: "deepseek-chat", model: "deepseek-chat", label: "DeepSeek", provider: "deepseek", providerLabel: "DeepSeek" }
@@ -350,7 +353,7 @@ test("syncDesktopLocalFellowRuntimeBinding stores hermes config from current dev
   ]]);
 });
 
-test("ensureDesktopLocalFellowConversation creates conversation and syncs external engine runtime config", async () => {
+test("ensureDesktopLocalBotConversation creates conversation and syncs external engine runtime config", async () => {
   const calls = [];
   const api = {
     async ensureBotSessionConversation(sessionId, body) {
@@ -364,10 +367,10 @@ test("ensureDesktopLocalFellowConversation creates conversation and syncs extern
   };
   const upserted = [];
 
-  const result = await commands.ensureDesktopLocalFellowConversation({
+  const result = await commands.ensureDesktopLocalBotConversation({
     api,
     state: { runtime: {} },
-    fellow: {
+    bot: {
       key: "codex",
       name: "Codex",
       agentEngine: "codex",
@@ -402,20 +405,20 @@ test("ensureDesktopLocalFellowConversation creates conversation and syncs extern
   assert.equal(upserted[0].id, "botc_codex");
 });
 
-test("saveFellowRuntimeControl saves desktop-local hermes controls through device runtime settings", async () => {
+test("saveBotRuntimeControl saves desktop-local hermes controls through device runtime settings", async () => {
   const calls = [];
   const api = {
     async saveModel(payload) {
       calls.push(["model", payload]);
-      return { fellows: [] };
+      return { bots: [] };
     },
     async saveEffort(payload) {
       calls.push(["effort", payload]);
-      return { fellows: [] };
+      return { bots: [] };
     },
     async savePermissions(payload) {
       calls.push(["permissions", payload]);
-      return { fellows: [] };
+      return { bots: [] };
     }
   };
   const modelEntries = [
@@ -431,23 +434,23 @@ test("saveFellowRuntimeControl saves desktop-local hermes controls through devic
     }
   ];
 
-  await commands.saveFellowRuntimeControl({
+  await commands.saveBotRuntimeControl({
     api,
-    fellow: { key: "alice", runtimeKind: "desktop-local", agentEngine: "hermes" },
+    bot: { key: "alice", runtimeKind: "desktop-local", agentEngine: "hermes" },
     field: "model",
     value: "deepseek-chat",
     modelEntries
   });
-  await commands.saveFellowRuntimeControl({
+  await commands.saveBotRuntimeControl({
     api,
-    fellow: { key: "alice", runtimeKind: "desktop-local", agentEngine: "hermes" },
+    bot: { key: "alice", runtimeKind: "desktop-local", agentEngine: "hermes" },
     field: "effortLevel",
     value: "high",
     modelEntries
   });
-  await commands.saveFellowRuntimeControl({
+  await commands.saveBotRuntimeControl({
     api,
-    fellow: { key: "alice", runtimeKind: "desktop-local", agentEngine: "hermes" },
+    bot: { key: "alice", runtimeKind: "desktop-local", agentEngine: "hermes" },
     field: "permissionMode",
     value: "yolo",
     modelEntries
@@ -468,7 +471,7 @@ test("saveFellowRuntimeControl saves desktop-local hermes controls through devic
   ]);
 });
 
-test("saveFellowRuntimeControl saves desktop-local external engine controls through fellow engine config", async () => {
+test("saveBotRuntimeControl saves desktop-local external engine controls through bot engine config", async () => {
   const calls = [];
   const api = {
     async saveBotEngine(payload) {
@@ -477,9 +480,9 @@ test("saveFellowRuntimeControl saves desktop-local external engine controls thro
     }
   };
 
-  const result = await commands.saveFellowRuntimeControl({
+  const result = await commands.saveBotRuntimeControl({
     api,
-    fellow: { key: "codex", runtimeKind: "desktop-local", agentEngine: "codex" },
+    bot: { key: "codex", runtimeKind: "desktop-local", agentEngine: "codex" },
     field: "model",
     value: "gpt-5.3-codex",
     modelEntries: [
@@ -499,7 +502,7 @@ test("saveFellowRuntimeControl saves desktop-local external engine controls thro
   ]]);
 });
 
-test("saveFellowRuntimeControl saves cloud-hermes controls through cloud runtime config", async () => {
+test("saveBotRuntimeControl saves cloud-hermes controls through cloud runtime config", async () => {
   const calls = [];
   const api = {
     social: {
@@ -514,9 +517,9 @@ test("saveFellowRuntimeControl saves cloud-hermes controls through cloud runtime
     }
   };
 
-  await commands.saveFellowRuntimeControl({
+  await commands.saveBotRuntimeControl({
     api,
-    fellow: { key: "mia", runtimeKind: "cloud-hermes" },
+    bot: { key: "mia", runtimeKind: "cloud-hermes" },
     field: "model",
     value: "mia-pro",
     modelEntries: [{ id: "mia-pro", model: "mia-pro", label: "Mia Pro" }]
@@ -530,4 +533,15 @@ test("saveFellowRuntimeControl saves cloud-hermes controls through cloud runtime
       config: { model: "mia-pro" }
     }]
   ]);
+});
+
+test("bot commands attach as a browser global without legacy fellow global", () => {
+  const sourcePath = path.join(__dirname, "..", "src", "renderer", "bot", "bot-commands.js");
+  const source = fs.readFileSync(sourcePath, "utf8");
+  const window = {};
+  const context = vm.createContext({ window, globalThis: window, module: { exports: {} }, require, console });
+  vm.runInContext(source, context, { filename: sourcePath });
+
+  assert.equal(typeof window.miaBotCommands.saveBotRuntimeControl, "function");
+  assert.equal(window.miaFellowCommands, undefined);
 });

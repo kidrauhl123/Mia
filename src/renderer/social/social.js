@@ -13,7 +13,7 @@
   // lands back on it instead of an empty chat pane. Same renderer-prefs convention
   // as mia.sidebarWidth; not synced across devices on purpose.
   const LAST_CONVERSATION_KEY = "mia.lastActiveConversationId";
-  const LAST_FELLOW_CONVERSATION_KEY = "mia.lastFellowConversationByKey";
+  const LAST_BOT_CONVERSATION_KEY = "mia.lastBotConversationByKey";
 
   function rendererLocalStorage() {
     try {
@@ -41,9 +41,9 @@
     }
   }
 
-  function readLastFellowConversationByKey() {
+  function readLastBotConversationByKey() {
     try {
-      const raw = rendererLocalStorage()?.getItem(LAST_FELLOW_CONVERSATION_KEY) || "";
+      const raw = rendererLocalStorage()?.getItem(LAST_BOT_CONVERSATION_KEY) || "";
       const parsed = raw ? JSON.parse(raw) : {};
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
       return Object.fromEntries(Object.entries(parsed)
@@ -54,11 +54,11 @@
     }
   }
 
-  function writeLastFellowConversationByKey(value) {
+  function writeLastBotConversationByKey(value) {
     try {
       const storage = rendererLocalStorage();
       if (!storage) return;
-      storage.setItem(LAST_FELLOW_CONVERSATION_KEY, JSON.stringify(value || {}));
+      storage.setItem(LAST_BOT_CONVERSATION_KEY, JSON.stringify(value || {}));
     } catch {
       // Best-effort device-local preference.
     }
@@ -70,8 +70,8 @@
     if (global.miaConversationKinds) return global.miaConversationKinds;
     if (typeof require !== "undefined") return require("../../shared/conversation-kinds");
     return {
-      MemberKind: { Bot: "bot", Fellow: "fellow", User: "user" },
-      SenderKind: { Bot: "bot", Fellow: "fellow", User: "user", System: "system" }
+      MemberKind: { Bot: "bot", Bot: "bot", User: "user" },
+      SenderKind: { Bot: "bot", Bot: "bot", User: "user", System: "system" }
     };
   }
 
@@ -117,7 +117,7 @@
   const _conversationMembersCache = new Map();
 
   // Distance (px) from the bottom within which we treat the user as "pinned" and
-  // keep following new content. Mirrors the fellow-chat threshold in app.js.
+  // keep following new content. Mirrors the bot-chat threshold in app.js.
   const SCROLL_STICK_THRESHOLD_PX = 80;
   // Which conversation renderConversationChat last painted — a change means the user switched
   // conversations, so we land at the bottom instead of preserving the old offset.
@@ -135,7 +135,7 @@
     myUserId: "",
     cloudAgentRunsByConversation: new Map(),
     pendingPermissionsById: new Map(),
-    lastFellowConversationByKey: readLastFellowConversationByKey(),
+    lastBotConversationByKey: readLastBotConversationByKey(),
     // unreadByConversation: conversationId → count. Bumped by WS conversation.message_appended when
     // the message is from someone else and the conversation isn't currently open.
     // Cleared by setActiveConversationId (and on bootstrap — incomingRequests path
@@ -478,8 +478,8 @@
     return {
       requestId,
       engine: String(event.engine || "").trim(),
-      fellowKey: String(event.fellowKey || "").trim(),
-      fellowName: String(event.fellowName || event.fellow_name || "").trim(),
+      botKey: String(event.botKey || "").trim(),
+      botName: String(event.botName || event.bot_name || "").trim(),
       sessionId: String(event.sessionId || "").trim(),
       toolName: String(event.toolName || event.tool || "tool").trim() || "tool",
       title: String(event.title || "需要权限审批").trim(),
@@ -557,25 +557,25 @@
 
   function compactPermissionTitle(request = {}) {
     const title = String(request.title || "").trim();
-    const fellowName = permissionFellowName(request);
-    if (!title || title === "需要权限审批") return fellowName ? `${fellowName}请求执行权限` : "请求执行权限";
+    const botName = permissionBotName(request);
+    if (!title || title === "需要权限审批") return botName ? `${botName}请求执行权限` : "请求执行权限";
     const actionMatch = title.match(/^([^\s想\n]{1,32})\s+(想.+)$/);
-    if (actionMatch) return `${fellowName || actionMatch[1]}${actionMatch[2]}`;
+    if (actionMatch) return `${botName || actionMatch[1]}${actionMatch[2]}`;
     const requestMatch = title.match(/^([^\s请\n]{1,32})\s+(请求.+)$/);
-    if (requestMatch) return `${fellowName || requestMatch[1]}${requestMatch[2]}`;
+    if (requestMatch) return `${botName || requestMatch[1]}${requestMatch[2]}`;
     return title;
   }
 
-  function permissionFellowName(request = {}) {
-    const explicit = String(request.botName || request.fellowName || "").trim();
+  function permissionBotName(request = {}) {
+    const explicit = String(request.botName || request.botName || "").trim();
     if (explicit) return explicit;
-    const key = String(request.botId || request.botKey || request.fellowKey || "").trim();
+    const key = String(request.botId || request.botKey || request.botKey || "").trim();
     if (!key) return "";
-    const fellow = moduleState.bots.find((item) => {
+    const bot = moduleState.bots.find((item) => {
       const candidates = [item?.key, item?.id, item?.botId, item?.bot_id].map((value) => String(value || "").trim());
       return candidates.includes(key);
     });
-    return String(fellow?.name || fellow?.displayName || fellow?.title || "").trim();
+    return String(bot?.name || bot?.displayName || bot?.title || "").trim();
   }
 
   function isChatNearBottom(chatEl) {
@@ -779,7 +779,7 @@
     moduleState.messageCache.set(conversationId, { messages: [], maxSeq: 0 });
   }
 
-  function isLegacyFellowSessionConversation(conversation) {
+  function isLegacyBotSessionConversation(conversation) {
     void conversation;
     return false;
   }
@@ -788,10 +788,10 @@
     if (!Array.isArray(conversations)) return [];
     const keepLegacyIds = new Set([
       String(options.activeConversationId || "").trim(),
-      ...Object.values(options.preferredConversationIdByFellowKey || {}).map((id) => String(id || "").trim())
+      ...Object.values(options.preferredConversationIdByBotKey || {}).map((id) => String(id || "").trim())
     ].filter(Boolean));
     return conversations.filter((conversation) =>
-      !isLegacyFellowSessionConversation(conversation)
+      !isLegacyBotSessionConversation(conversation)
       || keepLegacyIds.has(String(conversation?.id || ""))
     );
   }
@@ -808,12 +808,12 @@
     return moduleState.conversations.find((r) => r.id === conversation.id) || conversation;
   }
 
-  function upsertFellowConversation(conversation) {
+  function upsertBotConversation(conversation) {
     return upsertConversation(conversation);
   }
 
-  function fellowConversationForKey(fellowKey) {
-    const key = String(fellowKey || "").trim();
+  function botConversationForKey(botKey) {
+    const key = String(botKey || "").trim();
     if (!key) return null;
     const matches = moduleState.conversations.filter((conversation) => {
       const conversationId = String(conversation?.id || "");
@@ -821,21 +821,21 @@
       return (conversation?.type === "bot" || conversationId.startsWith("botc_"))
         && decorated === key;
     });
-    const preferredId = String(moduleState.lastFellowConversationByKey?.[key] || "").trim();
+    const preferredId = String(moduleState.lastBotConversationByKey?.[key] || "").trim();
     const preferred = preferredId
       ? matches.find((conversation) => conversation.id === preferredId)
       : null;
     if (preferred) return preferred;
     const stable = matches.find((conversation) => String(conversation?.decorations?.sessionId || "") === key);
     if (stable) return stable;
-    return matches.find((conversation) => !isLegacyFellowSessionConversation(conversation)) || matches[0] || null;
+    return matches.find((conversation) => !isLegacyBotSessionConversation(conversation)) || matches[0] || null;
   }
 
   function currentState() {
     return (deps && typeof deps.getState === "function" && deps.getState()) || {};
   }
 
-  function localRuntimeFellows() {
+  function localRuntimeBots() {
     const state = currentState();
     const runtime = state.runtime || {};
     const candidates = [
@@ -854,57 +854,57 @@
     return bots;
   }
 
-  async function syncLocalFellowRuntimeBinding(api, fellow) {
-    const fellowKey = String(fellow?.key || fellow?.id || "").trim();
-    if (!fellowKey || !window.miaFellowCommands?.syncDesktopLocalFellowRuntimeBinding) return;
+  async function syncLocalBotRuntimeBinding(api, bot) {
+    const botKey = String(bot?.key || bot?.id || "").trim();
+    if (!botKey || !window.miaBotCommands?.syncDesktopLocalBotRuntimeBinding) return;
     try {
-      await window.miaFellowCommands.syncDesktopLocalFellowRuntimeBinding({
+      await window.miaBotCommands.syncDesktopLocalBotRuntimeBinding({
         api,
         state: currentState(),
-        fellow,
+        bot,
         engineContracts: window.miaEngineContracts,
         modelSettings: window.miaModelSettings,
         engineOptions: window.miaEngineOptions
       });
     } catch (error) {
-      console.warn("[social] sync fellow runtime failed", fellowKey, error);
+      console.warn("[social] sync bot runtime failed", botKey, error);
     }
   }
 
-  async function syncLocalFellowRuntimeBindings() {
+  async function syncLocalBotRuntimeBindings() {
     const api = window.mia?.social;
-    if (!api || !window.miaFellowCommands?.syncDesktopLocalFellowRuntimeBinding) return;
-    for (const fellow of localRuntimeFellows()) {
-      await syncLocalFellowRuntimeBinding(api, fellow);
+    if (!api || !window.miaBotCommands?.syncDesktopLocalBotRuntimeBinding) return;
+    for (const bot of localRuntimeBots()) {
+      await syncLocalBotRuntimeBinding(api, bot);
     }
   }
 
-  async function ensureLocalFellowConversations(api) {
-    if (!api || !window.miaFellowCommands?.ensureDesktopLocalFellowConversation) return;
-    for (const fellow of localRuntimeFellows()) {
+  async function ensureLocalBotConversations(api) {
+    if (!api || !window.miaBotCommands?.ensureDesktopLocalBotConversation) return;
+    for (const bot of localRuntimeBots()) {
       try {
-        await window.miaFellowCommands.ensureDesktopLocalFellowConversation({
+        await window.miaBotCommands.ensureDesktopLocalBotConversation({
           api,
           state: currentState(),
-          fellow,
+          bot,
           engineContracts: window.miaEngineContracts,
           modelSettings: window.miaModelSettings,
           engineOptions: window.miaEngineOptions
         });
       } catch (error) {
-        console.warn("[social] ensure fellow conversation failed", fellow.key, error);
+        console.warn("[social] ensure bot conversation failed", bot.key, error);
       }
     }
   }
 
-  async function ensureFellowConversation(fellow) {
-    const fellowKey = String(fellow?.key || fellow?.id || "").trim();
-    if (!fellowKey || !window.miaFellowCommands?.ensureDesktopLocalFellowConversation) return null;
+  async function ensureBotConversation(bot) {
+    const botKey = String(bot?.key || bot?.id || "").trim();
+    if (!botKey || !window.miaBotCommands?.ensureDesktopLocalBotConversation) return null;
     try {
-      const result = await window.miaFellowCommands.ensureDesktopLocalFellowConversation({
+      const result = await window.miaBotCommands.ensureDesktopLocalBotConversation({
         api: window.mia?.social,
         state: currentState(),
-        ["fellow"]: { ...fellow, key: fellowKey },
+        ["bot"]: { ...bot, key: botKey },
         engineContracts: window.miaEngineContracts,
         modelSettings: window.miaModelSettings,
         engineOptions: window.miaEngineOptions,
@@ -913,7 +913,7 @@
       const conversation = result.conversation || null;
       return conversation;
     } catch (error) {
-      console.warn("[social] ensure fellow conversation failed", fellowKey, error);
+      console.warn("[social] ensure bot conversation failed", botKey, error);
       return null;
     }
   }
@@ -978,14 +978,14 @@
     const runtime = runtimeState.runtime || {};
     const cloudUser = runtime.cloud?.user || {};
     const localUser = runtime.user || {};
-    const cloudFellows = Array.isArray(moduleState.bots) ? moduleState.bots : [];
-    const localFellows = [
+    const cloudBots = Array.isArray(moduleState.bots) ? moduleState.bots : [];
+    const localBots = [
       ...(Array.isArray(runtime.bots) ? runtime.bots : []),
       ...(Array.isArray(runtime.personas) ? runtime.personas : [])
     ];
-    const bots = window.miaFellowDirectory
-      ? window.miaFellowDirectory.listOwnedFellows({ cloudFellows, localFellows, runtime })
-      : [...cloudFellows, ...localFellows];
+    const bots = window.miaBotDirectory
+      ? window.miaBotDirectory.listOwnedBots({ cloudBots, localBots, runtime })
+      : [...cloudBots, ...localBots];
     const self = window.miaSelfIdentity.resolveSelfIdentity({
       cloudUser,
       localUser,
@@ -1078,7 +1078,7 @@
     const api = window.mia.social;
     try {
       await hydrateCachedSocialBootstrap(api);
-      const [meRes, friendsRes, incomingRes, outgoingRes, fellowsRes] = await Promise.all([
+      const [meRes, friendsRes, incomingRes, outgoingRes, botsRes] = await Promise.all([
         api.myUsername(),
         api.listFriends(),
         api.listFriendRequests("incoming"),
@@ -1106,11 +1106,11 @@
         moduleState.myUserId = freshUserId;
       }
       if (friendsRes.ok) moduleState.friends = friendsRes.data?.friends || [];
-      if (fellowsRes.ok) moduleState.bots = fellowsRes.data?.bots || [];
+      if (botsRes.ok) moduleState.bots = botsRes.data?.bots || [];
       if (incomingRes.ok) moduleState.incomingRequests = incomingRes.data?.requests || [];
       if (outgoingRes.ok) moduleState.outgoingRequests = outgoingRes.data?.requests || [];
 
-      await ensureLocalFellowConversations(api);
+      await ensureLocalBotConversations(api);
 
       const conversationsRes = await api.listConversations();
       if (conversationsRes.ok) moduleState.conversations = conversationsRes.data?.conversations || [];
@@ -1173,7 +1173,7 @@
     }
     restoreLastActiveConversation();
     // Flip the bootstrap flag AFTER everything is in the cache so the
-    // first render that includes cloud rows also has fellow personas —
+    // first render that includes cloud rows also has bot personas —
     // the sidebar shows both data sources in one paint instead of
     // "personas now, conversations later" (the visible "割裂" the user reported).
     moduleState.bootstrapped = true;
@@ -1326,7 +1326,7 @@
         clearRunPermissions(moduleState.cloudAgentRunsByConversation.get(conversationId));
         moduleState.cloudAgentRunsByConversation.delete(conversationId);
         renderAgentPermissionBanner();
-        // First fellow reply in an untitled conversation → auto-title it.
+        // First bot reply in an untitled conversation → auto-title it.
         if (deps && typeof deps.maybeGenerateConversationTitle === "function") {
           Promise.resolve(deps.maybeGenerateConversationTitle(conversationId)).catch(() => {});
         }
@@ -1427,11 +1427,11 @@
   function renderSidebarRows() {
     const sidebarConversations = sessionHistoryShared().sidebarConversations(visibleSocialConversations(moduleState.conversations, {
       activeConversationId: moduleState.activeConversationId,
-      preferredConversationIdByFellowKey: moduleState.lastFellowConversationByKey
+      preferredConversationIdByBotKey: moduleState.lastBotConversationByKey
     }), {
       activeConversationId: moduleState.activeConversationId,
       messageCache: moduleState.messageCache,
-      preferredConversationIdByFellowKey: moduleState.lastFellowConversationByKey
+      preferredConversationIdByBotKey: moduleState.lastBotConversationByKey
     });
     return sidebarConversations.map((conversation) => {
       const cacheEntry = moduleState.messageCache.get(conversation.id);
@@ -1531,7 +1531,7 @@
       return;
     }
 
-    // DM and fellow conversations share the 1-on-1 message bubble path.
+    // DM and bot conversations share the 1-on-1 message bubble path.
     for (const msg of entry.messages) {
       const article = _buildMessageArticle(msg, color);
       if (article) containerEl.appendChild(article);
@@ -1552,7 +1552,7 @@
   }
 
   // Resolve author name / ownership / body for a cached message — used by the
-  // bubble context menu (reply chip + copy). Passes group members so fellow /
+  // bubble context menu (reply chip + copy). Passes group members so bot /
   // friend names resolve correctly in groups, matching the rendered bubble.
   function describeMessageForMenu(msg) {
     if (!msg) return { authorName: "", isOwn: false, bodyMd: "" };
@@ -1565,11 +1565,11 @@
     };
   }
 
-  // DM bubble mirrors fellow chat's renderMessageHtml shape EXACTLY so the
+  // DM bubble mirrors bot chat's renderMessageHtml shape EXACTLY so the
   // CSS targeting .message > .message-stack > .bubble paints it as a real
   // bubble. The bubble carries data-message-source="cloud-conversation" + a
   // data-message-id so the chat-level contextmenu dispatcher in app.js
-  // routes to openSocialMessageMenu instead of the fellow message menu.
+  // routes to openSocialMessageMenu instead of the bot message menu.
   function _buildMessageArticle(msg, accentColor) {
     const spec = _specForMessage(msg);
     const isUser = Boolean(spec && spec.isOwn);
@@ -1640,16 +1640,16 @@
     // conversation header instead of a placeholder bubble — see paintHeaderStatus.
     if (!run || (!run.text && !run.reasoning && !run.tools.length)) return null;
     const conversation = moduleState.conversations.find((r) => r.id === conversationId) || { id: conversationId };
-    const fellowKey = run.botId || run.botId || sessionHistoryShared().botId(conversation) || "mia";
+    const botKey = run.botId || run.botId || sessionHistoryShared().botId(conversation) || "mia";
     const synthetic = {
       id: `cloud-agent-stream-${run.runId || conversationId}`,
       sender_kind: "bot",
-      sender_ref: fellowKey,
+      sender_ref: botKey,
       body_md: run.text || "",
       created_at: run.createdAt || new Date().toISOString()
     };
     const spec = _specForMessage(synthetic, members);
-    const authorName = spec ? spec.authorName : fellowKey;
+    const authorName = spec ? spec.authorName : botKey;
     const avatar = (spec && spec.avatar) || { image: "", crop: null, color: "" };
     const avatarColor = avatar.color || accentColor || "#5e5ce6";
     const avatarHelpers = window.miaAvatar;
@@ -1661,9 +1661,9 @@
         crop: avatar.crop,
         color: avatarColor,
         text: avatarLetter,
-        attrs: `data-sender-kind="bot" data-sender-ref="${escapeHtml(fellowKey)}" title="${escapeHtml(authorName || "")}"`
+        attrs: `data-sender-kind="bot" data-sender-ref="${escapeHtml(botKey)}" title="${escapeHtml(authorName || "")}"`
       })
-      : `<div class="avatar message-avatar" data-sender-kind="bot" data-sender-ref="${escapeHtml(fellowKey)}" style="${escapeHtml(avatarFallbackStyle(avatarHelpers, avatar.image, avatar.crop, avatarColor))}" title="${escapeHtml(authorName || "")}">${escapeHtml(avatarLetter)}</div>`;
+      : `<div class="avatar message-avatar" data-sender-kind="bot" data-sender-ref="${escapeHtml(botKey)}" style="${escapeHtml(avatarFallbackStyle(avatarHelpers, avatar.image, avatar.crop, avatarColor))}" title="${escapeHtml(authorName || "")}">${escapeHtml(avatarLetter)}</div>`;
     const bodyHtml = run.text ? _renderMsgBody(run.text) : "";
     const traceHtml = renderTraceFor({
       reasoning: run.reasoning,
@@ -1689,7 +1689,7 @@
   }
 
   // Translation block for a cloud-conversation bubble. Reuses the exact .message-translation
-  // markup/CSS from fellow chat (chat/message-menu.js translationHtml) so the
+  // markup/CSS from bot chat (chat/message-menu.js translationHtml) so the
   // in-place translate result looks identical. The translation lives on the
   // cached message object (transient — never pushed to cloud).
   function _renderMsgTranslation(msg) {
@@ -1737,15 +1737,15 @@
     if (!msg) return;
     const text = String(msg.body_md || msg.bodyMd || "").trim();
     if (!text) return;
-    // sendChat needs a fellow to run the utility model on: prefer a fellow
+    // sendChat needs a bot to run the utility model on: prefer a bot
     // member of this conversation, else fall back to the first available persona.
     const runtime = (deps && typeof deps.getState === "function" && deps.getState()?.runtime) || {};
     const bots = runtime.bots || runtime.personas || [];
     const { MemberKind } = conversationKinds();
-    const conversationFellow = (_conversationMembersCache.get(conversationId) || []).find((m) => m.member_kind === MemberKind.Bot);
-    const fellowKey = (conversationFellow && conversationFellow.member_ref) || (bots[0] && (bots[0].key || bots[0].id)) || "";
-    if (!fellowKey) {
-      msg.translation = { status: "error", text: "", error: "没有可用于翻译的 fellow。" };
+    const conversationBot = (_conversationMembersCache.get(conversationId) || []).find((m) => m.member_kind === MemberKind.Bot);
+    const botKey = (conversationBot && conversationBot.member_ref) || (bots[0] && (bots[0].key || bots[0].id)) || "";
+    if (!botKey) {
+      msg.translation = { status: "error", text: "", error: "没有可用于翻译的 bot。" };
       if (conversationId === moduleState.activeConversationId) _reRenderActiveChat();
       return;
     }
@@ -1760,7 +1760,7 @@
       ].join("\n");
       const cryptoRandomId = () => (window.crypto?.randomUUID ? window.crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2));
       const response = await window.mia.sendChat({
-        fellowKey,
+        botKey,
         sessionId: `utility:translate:${cryptoRandomId()}`,
         utility: true,
         messages: [{ role: "user", content: prompt }]
@@ -2287,7 +2287,7 @@
     _renderRequestList(container.querySelector("#socialContactRequestPane"), moduleState.incomingRequests, "incoming", null);
   }
 
-  // ── Cloud-conversation send: DM, fellow conversations, and groups share one path. ─────────
+  // ── Cloud-conversation send: DM, bot conversations, and groups share one path. ─────────
 
   async function sendInActiveConversation(text, options = {}) {
     const conversationId = moduleState.activeConversationId;
@@ -2435,7 +2435,7 @@
     // would otherwise re-write localStorage, re-POST a read mark, and re-trigger
     // _ensureConversationMessages. Drop those redundant side effects up front.
     if (next === moduleState.activeConversationId) return;
-    // Any actual navigation (switching conversations, or leaving to a local fellow chat
+    // Any actual navigation (switching conversations, or leaving to a local bot chat
     // that reuses #chat) invalidates the last-painted marker, so the next
     // renderConversationChat treats re-entry as a switch and lands at the latest message
     // instead of restoring a stale offset.
@@ -2443,7 +2443,7 @@
     moduleState.activeConversationId = next;
     if (id) {
       writeLastActiveConversationId(id);
-      rememberFellowConversation(id);
+      rememberBotConversation(id);
       markConversationRead(id);
       // Fire-and-forget: keep the click snappy; cache paint + delta sync re-render async.
       _ensureConversationMessages(id);
@@ -2451,18 +2451,18 @@
     renderAgentPermissionBanner();
   }
 
-  function rememberFellowConversation(conversationId) {
+  function rememberBotConversation(conversationId) {
     const id = String(conversationId || "").trim();
     if (!id) return;
     const conversation = moduleState.conversations.find((row) => row.id === id) || { id };
     if (sessionHistoryShared().conversationType(conversation, id) !== "bot") return;
     const key = sessionHistoryShared().botId(conversation);
     if (!key) return;
-    moduleState.lastFellowConversationByKey = {
-      ...(moduleState.lastFellowConversationByKey || {}),
+    moduleState.lastBotConversationByKey = {
+      ...(moduleState.lastBotConversationByKey || {}),
       [key]: id
     };
-    writeLastFellowConversationByKey(moduleState.lastFellowConversationByKey);
+    writeLastBotConversationByKey(moduleState.lastBotConversationByKey);
   }
   // Relaunch restore: land on the conversation the user last had open. Skipped if
   // the user already navigated during bootstrap, or if the saved conversation no
@@ -2704,7 +2704,7 @@
     return total;
   }
   // Expose the cached conversation member list so app.js can build a composite
-  // avatar for cloud group conversations via the same path as local fellow groups.
+  // avatar for cloud group conversations via the same path as local bot groups.
   function getConversationMembers(conversationId) { return _conversationMembersCache.get(conversationId) || null; }
 
   // ── exports ───────────────────────────────────────────────────────────────
@@ -2734,7 +2734,7 @@
     moduleState,
     initSocialModule,
     bootstrapAfterLogin,
-    syncLocalFellowRuntimeBindings,
+    syncLocalBotRuntimeBindings,
     isBootstrapped,
     handleCloudEvent,
     renderSidebarRows,
@@ -2751,7 +2751,7 @@
     getActiveConversationId,
     activeConversationRun,
     getConversationById,
-    fellowConversationForKey,
+    botConversationForKey,
     setActiveConversationId,
     markConversationRead,
     isConversationPinned,
@@ -2761,8 +2761,8 @@
     isConversationManuallyUnread,
     setConversationManuallyUnread,
     applyCloudSettings,
-    ensureFellowConversation,
-    upsertFellowConversation,
+    ensureBotConversation,
+    upsertBotConversation,
     renameConversation,
     deleteCloudConversation,
     getUnreadForConversation,

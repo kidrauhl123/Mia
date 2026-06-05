@@ -1,6 +1,6 @@
-// Fellow / profile / avatar-crop dialog module
+// Bot / profile / avatar-crop dialog module
 // Extracted from app.js. Contains all the modal-dialog logic for editing a
-// Fellow (name + persona + engine + avatar) and for editing the current
+// Bot (name + persona + engine + avatar) and for editing the current
 // user's profile (display name + avatar), plus the shared avatar crop editor.
 //
 // Defensive `if (!state || !els)` guards on every entry.
@@ -11,26 +11,26 @@
   let renderView, render;
   let avatarTrimFrameToken = 0;
 
-  function initFellowDialog(deps) {
+  function initBotDialog(deps) {
     state = deps.state;
     els = deps.els;
     renderView = deps.renderView;
     render = deps.render;
-    els.fellowRuntimeLocation?.addEventListener("change", () => {
-      renderFellowAgentEngineSelect(els.fellowAgentEngine?.value || "hermes");
+    els.botRuntimeLocation?.addEventListener("change", () => {
+      renderBotAgentEngineSelect(els.botAgentEngine?.value || "hermes");
     });
   }
 
-  function setFellowAvatarDraft(image, crop = null) {
+  function setBotAvatarDraft(image, crop = null) {
     if (!state) return;
     const src = window.miaAvatar.canonicalAvatarSrc(image);
-    state.fellowAvatarDraft = {
+    state.botAvatarDraft = {
       image: src,
       crop: src ? window.miaAvatar.normalizeCrop(crop || window.miaAvatar.avatarDefaultCropForSrc(src)) : null,
-      color: state.fellowAvatarDraft?.color || ""
+      color: state.botAvatarDraft?.color || ""
     };
-    if (els.fellowAvatar) els.fellowAvatar.value = state.fellowAvatarDraft.image;
-    renderFellowAvatarDraft();
+    if (els.botAvatar) els.botAvatar.value = state.botAvatarDraft.image;
+    renderBotAvatarDraft();
   }
 
   function setProfileAvatarDraft(image, crop = null) {
@@ -172,9 +172,9 @@
     renderView();
   }
 
-  function renderFellowAvatarDefaults() {
-    if (els?.fellowAvatarDefaults) els.fellowAvatarDefaults.innerHTML = "";
-    if (els?.fellowAvatarDefaultTabs) els.fellowAvatarDefaultTabs.innerHTML = "";
+  function renderBotAvatarDefaults() {
+    if (els?.botAvatarDefaults) els.botAvatarDefaults.innerHTML = "";
+    if (els?.botAvatarDefaultTabs) els.botAvatarDefaultTabs.innerHTML = "";
   }
 
   function renderProfileAvatarDefaults() {
@@ -182,14 +182,14 @@
     if (els?.profileAvatarDefaultTabs) els.profileAvatarDefaultTabs.innerHTML = "";
   }
 
-  function renderFellowAvatarDraft() {
+  function renderBotAvatarDraft() {
     if (!state || !els) return;
-    const draft = state.fellowAvatarDraft;
-    if (els.fellowAvatarPreview) {
+    const draft = state.botAvatarDraft;
+    if (els.botAvatarPreview) {
       // Same canonical resolution as every other surface: a custom image is
-      // kept, otherwise the accent color + initials follow the fellow identity /
+      // kept, otherwise the accent color + initials follow the bot identity /
       // name — no more hardcoded lavender that mismatched the real avatar.
-      const name = els.fellowName?.value || "Fellow";
+      const name = els.botName?.value || "Bot";
       const avatar = window.miaAvatarResolve.resolveAvatarForContact({
         id: draft.identityId || name,
         displayName: name,
@@ -197,15 +197,15 @@
         avatarCrop: draft.crop || null,
         color: draft.color || ""
       });
-      window.miaAvatar.applyAvatarMedia(els.fellowAvatarPreview, avatar.image, avatar.crop, avatar.color, avatar.text);
-      els.fellowAvatarPreview.title = "点击调整头像裁剪";
-      els.fellowAvatarPreview.setAttribute("role", "button");
-      els.fellowAvatarPreview.setAttribute("tabindex", "0");
-      els.fellowAvatarPreview.setAttribute("aria-label", "调整头像裁剪");
+      window.miaAvatar.applyAvatarMedia(els.botAvatarPreview, avatar.image, avatar.crop, avatar.color, avatar.text);
+      els.botAvatarPreview.title = "点击调整头像裁剪";
+      els.botAvatarPreview.setAttribute("role", "button");
+      els.botAvatarPreview.setAttribute("tabindex", "0");
+      els.botAvatarPreview.setAttribute("aria-label", "调整头像裁剪");
     }
-    renderColorSwatches(document.getElementById("fellowAvatarColors"), state.fellowAvatarDraft?.color || "", (color) => {
-      if (state.fellowAvatarDraft) state.fellowAvatarDraft.color = color;
-      renderFellowAvatarDraft();
+    renderColorSwatches(document.getElementById("fellowAvatarColors"), state.botAvatarDraft?.color || "", (color) => {
+      if (state.botAvatarDraft) state.botAvatarDraft.color = color;
+      renderBotAvatarDraft();
     });
   }
 
@@ -400,7 +400,7 @@
     }
   }
 
-  function openAvatarCropEditor(image, crop = null, target = "fellow") {
+  function openAvatarCropEditor(image, crop = null, target = "bot") {
     if (!state) return;
     const src = window.miaAvatar.canonicalAvatarSrc(image);
     state.avatarCropEditor = {
@@ -433,8 +433,8 @@
     renderAvatarCropEditor();
   }
 
-  function readFellowAvatarFile(file) {
-    readAvatarFile(file, "fellow");
+  function readBotAvatarFile(file) {
+    readAvatarFile(file, "bot");
   }
 
   function readProfileAvatarFile(file) {
@@ -467,7 +467,7 @@
     return options;
   }
 
-  function fellowRuntimeLocationOptions() {
+  function botRuntimeLocationOptions() {
     const cloudEnabled = Boolean(state && state.runtime?.cloud?.enabled);
     return [
       { id: "desktop-local", label: "当前设备", disabled: false },
@@ -476,111 +476,111 @@
   }
 
   function selectedRuntimeLocation() {
-    const value = String(els?.fellowRuntimeLocation?.value || "desktop-local").trim();
+    const value = String(els?.botRuntimeLocation?.value || "desktop-local").trim();
     return value === "cloud-hermes" ? "cloud-hermes" : "desktop-local";
   }
 
-  function renderFellowRuntimeLocationSelect(current = "desktop-local") {
-    if (!els?.fellowRuntimeLocation) return;
-    const options = fellowRuntimeLocationOptions();
-    els.fellowRuntimeLocation.innerHTML = "";
+  function renderBotRuntimeLocationSelect(current = "desktop-local") {
+    if (!els?.botRuntimeLocation) return;
+    const options = botRuntimeLocationOptions();
+    els.botRuntimeLocation.innerHTML = "";
     for (const option of options) {
       const node = document.createElement("option");
       node.value = option.id;
       node.textContent = option.label;
       node.disabled = Boolean(option.disabled);
-      els.fellowRuntimeLocation.appendChild(node);
+      els.botRuntimeLocation.appendChild(node);
     }
     const allowed = options.some((option) => option.id === current && !option.disabled);
-    els.fellowRuntimeLocation.value = allowed ? current : "desktop-local";
+    els.botRuntimeLocation.value = allowed ? current : "desktop-local";
   }
 
-  function renderFellowAgentEngineSelect(current = "hermes") {
+  function renderBotAgentEngineSelect(current = "hermes") {
     if (!els) return;
     const runtimeKind = selectedRuntimeLocation();
     const options = detectedAgentEngineOptions();
     const showField = options.length > 1;
-    els.fellowAgentEngineField?.classList.toggle("hidden", runtimeKind === "cloud-hermes" || !showField);
-    if (!els.fellowAgentEngine) return;
-    els.fellowAgentEngine.innerHTML = "";
+    els.botAgentEngineField?.classList.toggle("hidden", runtimeKind === "cloud-hermes" || !showField);
+    if (!els.botAgentEngine) return;
+    els.botAgentEngine.innerHTML = "";
     for (const option of options) {
       const node = document.createElement("option");
       node.value = option.id;
       node.textContent = option.label;
-      els.fellowAgentEngine.appendChild(node);
+      els.botAgentEngine.appendChild(node);
     }
-    els.fellowAgentEngine.value = options.some((option) => option.id === current) ? current : "hermes";
+    els.botAgentEngine.value = options.some((option) => option.id === current) ? current : "hermes";
   }
 
-  function openFellowDialog(fellow = null, personaText = "") {
+  function openBotDialog(bot = null, personaText = "") {
     if (!state || !els) return;
-    if (fellow && fellow.currentTarget) fellow = null;
-    // Allow a seed object in place of `fellow` to prefill create mode (used by
+    if (bot && bot.currentTarget) bot = null;
+    // Allow a seed object in place of `bot` to prefill create mode (used by
     // initial-onboarding flow). Detected by absence of a real key.
-    const seed = fellow && !fellow.key && (fellow.name || fellow.agentEngine || fellow.bio) ? fellow : null;
-    const actualFellow = seed ? null : fellow;
-    state.fellowMenuOpen = false;
-    state.fellowDialogMode = actualFellow ? "edit" : "create";
-    state.fellowDialogOpen = true;
-    const titleName = String(actualFellow?.name || "").trim();
-    if (els.fellowDialogTitle) els.fellowDialogTitle.textContent = actualFellow
+    const seed = bot && !bot.key && (bot.name || bot.agentEngine || bot.bio) ? bot : null;
+    const actualBot = seed ? null : bot;
+    state.botMenuOpen = false;
+    state.botDialogMode = actualBot ? "edit" : "create";
+    state.botDialogOpen = true;
+    const titleName = String(actualBot?.name || "").trim();
+    if (els.botDialogTitle) els.botDialogTitle.textContent = actualBot
       ? `编辑「${titleName || "伙伴"}」`
       : (seed ? "创建你的第一个伙伴" : "添加伙伴");
-    if (els.fellowKey) els.fellowKey.value = actualFellow?.key || "";
-    els.fellowName.value = actualFellow?.name || seed?.name || "";
-    const runtimeKind = window.miaFellowDirectory?.normalizeRuntimeKind?.(
-      actualFellow?.runtimeKind || actualFellow?.runtime_kind || seed?.runtimeKind,
-      actualFellow?.sourceKinds?.includes?.("cloud") ? "cloud-hermes" : "desktop-local"
+    if (els.botKey) els.botKey.value = actualBot?.key || "";
+    els.botName.value = actualBot?.name || seed?.name || "";
+    const runtimeKind = window.miaBotDirectory?.normalizeRuntimeKind?.(
+      actualBot?.runtimeKind || actualBot?.runtime_kind || seed?.runtimeKind,
+      actualBot?.sourceKinds?.includes?.("cloud") ? "cloud-hermes" : "desktop-local"
     ) || "desktop-local";
-    renderFellowRuntimeLocationSelect(runtimeKind);
-    if (els.fellowRuntimeLocation) els.fellowRuntimeLocation.disabled = Boolean(actualFellow);
-    renderFellowAgentEngineSelect(actualFellow?.agentEngine || actualFellow?.agent_engine || seed?.agentEngine || state.preferredAgentEngine || "hermes");
-    const avatarImage = actualFellow?.avatarImage || "";
-    setFellowAvatarDraft(avatarImage, window.miaAvatar.avatarCropForImage(avatarImage, actualFellow?.avatarCrop));
-    // Canonical avatar identity of the fellow being edited, so the preview's
+    renderBotRuntimeLocationSelect(runtimeKind);
+    if (els.botRuntimeLocation) els.botRuntimeLocation.disabled = Boolean(actualBot);
+    renderBotAgentEngineSelect(actualBot?.agentEngine || actualBot?.agent_engine || seed?.agentEngine || state.preferredAgentEngine || "hermes");
+    const avatarImage = actualBot?.avatarImage || "";
+    setBotAvatarDraft(avatarImage, window.miaAvatar.avatarCropForImage(avatarImage, actualBot?.avatarCrop));
+    // Canonical avatar identity of the bot being edited, so the preview's
     // background matches the hashed accent color shown everywhere else (create
     // mode has no id yet → the preview follows the name field).
-    if (state.fellowAvatarDraft) {
-      state.fellowAvatarDraft.identityId = actualFellow
-        ? (window.miaContact?.fellowAvatarIdentityId?.(actualFellow.key || actualFellow.id, actualFellow) || actualFellow.key || actualFellow.id || "")
+    if (state.botAvatarDraft) {
+      state.botAvatarDraft.identityId = actualBot
+        ? (window.miaContact?.botAvatarIdentityId?.(actualBot.key || actualBot.id, actualBot) || actualBot.key || actualBot.id || "")
         : "";
-      state.fellowAvatarDraft.color = actualFellow?.color || actualFellow?.avatarColor || "";
+      state.botAvatarDraft.color = actualBot?.color || actualBot?.avatarColor || "";
     }
-    renderFellowAvatarDraft();
-    els.fellowSeed.value = actualFellow ? personaText : (seed?.bio || "");
-    if (els.fellowPersonaDetails) els.fellowPersonaDetails.open = Boolean(seed);
+    renderBotAvatarDraft();
+    els.botSeed.value = actualBot ? personaText : (seed?.bio || "");
+    if (els.botPersonaDetails) els.botPersonaDetails.open = Boolean(seed);
     renderView();
-    setTimeout(() => els.fellowName?.focus(), 0);
+    setTimeout(() => els.botName?.focus(), 0);
   }
 
-  function closeFellowDialog() {
+  function closeBotDialog() {
     if (!state) return;
-    state.fellowDialogOpen = false;
+    state.botDialogOpen = false;
     teardownColorSwatches(document.getElementById("fellowAvatarColors"));
     renderView();
   }
 
-  window.miaFellowDialog = {
-    initFellowDialog,
-    setFellowAvatarDraft,
+  window.miaBotDialog = {
+    initBotDialog,
+    setBotAvatarDraft,
     setProfileAvatarDraft,
     renderProfileAvatarDraft,
     openProfileDialog,
     closeProfileDialog,
-    renderFellowAvatarDefaults,
+    renderBotAvatarDefaults,
     renderProfileAvatarDefaults,
-    renderFellowAvatarDraft,
+    renderBotAvatarDraft,
     renderAvatarCropEditor,
     openAvatarCropEditor,
     closeAvatarCropEditor,
     updateAvatarCropEditor,
     updateAvatarTrimControls,
-    readFellowAvatarFile,
+    readBotAvatarFile,
     readProfileAvatarFile,
     detectedAgentEngineOptions,
-    renderFellowRuntimeLocationSelect,
-    renderFellowAgentEngineSelect,
-    openFellowDialog,
-    closeFellowDialog,
+    renderBotRuntimeLocationSelect,
+    renderBotAgentEngineSelect,
+    openBotDialog,
+    closeBotDialog,
   };
 })();

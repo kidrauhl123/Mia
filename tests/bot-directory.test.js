@@ -4,16 +4,16 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 
-const directoryPath = path.join(__dirname, "..", "src", "renderer", "fellow", "fellow-directory.js");
+const directoryPath = path.join(__dirname, "..", "src", "renderer", "bot", "bot-directory.js");
 
-test("fellow directory normalizes cloud and device fellows into one product model", () => {
-  const { listOwnedFellows } = require(directoryPath);
+test("bot directory normalizes cloud and device bots into one product model", () => {
+  const { listOwnedBots } = require(directoryPath);
 
-  const fellows = listOwnedFellows({
-    cloudFellows: [
+  const bots = listOwnedBots({
+    cloudBots: [
       { id: "mia", name: "Mia", bio: "云端 Agent", color: "#2563eb" }
     ],
-    localFellows: [
+    localBots: [
       { key: "codex", name: "Codex", agentEngine: "codex", deviceName: "Jung MacBook" }
     ],
     runtime: {
@@ -22,8 +22,8 @@ test("fellow directory normalizes cloud and device fellows into one product mode
     }
   });
 
-  const mia = fellows.find((fellow) => fellow.key === "mia");
-  const codex = fellows.find((fellow) => fellow.key === "codex");
+  const mia = bots.find((bot) => bot.key === "mia");
+  const codex = bots.find((bot) => bot.key === "codex");
 
   assert.equal(mia.name, "Mia");
   assert.equal(mia.runtimeKind, "cloud-hermes");
@@ -40,14 +40,14 @@ test("fellow directory normalizes cloud and device fellows into one product mode
   assert.equal(codex.canConfigureCapabilities, true);
 });
 
-test("fellow directory treats a cloud-mirrored device fellow as one desktop-runtime fellow", () => {
-  const { listOwnedFellows } = require(directoryPath);
+test("bot directory treats a cloud-mirrored device bot as one desktop-runtime bot", () => {
+  const { listOwnedBots } = require(directoryPath);
 
-  const fellows = listOwnedFellows({
-    cloudFellows: [
+  const bots = listOwnedBots({
+    cloudBots: [
       { id: "alice", name: "Alice Cloud", bio: "cloud copy", color: "#2563eb" }
     ],
-    localFellows: [
+    localBots: [
       { key: "alice", name: "Alice Local", bio: "local copy", agentEngine: "claude-code" }
     ],
     runtime: {
@@ -55,39 +55,40 @@ test("fellow directory treats a cloud-mirrored device fellow as one desktop-runt
     }
   });
 
-  assert.equal(fellows.length, 1);
-  assert.equal(fellows[0].key, "alice");
-  assert.equal(fellows[0].name, "Alice Local");
-  assert.equal(fellows[0].bio, "local copy");
-  assert.equal(fellows[0].runtimeKind, "desktop-local");
-  assert.equal(fellows[0].runtimeLabel, "Office Mac");
-  assert.deepEqual(fellows[0].sourceKinds, ["cloud", "desktop"]);
+  assert.equal(bots.length, 1);
+  assert.equal(bots[0].key, "alice");
+  assert.equal(bots[0].name, "Alice Local");
+  assert.equal(bots[0].bio, "local copy");
+  assert.equal(bots[0].runtimeKind, "desktop-local");
+  assert.equal(bots[0].runtimeLabel, "Office Mac");
+  assert.deepEqual(bots[0].sourceKinds, ["cloud", "desktop"]);
 });
 
-test("fellow directory keeps cloud real avatar when local mirror only has a legacy preset", () => {
-  const { listOwnedFellows } = require(directoryPath);
+test("bot directory keeps cloud real avatar when local mirror only has a legacy preset", () => {
+  const { listOwnedBots } = require(directoryPath);
 
-  const fellows = listOwnedFellows({
-    cloudFellows: [
+  const bots = listOwnedBots({
+    cloudBots: [
       { id: "kongling", name: "空铃 Cloud", avatarImage: "data:image/png;base64,real", avatarCrop: { x: 50, y: 50, zoom: 1 } }
     ],
-    localFellows: [
+    localBots: [
       { key: "kongling", name: "空铃 Local", avatarImage: "./assets/avatars/12.png", avatarCrop: { x: 47, y: 17, zoom: 1.8 } }
     ]
   });
 
-  assert.equal(fellows.length, 1);
-  assert.equal(fellows[0].name, "空铃 Local");
-  assert.equal(fellows[0].avatarImage, "data:image/png;base64,real");
-  assert.deepEqual(fellows[0].avatarCrop, { x: 50, y: 50, zoom: 1 });
+  assert.equal(bots.length, 1);
+  assert.equal(bots[0].name, "空铃 Local");
+  assert.equal(bots[0].avatarImage, "data:image/png;base64,real");
+  assert.deepEqual(bots[0].avatarCrop, { x: 50, y: 50, zoom: 1 });
 });
 
-test("fellow directory attaches as a browser global", () => {
+test("bot directory attaches as a browser global", () => {
   const source = fs.readFileSync(directoryPath, "utf8");
   const window = {};
   const context = vm.createContext({ window, globalThis: window });
   vm.runInContext(source, context, { filename: directoryPath });
 
-  assert.equal(typeof window.miaFellowDirectory.listOwnedFellows, "function");
-  assert.equal(window.miaFellowDirectory.runtimeLabelFor({ runtimeKind: "cloud-hermes" }), "Mia Cloud");
+  assert.equal(typeof window.miaBotDirectory.listOwnedBots, "function");
+  assert.equal(window.miaBotDirectory.runtimeLabelFor({ runtimeKind: "cloud-hermes" }), "Mia Cloud");
+  assert.equal(window.miaFellowDirectory, undefined);
 });

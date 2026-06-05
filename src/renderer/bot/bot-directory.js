@@ -19,8 +19,8 @@
     return "";
   }
 
-  function fellowKey(input = {}) {
-    return String(input.key || input.id || input.fellowKey || input.fellow_id || "").trim();
+  function botKey(input = {}) {
+    return String(input.key || input.id || input.botKey || input.bot_id || "").trim();
   }
 
   function normalizeRuntimeKind(value, fallback = "desktop-local") {
@@ -50,20 +50,20 @@
     return isDefaultSourceBio(raw) ? "" : raw;
   }
 
-  function runtimeLabelFor(fellow = {}, runtime = {}) {
+  function runtimeLabelFor(bot = {}, runtime = {}) {
     const runtimeKind = normalizeRuntimeKind(
-      fellow.runtimeKind || fellow.runtime_kind || fellow.runtime?.kind,
-      fellow.sourceKind === "cloud" ? "cloud-hermes" : "desktop-local"
+      bot.runtimeKind || bot.runtime_kind || bot.runtime?.kind,
+      bot.sourceKind === "cloud" ? "cloud-hermes" : "desktop-local"
     );
     if (runtimeKind === "cloud-hermes") return "Mia Cloud";
     return firstNonEmpty(
-      fellow.runtimeLabel,
-      fellow.runtime_label,
-      fellow.deviceName,
-      fellow.device_name,
-      fellow.sourceDeviceName,
-      fellow.source_device_name,
-      fellow.hostname,
+      bot.runtimeLabel,
+      bot.runtime_label,
+      bot.deviceName,
+      bot.device_name,
+      bot.sourceDeviceName,
+      bot.source_device_name,
+      bot.hostname,
       runtime.localDevice?.name,
       runtime.cloud?.deviceName,
       runtime.relay?.deviceName,
@@ -71,9 +71,9 @@
     );
   }
 
-  function normalizeOwnedFellow(input = {}, options = {}) {
+  function normalizeOwnedBot(input = {}, options = {}) {
     if (!input || typeof input !== "object") return null;
-    const key = fellowKey(input);
+    const key = botKey(input);
     if (!key) return null;
     const sourceKind = options.sourceKind || input.sourceKind || input.source_kind || "desktop";
     const fallbackRuntimeKind = sourceKind === "cloud" ? "cloud-hermes" : "desktop-local";
@@ -87,10 +87,10 @@
     // then hashes the canonical (global) id. Baking memberAccentColor(key) here
     // made record-based surfaces (the sidebar list) honor a key-only hash that
     // disagreed with the global-id hash the chat header / bubbles use, so the
-    // same fellow showed two different background colors.
+    // same bot showed two different background colors.
     const color = botIdentity.normalizeBotColor(input.color || input.avatarColor || input.avatar_color);
-    // Owned fellows belong to the signed-in user, so stamp the owner id when the
-    // record lacks it; fellowAvatarIdentityId then yields fellow:<owner>:<key>
+    // Owned bots belong to the signed-in user, so stamp the owner id when the
+    // record lacks it; botAvatarIdentityId then yields bot:<owner>:<key>
     // (matching the conversation id) instead of falling back to the bare key.
     const ownerUserId = firstNonEmpty(
       input.ownerUserId, input.owner_user_id, input.ownerId, input.owner_id,
@@ -120,7 +120,7 @@
     };
   }
 
-  function mergeOwnedFellow(existing, incoming) {
+  function mergeOwnedBot(existing, incoming) {
     if (!existing) return incoming;
     if (!incoming) return existing;
     const sourceKinds = [...new Set([...(existing.sourceKinds || []), ...(incoming.sourceKinds || [])])];
@@ -145,29 +145,29 @@
     return merged;
   }
 
-  function listOwnedFellows({ cloudFellows = [], localFellows = [], runtime = {} } = {}) {
+  function listOwnedBots({ cloudBots = [], localBots = [], runtime = {} } = {}) {
     const byKey = new Map();
-    for (const fellow of Array.isArray(cloudFellows) ? cloudFellows : []) {
-      const normalized = normalizeOwnedFellow(fellow, { sourceKind: "cloud", runtimeKind: "cloud-hermes", runtime });
-      if (normalized) byKey.set(normalized.key, mergeOwnedFellow(byKey.get(normalized.key), normalized));
+    for (const bot of Array.isArray(cloudBots) ? cloudBots : []) {
+      const normalized = normalizeOwnedBot(bot, { sourceKind: "cloud", runtimeKind: "cloud-hermes", runtime });
+      if (normalized) byKey.set(normalized.key, mergeOwnedBot(byKey.get(normalized.key), normalized));
     }
-    for (const fellow of Array.isArray(localFellows) ? localFellows : []) {
-      const normalized = normalizeOwnedFellow(fellow, { sourceKind: "desktop", runtimeKind: "desktop-local", runtime });
-      if (normalized) byKey.set(normalized.key, mergeOwnedFellow(byKey.get(normalized.key), normalized));
+    for (const bot of Array.isArray(localBots) ? localBots : []) {
+      const normalized = normalizeOwnedBot(bot, { sourceKind: "desktop", runtimeKind: "desktop-local", runtime });
+      if (normalized) byKey.set(normalized.key, mergeOwnedBot(byKey.get(normalized.key), normalized));
     }
     return [...byKey.values()];
   }
 
   const api = {
     firstNonEmpty,
-    fellowKey,
+    botKey,
     normalizeRuntimeKind,
     normalizeAgentEngine,
     runtimeLabelFor,
-    normalizeOwnedFellow,
-    listOwnedFellows
+    normalizeOwnedBot,
+    listOwnedBots
   };
 
   if (typeof module === "object" && module.exports) module.exports = api;
-  global.miaFellowDirectory = api;
+  global.miaBotDirectory = api;
 })(typeof window !== "undefined" ? window : globalThis);

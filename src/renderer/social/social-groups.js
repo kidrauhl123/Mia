@@ -307,13 +307,13 @@
     }
 
     // Build mixed contact list: friends + own bots in a single section.
-    // Fellows come from the canonical adapter ctx (cloud + local merged via
-    // miaFellowDirectory). Reading runtime.bots directly dropped cloud
+    // Bots come from the canonical adapter ctx (cloud + local merged via
+    // miaBotDirectory). Reading runtime.bots directly dropped cloud
     // bots (e.g. mia, whose agent runs in the cloud) from the picker.
     membersBox.innerHTML = "";
-    const { friends, bots: ownedFellows } = _adapterCtx();
+    const { friends, bots: ownedBots } = _adapterCtx();
 
-    if (friends.length === 0 && ownedFellows.length === 0) {
+    if (friends.length === 0 && ownedBots.length === 0) {
       const empty = document.createElement("div");
       empty.className = "group-create-members-empty";
       empty.textContent = "还没有联系人";
@@ -337,23 +337,23 @@
         text: avatar.text
       }));
     }
-    for (const fellow of ownedFellows) {
-      const id = fellow.key || fellow.id;
-      const name = fellow.name || id;
+    for (const bot of ownedBots) {
+      const id = bot.key || bot.id;
+      const name = bot.name || id;
       const avatar = window.miaContact?.resolveContact?.(
         { kind: window.miaContact.IdentityKind?.Bot || "bot", ref: id },
-        { bots: ownedFellows }
+        { bots: ownedBots }
       )?.avatar || window.miaAvatarResolve.resolveAvatarForContact({
-        id: window.miaContact?.botAvatarIdentityId?.(id, fellow) || id,
+        id: window.miaContact?.botAvatarIdentityId?.(id, bot) || id,
         displayName: name,
-        avatarImage: fellow.avatarImage || "",
-        avatarCrop: fellow.avatarCrop || null
+        avatarImage: bot.avatarImage || "",
+        avatarCrop: bot.avatarCrop || null
       });
       membersBox.appendChild(buildRow({
         kind: "bot",
         id,
         name,
-        runtimeKind: fellow.runtimeKind || fellow.runtime_kind || "cloud-hermes",
+        runtimeKind: bot.runtimeKind || bot.runtime_kind || "cloud-hermes",
         color: avatar.color,
         image: avatar.image,
         crop: avatar.crop,

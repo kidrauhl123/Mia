@@ -1,20 +1,20 @@
-(function attachFellowCommands(global) {
+(function attachBotCommands(global) {
   "use strict";
 
-  function slugFromFellowName(name) {
-    return String(name || "fellow")
+  function slugFromBotName(name) {
+    return String(name || "bot")
       .trim()
       .toLowerCase()
       .normalize("NFKD")
       .replace(/[\u0300-\u036f]/g, "")
       .replace(/[^a-z0-9]+/g, "_")
       .replace(/^_+|_+$/g, "")
-      .slice(0, 48) || "fellow";
+      .slice(0, 48) || "bot";
   }
 
-  function cloudFellowKeyFromName(name, existingKeys = []) {
+  function cloudBotKeyFromName(name, existingKeys = []) {
     const used = new Set(existingKeys.map((key) => String(key || "").trim()).filter(Boolean));
-    const base = slugFromFellowName(name);
+    const base = slugFromBotName(name);
     let key = base;
     let index = 2;
     while (used.has(key)) {
@@ -24,7 +24,7 @@
     return key;
   }
 
-  function existingFellowKeys(state = {}, social = {}) {
+  function existingBotKeys(state = {}, social = {}) {
     const local = [
       ...(Array.isArray(state.runtime?.bots) ? state.runtime.bots : [])
     ];
@@ -32,7 +32,7 @@
     return [...local, ...cloud].map((item) => String(item?.key || item?.id || "").trim()).filter(Boolean);
   }
 
-  function fellowIdentity() {
+  function botIdentity() {
     if (global.miaBotIdentity) return global.miaBotIdentity;
     if (typeof require === "function") {
       try { return require("../../shared/bot-identity.js"); } catch { /* fallback below */ }
@@ -41,7 +41,7 @@
   }
 
   function serializableCapabilities(value) {
-    const normalizer = fellowIdentity()?.normalizeBotCapabilities;
+    const normalizer = botIdentity()?.normalizeBotCapabilities;
     return typeof normalizer === "function"
       ? normalizer(value)
       : (value && typeof value === "object" ? value : { legacyCapabilities: ["chat", "files", "terminal", "code"] });
@@ -51,33 +51,33 @@
     return result?.data?.conversation || result?.conversation || null;
   }
 
-  function savedFellowFromResult(result, fallback) {
+  function savedBotFromResult(result, fallback) {
     return result?.data?.bot || result?.bot || fallback;
   }
 
-  async function saveCloudHermesFellow({
+  async function saveCloudHermesBot({
     state = {},
     api = global.mia,
     social = global.miaSocial,
-    fellow = {},
+    bot = {},
     isCreate = false,
     cloudModelEntries = () => []
   } = {}) {
     if (!state.runtime?.cloud?.enabled || typeof api?.social?.saveBotIdentity !== "function") {
       throw new Error("请先登录 Mia Cloud。");
     }
-    const key = fellow.key || cloudFellowKeyFromName(fellow.name, existingFellowKeys(state, social));
+    const key = bot.key || cloudBotKeyFromName(bot.name, existingBotKeys(state, social));
     const identity = {
-      name: String(fellow.name || "").trim(),
-      avatarImage: fellow.avatarImage || "",
-      avatarCrop: fellow.avatarCrop || null,
-      color: fellow.color || "",
-      bio: fellow.description || fellow.bio || "",
-      personaText: fellow.personaText || fellow.description || fellow.bio || "",
-      capabilities: serializableCapabilities(fellow.capabilities)
+      name: String(bot.name || "").trim(),
+      avatarImage: bot.avatarImage || "",
+      avatarCrop: bot.avatarCrop || null,
+      color: bot.color || "",
+      bio: bot.description || bot.bio || "",
+      personaText: bot.personaText || bot.description || bot.bio || "",
+      capabilities: serializableCapabilities(bot.capabilities)
     };
     const saved = await api.social.saveBotIdentity(key, identity);
-    if (!saved?.ok) throw new Error(saved?.error || "创建云端 Fellow 失败");
+    if (!saved?.ok) throw new Error(saved?.error || "创建云端 Bot 失败");
     if (isCreate) {
       const runtime = await api.social.saveBotRuntime(key, {
         runtimeKind: "cloud-hermes",
@@ -96,48 +96,48 @@
       runtimeKind: "cloud-hermes"
     });
     if (!ensured?.ok) throw new Error(ensured?.error || "创建云端会话失败");
-    const cloudFellow = { ...savedFellowFromResult(saved, identity), key, id: key };
+    const cloudBot = { ...savedBotFromResult(saved, identity), key, id: key };
     if (social?.moduleState) {
       const bots = Array.isArray(social.moduleState.bots) ? social.moduleState.bots : [];
       social.moduleState.bots = [
-        cloudFellow,
+        cloudBot,
         ...bots.filter((item) => String(item?.key || item?.id || "") !== key)
       ];
     }
-    const conversation = social?.upsertFellowConversation?.(conversationFromResult(ensured)) || conversationFromResult(ensured);
-    return { key, fellow: cloudFellow, conversation, runtime: state.runtime };
+    const conversation = social?.upsertBotConversation?.(conversationFromResult(ensured)) || conversationFromResult(ensured);
+    return { key, bot: cloudBot, conversation, runtime: state.runtime };
   }
 
-  async function saveDesktopLocalFellow({
+  async function saveDesktopLocalBot({
     api = global.mia,
-    fellow = {}
+    bot = {}
   } = {}) {
     if (typeof api?.saveBot !== "function") throw new Error("本机 Bot 保存接口不可用。");
-    const runtime = await api.saveBot(fellow);
-    const fellows = runtime?.bots || [];
-    const saved = fellow.key
-      ? fellows.find((item) => item.key === fellow.key)
-      : [...fellows].reverse().find((item) => item.name === String(fellow.name || "").trim()) || fellows[0];
-    return { key: saved?.key || "", fellow: saved || null, conversation: null, runtime };
+    const runtime = await api.saveBot(bot);
+    const bots = runtime?.bots || [];
+    const saved = bot.key
+      ? bots.find((item) => item.key === bot.key)
+      : [...bots].reverse().find((item) => item.name === String(bot.name || "").trim()) || bots[0];
+    return { key: saved?.key || "", bot: saved || null, conversation: null, runtime };
   }
 
-  async function saveFellow(options = {}) {
+  async function saveBot(options = {}) {
     const runtimeKind = String(options.runtimeKind || "desktop-local").trim();
-    if (runtimeKind === "cloud-hermes") return saveCloudHermesFellow(options);
-    return saveDesktopLocalFellow(options);
+    if (runtimeKind === "cloud-hermes") return saveCloudHermesBot(options);
+    return saveDesktopLocalBot(options);
   }
 
-  async function deleteCloudHermesFellow({
+  async function deleteCloudHermesBot({
     state = {},
     api = global.mia,
     social = global.miaSocial,
-    fellow = {}
+    bot = {}
   } = {}) {
-    const key = String(fellow.key || fellow.id || "").trim();
+    const key = String(bot.key || bot.id || "").trim();
     if (!key) return { deleted: false, runtime: state.runtime };
     if (typeof api?.social?.deleteBot !== "function") throw new Error("云端 Bot 删除接口不可用。");
     const result = await api.social.deleteBot(key);
-    if (result && result.ok === false) throw new Error(result.error || "删除云端 Fellow 失败");
+    if (result && result.ok === false) throw new Error(result.error || "删除云端 Bot 失败");
     if (social?.moduleState) {
       const bots = Array.isArray(social.moduleState.bots) ? social.moduleState.bots : [];
       social.moduleState.bots = bots
@@ -147,93 +147,93 @@
     return { deleted: true, runtime: state.runtime };
   }
 
-  async function deleteDesktopLocalFellow({
+  async function deleteDesktopLocalBot({
     state = {},
     api = global.mia,
-    fellow = {}
+    bot = {}
   } = {}) {
-    const key = String(fellow.key || fellow.id || "").trim();
+    const key = String(bot.key || bot.id || "").trim();
     if (!key) return { deleted: false, runtime: state.runtime };
     if (typeof api?.deleteBot !== "function") throw new Error("本机 Bot 删除接口不可用。");
     const runtime = await api.deleteBot({ key });
     return { deleted: true, runtime };
   }
 
-  async function deleteFellow(options = {}) {
-    const fellow = options.fellow || {};
-    if (fellow.canDelete === false) return { deleted: false, runtime: options.state?.runtime };
-    const runtimeKind = String(fellow.runtimeKind || options.runtimeKind || "desktop-local").trim();
-    if (runtimeKind === "cloud-hermes") return deleteCloudHermesFellow(options);
-    return deleteDesktopLocalFellow(options);
+  async function deleteBot(options = {}) {
+    const bot = options.bot || {};
+    if (bot.canDelete === false) return { deleted: false, runtime: options.state?.runtime };
+    const runtimeKind = String(bot.runtimeKind || options.runtimeKind || "desktop-local").trim();
+    if (runtimeKind === "cloud-hermes") return deleteCloudHermesBot(options);
+    return deleteDesktopLocalBot(options);
   }
 
-  function identityForCapabilities(fellow = {}, capabilities) {
+  function identityForCapabilities(bot = {}, capabilities) {
     return {
-      name: fellow.name || fellow.key || fellow.id,
-      avatarImage: fellow.avatarImage || "",
-      avatarCrop: fellow.avatarCrop || null,
-      bio: fellow.bio || fellow.description || "",
-      personaText: fellow.personaText || "",
+      name: bot.name || bot.key || bot.id,
+      avatarImage: bot.avatarImage || "",
+      avatarCrop: bot.avatarCrop || null,
+      bio: bot.bio || bot.description || "",
+      personaText: bot.personaText || "",
       capabilities
     };
   }
 
-  async function saveCloudHermesFellowCapabilities({
+  async function saveCloudHermesBotCapabilities({
     state = {},
     api = global.mia,
     social = global.miaSocial,
-    fellow = {},
+    bot = {},
     capabilities = []
   } = {}) {
-    const key = String(fellow.key || fellow.id || "").trim();
-    if (!key) return { key: "", fellow: null, runtime: state.runtime };
+    const key = String(bot.key || bot.id || "").trim();
+    if (!key) return { key: "", bot: null, runtime: state.runtime };
     if (typeof api?.social?.saveBotIdentity !== "function") throw new Error("云端 Bot 保存接口不可用。");
-    const response = await api.social.saveBotIdentity(key, identityForCapabilities(fellow, capabilities));
-    if (response && response.ok === false) throw new Error(response.error || "保存云端 Fellow 能力失败");
-    const saved = savedFellowFromResult(response, { ...fellow, capabilities });
-    const nextFellow = { ...saved, key: saved.key || saved.id || key, id: saved.id || saved.key || key };
+    const response = await api.social.saveBotIdentity(key, identityForCapabilities(bot, capabilities));
+    if (response && response.ok === false) throw new Error(response.error || "保存云端 Bot 能力失败");
+    const saved = savedBotFromResult(response, { ...bot, capabilities });
+    const nextBot = { ...saved, key: saved.key || saved.id || key, id: saved.id || saved.key || key };
     if (social?.moduleState) {
       const bots = Array.isArray(social.moduleState.bots) ? social.moduleState.bots : [];
       social.moduleState.bots = [
-        nextFellow,
+        nextBot,
         ...bots.filter((item) => String(item?.key || item?.id || "") !== key)
       ];
     }
-    return { key, fellow: nextFellow, runtime: state.runtime };
+    return { key, bot: nextBot, runtime: state.runtime };
   }
 
-  async function saveDesktopLocalFellowCapabilities({
+  async function saveDesktopLocalBotCapabilities({
     api = global.mia,
-    fellow = {},
+    bot = {},
     capabilities = []
   } = {}) {
-    const key = String(fellow.key || fellow.id || "").trim();
-    if (!key) return { key: "", fellow: null, runtime: null };
+    const key = String(bot.key || bot.id || "").trim();
+    if (!key) return { key: "", bot: null, runtime: null };
     if (typeof api?.saveBot !== "function") throw new Error("本机 Bot 保存接口不可用。");
-    const runtime = await api.saveBot({ ...fellow, capabilities });
-    const fellows = runtime?.bots || [];
-    const saved = fellows.find((item) => item.key === key || item.id === key) || null;
-    return { key, fellow: saved, runtime };
+    const runtime = await api.saveBot({ ...bot, capabilities });
+    const bots = runtime?.bots || [];
+    const saved = bots.find((item) => item.key === key || item.id === key) || null;
+    return { key, bot: saved, runtime };
   }
 
-  async function saveFellowCapabilities(options = {}) {
-    const fellow = options.fellow || {};
-    const runtimeKind = String(fellow.runtimeKind || options.runtimeKind || "desktop-local").trim();
-    if (runtimeKind === "cloud-hermes") return saveCloudHermesFellowCapabilities(options);
-    return saveDesktopLocalFellowCapabilities(options);
+  async function saveBotCapabilities(options = {}) {
+    const bot = options.bot || {};
+    const runtimeKind = String(bot.runtimeKind || options.runtimeKind || "desktop-local").trim();
+    if (runtimeKind === "cloud-hermes") return saveCloudHermesBotCapabilities(options);
+    return saveDesktopLocalBotCapabilities(options);
   }
 
-  function runtimeCacheKey(fellowKey, runtimeKind = "cloud-hermes") {
-    return `${fellowKey}:${runtimeKind}`;
+  function runtimeCacheKey(botKey, runtimeKind = "cloud-hermes") {
+    return `${botKey}:${runtimeKind}`;
   }
 
-  async function getFellowRuntimeBinding({
+  async function getBotRuntimeBinding({
     api = global.mia,
     cache = null,
-    fellowKey = "",
+    botKey = "",
     runtimeKind = "cloud-hermes"
   } = {}) {
-    const key = String(fellowKey || "").trim();
+    const key = String(botKey || "").trim();
     const kind = String(runtimeKind || "cloud-hermes").trim();
     if (!key || kind !== "cloud-hermes") return null;
     const cacheKey = runtimeCacheKey(key, kind);
@@ -246,17 +246,17 @@
     return binding;
   }
 
-  async function saveFellowRuntimeConfig({
+  async function saveBotRuntimeConfig({
     api = global.mia,
     cache = null,
-    fellowKey = "",
+    botKey = "",
     runtimeKind = "cloud-hermes",
     patch = {}
   } = {}) {
-    const key = String(fellowKey || "").trim();
+    const key = String(botKey || "").trim();
     const kind = String(runtimeKind || "cloud-hermes").trim();
     if (!key || kind !== "cloud-hermes") return { saved: false, binding: null };
-    const current = await getFellowRuntimeBinding({ api, cache, fellowKey: key, runtimeKind: kind }) || {
+    const current = await getBotRuntimeBinding({ api, cache, botKey: key, runtimeKind: kind }) || {
       botId: key,
       runtimeKind: kind,
       enabled: true,
@@ -318,14 +318,14 @@
 
   function desktopLocalRuntimeConfig({
     state = {},
-    fellow = {},
+    bot = {},
     engineContracts = global?.miaEngineContracts,
     modelSettings = global?.miaModelSettings,
     engineOptions = global?.miaEngineOptions
   } = {}) {
     const runtime = state.runtime || {};
-    const engine = normalizeAgentEngine(fellow?.agentEngine || fellow?.agent_engine || "hermes", engineContracts);
-    const engineConfig = fellow?.engineConfig || fellow?.engine_config || {};
+    const engine = normalizeAgentEngine(bot?.agentEngine || bot?.agent_engine || "hermes", engineContracts);
+    const engineConfig = bot?.engineConfig || bot?.engine_config || {};
     const config = { agentEngine: engine };
     if (engine === "claude-code" || engine === "codex") {
       config.model = String(engineConfig.model || "").trim();
@@ -341,54 +341,54 @@
     return config;
   }
 
-  async function syncDesktopLocalFellowRuntimeBinding({
+  async function syncDesktopLocalBotRuntimeBinding({
     api = global?.mia?.social,
     state = {},
-    fellow = {},
+    bot = {},
     engineContracts = global?.miaEngineContracts,
     modelSettings = global?.miaModelSettings,
     engineOptions = global?.miaEngineOptions
   } = {}) {
-    const fellowKey = String(fellow?.key || fellow?.id || "").trim();
-    if (!fellowKey || typeof api?.saveBotRuntime !== "function") return null;
+    const botKey = String(bot?.key || bot?.id || "").trim();
+    if (!botKey || typeof api?.saveBotRuntime !== "function") return null;
     const body = {
       runtimeKind: "desktop-local",
       enabled: true,
-      config: desktopLocalRuntimeConfig({ state, fellow, engineContracts, modelSettings, engineOptions })
+      config: desktopLocalRuntimeConfig({ state, bot, engineContracts, modelSettings, engineOptions })
     };
-    const response = await api.saveBotRuntime(fellowKey, body);
-    if (response && response.ok === false) throw new Error(response.error || "保存本机 Fellow 运行配置失败");
-    return response?.data?.binding || response?.binding || { botId: fellowKey, ...body };
+    const response = await api.saveBotRuntime(botKey, body);
+    if (response && response.ok === false) throw new Error(response.error || "保存本机 Bot 运行配置失败");
+    return response?.data?.binding || response?.binding || { botId: botKey, ...body };
   }
 
-  async function ensureDesktopLocalFellowConversation({
+  async function ensureDesktopLocalBotConversation({
     api = global?.mia?.social,
     state = {},
-    fellow = {},
+    bot = {},
     engineContracts = global?.miaEngineContracts,
     modelSettings = global?.miaModelSettings,
     engineOptions = global?.miaEngineOptions,
     onConversation = null
   } = {}) {
-    const fellowKey = String(fellow?.key || fellow?.id || "").trim();
-    if (!fellowKey || typeof api?.ensureBotSessionConversation !== "function") return { key: fellowKey, conversation: null, binding: null };
-    const result = await api.ensureBotSessionConversation(fellowKey, {
-      botId: fellowKey,
-      title: fellow.name || fellow.displayName || fellowKey,
+    const botKey = String(bot?.key || bot?.id || "").trim();
+    if (!botKey || typeof api?.ensureBotSessionConversation !== "function") return { key: botKey, conversation: null, binding: null };
+    const result = await api.ensureBotSessionConversation(botKey, {
+      botId: botKey,
+      title: bot.name || bot.displayName || botKey,
       runtimeKind: "desktop-local"
     });
-    const binding = await syncDesktopLocalFellowRuntimeBinding({
+    const binding = await syncDesktopLocalBotRuntimeBinding({
       api,
       state,
-      fellow: { ...fellow, key: fellowKey },
+      bot: { ...bot, key: botKey },
       engineContracts,
       modelSettings,
       engineOptions
     });
-    if (result && result.ok === false) throw new Error(result.error || result.message || result.data?.error || "创建本机 Fellow 云端会话失败");
+    if (result && result.ok === false) throw new Error(result.error || result.message || result.data?.error || "创建本机 Bot 云端会话失败");
     const conversation = conversationFromResult(result);
     const savedConversation = conversation && typeof onConversation === "function" ? onConversation(conversation) : conversation;
-    return { key: fellowKey, conversation: savedConversation || null, binding };
+    return { key: botKey, conversation: savedConversation || null, binding };
   }
 
   function modelEntryForValue(entries = [], value = "") {
@@ -406,16 +406,16 @@
     return {};
   }
 
-  async function saveDesktopLocalFellowRuntimeControl({
+  async function saveDesktopLocalBotRuntimeControl({
     api = global?.mia,
-    fellow = {},
+    bot = {},
     field = "",
     value = "",
     modelEntries = [],
     engineContracts = global?.miaEngineContracts
   } = {}) {
-    const key = String(fellow?.key || fellow?.id || "").trim();
-    const engine = normalizeAgentEngine(fellow?.agentEngine || fellow?.agent_engine || "hermes", engineContracts);
+    const key = String(bot?.key || bot?.id || "").trim();
+    const engine = normalizeAgentEngine(bot?.agentEngine || bot?.agent_engine || "hermes", engineContracts);
     if (!key) return { saved: false, runtime: null };
 
     if (engine === "claude-code" || engine === "codex") {
@@ -457,27 +457,27 @@
     return { saved: false, runtime: null };
   }
 
-  async function saveFellowRuntimeControl({
+  async function saveBotRuntimeControl({
     api = global?.mia,
     cache = null,
-    fellow = {},
-    runtimeKind = fellow?.runtimeKind || fellow?.runtime_kind || "desktop-local",
+    bot = {},
+    runtimeKind = bot?.runtimeKind || bot?.runtime_kind || "desktop-local",
     field = "",
     value = "",
     modelEntries = [],
     engineContracts = global?.miaEngineContracts
   } = {}) {
-    const kind = String(runtimeKind || fellow?.runtimeKind || fellow?.runtime_kind || "desktop-local").trim();
-    const key = String(fellow?.key || fellow?.id || "").trim();
+    const kind = String(runtimeKind || bot?.runtimeKind || bot?.runtime_kind || "desktop-local").trim();
+    const key = String(bot?.key || bot?.id || "").trim();
     if (!key) return { saved: false, runtime: null, binding: null };
     if (kind === "cloud-hermes") {
       const patch = patchForRuntimeField(field, value, modelEntries);
       if (!Object.keys(patch).length) return { saved: false, binding: null };
-      return saveFellowRuntimeConfig({ api, cache, fellowKey: key, runtimeKind: kind, patch });
+      return saveBotRuntimeConfig({ api, cache, botKey: key, runtimeKind: kind, patch });
     }
-    return saveDesktopLocalFellowRuntimeControl({
+    return saveDesktopLocalBotRuntimeControl({
       api,
-      fellow: { ...fellow, key, runtimeKind: kind },
+      bot: { ...bot, key, runtimeKind: kind },
       field,
       value,
       modelEntries,
@@ -486,28 +486,28 @@
   }
 
   const api = {
-    slugFromFellowName,
-    cloudFellowKeyFromName,
-    existingFellowKeys,
-    saveCloudHermesFellow,
-    saveDesktopLocalFellow,
-    saveFellow,
-    deleteCloudHermesFellow,
-    deleteDesktopLocalFellow,
-    deleteFellow,
-    saveCloudHermesFellowCapabilities,
-    saveDesktopLocalFellowCapabilities,
-    saveFellowCapabilities,
+    slugFromBotName,
+    cloudBotKeyFromName,
+    existingBotKeys,
+    saveCloudHermesBot,
+    saveDesktopLocalBot,
+    saveBot,
+    deleteCloudHermesBot,
+    deleteDesktopLocalBot,
+    deleteBot,
+    saveCloudHermesBotCapabilities,
+    saveDesktopLocalBotCapabilities,
+    saveBotCapabilities,
     runtimeCacheKey,
-    getFellowRuntimeBinding,
-    saveFellowRuntimeConfig,
+    getBotRuntimeBinding,
+    saveBotRuntimeConfig,
     desktopLocalRuntimeConfig,
-    syncDesktopLocalFellowRuntimeBinding,
-    ensureDesktopLocalFellowConversation,
-    saveDesktopLocalFellowRuntimeControl,
-    saveFellowRuntimeControl
+    syncDesktopLocalBotRuntimeBinding,
+    ensureDesktopLocalBotConversation,
+    saveDesktopLocalBotRuntimeControl,
+    saveBotRuntimeControl
   };
 
   if (typeof module === "object" && module.exports) module.exports = api;
-  if (global) global.miaFellowCommands = api;
+  if (global) global.miaBotCommands = api;
 })(typeof window !== "undefined" ? window : (typeof globalThis !== "undefined" ? globalThis : null));

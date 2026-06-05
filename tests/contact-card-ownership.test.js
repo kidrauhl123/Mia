@@ -128,27 +128,27 @@ test("fellow owned by another user renders remote-only card despite same local k
   assert.doesNotMatch(html, /edit-fellow/);
 });
 
-test("fellow I own renders editable controls card", () => {
+test("bot I own renders editable controls card", () => {
   const { card, body } = loadCard();
   card.attach(ctxWith("bob", "bob"));
   card.openCard({ kind: "bot", ref: "codex", conversationId: "g_1", anchor: null });
   const html = lastCardHtml(body);
   assert.doesNotMatch(html, /不在你的本地 fellow 列表里/);
-  assert.match(html, /edit-fellow/);
+  assert.match(html, /edit-bot/);
 });
 
-test("cloud fellow I own renders editable controls instead of a separate cloud-only card", () => {
+test("cloud bot I own renders editable controls instead of a separate cloud-only card", () => {
   const { card, body } = loadCard();
   card.attach(ctxWithCloudOwnedFellow());
   card.openCard({ kind: "bot", ref: "mia", conversationId: "botc_bob_mia", anchor: null });
   const html = lastCardHtml(body);
   assert.doesNotMatch(html, /不在你的本地 fellow 列表里/);
   assert.match(html, /Mia Cloud/);
-  assert.match(html, /data-fellow-field="model"/);
-  assert.match(html, /data-card-action="edit-fellow"/);
+  assert.match(html, /data-bot-field="model"/);
+  assert.match(html, /data-card-action="edit-bot"/);
 });
 
-test("cloud fellow card avatar uses the global fellow identity color", () => {
+test("cloud bot card avatar uses the global bot identity color", () => {
   const { card, window } = loadCard();
   card.attach(ctxWithCloudOwnedFellow());
   card.openCard({ kind: "bot", ref: "mia", conversationId: "botc_bob_mia", anchor: null });
@@ -157,11 +157,11 @@ test("cloud fellow card avatar uses the global fellow identity color", () => {
   assert.equal(window.lastPaintedAvatar.color, window.miaMemberColor.memberAccentColor("botc_bob_mia"));
 });
 
-test("owned cloud fellow card reads runtime binding before exposing controls", () => {
+test("owned cloud bot card reads runtime binding before exposing controls", () => {
   const { card, window } = loadCard();
   const calls = [];
-  window.miaFellowCommands = {
-    getFellowRuntimeBinding: async (args) => {
+  window.miaBotCommands = {
+    getBotRuntimeBinding: async (args) => {
       calls.push(args);
       return {
         botId: "mia",
@@ -175,13 +175,13 @@ test("owned cloud fellow card reads runtime binding before exposing controls", (
   card.openCard({ kind: "bot", ref: "mia", conversationId: "botc_bob_mia", anchor: null });
 
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].fellowKey, "mia");
+  assert.equal(calls[0].botKey, "mia");
   assert.equal(calls[0].runtimeKind, "cloud-hermes");
 });
 
-test("fellow contact-card runtime edits go through fellow command adapter", () => {
+test("bot contact-card runtime edits go through bot command adapter", () => {
   const source = fs.readFileSync(path.join(__dirname, "..", "src", "renderer", "social", "contact-card.js"), "utf8");
-  assert.match(source, /global\.miaFellowCommands\?\.saveFellowRuntimeControl\?\.\(\{/);
+  assert.match(source, /global\.miaBotCommands\?\.saveBotRuntimeControl\?\.\(\{/);
   assert.doesNotMatch(source, /global\.mia\?\.social\?\.saveFellowRuntime/);
   assert.doesNotMatch(source, /global\.mia\.saveModel\(/);
   assert.doesNotMatch(source, /global\.mia\.saveFellowEngine\(/);

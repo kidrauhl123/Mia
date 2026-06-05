@@ -1,5 +1,5 @@
-// 发现 AI 同事 —— 预设 fellow 商店（renderer 模块）
-// 顶部分类胶囊 + 卡片网格 + 详情覆盖层。点「加到我的聊天」走 saveFellow 写进
+// 发现 AI 同事 —— 预设 bot 商店（renderer 模块）
+// 顶部分类胶囊 + 卡片网格 + 详情覆盖层。点「加到我的聊天」走 saveBot 写进
 // 本地 manifest（和「创建智能体」表单同一条路），加完跳进会话。
 //
 // PRESETS 目前是随包内置的样例数据；正式版应改为从 official-library / 云端拉取
@@ -7,7 +7,7 @@
 (function () {
   "use strict";
 
-  let state, els, mia, escapeHtml, openFellowConversation, render;
+  let state, els, mia, escapeHtml, openBotConversation, render;
 
   // 样例预设：每个 = 人设包装 + 一段 personaText。技能组合（capabilities）等
   // 有意义的标签体系定了再挂；这里先不填，避免占位标签误导。
@@ -66,16 +66,16 @@
   let activeCat = "全部";
   let adding = false;
 
-  function initFellowStore(deps) {
+  function initBotStore(deps) {
     state = deps.state;
     els = deps.els;
     mia = deps.mia || (typeof window !== "undefined" ? window.mia : null);
     escapeHtml = deps.escapeHtml || ((s) => String(s == null ? "" : s));
-    openFellowConversation = deps.openFellowConversation;
+    openBotConversation = deps.openBotConversation;
     render = deps.render || (() => {});
 
-    if (els.fellowStoreCap) {
-      els.fellowStoreCap.innerHTML = "";
+    if (els.botStoreCap) {
+      els.botStoreCap.innerHTML = "";
       CATS.forEach((c, i) => {
         const b = document.createElement("button");
         b.type = "button";
@@ -83,26 +83,26 @@
         if (i === 0) b.classList.add("active");
         b.addEventListener("click", () => {
           activeCat = c;
-          els.fellowStoreCap.querySelectorAll("button").forEach((x) => x.classList.remove("active"));
+          els.botStoreCap.querySelectorAll("button").forEach((x) => x.classList.remove("active"));
           b.classList.add("active");
           movePill();
           renderGrid();
         });
-        els.fellowStoreCap.appendChild(b);
+        els.botStoreCap.appendChild(b);
       });
     }
 
-    els.fellowStoreScrim?.addEventListener("click", (event) => {
-      if (event.target === els.fellowStoreScrim) closeSheet();
+    els.botStoreScrim?.addEventListener("click", (event) => {
+      if (event.target === els.botStoreScrim) closeSheet();
     });
 
     window.addEventListener("resize", () => {
-      if (state.activeView === "fellow-store") movePill();
+      if (state.activeView === "bot-store") movePill();
     });
   }
 
   function movePill() {
-    const cap = els.fellowStoreCap;
+    const cap = els.botStoreCap;
     if (!cap) return;
     const a = cap.querySelector("button.active");
     if (!a || typeof a.getBoundingClientRect !== "function") return;
@@ -115,20 +115,20 @@
 
   function avatarHtml(f, extraClass) {
     const cls = extraClass ? ` ${extraClass}` : "";
-    return `<div class="fellow-store-avatar${cls}" style="background:${f.c1};color:${f.c2}">${f.emoji}</div>`;
+    return `<div class="bot-store-avatar${cls}" style="background:${f.c1};color:${f.c2}">${f.emoji}</div>`;
   }
 
   function renderGrid() {
-    const grid = els.fellowStoreGrid;
+    const grid = els.botStoreGrid;
     if (!grid) return;
     const list = PRESETS.filter((f) => activeCat === "全部" || f.cat === activeCat);
     if (!list.length) {
-      grid.innerHTML = `<div class="fellow-store-empty">这个分类暂时还没有 AI 同事</div>`;
+      grid.innerHTML = `<div class="bot-store-empty">这个分类暂时还没有 AI 同事</div>`;
       return;
     }
     grid.innerHTML = list.map((f, i) => `
-      <div class="fellow-store-card" data-key="${escapeHtml(f.key)}" style="animation-delay:${(i * 0.05).toFixed(2)}s">
-        <div class="fellow-store-card-head">
+      <div class="bot-store-card" data-key="${escapeHtml(f.key)}" style="animation-delay:${(i * 0.05).toFixed(2)}s">
+        <div class="bot-store-card-head">
           ${avatarHtml(f)}
           <div class="meta">
             <strong>${escapeHtml(f.name)}</strong>
@@ -137,7 +137,7 @@
         </div>
         <p class="line">${escapeHtml(f.line)}</p>
       </div>`).join("");
-    grid.querySelectorAll(".fellow-store-card").forEach((card) => {
+    grid.querySelectorAll(".bot-store-card").forEach((card) => {
       card.addEventListener("click", () => {
         const f = PRESETS.find((x) => x.key === card.dataset.key);
         if (f) openSheet(f);
@@ -146,43 +146,43 @@
   }
 
   function openSheet(f) {
-    const sheet = els.fellowStoreSheet;
-    const scrim = els.fellowStoreScrim;
+    const sheet = els.botStoreSheet;
+    const scrim = els.botStoreScrim;
     if (!sheet || !scrim) return;
     adding = false;
     sheet.innerHTML = `
-      <div class="fellow-store-sheet-head">
+      <div class="bot-store-sheet-head">
         ${avatarHtml(f)}
         <div><h2>${escapeHtml(f.name)}</h2><div class="tag">${escapeHtml(f.tagline)}</div></div>
       </div>
       <p class="desc">${escapeHtml(f.desc)}</p>
-      <div class="fellow-store-demo">${f.demo}</div>
-      <div class="fellow-store-actions">
-        <button type="button" class="fellow-store-btn ghost" data-act="back">返回</button>
-        <button type="button" class="fellow-store-btn primary" data-act="add">＋ 加到我的聊天</button>
+      <div class="bot-store-demo">${f.demo}</div>
+      <div class="bot-store-actions">
+        <button type="button" class="bot-store-btn ghost" data-act="back">返回</button>
+        <button type="button" class="bot-store-btn primary" data-act="add">＋ 加到我的聊天</button>
       </div>`;
     sheet.querySelector('[data-act="back"]').addEventListener("click", closeSheet);
-    sheet.querySelector('[data-act="add"]').addEventListener("click", () => addFellow(f));
+    sheet.querySelector('[data-act="add"]').addEventListener("click", () => addBot(f));
     scrim.classList.add("open");
   }
 
   function closeSheet() {
-    els.fellowStoreScrim?.classList.remove("open");
+    els.botStoreScrim?.classList.remove("open");
   }
 
-  async function addFellow(f) {
+  async function addBot(f) {
     if (adding) return;
     adding = true;
-    const btn = els.fellowStoreSheet?.querySelector('[data-act="add"]');
+    const btn = els.botStoreSheet?.querySelector('[data-act="add"]');
     if (btn) { btn.disabled = true; btn.textContent = "正在添加…"; }
     try {
-      const saved = await window.miaFellowCommands.saveFellow({
+      const saved = await window.miaBotCommands.saveBot({
         state,
         runtimeKind: "desktop-local",
         isCreate: true,
         api: window.mia,
         social: window.miaSocial,
-        fellow: {
+        bot: {
           name: f.name,
           color: f.c2,
           description: f.line,
@@ -193,9 +193,9 @@
       if (saved.runtime) state.runtime = saved.runtime;
       closeSheet();
       const savedKey = saved.key || "";
-      if (savedKey && typeof openFellowConversation === "function") {
+      if (savedKey && typeof openBotConversation === "function") {
         state.activeView = "chat";
-        await openFellowConversation(savedKey);
+        await openBotConversation(savedKey);
       } else {
         render();
       }
@@ -209,11 +209,11 @@
   }
 
   // 进入商店视图时调用：渲染网格并对齐胶囊
-  function renderFellowStore() {
+  function renderBotStore() {
     renderGrid();
     if (typeof requestAnimationFrame === "function") requestAnimationFrame(movePill);
     else movePill();
   }
 
-  window.miaFellowStore = { initFellowStore, renderFellowStore };
+  window.miaBotStore = { initBotStore, renderBotStore };
 })();
