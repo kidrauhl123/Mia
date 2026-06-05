@@ -4,10 +4,10 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 
-// Renders the cloud-conversation fellow contact card in a mock DOM so we can assert the
-// ownership decision: a fellow whose conversation-member owner_id is NOT me must render
-// the read-only "remote" card even when one of MY local fellows happens to share
-// its key — otherwise clicking another user's fellow would expose and mutate my
+// Renders the cloud-conversation bot contact card in a mock DOM so we can assert the
+// ownership decision: a bot whose conversation-member owner_id is NOT me must render
+// the read-only "remote" card even when one of MY local bots happens to share
+// its key — otherwise clicking another user's bot would expose and mutate my
 // own local model/effort/permission settings.
 
 function mockEl() {
@@ -117,7 +117,7 @@ function lastCardHtml(body) {
   return body.children[body.children.length - 1].innerHTML;
 }
 
-test("fellow owned by another user renders remote-only card despite same local key", () => {
+test("bot owned by another user renders remote-only card despite same local key", () => {
   const { card, body } = loadCard();
   card.attach(ctxWith("alice", "bob"));
   card.openCard({ kind: "bot", ref: "codex", conversationId: "g_1", anchor: null });

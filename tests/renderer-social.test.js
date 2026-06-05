@@ -133,7 +133,7 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
-test("bootstrapAfterLogin ensures local fellow conversations before listing conversations", async () => {
+test("bootstrapAfterLogin ensures local bot conversations before listing conversations", async () => {
   const s = loadSocial();
   const calls = [];
   s.initSocialModule({
@@ -999,7 +999,7 @@ test("renderConversationChat marks failed outgoing cloud messages", async () => 
   assert.match(chat.children[0].innerHTML, /title="network down"/);
 });
 
-test("renderConversationChat resolves self and fellow avatars from one contact context", () => {
+test("renderConversationChat resolves self and bot avatars from one contact context", () => {
   const s = loadSocial();
   installCloudConversationSource(s.__mockWindow);
   s.__mockWindow.miaAvatar = {
@@ -1066,7 +1066,7 @@ test("renderConversationChat resolves self and fellow avatars from one contact c
   assert.doesNotMatch(chat.children[0].innerHTML, /data:cloud-avatar/);
 });
 
-test("renderConversationChat uses cloud fellow avatar when no local fellow exists", () => {
+test("renderConversationChat uses cloud bot avatar when no local bot exists", () => {
   const s = loadSocial();
   installCloudConversationSource(s.__mockWindow);
   s.__mockWindow.miaAvatar = {
@@ -1245,7 +1245,7 @@ test("renderConversationChat self identity uses the cloud account, not a stale l
   assert.doesNotMatch(chat.children[0].innerHTML, />Bo<\/div>/);
 });
 
-test("sendInActiveConversation posts group mentions in cloud fellow format", async () => {
+test("sendInActiveConversation posts group mentions in cloud bot format", async () => {
   const s = loadSocial();
   const posted = [];
   s.moduleState.myUserId = "u_me";
@@ -1655,7 +1655,7 @@ test("renderConversationChat marks rendered trace rows after painting", () => {
   assert.equal(markedRoot, chat);
 });
 
-test("renderConversationChat renders persisted trace_json on fellow messages", () => {
+test("renderConversationChat renders persisted trace_json on bot messages", () => {
   const s = loadSocial();
   installCloudConversationSource(s.__mockWindow);
   s.__mockWindow.miaTraceBlocks = {
@@ -1696,7 +1696,7 @@ test("renderConversationChat renders persisted trace_json on fellow messages", (
   assert.match(chat.children[0].innerHTML, /search/);
 });
 
-test("handleCloudEvent fellow reply clears transient cloud agent stream", () => {
+test("handleCloudEvent bot reply clears transient cloud agent stream", () => {
   const s = loadSocial();
   s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
   s.handleCloudEvent({
@@ -1714,7 +1714,7 @@ test("handleCloudEvent fellow reply clears transient cloud agent stream", () => 
   assert.equal(s.moduleState.cloudAgentRunsByConversation.has("botc_u_a_mia"), false);
 });
 
-test("handleCloudEvent preserves transient run trace when final fellow message lacks trace_json", () => {
+test("handleCloudEvent preserves transient run trace when final bot message lacks trace_json", () => {
   const s = loadSocial();
   s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
   s.handleCloudEvent({

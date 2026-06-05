@@ -52,7 +52,7 @@ test("normalizeIdentity returns a global bot identity with owner metadata", () =
   assert.equal(identityKey(identity), "bot:bot_abcd");
 });
 
-test("normalizeIdentity rejects prefixed and legacy fellow ids", () => {
+test("normalizeIdentity rejects prefixed and legacy bot ids", () => {
   assert.equal(normalizeIdentity({ kind: "bot", id: "bot:bot_abcd", displayName: "Mia" }), null);
   assert.equal(normalizeIdentity({ kind: "bot", id: "fellow:u:mia", displayName: "Mia" }), null);
   assert.equal(normalizeIdentity({ kind: "user", id: "user:u_1", displayName: "Alice" }), null);

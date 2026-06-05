@@ -353,7 +353,7 @@ test("src/web/app.js normalizes model + provider icon URLs through the same boun
   // setModelAvatar must hand the looked-up icon path through
   // normalizeAvatarUrl before assigning background-image — otherwise the
   // "./assets/model-icons/..." form 404s under the /app/ SPA fallback the
-  // same way the fellow avatars used to.
+  // same way the previous bot avatars used to.
   const setterMatch = source.match(/function setModelAvatar\([\s\S]*?\n\}/);
   assert.ok(setterMatch, "setModelAvatar must exist");
   assert.match(
@@ -452,6 +452,11 @@ test("scripts/build-cloud-release.js copies cloud shared modules into the api tr
   );
   assert.match(
     build,
+    /copyFile\(["']src\/shared\/identity\.js["'],\s*path\.join\(apiDir,\s*["']src["'],\s*["']shared["'],\s*["']identity\.js["']\)\)/,
+    "build-cloud-release must copy src/shared/identity.js because cloud stores require it"
+  );
+  assert.match(
+    build,
     /copyFile\(["']packages\/shared\/bot-identity\.js["'],\s*path\.join\(apiDir,\s*["']packages["'],\s*["']shared["'],\s*["']bot-identity\.js["']\)\)/,
     "build-cloud-release must copy packages/shared/bot-identity.js for API bot identity helpers"
   );
@@ -467,6 +472,7 @@ test("scripts/build-cloud-release.js copies cloud shared modules into the api tr
   assert.match(build, /api\/src\/shared\/avatar-media\.js/);
   assert.match(build, /api\/packages\/shared\/avatar\.js/);
   assert.match(build, /api\/src\/shared\/bot-identity\.js/);
+  assert.match(build, /api\/src\/shared\/identity\.js/);
   assert.match(build, /api\/packages\/shared\/bot-identity\.js/);
   assert.match(build, /api\/packages\/shared\/identity\.js/);
   assert.doesNotMatch(build, /fellow-identity\.js/);
@@ -477,7 +483,7 @@ test("scripts/build-cloud-release.js copies cloud shared modules into the api tr
   assert.match(build, /api\/src\/shared\/avatar-resolve\.js/);
 });
 
-test("cloud release runtime does not import legacy group fellow routing", () => {
+test("cloud release runtime does not import legacy group bot routing", () => {
   const runtimeFiles = [
     "scripts/serve-cloud.js",
     ...fs.readdirSync(path.join(ROOT, "src/cloud-agent"))

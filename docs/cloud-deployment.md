@@ -36,7 +36,7 @@ LITELLM_MASTER_KEY=<LiteLLM admin key>
 
 `MIA_CLOUD_ALLOWED_ORIGINS` is required in production. Without it, WebSocket upgrades are limited to same-host/local origins only.
 `MIA_CLOUD_PORT` takes precedence over the generic `PORT`; if `MIA_CLOUD_PORT` is unset, the server honors `PORT` for platform-style deployments.
-`MIA_CLOUD_AGENT_MODE=docker` enables the cloud-backed Hermes Fellow runtime. The release includes `hermes-image/`, and the installer builds `MIA_CLOUD_HERMES_IMAGE` locally on the VPS so the runtime does not depend on pulling a private image. The service creates one worker container per user, mounts only `/var/lib/mia-cloud-agent-users/<userId>` at `/data`, binds the Hermes API to `127.0.0.1` on a random host port, and passes `HERMES_HOME=/data/hermes-home`, `HOME=/data/home`, `TERMINAL_CWD=/data/workspace`, and `HERMES_WRITE_SAFE_ROOT=/data/workspace` into the container. The worker container must not mount `/var/lib/mia-cloud`, global uploads, other users' agent directories, or `/var/run/docker.sock`.
+`MIA_CLOUD_AGENT_MODE=docker` enables the cloud-backed Hermes Bot runtime. The release includes `hermes-image/`, and the installer builds `MIA_CLOUD_HERMES_IMAGE` locally on the VPS so the runtime does not depend on pulling a private image. The service creates one worker container per user, mounts only `/var/lib/mia-cloud-agent-users/<userId>` at `/data`, binds the Hermes API to `127.0.0.1` on a random host port, and passes `HERMES_HOME=/data/hermes-home`, `HOME=/data/home`, `TERMINAL_CWD=/data/workspace`, and `HERMES_WRITE_SAFE_ROOT=/data/workspace` into the container. The worker container must not mount `/var/lib/mia-cloud`, global uploads, other users' agent directories, or `/var/run/docker.sock`.
 `MIA_CLOUD_AGENT_MODEL_*` configures the platform-supplied model for every user's cloud Hermes worker. The worker manager writes each user's private `hermes-home/config.yaml` with a custom provider named `mia-litellm`, pointing to the LiteLLM Proxy OpenAI-compatible endpoint. Store provider keys inside LiteLLM and give Mia only a limited LiteLLM virtual key, not raw OpenAI/Anthropic/other provider keys.
 
 ## LiteLLM Model Gateway
@@ -54,7 +54,7 @@ docker run -d --name litellm --restart unless-stopped \
   --config /app/config.yaml --host 0.0.0.0 --port 4000
 ```
 
-Use the Mia admin page at `/admin/model` to save the provider API key and the `mia-default` model alias into LiteLLM. Keep the LiteLLM UI private or disabled on the public internet. The Mia systemd unit should use a LiteLLM virtual key in `MIA_CLOUD_AGENT_MODEL_API_KEY`; Hermes users only receive the cloud Fellow experience and do not configure model providers themselves.
+Use the Mia admin page at `/admin/model` to save the provider API key and the `mia-default` model alias into LiteLLM. Keep the LiteLLM UI private or disabled on the public internet. The Mia systemd unit should use a LiteLLM virtual key in `MIA_CLOUD_AGENT_MODEL_API_KEY`; Hermes users only receive the cloud Bot experience and do not configure model providers themselves.
 
 ## systemd Unit
 

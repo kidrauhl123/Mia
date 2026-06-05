@@ -52,7 +52,7 @@ test("CloudConversationSource own message marks isOwn=true", () => {
   assert.equal(spec.authorName, "me");
 });
 
-test("CloudConversationSource group fellow message resolves fellow contact via members", () => {
+test("CloudConversationSource group bot message resolves bot contact via members", () => {
   const src = loadSource();
   const conversation = { id: "g_conversation1", name: "Mixed" };
   const messages = [{ id: "msg3", sender_kind: "bot", sender_ref: "codex", body_md: "yo", created_at: "", seq: 3 }];
@@ -72,7 +72,7 @@ test("CloudConversationSource group fellow message resolves fellow contact via m
   assert.equal(spec.authorName, "codex");
 });
 
-test("CloudConversationSource hydrates own fellow avatar from ctx.bots", () => {
+test("CloudConversationSource hydrates own bot avatar from ctx.bots", () => {
   const src = loadSource();
   const conversation = { id: "g_conversation2" };
   const messages = [{ id: "msg4", sender_kind: "bot", sender_ref: "codex", body_md: "yo", created_at: "", seq: 1 }];
@@ -87,7 +87,7 @@ test("CloudConversationSource hydrates own fellow avatar from ctx.bots", () => {
   assert.equal(spec.avatar.image, "data:codex-pic");
 });
 
-test("CloudConversationSource uses member identity avatar when owned fellow context is compact", () => {
+test("CloudConversationSource uses member identity avatar when owned bot context is compact", () => {
   const src = loadSource();
   const conversation = { id: "g_conversation_compact" };
   const messages = [{ id: "msg_compact", sender_kind: "bot", sender_ref: "craft", body_md: "yo", created_at: "", seq: 1 }];
@@ -142,7 +142,7 @@ test("CloudConversationSource preserves member identity status badge", () => {
   assert.deepEqual(JSON.parse(JSON.stringify(spec.statusBadge)), { kind: "emoji", emoji: "⭐", label: "Premium" });
 });
 
-test("CloudConversationSource hashes owned empty fellow avatar by global identity", () => {
+test("CloudConversationSource hashes owned empty bot avatar by global identity", () => {
   const src = loadSource();
   const conversation = { id: "botc_user_me_mia", type: "bot", name: "Mia", decorations: { botId: "mia" } };
   const messages = [{ id: "msg_owned_empty", sender_kind: "bot", sender_ref: "mia", body_md: "yo", created_at: "", seq: 1 }];
@@ -160,7 +160,7 @@ test("CloudConversationSource hashes owned empty fellow avatar by global identit
   assert.equal(spec.avatar.text, "Mi");
 });
 
-test("CloudConversationSource falls back to stable fellow text avatar", () => {
+test("CloudConversationSource falls back to stable bot text avatar", () => {
   const src = loadSource();
   const conversation = { id: "botc_user_me_mia", type: "bot", name: "Mia", decorations: { botId: "mia" } };
   const messages = [{ id: "msg5", sender_kind: "bot", sender_ref: "mia", body_md: "yo", created_at: "", seq: 1 }];

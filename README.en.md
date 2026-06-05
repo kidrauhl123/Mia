@@ -7,7 +7,7 @@ Mia is a desktop app that puts Claude, Codex, Hermes and other AI tools into one
 ## What it does
 
 - **Chat is the entry point.** Friends, group chats, message history — except some of your "friends" happen to be AIs.
-- **AIs as coworkers, not black boxes.** Each Fellow has a name, avatar, persona, skills and permissions. @-mention whoever you need.
+- **AIs as coworkers, not black boxes.** Each Bot has a name, avatar, persona, skills and permissions. @-mention whoever you need.
 - **AIs that actually touch your machine.** Writing code, reading files, running commands, generating images — they always ask first. If you don't approve, they don't move.
 - **Synced across devices.** Desktop, web and phone all work. Pick up wherever you left off.
 
@@ -23,7 +23,7 @@ Mia is a desktop app that puts Claude, Codex, Hermes and other AI tools into one
 - macOS Intel / Windows: coming soon
 - Web: <https://aiweb.buytb01.com>
 
-Open Mia, sign in, and your first Fellow is already waiting.
+Open Mia, sign in, and your first Bot is already waiting.
 
 ## FAQ
 

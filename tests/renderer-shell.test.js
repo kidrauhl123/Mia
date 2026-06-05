@@ -46,7 +46,7 @@ test("cloud conversation send and render do not depend on activeKey being empty"
   assert.doesNotMatch(appSource, /activeConversationId && !state\.activeKey/);
 });
 
-test("logged-in active pane never falls back to local fellow sessions", () => {
+test("logged-in active pane never falls back to local bot sessions", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
 
   assert.match(appSource, /if\s*\(cloudSignedIn\)\s*\{\s*state\.activeKey = "";/);
@@ -214,7 +214,7 @@ test("signed-out desktop shell is a login gate without default Boss identity", (
   assert.match(styleSource, /\.app-shell\[data-auth-state="signed-out"\] #chatView/);
 });
 
-test("desktop cloud fellow conversations keep private AI composer controls visible", () => {
+test("desktop cloud bot conversations keep private AI composer controls visible", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
 
   assert.match(appSource, /activeCloudConversationType\s*===\s*"bot"/);
@@ -222,7 +222,7 @@ test("desktop cloud fellow conversations keep private AI composer controls visib
   assert.doesNotMatch(appSource, /if\s*\(composerBottom\)\s*composerBottom\.classList\.add\("hidden"\);/);
 });
 
-test("desktop cloud fellow conversations expose the restored chat history menu", () => {
+test("desktop cloud bot conversations expose the restored chat history menu", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const socialSource = fs.readFileSync(path.join(root, "src/renderer/social/social.js"), "utf8");
   const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
@@ -247,7 +247,7 @@ test("desktop cloud fellow conversations expose the restored chat history menu",
   assert.doesNotMatch(socialApiSource, /ensureFellowSessionConversation/);
 });
 
-test("desktop renderer direct bot protocol branches do not key off legacy fellow sender/member kinds", () => {
+test("desktop renderer direct bot protocol branches do not key off legacy sender/member kinds", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const composerSource = fs.readFileSync(path.join(root, "src/renderer/chat/composer.js"), "utf8");
   const contactCardSource = fs.readFileSync(path.join(root, "src/renderer/social/contact-card.js"), "utf8");
@@ -414,7 +414,7 @@ test("main window accepts the first mouse click after regaining focus", () => {
   assert.match(windowIpcSource, /setSize\(1040,\s*700\)/);
 });
 
-test("agent setup completion does not force first fellow creation", () => {
+test("agent setup completion does not force first bot creation", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const setupSource = fs.readFileSync(path.join(root, "src/renderer/onboarding/setup-guide.js"), "utf8");
   const appStateSource = fs.readFileSync(path.join(root, "src/renderer/app-state.js"), "utf8");
@@ -668,11 +668,11 @@ test("cloud-only: the sidebar message list is built from social rows alone", () 
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
 
   assert.match(appSource, /sortMessageCardsForSidebar\(socialRows\)/);
-  // No local fellow personas feed the conversation list anymore.
+  // No local bot personas feed the conversation list anymore.
   assert.doesNotMatch(appSource, /visiblePersonas\.map/);
 });
 
-test("fellow cloud conversations are not hidden from the sidebar", () => {
+test("bot cloud conversations are not hidden from the sidebar", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
 
   assert.doesNotMatch(appSource, /if\s*\(\s*isFellow\s*\)\s*return\s+null/);

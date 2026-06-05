@@ -74,7 +74,7 @@ test("web dev server serves shared source modules used by the /app shell", async
     assert.match(sessionHistory.headers.get("content-type") || "", /javascript/);
     const sessionHistorySource = await sessionHistory.text();
     assert.match(sessionHistorySource, /miaSessionHistory/);
-    assert.match(sessionHistorySource, /fellowConversationId/);
+    assert.match(sessionHistorySource, /createBotSessionPayload/);
 
     const contact = await fetch(`${baseUrl}/shared/contact.js`);
     assert.equal(contact.status, 200);

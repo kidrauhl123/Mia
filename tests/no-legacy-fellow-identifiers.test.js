@@ -59,7 +59,7 @@ test("legacy identifier guard catches camelCase content and path names", () => {
   );
 });
 
-test("production source does not contain legacy fellow identifiers", () => {
+test("production source does not contain legacy bot-era identifiers", () => {
   const offenders = collectLegacyFellowIdentifiers();
   assert.deepEqual(offenders, [], `Legacy fellow identifiers found:\n${offenders.join("\n")}`);
 });

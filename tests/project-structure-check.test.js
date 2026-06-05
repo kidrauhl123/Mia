@@ -179,7 +179,7 @@ test("packages/shared owns send pipeline, cloud client, and unread implementatio
   }
 });
 
-test("fellow conversation keys are resolved through the shared session helper", () => {
+test("bot conversation keys are resolved through the shared session helper", () => {
   for (const relativePath of [
     "src/renderer/app.js",
     "src/renderer/social/social.js",

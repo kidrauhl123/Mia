@@ -61,7 +61,7 @@ test("createTasksStore: create assigns id and persists", () => {
   assert.equal(store2.list().length, 1);
 });
 
-test("createTasksStore: drops persisted legacy fellowId-only tasks on load", () => {
+test("createTasksStore: drops persisted legacy bot-id-only tasks on load", () => {
   const file = tmpFile();
   fs.writeFileSync(file, JSON.stringify({
     tasks: [

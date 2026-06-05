@@ -17,8 +17,8 @@ function makeService(overrides = {}) {
     },
     cwd: () => "/repo",
     homeDir: () => "/home/alice",
-    normalizeFellowAgentEngine: (engine) => String(engine || "codex"),
-    normalizeFellowEngineConfig: (config = {}) => config,
+    normalizeBotAgentEngine: (engine) => String(engine || "codex"),
+    normalizeBotEngineConfig: (config = {}) => config,
     normalizeEffortLevel: (level) => String(level || "medium"),
     localAgentEngines: () => ({
       claudeCode: { path: "/bin/claude", version: "claude 1.2.3" },
@@ -108,7 +108,7 @@ test("runSlashCommand reports external agent status from injected engine and ses
     text: "/status",
     engine: "codex",
     sessionId: "local_1",
-    fellow: {
+    bot: {
       key: "alice",
       name: "Alice",
       engineConfig: { model: "gpt-5.1-codex", permissionMode: "never", effortLevel: "high" }
@@ -130,7 +130,7 @@ test("runSlashCommand lists Mia-bound external sessions before raw CLI history",
   const { service } = makeService({
     getAgentSessionId: () => currentId,
     loadAgentSessionMap: () => ({
-      [`codex:alice:fellow:u_1:alice`]: candidateId,
+      [`codex:alice:bot:u_1:alice`]: candidateId,
       [`codex:bob:local_3`]: "33333333-2222-4333-8444-555555555555"
     }),
     listExternalAgentSessions: () => [
@@ -142,7 +142,7 @@ test("runSlashCommand lists Mia-bound external sessions before raw CLI history",
     text: "/resume",
     engine: "codex",
     sessionId: "local_1",
-    fellow: { key: "alice", name: "Alice" }
+    bot: { key: "alice", name: "Alice" }
   });
 
   assert.equal(result.commandResult.type, "session-list");
@@ -166,7 +166,7 @@ test("runSlashCommand binds resume ids through the engine-specific session write
     text: `/resume ${nextId}`,
     engine: "claude-code",
     sessionId: "local_1",
-    fellow: { key: "alice", name: "Alice" }
+    bot: { key: "alice", name: "Alice" }
   });
 
   assert.match(result, new RegExp(nextId));

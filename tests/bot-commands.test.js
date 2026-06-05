@@ -535,7 +535,7 @@ test("saveBotRuntimeControl saves cloud-hermes controls through cloud runtime co
   ]);
 });
 
-test("bot commands attach as a browser global without legacy fellow global", () => {
+test("bot commands attach as a browser global without legacy globals", () => {
   const sourcePath = path.join(__dirname, "..", "src", "renderer", "bot", "bot-commands.js");
   const source = fs.readFileSync(sourcePath, "utf8");
   const window = {};

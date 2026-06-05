@@ -397,6 +397,7 @@ function verifyRelease() {
     "api/src/shared/avatar-resolve.js",
     "api/packages/shared/avatar.js",
     "api/src/shared/bot-identity.js",
+    "api/src/shared/identity.js",
     "api/packages/shared/bot-identity.js",
     "api/packages/shared/identity.js",
     "api/src/shared/session-history.js",
@@ -474,6 +475,7 @@ function verifyRelease() {
     "api/src/shared/avatar-resolve.js",
     "api/packages/shared/avatar.js",
     "api/src/shared/bot-identity.js",
+    "api/src/shared/identity.js",
     "api/packages/shared/bot-identity.js",
     "api/packages/shared/identity.js",
     "api/src/shared/session-history.js",
@@ -652,6 +654,7 @@ function main() {
   copyFile("src/shared/avatar-resolve.js", path.join(apiDir, "src", "shared", "avatar-resolve.js"));
   copyFile("packages/shared/avatar.js", path.join(apiDir, "packages", "shared", "avatar.js"));
   copyFile("src/shared/bot-identity.js", path.join(apiDir, "src", "shared", "bot-identity.js"));
+  copyFile("src/shared/identity.js", path.join(apiDir, "src", "shared", "identity.js"));
   copyFile("packages/shared/bot-identity.js", path.join(apiDir, "packages", "shared", "bot-identity.js"));
   copyFile("packages/shared/identity.js", path.join(apiDir, "packages", "shared", "identity.js"));
   copyFile("src/shared/session-history.js", path.join(apiDir, "src", "shared", "session-history.js"));

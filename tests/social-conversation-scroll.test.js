@@ -3,7 +3,7 @@
 // Bug: renderConversationChat unconditionally forced `scrollTop = scrollHeight` on every
 // paint, so any background re-render (read receipts, cloud-agent streaming,
 // member/runtime refresh) yanked the user to the bottom — making it impossible
-// to scroll up and read history in a group. The fellow-chat path in app.js
+// to scroll up and read history in a group. The bot-chat path in app.js
 // already guards on "was the user near the bottom?"; the cloud-conversation path didn't.
 //
 // Loads social.js into a vm sandbox with a mock DOM. The chat container is an
@@ -117,13 +117,13 @@ test("renderConversationChat jumps to the bottom on conversation switch even if 
   assert.equal(c.scrollTop, 1000, "entering a conversation should show its latest messages");
 });
 
-test("re-entering a conversation after a detour through a local fellow chat lands at the bottom", () => {
+test("re-entering a conversation after a detour through a local bot chat lands at the bottom", () => {
   const { social } = loadSocial();
   // Enter g_1 (first paint = switch → bottom).
   social.renderConversationChat(scrollEl({ scrollTop: 600, scrollHeight: 1000, clientHeight: 400 }));
-  // Detour to a local fellow chat: app.js clears cloud-conversation mode via setActiveConversationId(null).
+  // Detour to a local bot chat: app.js clears cloud-conversation mode via setActiveConversationId(null).
   social.setActiveConversationId(null);
-  // Come back to the same conversation. The shared #chat may be scrolled up from the fellow chat.
+  // Come back to the same conversation. The shared #chat may be scrolled up from the bot chat.
   social.setActiveConversationId("g_1");
   const c = scrollEl({ scrollTop: 0, scrollHeight: 1000, clientHeight: 400 });
   social.renderConversationChat(c);
