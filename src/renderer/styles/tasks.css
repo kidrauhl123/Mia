@@ -3,6 +3,7 @@
 .tasks-workspace {
   grid-template-rows: auto minmax(0, 1fr);
   grid-column: 2 / -1;
+  box-shadow: none;   /* 纯平，与 发现/联系人 一致：层次靠白卡而非面板投影 */
 }
 
 .app-shell[data-active-view="tasks"] #sidebarResizeHandle {

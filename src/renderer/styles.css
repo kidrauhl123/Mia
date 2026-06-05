@@ -219,6 +219,13 @@ p {
   gap: 4px;
   padding: 0 0 14px;
   min-width: 0;
+  background: var(--surface-muted);
+  -webkit-app-region: drag;        /* rail 是纯外壳，空白处可拖动窗口 */
+}
+/* rail 上可点的元素保持可点（不参与拖拽） */
+.nav-rail .rail-button,
+.nav-rail .rail-avatar {
+  -webkit-app-region: no-drag;
 }
 
 .traffic-spacer {

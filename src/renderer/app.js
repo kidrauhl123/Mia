@@ -123,8 +123,7 @@ const els = {
   contactMenuAddFriend: document.getElementById("contactMenuAddFriend"),
   contactMenuAddFellow: document.getElementById("contactMenuAddFellow"),
   contactMenuNewGroup: document.getElementById("contactMenuNewGroup"),
-  contactMenuDiscoverFellows: document.getElementById("contactMenuDiscoverFellows"),
-  convMenuDiscoverFellows: document.getElementById("convMenuDiscoverFellows"),
+  discoverModeToggle: document.getElementById("discoverModeToggle"),
   contactList: document.getElementById("contactList"),
   contactPageTitle: document.getElementById("contactPageTitle"),
   contactPageMeta: document.getElementById("contactPageMeta"),
@@ -1328,6 +1327,10 @@ function renderView() {
   els.fellowStoreView?.classList.toggle("hidden", state.activeView !== "fellow-store");
   els.tasksView?.classList.toggle("hidden", state.activeView !== "tasks");
   els.appShell?.setAttribute("data-active-view", state.activeView);
+  els.discoverModeToggle?.querySelectorAll("[data-discover-mode]").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.discoverMode === state.activeView);
+  });
+  if (typeof syncDiscoverModeIndicator === "function") syncDiscoverModeIndicator();
   els.settingsView.classList.toggle("hidden", !state.settingsOpen);
   els.profileDialog?.classList.toggle("hidden", !state.profileDialogOpen);
   els.fellowCreateMenu?.classList.toggle("hidden", !state.fellowMenuOpen);
@@ -1360,7 +1363,10 @@ function renderView() {
   window.miaPetDialog?.renderPetGenerateDialog();
   window.miaPetDialog?.renderPetJobs();
   document.querySelectorAll("[data-view]").forEach((button) => {
-    button.classList.toggle("active", button.dataset.view === state.activeView);
+    // 联系人 图标在「联系人」和「发现 AI 同事」两个子页下都高亮
+    const active = button.dataset.view === state.activeView
+      || (button.dataset.view === "contacts" && state.activeView === "fellow-store");
+    button.classList.toggle("active", active);
   });
   document.querySelectorAll("[data-settings-tab]").forEach((button) => {
     button.classList.toggle("active", button.dataset.settingsTab === state.activeSettingsTab);
@@ -2776,10 +2782,14 @@ window.miaLottieIcons?.init();
 
 document.querySelectorAll("[data-view]").forEach((button) => {
   button.addEventListener("click", () => {
-    state.activeView = button.dataset.view;
+    // 联系人 rail 图标进的是 发现/联系人 section，落到上次停留的子页（默认发现）
+    state.activeView = button.dataset.view === "contacts"
+      ? (state.discoverSectionView || "fellow-store")
+      : button.dataset.view;
     showNarrowContent();
     if (button.dataset.view === "settings") state.settingsOpen = true;
     if (button.dataset.view === "skills" && !state.skillLibrary.skills.length && !state.skillsLoading) window.miaLoaders.loadSkills();
+    if (state.activeView === "fellow-store") window.miaFellowStore?.renderFellowStore?.();
     renderView();
     if (state.activeView === "tasks") {
       window.miaTasksPanel?.loadTasksFromDaemon().then(() => {
@@ -3091,16 +3101,45 @@ els.newPersona.addEventListener("click", (event) => {
   renderView();
 });
 
-function openFellowStore() {
-  state.fellowMenuOpen = false;
-  state.contactMenuOpen = false;
-  state.activeView = "fellow-store";
-  showNarrowContent();
-  renderView();
-  window.miaFellowStore?.renderFellowStore?.();
+// 发现 AI 同事 | 联系人 —— 顶栏滑动胶囊（仿技能 我的技能/探索发现）。
+// discover = 整屏卡片网格(fellow 商店)；contacts = 列表(浮动白卡)+详情。
+const DISCOVER_MODES = [
+  { view: "fellow-store", label: "发现 AI 同事" },
+  { view: "contacts", label: "联系人" }
+];
+function renderDiscoverModeToggle() {
+  const host = els.discoverModeToggle;
+  if (!host) return;
+  host.innerHTML = DISCOVER_MODES.map((m) => `
+    <button type="button" role="tab" class="${m.view === state.activeView ? "active" : ""}" data-discover-mode="${m.view}">${m.label}</button>
+  `).join("");
+  host.querySelectorAll("[data-discover-mode]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (state.activeView === btn.dataset.discoverMode) return;
+      state.fellowMenuOpen = false;
+      state.contactMenuOpen = false;
+      state.activeView = btn.dataset.discoverMode;
+      state.discoverSectionView = state.activeView; // 记住子页，rail 回来时恢复
+      showNarrowContent();
+      if (state.activeView === "fellow-store") window.miaFellowStore?.renderFellowStore?.();
+      renderView();
+    });
+  });
+  syncDiscoverModeIndicator();
 }
-els.convMenuDiscoverFellows?.addEventListener("click", openFellowStore);
-els.contactMenuDiscoverFellows?.addEventListener("click", openFellowStore);
+function syncDiscoverModeIndicator() {
+  const host = els.discoverModeToggle;
+  if (!host) return;
+  const active = host.querySelector("button.active");
+  if (!active || typeof active.getBoundingClientRect !== "function") return;
+  const hostRect = host.getBoundingClientRect();
+  if (!hostRect.width) return;
+  const activeRect = active.getBoundingClientRect();
+  host.style.setProperty("--pill-x", `${activeRect.left - hostRect.left}px`);
+  host.style.setProperty("--pill-w", `${activeRect.width}px`);
+  host.style.setProperty("--pill-ready", "1");
+}
+renderDiscoverModeToggle();
 
 els.convMenuAddFriend?.addEventListener("click", () => {
   state.fellowMenuOpen = false;

@@ -4,6 +4,7 @@
 .skills-workspace {
   grid-template-rows: auto minmax(0, 1fr);
   grid-column: 2 / -1;
+  box-shadow: none;   /* 纯平，与 发现/联系人 一致：层次靠白卡而非面板投影 */
 }
 
 /* 没有中栏可拖，隐藏调宽手柄，免得它占住 col2 */

@@ -48,6 +48,8 @@
       forceScrollToBottom: false,
       sessionMenuOpen: false,
       activeView: "chat",
+      // 发现/联系人 section 上次停留的子页（仿 skillMarketMode 持久化），rail 回来时恢复，默认发现
+      discoverSectionView: "fellow-store",
       activeContactKey: "",
       narrowPane: "content",
       isNarrowWindow: windowWidth <= 720,

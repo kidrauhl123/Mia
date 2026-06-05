@@ -1,47 +1,116 @@
-/* 发现 AI 同事 —— 预设 fellow 商店。
-   中右打通成一整块画布（跨 sidebar/handle/workspace 三列），
-   顶部分类胶囊复用 .skill-mode-toggle 的滑动白胶囊，卡片网格复用 .skill-card 调性。 */
+/* 发现 AI 同事 / 联系人 —— 整屏灰底，顶栏 mode 胶囊，内容是浮在灰底上的白卡（仿技能/任务）。
+   发现 = 整块卡片网格；联系人 = 浮动白卡列表 + 详情内容卡片直接浮在灰底上。 */
 
-.fellow-store-workspace {
+/* ── app-shell 改成「顶条一行 + 内容一行」，顶条横跨中栏+右栏 ── */
+.app-shell[data-active-view="contacts"],
+.app-shell[data-active-view="fellow-store"] {
   grid-template-rows: auto minmax(0, 1fr);
+  background: var(--surface-muted);   /* 整壳灰底，浮卡之间的间隙也是这个灰 */
+}
+.discover-top-bar { display: none; }
+.app-shell[data-active-view="contacts"] .discover-top-bar,
+.app-shell[data-active-view="fellow-store"] .discover-top-bar {
+  display: flex;
+  align-items: center;
   grid-column: 2 / -1;
+  grid-row: 1;
+  padding: 14px 22px 6px;
   background: var(--surface-muted);
+  border-radius: 0 14px 0 0;          /* 同技能：左上角直角、右上角圆 */
+  -webkit-app-region: drag;           /* 顶条空白处可拖窗（同 .topbar），胶囊保持可点 */
 }
+.discover-mode-toggle { -webkit-app-region: no-drag; }
+/* rail 跨两行；列表/详情/网格都在第二行；发现模式无中栏可拖 */
+.app-shell[data-active-view="contacts"] .nav-rail,
+.app-shell[data-active-view="fellow-store"] .nav-rail { grid-row: 1 / -1; grid-column: 1; }
+.app-shell[data-active-view="contacts"] .contacts-sidebar { grid-row: 2; grid-column: 2; }
+.app-shell[data-active-view="contacts"] #sidebarResizeHandle { grid-row: 2; grid-column: 3; display: none; }
+.app-shell[data-active-view="contacts"] #contactsView { grid-row: 2; grid-column: 4; }
+.app-shell[data-active-view="fellow-store"] #fellowStoreView { grid-row: 2; grid-column: 2 / -1; }
+.app-shell[data-active-view="fellow-store"] #sidebarResizeHandle { display: none; }
 
-/* 没有中栏可拖，隐藏调宽手柄 */
-.app-shell[data-active-view="fellow-store"] #sidebarResizeHandle {
-  display: none;
+/* 两视图都去掉了自带顶栏，内容占满整格 */
+.fellow-store-workspace,
+.contacts-workspace { grid-template-rows: minmax(0, 1fr); }
+.fellow-store-workspace { grid-column: 2 / -1; }
+
+/* ── 顶栏 mode 胶囊：滑动白胶囊（仿 skill-mode-toggle） ── */
+.discover-mode-toggle {
+  position: relative;
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--field);
+  isolation: isolate;
 }
+.discover-mode-toggle::before {
+  content: "";
+  position: absolute;
+  top: 3px; bottom: 3px; left: 0;
+  width: var(--pill-w, 0px);
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: 0 1px 3px rgba(17, 24, 39, 0.08);
+  opacity: var(--pill-ready, 0);
+  transform: translateX(var(--pill-x, 0px));
+  pointer-events: none;
+  z-index: 0;
+  transition: transform 180ms cubic-bezier(0.2, 0.7, 0.2, 1), width 180ms cubic-bezier(0.2, 0.7, 0.2, 1), opacity 120ms ease;
+}
+.discover-mode-toggle button {
+  position: relative;
+  z-index: 1;
+  padding: 5px 16px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 450;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 140ms ease;
+}
+.discover-mode-toggle button.active { color: var(--text); font-weight: 560; }
 
-.fellow-store-topbar {
-  align-items: flex-start;
+/* ── 联系人模式：中栏列表 = 一张悬浮白卡（四角圆润 + 与详情卡片同款阴影/描边）──
+   整块是单一白卡（搜索+列表），靠 margin 在灰壳上浮起；阴影/描边与 .contact-note / .contact-capabilities 完全一致 */
+.app-shell[data-active-view="contacts"] .contacts-sidebar {
+  background: var(--surface);
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgba(16, 20, 39, 0.05), inset 0 0 0 1px rgba(0, 0, 0, 0.035);
+  margin: 12px 14px 14px 12px;
+  overflow: hidden;
+  gap: 0;
+}
+.app-shell[data-active-view="contacts"] .contacts-sidebar .sidebar-tools {
+  background: transparent;
   border-bottom: 0;
+  min-height: 0;
+  padding: 12px 12px 6px;
+}
+.app-shell[data-active-view="contacts"] .contacts-sidebar .contact-section {
+  background: transparent;
+}
+/* 详情：与顶条同灰、无阴影无圆角接缝；里面的内容卡片直接浮在灰底上 */
+.app-shell[data-active-view="contacts"] #contactsView {
   background: var(--surface-muted);
-  padding-top: 18px;
-  padding-bottom: 0;
+  box-shadow: none;
+  border-radius: 0 0 14px 0;
 }
-
-.fellow-store-topbar .group-title { gap: 2px; }
-.fellow-store-title-main {
-  margin: 0;
-  font-size: 19px;
-  font-weight: 620;
-  letter-spacing: -0.01em;
-  color: var(--text);
+.app-shell[data-active-view="fellow-store"] #fellowStoreView {
+  box-shadow: none;
+  border-radius: 0 0 14px 0;
 }
-.fellow-store-title-sub {
-  margin: 2px 0 0;
-  font-size: 12.5px;
-  color: var(--faint);
-}
-.fellow-store-search { max-width: 240px; margin-left: auto; }
 
 .fellow-store-layout {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   gap: 14px;
   min-height: 0;
-  padding: 14px 24px 24px;
+  padding: 8px 24px 24px;
   background: var(--surface-muted);
   overflow: hidden;
 }
@@ -227,4 +296,43 @@
   .fellow-store-card,
   .fellow-store-sheet,
   .fellow-store-scrim { transition: none; animation: none; }
+}
+
+/* ── 窄窗(≤720px)：复位桌面网格重构，回到原有的单列堆叠布局 ──
+   桌面把 发现/联系人 改成「顶条一行 + 内容一行」并显式排格；窄屏下这些会盖掉
+   styles.css 的窄屏两列布局，导致详情跑到屏外。这里在窄屏把它们复位。 */
+@media (max-width: 720px) {
+  .app-shell[data-active-view="contacts"],
+  .app-shell[data-active-view="fellow-store"] {
+    grid-template-rows: none;
+  }
+  .app-shell[data-active-view="contacts"] .discover-top-bar,
+  .app-shell[data-active-view="fellow-store"] .discover-top-bar {
+    display: none;
+  }
+  .app-shell[data-active-view="contacts"] .nav-rail,
+  .app-shell[data-active-view="fellow-store"] .nav-rail {
+    grid-row: 1;
+  }
+  .app-shell[data-active-view="contacts"] .contacts-sidebar,
+  .app-shell[data-active-view="contacts"] #contactsView,
+  .app-shell[data-active-view="fellow-store"] #fellowStoreView {
+    grid-row: 1;
+    grid-column: 2;
+  }
+  /* 窄屏下列表恢复满屏白底，不要桌面那张浮卡的圆角/阴影/外边距 */
+  .app-shell[data-active-view="contacts"] .contacts-sidebar {
+    margin: 0;
+    border-radius: 0;
+    box-shadow: none;
+    background: var(--surface);
+  }
+  .app-shell[data-active-view="contacts"] .contacts-sidebar .sidebar-tools,
+  .app-shell[data-active-view="contacts"] .contacts-sidebar .contact-section {
+    background: var(--surface);
+  }
+  .fellow-store-workspace,
+  .contacts-workspace {
+    grid-template-rows: auto minmax(0, 1fr);
+  }
 }

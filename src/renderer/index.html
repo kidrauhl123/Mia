@@ -52,15 +52,6 @@
         </label>
         <button id="newPersona" class="icon-button" type="button" title="新建">＋</button>
         <div id="fellowCreateMenu" class="create-menu hidden">
-          <button id="convMenuDiscoverFellows" type="button">
-            <span class="create-menu-icon" aria-hidden="true">
-              <svg viewBox="0 0 48 48" fill="none" focusable="false">
-                <circle cx="24" cy="24" r="20" stroke="currentColor" stroke-width="4"/>
-                <path d="M31 17L27 27L17 31L21 21L31 17Z" fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round"/>
-              </svg>
-            </span>
-            <span class="create-menu-label">发现 AI 同事</span>
-          </button>
           <button id="convMenuAddFriend" type="button">
             <span class="create-menu-icon" aria-hidden="true">
               <svg viewBox="0 0 48 48" fill="none" focusable="false">
@@ -110,15 +101,6 @@
         </label>
         <button id="newContact" class="icon-button" type="button" title="新建">＋</button>
         <div id="contactCreateMenu" class="create-menu hidden">
-          <button id="contactMenuDiscoverFellows" type="button">
-            <span class="create-menu-icon" aria-hidden="true">
-              <svg viewBox="0 0 48 48" fill="none" focusable="false">
-                <circle cx="24" cy="24" r="20" stroke="currentColor" stroke-width="4"/>
-                <path d="M31 17L27 27L17 31L21 21L31 17Z" fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round"/>
-              </svg>
-            </span>
-            <span class="create-menu-label">发现 AI 同事</span>
-          </button>
           <button id="contactMenuAddFriend" type="button">
             <span class="create-menu-icon" aria-hidden="true">
               <svg viewBox="0 0 48 48" fill="none" focusable="false">
@@ -161,6 +143,11 @@
     </aside>
 
     <div id="sidebarResizeHandle" class="sidebar-resize-handle" role="separator" aria-orientation="vertical" aria-label="调整中栏宽度"></div>
+
+    <!-- 发现 / 联系人 共用的灰底顶条：横跨中栏+右栏，胶囊在上、内容在下（仿技能/任务的顶栏 mode 胶囊） -->
+    <div id="discoverTopBar" class="discover-top-bar">
+      <div id="discoverModeToggle" class="discover-mode-toggle" role="tablist"></div>
+    </div>
 
     <section id="chatView" class="workspace">
       <header class="topbar">
@@ -266,15 +253,8 @@
     </section>
 
     <section id="contactsView" class="workspace contacts-workspace hidden">
-      <header class="topbar">
-        <button class="narrow-back-button" type="button" data-narrow-back title="返回联系人" aria-label="返回联系人">‹</button>
-        <div class="group-title">
-          <div>
-            <h1><span id="contactPageTitle">联系人</span></h1>
-            <p id="contactPageMeta">Fellow 通讯录</p>
-          </div>
-        </div>
-      </header>
+      <div hidden><span id="contactPageTitle">联系人</span><span id="contactPageMeta"></span></div>
+      <button class="narrow-back-button contacts-narrow-back" type="button" data-narrow-back title="返回联系人" aria-label="返回联系人">‹</button>
       <section class="contacts-layout">
         <div id="contactDetail" class="contact-detail"></div>
       </section>
@@ -301,13 +281,6 @@
     </section>
 
     <section id="fellowStoreView" class="workspace fellow-store-workspace hidden">
-      <header class="topbar fellow-store-topbar">
-        <button class="narrow-back-button" type="button" data-narrow-back title="返回" aria-label="返回">‹</button>
-        <div class="group-title">
-          <h1 class="fellow-store-title-main">发现 AI 同事</h1>
-          <p class="fellow-store-title-sub">为大学生挑好的 AI 搭子，点开就能用</p>
-        </div>
-      </header>
       <section class="fellow-store-layout">
         <div id="fellowStoreCap" class="fellow-store-cap" aria-label="分类"></div>
         <div class="fellow-store-grid-scroll">
