@@ -405,8 +405,13 @@ test("scripts/build-cloud-release.js copies cloud shared modules into the api tr
   );
   assert.match(
     build,
-    /copyFile\(["']src\/shared\/group-fellow-routing\.js["'],\s*path\.join\(apiDir,\s*["']src["'],\s*["']shared["'],\s*["']group-fellow-routing\.js["']\)\)/,
-    "build-cloud-release must copy group-fellow-routing.js for api cloud-agent modules"
+    /copyFile\(["']src\/shared\/cloud-events\.js["'],\s*path\.join\(apiDir,\s*["']src["'],\s*["']shared["'],\s*["']cloud-events\.js["']\)\)/,
+    "build-cloud-release must copy cloud-events.js because cloud-agent dispatcher imports it"
+  );
+  assert.doesNotMatch(
+    build,
+    /copyFile\(["']src\/shared\/group-fellow-routing\.js["']/,
+    "build-cloud-release must not ship unused legacy group-fellow-routing.js"
   );
   assert.match(
     build,
@@ -443,17 +448,40 @@ test("scripts/build-cloud-release.js copies cloud shared modules into the api tr
     /copyFile\(["']packages\/shared\/bot-identity\.js["'],\s*path\.join\(apiDir,\s*["']packages["'],\s*["']shared["'],\s*["']bot-identity\.js["']\)\)/,
     "build-cloud-release must copy packages/shared/bot-identity.js for API bot identity helpers"
   );
+  assert.match(
+    build,
+    /copyFile\(["']packages\/shared\/identity\.js["'],\s*path\.join\(apiDir,\s*["']packages["'],\s*["']shared["'],\s*["']identity\.js["']\)\)/,
+    "build-cloud-release must copy packages/shared/identity.js because bot-identity.js requires it"
+  );
   assert.match(build, /api\/src\/shared\/conversation-kinds\.js/);
+  assert.match(build, /api\/src\/shared\/cloud-events\.js/);
   assert.match(build, /api\/src\/shared\/engine-contracts\.js/);
   assert.match(build, /api\/src\/shared\/member-color\.js/);
   assert.match(build, /api\/src\/shared\/avatar-media\.js/);
   assert.match(build, /api\/packages\/shared\/avatar\.js/);
   assert.match(build, /api\/src\/shared\/bot-identity\.js/);
   assert.match(build, /api\/packages\/shared\/bot-identity\.js/);
+  assert.match(build, /api\/packages\/shared\/identity\.js/);
   assert.doesNotMatch(build, /fellow-identity\.js/);
-  assert.match(build, /api\/src\/shared\/group-fellow-routing\.js/);
+  assert.doesNotMatch(build, /api\/src\/shared\/group-fellow-routing\.js/);
+  assert.match(build, /api\/src\/cloud-agent\/default-bot\.js/);
+  assert.doesNotMatch(build, /api\/src\/cloud-agent\/default-fellow\.js/);
   assert.match(build, /api\/src\/shared\/skill-safety\.js/);
   assert.match(build, /api\/src\/shared\/avatar-resolve\.js/);
+});
+
+test("cloud release runtime does not import legacy group fellow routing", () => {
+  const runtimeFiles = [
+    "scripts/serve-cloud.js",
+    ...fs.readdirSync(path.join(ROOT, "src/cloud-agent"))
+      .filter((file) => file.endsWith(".js"))
+      .map((file) => `src/cloud-agent/${file}`)
+  ];
+
+  for (const file of runtimeFiles) {
+    const source = fs.readFileSync(path.join(ROOT, file), "utf8");
+    assert.doesNotMatch(source, /group-fellow-routing/, `${file} must not import legacy group-fellow-routing.js`);
+  }
 });
 
 test("scripts/build-cloud-release.js ships the git-versioned skill catalog", () => {

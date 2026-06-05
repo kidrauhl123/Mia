@@ -383,13 +383,14 @@ function verifyRelease() {
     "api/src/cloud/hermes-skills-source.js",
     "api/src/cloud-agent/runtime-bindings-store.js",
     "api/src/cloud-agent/cloud-agent-runs-store.js",
-    "api/src/cloud-agent/default-fellow.js",
+    "api/src/cloud-agent/default-bot.js",
     "api/src/cloud-agent/attachment-materializer.js",
     "api/src/cloud-agent/group-orchestrator.js",
     "api/src/cloud-agent/hermes-worker-manager.js",
     "api/src/cloud-agent/hermes-runs-client.js",
     "api/src/cloud-agent/dispatcher.js",
     "api/src/shared/conversation-kinds.js",
+    "api/src/shared/cloud-events.js",
     "api/src/shared/engine-contracts.js",
     "api/src/shared/member-color.js",
     "api/src/shared/avatar-media.js",
@@ -397,9 +398,9 @@ function verifyRelease() {
     "api/packages/shared/avatar.js",
     "api/src/shared/bot-identity.js",
     "api/packages/shared/bot-identity.js",
+    "api/packages/shared/identity.js",
     "api/src/shared/session-history.js",
     "api/packages/shared/session-history.js",
-    "api/src/shared/group-fellow-routing.js",
     "api/src/shared/skill-safety.js",
     "api/src/shared/agent-permissions.js",
     "api/src/permission-modes.js",
@@ -442,7 +443,7 @@ function verifyRelease() {
     "hermes-image/entrypoint.sh",
     "hermes-image/mia_plugins/__init__.py",
     "hermes-image/mia_plugins/__main__.py",
-    "hermes-image/mia_plugins/fellow_overlay.py",
+    "hermes-image/mia_plugins/bot_overlay.py",
     "nginx/mia-websocket-map.conf",
     "nginx/mia-cloud-site.conf",
     "manifest.json"
@@ -459,13 +460,14 @@ function verifyRelease() {
     "api/src/cloud/hermes-skills-source.js",
     "api/src/cloud-agent/runtime-bindings-store.js",
     "api/src/cloud-agent/cloud-agent-runs-store.js",
-    "api/src/cloud-agent/default-fellow.js",
+    "api/src/cloud-agent/default-bot.js",
     "api/src/cloud-agent/attachment-materializer.js",
     "api/src/cloud-agent/group-orchestrator.js",
     "api/src/cloud-agent/hermes-worker-manager.js",
     "api/src/cloud-agent/hermes-runs-client.js",
     "api/src/cloud-agent/dispatcher.js",
     "api/src/shared/conversation-kinds.js",
+    "api/src/shared/cloud-events.js",
     "api/src/shared/engine-contracts.js",
     "api/src/shared/member-color.js",
     "api/src/shared/avatar-media.js",
@@ -473,9 +475,9 @@ function verifyRelease() {
     "api/packages/shared/avatar.js",
     "api/src/shared/bot-identity.js",
     "api/packages/shared/bot-identity.js",
+    "api/packages/shared/identity.js",
     "api/src/shared/session-history.js",
     "api/packages/shared/session-history.js",
-    "api/src/shared/group-fellow-routing.js",
     "api/src/shared/skill-safety.js",
     "api/src/shared/agent-permissions.js",
     "api/src/permission-modes.js",
@@ -604,7 +606,7 @@ function verifyRelease() {
     require(${JSON.stringify(assertFile("api/src/cloud/desktop-bridge-permission.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/runtime-bindings-store.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/cloud-agent-runs-store.js"))});
-    require(${JSON.stringify(assertFile("api/src/cloud-agent/default-fellow.js"))});
+    require(${JSON.stringify(assertFile("api/src/cloud-agent/default-bot.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/attachment-materializer.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/group-orchestrator.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/hermes-worker-manager.js"))});
@@ -643,6 +645,7 @@ function main() {
   copyDir("src/cloud", path.join(apiDir, "src", "cloud"));
   copyDir("src/cloud-agent", path.join(apiDir, "src", "cloud-agent"));
   copyFile("src/shared/conversation-kinds.js", path.join(apiDir, "src", "shared", "conversation-kinds.js"));
+  copyFile("src/shared/cloud-events.js", path.join(apiDir, "src", "shared", "cloud-events.js"));
   copyFile("src/shared/engine-contracts.js", path.join(apiDir, "src", "shared", "engine-contracts.js"));
   copyFile("src/shared/member-color.js", path.join(apiDir, "src", "shared", "member-color.js"));
   copyFile("src/shared/avatar-media.js", path.join(apiDir, "src", "shared", "avatar-media.js"));
@@ -650,9 +653,9 @@ function main() {
   copyFile("packages/shared/avatar.js", path.join(apiDir, "packages", "shared", "avatar.js"));
   copyFile("src/shared/bot-identity.js", path.join(apiDir, "src", "shared", "bot-identity.js"));
   copyFile("packages/shared/bot-identity.js", path.join(apiDir, "packages", "shared", "bot-identity.js"));
+  copyFile("packages/shared/identity.js", path.join(apiDir, "packages", "shared", "identity.js"));
   copyFile("src/shared/session-history.js", path.join(apiDir, "src", "shared", "session-history.js"));
   copyFile("packages/shared/session-history.js", path.join(apiDir, "packages", "shared", "session-history.js"));
-  copyFile("src/shared/group-fellow-routing.js", path.join(apiDir, "src", "shared", "group-fellow-routing.js"));
   copyFile("src/shared/skill-safety.js", path.join(apiDir, "src", "shared", "skill-safety.js"));
   copyFile("src/shared/agent-permissions.js", path.join(apiDir, "src", "shared", "agent-permissions.js"));
   copyFile("src/permission-modes.js", path.join(apiDir, "src", "permission-modes.js"));

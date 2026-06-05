@@ -19,16 +19,16 @@ function setup(t) {
   return { runtime, service };
 }
 
-test("pluginFiles exposes the Mia gateway wrapper and fellow overlay plugin", (t) => {
+test("pluginFiles exposes the Mia gateway wrapper and bot overlay plugin", (t) => {
   const { service } = setup(t);
   const files = service.pluginFiles();
 
-  assert.deepEqual(Object.keys(files).sort(), ["__init__.py", "__main__.py", "fellow_overlay.py"]);
+  assert.deepEqual(Object.keys(files).sort(), ["__init__.py", "__main__.py", "bot_overlay.py"]);
   assert.match(files["__main__.py"], /_load_mia_env/);
   assert.match(files["__main__.py"], /mia-model\.json/);
-  assert.match(files["fellow_overlay.py"], /X-Mia-Fellow/);
-  assert.match(files["fellow_overlay.py"], /X-Mia-Group-Context/);
-  assert.match(files["fellow_overlay.py"], /ephemeral_system_prompt/);
+  assert.match(files["bot_overlay.py"], /X-Mia-Bot/);
+  assert.match(files["bot_overlay.py"], /X-Mia-Group-Context/);
+  assert.match(files["bot_overlay.py"], /ephemeral_system_prompt/);
 });
 
 test("ensureInstalled writes plugin files under runtime plugins and removes legacy engine copy", (t) => {
@@ -42,6 +42,6 @@ test("ensureInstalled writes plugin files under runtime plugins and removes lega
   assert.equal(result.pluginDir, path.join(runtime.pluginsDir, "mia_plugins"));
   assert.equal(fs.existsSync(path.join(result.pluginDir, "__init__.py")), true);
   assert.equal(fs.existsSync(path.join(result.pluginDir, "__main__.py")), true);
-  assert.equal(fs.existsSync(path.join(result.pluginDir, "fellow_overlay.py")), true);
+  assert.equal(fs.existsSync(path.join(result.pluginDir, "bot_overlay.py")), true);
   assert.equal(fs.existsSync(legacyDir), false);
 });

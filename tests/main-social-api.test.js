@@ -170,7 +170,7 @@ test("postConversationMessageAsBot sends POST to the canonical bot message route
   } finally { await teardown(ctx); }
 });
 
-test("ensureBotConversation sends PUT to the stable bot conversation route", async () => {
+test("ensureBotConversation sends PUT to the canonical bot conversation route using bot id as session", async () => {
   const seen = [];
   const ctx = await spawnFakeCloud(async (req, res) => {
     let body = "";
@@ -178,7 +178,7 @@ test("ensureBotConversation sends PUT to the stable bot conversation route", asy
     req.on("end", () => {
       seen.push({ method: req.method, url: req.url, body });
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ ok: true, conversation: { id: "bot:u_1:alice" }, created: true }));
+      res.end(JSON.stringify({ ok: true, conversation: { id: "botc_u_1_alice" }, created: true }));
     });
   });
   try {
@@ -186,11 +186,12 @@ test("ensureBotConversation sends PUT to the stable bot conversation route", asy
       getSettings: () => ({ enabled: true, token: "t", url: ctx.baseUrl }),
       normalizeUrl: (u) => u
     });
-    const result = await api.ensureBotConversation("alice", { title: "爱丽丝" });
-    assert.equal(result.conversation.id, "bot:u_1:alice");
+    const result = await api.ensureBotConversation("alice", { title: "爱丽丝", botId: "wrong" });
+    assert.equal(result.conversation.id, "botc_u_1_alice");
     assert.equal(seen[0].method, "PUT");
-    assert.equal(seen[0].url, "/api/me/bots/alice/conversation");
+    assert.equal(seen[0].url, "/api/me/bot-conversations/alice");
     const sentBody = JSON.parse(seen[0].body);
+    assert.equal(sentBody.botId, "alice");
     assert.equal(sentBody.title, "爱丽丝");
     assert.match(sentBody.clientOpId, /^op_/);
   } finally { await teardown(ctx); }

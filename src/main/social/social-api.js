@@ -114,7 +114,9 @@ function createSocialApi({ getSettings, normalizeUrl }) {
       return jsonFetch({ ...ctx(), method: "POST", path: "/api/conversations", body: withOpId(body) });
     },
     async ensureBotConversation(botId, body = {}) {
-      return jsonFetch({ ...ctx(), method: "PUT", path: `/api/me/bots/${encodeURIComponent(botId)}/conversation`, body: withOpId(body) });
+      const id = String(botId || "").trim();
+      if (!id) throw new Error("botId is required");
+      return this.ensureBotSessionConversation(id, { ...body, botId: id });
     },
     async ensureBotSessionConversation(sessionId, body = {}) {
       const botId = String(body.botId || body.botKey || "").trim();
