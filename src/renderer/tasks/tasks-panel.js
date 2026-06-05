@@ -94,11 +94,11 @@
     }
   }
 
-  function fellowName(fellowId) {
-    const { resolveContact, ContactKind } = contact();
-    const fellows = state.runtime?.fellows || state.runtime?.personas || [];
-    const resolved = resolveContact({ kind: ContactKind.Fellow, ref: fellowId }, { fellows });
-    return resolved.displayName || fellowId;
+  function fellowName(botId) {
+    const { resolveContact, IdentityKind } = contact();
+    const bots = state.runtime?.bots || state.runtime?.personas || [];
+    const resolved = resolveContact({ kind: IdentityKind?.Bot || "bot", ref: botId }, { bots });
+    return resolved.displayName || botId;
   }
 
   function formatNextTime(ms) {
@@ -280,7 +280,7 @@
           <span class="task-card-dot ${dotClass}"></span>
           <strong>${escapeHtml(task.title)}</strong>
         </div>
-        <div class="task-card-meta">${escapeHtml(fellowName(task.fellowId))} · ${escapeHtml(scheduleText(task))}</div>
+        <div class="task-card-meta">${escapeHtml(fellowName(task.botId))} · ${escapeHtml(scheduleText(task))}</div>
         <div class="task-card-foot">
           <em class="task-card-status">${escapeHtml(statusText)}</em>
           ${badge}
@@ -348,7 +348,7 @@
         <div class="task-card-foot">
           <em class="task-card-status">${escapeHtml(label)} · ${escapeHtml(formatRunTime(run.firedAt))}</em>
           ${badge}
-          <em class="task-card-fellow">${escapeHtml(fellowName(task.fellowId))}</em>
+          <em class="task-card-fellow">${escapeHtml(fellowName(task.botId))}</em>
         </div>
       </button>
     `;
@@ -409,7 +409,7 @@
     if (!body) return;
     setText(document.getElementById("taskPreviewTitle"), task.title);
     setText(document.getElementById("taskPreviewMeta"),
-      `${fellowName(task.fellowId)} · ${scheduleText(task)}`);
+      `${fellowName(task.botId)} · ${scheduleText(task)}`);
 
     const pauseLabel  = task.status === "paused" ? "启用" : "暂停";
     const pauseAction = task.status === "paused" ? "resume" : "pause";
@@ -431,7 +431,7 @@
             <small>${escapeHtml(nextText)}</small>
           </div>
           <div class="task-side-meta">
-            <div><small>执行者</small><span>${escapeHtml(fellowName(task.fellowId))}</span></div>
+            <div><small>执行者</small><span>${escapeHtml(fellowName(task.botId))}</span></div>
             <div><small>历史</small><span>${runCount} 次运行</span></div>
             ${latestRun ? `<div><small>最近一次</small><span>${escapeHtml(formatRunTime(latestRun.firedAt))}</span></div>` : ""}
           </div>
@@ -487,7 +487,7 @@
     setText(document.getElementById("taskPreviewTitle"),
       `${task.title} · ${formatRunTime(run.firedAt)} ${runStatusLabel(run.status)}`);
     setText(document.getElementById("taskPreviewMeta"),
-      `${fellowName(task.fellowId)} · ${scheduleText(task)}`);
+      `${fellowName(task.botId)} · ${scheduleText(task)}`);
 
     const outputText = run.outputText || "";
     const missedSummary = run.status === "missed"
@@ -508,7 +508,7 @@
           </div>
           <div class="task-side-meta">
             <div><small>任务</small><span>${escapeHtml(task.title)}</span></div>
-            <div><small>执行者</small><span>${escapeHtml(fellowName(task.fellowId))}</span></div>
+            <div><small>执行者</small><span>${escapeHtml(fellowName(task.botId))}</span></div>
             <div><small>执行时间</small><span>${escapeHtml(scheduleText(task))}</span></div>
           </div>
           <div class="task-primary-actions">
@@ -585,7 +585,7 @@
   function jumpToTaskConversation(task) {
     const conversationId = taskConversationId(task);
     if (!conversationId) return;
-    const fellowKey = task.fellowId || "";
+    const fellowKey = task.botId || "";
     state.activeKey = "";
     state.activeContactKey = fellowKey;
     state.activeView = "chat";
@@ -694,14 +694,14 @@
   function openTaskCreate() {
     const dialog = document.getElementById("taskCreateDialog");
     if (!dialog) return;
-    const fellows = state.runtime?.fellows || state.runtime?.personas || [];
+    const bots = state.runtime?.bots || state.runtime?.personas || [];
     const fellowSel = document.getElementById("ntFellow");
     if (fellowSel) {
-      if (fellows.length === 0) {
+      if (bots.length === 0) {
         fellowSel.innerHTML = `<option value="">（请先在通讯录添加一个 Agent）</option>`;
       } else {
-        const def = fellows.some((f) => f.key === state.activeKey) ? state.activeKey : fellows[0].key;
-        fellowSel.innerHTML = fellows
+        const def = bots.some((f) => f.key === state.activeKey) ? state.activeKey : bots[0].key;
+        fellowSel.innerHTML = bots
           .map((f) => `<option value="${escapeHtml(f.key)}"${f.key === def ? " selected" : ""}>${escapeHtml(fellowName(f.key))}</option>`)
           .join("");
       }
@@ -783,12 +783,12 @@
       const el = document.getElementById("ntError");
       if (el) { el.textContent = msg; el.hidden = false; }
     };
-    const fellowId = document.getElementById("ntFellow")?.value || "";
+    const botId = document.getElementById("ntFellow")?.value || "";
     const title = (document.getElementById("ntName")?.value || "").trim();
     const prompt = (document.getElementById("ntPrompt")?.value || "").trim();
     const freq = document.getElementById("ntFreq")?.value || "oneshot";
 
-    if (!fellowId) return showError("请先选择执行的 Agent（去通讯录添加一个）。");
+    if (!botId) return showError("请先选择执行的 Agent（去通讯录添加一个）。");
     if (!title) return showError("请填写任务名称。");
     if (!prompt) return showError("请填写要求说明。");
 
@@ -820,14 +820,14 @@
 
     let conversationId;
     try {
-      conversationId = await resolveConversationForFellow(fellowId);
+      conversationId = await resolveConversationForFellow(botId);
     } catch (e) {
       return showError("无法为该 Agent 准备云端对话：" + (e?.message || e));
     }
     if (!conversationId) return showError("该 Agent 还没有可用云端对话，请先完成登录后重试。");
 
     try {
-      const created = await window.mia.tasks.create({ title, fellowId, conversationId, prompt, trigger, timezone });
+      const created = await window.mia.tasks.create({ title, botId, conversationId, prompt, trigger, timezone });
       closeTaskCreate();
       state.selectedTaskId = created?.id || "";
       state.selectedRunId = "";
@@ -843,8 +843,8 @@
     if (!key) return null;
     const existing = __global.miaSocial?.fellowConversationForKey?.(key);
     if (existing?.id) return existing.id;
-    const fellows = state.runtime?.fellows || state.runtime?.personas || [];
-    const fellow = fellows.find((item) => item?.key === key || item?.id === key) || { key };
+    const bots = state.runtime?.bots || state.runtime?.personas || [];
+    const fellow = bots.find((item) => item?.key === key || item?.id === key) || { key };
     const conversation = await __global.miaSocial?.ensureFellowConversation?.(fellow);
     return conversation?.id || null;
   }

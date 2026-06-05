@@ -369,10 +369,10 @@ const runtimeInitializerService = createRuntimeInitializerService({
   defaultDaemonSettings: () => settingsStore.defaultDaemonSettings(),
   defaultUserProfile: () => settingsStore.defaultUserProfile(),
   defaultAppearanceSettings: () => settingsStore.defaultAppearanceSettings(),
-  loadFellowManifest: loadBotManifest,
-  saveFellowManifest: saveBotManifest,
-  fellowPersonaBody: botPersonaBody,
-  fellowMetadata: botMetadata,
+  loadBotManifest,
+  saveBotManifest,
+  botPersonaBody,
+  botMetadata,
   ensureClaudeBridgePlugin: () => claudeBridgePluginService.ensureInstalled(),
   appendEngineLog,
   getRuntimeStatus
@@ -559,7 +559,7 @@ function getRuntimeStatus(created = [], options = {}) {
   const codexAuth = authService.status();
   const settings = settingsWithoutSecret();
   const connectedProviders = connectedProviderSummaries(codexAuth);
-  const fellows = Array.isArray(manifest.fellows) ? manifest.fellows : [];
+  const bots = Array.isArray(manifest.bots) ? manifest.bots : [];
   const scanAgents = options.scanAgents !== false;
   const agentInventory = scanAgents
     ? localAgentEngineService.agentInventory()
@@ -572,7 +572,7 @@ function getRuntimeStatus(created = [], options = {}) {
     runtimeRoot: p.runtime,
     engineRoot: p.engine,
     hermesHome: p.home,
-    manifestPath: p.fellowManifest,
+    manifestPath: p.botManifest,
     configPath: p.config,
     created,
     engineInstalled: engineInstallService.isInstalled(),
@@ -609,9 +609,8 @@ function getRuntimeStatus(created = [], options = {}) {
       hasApiKey: connectedProviders.some((entry) => entry.provider === settings.provider && entry.hasApiKey)
     },
     connectedProviders,
-    fellows,
-    personas: fellows,
-    pets: fellowPetService.statusesForFellows(fellows),
+    bots,
+    pets: fellowPetService.statusesForFellows(bots),
     petJobs: fellowPetService.jobs()
   };
 }
@@ -724,9 +723,9 @@ function normalizeRemoteUserMessage(input) {
 function resolveRemoteChatBot({ botKey }) {
   initializeRuntime();
   const manifest = loadBotManifest();
-  const fellows = Array.isArray(manifest.fellows) ? manifest.fellows : [];
-  const key = String(botKey || manifest.default_fellow || fellows[0]?.key || "mia").trim();
-  const bot = fellows.find((item) => item.key === key) || fellows[0] || null;
+  const bots = Array.isArray(manifest.bots) ? manifest.bots : [];
+  const key = String(botKey || manifest.default_bot || bots[0]?.key || "mia").trim();
+  const bot = bots.find((item) => item.key === key) || bots[0] || null;
   return { bot };
 }
 
@@ -1626,7 +1625,7 @@ const botService = createBotService({
   saveAgentSessionMap: agentSessionStore.saveMap,
   orphanTasksByBot: (key) => {
     initSchedulerSubsystem();
-    return tasksStore.orphanByFellow(key);
+    return tasksStore.orphanByBot(key);
   },
   emitTaskEvent: (event, payload) => tasksEvents.emit(event, payload),
   rescanScheduler: () => scheduler.rescan(),
@@ -1650,7 +1649,7 @@ remoteControlRouter = createRemoteControlRouter({
   saveChatAttachment,
   readLocalFileAttachment,
   executeExternalAgentCommand: (body) => externalAgentCommandService.executeCommand(body),
-  saveFellowEngineConfig: (body) => botService.saveBotEngineConfig(body),
+  saveBotEngineConfig: (body) => botService.saveBotEngineConfig(body),
   saveModelSelection: (settings) => modelSettingsService.saveModelSelection(settings),
   writeEffortSettings: (body) => settingsStore.writeEffortSettings(body),
   writePermissionSettings: (body) => settingsStore.writePermissionSettings(body),
@@ -1813,7 +1812,7 @@ function shouldHandleCloudConversationAi() {
 }
 const mainBotRuntimeDispatcher = createMainBotRuntimeDispatcher({
   shouldHandle: shouldHandleCloudConversationAi,
-  listBots: () => loadBotManifest().fellows || [],
+  listBots: () => loadBotManifest().bots || [],
   localBotResponder,
   log: (line) => appendCloudLog(line)
 });

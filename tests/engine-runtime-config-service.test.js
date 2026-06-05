@@ -109,7 +109,7 @@ test("writeRuntimeConfig writes the private Hermes config with auth, model, appr
   assert.match(config, /agent:\n  reasoning_effort: "high"\n  disabled_toolsets:\n    - cronjob/);
   assert.match(config, /skills:\n  external_dirs:\n/);
   assert.equal((config.match(/skills-a/g) || []).length, 1);
-  assert.match(config, /mia:\n  runtime_schema: 1\n  fellows_manifest: fellows\/manifest\.json/);
+  assert.match(config, /mia:\n  runtime_schema: 1\n  bots_manifest: bots\/manifest\.json/);
   // No scheduler spec supplied → no mcp_servers block.
   assert.ok(!/mcp_servers:/.test(config));
 });

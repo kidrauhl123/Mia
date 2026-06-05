@@ -28,7 +28,7 @@ function createMiaMemoryService(deps = {}) {
       const store = JSON.parse(fsImpl.readFileSync(memoryPath(), "utf8"));
       return {
         shared: Array.isArray(store.shared) ? store.shared : [],
-        bots: store.bots && typeof store.bots === "object" ? store.bots : (store.fellows && typeof store.fellows === "object" ? store.fellows : {}),
+        bots: store.bots && typeof store.bots === "object" ? store.bots : {},
         updatedAt: store.updatedAt || ""
       };
     } catch {
@@ -58,7 +58,6 @@ function createMiaMemoryService(deps = {}) {
     const key = cleanLine(botId) || "mia";
     store.bots = store.bots && typeof store.bots === "object" ? store.bots : {};
     store.bots[key] = cleanLines(lines);
-    delete store.fellows;
     store.updatedAt = now();
     writeStore(store);
   }

@@ -122,7 +122,7 @@ function createCloudDesktopSyncClient({
     const current = settings();
     if (!current.enabled || !current.token) return;
     const manifest = loadBotManifest();
-    const bots = Array.isArray(manifest.bots) ? manifest.bots : (manifest.fellows || []);
+    const bots = Array.isArray(manifest.bots) ? manifest.bots : [];
     for (const bot of bots) {
       await pushBot(bot);
       await ensureBotConversation(bot);

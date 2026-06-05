@@ -14,7 +14,7 @@ function setup(overrides = {}) {
   const router = createRemoteControlRouter({
     isDaemonProcess: false,
     getRuntimeStatus: () => ({ runtime: true }),
-    loadFellowManifest: () => ({ fellows: [{ key: "codex" }], default_fellow: "codex" }),
+    loadBotManifest: () => ({ bots: [{ key: "codex" }], default_bot: "codex" }),
     loadHermesModelCatalog: async () => ["hermes-model"],
     loadCodexModels: () => ["codex-model"],
     loadEngineCapabilities: async () => ({ hermes: true }),
@@ -23,7 +23,7 @@ function setup(overrides = {}) {
     saveChatAttachment: (body) => ({ attachment: body }),
     readLocalFileAttachment: (body) => ({ file: body }),
     executeExternalAgentCommand: (body) => ({ command: body }),
-    saveFellowEngineConfig: (body) => ({ fellowEngine: body }),
+    saveBotEngineConfig: (body) => ({ botEngine: body }),
     saveModelSelection: async (body) => {
       calls.modelSelections.push(body);
       return { runtime: true };
@@ -34,7 +34,7 @@ function setup(overrides = {}) {
     runRemoteChatRequest: async (body, eventSink = null) => {
       calls.remoteChats.push({ body, eventSink });
       if (eventSink) eventSink.send("chat", { delta: "hello" });
-      return { fellow: { key: "codex" }, session: { id: "s_1" }, response: { text: "done" } };
+      return { bot: { key: "codex" }, session: { id: "s_1" }, response: { text: "done" } };
     },
     ...overrides
   });
@@ -48,9 +48,9 @@ test("routes health and read endpoints through one remote control router", async
     handled: true,
     data: { status: "ok", service: "mia-daemon", mode: "desktop" }
   });
-  assert.deepEqual(await router.route({ method: "GET", path: "/api/fellows" }), {
+  assert.deepEqual(await router.route({ method: "GET", path: "/api/bots" }), {
     handled: true,
-    data: { fellows: [{ key: "codex" }], defaultFellow: "codex" }
+    data: { bots: [{ key: "codex" }], defaultBot: "codex" }
   });
   assert.deepEqual(await router.route({ method: "GET", path: "/api/commands/agent-list?engine=codex" }), {
     handled: true,
@@ -84,14 +84,14 @@ test("routes chat stream by emitting chat and result events before done", async 
   const result = await router.route({
     method: "POST",
     path: "/api/chat/stream",
-    body: { fellowKey: "codex", text: "hello" },
+    body: { botKey: "codex", text: "hello" },
     emitStream: (event, data) => calls.stream.push({ event, data })
   });
 
   assert.equal(calls.remoteChats.length, 1);
   assert.deepEqual(calls.stream, [
     { event: "chat", data: { delta: "hello" } },
-    { event: "result", data: { fellow: { key: "codex" }, session: { id: "s_1" }, response: { text: "done" } } }
+    { event: "result", data: { bot: { key: "codex" }, session: { id: "s_1" }, response: { text: "done" } } }
   ]);
   assert.deepEqual(result, { handled: true, data: { done: true } });
 });

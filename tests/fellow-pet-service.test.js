@@ -117,7 +117,7 @@ function makeService(overrides = {}) {
       }
     },
     loadFellowManifest: () => ({
-      fellows: [{ key: "alice_bot", name: "Alice Bot" }]
+      bots: [{ key: "alice_bot", name: "Alice Bot" }]
     }),
     dataUrlToBuffer: (value) => {
       const match = String(value || "").match(/^data:image\/png;base64,(.+)$/);

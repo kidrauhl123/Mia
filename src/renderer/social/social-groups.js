@@ -13,7 +13,7 @@
     ctx = internalCtx;
   }
 
-  // Build the adapter-facing ctx ({ self, fellows, friends }) from
+  // Build the adapter-facing ctx ({ self, bots, friends }) from
   // social's internal ctx + the renderer's runtime state. All cloud-conversation
   // sender resolution must go through this; raw cloud-message schema fields
   // (sender kind / member kind / refs) are off-limits to this file —
@@ -23,7 +23,7 @@
     const { moduleState, deps } = ctx;
     const runtimeState = deps && typeof deps.getState === "function" ? deps.getState() : {};
     const runtime = runtimeState.runtime || {};
-    const fellows = runtime.fellows || runtime.personas || [];
+    const bots = runtime.bots || runtime.personas || [];
     const selfIdentity = typeof window !== "undefined" && window.miaSelfIdentity;
     const self = selfIdentity
       ? selfIdentity.resolveSelfIdentity({
@@ -35,7 +35,7 @@
       : { id: moduleState.myUserId || "", username: moduleState.myUsername || "" };
     return {
       self,
-      fellows,
+      bots,
       friends: moduleState.friends || []
     };
   }
@@ -88,7 +88,7 @@
   }
 
   function renderTraceForMessage(msg, content) {
-    if (msg.sender_kind !== SenderKind.Fellow) return "";
+    if (msg.sender_kind !== "bot") return "";
     const trace = parseTraceJson(msg.trace_json || msg.trace);
     if (!trace) return "";
     const renderer = global.miaTraceBlocks;
@@ -219,7 +219,7 @@
 
   // ── openCreateGroupDialog ─────────────────────────────────────────────────
   // Reuses the existing #groupCreateDialog DOM (rail #1's UI). Members are a
-  // single mixed list of friends + own fellows — the frontend treats them as
+  // single mixed list of friends + own bots — the frontend treats them as
   // unified "contacts"; the kind tag is only needed when posting to /api/conversations.
 
   function openCreateGroupDialog() {
@@ -290,12 +290,12 @@
       return row;
     }
 
-    // Build mixed contact list: friends + own fellows in a single section.
+    // Build mixed contact list: friends + own bots in a single section.
     // Fellows come from the canonical adapter ctx (cloud + local merged via
-    // miaFellowDirectory). Reading runtime.fellows directly dropped cloud
-    // fellows (e.g. mia, whose agent runs in the cloud) from the picker.
+    // miaFellowDirectory). Reading runtime.bots directly dropped cloud
+    // bots (e.g. mia, whose agent runs in the cloud) from the picker.
     membersBox.innerHTML = "";
-    const { friends, fellows: ownedFellows } = _adapterCtx();
+    const { friends, bots: ownedFellows } = _adapterCtx();
 
     if (friends.length === 0 && ownedFellows.length === 0) {
       const empty = document.createElement("div");
@@ -325,16 +325,16 @@
       const id = fellow.key || fellow.id;
       const name = fellow.name || id;
       const avatar = window.miaContact?.resolveContact?.(
-        { kind: window.miaContact.ContactKind.Fellow, ref: id },
-        { fellows: ownedFellows }
+        { kind: window.miaContact.IdentityKind?.Bot || "bot", ref: id },
+        { bots: ownedFellows }
       )?.avatar || window.miaAvatarResolve.resolveAvatarForContact({
-        id: window.miaContact?.fellowAvatarIdentityId?.(id, fellow) || id,
+        id: window.miaContact?.botAvatarIdentityId?.(id, fellow) || id,
         displayName: name,
         avatarImage: fellow.avatarImage || "",
         avatarCrop: fellow.avatarCrop || null
       });
       membersBox.appendChild(buildRow({
-        kind: "fellow",
+        kind: "bot",
         id,
         name,
         runtimeKind: fellow.runtimeKind || fellow.runtime_kind || "cloud-hermes",
@@ -369,16 +369,16 @@
       const entries = Array.from(selected.values());
       const name = (nameInput.value || "").trim() || entries.map((e) => e.name).join(" · ");
       const memberFriendUserIds = entries.filter((e) => e.kind === "friend").map((e) => e.id);
-      const fellowEntries = entries.filter((e) => e.kind === MemberKind.Fellow);
+      const fellowEntries = entries.filter((e) => e.kind === "bot");
 
       confirmBtn.disabled = true;
       try {
         // Phase 5 cutover: every group is a cloud conversation. Login required.
-        const memberFellows = fellowEntries.map((e) => ({
-          fellowId: e.id,
+        const memberBots = fellowEntries.map((e) => ({
+          botId: e.id,
           runtimeKind: e.runtimeKind || "cloud-hermes"
         }));
-        const res = await window.mia.social.createConversation({ name, memberFellows, memberFriendUserIds });
+        const res = await window.mia.social.createConversation({ name, memberBots, memberFriendUserIds });
         if (!res.ok) { alert("创建失败：" + (res.error || "")); confirmBtn.disabled = false; return; }
         const newConversation = res.data?.conversation || res.data;
         if (newConversation && newConversation.id) {

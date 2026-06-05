@@ -1,7 +1,7 @@
 function normalizedBotList(manifestOrBots = {}) {
   const bots = Array.isArray(manifestOrBots)
     ? manifestOrBots
-    : manifestOrBots.fellows || manifestOrBots.bots;
+    : manifestOrBots.bots;
   return Array.isArray(bots)
     ? bots.filter((bot) => bot && typeof bot === "object" && String(bot.key || bot.id || "").trim())
     : [];

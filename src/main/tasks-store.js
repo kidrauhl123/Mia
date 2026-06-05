@@ -26,7 +26,7 @@ function readJSON(filePath, fallback) {
 
 function validateInput(input) {
   if (!input || typeof input !== "object") throw new Error("task input must be an object");
-  if (!input.fellowId) throw new Error("fellowId is required");
+  if (!input.botId) throw new Error("botId is required");
   if (!input.conversationId && !input.sessionId) throw new Error("conversationId is required");
   // originMessageId is optional provenance metadata (which user message
   // prompted the task). It is stored but never consumed for delivery or
@@ -88,7 +88,7 @@ function createTasksStore(filePath) {
     const task = {
       id: "t-" + crypto.randomBytes(8).toString("hex"),
       title: String(input.title || "未命名任务"),
-      fellowId: String(input.fellowId),
+      botId: String(input.botId),
       conversationId,
       sessionId,
       originMessageId: String(input.originMessageId || ""),
@@ -141,13 +141,13 @@ function createTasksStore(filePath) {
   function pause(id) { return update(id, { status: "paused" }); }
   function resume(id) { return update(id, { status: "active" }); }
 
-  function orphanByFellow(fellowId) {
+  function orphanByBot(botId) {
     const state = load();
     let changed = 0;
     state.tasks.forEach((t) => {
-      if (t.fellowId === fellowId && t.status !== "done") {
+      if (t.botId === botId && t.status !== "done") {
         t.status = "paused";
-        t.orphanReason = "fellow_deleted";
+        t.orphanReason = "bot_deleted";
         t.updatedAt = Date.now();
         changed += 1;
       }
@@ -180,7 +180,7 @@ function createTasksStore(filePath) {
     return runEntry;
   }
 
-  return { list, get, create, update, delete: deleteTask, pause, resume, orphanByFellow, recordRun };
+  return { list, get, create, update, delete: deleteTask, pause, resume, orphanByBot, recordRun };
 }
 
 module.exports = { createTasksStore };

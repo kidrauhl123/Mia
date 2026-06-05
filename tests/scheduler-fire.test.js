@@ -15,7 +15,7 @@ function tmpStore() {
 test("createFireRunner.fire: ok path records run with outputMessageId", async () => {
   const store = tmpStore();
   const t = store.create({
-    title: "x", fellowId: "f", sessionId: "conversation:botc_u1_f", originMessageId: "m",
+    title: "x", botId: "f", sessionId: "conversation:botc_u1_f", originMessageId: "m",
     trigger: { type: "cron", cron: "0 9 * * *" }, timezone: "UTC", prompt: "do"
   });
   const calls = [];
@@ -66,7 +66,7 @@ test("createFireRunner.fire: ok path records run with outputMessageId", async ()
 test("createFireRunner.fire: error path records run with status=failed", async () => {
   const store = tmpStore();
   const t = store.create({
-    title: "x", fellowId: "f", conversationId: "botc_u1_f", originMessageId: "m",
+    title: "x", botId: "f", conversationId: "botc_u1_f", originMessageId: "m",
     trigger: { type: "cron", cron: "0 9 * * *" }, timezone: "UTC", prompt: "do"
   });
   const runner = createFireRunner({
@@ -83,7 +83,7 @@ test("createFireRunner.fire: error path records run with status=failed", async (
 test("createFireRunner.fire: emits lifecycle events", async () => {
   const store = tmpStore();
   const t = store.create({
-    title: "x", fellowId: "f", conversationId: "botc_u1_f", originMessageId: "m",
+    title: "x", botId: "f", conversationId: "botc_u1_f", originMessageId: "m",
     trigger: { type: "cron", cron: "0 9 * * *" }, timezone: "UTC", prompt: "do"
   });
   const events = [];
@@ -105,7 +105,7 @@ test("createFireRunner.fire: emits lifecycle events", async () => {
 test("createFireRunner.fire: tolerates task deletion during run", async () => {
   const store = tmpStore();
   const t = store.create({
-    title: "x", fellowId: "f", conversationId: "botc_u1_f", originMessageId: "m",
+    title: "x", botId: "f", conversationId: "botc_u1_f", originMessageId: "m",
     trigger: { type: "cron", cron: "0 9 * * *" }, timezone: "UTC", prompt: "do"
   });
   const events = [];

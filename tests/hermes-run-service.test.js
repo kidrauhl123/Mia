@@ -33,7 +33,7 @@ function streamResponse(text) {
 test("buildRunPayload normalizes messages into Hermes run input, history, and metadata", () => {
   const runs = service();
   const payload = runs.buildRunPayload({
-    fellow: {
+    bot: {
       key: "alice",
       name: "Alice",
       account_id: "acct",
@@ -54,7 +54,7 @@ test("buildRunPayload normalizes messages into Hermes run input, history, and me
     session_id: "bad_session_id_",
     account_id: "acct",
     metadata: {
-      fellow_key: "alice",
+      bot_id: "alice",
       persona_key: "alice",
       account_id: "acct",
       route_profile: "route",
@@ -71,7 +71,7 @@ test("buildRunPayload normalizes messages into Hermes run input, history, and me
 test("buildRunPayload applies per-turn runtime model and control metadata", () => {
   const runs = service();
   const payload = runs.buildRunPayload({
-    fellow: {
+    bot: {
       key: "alice",
       name: "Alice"
     },

@@ -80,7 +80,7 @@ function createCloudBridgeClient({
     try {
       sendCloudBridgeRunEvent(ws, runId, "status", { text: "本机 Codex 已开始运行。" });
       const response = await adapter.sendChat({
-        fellow: {
+        bot: {
           key: "mia_cloud_codex",
           name: "Codex",
           bio: "",

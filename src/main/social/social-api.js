@@ -103,13 +103,13 @@ function createSocialApi({ getSettings, normalizeUrl }) {
     async deleteConversationMessage(conversationId, messageId) {
       return jsonFetch({ ...ctx(), method: "DELETE", path: `/api/conversations/${conversationId}/messages/${encodeURIComponent(messageId)}` });
     },
-    async createConversation({ name, memberFellows, memberFriendUserIds, clientGroupId } = {}) {
+    async createConversation({ name, memberBots, memberFriendUserIds, clientGroupId } = {}) {
       // clientGroupId is the conversation-creation-specific idempotency key (links
       // a local group to its cloud counterpart); we still attach a generic
       // clientOpId so a *retry* of the same POST doesn't run twice even
       // when there's no clientGroupId provided. Both checks coexist on
       // the server.
-      const body = { name, memberFellows, memberFriendUserIds };
+      const body = { name, memberBots, memberFriendUserIds };
       if (clientGroupId) body.clientGroupId = clientGroupId;
       return jsonFetch({ ...ctx(), method: "POST", path: "/api/conversations", body: withOpId(body) });
     },

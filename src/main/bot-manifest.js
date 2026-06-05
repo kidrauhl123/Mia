@@ -1,9 +1,9 @@
 // Bot manifest + persona helpers (main process)
 // Extracted from src/main.js. Owns the read-side of the on-disk bot
 // data:
-//   - fellows/manifest.json (the list + each bot's normalized record)
-//   - fellows/<key>.md (each bot's persona prompt body)
-//   - fellows/<key>.fellow.json (metadata sidecar)
+//   - bots/manifest.json (the list + each bot's normalized record)
+//   - bots/<key>.md (each bot's persona prompt body)
+//   - bots/<key>.bot.json (metadata sidecar)
 //
 // Plus the normalization helpers used everywhere (normalizeBot,
 // normalizeBotEngineConfig, mergeBotEngineConfig, etc.).
@@ -34,8 +34,8 @@ function createBotManifest(deps = {}) {
     return {
       schema_version: 1,
       product: "mia",
-      default_fellow: "",
-      fellows: []
+      default_bot: "",
+      bots: []
     };
   }
 
@@ -84,8 +84,8 @@ function createBotManifest(deps = {}) {
     return {
       schema_version: manifest.schema_version,
       product: manifest.product,
-      default_persona: manifest.default_fellow,
-      personas: manifest.fellows
+      default_bot: manifest.default_bot,
+      bots: manifest.bots
     };
   }
 
@@ -145,27 +145,20 @@ function createBotManifest(deps = {}) {
     const source = input && typeof input === "object" ? input : defaultBotManifest();
     const rawBots = Array.isArray(source.bots)
       ? source.bots
-      : Array.isArray(source.fellows)
-      ? source.fellows
-      : Array.isArray(source.personas)
-        ? source.personas
-        : defaultBotManifest().fellows;
-    const fellows = rawBots.map(normalizeBot).filter(Boolean);
+      : defaultBotManifest().bots;
+    const bots = rawBots.map(normalizeBot).filter(Boolean);
     return {
       schema_version: 1,
       product: "mia",
-      default_fellow: String(source.default_bot || source.default_fellow || source.default_persona || fellows[0]?.key || ""),
-      fellows
+      default_bot: String(source.default_bot || bots[0]?.key || ""),
+      bots
     };
   }
 
   function loadBotManifest() {
     const p = runtimePaths();
-    if (fs.existsSync(p.fellowManifest)) {
-      return normalizeBotManifest(readJson(p.fellowManifest, defaultBotManifest()));
-    }
-    if (fs.existsSync(p.legacyPersonaManifest)) {
-      return normalizeBotManifest(readJson(p.legacyPersonaManifest, defaultManifest()));
+    if (fs.existsSync(p.botManifest)) {
+      return normalizeBotManifest(readJson(p.botManifest, defaultBotManifest()));
     }
     return defaultBotManifest();
   }
@@ -173,8 +166,8 @@ function createBotManifest(deps = {}) {
   function saveBotManifest(manifest) {
     const p = runtimePaths();
     const normalized = normalizeBotManifest(manifest);
-    fs.mkdirSync(path.dirname(p.fellowManifest), { recursive: true });
-    fs.writeFileSync(p.fellowManifest, JSON.stringify(normalized, null, 2) + "\n");
+    fs.mkdirSync(path.dirname(p.botManifest), { recursive: true });
+    fs.writeFileSync(p.botManifest, JSON.stringify(normalized, null, 2) + "\n");
     return normalized;
   }
 
@@ -209,7 +202,7 @@ function createBotManifest(deps = {}) {
   }
 
   function botPersonaPath(key) {
-    return path.join(runtimePaths().fellowDir, `${String(key || "").trim()}.md`);
+    return path.join(runtimePaths().botDir, `${String(key || "").trim()}.md`);
   }
 
   function readBotPersona(key, fallbackName = "Mia", fallbackBio = "") {

@@ -39,7 +39,7 @@ function createBotService({
 
   function writeBotSidecar(bot) {
     fs.writeFileSync(
-      path.join(runtimePaths().fellowDir, `${bot.key}.fellow.json`),
+      path.join(runtimePaths().botDir, `${bot.key}.bot.json`),
       JSON.stringify(botMetadata(bot), null, 2) + "\n"
     );
   }
@@ -63,19 +63,19 @@ function createBotService({
     let key = botKeyFromName(botInput.key || botInput.id || name);
 
     const manifest = loadBotManifest();
-    const fellows = Array.isArray(manifest.fellows) ? manifest.fellows : [];
-    let existingBot = fellows.find((item) => item.key === key);
+    const bots = Array.isArray(manifest.bots) ? manifest.bots : [];
+    let existingBot = bots.find((item) => item.key === key);
     if (!botInput.key && !botInput.id) {
-      const existingKeys = new Set(fellows.map((item) => item.key));
+      const existingKeys = new Set(bots.map((item) => item.key));
       const baseKey = key;
       let index = 2;
       while (existingKeys.has(key)) {
-        const existing = fellows.find((item) => item.key === key);
+        const existing = bots.find((item) => item.key === key);
         if (existing && existing.name === name) break;
         key = `${baseKey}_${index}`;
         index += 1;
       }
-      existingBot = fellows.find((item) => item.key === key);
+      existingBot = bots.find((item) => item.key === key);
     }
     const next = normalizeBot({
       ...(existingBot || {}),
@@ -89,7 +89,7 @@ function createBotService({
       color: botInput.color || botInput.avatarColor || existingBot?.color || "",
       avatarImage: botInput.avatarImage || botInput.avatar || "",
       avatarCrop: normalizeAvatarCrop(botInput.avatarCrop),
-      bio: botInput.description || botInput.bio || fellows.find((item) => item.key === key)?.bio || "",
+      bio: botInput.description || botInput.bio || bots.find((item) => item.key === key)?.bio || "",
       capabilities: normalizeBotCapabilities(botInput.capabilities || existingBot?.capabilities)
     });
 
@@ -106,12 +106,12 @@ function createBotService({
       body = botPersonaBody(name, botInput.description || botInput.bio || "");
     }
     const nextWithPersona = normalizeBot({ ...next, personaText: body });
-    const index = fellows.findIndex((item) => item.key === key);
-    if (index >= 0) fellows[index] = nextWithPersona;
-    else fellows.push(nextWithPersona);
-    manifest.fellows = fellows;
+    const index = bots.findIndex((item) => item.key === key);
+    if (index >= 0) bots[index] = nextWithPersona;
+    else bots.push(nextWithPersona);
+    manifest.bots = bots;
     saveBotManifest(manifest);
-    fs.writeFileSync(path.join(p.fellowDir, `${key}.md`), body);
+    fs.writeFileSync(path.join(p.botDir, `${key}.md`), body);
     writeBotSidecar(nextWithPersona);
     try {
       Promise.resolve(pushBotToCloud(nextWithPersona))
@@ -127,17 +127,17 @@ function createBotService({
     const key = String(input.key || input.botKey || input.botId || "").trim();
     if (!key) throw new Error("Bot key is required.");
     const manifest = loadBotManifest();
-    const fellows = Array.isArray(manifest.fellows) ? manifest.fellows : [];
-    const index = fellows.findIndex((item) => item.key === key);
+    const bots = Array.isArray(manifest.bots) ? manifest.bots : [];
+    const index = bots.findIndex((item) => item.key === key);
     if (index < 0) throw new Error("Bot not found.");
-    fellows[index] = normalizeBot({
-      ...fellows[index],
-      agentEngine: input.agentEngine || fellows[index].agentEngine || "hermes",
-      engineConfig: mergeBotEngineConfig(fellows[index].engineConfig, input.engineConfig || input.engine_config)
+    bots[index] = normalizeBot({
+      ...bots[index],
+      agentEngine: input.agentEngine || bots[index].agentEngine || "hermes",
+      engineConfig: mergeBotEngineConfig(bots[index].engineConfig, input.engineConfig || input.engine_config)
     });
-    manifest.fellows = fellows;
+    manifest.bots = bots;
     saveBotManifest(manifest);
-    writeBotSidecar(fellows[index]);
+    writeBotSidecar(bots[index]);
     return getRuntimeStatus();
   }
 
@@ -145,18 +145,18 @@ function createBotService({
     const key = String(input.key || input.botKey || input.botId || "").trim();
     if (!key) throw new Error("Bot key is required.");
     const manifest = loadBotManifest();
-    const fellows = Array.isArray(manifest.fellows) ? manifest.fellows : [];
-    const index = fellows.findIndex((item) => item.key === key);
+    const bots = Array.isArray(manifest.bots) ? manifest.bots : [];
+    const index = bots.findIndex((item) => item.key === key);
     if (index < 0) throw new Error("Bot not found.");
     const pinned = Boolean(input.pinned);
-    fellows[index] = normalizeBot({
-      ...fellows[index],
+    bots[index] = normalizeBot({
+      ...bots[index],
       pinned,
       pinnedAt: pinned ? new Date().toISOString() : ""
     });
-    manifest.fellows = fellows;
+    manifest.bots = bots;
     saveBotManifest(manifest);
-    writeBotSidecar(fellows[index]);
+    writeBotSidecar(bots[index]);
     return getRuntimeStatus();
   }
 
@@ -164,18 +164,18 @@ function createBotService({
     const key = String(input.key || input.botKey || input.botId || "").trim();
     if (!key) throw new Error("Bot key is required.");
     const manifest = loadBotManifest();
-    const fellows = Array.isArray(manifest.fellows) ? manifest.fellows : [];
-    const index = fellows.findIndex((item) => item.key === key);
+    const bots = Array.isArray(manifest.bots) ? manifest.bots : [];
+    const index = bots.findIndex((item) => item.key === key);
     if (index < 0) throw new Error("Bot not found.");
     const muted = Boolean(input.muted);
-    fellows[index] = normalizeBot({
-      ...fellows[index],
+    bots[index] = normalizeBot({
+      ...bots[index],
       muted,
       mutedAt: muted ? new Date().toISOString() : ""
     });
-    manifest.fellows = fellows;
+    manifest.bots = bots;
     saveBotManifest(manifest);
-    writeBotSidecar(fellows[index]);
+    writeBotSidecar(bots[index]);
     return getRuntimeStatus();
   }
 
@@ -186,15 +186,15 @@ function createBotService({
     if (key === "mia") throw new Error("内置 Mia Bot 不能删除。");
     const p = runtimePaths();
     const manifest = loadBotManifest();
-    const fellows = Array.isArray(manifest.fellows) ? manifest.fellows : [];
-    const bot = fellows.find((item) => item.key === key);
+    const bots = Array.isArray(manifest.bots) ? manifest.bots : [];
+    const bot = bots.find((item) => item.key === key);
     if (!bot) throw new Error("Bot not found.");
-    manifest.fellows = fellows.filter((item) => item.key !== key);
-    if (manifest.default_fellow === key) manifest.default_fellow = manifest.fellows[0]?.key || "mia";
+    manifest.bots = bots.filter((item) => item.key !== key);
+    if (manifest.default_bot === key) manifest.default_bot = manifest.bots[0]?.key || "mia";
     saveBotManifest(manifest);
     for (const filePath of [
-      path.join(p.fellowDir, `${key}.md`),
-      path.join(p.fellowDir, `${key}.fellow.json`)
+      path.join(p.botDir, `${key}.md`),
+      path.join(p.botDir, `${key}.bot.json`)
     ]) {
       fs.rmSync(filePath, { force: true });
     }

@@ -172,7 +172,7 @@ function createEngineRuntimeConfigService(deps = {}) {
     lines.push(
       "mia:",
       "  runtime_schema: 1",
-      "  fellows_manifest: fellows/manifest.json",
+      "  bots_manifest: bots/manifest.json",
       ""
     );
     atomicWriteFile(configPath, lines.join("\n"), 0o600);

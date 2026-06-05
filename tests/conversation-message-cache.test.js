@@ -148,31 +148,31 @@ test("cache persists across reopen (cold-start render survives restart)", () => 
   }
 });
 
-test("social bootstrap cache persists conversations, friends, fellows, and members per user", () => {
+test("social bootstrap cache persists conversations, friends, bots, and members per user", () => {
   const { dir, dbPath } = tempCache();
   let cache = openConversationMessageCache(dbPath);
   cache.updateSocialBootstrap("u1", {
     conversations: [
-      { id: "fellow:u1:mia", type: "fellow", name: "Mia", decorations: { fellowKey: "mia", sessionId: "mia" } },
-      { id: "fellow:u1:9b7c6d5e-1111-4222-8333-123456789abc", type: "fellow", name: "legacy", decorations: { fellowKey: "mia", sessionId: "9b7c6d5e-1111-4222-8333-123456789abc" } },
+      { id: "botc_u1_mia", type: "bot", name: "Mia", decorations: { botId: "mia", sessionId: "mia" } },
+      { id: "botc_u1_9b7c6d5e-1111-4222-8333-123456789abc", type: "bot", name: "history", decorations: { botId: "mia", sessionId: "9b7c6d5e-1111-4222-8333-123456789abc" } },
       { id: "g_abc", type: "group", name: "Group" }
     ],
     friends: [{ id: "u2", username: "friend" }],
-    fellows: [{ id: "mia", key: "mia", name: "Mia" }],
-    members: { "fellow:u1:mia": [{ member_kind: "fellow", member_ref: "mia" }] }
+    bots: [{ id: "mia", key: "mia", name: "Mia" }],
+    members: { "botc_u1_mia": [{ member_kind: "bot", member_ref: "mia" }] }
   });
   cache.close();
   cache = openConversationMessageCache(dbPath);
   try {
     const snapshot = cache.getSocialBootstrap("u1");
     assert.deepEqual(snapshot.conversations.map((item) => item.id), [
-      "fellow:u1:mia",
-      "fellow:u1:9b7c6d5e-1111-4222-8333-123456789abc",
+      "botc_u1_mia",
+      "botc_u1_9b7c6d5e-1111-4222-8333-123456789abc",
       "g_abc"
     ]);
     assert.deepEqual(snapshot.friends.map((item) => item.username), ["friend"]);
-    assert.deepEqual(snapshot.fellows.map((item) => item.key), ["mia"]);
-    assert.equal(snapshot.members["fellow:u1:mia"][0].member_ref, "mia");
+    assert.deepEqual(snapshot.bots.map((item) => item.key), ["mia"]);
+    assert.equal(snapshot.members["botc_u1_mia"][0].member_ref, "mia");
     assert.equal(cache.getSocialBootstrap("u2"), null);
   } finally {
     cache.close();
@@ -180,20 +180,25 @@ test("social bootstrap cache persists conversations, friends, fellows, and membe
   }
 });
 
-test("social bootstrap falls back to user-scoped conversation ids from cached messages", () => {
+test("social bootstrap falls back to cached bot and dm conversation ids", () => {
   const { dir, dbPath } = tempCache();
   const cache = openConversationMessageCache(dbPath);
   try {
-    cache.upsertMessages("fellow:u1:mia", [msg(1)]);
-    cache.upsertMessages("fellow:u1:9b7c6d5e-1111-4222-8333-123456789abc", [msg(1)]);
+    cache.upsertMessages("botc_u1_mia", [msg(1)]);
+    cache.upsertMessages("botc_u1_9b7c6d5e-1111-4222-8333-123456789abc", [msg(1)]);
     cache.upsertMessages("dm:u1:u2", [msg(1)]);
-    cache.upsertMessages("fellow:u_other:mia", [msg(1)]);
+    cache.upsertMessages("botc_u_other_mia", [msg(1)]);
 
     const snapshot = cache.getSocialBootstrap("u1");
 
-    assert.deepEqual(snapshot.conversations.map((item) => item.id).sort(), ["dm:u1:u2", "fellow:u1:mia"]);
+    assert.deepEqual(snapshot.conversations.map((item) => item.id).sort(), [
+      "botc_u1_9b7c6d5e-1111-4222-8333-123456789abc",
+      "botc_u1_mia",
+      "botc_u_other_mia",
+      "dm:u1:u2"
+    ]);
     assert.deepEqual(snapshot.friends, []);
-    assert.deepEqual(snapshot.fellows, []);
+    assert.deepEqual(snapshot.bots, []);
   } finally {
     cache.close();
     fs.rmSync(dir, { recursive: true, force: true });

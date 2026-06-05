@@ -19,24 +19,24 @@ test("createTasksStore: create succeeds without originMessageId (optional metada
   const store = createTasksStore(tmpFile());
   // Engines pass "" when the originating message has no id — must not block.
   const task = store.create({
-    title: "remind", fellowId: "f1", conversationId: "fellow:u1:f1",
+    title: "remind", botId: "f1", conversationId: "botc_u1_f1",
     trigger: { type: "oneshot", at: "2026-05-25T21:04:45+08:00" },
     timezone: "Asia/Shanghai", prompt: "吃饭"
   });
   assert.ok(task.id.startsWith("t-"));
   assert.equal(task.originMessageId, "");
-  assert.equal(task.conversationId, "fellow:u1:f1");
-  assert.equal(task.sessionId, "fellow:u1:f1");
+  assert.equal(task.conversationId, "botc_u1_f1");
+  assert.equal(task.sessionId, "botc_u1_f1");
 });
 
-test("createTasksStore: fellowId and conversationId remain required", () => {
+test("createTasksStore: botId and conversationId remain required", () => {
   const store = createTasksStore(tmpFile());
   assert.throws(() => store.create({
-    title: "t", conversationId: "fellow:u1:f", trigger: { type: "oneshot", at: "2026-05-25T21:04:45+08:00" },
+    title: "t", conversationId: "botc_u1_f", trigger: { type: "oneshot", at: "2026-05-25T21:04:45+08:00" },
     timezone: "UTC", prompt: "p"
-  }), /fellowId is required/);
+  }), /botId is required/);
   assert.throws(() => store.create({
-    title: "t", fellowId: "f", trigger: { type: "oneshot", at: "2026-05-25T21:04:45+08:00" },
+    title: "t", botId: "f", trigger: { type: "oneshot", at: "2026-05-25T21:04:45+08:00" },
     timezone: "UTC", prompt: "p"
   }), /conversationId is required/);
 });
@@ -46,7 +46,7 @@ test("createTasksStore: create assigns id and persists", () => {
   const store = createTasksStore(file);
   const task = store.create({
     title: "test",
-    fellowId: "f1",
+    botId: "f1",
     sessionId: "s1",
     originMessageId: "m1",
     trigger: { type: "cron", cron: "0 9 * * *" },
@@ -65,7 +65,7 @@ test("createTasksStore: rejects trigger.type=event in v1", () => {
   const store = createTasksStore(tmpFile());
   assert.throws(
     () => store.create({
-      title: "t", fellowId: "f", sessionId: "s", originMessageId: "m",
+      title: "t", botId: "f", sessionId: "s", originMessageId: "m",
       trigger: { type: "event", event: { source: "x", filter: null } },
       timezone: "UTC", prompt: "p"
     }),
@@ -76,7 +76,7 @@ test("createTasksStore: rejects trigger.type=event in v1", () => {
 test("createTasksStore: update merges partial and bumps updatedAt", async () => {
   const store = createTasksStore(tmpFile());
   const t = store.create({
-    title: "a", fellowId: "f", sessionId: "s", originMessageId: "m",
+    title: "a", botId: "f", sessionId: "s", originMessageId: "m",
     trigger: { type: "cron", cron: "0 9 * * *" }, timezone: "UTC", prompt: "p"
   });
   const oldUpdated = t.updatedAt;
@@ -91,7 +91,7 @@ test("createTasksStore: update merges partial and bumps updatedAt", async () => 
 test("createTasksStore: recordRun appends to runs[]", () => {
   const store = createTasksStore(tmpFile());
   const t = store.create({
-    title: "a", fellowId: "f", sessionId: "s", originMessageId: "m",
+    title: "a", botId: "f", sessionId: "s", originMessageId: "m",
     trigger: { type: "cron", cron: "0 9 * * *" }, timezone: "UTC", prompt: "p"
   });
   store.recordRun(t.id, {
@@ -106,7 +106,7 @@ test("createTasksStore: recordRun appends to runs[]", () => {
 test("createTasksStore: delete removes from list", () => {
   const store = createTasksStore(tmpFile());
   const t = store.create({
-    title: "a", fellowId: "f", sessionId: "s", originMessageId: "m",
+    title: "a", botId: "f", sessionId: "s", originMessageId: "m",
     trigger: { type: "cron", cron: "0 9 * * *" }, timezone: "UTC", prompt: "p"
   });
   store.delete(t.id);
@@ -116,7 +116,7 @@ test("createTasksStore: delete removes from list", () => {
 test("createTasksStore: pause/resume toggles status", () => {
   const store = createTasksStore(tmpFile());
   const t = store.create({
-    title: "a", fellowId: "f", sessionId: "s", originMessageId: "m",
+    title: "a", botId: "f", sessionId: "s", originMessageId: "m",
     trigger: { type: "cron", cron: "0 9 * * *" }, timezone: "UTC", prompt: "p"
   });
   assert.equal(store.pause(t.id).status, "paused");
@@ -126,7 +126,7 @@ test("createTasksStore: pause/resume toggles status", () => {
 test("createTasksStore: rejects invalid cron expression", () => {
   const store = createTasksStore(tmpFile());
   assert.throws(() => store.create({
-    title: "t", fellowId: "f", sessionId: "s", originMessageId: "m",
+    title: "t", botId: "f", sessionId: "s", originMessageId: "m",
     trigger: { type: "cron", cron: "not a cron" }, timezone: "UTC", prompt: "p"
   }), /not a valid cron expression/);
 });
@@ -134,7 +134,7 @@ test("createTasksStore: rejects invalid cron expression", () => {
 test("createTasksStore: rejects invalid timezone", () => {
   const store = createTasksStore(tmpFile());
   assert.throws(() => store.create({
-    title: "t", fellowId: "f", sessionId: "s", originMessageId: "m",
+    title: "t", botId: "f", sessionId: "s", originMessageId: "m",
     trigger: { type: "cron", cron: "0 9 * * *" }, timezone: "Not/A_Zone", prompt: "p"
   }), /invalid timezone/);
 });
@@ -142,24 +142,24 @@ test("createTasksStore: rejects invalid timezone", () => {
 test("createTasksStore: rejects invalid oneshot at", () => {
   const store = createTasksStore(tmpFile());
   assert.throws(() => store.create({
-    title: "t", fellowId: "f", sessionId: "s", originMessageId: "m",
+    title: "t", botId: "f", sessionId: "s", originMessageId: "m",
     trigger: { type: "oneshot", at: "tomorrow" }, timezone: "UTC", prompt: "p"
   }), /not a valid ISO-8601 timestamp/);
 });
 
-test("orphanByFellow: pauses active tasks of that fellow", () => {
+test("orphanByBot: pauses active tasks of that bot", () => {
   const store = createTasksStore(tmpFile());
   const t1 = store.create({
-    title: "a", fellowId: "F1", sessionId: "s1", originMessageId: "m",
+    title: "a", botId: "F1", sessionId: "s1", originMessageId: "m",
     trigger: { type: "cron", cron: "0 9 * * *" }, timezone: "UTC", prompt: "p"
   });
   const t2 = store.create({
-    title: "b", fellowId: "F2", sessionId: "s2", originMessageId: "m",
+    title: "b", botId: "F2", sessionId: "s2", originMessageId: "m",
     trigger: { type: "cron", cron: "0 9 * * *" }, timezone: "UTC", prompt: "p"
   });
-  const changed = store.orphanByFellow("F1");
+  const changed = store.orphanByBot("F1");
   assert.equal(changed, 1);
   assert.equal(store.get(t1.id).status, "paused");
-  assert.equal(store.get(t1.id).orphanReason, "fellow_deleted");
+  assert.equal(store.get(t1.id).orphanReason, "bot_deleted");
   assert.equal(store.get(t2.id).status, "active");
 });

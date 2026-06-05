@@ -68,7 +68,7 @@ const TOOLS = [
     name: "schedule_create",
     description: [
       "Create and activate a scheduled task in Mia. The task is created immediately when this tool returns — there is no separate UI step the user needs to take, and you should not describe one to them.",
-      "You (the currently-replying fellow) are always the executor: do NOT ask the user which engine/agent should run the task. fellowId, conversationId, and originMessageId are injected by the runtime and you cannot set them. The task fires by sending `prompt` back into this same conversation as a new user turn, so the fellow's reply lands here as a normal assistant message.",
+      "You (the currently-replying bot) are always the executor: do NOT ask the user which engine/agent should run the task. botId, conversationId, and originMessageId are injected by the runtime and you cannot set them. The task fires by sending `prompt` back into this same conversation as a new user turn, so the bot's reply lands here as a normal assistant message.",
       "Features that DO exist: title, trigger (oneshot with ISO timestamp OR cron expression — both fully supported), IANA timezone, and the prompt text. Features that do NOT exist and must not be asked about: per-task engine choice, retry/backoff policy, alternate delivery channels (popups, logs, other rooms), notification settings. If user asks for any of those, say they are not currently available.",
       "Returns the new task id."
     ].join(" "),
@@ -87,14 +87,14 @@ const TOOLS = [
           required: ["type"]
         },
         timezone: { type: "string", description: "IANA timezone name, e.g. 'Asia/Shanghai'. Defaults to Asia/Shanghai if you omit it; only ask the user if their request is ambiguous about local time." },
-        prompt: { type: "string", description: "The instruction the fellow will receive at each fire time. Write it in the user's voice as if they were asking you the task — the fellow's reply will be this turn's task output." }
+        prompt: { type: "string", description: "The instruction the bot will receive at each fire time. Write it in the user's voice as if they were asking you the task — the bot's reply will be this turn's task output." }
       },
       required: ["title", "trigger", "prompt"]
     }
   },
   {
     name: "schedule_list",
-    description: "List all scheduled tasks (across every fellow and conversation, not just this one). Use this to look up an existing task's id before update / delete / pause / resume.",
+    description: "List all scheduled tasks (across every bot and conversation, not just this one). Use this to look up an existing task's id before update / delete / pause / resume.",
     inputSchema: {
       type: "object",
       properties: {},
@@ -160,7 +160,7 @@ const TOOLS = [
 
 async function callTool(name, args) {
   const ctx = readContext();
-  const fellowId = ctx.fellowId || "";
+  const botId = ctx.botId || "";
   const sessionId = ctx.sessionId || "";
   const originMessageId = ctx.originMessageId || "";
 
@@ -168,7 +168,7 @@ async function callTool(name, args) {
     case "schedule_create": {
       const payload = {
         title: args.title,
-        fellowId,
+        botId,
         sessionId,
         originMessageId,
         trigger: args.trigger,

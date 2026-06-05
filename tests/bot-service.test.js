@@ -20,8 +20,8 @@ function setup(t, overrides = {}) {
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const paths = {
     home: dir,
-    fellowDir: path.join(dir, "fellows"),
-    fellowManifest: path.join(dir, "fellows", "manifest.json"),
+    botDir: path.join(dir, "bots"),
+    botManifest: path.join(dir, "bots", "manifest.json"),
     legacyPersonaManifest: path.join(dir, "personas", "manifest.json"),
     legacyPersonaDir: path.join(dir, "personas", "accounts")
   };
@@ -63,7 +63,7 @@ function setup(t, overrides = {}) {
     pushBotToCloud: async (bot) => { calls.cloudPushes.push(bot); },
     deleteBotFromCloud: async (key) => { calls.cloudDeletes.push(key); },
     appendCloudLog: (line) => calls.logs.push(line),
-    getRuntimeStatus: () => ({ runtime: true, fellows: botManifest.loadBotManifest().fellows }),
+    getRuntimeStatus: () => ({ runtime: true, bots: botManifest.loadBotManifest().bots }),
     petStatusForBot: (key) => ({ key, placed: key === "alice" }),
     ...overrides
   });
@@ -92,14 +92,14 @@ test("saveBot creates normalized bot, persona, sidecar, and best-effort cloud pu
 
   assert.deepEqual(status.runtime, true);
   const manifest = botManifest.loadBotManifest();
-  assert.equal(manifest.fellows.length, 1);
-  assert.equal(manifest.fellows[0].key, "alice");
-  assert.equal(manifest.fellows[0].agentEngine, "codex");
-  assert.equal(manifest.fellows[0].engineConfig.model, "gpt-5.3");
-  assert.equal(manifest.fellows[0].color, "#123456");
-  assert.match(manifest.fellows[0].personaText, /Sharp reviewer/);
-  assert.match(fs.readFileSync(path.join(paths.fellowDir, "alice.md"), "utf8"), /Sharp reviewer/);
-  const sidecar = readJson(path.join(paths.fellowDir, "alice.fellow.json"), {});
+  assert.equal(manifest.bots.length, 1);
+  assert.equal(manifest.bots[0].key, "alice");
+  assert.equal(manifest.bots[0].agentEngine, "codex");
+  assert.equal(manifest.bots[0].engineConfig.model, "gpt-5.3");
+  assert.equal(manifest.bots[0].color, "#123456");
+  assert.match(manifest.bots[0].personaText, /Sharp reviewer/);
+  assert.match(fs.readFileSync(path.join(paths.botDir, "alice.md"), "utf8"), /Sharp reviewer/);
+  const sidecar = readJson(path.join(paths.botDir, "alice.bot.json"), {});
   assert.equal(sidecar.display_name, "Alice");
   assert.equal(sidecar.color, "#123456");
   assert.match(sidecar.persona_text, /Sharp reviewer/);
@@ -115,9 +115,9 @@ test("saveBot assigns a unique key when a generated slug collides with another n
   service.saveBot({ name: "Alice", personaText: "Alice persona" });
   service.saveBot({ name: "Alice!" });
 
-  const fellows = botManifest.loadBotManifest().fellows;
-  assert.deepEqual(fellows.map((fellow) => fellow.key), ["alice", "alice_2"]);
-  assert.doesNotMatch(fellows.find((fellow) => fellow.key === "alice_2").personaText, /Alice persona/);
+  const bots = botManifest.loadBotManifest().bots;
+  assert.deepEqual(bots.map((bot) => bot.key), ["alice", "alice_2"]);
+  assert.doesNotMatch(bots.find((bot) => bot.key === "alice_2").personaText, /Alice persona/);
 });
 
 test("engine, pin, and mute updates rewrite manifest and metadata sidecar", (t) => {
@@ -132,12 +132,12 @@ test("engine, pin, and mute updates rewrite manifest and metadata sidecar", (t) 
   service.setBotPinned({ key: "dev", pinned: true });
   service.setBotMuted({ key: "dev", muted: true });
 
-  const fellow = botManifest.loadBotManifest().fellows.find((item) => item.key === "dev");
-  assert.equal(fellow.agentEngine, "codex");
-  assert.equal(fellow.engineConfig.model, "gpt-5.3-codex");
-  assert.equal(fellow.pinned, true);
-  assert.equal(fellow.muted, true);
-  const sidecar = readJson(path.join(paths.fellowDir, "dev.fellow.json"), {});
+  const bot = botManifest.loadBotManifest().bots.find((item) => item.key === "dev");
+  assert.equal(bot.agentEngine, "codex");
+  assert.equal(bot.engineConfig.model, "gpt-5.3-codex");
+  assert.equal(bot.pinned, true);
+  assert.equal(bot.muted, true);
+  const sidecar = readJson(path.join(paths.botDir, "dev.bot.json"), {});
   assert.equal(sidecar.agent_engine, "codex");
   assert.equal(sidecar.pinned, true);
   assert.equal(sidecar.muted, true);
@@ -155,7 +155,7 @@ test("deleteBot removes files and cleans dependent local state", async (t) => {
   service.saveBot({ key: "mia", name: "Mia" });
   service.saveBot({ key: "bob", name: "Bob" });
   const manifest = botManifest.loadBotManifest();
-  manifest.default_fellow = "bob";
+  manifest.default_bot = "bob";
   botManifest.saveBotManifest(manifest);
   setAgentSessions({
     "codex:bob:s_1": "external_bob",
@@ -165,10 +165,10 @@ test("deleteBot removes files and cleans dependent local state", async (t) => {
   service.deleteBot({ key: "bob" });
   await Promise.resolve();
 
-  assert.deepEqual(botManifest.loadBotManifest().fellows.map((fellow) => fellow.key), ["mia"]);
-  assert.equal(botManifest.loadBotManifest().default_fellow, "mia");
-  assert.equal(fs.existsSync(path.join(paths.fellowDir, "bob.md")), false);
-  assert.equal(fs.existsSync(path.join(paths.fellowDir, "bob.fellow.json")), false);
+  assert.deepEqual(botManifest.loadBotManifest().bots.map((bot) => bot.key), ["mia"]);
+  assert.equal(botManifest.loadBotManifest().default_bot, "mia");
+  assert.equal(fs.existsSync(path.join(paths.botDir, "bob.md")), false);
+  assert.equal(fs.existsSync(path.join(paths.botDir, "bob.bot.json")), false);
   assert.deepEqual(getAgentSessions(), { "codex:mia:s_2": "external_mia" });
   assert.deepEqual(calls.orphaned, ["bob"]);
   assert.deepEqual(calls.taskEvents, [{ event: "orphaned", payload: { botId: "bob", count: 2 } }]);

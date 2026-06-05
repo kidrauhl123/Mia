@@ -33,7 +33,7 @@ test("posting a conversation message returns the cloud envelope and runs no desk
 
   const result = await ipcMain.handlers.get(IpcChannel.SocialPostConversationMessage)(
     null,
-    "fellow:u_1:session_1",
+    "botc_u_1_session_1",
     { bodyMd: "你好" }
   );
 

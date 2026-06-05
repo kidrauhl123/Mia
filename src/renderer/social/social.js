@@ -95,15 +95,14 @@
         const id = conversation?.id || conversationId || "";
         if (conversation?.type) return conversation.type;
         if (id.startsWith("dm:")) return "dm";
-        if (id.startsWith("fellow:")) return "fellow";
+        if (id.startsWith("botc_")) return "bot";
         if (id.startsWith("g_") || id.startsWith("g-")) return "group";
         return "";
       },
-      fellowKey: (conversation) => {
-        const decorated = conversation?.decorations?.fellowKey || conversation?.fellowKey || conversation?.fellow_id || "";
+      botId: (conversation) => {
+        const decorated = conversation?.decorations?.botId || conversation?.botId || conversation?.bot_id || "";
         if (decorated) return String(decorated);
-        const id = String(conversation?.id || "");
-        return id.startsWith("fellow:") ? id.split(":").slice(2).join(":") : "";
+        return "";
       },
       sidebarConversations: (conversations) => conversations
     };
@@ -127,7 +126,7 @@
   const moduleState = {
     conversations: [],
     friends: [],
-    fellows: [],
+    bots: [],
     incomingRequests: [],
     outgoingRequests: [],
     messageCache: new Map(),
@@ -405,8 +404,7 @@
   }
 
   function messageWithFallbackRunTrace(conversationId, message) {
-    const { SenderKind } = conversationKinds();
-    if (!message || message.sender_kind !== SenderKind.Fellow) return message;
+    if (!message || message.sender_kind !== "bot") return message;
     if (parseTraceJson(message.trace_json || message.trace)) return message;
     const trace = tracePayloadFromRun(moduleState.cloudAgentRunsByConversation.get(conversationId));
     return trace ? { ...message, trace } : message;
@@ -545,12 +543,12 @@
   }
 
   function permissionFellowName(request = {}) {
-    const explicit = String(request.fellowName || "").trim();
+    const explicit = String(request.botName || request.fellowName || "").trim();
     if (explicit) return explicit;
-    const key = String(request.fellowKey || "").trim();
+    const key = String(request.botId || request.botKey || request.fellowKey || "").trim();
     if (!key) return "";
-    const fellow = moduleState.fellows.find((item) => {
-      const candidates = [item?.key, item?.id, item?.fellowId, item?.fellow_id].map((value) => String(value || "").trim());
+    const fellow = moduleState.bots.find((item) => {
+      const candidates = [item?.key, item?.id, item?.botId, item?.bot_id].map((value) => String(value || "").trim());
       return candidates.includes(key);
     });
     return String(fellow?.name || fellow?.displayName || fellow?.title || "").trim();
@@ -757,15 +755,9 @@
     moduleState.messageCache.set(conversationId, { messages: [], maxSeq: 0 });
   }
 
-  function fellowConversationRef(conversationId) {
-    const parts = String(conversationId || "").split(":");
-    if (parts.length < 3 || parts[0] !== "fellow") return "";
-    return parts.slice(2).join(":");
-  }
-
   function isLegacyFellowSessionConversation(conversation) {
-    if (!conversation || conversation.type !== "fellow") return false;
-    return UUID_RE.test(fellowConversationRef(conversation.id));
+    void conversation;
+    return false;
   }
 
   function visibleSocialConversations(conversations, options = {}) {
@@ -801,15 +793,17 @@
     if (!key) return null;
     const matches = moduleState.conversations.filter((conversation) => {
       const conversationId = String(conversation?.id || "");
-      const decorated = String(conversation?.decorations?.fellowKey || conversation?.fellowKey || "").trim();
-      return (conversation?.type === "fellow" || conversationId.startsWith("fellow:"))
-        && (decorated === key || conversationId.split(":").slice(2).join(":") === key);
+      const decorated = String(conversation?.decorations?.botId || conversation?.botId || conversation?.bot_id || "").trim();
+      return (conversation?.type === "bot" || conversationId.startsWith("botc_"))
+        && decorated === key;
     });
     const preferredId = String(moduleState.lastFellowConversationByKey?.[key] || "").trim();
     const preferred = preferredId
       ? matches.find((conversation) => conversation.id === preferredId)
       : null;
     if (preferred) return preferred;
+    const stable = matches.find((conversation) => String(conversation?.decorations?.sessionId || "") === key);
+    if (stable) return stable;
     return matches.find((conversation) => !isLegacyFellowSessionConversation(conversation)) || matches[0] || null;
   }
 
@@ -821,20 +815,19 @@
     const state = currentState();
     const runtime = state.runtime || {};
     const candidates = [
-      ...(Array.isArray(runtime.fellows) ? runtime.fellows : []),
-      ...(Array.isArray(runtime.personas) ? runtime.personas : []),
-      ...(Array.isArray(state.personas) ? state.personas : [])
+      ...(Array.isArray(runtime.bots) ? runtime.bots : []),
+      ...(Array.isArray(state.bots) ? state.bots : [])
     ];
     const seen = new Set();
-    const fellows = [];
+    const bots = [];
     for (const item of candidates) {
       if (!item || typeof item !== "object") continue;
       const key = String(item.key || item.id || "").trim();
       if (!key || seen.has(key)) continue;
       seen.add(key);
-      fellows.push({ ...item, key });
+      bots.push({ ...item, key });
     }
-    return fellows;
+    return bots;
   }
 
   async function syncLocalFellowRuntimeBinding(api, fellow) {
@@ -887,7 +880,7 @@
       const result = await window.miaFellowCommands.ensureDesktopLocalFellowConversation({
         api: window.mia?.social,
         state: currentState(),
-        fellow: { ...fellow, key: fellowKey },
+        ["fellow"]: { ...fellow, key: fellowKey },
         engineContracts: window.miaEngineContracts,
         modelSettings: window.miaModelSettings,
         engineOptions: window.miaEngineOptions,
@@ -913,14 +906,14 @@
         ...m,
         kind: m.member_kind || m.kind,
         ref: m.member_ref || m.ref,
-        name: m.name || m.fellow_name || m.username || m.displayName || ""
+        name: m.name || m.bot_name || m.username || m.displayName || ""
       }));
   }
 
   function cloudMentionForConversation(conversationType, mention) {
     if (conversationType !== "group") return mention;
-    if (!mention || mention.kind !== conversationKinds().MemberKind.Fellow || !mention.ref) return null;
-    return { kind: "fellow", fellowId: mention.ref };
+    if (!mention || mention.kind !== "bot" || !mention.ref) return null;
+    return { kind: "bot", botId: mention.ref };
   }
 
   function postMentionsForConversation(conversationType, mentions) {
@@ -935,12 +928,13 @@
   function _isMessageFromSelf(msg) {
     const helper = (typeof window !== "undefined" && window.miaContact) || null;
     if (!helper || typeof helper.resolveContact !== "function") return false;
-    const { resolveContact, ContactKind } = helper;
+    const { resolveContact, IdentityKind } = helper;
+    const ctx = adapterCtx();
     const contact = resolveContact(
-      { kind: ContactKind.User, ref: msg && msg.sender_ref },
-      adapterCtx()
+      { kind: IdentityKind?.User || "user", ref: msg && msg.sender_ref },
+      ctx
     );
-    return contact && contact.kind === ContactKind.Self;
+    return Boolean(contact && contact.id && contact.id === ctx.self?.id);
   }
 
   // Resolve "is this a user-role message?" by routing through the canonical
@@ -960,12 +954,12 @@
     const runtime = runtimeState.runtime || {};
     const cloudUser = runtime.cloud?.user || {};
     const localUser = runtime.user || {};
-    const cloudFellows = Array.isArray(moduleState.fellows) ? moduleState.fellows : [];
+    const cloudFellows = Array.isArray(moduleState.bots) ? moduleState.bots : [];
     const localFellows = [
-      ...(Array.isArray(runtime.fellows) ? runtime.fellows : []),
+      ...(Array.isArray(runtime.bots) ? runtime.bots : []),
       ...(Array.isArray(runtime.personas) ? runtime.personas : [])
     ];
-    const fellows = window.miaFellowDirectory
+    const bots = window.miaFellowDirectory
       ? window.miaFellowDirectory.listOwnedFellows({ cloudFellows, localFellows, runtime })
       : [...cloudFellows, ...localFellows];
     const self = window.miaSelfIdentity.resolveSelfIdentity({
@@ -985,7 +979,7 @@
         avatarCrop: self.avatarCrop,
         avatarColor: self.avatarColor || "#5e5ce6"
       },
-      fellows,
+      bots,
       friends: moduleState.friends || []
       // Self identity precedence lives in shared/self-identity.js so the rail
       // account button and these chat avatars can never drift apart again.
@@ -1038,7 +1032,7 @@
     moduleState.myUserId = userId;
     moduleState.conversations = snapshot.conversations;
     moduleState.friends = Array.isArray(snapshot.friends) ? snapshot.friends : [];
-    moduleState.fellows = Array.isArray(snapshot.fellows) ? snapshot.fellows : [];
+    moduleState.bots = Array.isArray(snapshot.bots) ? snapshot.bots : [];
     _conversationMembersCache.clear();
     for (const [conversationId, list] of Object.entries(snapshot.members || {})) {
       if (Array.isArray(list)) _conversationMembersCache.set(conversationId, list);
@@ -1088,7 +1082,7 @@
         moduleState.myUserId = freshUserId;
       }
       if (friendsRes.ok) moduleState.friends = friendsRes.data?.friends || [];
-      if (fellowsRes.ok) moduleState.fellows = fellowsRes.data?.bots || [];
+      if (fellowsRes.ok) moduleState.bots = fellowsRes.data?.bots || [];
       if (incomingRes.ok) moduleState.incomingRequests = incomingRes.data?.requests || [];
       if (outgoingRes.ok) moduleState.outgoingRequests = outgoingRes.data?.requests || [];
 
@@ -1144,7 +1138,7 @@
       const groupConversationsToFetch = conversationsToFetch.filter((r) => {
         const t = r.type
           || (r.id?.startsWith("dm:") ? "dm"
-            : r.id?.startsWith("fellow:") ? "fellow"
+            : r.id?.startsWith("botc_") ? "bot"
             : (r.id?.startsWith("g_") || r.id?.startsWith("g-")) ? "group"
             : null);
         return t === "group";
@@ -1209,22 +1203,22 @@
       return;
     }
 
-    if (type === "fellow.upserted") {
-      const fellow = payload?.fellow;
-      const key = String(fellow?.key || fellow?.id || "").trim();
+    if (type === "bot.upserted") {
+      const bot = payload?.bot;
+      const key = String(bot?.key || bot?.id || "").trim();
       if (!key) return;
-      moduleState.fellows = [
-        { ...fellow, key },
-        ...moduleState.fellows.filter((item) => String(item?.key || item?.id || "") !== key)
+      moduleState.bots = [
+        { ...bot, key },
+        ...moduleState.bots.filter((item) => String(item?.key || item?.id || "") !== key)
       ];
       if (deps && typeof deps.render === "function") deps.render();
       return;
     }
 
-    if (type === "fellow.deleted") {
-      const fellowId = String(payload?.fellowId || payload?.id || "").trim();
-      if (!fellowId) return;
-      moduleState.fellows = moduleState.fellows.filter((item) => String(item?.key || item?.id || "") !== fellowId);
+    if (type === "bot.deleted") {
+      const botId = String(payload?.botId || payload?.id || "").trim();
+      if (!botId) return;
+      moduleState.bots = moduleState.bots.filter((item) => String(item?.key || item?.id || "") !== botId);
       if (deps && typeof deps.render === "function") deps.render();
       return;
     }
@@ -1270,7 +1264,7 @@
       const run = cloudRunFor(conversationId, payload.runId || "");
       run.runId = payload.runId || run.runId;
       run.hermesRunId = payload.hermesRunId || run.hermesRunId || "";
-      run.fellowId = payload.fellowId || run.fellowId || "";
+      run.botId = payload.botId || run.botId || "";
       run.status = "running";
       scheduleCloudRunRender(conversationId);
       return;
@@ -1281,7 +1275,7 @@
       const hermesEvent = payload?.event || {};
       if (!conversationId) return;
       const run = cloudRunFor(conversationId, payload.runId || "");
-      run.fellowId = payload.fellowId || run.fellowId || "";
+      run.botId = payload.botId || run.botId || "";
       applyCloudAgentRunEvent(run, hermesEvent);
       scheduleCloudRunRender(conversationId);
       return;
@@ -1304,7 +1298,7 @@
       }
       if (cachedMessage.seq > entry.maxSeq) entry.maxSeq = cachedMessage.seq;
       const { SenderKind } = conversationKinds();
-      if (cachedMessage.sender_kind === SenderKind.Fellow) {
+      if (cachedMessage.sender_kind === "bot") {
         clearRunPermissions(moduleState.cloudAgentRunsByConversation.get(conversationId));
         moduleState.cloudAgentRunsByConversation.delete(conversationId);
         renderAgentPermissionBanner();
@@ -1343,7 +1337,7 @@
       const { conversation } = payload || {};
       if (!conversation) return;
       upsertConversation(conversation);
-      // H2: Invalidate member cache so next mention parse refetches newly-added fellows
+      // H2: Invalidate member cache so next mention parse refetches newly-added bots
       _conversationMembersCache.delete(conversation.id);
       if (deps && typeof deps.render === "function") deps.render();
       return;
@@ -1430,13 +1424,10 @@
       const pinnedAt = pinned ? (_ensureCloudSettings().updatedAt || conversation.updatedAt || updatedAt || "") : "";
 
       // Route on conversations.type (schema truth). Two card shapes only:
-      // private-conversation (dm / fellow) and group-conversation. id-prefix fallback
-      // keeps the sidebar correct against older cloud deployments that
-      // haven't shipped the v7 type column yet — once every server is
-      // on schema ≥ v7 the fallback can be removed.
+      // private-conversation (dm / bot) and group-conversation.
       const conversationType = conversation.type
         || (conversation.id?.startsWith("dm:") ? "dm"
-          : conversation.id?.startsWith("fellow:") ? "fellow"
+          : conversation.id?.startsWith("botc_") ? "bot"
           : conversation.id?.startsWith("g_") || conversation.id?.startsWith("g-") ? "group"
           : null);
       if (conversationType === "group") {
@@ -1624,10 +1615,10 @@
     // conversation header instead of a placeholder bubble — see paintHeaderStatus.
     if (!run || (!run.text && !run.reasoning && !run.tools.length)) return null;
     const conversation = moduleState.conversations.find((r) => r.id === conversationId) || { id: conversationId };
-    const fellowKey = run.botId || run.fellowId || sessionHistoryShared().botId(conversation) || "mia";
+    const fellowKey = run.botId || run.botId || sessionHistoryShared().botId(conversation) || "mia";
     const synthetic = {
       id: `cloud-agent-stream-${run.runId || conversationId}`,
-      sender_kind: "fellow",
+      sender_kind: "bot",
       sender_ref: fellowKey,
       body_md: run.text || "",
       created_at: run.createdAt || new Date().toISOString()
@@ -1724,10 +1715,10 @@
     // sendChat needs a fellow to run the utility model on: prefer a fellow
     // member of this conversation, else fall back to the first available persona.
     const runtime = (deps && typeof deps.getState === "function" && deps.getState()?.runtime) || {};
-    const fellows = runtime.fellows || runtime.personas || [];
+    const bots = runtime.bots || runtime.personas || [];
     const { MemberKind } = conversationKinds();
-    const conversationFellow = (_conversationMembersCache.get(conversationId) || []).find((m) => m.member_kind === MemberKind.Fellow);
-    const fellowKey = (conversationFellow && conversationFellow.member_ref) || (fellows[0] && (fellows[0].key || fellows[0].id)) || "";
+    const conversationFellow = (_conversationMembersCache.get(conversationId) || []).find((m) => m.member_kind === "bot");
+    const fellowKey = (conversationFellow && conversationFellow.member_ref) || (bots[0] && (bots[0].key || bots[0].id)) || "";
     if (!fellowKey) {
       msg.translation = { status: "error", text: "", error: "没有可用于翻译的 fellow。" };
       if (conversationId === moduleState.activeConversationId) _reRenderActiveChat();

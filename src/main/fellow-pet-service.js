@@ -68,7 +68,7 @@ function createFellowPetService(deps = {}) {
   const screen = deps.screen;
   const runtimePaths = deps.runtimePaths;
   const readJson = deps.readJson;
-  const loadFellowManifest = deps.loadFellowManifest || (() => ({ fellows: [] }));
+  const loadFellowManifest = deps.loadFellowManifest || (() => ({ bots: [] }));
   const dataUrlToBuffer = deps.dataUrlToBuffer || (() => null);
   const initializeRuntime = deps.initializeRuntime || (() => {});
   const spawnProcess = deps.spawnProcess || spawn;
@@ -140,8 +140,8 @@ function createFellowPetService(deps = {}) {
     };
   }
 
-  function statusesForFellows(fellows = []) {
-    return Object.fromEntries((fellows || []).map((fellow) => [fellow.key, statusForFellow(fellow.key)]));
+  function statusesForFellows(bots = []) {
+    return Object.fromEntries((bots || []).map((fellow) => [fellow.key, statusForFellow(fellow.key)]));
   }
 
   function petGeneratorRoot() {
@@ -309,7 +309,7 @@ function createFellowPetService(deps = {}) {
     initializeRuntime();
     const key = String(input.fellowKey || input.key || "").trim();
     const manifest = loadFellowManifest();
-    const fellow = (manifest.fellows || []).find((item) => item.key === key);
+    const fellow = (manifest.bots || []).find((item) => item.key === key);
     if (!fellow) throw new Error("Fellow not found.");
     const generatorRoot = petGeneratorRoot();
     const script = path.join(generatorRoot, "hatch_generate.py");

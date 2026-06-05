@@ -18,10 +18,10 @@ function createRuntimeInitializerService(deps = {}) {
   const defaultDaemonSettings = deps.defaultDaemonSettings || (() => ({}));
   const defaultUserProfile = deps.defaultUserProfile || (() => ({}));
   const defaultAppearanceSettings = deps.defaultAppearanceSettings || (() => ({}));
-  const loadFellowManifest = deps.loadFellowManifest || (() => ({ fellows: [] }));
-  const saveFellowManifest = deps.saveFellowManifest || (() => {});
-  const fellowPersonaBody = deps.fellowPersonaBody || ((name, bio) => `${name || "Mia"}\n\n${bio || ""}`);
-  const fellowMetadata = deps.fellowMetadata || ((fellow) => fellow);
+  const loadBotManifest = deps.loadBotManifest || (() => ({ bots: [] }));
+  const saveBotManifest = deps.saveBotManifest || (() => {});
+  const botPersonaBody = deps.botPersonaBody || ((name, bio) => `${name || "Mia"}\n\n${bio || ""}`);
+  const botMetadata = deps.botMetadata || ((bot) => bot);
   const ensureClaudeBridgePlugin = deps.ensureClaudeBridgePlugin || (() => {});
   const appendEngineLog = deps.appendEngineLog || (() => {});
   const getRuntimeStatus = deps.getRuntimeStatus || ((created) => ({ created }));
@@ -34,33 +34,30 @@ function createRuntimeInitializerService(deps = {}) {
     return true;
   }
 
-  function migrateLegacyPersonas(created) {
+  function initializeBots(created) {
     const p = runtimePaths();
-    const manifest = loadFellowManifest();
-    const fellows = Array.isArray(manifest.fellows) ? manifest.fellows : [];
-    const hadFellowManifest = fsImpl.existsSync(p.fellowManifest);
-    saveFellowManifest({ ...manifest, fellows });
-    if (!hadFellowManifest) {
-      created.push("runtime/engine-home/fellows/manifest.json");
+    const manifest = loadBotManifest();
+    const bots = Array.isArray(manifest.bots) ? manifest.bots : [];
+    const hadBotManifest = fsImpl.existsSync(p.botManifest);
+    saveBotManifest({ ...manifest, bots });
+    if (!hadBotManifest) {
+      created.push("runtime/engine-home/bots/manifest.json");
     }
 
-    for (const fellow of fellows) {
-      const mdPath = path.join(p.fellowDir, `${fellow.key}.md`);
-      const metaPath = path.join(p.fellowDir, `${fellow.key}.fellow.json`);
-      const legacyMdPath = path.join(p.legacyPersonaDir, `${fellow.key}.md`);
+    for (const bot of bots) {
+      const mdPath = path.join(p.botDir, `${bot.key}.md`);
+      const metaPath = path.join(p.botDir, `${bot.key}.bot.json`);
       let body = "";
       if (fsImpl.existsSync(mdPath)) {
         body = fsImpl.readFileSync(mdPath, "utf8");
-      } else if (fsImpl.existsSync(legacyMdPath)) {
-        body = fsImpl.readFileSync(legacyMdPath, "utf8");
       } else {
-        body = fellow.personaText || fellow.persona_text || fellowPersonaBody(fellow.name, fellow.bio);
+        body = bot.personaText || bot.persona_text || botPersonaBody(bot.name, bot.bio);
       }
       if (writeFileIfMissing(mdPath, body)) {
-        created.push(`runtime/engine-home/fellows/${fellow.key}.md`);
+        created.push(`runtime/engine-home/bots/${bot.key}.md`);
       }
-      if (writeFileIfMissing(metaPath, JSON.stringify(fellowMetadata(fellow), null, 2) + "\n")) {
-        created.push(`runtime/engine-home/fellows/${fellow.key}.fellow.json`);
+      if (writeFileIfMissing(metaPath, JSON.stringify(botMetadata(bot), null, 2) + "\n")) {
+        created.push(`runtime/engine-home/bots/${bot.key}.bot.json`);
       }
     }
   }
@@ -71,7 +68,7 @@ function createRuntimeInitializerService(deps = {}) {
     fsImpl.mkdirSync(p.engine, { recursive: true });
     fsImpl.mkdirSync(p.home, { recursive: true });
     fsImpl.mkdirSync(p.pluginsDir, { recursive: true });
-    fsImpl.mkdirSync(p.fellowDir, { recursive: true });
+    fsImpl.mkdirSync(p.botDir, { recursive: true });
     fsImpl.rmSync(path.join(p.home, "souls"), { recursive: true, force: true });
     fsImpl.mkdirSync(p.petDir, { recursive: true });
     fsImpl.mkdirSync(p.petJobsDir, { recursive: true });
@@ -135,8 +132,8 @@ function createRuntimeInitializerService(deps = {}) {
     if (writeFileIfMissing(p.soul, [
       "# Mia Shared Soul",
       "",
-      "你是 Mia 应用中的 Fellow。这里是所有 Fellow 共享的基础语气。",
-      "具体名字、身份和关系写在 fellows/<fellow_id>.md。",
+      "你是 Mia 应用中的 Bot。这里是所有 Bot 共享的基础语气。",
+      "具体名字、身份和关系写在 bots/<bot_id>.md。",
       "",
       "## Style",
       "- 直接、清楚、少客套",
@@ -147,7 +144,7 @@ function createRuntimeInitializerService(deps = {}) {
       created.push("runtime/engine-home/SOUL.md");
     }
 
-    migrateLegacyPersonas(created);
+    initializeBots(created);
 
     try {
       ensureClaudeBridgePlugin();

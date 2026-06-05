@@ -75,15 +75,6 @@
     return global.miaSessionHistory || null;
   }
 
-  function fellowGlobalIdFromConversation(conversationId, ref) {
-    const id = String(conversationId || "");
-    const key = String(ref || "");
-    if (!id.startsWith("fellow:") || !key) return "";
-    const helper = sessionHistory();
-    const fellowKey = helper?.fellowKey?.({ id }) || "";
-    return fellowKey === key ? id : "";
-  }
-
   function fellowAvatarIdentityId(ref, fellow = {}, member = null, conversationId = "") {
     const identity = member?.identity || {};
     const me = selfUser();
@@ -99,33 +90,32 @@
     const globalId = fellow?.globalId
       || fellow?.global_id
       || identity.globalId
-      || identity.global_id
-      || fellowGlobalIdFromConversation(conversationId, ref);
-    return contact()?.fellowAvatarIdentityId?.(ref, {
+      || identity.global_id;
+    return contact()?.botAvatarIdentityId?.(ref, {
       ...(fellow || {}),
       ownerUserId,
       globalId
-    }) || globalId || (ownerUserId && ref ? sessionHistory()?.fellowConversationId?.(ownerUserId, ref) : "") || ref;
+    }) || globalId || ref;
   }
 
   function localFellow(ref) {
     const runtime = _ctx?.deps?.getState?.()?.runtime || {};
-    const cloudFellows = Array.isArray(_ctx?.moduleState?.fellows) ? _ctx.moduleState.fellows : [];
-    const localFellows = [
-      ...(Array.isArray(runtime.fellows) ? runtime.fellows : []),
+    const cloudBots = Array.isArray(_ctx?.moduleState?.bots) ? _ctx.moduleState.bots : [];
+    const localBots = [
+      ...(Array.isArray(runtime.bots) ? runtime.bots : []),
       ...(Array.isArray(runtime.personas) ? runtime.personas : [])
     ];
-    const fellows = _ctx?.adapterCtx?.()?.fellows
+    const bots = _ctx?.adapterCtx?.()?.bots
       || (global.miaFellowDirectory
-        ? global.miaFellowDirectory.listOwnedFellows({ cloudFellows, localFellows, runtime })
-        : [...cloudFellows, ...localFellows]);
+        ? global.miaFellowDirectory.listOwnedFellows({ cloudFellows: cloudBots, localFellows: localBots, runtime })
+        : [...cloudBots, ...localBots]);
     const target = String(ref || "");
-    return fellows.find((f) => String(f.key || "") === target || String(f.id || "") === target) || null;
+    return bots.find((f) => String(f.key || "") === target || String(f.id || "") === target) || null;
   }
 
   function findFellowConversationMember(conversationId, ref) {
     const members = _ctx?.conversationMembersCache?.get?.(conversationId) || [];
-    return members.find((m) => m.member_kind === MemberKind.Fellow && m.member_ref === ref) || null;
+    return members.find((m) => m.member_kind === "bot" && m.member_ref === ref) || null;
   }
 
   function friend(ref) {
@@ -404,7 +394,7 @@
       try {
         await global.miaFellowCommands?.saveFellowRuntimeControl?.({
           api: global.mia,
-          fellow: local,
+          ["fellow"]: local,
           runtimeKind,
           field,
           value,

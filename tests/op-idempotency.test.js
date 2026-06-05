@@ -81,7 +81,8 @@ test("POST /api/conversations is idempotent on clientOpId", async () => {
   const ctx = await startServer();
   try {
     const A = await register(ctx.port, "iota");
-    const body = { name: "test-group", memberFellows: [{ fellowId: "f1" }], memberFriendUserIds: [], clientOpId: "op_test_123" };
+    await api(ctx.port, "PUT", "/api/me/bots/f1", { token: A.token, body: { name: "F1" } });
+    const body = { name: "test-group", memberBots: [{ botId: "f1" }], memberFriendUserIds: [], clientOpId: "op_test_123" };
     const r1 = await api(ctx.port, "POST", "/api/conversations", { token: A.token, body });
     const r2 = await api(ctx.port, "POST", "/api/conversations", { token: A.token, body });
     assert.equal(r1.status, 201);
@@ -164,8 +165,9 @@ test("Different clientOpIds → different writes (sanity check on cache scoping)
   const ctx = await startServer();
   try {
     const A = await register(ctx.port, "xi");
-    const r1 = await api(ctx.port, "POST", "/api/conversations", { token: A.token, body: { name: "a", memberFellows: [{ fellowId: "f1" }], memberFriendUserIds: [], clientOpId: "op_A" } });
-    const r2 = await api(ctx.port, "POST", "/api/conversations", { token: A.token, body: { name: "b", memberFellows: [{ fellowId: "f1" }], memberFriendUserIds: [], clientOpId: "op_B" } });
+    await api(ctx.port, "PUT", "/api/me/bots/f1", { token: A.token, body: { name: "F1" } });
+    const r1 = await api(ctx.port, "POST", "/api/conversations", { token: A.token, body: { name: "a", memberBots: [{ botId: "f1" }], memberFriendUserIds: [], clientOpId: "op_A" } });
+    const r2 = await api(ctx.port, "POST", "/api/conversations", { token: A.token, body: { name: "b", memberBots: [{ botId: "f1" }], memberFriendUserIds: [], clientOpId: "op_B" } });
     assert.notEqual(r1.body.conversation.id, r2.body.conversation.id);
     const list = await api(ctx.port, "GET", "/api/conversations", { token: A.token });
     const groupConversations = list.body.conversations.filter((conversation) => conversation.type === "group");

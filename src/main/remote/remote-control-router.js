@@ -3,7 +3,7 @@
 const REMOTE_ROUTES = new Set([
   "GET /health",
   "GET /api/runtime/status",
-  "GET /api/fellows",
+  "GET /api/bots",
   "GET /api/model/catalog",
   "GET /api/codex/models",
   "GET /api/engine/capabilities",
@@ -12,7 +12,7 @@ const REMOTE_ROUTES = new Set([
   "POST /api/chat/attachment",
   "POST /api/file/fetch",
   "POST /api/commands/agent-execute",
-  "POST /api/fellow/engine",
+  "POST /api/bot/engine",
   "POST /api/model/save",
   "POST /api/effort/save",
   "POST /api/permissions/save",
@@ -35,7 +35,7 @@ function normalizeRoute(method, requestPath) {
 function createRemoteControlRouter({
   isDaemonProcess = false,
   getRuntimeStatus,
-  loadFellowManifest,
+  loadBotManifest,
   loadHermesModelCatalog,
   loadCodexModels,
   loadEngineCapabilities,
@@ -44,7 +44,7 @@ function createRemoteControlRouter({
   saveChatAttachment,
   readLocalFileAttachment,
   executeExternalAgentCommand,
-  saveFellowEngineConfig,
+  saveBotEngineConfig,
   saveModelSelection,
   writeEffortSettings,
   writePermissionSettings,
@@ -72,9 +72,9 @@ function createRemoteControlRouter({
     if (routeInfo.method === "GET" && routeInfo.pathname === "/api/runtime/status") {
       return { handled: true, data: getRuntimeStatus() };
     }
-    if (routeInfo.method === "GET" && routeInfo.pathname === "/api/fellows") {
-      const manifest = loadFellowManifest();
-      return { handled: true, data: { fellows: manifest.fellows || [], defaultFellow: manifest.default_fellow || "mia" } };
+    if (routeInfo.method === "GET" && routeInfo.pathname === "/api/bots") {
+      const manifest = loadBotManifest();
+      return { handled: true, data: { bots: manifest.bots || [], defaultBot: manifest.default_bot || "mia" } };
     }
     if (routeInfo.method === "GET" && routeInfo.pathname === "/api/model/catalog") {
       return { handled: true, data: { models: await loadHermesModelCatalog() } };
@@ -103,8 +103,8 @@ function createRemoteControlRouter({
     if (routeInfo.method === "POST" && routeInfo.pathname === "/api/commands/agent-execute") {
       return { handled: true, data: executeExternalAgentCommand(body) };
     }
-    if (routeInfo.method === "POST" && routeInfo.pathname === "/api/fellow/engine") {
-      return { handled: true, data: saveFellowEngineConfig(body) };
+    if (routeInfo.method === "POST" && routeInfo.pathname === "/api/bot/engine") {
+      return { handled: true, data: saveBotEngineConfig(body) };
     }
     if (routeInfo.method === "POST" && routeInfo.pathname === "/api/model/save") {
       return { handled: true, data: await saveModelSelection(body) };
@@ -125,7 +125,7 @@ function createRemoteControlRouter({
       return {
         handled: true,
         data: {
-          fellow: result.fellow,
+          bot: result.bot,
           session: result.session,
           response: result.response
         }
@@ -141,7 +141,7 @@ function createRemoteControlRouter({
       const result = await runRemoteChatRequest(body, eventSink);
       if (typeof emitStream === "function") {
         emitStream("result", {
-          fellow: result.fellow,
+          bot: result.bot,
           session: result.session,
           response: result.response
         });

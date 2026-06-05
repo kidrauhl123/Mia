@@ -29,7 +29,7 @@ function createFireRunner({ store, runRemoteChatRequest, emit, logger = console 
     const firedAt = Date.now();
     const conversationId = taskCloudConversationId(task);
     const agentSessionId = taskAgentSessionId(task);
-    const botId = task.botId || task.fellowId;
+    const botId = task.botId;
     emit("started", { taskId: task.id, runId, conversationId });
     try {
       const result = await runRemoteChatRequest({

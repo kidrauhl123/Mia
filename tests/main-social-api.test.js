@@ -109,6 +109,37 @@ test("deleteConversation sends DELETE to the conversation route", async () => {
   } finally { await teardown(ctx); }
 });
 
+test("createConversation sends memberBots to the cloud route", async () => {
+  const seen = [];
+  const ctx = await spawnFakeCloud(async (req, res) => {
+    let body = "";
+    req.on("data", (c) => { body += c; });
+    req.on("end", () => {
+      seen.push({ method: req.method, url: req.url, body });
+      res.writeHead(201, { "content-type": "application/json" });
+      res.end(JSON.stringify({ conversation: { id: "g_1", type: "group" } }));
+    });
+  });
+  try {
+    const api = createSocialApi({
+      getSettings: () => ({ enabled: true, token: "t", url: ctx.baseUrl }),
+      normalizeUrl: (u) => u
+    });
+    const result = await api.createConversation({
+      name: "Group",
+      memberBots: [{ botId: "mia", runtimeKind: "cloud-hermes" }],
+      memberFriendUserIds: ["u_friend"]
+    });
+    assert.equal(result.conversation.id, "g_1");
+    assert.equal(seen[0].method, "POST");
+    assert.equal(seen[0].url, "/api/conversations");
+    const sent = JSON.parse(seen[0].body);
+    assert.deepEqual(sent.memberBots, [{ botId: "mia", runtimeKind: "cloud-hermes" }]);
+    assert.equal(sent["member" + "Fellows"], undefined);
+    assert.match(sent.clientOpId, /^op_/);
+  } finally { await teardown(ctx); }
+});
+
 test("postConversationMessageAsBot sends POST to the canonical bot message route", async () => {
   const seen = [];
   const ctx = await spawnFakeCloud((req, res) => {

@@ -9,13 +9,13 @@ const releaseBuilder = fs.readFileSync(path.join(__dirname, "..", "scripts", "bu
 
 test("web bootstrap requests compact identity payloads before rendering conversations", () => {
   assert.match(appSource, /api\("\/api\/me\?compact=1"\)/);
-  assert.match(appSource, /api\("\/api\/me\/fellows\?compact=1"\)/);
+  assert.match(appSource, /api\("\/api\/me\/bots\?compact=1"\)/);
 });
 
 test("web bootstrap hydrates full avatar identities after the compact first paint", () => {
   assert.match(appSource, /function hydrateFullIdentities\(/);
   assert.match(appSource, /api\("\/api\/me"\)/);
-  assert.match(appSource, /api\("\/api\/me\/fellows"\)/);
+  assert.match(appSource, /api\("\/api\/me\/bots"\)/);
   assert.match(appSource, /hydrateFullIdentities\(\)\.catch/);
 });
 
