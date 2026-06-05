@@ -46,6 +46,12 @@ function parseJsonObject(input, fallback = null) {
   }
 }
 
+function statusBadgeInput(input = {}) {
+  if (Object.prototype.hasOwnProperty.call(input, "statusBadge")) return input.statusBadge;
+  if (Object.prototype.hasOwnProperty.call(input, "status_badge")) return input.status_badge;
+  return parseJsonObject(input.status_badge_json, null);
+}
+
 function normalizeBotAvatarCrop(input) {
   return parseJsonObject(input, null);
 }
@@ -127,7 +133,7 @@ function normalizeBotIdentity(input = {}, options = {}) {
           ? input.avatar_crop
           : input.avatar_crop_json
     ),
-    statusBadge: normalizeStatusBadge(input.statusBadge || input.status_badge || parseJsonObject(input.status_badge_json, null)),
+    statusBadge: normalizeStatusBadge(statusBadgeInput(input)),
     bio: firstNonEmpty(input.bio, input.description),
     capabilities: normalizeBotCapabilities(
       Object.prototype.hasOwnProperty.call(input, "capabilities")

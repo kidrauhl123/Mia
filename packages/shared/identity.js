@@ -37,6 +37,12 @@
     }
   }
 
+  function statusBadgeInput(input = {}) {
+    if (Object.prototype.hasOwnProperty.call(input, "statusBadge")) return input.statusBadge;
+    if (Object.prototype.hasOwnProperty.call(input, "status_badge")) return input.status_badge;
+    return parseJsonObject(input.status_badge_json, null);
+  }
+
   function normalizeAvatar(input = {}) {
     const avatar = input && typeof input === "object" ? input : {};
     return {
@@ -81,7 +87,7 @@
       displayName,
       avatar: normalizeAvatar(input.avatar || input)
     };
-    const badge = normalizeStatusBadge(input.statusBadge || input.status_badge || parseJsonObject(input.status_badge_json, null));
+    const badge = normalizeStatusBadge(statusBadgeInput(input));
     if (badge) out.statusBadge = badge;
     if (kind === IdentityKind.Bot) {
       const ownerUserId = firstNonEmpty(input.ownerUserId, input.owner_user_id, input.ownerId, input.owner_id);

@@ -14,6 +14,7 @@ const packageIdentityByPath = require("../packages/shared/identity");
 const sharedPackage = require("../packages/shared");
 const workspaceIdentity = require("@mia/shared/identity");
 const workspaceShared = require("@mia/shared");
+const { normalizeBotIdentity } = require("../packages/shared/bot-identity.js");
 
 test("normalizeIdentity returns a clean user identity", () => {
   const identity = normalizeIdentity({
@@ -118,4 +119,27 @@ test("normalizeIdentity derives statusBadge from stored JSON fields", () => {
   });
 
   assert.deepEqual(identity.statusBadge, { kind: "emoji", emoji: "✅" });
+});
+
+test("normalizeIdentity honors explicit null statusBadge over stored JSON fields", () => {
+  const identity = normalizeIdentity({
+    kind: "user",
+    id: "u_profile",
+    displayName: "Profile",
+    statusBadge: null,
+    status_badge_json: JSON.stringify({ kind: "emoji", emoji: "✅" })
+  });
+
+  assert.equal(Object.prototype.hasOwnProperty.call(identity, "statusBadge"), false);
+});
+
+test("normalizeBotIdentity honors explicit null statusBadge over snake_case badges", () => {
+  const identity = normalizeBotIdentity({
+    id: "bot_profile",
+    displayName: "Profile Bot",
+    statusBadge: null,
+    status_badge: { kind: "gift", asset_id: "rose", collectible_id: "nft_rose_1" }
+  });
+
+  assert.equal(identity.statusBadge, null);
 });

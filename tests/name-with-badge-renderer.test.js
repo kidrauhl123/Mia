@@ -100,6 +100,20 @@ test("renderNameWithBadge accepts snake_case gift badges from identity", () => {
   assert.equal(el.children[1].dataset.collectibleId, "nft_rose_1");
 });
 
+test("renderNameWithBadge honors identity statusBadge null over snake_case badge", () => {
+  const renderer = loadRenderer();
+  const el = renderer.renderNameWithBadge({
+    identity: {
+      displayName: "Collector",
+      statusBadge: null,
+      status_badge: { kind: "gift", asset_id: "rose", collectible_id: "nft_rose_1" }
+    }
+  });
+
+  assert.equal(el.children.length, 1);
+  assert.equal(el.textContent, "Collector");
+});
+
 test("renderNameWithBadge uses fallbackName without exposing identity keys", () => {
   const renderer = loadRenderer();
   const fallback = renderer.renderNameWithBadge({

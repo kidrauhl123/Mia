@@ -58,7 +58,9 @@
   function badgeFor(identity, statusBadge) {
     if (typeof statusBadge !== "undefined") return normalizeBadge(statusBadge);
     const source = identity && typeof identity === "object" ? identity : {};
-    return normalizeBadge(source.statusBadge || source.status_badge);
+    if (Object.prototype.hasOwnProperty.call(source, "statusBadge")) return normalizeBadge(source.statusBadge);
+    if (Object.prototype.hasOwnProperty.call(source, "status_badge")) return normalizeBadge(source.status_badge);
+    return null;
   }
 
   function renderBadge(badge) {

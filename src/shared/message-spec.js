@@ -41,6 +41,16 @@ function parseJsonObject(input, fallback = null) {
   }
 }
 
+function hasOwn(input, key) {
+  return Object.prototype.hasOwnProperty.call(input || {}, key);
+}
+
+function statusBadgeInput(input = {}) {
+  if (hasOwn(input, "statusBadge")) return input.statusBadge;
+  if (hasOwn(input, "status_badge")) return input.status_badge;
+  return parseJsonObject(input.status_badge_json, null);
+}
+
 function normalizeLocalAvatar(input = {}) {
   const avatar = input && typeof input === "object" ? input : {};
   return {
@@ -83,7 +93,7 @@ function normalizeLocalIdentity(input = {}) {
     displayName: firstNonEmpty(input.displayName, input.display_name, input.name, id),
     avatar: normalizeLocalAvatar(input.avatar || input)
   };
-  const badge = normalizeLocalStatusBadge(input.statusBadge || input.status_badge || parseJsonObject(input.status_badge_json, null));
+  const badge = normalizeLocalStatusBadge(statusBadgeInput(input));
   if (badge) out.statusBadge = badge;
   if (kind === "bot") {
     const ownerUserId = firstNonEmpty(input.ownerUserId, input.owner_user_id, input.ownerId, input.owner_id);
@@ -108,6 +118,10 @@ function normalizeStatusBadge(input) {
 
 function normalizeSpec(input = {}) {
   const normalizedIdentity = normalizeIdentity(input.authorIdentity || input.author_identity);
+  const hasTopLevelBadge = hasOwn(input, "statusBadge") || hasOwn(input, "status_badge") || hasOwn(input, "status_badge_json");
+  const statusBadge = hasTopLevelBadge
+    ? normalizeStatusBadge(statusBadgeInput(input))
+    : normalizedIdentity?.statusBadge || null;
   return {
     source: input.source || "",
     conversationId: input.conversationId || "",
@@ -116,7 +130,7 @@ function normalizeSpec(input = {}) {
     role: ["user", "assistant", "system"].includes(input.role) ? input.role : "assistant",
     authorIdentity: normalizedIdentity || null,
     authorName: normalizedIdentity?.displayName || input.authorName || "",
-    statusBadge: normalizedIdentity?.statusBadge || normalizeStatusBadge(input.statusBadge || input.status_badge),
+    statusBadge,
     avatar: input.avatar && typeof input.avatar === "object"
       ? { image: input.avatar.image || "", crop: input.avatar.crop || null, color: input.avatar.color || "", text: input.avatar.text || "" }
       : { image: "", crop: null, color: "", text: "" },

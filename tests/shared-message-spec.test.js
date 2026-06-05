@@ -84,6 +84,39 @@ test("normalizeSpec derives a user badge from stored profile JSON", () => {
   assert.deepEqual(s.statusBadge, { kind: "emoji", emoji: "✅" });
 });
 
+test("normalizeSpec honors authorIdentity statusBadge null over stored JSON", () => {
+  const s = normalizeSpec({
+    source: "cloud-conversation",
+    conversationId: "dm:u1:u2",
+    messageId: "m_suppressed_profile",
+    role: "user",
+    authorIdentity: {
+      kind: "user",
+      id: "u1",
+      displayName: "Alice",
+      statusBadge: null,
+      status_badge_json: JSON.stringify({ kind: "emoji", emoji: "✅" })
+    },
+    bodyMd: "done"
+  });
+
+  assert.equal(Object.prototype.hasOwnProperty.call(s.authorIdentity, "statusBadge"), false);
+  assert.equal(s.statusBadge, null);
+});
+
+test("normalizeSpec honors top-level statusBadge null over snake_case status_badge", () => {
+  const s = normalizeSpec({
+    source: "cloud-conversation",
+    conversationId: "dm:u1:u2",
+    messageId: "m_suppressed_top_level",
+    role: "user",
+    statusBadge: null,
+    status_badge: { kind: "emoji", emoji: "✅" }
+  });
+
+  assert.equal(s.statusBadge, null);
+});
+
 test("browser normalizeSpec preserves authorIdentity without miaIdentity preloaded", () => {
   const source = fs.readFileSync(path.join(root, "src/shared/message-spec.js"), "utf8");
   const context = { window: {} };
