@@ -1,7 +1,8 @@
-const DEFAULT_FELLOW_ID = "mia";
-const { fellowConversationId } = require("./session-history.js");
+const { normalizeStatusBadge } = require("./identity.js");
 
-const DEFAULT_FELLOW_CAPABILITIES = Object.freeze({
+const DEFAULT_BOT_ID = "bot_mia";
+
+const DEFAULT_BOT_CAPABILITIES = Object.freeze({
   inheritEngineDefaults: true,
   enabledPlugins: [],
   disabledPlugins: [],
@@ -19,27 +20,17 @@ function firstNonEmpty(...values) {
   return "";
 }
 
-function normalizeFellowId(input) {
+function normalizeBotId(input) {
   return String(input || "").trim();
 }
 
-function fellowGlobalId(ownerUserId, fellowId) {
-  const owner = normalizeFellowId(ownerUserId);
-  const id = normalizeFellowId(fellowId);
-  return owner && id ? fellowConversationId(owner, id) : "";
+function botConversationId(sessionId) {
+  const id = normalizeBotId(sessionId);
+  if (!id) throw new Error("botConversationId: sessionId required");
+  return id.startsWith("botc_") ? id : `botc_${id}`;
 }
 
-function parseFellowGlobalId(input) {
-  const value = normalizeFellowId(input);
-  if (!value.startsWith("fellow:")) return null;
-  const parts = value.split(":");
-  const ownerUserId = normalizeFellowId(parts[1]);
-  const id = normalizeFellowId(parts.slice(2).join(":"));
-  const globalId = fellowGlobalId(ownerUserId, id);
-  return globalId ? { ownerUserId, id, globalId } : null;
-}
-
-function normalizeFellowColor(input) {
+function normalizeBotColor(input) {
   const value = String(input || "").trim().toLowerCase();
   return /^#[0-9a-f]{3}([0-9a-f]{3})?([0-9a-f]{2})?$/.test(value) ? value : "";
 }
@@ -55,7 +46,7 @@ function parseJsonObject(input, fallback = null) {
   }
 }
 
-function normalizeFellowAvatarCrop(input) {
+function normalizeBotAvatarCrop(input) {
   return parseJsonObject(input, null);
 }
 
@@ -87,16 +78,16 @@ function legacyBooleanCapabilities(value = {}) {
     .filter((key) => !CANONICAL_CAPABILITY_KEYS.has(key) && value[key] === true);
 }
 
-function normalizeFellowCapabilities(input = {}) {
+function normalizeBotCapabilities(input = {}) {
   if (Array.isArray(input)) {
     return {
-      ...DEFAULT_FELLOW_CAPABILITIES,
+      ...DEFAULT_BOT_CAPABILITIES,
       legacyCapabilities: normalizeCapabilityIds(input)
     };
   }
   const value = input && typeof input === "object" ? input : {};
   return {
-    ...DEFAULT_FELLOW_CAPABILITIES,
+    ...DEFAULT_BOT_CAPABILITIES,
     inheritEngineDefaults: value.inheritEngineDefaults !== false && value.inherit_engine_defaults !== false,
     enabledPlugins: normalizeCapabilityIds(value.enabledPlugins || value.enabled_plugins),
     disabledPlugins: normalizeCapabilityIds(value.disabledPlugins || value.disabled_plugins),
@@ -110,69 +101,35 @@ function normalizeFellowCapabilities(input = {}) {
   };
 }
 
-function defaultCloudFellowCapabilities() {
-  return normalizeFellowCapabilities({
+function defaultCloudBotCapabilities() {
+  return normalizeBotCapabilities({
     legacyCapabilities: ["chat", "files", "terminal", "code"]
   });
 }
 
-function normalizeFellowIdentity(input = {}, options = {}) {
+function normalizeBotIdentity(input = {}, options = {}) {
   if (!input || typeof input !== "object") return null;
-  const parsedGlobalId = parseFellowGlobalId(
-    input.globalId
-      || input.global_id
-      || input.fellowGlobalId
-      || input.fellow_global_id
-      || options.globalId
-      || options.global_id
-  );
-  const id = normalizeFellowId(
-    input.id
-      || input.key
-      || input.fellowId
-      || input.fellow_id
-      || input.account_id
-      || parsedGlobalId?.id
-      || options.id
-      || options.key
-  );
-  const key = normalizeFellowId(
-    input.key
-      || input.id
-      || input.fellowKey
-      || input.fellow_key
-      || input.account_id
-      || parsedGlobalId?.id
-      || id
-  );
-  const fellowId = id || key;
-  if (!fellowId) return null;
-  const ownerUserId = firstNonEmpty(
-    input.ownerUserId,
-    input.owner_user_id,
-    options.ownerUserId,
-    options.owner_user_id,
-    parsedGlobalId?.ownerUserId
-  );
-  const displayName = firstNonEmpty(input.displayName, input.display_name, input.name, input.username, fellowId);
+  const id = normalizeBotId(input.id || input.botId || input.bot_id || options.id);
+  if (!id || id.startsWith("fellow:") || id.startsWith("bot:")) return null;
+  const displayName = firstNonEmpty(input.displayName, input.display_name, input.name, input.username, id);
   return {
-    id: fellowId,
-    key: key || fellowId,
-    ownerUserId,
-    globalId: fellowGlobalId(ownerUserId, fellowId),
+    kind: "bot",
+    id,
+    ownerUserId: firstNonEmpty(input.ownerUserId, input.owner_user_id, options.ownerUserId, options.owner_user_id),
     name: displayName,
     displayName,
-    color: normalizeFellowColor(firstNonEmpty(input.color, input.avatarColor, input.avatar_color)),
+    color: normalizeBotColor(firstNonEmpty(input.color, input.avatarColor, input.avatar_color)),
     avatarImage: firstNonEmpty(input.avatarImage, input.avatar_image),
-    avatarCrop: normalizeFellowAvatarCrop(
+    avatarCrop: normalizeBotAvatarCrop(
       Object.prototype.hasOwnProperty.call(input, "avatarCrop")
         ? input.avatarCrop
         : Object.prototype.hasOwnProperty.call(input, "avatar_crop")
           ? input.avatar_crop
           : input.avatar_crop_json
     ),
+    statusBadge: normalizeStatusBadge(input.statusBadge || input.status_badge || parseJsonObject(input.status_badge_json, null)),
     bio: firstNonEmpty(input.bio, input.description),
-    capabilities: normalizeFellowCapabilities(
+    capabilities: normalizeBotCapabilities(
       Object.prototype.hasOwnProperty.call(input, "capabilities")
         ? input.capabilities
         : parseJsonObject(input.capabilities_json, {})
@@ -184,16 +141,15 @@ function normalizeFellowIdentity(input = {}, options = {}) {
 }
 
 module.exports = {
-  DEFAULT_FELLOW_ID,
-  DEFAULT_FELLOW_CAPABILITIES,
+  DEFAULT_BOT_ID,
+  DEFAULT_BOT_CAPABILITIES,
   firstNonEmpty,
-  normalizeFellowId,
-  fellowGlobalId,
-  parseFellowGlobalId,
-  normalizeFellowColor,
-  normalizeFellowAvatarCrop,
+  normalizeBotId,
+  botConversationId,
+  normalizeBotColor,
+  normalizeBotAvatarCrop,
   normalizeCapabilityIds,
-  normalizeFellowCapabilities,
-  defaultCloudFellowCapabilities,
-  normalizeFellowIdentity
+  normalizeBotCapabilities,
+  defaultCloudBotCapabilities,
+  normalizeBotIdentity
 };

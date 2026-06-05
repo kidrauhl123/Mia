@@ -18,7 +18,7 @@ test("defaultCapabilities returns object with all flags false", () => {
 });
 
 test("normalizeSpec fills missing fields with safe defaults", () => {
-  const s = normalizeSpec({ source: "fellow-session", conversationId: "c1", messageId: "m1", role: "user" });
+  const s = normalizeSpec({ source: "bot-session", conversationId: "botc_1", messageId: "m1", role: "user" });
   assert.equal(s.role, "user");
   assert.equal(s.bodyMd, "");
   assert.equal(s.attachments.length, 0);
@@ -36,4 +36,25 @@ test("normalizeSpec preserves provided fields", () => {
   assert.equal(s.bodyMd, "hi");
   assert.equal(s.capabilities.reply, true);
   assert.equal(s.capabilities.delete, false);
+});
+
+test("normalizeSpec preserves authorIdentity and derives badge", () => {
+  const s = normalizeSpec({
+    source: "cloud-conversation",
+    conversationId: "botc_1",
+    messageId: "m1",
+    role: "assistant",
+    authorIdentity: {
+      kind: "bot",
+      id: "bot_mia",
+      displayName: "Mia",
+      statusBadge: { kind: "emoji", emoji: "⭐" }
+    },
+    bodyMd: "hi"
+  });
+
+  assert.equal(s.authorIdentity.kind, "bot");
+  assert.equal(s.authorIdentity.id, "bot_mia");
+  assert.equal(s.authorName, "Mia");
+  assert.deepEqual(s.statusBadge, { kind: "emoji", emoji: "⭐" });
 });

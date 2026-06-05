@@ -1,12 +1,12 @@
-export type ConversationType = "fellow" | "dm" | "group" | string;
+export type ConversationType = "bot" | "dm" | "group" | string;
 
 export interface ConversationLike {
   id?: string;
   type?: string;
   name?: string;
   title?: string;
-  fellowKey?: string;
-  fellow_id?: string;
+  botId?: string;
+  bot_id?: string;
   last_activity_at?: string;
   lastActivityAt?: string;
   updated_at?: string;
@@ -14,16 +14,19 @@ export interface ConversationLike {
   created_at?: string;
   createdAt?: string;
   decorations?: {
-    fellowKey?: string;
-    fellowName?: string;
+    botId?: string;
+    botName?: string;
     runtimeKind?: string;
   };
 }
 
-export interface FellowLike {
+export interface BotLike {
   id?: string;
-  key?: string;
+  botId?: string;
+  bot_id?: string;
   name?: string;
+  displayName?: string;
+  display_name?: string;
 }
 
 export interface SessionHistoryOptions {
@@ -33,25 +36,25 @@ export interface SessionHistoryOptions {
   dmTitle?: string | ((conversation: ConversationLike) => string);
   dmTitleFallback?: string;
   runtimeKindFallback?: string;
-  fellows?: FellowLike[];
+  bots?: BotLike[];
   messageCache?: { get?: (id?: string) => { messages?: Array<Record<string, unknown>> } | undefined };
   title?: string;
+  preferredConversationIdByBotId?: Record<string, string> | { get?: (id: string) => string | undefined };
 }
 
 export function conversationType<T extends ConversationLike>(conversation?: T, conversationId?: string): ConversationType;
-export function fellowKey<T extends ConversationLike>(conversation?: T): string;
-export function fellowConversationId(ownerUserId: unknown, fellowKey: unknown): string;
+export function botId<T extends ConversationLike>(conversation?: T): string;
 export function runtimeKind<T extends ConversationLike>(conversation?: T, fallback?: string): string;
 export function conversationSortTime<T extends ConversationLike>(conversation?: T, messageCache?: SessionHistoryOptions["messageCache"]): number;
 export function sessionTitle<T extends ConversationLike>(conversation?: T, options?: SessionHistoryOptions): string;
 export function sessionConversationsForConversation<T extends ConversationLike>(conversation?: T, conversations?: T[], options?: SessionHistoryOptions): T[];
 export function sidebarConversations<T extends ConversationLike>(conversations?: T[], options?: SessionHistoryOptions): T[];
-export function fellowDisplayTitle<T extends ConversationLike>(conversation?: T, fellows?: FellowLike[], fallback?: string): string;
-export function conversationListTitle<T extends ConversationLike>(conversation?: T, fellows?: FellowLike[], fallback?: string): string;
-export function isUntitledFellowConversation<T extends ConversationLike>(conversation?: T, options?: SessionHistoryOptions): boolean;
+export function botDisplayTitle<T extends ConversationLike>(conversation?: T, bots?: BotLike[], fallback?: string): string;
+export function conversationListTitle<T extends ConversationLike>(conversation?: T, bots?: BotLike[], fallback?: string): string;
+export function isUntitledBotConversation<T extends ConversationLike>(conversation?: T, options?: SessionHistoryOptions): boolean;
 export function canCreateSession<T extends ConversationLike>(conversation?: T): boolean;
-export function createFellowSessionPayload<T extends ConversationLike>(conversation: T, sessionId: string, options?: SessionHistoryOptions): {
-  fellowKey: string;
+export function createBotSessionPayload<T extends ConversationLike>(conversation: T, sessionId: string, options?: SessionHistoryOptions): {
+  botId: string;
   title: string;
   runtimeKind: string;
   sessionId: string;

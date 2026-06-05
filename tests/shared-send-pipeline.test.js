@@ -9,10 +9,15 @@ const {
 } = require("../src/shared/send-pipeline");
 
 const members = [
-  { ref: "codex", name: "Codex", kind: MemberKind.Fellow },
-  { ref: "claude-code", name: "Claude", kind: MemberKind.Fellow },
+  { ref: "bot_codex", name: "Codex", kind: MemberKind.Bot },
+  { ref: "bot_claude", name: "Claude", kind: MemberKind.Bot },
   { ref: "user_alice", name: "Alice", kind: MemberKind.User }
 ];
+
+test("MemberKind exposes bot and user", () => {
+  assert.equal(MemberKind.Bot, "bot");
+  assert.equal(MemberKind.User, "user");
+});
 
 test("throws on empty text with no attachments", () => {
   assert.throws(
@@ -48,14 +53,14 @@ test("plain text is trimmed and returns empty mentions", () => {
 });
 
 test("parses @ref mention against member ref (social-groups style)", () => {
-  const out = prepareOutgoingMessage({ text: "@codex hello" }, { members });
-  assert.deepEqual(out.mentions, [{ kind: MemberKind.Fellow, ref: "codex" }]);
+  const out = prepareOutgoingMessage({ text: "@bot_codex hello" }, { members });
+  assert.deepEqual(out.mentions, [{ kind: MemberKind.Bot, ref: "bot_codex" }]);
 });
 
 test("parses @name mention against member name (case-insensitive, group-prompts style)", () => {
   const out = prepareOutgoingMessage({ text: "hi @Codex and @ALICE" }, { members });
   assert.deepEqual(out.mentions, [
-    { kind: MemberKind.Fellow, ref: "codex" },
+    { kind: MemberKind.Bot, ref: "bot_codex" },
     { kind: MemberKind.User, ref: "user_alice" }
   ]);
 });
@@ -66,19 +71,19 @@ test("respects \\@ escape", () => {
 });
 
 test("ignores unknown mentions", () => {
-  const out = prepareOutgoingMessage({ text: "@nobody hello @codex" }, { members });
-  assert.deepEqual(out.mentions, [{ kind: MemberKind.Fellow, ref: "codex" }]);
+  const out = prepareOutgoingMessage({ text: "@nobody hello @bot_codex" }, { members });
+  assert.deepEqual(out.mentions, [{ kind: MemberKind.Bot, ref: "bot_codex" }]);
 });
 
 test("dedupes repeated mentions", () => {
   const out = prepareOutgoingMessage({ text: "@codex @codex @Codex hi" }, { members });
-  assert.deepEqual(out.mentions, [{ kind: MemberKind.Fellow, ref: "codex" }]);
+  assert.deepEqual(out.mentions, [{ kind: MemberKind.Bot, ref: "bot_codex" }]);
 });
 
 test("supports CJK mention names", () => {
-  const cjkMembers = [{ ref: "fellow_x", name: "助手", kind: MemberKind.Fellow }];
+  const cjkMembers = [{ ref: "bot_x", name: "助手", kind: MemberKind.Bot }];
   const out = prepareOutgoingMessage({ text: "你好 @助手 在吗" }, { members: cjkMembers });
-  assert.deepEqual(out.mentions, [{ kind: MemberKind.Fellow, ref: "fellow_x" }]);
+  assert.deepEqual(out.mentions, [{ kind: MemberKind.Bot, ref: "bot_x" }]);
 });
 
 test("throws when over max length", () => {
@@ -132,8 +137,8 @@ test("preserves replyTo when present", () => {
 });
 
 test("parseMentions exported directly", () => {
-  const out = parseMentions("hi @codex", members);
-  assert.deepEqual(out, [{ kind: MemberKind.Fellow, ref: "codex" }]);
+  const out = parseMentions("hi @bot_codex", members);
+  assert.deepEqual(out, [{ kind: MemberKind.Bot, ref: "bot_codex" }]);
 });
 
 test("parseMentions returns [] when no members", () => {
@@ -141,19 +146,19 @@ test("parseMentions returns [] when no members", () => {
   assert.deepEqual(parseMentions("@codex hi", null), []);
 });
 
-test("members accept legacy shapes (member_ref / member_kind / fellowId / id+name)", () => {
+test("members accept legacy shapes (member_ref / member_kind / botId / id+name)", () => {
   const legacy = [
-    { member_ref: "codex", name: "Codex", member_kind: "fellow" },
-    { fellowId: "claude", name: "Claude" },
+    { member_ref: "bot_codex", name: "Codex", member_kind: "bot" },
+    { botId: "bot_claude", name: "Claude" },
     { id: "user_bob", name: "Bob", kind: "user" }
   ];
   const out = prepareOutgoingMessage(
-    { text: "@codex @claude @bob" },
+    { text: "@bot_codex @bot_claude @bob" },
     { members: legacy }
   );
   assert.deepEqual(out.mentions, [
-    { kind: MemberKind.Fellow, ref: "codex" },
-    { kind: MemberKind.Fellow, ref: "claude" },
+    { kind: MemberKind.Bot, ref: "bot_codex" },
+    { kind: MemberKind.Bot, ref: "bot_claude" },
     { kind: MemberKind.User, ref: "user_bob" }
   ]);
 });

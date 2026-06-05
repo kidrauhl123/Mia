@@ -5,10 +5,9 @@
 })(typeof window !== "undefined" ? window : globalThis, function buildContact(root) {
   "use strict";
 
-  const ContactKind = Object.freeze({
-    Self: "self",
-    Fellow: "fellow",
-    User: "user"
+  const IdentityKind = Object.freeze({
+    User: "user",
+    Bot: "bot"
   });
 
   function avatarResolver() {
@@ -28,35 +27,18 @@
     return "";
   }
 
-  function fellowIdentity() {
-    if (root && root.miaFellowIdentity) return root.miaFellowIdentity;
-    if (typeof globalThis !== "undefined" && globalThis.miaFellowIdentity) return globalThis.miaFellowIdentity;
-    if (typeof require === "function") {
-      try { return require("./fellow-identity.js"); } catch { /* optional in browser-like sandboxes */ }
-    }
-    return null;
-  }
-
-  function fellowAvatarIdentityId(id, record = {}) {
-    const localId = firstNonEmpty(id, record.key, record.id, record.fellowId, record.fellow_id, record.member_ref);
-    const globalId = firstNonEmpty(record.globalId, record.global_id, record.fellowGlobalId, record.fellow_global_id);
-    if (globalId) return globalId;
-    const ownerUserId = firstNonEmpty(record.ownerUserId, record.owner_user_id, record.ownerId, record.owner_id);
-    if (ownerUserId && localId) {
-      const fromIdentity = fellowIdentity()?.fellowGlobalId?.(ownerUserId, localId);
-      return fromIdentity || "fellow:" + ownerUserId + ":" + localId;
-    }
-    return localId;
+  function botAvatarIdentityId(id, record = {}) {
+    return firstNonEmpty(id, record.id, record.botId, record.bot_id, record.member_ref);
   }
 
   function avatarForRecord(id, record = {}, displayName = "") {
     const resolver = avatarResolver();
     const input = {
       id: String(id || ""),
-      displayName: displayName || record.displayName || record.name || record.username || record.account || record.avatarText || "",
-      avatarImage: record.avatarImage || "",
-      avatarCrop: record.avatarCrop || null,
-      color: record.color || record.avatarColor || ""
+      displayName: displayName || record.displayName || record.display_name || record.name || record.username || record.account || record.avatarText || "",
+      avatarImage: record.avatarImage || record.avatar_image || "",
+      avatarCrop: record.avatarCrop || record.avatar_crop || null,
+      color: record.color || record.avatarColor || record.avatar_color || ""
     };
     if (resolver && typeof resolver.resolveAvatarForContact === "function") {
       return resolver.resolveAvatarForContact(input);
@@ -69,42 +51,43 @@
     };
   }
 
-  function avatarForFellowRecord(id, record = {}, displayName = "") {
-    return avatarForRecord(fellowAvatarIdentityId(id, record), record, displayName);
+  function avatarForBotRecord(id, record = {}, displayName = "") {
+    return avatarForRecord(botAvatarIdentityId(id, record), record, displayName);
   }
 
   function resolveContact(query, ctx = {}) {
     const { kind, ref } = query || {};
-    if (kind === ContactKind.Self) {
+    if (kind === "self") {
       const u = ctx.self || {};
       const displayName = u.displayName || u.username || u.account || u.avatarText || "";
       return {
-        kind: ContactKind.Self,
+        kind: IdentityKind.User,
         id: u.id || "",
         displayName,
         avatar: avatarForRecord(u.id, u, displayName)
       };
     }
-    if (kind === ContactKind.Fellow) {
-      const fellows = Array.isArray(ctx.fellows) ? ctx.fellows : [];
-      const f = fellows.find((x) => x.key === ref || x.id === ref);
-      const id = String((f && (f.key || f.id)) || ref || "");
-      const displayName = (f && (f.name || f.key)) || String(ref || "");
+    if (kind === IdentityKind.Bot) {
+      const bots = Array.isArray(ctx.bots) ? ctx.bots : [];
+      const b = bots.find((x) => x.id === ref || x.botId === ref || x.bot_id === ref);
+      const id = String((b && (b.id || b.botId || b.bot_id)) || ref || "");
+      const displayName = (b && (b.displayName || b.display_name || b.name || b.username || b.id)) || String(ref || "");
       return {
-        kind: ContactKind.Fellow,
+        kind: IdentityKind.Bot,
         id,
+        ownerUserId: firstNonEmpty(b?.ownerUserId, b?.owner_user_id),
         displayName,
-        avatar: avatarForFellowRecord(id, f || {}, displayName)
+        avatar: avatarForBotRecord(id, b || {}, displayName)
       };
     }
-    if (kind === ContactKind.User) {
-      if (ctx.self && ctx.self.id === ref) return resolveContact({ kind: ContactKind.Self }, ctx);
+    if (kind === IdentityKind.User) {
+      if (ctx.self && ctx.self.id === ref) return resolveContact({ kind: "self" }, ctx);
       const friends = Array.isArray(ctx.friends) ? ctx.friends : [];
       const f = friends.find((x) => x.id === ref);
       const id = String((f && f.id) || ref || "");
-      const displayName = (f && (f.username || f.account || f.id)) || String(ref || "");
+      const displayName = (f && (f.displayName || f.username || f.account || f.id)) || String(ref || "");
       return {
-        kind: ContactKind.User,
+        kind: IdentityKind.User,
         id,
         displayName,
         avatar: avatarForRecord(id, f || {}, displayName)
@@ -118,5 +101,5 @@
     };
   }
 
-  return { resolveContact, ContactKind, avatarForRecord, avatarForFellowRecord, fellowAvatarIdentityId };
+  return { resolveContact, IdentityKind, avatarForRecord, avatarForBotRecord, botAvatarIdentityId };
 });

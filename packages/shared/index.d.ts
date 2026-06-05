@@ -7,5 +7,5 @@ export * as approvalQueue from "./approval-queue";
 export * as optimisticSend from "./optimistic-send";
 export * as sessionHistory from "./session-history";
 export * as cloudClient from "./cloud-client";
-export * as fellowIdentity from "./fellow-identity";
+export * as botIdentity from "./bot-identity";
 export * as unread from "./unread";

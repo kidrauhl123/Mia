@@ -9,14 +9,36 @@ function defaultCapabilities() {
   return { reply: false, copy: false, pin: false, delete: false };
 }
 
+function identityApi() {
+  if (typeof window !== "undefined" && window.miaIdentity) return window.miaIdentity;
+  if (typeof globalThis !== "undefined" && globalThis.miaIdentity) return globalThis.miaIdentity;
+  if (typeof require === "function") {
+    try { return require("./identity.js"); } catch { /* optional in browser-like sandboxes */ }
+  }
+  return null;
+}
+
+function normalizeIdentity(input) {
+  const api = identityApi();
+  return api && typeof api.normalizeIdentity === "function" ? api.normalizeIdentity(input) : null;
+}
+
+function normalizeStatusBadge(input) {
+  const api = identityApi();
+  return api && typeof api.normalizeStatusBadge === "function" ? api.normalizeStatusBadge(input) : null;
+}
+
 function normalizeSpec(input = {}) {
+  const normalizedIdentity = normalizeIdentity(input.authorIdentity || input.author_identity);
   return {
     source: input.source || "",
     conversationId: input.conversationId || "",
     messageId: input.messageId || "",
     messageIndex: typeof input.messageIndex === "number" ? input.messageIndex : 0,
     role: ["user", "assistant", "system"].includes(input.role) ? input.role : "assistant",
-    authorName: input.authorName || "",
+    authorIdentity: normalizedIdentity || null,
+    authorName: normalizedIdentity?.displayName || input.authorName || "",
+    statusBadge: normalizedIdentity?.statusBadge || normalizeStatusBadge(input.statusBadge || input.status_badge),
     avatar: input.avatar && typeof input.avatar === "object"
       ? { image: input.avatar.image || "", crop: input.avatar.crop || null, color: input.avatar.color || "", text: input.avatar.text || "" }
       : { image: "", crop: null, color: "", text: "" },
