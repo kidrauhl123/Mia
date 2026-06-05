@@ -1,4 +1,4 @@
-// Phase 2 — fellow definitions on cloud, end-to-end through the HTTP API.
+// Bot definitions on cloud, end-to-end through the HTTP API.
 
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
@@ -11,7 +11,7 @@ const { spawn } = require("node:child_process");
 const { freePort } = require("./helpers/free-port");
 
 async function startServer() {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-fellow-api-"));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-bot-api-"));
   const port = await freePort();
   return new Promise((resolve, reject) => {
     const proc = spawn(process.execPath, ["scripts/serve-cloud.js"], {
@@ -67,44 +67,44 @@ async function register(port, account) {
   return r.body;
 }
 
-test("PUT then GET /api/me/fellows roundtrips identity fields", async () => {
+test("PUT then GET /api/me/bots roundtrips identity fields", async () => {
   const ctx = await startServer();
-  const { normalizeFellowCapabilities } = require("../src/shared/fellow-identity.js");
+  const { normalizeBotCapabilities } = require("../src/shared/bot-identity.js");
   try {
     const A = await register(ctx.port, "phi");
-    const put = await api(ctx.port, "PUT", "/api/me/fellows/codex", {
+    const put = await api(ctx.port, "PUT", "/api/me/bots/bot_codex", {
       token: A.token,
       body: {
-        name: "Codex",
+        displayName: "Codex",
         color: "#0f766e",
         avatarImage: "data:image/png;base64,fake",
         avatarCrop: { x: 10, y: 20, w: 100, h: 100 },
         bio: "Coding helper",
         capabilities: ["chat", "tools"],
         personaText: "You are Codex.",
-        clientOpId: "op_fellow_1"
+        clientOpId: "op_bot_1"
       }
     });
     assert.equal(put.status, 200);
-    assert.equal(put.body.fellow.id, "codex");
-    assert.equal(put.body.fellow.globalId, `fellow:${A.user.id}:codex`);
-    assert.equal(put.body.fellow.name, "Codex");
-    assert.equal(put.body.fellow.color, "#0f766e");
-    assert.deepEqual(put.body.fellow.capabilities, normalizeFellowCapabilities(["chat", "tools"]));
+    assert.equal(put.body.bot.id, "bot_codex");
+    assert.equal(put.body.bot.ownerUserId, A.user.id);
+    assert.equal(put.body.bot.displayName, "Codex");
+    assert.equal(put.body.bot.color, "#0f766e");
+    assert.deepEqual(put.body.bot.capabilities, normalizeBotCapabilities(["chat", "tools"]));
 
-    const list = await api(ctx.port, "GET", "/api/me/fellows", { token: A.token });
+    const list = await api(ctx.port, "GET", "/api/me/bots", { token: A.token });
     assert.equal(list.status, 200);
-    const codex = list.body.fellows.find((fellow) => fellow.id === "codex");
+    const codex = list.body.bots.find((bot) => bot.id === "bot_codex");
     assert.ok(codex);
-    assert.equal(codex.globalId, `fellow:${A.user.id}:codex`);
-    assert.equal(codex.name, "Codex");
+    assert.equal(codex.ownerUserId, A.user.id);
+    assert.equal(codex.displayName, "Codex");
     assert.equal(codex.color, "#0f766e");
-    assert.deepEqual(codex.capabilities, normalizeFellowCapabilities(["chat", "tools"]));
+    assert.deepEqual(codex.capabilities, normalizeBotCapabilities(["chat", "tools"]));
     assert.deepEqual(codex.avatarCrop, { x: 10, y: 20, w: 100, h: 100 });
   } finally { await stopServer(ctx); }
 });
 
-test("web bootstrap can request compact user and fellow identities without avatar blobs", async () => {
+test("web bootstrap can request compact user and bot identities without avatar blobs", async () => {
   const ctx = await startServer();
   try {
     const A = await register(ctx.port, "compact");
@@ -120,14 +120,14 @@ test("web bootstrap can request compact user and fellow identities without avata
       }
     });
     assert.equal(profile.status, 200);
-    const put = await api(ctx.port, "PUT", "/api/me/fellows/codex", {
+    const put = await api(ctx.port, "PUT", "/api/me/bots/bot_codex", {
       token: A.token,
       body: {
-        name: "Codex",
+        displayName: "Codex",
         avatarImage,
         avatarCrop: { x: 10, y: 20, w: 100, h: 100 },
         personaText,
-        clientOpId: "op_fellow_compact"
+        clientOpId: "op_bot_compact"
       }
     });
     assert.equal(put.status, 200);
@@ -139,18 +139,18 @@ test("web bootstrap can request compact user and fellow identities without avata
     assert.equal(Object.prototype.hasOwnProperty.call(me.body.user, "avatarCrop"), false);
     assert.equal(Object.prototype.hasOwnProperty.call(me.body.user, "avatarColor"), false);
 
-    const list = await api(ctx.port, "GET", "/api/me/fellows?compact=1", { token: A.token });
+    const list = await api(ctx.port, "GET", "/api/me/bots?compact=1", { token: A.token });
     assert.equal(list.status, 200);
-    const codex = list.body.fellows.find((fellow) => fellow.id === "codex");
+    const codex = list.body.bots.find((bot) => bot.id === "bot_codex");
     assert.ok(codex);
-    assert.equal(codex.globalId, `fellow:${A.user.id}:codex`);
-    assert.equal(codex.name, "Codex");
+    assert.equal(codex.ownerUserId, A.user.id);
+    assert.equal(codex.displayName, "Codex");
     assert.equal(Object.prototype.hasOwnProperty.call(codex, "avatarImage"), false);
     assert.equal(Object.prototype.hasOwnProperty.call(codex, "avatarCrop"), false);
     assert.equal(Object.prototype.hasOwnProperty.call(codex, "personaText"), false);
 
     assert.ok(JSON.stringify(me.body).length < 1_000, "compact /api/me should stay small");
-    assert.ok(JSON.stringify(list.body).length < 5_000, "compact fellow list should stay small");
+    assert.ok(JSON.stringify(list.body).length < 5_000, "compact bot list should stay small");
   } finally { await stopServer(ctx); }
 });
 
@@ -184,21 +184,22 @@ test("auth login returns compact user identity even when the profile avatar is l
   } finally { await stopServer(ctx); }
 });
 
-test("GET and PUT /api/me/fellows/:id/runtime roundtrip cloud AI controls", async () => {
+test("GET and PUT /api/me/bots/:id/runtime roundtrip cloud AI controls", async () => {
   const ctx = await startServer();
   try {
     const A = await register(ctx.port, "rho");
-    await api(ctx.port, "PUT", "/api/me/fellows/codex", {
+    await api(ctx.port, "PUT", "/api/me/bots/bot_codex", {
       token: A.token,
-      body: { name: "Codex", clientOpId: "op_runtime_fellow" }
+      body: { displayName: "Codex", clientOpId: "op_runtime_bot" }
     });
 
-    const empty = await api(ctx.port, "GET", "/api/me/fellows/codex/runtime?kind=cloud-hermes", { token: A.token });
+    const empty = await api(ctx.port, "GET", "/api/me/bots/bot_codex/runtime?kind=cloud-hermes", { token: A.token });
     assert.equal(empty.status, 200);
+    assert.equal(empty.body.binding.botId, "bot_codex");
     assert.equal(empty.body.binding.enabled, false);
     assert.deepEqual(empty.body.binding.config, {});
 
-    const saved = await api(ctx.port, "PUT", "/api/me/fellows/codex/runtime", {
+    const saved = await api(ctx.port, "PUT", "/api/me/bots/bot_codex/runtime", {
       token: A.token,
       body: {
         runtimeKind: "cloud-hermes",
@@ -216,10 +217,11 @@ test("GET and PUT /api/me/fellows/:id/runtime roundtrip cloud AI controls", asyn
       }
     });
     assert.equal(saved.status, 200);
+    assert.equal(saved.body.binding.botId, "bot_codex");
     assert.equal(saved.body.binding.enabled, true);
     assert.equal(saved.body.binding.config.effortLevel, "high");
 
-    const got = await api(ctx.port, "GET", "/api/me/fellows/codex/runtime?kind=cloud-hermes", { token: A.token });
+    const got = await api(ctx.port, "GET", "/api/me/bots/bot_codex/runtime?kind=cloud-hermes", { token: A.token });
     assert.equal(got.status, 200);
     assert.equal(got.body.binding.config.model, "hermes-agent");
     assert.equal(got.body.binding.config.permissionMode, "auto");
@@ -230,36 +232,40 @@ test("GET and PUT /api/me/fellows/:id/runtime roundtrip cloud AI controls", asyn
   } finally { await stopServer(ctx); }
 });
 
-test("conversation member identity exposes shareable fellow global id", async () => {
+test("PUT /api/me/bot-conversations/:sessionId creates a bot conversation", async () => {
   const ctx = await startServer();
   try {
-    const A = await register(ctx.port, "memberglobal");
-    const group = await api(ctx.port, "POST", "/api/conversations", {
+    const A = await register(ctx.port, "memberbot");
+    await api(ctx.port, "PUT", "/api/me/bots/bot_mia", {
       token: A.token,
-      body: {
-        name: "Fellow Identity Group",
-        memberFellows: [{ fellowId: "mia" }]
-      }
+      body: { displayName: "Mia" }
     });
-    assert.equal(group.status, 201);
+    const ensured = await api(ctx.port, "PUT", "/api/me/bot-conversations/session_1", {
+      token: A.token,
+      body: { botId: "bot_mia", title: "Mia chat", runtimeKind: "cloud-hermes" }
+    });
+    assert.equal(ensured.status, 200);
+    assert.equal(ensured.body.conversation.id, "botc_session_1");
+    assert.equal(ensured.body.conversation.type, "bot");
+    assert.equal(ensured.body.conversation.decorations.botId, "bot_mia");
 
-    const detail = await api(ctx.port, "GET", `/api/conversations/${group.body.conversation.id}`, { token: A.token });
+    const detail = await api(ctx.port, "GET", `/api/conversations/${ensured.body.conversation.id}`, { token: A.token });
     assert.equal(detail.status, 200);
-    const fellowMember = detail.body.members.find((member) => member.member_kind === "fellow");
-    assert.ok(fellowMember);
-    assert.equal(fellowMember.identity.id, "mia");
-    assert.equal(fellowMember.identity.ownerId, A.user.id);
-    assert.equal(fellowMember.identity.globalId, `fellow:${A.user.id}:mia`);
+    const botMember = detail.body.members.find((member) => member.member_kind === "bot");
+    assert.ok(botMember);
+    assert.equal(botMember.identity.id, "bot_mia");
+    assert.equal(botMember.identity.ownerUserId, A.user.id);
+    assert.equal(botMember.identity.displayName, "Mia");
   } finally { await stopServer(ctx); }
 });
 
-test("PUT same clientOpId twice creates only one fellow upsert event in user_events", async () => {
+test("PUT same clientOpId twice creates only one bot upsert event in user_events", async () => {
   const ctx = await startServer();
   try {
     const A = await register(ctx.port, "chi");
-    const body = { name: "Mia", color: "#5e5ce6", clientOpId: "op_fellow_idem" };
-    await api(ctx.port, "PUT", "/api/me/fellows/mia", { token: A.token, body });
-    await api(ctx.port, "PUT", "/api/me/fellows/mia", { token: A.token, body });
+    const body = { displayName: "Mia", color: "#5e5ce6", clientOpId: "op_bot_idem" };
+    await api(ctx.port, "PUT", "/api/me/bots/bot_mia", { token: A.token, body });
+    await api(ctx.port, "PUT", "/api/me/bots/bot_mia", { token: A.token, body });
 
     await new Promise((r) => setTimeout(r, 100));
     const { createCloudStore } = require("../src/cloud/sqlite-store");
@@ -267,21 +273,21 @@ test("PUT same clientOpId twice creates only one fellow upsert event in user_eve
     const store = createCloudStore({ dataDir: ctx.tmpDir });
     try {
       const log = createEventLogStore(store.getDb());
-      const upsertEvents = log.listEventsSince(A.user.id, 0).filter((e) => e.kind === "fellow.upserted");
+      const upsertEvents = log.listEventsSince(A.user.id, 0).filter((e) => e.kind === "bot.upserted");
       assert.equal(upsertEvents.length, 1, "idempotent PUT writes one event only");
     } finally { store.close?.(); }
   } finally { await stopServer(ctx); }
 });
 
-test("DELETE /api/me/fellows/:id removes the row and fires fellow.deleted", async () => {
+test("DELETE /api/me/bots/:id removes the row and fires bot.deleted", async () => {
   const ctx = await startServer();
   try {
     const A = await register(ctx.port, "psi");
-    await api(ctx.port, "PUT", "/api/me/fellows/x", { token: A.token, body: { name: "X" } });
-    const del = await api(ctx.port, "DELETE", "/api/me/fellows/x", { token: A.token });
+    await api(ctx.port, "PUT", "/api/me/bots/bot_x", { token: A.token, body: { displayName: "X" } });
+    const del = await api(ctx.port, "DELETE", "/api/me/bots/bot_x", { token: A.token });
     assert.equal(del.status, 200);
-    const list = await api(ctx.port, "GET", "/api/me/fellows", { token: A.token });
-    assert.equal(list.body.fellows.some((fellow) => fellow.id === "x"), false);
+    const list = await api(ctx.port, "GET", "/api/me/bots", { token: A.token });
+    assert.equal(list.body.bots.some((bot) => bot.id === "bot_x"), false);
 
     await new Promise((r) => setTimeout(r, 100));
     const { createCloudStore } = require("../src/cloud/sqlite-store");
@@ -290,13 +296,13 @@ test("DELETE /api/me/fellows/:id removes the row and fires fellow.deleted", asyn
     try {
       const log = createEventLogStore(store.getDb());
       const kinds = log.listEventsSince(A.user.id, 0).map((e) => e.kind);
-      assert.ok(kinds.includes("fellow.upserted"));
-      assert.ok(kinds.includes("fellow.deleted"));
+      assert.ok(kinds.includes("bot.upserted"));
+      assert.ok(kinds.includes("bot.deleted"));
     } finally { store.close?.(); }
   } finally { await stopServer(ctx); }
 });
 
-test("fellow.upserted is broadcast live to a connected event socket", async () => {
+test("bot.upserted is broadcast live to a connected event socket", async () => {
   const ctx = await startServer();
   try {
     const A = await register(ctx.port, "omega");
@@ -313,18 +319,18 @@ test("fellow.upserted is broadcast live to a connected event socket", async () =
     const received = new Promise((r) => {
       ws.on("message", (raw) => {
         const e = JSON.parse(raw.toString());
-        if (e.type === "fellow.upserted") r(e);
+        if (e.type === "bot.upserted") r(e);
       });
     });
-    await api(ctx.port, "PUT", "/api/me/fellows/codex", { token: A.token, body: { name: "Codex" } });
+    await api(ctx.port, "PUT", "/api/me/bots/bot_codex", { token: A.token, body: { displayName: "Codex" } });
     const evt = await Promise.race([
       received,
-      new Promise((_, rej) => setTimeout(() => rej(new Error("timeout waiting for fellow.upserted")), 2000))
+      new Promise((_, rej) => setTimeout(() => rej(new Error("timeout waiting for bot.upserted")), 2000))
     ]);
     ws.close();
-    assert.equal(evt.fellow.id, "codex");
-    assert.equal(evt.fellow.globalId, `fellow:${A.user.id}:codex`);
-    assert.equal(evt.fellow.name, "Codex");
+    assert.equal(evt.bot.id, "bot_codex");
+    assert.equal(evt.bot.ownerUserId, A.user.id);
+    assert.equal(evt.bot.displayName, "Codex");
     assert.ok(Number.isFinite(Number(evt.seq)));
   } finally { await stopServer(ctx); }
 });
