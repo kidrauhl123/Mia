@@ -1,11 +1,17 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const vm = require("node:vm");
 const {
   IdentityKind,
   normalizeIdentity,
   normalizeStatusBadge,
   identityKey
 } = require("../src/shared/identity.js");
+const packageIdentity = require("../packages/shared/identity.js");
+const packageIdentityByPath = require("../packages/shared/identity");
+const sharedPackage = require("../packages/shared");
 
 test("normalizeIdentity returns a clean user identity", () => {
   const identity = normalizeIdentity({
@@ -58,4 +64,43 @@ test("normalizeStatusBadge keeps supported badges and drops invalid badges", () 
   assert.equal(normalizeStatusBadge({ kind: "emoji", emoji: "" }), null);
   assert.equal(normalizeStatusBadge({ kind: "lottie", assetId: "" }), null);
   assert.equal(normalizeStatusBadge({ kind: "unknown", assetId: "x" }), null);
+});
+
+test("package-facing identity exports resolve", () => {
+  assert.equal(packageIdentity.IdentityKind.Bot, "bot");
+  assert.equal(packageIdentityByPath.IdentityKind.Bot, "bot");
+  assert.equal(sharedPackage.identity.identityKey({ kind: "bot", id: "bot_x", displayName: "X" }), "bot:bot_x");
+});
+
+test("packages shared identity attaches miaIdentity in a browser VM", () => {
+  const filename = path.join(__dirname, "../packages/shared/identity.js");
+  const code = fs.readFileSync(filename, "utf8");
+  const context = { window: {} };
+
+  vm.runInNewContext(code, context, { filename });
+
+  assert.equal(context.window.miaIdentity.IdentityKind.Bot, "bot");
+  assert.equal(context.window.miaIdentity.identityKey({ kind: "bot", id: "bot_x", displayName: "X" }), "bot:bot_x");
+});
+
+test("normalizeIdentity falls back to trimmed non-empty aliases", () => {
+  const identity = normalizeIdentity({
+    kind: "bot",
+    id: "bot_x",
+    displayName: "   ",
+    name: "Fallback",
+    ownerUserId: "   ",
+    owner_id: "owner_1",
+    statusBadge: {
+      kind: "gift",
+      assetId: "   ",
+      asset_id: "rose",
+      collectibleId: "   ",
+      collectible_id: "nft_1"
+    }
+  });
+
+  assert.equal(identity.displayName, "Fallback");
+  assert.equal(identity.ownerUserId, "owner_1");
+  assert.deepEqual(identity.statusBadge, { kind: "gift", assetId: "rose", collectibleId: "nft_1" });
 });
