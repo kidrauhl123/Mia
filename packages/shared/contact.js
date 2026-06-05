@@ -56,7 +56,7 @@
       displayName: displayName || record.displayName || record.name || record.username || record.account || record.avatarText || "",
       avatarImage: record.avatarImage || "",
       avatarCrop: record.avatarCrop || null,
-      color: record.color || record.avatarColor || ""
+      color: record.color || record.avatarColor || record.avatar_color || ""
     };
     if (resolver && typeof resolver.resolveAvatarForContact === "function") {
       return resolver.resolveAvatarForContact(input);

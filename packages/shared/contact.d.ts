@@ -16,6 +16,9 @@ export interface SelfRecord {
   avatarText?: string;
   avatarImage?: string;
   avatarCrop?: Record<string, unknown> | null;
+  avatarColor?: string;
+  avatar_color?: string;
+  color?: string;
 }
 
 export interface FellowRecord {
@@ -36,6 +39,9 @@ export interface FellowRecord {
   displayName?: string;
   avatarImage?: string;
   avatarCrop?: Record<string, unknown> | null;
+  avatarColor?: string;
+  avatar_color?: string;
+  color?: string;
 }
 
 export interface FriendRecord {
@@ -45,6 +51,9 @@ export interface FriendRecord {
   displayName?: string;
   avatarImage?: string;
   avatarCrop?: Record<string, unknown> | null;
+  avatarColor?: string;
+  avatar_color?: string;
+  color?: string;
 }
 
 export interface ResolveCtx {

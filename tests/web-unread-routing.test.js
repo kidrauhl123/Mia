@@ -793,6 +793,59 @@ test("src/web/app.js normalizes cloud-stored avatar URLs so root-served assets r
   );
 });
 
+test("src/web/app.js renders empty avatars through the shared generated avatar image", () => {
+  const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
+  const generatedHelper = source.match(/function generatedAvatarStyle\(color[\s\S]*?\n\}/);
+  assert.ok(generatedHelper, "generatedAvatarStyle body must be extractable");
+  assert.match(
+    generatedHelper[0],
+    /generatedAvatarDataUri/,
+    "generatedAvatarStyle must use the shared generated SVG for missing avatars"
+  );
+
+  const htmlHelper = source.match(/function avatarHtml\(\{[\s\S]*?\n\}/);
+  assert.ok(htmlHelper, "avatarHtml body must be extractable");
+  assert.match(
+    htmlHelper[0],
+    /generatedAvatarStyle\(color, text\)/,
+    "avatarHtml must use the shared generated avatar style for missing avatars"
+  );
+  assert.doesNotMatch(
+    htmlHelper[0],
+    /escapeHtml\(text \|\| ""\)/,
+    "avatarHtml must not render missing-avatar initials as DOM text"
+  );
+
+  const applyHelper = source.match(/function applyAvatarMedia\(el,[\s\S]*?\n\}/);
+  assert.ok(applyHelper, "applyAvatarMedia body must be extractable");
+  assert.match(
+    applyHelper[0],
+    /generatedAvatarStyle\(color, text\)/,
+    "applyAvatarMedia must use the shared generated avatar style for missing avatars"
+  );
+  assert.doesNotMatch(
+    applyHelper[0],
+    /textContent = text \|\| ""/,
+    "applyAvatarMedia must not render missing-avatar initials as DOM text"
+  );
+});
+
+test("src/web/app.js uses the resolved self avatar color for own message avatars", () => {
+  const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
+  const helper = source.match(/function buildConversationMessageArticle\(msg, conversation\) \{[\s\S]*?\n\}/);
+  assert.ok(helper, "buildConversationMessageArticle body must be extractable");
+  assert.match(
+    helper[0],
+    /const avatarColor = senderColor;/,
+    "own message avatars must use the canonical MessageSpec avatar color"
+  );
+  assert.doesNotMatch(
+    helper[0],
+    /isOwn\s*\?\s*["']#0162db["']\s*:\s*senderColor/,
+    "own message avatars must not be hardcoded to the bubble blue"
+  );
+});
+
 test("src/web/app/index.html loads shared/trace-blocks.js before app.js", () => {
   const html = fs.readFileSync(path.join(ROOT, "src/web/app/index.html"), "utf8");
   const traceIdx = html.indexOf("shared/trace-blocks.js");

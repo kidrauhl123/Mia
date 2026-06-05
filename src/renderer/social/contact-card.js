@@ -240,7 +240,10 @@
       id: avatarId,
       displayName: name,
       avatarImage: local ? local.avatarImage : (identityAvatar.image || member?.fellow_avatar_image || ""),
-      avatarCrop: local ? local.avatarCrop : (identityAvatar.crop || member?.fellow_avatar_crop || null)
+      avatarCrop: local ? local.avatarCrop : (identityAvatar.crop || member?.fellow_avatar_crop || null),
+      color: local
+        ? (local.color || local.avatarColor || local.avatar_color || "")
+        : (identityAvatar.color || member?.fellow_color || member?.avatarColor || member?.avatar_color || "")
     });
 
     const card = document.createElement("div");
@@ -452,7 +455,8 @@
       id: ref,
       displayName: name,
       avatarImage: f?.avatarImage || "",
-      avatarCrop: f?.avatarCrop || null
+      avatarCrop: f?.avatarCrop || null,
+      color: f?.avatarColor || f?.avatar_color || f?.color || ""
     });
     const card = document.createElement("div");
     card.className = "contact-card";

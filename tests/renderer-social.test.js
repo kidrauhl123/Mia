@@ -1079,6 +1079,49 @@ test("renderConversationChat uses cloud fellow avatar when no local fellow exist
   assert.doesNotMatch(chat.children[0].innerHTML, /asset:mia/);
 });
 
+test("renderConversationChat preserves an owned fellow's explicit avatar color", () => {
+  const s = loadSocial();
+  installCloudConversationSource(s.__mockWindow);
+  s.__mockWindow.miaAvatar = {
+    avatarThumbBackgroundStyle: (image, _crop, color) => image
+      ? `background-color:transparent;background-image:url('${image}');`
+      : `background-color:${color || "#5e5ce6"};`
+  };
+  s.initSocialModule({
+    getState: () => ({
+      runtime: {
+        cloud: { user: { id: "u_me", username: "boss" } },
+        fellows: [{ key: "ha", name: "哈哈哈", avatarImage: "", color: "#aa88dd" }]
+      }
+    }),
+    render: () => {},
+    els: {},
+    appendTransientChat: () => {}
+  });
+  s.moduleState.myUserId = "u_me";
+  s.moduleState.myUsername = "boss";
+  s.moduleState.activeConversationId = "fellow:u_me:ha";
+  s.moduleState.conversations = [{ id: "fellow:u_me:ha", type: "fellow", name: "哈哈哈", decorations: { fellowKey: "ha" } }];
+  s.moduleState.messageCache.set("fellow:u_me:ha", {
+    maxSeq: 1,
+    messages: [{ id: "m_fellow", seq: 1, sender_kind: "fellow", sender_ref: "ha", body_md: "hello", created_at: "" }]
+  });
+  const chat = {
+    children: [],
+    appendChild(child) { this.children.push(child); return child; },
+    set innerHTML(value) { this.children = []; this._html = value; },
+    get innerHTML() { return this._html || ""; },
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+  };
+
+  s.renderConversationChat(chat);
+
+  assert.equal(chat.children.length, 1);
+  assert.match(chat.children[0].innerHTML, /background-color:#aa88dd/);
+});
+
 test("renderConversationChat self identity uses the cloud account, not a stale local profile name", () => {
   // The local profile (mia-user.json) is one global file shared across every
   // account; the signed-in cloud account is canonical. A leftover local "Boss"
@@ -1128,6 +1171,51 @@ test("renderConversationChat self identity uses the cloud account, not a stale l
   assert.doesNotMatch(chat.children[0].innerHTML, /assets\/avatars/);
   assert.doesNotMatch(chat.children[0].innerHTML, /title="Boss"/);
   assert.doesNotMatch(chat.children[0].innerHTML, />Bo<\/div>/);
+});
+
+test("renderConversationChat hashes empty self avatar color by cloud user id", () => {
+  const { memberAccentColor } = require("../packages/shared/avatar.js");
+  const s = loadSocial();
+  installCloudConversationSource(s.__mockWindow);
+  s.__mockWindow.miaAvatar = {
+    avatarThumbBackgroundStyle: (image, _crop, color) => image
+      ? `background-color:transparent;background-image:url('${image}');`
+      : `background-color:${color || "#5e5ce6"};`
+  };
+  s.initSocialModule({
+    getState: () => ({
+      runtime: {
+        cloud: { user: { id: "user_me", username: "755439", avatarImage: "", avatarColor: "" } },
+        user: { displayName: "755439", avatarText: "75", avatarImage: "", avatarColor: "" }
+      }
+    }),
+    render: () => {},
+    els: {},
+    appendTransientChat: () => {}
+  });
+  s.moduleState.myUserId = "user_me";
+  s.moduleState.myUsername = "755439";
+  s.moduleState.activeConversationId = "fellow:user_me:ha";
+  s.moduleState.conversations = [{ id: "fellow:user_me:ha", type: "fellow", name: "哈哈哈", decorations: { fellowKey: "ha" } }];
+  s.moduleState.messageCache.set("fellow:user_me:ha", {
+    maxSeq: 1,
+    messages: [{ id: "m_user", seq: 1, sender_kind: "user", sender_ref: "user_me", body_md: "?", created_at: "" }]
+  });
+  const chat = {
+    children: [],
+    appendChild(child) { this.children.push(child); return child; },
+    set innerHTML(value) { this.children = []; this._html = value; },
+    get innerHTML() { return this._html || ""; },
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+  };
+
+  s.renderConversationChat(chat);
+
+  assert.equal(chat.children.length, 1);
+  assert.match(chat.children[0].innerHTML, new RegExp(`background-color:${memberAccentColor("user_me")}`));
+  assert.doesNotMatch(chat.children[0].innerHTML, /background-color:#5e5ce6/);
 });
 
 test("sendInActiveConversation posts group mentions in cloud fellow format", async () => {

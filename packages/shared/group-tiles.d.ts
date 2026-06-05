@@ -9,12 +9,15 @@ export interface MemberRow {
   fellow_name?: string;
   fellow_avatar_image?: string;
   fellow_avatar_crop?: Record<string, unknown> | null;
+  fellow_color?: string;
+  avatarColor?: string;
+  avatar_color?: string;
   identity?: {
     globalId?: string;
     global_id?: string;
     ownerUserId?: string;
     owner_id?: string;
-    avatar?: { image?: string; crop?: Record<string, unknown> | null };
+    avatar?: { image?: string; crop?: Record<string, unknown> | null; color?: string };
     displayName?: string;
   };
 }

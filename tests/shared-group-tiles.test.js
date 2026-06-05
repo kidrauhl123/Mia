@@ -82,6 +82,17 @@ test("group tile hashes owned fellow fallback by global fellow identity", () => 
   assert.equal(tiles[0].text, "Mi");
 });
 
+test("group tile preserves an owned fellow's explicit avatar color", () => {
+  const members = [{ member_kind: "fellow", member_ref: "ha", owner_id: "user_me" }];
+  const tiles = resolveGroupMemberTiles(members, {
+    fellows: [{ id: "ha", name: "哈哈哈", ownerUserId: "user_me", avatarImage: "", color: "#aa88dd" }]
+  });
+  assert.equal(tiles[0].image, "");
+  assert.equal(tiles[0].crop, null);
+  assert.equal(tiles[0].color, "#aa88dd");
+  assert.equal(tiles[0].text, "哈哈");
+});
+
 test("group tile hashes cross-owner fellow fallback by member owner identity", () => {
   const members = [{
     member_kind: "fellow",
@@ -116,6 +127,17 @@ test("compact self profile does not hide the enriched member-row avatar", () => 
     color: memberAccentColor("user_me"),
     text: "75"
   }]);
+});
+
+test("group tile preserves self explicit avatar color", () => {
+  const members = [{ member_kind: "user", member_ref: "user_me" }];
+  const tiles = resolveGroupMemberTiles(members, {
+    self: { id: "user_me", username: "755439", avatarImage: "", avatarColor: "#aa88dd" }
+  });
+  assert.equal(tiles[0].image, "");
+  assert.equal(tiles[0].crop, null);
+  assert.equal(tiles[0].color, "#aa88dd");
+  assert.equal(tiles[0].text, "75");
 });
 
 test("group tile falls back to shared text avatar when neither ctx.fellows nor member row carries an image", () => {

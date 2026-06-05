@@ -10,6 +10,7 @@ export interface AvatarContactInput {
   displayName?: string;
   avatarImage?: string;
   avatarCrop?: Record<string, unknown> | null;
+  color?: string;
 }
 
 export interface AvatarTrim {

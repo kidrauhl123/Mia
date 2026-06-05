@@ -131,6 +131,24 @@ test("CloudConversationSource hashes owned empty fellow avatar by global identit
   assert.equal(spec.avatar.text, "Mi");
 });
 
+test("CloudConversationSource preserves an owned fellow's explicit avatar color", () => {
+  const src = loadSource();
+  const conversation = { id: "fellow:user_me:ha", type: "fellow", name: "哈哈哈", decorations: { fellowKey: "ha" } };
+  const messages = [{ id: "msg_owned_color", sender_kind: "fellow", sender_ref: "ha", body_md: "yo", created_at: "", seq: 1 }];
+  const members = [{ member_kind: "fellow", member_ref: "ha", owner_id: "user_me" }];
+  const ctx = {
+    self: { id: "user_me", username: "me" },
+    fellows: [{ key: "ha", id: "ha", ownerUserId: "user_me", name: "哈哈哈", avatarImage: "", color: "#aa88dd" }],
+    friends: []
+  };
+  const source = src.createCloudConversationSource({ conversation, messages, members, ctx });
+  const spec = source.listMessages()[0];
+
+  assert.equal(spec.avatar.image, "");
+  assert.equal(spec.avatar.color, "#aa88dd");
+  assert.equal(spec.avatar.text, "哈哈");
+});
+
 test("CloudConversationSource falls back to stable fellow text avatar", () => {
   const src = loadSource();
   const conversation = { id: "fellow:user_me:mia", type: "fellow", name: "Mia", decorations: { fellowKey: "mia" } };

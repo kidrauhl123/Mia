@@ -105,7 +105,10 @@
               id: fellowAvatarIdentityId(m.sender_ref, rawFellow || {}, member || {}),
               displayName,
               avatarImage: ownAvatarIsHydrated ? rawFellow.avatarImage : member?.fellow_avatar_image,
-              avatarCrop: ownAvatarIsHydrated ? rawFellow.avatarCrop : member?.fellow_avatar_crop
+              avatarCrop: ownAvatarIsHydrated ? rawFellow.avatarCrop : member?.fellow_avatar_crop,
+              color: ownAvatarIsHydrated
+                ? (rawFellow.color || rawFellow.avatarColor || rawFellow.avatar_color || "")
+                : (member?.identity?.avatar?.color || member?.fellow_color || member?.avatarColor || member?.avatar_color || "")
             });
         return {
           kind: ContactKind.Fellow,

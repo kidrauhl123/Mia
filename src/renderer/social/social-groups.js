@@ -309,7 +309,8 @@
         id: friend.id,
         displayName: name,
         avatarImage: friend.avatarImage || "",
-        avatarCrop: friend.avatarCrop || null
+        avatarCrop: friend.avatarCrop || null,
+        color: friend.avatarColor || friend.avatar_color || friend.color || ""
       });
       membersBox.appendChild(buildRow({
         kind: "friend",
@@ -331,7 +332,8 @@
         id: window.miaContact?.fellowAvatarIdentityId?.(id, fellow) || id,
         displayName: name,
         avatarImage: fellow.avatarImage || "",
-        avatarCrop: fellow.avatarCrop || null
+        avatarCrop: fellow.avatarCrop || null,
+        color: fellow.color || fellow.avatarColor || fellow.avatar_color || ""
       });
       membersBox.appendChild(buildRow({
         kind: "fellow",

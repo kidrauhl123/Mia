@@ -383,6 +383,12 @@ function avatarVideoHtml(image, crop = {}) {
   return `<video class="avatar-video" src="${escapeHtml(src)}" muted loop autoplay playsinline aria-hidden="true" data-avatar-start="${escapeHtml(trim.start)}" data-avatar-duration="${escapeHtml(trim.duration)}" style="${avatarVideoStyle(crop)}"></video>`;
 }
 
+function generatedAvatarStyle(color = "#5e5ce6", text = "") {
+  const image = avatarResolve.generatedAvatarDataUri?.(color || "#5e5ce6", text || "");
+  if (!image) return `background-color:${color};color:#fff;display:inline-flex;align-items:center;justify-content:center;`;
+  return `background-color:transparent;background-image:url('${escapeHtml(image)}');background-size:cover;background-position:center;background-repeat:no-repeat;`;
+}
+
 function avatarHtml({ className = "avatar", image = "", crop = null, color = "#5e5ce6", text = "", attrs = "" } = {}) {
   const useAvatar = image && isPublicImageSrc(image);
   if (useAvatar && avatarMedia.isVideo?.(image)) {
@@ -390,8 +396,8 @@ function avatarHtml({ className = "avatar", image = "", crop = null, color = "#5
   }
   const style = useAvatar
     ? avatarBackgroundStyle(image, crop, color)
-    : `background-color:${color}; color:#fff; display:inline-flex; align-items:center; justify-content:center;`;
-  return `<span class="${escapeHtml(className)}" ${attrs} style="${style}">${useAvatar ? "" : escapeHtml(text || "")}</span>`;
+    : generatedAvatarStyle(color, text);
+  return `<span class="${escapeHtml(className)}" ${attrs} style="${style}"></span>`;
 }
 
 function avatarHtmlForConversation(item, color, label) {
@@ -420,13 +426,8 @@ function applyAvatarMedia(el, image, crop = null, color = "#5e5ce6", text = "") 
     el.textContent = "";
     return;
   }
-  el.style.cssText = "";
-  el.style.backgroundColor = color;
-  el.style.color = "#fff";
-  el.style.display = "inline-flex";
-  el.style.alignItems = "center";
-  el.style.justifyContent = "center";
-  el.textContent = text || "";
+  el.style.cssText = generatedAvatarStyle(color, text);
+  el.textContent = "";
 }
 
 function syncAvatarVideo(video) {
@@ -461,7 +462,8 @@ function renderUserAvatar() {
     id: user.id || user.username || user.email || "self",
     displayName,
     avatarImage: user.avatarImage || "",
-    avatarCrop: user.avatarCrop || null
+    avatarCrop: user.avatarCrop || null,
+    color: user.avatarColor || user.avatar_color || user.color || ""
   });
   applyAvatarMedia(els.userAvatar, avatar.image, avatar.crop, avatar.color, avatar.text);
   els.userAvatar.title = user.username ? `账号与同步：${user.username}` : "账号与同步";
@@ -1249,7 +1251,8 @@ function userAvatarForContact(user, id, displayName) {
     id: id || user?.id || user?.account || displayName || "",
     displayName: displayName || user?.displayName || user?.username || user?.account || user?.id || "",
     avatarImage: user?.avatarImage || "",
-    avatarCrop: user?.avatarCrop || null
+    avatarCrop: user?.avatarCrop || null,
+    color: user?.avatarColor || user?.avatar_color || user?.color || ""
   });
 }
 
@@ -1280,7 +1283,7 @@ function fellowAvatarFor(conversation, fellowKey) {
       displayName: owned.name || owned.displayName || wanted,
       avatarImage: owned.avatarImage,
       avatarCrop: owned.avatarCrop,
-      color: owned.color
+      color: owned.color || owned.avatarColor || owned.avatar_color || ""
     });
   }
   if (member) {
@@ -1293,7 +1296,7 @@ function fellowAvatarFor(conversation, fellowKey) {
       displayName: owned?.name || owned?.displayName || member.identity?.displayName || member.fellow_name || wanted,
       avatarImage: identityAvatar.image || member.fellow_avatar_image,
       avatarCrop: identityAvatar.crop || member.fellow_avatar_crop,
-      color: member.fellow_color
+      color: identityAvatar.color || member.fellow_color || member.avatarColor || member.avatar_color || ""
     });
   }
   if (owned) {
@@ -1301,7 +1304,8 @@ function fellowAvatarFor(conversation, fellowKey) {
       id: avatarId,
       displayName: owned.name || owned.displayName || wanted,
       avatarImage: "",
-      avatarCrop: null
+      avatarCrop: null,
+      color: owned.color || owned.avatarColor || owned.avatar_color || ""
     });
   }
   return avatarResolve.resolveAvatarForContact({ id: avatarId, displayName: fallbackFellow.name });
@@ -2028,7 +2032,7 @@ function buildConversationMessageArticle(msg, conversation) {
   const senderColor = spec.avatar?.color || window.miaMemberColor.memberAccentColor(msg.sender_ref || senderLabel);
   const cls = isOwn ? "message user" : "message assistant";
   const fallbackText = spec.avatar?.text || avatarResolve.identityDisplayText(isOwn ? state.user?.username : senderLabel, "?");
-  const avatarColor = isOwn ? "#0162db" : senderColor;
+  const avatarColor = senderColor;
   const avatarMarkup = avatarHtml({
     className: "avatar",
     image: senderAvatar,

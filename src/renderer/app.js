@@ -598,7 +598,8 @@ function conversationCardSpecFromRow(row, personas) {
         id: fellowGlobalId || fellowAvatarIdentityId(fellowKey, fellowRecord),
         displayName: name || fellowRecord.name || fellowKey,
         avatarImage: fellowRecord.avatarImage || "",
-        avatarCrop: fellowRecord.avatarCrop || null
+        avatarCrop: fellowRecord.avatarCrop || null,
+        color: fellowRecord.color || fellowRecord.avatarColor || fellowRecord.avatar_color || ""
       });
     } else {
       const other = conversation.otherUser || {};
@@ -607,7 +608,8 @@ function conversationCardSpecFromRow(row, personas) {
         id: other.id || other.account || name,
         displayName: name,
         avatarImage: other.avatarImage || "",
-        avatarCrop: other.avatarCrop || null
+        avatarCrop: other.avatarCrop || null,
+        color: other.avatarColor || other.avatar_color || other.color || ""
       });
     }
     const pinned = Boolean(social?.isConversationPinned?.(conversation.id));
@@ -782,7 +784,8 @@ function paintActiveCloudConversationHeader(conversation, { personas, social }) 
     id: otherId || otherUser.account || displayName,
     displayName,
     avatarImage: otherUser.avatarImage || "",
-    avatarCrop: otherUser.avatarCrop || null
+    avatarCrop: otherUser.avatarCrop || null,
+    color: otherUser.avatarColor || otherUser.avatar_color || otherUser.color || ""
   });
   if (avatarEl) {
     avatarEl.removeAttribute("data-count");
@@ -1779,13 +1782,15 @@ function renderMessageHtml(message, ctx) {
     id: state.runtime?.cloud?.user?.id || user.id || user.username || user.displayName || "self",
     displayName: user.displayName || user.username || "你",
     avatarImage: user.avatarImage || "",
-    avatarCrop: user.avatarCrop || null
+    avatarCrop: user.avatarCrop || null,
+    color: user.avatarColor || user.avatar_color || user.color || ""
   });
   const fellowAvatarSpec = window.miaAvatarResolve.resolveAvatarForContact({
     id: fellowAvatarIdentityId(persona?.key || persona?.id || "assistant", persona || {}),
     displayName: persona?.name || "Assistant",
     avatarImage: persona?.avatarImage || "",
-    avatarCrop: persona?.avatarCrop || null
+    avatarCrop: persona?.avatarCrop || null,
+    color: persona?.color || persona?.avatarColor || persona?.avatar_color || ""
   });
   const activeAvatarSpec = message.role === "assistant" ? fellowAvatarSpec : userAvatarSpec;
   const traceHtml = message.role === "assistant"

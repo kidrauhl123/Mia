@@ -415,7 +415,8 @@
       id,
       displayName: fellow?.name || fellow?.displayName || fellow?.key || id,
       avatarImage: fellow?.avatarImage || "",
-      avatarCrop: fellow?.avatarCrop || null
+      avatarCrop: fellow?.avatarCrop || null,
+      color: fellow?.color || fellow?.avatarColor || fellow?.avatar_color || ""
     });
     applyAvatarMedia(el, avatar.image, avatar.crop, avatar.color, avatar.text);
   }

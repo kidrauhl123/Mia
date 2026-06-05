@@ -101,7 +101,8 @@
             id: self.id,
             displayName: self.displayName || self.username || self.account || m.identity?.displayName || self.id,
             avatarImage: hasSelfAvatar ? self.avatarImage : identityAvatar.image,
-            avatarCrop: hasSelfAvatar ? self.avatarCrop : identityAvatar.crop
+            avatarCrop: hasSelfAvatar ? self.avatarCrop : identityAvatar.crop,
+            color: hasSelfAvatar ? (self.avatarColor || self.color || "") : (identityAvatar.color || "")
           }));
           continue;
         }
@@ -112,7 +113,8 @@
           id: ref,
           displayName: friend?.displayName || friend?.username || friend?.account || m.identity?.displayName || ref,
           avatarImage: hasFriend && hasFriendAvatar ? friend.avatarImage : identityAvatar.image,
-          avatarCrop: hasFriend && hasFriendAvatar ? friend.avatarCrop : identityAvatar.crop
+          avatarCrop: hasFriend && hasFriendAvatar ? friend.avatarCrop : identityAvatar.crop,
+          color: hasFriend && hasFriendAvatar ? (friend.avatarColor || friend.color || "") : (identityAvatar.color || "")
         }));
         continue;
       }
@@ -125,7 +127,10 @@
           id: fellowAvatarIdentityId(ref, fellow || {}, m),
           displayName: fellow?.name || fellow?.displayName || m.identity?.displayName || m.fellow_name || ref,
           avatarImage: hasFellow && hasFellowAvatar ? fellow.avatarImage : (identityAvatar.image || m.fellow_avatar_image),
-          avatarCrop: hasFellow && hasFellowAvatar ? fellow.avatarCrop : (identityAvatar.crop || m.fellow_avatar_crop)
+          avatarCrop: hasFellow && hasFellowAvatar ? fellow.avatarCrop : (identityAvatar.crop || m.fellow_avatar_crop),
+          color: hasFellow && hasFellowAvatar
+            ? (fellow.color || fellow.avatarColor || fellow.avatar_color || "")
+            : (identityAvatar.color || m.fellow_color || m.avatarColor || m.avatar_color || "")
         }));
       }
     }

@@ -95,7 +95,8 @@
       }) || member.member_ref,
       displayName: f?.name || member.identity?.displayName || member.fellow_name || member.member_ref,
       avatarImage: f?.avatarImage || member.identity?.avatar?.image || member.fellow_avatar_image || "",
-      avatarCrop: f?.avatarCrop || member.identity?.avatar?.crop || member.fellow_avatar_crop || null
+      avatarCrop: f?.avatarCrop || member.identity?.avatar?.crop || member.fellow_avatar_crop || null,
+      color: f?.color || f?.avatarColor || f?.avatar_color || member.identity?.avatar?.color || member.fellow_color || ""
     });
   }
 

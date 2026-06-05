@@ -148,13 +148,13 @@ test("cloud fellow I own renders editable controls instead of a separate cloud-o
   assert.match(html, /data-card-action="edit-fellow"/);
 });
 
-test("cloud fellow card avatar uses the global fellow identity color", () => {
+test("cloud fellow card avatar preserves the fellow explicit color", () => {
   const { card, window } = loadCard();
   card.attach(ctxWithCloudOwnedFellow());
   card.openCard({ kind: "fellow", ref: "mia", conversationId: "fellow:bob:mia", anchor: null });
 
   assert.equal(window.lastAvatarResolveInput.id, "fellow:bob:mia");
-  assert.equal(window.lastPaintedAvatar.color, window.miaMemberColor.memberAccentColor("fellow:bob:mia"));
+  assert.equal(window.lastPaintedAvatar.color, "#5e5ce6");
 });
 
 test("owned cloud fellow card reads runtime binding before exposing controls", () => {

@@ -983,7 +983,7 @@
         account: self.account,
         avatarImage: self.avatarImage,
         avatarCrop: self.avatarCrop,
-        avatarColor: self.avatarColor || "#5e5ce6"
+        avatarColor: self.avatarColor || ""
       },
       fellows,
       friends: moduleState.friends || []

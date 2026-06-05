@@ -78,7 +78,8 @@
       id: fellowAvatarIdentityId(fellow),
       displayName: fellow.name || fellow.key || fellow.id,
       avatarImage: fellow.avatarImage || "",
-      avatarCrop: fellow.avatarCrop || null
+      avatarCrop: fellow.avatarCrop || null,
+      color: fellow.color || fellow.avatarColor || fellow.avatar_color || ""
     });
   }
 
