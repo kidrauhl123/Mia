@@ -151,6 +151,38 @@ test("pushAllBots ensures a stable cloud conversation for each local bot", async
   });
 });
 
+test("pushAllBots does not overwrite cloud avatar assets from stale local mirrors", async () => {
+  const { client, calls } = setup({
+    loadBotManifest: () => ({
+      bots: [{
+        key: "jiangmei",
+        name: "Jiangmei",
+        color: "#e8a876",
+        avatarImage: "https://cloud.example/api/avatar-assets/old.avatar.mp4",
+        avatarCrop: { start: 7.26, duration: 4.94 },
+        bio: "assistant",
+        capabilities: { chat: true }
+      }]
+    }),
+    botPersonaPath: () => "/personas/jiangmei.md",
+    fileExists: () => false
+  });
+  const { normalizeBotCapabilities } = require("../src/shared/bot-identity.js");
+
+  await client.pushAllBots();
+
+  assert.deepEqual(calls.fetch[0].body, {
+    displayName: "Jiangmei",
+    name: "Jiangmei",
+    color: "#e8a876",
+    bio: "assistant",
+    capabilities: normalizeBotCapabilities({ chat: true }),
+    personaText: ""
+  });
+  assert.equal(Object.hasOwn(calls.fetch[0].body, "avatarImage"), false);
+  assert.equal(Object.hasOwn(calls.fetch[0].body, "avatarCrop"), false);
+});
+
 test("pushAllBots ensures conversations even when local user metadata is missing", async () => {
   const { client, calls } = setup({
     initialSettings: {

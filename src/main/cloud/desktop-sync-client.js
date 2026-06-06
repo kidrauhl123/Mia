@@ -10,6 +10,25 @@ const {
   normalizeSkillMarketParams
 } = require("../skills/skill-market-cache.js");
 
+function isCloudAvatarAssetUrl(avatarImage) {
+  const raw = String(avatarImage || "").trim();
+  if (!raw) return false;
+  try {
+    return new URL(raw, "https://mia.invalid").pathname.startsWith("/api/avatar-assets/");
+  } catch {
+    return false;
+  }
+}
+
+function botAvatarSyncPatch(bot = {}) {
+  const avatarImage = String(bot.avatarImage || "").trim();
+  if (!avatarImage || isCloudAvatarAssetUrl(avatarImage)) return {};
+  return {
+    avatarImage,
+    avatarCrop: bot.avatarCrop || null
+  };
+}
+
 function createCloudDesktopSyncClient({
   getCloudSettings,
   writeCloudSettings,
@@ -79,8 +98,7 @@ function createCloudDesktopSyncClient({
           displayName: bot.name || bot.displayName || bot.key,
           name: bot.name || bot.displayName || bot.key,
           color: normalizeBotColor(bot.color),
-          avatarImage: bot.avatarImage || "",
-          avatarCrop: bot.avatarCrop || null,
+          ...botAvatarSyncPatch(bot),
           bio: bot.bio || "",
           capabilities: normalizeBotCapabilities(bot.capabilities),
           personaText
