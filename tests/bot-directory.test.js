@@ -82,6 +82,34 @@ test("bot directory keeps cloud real avatar when local mirror only has a legacy 
   assert.deepEqual(bots[0].avatarCrop, { x: 50, y: 50, zoom: 1 });
 });
 
+test("bot directory keeps cloud video avatar trim when local mirror is stale", () => {
+  const { listOwnedBots } = require(directoryPath);
+
+  const bots = listOwnedBots({
+    cloudBots: [
+      {
+        id: "jiangmei",
+        name: "匠妹 Cloud",
+        avatarImage: "https://aiweb.buytb01.com/api/avatar-assets/jiangmei.avatar.mp4",
+        avatarCrop: { x: 36, y: 100, zoom: 1.09, start: 7.26, duration: 4.94 }
+      }
+    ],
+    localBots: [
+      {
+        key: "jiangmei",
+        name: "匠妹 Local",
+        avatarImage: "./assets/avatars/12.png",
+        avatarCrop: { x: 50, y: 50, zoom: 1 }
+      }
+    ]
+  });
+
+  assert.equal(bots.length, 1);
+  assert.equal(bots[0].name, "匠妹 Local");
+  assert.equal(bots[0].avatarImage, "https://aiweb.buytb01.com/api/avatar-assets/jiangmei.avatar.mp4");
+  assert.deepEqual(bots[0].avatarCrop, { x: 36, y: 100, zoom: 1.09, start: 7.26, duration: 4.94 });
+});
+
 test("bot directory attaches as a browser global", () => {
   const source = fs.readFileSync(directoryPath, "utf8");
   const window = {};

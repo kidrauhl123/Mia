@@ -2095,8 +2095,8 @@ async function handleCloudAuthExpired() {
 function activeBotRuntimeControlContext() {
   const conversationContext = activeConversationBotContext();
   if (conversationContext) {
-    const personas = state.runtime?.bots || [];
-    const bot = personas.find((persona) => (persona.key || persona.id) === conversationContext.botKey) || {};
+    const bots = allOwnedBotsForIdentity(state.runtime?.bots || []);
+    const bot = bots.find((item) => (item.key || item.id) === conversationContext.botKey) || {};
     return {
       ...conversationContext,
       bot: {
@@ -2508,12 +2508,9 @@ async function initializeRuntime(options = {}) {
   // once state.runtime is set, render() no longer early-returns and will call
   // into window.mia*.{applyAppearance,renderXxx} — which need fontPresets /
   // state / els / etc. to already be injected.
-  // NOTE: group init is intentionally LAST. Its initGroupModule(...) calls
-  // deps.triggerRender() during init, which calls render(), which calls
-  // applyAppearance() — that lives in window.miaSettingsAppearance and
-  // needs fontPresets / state / els injected first. If group init runs before
-  // settings-appearance init, fontPresets is undefined and render() throws
-  // "Cannot read properties of undefined (reading 'pingfang')".
+  // Keep appearance init ahead of any module that receives render() or can
+  // trigger it during init. Otherwise cloud/social startup can abort before
+  // the active conversation header and avatar media are repainted.
   if (window.miaSettingsRemote && window.miaSettingsRemote.initSettingsRemote) {
     window.miaSettingsRemote.initSettingsRemote({
       state,
@@ -2526,6 +2523,18 @@ async function initializeRuntime(options = {}) {
   }
   if (window.miaAvatar && window.miaAvatar.initAvatarHelpers) {
     window.miaAvatar.initAvatarHelpers({ escapeHtml: window.miaMarkdown.escapeHtml });
+  }
+  if (window.miaSettingsAppearance && window.miaSettingsAppearance.initSettingsAppearance) {
+    window.miaSettingsAppearance.initSettingsAppearance({
+      state,
+      els,
+      mia: window.mia,
+      fontPresets,
+      DEFAULT_ACCENT_COLOR,
+      DEFAULT_USER_BUBBLE_COLOR,
+      DEFAULT_LIST_STYLE,
+      DEFAULT_SELECTION_STYLE,
+    });
   }
   if (window.miaModelHelpers && window.miaModelHelpers.initModelHelpers) {
     window.miaModelHelpers.initModelHelpers({
@@ -2655,18 +2664,6 @@ async function initializeRuntime(options = {}) {
       renderView,
       refreshRuntime,
       appendTransientChat,
-    });
-  }
-  if (window.miaSettingsAppearance && window.miaSettingsAppearance.initSettingsAppearance) {
-    window.miaSettingsAppearance.initSettingsAppearance({
-      state,
-      els,
-      mia: window.mia,
-      fontPresets,
-      DEFAULT_ACCENT_COLOR,
-      DEFAULT_USER_BUBBLE_COLOR,
-      DEFAULT_LIST_STYLE,
-      DEFAULT_SELECTION_STYLE,
     });
   }
   if (window.miaMessageMenu && window.miaMessageMenu.initMessageMenu) {

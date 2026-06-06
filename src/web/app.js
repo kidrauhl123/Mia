@@ -377,7 +377,7 @@ function avatarVideoStyle(crop = {}) {
 function avatarVideoHtml(image, crop = {}) {
   const trim = avatarMedia.trimFromCrop?.(crop) || { start: 0, duration: 3 };
   const src = normalizeAvatarUrl(image);
-  return `<video class="avatar-video" src="${escapeHtml(src)}" muted loop autoplay playsinline aria-hidden="true" data-avatar-start="${escapeHtml(trim.start)}" data-avatar-duration="${escapeHtml(trim.duration)}" style="${avatarVideoStyle(crop)}"></video>`;
+  return `<video class="avatar-video" src="${escapeHtml(src)}" muted autoplay playsinline aria-hidden="true" data-avatar-start="${escapeHtml(trim.start)}" data-avatar-duration="${escapeHtml(trim.duration)}" style="${avatarVideoStyle(crop)}"></video>`;
 }
 
 function generatedAvatarStyle(color = "#5e5ce6", text = "") {
@@ -428,18 +428,34 @@ function applyAvatarMedia(el, image, crop = null, color = "#5e5ce6", text = "") 
 }
 
 function syncAvatarVideo(video) {
-  const start = Math.max(0, Number(video.dataset.avatarStart || 0) || 0);
-  const duration = Math.max(1, Number(video.dataset.avatarDuration || 3) || 3);
-  const end = start + duration;
+  video.loop = false;
+  video.removeAttribute?.("loop");
+  const trim = () => {
+    const rawStart = Math.max(0, Number(video.dataset.avatarStart || 0) || 0);
+    const rawDuration = Math.max(1, Number(video.dataset.avatarDuration || 3) || 3);
+    const actualDuration = Number(video.duration);
+    if (Number.isFinite(actualDuration) && actualDuration > 0 && rawStart >= actualDuration) {
+      return { start: 0, duration: Math.min(rawDuration, actualDuration) };
+    }
+    return { start: rawStart, duration: rawDuration };
+  };
   const seekStart = () => {
     if (!Number.isFinite(video.duration) || video.duration <= 0) return;
-    const safeStart = Math.min(start, Math.max(video.duration - 0.1, 0));
+    const currentTrim = trim();
+    const safeStart = Math.min(currentTrim.start, Math.max(video.duration - 0.1, 0));
     if (Math.abs(video.currentTime - safeStart) > 0.25) video.currentTime = safeStart;
+    video.play?.().catch?.(() => {});
   };
   video.addEventListener("loadedmetadata", seekStart);
   video.addEventListener("timeupdate", () => {
+    const currentTrim = trim();
+    const actualDuration = Number(video.duration);
+    const end = Number.isFinite(actualDuration) && actualDuration > 0
+      ? Math.min(currentTrim.start + currentTrim.duration, actualDuration)
+      : currentTrim.start + currentTrim.duration;
     if (video.currentTime >= end) seekStart();
   });
+  video.addEventListener("ended", seekStart);
   video.play?.().catch?.(() => {});
 }
 

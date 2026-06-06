@@ -9,7 +9,7 @@ const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8"
 const htmlSource = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
 const cssSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
 
-function loadAppearanceModule() {
+function loadAppearanceModule(depsOverride = {}) {
   const source = fs.readFileSync(path.join(root, "src/renderer/settings/settings-appearance.js"), "utf8");
   const styleValues = new Map();
   const documentElement = {
@@ -48,7 +48,8 @@ function loadAppearanceModule() {
     DEFAULT_ACCENT_COLOR: "#0162db",
     DEFAULT_USER_BUBBLE_COLOR: "#0162db",
     DEFAULT_LIST_STYLE: "flush",
-    DEFAULT_SELECTION_STYLE: "solid"
+    DEFAULT_SELECTION_STYLE: "solid",
+    ...depsOverride
   });
   return { api, documentElement, styleValues };
 }
@@ -88,6 +89,49 @@ test("applyAppearance writes card and soft choices to document state", () => {
   assert.equal(styleValues.get("--list-active-text"), "#0162db");
 });
 
+test("applyAppearance keeps default tokens when appearance deps are missing", () => {
+  const { api, documentElement, styleValues } = loadAppearanceModule({
+    fontPresets: undefined,
+    DEFAULT_ACCENT_COLOR: undefined,
+    DEFAULT_USER_BUBBLE_COLOR: undefined,
+    DEFAULT_LIST_STYLE: undefined,
+    DEFAULT_SELECTION_STYLE: undefined
+  });
+
+  api.applyAppearance({
+    theme: "light",
+    fontPreset: "pingfang",
+    listStyle: "card",
+    selectionStyle: "soft"
+  });
+
+  assert.match(styleValues.get("--app-font"), /PingFang SC/);
+  assert.equal(styleValues.get("--accent"), "#0162db");
+  assert.equal(documentElement.dataset.listStyle, "card");
+  assert.equal(documentElement.dataset.selectionStyle, "soft");
+});
+
+test("syncAppearanceControls skips form controls when element deps are missing", () => {
+  const { api } = loadAppearanceModule({
+    els: undefined,
+    fontPresets: undefined,
+    DEFAULT_ACCENT_COLOR: undefined,
+    DEFAULT_USER_BUBBLE_COLOR: undefined,
+    DEFAULT_LIST_STYLE: undefined,
+    DEFAULT_SELECTION_STYLE: undefined
+  });
+
+  assert.doesNotThrow(() => {
+    api.syncAppearanceControls({
+      fontPreset: "pingfang",
+      accentColor: "#0162db",
+      userBubbleColor: "#0162db",
+      listStyle: "card",
+      selectionStyle: "soft"
+    });
+  });
+});
+
 test("desktop appearance settings expose a serif font preset", () => {
   assert.match(appSource, /serif:\s*['"][^'"]*ui-serif/);
   assert.match(htmlSource, /data-font-preset="serif"[\s\S]*衬线/);
@@ -104,6 +148,23 @@ test("desktop appearance settings do not expose removed font presets", () => {
   assert.doesNotMatch(htmlSource, /<option value="mono">/);
   assert.doesNotMatch(cssSource, /\.font-choice\[data-font-preset="sf-pro"\]/);
   assert.doesNotMatch(cssSource, /\.font-choice\[data-font-preset="mono"\]/);
+});
+
+test("appearance settings initialize before startup modules that can render", () => {
+  const appearanceInit = appSource.indexOf("window.miaSettingsAppearance.initSettingsAppearance");
+  assert.notEqual(appearanceInit, -1, "missing appearance settings init");
+
+  [
+    "window.miaBotDialog.initBotDialog",
+    "window.miaLoaders.initLoaders",
+    "window.miaBotStore.initBotStore",
+    "window.miaTasksPanel.initTasksPanel",
+    "window.miaSocial.initSocialModule"
+  ].forEach((moduleInit) => {
+    const index = appSource.indexOf(moduleInit);
+    assert.notEqual(index, -1, `missing ${moduleInit}`);
+    assert.ok(appearanceInit < index, `appearance settings must initialize before ${moduleInit}`);
+  });
 });
 
 test("hover background toggle does not erase controls that already have a fill", () => {

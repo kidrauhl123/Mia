@@ -10,7 +10,7 @@ const WebSocket = require("ws");
 const { spawn } = require("node:child_process");
 const { freePort } = require("./helpers/free-port");
 
-async function startServer() {
+async function startServer(extraEnv = {}) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-bot-api-"));
   const port = await freePort();
   return new Promise((resolve, reject) => {
@@ -20,7 +20,8 @@ async function startServer() {
         MIA_CLOUD_HOST: "127.0.0.1",
         MIA_CLOUD_PORT: String(port),
         MIA_CLOUD_DATA: tmpDir,
-        MIA_CLOUD_ALLOW_QUERY_TOKEN: "1"
+        MIA_CLOUD_ALLOW_QUERY_TOKEN: "1",
+        ...extraEnv
       },
       stdio: ["ignore", "pipe", "pipe"]
     });
@@ -52,7 +53,7 @@ function api(port, method, pathStr, { body, token } = {}) {
       res.on("data", (c) => { chunks += c; });
       res.on("end", () => {
         let parsed = null; try { parsed = JSON.parse(chunks); } catch { parsed = chunks; }
-        resolve({ status: res.statusCode, body: parsed });
+        resolve({ status: res.statusCode, headers: res.headers, body: parsed });
       });
     });
     req.on("error", reject);
@@ -105,6 +106,11 @@ test("PUT then GET /api/me/bots roundtrips identity fields", async () => {
     assert.deepEqual(codex.statusBadge, { kind: "gift", assetId: "rose", collectibleId: "nft_rose_1" });
     assert.deepEqual(codex.capabilities, normalizeBotCapabilities(["chat", "tools"]));
     assert.deepEqual(codex.avatarCrop, { x: 10, y: 20, w: 100, h: 100 });
+
+    const asset = await api(ctx.port, "GET", codex.avatarImage);
+    assert.equal(asset.status, 200);
+    assert.equal(asset.headers["cross-origin-resource-policy"], "cross-origin");
+    assert.match(asset.headers["cache-control"], /public, max-age=31536000, immutable/);
 
     const detail = await api(ctx.port, "GET", "/api/me/bots/bot_codex", { token: A.token });
     assert.equal(detail.status, 200);
@@ -200,6 +206,63 @@ test("web bootstrap can request compact user and bot identities without avatar b
     assert.ok(JSON.stringify(me.body).length < 1_000, "compact /api/me should stay small");
     assert.ok(JSON.stringify(list.body).length < 5_000, "compact bot list should stay small");
   } finally { await stopServer(ctx); }
+});
+
+test("video bot avatars are materialized with the selected trim window", async () => {
+  const fakeDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-fake-ffmpeg-"));
+  const argsPath = path.join(fakeDir, "args.json");
+  const fakeFfmpeg = path.join(fakeDir, "ffmpeg.js");
+  fs.writeFileSync(fakeFfmpeg, `#!/usr/bin/env node
+const fs = require("node:fs");
+fs.writeFileSync(process.env.MIA_FAKE_FFMPEG_ARGS, JSON.stringify(process.argv.slice(2)));
+fs.writeFileSync(process.argv[process.argv.length - 1], Buffer.alloc(1));
+`, { mode: 0o755 });
+  const ctx = await startServer({
+    MIA_FFMPEG: fakeFfmpeg,
+    MIA_FAKE_FFMPEG_ARGS: argsPath
+  });
+  try {
+    const A = await register(ctx.port, "trimavatar");
+    const put = await api(ctx.port, "PUT", "/api/me/bots/bot_video", {
+      token: A.token,
+      body: {
+        displayName: "Video Bot",
+        avatarImage: "data:video/mp4;base64," + Buffer.alloc(120_000, 7).toString("base64"),
+        avatarCrop: { x: 36, y: 100, zoom: 1.09, start: 7.26, duration: 4.94 },
+        personaText: "You are Video Bot.",
+        clientOpId: "op_video_trim"
+      }
+    });
+    assert.equal(put.status, 200);
+    assert.match(put.body.bot.avatarImage, /^\/api\/avatar-assets\/[A-Za-z0-9_.-]+\.avatar\.mp4$/);
+    assert.deepEqual(put.body.bot.avatarCrop, { x: 36, y: 100, zoom: 1.09, start: 7.26, duration: 4.94 });
+
+    const args = JSON.parse(fs.readFileSync(argsPath, "utf8"));
+    assert.ok(args.includes("-ss"), `ffmpeg args should include -ss: ${args.join(" ")}`);
+    assert.equal(args[args.indexOf("-ss") + 1], "7.26");
+    assert.ok(args.includes("-t"), `ffmpeg args should include -t: ${args.join(" ")}`);
+    assert.equal(args[args.indexOf("-t") + 1], "4.94");
+
+    const putAlt = await api(ctx.port, "PUT", "/api/me/bots/bot_video_alt", {
+      token: A.token,
+      body: {
+        displayName: "Video Bot Alt",
+        avatarImage: "data:video/mp4;base64," + Buffer.alloc(120_000, 7).toString("base64"),
+        avatarCrop: { x: 36, y: 100, zoom: 1.09, start: 1.5, duration: 2.25 },
+        personaText: "You are Video Bot Alt.",
+        clientOpId: "op_video_trim_alt"
+      }
+    });
+    assert.equal(putAlt.status, 200);
+    assert.notEqual(
+      putAlt.body.bot.avatarImage,
+      put.body.bot.avatarImage,
+      "same source video with a different trim must get a distinct immutable asset URL"
+    );
+  } finally {
+    await stopServer(ctx);
+    fs.rmSync(fakeDir, { recursive: true, force: true });
+  }
 });
 
 test("auth login returns compact user identity even when the profile avatar is large", async () => {

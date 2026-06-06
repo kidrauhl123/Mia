@@ -143,13 +143,25 @@
     });
   }
 
+  function effectiveAvatarTrimForVideo(video) {
+    const trim = avatarTrimForVideo(video);
+    const actualDuration = Number(video?.duration);
+    if (Number.isFinite(actualDuration) && actualDuration > 0 && trim.start >= actualDuration) {
+      return {
+        start: 0,
+        duration: Math.min(trim.duration, actualDuration)
+      };
+    }
+    return trim;
+  }
+
   function avatarTrimKey(trim = {}) {
     const normalized = avatarMedia().normalizeTrim(trim);
     return `${normalized.start.toFixed(2)}:${normalized.duration.toFixed(2)}`;
   }
 
   function seekAvatarVideoToStart(video) {
-    const trim = avatarTrimForVideo(video);
+    const trim = effectiveAvatarTrimForVideo(video);
     if (!Number.isFinite(video.duration) || video.duration <= 0) return false;
     const safeStart = Math.min(trim.start, Math.max(video.duration - 0.1, 0));
     if (Math.abs(video.currentTime - safeStart) <= 0.25) return false;
@@ -164,13 +176,23 @@
   function syncAvatarVideoLoop(video) {
     if (!video || video.dataset.avatarLoopReady === "true") return;
     video.dataset.avatarLoopReady = "true";
-    const seekStart = () => seekAvatarVideoToStart(video);
-    video.addEventListener("loadedmetadata", seekStart);
-    video.addEventListener("timeupdate", () => {
-      const trim = avatarTrimForVideo(video);
-      const end = trim.start + trim.duration;
+    const seekStart = () => {
+      const changed = seekAvatarVideoToStart(video);
+      video.play?.().catch?.(() => {});
+      return changed;
+    };
+    const loopIfNeeded = () => {
+      const trim = effectiveAvatarTrimForVideo(video);
+      const rawEnd = trim.start + trim.duration;
+      const actualDuration = Number(video.duration);
+      const end = Number.isFinite(actualDuration) && actualDuration > 0
+        ? Math.min(rawEnd, actualDuration)
+        : rawEnd;
       if (video.currentTime >= end) seekStart();
-    });
+    };
+    video.addEventListener("loadedmetadata", seekStart);
+    video.addEventListener("timeupdate", loopIfNeeded);
+    video.addEventListener("ended", seekStart);
     video.addEventListener("canplay", () => video.play?.().catch?.(() => {}));
     if (video.readyState >= 1) seekStart();
   }
@@ -185,9 +207,9 @@
     if (sourceChanged) {
       video.setAttribute("src", src);
     }
-    video.loop = true;
+    video.loop = false;
     video.preload = "auto";
-    video.setAttribute("loop", "");
+    video.removeAttribute?.("loop");
     video.setAttribute("preload", "auto");
     video.setAttribute("style", videoObjectStyle(c));
     video.dataset.avatarStart = String(trim.start);
@@ -206,12 +228,11 @@
     video.className = "avatar-video";
     video.setAttribute("src", src);
     video.muted = true;
-    video.loop = true;
+    video.loop = false;
     video.autoplay = true;
     video.playsInline = true;
     video.preload = "auto";
     video.setAttribute("muted", "");
-    video.setAttribute("loop", "");
     video.setAttribute("autoplay", "");
     video.setAttribute("playsinline", "");
     video.setAttribute("preload", "auto");

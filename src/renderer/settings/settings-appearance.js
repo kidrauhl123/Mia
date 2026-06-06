@@ -5,6 +5,16 @@
 (function () {
   "use strict";
 
+  const FALLBACK_FONT_PRESETS = Object.freeze({
+    system: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    pingfang: '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif',
+    serif: 'ui-serif, "Iowan Old Style", "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", Georgia, serif'
+  });
+  const FALLBACK_ACCENT_COLOR = "#0162db";
+  const FALLBACK_USER_BUBBLE_COLOR = "#0162db";
+  const FALLBACK_LIST_STYLE = "flush";
+  const FALLBACK_SELECTION_STYLE = "solid";
+
   let state, els, mia;
   let fontPresets, DEFAULT_ACCENT_COLOR, DEFAULT_USER_BUBBLE_COLOR, DEFAULT_LIST_STYLE, DEFAULT_SELECTION_STYLE;
 
@@ -13,7 +23,7 @@
   let appearanceAutoSaveTimer = 0;
   let appearanceAutoSaveSeq = 0;
 
-  function initSettingsAppearance(deps) {
+  function initSettingsAppearance(deps = {}) {
     state = deps.state;
     els = deps.els;
     mia = deps.mia || (typeof window !== "undefined" ? window.mia : null);
@@ -24,33 +34,54 @@
     DEFAULT_SELECTION_STYLE = deps.DEFAULT_SELECTION_STYLE;
   }
 
+  function configuredFontPresets() {
+    return fontPresets && typeof fontPresets === "object" ? fontPresets : FALLBACK_FONT_PRESETS;
+  }
+
+  function defaultAccentColor() {
+    return DEFAULT_ACCENT_COLOR || FALLBACK_ACCENT_COLOR;
+  }
+
+  function defaultUserBubbleColor() {
+    return DEFAULT_USER_BUBBLE_COLOR || FALLBACK_USER_BUBBLE_COLOR;
+  }
+
+  function defaultListStyle() {
+    return DEFAULT_LIST_STYLE || FALLBACK_LIST_STYLE;
+  }
+
+  function defaultSelectionStyle() {
+    return DEFAULT_SELECTION_STYLE || FALLBACK_SELECTION_STYLE;
+  }
+
   function showAppearanceSaveStatus(text, kind = "ok") {
-    if (!els.appearanceSaveStatus) return;
+    const controls = els || {};
+    if (!controls.appearanceSaveStatus) return;
     if (appearanceSaveStatusTimer) window.clearTimeout(appearanceSaveStatusTimer);
-    els.appearanceSaveStatus.textContent = text;
-    els.appearanceSaveStatus.dataset.kind = kind;
-    els.appearanceSaveStatus.classList.toggle("visible", Boolean(text));
+    controls.appearanceSaveStatus.textContent = text;
+    controls.appearanceSaveStatus.dataset.kind = kind;
+    controls.appearanceSaveStatus.classList.toggle("visible", Boolean(text));
     if (!text) return;
     appearanceSaveStatusTimer = window.setTimeout(() => {
-      els.appearanceSaveStatus.textContent = "";
-      els.appearanceSaveStatus.classList.remove("visible");
-      delete els.appearanceSaveStatus.dataset.kind;
+      controls.appearanceSaveStatus.textContent = "";
+      controls.appearanceSaveStatus.classList.remove("visible");
+      delete controls.appearanceSaveStatus.dataset.kind;
       appearanceSaveStatusTimer = 0;
     }, kind === "error" ? 3600 : 1800);
   }
 
-  function normalizeHexColor(value, fallback = DEFAULT_ACCENT_COLOR) {
+  function normalizeHexColor(value, fallback = defaultAccentColor()) {
     const raw = String(value || "").trim();
     const expanded = raw.replace(/^#([0-9a-fA-F]{3})$/, (_, hex) => `#${hex.split("").map((part) => part + part).join("")}`);
     return /^#[0-9a-fA-F]{6}$/.test(expanded) ? expanded.toLowerCase() : fallback;
   }
 
   function normalizeListStyle(value) {
-    return value === "card" || value === "flush" ? value : DEFAULT_LIST_STYLE;
+    return value === "card" || value === "flush" ? value : defaultListStyle();
   }
 
   function normalizeSelectionStyle(value) {
-    return value === "soft" || value === "solid" ? value : DEFAULT_SELECTION_STYLE;
+    return value === "soft" || value === "solid" ? value : defaultSelectionStyle();
   }
 
   function hexToRgb(value) {
@@ -86,14 +117,15 @@
   }
 
   function fontStackForAppearance(appearance = {}) {
-    return fontPresets[appearance.fontPreset || "system"] || fontPresets.system;
+    const presets = configuredFontPresets();
+    return presets[appearance.fontPreset || "system"] || presets.system;
   }
 
   function applyAppearance(appearance = {}) {
     const theme = appearance.theme === "dark" ? "dark" : "light";
     const accentColor = normalizeHexColor(appearance.accentColor);
     const rgb = hexToRgb(accentColor);
-    const userBubbleColor = normalizeHexColor(appearance.userBubbleColor, DEFAULT_USER_BUBBLE_COLOR);
+    const userBubbleColor = normalizeHexColor(appearance.userBubbleColor, defaultUserBubbleColor());
     const userBubbleRgb = hexToRgb(userBubbleColor);
     const userBubbleText = selectionTextColors(userBubbleRgb).text;
     const listStyle = normalizeListStyle(appearance.listStyle);
@@ -126,16 +158,17 @@
   }
 
   function currentAppearanceDraft() {
+    const controls = els || {};
     return {
-      theme: els.appearanceTheme?.value || "light",
-      fontPreset: els.appearanceFontPreset?.value || "system",
-      accentColor: normalizeHexColor(els.appearanceAccentColor?.value),
-      userBubbleColor: normalizeHexColor(els.appearanceUserBubbleColor?.value, DEFAULT_USER_BUBBLE_COLOR),
-      showHoverBackground: els.appearanceShowHoverBackground?.getAttribute("aria-checked") !== "false",
-      showUserAvatar: els.appearanceShowUserAvatar?.getAttribute("aria-checked") !== "false",
-      showAssistantAvatar: els.appearanceShowAssistantAvatar?.getAttribute("aria-checked") !== "false",
-      listStyle: normalizeListStyle(els.appearanceListStyle?.value),
-      selectionStyle: normalizeSelectionStyle(els.appearanceSelectionStyle?.value)
+      theme: controls.appearanceTheme?.value || "light",
+      fontPreset: controls.appearanceFontPreset?.value || "system",
+      accentColor: normalizeHexColor(controls.appearanceAccentColor?.value),
+      userBubbleColor: normalizeHexColor(controls.appearanceUserBubbleColor?.value, defaultUserBubbleColor()),
+      showHoverBackground: controls.appearanceShowHoverBackground?.getAttribute("aria-checked") !== "false",
+      showUserAvatar: controls.appearanceShowUserAvatar?.getAttribute("aria-checked") !== "false",
+      showAssistantAvatar: controls.appearanceShowAssistantAvatar?.getAttribute("aria-checked") !== "false",
+      listStyle: normalizeListStyle(controls.appearanceListStyle?.value),
+      selectionStyle: normalizeSelectionStyle(controls.appearanceSelectionStyle?.value)
     };
   }
 
@@ -152,39 +185,42 @@
   }
 
   function syncAppearanceControls(appearance = currentAppearanceDraft()) {
-    const fontPreset = fontPresets[appearance.fontPreset] ? appearance.fontPreset : "system";
-    if (els.appearanceFontPreset) els.appearanceFontPreset.value = fontPreset;
+    const controls = els || {};
+    const presets = configuredFontPresets();
+    const fontPreset = presets[appearance.fontPreset] ? appearance.fontPreset : "system";
+    if (controls.appearanceFontPreset) controls.appearanceFontPreset.value = fontPreset;
     document.querySelectorAll("[data-font-preset]").forEach((button) => {
       const active = button.dataset.fontPreset === fontPreset;
       button.classList.toggle("active", active);
       button.setAttribute("aria-checked", active ? "true" : "false");
     });
     const listStyle = normalizeListStyle(appearance.listStyle);
-    if (els.appearanceListStyle) els.appearanceListStyle.value = listStyle;
+    if (controls.appearanceListStyle) controls.appearanceListStyle.value = listStyle;
     document.querySelectorAll("[data-list-style]").forEach((button) => {
       const active = button.dataset.listStyle === listStyle;
       button.classList.toggle("active", active);
       button.setAttribute("aria-checked", active ? "true" : "false");
     });
     const selectionStyle = normalizeSelectionStyle(appearance.selectionStyle);
-    if (els.appearanceSelectionStyle) els.appearanceSelectionStyle.value = selectionStyle;
+    if (controls.appearanceSelectionStyle) controls.appearanceSelectionStyle.value = selectionStyle;
     document.querySelectorAll("[data-selection-style]").forEach((button) => {
       const active = button.dataset.selectionStyle === selectionStyle;
       button.classList.toggle("active", active);
       button.setAttribute("aria-checked", active ? "true" : "false");
     });
     const accentColor = normalizeHexColor(appearance.accentColor);
-    if (els.appearanceAccentColor) els.appearanceAccentColor.value = accentColor;
-    if (els.appearanceAccentPreview) els.appearanceAccentPreview.style.backgroundColor = accentColor;
-    const userBubbleColor = normalizeHexColor(appearance.userBubbleColor, DEFAULT_USER_BUBBLE_COLOR);
-    if (els.appearanceUserBubbleColor) els.appearanceUserBubbleColor.value = userBubbleColor;
-    if (els.appearanceUserBubblePreview) els.appearanceUserBubblePreview.style.backgroundColor = userBubbleColor;
-    setSettingsSwitch(els.appearanceShowHoverBackground, appearance.showHoverBackground !== false);
-    setSettingsSwitch(els.appearanceShowUserAvatar, appearance.showUserAvatar !== false);
-    setSettingsSwitch(els.appearanceShowAssistantAvatar, appearance.showAssistantAvatar !== false);
+    if (controls.appearanceAccentColor) controls.appearanceAccentColor.value = accentColor;
+    if (controls.appearanceAccentPreview) controls.appearanceAccentPreview.style.backgroundColor = accentColor;
+    const userBubbleColor = normalizeHexColor(appearance.userBubbleColor, defaultUserBubbleColor());
+    if (controls.appearanceUserBubbleColor) controls.appearanceUserBubbleColor.value = userBubbleColor;
+    if (controls.appearanceUserBubblePreview) controls.appearanceUserBubblePreview.style.backgroundColor = userBubbleColor;
+    setSettingsSwitch(controls.appearanceShowHoverBackground, appearance.showHoverBackground !== false);
+    setSettingsSwitch(controls.appearanceShowUserAvatar, appearance.showUserAvatar !== false);
+    setSettingsSwitch(controls.appearanceShowAssistantAvatar, appearance.showAssistantAvatar !== false);
   }
 
   function mergeRuntimeAppearance(appearance) {
+    if (!state) return;
     state.runtime = {
       ...(state.runtime || {}),
       appearance: {

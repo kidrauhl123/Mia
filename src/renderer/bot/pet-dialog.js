@@ -9,7 +9,7 @@
   let botByKey, cryptoRandomId, avatarBackgroundStyle;
   let escapeHtml, setText, renderView, refreshRuntime, appendTransientChat;
 
-  function initPetDialog(deps) {
+  function initPetDialog(deps = {}) {
     state = deps.state;
     els = deps.els;
     mia = deps.mia || (typeof window !== "undefined" ? window.mia : null);
@@ -43,22 +43,28 @@
   }
 
   function renderPetGenerateDialog() {
-    if (!els.petGenerateDialog || !state.petGenerateOpen) return;
-    const bot = botByKey(state.petGenerateBotKey);
+    const controls = els || {};
+    const currentState = state || {};
+    if (!controls.petGenerateDialog || !currentState.petGenerateOpen) return;
+    const bot = typeof botByKey === "function" ? botByKey(currentState.petGenerateBotKey) : null;
     if (!bot) return;
-    setText(els.petGenerateTitle, `生成「${bot.name}」桌宠`);
-    setText(els.petGenerateSubtitle, "会在后台调用 AlkakaPet/Hatch Pet 流程，耗时可能较长。");
-    if (!els.petReferenceList) return;
-    els.petReferenceList.innerHTML = state.petReferences.length
-      ? state.petReferences.map((item) => `
-        <div class="pet-reference-thumb" style="${avatarBackgroundStyle(item.src, { x: 50, y: 50, zoom: 1 }, "#eef0ff")}">
-          <button type="button" data-remove-pet-reference="${escapeHtml(item.id)}" title="删除">×</button>
+    const writeText = typeof setText === "function" ? setText : (node, value) => { if (node) node.textContent = value; };
+    const escape = typeof escapeHtml === "function" ? escapeHtml : (value) => String(value || "");
+    const avatarStyle = typeof avatarBackgroundStyle === "function" ? avatarBackgroundStyle : () => "";
+    writeText(controls.petGenerateTitle, `生成「${bot.name}」桌宠`);
+    writeText(controls.petGenerateSubtitle, "会在后台调用 AlkakaPet/Hatch Pet 流程，耗时可能较长。");
+    if (!controls.petReferenceList) return;
+    const references = Array.isArray(currentState.petReferences) ? currentState.petReferences : [];
+    controls.petReferenceList.innerHTML = references.length
+      ? references.map((item) => `
+        <div class="pet-reference-thumb" style="${avatarStyle(item.src, { x: 50, y: 50, zoom: 1 }, "#eef0ff")}">
+          <button type="button" data-remove-pet-reference="${escape(item.id)}" title="删除">×</button>
         </div>
       `).join("")
       : `<div class="pet-reference-empty">没有参考图片</div>`;
-    els.petReferenceList.querySelectorAll("[data-remove-pet-reference]").forEach((button) => {
+    controls.petReferenceList.querySelectorAll("[data-remove-pet-reference]").forEach((button) => {
       button.addEventListener("click", () => {
-        state.petReferences = state.petReferences.filter((item) => item.id !== button.dataset.removePetReference);
+        currentState.petReferences = references.filter((item) => item.id !== button.dataset.removePetReference);
         renderPetGenerateDialog();
       });
     });
@@ -87,29 +93,32 @@
   }
 
   function renderPetJobs() {
-    const jobs = state.petJobs?.length ? state.petJobs : (state.runtime?.petJobs || []);
-    if (!els.petJobButton || !els.petJobPanel) return;
+    const controls = els || {};
+    const currentState = state || {};
+    const jobs = currentState.petJobs?.length ? currentState.petJobs : (currentState.runtime?.petJobs || []);
+    if (!controls.petJobButton || !controls.petJobPanel) return;
+    const escape = typeof escapeHtml === "function" ? escapeHtml : (value) => String(value || "");
     const running = jobs.filter((job) => job.status === "running");
     const latest = jobs[0];
     const visible = running.length || latest;
-    els.petJobButton.classList.toggle("hidden", !visible);
+    controls.petJobButton.classList.toggle("hidden", !visible);
     if (!visible) {
-      els.petJobPanel.classList.add("hidden");
+      controls.petJobPanel.classList.add("hidden");
       return;
     }
-    els.petJobButton.textContent = running.length
+    controls.petJobButton.textContent = running.length
       ? `桌宠生成中 ${running.length}`
       : latest.status === "completed"
         ? "桌宠已生成"
         : "桌宠生成失败";
-    els.petJobPanel.classList.toggle("hidden", !state.petJobPanelOpen);
-    if (!state.petJobPanelOpen) return;
-    els.petJobPanel.innerHTML = jobs.slice(0, 5).map((job) => `
-      <article class="pet-job-item ${escapeHtml(job.status)}">
-        <strong>${escapeHtml(job.botName || job.petId)}</strong>
-        <span>${escapeHtml(job.status === "running" ? "生成中" : job.status === "completed" ? "已完成" : "失败")}</span>
-        ${job.error ? `<p>${escapeHtml(job.error)}</p>` : ""}
-        ${job.logPath ? `<small>${escapeHtml(job.logPath)}</small>` : ""}
+    controls.petJobPanel.classList.toggle("hidden", !currentState.petJobPanelOpen);
+    if (!currentState.petJobPanelOpen) return;
+    controls.petJobPanel.innerHTML = jobs.slice(0, 5).map((job) => `
+      <article class="pet-job-item ${escape(job.status)}">
+        <strong>${escape(job.botName || job.petId)}</strong>
+        <span>${escape(job.status === "running" ? "生成中" : job.status === "completed" ? "已完成" : "失败")}</span>
+        ${job.error ? `<p>${escape(job.error)}</p>` : ""}
+        ${job.logPath ? `<small>${escape(job.logPath)}</small>` : ""}
       </article>
     `).join("");
   }

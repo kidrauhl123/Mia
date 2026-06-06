@@ -159,6 +159,15 @@ test("pet dialog consumes bot-named generation job fields", () => {
   assert.doesNotMatch(petDialogSource, /fellow\s*\+|Fellow\s*\+|\[\s*["']fellow|\[\s*["']Fellow/);
 });
 
+test("pet dialog renderers skip work before dependency injection", () => {
+  const petDialogSource = fs.readFileSync(path.join(root, "src/renderer/bot/pet-dialog.js"), "utf8");
+  const sandbox = { window: {}, console };
+  vm.runInNewContext(petDialogSource, sandbox, { filename: "pet-dialog.js" });
+
+  assert.doesNotThrow(() => sandbox.window.miaPetDialog.renderPetGenerateDialog());
+  assert.doesNotThrow(() => sandbox.window.miaPetDialog.renderPetJobs());
+});
+
 test("engine detection renderer preserves legacy runtime status fallbacks", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const renderSource = appSource.slice(
@@ -594,7 +603,8 @@ test("desktop avatar picker supports video avatars with one trim row", () => {
   assert.match(avatarSource, /removeAvatarChildrenExcept\(el, video\)/);
   assert.match(avatarSource, /background-color:transparent/);
   assert.doesNotMatch(avatarSource, /const style = `background-color:\$\{escapeHtml\(color\)\};`/);
-  assert.match(avatarSource, /video\.loop = true/);
+  assert.match(avatarSource, /video\.loop = false/);
+  assert.match(avatarSource, /video\.removeAttribute\?\.\("loop"\)/);
   assert.doesNotMatch(styleSource, /\.avatar-video\.ready/);
   assert.match(styleSource, /\.avatar-image,/);
   assert.match(styleSource, /\.profile-avatar\.media-avatar/);
@@ -670,6 +680,52 @@ test("desktop avatar video crop updates do not restart playback unless trim chan
   assert.deepEqual(removed, []);
   assert.equal(seeks.length, 1);
   assert.equal(seeks[0], 1.5);
+});
+
+test("desktop avatar videos loop from zero when the asset is already trimmed", () => {
+  const avatarSource = fs.readFileSync(path.join(root, "src/renderer/helpers/avatar-helpers.js"), "utf8");
+  const sharedAvatarSource = fs.readFileSync(path.join(root, "packages/shared/avatar.js"), "utf8");
+  const context = vm.createContext({
+    window: {},
+    console,
+    setTimeout
+  });
+  context.globalThis = context.window;
+  vm.runInContext(sharedAvatarSource, context, { filename: "packages/shared/avatar.js" });
+  vm.runInContext(avatarSource, context, { filename: "src/renderer/helpers/avatar-helpers.js" });
+
+  const handlers = {};
+  const seeks = [];
+  let currentTime = 4.96;
+  const video = {
+    dataset: {},
+    attrs: {},
+    readyState: 2,
+    duration: 5.004,
+    get currentTime() { return currentTime; },
+    set currentTime(value) {
+      seeks.push(value);
+      currentTime = value;
+    },
+    getAttribute(name) { return this.attrs[name] || null; },
+    setAttribute(name, value) { this.attrs[name] = String(value); },
+    removeAttribute(name) { delete this.attrs[name]; },
+    addEventListener(name, handler) { handlers[name] = handler; },
+    play() { return { catch() {} }; }
+  };
+
+  context.window.miaAvatar.updateAvatarVideoElement(
+    video,
+    "data:video/mp4;base64,abc",
+    { x: 36, y: 100, zoom: 1.09, start: 7.26, duration: 4.94 }
+  );
+  handlers.timeupdate();
+
+  assert.equal(video.dataset.avatarStart, "7.26");
+  assert.equal(video.dataset.avatarDuration, "4.94");
+  assert.deepEqual(seeks, [0]);
+  assert.equal(video.attrs.loop, undefined);
+  assert.equal(video.loop, false);
 });
 
 test("cloud-only: submit routes through the active cloud conversation, not a local session", () => {
@@ -889,6 +945,15 @@ test("opening a bot conversation preserves existing cloud runtime kind", () => {
   assert.match(appSource, /const existingConversation = window\.miaSocial\?\.botConversationForKey\?\.\(key\)/);
   assert.match(appSource, /if \(existingConversation\?\.id\)/);
   assert.match(appSource, /window\.miaSocial\.setActiveConversationId\(existingConversation\.id\)/);
+});
+
+test("bot runtime controls resolve identity from the canonical bot directory", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+
+  assert.match(appSource, /function activeBotRuntimeControlContext\(\)/);
+  assert.match(appSource, /const bots = allOwnedBotsForIdentity\(state\.runtime\?\.bots \|\| \[\]\);/);
+  assert.match(appSource, /const bot = bots\.find\(\(item\) => \(item\.key \|\| item\.id\) === conversationContext\.botKey\) \|\| \{\};/);
+  assert.doesNotMatch(appSource, /const personas = state\.runtime\?\.bots \|\| \[\];\s*const bot = personas\.find/);
 });
 
 test("renderer app state factory owns default mutable state", () => {

@@ -42,6 +42,12 @@ try {
 } catch {
   ({ botConversationId } = require("./src/shared/bot-identity.js"));
 }
+let avatarMedia = null;
+try {
+  avatarMedia = require("../src/shared/avatar-media.js");
+} catch {
+  avatarMedia = require("./src/shared/avatar-media.js");
+}
 let createSkillsStore = null;
 try {
   ({ createSkillsStore } = require("../src/cloud/skills-store.js"));
@@ -490,20 +496,34 @@ function runFfmpeg(args = [], timeoutMs = 60_000) {
   }
 }
 
-function optimizeAvatarAsset(originalPath, mimeType = "", hash = "") {
+function avatarTrimArgs(crop = {}) {
+  const mimeTrim = avatarMedia?.normalizeTrim?.(crop || {}) || { start: 0, duration: 5 };
+  return {
+    start: Math.max(0, Number(mimeTrim.start) || 0),
+    duration: Math.max(1, Math.min(5, Number(mimeTrim.duration) || 5))
+  };
+}
+
+function optimizeAvatarAsset(originalPath, mimeType = "", hash = "", crop = null) {
   const ext = optimizedAvatarExtensionForMime(mimeType);
   if (!ext || !originalPath || !fs.existsSync(originalPath)) return "";
   const originalSize = fs.statSync(originalPath).size;
   if (originalSize <= 96_000) return "";
-  const filename = `${String(hash || crypto.createHash("sha256").update(fs.readFileSync(originalPath)).digest("hex")).slice(0, 32)}.avatar.${ext}`;
+  const mime = String(mimeType || "").trim().toLowerCase();
+  const trim = avatarTrimArgs(crop || {});
+  const originalHash = String(hash || crypto.createHash("sha256").update(fs.readFileSync(originalPath)).digest("hex"));
+  const optimizedHash = ext === "mp4"
+    ? crypto.createHash("sha256").update(`${originalHash}:trim:${trim.start}:${trim.duration}`).digest("hex")
+    : originalHash;
+  const filename = `${optimizedHash.slice(0, 32)}.avatar.${ext}`;
   const outPath = path.join(path.dirname(originalPath), filename);
   if (fs.existsSync(outPath) && fs.statSync(outPath).size > 0) return filename;
   const scale = "scale='if(gt(iw,ih),min(256,iw),-2)':'if(gt(iw,ih),-2,min(256,ih))'";
-  const mime = String(mimeType || "").trim().toLowerCase();
   const ok = ext === "mp4"
     ? runFfmpeg([
       "-y", "-v", "error", "-i", originalPath,
-      "-t", "5",
+      ...(trim.start > 0 ? ["-ss", String(trim.start)] : []),
+      "-t", String(trim.duration),
       "-vf", scale,
       "-an",
       "-movflags", "+faststart",
@@ -529,7 +549,7 @@ function optimizeAvatarAsset(originalPath, mimeType = "", hash = "") {
   return filename;
 }
 
-function materializeAvatarImage(context = {}, avatarImage = "") {
+function materializeAvatarImage(context = {}, avatarImage = "", crop = null) {
   const value = String(avatarImage || "").trim();
   const match = value.match(/^data:([^;,]+);base64,(.*)$/s);
   if (!match) return value;
@@ -542,7 +562,7 @@ function materializeAvatarImage(context = {}, avatarImage = "") {
   fs.mkdirSync(dir, { recursive: true });
   const filePath = path.join(dir, filename);
   if (!fs.existsSync(filePath)) fs.writeFileSync(filePath, buffer);
-  const optimized = optimizeAvatarAsset(filePath, match[1], hash);
+  const optimized = optimizeAvatarAsset(filePath, match[1], hash, crop);
   return avatarAssetPublicUrl(context, optimized || filename);
 }
 
@@ -576,6 +596,11 @@ function serveAvatarAsset(req, res, context = {}, pathname = "") {
   res.writeHead(200, {
     "Content-Type": fileContentType(filePath),
     "Content-Length": stat.size,
+    // Avatar media is embedded by the desktop app from a file:// Electron
+    // renderer as well as by the web app. The global API policy stays
+    // same-origin, but public immutable avatar assets must be cross-origin
+    // embeddable or Electron falls back to generated initials for videos.
+    "Cross-Origin-Resource-Policy": "cross-origin",
     "Cache-Control": "public, max-age=31536000, immutable"
   });
   if (req.method === "HEAD") res.end();
@@ -2075,9 +2100,10 @@ async function handleRequest(req, res, context) {
     if (req.method === "PATCH" && url.pathname === "/api/me/profile") {
       const body = await readJson(req);
       if (replayIfCached(context, res, auth.user.id, body)) return;
+      const avatarCrop = body.avatarCrop === null || (body.avatarCrop && typeof body.avatarCrop === "object") ? body.avatarCrop : undefined;
       const updated = cloudStore.updateUserProfile(auth.user.id, {
-        avatarImage: typeof body.avatarImage === "string" ? materializeAvatarImage(context, body.avatarImage) : undefined,
-        avatarCrop: body.avatarCrop === null || (body.avatarCrop && typeof body.avatarCrop === "object") ? body.avatarCrop : undefined,
+        avatarImage: typeof body.avatarImage === "string" ? materializeAvatarImage(context, body.avatarImage, avatarCrop) : undefined,
+        avatarCrop,
         avatarColor: typeof body.avatarColor === "string" ? body.avatarColor : undefined,
         ...(Object.prototype.hasOwnProperty.call(body, "statusBadge")
           ? { statusBadge: body.statusBadge }
@@ -2192,12 +2218,17 @@ async function handleRequest(req, res, context) {
       if (replayIfCached(context, res, auth.user.id, body)) return;
       const displayName = body.displayName || body.display_name || body.name;
       if (!displayName || typeof displayName !== "string") return writeError(res, 400, "displayName is required");
+      const avatarCrop = body.avatarCrop === null || (body.avatarCrop && typeof body.avatarCrop === "object")
+        ? body.avatarCrop
+        : body.avatar_crop === null || (body.avatar_crop && typeof body.avatar_crop === "object")
+          ? body.avatar_crop
+          : undefined;
       let bot;
       try {
         bot = context.botsStore.upsertBot(auth.user.id, {
           ...body,
           ...(typeof body.avatarImage === "string"
-            ? { avatarImage: materializeAvatarImage(context, body.avatarImage) }
+            ? { avatarImage: materializeAvatarImage(context, body.avatarImage, avatarCrop) }
             : {}),
           id,
           displayName
