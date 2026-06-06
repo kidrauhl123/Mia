@@ -100,6 +100,18 @@ test("lottie icons support autoplaying loop animations for scanning state", () =
   assert.match(lottieSource, /autoplay:\s*triggerMode === "loop"/);
 });
 
+test("refreshRuntime bootstraps social when cloud status arrives after startup", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const refreshRuntime = extractFunctionSource(appSource, "refreshRuntime");
+  const maybeBootstrap = extractFunctionSource(appSource, "maybeBootstrapSocialAfterRuntime");
+
+  assert.match(refreshRuntime, /maybeBootstrapSocialAfterRuntime\(runtime\)/);
+  assert.match(maybeBootstrap, /runtime\?\.cloud\?\.enabled/);
+  assert.match(maybeBootstrap, /window\.miaSocial\.isBootstrapped/);
+  assert.match(maybeBootstrap, /socialBootstrapInFlight/);
+  assert.match(maybeBootstrap, /window\.miaSocial\.bootstrapAfterLogin\(\)/);
+});
+
 test("first-run startup overlay is wired to the welcome Lottie animation", () => {
   const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");

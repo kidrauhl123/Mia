@@ -72,6 +72,16 @@ test("non-preset image with a neutral crop stays neutral", () => {
   assert.match(img.getAttribute("style"), /scale\(1\)/);
 });
 
+test("remote avatar image keeps a generated fallback while the media loads", () => {
+  const avatar = loadAvatar();
+  const el = makeEl();
+  avatar.applyAvatarMedia(el, "https://example.test/avatar.png", {}, "#65aadd", "棕野");
+  const img = el._children[0];
+  assert.equal(img.getAttribute("src"), "https://example.test/avatar.png");
+  assert.equal(el.style.backgroundImage.startsWith('url("data:image/svg+xml,'), true);
+  assert.match(decodeURIComponent(el.style.backgroundImage), /棕野/);
+});
+
 test("former preset image with an explicit user crop still renders as the generated fallback", () => {
   const avatar = loadAvatar();
   const el = makeEl();

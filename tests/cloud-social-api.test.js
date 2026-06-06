@@ -487,7 +487,8 @@ test("GET /api/conversations/:id returns user member public identity without pro
     assert.equal(bobMember.identity.kind, "user");
     assert.equal(bobMember.identity.id, bob.user.id);
     assert.equal(bobMember.identity.displayName, "bob");
-    assert.equal(bobMember.identity.avatar.image, avatarImage);
+    assert.match(bobMember.identity.avatar.image, /^\/api\/avatar-assets\/[A-Za-z0-9_.-]+\.gif$/);
+    assert.equal(bobMember.identity.avatar.image.startsWith("data:"), false);
     assert.deepEqual(bobMember.identity.avatar.crop, { x: 1, y: 2, zoom: 3 });
     assert.equal(bobMember.identity.avatar.text, "bo");
   } finally { await stopServer(ctx); }

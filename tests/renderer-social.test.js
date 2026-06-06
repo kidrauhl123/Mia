@@ -133,9 +133,14 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
-test("bootstrapAfterLogin ensures local bot conversations before listing conversations", async () => {
+async function flushPromises(turns = 3) {
+  for (let i = 0; i < turns; i += 1) await Promise.resolve();
+}
+
+test("bootstrapAfterLogin lists conversations before slow local bot ensure work", async () => {
   const s = loadSocial();
   const calls = [];
+  const ensureGate = deferred();
   s.initSocialModule({
     getState: () => ({
       runtime: {
@@ -156,6 +161,7 @@ test("bootstrapAfterLogin ensures local bot conversations before listing convers
     settingsGet: async () => ({}),
     ensureBotSessionConversation: async (botId, body) => {
       calls.push({ kind: "ensure", botId, body });
+      await ensureGate.promise;
       return { ok: true, data: { conversation: { id: "botc_u_1_alice", type: "bot" } } };
     },
     saveBotRuntime: async (botId, body) => {
@@ -170,12 +176,19 @@ test("bootstrapAfterLogin ensures local bot conversations before listing convers
   };
 
   await s.bootstrapAfterLogin();
+  await flushPromises();
 
-  assert.deepEqual(calls.map((call) => call.kind), ["ensure", "runtime", "listConversations"]);
-  assert.equal(calls[0].botId, "alice");
-  assert.deepEqual(JSON.parse(JSON.stringify(calls[0].body)), { botId: "alice", title: "爱丽丝", runtimeKind: "desktop-local" });
+  assert.deepEqual(calls.map((call) => call.kind), ["listConversations", "ensure"]);
+  assert.equal(s.moduleState.conversations.length, 1);
+  assert.equal(s.moduleState.conversations[0].id, "botc_u_1_alice");
   assert.equal(calls[1].botId, "alice");
-  assert.deepEqual(JSON.parse(JSON.stringify(calls[1].body)), {
+  assert.deepEqual(JSON.parse(JSON.stringify(calls[1].body)), { botId: "alice", title: "爱丽丝", runtimeKind: "desktop-local" });
+
+  ensureGate.resolve();
+  await flushPromises();
+
+  assert.equal(calls[2].botId, "alice");
+  assert.deepEqual(JSON.parse(JSON.stringify(calls[2].body)), {
     runtimeKind: "desktop-local",
     enabled: true,
     config: {
@@ -216,6 +229,43 @@ test("bootstrapAfterLogin asks untitled loaded conversations to generate titles"
   await s.bootstrapAfterLogin();
 
   assert.deepEqual(titleCandidates, ["botc_u_1_kongling"]);
+});
+
+test("bootstrapAfterLogin prefetches group members beyond the initial message cap", async () => {
+  const s = loadSocial();
+  const fetched = [];
+  s.__mockWindow.miaSocialGroups = {
+    fetchAndCacheConversationMembers: async (conversationId) => {
+      fetched.push(conversationId);
+    }
+  };
+  s.initSocialModule({
+    getState: () => ({ runtime: {} }),
+    render: () => {},
+    els: {},
+    appendTransientChat: () => {}
+  });
+  const conversations = [
+    ...Array.from({ length: 30 }, (_value, idx) => ({
+      id: `botc_u_1_bot_${idx}`,
+      type: "bot",
+      name: `Bot ${idx}`
+    })),
+    { id: "g_late", type: "group", name: "Late Group" }
+  ];
+  s.__mockWindow.mia.social = {
+    myUsername: async () => ({ ok: true, data: { id: "u_1", username: "jung" } }),
+    listFriends: async () => ({ ok: true, data: { friends: [] } }),
+    listFriendRequests: async () => ({ ok: true, data: { requests: [] } }),
+    listBots: async () => ({ ok: true, data: { bots: [] } }),
+    settingsGet: async () => ({}),
+    listConversations: async () => ({ ok: true, data: { conversations } }),
+    listConversationMessages: async () => ({ ok: true, data: { messages: [] } })
+  };
+
+  await s.bootstrapAfterLogin();
+
+  assert.deepEqual(fetched, ["g_late"]);
 });
 
 test("bootstrapAfterLogin paints cached SQLite social data before slow cloud conversations return", async () => {
@@ -356,6 +406,62 @@ test("renderSidebarRows keeps the active legacy bot session as the sidebar repre
   assert.match(rows[0].conversation.lastMessagePreview, /schedule_\*/);
 });
 
+test("renderSidebarRows collapses clean bot session history by bot id", () => {
+  const s = loadSocial();
+  s.__mockWindow.miaSessionHistory = sessionHistory;
+  s.moduleState.bots = [
+    { id: "bot_aaa", name: "匠妹", avatarImage: "https://example.test/jm.png" },
+    { id: "bot_bbb", name: "棕野" }
+  ];
+  s.moduleState.conversations = [
+    {
+      id: "botc_session_old",
+      type: "bot",
+      name: "旧历史",
+      updatedAt: "2026-06-01T08:00:00.000Z",
+      decorations: { botId: "bot_aaa", sessionId: "session_old" }
+    },
+    {
+      id: "botc_session_new",
+      type: "bot",
+      name: "新历史",
+      updatedAt: "2026-06-03T08:00:00.000Z",
+      decorations: { botId: "bot_aaa", sessionId: "session_new" }
+    },
+    {
+      id: "botc_other",
+      type: "bot",
+      name: "另一个 bot",
+      updatedAt: "2026-06-02T08:00:00.000Z",
+      decorations: { botId: "bot_bbb", sessionId: "other" }
+    }
+  ];
+  s.moduleState.messageCache.set("botc_session_old", {
+    messages: [{ created_at: "2026-06-01T08:30:00.000Z", body_md: "old" }],
+    maxSeq: 1
+  });
+  s.moduleState.messageCache.set("botc_session_new", {
+    messages: [{ created_at: "2026-06-03T08:30:00.000Z", body_md: "new" }],
+    maxSeq: 1
+  });
+  s.moduleState.messageCache.set("botc_other", {
+    messages: [{ created_at: "2026-06-02T08:30:00.000Z", body_md: "other" }],
+    maxSeq: 1
+  });
+
+  const rows = s.renderSidebarRows();
+
+  assert.deepEqual(rows.map((row) => row.conversation.id), ["botc_session_new", "botc_other"]);
+  assert.deepEqual(rows.map((row) => row.conversation.type), ["bot", "bot"]);
+  assert.deepEqual(rows.map((row) => row.conversation.otherUser), [null, null]);
+
+  s.moduleState.lastBotConversationByKey = { bot_aaa: "botc_session_old" };
+  assert.deepEqual(
+    s.renderSidebarRows().map((row) => row.conversation.id),
+    ["botc_session_old", "botc_other"]
+  );
+});
+
 test("bootstrapAfterLogin syncs external bot runtime config for web controls", async () => {
   const s = loadSocial();
   const calls = [];
@@ -399,6 +505,7 @@ test("bootstrapAfterLogin syncs external bot runtime config for web controls", a
   };
 
   await s.bootstrapAfterLogin();
+  await flushPromises();
 
   assert.equal(calls[1].kind, "runtime");
   assert.deepEqual(JSON.parse(JSON.stringify(calls[1].body.config)), {
@@ -533,11 +640,12 @@ test("bootstrapAfterLogin warns when bot conversation ensure returns ok false", 
     };
 
     await s.bootstrapAfterLogin();
+    await flushPromises();
   } finally {
     console.warn = originalWarn;
   }
 
-  assert.deepEqual(calls.map((call) => call.kind), ["ensure", "listConversations"]);
+  assert.deepEqual(calls.map((call) => call.kind), ["listConversations", "ensure"]);
   assert.equal(warnings.some((args) => args.some((part) => String(part).includes("alice") || String(part).includes("boom"))), true);
 });
 
@@ -1149,7 +1257,7 @@ test("renderConversationChat preserves an owned bot's explicit avatar color", ()
   assert.match(chat.children[0].innerHTML, /background-color:#aa88dd/);
 });
 
-test("renderConversationChat renders private cloud sender status badge", () => {
+test("renderConversationChat hides sender title in private bot conversations", () => {
   const s = loadSocial();
   installCloudConversationSource(s.__mockWindow);
   installNameWithBadge(s.__mockWindow);
@@ -1184,9 +1292,9 @@ test("renderConversationChat renders private cloud sender status badge", () => {
   s.renderConversationChat(chat);
 
   assert.equal(chat.children.length, 1);
-  assert.match(chat.children[0].innerHTML, /name-with-badge/);
-  assert.match(chat.children[0].innerHTML, /name-with-badge-badge-emoji/);
-  assert.match(chat.children[0].innerHTML, /⭐/);
+  assert.doesNotMatch(chat.children[0].innerHTML, /bubble-sender/);
+  assert.doesNotMatch(chat.children[0].innerHTML, /name-with-badge/);
+  assert.doesNotMatch(chat.children[0].innerHTML, /⭐/);
 });
 
 test("renderConversationChat renders group sender status badge", () => {

@@ -90,6 +90,7 @@ function registerSocialIpc({ ipcMain, socialApi, messageCache = null, getCloudUs
     writeSocialBootstrapPatch({ messageCache, getCloudUserId, patch: { bots: resultArray(result, "bots") }, log });
     return result;
   }));
+  ipcMain.handle(IpcChannel.SocialGetBotIdentity, safeCall((botId) => socialApi.getBotIdentity(botId)));
   ipcMain.handle(IpcChannel.SocialSaveBotIdentity, safeCall((botId, body) => socialApi.saveBotIdentity(botId, body)));
   ipcMain.handle(IpcChannel.SocialDeleteBot, safeCall((botId) => socialApi.deleteBot(botId)));
   ipcMain.handle(IpcChannel.SocialListPlatformModels, safeCall(() => socialApi.listPlatformModels()));

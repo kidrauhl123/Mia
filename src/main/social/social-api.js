@@ -71,7 +71,10 @@ function createSocialApi({ getSettings, normalizeUrl }) {
       return jsonFetch({ ...ctx(), method: "GET", path: "/api/conversations" });
     },
     async listBots() {
-      return jsonFetch({ ...ctx(), method: "GET", path: "/api/me/bots" });
+      return jsonFetch({ ...ctx(), method: "GET", path: "/api/me/bots?compact=1" });
+    },
+    async getBotIdentity(botId) {
+      return jsonFetch({ ...ctx(), method: "GET", path: `/api/me/bots/${encodeURIComponent(botId)}` });
     },
     async saveBotIdentity(botId, body = {}) {
       return jsonFetch({

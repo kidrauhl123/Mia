@@ -108,6 +108,7 @@ contextBridge.exposeInMainWorld("mia", {
     removeFriend: (userId) => ipcRenderer.invoke(IpcChannel.SocialRemoveFriend, userId),
     listConversations: () => ipcRenderer.invoke(IpcChannel.SocialListConversations),
     listBots: () => ipcRenderer.invoke(IpcChannel.SocialListBots),
+    getBotIdentity: (botId) => ipcRenderer.invoke(IpcChannel.SocialGetBotIdentity, botId),
     saveBotIdentity: (botId, body) => ipcRenderer.invoke(IpcChannel.SocialSaveBotIdentity, botId, body),
     deleteBot: (botId) => ipcRenderer.invoke(IpcChannel.SocialDeleteBot, botId),
     listPlatformModels: () => ipcRenderer.invoke(IpcChannel.SocialListPlatformModels),

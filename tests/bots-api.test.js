@@ -101,9 +101,16 @@ test("PUT then GET /api/me/bots roundtrips identity fields", async () => {
     assert.equal(codex.ownerUserId, A.user.id);
     assert.equal(codex.displayName, "Codex");
     assert.equal(codex.color, "#0f766e");
+    assert.match(codex.avatarImage, /^\/api\/avatar-assets\/[A-Za-z0-9_.-]+\.png$/);
     assert.deepEqual(codex.statusBadge, { kind: "gift", assetId: "rose", collectibleId: "nft_rose_1" });
     assert.deepEqual(codex.capabilities, normalizeBotCapabilities(["chat", "tools"]));
     assert.deepEqual(codex.avatarCrop, { x: 10, y: 20, w: 100, h: 100 });
+
+    const detail = await api(ctx.port, "GET", "/api/me/bots/bot_codex", { token: A.token });
+    assert.equal(detail.status, 200);
+    assert.equal(detail.body.bot.id, "bot_codex");
+    assert.equal(detail.body.bot.personaText, "You are Codex.");
+    assert.equal(detail.body.bot.avatarImage, codex.avatarImage);
   } finally { await stopServer(ctx); }
 });
 
@@ -158,6 +165,8 @@ test("web bootstrap can request compact user and bot identities without avatar b
       }
     });
     assert.equal(profile.status, 200);
+    assert.match(profile.body.user.avatarImage, /^\/api\/avatar-assets\/[A-Za-z0-9_.-]+\.png$/);
+    assert.equal(profile.body.user.avatarImage.startsWith("data:"), false);
     const put = await api(ctx.port, "PUT", "/api/me/bots/bot_codex", {
       token: A.token,
       body: {
@@ -183,8 +192,9 @@ test("web bootstrap can request compact user and bot identities without avatar b
     assert.ok(codex);
     assert.equal(codex.ownerUserId, A.user.id);
     assert.equal(codex.displayName, "Codex");
-    assert.equal(Object.prototype.hasOwnProperty.call(codex, "avatarImage"), false);
-    assert.equal(Object.prototype.hasOwnProperty.call(codex, "avatarCrop"), false);
+    assert.match(codex.avatarImage, /^\/api\/avatar-assets\/[A-Za-z0-9_.-]+\.png$/);
+    assert.equal(codex.avatarImage.startsWith("data:"), false);
+    assert.deepEqual(codex.avatarCrop, { x: 10, y: 20, w: 100, h: 100 });
     assert.equal(Object.prototype.hasOwnProperty.call(codex, "personaText"), false);
 
     assert.ok(JSON.stringify(me.body).length < 1_000, "compact /api/me should stay small");

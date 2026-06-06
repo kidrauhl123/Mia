@@ -242,7 +242,25 @@ test("listBots fetches cloud bot identities", async () => {
     });
     const result = await api.listBots();
     assert.equal(result.bots[0].avatarImage, "data:mia-cloud");
-    assert.deepEqual(seen[0], { method: "GET", url: "/api/me/bots" });
+    assert.deepEqual(seen[0], { method: "GET", url: "/api/me/bots?compact=1" });
+  } finally { await teardown(ctx); }
+});
+
+test("getBotIdentity fetches one cloud bot identity", async () => {
+  const seen = [];
+  const ctx = await spawnFakeCloud((req, res) => {
+    seen.push({ method: req.method, url: req.url });
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ bot: { id: "alice", name: "Alice", avatarImage: "https://cdn.example/alice.png" } }));
+  });
+  try {
+    const api = createSocialApi({
+      getSettings: () => ({ enabled: true, token: "t", url: ctx.baseUrl }),
+      normalizeUrl: (u) => u
+    });
+    const result = await api.getBotIdentity("alice");
+    assert.equal(result.bot.avatarImage, "https://cdn.example/alice.png");
+    assert.deepEqual(seen[0], { method: "GET", url: "/api/me/bots/alice" });
   } finally { await teardown(ctx); }
 });
 

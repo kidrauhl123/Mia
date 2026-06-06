@@ -281,6 +281,10 @@
     return imageEl;
   }
 
+  function avatarFallbackDataUri(color, fallbackText) {
+    return avatarResolve().generatedAvatarDataUri(color || "#5e5ce6", fallbackText || "");
+  }
+
   function applyAvatarMedia(el, image, crop = {}, color = "#5e5ce6", fallbackText = "", options = {}) {
     if (!el) return;
     // No uploaded avatar → render the deterministic generated SVG (color circle
@@ -300,7 +304,11 @@
     if (avatarMedia().isVideo(src)) {
       el.classList.add("media-avatar");
       el.classList.add("video-avatar");
-      el.style.backgroundColor = "transparent";
+      el.style.backgroundColor = color || "#5e5ce6";
+      el.style.backgroundImage = `url("${avatarFallbackDataUri(color, fallbackText)}")`;
+      el.style.backgroundSize = "cover";
+      el.style.backgroundPosition = "center";
+      el.style.backgroundRepeat = "no-repeat";
       removeAvatarImages(el);
       const videos = Array.from(el.querySelectorAll?.(":scope > .avatar-video") || []);
       const video = videos[0] || adoptParkedAvatarVideo(src) || createAvatarVideoElement(src, crop);
@@ -314,7 +322,11 @@
     if (src) {
       el.classList.add("media-avatar");
       el.classList.remove("video-avatar");
-      el.style.backgroundColor = "transparent";
+      el.style.backgroundColor = color || "#5e5ce6";
+      el.style.backgroundImage = `url("${avatarFallbackDataUri(color, fallbackText)}")`;
+      el.style.backgroundSize = "cover";
+      el.style.backgroundPosition = "center";
+      el.style.backgroundRepeat = "no-repeat";
       removeAvatarVideos(el);
       const images = Array.from(el.querySelectorAll?.(":scope > .avatar-image") || []);
       const imageEl = images[0] || createAvatarImageElement(src, crop);

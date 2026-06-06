@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 const crypto = require("node:crypto");
+const childProcess = require("node:child_process");
 const fs = require("node:fs");
 const http = require("node:http");
 const path = require("node:path");
@@ -275,6 +276,7 @@ function botDisplayNameForIdentity(bot, fallback = "") {
 function memberIdentityForUser(user, fallbackRef = "") {
   const id = String(user?.id || fallbackRef || "");
   const displayName = userDisplayNameForIdentity(user, fallbackRef);
+  const safeAvatar = compactAvatarImage(user?.avatarImage || "");
   return {
     kind: "user",
     id,
@@ -283,7 +285,7 @@ function memberIdentityForUser(user, fallbackRef = "") {
     avatar: avatarResolve.resolveAvatarForContact({
       id,
       displayName,
-      avatarImage: user?.avatarImage || "",
+      avatarImage: safeAvatar,
       avatarCrop: user?.avatarCrop || null
     })
   };
@@ -293,6 +295,7 @@ function memberIdentityForBot(bot, fallbackRef = "", ownerId = "") {
   const id = String(bot?.id || fallbackRef || "");
   const owner = String(ownerId || bot?.ownerUserId || bot?.ownerId || "");
   const displayName = botDisplayNameForIdentity(bot, fallbackRef);
+  const safeAvatar = compactAvatarImage(bot?.avatarImage || bot?.avatar?.image || "");
   return {
     kind: "bot",
     id,
@@ -301,8 +304,8 @@ function memberIdentityForBot(bot, fallbackRef = "", ownerId = "") {
     avatar: avatarResolve.resolveAvatarForContact({
       id: owner ? `${owner}:${id}` : id,
       displayName,
-      avatarImage: bot?.avatarImage || "",
-      avatarCrop: bot?.avatarCrop || null
+      avatarImage: safeAvatar,
+      avatarCrop: bot?.avatarCrop || bot?.avatar?.crop || null
     }),
     statusBadge: bot?.statusBadge || null
   };
@@ -322,7 +325,19 @@ function compactAuthAccount(account) {
 function compactBotIdentity(bot) {
   if (!bot) return null;
   const { avatarImage, avatarCrop, avatar, personaText, ...identity } = bot;
-  return identity;
+  const safeAvatar = compactAvatarImage(avatarImage || avatar?.image || "");
+  if (!safeAvatar) return identity;
+  return {
+    ...identity,
+    avatarImage: safeAvatar,
+    avatarCrop: avatarCrop || avatar?.crop || null,
+    avatar: {
+      image: safeAvatar,
+      crop: avatarCrop || avatar?.crop || null,
+      color: identity.color || avatar?.color || "",
+      text: identity.displayName || identity.name || identity.id
+    }
+  };
 }
 
 function wantsCompactPayload(url) {
@@ -422,7 +437,150 @@ function fileContentType(filePath, fallback = "application/octet-stream") {
   if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
   if (ext === ".webp") return "image/webp";
   if (ext === ".gif") return "image/gif";
+  if (ext === ".mp4") return "video/mp4";
+  if (ext === ".webm") return "video/webm";
   return fallback;
+}
+
+function publicOriginFromContext(context = {}) {
+  const explicit = normalizeOrigin(process.env.MIA_CLOUD_PUBLIC_URL || process.env.MIA_PUBLIC_URL || "");
+  if (explicit) return explicit;
+  const firstAllowed = Array.isArray(context.allowedOrigins) ? context.allowedOrigins[0] : "";
+  return normalizeOrigin(firstAllowed || "");
+}
+
+function avatarAssetDir(context = {}) {
+  return process.env.MIA_CLOUD_AVATAR_ASSET_DIR
+    || path.join(context.cloudStore?.dataDir || context.store?.dataDir || defaultDataDir, "avatar-assets");
+}
+
+function avatarAssetPublicUrl(context = {}, filename = "") {
+  const origin = publicOriginFromContext(context);
+  const pathPart = `/api/avatar-assets/${encodeURIComponent(filename)}`;
+  return origin ? `${origin}${pathPart}` : pathPart;
+}
+
+function avatarExtensionForMime(mimeType = "") {
+  const mime = String(mimeType || "").trim().toLowerCase();
+  if (mime === "image/png") return "png";
+  if (mime === "image/jpeg" || mime === "image/jpg") return "jpg";
+  if (mime === "image/webp") return "webp";
+  if (mime === "image/gif") return "gif";
+  if (mime === "video/mp4") return "mp4";
+  if (mime === "video/webm") return "webm";
+  return "bin";
+}
+
+function optimizedAvatarExtensionForMime(mimeType = "") {
+  const mime = String(mimeType || "").trim().toLowerCase();
+  if (mime.startsWith("video/") || mime === "image/gif") return "mp4";
+  if (mime.startsWith("image/")) return "jpg";
+  return "";
+}
+
+function runFfmpeg(args = [], timeoutMs = 60_000) {
+  try {
+    const result = childProcess.spawnSync(process.env.MIA_FFMPEG || "ffmpeg", args, {
+      stdio: "ignore",
+      timeout: timeoutMs
+    });
+    return result.status === 0;
+  } catch {
+    return false;
+  }
+}
+
+function optimizeAvatarAsset(originalPath, mimeType = "", hash = "") {
+  const ext = optimizedAvatarExtensionForMime(mimeType);
+  if (!ext || !originalPath || !fs.existsSync(originalPath)) return "";
+  const originalSize = fs.statSync(originalPath).size;
+  if (originalSize <= 96_000) return "";
+  const filename = `${String(hash || crypto.createHash("sha256").update(fs.readFileSync(originalPath)).digest("hex")).slice(0, 32)}.avatar.${ext}`;
+  const outPath = path.join(path.dirname(originalPath), filename);
+  if (fs.existsSync(outPath) && fs.statSync(outPath).size > 0) return filename;
+  const scale = "scale='if(gt(iw,ih),min(256,iw),-2)':'if(gt(iw,ih),-2,min(256,ih))'";
+  const mime = String(mimeType || "").trim().toLowerCase();
+  const ok = ext === "mp4"
+    ? runFfmpeg([
+      "-y", "-v", "error", "-i", originalPath,
+      "-t", "5",
+      "-vf", scale,
+      "-an",
+      "-movflags", "+faststart",
+      "-pix_fmt", "yuv420p",
+      "-c:v", "libx264",
+      "-preset", "veryfast",
+      "-crf", "30",
+      outPath
+    ], 90_000)
+    : runFfmpeg([
+      "-y", "-v", "error", "-i", originalPath,
+      "-vf", scale,
+      "-frames:v", "1",
+      "-q:v", mime === "image/png" ? "5" : "4",
+      outPath
+    ]);
+  if (!ok || !fs.existsSync(outPath)) return "";
+  const optimizedSize = fs.statSync(outPath).size;
+  if (optimizedSize <= 0 || optimizedSize >= originalSize) {
+    try { fs.unlinkSync(outPath); } catch { /* best effort */ }
+    return "";
+  }
+  return filename;
+}
+
+function materializeAvatarImage(context = {}, avatarImage = "") {
+  const value = String(avatarImage || "").trim();
+  const match = value.match(/^data:([^;,]+);base64,(.*)$/s);
+  if (!match) return value;
+  const body = match[2] || "";
+  if (!body) return "";
+  const buffer = Buffer.from(body, "base64");
+  const hash = crypto.createHash("sha256").update(buffer).digest("hex");
+  const filename = `${hash.slice(0, 32)}.${avatarExtensionForMime(match[1])}`;
+  const dir = avatarAssetDir(context);
+  fs.mkdirSync(dir, { recursive: true });
+  const filePath = path.join(dir, filename);
+  if (!fs.existsSync(filePath)) fs.writeFileSync(filePath, buffer);
+  const optimized = optimizeAvatarAsset(filePath, match[1], hash);
+  return avatarAssetPublicUrl(context, optimized || filename);
+}
+
+function compactAvatarImage(value = "") {
+  const image = String(value || "").trim();
+  if (!image) return "";
+  if (/^data:/i.test(image) && image.length > 16_000) return "";
+  return image;
+}
+
+function serveAvatarAsset(req, res, context = {}, pathname = "") {
+  if (req.method !== "GET" && req.method !== "HEAD") return false;
+  if (!pathname.startsWith("/api/avatar-assets/")) return false;
+  let filename = "";
+  try {
+    filename = decodeURIComponent(pathname.slice("/api/avatar-assets/".length));
+  } catch {
+    writeError(res, 400, "Bad request.");
+    return true;
+  }
+  if (!/^[A-Za-z0-9_.-]+$/.test(filename)) {
+    writeError(res, 404, "Not found.");
+    return true;
+  }
+  const filePath = path.join(avatarAssetDir(context), filename);
+  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+    writeError(res, 404, "Not found.");
+    return true;
+  }
+  const stat = fs.statSync(filePath);
+  res.writeHead(200, {
+    "Content-Type": fileContentType(filePath),
+    "Content-Length": stat.size,
+    "Cache-Control": "public, max-age=31536000, immutable"
+  });
+  if (req.method === "HEAD") res.end();
+  else fs.createReadStream(filePath).pipe(res);
+  return true;
 }
 
 function defaultWebRoot() {
@@ -1344,6 +1502,7 @@ async function handleRequest(req, res, context) {
     return;
   }
 
+  if (serveAvatarAsset(req, res, context, url.pathname)) return;
   if (serveWebAsset(req, res, context.webRoot, url.pathname)) return;
 
   try {
@@ -1917,7 +2076,7 @@ async function handleRequest(req, res, context) {
       const body = await readJson(req);
       if (replayIfCached(context, res, auth.user.id, body)) return;
       const updated = cloudStore.updateUserProfile(auth.user.id, {
-        avatarImage: typeof body.avatarImage === "string" ? body.avatarImage : undefined,
+        avatarImage: typeof body.avatarImage === "string" ? materializeAvatarImage(context, body.avatarImage) : undefined,
         avatarCrop: body.avatarCrop === null || (body.avatarCrop && typeof body.avatarCrop === "object") ? body.avatarCrop : undefined,
         avatarColor: typeof body.avatarColor === "string" ? body.avatarColor : undefined,
         ...(Object.prototype.hasOwnProperty.call(body, "statusBadge")
@@ -2019,6 +2178,14 @@ async function handleRequest(req, res, context) {
     }
 
     const botDetailMatch = url.pathname.match(/^\/api\/me\/bots\/([A-Za-z0-9_.-]+)$/);
+    if (req.method === "GET" && botDetailMatch) {
+      const id = botDetailMatch[1];
+      const bot = context.botsStore.getBot(id);
+      if (!bot) return writeError(res, 404, "bot not found");
+      if (bot.ownerUserId !== auth.user.id) return writeError(res, 403, "you can only read your own bots");
+      return writeJson(res, 200, { bot });
+    }
+
     if (req.method === "PUT" && botDetailMatch) {
       const id = botDetailMatch[1];
       const body = await readJson(req);
@@ -2029,6 +2196,9 @@ async function handleRequest(req, res, context) {
       try {
         bot = context.botsStore.upsertBot(auth.user.id, {
           ...body,
+          ...(typeof body.avatarImage === "string"
+            ? { avatarImage: materializeAvatarImage(context, body.avatarImage) }
+            : {}),
           id,
           displayName
         });

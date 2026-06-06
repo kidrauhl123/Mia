@@ -115,6 +115,8 @@
 
   // Cache of conversation members per conversation id (fetched on first open, updated via WS events).
   const _conversationMembersCache = new Map();
+  const _hydratingBotIdentities = new Set();
+  let _ensuringLocalBotConversations = null;
 
   // Distance (px) from the bottom within which we treat the user as "pinned" and
   // keep following new content. Mirrors the bot-chat threshold in app.js.
@@ -182,6 +184,10 @@
       statusBadge: spec.statusBadge
     });
     return `<span class="bubble-sender"${style}>${name}</span>`;
+  }
+
+  function shouldRenderSenderTitle(conversation) {
+    return sessionHistoryShared().conversationType(conversation, conversation?.id || "") === "group";
   }
 
   function avatarColor(key) {
@@ -889,12 +895,29 @@
           bot,
           engineContracts: window.miaEngineContracts,
           modelSettings: window.miaModelSettings,
-          engineOptions: window.miaEngineOptions
+          engineOptions: window.miaEngineOptions,
+          onConversation: upsertConversation
         });
       } catch (error) {
         console.warn("[social] ensure bot conversation failed", bot.key, error);
       }
     }
+  }
+
+  function ensureLocalBotConversationsInBackground(api) {
+    if (!api || !window.miaBotCommands?.ensureDesktopLocalBotConversation) return;
+    if (_ensuringLocalBotConversations) return;
+    _ensuringLocalBotConversations = Promise.resolve()
+      .then(() => ensureLocalBotConversations(api))
+      .then(() => {
+        if (deps && typeof deps.render === "function") deps.render();
+      })
+      .catch((error) => {
+        console.warn("[social] ensure local bot conversations failed:", error);
+      })
+      .finally(() => {
+        _ensuringLocalBotConversations = null;
+      });
   }
 
   async function ensureBotConversation(bot) {
@@ -1068,6 +1091,41 @@
     return true;
   }
 
+  function botKeyFromRecord(bot = {}) {
+    return String(bot?.key || bot?.id || bot?.botId || bot?.bot_id || "").trim();
+  }
+
+  function upsertCloudBotIdentity(bot) {
+    const key = botKeyFromRecord(bot);
+    if (!key) return false;
+    moduleState.bots = [
+      { ...bot, key },
+      ...moduleState.bots.filter((item) => botKeyFromRecord(item) !== key)
+    ];
+    return true;
+  }
+
+  function hydrateVisibleBotIdentities(api, conversations = []) {
+    if (!api || typeof api.getBotIdentity !== "function") return;
+    const ids = [...new Set((Array.isArray(conversations) ? conversations : [])
+      .map((conversation) => sessionHistoryShared().botId(conversation))
+      .map((id) => String(id || "").trim())
+      .filter(Boolean))];
+    for (const botId of ids) {
+      if (_hydratingBotIdentities.has(botId)) continue;
+      const existing = moduleState.bots.find((item) => botKeyFromRecord(item) === botId);
+      if (existing && (existing.avatarImage || existing.avatar_image)) continue;
+      _hydratingBotIdentities.add(botId);
+      Promise.resolve(api.getBotIdentity(botId))
+        .then((res) => {
+          const bot = res?.ok ? res.data?.bot : res?.bot;
+          if (bot && upsertCloudBotIdentity(bot) && deps && typeof deps.render === "function") deps.render();
+        })
+        .catch((err) => console.warn("[social] getBotIdentity failed for", botId, err?.message || err))
+        .finally(() => _hydratingBotIdentities.delete(botId));
+    }
+  }
+
   // ── bootstrapAfterLogin ───────────────────────────────────────────────────
 
   async function bootstrapAfterLogin() {
@@ -1076,6 +1134,7 @@
       return;
     }
     const api = window.mia.social;
+    let bootstrapCompleted = false;
     try {
       await hydrateCachedSocialBootstrap(api);
       const [meRes, friendsRes, incomingRes, outgoingRes, botsRes] = await Promise.all([
@@ -1110,16 +1169,32 @@
       if (incomingRes.ok) moduleState.incomingRequests = incomingRes.data?.requests || [];
       if (outgoingRes.ok) moduleState.outgoingRequests = outgoingRes.data?.requests || [];
 
-      await ensureLocalBotConversations(api);
-
       const conversationsRes = await api.listConversations();
-      if (conversationsRes.ok) moduleState.conversations = conversationsRes.data?.conversations || [];
+      if (conversationsRes.ok) {
+        moduleState.conversations = conversationsRes.data?.conversations || [];
+        bootstrapCompleted = true;
+      }
+      hydrateVisibleBotIdentities(api, visibleSocialConversations(moduleState.conversations).slice(0, INITIAL_CONVERSATIONS_CAP));
+      ensureLocalBotConversationsInBackground(api);
 
       // Phase 3: cross-device user settings (pin / read marks / appearance).
       await bootstrapCloudSettings();
 
       // Fetch initial messages for up to INITIAL_CONVERSATIONS_CAP conversations.
       const conversationsToFetch = visibleSocialConversations(moduleState.conversations).slice(0, INITIAL_CONVERSATIONS_CAP);
+      // Prefetch members for every group conversation so sidebar/header mosaics
+      // have the real member tiles before message backfill finishes. This is not
+      // capped by INITIAL_CONVERSATIONS_CAP: groups are few, and older groups can
+      // still be visible in the sidebar.
+      const groupConversationsToFetch = visibleSocialConversations(moduleState.conversations).filter((r) => {
+        const t = r.type
+          || (r.id?.startsWith("dm:") ? "dm"
+            : r.id?.startsWith("botc_") ? "bot"
+            : (r.id?.startsWith("g_") || r.id?.startsWith("g-")) ? "group"
+            : null);
+        return t === "group";
+      });
+      await Promise.all(groupConversationsToFetch.map((r) => _fetchAndCacheConversationMembers(r.id)));
       await Promise.all(conversationsToFetch.map(async (conversation) => {
         if (!moduleState.messageCache.has(conversation.id)) {
           moduleState.messageCache.set(conversation.id, { messages: [], maxSeq: 0 });
@@ -1156,18 +1231,6 @@
         }
       }));
 
-      // Prefetch members for every group conversation so the sidebar mosaic
-      // shows real avatars on first paint instead of an empty circle.
-      // Bounded by INITIAL_CONVERSATIONS_CAP just like the message fetch above.
-      const groupConversationsToFetch = conversationsToFetch.filter((r) => {
-        const t = r.type
-          || (r.id?.startsWith("dm:") ? "dm"
-            : r.id?.startsWith("botc_") ? "bot"
-            : (r.id?.startsWith("g_") || r.id?.startsWith("g-")) ? "group"
-            : null);
-        return t === "group";
-      });
-      await Promise.all(groupConversationsToFetch.map((r) => _fetchAndCacheConversationMembers(r.id)));
     } catch (err) {
       console.error("[social] bootstrapAfterLogin failed:", err);
     }
@@ -1176,7 +1239,7 @@
     // first render that includes cloud rows also has bot personas —
     // the sidebar shows both data sources in one paint instead of
     // "personas now, conversations later" (the visible "割裂" the user reported).
-    moduleState.bootstrapped = true;
+    if (bootstrapCompleted) moduleState.bootstrapped = true;
     if (deps && typeof deps.render === "function") deps.render();
   }
 
@@ -1431,7 +1494,7 @@
     }), {
       activeConversationId: moduleState.activeConversationId,
       messageCache: moduleState.messageCache,
-      preferredConversationIdByBotKey: moduleState.lastBotConversationByKey
+      preferredConversationIdByBotId: moduleState.lastBotConversationByKey
     });
     return sidebarConversations.map((conversation) => {
       const cacheEntry = moduleState.messageCache.get(conversation.id);
@@ -1572,6 +1635,7 @@
   // routes to openSocialMessageMenu instead of the bot message menu.
   function _buildMessageArticle(msg, accentColor) {
     const spec = _specForMessage(msg);
+    const conversation = moduleState.conversations.find((r) => r.id === moduleState.activeConversationId);
     const isUser = Boolean(spec && spec.isOwn);
     const roleClass = isUser ? "user" : "assistant";
     const authorName = spec ? spec.authorName : "";
@@ -1607,7 +1671,7 @@
     // attachment-only / empty-body message keeps a right-clickable carrier with
     // the data attributes the app.js contextmenu dispatcher looks for. Skill
     // chips the user selected for this message render at the top of the bubble.
-    const senderHtml = senderTitleHtml(spec, avatarColor);
+    const senderHtml = shouldRenderSenderTitle(conversation) ? senderTitleHtml(spec, avatarColor) : "";
     const bubbleHtml = `<div class="bubble" data-message-index="${messageIndex}" data-message-source="cloud-conversation" data-message-id="${escapeHtml(msg.id || "")}">${senderHtml}${skillsHtml}${bodyHtml}</div>`;
     const attachmentHtml = renderAttachmentChips(spec?.attachments || msg.attachments || []);
     const createdAt = msg.created_at || msg.createdAt || "";

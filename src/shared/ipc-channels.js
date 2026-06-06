@@ -94,6 +94,7 @@
     SocialRemoveFriend: "social:remove-friend",
     SocialListConversations: "social:list-conversations",
     SocialListBots: "social:list-bots",
+    SocialGetBotIdentity: "social:get-bot-identity",
     SocialSaveBotIdentity: "social:save-bot-identity",
     SocialDeleteBot: "social:delete-bot",
     SocialListPlatformModels: "social:list-platform-models",
