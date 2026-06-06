@@ -117,6 +117,22 @@ test("PUT then GET /api/me/bots roundtrips identity fields", async () => {
     assert.equal(detail.body.bot.id, "bot_codex");
     assert.equal(detail.body.bot.personaText, "You are Codex.");
     assert.equal(detail.body.bot.avatarImage, codex.avatarImage);
+
+    const patch = await api(ctx.port, "PUT", "/api/me/bots/bot_codex", {
+      token: A.token,
+      body: {
+        displayName: "Codex Prime",
+        color: "#155e75",
+        bio: "Updated helper",
+        capabilities: ["chat"],
+        personaText: "Updated persona.",
+        clientOpId: "op_bot_2"
+      }
+    });
+    assert.equal(patch.status, 200);
+    assert.equal(patch.body.bot.displayName, "Codex Prime");
+    assert.equal(patch.body.bot.avatarImage, codex.avatarImage);
+    assert.deepEqual(patch.body.bot.avatarCrop, { x: 10, y: 20, w: 100, h: 100 });
   } finally { await stopServer(ctx); }
 });
 

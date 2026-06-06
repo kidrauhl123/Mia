@@ -2218,18 +2218,39 @@ async function handleRequest(req, res, context) {
       if (replayIfCached(context, res, auth.user.id, body)) return;
       const displayName = body.displayName || body.display_name || body.name;
       if (!displayName || typeof displayName !== "string") return writeError(res, 400, "displayName is required");
-      const avatarCrop = body.avatarCrop === null || (body.avatarCrop && typeof body.avatarCrop === "object")
+      const hasAvatarImage = Object.prototype.hasOwnProperty.call(body, "avatarImage")
+        || Object.prototype.hasOwnProperty.call(body, "avatar_image");
+      const avatarImageInput = Object.prototype.hasOwnProperty.call(body, "avatarImage")
+        ? body.avatarImage
+        : body.avatar_image;
+      const hasAvatarCrop = Object.prototype.hasOwnProperty.call(body, "avatarCrop")
+        || Object.prototype.hasOwnProperty.call(body, "avatar_crop");
+      const avatarCropInput = Object.prototype.hasOwnProperty.call(body, "avatarCrop")
         ? body.avatarCrop
-        : body.avatar_crop === null || (body.avatar_crop && typeof body.avatar_crop === "object")
-          ? body.avatar_crop
-          : undefined;
+        : body.avatar_crop;
+      const avatarCrop = avatarCropInput === null || (avatarCropInput && typeof avatarCropInput === "object")
+        ? avatarCropInput
+        : undefined;
+      const existingBot = context.botsStore.getBot(id);
+      const preservedAvatar = existingBot?.ownerUserId === auth.user.id ? existingBot : null;
+      const avatarPatch = {};
+      if (hasAvatarImage) {
+        avatarPatch.avatarImage = typeof avatarImageInput === "string"
+          ? materializeAvatarImage(context, avatarImageInput, avatarCrop)
+          : "";
+      } else if (preservedAvatar) {
+        avatarPatch.avatarImage = preservedAvatar.avatarImage || "";
+      }
+      if (hasAvatarCrop) {
+        avatarPatch.avatarCrop = avatarCrop === undefined ? null : avatarCrop;
+      } else if (!hasAvatarImage && preservedAvatar) {
+        avatarPatch.avatarCrop = preservedAvatar.avatarCrop || null;
+      }
       let bot;
       try {
         bot = context.botsStore.upsertBot(auth.user.id, {
           ...body,
-          ...(typeof body.avatarImage === "string"
-            ? { avatarImage: materializeAvatarImage(context, body.avatarImage, avatarCrop) }
-            : {}),
+          ...avatarPatch,
           id,
           displayName
         });
