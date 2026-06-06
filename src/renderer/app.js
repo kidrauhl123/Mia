@@ -40,6 +40,7 @@ if (agentSetupLaunch && !state.onboardingStep && !state.setupGuideDismissed && !
 if (window.miaSetupGuide && window.miaSetupGuide.initSetupGuide) {
   window.miaSetupGuide.initSetupGuide({ state, escapeHtml: window.miaMarkdown.escapeHtml });
 }
+window.miaStartupOverlay?.init?.({ firstRun: agentSetupLaunch });
 
 const els = {
   appShell: document.querySelector(".app-shell"),
@@ -1038,11 +1039,17 @@ const APPROVAL_TITLES = {
   manual: "(legacy) 等价于 Ask。"
 };
 
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 async function trackStartupTask(label, task) {
   const id = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
   const start = performance.now();
   state.startupTasks.push({ id, label });
+  if (window.miaStartupOverlay?.isBlocking?.()) {
+    window.miaStartupOverlay?.setStatus?.(`正在${label}`);
+  }
   render();
   try {
     return await task();
@@ -1051,6 +1058,43 @@ async function trackStartupTask(label, task) {
     console.info(`[Mia startup] ${label}: ${ms}ms`);
     state.startupTasks = state.startupTasks.filter((item) => item.id !== id);
     render();
+  }
+}
+
+function loadInitialRuntimeData() {
+  return Promise.allSettled([
+    trackStartupTask("加载 Hermes 模型列表", () => window.miaLoaders.loadModelCatalog()),
+    trackStartupTask("加载 Codex 模型列表", () => window.miaLoaders.loadCodexModels()),
+    trackStartupTask("加载引擎能力", () => window.miaLoaders.loadEngineCapabilities()),
+    trackStartupTask("加载命令列表", () => window.miaLoaders.loadSlashCommands()),
+    trackStartupTask("扫描本地 Skill", () => window.miaLoaders.loadSkills())
+  ]).then(() => render());
+}
+
+async function loadTasksFromDaemonForStartup() {
+  if (!window.miaTasksPanel?.loadTasksFromDaemon) return;
+  try {
+    if (window.miaStartupOverlay?.isBlocking?.()) {
+      await trackStartupTask("加载任务列表", () => window.miaTasksPanel.loadTasksFromDaemon());
+    } else {
+      await window.miaTasksPanel.loadTasksFromDaemon();
+    }
+    window.miaTasksPanel.subscribeTaskEvents?.();
+    if (state.activeView === "tasks") {
+      window.miaTasksPanel.renderTaskView();
+    }
+  } catch (error) {
+    console.warn("[Mia startup] failed to load daemon tasks", error);
+  }
+}
+
+async function runFirstRunBackgroundServices() {
+  if (typeof window.mia?.startupBackgroundServices !== "function") return null;
+  try {
+    return await trackStartupTask("启动后台服务", () => window.mia.startupBackgroundServices());
+  } catch (error) {
+    console.warn("[Mia startup] failed to start background services", error);
+    return { ok: false, error: error?.message || String(error || "Unknown error") };
   }
 }
 
@@ -2435,7 +2479,8 @@ async function refreshRuntime() {
   render();
 }
 
-async function initializeRuntime() {
+async function initializeRuntime(options = {}) {
+  const blockStartup = Boolean(options.blockStartup);
   const runtime = await trackStartupTask("初始化 runtime", () => window.mia.initializeRuntime());
   state.firstRun = Array.isArray(runtime?.created) && runtime.created.length > 0;
   if (state.firstRun && !state.onboardingStep && !state.setupGuideDismissed && !state.agentSetupSkipped) {
@@ -2653,21 +2698,19 @@ async function initializeRuntime() {
   if (state.runtime?.agentInventory?.summary?.scanning) {
     setTimeout(refreshRuntime, 120);
   }
+  if (blockStartup) {
+    await runFirstRunBackgroundServices();
+    await loadInitialRuntimeData();
+    await loadTasksFromDaemonForStartup();
+    await trackStartupTask("刷新运行状态", () => refreshRuntime()).catch((error) => {
+      console.warn("[Mia startup] failed to refresh runtime", error);
+    });
+    return;
+  }
   setTimeout(() => {
-    Promise.allSettled([
-      trackStartupTask("加载 Hermes 模型列表", () => window.miaLoaders.loadModelCatalog()),
-      trackStartupTask("加载 Codex 模型列表", () => window.miaLoaders.loadCodexModels()),
-      trackStartupTask("加载引擎能力", () => window.miaLoaders.loadEngineCapabilities()),
-      trackStartupTask("加载命令列表", () => window.miaLoaders.loadSlashCommands()),
-      trackStartupTask("扫描本地 Skill", () => window.miaLoaders.loadSkills())
-    ]).then(() => render());
+    loadInitialRuntimeData();
   }, 800);
-  window.miaTasksPanel.loadTasksFromDaemon().then(() => {
-    window.miaTasksPanel.subscribeTaskEvents();
-    if (state.activeView === "tasks") {
-      window.miaTasksPanel.renderTaskView();
-    }
-  });
+  loadTasksFromDaemonForStartup();
 }
 
 document.getElementById("groupInfoButton")?.addEventListener("click", () => {
@@ -4205,9 +4248,17 @@ window.miaMessageHelpers.resizeChatInput();
 function startAfterFirstPaint() {
   const start = () => {
     try { window.mia?.notifyFirstPaint?.(); } catch { /* main may not expose this in older builds */ }
-    initializeRuntime().catch((error) => {
+    const blockStartup = Boolean(window.miaStartupOverlay?.isBlocking?.());
+    if (blockStartup) window.miaStartupOverlay?.setStatus?.("正在准备 Mia");
+    initializeRuntime({ blockStartup }).then(async () => {
+      if (!blockStartup) return;
+      window.miaStartupOverlay?.setWelcome?.();
+      await delay(850);
+      await window.miaStartupOverlay?.finish?.();
+    }).catch((error) => {
       console.error("Failed to initialize Mia runtime", error);
       const message = error?.message || String(error || "Unknown error");
+      if (blockStartup) window.miaStartupOverlay?.fail?.(message);
       els.chat.innerHTML = `
         <article class="setup-guide bootstrap">
           <div class="setup-guide-main">

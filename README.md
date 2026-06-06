@@ -64,7 +64,7 @@ Mia 是一个桌面优先的多 Agent 聊天平台。
 - Web 端消费 Cloud API 和实时事件，用于远程聊天和同步。
 - `/api/events` 和 `/api/bridge` 使用 WebSocket，token 走 `Sec-WebSocket-Protocol`，避免落入 URL 日志。
 - Cloud Hermes worker 使用 Docker 隔离，每个用户独立 root、home、workspace 和 Hermes home。
-- 生产部署文档在 [docs/cloud-deployment.md](docs/cloud-deployment.md)。
+- 部署总说明在 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)，Cloud 服务器细节在 [docs/cloud-deployment.md](docs/cloud-deployment.md)。
 
 ### 打包与发布
 
@@ -167,6 +167,8 @@ npm run cloud:deploy
 
 SSH、systemd、nginx、LiteLLM、Docker worker 和回滚细节见 [docs/cloud-deployment.md](docs/cloud-deployment.md)。
 
+完整部署流程，包括桌面端打包、Cloud/Web 发布、生产验证、回滚和排障，见 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)。
+
 ## 项目结构
 
 ```text
@@ -191,7 +193,8 @@ docs/                     部署文档、ADR、计划和设计文档
 - [src/check.js](src/check.js)：项目结构和关键约束自检。
 - [package.json](package.json)：开发、打包、发布脚本。
 - [electron-builder.with-hermes.json](electron-builder.with-hermes.json)：带 Hermes runtime 的桌面打包配置。
-- [docs/cloud-deployment.md](docs/cloud-deployment.md)：生产 Cloud/Web 部署手册。
+- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)：部署总入口，覆盖桌面端、Cloud/Web、验证、回滚和排障。
+- [docs/cloud-deployment.md](docs/cloud-deployment.md)：生产 Cloud/Web 服务器细节。
 
 ## 架构边界
 

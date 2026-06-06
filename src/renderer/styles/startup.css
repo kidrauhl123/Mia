@@ -1,0 +1,119 @@
+.startup-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  min-height: 0;
+  padding: 28px;
+  background: var(--surface, #ffffff);
+  color: var(--text, rgba(0, 0, 0, 0.92));
+  opacity: 1;
+  transform: scale(1);
+  transition: opacity 220ms ease, transform 220ms ease;
+  -webkit-app-region: drag;
+}
+
+.startup-overlay-inner {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 14px;
+  width: min(100%, 280px);
+  min-width: 0;
+}
+
+.startup-visual {
+  display: grid;
+  place-items: center;
+  width: clamp(92px, 34vmin, 132px);
+  height: clamp(92px, 34vmin, 132px);
+  min-width: 92px;
+  min-height: 92px;
+  -webkit-app-region: no-drag;
+}
+
+.startup-loader,
+.startup-welcome-lottie {
+  grid-area: 1 / 1;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.startup-loader::before {
+  content: "";
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 3px solid color-mix(in srgb, var(--text, #111111) 12%, transparent);
+  border-top-color: var(--accent, #5e5ce6);
+  animation: startup-spin 720ms linear infinite;
+}
+
+.startup-welcome-lottie {
+  opacity: 0;
+  transform: scale(0.94);
+}
+
+.startup-welcome-lottie svg {
+  width: 100%;
+  height: 100%;
+}
+
+.startup-overlay.is-welcome .startup-loader {
+  opacity: 0;
+  transform: scale(0.94);
+}
+
+.startup-overlay.is-welcome .startup-welcome-lottie {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.startup-overlay-status {
+  min-height: 20px;
+  max-width: 100%;
+  margin: 0;
+  color: var(--muted, rgba(0, 0, 0, 0.60));
+  font-size: 13px;
+  line-height: 1.45;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.startup-overlay.is-welcome .startup-overlay-status {
+  color: var(--text, rgba(0, 0, 0, 0.92));
+  font-weight: 500;
+}
+
+.startup-overlay.is-error .startup-overlay-status {
+  color: var(--danger, #d14343);
+}
+
+.startup-overlay.is-finishing {
+  opacity: 0;
+  transform: scale(0.985);
+  pointer-events: none;
+}
+
+body.startup-loading {
+  overflow: hidden;
+}
+
+@keyframes startup-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .startup-overlay {
+    transition: none;
+  }
+
+  .startup-loader::before {
+    animation: none;
+  }
+}

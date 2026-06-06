@@ -16,6 +16,17 @@
   let setText, formatConversationTime;
   let loadSkills, showNarrowContent, render;
   let closeGroupContextMenu, openEditBotDialog, deleteBot, setBotPinned;
+  const contactNameCollator = new Intl.Collator(["zh-Hans-CN-u-co-pinyin", "en"], {
+    sensitivity: "base",
+    numeric: true
+  });
+  const contactPinyinBoundaries = [
+    ["A", "阿"], ["B", "八"], ["C", "嚓"], ["D", "咑"], ["E", "妸"],
+    ["F", "发"], ["G", "旮"], ["H", "哈"], ["J", "击"], ["K", "喀"],
+    ["L", "垃"], ["M", "妈"], ["N", "拿"], ["O", "哦"], ["P", "啪"],
+    ["Q", "期"], ["R", "然"], ["S", "撒"], ["T", "塌"], ["W", "哇"],
+    ["X", "西"], ["Y", "压"], ["Z", "匝"]
+  ];
 
   function botIdentity() {
     if (typeof window !== "undefined" && window.miaBotIdentity) return window.miaBotIdentity;
@@ -97,19 +108,48 @@
     });
   }
 
+  function contactSortLabel(bot = {}) {
+    return String(bot.name || bot.displayName || bot.key || bot.id || "").trim();
+  }
+
+  function contactGroupKey(bot = {}) {
+    const first = Array.from(contactSortLabel(bot))[0] || "";
+    const upper = first.toUpperCase();
+    if (/^[A-Z]$/.test(upper)) return upper;
+    if (/^[\u4E00-\u9FFF]$/.test(first)) {
+      for (let i = contactPinyinBoundaries.length - 1; i >= 0; i -= 1) {
+        if (contactNameCollator.compare(first, contactPinyinBoundaries[i][1]) >= 0) return contactPinyinBoundaries[i][0];
+      }
+    }
+    return "#";
+  }
+
+  function contactGroupRank(key) {
+    if (/^[A-Z]$/.test(key)) return key.charCodeAt(0) - 64;
+    return 27;
+  }
+
   function sortBotsForSidebar(bots = []) {
     return bots
       .map((bot, index) => ({ bot, index }))
       .sort((a, b) => {
-        const pinnedDiff = Number(Boolean(b.bot.pinned)) - Number(Boolean(a.bot.pinned));
-        if (pinnedDiff) return pinnedDiff;
-        if (a.bot.pinned && b.bot.pinned) {
-          const timeDiff = String(b.bot.pinnedAt || "").localeCompare(String(a.bot.pinnedAt || ""));
-          if (timeDiff) return timeDiff;
-        }
+        const groupDiff = contactGroupRank(contactGroupKey(a.bot)) - contactGroupRank(contactGroupKey(b.bot));
+        if (groupDiff) return groupDiff;
+        const labelDiff = contactNameCollator.compare(contactSortLabel(a.bot), contactSortLabel(b.bot));
+        if (labelDiff) return labelDiff;
+        const keyDiff = contactNameCollator.compare(String(a.bot.key || a.bot.id || ""), String(b.bot.key || b.bot.id || ""));
+        if (keyDiff) return keyDiff;
         return a.index - b.index;
       })
       .map((item) => item.bot);
+  }
+
+  function appendContactGroupHeader(label) {
+    const header = document.createElement("div");
+    header.className = "contact-group-header";
+    header.textContent = label;
+    header.setAttribute("aria-hidden", "true");
+    els.contactList.appendChild(header);
   }
 
   function sortableConversationTime(value) {
@@ -301,21 +341,28 @@
       return;
     }
     const onRequests = state.activeContactKey === FRIEND_REQUESTS_KEY;
+    const sortedBots = sortBotsForSidebar(bots);
     if (onRequests && !pendingRequests) {
       // The pending list emptied (all accepted/rejected) — fall back to a real contact.
-      state.activeContactKey = bots[0]?.key || null;
+      state.activeContactKey = sortedBots[0]?.key || null;
     } else if (!onRequests && !bots.some((bot) => bot.key === state.activeContactKey)) {
-      state.activeContactKey = bots[0]?.key || (pendingRequests ? FRIEND_REQUESTS_KEY : null);
+      state.activeContactKey = sortedBots[0]?.key || (pendingRequests ? FRIEND_REQUESTS_KEY : null);
     }
     const filter = state.contactFilter.trim().toLowerCase();
     const visibleContacts = sortBotsForSidebar(filter
       ? bots.filter((bot) => `${bot.name || ""} ${bot.key || ""} ${bot.bio || ""}`.toLowerCase().includes(filter))
-      : bots);
+      : sortedBots);
     els.contactList.innerHTML = "";
     if (pendingRequests && !filter) {
       els.contactList.appendChild(buildFriendRequestRow(pendingRequests));
     }
+    let lastGroupKey = "";
     for (const bot of visibleContacts) {
+      const groupKey = contactGroupKey(bot);
+      if (groupKey !== lastGroupKey) {
+        appendContactGroupHeader(groupKey);
+        lastGroupKey = groupKey;
+      }
       const button = document.createElement("button");
       button.type = "button";
       button.className = `contact-row${bot.key === state.activeContactKey ? " active" : ""}`;
@@ -349,7 +396,7 @@
       setText(els.contactPageMeta, "");
       window.miaSocial.renderRequestsInto(els.contactDetail);
     } else {
-      renderContactDetail(bots.find((bot) => bot.key === state.activeContactKey) || visibleContacts[0] || bots[0]);
+      renderContactDetail(sortedBots.find((bot) => bot.key === state.activeContactKey) || visibleContacts[0] || sortedBots[0]);
     }
   }
 

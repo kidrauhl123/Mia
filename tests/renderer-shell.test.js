@@ -100,6 +100,23 @@ test("lottie icons support autoplaying loop animations for scanning state", () =
   assert.match(lottieSource, /autoplay:\s*triggerMode === "loop"/);
 });
 
+test("first-run startup overlay is wired to the welcome Lottie animation", () => {
+  const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+
+  assert.match(html, /<link rel="stylesheet" href="\.\/styles\/startup\.css">/);
+  assert.match(html, /id="startupOverlay"/);
+  assert.match(html, /class="startup-loader"/);
+  assert.match(html, /data-lottie="welcome"/);
+  assert.match(html, /data-lottie-trigger="loop"/);
+  assert.match(html, /<script src="\.\/startup\/startup-overlay\.js"><\/script>[\s\S]*<script src="\.\/app\.js"><\/script>/);
+  assert.match(appSource, /window\.miaStartupOverlay\?\.init\?\.\(\{ firstRun: agentSetupLaunch \}\)/);
+  assert.match(appSource, /window\.miaStartupOverlay\?\.isBlocking\?\.\(\)/);
+  assert.match(appSource, /trackStartupTask\("启动后台服务",\s*\(\) => window\.mia\.startupBackgroundServices\(\)\)/);
+  assert.match(appSource, /window\.miaStartupOverlay\?\.setWelcome\?\.\(\)/);
+  assert.match(appSource, /window\.miaStartupOverlay\?\.finish\?\.\(\)/);
+});
+
 test("renderer exposes official Hermes install actions without private install wording", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
 

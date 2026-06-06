@@ -11,8 +11,19 @@
   <link rel="stylesheet" href="./styles/tasks.css">
   <link rel="stylesheet" href="./styles/skills.css">
   <link rel="stylesheet" href="./styles/bot-store.css">
+  <link rel="stylesheet" href="./styles/startup.css">
 </head>
 <body>
+  <section id="startupOverlay" class="startup-overlay hidden" aria-live="polite" aria-busy="true">
+    <div class="startup-overlay-inner">
+      <div class="startup-visual">
+        <div class="startup-loader" aria-hidden="true"></div>
+        <div class="startup-welcome-lottie setup-scan-lottie" data-lottie="welcome" data-lottie-trigger="loop" aria-hidden="true"></div>
+      </div>
+      <p id="startupOverlayStatus" class="startup-overlay-status"></p>
+    </div>
+  </section>
+
   <main class="app-shell" data-auth-state="signed-out">
     <aside class="nav-rail" aria-label="主导航">
       <div class="traffic-spacer" id="trafficSpacer">
@@ -1003,6 +1014,7 @@
   <!-- Animated icons (Lottie, SVG renderer; color via currentColor) -->
   <script src="./assets/lottie/lottie_light.min.js"></script>
   <script src="./lottie-icons.js"></script>
+  <script src="./startup/startup-overlay.js"></script>
   <!-- Main app entry — assembles everything -->
   <script src="./app.js"></script>
 </body>
