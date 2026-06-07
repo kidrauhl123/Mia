@@ -767,7 +767,6 @@ function migrate(db) {
     CREATE INDEX IF NOT EXISTS idx_message_hidden_user_conversation ON message_hidden(user_id, conversation_id);
 
     -- v4: per-user persistent event log + write idempotency.
-    -- See docs/superpowers/plans/2026-05-23-sync-architecture-redesign.md.
     -- Every state-changing WS broadcast also lands a row here. Clients
     -- track last_seen_seq and on reconnect ask for since_seq > N → server
     -- replays the missed rows. Disconnect tolerance becomes free.

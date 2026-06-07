@@ -1,8 +1,10 @@
 # First-Run Startup Loading Design
 
+Status: implemented as of 2026-06-07. The welcome animation now lives in the repository at `src/renderer/assets/lottie/welcome.json`; this file is retained as the design record.
+
 ## Goal
 
-Mia should not drop first-time users into the main chat UI while runtime setup, LaunchAgent registration, and first-run loader work are still competing for resources. On the first install/open path, the app should show a focused loading experience using `/Users/jung/Documents/UI资源/welcome.json`, complete the necessary startup work, then reveal the normal product UI.
+Mia should not drop first-time users into the main chat UI while runtime setup, LaunchAgent registration, and first-run loader work are still competing for resources. On the first install/open path, the app should show a focused loading experience using `src/renderer/assets/lottie/welcome.json`, complete the necessary startup work, then reveal the normal product UI.
 
 ## Scope
 
@@ -17,7 +19,7 @@ The startup loading flow covers:
 
 ## User Experience
 
-On first run, the main window opens directly into a startup overlay instead of exposing the chat UI. The overlay plays the Lottie JSON animation from `/Users/jung/Documents/UI资源/welcome.json`, shows one concise status line, and advances through the startup tasks.
+On first run, the main window opens directly into a startup overlay instead of exposing the chat UI. The overlay plays the Lottie JSON animation from `src/renderer/assets/lottie/welcome.json`, shows one concise status line, and advances through the startup tasks.
 
 When required startup work finishes, the overlay shows a welcome state briefly, then fades out and leaves the existing Mia UI ready for use. If a non-critical task fails, the overlay still lets the user continue and the error remains visible in existing runtime logs/status surfaces. If runtime initialization itself fails, the existing fatal initialization error UI remains the fallback.
 
@@ -51,4 +53,3 @@ Manual/rendered QA should cover:
 - The overlay advances through initialization and disappears.
 - Existing-user mode does not block entry.
 - The renderer does not show a blank page or console errors.
-

@@ -1,8 +1,6 @@
-// Per-user persistent event log. See docs/superpowers/plans/
-// 2026-05-23-sync-architecture-redesign.md §3.4.
-//
-// Every state-changing broadcast lands here transactionally with a
-// monotonically increasing per-user seq number. Clients track their
+// Per-user persistent event log. Every state-changing broadcast lands here
+// transactionally with a monotonically increasing per-user seq number.
+// Clients track their
 // last seen seq and on reconnect ask the server "give me everything
 // since N". That makes disconnect tolerance and replay free.
 //

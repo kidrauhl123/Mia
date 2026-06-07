@@ -2,6 +2,8 @@
 
 Date: 2026-06-05
 
+Status: implemented as of 2026-06-07. Production source under `src/`, `packages/`, `apps/mobile-rn/src/`, and `scripts/` is guarded by `tests/no-legacy-fellow-identifiers.test.js`; this file remains as the historical migration design.
+
 ## Goal
 
 Mia should replace the legacy `fellow` identity model with a canonical `bot` model and use one shared identity contract for users and bots.

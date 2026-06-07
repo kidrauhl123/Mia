@@ -19,7 +19,7 @@ an offline cache + write-through mirror; the renderer's social moduleState
 is a read-only view onto cloud, derived from REST + WS.
 
 When the user is logged out, the desktop chatStore is the local-only
-authority for fellow sessions and local groups. Cloud writes do not exist.
+authority for bot sessions and local groups. Cloud writes do not exist.
 At login, the existing `syncMiaCloudWorkspace()` pipeline merges in
 both directions.
 
@@ -30,9 +30,8 @@ both directions.
   or a similar endpoint. It is NOT acceptable to add a fifth store.
 - Renderer code reads from the cache for snappy UI but writes always go to
   cloud first (with the response merged back).
-- Multi-device unread / read-cursor sync is now in scope; the prior
-  in-memory `unreadByRoom` Map is a TODO that needs a `room_members.last_read_seq`
-  field.
+- Multi-device unread / read-cursor sync belongs in the cloud authority path,
+  using durable per-member read state rather than a renderer-only unread map.
 
 ## Alternatives considered
 

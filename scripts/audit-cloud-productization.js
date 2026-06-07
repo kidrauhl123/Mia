@@ -475,10 +475,10 @@ function runAudit({ rootDir = root } = {}) {
     item("gate.production-deploy", "生产部署和公网 smoke", [
       checkPackageScript(rootDir, "cloud:deploy", "bash scripts/deploy-cloud-release.sh"),
       checkPackageScript(rootDir, "cloud:prod:verify", "node scripts/verify-cloud-production.js"),
-      checkSource(rootDir, "docs/superpowers/plans/2026-05-20-cloud-productization.md", /production verification still fails|public server is still old|SSH.*Permission denied/s, "latest plan records production blocker evidence")
+      checkSource(rootDir, "docs/DEPLOYMENT.md", /npm run cloud:prod:verify -- https:\/\/aiweb\.buytb01\.com/, "deployment docs record the production verification gate")
     ], {
       status: "blocked",
-      note: "需要 SSH 授权并让 `npm run cloud:prod:verify -- https://aiweb.buytb01.com` 真实通过。当前公网仍是旧服务。"
+      note: "需要 SSH 授权并让 `npm run cloud:prod:verify -- https://aiweb.buytb01.com` 真实通过；失败原因以 doctor/verify 输出为准。"
     }),
   ];
 

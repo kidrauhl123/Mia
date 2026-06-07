@@ -184,7 +184,7 @@ apps/mobile-rn/           React Native 移动端工程
 scripts/                  本地开发、打包、Cloud 发布、诊断脚本
 skills/                   内置和本地 skill
 resources/                官方库、conductor prompt、pet generator 资源
-docs/                     部署文档、ADR、计划和设计文档
+docs/                     部署文档、ADR 和设计规格
 ```
 
 关键文件：

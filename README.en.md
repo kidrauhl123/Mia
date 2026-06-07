@@ -34,7 +34,7 @@ Mia isn't a single-model client. It brings multiple AIs into one chat surface so
 Accounts, friends and group chats sync through the cloud so you can switch devices. When an AI reads your local files or runs commands, that stays on your machine.
 
 **Do I need to know how to code?**
-No. Mia ships with its own runtime and works out of the box. If you already have Claude Code or Codex installed locally, Mia picks them up automatically.
+No. Mia provides the chat, identity, sync and permission layer. Claude Code and Codex run through your local CLI installs, and Hermes can be installed or bundled through the explicit Hermes runtime flow.
 
 ---
 

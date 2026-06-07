@@ -2,11 +2,13 @@
 
 Date: 2026-06-03
 
+Status: implemented in the default packaging path as of 2026-06-07. This file is retained as the design record; current operational commands live in `README.md`, `CLAUDE.md`, and `docs/DEPLOYMENT.md`.
+
 ## Goal
 
 Mia should be a lightweight desktop app that orchestrates native local agents without bundling a full Hermes runtime into the default installer.
 
-When the user talks to Hermes, Claude Code, Codex, or future supported agents through Mia, Mia owns the Fellow identity, session mapping, memory, and app tools for that conversation. When the user uses those official agents outside Mia, their native app or CLI should keep its own sessions, memory, and configuration.
+When the user talks to Hermes, Claude Code, Codex, or future supported agents through Mia, Mia owns the Bot identity, session mapping, memory, and app tools for that conversation. When the user uses those official agents outside Mia, their native app or CLI should keep its own sessions, memory, and configuration.
 
 ## Product Principles
 
@@ -18,28 +20,26 @@ When the user talks to Hermes, Claude Code, Codex, or future supported agents th
 
 ## Current Evidence
 
-The current default packaging still bundles Hermes:
+The default package path is now slim:
 
-- `package.json` runs `hermes:runtime:mac-arm64` before `dist:mac`.
-- `package.json` runs `hermes:runtime:win-x64` before `dist:win`.
-- `package.json` includes `vendor/hermes-runtime/mac-arm64` and `vendor/hermes-runtime/win-x64` as platform `extraResources`.
-- `src/check.js` has structure checks that assume a bundled Hermes runtime resource.
+- `package.json` keeps `dist:mac` and `dist:win` free of `hermes:runtime:*`.
+- `electron-builder.with-hermes.json` owns the explicit bundled-runtime package path.
+- `src/check.js` and `tests/packaging-hermes-runtime.test.js` guard that default packages do not include `vendor/hermes-runtime/*`.
 
-Mia already has partial agent isolation:
+Mia has the first runtime-isolation pass in production source:
 
-- Fellow personas live under Mia runtime files such as `runtime/engine-home/fellows/<fellow>.md`.
-- `agent-session-store` maps `(engine, fellow, Mia session)` to native session ids.
-- Hermes receives Fellow headers and a Mia runtime context.
-- Codex can run with a Mia-controlled `CODEX_HOME`, and the current bridge excludes native session/history files when linking user Codex state.
-- `mia-scheduler` exists as a stdio MCP server and is wired into Hermes, Claude Code, and Codex paths.
+- Bot identities live under Mia runtime files such as `runtime/bots/<bot>.md`.
+- `agent-session-store` maps `(engine, bot, Mia session)` to native session ids.
+- Hermes receives Bot headers and a Mia runtime context.
+- Codex runs with a Mia-controlled `CODEX_HOME`, excluding native session/history files when linking safe user Codex state.
+- `mia-app` MCP exists while scheduler compatibility remains available for adapters that still need it.
+- Mia memory is represented as a bounded `## Mia Bot Memory` block with shared and per-bot sections.
 
-The incomplete areas are:
+The remaining areas are product depth, not migration blockers:
 
-- Hermes is still bundled by default.
-- Hermes installation is not yet a fully user-visible optional installer with repair, mirror, checksum, and fallback semantics.
-- Runtime isolation is inconsistent across Hermes, Claude Code, and Codex. In particular, Codex currently has a best-effort fallback to the user's default home when Mia home setup fails, and Claude Code still uses user/local setting sources.
-- Mia memory is currently persona/runtime context, not a dedicated shared-user and per-Fellow memory system.
-- Mia app MCP is currently scheduler-focused, not a unified `mia-app` surface for scheduler, skills, social/group, and Fellow actions.
+- Hermes installation can keep improving source selection, repair UX, mirror reliability, and checksum reporting.
+- Claude Code profile isolation still depends on what the SDK can isolate per run without writing global Claude configuration.
+- Mia app MCP should expand gradually after permission behavior is verified for each write tool.
 
 ## Recommended Strategy
 
@@ -61,7 +61,7 @@ Mia can use one of three Hermes sources:
 - A Mia-installed official Hermes runtime in Mia's private runtime directory.
 - A fallback bundled Hermes runtime only in explicit fallback builds.
 
-Mia must launch Hermes with Mia-owned `HERMES_HOME`, `MIA_HOME`, API key, runtime config, MCP config, and Fellow context. Mia should not read or write the user's official `~/.hermes` memories or sessions for Mia conversations.
+Mia must launch Hermes with Mia-owned `HERMES_HOME`, `MIA_HOME`, API key, runtime config, MCP config, and Bot context. Mia should not read or write the user's official `~/.hermes` memories or sessions for Mia conversations.
 
 ### Codex
 
@@ -83,9 +83,9 @@ If Mia cannot create the Mia-owned `CODEX_HOME`, Codex chat through Mia must fai
 
 ### Claude Code
 
-Mia should use the user-installed `claude` executable and the Claude Agent SDK so user authentication is reused. Mia should inject Fellow persona, Mia runtime context, Mia memory, and Mia app MCP per run through SDK options or a Mia-owned local plugin.
+Mia should use the user-installed `claude` executable and the Claude Agent SDK so user authentication is reused. Mia should inject Bot persona, Mia runtime context, Mia memory, and Mia app MCP per run through SDK options or a Mia-owned local plugin.
 
-Claude Code support must avoid writing Mia MCP, Mia memory, or Mia Fellow state into global Claude settings. If the SDK cannot provide a separate home/profile boundary for a given state category, Mia must document the limitation and keep that category per-run only.
+Claude Code support must avoid writing Mia MCP, Mia memory, or Mia Bot state into global Claude settings. If the SDK cannot provide a separate home/profile boundary for a given state category, Mia must document the limitation and keep that category per-run only.
 
 ### OpenClaw
 
@@ -96,41 +96,41 @@ OpenClaw is detection-only until a separate runnable adapter is designed. It sho
 Mia's session key remains:
 
 ```text
-<engine>:<fellow_key>:<mia_session_id>
+<engine>:<bot_key>:<mia_session_id>
 ```
 
 Each adapter may store the native session id returned by the native engine, but the native session id is only an implementation detail. Mia UI, cloud sync, conversation routing, permissions, and memory are keyed by Mia's conversation/session identity.
 
 Rules:
 
-- A Fellow using Claude Code, Codex, or Hermes should resume only the native session mapped to the current Mia session.
-- Different Fellows must not share native sessions by default.
-- Different Mia conversations for the same Fellow must not share native sessions unless Mia explicitly implements a user-visible "continue same native thread" action.
+- A Bot using Claude Code, Codex, or Hermes should resume only the native session mapped to the current Mia session.
+- Different Bots must not share native sessions by default.
+- Different Mia conversations for the same Bot must not share native sessions unless Mia explicitly implements a user-visible "continue same native thread" action.
 - Native sessions created outside Mia must not be imported into active Mia conversations by default.
 - Listing native history for discovery is allowed only as a read-only import/browse feature; it must not become the default resume path.
 
 ## Memory Policy
 
-Inside Mia, Mia memory is authoritative. Native agent memory is not the Fellow memory source.
+Inside Mia, Mia memory is authoritative. Native agent memory is not the Bot memory source.
 
 Mia should maintain:
 
-- Shared user memory: stable user-wide preferences and facts that may apply across Fellows.
-- Per-Fellow memory: long-lived identity, relationship, and facts scoped to one Fellow.
-- Project/native context: project rules and native agent configuration, treated as environment context, not Mia Fellow memory.
+- Shared user memory: stable user-wide preferences and facts that may apply across Bots.
+- Per-Bot memory: long-lived identity, relationship, and facts scoped to one Bot.
+- Project/native context: project rules and native agent configuration, treated as environment context, not Mia Bot memory.
 
 Mia memory should be injected as one bounded block:
 
 ```text
-## Mia Fellow Memory
+## Mia Bot Memory
 source: mia
-fellow: <fellow_key>
+bot: <bot_key>
 conversation: <mia_session_id>
 
 ### Shared User Memory
 ...
 
-### Fellow Memory
+### Bot Memory
 ...
 ```
 
@@ -146,14 +146,14 @@ Rules:
 
 Mia app capabilities should be exposed through a unified app-facing MCP server named `mia-app`.
 
-The existing `mia-scheduler` behavior should remain compatible during migration. Existing scheduler tools can be exposed through both names until all adapters and tests use `mia-app`.
+Scheduler behavior should remain compatible while adapters converge on `mia-app`.
 
 Initial tool groups:
 
 - Scheduler: `schedule_create`, `schedule_list`, `schedule_update`, `schedule_delete`, `schedule_pause`, `schedule_resume`.
 - Skills: search marketplace, inspect skill detail, install a skill for the current user.
 - Social/group: list conversations, create a group, add members, remove members, post a message where appropriate.
-- Fellows: list Fellows and read basic identity/runtime metadata.
+- Bots: list Bots and read basic identity/runtime metadata.
 
 Permission model:
 
@@ -237,27 +237,27 @@ Acceptance evidence:
 - Tests prove Codex does not fall back to user `~/.codex` when Mia home setup fails.
 - Tests prove Hermes runs with Mia-owned `HERMES_HOME` and does not read official `~/.hermes` memory/session paths.
 - Tests prove Claude Code uses per-run Mia context/plugin/MCP without writing Mia config into global Claude settings.
-- Adapter tests prove `(engine, fellow, Mia session)` maps to separate native sessions.
+- Adapter tests prove `(engine, bot, Mia session)` maps to separate native sessions.
 
 ### Phase 4: Mia Memory System
 
-Add Mia-owned shared user memory and per-Fellow memory, then inject it consistently across Hermes, Claude Code, and Codex.
+Add Mia-owned shared user memory and per-Bot memory, then inject it consistently across Hermes, Claude Code, and Codex.
 
 Acceptance evidence:
 
-- Memory service tests cover shared memory, per-Fellow memory, bounds, escaping, persistence, and update timestamps.
-- Adapter tests prove each engine receives exactly one `## Mia Fellow Memory` block.
+- Memory service tests cover shared memory, per-Bot memory, bounds, escaping, persistence, and update timestamps.
+- Adapter tests prove each engine receives exactly one `## Mia Bot Memory` block.
 - Tests prove native memory files are not read from official homes in Mia mode.
 - Tests prove user prompt content cannot spoof or break the memory block boundary.
 
 ### Phase 5: Unified Mia App MCP
 
-Extend `mia-scheduler` into `mia-app` and expose app tools for scheduler, skills, social/group, and Fellow metadata.
+Expose app tools through `mia-app` for scheduler, skills, social/group, and Bot metadata.
 
 Acceptance evidence:
 
 - MCP schema tests cover every tool name, input schema, output shape, and permission class.
-- Daemon/API tests cover scheduler, skill search/install, group creation, member changes, and Fellow listing.
+- Daemon/API tests cover scheduler, skill search/install, group creation, member changes, and Bot listing.
 - Permission coordinator tests cover write-tool allow, deny, and scoped always-allow behavior.
 - Adapter tests prove Hermes, Claude Code, and Codex receive the same `mia-app` MCP spec.
 - Backward compatibility tests prove existing scheduler tools still work during migration.
@@ -279,8 +279,8 @@ Acceptance evidence:
 Before marking the overall goal complete, verify:
 
 1. Fresh machine with no agents: Mia starts, shows no-agent state, allows skip, and can install Hermes on demand.
-2. Machine with only Claude Code: Mia detects Claude Code, runs a Fellow through Claude, and official Claude outside Mia keeps normal history/config.
-3. Machine with only Codex: Mia detects Codex, runs a Fellow through Codex, and official Codex outside Mia keeps normal history/config.
+2. Machine with only Claude Code: Mia detects Claude Code, runs a Bot through Claude, and official Claude outside Mia keeps normal history/config.
+3. Machine with only Codex: Mia detects Codex, runs a Bot through Codex, and official Codex outside Mia keeps normal history/config.
 4. Machine with official Hermes: Mia detects Hermes, runs it with Mia-owned home, and official Hermes outside Mia keeps normal memory/session behavior.
 5. Machine with OpenClaw: Mia detects OpenClaw but does not offer it as a runnable engine.
 6. Default packaged app: no `hermes-runtime` resource is present.
