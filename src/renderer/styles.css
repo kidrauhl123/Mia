@@ -1314,7 +1314,6 @@ body.topbar-click-capture .topbar {
   width: 42px;
   height: 42px;
   border-radius: 50%;
-  border: 1px solid var(--line);
 }
 
 .group-title h1 {
