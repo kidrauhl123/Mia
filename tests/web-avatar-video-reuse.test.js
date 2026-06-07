@@ -83,6 +83,7 @@ class FakeVideo {
 class FakeRoot {
   constructor(children = []) {
     this.children = [];
+    this.dataset = {};
     this.style = { cssText: "" };
     this.isConnected = true;
     children.forEach((child) => this.prepend(child));
@@ -98,6 +99,9 @@ class FakeRoot {
   }
 
   querySelectorAll(selector) {
+    if (selector === "[data-avatar-media]") {
+      return this.children.filter((node) => node.dataset?.avatarMedia);
+    }
     if (selector !== "video.avatar-video" && selector !== ":scope > .avatar-video" && selector !== ".avatar-video") {
       return [];
     }
@@ -139,8 +143,16 @@ function loadAvatarVideoHelpers() {
     function isPublicImageSrc(value) {
       return /^\\/api\\/files\\//.test(String(value || ""));
     }
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    }
+    const webNormalizeAvatarCrop = (crop = {}) => ({ ...(crop || {}) });
     ${extractFunctionSource("avatarVideoStyle")}
     const parkedAvatarVideos = new Map();
+    ${extractFunctionSource("avatarMediaAttrs")}
+    ${extractFunctionSource("parseAvatarCrop")}
     ${extractFunctionSource("registerAvatarVideo")}
     ${extractFunctionSource("adoptParkedAvatarVideo")}
     ${extractFunctionSource("applyAvatarVideoAttributes")}
@@ -149,6 +161,7 @@ function loadAvatarVideoHelpers() {
     ${extractFunctionSource("removeAvatarChildrenExcept")}
     ${extractFunctionSource("removeAvatarVideos")}
     ${extractFunctionSource("syncAvatarVideo")}
+    ${extractFunctionSource("hydrateAvatarMedia")}
     ${extractFunctionSource("hydrateAvatarVideos")}
     ${extractFunctionSource("applyAvatarMedia")}
     globalThis.avatarVideoHelpers = {
@@ -164,8 +177,14 @@ test("web avatar videos are parked so innerHTML rebuilds can reuse playback stat
   assert.match(source, /const parkedAvatarVideos = new Map\(\)/);
   assert.match(source, /function registerAvatarVideo\(src, video\)/);
   assert.match(source, /function adoptParkedAvatarVideo\(src\)/);
+  assert.match(source, /function hydrateAvatarMedia\(root = document\)/);
 
   const hydrateAvatarVideos = extractFunctionSource("hydrateAvatarVideos");
+  assert.match(
+    hydrateAvatarVideos,
+    /hydrateAvatarMedia\(root\)/,
+    "video hydration must first mount data-avatar-media placeholders through applyAvatarMedia"
+  );
   assert.match(
     hydrateAvatarVideos,
     /adoptParkedAvatarVideo\(src\)/,
@@ -180,6 +199,22 @@ test("web avatar videos are parked so innerHTML rebuilds can reuse playback stat
     hydrateAvatarVideos,
     /registerAvatarVideo\(src, video\)/,
     "hydration must keep every rendered video registered for the next rebuild"
+  );
+});
+
+test("web avatar HTML defers video mounting until hydration", () => {
+  const avatarHtml = extractFunctionSource("avatarHtml");
+  const avatarMediaAttrs = extractFunctionSource("avatarMediaAttrs");
+  assert.match(avatarMediaAttrs, /data-avatar-media/);
+  assert.match(
+    avatarHtml,
+    /avatarMediaAttrs\(image, crop \|\| \{\}, color, text\)/,
+    "video avatar markup must carry hydration data instead of an autoplaying video"
+  );
+  assert.doesNotMatch(
+    avatarHtml,
+    /avatarVideoHtml\(image, crop \|\| \{\}\)/,
+    "innerHTML-rendered avatar markup must not create a fresh autoplaying video"
   );
 });
 
@@ -230,4 +265,22 @@ test("applyAvatarMedia keeps the current web video node for same-slot updates", 
 
   assert.equal(root.children[0], firstVideo);
   assert.equal(root.children[0].currentTime, 1.7);
+});
+
+test("hydrateAvatarVideos mounts video placeholders without throwaway autoplay markup", () => {
+  const helpers = loadAvatarVideoHelpers();
+  const root = new FakeRoot();
+  root.dataset = {
+    avatarMedia: "1",
+    avatarImage: "/api/files/avatar.mp4",
+    avatarCrop: JSON.stringify({ start: 0, duration: 3 }),
+    avatarColor: "#5e5ce6",
+    avatarText: "A"
+  };
+  root.matches = (selector) => selector === "[data-avatar-media]";
+
+  helpers.hydrateAvatarVideos(root);
+
+  assert.equal(root.children.length, 1);
+  assert.equal(root.children[0].getAttribute("src"), "/api/files/avatar.mp4");
 });

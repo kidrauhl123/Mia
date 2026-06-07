@@ -466,6 +466,26 @@ function removeAvatarVideos(el) {
   el.querySelectorAll?.(".avatar-video")?.forEach((node) => node.remove());
 }
 
+function avatarMediaAttrs(image = "", crop = {}, color = "#5e5ce6", text = "") {
+  const normalizedCrop = webNormalizeAvatarCrop(crop || webAvatarDefaultCropForSrc(image));
+  return [
+    'data-avatar-media="1"',
+    `data-avatar-image="${escapeHtml(image || "")}"`,
+    `data-avatar-crop="${escapeHtml(JSON.stringify(normalizedCrop))}"`,
+    `data-avatar-color="${escapeHtml(color || "#5e5ce6")}"`,
+    `data-avatar-text="${escapeHtml(text || "")}"`
+  ].join(" ");
+}
+
+function parseAvatarCrop(value) {
+  try {
+    const parsed = JSON.parse(String(value || "{}"));
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 function generatedAvatarStyle(color = "#5e5ce6", text = "") {
   const image = avatarResolve.generatedAvatarDataUri?.(color || "#5e5ce6", text || "");
   if (!image) return `background-color:${color};color:#fff;display:inline-flex;align-items:center;justify-content:center;`;
@@ -475,7 +495,7 @@ function generatedAvatarStyle(color = "#5e5ce6", text = "") {
 function avatarHtml({ className = "avatar", image = "", crop = null, color = "#5e5ce6", text = "", attrs = "" } = {}) {
   const useAvatar = image && isPublicImageSrc(image);
   if (useAvatar && avatarMedia.isVideo?.(image)) {
-    return `<span class="${escapeHtml(className)}" ${attrs} style="background-color:transparent;">${avatarVideoHtml(image, crop || {})}</span>`;
+    return `<span class="${escapeHtml(className)}" ${attrs} ${avatarMediaAttrs(image, crop || {}, color, text)} style="background-color:transparent;"></span>`;
   }
   const style = useAvatar
     ? avatarBackgroundStyle(image, crop, color)
@@ -551,7 +571,31 @@ function syncAvatarVideo(video) {
   video.play?.().catch?.(() => {});
 }
 
+function hydrateAvatarMedia(root = document) {
+  const targets = [];
+  if (root.matches?.("[data-avatar-media]")) targets.push(root);
+  root.querySelectorAll?.("[data-avatar-media]")?.forEach((el) => targets.push(el));
+  targets.forEach((el) => {
+    const signature = [
+      el.dataset.avatarImage || "",
+      el.dataset.avatarCrop || "",
+      el.dataset.avatarColor || "",
+      el.dataset.avatarText || ""
+    ].join("\u001f");
+    if (el.dataset.avatarRenderedSignature === signature) return;
+    el.dataset.avatarRenderedSignature = signature;
+    applyAvatarMedia(
+      el,
+      el.dataset.avatarImage || "",
+      parseAvatarCrop(el.dataset.avatarCrop),
+      el.dataset.avatarColor || "#5e5ce6",
+      el.dataset.avatarText || ""
+    );
+  });
+}
+
 function hydrateAvatarVideos(root = document) {
+  hydrateAvatarMedia(root);
   root.querySelectorAll?.("video.avatar-video")?.forEach((video) => {
     let src = normalizeAvatarUrl(video.getAttribute("src") || video.src || "");
     const parked = adoptParkedAvatarVideo(src);
