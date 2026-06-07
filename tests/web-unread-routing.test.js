@@ -589,11 +589,10 @@ test("src/web avatar media does not use accent backgrounds or avatar borders", (
   const css = fs.readFileSync(path.join(ROOT, "src/web/styles.css"), "utf8");
 
   assert.match(source, /avatarMedia\.isVideo\?\.\(image\)\) return "background-color:transparent;"/);
-  assert.match(source, /avatarMediaAttrs\(image, crop \|\| \{\}, color, text\)/);
-  assert.match(source, /function hydrateAvatarMedia\(root = document\)/);
-  assert.match(source, /hydrateAvatarVideos\(root = document\)[\s\S]*hydrateAvatarMedia\(root\)/);
+  assert.match(source, /avatarVideoHtml\(image, crop \|\| \{\}\)/);
+  assert.match(source, /muted loop autoplay playsinline/);
+  assert.doesNotMatch(source, /avatarPendingTrimSeek|parkedAvatarVideos|function hydrateAvatarMedia\(root = document\)/);
   assert.doesNotMatch(source, /style="background-color:\$\{escapeHtml\(color\)\};">\$\{avatarVideoHtml/);
-  assert.doesNotMatch(source, /style="background-color:transparent;">\$\{avatarVideoHtml/);
   assert.doesNotMatch(source, /el\.style\.cssText = `background-color:\$\{color\};`/);
   assert.match(css, /\.rail-avatar\s*\{[\s\S]*?background-color:\s*transparent;/);
   assert.match(css, /\.rail-avatar:hover,[\s\S]*?box-shadow:\s*none;/);

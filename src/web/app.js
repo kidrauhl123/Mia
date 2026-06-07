@@ -377,174 +377,11 @@ function avatarVideoStyle(crop = {}) {
 function avatarVideoHtml(image, crop = {}) {
   const trim = avatarMedia.trimFromCrop?.(crop) || { start: 0, duration: 3 };
   const src = normalizeAvatarUrl(image);
-  return `<video class="avatar-video" src="${escapeHtml(src)}" muted autoplay playsinline aria-hidden="true" data-avatar-start="${escapeHtml(trim.start)}" data-avatar-duration="${escapeHtml(trim.duration)}" style="${avatarVideoStyle(crop)}"></video>`;
-}
-
-// Web list and message surfaces are rendered with innerHTML, so a normal
-// re-render detaches the old <video> and creates a fresh one. Keep detached
-// avatar videos by src and reattach them on the next hydration pass; that
-// preserves decoded frames and currentTime instead of restarting the clip.
-const parkedAvatarVideos = new Map();
-
-function registerAvatarVideo(src, video) {
-  const key = normalizeAvatarUrl(src);
-  if (!key || !video) return;
-  let bucket = parkedAvatarVideos.get(key);
-  if (!bucket) {
-    bucket = new Set();
-    parkedAvatarVideos.set(key, bucket);
-  }
-  bucket.add(video);
-  const detached = [...bucket].filter((node) => node.isConnected === false);
-  for (const stale of detached.slice(0, Math.max(0, detached.length - 2))) bucket.delete(stale);
-}
-
-function adoptParkedAvatarVideo(src) {
-  const bucket = parkedAvatarVideos.get(normalizeAvatarUrl(src));
-  if (!bucket) return null;
-  for (const video of bucket) {
-    if (video.isConnected === false) return video;
-  }
-  return null;
-}
-
-function applyAvatarVideoAttributes(video, image, crop = {}) {
-  const trim = avatarMedia.trimFromCrop?.(crop) || { start: 0, duration: 3 };
-  const src = normalizeAvatarUrl(image);
-  video.className = "avatar-video";
-  const sourceChanged = video.getAttribute("src") !== src;
-  const waitForFreshTrimMetadata = sourceChanged && trim.start > 0 && !isTrimmedAvatarAssetSrc(src);
-  if (waitForFreshTrimMetadata) {
-    video.dataset.avatarPendingTrimSeek = "true";
-  } else if (sourceChanged || trim.start <= 0 || isTrimmedAvatarAssetSrc(src)) {
-    delete video.dataset.avatarPendingTrimSeek;
-  }
-  video.muted = true;
-  video.autoplay = false;
-  video.playsInline = true;
-  video.loop = false;
-  video.removeAttribute?.("loop");
-  video.removeAttribute?.("autoplay");
-  video.setAttribute("muted", "");
-  video.setAttribute("playsinline", "");
-  video.setAttribute("aria-hidden", "true");
-  video.dataset.avatarStart = String(trim.start);
-  video.dataset.avatarDuration = String(trim.duration);
-  video.setAttribute("style", avatarVideoStyle(crop));
-  return src;
-}
-
-function createAvatarVideoElement(image, crop = {}) {
-  const video = document.createElement("video");
-  applyAvatarVideoAttributes(video, image, crop);
-  return video;
-}
-
-function copyAvatarVideoAttributes(video, template) {
-  const src = normalizeAvatarUrl(template.getAttribute("src") || template.src || "");
-  video.className = template.className || "avatar-video";
-  const sourceChanged = video.getAttribute("src") !== src;
-  const trimStart = Math.max(0, Number(template.dataset.avatarStart || 0) || 0);
-  const waitForFreshTrimMetadata = sourceChanged && trimStart > 0 && !isTrimmedAvatarAssetSrc(src);
-  if (waitForFreshTrimMetadata) {
-    video.dataset.avatarPendingTrimSeek = "true";
-  } else if (sourceChanged || trimStart <= 0 || isTrimmedAvatarAssetSrc(src)) {
-    delete video.dataset.avatarPendingTrimSeek;
-  }
-  if (sourceChanged) video.setAttribute("src", src);
-  video.muted = true;
-  video.autoplay = false;
-  video.playsInline = true;
-  video.loop = false;
-  video.removeAttribute?.("loop");
-  video.removeAttribute?.("autoplay");
-  video.setAttribute("muted", "");
-  video.setAttribute("playsinline", "");
-  video.setAttribute("aria-hidden", "true");
-  video.dataset.avatarStart = template.dataset.avatarStart || "0";
-  video.dataset.avatarDuration = template.dataset.avatarDuration || "3";
-  const style = template.getAttribute("style") || "";
-  if (style) video.setAttribute("style", style);
-  else video.removeAttribute("style");
-  return src;
-}
-
-function removeAvatarChildrenExcept(el, keep) {
-  Array.from(el.childNodes || []).forEach((node) => {
-    if (node !== keep) node.remove();
-  });
+  return `<video class="avatar-video" src="${escapeHtml(src)}" muted loop autoplay playsinline aria-hidden="true" data-avatar-start="${escapeHtml(trim.start)}" data-avatar-duration="${escapeHtml(trim.duration)}" style="${avatarVideoStyle(crop)}"></video>`;
 }
 
 function removeAvatarVideos(el) {
   el.querySelectorAll?.(".avatar-video")?.forEach((node) => node.remove());
-}
-
-function assignAvatarVideoSrc(video, src) {
-  if (video?.getAttribute?.("src") !== src) video?.setAttribute?.("src", src);
-}
-
-function avatarVideoSrc(video) {
-  return String(video?.getAttribute?.("src") || video?.src || "");
-}
-
-function isTrimmedAvatarAssetSrc(raw) {
-  if (!raw) return false;
-  const isTrimmedAvatarAssetPath = (pathname) => (
-    pathname.startsWith("/api/avatar-assets/") && /\.avatar\.mp4$/i.test(pathname)
-  );
-  if (typeof URL === "function") {
-    try {
-      if (isTrimmedAvatarAssetPath(new URL(raw, "https://mia.invalid").pathname)) return true;
-    } catch {
-      // Fall through for test sandboxes without the browser URL constructor.
-    }
-  }
-  return /^(?:\/api\/avatar-assets\/|https?:\/\/[^/]+\/api\/avatar-assets\/|file:\/\/\/api\/avatar-assets\/)[^?#]+\.avatar\.mp4$/i
-    .test(raw.split(/[?#]/)[0]);
-}
-
-function isTrimmedAvatarAssetVideo(video) {
-  return isTrimmedAvatarAssetSrc(avatarVideoSrc(video));
-}
-
-function hasReadyAvatarMetadata(video) {
-  const actualDuration = Number(video?.duration);
-  return Boolean(video?.readyState >= 1 && Number.isFinite(actualDuration) && actualDuration > 0);
-}
-
-function shouldDelayAvatarVideoPlay(video) {
-  const rawStart = Math.max(0, Number(video?.dataset?.avatarStart || 0) || 0);
-  if (rawStart <= 0 || isTrimmedAvatarAssetVideo(video)) return false;
-  return video?.dataset?.avatarPendingTrimSeek === "true" || !hasReadyAvatarMetadata(video);
-}
-
-function playAvatarVideo(video) {
-  if (!video) return;
-  if (shouldDelayAvatarVideoPlay(video)) {
-    video.pause?.();
-    return;
-  }
-  video.play?.().catch?.(() => {});
-}
-
-function avatarMediaAttrs(image = "", crop = {}, color = "#5e5ce6", text = "") {
-  const normalizedCrop = webNormalizeAvatarCrop(crop || webAvatarDefaultCropForSrc(image));
-  return [
-    'data-avatar-media="1"',
-    `data-avatar-image="${escapeHtml(image || "")}"`,
-    `data-avatar-crop="${escapeHtml(JSON.stringify(normalizedCrop))}"`,
-    `data-avatar-color="${escapeHtml(color || "#5e5ce6")}"`,
-    `data-avatar-text="${escapeHtml(text || "")}"`
-  ].join(" ");
-}
-
-function parseAvatarCrop(value) {
-  try {
-    const parsed = JSON.parse(String(value || "{}"));
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
 }
 
 function generatedAvatarStyle(color = "#5e5ce6", text = "") {
@@ -556,7 +393,7 @@ function generatedAvatarStyle(color = "#5e5ce6", text = "") {
 function avatarHtml({ className = "avatar", image = "", crop = null, color = "#5e5ce6", text = "", attrs = "" } = {}) {
   const useAvatar = image && isPublicImageSrc(image);
   if (useAvatar && avatarMedia.isVideo?.(image)) {
-    return `<span class="${escapeHtml(className)}" ${attrs} ${avatarMediaAttrs(image, crop || {}, color, text)} style="background-color:transparent;"></span>`;
+    return `<span class="${escapeHtml(className)}" ${attrs} style="background-color:transparent;">${avatarVideoHtml(image, crop || {})}</span>`;
   }
   const style = useAvatar
     ? avatarBackgroundStyle(image, crop, color)
@@ -576,23 +413,15 @@ function avatarHtmlForConversation(item, color, label) {
 
 function applyAvatarMedia(el, image, crop = null, color = "#5e5ce6", text = "") {
   if (!el) return;
+  removeAvatarVideos(el);
   const useAvatar = image && isPublicImageSrc(image);
   if (useAvatar && avatarMedia.isVideo?.(image)) {
-    const src = normalizeAvatarUrl(image);
     el.style.cssText = "background-color:transparent;";
-    const videos = Array.from(el.querySelectorAll?.(":scope > .avatar-video") || []);
-    const video = videos[0] || adoptParkedAvatarVideo(src) || createAvatarVideoElement(image, crop || {});
-    videos.slice(1).forEach((node) => node.remove());
-    removeAvatarChildrenExcept(el, video);
-    const nextSrc = applyAvatarVideoAttributes(video, image, crop || {});
-    if (video.parentElement !== el || video !== el.firstElementChild) el.prepend(video);
-    ensureAvatarVideoSynced(video);
-    assignAvatarVideoSrc(video, nextSrc);
-    registerAvatarVideo(nextSrc, video);
-    playAvatarVideo(video);
+    el.textContent = "";
+    el.insertAdjacentHTML("afterbegin", avatarVideoHtml(image, crop || {}));
+    hydrateAvatarVideos(el);
     return;
   }
-  removeAvatarVideos(el);
   if (useAvatar) {
     el.style.cssText = avatarBackgroundStyle(image, crop, color);
     el.textContent = "";
@@ -603,83 +432,26 @@ function applyAvatarMedia(el, image, crop = null, color = "#5e5ce6", text = "") 
 }
 
 function syncAvatarVideo(video) {
-  video.loop = false;
-  video.removeAttribute?.("loop");
-  const trim = () => {
-    const rawStart = Math.max(0, Number(video.dataset.avatarStart || 0) || 0);
-    const rawDuration = Math.max(1, Number(video.dataset.avatarDuration || 3) || 3);
-    const actualDuration = Number(video.duration);
-    if (isTrimmedAvatarAssetVideo(video) && Number.isFinite(actualDuration) && actualDuration > 0 && rawStart >= actualDuration) {
-      return { start: 0, duration: Math.min(rawDuration, actualDuration) };
-    }
-    return { start: rawStart, duration: rawDuration };
-  };
+  const start = Math.max(0, Number(video.dataset.avatarStart || 0) || 0);
+  const duration = Math.max(1, Number(video.dataset.avatarDuration || 3) || 3);
+  const end = start + duration;
   const seekStart = () => {
     if (!Number.isFinite(video.duration) || video.duration <= 0) return;
-    const currentTrim = trim();
-    const safeStart = Math.min(currentTrim.start, Math.max(video.duration - 0.1, 0));
+    const safeStart = Math.min(start, Math.max(video.duration - 0.1, 0));
     if (Math.abs(video.currentTime - safeStart) > 0.25) video.currentTime = safeStart;
-    if (hasReadyAvatarMetadata(video)) delete video.dataset.avatarPendingTrimSeek;
-    playAvatarVideo(video);
   };
   video.addEventListener("loadedmetadata", seekStart);
   video.addEventListener("timeupdate", () => {
-    const currentTrim = trim();
-    const actualDuration = Number(video.duration);
-    const end = Number.isFinite(actualDuration) && actualDuration > 0
-      ? Math.min(currentTrim.start + currentTrim.duration, actualDuration)
-      : currentTrim.start + currentTrim.duration;
     if (video.currentTime >= end) seekStart();
   });
-  video.addEventListener("ended", seekStart);
-  playAvatarVideo(video);
-}
-
-function ensureAvatarVideoSynced(video) {
-  if (!video) return;
-  if (video.dataset.avatarHydrated === "true") {
-    playAvatarVideo(video);
-    return;
-  }
-  video.dataset.avatarHydrated = "true";
-  syncAvatarVideo(video);
-}
-
-function hydrateAvatarMedia(root = document) {
-  const targets = [];
-  if (root.matches?.("[data-avatar-media]")) targets.push(root);
-  root.querySelectorAll?.("[data-avatar-media]")?.forEach((el) => targets.push(el));
-  targets.forEach((el) => {
-    const signature = [
-      el.dataset.avatarImage || "",
-      el.dataset.avatarCrop || "",
-      el.dataset.avatarColor || "",
-      el.dataset.avatarText || ""
-    ].join("\u001f");
-    if (el.dataset.avatarRenderedSignature === signature) return;
-    el.dataset.avatarRenderedSignature = signature;
-    applyAvatarMedia(
-      el,
-      el.dataset.avatarImage || "",
-      parseAvatarCrop(el.dataset.avatarCrop),
-      el.dataset.avatarColor || "#5e5ce6",
-      el.dataset.avatarText || ""
-    );
-  });
+  video.play?.().catch?.(() => {});
 }
 
 function hydrateAvatarVideos(root = document) {
-  hydrateAvatarMedia(root);
   root.querySelectorAll?.("video.avatar-video")?.forEach((video) => {
-    let src = normalizeAvatarUrl(video.getAttribute("src") || video.src || "");
-    const parked = adoptParkedAvatarVideo(src);
-    if (parked && parked !== video) {
-      src = copyAvatarVideoAttributes(parked, video);
-      video.replaceWith(parked);
-      video = parked;
-    }
-    registerAvatarVideo(src, video);
-    ensureAvatarVideoSynced(video);
+    if (video.dataset.avatarHydrated === "true") return;
+    video.dataset.avatarHydrated = "true";
+    syncAvatarVideo(video);
   });
 }
 
