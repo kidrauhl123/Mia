@@ -699,7 +699,7 @@ test("desktop avatar videos loop from zero when the asset is already trimmed", (
   let currentTime = 4.96;
   const video = {
     dataset: {},
-    attrs: {},
+    attrs: { src: "data:video/mp4;base64,abc" },
     readyState: 2,
     duration: 5.004,
     get currentTime() { return currentTime; },
@@ -744,7 +744,7 @@ test("desktop avatar videos keep the selected trim for ordinary video sources", 
   let currentTime = 2;
   const video = {
     dataset: {},
-    attrs: {},
+    attrs: { src: "data:video/mp4;base64,abc" },
     readyState: 2,
     duration: 5.004,
     get currentTime() { return currentTime; },
@@ -828,6 +828,67 @@ test("desktop avatar videos do not autoplay from zero before a nonzero trim can 
   handlers.loadedmetadata();
 
   assert.deepEqual(seeks, [2.5]);
+  assert.equal(playCount, 1);
+});
+
+test("desktop avatar videos wait for fresh metadata after the source changes", () => {
+  const avatarSource = fs.readFileSync(path.join(root, "src/renderer/helpers/avatar-helpers.js"), "utf8");
+  const sharedAvatarSource = fs.readFileSync(path.join(root, "packages/shared/avatar.js"), "utf8");
+  const context = vm.createContext({
+    window: {},
+    console,
+    setTimeout
+  });
+  context.globalThis = context.window;
+  vm.runInContext(sharedAvatarSource, context, { filename: "packages/shared/avatar.js" });
+  vm.runInContext(avatarSource, context, { filename: "src/renderer/helpers/avatar-helpers.js" });
+
+  const handlers = {};
+  const seeks = [];
+  let currentTime = 0;
+  let duration = 12;
+  let readyState = 2;
+  let playCount = 0;
+  let pauseCount = 0;
+  const video = {
+    dataset: { avatarTrimKey: "0.00:3.00" },
+    attrs: { src: "data:video/mp4;base64,old" },
+    get readyState() { return readyState; },
+    get duration() { return duration; },
+    get currentTime() { return currentTime; },
+    set currentTime(value) {
+      seeks.push(value);
+      currentTime = value;
+    },
+    getAttribute(name) { return this.attrs[name] || null; },
+    setAttribute(name, value) { this.attrs[name] = String(value); },
+    removeAttribute(name) { delete this.attrs[name]; },
+    addEventListener(name, handler) { handlers[name] = handler; },
+    play() {
+      playCount += 1;
+      return { catch() {} };
+    },
+    pause() {
+      pauseCount += 1;
+    }
+  };
+
+  context.window.miaAvatar.updateAvatarVideoElement(
+    video,
+    "data:video/mp4;base64,new",
+    { x: 36, y: 100, zoom: 1.09, start: 5.9, duration: 4 }
+  );
+
+  assert.equal(video.getAttribute("src"), "data:video/mp4;base64,new");
+  assert.equal(playCount, 0);
+  assert.equal(pauseCount, 1);
+  assert.deepEqual(seeks, []);
+
+  duration = 12;
+  readyState = 1;
+  handlers.loadedmetadata();
+
+  assert.deepEqual(seeks, [5.9]);
   assert.equal(playCount, 1);
 });
 

@@ -412,7 +412,14 @@ function applyAvatarVideoAttributes(video, image, crop = {}) {
   const trim = avatarMedia.trimFromCrop?.(crop) || { start: 0, duration: 3 };
   const src = normalizeAvatarUrl(image);
   video.className = "avatar-video";
-  if (video.getAttribute("src") !== src) video.setAttribute("src", src);
+  const sourceChanged = video.getAttribute("src") !== src;
+  const waitForFreshTrimMetadata = sourceChanged && trim.start > 0 && !isTrimmedAvatarAssetSrc(src);
+  if (waitForFreshTrimMetadata) {
+    video.dataset.avatarPendingTrimSeek = "true";
+  } else if (sourceChanged || trim.start <= 0 || isTrimmedAvatarAssetSrc(src)) {
+    delete video.dataset.avatarPendingTrimSeek;
+  }
+  if (sourceChanged) video.setAttribute("src", src);
   video.muted = true;
   video.autoplay = false;
   video.playsInline = true;
@@ -438,7 +445,15 @@ function createAvatarVideoElement(image, crop = {}) {
 function copyAvatarVideoAttributes(video, template) {
   const src = normalizeAvatarUrl(template.getAttribute("src") || template.src || "");
   video.className = template.className || "avatar-video";
-  if (video.getAttribute("src") !== src) video.setAttribute("src", src);
+  const sourceChanged = video.getAttribute("src") !== src;
+  const trimStart = Math.max(0, Number(template.dataset.avatarStart || 0) || 0);
+  const waitForFreshTrimMetadata = sourceChanged && trimStart > 0 && !isTrimmedAvatarAssetSrc(src);
+  if (waitForFreshTrimMetadata) {
+    video.dataset.avatarPendingTrimSeek = "true";
+  } else if (sourceChanged || trimStart <= 0 || isTrimmedAvatarAssetSrc(src)) {
+    delete video.dataset.avatarPendingTrimSeek;
+  }
+  if (sourceChanged) video.setAttribute("src", src);
   video.muted = true;
   video.autoplay = false;
   video.playsInline = true;
@@ -470,8 +485,7 @@ function avatarVideoSrc(video) {
   return String(video?.getAttribute?.("src") || video?.src || "");
 }
 
-function isTrimmedAvatarAssetVideo(video) {
-  const raw = avatarVideoSrc(video);
+function isTrimmedAvatarAssetSrc(raw) {
   if (!raw) return false;
   const isTrimmedAvatarAssetPath = (pathname) => (
     pathname.startsWith("/api/avatar-assets/") && /\.avatar\.mp4$/i.test(pathname)
@@ -487,11 +501,19 @@ function isTrimmedAvatarAssetVideo(video) {
     .test(raw.split(/[?#]/)[0]);
 }
 
+function isTrimmedAvatarAssetVideo(video) {
+  return isTrimmedAvatarAssetSrc(avatarVideoSrc(video));
+}
+
+function hasReadyAvatarMetadata(video) {
+  const actualDuration = Number(video?.duration);
+  return Boolean(video?.readyState >= 1 && Number.isFinite(actualDuration) && actualDuration > 0);
+}
+
 function shouldDelayAvatarVideoPlay(video) {
   const rawStart = Math.max(0, Number(video?.dataset?.avatarStart || 0) || 0);
   if (rawStart <= 0 || isTrimmedAvatarAssetVideo(video)) return false;
-  const actualDuration = Number(video?.duration);
-  return !(video?.readyState >= 1 && Number.isFinite(actualDuration) && actualDuration > 0);
+  return video?.dataset?.avatarPendingTrimSeek === "true" || !hasReadyAvatarMetadata(video);
 }
 
 function playAvatarVideo(video) {
@@ -593,6 +615,7 @@ function syncAvatarVideo(video) {
     const currentTrim = trim();
     const safeStart = Math.min(currentTrim.start, Math.max(video.duration - 0.1, 0));
     if (Math.abs(video.currentTime - safeStart) > 0.25) video.currentTime = safeStart;
+    if (hasReadyAvatarMetadata(video)) delete video.dataset.avatarPendingTrimSeek;
     playAvatarVideo(video);
   };
   video.addEventListener("loadedmetadata", seekStart);

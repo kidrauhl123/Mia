@@ -166,7 +166,9 @@ function loadAvatarVideoHelpers() {
     ${extractFunctionSource("removeAvatarChildrenExcept")}
     ${extractFunctionSource("removeAvatarVideos")}
     ${extractFunctionSource("avatarVideoSrc")}
+    ${extractFunctionSource("isTrimmedAvatarAssetSrc")}
     ${extractFunctionSource("isTrimmedAvatarAssetVideo")}
+    ${extractFunctionSource("hasReadyAvatarMetadata")}
     ${extractFunctionSource("shouldDelayAvatarVideoPlay")}
     ${extractFunctionSource("playAvatarVideo")}
     ${extractFunctionSource("syncAvatarVideo")}
@@ -376,5 +378,41 @@ test("web avatar videos do not autoplay from zero before a nonzero trim can seek
   video.listeners.find(({ type }) => type === "loadedmetadata").listener();
 
   assert.deepEqual(seeks, [2.5]);
+  assert.equal(video.playCount, 1);
+});
+
+test("web avatar videos wait for fresh metadata after the source changes", () => {
+  const helpers = loadAvatarVideoHelpers();
+  const root = new FakeRoot();
+
+  helpers.applyAvatarMedia(root, "/api/files/old.mp4", { start: 0, duration: 3 }, "#5e5ce6", "A");
+  const video = root.children[0];
+  const seeks = [];
+  let currentTime = 0;
+  Object.defineProperty(video, "currentTime", {
+    get() { return currentTime; },
+    set(value) {
+      seeks.push(value);
+      currentTime = value;
+    }
+  });
+  video.readyState = 2;
+  video.duration = 12;
+  video.playCount = 0;
+  video.pauseCount = 0;
+
+  helpers.applyAvatarMedia(root, "/api/files/new.mp4", { start: 5.9, duration: 4 }, "#5e5ce6", "A");
+
+  assert.equal(root.children[0], video);
+  assert.equal(video.getAttribute("src"), "/api/files/new.mp4");
+  assert.equal(video.playCount, 0);
+  assert.equal(video.pauseCount, 1);
+  assert.deepEqual(seeks, []);
+
+  video.readyState = 1;
+  video.duration = 12;
+  video.listeners.find(({ type }) => type === "loadedmetadata").listener();
+
+  assert.deepEqual(seeks, [5.9]);
   assert.equal(video.playCount, 1);
 });
