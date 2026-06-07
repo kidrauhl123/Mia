@@ -771,6 +771,66 @@ test("desktop avatar videos keep the selected trim for ordinary video sources", 
   assert.ok(Math.abs(seeks[0] - 4.904) < 0.0001);
 });
 
+test("desktop avatar videos do not autoplay from zero before a nonzero trim can seek", () => {
+  const avatarSource = fs.readFileSync(path.join(root, "src/renderer/helpers/avatar-helpers.js"), "utf8");
+  const sharedAvatarSource = fs.readFileSync(path.join(root, "packages/shared/avatar.js"), "utf8");
+  const context = vm.createContext({
+    window: {},
+    console,
+    setTimeout
+  });
+  context.globalThis = context.window;
+  vm.runInContext(sharedAvatarSource, context, { filename: "packages/shared/avatar.js" });
+  vm.runInContext(avatarSource, context, { filename: "src/renderer/helpers/avatar-helpers.js" });
+
+  const handlers = {};
+  const seeks = [];
+  let currentTime = 0;
+  let duration = NaN;
+  let readyState = 0;
+  let playCount = 0;
+  let pauseCount = 0;
+  const video = {
+    dataset: {},
+    attrs: {},
+    get readyState() { return readyState; },
+    get duration() { return duration; },
+    get currentTime() { return currentTime; },
+    set currentTime(value) {
+      seeks.push(value);
+      currentTime = value;
+    },
+    getAttribute(name) { return this.attrs[name] || null; },
+    setAttribute(name, value) { this.attrs[name] = String(value); },
+    removeAttribute(name) { delete this.attrs[name]; },
+    addEventListener(name, handler) { handlers[name] = handler; },
+    play() {
+      playCount += 1;
+      return { catch() {} };
+    },
+    pause() {
+      pauseCount += 1;
+    }
+  };
+
+  context.window.miaAvatar.updateAvatarVideoElement(
+    video,
+    "data:video/mp4;base64,abc",
+    { x: 36, y: 100, zoom: 1.09, start: 2.5, duration: 3 }
+  );
+
+  assert.equal(playCount, 0);
+  assert.equal(pauseCount, 1);
+  assert.deepEqual(seeks, []);
+
+  duration = 12;
+  readyState = 1;
+  handlers.loadedmetadata();
+
+  assert.deepEqual(seeks, [2.5]);
+  assert.equal(playCount, 1);
+});
+
 test("cloud-only: submit routes through the active cloud conversation, not a local session", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const start = appSource.indexOf('els.chatForm.addEventListener("submit"');

@@ -414,12 +414,12 @@ function applyAvatarVideoAttributes(video, image, crop = {}) {
   video.className = "avatar-video";
   if (video.getAttribute("src") !== src) video.setAttribute("src", src);
   video.muted = true;
-  video.autoplay = true;
+  video.autoplay = false;
   video.playsInline = true;
   video.loop = false;
   video.removeAttribute?.("loop");
+  video.removeAttribute?.("autoplay");
   video.setAttribute("muted", "");
-  video.setAttribute("autoplay", "");
   video.setAttribute("playsinline", "");
   video.setAttribute("aria-hidden", "true");
   video.dataset.avatarStart = String(trim.start);
@@ -440,12 +440,12 @@ function copyAvatarVideoAttributes(video, template) {
   video.className = template.className || "avatar-video";
   if (video.getAttribute("src") !== src) video.setAttribute("src", src);
   video.muted = true;
-  video.autoplay = true;
+  video.autoplay = false;
   video.playsInline = true;
   video.loop = false;
   video.removeAttribute?.("loop");
+  video.removeAttribute?.("autoplay");
   video.setAttribute("muted", "");
-  video.setAttribute("autoplay", "");
   video.setAttribute("playsinline", "");
   video.setAttribute("aria-hidden", "true");
   video.dataset.avatarStart = template.dataset.avatarStart || "0";
@@ -485,6 +485,22 @@ function isTrimmedAvatarAssetVideo(video) {
   }
   return /^(?:\/api\/avatar-assets\/|https?:\/\/[^/]+\/api\/avatar-assets\/|file:\/\/\/api\/avatar-assets\/)[^?#]+\.avatar\.mp4$/i
     .test(raw.split(/[?#]/)[0]);
+}
+
+function shouldDelayAvatarVideoPlay(video) {
+  const rawStart = Math.max(0, Number(video?.dataset?.avatarStart || 0) || 0);
+  if (rawStart <= 0 || isTrimmedAvatarAssetVideo(video)) return false;
+  const actualDuration = Number(video?.duration);
+  return !(video?.readyState >= 1 && Number.isFinite(actualDuration) && actualDuration > 0);
+}
+
+function playAvatarVideo(video) {
+  if (!video) return;
+  if (shouldDelayAvatarVideoPlay(video)) {
+    video.pause?.();
+    return;
+  }
+  video.play?.().catch?.(() => {});
 }
 
 function avatarMediaAttrs(image = "", crop = {}, color = "#5e5ce6", text = "") {
@@ -577,7 +593,7 @@ function syncAvatarVideo(video) {
     const currentTrim = trim();
     const safeStart = Math.min(currentTrim.start, Math.max(video.duration - 0.1, 0));
     if (Math.abs(video.currentTime - safeStart) > 0.25) video.currentTime = safeStart;
-    video.play?.().catch?.(() => {});
+    playAvatarVideo(video);
   };
   video.addEventListener("loadedmetadata", seekStart);
   video.addEventListener("timeupdate", () => {
@@ -589,7 +605,7 @@ function syncAvatarVideo(video) {
     if (video.currentTime >= end) seekStart();
   });
   video.addEventListener("ended", seekStart);
-  video.play?.().catch?.(() => {});
+  playAvatarVideo(video);
 }
 
 function hydrateAvatarMedia(root = document) {
@@ -627,7 +643,7 @@ function hydrateAvatarVideos(root = document) {
     }
     registerAvatarVideo(src, video);
     if (video.dataset.avatarHydrated === "true") {
-      video.play?.().catch?.(() => {});
+      playAvatarVideo(video);
       return;
     }
     video.dataset.avatarHydrated = "true";

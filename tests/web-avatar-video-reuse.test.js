@@ -38,6 +38,7 @@ class FakeVideo {
     this.isConnected = false;
     this.loop = true;
     this.playCount = 0;
+    this.pauseCount = 0;
     if (src) this.setAttribute("src", src);
   }
 
@@ -61,6 +62,10 @@ class FakeVideo {
   play() {
     this.playCount += 1;
     return { catch() {} };
+  }
+
+  pause() {
+    this.pauseCount += 1;
   }
 
   remove() {
@@ -162,6 +167,8 @@ function loadAvatarVideoHelpers() {
     ${extractFunctionSource("removeAvatarVideos")}
     ${extractFunctionSource("avatarVideoSrc")}
     ${extractFunctionSource("isTrimmedAvatarAssetVideo")}
+    ${extractFunctionSource("shouldDelayAvatarVideoPlay")}
+    ${extractFunctionSource("playAvatarVideo")}
     ${extractFunctionSource("syncAvatarVideo")}
     ${extractFunctionSource("hydrateAvatarMedia")}
     ${extractFunctionSource("hydrateAvatarVideos")}
@@ -331,4 +338,43 @@ test("web avatar videos keep the selected trim for ordinary video sources", () =
 
   assert.equal(seeks.length, 1);
   assert.ok(Math.abs(seeks[0] - 4.904) < 0.0001);
+});
+
+test("web avatar videos do not autoplay from zero before a nonzero trim can seek", () => {
+  const helpers = loadAvatarVideoHelpers();
+  const video = new FakeVideo("/api/files/avatar.mp4");
+  const seeks = [];
+  let currentTime = 0;
+  let duration = NaN;
+  let readyState = 0;
+  Object.defineProperty(video, "currentTime", {
+    get() { return currentTime; },
+    set(value) {
+      seeks.push(value);
+      currentTime = value;
+    }
+  });
+  Object.defineProperty(video, "duration", {
+    get() { return duration; },
+    set(value) { duration = value; }
+  });
+  Object.defineProperty(video, "readyState", {
+    get() { return readyState; },
+    set(value) { readyState = value; }
+  });
+  video.dataset.avatarStart = "2.5";
+  video.dataset.avatarDuration = "3";
+
+  helpers.syncAvatarVideo(video);
+
+  assert.equal(video.playCount, 0);
+  assert.equal(video.pauseCount, 1);
+  assert.deepEqual(seeks, []);
+
+  duration = 12;
+  readyState = 1;
+  video.listeners.find(({ type }) => type === "loadedmetadata").listener();
+
+  assert.deepEqual(seeks, [2.5]);
+  assert.equal(video.playCount, 1);
 });

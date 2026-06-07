@@ -194,12 +194,28 @@
     return true;
   }
 
+  function shouldDelayAvatarVideoPlay(video) {
+    const trim = avatarTrimForVideo(video);
+    if (trim.start <= 0 || isTrimmedAvatarAssetVideo(video)) return false;
+    const actualDuration = Number(video?.duration);
+    return !(video?.readyState >= 1 && Number.isFinite(actualDuration) && actualDuration > 0);
+  }
+
+  function playAvatarVideo(video) {
+    if (!video) return;
+    if (shouldDelayAvatarVideoPlay(video)) {
+      video.pause?.();
+      return;
+    }
+    video.play?.().catch?.(() => {});
+  }
+
   function syncAvatarVideoLoop(video) {
     if (!video || video.dataset.avatarLoopReady === "true") return;
     video.dataset.avatarLoopReady = "true";
     const seekStart = () => {
       const changed = seekAvatarVideoToStart(video);
-      video.play?.().catch?.(() => {});
+      playAvatarVideo(video);
       return changed;
     };
     const loopIfNeeded = () => {
@@ -214,7 +230,7 @@
     video.addEventListener("loadedmetadata", seekStart);
     video.addEventListener("timeupdate", loopIfNeeded);
     video.addEventListener("ended", seekStart);
-    video.addEventListener("canplay", () => video.play?.().catch?.(() => {}));
+    video.addEventListener("canplay", () => playAvatarVideo(video));
     if (video.readyState >= 1) seekStart();
   }
 
@@ -229,8 +245,10 @@
       video.setAttribute("src", src);
     }
     video.loop = false;
+    video.autoplay = false;
     video.preload = "auto";
     video.removeAttribute?.("loop");
+    video.removeAttribute?.("autoplay");
     video.setAttribute("preload", "auto");
     video.setAttribute("style", videoObjectStyle(c));
     video.dataset.avatarStart = String(trim.start);
@@ -240,7 +258,7 @@
     if (trimChanged && !sourceChanged && video.readyState >= 1) {
       seekAvatarVideoToStart(video);
     }
-    video.play?.().catch?.(() => {});
+    playAvatarVideo(video);
   }
 
   function createAvatarVideoElement(image, crop = {}) {
@@ -250,11 +268,10 @@
     video.setAttribute("src", src);
     video.muted = true;
     video.loop = false;
-    video.autoplay = true;
+    video.autoplay = false;
     video.playsInline = true;
     video.preload = "auto";
     video.setAttribute("muted", "");
-    video.setAttribute("autoplay", "");
     video.setAttribute("playsinline", "");
     video.setAttribute("preload", "auto");
     video.setAttribute("aria-hidden", "true");
@@ -458,7 +475,7 @@
       if (video.dataset.avatarHydrated === "true") return;
       video.dataset.avatarHydrated = "true";
       syncAvatarVideoLoop(video);
-      video.play?.().catch?.(() => {});
+      playAvatarVideo(video);
     });
   }
 
