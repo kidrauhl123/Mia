@@ -255,9 +255,6 @@
     } else if (sourceChanged || trim.start <= 0 || isTrimmedAvatarAssetSrc(src)) {
       delete video.dataset.avatarPendingTrimSeek;
     }
-    if (sourceChanged) {
-      video.setAttribute("src", src);
-    }
     video.loop = false;
     video.autoplay = false;
     video.preload = "auto";
@@ -269,6 +266,9 @@
     video.dataset.avatarDuration = String(trim.duration);
     video.dataset.avatarTrimKey = trimKey;
     syncAvatarVideoLoop(video);
+    if (sourceChanged) {
+      video.setAttribute("src", src);
+    }
     if (trimChanged && !sourceChanged && video.readyState >= 1) {
       seekAvatarVideoToStart(video);
     }
@@ -279,7 +279,6 @@
     const src = avatarImageSrc(image);
     const video = document.createElement("video");
     video.className = "avatar-video";
-    video.setAttribute("src", src);
     video.muted = true;
     video.loop = false;
     video.autoplay = false;

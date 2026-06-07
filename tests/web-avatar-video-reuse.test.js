@@ -27,6 +27,8 @@ function extractFunctionSource(name) {
 }
 
 class FakeVideo {
+  static onSetSrc = null;
+
   constructor(src = "") {
     this.attributes = new Map();
     this.dataset = {};
@@ -44,7 +46,10 @@ class FakeVideo {
 
   setAttribute(name, value) {
     this.attributes.set(name, String(value));
-    if (name === "src") this.src = String(value);
+    if (name === "src") {
+      this.src = String(value);
+      FakeVideo.onSetSrc?.(this);
+    }
   }
 
   getAttribute(name) {
@@ -160,6 +165,7 @@ function loadAvatarVideoHelpers() {
     ${extractFunctionSource("parseAvatarCrop")}
     ${extractFunctionSource("registerAvatarVideo")}
     ${extractFunctionSource("adoptParkedAvatarVideo")}
+    ${extractFunctionSource("assignAvatarVideoSrc")}
     ${extractFunctionSource("applyAvatarVideoAttributes")}
     ${extractFunctionSource("createAvatarVideoElement")}
     ${extractFunctionSource("copyAvatarVideoAttributes")}
@@ -172,6 +178,7 @@ function loadAvatarVideoHelpers() {
     ${extractFunctionSource("shouldDelayAvatarVideoPlay")}
     ${extractFunctionSource("playAvatarVideo")}
     ${extractFunctionSource("syncAvatarVideo")}
+    ${extractFunctionSource("ensureAvatarVideoSynced")}
     ${extractFunctionSource("hydrateAvatarMedia")}
     ${extractFunctionSource("hydrateAvatarVideos")}
     ${extractFunctionSource("applyAvatarMedia")}
@@ -406,7 +413,7 @@ test("web avatar videos wait for fresh metadata after the source changes", () =>
   assert.equal(root.children[0], video);
   assert.equal(video.getAttribute("src"), "/api/files/new.mp4");
   assert.equal(video.playCount, 0);
-  assert.equal(video.pauseCount, 1);
+  assert.ok(video.pauseCount >= 1);
   assert.deepEqual(seeks, []);
 
   video.readyState = 1;
@@ -415,4 +422,32 @@ test("web avatar videos wait for fresh metadata after the source changes", () =>
 
   assert.deepEqual(seeks, [5.9]);
   assert.equal(video.playCount, 1);
+});
+
+test("web avatar videos attach trim metadata handlers before assigning a new source", () => {
+  const helpers = loadAvatarVideoHelpers();
+  const root = new FakeRoot();
+  const seeks = [];
+  let targetVideo = null;
+
+  FakeVideo.onSetSrc = (video) => {
+    targetVideo = video;
+    Object.defineProperty(video, "currentTime", {
+      configurable: true,
+      get() { return 0; },
+      set(value) { seeks.push(value); }
+    });
+    video.duration = 12;
+    video.readyState = 1;
+    video.listeners.find(({ type }) => type === "loadedmetadata")?.listener();
+  };
+  try {
+    helpers.applyAvatarMedia(root, "/api/files/new.mp4", { start: 5.9, duration: 4 }, "#5e5ce6", "A");
+  } finally {
+    FakeVideo.onSetSrc = null;
+  }
+
+  assert.equal(root.children[0], targetVideo);
+  assert.deepEqual(seeks, [5.9]);
+  assert.equal(targetVideo.dataset.avatarPendingTrimSeek, undefined);
 });

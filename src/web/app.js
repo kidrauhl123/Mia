@@ -419,7 +419,6 @@ function applyAvatarVideoAttributes(video, image, crop = {}) {
   } else if (sourceChanged || trim.start <= 0 || isTrimmedAvatarAssetSrc(src)) {
     delete video.dataset.avatarPendingTrimSeek;
   }
-  if (sourceChanged) video.setAttribute("src", src);
   video.muted = true;
   video.autoplay = false;
   video.playsInline = true;
@@ -437,8 +436,7 @@ function applyAvatarVideoAttributes(video, image, crop = {}) {
 
 function createAvatarVideoElement(image, crop = {}) {
   const video = document.createElement("video");
-  const src = applyAvatarVideoAttributes(video, image, crop);
-  registerAvatarVideo(src, video);
+  applyAvatarVideoAttributes(video, image, crop);
   return video;
 }
 
@@ -479,6 +477,10 @@ function removeAvatarChildrenExcept(el, keep) {
 
 function removeAvatarVideos(el) {
   el.querySelectorAll?.(".avatar-video")?.forEach((node) => node.remove());
+}
+
+function assignAvatarVideoSrc(video, src) {
+  if (video?.getAttribute?.("src") !== src) video?.setAttribute?.("src", src);
 }
 
 function avatarVideoSrc(video) {
@@ -582,10 +584,12 @@ function applyAvatarMedia(el, image, crop = null, color = "#5e5ce6", text = "") 
     const video = videos[0] || adoptParkedAvatarVideo(src) || createAvatarVideoElement(image, crop || {});
     videos.slice(1).forEach((node) => node.remove());
     removeAvatarChildrenExcept(el, video);
-    applyAvatarVideoAttributes(video, image, crop || {});
-    registerAvatarVideo(src, video);
+    const nextSrc = applyAvatarVideoAttributes(video, image, crop || {});
     if (video.parentElement !== el || video !== el.firstElementChild) el.prepend(video);
-    hydrateAvatarVideos(el);
+    ensureAvatarVideoSynced(video);
+    assignAvatarVideoSrc(video, nextSrc);
+    registerAvatarVideo(nextSrc, video);
+    playAvatarVideo(video);
     return;
   }
   removeAvatarVideos(el);
@@ -631,6 +635,16 @@ function syncAvatarVideo(video) {
   playAvatarVideo(video);
 }
 
+function ensureAvatarVideoSynced(video) {
+  if (!video) return;
+  if (video.dataset.avatarHydrated === "true") {
+    playAvatarVideo(video);
+    return;
+  }
+  video.dataset.avatarHydrated = "true";
+  syncAvatarVideo(video);
+}
+
 function hydrateAvatarMedia(root = document) {
   const targets = [];
   if (root.matches?.("[data-avatar-media]")) targets.push(root);
@@ -665,12 +679,7 @@ function hydrateAvatarVideos(root = document) {
       video = parked;
     }
     registerAvatarVideo(src, video);
-    if (video.dataset.avatarHydrated === "true") {
-      playAvatarVideo(video);
-      return;
-    }
-    video.dataset.avatarHydrated = "true";
-    syncAvatarVideo(video);
+    ensureAvatarVideoSynced(video);
   });
 }
 
