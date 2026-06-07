@@ -2,6 +2,7 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const vm = require("node:vm");
 
 const ROOT = path.join(__dirname, "..");
 const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
@@ -10,7 +11,9 @@ function extractFunctionSource(name) {
   const marker = `function ${name}(`;
   const start = source.indexOf(marker);
   assert.ok(start >= 0, `${name} must exist`);
-  const open = source.indexOf("{", start);
+  const signatureEnd = source.indexOf(") {", start);
+  assert.ok(signatureEnd >= 0, `${name} must have a complete signature`);
+  const open = source.indexOf("{", signatureEnd);
   assert.ok(open >= 0, `${name} must have a body`);
   let depth = 0;
   for (let i = open; i < source.length; i += 1) {
@@ -21,6 +24,140 @@ function extractFunctionSource(name) {
     }
   }
   throw new Error(`${name} body was not closed`);
+}
+
+class FakeVideo {
+  constructor(src = "") {
+    this.attributes = new Map();
+    this.dataset = {};
+    this.className = "avatar-video";
+    this.currentTime = 0;
+    this.duration = 10;
+    this.listeners = [];
+    this.parentElement = null;
+    this.isConnected = false;
+    this.loop = true;
+    this.playCount = 0;
+    if (src) this.setAttribute("src", src);
+  }
+
+  setAttribute(name, value) {
+    this.attributes.set(name, String(value));
+    if (name === "src") this.src = String(value);
+  }
+
+  getAttribute(name) {
+    return this.attributes.has(name) ? this.attributes.get(name) : null;
+  }
+
+  removeAttribute(name) {
+    this.attributes.delete(name);
+  }
+
+  addEventListener(type, listener) {
+    this.listeners.push({ type, listener });
+  }
+
+  play() {
+    this.playCount += 1;
+    return { catch() {} };
+  }
+
+  remove() {
+    if (!this.parentElement) return;
+    this.parentElement.removeChild(this);
+  }
+
+  replaceWith(node) {
+    if (!this.parentElement) return;
+    const parent = this.parentElement;
+    const index = parent.children.indexOf(this);
+    if (index >= 0) parent.children[index] = node;
+    this.parentElement = null;
+    this.isConnected = false;
+    node.parentElement = parent;
+    node.isConnected = parent.isConnected;
+  }
+}
+
+class FakeRoot {
+  constructor(children = []) {
+    this.children = [];
+    this.style = { cssText: "" };
+    this.isConnected = true;
+    children.forEach((child) => this.prepend(child));
+    this.children.reverse();
+  }
+
+  get childNodes() {
+    return this.children;
+  }
+
+  get firstElementChild() {
+    return this.children[0] || null;
+  }
+
+  querySelectorAll(selector) {
+    if (selector !== "video.avatar-video" && selector !== ":scope > .avatar-video" && selector !== ".avatar-video") {
+      return [];
+    }
+    return this.children.filter((node) => node.className === "avatar-video");
+  }
+
+  prepend(node) {
+    if (node.parentElement) node.parentElement.removeChild(node);
+    this.children.unshift(node);
+    node.parentElement = this;
+    node.isConnected = this.isConnected;
+  }
+
+  removeChild(node) {
+    const index = this.children.indexOf(node);
+    if (index >= 0) this.children.splice(index, 1);
+    node.parentElement = null;
+    node.isConnected = false;
+  }
+}
+
+function loadAvatarVideoHelpers() {
+  const sandbox = {
+    document: { createElement: () => new FakeVideo() },
+    FakeVideo,
+    globalThis: {}
+  };
+  vm.runInNewContext(`
+    const avatarMedia = {
+      isVideo: (src) => /\\.mp4$/i.test(String(src || "")),
+      trimFromCrop: (crop = {}) => ({
+        start: Number(crop.start ?? 0) || 0,
+        duration: Number(crop.duration ?? 3) || 3
+      })
+    };
+    function normalizeAvatarUrl(value) {
+      return String(value || "").trim();
+    }
+    function isPublicImageSrc(value) {
+      return /^\\/api\\/files\\//.test(String(value || ""));
+    }
+    ${extractFunctionSource("avatarVideoStyle")}
+    const parkedAvatarVideos = new Map();
+    ${extractFunctionSource("registerAvatarVideo")}
+    ${extractFunctionSource("adoptParkedAvatarVideo")}
+    ${extractFunctionSource("applyAvatarVideoAttributes")}
+    ${extractFunctionSource("createAvatarVideoElement")}
+    ${extractFunctionSource("copyAvatarVideoAttributes")}
+    ${extractFunctionSource("removeAvatarChildrenExcept")}
+    ${extractFunctionSource("removeAvatarVideos")}
+    ${extractFunctionSource("syncAvatarVideo")}
+    ${extractFunctionSource("hydrateAvatarVideos")}
+    ${extractFunctionSource("applyAvatarMedia")}
+    globalThis.avatarVideoHelpers = {
+      applyAvatarMedia,
+      hydrateAvatarVideos,
+      registerAvatarVideo
+    };
+  `, sandbox);
+  return sandbox.globalThis.avatarVideoHelpers;
 }
 
 test("web avatar videos are parked so innerHTML rebuilds can reuse playback state", () => {
@@ -58,4 +195,39 @@ test("applyAvatarMedia adopts parked web avatar videos instead of recreating the
     /querySelectorAll\?\.\("\\.avatar-video"\)\?\.\forEach\(\(node\) => node\.remove\(\)\)/,
     "applyAvatarMedia must not remove all videos before deciding whether the avatar is still the same video"
   );
+});
+
+test("hydrateAvatarVideos replaces fresh rebuilt videos with parked nodes", () => {
+  const helpers = loadAvatarVideoHelpers();
+  const src = "/api/files/avatar.mp4";
+  const parked = new FakeVideo(src);
+  parked.dataset.avatarHydrated = "true";
+  parked.currentTime = 2.4;
+  helpers.registerAvatarVideo(src, parked);
+
+  const fresh = new FakeVideo(src);
+  fresh.dataset.avatarStart = "0";
+  fresh.dataset.avatarDuration = "3";
+  const root = new FakeRoot([fresh]);
+
+  helpers.hydrateAvatarVideos(root);
+
+  assert.equal(root.children[0], parked);
+  assert.equal(parked.currentTime, 2.4);
+  assert.equal(fresh.isConnected, false);
+  assert.equal(parked.isConnected, true);
+});
+
+test("applyAvatarMedia keeps the current web video node for same-slot updates", () => {
+  const helpers = loadAvatarVideoHelpers();
+  const root = new FakeRoot();
+  const src = "/api/files/avatar.mp4";
+
+  helpers.applyAvatarMedia(root, src, { start: 0, duration: 3 }, "#5e5ce6", "A");
+  const firstVideo = root.children[0];
+  firstVideo.currentTime = 1.7;
+  helpers.applyAvatarMedia(root, src, { start: 0, duration: 3 }, "#5e5ce6", "A");
+
+  assert.equal(root.children[0], firstVideo);
+  assert.equal(root.children[0].currentTime, 1.7);
 });
