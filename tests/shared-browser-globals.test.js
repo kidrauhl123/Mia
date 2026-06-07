@@ -79,3 +79,10 @@ test("renderer/index.html loads every shared module via <script>", () => {
     "renderer/index.html missing <script src=\"../../packages/shared/avatar.js\">"
   );
 });
+
+test("renderer/index.html does not load the same script twice", () => {
+  const html = fs.readFileSync(path.join(__dirname, "..", "src", "renderer", "index.html"), "utf8");
+  const scripts = [...html.matchAll(/<script\b[^>]*\bsrc="([^"]+)"/g)].map((match) => match[1]);
+  const duplicates = scripts.filter((src, index) => scripts.indexOf(src) !== index);
+  assert.deepEqual(duplicates, [], `Duplicate renderer scripts:\n${duplicates.join("\n")}`);
+});

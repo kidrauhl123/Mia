@@ -497,6 +497,14 @@ test("cloud release runtime does not import legacy group bot routing", () => {
   }
 });
 
+test("legacy group bot routing module is removed from source", () => {
+  assert.equal(
+    fs.existsSync(path.join(ROOT, "src/shared/group-bot-routing.js")),
+    false,
+    "src/shared/group-bot-routing.js is retired; group bot orchestration lives in src/cloud-agent/group-orchestrator.js"
+  );
+});
+
 test("scripts/build-cloud-release.js ships the git-versioned skill catalog", () => {
   const build = fs.readFileSync(path.join(ROOT, "scripts/build-cloud-release.js"), "utf8");
   assert.match(
