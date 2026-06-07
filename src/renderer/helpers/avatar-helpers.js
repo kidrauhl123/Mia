@@ -143,10 +143,31 @@
     });
   }
 
+  function avatarVideoSrc(video) {
+    return String(video?.getAttribute?.("src") || video?.src || "");
+  }
+
+  function isTrimmedAvatarAssetVideo(video) {
+    const raw = avatarVideoSrc(video);
+    if (!raw) return false;
+    const isTrimmedAvatarAssetPath = (pathname) => (
+      pathname.startsWith("/api/avatar-assets/") && /\.avatar\.mp4$/i.test(pathname)
+    );
+    if (typeof URL === "function") {
+      try {
+        if (isTrimmedAvatarAssetPath(new URL(raw, "https://mia.invalid").pathname)) return true;
+      } catch {
+        // Fall through to the string matcher used by renderer unit tests.
+      }
+    }
+    return /^(?:\/api\/avatar-assets\/|https?:\/\/[^/]+\/api\/avatar-assets\/|file:\/\/\/api\/avatar-assets\/)[^?#]+\.avatar\.mp4$/i
+      .test(raw.split(/[?#]/)[0]);
+  }
+
   function effectiveAvatarTrimForVideo(video) {
     const trim = avatarTrimForVideo(video);
     const actualDuration = Number(video?.duration);
-    if (Number.isFinite(actualDuration) && actualDuration > 0 && trim.start >= actualDuration) {
+    if (isTrimmedAvatarAssetVideo(video) && Number.isFinite(actualDuration) && actualDuration > 0 && trim.start >= actualDuration) {
       return {
         start: 0,
         duration: Math.min(trim.duration, actualDuration)

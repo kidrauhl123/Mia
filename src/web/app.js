@@ -466,6 +466,27 @@ function removeAvatarVideos(el) {
   el.querySelectorAll?.(".avatar-video")?.forEach((node) => node.remove());
 }
 
+function avatarVideoSrc(video) {
+  return String(video?.getAttribute?.("src") || video?.src || "");
+}
+
+function isTrimmedAvatarAssetVideo(video) {
+  const raw = avatarVideoSrc(video);
+  if (!raw) return false;
+  const isTrimmedAvatarAssetPath = (pathname) => (
+    pathname.startsWith("/api/avatar-assets/") && /\.avatar\.mp4$/i.test(pathname)
+  );
+  if (typeof URL === "function") {
+    try {
+      if (isTrimmedAvatarAssetPath(new URL(raw, "https://mia.invalid").pathname)) return true;
+    } catch {
+      // Fall through for test sandboxes without the browser URL constructor.
+    }
+  }
+  return /^(?:\/api\/avatar-assets\/|https?:\/\/[^/]+\/api\/avatar-assets\/|file:\/\/\/api\/avatar-assets\/)[^?#]+\.avatar\.mp4$/i
+    .test(raw.split(/[?#]/)[0]);
+}
+
 function avatarMediaAttrs(image = "", crop = {}, color = "#5e5ce6", text = "") {
   const normalizedCrop = webNormalizeAvatarCrop(crop || webAvatarDefaultCropForSrc(image));
   return [
@@ -546,7 +567,7 @@ function syncAvatarVideo(video) {
     const rawStart = Math.max(0, Number(video.dataset.avatarStart || 0) || 0);
     const rawDuration = Math.max(1, Number(video.dataset.avatarDuration || 3) || 3);
     const actualDuration = Number(video.duration);
-    if (Number.isFinite(actualDuration) && actualDuration > 0 && rawStart >= actualDuration) {
+    if (isTrimmedAvatarAssetVideo(video) && Number.isFinite(actualDuration) && actualDuration > 0 && rawStart >= actualDuration) {
       return { start: 0, duration: Math.min(rawDuration, actualDuration) };
     }
     return { start: rawStart, duration: rawDuration };

@@ -716,7 +716,7 @@ test("desktop avatar videos loop from zero when the asset is already trimmed", (
 
   context.window.miaAvatar.updateAvatarVideoElement(
     video,
-    "data:video/mp4;base64,abc",
+    "/api/avatar-assets/abc.avatar.mp4",
     { x: 36, y: 100, zoom: 1.09, start: 7.26, duration: 4.94 }
   );
   handlers.timeupdate();
@@ -726,6 +726,49 @@ test("desktop avatar videos loop from zero when the asset is already trimmed", (
   assert.deepEqual(seeks, [0]);
   assert.equal(video.attrs.loop, undefined);
   assert.equal(video.loop, false);
+});
+
+test("desktop avatar videos keep the selected trim for ordinary video sources", () => {
+  const avatarSource = fs.readFileSync(path.join(root, "src/renderer/helpers/avatar-helpers.js"), "utf8");
+  const sharedAvatarSource = fs.readFileSync(path.join(root, "packages/shared/avatar.js"), "utf8");
+  const context = vm.createContext({
+    window: {},
+    console,
+    setTimeout
+  });
+  context.globalThis = context.window;
+  vm.runInContext(sharedAvatarSource, context, { filename: "packages/shared/avatar.js" });
+  vm.runInContext(avatarSource, context, { filename: "src/renderer/helpers/avatar-helpers.js" });
+
+  const seeks = [];
+  let currentTime = 2;
+  const video = {
+    dataset: {},
+    attrs: {},
+    readyState: 2,
+    duration: 5.004,
+    get currentTime() { return currentTime; },
+    set currentTime(value) {
+      seeks.push(value);
+      currentTime = value;
+    },
+    getAttribute(name) { return this.attrs[name] || null; },
+    setAttribute(name, value) { this.attrs[name] = String(value); },
+    removeAttribute(name) { delete this.attrs[name]; },
+    addEventListener() {},
+    play() { return { catch() {} }; }
+  };
+
+  context.window.miaAvatar.updateAvatarVideoElement(
+    video,
+    "data:video/mp4;base64,abc",
+    { x: 36, y: 100, zoom: 1.09, start: 7.26, duration: 4.94 }
+  );
+
+  assert.equal(video.dataset.avatarStart, "7.26");
+  assert.equal(video.dataset.avatarDuration, "4.94");
+  assert.equal(seeks.length, 1);
+  assert.ok(Math.abs(seeks[0] - 4.904) < 0.0001);
 });
 
 test("cloud-only: submit routes through the active cloud conversation, not a local session", () => {

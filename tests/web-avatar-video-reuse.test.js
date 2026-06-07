@@ -160,6 +160,8 @@ function loadAvatarVideoHelpers() {
     ${extractFunctionSource("copyAvatarVideoAttributes")}
     ${extractFunctionSource("removeAvatarChildrenExcept")}
     ${extractFunctionSource("removeAvatarVideos")}
+    ${extractFunctionSource("avatarVideoSrc")}
+    ${extractFunctionSource("isTrimmedAvatarAssetVideo")}
     ${extractFunctionSource("syncAvatarVideo")}
     ${extractFunctionSource("hydrateAvatarMedia")}
     ${extractFunctionSource("hydrateAvatarVideos")}
@@ -167,7 +169,8 @@ function loadAvatarVideoHelpers() {
     globalThis.avatarVideoHelpers = {
       applyAvatarMedia,
       hydrateAvatarVideos,
-      registerAvatarVideo
+      registerAvatarVideo,
+      syncAvatarVideo
     };
   `, sandbox);
   return sandbox.globalThis.avatarVideoHelpers;
@@ -283,4 +286,49 @@ test("hydrateAvatarVideos mounts video placeholders without throwaway autoplay m
 
   assert.equal(root.children.length, 1);
   assert.equal(root.children[0].getAttribute("src"), "/api/files/avatar.mp4");
+});
+
+test("web avatar videos loop from zero when the asset is already trimmed", () => {
+  const helpers = loadAvatarVideoHelpers();
+  const video = new FakeVideo("/api/avatar-assets/abc.avatar.mp4");
+  const seeks = [];
+  let currentTime = 4.96;
+  Object.defineProperty(video, "currentTime", {
+    get() { return currentTime; },
+    set(value) {
+      seeks.push(value);
+      currentTime = value;
+    }
+  });
+  video.duration = 5.004;
+  video.dataset.avatarStart = "7.26";
+  video.dataset.avatarDuration = "4.94";
+
+  helpers.syncAvatarVideo(video);
+  video.listeners.find(({ type }) => type === "timeupdate").listener();
+
+  assert.deepEqual(seeks, [0]);
+});
+
+test("web avatar videos keep the selected trim for ordinary video sources", () => {
+  const helpers = loadAvatarVideoHelpers();
+  const video = new FakeVideo("/api/files/avatar.mp4");
+  const seeks = [];
+  let currentTime = 2;
+  Object.defineProperty(video, "currentTime", {
+    get() { return currentTime; },
+    set(value) {
+      seeks.push(value);
+      currentTime = value;
+    }
+  });
+  video.duration = 5.004;
+  video.dataset.avatarStart = "7.26";
+  video.dataset.avatarDuration = "4.94";
+
+  helpers.syncAvatarVideo(video);
+  video.listeners.find(({ type }) => type === "loadedmetadata").listener();
+
+  assert.equal(seeks.length, 1);
+  assert.ok(Math.abs(seeks[0] - 4.904) < 0.0001);
 });
