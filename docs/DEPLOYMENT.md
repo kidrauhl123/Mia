@@ -94,10 +94,19 @@ release/
 - 安装或打开产物。
 - 首次启动能创建 runtime。
 - 已安装的 `claude` / `codex` 可以被探测。
-- Hermes 官方安装或 bundled runtime 路径可用。
+- 用户自行安装的官方 Hermes（在 PATH 上）能被探测并复用；"安装官方 Hermes" 按钮能从 PyPI（国内走清华镜像、回退官方）装上并被检测到。
 - 登录 Cloud 后，桌面 Bridge 在 Web 端显示在线。
 
 如果正在运行 Mia，打包、覆盖、签名或删除 release 文件可能失败。先退出 app，再重新构建。
+
+### 桌面自动更新（in-app update）
+
+- 发布命令：`npm run release:mac`（= `dist:mac` + `scripts/publish-mac-update.js`）——把 `latest-mac.yml` + dmg/zip/blockmap 上传到 GitHub release `v<version>`。
+- 发版必须先 **bump `package.json` 的 `version`**，否则旧客户端版本号不变、不会触发更新。
+- 当前更新通道 = **GitHub release**（`build.publish` = github，`kidrauhl123/Mia`）；客户端用 electron-updater 拉 feed + 下载资产。
+- 产物**签名但默认未公证（notarize）**：本机可用，分发给其他 Mac 首开会被 Gatekeeper 拦——正式分发需配公证凭证重出。
+
+> **已知限制 / 待办（国内可达性）**：自动更新走 GitHub——检查更新打 `github.com`、下载 ~100MB 资产走 `objects.githubusercontent.com`，在大陆经常慢/断流，**国内用户无法稳定收到更新**。正式面向国内前，应把更新源搬到国内可达的自有服务器：electron-updater 改用 generic provider 指向你的域名，发布脚本同时把 feed + 产物推到 VPS 的 `/updates/`（复用现有 cloud release / nginx 基建）。思路同 Hermes 安装走国内 PyPI 镜像一致——GitHub 在大陆不可靠时一律换国内可达源。
 
 ## Cloud/Web 发布
 

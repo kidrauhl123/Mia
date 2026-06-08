@@ -71,6 +71,7 @@ Mia 是一个桌面优先的多 Agent 聊天平台。
 - 默认桌面包是轻量包，不把 Claude Code / Codex CLI 打进去。
 - `dist:mac` / `dist:win` 不打包 Hermes runtime。
 - release 输出目录是 `release/`，构建前后会通过 `scripts/clean-release.js` 做清理和归档整理。
+- 桌面自动更新：`npm run release:mac` 把 feed + 产物发到 GitHub release（发版要先 bump `package.json` 版本）。**注意：GitHub 在大陆不稳定，国内用户无法可靠收到更新**——正式面向国内前需把更新源换成国内可达的自有服务器，细节见 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) 的"桌面自动更新"。
 - Cloud release 输出在 `dist/`，由 `scripts/build-cloud-release.js`、handoff、doctor、smoke、deploy 脚本串起来。
 
 ## 快速开始
