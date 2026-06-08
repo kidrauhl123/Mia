@@ -4,7 +4,14 @@ import * as Clipboard from "expo-clipboard";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQueryClient } from "@tanstack/react-query";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { useConversationMessages, useConversationMembers } from "../state/queries";
+import {
+  useBotRuntime,
+  useConversationMessages,
+  useConversationMembers,
+  useConversations,
+  useModelCatalog,
+  useSaveBotRuntimeConfig,
+} from "../state/queries";
 import { useApi } from "../state/clientProvider";
 import { useAuth } from "../state/auth";
 import { buildPendingMessage } from "../logic/optimisticSend";
@@ -13,9 +20,17 @@ import { normalizeServerRow, mergeMessage } from "../logic/normalizeMessage";
 import MessageBubble from "../components/MessageBubble";
 import MessageActions from "../components/MessageActions";
 import ApprovalSheet from "../components/ApprovalSheet";
+import RuntimeControls from "../components/RuntimeControls";
 import Input from "../ui/Input";
 import Button from "../ui/Button";
 import { color, space, hairlineWidth } from "../theme";
+import {
+  botIdForRuntimeControls,
+  modelEntriesFromCatalog,
+  patchForRuntimeField,
+  runtimeControlState,
+  runtimeKindForControls,
+} from "../logic/runtimeControls";
 import type { ChatMessage } from "../api/types";
 import type { MessagesStackParamList } from "../navigation/types";
 
@@ -27,10 +42,22 @@ export default function ChatScreen({ route }: Props) {
   const qc = useQueryClient();
   const { session, apiBase } = useAuth();
   const insets = useSafeAreaInsets();
+  const { data: conversations = [] } = useConversations();
+  const activeConversation = conversations.find((c) => c.id === conversationId) || null;
+  const botId = botIdForRuntimeControls(activeConversation);
+  const runtimeKind = runtimeKindForControls(activeConversation);
+  const showRuntimeControls = !!botId && runtimeKind === "cloud-hermes";
+  const runtime = useBotRuntime(botId || undefined, runtimeKind);
+  const modelCatalog = useModelCatalog();
+  const saveRuntime = useSaveBotRuntimeConfig();
   const { data: messages = [] } = useConversationMessages(conversationId);
   const { data: members = [] } = useConversationMembers(conversationId);
   const [text, setText] = useState("");
   const [actionMsg, setActionMsg] = useState<ChatMessage | null>(null);
+  const [savingField, setSavingField] = useState<"model" | "effort" | "permission" | "">("");
+  const [runtimeError, setRuntimeError] = useState("");
+  const modelEntries = modelEntriesFromCatalog(modelCatalog.data || runtime.data?.config?.modelEntries || []);
+  const controls = runtimeControlState({ binding: runtime.data, modelEntries });
 
   const key = ["messages", conversationId];
   const setMsgs = (fn: (old: ChatMessage[]) => ChatMessage[]) =>
@@ -62,6 +89,21 @@ export default function ChatScreen({ route }: Props) {
     setText("");
     setMsgs((old) => [...old, pendingMessage]);
     await postMessage({ bodyMd: pendingMessage.bodyMd, clientTraceId: pendingMessage.clientTraceId, mentions: pending.mentions, attachments: pendingMessage.attachments });
+  };
+
+  const saveRuntimeField = async (field: "model" | "effort" | "permission", value: string) => {
+    if (!botId) return;
+    setRuntimeError("");
+    setSavingField(field);
+    try {
+      const patch = patchForRuntimeField(field, value, modelEntries);
+      const nextConfig = { ...(runtime.data?.config || {}), ...patch };
+      await saveRuntime.mutateAsync({ botId, runtimeKind, config: nextConfig });
+    } catch (err) {
+      setRuntimeError(String((err as Error).message || "设置保存失败"));
+    } finally {
+      setSavingField("");
+    }
   };
 
   const copyMessage = (m: ChatMessage) => {
@@ -105,15 +147,28 @@ export default function ChatScreen({ route }: Props) {
         renderItem={({ item }) => <MessageBubble msg={item} apiBase={apiBase} onLongPress={setActionMsg} />}
       />
       <View style={[styles.composer, { paddingBottom: space.sm + insets.bottom }]}>
-        <Input
-          style={styles.input}
-          placeholder="输入消息…"
-          value={text}
-          onChangeText={setText}
-          onSubmitEditing={send}
-          returnKeyType="send"
-        />
-        <Button label="发送" style={styles.send} onPress={send} />
+        {showRuntimeControls ? (
+          <RuntimeControls
+            modelEntries={modelEntries}
+            modelValue={controls.modelValue}
+            effortValue={controls.effortValue}
+            permissionValue={controls.permissionValue}
+            savingField={savingField}
+            error={runtimeError}
+            onChange={saveRuntimeField}
+          />
+        ) : null}
+        <View style={styles.composerInputRow}>
+          <Input
+            style={styles.input}
+            placeholder="输入消息…"
+            value={text}
+            onChangeText={setText}
+            onSubmitEditing={send}
+            returnKeyType="send"
+          />
+          <Button label="发送" style={styles.send} onPress={send} />
+        </View>
       </View>
       <MessageActions
         msg={actionMsg}
@@ -131,13 +186,16 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: color.chatBg },
   list: { flex: 1 },
   composer: {
+    gap: space.sm,
+    backgroundColor: color.surface,
+    borderTopWidth: hairlineWidth,
+    borderTopColor: color.line,
+  },
+  composerInputRow: {
     flexDirection: "row",
     gap: space.sm,
     paddingHorizontal: space.md,
     paddingTop: space.sm,
-    backgroundColor: color.surface,
-    borderTopWidth: hairlineWidth,
-    borderTopColor: color.line,
   },
   input: { flex: 1 },
   send: { paddingHorizontal: space.lg },
