@@ -84,6 +84,26 @@ export function EventsProvider({ children }: { children: React.ReactNode }) {
           qc.invalidateQueries({ queryKey: ["conversations"] });
           qc.invalidateQueries({ queryKey: ["friend-requests", "incoming"] });
           qc.invalidateQueries({ queryKey: ["friend-requests", "outgoing"] });
+        } else if (t === "social.conversation_invited") {
+          if (env.conversation?.id) {
+            qc.setQueryData<any[]>(["conversations"], (old) => [env.conversation, ...(old || []).filter((item) => item.id !== env.conversation.id)]);
+          }
+          qc.invalidateQueries({ queryKey: ["conversations"] });
+        } else if (t === "conversation.updated") {
+          if (env.conversation?.id) {
+            qc.setQueryData<any[]>(["conversations"], (old) =>
+              (old || []).some((item) => item.id === env.conversation.id)
+                ? (old || []).map((item) => (item.id === env.conversation.id ? { ...item, ...env.conversation } : item))
+                : [env.conversation, ...(old || [])]
+            );
+          }
+        } else if (t === "conversation.deleted") {
+          const cid = env.conversationId || env.conversation_id;
+          if (cid) {
+            qc.setQueryData<any[]>(["conversations"], (old) => (old || []).filter((item) => item.id !== cid));
+            qc.removeQueries({ queryKey: ["messages", cid] });
+            qc.removeQueries({ queryKey: ["members", cid] });
+          }
         } else if (t === "cloud_agent_run_event") {
           // 审批等交互事件包在 cloud_agent_run_event.event 里(与桌面/web 一致)。
           const inner = env.event || {};

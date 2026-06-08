@@ -4,6 +4,7 @@ import {
   botRuntimePath,
   bridgeDevicesPath,
   bridgeRunsPath,
+  conversationsPath,
   friendPath,
   friendRequestCancelPath,
   friendRequestCreatePath,
@@ -28,6 +29,7 @@ test("builds social endpoint paths", () => {
   expect(friendRequestRespondPath("req.1")).toBe("/api/social/friend-requests/req.1/respond");
   expect(friendRequestCancelPath("req.1")).toBe("/api/social/friend-requests/req.1");
   expect(friendPath("u.1")).toBe("/api/social/friends/u.1");
+  expect(conversationsPath()).toBe("/api/conversations");
 });
 
 test("builds bot endpoint paths and runtime query", () => {

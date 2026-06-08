@@ -61,6 +61,8 @@ export interface Bot {
   avatar_crop?: Record<string, unknown> | null;
   statusBadge?: StatusBadge | null;
   status_badge?: StatusBadge | null;
+  runtimeKind?: string;
+  runtime_kind?: string;
 }
 
 export interface Friend {

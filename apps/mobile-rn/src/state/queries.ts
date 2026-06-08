@@ -8,6 +8,7 @@ import {
   botRuntimePath,
   bridgeDevicesPath,
   bridgeRunsPath,
+  conversationsPath,
   friendRequestCancelPath,
   friendRequestCreatePath,
   friendRequestRespondPath,
@@ -33,12 +34,30 @@ import type {
   SkillSummary,
   UserSettings,
 } from "../api/types";
+import type { GroupCreatePayload } from "../logic/groupCreate";
 
 export function useConversations() {
   const api = useApi();
   return useQuery<Conversation[]>({
     queryKey: ["conversations"],
     queryFn: () => api.api("/api/conversations").then((d) => d.conversations || []),
+  });
+}
+
+export function useCreateGroupConversation() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: GroupCreatePayload) => api.api(conversationsPath(), { method: "POST", body: payload }),
+    onSuccess: (data) => {
+      const conversation = data?.conversation || data?.data?.conversation;
+      const members = data?.members || data?.data?.members;
+      if (conversation?.id) {
+        qc.setQueryData<Conversation[]>(["conversations"], (old) => [conversation, ...(old || []).filter((item) => item.id !== conversation.id)]);
+        if (Array.isArray(members)) qc.setQueryData<Member[]>(["members", conversation.id], members);
+      }
+      qc.invalidateQueries({ queryKey: ["conversations"] });
+    },
   });
 }
 
