@@ -2528,6 +2528,16 @@ body.onboarding-window .setup-guide.ready {
   box-shadow: 0 10px 26px rgb(var(--accent-rgb) / 0.36);
 }
 
+/* Real Mia brand logo (rainbow blob) — no tinted box behind it. */
+.setup-logo-img {
+  width: 76px;
+  height: 76px;
+  object-fit: contain;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-app-region: no-drag;
+}
+
 .setup-title {
   margin: 0;
   font-size: 21px;
@@ -2697,18 +2707,19 @@ body.onboarding-window .setup-guide.ready .setup-engine-action:hover {
   min-height: 46px;
   border: 0;
   border-radius: 13px;
-  background: var(--accent);
+  /* Rainbow gradient matching the Mia logo (brand accent). */
+  background: linear-gradient(95deg, #ff5e5e 0%, #ff9d3c 22%, #ffd23c 42%, #4cd964 64%, #34c8ff 84%, #5b8cff 100%);
   color: #fff;
   font-size: 15px;
   font-weight: 600;
   cursor: pointer;
-  box-shadow: 0 10px 22px rgb(var(--accent-rgb) / 0.32);
+  box-shadow: 0 10px 24px rgb(0 0 0 / 0.14);
   transition: transform 0.12s ease, box-shadow 0.2s ease, filter 0.2s ease;
 }
 
 .setup-cta:hover {
-  box-shadow: 0 12px 28px rgb(var(--accent-rgb) / 0.42);
-  filter: brightness(1.05);
+  box-shadow: 0 12px 30px rgb(0 0 0 / 0.2);
+  filter: brightness(1.04) saturate(1.06);
 }
 
 .setup-cta:active {

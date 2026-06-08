@@ -575,7 +575,12 @@ function getRuntimeStatus(created = [], options = {}) {
   const settings = settingsWithoutSecret();
   const connectedProviders = connectedProviderSummaries(codexAuth);
   const bots = Array.isArray(manifest.bots) ? manifest.bots : [];
-  const scanAgents = options.scanAgents !== false;
+  // Skip the synchronous local-agent scan while signed out: the login screen
+  // never needs the agent inventory, and the scan's shell probes for missing
+  // agents (hermes/openclaw) would block the main process and beachball the
+  // window on open. Once signed in, the scan runs for the prepare/app views.
+  const cloudState = cloudStatus(false);
+  const scanAgents = options.scanAgents !== false && Boolean(cloudState?.enabled);
   const agentInventory = scanAgents
     ? localAgentEngineService.agentInventory()
     : localAgentEngineService.pendingAgentInventory();
@@ -606,7 +611,7 @@ function getRuntimeStatus(created = [], options = {}) {
       role: "desktop"
     },
     daemon: getDaemonStatus(),
-    cloud: cloudStatus(false),
+    cloud: cloudState,
     auth: codexAuth,
     user: settingsStore.userProfile(),
     appearance: settingsStore.appearanceSettings(),

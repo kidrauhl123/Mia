@@ -24,6 +24,11 @@
   let state = null;
   let escapeHtml = (value) => String(value == null ? "" : value);
   let deps = {};
+  // Signature of the last DOM we rendered. A background runtime poll re-renders
+  // the chat area every ~2s; without this guard the wizard would rebuild its
+  // innerHTML each time — replaying the entry animation (logo/button flicker)
+  // and wiping whatever the user has typed into the login form.
+  let lastSig = null;
 
   function initOnboardingWizard(injected) {
     state = injected.state;
@@ -78,7 +83,7 @@
     const hint = state?.onboardingLoginHint || "";
     return `
       <header class="setup-hero">
-        <span class="setup-logo" aria-hidden="true">M</span>
+        <img class="setup-logo-img" src="./assets/mia-logo.png" alt="Mia" draggable="false">
         <h1 class="setup-title">欢迎使用 Mia</h1>
         <p class="setup-tagline">一个聊天界面，指挥你所有的 AI Agent。先登录，把对话同步到云端。</p>
       </header>
@@ -117,6 +122,13 @@
   function render(container) {
     if (!container || !state) return;
     const step = currentStep();
+    // Only the prepare step's content changes with runtime polls (engine list);
+    // the login step is static, so its signature stays constant and a background
+    // re-render is a no-op — keeping the form contents and avoiding flicker. The
+    // hint updates in place via setHint, so it stays out of the signature.
+    const sig = step === "login" ? "login" : "prepare::" + (deps.renderEngineList?.() || "");
+    if (lastSig === sig && container.querySelector(".onb-wizard")) return;
+    lastSig = sig;
     container.innerHTML = `
       <article class="setup-guide ready onb-wizard" data-onb-step="${escapeHtml(step)}">
         ${progressHtml(step)}
