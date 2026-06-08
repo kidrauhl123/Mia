@@ -131,7 +131,13 @@ test("setup guide allows installed Claude Code and Codex while keeping OpenClaw 
   assert.match(html, /assets\/provider-icons\/claude-color\.svg/);
   assert.match(html, /assets\/provider-icons\/codex-color\.svg/);
   assert.match(html, /assets\/provider-icons\/openclaw-color\.svg/);
-  assert.doesNotMatch(html, /data-setup-action="install-hermes"/);
+  // All engines are treated alike now: a missing Hermes still offers install
+  // even when Claude/Codex are usable. Installed Claude/Codex show no install
+  // button; OpenClaw stays detection-only (no install).
+  assert.match(html, /data-setup-action="install-hermes"/);
+  assert.doesNotMatch(html, /data-setup-action="install-claude-code"/);
+  assert.doesNotMatch(html, /data-setup-action="install-codex"/);
+  assert.doesNotMatch(html, /data-setup-action="install-openclaw"/);
   assert.doesNotMatch(html, /使用 OpenClaw/);
 });
 

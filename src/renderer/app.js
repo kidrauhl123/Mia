@@ -4208,22 +4208,29 @@ function afterEnginePicked(engine) {
 }
 
 async function runHermesSetupAction(button, action) {
+  // Generic per-engine install/repair. engineId comes from the button; defaults
+  // to hermes for the legacy install-hermes action. On success we re-detect and
+  // re-render in place (the wizard's "进入 Mia" button is the explicit finish),
+  // so installing one engine never auto-leaves onboarding.
+  const engineId = String(button?.dataset?.engine || "").trim() || "hermes";
   const repair = action === "repair-hermes";
   const retry = action === "retry-install-hermes";
   button.disabled = true;
   const original = button.textContent;
   button.textContent = repair ? "修复中..." : retry ? "重试中..." : "安装中...";
   try {
-    state.hermesInstallError = "";
-    state.runtime = repair ? await window.mia.repairEngine() : await window.mia.installEngine();
+    if (engineId === "hermes") state.hermesInstallError = "";
+    state.runtime = repair ? await window.mia.repairEngine() : await window.mia.installEngine(engineId);
     await window.miaLoaders.loadModelCatalog();
     state.agentSetupSkipped = false;
     try { localStorage.removeItem(AGENT_SETUP_SKIPPED_KEY); } catch { /* ignore */ }
-    afterEnginePicked("hermes");
+    await refreshRuntime();
   } catch (error) {
     const verb = repair ? "修复" : "安装";
-    state.hermesInstallError = `官方 Hermes ${verb}失败：${error.message || error}`;
-    appendTransientChat("assistant", state.hermesInstallError);
+    const label = engineId === "hermes" ? "官方 Hermes" : engineId;
+    const message = `${label} ${verb}失败：${error.message || error}`;
+    if (engineId === "hermes") state.hermesInstallError = message;
+    appendTransientChat("assistant", message);
     await refreshRuntime();
   } finally {
     button.disabled = false;
@@ -4263,7 +4270,7 @@ async function handleSetupGuideAction(button) {
     renderView();
     return true;
   }
-  if (["install-hermes", "retry-install-hermes", "repair-hermes"].includes(action)) {
+  if (action === "retry-install-hermes" || action === "repair-hermes" || action.startsWith("install-")) {
     await runHermesSetupAction(button, action);
     return true;
   }

@@ -26,7 +26,7 @@ const AGENT_DEFINITIONS = Object.freeze([
     legacyKey: "claudeCode",
     label: "Claude Code",
     commands: ["claude"],
-    installable: false,
+    installable: true,
     detectionOnly: false
   },
   {
@@ -34,7 +34,7 @@ const AGENT_DEFINITIONS = Object.freeze([
     legacyKey: "codex",
     label: "Codex",
     commands: ["codex"],
-    installable: false,
+    installable: true,
     detectionOnly: false
   },
   {
@@ -225,7 +225,7 @@ function createLocalAgentEngineService(deps = {}) {
       installed,
       usableInMia,
       installable: Boolean(definition.installable),
-      installAction: definition.id === "hermes" && !usableInMia ? "install-hermes" : "",
+      installAction: Boolean(definition.installable) && !usableInMia ? `install-${definition.id}` : "",
       detectionOnly: Boolean(definition.detectionOnly),
       path: probe.path,
       version: probe.version,

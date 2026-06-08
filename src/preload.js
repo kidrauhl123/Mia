@@ -20,7 +20,7 @@ contextBridge.exposeInMainWorld("mia", {
     return () => ipcRenderer.removeListener(IpcChannel.CloudEvent, listener);
   },
   openExternal: (url) => ipcRenderer.invoke(IpcChannel.UtilOpenExternal, url),
-  installEngine: () => ipcRenderer.invoke(IpcChannel.EngineInstall),
+  installEngine: (engineId) => ipcRenderer.invoke(IpcChannel.EngineInstall, engineId),
   repairEngine: () => ipcRenderer.invoke(IpcChannel.EngineRepair),
   startEngine: () => ipcRenderer.invoke(IpcChannel.EngineStart),
   stopEngine: () => ipcRenderer.invoke(IpcChannel.EngineStop),

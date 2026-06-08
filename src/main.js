@@ -172,6 +172,7 @@ const engineInstallService = createEngineInstallService({
   buildPythonPath,
   systemHermesPython: () => systemHermesService.pythonPath(),
   refreshSystemHermes: () => systemHermesService.refresh(),
+  shellCommandPath: (command) => localAgentEngineService?.shellCommandPath?.(command),
   spawnSync,
   appendLog: appendEngineLog,
   clearLogs: () => { engineState.logs = []; },
@@ -1876,7 +1877,7 @@ ipcMain.handle(IpcChannel.SocialMyUsername, () => {
     return { ok: false, error: String(error?.message || error) };
   }
 });
-ipcMain.handle(IpcChannel.EngineInstall, () => engineInstallService.install());
+ipcMain.handle(IpcChannel.EngineInstall, (_event, engineId) => engineInstallService.installEngine(engineId));
 ipcMain.handle(IpcChannel.EngineRepair, () => engineInstallService.repair());
 ipcMain.handle(IpcChannel.EngineStart, () => startEngine());
 ipcMain.handle(IpcChannel.EngineStop, () => stopEngine());

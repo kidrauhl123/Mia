@@ -34,7 +34,8 @@
         label: "Claude Code",
         installed: Boolean(engines.claudeCode?.installed || engines.claudeCode?.available),
         usableInMia: Boolean(engines.claudeCode?.available),
-        installable: false,
+        installable: true,
+        installAction: engines.claudeCode?.available ? "" : "install-claude-code",
         path: engines.claudeCode?.path || "",
         version: engines.claudeCode?.version || "",
         source: engines.claudeCode?.available ? "system" : "missing",
@@ -45,7 +46,8 @@
         label: "Codex",
         installed: Boolean(engines.codex?.installed || engines.codex?.available),
         usableInMia: Boolean(engines.codex?.available),
-        installable: false,
+        installable: true,
+        installAction: engines.codex?.available ? "" : "install-codex",
         path: engines.codex?.path || "",
         version: engines.codex?.version || "",
         source: engines.codex?.available ? "system" : "missing",
@@ -118,20 +120,27 @@
     if (agent.id === "hermes" && state?.hermesInstallError) return "上次安装官方 Hermes 失败，可重试";
     if (agent.id === "hermes" && agent.installed) return "已检测到 Hermes，但当前安装方式暂不能用于 Mia";
     if (agent.id === "hermes") return "未检测到，可安装官方 Hermes";
-    if (agent.id === "claude-code") return "未检测到，需要先安装 Claude Code";
-    if (agent.id === "codex") return "未检测到，需要先安装 Codex CLI";
+    if (agent.id === "claude-code") return "未检测到，可一键安装 Claude Code";
+    if (agent.id === "codex") return "未检测到，可一键安装 Codex";
     return "未检测到";
   }
 
+  // All installable engines are treated alike: offer an install button whenever
+  // one is missing (not gated on whether some other engine is usable). Hermes
+  // additionally has repair / retry states.
   function agentAction(agent) {
-    if (agent.id !== "hermes") return null;
-    if (agent.health === "broken" || agent.installAction === "repair-hermes") {
-      return { action: "repair-hermes", label: "修复官方 Hermes" };
+    if (agent.id === "hermes") {
+      if (agent.health === "broken" || agent.installAction === "repair-hermes") {
+        return { action: "repair-hermes", label: "修复官方 Hermes" };
+      }
+      if (!agent.usableInMia && !agent.installed) {
+        if (state?.hermesInstallError) return { action: "retry-install-hermes", label: "重试安装官方 Hermes" };
+        return { action: "install-hermes", label: "安装官方 Hermes" };
+      }
+      return null;
     }
-    const hasUsableAgent = inventoryAgents().some((item) => item.usableInMia);
-    if (!agent.usableInMia && !agent.installed && !hasUsableAgent) {
-      if (state?.hermesInstallError) return { action: "retry-install-hermes", label: "重试安装官方 Hermes" };
-      return { action: "install-hermes", label: "安装官方 Hermes" };
+    if (agent.installable && agent.installAction && !agent.usableInMia && !agent.installed) {
+      return { action: agent.installAction, label: `安装 ${agent.label}` };
     }
     return null;
   }
@@ -142,8 +151,7 @@
   function engineRight(agent) {
     const action = agentAction(agent);
     if (action) {
-      const primary = action.action === "install-hermes" || action.action === "retry-install-hermes" || action.action === "repair-hermes";
-      return `<button class="setup-engine-action${primary ? " primary" : ""}" type="button" data-setup-action="${action.action}" data-engine="${escapeHtml(agent.id)}">${escapeHtml(action.label)}</button>`;
+      return `<button class="setup-engine-action primary" type="button" data-setup-action="${action.action}" data-engine="${escapeHtml(agent.id)}">${escapeHtml(action.label)}</button>`;
     }
     if (agent.usableInMia) return `<span class="setup-engine-badge ok">已就绪</span>`;
     if (agent.installed && agent.detectionOnly) return `<span class="setup-engine-badge">已检测</span>`;

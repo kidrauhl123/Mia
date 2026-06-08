@@ -201,3 +201,42 @@ test("install throws a user-visible cancellation error when signal is aborted", 
     /Hermes install cancelled/
   );
 });
+
+test("installEngine routes npm engines to the China mirror registry, then falls back to npm", (t) => {
+  const installs = [];
+  const { service } = setup(t, {
+    shellCommandPath: (c) => (c === "npm" ? "/usr/local/bin/npm" : ""),
+    spawnSync: (command, args) => {
+      if (args[0] === "install") {
+        installs.push([command, ...args]);
+        // First registry (mirror) fails, official npm registry succeeds.
+        const registry = args[args.indexOf("--registry") + 1];
+        return registry.includes("npmmirror")
+          ? { status: 1, stdout: "", stderr: "mirror down\n" }
+          : { status: 0, stdout: "", stderr: "" };
+      }
+      return { status: 0, stdout: "", stderr: "" };
+    }
+  });
+
+  service.installEngine("claude-code");
+  assert.deepEqual(installs, [
+    ["/usr/local/bin/npm", "install", "-g", "@anthropic-ai/claude-code", "--registry", "https://registry.npmmirror.com"],
+    ["/usr/local/bin/npm", "install", "-g", "@anthropic-ai/claude-code", "--registry", "https://registry.npmjs.org"]
+  ]);
+});
+
+test("installEngine maps codex to its official npm package and rejects non-installable engines", (t) => {
+  const installs = [];
+  const { service } = setup(t, {
+    shellCommandPath: () => "npm",
+    spawnSync: (command, args) => {
+      if (args[0] === "install") { installs.push(args[2]); return { status: 0, stdout: "", stderr: "" }; }
+      return { status: 0, stdout: "", stderr: "" };
+    }
+  });
+
+  service.installEngine("codex");
+  assert.deepEqual(installs, ["@openai/codex"]);
+  assert.throws(() => service.installEngine("openclaw"), /not installable/);
+});

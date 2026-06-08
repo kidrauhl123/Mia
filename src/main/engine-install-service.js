@@ -26,6 +26,7 @@ function createEngineInstallService(deps = {}) {
   const ensureEnginePlugins = deps.ensureEnginePlugins || (() => {});
   const resetAgentEngineCache = deps.resetAgentEngineCache || (() => {});
   const getRuntimeStatus = deps.getRuntimeStatus || ((created) => ({ created }));
+  const shellCommandPath = typeof deps.shellCommandPath === "function" ? deps.shellCommandPath : () => "";
 
   function configuredValue(depName, envName, fallback) {
     if (Object.prototype.hasOwnProperty.call(deps, depName)) return deps[depName];
@@ -34,6 +35,11 @@ function createEngineInstallService(deps = {}) {
   const officialPackage = configuredValue("officialPackage", "MIA_ENGINE_PACKAGE", "hermes-agent");
   const officialExtras = configuredValue("officialExtras", "MIA_ENGINE_EXTRAS", "web");
   const officialPython = configuredValue("officialPython", "MIA_PYTHON", "");
+  // npm-installed engines (claude/codex are official npm packages). China mirror
+  // first, official npm registry as fallback.
+  const npmRegistry = configuredValue("npmRegistry", "MIA_NPM_REGISTRY", "https://registry.npmmirror.com");
+  const npmFallbackRegistry = configuredValue("npmFallbackRegistry", "MIA_NPM_FALLBACK_REGISTRY", "https://registry.npmjs.org");
+  const NPM_ENGINE_PACKAGES = { "claude-code": "@anthropic-ai/claude-code", codex: "@openai/codex" };
 
   const installSourceService = deps.installSourceService || createHermesInstallSourceService({
     env,
@@ -217,6 +223,49 @@ function createEngineInstallService(deps = {}) {
     return getRuntimeStatus(["hermes"]);
   }
 
+  function resolveNpm() {
+    return shellCommandPath("npm") || "npm";
+  }
+
+  // Install an npm-distributed engine (claude-code / codex) globally, China
+  // mirror first then official npm registry. The result lands on the user's npm
+  // global bin (on PATH), where system detection picks it up.
+  function installNpmEngine(engineId, options = {}) {
+    const { signal = null } = options;
+    throwIfCancelled(signal);
+    stopEngine();
+    clearLogs();
+    const pkg = NPM_ENGINE_PACKAGES[engineId];
+    if (!pkg) throw new Error(`No npm package mapping for engine ${engineId}.`);
+    const npm = resolveNpm();
+    const registries = [npmRegistry, npmFallbackRegistry].filter((value, index, all) => value && all.indexOf(value) === index);
+    let installed = false;
+    let lastError = null;
+    for (const registry of registries) {
+      throwIfCancelled(signal);
+      try {
+        runInstallCommand(npm, ["install", "-g", pkg, "--registry", registry], undefined);
+        installed = true;
+        break;
+      } catch (error) {
+        lastError = error;
+        appendLog(`${engineId} install via ${registry} failed: ${error.message}`);
+      }
+    }
+    if (!installed) throw lastError || new Error(`${engineId} install failed.`);
+    refreshDetection();
+    resetAgentEngineCache();
+    return getRuntimeStatus([engineId]);
+  }
+
+  // Dispatch install by engine. Hermes uses the official PyPI flow; claude/codex
+  // use their official npm packages. Anything else is not installable here.
+  function installEngine(engineId, options = {}) {
+    if (!engineId || engineId === "hermes") return installFromOfficialPackage(options);
+    if (NPM_ENGINE_PACKAGES[engineId]) return installNpmEngine(engineId, options);
+    throw new Error(`Engine ${engineId} is not installable from Mia.`);
+  }
+
   function install(options = {}) {
     throwIfCancelled(options.signal);
     return installFromOfficialPackage(options);
@@ -235,6 +284,8 @@ function createEngineInstallService(deps = {}) {
     systemHermesPythonPath,
     runInstallCommand,
     installFromOfficialPackage,
+    installNpmEngine,
+    installEngine,
     install,
     repair
   };
