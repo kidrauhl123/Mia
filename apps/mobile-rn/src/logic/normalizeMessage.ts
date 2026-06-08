@@ -1,4 +1,5 @@
 import type { ChatMessage, MessageRow } from "../api/types";
+import { normalizeAttachments } from "./attachments";
 
 function safeParse(s?: string): any {
   if (!s) return null;
@@ -19,6 +20,7 @@ export function normalizeServerRow(m: MessageRow, selfId: string | undefined, in
     clientTraceId: m.client_trace_id || "",
     role,
     bodyMd: String(m.body_md || ""),
+    attachments: normalizeAttachments(m.attachments),
     trace: m.trace_json ? safeParse(m.trace_json) : null,
     isOwn,
     isPending: false,

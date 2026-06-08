@@ -21,6 +21,15 @@ test("trace_json 解析", () => {
   expect(m.trace?.reasoning).toBe("think");
 });
 
+test("attachments are normalized onto ChatMessage", () => {
+  const m = normalizeServerRow({
+    id: "m4",
+    sender_kind: "bot",
+    attachments: [{ id: "f1", name: "shot.png", mimeType: "image/png", url: "/api/files/f1" }],
+  }, "u1");
+  expect(m.attachments).toEqual([{ id: "f1", type: "image", name: "shot.png", mimeType: "image/png", url: "/api/files/f1" }]);
+});
+
 test("mergeMessage: clientTraceId 替换 pending", () => {
   const list: ChatMessage[] = [
     { messageId: "pending:t1", clientTraceId: "t1", role: "user", bodyMd: "x", isOwn: true, isPending: true, createdAt: "" },
