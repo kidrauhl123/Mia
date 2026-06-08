@@ -492,6 +492,14 @@
           </section>
 
           <section class="settings-panel hidden" data-settings-panel="model">
+            <div class="settings-section-label">Agent 工作目录</div>
+            <div class="workspace-setting" id="workspaceSetting">
+              <div class="workspace-setting-body">
+                <small>Agent 默认只在这个目录里读写，不会碰你的其它私人文件。需要时可改成你自己的文件夹。</small>
+                <code class="workspace-path" id="workspacePath">…</code>
+              </div>
+              <button class="settings-secondary-button" type="button" id="workspacePickButton">更改…</button>
+            </div>
             <div class="settings-section-label">本机引擎</div>
             <section class="engine-detection wide" id="engineDetection">
               <button class="engine-row" type="button" data-engine-row="hermes" aria-expanded="false">

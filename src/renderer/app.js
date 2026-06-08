@@ -222,6 +222,8 @@ const els = {
   appearanceFontChoices: document.getElementById("appearanceFontChoices"),
   appearanceListStyle: document.getElementById("appearanceListStyle"),
   appearanceSelectionStyle: document.getElementById("appearanceSelectionStyle"),
+  workspacePath: document.getElementById("workspacePath"),
+  workspacePickButton: document.getElementById("workspacePickButton"),
   appearanceAccentColor: document.getElementById("appearanceAccentColor"),
   appearanceAccentPreview: document.getElementById("appearanceAccentPreview"),
   appearanceAccentReset: document.getElementById("appearanceAccentReset"),
@@ -1468,6 +1470,7 @@ function renderView() {
   });
   if (typeof syncDiscoverModeIndicator === "function") syncDiscoverModeIndicator();
   els.settingsView.classList.toggle("hidden", !state.settingsOpen);
+  if (state.settingsOpen) refreshWorkspaceSetting();
   els.profileDialog?.classList.toggle("hidden", !state.profileDialogOpen);
   els.botCreateMenu?.classList.toggle("hidden", !state.botMenuOpen);
   els.contactCreateMenu?.classList.toggle("hidden", !state.contactMenuOpen);
@@ -3653,6 +3656,23 @@ els.appearanceFontChoices?.addEventListener("click", (event) => {
 
 els.appearanceListStyle?.addEventListener("change", () => {
   window.miaSettingsAppearance.scheduleAppearanceSave(0);
+});
+
+// Agent working-directory setting (Settings → 模型 → Agent 工作目录).
+function refreshWorkspaceSetting() {
+  if (!els.workspacePath || !window.mia?.getAgentWorkspace) return;
+  window.mia.getAgentWorkspace()
+    .then((ws) => { if (ws?.path && els.workspacePath) els.workspacePath.textContent = ws.path; })
+    .catch(() => { /* leave placeholder */ });
+}
+
+els.workspacePickButton?.addEventListener("click", async () => {
+  if (!window.mia?.pickAgentWorkspace) return;
+  try {
+    const ws = await window.mia.pickAgentWorkspace();
+    if (ws?.path && els.workspacePath) els.workspacePath.textContent = ws.path;
+    if (ws?.changed) { await refreshRuntime(); renderView(); }
+  } catch { /* ignore pick errors */ }
 });
 
 els.appearanceSelectionStyle?.addEventListener("change", () => {

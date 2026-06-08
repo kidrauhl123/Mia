@@ -2823,6 +2823,57 @@ body.onboarding-window .setup-guide.ready .setup-footer { animation-delay: 0.13s
   font-size: 18px;
 }
 
+/* ── Agent working-directory setting (Settings → 模型) ── */
+.workspace-setting {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-muted);
+}
+
+.workspace-setting-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.workspace-setting-body small {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.workspace-path {
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-secondary-button {
+  flex: 0 0 auto;
+  min-height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 520;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.settings-secondary-button:hover {
+  border-color: rgb(var(--accent-rgb) / 0.42);
+}
+
 .setup-status-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

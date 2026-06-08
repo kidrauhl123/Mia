@@ -180,6 +180,22 @@ function createSettingsStore(deps = {}) {
     return next;
   }
 
+  // Persisted override for the agent working directory. Empty path means "use
+  // the Mia-owned default workspace" (see main agentWorkspaceDir).
+  function agentWorkspace() {
+    const p = runtimePaths();
+    const saved = readJson(p.workspaceSettings, {});
+    return { path: String(saved?.path || "").trim() };
+  }
+
+  function writeAgentWorkspace(workspacePath) {
+    const p = runtimePaths();
+    const next = { path: String(workspacePath || "").trim() };
+    fs.mkdirSync(path.dirname(p.workspaceSettings), { recursive: true });
+    fs.writeFileSync(p.workspaceSettings, JSON.stringify(next, null, 2) + "\n");
+    return next;
+  }
+
   function defaultPermissionSettings() {
     return {
       mode: "ask"
@@ -386,6 +402,8 @@ function createSettingsStore(deps = {}) {
     writeUserProfile,
     appearanceSettings,
     writeAppearanceSettings,
+    agentWorkspace,
+    writeAgentWorkspace,
     defaultPermissionSettings,
     defaultDaemonSettings,
     defaultEffortSettings,

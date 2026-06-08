@@ -21,6 +21,8 @@ contextBridge.exposeInMainWorld("mia", {
   },
   openExternal: (url) => ipcRenderer.invoke(IpcChannel.UtilOpenExternal, url),
   installEngine: (engineId) => ipcRenderer.invoke(IpcChannel.EngineInstall, engineId),
+  getAgentWorkspace: () => ipcRenderer.invoke(IpcChannel.EngineWorkspaceGet),
+  pickAgentWorkspace: () => ipcRenderer.invoke(IpcChannel.EngineWorkspacePick),
   repairEngine: () => ipcRenderer.invoke(IpcChannel.EngineRepair),
   startEngine: () => ipcRenderer.invoke(IpcChannel.EngineStart),
   stopEngine: () => ipcRenderer.invoke(IpcChannel.EngineStop),

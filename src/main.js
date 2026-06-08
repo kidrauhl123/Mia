@@ -385,7 +385,10 @@ const skillsLoader = createSkillsLoader({
 // for Desktop/Documents/Downloads/Photos. Real user folders are opted into
 // explicitly (folder picker), not by accident.
 function agentWorkspaceDir() {
-  const dir = runtimePaths().workspace;
+  // A user-picked workspace (Settings) wins when it still exists; otherwise the
+  // Mia-owned default. Either way it's an explicit, non-protected location.
+  const custom = String(settingsStore?.agentWorkspace?.()?.path || "").trim();
+  const dir = custom && fs.existsSync(custom) ? custom : runtimePaths().workspace;
   try { fs.mkdirSync(dir, { recursive: true }); } catch { /* best effort */ }
   return dir;
 }
@@ -1878,6 +1881,29 @@ ipcMain.handle(IpcChannel.SocialMyUsername, () => {
   }
 });
 ipcMain.handle(IpcChannel.EngineInstall, (_event, engineId) => engineInstallService.installEngine(engineId));
+ipcMain.handle(IpcChannel.EngineWorkspaceGet, () => ({
+  path: agentWorkspaceDir(),
+  custom: String(settingsStore.agentWorkspace().path || ""),
+  default: runtimePaths().workspace,
+}));
+ipcMain.handle(IpcChannel.EngineWorkspacePick, async (event) => {
+  const target = BrowserWindow.fromWebContents(event.sender);
+  const result = await dialog.showOpenDialog(target, {
+    properties: ["openDirectory", "createDirectory"],
+    message: "选择 Mia Agent 的工作目录",
+  });
+  const picked = result.canceled ? "" : (result.filePaths?.[0] || "");
+  if (picked) {
+    settingsStore.writeAgentWorkspace(picked);
+    localAgentEngineService?.resetCache?.();
+  }
+  return {
+    path: agentWorkspaceDir(),
+    custom: String(settingsStore.agentWorkspace().path || ""),
+    default: runtimePaths().workspace,
+    changed: Boolean(picked),
+  };
+});
 ipcMain.handle(IpcChannel.EngineRepair, () => engineInstallService.repair());
 ipcMain.handle(IpcChannel.EngineStart, () => startEngine());
 ipcMain.handle(IpcChannel.EngineStop, () => stopEngine());

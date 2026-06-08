@@ -32,6 +32,8 @@
     EngineRepair: "engine:repair",
     EngineStart: "engine:start",
     EngineStop: "engine:stop",
+    EngineWorkspaceGet: "engine:workspace:get",
+    EngineWorkspacePick: "engine:workspace:pick",
     EngineUninstallStandalone: "engine:uninstall-standalone",
     EngineCapabilities: "engine:capabilities",
     AuthCodexStart: "auth:codex-start",
