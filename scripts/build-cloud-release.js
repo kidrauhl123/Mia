@@ -324,6 +324,27 @@ server {
         add_header Cache-Control "no-cache";
     }
 
+    location = /updates/latest-mac.yml {
+        alias /var/www/mia-updates/latest-mac.yml;
+        default_type application/x-yaml;
+        add_header Cache-Control "no-cache" always;
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    }
+
+    location = /updates/latest.yml {
+        alias /var/www/mia-updates/latest.yml;
+        default_type application/x-yaml;
+        add_header Cache-Control "no-cache" always;
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    }
+
+    location /updates/ {
+        alias /var/www/mia-updates/;
+        autoindex off;
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    }
+
     location = /admin {
         proxy_pass http://127.0.0.1:4175;
         proxy_http_version 1.1;
@@ -532,6 +553,12 @@ function verifyRelease() {
   }
   if (!/location\s+=\s+\/manifest\.webmanifest\s+\{[\s\S]*application\/manifest\+json\s+webmanifest/.test(nginxSite)) {
     throw new Error("Release nginx site must serve /manifest.webmanifest with application/manifest+json.");
+  }
+  if (
+    !/location\s+=\s+\/updates\/latest-mac\.yml\s+\{[\s\S]*alias\s+\/var\/www\/mia-updates\/latest-mac\.yml/.test(nginxSite) ||
+    !/location\s+\/updates\/\s+\{[\s\S]*alias\s+\/var\/www\/mia-updates\//.test(nginxSite)
+  ) {
+    throw new Error("Release nginx site must serve desktop update feed from /var/www/mia-updates.");
   }
   if (!/location\s+=\s+\/app\/\s+\{[\s\S]*add_header\s+Cache-Control\s+"no-cache";/.test(nginxSite)) {
     throw new Error("Release nginx site must revalidate the /app/ HTML shell.");

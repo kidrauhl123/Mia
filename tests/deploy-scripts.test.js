@@ -137,6 +137,10 @@ test("release builder includes operator README with safe install verification", 
   assert.match(source, /function writeIcoFromPng\(/);
   assert.match(source, /"web\/favicon\.ico"/);
   assert.match(source, /writeIcoFromPng\(path\.join\(webDir, "icon-192\.png"\), path\.join\(webDir, "favicon\.ico"\)\)/);
+  assert.match(source, /location = \/updates\/latest-mac\.yml/);
+  assert.match(source, /alias \/var\/www\/mia-updates\/latest-mac\.yml/);
+  assert.match(source, /location \/updates\//);
+  assert.match(source, /alias \/var\/www\/mia-updates\//);
   assert.match(source, /proxy_set_header Sec-WebSocket-Protocol \$http_sec_websocket_protocol/);
   assert.match(source, /location = \/favicon\.ico/);
   assert.match(source, /location = \/manifest\.webmanifest/);

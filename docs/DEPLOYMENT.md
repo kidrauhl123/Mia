@@ -101,12 +101,12 @@ release/
 
 ### 桌面自动更新（in-app update）
 
-- 发布命令：`npm run release:mac`（= `dist:mac` + `scripts/publish-mac-update.js`）——把 `latest-mac.yml` + dmg/zip/blockmap 上传到 GitHub release `v<version>`。
+- 发布命令：`npm run release:mac`（= `dist:mac` + `scripts/publish-mac-update.js`）——把 `latest-mac.yml` + dmg/zip/blockmap 暂存到 `dist/mia-updates/`；设置 `MIA_UPDATE_DEPLOY=1` 时同步到 VPS 的 `/var/www/mia-updates/`，由 `https://mia.gifgif.cn/updates/` 提供。
 - 发版必须先 **bump `package.json` 的 `version`**，否则旧客户端版本号不变、不会触发更新。
-- 当前更新通道 = **GitHub release**（`build.publish` = github，`kidrauhl123/Mia`）；客户端用 electron-updater 拉 feed + 下载资产。
+- 当前更新通道 = **generic HTTPS**（`build.publish` = `generic`, `url` = `https://mia.gifgif.cn/updates/`）；客户端用 electron-updater 拉 `latest-mac.yml` + 下载 zip/blockmap。
 - 产物**签名但默认未公证（notarize）**：本机可用，分发给其他 Mac 首开会被 Gatekeeper 拦——正式分发需配公证凭证重出。
 
-> **已知限制 / 待办（国内可达性）**：自动更新走 GitHub——检查更新打 `github.com`、下载 ~100MB 资产走 `objects.githubusercontent.com`，在大陆经常慢/断流，**国内用户无法稳定收到更新**。正式面向国内前，应把更新源搬到国内可达的自有服务器：electron-updater 改用 generic provider 指向你的域名，发布脚本同时把 feed + 产物推到 VPS 的 `/updates/`（复用现有 cloud release / nginx 基建）。思路同 Hermes 安装走国内 PyPI 镜像一致——GitHub 在大陆不可靠时一律换国内可达源。
+> **旧包迁移限制**：已经安装的 GitHub-provider 旧包只会去 GitHub release 检查更新。第一次迁移要发一个桥接版本：同一个新版本同时发布到 GitHub release 和 `mia.gifgif.cn/updates/`。旧包从 GitHub 升到桥接版本后，桥接版本内置的 generic provider 会让之后更新完全走 `mia.gifgif.cn/updates/`。
 
 ## Cloud/Web 发布
 

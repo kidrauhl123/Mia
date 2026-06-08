@@ -75,9 +75,8 @@
     "asar": true,
     "compression": "maximum",
     "publish": {
-      "provider": "github",
-      "owner": "kidrauhl123",
-      "repo": "Mia"
+      "provider": "generic",
+      "url": "https://mia.gifgif.cn/updates/"
     },
     "files": [
       "package.json",

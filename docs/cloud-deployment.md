@@ -7,6 +7,7 @@ This document is the production checklist for the official Mia Cloud/Web host.
 - API service: `/opt/mia-cloud/server.js`
 - Cloud data: `/var/lib/mia-cloud`
 - Web root: `/var/www/mia-web`
+- Desktop update root: `/var/www/mia-updates`
 - Public origin: `https://mia.gifgif.cn`
 - Local API listener: `127.0.0.1:4175`
 

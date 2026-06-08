@@ -7,6 +7,7 @@ PUBLIC_URL="${MIA_CLOUD_PUBLIC_URL:-https://mia.gifgif.cn}"
 SMOKE_URL="${MIA_INSTALL_SMOKE_URL:-$PUBLIC_URL}"
 API_DIR="${MIA_DEPLOY_API_DIR:-/opt/mia-cloud}"
 WEB_DIR="${MIA_DEPLOY_WEB_DIR:-/var/www/mia-web}"
+UPDATES_DIR="${MIA_DEPLOY_UPDATES_DIR:-/var/www/mia-updates}"
 DATA_DIR="${MIA_DEPLOY_DATA_DIR:-/var/lib/mia-cloud}"
 AGENT_ROOT="${MIA_CLOUD_AGENT_ROOT:-/var/lib/mia-cloud-agent-users}"
 HERMES_IMAGE="${MIA_CLOUD_HERMES_IMAGE:-mia/hermes-cloud:2026.5.29}"
@@ -405,7 +406,7 @@ if [ -f "/etc/systemd/system/$SERVICE.service" ]; then
   echo "systemd unit backup written to $UNIT_BACKUP"
 fi
 
-run_as_root mkdir -p "$API_DIR" "$WEB_DIR" "$DATA_DIR" "$AGENT_ROOT"
+run_as_root mkdir -p "$API_DIR" "$WEB_DIR" "$UPDATES_DIR" "$DATA_DIR" "$AGENT_ROOT"
 if [ -f "$INSTALL_TMP/hermes-image/Dockerfile" ]; then
   if [ "$SKIP_HERMES_IMAGE_BUILD" = "1" ]; then
     if run_as_root docker image inspect "$HERMES_IMAGE" >/dev/null 2>&1; then

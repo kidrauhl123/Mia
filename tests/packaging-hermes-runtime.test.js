@@ -27,6 +27,23 @@ test("electron-builder resources exclude Hermes runtime", () => {
   assert.doesNotMatch(JSON.stringify(pkg.build.win || {}), /vendor\/hermes-runtime/);
 });
 
+test("desktop auto-update uses Mia generic update source instead of GitHub", () => {
+  const pkg = packageJson();
+  assert.deepEqual(pkg.build.publish, {
+    provider: "generic",
+    url: "https://mia.gifgif.cn/updates/"
+  });
+
+  const macPublisher = fs.readFileSync(path.join(root, "scripts/publish-mac-update.js"), "utf8");
+  const winPublisher = fs.readFileSync(path.join(root, "scripts/publish-win-update.js"), "utf8");
+  for (const source of [macPublisher, winPublisher]) {
+    assert.match(source, /dist", "mia-updates"/);
+    assert.match(source, /MIA_UPDATE_DEPLOY/);
+    assert.match(source, /\/var\/www\/mia-updates\//);
+    assert.doesNotMatch(source, /gh\(["']release|github release/i);
+  }
+});
+
 test("desktop packaging scripts clean stale release artifacts before building", () => {
   const pkg = packageJson();
   const cleanCommand = "node scripts/clean-release.js";

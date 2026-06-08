@@ -1,19 +1,12 @@
-// Publish the Windows in-app update feed to the GitHub release.
+// Stage or deploy the Windows in-app update feed to Mia's generic HTTPS update
+// source. electron-updater reads latest.yml from https://mia.gifgif.cn/updates/
+// and downloads the NSIS setup .exe plus blockmap from the same origin.
 //
-// Mirror of publish-mac-update.js for the NSIS target. electron-updater on
-// Windows reads `latest.yml` from the GitHub release named after
-// `build.publish`, finds the Setup `.exe` it points at, and downloads it
-// (block-level diff via `.blockmap`). If those three files are missing from the
-// release, every installed client checks for updates and silently gets nothing
-// — so this uploads the whole feed, not just a human-facing installer.
-//
-// Run AFTER `npm run dist:win` has produced release/ artifacts. Intended to run
-// on a Windows host (GitHub Actions windows-latest), since the NSIS target and
-// the win-x64 Hermes runtime are both built natively there. macOS stays on
-// publish-mac-update.js; both publish to the same `v<version>` release so a mac
-// client reads latest-mac.yml and a Windows client reads latest.yml off it.
+// Run AFTER `npm run dist:win`. By default this writes dist/mia-updates/ only.
+// Set MIA_UPDATE_DEPLOY=1 to rsync that directory to the VPS update root.
 
 const { execFileSync } = require("node:child_process");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const yaml = require("js-yaml");
@@ -22,11 +15,13 @@ const root = path.resolve(__dirname, "..");
 const pkg = require(path.join(root, "package.json"));
 const productName = pkg.productName || "Mia";
 const version = pkg.version || "0.0.0";
-const tag = `v${version}`;
 const releaseDir = path.join(root, "release");
+const stageDir = path.resolve(process.env.MIA_UPDATE_STAGING_DIR || path.join(root, "dist", "mia-updates"));
+const updateUrl = String(process.env.MIA_UPDATE_BASE_URL || pkg.build?.publish?.url || "https://mia.gifgif.cn/updates/").replace(/\/?$/, "/");
+const remote = String(process.env.MIA_UPDATE_REMOTE || process.env.MIA_DEPLOY_REMOTE || "").trim();
+const remoteDir = String(process.env.MIA_UPDATE_REMOTE_DIR || "/var/www/mia-updates/").replace(/\/?$/, "/");
+const shouldDeploy = process.env.MIA_UPDATE_DEPLOY === "1";
 
-// The update feed electron-updater actually consumes. The Setup .exe doubles as
-// the first-time website download, so unlike mac there is no separate DMG.
 const feedFiles = [
   "latest.yml",
   `${productName}-${version}-Setup.exe`,
@@ -36,54 +31,51 @@ const feedFiles = [
 function resolveOrThrow(name) {
   const file = path.join(releaseDir, name);
   if (!fs.existsSync(file)) {
-    throw new Error(
-      `Missing release/${name}. Run \`npm run dist:win\` first so the feed exists.`
-    );
+    throw new Error(`Missing release/${name}. Run \`npm run dist:win\` first so the feed exists.`);
   }
   return file;
 }
 
-const feedPaths = feedFiles.map(resolveOrThrow);
+function sha256File(file) {
+  return crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
+}
 
-// Catch the #1 footgun: publishing a stale build whose feed version doesn't
-// match package.json. electron-updater compares versions, so a mismatch means
-// clients either never update or chase a version that isn't really new.
+function copyArtifact(source) {
+  const target = path.join(stageDir, path.basename(source));
+  fs.copyFileSync(source, target);
+  return target;
+}
+
+const feedPaths = feedFiles.map(resolveOrThrow);
 const feed = yaml.load(fs.readFileSync(path.join(releaseDir, "latest.yml"), "utf8"));
 if (feed?.version !== version) {
   throw new Error(
     `latest.yml is version ${feed?.version}, but package.json is ${version}. ` +
-      `Rebuild with \`npm run dist:win\` before publishing.`
+      "Rebuild with `npm run dist:win` before publishing."
   );
 }
-
-const uploadPaths = [...feedPaths];
-
-function gh(args, opts = {}) {
-  return execFileSync("gh", args, { cwd: root, stdio: "inherit", ...opts });
+if (pkg.build?.publish?.provider !== "generic" || !pkg.build?.publish?.url) {
+  throw new Error("package.json build.publish must be the generic provider before publishing Mia updates.");
 }
 
-const repo = `${pkg.build.publish.owner}/${pkg.build.publish.repo}`;
+fs.rmSync(stageDir, { recursive: true, force: true });
+fs.mkdirSync(stageDir, { recursive: true });
 
-function releaseExists() {
-  try {
-    execFileSync("gh", ["release", "view", tag, "-R", repo], {
-      cwd: root,
-      stdio: "ignore",
-    });
-    return true;
-  } catch {
-    return false;
-  }
+const staged = feedPaths.map(copyArtifact);
+const checksumLines = staged
+  .map((file) => `${sha256File(file)}  ${path.basename(file)}`)
+  .join("\n") + "\n";
+fs.writeFileSync(path.join(stageDir, "SHA256SUMS"), checksumLines);
+
+console.log(`Mia Windows update feed staged: ${stageDir}`);
+console.log(`Update base URL: ${updateUrl}`);
+for (const file of staged) console.log(`  - ${path.basename(file)}`);
+
+if (shouldDeploy) {
+  if (!remote) throw new Error("Set MIA_UPDATE_REMOTE or MIA_DEPLOY_REMOTE when MIA_UPDATE_DEPLOY=1.");
+  console.log(`Deploying updates to ${remote}:${remoteDir}`);
+  execFileSync("ssh", [remote, "mkdir", "-p", remoteDir], { cwd: root, stdio: "inherit" });
+  execFileSync("rsync", ["-av", `${stageDir}/`, `${remote}:${remoteDir}`], { cwd: root, stdio: "inherit" });
 }
 
-if (!releaseExists()) {
-  const sha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root }).toString().trim();
-  console.log(`Creating release ${tag} at ${sha.slice(0, 8)} on ${repo}`);
-  gh(["release", "create", tag, "-R", repo, "--target", sha, "--title", `${productName} ${version}`, "--notes", `${productName} ${version}`]);
-}
-
-console.log(`Uploading Windows update feed to ${repo} ${tag}:`);
-for (const p of uploadPaths) console.log(`  - ${path.basename(p)}`);
-gh(["release", "upload", tag, "-R", repo, "--clobber", ...uploadPaths]);
-
-console.log(`Done. Windows clients on < ${version} will now auto-update.`);
+console.log(`Done. Generic-provider clients will check ${updateUrl}latest.yml.`);

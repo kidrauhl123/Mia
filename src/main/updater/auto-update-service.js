@@ -1,10 +1,11 @@
 // In-app auto-update (macOS Squirrel.Mac via electron-updater).
 //
-// Feed is the GitHub release configured in package.json `build.publish`
-// (provider: github) — electron-builder bakes that into app-update.yml, so the
-// runtime updater knows to read latest-mac.yml + the signed .zip from the
-// release. Squirrel.Mac requires a valid Developer ID signature (notarization
-// is NOT required for the update path), which the build now produces.
+// Feed is the generic HTTPS update source configured in package.json
+// `build.publish` (https://mia.gifgif.cn/updates/). electron-builder bakes that
+// into app-update.yml, so the runtime updater reads latest-mac.yml + the signed
+// .zip from Mia's own origin instead of GitHub. Squirrel.Mac requires a valid
+// Developer ID signature (notarization is NOT required for the update path),
+// which the build now produces.
 //
 // Runs only in real installed builds. `app.isPackaged` already excludes
 // `npm start` / tests, but the `electron-builder --dir` output is also
