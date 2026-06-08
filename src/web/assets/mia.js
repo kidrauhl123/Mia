@@ -20,6 +20,137 @@
     `<div class="mw-av av av--${HUE[role] || 'indigo'}"><svg viewBox="0 0 24 24">${ICON[role] || ICON.coder}</svg></div>`;
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
+  const DOWNLOADS = {
+    'mac-apple': {
+      href: '/downloads/mia-macos-apple-silicon-latest.dmg',
+      download: 'Mia-macOS-Apple-Silicon.dmg',
+      label: '下载 macOS 版',
+      shortLabel: '下载',
+      icon: 'apple'
+    },
+    'mac-intel': {
+      href: '/downloads/mia-macos-intel-latest.dmg',
+      download: 'Mia-macOS-Intel.dmg',
+      label: '下载 Intel Mac 版',
+      shortLabel: 'Intel Mac',
+      icon: 'apple'
+    },
+    windows: {
+      href: '/downloads/mia-windows-latest.exe',
+      download: 'Mia-Windows.exe',
+      label: '下载 Windows 版',
+      shortLabel: 'Windows',
+      icon: 'windows'
+    },
+    android: {
+      href: '/downloads/mia-android-latest.apk',
+      download: 'Mia-Android.apk',
+      label: '下载 Android 版',
+      shortLabel: 'Android',
+      icon: 'android'
+    },
+    ios: {
+      href: '/app/',
+      download: '',
+      label: '打开 iPhone / iPad 网页版',
+      shortLabel: 'iPhone / iPad',
+      icon: 'web'
+    },
+    web: {
+      href: '/app/',
+      download: '',
+      label: '打开网页版',
+      shortLabel: '网页版',
+      icon: 'web'
+    }
+  };
+
+  function isAppleMobile(ua, platform, touchPoints) {
+    return /iphone|ipad|ipod/.test(ua) || (platform === 'macintel' && touchPoints > 1);
+  }
+
+  function initialDownloadKey() {
+    const ua = String(navigator.userAgent || '').toLowerCase();
+    const platform = String(navigator.platform || '').toLowerCase();
+    const touchPoints = Number(navigator.maxTouchPoints || 0);
+    if (/android/.test(ua)) return 'android';
+    if (isAppleMobile(ua, platform, touchPoints)) return 'ios';
+    if (/windows|win32|win64/.test(ua) || platform.startsWith('win')) return 'windows';
+    if (/macintosh|mac os x/.test(ua) || platform.startsWith('mac')) return 'mac-apple';
+    return 'mac-apple';
+  }
+
+  function applyDownload(key) {
+    const option = DOWNLOADS[key] || DOWNLOADS['mac-apple'];
+    document.querySelectorAll('[data-primary-download]').forEach((button) => {
+      button.setAttribute('href', option.href);
+      if (option.download) button.setAttribute('download', option.download);
+      else button.removeAttribute('download');
+      const nestedLabel = button.querySelector('[data-download-label]');
+      if (nestedLabel) nestedLabel.textContent = option.label;
+      else if (button.hasAttribute('data-download-label')) button.textContent = option.shortLabel || option.label;
+    });
+    document.querySelectorAll('[data-download-icon]').forEach((icon) => {
+      icon.hidden = icon.dataset.downloadIcon !== option.icon;
+    });
+    document.querySelectorAll('[data-download-option]').forEach((link) => {
+      link.setAttribute('aria-current', link.dataset.downloadOption === key ? 'true' : 'false');
+    });
+  }
+
+  async function refineMacDownloadKey(currentKey) {
+    if (!currentKey.startsWith('mac-')) return;
+    const hints = navigator.userAgentData;
+    if (!hints || typeof hints.getHighEntropyValues !== 'function') return;
+    try {
+      const values = await hints.getHighEntropyValues(['architecture', 'platform']);
+      const platform = String(values.platform || '').toLowerCase();
+      const arch = String(values.architecture || '').toLowerCase();
+      if (platform && !/mac|macos/.test(platform)) return;
+      if (/arm|aarch64/.test(arch)) applyDownload('mac-apple');
+      if (/x86|x64|amd64/.test(arch)) applyDownload('mac-intel');
+    } catch {
+      // Safari and some privacy settings do not expose architecture; keep the
+      // default Mac recommendation and leave Intel in the menu.
+    }
+  }
+
+  function setupDownloadChooser() {
+    const key = initialDownloadKey();
+    applyDownload(key);
+    refineMacDownloadKey(key);
+
+    const trigger = document.querySelector('[data-download-menu-button]');
+    const menu = document.querySelector('[data-download-menu]');
+    if (!trigger || !menu) return;
+
+    function closeMenu() {
+      menu.hidden = true;
+      trigger.setAttribute('aria-expanded', 'false');
+    }
+
+    function openMenu() {
+      menu.hidden = false;
+      trigger.setAttribute('aria-expanded', 'true');
+      const current = menu.querySelector('[aria-current="true"]') || menu.querySelector('a');
+      current?.focus({ preventScroll: true });
+    }
+
+    trigger.addEventListener('click', () => {
+      if (menu.hidden) openMenu();
+      else closeMenu();
+    });
+    document.addEventListener('click', (event) => {
+      if (menu.hidden) return;
+      if (!menu.contains(event.target) && !trigger.contains(event.target)) closeMenu();
+    });
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') closeMenu();
+    });
+  }
+
+  setupDownloadChooser();
+
   /* ---------- nav: shadow + auto-hide (reveal on scroll up, like Marvis) ---------- */
   const nav = document.getElementById('nav');
   let lastY = window.scrollY;

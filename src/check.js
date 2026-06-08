@@ -3,6 +3,8 @@ const childProcess = require("node:child_process");
 const path = require("node:path");
 const assert = require("node:assert/strict");
 
+const rootDir = path.join(__dirname, "..");
+
 const required = [
   "src/main.js",
   "src/main/chat-engine-adapters.js",
@@ -40,6 +42,7 @@ const required = [
   "src/web/assets/mia-logo.png",
   "src/web/manifest.webmanifest",
   "scripts/clean-release.js",
+  "electron-builder.mac-intel.js",
   "scripts/serve-web.js",
   "scripts/serve-cloud.js",
   "scripts/build-cloud-release.js",
@@ -115,7 +118,7 @@ const required = [
 ];
 
 for (const file of required) {
-  const full = path.join(__dirname, "..", file);
+  const full = path.join(rootDir, file);
   if (!fs.existsSync(full)) {
     throw new Error(`Missing ${file}`);
   }
@@ -127,22 +130,22 @@ const forbiddenRootDuplicates = [
 ];
 
 for (const file of forbiddenRootDuplicates) {
-  const full = path.join(__dirname, "..", file);
+  const full = path.join(rootDir, file);
   if (fs.existsSync(full)) {
     throw new Error(`Unexpected root-level duplicate source file: ${file}`);
   }
 }
 
-for (const file of ["src/main.js", "src/main/chat-engine-adapters.js", "src/main/chat-engine-registry.js", "src/main/chat-events.js", "src/main/chat-response.js", "src/main/claude-code-chat-adapter.js", "src/main/codex-chat-adapter.js", "src/main/bot-registry.js", "src/main/hermes-chat-adapter.js", "src/cloud/sqlite-store.js", "src/cloud/desktop-bridge-permission.js", "src/permission-modes.js", "src/preload.js", "src/renderer/bot/bot-directory.js", "src/renderer/app.js", "src/web/app.js", "packages/shared/index.js", "packages/shared/avatar.js", "packages/shared/contact.js", "packages/shared/group-tiles.js", "packages/shared/send-pipeline.js", "packages/shared/approval-queue.js", "packages/shared/optimistic-send.js", "packages/shared/session-history.js", "packages/shared/cloud-client.js", "packages/shared/bot-identity.js", "scripts/serve-web.js", "scripts/serve-cloud.js", "scripts/build-cloud-release.js", "scripts/print-cloud-release-handoff.js", "scripts/verify-cloud-production.js", "scripts/audit-cloud-productization.js", "scripts/diagnose-deploy-ssh.js", "scripts/print-cloud-blockers.js", "scripts/doctor-cloud.js", "scripts/smoke-cloud.js", "scripts/local-agent-bridge.js"]) {
-  childProcess.execFileSync(process.execPath, ["--check", path.join(__dirname, "..", file)], {
+for (const file of ["electron-builder.mac-intel.js", "src/main.js", "src/main/chat-engine-adapters.js", "src/main/chat-engine-registry.js", "src/main/chat-events.js", "src/main/chat-response.js", "src/main/claude-code-chat-adapter.js", "src/main/codex-chat-adapter.js", "src/main/bot-registry.js", "src/main/hermes-chat-adapter.js", "src/cloud/sqlite-store.js", "src/cloud/desktop-bridge-permission.js", "src/permission-modes.js", "src/preload.js", "src/renderer/bot/bot-directory.js", "src/renderer/app.js", "src/web/app.js", "packages/shared/index.js", "packages/shared/avatar.js", "packages/shared/contact.js", "packages/shared/group-tiles.js", "packages/shared/send-pipeline.js", "packages/shared/approval-queue.js", "packages/shared/optimistic-send.js", "packages/shared/session-history.js", "packages/shared/cloud-client.js", "packages/shared/bot-identity.js", "scripts/serve-web.js", "scripts/serve-cloud.js", "scripts/build-cloud-release.js", "scripts/print-cloud-release-handoff.js", "scripts/verify-cloud-production.js", "scripts/audit-cloud-productization.js", "scripts/diagnose-deploy-ssh.js", "scripts/print-cloud-blockers.js", "scripts/doctor-cloud.js", "scripts/smoke-cloud.js", "scripts/local-agent-bridge.js"]) {
+  childProcess.execFileSync(process.execPath, ["--check", path.join(rootDir, file)], {
     stdio: "inherit"
   });
 }
 
-childProcess.execFileSync("bash", ["-n", path.join(__dirname, "..", "scripts/deploy-cloud-release.sh")], {
+childProcess.execFileSync("bash", ["-n", path.join(rootDir, "scripts/deploy-cloud-release.sh")], {
   stdio: "inherit"
 });
-childProcess.execFileSync("bash", ["-n", path.join(__dirname, "..", "scripts/install-cloud-release-local.sh")], {
+childProcess.execFileSync("bash", ["-n", path.join(rootDir, "scripts/install-cloud-release-local.sh")], {
   stdio: "inherit"
 });
 
@@ -169,7 +172,7 @@ assert.equal(adapterForEngine("codex").responseModel, "codex-cli");
 assert.equal(resolveChatEngineAdapter({ agent_engine: "claude-code" }).transport, "claude-agent-sdk");
 
 const mainSource = fs.readFileSync(path.join(__dirname, "main.js"), "utf8");
-const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
+const packageJson = JSON.parse(fs.readFileSync(path.join(rootDir, "package.json"), "utf8"));
 // defaultModelSettings was moved to src/main/settings-store.js; assert against the extracted module.
 const settingsStoreSource = fs.readFileSync(path.join(__dirname, "main", "settings-store.js"), "utf8");
 const defaultModelBody = settingsStoreSource.match(/function defaultModelSettings\(\) \{[\s\S]*?\n {2}\}/)?.[0] || "";
@@ -188,8 +191,58 @@ assert.doesNotMatch(cloudServerSource, /authenticateToken\([^)]*url\.searchParam
 assert.doesNotMatch(packageJson.scripts.prepack || "", /hermes:runtime/);
 assert.doesNotMatch(packageJson.scripts.pack || "", /hermes:runtime/);
 assert.doesNotMatch(packageJson.scripts["dist:mac"], /hermes:runtime/);
+assert.doesNotMatch(packageJson.scripts["dist:mac:intel"], /hermes:runtime/);
+assert.doesNotMatch(packageJson.scripts["dist:mac:x64"], /hermes:runtime/);
 assert.doesNotMatch(packageJson.scripts["dist:win"], /hermes:runtime/);
 assert.doesNotMatch(JSON.stringify(packageJson.build.mac || {}), /vendor\/hermes-runtime/);
 assert.doesNotMatch(JSON.stringify(packageJson.build.win || {}), /vendor\/hermes-runtime/);
+
+const textExtensions = new Set([
+  ".cjs",
+  ".css",
+  ".html",
+  ".js",
+  ".json",
+  ".jsx",
+  ".md",
+  ".mjs",
+  ".sh",
+  ".svg",
+  ".toml",
+  ".ts",
+  ".tsx",
+  ".txt",
+  ".webmanifest",
+  ".xml",
+  ".yaml",
+  ".yml"
+]);
+const textBasenames = new Set(["Dockerfile", "Makefile"]);
+const legacyHost = "ai" + "web" + "." + ("buy" + "tb01") + ".com";
+const legacyRoot = "buy" + "tb01";
+const forbiddenLegacyProductionHosts = [legacyHost, legacyRoot + ".com", legacyRoot];
+
+function trackedFiles() {
+  try {
+    return childProcess.execFileSync("git", ["ls-files", "-z"], {
+      cwd: rootDir,
+      encoding: "utf8"
+    }).split("\0").filter(Boolean);
+  } catch {
+    return required;
+  }
+}
+
+for (const relativePath of trackedFiles()) {
+  const ext = path.extname(relativePath).toLowerCase();
+  const basename = path.basename(relativePath);
+  if (!textExtensions.has(ext) && !textBasenames.has(basename)) continue;
+  const source = fs.readFileSync(path.join(rootDir, relativePath), "utf8").toLowerCase();
+  for (const forbidden of forbiddenLegacyProductionHosts) {
+    if (source.includes(forbidden)) {
+      throw new Error(`Legacy production host reference found in ${relativePath}`);
+    }
+  }
+}
 
 console.log("Mia project structure OK");

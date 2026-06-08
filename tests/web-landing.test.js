@@ -19,11 +19,11 @@ test("web root is a promo landing page with download and app entry points", () =
 
   assert.match(html, /Mia 把一群 AI 当同事用/);
   assert.match(html, /Multiple Intelligent Agents/);
-  assert.match(html, /href="assets\/mia\.css\?v=20260602-promo3"/);
-  assert.match(html, /href="assets\/mia-gradient\.css\?v=20260602-promo3"/);
-  assert.match(html, /href="assets\/mia-scroll\.css\?v=20260602-promo3"/);
-  assert.match(html, /src="assets\/mia\.js\?v=20260602-promo3"/);
-  assert.match(html, /src="assets\/mia-scroll\.js\?v=20260602-promo3"/);
+  assert.match(html, /href="assets\/mia\.css\?v=20260608-downloads1"/);
+  assert.match(html, /href="assets\/mia-gradient\.css\?v=20260608-downloads1"/);
+  assert.match(html, /href="assets\/mia-scroll\.css\?v=20260608-downloads1"/);
+  assert.match(html, /src="assets\/mia\.js\?v=20260608-downloads1"/);
+  assert.match(html, /src="assets\/mia-scroll\.js\?v=20260608-downloads1"/);
   assert.match(html, /src="assets\/mia-logo\.png"/);
   assert.match(html, /class="[^"]*\bmiawin\b[^"]*"/);
   assert.match(html, /class="[^"]*\bmw-search\b[^"]*"/);
@@ -47,11 +47,25 @@ test("web root is a promo landing page with download and app entry points", () =
   assert.match(scrollJs, /prefers-reduced-motion: reduce/);
   assert.match(html, /href="\/downloads\/mia-macos-apple-silicon-latest\.dmg"/);
   assert.match(html, /download="Mia-macOS-Apple-Silicon\.dmg"/);
+  assert.match(html, /href="\/downloads\/mia-macos-intel-latest\.dmg"/);
+  assert.match(html, /download="Mia-macOS-Intel\.dmg"/);
+  assert.match(html, /href="\/downloads\/mia-windows-latest\.exe"/);
+  assert.match(html, /download="Mia-Windows\.exe"/);
   assert.match(html, /href="\/downloads\/mia-android-latest\.apk"/);
-  assert.match(html, /下载 Android 版/);
+  assert.match(html, /data-download-option="android"/);
+  assert.match(html, /data-primary-download/);
+  assert.match(html, /data-download-menu-button/);
+  assert.match(html, /data-download-option="ios"/);
+  assert.match(html, /iPhone \/ iPad/);
+  assert.match(css, /\.download-menu/);
   assert.match(html, /href="\/app\/"/);
   assert.match(html, />\s*打开网页版\s*</);
   assert.match(html, /下载 macOS 版/);
+  assert.match(js, /navigator\.userAgentData/);
+  assert.match(js, /getHighEntropyValues\(\['architecture', 'platform'\]\)/);
+  assert.match(js, /mac-intel/);
+  assert.match(js, /android/);
+  assert.match(js, /ios/);
   assert.match(html, /@ 谁就谁来/);
   assert.match(html, /多端同步/);
   assert.match(html, /账号、好友、群聊云端同步/);
@@ -70,8 +84,8 @@ test("web root is a promo landing page with download and app entry points", () =
   assert.doesNotMatch(html, /配额已耗尽|运行失败|没能生成回复/);
   assert.doesNotMatch(html, /Permission request/);
   assert.match(html, /Mia-macOS-Apple-Silicon\.dmg/);
-  assert.doesNotMatch(html, /macOS Intel/);
-  assert.doesNotMatch(html, /Windows/);
+  assert.match(html, /macOS Intel/);
+  assert.match(html, /Windows/);
 });
 
 test("web app shell lives under /app and keeps parent-relative assets", () => {
@@ -88,12 +102,15 @@ test("web app shell lives under /app and keeps parent-relative assets", () => {
   assert.doesNotMatch(html, /src="\.\/app\.js/);
 });
 
-test("cloud release builder can publish the Apple Silicon DMG as a web download", () => {
+test("cloud release builder can publish Mac DMGs as web downloads", () => {
   const source = read("scripts/build-cloud-release.js");
 
   assert.match(source, /mia-macos-apple-silicon-latest\.dmg/);
   assert.match(source, /mia-macos-arm64-latest\.dmg/);
+  assert.match(source, /mia-macos-intel-latest\.dmg/);
+  assert.match(source, /mia-macos-x64-latest\.dmg/);
   assert.match(source, /Mia-\*-Apple-Silicon\.dmg/);
+  assert.match(source, /Mia-\*-Intel\.dmg/);
   assert.match(source, /copyDesktopDownloadArtifacts/);
   assert.match(source, /web\/assets\/mia\.css/);
   assert.match(source, /web\/assets\/mia\.js/);

@@ -43,6 +43,8 @@
     "pack": "npm run clean:release && electron-builder --dir",
     "dist": "npm run dist:mac",
     "dist:mac": "npm run clean:release && electron-builder --mac dir zip dmg --publish never && npm run tidy:release",
+    "dist:mac:intel": "npm run clean:release && electron-builder --config electron-builder.mac-intel.js --mac dir zip --x64 --publish never && MIA_MAC_DMG_LABEL=Intel node scripts/create-mac-dmg.js && npm run tidy:release",
+    "dist:mac:x64": "npm run dist:mac:intel",
     "release:mac": "npm run dist:mac && node scripts/publish-mac-update.js",
     "release:mac:publish": "node scripts/publish-mac-update.js",
     "dist:win": "npm run clean:release && electron-builder --win nsis --publish never && npm run tidy:release",

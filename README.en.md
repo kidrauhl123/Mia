@@ -20,7 +20,8 @@ Mia is a desktop app that puts Claude, Codex, Hermes and other AI tools into one
 ## Get started
 
 - macOS (Apple Silicon): [Download DMG](https://mia.gifgif.cn/downloads/mia-macos-arm64-latest.dmg)
-- macOS Intel / Windows: coming soon
+- macOS Intel: [Download DMG](https://mia.gifgif.cn/downloads/mia-macos-intel-latest.dmg)
+- Windows: coming soon
 - Web: <https://mia.gifgif.cn>
 
 Open Mia, sign in, and your first Bot is already waiting.

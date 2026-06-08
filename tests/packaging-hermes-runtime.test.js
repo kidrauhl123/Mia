@@ -17,6 +17,8 @@ test("desktop package scripts do not build Hermes runtime", () => {
   assert.doesNotMatch(pkg.scripts.prepack || "", /hermes:runtime/);
   assert.doesNotMatch(pkg.scripts.pack || "", /hermes:runtime/);
   assert.doesNotMatch(pkg.scripts["dist:mac"], /hermes:runtime/);
+  assert.doesNotMatch(pkg.scripts["dist:mac:intel"], /hermes:runtime/);
+  assert.doesNotMatch(pkg.scripts["dist:mac:x64"], /hermes:runtime/);
   assert.doesNotMatch(pkg.scripts["dist:win"], /hermes:runtime/);
 });
 
@@ -51,20 +53,31 @@ test("desktop packaging scripts clean stale release artifacts before building", 
 
   assert.equal(pkg.scripts["clean:release"], cleanCommand);
   assert.equal(pkg.scripts["tidy:release"], tidyCommand);
-  for (const scriptName of ["pack", "dist:mac", "dist:win"]) {
+  for (const scriptName of ["pack", "dist:mac", "dist:mac:intel", "dist:win"]) {
     assert.match(
       pkg.scripts[scriptName],
       new RegExp(`(^|&& )npm run clean:release && .*electron-builder`),
       `${scriptName} should clean release before invoking electron-builder`
     );
   }
-  for (const scriptName of ["dist:mac", "dist:win"]) {
+  for (const scriptName of ["dist:mac", "dist:mac:intel", "dist:win"]) {
     assert.match(
       pkg.scripts[scriptName],
       /electron-builder[\s\S]*&& npm run tidy:release$/,
       `${scriptName} should tidy intermediate release artifacts after electron-builder`
     );
   }
+  assert.match(pkg.scripts["dist:mac:intel"], /electron-builder\.mac-intel\.js/);
+  assert.match(pkg.scripts["dist:mac:intel"], /--x64/);
+  assert.match(pkg.scripts["dist:mac:intel"], /MIA_MAC_DMG_LABEL=Intel node scripts\/create-mac-dmg\.js/);
+  assert.match(pkg.scripts["dist:mac:x64"], /dist:mac:intel/);
+});
+
+test("Intel macOS build config labels DMG artifacts for Intel Macs", () => {
+  const source = fs.readFileSync(path.join(root, "electron-builder.mac-intel.js"), "utf8");
+
+  assert.match(source, /artifactName:\s*"\$\{productName\}-\$\{version\}-Intel\.\$\{ext\}"/);
+  assert.match(source, /target:\s*\["dir", "zip"\]/);
 });
 
 test("clean release script removes stale artifacts from the configured release directory", () => {
@@ -91,7 +104,9 @@ test("tidy release script keeps current distributables and removes intermediate 
     "Mia-0.1.1-arm64-mac.zip",
     "Mia-0.1.1-arm64-mac.zip.blockmap",
     "Mia-0.1.1-Apple-Silicon.dmg",
+    "Mia-0.1.1-Intel.dmg",
     "Mia-0.1.0-arm64-mac.zip",
+    "Mia-0.1.0-Intel.dmg",
     "Mia-0.1.0-android.apk",
     "builder-debug.yml"
   ]) {
@@ -107,6 +122,7 @@ test("tidy release script keeps current distributables and removes intermediate 
 
   assert.deepEqual(fs.readdirSync(releaseDir).sort(), [
     "Mia-0.1.1-Apple-Silicon.dmg",
+    "Mia-0.1.1-Intel.dmg",
     "Mia-0.1.1-arm64-mac.zip",
     "Mia-0.1.1-arm64-mac.zip.blockmap",
     "latest-mac.yml",

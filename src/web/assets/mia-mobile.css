@@ -177,6 +177,30 @@
 
 /* ---- phones: collapse the desktop app window to a single chat card ---- */
 @media (max-width: 680px) {
+  .hero-ctas {
+    width: 100%;
+    gap: 9px;
+  }
+  .download-cluster {
+    width: 100%;
+    justify-content: center;
+  }
+  .download-cluster > .btn-primary {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .btn-more-downloads {
+    flex: none;
+    padding-left: 13px !important;
+    padding-right: 13px !important;
+  }
+  .download-menu {
+    right: 0;
+    width: min(252px, calc(100vw - 56px));
+  }
+
   /* show a believable mobile chat instead of "view on a bigger screen" */
   .miawin { display: block !important; }
   .miawin-mobile-note { display: none !important; }

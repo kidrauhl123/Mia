@@ -9,14 +9,15 @@ Mia 是一个桌面优先的多 Agent 聊天平台。
 ## 当前状态
 
 - 桌面端是主产品形态，基于 Electron。
-- macOS Apple Silicon 是当前主要打包目标；Windows 打包脚本已存在但仍按实际验证结果发布。
+- macOS Apple Silicon 和 Intel 都有独立打包入口；Windows 打包脚本已存在但仍按实际验证结果发布。
 - Web/Cloud 已有账号、好友、群聊、Bot、文件、实时同步和桌面 Bridge 能力。
 - `apps/mobile-rn/` 下有 React Native 移动端工程，但当前 README 以桌面端和 Cloud/Web 为主。
-- 版本号见 `package.json`，当前为 `0.1.1`。
+- 版本号见 `package.json`，当前为 `0.1.9`。
 
 公开入口：
 
 - macOS Apple Silicon DMG：<https://mia.gifgif.cn/downloads/mia-macos-arm64-latest.dmg>
+- macOS Intel DMG：<https://mia.gifgif.cn/downloads/mia-macos-intel-latest.dmg>
 - Web：<https://mia.gifgif.cn>
 
 线上是否已经部署到最新提交，以 `npm run cloud:doctor -- https://mia.gifgif.cn` 和 `npm run cloud:prod:verify -- https://mia.gifgif.cn` 的结果为准。
@@ -120,6 +121,12 @@ macOS 包：
 
 ```bash
 npm run dist:mac
+```
+
+macOS Intel 包：
+
+```bash
+npm run dist:mac:intel
 ```
 
 Windows 包：

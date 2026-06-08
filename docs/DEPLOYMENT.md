@@ -6,7 +6,7 @@
 
 Mia 当前有三个需要区分的部署面：
 
-- Desktop：Electron 桌面端，产物在 `release/`，主要目标是 macOS Apple Silicon；Windows 脚本已存在，按实际验证结果发布。
+- Desktop：Electron 桌面端，产物在 `release/`，macOS Apple Silicon 和 Intel 分开打包；Windows 脚本已存在，按实际验证结果发布。
 - Cloud/Web：Cloud API、Web 静态资源、Hermes worker 镜像上下文和部署脚本，产物在 `dist/`。
 - Bridge：桌面端或独立 `npm run bridge` 连接 Cloud，让同账号 Web/移动端调用在线桌面 Agent。
 
@@ -73,6 +73,12 @@ macOS 包：
 
 ```bash
 npm run dist:mac
+```
+
+macOS Intel 包：
+
+```bash
+npm run dist:mac:intel
 ```
 
 Windows 包：
@@ -242,7 +248,7 @@ Cloud 自动部署脚本和本地 installer 会在安装前备份：
 
 不要只回滚代码不回滚 SQLite 数据。新代码可能已经迁移了 schema，旧代码直接读取新 schema 可能失败。
 
-Desktop 回滚通常是重新发布上一版安装包或 update artifact。Cloud release 构建会把最新 macOS Apple Silicon DMG 复制到 Web downloads；回滚下载入口时要确认 `release/` 里对应 DMG、Cloud Web downloads、公开链接三者一致。
+Desktop 回滚通常是重新发布上一版安装包或 update artifact。Cloud release 构建会把最新可用的 macOS Apple Silicon / Intel DMG 复制到 Web downloads；回滚下载入口时要确认 `release/` 里对应 DMG、Cloud Web downloads、公开链接三者一致。
 
 ## 日志和排障
 

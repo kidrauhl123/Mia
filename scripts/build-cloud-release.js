@@ -29,18 +29,8 @@ function copyDir(source, target) {
   fs.cpSync(path.join(root, source), target, { recursive: true, filter: shouldCopyReleaseEntry });
 }
 
-function newestDesktopAppleSiliconDmg() {
+function newestDesktopDmg(sourcePatterns) {
   const releaseDir = path.join(root, "release");
-  const sourcePatterns = [
-    {
-      label: "Mia-*-Apple-Silicon.dmg",
-      test: (file) => /^Mia-.*-Apple-Silicon\.dmg$/.test(file)
-    },
-    {
-      label: "Mia-*-arm64-unsigned.dmg",
-      test: (file) => /^Mia-.*-arm64-unsigned\.dmg$/.test(file)
-    }
-  ];
   if (!fs.existsSync(releaseDir)) return "";
   return fs.readdirSync(releaseDir)
     .map((file) => {
@@ -56,10 +46,41 @@ function newestDesktopAppleSiliconDmg() {
 function copyDesktopDownloadArtifacts() {
   const downloadsDir = path.join(webDir, "downloads");
   fs.mkdirSync(downloadsDir, { recursive: true });
-  const dmg = newestDesktopAppleSiliconDmg();
-  if (!dmg) return;
-  fs.copyFileSync(dmg, path.join(downloadsDir, "mia-macos-apple-silicon-latest.dmg"));
-  fs.copyFileSync(dmg, path.join(downloadsDir, "mia-macos-arm64-latest.dmg"));
+  const targets = [
+    {
+      aliases: ["mia-macos-apple-silicon-latest.dmg", "mia-macos-arm64-latest.dmg"],
+      patterns: [
+        {
+          label: "Mia-*-Apple-Silicon.dmg",
+          test: (file) => /^Mia-.*-Apple-Silicon\.dmg$/.test(file)
+        },
+        {
+          label: "Mia-*-arm64-unsigned.dmg",
+          test: (file) => /^Mia-.*-arm64-unsigned\.dmg$/.test(file)
+        }
+      ]
+    },
+    {
+      aliases: ["mia-macos-intel-latest.dmg", "mia-macos-x64-latest.dmg"],
+      patterns: [
+        {
+          label: "Mia-*-Intel.dmg",
+          test: (file) => /^Mia-.*-Intel\.dmg$/.test(file)
+        },
+        {
+          label: "Mia-*-x64-unsigned.dmg",
+          test: (file) => /^Mia-.*-x64-unsigned\.dmg$/.test(file)
+        }
+      ]
+    }
+  ];
+  for (const target of targets) {
+    const dmg = newestDesktopDmg(target.patterns);
+    if (!dmg) continue;
+    for (const alias of target.aliases) {
+      fs.copyFileSync(dmg, path.join(downloadsDir, alias));
+    }
+  }
 }
 
 function writeIcoFromPng(sourcePng, targetIco) {

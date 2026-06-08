@@ -251,12 +251,70 @@ h1.hero-title {
   justify-content: center;
   margin-bottom: 0;
 }
+.download-cluster {
+  position: relative;
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
 .hero-ctas .btn {
   height: 42px;
   padding: 0 20px;
   font-size: 15px;
 }
 .hero-ctas .btn svg { width: 16px; height: 16px; }
+.btn-more-downloads {
+  padding: 0 15px !important;
+}
+.btn-more-downloads svg {
+  width: 15px !important;
+  height: 15px !important;
+}
+.download-menu-wrap {
+  position: relative;
+}
+.download-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  width: 252px;
+  padding: 7px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--shadow-lg);
+  -webkit-backdrop-filter: saturate(1.3) blur(18px);
+  backdrop-filter: saturate(1.3) blur(18px);
+  text-align: left;
+}
+.download-menu[hidden] {
+  display: none;
+}
+.download-menu a {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  color: var(--ink);
+  outline: none;
+}
+.download-menu a:hover,
+.download-menu a:focus-visible,
+.download-menu a[aria-current="true"] {
+  background: rgba(26, 25, 23, 0.06);
+}
+.download-menu b {
+  font-size: 13.5px;
+  line-height: 1.25;
+  font-weight: 600;
+}
+.download-menu span {
+  font-size: 12px;
+  line-height: 1.25;
+  color: var(--ink-3);
+}
 .hero-note {
   font-size: 13px;
   color: var(--ink-3);
