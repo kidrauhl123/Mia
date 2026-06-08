@@ -1133,16 +1133,31 @@ function updateModelFieldVisibility(runtime = state.runtime) {
 }
 
 
+let onboardingWindowState = null;
+// Drive the OS window size from the screen actually shown: compact/narrow while
+// the onboarding setup guide is up, restore to the main window when leaving it.
+// Centralizes the body.onboarding-window class so window sizing can't drift from
+// the unreliable create-time heuristic.
+function setOnboardingWindow(active) {
+  const on = Boolean(active);
+  document.body.classList.toggle("onboarding-window", on);
+  if (onboardingWindowState === on) return;
+  const wasOnboarding = onboardingWindowState;
+  onboardingWindowState = on;
+  if (on) window.mia.window?.onboarding?.();
+  else if (wasOnboarding === true) window.mia.window?.showMain?.();
+}
+
 function render() {
   const runtime = state.runtime;
   if (!runtime) {
     if (window.miaSetupGuide?.shouldShowSetupGuide?.({ messages: [] })) {
-      document.body.classList.toggle("onboarding-window", true);
+      setOnboardingWindow(true);
       els.chat.innerHTML = window.miaSetupGuide.renderSetupGuide();
       window.miaLottieIcons?.init?.(els.chat);
       return;
     }
-    document.body.classList.toggle("onboarding-window", false);
+    setOnboardingWindow(false);
     if (els.chat) els.chat.innerHTML = "";
     return;
   }
@@ -2005,7 +2020,7 @@ function renderChat() {
   const activeConversationId = window.miaSocial?.getActiveConversationId?.();
   let onboardingWindow = false;
   if (activeConversationId) {
-    document.body.classList.toggle("onboarding-window", false);
+    setOnboardingWindow(false);
     if (window.miaSocial && typeof window.miaSocial.renderConversationChat === "function") {
       window.miaSocial.renderConversationChat(els.chat);
     }
@@ -2014,12 +2029,12 @@ function renderChat() {
   const messages = [];
   if (window.miaSetupGuide?.shouldShowSetupGuide?.({ messages })) {
     onboardingWindow = true;
-    document.body.classList.toggle("onboarding-window", true);
+    setOnboardingWindow(true);
     els.chat.innerHTML = window.miaSetupGuide.renderSetupGuide();
     window.miaLottieIcons?.init?.(els.chat);
     return;
   }
-  document.body.classList.toggle("onboarding-window", onboardingWindow);
+  setOnboardingWindow(onboardingWindow);
   if (state.agentSetupSkipped && !hasUsableLocalAgent()) {
     els.chat.innerHTML = renderNoAgentGuide();
     return;

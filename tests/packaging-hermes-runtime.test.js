@@ -84,7 +84,8 @@ test("tidy release script keeps current distributables and removes intermediate 
 
   childProcess.execFileSync(process.execPath, [path.join(root, "scripts/clean-release.js"), "--tidy"], {
     cwd: root,
-    env: { ...process.env, MIA_RELEASE_DIR: releaseDir },
+    // Pin the version so the fixture (0.1.1 distributables) is bump-independent.
+    env: { ...process.env, MIA_RELEASE_DIR: releaseDir, MIA_RELEASE_VERSION: "0.1.1" },
   });
 
   assert.deepEqual(fs.readdirSync(releaseDir).sort(), [

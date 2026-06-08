@@ -66,8 +66,12 @@ test("renderer chat uses setup guide and supports no-agent continuation", () => 
   );
 
   assert.match(appSource, /window\.miaSetupGuide\?\.shouldShowSetupGuide/);
-  assert.match(appSource, /document\.body\.classList\.toggle\("onboarding-window", true\)/);
-  assert.match(appSource, /document\.body\.classList\.toggle\("onboarding-window", false\)/);
+  // Onboarding window sizing is centralized in setOnboardingWindow, which both
+  // toggles the body class and drives the compact/main window size.
+  assert.match(appSource, /setOnboardingWindow\(true\)/);
+  assert.match(appSource, /setOnboardingWindow\(false\)/);
+  assert.match(appSource, /classList\.toggle\("onboarding-window", on\)/);
+  assert.match(appSource, /window\.mia\.window\?\.onboarding\?\.\(\)/);
   assert.match(appSource, /window\.miaLottieIcons\?\.init\?\.\(els\.chat\)/);
   assert.doesNotMatch(htmlSource, /正在准备 Mia/);
   assert.doesNotMatch(htmlSource, /正在创建本地 runtime/);
@@ -440,16 +444,21 @@ test("main window accepts the first mouse click after regaining focus", () => {
   assert.match(mainSource, /acceptFirstMouse:\s*true/);
   assert.match(mainSource, /function shouldOpenAgentSetupWindow/);
   assert.doesNotMatch(mainSource, /fellows\.length === 0/);
-  assert.match(mainSource, /const onboardingWidth = 420;/);
-  assert.match(mainSource, /const onboardingHeight = 360;/);
+  assert.match(mainSource, /const onboardingWidth = 460;/);
+  assert.match(mainSource, /const onboardingHeight = 680;/);
   assert.match(mainSource, /mode:\s*"agent-setup"/);
-  assert.match(mainSource, /const minWindowWidth = compactOnboarding \? 380 : 500;/);
-  assert.match(mainSource, /const minWindowHeight = compactOnboarding \? 320 : 560;/);
+  assert.match(mainSource, /const minWindowWidth = compactOnboarding \? 400 : 500;/);
+  assert.match(mainSource, /const minWindowHeight = compactOnboarding \? 560 : 560;/);
   assert.match(mainSource, /getRuntimeStatus\(created,\s*\{\s*scanAgents:\s*false\s*\}\)/);
   assert.match(ipcSource, /WindowShowMain:\s*"window:show-main"/);
+  assert.match(ipcSource, /WindowOnboarding:\s*"window:onboarding"/);
   assert.match(preloadSource, /showMain: \(\) => ipcRenderer\.invoke\(IpcChannel\.WindowShowMain\)/);
+  assert.match(preloadSource, /onboarding: \(\) => ipcRenderer\.invoke\(IpcChannel\.WindowOnboarding\)/);
   assert.match(windowIpcSource, /setMinimumSize\(420,\s*560\)/);
   assert.match(windowIpcSource, /setSize\(1040,\s*700\)/);
+  // Compact onboarding window driven from the renderer.
+  assert.match(windowIpcSource, /IpcChannel\.WindowOnboarding/);
+  assert.match(windowIpcSource, /setSize\(460,\s*680\)/);
 });
 
 test("agent setup completion does not force first bot creation", () => {

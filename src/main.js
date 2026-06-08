@@ -1544,8 +1544,8 @@ function createWindow() {
   const initialWindow = windowStateManager.initialWindowState();
   const compactOnboarding = shouldOpenAgentSetupWindow();
   if (compactOnboarding) {
-    const onboardingWidth = 420;
-    const onboardingHeight = 360;
+    const onboardingWidth = 460;
+    const onboardingHeight = 680;
     const workArea = screen.getPrimaryDisplay().workArea;
     initialWindow.bounds = {
       ...initialWindow.bounds,
@@ -1556,8 +1556,8 @@ function createWindow() {
     };
     initialWindow.maximized = false;
   }
-  const minWindowWidth = compactOnboarding ? 380 : 500;
-  const minWindowHeight = compactOnboarding ? 320 : 560;
+  const minWindowWidth = compactOnboarding ? 400 : 500;
+  const minWindowHeight = compactOnboarding ? 560 : 560;
   const win = new BrowserWindow({
     ...initialWindow.bounds,
     minWidth: minWindowWidth,

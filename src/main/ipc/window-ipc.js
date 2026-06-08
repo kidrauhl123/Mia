@@ -31,6 +31,16 @@ function registerWindowIpc({ ipcMain, startupTimer, runtimeLifecycle }) {
       w.setWindowButtonVisibility(false);
     }
   });
+  // Onboarding / agent-scan shows in a compact, narrow window. The renderer
+  // drives this whenever it enters the setup guide, since the create-time
+  // heuristic can't know the runtime agent-scan result.
+  ipcMain.handle(IpcChannel.WindowOnboarding, (event) => {
+    const w = BrowserWindow.fromWebContents(event.sender);
+    if (!w || w.isFullScreen()) return;
+    w.setMinimumSize(400, 560);
+    w.setSize(460, 680);
+    w.center();
+  });
   ipcMain.handle(IpcChannel.WindowState, (event) => {
     const w = BrowserWindow.fromWebContents(event.sender);
     if (!w) return { focused: true, fullscreen: false };
