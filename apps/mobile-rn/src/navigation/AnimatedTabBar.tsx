@@ -5,8 +5,20 @@ import * as Haptics from "expo-haptics";
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import { color, hairlineWidth } from "../theme";
 
-const GLYPHS: Record<string, string> = { Messages: "✦", Contacts: "◇", Me: "●" };
-const LABELS: Record<string, string> = { Messages: "消息", Contacts: "联系人", Me: "我" };
+const GLYPHS: Record<string, string> = {
+  Messages: "✦",
+  Contacts: "◇",
+  Agents: "▣",
+  Skills: "✚",
+  Settings: "●",
+};
+const LABELS: Record<string, string> = {
+  Messages: "消息",
+  Contacts: "联系人",
+  Agents: "运行",
+  Skills: "技能",
+  Settings: "设置",
+};
 
 function TabItem({ routeName, focused, onPress }: { routeName: string; focused: boolean; onPress: () => void }) {
   const scale = useRef(new Animated.Value(1)).current;
