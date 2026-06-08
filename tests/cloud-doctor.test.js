@@ -9,20 +9,20 @@ const {
 } = require("../scripts/doctor-cloud.js");
 
 test("cloud doctor normalizes the public cloud URL", () => {
-  assert.equal(normalizeBaseUrl("https://aiweb.buytb01.com///?x=1#frag"), "https://aiweb.buytb01.com");
-  assert.throws(() => normalizeBaseUrl("ftp://aiweb.buytb01.com"), /Cloud URL must be http or https/);
+  assert.equal(normalizeBaseUrl("https://mia.gifgif.cn///?x=1#frag"), "https://mia.gifgif.cn");
+  assert.throws(() => normalizeBaseUrl("ftp://mia.gifgif.cn"), /Cloud URL must be http or https/);
 });
 
 test("cloud doctor reports missing required product features", () => {
   const headers = new Headers({
-    "access-control-allow-origin": "https://aiweb.buytb01.com",
+    "access-control-allow-origin": "https://mia.gifgif.cn",
     "x-content-type-options": "nosniff",
     "referrer-policy": "strict-origin-when-cross-origin",
     "permissions-policy": "camera=(), microphone=(), geolocation=()",
     "strict-transport-security": "max-age=31536000"
   });
   const checks = evaluateHealth({
-    baseUrl: "https://aiweb.buytb01.com",
+    baseUrl: "https://mia.gifgif.cn",
     responseHeaders: headers,
     health: {
       features: ["authenticated-files"],

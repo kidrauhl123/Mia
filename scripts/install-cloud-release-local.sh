@@ -3,13 +3,18 @@ set -euo pipefail
 
 ARCHIVE_INPUT="${1:-${MIA_RELEASE_ARCHIVE:-./mia-cloud-release.tgz}}"
 ARCHIVE="$(cd "$(dirname "$ARCHIVE_INPUT")" && pwd)/$(basename "$ARCHIVE_INPUT")"
-PUBLIC_URL="${MIA_CLOUD_PUBLIC_URL:-https://aiweb.buytb01.com}"
+PUBLIC_URL="${MIA_CLOUD_PUBLIC_URL:-https://mia.gifgif.cn}"
 SMOKE_URL="${MIA_INSTALL_SMOKE_URL:-$PUBLIC_URL}"
 API_DIR="${MIA_DEPLOY_API_DIR:-/opt/mia-cloud}"
 WEB_DIR="${MIA_DEPLOY_WEB_DIR:-/var/www/mia-web}"
 DATA_DIR="${MIA_DEPLOY_DATA_DIR:-/var/lib/mia-cloud}"
 AGENT_ROOT="${MIA_CLOUD_AGENT_ROOT:-/var/lib/mia-cloud-agent-users}"
 HERMES_IMAGE="${MIA_CLOUD_HERMES_IMAGE:-mia/hermes-cloud:2026.5.29}"
+DEBIAN_APT_MIRROR="${MIA_DEBIAN_APT_MIRROR:-}"
+DEBIAN_APT_SECURITY_MIRROR="${MIA_DEBIAN_APT_SECURITY_MIRROR:-}"
+PIP_INDEX_URL="${MIA_PIP_INDEX_URL:-}"
+PIP_EXTRA_INDEX_URL="${MIA_PIP_EXTRA_INDEX_URL:-}"
+SKIP_HERMES_IMAGE_BUILD="${MIA_INSTALL_SKIP_HERMES_IMAGE_BUILD:-${MIA_SKIP_HERMES_IMAGE_BUILD:-}}"
 AGENT_DOCKER_NETWORK="${MIA_CLOUD_AGENT_DOCKER_NETWORK:-mia-cloud}"
 LITELLM_CONTAINER="${MIA_LITELLM_CONTAINER:-litellm}"
 AGENT_MODEL_PROVIDER="${MIA_CLOUD_AGENT_MODEL_PROVIDER:-mia-litellm}"
@@ -402,8 +407,30 @@ fi
 
 run_as_root mkdir -p "$API_DIR" "$WEB_DIR" "$DATA_DIR" "$AGENT_ROOT"
 if [ -f "$INSTALL_TMP/hermes-image/Dockerfile" ]; then
-  echo "Building cloud Hermes worker image: $HERMES_IMAGE"
-  run_as_root docker build -t "$HERMES_IMAGE" "$INSTALL_TMP/hermes-image"
+  if [ "$SKIP_HERMES_IMAGE_BUILD" = "1" ]; then
+    if run_as_root docker image inspect "$HERMES_IMAGE" >/dev/null 2>&1; then
+      echo "Skipping cloud Hermes worker image build; existing image found: $HERMES_IMAGE"
+    else
+      echo "MIA_INSTALL_SKIP_HERMES_IMAGE_BUILD=1 but image is missing: $HERMES_IMAGE" >&2
+      exit 1
+    fi
+  else
+    echo "Building cloud Hermes worker image: $HERMES_IMAGE"
+    docker_build_args=()
+    if [ -n "$DEBIAN_APT_MIRROR" ]; then
+      docker_build_args+=(--build-arg "DEBIAN_APT_MIRROR=$DEBIAN_APT_MIRROR")
+    fi
+    if [ -n "$DEBIAN_APT_SECURITY_MIRROR" ]; then
+      docker_build_args+=(--build-arg "DEBIAN_APT_SECURITY_MIRROR=$DEBIAN_APT_SECURITY_MIRROR")
+    fi
+    if [ -n "$PIP_INDEX_URL" ]; then
+      docker_build_args+=(--build-arg "PIP_INDEX_URL=$PIP_INDEX_URL")
+    fi
+    if [ -n "$PIP_EXTRA_INDEX_URL" ]; then
+      docker_build_args+=(--build-arg "PIP_EXTRA_INDEX_URL=$PIP_EXTRA_INDEX_URL")
+    fi
+    run_as_root docker build "${docker_build_args[@]}" -t "$HERMES_IMAGE" "$INSTALL_TMP/hermes-image"
+  fi
 fi
 run_as_root rsync -a --delete "$INSTALL_TMP/api/" "$API_DIR/"
 run_as_root cp "$INSTALL_TMP/manifest.json" "$API_DIR/release-manifest.json"

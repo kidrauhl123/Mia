@@ -19,8 +19,8 @@ function usage() {
     "Usage: node scripts/doctor-cloud.js [cloud-url]",
     "",
     "Examples:",
-    "  node scripts/doctor-cloud.js https://aiweb.buytb01.com",
-    "  MIA_DOCTOR_REMOTE=root@aiweb.buytb01.com node scripts/doctor-cloud.js https://aiweb.buytb01.com",
+    "  node scripts/doctor-cloud.js https://mia.gifgif.cn",
+    "  MIA_DOCTOR_REMOTE=root@mia.gifgif.cn node scripts/doctor-cloud.js https://mia.gifgif.cn",
     "",
     "Environment:",
     "  MIA_CLOUD_URL=<url>          Cloud URL when no positional URL is passed.",
@@ -48,7 +48,7 @@ function parseArgs(argv = process.argv.slice(2), env = process.env) {
   const positional = argv.filter((arg) => !String(arg).startsWith("-"));
   if (argv.includes("-h") || argv.includes("--help")) return { help: true };
   return {
-    baseUrl: normalizeBaseUrl(positional[0] || env.MIA_CLOUD_URL || "https://aiweb.buytb01.com"),
+    baseUrl: normalizeBaseUrl(positional[0] || env.MIA_CLOUD_URL || "https://mia.gifgif.cn"),
     remote: String(env.MIA_DOCTOR_REMOTE || "").trim(),
     sudo: String(env.MIA_DEPLOY_SUDO || "").trim(),
     serviceUser: String(env.MIA_DEPLOY_SERVICE_USER || "mia-cloud").trim() || "mia-cloud",

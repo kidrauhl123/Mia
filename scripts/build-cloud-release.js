@@ -158,7 +158,7 @@ function writeReleaseManifest() {
     web: {
       root: "web"
     },
-    smoke: "node smoke-cloud.js https://aiweb.buytb01.com",
+    smoke: "node smoke-cloud.js https://mia.gifgif.cn",
     files
   });
 }
@@ -190,7 +190,7 @@ This archive contains the deployable Mia Cloud API, Web assets, installer, smoke
 
 \`\`\`bash
 MIA_INSTALL_VERIFY_ONLY=1 bash install-cloud-release-local.sh /tmp/mia-cloud-release.tgz
-node doctor-cloud.js https://aiweb.buytb01.com
+node doctor-cloud.js https://mia.gifgif.cn
 \`\`\`
 
 If SSH deploy access is denied from the development Mac, run this from a full Mia project checkout to collect a filtered public-key authentication trace:
@@ -205,7 +205,7 @@ If this archive has already been extracted and the original tarball is not in th
 
 ## Platform Model Gateway
 
-Cloud Hermes workers use the platform model supplied through LiteLLM Proxy. Configure provider keys from the Mia admin page at \`/admin/model\`; it writes the \`mia-default\` model alias into LiteLLM over the private admin API. The release includes a \`hermes-image/\` Docker build context and the installer builds \`MIA_CLOUD_HERMES_IMAGE\` on the VPS, so worker startup does not depend on pulling a private external image. The service still needs \`MIA_CLOUD_AGENT_MODEL_BASE_URL=http://litellm:4000/v1\`, \`MIA_CLOUD_AGENT_MODEL=mia-default\`, \`MIA_CLOUD_AGENT_MODEL_API_KEY=<LiteLLM virtual key>\`, \`LITELLM_MASTER_KEY=<LiteLLM admin key>\`, and \`MIA_CLOUD_ADMIN_USERNAME/PASSWORD\` in systemd or \`/etc/mia-cloud/admin.env\`. Do not expose the LiteLLM UI directly on the public internet.
+Cloud Hermes workers use the platform model supplied through LiteLLM Proxy. Configure provider keys from the Mia admin page at \`/admin/model\`; it writes the \`mia-default\` model alias into LiteLLM over the private admin API. The release includes a \`hermes-image/\` Docker build context and the installer builds \`MIA_CLOUD_HERMES_IMAGE\` on the VPS, so worker startup does not depend on pulling a private external image. On China-hosted VPS networks, set \`MIA_DEBIAN_APT_MIRROR=https://mirrors.tencent.com/debian\` and \`MIA_PIP_INDEX_URL=https://mirrors.tencent.com/pypi/simple\` before running the installer if upstream Debian/PyPI downloads hang. If \`MIA_CLOUD_HERMES_IMAGE\` is already present on the VPS and the Hermes version did not change, set \`MIA_INSTALL_SKIP_HERMES_IMAGE_BUILD=1\` to skip rebuilding after first verifying that image exists. The service still needs \`MIA_CLOUD_AGENT_MODEL_BASE_URL=http://litellm:4000/v1\`, \`MIA_CLOUD_AGENT_MODEL=mia-default\`, \`MIA_CLOUD_AGENT_MODEL_API_KEY=<LiteLLM virtual key>\`, \`LITELLM_MASTER_KEY=<LiteLLM admin key>\`, and \`MIA_CLOUD_ADMIN_USERNAME/PASSWORD\` in systemd or \`/etc/mia-cloud/admin.env\`. Do not expose the LiteLLM UI directly on the public internet.
 
 ## Install On The VPS
 
@@ -223,10 +223,10 @@ The installer verifies the archive checksum and manifest hashes, creates or reus
 \`\`\`bash
 MIA_DOCTOR_EXPECT_RELEASE_COMMIT="$(node -e "const m=require('./manifest.json'); process.stdout.write(String(m.source?.gitCommit || ''))")" \\
 MIA_DOCTOR_EXPECT_RELEASE_BUILT_AT="$(node -e "const m=require('./manifest.json'); process.stdout.write(String(m.builtAt || ''))")" \\
-node doctor-cloud.js https://aiweb.buytb01.com
+node doctor-cloud.js https://mia.gifgif.cn
 MIA_SMOKE_EXPECT_RELEASE_COMMIT="$(node -e "const m=require('./manifest.json'); process.stdout.write(String(m.source?.gitCommit || ''))")" \\
 MIA_SMOKE_EXPECT_RELEASE_BUILT_AT="$(node -e "const m=require('./manifest.json'); process.stdout.write(String(m.builtAt || ''))")" \\
-node smoke-cloud.js https://aiweb.buytb01.com
+node smoke-cloud.js https://mia.gifgif.cn
 \`\`\`
 
 ## Verify Desktop Bridge E2E
@@ -236,7 +236,7 @@ Prepare or validate a dedicated smoke account, log the desktop app into that sam
 \`\`\`bash
 MIA_SMOKE_USERNAME="<smoke-account>" \\
 MIA_SMOKE_PASSWORD="<smoke-password>" \\
-node prepare-cloud-smoke-account.js https://aiweb.buytb01.com
+node prepare-cloud-smoke-account.js https://mia.gifgif.cn
 \`\`\`
 
 \`\`\`bash
@@ -245,7 +245,7 @@ MIA_SMOKE_PASSWORD="<smoke-password>" \\
 MIA_SMOKE_REQUIRE_BRIDGE=1 \\
 MIA_SMOKE_EXPECT_RELEASE_COMMIT="$(node -e "const m=require('./manifest.json'); process.stdout.write(String(m.source?.gitCommit || ''))")" \\
 MIA_SMOKE_EXPECT_RELEASE_BUILT_AT="$(node -e "const m=require('./manifest.json'); process.stdout.write(String(m.builtAt || ''))")" \\
-node smoke-cloud.js https://aiweb.buytb01.com
+node smoke-cloud.js https://mia.gifgif.cn
 \`\`\`
 
 The bridge smoke fails unless the public Cloud has an online desktop bridge for the same account and the assistant reply contains \`mia-cloud-bridge-smoke-ok\`. A desktop bridge logged into the same Mia Cloud account can be called directly from Web or mobile; it does not require a separate local approval click for the remote connection. Agent permission mode remains the normal per-Agent execution setting (Ask/YOLO/Deny or external-engine defaults) and is not used as device authentication.
@@ -254,7 +254,7 @@ If the operator is using the standalone local Agent bridge instead of the deskto
 
 \`\`\`bash
 cd /path/to/mia
-MIA_CLOUD_URL=https://aiweb.buytb01.com \\
+MIA_CLOUD_URL=https://mia.gifgif.cn \\
 MIA_CLOUD_USERNAME="<smoke-account>" \\
 MIA_CLOUD_PASSWORD="<smoke-password>" \\
 npm run bridge
@@ -274,16 +274,16 @@ function writeNginxConfigs() {
 `);
   fs.writeFileSync(path.join(nginxDir, "mia-cloud-site.conf"), `server {
     listen 80;
-    server_name aiweb.buytb01.com;
+    server_name mia.gifgif.cn;
     return 301 https://$host$request_uri;
 }
 
 server {
     listen 443 ssl http2;
-    server_name aiweb.buytb01.com;
+    server_name mia.gifgif.cn;
 
-    ssl_certificate /etc/letsencrypt/live/aiweb.buytb01.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/aiweb.buytb01.com/privkey.pem;
+    ssl_certificate /etc/letsencrypt/live/mia.gifgif.cn/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/mia.gifgif.cn/privkey.pem;
 
     root /var/www/mia-web;
     index index.html;
@@ -547,8 +547,8 @@ function verifyRelease() {
     throw new Error("Release nginx site must proxy /admin/ to the Mia Cloud API.");
   }
   if (
-    !/ssl_certificate\s+\/etc\/letsencrypt\/live\/aiweb\.buytb01\.com\/fullchain\.pem/.test(nginxSite) ||
-    !/ssl_certificate_key\s+\/etc\/letsencrypt\/live\/aiweb\.buytb01\.com\/privkey\.pem/.test(nginxSite)
+    !/ssl_certificate\s+\/etc\/letsencrypt\/live\/mia\.gifgif\.cn\/fullchain\.pem/.test(nginxSite) ||
+    !/ssl_certificate_key\s+\/etc\/letsencrypt\/live\/mia\.gifgif\.cn\/privkey\.pem/.test(nginxSite)
   ) {
     throw new Error("Release nginx site must include TLS certificate paths.");
   }
@@ -562,19 +562,19 @@ function verifyRelease() {
   if (
     !/MIA_DOCTOR_EXPECT_RELEASE_COMMIT="\$\(node -e "const m=require\('\.\/manifest\.json'\); process\.stdout\.write\(String\(m\.source\?\.gitCommit \|\| ''\)\)"\)"/.test(releaseReadme) ||
     !/MIA_DOCTOR_EXPECT_RELEASE_BUILT_AT="\$\(node -e "const m=require\('\.\/manifest\.json'\); process\.stdout\.write\(String\(m\.builtAt \|\| ''\)\)"\)"/.test(releaseReadme) ||
-    !/node doctor-cloud\.js https:\/\/aiweb\.buytb01\.com/.test(releaseReadme) ||
+    !/node doctor-cloud\.js https:\/\/mia\.gifgif\.cn/.test(releaseReadme) ||
     !/MIA_SMOKE_EXPECT_RELEASE_COMMIT="\$\(node -e "const m=require\('\.\/manifest\.json'\); process\.stdout\.write\(String\(m\.source\?\.gitCommit \|\| ''\)\)"\)"/.test(releaseReadme) ||
     !/MIA_SMOKE_EXPECT_RELEASE_BUILT_AT="\$\(node -e "const m=require\('\.\/manifest\.json'\); process\.stdout\.write\(String\(m\.builtAt \|\| ''\)\)"\)"/.test(releaseReadme) ||
-    !/node smoke-cloud\.js https:\/\/aiweb\.buytb01\.com/.test(releaseReadme)
+    !/node smoke-cloud\.js https:\/\/mia\.gifgif\.cn/.test(releaseReadme)
   ) {
     throw new Error("Release README must document expected-release public doctor and smoke verification.");
   }
   if (
-    !/node prepare-cloud-smoke-account\.js https:\/\/aiweb\.buytb01\.com/.test(releaseReadme) ||
+    !/node prepare-cloud-smoke-account\.js https:\/\/mia\.gifgif\.cn/.test(releaseReadme) ||
     !/full Mia project checkout/.test(releaseReadme) ||
     !/not run from the extracted Cloud release directory/.test(releaseReadme) ||
     !/cd \/path\/to\/mia/.test(releaseReadme) ||
-    !/MIA_CLOUD_URL=https:\/\/aiweb\.buytb01\.com/.test(releaseReadme) ||
+    !/MIA_CLOUD_URL=https:\/\/mia\.gifgif\.cn/.test(releaseReadme) ||
     !/MIA_CLOUD_USERNAME="<smoke-account>"/.test(releaseReadme) ||
     !/MIA_CLOUD_PASSWORD="<smoke-password>"/.test(releaseReadme) ||
     !/npm run bridge/.test(releaseReadme)

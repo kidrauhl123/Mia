@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from "react";
 import * as SecureStore from "expo-secure-store";
 
 const KEY = "mia.session";
-export const DEFAULT_API_BASE = "https://aiweb.buytb01.com";
+export const DEFAULT_API_BASE = "https://mia.gifgif.cn";
 
 export interface Session {
   token: string;

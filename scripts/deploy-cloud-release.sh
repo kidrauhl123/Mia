@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-REMOTE="${MIA_DEPLOY_REMOTE:-root@aiweb.buytb01.com}"
-PUBLIC_URL="${MIA_CLOUD_PUBLIC_URL:-https://aiweb.buytb01.com}"
+REMOTE="${MIA_DEPLOY_REMOTE:-root@mia.gifgif.cn}"
+PUBLIC_URL="${MIA_CLOUD_PUBLIC_URL:-https://mia.gifgif.cn}"
 REMOTE_TMP="${MIA_DEPLOY_TMP:-/tmp/mia-cloud-release.tgz}"
 REMOTE_RELEASE_DIR="${MIA_DEPLOY_RELEASE_DIR:-/tmp/mia-cloud-release}"
 API_DIR="${MIA_DEPLOY_API_DIR:-/opt/mia-cloud}"
@@ -11,6 +11,11 @@ WEB_DIR="${MIA_DEPLOY_WEB_DIR:-/var/www/mia-web}"
 DATA_DIR="${MIA_DEPLOY_DATA_DIR:-/var/lib/mia-cloud}"
 AGENT_ROOT="${MIA_CLOUD_AGENT_ROOT:-/var/lib/mia-cloud-agent-users}"
 HERMES_IMAGE="${MIA_CLOUD_HERMES_IMAGE:-mia/hermes-cloud:2026.5.29}"
+DEBIAN_APT_MIRROR="${MIA_DEBIAN_APT_MIRROR:-}"
+DEBIAN_APT_SECURITY_MIRROR="${MIA_DEBIAN_APT_SECURITY_MIRROR:-}"
+PIP_INDEX_URL="${MIA_PIP_INDEX_URL:-}"
+PIP_EXTRA_INDEX_URL="${MIA_PIP_EXTRA_INDEX_URL:-}"
+SKIP_HERMES_IMAGE_BUILD="${MIA_DEPLOY_SKIP_HERMES_IMAGE_BUILD:-${MIA_INSTALL_SKIP_HERMES_IMAGE_BUILD:-${MIA_SKIP_HERMES_IMAGE_BUILD:-}}}"
 AGENT_DOCKER_NETWORK="${MIA_CLOUD_AGENT_DOCKER_NETWORK:-mia-cloud}"
 LITELLM_CONTAINER="${MIA_LITELLM_CONTAINER:-litellm}"
 AGENT_MODEL_PROVIDER="${MIA_CLOUD_AGENT_MODEL_PROVIDER:-mia-litellm}"
@@ -61,6 +66,11 @@ validate_deploy_sudo() {
 validate_deploy_sudo
 DEPLOY_SUDO_QUOTED="$(shell_quote "$DEPLOY_SUDO")"
 SERVICE_USER_QUOTED="$(shell_quote "$SERVICE_USER")"
+DEBIAN_APT_MIRROR_QUOTED="$(shell_quote "$DEBIAN_APT_MIRROR")"
+DEBIAN_APT_SECURITY_MIRROR_QUOTED="$(shell_quote "$DEBIAN_APT_SECURITY_MIRROR")"
+PIP_INDEX_URL_QUOTED="$(shell_quote "$PIP_INDEX_URL")"
+PIP_EXTRA_INDEX_URL_QUOTED="$(shell_quote "$PIP_EXTRA_INDEX_URL")"
+SKIP_HERMES_IMAGE_BUILD_QUOTED="$(shell_quote "$SKIP_HERMES_IMAGE_BUILD")"
 LEGACY_SERVICE_QUOTED="$(shell_quote "$LEGACY_SERVICE")"
 LEGACY_DATA_DIR_QUOTED="$(shell_quote "$LEGACY_DATA_DIR")"
 LEGACY_AGENT_ROOT_QUOTED="$(shell_quote "$LEGACY_AGENT_ROOT")"
@@ -155,6 +165,11 @@ ssh "$REMOTE" "bash -s" <<REMOTE_SCRIPT
 set -euo pipefail
 SUDO_CMD=$DEPLOY_SUDO_QUOTED
 SERVICE_USER=$SERVICE_USER_QUOTED
+DEBIAN_APT_MIRROR=$DEBIAN_APT_MIRROR_QUOTED
+DEBIAN_APT_SECURITY_MIRROR=$DEBIAN_APT_SECURITY_MIRROR_QUOTED
+PIP_INDEX_URL=$PIP_INDEX_URL_QUOTED
+PIP_EXTRA_INDEX_URL=$PIP_EXTRA_INDEX_URL_QUOTED
+SKIP_HERMES_IMAGE_BUILD=$SKIP_HERMES_IMAGE_BUILD_QUOTED
 LEGACY_SERVICE=$LEGACY_SERVICE_QUOTED
 LEGACY_DATA_DIR=$LEGACY_DATA_DIR_QUOTED
 LEGACY_AGENT_ROOT=$LEGACY_AGENT_ROOT_QUOTED
@@ -416,8 +431,30 @@ fi
 
 run_as_root mkdir -p "$API_DIR" "$WEB_DIR" "$DATA_DIR" "$AGENT_ROOT"
 if [ -f "$REMOTE_RELEASE_DIR/hermes-image/Dockerfile" ]; then
-  echo "Building cloud Hermes worker image: $HERMES_IMAGE"
-  run_as_root docker build -t "$HERMES_IMAGE" "$REMOTE_RELEASE_DIR/hermes-image"
+  if [ "\$SKIP_HERMES_IMAGE_BUILD" = "1" ]; then
+    if run_as_root docker image inspect "$HERMES_IMAGE" >/dev/null 2>&1; then
+      echo "Skipping cloud Hermes worker image build; existing image found: $HERMES_IMAGE"
+    else
+      echo "MIA_DEPLOY_SKIP_HERMES_IMAGE_BUILD=1 but image is missing: $HERMES_IMAGE" >&2
+      exit 1
+    fi
+  else
+    echo "Building cloud Hermes worker image: $HERMES_IMAGE"
+    docker_build_args=()
+    if [ -n "\$DEBIAN_APT_MIRROR" ]; then
+      docker_build_args+=(--build-arg "DEBIAN_APT_MIRROR=\$DEBIAN_APT_MIRROR")
+    fi
+    if [ -n "\$DEBIAN_APT_SECURITY_MIRROR" ]; then
+      docker_build_args+=(--build-arg "DEBIAN_APT_SECURITY_MIRROR=\$DEBIAN_APT_SECURITY_MIRROR")
+    fi
+    if [ -n "\$PIP_INDEX_URL" ]; then
+      docker_build_args+=(--build-arg "PIP_INDEX_URL=\$PIP_INDEX_URL")
+    fi
+    if [ -n "\$PIP_EXTRA_INDEX_URL" ]; then
+      docker_build_args+=(--build-arg "PIP_EXTRA_INDEX_URL=\$PIP_EXTRA_INDEX_URL")
+    fi
+    run_as_root docker build "\${docker_build_args[@]}" -t "$HERMES_IMAGE" "$REMOTE_RELEASE_DIR/hermes-image"
+  fi
 fi
 run_as_root rsync -a --delete "$REMOTE_RELEASE_DIR/api/" "$API_DIR/"
 run_as_root cp "$REMOTE_RELEASE_DIR/manifest.json" "$API_DIR/release-manifest.json"

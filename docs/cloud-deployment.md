@@ -7,7 +7,7 @@ This document is the production checklist for the official Mia Cloud/Web host.
 - API service: `/opt/mia-cloud/server.js`
 - Cloud data: `/var/lib/mia-cloud`
 - Web root: `/var/www/mia-web`
-- Public origin: `https://aiweb.buytb01.com`
+- Public origin: `https://mia.gifgif.cn`
 - Local API listener: `127.0.0.1:4175`
 
 ## Required Environment
@@ -16,7 +16,7 @@ This document is the production checklist for the official Mia Cloud/Web host.
 MIA_CLOUD_HOST=127.0.0.1
 MIA_CLOUD_PORT=4175
 MIA_CLOUD_DATA=/var/lib/mia-cloud
-MIA_CLOUD_ALLOWED_ORIGINS=https://aiweb.buytb01.com
+MIA_CLOUD_ALLOWED_ORIGINS=https://mia.gifgif.cn
 MIA_BRIDGE_RUN_TIMEOUT_MS=300000
 MIA_CLOUD_VERSION=2026-05-20
 MIA_CLOUD_AGENT_MODE=docker
@@ -37,6 +37,8 @@ LITELLM_MASTER_KEY=<LiteLLM admin key>
 `MIA_CLOUD_ALLOWED_ORIGINS` is required in production. Without it, WebSocket upgrades are limited to same-host/local origins only.
 `MIA_CLOUD_PORT` takes precedence over the generic `PORT`; if `MIA_CLOUD_PORT` is unset, the server honors `PORT` for platform-style deployments.
 `MIA_CLOUD_AGENT_MODE=docker` enables the cloud-backed Hermes Bot runtime. The release includes `hermes-image/`, and the installer builds `MIA_CLOUD_HERMES_IMAGE` locally on the VPS so the runtime does not depend on pulling a private image. The service creates one worker container per user, mounts only `/var/lib/mia-cloud-agent-users/<userId>` at `/data`, binds the Hermes API to `127.0.0.1` on a random host port, and passes `HERMES_HOME=/data/hermes-home`, `HOME=/data/home`, `TERMINAL_CWD=/data/workspace`, and `HERMES_WRITE_SAFE_ROOT=/data/workspace` into the container. The worker container must not mount `/var/lib/mia-cloud`, global uploads, other users' agent directories, or `/var/run/docker.sock`.
+On China-hosted VPS networks, Debian apt metadata or PyPI downloads can hang when they use upstream defaults. Set `MIA_DEBIAN_APT_MIRROR=https://mirrors.tencent.com/debian` and `MIA_PIP_INDEX_URL=https://mirrors.tencent.com/pypi/simple` before running `install-cloud-release-local.sh` or `cloud:deploy`.
+If `MIA_CLOUD_HERMES_IMAGE` is already present on the VPS and the Hermes version did not change, `MIA_INSTALL_SKIP_HERMES_IMAGE_BUILD=1` or `MIA_DEPLOY_SKIP_HERMES_IMAGE_BUILD=1` skips rebuilding the worker image after first verifying that image exists.
 `MIA_CLOUD_AGENT_MODEL_*` configures the platform-supplied model for every user's cloud Hermes worker. The worker manager writes each user's private `hermes-home/config.yaml` with a custom provider named `mia-litellm`, pointing to the LiteLLM Proxy OpenAI-compatible endpoint. Store provider keys inside LiteLLM and give Mia only a limited LiteLLM virtual key, not raw OpenAI/Anthropic/other provider keys.
 
 ## LiteLLM Model Gateway
@@ -75,7 +77,7 @@ Environment=MIA_CLOUD_HOST=127.0.0.1
 Environment=MIA_CLOUD_PORT=4175
 Environment=MIA_CLOUD_DATA=/var/lib/mia-cloud
 Environment=MIA_WEB_ROOT=/var/www/mia-web
-Environment=MIA_CLOUD_ALLOWED_ORIGINS=https://aiweb.buytb01.com
+Environment=MIA_CLOUD_ALLOWED_ORIGINS=https://mia.gifgif.cn
 Environment=MIA_BRIDGE_RUN_TIMEOUT_MS=300000
 Environment=MIA_CLOUD_VERSION=2026-05-20
 Environment=MIA_CLOUD_AGENT_MODE=docker
@@ -108,16 +110,16 @@ map $http_upgrade $connection_upgrade {
 
 server {
     listen 80;
-    server_name aiweb.buytb01.com;
+    server_name mia.gifgif.cn;
     return 301 https://$host$request_uri;
 }
 
 server {
     listen 443 ssl http2;
-    server_name aiweb.buytb01.com;
+    server_name mia.gifgif.cn;
 
-    ssl_certificate /etc/letsencrypt/live/aiweb.buytb01.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/aiweb.buytb01.com/privkey.pem;
+    ssl_certificate /etc/letsencrypt/live/mia.gifgif.cn/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/mia.gifgif.cn/privkey.pem;
 
     root /var/www/mia-web;
     index index.html;
@@ -205,12 +207,12 @@ The diagnostic command prints `ssh-agent` identity status and a filtered `ssh -v
 Production doctor, useful to identify the exact blocker before deployment:
 
 ```bash
-npm run cloud:doctor -- https://aiweb.buytb01.com
-MIA_DOCTOR_REMOTE=root@aiweb.buytb01.com npm run cloud:doctor -- https://aiweb.buytb01.com
+npm run cloud:doctor -- https://mia.gifgif.cn
+MIA_DOCTOR_REMOTE=root@mia.gifgif.cn npm run cloud:doctor -- https://mia.gifgif.cn
 ```
 
 The doctor checks DNS, `/api/health`, required product features, release provenance, same-origin CORS, security headers, HTTPS HSTS, optional non-interactive SSH access, remote Node.js 25+ with `node:sqlite`, deploy-critical commands, the configured service user or `useradd`, and `nginx -t`. It is intentionally stricter than a curl health check and should fail while production still runs an older Cloud build or SSH credentials are unavailable.
-The same `doctor-cloud.js` is bundled into `dist/mia-cloud-release.tgz`, so an operator with only the release archive can also extract the package and run `node doctor-cloud.js https://aiweb.buytb01.com` from the unpacked release directory.
+The same `doctor-cloud.js` is bundled into `dist/mia-cloud-release.tgz`, so an operator with only the release archive can also extract the package and run `node doctor-cloud.js https://mia.gifgif.cn` from the unpacked release directory.
 
 Server-local install path, useful when the operator can open a shell on the VPS but this workstation does not have SSH key access:
 
@@ -254,11 +256,11 @@ The handoff doctor and smoke commands include `MIA_DOCTOR_EXPECT_RELEASE_COMMIT`
 After an SSH deploy or server-local install, the development machine can run the same public release gate without manually copying manifest values:
 
 ```bash
-npm run cloud:prod:verify -- https://aiweb.buytb01.com
-MIA_DOCTOR_REMOTE=root@aiweb.buytb01.com npm run cloud:prod:verify -- https://aiweb.buytb01.com
+npm run cloud:prod:verify -- https://mia.gifgif.cn
+MIA_DOCTOR_REMOTE=root@mia.gifgif.cn npm run cloud:prod:verify -- https://mia.gifgif.cn
 MIA_SMOKE_USERNAME=<account> \
 MIA_SMOKE_PASSWORD=<password> \
-npm run cloud:prod:verify:e2e -- https://aiweb.buytb01.com
+npm run cloud:prod:verify:e2e -- https://mia.gifgif.cn
 ```
 
 `cloud:prod:verify` reads `dist/mia-cloud-release/manifest.json`, injects the expected `gitCommit` and `builtAt` into `doctor-cloud.js` and `smoke-cloud.js`, and fails unless the public service is the exact release that was just built.
@@ -269,7 +271,7 @@ Before running bridge-required production smoke, prepare or validate the fixed s
 ```bash
 MIA_SMOKE_USERNAME="<smoke-account>" \
 MIA_SMOKE_PASSWORD="<smoke-password>" \
-npm run cloud:smoke:account -- https://aiweb.buytb01.com
+npm run cloud:smoke:account -- https://mia.gifgif.cn
 ```
 
 The account command logs in if the account already exists, registers it if it does not exist, checks current online bridge devices for that account, and does not print the password or bearer token. If the account exists with a different password, it fails instead of changing credentials.
@@ -277,12 +279,12 @@ The account command logs in if the account already exists, registers it if it do
 The local installer verifies Node.js 25+ with `node:sqlite`, checks the release archive checksum when the `.sha256` sidecar is present, unpacks the release, validates required API/Web/smoke/doctor files, creates or reuses the dedicated `mia-cloud` system user, backs up current data/API/Web/systemd unit paths, verifies each tar backup with `tar -tzf`, installs API and Web files, writes `/opt/mia-cloud/release-manifest.json`, grants the data directory to the service user, restarts `mia-cloud` as that non-root user, runs `doctor-cloud.js` with expected `gitCommit`/`builtAt`, then runs `smoke-cloud.js` with the same expected release. If install, doctor, or smoke fails, it stops the service, restores the previous data/API/Web/unit backups, and restarts the old service so SQLite data is not left on a newer schema after a code rollback. Set `MIA_INSTALL_SKIP_SMOKE=1` only for emergency installs where public DNS/nginx is known to be temporarily unavailable; despite the legacy variable name, this skips both post-install doctor and smoke gates.
 Set `MIA_INSTALL_VERIFY_ONLY=1` to verify the tarball and manifest hashes without installing files or requiring `systemctl`, `npm`, or `rsync`.
 
-The deploy script first verifies SSH access to `root@aiweb.buytb01.com` and checks remote runtime prerequisites (`Node.js 25+` with `node:sqlite`, `npm`, `rsync`, `systemctl`, `tar`, `id`, `chown`, the configured service user or `useradd`, and `sha256sum` or `shasum`). It then runs local checks, builds `dist/mia-cloud-release.tgz`, verifies `dist/mia-cloud-release.tgz.sha256`, uploads both files, verifies the archive checksum on the server before unpacking, creates or reuses the dedicated service user, backs up `/var/lib/mia-cloud`, backs up the current API directory, Web directory, and systemd unit, verifies each tar backup with `tar -tzf`, installs API/Web files, writes and enables the `mia-cloud` systemd unit, grants the data directory to the service user, restarts the service as that non-root user, runs `npm run cloud:doctor -- https://aiweb.buytb01.com` with expected `gitCommit` and `builtAt`, then runs `npm run cloud:smoke -- https://aiweb.buytb01.com` with the same expected release. If checksum, install, `npm install`, systemd restart, public doctor, or public smoke fails, the script stops the service, attempts to restore the previous data/API/Web/unit backups, and restarts the old service before exiting with failure. Public doctor and smoke both fail if `/api/health.release` does not match the package that was just deployed.
+The deploy script first verifies SSH access to `root@mia.gifgif.cn` and checks remote runtime prerequisites (`Node.js 25+` with `node:sqlite`, `npm`, `rsync`, `systemctl`, `tar`, `id`, `chown`, the configured service user or `useradd`, and `sha256sum` or `shasum`). It then runs local checks, builds `dist/mia-cloud-release.tgz`, verifies `dist/mia-cloud-release.tgz.sha256`, uploads both files, verifies the archive checksum on the server before unpacking, creates or reuses the dedicated service user, backs up `/var/lib/mia-cloud`, backs up the current API directory, Web directory, and systemd unit, verifies each tar backup with `tar -tzf`, installs API/Web files, writes and enables the `mia-cloud` systemd unit, grants the data directory to the service user, restarts the service as that non-root user, runs `npm run cloud:doctor -- https://mia.gifgif.cn` with expected `gitCommit` and `builtAt`, then runs `npm run cloud:smoke -- https://mia.gifgif.cn` with the same expected release. If checksum, install, `npm install`, systemd restart, public doctor, or public smoke fails, the script stops the service, attempts to restore the previous data/API/Web/unit backups, and restarts the old service before exiting with failure. Public doctor and smoke both fail if `/api/health.release` does not match the package that was just deployed.
 
 The default assumes direct root SSH. For a normal SSH account with passwordless sudo, use `MIA_DEPLOY_SUDO="sudo -n"` and, if needed, change the backup directory to a location that sudo can write:
 
 ```bash
-MIA_DEPLOY_REMOTE=deploy@aiweb.buytb01.com \
+MIA_DEPLOY_REMOTE=deploy@mia.gifgif.cn \
 MIA_DEPLOY_SUDO="sudo -n" \
 MIA_DEPLOY_BACKUP_DIR=/var/backups \
 npm run cloud:deploy
@@ -294,13 +296,13 @@ Override targets with environment variables:
 
 ```bash
 MIA_DEPLOY_REMOTE=root@example.com \
-MIA_CLOUD_PUBLIC_URL=https://aiweb.buytb01.com \
+MIA_CLOUD_PUBLIC_URL=https://mia.gifgif.cn \
 npm run cloud:deploy
 ```
 
 Supported deployment overrides:
 
-- `MIA_DEPLOY_REMOTE`: SSH target, default `root@aiweb.buytb01.com`.
+- `MIA_DEPLOY_REMOTE`: SSH target, default `root@mia.gifgif.cn`.
 - `MIA_DEPLOY_SUDO`: optional simple privilege command, for example `sudo -n`; shell snippets are rejected.
 - `MIA_DEPLOY_BACKUP_DIR`: remote backup directory, default `/root`.
 - `MIA_DEPLOY_ID`: optional deploy identifier used in backup filenames, default `<timestamp>-<pid>`.
@@ -343,10 +345,10 @@ Manual path:
    systemctl daemon-reload
    systemctl restart mia-cloud
    systemctl is-active mia-cloud
-   curl -fsS https://aiweb.buytb01.com/api/health
-   curl -fsS https://aiweb.buytb01.com/api/health | grep bridge-websocket-subprotocol-token
-   curl -fsS https://aiweb.buytb01.com/api/health | grep gitCommit
-   npm run cloud:smoke -- https://aiweb.buytb01.com
+   curl -fsS https://mia.gifgif.cn/api/health
+   curl -fsS https://mia.gifgif.cn/api/health | grep bridge-websocket-subprotocol-token
+   curl -fsS https://mia.gifgif.cn/api/health | grep gitCommit
+   npm run cloud:smoke -- https://mia.gifgif.cn
    ```
 
 5. Record the deployed release:
@@ -371,7 +373,7 @@ For a deploy-time end-to-end bridge smoke, log the desktop app into a dedicated 
 ```bash
 MIA_SMOKE_USERNAME=<account> \
 MIA_SMOKE_PASSWORD=<password> \
-npm run cloud:prod:verify:e2e -- https://aiweb.buytb01.com
+npm run cloud:prod:verify:e2e -- https://mia.gifgif.cn
 ```
 
 This verifies health features, release identity, auth, authenticated files, `/api/events`, bridge device presence, and one `/api/bridge/run` request through the online desktop bridge with the expected smoke reply marker.
@@ -386,7 +388,7 @@ For an operator-side standalone local Agent bridge, the bridge can now log in wi
 
 ```bash
 cd /path/to/mia
-MIA_CLOUD_URL=https://aiweb.buytb01.com \
+MIA_CLOUD_URL=https://mia.gifgif.cn \
 MIA_CLOUD_USERNAME=<account> \
 MIA_CLOUD_PASSWORD=<password> \
 npm run bridge

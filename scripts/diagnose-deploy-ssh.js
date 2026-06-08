@@ -2,7 +2,7 @@
 
 const childProcess = require("node:child_process");
 
-const DEFAULT_REMOTE = "root@aiweb.buytb01.com";
+const DEFAULT_REMOTE = "root@mia.gifgif.cn";
 
 const AUTH_TRACE_PATTERNS = [
   /Authenticating to/i,

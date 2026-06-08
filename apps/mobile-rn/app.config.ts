@@ -32,7 +32,7 @@ const config: ExpoConfig = {
   },
   plugins: ["expo-secure-store", "expo-video"],
   extra: {
-    apiBase: "https://aiweb.buytb01.com",
+    apiBase: "https://mia.gifgif.cn",
     eas: {
       projectId: "77e99873-77e9-4e75-82c1-96143c4e846b",
     },

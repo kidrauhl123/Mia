@@ -14,8 +14,8 @@ function usage() {
     "expected release commit and builtAt from dist/mia-cloud-release/manifest.json.",
     "",
     "Examples:",
-    "  node scripts/verify-cloud-production.js https://aiweb.buytb01.com",
-    "  MIA_DOCTOR_REMOTE=root@aiweb.buytb01.com npm run cloud:prod:verify",
+    "  node scripts/verify-cloud-production.js https://mia.gifgif.cn",
+    "  MIA_DOCTOR_REMOTE=root@mia.gifgif.cn npm run cloud:prod:verify",
     "",
     "Environment:",
     "  MIA_CLOUD_PUBLIC_URL=<url>  Cloud URL when no positional URL is passed.",
@@ -78,7 +78,7 @@ function runChecked(spawnSync, label, command, args, options) {
 }
 
 function verifyProduction({
-  publicUrl = process.env.MIA_CLOUD_PUBLIC_URL || "https://aiweb.buytb01.com",
+  publicUrl = process.env.MIA_CLOUD_PUBLIC_URL || "https://mia.gifgif.cn",
   manifestPath,
   spawnSync = childProcess.spawnSync,
   baseEnv = process.env,

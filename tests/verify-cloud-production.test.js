@@ -19,8 +19,8 @@ function writeManifest(tempDir, manifest) {
 }
 
 test("production verifier normalizes public URLs", () => {
-  assert.equal(normalizeBaseUrl("https://aiweb.buytb01.com/"), "https://aiweb.buytb01.com");
-  assert.equal(normalizeBaseUrl("https://aiweb.buytb01.com/api/../"), "https://aiweb.buytb01.com");
+  assert.equal(normalizeBaseUrl("https://mia.gifgif.cn/"), "https://mia.gifgif.cn");
+  assert.equal(normalizeBaseUrl("https://mia.gifgif.cn/api/../"), "https://mia.gifgif.cn");
   assert.throws(() => normalizeBaseUrl("file:///tmp/x"), /Cloud URL must be http or https/);
 });
 
@@ -54,7 +54,7 @@ test("production verifier runs doctor then smoke with manifest release expectati
       return { status: 0 };
     };
     const result = verifyProduction({
-      publicUrl: "https://aiweb.buytb01.com/",
+      publicUrl: "https://mia.gifgif.cn/",
       manifestPath,
       spawnSync,
       baseEnv: { EXISTING: "1" },
@@ -62,10 +62,10 @@ test("production verifier runs doctor then smoke with manifest release expectati
       stdio: "pipe"
     });
 
-    assert.equal(result.baseUrl, "https://aiweb.buytb01.com");
+    assert.equal(result.baseUrl, "https://mia.gifgif.cn");
     assert.equal(calls.length, 2);
-    assert.deepEqual(calls[0].args, ["/repo/scripts/doctor-cloud.js", "https://aiweb.buytb01.com"]);
-    assert.deepEqual(calls[1].args, ["/repo/scripts/smoke-cloud.js", "https://aiweb.buytb01.com"]);
+    assert.deepEqual(calls[0].args, ["/repo/scripts/doctor-cloud.js", "https://mia.gifgif.cn"]);
+    assert.deepEqual(calls[1].args, ["/repo/scripts/smoke-cloud.js", "https://mia.gifgif.cn"]);
     assert.equal(calls[0].options.env.EXISTING, "1");
     assert.equal(calls[0].options.env.MIA_DOCTOR_EXPECT_RELEASE_COMMIT, "abc123");
     assert.equal(calls[0].options.env.MIA_DOCTOR_EXPECT_RELEASE_BUILT_AT, "2026-05-21T01:02:03.000Z");
@@ -85,7 +85,7 @@ test("production verifier stops before smoke when doctor fails", () => {
     });
     const calls = [];
     assert.throws(() => verifyProduction({
-      publicUrl: "https://aiweb.buytb01.com",
+      publicUrl: "https://mia.gifgif.cn",
       manifestPath,
       spawnSync: (command, args, options) => {
         calls.push({ command, args, options });
@@ -109,7 +109,7 @@ test("production verifier fails fast when bridge smoke lacks a fixed account", (
     });
     const calls = [];
     assert.throws(() => verifyProduction({
-      publicUrl: "https://aiweb.buytb01.com",
+      publicUrl: "https://mia.gifgif.cn",
       manifestPath,
       spawnSync: (...args) => {
         calls.push(args);
