@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
-import { View, FlatList, StyleSheet, KeyboardAvoidingView, Platform } from "react-native";
+import { View, FlatList, Pressable, StyleSheet, KeyboardAvoidingView, Platform } from "react-native";
 import * as Clipboard from "expo-clipboard";
+import * as DocumentPicker from "expo-document-picker";
+import { File } from "expo-file-system";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQueryClient } from "@tanstack/react-query";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
@@ -17,7 +19,7 @@ import {
 import { useApi } from "../state/clientProvider";
 import { useAuth } from "../state/auth";
 import { buildPendingMessage } from "../logic/optimisticSend";
-import { normalizeAttachments } from "../logic/attachments";
+import { MAX_COMPOSER_ATTACHMENTS, normalizeAttachments, pickedAssetAttachment } from "../logic/attachments";
 import { normalizeServerRow, mergeMessage } from "../logic/normalizeMessage";
 import { lastSeenSeq } from "../logic/settings";
 import MessageBubble from "../components/MessageBubble";
@@ -26,6 +28,7 @@ import ApprovalSheet from "../components/ApprovalSheet";
 import RuntimeControls from "../components/RuntimeControls";
 import Input from "../ui/Input";
 import Button from "../ui/Button";
+import { Sub } from "../ui/Text";
 import { color, space, hairlineWidth } from "../theme";
 import {
   botIdForRuntimeControls,
@@ -34,7 +37,7 @@ import {
   runtimeControlState,
   runtimeKindForControls,
 } from "../logic/runtimeControls";
-import type { ChatMessage } from "../api/types";
+import type { ChatMessage, MessageAttachment } from "../api/types";
 import type { MessagesStackParamList } from "../navigation/types";
 
 type Props = NativeStackScreenProps<MessagesStackParamList, "Chat">;
@@ -58,6 +61,8 @@ export default function ChatScreen({ route }: Props) {
   const { data: settings } = useUserSettings();
   const saveSettings = useSaveUserSettings();
   const [text, setText] = useState("");
+  const [pendingAttachments, setPendingAttachments] = useState<MessageAttachment[]>([]);
+  const [attachmentError, setAttachmentError] = useState("");
   const [actionMsg, setActionMsg] = useState<ChatMessage | null>(null);
   const [savingField, setSavingField] = useState<"model" | "effort" | "permission" | "">("");
   const [runtimeError, setRuntimeError] = useState("");
@@ -89,15 +94,39 @@ export default function ChatScreen({ route }: Props) {
     }
   };
 
+  const pickAttachments = async () => {
+    setAttachmentError("");
+    try {
+      const result = await DocumentPicker.getDocumentAsync({ multiple: true, copyToCacheDirectory: true, type: "*/*" });
+      if (result.canceled) return;
+      const remaining = MAX_COMPOSER_ATTACHMENTS - (pendingAttachments?.length || 0);
+      if (remaining <= 0) {
+        setAttachmentError(`最多 ${MAX_COMPOSER_ATTACHMENTS} 个附件`);
+        return;
+      }
+      const next: MessageAttachment[] = [];
+      for (const asset of result.assets.slice(0, remaining)) {
+        const base64 = await new File(asset.uri).base64();
+        next.push(pickedAssetAttachment(asset, base64));
+      }
+      setPendingAttachments((old) => [...(old || []), ...next].slice(0, MAX_COMPOSER_ATTACHMENTS));
+      if (result.assets.length > remaining) setAttachmentError(`最多 ${MAX_COMPOSER_ATTACHMENTS} 个附件`);
+    } catch (err) {
+      setAttachmentError(err instanceof Error ? err.message : "附件读取失败");
+    }
+  };
+
   const send = async () => {
     let pending;
     try {
-      pending = buildPendingMessage({ text }, { selfId: session?.user?.id, members });
+      pending = buildPendingMessage({ text, attachments: pendingAttachments }, { selfId: session?.user?.id, members });
     } catch {
       return; // 空消息忽略
     }
     const pendingMessage: ChatMessage = { ...pending, attachments: normalizeAttachments(pending.attachments) };
     setText("");
+    setPendingAttachments([]);
+    setAttachmentError("");
     setMsgs((old) => [...old, pendingMessage]);
     await postMessage({ bodyMd: pendingMessage.bodyMd, clientTraceId: pendingMessage.clientTraceId, mentions: pending.mentions, attachments: pendingMessage.attachments });
   };
@@ -169,7 +198,25 @@ export default function ChatScreen({ route }: Props) {
             onChange={saveRuntimeField}
           />
         ) : null}
+        {pendingAttachments?.length ? (
+          <View style={styles.attachmentBar}>
+            {pendingAttachments.map((attachment, index) => (
+              <View key={`${attachment.id || attachment.name || "att"}:${index}`} style={styles.attachmentChip}>
+                <Sub numberOfLines={1} style={styles.attachmentName}>{attachment.name || "附件"}</Sub>
+                <Pressable
+                  hitSlop={8}
+                  onPress={() => setPendingAttachments((old) => (old || []).filter((_, i) => i !== index))}
+                  style={styles.attachmentRemove}
+                >
+                  <Sub style={styles.attachmentRemoveText}>×</Sub>
+                </Pressable>
+              </View>
+            ))}
+          </View>
+        ) : null}
+        {attachmentError ? <Sub style={styles.attachmentError}>{attachmentError}</Sub> : null}
         <View style={styles.composerInputRow}>
+          <Button label="附件" variant="outline" style={styles.attachButton} onPress={pickAttachments} />
           <Input
             style={styles.input}
             placeholder="输入消息…"
@@ -208,6 +255,25 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.md,
     paddingTop: space.sm,
   },
+  attachmentBar: { flexDirection: "row", flexWrap: "wrap", gap: space.sm, paddingHorizontal: space.md, paddingTop: space.sm },
+  attachmentChip: {
+    maxWidth: "48%",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.xs,
+    borderRadius: 999,
+    borderWidth: hairlineWidth,
+    borderColor: color.line,
+    backgroundColor: color.surfaceMuted,
+    paddingLeft: space.sm,
+    paddingRight: space.xs,
+    paddingVertical: 6,
+  },
+  attachmentName: { flex: 1, minWidth: 0 },
+  attachmentRemove: { width: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: color.field },
+  attachmentRemoveText: { color: color.inkMuted, fontSize: 14 },
+  attachmentError: { color: color.danger, paddingHorizontal: space.md },
+  attachButton: { width: 70, paddingHorizontal: 0 },
   input: { flex: 1 },
   send: { paddingHorizontal: space.lg },
 });

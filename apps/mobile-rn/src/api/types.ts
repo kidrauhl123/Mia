@@ -192,6 +192,7 @@ export interface MessageAttachment {
   mimeType?: string;
   url?: string;
   path?: string;
+  dataUrl?: string;
   size?: number;
   createdAt?: string;
 }

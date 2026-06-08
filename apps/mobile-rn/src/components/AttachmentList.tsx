@@ -10,7 +10,7 @@ export default function AttachmentList({ attachments, apiBase, own }: { attachme
   return (
     <View style={styles.wrap}>
       {items.map((item, index) => {
-        const uri = resolveAttachmentUrl(item.url || item.path, apiBase);
+        const uri = resolveAttachmentUrl(item.url || item.path || item.dataUrl, apiBase);
         const image = uri && isImageAttachment(item);
         return (
           <Pressable
