@@ -23,6 +23,7 @@ import { MAX_COMPOSER_ATTACHMENTS, normalizeAttachments, pickedAssetAttachment }
 import { normalizeServerRow, mergeMessage } from "../logic/normalizeMessage";
 import { lastSeenSeq } from "../logic/settings";
 import { conversationType } from "../logic/sessionHistory";
+import { chatKeyboardAvoidingBehavior, chatKeyboardAvoidingEnabled } from "../logic/keyboardAvoidance";
 import MessageBubble from "../components/MessageBubble";
 import MessageActions from "../components/MessageActions";
 import ApprovalSheet from "../components/ApprovalSheet";
@@ -213,7 +214,8 @@ export default function ChatScreen({ navigation, route }: Props) {
   return (
     <KeyboardAvoidingView
       style={styles.root}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      behavior={chatKeyboardAvoidingBehavior(Platform.OS)}
+      enabled={chatKeyboardAvoidingEnabled(Platform.OS)}
       keyboardVerticalOffset={90}
     >
       <FlatList
