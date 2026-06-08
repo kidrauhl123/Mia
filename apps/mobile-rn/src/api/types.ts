@@ -71,6 +71,84 @@ export interface Friend {
   avatarCrop?: Record<string, unknown> | null;
 }
 
+export interface UserSettings {
+  version?: number;
+  pins?: string[];
+  readMarks?: Record<string, number>;
+  appearance?: Record<string, unknown>;
+}
+
+export interface FriendRequest {
+  id: string;
+  from_user?: string;
+  to_user?: string;
+  senderId?: string;
+  recipientId?: string;
+  sender?: Friend;
+  recipient?: Friend;
+  other?: Friend;
+  status?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface BridgeDevice {
+  id?: string;
+  deviceId?: string;
+  deviceName?: string;
+  name?: string;
+  platform?: string;
+  engine?: string;
+  capabilities?: Record<string, unknown>;
+  status?: string;
+  connectedAt?: string;
+  lastSeenAt?: string;
+  connected?: boolean;
+}
+
+export interface BridgeRun {
+  id?: string;
+  runId?: string;
+  conversationId?: string;
+  status?: string;
+  text?: string;
+  command?: string;
+  resultText?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  completedAt?: string;
+  error?: string;
+}
+
+export interface BotRuntimeBinding {
+  userId?: string;
+  botId?: string;
+  runtimeKind?: string;
+  enabled?: boolean;
+  config?: Record<string, unknown>;
+}
+
+export interface SkillSummary {
+  id: string;
+  name?: string;
+  title?: string;
+  category?: string;
+  description?: string;
+  ownerLabel?: string;
+  installs?: number;
+  version?: {
+    version?: string;
+    checksum?: string;
+    entryPath?: string;
+  } | null;
+}
+
+export interface SkillCategory {
+  id?: string;
+  name?: string;
+  count?: number;
+}
+
 export interface AvatarDescriptor {
   image: string;
   crop: Record<string, unknown> | null;
