@@ -136,15 +136,22 @@
     return null;
   }
 
-  function engineChoiceRow(agent) {
-    const available = Boolean(agent.usableInMia);
-    const stateClass = available ? "" : " unavailable";
+  // Right-hand cell of a row: an action button when there's something to do
+  // (install / repair / retry Hermes), otherwise a status badge so readiness is
+  // scannable at a glance.
+  function engineRight(agent) {
     const action = agentAction(agent);
-    const actionAttr = action ? `data-setup-action="${action.action}" data-engine="${agent.id}"` : "";
-    const primaryAction = available || action?.action === "install-hermes" || action?.action === "retry-install-hermes" || action?.action === "repair-hermes";
-    const button = action
-      ? `<button class="setup-engine-action${primaryAction ? " primary" : ""}" type="button" ${actionAttr}>${escapeHtml(action.label)}</button>`
-      : "";
+    if (action) {
+      const primary = action.action === "install-hermes" || action.action === "retry-install-hermes" || action.action === "repair-hermes";
+      return `<button class="setup-engine-action${primary ? " primary" : ""}" type="button" data-setup-action="${action.action}" data-engine="${escapeHtml(agent.id)}">${escapeHtml(action.label)}</button>`;
+    }
+    if (agent.usableInMia) return `<span class="setup-engine-badge ok">已就绪</span>`;
+    if (agent.installed && agent.detectionOnly) return `<span class="setup-engine-badge">已检测</span>`;
+    return `<span class="setup-engine-badge muted">未检测到</span>`;
+  }
+
+  function engineChoiceRow(agent) {
+    const stateClass = agent.usableInMia ? " ready" : " unavailable";
     return `
       <div class="setup-engine-row${stateClass}" data-engine-id="${escapeHtml(agent.id)}">
         ${agentIcon(agent)}
@@ -152,7 +159,7 @@
           <strong>${escapeHtml(agent.label)}</strong>
           <small>${escapeHtml(agentStatusText(agent))}</small>
         </div>
-        ${button}
+        ${engineRight(agent)}
       </div>
     `;
   }
@@ -174,23 +181,24 @@
     const runtime = state.runtime || {};
 
     const agents = inventoryAgents(runtime);
-    const kicker = "Agent 内核设置";
-    const title = "扫描结果";
-    const body = "Mia 会使用自己的配置、会话和记忆，不改原生 Agent 自己的数据。";
 
     return `
-      <article class="setup-guide">
-        <div class="setup-guide-main">
-          <span class="setup-kicker">${escapeHtml(kicker)}</span>
-          <strong>${escapeHtml(title)}</strong>
-          <p>${escapeHtml(body)}</p>
-        </div>
-        <div class="setup-engine-list">
-          ${agents.map(engineChoiceRow).join("")}
-        </div>
-        <div class="setup-actions" style="justify-content: flex-start;">
-          <button class="setup-action primary" type="button" data-setup-action="finish-agent-scan">进入 Mia</button>
-        </div>
+      <article class="setup-guide ready">
+        <header class="setup-hero">
+          <span class="setup-logo" aria-hidden="true">M</span>
+          <h1 class="setup-title">欢迎使用 Mia</h1>
+          <p class="setup-tagline">一个聊天界面，指挥你所有的 AI Agent。</p>
+        </header>
+        <section class="setup-section">
+          <span class="setup-section-label">本机 Agent</span>
+          <div class="setup-engine-list">
+            ${agents.map(engineChoiceRow).join("")}
+          </div>
+        </section>
+        <footer class="setup-footer">
+          <button class="setup-cta" type="button" data-setup-action="finish-agent-scan">进入 Mia</button>
+          <button class="setup-cloud-link" type="button" data-action="cloud-login">登录 Mia Cloud →</button>
+        </footer>
       </article>
     `;
   }

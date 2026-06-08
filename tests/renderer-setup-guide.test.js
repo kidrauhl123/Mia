@@ -92,12 +92,12 @@ test("setup guide offers official Hermes install when no local agent is availabl
   const html = guide.renderSetupGuide();
 
   assert.equal(guide.shouldShowSetupGuide({ messages: [] }), true);
-  assert.match(html, /Agent 内核设置/);
-  assert.match(html, /扫描结果/);
+  assert.match(html, /欢迎使用 Mia/);
+  assert.match(html, /本机 Agent/);
   assert.match(html, /data-setup-action="finish-agent-scan"/);
   assert.match(html, /data-setup-action="install-hermes"/);
   assert.doesNotMatch(html, /data-setup-action="use-engine"/);
-  assert.doesNotMatch(html, /data-action="cloud-login"/);
+  assert.match(html, /data-action="cloud-login"/);
   assert.match(html, /OpenClaw/);
   assert.match(html, /安装官方 Hermes/);
   assert.doesNotMatch(html, /私有目录|Mia 私有 Hermes|独立副本/);
