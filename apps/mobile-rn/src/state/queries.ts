@@ -1,18 +1,21 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useApi } from "./clientProvider";
 import { useAuth } from "./auth";
 import { normalizeServerRow } from "../logic/normalizeMessage";
 import {
   botDetailPath,
+  botRuntimeSavePath,
   botRuntimePath,
   bridgeDevicesPath,
   bridgeRunsPath,
   friendRequestsPath,
+  modelCatalogPath,
   settingsPath,
   skillsPath,
 } from "../api/endpoints";
 import type {
   Bot,
+  BotRuntimeConfig,
   BotRuntimeBinding,
   BridgeDevice,
   BridgeRun,
@@ -22,6 +25,7 @@ import type {
   FriendRequest,
   MessageRow,
   Member,
+  PlatformModelRow,
   SkillCategory,
   SkillSummary,
   UserSettings,
@@ -132,6 +136,26 @@ export function useBotRuntime(botId: string | undefined, kind = "cloud-hermes") 
     queryKey: ["bot-runtime", botId, kind],
     enabled: !!botId,
     queryFn: () => api.api(botRuntimePath(botId || "", kind)).then((d) => d.binding || null),
+  });
+}
+
+export function useModelCatalog() {
+  const api = useApi();
+  return useQuery<PlatformModelRow[]>({
+    queryKey: ["model-catalog"],
+    queryFn: () => api.api(modelCatalogPath()).then((d) => d.models || []),
+  });
+}
+
+export function useSaveBotRuntimeConfig() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ botId, runtimeKind, config }: { botId: string; runtimeKind: string; config: BotRuntimeConfig }) =>
+      api.api(botRuntimeSavePath(botId), { method: "PUT", body: { runtimeKind, enabled: true, config } }).then((d) => d.binding || null),
+    onSuccess: (binding, vars) => {
+      qc.setQueryData(["bot-runtime", vars.botId, vars.runtimeKind], binding);
+    },
   });
 }
 
