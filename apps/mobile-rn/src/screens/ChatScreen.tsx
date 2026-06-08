@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { View, FlatList, StyleSheet, KeyboardAvoidingView, Platform } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -11,12 +11,15 @@ import {
   useConversations,
   useModelCatalog,
   useSaveBotRuntimeConfig,
+  useSaveUserSettings,
+  useUserSettings,
 } from "../state/queries";
 import { useApi } from "../state/clientProvider";
 import { useAuth } from "../state/auth";
 import { buildPendingMessage } from "../logic/optimisticSend";
 import { normalizeAttachments } from "../logic/attachments";
 import { normalizeServerRow, mergeMessage } from "../logic/normalizeMessage";
+import { lastSeenSeq } from "../logic/settings";
 import MessageBubble from "../components/MessageBubble";
 import MessageActions from "../components/MessageActions";
 import ApprovalSheet from "../components/ApprovalSheet";
@@ -52,12 +55,20 @@ export default function ChatScreen({ route }: Props) {
   const saveRuntime = useSaveBotRuntimeConfig();
   const { data: messages = [] } = useConversationMessages(conversationId);
   const { data: members = [] } = useConversationMembers(conversationId);
+  const { data: settings } = useUserSettings();
+  const saveSettings = useSaveUserSettings();
   const [text, setText] = useState("");
   const [actionMsg, setActionMsg] = useState<ChatMessage | null>(null);
   const [savingField, setSavingField] = useState<"model" | "effort" | "permission" | "">("");
   const [runtimeError, setRuntimeError] = useState("");
   const modelEntries = modelEntriesFromCatalog(modelCatalog.data || runtime.data?.config?.modelEntries || []);
   const controls = runtimeControlState({ binding: runtime.data, modelEntries });
+  const maxSeq = lastSeenSeq(messages);
+
+  useEffect(() => {
+    const current = Number(settings?.readMarks?.[conversationId]) || 0;
+    if (maxSeq > current) saveSettings.mutate({ readMarks: { [conversationId]: maxSeq } });
+  }, [conversationId, maxSeq, settings?.readMarks?.[conversationId]]);
 
   const key = ["messages", conversationId];
   const setMsgs = (fn: (old: ChatMessage[]) => ChatMessage[]) =>

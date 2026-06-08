@@ -8,9 +8,10 @@ test("bot 消息 → assistant,不 own", () => {
 });
 
 test("自己的 user 消息 → own", () => {
-  const m = normalizeServerRow({ id: "m2", sender_kind: "user", sender_ref: "u1", body_md: "yo" }, "u1");
+  const m = normalizeServerRow({ id: "m2", seq: 7, sender_kind: "user", sender_ref: "u1", body_md: "yo" }, "u1");
   expect(m.role).toBe("user");
   expect(m.isOwn).toBe(true);
+  expect(m.seq).toBe(7);
 });
 
 test("trace_json 解析", () => {

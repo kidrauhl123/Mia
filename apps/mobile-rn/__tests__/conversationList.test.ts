@@ -28,6 +28,17 @@ test("缺字段降级", () => {
   expect(items[0].tiles[0].text).toBe("dm");
 });
 
+test("置顶会话排在普通会话前", () => {
+  const items = buildConversationListItems({
+    conversations: [
+      { id: "new", last_activity_at: "2026-06-01T12:00:00Z" },
+      { id: "old-pinned", last_activity_at: "2026-06-01T10:00:00Z" },
+    ],
+    pinnedIds: ["old-pinned"],
+  });
+  expect(items.map((item) => item.id)).toEqual(["old-pinned", "new"]);
+});
+
 test("群头像取成员拼贴 mosaic", () => {
   const items = buildConversationListItems({
     conversations: [{ id: "g_team", type: "group", name: "团队" }],

@@ -1,14 +1,15 @@
-import { View, FlatList, Pressable, StyleSheet } from "react-native";
+import { Alert, View, FlatList, Pressable, StyleSheet } from "react-native";
 import { useQueries } from "@tanstack/react-query";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { useBots, useConversations, useFriends, useMe } from "../state/queries";
+import { useBots, useConversations, useFriends, useMe, useSaveUserSettings, useUserSettings } from "../state/queries";
 import { useApi } from "../state/clientProvider";
 import { useAuth } from "../state/auth";
 import { buildConversationListItems } from "../logic/conversationList";
+import { togglePinnedConversation } from "../logic/settings";
 import { conversationType } from "../logic/sessionHistory";
 import ConversationAvatar from "../components/ConversationAvatar";
 import ConnBanner from "../components/ConnBanner";
-import { BodyStrong, Sub } from "../ui/Text";
+import { BodyStrong, Label, Sub } from "../ui/Text";
 import { color, space } from "../theme";
 import type { Member } from "../api/types";
 import type { MessagesStackParamList } from "../navigation/types";
@@ -22,6 +23,8 @@ export default function ConversationListScreen({ navigation }: Props) {
   const { data: bots = [] } = useBots();
   const { data: friends = [] } = useFriends();
   const { data: me } = useMe();
+  const { data: settings } = useUserSettings();
+  const saveSettings = useSaveUserSettings();
 
   // dm / group 需要成员才能解析对方头像 / 群拼贴 —— 按需补拉(react-query 缓存)。
   const memberConvs = conversations.filter((c) => {
@@ -48,7 +51,20 @@ export default function ConversationListScreen({ navigation }: Props) {
       ? { id: session.user.id, username: session.user.username, avatarImage: session.user.avatarImage }
       : undefined;
 
-  const items = buildConversationListItems({ conversations, bots, friends, self, membersByConv, unreadByConversation: {} });
+  const pinnedIds = settings?.pins || [];
+  const pinnedSet = new Set(pinnedIds);
+  const items = buildConversationListItems({ conversations, bots, friends, self, membersByConv, unreadByConversation: {}, pinnedIds });
+
+  function openConversationActions(item: (typeof items)[number]) {
+    const pinned = pinnedSet.has(item.id);
+    Alert.alert(item.title, "", [
+      {
+        text: pinned ? "取消置顶" : "置顶",
+        onPress: () => saveSettings.mutate({ pins: togglePinnedConversation(settings, item.id) }),
+      },
+      { text: "取消", style: "cancel" },
+    ]);
+  }
 
   return (
     <View style={styles.root}>
@@ -62,6 +78,7 @@ export default function ConversationListScreen({ navigation }: Props) {
         renderItem={({ item }) => (
           <Pressable
             style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+            onLongPress={() => openConversationActions(item)}
             onPress={() => navigation.navigate("Chat", { conversationId: item.id, title: item.title })}
           >
             <ConversationAvatar tiles={item.tiles} />
@@ -69,6 +86,7 @@ export default function ConversationListScreen({ navigation }: Props) {
               <BodyStrong numberOfLines={1}>{item.title}</BodyStrong>
               <Sub numberOfLines={1} style={styles.sub}>{item.subtitle}</Sub>
             </View>
+            {pinnedSet.has(item.id) ? <Label style={styles.pin}>置顶</Label> : null}
             {item.unread ? (
               <View style={styles.badge}>
                 <Sub style={styles.badgeText}>{item.unread}</Sub>
@@ -95,6 +113,7 @@ const styles = StyleSheet.create({
   pressed: { backgroundColor: color.surfaceMuted },
   textCol: { flex: 1, minWidth: 0, gap: 2 },
   sub: { marginTop: 1 },
+  pin: { color: color.accent, maxWidth: 42 },
   badge: { backgroundColor: color.accent, minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 6, alignItems: "center", justifyContent: "center" },
   badgeText: { color: color.accentText, fontSize: 12, fontWeight: "600" },
 });

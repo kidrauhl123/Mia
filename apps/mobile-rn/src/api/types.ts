@@ -229,6 +229,7 @@ export interface WsEnvelope {
 // 渲染用的归一化消息行(气泡 + trace)
 export interface ChatMessage {
   messageId: string;
+  seq?: number;
   clientTraceId: string;
   role: "user" | "assistant" | "system";
   bodyMd: string;

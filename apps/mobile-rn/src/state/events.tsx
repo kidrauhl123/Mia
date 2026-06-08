@@ -123,6 +123,8 @@ export function EventsProvider({ children }: { children: React.ReactNode }) {
           if (binding?.botId && binding?.runtimeKind) {
             qc.setQueryData(["bot-runtime", binding.botId, binding.runtimeKind], binding);
           }
+        } else if (t === "user_settings.updated") {
+          if (env.settings) qc.setQueryData(["settings"], env.settings);
         } else if (t === "cloud_agent_run_event") {
           // 审批等交互事件包在 cloud_agent_run_event.event 里(与桌面/web 一致)。
           const inner = env.event || {};

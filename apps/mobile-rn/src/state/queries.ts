@@ -37,6 +37,7 @@ import type {
 } from "../api/types";
 import { botIdentityBody, botRuntimeDefaultConfig, type BotDraft } from "../logic/botDraft";
 import type { GroupCreatePayload } from "../logic/groupCreate";
+import { mergeUserSettings, type UserSettingsPatch } from "../logic/settings";
 
 export function useConversations() {
   const api = useApi();
@@ -118,6 +119,28 @@ export function useUserSettings() {
   return useQuery<UserSettings>({
     queryKey: ["settings"],
     queryFn: () => api.api(settingsPath()).then((d) => d.settings || {}),
+  });
+}
+
+export function useSaveUserSettings() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (patch: UserSettingsPatch) => {
+      const write = async (base: UserSettings | undefined) =>
+        api.api(settingsPath(), { method: "PUT", body: mergeUserSettings(base, patch) }).then((d) => d.settings || {});
+      const current = qc.getQueryData<UserSettings>(["settings"]) || await api.api(settingsPath()).then((d) => d.settings || {});
+      try {
+        return await write(current);
+      } catch (err) {
+        if (!/version conflict/i.test(String((err as Error).message || ""))) throw err;
+        const fresh = await api.api(settingsPath()).then((d) => d.settings || {});
+        return write(fresh);
+      }
+    },
+    onSuccess: (settings) => {
+      qc.setQueryData(["settings"], settings);
+    },
   });
 }
 

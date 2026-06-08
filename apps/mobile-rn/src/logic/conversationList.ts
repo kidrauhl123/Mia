@@ -29,9 +29,11 @@ export function buildConversationListItems(deps: {
   membersByConv?: Record<string, Member[]>;
   unreadByConversation?: Record<string, number>;
   activeConversationId?: string;
+  pinnedIds?: string[];
 }): ConversationListItem[] {
   const bots = deps.bots || [];
   const unread = deps.unreadByConversation || {};
+  const pinned = new Set(deps.pinnedIds || []);
   const ctx: AvatarResolveCtx = {
     self: deps.self,
     bots,
@@ -39,7 +41,10 @@ export function buildConversationListItems(deps: {
     membersByConv: deps.membersByConv || {},
   };
   const aggregated = sidebarConversations(deps.conversations || [], { activeConversationId: deps.activeConversationId });
-  aggregated.sort((a, b) => activityTime(b) - activityTime(a));
+  aggregated.sort((a, b) => {
+    const pinDelta = Number(pinned.has(b.id)) - Number(pinned.has(a.id));
+    return pinDelta || activityTime(b) - activityTime(a);
+  });
   return aggregated.map((c) => ({
     id: c.id,
     title: conversationListTitle(c, bots),

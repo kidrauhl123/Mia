@@ -17,6 +17,7 @@ export function normalizeServerRow(m: MessageRow, selfId: string | undefined, in
     m.sender_kind === "bot" ? "assistant" : m.sender_kind === "system" ? "system" : "user";
   return {
     messageId: m.id || `${m.conversation_id || ""}#${m.seq ?? index}`,
+    seq: typeof m.seq === "number" ? m.seq : undefined,
     clientTraceId: m.client_trace_id || "",
     role,
     bodyMd: String(m.body_md || ""),
