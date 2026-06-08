@@ -36,14 +36,14 @@ Out of scope for this plan:
 - Add `apps/mobile-rn/__tests__/endpoints.test.ts`: verify endpoint builders.
 - Modify `apps/mobile-rn/src/state/queries.ts`: add React Query hooks for the new read-only surfaces.
 - Modify `apps/mobile-rn/src/navigation/types.ts`: define route param lists for Messages, Contacts, Agents, Skills, and Settings.
-- Modify `apps/mobile-rn/src/navigation/Tabs.tsx`: add stack navigators and tabs for Agents, Skills, and Settings; wire Contacts detail routes.
+- Modify `apps/mobile-rn/src/navigation/Tabs.tsx`: add stack navigators and tabs for Agents, Skills, and Settings; wire Chat and Contacts detail routes.
 - Modify `apps/mobile-rn/src/navigation/AnimatedTabBar.tsx`: add glyph/label support for new tabs.
 - Create `apps/mobile-rn/src/screens/AgentsScreen.tsx`: read-only desktop bridge/device/run overview.
 - Create `apps/mobile-rn/src/screens/SkillsScreen.tsx`: read-only skill library list.
-- Create `apps/mobile-rn/src/screens/SettingsScreen.tsx`: read-only account/settings/provider/status overview.
+- Create `apps/mobile-rn/src/screens/SettingsScreen.tsx`: read-only account/settings/provider/status overview, while preserving the current account avatar and logout action.
 - Create `apps/mobile-rn/src/screens/BotDetailScreen.tsx`: read-only Bot profile and runtime summary.
 - Create `apps/mobile-rn/src/screens/GroupDetailScreen.tsx`: read-only group profile and member list.
-- Modify `apps/mobile-rn/src/screens/ContactsScreen.tsx`: navigate to Bot or group detail where possible.
+- Modify `apps/mobile-rn/src/screens/ContactsScreen.tsx`: navigate Bot rows to Bot detail.
 - Create `apps/mobile-rn/src/ui/StateBlock.tsx`: shared loading/empty/error block for new screens.
 
 ## Task 1: Endpoint Builders And API Types
@@ -80,9 +80,9 @@ test("builds social endpoint paths", () => {
   expect(friendRequestsPath("outgoing")).toBe("/api/social/friend-requests?direction=outgoing");
 });
 
-test("builds bot endpoint paths with escaping", () => {
+test("builds bot endpoint paths and runtime query", () => {
   expect(botDetailPath("bot.one")).toBe("/api/me/bots/bot.one");
-  expect(botRuntimePath("bot one", "cloud-hermes")).toBe("/api/me/bots/bot%20one/runtime?kind=cloud-hermes");
+  expect(botRuntimePath("bot.one", "desktop-local")).toBe("/api/me/bots/bot.one/runtime?kind=desktop-local");
 });
 
 test("builds skill endpoint paths with escaping and optional filters", () => {
@@ -169,10 +169,13 @@ export interface UserSettings {
 
 export interface FriendRequest {
   id: string;
+  from_user?: string;
+  to_user?: string;
   senderId?: string;
   recipientId?: string;
   sender?: Friend;
   recipient?: Friend;
+  other?: Friend;
   status?: string;
   createdAt?: string;
   updatedAt?: string;
@@ -181,9 +184,13 @@ export interface FriendRequest {
 export interface BridgeDevice {
   id?: string;
   deviceId?: string;
+  deviceName?: string;
   name?: string;
   platform?: string;
+  engine?: string;
+  capabilities?: Record<string, unknown>;
   status?: string;
+  connectedAt?: string;
   lastSeenAt?: string;
   connected?: boolean;
 }
@@ -193,9 +200,12 @@ export interface BridgeRun {
   runId?: string;
   conversationId?: string;
   status?: string;
+  text?: string;
   command?: string;
+  resultText?: string;
   createdAt?: string;
   updatedAt?: string;
+  completedAt?: string;
   error?: string;
 }
 
@@ -467,14 +477,18 @@ Create `apps/mobile-rn/src/screens/SettingsScreen.tsx`:
 
 ```tsx
 import { View } from "react-native";
+import { useAuth } from "../state/auth";
+import Button from "../ui/Button";
 import { Brand, Sub } from "../ui/Text";
 import { color, space } from "../theme";
 
 export default function SettingsScreen() {
+  const { session, setSession } = useAuth();
   return (
     <View style={{ flex: 1, backgroundColor: color.bg, padding: space.lg, gap: space.sm }}>
       <Brand>Settings</Brand>
-      <Sub>账号、同步、外观、模型、权限和 Bridge 状态会在这里。</Sub>
+      <Sub>{session?.apiBase || "账号、同步、外观、模型、权限和 Bridge 状态会在这里。"}</Sub>
+      <Button label="退出登录" variant="danger" onPress={() => setSession(null)} />
     </View>
   );
 }
@@ -548,6 +562,7 @@ const LABELS: Record<string, string> = {
 Replace `apps/mobile-rn/src/navigation/Tabs.tsx` with:
 
 ```tsx
+import { Pressable, Text } from "react-native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import ConversationListScreen from "../screens/ConversationListScreen";
@@ -588,7 +603,21 @@ function MessagesStack() {
   return (
     <MessagesStackNav.Navigator screenOptions={headerOptions}>
       <MessagesStackNav.Screen name="Conversations" component={ConversationListScreen} options={{ title: "消息" }} />
-      <MessagesStackNav.Screen name="Chat" component={ChatScreen} options={({ route }) => ({ title: route.params?.title || "" })} />
+      <MessagesStackNav.Screen
+        name="Chat"
+        component={ChatScreen}
+        options={({ navigation, route }) => ({
+          title: route.params?.title || "",
+          headerRight: () => (
+            <Pressable
+              hitSlop={10}
+              onPress={() => navigation.navigate("GroupDetail", { conversationId: route.params.conversationId, title: route.params.title })}
+            >
+              <Text style={{ color: color.accent, fontSize: 15, fontWeight: "600" }}>详情</Text>
+            </Pressable>
+          ),
+        })}
+      />
       <MessagesStackNav.Screen name="GroupDetail" component={GroupDetailScreen} options={({ route }) => ({ title: route.params?.title || "群聊" })} />
     </MessagesStackNav.Navigator>
   );
@@ -753,15 +782,15 @@ export default function AgentsScreen() {
   const items = [
     ...(devices.data || []).map((d, index) => ({
       key: `device:${d.id || d.deviceId || index}`,
-      title: d.name || d.deviceId || d.id || "Desktop device",
-      subtitle: `${d.platform || "desktop"} · ${statusText(d.connected ?? d.status)}`,
-      meta: d.lastSeenAt || "",
+      title: d.deviceName || d.name || d.deviceId || d.id || "Desktop device",
+      subtitle: `${d.engine || d.platform || "desktop"} · ${statusText(d.connected ?? d.status)}`,
+      meta: d.lastSeenAt || d.connectedAt || "",
     })),
     ...(runs.data || []).map((r, index) => ({
       key: `run:${r.id || r.runId || index}`,
-      title: r.command || r.runId || r.id || "Bridge run",
+      title: r.text || r.command || r.runId || r.id || "Bridge run",
       subtitle: statusText(r.status),
-      meta: r.updatedAt || r.createdAt || "",
+      meta: r.updatedAt || r.completedAt || r.createdAt || "",
     })),
   ];
 
@@ -925,8 +954,11 @@ Replace `apps/mobile-rn/src/screens/SettingsScreen.tsx` with:
 import { ScrollView, StyleSheet, View } from "react-native";
 import { useAuth } from "../state/auth";
 import { useBridgeDevices, useMe, useUserSettings } from "../state/queries";
+import { resolveAvatar } from "../logic/avatar";
+import AvatarMedia from "../components/AvatarMedia";
+import Button from "../ui/Button";
 import StateBlock from "../ui/StateBlock";
-import { Body, BodyStrong, Label, Sub } from "../ui/Text";
+import { Body, BodyStrong, Brand, Label, Sub } from "../ui/Text";
 import { color, space, hairlineWidth } from "../theme";
 
 function Row({ label, value }: { label: string; value: string }) {
@@ -939,24 +971,34 @@ function Row({ label, value }: { label: string; value: string }) {
 }
 
 export default function SettingsScreen() {
-  const { session } = useAuth();
+  const { session, setSession } = useAuth();
   const me = useMe();
   const settings = useUserSettings();
   const devices = useBridgeDevices();
   const loading = me.isLoading || settings.isLoading;
   const error = me.error || settings.error;
   const appearance = settings.data?.appearance || {};
+  const userId = me.data?.id || session?.user?.id || "";
+  const username = me.data?.username || session?.user?.username || "未登录";
+  const avatar = resolveAvatar(userId, username, me.data?.avatarImage || "", me.data?.avatarCrop || null);
 
   if (loading) return <StateBlock title="加载设置…" />;
   if (error) return <StateBlock title="设置加载失败" detail={String((error as Error).message || error)} />;
 
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>
+      <View style={styles.head}>
+        <AvatarMedia tile={avatar} size={64} />
+        <View style={styles.headText}>
+          <Brand style={styles.name}>{username}</Brand>
+          <Sub>{session?.apiBase || ""}</Sub>
+        </View>
+      </View>
       <View style={styles.section}>
         <BodyStrong>账号</BodyStrong>
-        <Sub>{session?.apiBase || ""}</Sub>
-        <Row label="用户名" value={me.data?.username || session?.user?.username || ""} />
-        <Row label="用户 ID" value={me.data?.id || session?.user?.id || ""} />
+        <Row label="用户名" value={username} />
+        <Row label="用户 ID" value={userId} />
+        <Button label="退出登录" variant="danger" onPress={() => setSession(null)} />
       </View>
       <View style={styles.section}>
         <BodyStrong>同步</BodyStrong>
@@ -976,6 +1018,9 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: color.bg },
   content: { padding: space.lg, gap: space.lg },
+  head: { flexDirection: "row", alignItems: "center", gap: space.md, paddingVertical: space.md },
+  headText: { flex: 1, gap: 4 },
+  name: { fontSize: 22 },
   section: {
     gap: space.sm,
     paddingBottom: space.lg,
