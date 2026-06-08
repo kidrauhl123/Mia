@@ -35,18 +35,24 @@
     return Boolean(state?.runtime?.cloud?.enabled);
   }
 
-  // The wizard is in charge until onboarding is explicitly finished/skipped.
+  // The wizard owns the whole signed-out state (Mia is cloud-login-required), so
+  // a signed-out user — first run OR a returning/dirty install — always gets the
+  // compact wizard login instead of the old full-width cloud-login screen. Once
+  // signed in, the wizard only stays up while onboarding is mid-flight.
   function isActive() {
     if (!state) return false;
+    if (!signedIn()) return true;
     if (state.agentSetupSkipped || state.setupGuideDismissed) return false;
     if (state.onboardingStep === "done") return false;
     return STEPS.includes(state.onboardingStep);
   }
 
-  // Step to actually show: normalize unknown values; skip login once signed in.
+  // Step to actually show: not signed in → login; signed in → the prepare step
+  // (login is satisfied, so never show it again).
   function currentStep() {
-    let step = STEPS.includes(state?.onboardingStep) ? state.onboardingStep : "login";
-    if (step === "login" && signedIn()) step = "prepare";
+    if (!signedIn()) return "login";
+    let step = STEPS.includes(state?.onboardingStep) ? state.onboardingStep : "prepare";
+    if (step === "login") step = "prepare";
     return step;
   }
 
@@ -138,7 +144,11 @@
       if (runtime) state.runtime = runtime;
       if (signedIn()) {
         state.onboardingLoginHint = "";
-        goToStep("prepare");
+        // A returning user who already finished onboarding just lands in the app;
+        // a fresh user continues to the prepare (detect Agents) step.
+        const onboarded = state.onboardingStep === "done" || state.agentSetupSkipped || state.setupGuideDismissed;
+        if (onboarded) deps.rerender?.();
+        else goToStep("prepare");
       } else {
         setHint(mode === "register" ? "注册未成功，请重试。" : "登录未成功，请检查或点下方注册。");
       }

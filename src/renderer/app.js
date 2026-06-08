@@ -49,6 +49,7 @@ if (window.miaOnboardingWizard && window.miaOnboardingWizard.initOnboardingWizar
     renderEngineList: () => window.miaSetupGuide?.renderEngineList?.() || "",
     setStep: (step) => { advanceOnboarding(step); renderView(); },
     finish: () => { completeAgentSetup("", { skipped: false }).finally(() => renderView()); },
+    rerender: () => renderView(),
     initLottie: (root) => window.miaLottieIcons?.init?.(root),
   });
 }
