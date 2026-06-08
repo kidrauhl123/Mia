@@ -31,7 +31,7 @@ const config: ExpoConfig = {
   web: {
     favicon: "./assets/favicon.png",
   },
-  plugins: ["expo-secure-store", "expo-video"],
+  plugins: ["expo-secure-store", "expo-video", "./modules/mia-android-updater/plugin/withMiaAndroidUpdater"],
   extra: {
     apiBase: "https://aiweb.buytb01.com",
     eas: {

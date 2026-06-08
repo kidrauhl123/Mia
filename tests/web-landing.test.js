@@ -1,6 +1,8 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 
 const ROOT = path.join(__dirname, "..");
@@ -104,4 +106,33 @@ test("cloud release builder can publish the Apple Silicon DMG as a web download"
   assert.match(source, /function shouldCopyReleaseEntry/);
   assert.match(source, /\.DS_Store/);
   assert.match(source, /filter: shouldCopyReleaseEntry/);
+});
+
+test("mobile update publisher copies Android APK and writes update manifest", (t) => {
+  const { publishMobileAndroidDownload } = require("../scripts/mobile-update-manifest.js");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-mobile-update-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const apkPath = path.join(dir, "source.apk");
+  const downloadsDir = path.join(dir, "downloads");
+  fs.writeFileSync(apkPath, Buffer.from("mia apk fixture"));
+
+  const manifest = publishMobileAndroidDownload({
+    sourceApk: apkPath,
+    downloadsDir,
+    publicBaseUrl: "https://aiweb.buytb01.com",
+    versionName: "1.3.2",
+    versionCode: 12,
+    runtimeVersion: "2",
+    minSupportedVersionCode: 1,
+    mandatory: false,
+    notes: ["修复聊天输入框遮挡"],
+  });
+
+  const expectedSha = crypto.createHash("sha256").update(fs.readFileSync(apkPath)).digest("hex");
+  assert.equal(fs.existsSync(path.join(downloadsDir, "mia-android-latest.apk")), true);
+  assert.equal(fs.existsSync(path.join(downloadsDir, "mia-mobile-update.json")), true);
+  assert.equal(manifest.android.apkSha256, expectedSha);
+  assert.equal(manifest.android.apkUrl, "https://aiweb.buytb01.com/downloads/mia-android-latest.apk");
+  assert.equal(manifest.android.versionCode, 12);
+  assert.deepEqual(manifest.android.notes, ["修复聊天输入框遮挡"]);
 });

@@ -6,6 +6,7 @@ import { AuthProvider } from "./src/state/auth";
 import { ApiProvider } from "./src/state/clientProvider";
 import { EventsProvider } from "./src/state/events";
 import RootNavigator from "./src/navigation/RootNavigator";
+import { UpdateProvider } from "./src/updates/UpdateProvider";
 
 const queryClient = new QueryClient();
 
@@ -16,10 +17,12 @@ export default function App() {
         <QueryClientProvider client={queryClient}>
           <AuthProvider>
             <ApiProvider>
-              <EventsProvider>
-                <StatusBar style="dark" />
-                <RootNavigator />
-              </EventsProvider>
+              <UpdateProvider>
+                <EventsProvider>
+                  <StatusBar style="dark" />
+                  <RootNavigator />
+                </EventsProvider>
+              </UpdateProvider>
             </ApiProvider>
           </AuthProvider>
         </QueryClientProvider>

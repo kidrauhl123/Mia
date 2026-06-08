@@ -12,6 +12,7 @@ const webDir = path.join(distDir, "web");
 const hermesImageDir = path.join(distDir, "hermes-image");
 const rootPackage = require("../package.json");
 const { pluginFiles } = require("../src/main/engine-plugins-service.js");
+const { publishMobileAndroidDownload } = require("./mobile-update-manifest.js");
 const releaseAssetStamp = new Date().toISOString().replace(/[^0-9A-Za-z]/g, "").slice(0, 14);
 
 function copyFile(source, target) {
@@ -60,6 +61,23 @@ function copyDesktopDownloadArtifacts() {
   if (!dmg) return;
   fs.copyFileSync(dmg, path.join(downloadsDir, "mia-macos-apple-silicon-latest.dmg"));
   fs.copyFileSync(dmg, path.join(downloadsDir, "mia-macos-arm64-latest.dmg"));
+}
+
+function copyMobileDownloadArtifacts() {
+  const apk = String(process.env.MIA_MOBILE_ANDROID_APK || "").trim();
+  if (!apk) return;
+  const sourceApk = path.resolve(root, apk);
+  publishMobileAndroidDownload({
+    sourceApk,
+    downloadsDir: path.join(webDir, "downloads"),
+    publicBaseUrl: process.env.MIA_MOBILE_PUBLIC_BASE_URL || "https://aiweb.buytb01.com",
+    versionName: process.env.MIA_MOBILE_ANDROID_VERSION_NAME || rootPackage.version || "0.0.0",
+    versionCode: process.env.MIA_MOBILE_ANDROID_VERSION_CODE,
+    runtimeVersion: process.env.MIA_MOBILE_ANDROID_RUNTIME_VERSION || "2",
+    minSupportedVersionCode: process.env.MIA_MOBILE_ANDROID_MIN_SUPPORTED_VERSION_CODE || 0,
+    mandatory: process.env.MIA_MOBILE_ANDROID_MANDATORY || false,
+    notes: process.env.MIA_MOBILE_ANDROID_NOTES || "",
+  });
 }
 
 function writeIcoFromPng(sourcePng, targetIco) {
@@ -665,6 +683,7 @@ function main() {
   copyDir("skills", path.join(apiDir, "skills"));
   copyDir("src/web", webDir);
   copyDesktopDownloadArtifacts();
+  copyMobileDownloadArtifacts();
   copyDir("src/renderer/assets/model-icons", path.join(webDir, "assets", "model-icons"));
   copyDir("src/renderer/assets/provider-icons", path.join(webDir, "assets", "provider-icons"));
   copyDir("src/renderer/assets/engine-icons", path.join(webDir, "assets", "engine-icons"));

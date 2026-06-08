@@ -7,6 +7,7 @@ import Button from "../ui/Button";
 import StateBlock from "../ui/StateBlock";
 import { Body, BodyStrong, Brand, Label, Sub } from "../ui/Text";
 import { color, space, hairlineWidth } from "../theme";
+import UpdateSettingsCard from "../updates/UpdateSettingsCard";
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
@@ -47,6 +48,7 @@ export default function SettingsScreen() {
         <Row label="用户 ID" value={userId} />
         <Button label="退出登录" variant="danger" onPress={() => setSession(null)} />
       </View>
+      <UpdateSettingsCard />
       <View style={styles.section}>
         <BodyStrong>同步</BodyStrong>
         <Row label="设置版本" value={String(settings.data?.version || 0)} />
