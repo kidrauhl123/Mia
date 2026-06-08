@@ -10,7 +10,7 @@ export interface MessageRow {
   client_trace_id?: string;
   trace_json?: string;
   created_at?: string;
-  attachments?: unknown[];
+  attachments?: MessageAttachment[];
   mentions?: unknown[];
 }
 
@@ -149,6 +149,17 @@ export interface SkillCategory {
   count?: number;
 }
 
+export interface MessageAttachment {
+  id?: string;
+  type?: string;
+  name?: string;
+  mimeType?: string;
+  url?: string;
+  path?: string;
+  size?: number;
+  createdAt?: string;
+}
+
 export interface AvatarDescriptor {
   image: string;
   crop: Record<string, unknown> | null;
@@ -185,6 +196,7 @@ export interface ChatMessage {
   clientTraceId: string;
   role: "user" | "assistant" | "system";
   bodyMd: string;
+  attachments?: MessageAttachment[];
   trace?: { reasoning?: any; tools?: any } | null;
   isOwn: boolean;
   isPending: boolean;
