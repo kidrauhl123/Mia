@@ -77,6 +77,13 @@ export function EventsProvider({ children }: { children: React.ReactNode }) {
           if (cid && mid) {
             qc.setQueryData<ChatMessage[]>(["messages", cid], (old) => (old || []).filter((m) => m.messageId !== mid));
           }
+        } else if (t === "social.friend_request_received") {
+          qc.invalidateQueries({ queryKey: ["friend-requests", "incoming"] });
+        } else if (t === "social.friend_added") {
+          qc.invalidateQueries({ queryKey: ["friends"] });
+          qc.invalidateQueries({ queryKey: ["conversations"] });
+          qc.invalidateQueries({ queryKey: ["friend-requests", "incoming"] });
+          qc.invalidateQueries({ queryKey: ["friend-requests", "outgoing"] });
         } else if (t === "cloud_agent_run_event") {
           // 审批等交互事件包在 cloud_agent_run_event.event 里(与桌面/web 一致)。
           const inner = env.event || {};

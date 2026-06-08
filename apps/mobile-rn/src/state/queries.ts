@@ -8,6 +8,9 @@ import {
   botRuntimePath,
   bridgeDevicesPath,
   bridgeRunsPath,
+  friendRequestCancelPath,
+  friendRequestCreatePath,
+  friendRequestRespondPath,
   friendRequestsPath,
   modelCatalogPath,
   settingsPath,
@@ -118,6 +121,46 @@ export function useFriendRequests(direction: "incoming" | "outgoing" = "incoming
   return useQuery<FriendRequest[]>({
     queryKey: ["friend-requests", direction],
     queryFn: () => api.api(friendRequestsPath(direction)).then((d) => d.requests || []),
+  });
+}
+
+export function useSendFriendRequest() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ toUsername }: { toUsername: string }) =>
+      api.api(friendRequestCreatePath(), { method: "POST", body: { toUsername } }).then((d) => d.request || null),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["friend-requests", "outgoing"] });
+    },
+  });
+}
+
+export function useRespondFriendRequest() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ requestId, action }: { requestId: string; action: "accept" | "reject" }) =>
+      api.api(friendRequestRespondPath(requestId), { method: "POST", body: { action } }),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ["friend-requests", "incoming"] });
+      if (vars.action === "accept") {
+        qc.invalidateQueries({ queryKey: ["friends"] });
+        qc.invalidateQueries({ queryKey: ["conversations"] });
+      }
+    },
+  });
+}
+
+export function useCancelFriendRequest() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ requestId }: { requestId: string }) =>
+      api.api(friendRequestCancelPath(requestId), { method: "DELETE" }).then((d) => d.request || null),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["friend-requests", "outgoing"] });
+    },
   });
 }
 

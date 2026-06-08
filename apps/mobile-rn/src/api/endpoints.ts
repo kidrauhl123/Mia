@@ -26,6 +26,22 @@ export function friendRequestsPath(direction: FriendRequestDirection): string {
   return withQuery("/api/social/friend-requests", { direction });
 }
 
+export function friendRequestCreatePath(): string {
+  return "/api/social/friend-requests";
+}
+
+export function friendRequestRespondPath(requestId: string): string {
+  return `/api/social/friend-requests/${encodeURIComponent(requestId)}/respond`;
+}
+
+export function friendRequestCancelPath(requestId: string): string {
+  return `/api/social/friend-requests/${encodeURIComponent(requestId)}`;
+}
+
+export function friendPath(friendId: string): string {
+  return `/api/social/friends/${encodeURIComponent(friendId)}`;
+}
+
 export function botDetailPath(botId: string): string {
   return `/api/me/bots/${encodeURIComponent(botId)}`;
 }
