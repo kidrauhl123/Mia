@@ -10,20 +10,17 @@
 
 ## 技术实现
 
-桌面端是 Electron 应用。运行时分三层：
+桌面端是 Electron 应用。
 
-- **主进程**（Electron，`src/main.js`）—— UI + IPC + Agent 编排
-- **Hermes 运行时**（密封 Python，位于 `vendor/hermes-runtime/<target>/`，由 `scripts/build-hermes-runtime.sh` 按平台构建）—— 默认轻量安装包不内置；`dist:*:with-hermes` 才会打包，打包后不依赖用户 Python 环境
-- **Claude Code / Codex 等外部 CLI** —— **不打包**，通过 `src/main/local-agent-engine-service.js` 里的 `shellCommandPath()` 从用户系统 `PATH` 里查找
+- **主进程**（`src/main.js` + `src/main/<feature>/`）—— UI / IPC，以及 mia 真正的价值层：**多引擎编排、会话与记忆隔离、多角色叙事与角色间的功能联系**。引擎可换可并行，这层不变。
+- **Agent 引擎（对等、可插拔）** —— Hermes、Claude Code、Codex、openclaw、gemini…… 以后还能接更多。对 mia **对等、可替换**：统一在 `chatEngineRegistry` 注册 + 每个引擎一个 `*-chat-adapter.js`，mia 只接入和编排、不改它们、保持兼容。
+- **引擎从哪来** —— **都不打包**：从用户系统 `PATH` 探测复用用户自己装的（Hermes 走 `src/main/system-hermes-service.js` 的 `shellCommandPath("hermes")`，claude/codex 等走 `src/main/local-agent-engine-service.js`），装在各自默认位置、mia 不干预安装路径；Hermes 也可以跑在云端 Docker（`cloud/hermes-image/`）。
 
-为什么 Hermes 可以自带、其它 CLI 不自带：Hermes 是**上游开源 Agent runtime**（上游代码在 `~/github/Alkaka-reference/hermes-agent/`，**不是 mia 写的**），mia 走 **vendor pin、不 fork**，`with-hermes` 包自带是为了让普通用户开箱即用、不装 Python；Claude Code / Codex 是用户已经在自己电脑上用的工具，mia 复用它们，不重复安装也不锁版本。
-
-判断"Hermes 当前真实行为"以 `vendor/hermes-runtime/<target>/site-packages/` 里的 pinned 副本为准；查 upstream 当前设计 / API 演进看 `~/github/Alkaka-reference/hermes-agent/`。两者必然 drift，正常。
+Hermes 只是其中一个上游开源引擎（上游 `~/github/Alkaka-reference/hermes-agent/`，**不是 mia 写的**，mia **不 fork**）。判断它真实行为看用户 `PATH` 上装的那个版本，或云端 `cloud/hermes-image/Dockerfile` pin 的 tag。
 
 ### 硬规则
 
 - **永远不要把 claude / codex 二进制加进 `extraResources` 或当成可分发依赖打包**——复用用户已装好的 CLI 是产品定位的核心，曾把 DMG 从 379MB 砍到 207MB 就是靠这条。如果改动让你想"顺手"打包它们,先确认是不是误解了产品意图。
-- 动 Python 侧之前先读 `scripts/build-hermes-runtime.sh`:包含 strip + ad-hoc 重签名(macOS arm64 不重签会让 dlopen 在严格签名场景下挂掉)、stdlib 裁剪、缓存命中策略。
 - 合并或拉完代码记得 `npm run dist:mac`(或对应平台脚本)重建,否则你跑的还是旧二进制。
 
 ## 运行 / 验证 / 故障边界
@@ -35,14 +32,13 @@
 - **桌面端开发**：`npm start` / `npm run open`
 - **Web 端本地预览**：`npm run web`
 - **Cloud / Bridge 调试**：优先看 `package.json` 里的 `cloud:*` 和 `bridge` 脚本，按当前链路只启动必要服务。
-- **Hermes runtime**：改 `vendor/hermes-runtime`、`scripts/build-hermes-runtime.sh` 或 Python 打包逻辑后跑对应 `npm run hermes:runtime:*`；发布/打包前跑 `npm run dist:mac`。
+- **Agent 引擎接入**：注册表 `chatEngineRegistry` + 各 `*-chat-adapter.js`；引擎探测/复用看 `system-hermes-service.js`（hermes）、`local-agent-engine-service.js`（claude/codex 等）；Hermes 起进程看 `runtime-lifecycle-service.js`，云端 Hermes 看 `cloud/hermes-image/`。
 
 遇到这些情况先停下来确认，不要用重试或"顺手修"掩盖问题：
 
 - Electron app 正在运行导致打包、覆盖、签名、删除失败：先让用户关闭正在运行的 app / 相关进程。
 - 端口被 `web` / `cloud` / `bridge` 占用：先确认是不是已有 mia 服务，不要直接 kill 不明进程。
-- Hermes 行为和源码不一致：先确认运行的是不是旧的打包 runtime；必要时重建 `vendor/hermes-runtime/<target>/` 或重新打包。
-- macOS arm64 出现 Python 扩展 `dlopen`、签名、quarantine 类问题：先读 `scripts/build-hermes-runtime.sh`，不要绕开 strip / ad-hoc codesign 流程。
+- Hermes 行为和源码不一致：确认用户系统上装的是哪个版本的 `hermes`（PATH 上的那个，随用户安装漂移）；云端看 `cloud/hermes-image/` 的 pin。
 - 测试或脚本需要用户数据目录时，必须使用临时目录或显式测试 fixture；不要让自动化测试写真实 `~/Library/Application Support/Mia`。
 
 ## 代码组织
@@ -150,11 +146,11 @@ mia 是 Electron app，主进程、渲染进程、preload、cloud / web / mobile
 - `src/process/task/` —— Cron 调度
 - 三进程隔离约定（main / renderer / worker，禁止跨进程 API 混用）见根目录 `AGENTS.md`
 
-**LobsterAI**（网易有道，MIT）—— Electron + React 个人助理 Agent 客户端，主打 24/7 自动化任务，**和 mia 的"复用外部 CLI + 自带 Python 运行时"路线高度重合**。
+**LobsterAI**（网易有道，MIT）—— Electron + React 个人助理 Agent 客户端，主打 24/7 自动化任务，**和 mia "复用用户已装的外部 CLI / runtime" 的路线相关**。
 本地路径：`~/github/Alkaka-reference/lobsterai`
 值得读的角度：
 - `src/main/libs/openclawEngineManager.ts` —— Engine 状态机 / 自动重启 / runtime 探测的首选样板（Hermes runtime 管理可直接对照）
-- `src/main/libs/pythonRuntime.ts` —— 密封 Python 运行时怎么寻路、起进程、健康检查，mia 的 `vendor/hermes-runtime` 落地时最该参考
+- `src/main/libs/pythonRuntime.ts` —— Python 运行时怎么寻路、起进程、健康检查，mia 探测 / 启动用户的 Hermes（`system-hermes-service.js` / `runtime-lifecycle-service.js`）可参考
 - `src/scheduledTask/` —— Cron 调度（`cronJobService.ts`、模型映射、迁移），需要做定时 Agent 时直接看这里
 - `src/main/libs/mcpServerManager.ts` + `mcpBridgeServer.ts` —— MCP server 生命周期管理
 - `src/main/libs/coworkOpenAICompatProxy.ts` —— 给 Agent 暴露 OpenAI 兼容接口的代理写法

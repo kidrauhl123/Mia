@@ -1,78 +1,52 @@
-const crypto = require("node:crypto");
+// Hermes install source — resolves where `pip install` pulls the official
+// hermes-agent package from. hermes-agent is published to PyPI, so we install
+// it from a package index (not a Mia-hosted source archive): China-first mirror
+// with the official PyPI index as fallback. No self-hosted source needed; the
+// mirror (Tsinghua TUNA by default) carries hermes-agent and all its deps.
 
 function clean(value) {
   return String(value || "").trim();
 }
 
-function sha256Hex(bytes) {
-  return crypto.createHash("sha256").update(bytes).digest("hex");
-}
-
-function assertSha256(value) {
-  const checksum = clean(value).toLowerCase();
-  if (!checksum) return "";
-  if (!/^[a-f0-9]{64}$/.test(checksum)) {
-    throw new Error("Hermes archive checksum must be a 64-character sha256 hex string.");
-  }
-  return checksum;
-}
-
 function createHermesInstallSourceService(deps = {}) {
   const env = deps.env || process.env;
   const officialPackage = clean(deps.officialPackage || env.MIA_ENGINE_PACKAGE || "hermes-agent");
-  const officialRepoUrl = clean(deps.officialRepoUrl || env.MIA_ENGINE_REPO || "https://github.com/NousResearch/hermes-agent").replace(/\/+$/, "");
-  const officialRef = clean(deps.officialRef || env.MIA_ENGINE_REF || "main");
-  const officialExtras = clean(deps.officialExtras || env.MIA_ENGINE_EXTRAS || "web");
+  const officialExtras = clean(
+    deps.officialExtras != null ? deps.officialExtras : (env.MIA_ENGINE_EXTRAS != null ? env.MIA_ENGINE_EXTRAS : "web")
+  );
+  const officialVersion = clean(deps.officialVersion || env.MIA_ENGINE_VERSION || "");
+  // China-first index with the official PyPI index as fallback. Override the
+  // mirror with MIA_ENGINE_INDEX_URL (e.g. an internal mirror).
+  const indexUrl = clean(deps.indexUrl || env.MIA_ENGINE_INDEX_URL || "https://pypi.tuna.tsinghua.edu.cn/simple");
+  const fallbackIndexUrl = clean(deps.fallbackIndexUrl || env.MIA_ENGINE_FALLBACK_INDEX_URL || "https://pypi.org/simple");
 
-  function officialUrl() {
-    const explicit = clean(deps.officialUrl || env.MIA_ENGINE_URL);
-    if (explicit) return explicit;
-    return `${officialRepoUrl}/archive/${encodeURIComponent(officialRef)}.tar.gz`;
-  }
-
-  function requirementFor(url, extras = officialExtras) {
+  function requirementFor(extras = officialExtras) {
     const extraPart = extras ? `[${extras}]` : "";
-    return `${officialPackage}${extraPart} @ ${url}`;
+    const versionPart = officialVersion ? `==${officialVersion}` : "";
+    return `${officialPackage}${extraPart}${versionPart}`;
   }
 
   function resolveInstallSource() {
-    const upstreamUrl = officialUrl();
-    const mirrorUrl = clean(deps.mirrorUrl || env.MIA_ENGINE_MIRROR_URL);
-    const checksum = assertSha256(deps.checksum || env.MIA_ENGINE_SHA256);
-    const url = mirrorUrl || upstreamUrl;
     return {
-      kind: mirrorUrl ? "mia-mirror" : "official-github-archive",
+      kind: "pypi",
       package: officialPackage,
-      repo: officialRepoUrl,
-      ref: officialRef,
       extras: officialExtras,
-      url,
-      upstreamUrl,
-      requirement: requirementFor(url),
-      baseRequirement: requirementFor(url, ""),
-      checksum
+      version: officialVersion,
+      requirement: requirementFor(officialExtras),
+      baseRequirement: requirementFor(""),
+      indexUrl,
+      // Distinct indexes, mirror first; install retries the next on failure.
+      indexUrls: [indexUrl, fallbackIndexUrl].filter((value, position, all) => value && all.indexOf(value) === position),
+      fallbackIndexUrl
     };
   }
 
-  function verifyChecksum(bytes, expected = "") {
-    const checksum = assertSha256(expected);
-    if (!checksum) return true;
-    const actual = sha256Hex(bytes);
-    if (actual !== checksum) {
-      throw new Error(`Hermes archive checksum mismatch: expected ${checksum}, got ${actual}.`);
-    }
-    return true;
-  }
-
   return {
-    officialUrl,
     requirementFor,
-    resolveInstallSource,
-    verifyChecksum
+    resolveInstallSource
   };
 }
 
 module.exports = {
-  createHermesInstallSourceService,
-  sha256Hex
+  createHermesInstallSourceService
 };

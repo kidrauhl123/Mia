@@ -8,7 +8,6 @@ const WebSocket = require("ws");
 const { IpcChannel } = require("./shared/ipc-channels");
 const { MemberKind } = require("./shared/conversation-kinds");
 const { botConversationId } = require("./shared/bot-identity");
-const runtimeResources = require("./runtime-resource-paths");
 const {
   adapterForEngine,
   normalizeAgentEngine,
@@ -146,16 +145,12 @@ let engineState = {
 
 const runtimePathsModule = createRuntimePaths({
   app,
-  runtimeResources,
   MIA_GATEWAY_SERVICE_LABEL,
   MIA_DAEMON_SERVICE_LABEL,
   env: process.env,
 });
 const {
   runtimePaths,
-  venvPythonPath,
-  bundledPython,
-  bundledSitePackages,
   buildPythonPath,
   engineMarkerPath,
 } = runtimePathsModule;
@@ -174,14 +169,9 @@ const systemHermesService = createSystemHermesService({
   resetAgentEngineCache: () => localAgentEngineService?.resetCache?.()
 });
 const engineInstallService = createEngineInstallService({
-  runtimePaths,
-  venvPythonPath,
-  bundledPython,
-  bundledSitePackages,
   buildPythonPath,
-  engineMarkerPath,
   systemHermesPython: () => systemHermesService.pythonPath(),
-  readJson,
+  refreshSystemHermes: () => systemHermesService.refresh(),
   spawnSync,
   appendLog: appendEngineLog,
   clearLogs: () => { engineState.logs = []; },
@@ -589,7 +579,6 @@ function getRuntimeStatus(created = [], options = {}) {
     created,
     engineInstalled: engineInstallService.isInstalled(),
     engineSource: engineInstallService.engineSource(),
-    managedVenvExists: fs.existsSync(venvPythonPath()),
     engineRunning: engineState.running,
     engineStarting: engineState.starting,
     engineBaseUrl: engineState.baseUrl,

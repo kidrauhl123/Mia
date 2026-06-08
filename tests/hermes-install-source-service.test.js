@@ -1,65 +1,58 @@
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const {
-  createHermesInstallSourceService,
-  sha256Hex
+  createHermesInstallSourceService
 } = require("../src/main/hermes-install-source-service.js");
 
-test("official source records upstream identity and package spec", () => {
+test("install source defaults to PyPI requirement with a China-first mirror index", () => {
   const service = createHermesInstallSourceService({
     env: {},
     officialPackage: "hermes-agent",
-    officialRepoUrl: "https://github.com/NousResearch/hermes-agent",
-    officialRef: "main",
     officialExtras: "web"
   });
 
   const source = service.resolveInstallSource();
 
-  assert.equal(source.kind, "official-github-archive");
+  assert.equal(source.kind, "pypi");
   assert.equal(source.package, "hermes-agent");
-  assert.equal(source.ref, "main");
   assert.equal(source.extras, "web");
-  assert.equal(source.url, "https://github.com/NousResearch/hermes-agent/archive/main.tar.gz");
-  assert.equal(source.requirement, "hermes-agent[web] @ https://github.com/NousResearch/hermes-agent/archive/main.tar.gz");
-  assert.equal(source.checksum, "");
+  assert.equal(source.requirement, "hermes-agent[web]");
+  assert.equal(source.baseRequirement, "hermes-agent");
+  assert.equal(source.indexUrl, "https://pypi.tuna.tsinghua.edu.cn/simple");
+  assert.equal(source.fallbackIndexUrl, "https://pypi.org/simple");
+  assert.deepEqual(source.indexUrls, [
+    "https://pypi.tuna.tsinghua.edu.cn/simple",
+    "https://pypi.org/simple"
+  ]);
 });
 
-test("mirror source keeps upstream identity and checksum", () => {
+test("a pinned version is appended to the requirement", () => {
+  const service = createHermesInstallSourceService({
+    env: { MIA_ENGINE_VERSION: "0.16.0" },
+    officialExtras: "web"
+  });
+
+  const source = service.resolveInstallSource();
+  assert.equal(source.requirement, "hermes-agent[web]==0.16.0");
+  assert.equal(source.baseRequirement, "hermes-agent==0.16.0");
+});
+
+test("custom index overrides the mirror and dedups against the fallback", () => {
   const service = createHermesInstallSourceService({
     env: {
-      MIA_ENGINE_MIRROR_URL: "https://cdn.example.test/hermes-main.tar.gz",
-      MIA_ENGINE_SHA256: "a".repeat(64)
-    },
-    officialPackage: "hermes-agent",
-    officialRepoUrl: "https://github.com/NousResearch/hermes-agent",
-    officialRef: "main",
-    officialExtras: "web"
+      MIA_ENGINE_INDEX_URL: "https://pypi.org/simple",
+      MIA_ENGINE_FALLBACK_INDEX_URL: "https://pypi.org/simple"
+    }
   });
 
   const source = service.resolveInstallSource();
-
-  assert.equal(source.kind, "mia-mirror");
-  assert.equal(source.url, "https://cdn.example.test/hermes-main.tar.gz");
-  assert.equal(source.upstreamUrl, "https://github.com/NousResearch/hermes-agent/archive/main.tar.gz");
-  assert.equal(source.checksum, "a".repeat(64));
-  assert.equal(source.requirement, "hermes-agent[web] @ https://cdn.example.test/hermes-main.tar.gz");
+  assert.equal(source.indexUrl, "https://pypi.org/simple");
+  assert.deepEqual(source.indexUrls, ["https://pypi.org/simple"]);
 });
 
-test("verifyChecksum rejects mismatched archive bytes", () => {
-  const service = createHermesInstallSourceService({
-    env: { MIA_ENGINE_SHA256: "b".repeat(64) }
-  });
-
-  assert.throws(
-    () => service.verifyChecksum(Buffer.from("archive"), "b".repeat(64)),
-    /Hermes archive checksum mismatch/
-  );
-});
-
-test("sha256Hex hashes bytes in lowercase hex", () => {
-  assert.equal(
-    sha256Hex(Buffer.from("hello")),
-    "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
-  );
+test("empty extras yields a bare package requirement", () => {
+  const service = createHermesInstallSourceService({ env: {}, officialExtras: "" });
+  const source = service.resolveInstallSource();
+  assert.equal(source.requirement, "hermes-agent");
+  assert.equal(source.baseRequirement, "hermes-agent");
 });

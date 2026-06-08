@@ -11,28 +11,20 @@ function packageJson() {
   return JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
 }
 
-function withHermesConfig() {
-  return JSON.parse(fs.readFileSync(path.join(root, "electron-builder.with-hermes.json"), "utf8"));
-}
-
-test("default desktop package scripts do not build Hermes runtime", () => {
+test("desktop package scripts do not build Hermes runtime", () => {
   const pkg = packageJson();
 
   assert.doesNotMatch(pkg.scripts.prepack || "", /hermes:runtime/);
   assert.doesNotMatch(pkg.scripts.pack || "", /hermes:runtime/);
   assert.doesNotMatch(pkg.scripts["dist:mac"], /hermes:runtime/);
   assert.doesNotMatch(pkg.scripts["dist:win"], /hermes:runtime/);
-  assert.match(pkg.scripts["dist:mac:with-hermes"], /hermes:runtime:mac-arm64/);
-  assert.match(pkg.scripts["dist:win:with-hermes"], /hermes:runtime:win-x64/);
 });
 
-test("default electron-builder resources exclude Hermes runtime", () => {
+test("electron-builder resources exclude Hermes runtime", () => {
   const pkg = packageJson();
-  const fallback = withHermesConfig();
 
   assert.doesNotMatch(JSON.stringify(pkg.build.mac || {}), /vendor\/hermes-runtime/);
   assert.doesNotMatch(JSON.stringify(pkg.build.win || {}), /vendor\/hermes-runtime/);
-  assert.match(JSON.stringify(fallback), /vendor\/hermes-runtime/);
 });
 
 test("desktop packaging scripts clean stale release artifacts before building", () => {
@@ -42,14 +34,14 @@ test("desktop packaging scripts clean stale release artifacts before building", 
 
   assert.equal(pkg.scripts["clean:release"], cleanCommand);
   assert.equal(pkg.scripts["tidy:release"], tidyCommand);
-  for (const scriptName of ["pack", "dist:mac", "dist:mac:with-hermes", "dist:win", "dist:win:with-hermes"]) {
+  for (const scriptName of ["pack", "dist:mac", "dist:win"]) {
     assert.match(
       pkg.scripts[scriptName],
       new RegExp(`(^|&& )npm run clean:release && .*electron-builder`),
       `${scriptName} should clean release before invoking electron-builder`
     );
   }
-  for (const scriptName of ["dist:mac", "dist:mac:with-hermes", "dist:win", "dist:win:with-hermes"]) {
+  for (const scriptName of ["dist:mac", "dist:win"]) {
     assert.match(
       pkg.scripts[scriptName],
       /electron-builder[\s\S]*&& npm run tidy:release$/,

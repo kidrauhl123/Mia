@@ -21,7 +21,6 @@ const required = [
   "src/cloud/sqlite-store.js",
   "src/cloud/desktop-bridge-permission.js",
   "src/permission-modes.js",
-  "src/runtime-resource-paths.js",
   "src/preload.js",
   "src/renderer/index.html",
   "src/renderer/app.js",
@@ -40,7 +39,6 @@ const required = [
   "src/web/assets/mia-scroll.js",
   "src/web/assets/mia-logo.png",
   "src/web/manifest.webmanifest",
-  "electron-builder.with-hermes.json",
   "scripts/clean-release.js",
   "scripts/serve-web.js",
   "scripts/serve-cloud.js",
@@ -135,7 +133,7 @@ for (const file of forbiddenRootDuplicates) {
   }
 }
 
-for (const file of ["src/main.js", "src/main/chat-engine-adapters.js", "src/main/chat-engine-registry.js", "src/main/chat-events.js", "src/main/chat-response.js", "src/main/claude-code-chat-adapter.js", "src/main/codex-chat-adapter.js", "src/main/bot-registry.js", "src/main/hermes-chat-adapter.js", "src/cloud/sqlite-store.js", "src/cloud/desktop-bridge-permission.js", "src/permission-modes.js", "src/runtime-resource-paths.js", "src/preload.js", "src/renderer/bot/bot-directory.js", "src/renderer/app.js", "src/web/app.js", "packages/shared/index.js", "packages/shared/avatar.js", "packages/shared/contact.js", "packages/shared/group-tiles.js", "packages/shared/send-pipeline.js", "packages/shared/approval-queue.js", "packages/shared/optimistic-send.js", "packages/shared/session-history.js", "packages/shared/cloud-client.js", "packages/shared/bot-identity.js", "scripts/serve-web.js", "scripts/serve-cloud.js", "scripts/build-cloud-release.js", "scripts/print-cloud-release-handoff.js", "scripts/verify-cloud-production.js", "scripts/audit-cloud-productization.js", "scripts/diagnose-deploy-ssh.js", "scripts/print-cloud-blockers.js", "scripts/doctor-cloud.js", "scripts/smoke-cloud.js", "scripts/local-agent-bridge.js"]) {
+for (const file of ["src/main.js", "src/main/chat-engine-adapters.js", "src/main/chat-engine-registry.js", "src/main/chat-events.js", "src/main/chat-response.js", "src/main/claude-code-chat-adapter.js", "src/main/codex-chat-adapter.js", "src/main/bot-registry.js", "src/main/hermes-chat-adapter.js", "src/cloud/sqlite-store.js", "src/cloud/desktop-bridge-permission.js", "src/permission-modes.js", "src/preload.js", "src/renderer/bot/bot-directory.js", "src/renderer/app.js", "src/web/app.js", "packages/shared/index.js", "packages/shared/avatar.js", "packages/shared/contact.js", "packages/shared/group-tiles.js", "packages/shared/send-pipeline.js", "packages/shared/approval-queue.js", "packages/shared/optimistic-send.js", "packages/shared/session-history.js", "packages/shared/cloud-client.js", "packages/shared/bot-identity.js", "scripts/serve-web.js", "scripts/serve-cloud.js", "scripts/build-cloud-release.js", "scripts/print-cloud-release-handoff.js", "scripts/verify-cloud-production.js", "scripts/audit-cloud-productization.js", "scripts/diagnose-deploy-ssh.js", "scripts/print-cloud-blockers.js", "scripts/doctor-cloud.js", "scripts/smoke-cloud.js", "scripts/local-agent-bridge.js"]) {
   childProcess.execFileSync(process.execPath, ["--check", path.join(__dirname, "..", file)], {
     stdio: "inherit"
   });
@@ -172,9 +170,6 @@ assert.equal(resolveChatEngineAdapter({ agent_engine: "claude-code" }).transport
 
 const mainSource = fs.readFileSync(path.join(__dirname, "main.js"), "utf8");
 const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
-const withHermesBuilderConfig = JSON.parse(
-  fs.readFileSync(path.join(__dirname, "..", "electron-builder.with-hermes.json"), "utf8")
-);
 // defaultModelSettings was moved to src/main/settings-store.js; assert against the extracted module.
 const settingsStoreSource = fs.readFileSync(path.join(__dirname, "main", "settings-store.js"), "utf8");
 const defaultModelBody = settingsStoreSource.match(/function defaultModelSettings\(\) \{[\s\S]*?\n {2}\}/)?.[0] || "";
@@ -194,56 +189,7 @@ assert.doesNotMatch(packageJson.scripts.prepack || "", /hermes:runtime/);
 assert.doesNotMatch(packageJson.scripts.pack || "", /hermes:runtime/);
 assert.doesNotMatch(packageJson.scripts["dist:mac"], /hermes:runtime/);
 assert.doesNotMatch(packageJson.scripts["dist:win"], /hermes:runtime/);
-assert.match(packageJson.scripts["dist:mac:with-hermes"], /hermes:runtime:mac-arm64/);
-assert.match(packageJson.scripts["dist:win:with-hermes"], /hermes:runtime:win-x64/);
 assert.doesNotMatch(JSON.stringify(packageJson.build.mac || {}), /vendor\/hermes-runtime/);
 assert.doesNotMatch(JSON.stringify(packageJson.build.win || {}), /vendor\/hermes-runtime/);
-assert.match(JSON.stringify(withHermesBuilderConfig.mac || {}), /vendor\/hermes-runtime\/mac-arm64/);
-assert.match(JSON.stringify(withHermesBuilderConfig.win || {}), /vendor\/hermes-runtime\/win-x64/);
-
-const {
-  runtimeTargetId,
-  bundledHermesRuntimeDir
-} = require("./runtime-resource-paths");
-
-assert.equal(runtimeTargetId({ platform: "darwin", arch: "arm64" }), "mac-arm64");
-assert.equal(runtimeTargetId({ platform: "darwin", arch: "x64" }), "mac-x64");
-assert.equal(runtimeTargetId({ platform: "linux", arch: "x64" }), "linux-x64");
-assert.equal(runtimeTargetId({ platform: "win32", arch: "x64" }), "win-x64");
-
-{
-  const existing = new Set([
-    "/repo/vendor/hermes-runtime/mac-arm64",
-    "/packaged/Resources/hermes-runtime"
-  ]);
-  const existsSync = (filePath) => existing.has(filePath);
-  assert.equal(
-    bundledHermesRuntimeDir({
-      resourcesPath: "/packaged/Resources",
-      appPath: "/repo",
-      cwd: "/repo",
-      platform: "darwin",
-      arch: "arm64",
-      existsSync
-    }),
-    "/packaged/Resources/hermes-runtime"
-  );
-}
-
-{
-  const existing = new Set(["/repo/vendor/hermes-runtime/mac-arm64"]);
-  const existsSync = (filePath) => existing.has(filePath);
-  assert.equal(
-    bundledHermesRuntimeDir({
-      resourcesPath: "/electron/Resources",
-      appPath: "/repo",
-      cwd: "/other",
-      platform: "darwin",
-      arch: "arm64",
-      existsSync
-    }),
-    "/repo/vendor/hermes-runtime/mac-arm64"
-  );
-}
 
 console.log("Mia project structure OK");

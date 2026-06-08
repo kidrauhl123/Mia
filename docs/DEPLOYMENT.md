@@ -69,23 +69,16 @@ npm run cloud:deploy:dry-run
 
 ## Desktop 打包
 
-轻量 macOS 包：
+macOS 包：
 
 ```bash
 npm run dist:mac
-```
-
-带 Hermes runtime 的 macOS 包：
-
-```bash
-npm run dist:mac:with-hermes
 ```
 
 Windows 包：
 
 ```bash
 npm run dist:win
-npm run dist:win:with-hermes
 ```
 
 产物目录：
@@ -94,7 +87,7 @@ npm run dist:win:with-hermes
 release/
 ```
 
-默认轻量包不会打包 Claude Code、Codex CLI，也不会主动打包 Hermes runtime。`with-hermes` 变体会先构建 `vendor/hermes-runtime/<platform>`，再用 `electron-builder.with-hermes.json` 把 runtime 放入安装包。
+轻量包不会打包 Claude Code、Codex CLI，也不打包 Hermes runtime。
 
 桌面包验证至少包括：
 

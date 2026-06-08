@@ -12,7 +12,6 @@ const path = require("node:path");
 function createRuntimePaths(deps = {}) {
   const {
     app,
-    runtimeResources,
     MIA_GATEWAY_SERVICE_LABEL,
     MIA_DAEMON_SERVICE_LABEL,
     env = process.env,
@@ -65,40 +64,13 @@ function createRuntimePaths(deps = {}) {
     };
   }
 
-  function venvPythonPath() {
-    return path.join(runtimePaths().engine, ".venv", "bin", "python");
-  }
-
-  // Bundled runtime: vendor/hermes-runtime/<target>/ → app.asar.unpacked/resources/hermes-runtime
-  function bundledHermesRuntimeDir() {
-    return runtimeResources.bundledHermesRuntimeDir({
-      resourcesPath: process.resourcesPath,
-      appPath: app.getAppPath(),
-      cwd: process.cwd(),
-      platform: process.platform,
-      arch: process.arch
-    });
-  }
-
-  function bundledPython() {
-    const root = bundledHermesRuntimeDir();
-    return runtimeResources.bundledPython(root, { platform: process.platform });
-  }
-
-  function bundledSitePackages() {
-    const root = bundledHermesRuntimeDir();
-    return runtimeResources.bundledSitePackages(root);
-  }
-
   function buildPythonPath() {
     const p = runtimePaths();
     const parts = [p.pluginsDir];
-    const sitePackages = bundledSitePackages();
-    if (sitePackages) parts.push(sitePackages);
     if (process.env.PYTHONPATH) parts.push(process.env.PYTHONPATH);
     // path.delimiter is ";" on Windows, ":" elsewhere — a hardcoded ":" would
     // collapse the whole PYTHONPATH into one bogus entry on Windows, so the
-    // bundled site-packages + mia_plugins would never import.
+    // mia_plugins overlay would never import.
     return parts.join(path.delimiter);
   }
 
@@ -108,10 +80,6 @@ function createRuntimePaths(deps = {}) {
 
   return {
     runtimePaths,
-    venvPythonPath,
-    bundledHermesRuntimeDir,
-    bundledPython,
-    bundledSitePackages,
     buildPythonPath,
     engineMarkerPath,
   };

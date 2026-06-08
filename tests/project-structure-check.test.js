@@ -86,6 +86,7 @@ test("legacy Capacitor mobile web entry is retired in favor of apps/mobile-rn", 
 
   for (const relativePath of [
     "src/mobile",
+    "dist/mobile-www",
     "scripts/build-mobile-www.js",
     "scripts/serve-mobile.js",
     "capacitor.config.json",
