@@ -34,6 +34,14 @@ export function botRuntimePath(botId: string, kind = "cloud-hermes"): string {
   return withQuery(`/api/me/bots/${encodeURIComponent(botId)}/runtime`, { kind });
 }
 
+export function botRuntimeSavePath(botId: string): string {
+  return `/api/me/bots/${encodeURIComponent(botId)}/runtime`;
+}
+
+export function modelCatalogPath(): string {
+  return "/api/me/model-catalog";
+}
+
 export function skillsPath(filters: { q?: string; category?: string; limit?: number } = {}): string {
   return withQuery("/api/skills", filters);
 }

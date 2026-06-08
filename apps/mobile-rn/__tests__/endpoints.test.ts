@@ -1,9 +1,11 @@
 import {
   botDetailPath,
+  botRuntimeSavePath,
   botRuntimePath,
   bridgeDevicesPath,
   bridgeRunsPath,
   friendRequestsPath,
+  modelCatalogPath,
   settingsPath,
   skillDetailPath,
   skillsPath,
@@ -31,4 +33,9 @@ test("builds skill endpoint paths with escaping and optional filters", () => {
   );
   expect(skillsPath()).toBe("/api/skills");
   expect(skillDetailPath("hermes.code-review")).toBe("/api/skills/hermes.code-review");
+});
+
+test("builds runtime control endpoint paths", () => {
+  expect(modelCatalogPath()).toBe("/api/me/model-catalog");
+  expect(botRuntimeSavePath("bot.one")).toBe("/api/me/bots/bot.one/runtime");
 });

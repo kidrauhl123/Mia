@@ -125,7 +125,35 @@ export interface BotRuntimeBinding {
   botId?: string;
   runtimeKind?: string;
   enabled?: boolean;
-  config?: Record<string, unknown>;
+  config?: BotRuntimeConfig;
+}
+
+export interface RuntimeModelEntry {
+  id: string;
+  value: string;
+  model: string;
+  label: string;
+  provider?: string;
+  providerLabel?: string;
+}
+
+export interface PlatformModelRow {
+  id?: string;
+  value?: string;
+  model?: string;
+  modelName?: string;
+  label?: string;
+  name?: string;
+  upstreamModel?: string;
+  provider?: string;
+  providerLabel?: string;
+}
+
+export interface BotRuntimeConfig {
+  model?: string;
+  effortLevel?: string;
+  permissionMode?: string;
+  modelEntries?: RuntimeModelEntry[];
 }
 
 export interface SkillSummary {
