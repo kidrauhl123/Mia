@@ -50,7 +50,7 @@ function readReleaseIdentity(rootDir = root) {
 
 async function productionDeployComplete({
   rootDir = root,
-  publicUrl = process.env.MIA_CLOUD_PUBLIC_URL || "https://aiweb.buytb01.com"
+  publicUrl = process.env.MIA_CLOUD_PUBLIC_URL || "https://mia.gifgif.cn"
 } = {}) {
   try {
     const audit = await runAuditLive({ rootDir, publicUrl });
@@ -62,7 +62,7 @@ async function productionDeployComplete({
 
 async function buildCloudBlockers({
   rootDir = root,
-  publicUrl = process.env.MIA_CLOUD_PUBLIC_URL || "https://aiweb.buytb01.com"
+  publicUrl = process.env.MIA_CLOUD_PUBLIC_URL || "https://mia.gifgif.cn"
 } = {}) {
   const identity = readReleaseIdentity(rootDir);
   const productionComplete = await productionDeployComplete({ rootDir, publicUrl });
@@ -100,7 +100,7 @@ async function buildCloudBlockers({
 
 async function buildCloudBlockerSummary({
   rootDir = root,
-  publicUrl = process.env.MIA_CLOUD_PUBLIC_URL || "https://aiweb.buytb01.com"
+  publicUrl = process.env.MIA_CLOUD_PUBLIC_URL || "https://mia.gifgif.cn"
 } = {}) {
   const identity = readReleaseIdentity(rootDir);
   const productionComplete = await productionDeployComplete({ rootDir, publicUrl });

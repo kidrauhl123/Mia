@@ -895,3 +895,36 @@ test("bot mention in group message triggers conversation.bot_invocation_requeste
     }
   } finally { await stopServer(ctx); }
 });
+
+test("bot private conversation message triggers conversation.bot_invocation_requested without @ mention", async () => {
+  const ctx = await startServer();
+  try {
+    const alice = await register(ctx.port, "alice");
+    await createBot(ctx.port, alice, "bot_codex", "Codex");
+    const ensured = await api(ctx.port, "PUT", "/api/me/bot-conversations/session_codex", {
+      token: alice.token,
+      body: { botId: "bot_codex", title: "Codex", runtimeKind: "desktop-local" }
+    });
+    assert.equal(ensured.status, 200);
+
+    const aliceWs = await openEventsWs(ctx.port, alice.token);
+    try {
+      const posted = await api(ctx.port, "POST", "/api/conversations/" + ensured.body.conversation.id + "/messages", {
+        token: alice.token,
+        body: { bodyMd: "你好" }
+      });
+      assert.equal(posted.status, 201);
+      const inv = await waitForEvent(
+        aliceWs.events,
+        (e) => e.type === "conversation.bot_invocation_requested",
+        800
+      );
+      assert.equal(inv.conversationId, ensured.body.conversation.id);
+      assert.equal(inv.botId, "bot_codex");
+      assert.equal(inv.runtimeKind, "desktop-local");
+      assert.equal(inv.triggeringMessage.body_md, "你好");
+    } finally {
+      aliceWs.ws.close();
+    }
+  } finally { await stopServer(ctx); }
+});

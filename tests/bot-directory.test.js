@@ -90,7 +90,7 @@ test("bot directory keeps cloud video avatar trim when local mirror is stale", (
       {
         id: "jiangmei",
         name: "匠妹 Cloud",
-        avatarImage: "https://aiweb.buytb01.com/api/avatar-assets/jiangmei.avatar.mp4",
+        avatarImage: "https://mia.gifgif.cn/api/avatar-assets/jiangmei.avatar.mp4",
         avatarCrop: { x: 36, y: 100, zoom: 1.09, start: 7.26, duration: 4.94 }
       }
     ],
@@ -106,7 +106,7 @@ test("bot directory keeps cloud video avatar trim when local mirror is stale", (
 
   assert.equal(bots.length, 1);
   assert.equal(bots[0].name, "匠妹 Local");
-  assert.equal(bots[0].avatarImage, "https://aiweb.buytb01.com/api/avatar-assets/jiangmei.avatar.mp4");
+  assert.equal(bots[0].avatarImage, "https://mia.gifgif.cn/api/avatar-assets/jiangmei.avatar.mp4");
   assert.deepEqual(bots[0].avatarCrop, { x: 36, y: 100, zoom: 1.09, start: 7.26, duration: 4.94 });
 });
 

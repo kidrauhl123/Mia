@@ -91,7 +91,7 @@ const { registerTasksIpc } = require("./main/ipc/tasks-ipc.js");
 const MIA_GATEWAY_SERVICE_LABEL = "ai.mia.hermes.gateway";
 const MIA_DAEMON_SERVICE_LABEL = "ai.mia.daemon";
 const MIA_DAEMON_DEFAULT_PORT = Number(process.env.MIA_DAEMON_PORT || 27861);
-const MIA_CLOUD_DEFAULT_URL = process.env.MIA_CLOUD_URL || "https://aiweb.buytb01.com";
+const MIA_CLOUD_DEFAULT_URL = process.env.MIA_CLOUD_URL || "https://mia.gifgif.cn";
 const IS_DAEMON_PROCESS = process.argv.includes("--daemon") || process.env.MIA_DAEMON === "1";
 const ALLOW_MULTIPLE_INSTANCES = process.env.MIA_ALLOW_MULTIPLE_INSTANCES === "1";
 

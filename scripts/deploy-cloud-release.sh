@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-REMOTE="${MIA_DEPLOY_REMOTE:-root@aiweb.buytb01.com}"
-PUBLIC_URL="${MIA_CLOUD_PUBLIC_URL:-https://aiweb.buytb01.com}"
+REMOTE="${MIA_DEPLOY_REMOTE:-root@mia.gifgif.cn}"
+PUBLIC_URL="${MIA_CLOUD_PUBLIC_URL:-https://mia.gifgif.cn}"
 REMOTE_TMP="${MIA_DEPLOY_TMP:-/tmp/mia-cloud-release.tgz}"
 REMOTE_RELEASE_DIR="${MIA_DEPLOY_RELEASE_DIR:-/tmp/mia-cloud-release}"
 API_DIR="${MIA_DEPLOY_API_DIR:-/opt/mia-cloud}"

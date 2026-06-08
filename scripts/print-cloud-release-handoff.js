@@ -79,8 +79,8 @@ function sshServerDiagnosticsCommand(publicKey, user = "root") {
   ].join("\n");
 }
 
-function parseDeployRemote(remote = process.env.MIA_DEPLOY_REMOTE || "root@aiweb.buytb01.com") {
-  const value = String(remote || "").trim() || "root@aiweb.buytb01.com";
+function parseDeployRemote(remote = process.env.MIA_DEPLOY_REMOTE || "root@mia.gifgif.cn") {
+  const value = String(remote || "").trim() || "root@mia.gifgif.cn";
   const at = value.lastIndexOf("@");
   if (at === -1) {
     return { remote: value, user: "root", host: value };
@@ -93,7 +93,7 @@ function parseDeployRemote(remote = process.env.MIA_DEPLOY_REMOTE || "root@aiweb
 }
 
 function buildSshAuthorizationHelp({
-  remote = process.env.MIA_DEPLOY_REMOTE || "root@aiweb.buytb01.com",
+  remote = process.env.MIA_DEPLOY_REMOTE || "root@mia.gifgif.cn",
   sshPublicKeyPath = process.env.MIA_DEPLOY_PUBLIC_KEY || path.join(os.homedir(), ".ssh", "id_ed25519.pub"),
   sshAgentStatus = readSshAgentStatus()
 } = {}) {
@@ -156,7 +156,7 @@ function checksumVerifyCommand(checksumFile) {
 
 function buildHandoff({
   distDir = path.join(root, "dist"),
-  publicUrl = process.env.MIA_CLOUD_PUBLIC_URL || "https://aiweb.buytb01.com",
+  publicUrl = process.env.MIA_CLOUD_PUBLIC_URL || "https://mia.gifgif.cn",
   sshPublicKeyPath = process.env.MIA_DEPLOY_PUBLIC_KEY || path.join(os.homedir(), ".ssh", "id_ed25519.pub")
 } = {}) {
   const releaseDir = path.join(distDir, "mia-cloud-release");
@@ -300,7 +300,7 @@ function buildHandoff({
 
 function writeHandoffFile({
   distDir = path.join(root, "dist"),
-  publicUrl = process.env.MIA_CLOUD_PUBLIC_URL || "https://aiweb.buytb01.com",
+  publicUrl = process.env.MIA_CLOUD_PUBLIC_URL || "https://mia.gifgif.cn",
   sshPublicKeyPath = process.env.MIA_DEPLOY_PUBLIC_KEY || path.join(os.homedir(), ".ssh", "id_ed25519.pub"),
   outputPath = path.join(distDir, "mia-cloud-release-handoff.txt")
 } = {}) {
@@ -311,7 +311,7 @@ function writeHandoffFile({
 
 function verifyHandoffFile({
   distDir = path.join(root, "dist"),
-  publicUrl = process.env.MIA_CLOUD_PUBLIC_URL || "https://aiweb.buytb01.com",
+  publicUrl = process.env.MIA_CLOUD_PUBLIC_URL || "https://mia.gifgif.cn",
   sshPublicKeyPath = process.env.MIA_DEPLOY_PUBLIC_KEY || path.join(os.homedir(), ".ssh", "id_ed25519.pub"),
   outputPath = path.join(distDir, "mia-cloud-release-handoff.txt")
 } = {}) {
@@ -411,7 +411,7 @@ function buildTransferReadme({ publicUrl, expectedCommit, expectedBuiltAt }) {
     "",
     "```bash",
     "cd /path/to/mia",
-    "npm run cloud:prod:verify:e2e -- https://aiweb.buytb01.com",
+    "npm run cloud:prod:verify:e2e -- https://mia.gifgif.cn",
     "```",
     "",
     "A desktop bridge logged into the same Mia Cloud account can be called directly from Web or mobile. It does not require a separate local approval click for the remote connection. Agent permission mode remains the normal per-Agent execution setting and is not used as device authentication.",
@@ -423,7 +423,7 @@ function buildTransferReadme({ publicUrl, expectedCommit, expectedBuiltAt }) {
 
 function writeTransferBundle({
   distDir = path.join(root, "dist"),
-  publicUrl = process.env.MIA_CLOUD_PUBLIC_URL || "https://aiweb.buytb01.com",
+  publicUrl = process.env.MIA_CLOUD_PUBLIC_URL || "https://mia.gifgif.cn",
   sshPublicKeyPath = process.env.MIA_DEPLOY_PUBLIC_KEY || path.join(os.homedir(), ".ssh", "id_ed25519.pub"),
   outputPath = path.join(distDir, "mia-cloud-release-transfer.tgz")
 } = {}) {

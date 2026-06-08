@@ -1306,10 +1306,29 @@ function mentionedBotIds(body = {}) {
   return ids;
 }
 
+function botConversationTargetIds(conversation, members = []) {
+  if (!conversation || conversation.type !== "bot") return [];
+  const ids = [];
+  const seen = new Set();
+  const push = (value) => {
+    const id = String(value || "").trim();
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    ids.push(id);
+  };
+  push(conversation.decorations?.botId);
+  for (const member of members) {
+    if (member?.member_kind === "bot") push(member.member_ref);
+  }
+  return ids;
+}
+
 function broadcastBotInvocations(context, conversationId, message, body, invokedBy) {
-  const requested = new Set(mentionedBotIds(body));
-  if (!requested.size) return;
   const members = context.socialStore.listConversationMembers(conversationId);
+  const mentioned = mentionedBotIds(body);
+  const conversation = mentioned.length ? null : context.socialStore.getConversation(conversationId);
+  const requested = new Set(mentioned.length ? mentioned : botConversationTargetIds(conversation, members));
+  if (!requested.size) return;
   const recentMessages = context.messagesStore.listMessagesSince(conversationId, 0, 20);
   for (const member of members) {
     if (member.member_kind !== "bot" || !member.owner_id || !requested.has(member.member_ref)) continue;

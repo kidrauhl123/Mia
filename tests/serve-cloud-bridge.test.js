@@ -174,7 +174,7 @@ test("cloud applies security headers and restricts browser CORS origins", async 
   const dataDir = tempDataDir();
   const server = createMiaCloudServer({
     dataDir,
-    allowedOrigins: ["https://aiweb.buytb01.com"],
+    allowedOrigins: ["https://mia.gifgif.cn"],
     releaseManifest: {
       product: "Mia Cloud",
       version: "0.1.0",
@@ -190,7 +190,7 @@ test("cloud applies security headers and restricts browser CORS origins", async 
   try {
     const allowed = await rawFetch(baseUrl, "/api/health", {
       headers: {
-        Origin: "https://aiweb.buytb01.com",
+        Origin: "https://mia.gifgif.cn",
         "X-Forwarded-Proto": "https"
       }
     });
@@ -206,7 +206,7 @@ test("cloud applies security headers and restricts browser CORS origins", async 
     });
     assert.ok(health.features.includes("sqlite-store"));
     assert.ok(health.features.includes("bridge-websocket-subprotocol-token"));
-    assert.equal(allowed.headers.get("access-control-allow-origin"), "https://aiweb.buytb01.com");
+    assert.equal(allowed.headers.get("access-control-allow-origin"), "https://mia.gifgif.cn");
     assert.equal(allowed.headers.get("x-content-type-options"), "nosniff");
     assert.equal(allowed.headers.get("referrer-policy"), "strict-origin-when-cross-origin");
     assert.match(allowed.headers.get("strict-transport-security") || "", /max-age=31536000/);
@@ -226,20 +226,20 @@ test("cloud handles browser CORS preflight for allowed origins only", async () =
   const dataDir = tempDataDir();
   const server = createMiaCloudServer({
     dataDir,
-    allowedOrigins: ["https://aiweb.buytb01.com"]
+    allowedOrigins: ["https://mia.gifgif.cn"]
   });
   const baseUrl = await listen(server);
   try {
     const allowed = await rawFetch(baseUrl, "/api/files", {
       method: "OPTIONS",
       headers: {
-        Origin: "https://aiweb.buytb01.com",
+        Origin: "https://mia.gifgif.cn",
         "Access-Control-Request-Method": "POST",
         "Access-Control-Request-Headers": "authorization, content-type"
       }
     });
     assert.equal(allowed.status, 204);
-    assert.equal(allowed.headers.get("access-control-allow-origin"), "https://aiweb.buytb01.com");
+    assert.equal(allowed.headers.get("access-control-allow-origin"), "https://mia.gifgif.cn");
     assert.match(allowed.headers.get("access-control-allow-methods") || "", /POST/);
     assert.match(allowed.headers.get("access-control-allow-headers") || "", /authorization/);
 
@@ -406,7 +406,7 @@ test("cloud rejects websocket upgrades from disallowed browser origins", async (
   const dataDir = tempDataDir();
   const server = createMiaCloudServer({
     dataDir,
-    allowedOrigins: ["https://aiweb.buytb01.com"]
+    allowedOrigins: ["https://mia.gifgif.cn"]
   });
   const baseUrl = await listen(server);
   let allowedWs = null;
@@ -417,7 +417,7 @@ test("cloud rejects websocket upgrades from disallowed browser origins", async (
       body: { username: "origin", password: "secret1" }
     });
     allowedWs = new WebSocket(eventsWsUrl(baseUrl), wsTokenProtocol(account.token), {
-      headers: { Origin: "https://aiweb.buytb01.com" }
+      headers: { Origin: "https://mia.gifgif.cn" }
     });
     await waitForMessage(allowedWs, (message) => message.type === "events_ready");
 

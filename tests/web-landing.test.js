@@ -119,7 +119,7 @@ test("mobile update publisher copies Android APK and writes update manifest", (t
   const manifest = publishMobileAndroidDownload({
     sourceApk: apkPath,
     downloadsDir,
-    publicBaseUrl: "https://aiweb.buytb01.com",
+    publicBaseUrl: "https://mia.gifgif.cn",
     versionName: "1.3.2",
     versionCode: 12,
     runtimeVersion: "2",
@@ -132,7 +132,7 @@ test("mobile update publisher copies Android APK and writes update manifest", (t
   assert.equal(fs.existsSync(path.join(downloadsDir, "mia-android-latest.apk")), true);
   assert.equal(fs.existsSync(path.join(downloadsDir, "mia-mobile-update.json")), true);
   assert.equal(manifest.android.apkSha256, expectedSha);
-  assert.equal(manifest.android.apkUrl, "https://aiweb.buytb01.com/downloads/mia-android-latest.apk");
+  assert.equal(manifest.android.apkUrl, "https://mia.gifgif.cn/downloads/mia-android-latest.apk");
   assert.equal(manifest.android.versionCode, 12);
   assert.deepEqual(manifest.android.notes, ["修复聊天输入框遮挡"]);
 });

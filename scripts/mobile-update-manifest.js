@@ -10,7 +10,7 @@ function sha256File(filePath) {
 }
 
 function cleanBaseUrl(publicBaseUrl) {
-  return String(publicBaseUrl || "https://aiweb.buytb01.com").replace(/\/+$/, "");
+  return String(publicBaseUrl || "https://mia.gifgif.cn").replace(/\/+$/, "");
 }
 
 function parseNotes(notes) {

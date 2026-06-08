@@ -113,20 +113,20 @@ test("sshServerDiagnosticsCommand checks key presence, permissions, and sshd pol
 });
 
 test("parseDeployRemote extracts a deploy user from MIA_DEPLOY_REMOTE-style targets", () => {
-  assert.deepEqual(parseDeployRemote("root@aiweb.buytb01.com"), {
-    remote: "root@aiweb.buytb01.com",
+  assert.deepEqual(parseDeployRemote("root@mia.gifgif.cn"), {
+    remote: "root@mia.gifgif.cn",
     user: "root",
-    host: "aiweb.buytb01.com"
+    host: "mia.gifgif.cn"
   });
   assert.deepEqual(parseDeployRemote("deploy@example.com"), {
     remote: "deploy@example.com",
     user: "deploy",
     host: "example.com"
   });
-  assert.deepEqual(parseDeployRemote("aiweb.buytb01.com"), {
-    remote: "aiweb.buytb01.com",
+  assert.deepEqual(parseDeployRemote("mia.gifgif.cn"), {
+    remote: "mia.gifgif.cn",
     user: "root",
-    host: "aiweb.buytb01.com"
+    host: "mia.gifgif.cn"
   });
 });
 
@@ -137,12 +137,12 @@ test("buildSshAuthorizationHelp prints a focused SSH unblock command without rel
     const publicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC1I4LfHcHFs9N1NZWSKlYhvthAl8S3zKLer1+gbPn4J mia-test";
     fs.writeFileSync(publicKeyPath, `${publicKey}\n`);
     const help = buildSshAuthorizationHelp({
-      remote: "deploy@aiweb.buytb01.com",
+      remote: "deploy@mia.gifgif.cn",
       sshPublicKeyPath: publicKeyPath,
       sshAgentStatus: "ssh-agent identities: none loaded"
     });
     assert.match(help, /Mia Cloud SSH authorization help/);
-    assert.match(help, /Remote target: deploy@aiweb\.buytb01\.com/);
+    assert.match(help, /Remote target: deploy@mia\.gifgif\.cn/);
     assert.match(help, /Remote user: deploy/);
     assert.match(help, new RegExp(`Public key path: ${publicKeyPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
     assert.match(help, /Public key fingerprint: SHA256:/);
@@ -154,7 +154,7 @@ test("buildSshAuthorizationHelp prints a focused SSH unblock command without rel
     assert.match(help, /sshd -T/);
     assert.match(help, /MISSING Mia deploy key/);
     assert.match(help, new RegExp(`ssh-add '${path.join(tempDir, "id_ed25519").replace(/'/g, "'\\\\''")}'`));
-    assert.match(help, /ssh -o BatchMode=yes -o ConnectTimeout=10 'deploy@aiweb\.buytb01\.com' true/);
+    assert.match(help, /ssh -o BatchMode=yes -o ConnectTimeout=10 'deploy@mia\.gifgif\.cn' true/);
     assert.match(help, /npm run cloud:deploy/);
     assert.doesNotMatch(help, /PRIVATE KEY|BEGIN OPENSSH PRIVATE KEY/);
   } finally {
@@ -195,7 +195,7 @@ test("buildHandoff prints operator commands from release artifacts", () => {
   try {
     const publicKeyPath = path.join(tempDir, "id_ed25519.pub");
     fs.writeFileSync(publicKeyPath, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC1I4LfHcHFs9N1NZWSKlYhvthAl8S3zKLer1+gbPn4J mia-test\n");
-    const handoff = buildHandoff({ distDir, publicUrl: "https://aiweb.buytb01.com", sshPublicKeyPath: publicKeyPath });
+    const handoff = buildHandoff({ distDir, publicUrl: "https://mia.gifgif.cn", sshPublicKeyPath: publicKeyPath });
     assert.match(handoff, new RegExp(`Archive SHA-256: ${sha256Text("archive")}`));
     assert.match(handoff, /Source commit: abcdef123456\+dirty/);
     assert.match(handoff, /Built at: 2026-05-21T01:02:03\.000Z/);
@@ -230,13 +230,13 @@ test("buildHandoff prints operator commands from release artifacts", () => {
     assert.match(handoff, /\.\/install-cloud-release-local\.sh \/tmp\/mia-cloud-release\.tgz/);
     assert.match(handoff, /MIA_DOCTOR_EXPECT_RELEASE_COMMIT='abcdef123456'/);
     assert.match(handoff, /MIA_DOCTOR_EXPECT_RELEASE_BUILT_AT='2026-05-21T01:02:03\.000Z'/);
-    assert.match(handoff, /node mia-cloud-release\/doctor-cloud\.js 'https:\/\/aiweb\.buytb01\.com'/);
+    assert.match(handoff, /node mia-cloud-release\/doctor-cloud\.js 'https:\/\/mia\.gifgif\.cn'/);
     assert.match(handoff, /MIA_SMOKE_EXPECT_RELEASE_COMMIT='abcdef123456'/);
     assert.match(handoff, /MIA_SMOKE_EXPECT_RELEASE_BUILT_AT='2026-05-21T01:02:03\.000Z'/);
-    assert.match(handoff, /node mia-cloud-release\/smoke-cloud\.js 'https:\/\/aiweb\.buytb01\.com'/);
+    assert.match(handoff, /node mia-cloud-release\/smoke-cloud\.js 'https:\/\/mia\.gifgif\.cn'/);
     assert.match(handoff, /After a desktop bridge is logged into the same dedicated smoke account/);
     assert.match(handoff, /mia-cloud-release\/prepare-cloud-smoke-account\.js mia-cloud-release\/smoke-cloud\.js/);
-    assert.match(handoff, /node mia-cloud-release\/prepare-cloud-smoke-account\.js 'https:\/\/aiweb\.buytb01\.com'/);
+    assert.match(handoff, /node mia-cloud-release\/prepare-cloud-smoke-account\.js 'https:\/\/mia\.gifgif\.cn'/);
     assert.match(handoff, /MIA_SMOKE_USERNAME='<smoke-account>'/);
     assert.match(handoff, /MIA_SMOKE_PASSWORD='<smoke-password>'/);
     assert.match(handoff, /MIA_SMOKE_REQUIRE_BRIDGE=1/);
@@ -250,7 +250,7 @@ test("buildHandoff prints operator commands from release artifacts", () => {
     assert.match(handoff, /full Mia project checkout/);
     assert.match(handoff, /not run from the extracted Cloud release directory/);
     assert.match(handoff, /cd \/path\/to\/mia/);
-    assert.match(handoff, /MIA_CLOUD_URL='https:\/\/aiweb\.buytb01\.com'/);
+    assert.match(handoff, /MIA_CLOUD_URL='https:\/\/mia\.gifgif\.cn'/);
     assert.match(handoff, /MIA_CLOUD_USERNAME='<smoke-account>'/);
     assert.match(handoff, /MIA_CLOUD_PASSWORD='<smoke-password>'/);
     assert.match(handoff, /npm run bridge/);
@@ -263,7 +263,7 @@ test("buildHandoff rejects sidecar checksum mismatches", () => {
   const { tempDir, distDir } = createReleaseFixture({ badSidecar: true });
   try {
     assert.throws(
-      () => buildHandoff({ distDir, publicUrl: "https://aiweb.buytb01.com" }),
+      () => buildHandoff({ distDir, publicUrl: "https://mia.gifgif.cn" }),
       /Release archive checksum mismatch:/
     );
   } finally {
@@ -274,7 +274,7 @@ test("buildHandoff rejects sidecar checksum mismatches", () => {
 test("writeHandoffFile writes a transfer note beside release artifacts", () => {
   const { tempDir, distDir } = createReleaseFixture();
   try {
-    const outputPath = writeHandoffFile({ distDir, publicUrl: "https://aiweb.buytb01.com" });
+    const outputPath = writeHandoffFile({ distDir, publicUrl: "https://mia.gifgif.cn" });
     assert.equal(outputPath, path.join(distDir, "mia-cloud-release-handoff.txt"));
     const written = fs.readFileSync(outputPath, "utf8");
     assert.match(written, /Mia Cloud release handoff/);
@@ -282,7 +282,7 @@ test("writeHandoffFile writes a transfer note beside release artifacts", () => {
     assert.match(written, /mia-cloud-release-handoff\.txt/);
     assert.match(written, /MIA_DOCTOR_EXPECT_RELEASE_COMMIT='abcdef123456'/);
     assert.match(written, /MIA_SMOKE_EXPECT_RELEASE_COMMIT='abcdef123456'/);
-    assert.match(written, /node mia-cloud-release\/smoke-cloud\.js 'https:\/\/aiweb\.buytb01\.com'/);
+    assert.match(written, /node mia-cloud-release\/smoke-cloud\.js 'https:\/\/mia\.gifgif\.cn'/);
     assert.match(written, /\n$/);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
@@ -292,7 +292,7 @@ test("writeHandoffFile writes a transfer note beside release artifacts", () => {
 test("writeTransferBundle packages release, checksum, and handoff into one tarball", () => {
   const { tempDir, distDir } = createReleaseFixture();
   try {
-    const outputPath = writeTransferBundle({ distDir, publicUrl: "https://aiweb.buytb01.com" });
+    const outputPath = writeTransferBundle({ distDir, publicUrl: "https://mia.gifgif.cn" });
     assert.equal(outputPath, path.join(distDir, "mia-cloud-release-transfer.tgz"));
     assert.ok(fs.existsSync(outputPath));
     const sidecarPath = `${outputPath}.sha256`;
@@ -318,7 +318,7 @@ test("writeTransferBundle packages release, checksum, and handoff into one tarba
     assert.match(readme, /bash install-transfer-bundle\.sh/);
     assert.match(readme, /MIA_DOCTOR_EXPECT_RELEASE_COMMIT='abcdef123456'/);
     assert.match(readme, /prepare-cloud-smoke-account\.js mia-cloud-release\/smoke-cloud\.js/);
-    assert.match(readme, /node mia-cloud-release\/prepare-cloud-smoke-account\.js 'https:\/\/aiweb\.buytb01\.com'/);
+    assert.match(readme, /node mia-cloud-release\/prepare-cloud-smoke-account\.js 'https:\/\/mia\.gifgif\.cn'/);
     assert.match(readme, /MIA_SMOKE_REQUIRE_BRIDGE=1/);
     assert.match(readme, /Log the desktop app or standalone bridge into the same smoke account/);
     assert.match(readme, /Desktop bridge same-account control from a full Mia checkout/);
@@ -339,7 +339,7 @@ test("writeTransferBundle packages release, checksum, and handoff into one tarba
 test("verifyTransferBundle accepts current bundle and rejects checksum mismatches", () => {
   const { tempDir, distDir } = createReleaseFixture();
   try {
-    const outputPath = writeTransferBundle({ distDir, publicUrl: "https://aiweb.buytb01.com" });
+    const outputPath = writeTransferBundle({ distDir, publicUrl: "https://mia.gifgif.cn" });
     assert.equal(verifyTransferBundle({ outputPath }), outputPath);
 
     fs.rmSync(`${outputPath}.sha256`, { force: true });
@@ -381,14 +381,14 @@ test("verifyTransferBundle accepts current bundle and rejects checksum mismatche
 test("verifyHandoffFile accepts current handoff and rejects stale content", () => {
   const { tempDir, distDir } = createReleaseFixture();
   try {
-    const outputPath = writeHandoffFile({ distDir, publicUrl: "https://aiweb.buytb01.com" });
+    const outputPath = writeHandoffFile({ distDir, publicUrl: "https://mia.gifgif.cn" });
     assert.equal(
-      verifyHandoffFile({ distDir, publicUrl: "https://aiweb.buytb01.com" }),
+      verifyHandoffFile({ distDir, publicUrl: "https://mia.gifgif.cn" }),
       outputPath
     );
     fs.appendFileSync(outputPath, "\nstale\n");
     assert.throws(
-      () => verifyHandoffFile({ distDir, publicUrl: "https://aiweb.buytb01.com" }),
+      () => verifyHandoffFile({ distDir, publicUrl: "https://mia.gifgif.cn" }),
       /Release handoff file is stale/
     );
   } finally {

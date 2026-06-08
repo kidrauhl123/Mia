@@ -3,7 +3,7 @@ set -euo pipefail
 
 ARCHIVE_INPUT="${1:-${MIA_RELEASE_ARCHIVE:-./mia-cloud-release.tgz}}"
 ARCHIVE="$(cd "$(dirname "$ARCHIVE_INPUT")" && pwd)/$(basename "$ARCHIVE_INPUT")"
-PUBLIC_URL="${MIA_CLOUD_PUBLIC_URL:-https://aiweb.buytb01.com}"
+PUBLIC_URL="${MIA_CLOUD_PUBLIC_URL:-https://mia.gifgif.cn}"
 SMOKE_URL="${MIA_INSTALL_SMOKE_URL:-$PUBLIC_URL}"
 API_DIR="${MIA_DEPLOY_API_DIR:-/opt/mia-cloud}"
 WEB_DIR="${MIA_DEPLOY_WEB_DIR:-/var/www/mia-web}"

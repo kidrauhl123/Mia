@@ -7,7 +7,7 @@ const target = {
   versionCode: 12,
   runtimeVersion: "2",
   minSupportedVersionCode: 1,
-  apkUrl: "https://aiweb.buytb01.com/downloads/mia-android-latest.apk",
+  apkUrl: "https://mia.gifgif.cn/downloads/mia-android-latest.apk",
   apkSha256: "13bd217f0d51bed4c2c4b19b9bde3c6818d18181b6e565f6cde64cc7f8482322",
   apkSizeBytes: 100,
   mandatory: false,

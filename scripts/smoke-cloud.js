@@ -18,7 +18,7 @@ function usage() {
     "Usage: node scripts/smoke-cloud.js <cloud-url>",
     "",
     "Example:",
-    "  node scripts/smoke-cloud.js https://aiweb.buytb01.com",
+    "  node scripts/smoke-cloud.js https://mia.gifgif.cn",
     "",
     "Environment:",
     "  MIA_SMOKE_USERNAME=<account>   Log in to an existing smoke account instead of registering a temporary one.",

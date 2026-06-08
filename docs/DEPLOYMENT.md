@@ -36,7 +36,7 @@ API service:      /opt/mia-cloud/server.js
 Cloud data:       /var/lib/mia-cloud
 Agent user roots: /var/lib/mia-cloud-agent-users
 Web root:         /var/www/mia-web
-Public origin:    https://aiweb.buytb01.com
+Public origin:    https://mia.gifgif.cn
 Local API:        127.0.0.1:4175
 systemd service:  mia-cloud
 ```
@@ -61,7 +61,7 @@ npm test
 Cloud 发布前建议先跑：
 
 ```bash
-npm run cloud:doctor -- https://aiweb.buytb01.com
+npm run cloud:doctor -- https://mia.gifgif.cn
 npm run cloud:deploy:dry-run
 ```
 
@@ -143,7 +143,7 @@ SSH 可用时，真实部署：
 npm run cloud:deploy
 ```
 
-默认目标是 `root@aiweb.buytb01.com` 和 `https://aiweb.buytb01.com`。覆盖目标：
+默认目标是 `root@mia.gifgif.cn` 和 `https://mia.gifgif.cn`。覆盖目标：
 
 ```bash
 MIA_DEPLOY_REMOTE=deploy@example.com \
@@ -155,14 +155,14 @@ npm run cloud:deploy
 常用部署环境变量：
 
 ```text
-MIA_DEPLOY_REMOTE        SSH 目标，默认 root@aiweb.buytb01.com
+MIA_DEPLOY_REMOTE        SSH 目标，默认 root@mia.gifgif.cn
 MIA_DEPLOY_SUDO          可选 sudo 命令，例如 sudo -n
 MIA_DEPLOY_API_DIR       API 安装目录，默认 /opt/mia-cloud
 MIA_DEPLOY_WEB_DIR       Web 根目录，默认 /var/www/mia-web
 MIA_DEPLOY_DATA_DIR      Cloud 数据目录，默认 /var/lib/mia-cloud
 MIA_DEPLOY_SERVICE       systemd 服务名，默认 mia-cloud
 MIA_DEPLOY_SERVICE_USER  服务用户，默认 mia-cloud
-MIA_CLOUD_PUBLIC_URL     公网地址，默认 https://aiweb.buytb01.com
+MIA_CLOUD_PUBLIC_URL     公网地址，默认 https://mia.gifgif.cn
 ```
 
 SSH 不可用时，先打印给 VPS 操作员的授权命令：
@@ -195,14 +195,14 @@ npm run cloud:release:handoff:bundle:verify
 部署完成后，从开发机验证公网服务是否就是当前 release：
 
 ```bash
-npm run cloud:prod:verify -- https://aiweb.buytb01.com
+npm run cloud:prod:verify -- https://mia.gifgif.cn
 ```
 
 如果还要验证服务器侧依赖：
 
 ```bash
-MIA_DOCTOR_REMOTE=root@aiweb.buytb01.com \
-npm run cloud:prod:verify -- https://aiweb.buytb01.com
+MIA_DOCTOR_REMOTE=root@mia.gifgif.cn \
+npm run cloud:prod:verify -- https://mia.gifgif.cn
 ```
 
 端到端 Bridge smoke 需要一个固定 smoke 账号，并且桌面端已经用同账号登录、Bridge 在线：
@@ -210,11 +210,11 @@ npm run cloud:prod:verify -- https://aiweb.buytb01.com
 ```bash
 MIA_SMOKE_USERNAME=<account> \
 MIA_SMOKE_PASSWORD=<password> \
-npm run cloud:smoke:account -- https://aiweb.buytb01.com
+npm run cloud:smoke:account -- https://mia.gifgif.cn
 
 MIA_SMOKE_USERNAME=<account> \
 MIA_SMOKE_PASSWORD=<password> \
-npm run cloud:prod:verify:e2e -- https://aiweb.buytb01.com
+npm run cloud:prod:verify:e2e -- https://mia.gifgif.cn
 ```
 
 `cloud:prod:verify` 会读取 `dist/mia-cloud-release/manifest.json`，把当前包的 `gitCommit` 和 `builtAt` 注入 doctor/smoke。通过这个检查才说明公网服务部署到了刚构建的 release。
@@ -238,7 +238,7 @@ Cloud 自动部署脚本和本地 installer 会在安装前备份：
 3. `systemctl daemon-reload`。
 4. `systemctl restart mia-cloud`。
 5. `nginx -t && systemctl reload nginx`。
-6. 重新跑 `npm run cloud:doctor -- https://aiweb.buytb01.com`。
+6. 重新跑 `npm run cloud:doctor -- https://mia.gifgif.cn`。
 
 不要只回滚代码不回滚 SQLite 数据。新代码可能已经迁移了 schema，旧代码直接读取新 schema 可能失败。
 

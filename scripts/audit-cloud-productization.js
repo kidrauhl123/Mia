@@ -321,7 +321,7 @@ function runCommand(command, args, { timeoutMs = 10000 } = {}) {
 
 async function livePublicProductionChecks({
   rootDir = root,
-  publicUrl = process.env.MIA_CLOUD_PUBLIC_URL || "https://aiweb.buytb01.com",
+  publicUrl = process.env.MIA_CLOUD_PUBLIC_URL || "https://mia.gifgif.cn",
   timeoutMs = Number(process.env.MIA_AUDIT_TIMEOUT_MS || 10000),
   fetchImpl = fetch
 } = {}) {
@@ -368,7 +368,7 @@ async function livePublicProductionChecks({
 }
 
 async function liveSshDeployChecks({
-  deployRemote = process.env.MIA_DEPLOY_REMOTE || "root@aiweb.buytb01.com",
+  deployRemote = process.env.MIA_DEPLOY_REMOTE || "root@mia.gifgif.cn",
   timeoutMs = Number(process.env.MIA_AUDIT_TIMEOUT_MS || 10000),
   runCommandImpl = runCommand
 } = {}) {
@@ -475,10 +475,10 @@ function runAudit({ rootDir = root } = {}) {
     item("gate.production-deploy", "生产部署和公网 smoke", [
       checkPackageScript(rootDir, "cloud:deploy", "bash scripts/deploy-cloud-release.sh"),
       checkPackageScript(rootDir, "cloud:prod:verify", "node scripts/verify-cloud-production.js"),
-      checkSource(rootDir, "docs/DEPLOYMENT.md", /npm run cloud:prod:verify -- https:\/\/aiweb\.buytb01\.com/, "deployment docs record the production verification gate")
+      checkSource(rootDir, "docs/DEPLOYMENT.md", /npm run cloud:prod:verify -- https:\/\/mia\.gifgif\.cn/, "deployment docs record the production verification gate")
     ], {
       status: "blocked",
-      note: "需要 SSH 授权并让 `npm run cloud:prod:verify -- https://aiweb.buytb01.com` 真实通过；失败原因以 doctor/verify 输出为准。"
+      note: "需要 SSH 授权并让 `npm run cloud:prod:verify -- https://mia.gifgif.cn` 真实通过；失败原因以 doctor/verify 输出为准。"
     }),
   ];
 
@@ -519,7 +519,7 @@ async function runAuditLive(options = {}) {
     production.status = liveOk ? "pass" : "blocked";
     production.note = liveOk
       ? "公网 Cloud 已匹配当前 release，且这台机器具备 SSH 部署通道；bridge-required e2e 可按需用固定烟测账号复核。"
-      : "公网 Cloud 或 SSH 部署通道仍未通过当前 release 的 live production audit。运行 `npm run cloud:prod:verify -- https://aiweb.buytb01.com` 和 `npm run cloud:deploy` 查看完整失败。";
+      : "公网 Cloud 或 SSH 部署通道仍未通过当前 release 的 live production audit。运行 `npm run cloud:prod:verify -- https://mia.gifgif.cn` 和 `npm run cloud:deploy` 查看完整失败。";
   }
   return recomputeAudit(audit);
 }

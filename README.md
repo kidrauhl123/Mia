@@ -16,10 +16,10 @@ Mia 是一个桌面优先的多 Agent 聊天平台。
 
 公开入口：
 
-- macOS Apple Silicon DMG：<https://aiweb.buytb01.com/downloads/mia-macos-arm64-latest.dmg>
-- Web：<https://aiweb.buytb01.com>
+- macOS Apple Silicon DMG：<https://mia.gifgif.cn/downloads/mia-macos-arm64-latest.dmg>
+- Web：<https://mia.gifgif.cn>
 
-线上是否已经部署到最新提交，以 `npm run cloud:doctor -- https://aiweb.buytb01.com` 和 `npm run cloud:prod:verify -- https://aiweb.buytb01.com` 的结果为准。
+线上是否已经部署到最新提交，以 `npm run cloud:doctor -- https://mia.gifgif.cn` 和 `npm run cloud:prod:verify -- https://mia.gifgif.cn` 的结果为准。
 
 ## Mia 解决什么问题
 
@@ -148,7 +148,7 @@ npm run cloud:release:handoff:bundle:verify
 部署前检查：
 
 ```bash
-npm run cloud:doctor -- https://aiweb.buytb01.com
+npm run cloud:doctor -- https://mia.gifgif.cn
 npm run cloud:deploy:dry-run
 ```
 

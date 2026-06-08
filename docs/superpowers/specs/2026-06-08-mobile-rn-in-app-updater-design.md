@@ -34,9 +34,9 @@ The app fetches a static JSON manifest from:
 
 `<apiBase>/downloads/mia-mobile-update.json`
 
-Default production preview base is currently `https://aiweb.buytb01.com`, so the first public manifest URL is:
+Default production preview base is currently `https://mia.gifgif.cn`, so the first public manifest URL is:
 
-`https://aiweb.buytb01.com/downloads/mia-mobile-update.json`
+`https://mia.gifgif.cn/downloads/mia-mobile-update.json`
 
 Proposed schema:
 
@@ -50,7 +50,7 @@ Proposed schema:
     "versionCode": 12,
     "runtimeVersion": "2",
     "minSupportedVersionCode": 1,
-    "apkUrl": "https://aiweb.buytb01.com/downloads/mia-android-latest.apk",
+    "apkUrl": "https://mia.gifgif.cn/downloads/mia-android-latest.apk",
     "apkSha256": "13bd217f0d51bed4c2c4b19b9bde3c6818d18181b6e565f6cde64cc7f8482322",
     "apkSizeBytes": 100663296,
     "mandatory": false,

@@ -93,9 +93,9 @@ test("detects images by type, mime, or filename", () => {
 });
 
 test("resolves relative Cloud URLs against apiBase", () => {
-  expect(resolveAttachmentUrl("/api/files/file_1", "https://aiweb.buytb01.com")).toBe("https://aiweb.buytb01.com/api/files/file_1");
-  expect(resolveAttachmentUrl("https://cdn.test/a.png", "https://aiweb.buytb01.com")).toBe("https://cdn.test/a.png");
-  expect(resolveAttachmentUrl("", "https://aiweb.buytb01.com")).toBe("");
+  expect(resolveAttachmentUrl("/api/files/file_1", "https://mia.gifgif.cn")).toBe("https://mia.gifgif.cn/api/files/file_1");
+  expect(resolveAttachmentUrl("https://cdn.test/a.png", "https://mia.gifgif.cn")).toBe("https://cdn.test/a.png");
+  expect(resolveAttachmentUrl("", "https://mia.gifgif.cn")).toBe("");
 });
 ```
 

@@ -234,12 +234,12 @@ test("live public production checks pass for current release health and headers"
     "desktop-sync"
   ];
   const checks = await livePublicProductionChecks({
-    publicUrl: "https://aiweb.buytb01.com",
+    publicUrl: "https://mia.gifgif.cn",
     fetchImpl: async () => ({
       ok: true,
       status: 200,
       headers: new Headers({
-        "access-control-allow-origin": "https://aiweb.buytb01.com",
+        "access-control-allow-origin": "https://mia.gifgif.cn",
         "x-content-type-options": "nosniff",
         "referrer-policy": "strict-origin-when-cross-origin",
         "permissions-policy": "camera=(), microphone=(), geolocation=()",
@@ -300,12 +300,12 @@ test("live audit passes production gate only when public release and ssh access 
     "desktop-sync"
   ];
   const audit = await runAuditLive({
-    publicUrl: "https://aiweb.buytb01.com",
+    publicUrl: "https://mia.gifgif.cn",
     fetchImpl: async () => ({
       ok: true,
       status: 200,
       headers: new Headers({
-        "access-control-allow-origin": "https://aiweb.buytb01.com",
+        "access-control-allow-origin": "https://mia.gifgif.cn",
         "x-content-type-options": "nosniff",
         "referrer-policy": "strict-origin-when-cross-origin",
         "permissions-policy": "camera=(), microphone=(), geolocation=()",
