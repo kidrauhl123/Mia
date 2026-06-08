@@ -9,12 +9,14 @@ import type { ChatMessage, MessageRow } from "../api/types";
 interface EventsCtx {
   connStatus: string;
   activeApproval: ApprovalItem | null;
+  pendingApprovalCount: number;
   resolveApproval: (runId: string) => void;
 }
 
 const Ctx = createContext<EventsCtx>({
   connStatus: "open",
   activeApproval: null,
+  pendingApprovalCount: 0,
   resolveApproval: () => {},
 });
 
@@ -40,8 +42,12 @@ export function EventsProvider({ children }: { children: React.ReactNode }) {
   const lastSeq = useRef(0);
   const [connStatus, setConn] = useState("open");
   const [activeApproval, setActive] = useState<ApprovalItem | null>(null);
+  const [pendingApprovalCount, setPendingApprovalCount] = useState(0);
 
-  const syncActive = () => setActive(queue.active());
+  const syncActive = () => {
+    setActive(queue.active());
+    setPendingApprovalCount(queue.size());
+  };
 
   const resolveApproval = (runId: string) => {
     queue.resolve(runId);
@@ -99,7 +105,7 @@ export function EventsProvider({ children }: { children: React.ReactNode }) {
     return () => c.stop();
   }, [apiBase, session?.token]);
 
-  return <Ctx.Provider value={{ connStatus, activeApproval, resolveApproval }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ connStatus, activeApproval, pendingApprovalCount, resolveApproval }}>{children}</Ctx.Provider>;
 }
 
 export const useEvents = () => useContext(Ctx);
