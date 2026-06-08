@@ -30,6 +30,11 @@ function createRuntimePaths(deps = {}) {
       engine,
       home,
       pluginsDir,
+      // Default agent working directory. A Mia-owned, non-protected location so
+      // local agents (claude/codex) never default to `/` or the user's home and
+      // trip macOS TCC prompts for Desktop/Documents/Downloads/Photos. Real
+      // user folders are opted into explicitly via the folder picker.
+      workspace: path.join(home, "workspace"),
       config: path.join(home, "config.yaml"),
       soul: path.join(home, "SOUL.md"),
       botManifest: path.join(home, "bots", "manifest.json"),

@@ -379,17 +379,26 @@ const skillsLoader = createSkillsLoader({
   appendEngineLog,
   isChildPath,
 });
+// Local agents default to a Mia-owned workspace, never `/` (Finder-launched app)
+// or the user's home — so launching/using them never trips macOS privacy prompts
+// for Desktop/Documents/Downloads/Photos. Real user folders are opted into
+// explicitly (folder picker), not by accident.
+function agentWorkspaceDir() {
+  const dir = runtimePaths().workspace;
+  try { fs.mkdirSync(dir, { recursive: true }); } catch { /* best effort */ }
+  return dir;
+}
 const agentCommandProvider = createAgentCommandProvider({
   appendEngineLog,
   claudeAgentSdk,
-  cwd: () => process.cwd(),
+  cwd: agentWorkspaceDir,
   homeDir: () => app.getPath("home"),
   normalizeBotAgentEngine: normalizeBotAgentEngine,
   shellCommandPath: localAgentEngineService.shellCommandPath,
 });
 const externalAgentCommandService = createExternalAgentCommandService({
   agentCommandProvider,
-  cwd: () => process.cwd(),
+  cwd: agentWorkspaceDir,
   homeDir: () => app.getPath("home"),
   normalizeBotAgentEngine,
   normalizeBotEngineConfig,
@@ -1331,6 +1340,7 @@ function createActiveHermesChatAdapter() {
 function createActiveClaudeCodeChatAdapter() {
   return createClaudeCodeChatAdapter({
     appendEngineLog,
+    cwd: agentWorkspaceDir,
     chatCompletionResponse,
     claudeAgentSdk,
     ensureClaudeBridgePlugin: () => claudeBridgePluginService.ensureInstalled(),
@@ -1358,6 +1368,7 @@ function createActiveCodexChatAdapter() {
     buildEnabledSkillsContext: skillsLoader.buildEnabledSkillsContext,
     chatCompletionResponse,
     codexSdk,
+    cwd: agentWorkspaceDir,
     appendEngineLog,
     ensureCodexHome: schedulerMcpBridge.ensureCodexHome,
     expandLeadingSkillCommand: skillsLoader.expandLeadingSkillCommand,
