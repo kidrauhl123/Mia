@@ -2,7 +2,30 @@ import { useQuery } from "@tanstack/react-query";
 import { useApi } from "./clientProvider";
 import { useAuth } from "./auth";
 import { normalizeServerRow } from "../logic/normalizeMessage";
-import type { Bot, Conversation, Friend, MessageRow, Member, ChatMessage } from "../api/types";
+import {
+  botDetailPath,
+  botRuntimePath,
+  bridgeDevicesPath,
+  bridgeRunsPath,
+  friendRequestsPath,
+  settingsPath,
+  skillsPath,
+} from "../api/endpoints";
+import type {
+  Bot,
+  BotRuntimeBinding,
+  BridgeDevice,
+  BridgeRun,
+  ChatMessage,
+  Conversation,
+  Friend,
+  FriendRequest,
+  MessageRow,
+  Member,
+  SkillCategory,
+  SkillSummary,
+  UserSettings,
+} from "../api/types";
 
 export function useConversations() {
   const api = useApi();
@@ -59,5 +82,70 @@ export function useMe() {
   return useQuery<any>({
     queryKey: ["me-full"],
     queryFn: () => api.api("/api/me").then((d) => d.user || d),
+  });
+}
+
+export function useUserSettings() {
+  const api = useApi();
+  return useQuery<UserSettings>({
+    queryKey: ["settings"],
+    queryFn: () => api.api(settingsPath()).then((d) => d.settings || {}),
+  });
+}
+
+export function useBridgeDevices() {
+  const api = useApi();
+  return useQuery<BridgeDevice[]>({
+    queryKey: ["bridge-devices"],
+    queryFn: () => api.api(bridgeDevicesPath()).then((d) => d.devices || []),
+  });
+}
+
+export function useBridgeRuns() {
+  const api = useApi();
+  return useQuery<BridgeRun[]>({
+    queryKey: ["bridge-runs"],
+    queryFn: () => api.api(bridgeRunsPath()).then((d) => d.runs || []),
+  });
+}
+
+export function useFriendRequests(direction: "incoming" | "outgoing" = "incoming") {
+  const api = useApi();
+  return useQuery<FriendRequest[]>({
+    queryKey: ["friend-requests", direction],
+    queryFn: () => api.api(friendRequestsPath(direction)).then((d) => d.requests || []),
+  });
+}
+
+export function useBotDetail(botId: string | undefined) {
+  const api = useApi();
+  return useQuery<Bot | null>({
+    queryKey: ["bot-detail", botId],
+    enabled: !!botId,
+    queryFn: () => api.api(botDetailPath(botId || "")).then((d) => d.bot || null),
+  });
+}
+
+export function useBotRuntime(botId: string | undefined, kind = "cloud-hermes") {
+  const api = useApi();
+  return useQuery<BotRuntimeBinding | null>({
+    queryKey: ["bot-runtime", botId, kind],
+    enabled: !!botId,
+    queryFn: () => api.api(botRuntimePath(botId || "", kind)).then((d) => d.binding || null),
+  });
+}
+
+export function useSkills(filters: { q?: string; category?: string; limit?: number } = {}) {
+  const api = useApi();
+  const q = filters.q || "";
+  const category = filters.category || "";
+  const limit = filters.limit || 80;
+  return useQuery<{ skills: SkillSummary[]; categories: SkillCategory[] }>({
+    queryKey: ["skills", q, category, limit],
+    queryFn: () =>
+      api.api(skillsPath({ q, category, limit })).then((d) => ({
+        skills: d.skills || [],
+        categories: d.categories || [],
+      })),
   });
 }
