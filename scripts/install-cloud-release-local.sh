@@ -25,6 +25,8 @@ AGENT_MODEL_API_KEY="${MIA_CLOUD_AGENT_MODEL_API_KEY:-${MIA_LITELLM_API_KEY:-}}"
 BACKUP_DIR="${MIA_DEPLOY_BACKUP_DIR:-/root}"
 SERVICE="${MIA_DEPLOY_SERVICE:-mia-cloud}"
 SERVICE_USER="${MIA_DEPLOY_SERVICE_USER:-mia-cloud}"
+NGINX_MAP_CONF="${MIA_DEPLOY_NGINX_MAP_CONF:-/etc/nginx/conf.d/mia-websocket-map.conf}"
+NGINX_SITE_CONF="${MIA_DEPLOY_NGINX_SITE_CONF:-/etc/nginx/sites-enabled/mia-web}"
 DEPLOY_SUDO="${MIA_DEPLOY_SUDO:-}"
 INSTALL_TMP="${MIA_INSTALL_TMP:-/tmp/mia-cloud-release-install-$$}"
 DEPLOY_ID="${MIA_DEPLOY_ID:-$(date +%Y%m%d-%H%M%S)-$$}"
@@ -35,6 +37,8 @@ API_BACKUP="$BACKUP_DIR/mia-cloud-api-$DEPLOY_ID.tgz"
 WEB_BACKUP="$BACKUP_DIR/mia-cloud-web-$DEPLOY_ID.tgz"
 DATA_BACKUP="$BACKUP_DIR/mia-cloud-data-$DEPLOY_ID.tgz"
 UNIT_BACKUP="$BACKUP_DIR/mia-cloud-$SERVICE-unit-$DEPLOY_ID.service"
+NGINX_MAP_BACKUP="$BACKUP_DIR/mia-cloud-nginx-map-$DEPLOY_ID.conf"
+NGINX_SITE_BACKUP="$BACKUP_DIR/mia-cloud-nginx-site-$DEPLOY_ID.conf"
 LEGACY_SLUG="${MIA_DEPLOY_LEGACY_SLUG:-aima$(printf 'shi')}"
 LEGACY_SERVICE="${MIA_DEPLOY_LEGACY_SERVICE:-$LEGACY_SLUG-cloud}"
 LEGACY_DATA_DIR="${MIA_DEPLOY_LEGACY_DATA_DIR:-/var/lib/$LEGACY_SERVICE}"
@@ -249,6 +253,15 @@ rollback_install() {
     run_as_root cp "$UNIT_BACKUP" "/etc/systemd/system/$SERVICE.service" || true
     echo "Restored systemd unit from $UNIT_BACKUP" >&2
   fi
+  if [ -f "$NGINX_MAP_BACKUP" ]; then
+    run_as_root cp "$NGINX_MAP_BACKUP" "$NGINX_MAP_CONF" || true
+    echo "Restored nginx map from $NGINX_MAP_BACKUP" >&2
+  fi
+  if [ -f "$NGINX_SITE_BACKUP" ]; then
+    run_as_root cp "$NGINX_SITE_BACKUP" "$NGINX_SITE_CONF" || true
+    echo "Restored nginx site from $NGINX_SITE_BACKUP" >&2
+  fi
+  run_as_root nginx -t >/dev/null 2>&1 && run_as_root systemctl reload nginx || true
   run_as_root systemctl daemon-reload || true
   run_as_root systemctl restart "$SERVICE" || true
   exit "$status"
@@ -280,6 +293,16 @@ rollback_after_public_verification_failure() {
     run_as_root cp "$UNIT_BACKUP" "/etc/systemd/system/$SERVICE.service"
     echo "Restored systemd unit from $UNIT_BACKUP" >&2
   fi
+  if [ -f "$NGINX_MAP_BACKUP" ]; then
+    run_as_root cp "$NGINX_MAP_BACKUP" "$NGINX_MAP_CONF"
+    echo "Restored nginx map from $NGINX_MAP_BACKUP" >&2
+  fi
+  if [ -f "$NGINX_SITE_BACKUP" ]; then
+    run_as_root cp "$NGINX_SITE_BACKUP" "$NGINX_SITE_CONF"
+    echo "Restored nginx site from $NGINX_SITE_BACKUP" >&2
+  fi
+  run_as_root nginx -t
+  run_as_root systemctl reload nginx
   run_as_root systemctl daemon-reload
   run_as_root systemctl restart "$SERVICE"
 }
@@ -324,6 +347,8 @@ for required_file in \
   "$INSTALL_TMP/web/index.html" \
   "$INSTALL_TMP/web/app.js" \
   "$INSTALL_TMP/web/styles.css" \
+  "$INSTALL_TMP/nginx/mia-websocket-map.conf" \
+  "$INSTALL_TMP/nginx/mia-cloud-site.conf" \
   "$INSTALL_TMP/smoke-cloud.js" \
   "$INSTALL_TMP/doctor-cloud.js" \
   "$INSTALL_TMP/manifest.json"; do
@@ -374,6 +399,7 @@ require_command systemctl
 require_command id
 require_command chown
 require_command docker
+require_command nginx
 
 install_done=0
 trap rollback_install ERR
@@ -404,6 +430,14 @@ fi
 if [ -f "/etc/systemd/system/$SERVICE.service" ]; then
   run_as_root cp "/etc/systemd/system/$SERVICE.service" "$UNIT_BACKUP"
   echo "systemd unit backup written to $UNIT_BACKUP"
+fi
+if [ -f "$NGINX_MAP_CONF" ]; then
+  run_as_root cp "$NGINX_MAP_CONF" "$NGINX_MAP_BACKUP"
+  echo "nginx map backup written to $NGINX_MAP_BACKUP"
+fi
+if [ -f "$NGINX_SITE_CONF" ]; then
+  run_as_root cp "$NGINX_SITE_CONF" "$NGINX_SITE_BACKUP"
+  echo "nginx site backup written to $NGINX_SITE_BACKUP"
 fi
 
 run_as_root mkdir -p "$API_DIR" "$WEB_DIR" "$UPDATES_DIR" "$DATA_DIR" "$AGENT_ROOT"
@@ -436,6 +470,11 @@ fi
 run_as_root rsync -a --delete "$INSTALL_TMP/api/" "$API_DIR/"
 run_as_root cp "$INSTALL_TMP/manifest.json" "$API_DIR/release-manifest.json"
 run_as_root rsync -a --delete "$INSTALL_TMP/web/" "$WEB_DIR/"
+run_as_root mkdir -p "$(dirname "$NGINX_MAP_CONF")" "$(dirname "$NGINX_SITE_CONF")"
+run_as_root cp "$INSTALL_TMP/nginx/mia-websocket-map.conf" "$NGINX_MAP_CONF"
+run_as_root cp "$INSTALL_TMP/nginx/mia-cloud-site.conf" "$NGINX_SITE_CONF"
+run_as_root nginx -t
+run_as_root systemctl reload nginx
 run_as_root chown -R "$SERVICE_USER:$SERVICE_USER" "$DATA_DIR" "$AGENT_ROOT"
 
 cd "$API_DIR"
