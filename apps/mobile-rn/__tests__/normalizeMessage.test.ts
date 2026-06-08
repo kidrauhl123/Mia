@@ -42,6 +42,21 @@ test("mergeMessage: clientTraceId 替换 pending", () => {
   expect(next[0].isPending).toBe(false);
 });
 
+test("normalizeServerRow uses server turn_id as clientTraceId", () => {
+  const m = normalizeServerRow({ id: "m-turn", sender_kind: "user", sender_ref: "u1", turn_id: "t1", body_md: "x" } as any, "u1");
+  expect(m.clientTraceId).toBe("t1");
+});
+
+test("mergeMessage: removes websocket duplicate after turn_id reconciliation", () => {
+  const pending: ChatMessage = { messageId: "pending:t1", clientTraceId: "t1", role: "user", bodyMd: "x", isOwn: true, isPending: true, createdAt: "" };
+  const echoedWithoutTrace = normalizeServerRow({ id: "s1", sender_kind: "user", sender_ref: "u1", body_md: "x" }, "u1");
+  const responseWithTrace = normalizeServerRow({ id: "s1", sender_kind: "user", sender_ref: "u1", turn_id: "t1", body_md: "x" } as any, "u1");
+  const next = mergeMessage([pending, echoedWithoutTrace], responseWithTrace);
+  expect(next).toHaveLength(1);
+  expect(next[0].messageId).toBe("s1");
+  expect(next[0].isPending).toBe(false);
+});
+
 test("mergeMessage: messageId 去重不重复追加", () => {
   const a = normalizeServerRow({ id: "s9", sender_kind: "bot", body_md: "a" }, "u1");
   let list = mergeMessage([], a);

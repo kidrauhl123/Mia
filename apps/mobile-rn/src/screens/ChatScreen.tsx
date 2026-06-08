@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { View, FlatList, Pressable, StyleSheet, KeyboardAvoidingView, Platform } from "react-native";
+import { useEffect, useLayoutEffect, useState } from "react";
+import { View, FlatList, Pressable, StyleSheet, KeyboardAvoidingView, Platform, Text } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import * as DocumentPicker from "expo-document-picker";
 import { File } from "expo-file-system";
@@ -22,6 +22,7 @@ import { buildPendingMessage } from "../logic/optimisticSend";
 import { MAX_COMPOSER_ATTACHMENTS, normalizeAttachments, pickedAssetAttachment } from "../logic/attachments";
 import { normalizeServerRow, mergeMessage } from "../logic/normalizeMessage";
 import { lastSeenSeq } from "../logic/settings";
+import { conversationType } from "../logic/sessionHistory";
 import MessageBubble from "../components/MessageBubble";
 import MessageActions from "../components/MessageActions";
 import ApprovalSheet from "../components/ApprovalSheet";
@@ -42,7 +43,7 @@ import type { MessagesStackParamList } from "../navigation/types";
 
 type Props = NativeStackScreenProps<MessagesStackParamList, "Chat">;
 
-export default function ChatScreen({ route }: Props) {
+export default function ChatScreen({ navigation, route }: Props) {
   const { conversationId } = route.params;
   const api = useApi();
   const qc = useQueryClient();
@@ -50,6 +51,7 @@ export default function ChatScreen({ route }: Props) {
   const insets = useSafeAreaInsets();
   const { data: conversations = [] } = useConversations();
   const activeConversation = conversations.find((c) => c.id === conversationId) || null;
+  const activeType = activeConversation ? conversationType(activeConversation) : "";
   const botId = botIdForRuntimeControls(activeConversation);
   const runtimeKind = runtimeKindForControls(activeConversation);
   const showRuntimeControls = !!botId && runtimeKind === "cloud-hermes";
@@ -64,11 +66,35 @@ export default function ChatScreen({ route }: Props) {
   const [pendingAttachments, setPendingAttachments] = useState<MessageAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState("");
   const [actionMsg, setActionMsg] = useState<ChatMessage | null>(null);
+  const [sending, setSending] = useState(false);
   const [savingField, setSavingField] = useState<"model" | "effort" | "permission" | "">("");
   const [runtimeError, setRuntimeError] = useState("");
   const modelEntries = modelEntriesFromCatalog(modelCatalog.data || runtime.data?.config?.modelEntries || []);
   const controls = runtimeControlState({ binding: runtime.data, modelEntries });
   const maxSeq = lastSeenSeq(messages);
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      title: route.params.title || "",
+      headerRight: () => {
+        if (activeType === "group") {
+          return (
+            <Pressable hitSlop={10} onPress={() => navigation.navigate("GroupDetail", { conversationId, title: route.params.title })}>
+              <Text style={styles.headerAction}>详情</Text>
+            </Pressable>
+          );
+        }
+        if (activeType === "bot") {
+          return (
+            <Pressable hitSlop={10} onPress={() => navigation.navigate("BotSessions", { conversationId, title: route.params.title })}>
+              <Text style={styles.headerAction}>聊天记录</Text>
+            </Pressable>
+          );
+        }
+        return null;
+      },
+    });
+  }, [activeType, conversationId, navigation, route.params.title]);
 
   useEffect(() => {
     const current = Number(settings?.readMarks?.[conversationId]) || 0;
@@ -78,6 +104,11 @@ export default function ChatScreen({ route }: Props) {
   const key = ["messages", conversationId];
   const setMsgs = (fn: (old: ChatMessage[]) => ChatMessage[]) =>
     qc.setQueryData<ChatMessage[]>(key, (old) => fn(old || []));
+  const scheduleRefresh = () => {
+    qc.invalidateQueries({ queryKey: ["conversations"] });
+    setTimeout(() => qc.invalidateQueries({ queryKey: key }), 1200);
+    setTimeout(() => qc.invalidateQueries({ queryKey: key }), 4200);
+  };
 
   // 投递一条已乐观入列的消息;成功并入服务端行,失败标 failed 供重发。
   const postMessage = async (payload: { bodyMd: string; clientTraceId: string; mentions?: unknown[]; attachments?: unknown[] }) => {
@@ -89,6 +120,7 @@ export default function ChatScreen({ route }: Props) {
       const row = res.message || res;
       const norm = normalizeServerRow({ ...row, client_trace_id: row.client_trace_id || payload.clientTraceId }, session?.user?.id);
       setMsgs((old) => mergeMessage(old, norm));
+      scheduleRefresh();
     } catch {
       setMsgs((old) => old.map((m) => (m.clientTraceId === payload.clientTraceId ? { ...m, isPending: false, failed: true } : m)));
     }
@@ -117,18 +149,24 @@ export default function ChatScreen({ route }: Props) {
   };
 
   const send = async () => {
+    if (sending) return;
     let pending;
     try {
       pending = buildPendingMessage({ text, attachments: pendingAttachments }, { selfId: session?.user?.id, members });
     } catch {
       return; // 空消息忽略
     }
+    setSending(true);
     const pendingMessage: ChatMessage = { ...pending, attachments: normalizeAttachments(pending.attachments) };
     setText("");
     setPendingAttachments([]);
     setAttachmentError("");
     setMsgs((old) => [...old, pendingMessage]);
-    await postMessage({ bodyMd: pendingMessage.bodyMd, clientTraceId: pendingMessage.clientTraceId, mentions: pending.mentions, attachments: pendingMessage.attachments });
+    try {
+      await postMessage({ bodyMd: pendingMessage.bodyMd, clientTraceId: pendingMessage.clientTraceId, mentions: pending.mentions, attachments: pendingMessage.attachments });
+    } finally {
+      setSending(false);
+    }
   };
 
   const saveRuntimeField = async (field: "model" | "effort" | "permission", value: string) => {
@@ -175,7 +213,7 @@ export default function ChatScreen({ route }: Props) {
   return (
     <KeyboardAvoidingView
       style={styles.root}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={90}
     >
       <FlatList
@@ -184,6 +222,7 @@ export default function ChatScreen({ route }: Props) {
         inverted
         keyExtractor={(m) => m.messageId}
         contentContainerStyle={{ padding: 12 }}
+        keyboardShouldPersistTaps="handled"
         renderItem={({ item }) => <MessageBubble msg={item} apiBase={apiBase} onLongPress={setActionMsg} />}
       />
       <View style={[styles.composer, { paddingBottom: space.sm + insets.bottom }]}>
@@ -223,9 +262,10 @@ export default function ChatScreen({ route }: Props) {
             value={text}
             onChangeText={setText}
             onSubmitEditing={send}
+            blurOnSubmit={false}
             returnKeyType="send"
           />
-          <Button label="发送" style={styles.send} onPress={send} />
+          <Button label="发送" style={styles.send} onPress={send} busy={sending} disabled={sending} />
         </View>
       </View>
       <MessageActions
@@ -242,6 +282,7 @@ export default function ChatScreen({ route }: Props) {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: color.chatBg },
+  headerAction: { color: color.accent, fontSize: 15, fontWeight: "600" },
   list: { flex: 1 },
   composer: {
     gap: space.sm,

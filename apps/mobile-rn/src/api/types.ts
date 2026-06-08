@@ -8,6 +8,7 @@ export interface MessageRow {
   sender_ref?: string;
   body_md?: string;
   client_trace_id?: string;
+  turn_id?: string;
   trace_json?: string;
   created_at?: string;
   attachments?: MessageAttachment[];

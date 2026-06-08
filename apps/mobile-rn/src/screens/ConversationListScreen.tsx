@@ -5,13 +5,14 @@ import { useBots, useConversations, useFriends, useMe, useSaveUserSettings, useU
 import { useApi } from "../state/clientProvider";
 import { useAuth } from "../state/auth";
 import { buildConversationListItems } from "../logic/conversationList";
+import { normalizeServerRow } from "../logic/normalizeMessage";
 import { togglePinnedConversation } from "../logic/settings";
 import { conversationType } from "../logic/sessionHistory";
 import ConversationAvatar from "../components/ConversationAvatar";
 import ConnBanner from "../components/ConnBanner";
 import { BodyStrong, Label, Sub } from "../ui/Text";
 import { color, space } from "../theme";
-import type { Member } from "../api/types";
+import type { ChatMessage, Member, MessageRow } from "../api/types";
 import type { MessagesStackParamList } from "../navigation/types";
 
 type Props = NativeStackScreenProps<MessagesStackParamList, "Conversations">;
@@ -44,6 +45,22 @@ export default function ConversationListScreen({ navigation }: Props) {
     if (m) membersByConv[c.id] = m;
   });
 
+  const messageResults = useQueries({
+    queries: conversations.map((c) => ({
+      queryKey: ["messages", c.id],
+      queryFn: () =>
+        api
+          .api(`/api/conversations/${c.id}/messages?limit=200`)
+          .then((d) => (d.messages || []).map((r: MessageRow, i: number) => normalizeServerRow(r, session?.user?.id, i))),
+      staleTime: 30_000,
+    })),
+  });
+  const messagesByConv: Record<string, ChatMessage[]> = {};
+  conversations.forEach((c, i) => {
+    const m = messageResults[i]?.data as ChatMessage[] | undefined;
+    if (m) messagesByConv[c.id] = m;
+  });
+
   // 自己:优先完整资料(带头像 + 裁剪),回退到会话里的精简 user。
   const self = me
     ? { id: me.id, username: me.username, avatarImage: me.avatarImage, avatarCrop: me.avatarCrop }
@@ -53,7 +70,7 @@ export default function ConversationListScreen({ navigation }: Props) {
 
   const pinnedIds = settings?.pins || [];
   const pinnedSet = new Set(pinnedIds);
-  const items = buildConversationListItems({ conversations, bots, friends, self, membersByConv, unreadByConversation: {}, pinnedIds });
+  const items = buildConversationListItems({ conversations, bots, friends, self, membersByConv, messagesByConv, unreadByConversation: {}, pinnedIds });
 
   function openConversationActions(item: (typeof items)[number]) {
     const pinned = pinnedSet.has(item.id);
@@ -83,10 +100,13 @@ export default function ConversationListScreen({ navigation }: Props) {
           >
             <ConversationAvatar tiles={item.tiles} />
             <View style={styles.textCol}>
-              <BodyStrong numberOfLines={1}>{item.title}</BodyStrong>
+              <View style={styles.titleRow}>
+                <BodyStrong numberOfLines={1} style={styles.title}>{item.title}</BodyStrong>
+                {pinnedSet.has(item.id) ? <Label style={styles.pin}>置顶</Label> : null}
+                {item.timeText ? <Sub numberOfLines={1} style={styles.time}>{item.timeText}</Sub> : null}
+              </View>
               <Sub numberOfLines={1} style={styles.sub}>{item.subtitle}</Sub>
             </View>
-            {pinnedSet.has(item.id) ? <Label style={styles.pin}>置顶</Label> : null}
             {item.unread ? (
               <View style={styles.badge}>
                 <Sub style={styles.badgeText}>{item.unread}</Sub>
@@ -112,6 +132,9 @@ const styles = StyleSheet.create({
   },
   pressed: { backgroundColor: color.surfaceMuted },
   textCol: { flex: 1, minWidth: 0, gap: 2 },
+  titleRow: { flexDirection: "row", alignItems: "center", gap: space.sm },
+  title: { flex: 1, minWidth: 0 },
+  time: { color: color.inkFaint, fontSize: 12 },
   sub: { marginTop: 1 },
   pin: { color: color.accent, maxWidth: 42 },
   badge: { backgroundColor: color.accent, minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 6, alignItems: "center", justifyContent: "center" },

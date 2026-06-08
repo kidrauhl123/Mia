@@ -15,6 +15,7 @@ const config: ExpoConfig = {
   },
   android: {
     package: "app.mia.mobile",
+    softwareKeyboardLayoutMode: "pan",
     adaptiveIcon: {
       backgroundColor: "#ffffff",
       foregroundImage: "./assets/android-icon-foreground.png",

@@ -1,4 +1,3 @@
-import { Pressable, Text } from "react-native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import ConversationListScreen from "../screens/ConversationListScreen";
@@ -9,6 +8,7 @@ import SkillsScreen from "../screens/SkillsScreen";
 import SettingsScreen from "../screens/SettingsScreen";
 import BotDetailScreen from "../screens/BotDetailScreen";
 import GroupDetailScreen from "../screens/GroupDetailScreen";
+import BotSessionsScreen from "../screens/BotSessionsScreen";
 import AnimatedTabBar from "./AnimatedTabBar";
 import { color } from "../theme";
 import type {
@@ -42,22 +42,17 @@ function MessagesStack() {
       <MessagesStackNav.Screen
         name="Chat"
         component={ChatScreen}
-        options={({ navigation, route }) => ({
-          title: route.params?.title || "",
-          headerRight: () => (
-            <Pressable
-              hitSlop={10}
-              onPress={() => navigation.navigate("GroupDetail", { conversationId: route.params.conversationId, title: route.params.title })}
-            >
-              <Text style={{ color: color.accent, fontSize: 15, fontWeight: "600" }}>详情</Text>
-            </Pressable>
-          ),
-        })}
+        options={({ route }) => ({ title: route.params?.title || "" })}
       />
       <MessagesStackNav.Screen
         name="GroupDetail"
         component={GroupDetailScreen}
         options={({ route }) => ({ title: route.params?.title || "群聊" })}
+      />
+      <MessagesStackNav.Screen
+        name="BotSessions"
+        component={BotSessionsScreen}
+        options={{ title: "聊天记录" }}
       />
     </MessagesStackNav.Navigator>
   );

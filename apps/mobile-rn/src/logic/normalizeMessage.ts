@@ -15,10 +15,11 @@ export function normalizeServerRow(m: MessageRow, selfId: string | undefined, in
   const isOwn = m.sender_kind === "user" && !!selfId && m.sender_ref === selfId;
   const role: ChatMessage["role"] =
     m.sender_kind === "bot" ? "assistant" : m.sender_kind === "system" ? "system" : "user";
+  const clientTraceId = m.client_trace_id || m.turn_id || "";
   return {
     messageId: m.id || `${m.conversation_id || ""}#${m.seq ?? index}`,
     seq: typeof m.seq === "number" ? m.seq : undefined,
-    clientTraceId: m.client_trace_id || "",
+    clientTraceId,
     role,
     bodyMd: String(m.body_md || ""),
     attachments: normalizeAttachments(m.attachments),
@@ -35,7 +36,35 @@ export function mergeMessage(list: ChatMessage[], incoming: ChatMessage): ChatMe
   let idx = -1;
   if (incoming.clientTraceId) idx = next.findIndex((m) => m.clientTraceId && m.clientTraceId === incoming.clientTraceId);
   if (idx < 0 && incoming.messageId) idx = next.findIndex((m) => m.messageId === incoming.messageId);
+  if (idx < 0 && incoming.isOwn) {
+    idx = next.findIndex((m) =>
+      m.isOwn &&
+      (m.isPending || m.messageId?.startsWith("pending:")) &&
+      m.bodyMd === incoming.bodyMd
+    );
+  }
   if (idx >= 0) next[idx] = { ...next[idx], ...incoming };
   else next.push(incoming);
-  return next;
+  return dedupeMessages(next);
+}
+
+function dedupeMessages(list: ChatMessage[]): ChatMessage[] {
+  const out: ChatMessage[] = [];
+  const byServerId = new Map<string, number>();
+  const byTrace = new Map<string, number>();
+
+  for (const msg of list) {
+    const serverId = msg.messageId && !msg.messageId.startsWith("pending:") ? msg.messageId : "";
+    const trace = msg.clientTraceId || "";
+    const existing = serverId ? byServerId.get(serverId) : trace ? byTrace.get(trace) : undefined;
+    if (existing !== undefined) {
+      out[existing] = { ...out[existing], ...msg, isPending: out[existing].isPending && !msg.isPending };
+      continue;
+    }
+    const index = out.push(msg) - 1;
+    if (serverId) byServerId.set(serverId, index);
+    if (trace) byTrace.set(trace, index);
+  }
+
+  return out;
 }

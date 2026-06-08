@@ -305,6 +305,25 @@ export function useCreateCloudBot() {
   });
 }
 
+export function useCreateBotSessionConversation() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ sessionId, botId, title, runtimeKind }: { sessionId: string; botId: string; title: string; runtimeKind: string }) =>
+      api.api(botConversationPath(sessionId), { method: "PUT", body: { botId, title, runtimeKind } }),
+    onSuccess: (data) => {
+      const conversation = data?.conversation || null;
+      const members = data?.members || null;
+      if (conversation?.id) {
+        qc.setQueryData<Conversation[]>(["conversations"], (old) => [conversation, ...(old || []).filter((item) => item.id !== conversation.id)]);
+        if (Array.isArray(members)) qc.setQueryData<Member[]>(["members", conversation.id], members);
+        qc.setQueryData<ChatMessage[]>(["messages", conversation.id], []);
+      }
+      qc.invalidateQueries({ queryKey: ["conversations"] });
+    },
+  });
+}
+
 export function useDeleteBot() {
   const api = useApi();
   const qc = useQueryClient();
