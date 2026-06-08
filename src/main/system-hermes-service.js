@@ -152,6 +152,17 @@ function createSystemHermesService(deps = {}) {
     const name = commandNameOnly(command);
     if (!name) return "";
     if (platform === "win32") return windowsCommandPath(name);
+    // Fast path first (no child process): the `zsh -lc` login shell sourced the
+    // user's full profile and was the main first-launch stall. Only fall back to
+    // it when direct PATH resolution fails.
+    const dirs = [
+      ...cliPathSegments(),
+      ...String(currentEnv().PATH || "").split(path.delimiter)
+    ].filter(Boolean);
+    for (const dir of dirs) {
+      const found = executablePath(path.join(dir, name));
+      if (found) return found;
+    }
     const result = spawnSync("zsh", ["-lc", `command -v ${name}`], {
       encoding: "utf8",
       timeout: 1500,
@@ -159,10 +170,6 @@ function createSystemHermesService(deps = {}) {
     });
     if (!result.error && result.status === 0) {
       const found = String(result.stdout || "").split(/\r?\n/)[0]?.trim() || "";
-      if (found) return found;
-    }
-    for (const dir of cliPathSegments()) {
-      const found = executablePath(path.join(dir, name));
       if (found) return found;
     }
     return "";

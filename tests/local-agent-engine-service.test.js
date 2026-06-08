@@ -13,6 +13,15 @@ function makeService(t, overrides = {}) {
   const service = createLocalAgentEngineService({
     homeDir: () => home,
     env: { PATH: ["/custom/bin", "/usr/bin"].join(path.delimiter) },
+    // Scope the direct PATH scan to this test's temp home: files the test
+    // creates under it resolve normally, but real system dirs (e.g. a real
+    // codex in /opt/homebrew/bin) never do — keeping detection deterministic.
+    fs: {
+      accessSync: (p, mode) => {
+        if (!String(p).startsWith(home)) throw new Error("ENOENT");
+        return fs.accessSync(p, mode);
+      }
+    },
     spawnSync: (...args) => {
       calls.push(args);
       return { status: 1, stdout: "", stderr: "" };
