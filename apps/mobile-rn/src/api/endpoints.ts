@@ -58,6 +58,10 @@ export function botRuntimeSavePath(botId: string): string {
   return `/api/me/bots/${encodeURIComponent(botId)}/runtime`;
 }
 
+export function botConversationPath(sessionId: string): string {
+  return `/api/me/bot-conversations/${encodeURIComponent(sessionId)}`;
+}
+
 export function modelCatalogPath(): string {
   return "/api/me/model-catalog";
 }

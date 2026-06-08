@@ -3,6 +3,7 @@ import { useApi } from "./clientProvider";
 import { useAuth } from "./auth";
 import { normalizeServerRow } from "../logic/normalizeMessage";
 import {
+  botConversationPath,
   botDetailPath,
   botRuntimeSavePath,
   botRuntimePath,
@@ -34,6 +35,7 @@ import type {
   SkillSummary,
   UserSettings,
 } from "../api/types";
+import { botIdentityBody, botRuntimeDefaultConfig, type BotDraft } from "../logic/botDraft";
 import type { GroupCreatePayload } from "../logic/groupCreate";
 
 export function useConversations() {
@@ -217,6 +219,80 @@ export function useSaveBotRuntimeConfig() {
       api.api(botRuntimeSavePath(botId), { method: "PUT", body: { runtimeKind, enabled: true, config } }).then((d) => d.binding || null),
     onSuccess: (binding, vars) => {
       qc.setQueryData(["bot-runtime", vars.botId, vars.runtimeKind], binding);
+    },
+  });
+}
+
+export function useSaveBotIdentity() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ botId, body }: { botId: string; body: Record<string, unknown> }) =>
+      api.api(botDetailPath(botId), { method: "PUT", body }).then((d) => d.bot || null),
+    onSuccess: (bot, vars) => {
+      if (!bot) return;
+      qc.setQueryData(["bot-detail", vars.botId], bot);
+      qc.setQueryData<Bot[]>(["bots"], (old) => [bot, ...(old || []).filter((item) => String(item.id || item.key || "") !== vars.botId)]);
+    },
+  });
+}
+
+export function useCreateCloudBot() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ botId, draft, defaultModel }: { botId: string; draft: BotDraft; defaultModel?: string }) => {
+      const identity = botIdentityBody(draft);
+      const saved = await api.api(botDetailPath(botId), { method: "PUT", body: identity });
+      const runtime = await api.api(botRuntimeSavePath(botId), {
+        method: "PUT",
+        body: {
+          runtimeKind: "cloud-hermes",
+          enabled: true,
+          config: botRuntimeDefaultConfig(defaultModel),
+        },
+      });
+      const ensured = await api.api(botConversationPath(botId), {
+        method: "PUT",
+        body: {
+          botId,
+          title: identity.name,
+          runtimeKind: "cloud-hermes",
+        },
+      });
+      return {
+        bot: saved.bot || { ...identity, id: botId, key: botId },
+        binding: runtime.binding || null,
+        conversation: ensured.conversation || null,
+        members: ensured.members || null,
+      };
+    },
+    onSuccess: (data, vars) => {
+      const bot = { ...(data.bot || {}), id: data.bot?.id || vars.botId, key: data.bot?.key || vars.botId };
+      qc.setQueryData<Bot[]>(["bots"], (old) => [bot, ...(old || []).filter((item) => String(item.id || item.key || "") !== vars.botId)]);
+      qc.setQueryData(["bot-detail", vars.botId], bot);
+      if (data.binding) qc.setQueryData(["bot-runtime", vars.botId, "cloud-hermes"], data.binding);
+      if (data.conversation?.id) {
+        qc.setQueryData<Conversation[]>(["conversations"], (old) => [data.conversation, ...(old || []).filter((item) => item.id !== data.conversation.id)]);
+        if (Array.isArray(data.members)) qc.setQueryData<Member[]>(["members", data.conversation.id], data.members);
+      }
+      qc.invalidateQueries({ queryKey: ["bots"] });
+      qc.invalidateQueries({ queryKey: ["conversations"] });
+    },
+  });
+}
+
+export function useDeleteBot() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ botId }: { botId: string }) => api.api(botDetailPath(botId), { method: "DELETE" }),
+    onSuccess: (_data, vars) => {
+      qc.removeQueries({ queryKey: ["bot-detail", vars.botId] });
+      qc.removeQueries({ queryKey: ["bot-runtime", vars.botId] });
+      qc.setQueryData<Bot[]>(["bots"], (old) => (old || []).filter((item) => String(item.id || item.key || "") !== vars.botId));
+      qc.invalidateQueries({ queryKey: ["bots"] });
+      qc.invalidateQueries({ queryKey: ["conversations"] });
     },
   });
 }

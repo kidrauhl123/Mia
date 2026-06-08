@@ -11,6 +11,7 @@ import {
   useSendFriendRequest,
 } from "../state/queries";
 import Avatar from "../components/Avatar";
+import CreateBotPanel from "../components/CreateBotPanel";
 import CreateGroupPanel from "../components/CreateGroupPanel";
 import type { AvatarDescriptor } from "../api/types";
 import { resolveAvatar } from "../logic/conversationList";
@@ -125,6 +126,8 @@ export default function ContactsScreen({ navigation }: Props) {
             </View>
             {status ? <Sub style={styles.status}>{status}</Sub> : null}
           </View>
+
+          <CreateBotPanel bots={bots} />
 
           <CreateGroupPanel friends={friends} bots={bots} />
 

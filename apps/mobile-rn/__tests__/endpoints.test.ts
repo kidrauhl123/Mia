@@ -1,5 +1,6 @@
 import {
   botDetailPath,
+  botConversationPath,
   botRuntimeSavePath,
   botRuntimePath,
   bridgeDevicesPath,
@@ -48,4 +49,5 @@ test("builds skill endpoint paths with escaping and optional filters", () => {
 test("builds runtime control endpoint paths", () => {
   expect(modelCatalogPath()).toBe("/api/me/model-catalog");
   expect(botRuntimeSavePath("bot.one")).toBe("/api/me/bots/bot.one/runtime");
+  expect(botConversationPath("bot.one")).toBe("/api/me/bot-conversations/bot.one");
 });

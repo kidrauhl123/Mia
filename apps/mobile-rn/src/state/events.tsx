@@ -4,7 +4,7 @@ import { createEventsClient } from "../api/events";
 import { createApprovalQueue, type ApprovalItem } from "../logic/approvalQueue";
 import { normalizeServerRow, mergeMessage } from "../logic/normalizeMessage";
 import { useAuth } from "./auth";
-import type { ChatMessage, MessageRow } from "../api/types";
+import type { Bot, BotRuntimeBinding, ChatMessage, Conversation, MessageRow } from "../api/types";
 
 interface EventsCtx {
   connStatus: string;
@@ -86,12 +86,12 @@ export function EventsProvider({ children }: { children: React.ReactNode }) {
           qc.invalidateQueries({ queryKey: ["friend-requests", "outgoing"] });
         } else if (t === "social.conversation_invited") {
           if (env.conversation?.id) {
-            qc.setQueryData<any[]>(["conversations"], (old) => [env.conversation, ...(old || []).filter((item) => item.id !== env.conversation.id)]);
+            qc.setQueryData<Conversation[]>(["conversations"], (old) => [env.conversation, ...(old || []).filter((item) => item.id !== env.conversation.id)]);
           }
           qc.invalidateQueries({ queryKey: ["conversations"] });
         } else if (t === "conversation.updated") {
           if (env.conversation?.id) {
-            qc.setQueryData<any[]>(["conversations"], (old) =>
+            qc.setQueryData<Conversation[]>(["conversations"], (old) =>
               (old || []).some((item) => item.id === env.conversation.id)
                 ? (old || []).map((item) => (item.id === env.conversation.id ? { ...item, ...env.conversation } : item))
                 : [env.conversation, ...(old || [])]
@@ -100,9 +100,28 @@ export function EventsProvider({ children }: { children: React.ReactNode }) {
         } else if (t === "conversation.deleted") {
           const cid = env.conversationId || env.conversation_id;
           if (cid) {
-            qc.setQueryData<any[]>(["conversations"], (old) => (old || []).filter((item) => item.id !== cid));
+            qc.setQueryData<Conversation[]>(["conversations"], (old) => (old || []).filter((item) => item.id !== cid));
             qc.removeQueries({ queryKey: ["messages", cid] });
             qc.removeQueries({ queryKey: ["members", cid] });
+          }
+        } else if (t === "bot.upserted") {
+          const bot: Bot | undefined = env.bot;
+          const id = String(bot?.id || bot?.key || "");
+          if (bot && id) {
+            qc.setQueryData<Bot[]>(["bots"], (old) => [bot, ...(old || []).filter((item) => String(item.id || item.key || "") !== id)]);
+            qc.setQueryData(["bot-detail", id], bot);
+          }
+        } else if (t === "bot.deleted") {
+          const id = String(env.botId || env.bot_id || "");
+          if (id) {
+            qc.setQueryData<Bot[]>(["bots"], (old) => (old || []).filter((item) => String(item.id || item.key || "") !== id));
+            qc.removeQueries({ queryKey: ["bot-detail", id] });
+            qc.removeQueries({ queryKey: ["bot-runtime", id] });
+          }
+        } else if (t === "bot.runtime_updated") {
+          const binding: BotRuntimeBinding | undefined = env.binding;
+          if (binding?.botId && binding?.runtimeKind) {
+            qc.setQueryData(["bot-runtime", binding.botId, binding.runtimeKind], binding);
           }
         } else if (t === "cloud_agent_run_event") {
           // 审批等交互事件包在 cloud_agent_run_event.event 里(与桌面/web 一致)。

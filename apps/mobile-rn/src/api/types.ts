@@ -55,6 +55,11 @@ export interface Bot {
   displayName?: string;
   display_name?: string;
   name?: string;
+  bio?: string;
+  description?: string;
+  personaText?: string;
+  persona_text?: string;
+  color?: string;
   avatarImage?: string;
   avatar_image?: string;
   avatarCrop?: Record<string, unknown> | null;
@@ -63,6 +68,7 @@ export interface Bot {
   status_badge?: StatusBadge | null;
   runtimeKind?: string;
   runtime_kind?: string;
+  capabilities?: Record<string, unknown>;
 }
 
 export interface Friend {
