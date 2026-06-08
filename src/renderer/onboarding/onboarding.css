@@ -1,0 +1,228 @@
+/* Standalone onboarding window styles. Self-contained (loaded by onboarding.html
+   only) — intentionally NOT sharing the main app stylesheet, so the window stays
+   light, clean, and free of app-shell layout. */
+
+:root {
+  --onb-bg: #ffffff;
+  --onb-text: #18181b;
+  --onb-muted: #8a8a90;
+  --onb-line: #ececf0;
+  --onb-field: #f5f5f7;
+  --onb-ink: #1f2024;        /* low-key primary button */
+  --onb-ink-hover: #303137;
+  --onb-ok: #1fab5a;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--onb-bg);
+  color: var(--onb-text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+/* Full-width drag strip at the very top so the window moves like a native one
+   (titleBarStyle is "hidden"; native traffic lights sit on top of this). */
+.onb-drag {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 40px;
+  -webkit-app-region: drag;
+  z-index: 1;
+}
+
+.onb {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  padding: 46px 30px 26px;
+}
+
+.onb-step {
+  font-size: 11.5px;
+  font-weight: 560;
+  color: var(--onb-muted);
+  text-align: center;
+}
+
+.onb-dots {
+  display: flex;
+  justify-content: center;
+  gap: 7px;
+  margin: 8px 0 0;
+}
+
+.onb-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--onb-line);
+}
+
+.onb-dot.active { background: var(--onb-ink); transform: scale(1.2); }
+.onb-dot.done { background: #c7c7cc; }
+
+.onb-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 12px;
+  padding: 22px 0 24px;
+}
+
+.onb-logo {
+  width: 76px;
+  height: 76px;
+  object-fit: contain;
+  -webkit-user-select: none;
+}
+
+.onb-title {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+}
+
+.onb-tagline {
+  margin: 0;
+  max-width: 300px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--onb-muted);
+}
+
+.onb-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  -webkit-app-region: no-drag;
+}
+
+.onb-input {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--onb-line);
+  border-radius: 12px;
+  background: var(--onb-field);
+  color: var(--onb-text);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.onb-input:focus {
+  border-color: #c7c7cc;
+  background: #fff;
+}
+
+.onb-hint {
+  min-height: 16px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--onb-muted);
+  text-align: center;
+}
+
+.onb-spacer { flex: 1; }
+
+.onb-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  -webkit-app-region: no-drag;
+}
+
+.onb-cta {
+  width: 100%;
+  min-height: 46px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--onb-ink);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease, opacity 0.15s ease;
+}
+
+.onb-cta:hover { background: var(--onb-ink-hover); }
+.onb-cta:active { transform: translateY(1px); }
+.onb-cta:disabled { opacity: 0.55; cursor: default; }
+
+.onb-link {
+  align-self: center;
+  padding: 4px;
+  border: 0;
+  background: none;
+  color: var(--onb-muted);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.onb-link:hover { color: var(--onb-text); }
+
+/* Scan / loading */
+.onb-bar {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--onb-field);
+  overflow: hidden;
+}
+
+.onb-bar-fill {
+  height: 100%;
+  width: 0;
+  border-radius: 999px;
+  background: var(--onb-ink);
+  transition: width 0.45s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.onb-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.onb-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 46px;
+  padding: 0 14px;
+  border: 1px solid var(--onb-line);
+  border-radius: 12px;
+  background: var(--onb-field);
+  -webkit-app-region: no-drag;
+}
+
+.onb-row-name { font-size: 13.5px; font-weight: 540; }
+.onb-row-status { font-size: 12px; color: var(--onb-muted); }
+.onb-row.ok .onb-row-status { color: var(--onb-ok); font-weight: 560; }
+.onb-row.checking .onb-row-status { opacity: 0.65; }
+
+.onb-row-btn {
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--onb-line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--onb-text);
+  font-size: 12.5px;
+  font-weight: 540;
+  cursor: pointer;
+}
+
+.onb-row-btn:hover { border-color: #c7c7cc; }
+.onb-row-btn:disabled { opacity: 0.55; cursor: default; }

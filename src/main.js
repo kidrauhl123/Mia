@@ -1566,8 +1566,11 @@ function shouldOpenAgentSetupWindow() {
 
 function createWindow() {
   const initialWindow = windowStateManager.initialWindowState();
-  const compactOnboarding = shouldOpenAgentSetupWindow();
-  if (compactOnboarding) {
+  // Signed-out users (first run OR returning) get a dedicated lightweight
+  // onboarding window: a separate HTML that loads none of the main app, so it
+  // opens instantly (no startup beachball) and is a clean native window.
+  const onboarding = !Boolean(cloudStatus(false) && cloudStatus(false).enabled);
+  if (onboarding) {
     const onboardingWidth = 460;
     const onboardingHeight = 680;
     const workArea = screen.getPrimaryDisplay().workArea;
@@ -1580,8 +1583,8 @@ function createWindow() {
     };
     initialWindow.maximized = false;
   }
-  const minWindowWidth = compactOnboarding ? 400 : 500;
-  const minWindowHeight = compactOnboarding ? 560 : 560;
+  const minWindowWidth = onboarding ? 400 : 500;
+  const minWindowHeight = onboarding ? 560 : 560;
   const win = new BrowserWindow({
     ...initialWindow.bounds,
     minWidth: minWindowWidth,
@@ -1589,7 +1592,7 @@ function createWindow() {
     title: "Mia",
     titleBarStyle: "hidden",
     show: false,
-    backgroundColor: "#f0f0f3",
+    backgroundColor: onboarding ? "#ffffff" : "#f0f0f3",
     acceptFirstMouse: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -1598,12 +1601,12 @@ function createWindow() {
       sandbox: false
     }
   });
-  win.miaSkipAutomaticBackgroundStartup = compactOnboarding;
+  win.miaSkipAutomaticBackgroundStartup = onboarding;
   if (process.platform === "darwin" && typeof win.setWindowButtonVisibility === "function") {
-    win.setWindowButtonVisibility(compactOnboarding);
+    win.setWindowButtonVisibility(onboarding);
   }
   if (initialWindow.maximized) win.maximize();
-  if (!compactOnboarding) windowStateManager.attachWindowStatePersistence(win);
+  if (!onboarding) windowStateManager.attachWindowStatePersistence(win);
   const sendWindowEvent = (channel, payload) => {
     if (!win.isDestroyed()) win.webContents.send(channel, payload);
   };
@@ -1624,9 +1627,33 @@ function createWindow() {
     startupTimer.mark("renderer:did-finish-load");
     showWhenReady();
   });
-  win.loadFile(path.join(__dirname, "renderer", "index.html"), compactOnboarding ? { query: { mode: "agent-setup" } } : {});
+  win.loadFile(onboarding
+    ? path.join(__dirname, "renderer", "onboarding", "onboarding.html")
+    : path.join(__dirname, "renderer", "index.html"));
   startupTimer.mark("window:load-file");
   return win;
+}
+
+// Onboarding finished (signed in): turn the lightweight onboarding window into
+// the real main app window — load the full app, restore main chrome/size, and
+// kick the deferred background startup. Reuses the one window (no flash).
+function promoteOnboardingWindowToMain(win) {
+  if (!win || win.isDestroyed()) return;
+  if (typeof win.setBackgroundColor === "function") win.setBackgroundColor("#f0f0f3");
+  if (process.platform === "darwin" && typeof win.setWindowButtonVisibility === "function") {
+    win.setWindowButtonVisibility(false);
+  }
+  win.setMinimumSize(500, 560);
+  win.setSize(1040, 700);
+  win.center();
+  windowStateManager.attachWindowStatePersistence(win);
+  win.miaSkipAutomaticBackgroundStartup = false;
+  if (process.env.MIA_DISABLE_BACKGROUND_STARTUP !== "1") {
+    win.webContents.once("did-finish-load", () => {
+      setTimeout(() => runtimeLifecycle().scheduleBackgroundStartup(), 2500);
+    });
+  }
+  win.loadFile(path.join(__dirname, "renderer", "index.html"), { query: { onboarding: "complete" } });
 }
 
 const modelSettingsService = createModelSettingsService({
@@ -1890,6 +1917,9 @@ ipcMain.handle(IpcChannel.SocialMyUsername, () => {
   }
 });
 ipcMain.handle(IpcChannel.EngineInstall, (_event, engineId) => engineInstallService.installEngine(engineId));
+ipcMain.handle(IpcChannel.OnboardingComplete, (event) => {
+  promoteOnboardingWindowToMain(BrowserWindow.fromWebContents(event.sender));
+});
 ipcMain.handle(IpcChannel.EngineScan, async (event) => {
   // User-initiated async detection (onboarding prepare step). Streams each agent
   // back as it resolves so the renderer can show a real progress bar, then

@@ -55,6 +55,17 @@ test("onboarding wizard init wires the async agent-scan deps", () => {
   assert.match(appSource, /onScanProgress:\s*\(cb\)\s*=>\s*window\.mia\.onAgentScanProgress/);
 });
 
+test("standalone onboarding completion marks onboarding done in the promoted main app", () => {
+  const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+
+  // Without this handoff, a first-run user is bounced into the legacy setup
+  // guide right after finishing the standalone onboarding window.
+  assert.match(mainSource, /onboarding:\s*"complete"/);
+  assert.match(appSource, /get\("onboarding"\)\s*===\s*"complete"/);
+  assert.match(appSource, /state\.onboardingStep = "done"/);
+});
+
 test("logged-in active pane never falls back to local bot sessions", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
 
@@ -455,9 +466,14 @@ test("main window accepts the first mouse click after regaining focus", () => {
   assert.doesNotMatch(mainSource, /fellows\.length === 0/);
   assert.match(mainSource, /const onboardingWidth = 460;/);
   assert.match(mainSource, /const onboardingHeight = 680;/);
-  assert.match(mainSource, /mode:\s*"agent-setup"/);
-  assert.match(mainSource, /const minWindowWidth = compactOnboarding \? 400 : 500;/);
-  assert.match(mainSource, /const minWindowHeight = compactOnboarding \? 560 : 560;/);
+  // Signed-out users get a dedicated lightweight onboarding window (separate
+  // HTML), not the full app — and finishing promotes that window to the app.
+  assert.match(mainSource, /onboarding[\s\S]{0,40}onboarding\.html/);
+  assert.match(mainSource, /function promoteOnboardingWindowToMain/);
+  assert.match(ipcSource, /OnboardingComplete:\s*"onboarding:complete"/);
+  assert.match(preloadSource, /onboardingComplete:\s*\(\)\s*=>/);
+  assert.match(mainSource, /const minWindowWidth = onboarding \? 400 : 500;/);
+  assert.match(mainSource, /const minWindowHeight = onboarding \? 560 : 560;/);
   assert.match(mainSource, /getRuntimeStatus\(created,\s*\{\s*scanAgents:\s*false\s*\}\)/);
   assert.match(ipcSource, /WindowShowMain:\s*"window:show-main"/);
   assert.match(ipcSource, /WindowOnboarding:\s*"window:onboarding"/);

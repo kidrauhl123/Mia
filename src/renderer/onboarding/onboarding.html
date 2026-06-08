@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline';">
+  <title>Mia</title>
+  <link rel="stylesheet" href="./onboarding.css">
+</head>
+<body>
+  <!-- Dedicated lightweight onboarding window. Loads none of the main app, so it
+       opens instantly (no startup beachall) and reads as a clean native window. -->
+  <div class="onb-drag" aria-hidden="true"></div>
+  <main id="onb-root" class="onb"></main>
+  <script src="./onboarding-window.js"></script>
+</body>
+</html>

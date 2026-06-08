@@ -36,6 +36,7 @@
     EngineWorkspacePick: "engine:workspace:pick",
     EngineScan: "engine:scan",
     EngineScanProgress: "engine:scan-progress",
+    OnboardingComplete: "onboarding:complete",
     EngineUninstallStandalone: "engine:uninstall-standalone",
     EngineCapabilities: "engine:capabilities",
     AuthCodexStart: "auth:codex-start",

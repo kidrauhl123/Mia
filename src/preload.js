@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld("mia", {
     ipcRenderer.on(IpcChannel.EngineScanProgress, handler);
     return () => ipcRenderer.removeListener(IpcChannel.EngineScanProgress, handler);
   },
+  onboardingComplete: () => ipcRenderer.invoke(IpcChannel.OnboardingComplete),
   repairEngine: () => ipcRenderer.invoke(IpcChannel.EngineRepair),
   startEngine: () => ipcRenderer.invoke(IpcChannel.EngineStart),
   stopEngine: () => ipcRenderer.invoke(IpcChannel.EngineStop),

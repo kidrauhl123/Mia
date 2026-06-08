@@ -38,6 +38,20 @@ const agentSetupLaunch = new URLSearchParams(window.location.search || "").get("
 if (agentSetupLaunch && !state.onboardingStep && !state.setupGuideDismissed && !state.agentSetupSkipped) {
   state.onboardingStep = "login";
 }
+// The standalone onboarding window finished and promoted this window to the main
+// app (?onboarding=complete). Mark onboarding done up front so the first-run
+// initializeRuntime() check below doesn't bounce the user into the legacy setup
+// guide right after they pressed "进入 Mia".
+if (new URLSearchParams(window.location.search || "").get("onboarding") === "complete") {
+  state.onboardingStep = "done";
+  state.setupGuideDismissed = true;
+  state.agentSetupSkipped = false;
+  try {
+    localStorage.setItem("mia.onboardingStep", "done");
+    localStorage.setItem(SETUP_GUIDE_DISMISSED_KEY, "1");
+    localStorage.removeItem(AGENT_SETUP_SKIPPED_KEY);
+  } catch { /* ignore */ }
+}
 if (window.miaSetupGuide && window.miaSetupGuide.initSetupGuide) {
   window.miaSetupGuide.initSetupGuide({ state, escapeHtml: window.miaMarkdown.escapeHtml });
 }
