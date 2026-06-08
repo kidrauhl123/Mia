@@ -203,11 +203,19 @@
     `;
   }
 
+  // Engine rows only, for reuse inside the onboarding wizard's "detect" step
+  // (the wizard owns the surrounding shell + step navigation).
+  function renderEngineList() {
+    if (!state) return "";
+    return inventoryAgents(state.runtime).map(engineChoiceRow).join("");
+  }
+
   window.miaSetupGuide = {
     initSetupGuide,
     detectedLocalAgentLabels,
     shouldShowSetupGuide,
     engineChoiceRow,
+    renderEngineList,
     renderSetupGuide,
   };
 })();
