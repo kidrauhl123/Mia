@@ -8,6 +8,7 @@ import { useConversationMessages, useConversationMembers } from "../state/querie
 import { useApi } from "../state/clientProvider";
 import { useAuth } from "../state/auth";
 import { buildPendingMessage } from "../logic/optimisticSend";
+import { normalizeAttachments } from "../logic/attachments";
 import { normalizeServerRow, mergeMessage } from "../logic/normalizeMessage";
 import MessageBubble from "../components/MessageBubble";
 import MessageActions from "../components/MessageActions";
@@ -24,7 +25,7 @@ export default function ChatScreen({ route }: Props) {
   const { conversationId } = route.params;
   const api = useApi();
   const qc = useQueryClient();
-  const { session } = useAuth();
+  const { session, apiBase } = useAuth();
   const insets = useSafeAreaInsets();
   const { data: messages = [] } = useConversationMessages(conversationId);
   const { data: members = [] } = useConversationMembers(conversationId);
@@ -57,9 +58,10 @@ export default function ChatScreen({ route }: Props) {
     } catch {
       return; // 空消息忽略
     }
+    const pendingMessage: ChatMessage = { ...pending, attachments: normalizeAttachments(pending.attachments) };
     setText("");
-    setMsgs((old) => [...old, pending]);
-    await postMessage({ bodyMd: pending.bodyMd, clientTraceId: pending.clientTraceId, mentions: pending.mentions, attachments: pending.attachments });
+    setMsgs((old) => [...old, pendingMessage]);
+    await postMessage({ bodyMd: pendingMessage.bodyMd, clientTraceId: pendingMessage.clientTraceId, mentions: pending.mentions, attachments: pendingMessage.attachments });
   };
 
   const copyMessage = (m: ChatMessage) => {
@@ -69,7 +71,7 @@ export default function ChatScreen({ route }: Props) {
   // 重发:把失败消息标回 pending,用原 clientTraceId(turnId 幂等)重投。
   const resendMessage = async (m: ChatMessage) => {
     setMsgs((old) => old.map((x) => (x.messageId === m.messageId ? { ...x, failed: false, isPending: true } : x)));
-    await postMessage({ bodyMd: m.bodyMd, clientTraceId: m.clientTraceId });
+    await postMessage({ bodyMd: m.bodyMd, clientTraceId: m.clientTraceId, attachments: m.attachments });
   };
 
   // 删除:未送达的(pending/failed)只本地移除;已送达的走云端微信式本地隐藏,失败则还原。
@@ -100,7 +102,7 @@ export default function ChatScreen({ route }: Props) {
         inverted
         keyExtractor={(m) => m.messageId}
         contentContainerStyle={{ padding: 12 }}
-        renderItem={({ item }) => <MessageBubble msg={item} onLongPress={setActionMsg} />}
+        renderItem={({ item }) => <MessageBubble msg={item} apiBase={apiBase} onLongPress={setActionMsg} />}
       />
       <View style={[styles.composer, { paddingBottom: space.sm + insets.bottom }]}>
         <Input
