@@ -2814,6 +2814,24 @@ body.onboarding-window .setup-guide.ready .setup-footer { animation-delay: 0.13s
   text-align: center;
 }
 
+.onb-login-actions {
+  gap: 8px;
+}
+
+.onb-register-link {
+  padding: 2px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.onb-register-link:hover {
+  color: var(--accent);
+}
+
 .setup-hero.compact {
   gap: 8px;
   padding: 4px 0 18px;

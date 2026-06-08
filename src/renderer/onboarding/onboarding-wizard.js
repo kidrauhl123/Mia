@@ -81,8 +81,9 @@
         <input class="onb-input" type="password" name="password" autocomplete="current-password" placeholder="密码（至少 6 位）" data-onb-login-password>
         <p class="onb-login-hint" data-onb-login-hint>${escapeHtml(hint)}</p>
       </form>
-      <footer class="setup-footer">
-        <button class="setup-cta" type="button" data-onb-action="login">登录 / 注册</button>
+      <footer class="setup-footer onb-login-actions">
+        <button class="setup-cta" type="button" data-onb-action="login">登录</button>
+        <button class="onb-register-link" type="button" data-onb-action="register">没有账号？注册一个</button>
       </footer>
     `;
   }
@@ -119,7 +120,9 @@
     bind(container, step);
   }
 
-  async function submitLogin(container) {
+  // mode is "login" or "register" — the backend login does NOT auto-create
+  // accounts, so first-run users must be able to explicitly register.
+  async function submitLogin(container, mode = "login") {
     const username = container.querySelector("[data-onb-login-username]")?.value?.trim() || "";
     const password = container.querySelector("[data-onb-login-password]")?.value || "";
     const setHint = (text) => {
@@ -129,16 +132,15 @@
     };
     if (!username) return setHint("请输入用户名。");
     if (password.length < 6) return setHint("密码至少 6 位。");
-    setHint("正在登录并连接…");
+    setHint(mode === "register" ? "正在注册并连接…" : "正在登录并连接…");
     try {
-      // Login-or-register in one action, matching the single "登录 / 注册" button.
-      const runtime = await deps.cloudLogin?.({ mode: "login", username, password });
+      const runtime = await deps.cloudLogin?.({ mode, username, password });
       if (runtime) state.runtime = runtime;
       if (signedIn()) {
         state.onboardingLoginHint = "";
         goToStep("prepare");
       } else {
-        setHint("登录未成功，请重试。");
+        setHint(mode === "register" ? "注册未成功，请重试。" : "登录未成功，请检查或点下方注册。");
       }
     } catch (error) {
       setHint(`连接失败：${error?.message || error}`);
@@ -152,7 +154,7 @@
     if (step === "login") {
       container.querySelector("[data-onb-login]")?.addEventListener("submit", (event) => {
         event.preventDefault();
-        submitLogin(container);
+        submitLogin(container, "login");
       });
     }
     // data-onb-action is the wizard's own nav. Engine install/repair buttons use
@@ -161,7 +163,8 @@
       const target = event.target.closest("[data-onb-action]");
       if (!target) return;
       const action = target.dataset.onbAction;
-      if (action === "login") return void submitLogin(container);
+      if (action === "login") return void submitLogin(container, "login");
+      if (action === "register") return void submitLogin(container, "register");
       if (action === "finish") return void deps.finish?.();
     });
   }
