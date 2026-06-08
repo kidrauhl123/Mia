@@ -50,6 +50,8 @@ if (window.miaOnboardingWizard && window.miaOnboardingWizard.initOnboardingWizar
     setStep: (step) => { advanceOnboarding(step); renderView(); },
     finish: () => { completeAgentSetup("", { skipped: false }).finally(() => renderView()); },
     rerender: () => renderView(),
+    scanAgents: () => window.mia.scanAgents?.(),
+    onScanProgress: (cb) => window.mia.onAgentScanProgress?.(cb),
     initLottie: (root) => window.miaLottieIcons?.init?.(root),
   });
 }

@@ -26,6 +26,9 @@ function makeService(t, overrides = {}) {
       calls.push(args);
       return { status: 1, stdout: "", stderr: "" };
     },
+    // Async probe default: resolve nothing, so async detection tests never spawn
+    // real processes unless they override execFile.
+    execFile: (_file, _args, _options, cb) => cb(new Error("not found"), "", ""),
     ...overrides
   });
   return { calls, home, service };
@@ -327,4 +330,34 @@ test("agentInventory treats Mia local-source Hermes as usable managed runtime", 
   assert.equal(inventory.summary.hasUsableAgent, true);
   assert.equal(legacy.hermes.available, true);
   assert.equal(legacy.hermes.source, "mia-managed");
+});
+
+test("scanAgentsAsync probes agents asynchronously, reports progress, and warms the cache", async (t) => {
+  const progress = [];
+  const { service } = makeService(t, {
+    execFile: (file, args, _options, cb) => {
+      if (file === "zsh" && args[1] === "command -v claude") return cb(null, "/bin/claude\n", "");
+      if (file === "/bin/claude") return cb(null, "claude 9.9.9\n", "");
+      return cb(new Error("not found"), "", "");
+    }
+  });
+
+  const inventory = await service.scanAgentsAsync((agent) => progress.push(agent.id));
+
+  assert.equal(inventory.agents.length, 4);
+  assert.equal(progress.length, 4, "every agent reported once");
+  const claude = inventory.agents.find((a) => a.id === "claude-code");
+  assert.equal(claude.path, "/bin/claude");
+  assert.equal(claude.usableInMia, true);
+  // Cache warmed: the non-blocking read returns the same scanned inventory.
+  assert.equal(service.cachedAgentInventory(), inventory);
+  assert.equal(service.cachedLocalAgentEngines().claudeCode.available, true);
+});
+
+test("cachedAgentInventory returns the scanning placeholder before any scan", (t) => {
+  const { service } = makeService(t);
+  const cached = service.cachedAgentInventory();
+  assert.equal(cached.summary.scanning, true);
+  // Non-blocking read must not spawn any probe.
+  assert.equal(service.cachedLocalAgentEngines().hermes.source, "checking");
 });

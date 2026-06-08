@@ -23,6 +23,12 @@ contextBridge.exposeInMainWorld("mia", {
   installEngine: (engineId) => ipcRenderer.invoke(IpcChannel.EngineInstall, engineId),
   getAgentWorkspace: () => ipcRenderer.invoke(IpcChannel.EngineWorkspaceGet),
   pickAgentWorkspace: () => ipcRenderer.invoke(IpcChannel.EngineWorkspacePick),
+  scanAgents: () => ipcRenderer.invoke(IpcChannel.EngineScan),
+  onAgentScanProgress: (callback) => {
+    const handler = (_event, payload) => { try { callback(payload); } catch { /* ignore */ } };
+    ipcRenderer.on(IpcChannel.EngineScanProgress, handler);
+    return () => ipcRenderer.removeListener(IpcChannel.EngineScanProgress, handler);
+  },
   repairEngine: () => ipcRenderer.invoke(IpcChannel.EngineRepair),
   startEngine: () => ipcRenderer.invoke(IpcChannel.EngineStart),
   stopEngine: () => ipcRenderer.invoke(IpcChannel.EngineStop),

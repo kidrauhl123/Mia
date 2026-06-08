@@ -46,6 +46,15 @@ test("cloud conversation send and render do not depend on activeKey being empty"
   assert.doesNotMatch(appSource, /activeConversationId && !state\.activeKey/);
 });
 
+test("onboarding wizard init wires the async agent-scan deps", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+
+  // The prepare step's progress loading page depends on these being passed in;
+  // omitting them silently skips the scan (startScan awaits undefined).
+  assert.match(appSource, /scanAgents:\s*\(\)\s*=>\s*window\.mia\.scanAgents/);
+  assert.match(appSource, /onScanProgress:\s*\(cb\)\s*=>\s*window\.mia\.onAgentScanProgress/);
+});
+
 test("logged-in active pane never falls back to local bot sessions", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
 

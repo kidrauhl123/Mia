@@ -34,6 +34,8 @@
     EngineStop: "engine:stop",
     EngineWorkspaceGet: "engine:workspace:get",
     EngineWorkspacePick: "engine:workspace:pick",
+    EngineScan: "engine:scan",
+    EngineScanProgress: "engine:scan-progress",
     EngineUninstallStandalone: "engine:uninstall-standalone",
     EngineCapabilities: "engine:capabilities",
     AuthCodexStart: "auth:codex-start",

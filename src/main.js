@@ -580,12 +580,16 @@ function getRuntimeStatus(created = [], options = {}) {
   // agents (hermes/openclaw) would block the main process and beachball the
   // window on open. Once signed in, the scan runs for the prepare/app views.
   const cloudState = cloudStatus(false);
-  const scanAgents = options.scanAgents !== false && Boolean(cloudState?.enabled);
-  const agentInventory = scanAgents
-    ? localAgentEngineService.agentInventory()
+  // Never block the main process on the local-agent scan: while signed out the
+  // login screen needs no inventory; while signed in we warm the cache async
+  // and serve whatever is cached (or the scanning placeholder) immediately.
+  const wantAgents = options.scanAgents !== false && Boolean(cloudState?.enabled);
+  if (wantAgents) localAgentEngineService.scanAgentsAsync().catch(() => {});
+  const agentInventory = wantAgents
+    ? localAgentEngineService.cachedAgentInventory()
     : localAgentEngineService.pendingAgentInventory();
-  const agentEngines = scanAgents
-    ? localAgentEngineService.localAgentEngines()
+  const agentEngines = wantAgents
+    ? localAgentEngineService.cachedLocalAgentEngines()
     : localAgentEngineService.pendingLocalAgentEngines();
   return {
     appData: p.root,
@@ -1886,6 +1890,20 @@ ipcMain.handle(IpcChannel.SocialMyUsername, () => {
   }
 });
 ipcMain.handle(IpcChannel.EngineInstall, (_event, engineId) => engineInstallService.installEngine(engineId));
+ipcMain.handle(IpcChannel.EngineScan, async (event) => {
+  // User-initiated async detection (onboarding prepare step). Streams each agent
+  // back as it resolves so the renderer can show a real progress bar, then
+  // returns the full inventory + engine view.
+  const total = 4;
+  let done = 0;
+  const inventory = await localAgentEngineService.scanAgentsAsync((agent) => {
+    done += 1;
+    if (!event.sender.isDestroyed()) {
+      event.sender.send(IpcChannel.EngineScanProgress, { agent, done, total });
+    }
+  });
+  return { inventory, agentEngines: localAgentEngineService.cachedLocalAgentEngines() };
+});
 ipcMain.handle(IpcChannel.EngineWorkspaceGet, () => ({
   path: agentWorkspaceDir(),
   custom: String(settingsStore.agentWorkspace().path || ""),

@@ -29,6 +29,15 @@
   // innerHTML each time — replaying the entry animation (logo/button flicker)
   // and wiping whatever the user has typed into the login form.
   let lastSig = null;
+  // Prepare-step async scan state. status: idle → scanning → done. Per-agent
+  // results land in scan[agentId] as they resolve.
+  let scan = { status: "idle", done: 0, total: 4 };
+  const SCAN_AGENTS = [
+    { id: "hermes", label: "Hermes" },
+    { id: "claude-code", label: "Claude Code" },
+    { id: "codex", label: "Codex" },
+    { id: "openclaw", label: "OpenClaw" },
+  ];
 
   function initOnboardingWizard(injected) {
     state = injected.state;
@@ -99,7 +108,42 @@
     `;
   }
 
-  function prepareStepHtml() {
+  function scanRowStatus(agent) {
+    if (!agent) return { text: "检测中…", cls: "checking" };
+    if (agent.usableInMia) return { text: "已就绪", cls: "ok" };
+    if (agent.installed) return { text: "已检测到", cls: "" };
+    return { text: "未检测到", cls: "missing" };
+  }
+
+  function scanRowHtml(entry) {
+    const { text, cls } = scanRowStatus(scan[entry.id]);
+    return `
+      <div class="onb-scan-row ${cls}" data-scan-id="${entry.id}">
+        <span class="onb-scan-name">${escapeHtml(entry.label)}</span>
+        <span class="onb-scan-status">${escapeHtml(text)}</span>
+      </div>
+    `;
+  }
+
+  // Loading view: a progress bar + per-agent rows that fill in as the async scan
+  // reports each agent, so the user sees what Mia is doing instead of a frozen
+  // window.
+  function scanningStepHtml() {
+    const pct = Math.round((scan.done / scan.total) * 100);
+    return `
+      <header class="setup-hero compact">
+        <img class="setup-logo-img" src="./assets/mia-logo.png" alt="Mia" draggable="false">
+        <h1 class="setup-title">正在准备 Mia</h1>
+        <p class="setup-tagline">正在检测本机已安装的 Agent…</p>
+      </header>
+      <section class="setup-section">
+        <div class="onb-progress-bar"><div class="onb-progress-fill" data-onb-progress-fill style="width:${pct}%"></div></div>
+        <div class="setup-engine-list">${SCAN_AGENTS.map(scanRowHtml).join("")}</div>
+      </section>
+    `;
+  }
+
+  function preparedStepHtml() {
     const list = deps.renderEngineList?.() || "";
     return `
       <header class="setup-hero compact">
@@ -115,8 +159,53 @@
     `;
   }
 
+  function prepareStepHtml() {
+    return scan.status === "done" ? preparedStepHtml() : scanningStepHtml();
+  }
+
   function stepBodyHtml(step) {
     return step === "login" ? loginStepHtml() : prepareStepHtml();
+  }
+
+  // Update the scanning view in place (no re-render) as progress arrives, so the
+  // bar animates and rows flip without replaying the entry animation.
+  function updateScanDom() {
+    const root = document.querySelector(".onb-wizard");
+    if (!root) return;
+    const fill = root.querySelector("[data-onb-progress-fill]");
+    if (fill) fill.style.width = Math.round((scan.done / scan.total) * 100) + "%";
+    for (const entry of SCAN_AGENTS) {
+      const agent = scan[entry.id];
+      if (!agent) continue;
+      const row = root.querySelector(`[data-scan-id="${entry.id}"]`);
+      if (!row) continue;
+      const { text, cls } = scanRowStatus(agent);
+      row.className = `onb-scan-row ${cls}`;
+      const status = row.querySelector(".onb-scan-status");
+      if (status) status.textContent = text;
+    }
+  }
+
+  async function startScan() {
+    if (scan.status !== "idle") return;
+    scan = { status: "scanning", done: 0, total: 4 };
+    const unsubscribe = deps.onScanProgress?.((payload) => {
+      if (!payload || !payload.agent) return;
+      scan[payload.agent.id] = payload.agent;
+      if (typeof payload.done === "number") scan.done = payload.done;
+      updateScanDom();
+    });
+    try {
+      const result = await deps.scanAgents?.();
+      if (result && result.inventory) {
+        state.runtime = state.runtime || {};
+        state.runtime.agentInventory = result.inventory;
+        if (result.agentEngines) state.runtime.agentEngines = result.agentEngines;
+      }
+    } catch { /* fall through to done */ }
+    if (typeof unsubscribe === "function") unsubscribe();
+    scan.status = "done";
+    deps.rerender?.();
   }
 
   function render(container) {
@@ -126,7 +215,14 @@
     // the login step is static, so its signature stays constant and a background
     // re-render is a no-op — keeping the form contents and avoiding flicker. The
     // hint updates in place via setHint, so it stays out of the signature.
-    const sig = step === "login" ? "login" : "prepare::" + (deps.renderEngineList?.() || "");
+    // login: static. prepare/scanning: constant sig (progress updates happen in
+    // place via updateScanDom, never a full re-render). prepare/done: keyed on
+    // the engine list so an install result refreshes it.
+    const sig = step === "login"
+      ? "login"
+      : scan.status === "done"
+        ? "prepare::done::" + (deps.renderEngineList?.() || "")
+        : "prepare::scanning";
     if (lastSig === sig && container.querySelector(".onb-wizard")) return;
     lastSig = sig;
     container.innerHTML = `
@@ -179,6 +275,8 @@
         submitLogin(container, "login");
       });
     }
+    // Kick off the async agent scan the first time the prepare step shows.
+    if (step === "prepare" && scan.status === "idle") startScan();
     // data-onb-action is the wizard's own nav. Engine install/repair buttons use
     // data-setup-action and are handled by the app's existing delegated handler.
     wizard.addEventListener("click", (event) => {

@@ -1,7 +1,7 @@
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { spawnSync: defaultSpawnSync } = require("node:child_process");
+const { spawnSync: defaultSpawnSync, execFile: defaultExecFile } = require("node:child_process");
 
 const SYSTEM_CLI_PATH_SEGMENTS = [
   "/opt/homebrew/bin",
@@ -57,6 +57,7 @@ function createLocalAgentEngineService(deps = {}) {
   const homeDir = typeof deps.homeDir === "function" ? deps.homeDir : () => os.homedir();
   const envSource = deps.env || process.env;
   const spawnSync = deps.spawnSync || defaultSpawnSync;
+  const execFile = deps.execFile || defaultExecFile;
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   const fsImpl = deps.fs || fs;
   const platform = deps.platform || process.platform;
@@ -69,6 +70,19 @@ function createLocalAgentEngineService(deps = {}) {
   const cacheMs = Number.isFinite(Number(deps.cacheMs)) ? Number(deps.cacheMs) : 15000;
   let agentInventoryCache = { at: 0, value: null };
   let agentEngineCache = { at: 0, value: null };
+  let warmScanPromise = null;
+
+  function execFileAsync(file, args, options) {
+    return new Promise((resolve) => {
+      try {
+        execFile(file, args, options, (error, stdout, stderr) => {
+          resolve({ error, stdout: String(stdout || ""), stderr: String(stderr || "") });
+        });
+      } catch (error) {
+        resolve({ error, stdout: "", stderr: "" });
+      }
+    });
+  }
 
   function currentEnv() {
     return typeof envSource === "function" ? (envSource() || {}) : envSource;
@@ -188,6 +202,53 @@ function createLocalAgentEngineService(deps = {}) {
     return { command: commands[0] || "", path: "", version: "" };
   }
 
+  // Async variants of the probes (execFile) for non-blocking detection. The
+  // direct PATH scan is a cheap sync fs check; only the shell fallback and the
+  // --version call shell out, and those run asynchronously here.
+  async function shellCommandPathAsync(command) {
+    const name = commandNameOnly(command);
+    if (!name) return "";
+    const dirs = [
+      ...cliPathSegments(),
+      ...String(currentEnv().PATH || "").split(path.delimiter)
+    ].filter(Boolean);
+    for (const dir of dirs) {
+      const found = executablePath(path.join(dir, name));
+      if (found) return found;
+    }
+    if (platform === "win32") {
+      const result = await execFileAsync("where", [name], { encoding: "utf8", timeout: 1500, env: processEnvWithCliPath() });
+      if (!result.error) {
+        const found = result.stdout.split(/\r?\n/).map((line) => line.trim()).find(Boolean) || "";
+        if (found) return found;
+      }
+      return "";
+    }
+    const result = await execFileAsync("zsh", ["-lc", `command -v ${name}`], { encoding: "utf8", timeout: 1500, env: processEnvWithCliPath() });
+    if (!result.error) {
+      const found = result.stdout.split(/\r?\n/)[0]?.trim() || "";
+      if (found) return found;
+    }
+    return "";
+  }
+
+  async function commandVersionAsync(commandPath) {
+    if (!commandPath) return "";
+    const result = await execFileAsync(commandPath, ["--version"], { encoding: "utf8", timeout: 2000, env: processEnvWithCliPath() });
+    if (result.error) return "";
+    return (result.stdout || result.stderr).split(/\r?\n/)[0]?.trim() || "";
+  }
+
+  async function firstCommandPathAsync(commands) {
+    for (const command of commands) {
+      const found = await shellCommandPathAsync(command);
+      if (found) {
+        return { command, path: found, version: await commandVersionAsync(found) };
+      }
+    }
+    return { command: commands[0] || "", path: "", version: "" };
+  }
+
   function miaHermesSource() {
     const source = String(hermesSource() || "").trim();
     if (source === "bundled") return "mia-bundled";
@@ -203,8 +264,8 @@ function createLocalAgentEngineService(deps = {}) {
     return Boolean(source && isHermesInstalled());
   }
 
-  function agentStatus(definition) {
-    const probe = firstCommandPath(definition.commands);
+  // Pure status builder shared by the sync and async detection paths.
+  function buildAgentStatus(definition, probe) {
     const systemAvailable = Boolean(probe.path);
     const hermesRuntimeUsable = definition.id === "hermes" ? hermesUsable(systemAvailable) : false;
     const installed = Boolean(systemAvailable || hermesRuntimeUsable);
@@ -239,13 +300,14 @@ function createLocalAgentEngineService(deps = {}) {
     };
   }
 
-  function agentInventory() {
-    const at = now();
-    if (agentInventoryCache.value && at - agentInventoryCache.at < cacheMs) return agentInventoryCache.value;
-    const agents = AGENT_DEFINITIONS.map(agentStatus);
+  function agentStatus(definition) {
+    return buildAgentStatus(definition, firstCommandPath(definition.commands));
+  }
+
+  function buildInventory(agents, at) {
     const installedCount = agents.filter((agent) => agent.installed).length;
     const usableCount = agents.filter((agent) => agent.usableInMia).length;
-    const value = {
+    return {
       generatedAt: at,
       agents,
       summary: {
@@ -256,8 +318,47 @@ function createLocalAgentEngineService(deps = {}) {
         recommendedAction: usableCount > 0 ? "continue" : "install-hermes"
       }
     };
+  }
+
+  function agentInventory() {
+    const at = now();
+    if (agentInventoryCache.value && at - agentInventoryCache.at < cacheMs) return agentInventoryCache.value;
+    const value = buildInventory(AGENT_DEFINITIONS.map(agentStatus), at);
     agentInventoryCache = { at, value };
     return value;
+  }
+
+  // Async detection. Probes every agent in parallel without blocking the main
+  // process (the sync path's shell probes for missing agents are what beachball
+  // the window). Reports each agent as it resolves via onProgress, warms the
+  // cache, and returns the full inventory. Non-progress calls are deduped.
+  function scanAgentsAsync(onProgress) {
+    // Warm (no-progress) calls reuse a fresh cache and dedupe in-flight scans,
+    // so the periodic runtime poll never restarts a scan needlessly. Explicit
+    // progress scans (user-initiated, prepare step) always run fresh.
+    if (typeof onProgress !== "function" && agentInventoryCache.value && (now() - agentInventoryCache.at < cacheMs)) {
+      return Promise.resolve(agentInventoryCache.value);
+    }
+    const run = () => Promise.all(AGENT_DEFINITIONS.map(async (definition) => {
+      const probe = await firstCommandPathAsync(definition.commands);
+      const status = buildAgentStatus(definition, probe);
+      try { if (typeof onProgress === "function") onProgress(status); } catch { /* ignore */ }
+      return status;
+    })).then((agents) => {
+      const value = buildInventory(agents, now());
+      agentInventoryCache = { at: now(), value };
+      agentEngineCache = { at: 0, value: null };
+      return value;
+    });
+    if (typeof onProgress === "function") return run();
+    if (!warmScanPromise) warmScanPromise = run().finally(() => { warmScanPromise = null; });
+    return warmScanPromise;
+  }
+
+  // Non-blocking inventory read: serve the cache (even if stale) so the window
+  // never blocks; fall back to the scanning placeholder only when truly cold.
+  function cachedAgentInventory() {
+    return agentInventoryCache.value || pendingAgentInventory();
   }
 
   function pendingAgentStatus(definition) {
@@ -305,14 +406,13 @@ function createLocalAgentEngineService(deps = {}) {
     return agentInventory().agents.find((agent) => agent.id === id) || null;
   }
 
-  function localAgentEngines() {
-    const at = now();
-    if (agentEngineCache.value && at - agentEngineCache.at < cacheMs) return agentEngineCache.value;
-    const hermes = inventoryAgent("hermes") || {};
-    const claudeCode = inventoryAgent("claude-code") || {};
-    const codex = inventoryAgent("codex") || {};
-    const openClaw = inventoryAgent("openclaw") || {};
-    const value = {
+  function engineViewFromInventory(inventory) {
+    const byId = (id) => (inventory.agents || []).find((agent) => agent.id === id) || {};
+    const hermes = byId("hermes");
+    const claudeCode = byId("claude-code");
+    const codex = byId("codex");
+    const openClaw = byId("openclaw");
+    return {
       hermes: {
         id: "hermes",
         label: "默认",
@@ -349,8 +449,21 @@ function createLocalAgentEngineService(deps = {}) {
         detectionOnly: true
       }
     };
+  }
+
+  function localAgentEngines() {
+    const at = now();
+    if (agentEngineCache.value && at - agentEngineCache.at < cacheMs) return agentEngineCache.value;
+    const value = engineViewFromInventory(agentInventory());
     agentEngineCache = { at, value };
     return value;
+  }
+
+  // Non-blocking engine view built from whatever inventory is cached (or the
+  // scanning placeholder when cold) — never spawns.
+  function cachedLocalAgentEngines() {
+    if (!agentInventoryCache.value) return pendingLocalAgentEngines();
+    return engineViewFromInventory(agentInventoryCache.value);
   }
 
   function pendingLocalAgentEngines() {
@@ -397,6 +510,8 @@ function createLocalAgentEngineService(deps = {}) {
 
   return {
     agentInventory,
+    cachedAgentInventory,
+    cachedLocalAgentEngines,
     cliPathEnv,
     cliPathSegments,
     commandNameOnly,
@@ -406,6 +521,7 @@ function createLocalAgentEngineService(deps = {}) {
     pendingLocalAgentEngines,
     processEnvWithCliPath,
     resetCache,
+    scanAgentsAsync,
     shellCommandPath
   };
 }
