@@ -82,6 +82,24 @@ test("Intel macOS build config labels DMG artifacts for Intel Macs", () => {
   assert.match(source, /hardenedRuntime:\s*true/);
 });
 
+test("custom macOS DMG script applies a Finder drag-to-Applications layout", () => {
+  const source = fs.readFileSync(path.join(root, "scripts", "create-mac-dmg.js"), "utf8");
+
+  assert.match(source, /dmg-background\.png/);
+  assert.match(source, /const windowBounds = \[200, 120, 800, 540\]/);
+  assert.match(source, /const appIconPosition = \[180, 238\]/);
+  assert.match(source, /const applicationsIconPosition = \[420, 238\]/);
+  assert.match(source, /set toolbar visible of container window to false/);
+  assert.match(source, /set the bounds of container window to \{\$\{windowBounds\.join\(", "\)\}\}/);
+  assert.match(source, /set icon size of viewOptions to 96/);
+  assert.match(source, /set bgFile to POSIX file \$\{appleScriptString\(mountedBackgroundImage\)\} as alias/);
+  assert.match(source, /set background picture of viewOptions to bgFile/);
+  assert.match(source, /set position of item \$\{appleScriptString\(appName\)\}.*\$\{appIconPosition\.join\(", "\)\}/);
+  assert.match(source, /set position of item "Applications".*\$\{applicationsIconPosition\.join\(", "\)\}/);
+  assert.match(source, /fs\.symlinkSync\("\/Applications"/);
+  assert.match(source, /"convert"[\s\S]*"-format"[\s\S]*"UDZO"/);
+});
+
 test("clean release script removes stale artifacts from the configured release directory", () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-release-clean-"));
   const releaseDir = path.join(tempDir, "release");

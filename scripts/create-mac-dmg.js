@@ -8,6 +8,7 @@ const pkg = require(path.join(root, "package.json"));
 const productName = pkg.productName || "Mia";
 const version = pkg.version || "0.0.0";
 const appName = `${productName}.app`;
+const backgroundImage = path.join(root, "build", "dmg-background.png");
 // electron-builder writes to release/mac/ on the host arch, or arch-specific
 // directories when a cross-arch build is requested.
 const sourceCandidates = [
@@ -21,6 +22,9 @@ const sourceEntry = sourceCandidates[0];
 const source = sourceEntry?.appPath;
 const targetLabel = process.env.MIA_MAC_DMG_LABEL || sourceEntry?.label || "Apple-Silicon";
 const target = path.join(root, "release", `${productName}-${version}-${targetLabel}.dmg`);
+const windowBounds = [200, 120, 800, 540];
+const appIconPosition = [180, 238];
+const applicationsIconPosition = [420, 238];
 
 if (process.platform !== "darwin") {
   throw new Error("create-mac-dmg.js only runs on macOS.");
@@ -30,26 +34,124 @@ if (!source) {
   throw new Error(`Missing packaged app under release/mac{,-arm64,-x64}/${appName}`);
 }
 
+if (!fs.existsSync(backgroundImage)) {
+  throw new Error(`Missing DMG background image at ${path.relative(root, backgroundImage)}`);
+}
+
+function appleScriptString(value) {
+  return `"${String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
+function detachVolume(volumePath) {
+  if (!volumePath) return;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      execFileSync("hdiutil", ["detach", volumePath], { stdio: "inherit" });
+      return;
+    } catch (error) {
+      if (attempt === 4) throw error;
+      execFileSync("sleep", ["1"]);
+    }
+  }
+}
+
+function attachImage(imagePath) {
+  const output = execFileSync("hdiutil", [
+    "attach",
+    imagePath,
+    "-noverify",
+    "-noautoopen",
+    "-readwrite"
+  ], { cwd: root, encoding: "utf8" });
+  process.stdout.write(output);
+  const mountLine = output.split(/\r?\n/).find((line) => /\/Volumes\//.test(line));
+  const match = mountLine && mountLine.match(/(\/Volumes\/.+)$/);
+  if (!match) {
+    throw new Error(`Unable to find mounted volume path in hdiutil output:\n${output}`);
+  }
+  return match[1].trim();
+}
+
+function applyFinderLayout(volumePath) {
+  const mountedBackgroundImage = path.join(volumePath, ".background", "dmg-background.png");
+  const script = `
+tell application "Finder"
+  tell disk ${appleScriptString(productName)}
+    open
+    set current view of container window to icon view
+    set toolbar visible of container window to false
+    set statusbar visible of container window to false
+    set the bounds of container window to {${windowBounds.join(", ")}}
+    set viewOptions to the icon view options of container window
+    set arrangement of viewOptions to not arranged
+    set icon size of viewOptions to 96
+    set text size of viewOptions to 14
+    set bgFile to POSIX file ${appleScriptString(mountedBackgroundImage)} as alias
+    set background picture of viewOptions to bgFile
+    set position of item ${appleScriptString(appName)} of container window to {${appIconPosition.join(", ")}}
+    set position of item "Applications" of container window to {${applicationsIconPosition.join(", ")}}
+    update without registering applications
+    delay 1
+    close
+  end tell
+end tell
+`;
+
+  execFileSync("osascript", ["-e", script], { stdio: "inherit" });
+}
+
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mia-dmg-"));
 const stagingDir = path.join(tempRoot, "staging");
+const rwImage = path.join(tempRoot, `${productName}-rw.dmg`);
+let mountedVolume = null;
 fs.mkdirSync(stagingDir, { recursive: true });
 
 try {
-  fs.cpSync(source, path.join(stagingDir, appName), { recursive: true, verbatimSymlinks: true });
+  execFileSync("ditto", [source, path.join(stagingDir, appName)], { stdio: "inherit" });
   fs.symlinkSync("/Applications", path.join(stagingDir, "Applications"));
-  fs.rmSync(target, { force: true });
+  fs.mkdirSync(path.join(stagingDir, ".background"), { recursive: true });
+  fs.copyFileSync(backgroundImage, path.join(stagingDir, ".background", "dmg-background.png"));
+
   execFileSync("hdiutil", [
     "create",
     "-volname",
     productName,
     "-srcfolder",
     stagingDir,
+    "-fs",
+    "HFS+",
+    "-format",
+    "UDRW",
     "-ov",
+    rwImage
+  ], { cwd: root, stdio: "inherit" });
+
+  mountedVolume = attachImage(rwImage);
+
+  execFileSync("chflags", ["hidden", path.join(mountedVolume, ".background")], { stdio: "inherit" });
+  applyFinderLayout(mountedVolume);
+  detachVolume(mountedVolume);
+  mountedVolume = null;
+
+  fs.rmSync(target, { force: true });
+  execFileSync("hdiutil", [
+    "convert",
+    rwImage,
     "-format",
     "UDZO",
+    "-imagekey",
+    "zlib-level=9",
+    "-o",
     target
   ], { cwd: root, stdio: "inherit" });
 } finally {
+  if (mountedVolume) {
+    try {
+      execFileSync("hdiutil", ["detach", mountedVolume, "-force"], { stdio: "ignore" });
+    } catch {
+      // The image may already be detached.
+    }
+  }
   fs.rmSync(tempRoot, { recursive: true, force: true });
 }
 
