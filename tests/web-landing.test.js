@@ -19,11 +19,11 @@ test("web root is a promo landing page with download and app entry points", () =
 
   assert.match(html, /Mia 把一群 AI 当同事用/);
   assert.match(html, /Multiple Intelligent Agents/);
-  assert.match(html, /href="assets\/mia\.css\?v=20260608-downloads1"/);
-  assert.match(html, /href="assets\/mia-gradient\.css\?v=20260608-downloads1"/);
-  assert.match(html, /href="assets\/mia-scroll\.css\?v=20260608-downloads1"/);
-  assert.match(html, /src="assets\/mia\.js\?v=20260608-downloads1"/);
-  assert.match(html, /src="assets\/mia-scroll\.js\?v=20260608-downloads1"/);
+  assert.match(html, /href="assets\/mia\.css\?v=20260609-downloadmenu2"/);
+  assert.match(html, /href="assets\/mia-gradient\.css\?v=20260609-downloadmenu2"/);
+  assert.match(html, /href="assets\/mia-scroll\.css\?v=20260609-downloadmenu2"/);
+  assert.match(html, /src="assets\/mia\.js\?v=20260609-downloadmenu2"/);
+  assert.match(html, /src="assets\/mia-scroll\.js\?v=20260609-downloadmenu2"/);
   assert.match(html, /src="assets\/mia-logo\.png"/);
   assert.match(html, /class="[^"]*\bmiawin\b[^"]*"/);
   assert.match(html, /class="[^"]*\bmw-search\b[^"]*"/);

@@ -180,13 +180,15 @@
   .hero-ctas {
     width: 100%;
     gap: 9px;
+    align-items: stretch;
   }
   .download-cluster {
     width: 100%;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
     justify-content: center;
   }
   .download-cluster > .btn-primary {
-    flex: 1 1 auto;
     min-width: 0;
     padding-left: 16px;
     padding-right: 16px;
@@ -196,9 +198,20 @@
     padding-left: 13px !important;
     padding-right: 13px !important;
   }
+  .download-menu-wrap {
+    position: static;
+  }
   .download-menu {
+    left: 0;
     right: 0;
-    width: min(252px, calc(100vw - 56px));
+    width: 100%;
+    grid-template-columns: 1fr;
+    transform: none;
+  }
+  .download-menu::before {
+    left: auto;
+    right: 30px;
+    transform: rotate(45deg);
   }
 
   /* show a believable mobile chat instead of "view on a bigger screen" */
