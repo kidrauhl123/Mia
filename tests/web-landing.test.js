@@ -56,6 +56,8 @@ test("web root is a promo landing page with download and app entry points", () =
   assert.match(html, /data-primary-download/);
   assert.match(html, /data-download-menu-button/);
   assert.match(html, /data-download-option="ios"/);
+  assert.match(html, /<a class="nav-cta" data-primary-download [^>]*>下载<\/a>/);
+  assert.doesNotMatch(html, /class="nav-cta"[^>]*data-download-label/);
   assert.match(html, /iPhone \/ iPad/);
   assert.match(css, /\.download-menu/);
   assert.match(html, /href="\/app\/"/);
