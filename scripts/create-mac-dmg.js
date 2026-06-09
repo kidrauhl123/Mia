@@ -35,7 +35,7 @@ const stagingDir = path.join(tempRoot, "staging");
 fs.mkdirSync(stagingDir, { recursive: true });
 
 try {
-  fs.cpSync(source, path.join(stagingDir, appName), { recursive: true });
+  fs.cpSync(source, path.join(stagingDir, appName), { recursive: true, verbatimSymlinks: true });
   fs.symlinkSync("/Applications", path.join(stagingDir, "Applications"));
   fs.rmSync(target, { force: true });
   execFileSync("hdiutil", [

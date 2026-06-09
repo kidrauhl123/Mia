@@ -78,6 +78,8 @@ test("Intel macOS build config labels DMG artifacts for Intel Macs", () => {
 
   assert.match(source, /artifactName:\s*"\$\{productName\}-\$\{version\}-Intel\.\$\{ext\}"/);
   assert.match(source, /target:\s*\["dir", "zip"\]/);
+  assert.match(source, /identity:\s*"XiaoChuan Technology Co\., Ltd\. \(S4NWU843M5\)"/);
+  assert.match(source, /hardenedRuntime:\s*true/);
 });
 
 test("clean release script removes stale artifacts from the configured release directory", () => {

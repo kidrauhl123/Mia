@@ -6,7 +6,9 @@ module.exports = {
   ...build,
   mac: {
     ...(build.mac || {}),
-    target: ["dir", "zip"]
+    target: ["dir", "zip"],
+    identity: "XiaoChuan Technology Co., Ltd. (S4NWU843M5)",
+    hardenedRuntime: true
   },
   dmg: {
     ...(build.dmg || {}),
