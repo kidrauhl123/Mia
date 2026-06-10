@@ -16,6 +16,9 @@ test("discover bot store uses a two-step enrollment flow before saving", () => {
   assert.match(src, />确认<\/button>/);
   assert.match(src, /function openEnrollmentStep/);
   assert.match(src, /运行位置 \/ Agent/);
+  assert.match(src, /<span>技能<\/span>/);
+  assert.match(src, /function skillSummary/);
+  assert.match(src, /enabledSkills/);
   assert.match(src, /确认位置/);
   assert.match(src, /data-badge-engine/);
   assert.match(src, /data-runtime-target-select/);
@@ -40,6 +43,7 @@ test("discover bot store uses a two-step enrollment flow before saving", () => {
   assert.match(src, /data-badge-uid/);
   assert.match(src, /UID · \$\{savedKey\}/);
   assert.match(src, /UID · \$\{escapeHtml\(plannedKey\)\}/);
+  assert.doesNotMatch(src, /<span>权限<\/span>/);
   assert.doesNotMatch(src, /data-runtime-target-picker/);
   assert.doesNotMatch(src, /data-engine-toggle/);
   assert.doesNotMatch(src, /classList\.toggle\("is-engine-open"\)/);
@@ -87,4 +91,5 @@ test("official bot presets exclude voice-only coworkers until voice is available
 
   assert.equal(presets.some((item) => item.key === "speak-partner"), false);
   assert.equal(presets.some((item) => item.name === "口语陪练"), false);
+  assert.equal(presets.every((item) => Array.isArray(item.capabilities?.enabledSkills) && item.capabilities.enabledSkills.length > 0), true);
 });

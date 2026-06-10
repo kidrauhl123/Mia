@@ -12,8 +12,8 @@
   let runtimeDevicesLoadedAt = 0;
   const RUNTIME_DEVICE_REFRESH_INTERVAL_MS = 15_000;
 
-  // 样例预设：每个 = 人设包装 + 一段 personaText。技能组合（capabilities）等
-  // 有意义的标签体系定了再挂；这里先不填，避免占位标签误导。
+  // 样例预设：官方库还没加载时使用；正式数据来自 resources/official-library/library.json。
+  // capabilities.enabledSkills 要和官方库保持同一套 id，保存后会进入运行时 Skill 注入链路。
   const FALLBACK_PRESETS = [
     {
       key: "paper-buddy", cat: "论文", emoji: "📄", c1: "#eef0ff", c2: "#5e5ce6",
@@ -21,7 +21,8 @@
       line: "拖一个装满 PDF 的文件夹进来，30 秒出一张文献综述对比表。",
       desc: "专治写论文最磨人的环节：把一堆文献读完、对比、整理成表。你只管把 PDF 丢进来，它来读。",
       demo: "你：<b>把这个文件夹里 18 篇文献做成综述对比表</b><br>论文搭子：已读完 → 按「作者 / 方法 / 结论 / 局限」生成了一张表 ✅",
-      persona: "你是「论文搭子」，帮大学生处理文献相关的活：批量读 PDF、做文献综述对比表、整理引用格式、中英互译。语气务实、简洁，先确认用户给的文件再动手。"
+      persona: "你是「论文搭子」，帮大学生处理文献相关的活：批量读 PDF、做文献综述对比表、整理引用格式、中英互译。语气务实、简洁，先确认用户给的文件再动手。",
+      capabilities: { enabledSkills: ["mia-official:paper-research"] }
     },
     {
       key: "lab-data", cat: "实验", emoji: "📊", c1: "#e9f9ef", c2: "#1a9d5a",
@@ -29,7 +30,8 @@
       line: "丢一个数据表，自动画图、跑统计，再写成实验报告段落。",
       desc: "理工科写 lab report 的苦力都给它。从原始 csv 到能贴进报告的图和结论，一步到位。",
       demo: "你：<b>用这份 data.csv 画个趋势图，跑下相关性</b><br>实验数据助手：图已生成，r = 0.81（强相关），结论段落见下 ✅",
-      persona: "你是「实验数据助手」，帮大学生处理实验数据：读数据文件、画图、跑基础统计、把结果写成实验报告段落。动手前先确认数据列的含义。"
+      persona: "你是「实验数据助手」，帮大学生处理实验数据：读数据文件、画图、跑基础统计、把结果写成实验报告段落。动手前先确认数据列的含义。",
+      capabilities: { enabledSkills: ["mia-official:lab-report"] }
     },
     {
       key: "exam-buddy", cat: "复习", emoji: "📚", c1: "#fff3e6", c2: "#d9730a",
@@ -37,7 +39,8 @@
       line: "把一学期的 PPT、讲义丢进来，出复习提纲 + 自测题。",
       desc: "期末救命。把课件全塞给它，回你一份带例题的复习提纲，还能随时考你两道。",
       demo: "你：<b>这门课 12 个 PPT，帮我整一份复习提纲</b><br>复习搭子：提纲分 5 大块，每块附 2 道自测题 ✅",
-      persona: "你是「复习搭子」，帮大学生备考：读 PPT / 讲义，整理出结构清晰的复习提纲，并出自测题。提纲要分块、抓重点，自测题给答案与解析。"
+      persona: "你是「复习搭子」，帮大学生备考：读 PPT / 讲义，整理出结构清晰的复习提纲，并出自测题。提纲要分块、抓重点，自测题给答案与解析。",
+      capabilities: { enabledSkills: ["mia-official:study-review"] }
     },
     {
       key: "career-coach", cat: "求职", emoji: "💼", c1: "#eaf1ff", c2: "#2563eb",
@@ -45,7 +48,8 @@
       line: "简历 + JD 丢进来，改一版，还能陪你模拟面试。",
       desc: "网申季搭子。按目标岗位改简历，再扮演面试官跟你过一遍高频问题。",
       demo: "你：<b>照这个产品实习 JD 改我的简历</b><br>简历面试官：已对齐 JD 关键词，改了 6 处，要不要现在模拟面试？",
-      persona: "你是「简历面试官」，帮大学生求职：按目标 JD 优化简历措辞与重点，并能扮演面试官做模拟面试、给反馈。先问清目标岗位再动手。"
+      persona: "你是「简历面试官」，帮大学生求职：按目标 JD 优化简历措辞与重点，并能扮演面试官做模拟面试、给反馈。先问清目标岗位再动手。",
+      capabilities: { enabledSkills: ["mia-official:resume-interview"] }
     },
     {
       key: "qa-helper", cat: "复习", emoji: "💡", c1: "#fff7e0", c2: "#b8860b",
@@ -53,15 +57,32 @@
       line: "拍一道题、贴一段代码，讲到你懂为止。",
       desc: "卡住的题别死磕。给它题目或报错代码，它一步步拆给你看，而不是直接甩答案。",
       demo: "你：<b>这段代码为什么报 NoneType 错？</b><br>答疑助手：第 14 行 find() 没命中返回了 None，往下拆给你看 …",
-      persona: "你是「答疑助手」，帮大学生弄懂题目和代码：一步步拆解思路与原因，而不是直接给最终答案。讲完反问一句确认对方是否听懂。"
+      persona: "你是「答疑助手」，帮大学生弄懂题目和代码：一步步拆解思路与原因，而不是直接给最终答案。讲完反问一句确认对方是否听懂。",
+      capabilities: { enabledSkills: ["mia-official:problem-explainer"] }
     }
   ];
 
   const ENGINE_META = {
-    hermes: { label: "Hermes", department: "Mia 本机 Agent", clearance: "L3 · 对话 / 工具", accent: "#5dcaa5" },
-    "claude-code": { label: "Claude Code", department: "代码工程部", clearance: "L4 · 代码 / 执行", accent: "#7f77dd" },
-    codex: { label: "Codex", department: "代码工程部", clearance: "L4 · 代码 / 任务", accent: "#378add" },
-    openclaw: { label: "OpenClaw", department: "开放 Agent 部", clearance: "L4 · ACP / 工具", accent: "#ef9f27" }
+    hermes: { label: "Hermes", department: "Mia 本机 Agent", accent: "#5dcaa5" },
+    "claude-code": { label: "Claude Code", department: "代码工程部", accent: "#7f77dd" },
+    codex: { label: "Codex", department: "代码工程部", accent: "#378add" },
+    openclaw: { label: "OpenClaw", department: "开放 Agent 部", accent: "#ef9f27" }
+  };
+
+  const SKILL_LABELS = {
+    "mia-official:paper-research": "文献研究",
+    "paper-research": "文献研究",
+    "mia-official:lab-report": "实验报告",
+    "lab-report": "实验报告",
+    "mia-official:study-review": "复习规划",
+    "study-review": "复习规划",
+    "mia-official:resume-interview": "简历面试",
+    "resume-interview": "简历面试",
+    "mia-official:problem-explainer": "讲题排错",
+    "problem-explainer": "讲题排错",
+    "weekly-report": "周报",
+    "commit-craft": "提交信息",
+    "trip-planner": "行程"
   };
 
   function presets() {
@@ -104,6 +125,27 @@
   function safeColor(value, fallback) {
     const color = String(value || "").trim();
     return /^#[0-9a-f]{3,8}$/i.test(color) ? color : fallback;
+  }
+
+  function enabledSkillIds(f = {}) {
+    const caps = f.capabilities && typeof f.capabilities === "object" ? f.capabilities : {};
+    return Array.isArray(caps.enabledSkills)
+      ? [...new Set(caps.enabledSkills.map((item) => String(item || "").trim()).filter(Boolean))]
+      : [];
+  }
+
+  function skillLabel(skillId = "") {
+    const id = String(skillId || "").trim();
+    const skill = (state?.skillLibrary?.skills || []).find((item) => item.id === id || item.name === id);
+    return SKILL_LABELS[id] || skill?.label || skill?.name || id;
+  }
+
+  function skillSummary(f = {}) {
+    const ids = enabledSkillIds(f);
+    if (!ids.length) return "未配置";
+    const labels = ids.map(skillLabel).filter(Boolean);
+    const shown = labels.slice(0, 3).join(" / ");
+    return labels.length > 3 ? `${shown} +${labels.length - 3}` : shown;
   }
 
   function firstNonEmpty(...values) {
@@ -555,7 +597,7 @@
             </div>
             <div class="bot-store-badge-fields">
               <div><span>分类</span><strong>${escapeHtml(f.cat || f.category || "推荐")}</strong></div>
-              <div><span>权限</span><strong>${escapeHtml(meta.clearance)}</strong></div>
+              <div><span>技能</span><strong>${escapeHtml(skillSummary(f))}</strong></div>
               <label class="bot-store-badge-field bot-store-badge-engine-row">
                 <span>运行位置 / Agent</span><strong data-badge-engine>${escapeHtml(targetSummary(target))}</strong>
                 <select class="bot-store-badge-target-select" data-runtime-target-select aria-label="运行位置和 Agent 内核">

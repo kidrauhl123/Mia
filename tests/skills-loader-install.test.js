@@ -233,11 +233,18 @@ test("bundled official library exposes first-release bot presets", async () => {
     const presets = loader.readMiaOfficialBotPresets();
     assert.ok(presets.length >= 5);
     assert.ok(presets.every((preset) => preset.name && preset.persona));
+    assert.ok(presets.every((preset) => Array.isArray(preset.capabilities?.enabledSkills) && preset.capabilities.enabledSkills.length));
     assert.ok(presets.some((preset) => preset.name === "论文搭子"));
     assert.equal(presets.some((preset) => preset.key === "speak-partner"), false);
 
+    const enabledSkillIds = new Set(presets.flatMap((preset) => preset.capabilities.enabledSkills));
+    assert.ok([...enabledSkillIds].every((id) => String(id).startsWith("mia-official:")));
     const library = await loader.loadLocalSkills();
     assert.equal(library.botPresets.length, presets.length);
+    for (const id of enabledSkillIds) {
+      assert.ok(library.skills.some((skill) => skill.id === id), `missing preset skill: ${id}`);
+      assert.match(loader.buildEnabledSkillsContext({ capabilities: { enabledSkills: [id] } }), /=== Skill:/);
+    }
   } finally {
     fs.rmSync(home, { recursive: true, force: true });
   }
