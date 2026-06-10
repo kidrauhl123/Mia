@@ -158,6 +158,54 @@ MIA_CLOUD_PUBLIC_URL=https://example.com \
 npm run cloud:deploy
 ```
 
+### 公司 JumpServer 部署通道
+
+当前生产资产不是普通 `ProxyJump jump.ixiaochuan.cn -> root@mia.gifgif.cn:22`。JumpServer 要用它自己的“资产直连”用户名格式，否则常见现象是跳板密码通过后，第二跳直接报 `kex_exchange_identification: Connection closed by remote host`。
+
+正确资产：
+
+```text
+JumpServer: jump.ixiaochuan.cn:2222
+JumpServer 用户: zhangguiyu
+资产: shtx-mia-test-miaAI
+资产地址: 10.8.8.10
+资产账号: root
+```
+
+推荐在本机 `~/.ssh/config` 放一个不含密码的部署别名：
+
+```sshconfig
+Host mia-jms-deploy
+  HostName jump.ixiaochuan.cn
+  Port 2222
+  User zhangguiyu@root@10.8.8.10
+  HostKeyAlgorithms +ssh-rsa
+  PubkeyAcceptedAlgorithms +ssh-rsa
+  StrictHostKeyChecking accept-new
+  ControlMaster auto
+  ControlPath ~/.ssh/cm-%r@%h-%p
+  ControlPersist 1800
+```
+
+先建立一次可复用连接，按提示输入 JumpServer 密码；不要把密码写进仓库或日志：
+
+```bash
+ssh -MNf mia-jms-deploy
+ssh -O check mia-jms-deploy
+ssh mia-jms-deploy 'hostname && systemctl is-active mia-cloud'
+```
+
+然后用这个别名部署：
+
+```bash
+MIA_DEPLOY_REMOTE=mia-jms-deploy \
+MIA_DEBIAN_APT_MIRROR=https://mirrors.tencent.com/debian \
+MIA_PIP_INDEX_URL=https://mirrors.tencent.com/pypi/simple \
+npm run cloud:deploy
+```
+
+如果 `mia/hermes-cloud:2026.5.29` 已在服务器上且 Hermes 版本没变，可以加 `MIA_INSTALL_SKIP_HERMES_IMAGE_BUILD=1` 跳过镜像重建。只有在全量本地测试被无关环境或旧线上 gate 卡住，并且 `npm run check`、相关 focused tests、release checksum 和 installer verify 都通过时，才临时加 `MIA_DEPLOY_SKIP_LOCAL_TESTS=1`。
+
 常用部署环境变量：
 
 ```text
