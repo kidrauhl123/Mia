@@ -226,6 +226,22 @@ test("bundled library exposes a Mia scheduler skill for reminder requests", asyn
   }
 });
 
+test("buildEnabledSkillsContext applies bundled preset defaults for old unconfigured official bots", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-skills-loader-"));
+  try {
+    const loader = makeBundledLoader(home);
+    const ctx = loader.buildEnabledSkillsContext({
+      key: "old-paper",
+      name: "论文搭子",
+      capabilities: { inheritEngineDefaults: true, enabledSkills: [], disabledSkills: [] }
+    });
+
+    assert.match(ctx, /Skill: paper-research/);
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("bundled official library exposes first-release bot presets", async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-skills-loader-"));
   try {

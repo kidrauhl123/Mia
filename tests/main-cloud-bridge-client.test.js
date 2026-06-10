@@ -70,6 +70,7 @@ function setup(overrides = {}) {
         };
       }
     }),
+    resolveBotCapabilities: overrides.resolveBotCapabilities || (() => ({})),
     randomUUID: () => "uuid_1",
     setTimeoutFn: (fn, delayMs) => {
       const timer = { fn, delayMs };
@@ -153,6 +154,33 @@ test("run messages execute the requested Agent engine through the bridge Module"
       attachments: [{ id: "att_uuid_1", type: "image", name: "cat.webp", mimeType: "", dataUrl: "data:image/webp;base64,abc", url: "" }]
     }
   ]);
+});
+
+test("run messages forward resolved bot capabilities to the bridge adapter", async () => {
+  const { client, calls, sockets, FakeWebSocket } = setup({
+    resolveBotCapabilities: ({ botKey, botName }) => {
+      assert.equal(botKey, "paper-buddy");
+      assert.equal(botName, "论文搭子");
+      return { enabledSkills: ["mia-official:paper-research"] };
+    }
+  });
+  client.start();
+  const ws = sockets[0];
+  ws.readyState = FakeWebSocket.OPEN;
+
+  client.handleMessage(ws, JSON.stringify({
+    type: "run",
+    runId: "run_caps",
+    conversationId: "c_1",
+    text: "读论文",
+    botId: "paper-buddy",
+    botName: "论文搭子",
+    runtimeConfig: { agentEngine: "codex" }
+  }));
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.deepEqual(calls.chat[0].bot.capabilities, { enabledSkills: ["mia-official:paper-research"] });
 });
 
 test("run messages can choose Claude Code instead of the legacy Codex bridge", async () => {

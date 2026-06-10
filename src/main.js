@@ -1998,6 +1998,13 @@ cloudBridgeRuntime = createCloudBridgeClient({
   cloudWebSocketProtocols,
   createActiveBridgeChatAdapter,
   createActiveCodexChatAdapter,
+  resolveBotCapabilities: ({ botKey, botName }) => {
+    const manifest = loadBotManifest();
+    const bot = (Array.isArray(manifest.bots) ? manifest.bots : [])
+      .find((item) => [item?.key, item?.id].some((value) => String(value || "").trim() === String(botKey || "").trim()))
+      || { key: botKey, id: botKey, name: botName };
+    return skillsLoader.botCapabilitiesWithPresetDefaults(bot);
+  },
   randomUUID: () => crypto.randomUUID()
 });
 for (const line of pendingCloudLogs.splice(0)) cloudBridgeRuntime.appendLog(line);

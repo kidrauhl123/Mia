@@ -97,6 +97,30 @@ test("packages/shared bot identity normalizes legacy and object capabilities", (
   assert.deepEqual(packageBotIdentity.normalizeBotCapabilities({ chat: true, image: false }).legacyCapabilities, ["chat"]);
 });
 
+test("packages/shared bot identity applies official preset skill defaults to unconfigured bots", () => {
+  const presets = [{
+    key: "paper-buddy",
+    name: "论文搭子",
+    capabilities: { enabledSkills: ["mia-official:paper-research"] }
+  }];
+  const caps = packageBotIdentity.botCapabilitiesWithPresetDefaults({
+    key: "old-local-paper",
+    name: "论文搭子",
+    capabilities: { inheritEngineDefaults: true, enabledSkills: [], disabledSkills: [] }
+  }, presets);
+
+  assert.equal(caps.inheritEngineDefaults, false);
+  assert.deepEqual(caps.enabledSkills, ["mia-official:paper-research"]);
+  assert.deepEqual(
+    packageBotIdentity.botCapabilitiesWithPresetDefaults({
+      key: "old-local-paper",
+      name: "论文搭子",
+      capabilities: { inheritEngineDefaults: false, enabledSkills: [], disabledSkills: [] }
+    }, presets).enabledSkills,
+    []
+  );
+});
+
 test("packages/shared bot identity owns bot session ids and rejects prefixed ids", () => {
   assert.equal(packageBotIdentity.botConversationId("sess_1"), "botc_sess_1");
   assert.equal(packageBotIdentity.botConversationId("botc_sess_1"), "botc_sess_1");

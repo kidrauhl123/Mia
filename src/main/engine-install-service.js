@@ -72,9 +72,33 @@ function createEngineInstallService(deps = {}) {
     return { version, major, minor };
   }
 
-  function selectOfficialEnginePython() {
-    const candidates = [officialPython, "python3.13", "python3.12", "python3.11", "python3"].filter(Boolean);
-    for (const command of candidates) {
+  function isMacDeveloperToolsPythonShim(commandPath) {
+    return platform === "darwin" && path.resolve(String(commandPath || "")) === "/usr/bin/python3";
+  }
+
+  function defaultPythonCandidate(command, options = {}) {
+    const name = String(command || "").trim();
+    if (!name) return "";
+    if (platform !== "darwin") return name;
+    const resolved = String(shellCommandPath(name) || "").trim();
+    if (isMacDeveloperToolsPythonShim(resolved)) {
+      return options.allowMacDeveloperToolsInstall ? resolved : "";
+    }
+    if (resolved) return resolved;
+    // Missing versioned python commands fail normally. Only the generic
+    // /usr/bin/python3 shim opens the Command Line Tools installer.
+    return name === "python3" ? "" : name;
+  }
+
+  function officialPythonCandidates(options = {}) {
+    return [
+      String(officialPython || "").trim(),
+      ...["python3.13", "python3.12", "python3.11", "python3"].map((command) => defaultPythonCandidate(command, options))
+    ].filter(Boolean);
+  }
+
+  function selectOfficialEnginePython(options = {}) {
+    for (const command of officialPythonCandidates(options)) {
       const info = pythonVersion(command);
       if (info && (info.major > 3 || (info.major === 3 && info.minor >= 11))) return command;
     }
@@ -300,7 +324,7 @@ function createEngineInstallService(deps = {}) {
     stopEngine();
     clearLogs();
     const source = installSourceService.resolveInstallSource();
-    const python = selectOfficialEnginePython();
+    const python = selectOfficialEnginePython({ allowMacDeveloperToolsInstall: true });
 
     const pipInstall = (requirement, indexUrl) => runInstallCommand(
       python,
@@ -350,7 +374,7 @@ function createEngineInstallService(deps = {}) {
     stopEngine();
     clearLogs();
     const source = installSourceService.resolveInstallSource();
-    const python = selectOfficialEnginePython();
+    const python = selectOfficialEnginePython({ allowMacDeveloperToolsInstall: true });
 
     emitProgress(options, {
       engineId: "hermes",

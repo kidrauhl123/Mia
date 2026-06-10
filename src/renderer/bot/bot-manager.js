@@ -230,7 +230,11 @@
   }
 
   function botCapabilities(bot = {}) {
-    const normalizer = botIdentity()?.normalizeBotCapabilities;
+    const identity = botIdentity();
+    if (typeof identity?.botCapabilitiesWithPresetDefaults === "function") {
+      return identity.botCapabilitiesWithPresetDefaults(bot, state?.skillLibrary?.botPresets || []);
+    }
+    const normalizer = identity?.normalizeBotCapabilities;
     if (typeof normalizer === "function") return normalizer(bot.capabilities);
     const raw = bot.capabilities && typeof bot.capabilities === "object" ? bot.capabilities : {};
     return { ...defaultBotCapabilities(), ...raw };
@@ -288,6 +292,37 @@
     return firstNonEmpty(bot.uid, bot.publicId, bot.public_id, bot.id, bot.key, bot.globalId, bot.global_id);
   }
 
+  function botPresetForContact(bot = {}) {
+    const presets = Array.isArray(state?.skillLibrary?.botPresets) ? state.skillLibrary.botPresets : [];
+    const botKeys = [bot.key, bot.id, bot.account_id, bot.accountId]
+      .map((value) => String(value || "").trim())
+      .filter(Boolean);
+    const botNames = [bot.name, bot.displayName, bot.display_name, bot.username]
+      .map((value) => String(value || "").trim())
+      .filter(Boolean);
+    return presets.find((preset) => {
+      const presetKeys = [preset?.key, preset?.id]
+        .map((value) => String(value || "").trim())
+        .filter(Boolean);
+      if (botKeys.some((key) => presetKeys.includes(key))) return true;
+      const presetNames = [preset?.name, preset?.displayName, preset?.display_name]
+        .map((value) => String(value || "").trim())
+        .filter(Boolean);
+      return botNames.some((name) => presetNames.includes(name));
+    }) || null;
+  }
+
+  function botPersonaText(bot = {}) {
+    return firstNonEmpty(
+      bot.personaText,
+      bot.persona_text,
+      bot.persona,
+      bot.systemPrompt,
+      bot.system_prompt,
+      botPresetForContact(bot)?.persona
+    );
+  }
+
   function botCapabilityItems(bot = {}) {
     if (!state) return { skills: [] };
     const engine = bot.agentEngine || bot.agent_engine || "hermes";
@@ -319,25 +354,49 @@
     const capabilities = botCapabilities(bot);
     const { skills } = botCapabilityItems(bot);
     const engine = bot.agentEngine || bot.agent_engine || "hermes";
+    const panelOpen = state?.openCapabilityPanelKeys?.has?.(bot?.key);
     return `
-      <section class="contact-capabilities">
-        <header>
+      <details class="contact-capabilities accordion-details" data-capabilities-panel-key="${window.miaMarkdown.escapeHtml(bot?.key || "")}"${panelOpen ? " open" : ""}>
+        <summary>
           <div>
             <strong>能力</strong>
             <p>${window.miaMarkdown.escapeHtml(engineLabel(engine))} · ${skills.length} 技能</p>
           </div>
-        </header>
-        <div class="capability-columns">
-          <section>
-            <h3>技能</h3>
-            ${skills.length ? skills.map((item) => renderCapabilityCheckbox({
-              item,
-              checked: capabilityChecked(capabilities, item.id, "enabledSkills", "disabledSkills"),
-              type: "skill"
-            })).join("") : `<div class="capability-empty">当前引擎没有可选技能</div>`}
-          </section>
+          <span class="runtime-target-chevron" aria-hidden="true">⌄</span>
+        </summary>
+        <div class="accordion-body">
+          <div class="capability-columns">
+            <section>
+              <h3>技能</h3>
+              ${skills.length ? skills.map((item) => renderCapabilityCheckbox({
+                item,
+                checked: capabilityChecked(capabilities, item.id, "enabledSkills", "disabledSkills"),
+                type: "skill"
+              })).join("") : `<div class="capability-empty">当前引擎没有可选技能</div>`}
+            </section>
+          </div>
         </div>
-      </section>
+      </details>
+    `;
+  }
+
+  function renderBotPersonaPanel(bot) {
+    const persona = botPersonaText(bot);
+    const panelOpen = state?.openPersonaPanelKeys?.has?.(bot?.key);
+    const summary = persona ? persona.replace(/\s+/g, " ").trim() : "还没有设置人设";
+    return `
+      <details class="contact-persona-card accordion-details" data-persona-panel-key="${window.miaMarkdown.escapeHtml(bot?.key || "")}"${panelOpen ? " open" : ""}>
+        <summary>
+          <div>
+            <strong>人设</strong>
+            <p>${window.miaMarkdown.escapeHtml(summary)}</p>
+          </div>
+          <span class="runtime-target-chevron" aria-hidden="true">⌄</span>
+        </summary>
+        <div class="accordion-body">
+          <p class="contact-persona-text">${window.miaMarkdown.escapeHtml(persona || "还没有设置人设。")}</p>
+        </div>
+      </details>
     `;
   }
 
@@ -697,6 +756,7 @@
         </section>
         ${renderBotRuntimeTargetPanel(bot)}
         ${bot.canConfigureCapabilities !== false ? renderBotCapabilitiesPanel(bot) : ""}
+        ${renderBotPersonaPanel(bot)}
       </article>
     `;
     const avatar = avatarForBot(bot);
@@ -715,6 +775,7 @@
       await deleteBot(bot.key);
     });
     if (bot.canConfigureCapabilities !== false) wireBotCapabilities(bot);
+    wireBotPersonaPanel(bot);
     wireBotRuntimeTargets(bot);
     refreshRuntimeDevicesForContacts();
   }
@@ -803,6 +864,12 @@
 
   function wireBotCapabilities(bot) {
     if (!els || !els.contactDetail || !bot) return;
+    const panel = els.contactDetail.querySelector(".contact-capabilities");
+    panel?.addEventListener("toggle", () => {
+      if (!state.openCapabilityPanelKeys) state.openCapabilityPanelKeys = new Set();
+      if (panel.open) state.openCapabilityPanelKeys.add(bot.key);
+      else state.openCapabilityPanelKeys.delete(bot.key);
+    });
     els.contactDetail.querySelectorAll("[data-capability-type][data-capability-id]").forEach((input) => {
       input.addEventListener("change", async () => {
         const id = input.dataset.capabilityId || "";
@@ -813,6 +880,16 @@
         }
         await saveBotCapabilities(bot, capabilities);
       });
+    });
+  }
+
+  function wireBotPersonaPanel(bot) {
+    if (!els || !els.contactDetail || !bot) return;
+    const panel = els.contactDetail.querySelector(".contact-persona-card");
+    panel?.addEventListener("toggle", () => {
+      if (!state.openPersonaPanelKeys) state.openPersonaPanelKeys = new Set();
+      if (panel.open) state.openPersonaPanelKeys.add(bot.key);
+      else state.openPersonaPanelKeys.delete(bot.key);
     });
   }
 
@@ -906,9 +983,11 @@
     capabilityChecked,
     botDeviceLabel,
     botSubtitle,
+    botPersonaText,
     engineLogoHtml,
     renderCapabilityCheckbox,
     renderBotCapabilitiesPanel,
+    renderBotPersonaPanel,
     renderBotRuntimeTargetPanel,
     renderContacts,
     renderContactDetail,
@@ -917,6 +996,7 @@
     saveBotCapabilities,
     toggleCapabilityId,
     wireBotCapabilities,
+    wireBotPersonaPanel,
     petStatusForKey,
     openBotContextMenu,
     closeBotContextMenu,

@@ -979,6 +979,30 @@ test("contact capability saves go through bot command adapters", () => {
   assert.match(commandsSource, /async function saveDesktopLocalBotCapabilities/);
 });
 
+test("contact capability checkboxes use official preset default capabilities", () => {
+  const botManagerSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-manager.js"), "utf8");
+
+  assert.match(botManagerSource, /botCapabilitiesWithPresetDefaults/);
+  assert.match(botManagerSource, /state\?\.skillLibrary\?\.botPresets/);
+});
+
+test("bot-only contact detail renders capabilities and persona as compact accordions", () => {
+  const botManagerSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-manager.js"), "utf8");
+  const styleSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+
+  assert.match(botManagerSource, /function renderBotCapabilitiesPanel\(bot\)/);
+  assert.match(botManagerSource, /<details class="contact-capabilities accordion-details"/);
+  assert.match(botManagerSource, /data-capabilities-panel-key/);
+  assert.match(botManagerSource, /openCapabilityPanelKeys/);
+  assert.match(botManagerSource, /function renderBotPersonaPanel\(bot\)/);
+  assert.match(botManagerSource, /<details class="contact-persona-card accordion-details"/);
+  assert.match(botManagerSource, /botPersonaText\(bot\)/);
+  assert.match(botManagerSource, /renderBotPersonaPanel\(bot\)/);
+  assert.doesNotMatch(botManagerSource, /renderHumanPersonaPanel/);
+  assert.match(styleSource, /\.contact-persona-card/);
+  assert.match(styleSource, /\.contact-persona-text/);
+});
+
 test("social bootstrap delegates desktop-local bot sync through bot command adapters", () => {
   const socialSource = fs.readFileSync(path.join(root, "src/renderer/social/social.js"), "utf8");
   const commandsSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-commands.js"), "utf8");
