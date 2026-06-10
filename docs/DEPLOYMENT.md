@@ -172,7 +172,7 @@ JumpServer 用户: zhangguiyu
 资产账号: root
 ```
 
-推荐在本机 `~/.ssh/config` 放一个不含密码的部署别名：
+本机 `~/.ssh/config` 需要一个不含密码的部署别名（已配好，列在此处供新机器复刻）：
 
 ```sshconfig
 Host mia-jms-deploy
@@ -187,24 +187,27 @@ Host mia-jms-deploy
   ControlPersist 1800
 ```
 
-先建立一次可复用连接，按提示输入 JumpServer 密码；不要把密码写进仓库或日志：
+#### 一条命令部署（无需手动输密码）
+
+JumpServer 密码存在 macOS 登录钥匙串里，由 `scripts/jms-askpass.sh` 在连接时读取，**仓库和日志里都不出现明文**。配好后部署就是一条命令：
 
 ```bash
-ssh -MNf mia-jms-deploy
-ssh -O check mia-jms-deploy
-ssh mia-jms-deploy 'hostname && systemctl is-active mia-cloud'
+bash scripts/deploy-cloud-jms.sh
 ```
 
-然后用这个别名部署：
+该 wrapper 会自动用钥匙串密码建立可复用的跳板连接（已存在则复用），再带上腾讯云镜像源调用底层部署脚本。可叠加常规开关，例如 `MIA_DEPLOY_DRY_RUN=1`、`MIA_DEPLOY_SKIP_LOCAL_TESTS=1`、`MIA_INSTALL_SKIP_HERMES_IMAGE_BUILD=1`。
+
+新机器一次性初始化（密码只在这一步出现，存进钥匙串后即从命令行消失）：
 
 ```bash
-MIA_DEPLOY_REMOTE=mia-jms-deploy \
-MIA_DEBIAN_APT_MIRROR=https://mirrors.tencent.com/debian \
-MIA_PIP_INDEX_URL=https://mirrors.tencent.com/pypi/simple \
-npm run cloud:deploy
+security add-generic-password -U -s mia-jms-deploy -a zhangguiyu -w '<JumpServer 密码>' -T /usr/bin/ssh
 ```
 
-如果 `mia/hermes-cloud:2026.5.29` 已在服务器上且 Hermes 版本没变，可以加 `MIA_INSTALL_SKIP_HERMES_IMAGE_BUILD=1` 跳过镜像重建。只有在全量本地测试被无关环境或旧线上 gate 卡住，并且 `npm run check`、相关 focused tests、release checksum 和 installer verify 都通过时，才临时加 `MIA_DEPLOY_SKIP_LOCAL_TESTS=1`。
+轮换密码用同一条命令（`-U` 覆盖旧值）。**密码若曾出现在聊天/工单等不可控渠道，轮换后再重存。**
+
+> **更安全的升级路径（推荐）**：在 JumpServer 用户资料里上传一个 ed25519 公钥，改用密钥认证，磁盘上就彻底没有静态密码了。届时删除钥匙串条目并把 wrapper 里的 askpass 逻辑去掉即可。
+
+只有在全量本地测试被无关环境或旧线上 gate 卡住，并且 `npm run check`、相关 focused tests、release checksum 和 installer verify 都通过时，才临时加 `MIA_DEPLOY_SKIP_LOCAL_TESTS=1`。
 
 常用部署环境变量：
 
