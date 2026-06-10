@@ -65,6 +65,7 @@ function publicUser(row) {
   const statusBadge = profileStatusBadge(row);
   return {
     id: row.id,
+    displayName: row.display_name || row.displayName || "",
     username: row.username || row.email || "",
     email: row.email || "",
     createdAt: row.created_at || row.createdAt || "",
@@ -147,6 +148,7 @@ function rowToUser(row) {
   const statusBadge = profileStatusBadge(row);
   return {
     id: row.id,
+    displayName: row.display_name || "",
     username: row.username,
     email: row.email || "",
     createdAt: row.created_at,
@@ -568,6 +570,10 @@ function createCloudStore(options = {}) {
     if (!row) throw new Error("用户不存在。");
     const sets = [];
     const values = [];
+    if (typeof patch.displayName === "string") {
+      sets.push("display_name = ?");
+      values.push(patch.displayName.trim().slice(0, 120));
+    }
     if (typeof patch.avatarImage === "string") {
       // Cap profile avatar payloads so animated GIF / short video avatars
       // can sync without letting profile rows grow without bound.
@@ -637,6 +643,7 @@ function migrate(db) {
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
       account TEXT NOT NULL UNIQUE,
+      display_name TEXT NOT NULL DEFAULT '',
       username TEXT NOT NULL,
       email TEXT NOT NULL DEFAULT '',
       password_salt TEXT NOT NULL,
@@ -917,6 +924,9 @@ function migrate(db) {
   if (!hasColumn(db, "bridge_runs", "request_attachments_json")) {
     db.exec("ALTER TABLE bridge_runs ADD COLUMN request_attachments_json TEXT NOT NULL DEFAULT '[]'");
   }
+  if (!hasColumn(db, "users", "display_name")) {
+    db.exec("ALTER TABLE users ADD COLUMN display_name TEXT NOT NULL DEFAULT ''");
+  }
   // Profile avatar columns added in v3 so friends + the user themself can
   // surface their display avatar on every device.
   if (!hasColumn(db, "users", "avatar_image")) {
@@ -1017,6 +1027,10 @@ function migrate(db) {
     db.exec("ALTER TABLE messages ADD COLUMN trace_json TEXT");
   }
   db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (13, ?)")
+    .run(nowIso());
+  // v14: user profile display names are account-scoped cloud state, not a
+  // global desktop-local file.
+  db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (14, ?)")
     .run(nowIso());
 }
 

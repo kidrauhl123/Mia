@@ -41,6 +41,8 @@ function createCloudDesktopSyncClient({
   botPersonaPath,
   fileExists,
   readBotPersona,
+  writeUserProfile,
+  writeAppearanceSettings,
   runtimePaths,
   readJson,
   startCloudEvents,
@@ -147,17 +149,21 @@ function createCloudDesktopSyncClient({
     }
   }
 
-  async function pushUserProfile() {
-    const current = settings();
-    if (!current.enabled || !current.token) return;
-    const paths = runtimePaths();
-    const profile = readJson(paths.userProfile, null);
-    if (!profile) return;
-    const body = {
+  function profileSyncBody(profile = {}) {
+    return {
+      displayName: String(profile.displayName || ""),
       avatarImage: String(profile.avatarImage || ""),
       avatarCrop: profile.avatarCrop || null,
       avatarColor: String(profile.avatarColor || "")
     };
+  }
+
+  async function pushUserProfile(profileOverride = null) {
+    const current = settings();
+    if (!current.enabled || !current.token) return;
+    const profile = profileOverride || readJson(runtimePaths().userProfile, null);
+    if (!profile) return;
+    const body = profileSyncBody(profile);
     try {
       const data = await cloudApi("/api/me/profile", { method: "PATCH", body });
       if (data && data.user) {
@@ -168,10 +174,37 @@ function createCloudDesktopSyncClient({
     }
   }
 
+  async function saveUserProfile(profile = {}) {
+    const saved = typeof writeUserProfile === "function"
+      ? writeUserProfile(profile)
+      : profile;
+    await pushUserProfile(saved);
+    return status(false);
+  }
+
+  async function saveAppearanceSettings(settingsInput = {}) {
+    const saved = typeof writeAppearanceSettings === "function"
+      ? writeAppearanceSettings(settingsInput)
+      : settingsInput;
+    const current = settings();
+    if (!current.enabled || !current.token) return status(false);
+    try {
+      const remote = await getUserSettings();
+      await putUserSettings({
+        pins: remote.pins || [],
+        readMarks: remote.readMarks || {},
+        appearance: saved || {},
+        expectedVersion: remote.version
+      });
+    } catch (error) {
+      log(`Mia Cloud appearance sync failed: ${error?.message || error}`);
+    }
+    return status(false);
+  }
+
   async function syncWorkspace() {
     const current = settings();
     if (!current.enabled || !current.token) return status(false);
-    await pushUserProfile();
     await pushAllBots();
     try {
       const data = await cloudApi("/api/me");
@@ -312,6 +345,8 @@ function createCloudDesktopSyncClient({
     pushAllBots,
     pushBot,
     pushUserProfile,
+    saveAppearanceSettings,
+    saveUserProfile,
     syncWorkspace
   };
 }

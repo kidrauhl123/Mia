@@ -74,6 +74,10 @@
     deps.setStep?.(step);
   }
 
+  function isSetupInstallInFlight() {
+    return Boolean(state?.agentSetupInstallInFlight);
+  }
+
   function progressHtml(step) {
     const position = STEPS.indexOf(step);
     const dots = STEPS.map((_name, index) => {
@@ -155,7 +159,7 @@
         <div class="setup-engine-list">${list}</div>
       </section>
       <footer class="setup-footer">
-        <button class="setup-cta" type="button" data-onb-action="finish">进入 Mia</button>
+        <button class="setup-cta" type="button" data-onb-action="finish"${isSetupInstallInFlight() ? " disabled" : ""}>进入 Mia</button>
       </footer>
     `;
   }
@@ -222,7 +226,7 @@
     const sig = step === "login"
       ? "login"
       : scan.status === "done"
-        ? "prepare::done::" + (deps.renderEngineList?.() || "")
+        ? "prepare::done::" + (deps.renderEngineList?.() || "") + "::installing::" + (isSetupInstallInFlight() ? "1" : "0")
         : "prepare::scanning";
     if (lastSig === sig && container.querySelector(".onb-wizard")) return;
     lastSig = sig;
@@ -286,7 +290,10 @@
       const action = target.dataset.onbAction;
       if (action === "login") return void submitLogin(container, "login");
       if (action === "register") return void submitLogin(container, "register");
-      if (action === "finish") return void deps.finish?.();
+      if (action === "finish") {
+        if (isSetupInstallInFlight()) return;
+        return void deps.finish?.();
+      }
     });
   }
 

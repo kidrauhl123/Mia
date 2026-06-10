@@ -2738,6 +2738,9 @@
   function applyCloudSettings(settings) {
     if (!settings || typeof settings !== "object") return;
     moduleState.cloudSettings = normalizeCloudSettings(settings, moduleState.cloudSettings || {});
+    if (moduleState.cloudSettings.appearance && typeof deps?.applyCloudAppearance === "function") {
+      deps.applyCloudAppearance(moduleState.cloudSettings.appearance);
+    }
     reconcileUnreadFromReadMarks(moduleState.cloudSettings.readMarks);
     if (deps && typeof deps.render === "function") deps.render();
   }

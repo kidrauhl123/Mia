@@ -124,3 +124,46 @@ test("renderContacts groups bot contacts by alphabetical initial", () => {
   ]);
   assert.equal(state.activeContactKey, "alpha");
 });
+
+test("contact detail exposes the contact uid", () => {
+  const manager = loadBotManager();
+  const contactList = mockEl();
+  const contactDetail = mockEl();
+  const state = {
+    skillsLoading: true,
+    skillLibrary: { extensions: [], skills: [] },
+    runtime: {
+      bots: [
+        {
+          key: "review-bot",
+          id: "review-bot",
+          name: "复习搭子",
+          ownerUserId: "8123456789",
+          canConfigureCapabilities: false
+        }
+      ]
+    },
+    contactFilter: "",
+    activeContactKey: "review-bot",
+    savingBotCapabilities: new Set()
+  };
+
+  manager.initBotManager({
+    state,
+    els: { contactList, contactDetail, contactPageTitle: mockEl(), contactPageMeta: mockEl() },
+    setText(el, value) { if (el) el.textContent = value; },
+    loadSkills: async () => {},
+    showNarrowContent() {},
+    render() {},
+    closeGroupContextMenu() {},
+    openEditBotDialog() {},
+    deleteBot() {},
+    setBotPinned() {},
+  });
+
+  manager.renderContacts();
+
+  assert.match(contactDetail.innerHTML, /class="contact-profile-uid"/);
+  assert.match(contactDetail.innerHTML, />UID</);
+  assert.match(contactDetail.innerHTML, /review-bot/);
+});

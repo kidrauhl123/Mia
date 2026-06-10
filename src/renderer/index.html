@@ -31,7 +31,7 @@
         <button class="traffic-light minimize" type="button" data-action="minimize" aria-label="最小化"></button>
         <button class="traffic-light green" type="button" data-action="green" aria-label="全屏"></button>
       </div>
-      <div id="userAvatar" class="profile-avatar rail-avatar" role="button" tabindex="0" title="编辑个人资料"></div>
+      <div id="userAvatar" class="profile-avatar rail-avatar" role="button" tabindex="0" title="个人资料"></div>
       <span id="userDisplayName" class="visually-hidden"></span>
       <div class="rail-divider"></div>
       <button class="rail-button active" type="button" data-view="chat" title="消息" aria-label="消息">
@@ -584,9 +584,18 @@
             <div class="runtime-card cloud-account-card">
               <section class="connection-row">
                 <div class="connection-row-head">
-                  <div>
-                    <strong>Mia Cloud</strong>
-                    <p id="cloudAccountHint">登录后，这台电脑会自动作为本机 Agent 出现在 Web 和手机端。</p>
+                  <div class="cloud-account-main">
+                    <div id="cloudAccountProfile" class="cloud-account-profile hidden">
+                      <span id="cloudAccountAvatar" class="avatar cloud-account-avatar" aria-hidden="true"></span>
+                      <span class="cloud-account-identity">
+                        <strong id="cloudAccountName"></strong>
+                        <small id="cloudAccountUid"></small>
+                      </span>
+                    </div>
+                    <div class="cloud-account-status-copy">
+                      <strong>Mia Cloud</strong>
+                      <p id="cloudAccountHint">登录后，这台电脑会自动作为本机 Agent 出现在 Web 和手机端。</p>
+                    </div>
                   </div>
                   <div class="cloud-actions">
                     <button id="cloudSync" class="secondary hidden" type="button" title="强制重拉一次云端数据。正常情况下消息、置顶、设置都会自动同步，本按钮仅作为兜底排错使用。">强制刷新</button>
@@ -614,7 +623,7 @@
       <form id="profileForm" class="bot-form">
         <header class="bot-dialog-head">
           <div>
-            <h2 id="profileDialogTitle">编辑个人资料</h2>
+            <h2 id="profileDialogTitle">个人资料</h2>
           </div>
           <button id="closeProfileDialog" class="icon-button" type="button" title="关闭">×</button>
         </header>
@@ -622,6 +631,7 @@
           名字
           <input id="profileDisplayName" autocomplete="off" placeholder="例如 小明">
         </label>
+        <p class="profile-uid-line">UID <span id="profileUidValue"></span></p>
         <section class="avatar-picker">
           <div id="profileAvatarPreview" class="avatar-crop-preview"></div>
           <div id="profileAvatarDrop" class="avatar-drop">

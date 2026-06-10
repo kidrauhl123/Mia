@@ -109,6 +109,28 @@ test("setup guide offers official Hermes install when no local agent is availabl
   assert.doesNotMatch(html, /setup-engine-dot/);
 });
 
+test("setup guide disables entering Mia while an engine install is in flight", () => {
+  const state = {
+    runtime: {
+      agentInventory: inventory([
+        { id: "hermes", label: "Hermes", installed: false, usableInMia: false, installable: true, installAction: "install-hermes", health: "missing", source: "missing" },
+        { id: "openclaw", label: "OpenClaw", installed: false, usableInMia: false, installable: true, installAction: "install-openclaw", detectionOnly: false, health: "missing", source: "missing" }
+      ]),
+      fellows: []
+    },
+    onboardingStep: "engine",
+    agentSetupInstallInFlight: true,
+    agentSetupSkipped: false,
+    setupGuideDismissed: false
+  };
+  const guide = loadSetupGuide(state);
+  const html = guide.renderSetupGuide();
+
+  assert.match(html, /data-setup-action="finish-agent-scan"[^>]*disabled/);
+  assert.match(html, /data-setup-action="install-hermes"[^>]*disabled/);
+  assert.match(html, /data-setup-action="install-openclaw"[^>]*disabled/);
+});
+
 test("setup guide allows installed Claude Code, Codex, and OpenClaw as ready engines", () => {
   const state = {
     runtime: {

@@ -460,6 +460,32 @@ test("GET /api/conversations/:id returns conversation + members", async () => {
   } finally { await stopServer(ctx); }
 });
 
+test("PATCH /api/me/profile persists display name and avatar for the next device", async () => {
+  const ctx = await startServer();
+  try {
+    const alice = await register(ctx.port, "profile-sync");
+    const profile = await api(ctx.port, "PATCH", "/api/me/profile", {
+      token: alice.token,
+      body: {
+        displayName: "Jung",
+        avatarImage: "data:image/png;base64," + Buffer.from("avatar").toString("base64"),
+        avatarCrop: { x: 45, y: 55, zoom: 1.2 },
+        avatarColor: "#112233"
+      }
+    });
+    assert.equal(profile.status, 200);
+    assert.equal(profile.body.user.displayName, "Jung");
+    assert.match(profile.body.user.avatarImage, /^\/api\/avatar-assets\/[A-Za-z0-9_.-]+\.png$/);
+    assert.deepEqual(profile.body.user.avatarCrop, { x: 45, y: 55, zoom: 1.2 });
+    assert.equal(profile.body.user.avatarColor, "#112233");
+
+    const me = await api(ctx.port, "GET", "/api/me", { token: alice.token });
+    assert.equal(me.status, 200);
+    assert.equal(me.body.user.displayName, "Jung");
+    assert.equal(me.body.user.avatarImage, profile.body.user.avatarImage);
+  } finally { await stopServer(ctx); }
+});
+
 test("GET /api/conversations/:id returns user member public identity without profile avatar payloads", async () => {
   const ctx = await startServer();
   try {

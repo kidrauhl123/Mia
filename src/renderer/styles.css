@@ -1661,6 +1661,23 @@ body.topbar-click-capture .topbar {
   overflow-wrap: anywhere;
 }
 
+.contact-profile-title .contact-profile-uid {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: var(--faint);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.contact-profile-uid code {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
 .contact-actions {
   display: flex;
   flex-wrap: wrap;
@@ -2456,6 +2473,11 @@ body.topbar-click-capture .topbar {
   border-color: rgb(var(--accent-rgb) / 0.38);
 }
 
+.setup-engine-action:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
 .setup-guide.bootstrap {
   align-items: center;
   margin-top: 18px;
@@ -2863,12 +2885,19 @@ body.onboarding-window .setup-guide.ready .setup-engine-action:hover {
   transition: transform 0.12s ease, box-shadow 0.2s ease, filter 0.2s ease;
 }
 
-.setup-cta:hover {
+.setup-cta:hover:not(:disabled) {
   box-shadow: 0 12px 30px rgb(0 0 0 / 0.2);
   filter: brightness(1.04) saturate(1.06);
 }
 
-.setup-cta:active {
+.setup-cta:disabled {
+  cursor: default;
+  opacity: 0.55;
+  box-shadow: 0 10px 24px rgb(0 0 0 / 0.1);
+  filter: saturate(0.82);
+}
+
+.setup-cta:active:not(:disabled) {
   transform: translateY(1px) scale(0.995);
 }
 
@@ -4511,6 +4540,22 @@ body.onboarding-window .setup-guide.ready .setup-footer { animation-delay: 0.13s
   font-weight: 400;
 }
 
+.profile-uid-line {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  margin: -5px 0 0;
+  color: var(--faint);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.profile-uid-line span {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
 .pet-generate-card label,
 .persona-details label {
   display: grid;
@@ -5428,6 +5473,57 @@ body.onboarding-window .setup-guide.ready .setup-footer { animation-delay: 0.13s
 }
 
 .connection-row-head > div {
+  min-width: 0;
+}
+
+.cloud-account-main {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: center;
+}
+
+.cloud-account-profile {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  flex: 0 1 210px;
+  min-width: 170px;
+}
+
+.cloud-account-avatar {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+}
+
+.cloud-account-identity {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.cloud-account-identity strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 430;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cloud-account-identity small {
+  overflow: hidden;
+  color: var(--faint);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cloud-account-status-copy {
+  flex: 1 1 260px;
   min-width: 0;
 }
 

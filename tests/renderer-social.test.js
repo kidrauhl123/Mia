@@ -1201,9 +1201,9 @@ test("renderConversationChat resolves self and bot avatars from one contact cont
   s.renderConversationChat(chat);
 
   assert.equal(chat.children.length, 2);
-  assert.match(chat.children[0].innerHTML, /data:self-avatar/);
+  assert.match(chat.children[0].innerHTML, /data:cloud-avatar/);
   assert.match(chat.children[1].innerHTML, /data:mia-avatar/);
-  assert.doesNotMatch(chat.children[0].innerHTML, /data:cloud-avatar/);
+  assert.doesNotMatch(chat.children[0].innerHTML, /data:self-avatar/);
 });
 
 test("renderConversationChat uses cloud bot avatar when no local bot exists", () => {
@@ -2170,6 +2170,28 @@ test("applyCloudSettings clears auto-counted unread when peer device's readMark 
   });
   assert.equal(s.moduleState.unreadByConversation.has("dm:u_a:u_b"), false,
     "readMark caught up to local maxSeq → unread badge must clear");
+});
+
+test("applyCloudSettings applies appearance updates from another device", () => {
+  const s = loadSocial();
+  const applied = [];
+  s.initSocialModule({
+    getState: () => ({}),
+    render: () => {},
+    els: {},
+    appendTransientChat: () => {},
+    applyCloudAppearance: (appearance) => applied.push(appearance)
+  });
+
+  s.applyCloudSettings({
+    pins: [],
+    readMarks: {},
+    appearance: { theme: "dark", accentColor: "#112233" },
+    version: 2,
+    updatedAt: "2026-05-28T00:00:00.000Z"
+  });
+
+  assert.deepEqual(applied, [{ theme: "dark", accentColor: "#112233" }]);
 });
 
 test("applyCloudSettings leaves unread alone when local has fresher messages than peer's readMark", () => {

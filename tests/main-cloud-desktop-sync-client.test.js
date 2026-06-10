@@ -20,6 +20,7 @@ function setup(overrides = {}) {
   };
   const calls = {
     fetch: [],
+    profileWrites: [],
     writes: [],
     logs: [],
     startedEvents: 0,
@@ -67,6 +68,11 @@ function setup(overrides = {}) {
     readJson: (filePath) => filePath === "/profile.json"
       ? { avatarImage: "data:image/png;base64,user", avatarCrop: { y: 2 }, avatarColor: "#ffcc00" }
       : null,
+    writeUserProfile: (profile) => {
+      calls.profileWrites.push(profile);
+      return profile;
+    },
+    writeAppearanceSettings: (settings) => settings,
     startCloudEvents: () => { calls.startedEvents += 1; },
     startCloudBridge: () => { calls.startedBridge += 1; },
     stopCloudEvents: () => { calls.stoppedEvents += 1; },
@@ -104,20 +110,19 @@ test("login normalizes the cloud URL, resets local auth, then starts sockets wit
   assert.equal(getSettings().token, "tok_new");
 });
 
-test("syncWorkspace syncs bot identity and stable conversations without reading local sessions", async () => {
+test("syncWorkspace syncs bot identity and stable conversations without reading local sessions or overwriting the cloud profile", async () => {
   const { client, calls } = setup();
   const { normalizeBotCapabilities } = require("../src/shared/bot-identity.js");
 
   await client.syncWorkspace();
 
   assert.deepEqual(calls.fetch.map((request) => [request.method, request.url]), [
-    ["PATCH", "https://cloud.example/api/me/profile"],
     ["PUT", "https://cloud.example/api/me/bots/codex"],
     ["PUT", "https://cloud.example/api/me/bot-conversations/codex"],
     ["GET", "https://cloud.example/api/me"]
   ]);
   assert.equal(calls.fetch[0].headers.Authorization, "Bearer tok_1");
-  assert.deepEqual(calls.fetch[1].body, {
+  assert.deepEqual(calls.fetch[0].body, {
     displayName: "Codex",
     name: "Codex",
     color: "#123456",
@@ -127,12 +132,109 @@ test("syncWorkspace syncs bot identity and stable conversations without reading 
     capabilities: normalizeBotCapabilities({ chat: true, image: false }),
     personaText: "manifest persona"
   });
-  assert.deepEqual(calls.fetch[2].body, {
+  assert.deepEqual(calls.fetch[1].body, {
     botId: "codex",
     title: "Codex",
     runtimeKind: "desktop-local"
   });
   assert.deepEqual(calls.writes.at(-1), { user: { id: "u_1", username: "refreshed" } });
+});
+
+test("saveUserProfile writes the local profile and immediately syncs it to Mia Cloud", async () => {
+  let savedProfile = null;
+  const { client, calls } = setup({
+    readJson: () => savedProfile,
+    writeUserProfile: (profile) => {
+      savedProfile = {
+        displayName: String(profile.displayName || "").trim(),
+        avatarImage: String(profile.avatarImage || "").trim(),
+        avatarCrop: profile.avatarCrop || null,
+        avatarColor: String(profile.avatarColor || "").trim()
+      };
+      calls.profileWrites.push(savedProfile);
+      return savedProfile;
+    },
+    responses: [jsonResponse({
+      user: {
+        id: "u_1",
+        username: "jung",
+        displayName: "Jung",
+        avatarImage: "/api/avatar-assets/u_1.png",
+        avatarCrop: { x: 45, y: 55, zoom: 1.2 },
+        avatarColor: "#112233"
+      }
+    })]
+  });
+
+  const status = await client.saveUserProfile({
+    displayName: " Jung ",
+    avatarImage: "data:image/png;base64,new",
+    avatarCrop: { x: 45, y: 55, zoom: 1.2 },
+    avatarColor: "#112233"
+  });
+
+  assert.deepEqual(calls.profileWrites, [{
+    displayName: "Jung",
+    avatarImage: "data:image/png;base64,new",
+    avatarCrop: { x: 45, y: 55, zoom: 1.2 },
+    avatarColor: "#112233"
+  }]);
+  assert.deepEqual(calls.fetch.map((request) => [request.method, request.url]), [
+    ["PATCH", "https://cloud.example/api/me/profile"]
+  ]);
+  assert.deepEqual(calls.fetch[0].body, {
+    displayName: "Jung",
+    avatarImage: "data:image/png;base64,new",
+    avatarCrop: { x: 45, y: 55, zoom: 1.2 },
+    avatarColor: "#112233"
+  });
+  assert.deepEqual(calls.writes.at(-1), {
+    user: {
+      id: "u_1",
+      username: "jung",
+      displayName: "Jung",
+      avatarImage: "/api/avatar-assets/u_1.png",
+      avatarCrop: { x: 45, y: 55, zoom: 1.2 },
+      avatarColor: "#112233"
+    }
+  });
+  assert.deepEqual(status, { ok: true, includeToken: false, token: undefined });
+});
+
+test("saveAppearanceSettings writes local appearance and syncs the cloud user settings bag", async () => {
+  const { client, calls } = setup({
+    writeAppearanceSettings: (settings) => ({
+      theme: settings.theme || "light",
+      fontPreset: settings.fontPreset || "system",
+      accentColor: settings.accentColor || "#0162db"
+    }),
+    responses: [
+      jsonResponse({ settings: { pins: ["conv_1"], readMarks: { conv_1: 7 }, appearance: { theme: "light" }, version: 4 } }),
+      jsonResponse({ settings: { pins: ["conv_1"], readMarks: { conv_1: 7 }, appearance: { theme: "dark", fontPreset: "serif", accentColor: "#112233" }, version: 5 } })
+    ]
+  });
+
+  const status = await client.saveAppearanceSettings({
+    theme: "dark",
+    fontPreset: "serif",
+    accentColor: "#112233"
+  });
+
+  assert.deepEqual(calls.fetch.map((request) => [request.method, request.url]), [
+    ["GET", "https://cloud.example/api/me/settings"],
+    ["PUT", "https://cloud.example/api/me/settings"]
+  ]);
+  assert.deepEqual(calls.fetch[1].body, {
+    pins: ["conv_1"],
+    readMarks: { conv_1: 7 },
+    appearance: {
+      theme: "dark",
+      fontPreset: "serif",
+      accentColor: "#112233"
+    },
+    expectedVersion: 4
+  });
+  assert.deepEqual(status, { ok: true, includeToken: false, token: undefined });
 });
 
 test("pushAllBots ensures a stable cloud conversation for each local bot", async () => {

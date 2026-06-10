@@ -180,6 +180,7 @@ const els = {
   profileDialog: document.getElementById("profileDialog"),
   profileForm: document.getElementById("profileForm"),
   profileDisplayName: document.getElementById("profileDisplayName"),
+  profileUidValue: document.getElementById("profileUidValue"),
   profileAvatarImage: document.getElementById("profileAvatarImage"),
   profileAvatarFile: document.getElementById("profileAvatarFile"),
   chooseProfileAvatar: document.getElementById("chooseProfileAvatar"),
@@ -269,6 +270,10 @@ const els = {
   codexCancel: document.getElementById("codexCancel"),
   codexLogs: document.getElementById("codexLogs"),
   cloudAccountHint: document.getElementById("cloudAccountHint"),
+  cloudAccountProfile: document.getElementById("cloudAccountProfile"),
+  cloudAccountAvatar: document.getElementById("cloudAccountAvatar"),
+  cloudAccountName: document.getElementById("cloudAccountName"),
+  cloudAccountUid: document.getElementById("cloudAccountUid"),
   cloudLoginBox: document.getElementById("cloudLoginBox"),
   cloudUsername: document.getElementById("cloudUsername"),
   cloudPassword: document.getElementById("cloudPassword"),
@@ -1236,6 +1241,7 @@ function render() {
   const user = runtimeUserIdentity(runtime);
   window.miaAvatar.applyUserAvatar(els.userAvatar, user);
   setText(els.userDisplayName, user.displayName || "");
+  if (els.profileUidValue) els.profileUidValue.textContent = user.id || "未登录";
   if (!editingProfile && els.profileForm) {
     els.profileDisplayName.value = user.displayName || "";
     window.miaBotDialog.setProfileAvatarDraft(user.avatarImage || "", user.avatarCrop);
@@ -2903,6 +2909,18 @@ async function initializeRuntime(options = {}) {
       maybeGenerateConversationTitle: maybeGenerateCloudConversationTitle,
       onCloudAuthExpired: handleCloudAuthExpired,
       paintHeaderStatus,
+      applyCloudAppearance: (appearance) => {
+        if (!appearance || typeof appearance !== "object") return;
+        state.runtime = {
+          ...(state.runtime || {}),
+          appearance: {
+            ...(state.runtime?.appearance || {}),
+            ...appearance
+          }
+        };
+        window.miaSettingsAppearance?.applyAppearance?.(state.runtime.appearance);
+        window.miaSettingsAppearance?.syncAppearanceControls?.(state.runtime.appearance);
+      },
     });
     // Bootstrap social data if signed in to cloud (token present).
     // (cloud.enabled, not cloud.loggedIn — the latter never existed, so
@@ -4442,7 +4460,11 @@ async function runHermesSetupAction(button, action) {
   const engineId = String(button?.dataset?.engine || "").trim() || "hermes";
   const repair = action === "repair-hermes";
   const retry = action === "retry-install-hermes";
+  state.agentSetupInstallInFlight = true;
   button.disabled = true;
+  document.querySelectorAll('[data-setup-action="finish-agent-scan"], [data-onb-action="finish"], [data-setup-action^="install-"], [data-setup-action="retry-install-hermes"], [data-setup-action="repair-hermes"]').forEach((el) => {
+    el.disabled = true;
+  });
   const original = button.textContent;
   button.textContent = repair ? "修复中..." : retry ? "重试中..." : "安装中...";
   try {
@@ -4460,6 +4482,7 @@ async function runHermesSetupAction(button, action) {
     appendTransientChat("assistant", message);
     await refreshRuntime();
   } finally {
+    state.agentSetupInstallInFlight = false;
     button.disabled = false;
     button.textContent = original;
     renderView();
@@ -4493,11 +4516,13 @@ async function handleSetupGuideAction(button) {
     return true;
   }
   if (action === "finish-agent-scan") {
+    if (state.agentSetupInstallInFlight) return true;
     await completeAgentSetup("", { skipped: !hasUsableLocalAgent() });
     renderView();
     return true;
   }
   if (action === "retry-install-hermes" || action === "repair-hermes" || action.startsWith("install-")) {
+    if (state.agentSetupInstallInFlight) return true;
     await runHermesSetupAction(button, action);
     return true;
   }

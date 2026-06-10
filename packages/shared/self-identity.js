@@ -30,13 +30,31 @@
   // cloud account (offline / signed out). Without this a stale local name set
   // on one account leaks onto the next.
   //
-  // Avatar image/crop/color stay local-first: the avatar is edited in the local
-  // profile and synced up to the cloud, so the local copy is the freshest.
+  // Avatar image/crop/color are also cloud-first when signed in. The server
+  // sends empty strings/nulls intentionally when a profile field is cleared, so
+  // field presence matters: a present-but-empty cloud avatar must not fall back
+  // to a stale local image from another device or account.
   // Avatar text is always the initials of the resolved displayName so it never
   // shows a stale cached avatarText.
   function resolveSelfIdentity(input = {}) {
     const cloudUser = input.cloudUser || {};
     const localUser = input.localUser || {};
+    const hasCloudAccount = Boolean(firstNonEmpty(
+      cloudUser.id,
+      cloudUser.userId,
+      cloudUser.user_id,
+      cloudUser.username,
+      cloudUser.account,
+      cloudUser.email
+    ));
+    const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj || {}, key);
+    const cloudOrLocal = (cloudKey, cloudSnakeKey, localKey) => {
+      if (hasCloudAccount) {
+        if (hasOwn(cloudUser, cloudKey)) return cloudUser[cloudKey];
+        if (cloudSnakeKey && hasOwn(cloudUser, cloudSnakeKey)) return cloudUser[cloudSnakeKey];
+      }
+      return localUser[localKey];
+    };
     const displayName = firstNonEmpty(
       cloudUser.displayName,
       cloudUser.display_name,
@@ -62,9 +80,9 @@
       username,
       account: firstNonEmpty(cloudUser.account, localUser.account),
       avatarText: initialsOf(displayName),
-      avatarColor: firstNonEmpty(localUser.avatarColor, cloudUser.avatarColor, cloudUser.avatar_color),
-      avatarImage: firstNonEmpty(localUser.avatarImage, cloudUser.avatarImage, cloudUser.avatar_image),
-      avatarCrop: localUser.avatarCrop || cloudUser.avatarCrop || cloudUser.avatar_crop || null
+      avatarColor: String(cloudOrLocal("avatarColor", "avatar_color", "avatarColor") || ""),
+      avatarImage: String(cloudOrLocal("avatarImage", "avatar_image", "avatarImage") || ""),
+      avatarCrop: cloudOrLocal("avatarCrop", "avatar_crop", "avatarCrop") || null
     };
   }
 

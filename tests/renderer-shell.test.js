@@ -504,6 +504,24 @@ test("agent setup completion does not force first bot creation", () => {
   assert.doesNotMatch(setupSource, /创建你的第一个伙伴/);
 });
 
+test("first-run onboarding cannot enter Mia while an engine install is running", () => {
+  const wizardSource = fs.readFileSync(path.join(root, "src/renderer/onboarding/onboarding-wizard.js"), "utf8");
+  const standaloneSource = fs.readFileSync(path.join(root, "src/renderer/onboarding/onboarding-window.js"), "utf8");
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+
+  assert.match(wizardSource, /function isSetupInstallInFlight\(\)/);
+  assert.match(wizardSource, /data-onb-action="finish"[^`]*\$\{isSetupInstallInFlight\(\) \? " disabled" : ""\}/);
+  assert.match(wizardSource, /if\s*\(action === "finish"\)\s*\{[\s\S]*?if\s*\(isSetupInstallInFlight\(\)\)\s*return;[\s\S]*?deps\.finish\?\.\(\);[\s\S]*?\}/);
+
+  assert.match(standaloneSource, /function hasActiveInstall\(\)/);
+  assert.match(standaloneSource, /data-action="finish"[^`]*\$\{hasActiveInstall\(\) \? " disabled" : ""\}/);
+  assert.match(standaloneSource, /else if\s*\(action === "finish"\)\s*\{[\s\S]*?if\s*\(hasActiveInstall\(\)\)\s*return;[\s\S]*?mia\.onboardingComplete\?\.\(\);[\s\S]*?\}/);
+
+  assert.match(appSource, /state\.agentSetupInstallInFlight = true;/);
+  assert.match(appSource, /state\.agentSetupInstallInFlight = false;/);
+  assert.match(appSource, /if\s*\(state\.agentSetupInstallInFlight\)\s*return true;/);
+});
+
 test("chat code blocks use a right-aligned language copy button without code frame borders", () => {
   const chatCss = fs.readFileSync(path.join(root, "src/renderer/styles/chat.css"), "utf8");
   const webCss = fs.readFileSync(path.join(root, "src/web/styles.css"), "utf8");
@@ -871,6 +889,27 @@ test("contact detail shows engine logo and bot device label", () => {
   assert.match(styleSource, /\.contact-runtime-target > summary/);
   assert.match(styleSource, /\.accordion-details > \.accordion-body/);
   assert.match(styleSource, /\.runtime-target-option\.selected/);
+});
+
+test("profile and account surfaces expose uid fields", () => {
+  const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const remoteSettingsSource = fs.readFileSync(path.join(root, "src/renderer/settings/settings-remote.js"), "utf8");
+  const botManagerSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-manager.js"), "utf8");
+
+  assert.match(html, /id="profileDialogTitle">个人资料</);
+  assert.doesNotMatch(html, /id="profileDialogTitle">编辑个人资料</);
+  assert.match(html, /id="profileUidValue"/);
+  assert.match(html, /id="cloudAccountProfile"/);
+  assert.match(html, /id="cloudAccountAvatar"/);
+  assert.match(html, /id="cloudAccountName"/);
+  assert.match(html, /id="cloudAccountUid"/);
+  assert.match(appSource, /profileUidValue:\s*document\.getElementById\("profileUidValue"\)/);
+  assert.match(appSource, /els\.profileUidValue\.textContent = user\.id/);
+  assert.match(remoteSettingsSource, /cloudAccountUid/);
+  assert.match(remoteSettingsSource, /applyAvatarMedia|paintAvatar/);
+  assert.match(botManagerSource, /contact-profile-uid/);
+  assert.match(botManagerSource, /contactUid\(bot\)/);
 });
 
 test("contact detail deletes bots through runtime-backed ownership rules", () => {

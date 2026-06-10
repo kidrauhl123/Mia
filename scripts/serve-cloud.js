@@ -2327,6 +2327,11 @@ async function handleRequest(req, res, context) {
       if (replayIfCached(context, res, auth.user.id, body)) return;
       const avatarCrop = body.avatarCrop === null || (body.avatarCrop && typeof body.avatarCrop === "object") ? body.avatarCrop : undefined;
       const updated = cloudStore.updateUserProfile(auth.user.id, {
+        displayName: typeof body.displayName === "string"
+          ? body.displayName
+          : typeof body.display_name === "string"
+            ? body.display_name
+            : undefined,
         avatarImage: typeof body.avatarImage === "string" ? materializeAvatarImage(context, body.avatarImage, avatarCrop) : undefined,
         avatarCrop,
         avatarColor: typeof body.avatarColor === "string" ? body.avatarColor : undefined,

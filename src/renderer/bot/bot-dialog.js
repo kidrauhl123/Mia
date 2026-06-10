@@ -155,6 +155,7 @@
     const user = currentProfileUser();
     state.profileDialogOpen = true;
     if (els.profileDisplayName) els.profileDisplayName.value = user.displayName || "";
+    if (els.profileUidValue) els.profileUidValue.textContent = user.id || "未登录";
     setProfileAvatarDraft(user.avatarImage || "", user.avatarCrop);
     if (state.profileAvatarDraft) state.profileAvatarDraft.color = user.avatarColor || "";
     renderProfileAvatarDraft();

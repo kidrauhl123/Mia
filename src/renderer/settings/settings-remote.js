@@ -9,12 +9,56 @@
     els = deps.els;
   }
 
+  function firstNonEmpty(...values) {
+    for (const value of values) {
+      const text = String(value || "").trim();
+      if (text) return text;
+    }
+    return "";
+  }
+
+  function renderCloudAccountProfile(cloud, enabled) {
+    if (!els?.cloudAccountProfile) return;
+    const user = cloud?.user || {};
+    const uid = firstNonEmpty(user.id, user.userId, user.user_id);
+    const name = firstNonEmpty(
+      user.displayName,
+      user.display_name,
+      user.name,
+      user.username,
+      user.email,
+      uid
+    );
+    els.cloudAccountProfile.classList.toggle("hidden", !enabled);
+    if (els.cloudAccountName) els.cloudAccountName.textContent = enabled ? name : "";
+    if (els.cloudAccountUid) els.cloudAccountUid.textContent = enabled && uid ? `UID ${uid}` : "";
+    if (!enabled || !els.cloudAccountAvatar) return;
+    const avatar = window.miaAvatarResolve?.resolveAvatarForContact?.({
+      id: uid || name,
+      displayName: name,
+      avatarImage: user.avatarImage || user.avatar_image || "",
+      avatarCrop: user.avatarCrop || user.avatar_crop || null,
+      color: user.avatarColor || user.avatar_color || user.color || ""
+    }) || {
+      image: user.avatarImage || user.avatar_image || "",
+      crop: user.avatarCrop || user.avatar_crop || null,
+      color: user.avatarColor || user.avatar_color || "#65c2c8",
+      text: name.slice(0, 2)
+    };
+    if (typeof window.miaAvatar?.paintAvatar === "function") {
+      window.miaAvatar.paintAvatar(els.cloudAccountAvatar, avatar);
+    } else {
+      window.miaAvatar?.applyAvatarMedia?.(els.cloudAccountAvatar, avatar.image, avatar.crop, avatar.color, avatar.text);
+    }
+  }
+
   function renderCloudAccount(cloud = state?.runtime?.cloud || {}) {
     if (!state || !els || !els.cloudAccountHint) return;
     const connected = Boolean(cloud.connected);
     const connecting = Boolean(cloud.connecting);
     const enabled = Boolean(cloud.enabled);
     const username = cloud.user?.username || cloud.user?.email || "";
+    renderCloudAccountProfile(cloud, enabled);
     if (enabled) {
       const syncText = cloud.workspaceRevision
         ? `Cloud revision ${cloud.workspaceRevision} · ${cloud.conversationCount || 0} 个会话`

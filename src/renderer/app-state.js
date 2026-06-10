@@ -45,6 +45,7 @@
       onboardingPickedEngine: "",
       preferredAgentEngine: readLocal(storage, "mia.preferredAgentEngine.v1", "hermes"),
       hermesInstallError: "",
+      agentSetupInstallInFlight: false,
       forceScrollToBottom: false,
       sessionMenuOpen: false,
       activeView: "chat",

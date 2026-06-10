@@ -47,6 +47,31 @@ test("sqlite store registers, logs in, authenticates, and logs out a user", () =
   }
 });
 
+test("sqlite store persists synced profile display name and avatar", () => {
+  const paths = tempStore();
+  const store = createCloudStore(paths);
+  try {
+    const registered = store.registerUser({ username: "profile", password: "secret1" });
+    const updated = store.updateUserProfile(registered.user.id, {
+      displayName: "Jung",
+      avatarImage: "data:image/png;base64,avatar",
+      avatarCrop: { x: 45, y: 55, zoom: 1.2 },
+      avatarColor: "#112233"
+    });
+    assert.equal(updated.displayName, "Jung");
+    assert.equal(updated.avatarImage, "data:image/png;base64,avatar");
+    assert.deepEqual(updated.avatarCrop, { x: 45, y: 55, zoom: 1.2 });
+    assert.equal(updated.avatarColor, "#112233");
+
+    const loggedIn = store.loginUser({ username: "profile", password: "secret1" });
+    assert.equal(loggedIn.user.displayName, "Jung");
+    assert.equal(loggedIn.user.avatarImage, "data:image/png;base64,avatar");
+  } finally {
+    store.close();
+    cleanup(paths.dataDir);
+  }
+});
+
 
 
 

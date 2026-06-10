@@ -29,6 +29,10 @@
   let renderTimer = 0;
   const installStates = {};
 
+  function hasActiveInstall() {
+    return Object.values(installStates).some((install) => install?.status === "installing");
+  }
+
   function esc(value) {
     return String(value == null ? "" : value).replace(/[&<>"]/g, (c) => (
       { "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" }[c]
@@ -155,7 +159,7 @@
       <div class="onb-list">${doneRowsHtml()}</div>
       <div class="onb-spacer"></div>
       <div class="onb-footer">
-        <button class="onb-cta" type="button" data-action="finish">进入 Mia</button>
+        <button class="onb-cta" type="button" data-action="finish"${hasActiveInstall() ? " disabled" : ""}>进入 Mia</button>
       </div>
     `;
   }
@@ -269,7 +273,10 @@
         const action = el.dataset.action;
         if (action === "login") submitLogin("login");
         else if (action === "register") submitLogin("register");
-        else if (action === "finish") mia.onboardingComplete?.();
+        else if (action === "finish") {
+          if (hasActiveInstall()) return;
+          mia.onboardingComplete?.();
+        }
       });
     });
     root.querySelectorAll("[data-install]").forEach((el) => {

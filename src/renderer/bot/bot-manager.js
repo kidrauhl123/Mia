@@ -284,6 +284,10 @@
     return firstNonEmpty(bot.bio, bot.description, botDeviceLabel(bot));
   }
 
+  function contactUid(bot = {}) {
+    return firstNonEmpty(bot.uid, bot.publicId, bot.public_id, bot.id, bot.key, bot.globalId, bot.global_id);
+  }
+
   function botCapabilityItems(bot = {}) {
     if (!state) return { skills: [] };
     const engine = bot.agentEngine || bot.agent_engine || "hermes";
@@ -660,6 +664,7 @@
     if (!state || !els || !els.contactDetail || !bot) return;
     const summary = contactSessionSummary(bot);
     const engine = bot.agentEngine || bot.agent_engine || bot.engine || "hermes";
+    const uid = contactUid(bot);
     setText(els.contactPageTitle, bot.name || "联系人");
     setText(els.contactPageMeta, botDeviceLabel(bot));
     const canEditBot = bot.canEditIdentity !== false;
@@ -678,6 +683,7 @@
               </span>
             </div>
             <p>${window.miaMarkdown.escapeHtml(botSubtitle(bot))}</p>
+            ${uid ? `<p class="contact-profile-uid"><span>UID</span><code>${window.miaMarkdown.escapeHtml(uid)}</code></p>` : ""}
           </div>
           <div class="contact-actions">
             <button class="primary contact-message-action" type="button" data-contact-action="message" title="发消息" aria-label="发消息">${window.miaMarkdown.iconParkIcon("message", "contact-action-icon")}</button>

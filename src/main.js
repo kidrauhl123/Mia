@@ -1978,6 +1978,8 @@ cloudDesktopSyncRuntime = createCloudDesktopSyncClient({
   botPersonaPath,
   fileExists: (filePath) => fs.existsSync(filePath),
   readBotPersona,
+  writeUserProfile: (profile) => settingsStore.writeUserProfile(profile),
+  writeAppearanceSettings: (settings) => settingsStore.writeAppearanceSettings(settings),
   runtimePaths,
   readJson,
   startCloudEvents,
@@ -2225,13 +2227,13 @@ ipcMain.handle(IpcChannel.EffortSave, async (_event, settings) => {
 });
 ipcMain.handle(IpcChannel.ModelSave, (_event, settings) => modelSettingsService.saveModelSelection(resolveMiaManagedModelSettings(settings)));
 
-ipcMain.handle(IpcChannel.AppearanceSave, (_event, settings) => {
-  settingsStore.writeAppearanceSettings(settings);
+ipcMain.handle(IpcChannel.AppearanceSave, async (_event, settings) => {
+  await cloudDesktopSync().saveAppearanceSettings(settings || {});
   return getRuntimeStatus();
 });
 
-ipcMain.handle(IpcChannel.ProfileSave, (_event, profile) => {
-  settingsStore.writeUserProfile(profile);
+ipcMain.handle(IpcChannel.ProfileSave, async (_event, profile) => {
+  await cloudDesktopSync().saveUserProfile(profile || {});
   return getRuntimeStatus();
 });
 

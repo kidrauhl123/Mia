@@ -51,18 +51,24 @@ test("avatar text is the initials of the resolved name, never a stale cached val
   assert.equal(self.avatarText, "75");
 });
 
-test("self avatar prefers the local profile image, cloud fills the gap", () => {
+test("self avatar uses the cloud profile when signed in so stale local avatars cannot shadow other devices", () => {
   const both = resolveSelfIdentity({
     cloudUser: { id: "u_me", avatarImage: "data:cloud" },
     localUser: { avatarImage: "data:local" }
   });
-  assert.equal(both.avatarImage, "data:local");
+  assert.equal(both.avatarImage, "data:cloud");
 
   const cloudOnly = resolveSelfIdentity({
     cloudUser: { id: "u_me", avatarImage: "data:cloud" },
     localUser: {}
   });
   assert.equal(cloudOnly.avatarImage, "data:cloud");
+
+  const signedOut = resolveSelfIdentity({
+    cloudUser: {},
+    localUser: { avatarImage: "data:local" }
+  });
+  assert.equal(signedOut.avatarImage, "data:local");
 });
 
 test("id stays the server user id so message ownership matching holds", () => {

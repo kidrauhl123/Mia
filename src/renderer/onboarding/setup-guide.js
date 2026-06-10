@@ -75,6 +75,10 @@
       .map((agent) => agent.label);
   }
 
+  function isSetupInstallInFlight() {
+    return Boolean(state?.agentSetupInstallInFlight);
+  }
+
   function shouldShowSetupGuide({ messages }) {
     if (!state) return false;
     if (state.agentSetupSkipped) return false;
@@ -153,7 +157,7 @@
   function engineRight(agent) {
     const action = agentAction(agent);
     if (action) {
-      return `<button class="setup-engine-action primary" type="button" data-setup-action="${action.action}" data-engine="${escapeHtml(agent.id)}">${escapeHtml(action.label)}</button>`;
+      return `<button class="setup-engine-action primary" type="button" data-setup-action="${action.action}" data-engine="${escapeHtml(agent.id)}"${isSetupInstallInFlight() ? " disabled" : ""}>${escapeHtml(action.label)}</button>`;
     }
     if (agent.usableInMia) return `<span class="setup-engine-badge ok">已就绪</span>`;
     if (agent.installed && agent.detectionOnly) return `<span class="setup-engine-badge ok">已就绪</span>`;
@@ -206,7 +210,7 @@
           </div>
         </section>
         <footer class="setup-footer">
-          <button class="setup-cta" type="button" data-setup-action="finish-agent-scan">进入 Mia</button>
+          <button class="setup-cta" type="button" data-setup-action="finish-agent-scan"${isSetupInstallInFlight() ? " disabled" : ""}>进入 Mia</button>
           <button class="setup-cloud-link" type="button" data-action="cloud-login">登录 Mia Cloud →</button>
         </footer>
       </article>
@@ -225,6 +229,7 @@
     detectedLocalAgentLabels,
     shouldShowSetupGuide,
     engineChoiceRow,
+    isSetupInstallInFlight,
     renderEngineList,
     renderSetupGuide,
   };
