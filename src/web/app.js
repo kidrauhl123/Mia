@@ -2101,7 +2101,7 @@ function buildConversationMessageArticle(msg, conversation) {
     text: fallbackText
   });
   const senderTitleHtml = senderLabel && !isOwn
-    ? `<span class="bubble-sender" style="color:${senderColor};">${escapeHtml(senderLabel)}</span>`
+    ? `<span class="bubble-sender" style="color:${escapeHtml(senderColor)};">${escapeHtml(senderLabel)}</span>`
     : "";
   const renderedBody = spec.bodyMd ? renderMarkdown(spec.bodyMd) : "";
   const highlightedBody = renderedBody && window.miaMentionRender

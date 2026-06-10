@@ -5,6 +5,7 @@ const path = require("node:path");
 const { DatabaseSync } = require("node:sqlite");
 const { normalizeStatusBadge } = require("../shared/identity.js");
 const { generatePrincipalId, publicIdFromConversationId } = require("../shared/ids.js");
+const { sanitizeCssColor } = require("./css-color.js");
 
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
 const MAX_IMAGE_BYTES = 18 * 1024 * 1024;
@@ -587,7 +588,7 @@ function createCloudStore(options = {}) {
     }
     if (typeof patch.avatarColor === "string") {
       sets.push("avatar_color = ?");
-      values.push(patch.avatarColor.slice(0, 32));
+      values.push(sanitizeCssColor(patch.avatarColor));
     }
     if (Object.prototype.hasOwnProperty.call(patch, "statusBadge")) {
       const statusBadge = normalizeStatusBadge(patch.statusBadge);
