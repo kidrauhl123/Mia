@@ -49,15 +49,17 @@
     return Boolean(state?.runtime?.cloud?.enabled);
   }
 
-  // The wizard owns the whole signed-out state (Mia is cloud-login-required), so
-  // a signed-out user — first run OR a returning/dirty install — always gets the
-  // compact wizard login instead of the old full-width cloud-login screen. Once
-  // signed in, the wizard only stays up while onboarding is mid-flight.
+  function hasCompletedOnboarding() {
+    return Boolean(state?.onboardingStep === "done" || state?.agentSetupSkipped || state?.setupGuideDismissed);
+  }
+
+  // The wizard owns first-run signed-out state, but not returning users who
+  // already finished onboarding. If their token expires or they log out, keep
+  // them in the normal app shell and show the regular cloud login guide.
   function isActive() {
     if (!state) return false;
+    if (hasCompletedOnboarding()) return false;
     if (!signedIn()) return true;
-    if (state.agentSetupSkipped || state.setupGuideDismissed) return false;
-    if (state.onboardingStep === "done") return false;
     return STEPS.includes(state.onboardingStep);
   }
 
@@ -259,7 +261,7 @@
         state.onboardingLoginHint = "";
         // A returning user who already finished onboarding just lands in the app;
         // a fresh user continues to the prepare (detect Agents) step.
-        const onboarded = state.onboardingStep === "done" || state.agentSetupSkipped || state.setupGuideDismissed;
+        const onboarded = hasCompletedOnboarding();
         if (onboarded) deps.rerender?.();
         else goToStep("prepare");
       } else {
