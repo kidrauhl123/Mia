@@ -121,6 +121,27 @@ test("renderer chat uses setup guide and supports no-agent continuation", () => 
   assert.match(appSource, /setTimeout\(refreshRuntime,\s*120\)/);
 });
 
+test("chat rail icon keeps playback without the thicker forum animation asset", () => {
+  const htmlSource = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
+
+  const chatButton = htmlSource.match(/<button class="rail-button active"[\s\S]*?data-view="chat"[\s\S]*?<\/button>/)?.[0] || "";
+  assert.match(chatButton, /data-lottie="chat"/);
+  assert.match(chatButton, /data-lottie-rest="60"/);
+  assert.match(chatButton, /data-lottie-play="70,130"/);
+  assert.doesNotMatch(chatButton, /data-lottie-trigger="static"/);
+  assert.doesNotMatch(chatButton, /data-lottie="forum"/);
+
+  for (const name of ["contacts", "extension", "checklist", "settings"]) {
+    const pattern = new RegExp(`data-lottie="${name}"[^>]*data-lottie-rest="60"[^>]*data-lottie-play="70,130"`);
+    assert.match(htmlSource, pattern, `${name} rail icon should keep its existing playback attributes`);
+    assert.doesNotMatch(
+      htmlSource.match(new RegExp(`<span class="rail-lottie"[^>]*data-lottie="${name}"[^>]*>`))?.[0] || "",
+      /data-lottie-trigger="static"/,
+      `${name} rail icon must not be made static with the chat icon`
+    );
+  }
+});
+
 test("lottie icons support autoplaying loop animations for scanning state", () => {
   const lottieSource = fs.readFileSync(path.join(root, "src/renderer/lottie-icons.js"), "utf8");
 
