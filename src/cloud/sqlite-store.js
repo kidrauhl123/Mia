@@ -231,6 +231,9 @@ function createCloudStore(options = {}) {
     windowMs: Number(options.loginRateLimit?.windowMs || 1000 * 60 * 15)
   };
   const loginFailures = new Map();
+  // Salt used to run the KDF on login attempts for unknown accounts, so the
+  // response timing does not reveal whether an account exists.
+  const dummyLoginSalt = base64url(randomBytes(16));
   fs.mkdirSync(path.dirname(dbPath), { recursive: true, mode: 0o700 });
   fs.mkdirSync(uploadDir, { recursive: true, mode: 0o700 });
   const db = new DatabaseSync(dbPath);
@@ -338,7 +341,19 @@ function createCloudStore(options = {}) {
     const account = accountFromBody(input);
     assertLoginAllowed(account, input.ip);
     const row = getUserByAccount(account);
-    if (!row || passwordHash(String(input.password || ""), row.password_salt) !== row.password_hash) {
+    // Always run scrypt and compare in constant time — even for unknown
+    // accounts — so neither response timing nor early-return reveals whether
+    // the account exists.
+    const salt = row ? row.password_salt : dummyLoginSalt;
+    const candidate = Buffer.from(passwordHash(String(input.password || ""), salt));
+    // `expected` may be a legacy-imported hash of a different length/format, so
+    // guard the length before timingSafeEqual (which throws on a length
+    // mismatch) — a length mismatch is simply a non-match. All scrypt hashes
+    // share one length, so this preserves constant-time comparison for them.
+    const expected = Buffer.from(row ? row.password_hash : candidate.toString());
+    const matches = candidate.length === expected.length
+      && crypto.timingSafeEqual(candidate, expected);
+    if (!row || !matches) {
       recordLoginFailure(account, input.ip);
       throw new Error("用户名或密码不正确。");
     }

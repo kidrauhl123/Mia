@@ -400,3 +400,54 @@ test("migrate destructively removes old private bot conversation rows", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
+
+test("login fails identically for wrong password and unknown account (no enumeration)", () => {
+  const paths = tempStore();
+  const store = createCloudStore(paths);
+  try {
+    store.registerUser({ username: "Alice", password: "secret1" });
+
+    // Wrong password on an existing account and a login for a non-existent
+    // account must both fail with the same generic error — the store should
+    // not leak which case occurred.
+    assert.throws(
+      () => store.loginUser({ username: "alice", password: "wrongpass" }),
+      /用户名或密码不正确/
+    );
+    assert.throws(
+      () => store.loginUser({ username: "ghost", password: "whatever" }),
+      /用户名或密码不正确/
+    );
+
+    // Correct credentials still work.
+    assert.ok(store.loginUser({ username: "alice", password: "secret1" }).token);
+  } finally {
+    cleanup(paths.dataDir);
+  }
+});
+
+test("login with a legacy/empty stored password hash fails cleanly (no timingSafeEqual length crash)", () => {
+  const paths = tempStore();
+  const store = createCloudStore(paths);
+  try {
+    const registered = store.registerUser({ username: "Legacy", password: "secret1" });
+
+    // Simulate a legacy-imported row whose password_hash is not a 64-byte
+    // scrypt+base64 value (importLegacyJsonIfNeeded stores hashes verbatim and
+    // falls back to "" when missing). Login must return the generic auth error,
+    // not throw a RangeError from a buffer-length mismatch.
+    const raw = new DatabaseSync(paths.dbPath);
+    try {
+      raw.prepare("UPDATE users SET password_hash = '' WHERE id = ?").run(registered.user.id);
+    } finally {
+      raw.close();
+    }
+
+    assert.throws(
+      () => store.loginUser({ username: "legacy", password: "secret1" }),
+      /用户名或密码不正确/
+    );
+  } finally {
+    cleanup(paths.dataDir);
+  }
+});

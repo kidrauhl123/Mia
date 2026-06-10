@@ -218,6 +218,7 @@ const pendingConversationMemberFetches = new Set();
 
 let eventsSocket = null;
 let eventsReconnectTimer = 0;
+let eventsReconnectAttempts = 0;
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -633,11 +634,26 @@ async function api(path, options = {}) {
   if ((method === "POST" || method === "PUT" || method === "PATCH" || method === "DELETE") && body && typeof body === "object" && !body.clientOpId) {
     body = { ...body, clientOpId: `op_${(crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`)}` };
   }
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers,
-    body: body && typeof body !== "string" ? JSON.stringify(body) : body
-  });
+  // Bound every request so a hung/stalled connection surfaces as a clear error
+  // instead of a forever-spinning UI. Callers managing their own AbortSignal
+  // (e.g. cancel-on-navigation) keep full control and opt out of the timeout.
+  const timeoutMs = Number(options.timeoutMs) || 30000;
+  const controller = options.signal ? null : new AbortController();
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+  let response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      headers,
+      body: body && typeof body !== "string" ? JSON.stringify(body) : body,
+      signal: options.signal || controller.signal
+    });
+  } catch (err) {
+    if (err && err.name === "AbortError" && controller) throw new Error("请求超时，请重试。");
+    throw err;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
   return data;
@@ -865,6 +881,9 @@ function startCloudEvents() {
   eventsSocket = socket;
   // Bind the local `socket` ref so a stale close/error from a previous instance
   // can't clobber a newer healthy connection.
+  socket.addEventListener("open", () => {
+    if (eventsSocket === socket) eventsReconnectAttempts = 0;
+  });
   socket.addEventListener("message", (event) => {
     if (eventsSocket !== socket) return;
     let envelope;
@@ -907,7 +926,12 @@ function stopCloudEvents() {
 function scheduleReconnect() {
   if (!state.token) return;
   if (eventsReconnectTimer) return;
-  eventsReconnectTimer = setTimeout(() => { eventsReconnectTimer = 0; startCloudEvents(); }, 3000);
+  // Exponential backoff capped at 30s so a long server outage doesn't spam a
+  // reconnect every 3s; the delay resets once a connection succeeds (see the
+  // socket "open" handler).
+  const delay = Math.min(30000, 3000 * 2 ** eventsReconnectAttempts);
+  eventsReconnectAttempts += 1;
+  eventsReconnectTimer = setTimeout(() => { eventsReconnectTimer = 0; startCloudEvents(); }, delay);
 }
 
 function hermesEventType(event = {}) {
