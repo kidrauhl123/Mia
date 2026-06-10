@@ -448,7 +448,7 @@ function verifyRelease() {
     "api/src/shared/skill-safety.js",
     "api/src/shared/agent-permissions.js",
     "api/src/permission-modes.js",
-    "api/skills/commit-craft/SKILL.md",
+    "api/skills/pdf/SKILL.md",
     "web/index.html",
     "web/admin-model.html",
     "web/admin-model.js",
