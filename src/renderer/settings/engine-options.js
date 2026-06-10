@@ -39,9 +39,33 @@
     return persona?.engineConfig || persona?.engine_config || {};
   }
 
+  function platformMiaModelEntries() {
+    const platformModels = Array.isArray(state?.platformModels) ? state.platformModels : [];
+    const entries = platformModels.map((entry) => {
+      const id = String(entry.id || entry.value || entry.model_name || entry.model || "").trim();
+      if (!id) return null;
+      return {
+        id,
+        provider: "mia",
+        providerLabel: "Mia",
+        model: id,
+        label: String(entry.label || entry.name || entry.displayName || id).trim() || id,
+        authType: "mia_account",
+        modelProfileId: `mia:${id}`,
+        upstreamModel: String(entry.upstreamModel || entry.upstream_model || "").trim()
+      };
+    }).filter(Boolean);
+    return entries.length
+      ? entries
+      : [{ id: "mia-default", provider: "mia", providerLabel: "Mia", model: "mia-default", label: "Mia Default", authType: "mia_account", modelProfileId: "mia:mia-default", upstreamModel: "" }];
+  }
+
   function externalModelEntries(engine) {
     if (engineContracts.externalModelEntries) {
-      return engineContracts.externalModelEntries(engine, { codexModels: state?.codexModels });
+      return engineContracts.externalModelEntries(engine, {
+        codexModels: state?.codexModels,
+        platformModels: state?.platformModels
+      });
     }
     if (engine === "claude-code") {
       return [
@@ -49,7 +73,8 @@
         { id: "claude-opus-4-7", provider: "claude-code", providerLabel: "Claude Code", model: "claude-opus-4-7", label: "Claude Opus 4.7" },
         { id: "claude-sonnet-4-6", provider: "claude-code", providerLabel: "Claude Code", model: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
         { id: "opus", provider: "claude-code", providerLabel: "Claude Code", model: "opus", label: "Opus alias" },
-        { id: "sonnet", provider: "claude-code", providerLabel: "Claude Code", model: "sonnet", label: "Sonnet alias" }
+        { id: "sonnet", provider: "claude-code", providerLabel: "Claude Code", model: "sonnet", label: "Sonnet alias" },
+        ...platformMiaModelEntries()
       ];
     }
     if (engine === "codex") {
@@ -66,14 +91,20 @@
             label: m.displayName || m.slug
           });
         }
-        return entries;
+        return [...entries, ...platformMiaModelEntries()];
       }
       // Fallback if ~/.codex/models_cache.json is missing (fresh install pre-login).
       return [
         ...entries,
         { id: "gpt-5.3-codex-spark", provider: "codex", providerLabel: "Codex CLI", model: "gpt-5.3-codex-spark", label: "GPT-5.3 Codex Spark" },
         { id: "gpt-5.3-codex", provider: "codex", providerLabel: "Codex CLI", model: "gpt-5.3-codex", label: "GPT-5.3 Codex" },
-        { id: "gpt-5.2", provider: "codex", providerLabel: "Codex CLI", model: "gpt-5.2", label: "GPT-5.2" }
+        { id: "gpt-5.2", provider: "codex", providerLabel: "Codex CLI", model: "gpt-5.2", label: "GPT-5.2" },
+        ...platformMiaModelEntries()
+      ];
+    }
+    if (engine === "openclaw") {
+      return [
+        { id: "default", provider: "openclaw", providerLabel: "OpenClaw", model: "", label: "OpenClaw 默认" }
       ];
     }
     return [];
@@ -92,12 +123,13 @@
         { value: "bypassPermissions", label: "Bypass Permissions", title: "Claude Code Bypass Permissions，只在完全信任时使用。" }
       ];
     }
-    if (engine === "codex") {
+    if (engine === "codex" || engine === "openclaw") {
+      const label = engine === "openclaw" ? "OpenClaw" : "Codex";
       return [
-        { value: "default", label: "Ask", title: "Codex 默认 workspace-write + untrusted。" },
-        { value: "acceptEdits", label: "Edits", title: "Codex workspace-write + on-request。" },
-        { value: "readOnly", label: "Read", title: "Codex 只读模式。" },
-        { value: "bypassPermissions", label: "YOLO", title: "Codex danger-full-access + never。" }
+        { value: "default", label: "Ask", title: `${label} 默认 workspace-write + untrusted。` },
+        { value: "acceptEdits", label: "Edits", title: `${label} workspace-write + on-request。` },
+        { value: "readOnly", label: "Read", title: `${label} 只读模式。` },
+        { value: "bypassPermissions", label: "YOLO", title: `${label} danger-full-access + never。` }
       ];
     }
     // Hermes — pull from real engine capabilities (probed via SETTINGS_SCHEMA).
@@ -128,7 +160,7 @@
         { value: "max", label: "Max" }
       ];
     }
-    if (engine === "codex") {
+    if (engine === "codex" || engine === "openclaw") {
       return [
         { value: "minimal", label: "Minimal" },
         { value: "low", label: "Low" },

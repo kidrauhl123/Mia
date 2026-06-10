@@ -37,6 +37,7 @@ test("server-local installer restores data backups during rollback", () => {
   assert.match(source, /require_command docker/);
   assert.match(source, /require_command nginx/);
   assert.match(source, /run_as_root chown -R "\$SERVICE_USER:\$SERVICE_USER" "\$DATA_DIR"/);
+  assert.match(source, /sync_web_release\(\) \{[\s\S]*?\$INSTALL_TMP\/web\/downloads[\s\S]*?rsync -a --delete --exclude '\/downloads\/' "\$INSTALL_TMP\/web\/" "\$WEB_DIR\/"/);
   assert.match(source, /run_as_root cp "\$INSTALL_TMP\/nginx\/mia-websocket-map\.conf" "\$NGINX_MAP_CONF"/);
   assert.match(source, /run_as_root cp "\$INSTALL_TMP\/nginx\/mia-cloud-site\.conf" "\$NGINX_SITE_CONF"/);
   assert.match(source, /run_as_root nginx -t[\s\S]*?run_as_root systemctl reload nginx/);
@@ -56,6 +57,9 @@ test("server-local installer restores data backups during rollback", () => {
   assert.match(source, /Running smoke against \$SMOKE_URL/);
   assert.match(source, /MIA_SMOKE_EXPECT_RELEASE_COMMIT="\$EXPECTED_RELEASE_COMMIT"[\s\S]*?MIA_SMOKE_EXPECT_RELEASE_BUILT_AT="\$EXPECTED_RELEASE_BUILT_AT"[\s\S]*?node "\$INSTALL_TMP\/smoke-cloud\.js" "\$SMOKE_URL"/);
   assert.match(source, /rollback_after_public_verification_failure \|\| echo "Rollback after smoke failure failed; inspect this host manually\."/);
+  assert.match(source, /Running site verification against \$SMOKE_URL/);
+  assert.match(source, /node "\$INSTALL_TMP\/verify-site-verification\.js" "\$SMOKE_URL"/);
+  assert.match(source, /Rollback after site verification failure failed; inspect this host manually\./);
   assert.match(source, /tar -C "\$\(dirname "\$DATA_DIR"\)" -czf "\$DATA_BACKUP" "\$\(basename "\$DATA_DIR"\)"[\s\S]*?tar -tzf "\$DATA_BACKUP"/);
   assert.match(source, /tar -C "\$\(dirname "\$API_DIR"\)" -czf "\$API_BACKUP" "\$\(basename "\$API_DIR"\)"[\s\S]*?tar -tzf "\$API_BACKUP"/);
   assert.match(source, /tar -C "\$\(dirname "\$WEB_DIR"\)" -czf "\$WEB_BACKUP" "\$\(basename "\$WEB_DIR"\)"[\s\S]*?tar -tzf "\$WEB_BACKUP"/);
@@ -96,6 +100,7 @@ test("ssh deploy script restores data backups during install and public verifica
   assert.match(source, /Environment=MIA_CLOUD_AGENT_MODEL_BASE_URL=\$AGENT_MODEL_BASE_URL/);
   assert.match(source, /Environment=MIA_CLOUD_AGENT_MODEL_API_KEY=\$AGENT_MODEL_API_KEY/);
   assert.match(source, /run_as_root chown -R "\\\$SERVICE_USER:\\\$SERVICE_USER" "\$DATA_DIR"/);
+  assert.match(source, /sync_web_release\(\) \{[\s\S]*?\$REMOTE_RELEASE_DIR\/web\/downloads[\s\S]*?rsync -a --delete --exclude '\/downloads\/' "\$REMOTE_RELEASE_DIR\/web\/" "\$WEB_DIR\/"/);
   assert.match(source, /run_as_root cp "\$REMOTE_RELEASE_DIR\/nginx\/mia-websocket-map\.conf" "\$NGINX_MAP_CONF"/);
   assert.match(source, /run_as_root cp "\$REMOTE_RELEASE_DIR\/nginx\/mia-cloud-site\.conf" "\$NGINX_SITE_CONF"/);
   assert.match(source, /run_as_root nginx -t[\s\S]*?run_as_root systemctl reload nginx/);
@@ -119,6 +124,9 @@ test("ssh deploy script restores data backups during install and public verifica
   assert.match(source, /==> Running public smoke/);
   assert.match(source, /MIA_SMOKE_EXPECT_RELEASE_COMMIT="\$EXPECTED_RELEASE_COMMIT"[\s\S]*?MIA_SMOKE_EXPECT_RELEASE_BUILT_AT="\$EXPECTED_RELEASE_BUILT_AT"[\s\S]*?npm run cloud:smoke -- "\$PUBLIC_URL"/);
   assert.match(source, /Public smoke failed; attempting remote rollback/);
+  assert.match(source, /==> Running public site verification/);
+  assert.match(source, /npm run cloud:site-verify -- "\$PUBLIC_URL"/);
+  assert.match(source, /Public site verification failed; attempting remote rollback/);
   assert.match(source, /tar -C "\$\(dirname "\$DATA_DIR"\)" -czf "\$DATA_BACKUP" "\$\(basename "\$DATA_DIR"\)"[\s\S]*?tar -tzf "\$DATA_BACKUP"/);
   assert.match(source, /tar -C "\$\(dirname "\$API_DIR"\)" -czf "\$API_BACKUP" "\$\(basename "\$API_DIR"\)"[\s\S]*?tar -tzf "\$API_BACKUP"/);
   assert.match(source, /tar -C "\$\(dirname "\$WEB_DIR"\)" -czf "\$WEB_BACKUP" "\$\(basename "\$WEB_DIR"\)"[\s\S]*?tar -tzf "\$WEB_BACKUP"/);
@@ -136,7 +144,7 @@ test("release builder includes operator README with safe install verification", 
   assert.match(source, /function writeReleaseReadme\(\)/);
   assert.match(source, /function writeNginxConfigs\(\)/);
   assert.match(source, /copyDir\("src\/cloud-agent", path\.join\(apiDir, "src", "cloud-agent"\)\)/);
-  assert.match(source, /"api\/src\/cloud-agent\/default-bot\.js"/);
+  assert.doesNotMatch(source, /"api\/src\/cloud-agent\/default-bot\.js"/);
   assert.doesNotMatch(source, /default-fellow\.js/);
   assert.match(source, /"api\/src\/cloud-agent\/attachment-materializer\.js"/);
   assert.match(source, /"api\/src\/cloud-agent\/group-orchestrator\.js"/);
@@ -170,6 +178,11 @@ test("release builder includes operator README with safe install verification", 
   assert.match(source, /MIA_SMOKE_EXPECT_RELEASE_COMMIT="\$\(node -e "const m=require\('\.\/manifest\.json'\); process\.stdout\.write\(String\(m\.source\?\.\gitCommit \|\| ''\)\)"\)"/);
   assert.match(source, /MIA_SMOKE_EXPECT_RELEASE_BUILT_AT="\$\(node -e "const m=require\('\.\/manifest\.json'\); process\.stdout\.write\(String\(m\.builtAt \|\| ''\)\)"\)"/);
   assert.match(source, /node smoke-cloud\.js https:\/\/mia\.gifgif\.cn/);
+  assert.match(source, /"web\/5a371047c22c89872f93f00c7d8af123\.txt"/);
+  assert.match(source, /"verify-site-verification\.js"/);
+  assert.match(source, /copyFile\("scripts\/verify-site-verification\.js", path\.join\(distDir, "verify-site-verification\.js"\)\)/);
+  assert.match(source, /node verify-site-verification\.js https:\/\/mia\.gifgif\.cn/);
+  assert.match(source, /Release web root must include the site verification txt file with the expected content/);
   assert.match(source, /"prepare-cloud-smoke-account\.js"/);
   assert.match(source, /node prepare-cloud-smoke-account\.js https:\/\/mia\.gifgif\.cn/);
   assert.match(source, /MIA_SMOKE_USERNAME="<smoke-account>"/);
@@ -191,7 +204,7 @@ test("release builder includes operator README with safe install verification", 
   assert.match(source, /npm run bridge/);
   assert.match(source, /mia-cloud-bridge-smoke-ok/);
   assert.match(source, /Release README must document verify-only local install/);
-  assert.match(source, /Release README must document expected-release public doctor and smoke verification/);
+  assert.match(source, /Release README must document expected-release public doctor, smoke, and site verification/);
   assert.match(source, /Release README must document standalone bridge same-account startup from a full project checkout/);
   assert.match(source, /Release README must document same-account desktop bridge control without a separate remote approval gate/);
   assert.match(source, /Release nginx site must preserve the WebSocket Sec-WebSocket-Protocol header/);
@@ -225,8 +238,10 @@ test("package exposes repeatable desktop permission smoke without enabling it in
 test("cloud blockers command prints exact remaining gate commands", () => {
   const pkg = JSON.parse(readScript("package.json"));
   assert.equal(pkg.scripts["cloud:blockers"], "node scripts/print-cloud-blockers.js");
+  assert.equal(pkg.scripts["cloud:site-verify"], "node scripts/verify-site-verification.js");
   const source = readScript("scripts/print-cloud-blockers.js");
   assert.match(source, /cloud:prod:verify/);
+  assert.match(source, /cloud:site-verify/);
   assert.match(source, /cloud:deploy:ssh-diagnose/);
   assert.match(source, /buildSshAuthorizationHelp/);
   assert.match(source, /function safeSshAuthorizationHelp/);

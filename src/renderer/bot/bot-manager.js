@@ -16,6 +16,9 @@
   let setText, formatConversationTime;
   let loadSkills, showNarrowContent, render;
   let closeGroupContextMenu, openEditBotDialog, deleteBot, setBotPinned;
+  let runtimeDevicesLoading = false;
+  let runtimeDevicesLoadedAt = 0;
+  const RUNTIME_DEVICE_REFRESH_INTERVAL_MS = 15000;
   const contactNameCollator = new Intl.Collator(["zh-Hans-CN-u-co-pinyin", "en"], {
     sensitivity: "base",
     numeric: true
@@ -242,21 +245,27 @@
     if (engine === "mia") return "Mia";
     if (engine === "claude-code") return "Claude Code";
     if (engine === "codex") return "Codex";
+    if (engine === "openclaw") return "OpenClaw";
     return "Hermes";
   }
 
   function engineLogoKind(engine = "") {
     if (engine === "claude-code") return "claude";
     if (engine === "codex") return "codex";
+    if (engine === "openclaw") return "openclaw";
     return "hermes";
   }
 
   function engineLogoHtml(engine = "") {
     const kind = engineLogoKind(engine);
-    if (kind === "codex") {
-      return '<span class="engine-row-logo contact-engine-logo codex" aria-hidden="true"><img src="./assets/engine-icons/codex-color.svg" alt=""></span>';
-    }
-    return `<span class="engine-row-logo contact-engine-logo ${window.miaMarkdown.escapeHtml(kind)}" aria-hidden="true"></span>`;
+    const iconSrc = {
+      hermes: "./assets/engine-icons/hermesagent.svg",
+      claude: "./assets/engine-icons/claudecode.svg",
+      codex: "./assets/engine-icons/codex-color.svg",
+      openclaw: "./assets/provider-icons/openclaw-color.svg"
+    }[kind];
+    if (!iconSrc) return `<span class="engine-row-logo contact-engine-logo ${window.miaMarkdown.escapeHtml(kind)}" aria-hidden="true"></span>`;
+    return `<span class="engine-row-logo contact-engine-logo asset ${window.miaMarkdown.escapeHtml(kind)}" aria-hidden="true"><img src="${iconSrc}" alt=""></span>`;
   }
 
   function firstNonEmpty(...values) {
@@ -326,6 +335,236 @@
         </div>
       </section>
     `;
+  }
+
+  function normalizeDevice(input = {}) {
+    const id = String(input.id || input.deviceId || "").trim();
+    if (!id) return null;
+    const aliases = Array.isArray(input.aliases)
+      ? input.aliases.map((item) => String(item || "").trim()).filter(Boolean)
+      : [];
+    return {
+      ...input,
+      id,
+      deviceName: firstNonEmpty(input.deviceName, input.device_name, input.name, id),
+      status: String(input.status || "").trim(),
+      isLocal: Boolean(input.isLocal),
+      aliases: [...new Set([id, ...aliases])],
+      capabilities: input.capabilities && typeof input.capabilities === "object" ? input.capabilities : {}
+    };
+  }
+
+  function normalizedDeviceName(device = {}) {
+    return String(device.deviceName || device.device_name || device.name || "")
+      .trim()
+      .toLowerCase();
+  }
+
+  function isSameLocalDevice(device, local) {
+    if (!device || !local) return false;
+    if (device.id === local.id) return true;
+    const deviceName = normalizedDeviceName(device);
+    const localName = normalizedDeviceName(local);
+    return Boolean(deviceName && localName && deviceName === localName);
+  }
+
+  function mergeEngineLists(left = {}, right = {}) {
+    const out = [];
+    for (const source of [left, right]) {
+      const engines = Array.isArray(source.capabilities?.engines) ? source.capabilities.engines : [];
+      for (const engine of engines) {
+        const id = String(engine || "").trim();
+        if (id && !out.includes(id)) out.push(id);
+      }
+    }
+    return out;
+  }
+
+  function mergeDevices(existing, incoming, options = {}) {
+    if (!existing) return incoming;
+    const local = options.local || null;
+    const keepLocalIdentity = Boolean(local && (isSameLocalDevice(existing, local) || isSameLocalDevice(incoming, local)));
+    const aliases = [...new Set([...(existing.aliases || []), existing.id, ...(incoming.aliases || []), incoming.id].filter(Boolean))];
+    const engines = mergeEngineLists(existing, incoming);
+    const status = keepLocalIdentity
+      ? "local"
+      : ([existing.status, incoming.status].includes("online") ? "online" : (incoming.status || existing.status || ""));
+    return {
+      ...existing,
+      ...incoming,
+      id: keepLocalIdentity ? local.id : (existing.id || incoming.id),
+      deviceName: keepLocalIdentity ? local.deviceName : (incoming.deviceName || existing.deviceName),
+      status,
+      isLocal: keepLocalIdentity || Boolean(existing.isLocal || incoming.isLocal),
+      aliases,
+      capabilities: {
+        ...(existing.capabilities || {}),
+        ...(incoming.capabilities || {}),
+        ...(engines.length ? { engines } : {})
+      }
+    };
+  }
+
+  function localDeviceCandidate() {
+    const runtime = state?.runtime || {};
+    const id = firstNonEmpty(runtime.localDevice?.id, runtime.cloud?.deviceId, "current-device");
+    const engines = [];
+    if (runtime.agentEngines?.hermes?.available || runtime.agentEngines?.hermes?.installed) engines.push("hermes");
+    if (runtime.agentEngines?.claudeCode?.available) engines.push("claude-code");
+    if (runtime.agentEngines?.codex?.available) engines.push("codex");
+    if (runtime.agentEngines?.openClaw?.available || runtime.agentEngines?.openClaw?.installed) engines.push("openclaw");
+    return normalizeDevice({
+      id,
+      deviceName: firstNonEmpty(runtime.localDevice?.name, runtime.cloud?.deviceName, "当前设备"),
+      status: "local",
+      isLocal: true,
+      capabilities: { engines }
+    });
+  }
+
+  function runtimeDevices() {
+    const byId = new Map();
+    const local = localDeviceCandidate();
+    const add = (device) => {
+      const normalized = normalizeDevice(device);
+      if (!normalized) return;
+      const key = isSameLocalDevice(normalized, local) ? local.id : normalized.id;
+      byId.set(key, mergeDevices(byId.get(key), normalized, { local }));
+    };
+    for (const device of state?.runtime?.cloud?.devices || state?.runtime?.cloud?.bridgeDevices || []) add(device);
+    add(local);
+    return [...byId.values()];
+  }
+
+  function deviceStatusLabel(device = {}) {
+    if (device.isLocal || device.status === "local") return "本机";
+    if (device.status === "online") return "在线";
+    return "离线";
+  }
+
+  function compactDeviceName(value = "") {
+    return String(value || "")
+      .trim()
+      .replace(/\s*(?:·|-)?\s*Mia\s+(?:Desktop|Bridge)(?=\s*(?:·|-|$))/gi, "")
+      .replace(/\.local(?=\s|$)/gi, "")
+      .replace(/\s*(?:·|-)\s*(?:本机|在线|离线)\s*$/i, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function runtimeDeviceDisplayName(device = {}) {
+    if (device.isLocal || device.status === "local") return "本机";
+    return compactDeviceName(device.deviceName || device.device_name || device.name || "") || String(device.id || "").trim() || "设备";
+  }
+
+  function deviceEngines(device = {}) {
+    const advertised = Array.isArray(device.capabilities?.engines)
+      ? device.capabilities.engines.map((id) => String(id || "").trim()).filter(Boolean)
+      : [];
+    if (advertised.length) return advertised.filter((id) => ["hermes", "claude-code", "codex", "openclaw"].includes(id));
+    const engine = String(device.engine || "").trim();
+    return ["hermes", "claude-code", "codex", "openclaw"].includes(engine) ? [engine] : [];
+  }
+
+  function activeRuntimeTarget(bot = {}) {
+    const kind = window.miaBotDirectory.normalizeRuntimeKind(bot.runtimeKind || bot.runtime_kind, "desktop-local");
+    if (kind === "cloud-hermes") return { runtimeKind: "cloud-hermes", deviceId: "", agentEngine: "hermes" };
+    return {
+      runtimeKind: "desktop-local",
+      deviceId: firstNonEmpty(bot.targetDeviceId, bot.target_device_id, bot.deviceId, bot.device_id, bot.runtimeConfig?.deviceId, state?.runtime?.localDevice?.id, state?.runtime?.cloud?.deviceId, "current-device"),
+      agentEngine: window.miaBotDirectory.normalizeAgentEngine(bot.agentEngine || bot.agent_engine || bot.runtimeConfig?.agentEngine || "hermes", "desktop-local")
+    };
+  }
+
+  function targetButtonHtml({ bot, runtimeKind, device = null, engine = "hermes" }) {
+    const active = activeRuntimeTarget(bot);
+    const selected = runtimeKind === "cloud-hermes"
+      ? active.runtimeKind === "cloud-hermes"
+      : active.runtimeKind === "desktop-local" && (device?.id === active.deviceId || (device?.aliases || []).includes(active.deviceId)) && active.agentEngine === engine;
+    const displayName = runtimeKind === "cloud-hermes" ? "Mia Cloud" : runtimeDeviceDisplayName(device);
+    const attrs = runtimeKind === "cloud-hermes"
+      ? 'data-runtime-kind="cloud-hermes"'
+      : `data-runtime-kind="desktop-local" data-device-id="${window.miaMarkdown.escapeHtml(device?.id || "")}" data-device-name="${window.miaMarkdown.escapeHtml(displayName)}" data-agent-engine="${window.miaMarkdown.escapeHtml(engine)}"`;
+    const title = runtimeKind === "cloud-hermes" ? "Mia Cloud · Hermes" : `${displayName} · ${engineLabel(engine)}`;
+    const saving = state?.savingBotRuntimeTargets?.has?.(bot?.key);
+    return `
+      <button type="button" class="runtime-target-option${selected ? " selected" : ""}${saving ? " saving" : ""}" ${attrs} title="${window.miaMarkdown.escapeHtml(title)}" ${saving ? "disabled" : ""}>
+        ${engineLogoHtml(runtimeKind === "cloud-hermes" ? "hermes" : engine)}
+        <span>
+          <strong>${window.miaMarkdown.escapeHtml(engineLabel(runtimeKind === "cloud-hermes" ? "hermes" : engine))}</strong>
+        </span>
+      </button>
+    `;
+  }
+
+  function renderBotRuntimeTargetPanel(bot) {
+    const devices = runtimeDevices();
+    const cloudEnabled = Boolean(state?.runtime?.cloud?.enabled);
+    const panelOpen = state?.openRuntimeTargetPanelKeys?.has?.(bot?.key);
+    return `
+      <details class="contact-runtime-target accordion-details" data-runtime-panel-key="${window.miaMarkdown.escapeHtml(bot?.key || "")}"${panelOpen ? " open" : ""}>
+        <summary>
+          <div>
+            <strong>运行位置和 Agent 内核</strong>
+            <p>${window.miaMarkdown.escapeHtml(botDeviceLabel(bot))}</p>
+          </div>
+          <span class="runtime-target-chevron" aria-hidden="true">⌄</span>
+        </summary>
+        <div class="accordion-body">
+          <div class="runtime-target-list">
+            ${cloudEnabled ? `
+              <section class="runtime-device-group">
+                <div>
+                  <strong>Mia Cloud</strong>
+                  <small>在线</small>
+                </div>
+                <div>
+                  ${targetButtonHtml({ bot, runtimeKind: "cloud-hermes" })}
+                </div>
+              </section>
+            ` : ""}
+            ${devices.map((device) => {
+              const engines = deviceEngines(device);
+              return `
+              <section class="runtime-device-group">
+                <div>
+                  <strong>${window.miaMarkdown.escapeHtml(runtimeDeviceDisplayName(device))}</strong>
+                  <small>${window.miaMarkdown.escapeHtml(deviceStatusLabel(device))}</small>
+                </div>
+                <div>
+                  ${engines.length
+                    ? engines.map((engine) => targetButtonHtml({ bot, runtimeKind: "desktop-local", device, engine })).join("")
+                    : '<p class="runtime-target-empty">没有可用 Agent</p>'}
+                </div>
+              </section>
+            `; }).join("")}
+          </div>
+        </div>
+      </details>
+    `;
+  }
+
+  function refreshRuntimeDevicesForContacts() {
+    const now = Date.now();
+    if (runtimeDevicesLoading || !state?.runtime?.cloud?.enabled || typeof window.mia?.social?.listBridgeDevices !== "function") return;
+    if (now - runtimeDevicesLoadedAt < RUNTIME_DEVICE_REFRESH_INTERVAL_MS) return;
+    runtimeDevicesLoading = true;
+    runtimeDevicesLoadedAt = now;
+    window.mia.social.listBridgeDevices({ includeOffline: true })
+      .then((result) => {
+        const devices = result?.data?.devices || result?.devices || [];
+        if (!Array.isArray(devices)) return;
+        state.runtime = {
+          ...(state.runtime || {}),
+          cloud: {
+            ...(state.runtime?.cloud || {}),
+            devices
+          }
+        };
+        renderContacts();
+      })
+      .catch((error) => console.warn("[bot-manager] bridge devices load failed:", error?.message || error))
+      .finally(() => { runtimeDevicesLoading = false; });
   }
 
   function renderContacts() {
@@ -431,7 +670,7 @@
           <button class="contact-profile-avatar" type="button" ${canEditBot ? 'data-contact-action="edit" title="编辑联系人头像"' : 'title="联系人头像"'}></button>
           <div class="contact-profile-title">
             <h2>${window.miaMarkdown.escapeHtml(bot.name || "联系人")}</h2>
-            <div class="contact-engine-badge" title="Agent 引擎">
+            <div class="contact-engine-badge" title="Agent 内核">
               ${engineLogoHtml(engine)}
               <span class="contact-engine-copy">
                 <small>Agent</small>
@@ -450,6 +689,7 @@
           <strong>最近内容</strong>
           <p>${window.miaMarkdown.escapeHtml(summary.preview)}</p>
         </section>
+        ${renderBotRuntimeTargetPanel(bot)}
         ${bot.canConfigureCapabilities !== false ? renderBotCapabilitiesPanel(bot) : ""}
       </article>
     `;
@@ -469,6 +709,56 @@
       await deleteBot(bot.key);
     });
     if (bot.canConfigureCapabilities !== false) wireBotCapabilities(bot);
+    wireBotRuntimeTargets(bot);
+    refreshRuntimeDevicesForContacts();
+  }
+
+  async function saveBotRuntimeTarget(bot, target = {}) {
+    if (!bot?.key || !state) return;
+    if (!state.savingBotRuntimeTargets) state.savingBotRuntimeTargets = new Set();
+    state.savingBotRuntimeTargets.add(bot.key);
+    try {
+      const result = await window.miaBotCommands.saveBotRuntimeTarget({
+        state,
+        bot,
+        runtimeKind: target.runtimeKind,
+        targetDeviceId: target.deviceId,
+        targetDeviceName: target.deviceName,
+        agentEngine: target.agentEngine,
+        api: window.mia,
+        social: window.miaSocial,
+        engineContracts: window.miaEngineContracts,
+        modelSettings: window.miaModelSettings,
+        engineOptions: window.miaEngineOptions
+      });
+      if (result?.runtime) state.runtime = result.runtime;
+    } catch (error) {
+      window.alert(`保存运行设置失败：${error.message || error}`);
+    } finally {
+      state.savingBotRuntimeTargets.delete(bot.key);
+      renderContacts();
+    }
+  }
+
+  function wireBotRuntimeTargets(bot) {
+    if (!els || !els.contactDetail || !bot) return;
+    const panel = els.contactDetail.querySelector(".contact-runtime-target");
+    panel?.addEventListener("toggle", () => {
+      if (!state.openRuntimeTargetPanelKeys) state.openRuntimeTargetPanelKeys = new Set();
+      if (panel.open) state.openRuntimeTargetPanelKeys.add(bot.key);
+      else state.openRuntimeTargetPanelKeys.delete(bot.key);
+    });
+    els.contactDetail.querySelectorAll("[data-runtime-kind]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        if (button.classList.contains("selected")) return;
+        await saveBotRuntimeTarget(bot, {
+          runtimeKind: button.dataset.runtimeKind || "desktop-local",
+          deviceId: button.dataset.deviceId || "",
+          deviceName: button.dataset.deviceName || "",
+          agentEngine: button.dataset.agentEngine || "hermes"
+        });
+      });
+    });
   }
 
   async function saveBotCapabilities(bot, capabilities) {
@@ -613,8 +903,11 @@
     engineLogoHtml,
     renderCapabilityCheckbox,
     renderBotCapabilitiesPanel,
+    renderBotRuntimeTargetPanel,
     renderContacts,
     renderContactDetail,
+    saveBotRuntimeTarget,
+    wireBotRuntimeTargets,
     saveBotCapabilities,
     toggleCapabilityId,
     wireBotCapabilities,

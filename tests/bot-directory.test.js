@@ -45,7 +45,7 @@ test("bot directory treats a cloud-mirrored device bot as one desktop-runtime bo
 
   const bots = listOwnedBots({
     cloudBots: [
-      { id: "alice", name: "Alice Cloud", bio: "cloud copy", color: "#2563eb" }
+      { id: "alice", name: "Alice Cloud", bio: "cloud copy", color: "#2563eb", runtimeKind: "desktop-local", runtimeLabel: "Office Mac" }
     ],
     localBots: [
       { key: "alice", name: "Alice Local", bio: "local copy", agentEngine: "claude-code" }
@@ -62,6 +62,106 @@ test("bot directory treats a cloud-mirrored device bot as one desktop-runtime bo
   assert.equal(bots[0].runtimeKind, "desktop-local");
   assert.equal(bots[0].runtimeLabel, "Office Mac");
   assert.deepEqual(bots[0].sourceKinds, ["cloud", "desktop"]);
+});
+
+test("bot directory preserves cloud active runtime over a local mirror", () => {
+  const { listOwnedBots } = require(directoryPath);
+
+  const bots = listOwnedBots({
+    cloudBots: [
+      {
+        id: "alice",
+        name: "Alice Cloud",
+        runtimeKind: "cloud-hermes",
+        runtimeLabel: "Mia Cloud",
+        agentEngine: "hermes"
+      }
+    ],
+    localBots: [
+      { key: "alice", name: "Alice Local", agentEngine: "codex", deviceName: "Mac" }
+    ],
+    runtime: {
+      localDevice: { name: "Mac" }
+    }
+  });
+
+  assert.equal(bots.length, 1);
+  assert.equal(bots[0].runtimeKind, "cloud-hermes");
+  assert.equal(bots[0].runtimeLabel, "Mia Cloud");
+  assert.equal(bots[0].agentEngine, "hermes");
+});
+
+test("bot directory reads desktop active runtime from runtimeConfig", () => {
+  const { listOwnedBots } = require(directoryPath);
+
+  const bots = listOwnedBots({
+    cloudBots: [
+      {
+        id: "nono",
+        name: "nono",
+        runtimeKind: "desktop-local",
+        runtimeConfig: { agentEngine: "claude-code", deviceId: "mac-1", deviceName: "Office Mac" }
+      }
+    ],
+    localBots: [
+      { key: "nono", name: "nono", agentEngine: "hermes" }
+    ],
+    runtime: {
+      localDevice: { id: "mac-1", name: "Office Mac" }
+    }
+  });
+
+  assert.equal(bots.length, 1);
+  assert.equal(bots[0].runtimeKind, "desktop-local");
+  assert.equal(bots[0].agentEngine, "claude-code");
+  assert.equal(bots[0].targetDeviceId, "mac-1");
+  assert.equal(bots[0].runtimeLabel, "Office Mac");
+});
+
+test("bot directory compacts verbose Mia Desktop device labels", () => {
+  const { listOwnedBots } = require(directoryPath);
+
+  const bots = listOwnedBots({
+    cloudBots: [
+      {
+        id: "nono",
+        name: "nono",
+        runtimeKind: "desktop-local",
+        runtimeConfig: {
+          agentEngine: "codex",
+          deviceId: "mac-1",
+          deviceName: "zuiyoudeMacBook-Pro.local Mia Desktop · 本机"
+        }
+      }
+    ],
+    runtime: {
+      localDevice: { id: "mac-1", name: "zuiyoudeMacBook-Pro.local Mia Desktop" }
+    }
+  });
+
+  assert.equal(bots[0].runtimeLabel, "zuiyoudeMacBook-Pro");
+  assert.doesNotMatch(bots[0].runtimeLabel, /Mia Desktop|\.local|本机/);
+});
+
+test("bot directory treats a desktop bot named mia like any other bot", () => {
+  const { listOwnedBots } = require(directoryPath);
+
+  const bots = listOwnedBots({
+    localBots: [
+      { key: "mia", name: "Mia", agentEngine: "claude-code", deviceName: "Windows PC" }
+    ],
+    runtime: {
+      localDevice: { name: "Windows PC" }
+    }
+  });
+
+  assert.equal(bots.length, 1);
+  assert.equal(bots[0].key, "mia");
+  assert.equal(bots[0].runtimeKind, "desktop-local");
+  assert.equal(bots[0].runtimeLabel, "Windows PC");
+  assert.equal(bots[0].canEditIdentity, true);
+  assert.equal(bots[0].canConfigureCapabilities, true);
+  assert.equal(bots[0].canDelete, true);
 });
 
 test("bot directory keeps cloud real avatar when local mirror only has a legacy preset", () => {

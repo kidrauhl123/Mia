@@ -100,6 +100,7 @@
   function providerIconSrc(provider = "") {
     const id = String(provider || "").trim().toLowerCase().replace(/[^a-z0-9_.-]+/g, "-");
     if (!id || id === "custom") return "";
+    if (id === "mia") return "./assets/mia-logo.png";
     return `./assets/provider-icons/${id}.svg`;
   }
 
@@ -128,6 +129,7 @@
       [/mimo/, "mimo.svg"],
       [/nvidia|nemotron/, "nvidia.png"],
       [/copilot/, "copilot.png"],
+      [/mia-default|mia /, "../mia-logo.png"],
       [/hermes|nous/, "nousresearch.png"],
       [/hugging/, "huggingface.png"],
       [/glm|zai|zhipu/, "zhipu.png"],

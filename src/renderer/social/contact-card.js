@@ -269,7 +269,7 @@
     const runtime = _ctx?.deps?.getState?.()?.runtime || {};
     const runtimeKind = local.runtimeKind || "desktop-local";
     const engine = local.agentEngine || local.agent_engine || "hermes";
-    const isExternal = engine === "claude-code" || engine === "codex";
+    const isExternal = engine === "claude-code" || engine === "codex" || engine === "openclaw";
     const isCloudHermes = runtimeKind === "cloud-hermes";
     const botKey = String(local.key || local.id || ref || "").trim();
     const runtimeBinding = isCloudHermes ? bindingForBot(botKey, runtimeKind) : null;
@@ -313,7 +313,7 @@
     const modelLogoSrc = (() => {
       if (isExternal) {
         return modelHelpers?.modelIconSrc?.({
-          provider: engine === "claude-code" ? "anthropic" : "openai-codex",
+          provider: engine === "claude-code" ? "anthropic" : (engine === "openclaw" ? "openclaw" : "openai-codex"),
           model: currentModelEntry?.model || ""
         }) || "";
       }

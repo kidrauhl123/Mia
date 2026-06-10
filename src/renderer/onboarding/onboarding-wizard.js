@@ -110,6 +110,7 @@
 
   function scanRowStatus(agent) {
     if (!agent) return { text: "检测中…", cls: "checking" };
+    if (agent.id === "openclaw" && agent.installed) return { text: "已就绪", cls: "ok" };
     if (agent.usableInMia) return { text: "已就绪", cls: "ok" };
     if (agent.installed) return { text: "已检测到", cls: "" };
     return { text: "未检测到", cls: "missing" };

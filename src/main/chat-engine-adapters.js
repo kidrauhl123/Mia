@@ -86,6 +86,33 @@ function createChatEngineAdapters(deps = {}) {
         return deps.sendCodexChat(context);
       }
     },
+    openclaw: {
+      id: "openclaw",
+      async send(context) {
+        const engine = "openclaw";
+        const adapter = adapterForEngine(engine);
+        if (context.slashText) {
+          const localResult = deps.runExternalSlashCommand({
+            text: context.slashText,
+            bot: context.bot,
+            engine,
+            sessionId: context.sessionId
+          });
+          if (localResult != null) {
+            return commandResponse({
+              commandId,
+              chatCompletionResponse,
+              engine,
+              model: adapter.responseModel,
+              result: localResult,
+              botKey: context.bot.key
+            });
+          }
+        }
+        if (typeof deps.sendOpenClawChat === "function") return deps.sendOpenClawChat(context);
+        throw new Error("OpenClaw 已保存为运行目标，但当前版本还没有接入 OpenClaw 聊天适配器。");
+      }
+    },
     hermes: {
       id: "hermes",
       async send(context) {
@@ -127,6 +154,13 @@ function createStatelessChatEngineAdapters(deps = {}) {
       id: "codex",
       send(context) {
         return deps.sendCodexStateless(context);
+      }
+    },
+    openclaw: {
+      id: "openclaw",
+      async send(context) {
+        if (typeof deps.sendOpenClawStateless === "function") return deps.sendOpenClawStateless(context);
+        throw new Error("OpenClaw 已保存为运行目标，但当前版本还没有接入 OpenClaw 聊天适配器。");
       }
     },
     hermes: {

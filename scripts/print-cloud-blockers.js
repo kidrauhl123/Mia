@@ -86,6 +86,7 @@ async function buildCloudBlockers({
       "Run from the development Mac:",
       "```bash",
       `npm run cloud:prod:verify -- ${publicUrl}`,
+      `npm run cloud:site-verify -- ${publicUrl}`,
       "npm run cloud:deploy:ssh-diagnose",
       "```",
       "",
@@ -111,10 +112,12 @@ async function buildCloudBlockerSummary({
       requiredCommands: [
         "npm run cloud:deploy",
         `npm run cloud:prod:verify -- ${publicUrl}`,
+        `npm run cloud:site-verify -- ${publicUrl}`,
         "npm run cloud:deploy:ssh-diagnose"
       ],
       required: [
         `npm run cloud:prod:verify -- ${publicUrl}`,
+        `npm run cloud:site-verify -- ${publicUrl}`,
         "npm run cloud:deploy:ssh-diagnose",
         "npm run cloud:deploy"
       ]

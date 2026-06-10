@@ -111,7 +111,8 @@
         extensions: Array.isArray(library?.extensions) ? library.extensions : [],
         connectors: Array.isArray(library?.connectors) ? library.connectors : [],
         roots: Array.isArray(library?.roots) ? library.roots : [],
-        skills: Array.isArray(library?.skills) ? library.skills : []
+        skills: Array.isArray(library?.skills) ? library.skills : [],
+        botPresets: Array.isArray(library?.botPresets) ? library.botPresets : []
       };
       if (!state.selectedSkillId || !state.skillLibrary.skills.some((skill) => skill.id === state.selectedSkillId)) {
         state.selectedSkillId = state.skillLibrary.skills[0]?.id || "";
@@ -120,7 +121,7 @@
       if (state.selectedSkillId) await window.miaSkillLibrary.selectSkill(state.selectedSkillId, false);
     } catch (error) {
       console.error("Failed to load local skills", error);
-      state.skillLibrary = { plugins: [], sources: [], extensions: [], connectors: [], roots: [], skills: [] };
+      state.skillLibrary = { plugins: [], sources: [], extensions: [], connectors: [], roots: [], skills: [], botPresets: [] };
       state.selectedSkillId = "";
       state.selectedSkillDetail = null;
     } finally {

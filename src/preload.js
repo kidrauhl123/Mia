@@ -21,6 +21,11 @@ contextBridge.exposeInMainWorld("mia", {
   },
   openExternal: (url) => ipcRenderer.invoke(IpcChannel.UtilOpenExternal, url),
   installEngine: (engineId) => ipcRenderer.invoke(IpcChannel.EngineInstall, engineId),
+  onEngineInstallProgress: (callback) => {
+    const handler = (_event, payload) => callback(payload);
+    ipcRenderer.on(IpcChannel.EngineInstallProgress, handler);
+    return () => ipcRenderer.removeListener(IpcChannel.EngineInstallProgress, handler);
+  },
   getAgentWorkspace: () => ipcRenderer.invoke(IpcChannel.EngineWorkspaceGet),
   pickAgentWorkspace: () => ipcRenderer.invoke(IpcChannel.EngineWorkspacePick),
   scanAgents: () => ipcRenderer.invoke(IpcChannel.EngineScan),
@@ -133,6 +138,7 @@ contextBridge.exposeInMainWorld("mia", {
     ensureBotSessionConversation: (sessionId, body) => ipcRenderer.invoke(IpcChannel.SocialEnsureBotSessionConversation, sessionId, body),
     getBotRuntime: (botId, runtimeKind) => ipcRenderer.invoke(IpcChannel.SocialGetBotRuntime, botId, runtimeKind),
     saveBotRuntime: (botId, body) => ipcRenderer.invoke(IpcChannel.SocialSaveBotRuntime, botId, body),
+    listBridgeDevices: (options) => ipcRenderer.invoke(IpcChannel.SocialListBridgeDevices, options),
     updateConversation: (conversationId, patch) => ipcRenderer.invoke(IpcChannel.SocialUpdateConversation, conversationId, patch),
     deleteConversation: (conversationId) => ipcRenderer.invoke(IpcChannel.SocialDeleteConversation, conversationId),
     addConversationMember: (conversationId, member) => ipcRenderer.invoke(IpcChannel.SocialAddConversationMember, conversationId, member),

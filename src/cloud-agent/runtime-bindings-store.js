@@ -45,6 +45,28 @@ function createRuntimeBindingsStore(db) {
     FROM bot_runtime_bindings
     WHERE user_id = ? AND bot_id = ? AND runtime_kind = ? AND enabled = 1
   `);
+  const selectActiveStmt = db.prepare(`
+    SELECT user_id, bot_id, runtime_kind, enabled, config_json, created_at, updated_at
+    FROM bot_runtime_bindings
+    WHERE user_id = ? AND bot_id = ? AND enabled = 1
+    ORDER BY updated_at DESC
+    LIMIT 1
+  `);
+  const listStmt = db.prepare(`
+    SELECT user_id, bot_id, runtime_kind, enabled, config_json, created_at, updated_at
+    FROM bot_runtime_bindings
+    WHERE user_id = ? AND bot_id = ?
+    ORDER BY enabled DESC, updated_at DESC
+  `);
+  const disableOtherKindsStmt = db.prepare(`
+    UPDATE bot_runtime_bindings
+    SET enabled = 0, updated_at = ?
+    WHERE user_id = ? AND bot_id = ? AND runtime_kind <> ?
+  `);
+
+  function hasActiveBinding(userId, botId) {
+    return Boolean(selectActiveStmt.get(userId, botId));
+  }
 
   function upsertBinding(args = {}) {
     const userId = String(args.userId || "").trim();
@@ -55,11 +77,23 @@ function createRuntimeBindingsStore(db) {
     if (!runtimeKind) throw new Error("upsertBinding: runtimeKind required");
     const existing = selectStmt.get(userId, botId, runtimeKind);
     const now = nowIso();
+    const activate = args.activate === true || args.active === true;
+    const activateIfEmpty = args.activate === "if-empty" || args.active === "if-empty";
+    const hadActiveBinding = hasActiveBinding(userId, botId);
+    const shouldActivate = activate || (activateIfEmpty && !hadActiveBinding);
+    if (shouldActivate) disableOtherKindsStmt.run(now, userId, botId, runtimeKind);
+    const enabled = shouldActivate
+      ? 1
+      : (activateIfEmpty && hadActiveBinding && !existing
+        ? 0
+        : (args.preserveEnabled && existing
+        ? existing.enabled
+        : (args.enabled === false ? 0 : 1)));
     return rowToBinding(upsertStmt.get(
       userId,
       botId,
       runtimeKind,
-      args.enabled === false ? 0 : 1,
+      enabled,
       JSON.stringify(args.config && typeof args.config === "object" ? args.config : {}),
       existing?.created_at || now,
       now
@@ -74,7 +108,15 @@ function createRuntimeBindingsStore(db) {
     return rowToBinding(selectEnabledStmt.get(String(userId), String(botId), String(runtimeKind)));
   }
 
-  return { upsertBinding, getBinding, getEnabledBinding };
+  function getActiveBinding(userId, botId) {
+    return rowToBinding(selectActiveStmt.get(String(userId), String(botId)));
+  }
+
+  function listBindings(userId, botId) {
+    return listStmt.all(String(userId), String(botId)).map(rowToBinding);
+  }
+
+  return { upsertBinding, getBinding, getEnabledBinding, getActiveBinding, listBindings };
 }
 
 module.exports = { createRuntimeBindingsStore };

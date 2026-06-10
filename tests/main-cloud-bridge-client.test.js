@@ -42,7 +42,7 @@ function fakeWebSocketClass() {
 
 function setup(overrides = {}) {
   const { FakeWebSocket, sockets } = fakeWebSocketClass();
-  const calls = { chat: [], logs: [], timers: [] };
+  const calls = { chat: [], engines: [], logs: [], timers: [] };
   let settings = {
     enabled: true,
     token: "tok_1",
@@ -56,8 +56,9 @@ function setup(overrides = {}) {
     isDaemonEnabled: () => false,
     cloudBridgeUrl: () => "wss://cloud.example/api/bridge?deviceName=Mac",
     cloudWebSocketProtocols: (s) => [`mia-token.${s.token}`],
-    createActiveCodexChatAdapter: () => ({
+    createActiveBridgeChatAdapter: (engine) => ({
       sendChat: async (args) => {
+        calls.engines.push(engine);
         calls.chat.push(args);
         return {
           choices: [{
@@ -118,7 +119,7 @@ test("start opens one bridge socket and ready updates status", () => {
   assert.equal(client.status().deviceId, "dev_1");
 });
 
-test("run messages execute Codex through the bridge Module and return normalized result", async () => {
+test("run messages execute the requested Agent engine through the bridge Module", async () => {
   const { client, calls, sockets, FakeWebSocket } = setup();
   client.start();
   const ws = sockets[0];
@@ -135,7 +136,10 @@ test("run messages execute Codex through the bridge Module and return normalized
   await Promise.resolve();
 
   assert.equal(calls.chat.length, 1);
+  assert.deepEqual(calls.engines, ["codex"]);
+  assert.equal(calls.chat[0].bot.agentEngine, "codex");
   assert.equal(calls.chat[0].bot.engineConfig.permissionMode, "default");
+  assert.equal(calls.chat[0].runtimeConfig.agentEngine, "codex");
   assert.equal(calls.chat[0].sessionId, "cloud:c_1");
   assert.equal(calls.chat[0].messages[0].content, "生成猫图");
   assert.deepEqual(calls.chat[0].messages[0].attachments, [{ name: "brief.txt", path: "/tmp/brief.txt" }]);
@@ -151,11 +155,44 @@ test("run messages execute Codex through the bridge Module and return normalized
   ]);
 });
 
+test("run messages can choose Claude Code instead of the legacy Codex bridge", async () => {
+  const { client, calls, sockets, FakeWebSocket } = setup();
+  client.start();
+  const ws = sockets[0];
+  ws.readyState = FakeWebSocket.OPEN;
+
+  client.handleMessage(ws, JSON.stringify({
+    type: "run",
+    runId: "run_claude",
+    conversationId: "c_2",
+    text: "总结一下",
+    runtimeConfig: {
+      agentEngine: "claude-code",
+      permissionMode: "bypassPermissions",
+      model: "sonnet"
+    },
+    botId: "helper",
+    botName: "Helper"
+  }));
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.deepEqual(calls.engines, ["claude-code"]);
+  assert.equal(calls.chat[0].bot.key, "helper");
+  assert.equal(calls.chat[0].bot.name, "Helper");
+  assert.equal(calls.chat[0].bot.agentEngine, "claude-code");
+  assert.equal(calls.chat[0].bot.engineConfig.permissionMode, "bypassPermissions");
+  assert.equal(calls.chat[0].bot.engineConfig.model, "sonnet");
+  assert.equal(calls.chat[0].runtimeConfig.agentEngine, "claude-code");
+  assert.equal(ws.sent[0].event.text, "本机 Claude Code 已开始运行。");
+});
+
 test("cancel messages abort the active bridge run", async () => {
   let resolveRun;
   const { client, calls, sockets, FakeWebSocket } = setup({
-    createActiveCodexChatAdapter: () => ({
+    createActiveBridgeChatAdapter: (engine) => ({
       sendChat: async (args) => {
+        calls.engines.push(engine);
         calls.chat.push(args);
         return new Promise((resolve) => {
           resolveRun = () => resolve({ choices: [{ message: { content: "cancelled" } }] });

@@ -190,6 +190,8 @@ test("bootstrapAfterLogin lists conversations before slow local bot ensure work"
   assert.equal(calls[2].botId, "alice");
   assert.deepEqual(JSON.parse(JSON.stringify(calls[2].body)), {
     runtimeKind: "desktop-local",
+    activate: "if-empty",
+    preserveEnabled: false,
     enabled: true,
     config: {
       agentEngine: "hermes",
@@ -807,6 +809,36 @@ test("handleCloudEvent social.conversation_invited adds the conversation to conv
     payload: { conversation: { id: "g_xxx", name: "Squad", updatedAt: "2026-05-21T20:00:00.000Z" }, invitedBy: { id: "u_a", username: "alice" } }
   });
   assert.ok(s.moduleState.conversations.find((r) => r.id === "g_xxx"));
+});
+
+test("handleCloudEvent bot.upserted preserves active runtime binding fields", () => {
+  const s = loadSocial();
+  s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.bots = [{
+    id: "nono",
+    key: "nono",
+    name: "nono",
+    runtimeKind: "desktop-local",
+    runtimeConfig: { agentEngine: "claude-code", deviceId: "mac-1", deviceName: "Office Mac" },
+    agentEngine: "claude-code",
+    targetDeviceId: "mac-1",
+    deviceId: "mac-1",
+    deviceName: "Office Mac",
+    runtimeLabel: "Office Mac",
+    sourceKinds: ["cloud"]
+  }];
+
+  s.handleCloudEvent({
+    type: "bot.upserted",
+    payload: { bot: { id: "nono", key: "nono", name: "nono", avatarImage: "data:image/png;base64,avatar" } }
+  });
+
+  assert.equal(s.moduleState.bots.length, 1);
+  assert.equal(s.moduleState.bots[0].runtimeKind, "desktop-local");
+  assert.equal(s.moduleState.bots[0].agentEngine, "claude-code");
+  assert.equal(s.moduleState.bots[0].targetDeviceId, "mac-1");
+  assert.equal(s.moduleState.bots[0].runtimeLabel, "Office Mac");
+  assert.equal(s.moduleState.bots[0].avatarImage, "data:image/png;base64,avatar");
 });
 
 test("handleCloudEvent conversation.updated upserts unknown conversations", () => {

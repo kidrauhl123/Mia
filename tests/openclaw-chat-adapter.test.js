@@ -1,0 +1,336 @@
+const { test } = require("node:test");
+const assert = require("node:assert/strict");
+const { EventEmitter } = require("node:events");
+const { PassThrough } = require("node:stream");
+const {
+  acpPermissionFallback,
+  buildOpenClawAcpArgs,
+  buildOpenClawArgs,
+  buildOpenClawGlobalArgs,
+  createOpenClawChatAdapter,
+  parseOpenClawContent
+} = require("../src/main/openclaw-chat-adapter.js");
+const { chatCompletionResponse } = require("../src/main/chat-response.js");
+
+function fakeChildProcess(calls) {
+  const child = new EventEmitter();
+  child.stdin = new PassThrough();
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  child.kill = () => {
+    calls.push(["kill"]);
+    child.emit("exit", null, "SIGTERM");
+    return true;
+  };
+  return child;
+}
+
+function fakeAcpSdk(calls, overrides = {}) {
+  class FakeClientSideConnection {
+    constructor(toClient, stream) {
+      calls.push(["acp-connect", Boolean(stream?.readable), Boolean(stream?.writable)]);
+      this.handlers = toClient(this);
+    }
+
+    async initialize(params) {
+      calls.push(["acp-initialize", params]);
+      return {
+        protocolVersion: 1,
+        agentCapabilities: { promptCapabilities: { image: true } },
+        agentInfo: { name: "openclaw-acp", version: "test" }
+      };
+    }
+
+    async newSession(params) {
+      calls.push(["acp-new-session", params]);
+      return {
+        sessionId: overrides.acpSessionId || "acp-session",
+        configOptions: [],
+        modes: { currentModeId: "adaptive", availableModes: [] }
+      };
+    }
+
+    async setSessionMode(params) {
+      calls.push(["acp-set-mode", params]);
+      return {};
+    }
+
+    async prompt(params) {
+      calls.push(["acp-prompt", params]);
+      await this.handlers.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: overrides.reply || "OpenClaw reply" }
+        }
+      });
+      return { stopReason: "end_turn" };
+    }
+
+    async cancel(params) {
+      calls.push(["acp-cancel", params]);
+    }
+  }
+
+  return {
+    ClientSideConnection: FakeClientSideConnection,
+    PROTOCOL_VERSION: 1,
+    ndJsonStream: (writable, readable) => ({ writable, readable })
+  };
+}
+
+function createDeps(overrides = {}) {
+  const calls = [];
+  const sessions = new Map();
+  return {
+    calls,
+    buildEnabledSkillsContext: () => "技能上下文",
+    chatCompletionResponse,
+    cwd: () => "/tmp/mia-workspace",
+    expandLeadingSkillCommand: (text) => text,
+    getAgentSessionId: (engine, botKey, sessionId) => sessions.get(`${engine}:${botKey}:${sessionId}`) || "",
+    injectGroupContextForSdk: (prompt, contextBlock) => `${contextBlock}\n\n${prompt}`,
+    lastUserPrompt: (messages) => [...messages].reverse().find((message) => message.role === "user")?.content || "",
+    memoryBlock: () => "Mia 记忆",
+    normalizeEffortLevel: (level) => `normalized-${level}`,
+    processEnvStrings: () => ({ PATH: "/usr/local/bin" }),
+    readBotPersona: (key, name) => `${name} 的人设`,
+    setAgentSessionId: (engine, botKey, sessionId, externalId) => {
+      sessions.set(`${engine}:${botKey}:${sessionId}`, externalId);
+      calls.push(["set-session", engine, botKey, sessionId, externalId]);
+    },
+    shellCommandPath: (command) => (command === "openclaw" ? "/bin/openclaw" : ""),
+    importAcpSdk: async () => fakeAcpSdk(calls, overrides),
+    spawn: (file, args, options) => {
+      calls.push(["spawn", file, args, options.cwd, options.env.PATH]);
+      return fakeChildProcess(calls);
+    },
+    execFile: (file, args, options, callback) => {
+      calls.push(["exec", file, args, options.cwd, options.env.PATH]);
+      callback(null, overrides.stdout || JSON.stringify({ response: "OpenClaw reply", session_id: "oc-session" }), "");
+      return { kill() {} };
+    },
+    ...overrides
+  };
+}
+
+test("buildOpenClawArgs prefers OpenClaw default routing and only forces local when requested", () => {
+  const args = buildOpenClawArgs({
+    bot: { key: "mia" },
+    sessionId: "s1",
+    message: "hello",
+    effort: "medium"
+  });
+
+  assert.deepEqual(args, [
+    "agent",
+    "--message",
+    "hello",
+    "--session-id",
+    "mia:mia:s1",
+    "--thinking",
+    "medium",
+    "--json",
+    "--timeout",
+    "600"
+  ]);
+  assert.equal(args.includes("--local"), false);
+  assert.equal(buildOpenClawArgs({ message: "hello", local: true }).includes("--local"), true);
+});
+
+test("OpenClaw command builders support an isolated profile before the subcommand", () => {
+  assert.deepEqual(buildOpenClawGlobalArgs({ openclawProfile: "mia" }), ["--profile", "mia"]);
+  assert.deepEqual(buildOpenClawArgs({
+    bot: { key: "claw", engineConfig: { openclawProfile: "mia" } },
+    sessionId: "s1",
+    message: "hello",
+    effort: "medium"
+  }).slice(0, 4), ["--profile", "mia", "agent", "--message"]);
+  assert.deepEqual(buildOpenClawAcpArgs({
+    engineConfig: {
+      openclawProfile: "mia",
+      openclawGatewayUrl: "ws://127.0.0.1:18789",
+      openclawGatewayTokenFile: "/tmp/token"
+    }
+  }), [
+    "--profile",
+    "mia",
+    "acp",
+    "--no-prefix-cwd",
+    "--url",
+    "ws://127.0.0.1:18789",
+    "--token-file",
+    "/tmp/token"
+  ]);
+  assert.throws(() => buildOpenClawGlobalArgs({ openclawProfile: "../default" }), /profile 名称/);
+});
+
+test("parseOpenClawContent accepts OpenClaw JSON and plain text", () => {
+  assert.deepEqual(parseOpenClawContent(JSON.stringify({
+    response: "hello",
+    meta: { session_id: "s2" }
+  })), { content: "hello", sessionId: "s2" });
+  assert.deepEqual(parseOpenClawContent("plain reply"), { content: "plain reply", sessionId: "" });
+});
+
+test("acpPermissionFallback never grants tools unless the bot is explicitly yolo", () => {
+  const params = {
+    options: [
+      { optionId: "allow-1", kind: "allow_once", name: "Allow" },
+      { optionId: "reject-1", kind: "reject_once", name: "Reject" }
+    ]
+  };
+  assert.deepEqual(acpPermissionFallback(params, { permissionMode: "default" }), {
+    outcome: { outcome: "selected", optionId: "reject-1" }
+  });
+  assert.deepEqual(acpPermissionFallback(params, { permissionMode: "bypassPermissions" }), {
+    outcome: { outcome: "selected", optionId: "allow-1" }
+  });
+});
+
+test("sendChat runs OpenClaw through ACP backend and stores the stable session key", async () => {
+  const deps = createDeps();
+  const adapter = createOpenClawChatAdapter(deps);
+  const response = await adapter.sendChat({
+    bot: { key: "claw", name: "Claw", engineConfig: { effortLevel: "high" } },
+    sessionId: "mia-session",
+    messages: [{ role: "user", content: "帮我整理文件" }]
+  });
+
+  const spawnCall = deps.calls.find((call) => call[0] === "spawn");
+  assert.equal(spawnCall[1], "/bin/openclaw");
+  assert.deepEqual(spawnCall[2], ["acp", "--no-prefix-cwd"]);
+  assert.equal(spawnCall[3], "/tmp/mia-workspace");
+  const newSessionCall = deps.calls.find((call) => call[0] === "acp-new-session");
+  assert.deepEqual(newSessionCall[1], {
+    cwd: "/tmp/mia-workspace",
+    mcpServers: [],
+    _meta: {
+      sessionKey: "mia:claw:mia-session",
+      sessionLabel: undefined,
+      resetSession: false,
+      requireExisting: false,
+      prefixCwd: false
+    }
+  });
+  const setModeCall = deps.calls.find((call) => call[0] === "acp-set-mode");
+  assert.deepEqual(setModeCall[1], { sessionId: "acp-session", modeId: "normalized-high" });
+  const promptCall = deps.calls.find((call) => call[0] === "acp-prompt");
+  assert.match(promptCall[1].prompt[0].text, /## Mia Runtime Context/);
+  assert.match(promptCall[1].prompt[0].text, /Claw 的人设/);
+  assert.match(promptCall[1].prompt[0].text, /Mia 记忆/);
+  assert.match(promptCall[1].prompt[0].text, /技能上下文/);
+  assert.match(promptCall[1].prompt[0].text, /用户消息：\n帮我整理文件/);
+  assert.deepEqual(promptCall[1]._meta, {
+    thinking: "normalized-high",
+    timeoutMs: 600000,
+    prefixCwd: false
+  });
+  assert.equal(response.model, "openclaw-acp");
+  assert.equal(response.choices[0].message.content, "OpenClaw reply");
+  assert.deepEqual(response.mia, {
+    transport: "acp-backend",
+    agent_type: "acp",
+    backend: "openclaw",
+    compatibility_transport: "",
+    engine: "openclaw",
+    session_id: "mia:claw:mia-session",
+    bot_id: "claw"
+  });
+  assert.deepEqual(deps.calls.find((call) => call[0] === "set-session"), [
+    "set-session",
+    "openclaw",
+    "claw",
+    "mia-session",
+    "mia:claw:mia-session"
+  ]);
+  assert.equal(deps.calls.some((call) => call[0] === "exec"), false);
+});
+
+test("sendChat can explicitly fall back to the legacy OpenClaw agent CLI", async () => {
+  const deps = createDeps();
+  const adapter = createOpenClawChatAdapter(deps);
+  const response = await adapter.sendChat({
+    bot: { key: "claw", name: "Claw", engineConfig: { effortLevel: "high", openclawTransport: "legacy-agent" } },
+    sessionId: "mia-session",
+    messages: [{ role: "user", content: "帮我整理文件" }]
+  });
+
+  const execCall = deps.calls.find((call) => call[0] === "exec");
+  assert.equal(execCall[1], "/bin/openclaw");
+  assert.equal(execCall[2][0], "agent");
+  assert.deepEqual(execCall[2].slice(3), [
+    "--session-id",
+    "mia:claw:mia-session",
+    "--thinking",
+    "normalized-high",
+    "--json",
+    "--timeout",
+    "600"
+  ]);
+  assert.equal(response.choices[0].message.content, "OpenClaw reply");
+  assert.equal(response.mia.compatibility_transport, "openclaw-cli");
+  assert.equal(deps.calls.some((call) => call[0] === "spawn"), false);
+});
+
+test("sendChat explains OpenClaw Gateway connection failures from ACP stdout", async () => {
+  const calls = [];
+  class FailingClientSideConnection {
+    constructor(toClient, stream) {
+      calls.push(["acp-connect", Boolean(stream?.readable), Boolean(stream?.writable)]);
+      this.handlers = toClient(this);
+    }
+
+    async initialize() {
+      throw new Error("ACP connection closed");
+    }
+  }
+  const deps = createDeps({
+    calls,
+    importAcpSdk: () => new Promise((resolve) => setImmediate(() => resolve({
+      ClientSideConnection: FailingClientSideConnection,
+      PROTOCOL_VERSION: 1,
+      ndJsonStream: (writable, readable) => ({ writable, readable })
+    }))),
+    spawn: (file, args, options) => {
+      calls.push(["spawn", file, args, options.cwd]);
+      const child = fakeChildProcess(calls);
+      process.nextTick(() => {
+        child.stdout.write("gateway client error: Error: connect ECONNREFUSED 127.0.0.1:18789");
+      });
+      return child;
+    }
+  });
+  const adapter = createOpenClawChatAdapter(deps);
+
+  await assert.rejects(
+    () => adapter.sendChat({
+      bot: { key: "claw", name: "Claw", engineConfig: {} },
+      sessionId: "mia-session",
+      messages: [{ role: "user", content: "hello" }]
+    }),
+    /OpenClaw Gateway 没有运行/
+  );
+});
+
+test("sendChat fails closed for Mia-managed OpenClaw models until provider config is wired", async () => {
+  const deps = createDeps({
+    resolveManagedModelRuntime: () => ({
+      provider: "mia",
+      model: "mia-default",
+      baseUrl: "https://mia.example/api/me/model-proxy/v1",
+      apiKey: "cloud-token"
+    })
+  });
+  const adapter = createOpenClawChatAdapter(deps);
+
+  await assert.rejects(
+    () => adapter.sendChat({
+      bot: { key: "claw", name: "Claw", engineConfig: { provider: "mia", model: "mia-default" } },
+      sessionId: "mia-session",
+      messages: [{ role: "user", content: "hello" }]
+    }),
+    /OpenClaw 的 Mia 托管模型还没有安全接入/
+  );
+  assert.equal(deps.calls.some((call) => call[0] === "exec"), false);
+});

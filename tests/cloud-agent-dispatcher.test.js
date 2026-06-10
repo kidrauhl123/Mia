@@ -10,11 +10,12 @@ const { createMessagesStore } = require("../src/cloud/messages-store.js");
 const { createBotsStore } = require("../src/cloud/bots-store.js");
 const { createRuntimeBindingsStore } = require("../src/cloud-agent/runtime-bindings-store.js");
 const { createCloudAgentRunsStore } = require("../src/cloud-agent/cloud-agent-runs-store.js");
-const { ensureDefaultCloudBot } = require("../src/cloud-agent/default-bot.js");
 const { createCloudAgentDispatcher } = require("../src/cloud-agent/dispatcher.js");
 
+const BOT_ID = "alice_bot";
+
 function setup() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bot_mia-cloud-agent-dispatcher-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "generic-bot-cloud-agent-dispatcher-"));
   const cloudStore = createCloudStore({ dataDir: dir });
   const db = cloudStore.getDb();
   const socialStore = createSocialStore(db);
@@ -24,8 +25,27 @@ function setup() {
   const runtimeBindingsStore = createRuntimeBindingsStore(db);
   const cloudAgentRunsStore = createCloudAgentRunsStore(db);
   const user = cloudStore.registerUser({ username: "alice", password: "123456" }).user;
-  const baseContext = { socialStore, botsStore, runtimeBindingsStore };
-  const { conversation } = ensureDefaultCloudBot(baseContext, user.id);
+  botsStore.upsertBot(user.id, {
+    id: BOT_ID,
+    displayName: "Alice Bot",
+    bio: "ordinary bot",
+    personaText: "You are Alice Bot."
+  });
+  runtimeBindingsStore.upsertBinding({
+    userId: user.id,
+    botId: BOT_ID,
+    runtimeKind: "cloud-hermes",
+    enabled: true,
+    config: {}
+  });
+  const conversation = socialStore.createConversation({
+    id: `botc_${user.id}_${BOT_ID}`,
+    type: "bot",
+    name: "Alice Bot",
+    decorations: { botId: BOT_ID, runtimeKind: "cloud-hermes" }
+  });
+  socialStore.addConversationMember({ conversationId: conversation.id, memberKind: "user", memberRef: user.id });
+  socialStore.addConversationMember({ conversationId: conversation.id, memberKind: "bot", memberRef: BOT_ID, ownerId: user.id });
   return {
     dir,
     cloudStore,
@@ -72,7 +92,7 @@ test("cloud-hermes DM runs the bot and appends a reply", async () => {
   try {
     ctx.runtimeBindingsStore.upsertBinding({
       userId: ctx.user.id,
-      botId: "bot_mia",
+      botId: BOT_ID,
       runtimeKind: "cloud-hermes",
       enabled: true,
       config: { model: "hermes-agent" }
@@ -96,7 +116,7 @@ test("cloud-hermes DM runs the bot and appends a reply", async () => {
       conversationId: ctx.conversation.id,
       message
     });
-    assert.equal(reply.sender_ref, "bot_mia");
+    assert.equal(reply.sender_ref, BOT_ID);
     assert.equal(reply.body_md, "hi");
     assert.equal(hermesCalls.length, 1);
   } finally {
@@ -110,16 +130,16 @@ test("cloud-hermes refuses a contaminated bot binding owned by another user", as
   try {
     const bob = ctx.cloudStore.registerUser({ username: "bob_contaminated", password: "123456" }).user;
     const conversation = ctx.socialStore.createConversation({
-      id: `botc_${bob.id}_bot_mia`,
+      id: `botc_${bob.id}_${BOT_ID}`,
       type: "bot",
-      name: "Contaminated Mia",
-      decorations: { botId: "bot_mia", runtimeKind: "cloud-hermes" }
+      name: "Contaminated Bot",
+      decorations: { botId: BOT_ID, runtimeKind: "cloud-hermes" }
     });
     ctx.socialStore.addConversationMember({ conversationId: conversation.id, memberKind: "user", memberRef: bob.id });
-    ctx.socialStore.addConversationMember({ conversationId: conversation.id, memberKind: "bot", memberRef: "bot_mia", ownerId: bob.id });
+    ctx.socialStore.addConversationMember({ conversationId: conversation.id, memberKind: "bot", memberRef: BOT_ID, ownerId: bob.id });
     ctx.runtimeBindingsStore.upsertBinding({
       userId: bob.id,
-      botId: "bot_mia",
+      botId: BOT_ID,
       runtimeKind: "cloud-hermes",
       enabled: true,
       config: { model: "hermes-agent" }
@@ -161,17 +181,17 @@ test("desktop-local DM broadcasts a bot invocation and does not run inline", asy
   try {
     ctx.runtimeBindingsStore.upsertBinding({
       userId: ctx.user.id,
-      botId: "bot_mia",
+      botId: BOT_ID,
       runtimeKind: "cloud-hermes",
       enabled: false,
       config: {}
     });
     ctx.runtimeBindingsStore.upsertBinding({
       userId: ctx.user.id,
-      botId: "bot_mia",
+      botId: BOT_ID,
       runtimeKind: "desktop-local",
       enabled: true,
-      config: { model: "claude-sonnet-4-6" }
+      config: { model: "claude-sonnet-4-6", deviceId: "device_mac" }
     });
     const dispatcher = makeDispatcher(ctx, {
       broadcastPersistedEvent(userId, event) {
@@ -201,10 +221,64 @@ test("desktop-local DM broadcasts a bot invocation and does not run inline", asy
     assert.equal(broadcasts[0].userId, ctx.user.id);
     assert.equal(broadcasts[0].event.type, "conversation.bot_invocation_requested");
     assert.equal(broadcasts[0].event.conversationId, ctx.conversation.id);
-    assert.equal(broadcasts[0].event.botId, "bot_mia");
+    assert.equal(broadcasts[0].event.botId, BOT_ID);
     assert.equal(broadcasts[0].event.runtimeKind, "desktop-local");
     assert.equal(broadcasts[0].event.runtimeConfig.model, "claude-sonnet-4-6");
+    assert.equal(broadcasts[0].event.targetDeviceId, "device_mac");
     assert.equal(broadcasts[0].event.triggeringMessage.id, message.id);
+  } finally {
+    ctx.cleanup();
+  }
+});
+
+test("active desktop-local binding wins over stale cloud-hermes binding", async () => {
+  const ctx = setup();
+  const broadcasts = [];
+  const hermesCalls = [];
+  try {
+    ctx.runtimeBindingsStore.upsertBinding({
+      userId: ctx.user.id,
+      botId: BOT_ID,
+      runtimeKind: "cloud-hermes",
+      enabled: true,
+      config: { model: "mia-default" }
+    });
+    ctx.runtimeBindingsStore.upsertBinding({
+      userId: ctx.user.id,
+      botId: BOT_ID,
+      runtimeKind: "desktop-local",
+      activate: true,
+      config: { agentEngine: "codex", deviceId: "device_windows" }
+    });
+    const dispatcher = makeDispatcher(ctx, {
+      broadcastPersistedEvent(userId, event) {
+        broadcasts.push({ userId, event });
+      },
+      hermesRunsClient: {
+        async runChat(args) {
+          hermesCalls.push(args);
+          return { runId: "hr_stale", content: "wrong", events: [] };
+        }
+      }
+    });
+    const message = ctx.messagesStore.appendMessage({
+      conversationId: ctx.conversation.id,
+      senderKind: "user",
+      senderRef: ctx.user.id,
+      bodyMd: "hello"
+    });
+
+    const reply = await dispatcher.handleUserMessage({
+      userId: ctx.user.id,
+      conversationId: ctx.conversation.id,
+      message
+    });
+
+    assert.equal(reply, null);
+    assert.equal(hermesCalls.length, 0);
+    assert.equal(broadcasts.length, 1);
+    assert.equal(broadcasts[0].event.runtimeKind, "desktop-local");
+    assert.equal(broadcasts[0].event.targetDeviceId, "device_windows");
   } finally {
     ctx.cleanup();
   }
@@ -216,16 +290,16 @@ test("desktop-local refuses a contaminated bot binding owned by another user", a
   try {
     const bob = ctx.cloudStore.registerUser({ username: "bob_desktop_contaminated", password: "123456" }).user;
     const conversation = ctx.socialStore.createConversation({
-      id: `botc_${bob.id}_bot_mia`,
+      id: `botc_${bob.id}_${BOT_ID}`,
       type: "bot",
-      name: "Contaminated Desktop Mia",
-      decorations: { botId: "bot_mia", runtimeKind: "desktop-local" }
+      name: "Contaminated Desktop Bot",
+      decorations: { botId: BOT_ID, runtimeKind: "desktop-local" }
     });
     ctx.socialStore.addConversationMember({ conversationId: conversation.id, memberKind: "user", memberRef: bob.id });
-    ctx.socialStore.addConversationMember({ conversationId: conversation.id, memberKind: "bot", memberRef: "bot_mia", ownerId: bob.id });
+    ctx.socialStore.addConversationMember({ conversationId: conversation.id, memberKind: "bot", memberRef: BOT_ID, ownerId: bob.id });
     ctx.runtimeBindingsStore.upsertBinding({
       userId: bob.id,
-      botId: "bot_mia",
+      botId: BOT_ID,
       runtimeKind: "desktop-local",
       enabled: true,
       config: { model: "claude" }
@@ -268,10 +342,10 @@ test("single-bot group skips the conductor and replies directly", async () => {
       name: "Single bot group"
     });
     ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "user", memberRef: ctx.user.id });
-    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "bot", memberRef: "bot_mia", ownerId: ctx.user.id });
+    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "bot", memberRef: BOT_ID, ownerId: ctx.user.id });
     ctx.runtimeBindingsStore.upsertBinding({
       userId: ctx.user.id,
-      botId: "bot_mia",
+      botId: BOT_ID,
       runtimeKind: "cloud-hermes",
       enabled: true,
       config: { model: "hermes-agent" }
@@ -295,7 +369,7 @@ test("single-bot group skips the conductor and replies directly", async () => {
       conversationId: group.id,
       message
     });
-    assert.equal(reply.sender_ref, "bot_mia");
+    assert.equal(reply.sender_ref, BOT_ID);
     assert.equal(hermesCalls.length, 1, "no conductor turn for a one-bot group");
     assert.match(hermesCalls[0].input, /群成员/);
   } finally {
@@ -587,7 +661,7 @@ test("respondApproval routes the owner's decision to the run's Hermes worker", a
   try {
     const run = ctx.cloudAgentRunsStore.createRun({
       userId: ctx.user.id,
-      botId: "bot_mia",
+      botId: BOT_ID,
       conversationId: ctx.conversation.id,
       triggerMessageId: "m1"
     });

@@ -248,6 +248,7 @@ node doctor-cloud.js https://mia.gifgif.cn
 MIA_SMOKE_EXPECT_RELEASE_COMMIT="$(node -e "const m=require('./manifest.json'); process.stdout.write(String(m.source?.gitCommit || ''))")" \\
 MIA_SMOKE_EXPECT_RELEASE_BUILT_AT="$(node -e "const m=require('./manifest.json'); process.stdout.write(String(m.builtAt || ''))")" \\
 node smoke-cloud.js https://mia.gifgif.cn
+node verify-site-verification.js https://mia.gifgif.cn
 \`\`\`
 
 ## Verify Desktop Bridge E2E
@@ -425,7 +426,6 @@ function verifyRelease() {
     "api/src/cloud/hermes-skills-source.js",
     "api/src/cloud-agent/runtime-bindings-store.js",
     "api/src/cloud-agent/cloud-agent-runs-store.js",
-    "api/src/cloud-agent/default-bot.js",
     "api/src/cloud-agent/attachment-materializer.js",
     "api/src/cloud-agent/group-orchestrator.js",
     "api/src/cloud-agent/hermes-worker-manager.js",
@@ -434,6 +434,7 @@ function verifyRelease() {
     "api/src/shared/conversation-kinds.js",
     "api/src/shared/cloud-events.js",
     "api/src/shared/engine-contracts.js",
+    "api/src/shared/ids.js",
     "api/src/shared/member-color.js",
     "api/src/shared/avatar-media.js",
     "api/src/shared/avatar-resolve.js",
@@ -462,6 +463,7 @@ function verifyRelease() {
     "web/assets/mia-logo.png",
     "web/favicon.svg",
     "web/favicon.ico",
+    "web/5a371047c22c89872f93f00c7d8af123.txt",
     "web/apple-touch-icon.png",
     "web/icon-192.png",
     "web/icon-512.png",
@@ -469,6 +471,7 @@ function verifyRelease() {
     "web/shared/avatar-resolve.js",
     "web/shared/avatar-media.js",
     "web/shared/contact.js",
+    "web/shared/ids.js",
     "web/shared/group-tiles.js",
     "web/shared/member-color.js",
     "web/shared/unread.js",
@@ -479,6 +482,7 @@ function verifyRelease() {
     "smoke-cloud.js",
     "prepare-cloud-smoke-account.js",
     "doctor-cloud.js",
+    "verify-site-verification.js",
     "diagnose-deploy-ssh.js",
     "install-cloud-release-local.sh",
     "cloud-deployment.md",
@@ -503,7 +507,6 @@ function verifyRelease() {
     "api/src/cloud/hermes-skills-source.js",
     "api/src/cloud-agent/runtime-bindings-store.js",
     "api/src/cloud-agent/cloud-agent-runs-store.js",
-    "api/src/cloud-agent/default-bot.js",
     "api/src/cloud-agent/attachment-materializer.js",
     "api/src/cloud-agent/group-orchestrator.js",
     "api/src/cloud-agent/hermes-worker-manager.js",
@@ -531,6 +534,7 @@ function verifyRelease() {
     "smoke-cloud.js",
     "prepare-cloud-smoke-account.js",
     "doctor-cloud.js",
+    "verify-site-verification.js",
     "diagnose-deploy-ssh.js"
   ]) {
     childProcess.execFileSync(process.execPath, ["--check", assertFile(file)], {
@@ -604,6 +608,10 @@ function verifyRelease() {
     throw new Error("Release nginx site must redirect HTTP to HTTPS.");
   }
   const releaseReadme = fs.readFileSync(assertFile("README.md"), "utf8");
+  const siteVerificationText = fs.readFileSync(assertFile("web/5a371047c22c89872f93f00c7d8af123.txt"), "utf8").trim();
+  if (siteVerificationText !== "24dd5141e8f881adf83372da5cd9d6f1f60f2b32") {
+    throw new Error("Release web root must include the site verification txt file with the expected content.");
+  }
   if (!/MIA_INSTALL_VERIFY_ONLY=1 bash install-cloud-release-local\.sh \/tmp\/mia-cloud-release\.tgz/.test(releaseReadme)) {
     throw new Error("Release README must document verify-only local install.");
   }
@@ -613,9 +621,10 @@ function verifyRelease() {
     !/node doctor-cloud\.js https:\/\/mia\.gifgif\.cn/.test(releaseReadme) ||
     !/MIA_SMOKE_EXPECT_RELEASE_COMMIT="\$\(node -e "const m=require\('\.\/manifest\.json'\); process\.stdout\.write\(String\(m\.source\?\.gitCommit \|\| ''\)\)"\)"/.test(releaseReadme) ||
     !/MIA_SMOKE_EXPECT_RELEASE_BUILT_AT="\$\(node -e "const m=require\('\.\/manifest\.json'\); process\.stdout\.write\(String\(m\.builtAt \|\| ''\)\)"\)"/.test(releaseReadme) ||
-    !/node smoke-cloud\.js https:\/\/mia\.gifgif\.cn/.test(releaseReadme)
+    !/node smoke-cloud\.js https:\/\/mia\.gifgif\.cn/.test(releaseReadme) ||
+    !/node verify-site-verification\.js https:\/\/mia\.gifgif\.cn/.test(releaseReadme)
   ) {
-    throw new Error("Release README must document expected-release public doctor and smoke verification.");
+    throw new Error("Release README must document expected-release public doctor, smoke, and site verification.");
   }
   if (
     !/node prepare-cloud-smoke-account\.js https:\/\/mia\.gifgif\.cn/.test(releaseReadme) ||
@@ -656,7 +665,6 @@ function verifyRelease() {
     require(${JSON.stringify(assertFile("api/src/cloud/desktop-bridge-permission.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/runtime-bindings-store.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/cloud-agent-runs-store.js"))});
-    require(${JSON.stringify(assertFile("api/src/cloud-agent/default-bot.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/attachment-materializer.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/group-orchestrator.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/hermes-worker-manager.js"))});
@@ -697,6 +705,7 @@ function main() {
   copyFile("src/shared/conversation-kinds.js", path.join(apiDir, "src", "shared", "conversation-kinds.js"));
   copyFile("src/shared/cloud-events.js", path.join(apiDir, "src", "shared", "cloud-events.js"));
   copyFile("src/shared/engine-contracts.js", path.join(apiDir, "src", "shared", "engine-contracts.js"));
+  copyFile("src/shared/ids.js", path.join(apiDir, "src", "shared", "ids.js"));
   copyFile("src/shared/member-color.js", path.join(apiDir, "src", "shared", "member-color.js"));
   copyFile("src/shared/avatar-media.js", path.join(apiDir, "src", "shared", "avatar-media.js"));
   copyFile("src/shared/avatar-resolve.js", path.join(apiDir, "src", "shared", "avatar-resolve.js"));
@@ -720,6 +729,7 @@ function main() {
   copyFile("src/shared/message-spec.js", path.join(webDir, "shared", "message-spec.js"));
   copyFile("packages/shared/contact.js", path.join(webDir, "shared", "contact.js"));
   copyFile("src/shared/engine-contracts.js", path.join(webDir, "shared", "engine-contracts.js"));
+  copyFile("src/shared/ids.js", path.join(webDir, "shared", "ids.js"));
   copyFile("src/shared/conversation-kinds.js", path.join(webDir, "shared", "conversation-kinds.js"));
   copyFile("packages/shared/avatar.js", path.join(webDir, "shared", "member-color.js"));
   copyFile("packages/shared/avatar.js", path.join(webDir, "shared", "avatar-media.js"));
@@ -740,6 +750,7 @@ function main() {
   copyFile("scripts/smoke-cloud.js", path.join(distDir, "smoke-cloud.js"));
   copyFile("scripts/prepare-cloud-smoke-account.js", path.join(distDir, "prepare-cloud-smoke-account.js"));
   copyFile("scripts/doctor-cloud.js", path.join(distDir, "doctor-cloud.js"));
+  copyFile("scripts/verify-site-verification.js", path.join(distDir, "verify-site-verification.js"));
   copyFile("scripts/diagnose-deploy-ssh.js", path.join(distDir, "diagnose-deploy-ssh.js"));
   copyFile("scripts/install-cloud-release-local.sh", path.join(distDir, "install-cloud-release-local.sh"));
   copyFile("docs/cloud-deployment.md", path.join(distDir, "cloud-deployment.md"));

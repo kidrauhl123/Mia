@@ -136,6 +136,10 @@ function createSocialApi({ getSettings, normalizeUrl }) {
     async saveBotRuntime(botId, body = {}) {
       return jsonFetch({ ...ctx(), method: "PUT", path: `/api/me/bots/${encodeURIComponent(botId)}/runtime`, body: withOpId(body) });
     },
+    async listBridgeDevices({ includeOffline = false } = {}) {
+      const query = includeOffline ? "?include=all" : "";
+      return jsonFetch({ ...ctx(), method: "GET", path: `/api/bridge/devices${query}` });
+    },
     async updateConversation(conversationId, patch) {
       return jsonFetch({ ...ctx(), method: "PATCH", path: `/api/conversations/${conversationId}`, body: patch || {} });
     },

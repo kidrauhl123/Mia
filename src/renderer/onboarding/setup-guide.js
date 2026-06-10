@@ -57,13 +57,14 @@
         id: "openclaw",
         label: "OpenClaw",
         installed: Boolean(engines.openClaw?.installed || engines.openClaw?.available),
-        usableInMia: false,
-        installable: false,
-        detectionOnly: true,
+        usableInMia: Boolean(engines.openClaw?.available),
+        installable: true,
+        installAction: engines.openClaw?.installed || engines.openClaw?.available ? "" : "install-openclaw",
+        detectionOnly: Boolean(engines.openClaw?.detectionOnly),
         path: engines.openClaw?.path || "",
         version: engines.openClaw?.version || "",
-        source: engines.openClaw?.installed ? "system" : "missing",
-        health: engines.openClaw?.installed ? "detected" : "missing"
+        source: engines.openClaw?.available ? "system" : "missing",
+        health: engines.openClaw?.available ? "ready" : "missing"
       }
     ];
   }
@@ -90,9 +91,9 @@
   }
 
   const AGENT_ICON_PATHS = {
-    hermes: "./assets/provider-icons/nousresearch.svg",
-    "claude-code": "./assets/provider-icons/claude-color.svg",
-    codex: "./assets/provider-icons/codex-color.svg",
+    hermes: "./assets/engine-icons/hermesagent.svg",
+    "claude-code": "./assets/engine-icons/claudecode.svg",
+    codex: "./assets/engine-icons/codex-color.svg",
     openclaw: "./assets/provider-icons/openclaw-color.svg"
   };
 
@@ -115,13 +116,14 @@
       const parts = [agent.path || "已接入 Mia", versionLabel(agent)].filter(Boolean);
       return parts.join(" · ");
     }
-    if (agent.installed && agent.detectionOnly) return "已检测到，暂未接入 Mia 聊天";
+    if (agent.installed && agent.detectionOnly) return "已就绪";
     if (agent.id === "hermes" && agent.health === "broken") return "官方 Hermes 状态异常，可修复";
     if (agent.id === "hermes" && state?.hermesInstallError) return "上次安装官方 Hermes 失败，可重试";
     if (agent.id === "hermes" && agent.installed) return "已检测到 Hermes，但当前安装方式暂不能用于 Mia";
     if (agent.id === "hermes") return "未检测到，可安装官方 Hermes";
     if (agent.id === "claude-code") return "未检测到，可一键安装 Claude Code";
     if (agent.id === "codex") return "未检测到，可一键安装 Codex";
+    if (agent.id === "openclaw") return "未检测到，可一键安装 OpenClaw";
     return "未检测到";
   }
 
@@ -154,7 +156,7 @@
       return `<button class="setup-engine-action primary" type="button" data-setup-action="${action.action}" data-engine="${escapeHtml(agent.id)}">${escapeHtml(action.label)}</button>`;
     }
     if (agent.usableInMia) return `<span class="setup-engine-badge ok">已就绪</span>`;
-    if (agent.installed && agent.detectionOnly) return `<span class="setup-engine-badge">已检测</span>`;
+    if (agent.installed && agent.detectionOnly) return `<span class="setup-engine-badge ok">已就绪</span>`;
     return `<span class="setup-engine-badge muted">未检测到</span>`;
   }
 

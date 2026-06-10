@@ -52,6 +52,54 @@ test("conversation.message_appended events do not wake the desktop dispatcher", 
   assert.equal(calls.responder.length, 0);
 });
 
+test("desktop ignores bot invocations targeted at another device", async () => {
+  const { dispatcher, calls } = setup({ currentDeviceId: () => "device_mac" });
+
+  const handled = await dispatcher.handleCloudEvent({
+    type: "conversation.bot_invocation_requested",
+    conversationId: "g_1",
+    botId: "codex",
+    targetDeviceId: "device_windows",
+    runtimeConfig: { deviceId: "device_windows", agentEngine: "codex" },
+    triggeringMessage: { id: "m_1", body_md: "@codex 看看", sender_kind: "user" }
+  });
+
+  assert.equal(handled, false);
+  assert.equal(calls.responder.length, 0);
+});
+
+test("desktop handles bot invocations targeted at this device", async () => {
+  const { dispatcher, calls } = setup({ currentDeviceId: () => "device_mac" });
+
+  const handled = await dispatcher.handleCloudEvent({
+    type: "conversation.bot_invocation_requested",
+    conversationId: "g_1",
+    botId: "codex",
+    runtimeConfig: { deviceId: "device_mac", agentEngine: "codex" },
+    triggeringMessage: { id: "m_1", body_md: "@codex 看看", sender_kind: "user" }
+  });
+
+  assert.equal(handled, true);
+  assert.equal(calls.responder.length, 1);
+});
+
+test("desktop handles bot invocations targeted at a known bridge alias", async () => {
+  const { dispatcher, calls } = setup({
+    currentDeviceIds: () => ["device_mac", "bridge_live"]
+  });
+
+  const handled = await dispatcher.handleCloudEvent({
+    type: "conversation.bot_invocation_requested",
+    conversationId: "g_1",
+    botId: "codex",
+    runtimeConfig: { deviceId: "bridge_live", agentEngine: "codex" },
+    triggeringMessage: { id: "m_1", body_md: "@codex 看看", sender_kind: "user" }
+  });
+
+  assert.equal(handled, true);
+  assert.equal(calls.responder.length, 1);
+});
+
 test("shouldHandle gate suppresses invocation events", async () => {
   const { dispatcher, calls } = setup({ shouldHandle: () => false });
 

@@ -41,7 +41,7 @@ test("production verifier reads expected release identity from manifest", () => 
   }
 });
 
-test("production verifier runs doctor then smoke with manifest release expectations", () => {
+test("production verifier runs doctor, smoke, then site verification with manifest release expectations", () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-prod-verify-"));
   try {
     const manifestPath = writeManifest(tempDir, {
@@ -63,14 +63,41 @@ test("production verifier runs doctor then smoke with manifest release expectati
     });
 
     assert.equal(result.baseUrl, "https://mia.gifgif.cn");
-    assert.equal(calls.length, 2);
+    assert.equal(calls.length, 3);
     assert.deepEqual(calls[0].args, ["/repo/scripts/doctor-cloud.js", "https://mia.gifgif.cn"]);
     assert.deepEqual(calls[1].args, ["/repo/scripts/smoke-cloud.js", "https://mia.gifgif.cn"]);
+    assert.deepEqual(calls[2].args, ["/repo/scripts/verify-site-verification.js", "https://mia.gifgif.cn"]);
     assert.equal(calls[0].options.env.EXISTING, "1");
     assert.equal(calls[0].options.env.MIA_DOCTOR_EXPECT_RELEASE_COMMIT, "abc123");
     assert.equal(calls[0].options.env.MIA_DOCTOR_EXPECT_RELEASE_BUILT_AT, "2026-05-21T01:02:03.000Z");
     assert.equal(calls[1].options.env.MIA_SMOKE_EXPECT_RELEASE_COMMIT, "abc123");
     assert.equal(calls[1].options.env.MIA_SMOKE_EXPECT_RELEASE_BUILT_AT, "2026-05-21T01:02:03.000Z");
+    assert.equal(calls[2].options.env.EXISTING, "1");
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("production verifier stops before site verification when smoke fails", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-prod-verify-"));
+  try {
+    const manifestPath = writeManifest(tempDir, {
+      source: { gitCommit: "abc123" },
+      builtAt: "2026-05-21T01:02:03.000Z"
+    });
+    const statuses = [0, 1];
+    const calls = [];
+    assert.throws(() => verifyProduction({
+      publicUrl: "https://mia.gifgif.cn",
+      manifestPath,
+      spawnSync: (command, args, options) => {
+        calls.push({ command, args, options });
+        return { status: statuses.shift() };
+      },
+      cwd: "/repo",
+      stdio: "pipe"
+    }), /Running production smoke failed with exit status 1/);
+    assert.equal(calls.length, 2);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

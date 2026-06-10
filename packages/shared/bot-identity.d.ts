@@ -10,7 +10,6 @@ export interface BotCapabilities {
   legacyCapabilities: string[];
 }
 
-export const DEFAULT_BOT_ID: string;
 export const DEFAULT_BOT_CAPABILITIES: BotCapabilities;
 
 export interface BotIdentity {
@@ -37,5 +36,4 @@ export function normalizeBotColor(input?: unknown): string;
 export function normalizeBotAvatarCrop(input?: unknown): Record<string, unknown> | null;
 export function normalizeCapabilityIds(input?: unknown): string[];
 export function normalizeBotCapabilities(input?: unknown): BotCapabilities;
-export function defaultCloudBotCapabilities(): BotCapabilities;
 export function normalizeBotIdentity(input?: unknown, options?: Record<string, unknown>): BotIdentity | null;

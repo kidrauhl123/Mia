@@ -28,6 +28,13 @@
     if (deps.providerLabels) providerLabels = deps.providerLabels;
   }
 
+  function isExternalEngine(engine) {
+    return Boolean(window.miaEngineContracts?.isExternalEngine?.(engine))
+      || engine === "claude-code"
+      || engine === "codex"
+      || engine === "openclaw";
+  }
+
   function setEffortSelectOptions(engine, currentLevel) {
     if (!els || !els.effortSelect) return;
     const previous = els.effortSelect.value;
@@ -47,7 +54,7 @@
   function syncEffortControl(runtime = state?.runtime) {
     if (!state || !els || !els.effortSelect || !els.effortLabel) return;
     const engine = window.miaEngineOptions.activeAgentEngine();
-    const external = engine === "claude-code" || engine === "codex";
+    const external = isExternalEngine(engine);
     const level = external ? (window.miaEngineOptions.engineConfigForPersona().effortLevel || "medium") : (runtime?.effort?.level || "medium");
     if (document.activeElement !== els.effortSelect) setEffortSelectOptions(engine, level);
     if (document.activeElement !== els.effortSelect) {
@@ -161,7 +168,7 @@
   function syncPermissionControl(runtime = state?.runtime) {
     if (!state || !els || !els.permissionMode || !els.permissionLabel) return;
     const engine = window.miaEngineOptions.activeAgentEngine();
-    const external = engine === "claude-code" || engine === "codex";
+    const external = isExternalEngine(engine);
     const mode = external ? (window.miaEngineOptions.engineConfigForPersona().permissionMode || "default") : (runtime?.permissions?.mode || "manual");
     setPermissionSelectOptions(engine, mode);
     if (document.activeElement !== els.permissionMode) {
@@ -196,12 +203,22 @@
 
   function providerIsConnected(provider, runtime = state?.runtime) {
     if (!provider) return false;
+    if (provider === "mia") return Boolean(runtime?.cloud?.enabled);
     return Boolean((runtime?.connectedProviders || []).some((entry) => entry.provider === provider && entry.hasApiKey));
   }
 
   function connectedModelEntries(runtime = state?.runtime) {
     const connectedProviders = (runtime?.connectedProviders || []).map((entry) => entry.provider);
     const entries = connectedProviders.flatMap((provider) => window.miaModelHelpers.modelsForProvider(provider));
+    if (runtime?.cloud?.enabled) {
+      const platformModels = Array.isArray(state?.platformModels) ? state.platformModels : [];
+      const miaEntries = typeof window.miaEngineContracts?.miaModelEntries === "function"
+        ? window.miaEngineContracts.miaModelEntries({ platformModels })
+        : [{ id: "mia-default", provider: "mia", providerLabel: "Mia", model: "mia-default", label: "Mia Default", authType: "mia_account" }];
+      for (const entry of miaEntries) {
+        if (!entries.some((item) => item.id === entry.id && item.provider === entry.provider)) entries.push(entry);
+      }
+    }
     const current = window.miaModelHelpers.catalogEntryForModel(runtime?.model || {});
     if (current && providerIsConnected(current.provider, runtime) && !entries.some((entry) => entry.id === current.id)) return [current, ...entries];
     return entries;
@@ -210,7 +227,7 @@
   function renderModelSelectors(runtime = state?.runtime) {
     if (!state || !els) return;
     const engine = window.miaEngineOptions.activeAgentEngine();
-    if (engine === "claude-code" || engine === "codex") {
+    if (isExternalEngine(engine)) {
       const config = window.miaEngineOptions.engineConfigForPersona();
       const entries = window.miaEngineOptions.externalModelEntries(engine);
       setSelectOptions(els.quickModelSelect, entries, config.model || "default");
@@ -245,6 +262,11 @@
       return runtime?.auth?.codexLoggedIn
         ? { state: "已授权 OpenAI Codex", hint: "OAuth token 已保存在 Mia 私有 runtime；具体 Codex 模型在聊天框下方切换。" }
         : { state: "需要 OpenAI 登录", hint: "选择 OpenAI Codex 后，用 OpenAI 登录完成授权；不需要 API key。" };
+    }
+    if (entry.provider === "mia") {
+      return runtime?.cloud?.enabled
+        ? { state: "已连接 Mia", hint: "Mia 托管模型使用当前 Mia Cloud 账号，不需要额外 API key。" }
+        : { state: "需要登录 Mia", hint: "登录 Mia Cloud 后即可使用 Mia 托管模型。" };
     }
     if (authType.startsWith("oauth")) {
       return { state: "需要登录", hint: "这个 Hermes Provider 使用 OAuth。点击登录后，Mia 会展示浏览器链接、激活码和登录日志。" };

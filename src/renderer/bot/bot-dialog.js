@@ -16,9 +16,6 @@
     els = deps.els;
     renderView = deps.renderView;
     render = deps.render;
-    els.botRuntimeLocation?.addEventListener("change", () => {
-      renderBotAgentEngineSelect(els.botAgentEngine?.value || "hermes");
-    });
   }
 
   function setBotAvatarDraft(image, crop = null) {
@@ -459,57 +456,285 @@
     reader.readAsDataURL(file);
   }
 
+  function engineLabel(engine = "hermes") {
+    if (engine === "claude-code") return "Claude Code";
+    if (engine === "codex") return "Codex";
+    if (engine === "openclaw") return "OpenClaw";
+    return "Hermes";
+  }
+
+  function compactDeviceName(value = "") {
+    return String(value || "")
+      .trim()
+      .replace(/\s*(?:·|-)?\s*Mia\s+(?:Desktop|Bridge)(?=\s*(?:·|-|$))/gi, "")
+      .replace(/\.local(?=\s|$)/gi, "")
+      .replace(/\s*(?:·|-)\s*(?:本机|在线|离线)\s*$/i, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function runtimeDeviceDisplayName(device = {}) {
+    if (device.isLocal || device.status === "local") return "本机";
+    return compactDeviceName(device.deviceName || device.device_name || device.name || "") || String(device.id || "").trim() || "设备";
+  }
+
+  function runtimeDeviceGroupLabel(device = {}) {
+    const name = runtimeDeviceDisplayName(device);
+    const status = deviceStatusLabel(device);
+    return status && status !== name ? `${name} · ${status}` : name;
+  }
+
+  function normalizedDevice(input = {}) {
+    const id = String(input.id || input.deviceId || "").trim();
+    if (!id) return null;
+    const aliases = Array.isArray(input.aliases)
+      ? input.aliases.map((item) => String(item || "").trim()).filter(Boolean)
+      : [];
+    return {
+      ...input,
+      id,
+      deviceName: String(input.deviceName || input.device_name || input.name || id).trim(),
+      status: String(input.status || "").trim(),
+      isLocal: Boolean(input.isLocal),
+      aliases: [...new Set([id, ...aliases])],
+      capabilities: input.capabilities && typeof input.capabilities === "object" ? input.capabilities : {}
+    };
+  }
+
+  function normalizedDeviceName(device = {}) {
+    return String(device.deviceName || device.device_name || device.name || "").trim().toLowerCase();
+  }
+
+  function isSameLocalDevice(device, local) {
+    if (!device || !local) return false;
+    if (device.id === local.id) return true;
+    const deviceName = normalizedDeviceName(device);
+    const localName = normalizedDeviceName(local);
+    return Boolean(deviceName && localName && deviceName === localName);
+  }
+
+  function mergeDeviceEngines(left = {}, right = {}) {
+    const out = [];
+    for (const source of [left, right]) {
+      const engines = Array.isArray(source.capabilities?.engines) ? source.capabilities.engines : [];
+      for (const engine of engines) {
+        const id = String(engine || "").trim();
+        if (id && !out.includes(id)) out.push(id);
+      }
+    }
+    return out;
+  }
+
+  function mergeDevices(existing, incoming, options = {}) {
+    if (!existing) return incoming;
+    const local = options.local || null;
+    const keepLocalIdentity = Boolean(local && (isSameLocalDevice(existing, local) || isSameLocalDevice(incoming, local)));
+    const aliases = [...new Set([...(existing.aliases || []), existing.id, ...(incoming.aliases || []), incoming.id].filter(Boolean))];
+    const engines = mergeDeviceEngines(existing, incoming);
+    const status = keepLocalIdentity
+      ? "local"
+      : ([existing.status, incoming.status].includes("online") ? "online" : (incoming.status || existing.status || ""));
+    return {
+      ...existing,
+      ...incoming,
+      id: keepLocalIdentity ? local.id : (existing.id || incoming.id),
+      deviceName: keepLocalIdentity ? local.deviceName : (incoming.deviceName || existing.deviceName),
+      status,
+      isLocal: keepLocalIdentity || Boolean(existing.isLocal || incoming.isLocal),
+      aliases,
+      capabilities: {
+        ...(existing.capabilities || {}),
+        ...(incoming.capabilities || {}),
+        ...(engines.length ? { engines } : {})
+      }
+    };
+  }
+
+  function localDeviceOption(runtime = state?.runtime || {}) {
+    return normalizedDevice({
+      id: runtime.localDevice?.id || runtime.cloud?.deviceId || "",
+      deviceName: runtime.localDevice?.name || runtime.cloud?.deviceName || "当前设备",
+      status: "local",
+      isLocal: true,
+      capabilities: {
+        engines: Object.entries({
+          hermes: runtime.agentEngines?.hermes?.available || runtime.agentEngines?.hermes?.installed,
+          "claude-code": runtime.agentEngines?.claudeCode?.available,
+          codex: runtime.agentEngines?.codex?.available,
+          openclaw: runtime.agentEngines?.openClaw?.available || runtime.agentEngines?.openClaw?.installed
+        }).filter(([, ok]) => ok).map(([id]) => id)
+      }
+    });
+  }
+
+  function bridgeDeviceOptions() {
+    const runtime = state?.runtime || {};
+    const byId = new Map();
+    const local = localDeviceOption(runtime);
+    const add = (device) => {
+      const normalized = normalizedDevice(device);
+      if (!normalized) return;
+      const key = isSameLocalDevice(normalized, local) ? local.id : normalized.id;
+      byId.set(key, mergeDevices(byId.get(key), normalized, { local }));
+    };
+    for (const device of runtime.cloud?.devices || runtime.cloud?.bridgeDevices || []) add(device);
+    add(local);
+    return [...byId.values()];
+  }
+
+  function deviceStatusLabel(device = {}) {
+    if (device.isLocal || device.status === "local") return "本机";
+    if (device.status === "online") return "在线";
+    if (device.status === "offline") return "离线";
+    if (device.status) return device.status;
+    return "本机";
+  }
+
+  function deviceEngineIds(device = {}) {
+    const advertised = Array.isArray(device.capabilities?.engines)
+      ? device.capabilities.engines.map((id) => String(id || "").trim()).filter(Boolean)
+      : [];
+    const supported = advertised.filter((id) => ["hermes", "claude-code", "codex", "openclaw"].includes(id));
+    if (supported.length) return supported;
+    const engine = String(device.engine || "").trim();
+    return ["hermes", "claude-code", "codex", "openclaw"].includes(engine) ? [engine] : [];
+  }
+
+  function encodeRuntimeTarget(target = {}) {
+    return JSON.stringify({
+      runtimeKind: target.runtimeKind === "cloud-hermes" ? "cloud-hermes" : "desktop-local",
+      deviceId: String(target.deviceId || "").trim(),
+      deviceName: String(target.deviceName || "").trim(),
+      agentEngine: String(target.agentEngine || "hermes").trim()
+    });
+  }
+
+  function parseRuntimeTargetValue(value = "") {
+    try {
+      const parsed = JSON.parse(String(value || ""));
+      const runtimeKind = parsed.runtimeKind === "cloud-hermes" ? "cloud-hermes" : "desktop-local";
+      return {
+        runtimeKind,
+        targetDeviceId: runtimeKind === "cloud-hermes" ? "" : String(parsed.deviceId || "").trim(),
+        targetDeviceName: runtimeKind === "cloud-hermes" ? "Mia Cloud" : String(parsed.deviceName || "").trim(),
+        agentEngine: runtimeKind === "cloud-hermes" ? "hermes" : String(parsed.agentEngine || "hermes").trim()
+      };
+    } catch {
+      return { runtimeKind: "desktop-local", targetDeviceId: "", targetDeviceName: "", agentEngine: "hermes" };
+    }
+  }
+
+  function readSelectedRuntimeTarget() {
+    const selected = parseRuntimeTargetValue(els?.botRuntimeTarget?.value || "");
+    if (selected.runtimeKind === "cloud-hermes") return selected;
+    const device = bridgeDeviceOptions().find((item) => item.id === selected.targetDeviceId || (item.aliases || []).includes(selected.targetDeviceId));
+    return {
+      ...selected,
+      targetDeviceName: selected.targetDeviceName || (device ? runtimeDeviceDisplayName(device) : "") || compactDeviceName(state?.runtime?.localDevice?.name) || "当前设备"
+    };
+  }
+
+  function runtimeTargetGroups(current = {}) {
+    const groups = [];
+    const cloudEnabled = Boolean(state?.runtime?.cloud?.enabled);
+    if (cloudEnabled) {
+      groups.push({
+        label: "Mia Cloud · 在线",
+        options: [{
+          runtimeKind: "cloud-hermes",
+          deviceId: "",
+          deviceName: "Mia Cloud",
+          agentEngine: "hermes",
+          label: "Hermes"
+        }]
+      });
+    }
+
+    const devices = bridgeDeviceOptions();
+    const wantedDeviceId = String(current.deviceId || "").trim();
+    if (wantedDeviceId && !devices.some((device) => device.id === wantedDeviceId || (device.aliases || []).includes(wantedDeviceId))) {
+      devices.push(normalizedDevice({
+        id: wantedDeviceId,
+        deviceName: current.deviceName || wantedDeviceId,
+        status: "offline",
+        capabilities: { engines: [current.agentEngine || "hermes"] }
+      }));
+    }
+
+    for (const device of devices.filter(Boolean)) {
+      const deviceName = runtimeDeviceDisplayName(device);
+      const options = deviceEngineIds(device).map((engine) => ({
+        runtimeKind: "desktop-local",
+        deviceId: device.id,
+        deviceName,
+        agentEngine: engine,
+        label: engineLabel(engine)
+      }));
+      if (!options.length) continue;
+      groups.push({
+        label: runtimeDeviceGroupLabel(device),
+        options
+      });
+    }
+    return groups;
+  }
+
+  function renderBotRuntimeTargetSelect(current = {}, options = {}) {
+    if (!els?.botRuntimeTarget) return;
+    const select = els.botRuntimeTarget;
+    const previous = select.value;
+    const currentDeviceId = String(current.deviceId || "").trim();
+    const canonicalDevice = currentDeviceId
+      ? bridgeDeviceOptions().find((device) => device.id === currentDeviceId || (device.aliases || []).includes(currentDeviceId))
+      : null;
+    const wanted = encodeRuntimeTarget(current.runtimeKind === "cloud-hermes"
+      ? { runtimeKind: "cloud-hermes", agentEngine: "hermes" }
+      : {
+        runtimeKind: "desktop-local",
+        deviceId: canonicalDevice?.id || current.deviceId || state?.runtime?.localDevice?.id || state?.runtime?.cloud?.deviceId || "",
+        deviceName: canonicalDevice?.deviceName || current.deviceName || state?.runtime?.localDevice?.name || "当前设备",
+        agentEngine: current.agentEngine || state?.preferredAgentEngine || "hermes"
+      });
+    const groups = runtimeTargetGroups(current);
+    select.innerHTML = "";
+    for (const group of groups) {
+      const optgroup = document.createElement("optgroup");
+      optgroup.label = group.label;
+      for (const option of group.options) {
+        const node = document.createElement("option");
+        node.value = encodeRuntimeTarget(option);
+        node.textContent = option.label;
+        optgroup.appendChild(node);
+      }
+      select.appendChild(optgroup);
+    }
+    const values = Array.from(select.options).map((option) => option.value);
+    if (options.preservePrevious && previous && values.includes(previous)) select.value = previous;
+    else if (values.includes(wanted)) select.value = wanted;
+    else select.value = values[0] || "";
+  }
+
   function detectedAgentEngineOptions() {
-    const engines = state?.runtime?.agentEngines || {};
-    const options = [{ id: "hermes", label: "默认" }];
-    if (engines.claudeCode?.available) options.push({ id: "claude-code", label: "Claude Code" });
-    if (engines.codex?.available) options.push({ id: "codex", label: "Codex" });
-    return options;
-  }
-
-  function botRuntimeLocationOptions() {
-    const cloudEnabled = Boolean(state && state.runtime?.cloud?.enabled);
-    return [
-      { id: "desktop-local", label: "当前设备", disabled: false },
-      { id: "cloud-hermes", label: cloudEnabled ? "Mia Cloud" : "Mia Cloud（需先登录）", disabled: !cloudEnabled }
-    ];
-  }
-
-  function selectedRuntimeLocation() {
-    const value = String(els?.botRuntimeLocation?.value || "desktop-local").trim();
-    return value === "cloud-hermes" ? "cloud-hermes" : "desktop-local";
+    return deviceEngineIds(bridgeDeviceOptions()[0] || {}).map((id) => ({ id, label: engineLabel(id) }));
   }
 
   function renderBotRuntimeLocationSelect(current = "desktop-local") {
-    if (!els?.botRuntimeLocation) return;
-    const options = botRuntimeLocationOptions();
-    els.botRuntimeLocation.innerHTML = "";
-    for (const option of options) {
-      const node = document.createElement("option");
-      node.value = option.id;
-      node.textContent = option.label;
-      node.disabled = Boolean(option.disabled);
-      els.botRuntimeLocation.appendChild(node);
-    }
-    const allowed = options.some((option) => option.id === current && !option.disabled);
-    els.botRuntimeLocation.value = allowed ? current : "desktop-local";
+    renderBotRuntimeTargetSelect({ runtimeKind: current });
+  }
+
+  function renderBotRuntimeDeviceSelect(current = "") {
+    renderBotRuntimeTargetSelect({ runtimeKind: "desktop-local", deviceId: current });
   }
 
   function renderBotAgentEngineSelect(current = "hermes") {
-    if (!els) return;
-    const runtimeKind = selectedRuntimeLocation();
-    const options = detectedAgentEngineOptions();
-    const showField = options.length > 1;
-    els.botAgentEngineField?.classList.toggle("hidden", runtimeKind === "cloud-hermes" || !showField);
-    if (!els.botAgentEngine) return;
-    els.botAgentEngine.innerHTML = "";
-    for (const option of options) {
-      const node = document.createElement("option");
-      node.value = option.id;
-      node.textContent = option.label;
-      els.botAgentEngine.appendChild(node);
-    }
-    els.botAgentEngine.value = options.some((option) => option.id === current) ? current : "hermes";
+    if (!els?.botRuntimeTarget) return;
+    const parsed = readSelectedRuntimeTarget();
+    renderBotRuntimeTargetSelect({
+      runtimeKind: parsed.runtimeKind,
+      deviceId: parsed.targetDeviceId,
+      deviceName: parsed.targetDeviceName,
+      agentEngine: current
+    });
   }
 
   function openBotDialog(bot = null, personaText = "") {
@@ -532,9 +757,25 @@
       actualBot?.runtimeKind || actualBot?.runtime_kind || seed?.runtimeKind,
       actualBot?.sourceKinds?.includes?.("cloud") ? "cloud-hermes" : "desktop-local"
     ) || "desktop-local";
-    renderBotRuntimeLocationSelect(runtimeKind);
-    if (els.botRuntimeLocation) els.botRuntimeLocation.disabled = Boolean(actualBot);
-    renderBotAgentEngineSelect(actualBot?.agentEngine || actualBot?.agent_engine || seed?.agentEngine || state.preferredAgentEngine || "hermes");
+    renderBotRuntimeTargetSelect({
+      runtimeKind,
+      deviceId: actualBot?.targetDeviceId
+        || actualBot?.target_device_id
+        || actualBot?.deviceId
+        || actualBot?.device_id
+        || actualBot?.runtimeConfig?.deviceId
+        || actualBot?.runtime_config?.deviceId
+        || "",
+      deviceName: actualBot?.targetDeviceName
+        || actualBot?.target_device_name
+        || actualBot?.deviceName
+        || actualBot?.device_name
+        || actualBot?.runtimeConfig?.deviceName
+        || actualBot?.runtime_config?.deviceName
+        || "",
+      agentEngine: actualBot?.agentEngine || actualBot?.agent_engine || seed?.agentEngine || state.preferredAgentEngine || "hermes"
+    });
+    refreshBridgeDevicesForDialog();
     const avatarImage = actualBot?.avatarImage || "";
     setBotAvatarDraft(avatarImage, window.miaAvatar.avatarCropForImage(avatarImage, actualBot?.avatarCrop));
     // Canonical avatar identity of the bot being edited, so the preview's
@@ -551,6 +792,32 @@
     if (els.botPersonaDetails) els.botPersonaDetails.open = Boolean(seed);
     renderView();
     setTimeout(() => els.botName?.focus(), 0);
+  }
+
+  function refreshBridgeDevicesForDialog() {
+    if (!state?.runtime?.cloud?.enabled || typeof window.mia?.social?.listBridgeDevices !== "function") return;
+    window.mia.social.listBridgeDevices({ includeOffline: true })
+      .then((result) => {
+        const devices = result?.data?.devices || result?.devices || [];
+        if (!Array.isArray(devices)) return;
+        state.runtime = {
+          ...(state.runtime || {}),
+          cloud: {
+            ...(state.runtime?.cloud || {}),
+            devices
+          }
+        };
+        if (state.botDialogOpen) {
+          const selected = readSelectedRuntimeTarget();
+          renderBotRuntimeTargetSelect({
+            runtimeKind: selected.runtimeKind,
+            deviceId: selected.targetDeviceId,
+            deviceName: selected.targetDeviceName,
+            agentEngine: selected.agentEngine
+          }, { preservePrevious: true });
+        }
+      })
+      .catch((error) => console.warn("[bot-dialog] bridge devices load failed:", error?.message || error));
   }
 
   function closeBotDialog() {
@@ -578,6 +845,8 @@
     readBotAvatarFile,
     readProfileAvatarFile,
     detectedAgentEngineOptions,
+    readSelectedRuntimeTarget,
+    renderBotRuntimeTargetSelect,
     renderBotRuntimeLocationSelect,
     renderBotAgentEngineSelect,
     openBotDialog,

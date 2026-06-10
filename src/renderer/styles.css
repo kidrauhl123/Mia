@@ -1720,6 +1720,7 @@ body.topbar-click-capture .topbar {
   overflow-wrap: anywhere;
 }
 
+.contact-runtime-target,
 .contact-capabilities {
   display: grid;
   gap: 12px;
@@ -1731,6 +1732,7 @@ body.topbar-click-capture .topbar {
   box-shadow: 0 1px 2px rgba(16, 20, 39, 0.05), inset 0 0 0 1px rgba(0, 0, 0, 0.035);
 }
 
+.contact-runtime-target > summary,
 .contact-capabilities > header {
   display: flex;
   align-items: center;
@@ -1739,17 +1741,155 @@ body.topbar-click-capture .topbar {
   min-width: 0;
 }
 
+.contact-runtime-target > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.contact-runtime-target > summary::-webkit-details-marker {
+  display: none;
+}
+
+.runtime-target-chevron {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+  transition: transform 120ms ease;
+}
+
+.contact-runtime-target[open] .runtime-target-chevron {
+  transform: rotate(180deg);
+}
+
+.contact-runtime-target > summary strong,
 .contact-capabilities > header strong {
   color: var(--text);
   font-size: 14px;
   font-weight: 520;
 }
 
+.contact-runtime-target > summary p,
 .contact-capabilities > header p {
   margin: 3px 0 0;
   color: var(--muted);
   font-size: 12px;
   line-height: 1.4;
+}
+
+.runtime-target-list {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin-top: 12px;
+}
+
+.runtime-device-group {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--surface-muted);
+}
+
+.runtime-device-group > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.runtime-device-group > div:first-child strong,
+.runtime-device-group > div:first-child small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runtime-device-group > div:first-child strong {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 520;
+}
+
+.runtime-device-group > div:first-child small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.runtime-device-group > div:last-child {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 7px;
+  min-width: 0;
+}
+
+.runtime-target-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 30px;
+}
+
+.runtime-target-option {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 42px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.035);
+  cursor: pointer;
+}
+
+.runtime-target-option:hover {
+  background: var(--hover);
+}
+
+.runtime-target-option:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.runtime-target-option.selected {
+  background: var(--active);
+  box-shadow: inset 0 0 0 1px rgb(var(--accent-rgb) / 0.28);
+}
+
+.runtime-target-option .contact-engine-logo {
+  width: 30px;
+  height: 30px;
+}
+
+.runtime-target-option span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.runtime-target-option strong,
+.runtime-target-option small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runtime-target-option strong {
+  font-size: 12px;
+  font-weight: 520;
+}
+
+.runtime-target-option small {
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .capability-columns {
@@ -1827,7 +1967,12 @@ body.topbar-click-capture .topbar {
 }
 
 :root[data-theme="dark"] .contact-note,
+:root[data-theme="dark"] .contact-runtime-target,
 :root[data-theme="dark"] .contact-capabilities {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+:root[data-theme="dark"] .runtime-target-option {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
 }
 
@@ -2572,28 +2717,28 @@ body.onboarding-window .setup-guide.ready {
 body.onboarding-window .setup-guide.ready .setup-engine-list {
   display: flex;
   flex-direction: column;
-  gap: 0;
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: var(--surface-muted);
+  gap: 10px;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   -webkit-app-region: no-drag;
 }
 
 body.onboarding-window .setup-guide.ready .setup-engine-row {
   display: grid;
-  grid-template-columns: 32px minmax(0, 1fr) auto;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 12px;
-  min-height: 56px;
-  padding: 10px 14px;
+  gap: 14px;
+  min-height: 58px;
+  padding: 10px 18px;
   border: 0;
-  border-radius: 0;
-  background: transparent;
+  border-radius: 15px;
+  background: var(--surface-muted);
 }
 
 body.onboarding-window .setup-guide.ready .setup-engine-row + .setup-engine-row {
-  border-top: 1px solid var(--line);
+  border-top: 0;
 }
 
 body.onboarding-window .setup-guide.ready .setup-engine-row::after {
@@ -2601,22 +2746,23 @@ body.onboarding-window .setup-guide.ready .setup-engine-row::after {
 }
 
 body.onboarding-window .setup-guide.ready .setup-engine-icon {
-  width: 32px;
-  height: 32px;
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  background: var(--surface);
+  width: 38px;
+  height: 38px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
 }
 
 body.onboarding-window .setup-guide.ready .setup-engine-icon img {
-  width: 19px;
-  height: 19px;
+  width: 30px;
+  height: 30px;
 }
 
 body.onboarding-window .setup-guide.ready .setup-engine-icon.openclaw img {
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
+  width: 32px;
+  height: 32px;
+  border-radius: 0;
 }
 
 .setup-guide.ready .setup-engine-body strong {
@@ -5524,6 +5670,26 @@ textarea:focus {
   border-color: var(--line-strong);
 }
 
+.accordion-details > .accordion-body {
+  overflow: hidden;
+}
+
+.accordion-details.accordion-animating > .accordion-body {
+  will-change: height, opacity;
+}
+
+.accordion-animating {
+  will-change: height, opacity;
+}
+
+.accordion-details > summary {
+  transition: color 120ms ease;
+}
+
+.accordion-details > summary:hover {
+  color: var(--text);
+}
+
 .search-box input:focus,
 .search-box input:focus-visible,
 .model-switcher select:focus,
@@ -5731,6 +5897,36 @@ textarea:focus {
 .engine-row[aria-expanded="true"] .engine-row-chev {
   transform: rotate(90deg);
   color: var(--text);
+}
+
+.engine-install-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 22px 16px 68px;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.engine-install-action {
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid rgb(var(--accent-rgb) / 0.22);
+  border-radius: 8px;
+  background: rgb(var(--accent-rgb) / 0.1);
+  color: var(--accent-strong);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.engine-install-action:hover {
+  background: rgb(var(--accent-rgb) / 0.16);
+}
+
+.engine-install-action:disabled {
+  cursor: wait;
+  opacity: 0.66;
 }
 
 .engine-detail-panel {

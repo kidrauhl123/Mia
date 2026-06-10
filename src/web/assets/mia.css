@@ -656,15 +656,20 @@ h2.h2 {
 }
 .combo-label b { display: block; font-size: 18px; font-weight: 600; letter-spacing: -0.02em; }
 .combo-label span { display: block; font-size: 13.5px; color: var(--ink-3); margin-top: 4px; line-height: 1.45; }
-.combo-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.combo-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.engine-cards { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .mini-card { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .mini-icon { width: 38px; height: 38px; flex: none; color: var(--ink); }
 .mini-icon svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .mini-logo { width: 38px; height: 38px; flex: none; border-radius: 11px; background: var(--bg-soft); display: grid; place-items: center; }
 .mini-logo img { width: 22px; height: 22px; }
 .mini-logo.hermes { background: rgba(26,25,23,0.05); }
+.mini-logo.openclaw img { width: 26px; height: 26px; }
 .mini-card h4 { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
 .mini-card span { display: block; font-size: 12px; color: var(--ink-3); margin-top: 1px; }
+@media (max-width: 980px) and (min-width: 761px) {
+  .engine-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 @media (max-width: 760px) {
   .combo-row { grid-template-columns: 1fr; gap: 18px; padding: 22px; }
   .combo-cards { grid-template-columns: 1fr; gap: 14px; }

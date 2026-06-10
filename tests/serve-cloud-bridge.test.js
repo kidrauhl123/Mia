@@ -575,6 +575,67 @@ test("cloud bridge forwards run progress events to authenticated event sockets",
   }
 });
 
+test("cloud bridge run forwards selected runtime config to the desktop device", async () => {
+  const dataDir = tempDataDir();
+  const server = createMiaCloudServer({ dataDir });
+  const baseUrl = await listen(server);
+  let bridgeWs = null;
+  try {
+    const account = await jsonFetch(baseUrl, "/api/auth/register", {
+      method: "POST",
+      body: { username: "runtime-forward", password: "secret1" }
+    });
+    const headers = { Authorization: `Bearer ${account.token}` };
+    bridgeWs = new WebSocket(bridgeWsUrl(baseUrl, {
+      deviceName: "Mac",
+      engine: "codex",
+      capabilities: JSON.stringify({ engines: ["claude-code", "codex"] })
+    }), wsTokenProtocol(account.token));
+    await waitForMessage(bridgeWs, (message) => message.type === "bridge_ready");
+    const devices = await jsonFetch(baseUrl, "/api/bridge/devices", { headers });
+
+    const runMessagePromise = waitForMessage(bridgeWs, (message) => message.type === "run");
+    const runRequest = jsonFetch(baseUrl, "/api/bridge/run", {
+      method: "POST",
+      headers,
+      body: {
+        deviceId: devices.devices[0].id,
+        conversationId: "conv_runtime_forward",
+        text: "用 Claude Code 跑",
+        runtimeConfig: {
+          agentEngine: "claude-code",
+          permissionMode: "bypassPermissions",
+          model: "sonnet"
+        },
+        botId: "helper",
+        botName: "Helper"
+      }
+    });
+    const runMessage = await runMessagePromise;
+    assert.equal(runMessage.agentEngine, "claude-code");
+    assert.equal(runMessage.runtimeConfig.agentEngine, "claude-code");
+    assert.equal(runMessage.runtimeConfig.permissionMode, "bypassPermissions");
+    assert.equal(runMessage.runtimeConfig.model, "sonnet");
+    assert.equal(runMessage.botId, "helper");
+    assert.equal(runMessage.botName, "Helper");
+    assert.equal(runMessage.text, "用 Claude Code 跑");
+
+    bridgeWs.send(JSON.stringify({
+      type: "run_result",
+      runId: runMessage.runId,
+      ok: true,
+      text: "完成",
+      attachments: []
+    }));
+    const run = await runRequest;
+    assert.equal(run.run.status, "succeeded");
+  } finally {
+    closeWs(bridgeWs);
+    await close(server);
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
 test("cloud bridge broadcasts device removal when a desktop disconnects", async () => {
   const dataDir = tempDataDir();
   const server = createMiaCloudServer({ dataDir });
@@ -636,6 +697,82 @@ test("cloud bridge device listing follows live websocket state instead of stale 
     assert.equal(offline.devices.length, 0);
   } finally {
     closeWs(bridgeWs);
+    await close(server);
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("cloud bridge preserves stable device ids and can list offline history explicitly", async () => {
+  const dataDir = tempDataDir();
+  const server = createMiaCloudServer({ dataDir });
+  const baseUrl = await listen(server);
+  let bridgeWs = null;
+  try {
+    const account = await jsonFetch(baseUrl, "/api/auth/register", {
+      method: "POST",
+      body: { username: "stable-device", password: "secret1" }
+    });
+    const headers = { Authorization: `Bearer ${account.token}` };
+    bridgeWs = new WebSocket(bridgeWsUrl(baseUrl, {
+      deviceId: "device_windows_1",
+      deviceName: "Windows PC",
+      engine: "codex",
+      capabilities: JSON.stringify({ engines: ["codex"] })
+    }), wsTokenProtocol(account.token));
+    const ready = await waitForMessage(bridgeWs, (message) => message.type === "bridge_ready");
+    assert.equal(ready.deviceId, "device_windows_1");
+
+    const online = await jsonFetch(baseUrl, "/api/bridge/devices", { headers });
+    assert.equal(online.devices.length, 1);
+    assert.equal(online.devices[0].id, "device_windows_1");
+    assert.equal(online.devices[0].deviceName, "Windows PC");
+
+    bridgeWs.close();
+    await waitForWsClose(bridgeWs);
+    const defaultList = await jsonFetch(baseUrl, "/api/bridge/devices", { headers });
+    assert.equal(defaultList.devices.length, 0);
+    const all = await jsonFetch(baseUrl, "/api/bridge/devices?include=all", { headers });
+    assert.equal(all.devices.length, 1);
+    assert.equal(all.devices[0].id, "device_windows_1");
+    assert.equal(all.devices[0].status, "offline");
+  } finally {
+    closeWs(bridgeWs);
+    await close(server);
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("cloud bridge stable device reconnect keeps the replacement online", async () => {
+  const dataDir = tempDataDir();
+  const server = createMiaCloudServer({ dataDir });
+  const baseUrl = await listen(server);
+  let firstWs = null;
+  let secondWs = null;
+  try {
+    const account = await jsonFetch(baseUrl, "/api/auth/register", {
+      method: "POST",
+      body: { username: "stable-reconnect", password: "secret1" }
+    });
+    const headers = { Authorization: `Bearer ${account.token}` };
+    const params = {
+      deviceId: "device_mac_reconnect",
+      deviceName: "Mac",
+      engine: "codex"
+    };
+    firstWs = new WebSocket(bridgeWsUrl(baseUrl, params), wsTokenProtocol(account.token));
+    await waitForMessage(firstWs, (message) => message.type === "bridge_ready");
+
+    secondWs = new WebSocket(bridgeWsUrl(baseUrl, params), wsTokenProtocol(account.token));
+    await waitForMessage(secondWs, (message) => message.type === "bridge_ready");
+    await waitForWsClose(firstWs);
+
+    const online = await jsonFetch(baseUrl, "/api/bridge/devices", { headers });
+    assert.equal(online.devices.length, 1);
+    assert.equal(online.devices[0].id, "device_mac_reconnect");
+    assert.equal(online.devices[0].status, "online");
+  } finally {
+    closeWs(firstWs);
+    closeWs(secondWs);
     await close(server);
     fs.rmSync(dataDir, { recursive: true, force: true });
   }

@@ -159,12 +159,15 @@ test("task preview dialog uses a structured inspector layout", () => {
   assert.match(taskPanel, /task-primary-actions/);
   assert.match(taskPanel, /task-status-pill/);
   assert.match(taskPanel, /task-section/);
+  assert.match(taskPanel, /task-prompt-details accordion-details/);
+  assert.match(taskPanel, /class="accordion-body"/);
   assert.doesNotMatch(taskPanel, /run-detail-actions\" style=/);
 
   assert.match(taskCss, /\.task-detail-shell\s*\{[^}]*grid-template-columns:\s*minmax\(220px,\s*260px\)\s+minmax\(0,\s*1fr\);/);
   assert.match(taskCss, /\.task-detail-sidebar\s*\{[^}]*position:\s*sticky;/);
   assert.match(taskCss, /\.task-primary-actions\s*\{[^}]*grid-template-columns:\s*1fr;/);
   assert.match(taskCss, /\.task-section\s*\{[^}]*border:\s*1px solid var\(--line\);/);
+  assert.match(taskCss, /\.task-prompt-details > summary::after\s*\{[^}]*transform:\s*rotate\(45deg\);/);
   assert.match(taskCss, /@media\s*\(max-width:\s*760px\)\s*\{[\s\S]*\.task-detail-shell\s*\{[^}]*grid-template-columns:\s*1fr;/);
 });
 

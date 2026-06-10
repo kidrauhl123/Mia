@@ -25,6 +25,8 @@ function setup(t, overrides = {}) {
   const service = createSystemHermesService({
     runtimePaths: () => runtime,
     readJson,
+    homeDir: () => path.join(dir, "home"),
+    env: { PATH: "" },
     now: () => new Date("2026-05-25T12:34:56.000Z"),
     resetAgentEngineCache: () => calls.push("reset-cache"),
     ...overrides

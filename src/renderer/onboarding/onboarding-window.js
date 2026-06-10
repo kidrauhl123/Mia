@@ -15,11 +15,19 @@
     { id: "codex", label: "Codex" },
     { id: "openclaw", label: "OpenClaw" },
   ];
+  const AGENT_ICONS = {
+    hermes: "../assets/engine-icons/hermesagent.svg",
+    "claude-code": "../assets/engine-icons/claudecode.svg",
+    codex: "../assets/engine-icons/codex-color.svg",
+    openclaw: "../assets/provider-icons/openclaw-color.svg"
+  };
 
   let step = "login"; // login | scan | done
   let hint = "";
   let scan = { done: 0, total: 4, byId: {} };
   let inventory = null;
+  let renderTimer = 0;
+  const installStates = {};
 
   function esc(value) {
     return String(value == null ? "" : value).replace(/[&<>"]/g, (c) => (
@@ -57,15 +65,41 @@
 
   function rowStatus(agent) {
     if (!agent) return { text: "检测中…", cls: "checking" };
+    if (agent.id === "openclaw" && agent.installed) return { text: "已就绪", cls: "ok" };
     if (agent.usableInMia) return { text: "已就绪", cls: "ok" };
     if (agent.installed) return { text: "已检测到", cls: "" };
     return { text: "未检测到", cls: "missing" };
   }
 
+  function agentIcon(def) {
+    const src = AGENT_ICONS[def.id];
+    const fallback = String(def.label || def.id || "?").slice(0, 2).toUpperCase();
+    if (!src) return `<span class="onb-row-icon monogram" aria-hidden="true">${esc(fallback)}</span>`;
+    return `<span class="onb-row-icon ${esc(def.id)}" aria-hidden="true"><img src="${esc(src)}" alt=""></span>`;
+  }
+
+  function shortMessage(value) {
+    const text = String(value || "").replace(/\s+/g, " ").trim();
+    if (!text) return "";
+    return text.length > 120 ? `${text.slice(0, 117)}…` : text;
+  }
+
+  function scheduleRender() {
+    if (renderTimer) return;
+    renderTimer = setTimeout(() => {
+      renderTimer = 0;
+      render();
+    }, 120);
+  }
+
   function scanRowsHtml() {
     return AGENTS.map((a) => {
       const { text, cls } = rowStatus(scan.byId[a.id]);
-      return `<div class="onb-row ${cls}" data-row="${a.id}"><span class="onb-row-name">${esc(a.label)}</span><span class="onb-row-status">${esc(text)}</span></div>`;
+      return `<div class="onb-row ${cls}" data-row="${a.id}">
+        ${agentIcon(a)}
+        <span class="onb-row-main"><span class="onb-row-name">${esc(a.label)}</span></span>
+        <span class="onb-row-status">${esc(text)}</span>
+      </div>`;
     }).join("");
   }
 
@@ -89,12 +123,24 @@
     const agents = (inventory && inventory.agents) || [];
     return AGENTS.map((def) => {
       const agent = agents.find((x) => x.id === def.id) || scan.byId[def.id];
+      const install = installStates[def.id];
+      const installing = install && install.status === "installing";
+      const failed = install && install.status === "error";
       const { text, cls } = rowStatus(agent);
-      const canInstall = agent && agent.installable && !agent.usableInMia && !agent.installed && agent.installAction;
-      const right = canInstall
+      const canInstall = !installing && agent && agent.installable && !agent.usableInMia && !agent.installed && agent.installAction;
+      const detail = install?.message
+        ? `<small class="onb-row-detail ${failed ? "error" : ""}">${esc(shortMessage(install.message))}</small>`
+        : "";
+      const progress = installing ? `<span class="onb-row-progress" aria-hidden="true"><span></span></span>` : "";
+      const right = installing
+        ? `<button class="onb-row-btn" type="button" disabled>安装中</button>`
+        : canInstall
         ? `<button class="onb-row-btn" type="button" data-install="${def.id}">安装</button>`
         : `<span class="onb-row-status">${esc(text)}</span>`;
-      return `<div class="onb-row ${cls}" data-row="${def.id}"><span class="onb-row-name">${esc(def.label)}</span>${right}</div>`;
+      return `<div class="onb-row ${cls} ${installing ? "installing" : ""} ${failed ? "error" : ""}" data-row="${def.id}">
+        ${agentIcon(def)}
+        <span class="onb-row-main"><span class="onb-row-name">${esc(def.label)}</span>${detail}${progress}</span>${right}
+      </div>`;
     }).join("");
   }
 
@@ -181,17 +227,38 @@
 
   async function installAgent(id, button) {
     if (!mia.installEngine) return;
-    button.disabled = true;
-    const label = button.textContent;
-    button.textContent = "安装中…";
+    installStates[id] = { status: "installing", message: "正在准备安装..." };
+    render();
     try {
       await mia.installEngine(id);
+      installStates[id] = { status: "installing", message: "安装完成，正在重新检测..." };
       const result = await mia.scanAgents?.();
       if (result && result.inventory) inventory = result.inventory;
-    } catch { /* ignore; row stays */ }
+      const agent = ((inventory && inventory.agents) || []).find((x) => x.id === id);
+      if (agent && (agent.usableInMia || agent.installed)) delete installStates[id];
+      else installStates[id] = { status: "error", message: "安装命令已结束，但 Mia 仍未检测到。请确认命令所在目录已加入 PATH 后重试。" };
+    } catch (error) {
+      installStates[id] = { status: "error", message: `安装失败：${error?.message || error}` };
+      try {
+        const result = await mia.scanAgents?.();
+        if (result && result.inventory) inventory = result.inventory;
+      } catch { /* keep the original install error */ }
+    }
     render();
-    void label;
   }
+
+  mia.onEngineInstallProgress?.((payload) => {
+    const id = String(payload?.engineId || "").trim();
+    if (!id) return;
+    if (payload.status === "error") {
+      installStates[id] = { status: "error", message: `安装失败：${payload.message || "未知错误"}` };
+    } else if (payload.status === "success") {
+      installStates[id] = { status: "installing", message: payload.message || "安装完成，正在重新检测..." };
+    } else {
+      installStates[id] = { status: "installing", message: payload.message || "正在安装..." };
+    }
+    if (step === "done") scheduleRender();
+  });
 
   function bind() {
     if (step === "login") {

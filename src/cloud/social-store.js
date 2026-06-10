@@ -1,4 +1,5 @@
 const crypto = require("node:crypto");
+const { publicIdFromConversationId } = require("../shared/ids.js");
 
 function nowIso() {
   return new Date().toISOString();
@@ -129,8 +130,8 @@ function createSocialStore(db) {
   }
 
   const insertConversation = db.prepare(`
-    INSERT INTO conversations (id, type, name, avatar, host_member_json, decorations_json, context_card_json, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO conversations (id, public_id, type, name, avatar, host_member_json, decorations_json, context_card_json, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const selectConversationById = db.prepare("SELECT * FROM conversations WHERE id = ?");
   const updateConversationCols = db.prepare(`
@@ -173,6 +174,8 @@ function createSocialStore(db) {
     if (!row) return null;
     return {
       id: row.id,
+      publicId: row.public_id || null,
+      public_id: row.public_id || null,
       type: row.type || (row.id?.startsWith("dm:") ? "dm" : row.id?.startsWith("botc_") ? "bot" : "group"),
       name: row.name,
       avatar: row.avatar,
@@ -191,11 +194,13 @@ function createSocialStore(db) {
     return "group";
   }
 
-  function createConversation({ id, type = null, name = null, avatar = null, hostMember = null, decorations = null, contextCard = null }) {
+  function createConversation({ id, publicId = null, public_id = null, type = null, name = null, avatar = null, hostMember = null, decorations = null, contextCard = null }) {
     const now = nowIso();
     const resolvedType = type || inferType(id);
+    const resolvedPublicId = String(publicId || public_id || (resolvedType === "group" ? publicIdFromConversationId(id) : "") || "").trim() || null;
     insertConversation.run(
       String(id),
+      resolvedPublicId,
       resolvedType,
       name,
       avatar,

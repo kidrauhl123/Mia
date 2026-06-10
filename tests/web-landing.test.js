@@ -19,11 +19,11 @@ test("web root is a promo landing page with download and app entry points", () =
 
   assert.match(html, /Mia 把一群 AI 当同事用/);
   assert.match(html, /Multiple Intelligent Agents/);
-  assert.match(html, /href="assets\/mia\.css\?v=20260609-downloadmenu2"/);
-  assert.match(html, /href="assets\/mia-gradient\.css\?v=20260609-downloadmenu2"/);
-  assert.match(html, /href="assets\/mia-scroll\.css\?v=20260609-downloadmenu2"/);
-  assert.match(html, /src="assets\/mia\.js\?v=20260609-downloadmenu2"/);
-  assert.match(html, /src="assets\/mia-scroll\.js\?v=20260609-downloadmenu2"/);
+  assert.match(html, /href="assets\/mia\.css\?v=20260609-beian"/);
+  assert.match(html, /href="assets\/mia-gradient\.css\?v=20260609-beian"/);
+  assert.match(html, /href="assets\/mia-scroll\.css\?v=20260609-beian"/);
+  assert.match(html, /src="assets\/mia\.js\?v=20260609-beian"/);
+  assert.match(html, /src="assets\/mia-scroll\.js\?v=20260609-beian"/);
   assert.match(html, /src="assets\/mia-logo\.png"/);
   assert.match(html, /class="[^"]*\bmiawin\b[^"]*"/);
   assert.match(html, /class="[^"]*\bmw-search\b[^"]*"/);
@@ -78,8 +78,9 @@ test("web root is a promo landing page with download and app entry points", () =
   assert.match(html, /写作/);
   assert.match(js, /帮我把新版落地页的测试跑一下/);
   assert.match(html, /Enter 发送/);
-  assert.match(html, /Claude Code[\s\S]*Codex/);
+  assert.match(html, /Claude Code[\s\S]*Codex[\s\S]*OpenClaw/);
   assert.match(html, /Hermes/);
+  assert.match(html, /assets\/icons\/openclaw\.svg/);
   assert.doesNotMatch(html, /空铃：|Codex：|Hermes：/);
   assert.doesNotMatch(html, /<strong>空铃<\/strong>|<strong>Codex<\/strong>|<strong>Hermes<\/strong>|<strong>匠妹<\/strong>/);
   assert.doesNotMatch(html, /谁来跟/);
@@ -102,6 +103,13 @@ test("web app shell lives under /app and keeps parent-relative assets", () => {
   assert.match(html, /src="\.\.\/app\.js/);
   assert.doesNotMatch(html, /href="\.\/styles\.css"/);
   assert.doesNotMatch(html, /src="\.\/app\.js/);
+});
+
+test("web root includes the site verification txt file", () => {
+  assert.equal(
+    read("src/web/5a371047c22c89872f93f00c7d8af123.txt").trim(),
+    "24dd5141e8f881adf83372da5cd9d6f1f60f2b32"
+  );
 });
 
 test("cloud release builder can publish Mac DMGs as web downloads", () => {

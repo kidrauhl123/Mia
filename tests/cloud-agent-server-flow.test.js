@@ -124,6 +124,50 @@ async function upsertDesktopLocalBot(baseUrl, authHeaders, botId, displayName = 
   });
 }
 
+test("bot DM falls back to desktop invocation when cloud dispatcher is not configured", async () => {
+  const dataDir = tempDir("mia-cloud-agent-desktop-fallback-");
+  const server = createMiaCloudServer({ dataDir });
+  const baseUrl = await listen(server);
+  let eventsWs = null;
+  try {
+    const account = await jsonFetch(baseUrl, "/api/auth/register", {
+      method: "POST",
+      body: { username: "alice", password: "123456" }
+    });
+    const authHeaders = { authorization: `Bearer ${account.token}` };
+    await upsertDesktopLocalBot(baseUrl, authHeaders, "codex", "Codex");
+    const ensured = await jsonFetch(baseUrl, "/api/me/bot-conversations/codex", {
+      method: "PUT",
+      headers: authHeaders,
+      body: { botId: "codex", title: "Codex", runtimeKind: "desktop-local" }
+    });
+    const conversationId = ensured.conversation.id;
+    eventsWs = new WebSocket(eventsWsUrl(baseUrl), wsTokenProtocol(account.token));
+    await waitForMessage(eventsWs, (message) => message.type === "events_ready");
+
+    const invocationPromise = waitForMessage(eventsWs, (message) => (
+      message.type === "conversation.bot_invocation_requested"
+        && message.conversationId === conversationId
+        && message.botId === "codex"
+    ));
+    await jsonFetch(baseUrl, `/api/conversations/${conversationId}/messages`, {
+      method: "POST",
+      headers: authHeaders,
+      body: { bodyMd: "hi desktop", clientOpId: "op_desktop_fallback_1" }
+    });
+    const invocation = await invocationPromise;
+    assert.equal(invocation.runtimeKind, "desktop-local");
+    assert.equal(invocation.runtimeConfig.agentEngine, "codex");
+    assert.equal(invocation.triggeringMessage.body_md, "hi desktop");
+    assert.equal(invocation.invokedBy.id, account.user.id);
+    assert.ok(Array.isArray(invocation.members));
+  } finally {
+    closeWs(eventsWs);
+    await close(server);
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
 test("POST /api/conversations/:id/messages appends cloud bot reply through existing conversation messages", async () => {
   const dataDir = tempDir("mia-cloud-agent-server-");
   const hermesCalls = [];

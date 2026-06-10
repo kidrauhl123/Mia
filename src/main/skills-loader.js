@@ -348,6 +348,34 @@ function createSkillsLoader(deps = {}) {
       .filter(Boolean);
   }
 
+  function readMiaOfficialBotPresets() {
+    const manifestPath = officialLibraryManifestPath();
+    const manifest = readJson(manifestPath, null);
+    if (!manifest || typeof manifest !== "object") return [];
+    return (Array.isArray(manifest.botPresets) ? manifest.botPresets : [])
+      .map((item) => {
+        const key = String(item?.key || item?.id || "").trim();
+        const name = String(item?.name || "").trim();
+        if (!key || !name) return null;
+        return {
+          key,
+          cat: String(item.category || item.cat || "推荐").trim() || "推荐",
+          emoji: String(item.emoji || "◇").trim() || "◇",
+          c1: String(item.background || item.c1 || "#eef0ff").trim() || "#eef0ff",
+          c2: String(item.color || item.c2 || "#5e5ce6").trim() || "#5e5ce6",
+          name,
+          tagline: String(item.tagline || "").trim(),
+          line: String(item.line || item.description || "").trim(),
+          desc: String(item.description || item.desc || item.line || "").trim(),
+          demo: String(item.demo || "").trim(),
+          persona: String(item.persona || item.personaText || "").trim(),
+          agentEngine: String(item.agentEngine || item.agent_engine || "hermes").trim() || "hermes",
+          capabilities: item.capabilities && typeof item.capabilities === "object" ? item.capabilities : {}
+        };
+      })
+      .filter(Boolean);
+  }
+
   async function fetchHermesSkillsCatalog(timeoutMs = 1500) {
     const state = getEngineState();
     if (!state?.running || !state?.baseUrl) return null;
@@ -460,6 +488,7 @@ function createSkillsLoader(deps = {}) {
       extensions,
       connectors,
       skills,
+      botPresets: readMiaOfficialBotPresets(),
       roots: plugins.map((p) => ({ source: p.source, label: p.label, root: p.root, exists: fs.existsSync(p.root) }))
     };
   }
@@ -637,6 +666,7 @@ function createSkillsLoader(deps = {}) {
     enumerateExtensions,
     enumeratePlugins,
     readMiaOfficialSkillSources,
+    readMiaOfficialBotPresets,
     extensionCapabilitySummary,
   };
 }

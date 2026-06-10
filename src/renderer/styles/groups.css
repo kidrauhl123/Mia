@@ -139,6 +139,18 @@
 .group-info-body .settings-row > .button-soft {
   justify-self: end;
 }
+.group-info-public-id {
+  justify-self: stretch;
+  align-self: center;
+  min-width: 0;
+  padding: 9px 11px;
+  border-radius: 8px;
+  background: var(--field);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
 .group-info-control-stack {
   display: grid;
   justify-self: stretch;

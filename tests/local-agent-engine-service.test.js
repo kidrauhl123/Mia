@@ -80,6 +80,16 @@ test("shellCommandPath falls back to executable files in user CLI directories", 
   assert.equal(service.shellCommandPath("codex"), executable);
 });
 
+test("shellCommandPath finds npm CLIs installed under nvm versions", (t) => {
+  const { home, service } = makeService(t);
+  const bin = path.join(home, ".nvm", "versions", "node", "v24.15.0", "bin");
+  const executable = path.join(bin, "codex");
+  fs.mkdirSync(bin, { recursive: true });
+  fs.writeFileSync(executable, "#!/bin/sh\n", { mode: 0o755 });
+
+  assert.equal(service.shellCommandPath("codex"), executable);
+});
+
 test("shellCommandPath uses `where` on Windows and returns the first resolved path", (t) => {
   const calls = [];
   const { service } = makeService(t, {
@@ -222,7 +232,7 @@ test("agentInventory separates system Hermes detection from Mia Hermes usability
 
   assert.equal(cached, inventory);
   assert.equal(inventory.summary.installedCount, 4);
-  assert.equal(inventory.summary.usableCount, 3);
+  assert.equal(inventory.summary.usableCount, 4);
   assert.equal(inventory.summary.missingCount, 0);
   assert.equal(inventory.summary.hasUsableAgent, true);
   assert.equal(inventory.summary.recommendedAction, "continue");
@@ -237,8 +247,8 @@ test("agentInventory separates system Hermes detection from Mia Hermes usability
   assert.equal(agentsById["claude-code"].usableInMia, true);
   assert.equal(agentsById.codex.usableInMia, true);
   assert.equal(agentsById.openclaw.installed, true);
-  assert.equal(agentsById.openclaw.usableInMia, false);
-  assert.equal(agentsById.openclaw.detectionOnly, true);
+  assert.equal(agentsById.openclaw.usableInMia, true);
+  assert.equal(agentsById.openclaw.detectionOnly, false);
 });
 
 test("agentInventory treats system Hermes as usable when Mia can launch its Python runtime", (t) => {
@@ -298,7 +308,9 @@ test("agentInventory recommends Hermes install when no usable agent is detected"
   assert.equal(agentsById.hermes.installable, true);
   assert.equal(agentsById.hermes.installAction, "install-hermes");
   assert.equal(agentsById.hermes.health, "missing");
-  assert.equal(agentsById.openclaw.installable, false);
+  assert.equal(agentsById.openclaw.installable, true);
+  assert.equal(agentsById.openclaw.installAction, "install-openclaw");
+  assert.equal(agentsById.openclaw.detectionOnly, false);
   assert.equal(legacy.hermes.available, false);
   assert.equal(legacy.claudeCode.available, false);
   assert.equal(legacy.codex.available, false);

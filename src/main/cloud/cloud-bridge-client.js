@@ -12,6 +12,49 @@ function defaultBridgeState() {
   };
 }
 
+function normalizeAgentEngine(value, fallback = "codex") {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "claude" || raw === "claude-code" || raw === "anthropic") return "claude-code";
+  if (raw === "codex" || raw === "openai-codex") return "codex";
+  if (raw === "openclaw" || raw === "open-claw") return "openclaw";
+  if (raw === "hermes" || raw === "cloud-hermes") return "hermes";
+  return fallback;
+}
+
+function engineLabel(engine) {
+  if (engine === "claude-code") return "Claude Code";
+  if (engine === "codex") return "Codex";
+  if (engine === "openclaw") return "OpenClaw";
+  return "Hermes";
+}
+
+function runtimeConfigFromMessage(message = {}) {
+  const raw = message.runtimeConfig || message.runtime_config || message.config || {};
+  const input = raw && typeof raw === "object" ? raw : {};
+  const agentEngine = normalizeAgentEngine(
+    message.agentEngine || message.agent_engine || message.engine || input.agentEngine || input.agent_engine,
+    "codex"
+  );
+  const config = { ...input, agentEngine };
+  for (const key of ["model", "effortLevel", "permissionMode"]) {
+    if (message[key] != null) config[key] = message[key];
+  }
+  if (message.effort_level != null) config.effortLevel = message.effort_level;
+  if (message.permission_mode != null) config.permissionMode = message.permission_mode;
+  return config;
+}
+
+function attachmentListFromAssistant(assistant = {}, randomUUID = () => "") {
+  return (assistant.attachments || []).map((attachment) => ({
+    id: attachment.id || `att_${randomUUID()}`,
+    type: attachment.type || attachment.kind || "file",
+    name: attachment.name || "附件",
+    mimeType: attachment.mimeType || attachment.mime || "",
+    dataUrl: attachment.dataUrl || attachment.thumbnailDataUrl || "",
+    url: attachment.url || ""
+  })).filter((attachment) => attachment.dataUrl || attachment.url);
+}
+
 function createCloudBridgeClient({
   WebSocketImpl,
   getSettings,
@@ -19,6 +62,7 @@ function createCloudBridgeClient({
   isDaemonEnabled,
   cloudBridgeUrl,
   cloudWebSocketProtocols,
+  createActiveBridgeChatAdapter,
   createActiveCodexChatAdapter,
   randomUUID,
   setTimeoutFn = setTimeout,
@@ -76,17 +120,30 @@ function createCloudBridgeClient({
     const runId = String(message.runId || randomUUID());
     const abortController = new AbortController();
     abortControllers.set(runId, abortController);
-    const adapter = createActiveCodexChatAdapter();
+    const runtimeConfig = runtimeConfigFromMessage(message);
+    const agentEngine = normalizeAgentEngine(runtimeConfig.agentEngine, "codex");
+    const label = engineLabel(agentEngine);
+    const adapter = typeof createActiveBridgeChatAdapter === "function"
+      ? createActiveBridgeChatAdapter(agentEngine)
+      : (agentEngine === "codex" && typeof createActiveCodexChatAdapter === "function" ? createActiveCodexChatAdapter() : null);
+    if (!adapter || typeof adapter.sendChat !== "function") {
+      throw new Error(`${label} 已保存为运行目标，但当前 Bridge 还没有可用适配器。`);
+    }
+    const botKey = String(message.botKey || message.botId || `mia_cloud_${agentEngine.replace(/[^a-z0-9]+/g, "_")}`).trim();
+    const botName = String(message.botName || message.displayName || label).trim();
     try {
-      sendCloudBridgeRunEvent(ws, runId, "status", { text: "本机 Codex 已开始运行。" });
+      sendCloudBridgeRunEvent(ws, runId, "status", { text: `本机 ${label} 已开始运行。` });
       const response = await adapter.sendChat({
         bot: {
-          key: "mia_cloud_codex",
-          name: "Codex",
+          key: botKey,
+          id: botKey,
+          name: botName,
+          agentEngine,
           bio: "",
           engineConfig: {
-            effortLevel: "medium",
-            permissionMode: "default"
+            effortLevel: runtimeConfig.effortLevel || "medium",
+            permissionMode: runtimeConfig.permissionMode || (agentEngine === "hermes" ? "ask" : "default"),
+            ...(runtimeConfig.model ? { model: runtimeConfig.model } : {})
           }
         },
         sessionId: `cloud:${String(message.conversationId || "default")}`,
@@ -97,19 +154,13 @@ function createCloudBridgeClient({
         }],
         signal: abortController.signal,
         emit: (kind, payload) => sendCloudBridgeRunEvent(ws, runId, kind, payload),
-        utility: false
+        utility: false,
+        runtimeConfig
       });
       const assistant = response.choices?.[0]?.message || {};
-      const attachments = (assistant.attachments || []).map((attachment) => ({
-        id: attachment.id || `att_${randomUUID()}`,
-        type: attachment.type || attachment.kind || "file",
-        name: attachment.name || "附件",
-        mimeType: attachment.mimeType || attachment.mime || "",
-        dataUrl: attachment.dataUrl || attachment.thumbnailDataUrl || "",
-        url: attachment.url || ""
-      })).filter((attachment) => attachment.dataUrl || attachment.url);
+      const attachments = attachmentListFromAssistant(assistant, randomUUID);
       return {
-        text: String(assistant.content || "").trim() || (attachments.length ? "图片已生成。" : "本机 Codex 已完成。"),
+        text: String(assistant.content || "").trim() || (attachments.length ? "图片已生成。" : `本机 ${label} 已完成。`),
         attachments
       };
     } finally {

@@ -168,15 +168,29 @@ function resolvePackagedAppAsar(rootDir) {
   }
   const productName = pkg.productName || "Mia";
   const version = pkg.version || "0.0.0";
-  const zipName = `${productName}-${version}-arm64-mac.zip`;
-  const zipPath = path.join(rootDir, "release", zipName);
-  if (!fs.existsSync(zipPath)) return null;
+  const releaseDir = path.join(rootDir, "release");
+  const zipCandidates = [
+    `${productName}-${version}-arm64-mac.zip`,
+    `${productName}-${version}-mac.zip`,
+    `${productName}-${version}-x64-mac.zip`
+  ];
+  if (fs.existsSync(releaseDir)) {
+    const discovered = fs.readdirSync(releaseDir)
+      .filter((file) => file.startsWith(`${productName}-${version}-`) && file.endsWith(".zip"))
+      .sort((a, b) => fs.statSync(path.join(releaseDir, b)).mtimeMs - fs.statSync(path.join(releaseDir, a)).mtimeMs);
+    for (const file of discovered) {
+      if (!zipCandidates.includes(file)) zipCandidates.push(file);
+    }
+  }
 
-  try {
+  for (const zipName of zipCandidates) {
+    const zipPath = path.join(releaseDir, zipName);
+    if (!fs.existsSync(zipPath)) continue;
+    try {
     const zip = new AdmZip(zipPath);
     const entryName = `${productName}.app/Contents/Resources/app.asar`;
     const entry = zip.getEntry(entryName);
-    if (!entry) return null;
+    if (!entry) continue;
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-packaged-asar-"));
     const archivePath = path.join(tempDir, "app.asar");
     fs.writeFileSync(archivePath, entry.getData());
@@ -185,9 +199,11 @@ function resolvePackagedAppAsar(rootDir) {
       label: `release/${zipName}::${entryName}`,
       cleanup: () => fs.rmSync(tempDir, { recursive: true, force: true })
     };
-  } catch {
-    return null;
+    } catch {
+      continue;
+    }
   }
+  return null;
 }
 
 function checkPackagedDesktopPermissionGate(rootDir) {
@@ -209,7 +225,7 @@ function checkPackagedDesktopPermissionGate(rootDir) {
       /MIA_ALLOW_MULTIPLE_INSTANCES/.test(mainSource),
       /cloudWebSocketProtocols/.test(mainSource),
       hasBridgeEntrypoint,
-      /permissionMode: "default"/.test(bridgeSource),
+      /runtimeConfigFromMessage\(message\)/.test(bridgeSource),
       !/confirmCloudBridgeRun\(/.test(bridgeSource),
       !/等待本机权限确认/.test(bridgeSource)
     ];
@@ -394,6 +410,56 @@ async function liveSshDeployChecks({
   }];
 }
 
+function checkProductionDeployProof({
+  rootDir = root,
+  publicUrl = process.env.MIA_CLOUD_PUBLIC_URL || "https://mia.gifgif.cn",
+  proofPath = path.join(rootDir, "dist", "mia-cloud-production-deploy-proof.json")
+} = {}) {
+  const relativePath = path.relative(rootDir, proofPath) || proofPath;
+  if (!fs.existsSync(proofPath)) {
+    return {
+      ok: false,
+      label: "live deploy proof",
+      evidence: `${relativePath} missing`
+    };
+  }
+  try {
+    const proof = JSON.parse(fs.readFileSync(proofPath, "utf8"));
+    const expected = readExpectedRelease({
+      manifestPath: path.join(rootDir, "dist", "mia-cloud-release", "manifest.json")
+    });
+    const archivePath = path.join(rootDir, "dist", "mia-cloud-release.tgz");
+    const archiveSha256 = fs.existsSync(archivePath) ? sha256File(archivePath) : "";
+    const failures = [];
+    if (proof.proofVersion !== 1) failures.push("proofVersion");
+    if (proof.ok !== true) failures.push("ok");
+    if (normalizeBaseUrl(proof.publicUrl || "") !== normalizeBaseUrl(publicUrl)) failures.push("publicUrl");
+    if (proof.release?.gitCommit !== expected.gitCommit) failures.push("release.gitCommit");
+    if (proof.release?.builtAt !== expected.builtAt) failures.push("release.builtAt");
+    if (proof.archiveSha256 !== archiveSha256) failures.push("archiveSha256");
+    if (proof.installerExitCode !== 0) failures.push("installerExitCode");
+    if (proof.verified?.doctor !== true) failures.push("verified.doctor");
+    if (proof.verified?.smoke !== true) failures.push("verified.smoke");
+    if (proof.verified?.siteVerification !== true) failures.push("verified.siteVerification");
+    if (!proof.completedAt || Number.isNaN(Date.parse(proof.completedAt))) failures.push("completedAt");
+    if (!proof.deployMethod) failures.push("deployMethod");
+    const ok = failures.length === 0;
+    return {
+      ok,
+      label: "live deploy proof",
+      evidence: ok
+        ? `${relativePath} ${proof.deployMethod} ${proof.release.gitCommit} ${proof.completedAt}`
+        : `${relativePath} invalid: ${failures.join(", ")}`
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      label: "live deploy proof",
+      evidence: error?.message || String(error)
+    };
+  }
+}
+
 function runAudit({ rootDir = root } = {}) {
   const requirements = [
     item("cloud.unified-account-data", "统一账号数据按 userId 隔离", [
@@ -446,7 +512,7 @@ function runAudit({ rootDir = root } = {}) {
       checkSource(rootDir, "tests/bot-conversations.test.js", /Bot-conversation messages POST works through the unified/, "bot chat conversation integration test")
     ]),
     item("gate.same-account-bridge-control", "同账号 Web/手机端可直接调用桌面 Agent，设备鉴权不复用 Agent permission", [
-      checkSource(rootDir, "src/main/cloud/cloud-bridge-client.js", /async function runCloudBridgeRequest[\s\S]*permissionMode: "default"/, "desktop bridge keeps Agent permissionMode on the Agent run"),
+      checkSource(rootDir, "src/main/cloud/cloud-bridge-client.js", /async function runCloudBridgeRequest[\s\S]*runtimeConfigFromMessage\(message\)[\s\S]*permissionMode: runtimeConfig\.permissionMode/, "desktop bridge keeps selected Agent runtime config on the Agent run"),
       checkSource(rootDir, "src/main/cloud/cloud-bridge-client.js", /async function runCloudBridgeRequest(?![\s\S]*?confirmCloudBridgeRun\()/, "desktop bridge run source does not call local approval gate"),
       checkSource(rootDir, "src/main.js", /cloudWebSocketProtocols[\s\S]*mia-token\./, "desktop bridge authenticates to Cloud with account token subprotocol"),
       checkSource(rootDir, "scripts/serve-cloud.js", /devicesByUser[\s\S]*hub\.devicesByUser\.get\(userId\)/, "cloud bridge devices are scoped by authenticated userId"),
@@ -461,12 +527,13 @@ function runAudit({ rootDir = root } = {}) {
       checkPackageScript(rootDir, "cloud:audit", "node scripts/audit-cloud-productization.js --live"),
       checkPackageScript(rootDir, "cloud:prod:verify", "node scripts/verify-cloud-production.js"),
       checkPackageScript(rootDir, "cloud:prod:verify:e2e", "MIA_SMOKE_REQUIRE_BRIDGE=1 node scripts/verify-cloud-production.js"),
+      checkPackageScript(rootDir, "cloud:site-verify", "node scripts/verify-site-verification.js"),
       checkReleaseManifest(rootDir),
       checkReleaseArchiveChecksum(rootDir),
       checkReleaseHandoffFresh(rootDir),
       checkTransferBundleFresh(rootDir),
       checkPackagedDesktopPermissionGate(rootDir),
-      checkSource(rootDir, "scripts/build-cloud-release.js", /README\.md[\s\S]*install-cloud-release-local\.sh[\s\S]*doctor-cloud\.js[\s\S]*smoke-cloud\.js[\s\S]*diagnose-deploy-ssh\.js/, "release package includes operator assets"),
+      checkSource(rootDir, "scripts/build-cloud-release.js", /README\.md[\s\S]*install-cloud-release-local\.sh[\s\S]*doctor-cloud\.js[\s\S]*smoke-cloud\.js[\s\S]*verify-site-verification\.js[\s\S]*diagnose-deploy-ssh\.js/, "release package includes operator assets"),
       checkSource(rootDir, "dist/mia-cloud-release/README.md", /same Mia Cloud account[\s\S]*does not require a separate local approval click[\s\S]*Agent permission mode remains/, "release README documents same-account bridge without remote approval gate"),
       checkSource(rootDir, "scripts/print-cloud-release-handoff.js", /same Mia Cloud account[\s\S]*does not require a separate local approval click[\s\S]*Agent permission mode remains/, "transfer bundle documents same-account bridge without remote approval gate"),
       checkSource(rootDir, "scripts/print-cloud-release-handoff.js", /readSshAgentStatus[\s\S]*ssh-add/, "handoff reports ssh-agent status and ssh-add recovery"),
@@ -507,19 +574,30 @@ async function runAuditLive(options = {}) {
   const audit = runAudit(options);
   const production = audit.requirements.find((requirement) => requirement.id === "gate.production-deploy");
   if (production) {
+    const publicChecks = await livePublicProductionChecks(options);
+    const proofCheck = checkProductionDeployProof(options);
+    const requireSshDeployAccess = options.requireSshDeployAccess ||
+      process.env.MIA_AUDIT_REQUIRE_SSH_DEPLOY_ACCESS === "1";
+    const sshChecks = (requireSshDeployAccess || !proofCheck.ok)
+      ? await liveSshDeployChecks(options)
+      : [];
     const liveChecks = [
-      ...(await livePublicProductionChecks(options)),
-      ...(await liveSshDeployChecks(options))
+      ...publicChecks,
+      proofCheck,
+      ...sshChecks
     ];
     production.checks = [
       ...production.checks.filter((check) => !/latest plan records production blocker evidence/.test(check.label)),
       ...liveChecks
     ];
-    const liveOk = liveChecks.length > 0 && liveChecks.every((check) => check.ok);
+    const publicOk = publicChecks.length > 0 && publicChecks.every((check) => check.ok);
+    const deployEvidenceOk = proofCheck.ok || sshChecks.some((check) => check.ok);
+    const requiredSshOk = !requireSshDeployAccess || sshChecks.every((check) => check.ok);
+    const liveOk = publicOk && deployEvidenceOk && requiredSshOk;
     production.status = liveOk ? "pass" : "blocked";
     production.note = liveOk
-      ? "公网 Cloud 已匹配当前 release，且这台机器具备 SSH 部署通道；bridge-required e2e 可按需用固定烟测账号复核。"
-      : "公网 Cloud 或 SSH 部署通道仍未通过当前 release 的 live production audit。运行 `npm run cloud:prod:verify -- https://mia.gifgif.cn` 和 `npm run cloud:deploy` 查看完整失败。";
+      ? "公网 Cloud 已匹配当前 release，且生产部署证据通过；bridge-required e2e 可按需用固定烟测账号复核。"
+      : "公网 Cloud 或生产部署证据仍未通过当前 release 的 live production audit。运行 `npm run cloud:prod:verify -- https://mia.gifgif.cn` 并检查部署 proof 或 `npm run cloud:deploy` 输出。";
   }
   return recomputeAudit(audit);
 }
@@ -562,6 +640,7 @@ if (require.main === module) {
 
 module.exports = {
   checkNativePermissionProof,
+  checkProductionDeployProof,
   checkReleaseArchiveChecksum,
   checkPackagedDesktopPermissionGate,
   livePublicProductionChecks,

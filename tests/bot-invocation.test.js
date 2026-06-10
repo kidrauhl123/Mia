@@ -26,6 +26,7 @@ test("buildBotInvocation turns an explicit @ event into responder args", () => {
 
   assert.equal(args.conversationId, "g_1");
   assert.equal(args.botId, "codex");
+  assert.equal(args.botSnapshot.key, "codex");
   assert.equal(args.dedupKey, "m_1:codex");
   assert.equal(args.userPrompt, "@codex 看看这个");
   assert.equal(args.turnId, "turn_1");
@@ -35,7 +36,7 @@ test("buildBotInvocation turns an explicit @ event into responder args", () => {
   assert.match(args.systemPrompt, /\[bot:codex\] 收到/);
 });
 
-test("buildBotInvocation returns null for missing trigger, conversation, bot, or local bot", () => {
+test("buildBotInvocation returns null for missing trigger, conversation, or bot id", () => {
   const bots = [{ key: "codex", name: "Codex" }];
   const base = {
     conversationId: "g_1",
@@ -46,5 +47,20 @@ test("buildBotInvocation returns null for missing trigger, conversation, bot, or
   assert.equal(buildBotInvocation({ ...base, triggeringMessage: null }, bots), null);
   assert.equal(buildBotInvocation({ ...base, conversationId: "" }, bots), null);
   assert.equal(buildBotInvocation({ ...base, botId: "" }, bots), null);
-  assert.equal(buildBotInvocation({ ...base, botId: "remote" }, bots), null);
+});
+
+test("buildBotInvocation keeps cloud-only bots runnable without a local manifest entry", () => {
+  const args = buildBotInvocation({
+    conversationId: "botc_remote",
+    botId: "remote",
+    runtimeConfig: { agentEngine: "codex" },
+    triggeringMessage: { id: "m_1", body_md: "hi" },
+    members: [{ member_kind: "bot", member_ref: "remote", bot_name: "Remote Bot" }]
+  }, []);
+
+  assert.equal(args.botId, "remote");
+  assert.equal(args.botSnapshot.key, "remote");
+  assert.equal(args.botSnapshot.name, "Remote Bot");
+  assert.equal(args.botSnapshot.agentEngine, "codex");
+  assert.match(args.systemPrompt, /Remote Bot/);
 });

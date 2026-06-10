@@ -148,7 +148,8 @@ function createCloudEventsClient({
     if (message.type === CloudEvent.BridgeRunUpdated || message.type === CloudEvent.DeviceUpdated) {
       emitToRenderer({
         type: String(message.type || "cloud_event"),
-        cloud: cloudUiStatus()
+        cloud: cloudUiStatus(),
+        payload: message
       });
     }
   }

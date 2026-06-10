@@ -89,7 +89,7 @@ Claude Code support must avoid writing Mia MCP, Mia memory, or Mia Bot state int
 
 ### OpenClaw
 
-OpenClaw is detection-only until a separate runnable adapter is designed. It should appear in inventory and settings but should not be offered as a runnable chat engine.
+OpenClaw is no longer detection-only. Latest AionUi treats new OpenClaw conversations as an ACP backend (`agent_type: acp`, `backend: openclaw`) and marks the old `openclaw-gateway` runtime type as deprecated. Mia now launches the user-installed OpenClaw CLI through its ACP bridge (`openclaw acp`) and maps Mia sessions to OpenClaw Gateway sessions with a stable `_meta.sessionKey`. This requires a configured, reachable OpenClaw Gateway; if the gateway is not on the default URL, the bot can pass `openclawGatewayUrl` through the ACP adapter. The legacy `openclaw agent --json` path is only a compatibility fallback when explicitly requested. Mia must not force `--local` by default and must not rewrite the user's global OpenClaw config.
 
 ## Session Policy
 
@@ -209,11 +209,11 @@ Verification:
 
 ### Phase 1: Agent Inventory and UI
 
-Build a normalized local agent inventory for Hermes, Claude Code, Codex, and OpenClaw. Show installed/missing/usable states in onboarding and settings. Allow no-agent users to continue. Offer Hermes installation only for Hermes.
+Build a normalized local agent inventory for Hermes, Claude Code, Codex, and OpenClaw. Show installed/missing/usable states in onboarding and settings. Allow no-agent users to continue. Offer official install actions for missing installable engines.
 
 Acceptance evidence:
 
-- Unit tests cover inventory shape, missing command behavior, source semantics, OpenClaw detection-only state, and cache reset.
+- Unit tests cover inventory shape, missing command behavior, source semantics, OpenClaw ACP-backend compatibility usability, and cache reset.
 - Renderer tests cover no-agent onboarding, Hermes install action, skip path, and legacy runtime status fallback.
 - Runtime status exposes `agentInventory`.
 
@@ -282,16 +282,15 @@ Before marking the overall goal complete, verify:
 2. Machine with only Claude Code: Mia detects Claude Code, runs a Bot through Claude, and official Claude outside Mia keeps normal history/config.
 3. Machine with only Codex: Mia detects Codex, runs a Bot through Codex, and official Codex outside Mia keeps normal history/config.
 4. Machine with official Hermes: Mia detects Hermes, runs it with Mia-owned home, and official Hermes outside Mia keeps normal memory/session behavior.
-5. Machine with OpenClaw: Mia detects OpenClaw but does not offer it as a runnable engine.
+5. Machine with OpenClaw: Mia detects OpenClaw, offers it as a runnable engine, and sends chat through the OpenClaw ACP-backend compatibility entrypoint without forcing embedded-only local mode.
 6. Default packaged app: no `hermes-runtime` resource is present.
 7. Fallback packaged app: bundled Hermes is present only when using the explicit fallback build command.
 
 ## Non-Goals for the First Complete Pass
 
 - Do not merge native agent memories into Mia memory.
-- Do not make OpenClaw runnable before a separate adapter design.
+- Do not silently modify global Claude, Codex, Hermes, or OpenClaw configuration.
 - Do not expose every possible Mia app action through MCP in the first MCP pass.
-- Do not silently modify global Claude, Codex, or Hermes configuration.
 
 ## Open Implementation Notes
 

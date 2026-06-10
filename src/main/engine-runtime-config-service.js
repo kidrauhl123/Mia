@@ -87,6 +87,7 @@ function createEngineRuntimeConfigService(deps = {}) {
     const settings = modelSettings();
     const provider = String(settings.provider || "").trim();
     const model = String(settings.model || "").trim();
+    const apiKeyEnv = String(settings.apiKeyEnv || "").trim();
     const baseUrl = String(settings.baseUrl || "").trim();
     const apiMode = String(settings.apiMode || "").trim();
     const approvalsMode = permissionSettings().mode;
@@ -103,6 +104,18 @@ function createEngineRuntimeConfigService(deps = {}) {
     ];
     if (baseUrl) lines.push(`  base_url: ${JSON.stringify(baseUrl)}`);
     if (apiMode) lines.push(`  api_mode: ${JSON.stringify(apiMode)}`);
+    if (provider && baseUrl) {
+      lines.push(
+        "",
+        "providers:",
+        `  ${JSON.stringify(provider)}:`,
+        `    name: ${JSON.stringify(settings.providerLabel || provider)}`,
+        `    base_url: ${JSON.stringify(baseUrl)}`,
+        ...(apiKeyEnv ? [`    key_env: ${JSON.stringify(apiKeyEnv)}`] : []),
+        ...(model ? [`    default_model: ${JSON.stringify(model)}`] : []),
+        ...(apiMode ? [`    api_mode: ${JSON.stringify(apiMode)}`] : [])
+      );
+    }
     lines.push(
       "",
       "platforms:",

@@ -98,7 +98,7 @@ CREATE TABLE bots (
 CREATE INDEX idx_bots_owner ON bots(owner_user_id);
 ```
 
-`bots.id` should be generated globally as `bot_<hex>`. A human-readable public handle is out of scope for this migration and must not replace the primary id.
+`bots.id` should be generated globally with the same untyped public-id generator used by human user ids. The `kind` / table / membership fields distinguish users from bots; the primary id itself must not encode `user_` or `bot_`. A human-readable public handle is out of scope for this migration and must not replace the primary id.
 
 ### Conversations
 

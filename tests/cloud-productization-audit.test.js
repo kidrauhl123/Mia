@@ -11,6 +11,7 @@ const { test } = require("node:test");
 const {
   checkNativePermissionProof,
   checkPackagedDesktopPermissionGate,
+  checkProductionDeployProof,
   checkReleaseArchiveChecksum,
   livePublicProductionChecks,
   liveSshDeployChecks,
@@ -50,6 +51,7 @@ test("cloud productization audit verifies current release artifact freshness", (
   assert.equal(release.status, "pass");
   for (const label of [
     "npm script cloud:audit",
+    "npm script cloud:site-verify",
     "release archive checksum",
     "release handoff freshness",
     "release transfer bundle freshness",
@@ -85,8 +87,10 @@ test("packaged desktop audit can read the final mac zip without requiring unpack
       "function createCloudBridgeClient() { return {}; }",
     ].join("\n"));
     fs.writeFileSync(path.join(sourceDir, "src/main/cloud/cloud-bridge-client.js"), [
+      "function runtimeConfigFromMessage(message) { return message.runtimeConfig || {}; }",
       "async function runCloudBridgeRequest(ws, message = {}) {",
-      "  return { permissionMode: \"default\" };",
+      "  const runtimeConfig = runtimeConfigFromMessage(message);",
+      "  return { permissionMode: runtimeConfig.permissionMode };",
       "}",
     ].join("\n"));
     await asar.createPackage(sourceDir, asarPath);
@@ -116,6 +120,62 @@ test("release archive checksum audit rejects stale sidecars", () => {
     assert.equal(check.ok, false);
     assert.equal(check.label, "release archive checksum");
     assert.match(check.evidence, /actual=/);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("production deploy proof must match the current release archive and public URL", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-deploy-proof-"));
+  try {
+    const distDir = path.join(tempDir, "dist");
+    const releaseDir = path.join(distDir, "mia-cloud-release");
+    fs.mkdirSync(releaseDir, { recursive: true });
+    const archivePath = path.join(distDir, "mia-cloud-release.tgz");
+    const archiveContents = "archive";
+    fs.writeFileSync(archivePath, archiveContents);
+    fs.writeFileSync(path.join(releaseDir, "manifest.json"), JSON.stringify({
+      builtAt: "2026-06-10T00:00:00.000Z",
+      source: {
+        gitCommit: "abc123",
+        dirty: true
+      }
+    }));
+    const proofPath = path.join(distDir, "mia-cloud-production-deploy-proof.json");
+    fs.writeFileSync(proofPath, JSON.stringify({
+      proofVersion: 1,
+      ok: true,
+      deployMethod: "jumpserver-root-shell",
+      publicUrl: "https://mia.gifgif.cn",
+      completedAt: "2026-06-10T03:05:01Z",
+      release: {
+        gitCommit: "abc123",
+        builtAt: "2026-06-10T00:00:00.000Z"
+      },
+      archiveSha256: sha256Text(archiveContents),
+      installerExitCode: 0,
+      verified: {
+        doctor: true,
+        smoke: true,
+        siteVerification: true
+      }
+    }, null, 2));
+
+    const valid = checkProductionDeployProof({
+      rootDir: tempDir,
+      publicUrl: "https://mia.gifgif.cn"
+    });
+    assert.equal(valid.ok, true, valid.evidence);
+
+    const stale = JSON.parse(fs.readFileSync(proofPath, "utf8"));
+    stale.release.gitCommit = "stale";
+    fs.writeFileSync(proofPath, JSON.stringify(stale, null, 2));
+    const invalid = checkProductionDeployProof({
+      rootDir: tempDir,
+      publicUrl: "https://mia.gifgif.cn"
+    });
+    assert.equal(invalid.ok, false);
+    assert.match(invalid.evidence, /release\.gitCommit/);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
@@ -217,7 +277,7 @@ test("live cloud productization audit uses public health instead of plan text", 
   assert.equal(production.status, "blocked");
   assert.ok(production.checks.some((check) => check.label === "live public health features" && !check.ok));
   assert.ok(production.checks.some((check) => check.label === "live public release provenance" && !check.ok));
-  assert.ok(production.checks.some((check) => check.label === "live ssh deploy access" && !check.ok));
+  assert.ok(production.checks.some((check) => check.label === "live deploy proof"));
   assert.equal(audit.complete, false);
 });
 
@@ -287,7 +347,7 @@ test("live ssh deploy check reports denied deploy access", async () => {
   ]);
 });
 
-test("live audit passes production gate only when public release and ssh access both pass", async () => {
+test("live audit passes production gate when public release and deploy evidence pass", async () => {
   const release = require("../dist/mia-cloud-release/manifest.json");
   const features = [
     "sqlite-store",
@@ -323,6 +383,8 @@ test("live audit passes production gate only when public release and ssh access 
   });
   const production = audit.requirements.find((item) => item.id === "gate.production-deploy");
   assert.equal(production.status, "pass");
-  assert.ok(production.checks.some((check) => check.label === "live ssh deploy access" && check.ok));
+  assert.ok(production.checks.some((check) => (
+    (check.label === "live deploy proof" || check.label === "live ssh deploy access") && check.ok
+  )));
   assert.equal(audit.complete, true);
 });

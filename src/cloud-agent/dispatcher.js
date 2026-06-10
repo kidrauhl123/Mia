@@ -172,6 +172,7 @@ function createCloudAgentDispatcher(deps = {}) {
       botId,
       runtimeKind: "desktop-local",
       runtimeConfig: runtimeConfig || {},
+      targetDeviceId: String(runtimeConfig?.deviceId || runtimeConfig?.targetDeviceId || ""),
       invokedBy: invocationSender(message, ownerId),
       triggeringMessage: message,
       recentMessages,
@@ -305,7 +306,12 @@ function createCloudAgentDispatcher(deps = {}) {
       log(`[cloud-agent] refusing bot dispatch for unowned bot ${botId}`);
       return null;
     }
-    const cloudBinding = runtimeBindingsStore.getEnabledBinding(ownerId, botId, "cloud-hermes");
+    const activeBinding = typeof runtimeBindingsStore.getActiveBinding === "function"
+      ? runtimeBindingsStore.getActiveBinding(ownerId, botId)
+      : null;
+    const cloudBinding = activeBinding?.runtimeKind === "cloud-hermes"
+      ? activeBinding
+      : (!activeBinding ? runtimeBindingsStore.getEnabledBinding(ownerId, botId, "cloud-hermes") : null);
     if (cloudBinding) {
       return runHermesInline({
         ownerId,
@@ -318,7 +324,9 @@ function createCloudAgentDispatcher(deps = {}) {
         bots
       });
     }
-    const desktopBinding = runtimeBindingsStore.getEnabledBinding(ownerId, botId, "desktop-local");
+    const desktopBinding = activeBinding?.runtimeKind === "desktop-local"
+      ? activeBinding
+      : runtimeBindingsStore.getEnabledBinding(ownerId, botId, "desktop-local");
     broadcastDesktopInvocation({
       ownerId,
       botId,

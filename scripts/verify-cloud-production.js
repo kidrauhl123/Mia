@@ -10,8 +10,9 @@ function usage() {
   return [
     "Usage: node scripts/verify-cloud-production.js [cloud-url]",
     "",
-    "Runs production doctor and smoke against the public Cloud URL using the",
-    "expected release commit and builtAt from dist/mia-cloud-release/manifest.json.",
+    "Runs production doctor, smoke, and root txt site verification against the",
+    "public Cloud URL using the expected release commit and builtAt from",
+    "dist/mia-cloud-release/manifest.json.",
     "",
     "Examples:",
     "  node scripts/verify-cloud-production.js https://mia.gifgif.cn",
@@ -113,6 +114,18 @@ function verifyProduction({
       cwd,
       stdio,
       env: commandEnv(baseEnv, "SMOKE", expectedRelease)
+    }
+  );
+
+  runChecked(
+    spawnSync,
+    "Running production site verification",
+    process.execPath,
+    [path.join(cwd, "scripts", "verify-site-verification.js"), baseUrl],
+    {
+      cwd,
+      stdio,
+      env: baseEnv
     }
   );
 

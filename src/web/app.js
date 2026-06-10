@@ -14,41 +14,76 @@ const normalizeAgentEngine = engineContracts.normalizeAgentEngine || ((value) =>
   const id = String(value || "hermes").trim().toLowerCase().replace(/_/g, "-");
   if (id === "claude" || id === "claude-code") return "claude-code";
   if (id === "codex" || id === "openai-codex") return "codex";
+  if (id === "openclaw" || id === "open-claw") return "openclaw";
   return "hermes";
 });
 const engineLabel = engineContracts.engineLabel || ((value) => {
   const engine = normalizeAgentEngine(value);
   if (engine === "claude-code") return "Claude Code";
   if (engine === "codex") return "Codex";
+  if (engine === "openclaw") return "OpenClaw";
   return "Hermes";
 });
-const externalModelEntries = engineContracts.externalModelEntries || ((value) => {
+const fallbackMiaModelEntries = () => {
+  const platformModels = Array.isArray(state?.platformModels) ? state.platformModels : [];
+  const entries = platformModels.map((entry) => {
+    const id = String(entry.id || entry.value || entry.model_name || entry.model || "").trim();
+    if (!id) return null;
+    return {
+      id,
+      provider: "mia",
+      providerLabel: "Mia",
+      model: id,
+      label: String(entry.label || entry.name || entry.displayName || id).trim() || id,
+      authType: "mia_account",
+      modelProfileId: `mia:${id}`,
+      upstreamModel: String(entry.upstreamModel || entry.upstream_model || "").trim()
+    };
+  }).filter(Boolean);
+  return entries.length
+    ? entries
+    : [{ id: "mia-default", provider: "mia", providerLabel: "Mia", model: "mia-default", label: "Mia Default", authType: "mia_account", modelProfileId: "mia:mia-default", upstreamModel: "" }];
+};
+const fallbackExternalModelEntries = (value) => {
   const engine = normalizeAgentEngine(value);
   if (engine === "claude-code") {
     return [
-      { id: "default", model: "", label: "Claude Code 默认" },
-      { id: "claude-opus-4-7", model: "claude-opus-4-7", label: "Claude Opus 4.7" },
-      { id: "claude-sonnet-4-6", model: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
-      { id: "opus", model: "opus", label: "Opus alias" },
-      { id: "sonnet", model: "sonnet", label: "Sonnet alias" }
+      { id: "default", provider: "claude-code", providerLabel: "Claude Code", model: "", label: "Claude Code 默认" },
+      { id: "claude-opus-4-7", provider: "claude-code", providerLabel: "Claude Code", model: "claude-opus-4-7", label: "Claude Opus 4.7" },
+      { id: "claude-sonnet-4-6", provider: "claude-code", providerLabel: "Claude Code", model: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
+      { id: "opus", provider: "claude-code", providerLabel: "Claude Code", model: "opus", label: "Opus alias" },
+      { id: "sonnet", provider: "claude-code", providerLabel: "Claude Code", model: "sonnet", label: "Sonnet alias" },
+      ...fallbackMiaModelEntries()
     ];
   }
   if (engine === "codex") {
     return [
-      { id: "default", model: "", label: "Codex 默认" },
-      { id: "gpt-5.3-codex-spark", model: "gpt-5.3-codex-spark", label: "GPT-5.3 Codex Spark" },
-      { id: "gpt-5.3-codex", model: "gpt-5.3-codex", label: "GPT-5.3 Codex" },
-      { id: "gpt-5.2", model: "gpt-5.2", label: "GPT-5.2" }
+      { id: "default", provider: "codex", providerLabel: "Codex CLI", model: "", label: "Codex 默认" },
+      { id: "gpt-5.3-codex-spark", provider: "codex", providerLabel: "Codex CLI", model: "gpt-5.3-codex-spark", label: "GPT-5.3 Codex Spark" },
+      { id: "gpt-5.3-codex", provider: "codex", providerLabel: "Codex CLI", model: "gpt-5.3-codex", label: "GPT-5.3 Codex" },
+      { id: "gpt-5.2", provider: "codex", providerLabel: "Codex CLI", model: "gpt-5.2", label: "GPT-5.2" },
+      ...fallbackMiaModelEntries()
+    ];
+  }
+  if (engine === "openclaw") {
+    return [
+      { id: "default", provider: "openclaw", providerLabel: "OpenClaw", model: "", label: "OpenClaw 默认" }
     ];
   }
   return [];
-});
+};
+function externalModelEntries(value) {
+  if (engineContracts.externalModelEntries) {
+    return engineContracts.externalModelEntries(value, { platformModels: state?.platformModels });
+  }
+  return fallbackExternalModelEntries(value);
+}
 const effortOptions = engineContracts.effortOptions || ((value) => {
   const engine = normalizeAgentEngine(value);
   const labels = { minimal: "Minimal", low: "Low", medium: "Medium", high: "High", xhigh: "Extra high", max: "Max" };
   const levels = engine === "claude-code"
     ? ["low", "medium", "high", "xhigh", "max"]
-    : engine === "codex"
+    : (engine === "codex" || engine === "openclaw")
       ? ["minimal", "low", "medium", "high", "xhigh"]
       : ["low", "medium", "high"];
   return levels.map((level) => ({ value: level, label: labels[level] || level }));
@@ -64,7 +99,7 @@ const externalPermissionOptions = engineContracts.externalPermissionOptions || (
       { value: "bypassPermissions", label: "Bypass Permissions" }
     ];
   }
-  if (engine === "codex") {
+  if (engine === "codex" || engine === "openclaw") {
     return [
       { value: "default", label: "Ask" },
       { value: "acceptEdits", label: "Edits" },
@@ -473,6 +508,7 @@ function renderUserAvatar() {
 function providerIconSrc(provider = "") {
   const id = String(provider || "").trim().toLowerCase().replace(/[^a-z0-9_.-]+/g, "-");
   if (!id || id === "custom") return "";
+  if (id === "mia") return "./assets/mia-logo.png";
   return `./assets/provider-icons/${id}.svg`;
 }
 
@@ -501,6 +537,7 @@ function modelIconSrc(model = {}) {
     [/mimo/, "mimo.svg"],
     [/nvidia|nemotron/, "nvidia.png"],
     [/copilot/, "copilot.png"],
+    [/mia-default|mia /, "../mia-logo.png"],
     [/hermes|nous|mia-default/, "nousresearch.png"],
     [/hugging/, "huggingface.png"],
     [/glm|zai|zhipu/, "zhipu.png"],
@@ -1349,8 +1386,12 @@ function normalizePlatformModel(model = {}) {
   return {
     value: id,
     label: String(model.label || model.name || id).trim(),
-    provider: String(model.provider || "").trim(),
-    model: String(model.model || model.upstreamModel || model.upstream_model || id).trim()
+    provider: "mia",
+    providerLabel: "Mia",
+    model: id,
+    authType: "mia_account",
+    modelProfileId: `mia:${id}`,
+    upstreamModel: String(model.upstreamModel || model.upstream_model || model.model || "").trim()
   };
 }
 
@@ -1395,15 +1436,26 @@ function selectEntriesForModel(engine, runtimeKind, config = {}) {
       model: String(entry.model || entry.value || entry.id || ""),
       label: String(entry.label || entry.model || entry.value || entry.id || "Default"),
       provider: String(entry.provider || ""),
-      providerLabel: String(entry.providerLabel || entry.provider_label || "")
+      providerLabel: String(entry.providerLabel || entry.provider_label || ""),
+      authType: String(entry.authType || entry.auth_type || ""),
+      modelProfileId: String(entry.modelProfileId || entry.model_profile_id || entry.profileId || entry.profile_id || ""),
+      apiKeyEnv: String(entry.apiKeyEnv || entry.api_key_env || ""),
+      baseUrl: String(entry.baseUrl || entry.base_url || ""),
+      apiMode: String(entry.apiMode || entry.api_mode || "")
     })).filter((entry) => entry.value || entry.model);
   }
-  if (runtimeKind === "desktop-local" && (engine === "claude-code" || engine === "codex")) {
+  if (runtimeKind === "desktop-local" && (engine === "claude-code" || engine === "codex" || engine === "openclaw")) {
     return externalModelEntries(engine).map((entry) => ({
       value: entry.model || entry.id,
       model: entry.model,
       label: entry.label || entry.model || entry.id,
-      provider: entry.provider || (engine === "codex" ? "openai-codex" : "anthropic")
+      provider: entry.provider || (engine === "codex" ? "openai-codex" : engine === "claude-code" ? "anthropic" : "openclaw"),
+      providerLabel: entry.providerLabel || entry.provider_label || "",
+      authType: entry.authType || entry.auth_type || "",
+      modelProfileId: entry.modelProfileId || entry.model_profile_id || "",
+      apiKeyEnv: entry.apiKeyEnv || entry.api_key_env || "",
+      baseUrl: entry.baseUrl || entry.base_url || "",
+      apiMode: entry.apiMode || entry.api_mode || ""
     }));
   }
   if (runtimeKind === "desktop-local" && config.model) {
@@ -1412,7 +1464,7 @@ function selectEntriesForModel(engine, runtimeKind, config = {}) {
   if (runtimeKind === "cloud-hermes" || engine === "hermes") {
     return state.platformModels.length
       ? state.platformModels
-      : [{ value: "mia-default", label: "Mia Default" }];
+      : [{ value: "mia-default", label: "Mia Default", provider: "mia", providerLabel: "Mia", model: "mia-default", authType: "mia_account", modelProfileId: "mia:mia-default" }];
   }
   return externalModelEntries(engine).map((entry) => ({
     value: entry.id,
@@ -1423,7 +1475,7 @@ function selectEntriesForModel(engine, runtimeKind, config = {}) {
 }
 
 function selectEntriesForPermission(engine, runtimeKind) {
-  if (runtimeKind === "desktop-local" && (engine === "claude-code" || engine === "codex")) {
+  if (runtimeKind === "desktop-local" && (engine === "claude-code" || engine === "codex" || engine === "openclaw")) {
     return externalPermissionOptions(engine);
   }
   if (runtimeKind === "desktop-local") {
@@ -1481,7 +1533,10 @@ function renderComposerControls(conversation = null) {
   const editable = Boolean(botKey);
 
   const cloudModelEntries = selectEntriesForModel(engine, runtimeKind, config);
-  const modelValue = config.model || (runtimeKind === "desktop-local" && (engine === "claude-code" || engine === "codex") ? "default" : cloudModelEntries[0]?.value || "mia-default");
+  const isDesktopExternal = runtimeKind === "desktop-local" && (engine === "claude-code" || engine === "codex" || engine === "openclaw");
+  const modelValue = config.provider === "mia" && config.model
+    ? (cloudModelEntries.find((entry) => entry.provider === "mia" && entry.model === config.model)?.value || config.model)
+    : (config.model || (isDesktopExternal ? "default" : cloudModelEntries[0]?.value || "mia-default"));
   const modelLabel = setSelectOptions(els.quickModelSelect, cloudModelEntries, modelValue, config.model || "Default");
   const selectedModelEntry = cloudModelEntries.find((entry) => String(entry.value) === String(els.quickModelSelect?.value || modelValue))
     || cloudModelEntries.find((entry) => String(entry.model) === String(config.model || ""))
@@ -1493,7 +1548,7 @@ function renderComposerControls(conversation = null) {
   const effortLabel = setSelectOptions(els.effortSelect, effortOptions(engine), effort, "Medium");
   if (els.effortLabel) els.effortLabel.textContent = effortLabel || "Medium";
 
-  const permission = config.permissionMode || (runtimeKind === "desktop-local" && (engine === "claude-code" || engine === "codex") ? "default" : "ask");
+  const permission = config.permissionMode || (isDesktopExternal ? "default" : "ask");
   const permissionLabel = setSelectOptions(els.permissionMode, selectEntriesForPermission(engine, runtimeKind), permission, "Ask");
   if (els.permissionLabel) els.permissionLabel.textContent = permissionLabel || "Ask";
   const permissionWrap = els.permissionMode?.closest?.(".permission-switcher");
@@ -2405,27 +2460,13 @@ async function sendInActive() {
 let _createBotModal = null;
 let _avatarCropModal = null;
 
-function webSlugFromBotName(name) {
-  return String(name || "bot")
-    .trim()
-    .toLowerCase()
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .slice(0, 48) || "bot";
-}
-
-function cloudBotKeyFromName(name, existingKeys = []) {
+function generateUntypedBotId(existingKeys = []) {
   const used = new Set(existingKeys.map((key) => String(key || "").trim()).filter(Boolean));
-  const base = webSlugFromBotName(name);
-  let key = base;
-  let index = 2;
-  while (used.has(key)) {
-    key = `${base}_${index}`;
-    index += 1;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const id = String(window.miaIds?.generatePrincipalId?.() || "").trim();
+    if (id && !used.has(id)) return id;
   }
-  return key;
+  throw new Error("无法生成智能体账号 ID。");
 }
 
 function webBotDefaultDraft() {
@@ -2434,6 +2475,7 @@ function webBotDefaultDraft() {
     personaText: "",
     avatarImage: "",
     avatarCrop: null,
+    runtimeTargetValue: webRuntimeTargetValue({ runtimeKind: "cloud-hermes", agentEngine: "hermes" }),
     saving: false
   };
 }
@@ -2578,10 +2620,134 @@ function openWebAvatarCropEditor({ draft, root, image, crop }) {
   render();
 }
 
-async function saveCloudOnlyBotFromWeb(draft) {
+function webRuntimeTargetValue(target = {}) {
+  return JSON.stringify({
+    runtimeKind: target.runtimeKind === "desktop-local" ? "desktop-local" : "cloud-hermes",
+    deviceId: String(target.deviceId || target.targetDeviceId || "").trim(),
+    deviceName: String(target.deviceName || target.targetDeviceName || "").trim(),
+    agentEngine: normalizeAgentEngine(target.agentEngine || "hermes")
+  });
+}
+
+function parseWebRuntimeTarget(value = "") {
+  try {
+    const parsed = JSON.parse(String(value || ""));
+    const runtimeKind = parsed.runtimeKind === "desktop-local" ? "desktop-local" : "cloud-hermes";
+    return {
+      runtimeKind,
+      deviceId: runtimeKind === "desktop-local" ? String(parsed.deviceId || "").trim() : "",
+      deviceName: runtimeKind === "desktop-local" ? String(parsed.deviceName || "").trim() : "Mia Cloud",
+      agentEngine: runtimeKind === "desktop-local" ? normalizeAgentEngine(parsed.agentEngine || "hermes") : "hermes"
+    };
+  } catch {
+    return { runtimeKind: "cloud-hermes", deviceId: "", deviceName: "Mia Cloud", agentEngine: "hermes" };
+  }
+}
+
+function webDeviceEngineIds(device = {}) {
+  const advertised = Array.isArray(device.capabilities?.engines)
+    ? device.capabilities.engines.map((id) => String(id || "").trim()).filter(Boolean)
+    : [];
+  const supported = advertised.map(normalizeAgentEngine)
+    .filter((id) => ["hermes", "claude-code", "codex", "openclaw"].includes(id));
+  if (supported.length) return [...new Set(supported)];
+  const engine = String(device.engine || "").trim();
+  return ["hermes", "claude-code", "codex", "openclaw"].includes(engine) ? [engine] : [];
+}
+
+function webDeviceStatusLabel(device = {}) {
+  if (device.status === "online") return "在线";
+  if (device.status === "offline") return "离线";
+  return "在线";
+}
+
+function webCompactDeviceName(value = "") {
+  return String(value || "")
+    .trim()
+    .replace(/\s*(?:·|-)?\s*Mia\s+(?:Desktop|Bridge)(?=\s*(?:·|-|$))/gi, "")
+    .replace(/\.local(?=\s|$)/gi, "")
+    .replace(/\s*(?:·|-)\s*(?:本机|在线|离线)\s*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function webRuntimeDeviceDisplayName(device = {}) {
+  return webCompactDeviceName(device.deviceName || device.device_name || device.name || "") || String(device.id || "").trim() || "设备";
+}
+
+function webRuntimeDeviceGroupLabel(device = {}) {
+  const name = webRuntimeDeviceDisplayName(device);
+  const status = webDeviceStatusLabel(device);
+  return status && status !== name ? `${name} · ${status}` : name;
+}
+
+function webRuntimeTargetGroups() {
+  const groups = [{
+    label: "Mia Cloud",
+    options: [{
+      runtimeKind: "cloud-hermes",
+      deviceId: "",
+      deviceName: "Mia Cloud",
+      agentEngine: "hermes",
+      label: "Hermes"
+    }]
+  }];
+  for (const device of state.bridgeDevices || []) {
+    const deviceName = webRuntimeDeviceDisplayName(device);
+    const options = webDeviceEngineIds(device).map((engine) => ({
+      runtimeKind: "desktop-local",
+      deviceId: String(device.id || "").trim(),
+      deviceName,
+      agentEngine: engine,
+      label: engineLabel(engine)
+    }));
+    if (!options.length) continue;
+    groups.push({ label: webRuntimeDeviceGroupLabel(device), options });
+  }
+  return groups;
+}
+
+function webRuntimeTargetOptionsHtml(selectedValue = "") {
+  return webRuntimeTargetGroups().map((group) => `
+    <optgroup label="${escapeHtml(group.label)}">
+      ${group.options.map((option) => {
+        const value = webRuntimeTargetValue(option);
+        return `<option value="${escapeHtml(value)}"${value === selectedValue ? " selected" : ""}>${escapeHtml(option.label)}</option>`;
+      }).join("")}
+    </optgroup>
+  `).join("");
+}
+
+function webRuntimeConfigForTarget(target = {}) {
+  if (target.runtimeKind === "cloud-hermes") {
+    return {
+      model: state.platformModels[0]?.value || "mia-default",
+      effortLevel: "medium",
+      permissionMode: "ask"
+    };
+  }
+  const engine = normalizeAgentEngine(target.agentEngine || "hermes");
+  return {
+    agentEngine: engine,
+    deviceId: String(target.deviceId || "").trim(),
+    deviceName: webCompactDeviceName(target.deviceName || ""),
+    model: "",
+    effortLevel: "medium",
+    permissionMode: engine === "hermes" ? "ask" : "default"
+  };
+}
+
+function webRuntimeLabelForTarget(target = {}) {
+  return target.runtimeKind === "cloud-hermes" ? "Mia Cloud" : (webCompactDeviceName(target.deviceName || "") || "桌面设备");
+}
+
+async function saveBotFromWeb(draft) {
   const name = String(draft.name || "").trim();
   if (!name) throw new Error("请输入智能体名称。");
-  const key = cloudBotKeyFromName(name, state.bots.map((bot) => bot.id || bot.key));
+  const target = parseWebRuntimeTarget(draft.runtimeTargetValue);
+  const runtimeKind = target.runtimeKind;
+  const runtimeConfig = webRuntimeConfigForTarget(target);
+  const key = generateUntypedBotId(state.bots.map((bot) => bot.id || bot.key));
   const identity = {
     name,
     color: "#2563eb",
@@ -2598,13 +2764,10 @@ async function saveCloudOnlyBotFromWeb(draft) {
   const runtime = await api(`/api/me/bots/${encodeURIComponent(key)}/runtime`, {
     method: "PUT",
     body: {
-      runtimeKind: "cloud-hermes",
+      runtimeKind,
       enabled: true,
-      config: {
-        model: state.platformModels[0]?.value || "mia-default",
-        effortLevel: "medium",
-        permissionMode: "ask"
-      }
+      activate: true,
+      config: runtimeConfig
     }
   });
   const ensured = await api(`/api/me/bot-conversations/${encodeURIComponent(key)}`, {
@@ -2612,12 +2775,24 @@ async function saveCloudOnlyBotFromWeb(draft) {
     body: {
       botId: key,
       title: name,
-      runtimeKind: "cloud-hermes"
+      runtimeKind
     }
   });
-  const bot = { ...(saved.bot || identity), key, id: key };
+  const binding = runtime.binding || { botId: key, runtimeKind, enabled: true, config: runtimeConfig };
+  const bindingConfig = binding.config || runtimeConfig;
+  const bot = {
+    ...(saved.bot || identity),
+    key,
+    id: key,
+    runtimeKind: binding.runtimeKind || runtimeKind,
+    runtimeConfig: bindingConfig,
+    agentEngine: (binding.runtimeKind || runtimeKind) === "cloud-hermes" ? "hermes" : (bindingConfig.agentEngine || target.agentEngine),
+    targetDeviceId: bindingConfig.deviceId || "",
+    targetDeviceName: bindingConfig.deviceName || "",
+    runtimeLabel: webRuntimeLabelForTarget(target)
+  };
   state.bots = [bot, ...state.bots.filter((item) => String(item.id || item.key || "") !== key)];
-  if (runtime.binding) state.botRuntimeCache.set(runtimeCacheKey(key, "cloud-hermes"), runtime.binding);
+  if (runtime.binding) state.botRuntimeCache.set(runtimeCacheKey(key, bot.runtimeKind), runtime.binding);
   if (ensured.conversation) {
     state.conversations = [ensured.conversation, ...state.conversations.filter((conversation) => conversation.id !== ensured.conversation.id)];
     if (Array.isArray(ensured.members)) state.conversationMembersCache.set(ensured.conversation.id, ensured.members);
@@ -2662,11 +2837,10 @@ function openCreateBotDialog() {
           <input id="webBotName" autocomplete="off" value="${escapeHtml(draft.name)}">
         </label>
         <label>
-          运行位置
-          <div class="web-bot-runtime-fixed">
-            <span class="web-bot-runtime-logo" aria-hidden="true">M</span>
-            <strong>Mia Cloud</strong>
-          </div>
+          运行位置和 Agent 内核
+          <select id="webBotRuntimeTarget" class="web-bot-runtime-select">
+            ${webRuntimeTargetOptionsHtml(draft.runtimeTargetValue)}
+          </select>
         </label>
         <section class="avatar-picker">
           <div id="webBotAvatarPreview" class="avatar-crop-preview" role="button" tabindex="0" aria-label="调整头像"></div>
@@ -2696,10 +2870,12 @@ function openCreateBotDialog() {
     renderWebBotAvatarDefaults(_createBotModal, draft);
     const nameInput = _createBotModal.querySelector("#webBotName");
     const seedInput = _createBotModal.querySelector("#webBotSeed");
+    const runtimeSelect = _createBotModal.querySelector("#webBotRuntimeTarget");
     const fileInput = _createBotModal.querySelector("#webBotAvatarFile");
     const drop = _createBotModal.querySelector("#webBotAvatarDrop");
     nameInput?.addEventListener("input", () => { draft.name = nameInput.value; });
     seedInput?.addEventListener("input", () => { draft.personaText = seedInput.value; });
+    runtimeSelect?.addEventListener("change", () => { draft.runtimeTargetValue = runtimeSelect.value; });
     _createBotModal.querySelector('[data-action="close"]')?.addEventListener("click", close);
     _createBotModal.querySelector("#webChooseBotAvatar")?.addEventListener("click", () => fileInput?.click());
     _createBotModal.querySelector("#webBotAvatarPreview")?.addEventListener("click", () => {
@@ -2731,7 +2907,7 @@ function openCreateBotDialog() {
       draft.saving = true;
       render();
       try {
-        const saved = await saveCloudOnlyBotFromWeb(draft);
+        const saved = await saveBotFromWeb(draft);
         close();
         renderConversationList();
         if (saved.conversation?.id) setActiveConversation(saved.conversation.id);

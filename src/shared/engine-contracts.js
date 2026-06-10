@@ -6,8 +6,10 @@
   const EngineId = Object.freeze({
     Hermes: "hermes",
     ClaudeCode: "claude-code",
-    Codex: "codex"
+    Codex: "codex",
+    OpenClaw: "openclaw"
   });
+  const MiaProviderId = "mia";
 
   const CHAT_ENGINE_ADAPTERS = Object.freeze({
     [EngineId.Hermes]: Object.freeze({
@@ -35,6 +37,17 @@
       cliCommand: "codex",
       usesRuntime: false,
       usesSdkPromptPrefix: true
+    }),
+    [EngineId.OpenClaw]: Object.freeze({
+      id: EngineId.OpenClaw,
+      label: "OpenClaw",
+      responseModel: "openclaw-acp",
+      transport: "acp-backend",
+      agentType: "acp",
+      backend: "openclaw",
+      cliCommand: "openclaw",
+      usesRuntime: true,
+      usesSdkPromptPrefix: false
     })
   });
 
@@ -52,6 +65,10 @@
     { id: "gpt-5.2", provider: EngineId.Codex, providerLabel: "Codex CLI", model: "gpt-5.2", label: "GPT-5.2" }
   ]);
 
+  const OPENCLAW_MODEL_ENTRIES = Object.freeze([
+    { id: "default", provider: EngineId.OpenClaw, providerLabel: "OpenClaw", model: "", label: "OpenClaw 默认" }
+  ]);
+
   const CLAUDE_PERMISSION_OPTIONS = Object.freeze([
     { value: "default", label: "Ask Permissions", title: "Claude Code 默认权限，危险操作会询问。" },
     { value: "acceptEdits", label: "Accept Edits", title: "Claude Code 自动接受文件编辑，其他危险操作仍按规则处理。" },
@@ -67,6 +84,13 @@
     { value: "bypassPermissions", label: "YOLO", title: "Codex danger-full-access + never。" }
   ]);
 
+  const OPENCLAW_PERMISSION_OPTIONS = Object.freeze([
+    { value: "default", label: "Ask", title: "OpenClaw 默认 workspace-write + untrusted。" },
+    { value: "acceptEdits", label: "Edits", title: "OpenClaw workspace-write + on-request。" },
+    { value: "readOnly", label: "Read", title: "OpenClaw 只读模式。" },
+    { value: "bypassPermissions", label: "YOLO", title: "OpenClaw danger-full-access + never。" }
+  ]);
+
   const DEFAULT_EFFORT_LABELS = Object.freeze({
     minimal: "Minimal",
     low: "Low",
@@ -80,6 +104,7 @@
     const id = String(value || EngineId.Hermes).trim().toLowerCase().replace(/_/g, "-");
     if (id === "claude" || id === EngineId.ClaudeCode) return EngineId.ClaudeCode;
     if (id === EngineId.Codex || id === "openai-codex") return EngineId.Codex;
+    if (id === EngineId.OpenClaw || id === "open-claw") return EngineId.OpenClaw;
     return EngineId.Hermes;
   }
 
@@ -97,12 +122,46 @@
 
   function isExternalEngine(value) {
     const engine = normalizeAgentEngine(value);
-    return engine === EngineId.ClaudeCode || engine === EngineId.Codex;
+    return engine === EngineId.ClaudeCode || engine === EngineId.Codex || engine === EngineId.OpenClaw;
+  }
+
+  function normalizePlatformModelEntry(entry = {}) {
+    const id = String(entry.id || entry.value || entry.model_name || entry.model || "").trim();
+    if (!id) return null;
+    return {
+      id,
+      provider: MiaProviderId,
+      providerLabel: "Mia",
+      model: id,
+      label: String(entry.label || entry.name || entry.displayName || id).trim() || id,
+      authType: "mia_account",
+      modelProfileId: `mia:${id}`,
+      upstreamModel: String(entry.upstreamModel || entry.upstream_model || "").trim()
+    };
+  }
+
+  function miaModelEntries(options = {}) {
+    const platformModels = Array.isArray(options.platformModels) ? options.platformModels : [];
+    const entries = platformModels.map(normalizePlatformModelEntry).filter(Boolean);
+    return entries.length
+      ? entries
+      : [{
+        id: "mia-default",
+        provider: MiaProviderId,
+        providerLabel: "Mia",
+        model: "mia-default",
+        label: "Mia Default",
+        authType: "mia_account",
+        modelProfileId: "mia:mia-default",
+        upstreamModel: ""
+      }];
   }
 
   function externalModelEntries(value, options = {}) {
     const engine = normalizeAgentEngine(value);
-    if (engine === EngineId.ClaudeCode) return cloneEntries(CLAUDE_MODEL_ENTRIES);
+    const miaEntries = miaModelEntries(options);
+    if (engine === EngineId.ClaudeCode) return [...cloneEntries(CLAUDE_MODEL_ENTRIES), ...miaEntries];
+    if (engine === EngineId.OpenClaw) return cloneEntries(OPENCLAW_MODEL_ENTRIES);
     if (engine !== EngineId.Codex) return [];
 
     const entries = [{ id: "default", provider: EngineId.Codex, providerLabel: "Codex CLI", model: "", label: "Codex 默认" }];
@@ -118,15 +177,16 @@
           label: model.displayName || model.slug
         });
       }
-      return entries;
+      return [...entries, ...miaEntries];
     }
-    return [...entries, ...cloneEntries(CODEX_FALLBACK_MODEL_ENTRIES)];
+    return [...entries, ...cloneEntries(CODEX_FALLBACK_MODEL_ENTRIES), ...miaEntries];
   }
 
   function externalPermissionOptions(value) {
     const engine = normalizeAgentEngine(value);
     if (engine === EngineId.ClaudeCode) return cloneEntries(CLAUDE_PERMISSION_OPTIONS);
     if (engine === EngineId.Codex) return cloneEntries(CODEX_PERMISSION_OPTIONS);
+    if (engine === EngineId.OpenClaw) return cloneEntries(OPENCLAW_PERMISSION_OPTIONS);
     return [];
   }
 
@@ -135,7 +195,7 @@
     const labels = options.effortLabels || DEFAULT_EFFORT_LABELS;
     let levels = [];
     if (engine === EngineId.ClaudeCode) levels = ["low", "medium", "high", "xhigh", "max"];
-    else if (engine === EngineId.Codex) levels = ["minimal", "low", "medium", "high", "xhigh"];
+    else if (engine === EngineId.Codex || engine === EngineId.OpenClaw) levels = ["minimal", "low", "medium", "high", "xhigh"];
     else {
       levels = (Array.isArray(options.effortLevels) && options.effortLevels.length)
         ? options.effortLevels
@@ -146,11 +206,13 @@
 
   return Object.freeze({
     EngineId,
+    MiaProviderId,
     CHAT_ENGINE_ADAPTERS,
     normalizeAgentEngine,
     adapterForEngine,
     engineLabel,
     isExternalEngine,
+    miaModelEntries,
     externalModelEntries,
     externalPermissionOptions,
     effortOptions

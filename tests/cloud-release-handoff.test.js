@@ -234,6 +234,7 @@ test("buildHandoff prints operator commands from release artifacts", () => {
     assert.match(handoff, /MIA_SMOKE_EXPECT_RELEASE_COMMIT='abcdef123456'/);
     assert.match(handoff, /MIA_SMOKE_EXPECT_RELEASE_BUILT_AT='2026-05-21T01:02:03\.000Z'/);
     assert.match(handoff, /node mia-cloud-release\/smoke-cloud\.js 'https:\/\/mia\.gifgif\.cn'/);
+    assert.match(handoff, /curl -fsS 'https:\/\/mia\.gifgif\.cn\/5a371047c22c89872f93f00c7d8af123\.txt' \| grep -qxF '24dd5141e8f881adf83372da5cd9d6f1f60f2b32'/);
     assert.match(handoff, /After a desktop bridge is logged into the same dedicated smoke account/);
     assert.match(handoff, /mia-cloud-release\/prepare-cloud-smoke-account\.js mia-cloud-release\/smoke-cloud\.js/);
     assert.match(handoff, /node mia-cloud-release\/prepare-cloud-smoke-account\.js 'https:\/\/mia\.gifgif\.cn'/);
@@ -317,6 +318,7 @@ test("writeTransferBundle packages release, checksum, and handoff into one tarba
     assert.match(readme, /MIA_TRANSFER_VERIFY_ONLY=1 bash install-transfer-bundle\.sh/);
     assert.match(readme, /bash install-transfer-bundle\.sh/);
     assert.match(readme, /MIA_DOCTOR_EXPECT_RELEASE_COMMIT='abcdef123456'/);
+    assert.match(readme, /curl -fsS 'https:\/\/mia\.gifgif\.cn\/5a371047c22c89872f93f00c7d8af123\.txt' \| grep -qxF '24dd5141e8f881adf83372da5cd9d6f1f60f2b32'/);
     assert.match(readme, /prepare-cloud-smoke-account\.js mia-cloud-release\/smoke-cloud\.js/);
     assert.match(readme, /node mia-cloud-release\/prepare-cloud-smoke-account\.js 'https:\/\/mia\.gifgif\.cn'/);
     assert.match(readme, /MIA_SMOKE_REQUIRE_BRIDGE=1/);

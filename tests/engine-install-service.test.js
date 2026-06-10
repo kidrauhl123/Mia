@@ -1,4 +1,6 @@
 const assert = require("node:assert/strict");
+const { EventEmitter } = require("node:events");
+const { PassThrough } = require("node:stream");
 const { test } = require("node:test");
 
 const { createEngineInstallService } = require("../src/main/engine-install-service.js");
@@ -10,6 +12,21 @@ function dashCResult(args) {
   if (body.includes("version_info")) return { status: 0, stdout: "3.11.8\n", stderr: "" };
   if (body.includes("sysconfig")) return { status: 0, stdout: "/home/test/Library/Python/3.11/bin\n", stderr: "" };
   return { status: 0, stdout: "import OK\n", stderr: "" };
+}
+
+function fakeSpawnResult({ code = 0, stdout = "", stderr = "" } = {}) {
+  const child = new EventEmitter();
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  child.kill = () => child.emit("close", null);
+  process.nextTick(() => {
+    if (stdout) child.stdout.write(stdout);
+    if (stderr) child.stderr.write(stderr);
+    child.stdout.end();
+    child.stderr.end();
+    child.emit("close", code);
+  });
+  return child;
 }
 
 function setup(t, overrides = {}) {
@@ -156,6 +173,40 @@ test("installFromOfficialPackage falls back to the official index when the mirro
   assert.match(logs.join("\n"), /Hermes install via https:\/\/pypi\.tuna[^\s]* failed/);
 });
 
+test("installFromOfficialPackageAsync retries PEP 668 user installs with break-system-packages and reports progress", async (t) => {
+  const pipArgs = [];
+  const progress = [];
+  const { service } = setup(t, {
+    officialPython: "/opt/python3.11",
+    spawnSync: (_command, args) => {
+      if (args[0] === "-c") return dashCResult(args);
+      return { status: 0, stdout: "", stderr: "" };
+    },
+    spawn: (_command, args) => {
+      if (args[0] === "-m" && args[1] === "pip") {
+        pipArgs.push(args);
+        if (!args.includes("--break-system-packages")) {
+          return fakeSpawnResult({
+            code: 1,
+            stderr: "error: externally-managed-environment\nThis environment is externally managed\n"
+          });
+        }
+        return fakeSpawnResult({ stdout: "installed\n" });
+      }
+      if (args[0] === "-c") return fakeSpawnResult({ stdout: "import OK\n" });
+      return fakeSpawnResult();
+    }
+  });
+
+  const status = await service.installFromOfficialPackageAsync({ onProgress: (payload) => progress.push(payload) });
+
+  assert.equal(pipArgs.length, 2);
+  assert.equal(pipArgs[0].includes("--break-system-packages"), false);
+  assert.equal(pipArgs[1].includes("--break-system-packages"), true);
+  assert.match(progress.map((payload) => payload.message).join("\n"), /用户目录兼容模式/);
+  assert.deepEqual(status, { created: ["hermes"], engineInstalled: true });
+});
+
 test("installFromOfficialPackage fails when the installed runtime does not import (no false success)", (t) => {
   const { service } = setup(t, {
     officialPython: "/opt/python3.11",
@@ -226,7 +277,7 @@ test("installEngine routes npm engines to the China mirror registry, then falls 
   ]);
 });
 
-test("installEngine maps codex to its official npm package and rejects non-installable engines", (t) => {
+test("installEngine maps npm engines to their official packages and rejects unknown engines", (t) => {
   const installs = [];
   const { service } = setup(t, {
     shellCommandPath: () => "npm",
@@ -237,6 +288,7 @@ test("installEngine maps codex to its official npm package and rejects non-insta
   });
 
   service.installEngine("codex");
-  assert.deepEqual(installs, ["@openai/codex"]);
-  assert.throws(() => service.installEngine("openclaw"), /not installable/);
+  service.installEngine("openclaw");
+  assert.deepEqual(installs, ["@openai/codex", "openclaw"]);
+  assert.throws(() => service.installEngine("missing-engine"), /not installable/);
 });

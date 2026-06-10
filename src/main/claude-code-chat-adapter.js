@@ -35,6 +35,34 @@ function statelessPrompt(systemPrompt, userPrompt) {
   return systemPrompt ? `${systemPrompt}\n\n${userPrompt}` : userPrompt;
 }
 
+function anthropicGatewayBaseUrl(managedModel = {}) {
+  const explicit = String(managedModel.anthropicBaseUrl || managedModel.anthropic_base_url || "").trim();
+  const fallback = String(managedModel.baseUrl || managedModel.base_url || "").trim();
+  const value = explicit || fallback;
+  if (!value) return "";
+  return value.replace(/\/+$/, "").replace(/\/v1$/i, "");
+}
+
+function applyManagedClaudeModelEnv(baseEnv = {}, managedModel = {}) {
+  const model = String(managedModel.model || "").trim();
+  const apiKey = String(managedModel.apiKey || managedModel.api_key || "").trim();
+  const baseUrl = anthropicGatewayBaseUrl(managedModel);
+  if (!baseUrl && !apiKey && !model) return { ...baseEnv };
+  const env = { ...baseEnv };
+  if (baseUrl) {
+    env.ANTHROPIC_BASE_URL = baseUrl;
+    env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY = env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY || "1";
+  }
+  if (apiKey) env.ANTHROPIC_AUTH_TOKEN = apiKey;
+  if (model) {
+    env.ANTHROPIC_MODEL = model;
+    env.ANTHROPIC_CUSTOM_MODEL_OPTION = model;
+    env.ANTHROPIC_CUSTOM_MODEL_OPTION_NAME = env.ANTHROPIC_CUSTOM_MODEL_OPTION_NAME || "Mia";
+    env.ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION = env.ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION || "Mia managed model";
+  }
+  return env;
+}
+
 function stoppedError() {
   const stopped = new Error("生成已停止");
   stopped.code = "MIA_STOPPED";
@@ -74,6 +102,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
   const getMiaAppMcpSpec = deps.getMiaAppMcpSpec || (() => null);
   const getSchedulerMcpSpec = requireDependency(deps, "getSchedulerMcpSpec");
   const writeSchedulerMcpContext = requireDependency(deps, "writeSchedulerMcpContext");
+  const resolveManagedModelRuntime = deps.resolveManagedModelRuntime || (() => null);
   const permissionCoordinator = deps.permissionCoordinator || null;
   const randomUUID = deps.randomUUID || (() => crypto.randomUUID());
   const cwd = deps.cwd || (() => process.cwd());
@@ -124,6 +153,9 @@ function createClaudeCodeChatAdapter(deps = {}) {
     const miaAppMcpSpec = (() => {
       try { return getMiaAppMcpSpec({ botId: bot.key, sessionId, originMessageId }); } catch { return null; }
     })();
+    const managedModel = resolveManagedModelRuntime(bot.engineConfig || {}, { engine, bot });
+    const selectedModel = String(managedModel?.model || bot.engineConfig?.model || "").trim();
+    const env = applyManagedClaudeModelEnv(processEnvStrings(), managedModel || {});
     const mcpServers = {
       ...(miaAppMcpSpec ? { "mia-app": miaAppMcpSpec } : {}),
       ...(schedulerMcpSpec ? { "mia-scheduler": schedulerMcpSpec } : {})
@@ -132,7 +164,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
       abortController,
       cwd: cwd(),
       pathToClaudeCodeExecutable: commandPath,
-      env: processEnvStrings(),
+      env,
       tools: { type: "preset", preset: "claude_code" },
       settingSources: ["project", "user", "local"],
       permissionMode: normalizeClaudePermissionMode(bot.engineConfig?.permissionMode || bot.agentPermissionMode || "default"),
@@ -146,7 +178,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
       ...(Object.keys(mcpServers).length ? { mcpServers } : {})
     };
     if (externalSessionId) options.resume = externalSessionId;
-    if (bot.engineConfig?.model) options.model = String(bot.engineConfig.model);
+    if (selectedModel) options.model = selectedModel;
     options.effort = normalizeEffortLevel(bot.engineConfig?.effortLevel || "medium", "claude-code");
     if (options.permissionMode === "bypassPermissions") options.allowDangerouslySkipPermissions = true;
     if (permissionCoordinator && options.permissionMode !== "bypassPermissions") {

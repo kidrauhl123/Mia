@@ -4,6 +4,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { DatabaseSync } = require("node:sqlite");
 const { normalizeStatusBadge } = require("../shared/identity.js");
+const { generatePrincipalId, publicIdFromConversationId } = require("../shared/ids.js");
 
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
 const MAX_IMAGE_BYTES = 18 * 1024 * 1024;
@@ -101,8 +102,8 @@ function defaultWorkspace(user, now = nowIso, id = randomId) {
       }]
     }],
     contacts: [
-      { id: "contact_mia", title: "Mia", meta: "默认 Bot", avatar: "./assets/avatar-01.png", status: "可用", note: "负责日常对话、信息整理和轻量任务推进。" },
-      { id: "contact_codex", title: "Codex", meta: "代码与自动化", avatar: "./assets/avatar-08.png", status: "本地桥接待接入", note: "通过桌面端 Bridge 调用本机 Codex / Claude Code / Hermes。" }
+      { id: "contact_mia", title: "Mia", meta: "智能体", avatar: "./assets/avatar-01.png", status: "可用", note: "负责日常对话、信息整理和轻量任务推进。" },
+      { id: "contact_codex", title: "Codex", meta: "代码与自动化", avatar: "./assets/avatar-08.png", status: "本地桥接待接入", note: "通过桌面端 Bridge 调用本机 Hermes / Claude Code / Codex / OpenClaw。" }
     ],
     skills: [
       { id: "skill_image", title: "图片生成", meta: "生成并同步图片附件", icon: "IMG", status: "已启用" },
@@ -308,7 +309,7 @@ function createCloudStore(options = {}) {
     if (!validateAccount(account)) throw new Error("用户名需要 2-64 个字符，不能包含空格。");
     if (!validatePassword(password)) throw new Error("密码至少 6 位。");
     if (getUserByAccount(account)) throw new Error("账号已存在，请直接登录。");
-    const userId = id("user");
+    const userId = generatePrincipalId(randomBytes);
     const salt = base64url(randomBytes(16));
     const createdAt = now();
     db.prepare(`
@@ -419,12 +420,28 @@ function createCloudStore(options = {}) {
     return rowToFile(db.prepare("SELECT * FROM files WHERE id = ? AND user_id = ?").get(String(fileId || ""), userId));
   }
 
-  function listBridgeDevices(userId) {
+  function listBridgeDevices(userId, options = {}) {
+    const includeOffline = Boolean(options.includeOffline || options.includeAll);
+    if (includeOffline) {
+      return db.prepare(`
+        SELECT * FROM bridge_devices
+        WHERE user_id = ?
+        ORDER BY status = 'online' DESC, last_seen_at DESC
+      `).all(userId).map(rowToDevice);
+    }
     return db.prepare(`
       SELECT * FROM bridge_devices
       WHERE user_id = ? AND status = 'online'
       ORDER BY last_seen_at DESC
     `).all(userId).map(rowToDevice);
+  }
+
+  function bridgeDeviceEngine(input = {}) {
+    const explicit = String(input.engine || "").trim().slice(0, 40);
+    const engines = Array.isArray(input.capabilities?.engines)
+      ? input.capabilities.engines.map((engine) => String(engine || "").trim()).filter(Boolean)
+      : [];
+    return explicit || engines.find((engine) => ["hermes", "claude-code", "codex", "openclaw"].includes(engine)) || "mia-desktop";
   }
 
   function upsertBridgeDevice(userId, input = {}) {
@@ -444,7 +461,7 @@ function createCloudStore(options = {}) {
       deviceId,
       userId,
       String(input.deviceName || "").trim().slice(0, 80) || "本机 Agent",
-      String(input.engine || "").trim().slice(0, 40) || "codex",
+      bridgeDeviceEngine(input),
       JSON.stringify(input.capabilities || {}),
       timestamp,
       timestamp
@@ -703,12 +720,13 @@ function migrate(db) {
 
     -- A "conversation" is the universal Conversation entity. type values:
     --   'dm'    — two-user direct message (id format dm:a:b)
-    --   'group' — multi-member conversation (id format g_<hex>)
+    --   'group' — multi-member conversation (internal id format g_<public_id>)
     --   'bot'   — a private chat with a globally identified bot.
     -- The type column is the canonical answer for "what kind of
     -- conversation is this"; id prefix is just a historical hint.
     CREATE TABLE IF NOT EXISTS conversations (
       id                TEXT PRIMARY KEY,
+      public_id         TEXT,
       type              TEXT NOT NULL DEFAULT 'group',
       name              TEXT,
       avatar            TEXT,
@@ -931,8 +949,19 @@ function migrate(db) {
     db.exec("UPDATE conversations SET type = 'dm' WHERE id LIKE 'dm:%'");
     db.exec("UPDATE conversations SET type = 'bot' WHERE id LIKE 'bot:%'");
   }
+  if (!hasColumn(db, "conversations", "public_id")) {
+    db.exec("ALTER TABLE conversations ADD COLUMN public_id TEXT");
+  }
+  for (const row of db.prepare("SELECT id FROM conversations WHERE type = 'group' AND (public_id IS NULL OR public_id = '') AND id LIKE 'g_%'").all()) {
+    const publicId = publicIdFromConversationId(row.id);
+    if (publicId) {
+      db.prepare("UPDATE conversations SET public_id = ? WHERE id = ? AND (public_id IS NULL OR public_id = '')")
+        .run(publicId, row.id);
+    }
+  }
   cleanupRetiredIdentityRows(db);
   db.exec("CREATE INDEX IF NOT EXISTS idx_conversations_type ON conversations(type)");
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_conversations_public_id ON conversations(public_id) WHERE public_id IS NOT NULL AND public_id <> ''");
   db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (1, ?)")
     .run(nowIso());
   db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (2, ?)")

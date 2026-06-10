@@ -10,6 +10,7 @@ const SIDEBAR_WIDTH_DEFAULT = 280;
 let skillPickerHoverCloseTimer = 0;
 let avatarTrimDrag = null;
 const botRuntimeControlCache = new Map();
+const botRuntimeControlInFlight = new Set();
 const platformModelCatalog = { loaded: false, loading: false, entries: [] };
 let socialBootstrapInFlight = null;
 const ICON_PARK_PIN_SVG = '<svg class="icon-park-pin" viewBox="0 0 48 48" aria-hidden="true" focusable="false"><path d="M10.6963 17.5042C13.3347 14.8657 16.4701 14.9387 19.8781 16.8076L32.62 9.74509L31.8989 4.78683L43.2126 16.1005L38.2656 15.3907L31.1918 28.1214C32.9752 31.7589 33.1337 34.6647 30.4953 37.3032C30.4953 37.3032 26.235 33.0429 22.7171 29.525L6.44305 41.5564L18.4382 25.2461C14.9202 21.7281 10.6963 17.5042 10.6963 17.5042Z"/></svg>';
@@ -89,6 +90,8 @@ const els = {
   engineRowCodex: document.getElementById("engineRowCodex"),
   engineRowOpenClaw: document.getElementById("engineRowOpenClaw"),
   engineRowHermesButton: document.querySelector('[data-engine-row="hermes"]'),
+  engineDetection: document.getElementById("engineDetection"),
+  engineInstallActions: document.getElementById("engineInstallActions"),
   personaSearch: document.getElementById("personaSearch"),
   personaCount: document.getElementById("personaCount"),
   botCreateMenu: document.getElementById("botCreateMenu"),
@@ -100,10 +103,8 @@ const els = {
   botDialogTitle: document.getElementById("botDialogTitle"),
   botKey: document.getElementById("botKey"),
   botName: document.getElementById("botName"),
-  botRuntimeLocationField: document.getElementById("botRuntimeLocationField"),
-  botRuntimeLocation: document.getElementById("botRuntimeLocation"),
-  botAgentEngineField: document.getElementById("botAgentEngineField"),
-  botAgentEngine: document.getElementById("botAgentEngine"),
+  botRuntimeTargetField: document.getElementById("botRuntimeTargetField"),
+  botRuntimeTarget: document.getElementById("botRuntimeTarget"),
   botAvatar: document.getElementById("botAvatar"),
   botAvatarFile: document.getElementById("botAvatarFile"),
   chooseBotAvatar: document.getElementById("chooseBotAvatar"),
@@ -528,6 +529,7 @@ const providerPresets = {
 };
 
 const providerLabels = {
+  mia: "Mia",
   nous: "Nous Portal",
   xai: "xAI",
   anthropic: "Anthropic",
@@ -1302,7 +1304,7 @@ function render() {
   if (!editingModel) updateModelFieldVisibility(runtime);
   if (els.quickModelSelect && document.activeElement !== els.quickModelSelect) {
     const engine = window.miaEngineOptions.activeAgentEngine();
-    const currentModelId = engine === "claude-code" || engine === "codex"
+    const currentModelId = window.miaEngineContracts?.isExternalEngine?.(engine) || engine === "claude-code" || engine === "codex" || engine === "openclaw"
       ? (window.miaEngineOptions.engineConfigForPersona().model || "default")
       : window.miaModelHelpers.presetKeyForModel(runtime.model);
     if ([...els.quickModelSelect.options].some((option) => option.value === currentModelId)) {
@@ -1318,14 +1320,18 @@ function render() {
     ? engineInfo.claudeCode?.available
     : engine === "codex"
       ? engineInfo.codex?.available
+      : engine === "openclaw"
+        ? engineInfo.openclaw?.available
       : false;
   setText(els.modelSwitchStatus, engine === "claude-code"
     ? (externalAvailable ? "Claude Code 本地" : "未检测到 Claude Code")
     : engine === "codex"
       ? (externalAvailable ? "Codex 本地" : "未检测到 Codex")
+      : engine === "openclaw"
+        ? (externalAvailable ? "OpenClaw 本地" : "未检测到 OpenClaw")
       : connectedEntries.length ? (runtime.engineRunning ? "已连接" : runtime.engineInstalled ? "未启动" : "未安装") : "先连接提供商");
   if (els.quickModelSelect) {
-    els.quickModelSelect.title = engine === "claude-code" || engine === "codex"
+    els.quickModelSelect.title = window.miaEngineContracts?.isExternalEngine?.(engine) || engine === "claude-code" || engine === "codex" || engine === "openclaw"
       ? `当前模型：${els.quickModelSelect.selectedOptions?.[0]?.textContent || "默认"}`
       : connectedEntries.length
         ? `当前模型：${window.miaModelHelpers.modelDisplayName(runtime.model)}`
@@ -1335,6 +1341,8 @@ function render() {
     ? window.miaModelHelpers.modelIconSrc({ provider: "anthropic", model: "claude" })
     : engine === "codex"
       ? window.miaModelHelpers.modelIconSrc({ provider: "openai-codex", model: "codex" })
+      : engine === "openclaw"
+        ? window.miaModelHelpers.modelIconSrc({ provider: "openclaw", model: "openclaw" })
       : connectedEntries.length
         ? window.miaModelHelpers.modelIconSrc(runtime.model || {})
         : "";
@@ -1683,8 +1691,9 @@ function detectedAgentLine(agent) {
     const parts = [agent.path || "已接入 Mia", shortAgentVersion(agent)].filter(Boolean);
     return parts.join(" · ");
   }
-  if (agent.installed && agent.detectionOnly) return "已检测到 · 暂未接入 Mia 聊天";
+  if (agent.installed && agent.detectionOnly) return "已就绪";
   if (agent.installed) return "已检测到 · 当前不可直接用于 Mia";
+  if (agent.installable) return "未检测到 · 可安装";
   return "未检测到";
 }
 
@@ -1731,6 +1740,48 @@ function hermesSetupAction(runtime = state.runtime) {
   return { action: "install-hermes", label: "安装官方 Hermes" };
 }
 
+function agentInstallLabel(agent) {
+  if (!agent) return "安装";
+  if (agent.id === "hermes") {
+    if (agent.health === "broken" || agent.installAction === "repair-hermes") return "修复官方 Hermes";
+    return "安装官方 Hermes";
+  }
+  return `安装 ${agent.label || agent.id}`;
+}
+
+function agentInstallAction(agent) {
+  if (!agent) return null;
+  if (agent.id === "hermes" && (agent.health === "broken" || agent.installAction === "repair-hermes")) {
+    return { action: "repair-hermes", label: agentInstallLabel(agent), engineId: "hermes" };
+  }
+  if (agent.usableInMia || agent.installed) return null;
+  if (agent.id === "hermes" && (agent.installable || agent.installAction)) {
+    const action = agent.health === "broken" || agent.installAction === "repair-hermes"
+      ? "repair-hermes"
+      : "install-hermes";
+    return { action, label: agentInstallLabel(agent), engineId: "hermes" };
+  }
+  if (agent.installable && agent.installAction) {
+    return { action: agent.installAction, label: agentInstallLabel(agent), engineId: agent.id };
+  }
+  return null;
+}
+
+function renderEngineInstallActions(runtime) {
+  if (!els.engineInstallActions) return;
+  const agents = runtime?.agentInventory?.agents || [];
+  const actions = agents
+    .map(agentInstallAction)
+    .filter(Boolean);
+  els.engineInstallActions.classList.toggle("hidden", actions.length === 0);
+  els.engineInstallActions.innerHTML = actions.map((entry) => `
+    <button class="engine-install-action" type="button"
+      data-engine-settings-install="${window.miaMarkdown.escapeHtml(entry.engineId)}"
+      data-setup-action="${window.miaMarkdown.escapeHtml(entry.action)}"
+      data-engine="${window.miaMarkdown.escapeHtml(entry.engineId)}">${window.miaMarkdown.escapeHtml(entry.label)}</button>
+  `).join("");
+}
+
 function renderEngineDetection(runtime) {
   const engines = runtime?.agentEngines || {};
   const inventory = agentInventoryById(runtime);
@@ -1754,6 +1805,8 @@ function renderEngineDetection(runtime) {
       inventory.openclaw || legacyAgentStatus("openclaw", engines.openClaw)
     );
   }
+
+  renderEngineInstallActions(runtime);
 }
 
 function renderSessionMenu() {
@@ -2201,6 +2254,7 @@ async function loadPlatformModelCatalog() {
     platformModelCatalog.entries = (Array.isArray(models) ? models : [])
       .map(normalizePlatformModelEntry)
       .filter(Boolean);
+    state.platformModels = platformModelCatalog.entries;
     platformModelCatalog.loaded = true;
   } catch (error) {
     console.warn("[renderer] platform model catalog load failed:", error?.message || error);
@@ -2212,8 +2266,23 @@ async function loadPlatformModelCatalog() {
 
 function platformHermesModelEntries() {
   return platformModelCatalog.entries.length
-    ? platformModelCatalog.entries
-    : [{ id: "mia-default", label: "Mia Default" }];
+    ? platformModelCatalog.entries.map((entry) => ({
+      ...entry,
+      provider: "mia",
+      providerLabel: "Mia",
+      model: entry.id,
+      authType: "mia_account",
+      modelProfileId: `mia:${entry.id}`
+    }))
+    : [{
+      id: "mia-default",
+      label: "Mia Default",
+      provider: "mia",
+      providerLabel: "Mia",
+      model: "mia-default",
+      authType: "mia_account",
+      modelProfileId: "mia:mia-default"
+    }];
 }
 
 function platformHermesPermissionEntries() {
@@ -2264,6 +2333,7 @@ function normalizeAgentEngineForRuntime(value) {
   const raw = String(value || "hermes").trim().toLowerCase().replace(/_/g, "-");
   if (raw === "claude" || raw === "claude-code") return "claude-code";
   if (raw === "codex" || raw === "openai-codex") return "codex";
+  if (raw === "openclaw" || raw === "open-claw") return "openclaw";
   return "hermes";
 }
 
@@ -2279,40 +2349,116 @@ function agentEngineForRuntimeControl(context = activeBotRuntimeControlContext()
 function modelEntriesForRuntimeControl(context = activeBotRuntimeControlContext()) {
   const engine = agentEngineForRuntimeControl(context);
   if (context?.runtimeKind === "cloud-hermes") return platformHermesModelEntries();
-  if (engine === "claude-code" || engine === "codex") return window.miaEngineOptions.externalModelEntries(engine);
+  if (window.miaEngineContracts?.isExternalEngine?.(engine) || engine === "claude-code" || engine === "codex" || engine === "openclaw") {
+    return window.miaEngineOptions.externalModelEntries(engine);
+  }
   return window.miaModelSettings.connectedModelEntries(state.runtime);
+}
+
+function runtimeConfigForControl(context = activeBotRuntimeControlContext()) {
+  if (!context) return {};
+  const binding = botRuntimeControlCache.get(botRuntimeCacheKey(context.botKey, context.runtimeKind));
+  const botConfig = context.bot?.engineConfig || context.bot?.engine_config || {};
+  if (context.runtimeKind === "cloud-hermes") return { ...botConfig, ...(binding?.config || {}) };
+  const engine = agentEngineForRuntimeControl(context);
+  if (binding?.config) return { ...botConfig, ...binding.config };
+  if (window.miaEngineContracts?.isExternalEngine?.(engine) || engine === "claude-code" || engine === "codex" || engine === "openclaw") {
+    return botConfig;
+  }
+  const runtimeModel = state.runtime?.model || {};
+  return {
+    provider: runtimeModel.provider || "",
+    model: runtimeModel.model || "",
+    effortLevel: state.runtime?.effort?.level || "medium",
+    permissionMode: state.runtime?.permissions?.mode || "ask"
+  };
+}
+
+function modelValueForRuntimeControl(context, entries = [], config = {}) {
+  const engine = agentEngineForRuntimeControl(context);
+  const provider = String(config.provider || "").trim();
+  const model = String(config.model || "").trim();
+  if (provider === "mia" && model) {
+    const entry = entries.find((item) => item.provider === "mia" && (item.model === model || item.id === model || item.value === model));
+    return entry?.id || entry?.value || model;
+  }
+  if (context?.runtimeKind === "cloud-hermes") return model || entries[0]?.id || entries[0]?.value || "mia-default";
+  if (window.miaEngineContracts?.isExternalEngine?.(engine) || engine === "claude-code" || engine === "codex" || engine === "openclaw") {
+    if (!model) return "default";
+    const entry = entries.find((item) => item.model === model || item.id === model || item.value === model);
+    return entry?.id || entry?.value || model;
+  }
+  const runtimeModel = state.runtime?.model || {};
+  return window.miaModelHelpers.catalogEntryForModel(runtimeModel)?.id
+    || entries.find((item) => item.provider === provider && item.model === model)?.id
+    || entries[0]?.id
+    || entries[0]?.value
+    || "";
+}
+
+function permissionEntriesForRuntimeControl(context = activeBotRuntimeControlContext()) {
+  const engine = agentEngineForRuntimeControl(context);
+  if (context?.runtimeKind === "cloud-hermes") return platformHermesPermissionEntries();
+  return window.miaEngineOptions.externalPermissionOptions(engine);
+}
+
+function setComposerModelAvatar(entry = {}, engine = "hermes") {
+  const icon = window.miaModelHelpers.modelIconSrc({
+    provider: entry.provider || (engine === "codex" ? "openai-codex" : engine === "claude-code" ? "anthropic" : engine),
+    model: entry.model || entry.id || entry.value || ""
+  });
+  const modelAvatar = document.querySelector(".model-avatar");
+  if (!modelAvatar) return;
+  modelAvatar.textContent = icon ? "" : "◇";
+  modelAvatar.style.backgroundImage = icon ? `url("${icon}")` : "";
 }
 
 function syncConversationBotRuntimeControls() {
   const context = activeConversationBotContext();
-  if (!context || context.runtimeKind !== "cloud-hermes") return false;
-  const binding = botRuntimeControlCache.get(botRuntimeCacheKey(context.botKey, context.runtimeKind));
-  const config = binding?.config || {};
-  const modelEntries = platformHermesModelEntries();
-  const modelLabel = setComposerSelectOptions(els.quickModelSelect, modelEntries, config.model || modelEntries[0]?.id || "mia-default");
-  setText(els.quickModelLabel, modelLabel || "Mia Default");
+  if (!context) return false;
+  const controlContext = activeBotRuntimeControlContext();
+  const config = runtimeConfigForControl(controlContext);
+  const engine = agentEngineForRuntimeControl(controlContext);
+  const modelEntries = modelEntriesForRuntimeControl(controlContext);
+  const selectedModelValue = modelValueForRuntimeControl(controlContext, modelEntries, config);
+  const modelLabel = setComposerSelectOptions(els.quickModelSelect, modelEntries, selectedModelValue);
+  setText(els.quickModelLabel, modelLabel || "Default");
+  const selectedModelEntry = modelEntries.find((entry) => String(entry.id || entry.value || "") === String(els.quickModelSelect?.value || selectedModelValue))
+    || modelEntries.find((entry) => String(entry.model || "") === String(config.model || ""))
+    || modelEntries[0]
+    || {};
+  setComposerModelAvatar(selectedModelEntry, engine);
   const effortLabel = setComposerSelectOptions(
     els.effortSelect,
-    window.miaEngineOptions.effortOptions("hermes"),
+    window.miaEngineOptions.effortOptions(engine),
     config.effortLevel || "medium"
   );
   setText(els.effortLabel, effortLabel || "Medium");
-  const permissionLabel = setComposerSelectOptions(els.permissionMode, platformHermesPermissionEntries(), config.permissionMode || "ask");
+  const permissionEntries = permissionEntriesForRuntimeControl(controlContext);
+  const permissionLabel = setComposerSelectOptions(
+    els.permissionMode,
+    permissionEntries,
+    config.permissionMode || (context.runtimeKind === "cloud-hermes" ? "ask" : (permissionEntries[0]?.value || "default"))
+  );
   setText(els.permissionLabel, permissionLabel || "Ask");
   const permissionSwitcher = els.permissionMode?.closest(".permission-switcher");
-  permissionSwitcher?.classList.toggle("yolo", false);
-  permissionSwitcher?.classList.toggle("claude-bypass", false);
+  permissionSwitcher?.classList.toggle("yolo", els.permissionMode?.value === "yolo" || (engine !== "claude-code" && els.permissionMode?.value === "bypassPermissions"));
+  permissionSwitcher?.classList.toggle("claude-bypass", engine === "claude-code" && els.permissionMode?.value === "bypassPermissions");
   if (els.quickModelSelect) els.quickModelSelect.disabled = false;
   if (els.effortSelect) els.effortSelect.disabled = false;
   if (els.permissionMode) els.permissionMode.disabled = false;
-  setText(els.modelSwitchStatus, "Hermes");
+  setText(els.modelSwitchStatus, context.runtimeKind === "cloud-hermes" ? "Mia Cloud" : window.miaEngineContracts?.engineLabel?.(engine) || engine);
   if (!platformModelCatalog.loaded && !platformModelCatalog.loading) {
     loadPlatformModelCatalog().then(() => {
       const latest = activeConversationBotContext();
       if (latest?.conversationId === context.conversationId) render();
     });
   }
-  if (!binding) {
+  const runtimeCacheKey = botRuntimeCacheKey(context.botKey, context.runtimeKind);
+  if (context.runtimeKind === "cloud-hermes"
+    && !botRuntimeControlCache.has(runtimeCacheKey)
+    && !botRuntimeControlInFlight.has(runtimeCacheKey)) {
+    botRuntimeControlInFlight.add(runtimeCacheKey);
     ensureBotRuntimeBinding(context.botKey, context.runtimeKind)
       .then(() => {
         const latest = activeConversationBotContext();
@@ -2321,6 +2467,9 @@ function syncConversationBotRuntimeControls() {
       .catch((error) => {
         setText(els.modelSwitchStatus, "云端配置读取失败");
         console.warn("[renderer] cloud bot runtime load failed:", error?.message || error);
+      })
+      .finally(() => {
+        botRuntimeControlInFlight.delete(runtimeCacheKey);
       });
   }
   return true;
@@ -2691,6 +2840,7 @@ async function initializeRuntime(options = {}) {
       els,
       mia: window.mia,
       escapeHtml: window.miaMarkdown.escapeHtml,
+      loadSkills: () => window.miaLoaders.loadSkills(),
       openBotConversation,
       render,
     });
@@ -2957,6 +3107,7 @@ document.querySelectorAll("[data-view]").forEach((button) => {
     showNarrowContent();
     if (button.dataset.view === "settings") state.settingsOpen = true;
     if (button.dataset.view === "skills" && !state.skillLibrary.skills.length && !state.skillsLoading) window.miaLoaders.loadSkills();
+    if (state.activeView === "bot-store" && !(state.skillLibrary.botPresets || []).length && !state.skillsLoading) window.miaLoaders.loadSkills();
     if (state.activeView === "bot-store") window.miaBotStore?.renderBotStore?.();
     renderView();
     if (state.activeView === "tasks") {
@@ -3102,9 +3253,18 @@ if (els.engineRowHermesButton && els.modelForm) {
     const expanded = els.engineRowHermesButton.getAttribute("aria-expanded") === "true";
     const next = !expanded;
     els.engineRowHermesButton.setAttribute("aria-expanded", next ? "true" : "false");
-    els.modelForm.classList.toggle("hidden", !next);
+    if (window.miaAccordion?.setElementOpen) window.miaAccordion.setElementOpen(els.modelForm, next);
+    else els.modelForm.classList.toggle("hidden", !next);
   });
 }
+
+els.engineDetection?.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-engine-settings-install]");
+  if (!button || !els.engineDetection.contains(button)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  await runHermesSetupAction(button, button.dataset.setupAction || "");
+});
 
 if (window.mia.onEnginesChanged) {
   window.mia.onEnginesChanged(() => { refreshRuntime().catch(() => {}); });
@@ -3123,10 +3283,23 @@ if (window.mia.onCloudEvent) {
       );
     }
     window.miaSocial?.handleCloudEvent?.(envelope);
+    const updatedDevices = envelope.type === "device_updated" ? envelope.payload?.devices : null;
+    if (Array.isArray(updatedDevices) && state.runtime) {
+      state.runtime = {
+        ...state.runtime,
+        cloud: {
+          ...(state.runtime.cloud || {}),
+          devices: updatedDevices
+        }
+      };
+    }
     if (envelope.cloud && state.runtime) {
       state.runtime = {
         ...state.runtime,
-        cloud: envelope.cloud
+        cloud: {
+          ...(state.runtime.cloud || {}),
+          ...envelope.cloud
+        }
       };
       window.miaSettingsRemote.renderCloudAccount(envelope.cloud);
     }
@@ -3289,6 +3462,7 @@ function renderDiscoverModeToggle() {
       state.activeView = btn.dataset.discoverMode;
       state.discoverSectionView = state.activeView; // 记住子页，rail 回来时恢复
       showNarrowContent();
+      if (state.activeView === "bot-store" && !(state.skillLibrary.botPresets || []).length && !state.skillsLoading) window.miaLoaders.loadSkills();
       if (state.activeView === "bot-store") window.miaBotStore?.renderBotStore?.();
       renderView();
     });
@@ -3313,6 +3487,7 @@ function openBotStore() {
   state.contactMenuOpen = false;
   state.activeView = "bot-store";
   showNarrowContent();
+  if (!(state.skillLibrary.botPresets || []).length && !state.skillsLoading) window.miaLoaders.loadSkills();
   renderView();
   window.miaBotStore?.renderBotStore?.();
 }
@@ -3737,15 +3912,29 @@ els.botForm?.addEventListener("submit", async (event) => {
   const existingBot = els.botKey?.value
     ? window.miaBotManager?.botByKey?.(els.botKey.value)
     : null;
-  const runtimeKind = existingBot?.runtimeKind || String(els.botRuntimeLocation?.value || "desktop-local");
+  const existingBotBio = existingBot?.bio || existingBot?.description || "";
+  const selectedRuntime = window.miaBotDialog?.readSelectedRuntimeTarget?.() || {};
+  const runtimeKind = selectedRuntime.runtimeKind || existingBot?.runtimeKind || "desktop-local";
+  const targetDeviceId = selectedRuntime.targetDeviceId || state.runtime?.localDevice?.id || "";
+  const targetDeviceName = selectedRuntime.targetDeviceName || state.runtime?.localDevice?.name || "";
+  const agentEngine = selectedRuntime.agentEngine || "hermes";
+  const existingTargetDeviceId = existingBot?.targetDeviceId || existingBot?.target_device_id || existingBot?.deviceId || existingBot?.device_id || existingBot?.runtimeConfig?.deviceId || "";
+  const runtimeChanged = state.botDialogMode !== "edit"
+    || runtimeKind !== (existingBot?.runtimeKind || existingBot?.runtime_kind || "desktop-local")
+    || (runtimeKind === "desktop-local" && String(targetDeviceId || "") !== String(existingTargetDeviceId || ""))
+    || (runtimeKind === "desktop-local" && String(agentEngine || "") !== String(existingBot?.agentEngine || existingBot?.agent_engine || "hermes"));
   const bot = {
     key: els.botKey?.value || "",
     name: els.botName.value,
-    agentEngine: els.botAgentEngine?.value || "hermes",
+    sourceKinds: existingBot?.sourceKinds || [],
+    agentEngine,
+    targetDeviceId,
+    targetDeviceName,
     avatarImage: state.botAvatarDraft.image || els.botAvatar.value,
     avatarCrop: window.miaAvatar.normalizeCrop(state.botAvatarDraft.crop),
     color: state.botAvatarDraft.color || "",
-    description: state.botDialogMode === "create" ? els.botSeed.value : "",
+    bio: state.botDialogMode === "create" ? els.botSeed.value : existingBotBio,
+    description: state.botDialogMode === "create" ? els.botSeed.value : existingBotBio,
     personaText: els.botSeed.value
   };
   const saved = await window.miaBotCommands.saveBot({
@@ -3753,6 +3942,7 @@ els.botForm?.addEventListener("submit", async (event) => {
     bot,
     runtimeKind,
     isCreate: state.botDialogMode !== "edit",
+    activateRuntime: runtimeChanged,
     api: window.mia,
     social: window.miaSocial,
     cloudModelEntries: platformHermesModelEntries,

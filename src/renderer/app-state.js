@@ -110,7 +110,7 @@
       },
       settingsOpen: false,
       modelCatalog: [],
-      skillLibrary: { plugins: [], sources: [], extensions: [], connectors: [], skills: [], roots: [] },
+      skillLibrary: { plugins: [], sources: [], extensions: [], connectors: [], skills: [], botPresets: [], roots: [] },
       savingBotCapabilities: new Set(),
       skillPickerOpen: false,
       skillPickerFilter: "",

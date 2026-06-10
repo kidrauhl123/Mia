@@ -5,6 +5,8 @@ const { buildBotInvocation } = require("./bot-invocation.js");
 
 function createMainBotRuntimeDispatcher({
   shouldHandle = () => true,
+  currentDeviceId = () => "",
+  currentDeviceIds = null,
   listBots = () => [],
   localBotResponder,
   log = () => {}
@@ -15,6 +17,15 @@ function createMainBotRuntimeDispatcher({
 
   async function handleBotInvocationRequested(message = {}) {
     if (!canHandle()) return false;
+    const runtimeConfig = message.runtimeConfig && typeof message.runtimeConfig === "object" ? message.runtimeConfig : {};
+    const wantedDeviceId = String(message.targetDeviceId || runtimeConfig.deviceId || runtimeConfig.targetDeviceId || "").trim();
+    const ownDeviceIds = typeof currentDeviceIds === "function"
+      ? currentDeviceIds()
+      : [typeof currentDeviceId === "function" ? currentDeviceId() : ""];
+    const ownDeviceIdSet = new Set((Array.isArray(ownDeviceIds) ? ownDeviceIds : [ownDeviceIds])
+      .map((id) => String(id || "").trim())
+      .filter(Boolean));
+    if (wantedDeviceId && ownDeviceIdSet.size && !ownDeviceIdSet.has(wantedDeviceId)) return false;
     if (!localBotResponder || typeof localBotResponder.respond !== "function") return false;
     const args = buildBotInvocation(message, listBots());
     if (!args) return false;

@@ -27,6 +27,7 @@ const { requireBot } = require("./main/bot-registry.js");
 const { createClaudeCodeChatAdapter } = require("./main/claude-code-chat-adapter.js");
 const { createCodexChatAdapter } = require("./main/codex-chat-adapter.js");
 const { createHermesChatAdapter } = require("./main/hermes-chat-adapter.js");
+const { createOpenClawChatAdapter } = require("./main/openclaw-chat-adapter.js");
 const { createMiaMemoryService } = require("./main/mia-memory-service.js");
 const { createRuntimeInitializerService } = require("./main/runtime-initializer-service.js");
 const { createRuntimeLifecycleService } = require("./main/runtime-lifecycle-service.js");
@@ -109,8 +110,22 @@ if (isolatedUserDataDir) {
 const startupTimer = createStartupTimer({ scope: "startup" });
 
 function localDeviceName() {
-  const hostname = String(os.hostname() || "").trim();
-  return hostname ? `${hostname} Mia Desktop` : "Mia Desktop";
+  const hostname = String(os.hostname() || "").trim().replace(/\.local$/i, "");
+  return hostname || "本机";
+}
+
+function localDeviceId() {
+  const p = runtimePaths();
+  const saved = readJson(p.deviceIdentity, {});
+  const existing = String(saved.id || saved.deviceId || "").trim();
+  if (/^device_[A-Za-z0-9_-]{8,}$/.test(existing)) return existing;
+  const next = {
+    id: `device_${crypto.randomUUID().replace(/-/g, "")}`,
+    createdAt: new Date().toISOString()
+  };
+  fs.mkdirSync(path.dirname(p.deviceIdentity), { recursive: true });
+  fs.writeFileSync(p.deviceIdentity, JSON.stringify(next, null, 2) + "\n", { mode: 0o600 });
+  return next.id;
 }
 
 let shouldRunDesktopInstance = true;
@@ -611,6 +626,7 @@ function getRuntimeStatus(created = [], options = {}) {
     engineLogs: engineState.logs.slice(-80),
     localDevice: {
       name: localDeviceName(),
+      id: localDeviceId(),
       hostname: String(os.hostname() || "").trim(),
       role: "desktop"
     },
@@ -747,7 +763,7 @@ function resolveRemoteChatBot({ botKey }) {
   initializeRuntime();
   const manifest = loadBotManifest();
   const bots = Array.isArray(manifest.bots) ? manifest.bots : [];
-  const key = String(botKey || manifest.default_bot || bots[0]?.key || "mia").trim();
+  const key = String(botKey || manifest.default_bot || bots[0]?.key || "").trim();
   const bot = bots.find((item) => item.key === key) || bots[0] || null;
   return { bot };
 }
@@ -817,6 +833,7 @@ async function runRemoteChatRequest(body, eventSink = null) {
   }
 
   const { bot } = resolveRemoteChatBot({ botKey: body?.botKey || body?.botId });
+  if (!bot) throw new Error("Bot not found.");
   const conversationId = String(body?.conversationId || body?.sessionId || "").trim();
   const agentSessionId = String(body?.agentSessionId || conversationId || `remote:${crypto.randomUUID()}`);
   const now = new Date().toISOString();
@@ -1106,17 +1123,29 @@ function cloudEventsUrl(settings = settingsStore.cloudSettings()) {
   return url.toString();
 }
 
+function localBridgeEngineIds() {
+  const engines = localAgentEngineService?.cachedLocalAgentEngines?.() || {};
+  const ids = [];
+  if (engines.hermes?.available || engines.hermes?.installed) ids.push("hermes");
+  if (engines.claudeCode?.available) ids.push("claude-code");
+  if (engines.codex?.available) ids.push("codex");
+  if (engines.openClaw?.available || engines.openClaw?.installed) ids.push("openclaw");
+  return ids;
+}
+
 function cloudBridgeUrl(settings = settingsStore.cloudSettings()) {
   const url = cloudWebSocketUrl("/api/bridge", settings);
+  const bridgeEngineIds = localBridgeEngineIds();
+  url.searchParams.set("deviceId", localDeviceId());
   url.searchParams.set("deviceName", localDeviceName());
-  url.searchParams.set("engine", "codex");
+  url.searchParams.set("engine", bridgeEngineIds[0] || "mia-desktop");
   url.searchParams.set("capabilities", JSON.stringify({
     chat: true,
     attachments: true,
     generatedImages: true,
     cancellation: true,
     streaming: true,
-    engines: ["codex"],
+    engines: bridgeEngineIds,
     app: "Mia Desktop",
     appVersion: app.getVersion(),
     hostname: os.hostname()
@@ -1138,6 +1167,11 @@ function stopCloudBridge() {
 
 function startCloudBridge() {
   return cloudBridgeRuntime ? cloudBridgeRuntime.start() : cloudStatus(false);
+}
+
+function startCloudRuntimeSockets() {
+  startCloudEvents();
+  startCloudBridge();
 }
 
 async function startEngine() {
@@ -1288,6 +1322,48 @@ function applyCodexModelSettings() {
   });
 }
 
+function resolveMiaManagedModelSettings(settings = {}) {
+  const provider = String(settings?.provider || "").trim();
+  const authType = String(settings?.authType || settings?.auth_type || "").trim();
+  if (provider !== "mia" && authType !== "mia_account") return settings;
+  const cloud = cloudStatus(true);
+  if (!cloud?.enabled || !cloud.token || !cloud.url) {
+    throw new Error("请先登录 Mia Cloud，再使用 Mia 托管模型。");
+  }
+  const baseUrl = `${settingsStore.normalizeCloudUrl(cloud.url)}/api/me/model-proxy/v1`;
+  return {
+    ...settings,
+    provider: "mia",
+    providerLabel: settings.providerLabel || "Mia",
+    authType: "mia_account",
+    model: String(settings.model || "mia-default").trim() || "mia-default",
+    apiKeyEnv: "MIA_CLOUD_MODEL_TOKEN",
+    apiKey: cloud.token,
+    baseUrl,
+    apiMode: settings.apiMode || "chat_completions"
+  };
+}
+
+function resolveManagedModelRuntime(config = {}) {
+  const provider = String(config.provider || config.modelProvider || config.model_provider || "").trim();
+  const authType = String(config.authType || config.auth_type || "").trim();
+  const profileId = String(config.modelProfileId || config.model_profile_id || "").trim();
+  const model = String(config.model || "").trim();
+  if (provider !== "mia" && authType !== "mia_account" && !profileId.startsWith("mia:")) return null;
+  const cloud = cloudStatus(true);
+  if (!cloud?.enabled || !cloud.token || !cloud.url) {
+    throw new Error("这个 Bot 使用 Mia 托管模型，请先登录 Mia Cloud。");
+  }
+  const cloudBaseUrl = settingsStore.normalizeCloudUrl(cloud.url);
+  return {
+    provider: "mia",
+    model: model || "mia-default",
+    baseUrl: `${cloudBaseUrl}/api/me/model-proxy/v1`,
+    anthropicBaseUrl: `${cloudBaseUrl}/api/me/model-proxy`,
+    apiKey: cloud.token
+  };
+}
+
 async function restartEngineIfRunning() {
   const shouldRestart = Boolean(engineProcess || engineState.running || engineState.starting);
   if (!shouldRestart) return getRuntimeStatus();
@@ -1299,11 +1375,13 @@ function createActiveStatelessChatEngineAdapters() {
   const claudeAdapter = createActiveClaudeCodeChatAdapter();
   const codexAdapter = createActiveCodexChatAdapter();
   const hermesAdapter = createActiveHermesChatAdapter();
+  const openClawAdapter = createActiveOpenClawChatAdapter();
   return createStatelessChatEngineAdapters({
     ensureHermesReady: ensureHermesChatEngineReady,
     sendClaudeCodeStateless: claudeAdapter.sendStateless,
     sendCodexStateless: codexAdapter.sendStateless,
-    sendHermesStateless: hermesAdapter.sendStateless
+    sendHermesStateless: hermesAdapter.sendStateless,
+    sendOpenClawStateless: openClawAdapter.sendStateless
   });
 }
 
@@ -1370,6 +1448,7 @@ function createActiveClaudeCodeChatAdapter() {
     permissionCoordinator: agentPermissionCoordinator,
     processEnvStrings,
     readBotPersona,
+    resolveManagedModelRuntime,
     setAgentSessionEntry: agentSessionStore.setEntry,
     shellCommandPath: localAgentEngineService.shellCommandPath,
     writeSchedulerMcpContext: schedulerMcpBridge.writeContext
@@ -1395,6 +1474,7 @@ function createActiveCodexChatAdapter() {
     permissionCoordinator: agentPermissionCoordinator,
     processEnvStrings,
     readBotPersona,
+    resolveManagedModelRuntime,
     runCodexAppServerTurn,
     setAgentSessionId: agentSessionStore.setId,
     shellCommandPath: localAgentEngineService.shellCommandPath,
@@ -1402,10 +1482,31 @@ function createActiveCodexChatAdapter() {
   });
 }
 
+function createActiveOpenClawChatAdapter() {
+  return createOpenClawChatAdapter({
+    buildEnabledSkillsContext: skillsLoader.buildEnabledSkillsContext,
+    chatCompletionResponse,
+    cwd: agentWorkspaceDir,
+    expandLeadingSkillCommand: skillsLoader.expandLeadingSkillCommand,
+    getAgentSessionId: agentSessionStore.getId,
+    injectGroupContextForSdk: _passthroughGroupContext,
+    lastUserPrompt: hermesRunService.lastUserPrompt,
+    memoryBlock: miaMemoryService.memoryBlock,
+    normalizeEffortLevel: settingsStore.normalizeEffortLevel,
+    permissionCoordinator: agentPermissionCoordinator,
+    processEnvStrings,
+    readBotPersona,
+    resolveManagedModelRuntime,
+    setAgentSessionId: agentSessionStore.setId,
+    shellCommandPath: localAgentEngineService.shellCommandPath
+  });
+}
+
 function createActiveChatEngineAdapters() {
   const claudeAdapter = createActiveClaudeCodeChatAdapter();
   const codexAdapter = createActiveCodexChatAdapter();
   const hermesAdapter = createActiveHermesChatAdapter();
+  const openClawAdapter = createActiveOpenClawChatAdapter();
   return createChatEngineAdapters({
     chatCompletionResponse,
     ensureHermesReady: ensureHermesChatEngineReady,
@@ -1414,8 +1515,22 @@ function createActiveChatEngineAdapters() {
     runHermesSlashCommand: hermesSlashCommandService.run,
     sendClaudeCodeChat: claudeAdapter.sendChat,
     sendCodexChat: codexAdapter.sendChat,
-    sendHermesChat: hermesAdapter.sendChat
+    sendHermesChat: hermesAdapter.sendChat,
+    sendOpenClawChat: openClawAdapter.sendChat
   });
+}
+
+function createActiveBridgeChatAdapter(agentEngine = "codex") {
+  const chatEngine = resolveChatEngineAdapter({ agentEngine: normalizeAgentEngine(agentEngine, "codex") });
+  const adapters = createActiveChatEngineAdapters();
+  return {
+    sendChat(context = {}) {
+      return sendWithChatEngineAdapter(adapters, {
+        ...context,
+        chatEngine
+      });
+    }
+  };
 }
 
 function normalizeTurnRuntimeConfig(runtimeConfig = null) {
@@ -1441,7 +1556,27 @@ function botWithRuntimeConfig(bot, runtimeConfig = {}) {
   };
 }
 
-async function sendChat({ botKey, botId, sessionId, messages, group, webContents, emit: externalEmit = null, utility = false, persistAgentSession = undefined, background = false, scheduledFire = false, allowSlashCommands = true, runtimeConfig = null, activeSkillIds = [] }) {
+function cloudBotSnapshotForTurn(snapshot = null, key = "", runtimeConfig = null) {
+  if (!snapshot || typeof snapshot !== "object") return null;
+  const botKey = String(snapshot.key || snapshot.id || key || "").trim();
+  if (!botKey) return null;
+  const requested = String(key || "").trim();
+  if (requested && botKey !== requested) return null;
+  const agentEngine = normalizeAgentEngine(
+    snapshot.agentEngine || snapshot.agent_engine || snapshot.engine || runtimeConfig?.agentEngine || runtimeConfig?.agent_engine,
+    "hermes"
+  );
+  return {
+    ...snapshot,
+    key: botKey,
+    id: String(snapshot.id || botKey),
+    name: String(snapshot.name || snapshot.displayName || snapshot.display_name || botKey),
+    agentEngine,
+    capabilities: snapshot.capabilities && typeof snapshot.capabilities === "object" ? snapshot.capabilities : {}
+  };
+}
+
+async function sendChat({ botKey, botId, botSnapshot = null, sessionId, messages, group, webContents, emit: externalEmit = null, utility = false, persistAgentSession = undefined, background = false, scheduledFire = false, allowSlashCommands = true, runtimeConfig = null, activeSkillIds = [] }) {
   utility = Boolean(utility);
   const shouldPersistAgentSession = persistAgentSession == null
     ? !utility
@@ -1475,9 +1610,24 @@ async function sendChat({ botKey, botId, sessionId, messages, group, webContents
   try {
     const manifest = loadBotManifest();
     const key = botKey || botId;
-    const { bot } = requireBot(manifest, key, "还没有可用的 bot，请先在引导里创建一个再发起对话。");
+    const snapshotBot = cloudBotSnapshotForTurn(botSnapshot, key, runtimeConfig);
+    let bot;
+    try {
+      ({ bot } = requireBot(manifest, key, "还没有可用的 bot，请先在引导里创建一个再发起对话。", { fallback: !snapshotBot }));
+    } catch (error) {
+      if (!snapshotBot) throw error;
+      bot = snapshotBot;
+    }
+    if (!bot && snapshotBot) bot = snapshotBot;
     const turnRuntimeConfig = normalizeTurnRuntimeConfig(runtimeConfig);
     let botForTurn = botWithRuntimeConfig(bot, turnRuntimeConfig);
+    const runtimeAgentEngine = String(runtimeConfig?.agentEngine || runtimeConfig?.agent_engine || "").trim();
+    if (runtimeAgentEngine) {
+      botForTurn = {
+        ...botForTurn,
+        agentEngine: normalizeAgentEngine(runtimeAgentEngine, botForTurn.agentEngine || botForTurn.agent_engine || "hermes")
+      };
+    }
     // Composer "使用" chips: enable these skills for this turn (so their content
     // is injected) AND prepend a directive to the user's message so the agent
     // actually USES them this turn — merely enabling is a no-op when the skill
@@ -1843,6 +1993,7 @@ cloudBridgeRuntime = createCloudBridgeClient({
   isDaemonEnabled: () => settingsStore.daemonSettings().enabled,
   cloudBridgeUrl,
   cloudWebSocketProtocols,
+  createActiveBridgeChatAdapter,
   createActiveCodexChatAdapter,
   randomUUID: () => crypto.randomUUID()
 });
@@ -1866,6 +2017,11 @@ function shouldHandleCloudConversationAi() {
 }
 const mainBotRuntimeDispatcher = createMainBotRuntimeDispatcher({
   shouldHandle: shouldHandleCloudConversationAi,
+  currentDeviceId: () => localDeviceId(),
+  currentDeviceIds: () => [
+    localDeviceId(),
+    cloudBridgeRuntime?.status?.()?.deviceId
+  ],
   listBots: () => loadBotManifest().bots || [],
   localBotResponder,
   log: (line) => appendCloudLog(line)
@@ -1916,7 +2072,29 @@ ipcMain.handle(IpcChannel.SocialMyUsername, () => {
     return { ok: false, error: String(error?.message || error) };
   }
 });
-ipcMain.handle(IpcChannel.EngineInstall, (_event, engineId) => engineInstallService.installEngine(engineId));
+function sendEngineInstallProgress(event, engineId, payload = {}) {
+  if (!event?.sender || event.sender.isDestroyed()) return;
+  event.sender.send(IpcChannel.EngineInstallProgress, {
+    engineId: String(engineId || payload.engineId || "hermes"),
+    ...payload
+  });
+}
+
+ipcMain.handle(IpcChannel.EngineInstall, async (event, engineId) => {
+  const id = String(engineId || "hermes");
+  try {
+    return await engineInstallService.installEngineAsync(id, {
+      onProgress: (payload) => sendEngineInstallProgress(event, id, payload)
+    });
+  } catch (error) {
+    sendEngineInstallProgress(event, id, {
+      status: "error",
+      stage: "error",
+      message: error?.message || String(error)
+    });
+    throw error;
+  }
+});
 ipcMain.handle(IpcChannel.OnboardingComplete, (event) => {
   promoteOnboardingWindowToMain(BrowserWindow.fromWebContents(event.sender));
 });
@@ -1957,7 +2135,20 @@ ipcMain.handle(IpcChannel.EngineWorkspacePick, async (event) => {
     changed: Boolean(picked),
   };
 });
-ipcMain.handle(IpcChannel.EngineRepair, () => engineInstallService.repair());
+ipcMain.handle(IpcChannel.EngineRepair, async (event) => {
+  try {
+    return await engineInstallService.repairAsync({
+      onProgress: (payload) => sendEngineInstallProgress(event, "hermes", payload)
+    });
+  } catch (error) {
+    sendEngineInstallProgress(event, "hermes", {
+      status: "error",
+      stage: "error",
+      message: error?.message || String(error)
+    });
+    throw error;
+  }
+});
 ipcMain.handle(IpcChannel.EngineStart, () => startEngine());
 ipcMain.handle(IpcChannel.EngineStop, () => stopEngine());
 ipcMain.handle(IpcChannel.EngineUninstallStandalone, () => uninstallStandaloneEngine());
@@ -2032,7 +2223,7 @@ ipcMain.handle(IpcChannel.EffortSave, async (_event, settings) => {
   settingsStore.writeEffortSettings(settings);
   return getRuntimeStatus();
 });
-ipcMain.handle(IpcChannel.ModelSave, (_event, settings) => modelSettingsService.saveModelSelection(settings));
+ipcMain.handle(IpcChannel.ModelSave, (_event, settings) => modelSettingsService.saveModelSelection(resolveMiaManagedModelSettings(settings)));
 
 ipcMain.handle(IpcChannel.AppearanceSave, (_event, settings) => {
   settingsStore.writeAppearanceSettings(settings);
@@ -2095,29 +2286,25 @@ app.whenReady().then(async () => {
       appendDaemonLog(`Daemon start failed: ${message}`);
       throw error;
     }
-    // Host the cloud bridge so this device's local AI keeps serving remote
-    // (web / mobile) requests while the UI window is closed. The daemon is the
-    // sole bridge host whenever it's enabled (the foreground app defers to it),
-    // so the cloud always sees exactly one online device. initializeRuntime
-    // makes the local engine runnable headlessly. The interval retries so the
-    // bridge connects once a cloud token appears (e.g. first login happens in
-    // the foreground after the daemon is already up) and after any drop;
-    // startCloudBridge no-ops when already connected or when there's no token.
+    // Host cloud realtime sockets so this device's local AI keeps serving
+    // requests while the UI window is closed. Bridge exposes the device to
+    // Cloud; events deliver desktop-local bot invocations into this process.
+    // The interval retries once a cloud token appears (e.g. first login happens
+    // in the foreground after the daemon is already up) and after any drop.
     try {
       initializeRuntime();
     } catch (error) {
       appendDaemonLog(`Daemon runtime init failed: ${error?.message || error}`);
     }
-    startCloudBridge();
-    setInterval(startCloudBridge, 10000);
+    startCloudRuntimeSockets();
+    setInterval(startCloudRuntimeSockets, 10000);
     return;
   }
   const win = createWindow();
   startupTimer.mark("window:created");
   autoUpdateService.start();
   daemonTasksClient.startEvents();
-  startCloudEvents();
-  startCloudBridge(); // self-gates: defers to the daemon when it's enabled
+  startCloudRuntimeSockets(); // bridge self-gates: defers to the daemon when it's enabled
   syncMiaCloudWorkspace().catch((error) => appendCloudLog(`Cloud workspace sync failed: ${error?.message || error}`));
   if (!win.miaSkipAutomaticBackgroundStartup && process.env.MIA_DISABLE_BACKGROUND_STARTUP !== "1") {
     win.webContents.once("did-finish-load", () => {

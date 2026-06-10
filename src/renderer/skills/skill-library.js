@@ -21,7 +21,7 @@
     claude: { label: "Claude", src: "./assets/provider-icons/claude.svg" },
     lobehub: { label: "LobeHub", src: "./assets/provider-icons/lobehub.svg" }
   };
-  const MARKET_SKILL_PAGE_LIMIT = 120;
+  const MARKET_SKILL_PAGE_LIMIT = 72;
   const marketRefreshKeys = new Set();
   let modeToggleIndicatorHost = null;
   let modeToggleIndicatorResizeBound = false;
@@ -363,6 +363,19 @@
     return `${value} 人添加`;
   }
 
+  function hasCjk(text) {
+    return /[\u3400-\u9fff]/.test(String(text || ""));
+  }
+
+  function marketDescriptionZh(skill) {
+    const description = String(skill?.description || "").trim();
+    if (description && hasCjk(description)) return description;
+    const source = String(skill?.sourceLabel || skill?.ownerLabel || "社区来源").trim() || "社区来源";
+    const tags = Array.isArray(skill?.tags) ? skill.tags.slice(0, 3).filter(Boolean).join("、") : "";
+    const tail = tags ? `，标签：${tags}` : "";
+    return `来自 ${source} 的技能，添加后会安装到本机技能库，并按该技能说明处理相关任务${tail}。`;
+  }
+
   function marketCategoryEntries() {
     return (state.skillMarket.categories || []).map((entry) => [entry.category, entry.count]);
   }
@@ -389,7 +402,7 @@
     return (state.skillMarket.skills || []).filter((skill) => {
       if (category && String(skill.category || "") !== category) return false;
       if (!needle) return true;
-      return [skill.name, skill.description, skill.sourceLabel, skill.category]
+      return [skill.name, skill.description, marketDescriptionZh(skill), skill.sourceLabel, skill.category]
         .join(" ").toLowerCase().includes(needle);
     });
   }
@@ -461,7 +474,7 @@
     const meta = [skill.sourceLabel, formatInstallCount(skill.installCount)].filter(Boolean).join(" · ");
     return renderUnifiedSkillCard({
       title: skill.name,
-      description: skill.description || "",
+      description: marketDescriptionZh(skill),
       sourceHtml: `${marketSourceLogoHtml(skill)}<span class="skill-card-source-text">${escapeHtml(meta)}</span>`,
       actionHtml: action,
       className: "market-card",

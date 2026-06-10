@@ -1,27 +1,23 @@
 (function attachBotCommands(global) {
   "use strict";
 
-  function slugFromBotName(name) {
-    return String(name || "bot")
-      .trim()
-      .toLowerCase()
-      .normalize("NFKD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^a-z0-9]+/g, "_")
-      .replace(/^_+|_+$/g, "")
-      .slice(0, 48) || "bot";
+  function idsApi() {
+    if (global?.miaIds) return global.miaIds;
+    if (typeof require === "function") {
+      try { return require("../../shared/ids.js"); } catch { /* browser fallback below */ }
+    }
+    return null;
   }
 
-  function cloudBotKeyFromName(name, existingKeys = []) {
+  function generateUntypedBotId(existingKeys = []) {
     const used = new Set(existingKeys.map((key) => String(key || "").trim()).filter(Boolean));
-    const base = slugFromBotName(name);
-    let key = base;
-    let index = 2;
-    while (used.has(key)) {
-      key = `${base}_${index}`;
-      index += 1;
+    const generate = idsApi()?.generatePrincipalId;
+    if (typeof generate !== "function") throw new Error("无法生成 Bot 账号 ID。");
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const id = String(generate() || "").trim();
+      if (id && !used.has(id)) return id;
     }
-    return key;
+    throw new Error("无法生成 Bot 账号 ID。");
   }
 
   function existingBotKeys(state = {}, social = {}) {
@@ -30,6 +26,16 @@
     ];
     const cloud = social?.moduleState?.bots || [];
     return [...local, ...cloud].map((item) => String(item?.key || item?.id || "").trim()).filter(Boolean);
+  }
+
+  function compactDeviceName(value = "") {
+    return String(value || "")
+      .trim()
+      .replace(/\s*(?:·|-)?\s*Mia\s+(?:Desktop|Bridge)(?=\s*(?:·|-|$))/gi, "")
+      .replace(/\.local(?=\s|$)/gi, "")
+      .replace(/\s*(?:·|-)\s*(?:本机|在线|离线)\s*$/i, "")
+      .replace(/\s+/g, " ")
+      .trim();
   }
 
   function botIdentity() {
@@ -55,38 +61,155 @@
     return result?.data?.bot || result?.bot || fallback;
   }
 
+  function cloudIdentityForBot(bot = {}) {
+    const name = String(bot.name || bot.displayName || bot.key || bot.id || "").trim();
+    return {
+      name,
+      avatarImage: bot.avatarImage || "",
+      avatarCrop: bot.avatarCrop || null,
+      color: bot.color || bot.avatarColor || bot.avatar_color || "",
+      bio: bot.description || bot.bio || "",
+      personaText: bot.personaText || bot.persona_text || bot.description || bot.bio || "",
+      capabilities: serializableCapabilities(bot.capabilities)
+    };
+  }
+
+  function hasCloudSource(bot = {}) {
+    return Array.isArray(bot.sourceKinds) && bot.sourceKinds.includes("cloud");
+  }
+
+  function cloudRuntimeDefaults({
+    current = null,
+    cloudModelEntries = () => []
+  } = {}) {
+    const existing = current?.config && typeof current.config === "object" ? current.config : {};
+    return {
+      model: existing.model || cloudModelEntries()[0]?.id || "mia-default",
+      effortLevel: existing.effortLevel || "medium",
+      permissionMode: existing.permissionMode || "ask"
+    };
+  }
+
+  async function saveBotRuntimeTarget({
+    state = {},
+    api = global.mia,
+    social = global.miaSocial,
+    bot = {},
+    runtimeKind = bot?.runtimeKind || bot?.runtime_kind || "desktop-local",
+    targetDeviceId = bot?.targetDeviceId || bot?.target_device_id || bot?.deviceId || bot?.device_id || "",
+    targetDeviceName = bot?.targetDeviceName || bot?.target_device_name || bot?.deviceName || bot?.device_name || "",
+    agentEngine = bot?.agentEngine || bot?.agent_engine || "hermes",
+    cloudModelEntries = () => [],
+    engineContracts = global?.miaEngineContracts,
+    modelSettings = global?.miaModelSettings,
+    engineOptions = global?.miaEngineOptions
+  } = {}) {
+    const key = String(bot.key || bot.id || "").trim();
+    const kind = String(runtimeKind || "desktop-local").trim() === "cloud-hermes" ? "cloud-hermes" : "desktop-local";
+    if (!key) return { saved: false, binding: null, conversation: null };
+    if (!state.runtime?.cloud?.enabled || typeof api?.social?.saveBotIdentity !== "function") {
+      throw new Error("请先登录 Mia Cloud。");
+    }
+    const identity = cloudIdentityForBot({ ...bot, key });
+    const saved = await api.social.saveBotIdentity(key, identity);
+    if (saved && saved.ok === false) throw new Error(saved.error || "保存 Bot 身份失败");
+
+    let config;
+    if (kind === "cloud-hermes") {
+      let current = null;
+      try {
+        current = typeof api.social.getBotRuntime === "function"
+          ? (await api.social.getBotRuntime(key, "cloud-hermes"))?.data?.binding
+          : null;
+      } catch {
+        current = null;
+      }
+      config = cloudRuntimeDefaults({ current, cloudModelEntries });
+    } else {
+      config = desktopLocalRuntimeConfig({
+        state,
+        bot: {
+          ...bot,
+          key,
+          agentEngine,
+          targetDeviceId,
+          targetDeviceName
+        },
+        engineContracts,
+        modelSettings,
+        engineOptions
+      });
+    }
+
+    if (typeof api?.social?.saveBotRuntime !== "function") throw new Error("云端 Bot 运行配置保存接口不可用。");
+    const runtime = await api.social.saveBotRuntime(key, {
+      runtimeKind: kind,
+      enabled: true,
+      activate: true,
+      config
+    });
+    if (runtime && runtime.ok === false) throw new Error(runtime.error || "保存 Bot 运行设置失败");
+    const ensured = await api.social.ensureBotSessionConversation?.(key, {
+      botId: key,
+      title: identity.name || key,
+      runtimeKind: kind
+    });
+    if (ensured && ensured.ok === false) throw new Error(ensured.error || "更新 Bot 会话失败");
+
+    const binding = runtime?.data?.binding || runtime?.binding || {
+      botId: key,
+      runtimeKind: kind,
+      enabled: true,
+      config
+    };
+    const bindingKind = binding.runtimeKind || binding.runtime_kind || kind;
+    const bindingConfig = binding.config || binding.runtimeConfig || {};
+    const bindingDeviceName = compactDeviceName(bindingConfig.deviceName || "");
+    const conversation = social?.upsertBotConversation?.(conversationFromResult(ensured)) || conversationFromResult(ensured);
+    const cloudBot = {
+      ...savedBotFromResult(saved, { ...identity, id: key, key }),
+      key,
+      id: key,
+      runtimeKind: bindingKind,
+      runtimeConfig: bindingConfig,
+      agentEngine: bindingKind === "cloud-hermes" ? "hermes" : (bindingConfig.agentEngine || agentEngine),
+      targetDeviceId: bindingConfig.deviceId || "",
+      deviceId: bindingConfig.deviceId || "",
+      deviceName: bindingDeviceName,
+      runtimeLabel: bindingKind === "cloud-hermes" ? "Mia Cloud" : (bindingDeviceName || "当前设备")
+    };
+    if (social?.moduleState) {
+      const bots = Array.isArray(social.moduleState.bots) ? social.moduleState.bots : [];
+      social.moduleState.bots = [
+        cloudBot,
+        ...bots.filter((item) => String(item?.key || item?.id || "") !== key)
+      ];
+    }
+    return { saved: true, key, bot: cloudBot, binding, conversation, runtime: state.runtime };
+  }
+
   async function saveCloudHermesBot({
     state = {},
     api = global.mia,
     social = global.miaSocial,
     bot = {},
     isCreate = false,
+    activateRuntime = false,
     cloudModelEntries = () => []
   } = {}) {
     if (!state.runtime?.cloud?.enabled || typeof api?.social?.saveBotIdentity !== "function") {
       throw new Error("请先登录 Mia Cloud。");
     }
-    const key = bot.key || cloudBotKeyFromName(bot.name, existingBotKeys(state, social));
-    const identity = {
-      name: String(bot.name || "").trim(),
-      avatarImage: bot.avatarImage || "",
-      avatarCrop: bot.avatarCrop || null,
-      color: bot.color || "",
-      bio: bot.description || bot.bio || "",
-      personaText: bot.personaText || bot.description || bot.bio || "",
-      capabilities: serializableCapabilities(bot.capabilities)
-    };
+    const key = bot.key || generateUntypedBotId(existingBotKeys(state, social));
+    const identity = cloudIdentityForBot({ ...bot, key });
     const saved = await api.social.saveBotIdentity(key, identity);
     if (!saved?.ok) throw new Error(saved?.error || "创建云端 Bot 失败");
-    if (isCreate) {
+    if (isCreate || activateRuntime) {
       const runtime = await api.social.saveBotRuntime(key, {
         runtimeKind: "cloud-hermes",
         enabled: true,
-        config: {
-          model: cloudModelEntries()[0]?.id || "mia-default",
-          effortLevel: "medium",
-          permissionMode: "ask"
-        }
+        activate: true,
+        config: cloudRuntimeDefaults({ cloudModelEntries })
       });
       if (!runtime?.ok) throw new Error(runtime?.error || "保存云端运行配置失败");
     }
@@ -109,8 +232,13 @@
   }
 
   async function saveDesktopLocalBot({
+    state = {},
     api = global.mia,
-    bot = {}
+    bot = {},
+    activateRuntime = false,
+    engineContracts = global?.miaEngineContracts,
+    modelSettings = global?.miaModelSettings,
+    engineOptions = global?.miaEngineOptions
   } = {}) {
     if (typeof api?.saveBot !== "function") throw new Error("本机 Bot 保存接口不可用。");
     const runtime = await api.saveBot(bot);
@@ -118,12 +246,47 @@
     const saved = bot.key
       ? bots.find((item) => item.key === bot.key)
       : [...bots].reverse().find((item) => item.name === String(bot.name || "").trim()) || bots[0];
-    return { key: saved?.key || "", bot: saved || null, conversation: null, runtime };
+    const key = saved?.key || "";
+    let conversation = null;
+    let binding = null;
+    if (key && state.runtime?.cloud?.enabled && typeof api?.social?.saveBotIdentity === "function") {
+      const identity = {
+        name: saved?.name || bot.name || key,
+        avatarImage: saved?.avatarImage || bot.avatarImage || "",
+        avatarCrop: saved?.avatarCrop || bot.avatarCrop || null,
+        color: saved?.color || bot.color || "",
+        bio: saved?.bio || bot.bio || bot.description || "",
+        personaText: bot.personaText || saved?.personaText || "",
+        capabilities: serializableCapabilities(saved?.capabilities || bot.capabilities)
+      };
+      const savedCloud = await api.social.saveBotIdentity(key, identity);
+      if (savedCloud && savedCloud.ok === false) throw new Error(savedCloud.error || "同步本机 Bot 到云端失败");
+      const ensured = await ensureDesktopLocalBotConversation({
+        api: api.social,
+        state,
+        bot: {
+          ...saved,
+          ...bot,
+          key,
+          runtimeKind: "desktop-local"
+        },
+        engineContracts,
+        modelSettings,
+        engineOptions,
+        activateRuntime: activateRuntime ? true : "if-empty"
+      });
+      conversation = ensured.conversation;
+      binding = ensured.binding;
+    }
+    return { key, bot: saved || null, conversation, binding, runtime };
   }
 
   async function saveBot(options = {}) {
     const runtimeKind = String(options.runtimeKind || "desktop-local").trim();
     if (runtimeKind === "cloud-hermes") return saveCloudHermesBot(options);
+    if (hasCloudSource(options.bot) && options.state?.runtime?.cloud?.enabled) {
+      return saveBotRuntimeTarget({ ...options, runtimeKind: "desktop-local" });
+    }
     return saveDesktopLocalBot(options);
   }
 
@@ -285,17 +448,28 @@
     const id = String(value || "hermes").trim().toLowerCase().replace(/_/g, "-");
     if (id === "claude" || id === "claude-code") return "claude-code";
     if (id === "codex" || id === "openai-codex") return "codex";
+    if (id === "openclaw" || id === "open-claw") return "openclaw";
     return "hermes";
   }
 
   function normalizeModelEntry(entry = {}, fallbackProvider = "") {
-    return {
+    const normalized = {
       value: String(entry.model || entry.id || entry.value || "").trim(),
       label: String(entry.label || entry.model || entry.id || entry.value || "Default").trim(),
       model: String(entry.model || "").trim(),
       provider: String(entry.provider || fallbackProvider || "").trim(),
       providerLabel: String(entry.providerLabel || entry.provider_label || "").trim()
     };
+    for (const [key, value] of Object.entries({
+      authType: String(entry.authType || entry.auth_type || "").trim(),
+      modelProfileId: String(entry.modelProfileId || entry.model_profile_id || entry.profileId || entry.profile_id || "").trim(),
+      apiKeyEnv: String(entry.apiKeyEnv || entry.api_key_env || "").trim(),
+      baseUrl: String(entry.baseUrl || entry.base_url || "").trim(),
+      apiMode: String(entry.apiMode || entry.api_mode || "").trim()
+    })) {
+      if (value) normalized[key] = value;
+    }
+    return normalized;
   }
 
   function localHermesModelEntries(runtime = {}, modelSettings = global?.miaModelSettings) {
@@ -326,8 +500,29 @@
     const runtime = state.runtime || {};
     const engine = normalizeAgentEngine(bot?.agentEngine || bot?.agent_engine || "hermes", engineContracts);
     const engineConfig = bot?.engineConfig || bot?.engine_config || {};
-    const config = { agentEngine: engine };
-    if (engine === "claude-code" || engine === "codex") {
+    const deviceId = String(
+      bot?.targetDeviceId
+      || bot?.target_device_id
+      || bot?.deviceId
+      || bot?.device_id
+      || runtime.localDevice?.id
+      || runtime.cloud?.deviceId
+      || ""
+    ).trim();
+    const deviceName = compactDeviceName(
+      bot?.targetDeviceName
+      || bot?.target_device_name
+      || bot?.deviceName
+      || bot?.device_name
+      || runtime.localDevice?.name
+      || ""
+    );
+    const config = {
+      agentEngine: engine,
+      ...(deviceId ? { deviceId } : {}),
+      ...(deviceName ? { deviceName } : {})
+    };
+    if (engine === "claude-code" || engine === "codex" || engine === "openclaw") {
       config.model = String(engineConfig.model || "").trim();
       config.effortLevel = String(engineConfig.effortLevel || "medium").trim();
       config.permissionMode = String(engineConfig.permissionMode || "default").trim();
@@ -347,12 +542,15 @@
     bot = {},
     engineContracts = global?.miaEngineContracts,
     modelSettings = global?.miaModelSettings,
-    engineOptions = global?.miaEngineOptions
+    engineOptions = global?.miaEngineOptions,
+    activateRuntime = false
   } = {}) {
     const botKey = String(bot?.key || bot?.id || "").trim();
     if (!botKey || typeof api?.saveBotRuntime !== "function") return null;
     const body = {
       runtimeKind: "desktop-local",
+      activate: activateRuntime,
+      preserveEnabled: activateRuntime === false,
       enabled: true,
       config: desktopLocalRuntimeConfig({ state, bot, engineContracts, modelSettings, engineOptions })
     };
@@ -368,6 +566,7 @@
     engineContracts = global?.miaEngineContracts,
     modelSettings = global?.miaModelSettings,
     engineOptions = global?.miaEngineOptions,
+    activateRuntime = false,
     onConversation = null
   } = {}) {
     const botKey = String(bot?.key || bot?.id || "").trim();
@@ -383,7 +582,8 @@
       bot: { ...bot, key: botKey },
       engineContracts,
       modelSettings,
-      engineOptions
+      engineOptions,
+      activateRuntime
     });
     if (result && result.ok === false) throw new Error(result.error || result.message || result.data?.error || "创建本机 Bot 云端会话失败");
     const conversation = conversationFromResult(result);
@@ -400,7 +600,14 @@
   function patchForRuntimeField(field, value, modelEntries = []) {
     if (field === "model") {
       const entry = modelEntryForValue(modelEntries, value);
-      return { model: entry?.model ?? value };
+      const patch = { model: entry?.model ?? value };
+      if (entry) {
+        const hasProviderBoundary = Boolean(entry.provider);
+        for (const key of ["provider", "providerLabel", "authType", "modelProfileId", "apiKeyEnv", "baseUrl", "apiMode"]) {
+          if (entry[key] || hasProviderBoundary) patch[key] = entry[key] || "";
+        }
+      }
+      return patch;
     }
     if (field === "effortLevel" || field === "permissionMode") return { [field]: value };
     return {};
@@ -418,7 +625,7 @@
     const engine = normalizeAgentEngine(bot?.agentEngine || bot?.agent_engine || "hermes", engineContracts);
     if (!key) return { saved: false, runtime: null };
 
-    if (engine === "claude-code" || engine === "codex") {
+    if (engine === "claude-code" || engine === "codex" || engine === "openclaw") {
       if (typeof api?.saveBotEngine !== "function") return { saved: false, runtime: null };
       const engineConfig = patchForRuntimeField(field, value, modelEntries);
       if (!Object.keys(engineConfig).length) return { saved: false, runtime: null };
@@ -486,10 +693,10 @@
   }
 
   const api = {
-    slugFromBotName,
-    cloudBotKeyFromName,
+    generateUntypedBotId,
     existingBotKeys,
     saveCloudHermesBot,
+    saveBotRuntimeTarget,
     saveDesktopLocalBot,
     saveBot,
     deleteCloudHermesBot,

@@ -162,6 +162,16 @@ test("respond forwards runtime config to the local chat engine", async () => {
   });
 });
 
+test("respond forwards cloud bot snapshots for cloud-only bots", async () => {
+  const { responder, calls } = setup();
+  await responder.respond({
+    ...base,
+    botSnapshot: { key: "codex", name: "Cloud Codex", agentEngine: "codex" }
+  });
+
+  assert.deepEqual(calls.engine[0].botSnapshot, { key: "codex", name: "Cloud Codex", agentEngine: "codex" });
+});
+
 test("respond uses the same clientOpId for the same dedupKey", async () => {
   const first = setup();
   const second = setup();
@@ -261,9 +271,9 @@ test("respond skips empty replies and incomplete invocations", async () => {
   assert.equal(calls.post.length, 0);
 });
 
-test("shouldHandleLocalCloudConversationAi keeps visible desktop conversations responsive when daemon is enabled", () => {
+test("shouldHandleLocalCloudConversationAi lets foreground handle events when daemon may share the cursor", () => {
   assert.equal(shouldHandleLocalCloudConversationAi({ isDaemon: false, daemonEnabled: true }), true);
   assert.equal(shouldHandleLocalCloudConversationAi({ isDaemon: false, daemonEnabled: false }), true);
-  assert.equal(shouldHandleLocalCloudConversationAi({ isDaemon: true, daemonEnabled: true }), false);
+  assert.equal(shouldHandleLocalCloudConversationAi({ isDaemon: true, daemonEnabled: true }), true);
   assert.equal(shouldHandleLocalCloudConversationAi({ isDaemon: true, daemonEnabled: false }), false);
 });

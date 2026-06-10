@@ -2,6 +2,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { generatePrincipalId } = require("../shared/ids.js");
 
 const { requireBot } = require("./bot-registry.js");
 
@@ -20,6 +21,7 @@ function createBotService({
   appendCloudLog = () => {},
   getRuntimeStatus,
   petStatusForBot = () => null,
+  generateBotId = generatePrincipalId,
   warn = (...args) => console.warn(...args)
 }) {
   const {
@@ -60,12 +62,17 @@ function createBotService({
     const p = runtimePaths();
     const name = String(botInput.name || botInput.displayName || "").trim();
     if (!name) throw new Error("Bot name is required.");
-    let key = botKeyFromName(botInput.key || botInput.id || name);
-
     const manifest = loadBotManifest();
     const bots = Array.isArray(manifest.bots) ? manifest.bots : [];
+    const explicitKey = String(botInput.key || botInput.id || botInput.account_id || botInput.accountId || "").trim();
+    let key = explicitKey ? botKeyFromName(explicitKey) : "";
+    if (!key) {
+      const sameName = bots.find((item) => item.name === name);
+      key = sameName?.key || String(generateBotId()).trim().toLowerCase().replace(/[^a-z0-9_.-]+/g, "_");
+      if (!key) key = botKeyFromName(name);
+    }
     let existingBot = bots.find((item) => item.key === key);
-    if (!botInput.key && !botInput.id) {
+    if (!explicitKey) {
       const existingKeys = new Set(bots.map((item) => item.key));
       const baseKey = key;
       let index = 2;
@@ -183,14 +190,13 @@ function createBotService({
     initializeRuntime();
     const key = String(input.key || input.botKey || input.botId || "").trim();
     if (!key) throw new Error("Bot key is required.");
-    if (key === "mia") throw new Error("内置 Mia Bot 不能删除。");
     const p = runtimePaths();
     const manifest = loadBotManifest();
     const bots = Array.isArray(manifest.bots) ? manifest.bots : [];
     const bot = bots.find((item) => item.key === key);
     if (!bot) throw new Error("Bot not found.");
     manifest.bots = bots.filter((item) => item.key !== key);
-    if (manifest.default_bot === key) manifest.default_bot = manifest.bots[0]?.key || "mia";
+    if (manifest.default_bot === key) manifest.default_bot = manifest.bots[0]?.key || "";
     saveBotManifest(manifest);
     for (const filePath of [
       path.join(p.botDir, `${key}.md`),

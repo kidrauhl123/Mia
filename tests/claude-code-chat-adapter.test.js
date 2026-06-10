@@ -39,6 +39,7 @@ function createDeps(messages, overrides = {}) {
     normalizeEffortLevel: (level, engine) => `${engine}:${level}`,
     processEnvStrings: () => ({ PATH: "/bin" }),
     readBotPersona: () => "persona",
+    resolveManagedModelRuntime: overrides.resolveManagedModelRuntime || (() => null),
     clearAgentSessionEntry: (...args) => calls.push(["clear-session", ...args]),
     setAgentSessionEntry: (...args) => calls.push(["set-session", ...args]),
     shellCommandPath: (command) => command === "claude" ? "/bin/claude" : "",
@@ -100,6 +101,40 @@ test("sendChat streams partials, stores session, and returns chat response", asy
   });
   assert.equal(emitted[0].kind, "text_delta");
   assert.equal(emitted.at(-1).kind, "complete");
+});
+
+test("sendChat routes Mia-managed Claude Code models through Anthropic gateway env", async () => {
+  const deps = createDeps([
+    { type: "assistant", message: { content: [{ text: "ok" }] } }
+  ], {
+    resolveManagedModelRuntime: () => ({
+      provider: "mia",
+      model: "mia-default",
+      baseUrl: "https://mia.example/api/me/model-proxy/v1",
+      anthropicBaseUrl: "https://mia.example/api/me/model-proxy",
+      apiKey: "cloud-token"
+    })
+  });
+  const adapter = createClaudeCodeChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot: { key: "alice", name: "Alice", bio: "", engineConfig: { provider: "mia", model: "mia-default" } },
+    sessionId: "s1",
+    messages: [{ role: "user", content: "hello" }],
+    signal: null,
+    abortController: {},
+    utility: false
+  });
+
+  const queryCall = deps.calls.find((call) => call[0] === "query")[1];
+  assert.equal(queryCall.options.model, "mia-default");
+  assert.equal(queryCall.options.env.PATH, "/bin");
+  assert.equal(queryCall.options.env.ANTHROPIC_BASE_URL, "https://mia.example/api/me/model-proxy");
+  assert.equal(queryCall.options.env.ANTHROPIC_AUTH_TOKEN, "cloud-token");
+  assert.equal(queryCall.options.env.ANTHROPIC_MODEL, "mia-default");
+  assert.equal(queryCall.options.env.ANTHROPIC_CUSTOM_MODEL_OPTION, "mia-default");
+  assert.equal(queryCall.options.env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY, "1");
+  assert.equal(Object.hasOwn(queryCall.options.env, "ANTHROPIC_API_KEY"), false);
 });
 
 test("sendChat resumes only when bridge fingerprint matches", async () => {

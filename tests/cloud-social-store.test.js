@@ -200,6 +200,7 @@ test("createConversation + getConversation roundtrip stores JSON fields", () => 
   try {
     const created = ctx.social.createConversation({
       id: "r-1",
+      publicId: "roompublic1",
       name: "Test",
       avatar: null,
       hostMember: null,
@@ -207,11 +208,23 @@ test("createConversation + getConversation roundtrip stores JSON fields", () => 
       contextCard: null,
     });
     assert.equal(created.id, "r-1");
+    assert.equal(created.publicId, "roompublic1");
+    assert.equal(created.public_id, "roompublic1");
     assert.equal(created.name, "Test");
     assert.deepEqual(created.decorations, { pinnedGoal: null, todos: [] });
     assert.equal(created.hostMember, null);
     const fetched = ctx.social.getConversation("r-1");
+    assert.equal(fetched.publicId, "roompublic1");
     assert.deepEqual(fetched.decorations, { pinnedGoal: null, todos: [] });
+  } finally { cleanup(ctx); }
+});
+
+test("createConversation derives group public id from legacy g_ conversation id", () => {
+  const ctx = makeStores();
+  try {
+    const created = ctx.social.createConversation({ id: "g_1234abcd", type: "group", name: "Group" });
+    assert.equal(created.publicId, "1234abcd");
+    assert.equal(created.public_id, "1234abcd");
   } finally { cleanup(ctx); }
 });
 

@@ -7,6 +7,7 @@ const http = require("node:http");
 const { spawn } = require("node:child_process");
 const WebSocket = require("ws");
 const { freePort } = require("./helpers/free-port");
+const ids = require("../src/shared/ids.js");
 
 async function startServer() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-api-test-"));
@@ -724,6 +725,9 @@ test("POST /api/conversations creates group with creator + bot + friend members"
     });
     assert.equal(r.status, 201);
     assert.ok(r.body.conversation.id.startsWith("g_"));
+    assert.equal(ids.isPublicId(r.body.conversation.publicId), true);
+    assert.equal(r.body.conversation.public_id, r.body.conversation.publicId);
+    assert.equal(r.body.conversation.id, `g_${r.body.conversation.publicId}`);
     assert.equal(r.body.conversation.name, "Test Squad");
     const members = r.body.members;
     assert.equal(members.length, 3); // alice + bot_codex + bob

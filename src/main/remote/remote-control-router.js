@@ -74,7 +74,7 @@ function createRemoteControlRouter({
     }
     if (routeInfo.method === "GET" && routeInfo.pathname === "/api/bots") {
       const manifest = loadBotManifest();
-      return { handled: true, data: { bots: manifest.bots || [], defaultBot: manifest.default_bot || "mia" } };
+      return { handled: true, data: { bots: manifest.bots || [], defaultBot: manifest.default_bot || "" } };
     }
     if (routeInfo.method === "GET" && routeInfo.pathname === "/api/model/catalog") {
       return { handled: true, data: { models: await loadHermesModelCatalog() } };

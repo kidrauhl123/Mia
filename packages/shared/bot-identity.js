@@ -1,7 +1,5 @@
 const { normalizeStatusBadge } = require("./identity.js");
 
-const DEFAULT_BOT_ID = "bot_mia";
-
 const DEFAULT_BOT_CAPABILITIES = Object.freeze({
   inheritEngineDefaults: true,
   enabledPlugins: [],
@@ -107,12 +105,6 @@ function normalizeBotCapabilities(input = {}) {
   };
 }
 
-function defaultCloudBotCapabilities() {
-  return normalizeBotCapabilities({
-    legacyCapabilities: ["chat", "files", "terminal", "code"]
-  });
-}
-
 function normalizeBotIdentity(input = {}, options = {}) {
   if (!input || typeof input !== "object") return null;
   const id = normalizeBotId(input.id || input.botId || input.bot_id || options.id);
@@ -147,7 +139,6 @@ function normalizeBotIdentity(input = {}, options = {}) {
 }
 
 module.exports = {
-  DEFAULT_BOT_ID,
   DEFAULT_BOT_CAPABILITIES,
   firstNonEmpty,
   normalizeBotId,
@@ -156,6 +147,5 @@ module.exports = {
   normalizeBotAvatarCrop,
   normalizeCapabilityIds,
   normalizeBotCapabilities,
-  defaultCloudBotCapabilities,
   normalizeBotIdentity
 };

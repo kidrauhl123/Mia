@@ -29,7 +29,7 @@ test("main orchestrates cloud install → local write", () => {
 
 test("skill-library renders a market mode with an install action", () => {
   const src = read("src/renderer/skills/skill-library.js");
-  assert.match(src, /MARKET_SKILL_PAGE_LIMIT/);
+  assert.match(src, /const MARKET_SKILL_PAGE_LIMIT = 72/);
   assert.match(src, /function marketRequestParams/);
   assert.match(src, /limit:\s*MARKET_SKILL_PAGE_LIMIT/);
   assert.match(src, /state\.skillMarket\.queryKey/);
@@ -46,6 +46,14 @@ test("skill-library renders a market mode with an install action", () => {
   assert.match(src, /data-skill-install=/);
   // a signed-out prompt rather than a broken empty grid
   assert.match(src, /登录 Mia Cloud/);
+});
+
+test("market cards render Chinese fallback descriptions for English-only skills", () => {
+  const src = read("src/renderer/skills/skill-library.js");
+  assert.match(src, /function marketDescriptionZh/);
+  assert.match(src, /function hasCjk/);
+  assert.match(src, /来自 \$\{source\} 的技能/);
+  assert.match(src, /description:\s*marketDescriptionZh\(skill\)/);
 });
 
 test("market cards render compact source logos beside source labels", () => {

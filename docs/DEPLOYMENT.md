@@ -99,7 +99,7 @@ release/
 
 - 安装或打开产物。
 - 首次启动能创建 runtime。
-- 已安装的 `claude` / `codex` 可以被探测。
+- 已安装的 `claude` / `codex` / `openclaw` 可以被探测；缺失时本机引擎区的安装按钮会调用官方包索引安装。
 - 用户自行安装的官方 Hermes（在 PATH 上）能被探测并复用；"安装官方 Hermes" 按钮能从 PyPI（国内走清华镜像、回退官方）装上并被检测到。
 - 登录 Cloud 后，桌面 Bridge 在 Web 端显示在线。
 
@@ -223,7 +223,7 @@ MIA_SMOKE_PASSWORD=<password> \
 npm run cloud:prod:verify:e2e -- https://mia.gifgif.cn
 ```
 
-`cloud:prod:verify` 会读取 `dist/mia-cloud-release/manifest.json`，把当前包的 `gitCommit` 和 `builtAt` 注入 doctor/smoke。通过这个检查才说明公网服务部署到了刚构建的 release。
+`cloud:prod:verify` 会读取 `dist/mia-cloud-release/manifest.json`，把当前包的 `gitCommit` 和 `builtAt` 注入 doctor/smoke，并验证官网根目录的 `5a371047c22c89872f93f00c7d8af123.txt` 内容。通过这个检查才说明公网服务部署到了刚构建的 release，且站点验证文件已经上线。
 
 ## 回滚
 
@@ -235,7 +235,7 @@ Cloud 自动部署脚本和本地 installer 会在安装前备份：
 - systemd unit。
 - nginx map/site 配置。
 
-如果安装、重启、doctor 或 smoke 失败，脚本会尝试停止新服务、恢复备份并启动旧服务。失败后先看脚本输出里的 backup 路径，再决定是否手动恢复。
+如果安装、重启、doctor、smoke 或站点验证失败，脚本会尝试停止新服务、恢复备份并启动旧服务。失败后先看脚本输出里的 backup 路径，再决定是否手动恢复。
 
 手动回滚原则：
 

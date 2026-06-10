@@ -80,7 +80,7 @@ test("setup guide offers official Hermes install when no local agent is availabl
         { id: "hermes", label: "Hermes", installed: false, usableInMia: false, installable: true, installAction: "install-hermes", health: "missing", source: "missing" },
         { id: "claude-code", label: "Claude Code", installed: false, usableInMia: false, installable: false, health: "missing", source: "missing" },
         { id: "codex", label: "Codex", installed: false, usableInMia: false, installable: false, health: "missing", source: "missing" },
-        { id: "openclaw", label: "OpenClaw", installed: false, usableInMia: false, installable: false, detectionOnly: true, health: "missing", source: "missing" }
+        { id: "openclaw", label: "OpenClaw", installed: false, usableInMia: false, installable: true, installAction: "install-openclaw", detectionOnly: false, health: "missing", source: "missing" }
       ]),
       fellows: []
     },
@@ -100,21 +100,23 @@ test("setup guide offers official Hermes install when no local agent is availabl
   assert.match(html, /data-action="cloud-login"/);
   assert.match(html, /OpenClaw/);
   assert.match(html, /安装官方 Hermes/);
+  assert.match(html, /data-setup-action="install-openclaw"/);
+  assert.match(html, /安装 OpenClaw/);
   assert.doesNotMatch(html, /私有目录|Mia 私有 Hermes|独立副本/);
   assert.doesNotMatch(html, /使用 OpenClaw/);
   assert.match(html, /setup-engine-icon hermes/);
-  assert.match(html, /assets\/provider-icons\/nousresearch\.svg/);
+  assert.match(html, /assets\/engine-icons\/hermesagent\.svg/);
   assert.doesNotMatch(html, /setup-engine-dot/);
 });
 
-test("setup guide allows installed Claude Code and Codex while keeping OpenClaw detection-only", () => {
+test("setup guide allows installed Claude Code, Codex, and OpenClaw as ready engines", () => {
   const state = {
     runtime: {
       agentInventory: inventory([
         { id: "hermes", label: "Hermes", installed: false, usableInMia: false, installable: true, installAction: "install-hermes", health: "missing", source: "missing" },
         { id: "claude-code", label: "Claude Code", installed: true, usableInMia: true, installable: false, path: "/bin/claude", version: "claude 1.2.3", health: "ready", source: "system" },
         { id: "codex", label: "Codex", installed: true, usableInMia: true, installable: false, path: "/bin/codex", version: "codex 2.3.4", health: "ready", source: "system" },
-        { id: "openclaw", label: "OpenClaw", installed: true, usableInMia: false, installable: false, detectionOnly: true, path: "/bin/openclaw", version: "openclaw 0.1.0", health: "detected", source: "system" }
+        { id: "openclaw", label: "OpenClaw", installed: true, usableInMia: true, installable: true, detectionOnly: false, path: "/bin/openclaw", version: "openclaw 0.1.0", health: "ready", source: "system" }
       ]),
       fellows: []
     },
@@ -127,18 +129,18 @@ test("setup guide allows installed Claude Code and Codex while keeping OpenClaw 
 
   assert.doesNotMatch(html, /使用 Claude Code/);
   assert.doesNotMatch(html, /使用 Codex/);
-  assert.match(html, /已检测到，暂未接入 Mia 聊天/);
-  assert.match(html, /assets\/provider-icons\/claude-color\.svg/);
-  assert.match(html, /assets\/provider-icons\/codex-color\.svg/);
+  assert.match(html, /已就绪/);
+  assert.doesNotMatch(html, /暂未接入 Mia 聊天|已检测到，暂未接入/);
+  assert.match(html, /assets\/engine-icons\/claudecode\.svg/);
+  assert.match(html, /assets\/engine-icons\/codex-color\.svg/);
   assert.match(html, /assets\/provider-icons\/openclaw-color\.svg/);
   // All engines are treated alike now: a missing Hermes still offers install
-  // even when Claude/Codex are usable. Installed Claude/Codex show no install
-  // button; OpenClaw stays detection-only (no install).
+  // even when another engine is usable. Installed engines show no install
+  // button.
   assert.match(html, /data-setup-action="install-hermes"/);
   assert.doesNotMatch(html, /data-setup-action="install-claude-code"/);
   assert.doesNotMatch(html, /data-setup-action="install-codex"/);
   assert.doesNotMatch(html, /data-setup-action="install-openclaw"/);
-  assert.doesNotMatch(html, /使用 OpenClaw/);
 });
 
 test("setup guide allows system Hermes without requiring Mia private install", () => {

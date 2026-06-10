@@ -289,6 +289,14 @@ migrate_legacy_dropins() {
   done
 }
 
+sync_web_release() {
+  if [ -d "$REMOTE_RELEASE_DIR/web/downloads" ]; then
+    run_as_root mkdir -p "$WEB_DIR/downloads"
+    run_as_root rsync -a "$REMOTE_RELEASE_DIR/web/downloads/" "$WEB_DIR/downloads/"
+  fi
+  run_as_root rsync -a --delete --exclude '/downloads/' "$REMOTE_RELEASE_DIR/web/" "$WEB_DIR/"
+}
+
 remove_legacy_nginx_sites() {
   run_as_root rm -f "\$LEGACY_NGINX_MAP_CONF" "\$LEGACY_NGINX_SITE_CONF"
   run_as_root rm -f "/etc/nginx/sites-available/\$(basename "\$LEGACY_NGINX_SITE_CONF")"
@@ -459,7 +467,7 @@ if [ -f "$REMOTE_RELEASE_DIR/hermes-image/Dockerfile" ]; then
 fi
 run_as_root rsync -a --delete "$REMOTE_RELEASE_DIR/api/" "$API_DIR/"
 run_as_root cp "$REMOTE_RELEASE_DIR/manifest.json" "$API_DIR/release-manifest.json"
-run_as_root rsync -a --delete "$REMOTE_RELEASE_DIR/web/" "$WEB_DIR/"
+sync_web_release
 run_as_root mkdir -p "$(dirname "$NGINX_MAP_CONF")" "$(dirname "$NGINX_SITE_CONF")"
 run_as_root cp "$REMOTE_RELEASE_DIR/nginx/mia-websocket-map.conf" "$NGINX_MAP_CONF"
 run_as_root cp "$REMOTE_RELEASE_DIR/nginx/mia-cloud-site.conf" "$NGINX_SITE_CONF"
@@ -622,6 +630,13 @@ if ! MIA_SMOKE_EXPECT_RELEASE_COMMIT="$EXPECTED_RELEASE_COMMIT" \
   MIA_SMOKE_EXPECT_RELEASE_BUILT_AT="$EXPECTED_RELEASE_BUILT_AT" \
   npm run cloud:smoke -- "$PUBLIC_URL"; then
   echo "==> Public smoke failed; attempting remote rollback"
+  rollback_remote || echo "Remote rollback failed; inspect $REMOTE manually." >&2
+  exit 1
+fi
+
+echo "==> Running public site verification"
+if ! npm run cloud:site-verify -- "$PUBLIC_URL"; then
+  echo "==> Public site verification failed; attempting remote rollback"
   rollback_remote || echo "Remote rollback failed; inspect $REMOTE manually." >&2
   exit 1
 fi

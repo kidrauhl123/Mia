@@ -16,6 +16,8 @@ export interface MessageRow {
 
 export interface Conversation {
   id: string;
+  publicId?: string;
+  public_id?: string;
   name?: string;
   title?: string;
   type?: "dm" | "group" | "bot" | string;

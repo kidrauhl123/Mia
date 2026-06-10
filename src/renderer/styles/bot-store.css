@@ -237,7 +237,7 @@
   inset: 0;
   display: grid;
   place-items: center;
-  padding: 32px;
+  padding: 24px;
   background: rgba(20, 24, 40, 0.28);
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
@@ -248,8 +248,9 @@
 }
 .bot-store-scrim.open { opacity: 1; pointer-events: auto; }
 .bot-store-sheet {
+  position: relative;
   width: min(520px, 100%);
-  max-height: 86%;
+  max-height: calc(100vh - 56px);
   overflow: auto;
   padding: 28px;
   border-radius: 24px;
@@ -258,7 +259,310 @@
   transform: translateY(14px) scale(0.98);
   transition: transform 0.24s cubic-bezier(0.2, 0.7, 0.2, 1);
 }
+.bot-store-sheet.is-enrolling {
+  display: grid;
+  width: min(520px, 100%);
+  max-height: calc(100vh - 56px);
+  overflow: hidden;
+  padding: 24px;
+}
 .bot-store-scrim.open .bot-store-sheet { transform: none; }
+.bot-store-enroll-console {
+  --badge-console-bg: #f7f8fc;
+  --badge-bar-bg: #ffffff;
+  --badge-stage-bg: #f8fafc;
+  --badge-card-bg: #fffefa;
+  --badge-card-text: #171923;
+  --badge-card-muted: rgba(23, 25, 35, 0.52);
+  --badge-card-faint: rgba(23, 25, 35, 0.36);
+  --badge-card-line: rgba(23, 25, 35, 0.12);
+  --badge-card-chip-bg: rgba(23, 25, 35, 0.055);
+  --badge-card-chip-text: rgba(23, 25, 35, 0.88);
+  overflow: hidden;
+  border-radius: 16px;
+  background: var(--badge-console-bg);
+  color: var(--badge-card-text);
+  box-shadow: inset 0 0 0 1px rgba(20, 24, 39, 0.10);
+}
+.bot-store-enroll-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--badge-card-line);
+  background: var(--badge-bar-bg);
+  color: var(--badge-card-muted);
+  font-size: 11px;
+  font-weight: 620;
+  letter-spacing: 0.08em;
+}
+.bot-store-enroll-light {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ba7517;
+}
+.bot-store-sheet.is-stamped .bot-store-enroll-light { background: #2ec27e; }
+.bot-store-enroll-status {
+  margin-left: auto;
+  color: var(--badge-card-faint);
+  font-size: 11px;
+  letter-spacing: 0;
+}
+.bot-store-sheet.is-stamped .bot-store-enroll-status { color: #2ec27e; }
+.bot-store-badge-stage {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: clamp(286px, 35vh, 340px);
+  padding: 16px;
+  background-color: var(--badge-stage-bg);
+  background-image:
+    linear-gradient(rgba(20, 24, 39, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(20, 24, 39, 0.08) 1px, transparent 1px);
+  background-position: center;
+  background-size: 26px 26px;
+}
+.bot-store-badge-card {
+  position: relative;
+  z-index: 1;
+  width: min(376px, 100%);
+  overflow: hidden;
+  border: 1px solid var(--badge-accent, #5dcaa5);
+  border-radius: 14px;
+  background: var(--badge-card-bg);
+  color: var(--badge-card-text);
+  animation: bot-store-badge-rise 520ms cubic-bezier(0.2, 0.9, 0.3, 1.12) both;
+}
+.bot-store-badge-title {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 12px;
+  background: var(--badge-accent, #5dcaa5);
+  color: #0e1320;
+  font-size: 11px;
+  font-weight: 760;
+  letter-spacing: 0.12em;
+}
+.bot-store-badge-shimmer {
+  height: 5px;
+  background: linear-gradient(110deg, transparent 8%, rgba(255, 255, 255, 0.82) 18%, var(--badge-accent, #5dcaa5) 30%, transparent 42%, var(--badge-accent, #5dcaa5) 60%, rgba(255, 255, 255, 0.72) 72%, transparent 86%);
+  background-size: 200% 100%;
+  animation: bot-store-badge-shimmer 3.4s linear infinite;
+}
+.bot-store-badge-main {
+  display: flex;
+  gap: 14px;
+  padding: 15px 17px 12px;
+}
+.bot-store-sheet .bot-store-badge-avatar {
+  width: 58px;
+  height: 58px;
+  border: 2px solid var(--badge-accent, #5dcaa5);
+  border-radius: 14px;
+  background: var(--badge-stage-bg) !important;
+  color: var(--badge-accent, #5dcaa5) !important;
+  animation: bot-store-badge-avatar-pop 440ms 260ms cubic-bezier(0.2, 0.9, 0.3, 1.28) both;
+}
+.bot-store-badge-id {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  align-content: center;
+  gap: 3px;
+}
+.bot-store-badge-id span {
+  color: var(--badge-card-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.bot-store-badge-id strong {
+  overflow: hidden;
+  color: var(--badge-card-text);
+  font-size: 18px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bot-store-badge-id code {
+  overflow: hidden;
+  color: var(--badge-card-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bot-store-badge-fields {
+  display: grid;
+  gap: 6px;
+  padding: 0 17px 10px;
+}
+.bot-store-badge-fields > div,
+.bot-store-badge-fields > label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+  padding-top: 8px;
+  border-top: 1px solid var(--badge-card-line);
+  opacity: 0;
+  transform: translateY(6px);
+  animation: bot-store-badge-field-in 260ms ease forwards;
+}
+.bot-store-badge-fields > label {
+  position: relative;
+  border-right: 0;
+  border-bottom: 0;
+  border-left: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+.bot-store-badge-fields > div:nth-child(1) { animation-delay: 520ms; }
+.bot-store-badge-fields > div:nth-child(2) { animation-delay: 640ms; }
+.bot-store-badge-fields > label:nth-child(3) { animation-delay: 760ms; }
+.bot-store-badge-fields span {
+  color: var(--badge-card-muted);
+  font-size: 11px;
+}
+.bot-store-badge-fields strong {
+  min-width: 0;
+  color: var(--badge-card-text);
+  font-size: 12.5px;
+  font-weight: 620;
+  text-align: right;
+}
+.bot-store-badge-fields [data-badge-engine] { color: var(--engine-accent, #5dcaa5); }
+.bot-store-badge-engine-row strong::after {
+  content: "⌄";
+  display: inline-block;
+  margin-left: 6px;
+  color: var(--badge-card-faint);
+  font-size: 12px;
+  transform: translateY(-1px);
+}
+.bot-store-badge-target-select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  opacity: 0;
+  cursor: pointer;
+  font: inherit;
+}
+.bot-store-badge-engine-row:focus-within {
+  background: color-mix(in srgb, var(--engine-accent, var(--badge-accent, #5dcaa5)) 8%, transparent);
+}
+.bot-store-badge-stamp {
+  position: absolute;
+  top: 56%;
+  left: 61%;
+  display: grid;
+  gap: 1px;
+  padding: 5px 12px;
+  border: 3px solid #2ec27e;
+  border-radius: 8px;
+  color: #2ec27e;
+  line-height: 1.1;
+  opacity: 0;
+  pointer-events: none;
+  text-align: center;
+  transform: translate(-50%, -50%) scale(2.2) rotate(-28deg);
+}
+.bot-store-badge-stamp strong {
+  font-size: 18px;
+  font-weight: 760;
+  letter-spacing: 0.05em;
+}
+.bot-store-badge-stamp span {
+  font-size: 9px;
+  font-weight: 720;
+  letter-spacing: 0.22em;
+}
+.bot-store-badge-flash {
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  opacity: 0;
+  pointer-events: none;
+}
+.bot-store-sheet.is-stamped .bot-store-badge-stamp {
+  animation: bot-store-badge-stamp-slam 520ms cubic-bezier(0.2, 0.8, 0.3, 1) forwards;
+}
+.bot-store-sheet.is-stamped .bot-store-badge-card {
+  animation: bot-store-badge-shake 420ms ease-out;
+}
+.bot-store-sheet.is-stamped .bot-store-badge-flash {
+  animation: bot-store-badge-flash 480ms ease-out both;
+}
+:root[data-theme="dark"] .bot-store-enroll-console {
+  --badge-console-bg: #0e1320;
+  --badge-bar-bg: #11182a;
+  --badge-stage-bg: #0e1320;
+  --badge-card-bg: #161d2e;
+  --badge-card-text: #eef2f9;
+  --badge-card-muted: #aeb8cc;
+  --badge-card-faint: #5f6b82;
+  --badge-card-line: rgba(148, 163, 184, 0.18);
+  --badge-card-chip-bg: rgba(255, 255, 255, 0.07);
+  --badge-card-chip-text: #dde4f0;
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.18);
+}
+:root[data-theme="dark"] .bot-store-badge-stage {
+  background-image:
+    linear-gradient(rgba(148, 163, 184, 0.12) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.12) 1px, transparent 1px);
+}
+:root[data-theme="dark"] .bot-store-sheet .bot-store-badge-avatar {
+  background: #0e1320 !important;
+}
+@keyframes bot-store-badge-rise {
+  from { opacity: 0; transform: translateY(26px) scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes bot-store-badge-avatar-pop {
+  0% { opacity: 0; transform: scale(0.2) rotate(-18deg); }
+  70% { transform: scale(1.1) rotate(4deg); }
+  100% { opacity: 1; transform: none; }
+}
+@keyframes bot-store-badge-field-in {
+  to { opacity: 1; transform: none; }
+}
+@keyframes bot-store-badge-stamp-slam {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(2.4) rotate(-34deg); }
+  55% { opacity: 1; }
+  72% { opacity: 1; transform: translate(-50%, -50%) scale(0.9) rotate(-9deg); }
+  100% { opacity: 1; transform: translate(-50%, -50%) scale(1) rotate(-12deg); }
+}
+@keyframes bot-store-badge-flash {
+  0% { opacity: 0.78; }
+  100% { opacity: 0; }
+}
+@keyframes bot-store-badge-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-7px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(2px); }
+}
+@keyframes bot-store-badge-shimmer {
+  0% { background-position: -140% 0; }
+  100% { background-position: 240% 0; }
+}
+.bot-store-badge-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
 .bot-store-sheet-head { display: flex; align-items: center; gap: 16px; }
 .bot-store-sheet .bot-store-avatar { width: 64px; height: 64px; border-radius: 19px; font-size: 32px; }
 .bot-store-sheet-head h2 { margin: 0; font-size: 21px; font-weight: 640; letter-spacing: -0.01em; color: var(--text); }
@@ -274,28 +578,52 @@
   color: var(--text);
 }
 .bot-store-demo b { color: var(--accent); font-weight: 600; }
-.bot-store-actions { display: flex; gap: 10px; margin-top: 26px; }
+.bot-store-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}
+.bot-store-sheet.is-enrolling .bot-store-actions { margin-top: 14px; }
 .bot-store-btn {
-  height: 46px;
+  height: 38px;
   border: 0;
-  border-radius: 14px;
+  border-radius: 12px;
+  padding: 0 18px;
   font: inherit;
-  font-size: 14.5px;
+  font-size: 13.5px;
   font-weight: 580;
   cursor: pointer;
   transition: filter 0.14s ease, color 0.14s ease;
 }
-.bot-store-btn.primary { flex: 1; background: var(--accent); color: #fff; }
+.bot-store-btn.primary { flex: 0 0 auto; min-width: 92px; background: var(--accent); color: #fff; }
 .bot-store-btn.primary:hover { filter: brightness(1.06); }
 .bot-store-btn.primary:disabled { opacity: 0.6; cursor: default; }
-.bot-store-btn.ghost { flex: 0 0 auto; padding: 0 20px; background: var(--field); color: var(--muted); }
+.bot-store-btn.ghost { flex: 0 0 auto; min-width: 78px; background: var(--field); color: var(--muted); }
 .bot-store-btn.ghost:hover { color: var(--text); }
 
 @media (prefers-reduced-motion: reduce) {
   .bot-store-cap::before,
   .bot-store-card,
+  .bot-store-badge-avatar,
+  .bot-store-badge-card,
+  .bot-store-badge-fields > div,
+  .bot-store-badge-fields > label,
+  .bot-store-badge-shimmer,
+  .bot-store-badge-stamp,
+  .bot-store-badge-flash,
   .bot-store-sheet,
   .bot-store-scrim { transition: none; animation: none; }
+  .bot-store-badge-fields > div,
+  .bot-store-badge-fields > label,
+  .bot-store-sheet.is-stamped .bot-store-badge-stamp {
+    opacity: 1;
+    transform: translate(-50%, -50%) rotate(-12deg) scale(1);
+  }
+  .bot-store-badge-fields > div,
+  .bot-store-badge-fields > label {
+    transform: none;
+  }
 }
 
 /* ── 窄窗(≤720px)：保留顶部胶囊条，内容(单列)放它下面 ──
@@ -323,5 +651,14 @@
   .app-shell[data-active-view="bot-store"] .discover-top-bar {
     padding: 10px 14px 6px;
     border-radius: 0;
+  }
+  .bot-store-scrim { padding: 14px; }
+  .bot-store-sheet.is-enrolling {
+    max-height: calc(100vh - 28px);
+    padding: 18px;
+  }
+  .bot-store-badge-stage {
+    min-height: 210px;
+    padding: 14px;
   }
 }

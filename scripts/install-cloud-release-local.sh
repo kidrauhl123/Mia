@@ -184,6 +184,14 @@ migrate_legacy_dropins() {
   done
 }
 
+sync_web_release() {
+  if [ -d "$INSTALL_TMP/web/downloads" ]; then
+    run_as_root mkdir -p "$WEB_DIR/downloads"
+    run_as_root rsync -a "$INSTALL_TMP/web/downloads/" "$WEB_DIR/downloads/"
+  fi
+  run_as_root rsync -a --delete --exclude '/downloads/' "$INSTALL_TMP/web/" "$WEB_DIR/"
+}
+
 unit_value() {
   key="$1"
   file="$2"
@@ -320,11 +328,6 @@ if ! command -v sha256sum >/dev/null && ! command -v shasum >/dev/null; then
   exit 1
 fi
 
-node -e 'require("node:sqlite"); const major = Number(process.versions.node.split(".")[0]); if (major < 25) { console.error("Node.js 25+ is required, found " + process.version); process.exit(1); }'
-if [ -n "$DEPLOY_SUDO" ]; then
-  run_as_root true
-fi
-
 if [ -f "$ARCHIVE.sha256" ]; then
   expected_sha="$(awk '{print $1}' "$ARCHIVE.sha256")"
   actual_sha="$(checksum_file "$ARCHIVE")"
@@ -391,6 +394,11 @@ if [ "$VERIFY_ONLY" = "1" ]; then
   echo "Mia Cloud local installer verify-only completed: $ARCHIVE"
   rm -rf "$INSTALL_TMP"
   exit 0
+fi
+
+node -e 'require("node:sqlite"); const major = Number(process.versions.node.split(".")[0]); if (major < 25) { console.error("Node.js 25+ is required, found " + process.version); process.exit(1); }'
+if [ -n "$DEPLOY_SUDO" ]; then
+  run_as_root true
 fi
 
 require_command npm
@@ -469,7 +477,7 @@ if [ -f "$INSTALL_TMP/hermes-image/Dockerfile" ]; then
 fi
 run_as_root rsync -a --delete "$INSTALL_TMP/api/" "$API_DIR/"
 run_as_root cp "$INSTALL_TMP/manifest.json" "$API_DIR/release-manifest.json"
-run_as_root rsync -a --delete "$INSTALL_TMP/web/" "$WEB_DIR/"
+sync_web_release
 run_as_root mkdir -p "$(dirname "$NGINX_MAP_CONF")" "$(dirname "$NGINX_SITE_CONF")"
 run_as_root cp "$INSTALL_TMP/nginx/mia-websocket-map.conf" "$NGINX_MAP_CONF"
 run_as_root cp "$INSTALL_TMP/nginx/mia-cloud-site.conf" "$NGINX_SITE_CONF"
@@ -549,6 +557,12 @@ if ! MIA_SMOKE_EXPECT_RELEASE_COMMIT="$EXPECTED_RELEASE_COMMIT" \
   MIA_SMOKE_EXPECT_RELEASE_BUILT_AT="$EXPECTED_RELEASE_BUILT_AT" \
   node "$INSTALL_TMP/smoke-cloud.js" "$SMOKE_URL"; then
   rollback_after_public_verification_failure || echo "Rollback after smoke failure failed; inspect this host manually." >&2
+  exit 1
+fi
+
+echo "Running site verification against $SMOKE_URL"
+if ! node "$INSTALL_TMP/verify-site-verification.js" "$SMOKE_URL"; then
+  rollback_after_public_verification_failure || echo "Rollback after site verification failure failed; inspect this host manually." >&2
   exit 1
 fi
 

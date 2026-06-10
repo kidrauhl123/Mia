@@ -63,7 +63,7 @@ test("src/web/app/index.html includes the desktop-style chat history menu", () =
   assert.match(html, />\s*聊天记录\s*</);
 });
 
-test("src/web exposes cloud-only bot creation from the sidebar plus menu", () => {
+test("src/web exposes bot creation with a runtime target selector from the sidebar plus menu", () => {
   const html = fs.readFileSync(path.join(ROOT, "src/web/app/index.html"), "utf8");
   const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
 
@@ -71,11 +71,14 @@ test("src/web exposes cloud-only bot creation from the sidebar plus menu", () =>
   assert.match(html, />\s*创建智能体\s*</);
   assert.match(source, /convMenuNewBot: document\.getElementById\("convMenuNewBot"\)/);
   assert.match(source, /id="webCreateBotForm"/);
+  assert.match(source, /id="webBotRuntimeTarget"/);
   assert.match(source, /#webBotAvatarPreview/);
   assert.match(source, /function openCreateBotDialog\(\)/);
-  assert.match(source, /function saveCloudOnlyBotFromWeb\(/);
+  assert.match(source, /function saveBotFromWeb\(/);
+  assert.match(source, /function webRuntimeTargetGroups\(\)/);
   assert.match(source, /\/api\/me\/bots\?compact=1/);
   assert.match(source, /runtimeKind:\s*"cloud-hermes"/);
+  assert.match(source, /runtimeKind,\s*\n\s*enabled: true,\s*\n\s*activate: true,/);
   assert.match(source, /\/api\/me\/bots\/\$\{encodeURIComponent\(key\)\}/);
   assert.match(source, /\/api\/me\/bots\/\$\{encodeURIComponent\(key\)\}\/runtime/);
   assert.match(source, /\/api\/me\/bot-conversations\/\$\{encodeURIComponent\(key\)\}/);
@@ -253,6 +256,31 @@ test("scripts/build-cloud-release.js ships package-owned group tiles as the web 
     /["']web\/shared\/group-tiles\.js["']/,
     "verifyRelease must assert web/shared/group-tiles.js exists instead of allowing nginx to serve HTML fallback"
   );
+});
+
+test("scripts/build-cloud-release.js ships shared untyped id helpers to web and api packages", () => {
+  const build = fs.readFileSync(path.join(ROOT, "scripts/build-cloud-release.js"), "utf8");
+  assert.match(
+    build,
+    /copyFile\(["']src\/shared\/ids\.js["'][^)]+["']src["'][^)]+["']shared["'][^)]+["']ids\.js["']\)/,
+    "cloud release must copy src/shared/ids.js into api/src/shared/ids.js"
+  );
+  assert.match(
+    build,
+    /copyFile\(["']src\/shared\/ids\.js["'][^)]+["']shared["'][^)]+["']ids\.js["']\)/,
+    "cloud release must copy src/shared/ids.js into web/shared/ids.js"
+  );
+  assert.match(build, /["']api\/src\/shared\/ids\.js["']/);
+  assert.match(build, /["']web\/shared\/ids\.js["']/);
+});
+
+test("src/web/app/index.html loads shared ids before app.js", () => {
+  const html = fs.readFileSync(path.join(ROOT, "src/web/app/index.html"), "utf8");
+  const idsIdx = html.indexOf("shared/ids.js");
+  const appIdx = html.indexOf("../app.js");
+  assert.ok(idsIdx >= 0, "index.html must reference shared/ids.js");
+  assert.ok(appIdx >= 0, "index.html must load app.js");
+  assert.ok(idsIdx < appIdx, "shared/ids.js must load before app.js creates bot ids");
 });
 
 test("src/web/app/index.html loads shared/avatar-resolve.js before contact.js and app.js", () => {
@@ -477,7 +505,7 @@ test("scripts/build-cloud-release.js copies cloud shared modules into the api tr
   assert.match(build, /api\/packages\/shared\/identity\.js/);
   assert.doesNotMatch(build, /fellow-identity\.js/);
   assert.doesNotMatch(build, /api\/src\/shared\/group-bot-routing\.js/);
-  assert.match(build, /api\/src\/cloud-agent\/default-bot\.js/);
+  assert.doesNotMatch(build, /api\/src\/cloud-agent\/default-bot\.js/);
   assert.doesNotMatch(build, /api\/src\/cloud-agent\/default-fellow\.js/);
   assert.match(build, /api\/src\/shared\/skill-safety\.js/);
   assert.match(build, /api\/src\/shared\/avatar-resolve\.js/);

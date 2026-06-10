@@ -27,6 +27,11 @@ test("renderer app shell loads state module before the entrypoint", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
 
   assert.match(html, /<script src="\.\/app-state\.js"><\/script>[\s\S]*<script src="\.\/app\.js"><\/script>/);
+  assert.ok(html.indexOf("../shared/ids.js") >= 0, "renderer shell must load shared ids.js");
+  assert.ok(
+    html.indexOf("../shared/ids.js") < html.indexOf("./bot/bot-commands.js"),
+    "shared ids.js must load before bot commands create cloud bot ids"
+  );
   assert.match(appSource, /window\.miaAppState\.createInitialState/);
   assert.doesNotMatch(appSource, /const state = \{/);
   assert.doesNotMatch(appSource, /const fallbackSlashCommands = \[/);
@@ -101,9 +106,9 @@ test("renderer chat uses setup guide and supports no-agent continuation", () => 
   assert.match(appSource, /AGENT_SETUP_SKIPPED_KEY/);
   assert.match(appSource, /engineRowOpenClaw/);
   assert.match(htmlSource, /id="engineRowOpenClaw"/);
-  assert.match(htmlSource, /assets\/provider-icons\/nousresearch\.svg/);
-  assert.match(htmlSource, /assets\/provider-icons\/claude-color\.svg/);
-  assert.match(htmlSource, /assets\/provider-icons\/codex-color\.svg/);
+  assert.match(htmlSource, /assets\/engine-icons\/hermesagent\.svg/);
+  assert.match(htmlSource, /assets\/engine-icons\/claudecode\.svg/);
+  assert.match(htmlSource, /assets\/engine-icons\/codex-color\.svg/);
   assert.match(htmlSource, /assets\/provider-icons\/openclaw-color\.svg/);
   assert.match(stylesSource, /engine-row-logo\.openclaw/);
   assert.match(stylesSource, /body\.onboarding-window \.setup-guide \{[\s\S]*?border:\s*0;/);
@@ -221,7 +226,7 @@ test("engine detection renderer preserves legacy runtime status fallbacks", () =
   assert.equal(sandbox.els.engineRowHermes.textContent, "已接入 Mia");
   assert.equal(sandbox.els.engineRowClaude.textContent, "/usr/local/bin/claude · 1.2.3 build");
   assert.equal(sandbox.els.engineRowCodex.textContent, "/usr/local/bin/codex · 4.5.6 build");
-  assert.equal(sandbox.els.engineRowOpenClaw.textContent, "已检测到 · 暂未接入 Mia 聊天");
+  assert.equal(sandbox.els.engineRowOpenClaw.textContent, "已就绪");
 
   sandbox.renderEngineDetection({
     engineSource: "managed",
@@ -583,6 +588,21 @@ test("desktop bot controls save through bot runtime control adapter", () => {
   assert.match(appSource, /const conversationPersona = personas\.find[\s\S]*if \(conversationPersona\) return conversationPersona;\s*return null;/);
 });
 
+test("desktop-local bot runtime controls do not poll cloud runtime binding", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const body = appSource.slice(
+    appSource.indexOf("function syncConversationBotRuntimeControls()"),
+    appSource.indexOf("function setRuntimeControlDisabled")
+  );
+
+  assert.match(appSource, /const botRuntimeControlInFlight = new Set\(\);/);
+  assert.match(body, /context\.runtimeKind === "cloud-hermes"/);
+  assert.match(body, /!botRuntimeControlInFlight\.has\(runtimeCacheKey\)/);
+  assert.match(body, /botRuntimeControlInFlight\.add\(runtimeCacheKey\)/);
+  assert.match(body, /botRuntimeControlInFlight\.delete\(runtimeCacheKey\)/);
+  assert.doesNotMatch(body, /if \(!botRuntimeControlCache\.has\(botRuntimeCacheKey\(context\.botKey, context\.runtimeKind\)\)\) \{/);
+});
+
 test("desktop Hermes conversation model picker uses platform model catalog", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const preloadSource = fs.readFileSync(path.join(root, "src/preload.js"), "utf8");
@@ -831,10 +851,26 @@ test("contact detail shows engine logo and bot device label", () => {
   assert.match(mainSource, /localDevice:\s*\{\s*name:\s*localDeviceName\(\)/);
   assert.match(botManagerSource, /function botDeviceLabel\(bot = \{\}\)/);
   assert.match(botManagerSource, /function engineLogoHtml\(engine = ""\)/);
+  assert.match(botManagerSource, /function renderBotRuntimeTargetPanel\(bot\)/);
+  assert.match(botManagerSource, /window\.miaBotCommands\.saveBotRuntimeTarget\(\{/);
+  assert.match(botManagerSource, /<details class="contact-runtime-target accordion-details"/);
+  assert.match(botManagerSource, /data-runtime-panel-key/);
+  assert.match(botManagerSource, /openRuntimeTargetPanelKeys/);
+  assert.match(botManagerSource, /<div class="accordion-body">/);
+  assert.match(botManagerSource, /status:\s*"local"/);
+  assert.match(botManagerSource, /function mergeDevices\(existing, incoming/);
+  assert.match(botManagerSource, /function isSameLocalDevice\(device, local\)/);
+  assert.match(botManagerSource, /aliases:\s*\[/);
+  assert.match(botManagerSource, /\(device\?\.aliases \|\| \[\]\)\.includes\(active\.deviceId\)/);
   assert.match(botManagerSource, /engine-row-logo contact-engine-logo/);
   assert.match(botManagerSource, /botDeviceLabel\(bot\)/);
+  assert.match(botManagerSource, /RUNTIME_DEVICE_REFRESH_INTERVAL_MS/);
   assert.doesNotMatch(botManagerSource, /"本地伙伴"/);
   assert.match(styleSource, /\.contact-engine-badge \.contact-engine-logo/);
+  assert.match(styleSource, /\.contact-runtime-target/);
+  assert.match(styleSource, /\.contact-runtime-target > summary/);
+  assert.match(styleSource, /\.accordion-details > \.accordion-body/);
+  assert.match(styleSource, /\.runtime-target-option\.selected/);
 });
 
 test("contact detail deletes bots through runtime-backed ownership rules", () => {
@@ -852,6 +888,7 @@ test("contact detail deletes bots through runtime-backed ownership rules", () =>
   assert.match(commandsSource, /async function deleteCloudHermesBot/);
   assert.match(commandsSource, /async function deleteDesktopLocalBot/);
   assert.match(botManagerSource, /const canDeleteBot = bot\.canDelete !== false;/);
+  assert.doesNotMatch(fs.readFileSync(path.join(root, "src/renderer/bot/bot-directory.js"), "utf8"), /key !== "mia"/);
   assert.match(channelSource, /SocialDeleteBot/);
   assert.doesNotMatch(channelSource, /SocialDeleteFellow/);
   assert.match(preloadSource, /deleteBot: \(botId\) => ipcRenderer\.invoke\(IpcChannel\.SocialDeleteBot, botId\)/);
@@ -894,18 +931,42 @@ test("social bootstrap delegates desktop-local bot sync through bot command adap
   assert.match(commandsSource, /async function ensureDesktopLocalBotConversation/);
 });
 
-test("bot creation dialog separates runtime location from agent engine", () => {
+test("bot creation dialog combines runtime location and agent engine into one grouped selector", () => {
   const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const dialogSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-dialog.js"), "utf8");
 
-  assert.match(html, /id="botRuntimeLocation"/);
-  assert.match(html, /value="desktop-local"/);
-  assert.match(html, /value="cloud-hermes"/);
-  assert.match(appSource, /botRuntimeLocation:\s*document\.getElementById\("botRuntimeLocation"\)/);
-  assert.match(dialogSource, /function renderBotRuntimeLocationSelect/);
-  assert.match(dialogSource, /state\.runtime\?\.cloud\?\.enabled/);
-  assert.match(dialogSource, /els\.botAgentEngineField\?\.classList\.toggle\("hidden", runtimeKind === "cloud-hermes" \|\| !showField\)/);
+  assert.match(html, /id="botRuntimeTarget"/);
+  assert.match(html, /运行位置和 Agent 内核/);
+  assert.match(html, /helpers\/accordion\.js/);
+  assert.match(html, /class="persona-details accordion-details"/);
+  assert.match(html, /class="accordion-body"/);
+  assert.doesNotMatch(html, /id="botRuntimeLocation"/);
+  assert.doesNotMatch(html, /id="botRuntimeDevice"/);
+  assert.doesNotMatch(html, /目标设备/);
+  assert.match(appSource, /botRuntimeTarget:\s*document\.getElementById\("botRuntimeTarget"\)/);
+  assert.match(appSource, /readSelectedRuntimeTarget/);
+  assert.match(appSource, /targetDeviceId/);
+  assert.match(dialogSource, /function renderBotRuntimeTargetSelect/);
+  assert.match(dialogSource, /function readSelectedRuntimeTarget/);
+  assert.match(dialogSource, /document\.createElement\("optgroup"\)/);
+  assert.match(dialogSource, /refreshBridgeDevicesForDialog/);
+  assert.match(dialogSource, /state\?\.runtime\?\.cloud\?\.enabled/);
+  assert.match(dialogSource, /openclaw/);
+});
+
+test("desktop accordion helper animates managed details instead of native snap toggles", () => {
+  const source = fs.readFileSync(path.join(root, "src/renderer/helpers/accordion.js"), "utf8");
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+
+  assert.match(source, /details\.accordion-details/);
+  assert.match(source, /event\.preventDefault\(\)/);
+  assert.match(source, /body\.animate\(/);
+  assert.match(source, /function setElementOpen/);
+  assert.match(source, /element\.animate\(/);
+  assert.match(appSource, /window\.miaAccordion\?\.setElementOpen/);
+  assert.match(appSource, /window\.miaAccordion\.setElementOpen\(els\.modelForm, next\)/);
+  assert.match(source, /global\.miaAccordion/);
 });
 
 test("bot creation branches cloud-hermes without saving local manifest", () => {

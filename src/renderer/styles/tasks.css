@@ -505,6 +505,45 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.task-prompt-details {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.task-prompt-details > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  list-style: none;
+  cursor: pointer;
+  padding: 12px 14px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 520;
+}
+.task-prompt-details > summary::-webkit-details-marker {
+  display: none;
+}
+.task-prompt-details > summary::after {
+  content: "";
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  color: var(--muted);
+  transform: rotate(45deg);
+  transition: transform 120ms ease, color 120ms ease;
+}
+.task-prompt-details[open] > summary::after {
+  transform: rotate(225deg);
+}
+.task-prompt-details pre {
+  margin: 0;
+  padding: 0 14px 14px;
+}
 .task-history-list {
   display: grid;
   gap: 6px;

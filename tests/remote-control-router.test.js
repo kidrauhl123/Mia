@@ -58,6 +58,17 @@ test("routes health and read endpoints through one remote control router", async
   });
 });
 
+test("bot list does not invent a mia default when the manifest is empty", async () => {
+  const { router } = setup({
+    loadBotManifest: () => ({ bots: [], default_bot: "" })
+  });
+
+  assert.deepEqual(await router.route({ method: "GET", path: "/api/bots" }), {
+    handled: true,
+    data: { bots: [], defaultBot: "" }
+  });
+});
+
 test("routes model, effort, and permission mutations without duplicating adapters", async () => {
   const { calls, router } = setup();
 

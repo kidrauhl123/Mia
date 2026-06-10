@@ -540,11 +540,12 @@
     return pending[0] || null;
   }
 
-  function permissionEngineLabel(engine) {
-    if (engine === "claude-code") return "Claude Code";
-    if (engine === "codex") return "Codex";
-    return engine || "Agent";
-  }
+    function permissionEngineLabel(engine) {
+      if (engine === "claude-code") return "Claude Code";
+      if (engine === "codex") return "Codex";
+      if (engine === "openclaw") return "OpenClaw";
+      return engine || "Agent";
+    }
 
   function compactPermissionPreview(preview) {
     const text = String(preview || "").trim();
@@ -870,7 +871,8 @@
         bot,
         engineContracts: window.miaEngineContracts,
         modelSettings: window.miaModelSettings,
-        engineOptions: window.miaEngineOptions
+        engineOptions: window.miaEngineOptions,
+        activateRuntime: "if-empty"
       });
     } catch (error) {
       console.warn("[social] sync bot runtime failed", botKey, error);
@@ -896,6 +898,7 @@
           engineContracts: window.miaEngineContracts,
           modelSettings: window.miaModelSettings,
           engineOptions: window.miaEngineOptions,
+          activateRuntime: "if-empty",
           onConversation: upsertConversation
         });
       } catch (error) {
@@ -1095,11 +1098,42 @@
     return String(bot?.key || bot?.id || bot?.botId || bot?.bot_id || "").trim();
   }
 
+  function mergeCloudBotIdentity(existing = null, incoming = {}) {
+    const key = botKeyFromRecord(incoming) || botKeyFromRecord(existing);
+    const runtimeFields = {};
+    for (const field of [
+      "runtimeKind",
+      "runtimeConfig",
+      "agentEngine",
+      "targetDeviceId",
+      "targetDeviceName",
+      "deviceId",
+      "deviceName",
+      "runtimeLabel"
+    ]) {
+      if (existing && existing[field] !== undefined && incoming[field] === undefined) {
+        runtimeFields[field] = existing[field];
+      }
+    }
+    const sourceKinds = [...new Set([
+      ...((Array.isArray(existing?.sourceKinds) ? existing.sourceKinds : []).filter(Boolean)),
+      ...((Array.isArray(incoming?.sourceKinds) ? incoming.sourceKinds : ["cloud"]).filter(Boolean))
+    ])];
+    return {
+      ...(existing || {}),
+      ...incoming,
+      ...runtimeFields,
+      key,
+      ...(sourceKinds.length ? { sourceKinds } : {})
+    };
+  }
+
   function upsertCloudBotIdentity(bot) {
     const key = botKeyFromRecord(bot);
     if (!key) return false;
+    const existing = moduleState.bots.find((item) => botKeyFromRecord(item) === key) || null;
     moduleState.bots = [
-      { ...bot, key },
+      mergeCloudBotIdentity(existing, bot),
       ...moduleState.bots.filter((item) => botKeyFromRecord(item) !== key)
     ];
     return true;
@@ -1294,10 +1328,7 @@
       const bot = payload?.bot;
       const key = String(bot?.key || bot?.id || "").trim();
       if (!key) return;
-      moduleState.bots = [
-        { ...bot, key },
-        ...moduleState.bots.filter((item) => String(item?.key || item?.id || "") !== key)
-      ];
+      upsertCloudBotIdentity(bot);
       if (deps && typeof deps.render === "function") deps.render();
       return;
     }
@@ -2544,7 +2575,14 @@
     moduleState.unreadByConversation.delete(conversationId);
     const cache = moduleState.messageCache.get(conversationId);
     const lastSeq = cache && Number.isFinite(Number(cache.maxSeq)) ? Number(cache.maxSeq) : 0;
-    const s = _ensureCloudSettings();
+    let s = _ensureCloudSettings();
+    if (!_retried && !Number.isFinite(Number(s.version))) {
+      await bootstrapCloudSettings();
+      s = _ensureCloudSettings();
+    }
+    const existingReadMark = Number(s.readMarks?.[conversationId]) || 0;
+    const hasUnreadOverride = Boolean(s.unreadOverrides && s.unreadOverrides[conversationId]);
+    if (existingReadMark >= lastSeq && !hasUnreadOverride) return;
     const nextReadMarks = { ...(s.readMarks || {}), [conversationId]: lastSeq };
     // Clear any manual "标为未读" override so the badge actually goes away.
     const nextOverrides = { ...(s.unreadOverrides || {}) };
@@ -2561,7 +2599,8 @@
       });
       // Capture the server's new version; without this the local version stays
       // stale (or 0 before the first bootstrap) and every later write 409s.
-      if (updated && typeof updated === "object") moduleState.cloudSettings = normalizeCloudSettings(updated, moduleState.cloudSettings || s);
+      const updatedSettings = unwrapCloudSettingsResponse(updated);
+      if (updatedSettings && typeof updatedSettings === "object") moduleState.cloudSettings = normalizeCloudSettings(updatedSettings, moduleState.cloudSettings || s);
     } catch (err) {
       // 409: our version is stale (common during startup, when a restored
       // conversation marks read before bootstrapCloudSettings lands). Re-pull the
@@ -2596,6 +2635,13 @@
         ? input.unreadOverrides
         : (prior.unreadOverrides && typeof prior.unreadOverrides === "object" ? prior.unreadOverrides : {})
     };
+  }
+
+  function unwrapCloudSettingsResponse(response) {
+    if (response?.settings && typeof response.settings === "object") return response.settings;
+    if (response?.data?.settings && typeof response.data.settings === "object") return response.data.settings;
+    if (response?.data && typeof response.data === "object" && !Array.isArray(response.data)) return response.data;
+    return response;
   }
 
   function _ensureCloudSettings() {
@@ -2664,7 +2710,8 @@
         appearance: next.appearance,
         expectedVersion: s.version || 0
       });
-      if (updated && typeof updated === "object") moduleState.cloudSettings = normalizeCloudSettings(updated, moduleState.cloudSettings || s);
+      const updatedSettings = unwrapCloudSettingsResponse(updated);
+      if (updatedSettings && typeof updatedSettings === "object") moduleState.cloudSettings = normalizeCloudSettings(updatedSettings, moduleState.cloudSettings || s);
     } catch (err) {
       if (!_retried && /409|version conflict/i.test(String(err?.message || ""))) {
         await bootstrapCloudSettings();
@@ -2678,7 +2725,7 @@
 
   async function bootstrapCloudSettings() {
     try {
-      const settings = await window.mia.social.settingsGet();
+      const settings = unwrapCloudSettingsResponse(await window.mia.social.settingsGet());
       if (settings && typeof settings === "object") {
         moduleState.cloudSettings = normalizeCloudSettings(settings, moduleState.cloudSettings || {});
         if (deps && typeof deps.render === "function") deps.render();

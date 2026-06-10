@@ -3,7 +3,11 @@
 const PROCESSED_CAP = 500;
 
 function shouldHandleLocalCloudConversationAi({ isDaemon, daemonEnabled }) {
-  void daemonEnabled;
+  // Foreground and daemon share the same cloud event cursor today. If the
+  // foreground consumes an invocation while daemon is enabled but refuses to run
+  // it, the daemon never sees that seq. Let every active host answer; the reply
+  // POST uses a deterministic clientOpId, so the cloud stores only one message.
+  if (daemonEnabled) return true;
   return !Boolean(isDaemon);
 }
 
@@ -180,7 +184,7 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, emitC
     }
   }
 
-  async function respond({ conversationId, botId, dedupKey, systemPrompt, userPrompt, turnId = null, runtimeConfig = null, activeSkillIds = [] }) {
+  async function respond({ conversationId, botId, botSnapshot = null, dedupKey, systemPrompt, userPrompt, turnId = null, runtimeConfig = null, activeSkillIds = [] }) {
     if (!conversationId || !botId || !dedupKey) return;
     if (processed.has(dedupKey)) return;
     if (inFlight.has(dedupKey)) return;
@@ -210,6 +214,7 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, emitC
         persistAgentSession: true,
         allowSlashCommands: false
       };
+      if (botSnapshot && typeof botSnapshot === "object") chatArgs.botSnapshot = botSnapshot;
       if (runtimeConfig && typeof runtimeConfig === "object") chatArgs.runtimeConfig = runtimeConfig;
       // Composer skill chips that rode in on the triggering message: merge them
       // into this turn so the chip actually reaches the engine (sendChat folds

@@ -91,6 +91,7 @@ const required = [
   "src/renderer/helpers/markdown-helpers.js",
   "src/renderer/helpers/format-helpers.js",
   "src/renderer/helpers/scrollbar-overlay.js",
+  "src/renderer/helpers/accordion.js",
   "packages/shared/package.json",
   "packages/shared/index.js",
   "packages/shared/index.d.ts",
@@ -237,7 +238,9 @@ for (const relativePath of trackedFiles()) {
   const ext = path.extname(relativePath).toLowerCase();
   const basename = path.basename(relativePath);
   if (!textExtensions.has(ext) && !textBasenames.has(basename)) continue;
-  const source = fs.readFileSync(path.join(rootDir, relativePath), "utf8").toLowerCase();
+  const absolutePath = path.join(rootDir, relativePath);
+  if (!fs.existsSync(absolutePath)) continue;
+  const source = fs.readFileSync(absolutePath, "utf8").toLowerCase();
   for (const forbidden of forbiddenLegacyProductionHosts) {
     if (source.includes(forbidden)) {
       throw new Error(`Legacy production host reference found in ${relativePath}`);

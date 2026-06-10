@@ -10,7 +10,7 @@ const packageJson = require("../package.json");
 
 const cloudUrl = process.env.MIA_CLOUD_URL || "http://127.0.0.1:4175";
 let cloudToken = process.env.MIA_CLOUD_TOKEN || "";
-const engine = process.env.MIA_BRIDGE_ENGINE || "codex";
+const defaultEngine = normalizeAgentEngine(process.env.MIA_BRIDGE_ENGINE || "codex");
 const deviceName = process.env.MIA_BRIDGE_NAME || `${os.hostname()} Mia Bridge`;
 const cwd = process.env.MIA_BRIDGE_CWD || process.cwd();
 const reconnectMs = Number(process.env.MIA_BRIDGE_RECONNECT_MS || 3000);
@@ -22,13 +22,16 @@ function log(message) {
 }
 
 function bridgeCapabilities() {
+  const engines = ["hermes", "claude-code", "codex", "openclaw"].includes(defaultEngine)
+    ? [defaultEngine]
+    : [];
   return {
     chat: true,
     attachments: true,
     generatedImages: true,
     cancellation: true,
     streaming: true,
-    engines: [engine],
+    engines,
     app: "Mia Local Agent Bridge",
     appVersion: packageJson.version || "",
     hostname: os.hostname()
@@ -41,9 +44,28 @@ function bridgeUrl(options = {}) {
   url.pathname = "/api/bridge";
   url.search = "";
   url.searchParams.set("deviceName", options.deviceName || deviceName);
-  url.searchParams.set("engine", options.engine || engine);
+  url.searchParams.set("engine", options.engine || defaultEngine || "mia-bridge");
   url.searchParams.set("capabilities", JSON.stringify(options.capabilities || bridgeCapabilities()));
   return url.toString();
+}
+
+function normalizeAgentEngine(value, fallback = "codex") {
+  const raw = String(value || "").trim().toLowerCase().replace(/_/g, "-");
+  if (raw === "claude" || raw === "claude-code" || raw === "anthropic") return "claude-code";
+  if (raw === "codex" || raw === "openai-codex") return "codex";
+  if (raw === "openclaw" || raw === "open-claw") return "openclaw";
+  if (raw === "hermes" || raw === "cloud-hermes") return "hermes";
+  if (raw === "echo") return "echo";
+  return fallback;
+}
+
+function engineLabel(value) {
+  const engine = normalizeAgentEngine(value, "codex");
+  if (engine === "claude-code") return "Claude Code";
+  if (engine === "openclaw") return "OpenClaw";
+  if (engine === "hermes") return "Hermes";
+  if (engine === "echo") return "Echo";
+  return "Codex";
 }
 
 function bridgeProtocols(inputToken = cloudToken) {
@@ -263,7 +285,7 @@ async function materializeAttachments(attachments = [], runId = crypto.randomUUI
 
 function mapPermissionMode(value) {
   const mode = String(value || "default");
-  if (mode === "bypass") return { sandboxMode: "danger-full-access", approvalPolicy: "never" };
+  if (mode === "bypass" || mode === "bypassPermissions" || mode === "yolo") return { sandboxMode: "danger-full-access", approvalPolicy: "never" };
   if (mode === "readOnly") return { sandboxMode: "read-only", approvalPolicy: "never" };
   if (mode === "acceptEdits") return { sandboxMode: "workspace-write", approvalPolicy: "never" };
   return { sandboxMode: "workspace-write", approvalPolicy: "never" };
@@ -296,19 +318,21 @@ function emitCodexStreamEvent(ws, runId, event, textByItem) {
   }
 }
 
-async function runCodex(text, { signal = null, ws = null, runId = "", attachments = [] } = {}) {
+async function runCodex(text, { signal = null, ws = null, runId = "", attachments = [], runtimeConfig = {} } = {}) {
   const codexPath = shellCommandPath("codex");
   if (!codexPath) throw new Error("本机没有检测到 Codex CLI。请先安装并登录 Codex。");
   const materialized = await materializeAttachments(attachments, runId || crypto.randomUUID());
   try {
     const { Codex } = await import("@openai/codex-sdk");
     const codex = new Codex({ codexPathOverride: codexPath, env: process.env });
-    const thread = codex.startThread({
+    const threadOptions = {
       workingDirectory: cwd,
       skipGitRepoCheck: true,
-      modelReasoningEffort: process.env.MIA_CODEX_EFFORT || "medium",
-      ...mapPermissionMode(process.env.MIA_CODEX_PERMISSION || "default")
-    });
+      modelReasoningEffort: runtimeConfig.effortLevel || runtimeConfig.effort_level || process.env.MIA_CODEX_EFFORT || "medium",
+      ...mapPermissionMode(runtimeConfig.permissionMode || runtimeConfig.permission_mode || process.env.MIA_CODEX_PERMISSION || "default")
+    };
+    if (runtimeConfig.model) threadOptions.model = String(runtimeConfig.model);
+    const thread = codex.startThread(threadOptions);
     const startedAtMs = Date.now();
     let finalResponse = "";
     const prompt = buildCodexPrompt(text, materialized.attachments);
@@ -342,11 +366,22 @@ async function runCodex(text, { signal = null, ws = null, runId = "", attachment
 }
 
 async function runLocalAgent(message, context = {}) {
-  if (engine === "echo") {
+  const runtimeConfig = message?.runtimeConfig || message?.runtime_config || message?.config || {};
+  const requestedEngine = normalizeAgentEngine(
+    message?.agentEngine || message?.agent_engine || message?.engine || runtimeConfig.agentEngine || runtimeConfig.agent_engine,
+    defaultEngine
+  );
+  if (requestedEngine === "echo") {
     return { text: `本机 Bridge 已收到：${message.text || ""}`, attachments: [] };
   }
-  if (engine !== "codex") throw new Error(`暂不支持的本机 Agent：${engine}`);
-  return runCodex(message.text || "", { ...context, attachments: Array.isArray(message.attachments) ? message.attachments : [] });
+  if (requestedEngine !== "codex") {
+    throw new Error(`命令行 Bridge 暂不支持 ${engineLabel(requestedEngine)}。请使用 Mia Desktop Bridge，或把该 Bot 切到 Codex。`);
+  }
+  return runCodex(message.text || "", {
+    ...context,
+    attachments: Array.isArray(message.attachments) ? message.attachments : [],
+    runtimeConfig
+  });
 }
 
 function sendJson(ws, payload) {
@@ -370,7 +405,7 @@ async function connect() {
     return;
   }
   const ws = new WebSocket(bridgeUrl(), bridgeProtocols());
-  ws.on("open", () => log(`connected to ${cloudUrl} as ${deviceName} (${engine})`));
+  ws.on("open", () => log(`connected to ${cloudUrl} as ${deviceName} (${defaultEngine})`));
   ws.on("message", async (raw) => {
     let message;
     try {

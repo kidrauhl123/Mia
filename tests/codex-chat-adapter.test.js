@@ -71,6 +71,7 @@ function createDeps(overrides = {}) {
     normalizeEffortLevel: (level, engine) => `${engine}:${level}`,
     processEnvStrings: () => overrides.env || { PATH: "/bin" },
     readBotPersona: () => "persona",
+    resolveManagedModelRuntime: overrides.resolveManagedModelRuntime || (() => null),
     setAgentSessionId: (...args) => calls.push(["set-session", ...args]),
     shellCommandPath: (command) => command === "codex" ? "/bin/codex" : "",
     writeSchedulerMcpContext: () => {}
@@ -130,6 +131,34 @@ test("sendChat starts new thread with persona on first turn", async () => {
   ]);
   assert.equal(response.id, "thread_1");
   assert.equal(response.choices[0].message.content, "codex out");
+});
+
+test("sendChat routes Mia-managed Codex models through the proxy profile", async () => {
+  const deps = createDeps({
+    resolveManagedModelRuntime: () => ({
+      provider: "mia",
+      model: "mia-default",
+      baseUrl: "https://mia.example/api/me/model-proxy/v1",
+      apiKey: "cloud-token"
+    })
+  });
+  const adapter = createCodexChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot: { key: "alice", name: "Alice", bio: "", engineConfig: { provider: "mia", model: "mia-default" } },
+    sessionId: "s1",
+    messages: [{ role: "user", content: "hello" }],
+    signal: null,
+    utility: false
+  });
+
+  assert.deepEqual(deps.calls[1], ["constructor", {
+    codexPathOverride: "/bin/codex",
+    env: { PATH: "/bin", CODEX_HOME: "/runtime/codex-home" },
+    baseUrl: "https://mia.example/api/me/model-proxy/v1",
+    apiKey: "cloud-token"
+  }]);
+  assert.equal(deps.calls[2][1].model, "mia-default");
 });
 
 test("sendChat fails closed when Mia Codex home cannot be created", async () => {
@@ -367,4 +396,34 @@ test("sendChat uses Codex app-server runner for interactive approval-capable tur
   assert.equal(response.mia.transport, "codex-app-server");
   assert.equal(response.choices[0].message.content, "app out");
   assert.deepEqual(emitted.map((event) => event.kind), ["text_delta"]);
+});
+
+test("sendChat passes Mia-managed Codex profile to app-server runner", async () => {
+  const deps = createDeps({
+    resolveManagedModelRuntime: () => ({
+      provider: "mia",
+      model: "mia-default",
+      baseUrl: "https://mia.example/api/me/model-proxy/v1",
+      apiKey: "cloud-token"
+    })
+  });
+  deps.runCodexAppServerTurn = async (args) => {
+    deps.calls.push(["app-server", args]);
+    return { threadId: "app_thread_1", finalResponse: "app out", items: [] };
+  };
+  const adapter = createCodexChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot: { key: "alice", name: "Alice", bio: "", engineConfig: { provider: "mia", model: "mia-default" } },
+    sessionId: "s1",
+    messages: [{ role: "user", content: "hello" }],
+    signal: null,
+    emit: () => {},
+    utility: false
+  });
+
+  const call = deps.calls.find((entry) => entry[0] === "app-server")[1];
+  assert.equal(call.baseUrl, "https://mia.example/api/me/model-proxy/v1");
+  assert.equal(call.apiKey, "cloud-token");
+  assert.equal(call.options.model, "mia-default");
 });

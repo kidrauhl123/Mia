@@ -29,11 +29,13 @@ function createModelSettingsService({
       baseUrl: String(settings.baseUrl || "").trim(),
       apiMode: String(settings.apiMode || "").trim()
     };
-    if (next.provider && (submittedApiKey || next.apiKey || next.provider === "lmstudio")) {
+    const nextAuthType = String(settings.authType || existingConnection?.authType || (next.provider === "openai-codex" ? "oauth_external" : "api_key")).trim();
+    const nextProviderLabel = String(settings.providerLabel || existingConnection?.providerLabel || next.provider).trim();
+    if (next.provider && (submittedApiKey || next.apiKey || next.provider === "lmstudio" || nextAuthType !== "api_key")) {
       saveProviderConnection({
         provider: next.provider,
-        providerLabel: String(settings.providerLabel || existingConnection?.providerLabel || next.provider).trim(),
-        authType: String(settings.authType || existingConnection?.authType || (next.provider === "openai-codex" ? "oauth_external" : "api_key")).trim(),
+        providerLabel: nextProviderLabel,
+        authType: nextAuthType,
         apiKeyEnv: next.apiKeyEnv,
         apiKey: next.apiKey,
         baseUrl: next.baseUrl,

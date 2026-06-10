@@ -6,6 +6,7 @@ const { test } = require("node:test");
 const { DatabaseSync } = require("node:sqlite");
 
 const { createCloudStore } = require("../src/cloud/sqlite-store.js");
+const ids = require("../src/shared/ids.js");
 
 function tempStore() {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-cloud-store-"));
@@ -26,6 +27,9 @@ test("sqlite store registers, logs in, authenticates, and logs out a user", () =
   try {
     const registered = store.registerUser({ username: "Alice", password: "secret1" });
     assert.equal(registered.user.username, "alice");
+    assert.equal(ids.isPublicId(registered.user.id), true);
+    assert.match(registered.user.id, /^[1-9][0-9]{9}$/);
+    assert.doesNotMatch(registered.user.id, /^(user|bot)_/);
     assert.ok(registered.token);
         // Phase 4: workspace removed from auth response.
 
@@ -33,6 +37,7 @@ test("sqlite store registers, logs in, authenticates, and logs out a user", () =
     assert.ok(loggedIn.token);
     const auth = store.authenticateToken(loggedIn.token);
     assert.equal(auth.user.username, "alice");
+    assert.equal(auth.user.id, registered.user.id);
 
     store.logoutSession(loggedIn.token);
     assert.equal(store.authenticateToken(loggedIn.token), null);
@@ -243,9 +248,11 @@ test("schema v2 creates social tables and indexes", () => {
       assert.ok(tables.includes(t), `missing table: ${t}`);
     }
     const idx = db.prepare(`SELECT name FROM sqlite_master WHERE type='index' ORDER BY name`).all().map((r) => r.name);
-    for (const i of ["idx_friend_requests_to", "idx_friend_requests_code", "idx_conversation_members_user", "idx_messages_conversation_seq"]) {
+    for (const i of ["idx_friend_requests_to", "idx_friend_requests_code", "idx_conversation_members_user", "idx_messages_conversation_seq", "idx_conversations_public_id"]) {
       assert.ok(idx.includes(i), `missing index: ${i}`);
     }
+    const conversationColumns = db.prepare("PRAGMA table_info(conversations)").all().map((r) => r.name);
+    assert.ok(conversationColumns.includes("public_id"), "missing conversations column: public_id");
     const version = db.prepare("SELECT MAX(version) AS v FROM schema_migrations").get().v;
     assert.ok(version >= 2, `schema_migrations max version should be >= 2, got ${version}`);
   } finally {

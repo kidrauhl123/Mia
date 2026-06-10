@@ -226,6 +226,23 @@ test("bundled library exposes a Mia scheduler skill for reminder requests", asyn
   }
 });
 
+test("bundled official library exposes first-release bot presets", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-skills-loader-"));
+  try {
+    const loader = makeBundledLoader(home);
+    const presets = loader.readMiaOfficialBotPresets();
+    assert.ok(presets.length >= 5);
+    assert.ok(presets.every((preset) => preset.name && preset.persona));
+    assert.ok(presets.some((preset) => preset.name === "论文搭子"));
+    assert.equal(presets.some((preset) => preset.key === "speak-partner"), false);
+
+    const library = await loader.loadLocalSkills();
+    assert.equal(library.botPresets.length, presets.length);
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("installMarketplaceSkill rejects a missing package", async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-skills-loader-"));
   try {

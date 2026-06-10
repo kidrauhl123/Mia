@@ -13,6 +13,8 @@ test("normalizeAgentEngine preserves supported engine aliases", () => {
   assert.equal(normalizeAgentEngine("claude_code"), "claude-code");
   assert.equal(normalizeAgentEngine("openai-codex"), "codex");
   assert.equal(normalizeAgentEngine("openai_codex"), "codex");
+  assert.equal(normalizeAgentEngine("openclaw"), "openclaw");
+  assert.equal(normalizeAgentEngine("open_claw"), "openclaw");
 });
 
 test("normalizeAgentEngine falls back to hermes", () => {
@@ -25,6 +27,11 @@ test("adapterForEngine exposes stable metadata for chat routing", () => {
   assert.equal(adapterForEngine("claude").id, "claude-code");
   assert.equal(adapterForEngine("claude").cliCommand, "claude");
   assert.equal(adapterForEngine("codex").responseModel, "codex-cli");
+  assert.equal(adapterForEngine("openclaw").responseModel, "openclaw-acp");
+  assert.equal(adapterForEngine("openclaw").transport, "acp-backend");
+  assert.equal(adapterForEngine("openclaw").agentType, "acp");
+  assert.equal(adapterForEngine("openclaw").backend, "openclaw");
+  assert.equal(adapterForEngine("openclaw").usesRuntime, true);
   assert.equal(adapterForEngine("hermes").usesRuntime, true);
   assert.equal(adapterForEngine("unknown"), CHAT_ENGINE_ADAPTERS.hermes);
 });
@@ -33,5 +40,6 @@ test("resolveChatEngineAdapter reads current and legacy bot fields", () => {
   assert.equal(resolveChatEngineAdapter({ agentEngine: "codex" }).id, "codex");
   assert.equal(resolveChatEngineAdapter({ agent_engine: "claude-code" }).id, "claude-code");
   assert.equal(resolveChatEngineAdapter({ engine: "openai-codex" }).id, "codex");
+  assert.equal(resolveChatEngineAdapter({ agentEngine: "openclaw" }).id, "openclaw");
   assert.equal(resolveChatEngineAdapter({}).id, "hermes");
 });

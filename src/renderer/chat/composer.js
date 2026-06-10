@@ -38,7 +38,7 @@
     if (!state) return [];
     const filter = state.slashFilter.replace(/^\//, "").trim().toLowerCase();
     const engine = window.miaEngineOptions.activeAgentEngine();
-    const commands = engine === "claude-code" || engine === "codex"
+    const commands = window.miaEngineContracts?.isExternalEngine?.(engine) || engine === "claude-code" || engine === "codex" || engine === "openclaw"
       ? (state.agentSlashCommands[engine] || [])
       : (state.slashCommands || fallbackSlashCommands);
     if (!filter) return commands;
@@ -53,7 +53,7 @@
     const argsText = input.slice(command.length).trim();
     const args = argsText ? argsText.split(/\s+/).filter(Boolean) : [];
     const engine = window.miaEngineOptions.activeAgentEngine();
-    if (engine !== "claude-code" && engine !== "codex") return null;
+    if (!(window.miaEngineContracts?.isExternalEngine?.(engine) || engine === "claude-code" || engine === "codex" || engine === "openclaw")) return null;
     const found = (state.agentSlashCommands[engine] || []).find((item) => String(item.command || "").toLowerCase() === command);
     return found ? { engine, command, args, item: found } : null;
   }

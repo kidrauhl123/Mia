@@ -28,6 +28,8 @@ function createFixtureRelease({ badHash = false } = {}) {
     "web/index.html": "<!doctype html><title>Mia Web</title>\n",
     "web/app.js": "console.log('app');\n",
     "web/styles.css": "body {}\n",
+    "nginx/mia-websocket-map.conf": "map $http_upgrade $connection_upgrade { default upgrade; '' close; }\n",
+    "nginx/mia-cloud-site.conf": "server { listen 80; server_name _; }\n",
     "smoke-cloud.js": "console.log('smoke');\n",
     "doctor-cloud.js": "console.log('doctor');\n"
   };

@@ -7,6 +7,8 @@ const os = require("node:os");
 const path = require("node:path");
 
 const root = path.resolve(__dirname, "..");
+const SITE_VERIFICATION_FILE = "5a371047c22c89872f93f00c7d8af123.txt";
+const SITE_VERIFICATION_CONTENT = "24dd5141e8f881adf83372da5cd9d6f1f60f2b32";
 
 function readText(filePath) {
   return fs.readFileSync(filePath, "utf8");
@@ -263,6 +265,7 @@ function buildHandoff({
     `MIA_SMOKE_EXPECT_RELEASE_COMMIT=${shellQuote(expectedCommit)} \\`,
     `MIA_SMOKE_EXPECT_RELEASE_BUILT_AT=${shellQuote(expectedBuiltAt)} \\`,
     `node mia-cloud-release/smoke-cloud.js ${shellQuote(publicUrl)}`,
+    `curl -fsS ${shellQuote(`${publicUrl}/${SITE_VERIFICATION_FILE}`)} | grep -qxF ${shellQuote(SITE_VERIFICATION_CONTENT)}`,
     "```",
     "",
     "After a desktop bridge is logged into the same dedicated smoke account, run the end-to-end bridge smoke:",
@@ -294,7 +297,7 @@ function buildHandoff({
     "npm run bridge",
     "```",
     "",
-    "Do not mark production complete until doctor and smoke both pass against the public URL."
+    "Do not mark production complete until doctor, smoke, and site verification all pass against the public URL."
   ].join("\n");
 }
 
@@ -387,6 +390,7 @@ function buildTransferReadme({ publicUrl, expectedCommit, expectedBuiltAt }) {
     `MIA_SMOKE_EXPECT_RELEASE_COMMIT=${shellQuote(expectedCommit)} \\`,
     `MIA_SMOKE_EXPECT_RELEASE_BUILT_AT=${shellQuote(expectedBuiltAt)} \\`,
     `node mia-cloud-release/smoke-cloud.js ${shellQuote(publicUrl)}`,
+    `curl -fsS ${shellQuote(`${publicUrl}/${SITE_VERIFICATION_FILE}`)} | grep -qxF ${shellQuote(SITE_VERIFICATION_CONTENT)}`,
     "```",
     "",
     "Prepare or validate the fixed smoke account before bridge-required e2e:",
@@ -416,7 +420,7 @@ function buildTransferReadme({ publicUrl, expectedCommit, expectedBuiltAt }) {
     "",
     "A desktop bridge logged into the same Mia Cloud account can be called directly from Web or mobile. It does not require a separate local approval click for the remote connection. Agent permission mode remains the normal per-Agent execution setting and is not used as device authentication.",
     "",
-    "Do not mark production complete until doctor and smoke both pass against the public URL.",
+    "Do not mark production complete until doctor, smoke, and site verification all pass against the public URL.",
     ""
   ].join("\n");
 }

@@ -71,6 +71,21 @@ async function startLiteLLMFake(initialModels = null) {
         res.end(JSON.stringify({ model: "mia-default", choices: [{ message: { content: "mia-ok" } }] }));
         return;
       }
+      if (req.method === "POST" && url.pathname === "/v1/responses") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ model: "mia-default", output_text: "mia-ok" }));
+        return;
+      }
+      if (req.method === "POST" && url.pathname === "/v1/messages") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ model: "mia-default", content: [{ type: "text", text: "mia-claude-ok" }] }));
+        return;
+      }
+      if (req.method === "POST" && url.pathname === "/v1/messages/count_tokens") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ input_tokens: 42 }));
+        return;
+      }
       res.writeHead(404, { "content-type": "application/json" });
       res.end(JSON.stringify({ error: "not found" }));
     });
@@ -225,6 +240,72 @@ test("authenticated users can list platform model aliases without provider secre
     assert.equal(catalog.body.models[1].provider, "anthropic");
     const serialized = JSON.stringify(catalog.body);
     assert.doesNotMatch(serialized, /sk-default-secret|sk-pro-secret|api_key/);
+  } finally {
+    await stopCloud(cloud);
+    await new Promise((resolve) => lite.server.close(resolve));
+  }
+});
+
+test("authenticated users can call Mia model proxy without provider secrets", async () => {
+  const lite = await startLiteLLMFake([
+    {
+      model_name: "mia-default",
+      litellm_params: { model: "deepseek/deepseek-chat", api_key: "sk-default-secret" },
+      model_info: { id: "mia-default", base_model: "deepseek/deepseek-chat", provider: "deepseek", label: "Mia Default" }
+    }
+  ]);
+  const cloud = await startCloud(lite.port);
+  try {
+    const user = await register(cloud.port, "proxy");
+    const models = await request(cloud.port, "GET", "/api/me/model-proxy/v1/models", { token: user.token });
+    assert.equal(models.status, 200);
+    assert.deepEqual(models.body.data.map((model) => model.id), ["mia-default"]);
+
+    const completion = await request(cloud.port, "POST", "/api/me/model-proxy/v1/chat/completions", {
+      token: user.token,
+      body: {
+        model: "mia-default",
+        messages: [{ role: "user", content: "hello" }]
+      }
+    });
+    assert.equal(completion.status, 200);
+    assert.equal(completion.body.choices[0].message.content, "mia-ok");
+    assert.ok(lite.calls.some((call) => call.path === "/v1/chat/completions"));
+    assert.doesNotMatch(JSON.stringify(completion.body), /sk-default-secret|service|master/);
+
+    const response = await request(cloud.port, "POST", "/api/me/model-proxy/v1/responses", {
+      token: user.token,
+      body: {
+        model: "mia-default",
+        input: "hello"
+      }
+    });
+    assert.equal(response.status, 200);
+    assert.equal(response.body.output_text, "mia-ok");
+    assert.ok(lite.calls.some((call) => call.path === "/v1/responses"));
+
+    const anthropic = await request(cloud.port, "POST", "/api/me/model-proxy/v1/messages", {
+      token: user.token,
+      body: {
+        model: "mia-default",
+        messages: [{ role: "user", content: "hello" }],
+        max_tokens: 64
+      }
+    });
+    assert.equal(anthropic.status, 200);
+    assert.equal(anthropic.body.content[0].text, "mia-claude-ok");
+    assert.ok(lite.calls.some((call) => call.path === "/v1/messages"));
+
+    const counted = await request(cloud.port, "POST", "/api/me/model-proxy/v1/messages/count_tokens", {
+      token: user.token,
+      body: {
+        model: "mia-default",
+        messages: [{ role: "user", content: "hello" }]
+      }
+    });
+    assert.equal(counted.status, 200);
+    assert.equal(counted.body.input_tokens, 42);
+    assert.ok(lite.calls.some((call) => call.path === "/v1/messages/count_tokens"));
   } finally {
     await stopCloud(cloud);
     await new Promise((resolve) => lite.server.close(resolve));

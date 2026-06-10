@@ -39,16 +39,40 @@ function buildBotInvocation(payload, bots) {
   const { conversationId, botId, triggeringMessage, recentMessages, members, runtimeConfig } = payload || {};
   const triggerId = triggeringMessage && triggeringMessage.id;
   if (!conversationId || !botId || !triggerId) return null;
-  const bot = (Array.isArray(bots) ? bots : []).find((item) => (item.key || item.id) === botId);
-  if (!bot) return null;
+  const bot = (Array.isArray(bots) ? bots : []).find((item) => (item.key || item.id) === botId)
+    || (Array.isArray(members) ? members : [])
+      .filter((member) => member?.member_kind === MemberKind.Bot)
+      .map((member) => {
+        if (String(member.member_ref || "") !== String(botId)) return null;
+        return {
+          key: botId,
+          id: botId,
+          name: member.bot_name || member.displayName || member.display_name || member.member_ref || botId
+        };
+      })
+      .find(Boolean)
+    || {
+      key: botId,
+      id: botId,
+      name: botId
+    };
+  const runtimeAgentEngine = String(runtimeConfig?.agentEngine || runtimeConfig?.agent_engine || "").trim();
+  const botSnapshot = {
+    ...bot,
+    key: bot.key || bot.id || botId,
+    id: bot.id || bot.key || botId,
+    name: bot.name || bot.displayName || bot.display_name || botId,
+    ...(runtimeAgentEngine && !bot.agentEngine && !bot.agent_engine ? { agentEngine: runtimeAgentEngine } : {})
+  };
 
   const roster = memberLines(members, bots);
   return {
     conversationId,
     botId,
+    botSnapshot,
     dedupKey: `${triggerId}:${botId}`,
     systemPrompt: [
-      `你是 ${bot.name || bot.displayName || botId}，正在一个群聊里。`,
+      `你是 ${botSnapshot.name || botSnapshot.displayName || botId}，正在一个群聊里。`,
       roster ? `群成员：\n${roster}` : "",
       `最近的消息上下文：\n${contextLines(recentMessages)}`,
       "请用自然的口吻接话，简短直接。"

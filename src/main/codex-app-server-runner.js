@@ -290,6 +290,8 @@ function codexDecisionFor(method, decision) {
 async function runCodexAppServerTurn({
   codexPath,
   env,
+  baseUrl = "",
+  apiKey = "",
   threadId = "",
   prompt,
   options = {},
@@ -412,10 +414,15 @@ async function runCodexAppServerTurn({
     });
   }
 
+  const managedEnv = { ...(env || {}) };
+  if (apiKey) managedEnv.CODEX_API_KEY = String(apiKey);
+  const configOverrides = codexConfigOverridesForMcpServers(mcpServers);
+  if (baseUrl) configOverrides.push(`openai_base_url=${tomlString(baseUrl)}`);
+
   const connection = createCodexAppServerConnection({
     codexPath,
-    env,
-    configOverrides: codexConfigOverridesForMcpServers(mcpServers),
+    env: managedEnv,
+    configOverrides,
     spawn,
     appendLog,
     onNotification,

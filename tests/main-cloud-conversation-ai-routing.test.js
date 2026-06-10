@@ -18,7 +18,7 @@ test("main owns cloud conversation bot invocation execution without group coordi
   assert.doesNotMatch(main, /createMainGroupConductor/, "main must not instantiate a desktop group conductor");
   assert.doesNotMatch(main, /createMainBotConversationResponder/, "main must not instantiate a desktop DM auto-responder");
   assert.match(main, /createMainBotRuntimeDispatcher/, "main must instantiate the unified bot runtime dispatcher Module");
-  assert.match(main, /shouldHandleLocalCloudConversationAi/, "main must gate AI execution so foreground and daemon do not both answer");
+  assert.match(main, /shouldHandleLocalCloudConversationAi/, "main must gate AI execution with cloud idempotency aware process ownership");
   assert.match(
     cloudEventsClient,
     /message\.type === CloudEvent\.ConversationBotInvocationRequested[\s\S]*botRuntimeDispatcher\?\.handleCloudEvent\?\.\(message\)/,
@@ -38,12 +38,28 @@ test("main owns cloud conversation bot invocation execution without group coordi
   assert.doesNotMatch(main, /cloudEventsReconnectTimer/, "main must not own cloud events reconnect timer state");
 });
 
-test("daemon process does not consume the cloud events socket for visible conversation AI", () => {
+test("cloud events execution tolerates the shared foreground-daemon cursor", () => {
   const main = read("src/main.js");
+  const responder = read("src/main/social/local-bot-responder.js");
+  assert.match(
+    main,
+    /function startCloudRuntimeSockets\(\) \{[\s\S]*startCloudEvents\(\);[\s\S]*startCloudBridge\(\);[\s\S]*\}/,
+    "daemon startup must keep the cloud events socket alive, not only the bridge socket"
+  );
+  assert.match(
+    main,
+    /if \(IS_DAEMON_PROCESS\) \{[\s\S]*startCloudRuntimeSockets\(\);[\s\S]*setInterval\(startCloudRuntimeSockets, 10000\);/,
+    "daemon process must retry both cloud events and bridge sockets"
+  );
   assert.doesNotMatch(
     main,
     /startCloudEvents\(\);\n\s*setInterval\(startCloudEvents, 10000\)/,
-    "daemon must not advance the shared /api/events cursor while the foreground owns visible conversation AI"
+    "main must not use the old timer path that lets two processes race the /api/events cursor"
+  );
+  assert.match(
+    responder,
+    /if \(daemonEnabled\) return true;[\s\S]*return !Boolean\(isDaemon\)/,
+    "daemon-enabled installs must not let the foreground consume and drop cloud bot invocations"
   );
 });
 

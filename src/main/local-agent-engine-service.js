@@ -42,10 +42,63 @@ const AGENT_DEFINITIONS = Object.freeze([
     legacyKey: "openClaw",
     label: "OpenClaw",
     commands: ["openclaw", "claw"],
-    installable: false,
-    detectionOnly: true
+    installable: true,
+    detectionOnly: false
   }
 ]);
+
+function safeReadDir(fsImpl, dir) {
+  const readDir = typeof fsImpl.readdirSync === "function" ? fsImpl.readdirSync.bind(fsImpl) : fs.readdirSync;
+  try {
+    return readDir(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+}
+
+function nodeVersionManagerPathSegments(home, env, fsImpl) {
+  if (!home) return [];
+  const segments = [
+    env.NVM_BIN || "",
+    env.PNPM_HOME || "",
+    env.BUN_INSTALL ? path.join(env.BUN_INSTALL, "bin") : "",
+    env.VOLTA_HOME ? path.join(env.VOLTA_HOME, "bin") : "",
+    path.join(home, ".nvm", "current", "bin"),
+    path.join(home, ".volta", "bin"),
+    path.join(home, ".asdf", "shims"),
+    path.join(home, ".local", "share", "mise", "shims"),
+    path.join(home, ".local", "share", "rtx", "shims")
+  ];
+
+  const nvmNodeRoot = path.join(home, ".nvm", "versions", "node");
+  const nvmBins = safeReadDir(fsImpl, nvmNodeRoot)
+    .filter((entry) => entry.isDirectory && entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort()
+    .reverse()
+    .map((name) => path.join(nvmNodeRoot, name, "bin"));
+  segments.push(...nvmBins);
+
+  for (const root of [
+    path.join(home, ".fnm", "node-versions"),
+    path.join(home, ".local", "share", "fnm", "node-versions")
+  ]) {
+    const bins = safeReadDir(fsImpl, root)
+      .filter((entry) => entry.isDirectory && entry.isDirectory())
+      .map((entry) => path.join(root, entry.name, "installation", "bin"));
+    segments.push(...bins);
+  }
+
+  if (env.APPDATA) segments.push(path.join(env.APPDATA, "npm"));
+  if (env.LOCALAPPDATA) {
+    segments.push(
+      path.join(env.LOCALAPPDATA, "Programs", "Volta", "bin"),
+      path.join(env.LOCALAPPDATA, "fnm_multishells")
+    );
+  }
+
+  return segments.filter(Boolean);
+}
 
 function commandNameOnly(command) {
   const value = String(command || "").trim();
@@ -90,13 +143,15 @@ function createLocalAgentEngineService(deps = {}) {
 
   function cliPathSegments() {
     const home = String(homeDir() || "").trim();
+    const env = currentEnv();
     const userSegments = home ? [
       path.join(home, ".local", "bin"),
       path.join(home, ".npm-global", "bin"),
       path.join(home, ".bun", "bin"),
       path.join(home, ".deno", "bin"),
       path.join(home, ".cargo", "bin"),
-      path.join(home, "Library", "pnpm")
+      path.join(home, "Library", "pnpm"),
+      ...nodeVersionManagerPathSegments(home, env, fsImpl)
     ] : [];
     return [...userSegments, ...SYSTEM_CLI_PATH_SEGMENTS];
   }
@@ -286,7 +341,7 @@ function createLocalAgentEngineService(deps = {}) {
       installed,
       usableInMia,
       installable: Boolean(definition.installable),
-      installAction: Boolean(definition.installable) && !usableInMia ? `install-${definition.id}` : "",
+      installAction: Boolean(definition.installable) && !usableInMia && !installed ? `install-${definition.id}` : "",
       detectionOnly: Boolean(definition.detectionOnly),
       path: probe.path,
       version: probe.version,
@@ -446,7 +501,7 @@ function createLocalAgentEngineService(deps = {}) {
         installed: Boolean(openClaw.installed),
         path: openClaw.path || "",
         version: openClaw.version || "",
-        detectionOnly: true
+        detectionOnly: Boolean(openClaw.detectionOnly)
       }
     };
   }
@@ -503,7 +558,7 @@ function createLocalAgentEngineService(deps = {}) {
         installed: false,
         path: "",
         version: "",
-        detectionOnly: true
+        detectionOnly: false
       }
     };
   }

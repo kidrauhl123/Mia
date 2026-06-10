@@ -42,6 +42,12 @@ try {
 } catch {
   ({ botConversationId } = require("./src/shared/bot-identity.js"));
 }
+let ids = null;
+try {
+  ids = require("../src/shared/ids.js");
+} catch {
+  ids = require("./src/shared/ids.js");
+}
 let avatarMedia = null;
 try {
   avatarMedia = require("../src/shared/avatar-media.js");
@@ -843,13 +849,25 @@ function sanitizeRuntimeModelEntries(entries) {
       const model = String(entry.model || value || "").trim().slice(0, 160);
       const label = String(entry.label || entry.name || model || value || "").trim().slice(0, 160);
       if (!value && !model) return null;
-      return {
+      const normalized = {
         value: value || model,
         label: label || value || model,
         model,
         provider: String(entry.provider || "").trim().slice(0, 80),
         providerLabel: String(entry.providerLabel || entry.provider_label || "").trim().slice(0, 120)
       };
+      for (const [canonical, aliases, limit] of [
+        ["authType", ["authType", "auth_type"], 80],
+        ["modelProfileId", ["modelProfileId", "model_profile_id", "profileId", "profile_id"], 160],
+        ["apiKeyEnv", ["apiKeyEnv", "api_key_env"], 80],
+        ["baseUrl", ["baseUrl", "base_url"], 240],
+        ["apiMode", ["apiMode", "api_mode"], 80]
+      ]) {
+        const raw = aliases.map((key) => entry[key]).find((candidate) => candidate !== undefined);
+        const trimmed = String(raw || "").trim().slice(0, limit);
+        if (trimmed) normalized[canonical] = trimmed;
+      }
+      return normalized;
     })
     .filter(Boolean);
 }
@@ -861,11 +879,70 @@ function sanitizeRuntimeConfig(inputConfig = {}) {
     effortLevel: String(input.effortLevel || "medium").trim().slice(0, 40),
     permissionMode: String(input.permissionMode || "ask").trim().slice(0, 80)
   };
+  for (const [canonical, aliases, limit] of [
+    ["provider", ["provider", "modelProvider", "model_provider"], 80],
+    ["providerLabel", ["providerLabel", "provider_label"], 120],
+    ["authType", ["authType", "auth_type"], 80],
+    ["modelProfileId", ["modelProfileId", "model_profile_id", "profileId", "profile_id"], 160],
+    ["apiKeyEnv", ["apiKeyEnv", "api_key_env"], 80],
+    ["baseUrl", ["baseUrl", "base_url"], 240],
+    ["apiMode", ["apiMode", "api_mode"], 80]
+  ]) {
+    const raw = aliases.map((key) => input[key]).find((candidate) => candidate !== undefined);
+    const value = String(raw || "").trim().slice(0, limit);
+    if (value) config[canonical] = value;
+  }
   const agentEngine = String(input.agentEngine || input.agent_engine || "").trim().slice(0, 80);
   if (agentEngine) config.agentEngine = agentEngine;
+  const deviceId = String(input.deviceId || input.device_id || input.targetDeviceId || input.target_device_id || "").trim().slice(0, 96);
+  if (deviceId) config.deviceId = deviceId;
+  const deviceName = compactRuntimeDeviceName(input.deviceName || input.device_name || input.targetDeviceName || input.target_device_name || "").slice(0, 120);
+  if (deviceName) config.deviceName = deviceName;
   const modelEntries = sanitizeRuntimeModelEntries(input.modelEntries || input.model_entries);
   if (modelEntries.length) config.modelEntries = modelEntries;
   return config;
+}
+
+function compactRuntimeDeviceName(value = "") {
+  return String(value || "")
+    .trim()
+    .replace(/\s*(?:·|-)?\s*Mia\s+(?:Desktop|Bridge)\s*$/i, "")
+    .replace(/\.local(?=\s|$)/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function runtimeBindingSummary(binding, devices = []) {
+  if (!binding) return {};
+  const config = binding.config && typeof binding.config === "object" ? binding.config : {};
+  const deviceId = String(config.deviceId || config.device_id || config.targetDeviceId || "").trim();
+  const matchedDevice = deviceId
+    ? (Array.isArray(devices) ? devices : []).find((device) => String(device?.id || "") === deviceId)
+    : null;
+  const deviceName = compactRuntimeDeviceName(matchedDevice?.deviceName || config.deviceName || config.device_name || "");
+  return {
+    runtimeKind: binding.runtimeKind,
+    runtimeConfig: config,
+    agentEngine: binding.runtimeKind === "cloud-hermes"
+      ? "hermes"
+      : String(config.agentEngine || config.agent_engine || "").trim(),
+    targetDeviceId: deviceId,
+    deviceId,
+    deviceName,
+    runtimeLabel: binding.runtimeKind === "cloud-hermes"
+      ? "Mia Cloud"
+      : (deviceName || "当前设备")
+  };
+}
+
+function botsWithRuntimeBindings(context, userId, bots = []) {
+  const devices = context.cloudStore?.listBridgeDevices
+    ? context.cloudStore.listBridgeDevices(userId, { includeOffline: true })
+    : [];
+  return (Array.isArray(bots) ? bots : []).map((bot) => ({
+    ...bot,
+    ...runtimeBindingSummary(context.runtimeBindingsStore?.getActiveBinding?.(userId, bot.id || bot.key), devices)
+  }));
 }
 
 async function listLiteLLMModels(context) {
@@ -888,6 +965,71 @@ async function listPlatformModelCatalog(context) {
     if (error.status === 503) return fallbackPlatformModels();
     throw error;
   }
+}
+
+async function handleUserModelProxy(req, res, context, url) {
+  const prefix = "/api/me/model-proxy/v1";
+  if (!url.pathname.startsWith(prefix)) return false;
+  const serviceKey = litellmServiceKey(context) || litellmAdminKey(context);
+  if (!serviceKey) {
+    writeError(res, 503, "Mia 托管模型未配置。");
+    return true;
+  }
+  if (req.method === "GET" && url.pathname === `${prefix}/models`) {
+    const models = await listPlatformModelCatalog(context);
+    writeJson(res, 200, {
+      object: "list",
+      data: models.map((model) => ({
+        id: model.id,
+        object: "model",
+        owned_by: "mia",
+        provider: model.provider || "mia"
+      }))
+    });
+    return true;
+  }
+  const proxyPath = url.pathname.slice(prefix.length);
+  const allowedProxyPaths = new Set([
+    "/chat/completions",
+    "/responses",
+    "/messages",
+    "/messages/count_tokens"
+  ]);
+  if (req.method !== "POST" || !allowedProxyPaths.has(proxyPath)) {
+    writeError(res, 404, "Not found.");
+    return true;
+  }
+
+  let body = {};
+  try {
+    body = await readJson(req);
+  } catch (error) {
+    writeError(res, 400, error.message || "Invalid JSON.");
+    return true;
+  }
+  const models = await listPlatformModelCatalog(context);
+  const allowed = new Set(models.map((model) => model.id));
+  const requestedModel = String(body.model || "mia-default").trim() || "mia-default";
+  if (!allowed.has(requestedModel)) {
+    writeError(res, 400, "模型不可用。");
+    return true;
+  }
+  const upstream = await fetch(`${litellmAdminBaseUrl}/v1${proxyPath}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${serviceKey}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ ...body, model: requestedModel })
+  });
+  const payload = Buffer.from(await upstream.arrayBuffer());
+  res.writeHead(upstream.status, {
+    "content-type": upstream.headers.get("content-type") || "application/json",
+    "cache-control": "no-store",
+    "content-length": payload.length
+  });
+  res.end(payload);
+  return true;
 }
 
 async function handleAdminModelGateway(req, res, context, url) {
@@ -1122,8 +1264,8 @@ function sanitizeBridgeRunEvent(event = {}) {
   return out;
 }
 
-function bridgeDevices(hub, userId) {
-  return [...(hub.devicesByUser.get(userId)?.values() || [])]
+function bridgeDevices(hub, userId, options = {}) {
+  const live = [...(hub.devicesByUser.get(userId)?.values() || [])]
     .filter((device) => device.ws.readyState === WebSocket.OPEN)
     .map((device) => ({
       id: device.id,
@@ -1134,17 +1276,24 @@ function bridgeDevices(hub, userId) {
       lastSeenAt: device.lastSeenAt,
       status: "online"
     }));
+  if (!options.includeOffline || !options.cloudStore?.listBridgeDevices) return live;
+  const byId = new Map(live.map((device) => [device.id, device]));
+  for (const device of options.cloudStore.listBridgeDevices(userId, { includeOffline: true })) {
+    if (!byId.has(device.id)) byId.set(device.id, device);
+  }
+  return [...byId.values()];
 }
 
 function removeBridgeDevice(hub, device) {
   const userDevices = hub.devicesByUser.get(device.userId);
+  const isCurrentDevice = userDevices?.get(device.id) === device;
   if (userDevices?.get(device.id) === device) {
     userDevices.delete(device.id);
     if (!userDevices.size) hub.devicesByUser.delete(device.userId);
   }
   try {
-    device.cloudStore?.removeBridgeDevice(device.userId, device.id);
-    if (device.eventHub) {
+    if (isCurrentDevice) device.cloudStore?.removeBridgeDevice(device.userId, device.id);
+    if (isCurrentDevice && device.eventHub) {
       broadcastTransientEvent(device.eventHub, device.userId, {
         type: "device_updated",
         devices: bridgeDevices(hub, device.userId)
@@ -1154,19 +1303,38 @@ function removeBridgeDevice(hub, device) {
     // Server shutdown can close SQLite before late websocket close callbacks drain.
   }
   for (const [runId, pending] of hub.pendingRuns) {
-    if (pending.deviceId !== device.id) continue;
+    if (pending.device !== device) continue;
     clearTimeout(pending.timer);
     hub.pendingRuns.delete(runId);
     pending.reject(new Error("本机 Agent Bridge 已断开。"));
   }
 }
 
-function attachBridgeDevice(hub, ws, { userId, deviceName, engine, capabilities, cloudStore, eventHub }) {
+function normalizeBridgeDeviceId(value, fallback) {
+  const raw = String(value || "").trim();
+  return /^[A-Za-z0-9_-]{6,96}$/.test(raw) ? raw : fallback;
+}
+
+function bridgeCapabilityEngines(capabilities = {}) {
+  const engines = Array.isArray(capabilities?.engines) ? capabilities.engines : [];
+  return [...new Set(engines
+    .map((engine) => String(engine || "").trim())
+    .filter((engine) => ["hermes", "claude-code", "codex", "openclaw"].includes(engine)))];
+}
+
+function bridgeDeviceEngine(engine, capabilities = {}) {
+  const explicit = String(engine || "").trim().slice(0, 40);
+  const engines = bridgeCapabilityEngines(capabilities);
+  return explicit || engines[0] || "mia-desktop";
+}
+
+function attachBridgeDevice(hub, ws, { userId, deviceId, deviceName, engine, capabilities, cloudStore, eventHub }) {
+  const stableDeviceId = normalizeBridgeDeviceId(deviceId, id("bridge"));
   const device = {
-    id: id("bridge"),
+    id: stableDeviceId,
     userId,
     deviceName: String(deviceName || "").trim().slice(0, 80) || "本机 Agent",
-    engine: String(engine || "").trim().slice(0, 40) || "codex",
+    engine: bridgeDeviceEngine(engine, capabilities),
     capabilities: capabilities || {},
     cloudStore,
     eventHub,
@@ -1181,7 +1349,12 @@ function attachBridgeDevice(hub, ws, { userId, deviceName, engine, capabilities,
     capabilities: device.capabilities
   });
   if (!hub.devicesByUser.has(userId)) hub.devicesByUser.set(userId, new Map());
-  hub.devicesByUser.get(userId).set(device.id, device);
+  const userDevices = hub.devicesByUser.get(userId);
+  const previousDevice = userDevices.get(device.id);
+  if (previousDevice && previousDevice !== device && previousDevice.ws.readyState === WebSocket.OPEN) {
+    try { previousDevice.ws.close(1000, "device reconnected"); } catch { /* ignore stale socket close */ }
+  }
+  userDevices.set(device.id, device);
 
   ws.on("message", (raw) => {
     let message;
@@ -1328,6 +1501,44 @@ function broadcastBotInvocations(context, conversationId, message, body, invoked
       members
     });
   }
+}
+
+function broadcastBotDmDesktopInvocationFallback(context, conversationId, message, invokedBy) {
+  if (context.cloudAgentDispatcher) return false;
+  if (!context?.socialStore || !context?.messagesStore || !context?.runtimeBindingsStore || !context?.botsStore) return false;
+  if (message?.sender_kind && message.sender_kind !== "user") return false;
+  const userId = String(message?.sender_ref || "").trim();
+  if (!userId) return false;
+  const conversation = context.socialStore.getConversation(conversationId);
+  if (!conversation || conversation.type !== "bot") return false;
+  const members = context.socialStore.listConversationMembers(conversationId);
+  const botMember = members.find((member) => (
+    member.member_kind === "bot"
+      && String(member.owner_id || "") === userId
+      && String(member.member_ref || "").trim()
+  ));
+  if (!botMember) return false;
+  const botId = String(botMember.member_ref || "").trim();
+  const bot = context.botsStore.getBot(botId);
+  if (!bot || String(bot.ownerUserId || "") !== userId) return false;
+  const desktopBinding = context.runtimeBindingsStore.getEnabledBinding(userId, botId, "desktop-local");
+  if (!desktopBinding) return false;
+  const runtimeConfig = desktopBinding.config && typeof desktopBinding.config === "object"
+    ? desktopBinding.config
+    : {};
+  broadcastPersistedEvent(context, userId, {
+    type: "conversation.bot_invocation_requested",
+    conversationId,
+    botId,
+    runtimeKind: "desktop-local",
+    runtimeConfig,
+    targetDeviceId: String(runtimeConfig.deviceId || runtimeConfig.device_id || runtimeConfig.targetDeviceId || "").trim(),
+    invokedBy,
+    triggeringMessage: message,
+    recentMessages: context.messagesStore.listMessagesSince(conversationId, 0, 20),
+    members
+  });
+  return true;
 }
 
 function tokenFromRequest(req) {
@@ -1547,6 +1758,8 @@ async function handleRequest(req, res, context) {
     if (req.method === "GET" && serveAuthorizedFile(req, res, cloudStore, auth, url.pathname)) return;
     if (!auth) return writeError(res, 401, "请先登录。");
 
+    if (await handleUserModelProxy(req, res, context, url)) return;
+
     if (req.method === "GET" && url.pathname === "/api/me/model-catalog") {
       const models = await listPlatformModelCatalog(context);
       return writeJson(res, 200, { ok: true, models });
@@ -1704,9 +1917,14 @@ async function handleRequest(req, res, context) {
           return writeError(res, 403, "you can only add your own bots");
         }
       }
-      const conversationId = "g_" + require("node:crypto").randomBytes(8).toString("hex");
+      let groupPublicId = ids.generateGroupPublicId();
+      let conversationId = ids.groupConversationId(groupPublicId);
+      while (context.socialStore.getConversation(conversationId)) {
+        groupPublicId = ids.generateGroupPublicId();
+        conversationId = ids.groupConversationId(groupPublicId);
+      }
       const decorations = clientGroupId ? { clientGroupId } : null;
-      context.socialStore.createConversation({ id: conversationId, name, decorations });
+      context.socialStore.createConversation({ id: conversationId, publicId: groupPublicId, name, decorations });
       context.socialStore.addConversationMember({ conversationId, memberKind: "user", memberRef: auth.user.id });
       for (const bot of memberBots) {
         const botId = String(bot.botId || "").trim();
@@ -2022,6 +2240,13 @@ async function handleRequest(req, res, context) {
         }).catch((error) => {
           console.warn("[cloud-agent] dispatch failed:", error?.message || error);
         });
+      } else {
+        broadcastBotDmDesktopInvocationFallback(
+          context,
+          conversationId,
+          message,
+          context.cloudStore.getUserPublic(auth.user.id) || { id: auth.user.id }
+        );
       }
       const payload = { message };
       rememberOp(context, auth.user.id, body, 201, payload);
@@ -2162,7 +2387,7 @@ async function handleRequest(req, res, context) {
     }
 
     if (req.method === "GET" && url.pathname === "/api/me/bots") {
-      let bots = context.botsStore.listBots(auth.user.id);
+      let bots = botsWithRuntimeBindings(context, auth.user.id, context.botsStore.listBots(auth.user.id));
       if (wantsCompactPayload(url)) bots = bots.map(compactBotIdentity);
       return writeJson(res, 200, { bots });
     }
@@ -2171,6 +2396,10 @@ async function handleRequest(req, res, context) {
     if (req.method === "GET" && botRuntimeMatch) {
       const botId = botRuntimeMatch[1];
       const runtimeKind = String(url.searchParams.get("kind") || "cloud-hermes").trim() || "cloud-hermes";
+      if (runtimeKind === "active") {
+        const binding = context.runtimeBindingsStore.getActiveBinding(auth.user.id, botId) || null;
+        return writeJson(res, 200, { binding });
+      }
       const binding = context.runtimeBindingsStore.getBinding(auth.user.id, botId, runtimeKind) || {
         userId: auth.user.id,
         botId,
@@ -2195,6 +2424,9 @@ async function handleRequest(req, res, context) {
         botId,
         runtimeKind,
         enabled: body.enabled !== false,
+        activate: body.activate,
+        active: body.active,
+        preserveEnabled: body.preserveEnabled === true || body.preserve_enabled === true,
         config
       });
       broadcastPersistedEvent(context, auth.user.id, { type: "bot.runtime_updated", binding });
@@ -2319,7 +2551,13 @@ async function handleRequest(req, res, context) {
     // but no endpoint reads or writes it anymore.
 
     if (req.method === "GET" && url.pathname === "/api/bridge/devices") {
-      return writeJson(res, 200, { devices: bridgeDevices(bridgeHub, auth.user.id) });
+      const includeOffline = url.searchParams.get("include") === "all" || url.searchParams.get("includeOffline") === "1";
+      return writeJson(res, 200, {
+        devices: bridgeDevices(bridgeHub, auth.user.id, {
+          includeOffline,
+          cloudStore
+        })
+      });
     }
 
     if (req.method === "GET" && url.pathname === "/api/bridge/runs") {
@@ -2354,6 +2592,27 @@ async function handleRequest(req, res, context) {
       // standard conversation.message_appended event is broadcast as part of
       // the conversation sequence so other devices see it consistently.
       const conversationId = String(body.conversationId || "");
+      const conversation = conversationId ? context.socialStore.getConversation(conversationId) : null;
+      const runtimeConfigInput = {
+        ...(body.runtimeConfig && typeof body.runtimeConfig === "object" ? body.runtimeConfig : {}),
+        ...(body.runtime_config && typeof body.runtime_config === "object" ? body.runtime_config : {}),
+        ...(body.config && typeof body.config === "object" ? body.config : {})
+      };
+      for (const [sourceKey, targetKey] of [
+        ["agentEngine", "agentEngine"],
+        ["agent_engine", "agentEngine"],
+        ["engine", "agentEngine"],
+        ["model", "model"],
+        ["effortLevel", "effortLevel"],
+        ["effort_level", "effortLevel"],
+        ["permissionMode", "permissionMode"],
+        ["permission_mode", "permissionMode"]
+      ]) {
+        if (body[sourceKey] != null) runtimeConfigInput[targetKey] = body[sourceKey];
+      }
+      const runtimeConfig = sanitizeRuntimeConfig(runtimeConfigInput);
+      const botId = String(body.botId || body.botKey || conversation?.decorations?.botId || "").trim();
+      const bot = botId ? context.botsStore.getBot(botId) : null;
       const requestAttachments = persistCloudAttachments(cloudStore, auth.user.id, Array.isArray(body.attachments) ? body.attachments : []);
       const bridgeRun = cloudStore.createBridgeRun(auth.user.id, {
         deviceId: device.id,
@@ -2369,7 +2628,11 @@ async function handleRequest(req, res, context) {
           runId: bridgeRun.id,
           conversationId,
           text: bridgeRun.text,
-          attachments: requestAttachments
+          attachments: requestAttachments,
+          runtimeConfig,
+          agentEngine: runtimeConfig.agentEngine || "",
+          botId: botId || "",
+          botName: String(body.botName || body.displayName || bot?.displayName || bot?.name || "").trim()
         });
         const attachments = persistCloudAttachments(cloudStore, auth.user.id, Array.isArray(result.attachments) ? result.attachments : []);
         const completed = cloudStore.completeBridgeRun(auth.user.id, bridgeRun.id, {
@@ -2385,7 +2648,7 @@ async function handleRequest(req, res, context) {
           message = context.messagesStore.appendMessage({
             conversationId: conversationId,
             senderKind: "bot",
-            senderRef: (context.socialStore.getConversation(conversationId)?.decorations?.botId || "agent"),
+            senderRef: (context.socialStore.getConversation(conversationId)?.decorations?.botId || botId || "agent"),
             senderOwnerId: auth.user.id,
             bodyMd: text,
             attachments,
@@ -2569,6 +2832,7 @@ function handleBridgeUpgrade(req, socket, head, context, wss) {
     }
     attachBridgeDevice(context.bridgeHub, ws, {
       userId: auth.user.id,
+      deviceId: url.searchParams.get("deviceId"),
       deviceName: url.searchParams.get("deviceName"),
       engine: url.searchParams.get("engine"),
       capabilities: parseJson(url.searchParams.get("capabilities"), {}),

@@ -5,6 +5,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const commands = require("../src/renderer/bot/bot-commands.js");
+const ids = require("../src/shared/ids.js");
 
 test("saveBot creates a cloud-hermes bot through identity, runtime, and conversation commands", async () => {
   const calls = [];
@@ -55,12 +56,15 @@ test("saveBot creates a cloud-hermes bot through identity, runtime, and conversa
     }
   });
 
-  assert.equal(result.key, "alice");
-  assert.equal(result.conversation.id, "botc_alice");
+  assert.equal(ids.isPublicId(result.key), true);
+  assert.equal(result.conversation.id, `botc_${result.key}`);
   assert.deepEqual(calls.map((call) => call[0]), ["identity", "runtime", "conversation", "upsertConversation"]);
+  assert.equal(calls[0][1], result.key);
+  assert.equal(calls[1][1], result.key);
+  assert.equal(calls[2][1], result.key);
   assert.equal(calls[1][2].config.model, "mia-fast");
   assert.equal(calls[2][2].runtimeKind, "cloud-hermes");
-  assert.equal(social.moduleState.bots[0].id, "alice");
+  assert.equal(social.moduleState.bots[0].id, result.key);
 });
 
 test("saveBot saves a desktop-local bot through the local runtime command", async () => {
@@ -91,6 +95,76 @@ test("saveBot saves a desktop-local bot through the local runtime command", asyn
   assert.equal(result.runtime, runtime);
   assert.deepEqual(calls.map((call) => call[0]), ["local"]);
   assert.equal(calls[0][1].agentEngine, "codex");
+});
+
+test("saveBot retargets cloud-sourced desktop bots through cloud runtime binding only", async () => {
+  const calls = [];
+  const state = {
+    runtime: {
+      cloud: { enabled: true },
+      localDevice: { id: "mac-1", name: "Mac" }
+    }
+  };
+  const social = {
+    moduleState: { bots: [{ id: "nono", key: "nono", name: "nono", sourceKinds: ["cloud"] }] },
+    upsertBotConversation(conversation) {
+      calls.push(["upsertConversation", conversation.id]);
+      return conversation;
+    }
+  };
+  const api = {
+    async saveBot() {
+      calls.push(["local"]);
+      throw new Error("local save should not be called");
+    },
+    social: {
+      async saveBotIdentity(key, body) {
+        calls.push(["identity", key, body]);
+        return { ok: true, data: { bot: { id: key, key, ...body } } };
+      },
+      async saveBotRuntime(key, body) {
+        calls.push(["runtime", key, body]);
+        return { ok: true, data: { binding: { botId: key, ...body } } };
+      },
+      async ensureBotSessionConversation(key, body) {
+        calls.push(["conversation", key, body]);
+        return { ok: true, data: { conversation: { id: `botc_${key}`, type: "bot" } } };
+      }
+    }
+  };
+
+  const result = await commands.saveBot({
+    state,
+    api,
+    social,
+    runtimeKind: "desktop-local",
+    bot: {
+      key: "nono",
+      name: "nono",
+      sourceKinds: ["cloud"],
+      agentEngine: "codex",
+      targetDeviceId: "win-1",
+      targetDeviceName: "Windows PC",
+      engineConfig: { model: "gpt-test", effortLevel: "high", permissionMode: "readOnly" }
+    }
+  });
+
+  assert.equal(result.key, "nono");
+  assert.deepEqual(calls.map((call) => call[0]), ["identity", "runtime", "conversation", "upsertConversation"]);
+  assert.equal(calls[1][2].runtimeKind, "desktop-local");
+  assert.equal(calls[1][2].activate, true);
+  assert.deepEqual(calls[1][2].config, {
+    agentEngine: "codex",
+    deviceId: "win-1",
+    deviceName: "Windows PC",
+    model: "gpt-test",
+    effortLevel: "high",
+    permissionMode: "readOnly",
+    modelEntries: []
+  });
+  assert.equal(result.bot.targetDeviceId, "win-1");
+  assert.equal(result.bot.agentEngine, "codex");
+  assert.equal(social.moduleState.bots[0].runtimeKind, "desktop-local");
 });
 
 test("deleteBot removes a cloud-hermes bot through cloud identity commands", async () => {
@@ -339,6 +413,8 @@ test("syncDesktopLocalBotRuntimeBinding stores hermes config from current device
     "alice",
     {
       runtimeKind: "desktop-local",
+      activate: false,
+      preserveEnabled: true,
       enabled: true,
       config: {
         agentEngine: "hermes",
@@ -351,6 +427,25 @@ test("syncDesktopLocalBotRuntimeBinding stores hermes config from current device
       }
     }
   ]]);
+});
+
+test("syncDesktopLocalBotRuntimeBinding preserves openclaw as a desktop target", async () => {
+  const calls = [];
+  const api = {
+    async saveBotRuntime(botId, body) {
+      calls.push(["runtime", botId, body]);
+      return { ok: true, data: { binding: { botId, ...body } } };
+    }
+  };
+
+  await commands.syncDesktopLocalBotRuntimeBinding({
+    api,
+    state: { runtime: { localDevice: { id: "mac-1", name: "Mac" } } },
+    bot: { key: "claw", name: "Claw", agentEngine: "openclaw" }
+  });
+
+  assert.equal(calls[0][2].config.agentEngine, "openclaw");
+  assert.equal(calls[0][2].config.deviceId, "mac-1");
 });
 
 test("ensureDesktopLocalBotConversation creates conversation and syncs external engine runtime config", async () => {
@@ -391,6 +486,8 @@ test("ensureDesktopLocalBotConversation creates conversation and syncs external 
   assert.deepEqual(calls.map((call) => call[0]), ["conversation", "runtime"]);
   assert.deepEqual(calls[0], ["conversation", "codex", { botId: "codex", title: "Codex", runtimeKind: "desktop-local" }]);
   assert.equal(calls[1][1], "codex");
+  assert.equal(calls[1][2].activate, false);
+  assert.equal(calls[1][2].preserveEnabled, true);
   assert.deepEqual(calls[1][2].config, {
     agentEngine: "codex",
     model: "gpt-5.3-codex",

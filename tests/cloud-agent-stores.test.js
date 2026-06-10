@@ -93,6 +93,49 @@ test("runtime binding upsert/get scopes by user and bot", () => {
   }
 });
 
+test("runtime binding active selection is single-target and if-empty preserves explicit choices", () => {
+  const ctx = freshStore();
+  try {
+    insertUser(ctx.db, "u1");
+    insertBot(ctx.db, "bot_mia", "u1");
+    const bindings = createRuntimeBindingsStore(ctx.db);
+
+    const cloud = bindings.upsertBinding({
+      userId: "u1",
+      botId: "bot_mia",
+      runtimeKind: "cloud-hermes",
+      activate: true,
+      config: { model: "mia-default" }
+    });
+    assert.equal(cloud.enabled, true);
+    assert.equal(bindings.getActiveBinding("u1", "bot_mia").runtimeKind, "cloud-hermes");
+
+    const backgroundDesktop = bindings.upsertBinding({
+      userId: "u1",
+      botId: "bot_mia",
+      runtimeKind: "desktop-local",
+      activate: "if-empty",
+      config: { agentEngine: "codex", deviceId: "device_mac" }
+    });
+    assert.equal(backgroundDesktop.enabled, false);
+    assert.equal(bindings.getActiveBinding("u1", "bot_mia").runtimeKind, "cloud-hermes");
+
+    const desktop = bindings.upsertBinding({
+      userId: "u1",
+      botId: "bot_mia",
+      runtimeKind: "desktop-local",
+      activate: true,
+      config: { agentEngine: "codex", deviceId: "device_mac" }
+    });
+    assert.equal(desktop.enabled, true);
+    assert.equal(bindings.getActiveBinding("u1", "bot_mia").runtimeKind, "desktop-local");
+    assert.equal(bindings.getEnabledBinding("u1", "bot_mia", "cloud-hermes"), null);
+    assert.equal(bindings.listBindings("u1", "bot_mia").length, 2);
+  } finally {
+    ctx.cleanup();
+  }
+});
+
 test("cloud agent run lifecycle records hermes run id and completion", () => {
   const ctx = freshStore();
   try {

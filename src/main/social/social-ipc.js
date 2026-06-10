@@ -126,6 +126,7 @@ function registerSocialIpc({ ipcMain, socialApi, messageCache = null, getCloudUs
   ipcMain.handle(IpcChannel.SocialEnsureBotSessionConversation, safeCall((sessionId, body) => socialApi.ensureBotSessionConversation(sessionId, body)));
   ipcMain.handle(IpcChannel.SocialGetBotRuntime, safeCall((botId, runtimeKind) => socialApi.getBotRuntime(botId, runtimeKind)));
   ipcMain.handle(IpcChannel.SocialSaveBotRuntime, safeCall((botId, body) => socialApi.saveBotRuntime(botId, body)));
+  ipcMain.handle(IpcChannel.SocialListBridgeDevices, safeCall((options) => socialApi.listBridgeDevices(options)));
   ipcMain.handle(IpcChannel.SocialUpdateConversation, safeCall(async (conversationId, patch) => {
     const result = await socialApi.updateConversation(conversationId, patch);
     const conversation = resultObject(result, "conversation");

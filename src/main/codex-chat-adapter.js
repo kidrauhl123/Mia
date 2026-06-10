@@ -190,6 +190,7 @@ function createCodexChatAdapter(deps = {}) {
   const getMiaAppMcpSpec = deps.getMiaAppMcpSpec || (() => null);
   const getSchedulerMcpSpec = deps.getSchedulerMcpSpec || (() => null);
   const runCodexAppServerTurn = deps.runCodexAppServerTurn || null;
+  const resolveManagedModelRuntime = deps.resolveManagedModelRuntime || (() => null);
   const permissionCoordinator = deps.permissionCoordinator || null;
   const appendEngineLog = deps.appendEngineLog || (() => {});
   const randomUUID = deps.randomUUID || (() => crypto.randomUUID());
@@ -246,6 +247,7 @@ function createCodexChatAdapter(deps = {}) {
     }
     if (!codexHomePath) throw new Error("Mia Codex profile setup failed: missing CODEX_HOME.");
     const env = { ...baseEnv, CODEX_HOME: codexHomePath };
+    const managedModel = resolveManagedModelRuntime(bot.engineConfig || {}, { engine: "codex", bot });
     const permission = mapCodexPermissionMode(bot.engineConfig?.permissionMode || bot.agentPermissionMode || "default");
     const effectivePermission = typeof emit === "function"
       ? permission
@@ -266,7 +268,7 @@ function createCodexChatAdapter(deps = {}) {
       modelReasoningEffort: normalizeEffortLevel(bot.engineConfig?.effortLevel || "medium", "codex"),
       ...effectivePermission
     };
-    if (bot.engineConfig?.model) threadOptions.model = String(bot.engineConfig.model);
+    if (managedModel?.model || bot.engineConfig?.model) threadOptions.model = String(managedModel?.model || bot.engineConfig.model);
     const startedAtMs = Date.now();
     let turn;
     let capturedSessionId = externalSessionId;
@@ -276,6 +278,8 @@ function createCodexChatAdapter(deps = {}) {
       turn = await runCodexAppServerTurn({
         codexPath: commandPath,
         env,
+        baseUrl: managedModel?.baseUrl || "",
+        apiKey: managedModel?.apiKey || "",
         threadId: externalSessionId,
         prompt: promptWithGroup,
         options: threadOptions,
@@ -292,7 +296,9 @@ function createCodexChatAdapter(deps = {}) {
       const { Codex } = await codexSdk();
       const codex = new Codex({
         codexPathOverride: commandPath,
-        env
+        env,
+        ...(managedModel?.baseUrl ? { baseUrl: managedModel.baseUrl } : {}),
+        ...(managedModel?.apiKey ? { apiKey: managedModel.apiKey } : {})
       });
       const thread = externalSessionId
         ? codex.resumeThread(externalSessionId, threadOptions)

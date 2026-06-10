@@ -2833,7 +2833,8 @@ p {
 }
 
 .bot-form input,
-.bot-form textarea {
+.bot-form textarea,
+.bot-form select {
   width: 100%;
   min-width: 0;
   border: 1px solid var(--line);
@@ -2842,6 +2843,11 @@ p {
   padding: 10px 12px;
   background: var(--surface);
   color: var(--text);
+}
+
+.bot-form select {
+  appearance: none;
+  background: var(--surface);
 }
 
 .bot-form textarea {

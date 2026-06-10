@@ -56,6 +56,13 @@
     return _ctx.adapterCtx();
   }
 
+  function conversationPublicId(conversation = {}) {
+    const explicit = String(conversation.publicId || conversation.public_id || "").trim();
+    if (explicit) return explicit;
+    const id = String(conversation.id || "").trim();
+    return id.startsWith("g_") ? id.slice(2) : id;
+  }
+
   // —— field writes ——
 
   async function patchDecorations(conversation, patch) {
@@ -221,6 +228,9 @@
 
     const nameInput = document.getElementById("groupInfoName");
     if (nameInput && document.activeElement !== nameInput) nameInput.value = conversation.name || "";
+
+    const publicIdEl = document.getElementById("groupInfoPublicId");
+    if (publicIdEl) publicIdEl.textContent = conversationPublicId(conversation) || "未生成";
 
     const goalInput = document.getElementById("groupInfoGoal");
     if (goalInput && document.activeElement !== goalInput) goalInput.value = conversation.decorations?.pinnedGoal || "";

@@ -190,27 +190,115 @@ html, body {
 .onb-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   margin-top: 16px;
 }
 
 .onb-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 46px;
-  padding: 0 14px;
-  border: 1px solid var(--onb-line);
-  border-radius: 12px;
-  background: var(--onb-field);
+  gap: 14px;
+  min-height: 54px;
+  padding: 9px 18px;
+  border: 0;
+  border-radius: 15px;
+  background: #f4f3f1;
   -webkit-app-region: no-drag;
+}
+
+.onb-row.installing,
+.onb-row.error {
+  height: 108px;
+}
+
+.onb-row-icon {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--onb-text);
+  overflow: visible;
+}
+
+.onb-row-icon img {
+  display: block;
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
+}
+
+.onb-row-icon.openclaw img {
+  width: 32px;
+  height: 32px;
+}
+
+.onb-row-icon.monogram {
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.onb-row-main {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .onb-row-name { font-size: 13.5px; font-weight: 540; }
 .onb-row-status { font-size: 12px; color: var(--onb-muted); }
 .onb-row.ok .onb-row-status { color: var(--onb-ok); font-weight: 560; }
 .onb-row.checking .onb-row-status { opacity: 0.65; }
+.onb-row.error {
+  background: #fff7f7;
+  box-shadow: inset 0 0 0 1px #ffd1d1;
+}
+
+.onb-row-detail {
+  display: block;
+  height: 45px;
+  max-width: 100%;
+  color: var(--onb-muted);
+  font-size: 11px;
+  line-height: 15px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  overflow: hidden;
+}
+
+.onb-row-detail.error {
+  color: #d92d20;
+}
+
+.onb-row-progress {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e8e8ed;
+}
+
+.onb-row-progress span {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 45%;
+  border-radius: inherit;
+  background: var(--onb-ink);
+  animation: onbInstallProgress 1.05s ease-in-out infinite;
+}
+
+@keyframes onbInstallProgress {
+  0% { left: -45%; }
+  100% { left: 100%; }
+}
 
 .onb-row-btn {
   min-height: 30px;

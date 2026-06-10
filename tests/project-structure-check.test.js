@@ -234,8 +234,11 @@ test("cloud bridge remote run is account-authenticated and does not add a separa
   assert.ok(body, "runCloudBridgeRequest should exist");
   assert.doesNotMatch(body, /confirmCloudBridgeRun\(/);
   assert.doesNotMatch(body, /等待本机权限确认/);
-  assert.match(body, /permissionMode: "default"/);
+  assert.match(body, /runtimeConfigFromMessage\(message\)/);
+  assert.match(body, /createActiveBridgeChatAdapter\(agentEngine\)/);
+  assert.match(body, /permissionMode: runtimeConfig\.permissionMode/);
   assert.match(mainSource, /createCloudBridgeClient/, "main must instantiate the cloud bridge Module");
+  assert.match(mainSource, /createActiveBridgeChatAdapter/, "main must provide a generic bridge adapter factory");
   assert.doesNotMatch(mainSource, /async function runCloudBridgeRequest/, "main must not own bridge run implementation");
   assert.doesNotMatch(mainSource, /function handleCloudBridgeMessage/, "main must not own bridge message routing");
   assert.doesNotMatch(mainSource, /cloudBridgeAbortControllers/, "main must not own bridge run abort controllers");

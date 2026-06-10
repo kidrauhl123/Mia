@@ -504,7 +504,7 @@
             <section class="engine-detection wide" id="engineDetection">
               <button class="engine-row" type="button" data-engine-row="hermes" aria-expanded="false">
                 <span class="engine-row-logo asset hermes" aria-hidden="true">
-                  <img src="./assets/provider-icons/nousresearch.svg" alt="">
+                  <img src="./assets/engine-icons/hermesagent.svg" alt="">
                 </span>
                 <span class="engine-row-body">
                   <strong>Hermes</strong>
@@ -551,7 +551,7 @@
               </form>
               <div class="engine-row static" data-engine-row="claude-code">
                 <span class="engine-row-logo asset claude" aria-hidden="true">
-                  <img src="./assets/provider-icons/claude-color.svg" alt="">
+                  <img src="./assets/engine-icons/claudecode.svg" alt="">
                 </span>
                 <span class="engine-row-body">
                   <strong>Claude Code</strong>
@@ -560,7 +560,7 @@
               </div>
               <div class="engine-row static" data-engine-row="codex">
                 <span class="engine-row-logo asset codex" aria-hidden="true">
-                  <img src="./assets/provider-icons/codex-color.svg" alt="">
+                  <img src="./assets/engine-icons/codex-color.svg" alt="">
                 </span>
                 <span class="engine-row-body">
                   <strong>Codex</strong>
@@ -576,6 +576,7 @@
                   <small id="engineRowOpenClaw">检测中…</small>
                 </span>
               </div>
+              <div id="engineInstallActions" class="engine-install-actions hidden"></div>
             </section>
           </section>
 
@@ -654,11 +655,10 @@
           姓名
           <input id="botName" autocomplete="off">
         </label>
-        <label id="botRuntimeLocationField">
-          运行位置
-          <select id="botRuntimeLocation">
-            <option value="desktop-local">当前设备</option>
-            <option value="cloud-hermes">Mia Cloud</option>
+        <label id="botRuntimeTargetField">
+          运行位置和 Agent 内核
+          <select id="botRuntimeTarget">
+            <option value="">当前设备 · Hermes</option>
           </select>
         </label>
         <section class="avatar-picker">
@@ -674,18 +674,14 @@
           </div>
         </section>
         <div class="avatar-colors" id="botAvatarColors" role="radiogroup" aria-label="头像颜色"></div>
-        <label id="botAgentEngineField" class="hidden">
-          Agent 引擎
-          <select id="botAgentEngine">
-            <option value="hermes">默认</option>
-          </select>
-        </label>
-        <details id="botPersonaDetails" class="persona-details">
+        <details id="botPersonaDetails" class="persona-details accordion-details">
           <summary>人设</summary>
-          <label>
-            <span>保存在 Hermes bots/&lt;id&gt;.md，会作为该 Bot 的系统人设注入。</span>
-            <textarea id="botSeed" placeholder="可留空，后续在对话中慢慢形成"></textarea>
-          </label>
+          <div class="accordion-body">
+            <label>
+              <span>保存在 Hermes bots/&lt;id&gt;.md，会作为该 Bot 的系统人设注入。</span>
+              <textarea id="botSeed" placeholder="可留空，后续在对话中慢慢形成"></textarea>
+            </label>
+          </div>
         </details>
         <footer class="bot-dialog-actions">
           <button id="cancelBot" class="secondary" type="button">取消</button>
@@ -857,6 +853,13 @@
           </div>
           <input id="groupInfoName" class="group-create-input" type="text" maxlength="40" />
         </section>
+        <section class="settings-row settings-group-end">
+          <div>
+            <strong>群号</strong>
+            <p>用于识别这个群聊，内部路由 ID 不直接展示。</p>
+          </div>
+          <code id="groupInfoPublicId" class="group-info-public-id"></code>
+        </section>
         <div class="settings-section-label">成员</div>
         <section class="settings-row settings-group-start settings-group-end group-info-members-row">
           <div>
@@ -949,7 +952,9 @@
   <script src="./helpers/markdown-helpers.js"></script>
   <script src="./helpers/format-helpers.js"></script>
   <script src="./helpers/scrollbar-overlay.js"></script>
+  <script src="./helpers/accordion.js"></script>
   <script src="../shared/engine-contracts.js"></script>
+  <script src="../shared/ids.js"></script>
   <script src="../shared/ipc-channels.js"></script>
   <script src="../../packages/shared/contact.js"></script>
   <script src="../../packages/shared/self-identity.js"></script>

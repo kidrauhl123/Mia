@@ -89,6 +89,8 @@ test("mobile RN API types use canonical bot sender and identity fields", () => {
 
   assert.match(source, /export type SenderKind = "user" \| "bot" \| "system";/);
   assert.match(source, /type\?: "dm" \| "group" \| "bot" \| string;/);
+  assert.match(source, /publicId\?: string;/);
+  assert.match(source, /public_id\?: string;/);
   assert.match(source, /bot_id\?: string;/);
   assert.match(source, /botId\?: string;/);
   assert.match(source, /decorations\?: \{ botId\?: string; botName\?: string; runtimeKind\?: string \};/);

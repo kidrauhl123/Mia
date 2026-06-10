@@ -527,9 +527,11 @@
             <div class="run-output-shell">${outputHtml}</div>
           </section>
           <section class="task-section run-detail-prompt">
-            <details>
+            <details class="task-prompt-details accordion-details">
               <summary>原始指令</summary>
-              <pre>${escapeHtml(task.prompt)}</pre>
+              <div class="accordion-body">
+                <pre>${escapeHtml(task.prompt)}</pre>
+              </div>
             </details>
           </section>
         </main>
