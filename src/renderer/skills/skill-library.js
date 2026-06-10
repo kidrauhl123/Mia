@@ -348,10 +348,6 @@
 
   // ---- Marketplace (探索发现) ----
 
-  function cloudSignedIn() {
-    return Boolean(state.runtime?.cloud?.enabled);
-  }
-
   function installedLocalSkillForMarket(skill) {
     return (state.skillLibrary.skills || []).find((local) => local.name === skill.name) || null;
   }
@@ -473,7 +469,7 @@
       : `<button class="skill-card-action skill-card-action-install" type="button" data-skill-install="${escapeHtml(skill.id)}"${installing ? " disabled" : ""}>${installing ? "…" : "添加"}</button>`;
     const meta = [skill.sourceLabel, formatInstallCount(skill.installCount)].filter(Boolean).join(" · ");
     return renderUnifiedSkillCard({
-      title: skill.name,
+      title: skill.name_zh || skill.name,
       description: marketDescriptionZh(skill),
       sourceHtml: `${marketSourceLogoHtml(skill)}<span class="skill-card-source-text">${escapeHtml(meta)}</span>`,
       actionHtml: action,
@@ -487,10 +483,6 @@
     const params = marketRequestParams();
     const queryKey = marketQueryKey(params);
     renderChips(marketCategoryEntries());
-    if (!cloudSignedIn()) {
-      els.skillCardGrid.innerHTML = `<div class="skill-empty-state">登录 Mia Cloud 后即可浏览技能市场。</div>`;
-      return;
-    }
     // Lazy-load the catalog the first time the market is shown.
     if (state.skillMarket.queryKey !== queryKey && !state.skillMarket.loading) {
       loadMarketSkills(params);
@@ -527,6 +519,7 @@
       });
     });
     els.skillCardGrid.querySelectorAll("[data-market-id]").forEach((card) => {
+      card.addEventListener("click", () => openMarketModal(card.dataset.marketId));
       card.addEventListener("contextmenu", (event) => {
         event.preventDefault();
         reportMarketSkill(card.dataset.marketId);
@@ -583,10 +576,7 @@
 
   async function installMarketSkill(skillId) {
     if (!skillId || !state || state.installingSkillIds.has(skillId)) return;
-    const entry = state.skillMarket.skills.find((skill) => skill.id === skillId);
-    const owner = entry?.ownerLabel || "未知来源";
-    const ok = window.confirm(`添加「${entry?.name || skillId}」？\n\n来源：${owner}\n技能会作为可执行能力安装到本机，且未经审核。确认从该来源安装？`);
-    if (!ok) return;
+    // Curated local catalog — install directly, no scary "unreviewed" prompt.
     state.installingSkillIds.add(skillId);
     renderSkillLibrary();
     try {
@@ -601,6 +591,136 @@
       state.installingSkillIds.delete(skillId);
       renderSkillLibrary();
     }
+  }
+
+  // --- Market skill detail modal ----------------------------------------
+  // Click a market card to open a popup: Chinese name + summary + source,
+  // an 「添加」 action, and a 「展开正文 ⇄ 返回」 toggle that reveals the raw
+  // SKILL.md body. Self-contained: DOM is injected lazily, no index.html dep.
+  let marketModal = { skillId: "", showBody: false };
+  let marketModalEl = null;
+
+  function findMarketSkill(skillId) {
+    return (state?.skillMarket?.skills || []).find((skill) => skill.id === skillId) || null;
+  }
+
+  function ensureMarketModalEl() {
+    if (marketModalEl) return marketModalEl;
+    const el = document.createElement("div");
+    el.id = "skillMarketModal";
+    el.className = "skill-market-modal hidden";
+    el.setAttribute("role", "dialog");
+    el.setAttribute("aria-modal", "true");
+    el.innerHTML = `
+      <div class="smm-backdrop" data-smm-close></div>
+      <div class="smm-panel">
+        <button class="smm-close" type="button" data-smm-close aria-label="关闭">×</button>
+        <div class="smm-intro">
+          <div class="smm-source-logo"></div>
+          <div class="smm-title"></div>
+          <div class="smm-meta"></div>
+          <p class="smm-summary"></p>
+        </div>
+        <div class="smm-body hidden">
+          <button class="smm-back" type="button">‹ 返回简介</button>
+          <div class="smm-body-content"></div>
+        </div>
+        <div class="smm-actions">
+          <button class="smm-body-toggle" type="button">展开正文</button>
+          <button class="smm-add" type="button"></button>
+        </div>
+      </div>`;
+    el.querySelectorAll("[data-smm-close]").forEach((node) => {
+      node.addEventListener("click", closeMarketModal);
+    });
+    el.querySelector(".smm-body-toggle").addEventListener("click", () => {
+      marketModal.showBody = !marketModal.showBody;
+      renderMarketModal();
+    });
+    el.querySelector(".smm-back").addEventListener("click", () => {
+      marketModal.showBody = false;
+      renderMarketModal();
+    });
+    el.querySelector(".smm-add").addEventListener("click", () => {
+      const skill = findMarketSkill(marketModal.skillId);
+      if (!skill) return;
+      const installed = installedLocalSkillForMarket(skill);
+      if (installed) {
+        useSkillInComposer(installed.id);
+        closeMarketModal();
+      } else {
+        installMarketSkill(skill.id);
+      }
+    });
+    document.body.appendChild(el);
+    marketModalEl = el;
+    return el;
+  }
+
+  function onMarketModalKeydown(event) {
+    if (event.key === "Escape") closeMarketModal();
+  }
+
+  function openMarketModal(skillId) {
+    if (!skillId || !findMarketSkill(skillId)) return;
+    marketModal = { skillId, showBody: false };
+    ensureMarketModalEl().classList.remove("hidden");
+    document.addEventListener("keydown", onMarketModalKeydown);
+    renderMarketModal();
+  }
+
+  function closeMarketModal() {
+    marketModal = { skillId: "", showBody: false };
+    if (marketModalEl) marketModalEl.classList.add("hidden");
+    document.removeEventListener("keydown", onMarketModalKeydown);
+  }
+
+  function renderMarketModal() {
+    if (!marketModalEl) return;
+    const skill = findMarketSkill(marketModal.skillId);
+    if (!skill) {
+      closeMarketModal();
+      return;
+    }
+    const title = skill.name_zh || skill.name || "技能";
+    const category = skill.category_zh || skill.category || "";
+    const installs = formatInstallCount(skill.installCount);
+    const meta = [category, skill.sourceLabel, installs].filter(Boolean).join(" · ");
+    const summary = skill.summary_zh || marketDescriptionZh(skill);
+    const installed = installedLocalSkillForMarket(skill);
+    const installing = state.installingSkillIds.has(skill.id);
+    const hasBody = !!String(skill.body || "").trim();
+
+    marketModalEl.querySelector(".smm-source-logo").innerHTML = marketSourceLogoHtml(skill);
+    setText(marketModalEl.querySelector(".smm-title"), title);
+    setText(marketModalEl.querySelector(".smm-meta"), meta);
+    setText(marketModalEl.querySelector(".smm-summary"), summary);
+
+    const intro = marketModalEl.querySelector(".smm-intro");
+    const body = marketModalEl.querySelector(".smm-body");
+    const bodyContent = marketModalEl.querySelector(".smm-body-content");
+    const toggle = marketModalEl.querySelector(".smm-body-toggle");
+    const add = marketModalEl.querySelector(".smm-add");
+
+    if (marketModal.showBody) {
+      intro.classList.add("hidden");
+      body.classList.remove("hidden");
+      bodyContent.innerHTML = hasBody
+        ? window.miaSkillHelpers.renderSkillMarkdownSource(skill.body)
+        : `<div class="skill-empty-state">完整 SKILL.md 内容将在添加到本机后查看。</div>`;
+      bodyContent.querySelectorAll("a[href]").forEach((link) => {
+        link.setAttribute("target", "_blank");
+        link.setAttribute("rel", "noreferrer");
+      });
+    } else {
+      intro.classList.remove("hidden");
+      body.classList.add("hidden");
+    }
+
+    toggle.textContent = marketModal.showBody ? "收起正文" : "展开正文";
+    add.disabled = installing;
+    add.classList.toggle("smm-add-installed", !!installed);
+    add.textContent = installed ? "使用" : installing ? "添加中…" : "添加";
   }
 
   window.miaSkillLibrary = {
@@ -619,5 +739,7 @@
     switchSkillMode,
     loadMarketSkills,
     installMarketSkill,
+    openMarketModal,
+    closeMarketModal,
   };
 })();

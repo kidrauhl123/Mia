@@ -55,9 +55,9 @@ test("parseFrontmatter returns {} for content without frontmatter", () => {
 test("the real skills/ folder loads top-level catalog and excludes _builtin", () => {
   const skills = loadSkillsCatalog();
   const ids = skills.map((s) => s.id);
-  assert.ok(ids.includes("commit-craft"), "commit-craft present");
-  assert.ok(ids.includes("weekly-report"), "weekly-report present");
-  assert.ok(ids.includes("trip-planner"), "trip-planner present");
+  assert.ok(ids.includes("pdf"), "pdf present");
+  assert.ok(ids.includes("docx"), "docx present");
+  assert.ok(ids.includes("latex-document"), "latex-document present");
   // _builtin (pre-installed, e.g. pet-generator) is NOT part of the market catalog
   assert.ok(!ids.includes("_builtin"), "_builtin dir is not a catalog entry");
   assert.ok(!ids.includes("pet-generator"), "bundled pet-generator is excluded from the market");

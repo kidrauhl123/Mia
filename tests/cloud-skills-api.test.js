@@ -142,8 +142,8 @@ test("GET /api/skills lists seeded catalog with categories, no body", async () =
     assert.equal(r.status, 200);
     assert.ok(Array.isArray(r.body.skills) && r.body.skills.length >= 3);
     assert.ok(Array.isArray(r.body.categories) && r.body.categories.length >= 1);
-    const one = r.body.skills.find((s) => s.id === "commit-craft");
-    assert.ok(one, "seeded commit-craft present");
+    const one = r.body.skills.find((s) => s.id === "pdf");
+    assert.ok(one, "seeded pdf present");
     assert.equal(one.installCount, 0, "install count starts honest at 0");
     assert.equal(one.body, undefined, "list payload omits body");
   } finally { await stopServer(ctx); }
@@ -161,10 +161,10 @@ test("GET /api/skills?category= filters", async () => {
   const ctx = await startServer();
   try {
     const alice = await register(ctx.port, "alice");
-    const r = await api(ctx.port, "GET", "/api/skills?category=" + encodeURIComponent("生活日常"), { token: alice.token });
+    const r = await api(ctx.port, "GET", "/api/skills?category=" + encodeURIComponent("research"), { token: alice.token });
     assert.equal(r.status, 200);
     assert.ok(r.body.skills.length >= 1);
-    assert.ok(r.body.skills.every((s) => s.category === "生活日常"));
+    assert.ok(r.body.skills.every((s) => s.category === "research"));
   } finally { await stopServer(ctx); }
 });
 
@@ -172,9 +172,9 @@ test("GET /api/skills/:id returns listing + latest version meta (no raw body)", 
   const ctx = await startServer();
   try {
     const alice = await register(ctx.port, "alice");
-    const r = await api(ctx.port, "GET", "/api/skills/commit-craft", { token: alice.token });
+    const r = await api(ctx.port, "GET", "/api/skills/pdf", { token: alice.token });
     assert.equal(r.status, 200);
-    assert.equal(r.body.skill.id, "commit-craft");
+    assert.equal(r.body.skill.id, "pdf");
     assert.equal(r.body.skill.latestVersion, "1.0.0");
     assert.ok(r.body.skill.version && r.body.skill.version.checksum, "carries a packaged version");
     assert.equal(r.body.skill.body, undefined, "detail no longer ships a raw body");
@@ -187,7 +187,7 @@ test("POST install bumps count once per user, returns download info; package dow
     const alice = await register(ctx.port, "alice");
     const bob = await register(ctx.port, "bob");
 
-    const i1 = await api(ctx.port, "POST", "/api/skills/commit-craft/install", { token: alice.token });
+    const i1 = await api(ctx.port, "POST", "/api/skills/pdf/install", { token: alice.token });
     assert.equal(i1.status, 200);
     assert.equal(i1.body.skill.installCount, 1);
     assert.ok(i1.body.download && i1.body.download.url && i1.body.download.checksum, "install returns package download info");
@@ -197,11 +197,11 @@ test("POST install bumps count once per user, returns download info; package dow
     assert.equal(pkg.status, 200);
 
     // same user re-installs → idempotent, no inflation
-    const i2 = await api(ctx.port, "POST", "/api/skills/commit-craft/install", { token: alice.token });
+    const i2 = await api(ctx.port, "POST", "/api/skills/pdf/install", { token: alice.token });
     assert.equal(i2.body.skill.installCount, 1);
 
     // a different user → count grows
-    const i3 = await api(ctx.port, "POST", "/api/skills/commit-craft/install", { token: bob.token });
+    const i3 = await api(ctx.port, "POST", "/api/skills/pdf/install", { token: bob.token });
     assert.equal(i3.body.skill.installCount, 2);
   } finally { await stopServer(ctx); }
 });
@@ -286,15 +286,15 @@ test("POST /api/skills cannot take over an official skill (id is namespaced to t
   const ctx = await startServer();
   try {
     const bob = await register(ctx.port, "bob");
-    // bob publishes a skill literally named "commit-craft" (an official seed id)
+    // bob publishes a skill literally named "pdf" (an official seed id)
     const pub = await api(ctx.port, "POST", "/api/skills", {
       token: bob.token,
-      body: { id: "commit-craft", name: "commit-craft", packageBase64: skillZipBase64("---\nname: pwn\n---\n# pwn") }
+      body: { id: "pdf", name: "pdf", packageBase64: skillZipBase64("---\nname: pwn\n---\n# pwn") }
     });
     assert.equal(pub.status, 201);
-    assert.equal(pub.body.skill.id, "bob.commit-craft", "client id ignored; namespaced to user");
-    // the official commit-craft is untouched (still Mia 官方, not bob's)
-    const official = await api(ctx.port, "GET", "/api/skills/commit-craft", { token: bob.token });
+    assert.equal(pub.body.skill.id, "bob.pdf", "client id ignored; namespaced to user");
+    // the official pdf is untouched (still Mia 官方, not bob's)
+    const official = await api(ctx.port, "GET", "/api/skills/pdf", { token: bob.token });
     assert.equal(official.status, 200);
     assert.notEqual(official.body.skill.ownerLabel, "bob");
   } finally { await stopServer(ctx); }

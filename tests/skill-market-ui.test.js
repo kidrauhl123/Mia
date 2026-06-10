@@ -17,14 +17,13 @@ test("market IPC channels + preload bridge are wired", () => {
   assert.match(preload, /installMarketSkill:.*SkillsMarketInstall/);
 });
 
-test("main orchestrates cloud install → local write", () => {
+test("main serves the local curated market and installs from the bundled catalog", () => {
   const main = read("src/main.js");
-  assert.match(main, /SkillsMarketList.*listMarketSkills/);
-  // install: cloud call → download package → verify checksum → extract locally
-  assert.match(main, /installMarketSkill\(skillId\)/);
-  assert.match(main, /downloadSkillPackage\(download\.url\)/);
+  assert.match(main, /SkillsMarketList.*loadLocalSkillMarketPayload/);
+  // install: zip the bundled skill dir → extract into the local skills dir
+  assert.match(main, /packageLocalCatalogSkill\(skill\.id\)/);
   assert.match(main, /installMarketplaceSkill\(\{[\s\S]*id: skill\.id[\s\S]*zipBuffer/);
-  assert.match(main, /marketMeta:\s*\{[\s\S]*sourceLabel: skill\.sourceLabel/);
+  assert.match(main, /marketMeta:\s*\{\s*sourceLabel: skill\.sourceLabel/);
 });
 
 test("skill-library renders a market mode with an install action", () => {
@@ -44,8 +43,8 @@ test("skill-library renders a market mode with an install action", () => {
   assert.match(src, /function renderMarketView/);
   assert.match(src, /function installMarketSkill/);
   assert.match(src, /data-skill-install=/);
-  // a signed-out prompt rather than a broken empty grid
-  assert.match(src, /登录 Mia Cloud/);
+  // local curated market: no Mia Cloud sign-in gate
+  assert.doesNotMatch(src, /登录 Mia Cloud/);
 });
 
 test("market cards render Chinese fallback descriptions for English-only skills", () => {

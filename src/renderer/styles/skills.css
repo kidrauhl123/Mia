@@ -401,3 +401,150 @@
 .skill-use-picker button:hover {
   background: var(--surface-muted);
 }
+
+/* 技能市场卡片详情弹窗 */
+.skill-market-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 34px;
+}
+
+.skill-market-modal .smm-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(16, 20, 39, 0.28);
+}
+
+.skill-market-modal .smm-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(560px, calc(100vw - 68px));
+  max-height: min(720px, calc(100vh - 68px));
+  padding: 22px 22px 16px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: 0 24px 70px rgba(66, 45, 25, 0.16);
+}
+
+.skill-market-modal .smm-close {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--faint);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.skill-market-modal .smm-close:hover {
+  background: var(--surface-muted);
+}
+
+.skill-market-modal .smm-source-logo {
+  margin-bottom: 8px;
+}
+
+.skill-market-modal .smm-title {
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 500;
+  padding-right: 30px;
+}
+
+.skill-market-modal .smm-meta {
+  margin-top: 4px;
+  color: var(--faint);
+  font-size: 12px;
+}
+
+.skill-market-modal .smm-summary {
+  margin: 14px 0 0;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.skill-market-modal .smm-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.skill-market-modal .smm-back {
+  margin-bottom: 10px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--faint);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.skill-market-modal .smm-back:hover {
+  background: var(--surface-muted);
+}
+
+.skill-market-modal .smm-body-content {
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.skill-market-modal .smm-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.skill-market-modal .smm-body-toggle {
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.skill-market-modal .smm-body-toggle:hover {
+  background: var(--surface-muted);
+}
+
+.skill-market-modal .smm-add {
+  padding: 8px 22px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--accent, #7c3aed);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 450;
+  cursor: pointer;
+}
+
+.skill-market-modal .smm-add:hover {
+  filter: brightness(1.05);
+}
+
+.skill-market-modal .smm-add:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.skill-market-modal .smm-add.smm-add-installed {
+  background: var(--surface-muted);
+  color: var(--text);
+}

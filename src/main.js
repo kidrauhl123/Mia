@@ -59,6 +59,7 @@ const { createCloudEventsClient } = require("./main/cloud/cloud-events-client.js
 const { createCloudBridgeClient } = require("./main/cloud/cloud-bridge-client.js");
 const { createCloudDesktopSyncClient } = require("./main/cloud/desktop-sync-client.js");
 const { openSkillMarketCache } = require("./main/skills/skill-market-cache.js");
+const { loadLocalSkillMarketPayload, packageLocalCatalogSkill } = require("./main/skills/skill-market-local.js");
 const { createRemoteControlRouter } = require("./main/remote/remote-control-router.js");
 const { createModelSettingsService } = require("./main/model-settings-service.js");
 const { createConversationTitleService } = require("./main/conversation-title-service.js");
@@ -2177,31 +2178,16 @@ ipcMain.handle(IpcChannel.PluginsInstall, (_event, extensionId) => skillsLoader.
 ipcMain.handle(IpcChannel.SkillsRead, (_event, skillId) => skillsLoader.readLocalSkill(skillId));
 ipcMain.handle(IpcChannel.SkillsDelete, (_event, skillId) => skillsLoader.deleteLocalSkill(skillId));
 ipcMain.handle(IpcChannel.SkillsOpenDirectory, (_event, skillId) => skillsLoader.openLocalSkillDirectory(skillId));
-ipcMain.handle(IpcChannel.SkillsMarketList, (_event, params) => cloudDesktopSync().listMarketSkills(params || {}));
+ipcMain.handle(IpcChannel.SkillsMarketList, () => loadLocalSkillMarketPayload());
 ipcMain.handle(IpcChannel.SkillsMarketInstall, async (_event, skillId) => {
-  const sync = cloudDesktopSync();
-  const { skill, download } = await sync.installMarketSkill(skillId);
-  if (!skill || !download || !download.url) throw new Error("技能不存在或安装失败。");
-  if (!/^[a-f0-9]{64}$/.test(String(download.checksum || ""))) {
-    throw new Error("技能包缺少有效校验值，已中止安装。");
-  }
-  const zipBuffer = await sync.downloadSkillPackage(download.url);
-  const checksum = crypto.createHash("sha256").update(zipBuffer).digest("hex");
-  if (checksum !== download.checksum) {
-    throw new Error("技能包校验失败（checksum 不匹配），已中止安装。");
-  }
+  const { skills } = loadLocalSkillMarketPayload();
+  const skill = skills.find((item) => item.id === skillId);
+  if (!skill) throw new Error("技能不存在或安装失败。");
+  const zipBuffer = packageLocalCatalogSkill(skill.id);
   const library = await skillsLoader.installMarketplaceSkill({
     id: skill.id,
     zipBuffer,
-    marketVersion: download.version,
-    marketMeta: {
-      sourceLabel: skill.sourceLabel || skill.ownerLabel || "",
-      upstreamSource: skill.upstreamSource || "",
-      upstreamId: skill.upstreamId || "",
-      upstreamRepo: skill.upstreamRepo || "",
-      upstreamPath: skill.upstreamPath || "",
-      trustLevel: skill.trustLevel || ""
-    }
+    marketMeta: { sourceLabel: skill.sourceLabel || "" }
   });
   return { skill, library };
 });

@@ -1,0 +1,173 @@
+{
+  "version": 1,
+  "skills": [
+    {
+      "id": "pdf",
+      "name_zh": "PDF 文档处理",
+      "summary_zh": "读取并提取 PDF 里的文字和表格，填写表单，按页合并、拆分或重排，也能从零生成新的 PDF。处理合同、报告、扫描件这类文档很顺手。",
+      "category_zh": "文档处理",
+      "source_label": "Anthropic 官方",
+      "order": 1
+    },
+    {
+      "id": "docx",
+      "name_zh": "Word 文档",
+      "summary_zh": "创建和编辑 Word 文档：排版正文、插入表格、加批注与修订。适合写报告、论文初稿、正式公文。",
+      "category_zh": "文档处理",
+      "source_label": "Anthropic 官方",
+      "order": 2
+    },
+    {
+      "id": "xlsx",
+      "name_zh": "Excel 表格",
+      "summary_zh": "读写 Excel 表格，套公式、做透视和图表、批量整理数据。适合算账、统计、把杂乱数据整理成规整表。",
+      "category_zh": "文档处理",
+      "source_label": "Anthropic 官方",
+      "order": 3
+    },
+    {
+      "id": "pptx",
+      "name_zh": "PPT 幻灯片",
+      "summary_zh": "把要点整理成结构清晰的 PowerPoint 幻灯片，自动排版、配图、统一风格。适合课堂展示、答辩、工作汇报。",
+      "category_zh": "文档处理",
+      "source_label": "Anthropic 官方",
+      "order": 4
+    },
+    {
+      "id": "web-artifacts-builder",
+      "name_zh": "网页交互件构建",
+      "summary_zh": "用 HTML/React 搭建可交互的网页小工具、可视化和原型，一步到位出可运行的成品。适合做演示页、数据看板、互动小应用。",
+      "category_zh": "开发工程",
+      "source_label": "Anthropic 官方",
+      "order": 5
+    },
+    {
+      "id": "mcp-builder",
+      "name_zh": "MCP 服务搭建",
+      "summary_zh": "从零搭建一个 MCP（模型上下文协议）服务，把外部工具和数据接进 AI。适合给智能体扩展自定义能力。",
+      "category_zh": "开发工程",
+      "source_label": "Anthropic 官方",
+      "order": 6
+    },
+    {
+      "id": "webapp-testing",
+      "name_zh": "Web 应用测试",
+      "summary_zh": "为网页应用编写并运行端到端测试，模拟真实点击操作、验证页面行为、定位回归问题。适合上线前自动化验收。",
+      "category_zh": "开发工程",
+      "source_label": "Anthropic 官方",
+      "order": 7
+    },
+    {
+      "id": "skill-creator",
+      "name_zh": "技能创作",
+      "summary_zh": "编写或改造 SKILL.md，把一套稳定的工作流沉淀成可被 AI 反复调用的技能。适合把你的常用套路打包复用。",
+      "category_zh": "开发工程",
+      "source_label": "Anthropic 官方",
+      "order": 8
+    },
+    {
+      "id": "frontend-design",
+      "name_zh": "前端界面设计",
+      "summary_zh": "产出有设计感、不千篇一律的前端界面，讲究排版、配色和细节质感。适合做落地页、组件、网页应用的视觉实现。",
+      "category_zh": "开发工程",
+      "source_label": "Anthropic 官方",
+      "order": 9
+    },
+    {
+      "id": "deep-research",
+      "name_zh": "深度研究",
+      "summary_zh": "围绕一个题目从多个角度展开检索与综合，产出结构化的分析和详尽的研究报告。适合做选题调研、行业分析、决策前的资料梳理。",
+      "category_zh": "研究资料",
+      "source_label": "claude-office-skills",
+      "order": 10
+    },
+    {
+      "id": "data-analysis",
+      "name_zh": "数据分析",
+      "summary_zh": "分析 Excel / CSV 数据，自动统计、找出规律、生成可视化图表和分析报告。适合处理问卷、实验数据、运营报表。",
+      "category_zh": "研究资料",
+      "source_label": "claude-office-skills",
+      "order": 11
+    },
+    {
+      "id": "literature-review",
+      "name_zh": "文献综述",
+      "summary_zh": "按检索策略找文献、评估来源质量、做主题式综合，并理清引用关系。适合写课程论文、开题报告、研究综述。",
+      "category_zh": "研究资料",
+      "source_label": "K-Dense AI",
+      "order": 12
+    },
+    {
+      "id": "paper-notes",
+      "name_zh": "论文阅读笔记",
+      "summary_zh": "从 arXiv、bioRxiv 抓取指定方向的最新论文，逐篇生成中英文结构化摘要：问题、方法、结论、可借鉴点。适合追踪领域进展和文献积累。",
+      "category_zh": "研究资料",
+      "source_label": "claude-scholar",
+      "order": 13
+    },
+    {
+      "id": "meeting-notes",
+      "name_zh": "会议纪要",
+      "summary_zh": "把会议记录或转写整理成清晰的纪要，自动抽出决定、待办和负责人、未决问题。适合例会、小组讨论、访谈整理。",
+      "category_zh": "写作效率",
+      "source_label": "claude-office-skills",
+      "order": 14
+    },
+    {
+      "id": "translation",
+      "name_zh": "翻译润色",
+      "summary_zh": "把英文、日文的文章和资料译成地道流畅的中文，保留专业术语和代码不走样。适合读外文文献、技术文档、资料速读。",
+      "category_zh": "写作效率",
+      "source_label": "feiskyer",
+      "order": 15
+    },
+    {
+      "id": "email-drafting",
+      "name_zh": "邮件起草",
+      "summary_zh": "根据要点快速起草得体的邮件，把握分寸和措辞。适合写请假、求职、联系导师、对外沟通。",
+      "category_zh": "写作效率",
+      "source_label": "claude-office-skills",
+      "order": 16
+    },
+    {
+      "id": "resume-polish",
+      "name_zh": "简历优化",
+      "summary_zh": "对着目标岗位打磨简历：突出成果、量化经历、调整结构和措辞，做 ATS 友好的针对性优化。适合实习、秋招、申研。",
+      "category_zh": "写作效率",
+      "source_label": "claude-office-skills",
+      "order": 17
+    },
+    {
+      "id": "academic-writing",
+      "name_zh": "学术写作",
+      "summary_zh": "辅助学术论文的写作、审阅和润色，覆盖结构搭建、论证打磨、表达规范。适合课程论文、毕业论文、投稿稿件。",
+      "category_zh": "写作效率",
+      "source_label": "academic-writing-agents",
+      "order": 18
+    },
+    {
+      "id": "latex-document",
+      "name_zh": "LaTeX 排版",
+      "summary_zh": "用 LaTeX 排出专业的论文、作业和讲义，内置大量模板与脚本，公式、图表、参考文献都处理得当。适合理工科作业和正式排版。",
+      "category_zh": "学习",
+      "source_label": "latex-document-skill",
+      "order": 19
+    },
+    {
+      "id": "flashcards",
+      "name_zh": "Anki 记忆卡",
+      "summary_zh": "依据记忆科学，把学习材料拆成一卡一概念的原子记忆卡，支持数学公式，可导入 Anki。适合背单词、记知识点、备考。",
+      "category_zh": "学习",
+      "source_label": "jalliet/flashcards",
+      "order": 20
+    },
+    {
+      "id": "revision-notes",
+      "name_zh": "复习笔记",
+      "summary_zh": "把课本、讲义或长资料浓缩成条理清晰的复习笔记，抓重点、列框架。适合期末突击和知识点回顾。",
+      "category_zh": "学习",
+      "source_label": "社区",
+      "order": 21
+    }
+  ]
+}
