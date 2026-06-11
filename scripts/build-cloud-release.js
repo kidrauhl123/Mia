@@ -224,6 +224,21 @@ The release archive also includes \`diagnose-deploy-ssh.js\` for operators who c
 
 If this archive has already been extracted and the original tarball is not in the current directory, run the verify command from the directory that contains \`mia-cloud-release.tgz\`, or pass the absolute path to the tarball.
 
+## WeChat Official Account Login
+
+Mia Cloud uses the Official Account identity as the only cloud account login. Put these values in \`/etc/mia-cloud/admin.env\`:
+
+\`\`\`ini
+MIA_WECHAT_MP_APP_ID=<WeChat Official Account AppID>
+MIA_WECHAT_MP_APP_SECRET=<WeChat Official Account AppSecret>
+MIA_WECHAT_MP_TOKEN=<message push token configured in WeChat>
+MIA_WECHAT_MP_ENCODING_AES_KEY=<message push EncodingAESKey>
+# Optional override; defaults to https://mia.gifgif.cn/api/auth/wechat/mp/oauth-callback
+# MIA_WECHAT_MP_OAUTH_REDIRECT_URI=https://mia.gifgif.cn/api/auth/wechat/mp/oauth-callback
+\`\`\`
+
+Configure message push URL \`https://mia.gifgif.cn/api/auth/wechat/mp/events\`, XML data, and the matching token. Configure the Official Account web authorization domain as \`mia.gifgif.cn\`; \`JS接口安全域名\` is for the WeChat JS-SDK and is not required for this login path. If WeChat returns \`48001 api unauthorized\` for the scene QR API, Mia falls back to a server-rendered OAuth QR code. The final account profile comes from \`snsapi_userinfo\`, because subscribe/SCAN events do not include nickname or avatar.
+
 ## Platform Model Gateway
 
 Mia can sell a platform DeepSeek model without exposing provider keys to users. Set \`MIA_MODEL_GATEWAY=deepseek\` and \`MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY=<random internal proxy secret>\` in \`/etc/mia-cloud/admin.env\`, then open \`/admin/model\` to save the DeepSeek API Key, base URL, public Mia model name, and token pricing. \`MIA_DEEPSEEK_API_KEY=<DeepSeek API key>\` is an optional bootstrap fallback if the database setting has not been saved yet. Cloud Hermes workers receive per-user internal proxy tokens and call \`/api/internal/model-proxy/v1\`; Mia Cloud forwards to DeepSeek, records token usage in SQLite, and deducts the user's Mia model balance. The release includes a \`hermes-image/\` Docker build context and the installer builds \`MIA_CLOUD_HERMES_IMAGE\` on the VPS, so worker startup does not depend on pulling a private external image. On China-hosted VPS networks, set \`MIA_DEBIAN_APT_MIRROR=https://mirrors.tencent.com/debian\` and \`MIA_PIP_INDEX_URL=https://mirrors.tencent.com/pypi/simple\` before running the installer if upstream Debian/PyPI downloads hang. If \`MIA_CLOUD_HERMES_IMAGE\` is already present on the VPS and the Hermes version did not change, set \`MIA_INSTALL_SKIP_HERMES_IMAGE_BUILD=1\` to skip rebuilding after first verifying that image exists. LiteLLM remains optional for a future multi-provider gateway.
@@ -786,6 +801,7 @@ function main() {
     },
     dependencies: {
       "adm-zip": rootPackage.dependencies?.["adm-zip"] || "^0.5.17",
+      qrcode: rootPackage.dependencies?.qrcode || "^1.5.4",
       ws: rootPackage.dependencies?.ws || "^8.20.1"
     }
   });

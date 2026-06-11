@@ -26,10 +26,11 @@ test("sqlite store logs in with WeChat, authenticates, and logs out a user", () 
   const paths = tempStore();
   const store = createCloudStore(paths);
   try {
-    const profile = wechatProfile("Alice");
+    const profile = wechatProfile("Alice", { avatarUrl: "https://wx.qlogo.cn/mmopen/alice/0" });
     const registered = store.loginWithWechat(profile);
     assert.match(registered.user.username, /^wx_[a-f0-9]{12}$/);
     assert.equal(registered.user.displayName, "Alice");
+    assert.equal(registered.user.avatarImage, "https://wx.qlogo.cn/mmopen/alice/0");
     assert.equal(ids.isPublicId(registered.user.id), true);
     assert.match(registered.user.id, /^[1-9][0-9]{9}$/);
     assert.doesNotMatch(registered.user.id, /^(user|bot)_/);

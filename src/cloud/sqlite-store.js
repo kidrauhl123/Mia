@@ -329,14 +329,15 @@ function createCloudStore(options = {}) {
       const userId = generatePrincipalId(randomBytes);
       const createdAt = now();
       db.prepare(`
-        INSERT INTO users (id, account, username, email, display_name, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO users (id, account, username, email, display_name, avatar_image, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
       `).run(
         userId,
         `wechat:${wechatSubject(profile)}`,
         wechatUsername(profile),
         "",
         wechatDisplayName(profile),
+        String(profile.avatarUrl || "").trim(),
         createdAt
       );
       row = getUserById(userId);

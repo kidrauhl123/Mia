@@ -30,6 +30,12 @@ MIA_CLOUD_AGENT_MODEL_PROVIDER=mia
 MIA_CLOUD_AGENT_MODEL=mia-default
 MIA_CLOUD_ADMIN_USERNAME=<admin username>
 MIA_CLOUD_ADMIN_PASSWORD=<admin password>
+MIA_WECHAT_MP_APP_ID=<WeChat Official Account AppID>
+MIA_WECHAT_MP_APP_SECRET=<WeChat Official Account AppSecret>
+MIA_WECHAT_MP_TOKEN=<message push token configured in WeChat>
+MIA_WECHAT_MP_ENCODING_AES_KEY=<message push EncodingAESKey>
+# Optional override; defaults to https://mia.gifgif.cn/api/auth/wechat/mp/oauth-callback
+# MIA_WECHAT_MP_OAUTH_REDIRECT_URI=https://mia.gifgif.cn/api/auth/wechat/mp/oauth-callback
 MIA_MODEL_GATEWAY=deepseek
 MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY=<random internal proxy secret>
 MIA_MODEL_INPUT_MICROUSD_PER_1M=140000
@@ -45,6 +51,21 @@ MIA_MODEL_MARKUP=1
 On China-hosted VPS networks, Debian apt metadata or PyPI downloads can hang when they use upstream defaults. Set `MIA_DEBIAN_APT_MIRROR=https://mirrors.tencent.com/debian` and `MIA_PIP_INDEX_URL=https://mirrors.tencent.com/pypi/simple` before running `install-cloud-release-local.sh` or `cloud:deploy`.
 If `MIA_CLOUD_HERMES_IMAGE` is already present on the VPS and the Hermes version did not change, `MIA_INSTALL_SKIP_HERMES_IMAGE_BUILD=1` or `MIA_DEPLOY_SKIP_HERMES_IMAGE_BUILD=1` skips rebuilding the worker image after first verifying that image exists.
 `MIA_MODEL_GATEWAY=deepseek` makes Mia Cloud the paid model gateway: users spend Mia model credits, Mia calls DeepSeek with the server-side key, records usage in SQLite, and deducts the user's balance. Save the DeepSeek API Key, base URL, public Mia model name, and token pricing at `/admin/model`; `MIA_DEEPSEEK_API_KEY` is only a bootstrap fallback if the database setting has not been saved yet. Cloud Hermes workers receive a per-user internal proxy token generated from `MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY`; they do not receive the raw DeepSeek key. Put `MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY`, optional fallback `MIA_DEEPSEEK_API_KEY`, and admin credentials in `/etc/mia-cloud/admin.env`, not in the repository.
+
+## WeChat Official Account Login
+
+Mia Cloud uses the Official Account identity as the only cloud account login. The service needs both message push and web authorization:
+
+- Message push URL: `https://mia.gifgif.cn/api/auth/wechat/mp/events`
+- Message push token: `MIA_WECHAT_MP_TOKEN`
+- Message format: XML
+- Message encryption: plaintext is enough for the current login flow; secure mode also requires the matching `MIA_WECHAT_MP_ENCODING_AES_KEY`.
+- Web authorization domain: `mia.gifgif.cn`
+- OAuth callback: `https://mia.gifgif.cn/api/auth/wechat/mp/oauth-callback`
+
+`JS接口安全域名` is not required for this login path. It is for the WeChat JS-SDK. The setting that matters for nickname/avatar login is the Official Account web authorization domain.
+
+The preferred desktop login path is a scene QR code from WeChat's `qrcode/create` API. If the account lacks that permission and WeChat returns `48001 api unauthorized`, Mia falls back to a server-rendered OAuth QR code instead of failing the login start request. The OAuth callback uses `snsapi_userinfo`, then creates or reuses the Mia user with the WeChat nickname and avatar URL. A subscribe/SCAN event alone is not enough for a full profile because WeChat does not include nickname/avatar in the message event; the event can only bind or advance the pending login state.
 
 To grant first-version manual credits before a payment provider is wired:
 
