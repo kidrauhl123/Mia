@@ -405,18 +405,18 @@ body.window-blurred .traffic-spacer:hover .traffic-light.green {
    currentColor so theme/accent changes still reach filled dots and solid icon
    parts. The startup scan animation is a full-color illustration, so it is
    excluded and keeps its source colors. */
-[data-lottie]:not(.setup-scan-lottie) svg path {
+[data-lottie]:not(.setup-scan-lottie):not(.name-with-badge-badge-lottie) svg path {
   fill: currentColor !important;
 }
 
 /* Rail SVG styles set stroke on fallback icons; generated filled Lottie paths
    must clear that inheritance or dots/accent shapes gain a visible ring. */
-[data-lottie]:not(.setup-scan-lottie) svg path:not([fill-opacity="0"]) {
+[data-lottie]:not(.setup-scan-lottie):not(.name-with-badge-badge-lottie) svg path:not([fill-opacity="0"]) {
   stroke: none !important;
 }
 
 /* Only hollow Lottie paths are outlines. */
-[data-lottie]:not(.setup-scan-lottie) svg path[fill-opacity="0"] {
+[data-lottie]:not(.setup-scan-lottie):not(.name-with-badge-badge-lottie) svg path[fill-opacity="0"] {
   stroke: currentColor !important;
 }
 
@@ -4588,6 +4588,178 @@ body.onboarding-window .setup-guide.ready .setup-footer { animation-delay: 0.13s
   overflow-wrap: anywhere;
 }
 
+.identity-name-field {
+  display: grid;
+  gap: 7px;
+}
+
+.identity-name-label {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.identity-name-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.identity-name-text {
+  min-width: 0;
+  max-width: 100%;
+  border: 0;
+  border-radius: 8px;
+  padding: 6px 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.25;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.identity-name-text:hover,
+.identity-name-text:focus-visible {
+  color: var(--accent);
+  outline: 0;
+}
+
+.identity-name-input {
+  flex: 1;
+}
+
+.identity-name-line .identity-name-input {
+  width: auto;
+  min-width: 0;
+  max-width: 100%;
+  border: 0;
+  border-radius: 0;
+  padding: 6px 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.25;
+}
+
+.identity-name-line .identity-name-input:focus,
+.identity-name-line .identity-name-input:focus-visible {
+  outline: 0;
+  box-shadow: inset 0 -1px 0 var(--accent);
+}
+
+.identity-badge-details {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.identity-badge-details > summary {
+  list-style: none;
+}
+
+.identity-badge-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.identity-badge-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin-top: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.identity-badge-trigger.empty {
+  border: 1px dashed var(--line-strong);
+  color: var(--faint);
+  font-size: 17px;
+  line-height: 1;
+}
+
+.identity-badge-trigger:not(.empty):hover,
+.identity-badge-trigger:not(.empty):focus-visible,
+.identity-badge-trigger.empty:hover,
+.identity-badge-trigger.empty:focus-visible {
+  background: var(--hover);
+  outline: 0;
+}
+
+.identity-badge-panel {
+  position: absolute;
+  top: 34px;
+  right: 0;
+  z-index: 10;
+  min-width: 204px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.identity-badge-choices {
+  display: grid;
+  grid-template-columns: repeat(5, 32px);
+  gap: 6px;
+}
+
+.identity-badge-choices button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 8px;
+  padding: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: center;
+  cursor: pointer;
+}
+
+.identity-badge-choices button:hover,
+.identity-badge-choices button:focus-visible {
+  background: var(--hover);
+  outline: 0;
+}
+
+.identity-badge-choices button.active {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 32%, transparent);
+}
+
+.identity-badge-choice-empty {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.identity-badge-choice-emoji {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.identity-badge-choices .name-with-badge-badge,
+.identity-badge-choices .name-with-badge-badge svg {
+  --name-badge-size: 22px;
+}
+
 .pet-generate-card label,
 .persona-details label {
   display: grid;
@@ -5450,6 +5622,10 @@ body.onboarding-window .setup-guide.ready .setup-footer { animation-delay: 0.13s
 .settings-panel[data-settings-panel="account"] .runtime-card {
   gap: 12px;
   padding: 0;
+}
+
+.settings-panel[data-settings-panel="account"] {
+  gap: 12px;
 }
 
 .settings-panel[data-settings-panel="model"] .engine-detail-panel {

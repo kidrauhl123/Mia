@@ -10,6 +10,7 @@ import { togglePinnedConversation } from "../logic/settings";
 import { conversationType } from "../logic/sessionHistory";
 import ConversationAvatar from "../components/ConversationAvatar";
 import ConnBanner from "../components/ConnBanner";
+import StatusBadge from "../components/StatusBadge";
 import { BodyStrong, Label, Sub } from "../ui/Text";
 import { color, space } from "../theme";
 import type { ChatMessage, Member, MessageRow } from "../api/types";
@@ -19,7 +20,7 @@ type Props = NativeStackScreenProps<MessagesStackParamList, "Conversations">;
 
 export default function ConversationListScreen({ navigation }: Props) {
   const api = useApi();
-  const { session } = useAuth();
+  const { session, apiBase } = useAuth();
   const { data: conversations = [], isLoading, refetch, isRefetching } = useConversations();
   const { data: bots = [] } = useBots();
   const { data: friends = [] } = useFriends();
@@ -101,7 +102,10 @@ export default function ConversationListScreen({ navigation }: Props) {
             <ConversationAvatar tiles={item.tiles} />
             <View style={styles.textCol}>
               <View style={styles.titleRow}>
-                <BodyStrong numberOfLines={1} style={styles.title}>{item.title}</BodyStrong>
+                <View style={styles.titleWithBadge}>
+                  <BodyStrong numberOfLines={1} style={styles.title}>{item.title}</BodyStrong>
+                  <StatusBadge badge={item.statusBadge} apiBase={apiBase} size={15} />
+                </View>
                 {pinnedSet.has(item.id) ? <Label style={styles.pin}>置顶</Label> : null}
                 {item.timeText ? <Sub numberOfLines={1} style={styles.time}>{item.timeText}</Sub> : null}
               </View>
@@ -133,6 +137,7 @@ const styles = StyleSheet.create({
   pressed: { backgroundColor: color.surfaceMuted },
   textCol: { flex: 1, minWidth: 0, gap: 2 },
   titleRow: { flexDirection: "row", alignItems: "center", gap: space.sm },
+  titleWithBadge: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 4 },
   title: { flex: 1, minWidth: 0 },
   time: { color: color.inkFaint, fontSize: 12 },
   sub: { marginTop: 1 },

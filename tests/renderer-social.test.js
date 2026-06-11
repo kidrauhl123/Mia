@@ -1332,6 +1332,56 @@ test("renderConversationChat renders group sender status badge", () => {
   assert.match(chat.children[0].innerHTML, /⭐/);
 });
 
+test("renderConversationChat initializes group sender lottie status badges", () => {
+  const s = loadSocial();
+  installCloudConversationSource(s.__mockWindow);
+  installNameWithBadge(s.__mockWindow);
+  installSocialGroups(s.__mockWindow);
+  const initCalls = [];
+  s.__mockWindow.miaLottieIcons = { init(root) { initCalls.push(root); } };
+  s.__mockWindow.miaMemberColor = { memberAccentColor: () => "#2563eb" };
+  s.__mockWindow.miaAvatar = {
+    avatarThumbBackgroundStyle: (image, _crop, color) => image
+      ? `background-color:transparent;background-image:url('${image}');`
+      : `background-color:${color || "#5e5ce6"};`
+  };
+  s.initSocialModule({ getState: () => ({ runtime: {} }), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.myUserId = "u_me";
+  s.moduleState.activeConversationId = "g_lottie_badge";
+  s.moduleState.conversations = [{ id: "g_lottie_badge", type: "group", name: "Squad" }];
+  s._internalCtx.conversationMembersCache.set("g_lottie_badge", [{
+    member_kind: "bot",
+    member_ref: "mia",
+    identity: {
+      kind: "bot",
+      id: "mia",
+      displayName: "Mia",
+      avatar: { image: "", crop: null, color: "#5e5ce6", text: "Mi" },
+      statusBadge: { kind: "lottie", assetId: "rainbow", label: "Active" }
+    }
+  }]);
+  s.moduleState.messageCache.set("g_lottie_badge", {
+    maxSeq: 1,
+    messages: [{ id: "m_group_lottie_badge", seq: 1, sender_kind: "bot", sender_ref: "mia", body_md: "hello", created_at: "" }]
+  });
+  const chat = {
+    children: [],
+    appendChild(child) { this.children.push(child); return child; },
+    set innerHTML(value) { this.children = []; this._html = value; },
+    get innerHTML() { return this._html || ""; },
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+  };
+
+  s.renderConversationChat(chat);
+
+  assert.equal(chat.children.length, 1);
+  assert.match(chat.children[0].innerHTML, /name-with-badge-badge-lottie/);
+  assert.match(chat.children[0].innerHTML, /data-lottie="rainbow"/);
+  assert.ok(initCalls.length >= 1, "lottie status badge renderer should be initialized after chat render");
+});
+
 test("renderConversationChat self identity uses the cloud account, not a stale local profile name", () => {
   // The local profile (mia-user.json) is one global file shared across every
   // account; the signed-in cloud account is canonical. A leftover local "Boss"

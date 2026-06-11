@@ -1,23 +1,28 @@
-import { View, Pressable, StyleSheet } from "react-native";
+import { View, Pressable, StyleSheet, Text } from "react-native";
 import * as Haptics from "expo-haptics";
 import Markdown from "react-native-markdown-display";
 import { color, radius, space } from "../theme";
 import AttachmentList from "./AttachmentList";
 import TraceBlock from "./TraceBlock";
-import type { ChatMessage } from "../api/types";
+import StatusBadge from "./StatusBadge";
+import { resolveMessageAuthor } from "../logic/messageAuthor";
+import type { ChatMessage, Member } from "../api/types";
 
 // 对齐桌面 .bubble:对方=浅灰深字、自己=靛蓝白字,圆角 18,padding 10/15。
 export default function MessageBubble({
   msg,
   apiBase,
+  members = [],
   onLongPress,
 }: {
   msg: ChatMessage;
   apiBase: string;
+  members?: Member[];
   onLongPress?: (m: ChatMessage) => void;
 }) {
   const own = msg.isOwn;
   const textColor = own ? color.userBubbleText : color.ink;
+  const author = own ? null : resolveMessageAuthor(msg, members);
   return (
     <View style={[styles.row, own ? styles.rowOwn : styles.rowOther]}>
       <Pressable
@@ -38,6 +43,12 @@ export default function MessageBubble({
         ]}
       >
         {!own && msg.trace ? <TraceBlock trace={msg.trace} /> : null}
+        {!own && author?.name ? (
+          <View style={styles.senderRow}>
+            <Text numberOfLines={1} style={styles.senderName}>{author.name}</Text>
+            <StatusBadge badge={author.statusBadge} apiBase={apiBase} size={12} />
+          </View>
+        ) : null}
         <Markdown
           style={{
             body: { color: textColor, margin: 0, fontSize: 15, lineHeight: 23 },
@@ -63,4 +74,6 @@ const styles = StyleSheet.create({
   other: { backgroundColor: color.bubbleOther },
   pending: { opacity: 0.55 },
   failed: { borderWidth: 1, borderColor: color.danger },
+  senderRow: { flexDirection: "row", alignItems: "center", gap: 4, marginBottom: 3, maxWidth: "100%" },
+  senderName: { color: color.inkMuted, fontSize: 12, fontWeight: "600", maxWidth: 180 },
 });

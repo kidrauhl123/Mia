@@ -56,6 +56,10 @@ function safePath(requestPath) {
     candidates.push({ filePath: path.normalize(path.join(sourceRoot, "renderer", target)), base: sourceRoot });
   } else if (target.startsWith("assets/engine-icons/")) {
     candidates.push({ filePath: path.normalize(path.join(sourceRoot, "renderer", target)), base: sourceRoot });
+  } else if (target.startsWith("assets/lottie/")) {
+    candidates.push({ filePath: path.normalize(path.join(sourceRoot, "renderer", target)), base: sourceRoot });
+  } else if (target.startsWith("assets/status-badges/")) {
+    candidates.push({ filePath: path.normalize(path.join(sourceRoot, "renderer", target)), base: sourceRoot });
   }
   for (const { filePath, base } of candidates) {
     if (filePath !== base && !filePath.startsWith(`${base}${path.sep}`)) continue;

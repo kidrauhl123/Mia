@@ -925,16 +925,61 @@ test("profile and account surfaces expose uid fields", () => {
   assert.match(html, /id="profileDialogTitle">个人资料</);
   assert.doesNotMatch(html, /id="profileDialogTitle">编辑个人资料</);
   assert.match(html, /id="profileUidValue"/);
+  assert.match(html, /id="profileNameText"/);
+  assert.match(html, /id="profileStatusBadge"/);
+  assert.match(html, /id="profileStatusBadgeDetails"/);
+  assert.match(html, /id="profileStatusBadgeTrigger"/);
+  assert.match(html, /id="botNameText"/);
+  assert.match(html, /id="botStatusBadge"/);
+  assert.match(html, /id="botStatusBadgeDetails"/);
+  assert.match(html, /id="botStatusBadgeTrigger"/);
+  assert.match(html, /value="surprised-cat">惊讶猫/);
+  assert.match(html, /data-lottie-format="tgs"/);
+  assert.doesNotMatch(html, /data-lottie-fallback/);
+  assert.doesNotMatch(html, /profileStatusBadgeTrigger"[^>]*title="徽章"/);
+  assert.doesNotMatch(html, /botStatusBadgeTrigger"[^>]*title="徽章"/);
+  assert.doesNotMatch(html, /profileStatusBadgePreview/);
   assert.match(html, /id="cloudAccountProfile"/);
   assert.match(html, /id="cloudAccountAvatar"/);
   assert.match(html, /id="cloudAccountName"/);
   assert.match(html, /id="cloudAccountUid"/);
   assert.match(appSource, /profileUidValue:\s*document\.getElementById\("profileUidValue"\)/);
+  assert.match(appSource, /profileNameText:\s*document\.getElementById\("profileNameText"\)/);
+  assert.match(appSource, /profileStatusBadge:\s*document\.getElementById\("profileStatusBadge"\)/);
+  assert.match(appSource, /profileStatusBadgeTrigger:\s*document\.getElementById\("profileStatusBadgeTrigger"\)/);
+  assert.match(appSource, /botNameText:\s*document\.getElementById\("botNameText"\)/);
+  assert.match(appSource, /botStatusBadge:\s*document\.getElementById\("botStatusBadge"\)/);
+  assert.match(appSource, /statusBadgeForPreset/);
+  assert.match(appSource, /surprised-cat/);
+  assert.match(appSource, /function setNameWithBadge/);
   assert.match(appSource, /els\.profileUidValue\.textContent = user\.id/);
   assert.match(remoteSettingsSource, /cloudAccountUid/);
+  assert.match(remoteSettingsSource, /renderNameWithBadge/);
   assert.match(remoteSettingsSource, /applyAvatarMedia|paintAvatar/);
   assert.match(botManagerSource, /contact-profile-uid/);
   assert.match(botManagerSource, /contactUid\(bot\)/);
+});
+
+test("desktop name surfaces render status badges beside names", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const botManagerSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-manager.js"), "utf8");
+  const contactCardSource = fs.readFileSync(path.join(root, "src/renderer/social/contact-card.js"), "utf8");
+  const groupInfoSource = fs.readFileSync(path.join(root, "src/renderer/social/group-info-dialog.js"), "utf8");
+  const socialGroupsSource = fs.readFileSync(path.join(root, "src/renderer/social/social-groups.js"), "utf8");
+  const remoteSettingsSource = fs.readFileSync(path.join(root, "src/renderer/settings/settings-remote.js"), "utf8");
+  const badgeStyles = fs.readFileSync(path.join(root, "src/renderer/styles/name-with-badge.css"), "utf8");
+
+  assert.match(appSource, /setNameWithBadge\(nameEl/);
+  assert.match(appSource, /setNameWithBadge\(els\.activeChatName/);
+  assert.match(botManagerSource, /renderBotNameWithBadgeHtml/);
+  assert.match(botManagerSource, /setBotNameWithBadge\(els\.contactPageTitle/);
+  assert.match(contactCardSource, /renderNameWithBadgeHtml/);
+  assert.match(groupInfoSource, /appendNameWithBadge\(nameEl/);
+  assert.match(socialGroupsSource, /nameEl\.innerHTML = renderNameWithBadgeHtml/);
+  assert.match(remoteSettingsSource, /renderer\.setNameWithBadge\(els\.cloudAccountName/);
+  assert.match(badgeStyles, /#activeChatName \.name-with-badge/);
+  assert.match(badgeStyles, /\.contact-card-name \.name-with-badge/);
+  assert.match(badgeStyles, /\.group-info-member-name \.name-with-badge/);
 });
 
 test("contact detail deletes bots through runtime-backed ownership rules", () => {

@@ -96,13 +96,15 @@ test("群头像取成员拼贴 mosaic", () => {
 });
 
 test("bot 会话头像按全局 bot identity 着色", () => {
+  const badge = { kind: "lottie" as const, assetId: "rainbow", label: "Active" };
   const items = buildConversationListItems({
     conversations: [{ id: "botc_user_me_mia", type: "bot", name: "Mia", decorations: { botId: "mia" } } as any],
-    bots: [{ id: "mia", key: "mia", name: "Mia", ownerUserId: "user_me" } as any],
+    bots: [{ id: "mia", key: "mia", name: "Mia", ownerUserId: "user_me", statusBadge: badge } as any],
   });
   expect(items[0].tiles[0].image).toBe("");
   expect(items[0].tiles[0].color).toBe(memberAccentColor("mia"));
   expect(items[0].tiles[0].text).toBe("Mi");
+  expect(items[0].statusBadge).toEqual(badge);
 });
 
 test("bot 会话缺 bot 记录时从稳定 conversation id 取头像身份", () => {

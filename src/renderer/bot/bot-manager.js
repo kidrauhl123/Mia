@@ -110,6 +110,69 @@
     return String(bot.name || bot.displayName || bot.key || bot.id || "").trim();
   }
 
+  function statusBadgeFrom(...sources) {
+    for (const source of sources) {
+      if (source && typeof source === "object" && Object.prototype.hasOwnProperty.call(source, "statusBadge")) return source.statusBadge;
+      if (source && typeof source === "object" && Object.prototype.hasOwnProperty.call(source, "status_badge")) return source.status_badge;
+    }
+    return undefined;
+  }
+
+  function renderBotNameWithBadgeHtml(bot = {}, fallback = "") {
+    const name = fallback || bot.name || bot.displayName || bot.display_name || bot.key || bot.id || "联系人";
+    const renderer = window.miaNameWithBadge;
+    if (renderer && typeof renderer.renderNameWithBadgeHtml === "function") {
+      try {
+        return renderer.renderNameWithBadgeHtml({
+          identity: {
+            kind: "bot",
+            id: bot.id || bot.key || "",
+            displayName: name,
+            statusBadge: statusBadgeFrom(bot)
+          },
+          fallbackName: name,
+          statusBadge: statusBadgeFrom(bot)
+        });
+      } catch {
+        // Keep contact rendering resilient to optional badge payloads.
+      }
+    }
+    return window.miaMarkdown.escapeHtml(name);
+  }
+
+  function setBotNameWithBadge(el, bot = {}, fallback = "") {
+    if (!el) return;
+    const name = fallback || bot.name || bot.displayName || bot.display_name || bot.key || bot.id || "联系人";
+    const renderer = window.miaNameWithBadge;
+    if (renderer && (typeof renderer.setNameWithBadge === "function" || typeof renderer.renderNameWithBadge === "function")) {
+      try {
+        const payload = {
+          identity: {
+            kind: "bot",
+            id: bot.id || bot.key || "",
+            displayName: name,
+            statusBadge: statusBadgeFrom(bot)
+          },
+          fallbackName: name,
+          statusBadge: statusBadgeFrom(bot)
+        };
+        if (typeof renderer.setNameWithBadge === "function") {
+          renderer.setNameWithBadge(el, payload);
+        } else {
+          el.replaceChildren(renderer.renderNameWithBadge(payload));
+        }
+        return;
+      } catch {
+        // Fall through to plain text.
+      }
+    }
+    setText(el, name);
+  }
+
+  function initNameBadgeLotties(root) {
+    try { window.miaNameWithBadge?.initLottieBadges?.(root); } catch { /* optional badge animation */ }
+  }
+
   function contactGroupKey(bot = {}) {
     const first = Array.from(contactSortLabel(bot))[0] || "";
     const upper = first.toUpperCase();
@@ -666,7 +729,7 @@
       button.innerHTML = `
         <span class="avatar bot-photo"></span>
         <span class="contact-row-main">
-          <strong>${window.miaMarkdown.escapeHtml(bot.name)}</strong>
+          <strong>${renderBotNameWithBadgeHtml(bot)}</strong>
         </span>
       `;
       button.addEventListener("click", () => {
@@ -685,6 +748,7 @@
       );
       els.contactList.appendChild(button);
     }
+    initNameBadgeLotties(els.contactList);
     if (!visibleContacts.length && filter) {
       els.contactList.innerHTML = `<div class="contact-empty">没有匹配的联系人</div>`;
     }
@@ -719,7 +783,7 @@
     const summary = contactSessionSummary(bot);
     const engine = bot.agentEngine || bot.agent_engine || bot.engine || "hermes";
     const uid = contactUid(bot);
-    setText(els.contactPageTitle, bot.name || "联系人");
+    setBotNameWithBadge(els.contactPageTitle, bot, bot.name || "联系人");
     setText(els.contactPageMeta, botDeviceLabel(bot));
     const canEditBot = bot.canEditIdentity !== false;
     const canDeleteBot = bot.canDelete !== false;
@@ -728,7 +792,7 @@
         <header class="contact-profile-head">
           <button class="contact-profile-avatar" type="button" ${canEditBot ? 'data-contact-action="edit" title="编辑联系人头像"' : 'title="联系人头像"'}></button>
           <div class="contact-profile-title">
-            <h2>${window.miaMarkdown.escapeHtml(bot.name || "联系人")}</h2>
+            <h2>${renderBotNameWithBadgeHtml(bot, bot.name || "联系人")}</h2>
             <div class="contact-engine-badge" title="Agent 内核">
               ${engineLogoHtml(engine)}
               <span class="contact-engine-copy">
@@ -754,6 +818,7 @@
         ${renderBotPersonaPanel(bot)}
       </article>
     `;
+    initNameBadgeLotties(els.contactDetail);
     const avatar = avatarForBot(bot);
     window.miaAvatar.applyAvatarMedia(
       els.contactDetail.querySelector(".contact-profile-avatar"),

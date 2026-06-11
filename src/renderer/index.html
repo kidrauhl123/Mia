@@ -627,10 +627,32 @@
           </div>
           <button id="closeProfileDialog" class="icon-button" type="button" title="关闭">×</button>
         </header>
-        <label>
-          名字
-          <input id="profileDisplayName" autocomplete="off" placeholder="例如 小明">
-        </label>
+        <section class="identity-name-field">
+          <span class="identity-name-label">名字</span>
+          <div class="identity-name-line">
+            <button id="profileNameText" class="identity-name-text" type="button"></button>
+            <input id="profileDisplayName" class="identity-name-input hidden" autocomplete="off" placeholder="例如 小明">
+            <details id="profileStatusBadgeDetails" class="identity-badge-details accordion-details">
+              <summary id="profileStatusBadgeTrigger" class="identity-badge-trigger" aria-label="徽章"></summary>
+              <div class="accordion-body identity-badge-panel">
+                <select id="profileStatusBadge" class="hidden" aria-hidden="true" tabindex="-1">
+                  <option value="">无</option>
+                  <option value="star">⭐ 星标</option>
+                  <option value="fire">🔥 活跃</option>
+                  <option value="rainbow">彩虹动画</option>
+                  <option value="surprised-cat">惊讶猫</option>
+                </select>
+                <div class="identity-badge-choices">
+                  <button type="button" data-status-badge-choice="" data-status-badge-target="profile" aria-label="无徽章"><span class="identity-badge-choice-empty">无</span></button>
+                  <button type="button" data-status-badge-choice="star" data-status-badge-target="profile" aria-label="星标徽章"><span class="identity-badge-choice-emoji">⭐</span></button>
+                  <button type="button" data-status-badge-choice="fire" data-status-badge-target="profile" aria-label="活跃徽章"><span class="identity-badge-choice-emoji">🔥</span></button>
+                  <button type="button" data-status-badge-choice="rainbow" data-status-badge-target="profile" aria-label="彩虹动画徽章"><span class="name-with-badge-badge name-with-badge-badge-lottie" data-lottie="rainbow" data-lottie-trigger="loop" data-lottie-path="./assets/lottie/rainbow.json" aria-hidden="true"></span></button>
+                  <button type="button" data-status-badge-choice="surprised-cat" data-status-badge-target="profile" aria-label="惊讶猫徽章"><span class="name-with-badge-badge name-with-badge-badge-lottie" data-lottie="surprised-cat" data-lottie-trigger="loop" data-lottie-format="tgs" data-lottie-local="status-badge" data-lottie-path="./assets/status-badges/surprised-cat.tgs" aria-hidden="true"></span></button>
+                </div>
+              </div>
+            </details>
+          </div>
+        </section>
         <p class="profile-uid-line">UID <span id="profileUidValue"></span></p>
         <section class="avatar-picker">
           <div id="profileAvatarPreview" class="avatar-crop-preview"></div>
@@ -661,10 +683,32 @@
           <button id="closeBotDialog" class="icon-button" type="button" title="关闭">×</button>
         </header>
         <input id="botKey" type="hidden">
-        <label>
-          姓名
-          <input id="botName" autocomplete="off">
-        </label>
+        <section class="identity-name-field">
+          <span class="identity-name-label">姓名</span>
+          <div class="identity-name-line">
+            <button id="botNameText" class="identity-name-text" type="button"></button>
+            <input id="botName" class="identity-name-input hidden" autocomplete="off">
+            <details id="botStatusBadgeDetails" class="identity-badge-details accordion-details">
+              <summary id="botStatusBadgeTrigger" class="identity-badge-trigger" aria-label="徽章"></summary>
+              <div class="accordion-body identity-badge-panel">
+                <select id="botStatusBadge" class="hidden" aria-hidden="true" tabindex="-1">
+                  <option value="">无</option>
+                  <option value="star">⭐ 星标</option>
+                  <option value="fire">🔥 活跃</option>
+                  <option value="rainbow">彩虹动画</option>
+                  <option value="surprised-cat">惊讶猫</option>
+                </select>
+                <div class="identity-badge-choices">
+                  <button type="button" data-status-badge-choice="" data-status-badge-target="bot" aria-label="无徽章"><span class="identity-badge-choice-empty">无</span></button>
+                  <button type="button" data-status-badge-choice="star" data-status-badge-target="bot" aria-label="星标徽章"><span class="identity-badge-choice-emoji">⭐</span></button>
+                  <button type="button" data-status-badge-choice="fire" data-status-badge-target="bot" aria-label="活跃徽章"><span class="identity-badge-choice-emoji">🔥</span></button>
+                  <button type="button" data-status-badge-choice="rainbow" data-status-badge-target="bot" aria-label="彩虹动画徽章"><span class="name-with-badge-badge name-with-badge-badge-lottie" data-lottie="rainbow" data-lottie-trigger="loop" data-lottie-path="./assets/lottie/rainbow.json" aria-hidden="true"></span></button>
+                  <button type="button" data-status-badge-choice="surprised-cat" data-status-badge-target="bot" aria-label="惊讶猫徽章"><span class="name-with-badge-badge name-with-badge-badge-lottie" data-lottie="surprised-cat" data-lottie-trigger="loop" data-lottie-format="tgs" data-lottie-local="status-badge" data-lottie-path="./assets/status-badges/surprised-cat.tgs" aria-hidden="true"></span></button>
+                </div>
+              </div>
+            </details>
+          </div>
+        </section>
         <label id="botRuntimeTargetField">
           运行位置和 Agent 内核
           <select id="botRuntimeTarget">

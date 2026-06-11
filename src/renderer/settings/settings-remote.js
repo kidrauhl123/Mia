@@ -30,7 +30,31 @@
       uid
     );
     els.cloudAccountProfile.classList.toggle("hidden", !enabled);
-    if (els.cloudAccountName) els.cloudAccountName.textContent = enabled ? name : "";
+    if (els.cloudAccountName) {
+      if (!enabled) {
+        els.cloudAccountName.textContent = "";
+      } else {
+        const renderer = window.miaNameWithBadge;
+        try {
+          if (renderer && (typeof renderer.setNameWithBadge === "function" || typeof renderer.renderNameWithBadge === "function")) {
+            const payload = {
+              identity: { kind: "user", id: uid, displayName: name, statusBadge: user.statusBadge || user.status_badge || null },
+              fallbackName: name,
+              statusBadge: user.statusBadge || user.status_badge || null
+            };
+            if (typeof renderer.setNameWithBadge === "function") {
+              renderer.setNameWithBadge(els.cloudAccountName, payload);
+            } else {
+              els.cloudAccountName.replaceChildren(renderer.renderNameWithBadge(payload));
+            }
+          } else {
+            els.cloudAccountName.textContent = name;
+          }
+        } catch {
+          els.cloudAccountName.textContent = name;
+        }
+      }
+    }
     if (els.cloudAccountUid) els.cloudAccountUid.textContent = enabled && uid ? `UID ${uid}` : "";
     if (!enabled || !els.cloudAccountAvatar) return;
     const avatar = window.miaAvatarResolve?.resolveAvatarForContact?.({

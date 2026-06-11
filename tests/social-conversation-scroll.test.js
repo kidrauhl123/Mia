@@ -109,6 +109,21 @@ test("renderConversationChat follows to the bottom when the user is already near
   assert.equal(c.scrollTop, 1000, "near-bottom users should keep following new content");
 });
 
+test("renderConversationChat reuses unchanged message DOM instead of rebuilding lottie badges", () => {
+  const { social } = loadSocial();
+  social.moduleState.messageCache.set("g_1", {
+    maxSeq: 1,
+    messages: [{ id: "m1", seq: 1, sender_kind: "bot", sender_ref: "mia", body_md: "hi", created_at: "" }]
+  });
+  const c = scrollEl({ scrollTop: 600, scrollHeight: 1000, clientHeight: 400 });
+  social.renderConversationChat(c);
+  const firstArticle = c.children[0];
+
+  social.renderConversationChat(c);
+
+  assert.equal(c.children[0], firstArticle, "unchanged re-render must keep the existing badge/lottie DOM");
+});
+
 test("renderConversationChat jumps to the bottom on conversation switch even if metrics say not-near-bottom", () => {
   const { social } = loadSocial();
   // Fresh module → first paint of g_1 is a switch; user metrics are far from bottom.

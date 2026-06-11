@@ -15,6 +15,7 @@ import {
   friendRequestRespondPath,
   friendRequestsPath,
   modelCatalogPath,
+  profilePath,
   settingsPath,
   skillsPath,
 } from "../api/endpoints";
@@ -33,6 +34,7 @@ import type {
   PlatformModelRow,
   SkillCategory,
   SkillSummary,
+  StatusBadge,
   UserSettings,
 } from "../api/types";
 import { botIdentityBody, botRuntimeDefaultConfig, type BotDraft } from "../logic/botDraft";
@@ -119,6 +121,18 @@ export function useUserSettings() {
   return useQuery<UserSettings>({
     queryKey: ["settings"],
     queryFn: () => api.api(settingsPath()).then((d) => d.settings || {}),
+  });
+}
+
+export function useSaveProfile() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (patch: { displayName?: string; statusBadge?: StatusBadge | null }) =>
+      api.api(profilePath(), { method: "PATCH", body: patch }).then((d) => d.user || d),
+    onSuccess: (user) => {
+      qc.setQueryData(["me-full"], user);
+    },
   });
 }
 

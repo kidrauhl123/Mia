@@ -1,5 +1,5 @@
-import type { AvatarDescriptor, Bot, ChatMessage, Conversation, Friend, Member } from "../api/types";
-import { sidebarConversations, conversationListTitle, conversationType } from "./sessionHistory";
+import type { AvatarDescriptor, Bot, ChatMessage, Conversation, Friend, Member, StatusBadge } from "../api/types";
+import { sidebarConversations, conversationListTitle, conversationType, botId } from "./sessionHistory";
 import { conversationAvatarTiles, type AvatarResolveCtx } from "./conversationAvatar";
 import { resolveContact, ContactKind } from "./contact";
 import type { SelfRecord } from "./contact";
@@ -12,6 +12,7 @@ export interface ConversationListItem {
   sortTime: number;
   unread: number;
   tiles: AvatarDescriptor[]; // 1 = 单头像;>1 = 群拼贴
+  statusBadge?: StatusBadge | null;
   raw: Conversation;
 }
 
@@ -68,6 +69,34 @@ function titleForConversation(c: Conversation, bots: Bot[], ctx: AvatarResolveCt
   if (type === "dm") return dmTitle(c, ctx);
   if (type === "group") return c.name || c.title || "群聊";
   return conversationListTitle(c, bots);
+}
+
+function statusBadgeFrom(...sources: any[]): StatusBadge | null | undefined {
+  for (const source of sources) {
+    if (!source || typeof source !== "object") continue;
+    if (Object.prototype.hasOwnProperty.call(source, "statusBadge")) return source.statusBadge;
+    if (Object.prototype.hasOwnProperty.call(source, "status_badge")) return source.status_badge;
+  }
+  return undefined;
+}
+
+function statusBadgeForConversation(c: Conversation, bots: Bot[], ctx: AvatarResolveCtx): StatusBadge | null | undefined {
+  const type = conversationType(c);
+  if (type === "group") return statusBadgeFrom(c.identity, c);
+  if (type === "bot") {
+    const key = botId(c);
+    const bot: any = bots.find((item: any) => (item.id || item.botId || item.bot_id || item.key) === key);
+    const members = ctx.membersByConv?.[c.id] || [];
+    const member: any = members.find((item: any) => item.member_kind === "bot" && item.member_ref === key);
+    return statusBadgeFrom(bot, member?.identity, member, c.identity, c);
+  }
+  if (type === "dm") {
+    const members = ctx.membersByConv?.[c.id] || [];
+    const peer: any = members.find((m: any) => m.member_kind === "user" && m.member_ref !== ctx.self?.id);
+    const friend: any = (ctx.friends || []).find((item: any) => item.id === peer?.member_ref);
+    return statusBadgeFrom(peer?.identity, peer, friend?.identity, friend);
+  }
+  return statusBadgeFrom(c.identity, c);
 }
 
 function conversationPreview(c: Conversation, messages?: ChatMessage[]): string {
@@ -131,6 +160,7 @@ export function buildConversationListItems(deps: {
       sortTime,
       unread: Number(unread[c.id]) || 0,
       tiles: conversationAvatarTiles(c, ctx),
+      statusBadge: statusBadgeForConversation(c, bots, ctx) || null,
       raw: c,
     };
   });

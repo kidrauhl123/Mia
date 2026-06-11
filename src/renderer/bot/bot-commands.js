@@ -73,6 +73,7 @@
       avatarImage: bot.avatarImage || "",
       avatarCrop: bot.avatarCrop || null,
       color: bot.color || bot.avatarColor || bot.avatar_color || "",
+      statusBadge: Object.prototype.hasOwnProperty.call(bot, "statusBadge") ? bot.statusBadge : (bot.status_badge || null),
       bio: bot.description || bot.bio || "",
       personaText: bot.personaText || bot.persona_text || bot.description || bot.bio || "",
       capabilities: serializableCapabilities(bot.capabilities)

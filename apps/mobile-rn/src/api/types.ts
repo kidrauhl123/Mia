@@ -13,10 +13,14 @@ export interface MessageRow {
   created_at?: string;
   attachments?: MessageAttachment[];
   mentions?: unknown[];
+  statusBadge?: StatusBadge | null;
+  status_badge?: StatusBadge | null;
 }
 
 export interface Conversation {
   id: string;
+  publicId?: string;
+  public_id?: string;
   name?: string;
   title?: string;
   type?: "dm" | "group" | "bot" | string;
@@ -234,6 +238,11 @@ export interface ChatMessage {
   seq?: number;
   clientTraceId: string;
   role: "user" | "assistant" | "system";
+  senderKind?: SenderKind | string;
+  senderRef?: string;
+  authorName?: string;
+  authorIdentity?: Identity | null;
+  statusBadge?: StatusBadge | null;
   bodyMd: string;
   attachments?: MessageAttachment[];
   trace?: { reasoning?: any; tools?: any } | null;

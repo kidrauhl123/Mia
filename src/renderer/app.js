@@ -179,7 +179,11 @@ const els = {
   messageContextMenu: document.getElementById("messageContextMenu"),
   profileDialog: document.getElementById("profileDialog"),
   profileForm: document.getElementById("profileForm"),
+  profileNameText: document.getElementById("profileNameText"),
   profileDisplayName: document.getElementById("profileDisplayName"),
+  profileStatusBadge: document.getElementById("profileStatusBadge"),
+  profileStatusBadgeDetails: document.getElementById("profileStatusBadgeDetails"),
+  profileStatusBadgeTrigger: document.getElementById("profileStatusBadgeTrigger"),
   profileUidValue: document.getElementById("profileUidValue"),
   profileAvatarImage: document.getElementById("profileAvatarImage"),
   profileAvatarFile: document.getElementById("profileAvatarFile"),
@@ -188,6 +192,10 @@ const els = {
   profileAvatarPreview: document.getElementById("profileAvatarPreview"),
   closeProfileDialog: document.getElementById("closeProfileDialog"),
   cancelProfile: document.getElementById("cancelProfile"),
+  botNameText: document.getElementById("botNameText"),
+  botStatusBadge: document.getElementById("botStatusBadge"),
+  botStatusBadgeDetails: document.getElementById("botStatusBadgeDetails"),
+  botStatusBadgeTrigger: document.getElementById("botStatusBadgeTrigger"),
   petGenerateDialog: document.getElementById("petGenerateDialog"),
   petGenerateForm: document.getElementById("petGenerateForm"),
   petGenerateTitle: document.getElementById("petGenerateTitle"),
@@ -313,6 +321,149 @@ function statusBadgeFrom(...sources) {
   return undefined;
 }
 
+function statusBadgeForPreset(value) {
+  const id = String(value || "").trim();
+  if (id === "star") return { kind: "emoji", emoji: "⭐", label: "星标" };
+  if (id === "fire") return { kind: "emoji", emoji: "🔥", label: "活跃" };
+  if (id === "rainbow") return { kind: "lottie", assetId: "rainbow", label: "彩虹动画", loop: "always" };
+  if (id === "surprised-cat") return { kind: "lottie", assetId: "surprised-cat", label: "惊讶猫", loop: "always" };
+  return null;
+}
+
+function statusBadgePresetValue(badge) {
+  const normalized = badge && typeof badge === "object" ? badge : null;
+  if (!normalized) return "";
+  if (normalized.kind === "emoji" && normalized.emoji === "⭐") return "star";
+  if (normalized.kind === "emoji" && normalized.emoji === "🔥") return "fire";
+  if (normalized.kind === "lottie" && normalized.assetId === "rainbow") return "rainbow";
+  if (normalized.kind === "lottie" && normalized.assetId === "surprised-cat") return "surprised-cat";
+  return "";
+}
+
+function identityNameEls(kind) {
+  return kind === "bot"
+    ? { input: els.botName, text: els.botNameText, fallback: "未命名伙伴" }
+    : { input: els.profileDisplayName, text: els.profileNameText, fallback: "Mia" };
+}
+
+function identityBadgeEls(kind) {
+  return kind === "bot"
+    ? { select: els.botStatusBadge, trigger: els.botStatusBadgeTrigger, details: els.botStatusBadgeDetails }
+    : { select: els.profileStatusBadge, trigger: els.profileStatusBadgeTrigger, details: els.profileStatusBadgeDetails };
+}
+
+function syncIdentityNameText(kind) {
+  const { input, text, fallback } = identityNameEls(kind);
+  if (!input || !text) return;
+  text.textContent = input.value.trim() || fallback;
+}
+
+function beginIdentityNameEdit(kind) {
+  const { input, text } = identityNameEls(kind);
+  if (!input || !text) return;
+  syncIdentityNameText(kind);
+  text.classList.add("hidden");
+  input.classList.remove("hidden");
+  input.focus();
+  input.select?.();
+}
+
+function endIdentityNameEdit(kind) {
+  const { input, text } = identityNameEls(kind);
+  if (!input || !text) return;
+  input.classList.add("hidden");
+  text.classList.remove("hidden");
+  syncIdentityNameText(kind);
+}
+
+function refreshStatusBadgeLotties(root) {
+  if (!root) return;
+  const run = () => {
+    try { window.miaLottieIcons?.init?.(root); } catch { /* badge animation is optional */ }
+  };
+  run();
+  const defer = window.requestAnimationFrame || window.setTimeout;
+  if (typeof defer === "function") defer(run, 0);
+}
+
+function statusBadgeGlyphKey(badge) {
+  if (!badge) return "empty";
+  if (badge.kind === "emoji") return `emoji:${badge.emoji || ""}`;
+  if (badge.kind === "lottie") {
+    const assetId = String(badge.assetId || "").trim();
+    const format = window.miaNameWithBadge?.statusBadgeAssetFormat?.(assetId) || "json";
+    const path = window.miaNameWithBadge?.statusBadgeAssetUrl?.(assetId) || "";
+    return `lottie:${assetId}:${format}:${path}`;
+  }
+  return `${badge.kind || ""}:${JSON.stringify(badge)}`;
+}
+
+function renderStatusBadgeGlyph(target, badge) {
+  if (!target) return;
+  const key = statusBadgeGlyphKey(badge);
+  if (target.dataset.statusBadgeGlyphKey === key) return;
+  target.dataset.statusBadgeGlyphKey = key;
+  target.innerHTML = "";
+  target.classList.toggle("empty", !badge);
+  if (!badge) {
+    target.textContent = "+";
+    return;
+  }
+  if (badge.kind === "emoji") {
+    target.textContent = badge.emoji || "";
+    return;
+  }
+  if (badge.kind === "lottie") {
+    const assetId = String(badge.assetId || "").trim();
+    if (!/^[A-Za-z0-9_-]+$/.test(assetId)) {
+      target.textContent = "+";
+      target.classList.add("empty");
+      return;
+    }
+    const span = document.createElement("span");
+    span.className = "name-with-badge-badge name-with-badge-badge-lottie";
+    span.dataset.assetId = assetId;
+    span.dataset.lottie = assetId;
+    span.dataset.lottieTrigger = "loop";
+    const format = window.miaNameWithBadge?.statusBadgeAssetFormat?.(assetId);
+    if (format === "tgs") {
+      span.dataset.lottieFormat = "tgs";
+      span.dataset.lottieLocal = "status-badge";
+    }
+    const remotePath = window.miaNameWithBadge?.statusBadgeAssetUrl?.(assetId);
+    if (remotePath) span.dataset.lottiePath = remotePath;
+    span.setAttribute("aria-hidden", "true");
+    target.appendChild(span);
+    window.miaNameWithBadge?.initLottieBadges?.(target);
+  }
+}
+
+function syncStatusBadgeControl(kind) {
+  const { select, trigger, details } = identityBadgeEls(kind);
+  if (!select || !trigger) return;
+  const badge = statusBadgeForPreset(select.value);
+  renderStatusBadgeGlyph(trigger, badge);
+  document.querySelectorAll(`[data-status-badge-target="${kind}"]`).forEach((button) => {
+    button.classList.toggle("active", button.dataset.statusBadgeChoice === select.value);
+  });
+  refreshStatusBadgeLotties(details || trigger);
+}
+
+function openProfileDialogFromRenderer() {
+  window.miaBotDialog.openProfileDialog();
+  const user = runtimeUserIdentity();
+  if (els.profileStatusBadge) els.profileStatusBadge.value = statusBadgePresetValue(user.statusBadge);
+  syncIdentityNameText("profile");
+  syncStatusBadgeControl("profile");
+}
+
+window.miaStatusBadgeControls = {
+  statusBadgeForPreset,
+  statusBadgePresetValue,
+  syncIdentityNameText,
+  syncStatusBadgeControl
+};
+
 function nameBadgeIdentity(kind, record, displayName, fallbackId = "") {
   const source = record && typeof record === "object" ? record : {};
   const identity = source.identity && typeof source.identity === "object" ? source.identity : source;
@@ -340,6 +491,26 @@ function nameBadgeIdentity(kind, record, displayName, fallbackId = "") {
   return out;
 }
 
+function setNameWithBadge(el, { identity, fallbackName, statusBadge } = {}) {
+  if (!el) return;
+  const fallback = firstNonEmpty(fallbackName, identity?.displayName, identity?.display_name, identity?.name);
+  const renderName = window.miaNameWithBadge?.setNameWithBadge || window.miaNameWithBadge?.renderNameWithBadge;
+  if (typeof renderName !== "function") {
+    setText(el, fallback);
+    return;
+  }
+  try {
+    if (renderName === window.miaNameWithBadge?.setNameWithBadge) {
+      renderName(el, { identity, fallbackName: fallback, statusBadge });
+    } else {
+      const node = renderName({ identity, fallbackName: fallback, statusBadge });
+      el.replaceChildren(node);
+    }
+  } catch {
+    setText(el, fallback);
+  }
+}
+
 function runtimeUserIdentity(runtime = state.runtime) {
   const cloudUser = runtime?.cloud?.enabled && runtime?.cloud?.user ? runtime.cloud.user : null;
   const localUser = runtime?.user || {};
@@ -353,7 +524,8 @@ function runtimeUserIdentity(runtime = state.runtime) {
     avatarText,
     avatarColor: self.avatarColor,
     avatarImage: self.avatarImage,
-    avatarCrop: self.avatarCrop
+    avatarCrop: self.avatarCrop,
+    statusBadge: statusBadgeFrom(self, cloudUser, localUser) || null
   };
 }
 
@@ -841,7 +1013,11 @@ function paintActiveCloudConversationHeader(conversation, { personas, social }) 
         groupAvatarHelper.applyGroupAvatar(avatarEl, tiles);
       }
     }
-    setText(nameEl, conversation.name || "群聊");
+    setNameWithBadge(nameEl, {
+      identity: conversation.identity || { kind: "group", id: conversation.id, displayName: conversation.name || "群聊" },
+      fallbackName: conversation.name || "群聊",
+      statusBadge: statusBadgeFrom(conversation.identity, conversation)
+    });
     if (metaEl) metaEl.textContent = tiles.length ? `群聊 · ${tiles.length} 人` : "群聊";
     return;
   }
@@ -860,7 +1036,12 @@ function paintActiveCloudConversationHeader(conversation, { personas, social }) 
       avatarEl.className = "profile-avatar";
       avatarHelper.applyBotAvatar(avatarEl, botRecord);
     }
-    setText(nameEl, sessionHistory.botDisplayTitle(conversation, identityBots, "对话"));
+    const botName = sessionHistory.botDisplayTitle(conversation, identityBots, "对话");
+    setNameWithBadge(nameEl, {
+      identity: nameBadgeIdentity("bot", botRecord, botName, botKey),
+      fallbackName: botName,
+      statusBadge: statusBadgeFrom(botRecord)
+    });
     if (metaEl) metaEl.textContent = "私聊";
     return;
   }
@@ -885,7 +1066,11 @@ function paintActiveCloudConversationHeader(conversation, { personas, social }) 
       avatarHelper.applyAvatarMedia(avatarEl, avatar.image, avatar.crop, avatar.color, avatar.text);
     }
   }
-  setText(nameEl, displayName);
+  setNameWithBadge(nameEl, {
+    identity: nameBadgeIdentity("user", otherUser.identity || otherUser, displayName, otherId || otherUser.account || ""),
+    fallbackName: displayName,
+    statusBadge: statusBadgeFrom(otherUser.identity, otherUser)
+  });
   if (metaEl) metaEl.textContent = "私聊";
 }
 
@@ -1212,7 +1397,7 @@ function render() {
   // chips that belonged to the previous conversation (self-heal in composer).
   window.miaComposer?.renderComposerSkills?.();
   const editingModel = els.modelForm.contains(document.activeElement);
-  const editingProfile = Boolean(els.profileForm?.contains(document.activeElement));
+  const editingProfile = Boolean(state.profileDialogOpen || els.profileForm?.contains(document.activeElement));
   const editingAppearance = Boolean(els.appearanceForm?.contains(document.activeElement));
   const appearance = runtime.appearance || {
     theme: "light",
@@ -1240,6 +1425,9 @@ function render() {
   if (els.profileUidValue) els.profileUidValue.textContent = user.id || "未登录";
   if (!editingProfile && els.profileForm) {
     els.profileDisplayName.value = user.displayName || "";
+    if (els.profileStatusBadge) els.profileStatusBadge.value = statusBadgePresetValue(user.statusBadge);
+    syncIdentityNameText("profile");
+    syncStatusBadgeControl("profile");
     window.miaBotDialog.setProfileAvatarDraft(user.avatarImage || "", user.avatarCrop);
   }
 
@@ -1426,7 +1614,11 @@ function render() {
       els.activeChatAvatar.className = "profile-avatar";
     }
     window.miaAvatar.applyBotAvatar(els.activeChatAvatar, active);
-    setText(els.activeChatName, active.name || "Mia");
+    setNameWithBadge(els.activeChatName, {
+      identity: nameBadgeIdentity("bot", active, active.name || "Mia", active.key || active.id || ""),
+      fallbackName: active.name || "Mia",
+      statusBadge: statusBadgeFrom(active)
+    });
     if (els.activeChatMeta) {
       const startupLoading = state.startupTasks[0]?.label;
       els.activeChatMeta.innerHTML = startupLoading
@@ -3498,11 +3690,11 @@ els.contactMenuNewGroup?.addEventListener("click", () => {
   renderView();
   window.miaSocial?.openCreateGroupDialog?.();
 });
-els.userAvatar?.addEventListener("click", () => window.miaBotDialog.openProfileDialog());
+els.userAvatar?.addEventListener("click", openProfileDialogFromRenderer);
 els.userAvatar?.addEventListener("keydown", (event) => {
   if (event.key !== "Enter" && event.key !== " ") return;
   event.preventDefault();
-  window.miaBotDialog.openProfileDialog();
+  openProfileDialogFromRenderer();
 });
 els.closeProfileDialog?.addEventListener("click", () => window.miaBotDialog.closeProfileDialog());
 els.cancelProfile?.addEventListener("click", () => window.miaBotDialog.closeProfileDialog());
@@ -3767,6 +3959,7 @@ els.confirmAvatarCrop?.addEventListener("click", async () => {
         avatarImage: state.profileAvatarDraft.image || els.profileAvatarImage?.value || "",
         avatarCrop: window.miaAvatar.normalizeCrop(state.profileAvatarDraft.crop),
         avatarColor: state.profileAvatarDraft.color || "",
+        statusBadge: statusBadgeForPreset(els.profileStatusBadge?.value || "")
       });
       render();
     } catch (err) {
@@ -3787,6 +3980,30 @@ els.resetAvatarCrop?.addEventListener("click", () => {
 // follows the name instead of freezing the previous name's initials.
 els.profileDisplayName?.addEventListener("input", () => {
   window.miaBotDialog?.renderProfileAvatarDraft?.();
+  syncIdentityNameText("profile");
+});
+els.profileNameText?.addEventListener("click", () => beginIdentityNameEdit("profile"));
+els.profileDisplayName?.addEventListener("blur", () => endIdentityNameEdit("profile"));
+els.profileDisplayName?.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    els.profileDisplayName.blur();
+  }
+  if (event.key === "Escape") {
+    event.preventDefault();
+    els.profileDisplayName.blur();
+  }
+});
+els.profileStatusBadge?.addEventListener("change", () => syncStatusBadgeControl("profile"));
+document.querySelectorAll("[data-status-badge-choice]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const kind = button.dataset.statusBadgeTarget || "profile";
+    const { select, details } = identityBadgeEls(kind);
+    if (!select) return;
+    select.value = button.dataset.statusBadgeChoice || "";
+    syncStatusBadgeControl(kind);
+    if (details) details.open = false;
+  });
 });
 
 els.profileForm?.addEventListener("submit", async (event) => {
@@ -3797,7 +4014,8 @@ els.profileForm?.addEventListener("submit", async (event) => {
     avatarText: displayName ? window.miaAvatar.initials(displayName) : "",
     avatarImage: state.profileAvatarDraft.image || els.profileAvatarImage.value,
     avatarCrop: window.miaAvatar.normalizeCrop(state.profileAvatarDraft.crop),
-    avatarColor: state.profileAvatarDraft.color || ""
+    avatarColor: state.profileAvatarDraft.color || "",
+    statusBadge: statusBadgeForPreset(els.profileStatusBadge?.value || "")
   });
   window.miaBotDialog.closeProfileDialog();
   render();
@@ -3882,7 +4100,21 @@ els.appearanceShowAssistantAvatar?.addEventListener("click", () => {
 // profile dialog), so a generated avatar follows the name in create mode.
 els.botName?.addEventListener("input", () => {
   window.miaBotDialog?.renderBotAvatarDraft?.();
+  syncIdentityNameText("bot");
 });
+els.botNameText?.addEventListener("click", () => beginIdentityNameEdit("bot"));
+els.botName?.addEventListener("blur", () => endIdentityNameEdit("bot"));
+els.botName?.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    els.botName.blur();
+  }
+  if (event.key === "Escape") {
+    event.preventDefault();
+    els.botName.blur();
+  }
+});
+els.botStatusBadge?.addEventListener("change", () => syncStatusBadgeControl("bot"));
 
 els.botForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -3910,6 +4142,7 @@ els.botForm?.addEventListener("submit", async (event) => {
     avatarImage: state.botAvatarDraft.image || els.botAvatar.value,
     avatarCrop: window.miaAvatar.normalizeCrop(state.botAvatarDraft.crop),
     color: state.botAvatarDraft.color || "",
+    statusBadge: statusBadgeForPreset(els.botStatusBadge?.value || ""),
     bio: state.botDialogMode === "create" ? els.botSeed.value : existingBotBio,
     description: state.botDialogMode === "create" ? els.botSeed.value : existingBotBio,
     personaText: els.botSeed.value

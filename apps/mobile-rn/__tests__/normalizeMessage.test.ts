@@ -47,6 +47,14 @@ test("normalizeServerRow uses server turn_id as clientTraceId", () => {
   expect(m.clientTraceId).toBe("t1");
 });
 
+test("normalizeServerRow preserves sender and status badge metadata", () => {
+  const badge = { kind: "lottie" as const, assetId: "rainbow", label: "Active" };
+  const m = normalizeServerRow({ id: "m-badge", sender_kind: "bot", sender_ref: "mia", body_md: "x", statusBadge: badge }, "u1");
+  expect(m.senderKind).toBe("bot");
+  expect(m.senderRef).toBe("mia");
+  expect(m.statusBadge).toEqual(badge);
+});
+
 test("mergeMessage: removes websocket duplicate after turn_id reconciliation", () => {
   const pending: ChatMessage = { messageId: "pending:t1", clientTraceId: "t1", role: "user", bodyMd: "x", isOwn: true, isPending: true, createdAt: "" };
   const echoedWithoutTrace = normalizeServerRow({ id: "s1", sender_kind: "user", sender_ref: "u1", body_md: "x" }, "u1");

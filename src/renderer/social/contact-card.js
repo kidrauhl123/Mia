@@ -28,6 +28,30 @@
       ?? String(value ?? "").replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" }[ch]));
   }
 
+  function statusBadgeFrom(...sources) {
+    for (const source of sources) {
+      if (source && typeof source === "object" && Object.prototype.hasOwnProperty.call(source, "statusBadge")) return source.statusBadge;
+      if (source && typeof source === "object" && Object.prototype.hasOwnProperty.call(source, "status_badge")) return source.status_badge;
+    }
+    return undefined;
+  }
+
+  function renderNameWithBadgeHtml({ identity, fallbackName, statusBadge } = {}) {
+    const renderer = global.miaNameWithBadge;
+    if (renderer && typeof renderer.renderNameWithBadgeHtml === "function") {
+      try {
+        return renderer.renderNameWithBadgeHtml({ identity, fallbackName, statusBadge });
+      } catch {
+        // Optional badge payloads must not break contact cards.
+      }
+    }
+    return escapeHtml(fallbackName || identity?.displayName || "");
+  }
+
+  function initNameBadgeLotties(root) {
+    try { global.miaNameWithBadge?.initLottieBadges?.(root); } catch { /* optional badge animation */ }
+  }
+
   function closeCard() {
     if (_popover) { _popover.remove(); _popover = null; }
     if (_onOutside) { document.removeEventListener("click", _onOutside, true); _onOutside = null; }
@@ -242,7 +266,11 @@
         <div class="contact-card-head">
           <span class="avatar contact-card-avatar"></span>
           <div class="contact-card-head-text">
-            <strong class="contact-card-name">${escapeHtml(name)}</strong>
+            <strong class="contact-card-name">${renderNameWithBadgeHtml({
+              identity: member?.identity || { kind: "bot", id: ref, displayName: name },
+              fallbackName: name,
+              statusBadge: statusBadgeFrom(member?.identity, member)
+            })}</strong>
             <span class="contact-card-kind">远端</span>
           </div>
         </div>
@@ -252,6 +280,7 @@
         </div>
       `;
       paintContactCardAvatar(card, avatar);
+      initNameBadgeLotties(card);
       card.addEventListener("click", (event) => {
         if (event.target.closest("[data-card-action]")) closeCard();
       });
@@ -340,10 +369,14 @@
       : "";
 
     card.innerHTML = `
-      <div class="contact-card-head">
-        <span class="avatar contact-card-avatar"></span>
-        <div class="contact-card-head-text">
-          <strong class="contact-card-name">${escapeHtml(name)}</strong>
+        <div class="contact-card-head">
+          <span class="avatar contact-card-avatar"></span>
+          <div class="contact-card-head-text">
+          <strong class="contact-card-name">${renderNameWithBadgeHtml({
+            identity: { kind: "bot", id: local.id || local.key || ref, displayName: name, statusBadge: statusBadgeFrom(local) },
+            fallbackName: name,
+            statusBadge: statusBadgeFrom(local)
+          })}</strong>
           <span class="contact-card-kind">${escapeHtml(local.runtimeLabel || (isCloudHermes ? "Mia Cloud" : engine))}</span>
         </div>
       </div>
@@ -389,6 +422,7 @@
       </div>
     `;
     paintContactCardAvatar(card, avatar);
+    initNameBadgeLotties(card);
 
     async function persistField(field, value) {
       try {
@@ -452,7 +486,11 @@
       <div class="contact-card-head">
         <span class="avatar contact-card-avatar"></span>
         <div class="contact-card-head-text">
-          <strong class="contact-card-name">${escapeHtml(name)}</strong>
+          <strong class="contact-card-name">${renderNameWithBadgeHtml({
+            identity: { kind: "user", id: ref, displayName: name, statusBadge: statusBadgeFrom(f) },
+            fallbackName: name,
+            statusBadge: statusBadgeFrom(f)
+          })}</strong>
           <span class="contact-card-kind">${isSelf ? "我" : "联系人"}</span>
         </div>
       </div>
@@ -461,6 +499,7 @@
       </div>
     `;
     paintContactCardAvatar(card, avatar);
+    initNameBadgeLotties(card);
     card.addEventListener("click", (event) => {
       const btn = event.target.closest("[data-card-action]");
       if (!btn) return;

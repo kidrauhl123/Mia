@@ -124,6 +124,98 @@
   // conversations, so we land at the bottom instead of preserving the old offset.
   let _lastRenderedConversationId = null;
 
+  function jsonSignature(value) {
+    try {
+      return JSON.stringify(value ?? null);
+    } catch {
+      return String(value ?? "");
+    }
+  }
+
+  function badgeSignature(badge) {
+    if (!badge || typeof badge !== "object") return "";
+    return jsonSignature({
+      kind: badge.kind || "",
+      emoji: badge.emoji || "",
+      assetId: badge.assetId || badge.asset_id || "",
+      collectibleId: badge.collectibleId || badge.collectible_id || "",
+      label: badge.label || ""
+    });
+  }
+
+  function conversationSignature(conversation) {
+    if (!conversation) return "";
+    return jsonSignature({
+      id: conversation.id || "",
+      type: conversation.type || "",
+      name: conversation.name || "",
+      updatedAt: conversation.updatedAt || conversation.updated_at || "",
+      badge: badgeSignature(statusBadgeFrom(conversation.identity, conversation)),
+      otherBadge: badgeSignature(statusBadgeFrom(conversation.otherUser?.identity, conversation.otherUser))
+    });
+  }
+
+  function memberSignature(member) {
+    if (!member) return "";
+    const identity = member.identity || {};
+    return jsonSignature({
+      kind: member.member_kind || identity.kind || "",
+      ref: member.member_ref || identity.id || "",
+      name: identity.displayName || identity.display_name || member.displayName || member.display_name || member.name || "",
+      badge: badgeSignature(statusBadgeFrom(identity, member))
+    });
+  }
+
+  function messageSignature(msg) {
+    if (!msg) return "";
+    return jsonSignature({
+      id: msg.id || "",
+      seq: msg.seq || "",
+      senderKind: msg.sender_kind || msg.senderKind || "",
+      senderRef: msg.sender_ref || msg.senderRef || "",
+      body: msg.body_md || msg.bodyMd || "",
+      createdAt: msg.created_at || msg.createdAt || "",
+      status: msg.status || "",
+      error: msg.error || "",
+      trace: msg.trace_json || msg.trace || "",
+      skills: msg.skills_json || "",
+      attachments: msg.attachments || [],
+      translation: msg.translation || null
+    });
+  }
+
+  function streamSignature(run) {
+    if (!run) return "";
+    return jsonSignature({
+      runId: run.runId || "",
+      botId: run.botId || "",
+      text: run.text || "",
+      reasoning: run.reasoning || "",
+      tools: run.tools || [],
+      createdAt: run.createdAt || ""
+    });
+  }
+
+  function chatRenderSignatureFor(conversationId) {
+    const entry = moduleState.messageCache.get(conversationId) || { messages: [], maxSeq: 0 };
+    const conversation = moduleState.conversations.find((r) => r.id === conversationId);
+    const type = conversationTypeFor(conversation, conversationId);
+    const members = type === "group" ? (_conversationMembersCache.get(conversationId) || []) : [];
+    return jsonSignature({
+      conversationId,
+      maxSeq: entry.maxSeq || 0,
+      conversation: conversationSignature(conversation),
+      members: members.map(memberSignature),
+      messages: (entry.messages || []).map(messageSignature),
+      stream: streamSignature(moduleState.cloudAgentRunsByConversation.get(conversationId))
+    });
+  }
+
+  function markChatRenderFresh(containerEl, conversationId = moduleState.activeConversationId) {
+    if (!containerEl?.dataset || !conversationId) return;
+    containerEl.dataset.conversationRenderSignature = chatRenderSignatureFor(conversationId);
+  }
+
   const moduleState = {
     conversations: [],
     friends: [],
@@ -172,6 +264,18 @@
       }
     }
     return escapeHtml(fallbackName || identity?.displayName || "");
+  }
+
+  function statusBadgeFrom(...sources) {
+    for (const source of sources) {
+      if (source && typeof source === "object" && Object.prototype.hasOwnProperty.call(source, "statusBadge")) return source.statusBadge;
+      if (source && typeof source === "object" && Object.prototype.hasOwnProperty.call(source, "status_badge")) return source.status_badge;
+    }
+    return undefined;
+  }
+
+  function initNameBadgeLotties(root) {
+    try { global.miaNameWithBadge?.initLottieBadges?.(root); } catch { /* optional badge animation */ }
   }
 
   function senderTitleHtml(spec, color = "") {
@@ -941,7 +1045,8 @@
         account: self.account,
         avatarImage: self.avatarImage,
         avatarCrop: self.avatarCrop,
-        avatarColor: self.avatarColor || ""
+        avatarColor: self.avatarColor || "",
+        statusBadge: self.statusBadge || null
       },
       bots,
       friends: moduleState.friends || []
@@ -1500,6 +1605,8 @@
     const entry = moduleState.messageCache.get(conversationId) || { messages: [], maxSeq: 0 };
     const conversation = moduleState.conversations.find((r) => r.id === conversationId);
     const color = avatarColor(conversationId);
+    const conversationType = conversationTypeFor(conversation, conversationId);
+    const renderSignature = chatRenderSignatureFor(conversationId);
 
     // Decide BEFORE rebuilding whether to keep the view pinned to the bottom.
     // Stick when entering a different conversation (show its latest) or when the user is
@@ -1514,13 +1621,21 @@
       containerEl.scrollTop = stickToBottom ? containerEl.scrollHeight : prevScrollTop;
     };
 
+    if (!isConversationSwitch && containerEl.dataset?.conversationRenderSignature === renderSignature) {
+      initNameBadgeLotties(containerEl);
+      applyScroll();
+      if (conversation && conversationType === "group" && !_conversationMembersCache.has(conversationId)) {
+        _fetchAndCacheConversationMembers(conversationId);
+      }
+      return;
+    }
+    if (containerEl.dataset) containerEl.dataset.conversationRenderSignature = renderSignature;
     containerEl.innerHTML = "";
 
     // Header (avatar / name / meta) is painted by app.js render() — this
     // module only owns the message list so the chat header stays in lockstep
     // with the sidebar's group-avatar mosaic for every conversation type.
 
-    const conversationType = conversationTypeFor(conversation, conversationId);
     if (conversation && conversationType === "group") {
       const members = _conversationMembersCache.get(conversationId) || [];
       for (const msg of entry.messages) {
@@ -1531,6 +1646,7 @@
       if (streaming) containerEl.appendChild(streaming);
       window.miaAvatar?.hydrateAvatarVideos?.(containerEl);
       markRenderedTraceBlocks(containerEl);
+      initNameBadgeLotties(containerEl);
       applyScroll();
       if (!_conversationMembersCache.has(conversationId)) {
         _fetchAndCacheConversationMembers(conversationId);
@@ -1547,6 +1663,7 @@
     if (streaming) containerEl.appendChild(streaming);
     window.miaAvatar?.hydrateAvatarVideos?.(containerEl);
     markRenderedTraceBlocks(containerEl);
+    initNameBadgeLotties(containerEl);
     applyScroll();
   }
 
@@ -1735,6 +1852,7 @@
     if (!chatEl) return;
     const bubble = chatEl.querySelector(`.bubble[data-message-id="${(window.CSS && window.CSS.escape) ? window.CSS.escape(messageId) : messageId}"]`);
     bubble?.closest(".message")?.remove();
+    markChatRenderFresh(chatEl);
   }
 
   // Translate a cloud-conversation message in place. Mirrors message-menu.translateMessage
@@ -1851,6 +1969,8 @@
     if (article) {
       chatEl.appendChild(article);
       window.miaAvatar?.hydrateAvatarVideos?.(article);
+      initNameBadgeLotties(article);
+      markChatRenderFresh(chatEl);
       if (stick || nearBottom) chatEl.scrollTop = chatEl.scrollHeight;
     }
   }
@@ -2198,9 +2318,7 @@
       // opposite end). Live WS events use `from` instead — accept either.
       const otherUser = req.other || req.from || {};
       const fallbackId = direction === "incoming" ? req.from_user : req.to_user;
-      const displayName = escapeHtml(
-        otherUser.username || otherUser.account || fallbackId || "—"
-      );
+      const displayName = otherUser.username || otherUser.account || fallbackId || "—";
 
       const avatar = document.createElement("span");
       avatar.className = "avatar request-avatar";
@@ -2215,7 +2333,11 @@
 
       const nameSpan = document.createElement("span");
       nameSpan.style.cssText = "flex:1; font-weight:500;";
-      nameSpan.innerHTML = displayName;
+      nameSpan.innerHTML = renderNameWithBadgeHtml({
+        identity: { kind: "user", id: otherUser.id || fallbackId || "", displayName, statusBadge: statusBadgeFrom(otherUser) },
+        fallbackName: displayName,
+        statusBadge: statusBadgeFrom(otherUser)
+      });
       row.appendChild(nameSpan);
 
       if (direction === "incoming") {
@@ -2275,6 +2397,7 @@
 
       container.appendChild(row);
     }
+    initNameBadgeLotties(container);
   }
 
   function pendingRequestCount() {
