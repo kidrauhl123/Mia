@@ -2,7 +2,7 @@
 
 Mia 是一个桌面优先的多 Agent 聊天平台。
 
-它把 Hermes、Claude Code、Codex、OpenClaw 这类本地 Agent，以及云端 Bot，放进同一套聊天、联系人、群聊、权限、同步和发布体系里。用户不需要记每个 CLI 的命令，也不需要在一堆工具窗口之间来回切换。打开 Mia，像找同事一样找一个 AI Bot，说清楚要做什么，然后让它在受控权限下执行。
+它把 Bot 身份统一存到 Cloud，再把 Hermes、Claude Code、Codex、OpenClaw 这类桌面 Agent 运行目标和 Cloud Hermes 运行目标，放进同一套聊天、联系人、群聊、权限、同步和发布体系里。用户不需要记每个 CLI 的命令，也不需要在一堆工具窗口之间来回切换。打开 Mia，像找同事一样找一个 AI Bot，说清楚要做什么，然后让它在受控权限下执行。
 
 一句话：**聊天是入口，Bot 是 AI 同事，桌面端是执行现场，Cloud/Web/移动端是同步和远程入口。**
 
@@ -29,7 +29,7 @@ Mia 是一个桌面优先的多 Agent 聊天平台。
 - **把 AI 当联系人管理**：Bot 有名字、头像、人设、技能、运行时和权限配置。
 - **把任务放回聊天上下文**：私聊、群聊、@ 提及、回复、附件、历史消息都是一等对象。
 - **把本地执行纳入权限系统**：读文件、跑命令、写代码、使用工具都要经过明确的 Agent 权限模式。
-- **把多端当作同一个产品**：桌面端负责本地执行，Cloud/Web 负责账号、同步、远程触发和云端 Bot。
+- **把多端当作同一个产品**：Cloud 负责账号、Bot 身份、同步和远程触发；桌面端和云端运行目标负责具体 Agent run。
 - **把多引擎接进同一个界面**：Hermes、Claude Code、Codex、OpenClaw 走各自 adapter，但用户看到的是统一聊天体验。
 
 ## 主要能力
@@ -44,12 +44,13 @@ Mia 是一个桌面优先的多 Agent 聊天平台。
 
 ### Bot 与 Agent
 
-- Bot 身份：名字、头像、简介、人设、颜色、置顶、技能能力。
+- Bot 身份统一由 Cloud 持久化：名字、头像、简介、人设、颜色、技能能力等都是同一个账号级对象。
+- 运行目标通过 runtime binding 记录：`desktop-local`、`cloud-hermes` 等只是执行位置/引擎目标，不是两套 Bot 身份。
 - Agent 引擎：Hermes、Claude Code、Codex、OpenClaw。
 - Claude Code / Codex / OpenClaw 使用用户本机 CLI 或 ACP 后端兼容入口，不随 Mia 打包；缺失时 Mia 可从官方包索引触发安装。
 - Hermes 是上游开源 runtime，和 claude/codex 一样复用用户自己装的（从 PATH 探测），不随安装包打包；也可跑在云端 Docker。
 - Bot 可以挂载技能，技能来源包括内置 skill、官方库和本地 skill 目录。
-- Cloud Bot 可在云端 Docker worker 中运行，使用平台配置的 LiteLLM 模型网关。
+- Bot 可绑定 Cloud Hermes 运行目标，在云端 Docker worker 中运行，使用平台配置的 LiteLLM 模型网关。
 
 ### 本地执行与权限
 
@@ -214,7 +215,7 @@ adapter 在 `chat-engine-registry` 中统一注册。新增引擎应沿用这个
 
 ### Cloud source of truth
 
-Cloud 负责账号、社交关系、Cloud conversation、文件、Bot identity、运行记录和事件同步。桌面端可以有本地缓存，但不能把本地缓存当作跨设备真源。
+Cloud 负责账号、社交关系、Cloud conversation、文件、Bot identity、Bot runtime binding、运行记录和事件同步。桌面端可以有本地缓存和本机执行能力，但不能把本地缓存当作跨设备真源；`desktop-local` 只表示运行目标，不表示本地 Bot 身份。
 
 ### Runtime packaging
 

@@ -4,6 +4,8 @@ Treat a roomful of AIs like coworkers.
 
 Mia is a desktop app that puts Claude, Codex, Hermes and other AI tools into one chat window. No app switching, no commands to memorize — just talk to them like you would on a messenger, and they get things done.
 
+Bot identities are Cloud-backed account objects. Runtime labels such as `desktop-local` and `cloud-hermes` describe where a Bot run executes; they are not separate local-vs-cloud Bot identities.
+
 ## What it does
 
 - **Chat is the entry point.** Friends, group chats, message history — except some of your "friends" happen to be AIs.
@@ -32,7 +34,7 @@ Open Mia, sign in, and your first Bot is already waiting.
 Mia isn't a single-model client. It brings multiple AIs into one chat surface so you can pick the right one for the job — and let them work together.
 
 **Does my conversation go to the cloud?**
-Accounts, friends and group chats sync through the cloud so you can switch devices. When an AI reads your local files or runs commands, that stays on your machine.
+Accounts, friends, groups, Bot identities and conversations sync through the cloud so you can switch devices. When an AI runtime reads your local files or runs commands through `desktop-local`, that execution stays on your machine.
 
 **Do I need to know how to code?**
 No. Mia provides the chat, identity, sync and permission layer. Claude Code and Codex run through your local CLI installs, and Hermes can be installed or bundled through the explicit Hermes runtime flow.

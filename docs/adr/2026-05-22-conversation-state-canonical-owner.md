@@ -1,7 +1,7 @@
 # ADR: Conversation state canonical owner
 
 **Date:** 2026-05-22
-**Status:** Accepted
+**Status:** Accepted; amended 2026-06-11 for cloud-owned Bot identity
 
 ## Context
 
@@ -18,10 +18,11 @@ for every conversation state mutation. The desktop chatStore is treated as
 an offline cache + write-through mirror; the renderer's social moduleState
 is a read-only view onto cloud, derived from REST + WS.
 
-When the user is logged out, the desktop chatStore is the local-only
-authority for bot sessions and local groups. Cloud writes do not exist.
-At login, the existing `syncMiaCloudWorkspace()` pipeline merges in
-both directions.
+As of 2026-06-11, the signed-out desktop shell is a login/setup gate, not a
+separate product state with local Bot identity authority. Bot identities and
+conversation mutations are cloud-owned account data. Desktop caches may make
+the UI responsive and desktop runtime bindings may point at `desktop-local`,
+but `desktop-local` is an execution target, not a local Bot identity source.
 
 ## Consequences
 
@@ -32,6 +33,8 @@ both directions.
   cloud first (with the response merged back).
 - Multi-device unread / read-cursor sync belongs in the cloud authority path,
   using durable per-member read state rather than a renderer-only unread map.
+- Bot identity and runtime binding changes must use the cloud authority path.
+  Do not reintroduce local manifest CRUD or a local/cloud Bot identity split.
 
 ## Alternatives considered
 

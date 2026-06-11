@@ -2,7 +2,7 @@
 
 Date: 2026-06-05
 
-Status: implemented as of 2026-06-07. Production source under `src/`, `packages/`, `apps/mobile-rn/src/`, and `scripts/` is guarded by `tests/no-legacy-fellow-identifiers.test.js`; this file remains as the historical migration design.
+Status: implemented as of 2026-06-07; amended 2026-06-11 to record that Bot identity writes are Cloud-only. Production source under `src/`, `packages/`, `apps/mobile-rn/src/`, and `scripts/` is guarded by `tests/no-legacy-fellow-identifiers.test.js`; this file remains as the historical migration design.
 
 ## Goal
 
@@ -18,6 +18,7 @@ The product is not formally launched, so this migration can be breaking and dest
 4. `ownerUserId` is a management and permission field. It does not participate in bot identity uniqueness.
 5. UI should render names, avatars, and status badges from a single identity object. UI should not care whether the identity is a human user or a bot.
 6. `fellow` should be removed from production source naming, protocol fields, routes, IPC channels, schema tables, enum values, CSS feature names, and mobile/web types.
+7. Bot identity writes are Cloud-only. Runtime kinds such as `desktop-local` and `cloud-hermes` are execution bindings for the same cloud-owned Bot identity, not distinct local/cloud Bot identity classes.
 
 ## Identity Contract
 

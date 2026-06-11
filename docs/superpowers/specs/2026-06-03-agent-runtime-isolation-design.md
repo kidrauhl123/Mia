@@ -2,7 +2,7 @@
 
 Date: 2026-06-03
 
-Status: implemented in the default packaging path as of 2026-06-07. This file is retained as the design record; current operational commands live in `README.md`, `CLAUDE.md`, and `docs/DEPLOYMENT.md`.
+Status: implemented in the default packaging path as of 2026-06-07; amended 2026-06-11 after Bot identity moved to a cloud-owned model. This file is retained as the design record; current operational commands live in `README.md`, `CLAUDE.md`, and `docs/DEPLOYMENT.md`.
 
 ## Goal
 
@@ -28,7 +28,8 @@ The default package path is now slim:
 
 Mia has the first runtime-isolation pass in production source:
 
-- Bot identities live under Mia runtime files such as `runtime/bots/<bot>.md`.
+- Bot identities live in Mia Cloud account data. Desktop runtime files are only adapter/runtime config, session mapping, cache, or generated execution context; they are not a Bot identity source.
+- `desktop-local` is a runtime binding for a cloud-owned Bot identity, not a separate local Bot type.
 - `agent-session-store` maps `(engine, bot, Mia session)` to native session ids.
 - Hermes receives Bot headers and a Mia runtime context.
 - Codex runs with a Mia-controlled `CODEX_HOME`, excluding native session/history files when linking safe user Codex state.

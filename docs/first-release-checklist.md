@@ -17,7 +17,7 @@
    - 剩余：上线前视觉/交互验收。
 
 4. 修复 Bot 运行目标回退 bug
-   - 状态：已覆盖 Cloud Hermes 与 desktop-local binding，重启/同步不应把 Claude Code 回退成 Mia Cloud Hermes。
+   - 状态：已覆盖 `cloud-hermes` 与 `desktop-local` runtime binding，重启/同步不应把 Claude Code 运行目标回退成 Cloud Hermes；两者都是 Bot 的运行位置，不是两套 Bot 身份。
 
 5. 发现 AI 同事产品化
    - 状态：预设从 Mia 官方库读取；文案改为中文产品化描述；添加成功有“入职盖章”反馈。
