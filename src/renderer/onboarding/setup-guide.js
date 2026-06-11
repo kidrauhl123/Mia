@@ -115,6 +115,9 @@
   }
 
   function agentStatusText(agent) {
+    if (state?.agentSetupInstallInFlight && state?.agentSetupInstallEngine === agent.id) {
+      return state?.agentSetupInstallMessage || "Installing...";
+    }
     if (agent.health === "checking" || agent.source === "checking") return "正在检查";
     if (agent.usableInMia) {
       const parts = [agent.path || "已接入 Mia", versionLabel(agent)].filter(Boolean);
@@ -157,7 +160,12 @@
   function engineRight(agent) {
     const action = agentAction(agent);
     if (action) {
-      return `<button class="setup-engine-action primary" type="button" data-setup-action="${action.action}" data-engine="${escapeHtml(agent.id)}"${isSetupInstallInFlight() ? " disabled" : ""}>${escapeHtml(action.label)}</button>`;
+      const installingThis = state?.agentSetupInstallInFlight && state?.agentSetupInstallEngine === agent.id;
+      const percent = Number(state?.agentSetupInstallPercent);
+      const installLabel = installingThis && Number.isFinite(percent)
+        ? `安装中 ${Math.max(0, Math.min(100, Math.round(percent)))}%`
+        : action.label;
+      return `<button class="setup-engine-action primary" type="button" data-setup-action="${action.action}" data-engine="${escapeHtml(agent.id)}"${isSetupInstallInFlight() ? " disabled" : ""}>${escapeHtml(installLabel)}</button>`;
     }
     if (agent.usableInMia) return `<span class="setup-engine-badge ok">已就绪</span>`;
     if (agent.installed && agent.detectionOnly) return `<span class="setup-engine-badge ok">已就绪</span>`;

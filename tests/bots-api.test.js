@@ -228,13 +228,17 @@ test("video bot avatars are materialized with the selected trim window", async (
   const fakeDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-fake-ffmpeg-"));
   const argsPath = path.join(fakeDir, "args.json");
   const fakeFfmpeg = path.join(fakeDir, "ffmpeg.js");
+  const fakeFfmpegCommand = process.platform === "win32" ? path.join(fakeDir, "ffmpeg.cmd") : fakeFfmpeg;
   fs.writeFileSync(fakeFfmpeg, `#!/usr/bin/env node
 const fs = require("node:fs");
 fs.writeFileSync(process.env.MIA_FAKE_FFMPEG_ARGS, JSON.stringify(process.argv.slice(2)));
 fs.writeFileSync(process.argv[process.argv.length - 1], Buffer.alloc(1));
 `, { mode: 0o755 });
+  if (process.platform === "win32") {
+    fs.writeFileSync(fakeFfmpegCommand, `@echo off\r\n"${process.execPath}" "${fakeFfmpeg}" %*\r\n`);
+  }
   const ctx = await startServer({
-    MIA_FFMPEG: fakeFfmpeg,
+    MIA_FFMPEG: fakeFfmpegCommand,
     MIA_FAKE_FFMPEG_ARGS: argsPath
   });
   try {

@@ -44,7 +44,9 @@ test("loadMap falls back to an empty object and saveMap persists with private pe
 
   service.saveMap({ "engine:codex:alice:local": "thread_1" });
   assert.deepEqual(readJson(runtime.agentSessions, {}), { "engine:codex:alice:local": "thread_1" });
-  assert.equal(fs.statSync(runtime.agentSessions).mode & 0o777, 0o600);
+  if (process.platform !== "win32") {
+    assert.equal(fs.statSync(runtime.agentSessions).mode & 0o777, 0o600);
+  }
 });
 
 test("getEntry reads missing, legacy string, and fingerprint object entries", (t) => {

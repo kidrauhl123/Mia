@@ -5,6 +5,16 @@ const test = require("node:test");
 const vm = require("node:vm");
 
 const root = path.join(__dirname, "..");
+const rawReadFileSync = fs.readFileSync.bind(fs);
+
+fs.readFileSync = function readFileSyncWithNormalizedText(file, options, ...args) {
+  const value = rawReadFileSync(file, options, ...args);
+  const encoding = typeof options === "string" ? options : options?.encoding;
+  if (typeof value === "string" && /^utf-?8$/i.test(String(encoding || ""))) {
+    return value.replace(/\r\n/g, "\n");
+  }
+  return value;
+};
 
 function extractFunctionSource(source, functionName) {
   const start = source.indexOf(`function ${functionName}`);
@@ -49,6 +59,65 @@ test("cloud conversation send and render do not depend on activeKey being empty"
 
   assert.doesNotMatch(appSource, /getActiveConversationId\?\.\(\) && !state\.activeKey/);
   assert.doesNotMatch(appSource, /activeConversationId && !state\.activeKey/);
+});
+
+test("desktop window controls use Windows maximize semantics off macOS", () => {
+  const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
+  const preloadSource = fs.readFileSync(path.join(root, "src/preload.js"), "utf8");
+  const windowIpcSource = fs.readFileSync(path.join(root, "src/main/ipc/window-ipc.js"), "utf8");
+  const css = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+
+  assert.doesNotMatch(html, /id="windowControls"/);
+  assert.match(mainSource, /process\.platform === "win32"[\s\S]*titleBarOverlay:\s*\{/);
+  assert.match(mainSource, /titleBarOverlay:\s*\{[\s\S]*color:\s*"rgba\(0,\s*0,\s*0,\s*0\)"/);
+  assert.match(mainSource, /titleBarOverlay:\s*\{[\s\S]*height:\s*36/);
+  assert.match(mainSource, /autoHideMenuBar:\s*process\.platform !== "darwin"/);
+  assert.match(mainSource, /process\.platform !== "darwin"[\s\S]*win\.setMenuBarVisibility\(false\)/);
+  assert.match(appSource, /document\.body\.classList\.toggle\("platform-win32",\s*rendererPlatform === "win32"\)/);
+  assert.doesNotMatch(appSource, /getElementById\("windowControls"\)/);
+  assert.match(appSource, /const task = isWindows \? \(api\.maximize\?\.\(\) \|\| api\.green\(\)\) : api\.green\(\);/);
+  assert.match(preloadSource, /maximize:\s*\(\)\s*=>\s*ipcRenderer\.invoke\(IpcChannel\.WindowMaximize\)/);
+  assert.match(windowIpcSource, /if \(process\.platform !== "darwin"\) return toggleMaximized\(w\);/);
+  assert.match(css, /body\.platform-win32 \.traffic-spacer \.traffic-light\s*\{\s*display:\s*none;/);
+  assert.doesNotMatch(css, /\.window-controls/);
+  assert.match(css, /body\.platform-win32 \.topbar\s*\{\s*padding-right:\s*150px;/);
+});
+
+test("custom select menu opens away from the viewport edge", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const positionSource = extractFunctionSource(appSource, "positionComposerSelectMenu");
+  const sandbox = {
+    window: {
+      innerWidth: 500,
+      innerHeight: 360
+    }
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(`${positionSource}; this.positionComposerSelectMenu = positionComposerSelectMenu;`, sandbox);
+
+  const menu = {
+    scrollWidth: 220,
+    scrollHeight: 240,
+    style: {},
+    dataset: {}
+  };
+  const trigger = {
+    getBoundingClientRect: () => ({
+      left: 24,
+      top: 314,
+      bottom: 344,
+      width: 160
+    })
+  };
+
+  sandbox.positionComposerSelectMenu(menu, trigger);
+
+  assert.equal(menu.dataset.placement, "above");
+  assert.equal(menu.style.top, "");
+  assert.equal(menu.style.bottom, "52px");
+  assert.equal(menu.style.maxHeight, "300px");
 });
 
 test("onboarding wizard init wires the async agent-scan deps", () => {
@@ -280,6 +349,62 @@ test("engine detection renderer preserves legacy runtime status fallbacks", () =
   });
 
   assert.equal(sandbox.els.engineRowHermes.textContent, "已接入 Mia");
+});
+
+test("engine detection renderer surfaces install progress and failures in settings", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const renderSource = appSource.slice(
+    appSource.indexOf("function agentInventoryById(runtime)"),
+    appSource.indexOf("function renderSessionMenu()")
+  );
+  const sandbox = {
+    state: {
+      agentSetupInstallInFlight: true,
+      agentSetupInstallEngine: "hermes",
+      agentSetupInstallMessage: "Downloading Hermes runtime...",
+      agentSetupInstallPercent: 42,
+      agentSetupInstallErrors: {},
+      hermesInstallError: ""
+    },
+    window: { miaMarkdown: { escapeHtml: (value) => String(value || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;") } },
+    els: {
+      engineRowHermes: { textContent: "" },
+      engineRowClaude: { textContent: "" },
+      engineRowCodex: { textContent: "" },
+      engineRowOpenClaw: { textContent: "" },
+      engineRowHermesActions: { innerHTML: "" },
+      engineRowClaudeActions: { innerHTML: "" },
+      engineRowCodexActions: { innerHTML: "" },
+      engineRowOpenClawActions: { innerHTML: "" },
+      engineInstallActions: {
+        classList: { add: () => {}, toggle: () => {} },
+        innerHTML: ""
+      }
+    }
+  };
+  vm.runInNewContext(`${renderSource}; this.renderEngineDetection = renderEngineDetection;`, sandbox);
+
+  const runtime = {
+    agentInventory: {
+      agents: [
+        { id: "hermes", label: "Hermes", installed: false, usableInMia: false, installable: true, installAction: "install-hermes", health: "missing", source: "missing" }
+      ]
+    },
+    agentEngines: {}
+  };
+  sandbox.renderEngineDetection(runtime);
+
+  assert.equal(sandbox.els.engineRowHermes.textContent, "Downloading Hermes runtime...");
+  assert.equal(sandbox.els.engineInstallActions.innerHTML, "");
+  assert.match(sandbox.els.engineRowHermesActions.innerHTML, /disabled/);
+  assert.match(sandbox.els.engineRowHermesActions.innerHTML, /42%/);
+
+  sandbox.state.agentSetupInstallInFlight = false;
+  sandbox.state.agentSetupInstallEngine = "";
+  sandbox.state.agentSetupInstallErrors = { hermes: "官方 Hermes 安装失败：installer finished, but Mia still cannot detect Hermes" };
+  sandbox.renderEngineDetection(runtime);
+
+  assert.match(sandbox.els.engineRowHermes.textContent, /still cannot detect Hermes/);
 });
 
 test("signed-out desktop shell is a login gate without default Boss identity", () => {

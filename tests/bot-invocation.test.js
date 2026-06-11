@@ -64,3 +64,35 @@ test("buildBotInvocation keeps cloud-only bots runnable without a local manifest
   assert.equal(args.botSnapshot.agentEngine, "codex");
   assert.match(args.systemPrompt, /Remote Bot/);
 });
+
+test("buildBotInvocation preserves local manifest agent engine for desktop bots", () => {
+  const args = buildBotInvocation({
+    conversationId: "botc_win",
+    botId: "win",
+    triggeringMessage: { id: "m_1", body_md: "hi" },
+    members: [{ member_kind: "bot", member_ref: "win", bot_name: "Windows Bot" }]
+  }, [
+    { key: "win", name: "Windows Bot", agentEngine: "codex", engineConfig: { effortLevel: "medium" } }
+  ]);
+
+  assert.equal(args.botSnapshot.key, "win");
+  assert.equal(args.botSnapshot.agentEngine, "codex");
+  assert.deepEqual(args.botSnapshot.engineConfig, { effortLevel: "medium" });
+});
+
+test("buildBotInvocation lets local manifest engine override stale Hermes runtime config", () => {
+  const args = buildBotInvocation({
+    conversationId: "botc_win",
+    botId: "win",
+    runtimeConfig: { agentEngine: "hermes", permissionMode: "ask" },
+    triggeringMessage: { id: "m_1", body_md: "hi" }
+  }, [
+    { key: "win", name: "Windows Bot", agentEngine: "codex" }
+  ]);
+
+  assert.equal(args.botSnapshot.agentEngine, "codex");
+  assert.deepEqual(args.runtimeConfig, {
+    agentEngine: "codex",
+    permissionMode: "ask"
+  });
+});

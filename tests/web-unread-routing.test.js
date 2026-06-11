@@ -20,6 +20,18 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const ROOT = path.join(__dirname, "..");
+const rawReadFileSync = fs.readFileSync.bind(fs);
+
+// These tests assert source text with line-oriented regexes. Normalize CRLF so
+// a Windows checkout exercises the same assertions as macOS/Linux.
+fs.readFileSync = function readFileSyncWithNormalizedText(file, options, ...args) {
+  const value = rawReadFileSync(file, options, ...args);
+  const encoding = typeof options === "string" ? options : options?.encoding;
+  if (typeof value === "string" && /^utf-?8$/i.test(String(encoding || ""))) {
+    return value.replace(/\r\n/g, "\n");
+  }
+  return value;
+};
 
 function extractCreateMenuItems(html, menuId) {
   const menuMatch = html.match(new RegExp(`<div id="${menuId}"[^>]*>([\\s\\S]*?)</div>\\s*</header>`));

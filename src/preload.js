@@ -150,6 +150,7 @@ contextBridge.exposeInMainWorld("mia", {
   window: {
     close: () => ipcRenderer.invoke(IpcChannel.WindowClose),
     minimize: () => ipcRenderer.invoke(IpcChannel.WindowMinimize),
+    maximize: () => ipcRenderer.invoke(IpcChannel.WindowMaximize),
     green: () => ipcRenderer.invoke(IpcChannel.WindowGreen),
     showMain: () => ipcRenderer.invoke(IpcChannel.WindowShowMain),
     onboarding: () => ipcRenderer.invoke(IpcChannel.WindowOnboarding),
@@ -163,6 +164,11 @@ contextBridge.exposeInMainWorld("mia", {
       const listener = (_e, fullscreen) => handler(fullscreen);
       ipcRenderer.on(IpcChannel.WindowFullscreen, listener);
       return () => ipcRenderer.removeListener(IpcChannel.WindowFullscreen, listener);
+    },
+    onMaximized: (handler) => {
+      const listener = (_e, maximized) => handler(maximized);
+      ipcRenderer.on(IpcChannel.WindowMaximized, listener);
+      return () => ipcRenderer.removeListener(IpcChannel.WindowMaximized, listener);
     }
   }
 });

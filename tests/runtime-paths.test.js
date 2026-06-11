@@ -4,10 +4,12 @@ const { test } = require("node:test");
 
 const { createRuntimePaths } = require("../src/main/runtime-paths.js");
 
+const defaultProfile = path.join(path.sep, "profile", "Mia");
+
 function fakeApp(paths = {}) {
   return {
     getPath(name) {
-      if (name === "userData") return paths.userData || "/profile/Mia";
+      if (name === "userData") return paths.userData || defaultProfile;
       if (name === "home") return paths.home || "/Users/alice";
       return "";
     },
@@ -35,10 +37,11 @@ test("runtime paths default to the Electron userData profile", () => {
   });
 
   const paths = runtimePaths();
+  const expectedRoot = defaultProfile;
 
-  assert.equal(paths.root, "/profile/Mia");
-  assert.equal(paths.runtime, "/profile/Mia/runtime");
-  assert.equal(paths.home, "/profile/Mia/runtime/engine-home");
+  assert.equal(paths.root, expectedRoot);
+  assert.equal(paths.runtime, path.join(expectedRoot, "runtime"));
+  assert.equal(paths.home, path.join(expectedRoot, "runtime", "engine-home"));
 });
 
 test("runtime paths use MIA_HOME for shared data even when Electron userData is isolated", () => {
@@ -51,9 +54,11 @@ test("runtime paths use MIA_HOME for shared data even when Electron userData is 
   });
 
   const paths = runtimePaths();
+  const expectedRoot = path.resolve("/profile/Mia");
+  const expectedHome = path.resolve("/profile/Mia/runtime/engine-home");
 
-  assert.equal(paths.root, "/profile/Mia");
-  assert.equal(paths.runtime, "/profile/Mia/runtime");
-  assert.equal(paths.home, "/profile/Mia/runtime/engine-home");
-  assert.equal(paths.config, path.join("/profile/Mia/runtime/engine-home", "config.yaml"));
+  assert.equal(paths.root, expectedRoot);
+  assert.equal(paths.runtime, path.join(expectedRoot, "runtime"));
+  assert.equal(paths.home, expectedHome);
+  assert.equal(paths.config, path.join(expectedHome, "config.yaml"));
 });

@@ -284,6 +284,14 @@ body.window-blurred .traffic-spacer:hover .traffic-light.green {
   background-image: url("./assets/traffic-lights/nofocus.svg");
 }
 
+body.platform-win32 .traffic-spacer .traffic-light {
+  display: none;
+}
+
+body.platform-win32 .topbar {
+  padding-right: 150px;
+}
+
 .profile-avatar,
 .avatar {
   position: relative;
@@ -2096,6 +2104,7 @@ body.topbar-click-capture .topbar {
 .session-menu:not(.hidden),
 .skill-context-menu:not(.hidden),
 .composer-add-menu:not(.hidden),
+.composer-select-menu:not(.hidden),
 .slash-command-menu:not(.hidden) {
   will-change: opacity, transform;
 }
@@ -4188,6 +4197,90 @@ body.onboarding-window .setup-guide.ready .setup-footer { animation-delay: 0.13s
   background: var(--field);
 }
 
+.model-switcher.select-open,
+.effort-switcher.select-open,
+.permission-switcher.select-open,
+select.select-open {
+  background: var(--field);
+}
+
+.composer-select-menu {
+  position: fixed;
+  z-index: 60;
+  display: grid;
+  gap: 2px;
+  min-width: 150px;
+  padding: 5px;
+  overflow: auto;
+  border: 1px solid var(--menu-border);
+  border-radius: 12px;
+  background: var(--menu-surface);
+  box-shadow: var(--menu-shadow);
+  -webkit-backdrop-filter: blur(22px) saturate(1.08);
+  backdrop-filter: blur(22px) saturate(1.08);
+  transform-origin: bottom left;
+  animation: menuPopoverIn 120ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.composer-select-menu[data-placement="below"] {
+  transform-origin: top left;
+}
+
+.composer-select-menu.hidden {
+  display: none;
+}
+
+.composer-select-group {
+  min-width: 0;
+  padding: 7px 9px 3px;
+  overflow: hidden;
+  color: var(--faint);
+  font-size: 11px;
+  font-weight: 560;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-select-group.disabled {
+  opacity: 0.58;
+}
+
+.composer-select-option {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 30px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 400;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.composer-select-group + .composer-select-option {
+  margin-top: 1px;
+}
+
+.composer-select-option:hover,
+.composer-select-option.keyboard-active {
+  background: var(--menu-hover-background);
+}
+
+.composer-select-option.selected {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+
+.composer-select-option:disabled {
+  color: var(--faint);
+  opacity: 0.55;
+}
+
 .model-avatar {
   position: relative;
   z-index: 2;
@@ -5877,7 +5970,7 @@ textarea:focus {
 .engine-row {
   position: relative;
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr) 16px;
+  grid-template-columns: 30px minmax(0, 1fr) auto 16px;
   align-items: center;
   gap: 13px;
   width: 100%;
@@ -5909,6 +6002,14 @@ textarea:focus {
 
 .engine-row.static {
   cursor: default;
+}
+
+.engine-row.config-disabled {
+  cursor: default;
+}
+
+.engine-row.config-disabled .engine-row-chev {
+  visibility: hidden;
 }
 
 .engine-row-logo {
@@ -5995,8 +6096,21 @@ textarea:focus {
   color: var(--text);
 }
 
-.engine-install-actions {
+.engine-row-actions {
   display: flex;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.engine-action-stack {
+  display: grid;
+  justify-items: end;
+  gap: 5px;
+  min-width: 112px;
+}
+
+.engine-install-actions {
+  display: none;
   flex-wrap: wrap;
   gap: 8px;
   padding: 12px 22px 16px 68px;
@@ -6016,6 +6130,10 @@ textarea:focus {
   cursor: pointer;
 }
 
+.engine-install-action.row {
+  min-width: 108px;
+}
+
 .engine-install-action:hover {
   background: rgb(var(--accent-rgb) / 0.16);
 }
@@ -6023,6 +6141,38 @@ textarea:focus {
 .engine-install-action:disabled {
   cursor: wait;
   opacity: 0.66;
+}
+
+.engine-install-progress {
+  display: grid;
+  grid-template-columns: 72px 30px;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1;
+}
+
+.engine-install-progress-track {
+  display: block;
+  width: 72px;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgb(var(--accent-rgb) / 0.14);
+}
+
+.engine-install-progress-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 160ms ease;
+}
+
+.engine-install-progress-text {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
 .engine-detail-panel {

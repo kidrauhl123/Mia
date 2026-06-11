@@ -56,13 +56,19 @@ function buildBotInvocation(payload, bots) {
       id: botId,
       name: botId
     };
-  const runtimeAgentEngine = String(runtimeConfig?.agentEngine || runtimeConfig?.agent_engine || "").trim();
+  const botAgentEngine = String(bot.agentEngine || bot.agent_engine || "").trim();
+  const nextRuntimeConfig = runtimeConfig && typeof runtimeConfig === "object" ? { ...runtimeConfig } : null;
+  const runtimeAgentEngine = String(nextRuntimeConfig?.agentEngine || nextRuntimeConfig?.agent_engine || "").trim();
+  if (botAgentEngine && (!runtimeAgentEngine || runtimeAgentEngine === "hermes")) {
+    if (nextRuntimeConfig) nextRuntimeConfig.agentEngine = botAgentEngine;
+  }
   const botSnapshot = {
     ...bot,
     key: bot.key || bot.id || botId,
     id: bot.id || bot.key || botId,
     name: bot.name || bot.displayName || bot.display_name || botId,
-    ...(runtimeAgentEngine && !bot.agentEngine && !bot.agent_engine ? { agentEngine: runtimeAgentEngine } : {})
+    ...(botAgentEngine ? { agentEngine: botAgentEngine } : {}),
+    ...(runtimeAgentEngine && !botAgentEngine ? { agentEngine: runtimeAgentEngine } : {})
   };
 
   const roster = memberLines(members, bots);
@@ -78,7 +84,7 @@ function buildBotInvocation(payload, bots) {
       "请用自然的口吻接话，简短直接。"
     ].filter(Boolean).join("\n\n"),
     userPrompt: triggeringMessage.body_md || "",
-    runtimeConfig: runtimeConfig && typeof runtimeConfig === "object" ? runtimeConfig : null,
+    runtimeConfig: nextRuntimeConfig,
     turnId: triggeringMessage.turn_id || null,
     activeSkillIds: activeSkillIdsFromMessage(triggeringMessage)
   };

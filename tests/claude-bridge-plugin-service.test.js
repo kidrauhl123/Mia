@@ -22,8 +22,12 @@ function setup(t) {
 function makeSkill(root, category, name) {
   const skillDir = path.join(root, category, name);
   fs.mkdirSync(skillDir, { recursive: true });
-  fs.writeFileSync(path.join(skillDir, "SKILL.md"), `# ${name}\n`);
+  fs.writeFileSync(path.join(skillDir, "SKILL.md"), `# ${category}/${name}\n`);
   return skillDir;
+}
+
+function materializedSkillMarkdown(skillDir) {
+  return fs.readFileSync(path.join(skillDir, "SKILL.md"), "utf8");
 }
 
 test("ensureInstalled creates the Claude plugin manifest and links runtime skills", (t) => {
@@ -42,7 +46,7 @@ test("ensureInstalled creates the Claude plugin manifest and links runtime skill
     version: "1.0.0",
     description: "Mia bridge: surfaces Hermes runtime skills to Claude Code engine."
   });
-  assert.equal(fs.readlinkSync(path.join(result.path, "skills", "summarize")), skillPath);
+  assert.equal(materializedSkillMarkdown(path.join(result.path, "skills", "summarize")), "# writing/summarize\n");
   assert.equal(fs.existsSync(path.join(result.path, "skills", "draft")), false);
 });
 
@@ -57,9 +61,12 @@ test("ensureInstalled refreshes stale links and chooses collision-free link name
 
   const result = service.ensureInstalled();
   const entries = fs.readdirSync(path.join(result.path, "skills")).sort();
-  const targets = entries.map((entry) => fs.readlinkSync(path.join(result.path, "skills", entry))).sort();
+  const skillBodies = entries.map((entry) => materializedSkillMarkdown(path.join(result.path, "skills", entry))).sort();
 
   assert.deepEqual(entries, ["mia-shared", "shared"]);
-  assert.deepEqual(targets, [first, second].sort());
+  assert.deepEqual(skillBodies, [
+    materializedSkillMarkdown(first),
+    materializedSkillMarkdown(second)
+  ].sort());
   assert.equal(fs.existsSync(path.join(result.path, "skills", "stale")), false);
 });

@@ -1736,12 +1736,25 @@ function createWindow() {
   }
   const minWindowWidth = onboarding ? 400 : 500;
   const minWindowHeight = onboarding ? 560 : 560;
+  const windowChromeOptions = process.platform === "darwin"
+    ? { titleBarStyle: "hidden" }
+    : process.platform === "win32"
+      ? {
+          titleBarStyle: "hidden",
+          titleBarOverlay: {
+            color: "rgba(0, 0, 0, 0)",
+            symbolColor: "#24262d",
+            height: 36
+          }
+        }
+      : { frame: true };
   const win = new BrowserWindow({
     ...initialWindow.bounds,
     minWidth: minWindowWidth,
     minHeight: minWindowHeight,
     title: "Mia",
-    titleBarStyle: "hidden",
+    ...windowChromeOptions,
+    autoHideMenuBar: process.platform !== "darwin",
     show: false,
     backgroundColor: onboarding ? "#ffffff" : "#f0f0f3",
     acceptFirstMouse: true,
@@ -1752,6 +1765,9 @@ function createWindow() {
       sandbox: false
     }
   });
+  if (process.platform !== "darwin" && typeof win.setMenuBarVisibility === "function") {
+    win.setMenuBarVisibility(false);
+  }
   win.miaSkipAutomaticBackgroundStartup = onboarding;
   if (process.platform === "darwin" && typeof win.setWindowButtonVisibility === "function") {
     win.setWindowButtonVisibility(onboarding);
@@ -1765,6 +1781,8 @@ function createWindow() {
   win.on("blur", () => sendWindowEvent(IpcChannel.WindowFocusState, false));
   win.on("enter-full-screen", () => sendWindowEvent(IpcChannel.WindowFullscreen, true));
   win.on("leave-full-screen", () => sendWindowEvent(IpcChannel.WindowFullscreen, false));
+  win.on("maximize", () => sendWindowEvent(IpcChannel.WindowMaximized, true));
+  win.on("unmaximize", () => sendWindowEvent(IpcChannel.WindowMaximized, false));
   let windowShown = false;
   const showWhenReady = () => {
     if (windowShown || win.isDestroyed()) return;

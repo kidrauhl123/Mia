@@ -100,6 +100,44 @@ function nodeVersionManagerPathSegments(home, env, fsImpl) {
   return segments.filter(Boolean);
 }
 
+function windowsAgentPathSegments(home, env) {
+  const localAppData = String(env.LOCALAPPDATA || (home ? path.join(home, "AppData", "Local") : "")).trim();
+  const appData = String(env.APPDATA || (home ? path.join(home, "AppData", "Roaming") : "")).trim();
+  const hermesHome = String(env.HERMES_HOME || "").trim();
+  const codexHome = String(env.CODEX_HOME || (home ? path.join(home, ".codex") : "")).trim();
+  const codexInstallDir = String(env.CODEX_INSTALL_DIR || "").trim();
+  return [
+    // Hermes native Windows installer: install.ps1 writes hermes.exe here and
+    // adds this directory to User PATH, but a running Mia process may not see
+    // the refreshed PATH until restart.
+    hermesHome ? path.join(hermesHome, "hermes-agent", "venv", "Scripts") : "",
+    localAppData ? path.join(localAppData, "hermes", "hermes-agent", "venv", "Scripts") : "",
+
+    // Claude Code's native installer owns the final launcher location. Keep
+    // PATH lookup as the source of truth, with common user-local locations as
+    // a best-effort fallback.
+    home ? path.join(home, ".claude", "local") : "",
+    home ? path.join(home, ".claude", "local", "bin") : "",
+    home ? path.join(home, ".claude", "bin") : "",
+    localAppData ? path.join(localAppData, "Programs", "Claude", "bin") : "",
+    localAppData ? path.join(localAppData, "Programs", "Claude Code", "bin") : "",
+
+    // Codex standalone Windows installer default, plus its configurable and
+    // current-release locations. npm/bun legacy installs still resolve by PATH.
+    codexInstallDir,
+    localAppData ? path.join(localAppData, "Programs", "OpenAI", "Codex", "bin") : "",
+    codexHome ? path.join(codexHome, "packages", "standalone", "current", "bin") : "",
+    codexHome ? path.join(codexHome, "packages", "standalone", "current") : "",
+
+    // npm global shims and OpenClaw's portable Node bootstrap location.
+    appData ? path.join(appData, "npm") : "",
+    localAppData ? path.join(localAppData, "OpenClaw", "deps", "portable-node") : "",
+    localAppData ? path.join(localAppData, "OpenClaw", "deps", "portable-node", "node_modules", ".bin") : "",
+    home ? path.join(home, "openclaw", "node_modules", ".bin") : "",
+    home ? path.join(home, "scoop", "shims") : ""
+  ].filter(Boolean);
+}
+
 function commandNameOnly(command) {
   const value = String(command || "").trim();
   if (!/^[A-Za-z0-9._-]+$/.test(value)) return "";
@@ -141,6 +179,10 @@ function createLocalAgentEngineService(deps = {}) {
     return typeof envSource === "function" ? (envSource() || {}) : envSource;
   }
 
+  function pathListDelimiter() {
+    return platform === "win32" ? ";" : path.delimiter;
+  }
+
   function cliPathSegments() {
     const home = String(homeDir() || "").trim();
     const env = currentEnv();
@@ -153,6 +195,12 @@ function createLocalAgentEngineService(deps = {}) {
       path.join(home, "Library", "pnpm"),
       ...nodeVersionManagerPathSegments(home, env, fsImpl)
     ] : [];
+    if (platform === "win32") {
+      return [
+        ...windowsAgentPathSegments(home, env),
+        ...userSegments
+      ];
+    }
     return [...userSegments, ...SYSTEM_CLI_PATH_SEGMENTS];
   }
 
@@ -160,9 +208,9 @@ function createLocalAgentEngineService(deps = {}) {
     const current = String(currentEnv().PATH || "");
     const segments = [
       ...cliPathSegments(),
-      ...current.split(path.delimiter)
+      ...current.split(pathListDelimiter())
     ].filter(Boolean);
-    return [...new Set(segments)].join(path.delimiter);
+    return [...new Set(segments)].join(pathListDelimiter());
   }
 
   function processEnvWithCliPath() {
@@ -179,6 +227,26 @@ function createLocalAgentEngineService(deps = {}) {
     } catch {
       return "";
     }
+  }
+
+  function commandFileNames(name) {
+    if (platform !== "win32") return [name];
+    if (/\.(?:exe|cmd|bat|ps1)$/i.test(name)) return [name];
+    return [name, `${name}.exe`, `${name}.cmd`, `${name}.bat`, `${name}.ps1`];
+  }
+
+  function directCommandPath(name) {
+    const dirs = [
+      ...cliPathSegments(),
+      ...String(currentEnv().PATH || "").split(pathListDelimiter())
+    ].filter(Boolean);
+    for (const dir of dirs) {
+      for (const fileName of commandFileNames(name)) {
+        const found = executablePath(path.join(dir, fileName));
+        if (found) return found;
+      }
+    }
+    return "";
   }
 
   // Windows has no zsh and uses .exe/.cmd/.bat executables, so the posix
@@ -201,20 +269,14 @@ function createLocalAgentEngineService(deps = {}) {
   function shellCommandPath(command) {
     const name = commandNameOnly(command);
     if (!name) return "";
+    const direct = directCommandPath(name);
+    if (direct) return direct;
     if (platform === "win32") return windowsCommandPath(name);
     // Fast path first: scan the known CLI dirs + the process PATH directly, with
     // no child process. The previous `zsh -lc` login shell sourced the user's
     // full profile and was the main first-launch stall (run once per agent). We
     // only fall back to it when direct resolution fails, so a CLI on a custom,
     // profile-only PATH is still found.
-    const dirs = [
-      ...cliPathSegments(),
-      ...String(currentEnv().PATH || "").split(path.delimiter)
-    ].filter(Boolean);
-    for (const dir of dirs) {
-      const found = executablePath(path.join(dir, name));
-      if (found) return found;
-    }
     const result = spawnSync("zsh", ["-lc", `command -v ${name}`], {
       encoding: "utf8",
       timeout: 1500,
@@ -263,14 +325,8 @@ function createLocalAgentEngineService(deps = {}) {
   async function shellCommandPathAsync(command) {
     const name = commandNameOnly(command);
     if (!name) return "";
-    const dirs = [
-      ...cliPathSegments(),
-      ...String(currentEnv().PATH || "").split(path.delimiter)
-    ].filter(Boolean);
-    for (const dir of dirs) {
-      const found = executablePath(path.join(dir, name));
-      if (found) return found;
-    }
+    const direct = directCommandPath(name);
+    if (direct) return direct;
     if (platform === "win32") {
       const result = await execFileAsync("where", [name], { encoding: "utf8", timeout: 1500, env: processEnvWithCliPath() });
       if (!result.error) {

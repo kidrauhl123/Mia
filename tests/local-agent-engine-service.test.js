@@ -29,6 +29,7 @@ function makeService(t, overrides = {}) {
     // Async probe default: resolve nothing, so async detection tests never spawn
     // real processes unless they override execFile.
     execFile: (_file, _args, _options, cb) => cb(new Error("not found"), "", ""),
+    platform: "darwin",
     ...overrides
   });
   return { calls, home, service };
@@ -112,6 +113,45 @@ test("shellCommandPath uses `where` on Windows and returns the first resolved pa
   assert.equal(service.shellCommandPath("claude"), "C:\\Users\\me\\AppData\\Roaming\\npm\\claude.cmd");
   assert.equal(calls.filter((call) => call[0] === "zsh").length, 0);
   assert.deepEqual(calls, [["where", ["claude"]]]);
+});
+
+test("shellCommandPath scans official Windows agent install directories before PATH lookup", (t) => {
+  let root = "";
+  const calls = [];
+  const { home, service } = makeService(t, {
+    platform: "win32",
+    env: () => ({
+      PATH: "",
+      LOCALAPPDATA: path.join(root, "AppData", "Local"),
+      APPDATA: path.join(root, "AppData", "Roaming")
+    }),
+    fs: {
+      accessSync: (p, mode) => {
+        if (!String(p).startsWith(home)) throw new Error("ENOENT");
+        return fs.accessSync(p, mode);
+      }
+    },
+    spawnSync: (command, args) => {
+      calls.push([command, args]);
+      return { status: 1, stdout: "", stderr: "" };
+    }
+  });
+  root = home;
+
+  const hermes = path.join(root, "AppData", "Local", "hermes", "hermes-agent", "venv", "Scripts", "hermes.exe");
+  const claude = path.join(root, ".claude", "local", "bin", "claude.exe");
+  const codex = path.join(root, "AppData", "Local", "Programs", "OpenAI", "Codex", "bin", "codex.exe");
+  const openclaw = path.join(root, "AppData", "Roaming", "npm", "openclaw.cmd");
+  for (const filePath of [hermes, claude, codex, openclaw]) {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, "");
+  }
+
+  assert.equal(service.shellCommandPath("hermes"), hermes);
+  assert.equal(service.shellCommandPath("claude"), claude);
+  assert.equal(service.shellCommandPath("codex"), codex);
+  assert.equal(service.shellCommandPath("openclaw"), openclaw);
+  assert.deepEqual(calls, []);
 });
 
 test("shellCommandPath returns empty on Windows when `where` finds nothing", (t) => {

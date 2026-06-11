@@ -6,6 +6,14 @@ const { test } = require("node:test");
 
 const { createSchedulerMcpBridge } = require("../src/main/scheduler-mcp-bridge.js");
 
+function escapeRe(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function tomlStringValue(value) {
+  return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
 function setup(t, overrides = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-scheduler-mcp-bridge-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -93,7 +101,7 @@ test("ensureCodexHome links reusable Codex state, isolates sessions, and rewrite
   const codexHome = service.ensureCodexHome();
 
   assert.equal(codexHome.endsWith(path.join("runtime", "codex-home")), true);
-  assert.equal(fs.lstatSync(path.join(codexHome, "auth.json")).isSymbolicLink(), true);
+  assert.equal(fs.readFileSync(path.join(codexHome, "auth.json"), "utf8"), "{}");
   assert.equal(fs.existsSync(path.join(codexHome, "sessions")), false);
   assert.equal(fs.lstatSync(path.join(codexHome, "config.toml")).isSymbolicLink(), false);
 
@@ -104,7 +112,7 @@ test("ensureCodexHome links reusable Codex state, isolates sessions, and rewrite
   assert.doesNotMatch(config, /command = "old"/);
   assert.match(config, /\[mcp_servers\.mia-scheduler\]/);
   assert.match(config, /command = "\/opt\/node \\"quoted\\""/);
-  assert.match(config, new RegExp(`args = \\["${runtimeScriptPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"\\]`));
+  assert.match(config, new RegExp(`args = \\["${escapeRe(tomlStringValue(runtimeScriptPath))}"\\]`));
   assert.equal(fs.readFileSync(runtimeScriptPath, "utf8"), "server");
   assert.match(config, /MIA_DAEMON_TOKEN = "token_1"/);
 });

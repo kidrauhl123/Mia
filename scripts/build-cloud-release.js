@@ -29,7 +29,7 @@ function copyDir(source, target) {
   fs.cpSync(path.join(root, source), target, { recursive: true, filter: shouldCopyReleaseEntry });
 }
 
-function newestDesktopDmg(sourcePatterns) {
+function newestReleaseArtifact(sourcePatterns) {
   const releaseDir = path.join(root, "release");
   if (!fs.existsSync(releaseDir)) return "";
   return fs.readdirSync(releaseDir)
@@ -72,13 +72,22 @@ function copyDesktopDownloadArtifacts() {
           test: (file) => /^Mia-.*-x64-unsigned\.dmg$/.test(file)
         }
       ]
+    },
+    {
+      aliases: ["mia-windows-latest.exe", "mia-windows-x64-latest.exe"],
+      patterns: [
+        {
+          label: "Mia-*-Setup.exe",
+          test: (file) => /^Mia-.*-Setup\.exe$/.test(file)
+        }
+      ]
     }
   ];
   for (const target of targets) {
-    const dmg = newestDesktopDmg(target.patterns);
-    if (!dmg) continue;
+    const artifact = newestReleaseArtifact(target.patterns);
+    if (!artifact) continue;
     for (const alias of target.aliases) {
-      fs.copyFileSync(dmg, path.join(downloadsDir, alias));
+      fs.copyFileSync(artifact, path.join(downloadsDir, alias));
     }
   }
 }

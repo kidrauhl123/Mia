@@ -74,7 +74,7 @@ test("selectOfficialEnginePython chooses the first Python 3.11+ candidate", (t) 
   });
 
   assert.equal(service.selectOfficialEnginePython(), "python3.13");
-  assert.deepEqual(seen, ["custom-python", "python3.13"]);
+  assert.deepEqual(seen, ["custom-python", "python3.14", "python3.13"]);
 });
 
 test("selectOfficialEnginePython fails clearly when no candidate is new enough", (t) => {
@@ -86,6 +86,124 @@ test("selectOfficialEnginePython fails clearly when no candidate is new enough",
   assert.throws(
     () => service.selectOfficialEnginePython(),
     /Official Hermes requires Python 3\.11\+/
+  );
+});
+
+test("selectOfficialEnginePython falls back to python on Windows", (t) => {
+  const seen = [];
+  const { service } = setup(t, {
+    platform: "win32",
+    spawnSync: (command) => {
+      seen.push(command);
+      if (command === "python") return { status: 0, stdout: "3.13.4\n", stderr: "" };
+      return { status: 1, stdout: "", stderr: "not found\n" };
+    }
+  });
+
+  assert.equal(service.selectOfficialEnginePython(), "python");
+  assert.deepEqual(seen, ["python3.14", "python3.13", "python3.12", "python3.11", "python3", "python"]);
+});
+
+test("installEngine uses official Windows installers for Windows agents", (t) => {
+  const { calls, service } = setup(t, {
+    platform: "win32",
+    systemHermesPython: () => "C:\\Users\\me\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\python.exe",
+    shellCommandPath: (command) => ({
+      claude: "C:\\Users\\me\\.claude\\local\\bin\\claude.exe",
+      codex: "C:\\Users\\me\\AppData\\Local\\Programs\\OpenAI\\Codex\\bin\\codex.exe",
+      openclaw: "C:\\Users\\me\\AppData\\Roaming\\npm\\openclaw.cmd"
+    })[command] || "",
+    spawnSync: (command, args, options) => {
+      calls.push({ type: "spawn", command, args, options });
+      return { status: 0, stdout: "installed\n", stderr: "" };
+    }
+  });
+
+  service.installEngine("hermes");
+  service.installEngine("claude-code");
+  service.installEngine("codex");
+  service.installEngine("openclaw");
+
+  const commands = calls
+    .filter((call) => call.type === "spawn")
+    .map((call) => [call.command, call.args.join(" ")]);
+  assert.equal(commands.length, 4);
+  assert.equal(commands.every(([command]) => command === "powershell.exe"), true);
+  assert.match(commands[0][1], /hermes-agent\.nousresearch\.com\/install\.ps1/);
+  assert.match(commands[0][1], /-NonInteractive/);
+  assert.match(commands[1][1], /claude\.ai\/install\.ps1/);
+  assert.match(commands[2][1], /chatgpt\.com\/codex\/install\.ps1/);
+  assert.match(commands[2][1], /CODEX_NON_INTERACTIVE/);
+  assert.match(commands[3][1], /openclaw\.ai\/install\.ps1/);
+  assert.match(commands[3][1], /-NoOnboard/);
+  assert.doesNotMatch(commands.map((entry) => entry[1]).join("\n"), /npm install -g|pip install/);
+});
+
+test("installWithWindowsInstallerAsync launches PowerShell without cmd shell wrapping", async (t) => {
+  const spawns = [];
+  const { service } = setup(t, {
+    platform: "win32",
+    shellCommandPath: (command) => command === "codex" ? "C:\\Users\\me\\AppData\\Local\\Programs\\OpenAI\\Codex\\bin\\codex.exe" : "",
+    spawn: (command, args, options) => {
+      spawns.push({ command, args, options });
+      return fakeSpawnResult({ stdout: "installed\n" });
+    }
+  });
+
+  await service.installWithWindowsInstallerAsync("codex");
+
+  assert.equal(spawns.length, 1);
+  assert.equal(spawns[0].command, "powershell.exe");
+  assert.equal(spawns[0].options.shell, false);
+  assert.match(spawns[0].args.join(" "), /CODEX_NON_INTERACTIVE/);
+  assert.match(spawns[0].args.join(" "), /chatgpt\.com\/codex\/install\.ps1/);
+});
+
+test("installWithWindowsInstallerAsync runs Hermes manifest stages and reports percent", async (t) => {
+  const spawns = [];
+  const progress = [];
+  const manifest = {
+    stages: [
+      { name: "uv", title: "Installing uv package manager", category: "prereqs", needs_user_input: false },
+      { name: "repository", title: "Cloning Hermes repository", category: "install", needs_user_input: false },
+      { name: "configure", title: "Configuring API keys and models", category: "post-install", needs_user_input: true }
+    ]
+  };
+  const { service } = setup(t, {
+    platform: "win32",
+    systemHermesPython: () => "C:\\Users\\me\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\python.exe",
+    spawn: (command, args, options) => {
+      spawns.push({ command, args, options });
+      const commandText = args.join(" ");
+      if (commandText.includes("-Manifest")) {
+        return fakeSpawnResult({ stdout: `${JSON.stringify(manifest)}\n` });
+      }
+      return fakeSpawnResult({ stdout: "stage ok\n" });
+    }
+  });
+
+  const status = await service.installWithWindowsInstallerAsync("hermes", { onProgress: (payload) => progress.push(payload) });
+
+  const commands = spawns.map((spawn) => spawn.args.join(" "));
+  assert.equal(spawns.every((spawn) => spawn.command === "powershell.exe"), true);
+  assert.match(commands[0], /-Manifest/);
+  assert.match(commands[1], /-Stage 'uv'/);
+  assert.match(commands[2], /-Stage 'repository'/);
+  assert.doesNotMatch(commands.join("\n"), /configure/);
+  assert.equal(progress.some((payload) => payload.engineId === "hermes" && payload.status === "success" && payload.percent === 100), true);
+  assert.deepEqual(status, { created: ["hermes"], engineInstalled: true });
+});
+
+test("installWithWindowsInstallerAsync fails when installer exits but detection is still missing", async (t) => {
+  const { service } = setup(t, {
+    platform: "win32",
+    shellCommandPath: () => "",
+    spawn: () => fakeSpawnResult({ stdout: "installer finished without launcher\n" })
+  });
+
+  await assert.rejects(
+    () => service.installWithWindowsInstallerAsync("codex"),
+    /installer finished, but Mia still cannot detect Codex.*installer finished without launcher/
   );
 });
 

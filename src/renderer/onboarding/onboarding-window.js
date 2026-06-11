@@ -132,12 +132,14 @@
       const failed = install && install.status === "error";
       const { text, cls } = rowStatus(agent);
       const canInstall = !installing && agent && agent.installable && !agent.usableInMia && !agent.installed && agent.installAction;
+      const installPercent = Number(install?.percent);
+      const percent = Number.isFinite(installPercent) ? Math.max(0, Math.min(100, Math.round(installPercent))) : null;
       const detail = install?.message
         ? `<small class="onb-row-detail ${failed ? "error" : ""}">${esc(shortMessage(install.message))}</small>`
         : "";
-      const progress = installing ? `<span class="onb-row-progress" aria-hidden="true"><span></span></span>` : "";
+      const progress = installing ? `<span class="onb-row-progress" aria-hidden="true"><span style="width:${percent === null ? 18 : Math.max(4, percent)}%"></span></span>` : "";
       const right = installing
-        ? `<button class="onb-row-btn" type="button" disabled>安装中</button>`
+        ? `<button class="onb-row-btn" type="button" disabled>${percent === null ? "安装中" : `安装中 ${percent}%`}</button>`
         : canInstall
         ? `<button class="onb-row-btn" type="button" data-install="${def.id}">安装</button>`
         : `<span class="onb-row-status">${esc(text)}</span>`;
@@ -231,18 +233,18 @@
 
   async function installAgent(id, button) {
     if (!mia.installEngine) return;
-    installStates[id] = { status: "installing", message: "正在准备安装..." };
+    installStates[id] = { status: "installing", message: "正在准备安装...", percent: 0 };
     render();
     try {
       await mia.installEngine(id);
-      installStates[id] = { status: "installing", message: "安装完成，正在重新检测..." };
+      installStates[id] = { status: "installing", message: "安装完成，正在重新检测...", percent: 100 };
       const result = await mia.scanAgents?.();
       if (result && result.inventory) inventory = result.inventory;
       const agent = ((inventory && inventory.agents) || []).find((x) => x.id === id);
       if (agent && (agent.usableInMia || agent.installed)) delete installStates[id];
       else installStates[id] = { status: "error", message: "安装命令已结束，但 Mia 仍未检测到。请确认命令所在目录已加入 PATH 后重试。" };
     } catch (error) {
-      installStates[id] = { status: "error", message: `安装失败：${error?.message || error}` };
+      installStates[id] = { status: "error", message: `安装失败：${error?.message || error}`, percent: installStates[id]?.percent };
       try {
         const result = await mia.scanAgents?.();
         if (result && result.inventory) inventory = result.inventory;
@@ -254,12 +256,14 @@
   mia.onEngineInstallProgress?.((payload) => {
     const id = String(payload?.engineId || "").trim();
     if (!id) return;
+    const percentValue = Number(payload.percent);
+    const percent = Number.isFinite(percentValue) ? Math.max(0, Math.min(100, Math.round(percentValue))) : installStates[id]?.percent;
     if (payload.status === "error") {
-      installStates[id] = { status: "error", message: `安装失败：${payload.message || "未知错误"}` };
+      installStates[id] = { status: "error", message: `安装失败：${payload.message || "未知错误"}`, percent };
     } else if (payload.status === "success") {
-      installStates[id] = { status: "installing", message: payload.message || "安装完成，正在重新检测..." };
+      installStates[id] = { status: "installing", message: payload.message || "安装完成，正在重新检测...", percent: 100 };
     } else {
-      installStates[id] = { status: "installing", message: payload.message || "正在安装..." };
+      installStates[id] = { status: "installing", message: payload.message || "正在安装...", percent };
     }
     if (step === "done") scheduleRender();
   });

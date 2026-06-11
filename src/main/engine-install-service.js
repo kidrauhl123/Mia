@@ -45,6 +45,31 @@ function createEngineInstallService(deps = {}) {
     codex: "@openai/codex",
     openclaw: "openclaw"
   };
+  const ENGINE_COMMANDS = {
+    hermes: ["hermes"],
+    "claude-code": ["claude"],
+    codex: ["codex"],
+    openclaw: ["openclaw", "claw"]
+  };
+  const WINDOWS_ENGINE_INSTALLERS = {
+    hermes: {
+      url: "https://hermes-agent.nousresearch.com/install.ps1",
+      args: ["-NonInteractive"]
+    },
+    "claude-code": {
+      url: "https://claude.ai/install.ps1",
+      args: []
+    },
+    codex: {
+      url: "https://chatgpt.com/codex/install.ps1",
+      args: [],
+      env: { CODEX_NON_INTERACTIVE: "1" }
+    },
+    openclaw: {
+      url: "https://openclaw.ai/install.ps1",
+      args: ["-NoOnboard"]
+    }
+  };
 
   const installSourceService = deps.installSourceService || createHermesInstallSourceService({
     env,
@@ -73,7 +98,15 @@ function createEngineInstallService(deps = {}) {
   }
 
   function selectOfficialEnginePython() {
-    const candidates = [officialPython, "python3.13", "python3.12", "python3.11", "python3"].filter(Boolean);
+    const candidates = [
+      officialPython,
+      "python3.14",
+      "python3.13",
+      "python3.12",
+      "python3.11",
+      "python3",
+      platform === "win32" ? "python" : ""
+    ].filter(Boolean);
     for (const command of candidates) {
       const info = pythonVersion(command);
       if (info && (info.major > 3 || (info.major === 3 && info.minor >= 11))) return command;
@@ -101,13 +134,56 @@ function createEngineInstallService(deps = {}) {
     for (const line of String(output || "").split(/\r?\n/).filter(Boolean)) appendLog(line);
   }
 
+  function normalizePercent(value) {
+    const percent = Number(value);
+    if (!Number.isFinite(percent)) return undefined;
+    return Math.max(0, Math.min(100, Math.round(percent)));
+  }
+
   function emitProgress(options, payload = {}) {
     if (typeof options?.onProgress === "function") {
-      options.onProgress({
+      const next = {
         engineId: payload.engineId || "hermes",
         ...payload
-      });
+      };
+      const percent = normalizePercent(payload.percent);
+      if (percent === undefined) delete next.percent;
+      else next.percent = percent;
+      options.onProgress(next);
     }
+  }
+
+  function psQuote(value) {
+    return `'${String(value || "").replace(/'/g, "''")}'`;
+  }
+
+  function windowsInstallerEnvAssignments(installer) {
+    return Object.entries(installer.env || {})
+      .map(([key, value]) => `$env:${key}=${psQuote(value)};`)
+      .join(" ");
+  }
+
+  function windowsInstallerCommand(engineId) {
+    const installer = WINDOWS_ENGINE_INSTALLERS[engineId];
+    if (!installer) throw new Error(`No Windows installer mapping for engine ${engineId}.`);
+    const envAssignments = windowsInstallerEnvAssignments(installer);
+    const args = (installer.args || []).join(" ");
+    return `${envAssignments} & ([scriptblock]::Create((irm ${psQuote(installer.url)}))) ${args}`.trim();
+  }
+
+  function windowsInstallerManifestCommand(engineId) {
+    const installer = WINDOWS_ENGINE_INSTALLERS[engineId];
+    if (!installer) throw new Error(`No Windows installer mapping for engine ${engineId}.`);
+    const envAssignments = windowsInstallerEnvAssignments(installer);
+    return `${envAssignments} & ([scriptblock]::Create((irm ${psQuote(installer.url)}))) -Manifest`.trim();
+  }
+
+  function windowsInstallerStageCommand(engineId, stageName) {
+    const installer = WINDOWS_ENGINE_INSTALLERS[engineId];
+    if (!installer) throw new Error(`No Windows installer mapping for engine ${engineId}.`);
+    const envAssignments = windowsInstallerEnvAssignments(installer);
+    const args = ["-Stage", psQuote(stageName), ...(installer.args || [])].join(" ");
+    return `${envAssignments} & ([scriptblock]::Create((irm ${psQuote(installer.url)}))) ${args}`.trim();
   }
 
   function runInstallCommand(command, args, cwd) {
@@ -122,6 +198,12 @@ function createEngineInstallService(deps = {}) {
     if (result.error) throw result.error;
     if (result.status !== 0) throw new Error(`${command} exited with code ${result.status}`);
     return result;
+  }
+
+  function useWindowsShell(command) {
+    if (platform !== "win32") return false;
+    const base = path.basename(String(command || "")).toLowerCase();
+    return base !== "powershell.exe" && base !== "powershell" && base !== "pwsh.exe" && base !== "pwsh";
   }
 
   function createLineCollector(onLine) {
@@ -149,14 +231,15 @@ function createEngineInstallService(deps = {}) {
       engineId: options.engineId || "hermes",
       status: "running",
       stage: options.stage || "command",
-      message: options.message || `${command} ${args.join(" ")}`
+      message: options.message || `${command} ${args.join(" ")}`,
+      percent: options.percent
     });
 
     return new Promise((resolve, reject) => {
       const child = spawnProcess(command, args, {
         cwd,
         env: { ...env, PIP_DISABLE_PIP_VERSION_CHECK: "1", PYTHONPATH: buildPythonPath() },
-        shell: platform === "win32"
+        shell: useWindowsShell(command)
       });
       const outputLines = [];
       const rememberLine = (line) => {
@@ -166,22 +249,28 @@ function createEngineInstallService(deps = {}) {
       const stdout = createLineCollector((line) => {
         rememberLine(line);
         appendLog(line);
-        emitProgress(options, {
-          engineId: options.engineId || "hermes",
-          status: "running",
-          stage: options.stage || "command",
-          message: line
-        });
+        if (options.emitOutputProgress !== false) {
+          emitProgress(options, {
+            engineId: options.engineId || "hermes",
+            status: "running",
+            stage: options.stage || "command",
+            message: line,
+            percent: options.percent
+          });
+        }
       });
       const stderr = createLineCollector((line) => {
         rememberLine(line);
         appendLog(line);
-        emitProgress(options, {
-          engineId: options.engineId || "hermes",
-          status: "running",
-          stage: options.stage || "command",
-          message: line
-        });
+        if (options.emitOutputProgress !== false) {
+          emitProgress(options, {
+            engineId: options.engineId || "hermes",
+            status: "running",
+            stage: options.stage || "command",
+            message: line,
+            percent: options.percent
+          });
+        }
       });
       const abort = () => {
         try { child.kill(); } catch { /* already exited */ }
@@ -209,9 +298,213 @@ function createEngineInstallService(deps = {}) {
           reject(error);
           return;
         }
-        resolve({ status: code });
+        resolve({ status: code, output: outputLines.join("\n") });
       });
     });
+  }
+
+  function installOutputTail(output) {
+    return String(output || "")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .slice(-8)
+      .join(" | ");
+  }
+
+  function isWindowsEngineDetected(engineId) {
+    if (engineId === "hermes") return Boolean(systemHermesPythonPath());
+    return (ENGINE_COMMANDS[engineId] || []).some((command) => Boolean(shellCommandPath(command)));
+  }
+
+  async function refreshDetectionAsync() {
+    try {
+      const result = refreshSystemHermes();
+      if (result && typeof result.then === "function") await result;
+    } catch {
+      // Detection refresh is best-effort; the explicit post-install check below
+      // still probes live paths through systemHermesPython/shellCommandPath.
+    }
+  }
+
+  function assertWindowsInstallDetected(engineId, output = "") {
+    if (isWindowsEngineDetected(engineId)) return;
+    const label = engineId === "claude-code" ? "Claude Code" : engineId === "hermes" ? "Hermes" : engineId === "openclaw" ? "OpenClaw" : "Codex";
+    const tail = installOutputTail(output);
+    throw new Error(`Official ${label} installer finished, but Mia still cannot detect ${label}.${tail ? ` Last output: ${tail}` : ""}`);
+  }
+
+  function parseInstallerManifest(output, engineId) {
+    const text = String(output || "").trim();
+    const start = text.indexOf("{");
+    const end = text.lastIndexOf("}");
+    if (start < 0 || end <= start) {
+      throw new Error(`Official ${engineId} installer did not return a stage manifest.`);
+    }
+    const manifest = JSON.parse(text.slice(start, end + 1));
+    if (!Array.isArray(manifest.stages)) {
+      throw new Error(`Official ${engineId} installer returned an invalid stage manifest.`);
+    }
+    return manifest.stages;
+  }
+
+  async function readWindowsInstallerManifestAsync(engineId, options = {}) {
+    emitProgress(options, {
+      engineId,
+      status: "running",
+      stage: "manifest",
+      percent: 1,
+      message: `读取 ${engineId} 官方安装步骤...`
+    });
+    const result = await runInstallCommandAsync(
+      "powershell.exe",
+      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", windowsInstallerManifestCommand(engineId)],
+      undefined,
+      {
+        ...options,
+        engineId,
+        stage: "manifest",
+        percent: 1,
+        message: `读取 ${engineId} 官方安装步骤...`,
+        emitOutputProgress: false
+      }
+    );
+    return parseInstallerManifest(result.output, engineId);
+  }
+
+  function stagePercent(index, total) {
+    if (!total) return 2;
+    return Math.max(2, Math.min(97, Math.round((index / total) * 94) + 2));
+  }
+
+  async function installHermesWithWindowsStagesAsync(options = {}) {
+    const { signal = null } = options;
+    throwIfCancelled(signal);
+    initializeRuntime();
+    stopEngine();
+    clearLogs();
+    const manifestStages = await readWindowsInstallerManifestAsync("hermes", options);
+    const installStages = manifestStages
+      .filter((stage) => stage && !stage.needs_user_input && stage.category !== "post-install")
+      .map((stage) => ({
+        name: String(stage.name || "").trim(),
+        title: String(stage.title || stage.name || "").trim()
+      }))
+      .filter((stage) => stage.name);
+    if (!installStages.length) {
+      throw new Error("Official Hermes installer did not expose any non-interactive install stages.");
+    }
+
+    let lastOutput = "";
+    for (let index = 0; index < installStages.length; index += 1) {
+      throwIfCancelled(signal);
+      const stage = installStages[index];
+      const total = installStages.length;
+      const startPercent = stagePercent(index, total);
+      const donePercent = stagePercent(index + 1, total);
+      const message = `正在安装 Hermes：${stage.title} (${index + 1}/${total})`;
+      emitProgress(options, {
+        engineId: "hermes",
+        status: "running",
+        stage: stage.name,
+        percent: startPercent,
+        message
+      });
+      const result = await runInstallCommandAsync(
+        "powershell.exe",
+        ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", windowsInstallerStageCommand("hermes", stage.name)],
+        undefined,
+        {
+          ...options,
+          engineId: "hermes",
+          stage: stage.name,
+          percent: startPercent,
+          message,
+          emitOutputProgress: false
+        }
+      );
+      lastOutput = result.output;
+      emitProgress(options, {
+        engineId: "hermes",
+        status: "running",
+        stage: stage.name,
+        percent: donePercent,
+        message: `已完成：${stage.title} (${index + 1}/${total})`
+      });
+    }
+
+    ensureEnginePlugins();
+    await refreshDetectionAsync();
+    resetAgentEngineCache();
+    assertWindowsInstallDetected("hermes", lastOutput);
+    emitProgress(options, {
+      engineId: "hermes",
+      status: "success",
+      stage: "done",
+      percent: 100,
+      message: "Hermes 安装完成，正在刷新检测..."
+    });
+    return getRuntimeStatus(["hermes"]);
+  }
+
+  function installWithWindowsInstaller(engineId, options = {}) {
+    const { signal = null } = options;
+    throwIfCancelled(signal);
+    if (engineId === "hermes") initializeRuntime();
+    stopEngine();
+    clearLogs();
+    const commandText = windowsInstallerCommand(engineId);
+    const result = runInstallCommand(
+      "powershell.exe",
+      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", commandText],
+      undefined
+    );
+    if (engineId === "hermes") ensureEnginePlugins();
+    refreshDetection();
+    resetAgentEngineCache();
+    assertWindowsInstallDetected(engineId, `${result.stdout || ""}\n${result.stderr || ""}`);
+    return getRuntimeStatus([engineId]);
+  }
+
+  async function installWithWindowsInstallerAsync(engineId, options = {}) {
+    if (engineId === "hermes") return installHermesWithWindowsStagesAsync(options);
+    const { signal = null } = options;
+    throwIfCancelled(signal);
+    if (engineId === "hermes") initializeRuntime();
+    stopEngine();
+    clearLogs();
+    emitProgress(options, {
+      engineId,
+      status: "running",
+      stage: "windows-installer",
+      percent: 5,
+      message: `Running official Windows installer for ${engineId}.`
+    });
+    const commandText = windowsInstallerCommand(engineId);
+    const result = await runInstallCommandAsync(
+      "powershell.exe",
+      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", commandText],
+      undefined,
+      {
+        ...options,
+        engineId,
+        stage: "windows-installer",
+        percent: 10,
+        message: `Running official Windows installer for ${engineId}.`
+      }
+    );
+    if (engineId === "hermes") ensureEnginePlugins();
+    await refreshDetectionAsync();
+    resetAgentEngineCache();
+    assertWindowsInstallDetected(engineId, result.output);
+    emitProgress(options, {
+      engineId,
+      status: "success",
+      stage: "done",
+      percent: 100,
+      message: `${engineId} installed; refreshing detection.`
+    });
+    return getRuntimeStatus([engineId]);
   }
 
   function refreshDetection() {
@@ -294,6 +587,7 @@ function createEngineInstallService(deps = {}) {
   // install is not reported as success), then link the entrypoint into
   // ~/.local/bin so system-hermes-service detects it.
   function installFromOfficialPackage(options = {}) {
+    if (platform === "win32") return installWithWindowsInstaller("hermes", options);
     const { signal = null } = options;
     throwIfCancelled(signal);
     initializeRuntime();
@@ -344,6 +638,7 @@ function createEngineInstallService(deps = {}) {
   }
 
   async function installFromOfficialPackageAsync(options = {}) {
+    if (platform === "win32") return installWithWindowsInstallerAsync("hermes", options);
     const { signal = null } = options;
     throwIfCancelled(signal);
     initializeRuntime();
@@ -537,23 +832,27 @@ function createEngineInstallService(deps = {}) {
     return getRuntimeStatus([engineId]);
   }
 
-  // Dispatch install by engine. Hermes uses the official PyPI flow; claude/codex
-  // use their official npm packages. Anything else is not installable here.
+  // Dispatch install by engine. Windows uses each upstream's native installer;
+  // other platforms keep the existing PyPI/npm flows.
   function installEngine(engineId, options = {}) {
-    if (!engineId || engineId === "hermes") return installFromOfficialPackage(options);
-    if (NPM_ENGINE_PACKAGES[engineId]) return installNpmEngine(engineId, options);
-    throw new Error(`Engine ${engineId} is not installable from Mia.`);
+    const id = engineId || "hermes";
+    if (platform === "win32" && WINDOWS_ENGINE_INSTALLERS[id]) return installWithWindowsInstaller(id, options);
+    if (id === "hermes") return installFromOfficialPackage(options);
+    if (NPM_ENGINE_PACKAGES[id]) return installNpmEngine(id, options);
+    throw new Error(`Engine ${id} is not installable from Mia.`);
   }
 
   function installEngineAsync(engineId, options = {}) {
-    if (!engineId || engineId === "hermes") return installFromOfficialPackageAsync(options);
-    if (NPM_ENGINE_PACKAGES[engineId]) return installNpmEngineAsync(engineId, options);
-    throw new Error(`Engine ${engineId} is not installable from Mia.`);
+    const id = engineId || "hermes";
+    if (platform === "win32" && WINDOWS_ENGINE_INSTALLERS[id]) return installWithWindowsInstallerAsync(id, options);
+    if (id === "hermes") return installFromOfficialPackageAsync(options);
+    if (NPM_ENGINE_PACKAGES[id]) return installNpmEngineAsync(id, options);
+    throw new Error(`Engine ${id} is not installable from Mia.`);
   }
 
   function install(options = {}) {
     throwIfCancelled(options.signal);
-    return installFromOfficialPackage(options);
+    return installEngine("hermes", options);
   }
 
   function repair(options = {}) {
@@ -561,7 +860,7 @@ function createEngineInstallService(deps = {}) {
   }
 
   function repairAsync(options = {}) {
-    return installFromOfficialPackageAsync(options);
+    return installEngineAsync("hermes", options);
   }
 
   return {
@@ -575,6 +874,8 @@ function createEngineInstallService(deps = {}) {
     runInstallCommandAsync,
     installFromOfficialPackage,
     installFromOfficialPackageAsync,
+    installWithWindowsInstaller,
+    installWithWindowsInstallerAsync,
     installNpmEngine,
     installNpmEngineAsync,
     installEngine,

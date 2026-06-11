@@ -17,6 +17,39 @@ function createAgentRuntimeProfileService(deps = {}) {
   const fsImpl = deps.fs || fs;
   const homeDir = typeof deps.homeDir === "function" ? deps.homeDir : () => os.homedir();
 
+  function linkOrCopyState(target, link, stat) {
+    try {
+      fsImpl.symlinkSync(target, link, stat.isDirectory() ? "dir" : "file");
+      return true;
+    } catch {
+      // Windows often requires Developer Mode or admin privileges for regular
+      // symlinks. Fall back to mechanisms that keep auth reuse working.
+    }
+
+    try {
+      if (stat.isDirectory()) {
+        fsImpl.symlinkSync(target, link, "junction");
+      } else if (typeof fsImpl.linkSync === "function") {
+        fsImpl.linkSync(target, link);
+      } else if (typeof fsImpl.copyFileSync === "function") {
+        fsImpl.copyFileSync(target, link);
+      }
+      return true;
+    } catch {
+      // Last resort for directory state: copy safe, non-blocked directories.
+    }
+
+    try {
+      if (stat.isDirectory() && typeof fsImpl.cpSync === "function") {
+        fsImpl.cpSync(target, link, { recursive: true });
+        return true;
+      }
+    } catch {
+      // Partial auth reuse is acceptable; native session isolation is not.
+    }
+    return false;
+  }
+
   function linkSafeUserState(userHome, miaHome) {
     if (!fsImpl.existsSync(userHome)) return;
     fsImpl.mkdirSync(miaHome, { recursive: true });
@@ -42,11 +75,7 @@ function createAgentRuntimeProfileService(deps = {}) {
       } catch {
         // Missing or stale links are fine.
       }
-      try {
-        fsImpl.symlinkSync(target, link, stat.isDirectory() ? "dir" : "file");
-      } catch {
-        // Partial auth reuse is acceptable; native session isolation is not.
-      }
+      linkOrCopyState(target, link, stat);
     }
   }
 

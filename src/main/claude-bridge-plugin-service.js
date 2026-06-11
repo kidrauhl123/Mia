@@ -9,6 +9,30 @@ function createClaudeBridgePluginService(deps = {}) {
   const fsImpl = deps.fs || fs;
   const createHash = deps.createHash || ((algorithm) => crypto.createHash(algorithm));
 
+  function materializeSkillLink(source, target) {
+    try {
+      fsImpl.symlinkSync(source, target, "dir");
+      return true;
+    } catch {
+      // Windows may deny directory symlinks unless Developer Mode is enabled.
+    }
+    try {
+      fsImpl.symlinkSync(source, target, "junction");
+      return true;
+    } catch {
+      // Fall through to a physical copy so the bridge still exposes the skill.
+    }
+    try {
+      if (typeof fsImpl.cpSync === "function") {
+        fsImpl.cpSync(source, target, { recursive: true });
+        return true;
+      }
+    } catch {
+      // Ignore individual materialization failures; other skills may still work.
+    }
+    return false;
+  }
+
   function ensureInstalled() {
     const p = runtimePaths();
     const bridgeDir = path.join(p.runtime, "claude-bridge-plugin");
@@ -58,11 +82,7 @@ function createClaudeBridgePluginService(deps = {}) {
           const linkName = candidates.find((candidate) => !seen.has(candidate));
           if (!linkName) continue;
           seen.add(linkName);
-          try {
-            fsImpl.symlinkSync(skillPath, path.join(bridgeSkillsDir, linkName), "dir");
-          } catch {
-            // Ignore individual symlink failures; the remaining valid skills can still be exposed.
-          }
+          materializeSkillLink(skillPath, path.join(bridgeSkillsDir, linkName));
         }
       }
     }

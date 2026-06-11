@@ -502,7 +502,7 @@
             </div>
             <div class="settings-section-label">本机引擎</div>
             <section class="engine-detection wide" id="engineDetection">
-              <button class="engine-row" type="button" data-engine-row="hermes" aria-expanded="false">
+              <div class="engine-row config-disabled" role="button" tabindex="0" data-engine-row="hermes" aria-expanded="false" aria-disabled="true">
                 <span class="engine-row-logo asset hermes" aria-hidden="true">
                   <img src="./assets/engine-icons/hermesagent.svg" alt="">
                 </span>
@@ -510,8 +510,9 @@
                   <strong>Hermes</strong>
                   <small id="engineRowHermes">检测中…</small>
                 </span>
+                <span class="engine-row-actions" id="engineRowHermesActions"></span>
                 <span class="engine-row-chev" aria-hidden="true">›</span>
-              </button>
+              </div>
               <form id="modelForm" class="form-grid engine-detail-panel hidden">
                 <section class="connected-providers wide">
                   <div class="model-section-title">
@@ -557,6 +558,7 @@
                   <strong>Claude Code</strong>
                   <small id="engineRowClaude">检测中…</small>
                 </span>
+                <span class="engine-row-actions" id="engineRowClaudeActions"></span>
               </div>
               <div class="engine-row static" data-engine-row="codex">
                 <span class="engine-row-logo asset codex" aria-hidden="true">
@@ -566,6 +568,7 @@
                   <strong>Codex</strong>
                   <small id="engineRowCodex">检测中…</small>
                 </span>
+                <span class="engine-row-actions" id="engineRowCodexActions"></span>
               </div>
               <div class="engine-row static" data-engine-row="openclaw">
                 <span class="engine-row-logo asset openclaw" aria-hidden="true">
@@ -575,6 +578,7 @@
                   <strong>OpenClaw</strong>
                   <small id="engineRowOpenClaw">检测中…</small>
                 </span>
+                <span class="engine-row-actions" id="engineRowOpenClawActions"></span>
               </div>
               <div id="engineInstallActions" class="engine-install-actions hidden"></div>
             </section>

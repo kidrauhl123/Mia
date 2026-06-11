@@ -5,6 +5,35 @@ const assert = require("node:assert/strict");
 
 const rootDir = path.join(__dirname, "..");
 
+function commandOnPath(command) {
+  const checker = process.platform === "win32" ? "where" : "command";
+  const args = process.platform === "win32" ? [command] : ["-v", command];
+  try {
+    return childProcess.execFileSync(checker, args, {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"]
+    }).split(/\r?\n/).map((line) => line.trim()).find(Boolean) || "";
+  } catch {
+    return "";
+  }
+}
+
+function resolveBash() {
+  const found = commandOnPath("bash");
+  if (found) return found;
+  if (process.platform !== "win32") return "bash";
+
+  const candidates = [
+    path.join(process.env.ProgramFiles || "C:\\Program Files", "Git", "bin", "bash.exe"),
+    path.join(process.env.ProgramFiles || "C:\\Program Files", "Git", "usr", "bin", "bash.exe"),
+    path.join(process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)", "Git", "bin", "bash.exe"),
+    path.join(process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)", "Git", "usr", "bin", "bash.exe")
+  ];
+  const bash = candidates.find((candidate) => fs.existsSync(candidate));
+  if (bash) return bash;
+  throw new Error("Missing bash. Install Git for Windows or add Git\\bin to PATH.");
+}
+
 const required = [
   "src/main.js",
   "src/main/chat-engine-adapters.js",
@@ -42,6 +71,7 @@ const required = [
   "src/web/assets/mia-logo.png",
   "src/web/manifest.webmanifest",
   "scripts/clean-release.js",
+  "scripts/build-win.js",
   "electron-builder.mac-intel.js",
   "scripts/serve-web.js",
   "scripts/serve-cloud.js",
@@ -137,16 +167,17 @@ for (const file of forbiddenRootDuplicates) {
   }
 }
 
-for (const file of ["electron-builder.mac-intel.js", "src/main.js", "src/main/chat-engine-adapters.js", "src/main/chat-engine-registry.js", "src/main/chat-events.js", "src/main/chat-response.js", "src/main/claude-code-chat-adapter.js", "src/main/codex-chat-adapter.js", "src/main/bot-registry.js", "src/main/hermes-chat-adapter.js", "src/cloud/sqlite-store.js", "src/cloud/desktop-bridge-permission.js", "src/permission-modes.js", "src/preload.js", "src/renderer/bot/bot-directory.js", "src/renderer/app.js", "src/web/app.js", "packages/shared/index.js", "packages/shared/avatar.js", "packages/shared/contact.js", "packages/shared/group-tiles.js", "packages/shared/send-pipeline.js", "packages/shared/approval-queue.js", "packages/shared/optimistic-send.js", "packages/shared/session-history.js", "packages/shared/cloud-client.js", "packages/shared/bot-identity.js", "scripts/serve-web.js", "scripts/serve-cloud.js", "scripts/build-cloud-release.js", "scripts/print-cloud-release-handoff.js", "scripts/verify-cloud-production.js", "scripts/audit-cloud-productization.js", "scripts/diagnose-deploy-ssh.js", "scripts/print-cloud-blockers.js", "scripts/doctor-cloud.js", "scripts/smoke-cloud.js", "scripts/local-agent-bridge.js"]) {
+for (const file of ["electron-builder.mac-intel.js", "src/main.js", "src/main/chat-engine-adapters.js", "src/main/chat-engine-registry.js", "src/main/chat-events.js", "src/main/chat-response.js", "src/main/claude-code-chat-adapter.js", "src/main/codex-chat-adapter.js", "src/main/bot-registry.js", "src/main/hermes-chat-adapter.js", "src/cloud/sqlite-store.js", "src/cloud/desktop-bridge-permission.js", "src/permission-modes.js", "src/preload.js", "src/renderer/bot/bot-directory.js", "src/renderer/app.js", "src/web/app.js", "packages/shared/index.js", "packages/shared/avatar.js", "packages/shared/contact.js", "packages/shared/group-tiles.js", "packages/shared/send-pipeline.js", "packages/shared/approval-queue.js", "packages/shared/optimistic-send.js", "packages/shared/session-history.js", "packages/shared/cloud-client.js", "packages/shared/bot-identity.js", "scripts/serve-web.js", "scripts/serve-cloud.js", "scripts/build-cloud-release.js", "scripts/build-win.js", "scripts/print-cloud-release-handoff.js", "scripts/verify-cloud-production.js", "scripts/audit-cloud-productization.js", "scripts/diagnose-deploy-ssh.js", "scripts/print-cloud-blockers.js", "scripts/doctor-cloud.js", "scripts/smoke-cloud.js", "scripts/local-agent-bridge.js"]) {
   childProcess.execFileSync(process.execPath, ["--check", path.join(rootDir, file)], {
     stdio: "inherit"
   });
 }
 
-childProcess.execFileSync("bash", ["-n", path.join(rootDir, "scripts/deploy-cloud-release.sh")], {
+const bash = resolveBash();
+childProcess.execFileSync(bash, ["-n", path.join(rootDir, "scripts/deploy-cloud-release.sh")], {
   stdio: "inherit"
 });
-childProcess.execFileSync("bash", ["-n", path.join(rootDir, "scripts/install-cloud-release-local.sh")], {
+childProcess.execFileSync(bash, ["-n", path.join(rootDir, "scripts/install-cloud-release-local.sh")], {
   stdio: "inherit"
 });
 

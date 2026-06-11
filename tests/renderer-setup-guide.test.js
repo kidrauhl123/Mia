@@ -73,13 +73,13 @@ test("setup guide keeps the scanning state while agent inventory is still checki
   assert.doesNotMatch(html, /扫描结果/);
 });
 
-test("setup guide offers official Hermes install when no local agent is available", () => {
+test("setup guide offers official agent installs when no local agent is available", () => {
   const state = {
     runtime: {
       agentInventory: inventory([
         { id: "hermes", label: "Hermes", installed: false, usableInMia: false, installable: true, installAction: "install-hermes", health: "missing", source: "missing" },
-        { id: "claude-code", label: "Claude Code", installed: false, usableInMia: false, installable: false, health: "missing", source: "missing" },
-        { id: "codex", label: "Codex", installed: false, usableInMia: false, installable: false, health: "missing", source: "missing" },
+        { id: "claude-code", label: "Claude Code", installed: false, usableInMia: false, installable: true, installAction: "install-claude-code", health: "missing", source: "missing" },
+        { id: "codex", label: "Codex", installed: false, usableInMia: false, installable: true, installAction: "install-codex", health: "missing", source: "missing" },
         { id: "openclaw", label: "OpenClaw", installed: false, usableInMia: false, installable: true, installAction: "install-openclaw", detectionOnly: false, health: "missing", source: "missing" }
       ]),
       fellows: []
@@ -96,6 +96,8 @@ test("setup guide offers official Hermes install when no local agent is availabl
   assert.match(html, /本机 Agent/);
   assert.match(html, /data-setup-action="finish-agent-scan"/);
   assert.match(html, /data-setup-action="install-hermes"/);
+  assert.match(html, /data-setup-action="install-claude-code"/);
+  assert.match(html, /data-setup-action="install-codex"/);
   assert.doesNotMatch(html, /data-setup-action="use-engine"/);
   assert.match(html, /data-action="cloud-login"/);
   assert.match(html, /OpenClaw/);
@@ -114,6 +116,8 @@ test("setup guide disables entering Mia while an engine install is in flight", (
     runtime: {
       agentInventory: inventory([
         { id: "hermes", label: "Hermes", installed: false, usableInMia: false, installable: true, installAction: "install-hermes", health: "missing", source: "missing" },
+        { id: "claude-code", label: "Claude Code", installed: false, usableInMia: false, installable: true, installAction: "install-claude-code", health: "missing", source: "missing" },
+        { id: "codex", label: "Codex", installed: false, usableInMia: false, installable: true, installAction: "install-codex", health: "missing", source: "missing" },
         { id: "openclaw", label: "OpenClaw", installed: false, usableInMia: false, installable: true, installAction: "install-openclaw", detectionOnly: false, health: "missing", source: "missing" }
       ]),
       fellows: []
@@ -128,7 +132,30 @@ test("setup guide disables entering Mia while an engine install is in flight", (
 
   assert.match(html, /data-setup-action="finish-agent-scan"[^>]*disabled/);
   assert.match(html, /data-setup-action="install-hermes"[^>]*disabled/);
+  assert.match(html, /data-setup-action="install-claude-code"[^>]*disabled/);
+  assert.match(html, /data-setup-action="install-codex"[^>]*disabled/);
   assert.match(html, /data-setup-action="install-openclaw"[^>]*disabled/);
+});
+
+test("setup guide shows current engine install progress", () => {
+  const state = {
+    runtime: {
+      agentInventory: inventory([
+        { id: "hermes", label: "Hermes", installed: false, usableInMia: false, installable: true, installAction: "install-hermes", health: "missing", source: "missing" }
+      ]),
+      fellows: []
+    },
+    onboardingStep: "engine",
+    agentSetupInstallInFlight: true,
+    agentSetupInstallEngine: "hermes",
+    agentSetupInstallMessage: "Downloading Hermes runtime...",
+    agentSetupSkipped: false,
+    setupGuideDismissed: false
+  };
+  const guide = loadSetupGuide(state);
+  const html = guide.renderSetupGuide();
+
+  assert.match(html, /Downloading Hermes runtime/);
 });
 
 test("setup guide allows installed Claude Code, Codex, and OpenClaw as ready engines", () => {
@@ -136,8 +163,8 @@ test("setup guide allows installed Claude Code, Codex, and OpenClaw as ready eng
     runtime: {
       agentInventory: inventory([
         { id: "hermes", label: "Hermes", installed: false, usableInMia: false, installable: true, installAction: "install-hermes", health: "missing", source: "missing" },
-        { id: "claude-code", label: "Claude Code", installed: true, usableInMia: true, installable: false, path: "/bin/claude", version: "claude 1.2.3", health: "ready", source: "system" },
-        { id: "codex", label: "Codex", installed: true, usableInMia: true, installable: false, path: "/bin/codex", version: "codex 2.3.4", health: "ready", source: "system" },
+        { id: "claude-code", label: "Claude Code", installed: true, usableInMia: true, installable: true, path: "/bin/claude", version: "claude 1.2.3", health: "ready", source: "system" },
+        { id: "codex", label: "Codex", installed: true, usableInMia: true, installable: true, path: "/bin/codex", version: "codex 2.3.4", health: "ready", source: "system" },
         { id: "openclaw", label: "OpenClaw", installed: true, usableInMia: true, installable: true, detectionOnly: false, path: "/bin/openclaw", version: "openclaw 0.1.0", health: "ready", source: "system" }
       ]),
       fellows: []

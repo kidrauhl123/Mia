@@ -25,7 +25,7 @@ function shebangWords(line) {
 }
 
 function isPythonToken(value) {
-  const base = path.basename(String(value || ""));
+  const base = path.basename(String(value || "")).replace(/\.exe$/i, "");
   return /^python(?:\d+(?:\.\d+)*)?$/.test(base);
 }
 
@@ -100,6 +100,21 @@ function createSystemHermesService(deps = {}) {
 
   function cliPathSegments() {
     const home = String(homeDir() || "").trim();
+    if (platform === "win32") {
+      const hermesHome = String(currentEnv().HERMES_HOME || "").trim();
+      const localAppData = String(currentEnv().LOCALAPPDATA || (home ? path.join(home, "AppData", "Local") : "")).trim();
+      const appData = String(currentEnv().APPDATA || (home ? path.join(home, "AppData", "Roaming") : "")).trim();
+      const userPythonScripts = appData
+        ? ["Python314", "Python313", "Python312", "Python311"].map((version) => path.join(appData, "Python", version, "Scripts"))
+        : [];
+      return [
+        hermesHome ? path.join(hermesHome, "hermes-agent", "venv", "Scripts") : "",
+        localAppData ? path.join(localAppData, "hermes", "hermes-agent", "venv", "Scripts") : "",
+        localAppData ? path.join(localAppData, "hermes", "git", "usr", "bin") : "",
+        home ? path.join(home, ".local", "bin") : "",
+        ...userPythonScripts
+      ].filter(Boolean);
+    }
     const userSegments = home ? [
       path.join(home, ".local", "bin"),
       path.join(home, ".npm-global", "bin"),
@@ -113,11 +128,12 @@ function createSystemHermesService(deps = {}) {
 
   function cliPathEnv() {
     const current = String(currentEnv().PATH || "");
+    const delimiter = platform === "win32" ? ";" : path.delimiter;
     const segments = [
       ...cliPathSegments(),
-      ...current.split(path.delimiter)
+      ...current.split(delimiter)
     ].filter(Boolean);
-    return [...new Set(segments)].join(path.delimiter);
+    return [...new Set(segments)].join(delimiter);
   }
 
   function processEnvWithCliPath() {
@@ -186,9 +202,71 @@ function createSystemHermesService(deps = {}) {
     return String(result.stdout || result.stderr || "").split(/\r?\n/)[0]?.trim() || "";
   }
 
+  function fileExists(filePath) {
+    if (!filePath) return false;
+    try {
+      if (typeof fsImpl.existsSync === "function") return fsImpl.existsSync(filePath);
+      fsImpl.accessSync(filePath, fs.constants.F_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function pythonSupportsHermes(command) {
+    if (!command) return "";
+    const result = spawnSync(command, [
+      "-c",
+      "import sys; import hermes_cli.main, fastapi, uvicorn; print(sys.executable)"
+    ], {
+      encoding: "utf8",
+      timeout: 2500,
+      env: processEnvWithCliPath()
+    });
+    if (result.error || result.status !== 0) return "";
+    return String(result.stdout || "").split(/\r?\n/)[0]?.trim() || command;
+  }
+
+  function windowsSiblingPython(commandPath) {
+    if (platform !== "win32" || !commandPath) return "";
+    const scriptsDir = path.dirname(commandPath);
+    for (const name of ["python.exe", "python3.exe", "python"]) {
+      const candidate = path.join(scriptsDir, name);
+      if (!fileExists(candidate)) continue;
+      const resolved = pythonSupportsHermes(candidate);
+      if (resolved) return resolved;
+    }
+    return "";
+  }
+
+  function windowsPythonCandidates() {
+    const envPython = String(currentEnv().MIA_PYTHON || "").trim();
+    return [...new Set([
+      envPython,
+      "python3.14",
+      "python3.13",
+      "python3.12",
+      "python3.11",
+      "python3",
+      "python"
+    ].filter(Boolean))];
+  }
+
+  function inferWindowsHermesPython(commandPath) {
+    if (platform !== "win32" || !commandPath) return "";
+    const siblingPython = windowsSiblingPython(commandPath);
+    if (siblingPython) return siblingPython;
+    for (const command of windowsPythonCandidates()) {
+      const resolved = commandNameOnly(command) ? (shellCommandPath(command) || command) : command;
+      const pythonPath = pythonSupportsHermes(resolved);
+      if (pythonPath) return pythonPath;
+    }
+    return "";
+  }
+
   function probe() {
     const commandPath = shellCommandPath("hermes");
-    const pythonPath = readShebangPython(commandPath, fsImpl);
+    const pythonPath = readShebangPython(commandPath, fsImpl) || inferWindowsHermesPython(commandPath);
     return {
       available: Boolean(commandPath && pythonPath),
       pending: false,

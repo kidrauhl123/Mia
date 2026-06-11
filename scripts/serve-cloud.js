@@ -492,8 +492,12 @@ function optimizedAvatarExtensionForMime(mimeType = "") {
 
 function runFfmpeg(args = [], timeoutMs = 60_000) {
   try {
-    const result = childProcess.spawnSync(process.env.MIA_FFMPEG || "ffmpeg", args, {
+    const configured = process.env.MIA_FFMPEG || "ffmpeg";
+    const ext = path.extname(configured).toLowerCase();
+    const useNode = process.platform === "win32" && ext === ".js";
+    const result = childProcess.spawnSync(useNode ? process.execPath : configured, useNode ? [configured, ...args] : args, {
       stdio: "ignore",
+      shell: process.platform === "win32" && (ext === ".cmd" || ext === ".bat"),
       timeout: timeoutMs
     });
     return result.status === 0;

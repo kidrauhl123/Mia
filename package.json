@@ -1,6 +1,6 @@
 {
   "name": "mia",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "private": true,
   "workspaces": [
     "apps/mobile-rn",
@@ -10,7 +10,7 @@
   "description": "Mia desktop demo with an app-owned Hermes runtime home.",
   "main": "src/main.js",
   "scripts": {
-    "test": "node --test 'tests/*.test.js'",
+    "test": "node --test tests/*.test.js",
     "open": "electron .",
     "start": "electron .",
     "web": "node scripts/serve-web.js",
@@ -48,7 +48,7 @@
     "dist:mac:x64": "npm run dist:mac:intel",
     "release:mac": "npm run dist:mac && node scripts/publish-mac-update.js",
     "release:mac:publish": "node scripts/publish-mac-update.js",
-    "dist:win": "npm run clean:release && electron-builder --win nsis --publish never && npm run tidy:release",
+    "dist:win": "node scripts/build-win.js",
     "release:win:publish": "node scripts/publish-win-update.js"
   },
   "hermes": {

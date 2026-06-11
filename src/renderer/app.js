@@ -14,6 +14,10 @@ const botRuntimeControlInFlight = new Set();
 const platformModelCatalog = { loaded: false, loading: false, entries: [] };
 let socialBootstrapInFlight = null;
 const ICON_PARK_PIN_SVG = '<svg class="icon-park-pin" viewBox="0 0 48 48" aria-hidden="true" focusable="false"><path d="M10.6963 17.5042C13.3347 14.8657 16.4701 14.9387 19.8781 16.8076L32.62 9.74509L31.8989 4.78683L43.2126 16.1005L38.2656 15.3907L31.1918 28.1214C32.9752 31.7589 33.1337 34.6647 30.4953 37.3032C30.4953 37.3032 26.235 33.0429 22.7171 29.525L6.44305 41.5564L18.4382 25.2461C14.9202 21.7281 10.6963 17.5042 10.6963 17.5042Z"/></svg>';
+const rendererPlatform = String(window.mia?.platform || "unknown");
+document.body.classList.toggle("platform-win32", rendererPlatform === "win32");
+document.body.classList.toggle("platform-darwin", rendererPlatform === "darwin");
+document.body.classList.toggle("platform-linux", rendererPlatform === "linux");
 
 function clampSidebarWidth(value) {
   const availableMax = Math.max(SIDEBAR_WIDTH_MIN, Math.min(SIDEBAR_WIDTH_MAX, window.innerWidth - 430));
@@ -90,6 +94,10 @@ const els = {
   engineRowCodex: document.getElementById("engineRowCodex"),
   engineRowOpenClaw: document.getElementById("engineRowOpenClaw"),
   engineRowHermesButton: document.querySelector('[data-engine-row="hermes"]'),
+  engineRowHermesActions: document.getElementById("engineRowHermesActions"),
+  engineRowClaudeActions: document.getElementById("engineRowClaudeActions"),
+  engineRowCodexActions: document.getElementById("engineRowCodexActions"),
+  engineRowOpenClawActions: document.getElementById("engineRowOpenClawActions"),
   engineDetection: document.getElementById("engineDetection"),
   engineInstallActions: document.getElementById("engineInstallActions"),
   personaSearch: document.getElementById("personaSearch"),
@@ -1691,7 +1699,49 @@ function shortAgentVersion(agent) {
   return version.split(/\s+/).slice(0, 2).join(" ");
 }
 
-function detectedAgentLine(agent) {
+function agentInstallMessageFor(engineId) {
+  if (typeof state === "undefined" || !state) return "";
+  const id = String(engineId || "").trim();
+  if (!id) return "";
+  if (state.agentSetupInstallInFlight && state.agentSetupInstallEngine === id) {
+    return state.agentSetupInstallMessage || "Installing...";
+  }
+  const errors = state.agentSetupInstallErrors || {};
+  if (errors[id]) return String(errors[id]);
+  if (id === "hermes" && state.hermesInstallError) return state.hermesInstallError;
+  return "";
+}
+
+function escapeEngineHtml(value) {
+  if (typeof window !== "undefined" && window.miaMarkdown?.escapeHtml) {
+    return window.miaMarkdown.escapeHtml(value);
+  }
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function installProgressPercentFor(engineId) {
+  if (typeof state === "undefined" || !state) return null;
+  if (!state.agentSetupInstallInFlight) return null;
+  if (state.agentSetupInstallEngine !== engineId) return null;
+  const percent = Number(state.agentSetupInstallPercent);
+  if (!Number.isFinite(percent)) return null;
+  return Math.max(0, Math.min(100, Math.round(percent)));
+}
+
+function setEngineStatusText(element, text) {
+  if (!element) return;
+  const next = String(text || "");
+  element.textContent = next;
+  element.title = next;
+}
+
+function detectedAgentLine(agent, engineId = agent?.id) {
+  const installMessage = agentInstallMessageFor(engineId);
+  if (installMessage) return installMessage;
   if (!agent) return "未检测到";
   if (agent.usableInMia) {
     const parts = [agent.path || "已接入 Mia", shortAgentVersion(agent)].filter(Boolean);
@@ -1714,6 +1764,8 @@ function legacyAgentStatus(id, legacy) {
 }
 
 function hermesDetectionLine(runtime, hermes) {
+  const installMessage = agentInstallMessageFor("hermes");
+  if (installMessage) return installMessage;
   if (hermes) {
     if (hermes.usableInMia || hermes.installed) return detectedAgentLine(hermes);
     return "未检测到 · 可安装官方 Hermes";
@@ -1727,6 +1779,8 @@ function hermesDetectionLine(runtime, hermes) {
 }
 
 function renderHermesInstallState(runtime = state.runtime) {
+  const installMessage = agentInstallMessageFor("hermes");
+  if (installMessage) return installMessage;
   const hermes = runtime?.agentInventory?.agents?.find((agent) => agent.id === "hermes");
   if (state.hermesInstallError) return state.hermesInstallError;
   if (!hermes) return "";
@@ -1773,19 +1827,86 @@ function agentInstallAction(agent) {
   return null;
 }
 
+function engineRowActionElement(engineId) {
+  if (!els) return null;
+  if (engineId === "hermes") return els.engineRowHermesActions;
+  if (engineId === "claude-code") return els.engineRowClaudeActions;
+  if (engineId === "codex") return els.engineRowCodexActions;
+  if (engineId === "openclaw") return els.engineRowOpenClawActions;
+  return null;
+}
+
+function renderEngineInstallProgress(engineId) {
+  const percent = installProgressPercentFor(engineId);
+  if (percent === null) return "";
+  const width = Math.max(4, percent);
+  return `
+    <span class="engine-install-progress" aria-label="安装进度 ${percent}%">
+      <span class="engine-install-progress-track" aria-hidden="true">
+        <span style="width: ${width}%"></span>
+      </span>
+      <span class="engine-install-progress-text">${percent}%</span>
+    </span>
+  `;
+}
+
+function renderEngineRowAction(engineId, action) {
+  const target = engineRowActionElement(engineId);
+  if (!target) return;
+  if (!action) {
+    target.innerHTML = "";
+    return;
+  }
+  const installing = Boolean(typeof state !== "undefined" && state?.agentSetupInstallInFlight);
+  const isCurrentInstall = installing && state?.agentSetupInstallEngine === engineId;
+  const percent = installProgressPercentFor(engineId);
+  const label = isCurrentInstall
+    ? `安装中${percent === null ? "..." : ` ${percent}%`}`
+    : action.label;
+  target.innerHTML = `
+    <span class="engine-action-stack">
+      <button class="engine-install-action row" type="button"
+        data-engine-settings-install="${escapeEngineHtml(action.engineId)}"
+        data-setup-action="${escapeEngineHtml(action.action)}"
+        data-engine="${escapeEngineHtml(action.engineId)}"${installing ? " disabled" : ""}${isCurrentInstall ? ' aria-busy="true"' : ""}>${escapeEngineHtml(label)}</button>
+      ${isCurrentInstall ? renderEngineInstallProgress(engineId) : ""}
+    </span>
+  `;
+}
+
+function hermesCanConfigure(runtime, hermes = runtime?.agentInventory?.agents?.find((agent) => agent.id === "hermes")) {
+  if (hermes) return Boolean(hermes.usableInMia);
+  const legacySource = String(runtime?.engineSource || "");
+  return Boolean(
+    runtime?.engineInstalled
+    || ["bundled", "managed", "local-source", "maintained-local-source", "system"].includes(legacySource)
+  );
+}
+
+function syncHermesConfigAvailability(runtime, hermes) {
+  const row = els.engineRowHermesButton;
+  const canConfigure = hermesCanConfigure(runtime, hermes);
+  if (row) {
+    row.classList?.toggle("config-disabled", !canConfigure);
+    row.setAttribute?.("aria-disabled", canConfigure ? "false" : "true");
+    if ("tabIndex" in row) row.tabIndex = canConfigure ? 0 : -1;
+  }
+  if (!canConfigure && els.modelForm) {
+    row?.setAttribute?.("aria-expanded", "false");
+    if (typeof window !== "undefined" && window.miaAccordion?.setElementOpen) window.miaAccordion.setElementOpen(els.modelForm, false);
+    else els.modelForm.classList.toggle("hidden", true);
+  }
+}
+
 function renderEngineInstallActions(runtime) {
-  if (!els.engineInstallActions) return;
-  const agents = runtime?.agentInventory?.agents || [];
-  const actions = agents
-    .map(agentInstallAction)
-    .filter(Boolean);
-  els.engineInstallActions.classList.toggle("hidden", actions.length === 0);
-  els.engineInstallActions.innerHTML = actions.map((entry) => `
-    <button class="engine-install-action" type="button"
-      data-engine-settings-install="${window.miaMarkdown.escapeHtml(entry.engineId)}"
-      data-setup-action="${window.miaMarkdown.escapeHtml(entry.action)}"
-      data-engine="${window.miaMarkdown.escapeHtml(entry.engineId)}">${window.miaMarkdown.escapeHtml(entry.label)}</button>
-  `).join("");
+  const inventory = agentInventoryById(runtime);
+  for (const engineId of ["hermes", "claude-code", "codex", "openclaw"]) {
+    renderEngineRowAction(engineId, agentInstallAction(inventory[engineId]));
+  }
+  if (els.engineInstallActions) {
+    els.engineInstallActions.classList?.add?.("hidden");
+    els.engineInstallActions.innerHTML = "";
+  }
 }
 
 function renderEngineDetection(runtime) {
@@ -1793,23 +1914,26 @@ function renderEngineDetection(runtime) {
   const inventory = agentInventoryById(runtime);
 
   if (els.engineRowHermes) {
-    els.engineRowHermes.textContent = hermesDetectionLine(runtime, inventory.hermes);
+    setEngineStatusText(els.engineRowHermes, hermesDetectionLine(runtime, inventory.hermes));
   }
+  syncHermesConfigAvailability(runtime, inventory.hermes);
 
   if (els.engineRowClaude) {
-    els.engineRowClaude.textContent = detectedAgentLine(
-      inventory["claude-code"] || legacyAgentStatus("claude-code", engines.claudeCode)
-    );
+    setEngineStatusText(els.engineRowClaude, detectedAgentLine(
+      inventory["claude-code"] || legacyAgentStatus("claude-code", engines.claudeCode),
+      "claude-code"
+    ));
   }
 
   if (els.engineRowCodex) {
-    els.engineRowCodex.textContent = detectedAgentLine(inventory.codex || legacyAgentStatus("codex", engines.codex));
+    setEngineStatusText(els.engineRowCodex, detectedAgentLine(inventory.codex || legacyAgentStatus("codex", engines.codex), "codex"));
   }
 
   if (els.engineRowOpenClaw) {
-    els.engineRowOpenClaw.textContent = detectedAgentLine(
-      inventory.openclaw || legacyAgentStatus("openclaw", engines.openClaw)
-    );
+    setEngineStatusText(els.engineRowOpenClaw, detectedAgentLine(
+      inventory.openclaw || legacyAgentStatus("openclaw", engines.openClaw),
+      "openclaw"
+    ));
   }
 
   renderEngineInstallActions(runtime);
@@ -2322,6 +2446,143 @@ function setComposerSelectOptions(select, entries, selectedValue) {
   const value = String(selectedValue || normalized[0]?.value || "");
   select.value = normalized.some((entry) => entry.value === value) ? value : normalized[0]?.value || "";
   return select.selectedOptions?.[0]?.textContent || "";
+}
+
+let activeComposerSelectMenu = null;
+
+function isCustomSelect(select) {
+  return select instanceof HTMLSelectElement && !select.multiple && Number(select.size || 0) <= 1;
+}
+
+function composerSelectTrigger(select) {
+  return select.closest(".model-switcher, .effort-switcher, .permission-switcher") || select;
+}
+
+function composerSelectOptions(select) {
+  const entries = [];
+  const pushOption = (option, groupDisabled = false) => {
+    entries.push({
+      type: "option",
+      value: option.value,
+      label: String(option.label || option.textContent || option.value || "").trim(),
+      selected: option.selected,
+      disabled: Boolean(option.disabled || groupDisabled)
+    });
+  };
+  Array.from(select?.children || []).forEach((child) => {
+    if (child.tagName === "OPTGROUP") {
+      const groupOptions = Array.from(child.children || []).filter((option) => option.tagName === "OPTION");
+      if (!groupOptions.length) return;
+      const label = String(child.label || "").trim();
+      if (label) entries.push({ type: "group", label, disabled: Boolean(child.disabled) });
+      groupOptions.forEach((option) => pushOption(option, Boolean(child.disabled)));
+      return;
+    }
+    if (child.tagName === "OPTION") pushOption(child);
+  });
+  return entries;
+}
+
+function ensureComposerSelectMenu() {
+  let menu = document.getElementById("composerSelectMenu");
+  if (menu) return menu;
+  menu = document.createElement("div");
+  menu.id = "composerSelectMenu";
+  menu.className = "composer-select-menu hidden";
+  menu.setAttribute("role", "listbox");
+  document.body.appendChild(menu);
+  return menu;
+}
+
+function positionComposerSelectMenu(menu, trigger) {
+  const rect = trigger.getBoundingClientRect();
+  const viewportPadding = 8;
+  const triggerGap = 6;
+  const maxWidth = Math.max(150, window.innerWidth - viewportPadding * 2);
+  const width = Math.max(150, Math.min(maxWidth, Math.max(rect.width, menu.scrollWidth || rect.width)));
+  const left = Math.max(viewportPadding, Math.min(window.innerWidth - width - viewportPadding, rect.left));
+  const spaceBelow = Math.max(0, window.innerHeight - rect.bottom - viewportPadding - triggerGap);
+  const spaceAbove = Math.max(0, rect.top - viewportPadding - triggerGap);
+  const wantedHeight = Math.min(menu.scrollHeight || 0, 320);
+  const usefulHeight = Math.min(wantedHeight, 160);
+  const openBelow = spaceBelow >= usefulHeight || spaceBelow >= spaceAbove;
+  const availableHeight = openBelow ? spaceBelow : spaceAbove;
+  menu.style.width = `${width}px`;
+  menu.style.maxHeight = `${Math.min(320, Math.max(0, availableHeight))}px`;
+  menu.style.left = `${left}px`;
+  menu.style.top = openBelow ? `${rect.bottom + triggerGap}px` : "";
+  menu.style.bottom = openBelow ? "" : `${window.innerHeight - rect.top + triggerGap}px`;
+  menu.dataset.placement = openBelow ? "below" : "above";
+}
+
+function closeComposerSelectMenu() {
+  const menu = document.getElementById("composerSelectMenu");
+  if (menu) {
+    menu.classList.add("hidden");
+    menu.innerHTML = "";
+  }
+  activeComposerSelectMenu?.trigger?.classList.remove("select-open");
+  activeComposerSelectMenu = null;
+}
+
+function chooseComposerSelectOption(select, value) {
+  if (!select || select.disabled) return;
+  if (select.value !== value) {
+    select.value = value;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+  closeComposerSelectMenu();
+  select.focus({ preventScroll: true });
+}
+
+function openComposerSelectMenu(select) {
+  if (!isCustomSelect(select) || select.disabled) return;
+  const trigger = composerSelectTrigger(select);
+  if (activeComposerSelectMenu?.select === select) {
+    closeComposerSelectMenu();
+    return;
+  }
+  closeComposerSelectMenu();
+  const menu = ensureComposerSelectMenu();
+  const entries = composerSelectOptions(select);
+  const options = entries.filter((option) => option.type === "option" && !option.disabled);
+  if (!options.length) return;
+  const selectedValue = String(select.value || options.find((option) => option.selected)?.value || options[0]?.value || "");
+  menu.innerHTML = entries.map((option) => {
+    if (option.type === "group") {
+      return `<div class="composer-select-group${option.disabled ? " disabled" : ""}">${window.miaMarkdown.escapeHtml(option.label)}</div>`;
+    }
+    const selected = String(option.value) === selectedValue;
+    return `<button class="composer-select-option${selected ? " selected" : ""}" type="button" role="option" aria-selected="${selected ? "true" : "false"}" data-value="${window.miaMarkdown.escapeHtml(option.value)}"${option.disabled ? " disabled" : ""}>${window.miaMarkdown.escapeHtml(option.label)}</button>`;
+  }).join("");
+  menu.classList.remove("hidden");
+  trigger.classList.add("select-open");
+  activeComposerSelectMenu = { select, trigger, menu };
+  positionComposerSelectMenu(menu, trigger);
+  const selectedButton = menu.querySelector(".composer-select-option.selected:not(:disabled)") || menu.querySelector(".composer-select-option:not(:disabled)");
+  selectedButton?.scrollIntoView({ block: "nearest" });
+}
+
+function currentComposerSelectMenuOption() {
+  const menu = activeComposerSelectMenu?.menu;
+  if (!menu) return null;
+  return menu.querySelector(".composer-select-option.keyboard-active:not(:disabled)")
+    || menu.querySelector(".composer-select-option.selected:not(:disabled)")
+    || menu.querySelector(".composer-select-option:not(:disabled)");
+}
+
+function moveComposerSelectMenuSelection(delta) {
+  const menu = activeComposerSelectMenu?.menu;
+  if (!menu) return;
+  const options = Array.from(menu.querySelectorAll(".composer-select-option:not(:disabled)"));
+  if (!options.length) return;
+  const current = options.findIndex((button) => button.classList.contains("keyboard-active"));
+  const selected = options.findIndex((button) => button.classList.contains("selected"));
+  const index = current >= 0 ? current : selected >= 0 ? selected : 0;
+  const next = (index + delta + options.length) % options.length;
+  options.forEach((button) => button.classList.remove("keyboard-active"));
+  options[next].classList.add("keyboard-active");
+  options[next].scrollIntoView({ block: "nearest" });
 }
 
 async function ensureBotRuntimeBinding(botKey, runtimeKind = "cloud-hermes") {
@@ -2956,6 +3217,94 @@ document.getElementById("groupInfoButton")?.addEventListener("click", () => {
   if (conversationId) window.miaGroupInfoDialog?.open(conversationId);
 });
 
+document.addEventListener("pointerdown", (event) => {
+  const select = event.target?.closest?.("select");
+  if (isCustomSelect(select) && !select.disabled) {
+    event.preventDefault();
+    event.stopPropagation();
+    select.focus({ preventScroll: true });
+    openComposerSelectMenu(select);
+    return;
+  }
+  if (!activeComposerSelectMenu) return;
+  if (activeComposerSelectMenu.menu?.contains(event.target)) return;
+  if (activeComposerSelectMenu.trigger?.contains(event.target)) return;
+  closeComposerSelectMenu();
+}, true);
+
+document.addEventListener("click", (event) => {
+  const select = event.target?.closest?.("select");
+  if (!isCustomSelect(select) || select.disabled) return;
+  event.preventDefault();
+  event.stopPropagation();
+}, true);
+
+document.addEventListener("click", (event) => {
+  const option = event.target?.closest?.(".composer-select-option");
+  if (!option || !activeComposerSelectMenu?.menu?.contains(option)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  chooseComposerSelectOption(activeComposerSelectMenu.select, option.dataset.value || "");
+});
+
+document.addEventListener("keydown", (event) => {
+  const select = isCustomSelect(event.target) ? event.target : null;
+  if (select && !select.disabled) {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      if (!activeComposerSelectMenu || activeComposerSelectMenu.select !== select) openComposerSelectMenu(select);
+      else moveComposerSelectMenuSelection(1);
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      if (!activeComposerSelectMenu || activeComposerSelectMenu.select !== select) openComposerSelectMenu(select);
+      else moveComposerSelectMenuSelection(-1);
+      return;
+    }
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      if (!activeComposerSelectMenu || activeComposerSelectMenu.select !== select) {
+        openComposerSelectMenu(select);
+        return;
+      }
+      const active = currentComposerSelectMenuOption();
+      if (active) chooseComposerSelectOption(select, active.dataset.value || "");
+      return;
+    }
+    if (event.key === "Escape" && activeComposerSelectMenu?.select === select) {
+      event.preventDefault();
+      closeComposerSelectMenu();
+      return;
+    }
+  }
+  if (!activeComposerSelectMenu) return;
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeComposerSelectMenu();
+    return;
+  }
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    moveComposerSelectMenuSelection(1);
+    return;
+  }
+  if (event.key === "ArrowUp") {
+    event.preventDefault();
+    moveComposerSelectMenuSelection(-1);
+    return;
+  }
+  if (event.key === "Enter" || event.key === " ") {
+    const active = currentComposerSelectMenuOption();
+    if (active) {
+      event.preventDefault();
+      chooseComposerSelectOption(activeComposerSelectMenu.select, active.dataset.value || "");
+    }
+  }
+});
+
+window.addEventListener("resize", closeComposerSelectMenu);
+
 els.openSettings.addEventListener("click", () => {
   state.settingsOpen = true;
   if (state.activeSettingsTab === "profile") state.activeSettingsTab = "appearance";
@@ -3266,13 +3615,25 @@ els.cloudLogout?.addEventListener("click", async () => {
   }
 });
 
+function toggleHermesModelForm() {
+  if (!els.engineRowHermesButton || !els.modelForm) return;
+  if (!hermesCanConfigure(state.runtime)) return;
+  const expanded = els.engineRowHermesButton.getAttribute("aria-expanded") === "true";
+  const next = !expanded;
+  els.engineRowHermesButton.setAttribute("aria-expanded", next ? "true" : "false");
+  if (window.miaAccordion?.setElementOpen) window.miaAccordion.setElementOpen(els.modelForm, next);
+  else els.modelForm.classList.toggle("hidden", !next);
+}
+
 if (els.engineRowHermesButton && els.modelForm) {
-  els.engineRowHermesButton.addEventListener("click", () => {
-    const expanded = els.engineRowHermesButton.getAttribute("aria-expanded") === "true";
-    const next = !expanded;
-    els.engineRowHermesButton.setAttribute("aria-expanded", next ? "true" : "false");
-    if (window.miaAccordion?.setElementOpen) window.miaAccordion.setElementOpen(els.modelForm, next);
-    else els.modelForm.classList.toggle("hidden", !next);
+  els.engineRowHermesButton.addEventListener("click", (event) => {
+    if (event.target.closest("[data-engine-settings-install]")) return;
+    toggleHermesModelForm();
+  });
+  els.engineRowHermesButton.addEventListener("keydown", (event) => {
+    if (!["Enter", " "].includes(event.key)) return;
+    event.preventDefault();
+    toggleHermesModelForm();
   });
 }
 
@@ -3286,6 +3647,36 @@ els.engineDetection?.addEventListener("click", async (event) => {
 
 if (window.mia.onEnginesChanged) {
   window.mia.onEnginesChanged(() => { refreshRuntime().catch(() => {}); });
+}
+
+if (window.mia.onEngineInstallProgress) {
+  window.mia.onEngineInstallProgress((payload = {}) => {
+    const engineId = String(payload.engineId || "").trim();
+    if (!engineId) return;
+    const message = String(payload.message || payload.stage || payload.status || "").trim();
+    const percent = Number(payload.percent);
+    state.agentSetupInstallErrors = state.agentSetupInstallErrors || {};
+    state.agentSetupInstallEngine = engineId;
+    if (message) state.agentSetupInstallMessage = message;
+    if (payload.stage) state.agentSetupInstallStage = String(payload.stage);
+    if (Number.isFinite(percent)) state.agentSetupInstallPercent = Math.max(0, Math.min(100, Math.round(percent)));
+    if (payload.status === "running") delete state.agentSetupInstallErrors[engineId];
+    if (payload.status === "success") state.agentSetupInstallPercent = 100;
+    if (payload.status === "error") {
+      const label = engineId === "hermes" ? "官方 Hermes" : engineId;
+      const errorMessage = `${label} 安装失败：${message || "Unknown installer error"}`;
+      state.agentSetupInstallErrors[engineId] = errorMessage;
+      if (engineId === "hermes") state.hermesInstallError = errorMessage;
+      state.agentSetupInstallMessage = errorMessage;
+      state.agentSetupInstallStage = "";
+    }
+    if (!state.agentSetupInstallProgressTimer) {
+      state.agentSetupInstallProgressTimer = setTimeout(() => {
+        state.agentSetupInstallProgressTimer = 0;
+        renderView();
+      }, 120);
+    }
+  });
 }
 
 if (window.mia.onCloudEvent) {
@@ -4461,6 +4852,12 @@ async function runHermesSetupAction(button, action) {
   const repair = action === "repair-hermes";
   const retry = action === "retry-install-hermes";
   state.agentSetupInstallInFlight = true;
+  state.agentSetupInstallEngine = engineId;
+  state.agentSetupInstallMessage = repair ? "Repairing..." : retry ? "Retrying install..." : "Installing...";
+  state.agentSetupInstallStage = "";
+  state.agentSetupInstallPercent = 0;
+  state.agentSetupInstallErrors = state.agentSetupInstallErrors || {};
+  delete state.agentSetupInstallErrors[engineId];
   button.disabled = true;
   document.querySelectorAll('[data-setup-action="finish-agent-scan"], [data-onb-action="finish"], [data-setup-action^="install-"], [data-setup-action="retry-install-hermes"], [data-setup-action="repair-hermes"]').forEach((el) => {
     el.disabled = true;
@@ -4470,6 +4867,7 @@ async function runHermesSetupAction(button, action) {
   try {
     if (engineId === "hermes") state.hermesInstallError = "";
     state.runtime = repair ? await window.mia.repairEngine() : await window.mia.installEngine(engineId);
+    delete state.agentSetupInstallErrors[engineId];
     await window.miaLoaders.loadModelCatalog();
     state.agentSetupSkipped = false;
     try { localStorage.removeItem(AGENT_SETUP_SKIPPED_KEY); } catch { /* ignore */ }
@@ -4478,11 +4876,17 @@ async function runHermesSetupAction(button, action) {
     const verb = repair ? "修复" : "安装";
     const label = engineId === "hermes" ? "官方 Hermes" : engineId;
     const message = `${label} ${verb}失败：${error.message || error}`;
+    state.agentSetupInstallMessage = message;
+    state.agentSetupInstallErrors = state.agentSetupInstallErrors || {};
+    state.agentSetupInstallErrors[engineId] = message;
     if (engineId === "hermes") state.hermesInstallError = message;
     appendTransientChat("assistant", message);
     await refreshRuntime();
   } finally {
     state.agentSetupInstallInFlight = false;
+    state.agentSetupInstallEngine = "";
+    state.agentSetupInstallStage = "";
+    state.agentSetupInstallPercent = 0;
     button.disabled = false;
     button.textContent = original;
     renderView();
@@ -4591,14 +4995,40 @@ setInterval(refreshRuntime, 2000);
 (function wireTrafficLights() {
   const spacer = document.getElementById("trafficSpacer");
   const api = window.mia?.window;
-  if (!spacer || !api) return;
-  spacer.addEventListener("click", (event) => {
+  if (!api) return;
+  const isWindows = rendererPlatform === "win32";
+  const maximizeButton = spacer?.querySelector('[data-action="green"]');
+  const applyMaximized = (maximized) => {
+    document.body.classList.toggle("window-maximized", Boolean(maximized));
+    if (!isWindows || !maximizeButton) return;
+    const label = maximized ? "还原" : "最大化";
+    maximizeButton.setAttribute("aria-label", label);
+    maximizeButton.title = label;
+  };
+  if (isWindows && maximizeButton) {
+    maximizeButton.setAttribute("aria-label", "最大化");
+    maximizeButton.title = "最大化";
+  }
+  if (!spacer) return;
+  const handleControlClick = (event) => {
     const btn = event.target.closest(".traffic-light");
     if (!btn) return;
+    event.preventDefault();
+    event.stopPropagation();
     const action = btn.dataset.action;
     if (action === "close") api.close();
     else if (action === "minimize") api.minimize();
-    else if (action === "green") api.green();
+    else if (action === "green") {
+      const task = isWindows ? (api.maximize?.() || api.green()) : api.green();
+      Promise.resolve(task).then((state) => {
+        if (state && Object.prototype.hasOwnProperty.call(state, "maximized")) applyMaximized(state.maximized);
+      }).catch(() => {});
+    }
+  };
+  spacer.addEventListener("click", handleControlClick);
+  spacer.addEventListener("pointerdown", (event) => {
+    if (!event.target.closest(".traffic-light")) return;
+    event.stopPropagation();
   });
   const applyFocus = (focused) => {
     document.body.classList.toggle("window-blurred", !focused);
@@ -4608,10 +5038,12 @@ setInterval(refreshRuntime, 2000);
   };
   api.onFocusState?.(applyFocus);
   api.onFullscreen?.(applyFullscreen);
+  api.onMaximized?.(applyMaximized);
   api.state?.().then((s) => {
     if (s) {
       applyFocus(s.focused);
       applyFullscreen(s.fullscreen);
+      applyMaximized(s.maximized);
     }
   }).catch(() => {});
 })();

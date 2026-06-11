@@ -1,6 +1,22 @@
 const { BrowserWindow, Menu } = require("electron");
 const { IpcChannel } = require("../../shared/ipc-channels");
 
+function windowState(w) {
+  if (!w) return { focused: true, fullscreen: false, maximized: false };
+  return {
+    focused: w.isFocused(),
+    fullscreen: w.isFullScreen(),
+    maximized: Boolean(w.isMaximized?.())
+  };
+}
+
+function toggleMaximized(w) {
+  if (!w) return windowState(w);
+  if (w.isMaximized()) w.unmaximize();
+  else w.maximize();
+  return windowState(w);
+}
+
 function registerWindowIpc({ ipcMain, startupTimer, runtimeLifecycle }) {
   ipcMain.on(IpcChannel.UiFirstPaint, (event) => {
     startupTimer.mark("renderer:first-paint");
@@ -16,10 +32,15 @@ function registerWindowIpc({ ipcMain, startupTimer, runtimeLifecycle }) {
   ipcMain.handle(IpcChannel.WindowMinimize, (event) => {
     BrowserWindow.fromWebContents(event.sender)?.minimize();
   });
+  ipcMain.handle(IpcChannel.WindowMaximize, (event) => {
+    return toggleMaximized(BrowserWindow.fromWebContents(event.sender));
+  });
   ipcMain.handle(IpcChannel.WindowGreen, (event) => {
     const w = BrowserWindow.fromWebContents(event.sender);
-    if (!w) return;
+    if (!w) return windowState(w);
+    if (process.platform !== "darwin") return toggleMaximized(w);
     w.setFullScreen(!w.isFullScreen());
+    return windowState(w);
   });
   ipcMain.handle(IpcChannel.WindowShowMain, (event) => {
     const w = BrowserWindow.fromWebContents(event.sender);
@@ -53,8 +74,7 @@ function registerWindowIpc({ ipcMain, startupTimer, runtimeLifecycle }) {
   });
   ipcMain.handle(IpcChannel.WindowState, (event) => {
     const w = BrowserWindow.fromWebContents(event.sender);
-    if (!w) return { focused: true, fullscreen: false };
-    return { focused: w.isFocused(), fullscreen: w.isFullScreen() };
+    return windowState(w);
   });
   ipcMain.handle(IpcChannel.EditContextMenu, (event, point = {}) => {
     const w = BrowserWindow.fromWebContents(event.sender);

@@ -6,6 +6,10 @@ const { test } = require("node:test");
 
 const { createLaunchdService } = require("../src/main/launchd-service.js");
 
+function escapeRe(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function setup(t, overrides = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-launchd-service-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -56,7 +60,7 @@ test("gateway launch agent plist escapes values and uses Hermes gateway argument
   assert.match(plist, /<key>HERMES_HOME<\/key>\n      <string>.*hermes &amp; home<\/string>/);
   assert.match(plist, /<key>MIA_HOME<\/key>\n      <string>.*home &amp; data<\/string>/);
   assert.match(plist, /<string>.*engine &lt;runtime&gt;<\/string>/);
-  assert.match(plist, new RegExp(`<string>${runtime.logsDir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/gateway\\.log</string>`));
+  assert.match(plist, new RegExp(`<string>${escapeRe(path.join(runtime.logsDir, "gateway.log"))}</string>`));
 });
 
 test("startGateway writes plist, bootouts old jobs, then bootstrap and kickstart", (t) => {
@@ -87,7 +91,7 @@ test("daemon launch agent uses the app executable and daemon environment", (t) =
   assert.match(plist, /<key>MIA_DAEMON<\/key>\n      <string>1<\/string>/);
   assert.match(plist, /<key>MIA_USER_DATA_DIR<\/key>/);
   assert.match(plist, /<key>PATH<\/key>\n      <string>\/usr\/local\/bin:\/usr\/bin<\/string>/);
-  assert.match(plist, new RegExp(`<string>${runtime.logsDir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/daemon\\.error\\.log</string>`));
+  assert.match(plist, new RegExp(`<string>${escapeRe(path.join(runtime.logsDir, "daemon.error.log"))}</string>`));
 });
 
 test("launchd start fails clearly on non-macOS platforms", (t) => {

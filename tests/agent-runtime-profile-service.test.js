@@ -31,7 +31,7 @@ test("codex profile links auth but excludes native sessions and memory", (t) => 
   const profile = service.ensureCodexProfile();
 
   assert.equal(profile.env.CODEX_HOME, profile.home);
-  assert.equal(fs.lstatSync(path.join(profile.home, "auth.json")).isSymbolicLink(), true);
+  assert.equal(fs.readFileSync(path.join(profile.home, "auth.json"), "utf8"), "{}");
   assert.equal(fs.existsSync(path.join(profile.home, "sessions")), false);
   assert.equal(fs.existsSync(path.join(profile.home, "history.jsonl")), false);
   assert.equal(fs.existsSync(path.join(profile.home, "session_index.jsonl")), false);

@@ -54,6 +54,10 @@ test("desktop packaging scripts clean stale release artifacts before building", 
   assert.equal(pkg.scripts["clean:release"], cleanCommand);
   assert.equal(pkg.scripts["tidy:release"], tidyCommand);
   for (const scriptName of ["pack", "dist:mac", "dist:mac:intel", "dist:win"]) {
+    if (scriptName === "dist:win") {
+      assert.equal(pkg.scripts[scriptName], "node scripts/build-win.js");
+      continue;
+    }
     assert.match(
       pkg.scripts[scriptName],
       new RegExp(`(^|&& )npm run clean:release && .*electron-builder`),
@@ -61,6 +65,10 @@ test("desktop packaging scripts clean stale release artifacts before building", 
     );
   }
   for (const scriptName of ["dist:mac", "dist:mac:intel", "dist:win"]) {
+    if (scriptName === "dist:win") {
+      assert.equal(pkg.scripts[scriptName], "node scripts/build-win.js");
+      continue;
+    }
     assert.match(
       pkg.scripts[scriptName],
       /electron-builder[\s\S]*&& npm run tidy:release$/,
@@ -71,6 +79,14 @@ test("desktop packaging scripts clean stale release artifacts before building", 
   assert.match(pkg.scripts["dist:mac:intel"], /--x64/);
   assert.match(pkg.scripts["dist:mac:intel"], /MIA_MAC_DMG_LABEL=Intel node scripts\/create-mac-dmg\.js/);
   assert.match(pkg.scripts["dist:mac:x64"], /dist:mac:intel/);
+
+  const winBuilder = fs.readFileSync(path.join(root, "scripts", "build-win.js"), "utf8");
+  assert.match(winBuilder, /clean-release\.js/);
+  assert.match(winBuilder, /electron-builder/);
+  assert.match(winBuilder, /"--win", "nsis", "--publish", "never"/);
+  assert.match(winBuilder, /"--tidy"/);
+  assert.match(winBuilder, /ELECTRON_MIRROR/);
+  assert.match(winBuilder, /ELECTRON_BUILDER_BINARIES_MIRROR/);
 });
 
 test("Intel macOS build config labels DMG artifacts for Intel Macs", () => {
@@ -125,9 +141,13 @@ test("tidy release script keeps current distributables and removes intermediate 
     "Mia-0.1.1-arm64-mac.zip.blockmap",
     "Mia-0.1.1-Apple-Silicon.dmg",
     "Mia-0.1.1-Intel.dmg",
+    "Mia-0.1.1-Setup.exe",
+    "Mia-0.1.1-Setup.exe.blockmap",
     "Mia-0.1.0-arm64-mac.zip",
     "Mia-0.1.0-Intel.dmg",
+    "Mia-0.1.0-Setup.exe",
     "Mia-0.1.0-android.apk",
+    "latest.yml",
     "builder-debug.yml"
   ]) {
     fs.writeFileSync(path.join(releaseDir, file), file);
@@ -143,8 +163,11 @@ test("tidy release script keeps current distributables and removes intermediate 
   assert.deepEqual(fs.readdirSync(releaseDir).sort(), [
     "Mia-0.1.1-Apple-Silicon.dmg",
     "Mia-0.1.1-Intel.dmg",
+    "Mia-0.1.1-Setup.exe",
+    "Mia-0.1.1-Setup.exe.blockmap",
     "Mia-0.1.1-arm64-mac.zip",
     "Mia-0.1.1-arm64-mac.zip.blockmap",
     "latest-mac.yml",
+    "latest.yml",
   ]);
 });

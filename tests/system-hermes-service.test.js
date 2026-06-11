@@ -27,6 +27,7 @@ function setup(t, overrides = {}) {
     readJson,
     homeDir: () => path.join(dir, "home"),
     env: { PATH: "" },
+    platform: "darwin",
     now: () => new Date("2026-05-25T12:34:56.000Z"),
     resetAgentEngineCache: () => calls.push("reset-cache"),
     ...overrides
@@ -89,6 +90,46 @@ test("refresh records usable system Hermes command and Python while resetting Ag
   assert.equal(service.pythonPath(), python);
   assert.equal(service.commandPath(), hermes);
   assert.deepEqual(calls, ["reset-cache"]);
+});
+
+test("probe recognizes official Windows Hermes venv launcher", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "mia-system-hermes-win-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const localAppData = path.join(root, "AppData", "Local");
+  const scripts = path.join(localAppData, "hermes", "hermes-agent", "venv", "Scripts");
+  const hermes = path.join(scripts, "hermes.exe");
+  const python = path.join(scripts, "python.exe");
+  fs.mkdirSync(scripts, { recursive: true });
+  fs.writeFileSync(hermes, "");
+  fs.writeFileSync(python, "");
+  const spawnCalls = [];
+  const { service } = setup(t, {
+    platform: "win32",
+    homeDir: () => root,
+    env: { PATH: "", LOCALAPPDATA: localAppData, APPDATA: path.join(root, "AppData", "Roaming") },
+    spawnSync: (command, args, options) => {
+      spawnCalls.push({ command, args, path: options?.env?.PATH || "" });
+      if (command === "where" && args[0] === "hermes") {
+        assert.match(options.env.PATH, /hermes[\\\/]hermes-agent[\\\/]venv[\\\/]Scripts/i);
+        return { status: 0, stdout: `${hermes}\r\n`, stderr: "" };
+      }
+      if (command === hermes && args[0] === "--version") {
+        return { status: 0, stdout: "Hermes Agent v0.11.0\n", stderr: "" };
+      }
+      if (command === python && args[0] === "-c") {
+        return { status: 0, stdout: `${python}\n`, stderr: "" };
+      }
+      return { status: 1, stdout: "", stderr: "" };
+    }
+  });
+
+  const status = service.probe();
+
+  assert.equal(status.available, true);
+  assert.equal(status.commandPath, hermes);
+  assert.equal(status.pythonPath, python);
+  assert.equal(status.version, "Hermes Agent v0.11.0");
+  assert.equal(spawnCalls.some((call) => call.command === "python"), false);
 });
 
 test("system Hermes never leaks legacy user Hermes home or dotenv values", (t) => {

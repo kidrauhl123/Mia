@@ -112,15 +112,18 @@ test("web root includes the site verification txt file", () => {
   );
 });
 
-test("cloud release builder can publish Mac DMGs as web downloads", () => {
+test("cloud release builder can publish desktop installers as web downloads", () => {
   const source = read("scripts/build-cloud-release.js");
 
   assert.match(source, /mia-macos-apple-silicon-latest\.dmg/);
   assert.match(source, /mia-macos-arm64-latest\.dmg/);
   assert.match(source, /mia-macos-intel-latest\.dmg/);
   assert.match(source, /mia-macos-x64-latest\.dmg/);
+  assert.match(source, /mia-windows-latest\.exe/);
+  assert.match(source, /mia-windows-x64-latest\.exe/);
   assert.match(source, /Mia-\*-Apple-Silicon\.dmg/);
   assert.match(source, /Mia-\*-Intel\.dmg/);
+  assert.match(source, /Mia-\*-Setup\.exe/);
   assert.match(source, /copyDesktopDownloadArtifacts/);
   assert.match(source, /web\/assets\/mia\.css/);
   assert.match(source, /web\/assets\/mia\.js/);
