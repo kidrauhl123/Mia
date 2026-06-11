@@ -2,15 +2,18 @@ import { View, Pressable, StyleSheet } from "react-native";
 import * as Haptics from "expo-haptics";
 import Markdown from "react-native-markdown-display";
 import { color, radius, space } from "../theme";
+import AttachmentList from "./AttachmentList";
 import TraceBlock from "./TraceBlock";
 import type { ChatMessage } from "../api/types";
 
 // 对齐桌面 .bubble:对方=浅灰深字、自己=靛蓝白字,圆角 18,padding 10/15。
 export default function MessageBubble({
   msg,
+  apiBase,
   onLongPress,
 }: {
   msg: ChatMessage;
+  apiBase: string;
   onLongPress?: (m: ChatMessage) => void;
 }) {
   const own = msg.isOwn;
@@ -45,6 +48,7 @@ export default function MessageBubble({
         >
           {msg.bodyMd || ""}
         </Markdown>
+        <AttachmentList attachments={msg.attachments} apiBase={apiBase} own={own} />
       </Pressable>
     </View>
   );

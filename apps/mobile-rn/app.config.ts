@@ -15,6 +15,7 @@ const config: ExpoConfig = {
   },
   android: {
     package: "app.mia.mobile",
+    softwareKeyboardLayoutMode: "pan",
     adaptiveIcon: {
       backgroundColor: "#ffffff",
       foregroundImage: "./assets/android-icon-foreground.png",
@@ -30,7 +31,7 @@ const config: ExpoConfig = {
   web: {
     favicon: "./assets/favicon.png",
   },
-  plugins: ["expo-secure-store", "expo-video"],
+  plugins: ["expo-secure-store", "expo-video", "./modules/mia-android-updater/plugin/withMiaAndroidUpdater"],
   extra: {
     apiBase: "https://mia.gifgif.cn",
     eas: {

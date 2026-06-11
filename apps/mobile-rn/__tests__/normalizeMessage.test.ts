@@ -8,9 +8,10 @@ test("bot 消息 → assistant,不 own", () => {
 });
 
 test("自己的 user 消息 → own", () => {
-  const m = normalizeServerRow({ id: "m2", sender_kind: "user", sender_ref: "u1", body_md: "yo" }, "u1");
+  const m = normalizeServerRow({ id: "m2", seq: 7, sender_kind: "user", sender_ref: "u1", body_md: "yo" }, "u1");
   expect(m.role).toBe("user");
   expect(m.isOwn).toBe(true);
+  expect(m.seq).toBe(7);
 });
 
 test("trace_json 解析", () => {
@@ -21,6 +22,15 @@ test("trace_json 解析", () => {
   expect(m.trace?.reasoning).toBe("think");
 });
 
+test("attachments are normalized onto ChatMessage", () => {
+  const m = normalizeServerRow({
+    id: "m4",
+    sender_kind: "bot",
+    attachments: [{ id: "f1", name: "shot.png", mimeType: "image/png", url: "/api/files/f1" }],
+  }, "u1");
+  expect(m.attachments).toEqual([{ id: "f1", type: "image", name: "shot.png", mimeType: "image/png", url: "/api/files/f1" }]);
+});
+
 test("mergeMessage: clientTraceId 替换 pending", () => {
   const list: ChatMessage[] = [
     { messageId: "pending:t1", clientTraceId: "t1", role: "user", bodyMd: "x", isOwn: true, isPending: true, createdAt: "" },
@@ -28,6 +38,21 @@ test("mergeMessage: clientTraceId 替换 pending", () => {
   const incoming = normalizeServerRow({ id: "s1", sender_kind: "user", sender_ref: "u1", client_trace_id: "t1", body_md: "x" }, "u1");
   const next = mergeMessage(list, incoming);
   expect(next.length).toBe(1);
+  expect(next[0].messageId).toBe("s1");
+  expect(next[0].isPending).toBe(false);
+});
+
+test("normalizeServerRow uses server turn_id as clientTraceId", () => {
+  const m = normalizeServerRow({ id: "m-turn", sender_kind: "user", sender_ref: "u1", turn_id: "t1", body_md: "x" } as any, "u1");
+  expect(m.clientTraceId).toBe("t1");
+});
+
+test("mergeMessage: removes websocket duplicate after turn_id reconciliation", () => {
+  const pending: ChatMessage = { messageId: "pending:t1", clientTraceId: "t1", role: "user", bodyMd: "x", isOwn: true, isPending: true, createdAt: "" };
+  const echoedWithoutTrace = normalizeServerRow({ id: "s1", sender_kind: "user", sender_ref: "u1", body_md: "x" }, "u1");
+  const responseWithTrace = normalizeServerRow({ id: "s1", sender_kind: "user", sender_ref: "u1", turn_id: "t1", body_md: "x" } as any, "u1");
+  const next = mergeMessage([pending, echoedWithoutTrace], responseWithTrace);
+  expect(next).toHaveLength(1);
   expect(next[0].messageId).toBe("s1");
   expect(next[0].isPending).toBe(false);
 });

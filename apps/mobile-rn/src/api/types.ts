@@ -8,16 +8,15 @@ export interface MessageRow {
   sender_ref?: string;
   body_md?: string;
   client_trace_id?: string;
+  turn_id?: string;
   trace_json?: string;
   created_at?: string;
-  attachments?: unknown[];
+  attachments?: MessageAttachment[];
   mentions?: unknown[];
 }
 
 export interface Conversation {
   id: string;
-  publicId?: string;
-  public_id?: string;
   name?: string;
   title?: string;
   type?: "dm" | "group" | "bot" | string;
@@ -57,12 +56,20 @@ export interface Bot {
   displayName?: string;
   display_name?: string;
   name?: string;
+  bio?: string;
+  description?: string;
+  personaText?: string;
+  persona_text?: string;
+  color?: string;
   avatarImage?: string;
   avatar_image?: string;
   avatarCrop?: Record<string, unknown> | null;
   avatar_crop?: Record<string, unknown> | null;
   statusBadge?: StatusBadge | null;
   status_badge?: StatusBadge | null;
+  runtimeKind?: string;
+  runtime_kind?: string;
+  capabilities?: Record<string, unknown>;
 }
 
 export interface Friend {
@@ -71,6 +78,124 @@ export interface Friend {
   account?: string;
   avatarImage?: string;
   avatarCrop?: Record<string, unknown> | null;
+}
+
+export interface UserSettings {
+  version?: number;
+  pins?: string[];
+  readMarks?: Record<string, number>;
+  appearance?: Record<string, unknown>;
+}
+
+export interface FriendRequest {
+  id: string;
+  from_user?: string;
+  to_user?: string;
+  senderId?: string;
+  recipientId?: string;
+  sender?: Friend;
+  recipient?: Friend;
+  other?: Friend;
+  status?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface BridgeDevice {
+  id?: string;
+  deviceId?: string;
+  deviceName?: string;
+  name?: string;
+  platform?: string;
+  engine?: string;
+  capabilities?: Record<string, unknown>;
+  status?: string;
+  connectedAt?: string;
+  lastSeenAt?: string;
+  connected?: boolean;
+}
+
+export interface BridgeRun {
+  id?: string;
+  runId?: string;
+  conversationId?: string;
+  status?: string;
+  text?: string;
+  command?: string;
+  resultText?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  completedAt?: string;
+  error?: string;
+}
+
+export interface BotRuntimeBinding {
+  userId?: string;
+  botId?: string;
+  runtimeKind?: string;
+  enabled?: boolean;
+  config?: BotRuntimeConfig;
+}
+
+export interface RuntimeModelEntry {
+  id: string;
+  value: string;
+  model: string;
+  label: string;
+  provider?: string;
+  providerLabel?: string;
+}
+
+export interface PlatformModelRow {
+  id?: string;
+  value?: string;
+  model?: string;
+  modelName?: string;
+  label?: string;
+  name?: string;
+  upstreamModel?: string;
+  provider?: string;
+  providerLabel?: string;
+}
+
+export interface BotRuntimeConfig {
+  model?: string;
+  effortLevel?: string;
+  permissionMode?: string;
+  modelEntries?: RuntimeModelEntry[];
+}
+
+export interface SkillSummary {
+  id: string;
+  name?: string;
+  title?: string;
+  category?: string;
+  description?: string;
+  ownerLabel?: string;
+  installs?: number;
+  version?: {
+    version?: string;
+    checksum?: string;
+    entryPath?: string;
+  } | null;
+}
+
+export interface SkillCategory {
+  id?: string;
+  name?: string;
+  count?: number;
+}
+
+export interface MessageAttachment {
+  id?: string;
+  type?: string;
+  name?: string;
+  mimeType?: string;
+  url?: string;
+  path?: string;
+  dataUrl?: string;
+  size?: number;
+  createdAt?: string;
 }
 
 export interface AvatarDescriptor {
@@ -106,9 +231,11 @@ export interface WsEnvelope {
 // 渲染用的归一化消息行(气泡 + trace)
 export interface ChatMessage {
   messageId: string;
+  seq?: number;
   clientTraceId: string;
   role: "user" | "assistant" | "system";
   bodyMd: string;
+  attachments?: MessageAttachment[];
   trace?: { reasoning?: any; tools?: any } | null;
   isOwn: boolean;
   isPending: boolean;
