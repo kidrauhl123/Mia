@@ -116,7 +116,6 @@
   // Cache of conversation members per conversation id (fetched on first open, updated via WS events).
   const _conversationMembersCache = new Map();
   const _hydratingBotIdentities = new Set();
-  let _ensuringLocalBotConversations = null;
 
   // Distance (px) from the bottom within which we treat the user as "pinned" and
   // keep following new content. Mirrors the bot-chat threshold in app.js.
@@ -842,87 +841,6 @@
     return (deps && typeof deps.getState === "function" && deps.getState()) || {};
   }
 
-  function localRuntimeBots() {
-    const state = currentState();
-    const runtime = state.runtime || {};
-    const candidates = [
-      ...(Array.isArray(runtime.bots) ? runtime.bots : []),
-      ...(Array.isArray(state.bots) ? state.bots : [])
-    ];
-    const seen = new Set();
-    const bots = [];
-    for (const item of candidates) {
-      if (!item || typeof item !== "object") continue;
-      const key = String(item.key || item.id || "").trim();
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-      bots.push({ ...item, key });
-    }
-    return bots;
-  }
-
-  async function syncLocalBotRuntimeBinding(api, bot) {
-    const botKey = String(bot?.key || bot?.id || "").trim();
-    if (!botKey || !window.miaBotCommands?.syncDesktopLocalBotRuntimeBinding) return;
-    try {
-      await window.miaBotCommands.syncDesktopLocalBotRuntimeBinding({
-        api,
-        state: currentState(),
-        bot,
-        engineContracts: window.miaEngineContracts,
-        modelSettings: window.miaModelSettings,
-        engineOptions: window.miaEngineOptions,
-        activateRuntime: "if-empty"
-      });
-    } catch (error) {
-      console.warn("[social] sync bot runtime failed", botKey, error);
-    }
-  }
-
-  async function syncLocalBotRuntimeBindings() {
-    const api = window.mia?.social;
-    if (!api || !window.miaBotCommands?.syncDesktopLocalBotRuntimeBinding) return;
-    for (const bot of localRuntimeBots()) {
-      await syncLocalBotRuntimeBinding(api, bot);
-    }
-  }
-
-  async function ensureLocalBotConversations(api) {
-    if (!api || !window.miaBotCommands?.ensureDesktopLocalBotConversation) return;
-    for (const bot of localRuntimeBots()) {
-      try {
-        await window.miaBotCommands.ensureDesktopLocalBotConversation({
-          api,
-          state: currentState(),
-          bot,
-          engineContracts: window.miaEngineContracts,
-          modelSettings: window.miaModelSettings,
-          engineOptions: window.miaEngineOptions,
-          activateRuntime: "if-empty",
-          onConversation: upsertConversation
-        });
-      } catch (error) {
-        console.warn("[social] ensure bot conversation failed", bot.key, error);
-      }
-    }
-  }
-
-  function ensureLocalBotConversationsInBackground(api) {
-    if (!api || !window.miaBotCommands?.ensureDesktopLocalBotConversation) return;
-    if (_ensuringLocalBotConversations) return;
-    _ensuringLocalBotConversations = Promise.resolve()
-      .then(() => ensureLocalBotConversations(api))
-      .then(() => {
-        if (deps && typeof deps.render === "function") deps.render();
-      })
-      .catch((error) => {
-        console.warn("[social] ensure local bot conversations failed:", error);
-      })
-      .finally(() => {
-        _ensuringLocalBotConversations = null;
-      });
-  }
-
   async function ensureBotConversation(bot) {
     const botKey = String(bot?.key || bot?.id || "").trim();
     if (!botKey || !window.miaBotCommands?.ensureDesktopLocalBotConversation) return null;
@@ -1005,13 +923,9 @@
     const cloudUser = runtime.cloud?.user || {};
     const localUser = runtime.user || {};
     const cloudBots = Array.isArray(moduleState.bots) ? moduleState.bots : [];
-    const localBots = [
-      ...(Array.isArray(runtime.bots) ? runtime.bots : []),
-      ...(Array.isArray(runtime.personas) ? runtime.personas : [])
-    ];
     const bots = window.miaBotDirectory
-      ? window.miaBotDirectory.listOwnedBots({ cloudBots, localBots, runtime })
-      : [...cloudBots, ...localBots];
+      ? window.miaBotDirectory.listOwnedBots({ cloudBots, runtime })
+      : cloudBots;
     const self = window.miaSelfIdentity.resolveSelfIdentity({
       cloudUser,
       localUser,
@@ -1209,7 +1123,6 @@
         bootstrapCompleted = true;
       }
       hydrateVisibleBotIdentities(api, visibleSocialConversations(moduleState.conversations).slice(0, INITIAL_CONVERSATIONS_CAP));
-      ensureLocalBotConversationsInBackground(api);
 
       // Phase 3: cross-device user settings (pin / read marks / appearance).
       await bootstrapCloudSettings();
@@ -1834,8 +1747,7 @@
     if (!text) return;
     // sendChat needs a bot to run the utility model on: prefer a bot
     // member of this conversation, else fall back to the first available persona.
-    const runtime = (deps && typeof deps.getState === "function" && deps.getState()?.runtime) || {};
-    const bots = runtime.bots || runtime.personas || [];
+    const bots = Array.isArray(moduleState.bots) ? moduleState.bots : [];
     const { MemberKind } = conversationKinds();
     const conversationBot = (_conversationMembersCache.get(conversationId) || []).find((m) => m.member_kind === MemberKind.Bot);
     const botKey = (conversationBot && conversationBot.member_ref) || (bots[0] && (bots[0].key || bots[0].id)) || "";
@@ -2848,7 +2760,6 @@
     moduleState,
     initSocialModule,
     bootstrapAfterLogin,
-    syncLocalBotRuntimeBindings,
     isBootstrapped,
     handleCloudEvent,
     renderSidebarRows,

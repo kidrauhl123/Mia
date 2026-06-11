@@ -756,7 +756,7 @@
     els.botName.value = actualBot?.name || seed?.name || "";
     const runtimeKind = window.miaBotDirectory?.normalizeRuntimeKind?.(
       actualBot?.runtimeKind || actualBot?.runtime_kind || seed?.runtimeKind,
-      actualBot?.sourceKinds?.includes?.("cloud") ? "cloud-hermes" : "desktop-local"
+      window.miaBotDirectory?.isCloudIdentityBot?.(actualBot) ? "cloud-hermes" : "desktop-local"
     ) || "desktop-local";
     renderBotRuntimeTargetSelect({
       runtimeKind,

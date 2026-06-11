@@ -96,9 +96,22 @@
 
   function botName(botId) {
     const { resolveContact, IdentityKind } = contact();
-    const bots = state.runtime?.bots || state.runtime?.personas || [];
+    const bots = ownedBots();
     const resolved = resolveContact({ kind: IdentityKind?.Bot || "bot", ref: botId }, { bots });
     return resolved.displayName || botId;
+  }
+
+  function ownedBots() {
+    const managerBots = __global.miaBotManager?.allOwnedBots?.();
+    if (Array.isArray(managerBots)) return managerBots;
+    const runtime = state?.runtime || {};
+    const cloudBots = Array.isArray(__global.miaSocial?.moduleState?.bots)
+      ? __global.miaSocial.moduleState.bots
+      : [];
+    if (__global.miaBotDirectory?.listOwnedBots) {
+      return __global.miaBotDirectory.listOwnedBots({ cloudBots, runtime });
+    }
+    return cloudBots;
   }
 
   function formatNextTime(ms) {
@@ -696,7 +709,7 @@
   function openTaskCreate() {
     const dialog = document.getElementById("taskCreateDialog");
     if (!dialog) return;
-    const bots = state.runtime?.bots || state.runtime?.personas || [];
+    const bots = ownedBots();
     const botSel = document.getElementById("ntBot");
     if (botSel) {
       if (bots.length === 0) {
@@ -845,7 +858,7 @@
     if (!key) return null;
     const existing = __global.miaSocial?.botConversationForKey?.(key);
     if (existing?.id) return existing.id;
-    const bots = state.runtime?.bots || state.runtime?.personas || [];
+    const bots = ownedBots();
     const bot = bots.find((item) => item?.key === key || item?.id === key) || { key };
     const conversation = await __global.miaSocial?.ensureBotConversation?.(bot);
     return conversation?.id || null;

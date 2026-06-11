@@ -21,11 +21,8 @@
   }
 
   function existingBotKeys(state = {}, social = {}) {
-    const local = [
-      ...(Array.isArray(state.runtime?.bots) ? state.runtime.bots : [])
-    ];
     const cloud = social?.moduleState?.bots || [];
-    return [...local, ...cloud].map((item) => String(item?.key || item?.id || "").trim()).filter(Boolean);
+    return [...cloud].map((item) => String(item?.key || item?.id || "").trim()).filter(Boolean);
   }
 
   function compactDeviceName(value = "") {
@@ -42,6 +39,14 @@
     if (global.miaBotIdentity) return global.miaBotIdentity;
     if (typeof require === "function") {
       try { return require("../../shared/bot-identity.js"); } catch { /* fallback below */ }
+    }
+    return null;
+  }
+
+  function botDirectory() {
+    if (global?.miaBotDirectory) return global.miaBotDirectory;
+    if (typeof require === "function") {
+      try { return require("./bot-directory.js"); } catch { /* fallback below */ }
     }
     return null;
   }
@@ -74,8 +79,17 @@
     };
   }
 
-  function hasCloudSource(bot = {}) {
-    return Array.isArray(bot.sourceKinds) && bot.sourceKinds.includes("cloud");
+  function sourceKinds(bot = {}) {
+    const fromDirectory = botDirectory()?.sourceKinds;
+    if (typeof fromDirectory === "function") return fromDirectory(bot);
+    const raw = Array.isArray(bot.sourceKinds)
+      ? bot.sourceKinds
+      : (bot.sourceKind || bot.source_kind ? [bot.sourceKind || bot.source_kind] : []);
+    return [...new Set(raw.map((item) => String(item || "").trim()).filter(Boolean))];
+  }
+
+  function canUseCloudIdentity({ state = {}, api = global.mia } = {}) {
+    return Boolean(state.runtime?.cloud?.enabled && typeof api?.social?.saveBotIdentity === "function");
   }
 
   function cloudRuntimeDefaults({
@@ -95,6 +109,7 @@
     api = global.mia,
     social = global.miaSocial,
     bot = {},
+    isCreate = false,
     runtimeKind = bot?.runtimeKind || bot?.runtime_kind || "desktop-local",
     targetDeviceId = bot?.targetDeviceId || bot?.target_device_id || bot?.deviceId || bot?.device_id || "",
     targetDeviceName = bot?.targetDeviceName || bot?.target_device_name || bot?.deviceName || bot?.device_name || "",
@@ -104,7 +119,8 @@
     modelSettings = global?.miaModelSettings,
     engineOptions = global?.miaEngineOptions
   } = {}) {
-    const key = String(bot.key || bot.id || "").trim();
+    const explicitKey = String(bot.key || bot.id || "").trim();
+    const key = explicitKey || (isCreate ? generateUntypedBotId(existingBotKeys(state, social)) : "");
     const kind = String(runtimeKind || "desktop-local").trim() === "cloud-hermes" ? "cloud-hermes" : "desktop-local";
     if (!key) return { saved: false, binding: null, conversation: null };
     if (!state.runtime?.cloud?.enabled || typeof api?.social?.saveBotIdentity !== "function") {
@@ -141,7 +157,7 @@
       });
     }
 
-    if (typeof api?.social?.saveBotRuntime !== "function") throw new Error("云端 Bot 运行配置保存接口不可用。");
+    if (typeof api?.social?.saveBotRuntime !== "function") throw new Error("Bot 运行绑定保存接口不可用。");
     const runtime = await api.social.saveBotRuntime(key, {
       runtimeKind: kind,
       enabled: true,
@@ -170,6 +186,7 @@
       ...savedBotFromResult(saved, { ...identity, id: key, key }),
       key,
       id: key,
+      sourceKinds: [...new Set([...sourceKinds(bot), "cloud"])],
       runtimeKind: bindingKind,
       runtimeConfig: bindingConfig,
       agentEngine: bindingKind === "cloud-hermes" ? "hermes" : (bindingConfig.agentEngine || agentEngine),
@@ -203,7 +220,7 @@
     const key = bot.key || generateUntypedBotId(existingBotKeys(state, social));
     const identity = cloudIdentityForBot({ ...bot, key });
     const saved = await api.social.saveBotIdentity(key, identity);
-    if (!saved?.ok) throw new Error(saved?.error || "创建云端 Bot 失败");
+    if (!saved?.ok) throw new Error(saved?.error || "保存 Bot 身份失败");
     if (isCreate || activateRuntime) {
       const runtime = await api.social.saveBotRuntime(key, {
         runtimeKind: "cloud-hermes",
@@ -211,15 +228,23 @@
         activate: true,
         config: cloudRuntimeDefaults({ cloudModelEntries })
       });
-      if (!runtime?.ok) throw new Error(runtime?.error || "保存云端运行配置失败");
+      if (!runtime?.ok) throw new Error(runtime?.error || "保存 Mia Cloud 运行配置失败");
     }
     const ensured = await api.social.ensureBotSessionConversation(key, {
       botId: key,
       title: identity.name || key,
       runtimeKind: "cloud-hermes"
     });
-    if (!ensured?.ok) throw new Error(ensured?.error || "创建云端会话失败");
-    const cloudBot = { ...savedBotFromResult(saved, identity), key, id: key };
+    if (!ensured?.ok) throw new Error(ensured?.error || "创建 Bot 会话失败");
+    const cloudBot = {
+      ...savedBotFromResult(saved, identity),
+      key,
+      id: key,
+      sourceKinds: [...new Set([...sourceKinds(bot), "cloud"])],
+      runtimeKind: "cloud-hermes",
+      runtimeLabel: "Mia Cloud",
+      agentEngine: "hermes"
+    };
     if (social?.moduleState) {
       const bots = Array.isArray(social.moduleState.bots) ? social.moduleState.bots : [];
       social.moduleState.bots = [
@@ -231,63 +256,11 @@
     return { key, bot: cloudBot, conversation, runtime: state.runtime };
   }
 
-  async function saveDesktopLocalBot({
-    state = {},
-    api = global.mia,
-    bot = {},
-    activateRuntime = false,
-    engineContracts = global?.miaEngineContracts,
-    modelSettings = global?.miaModelSettings,
-    engineOptions = global?.miaEngineOptions
-  } = {}) {
-    if (typeof api?.saveBot !== "function") throw new Error("本机 Bot 保存接口不可用。");
-    const runtime = await api.saveBot(bot);
-    const bots = runtime?.bots || [];
-    const saved = bot.key
-      ? bots.find((item) => item.key === bot.key)
-      : [...bots].reverse().find((item) => item.name === String(bot.name || "").trim()) || bots[0];
-    const key = saved?.key || "";
-    let conversation = null;
-    let binding = null;
-    if (key && state.runtime?.cloud?.enabled && typeof api?.social?.saveBotIdentity === "function") {
-      const identity = {
-        name: saved?.name || bot.name || key,
-        avatarImage: saved?.avatarImage || bot.avatarImage || "",
-        avatarCrop: saved?.avatarCrop || bot.avatarCrop || null,
-        color: saved?.color || bot.color || "",
-        bio: saved?.bio || bot.bio || bot.description || "",
-        personaText: bot.personaText || saved?.personaText || "",
-        capabilities: serializableCapabilities(saved?.capabilities || bot.capabilities)
-      };
-      const savedCloud = await api.social.saveBotIdentity(key, identity);
-      if (savedCloud && savedCloud.ok === false) throw new Error(savedCloud.error || "同步本机 Bot 到云端失败");
-      const ensured = await ensureDesktopLocalBotConversation({
-        api: api.social,
-        state,
-        bot: {
-          ...saved,
-          ...bot,
-          key,
-          runtimeKind: "desktop-local"
-        },
-        engineContracts,
-        modelSettings,
-        engineOptions,
-        activateRuntime: activateRuntime ? true : "if-empty"
-      });
-      conversation = ensured.conversation;
-      binding = ensured.binding;
-    }
-    return { key, bot: saved || null, conversation, binding, runtime };
-  }
-
   async function saveBot(options = {}) {
     const runtimeKind = String(options.runtimeKind || "desktop-local").trim();
     if (runtimeKind === "cloud-hermes") return saveCloudHermesBot(options);
-    if (hasCloudSource(options.bot) && options.state?.runtime?.cloud?.enabled) {
-      return saveBotRuntimeTarget({ ...options, runtimeKind: "desktop-local" });
-    }
-    return saveDesktopLocalBot(options);
+    if (!canUseCloudIdentity(options)) throw new Error("请先登录 Mia Cloud。");
+    return saveBotRuntimeTarget({ ...options, runtimeKind: "desktop-local" });
   }
 
   async function deleteCloudHermesBot({
@@ -298,9 +271,9 @@
   } = {}) {
     const key = String(bot.key || bot.id || "").trim();
     if (!key) return { deleted: false, runtime: state.runtime };
-    if (typeof api?.social?.deleteBot !== "function") throw new Error("云端 Bot 删除接口不可用。");
+    if (typeof api?.social?.deleteBot !== "function") throw new Error("云端身份删除接口不可用。");
     const result = await api.social.deleteBot(key);
-    if (result && result.ok === false) throw new Error(result.error || "删除云端 Bot 失败");
+    if (result && result.ok === false) throw new Error(result.error || "删除 Bot 身份失败");
     if (social?.moduleState) {
       const bots = Array.isArray(social.moduleState.bots) ? social.moduleState.bots : [];
       social.moduleState.bots = bots
@@ -310,24 +283,10 @@
     return { deleted: true, runtime: state.runtime };
   }
 
-  async function deleteDesktopLocalBot({
-    state = {},
-    api = global.mia,
-    bot = {}
-  } = {}) {
-    const key = String(bot.key || bot.id || "").trim();
-    if (!key) return { deleted: false, runtime: state.runtime };
-    if (typeof api?.deleteBot !== "function") throw new Error("本机 Bot 删除接口不可用。");
-    const runtime = await api.deleteBot({ key });
-    return { deleted: true, runtime };
-  }
-
   async function deleteBot(options = {}) {
     const bot = options.bot || {};
     if (bot.canDelete === false) return { deleted: false, runtime: options.state?.runtime };
-    const runtimeKind = String(bot.runtimeKind || options.runtimeKind || "desktop-local").trim();
-    if (runtimeKind === "cloud-hermes") return deleteCloudHermesBot(options);
-    return deleteDesktopLocalBot(options);
+    return deleteCloudHermesBot(options);
   }
 
   function identityForCapabilities(bot = {}, capabilities) {
@@ -350,11 +309,18 @@
   } = {}) {
     const key = String(bot.key || bot.id || "").trim();
     if (!key) return { key: "", bot: null, runtime: state.runtime };
-    if (typeof api?.social?.saveBotIdentity !== "function") throw new Error("云端 Bot 保存接口不可用。");
+    if (typeof api?.social?.saveBotIdentity !== "function") throw new Error("云端身份保存接口不可用。");
     const response = await api.social.saveBotIdentity(key, identityForCapabilities(bot, capabilities));
-    if (response && response.ok === false) throw new Error(response.error || "保存云端 Bot 能力失败");
+    if (response && response.ok === false) throw new Error(response.error || "保存 Bot 能力失败");
     const saved = savedBotFromResult(response, { ...bot, capabilities });
-    const nextBot = { ...saved, key: saved.key || saved.id || key, id: saved.id || saved.key || key };
+    const nextBot = {
+      ...bot,
+      ...saved,
+      key: saved.key || saved.id || key,
+      id: saved.id || saved.key || key,
+      sourceKinds: [...new Set([...sourceKinds(bot), "cloud"])],
+      capabilities
+    };
     if (social?.moduleState) {
       const bots = Array.isArray(social.moduleState.bots) ? social.moduleState.bots : [];
       social.moduleState.bots = [
@@ -365,25 +331,8 @@
     return { key, bot: nextBot, runtime: state.runtime };
   }
 
-  async function saveDesktopLocalBotCapabilities({
-    api = global.mia,
-    bot = {},
-    capabilities = []
-  } = {}) {
-    const key = String(bot.key || bot.id || "").trim();
-    if (!key) return { key: "", bot: null, runtime: null };
-    if (typeof api?.saveBot !== "function") throw new Error("本机 Bot 保存接口不可用。");
-    const runtime = await api.saveBot({ ...bot, capabilities });
-    const bots = runtime?.bots || [];
-    const saved = bots.find((item) => item.key === key || item.id === key) || null;
-    return { key, bot: saved, runtime };
-  }
-
   async function saveBotCapabilities(options = {}) {
-    const bot = options.bot || {};
-    const runtimeKind = String(bot.runtimeKind || options.runtimeKind || "desktop-local").trim();
-    if (runtimeKind === "cloud-hermes") return saveCloudHermesBotCapabilities(options);
-    return saveDesktopLocalBotCapabilities(options);
+    return saveCloudHermesBotCapabilities(options);
   }
 
   function runtimeCacheKey(botKey, runtimeKind = "cloud-hermes") {
@@ -398,12 +347,12 @@
   } = {}) {
     const key = String(botKey || "").trim();
     const kind = String(runtimeKind || "cloud-hermes").trim();
-    if (!key || kind !== "cloud-hermes") return null;
+    if (!key) return null;
     const cacheKey = runtimeCacheKey(key, kind);
     if (cache?.has?.(cacheKey)) return cache.get(cacheKey);
-    if (typeof api?.social?.getBotRuntime !== "function") throw new Error("云端 Bot 运行配置读取接口不可用。");
+    if (typeof api?.social?.getBotRuntime !== "function") throw new Error("Bot 运行绑定读取接口不可用。");
     const response = await api.social.getBotRuntime(key, kind);
-    if (!response?.ok) throw new Error(response?.error || "读取云端运行配置失败");
+    if (!response?.ok) throw new Error(response?.error || "读取 Bot 运行绑定失败");
     const binding = response.data?.binding || null;
     cache?.set?.(cacheKey, binding);
     return binding;
@@ -418,20 +367,20 @@
   } = {}) {
     const key = String(botKey || "").trim();
     const kind = String(runtimeKind || "cloud-hermes").trim();
-    if (!key || kind !== "cloud-hermes") return { saved: false, binding: null };
+    if (!key) return { saved: false, binding: null };
     const current = await getBotRuntimeBinding({ api, cache, botKey: key, runtimeKind: kind }) || {
       botId: key,
       runtimeKind: kind,
       enabled: true,
       config: {}
     };
-    if (typeof api?.social?.saveBotRuntime !== "function") throw new Error("云端 Bot 运行配置保存接口不可用。");
+    if (typeof api?.social?.saveBotRuntime !== "function") throw new Error("Bot 运行绑定保存接口不可用。");
     const response = await api.social.saveBotRuntime(key, {
       runtimeKind: kind,
       enabled: true,
       config: { ...(current.config || {}), ...(patch || {}) }
     });
-    if (!response?.ok) throw new Error(response?.error || "保存云端运行配置失败");
+    if (!response?.ok) throw new Error(response?.error || "保存 Bot 运行绑定失败");
     const binding = response.data?.binding || {
       ...current,
       runtimeKind: kind,
@@ -555,7 +504,7 @@
       config: desktopLocalRuntimeConfig({ state, bot, engineContracts, modelSettings, engineOptions })
     };
     const response = await api.saveBotRuntime(botKey, body);
-    if (response && response.ok === false) throw new Error(response.error || "保存本机 Bot 运行配置失败");
+    if (response && response.ok === false) throw new Error(response.error || "保存桌面运行配置失败");
     return response?.data?.binding || response?.binding || { botId: botKey, ...body };
   }
 
@@ -585,7 +534,7 @@
       engineOptions,
       activateRuntime
     });
-    if (result && result.ok === false) throw new Error(result.error || result.message || result.data?.error || "创建本机 Bot 云端会话失败");
+    if (result && result.ok === false) throw new Error(result.error || result.message || result.data?.error || "创建桌面运行会话失败");
     const conversation = conversationFromResult(result);
     const savedConversation = conversation && typeof onConversation === "function" ? onConversation(conversation) : conversation;
     return { key: botKey, conversation: savedConversation || null, binding };
@@ -613,57 +562,6 @@
     return {};
   }
 
-  async function saveDesktopLocalBotRuntimeControl({
-    api = global?.mia,
-    bot = {},
-    field = "",
-    value = "",
-    modelEntries = [],
-    engineContracts = global?.miaEngineContracts
-  } = {}) {
-    const key = String(bot?.key || bot?.id || "").trim();
-    const engine = normalizeAgentEngine(bot?.agentEngine || bot?.agent_engine || "hermes", engineContracts);
-    if (!key) return { saved: false, runtime: null };
-
-    if (engine === "claude-code" || engine === "codex" || engine === "openclaw") {
-      if (typeof api?.saveBotEngine !== "function") return { saved: false, runtime: null };
-      const engineConfig = patchForRuntimeField(field, value, modelEntries);
-      if (!Object.keys(engineConfig).length) return { saved: false, runtime: null };
-      const runtime = await api.saveBotEngine({
-        key,
-        agentEngine: engine,
-        engineConfig
-      });
-      return { saved: true, runtime };
-    }
-
-    if (field === "model") {
-      const entry = modelEntryForValue(modelEntries, value);
-      if (!entry || typeof api?.saveModel !== "function") return { saved: false, runtime: null };
-      const runtime = await api.saveModel({
-        provider: entry.provider,
-        model: entry.model,
-        apiKeyEnv: entry.apiKeyEnv,
-        baseUrl: entry.baseUrl,
-        apiMode: entry.apiMode,
-        providerLabel: entry.providerLabel,
-        authType: entry.authType
-      });
-      return { saved: true, runtime };
-    }
-    if (field === "effortLevel") {
-      if (typeof api?.saveEffort !== "function") return { saved: false, runtime: null };
-      const runtime = await api.saveEffort({ level: value });
-      return { saved: true, runtime };
-    }
-    if (field === "permissionMode") {
-      if (typeof api?.savePermissions !== "function") return { saved: false, runtime: null };
-      const runtime = await api.savePermissions({ mode: value });
-      return { saved: true, runtime };
-    }
-    return { saved: false, runtime: null };
-  }
-
   async function saveBotRuntimeControl({
     api = global?.mia,
     cache = null,
@@ -677,19 +575,9 @@
     const kind = String(runtimeKind || bot?.runtimeKind || bot?.runtime_kind || "desktop-local").trim();
     const key = String(bot?.key || bot?.id || "").trim();
     if (!key) return { saved: false, runtime: null, binding: null };
-    if (kind === "cloud-hermes") {
-      const patch = patchForRuntimeField(field, value, modelEntries);
-      if (!Object.keys(patch).length) return { saved: false, binding: null };
-      return saveBotRuntimeConfig({ api, cache, botKey: key, runtimeKind: kind, patch });
-    }
-    return saveDesktopLocalBotRuntimeControl({
-      api,
-      bot: { ...bot, key, runtimeKind: kind },
-      field,
-      value,
-      modelEntries,
-      engineContracts
-    });
+    const patch = patchForRuntimeField(field, value, modelEntries);
+    if (!Object.keys(patch).length) return { saved: false, binding: null };
+    return saveBotRuntimeConfig({ api, cache, botKey: key, runtimeKind: kind, patch });
   }
 
   const api = {
@@ -697,13 +585,10 @@
     existingBotKeys,
     saveCloudHermesBot,
     saveBotRuntimeTarget,
-    saveDesktopLocalBot,
     saveBot,
     deleteCloudHermesBot,
-    deleteDesktopLocalBot,
     deleteBot,
     saveCloudHermesBotCapabilities,
-    saveDesktopLocalBotCapabilities,
     saveBotCapabilities,
     runtimeCacheKey,
     getBotRuntimeBinding,
@@ -711,7 +596,6 @@
     desktopLocalRuntimeConfig,
     syncDesktopLocalBotRuntimeBinding,
     ensureDesktopLocalBotConversation,
-    saveDesktopLocalBotRuntimeControl,
     saveBotRuntimeControl
   };
 

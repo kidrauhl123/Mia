@@ -137,10 +137,9 @@ async function flushPromises(turns = 3) {
   for (let i = 0; i < turns; i += 1) await Promise.resolve();
 }
 
-test("bootstrapAfterLogin lists conversations before slow local bot ensure work", async () => {
+test("bootstrapAfterLogin does not import local runtime bots as cloud identities", async () => {
   const s = loadSocial();
   const calls = [];
-  const ensureGate = deferred();
   s.initSocialModule({
     getState: () => ({
       runtime: {
@@ -159,14 +158,11 @@ test("bootstrapAfterLogin lists conversations before slow local bot ensure work"
     listFriends: async () => ({ ok: true, data: { friends: [] } }),
     listFriendRequests: async () => ({ ok: true, data: { requests: [] } }),
     settingsGet: async () => ({}),
-    ensureBotSessionConversation: async (botId, body) => {
-      calls.push({ kind: "ensure", botId, body });
-      await ensureGate.promise;
-      return { ok: true, data: { conversation: { id: "botc_u_1_alice", type: "bot" } } };
+    ensureBotSessionConversation: async () => {
+      throw new Error("bootstrap should not import runtime.bots");
     },
-    saveBotRuntime: async (botId, body) => {
-      calls.push({ kind: "runtime", botId, body });
-      return { ok: true, data: { binding: { botId, ...body } } };
+    saveBotRuntime: async () => {
+      throw new Error("bootstrap should not save runtime bindings for runtime.bots");
     },
     listConversations: async () => {
       calls.push({ kind: "listConversations" });
@@ -178,29 +174,9 @@ test("bootstrapAfterLogin lists conversations before slow local bot ensure work"
   await s.bootstrapAfterLogin();
   await flushPromises();
 
-  assert.deepEqual(calls.map((call) => call.kind), ["listConversations", "ensure"]);
+  assert.deepEqual(calls.map((call) => call.kind), ["listConversations"]);
   assert.equal(s.moduleState.conversations.length, 1);
   assert.equal(s.moduleState.conversations[0].id, "botc_u_1_alice");
-  assert.equal(calls[1].botId, "alice");
-  assert.deepEqual(JSON.parse(JSON.stringify(calls[1].body)), { botId: "alice", title: "爱丽丝", runtimeKind: "desktop-local" });
-
-  ensureGate.resolve();
-  await flushPromises();
-
-  assert.equal(calls[2].botId, "alice");
-  assert.deepEqual(JSON.parse(JSON.stringify(calls[2].body)), {
-    runtimeKind: "desktop-local",
-    activate: "if-empty",
-    preserveEnabled: false,
-    enabled: true,
-    config: {
-      agentEngine: "hermes",
-      model: "deepseek-chat",
-      effortLevel: "high",
-      permissionMode: "yolo",
-      modelEntries: []
-    }
-  });
 });
 
 test("bootstrapAfterLogin asks untitled loaded conversations to generate titles", async () => {
@@ -464,7 +440,7 @@ test("renderSidebarRows collapses clean bot session history by bot id", () => {
   );
 });
 
-test("bootstrapAfterLogin syncs external bot runtime config for web controls", async () => {
+test("ensureBotConversation syncs external bot runtime config for web controls", async () => {
   const s = loadSocial();
   const calls = [];
   s.__mockWindow.miaEngineContracts = require("../src/shared/engine-contracts.js");
@@ -475,25 +451,12 @@ test("bootstrapAfterLogin syncs external bot runtime config for web controls", a
     ]
   };
   s.initSocialModule({
-    getState: () => ({
-      runtime: {
-        bots: [{
-          key: "codex",
-          name: "Codex",
-          agentEngine: "codex",
-          engineConfig: { model: "gpt-5.3-codex", effortLevel: "xhigh", permissionMode: "readOnly" }
-        }]
-      }
-    }),
+    getState: () => ({ runtime: {} }),
     render: () => {},
     els: {},
     appendTransientChat: () => {}
   });
   s.__mockWindow.mia.social = {
-    myUsername: async () => ({ ok: true, data: { id: "u_1", username: "jung" } }),
-    listFriends: async () => ({ ok: true, data: { friends: [] } }),
-    listFriendRequests: async () => ({ ok: true, data: { requests: [] } }),
-    settingsGet: async () => ({}),
     ensureBotSessionConversation: async (botId, body) => {
       calls.push({ kind: "ensure", botId, body });
       return { ok: true, data: { conversation: { id: "botc_u_1_codex", type: "bot" } } };
@@ -501,13 +464,15 @@ test("bootstrapAfterLogin syncs external bot runtime config for web controls", a
     saveBotRuntime: async (botId, body) => {
       calls.push({ kind: "runtime", botId, body });
       return { ok: true, data: { binding: { botId, ...body } } };
-    },
-    listConversations: async () => ({ ok: true, data: { conversations: [] } }),
-    listConversationMessages: async () => ({ ok: true, data: { messages: [] } })
+    }
   };
 
-  await s.bootstrapAfterLogin();
-  await flushPromises();
+  await s.ensureBotConversation({
+    key: "codex",
+    name: "Codex",
+    agentEngine: "codex",
+    engineConfig: { model: "gpt-5.3-codex", effortLevel: "xhigh", permissionMode: "readOnly" }
+  });
 
   assert.equal(calls[1].kind, "runtime");
   assert.deepEqual(JSON.parse(JSON.stringify(calls[1].body.config)), {
@@ -612,7 +577,7 @@ test("selecting a bot session stores it as the sidebar representative for that b
   assert.equal(JSON.parse(store["mia.lastBotConversationByKey"]).nhnh, "botc_u_1_last-selected");
 });
 
-test("bootstrapAfterLogin warns when bot conversation ensure returns ok false", async () => {
+test("ensureBotConversation warns when bot conversation ensure returns ok false", async () => {
   const s = loadSocial();
   const calls = [];
   const warnings = [];
@@ -620,34 +585,24 @@ test("bootstrapAfterLogin warns when bot conversation ensure returns ok false", 
   console.warn = (...args) => warnings.push(args);
   try {
     s.initSocialModule({
-      getState: () => ({ runtime: { bots: [{ key: "alice", name: "爱丽丝" }] } }),
+      getState: () => ({ runtime: {} }),
       render: () => {},
       els: {},
       appendTransientChat: () => {}
     });
     s.__mockWindow.mia.social = {
-      myUsername: async () => ({ ok: true, data: { id: "u_1", username: "jung" } }),
-      listFriends: async () => ({ ok: true, data: { friends: [] } }),
-      listFriendRequests: async () => ({ ok: true, data: { requests: [] } }),
-      settingsGet: async () => ({}),
       ensureBotSessionConversation: async (botId) => {
         calls.push({ kind: "ensure", botId });
         return { ok: false, error: "boom" };
-      },
-      listConversations: async () => {
-        calls.push({ kind: "listConversations" });
-        return { ok: true, data: { conversations: [] } };
-      },
-      listConversationMessages: async () => ({ ok: true, data: { messages: [] } })
+      }
     };
 
-    await s.bootstrapAfterLogin();
-    await flushPromises();
+    await s.ensureBotConversation({ key: "alice", name: "爱丽丝" });
   } finally {
     console.warn = originalWarn;
   }
 
-  assert.deepEqual(calls.map((call) => call.kind), ["listConversations", "ensure"]);
+  assert.deepEqual(calls.map((call) => call.kind), ["ensure"]);
   assert.equal(warnings.some((args) => args.some((part) => String(part).includes("alice") || String(part).includes("boom"))), true);
 });
 
@@ -1163,14 +1118,7 @@ test("renderConversationChat resolves self and bot avatars from one contact cont
           avatarImage: "data:self-avatar",
           avatarCrop: { x: 50, y: 50, zoom: 1 },
           avatarColor: "#111827"
-        },
-        bots: [{
-          key: "mia",
-          name: "Mia",
-          avatarImage: "data:mia-avatar",
-          avatarCrop: { x: 57, y: 8, zoom: 1.5 },
-          color: "#5e5ce6"
-        }]
+        }
       }
     }),
     render: () => {},
@@ -1179,6 +1127,13 @@ test("renderConversationChat resolves self and bot avatars from one contact cont
   });
   s.moduleState.myUserId = "u_me";
   s.moduleState.myUsername = "boss";
+  s.moduleState.bots = [{
+    key: "mia",
+    name: "Mia",
+    avatarImage: "data:mia-avatar",
+    avatarCrop: { x: 57, y: 8, zoom: 1.5 },
+    color: "#5e5ce6"
+  }];
   s.moduleState.activeConversationId = "botc_u_me_mia";
   s.moduleState.conversations = [{ id: "botc_u_me_mia", type: "bot", name: "Mia", decorations: { botId: "mia" } }];
   s.moduleState.messageCache.set("botc_u_me_mia", {
@@ -1257,8 +1212,7 @@ test("renderConversationChat preserves an owned bot's explicit avatar color", ()
   s.initSocialModule({
     getState: () => ({
       runtime: {
-        cloud: { user: { id: "u_me", username: "boss" } },
-        bots: [{ key: "ha", name: "哈哈哈", avatarImage: "", color: "#aa88dd" }]
+        cloud: { user: { id: "u_me", username: "boss" } }
       }
     }),
     render: () => {},
@@ -1267,6 +1221,7 @@ test("renderConversationChat preserves an owned bot's explicit avatar color", ()
   });
   s.moduleState.myUserId = "u_me";
   s.moduleState.myUsername = "boss";
+  s.moduleState.bots = [{ key: "ha", name: "哈哈哈", avatarImage: "", color: "#aa88dd" }];
   s.moduleState.activeConversationId = "botc_u_me_ha";
   s.moduleState.conversations = [{ id: "botc_u_me_ha", type: "bot", name: "哈哈哈", decorations: { botId: "ha" } }];
   s.moduleState.messageCache.set("botc_u_me_ha", {

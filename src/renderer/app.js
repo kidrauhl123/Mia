@@ -407,7 +407,7 @@ function typingLabelForActiveRun(social, conversation) {
   // Only group conversations need to identify the speaker — DM / bot chats
   // already have the bot's name in the header itself.
   if (conversation?.type !== "group") return "";
-  const personas = allOwnedBotsForIdentity(state.runtime?.bots || []);
+  const personas = allOwnedBotsForIdentity();
   const owned = personas.find((p) => (p.key || p.id) === botId);
   if (owned?.name) return owned.name;
   const members = social?.getConversationMembers?.(conversation.id) || [];
@@ -415,20 +415,16 @@ function typingLabelForActiveRun(social, conversation) {
   return member?.bot_name || botId;
 }
 
-function allOwnedBotsForIdentity(personas = []) {
+function allOwnedBotsForIdentity() {
   const runtime = state.runtime || {};
   if (window.miaBotManager?.allOwnedBots) {
     return window.miaBotManager.allOwnedBots();
   }
   const cloudBots = window.miaSocial?.moduleState?.bots || [];
-  const localBots = [
-    ...((Array.isArray(personas) && personas.length) ? personas : []),
-    ...(Array.isArray(runtime.bots) ? runtime.bots : [])
-  ];
   if (window.miaBotDirectory?.listOwnedBots) {
-    return window.miaBotDirectory.listOwnedBots({ cloudBots, localBots, runtime });
+    return window.miaBotDirectory.listOwnedBots({ cloudBots, runtime });
   }
-  return [...cloudBots, ...localBots];
+  return Array.isArray(cloudBots) ? cloudBots : [];
 }
 
 function botAvatarIdentityId(botKey, bot = {}) {
@@ -463,7 +459,7 @@ function paintHeaderStatus() {
     return;
   }
   if (!conversation) return;
-  const personas = state.runtime?.bots || [];
+  const personas = allOwnedBotsForIdentity();
   paintActiveCloudConversationHeader(conversation, { personas, social });
 }
 
@@ -628,7 +624,7 @@ function groupTilesCtx(personas) {
   return {
     self,
     friends: social?.moduleState?.friends || [],
-    bots: allOwnedBotsForIdentity(personas || [])
+    bots: allOwnedBotsForIdentity()
     // shared/avatar-resolve.js owns the "no avatarImage → text fallback"
     // behavior now, so consumers don't need any local fallback table.
   };
@@ -643,7 +639,7 @@ function groupTilesCtx(personas) {
 function conversationCardSpecFromRow(row, personas) {
   if (!row) return null;
   const social = window.miaSocial;
-  const identityBots = allOwnedBotsForIdentity(personas || []);
+  const identityBots = allOwnedBotsForIdentity();
 
   // ── cloud private conversation (DM with a friend OR bot session) ─────────────
   //     Same card shape; the only branch is "who's the other party" — a
@@ -820,7 +816,7 @@ function paintActiveCloudConversationHeader(conversation, { personas, social }) 
   const metaEl = els.activeChatMeta;
   const avatarHelper = window.miaAvatar;
   const groupAvatarHelper = window.miaGroupAvatar;
-  const identityBots = allOwnedBotsForIdentity(personas || []);
+  const identityBots = allOwnedBotsForIdentity();
   // id-prefix fallback for pre-v7 cloud deployments that don't yet return
   // conversation.type. social.renderSidebarRows already normalizes this; mirror it
   // here so a conversation loaded outside the sidebar pipeline (active conversation loaded
@@ -1360,7 +1356,7 @@ function render() {
   window.miaModelSettings.syncPermissionControl(runtime);
   syncConversationBotRuntimeControls();
 
-  const personas = runtime.bots || [];
+  const personas = allOwnedBotsForIdentity();
   const social = window.miaSocial;
   // cloud.enabled = token present (signed in). NOTE: there is no
   // cloud.loggedIn field — cloudStatus() exposes enabled/connected/
@@ -1564,34 +1560,12 @@ function formatRunTime(ms) {
 async function openEditBotDialog(botKey) {
   try {
     const ownedBot = window.miaBotManager?.botByKey?.(botKey);
-    if (ownedBot?.runtimeKind === "cloud-hermes") {
-      window.miaBotDialog.openBotDialog(ownedBot, ownedBot.personaText || ownedBot.bio || "");
-      return;
+    if (!ownedBot || !window.miaBotDirectory?.isCloudIdentityBot?.(ownedBot)) {
+      throw new Error("Bot 身份不存在，请重新同步联系人。");
     }
-    const details = await window.mia.loadBotDetails(botKey);
-    window.miaBotDialog.openBotDialog(details.bot, details.personaText || "");
+    window.miaBotDialog.openBotDialog(ownedBot, ownedBot.personaText || ownedBot.bio || "");
   } catch (error) {
     appendTransientChat("assistant", `编辑 Bot 失败: ${error.message}`);
-  }
-}
-
-async function setBotPinned(botKey, pinned) {
-  try {
-    state.runtime = await window.mia.setBotPinned({ key: botKey, pinned });
-    render();
-  } catch (error) {
-    appendTransientChat("assistant", `置顶失败: ${error.message}`);
-    await refreshRuntime();
-  }
-}
-
-async function setBotMuted(botKey, muted) {
-  try {
-    state.runtime = await window.mia.setBotMuted({ key: botKey, muted });
-    render();
-  } catch (error) {
-    appendTransientChat("assistant", `免打扰设置失败: ${error.message}`);
-    await refreshRuntime();
   }
 }
 
@@ -1611,8 +1585,8 @@ async function deleteBot(botKey) {
     });
     if (result.runtime) state.runtime = result.runtime;
     if (!result.deleted) return;
-    const bots = window.miaBotManager?.allOwnedBots?.() || state.runtime?.bots || [];
-    const next = bots[0]?.key || "mia";
+    const bots = window.miaBotManager?.allOwnedBots?.() || [];
+    const next = bots[0]?.key || "";
     if (!bots.some((item) => item.key === state.activeKey)) state.activeKey = next;
     if (!bots.some((item) => item.key === state.activeContactKey)) state.activeContactKey = state.activeKey;
     render();
@@ -2211,7 +2185,7 @@ async function handleCloudAuthExpired() {
 function activeBotRuntimeControlContext() {
   const conversationContext = activeConversationBotContext();
   if (conversationContext) {
-    const bots = allOwnedBotsForIdentity(state.runtime?.bots || []);
+    const bots = allOwnedBotsForIdentity();
     const bot = bots.find((item) => (item.key || item.id) === conversationContext.botKey) || {};
     return {
       ...conversationContext,
@@ -2297,12 +2271,6 @@ function platformHermesPermissionEntries() {
     { value: "auto", label: "Auto" },
     { value: "readOnly", label: "Read" }
   ];
-}
-
-function syncLocalBotRuntimeBindingsSoon() {
-  if (typeof window.miaSocial?.syncLocalBotRuntimeBindings !== "function") return;
-  window.miaSocial.syncLocalBotRuntimeBindings()
-    .catch((error) => console.warn("[renderer] desktop-local runtime sync failed:", error?.message || error));
 }
 
 function setComposerSelectOptions(select, entries, selectedValue) {
@@ -2461,8 +2429,7 @@ function syncConversationBotRuntimeControls() {
     });
   }
   const runtimeCacheKey = botRuntimeCacheKey(context.botKey, context.runtimeKind);
-  if (context.runtimeKind === "cloud-hermes"
-    && !botRuntimeControlCache.has(runtimeCacheKey)
+  if (!botRuntimeControlCache.has(runtimeCacheKey)
     && !botRuntimeControlInFlight.has(runtimeCacheKey)) {
     botRuntimeControlInFlight.add(runtimeCacheKey);
     ensureBotRuntimeBinding(context.botKey, context.runtimeKind)
@@ -2471,8 +2438,8 @@ function syncConversationBotRuntimeControls() {
         if (latest?.conversationId === context.conversationId) render();
       })
       .catch((error) => {
-        setText(els.modelSwitchStatus, "云端配置读取失败");
-        console.warn("[renderer] cloud bot runtime load failed:", error?.message || error);
+        setText(els.modelSwitchStatus, "运行配置读取失败");
+        console.warn("[renderer] bot runtime load failed:", error?.message || error);
       })
       .finally(() => {
         botRuntimeControlInFlight.delete(runtimeCacheKey);
@@ -2505,28 +2472,12 @@ async function saveActiveBotRuntimeControl(field, value, pendingText, successTex
     });
     if (!result?.saved) return false;
     if (result.runtime) state.runtime = result.runtime;
-    if (context.runtimeKind !== "cloud-hermes") syncLocalBotRuntimeBindingsSoon();
     setText(els.modelSwitchStatus, successText);
-    if (field === "model" && context.runtimeKind !== "cloud-hermes" && agentEngineForRuntimeControl(context) === "hermes") {
-      const entry = modelEntries.find((item) => [item.id, item.value, item.model].some((candidate) => String(candidate || "") === String(value || "")));
-      if (entry) {
-        window.miaModelSettings.applyModelEntryToFields(entry);
-        const auth = window.miaModelSettings.modelAuthCopy(entry, state.runtime);
-        if (auth.state.includes("需要")) {
-          state.settingsOpen = true;
-          state.activeSettingsTab = "model";
-        }
-      }
-    }
     render();
   } catch (error) {
     setText(els.modelSwitchStatus, "保存失败");
     appendTransientChat("assistant", `${errorPrefix}: ${error.message || error}`);
-    if (context.runtimeKind === "cloud-hermes") {
-      syncConversationBotRuntimeControls();
-    } else {
-      await refreshRuntime();
-    }
+    syncConversationBotRuntimeControls();
   } finally {
     setRuntimeControlDisabled(false);
   }
@@ -2542,7 +2493,7 @@ function activeConversationBotKey() {
 }
 
 function activePersona() {
-  const personas = state.runtime?.bots || [];
+  const personas = allOwnedBotsForIdentity();
   const conversationBotKey = activeConversationBotKey();
   if (conversationBotKey) {
     const conversationPersona = personas.find((persona) => (persona.key || persona.id) === conversationBotKey);
@@ -2633,7 +2584,8 @@ async function createNewCloudSessionForActive(conversation) {
 
 function botByKey(botKey) {
   const key = String(botKey || "");
-  // Canonical owned-bot list (cloud + local) so cloud bots resolve too.
+  // Canonical owned-bot list. Bot identities are cloud-stored; runtimeKind only
+  // describes where that identity runs.
   const bots = window.miaBotManager?.allOwnedBots?.() || [];
   return bots.find((item) => String(item?.key || item?.id || "") === key) || { key };
 }
@@ -2823,7 +2775,6 @@ async function initializeRuntime(options = {}) {
       render,
       openEditBotDialog,
       deleteBot,
-      setBotPinned,
     });
   }
   if (window.miaSkillLibrary && window.miaSkillLibrary.initSkillLibrary) {
@@ -3575,6 +3526,14 @@ els.petGenerateForm?.addEventListener("submit", async (event) => {
   if (!bot) return;
   const job = await window.mia.generateBotPet({
     botKey: bot.key,
+    bot: {
+      id: bot.id || bot.key,
+      key: bot.key,
+      name: bot.name || bot.displayName || bot.key,
+      displayName: bot.displayName || bot.name || bot.key,
+      avatarImage: bot.avatarImage || "",
+      avatarCrop: bot.avatarCrop || null
+    },
     prompt: els.petPrompt?.value || "",
     stylePreset: els.petStylePreset?.value || "codex",
     referenceImages: state.petReferences.map((item) => item.src)

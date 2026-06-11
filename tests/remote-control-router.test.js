@@ -14,7 +14,6 @@ function setup(overrides = {}) {
   const router = createRemoteControlRouter({
     isDaemonProcess: false,
     getRuntimeStatus: () => ({ runtime: true }),
-    loadBotManifest: () => ({ bots: [{ key: "codex" }], default_bot: "codex" }),
     loadHermesModelCatalog: async () => ["hermes-model"],
     loadCodexModels: () => ["codex-model"],
     loadEngineCapabilities: async () => ({ hermes: true }),
@@ -23,7 +22,6 @@ function setup(overrides = {}) {
     saveChatAttachment: (body) => ({ attachment: body }),
     readLocalFileAttachment: (body) => ({ file: body }),
     executeExternalAgentCommand: (body) => ({ command: body }),
-    saveBotEngineConfig: (body) => ({ botEngine: body }),
     saveModelSelection: async (body) => {
       calls.modelSelections.push(body);
       return { runtime: true };
@@ -48,25 +46,17 @@ test("routes health and read endpoints through one remote control router", async
     handled: true,
     data: { status: "ok", service: "mia-daemon", mode: "desktop" }
   });
-  assert.deepEqual(await router.route({ method: "GET", path: "/api/bots" }), {
-    handled: true,
-    data: { bots: [{ key: "codex" }], defaultBot: "codex" }
-  });
   assert.deepEqual(await router.route({ method: "GET", path: "/api/commands/agent-list?engine=codex" }), {
     handled: true,
     data: { commands: [], input: { engine: "codex" } }
   });
 });
 
-test("bot list does not invent a mia default when the manifest is empty", async () => {
-  const { router } = setup({
-    loadBotManifest: () => ({ bots: [], default_bot: "" })
-  });
+test("retired local bot identity routes are not exposed through remote control", async () => {
+  const { router } = setup();
 
-  assert.deepEqual(await router.route({ method: "GET", path: "/api/bots" }), {
-    handled: true,
-    data: { bots: [], defaultBot: "" }
-  });
+  assert.deepEqual(await router.route({ method: "GET", path: "/api/bots" }), { handled: false });
+  assert.deepEqual(await router.route({ method: "POST", path: "/api/bot/engine", body: { key: "codex" } }), { handled: false });
 });
 
 test("routes model, effort, and permission mutations without duplicating adapters", async () => {

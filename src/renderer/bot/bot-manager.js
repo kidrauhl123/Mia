@@ -15,7 +15,7 @@
   let state, els;
   let setText, formatConversationTime;
   let loadSkills, showNarrowContent, render;
-  let closeGroupContextMenu, openEditBotDialog, deleteBot, setBotPinned;
+  let closeGroupContextMenu, openEditBotDialog, deleteBot;
   let runtimeDevicesLoading = false;
   let runtimeDevicesLoadedAt = 0;
   const RUNTIME_DEVICE_REFRESH_INTERVAL_MS = 15000;
@@ -70,7 +70,6 @@
     closeGroupContextMenu = deps.closeGroupContextMenu;
     openEditBotDialog = deps.openEditBotDialog;
     deleteBot = deps.deleteBot;
-    setBotPinned = deps.setBotPinned;
   }
 
   function botByKey(key) {
@@ -101,12 +100,8 @@
     const socialBots = window.miaSocial?._internalCtx?.adapterCtx?.()?.bots
       || window.miaSocial?.moduleState?.bots
       || [];
-    const localBots = [
-      ...(Array.isArray(state.runtime?.bots) ? state.runtime.bots : [])
-    ];
     return window.miaBotDirectory.listOwnedBots({
       cloudBots: socialBots,
-      localBots,
       runtime: state.runtime || {}
     });
   }
@@ -926,7 +921,6 @@
         : window.miaMarkdown.menuItemHtml({ icon: "message", label: "放进桌面", attrs: 'data-bot-action="place"' })
       : window.miaMarkdown.menuItemHtml({ icon: "addPic", label: "生成桌宠", attrs: 'data-bot-action="generate-pet"' });
     menu.innerHTML = `
-      ${window.miaMarkdown.menuItemHtml({ icon: "pin", label: bot.pinned ? "取消置顶" : "置顶", attrs: 'data-bot-action="pin"' })}
       ${window.miaMarkdown.menuItemHtml({ icon: "edit", label: "编辑", attrs: 'data-bot-action="edit"' })}
       ${petAction}
       ${canDeleteBot ? `<div class="skill-context-menu-separator" role="separator"></div>${window.miaMarkdown.menuItemHtml({ icon: "delete", label: "删除伙伴", attrs: 'data-bot-action="delete"', className: "danger" })}` : ""}
@@ -939,10 +933,6 @@
     menu.querySelector('[data-bot-action="edit"]')?.addEventListener("click", () => {
       closeBotContextMenu();
       openEditBotDialog(bot.key);
-    });
-    menu.querySelector('[data-bot-action="pin"]')?.addEventListener("click", async () => {
-      closeBotContextMenu();
-      await setBotPinned(bot.key, !bot.pinned);
     });
     menu.querySelector('[data-bot-action="generate-pet"]')?.addEventListener("click", () => {
       closeBotContextMenu();

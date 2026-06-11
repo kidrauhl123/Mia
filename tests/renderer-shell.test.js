@@ -423,7 +423,8 @@ test("sidebar card specs carry identity status badges when available", () => {
         botId: (conversation) => conversation.decorations?.botId || "mia",
         botDisplayTitle: () => "Mia"
       };
-      function allOwnedBotsForIdentity(personas) { return personas || []; }
+      const ownedBots = [{ key: "mia", id: "mia", name: "Mia", statusBadge: { kind: "emoji", emoji: "⭐", label: "Premium" } }];
+      function allOwnedBotsForIdentity() { return ownedBots; }
       function botGlobalIdFromConversation() { return "bot_global"; }
       function botAvatarIdentityId() { return "bot_global"; }
       function formatConversationTime() { return ""; }
@@ -444,7 +445,7 @@ test("sidebar card specs carry identity status badges when available", () => {
     type: "private-conversation",
     updatedAt: "",
     conversation: { id: "botc_u_me_mia", type: "bot", name: "Mia", decorations: { botId: "mia" } }
-  }, [{ key: "mia", id: "mia", name: "Mia", statusBadge: badge }]);
+  }, []);
   const groupSpec = conversationCardSpecFromRow({
     type: "group-conversation",
     updatedAt: "",
@@ -616,7 +617,8 @@ test("desktop bot controls save through bot runtime control adapter", () => {
   assert.doesNotMatch(appSource, new RegExp("window\\.mia\\.social\\.save" + "BotRuntime\\(context\\." + "fellow" + "Key"));
   assert.doesNotMatch(appSource, /async function saveActiveCloudBotRuntimeConfig/);
   assert.match(commandsSource, /async function saveBotRuntimeControl/);
-  assert.match(commandsSource, /async function saveDesktopLocalBotRuntimeControl/);
+  assert.doesNotMatch(commandsSource, /async function saveDesktopLocalBotRuntimeControl/);
+  assert.match(commandsSource, /saveBotRuntimeConfig\(\{ api, cache, botKey: key, runtimeKind: kind, patch \}\)/);
   assert.match(quickControlSource, /saveActiveBotRuntimeControl\(\s*"model"/);
   assert.match(quickControlSource, /saveActiveBotRuntimeControl\(\s*"effortLevel"/);
   assert.match(quickControlSource, /saveActiveBotRuntimeControl\(\s*"permissionMode"/);
@@ -627,19 +629,21 @@ test("desktop bot controls save through bot runtime control adapter", () => {
   assert.match(appSource, /const conversationPersona = personas\.find[\s\S]*if \(conversationPersona\) return conversationPersona;\s*return null;/);
 });
 
-test("desktop-local bot runtime controls do not poll cloud runtime binding", () => {
+test("desktop-local bot runtime controls read cloud runtime bindings", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const body = appSource.slice(
     appSource.indexOf("function syncConversationBotRuntimeControls()"),
     appSource.indexOf("function setRuntimeControlDisabled")
   );
+  const runtimeFetchBlock = body.slice(body.indexOf("const runtimeCacheKey = botRuntimeCacheKey"));
 
   assert.match(appSource, /const botRuntimeControlInFlight = new Set\(\);/);
-  assert.match(body, /context\.runtimeKind === "cloud-hermes"/);
+  assert.doesNotMatch(runtimeFetchBlock, /context\.runtimeKind === "cloud-hermes"/);
+  assert.match(runtimeFetchBlock, /if \(!botRuntimeControlCache\.has\(runtimeCacheKey\)/);
   assert.match(body, /!botRuntimeControlInFlight\.has\(runtimeCacheKey\)/);
   assert.match(body, /botRuntimeControlInFlight\.add\(runtimeCacheKey\)/);
   assert.match(body, /botRuntimeControlInFlight\.delete\(runtimeCacheKey\)/);
-  assert.doesNotMatch(body, /if \(!botRuntimeControlCache\.has\(botRuntimeCacheKey\(context\.botKey, context\.runtimeKind\)\)\) \{/);
+  assert.match(body, /ensureBotRuntimeBinding\(context\.botKey, context\.runtimeKind\)/);
 });
 
 test("desktop Hermes conversation model picker uses platform model catalog", () => {
@@ -820,7 +824,7 @@ test("creating or messaging a bot opens its conversation through the unified bot
   assert.match(botManagerSource, /window\.miaOpenBotConversation\??\.?\(botKey\)/);
 });
 
-test("contacts merge local bots with owned cloud bots", () => {
+test("contacts use cloud-stored owned bot identities", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
   const botDirectorySource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-directory.js"), "utf8");
@@ -835,7 +839,7 @@ test("contacts merge local bots with owned cloud bots", () => {
   assert.match(botManagerSource, /const bots = allOwnedBots\(\);/);
   assert.match(botManagerSource, /adapterCtx\?\.\(\)\?\.bots/);
   assert.match(botManagerSource, /moduleState\?\.bots/);
-  assert.match(botManagerSource, /state\.runtime\?\.bots/);
+  assert.doesNotMatch(botManagerSource, /state\.runtime\?\.bots/);
   assert.doesNotMatch(botManagerSource, /runtime\?\.fellows/);
   assert.doesNotMatch(botManagerSource, /runtime\?\.personas/);
   assert.doesNotMatch(botManagerSource, /cloudOnly/);
@@ -946,7 +950,7 @@ test("contact detail deletes bots through runtime-backed ownership rules", () =>
   assert.match(appSource, /if \(bot\.canDelete === false\) return;/);
   assert.match(appSource, /这会删除该 Bot，并清理当前账号可管理的配置和会话。/);
   assert.match(commandsSource, /async function deleteCloudHermesBot/);
-  assert.match(commandsSource, /async function deleteDesktopLocalBot/);
+  assert.doesNotMatch(commandsSource, /async function deleteDesktopLocalBot/);
   assert.match(botManagerSource, /const canDeleteBot = bot\.canDelete !== false;/);
   assert.doesNotMatch(fs.readFileSync(path.join(root, "src/renderer/bot/bot-directory.js"), "utf8"), /key !== "mia"/);
   assert.match(channelSource, /SocialDeleteBot/);
@@ -976,7 +980,7 @@ test("contact capability saves go through bot command adapters", () => {
   assert.doesNotMatch(botManagerSource, /window\.mia\.social\.saveFellowIdentity/);
   assert.doesNotMatch(botManagerSource, /window\.mia\.saveFellow\(\{/);
   assert.match(commandsSource, /async function saveCloudHermesBotCapabilities/);
-  assert.match(commandsSource, /async function saveDesktopLocalBotCapabilities/);
+  assert.doesNotMatch(commandsSource, /async function saveDesktopLocalBotCapabilities/);
 });
 
 test("contact capability checkboxes use official preset default capabilities", () => {
@@ -1003,12 +1007,14 @@ test("bot-only contact detail renders capabilities and persona as compact accord
   assert.match(styleSource, /\.contact-persona-text/);
 });
 
-test("social bootstrap delegates desktop-local bot sync through bot command adapters", () => {
+test("social keeps desktop-local bot runtime binding explicit", () => {
   const socialSource = fs.readFileSync(path.join(root, "src/renderer/social/social.js"), "utf8");
   const commandsSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-commands.js"), "utf8");
 
   assert.match(socialSource, /window\.miaBotCommands\.ensureDesktopLocalBotConversation\(\{/);
-  assert.match(socialSource, /window\.miaBotCommands\.syncDesktopLocalBotRuntimeBinding\(\{/);
+  assert.doesNotMatch(socialSource, /function syncLocalBotRuntimeBindings/);
+  assert.doesNotMatch(socialSource, /ensureLocalBotConversationsInBackground/);
+  assert.doesNotMatch(socialSource, /runtime\.bots\)\s*\? runtime\.bots/);
   assert.doesNotMatch(socialSource, new RegExp("api\\.save" + "BotRuntime\\(" + "fellow" + "Key"));
   assert.doesNotMatch(socialSource, /api\.ensureFellowConversation\(fellow\.key,/);
   assert.match(commandsSource, /function desktopLocalRuntimeConfig/);
@@ -1065,8 +1071,40 @@ test("bot creation branches cloud-hermes without saving local manifest", () => {
   assert.match(commandsSource, /async function saveCloudHermesBot/);
   assert.match(commandsSource, /api\.social\.saveBotIdentity\(key,/);
   assert.match(commandsSource, /runtimeKind:\s*"cloud-hermes"/);
-  assert.match(commandsSource, /async function saveDesktopLocalBot/);
-  assert.match(commandsSource, /api\.saveBot\(bot\)/);
+  assert.doesNotMatch(commandsSource, /async function saveDesktopLocalBot/);
+  assert.doesNotMatch(commandsSource, /api\.saveBot\(bot\)/);
+});
+
+test("editing a cloud-sourced desktop bot does not load local manifest details", async () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const calls = [];
+  const bot = {
+    key: "codex-pal",
+    name: "Codex Pal",
+    runtimeKind: "desktop-local",
+    sourceKinds: ["cloud"],
+    personaText: "Cloud persona"
+  };
+  const context = vm.createContext({
+    window: {
+      miaBotManager: { botByKey: (key) => (key === bot.key ? bot : null) },
+      miaBotDirectory: {
+        isCloudIdentityBot: (item) => Array.isArray(item?.sourceKinds) && item.sourceKinds.includes("cloud")
+      },
+      miaBotDialog: {
+        openBotDialog(openedBot, personaText) {
+          calls.push(["dialog", openedBot.key, personaText]);
+        }
+      }
+    },
+    appendTransientChat(role, message) {
+      calls.push(["toast", role, message]);
+    }
+  });
+
+  await vm.runInContext(`async ${extractFunctionSource(appSource, "openEditBotDialog")}; openEditBotDialog("${bot.key}")`, context);
+
+  assert.deepEqual(calls, [["dialog", "codex-pal", "Cloud persona"]]);
 });
 
 test("opening a bot conversation preserves existing cloud runtime kind", () => {
@@ -1083,7 +1121,7 @@ test("bot runtime controls resolve identity from the canonical bot directory", (
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
 
   assert.match(appSource, /function activeBotRuntimeControlContext\(\)/);
-  assert.match(appSource, /const bots = allOwnedBotsForIdentity\(state\.runtime\?\.bots \|\| \[\]\);/);
+  assert.match(appSource, /const bots = allOwnedBotsForIdentity\(\);/);
   assert.match(appSource, /const bot = bots\.find\(\(item\) => \(item\.key \|\| item\.id\) === conversationContext\.botKey\) \|\| \{\};/);
   assert.doesNotMatch(appSource, /const personas = state\.runtime\?\.bots \|\| \[\];\s*const bot = personas\.find/);
 });

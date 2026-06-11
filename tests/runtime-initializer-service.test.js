@@ -39,11 +39,6 @@ function setup(t, overrides = {}) {
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const runtime = runtimeFor(dir);
   const calls = [];
-  const manifest = {
-    bots: [
-      { key: "mei", name: "Mei", bio: "curious", avatarText: "M" }
-    ]
-  };
   const service = createRuntimeInitializerService({
     runtimePaths: () => runtime,
     randomBytes: () => Buffer.from("c".repeat(64), "hex"),
@@ -61,27 +56,19 @@ function setup(t, overrides = {}) {
     defaultDaemonSettings: () => ({ enabled: true }),
     defaultUserProfile: () => ({ displayName: "Boss" }),
     defaultAppearanceSettings: () => ({ theme: "system" }),
-    loadBotManifest: () => manifest,
-    saveBotManifest: (next) => {
-      calls.push(["save-bots", next.bots.length]);
-      fs.mkdirSync(path.dirname(runtime.botManifest), { recursive: true });
-      fs.writeFileSync(runtime.botManifest, JSON.stringify(next, null, 2) + "\n");
-    },
-    botPersonaBody: (name, bio) => `${name}:${bio}`,
-    botMetadata: (bot) => ({ key: bot.key, name: bot.name }),
     ensureClaudeBridgePlugin: () => calls.push(["claude-bridge"]),
     appendEngineLog: (line) => calls.push(["log", line]),
     getRuntimeStatus: (created) => ({ created, ok: true }),
     ...overrides
   });
-  return { calls, dir, manifest, runtime, service };
+  return { calls, dir, runtime, service };
 }
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
 }
 
-test("initializeRuntimeCore creates runtime directories, default files, bots, and bridge plugins", (t) => {
+test("initializeRuntimeCore creates runtime directories, default files, and bridge plugins", (t) => {
   const { calls, runtime, service } = setup(t);
 
   const status = service.initializeRuntimeCore();
@@ -102,17 +89,16 @@ test("initializeRuntimeCore creates runtime directories, default files, bots, an
   assert.deepEqual(readJson(runtime.appearanceSettings), { theme: "system" });
   assert.equal(fs.existsSync(path.join(runtime.home, "mia-sessions.json")), false);
   assert.match(fs.readFileSync(runtime.soul, "utf8"), /Mia Shared Soul/);
-  assert.equal(fs.readFileSync(path.join(runtime.botDir, "mei.md"), "utf8"), "Mei:curious");
-  assert.deepEqual(readJson(path.join(runtime.botDir, "mei.bot.json")), { key: "mei", name: "Mei" });
+  assert.equal(fs.existsSync(path.join(runtime.botDir, "manifest.json")), false);
+  assert.equal(fs.readdirSync(runtime.botDir).length, 0);
   assert.deepEqual(calls, [
     ["engine-plugins"],
     ["write-config", 18777],
-    ["save-bots", 1],
     ["claude-bridge"]
   ]);
   assert.ok(status.created.includes("runtime/hermes-engine/README.md"));
   assert.ok(status.created.includes("runtime/engine-home/api-server.key"));
-  assert.ok(status.created.includes("runtime/engine-home/bots/mei.md"));
+  assert.equal(status.created.some((entry) => entry.startsWith("runtime/engine-home/bots/")), false);
 });
 
 test("initializeRuntimeCore does not overwrite existing user-owned runtime files", (t) => {
@@ -133,18 +119,6 @@ test("initializeRuntimeCore does not overwrite existing user-owned runtime files
   assert.equal(status.created.includes("runtime/engine-home/api-server.key"), false);
   assert.equal(status.created.includes("runtime/engine-home/mia-model.json"), false);
   assert.equal(status.created.includes("runtime/engine-home/bots/mei.md"), false);
-});
-
-test("initializeRuntimeCore materializes personaText from the bot manifest", (t) => {
-  const { runtime, service } = setup(t, {
-    loadBotManifest: () => ({
-      bots: [{ key: "mei", name: "Mei", bio: "curious", personaText: "manifest persona body" }]
-    })
-  });
-
-  service.initializeRuntimeCore();
-
-  assert.equal(fs.readFileSync(path.join(runtime.botDir, "mei.md"), "utf8"), "manifest persona body");
 });
 
 test("initializeRuntimeCore logs Claude bridge setup failure without aborting runtime initialization", (t) => {

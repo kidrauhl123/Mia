@@ -35,7 +35,6 @@ const { createStartupBackgroundService } = require("./main/startup-background-se
 const { createStartupTimer } = require("./main/startup-timing.js");
 const { createChatAttachments } = require("./main/chat-attachments.js");
 const { createBotManifest } = require("./main/bot-manifest.js");
-const { createBotService } = require("./main/bot-service.js");
 const { createRuntimePaths } = require("./main/runtime-paths.js");
 const { createSettingsStore } = require("./main/settings-store.js");
 const { createWindowStateManager } = require("./main/window-state.js");
@@ -292,10 +291,6 @@ const {
   normalizeBotEngineConfig,
   normalizeAvatarCrop,
   loadBotManifest,
-  saveBotManifest,
-  botPersonaBody,
-  botMetadata,
-  botPersonaPath,
   readBotPersona,
 } = botManifestModule;
 
@@ -337,7 +332,6 @@ const botPetService = createBotPetService({
   resourcesPath: process.resourcesPath || "",
   runtimePaths,
   readJson,
-  loadBotManifest: loadBotManifest,
   dataUrlToBuffer,
   initializeRuntime,
   spawnProcess: spawn,
@@ -377,10 +371,6 @@ const runtimeInitializerService = createRuntimeInitializerService({
   defaultDaemonSettings: () => settingsStore.defaultDaemonSettings(),
   defaultUserProfile: () => settingsStore.defaultUserProfile(),
   defaultAppearanceSettings: () => settingsStore.defaultAppearanceSettings(),
-  loadBotManifest,
-  saveBotManifest,
-  botPersonaBody,
-  botMetadata,
   ensureClaudeBridgePlugin: () => claudeBridgePluginService.ensureInstalled(),
   appendEngineLog,
   getRuntimeStatus
@@ -586,11 +576,9 @@ async function getObservedDaemonStatus(timeoutMs = 500) {
 
 function getRuntimeStatus(created = [], options = {}) {
   const p = runtimePaths();
-  const manifest = loadBotManifest();
   const codexAuth = authService.status();
   const settings = settingsWithoutSecret();
   const connectedProviders = connectedProviderSummaries(codexAuth);
-  const bots = Array.isArray(manifest.bots) ? manifest.bots : [];
   // Skip the synchronous local-agent scan while signed out: the login screen
   // never needs the agent inventory, and the scan's shell probes for missing
   // agents (hermes/openclaw) would block the main process and beachball the
@@ -649,8 +637,8 @@ function getRuntimeStatus(created = [], options = {}) {
       hasApiKey: connectedProviders.some((entry) => entry.provider === settings.provider && entry.hasApiKey)
     },
     connectedProviders,
-    bots,
-    pets: botPetService.statusesForBots(bots),
+    bots: [],
+    pets: {},
     petJobs: botPetService.jobs()
   };
 }
@@ -760,8 +748,10 @@ function normalizeRemoteUserMessage(input) {
   };
 }
 
-function resolveRemoteChatBot({ botKey }) {
+function resolveRemoteChatBot({ botKey, botSnapshot = null, runtimeConfig = null }) {
   initializeRuntime();
+  const snapshotBot = cloudBotSnapshotForTurn(botSnapshot, botKey, runtimeConfig);
+  if (snapshotBot) return { bot: snapshotBot };
   const manifest = loadBotManifest();
   const bots = Array.isArray(manifest.bots) ? manifest.bots : [];
   const key = String(botKey || manifest.default_bot || bots[0]?.key || "").trim();
@@ -833,7 +823,12 @@ async function runRemoteChatRequest(body, eventSink = null) {
     throw new Error("text or a user message is required.");
   }
 
-  const { bot } = resolveRemoteChatBot({ botKey: body?.botKey || body?.botId });
+  const runtimeConfig = body?.runtimeConfig || body?.runtime_config || null;
+  const { bot } = resolveRemoteChatBot({
+    botKey: body?.botKey || body?.botId,
+    botSnapshot: body?.botSnapshot || body?.bot || null,
+    runtimeConfig
+  });
   if (!bot) throw new Error("Bot not found.");
   const conversationId = String(body?.conversationId || body?.sessionId || "").trim();
   const agentSessionId = String(body?.agentSessionId || conversationId || `remote:${crypto.randomUUID()}`);
@@ -861,6 +856,7 @@ async function runRemoteChatRequest(body, eventSink = null) {
 
   const response = await sendChat({
     botKey: bot.key,
+    botSnapshot: bot,
     sessionId: agentSessionId,
     messages: runMessages,
     webContents: tracedEventSink,
@@ -869,7 +865,8 @@ async function runRemoteChatRequest(body, eventSink = null) {
     // execution mode for this turn so the replayed task prompt is run, not
     // re-interpreted as a fresh "create a task" request.
     scheduledFire: Boolean(body?.meta?.taskId),
-    persistAgentSession: true
+    persistAgentSession: true,
+    runtimeConfig
   });
   const responseMessage = response?.choices?.[0]?.message || {};
   const assistantText = responseMessageContent(response);
@@ -1073,14 +1070,6 @@ function cloudStatus(includeToken = false) {
 function cloudDesktopSync() {
   if (!cloudDesktopSyncRuntime) throw new Error("Cloud desktop sync runtime is not initialized.");
   return cloudDesktopSyncRuntime;
-}
-
-function pushBotToCloud(bot) {
-  return cloudDesktopSync().pushBot(bot);
-}
-
-function deleteBotFromCloud(botKey) {
-  return cloudDesktopSync().deleteBot(botKey);
 }
 
 function syncMiaCloudWorkspace() {
@@ -1386,13 +1375,17 @@ function createActiveStatelessChatEngineAdapters() {
   });
 }
 
-async function sendChatStateless({ botKey, systemPrompt, userPrompt, signal }) {
-  const manifest = loadBotManifest();
-  const { bot } = requireBot(manifest, botKey, "还没有可用的 bot，请先在引导里创建一个再发起对话。");
+async function sendChatStateless({ botKey, botSnapshot = null, runtimeConfig = null, systemPrompt, userPrompt, signal }) {
+  const snapshotBot = cloudBotSnapshotForTurn(botSnapshot, botKey, runtimeConfig);
+  let bot = snapshotBot;
+  if (!bot) {
+    const manifest = loadBotManifest();
+    ({ bot } = requireBot(manifest, botKey, "还没有可用的 bot，请先在引导里创建一个再发起对话。"));
+  }
   const chatEngine = resolveChatEngineAdapter(bot);
   return sendWithStatelessChatEngineAdapter(createActiveStatelessChatEngineAdapters(), {
     chatEngine,
-    bot,
+    bot: botWithRuntimeConfig(bot, normalizeTurnRuntimeConfig(runtimeConfig)),
     systemPrompt,
     userPrompt,
     signal
@@ -1609,17 +1602,13 @@ async function sendChat({ botKey, botId, botSnapshot = null, sessionId, messages
     ? createChatEventEmitter({ webContents, sessionId })
     : { emit: null };
   try {
-    const manifest = loadBotManifest();
     const key = botKey || botId;
     const snapshotBot = cloudBotSnapshotForTurn(botSnapshot, key, runtimeConfig);
-    let bot;
-    try {
-      ({ bot } = requireBot(manifest, key, "还没有可用的 bot，请先在引导里创建一个再发起对话。", { fallback: !snapshotBot }));
-    } catch (error) {
-      if (!snapshotBot) throw error;
-      bot = snapshotBot;
+    let bot = snapshotBot;
+    if (!bot) {
+      const manifest = loadBotManifest();
+      ({ bot } = requireBot(manifest, key, "还没有可用的 bot，请先在引导里创建一个再发起对话。"));
     }
-    if (!bot && snapshotBot) bot = snapshotBot;
     const turnRuntimeConfig = normalizeTurnRuntimeConfig(runtimeConfig);
     let botForTurn = botWithRuntimeConfig(bot, turnRuntimeConfig);
     const runtimeAgentEngine = String(runtimeConfig?.agentEngine || runtimeConfig?.agent_engine || "").trim();
@@ -1821,30 +1810,9 @@ const conversationTitleService = createConversationTitleService({
   sendChat
 });
 
-const botService = createBotService({
-  initializeRuntime,
-  runtimePaths,
-  botManifest: botManifestModule,
-  loadAgentSessionMap: agentSessionStore.loadMap,
-  saveAgentSessionMap: agentSessionStore.saveMap,
-  orphanTasksByBot: (key) => {
-    initSchedulerSubsystem();
-    return tasksStore.orphanByBot(key);
-  },
-  emitTaskEvent: (event, payload) => tasksEvents.emit(event, payload),
-  rescanScheduler: () => scheduler.rescan(),
-  recallBotPet: (key) => botPetService.recall(key),
-  pushBotToCloud,
-  deleteBotFromCloud,
-  appendCloudLog,
-  getRuntimeStatus,
-  petStatusForBot: (key) => botPetService.statusForBot(key)
-});
-
 remoteControlRouter = createRemoteControlRouter({
   isDaemonProcess: IS_DAEMON_PROCESS,
   getRuntimeStatus,
-  loadBotManifest,
   loadHermesModelCatalog: () => engineCatalogService.loadHermesModelCatalog(),
   loadCodexModels: () => engineCatalogService.loadCodexModels(),
   loadEngineCapabilities: () => engineCatalogService.loadEngineCapabilities(),
@@ -1853,7 +1821,6 @@ remoteControlRouter = createRemoteControlRouter({
   saveChatAttachment,
   readLocalFileAttachment,
   executeExternalAgentCommand: (body) => externalAgentCommandService.executeCommand(body),
-  saveBotEngineConfig: (body) => botService.saveBotEngineConfig(body),
   saveModelSelection: (settings) => modelSettingsService.saveModelSelection(settings),
   writeEffortSettings: (body) => settingsStore.writeEffortSettings(body),
   writePermissionSettings: (body) => settingsStore.writePermissionSettings(body),
@@ -1975,10 +1942,6 @@ cloudDesktopSyncRuntime = createCloudDesktopSyncClient({
   appendLog: (line) => appendCloudLog(line),
   fetchImpl: fetch,
   timeoutSignal: (timeoutMs) => AbortSignal.timeout(timeoutMs),
-  loadBotManifest,
-  botPersonaPath,
-  fileExists: (filePath) => fs.existsSync(filePath),
-  readBotPersona,
   writeUserProfile: (profile) => settingsStore.writeUserProfile(profile),
   writeAppearanceSettings: (settings) => settingsStore.writeAppearanceSettings(settings),
   runtimePaths,
@@ -1999,10 +1962,7 @@ cloudBridgeRuntime = createCloudBridgeClient({
   createActiveBridgeChatAdapter,
   createActiveCodexChatAdapter,
   resolveBotCapabilities: ({ botKey, botName }) => {
-    const manifest = loadBotManifest();
-    const bot = (Array.isArray(manifest.bots) ? manifest.bots : [])
-      .find((item) => [item?.key, item?.id].some((value) => String(value || "").trim() === String(botKey || "").trim()))
-      || { key: botKey, id: botKey, name: botName };
+    const bot = { key: botKey, id: botKey, name: botName };
     return skillsLoader.botCapabilitiesWithPresetDefaults(bot);
   },
   randomUUID: () => crypto.randomUUID()
@@ -2032,7 +1992,7 @@ const mainBotRuntimeDispatcher = createMainBotRuntimeDispatcher({
     localDeviceId(),
     cloudBridgeRuntime?.status?.()?.deviceId
   ],
-  listBots: () => loadBotManifest().bots || [],
+  listBots: () => [],
   localBotResponder,
   log: (line) => appendCloudLog(line)
 });
@@ -2240,14 +2200,7 @@ function loadConductorPrompts() {
   };
 }
 
-ipcMain.handle(IpcChannel.BotDetails, (_event, key) => botService.getBotDetails(key));
-ipcMain.handle(IpcChannel.BotSave, (_event, bot) => botService.saveBot(bot));
-ipcMain.handle(IpcChannel.BotEngineSave, (_event, payload) => botService.saveBotEngineConfig(payload));
-ipcMain.handle(IpcChannel.BotPin, (_event, payload) => botService.setBotPinned(payload));
-ipcMain.handle(IpcChannel.BotMute, (_event, payload) => botService.setBotMuted(payload));
-ipcMain.handle(IpcChannel.BotDelete, (_event, payload) => botService.deleteBot(payload));
 ipcMain.handle(IpcChannel.ConductorLoadPrompts, () => loadConductorPrompts());
-ipcMain.handle(IpcChannel.PersonaSave, (_event, persona) => botService.saveBot(persona));
 ipcMain.handle(IpcChannel.PetJobs, () => botPetService.jobs());
 ipcMain.handle(IpcChannel.PetGenerate, (_event, payload) => botPetService.startGeneration(payload));
 ipcMain.handle(IpcChannel.PetPlace, (_event, key) => botPetService.place(key));

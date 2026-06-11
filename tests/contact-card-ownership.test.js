@@ -6,9 +6,9 @@ const vm = require("node:vm");
 
 // Renders the cloud-conversation bot contact card in a mock DOM so we can assert the
 // ownership decision: a bot whose conversation-member owner_id is NOT me must render
-// the read-only "remote" card even when one of MY local bots happens to share
+// the read-only "remote" card even when one of MY cloud-owned bots happens to share
 // its key — otherwise clicking another user's bot would expose and mutate my
-// own local model/effort/permission settings.
+// own bot model/effort/permission settings.
 
 function mockEl() {
   return {
@@ -77,7 +77,6 @@ function ctxWith(ownerId, meId) {
     deps: {
       getState: () => ({
         runtime: {
-          bots: [{ id: "codex", key: "codex", name: "My Codex", agentEngine: "codex", engineConfig: {} }],
           cloud: { user: { id: meId } },
         },
       }),
@@ -85,7 +84,15 @@ function ctxWith(ownerId, meId) {
     conversationMembersCache: new Map([["g_1", [
       { member_kind: "bot", member_ref: "codex", owner_id: ownerId, bot_name: "Their Codex" },
     ]]]),
-    moduleState: { friends: [] },
+    moduleState: {
+      friends: [],
+      bots: [{ id: "codex", key: "codex", name: "My Codex", agentEngine: "codex", engineConfig: {} }]
+    },
+    adapterCtx: () => ({
+      bots: [{ id: "codex", key: "codex", name: "My Codex", agentEngine: "codex", engineConfig: {} }],
+      friends: [],
+      self: { id: meId }
+    }),
   };
 }
 

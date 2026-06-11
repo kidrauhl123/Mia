@@ -8,8 +8,9 @@
 // Plus the normalization helpers used everywhere (normalizeBot,
 // normalizeBotEngineConfig, mergeBotEngineConfig, etc.).
 //
-// Write-side CRUD lives in bot-service.js, which composes these record
-// helpers with cloud sync, task cleanup, chat cleanup, and pet cleanup.
+// Product Bot identity is cloud-owned. These helpers remain as a local runtime
+// fallback for desktop-local adapter/persona reads; new Bot writes must not use
+// this manifest as the source of truth.
 
 const crypto = require("node:crypto");
 const fs = require("node:fs");

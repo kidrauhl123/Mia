@@ -49,21 +49,6 @@ function setup(overrides = {}) {
       return responses.shift() || jsonResponse({ ok: true, user: { id: "u_1", username: "refreshed" } });
     },
     timeoutSignal: () => "timeout-signal",
-    loadBotManifest: () => ({
-      bots: [{
-        key: "codex",
-        name: "Codex",
-        color: "#123456",
-        avatarImage: "data:image/png;base64,abc",
-        avatarCrop: { x: 1 },
-        bio: "assistant",
-        personaText: "manifest persona",
-        capabilities: { chat: true, image: false }
-      }]
-    }),
-    botPersonaPath: (key) => `/personas/${key}.md`,
-    fileExists: (filePath) => filePath === "/personas/codex.md",
-    readBotPersona: () => "persona text",
     runtimePaths: () => ({ userProfile: "/profile.json" }),
     readJson: (filePath) => filePath === "/profile.json"
       ? { avatarImage: "data:image/png;base64,user", avatarCrop: { y: 2 }, avatarColor: "#ffcc00" }
@@ -110,33 +95,16 @@ test("login normalizes the cloud URL, resets local auth, then starts sockets wit
   assert.equal(getSettings().token, "tok_new");
 });
 
-test("syncWorkspace syncs bot identity and stable conversations without reading local sessions or overwriting the cloud profile", async () => {
+test("syncWorkspace refreshes the cloud user without syncing local manifest bots", async () => {
   const { client, calls } = setup();
-  const { normalizeBotCapabilities } = require("../src/shared/bot-identity.js");
 
   await client.syncWorkspace();
 
   assert.deepEqual(calls.fetch.map((request) => [request.method, request.url]), [
-    ["PUT", "https://cloud.example/api/me/bots/codex"],
-    ["PUT", "https://cloud.example/api/me/bot-conversations/codex"],
     ["GET", "https://cloud.example/api/me"]
   ]);
   assert.equal(calls.fetch[0].headers.Authorization, "Bearer tok_1");
-  assert.deepEqual(calls.fetch[0].body, {
-    displayName: "Codex",
-    name: "Codex",
-    color: "#123456",
-    avatarImage: "data:image/png;base64,abc",
-    avatarCrop: { x: 1 },
-    bio: "assistant",
-    capabilities: normalizeBotCapabilities({ chat: true, image: false }),
-    personaText: "manifest persona"
-  });
-  assert.deepEqual(calls.fetch[1].body, {
-    botId: "codex",
-    title: "Codex",
-    runtimeKind: "desktop-local"
-  });
+  assert.equal(calls.fetch[0].body, null);
   assert.deepEqual(calls.writes.at(-1), { user: { id: "u_1", username: "refreshed" } });
 });
 
@@ -237,75 +205,12 @@ test("saveAppearanceSettings writes local appearance and syncs the cloud user se
   assert.deepEqual(status, { ok: true, includeToken: false, token: undefined });
 });
 
-test("pushAllBots ensures a stable cloud conversation for each local bot", async () => {
-  const { client, calls } = setup();
+test("local bot manifest sync methods are not exposed by the cloud desktop sync client", () => {
+  const { client } = setup();
 
-  await client.pushAllBots();
-
-  assert.deepEqual(calls.fetch.map((request) => [request.method, request.url]), [
-    ["PUT", "https://cloud.example/api/me/bots/codex"],
-    ["PUT", "https://cloud.example/api/me/bot-conversations/codex"]
-  ]);
-  assert.deepEqual(calls.fetch[1].body, {
-    botId: "codex",
-    title: "Codex",
-    runtimeKind: "desktop-local"
-  });
-});
-
-test("pushAllBots does not overwrite cloud avatar assets from stale local mirrors", async () => {
-  const { client, calls } = setup({
-    loadBotManifest: () => ({
-      bots: [{
-        key: "jiangmei",
-        name: "Jiangmei",
-        color: "#e8a876",
-        avatarImage: "https://cloud.example/api/avatar-assets/old.avatar.mp4",
-        avatarCrop: { start: 7.26, duration: 4.94 },
-        bio: "assistant",
-        capabilities: { chat: true }
-      }]
-    }),
-    botPersonaPath: () => "/personas/jiangmei.md",
-    fileExists: () => false
-  });
-  const { normalizeBotCapabilities } = require("../src/shared/bot-identity.js");
-
-  await client.pushAllBots();
-
-  assert.deepEqual(calls.fetch[0].body, {
-    displayName: "Jiangmei",
-    name: "Jiangmei",
-    color: "#e8a876",
-    bio: "assistant",
-    capabilities: normalizeBotCapabilities({ chat: true }),
-    personaText: ""
-  });
-  assert.equal(Object.hasOwn(calls.fetch[0].body, "avatarImage"), false);
-  assert.equal(Object.hasOwn(calls.fetch[0].body, "avatarCrop"), false);
-});
-
-test("pushAllBots ensures conversations even when local user metadata is missing", async () => {
-  const { client, calls } = setup({
-    initialSettings: {
-      enabled: true,
-      token: "tok_1",
-      url: "https://cloud.example/",
-      user: null
-    }
-  });
-
-  await client.pushAllBots();
-
-  assert.deepEqual(calls.fetch.map((request) => [request.method, request.url]), [
-    ["PUT", "https://cloud.example/api/me/bots/codex"],
-    ["PUT", "https://cloud.example/api/me/bot-conversations/codex"]
-  ]);
-  assert.deepEqual(calls.fetch[1].body, {
-    botId: "codex",
-    title: "Codex",
-    runtimeKind: "desktop-local"
-  });
+  assert.equal(Object.hasOwn(client, "pushAllBots"), false);
+  assert.equal(Object.hasOwn(client, "pushBot"), false);
+  assert.equal(Object.hasOwn(client, "deleteBot"), false);
 });
 
 test("listMarketSkills serves a fresh local cache without hitting the cloud", async () => {

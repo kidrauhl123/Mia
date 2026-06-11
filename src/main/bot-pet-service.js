@@ -62,13 +62,31 @@ function buildBotPetPrompt(bot, userPrompt = "") {
   return extra ? `${base}\n\n用户补充描述：\n${extra}` : base;
 }
 
+function generationBotFromInput(input = {}) {
+  const embedded = input.bot && typeof input.bot === "object" ? input.bot : {};
+  const key = String(input.botKey || input.botId || input.key || embedded.key || embedded.id || "").trim();
+  if (!key) throw new Error("Bot key is required.");
+  const name = String(
+    input.botName
+    || embedded.name
+    || embedded.displayName
+    || embedded.display_name
+    || key
+  ).trim() || key;
+  return {
+    ...embedded,
+    key,
+    id: String(embedded.id || key),
+    name
+  };
+}
+
 function createBotPetService(deps = {}) {
   const app = deps.app;
   const BrowserWindow = deps.BrowserWindow;
   const screen = deps.screen;
   const runtimePaths = deps.runtimePaths;
   const readJson = deps.readJson;
-  const loadBotManifest = deps.loadBotManifest || (() => ({ bots: [] }));
   const dataUrlToBuffer = deps.dataUrlToBuffer || (() => null);
   const initializeRuntime = deps.initializeRuntime || (() => {});
   const spawnProcess = deps.spawnProcess || spawn;
@@ -307,10 +325,7 @@ function createBotPetService(deps = {}) {
 
   function startGeneration(input = {}) {
     initializeRuntime();
-    const key = String(input.botKey || input.botId || input.key || "").trim();
-    const manifest = loadBotManifest();
-    const bot = (manifest.bots || []).find((item) => item.key === key);
-    if (!bot) throw new Error("Bot not found.");
+    const bot = generationBotFromInput(input);
     const generatorRoot = petGeneratorRoot();
     const script = path.join(generatorRoot, "hatch_generate.py");
     if (!fs.existsSync(script)) throw new Error(`Mia pet generator not found: ${script}`);

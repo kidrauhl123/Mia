@@ -103,14 +103,10 @@
   function localBot(ref) {
     const runtime = _ctx?.deps?.getState?.()?.runtime || {};
     const cloudBots = Array.isArray(_ctx?.moduleState?.bots) ? _ctx.moduleState.bots : [];
-    const localBots = [
-      ...(Array.isArray(runtime.bots) ? runtime.bots : []),
-      ...(Array.isArray(runtime.personas) ? runtime.personas : [])
-    ];
     const bots = _ctx?.adapterCtx?.()?.bots
       || (global.miaBotDirectory
-        ? global.miaBotDirectory.listOwnedBots({ cloudBots: cloudBots, localBots: localBots, runtime })
-        : [...cloudBots, ...localBots]);
+        ? global.miaBotDirectory.listOwnedBots({ cloudBots: cloudBots, runtime })
+        : cloudBots);
     const target = String(ref || "");
     return bots.find((f) => String(f.key || "") === target || String(f.id || "") === target) || null;
   }
@@ -214,15 +210,14 @@
     const member = findBotConversationMember(conversationId, ref);
     const ownerId = member?.owner_id || "";
     const me = selfUser();
-    // In a shared conversation, trust the member row's owner_id (never elevate just
-    // because a bot key happens to collide with one of our local keys). Only
-    // when there's NO conversation member (private bot chat) does a local bot
-    // count as ours — there's no owner_id to read there.
+    // In a shared conversation, trust the member row's owner_id. Only when
+    // there's NO conversation member (private bot chat) does an owned cloud bot
+    // identity count as ours — there's no owner_id to read there.
     const isMine = member ? (ownerId === me.id) : Boolean(localBot(ref));
-    // Bind the local bot ONLY when it's actually ours. A same-key bot
+    // Bind the owned bot identity ONLY when it's actually ours. A same-key bot
     // owned by another conversation member must fall through to the remote-only card —
     // otherwise its name/avatar/controls would mirror, and edits would persist
-    // to, my own local bot settings.
+    // to my own bot identity.
     const local = isMine ? localBot(ref) : null;
 
     const name = local?.name || member?.identity?.displayName || member?.bot_name || ref;

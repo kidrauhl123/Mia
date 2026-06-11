@@ -33,6 +33,27 @@
     return String(input.key || input.id || input.botKey || input.bot_id || "").trim();
   }
 
+  function sourceKinds(input = {}) {
+    const raw = Array.isArray(input.sourceKinds)
+      ? input.sourceKinds
+      : (input.sourceKind || input.source_kind ? [input.sourceKind || input.source_kind] : []);
+    return [...new Set(raw.map((item) => String(item || "").trim()).filter(Boolean))];
+  }
+
+  function hasSourceKind(input = {}, kind = "") {
+    const wanted = String(kind || "").trim();
+    return Boolean(wanted && sourceKinds(input).includes(wanted));
+  }
+
+  function isCloudIdentityBot(input = {}) {
+    return hasSourceKind(input, "cloud")
+      || String(input.runtimeKind || input.runtime_kind || "").trim() === "cloud-hermes";
+  }
+
+  function isCloudRuntimeKind(value = "") {
+    return String(value || "").trim() === "cloud-hermes";
+  }
+
   function normalizeRuntimeKind(value, fallback = "desktop-local") {
     const raw = String(value || "").trim();
     if (raw === "cloud-hermes") return "cloud-hermes";
@@ -114,9 +135,7 @@
       input.ownerUserId, input.owner_user_id, input.ownerId, input.owner_id,
       runtime.cloud?.user?.id, runtime.cloud?.user?.userId, runtime.cloud?.user?.user_id
     );
-    const sourceKinds = Array.isArray(input.sourceKinds)
-      ? input.sourceKinds.map((item) => String(item || "").trim()).filter(Boolean)
-      : [sourceKind];
+    const normalizedSourceKinds = [...new Set([...sourceKinds(input), sourceKind].filter(Boolean))];
     return {
       ...input,
       key,
@@ -136,7 +155,7 @@
       deviceId: firstNonEmpty(input.deviceId, input.device_id, runtimeConfig.deviceId, runtimeConfig.device_id),
       deviceName: firstNonEmpty(input.deviceName, input.device_name, runtimeConfig.deviceName, runtimeConfig.device_name),
       runtimeLabel: runtimeLabelFor({ ...input, key, runtimeKind }, runtime),
-      sourceKinds: [...new Set(sourceKinds)],
+      sourceKinds: normalizedSourceKinds,
       canEditIdentity: input.canEditIdentity !== false,
       canConfigureCapabilities: input.canConfigureCapabilities !== false,
       canDelete: input.canDelete !== false
@@ -175,14 +194,10 @@
     return merged;
   }
 
-  function listOwnedBots({ cloudBots = [], localBots = [], runtime = {} } = {}) {
+  function listOwnedBots({ cloudBots = [], runtime = {} } = {}) {
     const byKey = new Map();
     for (const bot of Array.isArray(cloudBots) ? cloudBots : []) {
       const normalized = normalizeOwnedBot(bot, { sourceKind: "cloud", runtimeKind: "cloud-hermes", runtime });
-      if (normalized) byKey.set(normalized.key, mergeOwnedBot(byKey.get(normalized.key), normalized));
-    }
-    for (const bot of Array.isArray(localBots) ? localBots : []) {
-      const normalized = normalizeOwnedBot(bot, { sourceKind: "desktop", runtimeKind: "desktop-local", runtime });
       if (normalized) byKey.set(normalized.key, mergeOwnedBot(byKey.get(normalized.key), normalized));
     }
     return [...byKey.values()];
@@ -191,6 +206,10 @@
   const api = {
     firstNonEmpty,
     botKey,
+    sourceKinds,
+    hasSourceKind,
+    isCloudIdentityBot,
+    isCloudRuntimeKind,
     normalizeRuntimeKind,
     normalizeAgentEngine,
     runtimeLabelFor,

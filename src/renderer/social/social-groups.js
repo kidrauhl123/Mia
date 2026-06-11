@@ -23,7 +23,10 @@
     const { moduleState, deps } = ctx;
     const runtimeState = deps && typeof deps.getState === "function" ? deps.getState() : {};
     const runtime = runtimeState.runtime || {};
-    const bots = runtime.bots || runtime.personas || [];
+    const cloudBots = Array.isArray(moduleState.bots) ? moduleState.bots : [];
+    const bots = window.miaBotDirectory
+      ? window.miaBotDirectory.listOwnedBots({ cloudBots, runtime })
+      : cloudBots;
     const selfIdentity = typeof window !== "undefined" && window.miaSelfIdentity;
     const self = selfIdentity
       ? selfIdentity.resolveSelfIdentity({
@@ -306,10 +309,7 @@
       return row;
     }
 
-    // Build mixed contact list: friends + own bots in a single section.
-    // Bots come from the canonical adapter ctx (cloud + local merged via
-    // miaBotDirectory). Reading runtime.bots directly dropped cloud
-    // bots (e.g. mia, whose agent runs in the cloud) from the picker.
+    // Build mixed contact list: friends + own cloud-stored bot identities.
     membersBox.innerHTML = "";
     const { friends, bots: ownedBots } = _adapterCtx();
 

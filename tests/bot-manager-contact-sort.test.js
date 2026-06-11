@@ -28,9 +28,9 @@ function loadBotManager() {
   const source = fs.readFileSync(path.join(root, "src/renderer/bot/bot-manager.js"), "utf8");
   const mockWindow = {
     mia: {},
-    miaSocial: { pendingRequestCount: () => 0 },
+    miaSocial: { moduleState: { bots: [] }, pendingRequestCount: () => 0 },
     miaBotDirectory: {
-      listOwnedBots: ({ localBots }) => localBots,
+      listOwnedBots: ({ cloudBots }) => cloudBots,
       runtimeLabelFor: () => ""
     },
     miaMarkdown: {
@@ -66,30 +66,28 @@ function loadBotManager() {
     Set,
   });
   vm.runInContext(source, context);
-  return mockWindow.miaBotManager;
+  return { manager: mockWindow.miaBotManager, window: mockWindow };
 }
 
 test("renderContacts groups bot contacts by alphabetical initial", () => {
-  const manager = loadBotManager();
+  const { manager, window } = loadBotManager();
   const contactList = mockEl();
   const contactDetail = mockEl();
   const state = {
     skillsLoading: true,
     skillLibrary: { extensions: [], skills: [] },
-    runtime: {
-      bots: [
-        { key: "zeta", name: "Zeta" },
-        { key: "kong", name: "空铃" },
-        { key: "beta", name: "Beta", pinned: true, pinnedAt: "2099-01-01T00:00:00.000Z" },
-        { key: "alpha", name: "Alpha" },
-        { key: "ha", name: "哈哈哈" }
-      ],
-      personas: []
-    },
+    runtime: {},
     contactFilter: "",
     activeContactKey: "",
     savingBotCapabilities: new Set()
   };
+  window.miaSocial.moduleState.bots = [
+    { key: "zeta", name: "Zeta" },
+    { key: "kong", name: "空铃" },
+    { key: "beta", name: "Beta", pinned: true, pinnedAt: "2099-01-01T00:00:00.000Z" },
+    { key: "alpha", name: "Alpha" },
+    { key: "ha", name: "哈哈哈" }
+  ];
 
   manager.initBotManager({
     state,
@@ -126,27 +124,26 @@ test("renderContacts groups bot contacts by alphabetical initial", () => {
 });
 
 test("contact detail exposes the contact uid", () => {
-  const manager = loadBotManager();
+  const { manager, window } = loadBotManager();
   const contactList = mockEl();
   const contactDetail = mockEl();
   const state = {
     skillsLoading: true,
     skillLibrary: { extensions: [], skills: [] },
-    runtime: {
-      bots: [
-        {
-          key: "review-bot",
-          id: "review-bot",
-          name: "复习搭子",
-          ownerUserId: "8123456789",
-          canConfigureCapabilities: false
-        }
-      ]
-    },
+    runtime: {},
     contactFilter: "",
     activeContactKey: "review-bot",
     savingBotCapabilities: new Set()
   };
+  window.miaSocial.moduleState.bots = [
+    {
+      key: "review-bot",
+      id: "review-bot",
+      name: "复习搭子",
+      ownerUserId: "8123456789",
+      canConfigureCapabilities: false
+    }
+  ];
 
   manager.initBotManager({
     state,

@@ -1,33 +1,9 @@
 "use strict";
 
 const {
-  normalizeBotColor,
-  normalizeBotCapabilities
-} = require("../../shared/bot-identity.js");
-
-const {
   DEFAULT_SKILL_MARKET_CACHE_TTL_MS,
   normalizeSkillMarketParams
 } = require("../skills/skill-market-cache.js");
-
-function isCloudAvatarAssetUrl(avatarImage) {
-  const raw = String(avatarImage || "").trim();
-  if (!raw) return false;
-  try {
-    return new URL(raw, "https://mia.invalid").pathname.startsWith("/api/avatar-assets/");
-  } catch {
-    return false;
-  }
-}
-
-function botAvatarSyncPatch(bot = {}) {
-  const avatarImage = String(bot.avatarImage || "").trim();
-  if (!avatarImage || isCloudAvatarAssetUrl(avatarImage)) return {};
-  return {
-    avatarImage,
-    avatarCrop: bot.avatarCrop || null
-  };
-}
 
 function createCloudDesktopSyncClient({
   getCloudSettings,
@@ -37,10 +13,6 @@ function createCloudDesktopSyncClient({
   appendLog,
   fetchImpl = fetch,
   timeoutSignal = (timeoutMs) => AbortSignal.timeout(timeoutMs),
-  loadBotManifest,
-  botPersonaPath,
-  fileExists,
-  readBotPersona,
   writeUserProfile,
   writeAppearanceSettings,
   runtimePaths,
@@ -80,73 +52,6 @@ function createCloudDesktopSyncClient({
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error || `Mia Cloud ${response.status}`);
     return data;
-  }
-
-  async function pushBot(bot) {
-    const current = settings();
-    if (!current.enabled || !current.token || !bot || !bot.key) return;
-    try {
-      let personaText = String(bot.personaText || bot.persona_text || "").trim();
-      try {
-        if (!personaText && typeof botPersonaPath === "function" && typeof fileExists === "function" && fileExists(botPersonaPath(bot.key))) {
-          personaText = readBotPersona(bot.key, bot.name, bot.bio);
-        }
-      } catch {
-        // Persona text is best-effort; identity sync should still proceed.
-      }
-      await cloudApi(`/api/me/bots/${encodeURIComponent(bot.key)}`, {
-        method: "PUT",
-        body: {
-          displayName: bot.name || bot.displayName || bot.key,
-          name: bot.name || bot.displayName || bot.key,
-          color: normalizeBotColor(bot.color),
-          ...botAvatarSyncPatch(bot),
-          bio: bot.bio || "",
-          capabilities: normalizeBotCapabilities(bot.capabilities),
-          personaText
-        }
-      });
-    } catch (error) {
-      log(`Cloud bot push failed for ${bot.key}: ${error?.message || error}`);
-    }
-  }
-
-  async function ensureBotConversation(bot) {
-    const current = settings();
-    if (!current.enabled || !current.token || !bot?.key) return;
-    try {
-      await cloudApi(`/api/me/bot-conversations/${encodeURIComponent(bot.key)}`, {
-        method: "PUT",
-        body: {
-          botId: bot.key,
-          title: bot.name || bot.displayName || bot.key,
-          runtimeKind: "desktop-local"
-        }
-      });
-    } catch (error) {
-      log(`Cloud bot conversation ensure failed for ${bot.key}: ${error?.message || error}`);
-    }
-  }
-
-  async function deleteBot(botKey) {
-    const current = settings();
-    if (!current.enabled || !current.token || !botKey) return;
-    try {
-      await cloudApi(`/api/me/bots/${encodeURIComponent(botKey)}`, { method: "DELETE" });
-    } catch (error) {
-      log(`Cloud bot delete failed for ${botKey}: ${error?.message || error}`);
-    }
-  }
-
-  async function pushAllBots() {
-    const current = settings();
-    if (!current.enabled || !current.token) return;
-    const manifest = loadBotManifest();
-    const bots = Array.isArray(manifest.bots) ? manifest.bots : [];
-    for (const bot of bots) {
-      await pushBot(bot);
-      await ensureBotConversation(bot);
-    }
   }
 
   function profileSyncBody(profile = {}) {
@@ -205,7 +110,6 @@ function createCloudDesktopSyncClient({
   async function syncWorkspace() {
     const current = settings();
     if (!current.enabled || !current.token) return status(false);
-    await pushAllBots();
     try {
       const data = await cloudApi("/api/me");
       writeCloudSettings({ user: data?.user || current.user });
@@ -332,7 +236,6 @@ function createCloudDesktopSyncClient({
   }
 
   return {
-    deleteBot,
     getUserSettings,
     installMarketSkill,
     downloadSkillPackage,
@@ -342,8 +245,6 @@ function createCloudDesktopSyncClient({
     login,
     logout,
     putUserSettings,
-    pushAllBots,
-    pushBot,
     pushUserProfile,
     saveAppearanceSettings,
     saveUserProfile,
