@@ -500,7 +500,12 @@ function compactPublicUser(user) {
 
 function compactAuthAccount(account) {
   if (!account || typeof account !== "object") return account;
-  return { ...account, user: compactPublicUser(account.user) };
+  const compacted = compactPublicUser(account.user);
+  const avatarImage = compactAvatarImage(account.user?.avatarImage || "");
+  return {
+    ...account,
+    user: avatarImage ? { ...compacted, avatarImage } : compacted
+  };
 }
 
 function compactBotIdentity(bot) {

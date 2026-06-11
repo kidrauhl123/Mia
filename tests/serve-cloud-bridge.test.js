@@ -279,6 +279,8 @@ test("wechat start uses mp scene qr and completes from subscribe event", async (
     assert.equal(completed.status, "complete");
     assert.ok(completed.token);
     assert.match(completed.user.username, /^wx_[a-f0-9]{12}$/);
+    assert.equal(completed.user.displayName, "Mia 微信用户");
+    assert.equal(completed.user.avatarImage, "https://wx.qlogo.cn/mmopen/mia/0");
     const auth = server.mia.cloudStore.authenticateToken(completed.token);
     assert.equal(auth.user.displayName, "Mia 微信用户");
     assert.equal(auth.user.avatarImage, "https://wx.qlogo.cn/mmopen/mia/0");
