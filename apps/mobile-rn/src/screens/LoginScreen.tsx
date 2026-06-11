@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { View, StyleSheet, KeyboardAvoidingView, Platform } from "react-native";
+import { View, Image, StyleSheet, KeyboardAvoidingView, Platform } from "react-native";
 import { createCloudClient } from "../api/client";
 import { useAuth, DEFAULT_API_BASE } from "../state/auth";
 import { color, space } from "../theme";
@@ -9,14 +9,13 @@ import Button from "../ui/Button";
 
 export default function LoginScreen() {
   const { setSession } = useAuth();
-  const [server, setServer] = useState(DEFAULT_API_BASE);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
   const submit = async (register: boolean) => {
-    const apiBase = server.trim() || DEFAULT_API_BASE;
+    const apiBase = DEFAULT_API_BASE;
     setError("");
     setBusy(true);
     try {
@@ -35,15 +34,11 @@ export default function LoginScreen() {
     <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <View style={styles.panel}>
         <View style={styles.brandRow}>
-          <View style={styles.mark} />
+          <Image source={require("../../assets/icon.png")} style={styles.mark} resizeMode="contain" />
           <Brand>MIA</Brand>
         </View>
         <Sub style={styles.tagline}>多 AI 伙伴工作台</Sub>
 
-        <View style={styles.field}>
-          <Label>服务器</Label>
-          <Input placeholder={DEFAULT_API_BASE} autoCapitalize="none" inputMode="url" value={server} onChangeText={setServer} />
-        </View>
         <View style={styles.field}>
           <Label>用户名</Label>
           <Input placeholder="用户名" autoCapitalize="none" value={username} onChangeText={setUsername} />
@@ -68,7 +63,7 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: color.bg, justifyContent: "center", padding: space.xl },
   panel: { gap: space.md },
   brandRow: { flexDirection: "row", alignItems: "center", gap: space.sm },
-  mark: { width: 28, height: 28, backgroundColor: color.accent },
+  mark: { width: 32, height: 32 },
   tagline: { marginBottom: space.lg },
   field: { gap: space.xs },
   error: { color: color.danger },
