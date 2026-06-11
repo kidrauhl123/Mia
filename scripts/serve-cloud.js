@@ -7,12 +7,6 @@ const http = require("node:http");
 const path = require("node:path");
 const zlib = require("node:zlib");
 const { WebSocketServer, WebSocket } = require("ws");
-let QRCode = null;
-try {
-  QRCode = require("qrcode");
-} catch {
-  QRCode = null;
-}
 let createCloudStore = null;
 try {
   ({ createCloudStore } = require("../src/cloud/sqlite-store.js"));
@@ -143,7 +137,6 @@ try {
 }
 let createWechatAuthFlow = null;
 let isWechatMpLoginConfigured = null;
-let wechatConfig = null;
 let wechatMpConfig = null;
 let verifyWechatMpSignature = null;
 try {
@@ -151,7 +144,6 @@ try {
     createWechatAuthFlow,
     isWechatMpLoginConfigured,
     verifyWechatMpSignature,
-    wechatConfig,
     wechatMpConfig
   } = require("../src/cloud/wechat-auth.js"));
 } catch {
@@ -159,7 +151,6 @@ try {
     createWechatAuthFlow,
     isWechatMpLoginConfigured,
     verifyWechatMpSignature,
-    wechatConfig,
     wechatMpConfig
   } = require("./src/cloud/wechat-auth.js"));
 }
@@ -292,25 +283,13 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;");
 }
 
-function wechatCallbackHtml(account = null, error = "") {
-  const payload = account?.token ? JSON.stringify({ token: account.token, user: account.user || null, theme: "light" }) : "";
-  const safePayload = JSON.stringify(payload);
-  const message = error
-    ? `微信登录失败：${escapeHtml(error)}`
-    : "微信登录成功，正在返回 Mia。";
-  const script = payload
-    ? `try{localStorage.setItem("mia.web.session",${safePayload});}catch(e){} setTimeout(function(){location.href="/app/";},500);`
-    : "";
-  return `<!doctype html><meta charset="utf-8"><title>Mia 微信登录</title><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:32px;background:#f5f5f8;color:#15151a;"><h1>${message}</h1><p>桌面端会自动完成登录；网页端将返回 Mia Web。</p><script>${script}</script></body>`;
-}
-
 function wechatMpQrHtml(record = null) {
   const state = record?.state || "";
   const qrCodeUrl = record?.qrCodeUrl || "";
   if (!state || !qrCodeUrl) {
     return "<!doctype html><meta charset=\"utf-8\"><title>Mia 微信登录</title><body style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:32px;background:#f5f5f8;color:#15151a;\"><h1>微信登录已过期</h1><p>请返回 Mia 重新发起登录。</p></body>";
   }
-  return `<!doctype html><meta charset="utf-8"><title>Mia 微信登录</title><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;background:#f5f5f8;color:#15151a;"><main style="text-align:center;"><h1>微信扫码登录 Mia</h1><img alt="微信登录二维码" src="${escapeHtml(qrCodeUrl)}" style="width:260px;height:260px;background:#fff;padding:12px;border-radius:12px;box-shadow:0 12px 36px rgba(0,0,0,.12);"><p id="status" style="color:#666;">请使用微信扫码，并按微信里的提示完成授权。</p></main><script>
+  return `<!doctype html><meta charset="utf-8"><title>Mia 微信登录</title><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;background:#f5f5f8;color:#15151a;"><main style="text-align:center;"><h1>微信扫码登录 Mia</h1><img alt="微信登录二维码" src="${escapeHtml(qrCodeUrl)}" style="width:260px;height:260px;background:#fff;padding:12px;border-radius:12px;box-shadow:0 12px 36px rgba(0,0,0,.12);"><p id="status" style="color:#666;">请使用微信扫码关注公众号，Mia 会自动完成登录。</p></main><script>
 const state=${JSON.stringify(state)};
 const statusEl=document.getElementById("status");
 async function poll(){
@@ -328,17 +307,6 @@ async function poll(){
 }
 poll();
 </script></body>`;
-}
-
-async function wechatMpOAuthQrSvg(record = null) {
-  if (!QRCode) throw new Error("QR code renderer is not installed.");
-  if (!record?.oauthUrl) throw new Error("微信登录二维码已过期。");
-  return QRCode.toString(record.oauthUrl, {
-    type: "svg",
-    margin: 1,
-    width: 280,
-    errorCorrectionLevel: "M"
-  });
 }
 
 function cdata(value = "") {
@@ -376,13 +344,15 @@ async function handleWechatMpEvents(req, res, context, url) {
       config,
       publicUrl: publicOriginFromContext(context)
     });
-    if (result?.status === "awaiting_profile" && result.oauthUrl) {
-      writeText(
-        res,
-        200,
-        wechatTextReply(result.event, `点击完成 Mia 登录：${result.oauthUrl}`),
-        "application/xml; charset=utf-8"
-      );
+    if (result?.event && ["complete", "unknown_scene", "not_login_scene", "failed"].includes(result.status)) {
+      const content = result.status === "complete"
+        ? "Mia 登录成功，请回到 Mia。"
+        : result.status === "unknown_scene"
+          ? "这个 Mia 登录二维码无效或已过期，请回到 Mia 重新发起登录。"
+          : result.status === "failed"
+            ? `Mia 登录失败：${result.error || "请重新发起登录。"}`
+            : "请从 Mia 登录页显示的微信二维码扫码进入。";
+      writeText(res, 200, wechatTextReply(result.event, content), "application/xml; charset=utf-8");
       return true;
     }
     writeText(res, 200, "success");
@@ -2443,16 +2413,6 @@ async function handleRequest(req, res, context) {
     writeText(res, 200, wechatMpQrHtml(record), "text/html; charset=utf-8");
     return;
   }
-  if (req.method === "GET" && url.pathname === "/api/auth/wechat/mp/oauth-qr.svg") {
-    try {
-      const record = context.wechatAuth.peek(url.searchParams.get("state"));
-      const svg = await wechatMpOAuthQrSvg(record);
-      writeText(res, 200, svg, "image/svg+xml; charset=utf-8");
-    } catch (error) {
-      writeError(res, 404, error?.message || "微信登录二维码已过期。");
-    }
-    return;
-  }
 
   if (url.pathname === "/admin") {
     res.writeHead(308, { "Location": "/admin/model" });
@@ -2488,46 +2448,14 @@ async function handleRequest(req, res, context) {
     if (req.method === "POST" && url.pathname === "/api/auth/wechat/start") {
       const body = await readJson(req);
       const mpConfig = wechatMpConfig(context);
-      if (isWechatMpLoginConfigured(mpConfig)) {
-        const started = await context.wechatAuth.startMp(mpConfig, {
-          client: body.client,
-          publicUrl: publicOriginFromContext(context)
-        });
-        return writeJson(res, 200, { ok: true, ...started });
+      if (!isWechatMpLoginConfigured(mpConfig)) {
+        return writeError(res, 503, "微信公众号登录未配置。");
       }
-      const config = wechatConfig(context, req);
-      const started = context.wechatAuth.start(config);
-      return writeJson(res, 200, { ok: true, mode: "wechat_qrconnect", ...started });
-    }
-
-    if (req.method === "GET" && url.pathname === "/api/auth/wechat/callback") {
-      try {
-        const config = wechatConfig(context, req);
-        const result = await context.wechatAuth.callback({
-          state: url.searchParams.get("state"),
-          code: url.searchParams.get("code"),
-          config
-        });
-        ensureCloudAgentBootstrap(context, result.account.user.id);
-        return writeText(res, 200, wechatCallbackHtml(result.account), "text/html; charset=utf-8");
-      } catch (error) {
-        return writeText(res, 400, wechatCallbackHtml(null, error?.message || error), "text/html; charset=utf-8");
-      }
-    }
-
-    if (req.method === "GET" && url.pathname === "/api/auth/wechat/mp/oauth-callback") {
-      try {
-        const config = wechatMpConfig(context);
-        const result = await context.wechatAuth.callbackMpOAuth({
-          state: url.searchParams.get("state"),
-          code: url.searchParams.get("code"),
-          config
-        });
-        ensureCloudAgentBootstrap(context, result.account.user.id);
-        return writeText(res, 200, wechatCallbackHtml(result.account), "text/html; charset=utf-8");
-      } catch (error) {
-        return writeText(res, 400, wechatCallbackHtml(null, error?.message || error), "text/html; charset=utf-8");
-      }
+      const started = await context.wechatAuth.startMp(mpConfig, {
+        client: body.client,
+        publicUrl: publicOriginFromContext(context)
+      });
+      return writeJson(res, 200, { ok: true, ...started });
     }
 
     if (req.method === "POST" && url.pathname === "/api/auth/wechat/complete") {
@@ -3590,6 +3518,7 @@ async function handleRequest(req, res, context) {
     if (error.code === "MIA_INVALID_JSON") return writeError(res, 400, message);
     if (error.code === "MIA_BODY_TOO_LARGE") return writeError(res, 413, message);
     if (/Invalid image|Unsupported image/.test(message)) return writeError(res, 400, message);
+    if (error.status) return writeError(res, Number(error.status), message);
     writeError(res, 500, message);
   }
 }
@@ -3654,13 +3583,9 @@ function createMiaCloudServer(options = {}) {
     modelGatewayStore: null,
     internalModelProxyKey: options.internalModelProxyKey || process.env.MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY || "",
     hermesSkillsSource: null,
-    wechatAppId: options.wechatAppId || process.env.MIA_WECHAT_APP_ID || "",
-    wechatAppSecret: options.wechatAppSecret || process.env.MIA_WECHAT_APP_SECRET || "",
-    wechatRedirectUri: options.wechatRedirectUri || process.env.MIA_WECHAT_REDIRECT_URI || "",
     wechatMpAppId: options.wechatMpAppId || process.env.MIA_WECHAT_MP_APP_ID || "",
     wechatMpAppSecret: options.wechatMpAppSecret || process.env.MIA_WECHAT_MP_APP_SECRET || "",
     wechatMpToken: options.wechatMpToken || process.env.MIA_WECHAT_MP_TOKEN || "",
-    wechatMpEncodingAesKey: options.wechatMpEncodingAesKey || process.env.MIA_WECHAT_MP_ENCODING_AES_KEY || "",
     publicUrl: options.publicUrl || process.env.MIA_CLOUD_PUBLIC_URL || "",
     wechatAuth: null
   };

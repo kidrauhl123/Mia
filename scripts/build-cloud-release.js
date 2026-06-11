@@ -232,12 +232,9 @@ Mia Cloud uses the Official Account identity as the only cloud account login. Pu
 MIA_WECHAT_MP_APP_ID=<WeChat Official Account AppID>
 MIA_WECHAT_MP_APP_SECRET=<WeChat Official Account AppSecret>
 MIA_WECHAT_MP_TOKEN=<message push token configured in WeChat>
-MIA_WECHAT_MP_ENCODING_AES_KEY=<message push EncodingAESKey>
-# Optional override; defaults to https://mia.gifgif.cn/api/auth/wechat/mp/oauth-callback
-# MIA_WECHAT_MP_OAUTH_REDIRECT_URI=https://mia.gifgif.cn/api/auth/wechat/mp/oauth-callback
 \`\`\`
 
-Configure message push URL \`https://mia.gifgif.cn/api/auth/wechat/mp/events\`, XML data, and the matching token. Configure the Official Account web authorization domain as the bare domain \`mia.gifgif.cn\` only; do not include \`https://\` or \`/api/auth/wechat/mp/oauth-callback\`. If WeChat asks for an \`MP_verify_*.txt\` file while saving that domain, put the exact file at the web root so it is reachable as \`https://mia.gifgif.cn/MP_verify_*.txt\`. \`JS接口安全域名\` is for the WeChat JS-SDK and is not required for this login path. If WeChat returns \`48001 api unauthorized\` for the scene QR API, Mia falls back to a server-rendered OAuth QR code. The final account profile comes from \`snsapi_userinfo\`, because subscribe/SCAN events do not include nickname or avatar.
+Configure message push URL \`https://mia.gifgif.cn/api/auth/wechat/mp/events\`, XML data, plaintext mode, and the matching token. The Official Account must have the \`生成带参数二维码\` / \`qrcode/create\` API enabled; Mia creates a temporary \`QR_STR_SCENE\` code and completes login from the pushed \`subscribe\` or \`SCAN\` event. \`JS接口安全域名\`, web authorization domain, and OAuth callback are not used for this login path. If WeChat returns \`48001 api unauthorized\`, Mia fails the login start request with a configuration error instead of falling back to another login method. Profile name and avatar come from the Official Account user info API when that permission is available.
 
 ## Platform Model Gateway
 
@@ -801,7 +798,6 @@ function main() {
     },
     dependencies: {
       "adm-zip": rootPackage.dependencies?.["adm-zip"] || "^0.5.17",
-      qrcode: rootPackage.dependencies?.qrcode || "^1.5.4",
       ws: rootPackage.dependencies?.ws || "^8.20.1"
     }
   });
