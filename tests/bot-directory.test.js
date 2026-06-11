@@ -6,8 +6,8 @@ const vm = require("node:vm");
 
 const directoryPath = path.join(__dirname, "..", "src", "renderer", "bot", "bot-directory.js");
 
-test("bot directory normalizes cloud and device bots into one product model", () => {
-  const { listOwnedBots } = require(directoryPath);
+test("bot directory normalizes cloud identities and ignores local-only manifest bots", () => {
+  const { isCloudIdentityBot, isCloudRuntimeKind, listOwnedBots } = require(directoryPath);
 
   const bots = listOwnedBots({
     cloudBots: [
@@ -32,16 +32,14 @@ test("bot directory normalizes cloud and device bots into one product model", ()
   assert.equal(mia.canEditIdentity, true);
   assert.equal(mia.canDelete, true);
   assert.equal(mia.cloudOnly, undefined);
+  assert.equal(isCloudIdentityBot(mia), true);
+  assert.equal(isCloudRuntimeKind(mia.runtimeKind), true);
 
-  assert.equal(codex.runtimeKind, "desktop-local");
-  assert.equal(codex.runtimeLabel, "Jung MacBook");
-  assert.equal(codex.agentEngine, "codex");
-  assert.equal(codex.canEditIdentity, true);
-  assert.equal(codex.canConfigureCapabilities, true);
+  assert.equal(codex, undefined);
 });
 
-test("bot directory treats a cloud-mirrored device bot as one desktop-runtime bot", () => {
-  const { listOwnedBots } = require(directoryPath);
+test("bot directory keeps cloud identity fields for desktop-runtime bots", () => {
+  const { isCloudIdentityBot, isCloudRuntimeKind, listOwnedBots } = require(directoryPath);
 
   const bots = listOwnedBots({
     cloudBots: [
@@ -57,11 +55,13 @@ test("bot directory treats a cloud-mirrored device bot as one desktop-runtime bo
 
   assert.equal(bots.length, 1);
   assert.equal(bots[0].key, "alice");
-  assert.equal(bots[0].name, "Alice Local");
-  assert.equal(bots[0].bio, "local copy");
+  assert.equal(bots[0].name, "Alice Cloud");
+  assert.equal(bots[0].bio, "cloud copy");
   assert.equal(bots[0].runtimeKind, "desktop-local");
   assert.equal(bots[0].runtimeLabel, "Office Mac");
-  assert.deepEqual(bots[0].sourceKinds, ["cloud", "desktop"]);
+  assert.deepEqual(bots[0].sourceKinds, ["cloud"]);
+  assert.equal(isCloudIdentityBot(bots[0]), true);
+  assert.equal(isCloudRuntimeKind(bots[0].runtimeKind), false);
 });
 
 test("bot directory preserves cloud active runtime over a local mirror", () => {
@@ -143,7 +143,7 @@ test("bot directory compacts verbose Mia Desktop device labels", () => {
   assert.doesNotMatch(bots[0].runtimeLabel, /Mia Desktop|\.local|本机/);
 });
 
-test("bot directory treats a desktop bot named mia like any other bot", () => {
+test("bot directory ignores local-only desktop manifest bots", () => {
   const { listOwnedBots } = require(directoryPath);
 
   const bots = listOwnedBots({
@@ -155,16 +155,10 @@ test("bot directory treats a desktop bot named mia like any other bot", () => {
     }
   });
 
-  assert.equal(bots.length, 1);
-  assert.equal(bots[0].key, "mia");
-  assert.equal(bots[0].runtimeKind, "desktop-local");
-  assert.equal(bots[0].runtimeLabel, "Windows PC");
-  assert.equal(bots[0].canEditIdentity, true);
-  assert.equal(bots[0].canConfigureCapabilities, true);
-  assert.equal(bots[0].canDelete, true);
+  assert.equal(bots.length, 0);
 });
 
-test("bot directory keeps cloud real avatar when local mirror only has a legacy preset", () => {
+test("bot directory ignores stale local avatar mirrors", () => {
   const { listOwnedBots } = require(directoryPath);
 
   const bots = listOwnedBots({
@@ -177,12 +171,12 @@ test("bot directory keeps cloud real avatar when local mirror only has a legacy 
   });
 
   assert.equal(bots.length, 1);
-  assert.equal(bots[0].name, "空铃 Local");
+  assert.equal(bots[0].name, "空铃 Cloud");
   assert.equal(bots[0].avatarImage, "data:image/png;base64,real");
   assert.deepEqual(bots[0].avatarCrop, { x: 50, y: 50, zoom: 1 });
 });
 
-test("bot directory keeps cloud video avatar trim when local mirror is stale", () => {
+test("bot directory keeps cloud video avatar trim and ignores local mirrors", () => {
   const { listOwnedBots } = require(directoryPath);
 
   const bots = listOwnedBots({
@@ -205,7 +199,7 @@ test("bot directory keeps cloud video avatar trim when local mirror is stale", (
   });
 
   assert.equal(bots.length, 1);
-  assert.equal(bots[0].name, "匠妹 Local");
+  assert.equal(bots[0].name, "匠妹 Cloud");
   assert.equal(bots[0].avatarImage, "https://mia.gifgif.cn/api/avatar-assets/jiangmei.avatar.mp4");
   assert.deepEqual(bots[0].avatarCrop, { x: 36, y: 100, zoom: 1.09, start: 7.26, duration: 4.94 });
 });

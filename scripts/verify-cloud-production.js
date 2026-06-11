@@ -22,9 +22,8 @@ function usage() {
     "  MIA_CLOUD_PUBLIC_URL=<url>  Cloud URL when no positional URL is passed.",
     "  MIA_DOCTOR_REMOTE=<ssh>     Optional SSH target passed through to doctor-cloud.js.",
     "  MIA_DEPLOY_SUDO=\"sudo -n\"   Optional privilege command passed through to doctor-cloud.js.",
-    "  MIA_SMOKE_REQUIRE_BRIDGE=1   Require the smoke script to run through an online desktop bridge.",
-    "  MIA_SMOKE_USERNAME=<account> Required with MIA_SMOKE_REQUIRE_BRIDGE=1.",
-    "  MIA_SMOKE_PASSWORD=<secret>  Required with MIA_SMOKE_REQUIRE_BRIDGE=1."
+    "  MIA_CLOUD_TOKEN=<token>      Required smoke account token from WeChat login.",
+    "  MIA_SMOKE_REQUIRE_BRIDGE=1   Require the smoke script to run through an online desktop bridge."
   ].join("\n");
 }
 
@@ -64,8 +63,8 @@ function commandEnv(baseEnv, prefix, expectedRelease) {
 
 function assertBridgeSmokeEnv(env = process.env) {
   if (String(env.MIA_SMOKE_REQUIRE_BRIDGE || "") !== "1") return;
-  if (!String(env.MIA_SMOKE_USERNAME || "").trim() || !String(env.MIA_SMOKE_PASSWORD || "")) {
-    throw new Error("MIA_SMOKE_USERNAME and MIA_SMOKE_PASSWORD are required when MIA_SMOKE_REQUIRE_BRIDGE=1. Log the desktop bridge into that same smoke account before running production e2e verification.");
+  if (!String(env.MIA_CLOUD_TOKEN || "").trim()) {
+    throw new Error("MIA_CLOUD_TOKEN is required when MIA_SMOKE_REQUIRE_BRIDGE=1. Log the desktop bridge into the same WeChat account before running production e2e verification.");
   }
 }
 

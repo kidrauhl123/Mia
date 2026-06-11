@@ -10,6 +10,7 @@ const {
   normalizeBotCapabilities,
   normalizeBotIdentity
 } = require("../shared/bot-identity.js");
+const { sanitizeCssColor } = require("./css-color.js");
 
 function parseJsonOr(value, fallback) {
   try {
@@ -82,7 +83,7 @@ function createBotsStore(db) {
       normalized.id,
       owner,
       normalized.displayName,
-      normalized.color,
+      sanitizeCssColor(normalized.color),
       normalized.avatarImage,
       normalized.avatarCrop ? JSON.stringify(normalized.avatarCrop) : "",
       normalized.statusBadge ? JSON.stringify(normalized.statusBadge) : "",

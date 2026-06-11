@@ -24,6 +24,8 @@
 
   let step = "login"; // login | scan | done
   let hint = "";
+  let loginFlow = null;
+  let loginAttempt = 0;
   let scan = { done: 0, total: 4, byId: {} };
   let inventory = null;
   let renderTimer = 0;
@@ -39,6 +41,17 @@
     ));
   }
 
+  function wechatIconSvg() {
+    return `<svg class="wechat-login-icon" viewBox="0 0 32 28" aria-hidden="true" focusable="false">
+      <path class="wechat-bubble" d="M13.2 2.5C6.7 2.5 1.5 6.7 1.5 12c0 3.1 1.8 5.8 4.6 7.5l-.9 3.1 3.7-1.8c1.3.4 2.7.7 4.3.7.6 0 1.2 0 1.8-.1-.5-1-.8-2.1-.8-3.3 0-4.6 4.5-8.3 10.1-8.3h.4C23.5 5.6 18.8 2.5 13.2 2.5Z"/>
+      <path class="wechat-bubble" d="M30.5 18.1c0-4.1-4.1-7.4-9.1-7.4s-9.1 3.3-9.1 7.4 4.1 7.4 9.1 7.4c1.2 0 2.3-.2 3.3-.6l3 1.5-.7-2.5c2.1-1.3 3.5-3.4 3.5-5.8Z"/>
+      <circle class="wechat-eye" cx="9.6" cy="10.3" r="1.05"/>
+      <circle class="wechat-eye" cx="16.6" cy="10.3" r="1.05"/>
+      <circle class="wechat-eye" cx="18.4" cy="17" r=".9"/>
+      <circle class="wechat-eye" cx="24.1" cy="17" r=".9"/>
+    </svg>`;
+  }
+
   function dotsHtml(active) {
     const order = ["login", "prepare"];
     const pos = active === "login" ? 0 : 1;
@@ -46,23 +59,27 @@
   }
 
   function loginHtml() {
+    const qr = loginFlow?.qrCodeUrl
+      ? `<div class="onb-qr-card">
+          <img class="onb-qr-img" src="${esc(loginFlow.qrCodeUrl)}" alt="微信登录二维码" draggable="false">
+        </div>
+        <p class="onb-qr-note">用微信扫码关注公众号，Mia 会自动完成登录。</p>`
+      : "";
     return `
       <p class="onb-step">第 1 / 2 步 · 登录</p>
       ${dotsHtml("login")}
-      <div class="onb-hero">
+      <div class="onb-hero${loginFlow?.qrCodeUrl ? " compact" : ""}">
         <img class="onb-logo" src="../assets/mia-logo.png" alt="Mia" draggable="false">
         <h1 class="onb-title">欢迎使用 Mia</h1>
-        <p class="onb-tagline">一个聊天界面，指挥你所有的 AI Agent。先登录，把对话同步到云端。</p>
+        <p class="onb-tagline">一个聊天界面，指挥你所有的 AI Agent。先用微信登录，把对话同步到云端。</p>
       </div>
-      <form class="onb-form" data-login>
-        <input class="onb-input" type="text" autocomplete="username" placeholder="用户名" data-username>
-        <input class="onb-input" type="password" autocomplete="current-password" placeholder="密码（至少 6 位）" data-password>
+      <section class="onb-form" data-login>
+        ${qr}
         <p class="onb-hint" data-hint>${esc(hint)}</p>
-      </form>
+      </section>
       <div class="onb-spacer"></div>
       <div class="onb-footer">
-        <button class="onb-cta" type="button" data-action="login">登录</button>
-        <button class="onb-link" type="button" data-action="register">没有账号？注册一个</button>
+        <button class="onb-cta wechat-login-cta" type="button" data-action="login"${loginFlow?.qrCodeUrl ? " disabled" : ""}>${wechatIconSvg()}<span>${loginFlow?.qrCodeUrl ? "等待扫码" : "微信登录"}</span></button>
       </div>
     `;
   }
@@ -178,24 +195,53 @@
     if (el) el.textContent = text;
   }
 
-  async function submitLogin(mode) {
-    const username = root.querySelector("[data-username]")?.value?.trim() || "";
-    const password = root.querySelector("[data-password]")?.value || "";
-    if (!username) return setHint("请输入用户名。");
-    if (password.length < 6) return setHint("密码至少 6 位。");
-    setHint(mode === "register" ? "正在注册并连接…" : "正在登录并连接…");
+  async function submitLogin() {
+    const attempt = loginAttempt + 1;
+    loginAttempt = attempt;
+    loginFlow = null;
+    setHint("正在生成微信登录二维码…");
+    render();
     try {
-      const runtime = await mia.cloudLogin?.({ mode, username, password });
-      if (runtime && runtime.cloud && runtime.cloud.enabled) {
+      const started = await mia.cloudLogin?.({ mode: "wechat", action: "start" });
+      if (!started?.state || !started?.qrCodeUrl) throw new Error("微信登录二维码生成失败。");
+      if (attempt !== loginAttempt) return;
+      loginFlow = started;
+      hint = "等待微信扫码关注…";
+      render();
+      pollLogin(attempt);
+    } catch (error) {
+      loginFlow = null;
+      setHint(`连接失败：${error?.message || error}`);
+      render();
+    }
+  }
+
+  async function pollLogin(attempt) {
+    if (!loginFlow?.state || attempt !== loginAttempt) return;
+    try {
+      const result = await mia.cloudLogin?.({ mode: "wechat", action: "complete", state: loginFlow.state });
+      if (attempt !== loginAttempt) return;
+      if (result?.status === "pending") {
+        setHint("二维码已生成，等待微信扫码关注…");
+        setTimeout(() => pollLogin(attempt), 1500);
+        return;
+      }
+      if (result?.cloud?.enabled) {
+        loginFlow = null;
         hint = "";
         step = "scan";
         render();
         startScan();
-      } else {
-        setHint(mode === "register" ? "注册未成功，请重试。" : "登录未成功，请检查或点下方注册。");
+        return;
       }
+      setHint("微信登录未成功，请重试。");
+      loginFlow = null;
+      render();
     } catch (error) {
+      if (attempt !== loginAttempt) return;
+      loginFlow = null;
       setHint(`连接失败：${error?.message || error}`);
+      render();
     }
   }
 
@@ -270,13 +316,12 @@
 
   function bind() {
     if (step === "login") {
-      root.querySelector("[data-login]")?.addEventListener("submit", (e) => { e.preventDefault(); submitLogin("login"); });
+      root.querySelector("[data-login]")?.addEventListener("submit", (e) => { e.preventDefault(); submitLogin(); });
     }
     root.querySelectorAll("[data-action]").forEach((el) => {
       el.addEventListener("click", () => {
         const action = el.dataset.action;
-        if (action === "login") submitLogin("login");
-        else if (action === "register") submitLogin("register");
+        if (action === "login") submitLogin();
         else if (action === "finish") {
           if (hasActiveInstall()) return;
           mia.onboardingComplete?.();

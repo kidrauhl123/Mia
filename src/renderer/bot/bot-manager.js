@@ -15,7 +15,7 @@
   let state, els;
   let setText, formatConversationTime;
   let loadSkills, showNarrowContent, render;
-  let closeGroupContextMenu, openEditBotDialog, deleteBot, setBotPinned;
+  let closeGroupContextMenu, openEditBotDialog, deleteBot;
   let runtimeDevicesLoading = false;
   let runtimeDevicesLoadedAt = 0;
   const RUNTIME_DEVICE_REFRESH_INTERVAL_MS = 15000;
@@ -70,7 +70,6 @@
     closeGroupContextMenu = deps.closeGroupContextMenu;
     openEditBotDialog = deps.openEditBotDialog;
     deleteBot = deps.deleteBot;
-    setBotPinned = deps.setBotPinned;
   }
 
   function botByKey(key) {
@@ -101,18 +100,77 @@
     const socialBots = window.miaSocial?._internalCtx?.adapterCtx?.()?.bots
       || window.miaSocial?.moduleState?.bots
       || [];
-    const localBots = [
-      ...(Array.isArray(state.runtime?.bots) ? state.runtime.bots : [])
-    ];
     return window.miaBotDirectory.listOwnedBots({
       cloudBots: socialBots,
-      localBots,
       runtime: state.runtime || {}
     });
   }
 
   function contactSortLabel(bot = {}) {
     return String(bot.name || bot.displayName || bot.key || bot.id || "").trim();
+  }
+
+  function statusBadgeFrom(...sources) {
+    for (const source of sources) {
+      if (source && typeof source === "object" && Object.prototype.hasOwnProperty.call(source, "statusBadge")) return source.statusBadge;
+      if (source && typeof source === "object" && Object.prototype.hasOwnProperty.call(source, "status_badge")) return source.status_badge;
+    }
+    return undefined;
+  }
+
+  function renderBotNameWithBadgeHtml(bot = {}, fallback = "") {
+    const name = fallback || bot.name || bot.displayName || bot.display_name || bot.key || bot.id || "联系人";
+    const renderer = window.miaNameWithBadge;
+    if (renderer && typeof renderer.renderNameWithBadgeHtml === "function") {
+      try {
+        return renderer.renderNameWithBadgeHtml({
+          identity: {
+            kind: "bot",
+            id: bot.id || bot.key || "",
+            displayName: name,
+            statusBadge: statusBadgeFrom(bot)
+          },
+          fallbackName: name,
+          statusBadge: statusBadgeFrom(bot)
+        });
+      } catch {
+        // Keep contact rendering resilient to optional badge payloads.
+      }
+    }
+    return window.miaMarkdown.escapeHtml(name);
+  }
+
+  function setBotNameWithBadge(el, bot = {}, fallback = "") {
+    if (!el) return;
+    const name = fallback || bot.name || bot.displayName || bot.display_name || bot.key || bot.id || "联系人";
+    const renderer = window.miaNameWithBadge;
+    if (renderer && (typeof renderer.setNameWithBadge === "function" || typeof renderer.renderNameWithBadge === "function")) {
+      try {
+        const payload = {
+          identity: {
+            kind: "bot",
+            id: bot.id || bot.key || "",
+            displayName: name,
+            statusBadge: statusBadgeFrom(bot)
+          },
+          fallbackName: name,
+          statusBadge: statusBadgeFrom(bot)
+        };
+        if (typeof renderer.setNameWithBadge === "function") {
+          renderer.setNameWithBadge(el, payload);
+        } else {
+          el.replaceChildren(renderer.renderNameWithBadge(payload));
+        }
+        return;
+      } catch {
+        // Fall through to plain text.
+      }
+    }
+    setText(el, name);
+  }
+
+  function initNameBadgeLotties(root) {
+    try { window.miaNameWithBadge?.initLottieBadges?.(root); } catch { /* optional badge animation */ }
   }
 
   function contactGroupKey(bot = {}) {
@@ -230,7 +288,11 @@
   }
 
   function botCapabilities(bot = {}) {
-    const normalizer = botIdentity()?.normalizeBotCapabilities;
+    const identity = botIdentity();
+    if (typeof identity?.botCapabilitiesWithPresetDefaults === "function") {
+      return identity.botCapabilitiesWithPresetDefaults(bot, state?.skillLibrary?.botPresets || []);
+    }
+    const normalizer = identity?.normalizeBotCapabilities;
     if (typeof normalizer === "function") return normalizer(bot.capabilities);
     const raw = bot.capabilities && typeof bot.capabilities === "object" ? bot.capabilities : {};
     return { ...defaultBotCapabilities(), ...raw };
@@ -288,6 +350,37 @@
     return firstNonEmpty(bot.uid, bot.publicId, bot.public_id, bot.id, bot.key, bot.globalId, bot.global_id);
   }
 
+  function botPresetForContact(bot = {}) {
+    const presets = Array.isArray(state?.skillLibrary?.botPresets) ? state.skillLibrary.botPresets : [];
+    const botKeys = [bot.key, bot.id, bot.account_id, bot.accountId]
+      .map((value) => String(value || "").trim())
+      .filter(Boolean);
+    const botNames = [bot.name, bot.displayName, bot.display_name, bot.username]
+      .map((value) => String(value || "").trim())
+      .filter(Boolean);
+    return presets.find((preset) => {
+      const presetKeys = [preset?.key, preset?.id]
+        .map((value) => String(value || "").trim())
+        .filter(Boolean);
+      if (botKeys.some((key) => presetKeys.includes(key))) return true;
+      const presetNames = [preset?.name, preset?.displayName, preset?.display_name]
+        .map((value) => String(value || "").trim())
+        .filter(Boolean);
+      return botNames.some((name) => presetNames.includes(name));
+    }) || null;
+  }
+
+  function botPersonaText(bot = {}) {
+    return firstNonEmpty(
+      bot.personaText,
+      bot.persona_text,
+      bot.persona,
+      bot.systemPrompt,
+      bot.system_prompt,
+      botPresetForContact(bot)?.persona
+    );
+  }
+
   function botCapabilityItems(bot = {}) {
     if (!state) return { skills: [] };
     const engine = bot.agentEngine || bot.agent_engine || "hermes";
@@ -319,25 +412,49 @@
     const capabilities = botCapabilities(bot);
     const { skills } = botCapabilityItems(bot);
     const engine = bot.agentEngine || bot.agent_engine || "hermes";
+    const panelOpen = state?.openCapabilityPanelKeys?.has?.(bot?.key);
     return `
-      <section class="contact-capabilities">
-        <header>
+      <details class="contact-capabilities accordion-details" data-capabilities-panel-key="${window.miaMarkdown.escapeHtml(bot?.key || "")}"${panelOpen ? " open" : ""}>
+        <summary>
           <div>
             <strong>能力</strong>
             <p>${window.miaMarkdown.escapeHtml(engineLabel(engine))} · ${skills.length} 技能</p>
           </div>
-        </header>
-        <div class="capability-columns">
-          <section>
-            <h3>技能</h3>
-            ${skills.length ? skills.map((item) => renderCapabilityCheckbox({
-              item,
-              checked: capabilityChecked(capabilities, item.id, "enabledSkills", "disabledSkills"),
-              type: "skill"
-            })).join("") : `<div class="capability-empty">当前引擎没有可选技能</div>`}
-          </section>
+          <span class="runtime-target-chevron" aria-hidden="true">⌄</span>
+        </summary>
+        <div class="accordion-body">
+          <div class="capability-columns">
+            <section>
+              <h3>技能</h3>
+              ${skills.length ? skills.map((item) => renderCapabilityCheckbox({
+                item,
+                checked: capabilityChecked(capabilities, item.id, "enabledSkills", "disabledSkills"),
+                type: "skill"
+              })).join("") : `<div class="capability-empty">当前引擎没有可选技能</div>`}
+            </section>
+          </div>
         </div>
-      </section>
+      </details>
+    `;
+  }
+
+  function renderBotPersonaPanel(bot) {
+    const persona = botPersonaText(bot);
+    const panelOpen = state?.openPersonaPanelKeys?.has?.(bot?.key);
+    const summary = persona ? persona.replace(/\s+/g, " ").trim() : "还没有设置人设";
+    return `
+      <details class="contact-persona-card accordion-details" data-persona-panel-key="${window.miaMarkdown.escapeHtml(bot?.key || "")}"${panelOpen ? " open" : ""}>
+        <summary>
+          <div>
+            <strong>人设</strong>
+            <p>${window.miaMarkdown.escapeHtml(summary)}</p>
+          </div>
+          <span class="runtime-target-chevron" aria-hidden="true">⌄</span>
+        </summary>
+        <div class="accordion-body">
+          <p class="contact-persona-text">${window.miaMarkdown.escapeHtml(persona || "还没有设置人设。")}</p>
+        </div>
+      </details>
     `;
   }
 
@@ -612,7 +729,7 @@
       button.innerHTML = `
         <span class="avatar bot-photo"></span>
         <span class="contact-row-main">
-          <strong>${window.miaMarkdown.escapeHtml(bot.name)}</strong>
+          <strong>${renderBotNameWithBadgeHtml(bot)}</strong>
         </span>
       `;
       button.addEventListener("click", () => {
@@ -631,6 +748,7 @@
       );
       els.contactList.appendChild(button);
     }
+    initNameBadgeLotties(els.contactList);
     if (!visibleContacts.length && filter) {
       els.contactList.innerHTML = `<div class="contact-empty">没有匹配的联系人</div>`;
     }
@@ -665,7 +783,7 @@
     const summary = contactSessionSummary(bot);
     const engine = bot.agentEngine || bot.agent_engine || bot.engine || "hermes";
     const uid = contactUid(bot);
-    setText(els.contactPageTitle, bot.name || "联系人");
+    setBotNameWithBadge(els.contactPageTitle, bot, bot.name || "联系人");
     setText(els.contactPageMeta, botDeviceLabel(bot));
     const canEditBot = bot.canEditIdentity !== false;
     const canDeleteBot = bot.canDelete !== false;
@@ -674,7 +792,7 @@
         <header class="contact-profile-head">
           <button class="contact-profile-avatar" type="button" ${canEditBot ? 'data-contact-action="edit" title="编辑联系人头像"' : 'title="联系人头像"'}></button>
           <div class="contact-profile-title">
-            <h2>${window.miaMarkdown.escapeHtml(bot.name || "联系人")}</h2>
+            <h2>${renderBotNameWithBadgeHtml(bot, bot.name || "联系人")}</h2>
             <div class="contact-engine-badge" title="Agent 内核">
               ${engineLogoHtml(engine)}
               <span class="contact-engine-copy">
@@ -697,8 +815,10 @@
         </section>
         ${renderBotRuntimeTargetPanel(bot)}
         ${bot.canConfigureCapabilities !== false ? renderBotCapabilitiesPanel(bot) : ""}
+        ${renderBotPersonaPanel(bot)}
       </article>
     `;
+    initNameBadgeLotties(els.contactDetail);
     const avatar = avatarForBot(bot);
     window.miaAvatar.applyAvatarMedia(
       els.contactDetail.querySelector(".contact-profile-avatar"),
@@ -715,6 +835,7 @@
       await deleteBot(bot.key);
     });
     if (bot.canConfigureCapabilities !== false) wireBotCapabilities(bot);
+    wireBotPersonaPanel(bot);
     wireBotRuntimeTargets(bot);
     refreshRuntimeDevicesForContacts();
   }
@@ -803,6 +924,12 @@
 
   function wireBotCapabilities(bot) {
     if (!els || !els.contactDetail || !bot) return;
+    const panel = els.contactDetail.querySelector(".contact-capabilities");
+    panel?.addEventListener("toggle", () => {
+      if (!state.openCapabilityPanelKeys) state.openCapabilityPanelKeys = new Set();
+      if (panel.open) state.openCapabilityPanelKeys.add(bot.key);
+      else state.openCapabilityPanelKeys.delete(bot.key);
+    });
     els.contactDetail.querySelectorAll("[data-capability-type][data-capability-id]").forEach((input) => {
       input.addEventListener("change", async () => {
         const id = input.dataset.capabilityId || "";
@@ -813,6 +940,16 @@
         }
         await saveBotCapabilities(bot, capabilities);
       });
+    });
+  }
+
+  function wireBotPersonaPanel(bot) {
+    if (!els || !els.contactDetail || !bot) return;
+    const panel = els.contactDetail.querySelector(".contact-persona-card");
+    panel?.addEventListener("toggle", () => {
+      if (!state.openPersonaPanelKeys) state.openPersonaPanelKeys = new Set();
+      if (panel.open) state.openPersonaPanelKeys.add(bot.key);
+      else state.openPersonaPanelKeys.delete(bot.key);
     });
   }
 
@@ -849,7 +986,6 @@
         : window.miaMarkdown.menuItemHtml({ icon: "message", label: "放进桌面", attrs: 'data-bot-action="place"' })
       : window.miaMarkdown.menuItemHtml({ icon: "addPic", label: "生成桌宠", attrs: 'data-bot-action="generate-pet"' });
     menu.innerHTML = `
-      ${window.miaMarkdown.menuItemHtml({ icon: "pin", label: bot.pinned ? "取消置顶" : "置顶", attrs: 'data-bot-action="pin"' })}
       ${window.miaMarkdown.menuItemHtml({ icon: "edit", label: "编辑", attrs: 'data-bot-action="edit"' })}
       ${petAction}
       ${canDeleteBot ? `<div class="skill-context-menu-separator" role="separator"></div>${window.miaMarkdown.menuItemHtml({ icon: "delete", label: "删除伙伴", attrs: 'data-bot-action="delete"', className: "danger" })}` : ""}
@@ -862,10 +998,6 @@
     menu.querySelector('[data-bot-action="edit"]')?.addEventListener("click", () => {
       closeBotContextMenu();
       openEditBotDialog(bot.key);
-    });
-    menu.querySelector('[data-bot-action="pin"]')?.addEventListener("click", async () => {
-      closeBotContextMenu();
-      await setBotPinned(bot.key, !bot.pinned);
     });
     menu.querySelector('[data-bot-action="generate-pet"]')?.addEventListener("click", () => {
       closeBotContextMenu();
@@ -906,9 +1038,11 @@
     capabilityChecked,
     botDeviceLabel,
     botSubtitle,
+    botPersonaText,
     engineLogoHtml,
     renderCapabilityCheckbox,
     renderBotCapabilitiesPanel,
+    renderBotPersonaPanel,
     renderBotRuntimeTargetPanel,
     renderContacts,
     renderContactDetail,
@@ -917,6 +1051,7 @@
     saveBotCapabilities,
     toggleCapabilityId,
     wireBotCapabilities,
+    wireBotPersonaPanel,
     petStatusForKey,
     openBotContextMenu,
     closeBotContextMenu,

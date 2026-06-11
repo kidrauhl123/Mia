@@ -1,33 +1,9 @@
 "use strict";
 
 const {
-  normalizeBotColor,
-  normalizeBotCapabilities
-} = require("../../shared/bot-identity.js");
-
-const {
   DEFAULT_SKILL_MARKET_CACHE_TTL_MS,
   normalizeSkillMarketParams
 } = require("../skills/skill-market-cache.js");
-
-function isCloudAvatarAssetUrl(avatarImage) {
-  const raw = String(avatarImage || "").trim();
-  if (!raw) return false;
-  try {
-    return new URL(raw, "https://mia.invalid").pathname.startsWith("/api/avatar-assets/");
-  } catch {
-    return false;
-  }
-}
-
-function botAvatarSyncPatch(bot = {}) {
-  const avatarImage = String(bot.avatarImage || "").trim();
-  if (!avatarImage || isCloudAvatarAssetUrl(avatarImage)) return {};
-  return {
-    avatarImage,
-    avatarCrop: bot.avatarCrop || null
-  };
-}
 
 function createCloudDesktopSyncClient({
   getCloudSettings,
@@ -37,10 +13,6 @@ function createCloudDesktopSyncClient({
   appendLog,
   fetchImpl = fetch,
   timeoutSignal = (timeoutMs) => AbortSignal.timeout(timeoutMs),
-  loadBotManifest,
-  botPersonaPath,
-  fileExists,
-  readBotPersona,
   writeUserProfile,
   writeAppearanceSettings,
   runtimePaths,
@@ -51,7 +23,8 @@ function createCloudDesktopSyncClient({
   stopCloudBridge,
   skillMarketCache = null,
   skillMarketCacheTtlMs = DEFAULT_SKILL_MARKET_CACHE_TTL_MS,
-  now = () => Date.now()
+  now = () => Date.now(),
+  waitMs = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 }) {
   function settings() {
     return typeof getCloudSettings === "function" ? getCloudSettings() : {};
@@ -82,80 +55,17 @@ function createCloudDesktopSyncClient({
     return data;
   }
 
-  async function pushBot(bot) {
-    const current = settings();
-    if (!current.enabled || !current.token || !bot || !bot.key) return;
-    try {
-      let personaText = String(bot.personaText || bot.persona_text || "").trim();
-      try {
-        if (!personaText && typeof botPersonaPath === "function" && typeof fileExists === "function" && fileExists(botPersonaPath(bot.key))) {
-          personaText = readBotPersona(bot.key, bot.name, bot.bio);
-        }
-      } catch {
-        // Persona text is best-effort; identity sync should still proceed.
-      }
-      await cloudApi(`/api/me/bots/${encodeURIComponent(bot.key)}`, {
-        method: "PUT",
-        body: {
-          displayName: bot.name || bot.displayName || bot.key,
-          name: bot.name || bot.displayName || bot.key,
-          color: normalizeBotColor(bot.color),
-          ...botAvatarSyncPatch(bot),
-          bio: bot.bio || "",
-          capabilities: normalizeBotCapabilities(bot.capabilities),
-          personaText
-        }
-      });
-    } catch (error) {
-      log(`Cloud bot push failed for ${bot.key}: ${error?.message || error}`);
-    }
-  }
-
-  async function ensureBotConversation(bot) {
-    const current = settings();
-    if (!current.enabled || !current.token || !bot?.key) return;
-    try {
-      await cloudApi(`/api/me/bot-conversations/${encodeURIComponent(bot.key)}`, {
-        method: "PUT",
-        body: {
-          botId: bot.key,
-          title: bot.name || bot.displayName || bot.key,
-          runtimeKind: "desktop-local"
-        }
-      });
-    } catch (error) {
-      log(`Cloud bot conversation ensure failed for ${bot.key}: ${error?.message || error}`);
-    }
-  }
-
-  async function deleteBot(botKey) {
-    const current = settings();
-    if (!current.enabled || !current.token || !botKey) return;
-    try {
-      await cloudApi(`/api/me/bots/${encodeURIComponent(botKey)}`, { method: "DELETE" });
-    } catch (error) {
-      log(`Cloud bot delete failed for ${botKey}: ${error?.message || error}`);
-    }
-  }
-
-  async function pushAllBots() {
-    const current = settings();
-    if (!current.enabled || !current.token) return;
-    const manifest = loadBotManifest();
-    const bots = Array.isArray(manifest.bots) ? manifest.bots : [];
-    for (const bot of bots) {
-      await pushBot(bot);
-      await ensureBotConversation(bot);
-    }
-  }
-
   function profileSyncBody(profile = {}) {
-    return {
+    const body = {
       displayName: String(profile.displayName || ""),
       avatarImage: String(profile.avatarImage || ""),
       avatarCrop: profile.avatarCrop || null,
       avatarColor: String(profile.avatarColor || "")
     };
+    if (Object.prototype.hasOwnProperty.call(profile, "statusBadge")) {
+      body.statusBadge = profile.statusBadge || null;
+    }
+    return body;
   }
 
   async function pushUserProfile(profileOverride = null) {
@@ -205,7 +115,6 @@ function createCloudDesktopSyncClient({
   async function syncWorkspace() {
     const current = settings();
     if (!current.enabled || !current.token) return status(false);
-    await pushAllBots();
     try {
       const data = await cloudApi("/api/me");
       writeCloudSettings({ user: data?.user || current.user });
@@ -304,19 +213,67 @@ function createCloudDesktopSyncClient({
     return Buffer.from(await response.arrayBuffer());
   }
 
-  async function login({ username, password, mode = "login", url = "" } = {}) {
+  async function startWechatLogin({ url = "" } = {}) {
     const nextUrl = normalizeCloudUrl(url || settings().url);
     writeCloudSettings({ url: nextUrl, enabled: false, token: "", user: null });
-    const pathSegment = mode === "register" ? "/api/auth/register" : "/api/auth/login";
-    const data = await cloudApi(pathSegment, {
+    const started = await cloudApi("/api/auth/wechat/start", {
       method: "POST",
-      body: { username: String(username || "").trim(), password: String(password || "") },
+      body: { client: "desktop" },
       token: ""
     });
-    writeCloudSettings({ url: nextUrl, enabled: true, token: data.token, user: data.user || null });
+    if (!started.state || !started.qrCodeUrl) throw new Error("微信登录启动失败。");
+    return {
+      kind: "wechat-login-start",
+      mode: started.mode || "wechat_mp_scene",
+      state: started.state,
+      qrCodeUrl: started.qrCodeUrl,
+      authorizationUrl: started.authorizationUrl || "",
+      expiresAt: started.expiresAt || ""
+    };
+  }
+
+  async function completeWechatLogin({ state = "" } = {}) {
+    const loginState = String(state || "").trim();
+    if (!loginState) throw new Error("微信登录状态缺失，请重新扫码。");
+    const result = await cloudApi("/api/auth/wechat/complete", {
+      method: "POST",
+      body: { state: loginState },
+      token: ""
+    });
+    if (result.status === "pending") {
+      return {
+        kind: "wechat-login-pending",
+        status: "pending",
+        expiresAt: result.expiresAt || ""
+      };
+    }
+    if (result.status === "failed" || result.ok === false) throw new Error(result.error || "微信登录失败。");
+    if (!result?.token) throw new Error("微信登录结果缺少 token，请重新扫码。");
+    writeCloudSettings({ url: normalizeCloudUrl(settings().url), enabled: true, token: result.token, user: result.user || null });
     startCloudEvents();
     startCloudBridge();
+    return { kind: "wechat-login-complete", status: "complete" };
+  }
+
+  async function loginWithWechat(options = {}) {
+    const started = await startWechatLogin(options);
+    const startedAt = now();
+    let data = null;
+    while (now() - startedAt < 1000 * 60 * 5) {
+      await waitMs(1500);
+      const result = await completeWechatLogin({ state: started.state });
+      if (result.status === "pending") continue;
+      data = result;
+      break;
+    }
+    if (data?.status !== "complete") throw new Error("微信登录超时，请重新扫码。");
     return status(false);
+  }
+
+  async function login(options = {}) {
+    if (options?.action === "start") return startWechatLogin(options);
+    if (options?.action === "complete") return completeWechatLogin(options);
+    return loginWithWechat(options);
   }
 
   async function logout() {
@@ -332,7 +289,6 @@ function createCloudDesktopSyncClient({
   }
 
   return {
-    deleteBot,
     getUserSettings,
     installMarketSkill,
     downloadSkillPackage,
@@ -342,8 +298,6 @@ function createCloudDesktopSyncClient({
     login,
     logout,
     putUserSettings,
-    pushAllBots,
-    pushBot,
     pushUserProfile,
     saveAppearanceSettings,
     saveUserProfile,

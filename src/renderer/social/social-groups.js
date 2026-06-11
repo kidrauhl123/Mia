@@ -23,7 +23,10 @@
     const { moduleState, deps } = ctx;
     const runtimeState = deps && typeof deps.getState === "function" ? deps.getState() : {};
     const runtime = runtimeState.runtime || {};
-    const bots = runtime.bots || runtime.personas || [];
+    const cloudBots = Array.isArray(moduleState.bots) ? moduleState.bots : [];
+    const bots = window.miaBotDirectory
+      ? window.miaBotDirectory.listOwnedBots({ cloudBots, runtime })
+      : cloudBots;
     const selfIdentity = typeof window !== "undefined" && window.miaSelfIdentity;
     const self = selfIdentity
       ? selfIdentity.resolveSelfIdentity({
@@ -114,6 +117,18 @@
     return ctx.escapeHtml(fallbackName || identity?.displayName || "");
   }
 
+  function statusBadgeFrom(...sources) {
+    for (const source of sources) {
+      if (source && typeof source === "object" && Object.prototype.hasOwnProperty.call(source, "statusBadge")) return source.statusBadge;
+      if (source && typeof source === "object" && Object.prototype.hasOwnProperty.call(source, "status_badge")) return source.status_badge;
+    }
+    return undefined;
+  }
+
+  function initNameBadgeLotties(root) {
+    try { global.miaNameWithBadge?.initLottieBadges?.(root); } catch { /* optional badge animation */ }
+  }
+
   // Group bubble mirrors bot chat's renderMessageHtml shape EXACTLY
   // (same .avatar div, .message-stack, .bubble with data-message-index +
   // data-message-source, message-time after bubble). This is what the
@@ -200,6 +215,7 @@
         ${sendStatusHtml}
       </div>
     `;
+    initNameBadgeLotties(article);
     return article;
   }
 
@@ -280,7 +296,11 @@
 
       const nameEl = document.createElement("span");
       nameEl.className = "member-name";
-      nameEl.textContent = entry.name;
+      nameEl.innerHTML = renderNameWithBadgeHtml({
+        identity: entry.identity || { displayName: entry.name },
+        fallbackName: entry.name,
+        statusBadge: entry.statusBadge
+      });
 
       const checkEl = document.createElement("span");
       checkEl.className = "member-check";
@@ -306,10 +326,7 @@
       return row;
     }
 
-    // Build mixed contact list: friends + own bots in a single section.
-    // Bots come from the canonical adapter ctx (cloud + local merged via
-    // miaBotDirectory). Reading runtime.bots directly dropped cloud
-    // bots (e.g. mia, whose agent runs in the cloud) from the picker.
+    // Build mixed contact list: friends + own cloud-stored bot identities.
     membersBox.innerHTML = "";
     const { friends, bots: ownedBots } = _adapterCtx();
 
@@ -332,6 +349,8 @@
         kind: "friend",
         id: friend.id,
         name,
+        identity: { kind: "user", id: friend.id, displayName: name, statusBadge: statusBadgeFrom(friend) },
+        statusBadge: statusBadgeFrom(friend),
         color: avatar.color,
         image: avatar.image,
         crop: avatar.crop,
@@ -355,6 +374,8 @@
         kind: "bot",
         id,
         name,
+        identity: { kind: "bot", id, displayName: name, statusBadge: statusBadgeFrom(bot) },
+        statusBadge: statusBadgeFrom(bot),
         runtimeKind: bot.runtimeKind || bot.runtime_kind || "cloud-hermes",
         color: avatar.color,
         image: avatar.image,
@@ -362,6 +383,7 @@
         text: avatar.text
       }));
     }
+    initNameBadgeLotties(membersBox);
 
     nameInput.value = "";
     refreshCount();

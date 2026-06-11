@@ -32,6 +32,8 @@
   // Prepare-step async scan state. status: idle → scanning → done. Per-agent
   // results land in scan[agentId] as they resolve.
   let scan = { status: "idle", done: 0, total: 4 };
+  let loginFlow = null;
+  let loginAttempt = 0;
   const SCAN_AGENTS = [
     { id: "hermes", label: "Hermes" },
     { id: "claude-code", label: "Claude Code" },
@@ -49,15 +51,17 @@
     return Boolean(state?.runtime?.cloud?.enabled);
   }
 
-  // The wizard owns the whole signed-out state (Mia is cloud-login-required), so
-  // a signed-out user — first run OR a returning/dirty install — always gets the
-  // compact wizard login instead of the old full-width cloud-login screen. Once
-  // signed in, the wizard only stays up while onboarding is mid-flight.
+  function hasCompletedOnboarding() {
+    return Boolean(state?.onboardingStep === "done" || state?.agentSetupSkipped || state?.setupGuideDismissed);
+  }
+
+  // The wizard owns first-run signed-out state, but not returning users who
+  // already finished onboarding. If their token expires or they log out, keep
+  // them in the normal app shell and show the regular cloud login guide.
   function isActive() {
     if (!state) return false;
+    if (hasCompletedOnboarding()) return false;
     if (!signedIn()) return true;
-    if (state.agentSetupSkipped || state.setupGuideDismissed) return false;
-    if (state.onboardingStep === "done") return false;
     return STEPS.includes(state.onboardingStep);
   }
 
@@ -92,22 +96,37 @@
     `;
   }
 
+  function wechatIconSvg() {
+    return `<svg class="wechat-login-icon" viewBox="0 0 32 28" aria-hidden="true" focusable="false">
+      <path class="wechat-bubble" d="M13.2 2.5C6.7 2.5 1.5 6.7 1.5 12c0 3.1 1.8 5.8 4.6 7.5l-.9 3.1 3.7-1.8c1.3.4 2.7.7 4.3.7.6 0 1.2 0 1.8-.1-.5-1-.8-2.1-.8-3.3 0-4.6 4.5-8.3 10.1-8.3h.4C23.5 5.6 18.8 2.5 13.2 2.5Z"/>
+      <path class="wechat-bubble" d="M30.5 18.1c0-4.1-4.1-7.4-9.1-7.4s-9.1 3.3-9.1 7.4 4.1 7.4 9.1 7.4c1.2 0 2.3-.2 3.3-.6l3 1.5-.7-2.5c2.1-1.3 3.5-3.4 3.5-5.8Z"/>
+      <circle class="wechat-eye" cx="9.6" cy="10.3" r="1.05"/>
+      <circle class="wechat-eye" cx="16.6" cy="10.3" r="1.05"/>
+      <circle class="wechat-eye" cx="18.4" cy="17" r=".9"/>
+      <circle class="wechat-eye" cx="24.1" cy="17" r=".9"/>
+    </svg>`;
+  }
+
   function loginStepHtml() {
     const hint = state?.onboardingLoginHint || "";
+    const qr = loginFlow?.qrCodeUrl
+      ? `<div class="onb-login-qr-card">
+          <img class="onb-login-qr-img" src="${escapeHtml(loginFlow.qrCodeUrl)}" alt="微信登录二维码" draggable="false">
+        </div>
+        <p class="onb-login-qr-note">用微信扫码关注公众号，Mia 会自动完成登录。</p>`
+      : "";
     return `
-      <header class="setup-hero">
+      <header class="setup-hero${loginFlow?.qrCodeUrl ? " compact" : ""}">
         <img class="setup-logo-img" src="./assets/mia-logo.png" alt="Mia" draggable="false">
         <h1 class="setup-title">欢迎使用 Mia</h1>
-        <p class="setup-tagline">一个聊天界面，指挥你所有的 AI Agent。先登录，把对话同步到云端。</p>
+        <p class="setup-tagline">一个聊天界面，指挥你所有的 AI Agent。先用微信登录，把对话同步到云端。</p>
       </header>
-      <form class="onb-login" data-onb-login>
-        <input class="onb-input" type="text" name="username" autocomplete="username" placeholder="用户名" data-onb-login-username>
-        <input class="onb-input" type="password" name="password" autocomplete="current-password" placeholder="密码（至少 6 位）" data-onb-login-password>
+      <section class="onb-login" data-onb-login>
+        ${qr}
         <p class="onb-login-hint" data-onb-login-hint>${escapeHtml(hint)}</p>
-      </form>
+      </section>
       <footer class="setup-footer onb-login-actions">
-        <button class="setup-cta" type="button" data-onb-action="login">登录</button>
-        <button class="onb-register-link" type="button" data-onb-action="register">没有账号？注册一个</button>
+        <button class="setup-cta wechat-login-cta" type="button" data-onb-action="login"${loginFlow?.qrCodeUrl ? " disabled" : ""}>${wechatIconSvg()}<span>${loginFlow?.qrCodeUrl ? "等待扫码" : "微信登录"}</span></button>
       </footer>
     `;
   }
@@ -224,7 +243,7 @@
     // place via updateScanDom, never a full re-render). prepare/done: keyed on
     // the engine list so an install result refreshes it.
     const sig = step === "login"
-      ? "login"
+      ? "login::" + (loginFlow?.state || "")
       : scan.status === "done"
         ? "prepare::done::" + (deps.renderEngineList?.() || "") + "::installing::" + (isSetupInstallInFlight() ? "1" : "0")
         : "prepare::scanning";
@@ -239,34 +258,64 @@
     bind(container, step);
   }
 
-  // mode is "login" or "register" — the backend login does NOT auto-create
-  // accounts, so first-run users must be able to explicitly register.
-  async function submitLogin(container, mode = "login") {
-    const username = container.querySelector("[data-onb-login-username]")?.value?.trim() || "";
-    const password = container.querySelector("[data-onb-login-password]")?.value || "";
+  async function submitLogin(container) {
     const setHint = (text) => {
       const el = container.querySelector("[data-onb-login-hint]");
       if (el) el.textContent = text;
       state.onboardingLoginHint = text;
     };
-    if (!username) return setHint("请输入用户名。");
-    if (password.length < 6) return setHint("密码至少 6 位。");
-    setHint(mode === "register" ? "正在注册并连接…" : "正在登录并连接…");
+    const attempt = loginAttempt + 1;
+    loginAttempt = attempt;
+    loginFlow = null;
+    setHint("正在生成微信登录二维码…");
+    deps.rerender?.();
     try {
-      const runtime = await deps.cloudLogin?.({ mode, username, password });
+      const started = await deps.cloudLogin?.({ mode: "wechat", action: "start" });
+      if (!started?.state || !started?.qrCodeUrl) throw new Error("微信登录二维码生成失败。");
+      if (attempt !== loginAttempt) return;
+      loginFlow = started;
+      state.onboardingLoginHint = "等待微信扫码关注…";
+      deps.rerender?.();
+      pollLogin(container, attempt);
+    } catch (error) {
+      loginFlow = null;
+      setHint(`连接失败：${error?.message || error}`);
+      deps.rerender?.();
+    }
+  }
+
+  async function pollLogin(container, attempt) {
+    if (!loginFlow?.state || attempt !== loginAttempt) return;
+    const setHint = (text) => {
+      const el = container.querySelector("[data-onb-login-hint]");
+      if (el) el.textContent = text;
+      state.onboardingLoginHint = text;
+    };
+    try {
+      const runtime = await deps.cloudLogin?.({ mode: "wechat", action: "complete", state: loginFlow.state });
+      if (attempt !== loginAttempt) return;
+      if (runtime?.status === "pending") {
+        setHint("二维码已生成，等待微信扫码关注…");
+        setTimeout(() => pollLogin(container, attempt), 1500);
+        return;
+      }
       if (runtime) state.runtime = runtime;
       if (signedIn()) {
+        loginFlow = null;
         state.onboardingLoginHint = "";
-        // A returning user who already finished onboarding just lands in the app;
-        // a fresh user continues to the prepare (detect Agents) step.
-        const onboarded = state.onboardingStep === "done" || state.agentSetupSkipped || state.setupGuideDismissed;
+        const onboarded = hasCompletedOnboarding();
         if (onboarded) deps.rerender?.();
         else goToStep("prepare");
       } else {
-        setHint(mode === "register" ? "注册未成功，请重试。" : "登录未成功，请检查或点下方注册。");
+        loginFlow = null;
+        setHint("微信登录未成功，请重试。");
+        deps.rerender?.();
       }
     } catch (error) {
+      if (attempt !== loginAttempt) return;
+      loginFlow = null;
       setHint(`连接失败：${error?.message || error}`);
+      deps.rerender?.();
     }
   }
 
@@ -277,7 +326,7 @@
     if (step === "login") {
       container.querySelector("[data-onb-login]")?.addEventListener("submit", (event) => {
         event.preventDefault();
-        submitLogin(container, "login");
+        submitLogin(container);
       });
     }
     // Kick off the async agent scan the first time the prepare step shows.
@@ -288,8 +337,7 @@
       const target = event.target.closest("[data-onb-action]");
       if (!target) return;
       const action = target.dataset.onbAction;
-      if (action === "login") return void submitLogin(container, "login");
-      if (action === "register") return void submitLogin(container, "register");
+      if (action === "login") return void submitLogin(container);
       if (action === "finish") {
         if (isSetupInstallInFlight()) return;
         return void deps.finish?.();

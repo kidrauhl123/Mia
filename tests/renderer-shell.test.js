@@ -54,6 +54,19 @@ test("cloud conversation composer uses one social send path for dm and group con
   assert.doesNotMatch(appSource, /sendInActiveGroupConversation\(conversationText\)/);
 });
 
+test("settings exposes manual update checks through the preload bridge", () => {
+  const htmlSource = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const preloadSource = fs.readFileSync(path.join(root, "src/preload.js"), "utf8");
+  const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
+
+  assert.match(htmlSource, /id="checkUpdates"/);
+  assert.match(htmlSource, /id="appUpdateHint"/);
+  assert.match(appSource, /window\.mia\.checkForUpdates\(\)/);
+  assert.match(preloadSource, /checkForUpdates:\s*\(\)\s*=>\s*ipcRenderer\.invoke\(IpcChannel\.UpdateCheck\)/);
+  assert.match(mainSource, /ipcMain\.handle\(IpcChannel\.UpdateCheck,\s*\(\)\s*=>\s*autoUpdateService\.checkForUpdates\(\)\)/);
+});
+
 test("cloud conversation send and render do not depend on activeKey being empty", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
 
@@ -146,8 +159,9 @@ test("logged-in active pane never falls back to local bot sessions", () => {
   assert.match(appSource, /if\s*\(cloudSignedIn\)\s*\{\s*state\.activeKey = "";/);
   assert.match(appSource, /const active = cloudSignedIn\s*\?\s*null\s*:/);
   assert.match(appSource, /if\s*\(state\.runtime\?\.cloud\?\.enabled\)\s*\{[\s\S]*?els\.chat\.innerHTML = "";\s*return;\s*\}/);
-  // Cloud-only: signed-out users get the login guide, never a local message list.
-  assert.match(appSource, /els\.chat\.innerHTML = renderCloudLoginGuide\(\);/);
+  // Cloud-only: signed-out users leave the main renderer for the standalone onboarding window.
+  assert.match(appSource, /requestSignedOutOnboardingWindow\(\);[\s\S]*?els\.chat\.innerHTML = "";/);
+  assert.doesNotMatch(appSource, /function renderCloudLoginGuide/);
 });
 
 test("renderer chat uses setup guide and supports no-agent continuation", () => {
@@ -171,7 +185,7 @@ test("renderer chat uses setup guide and supports no-agent continuation", () => 
   assert.doesNotMatch(htmlSource, /正在创建本地 runtime/);
   assert.match(appSource, /renderNoAgentGuide/);
   assert.match(appSource, /finish-agent-scan/);
-  assert.match(noAgentGuideSource, /data-action="cloud-login"/);
+  assert.doesNotMatch(noAgentGuideSource, /data-action="cloud-login"/);
   assert.match(appSource, /AGENT_SETUP_SKIPPED_KEY/);
   assert.match(appSource, /engineRowOpenClaw/);
   assert.match(htmlSource, /id="engineRowOpenClaw"/);
@@ -215,8 +229,33 @@ test("lottie icons support autoplaying loop animations for scanning state", () =
   const lottieSource = fs.readFileSync(path.join(root, "src/renderer/lottie-icons.js"), "utf8");
 
   assert.match(lottieSource, /triggerMode === "loop"/);
-  assert.match(lottieSource, /loop:\s*triggerMode === "loop"/);
-  assert.match(lottieSource, /autoplay:\s*triggerMode === "loop"/);
+  assert.match(lottieSource, /loop:\s*entry\.triggerMode === "loop"/);
+  assert.match(lottieSource, /autoplay:\s*entry\.triggerMode === "loop"/);
+});
+
+test("desktop lottie badges can load local TGS assets in the renderer with a preload bridge fallback", () => {
+  const channelSource = fs.readFileSync(path.join(root, "src/shared/ipc-channels.js"), "utf8");
+  const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
+  const preloadSource = fs.readFileSync(path.join(root, "src/preload.js"), "utf8");
+  const lottieSource = fs.readFileSync(path.join(root, "src/renderer/lottie-icons.js"), "utf8");
+  const nameBadgeSource = fs.readFileSync(path.join(root, "src/renderer/name-with-badge.js"), "utf8");
+
+  assert.match(channelSource, /StatusBadgeAssetLoad:\s*"status-badge:asset-load"/);
+  assert.match(preloadSource, /loadStatusBadgeAsset:\s*\(assetId\) => ipcRenderer\.invoke\(IpcChannel\.StatusBadgeAssetLoad, assetId\)/);
+  assert.match(mainSource, /zlib\.gunzipSync\(raw\)/);
+  assert.match(mainSource, /ipcMain\.handle\(IpcChannel\.StatusBadgeAssetLoad/);
+  assert.match(lottieSource, /dataSet\.lottieFormat|dataset\.lottieFormat/);
+  assert.match(lottieSource, /fetchTgsAnimationData/);
+  assert.match(lottieSource, /fetch\(animationPath\)/);
+  assert.match(lottieSource, /loadStatusBadgeAsset\(name\)/);
+  assert.match(lottieSource, /shouldDeferMount/);
+  assert.match(lottieSource, /addEventListener\("toggle"/);
+  assert.doesNotMatch(lottieSource, /lottie-load-failed/);
+  assert.match(nameBadgeSource, /localJsonAssetIds = new Set\(\["rainbow"\]\)/);
+  assert.match(nameBadgeSource, /localTgsAssetIds = new Set\(\["surprised-cat"\]\)/);
+  assert.match(nameBadgeSource, /shouldUseLocalAsset/);
+  assert.match(nameBadgeSource, /data-lottie-format", "tgs"/);
+  assert.doesNotMatch(nameBadgeSource, /data-lottie-fallback/);
 });
 
 test("refreshRuntime bootstraps social when cloud status arrives after startup", () => {
@@ -548,7 +587,8 @@ test("sidebar card specs carry identity status badges when available", () => {
         botId: (conversation) => conversation.decorations?.botId || "mia",
         botDisplayTitle: () => "Mia"
       };
-      function allOwnedBotsForIdentity(personas) { return personas || []; }
+      const ownedBots = [{ key: "mia", id: "mia", name: "Mia", statusBadge: { kind: "emoji", emoji: "⭐", label: "Premium" } }];
+      function allOwnedBotsForIdentity() { return ownedBots; }
       function botGlobalIdFromConversation() { return "bot_global"; }
       function botAvatarIdentityId() { return "bot_global"; }
       function formatConversationTime() { return ""; }
@@ -569,7 +609,7 @@ test("sidebar card specs carry identity status badges when available", () => {
     type: "private-conversation",
     updatedAt: "",
     conversation: { id: "botc_u_me_mia", type: "bot", name: "Mia", decorations: { botId: "mia" } }
-  }, [{ key: "mia", id: "mia", name: "Mia", statusBadge: badge }]);
+  }, []);
   const groupSpec = conversationCardSpecFromRow({
     type: "group-conversation",
     updatedAt: "",
@@ -621,6 +661,10 @@ test("main window accepts the first mouse click after regaining focus", () => {
   // HTML), not the full app — and finishing promotes that window to the app.
   assert.match(mainSource, /onboarding[\s\S]{0,40}onboarding\.html/);
   assert.match(mainSource, /function promoteOnboardingWindowToMain/);
+  assert.match(mainSource, /function showSignedOutOnboardingWindow/);
+  assert.match(mainSource, /ipcMain\.handle\(IpcChannel\.CloudLogout,[\s\S]*?showSignedOutOnboardingWindow\(win\)/);
+  assert.match(mainSource, /ipcMain\.handle\(IpcChannel\.WindowSignedOutOnboarding,[\s\S]*?showSignedOutOnboardingWindow/);
+  assert.match(mainSource, /if\s*\(!cloudStatus\(false\)\.enabled\)\s*\{[\s\S]*?showSignedOutOnboardingWindow\(win\)/);
   assert.match(ipcSource, /OnboardingComplete:\s*"onboarding:complete"/);
   assert.match(preloadSource, /onboardingComplete:\s*\(\)\s*=>/);
   assert.match(mainSource, /const minWindowWidth = onboarding \? 400 : 500;/);
@@ -628,8 +672,10 @@ test("main window accepts the first mouse click after regaining focus", () => {
   assert.match(mainSource, /getRuntimeStatus\(created,\s*\{\s*scanAgents:\s*false\s*\}\)/);
   assert.match(ipcSource, /WindowShowMain:\s*"window:show-main"/);
   assert.match(ipcSource, /WindowOnboarding:\s*"window:onboarding"/);
+  assert.match(ipcSource, /WindowSignedOutOnboarding:\s*"window:signed-out-onboarding"/);
   assert.match(preloadSource, /showMain: \(\) => ipcRenderer\.invoke\(IpcChannel\.WindowShowMain\)/);
   assert.match(preloadSource, /onboarding: \(\) => ipcRenderer\.invoke\(IpcChannel\.WindowOnboarding\)/);
+  assert.match(preloadSource, /signedOutOnboarding: \(\) => ipcRenderer\.invoke\(IpcChannel\.WindowSignedOutOnboarding\)/);
   assert.match(windowIpcSource, /setMinimumSize\(420,\s*560\)/);
   assert.match(windowIpcSource, /setSize\(1040,\s*700\)/);
   // Compact onboarding window driven from the renderer.
@@ -654,6 +700,8 @@ test("first-run onboarding cannot enter Mia while an engine install is running",
   const wizardSource = fs.readFileSync(path.join(root, "src/renderer/onboarding/onboarding-wizard.js"), "utf8");
   const standaloneSource = fs.readFileSync(path.join(root, "src/renderer/onboarding/onboarding-window.js"), "utf8");
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const standaloneStyles = fs.readFileSync(path.join(root, "src/renderer/onboarding/onboarding.css"), "utf8");
+  const appStyles = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
 
   assert.match(wizardSource, /function isSetupInstallInFlight\(\)/);
   assert.match(wizardSource, /data-onb-action="finish"[^`]*\$\{isSetupInstallInFlight\(\) \? " disabled" : ""\}/);
@@ -666,6 +714,20 @@ test("first-run onboarding cannot enter Mia while an engine install is running",
   assert.match(appSource, /state\.agentSetupInstallInFlight = true;/);
   assert.match(appSource, /state\.agentSetupInstallInFlight = false;/);
   assert.match(appSource, /if\s*\(state\.agentSetupInstallInFlight\)\s*return true;/);
+  assert.match(wizardSource, /wechatIconSvg/);
+  assert.match(standaloneSource, /wechatIconSvg/);
+  assert.match(wizardSource, /wechat-login-cta/);
+  assert.match(standaloneSource, /wechat-login-cta/);
+  assert.match(wizardSource, /action:\s*"start"/);
+  assert.match(wizardSource, /action:\s*"complete"/);
+  assert.match(wizardSource, /onb-login-qr-card/);
+  assert.match(standaloneSource, /action:\s*"start"/);
+  assert.match(standaloneSource, /action:\s*"complete"/);
+  assert.match(standaloneSource, /onb-qr-card/);
+  assert.match(standaloneStyles, /--wechat-green:\s*#07c160/);
+  assert.match(standaloneStyles, /\.onb-qr-card/);
+  assert.match(appStyles, /\.setup-cta\.wechat-login-cta[\s\S]*background:\s*#07c160/);
+  assert.match(appStyles, /\.onb-login-qr-card/);
 });
 
 test("chat code blocks use a right-aligned language copy button without code frame borders", () => {
@@ -741,7 +803,8 @@ test("desktop bot controls save through bot runtime control adapter", () => {
   assert.doesNotMatch(appSource, new RegExp("window\\.mia\\.social\\.save" + "BotRuntime\\(context\\." + "fellow" + "Key"));
   assert.doesNotMatch(appSource, /async function saveActiveCloudBotRuntimeConfig/);
   assert.match(commandsSource, /async function saveBotRuntimeControl/);
-  assert.match(commandsSource, /async function saveDesktopLocalBotRuntimeControl/);
+  assert.doesNotMatch(commandsSource, /async function saveDesktopLocalBotRuntimeControl/);
+  assert.match(commandsSource, /saveBotRuntimeConfig\(\{ api, cache, botKey: key, runtimeKind: kind, patch \}\)/);
   assert.match(quickControlSource, /saveActiveBotRuntimeControl\(\s*"model"/);
   assert.match(quickControlSource, /saveActiveBotRuntimeControl\(\s*"effortLevel"/);
   assert.match(quickControlSource, /saveActiveBotRuntimeControl\(\s*"permissionMode"/);
@@ -752,19 +815,21 @@ test("desktop bot controls save through bot runtime control adapter", () => {
   assert.match(appSource, /const conversationPersona = personas\.find[\s\S]*if \(conversationPersona\) return conversationPersona;\s*return null;/);
 });
 
-test("desktop-local bot runtime controls do not poll cloud runtime binding", () => {
+test("desktop-local bot runtime controls read cloud runtime bindings", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const body = appSource.slice(
     appSource.indexOf("function syncConversationBotRuntimeControls()"),
     appSource.indexOf("function setRuntimeControlDisabled")
   );
+  const runtimeFetchBlock = body.slice(body.indexOf("const runtimeCacheKey = botRuntimeCacheKey"));
 
   assert.match(appSource, /const botRuntimeControlInFlight = new Set\(\);/);
-  assert.match(body, /context\.runtimeKind === "cloud-hermes"/);
+  assert.doesNotMatch(runtimeFetchBlock, /context\.runtimeKind === "cloud-hermes"/);
+  assert.match(runtimeFetchBlock, /if \(!botRuntimeControlCache\.has\(runtimeCacheKey\)/);
   assert.match(body, /!botRuntimeControlInFlight\.has\(runtimeCacheKey\)/);
   assert.match(body, /botRuntimeControlInFlight\.add\(runtimeCacheKey\)/);
   assert.match(body, /botRuntimeControlInFlight\.delete\(runtimeCacheKey\)/);
-  assert.doesNotMatch(body, /if \(!botRuntimeControlCache\.has\(botRuntimeCacheKey\(context\.botKey, context\.runtimeKind\)\)\) \{/);
+  assert.match(body, /ensureBotRuntimeBinding\(context\.botKey, context\.runtimeKind\)/);
 });
 
 test("desktop Hermes conversation model picker uses platform model catalog", () => {
@@ -945,7 +1010,7 @@ test("creating or messaging a bot opens its conversation through the unified bot
   assert.match(botManagerSource, /window\.miaOpenBotConversation\??\.?\(botKey\)/);
 });
 
-test("contacts merge local bots with owned cloud bots", () => {
+test("contacts use cloud-stored owned bot identities", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
   const botDirectorySource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-directory.js"), "utf8");
@@ -960,7 +1025,7 @@ test("contacts merge local bots with owned cloud bots", () => {
   assert.match(botManagerSource, /const bots = allOwnedBots\(\);/);
   assert.match(botManagerSource, /adapterCtx\?\.\(\)\?\.bots/);
   assert.match(botManagerSource, /moduleState\?\.bots/);
-  assert.match(botManagerSource, /state\.runtime\?\.bots/);
+  assert.doesNotMatch(botManagerSource, /state\.runtime\?\.bots/);
   assert.doesNotMatch(botManagerSource, /runtime\?\.fellows/);
   assert.doesNotMatch(botManagerSource, /runtime\?\.personas/);
   assert.doesNotMatch(botManagerSource, /cloudOnly/);
@@ -1046,16 +1111,61 @@ test("profile and account surfaces expose uid fields", () => {
   assert.match(html, /id="profileDialogTitle">个人资料</);
   assert.doesNotMatch(html, /id="profileDialogTitle">编辑个人资料</);
   assert.match(html, /id="profileUidValue"/);
+  assert.match(html, /id="profileNameText"/);
+  assert.match(html, /id="profileStatusBadge"/);
+  assert.match(html, /id="profileStatusBadgeDetails"/);
+  assert.match(html, /id="profileStatusBadgeTrigger"/);
+  assert.match(html, /id="botNameText"/);
+  assert.match(html, /id="botStatusBadge"/);
+  assert.match(html, /id="botStatusBadgeDetails"/);
+  assert.match(html, /id="botStatusBadgeTrigger"/);
+  assert.match(html, /value="surprised-cat">惊讶猫/);
+  assert.match(html, /data-lottie-format="tgs"/);
+  assert.doesNotMatch(html, /data-lottie-fallback/);
+  assert.doesNotMatch(html, /profileStatusBadgeTrigger"[^>]*title="徽章"/);
+  assert.doesNotMatch(html, /botStatusBadgeTrigger"[^>]*title="徽章"/);
+  assert.doesNotMatch(html, /profileStatusBadgePreview/);
   assert.match(html, /id="cloudAccountProfile"/);
   assert.match(html, /id="cloudAccountAvatar"/);
   assert.match(html, /id="cloudAccountName"/);
   assert.match(html, /id="cloudAccountUid"/);
   assert.match(appSource, /profileUidValue:\s*document\.getElementById\("profileUidValue"\)/);
+  assert.match(appSource, /profileNameText:\s*document\.getElementById\("profileNameText"\)/);
+  assert.match(appSource, /profileStatusBadge:\s*document\.getElementById\("profileStatusBadge"\)/);
+  assert.match(appSource, /profileStatusBadgeTrigger:\s*document\.getElementById\("profileStatusBadgeTrigger"\)/);
+  assert.match(appSource, /botNameText:\s*document\.getElementById\("botNameText"\)/);
+  assert.match(appSource, /botStatusBadge:\s*document\.getElementById\("botStatusBadge"\)/);
+  assert.match(appSource, /statusBadgeForPreset/);
+  assert.match(appSource, /surprised-cat/);
+  assert.match(appSource, /function setNameWithBadge/);
   assert.match(appSource, /els\.profileUidValue\.textContent = user\.id/);
   assert.match(remoteSettingsSource, /cloudAccountUid/);
+  assert.match(remoteSettingsSource, /renderNameWithBadge/);
   assert.match(remoteSettingsSource, /applyAvatarMedia|paintAvatar/);
   assert.match(botManagerSource, /contact-profile-uid/);
   assert.match(botManagerSource, /contactUid\(bot\)/);
+});
+
+test("desktop name surfaces render status badges beside names", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const botManagerSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-manager.js"), "utf8");
+  const contactCardSource = fs.readFileSync(path.join(root, "src/renderer/social/contact-card.js"), "utf8");
+  const groupInfoSource = fs.readFileSync(path.join(root, "src/renderer/social/group-info-dialog.js"), "utf8");
+  const socialGroupsSource = fs.readFileSync(path.join(root, "src/renderer/social/social-groups.js"), "utf8");
+  const remoteSettingsSource = fs.readFileSync(path.join(root, "src/renderer/settings/settings-remote.js"), "utf8");
+  const badgeStyles = fs.readFileSync(path.join(root, "src/renderer/styles/name-with-badge.css"), "utf8");
+
+  assert.match(appSource, /setNameWithBadge\(nameEl/);
+  assert.match(appSource, /setNameWithBadge\(els\.activeChatName/);
+  assert.match(botManagerSource, /renderBotNameWithBadgeHtml/);
+  assert.match(botManagerSource, /setBotNameWithBadge\(els\.contactPageTitle/);
+  assert.match(contactCardSource, /renderNameWithBadgeHtml/);
+  assert.match(groupInfoSource, /appendNameWithBadge\(nameEl/);
+  assert.match(socialGroupsSource, /nameEl\.innerHTML = renderNameWithBadgeHtml/);
+  assert.match(remoteSettingsSource, /renderer\.setNameWithBadge\(els\.cloudAccountName/);
+  assert.match(badgeStyles, /#activeChatName \.name-with-badge/);
+  assert.match(badgeStyles, /\.contact-card-name \.name-with-badge/);
+  assert.match(badgeStyles, /\.group-info-member-name \.name-with-badge/);
 });
 
 test("contact detail deletes bots through runtime-backed ownership rules", () => {
@@ -1071,7 +1181,7 @@ test("contact detail deletes bots through runtime-backed ownership rules", () =>
   assert.match(appSource, /if \(bot\.canDelete === false\) return;/);
   assert.match(appSource, /这会删除该 Bot，并清理当前账号可管理的配置和会话。/);
   assert.match(commandsSource, /async function deleteCloudHermesBot/);
-  assert.match(commandsSource, /async function deleteDesktopLocalBot/);
+  assert.doesNotMatch(commandsSource, /async function deleteDesktopLocalBot/);
   assert.match(botManagerSource, /const canDeleteBot = bot\.canDelete !== false;/);
   assert.doesNotMatch(fs.readFileSync(path.join(root, "src/renderer/bot/bot-directory.js"), "utf8"), /key !== "mia"/);
   assert.match(channelSource, /SocialDeleteBot/);
@@ -1101,15 +1211,41 @@ test("contact capability saves go through bot command adapters", () => {
   assert.doesNotMatch(botManagerSource, /window\.mia\.social\.saveFellowIdentity/);
   assert.doesNotMatch(botManagerSource, /window\.mia\.saveFellow\(\{/);
   assert.match(commandsSource, /async function saveCloudHermesBotCapabilities/);
-  assert.match(commandsSource, /async function saveDesktopLocalBotCapabilities/);
+  assert.doesNotMatch(commandsSource, /async function saveDesktopLocalBotCapabilities/);
 });
 
-test("social bootstrap delegates desktop-local bot sync through bot command adapters", () => {
+test("contact capability checkboxes use official preset default capabilities", () => {
+  const botManagerSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-manager.js"), "utf8");
+
+  assert.match(botManagerSource, /botCapabilitiesWithPresetDefaults/);
+  assert.match(botManagerSource, /state\?\.skillLibrary\?\.botPresets/);
+});
+
+test("bot-only contact detail renders capabilities and persona as compact accordions", () => {
+  const botManagerSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-manager.js"), "utf8");
+  const styleSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+
+  assert.match(botManagerSource, /function renderBotCapabilitiesPanel\(bot\)/);
+  assert.match(botManagerSource, /<details class="contact-capabilities accordion-details"/);
+  assert.match(botManagerSource, /data-capabilities-panel-key/);
+  assert.match(botManagerSource, /openCapabilityPanelKeys/);
+  assert.match(botManagerSource, /function renderBotPersonaPanel\(bot\)/);
+  assert.match(botManagerSource, /<details class="contact-persona-card accordion-details"/);
+  assert.match(botManagerSource, /botPersonaText\(bot\)/);
+  assert.match(botManagerSource, /renderBotPersonaPanel\(bot\)/);
+  assert.doesNotMatch(botManagerSource, /renderHumanPersonaPanel/);
+  assert.match(styleSource, /\.contact-persona-card/);
+  assert.match(styleSource, /\.contact-persona-text/);
+});
+
+test("social keeps desktop-local bot runtime binding explicit", () => {
   const socialSource = fs.readFileSync(path.join(root, "src/renderer/social/social.js"), "utf8");
   const commandsSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-commands.js"), "utf8");
 
   assert.match(socialSource, /window\.miaBotCommands\.ensureDesktopLocalBotConversation\(\{/);
-  assert.match(socialSource, /window\.miaBotCommands\.syncDesktopLocalBotRuntimeBinding\(\{/);
+  assert.doesNotMatch(socialSource, /function syncLocalBotRuntimeBindings/);
+  assert.doesNotMatch(socialSource, /ensureLocalBotConversationsInBackground/);
+  assert.doesNotMatch(socialSource, /runtime\.bots\)\s*\? runtime\.bots/);
   assert.doesNotMatch(socialSource, new RegExp("api\\.save" + "BotRuntime\\(" + "fellow" + "Key"));
   assert.doesNotMatch(socialSource, /api\.ensureFellowConversation\(fellow\.key,/);
   assert.match(commandsSource, /function desktopLocalRuntimeConfig/);
@@ -1166,8 +1302,40 @@ test("bot creation branches cloud-hermes without saving local manifest", () => {
   assert.match(commandsSource, /async function saveCloudHermesBot/);
   assert.match(commandsSource, /api\.social\.saveBotIdentity\(key,/);
   assert.match(commandsSource, /runtimeKind:\s*"cloud-hermes"/);
-  assert.match(commandsSource, /async function saveDesktopLocalBot/);
-  assert.match(commandsSource, /api\.saveBot\(bot\)/);
+  assert.doesNotMatch(commandsSource, /async function saveDesktopLocalBot/);
+  assert.doesNotMatch(commandsSource, /api\.saveBot\(bot\)/);
+});
+
+test("editing a cloud-sourced desktop bot does not load local manifest details", async () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const calls = [];
+  const bot = {
+    key: "codex-pal",
+    name: "Codex Pal",
+    runtimeKind: "desktop-local",
+    sourceKinds: ["cloud"],
+    personaText: "Cloud persona"
+  };
+  const context = vm.createContext({
+    window: {
+      miaBotManager: { botByKey: (key) => (key === bot.key ? bot : null) },
+      miaBotDirectory: {
+        isCloudIdentityBot: (item) => Array.isArray(item?.sourceKinds) && item.sourceKinds.includes("cloud")
+      },
+      miaBotDialog: {
+        openBotDialog(openedBot, personaText) {
+          calls.push(["dialog", openedBot.key, personaText]);
+        }
+      }
+    },
+    appendTransientChat(role, message) {
+      calls.push(["toast", role, message]);
+    }
+  });
+
+  await vm.runInContext(`async ${extractFunctionSource(appSource, "openEditBotDialog")}; openEditBotDialog("${bot.key}")`, context);
+
+  assert.deepEqual(calls, [["dialog", "codex-pal", "Cloud persona"]]);
 });
 
 test("opening a bot conversation preserves existing cloud runtime kind", () => {
@@ -1184,7 +1352,7 @@ test("bot runtime controls resolve identity from the canonical bot directory", (
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
 
   assert.match(appSource, /function activeBotRuntimeControlContext\(\)/);
-  assert.match(appSource, /const bots = allOwnedBotsForIdentity\(state\.runtime\?\.bots \|\| \[\]\);/);
+  assert.match(appSource, /const bots = allOwnedBotsForIdentity\(\);/);
   assert.match(appSource, /const bot = bots\.find\(\(item\) => \(item\.key \|\| item\.id\) === conversationContext\.botKey\) \|\| \{\};/);
   assert.doesNotMatch(appSource, /const personas = state\.runtime\?\.bots \|\| \[\];\s*const bot = personas\.find/);
 });

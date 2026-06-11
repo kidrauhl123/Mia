@@ -75,8 +75,13 @@ test("desktop packaging scripts clean stale release artifacts before building", 
       `${scriptName} should tidy intermediate release artifacts after electron-builder`
     );
   }
+  assert.match(pkg.scripts["dist:mac"], /electron-builder\.mac-arm64\.js/);
+  assert.match(pkg.scripts["dist:mac"], /--arm64/);
+  assert.match(pkg.scripts["dist:mac"], /--mac dir zip/);
+  assert.match(pkg.scripts["dist:mac"], /MIA_MAC_DMG_LABEL=Apple-Silicon node scripts\/create-mac-dmg\.js/);
   assert.match(pkg.scripts["dist:mac:intel"], /electron-builder\.mac-intel\.js/);
   assert.match(pkg.scripts["dist:mac:intel"], /--x64/);
+  assert.match(pkg.scripts["dist:mac:intel"], /--mac dir zip/);
   assert.match(pkg.scripts["dist:mac:intel"], /MIA_MAC_DMG_LABEL=Intel node scripts\/create-mac-dmg\.js/);
   assert.match(pkg.scripts["dist:mac:x64"], /dist:mac:intel/);
 
@@ -89,6 +94,19 @@ test("desktop packaging scripts clean stale release artifacts before building", 
   assert.match(winBuilder, /ELECTRON_BUILDER_BINARIES_MIRROR/);
 });
 
+test("base DMG artifact name uses the real architecture by default", () => {
+  const pkg = packageJson();
+
+  assert.equal(pkg.build.dmg.artifactName, "${productName}-${version}-${arch}.${ext}");
+});
+
+test("Apple Silicon macOS build config labels DMG artifacts for Apple Silicon Macs", () => {
+  const source = fs.readFileSync(path.join(root, "electron-builder.mac-arm64.js"), "utf8");
+
+  assert.match(source, /artifactName:\s*"\$\{productName\}-\$\{version\}-Apple-Silicon\.\$\{ext\}"/);
+  assert.match(source, /target:\s*\["dir", "zip"\]/);
+});
+
 test("Intel macOS build config labels DMG artifacts for Intel Macs", () => {
   const source = fs.readFileSync(path.join(root, "electron-builder.mac-intel.js"), "utf8");
 
@@ -98,22 +116,30 @@ test("Intel macOS build config labels DMG artifacts for Intel Macs", () => {
   assert.match(source, /hardenedRuntime:\s*true/);
 });
 
-test("custom macOS DMG script applies a Finder drag-to-Applications layout", () => {
-  const source = fs.readFileSync(path.join(root, "scripts", "create-mac-dmg.js"), "utf8");
+test("custom macOS DMG script writes a Finder drag-to-Applications layout", () => {
+  const pkg = packageJson();
+  const dmg = pkg.build.dmg;
+  const dmgScript = fs.readFileSync(path.join(root, "scripts", "create-mac-dmg.js"), "utf8");
+  const dsStoreScript = fs.readFileSync(path.join(root, "scripts", "write-dmg-ds-store.py"), "utf8");
 
-  assert.match(source, /dmg-background\.png/);
-  assert.match(source, /const windowBounds = \[200, 120, 800, 540\]/);
-  assert.match(source, /const appIconPosition = \[180, 238\]/);
-  assert.match(source, /const applicationsIconPosition = \[420, 238\]/);
-  assert.match(source, /set toolbar visible of container window to false/);
-  assert.match(source, /set the bounds of container window to \{\$\{windowBounds\.join\(", "\)\}\}/);
-  assert.match(source, /set icon size of viewOptions to 96/);
-  assert.match(source, /set bgFile to POSIX file \$\{appleScriptString\(mountedBackgroundImage\)\} as alias/);
-  assert.match(source, /set background picture of viewOptions to bgFile/);
-  assert.match(source, /set position of item \$\{appleScriptString\(appName\)\}.*\$\{appIconPosition\.join\(", "\)\}/);
-  assert.match(source, /set position of item "Applications".*\$\{applicationsIconPosition\.join\(", "\)\}/);
-  assert.match(source, /fs\.symlinkSync\("\/Applications"/);
-  assert.match(source, /"convert"[\s\S]*"-format"[\s\S]*"UDZO"/);
+  assert.equal(dmg.background, "build/dmg-background.png");
+  assert.equal(dmg.iconSize, 96);
+  assert.equal(dmg.iconTextSize, 14);
+  assert.deepEqual(dmg.window, { width: 600, height: 420 });
+  assert.deepEqual(dmg.contents, [
+    { x: 180, y: 238, type: "file" },
+    { x: 420, y: 238, type: "link", path: "/Applications" }
+  ]);
+  assert.match(dmgScript, /writeDsStoreLayout/);
+  assert.match(dmgScript, /python3", \["-m", "venv", venvDir\]/);
+  assert.match(dmgScript, /"ds-store==1\.3\.1"/);
+  assert.match(dmgScript, /"mac-alias==2\.2\.2"/);
+  assert.match(dmgScript, /write-dmg-ds-store\.py/);
+  assert.match(dmgScript, /MIA_DMG_PYTHON/);
+  assert.match(dsStoreScript, /DSStore\.open/);
+  assert.match(dsStoreScript, /Bookmark\.for_file\(background_path\)\.to_bytes\(\)/);
+  assert.match(dsStoreScript, /"backgroundImageAlias": background_bookmark/);
+  assert.match(dsStoreScript, /"ShowToolbar": False/);
 });
 
 test("clean release script removes stale artifacts from the configured release directory", () => {

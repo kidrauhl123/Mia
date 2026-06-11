@@ -187,7 +187,11 @@ const els = {
   messageContextMenu: document.getElementById("messageContextMenu"),
   profileDialog: document.getElementById("profileDialog"),
   profileForm: document.getElementById("profileForm"),
+  profileNameText: document.getElementById("profileNameText"),
   profileDisplayName: document.getElementById("profileDisplayName"),
+  profileStatusBadge: document.getElementById("profileStatusBadge"),
+  profileStatusBadgeDetails: document.getElementById("profileStatusBadgeDetails"),
+  profileStatusBadgeTrigger: document.getElementById("profileStatusBadgeTrigger"),
   profileUidValue: document.getElementById("profileUidValue"),
   profileAvatarImage: document.getElementById("profileAvatarImage"),
   profileAvatarFile: document.getElementById("profileAvatarFile"),
@@ -196,6 +200,10 @@ const els = {
   profileAvatarPreview: document.getElementById("profileAvatarPreview"),
   closeProfileDialog: document.getElementById("closeProfileDialog"),
   cancelProfile: document.getElementById("cancelProfile"),
+  botNameText: document.getElementById("botNameText"),
+  botStatusBadge: document.getElementById("botStatusBadge"),
+  botStatusBadgeDetails: document.getElementById("botStatusBadgeDetails"),
+  botStatusBadgeTrigger: document.getElementById("botStatusBadgeTrigger"),
   petGenerateDialog: document.getElementById("petGenerateDialog"),
   petGenerateForm: document.getElementById("petGenerateForm"),
   petGenerateTitle: document.getElementById("petGenerateTitle"),
@@ -282,14 +290,10 @@ const els = {
   cloudAccountAvatar: document.getElementById("cloudAccountAvatar"),
   cloudAccountName: document.getElementById("cloudAccountName"),
   cloudAccountUid: document.getElementById("cloudAccountUid"),
-  cloudLoginBox: document.getElementById("cloudLoginBox"),
-  cloudUsername: document.getElementById("cloudUsername"),
-  cloudPassword: document.getElementById("cloudPassword"),
-  cloudLogin: document.getElementById("cloudLogin"),
-  cloudRegister: document.getElementById("cloudRegister"),
   cloudSync: document.getElementById("cloudSync"),
   cloudLogout: document.getElementById("cloudLogout"),
-  cloudLoginHint: document.getElementById("cloudLoginHint"),
+  checkUpdates: document.getElementById("checkUpdates"),
+  appUpdateHint: document.getElementById("appUpdateHint"),
   tasksUnreadBadge: document.getElementById("tasksUnreadBadge"),
   contactsUnreadBadge: document.getElementById("contactsUnreadBadge"),
   chatUnreadBadge: document.getElementById("chatUnreadBadge"),
@@ -309,6 +313,27 @@ function firstNonEmpty(...values) {
   return "";
 }
 
+function updateVersionSuffix(version) {
+  const text = String(version || "").trim();
+  return text ? ` ${text}` : "";
+}
+
+function appUpdateStatusText(result = {}) {
+  const version = updateVersionSuffix(result.version);
+  if (result.status === "available") return `发现新版本${version}，正在后台下载。`;
+  if (result.status === "downloaded") return `新版本${version}已下载，请按提示重启。`;
+  if (result.status === "not-available") return "当前已经是最新版本。";
+  if (result.status === "disabled") return "检查更新只在安装版桌面 App 中可用。";
+  if (result.status === "error") return `检查失败：${result.error?.message || "请稍后再试"}`;
+  return "已发起更新检查。";
+}
+
+function updateStatusBadgeAssetBaseUrl(runtime = state.runtime) {
+  const cloud = runtime?.cloud || {};
+  const baseUrl = cloud.enabled ? String(cloud.url || "").trim() : "";
+  window.miaNameWithBadge?.setStatusBadgeAssetBaseUrl?.(baseUrl);
+}
+
 function hasOwn(obj, key) {
   return Boolean(obj && typeof obj === "object" && Object.prototype.hasOwnProperty.call(obj, key));
 }
@@ -320,6 +345,149 @@ function statusBadgeFrom(...sources) {
   }
   return undefined;
 }
+
+function statusBadgeForPreset(value) {
+  const id = String(value || "").trim();
+  if (id === "star") return { kind: "emoji", emoji: "⭐", label: "星标" };
+  if (id === "fire") return { kind: "emoji", emoji: "🔥", label: "活跃" };
+  if (id === "rainbow") return { kind: "lottie", assetId: "rainbow", label: "彩虹动画", loop: "always" };
+  if (id === "surprised-cat") return { kind: "lottie", assetId: "surprised-cat", label: "惊讶猫", loop: "always" };
+  return null;
+}
+
+function statusBadgePresetValue(badge) {
+  const normalized = badge && typeof badge === "object" ? badge : null;
+  if (!normalized) return "";
+  if (normalized.kind === "emoji" && normalized.emoji === "⭐") return "star";
+  if (normalized.kind === "emoji" && normalized.emoji === "🔥") return "fire";
+  if (normalized.kind === "lottie" && normalized.assetId === "rainbow") return "rainbow";
+  if (normalized.kind === "lottie" && normalized.assetId === "surprised-cat") return "surprised-cat";
+  return "";
+}
+
+function identityNameEls(kind) {
+  return kind === "bot"
+    ? { input: els.botName, text: els.botNameText, fallback: "未命名伙伴" }
+    : { input: els.profileDisplayName, text: els.profileNameText, fallback: "Mia" };
+}
+
+function identityBadgeEls(kind) {
+  return kind === "bot"
+    ? { select: els.botStatusBadge, trigger: els.botStatusBadgeTrigger, details: els.botStatusBadgeDetails }
+    : { select: els.profileStatusBadge, trigger: els.profileStatusBadgeTrigger, details: els.profileStatusBadgeDetails };
+}
+
+function syncIdentityNameText(kind) {
+  const { input, text, fallback } = identityNameEls(kind);
+  if (!input || !text) return;
+  text.textContent = input.value.trim() || fallback;
+}
+
+function beginIdentityNameEdit(kind) {
+  const { input, text } = identityNameEls(kind);
+  if (!input || !text) return;
+  syncIdentityNameText(kind);
+  text.classList.add("hidden");
+  input.classList.remove("hidden");
+  input.focus();
+  input.select?.();
+}
+
+function endIdentityNameEdit(kind) {
+  const { input, text } = identityNameEls(kind);
+  if (!input || !text) return;
+  input.classList.add("hidden");
+  text.classList.remove("hidden");
+  syncIdentityNameText(kind);
+}
+
+function refreshStatusBadgeLotties(root) {
+  if (!root) return;
+  const run = () => {
+    try { window.miaLottieIcons?.init?.(root); } catch { /* badge animation is optional */ }
+  };
+  run();
+  const defer = window.requestAnimationFrame || window.setTimeout;
+  if (typeof defer === "function") defer(run, 0);
+}
+
+function statusBadgeGlyphKey(badge) {
+  if (!badge) return "empty";
+  if (badge.kind === "emoji") return `emoji:${badge.emoji || ""}`;
+  if (badge.kind === "lottie") {
+    const assetId = String(badge.assetId || "").trim();
+    const format = window.miaNameWithBadge?.statusBadgeAssetFormat?.(assetId) || "json";
+    const path = window.miaNameWithBadge?.statusBadgeAssetUrl?.(assetId) || "";
+    return `lottie:${assetId}:${format}:${path}`;
+  }
+  return `${badge.kind || ""}:${JSON.stringify(badge)}`;
+}
+
+function renderStatusBadgeGlyph(target, badge) {
+  if (!target) return;
+  const key = statusBadgeGlyphKey(badge);
+  if (target.dataset.statusBadgeGlyphKey === key) return;
+  target.dataset.statusBadgeGlyphKey = key;
+  target.innerHTML = "";
+  target.classList.toggle("empty", !badge);
+  if (!badge) {
+    target.textContent = "+";
+    return;
+  }
+  if (badge.kind === "emoji") {
+    target.textContent = badge.emoji || "";
+    return;
+  }
+  if (badge.kind === "lottie") {
+    const assetId = String(badge.assetId || "").trim();
+    if (!/^[A-Za-z0-9_-]+$/.test(assetId)) {
+      target.textContent = "+";
+      target.classList.add("empty");
+      return;
+    }
+    const span = document.createElement("span");
+    span.className = "name-with-badge-badge name-with-badge-badge-lottie";
+    span.dataset.assetId = assetId;
+    span.dataset.lottie = assetId;
+    span.dataset.lottieTrigger = "loop";
+    const format = window.miaNameWithBadge?.statusBadgeAssetFormat?.(assetId);
+    if (format === "tgs") {
+      span.dataset.lottieFormat = "tgs";
+      span.dataset.lottieLocal = "status-badge";
+    }
+    const remotePath = window.miaNameWithBadge?.statusBadgeAssetUrl?.(assetId);
+    if (remotePath) span.dataset.lottiePath = remotePath;
+    span.setAttribute("aria-hidden", "true");
+    target.appendChild(span);
+    window.miaNameWithBadge?.initLottieBadges?.(target);
+  }
+}
+
+function syncStatusBadgeControl(kind) {
+  const { select, trigger, details } = identityBadgeEls(kind);
+  if (!select || !trigger) return;
+  const badge = statusBadgeForPreset(select.value);
+  renderStatusBadgeGlyph(trigger, badge);
+  document.querySelectorAll(`[data-status-badge-target="${kind}"]`).forEach((button) => {
+    button.classList.toggle("active", button.dataset.statusBadgeChoice === select.value);
+  });
+  refreshStatusBadgeLotties(details || trigger);
+}
+
+function openProfileDialogFromRenderer() {
+  window.miaBotDialog.openProfileDialog();
+  const user = runtimeUserIdentity();
+  if (els.profileStatusBadge) els.profileStatusBadge.value = statusBadgePresetValue(user.statusBadge);
+  syncIdentityNameText("profile");
+  syncStatusBadgeControl("profile");
+}
+
+window.miaStatusBadgeControls = {
+  statusBadgeForPreset,
+  statusBadgePresetValue,
+  syncIdentityNameText,
+  syncStatusBadgeControl
+};
 
 function nameBadgeIdentity(kind, record, displayName, fallbackId = "") {
   const source = record && typeof record === "object" ? record : {};
@@ -348,6 +516,26 @@ function nameBadgeIdentity(kind, record, displayName, fallbackId = "") {
   return out;
 }
 
+function setNameWithBadge(el, { identity, fallbackName, statusBadge } = {}) {
+  if (!el) return;
+  const fallback = firstNonEmpty(fallbackName, identity?.displayName, identity?.display_name, identity?.name);
+  const renderName = window.miaNameWithBadge?.setNameWithBadge || window.miaNameWithBadge?.renderNameWithBadge;
+  if (typeof renderName !== "function") {
+    setText(el, fallback);
+    return;
+  }
+  try {
+    if (renderName === window.miaNameWithBadge?.setNameWithBadge) {
+      renderName(el, { identity, fallbackName: fallback, statusBadge });
+    } else {
+      const node = renderName({ identity, fallbackName: fallback, statusBadge });
+      el.replaceChildren(node);
+    }
+  } catch {
+    setText(el, fallback);
+  }
+}
+
 function runtimeUserIdentity(runtime = state.runtime) {
   const cloudUser = runtime?.cloud?.enabled && runtime?.cloud?.user ? runtime.cloud.user : null;
   const localUser = runtime?.user || {};
@@ -361,7 +549,8 @@ function runtimeUserIdentity(runtime = state.runtime) {
     avatarText,
     avatarColor: self.avatarColor,
     avatarImage: self.avatarImage,
-    avatarCrop: self.avatarCrop
+    avatarCrop: self.avatarCrop,
+    statusBadge: statusBadgeFrom(self, cloudUser, localUser) || null
   };
 }
 
@@ -415,7 +604,7 @@ function typingLabelForActiveRun(social, conversation) {
   // Only group conversations need to identify the speaker — DM / bot chats
   // already have the bot's name in the header itself.
   if (conversation?.type !== "group") return "";
-  const personas = allOwnedBotsForIdentity(state.runtime?.bots || []);
+  const personas = allOwnedBotsForIdentity();
   const owned = personas.find((p) => (p.key || p.id) === botId);
   if (owned?.name) return owned.name;
   const members = social?.getConversationMembers?.(conversation.id) || [];
@@ -423,20 +612,16 @@ function typingLabelForActiveRun(social, conversation) {
   return member?.bot_name || botId;
 }
 
-function allOwnedBotsForIdentity(personas = []) {
+function allOwnedBotsForIdentity() {
   const runtime = state.runtime || {};
   if (window.miaBotManager?.allOwnedBots) {
     return window.miaBotManager.allOwnedBots();
   }
   const cloudBots = window.miaSocial?.moduleState?.bots || [];
-  const localBots = [
-    ...((Array.isArray(personas) && personas.length) ? personas : []),
-    ...(Array.isArray(runtime.bots) ? runtime.bots : [])
-  ];
   if (window.miaBotDirectory?.listOwnedBots) {
-    return window.miaBotDirectory.listOwnedBots({ cloudBots, localBots, runtime });
+    return window.miaBotDirectory.listOwnedBots({ cloudBots, runtime });
   }
-  return [...cloudBots, ...localBots];
+  return Array.isArray(cloudBots) ? cloudBots : [];
 }
 
 function botAvatarIdentityId(botKey, bot = {}) {
@@ -471,7 +656,7 @@ function paintHeaderStatus() {
     return;
   }
   if (!conversation) return;
-  const personas = state.runtime?.bots || [];
+  const personas = allOwnedBotsForIdentity();
   paintActiveCloudConversationHeader(conversation, { personas, social });
 }
 
@@ -636,7 +821,7 @@ function groupTilesCtx(personas) {
   return {
     self,
     friends: social?.moduleState?.friends || [],
-    bots: allOwnedBotsForIdentity(personas || [])
+    bots: allOwnedBotsForIdentity()
     // shared/avatar-resolve.js owns the "no avatarImage → text fallback"
     // behavior now, so consumers don't need any local fallback table.
   };
@@ -651,7 +836,7 @@ function groupTilesCtx(personas) {
 function conversationCardSpecFromRow(row, personas) {
   if (!row) return null;
   const social = window.miaSocial;
-  const identityBots = allOwnedBotsForIdentity(personas || []);
+  const identityBots = allOwnedBotsForIdentity();
 
   // ── cloud private conversation (DM with a friend OR bot session) ─────────────
   //     Same card shape; the only branch is "who's the other party" — a
@@ -739,9 +924,7 @@ function conversationCardSpecFromRow(row, personas) {
             const res = await social.deleteCloudConversation(conversation.id);
             if (!res?.ok) alert(`删除失败：${res?.error || "未知错误"}`);
           },
-          // DM display name follows the peer's username, so server rejects
-          // PATCH name on dm:* conversations — surface that to the menu.
-          ...(isBot ? {} : { notSupported: { rename: "私聊对方名称由对方用户名决定，无法在此重命名" } })
+          ...(isBot ? { rename: () => openEditBotDialog(sessionHistory.botId(conversation)) } : {})
         },
         x, y
       )
@@ -797,12 +980,6 @@ function conversationCardSpecFromRow(row, personas) {
           },
           toggleMuted: (next) => { social.setConversationMuted(conversation.id, next); render(); },
           openInfo: () => window.miaGroupInfoDialog?.open(conversation.id),
-          rename: async () => {
-            const next = window.prompt("编辑群组名称", cgName);
-            if (!next || next.trim() === cgName) return;
-            const res = await social.renameConversation(conversation.id, next.trim());
-            if (!res?.ok) alert(`重命名失败：${res?.error || "未知错误"}`);
-          },
           remove: async () => {
             if (!confirm(`确定删除群组「${cgName}」？此操作不可撤销，所有成员都将无法访问。`)) return;
             const res = await social.deleteCloudConversation(conversation.id);
@@ -828,7 +1005,7 @@ function paintActiveCloudConversationHeader(conversation, { personas, social }) 
   const metaEl = els.activeChatMeta;
   const avatarHelper = window.miaAvatar;
   const groupAvatarHelper = window.miaGroupAvatar;
-  const identityBots = allOwnedBotsForIdentity(personas || []);
+  const identityBots = allOwnedBotsForIdentity();
   // id-prefix fallback for pre-v7 cloud deployments that don't yet return
   // conversation.type. social.renderSidebarRows already normalizes this; mirror it
   // here so a conversation loaded outside the sidebar pipeline (active conversation loaded
@@ -853,7 +1030,11 @@ function paintActiveCloudConversationHeader(conversation, { personas, social }) 
         groupAvatarHelper.applyGroupAvatar(avatarEl, tiles);
       }
     }
-    setText(nameEl, conversation.name || "群聊");
+    setNameWithBadge(nameEl, {
+      identity: conversation.identity || { kind: "group", id: conversation.id, displayName: conversation.name || "群聊" },
+      fallbackName: conversation.name || "群聊",
+      statusBadge: statusBadgeFrom(conversation.identity, conversation)
+    });
     if (metaEl) metaEl.textContent = tiles.length ? `群聊 · ${tiles.length} 人` : "群聊";
     return;
   }
@@ -872,7 +1053,12 @@ function paintActiveCloudConversationHeader(conversation, { personas, social }) 
       avatarEl.className = "profile-avatar";
       avatarHelper.applyBotAvatar(avatarEl, botRecord);
     }
-    setText(nameEl, sessionHistory.botDisplayTitle(conversation, identityBots, "对话"));
+    const botName = sessionHistory.botDisplayTitle(conversation, identityBots, "对话");
+    setNameWithBadge(nameEl, {
+      identity: nameBadgeIdentity("bot", botRecord, botName, botKey),
+      fallbackName: botName,
+      statusBadge: statusBadgeFrom(botRecord)
+    });
     if (metaEl) metaEl.textContent = "私聊";
     return;
   }
@@ -897,7 +1083,11 @@ function paintActiveCloudConversationHeader(conversation, { personas, social }) 
       avatarHelper.applyAvatarMedia(avatarEl, avatar.image, avatar.crop, avatar.color, avatar.text);
     }
   }
-  setText(nameEl, displayName);
+  setNameWithBadge(nameEl, {
+    identity: nameBadgeIdentity("user", otherUser.identity || otherUser, displayName, otherId || otherUser.account || ""),
+    fallbackName: displayName,
+    statusBadge: statusBadgeFrom(otherUser.identity, otherUser)
+  });
   if (metaEl) metaEl.textContent = "私聊";
 }
 
@@ -1216,6 +1406,7 @@ function render() {
     if (els.chat) els.chat.innerHTML = "";
     return;
   }
+  updateStatusBadgeAssetBaseUrl(runtime);
   const cloudSignedIn = Boolean(runtime?.cloud?.enabled);
   els.appShell?.setAttribute("data-auth-state", cloudSignedIn ? "signed-in" : "signed-out");
   renderSendButton();
@@ -1224,7 +1415,7 @@ function render() {
   // chips that belonged to the previous conversation (self-heal in composer).
   window.miaComposer?.renderComposerSkills?.();
   const editingModel = els.modelForm.contains(document.activeElement);
-  const editingProfile = Boolean(els.profileForm?.contains(document.activeElement));
+  const editingProfile = Boolean(state.profileDialogOpen || els.profileForm?.contains(document.activeElement));
   const editingAppearance = Boolean(els.appearanceForm?.contains(document.activeElement));
   const appearance = runtime.appearance || {
     theme: "light",
@@ -1252,6 +1443,9 @@ function render() {
   if (els.profileUidValue) els.profileUidValue.textContent = user.id || "未登录";
   if (!editingProfile && els.profileForm) {
     els.profileDisplayName.value = user.displayName || "";
+    if (els.profileStatusBadge) els.profileStatusBadge.value = statusBadgePresetValue(user.statusBadge);
+    syncIdentityNameText("profile");
+    syncStatusBadgeControl("profile");
     window.miaBotDialog.setProfileAvatarDraft(user.avatarImage || "", user.avatarCrop);
   }
 
@@ -1368,7 +1562,7 @@ function render() {
   window.miaModelSettings.syncPermissionControl(runtime);
   syncConversationBotRuntimeControls();
 
-  const personas = runtime.bots || [];
+  const personas = allOwnedBotsForIdentity();
   const social = window.miaSocial;
   // cloud.enabled = token present (signed in). NOTE: there is no
   // cloud.loggedIn field — cloudStatus() exposes enabled/connected/
@@ -1438,7 +1632,11 @@ function render() {
       els.activeChatAvatar.className = "profile-avatar";
     }
     window.miaAvatar.applyBotAvatar(els.activeChatAvatar, active);
-    setText(els.activeChatName, active.name || "Mia");
+    setNameWithBadge(els.activeChatName, {
+      identity: nameBadgeIdentity("bot", active, active.name || "Mia", active.key || active.id || ""),
+      fallbackName: active.name || "Mia",
+      statusBadge: statusBadgeFrom(active)
+    });
     if (els.activeChatMeta) {
       const startupLoading = state.startupTasks[0]?.label;
       els.activeChatMeta.innerHTML = startupLoading
@@ -1469,11 +1667,9 @@ function render() {
   if (!messageRows.length) {
     const empty = document.createElement("div");
     empty.className = "persona-empty";
-    if (!cloudSignedIn) {
-      empty.innerHTML = `<span>登录后开始对话</span><button type="button" class="link" data-action="cloud-login">登录</button>`;
-    } else {
-      empty.textContent = cloudReady ? "没有匹配的消息" : "正在同步会话…";
-    }
+    empty.textContent = cloudSignedIn
+      ? (cloudReady ? "没有匹配的消息" : "正在同步会话…")
+      : "正在打开登录引导…";
     els.personaList.appendChild(empty);
   }
   renderView();
@@ -1491,6 +1687,8 @@ function renderView() {
   const cloudSignedIn = Boolean(state.runtime?.cloud?.enabled);
   els.appShell?.setAttribute("data-auth-state", cloudSignedIn ? "signed-in" : "signed-out");
   if (!cloudSignedIn) {
+    requestSignedOutOnboardingWindow();
+    state.settingsOpen = false;
     state.activeView = "chat";
     state.botMenuOpen = false;
     state.contactMenuOpen = false;
@@ -1572,34 +1770,12 @@ function formatRunTime(ms) {
 async function openEditBotDialog(botKey) {
   try {
     const ownedBot = window.miaBotManager?.botByKey?.(botKey);
-    if (ownedBot?.runtimeKind === "cloud-hermes") {
-      window.miaBotDialog.openBotDialog(ownedBot, ownedBot.personaText || ownedBot.bio || "");
-      return;
+    if (!ownedBot || !window.miaBotDirectory?.isCloudIdentityBot?.(ownedBot)) {
+      throw new Error("Bot 身份不存在，请重新同步联系人。");
     }
-    const details = await window.mia.loadBotDetails(botKey);
-    window.miaBotDialog.openBotDialog(details.bot, details.personaText || "");
+    window.miaBotDialog.openBotDialog(ownedBot, ownedBot.personaText || ownedBot.bio || "");
   } catch (error) {
     appendTransientChat("assistant", `编辑 Bot 失败: ${error.message}`);
-  }
-}
-
-async function setBotPinned(botKey, pinned) {
-  try {
-    state.runtime = await window.mia.setBotPinned({ key: botKey, pinned });
-    render();
-  } catch (error) {
-    appendTransientChat("assistant", `置顶失败: ${error.message}`);
-    await refreshRuntime();
-  }
-}
-
-async function setBotMuted(botKey, muted) {
-  try {
-    state.runtime = await window.mia.setBotMuted({ key: botKey, muted });
-    render();
-  } catch (error) {
-    appendTransientChat("assistant", `免打扰设置失败: ${error.message}`);
-    await refreshRuntime();
   }
 }
 
@@ -1619,8 +1795,8 @@ async function deleteBot(botKey) {
     });
     if (result.runtime) state.runtime = result.runtime;
     if (!result.deleted) return;
-    const bots = window.miaBotManager?.allOwnedBots?.() || state.runtime?.bots || [];
-    const next = bots[0]?.key || "mia";
+    const bots = window.miaBotManager?.allOwnedBots?.() || [];
+    const next = bots[0]?.key || "";
     if (!bots.some((item) => item.key === state.activeKey)) state.activeKey = next;
     if (!bots.some((item) => item.key === state.activeContactKey)) state.activeContactKey = state.activeKey;
     render();
@@ -2206,14 +2382,14 @@ function renderCommandResultHtml(commandResult) {
   return `<div class="command-result session-list">${rows}</div>`;
 }
 
-function renderCloudLoginGuide() {
-  return `
-    <div class="cloud-login-guide">
-      <h2>登录 Mia Cloud</h2>
-      <p>Mia 的对话都在云端同步。登录后即可与你的 Bot 聊天。</p>
-      <button type="button" class="primary" data-action="cloud-login">登录 / 注册</button>
-    </div>
-  `;
+let signedOutOnboardingRequested = false;
+function requestSignedOutOnboardingWindow() {
+  if (signedOutOnboardingRequested) return;
+  signedOutOnboardingRequested = true;
+  const task = window.mia?.window?.signedOutOnboarding?.();
+  if (task && typeof task.catch === "function") {
+    task.catch(() => { signedOutOnboardingRequested = false; });
+  }
 }
 
 function hasUsableLocalAgent(runtime = state.runtime) {
@@ -2227,14 +2403,13 @@ function renderNoAgentGuide() {
   const hermesState = renderHermesInstallState();
   const hermesAction = hermesSetupAction();
   return `
-    <div class="cloud-login-guide no-agent-guide">
+    <div class="no-agent-guide">
       <h2>本机 Agent 尚未连接</h2>
-      <p>要开始本机聊天，请安装官方 Hermes 或配置已有 Agent。你也可以登录 Mia Cloud，同步并使用云端对话。</p>
+      <p>要开始本机聊天，请安装官方 Hermes 或配置已有 Agent。</p>
       ${hermesState ? `<p>${window.miaMarkdown.escapeHtml(hermesState)}</p>` : ""}
       <div class="setup-actions">
         <button type="button" class="primary" data-setup-action="${hermesAction.action}">${window.miaMarkdown.escapeHtml(hermesAction.label)}</button>
         <button type="button" class="secondary" data-setup-action="open-agent-settings">查看本机引擎</button>
-        <button type="button" class="secondary" data-action="cloud-login">登录 Mia Cloud</button>
       </div>
     </div>
   `;
@@ -2268,7 +2443,8 @@ function renderChat() {
     els.chat.innerHTML = "";
     return;
   }
-  els.chat.innerHTML = renderCloudLoginGuide();
+  requestSignedOutOnboardingWindow();
+  els.chat.innerHTML = "";
 }
 
 function conversationTypeForComposer(conversation, conversationId = "") {
@@ -2335,7 +2511,7 @@ async function handleCloudAuthExpired() {
 function activeBotRuntimeControlContext() {
   const conversationContext = activeConversationBotContext();
   if (conversationContext) {
-    const bots = allOwnedBotsForIdentity(state.runtime?.bots || []);
+    const bots = allOwnedBotsForIdentity();
     const bot = bots.find((item) => (item.key || item.id) === conversationContext.botKey) || {};
     return {
       ...conversationContext,
@@ -2421,12 +2597,6 @@ function platformHermesPermissionEntries() {
     { value: "auto", label: "Auto" },
     { value: "readOnly", label: "Read" }
   ];
-}
-
-function syncLocalBotRuntimeBindingsSoon() {
-  if (typeof window.miaSocial?.syncLocalBotRuntimeBindings !== "function") return;
-  window.miaSocial.syncLocalBotRuntimeBindings()
-    .catch((error) => console.warn("[renderer] desktop-local runtime sync failed:", error?.message || error));
 }
 
 function setComposerSelectOptions(select, entries, selectedValue) {
@@ -2722,8 +2892,7 @@ function syncConversationBotRuntimeControls() {
     });
   }
   const runtimeCacheKey = botRuntimeCacheKey(context.botKey, context.runtimeKind);
-  if (context.runtimeKind === "cloud-hermes"
-    && !botRuntimeControlCache.has(runtimeCacheKey)
+  if (!botRuntimeControlCache.has(runtimeCacheKey)
     && !botRuntimeControlInFlight.has(runtimeCacheKey)) {
     botRuntimeControlInFlight.add(runtimeCacheKey);
     ensureBotRuntimeBinding(context.botKey, context.runtimeKind)
@@ -2732,8 +2901,8 @@ function syncConversationBotRuntimeControls() {
         if (latest?.conversationId === context.conversationId) render();
       })
       .catch((error) => {
-        setText(els.modelSwitchStatus, "云端配置读取失败");
-        console.warn("[renderer] cloud bot runtime load failed:", error?.message || error);
+        setText(els.modelSwitchStatus, "运行配置读取失败");
+        console.warn("[renderer] bot runtime load failed:", error?.message || error);
       })
       .finally(() => {
         botRuntimeControlInFlight.delete(runtimeCacheKey);
@@ -2766,28 +2935,12 @@ async function saveActiveBotRuntimeControl(field, value, pendingText, successTex
     });
     if (!result?.saved) return false;
     if (result.runtime) state.runtime = result.runtime;
-    if (context.runtimeKind !== "cloud-hermes") syncLocalBotRuntimeBindingsSoon();
     setText(els.modelSwitchStatus, successText);
-    if (field === "model" && context.runtimeKind !== "cloud-hermes" && agentEngineForRuntimeControl(context) === "hermes") {
-      const entry = modelEntries.find((item) => [item.id, item.value, item.model].some((candidate) => String(candidate || "") === String(value || "")));
-      if (entry) {
-        window.miaModelSettings.applyModelEntryToFields(entry);
-        const auth = window.miaModelSettings.modelAuthCopy(entry, state.runtime);
-        if (auth.state.includes("需要")) {
-          state.settingsOpen = true;
-          state.activeSettingsTab = "model";
-        }
-      }
-    }
     render();
   } catch (error) {
     setText(els.modelSwitchStatus, "保存失败");
     appendTransientChat("assistant", `${errorPrefix}: ${error.message || error}`);
-    if (context.runtimeKind === "cloud-hermes") {
-      syncConversationBotRuntimeControls();
-    } else {
-      await refreshRuntime();
-    }
+    syncConversationBotRuntimeControls();
   } finally {
     setRuntimeControlDisabled(false);
   }
@@ -2803,7 +2956,7 @@ function activeConversationBotKey() {
 }
 
 function activePersona() {
-  const personas = state.runtime?.bots || [];
+  const personas = allOwnedBotsForIdentity();
   const conversationBotKey = activeConversationBotKey();
   if (conversationBotKey) {
     const conversationPersona = personas.find((persona) => (persona.key || persona.id) === conversationBotKey);
@@ -2894,7 +3047,8 @@ async function createNewCloudSessionForActive(conversation) {
 
 function botByKey(botKey) {
   const key = String(botKey || "");
-  // Canonical owned-bot list (cloud + local) so cloud bots resolve too.
+  // Canonical owned-bot list. Bot identities are cloud-stored; runtimeKind only
+  // describes where that identity runs.
   const bots = window.miaBotManager?.allOwnedBots?.() || [];
   return bots.find((item) => String(item?.key || item?.id || "") === key) || { key };
 }
@@ -3084,7 +3238,6 @@ async function initializeRuntime(options = {}) {
       render,
       openEditBotDialog,
       deleteBot,
-      setBotPinned,
     });
   }
   if (window.miaSkillLibrary && window.miaSkillLibrary.initSkillLibrary) {
@@ -3308,13 +3461,6 @@ window.addEventListener("resize", closeComposerSelectMenu);
 els.openSettings.addEventListener("click", () => {
   state.settingsOpen = true;
   if (state.activeSettingsTab === "profile") state.activeSettingsTab = "appearance";
-  renderView();
-});
-// Cloud-only: login guides (empty chat / empty sidebar) open Settings → account.
-document.addEventListener("click", (event) => {
-  if (!event.target?.closest?.("[data-action='cloud-login']")) return;
-  state.settingsOpen = true;
-  state.activeSettingsTab = "account";
   renderView();
 });
 els.closeSettings.addEventListener("click", () => {
@@ -3562,43 +3708,13 @@ document.querySelectorAll("[data-settings-tab]").forEach((button) => {
   });
 });
 
-async function submitCloudLogin(mode) {
-  const username = String(els.cloudUsername?.value || "").trim();
-  const password = String(els.cloudPassword?.value || "");
-  if (!username) {
-    setText(els.cloudLoginHint, "请输入用户名。");
-    els.cloudUsername?.focus();
-    return;
-  }
-  if (password.length < 6) {
-    setText(els.cloudLoginHint, "密码至少 6 位。");
-    els.cloudPassword?.focus();
-    return;
-  }
-  const buttons = [els.cloudLogin, els.cloudRegister].filter(Boolean);
-  buttons.forEach((button) => { button.disabled = true; });
-  setText(els.cloudLoginHint, mode === "register" ? "正在注册并连接..." : "正在登录并连接...");
-  try {
-    state.runtime = await window.mia.cloudLogin({ mode, username, password });
-    if (els.cloudPassword) els.cloudPassword.value = "";
-    window.miaSocial?.bootstrapAfterLogin?.();
-    render();
-  } catch (error) {
-    setText(els.cloudLoginHint, `连接失败：${error.message || error}`);
-  } finally {
-    buttons.forEach((button) => { button.disabled = false; });
-  }
-}
-
-els.cloudLogin?.addEventListener("click", () => submitCloudLogin("login"));
-els.cloudRegister?.addEventListener("click", () => submitCloudLogin("register"));
 els.cloudSync?.addEventListener("click", async () => {
   els.cloudSync.disabled = true;
   try {
     state.runtime = await window.mia.cloudSync();
     render();
   } catch (error) {
-    setText(els.cloudLoginHint, `同步失败：${error.message || error}`);
+    setText(els.cloudAccountHint, `同步失败：${error.message || error}`);
   } finally {
     els.cloudSync.disabled = false;
   }
@@ -3609,9 +3725,21 @@ els.cloudLogout?.addEventListener("click", async () => {
     state.runtime = await window.mia.cloudLogout();
     render();
   } catch (error) {
-    setText(els.cloudLoginHint, `退出失败：${error.message || error}`);
+    setText(els.cloudAccountHint, `退出失败：${error.message || error}`);
   } finally {
     els.cloudLogout.disabled = false;
+  }
+});
+els.checkUpdates?.addEventListener("click", async () => {
+  els.checkUpdates.disabled = true;
+  setText(els.appUpdateHint, "正在检查更新...");
+  try {
+    const result = await window.mia.checkForUpdates();
+    setText(els.appUpdateHint, appUpdateStatusText(result));
+  } catch (error) {
+    setText(els.appUpdateHint, `检查失败：${error.message || error}`);
+  } finally {
+    els.checkUpdates.disabled = false;
   }
 });
 
@@ -3938,11 +4066,11 @@ els.contactMenuNewGroup?.addEventListener("click", () => {
   renderView();
   window.miaSocial?.openCreateGroupDialog?.();
 });
-els.userAvatar?.addEventListener("click", () => window.miaBotDialog.openProfileDialog());
+els.userAvatar?.addEventListener("click", openProfileDialogFromRenderer);
 els.userAvatar?.addEventListener("keydown", (event) => {
   if (event.key !== "Enter" && event.key !== " ") return;
   event.preventDefault();
-  window.miaBotDialog.openProfileDialog();
+  openProfileDialogFromRenderer();
 });
 els.closeProfileDialog?.addEventListener("click", () => window.miaBotDialog.closeProfileDialog());
 els.cancelProfile?.addEventListener("click", () => window.miaBotDialog.closeProfileDialog());
@@ -3966,6 +4094,14 @@ els.petGenerateForm?.addEventListener("submit", async (event) => {
   if (!bot) return;
   const job = await window.mia.generateBotPet({
     botKey: bot.key,
+    bot: {
+      id: bot.id || bot.key,
+      key: bot.key,
+      name: bot.name || bot.displayName || bot.key,
+      displayName: bot.displayName || bot.name || bot.key,
+      avatarImage: bot.avatarImage || "",
+      avatarCrop: bot.avatarCrop || null
+    },
     prompt: els.petPrompt?.value || "",
     stylePreset: els.petStylePreset?.value || "codex",
     referenceImages: state.petReferences.map((item) => item.src)
@@ -4199,6 +4335,7 @@ els.confirmAvatarCrop?.addEventListener("click", async () => {
         avatarImage: state.profileAvatarDraft.image || els.profileAvatarImage?.value || "",
         avatarCrop: window.miaAvatar.normalizeCrop(state.profileAvatarDraft.crop),
         avatarColor: state.profileAvatarDraft.color || "",
+        statusBadge: statusBadgeForPreset(els.profileStatusBadge?.value || "")
       });
       render();
     } catch (err) {
@@ -4219,6 +4356,30 @@ els.resetAvatarCrop?.addEventListener("click", () => {
 // follows the name instead of freezing the previous name's initials.
 els.profileDisplayName?.addEventListener("input", () => {
   window.miaBotDialog?.renderProfileAvatarDraft?.();
+  syncIdentityNameText("profile");
+});
+els.profileNameText?.addEventListener("click", () => beginIdentityNameEdit("profile"));
+els.profileDisplayName?.addEventListener("blur", () => endIdentityNameEdit("profile"));
+els.profileDisplayName?.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    els.profileDisplayName.blur();
+  }
+  if (event.key === "Escape") {
+    event.preventDefault();
+    els.profileDisplayName.blur();
+  }
+});
+els.profileStatusBadge?.addEventListener("change", () => syncStatusBadgeControl("profile"));
+document.querySelectorAll("[data-status-badge-choice]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const kind = button.dataset.statusBadgeTarget || "profile";
+    const { select, details } = identityBadgeEls(kind);
+    if (!select) return;
+    select.value = button.dataset.statusBadgeChoice || "";
+    syncStatusBadgeControl(kind);
+    if (details) details.open = false;
+  });
 });
 
 els.profileForm?.addEventListener("submit", async (event) => {
@@ -4229,7 +4390,8 @@ els.profileForm?.addEventListener("submit", async (event) => {
     avatarText: displayName ? window.miaAvatar.initials(displayName) : "",
     avatarImage: state.profileAvatarDraft.image || els.profileAvatarImage.value,
     avatarCrop: window.miaAvatar.normalizeCrop(state.profileAvatarDraft.crop),
-    avatarColor: state.profileAvatarDraft.color || ""
+    avatarColor: state.profileAvatarDraft.color || "",
+    statusBadge: statusBadgeForPreset(els.profileStatusBadge?.value || "")
   });
   window.miaBotDialog.closeProfileDialog();
   render();
@@ -4314,7 +4476,21 @@ els.appearanceShowAssistantAvatar?.addEventListener("click", () => {
 // profile dialog), so a generated avatar follows the name in create mode.
 els.botName?.addEventListener("input", () => {
   window.miaBotDialog?.renderBotAvatarDraft?.();
+  syncIdentityNameText("bot");
 });
+els.botNameText?.addEventListener("click", () => beginIdentityNameEdit("bot"));
+els.botName?.addEventListener("blur", () => endIdentityNameEdit("bot"));
+els.botName?.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    els.botName.blur();
+  }
+  if (event.key === "Escape") {
+    event.preventDefault();
+    els.botName.blur();
+  }
+});
+els.botStatusBadge?.addEventListener("change", () => syncStatusBadgeControl("bot"));
 
 els.botForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -4342,6 +4518,7 @@ els.botForm?.addEventListener("submit", async (event) => {
     avatarImage: state.botAvatarDraft.image || els.botAvatar.value,
     avatarCrop: window.miaAvatar.normalizeCrop(state.botAvatarDraft.crop),
     color: state.botAvatarDraft.color || "",
+    statusBadge: statusBadgeForPreset(els.botStatusBadge?.value || ""),
     bio: state.botDialogMode === "create" ? els.botSeed.value : existingBotBio,
     description: state.botDialogMode === "create" ? els.botSeed.value : existingBotBio,
     personaText: els.botSeed.value

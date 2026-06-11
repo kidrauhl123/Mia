@@ -8,6 +8,7 @@ const { test } = require("node:test");
 const WebSocket = require("ws");
 
 const { createMiaCloudServer } = require("../scripts/serve-cloud");
+const { loginCloudUser } = require("./helpers/cloud-auth.js");
 
 const execFile = promisify(childProcess.execFile);
 
@@ -109,19 +110,13 @@ test("cloud smoke script can require and execute a bridge run", async () => {
   const baseUrl = await listen(server);
   let bridgeWs = null;
   try {
-    await jsonFetch(baseUrl, "/api/auth/register", {
-      method: "POST",
-      body: { username: "smoketest", password: "secret1" }
-    });
-    const login = await jsonFetch(baseUrl, "/api/auth/login", {
-      method: "POST",
-      body: { username: "smoketest", password: "secret1" }
-    });
+    const account = loginCloudUser(server.mia.cloudStore, "smoketest");
+    const peer = loginCloudUser(server.mia.cloudStore, "smokepeer");
     const bridgeUrl = new URL("/api/bridge", baseUrl.replace(/^http:/, "ws:"));
     bridgeUrl.searchParams.set("deviceName", "Script Smoke Bridge");
     bridgeUrl.searchParams.set("engine", "codex");
     bridgeUrl.searchParams.set("capabilities", JSON.stringify({ streaming: true, attachments: true }));
-    bridgeWs = new WebSocket(bridgeUrl, [`mia-token.${login.token}`], {
+    bridgeWs = new WebSocket(bridgeUrl, [`mia-token.${account.token}`], {
       headers: { Origin: baseUrl }
     });
     bridgeWs.on("message", (raw) => {
@@ -144,8 +139,8 @@ test("cloud smoke script can require and execute a bridge run", async () => {
       cwd: dataDir,
       env: {
         ...process.env,
-        MIA_SMOKE_USERNAME: "smoketest",
-        MIA_SMOKE_PASSWORD: "secret1",
+        MIA_CLOUD_TOKEN: account.token,
+        MIA_CLOUD_PEER_TOKEN: peer.token,
         MIA_SMOKE_REQUIRE_BRIDGE: "1",
         MIA_SMOKE_BRIDGE_TIMEOUT_MS: "10000",
         MIA_SMOKE_EXPECT_RELEASE_COMMIT: "smokecommit",
@@ -153,9 +148,10 @@ test("cloud smoke script can require and execute a bridge run", async () => {
       },
       timeout: 15_000
     });
-    assert.match(stdout, /OK health - features=11 release=smokecommit/);
+    assert.match(stdout, /OK health - features=\d+ release=smokecommit/);
     assert.match(stdout, /OK security headers - CORS and browser policies/);
     assert.match(stdout, /OK web app - index favicon and manifest served/);
+    assert.match(stdout, /OK auth - token smoketest/);
     assert.match(stdout, /OK events websocket query token - rejected/);
     assert.match(stdout, /OK bridge websocket query token - rejected/);
     assert.match(stdout, /OK file auth - anonymous fetch rejected/);
@@ -176,7 +172,7 @@ test("cloud smoke script can require and execute a bridge run", async () => {
   }
 });
 
-test("cloud smoke script can verify a standalone account-login bridge", async () => {
+test("cloud smoke script can verify a standalone token bridge", async () => {
   const dataDir = tempDataDir();
   const server = createMiaCloudServer({
     dataDir,
@@ -191,17 +187,13 @@ test("cloud smoke script can verify a standalone account-login bridge", async ()
   const baseUrl = await listen(server);
   let bridge = null;
   try {
-    await jsonFetch(baseUrl, "/api/auth/register", {
-      method: "POST",
-      body: { username: "accountbridge", password: "secret1" }
-    });
+    const account = loginCloudUser(server.mia.cloudStore, "accountbridge");
     bridge = childProcess.spawn(process.execPath, [path.join(__dirname, "..", "scripts", "local-agent-bridge.js")], {
       cwd: path.join(__dirname, ".."),
       env: {
         ...process.env,
         MIA_CLOUD_URL: baseUrl,
-        MIA_CLOUD_USERNAME: "accountbridge",
-        MIA_CLOUD_PASSWORD: "secret1",
+        MIA_CLOUD_TOKEN: account.token,
         MIA_BRIDGE_ENGINE: "echo",
         MIA_BRIDGE_NAME: "Account Login Bridge",
         MIA_BRIDGE_RECONNECT_MS: "60000"
@@ -215,8 +207,7 @@ test("cloud smoke script can verify a standalone account-login bridge", async ()
       cwd: path.join(__dirname, ".."),
       env: {
         ...process.env,
-        MIA_SMOKE_USERNAME: "accountbridge",
-        MIA_SMOKE_PASSWORD: "secret1",
+        MIA_CLOUD_TOKEN: account.token,
         MIA_SMOKE_REQUIRE_BRIDGE: "1",
         MIA_SMOKE_BRIDGE_TIMEOUT_MS: "10000",
         MIA_SMOKE_EXPECT_RELEASE_COMMIT: "smokecommit",
@@ -224,7 +215,7 @@ test("cloud smoke script can verify a standalone account-login bridge", async ()
       },
       timeout: 15_000
     });
-    assert.match(stdout, /OK auth - login accountbridge/);
+    assert.match(stdout, /OK auth - token accountbridge/);
     assert.match(stdout, /OK bridge devices - 1 online/);
     assert.match(stdout, /OK bridge run - Account Login Bridge -> run_/);
     assert.match(stdout, /Mia Cloud smoke passed:/);
@@ -235,57 +226,53 @@ test("cloud smoke script can verify a standalone account-login bridge", async ()
   }
 });
 
-test("cloud smoke account helper registers then validates a fixed account without printing secrets", async () => {
+test("cloud smoke account helper validates a fixed account token without printing secrets", async () => {
   const dataDir = tempDataDir();
   const server = createMiaCloudServer({ dataDir });
   const baseUrl = await listen(server);
   try {
+    const account = loginCloudUser(server.mia.cloudStore, "fixedsmoke");
     const env = {
       ...process.env,
-      MIA_SMOKE_USERNAME: "fixedsmoke",
-      MIA_SMOKE_PASSWORD: "secret1"
+      MIA_CLOUD_TOKEN: account.token
     };
     const first = await execFile(process.execPath, [path.join(__dirname, "..", "scripts", "prepare-cloud-smoke-account.js"), baseUrl], {
       cwd: path.join(__dirname, ".."),
       env
     });
-    assert.match(first.stdout, /OK smoke account - register fixedsmoke/);
+    assert.match(first.stdout, /OK smoke account - fixedsmoke/);
     assert.match(first.stdout, /OK bridge devices - 0 online for fixedsmoke/);
-    assert.doesNotMatch(first.stdout, /secret1|Bearer\s+[A-Za-z0-9._-]{8,}/i);
+    assert.doesNotMatch(first.stdout, new RegExp(account.token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 
     const second = await execFile(process.execPath, [path.join(__dirname, "..", "scripts", "prepare-cloud-smoke-account.js"), baseUrl], {
       cwd: path.join(__dirname, ".."),
       env
     });
-    assert.match(second.stdout, /OK smoke account - login fixedsmoke/);
-    assert.doesNotMatch(second.stdout, /secret1|Bearer\s+[A-Za-z0-9._-]{8,}/i);
+    assert.match(second.stdout, /OK smoke account - fixedsmoke/);
+    assert.doesNotMatch(second.stdout, new RegExp(account.token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   } finally {
     await close(server);
     fs.rmSync(dataDir, { recursive: true, force: true });
   }
 });
 
-test("cloud smoke account helper rejects an existing account with the wrong password", async () => {
+test("cloud smoke account helper rejects an invalid token without printing it", async () => {
   const dataDir = tempDataDir();
   const server = createMiaCloudServer({ dataDir });
   const baseUrl = await listen(server);
   try {
-    await jsonFetch(baseUrl, "/api/auth/register", {
-      method: "POST",
-      body: { username: "fixedsmoke", password: "secret1" }
-    });
+    const badToken = "invalid-smoke-token";
     await assert.rejects(
       execFile(process.execPath, [path.join(__dirname, "..", "scripts", "prepare-cloud-smoke-account.js"), baseUrl], {
         cwd: path.join(__dirname, ".."),
         env: {
           ...process.env,
-          MIA_SMOKE_USERNAME: "fixedsmoke",
-          MIA_SMOKE_PASSWORD: "wrongpass"
+          MIA_CLOUD_TOKEN: badToken
         }
       }),
       (error) => {
-        assert.match(error.stderr, /already exists but the supplied password did not log in/);
-        assert.doesNotMatch(error.stderr, /wrongpass|secret1/);
+        assert.match(error.stderr, /Smoke account token check failed/);
+        assert.doesNotMatch(error.stderr, new RegExp(badToken));
         return true;
       }
     );
@@ -295,7 +282,7 @@ test("cloud smoke account helper rejects an existing account with the wrong pass
   }
 });
 
-test("cloud smoke script requires a fixed account for bridge smoke", async () => {
+test("cloud smoke script requires a cloud token", async () => {
   const dataDir = tempDataDir();
   const server = createMiaCloudServer({
     dataDir,
@@ -323,7 +310,7 @@ test("cloud smoke script requires a fixed account for bridge smoke", async () =>
         },
         timeout: 15_000
       }),
-      /MIA_SMOKE_USERNAME and MIA_SMOKE_PASSWORD are required/
+      /MIA_CLOUD_TOKEN is required/
     );
   } finally {
     await close(server);

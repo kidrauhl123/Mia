@@ -413,18 +413,18 @@ body.platform-win32 .topbar {
    currentColor so theme/accent changes still reach filled dots and solid icon
    parts. The startup scan animation is a full-color illustration, so it is
    excluded and keeps its source colors. */
-[data-lottie]:not(.setup-scan-lottie) svg path {
+[data-lottie]:not(.setup-scan-lottie):not(.name-with-badge-badge-lottie) svg path {
   fill: currentColor !important;
 }
 
 /* Rail SVG styles set stroke on fallback icons; generated filled Lottie paths
    must clear that inheritance or dots/accent shapes gain a visible ring. */
-[data-lottie]:not(.setup-scan-lottie) svg path:not([fill-opacity="0"]) {
+[data-lottie]:not(.setup-scan-lottie):not(.name-with-badge-badge-lottie) svg path:not([fill-opacity="0"]) {
   stroke: none !important;
 }
 
 /* Only hollow Lottie paths are outlines. */
-[data-lottie]:not(.setup-scan-lottie) svg path[fill-opacity="0"] {
+[data-lottie]:not(.setup-scan-lottie):not(.name-with-badge-badge-lottie) svg path[fill-opacity="0"] {
   stroke: currentColor !important;
 }
 
@@ -846,20 +846,20 @@ body.sidebar-resizing * {
   transform: translateY(6px);
 }
 
-.cloud-login-guide {
+.no-agent-guide {
   max-width: 360px;
   margin: 18vh auto 0;
   text-align: center;
   color: var(--muted);
 }
 
-.cloud-login-guide h2 {
+.no-agent-guide h2 {
   margin: 0 0 8px;
   color: var(--text, inherit);
   font-size: 18px;
 }
 
-.cloud-login-guide p {
+.no-agent-guide p {
   margin: 0 0 18px;
   font-size: 13px;
   line-height: 1.5;
@@ -1746,7 +1746,8 @@ body.topbar-click-capture .topbar {
 }
 
 .contact-runtime-target,
-.contact-capabilities {
+.contact-capabilities,
+.contact-persona-card {
   display: grid;
   gap: 12px;
   min-width: 0;
@@ -1758,7 +1759,8 @@ body.topbar-click-capture .topbar {
 }
 
 .contact-runtime-target > summary,
-.contact-capabilities > header {
+.contact-capabilities > summary,
+.contact-persona-card > summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1766,12 +1768,16 @@ body.topbar-click-capture .topbar {
   min-width: 0;
 }
 
-.contact-runtime-target > summary {
+.contact-runtime-target > summary,
+.contact-capabilities > summary,
+.contact-persona-card > summary {
   list-style: none;
   cursor: pointer;
 }
 
-.contact-runtime-target > summary::-webkit-details-marker {
+.contact-runtime-target > summary::-webkit-details-marker,
+.contact-capabilities > summary::-webkit-details-marker,
+.contact-persona-card > summary::-webkit-details-marker {
   display: none;
 }
 
@@ -1783,23 +1789,36 @@ body.topbar-click-capture .topbar {
   transition: transform 120ms ease;
 }
 
-.contact-runtime-target[open] .runtime-target-chevron {
+.contact-runtime-target[open] .runtime-target-chevron,
+.contact-capabilities[open] .runtime-target-chevron,
+.contact-persona-card[open] .runtime-target-chevron {
   transform: rotate(180deg);
 }
 
 .contact-runtime-target > summary strong,
-.contact-capabilities > header strong {
+.contact-capabilities > summary strong,
+.contact-persona-card > summary strong {
   color: var(--text);
   font-size: 14px;
   font-weight: 520;
 }
 
 .contact-runtime-target > summary p,
-.contact-capabilities > header p {
+.contact-capabilities > summary p,
+.contact-persona-card > summary p {
   margin: 3px 0 0;
   color: var(--muted);
   font-size: 12px;
   line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contact-runtime-target > summary div,
+.contact-capabilities > summary div,
+.contact-persona-card > summary div {
+  min-width: 0;
 }
 
 .runtime-target-list {
@@ -1986,6 +2005,18 @@ body.topbar-click-capture .topbar {
   background: var(--surface-muted);
 }
 
+.contact-persona-text {
+  margin: 0;
+  padding: 10px;
+  border-radius: 7px;
+  background: var(--surface-muted);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 :root[data-theme="dark"] .contact-engine-badge,
 :root[data-theme="dark"] .contact-profile-head .secondary {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
@@ -1993,7 +2024,8 @@ body.topbar-click-capture .topbar {
 
 :root[data-theme="dark"] .contact-note,
 :root[data-theme="dark"] .contact-runtime-target,
-:root[data-theme="dark"] .contact-capabilities {
+:root[data-theme="dark"] .contact-capabilities,
+:root[data-theme="dark"] .contact-persona-card {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
 }
 
@@ -2910,20 +2942,6 @@ body.onboarding-window .setup-guide.ready .setup-engine-action:hover {
   transform: translateY(1px) scale(0.995);
 }
 
-.setup-cloud-link {
-  padding: 2px;
-  border: 0;
-  background: none;
-  color: var(--muted);
-  font-size: 12.5px;
-  cursor: pointer;
-  transition: color 0.15s ease;
-}
-
-.setup-cloud-link:hover {
-  color: var(--accent);
-}
-
 @keyframes setupRise {
   from { opacity: 0; transform: translateY(9px); }
   to { opacity: 1; transform: none; }
@@ -3009,9 +3027,60 @@ body.onboarding-window .setup-guide.ready .setup-footer { animation-delay: 0.13s
   text-align: center;
 }
 
+.onb-login-qr-card {
+  align-self: center;
+  display: grid;
+  place-items: center;
+  width: 248px;
+  height: 248px;
+  padding: 12px;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 16px 42px rgba(26, 28, 36, 0.12);
+}
+
+.onb-login-qr-img {
+  width: 224px;
+  height: 224px;
+  object-fit: contain;
+}
+
+.onb-login-qr-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+  text-align: center;
+}
+
 .onb-login-actions {
   gap: 8px;
 }
+
+.setup-cta.wechat-login-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  background: #07c160;
+  color: #fff;
+}
+
+.setup-cta.wechat-login-cta:hover:not(:disabled) {
+  background: #06ad56;
+  box-shadow: 0 10px 24px rgb(7 193 96 / 0.18);
+  filter: none;
+}
+
+.wechat-login-icon {
+  width: 23px;
+  height: 20px;
+  color: #fff;
+  flex: 0 0 auto;
+}
+
+.wechat-login-icon .wechat-bubble { fill: currentColor; }
+.wechat-login-icon .wechat-eye { fill: #07c160; }
 
 /* Prepare-step loading: progress bar + per-agent scan rows. */
 .onb-progress-bar {
@@ -4649,6 +4718,178 @@ select.select-open {
   overflow-wrap: anywhere;
 }
 
+.identity-name-field {
+  display: grid;
+  gap: 7px;
+}
+
+.identity-name-label {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.identity-name-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.identity-name-text {
+  min-width: 0;
+  max-width: 100%;
+  border: 0;
+  border-radius: 8px;
+  padding: 6px 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.25;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.identity-name-text:hover,
+.identity-name-text:focus-visible {
+  color: var(--accent);
+  outline: 0;
+}
+
+.identity-name-input {
+  flex: 1;
+}
+
+.identity-name-line .identity-name-input {
+  width: auto;
+  min-width: 0;
+  max-width: 100%;
+  border: 0;
+  border-radius: 0;
+  padding: 6px 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.25;
+}
+
+.identity-name-line .identity-name-input:focus,
+.identity-name-line .identity-name-input:focus-visible {
+  outline: 0;
+  box-shadow: inset 0 -1px 0 var(--accent);
+}
+
+.identity-badge-details {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.identity-badge-details > summary {
+  list-style: none;
+}
+
+.identity-badge-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.identity-badge-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin-top: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.identity-badge-trigger.empty {
+  border: 1px dashed var(--line-strong);
+  color: var(--faint);
+  font-size: 17px;
+  line-height: 1;
+}
+
+.identity-badge-trigger:not(.empty):hover,
+.identity-badge-trigger:not(.empty):focus-visible,
+.identity-badge-trigger.empty:hover,
+.identity-badge-trigger.empty:focus-visible {
+  background: var(--hover);
+  outline: 0;
+}
+
+.identity-badge-panel {
+  position: absolute;
+  top: 34px;
+  right: 0;
+  z-index: 10;
+  min-width: 204px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.identity-badge-choices {
+  display: grid;
+  grid-template-columns: repeat(5, 32px);
+  gap: 6px;
+}
+
+.identity-badge-choices button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 8px;
+  padding: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: center;
+  cursor: pointer;
+}
+
+.identity-badge-choices button:hover,
+.identity-badge-choices button:focus-visible {
+  background: var(--hover);
+  outline: 0;
+}
+
+.identity-badge-choices button.active {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 32%, transparent);
+}
+
+.identity-badge-choice-empty {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.identity-badge-choice-emoji {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.identity-badge-choices .name-with-badge-badge,
+.identity-badge-choices .name-with-badge-badge svg {
+  --name-badge-size: 22px;
+}
+
 .pet-generate-card label,
 .persona-details label {
   display: grid;
@@ -5513,6 +5754,10 @@ select.select-open {
   padding: 0;
 }
 
+.settings-panel[data-settings-panel="account"] {
+  gap: 12px;
+}
+
 .settings-panel[data-settings-panel="model"] .engine-detail-panel {
   gap: 0;
 }
@@ -5523,7 +5768,8 @@ select.select-open {
   margin: 0;
 }
 
-.cloud-account-card {
+.cloud-account-card,
+.app-update-card {
   align-content: start;
   gap: 0;
   max-width: 680px;
@@ -5531,6 +5777,10 @@ select.select-open {
   border: 0;
   border-radius: 14px;
   background: var(--surface);
+}
+
+.app-update-row {
+  min-height: 62px;
 }
 
 .connection-row {
@@ -5669,52 +5919,6 @@ select.select-open {
 
 .settings-switch.active span {
   transform: translateX(16px);
-}
-
-.connection-details {
-  display: grid;
-  justify-items: start;
-  gap: 7px;
-  padding: 2px 0 0;
-}
-
-.cloud-login-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto auto;
-  gap: 8px;
-  width: min(560px, 100%);
-}
-
-.cloud-login-grid input {
-  min-width: 0;
-  min-height: 34px;
-  padding: 0 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  outline: 0;
-  background: var(--field);
-  color: var(--text);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 400;
-}
-
-.cloud-login-grid input:focus {
-  border-color: var(--line-strong);
-}
-
-@media (max-width: 720px) {
-  .cloud-login-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-.pairing-hint {
-  margin: 0;
-  color: var(--faint);
-  font-size: 11px;
-  font-weight: 400;
-  line-height: 1.5;
 }
 
 .font-choice-grid {

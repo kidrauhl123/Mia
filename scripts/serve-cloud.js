@@ -5,6 +5,7 @@ const childProcess = require("node:child_process");
 const fs = require("node:fs");
 const http = require("node:http");
 const path = require("node:path");
+const zlib = require("node:zlib");
 const { WebSocketServer, WebSocket } = require("ws");
 let createCloudStore = null;
 try {
@@ -104,6 +105,55 @@ try {
 } catch {
   ({ createCloudAgentDispatcher } = require("./src/cloud-agent/dispatcher.js"));
 }
+let createHermesWorkerManager = null;
+try {
+  ({ createHermesWorkerManager } = require("../src/cloud-agent/hermes-worker-manager.js"));
+} catch {
+  ({ createHermesWorkerManager } = require("./src/cloud-agent/hermes-worker-manager.js"));
+}
+let createHermesRunsClient = null;
+try {
+  ({ createHermesRunsClient } = require("../src/cloud-agent/hermes-runs-client.js"));
+} catch {
+  ({ createHermesRunsClient } = require("./src/cloud-agent/hermes-runs-client.js"));
+}
+let createModelBillingStore = null;
+try {
+  ({ createModelBillingStore } = require("../src/cloud/model-billing-store.js"));
+} catch {
+  ({ createModelBillingStore } = require("./src/cloud/model-billing-store.js"));
+}
+let modelGatewayStoreModule = null;
+try {
+  modelGatewayStoreModule = require("../src/cloud/model-gateway-store.js");
+} catch {
+  modelGatewayStoreModule = require("./src/cloud/model-gateway-store.js");
+}
+let verifyUserModelProxyToken = null;
+try {
+  ({ verifyUserModelProxyToken } = require("../src/cloud/model-proxy-auth.js"));
+} catch {
+  ({ verifyUserModelProxyToken } = require("./src/cloud/model-proxy-auth.js"));
+}
+let createWechatAuthFlow = null;
+let isWechatMpLoginConfigured = null;
+let wechatMpConfig = null;
+let verifyWechatMpSignature = null;
+try {
+  ({
+    createWechatAuthFlow,
+    isWechatMpLoginConfigured,
+    verifyWechatMpSignature,
+    wechatMpConfig
+  } = require("../src/cloud/wechat-auth.js"));
+} catch {
+  ({
+    createWechatAuthFlow,
+    isWechatMpLoginConfigured,
+    verifyWechatMpSignature,
+    wechatMpConfig
+  } = require("./src/cloud/wechat-auth.js"));
+}
 let createAttachmentMaterializer = null;
 try {
   ({ createAttachmentMaterializer } = require("../src/cloud-agent/attachment-materializer.js"));
@@ -141,7 +191,8 @@ const cloudFeatures = [
   "bridge-run-progress",
   "desktop-sync",
   "cloud-hermes-agent",
-  "cloud-agent-user-isolation"
+  "cloud-agent-user-isolation",
+  "status-badge-assets"
 ];
 const defaultAllowedOrigins = String(process.env.MIA_CLOUD_ALLOWED_ORIGINS || "")
   .split(",")
@@ -224,6 +275,93 @@ function writeText(res, status, body, contentType = "text/plain; charset=utf-8")
   res.end(text);
 }
 
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function wechatMpQrHtml(record = null) {
+  const state = record?.state || "";
+  const qrCodeUrl = record?.qrCodeUrl || "";
+  if (!state || !qrCodeUrl) {
+    return "<!doctype html><meta charset=\"utf-8\"><title>Mia 微信登录</title><body style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:32px;background:#f5f5f8;color:#15151a;\"><h1>微信登录已过期</h1><p>请返回 Mia 重新发起登录。</p></body>";
+  }
+  return `<!doctype html><meta charset="utf-8"><title>Mia 微信登录</title><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;background:#f5f5f8;color:#15151a;"><main style="text-align:center;"><h1>微信扫码登录 Mia</h1><img alt="微信登录二维码" src="${escapeHtml(qrCodeUrl)}" style="width:260px;height:260px;background:#fff;padding:12px;border-radius:12px;box-shadow:0 12px 36px rgba(0,0,0,.12);"><p id="status" style="color:#666;">请使用微信扫码关注公众号，Mia 会自动完成登录。</p></main><script>
+const state=${JSON.stringify(state)};
+const statusEl=document.getElementById("status");
+async function poll(){
+  try{
+    const response=await fetch("/api/auth/wechat/complete",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({state})});
+    const data=await response.json();
+    if(data.status==="complete"&&data.token){
+      try{localStorage.setItem("mia.web.session",JSON.stringify({token:data.token,user:data.user||null,theme:"light"}));}catch(e){}
+      location.href="/app/";
+      return;
+    }
+    if(data.status==="failed"||data.ok===false){statusEl.textContent=data.error||"微信登录失败，请重新发起。";return;}
+  }catch(e){}
+  setTimeout(poll,1500);
+}
+poll();
+</script></body>`;
+}
+
+function cdata(value = "") {
+  return String(value || "").replace(/]]>/g, "]]]]><![CDATA[>");
+}
+
+function wechatTextReply(event = {}, content = "") {
+  return `<xml><ToUserName><![CDATA[${cdata(event.FromUserName)}]]></ToUserName><FromUserName><![CDATA[${cdata(event.ToUserName)}]]></FromUserName><CreateTime>${Math.floor(Date.now() / 1000)}</CreateTime><MsgType><![CDATA[text]]></MsgType><Content><![CDATA[${cdata(content)}]]></Content></xml>`;
+}
+
+async function handleWechatMpEvents(req, res, context, url) {
+  if (url.pathname !== "/api/auth/wechat/mp/events") return false;
+  const config = wechatMpConfig(context);
+  if (!config.token) {
+    writeError(res, 503, "微信公众号消息推送未配置。");
+    return true;
+  }
+  const ok = verifyWechatMpSignature({
+    token: config.token,
+    signature: url.searchParams.get("signature"),
+    timestamp: url.searchParams.get("timestamp"),
+    nonce: url.searchParams.get("nonce")
+  });
+  if (!ok) {
+    writeError(res, 403, "Invalid WeChat signature.");
+    return true;
+  }
+  if (req.method === "GET") {
+    writeText(res, 200, url.searchParams.get("echostr") || "");
+    return true;
+  }
+  if (req.method === "POST") {
+    const body = await readBody(req);
+    const result = await context.wechatAuth.handleMpEventXml(body, {
+      config,
+      publicUrl: publicOriginFromContext(context)
+    });
+    if (result?.event && ["complete", "unknown_scene", "not_login_scene", "failed"].includes(result.status)) {
+      const content = result.status === "complete"
+        ? "Mia 登录成功，请回到 Mia。"
+        : result.status === "unknown_scene"
+          ? "这个 Mia 登录二维码无效或已过期，请回到 Mia 重新发起登录。"
+          : result.status === "failed"
+            ? `Mia 登录失败：${result.error || "请重新发起登录。"}`
+            : "请从 Mia 登录页显示的微信二维码扫码进入。";
+      writeText(res, 200, wechatTextReply(result.event, content), "application/xml; charset=utf-8");
+      return true;
+    }
+    writeText(res, 200, "success");
+    return true;
+  }
+  writeError(res, 405, "Method not allowed.");
+  return true;
+}
+
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let size = 0;
@@ -299,7 +437,8 @@ function memberIdentityForUser(user, fallbackRef = "") {
       displayName,
       avatarImage: safeAvatar,
       avatarCrop: user?.avatarCrop || null
-    })
+    }),
+    statusBadge: user?.statusBadge || null
   };
 }
 
@@ -331,7 +470,12 @@ function compactPublicUser(user) {
 
 function compactAuthAccount(account) {
   if (!account || typeof account !== "object") return account;
-  return { ...account, user: compactPublicUser(account.user) };
+  const compacted = compactPublicUser(account.user);
+  const avatarImage = compactAvatarImage(account.user?.avatarImage || "");
+  return {
+    ...account,
+    user: avatarImage ? { ...compacted, avatarImage } : compacted
+  };
 }
 
 function compactBotIdentity(bot) {
@@ -443,6 +587,7 @@ function fileContentType(filePath, fallback = "application/octet-stream") {
   if (ext === ".html") return "text/html; charset=utf-8";
   if (ext === ".js") return "text/javascript; charset=utf-8";
   if (ext === ".css") return "text/css; charset=utf-8";
+  if (ext === ".json") return "application/json; charset=utf-8";
   if (ext === ".webmanifest") return "application/manifest+json; charset=utf-8";
   if (ext === ".svg") return "image/svg+xml";
   if (ext === ".png") return "image/png";
@@ -455,7 +600,7 @@ function fileContentType(filePath, fallback = "application/octet-stream") {
 }
 
 function publicOriginFromContext(context = {}) {
-  const explicit = normalizeOrigin(process.env.MIA_CLOUD_PUBLIC_URL || process.env.MIA_PUBLIC_URL || "");
+  const explicit = normalizeOrigin(context.publicUrl || process.env.MIA_CLOUD_PUBLIC_URL || process.env.MIA_PUBLIC_URL || "");
   if (explicit) return explicit;
   const firstAllowed = Array.isArray(context.allowedOrigins) ? context.allowedOrigins[0] : "";
   return normalizeOrigin(firstAllowed || "");
@@ -470,6 +615,91 @@ function avatarAssetPublicUrl(context = {}, filename = "") {
   const origin = publicOriginFromContext(context);
   const pathPart = `/api/avatar-assets/${encodeURIComponent(filename)}`;
   return origin ? `${origin}${pathPart}` : pathPart;
+}
+
+const statusBadgeAssetDefinitions = [
+  {
+    id: "rainbow",
+    label: "彩虹动画",
+    format: "json",
+    relativePath: "assets/lottie/rainbow.json"
+  },
+  {
+    id: "surprised-cat",
+    label: "惊讶猫",
+    format: "tgs",
+    relativePath: "assets/status-badges/surprised-cat.tgs"
+  }
+];
+
+function safeStatusBadgeAssetId(value = "") {
+  const text = String(value || "").trim();
+  return /^[A-Za-z0-9_-]+$/.test(text) ? text : "";
+}
+
+function statusBadgeAssetPublicUrl(context = {}, assetId = "") {
+  const id = safeStatusBadgeAssetId(assetId);
+  if (!id) return "";
+  const origin = publicOriginFromContext(context);
+  const pathPart = `/api/status-badge-assets/${encodeURIComponent(id)}.json`;
+  return origin ? `${origin}${pathPart}` : pathPart;
+}
+
+function statusBadgeAssetRoots(context = {}) {
+  const roots = [
+    process.env.MIA_CLOUD_STATUS_BADGE_ASSET_DIR || process.env.MIA_STATUS_BADGE_ASSET_DIR || "",
+    context.webRoot,
+    defaultWebRoot(),
+    path.join(__dirname, "..", "web"),
+    path.join(__dirname, "..", "src", "web"),
+    path.join(__dirname, "..", "src", "renderer")
+  ].filter(Boolean);
+  return [...new Set(roots.map((root) => path.resolve(root)))];
+}
+
+function resolveStatusBadgeAssetPath(context = {}, relativePath = "") {
+  const relative = String(relativePath || "").replace(/^\/+/, "");
+  if (!relative) return "";
+  for (const root of statusBadgeAssetRoots(context)) {
+    const resolved = path.resolve(root, relative);
+    if (resolved !== root && !resolved.startsWith(`${root}${path.sep}`)) continue;
+    if (fs.existsSync(resolved) && fs.statSync(resolved).isFile()) return resolved;
+  }
+  return "";
+}
+
+function statusBadgeAssetInfo(context = {}, definition = {}) {
+  const filePath = resolveStatusBadgeAssetPath(context, definition.relativePath);
+  if (!filePath) return null;
+  const body = fs.readFileSync(filePath);
+  return {
+    id: definition.id,
+    assetId: definition.id,
+    kind: "lottie",
+    label: definition.label,
+    format: definition.format,
+    url: statusBadgeAssetPublicUrl(context, definition.id),
+    sha256: crypto.createHash("sha256").update(body).digest("hex"),
+    bytes: body.length
+  };
+}
+
+function statusBadgeAssetManifest(context = {}) {
+  const assets = statusBadgeAssetDefinitions
+    .map((definition) => statusBadgeAssetInfo(context, definition))
+    .filter(Boolean);
+  assets.sort((a, b) => a.assetId.localeCompare(b.assetId));
+  return { assets };
+}
+
+function readStatusBadgeLottieJson(context = {}, definition = {}) {
+  const filePath = resolveStatusBadgeAssetPath(context, definition.relativePath);
+  if (!filePath) return null;
+  const raw = fs.readFileSync(filePath);
+  const text = definition.format === "tgs"
+    ? zlib.gunzipSync(raw).toString("utf8")
+    : raw.toString("utf8");
+  return JSON.stringify(JSON.parse(text));
 }
 
 function avatarExtensionForMime(mimeType = "") {
@@ -618,6 +848,59 @@ function serveAvatarAsset(req, res, context = {}, pathname = "") {
   return true;
 }
 
+function serveStatusBadgeAsset(req, res, context = {}, pathname = "") {
+  if (req.method !== "GET" && req.method !== "HEAD") return false;
+  if (pathname === "/api/status-badge-assets") {
+    const body = JSON.stringify(statusBadgeAssetManifest(context), null, 2);
+    res.writeHead(200, {
+      "Content-Type": "application/json; charset=utf-8",
+      "Content-Length": Buffer.byteLength(body),
+      "Cross-Origin-Resource-Policy": "cross-origin",
+      "Cache-Control": "public, max-age=300"
+    });
+    if (req.method === "HEAD") res.end();
+    else res.end(body);
+    return true;
+  }
+  if (!pathname.startsWith("/api/status-badge-assets/")) return false;
+  let filename = "";
+  try {
+    filename = decodeURIComponent(pathname.slice("/api/status-badge-assets/".length));
+  } catch {
+    writeError(res, 400, "Bad request.");
+    return true;
+  }
+  const match = filename.match(/^([A-Za-z0-9_-]+)\.json$/);
+  if (!match) {
+    writeError(res, 404, "Not found.");
+    return true;
+  }
+  const assetId = safeStatusBadgeAssetId(match[1]);
+  const definition = statusBadgeAssetDefinitions.find((item) => item.id === assetId);
+  if (!definition) {
+    writeError(res, 404, "Not found.");
+    return true;
+  }
+  try {
+    const body = readStatusBadgeLottieJson(context, definition);
+    if (!body) {
+      writeError(res, 404, "Not found.");
+      return true;
+    }
+    res.writeHead(200, {
+      "Content-Type": "application/json; charset=utf-8",
+      "Content-Length": Buffer.byteLength(body),
+      "Cross-Origin-Resource-Policy": "cross-origin",
+      "Cache-Control": "public, max-age=31536000, immutable"
+    });
+    if (req.method === "HEAD") res.end();
+    else res.end(body);
+  } catch (error) {
+    writeError(res, 500, `Status badge asset is invalid: ${error.message}`);
+  }
+  return true;
+}
+
 function defaultWebRoot() {
   const candidates = [
     process.env.MIA_WEB_ROOT,
@@ -661,6 +944,16 @@ function serveWebAsset(req, res, webRoot, pathname) {
   } else if (relative.startsWith("shared/")) {
     candidates.push({ resolved: path.resolve(sourceRoot, relative), allowedRoot: sourceRoot });
   } else if (relative.startsWith("message-sources/")) {
+    candidates.push({ resolved: path.resolve(sourceRoot, "renderer", relative), allowedRoot: sourceRoot });
+  } else if (relative === "helpers/markdown-helpers.js") {
+    candidates.push({ resolved: path.resolve(sourceRoot, "renderer", relative), allowedRoot: sourceRoot });
+  } else if (
+    relative.startsWith("assets/model-icons/")
+      || relative.startsWith("assets/provider-icons/")
+      || relative.startsWith("assets/engine-icons/")
+      || relative.startsWith("assets/lottie/")
+      || relative.startsWith("assets/status-badges/")
+  ) {
     candidates.push({ resolved: path.resolve(sourceRoot, "renderer", relative), allowedRoot: sourceRoot });
   }
   let resolved = "";
@@ -779,6 +1072,192 @@ function publicPlatformModel(row = {}) {
 
 function fallbackPlatformModels() {
   return [{ id: "mia-default", label: "Mia Default", provider: "mia-litellm", upstreamModel: "" }];
+}
+
+function modelGatewayMode(context = {}) {
+  const explicit = String(context.modelGatewayMode || process.env.MIA_MODEL_GATEWAY || "").trim().toLowerCase();
+  if (explicit === "deepseek" || explicit === "direct-deepseek") return "deepseek";
+  if (explicit === "litellm") return "litellm";
+  return deepSeekApiKey(context) || context.modelGatewayStore?.getSettings()?.apiKey ? "deepseek" : "litellm";
+}
+
+function modelGatewaySettings(context = {}) {
+  return context.modelGatewayStore?.getSettings?.() || null;
+}
+
+function deepSeekApiKey(context = {}) {
+  return String(context.deepSeekApiKey || modelGatewaySettings(context)?.apiKey || process.env.MIA_DEEPSEEK_API_KEY || process.env.DEEPSEEK_API_KEY || "").trim();
+}
+
+function deepSeekBaseUrl(context = {}) {
+  return String(context.deepSeekBaseUrl || modelGatewaySettings(context)?.apiBase || process.env.MIA_DEEPSEEK_BASE_URL || "https://api.deepseek.com/v1").trim().replace(/\/+$/, "");
+}
+
+function platformModelId(context = {}) {
+  return String(context.platformModelId || modelGatewaySettings(context)?.modelId || process.env.MIA_PLATFORM_MODEL_ID || process.env.MIA_CLOUD_AGENT_MODEL || "mia-default").trim() || "mia-default";
+}
+
+function deepSeekUpstreamModel(context = {}) {
+  return modelGatewayStoreModule.normalizeDeepSeekModel(
+    context.deepSeekModel || modelGatewaySettings(context)?.upstreamModel || process.env.MIA_DEEPSEEK_MODEL || "deepseek-chat"
+  ) || "deepseek-chat";
+}
+
+function directDeepSeekModels(context = {}) {
+  const id = platformModelId(context);
+  return [{
+    id,
+    label: String(context.platformModelLabel || process.env.MIA_PLATFORM_MODEL_LABEL || "Mia DeepSeek").trim() || id,
+    provider: "deepseek",
+    upstreamModel: deepSeekUpstreamModel(context),
+    configured: Boolean(deepSeekApiKey(context))
+  }];
+}
+
+function modelPricing(context = {}) {
+  const inputMicrousdPerMillion = Number(
+    context.modelInputMicrousdPerMillion
+      || modelGatewaySettings(context)?.inputMicrousdPerMillion
+      || process.env.MIA_MODEL_INPUT_MICROUSD_PER_1M
+      || process.env.MIA_DEEPSEEK_INPUT_MICROUSD_PER_1M
+      || 140000
+  );
+  const outputMicrousdPerMillion = Number(
+    context.modelOutputMicrousdPerMillion
+      || modelGatewaySettings(context)?.outputMicrousdPerMillion
+      || process.env.MIA_MODEL_OUTPUT_MICROUSD_PER_1M
+      || process.env.MIA_DEEPSEEK_OUTPUT_MICROUSD_PER_1M
+      || 280000
+  );
+  return {
+    inputMicrousdPerMillion: Number.isFinite(inputMicrousdPerMillion) ? inputMicrousdPerMillion : 0,
+    outputMicrousdPerMillion: Number.isFinite(outputMicrousdPerMillion) ? outputMicrousdPerMillion : 0,
+    markup: Number(context.modelMarkup || modelGatewaySettings(context)?.markup || process.env.MIA_MODEL_MARKUP || 1)
+  };
+}
+
+function deepSeekApiKeySource(context = {}) {
+  if (String(context.deepSeekApiKey || "").trim()) return "options";
+  if (modelGatewaySettings(context)?.apiKey) return "database";
+  if (String(process.env.MIA_DEEPSEEK_API_KEY || process.env.DEEPSEEK_API_KEY || "").trim()) return "environment";
+  return "";
+}
+
+function publicDeepSeekGatewaySettings(context = {}) {
+  const settings = modelGatewaySettings(context);
+  const pricing = modelPricing(context);
+  if (settings) {
+    return {
+      ...modelGatewayStoreModule.publicSettings(settings),
+      apiBase: settings.apiBase || deepSeekBaseUrl(context),
+      inputMicrousdPerMillion: pricing.inputMicrousdPerMillion,
+      outputMicrousdPerMillion: pricing.outputMicrousdPerMillion,
+      markup: pricing.markup,
+      hasApiKey: Boolean(settings.apiKey || deepSeekApiKey(context))
+    };
+  }
+  return {
+    mode: "deepseek",
+    modelId: platformModelId(context),
+    provider: "deepseek",
+    upstreamModel: deepSeekUpstreamModel(context),
+    apiBase: deepSeekBaseUrl(context),
+    inputMicrousdPerMillion: pricing.inputMicrousdPerMillion,
+    outputMicrousdPerMillion: pricing.outputMicrousdPerMillion,
+    markup: pricing.markup,
+    updatedAt: "",
+    hasApiKey: Boolean(deepSeekApiKey(context))
+  };
+}
+
+function numericGatewayValue(value, fallback, label, { integer = true, min = 0 } = {}) {
+  if (value === undefined || value === null || String(value).trim() === "") return fallback;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < min) {
+    throw new Error(`${label} 格式不对。`);
+  }
+  return integer ? Math.round(parsed) : parsed;
+}
+
+function normalizeDeepSeekAdminInput(input = {}, context = {}) {
+  const existing = modelGatewaySettings(context);
+  const pricing = modelPricing(context);
+  const modelName = String(input.modelId || input.modelName || existing?.modelId || "mia-default").trim() || "mia-default";
+  if (!/^[A-Za-z0-9_.-]{2,80}$/.test(modelName)) {
+    throw new Error("Mia 模型名只能包含字母、数字、点、下划线和横线。");
+  }
+  const upstreamModel = modelGatewayStoreModule.normalizeDeepSeekModel(
+    input.upstreamModel || input.model || existing?.upstreamModel || "deepseek-chat"
+  );
+  if (!/^[A-Za-z0-9_.:/@-]{2,160}$/.test(upstreamModel)) {
+    throw new Error("DeepSeek 模型名格式不对。");
+  }
+  const hasApiBase = Object.prototype.hasOwnProperty.call(input, "apiBase");
+  const apiBase = String(hasApiBase ? input.apiBase : (existing?.apiBase || "")).trim().replace(/\/+$/, "");
+  if (apiBase) {
+    try {
+      const parsed = new URL(apiBase);
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("bad protocol");
+    } catch {
+      throw new Error("API Base URL 格式不对。");
+    }
+  }
+  return {
+    mode: "deepseek",
+    modelId: modelName,
+    provider: "deepseek",
+    upstreamModel,
+    apiKey: String(input.apiKey || "").trim(),
+    apiBase,
+    inputMicrousdPerMillion: numericGatewayValue(
+      input.inputMicrousdPerMillion,
+      pricing.inputMicrousdPerMillion || 140000,
+      "输入 token 单价"
+    ),
+    outputMicrousdPerMillion: numericGatewayValue(
+      input.outputMicrousdPerMillion,
+      pricing.outputMicrousdPerMillion || 280000,
+      "输出 token 单价"
+    ),
+    markup: numericGatewayValue(input.markup, pricing.markup || 1, "加价倍率", { integer: false, min: 0 })
+  };
+}
+
+function modelFromRequestBody(body = {}) {
+  return String(body.model || platformModelId()).trim() || platformModelId();
+}
+
+function bearerTokenFromRequest(req) {
+  const header = String(req.headers.authorization || "");
+  return header.toLowerCase().startsWith("bearer ") ? header.slice(7).trim() : "";
+}
+
+function parseJsonBuffer(buffer) {
+  try {
+    return JSON.parse(Buffer.from(buffer || "").toString("utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function usageFromBufferedModelPayload(buffer, contentType = "") {
+  const parsed = parseJsonBuffer(buffer);
+  if (parsed?.usage) return parsed.usage;
+  if (!/event-stream/i.test(String(contentType || ""))) return {};
+  let usage = {};
+  for (const line of Buffer.from(buffer || "").toString("utf8").split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("data:")) continue;
+    const data = trimmed.slice(5).trim();
+    if (!data || data === "[DONE]") continue;
+    const event = parseJsonBuffer(Buffer.from(data));
+    if (event?.usage) usage = event.usage;
+  }
+  return usage;
+}
+
+function normalizeModelProxyError(payload, fallback = "模型请求失败。") {
+  return String(payload?.error?.message || payload?.message || payload?.error || fallback);
 }
 
 async function litellmRequest(context, pathname, { method = "GET", key = "", body = null } = {}) {
@@ -960,6 +1439,9 @@ async function listMiaLiteLLMModels(context) {
 }
 
 async function listPlatformModelCatalog(context) {
+  if (modelGatewayMode(context) === "deepseek") {
+    return directDeepSeekModels(context);
+  }
   try {
     const info = await litellmRequest(context, "/model/info", { key: litellmAdminKey(context) || litellmServiceKey(context) });
     const rows = Array.isArray(info?.data) ? info.data : [];
@@ -971,14 +1453,94 @@ async function listPlatformModelCatalog(context) {
   }
 }
 
-async function handleUserModelProxy(req, res, context, url) {
-  const prefix = "/api/me/model-proxy/v1";
-  if (!url.pathname.startsWith(prefix)) return false;
-  const serviceKey = litellmServiceKey(context) || litellmAdminKey(context);
-  if (!serviceKey) {
-    writeError(res, 503, "Mia 托管模型未配置。");
+async function proxyDeepSeekChatCompletion(req, res, context, url, { userId, prefix }) {
+  if (!context.modelBillingStore) {
+    writeError(res, 503, "Mia 模型账本未初始化。");
     return true;
   }
+  const proxyPath = url.pathname.slice(prefix.length);
+  if (req.method !== "POST" || proxyPath !== "/chat/completions") {
+    writeError(res, 404, "当前托管 DeepSeek 模型只支持 /chat/completions。");
+    return true;
+  }
+  const apiKey = deepSeekApiKey(context);
+  if (!apiKey) {
+    writeError(res, 503, "Mia DeepSeek 模型未配置。");
+    return true;
+  }
+  if (!context.modelBillingStore.hasPositiveBalance(userId)) {
+    writeError(res, 402, "模型余额不足，请先充值。");
+    return true;
+  }
+
+  let body = {};
+  try {
+    body = await readJson(req);
+  } catch (error) {
+    writeError(res, 400, error.message || "Invalid JSON.");
+    return true;
+  }
+  const models = directDeepSeekModels(context);
+  const requestedModel = String(body.model || platformModelId(context)).trim() || platformModelId(context);
+  const selected = models.find((model) => model.id === requestedModel);
+  if (!selected) {
+    writeError(res, 400, "模型不可用。");
+    return true;
+  }
+
+  const upstreamBody = {
+    ...body,
+    model: selected.upstreamModel,
+    ...(body.stream === true
+      ? { stream_options: { ...(body.stream_options || {}), include_usage: true } }
+      : {})
+  };
+  const upstream = await fetch(`${deepSeekBaseUrl(context)}/chat/completions`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(upstreamBody)
+  });
+  const payload = Buffer.from(await upstream.arrayBuffer());
+  const parsed = parseJsonBuffer(payload);
+  const contentType = upstream.headers.get("content-type") || "application/json";
+  if (upstream.ok) {
+    context.modelBillingStore.recordUsage({
+      userId,
+      modelId: selected.id,
+      upstreamModel: selected.upstreamModel,
+      provider: "deepseek",
+      requestPath: proxyPath,
+      usage: usageFromBufferedModelPayload(payload, contentType),
+      pricing: modelPricing(context),
+      status: "succeeded"
+    });
+  } else {
+    context.modelBillingStore.recordUsage({
+      userId,
+      modelId: selected.id,
+      upstreamModel: selected.upstreamModel,
+      provider: "deepseek",
+      requestPath: proxyPath,
+      usage: {},
+      pricing: modelPricing(context),
+      status: "failed",
+      error: normalizeModelProxyError(parsed, `DeepSeek request failed (${upstream.status}).`)
+    });
+  }
+  res.writeHead(upstream.status, {
+    "content-type": contentType,
+    "cache-control": "no-store",
+    "content-length": payload.length
+  });
+  res.end(payload);
+  return true;
+}
+
+async function handleMiaModelProxy(req, res, context, url, { userId, prefix = "/api/me/model-proxy/v1" } = {}) {
+  if (!url.pathname.startsWith(prefix)) return false;
   if (req.method === "GET" && url.pathname === `${prefix}/models`) {
     const models = await listPlatformModelCatalog(context);
     writeJson(res, 200, {
@@ -990,6 +1552,15 @@ async function handleUserModelProxy(req, res, context, url) {
         provider: model.provider || "mia"
       }))
     });
+    return true;
+  }
+  if (modelGatewayMode(context) === "deepseek") {
+    return proxyDeepSeekChatCompletion(req, res, context, url, { userId, prefix });
+  }
+
+  const serviceKey = litellmServiceKey(context) || litellmAdminKey(context);
+  if (!serviceKey) {
+    writeError(res, 503, "Mia 托管模型未配置。");
     return true;
   }
   const proxyPath = url.pathname.slice(prefix.length);
@@ -1036,9 +1607,80 @@ async function handleUserModelProxy(req, res, context, url) {
   return true;
 }
 
+async function handleUserModelProxy(req, res, context, url, userId) {
+  return handleMiaModelProxy(req, res, context, url, { userId, prefix: "/api/me/model-proxy/v1" });
+}
+
+async function handleInternalModelProxy(req, res, context, url) {
+  const prefix = "/api/internal/model-proxy/v1";
+  if (!url.pathname.startsWith(prefix)) return false;
+  const secret = String(context.internalModelProxyKey || process.env.MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY || "").trim();
+  const userId = verifyUserModelProxyToken ? verifyUserModelProxyToken(secret, bearerTokenFromRequest(req)) : null;
+  if (!userId || !context.cloudStore.getUserPublic(userId)) {
+    writeError(res, 401, "Invalid internal model token.");
+    return true;
+  }
+  return handleMiaModelProxy(req, res, context, url, { userId, prefix });
+}
+
 async function handleAdminModelGateway(req, res, context, url) {
   if (!requireAdmin(req, res, context)) return;
+  if (req.method === "GET" && url.pathname === "/api/admin/model-credits") {
+    const account = String(url.searchParams.get("account") || "").trim();
+    const userId = String(url.searchParams.get("userId") || "").trim();
+    const user = userId
+      ? context.cloudStore.getUserPublic(userId)
+      : context.cloudStore.getUserByUsername(account);
+    if (!user) return writeError(res, 404, "user not found");
+    return writeJson(res, 200, {
+      ok: true,
+      user,
+      balance: context.modelBillingStore?.getBalance(user.id) || null,
+      recentUsage: context.modelBillingStore?.listRecentUsage(user.id, 50) || []
+    });
+  }
+  if (req.method === "POST" && url.pathname === "/api/admin/model-credits/grant") {
+    const body = await readJson(req);
+    const user = body.userId
+      ? context.cloudStore.getUserPublic(String(body.userId || ""))
+      : context.cloudStore.getUserByUsername(String(body.account || body.username || ""));
+    if (!user) return writeError(res, 404, "user not found");
+    const hasAmountUsd = body.amountUsd !== undefined || body.usd !== undefined;
+    const hasDeltaMicrousd = body.deltaMicrousd !== undefined;
+    const amountUsd = hasAmountUsd ? Number(body.amountUsd ?? body.usd) : 0;
+    const deltaMicrousd = hasDeltaMicrousd ? Number(body.deltaMicrousd) : 0;
+    if ((!hasAmountUsd && !hasDeltaMicrousd) || !Number.isFinite(amountUsd) || !Number.isFinite(deltaMicrousd)) {
+      return writeError(res, 400, "amountUsd or deltaMicrousd is required");
+    }
+    if ((hasDeltaMicrousd ? deltaMicrousd : Math.round(amountUsd * 1_000_000)) <= 0) {
+      return writeError(res, 400, "credit amount must be positive");
+    }
+    const grantArgs = {
+      userId: user.id,
+      reason: body.reason || "admin_grant"
+    };
+    if (hasDeltaMicrousd) grantArgs.deltaMicrousd = deltaMicrousd;
+    else grantArgs.amountUsd = amountUsd;
+    const balance = context.modelBillingStore.grantBalance(grantArgs);
+    return writeJson(res, 200, { ok: true, user, balance });
+  }
   if (req.method === "GET" && url.pathname === "/api/admin/model-gateway") {
+    if (modelGatewayMode(context) === "deepseek") {
+      return writeJson(res, 200, {
+        ok: true,
+        gateway: {
+          mode: "deepseek",
+          baseUrl: deepSeekBaseUrl(context),
+          configured: Boolean(deepSeekApiKey(context)),
+          configuredFrom: deepSeekApiKeySource(context),
+          billingConfigured: Boolean(context.modelBillingStore)
+        },
+        modelName: platformModelId(context),
+        models: directDeepSeekModels(context),
+        settings: publicDeepSeekGatewaySettings(context),
+        pricing: modelPricing(context)
+      });
+    }
     const models = await listLiteLLMModels(context);
     return writeJson(res, 200, {
       ok: true,
@@ -1052,6 +1694,28 @@ async function handleAdminModelGateway(req, res, context, url) {
     });
   }
   if (req.method === "POST" && url.pathname === "/api/admin/model-gateway") {
+    if (modelGatewayMode(context) === "deepseek") {
+      if (!context.modelGatewayStore) {
+        return writeError(res, 503, "模型配置存储未初始化。");
+      }
+      const input = normalizeDeepSeekAdminInput(await readJson(req), context);
+      const saved = context.modelGatewayStore.saveSettings(input);
+      return writeJson(res, 200, {
+        ok: true,
+        gateway: {
+          mode: "deepseek",
+          baseUrl: deepSeekBaseUrl(context),
+          configured: Boolean(deepSeekApiKey(context)),
+          configuredFrom: deepSeekApiKeySource(context),
+          billingConfigured: Boolean(context.modelBillingStore)
+        },
+        model: modelGatewayStoreModule.publicSettings(saved),
+        settings: publicDeepSeekGatewaySettings(context),
+        models: directDeepSeekModels(context),
+        pricing: modelPricing(context),
+        message: "模型配置已保存。"
+      });
+    }
     const input = normalizeAdminModelInput(await readJson(req));
     const existing = await listLiteLLMModels(context);
     for (const row of existing.filter((item) => item?.model_name === input.modelName)) {
@@ -1086,6 +1750,36 @@ async function handleAdminModelGateway(req, res, context, url) {
     });
   }
   if (req.method === "POST" && url.pathname === "/api/admin/model-gateway/test") {
+    if (modelGatewayMode(context) === "deepseek") {
+      const apiKey = deepSeekApiKey(context);
+      if (!apiKey) {
+        return writeError(res, 503, "Mia DeepSeek 模型未配置。");
+      }
+      const model = directDeepSeekModels(context)[0];
+      const upstream = await fetch(`${deepSeekBaseUrl(context)}/chat/completions`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: model.upstreamModel,
+          messages: [{ role: "user", content: "Reply with exactly: mia-ok" }],
+          max_tokens: 20
+        })
+      });
+      const payload = Buffer.from(await upstream.arrayBuffer());
+      const parsed = parseJsonBuffer(payload) || {};
+      if (!upstream.ok) {
+        return writeError(res, upstream.status, normalizeModelProxyError(parsed, `DeepSeek request failed (${upstream.status}).`));
+      }
+      return writeJson(res, 200, {
+        ok: true,
+        reply: parsed?.choices?.[0]?.message?.content || "",
+        model: model.id,
+        upstreamModel: parsed?.model || model.upstreamModel
+      });
+    }
     const serviceKey = litellmServiceKey(context) || litellmAdminKey(context);
     const result = await litellmRequest(context, "/v1/chat/completions", {
       method: "POST",
@@ -1559,12 +2253,6 @@ function tokenFromWebSocketProtocol(req) {
     ?.slice(prefix.length) || "";
 }
 
-function clientIp(req) {
-  return String(req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "")
-    .split(",")[0]
-    .trim();
-}
-
 function clientFile(file) {
   if (!file) return null;
   return {
@@ -1723,6 +2411,12 @@ async function handleRequest(req, res, context) {
     });
     return;
   }
+  if (await handleWechatMpEvents(req, res, context, url)) return;
+  if (req.method === "GET" && url.pathname === "/api/auth/wechat/mp/qr") {
+    const record = context.wechatAuth.peek(url.searchParams.get("state"));
+    writeText(res, 200, wechatMpQrHtml(record), "text/html; charset=utf-8");
+    return;
+  }
 
   if (url.pathname === "/admin") {
     res.writeHead(308, { "Location": "/admin/model" });
@@ -1741,32 +2435,55 @@ async function handleRequest(req, res, context) {
     }
     return;
   }
+  if (url.pathname.startsWith("/api/internal/model-proxy/")) {
+    try {
+      if (await handleInternalModelProxy(req, res, context, url)) return;
+    } catch (error) {
+      writeError(res, error.status || 500, error.message || "Internal model proxy failed.");
+      return;
+    }
+  }
 
   if (serveAvatarAsset(req, res, context, url.pathname)) return;
+  if (serveStatusBadgeAsset(req, res, context, url.pathname)) return;
   if (serveWebAsset(req, res, context.webRoot, url.pathname)) return;
 
   try {
-    if (req.method === "POST" && url.pathname === "/api/auth/register") {
-      const account = cloudStore.registerUser(await readJson(req));
-      ensureCloudAgentBootstrap(context, account.user.id);
-      return writeJson(res, 201, compactAuthAccount(account));
+    if (req.method === "POST" && url.pathname === "/api/auth/wechat/start") {
+      const body = await readJson(req);
+      const mpConfig = wechatMpConfig(context);
+      if (!isWechatMpLoginConfigured(mpConfig)) {
+        return writeError(res, 503, "微信公众号登录未配置。");
+      }
+      const started = await context.wechatAuth.startMp(mpConfig, {
+        client: body.client,
+        publicUrl: publicOriginFromContext(context)
+      });
+      return writeJson(res, 200, { ok: true, ...started });
     }
 
-    if (req.method === "POST" && url.pathname === "/api/auth/login") {
-      const account = cloudStore.loginUser({ ...(await readJson(req)), ip: clientIp(req) });
-      ensureCloudAgentBootstrap(context, account.user.id);
-      return writeJson(res, 200, compactAuthAccount(account));
+    if (req.method === "POST" && url.pathname === "/api/auth/wechat/complete") {
+      const body = await readJson(req);
+      const result = context.wechatAuth.complete(body.state);
+      if (result.status === "complete" && result.user?.id) ensureCloudAgentBootstrap(context, result.user.id);
+      return writeJson(res, 200, { ok: result.status !== "failed", ...compactAuthAccount(result) });
     }
 
     const auth = cloudStore.authenticateToken(tokenFromRequest(req));
     if (req.method === "GET" && serveAuthorizedFile(req, res, cloudStore, auth, url.pathname)) return;
     if (!auth) return writeError(res, 401, "请先登录。");
 
-    if (await handleUserModelProxy(req, res, context, url)) return;
+    if (await handleUserModelProxy(req, res, context, url, auth.user.id)) return;
 
     if (req.method === "GET" && url.pathname === "/api/me/model-catalog") {
       const models = await listPlatformModelCatalog(context);
       return writeJson(res, 200, { ok: true, models });
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/me/model-balance") {
+      const balance = context.modelBillingStore?.getBalance(auth.user.id) || null;
+      const recentUsage = context.modelBillingStore?.listRecentUsage(auth.user.id, 20) || [];
+      return writeJson(res, 200, { ok: true, balance, recentUsage });
     }
 
     // POST /api/social/friend-requests
@@ -2804,10 +3521,8 @@ async function handleRequest(req, res, context) {
     const message = error.message || "Internal error.";
     if (error.code === "MIA_INVALID_JSON") return writeError(res, 400, message);
     if (error.code === "MIA_BODY_TOO_LARGE") return writeError(res, 413, message);
-    if (/账号已存在/.test(message)) return writeError(res, 409, message);
-    if (/登录尝试过多/.test(message)) return writeError(res, 429, message);
-    if (/用户名或密码不正确/.test(message)) return writeError(res, 401, message);
-    if (/用户名需要|密码至少|Invalid image|Unsupported image/.test(message)) return writeError(res, 400, message);
+    if (/Invalid image|Unsupported image/.test(message)) return writeError(res, 400, message);
+    if (error.status) return writeError(res, Number(error.status), message);
     writeError(res, 500, message);
   }
 }
@@ -2868,7 +3583,15 @@ function createMiaCloudServer(options = {}) {
     runtimeBindingsStore: null,
     cloudAgentRunsStore: null,
     cloudAgentDispatcher: null,
-    hermesSkillsSource: null
+    modelBillingStore: null,
+    modelGatewayStore: null,
+    internalModelProxyKey: options.internalModelProxyKey || process.env.MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY || "",
+    hermesSkillsSource: null,
+    wechatMpAppId: options.wechatMpAppId || process.env.MIA_WECHAT_MP_APP_ID || "",
+    wechatMpAppSecret: options.wechatMpAppSecret || process.env.MIA_WECHAT_MP_APP_SECRET || "",
+    wechatMpToken: options.wechatMpToken || process.env.MIA_WECHAT_MP_TOKEN || "",
+    publicUrl: options.publicUrl || process.env.MIA_CLOUD_PUBLIC_URL || "",
+    wechatAuth: null
   };
   context.socialStore = createSocialStore(context.cloudStore.getDb());
   context.messagesStore = createMessagesStore(context.cloudStore.getDb());
@@ -2889,15 +3612,29 @@ function createMiaCloudServer(options = {}) {
       : null);
   context.runtimeBindingsStore = createRuntimeBindingsStore(context.cloudStore.getDb());
   context.cloudAgentRunsStore = createCloudAgentRunsStore(context.cloudStore.getDb());
-  if (options.cloudAgentWorkerManager && options.cloudAgentHermesClient && createCloudAgentDispatcher) {
+  context.modelBillingStore = createModelBillingStore ? createModelBillingStore(context.cloudStore.getDb()) : null;
+  context.modelGatewayStore = modelGatewayStoreModule?.createModelGatewayStore
+    ? modelGatewayStoreModule.createModelGatewayStore(context.cloudStore.getDb())
+    : null;
+  const cloudAgentMode = String(options.cloudAgentMode || process.env.MIA_CLOUD_AGENT_MODE || "disabled").trim();
+  const cloudAgentWorkerManager = options.cloudAgentWorkerManager
+    || (cloudAgentMode && cloudAgentMode !== "disabled" && createHermesWorkerManager
+      ? createHermesWorkerManager({
+        publicUrl: options.publicUrl || process.env.MIA_CLOUD_PUBLIC_URL || "",
+        internalModelProxyKey: context.internalModelProxyKey
+      })
+      : null);
+  const cloudAgentHermesClient = options.cloudAgentHermesClient
+    || (cloudAgentWorkerManager && createHermesRunsClient ? createHermesRunsClient() : null);
+  if (cloudAgentWorkerManager && cloudAgentHermesClient && createCloudAgentDispatcher) {
     context.cloudAgentDispatcher = createCloudAgentDispatcher({
       socialStore: context.socialStore,
       messagesStore: context.messagesStore,
       botsStore: context.botsStore,
       runtimeBindingsStore: context.runtimeBindingsStore,
       cloudAgentRunsStore: context.cloudAgentRunsStore,
-      workerManager: options.cloudAgentWorkerManager,
-      hermesRunsClient: options.cloudAgentHermesClient,
+      workerManager: cloudAgentWorkerManager,
+      hermesRunsClient: cloudAgentHermesClient,
       attachmentMaterializer: createAttachmentMaterializer
         ? createAttachmentMaterializer({ cloudStore: context.cloudStore })
         : null,
@@ -2920,6 +3657,11 @@ function createMiaCloudServer(options = {}) {
   }, 60 * 60 * 1000);
   if (context.eventLogPurgeTimer.unref) context.eventLogPurgeTimer.unref();
   context.userSettingsStore = createUserSettingsStore(context.cloudStore.getDb());
+  context.wechatAuth = createWechatAuthFlow({
+    cloudStore: context.cloudStore,
+    fetchImpl: options.fetchImpl || fetch,
+    onLogin: (account) => ensureCloudAgentBootstrap(context, account.user.id)
+  });
   const server = http.createServer((req, res) => handleRequest(req, res, context));
   const wss = new WebSocketServer({ noServer: true });
   server.on("upgrade", (req, socket, head) => handleBridgeUpgrade(req, socket, head, context, wss));

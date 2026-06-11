@@ -554,7 +554,7 @@ test("scripts/build-cloud-release.js ships the git-versioned skill catalog", () 
   );
   assert.match(
     build,
-    /api\/skills\/commit-craft\/SKILL\.md/,
+    /api\/skills\/pdf\/SKILL\.md/,
     "release verifier must fail if seeded marketplace skills are missing"
   );
 });
@@ -564,9 +564,42 @@ test("cloud release and local web server expose desktop model icon assets", () =
   const serveWeb = fs.readFileSync(path.join(ROOT, "scripts/serve-web.js"), "utf8");
   assert.match(build, /src\/renderer\/assets\/model-icons/);
   assert.match(build, /src\/renderer\/assets\/provider-icons/);
+  assert.match(build, /src\/renderer\/assets\/lottie/);
+  assert.match(build, /src\/renderer\/assets\/status-badges/);
   assert.match(serveWeb, /target\.startsWith\("assets\/model-icons\/"\)/);
   assert.match(serveWeb, /target\.startsWith\("assets\/provider-icons\/"\)/);
+  assert.match(serveWeb, /target\.startsWith\("assets\/lottie\/"\)/);
+  assert.match(serveWeb, /target\.startsWith\("assets\/status-badges\/"\)/);
   assert.match(serveWeb, /path\.join\(sourceRoot, "renderer", target\)/);
+});
+
+test("web app loads lottie player and renders status badge lotties from cloud assets", () => {
+  const html = fs.readFileSync(path.join(ROOT, "src/web/app/index.html"), "utf8");
+  const app = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
+  const lottieIdx = html.indexOf("assets/lottie/lottie_light.min.js");
+  const appIdx = html.indexOf("../app.js");
+  assert.ok(lottieIdx >= 0, "web app must load lottie-web before app.js");
+  assert.ok(lottieIdx < appIdx, "lottie player must load before app.js initializes badge animations");
+  assert.match(app, /function renderNameWithBadgeHtml/);
+  assert.match(app, /\/api\/status-badge-assets\/\$\{encodeURIComponent\(id\)\}\.json/);
+  assert.match(app, /function initStatusBadgeLotties/);
+  assert.match(app, /surprised-cat/);
+});
+
+test("web settings exposes a status badge profile control", () => {
+  const html = fs.readFileSync(path.join(ROOT, "src/web/app/index.html"), "utf8");
+  const app = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
+
+  assert.match(html, /id="profileNameText"/);
+  assert.match(html, /id="profileStatusBadge"/);
+  assert.match(html, /id="profileStatusBadgeDetails"/);
+  assert.match(html, /id="profileStatusBadgeTrigger"/);
+  assert.match(html, /value="surprised-cat">惊讶猫/);
+  assert.doesNotMatch(html, /profileStatusBadgePreview/);
+  assert.doesNotMatch(html, /名字旁徽章/);
+  assert.match(app, /saveProfilePatch\(\{ displayName \}/);
+  assert.match(app, /saveProfilePatch\(\{ statusBadge \}/);
+  assert.match(app, /function statusBadgeForPreset/);
 });
 
 test("cloud release and local web server expose desktop markdown helper", () => {

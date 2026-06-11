@@ -36,4 +36,5 @@ export function normalizeBotColor(input?: unknown): string;
 export function normalizeBotAvatarCrop(input?: unknown): Record<string, unknown> | null;
 export function normalizeCapabilityIds(input?: unknown): string[];
 export function normalizeBotCapabilities(input?: unknown): BotCapabilities;
+export function botCapabilitiesWithPresetDefaults(bot?: Record<string, unknown>, presets?: Record<string, unknown>[]): BotCapabilities;
 export function normalizeBotIdentity(input?: unknown, options?: Record<string, unknown>): BotIdentity | null;

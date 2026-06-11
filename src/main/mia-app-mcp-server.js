@@ -14,8 +14,7 @@ const READ_TOOLS = new Set([
   "schedule_list",
   "skill_search",
   "skill_show",
-  "conversation_list",
-  "bot_list"
+  "conversation_list"
 ]);
 const WRITE_TOOLS = new Set([
   "schedule_create",
@@ -41,8 +40,7 @@ function toolDefinitions() {
     { name: "skill_install", description: "Install a Mia skill for the current user.", inputSchema: { type: "object" } },
     { name: "conversation_list", description: "List Mia conversations available to the current user.", inputSchema: { type: "object" } },
     { name: "conversation_create_group", description: "Create a Mia group conversation.", inputSchema: { type: "object" } },
-    { name: "conversation_post_message", description: "Post a message into a Mia conversation.", inputSchema: { type: "object" } },
-    { name: "bot_list", description: "List Mia bots and basic runtime metadata.", inputSchema: { type: "object" } }
+    { name: "conversation_post_message", description: "Post a message into a Mia conversation.", inputSchema: { type: "object" } }
   ];
 }
 
@@ -167,8 +165,6 @@ async function callTool(name, args = {}) {
       return daemonJson("POST", `/api/conversations/${encodeURIComponent(args.conversationId)}/messages`, {
         bodyMd: args.bodyMd || args.body || args.message || ""
       });
-    case "bot_list":
-      return daemonJson("GET", "/api/bots", null);
     default:
       throw new Error(`Unknown tool: ${name}`);
   }

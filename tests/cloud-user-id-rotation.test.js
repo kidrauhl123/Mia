@@ -19,9 +19,9 @@ function tempStore() {
 
 function insertUser(db, id, account) {
   db.prepare(`
-    INSERT INTO users (id, account, username, password_salt, password_hash, created_at)
-    VALUES (?, ?, ?, 'salt', 'hash', '2026-06-10T00:00:00.000Z')
-  `).run(id, account.toLowerCase(), account.toLowerCase());
+    INSERT INTO users (id, account, username, email, display_name, created_at)
+    VALUES (?, ?, ?, '', ?, '2026-06-10T00:00:00.000Z')
+  `).run(id, account.toLowerCase(), account.toLowerCase(), account);
 }
 
 function insertConversation(db, id, type = "dm") {

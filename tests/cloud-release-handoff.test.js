@@ -235,11 +235,10 @@ test("buildHandoff prints operator commands from release artifacts", () => {
     assert.match(handoff, /MIA_SMOKE_EXPECT_RELEASE_BUILT_AT='2026-05-21T01:02:03\.000Z'/);
     assert.match(handoff, /node mia-cloud-release\/smoke-cloud\.js 'https:\/\/mia\.gifgif\.cn'/);
     assert.match(handoff, /curl -fsS 'https:\/\/mia\.gifgif\.cn\/5a371047c22c89872f93f00c7d8af123\.txt' \| grep -qxF '24dd5141e8f881adf83372da5cd9d6f1f60f2b32'/);
-    assert.match(handoff, /After a desktop bridge is logged into the same dedicated smoke account/);
+    assert.match(handoff, /After the desktop bridge is logged into the same dedicated WeChat smoke account/);
     assert.match(handoff, /mia-cloud-release\/prepare-cloud-smoke-account\.js mia-cloud-release\/smoke-cloud\.js/);
     assert.match(handoff, /node mia-cloud-release\/prepare-cloud-smoke-account\.js 'https:\/\/mia\.gifgif\.cn'/);
-    assert.match(handoff, /MIA_SMOKE_USERNAME='<smoke-account>'/);
-    assert.match(handoff, /MIA_SMOKE_PASSWORD='<smoke-password>'/);
+    assert.match(handoff, /MIA_CLOUD_TOKEN='<smoke-account-token>'/);
     assert.match(handoff, /MIA_SMOKE_REQUIRE_BRIDGE=1/);
     assert.match(handoff, /Desktop bridge same-account control:/);
     assert.match(handoff, /same Mia Cloud account/);
@@ -252,8 +251,7 @@ test("buildHandoff prints operator commands from release artifacts", () => {
     assert.match(handoff, /not run from the extracted Cloud release directory/);
     assert.match(handoff, /cd \/path\/to\/mia/);
     assert.match(handoff, /MIA_CLOUD_URL='https:\/\/mia\.gifgif\.cn'/);
-    assert.match(handoff, /MIA_CLOUD_USERNAME='<smoke-account>'/);
-    assert.match(handoff, /MIA_CLOUD_PASSWORD='<smoke-password>'/);
+    assert.match(handoff, /MIA_CLOUD_TOKEN='<smoke-account-token>'/);
     assert.match(handoff, /npm run bridge/);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });

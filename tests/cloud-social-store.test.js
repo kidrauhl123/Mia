@@ -6,14 +6,15 @@ const path = require("node:path");
 const { createCloudStore } = require("../src/cloud/sqlite-store.js");
 const { createBotsStore } = require("../src/cloud/bots-store.js");
 const { createSocialStore } = require("../src/cloud/social-store.js");
+const { createCloudUser } = require("./helpers/cloud-auth.js");
 
 function makeStores() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-social-test-"));
   const cloudStore = createCloudStore({ dataDir: tmpDir });
   const db = cloudStore.getDb();
   const social = createSocialStore(db);
-  const alice = cloudStore.registerUser({ username: "alice", password: "Pa55word!" }).user;
-  const bob = cloudStore.registerUser({ username: "bob", password: "Pa55word!" }).user;
+  const alice = createCloudUser(cloudStore, "alice");
+  const bob = createCloudUser(cloudStore, "bob");
   return { cloudStore, social, alice, bob, tmpDir };
 }
 
@@ -103,7 +104,7 @@ test("getFriendRequestById returns row or null", () => {
 test("listOutgoingPending returns sender's pending requests", () => {
   const ctx = makeStores();
   try {
-    const charlie = ctx.cloudStore.registerUser({ username: "charlie", password: "Pa55word!" }).user;
+    const charlie = createCloudUser(ctx.cloudStore, "charlie");
     ctx.social.createFriendRequestByUsername({ fromUserId: ctx.alice.id, toUserId: ctx.bob.id });
     ctx.social.createFriendRequestByUsername({ fromUserId: ctx.alice.id, toUserId: charlie.id });
     const outgoing = ctx.social.listOutgoingPending(ctx.alice.id);
@@ -116,7 +117,7 @@ test("listOutgoingPending returns sender's pending requests", () => {
 test("listIncomingPending returns recipient's pending requests", () => {
   const ctx = makeStores();
   try {
-    const charlie = ctx.cloudStore.registerUser({ username: "charlie", password: "Pa55word!" }).user;
+    const charlie = createCloudUser(ctx.cloudStore, "charlie");
     ctx.social.createFriendRequestByUsername({ fromUserId: ctx.alice.id, toUserId: ctx.bob.id });
     ctx.social.createFriendRequestByUsername({ fromUserId: charlie.id, toUserId: ctx.bob.id });
     const incoming = ctx.social.listIncomingPending(ctx.bob.id);

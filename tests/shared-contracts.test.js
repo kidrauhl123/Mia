@@ -25,6 +25,7 @@ test("ipc channel contract is available in Node and browser contexts", () => {
   assert.equal(nodeContract.IpcChannel.ChatSend, "chat:send");
   assert.equal(nodeContract.IpcChannel.RuntimeInitialize, "runtime:initialize");
   assert.equal(nodeContract.IpcChannel.TasksRunNow, "tasks:run-now");
+  assert.equal(nodeContract.IpcChannel.UpdateCheck, "update:check");
   assert.deepEqual(plain(browserContract.IpcChannel), plain(nodeContract.IpcChannel));
 });
 

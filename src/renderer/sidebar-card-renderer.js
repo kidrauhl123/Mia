@@ -43,8 +43,10 @@
   }
 
   function nameWithBadgeRenderer() {
-    const renderer = global.miaNameWithBadge?.renderNameWithBadge;
-    return typeof renderer === "function" ? renderer : null;
+    const renderer = global.miaNameWithBadge;
+    if (typeof renderer?.setNameWithBadge === "function") return renderer.setNameWithBadge;
+    if (typeof renderer?.renderNameWithBadge === "function") return renderer.renderNameWithBadge;
+    return null;
   }
 
   function attachNameWithBadge(root, spec, fallbackName) {
@@ -54,11 +56,16 @@
     if (!target) return;
     let nameEl = null;
     try {
-      nameEl = renderName({
+      const payload = {
         identity: spec.identity,
         fallbackName,
         statusBadge: spec.statusBadge
-      });
+      };
+      if (renderName === global.miaNameWithBadge?.setNameWithBadge) {
+        renderName(target, payload);
+        return;
+      }
+      nameEl = renderName(payload);
     } catch {
       return;
     }

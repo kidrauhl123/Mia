@@ -156,11 +156,13 @@
     state.profileDialogOpen = true;
     if (els.profileDisplayName) els.profileDisplayName.value = user.displayName || "";
     if (els.profileUidValue) els.profileUidValue.textContent = user.id || "未登录";
+    if (els.profileStatusBadge) els.profileStatusBadge.value = window.miaStatusBadgeControls?.statusBadgePresetValue?.(user.statusBadge) || "";
     setProfileAvatarDraft(user.avatarImage || "", user.avatarCrop);
     if (state.profileAvatarDraft) state.profileAvatarDraft.color = user.avatarColor || "";
     renderProfileAvatarDraft();
     renderView();
-    setTimeout(() => els.profileDisplayName?.focus(), 0);
+    window.miaStatusBadgeControls?.syncIdentityNameText?.("profile");
+    window.miaStatusBadgeControls?.syncStatusBadgeControl?.("profile");
   }
 
   function closeProfileDialog() {
@@ -754,9 +756,10 @@
       : (seed ? "创建你的第一个伙伴" : "添加伙伴");
     if (els.botKey) els.botKey.value = actualBot?.key || "";
     els.botName.value = actualBot?.name || seed?.name || "";
+    if (els.botStatusBadge) els.botStatusBadge.value = window.miaStatusBadgeControls?.statusBadgePresetValue?.(actualBot?.statusBadge || actualBot?.status_badge) || "";
     const runtimeKind = window.miaBotDirectory?.normalizeRuntimeKind?.(
       actualBot?.runtimeKind || actualBot?.runtime_kind || seed?.runtimeKind,
-      actualBot?.sourceKinds?.includes?.("cloud") ? "cloud-hermes" : "desktop-local"
+      window.miaBotDirectory?.isCloudIdentityBot?.(actualBot) ? "cloud-hermes" : "desktop-local"
     ) || "desktop-local";
     renderBotRuntimeTargetSelect({
       runtimeKind,
@@ -792,7 +795,8 @@
     els.botSeed.value = actualBot ? personaText : (seed?.bio || "");
     if (els.botPersonaDetails) els.botPersonaDetails.open = Boolean(seed);
     renderView();
-    setTimeout(() => els.botName?.focus(), 0);
+    window.miaStatusBadgeControls?.syncIdentityNameText?.("bot");
+    window.miaStatusBadgeControls?.syncStatusBadgeControl?.("bot");
   }
 
   function refreshBridgeDevicesForDialog() {

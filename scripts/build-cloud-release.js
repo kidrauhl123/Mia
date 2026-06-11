@@ -233,9 +233,30 @@ The release archive also includes \`diagnose-deploy-ssh.js\` for operators who c
 
 If this archive has already been extracted and the original tarball is not in the current directory, run the verify command from the directory that contains \`mia-cloud-release.tgz\`, or pass the absolute path to the tarball.
 
+## WeChat Official Account Login
+
+Mia Cloud uses the Official Account identity as the only cloud account login. Put these values in \`/etc/mia-cloud/admin.env\`:
+
+\`\`\`ini
+MIA_WECHAT_MP_APP_ID=<WeChat Official Account AppID>
+MIA_WECHAT_MP_APP_SECRET=<WeChat Official Account AppSecret>
+MIA_WECHAT_MP_TOKEN=<message push token configured in WeChat>
+\`\`\`
+
+Configure message push URL \`https://mia.gifgif.cn/api/auth/wechat/mp/events\`, XML data, plaintext mode, and the matching token. The Official Account must have the \`生成带参数二维码\` / \`qrcode/create\` API enabled; Mia creates a temporary \`QR_STR_SCENE\` code and completes login from the pushed \`subscribe\` or \`SCAN\` event. \`JS接口安全域名\`, web authorization domain, and OAuth callback are not used for this login path. If WeChat returns \`48001 api unauthorized\`, Mia fails the login start request with a configuration error instead of falling back to another login method. Profile name and avatar come from the Official Account user info API when that permission is available.
+
 ## Platform Model Gateway
 
-Cloud Hermes workers use the platform model supplied through LiteLLM Proxy. Configure provider keys from the Mia admin page at \`/admin/model\`; it writes the \`mia-default\` model alias into LiteLLM over the private admin API. The release includes a \`hermes-image/\` Docker build context and the installer builds \`MIA_CLOUD_HERMES_IMAGE\` on the VPS, so worker startup does not depend on pulling a private external image. On China-hosted VPS networks, set \`MIA_DEBIAN_APT_MIRROR=https://mirrors.tencent.com/debian\` and \`MIA_PIP_INDEX_URL=https://mirrors.tencent.com/pypi/simple\` before running the installer if upstream Debian/PyPI downloads hang. If \`MIA_CLOUD_HERMES_IMAGE\` is already present on the VPS and the Hermes version did not change, set \`MIA_INSTALL_SKIP_HERMES_IMAGE_BUILD=1\` to skip rebuilding after first verifying that image exists. The service still needs \`MIA_CLOUD_AGENT_MODEL_BASE_URL=http://litellm:4000/v1\`, \`MIA_CLOUD_AGENT_MODEL=mia-default\`, \`MIA_CLOUD_AGENT_MODEL_API_KEY=<LiteLLM virtual key>\`, \`LITELLM_MASTER_KEY=<LiteLLM admin key>\`, and \`MIA_CLOUD_ADMIN_USERNAME/PASSWORD\` in systemd or \`/etc/mia-cloud/admin.env\`. Do not expose the LiteLLM UI directly on the public internet.
+Mia can sell a platform DeepSeek model without exposing provider keys to users. Set \`MIA_MODEL_GATEWAY=deepseek\` and \`MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY=<random internal proxy secret>\` in \`/etc/mia-cloud/admin.env\`, then open \`/admin/model\` to save the DeepSeek API Key, base URL, public Mia model name, and token pricing. \`MIA_DEEPSEEK_API_KEY=<DeepSeek API key>\` is an optional bootstrap fallback if the database setting has not been saved yet. Cloud Hermes workers receive per-user internal proxy tokens and call \`/api/internal/model-proxy/v1\`; Mia Cloud forwards to DeepSeek, records token usage in SQLite, and deducts the user's Mia model balance. The release includes a \`hermes-image/\` Docker build context and the installer builds \`MIA_CLOUD_HERMES_IMAGE\` on the VPS, so worker startup does not depend on pulling a private external image. On China-hosted VPS networks, set \`MIA_DEBIAN_APT_MIRROR=https://mirrors.tencent.com/debian\` and \`MIA_PIP_INDEX_URL=https://mirrors.tencent.com/pypi/simple\` before running the installer if upstream Debian/PyPI downloads hang. If \`MIA_CLOUD_HERMES_IMAGE\` is already present on the VPS and the Hermes version did not change, set \`MIA_INSTALL_SKIP_HERMES_IMAGE_BUILD=1\` to skip rebuilding after first verifying that image exists. LiteLLM remains optional for a future multi-provider gateway.
+
+Manual first-version credit grant:
+
+\`\`\`bash
+curl -u "$MIA_CLOUD_ADMIN_USERNAME:$MIA_CLOUD_ADMIN_PASSWORD" \\
+  -H 'content-type: application/json' \\
+  -d '{"account":"user@example.com","amountUsd":5,"reason":"manual_topup"}' \\
+  https://mia.gifgif.cn/api/admin/model-credits/grant
+\`\`\`
 
 ## Install On The VPS
 
@@ -262,32 +283,29 @@ node verify-site-verification.js https://mia.gifgif.cn
 
 ## Verify Desktop Bridge E2E
 
-Prepare or validate a dedicated smoke account, log the desktop app into that same account, then run:
+Log in with WeChat, copy the resulting bearer token for the dedicated smoke account, and log the desktop app into that same WeChat account. Then run:
 
 \`\`\`bash
-MIA_SMOKE_USERNAME="<smoke-account>" \\
-MIA_SMOKE_PASSWORD="<smoke-password>" \\
+MIA_CLOUD_TOKEN="<smoke-account-token>" \\
 node prepare-cloud-smoke-account.js https://mia.gifgif.cn
 \`\`\`
 
 \`\`\`bash
-MIA_SMOKE_USERNAME="<smoke-account>" \\
-MIA_SMOKE_PASSWORD="<smoke-password>" \\
+MIA_CLOUD_TOKEN="<smoke-account-token>" \\
 MIA_SMOKE_REQUIRE_BRIDGE=1 \\
 MIA_SMOKE_EXPECT_RELEASE_COMMIT="$(node -e "const m=require('./manifest.json'); process.stdout.write(String(m.source?.gitCommit || ''))")" \\
 MIA_SMOKE_EXPECT_RELEASE_BUILT_AT="$(node -e "const m=require('./manifest.json'); process.stdout.write(String(m.builtAt || ''))")" \\
 node smoke-cloud.js https://mia.gifgif.cn
 \`\`\`
 
-The bridge smoke fails unless the public Cloud has an online desktop bridge for the same account and the assistant reply contains \`mia-cloud-bridge-smoke-ok\`. A desktop bridge logged into the same Mia Cloud account can be called directly from Web or mobile; it does not require a separate local approval click for the remote connection. Agent permission mode remains the normal per-Agent execution setting (Ask/YOLO/Deny or external-engine defaults) and is not used as device authentication.
+The bridge smoke fails unless the public Cloud has an online desktop bridge for the same WeChat account and the assistant reply contains \`mia-cloud-bridge-smoke-ok\`. A desktop bridge logged into the same Mia Cloud account can be called directly from Web or mobile; it does not require a separate local approval click for the remote connection. Agent permission mode remains the normal per-Agent execution setting (Ask/YOLO/Deny or external-engine defaults) and is not used as device authentication.
 
-If the operator is using the standalone local Agent bridge instead of the desktop app, start it from a full Mia project checkout on the bridge machine with the same smoke account before running the bridge smoke. This command is not run from the extracted Cloud release directory:
+If the operator is using the standalone local Agent bridge instead of the desktop app, start it from a full Mia project checkout on the bridge machine with that smoke account token before running the bridge smoke. This command is not run from the extracted Cloud release directory:
 
 \`\`\`bash
 cd /path/to/mia
 MIA_CLOUD_URL=https://mia.gifgif.cn \\
-MIA_CLOUD_USERNAME="<smoke-account>" \\
-MIA_CLOUD_PASSWORD="<smoke-password>" \\
+MIA_CLOUD_TOKEN="<smoke-account-token>" \\
 npm run bridge
 \`\`\`
 
@@ -433,6 +451,9 @@ function verifyRelease() {
     "api/src/cloud/dm-conversation.js",
     "api/src/cloud/desktop-bridge-permission.js",
     "api/src/cloud/hermes-skills-source.js",
+    "api/src/cloud/model-billing-store.js",
+    "api/src/cloud/model-gateway-store.js",
+    "api/src/cloud/model-proxy-auth.js",
     "api/src/cloud-agent/runtime-bindings-store.js",
     "api/src/cloud-agent/cloud-agent-runs-store.js",
     "api/src/cloud-agent/attachment-materializer.js",
@@ -457,7 +478,7 @@ function verifyRelease() {
     "api/src/shared/skill-safety.js",
     "api/src/shared/agent-permissions.js",
     "api/src/permission-modes.js",
-    "api/skills/commit-craft/SKILL.md",
+    "api/skills/pdf/SKILL.md",
     "web/index.html",
     "web/admin-model.html",
     "web/admin-model.js",
@@ -514,6 +535,9 @@ function verifyRelease() {
     "api/src/cloud/dm-conversation.js",
     "api/src/cloud/desktop-bridge-permission.js",
     "api/src/cloud/hermes-skills-source.js",
+    "api/src/cloud/model-billing-store.js",
+    "api/src/cloud/model-gateway-store.js",
+    "api/src/cloud/model-proxy-auth.js",
     "api/src/cloud-agent/runtime-bindings-store.js",
     "api/src/cloud-agent/cloud-agent-runs-store.js",
     "api/src/cloud-agent/attachment-materializer.js",
@@ -641,8 +665,7 @@ function verifyRelease() {
     !/not run from the extracted Cloud release directory/.test(releaseReadme) ||
     !/cd \/path\/to\/mia/.test(releaseReadme) ||
     !/MIA_CLOUD_URL=https:\/\/mia\.gifgif\.cn/.test(releaseReadme) ||
-    !/MIA_CLOUD_USERNAME="<smoke-account>"/.test(releaseReadme) ||
-    !/MIA_CLOUD_PASSWORD="<smoke-password>"/.test(releaseReadme) ||
+    !/MIA_CLOUD_TOKEN="<smoke-account-token>"/.test(releaseReadme) ||
     !/npm run bridge/.test(releaseReadme)
   ) {
     throw new Error("Release README must document standalone bridge same-account startup from a full project checkout.");
@@ -656,14 +679,16 @@ function verifyRelease() {
     throw new Error("Release README must document same-account desktop bridge control without a separate remote approval gate.");
   }
   if (
-    !/LiteLLM Proxy/.test(releaseReadme) ||
-    !/MIA_CLOUD_AGENT_MODEL_BASE_URL=http:\/\/litellm:4000\/v1/.test(releaseReadme) ||
-    !/MIA_CLOUD_AGENT_MODEL_API_KEY=<LiteLLM virtual key>/.test(releaseReadme) ||
-    !/hermes-image\/` Docker build context/.test(releaseReadme) ||
+    !/MIA_MODEL_GATEWAY=deepseek/.test(releaseReadme) ||
     !/\/admin\/model/.test(releaseReadme) ||
-    !/Do not expose the LiteLLM UI directly/.test(releaseReadme)
+    !/MIA_DEEPSEEK_API_KEY=<DeepSeek API key>` is an optional bootstrap fallback/.test(releaseReadme) ||
+    !/MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY=<random internal proxy secret>/.test(releaseReadme) ||
+    !/hermes-image\/` Docker build context/.test(releaseReadme) ||
+    !/\/api\/internal\/model-proxy\/v1/.test(releaseReadme) ||
+    !/\/api\/admin\/model-credits\/grant/.test(releaseReadme) ||
+    !/LiteLLM remains optional/.test(releaseReadme)
   ) {
-    throw new Error("Release README must document the LiteLLM platform model gateway.");
+    throw new Error("Release README must document the paid DeepSeek platform model gateway.");
   }
 
   childProcess.execFileSync(process.execPath, ["-e", `
@@ -672,6 +697,9 @@ function verifyRelease() {
     require(${JSON.stringify(assertFile("api/src/cloud/messages-store.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud/dm-conversation.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud/desktop-bridge-permission.js"))});
+    require(${JSON.stringify(assertFile("api/src/cloud/model-billing-store.js"))});
+    require(${JSON.stringify(assertFile("api/src/cloud/model-gateway-store.js"))});
+    require(${JSON.stringify(assertFile("api/src/cloud/model-proxy-auth.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/runtime-bindings-store.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/cloud-agent-runs-store.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/attachment-materializer.js"))});
@@ -734,6 +762,8 @@ function main() {
   copyDir("src/renderer/assets/model-icons", path.join(webDir, "assets", "model-icons"));
   copyDir("src/renderer/assets/provider-icons", path.join(webDir, "assets", "provider-icons"));
   copyDir("src/renderer/assets/engine-icons", path.join(webDir, "assets", "engine-icons"));
+  copyDir("src/renderer/assets/lottie", path.join(webDir, "assets", "lottie"));
+  copyDir("src/renderer/assets/status-badges", path.join(webDir, "assets", "status-badges"));
   copyFile("src/shared/time-format.js", path.join(webDir, "shared", "time-format.js"));
   copyFile("src/shared/message-spec.js", path.join(webDir, "shared", "message-spec.js"));
   copyFile("packages/shared/contact.js", path.join(webDir, "shared", "contact.js"));

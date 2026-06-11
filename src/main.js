@@ -4,6 +4,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const zlib = require("node:zlib");
 const WebSocket = require("ws");
 const { IpcChannel } = require("./shared/ipc-channels");
 const { MemberKind } = require("./shared/conversation-kinds");
@@ -35,7 +36,6 @@ const { createStartupBackgroundService } = require("./main/startup-background-se
 const { createStartupTimer } = require("./main/startup-timing.js");
 const { createChatAttachments } = require("./main/chat-attachments.js");
 const { createBotManifest } = require("./main/bot-manifest.js");
-const { createBotService } = require("./main/bot-service.js");
 const { createRuntimePaths } = require("./main/runtime-paths.js");
 const { createSettingsStore } = require("./main/settings-store.js");
 const { createWindowStateManager } = require("./main/window-state.js");
@@ -127,6 +127,37 @@ function localDeviceId() {
   fs.mkdirSync(path.dirname(p.deviceIdentity), { recursive: true });
   fs.writeFileSync(p.deviceIdentity, JSON.stringify(next, null, 2) + "\n", { mode: 0o600 });
   return next.id;
+}
+
+const statusBadgeAssetDefinitions = Object.freeze({
+  "surprised-cat": Object.freeze({
+    format: "tgs",
+    relativePath: path.join("renderer", "assets", "status-badges", "surprised-cat.tgs")
+  })
+});
+
+function loadStatusBadgeAsset(assetId) {
+  const id = String(assetId || "").trim();
+  if (!/^[A-Za-z0-9_-]+$/.test(id)) return { ok: false, error: "bad_asset_id" };
+  const definition = statusBadgeAssetDefinitions[id];
+  if (!definition) return { ok: false, error: "unknown_asset" };
+  const filePath = path.resolve(__dirname, definition.relativePath);
+  const rendererRoot = path.resolve(__dirname, "renderer");
+  if (!filePath.startsWith(`${rendererRoot}${path.sep}`)) return { ok: false, error: "bad_asset_path" };
+  try {
+    const raw = fs.readFileSync(filePath);
+    const text = definition.format === "tgs"
+      ? zlib.gunzipSync(raw).toString("utf8")
+      : raw.toString("utf8");
+    return {
+      ok: true,
+      assetId: id,
+      format: definition.format,
+      animationData: JSON.parse(text)
+    };
+  } catch (error) {
+    return { ok: false, error: error?.message || "load_failed" };
+  }
 }
 
 let shouldRunDesktopInstance = true;
@@ -292,10 +323,6 @@ const {
   normalizeBotEngineConfig,
   normalizeAvatarCrop,
   loadBotManifest,
-  saveBotManifest,
-  botPersonaBody,
-  botMetadata,
-  botPersonaPath,
   readBotPersona,
 } = botManifestModule;
 
@@ -337,7 +364,6 @@ const botPetService = createBotPetService({
   resourcesPath: process.resourcesPath || "",
   runtimePaths,
   readJson,
-  loadBotManifest: loadBotManifest,
   dataUrlToBuffer,
   initializeRuntime,
   spawnProcess: spawn,
@@ -377,10 +403,6 @@ const runtimeInitializerService = createRuntimeInitializerService({
   defaultDaemonSettings: () => settingsStore.defaultDaemonSettings(),
   defaultUserProfile: () => settingsStore.defaultUserProfile(),
   defaultAppearanceSettings: () => settingsStore.defaultAppearanceSettings(),
-  loadBotManifest,
-  saveBotManifest,
-  botPersonaBody,
-  botMetadata,
   ensureClaudeBridgePlugin: () => claudeBridgePluginService.ensureInstalled(),
   appendEngineLog,
   getRuntimeStatus
@@ -586,11 +608,9 @@ async function getObservedDaemonStatus(timeoutMs = 500) {
 
 function getRuntimeStatus(created = [], options = {}) {
   const p = runtimePaths();
-  const manifest = loadBotManifest();
   const codexAuth = authService.status();
   const settings = settingsWithoutSecret();
   const connectedProviders = connectedProviderSummaries(codexAuth);
-  const bots = Array.isArray(manifest.bots) ? manifest.bots : [];
   // Skip the synchronous local-agent scan while signed out: the login screen
   // never needs the agent inventory, and the scan's shell probes for missing
   // agents (hermes/openclaw) would block the main process and beachball the
@@ -649,8 +669,8 @@ function getRuntimeStatus(created = [], options = {}) {
       hasApiKey: connectedProviders.some((entry) => entry.provider === settings.provider && entry.hasApiKey)
     },
     connectedProviders,
-    bots,
-    pets: botPetService.statusesForBots(bots),
+    bots: [],
+    pets: {},
     petJobs: botPetService.jobs()
   };
 }
@@ -760,8 +780,10 @@ function normalizeRemoteUserMessage(input) {
   };
 }
 
-function resolveRemoteChatBot({ botKey }) {
+function resolveRemoteChatBot({ botKey, botSnapshot = null, runtimeConfig = null }) {
   initializeRuntime();
+  const snapshotBot = cloudBotSnapshotForTurn(botSnapshot, botKey, runtimeConfig);
+  if (snapshotBot) return { bot: snapshotBot };
   const manifest = loadBotManifest();
   const bots = Array.isArray(manifest.bots) ? manifest.bots : [];
   const key = String(botKey || manifest.default_bot || bots[0]?.key || "").trim();
@@ -833,7 +855,12 @@ async function runRemoteChatRequest(body, eventSink = null) {
     throw new Error("text or a user message is required.");
   }
 
-  const { bot } = resolveRemoteChatBot({ botKey: body?.botKey || body?.botId });
+  const runtimeConfig = body?.runtimeConfig || body?.runtime_config || null;
+  const { bot } = resolveRemoteChatBot({
+    botKey: body?.botKey || body?.botId,
+    botSnapshot: body?.botSnapshot || body?.bot || null,
+    runtimeConfig
+  });
   if (!bot) throw new Error("Bot not found.");
   const conversationId = String(body?.conversationId || body?.sessionId || "").trim();
   const agentSessionId = String(body?.agentSessionId || conversationId || `remote:${crypto.randomUUID()}`);
@@ -861,6 +888,7 @@ async function runRemoteChatRequest(body, eventSink = null) {
 
   const response = await sendChat({
     botKey: bot.key,
+    botSnapshot: bot,
     sessionId: agentSessionId,
     messages: runMessages,
     webContents: tracedEventSink,
@@ -869,7 +897,8 @@ async function runRemoteChatRequest(body, eventSink = null) {
     // execution mode for this turn so the replayed task prompt is run, not
     // re-interpreted as a fresh "create a task" request.
     scheduledFire: Boolean(body?.meta?.taskId),
-    persistAgentSession: true
+    persistAgentSession: true,
+    runtimeConfig
   });
   const responseMessage = response?.choices?.[0]?.message || {};
   const assistantText = responseMessageContent(response);
@@ -1073,14 +1102,6 @@ function cloudStatus(includeToken = false) {
 function cloudDesktopSync() {
   if (!cloudDesktopSyncRuntime) throw new Error("Cloud desktop sync runtime is not initialized.");
   return cloudDesktopSyncRuntime;
-}
-
-function pushBotToCloud(bot) {
-  return cloudDesktopSync().pushBot(bot);
-}
-
-function deleteBotFromCloud(botKey) {
-  return cloudDesktopSync().deleteBot(botKey);
 }
 
 function syncMiaCloudWorkspace() {
@@ -1386,13 +1407,17 @@ function createActiveStatelessChatEngineAdapters() {
   });
 }
 
-async function sendChatStateless({ botKey, systemPrompt, userPrompt, signal }) {
-  const manifest = loadBotManifest();
-  const { bot } = requireBot(manifest, botKey, "还没有可用的 bot，请先在引导里创建一个再发起对话。");
+async function sendChatStateless({ botKey, botSnapshot = null, runtimeConfig = null, systemPrompt, userPrompt, signal }) {
+  const snapshotBot = cloudBotSnapshotForTurn(botSnapshot, botKey, runtimeConfig);
+  let bot = snapshotBot;
+  if (!bot) {
+    const manifest = loadBotManifest();
+    ({ bot } = requireBot(manifest, botKey, "还没有可用的 bot，请先在引导里创建一个再发起对话。"));
+  }
   const chatEngine = resolveChatEngineAdapter(bot);
   return sendWithStatelessChatEngineAdapter(createActiveStatelessChatEngineAdapters(), {
     chatEngine,
-    bot,
+    bot: botWithRuntimeConfig(bot, normalizeTurnRuntimeConfig(runtimeConfig)),
     systemPrompt,
     userPrompt,
     signal
@@ -1609,17 +1634,13 @@ async function sendChat({ botKey, botId, botSnapshot = null, sessionId, messages
     ? createChatEventEmitter({ webContents, sessionId })
     : { emit: null };
   try {
-    const manifest = loadBotManifest();
     const key = botKey || botId;
     const snapshotBot = cloudBotSnapshotForTurn(botSnapshot, key, runtimeConfig);
-    let bot;
-    try {
-      ({ bot } = requireBot(manifest, key, "还没有可用的 bot，请先在引导里创建一个再发起对话。", { fallback: !snapshotBot }));
-    } catch (error) {
-      if (!snapshotBot) throw error;
-      bot = snapshotBot;
+    let bot = snapshotBot;
+    if (!bot) {
+      const manifest = loadBotManifest();
+      ({ bot } = requireBot(manifest, key, "还没有可用的 bot，请先在引导里创建一个再发起对话。"));
     }
-    if (!bot && snapshotBot) bot = snapshotBot;
     const turnRuntimeConfig = normalizeTurnRuntimeConfig(runtimeConfig);
     let botForTurn = botWithRuntimeConfig(bot, turnRuntimeConfig);
     const runtimeAgentEngine = String(runtimeConfig?.agentEngine || runtimeConfig?.agent_engine || "").trim();
@@ -1769,6 +1790,7 @@ function createWindow() {
     win.setMenuBarVisibility(false);
   }
   win.miaSkipAutomaticBackgroundStartup = onboarding;
+  win.miaSignedOutOnboarding = onboarding;
   if (process.platform === "darwin" && typeof win.setWindowButtonVisibility === "function") {
     win.setWindowButtonVisibility(onboarding);
   }
@@ -1803,6 +1825,36 @@ function createWindow() {
   return win;
 }
 
+function showSignedOutOnboardingWindow(win) {
+  const target = win && !win.isDestroyed() ? win : BrowserWindow.getAllWindows().find((w) => !w.isDestroyed());
+  if (!target) {
+    createWindow();
+    return;
+  }
+  if (target.miaSignedOutOnboarding) {
+    if (!target.isVisible()) target.show();
+    if (typeof target.focus === "function") target.focus();
+    return;
+  }
+  if (typeof target.isFullScreen === "function" && target.isFullScreen()) {
+    target.setFullScreen(false);
+  }
+  if (typeof target.isMaximized === "function" && target.isMaximized()) {
+    target.unmaximize();
+  }
+  if (typeof target.setBackgroundColor === "function") target.setBackgroundColor("#ffffff");
+  if (process.platform === "darwin" && typeof target.setWindowButtonVisibility === "function") {
+    target.setWindowButtonVisibility(true);
+  }
+  target.setMinimumSize(400, 560);
+  target.setSize(460, 680);
+  target.center();
+  target.miaSkipAutomaticBackgroundStartup = true;
+  target.miaSignedOutOnboarding = true;
+  target.loadFile(path.join(__dirname, "renderer", "onboarding", "onboarding.html"));
+  if (!target.isVisible()) target.show();
+}
+
 // Onboarding finished (signed in): turn the lightweight onboarding window into
 // the real main app window — load the full app, restore main chrome/size, and
 // kick the deferred background startup. Reuses the one window (no flash).
@@ -1817,6 +1869,7 @@ function promoteOnboardingWindowToMain(win) {
   win.center();
   windowStateManager.attachWindowStatePersistence(win);
   win.miaSkipAutomaticBackgroundStartup = false;
+  win.miaSignedOutOnboarding = false;
   if (process.env.MIA_DISABLE_BACKGROUND_STARTUP !== "1") {
     win.webContents.once("did-finish-load", () => {
       setTimeout(() => runtimeLifecycle().scheduleBackgroundStartup(), 2500);
@@ -1839,30 +1892,9 @@ const conversationTitleService = createConversationTitleService({
   sendChat
 });
 
-const botService = createBotService({
-  initializeRuntime,
-  runtimePaths,
-  botManifest: botManifestModule,
-  loadAgentSessionMap: agentSessionStore.loadMap,
-  saveAgentSessionMap: agentSessionStore.saveMap,
-  orphanTasksByBot: (key) => {
-    initSchedulerSubsystem();
-    return tasksStore.orphanByBot(key);
-  },
-  emitTaskEvent: (event, payload) => tasksEvents.emit(event, payload),
-  rescanScheduler: () => scheduler.rescan(),
-  recallBotPet: (key) => botPetService.recall(key),
-  pushBotToCloud,
-  deleteBotFromCloud,
-  appendCloudLog,
-  getRuntimeStatus,
-  petStatusForBot: (key) => botPetService.statusForBot(key)
-});
-
 remoteControlRouter = createRemoteControlRouter({
   isDaemonProcess: IS_DAEMON_PROCESS,
   getRuntimeStatus,
-  loadBotManifest,
   loadHermesModelCatalog: () => engineCatalogService.loadHermesModelCatalog(),
   loadCodexModels: () => engineCatalogService.loadCodexModels(),
   loadEngineCapabilities: () => engineCatalogService.loadEngineCapabilities(),
@@ -1871,7 +1903,6 @@ remoteControlRouter = createRemoteControlRouter({
   saveChatAttachment,
   readLocalFileAttachment,
   executeExternalAgentCommand: (body) => externalAgentCommandService.executeCommand(body),
-  saveBotEngineConfig: (body) => botService.saveBotEngineConfig(body),
   saveModelSelection: (settings) => modelSettingsService.saveModelSelection(settings),
   writeEffortSettings: (body) => settingsStore.writeEffortSettings(body),
   writePermissionSettings: (body) => settingsStore.writePermissionSettings(body),
@@ -1947,9 +1978,11 @@ ipcMain.handle(IpcChannel.UtilOpenExternal, async (_event, url) => {
   await shell.openExternal(parsed.href);
   return true;
 });
+ipcMain.handle(IpcChannel.StatusBadgeAssetLoad, (_event, assetId) => loadStatusBadgeAsset(assetId));
 ipcMain.handle(IpcChannel.CloudStatus, () => cloudStatus(false));
 ipcMain.handle(IpcChannel.CloudLogin, async (_event, payload) => {
-  await loginMiaCloud(payload || {});
+  const result = await loginMiaCloud(payload || {});
+  if (result?.kind === "wechat-login-start" || result?.kind === "wechat-login-pending") return result;
   return getRuntimeStatus();
 });
 ipcMain.handle(IpcChannel.CloudSync, async () => {
@@ -1976,9 +2009,12 @@ ipcMain.handle(IpcChannel.CloudSettingsPut, async (_event, settings) => {
     throw error;
   }
 });
-ipcMain.handle(IpcChannel.CloudLogout, async () => {
+ipcMain.handle(IpcChannel.CloudLogout, async (event) => {
   await logoutMiaCloud();
-  return getRuntimeStatus();
+  const runtime = getRuntimeStatus();
+  const win = BrowserWindow.fromWebContents(event.sender);
+  setTimeout(() => showSignedOutOnboardingWindow(win), 0);
+  return runtime;
 });
 const socialApi = createSocialApi({
   getSettings: () => settingsStore.cloudSettings(),
@@ -1993,10 +2029,6 @@ cloudDesktopSyncRuntime = createCloudDesktopSyncClient({
   appendLog: (line) => appendCloudLog(line),
   fetchImpl: fetch,
   timeoutSignal: (timeoutMs) => AbortSignal.timeout(timeoutMs),
-  loadBotManifest,
-  botPersonaPath,
-  fileExists: (filePath) => fs.existsSync(filePath),
-  readBotPersona,
   writeUserProfile: (profile) => settingsStore.writeUserProfile(profile),
   writeAppearanceSettings: (settings) => settingsStore.writeAppearanceSettings(settings),
   runtimePaths,
@@ -2016,6 +2048,10 @@ cloudBridgeRuntime = createCloudBridgeClient({
   cloudWebSocketProtocols,
   createActiveBridgeChatAdapter,
   createActiveCodexChatAdapter,
+  resolveBotCapabilities: ({ botKey, botName }) => {
+    const bot = { key: botKey, id: botKey, name: botName };
+    return skillsLoader.botCapabilitiesWithPresetDefaults(bot);
+  },
   randomUUID: () => crypto.randomUUID()
 });
 for (const line of pendingCloudLogs.splice(0)) cloudBridgeRuntime.appendLog(line);
@@ -2043,7 +2079,7 @@ const mainBotRuntimeDispatcher = createMainBotRuntimeDispatcher({
     localDeviceId(),
     cloudBridgeRuntime?.status?.()?.deviceId
   ],
-  listBots: () => loadBotManifest().bots || [],
+  listBots: () => [],
   localBotResponder,
   log: (line) => appendCloudLog(line)
 });
@@ -2117,7 +2153,17 @@ ipcMain.handle(IpcChannel.EngineInstall, async (event, engineId) => {
   }
 });
 ipcMain.handle(IpcChannel.OnboardingComplete, (event) => {
-  promoteOnboardingWindowToMain(BrowserWindow.fromWebContents(event.sender));
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!cloudStatus(false).enabled) {
+    showSignedOutOnboardingWindow(win);
+    return getRuntimeStatus();
+  }
+  promoteOnboardingWindowToMain(win);
+  return getRuntimeStatus();
+});
+ipcMain.handle(IpcChannel.WindowSignedOutOnboarding, (event) => {
+  showSignedOutOnboardingWindow(BrowserWindow.fromWebContents(event.sender));
+  return getRuntimeStatus();
 });
 ipcMain.handle(IpcChannel.EngineScan, async (event) => {
   // User-initiated async detection (onboarding prepare step). Streams each agent
@@ -2251,14 +2297,7 @@ function loadConductorPrompts() {
   };
 }
 
-ipcMain.handle(IpcChannel.BotDetails, (_event, key) => botService.getBotDetails(key));
-ipcMain.handle(IpcChannel.BotSave, (_event, bot) => botService.saveBot(bot));
-ipcMain.handle(IpcChannel.BotEngineSave, (_event, payload) => botService.saveBotEngineConfig(payload));
-ipcMain.handle(IpcChannel.BotPin, (_event, payload) => botService.setBotPinned(payload));
-ipcMain.handle(IpcChannel.BotMute, (_event, payload) => botService.setBotMuted(payload));
-ipcMain.handle(IpcChannel.BotDelete, (_event, payload) => botService.deleteBot(payload));
 ipcMain.handle(IpcChannel.ConductorLoadPrompts, () => loadConductorPrompts());
-ipcMain.handle(IpcChannel.PersonaSave, (_event, persona) => botService.saveBot(persona));
 ipcMain.handle(IpcChannel.PetJobs, () => botPetService.jobs());
 ipcMain.handle(IpcChannel.PetGenerate, (_event, payload) => botPetService.startGeneration(payload));
 ipcMain.handle(IpcChannel.PetPlace, (_event, key) => botPetService.place(key));
@@ -2274,6 +2313,8 @@ const autoUpdateService = createAutoUpdateService({
   isPackaged: app.isPackaged,
   getMainWindow: () => BrowserWindow.getAllWindows()[0] || null,
 });
+
+ipcMain.handle(IpcChannel.UpdateCheck, () => autoUpdateService.checkForUpdates());
 
 app.whenReady().then(async () => {
   startupTimer.mark("app:ready");
@@ -2328,4 +2369,5 @@ app.on("window-all-closed", () => {
 app.on("activate", () => {
   if (IS_DAEMON_PROCESS) return;
   if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  else if (!cloudStatus(false).enabled) showSignedOutOnboardingWindow(BrowserWindow.getAllWindows()[0]);
 });

@@ -13,6 +13,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { shell } = require("electron");
 const AdmZip = require("adm-zip");
+const { botCapabilitiesWithPresetDefaults } = require("../shared/bot-identity.js");
 const { isSafeId, isSafeEntryName, assertInside, MAX_FILES, MAX_UNCOMPRESSED_BYTES } = require("../shared/skill-safety.js");
 
 function cleanYamlScalar(value) {
@@ -546,7 +547,7 @@ function createSkillsLoader(deps = {}) {
   // this is what makes the per-Bot skill selection functional. Returns "" if
   // the Bot has no enabled skills.
   function buildEnabledSkillsContext(bot) {
-    const caps = bot && typeof bot.capabilities === "object" && bot.capabilities ? bot.capabilities : {};
+    const caps = botCapabilitiesWithPresetDefaults(bot, readMiaOfficialBotPresets());
     const ids = Array.isArray(caps.enabledSkills) ? caps.enabledSkills : [];
     if (!ids.length) return "";
     const blocks = [];
@@ -651,6 +652,8 @@ function createSkillsLoader(deps = {}) {
     packageLocalSkill,
     buildEnabledSkillsContext,
     buildActiveSkillsDirective,
+    botCapabilitiesWithPresetDefaults: (bot) => botCapabilitiesWithPresetDefaults(bot, readMiaOfficialBotPresets()),
+    readMiaOfficialBotPresets,
     installMarketplacePlugin,
     // Used by chat-engine adapters
     expandLeadingSkillCommand,

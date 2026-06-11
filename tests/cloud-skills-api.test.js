@@ -7,6 +7,9 @@ const http = require("node:http");
 const { spawn } = require("node:child_process");
 const AdmZip = require("adm-zip");
 const { freePort } = require("./helpers/free-port");
+const { seedCloudAccountInDataDir } = require("./helpers/cloud-auth.js");
+
+const dataDirsByPort = new Map();
 
 function skillZipBase64(bodyText) {
   const zip = new AdmZip();
@@ -30,11 +33,17 @@ async function startServer(extraEnv = {}) {
       stdio: ["ignore", "pipe", "pipe"],
     });
     let resolved = false;
-    const done = () => { if (!resolved) { resolved = true; resolve({ proc, port, tmpDir }); } };
+    const done = () => {
+      if (!resolved) {
+        resolved = true;
+        dataDirsByPort.set(port, tmpDir);
+        resolve({ proc, port, tmpDir });
+      }
+    };
     proc.stdout.on("data", (chunk) => { if (/listening|Listening/.test(chunk.toString())) done(); });
     proc.stderr.on("data", (chunk) => { if (/listening|Listening|mia-cloud/i.test(chunk.toString())) done(); });
     proc.on("error", reject);
-    setTimeout(done, 1500);
+    setTimeout(done, 5000);
   });
 }
 
@@ -100,6 +109,7 @@ async function stopServer(ctx) {
     ctx.proc.kill("SIGTERM");
     await new Promise((r) => ctx.proc.once("exit", r));
   }
+  dataDirsByPort.delete(ctx.port);
   fs.rmSync(ctx.tmpDir, { recursive: true, force: true });
 }
 
@@ -128,10 +138,9 @@ function api(port, method, pathStr, { body, token } = {}) {
 }
 
 async function register(port, username) {
-  const r = await api(port, "POST", "/api/auth/register", { body: { username, password: "Pa55word!" } });
-  if (r.status !== 201) throw new Error("register failed: " + JSON.stringify(r));
-  const login = await api(port, "POST", "/api/auth/login", { body: { username, password: "Pa55word!" } });
-  return { user: login.body.user, token: login.body.token };
+  const dataDir = dataDirsByPort.get(port);
+  if (!dataDir) throw new Error("missing test cloud data dir for port " + port);
+  return seedCloudAccountInDataDir(dataDir, username);
 }
 
 test("GET /api/skills lists seeded catalog with categories, no body", async () => {

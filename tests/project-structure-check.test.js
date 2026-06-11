@@ -316,19 +316,21 @@ test("chat attachment normalization and transfer live behind a main chat-attachm
   assert.doesNotMatch(mainSource, /function attachmentContext/, "main must not own attachment prompt context");
 });
 
-test("bot write-side management lives behind a main bot service", () => {
+test("bot identity writes are cloud-only; retired local bot service stays removed", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
   const manifestSource = fs.readFileSync(path.join(root, "src/main/bot-manifest.js"), "utf8");
-  const botSource = fs.readFileSync(path.join(root, "src/main/bot-service.js"), "utf8");
-  assert.match(botSource, /function createBotService/, "bot service should exist");
-  assert.match(mainSource, /createBotService/, "main should instantiate the bot service");
-  assert.doesNotMatch(mainSource, /function getBotDetails/, "main must not own bot detail composition");
-  assert.doesNotMatch(mainSource, /function saveBot\(/, "main must not own bot save logic");
-  assert.doesNotMatch(mainSource, /function saveBotEngineConfig/, "main must not own bot engine config persistence");
-  assert.doesNotMatch(mainSource, /function setBotPinned/, "main must not own bot pin persistence");
-  assert.doesNotMatch(mainSource, /function setBotMuted/, "main must not own bot mute persistence");
-  assert.doesNotMatch(mainSource, /function deleteBot\(/, "main must not own bot deletion cleanup");
-  assert.doesNotMatch(manifestSource, /write-side CRUD .* stays in main\.js/, "bot manifest docs must not claim writes stay in main");
+  const routerSource = fs.readFileSync(path.join(root, "src/main/remote/remote-control-router.js"), "utf8");
+  const preloadSource = fs.readFileSync(path.join(root, "src/preload.js"), "utf8");
+  const ipcSource = fs.readFileSync(path.join(root, "src/shared/ipc-channels.js"), "utf8");
+  const mcpSource = fs.readFileSync(path.join(root, "src/main/mia-app-mcp-server.js"), "utf8");
+
+  assert.equal(fs.existsSync(path.join(root, "src/main/bot-service.js")), false, "local bot write service should stay retired");
+  assert.doesNotMatch(mainSource, /createBotService|pushBotToCloud|deleteBotFromCloud/, "main must not instantiate local bot identity services");
+  assert.doesNotMatch(routerSource, /api\/bots|api\/bot\/engine/, "remote router must not expose local bot identity routes");
+  assert.doesNotMatch(preloadSource, /loadBotDetails|saveBotEngine|setBotPinned|setBotMuted|savePersona|IpcChannel\.Bot(Delete|Save|Details|EngineSave|Pin|Mute)/, "preload must not expose local bot identity IPC");
+  assert.doesNotMatch(ipcSource, /BotDetails|BotSave|BotDelete|BotEngineSave|BotPin|BotMute|PersonaSave/, "IPC channels must not keep retired local bot identity channels");
+  assert.doesNotMatch(mcpSource, /bot_list|api\/bots/, "MCP tools must not proxy retired local bot identity routes");
+  assert.match(manifestSource, /Product Bot identity is cloud-owned/, "bot manifest docs should mark identity as cloud-owned");
 });
 
 test("provider connection persistence lives behind a main provider connections Module", () => {

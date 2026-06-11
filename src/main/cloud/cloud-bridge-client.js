@@ -64,6 +64,7 @@ function createCloudBridgeClient({
   cloudWebSocketProtocols,
   createActiveBridgeChatAdapter,
   createActiveCodexChatAdapter,
+  resolveBotCapabilities = () => ({}),
   randomUUID,
   setTimeoutFn = setTimeout,
   clearTimeoutFn = clearTimeout,
@@ -131,6 +132,7 @@ function createCloudBridgeClient({
     }
     const botKey = String(message.botKey || message.botId || `mia_cloud_${agentEngine.replace(/[^a-z0-9]+/g, "_")}`).trim();
     const botName = String(message.botName || message.displayName || label).trim();
+    const capabilities = resolveBotCapabilities({ botKey, botName, message, runtimeConfig }) || {};
     try {
       sendCloudBridgeRunEvent(ws, runId, "status", { text: `本机 ${label} 已开始运行。` });
       const response = await adapter.sendChat({
@@ -140,6 +142,7 @@ function createCloudBridgeClient({
           name: botName,
           agentEngine,
           bio: "",
+          capabilities,
           engineConfig: {
             effortLevel: runtimeConfig.effortLevel || "medium",
             permissionMode: runtimeConfig.permissionMode || (agentEngine === "hermes" ? "ask" : "default"),

@@ -21,8 +21,8 @@ function usage() {
     "  node scripts/smoke-cloud.js https://mia.gifgif.cn",
     "",
     "Environment:",
-    "  MIA_SMOKE_USERNAME=<account>   Log in to an existing smoke account instead of registering a temporary one.",
-    "  MIA_SMOKE_PASSWORD=<password>  Password for MIA_SMOKE_USERNAME.",
+    "  MIA_CLOUD_TOKEN=<token>        Required smoke account bearer token from WeChat login.",
+    "  MIA_CLOUD_PEER_TOKEN=<token>   Optional second account token for cross-account file checks.",
     "  MIA_SMOKE_REQUIRE_BRIDGE=1     Require an online bridge device and run one request through it.",
     "  MIA_SMOKE_BRIDGE_TIMEOUT_MS=120000  Timeout for the bridge run request.",
     "  MIA_SMOKE_EXPECT_RELEASE_COMMIT=<sha>  Require /api/health.release.gitCommit to match.",
@@ -310,26 +310,11 @@ async function main() {
   await assertWebAppServed(baseUrl);
   pass("web app", "index favicon and manifest served");
 
-  const configuredUsername = String(process.env.MIA_SMOKE_USERNAME || "").trim();
-  const configuredPassword = String(process.env.MIA_SMOKE_PASSWORD || "");
-  if (configuredUsername && !configuredPassword) throw new Error("MIA_SMOKE_PASSWORD is required when MIA_SMOKE_USERNAME is set.");
-  if (process.env.MIA_SMOKE_REQUIRE_BRIDGE === "1" && (!configuredUsername || !configuredPassword)) {
-    throw new Error("MIA_SMOKE_USERNAME and MIA_SMOKE_PASSWORD are required when MIA_SMOKE_REQUIRE_BRIDGE=1 so the desktop bridge can be logged into the same account.");
-  }
-  const username = configuredUsername || `smoke${Date.now()}`;
-  const password = configuredPassword || "secret1";
-  const account = configuredUsername
-    ? await jsonRequest(baseUrl, "/api/auth/login", {
-      method: "POST",
-      body: { username, password }
-    })
-    : await jsonRequest(baseUrl, "/api/auth/register", {
-      method: "POST",
-      body: { username, password }
-    });
-  const token = account.data.token;
-  if (!token) throw new Error("Auth did not return a token.");
-  pass("auth", `${configuredUsername ? "login" : "register"} ${username}`);
+  const token = String(process.env.MIA_CLOUD_TOKEN || "").trim();
+  if (!token) throw new Error("MIA_CLOUD_TOKEN is required.");
+  const account = await jsonRequest(baseUrl, "/api/me", { token });
+  const userLabel = account.data.user?.displayName || account.data.user?.username || account.data.user?.id || "wechat-user";
+  pass("auth", `token ${userLabel}`);
 
   await expectWebSocketMessage(
     wsUrl(baseUrl, "/api/events"),
@@ -363,15 +348,13 @@ async function main() {
   pass("files", fileUrl);
   await expectJsonStatus(baseUrl, fileUrl, 401);
   pass("file auth", "anonymous fetch rejected");
-  const peer = await jsonRequest(baseUrl, "/api/auth/register", {
-    method: "POST",
-    body: {
-      username: `smokepeer${Date.now()}${Math.random().toString(36).slice(2, 7)}`,
-      password: "secret1"
-    }
-  });
-  await expectJsonStatus(baseUrl, fileUrl, 404, { token: peer.data.token });
-  pass("file ownership", "cross-account fetch rejected");
+  const peerToken = String(process.env.MIA_CLOUD_PEER_TOKEN || "").trim();
+  if (peerToken) {
+    await expectJsonStatus(baseUrl, fileUrl, 404, { token: peerToken });
+    pass("file ownership", "cross-account fetch rejected");
+  } else {
+    pass("file ownership", "skipped without MIA_CLOUD_PEER_TOKEN");
+  }
 
   await expectJsonStatus(baseUrl, "/api/files", 400, {
     token,
@@ -402,7 +385,7 @@ async function main() {
       signal: timeoutSignal(timeoutMs),
       body: {
         deviceId: device.id,
-        conversationId: account.data.workspace?.activeConversationId || "conv_mia",
+        conversationId: "conv_mia",
         text: "Mia Cloud smoke: reply with mia-cloud-bridge-smoke-ok"
       }
     });

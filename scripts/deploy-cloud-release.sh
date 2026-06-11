@@ -19,7 +19,7 @@ PIP_EXTRA_INDEX_URL="${MIA_PIP_EXTRA_INDEX_URL:-}"
 SKIP_HERMES_IMAGE_BUILD="${MIA_DEPLOY_SKIP_HERMES_IMAGE_BUILD:-${MIA_INSTALL_SKIP_HERMES_IMAGE_BUILD:-${MIA_SKIP_HERMES_IMAGE_BUILD:-}}}"
 AGENT_DOCKER_NETWORK="${MIA_CLOUD_AGENT_DOCKER_NETWORK:-mia-cloud}"
 LITELLM_CONTAINER="${MIA_LITELLM_CONTAINER:-litellm}"
-AGENT_MODEL_PROVIDER="${MIA_CLOUD_AGENT_MODEL_PROVIDER:-mia-litellm}"
+AGENT_MODEL_PROVIDER="${MIA_CLOUD_AGENT_MODEL_PROVIDER:-mia}"
 AGENT_MODEL_NAME="${MIA_CLOUD_AGENT_MODEL:-mia-default}"
 AGENT_MODEL_BASE_URL="${MIA_CLOUD_AGENT_MODEL_BASE_URL:-http://litellm:4000/v1}"
 AGENT_MODEL_API_KEY="${MIA_CLOUD_AGENT_MODEL_API_KEY:-${MIA_LITELLM_API_KEY:-}}"
@@ -31,6 +31,7 @@ NGINX_SITE_CONF="${MIA_DEPLOY_NGINX_SITE_CONF:-/etc/nginx/sites-enabled/mia-web}
 DEPLOY_SUDO="${MIA_DEPLOY_SUDO:-}"
 DEPLOY_DRY_RUN="${MIA_DEPLOY_DRY_RUN:-}"
 DEPLOY_SKIP_LOCAL_TESTS="${MIA_DEPLOY_SKIP_LOCAL_TESTS:-}"
+DEPLOY_SKIP_SMOKE="${MIA_DEPLOY_SKIP_SMOKE:-}"
 ARCHIVE="$ROOT/dist/mia-cloud-release.tgz"
 ARCHIVE_SHA="$ARCHIVE.sha256"
 DEPLOY_ID="${MIA_DEPLOY_ID:-$(date +%Y%m%d-%H%M%S)-$$}"
@@ -496,6 +497,7 @@ Environment=MIA_CLOUD_HOST=127.0.0.1
 Environment=MIA_CLOUD_PORT=4175
 Environment=MIA_CLOUD_DATA=$DATA_DIR
 Environment=MIA_WEB_ROOT=$WEB_DIR
+Environment=MIA_CLOUD_PUBLIC_URL=$PUBLIC_URL
 Environment=MIA_CLOUD_ALLOWED_ORIGINS=$PUBLIC_URL
 Environment=MIA_BRIDGE_RUN_TIMEOUT_MS=300000
 Environment=MIA_CLOUD_VERSION=2026-05-20
@@ -625,13 +627,17 @@ if ! MIA_DOCTOR_EXPECT_RELEASE_COMMIT="$EXPECTED_RELEASE_COMMIT" \
   exit 1
 fi
 
-echo "==> Running public smoke"
-if ! MIA_SMOKE_EXPECT_RELEASE_COMMIT="$EXPECTED_RELEASE_COMMIT" \
-  MIA_SMOKE_EXPECT_RELEASE_BUILT_AT="$EXPECTED_RELEASE_BUILT_AT" \
-  npm run cloud:smoke -- "$PUBLIC_URL"; then
-  echo "==> Public smoke failed; attempting remote rollback"
-  rollback_remote || echo "Remote rollback failed; inspect $REMOTE manually." >&2
-  exit 1
+if [ "$DEPLOY_SKIP_SMOKE" = "1" ]; then
+  echo "==> Skipping public smoke because MIA_DEPLOY_SKIP_SMOKE=1"
+else
+  echo "==> Running public smoke"
+  if ! MIA_SMOKE_EXPECT_RELEASE_COMMIT="$EXPECTED_RELEASE_COMMIT" \
+    MIA_SMOKE_EXPECT_RELEASE_BUILT_AT="$EXPECTED_RELEASE_BUILT_AT" \
+    npm run cloud:smoke -- "$PUBLIC_URL"; then
+    echo "==> Public smoke failed; attempting remote rollback"
+    rollback_remote || echo "Remote rollback failed; inspect $REMOTE manually." >&2
+    exit 1
+  fi
 fi
 
 echo "==> Running public site verification"

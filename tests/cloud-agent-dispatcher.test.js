@@ -11,6 +11,7 @@ const { createBotsStore } = require("../src/cloud/bots-store.js");
 const { createRuntimeBindingsStore } = require("../src/cloud-agent/runtime-bindings-store.js");
 const { createCloudAgentRunsStore } = require("../src/cloud-agent/cloud-agent-runs-store.js");
 const { createCloudAgentDispatcher } = require("../src/cloud-agent/dispatcher.js");
+const { createCloudUser } = require("./helpers/cloud-auth.js");
 
 const BOT_ID = "alice_bot";
 
@@ -24,7 +25,7 @@ function setup() {
   const messagesStore = createMessagesStore(db);
   const runtimeBindingsStore = createRuntimeBindingsStore(db);
   const cloudAgentRunsStore = createCloudAgentRunsStore(db);
-  const user = cloudStore.registerUser({ username: "alice", password: "123456" }).user;
+  const user = createCloudUser(cloudStore, "alice");
   botsStore.upsertBot(user.id, {
     id: BOT_ID,
     displayName: "Alice Bot",
@@ -128,7 +129,7 @@ test("cloud-hermes refuses a contaminated bot binding owned by another user", as
   const ctx = setup();
   const hermesCalls = [];
   try {
-    const bob = ctx.cloudStore.registerUser({ username: "bob_contaminated", password: "123456" }).user;
+    const bob = createCloudUser(ctx.cloudStore, "bob_contaminated");
     const conversation = ctx.socialStore.createConversation({
       id: `botc_${bob.id}_${BOT_ID}`,
       type: "bot",
@@ -288,7 +289,7 @@ test("desktop-local refuses a contaminated bot binding owned by another user", a
   const ctx = setup();
   const broadcasts = [];
   try {
-    const bob = ctx.cloudStore.registerUser({ username: "bob_desktop_contaminated", password: "123456" }).user;
+    const bob = createCloudUser(ctx.cloudStore, "bob_desktop_contaminated");
     const conversation = ctx.socialStore.createConversation({
       id: `botc_${bob.id}_${BOT_ID}`,
       type: "bot",

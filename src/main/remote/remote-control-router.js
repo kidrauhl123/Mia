@@ -3,7 +3,6 @@
 const REMOTE_ROUTES = new Set([
   "GET /health",
   "GET /api/runtime/status",
-  "GET /api/bots",
   "GET /api/model/catalog",
   "GET /api/codex/models",
   "GET /api/engine/capabilities",
@@ -12,7 +11,6 @@ const REMOTE_ROUTES = new Set([
   "POST /api/chat/attachment",
   "POST /api/file/fetch",
   "POST /api/commands/agent-execute",
-  "POST /api/bot/engine",
   "POST /api/model/save",
   "POST /api/effort/save",
   "POST /api/permissions/save",
@@ -35,7 +33,6 @@ function normalizeRoute(method, requestPath) {
 function createRemoteControlRouter({
   isDaemonProcess = false,
   getRuntimeStatus,
-  loadBotManifest,
   loadHermesModelCatalog,
   loadCodexModels,
   loadEngineCapabilities,
@@ -44,7 +41,6 @@ function createRemoteControlRouter({
   saveChatAttachment,
   readLocalFileAttachment,
   executeExternalAgentCommand,
-  saveBotEngineConfig,
   saveModelSelection,
   writeEffortSettings,
   writePermissionSettings,
@@ -72,10 +68,6 @@ function createRemoteControlRouter({
     if (routeInfo.method === "GET" && routeInfo.pathname === "/api/runtime/status") {
       return { handled: true, data: getRuntimeStatus() };
     }
-    if (routeInfo.method === "GET" && routeInfo.pathname === "/api/bots") {
-      const manifest = loadBotManifest();
-      return { handled: true, data: { bots: manifest.bots || [], defaultBot: manifest.default_bot || "" } };
-    }
     if (routeInfo.method === "GET" && routeInfo.pathname === "/api/model/catalog") {
       return { handled: true, data: { models: await loadHermesModelCatalog() } };
     }
@@ -102,9 +94,6 @@ function createRemoteControlRouter({
     }
     if (routeInfo.method === "POST" && routeInfo.pathname === "/api/commands/agent-execute") {
       return { handled: true, data: executeExternalAgentCommand(body) };
-    }
-    if (routeInfo.method === "POST" && routeInfo.pathname === "/api/bot/engine") {
-      return { handled: true, data: saveBotEngineConfig(body) };
     }
     if (routeInfo.method === "POST" && routeInfo.pathname === "/api/model/save") {
       return { handled: true, data: await saveModelSelection(body) };

@@ -6,6 +6,7 @@ const { test } = require("node:test");
 const { DatabaseSync } = require("node:sqlite");
 
 const { createCloudStore } = require("../src/cloud/sqlite-store.js");
+const { createCloudUser, wechatProfile } = require("./helpers/cloud-auth.js");
 const ids = require("../src/shared/ids.js");
 
 function tempStore() {
@@ -21,22 +22,23 @@ function cleanup(dir) {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
-test("sqlite store registers, logs in, authenticates, and logs out a user", () => {
+test("sqlite store logs in with WeChat, authenticates, and logs out a user", () => {
   const paths = tempStore();
   const store = createCloudStore(paths);
   try {
-    const registered = store.registerUser({ username: "Alice", password: "secret1" });
-    assert.equal(registered.user.username, "alice");
+    const profile = wechatProfile("Alice", { avatarUrl: "https://wx.qlogo.cn/mmopen/alice/0" });
+    const registered = store.loginWithWechat(profile);
+    assert.match(registered.user.username, /^wx_[a-f0-9]{12}$/);
+    assert.equal(registered.user.displayName, "Alice");
+    assert.equal(registered.user.avatarImage, "https://wx.qlogo.cn/mmopen/alice/0");
     assert.equal(ids.isPublicId(registered.user.id), true);
     assert.match(registered.user.id, /^[1-9][0-9]{9}$/);
     assert.doesNotMatch(registered.user.id, /^(user|bot)_/);
     assert.ok(registered.token);
-        // Phase 4: workspace removed from auth response.
 
-    const loggedIn = store.loginUser({ username: "ALICE", password: "secret1" });
+    const loggedIn = store.loginWithWechat(profile);
     assert.ok(loggedIn.token);
     const auth = store.authenticateToken(loggedIn.token);
-    assert.equal(auth.user.username, "alice");
     assert.equal(auth.user.id, registered.user.id);
 
     store.logoutSession(loggedIn.token);
@@ -51,7 +53,8 @@ test("sqlite store persists synced profile display name and avatar", () => {
   const paths = tempStore();
   const store = createCloudStore(paths);
   try {
-    const registered = store.registerUser({ username: "profile", password: "secret1" });
+    const profile = wechatProfile("profile");
+    const registered = store.loginWithWechat(profile);
     const updated = store.updateUserProfile(registered.user.id, {
       displayName: "Jung",
       avatarImage: "data:image/png;base64,avatar",
@@ -63,7 +66,7 @@ test("sqlite store persists synced profile display name and avatar", () => {
     assert.deepEqual(updated.avatarCrop, { x: 45, y: 55, zoom: 1.2 });
     assert.equal(updated.avatarColor, "#112233");
 
-    const loggedIn = store.loginUser({ username: "profile", password: "secret1" });
+    const loggedIn = store.loginWithWechat(profile);
     assert.equal(loggedIn.user.displayName, "Jung");
     assert.equal(loggedIn.user.avatarImage, "data:image/png;base64,avatar");
   } finally {
@@ -79,8 +82,8 @@ test("sqlite store enforces file ownership", () => {
   const paths = tempStore();
   const store = createCloudStore(paths);
   try {
-    const alice = store.registerUser({ username: "alice", password: "secret1" }).user;
-    const bob = store.registerUser({ username: "bob", password: "secret1" }).user;
+    const alice = createCloudUser(store, "alice");
+    const bob = createCloudUser(store, "bob");
     const saved = store.saveImageDataUrl(alice.id, {
       name: "dog.png",
       dataUrl: `data:image/png;base64,${Buffer.from("png-data").toString("base64")}`
@@ -122,7 +125,7 @@ test("sqlite store records bridge devices and run lifecycle", () => {
   const paths = tempStore();
   const store = createCloudStore(paths);
   try {
-    const user = store.registerUser({ username: "bridge", password: "secret1" }).user;
+    const user = createCloudUser(store, "bridge");
     const device = store.upsertBridgeDevice(user.id, {
       id: "bridge_local",
       deviceName: "Mac Studio",
@@ -191,7 +194,7 @@ test("sqlite store clears volatile bridge state after reopening", () => {
     now: () => "2026-05-21T00:00:00.000Z"
   });
   try {
-    const user = store.registerUser({ username: "restart", password: "secret1" }).user;
+    const user = createCloudUser(store, "restart");
     userId = user.id;
     const device = store.upsertBridgeDevice(user.id, {
       id: "bridge_restart",
@@ -228,35 +231,6 @@ test("sqlite store clears volatile bridge state after reopening", () => {
     assert.equal(pending.status, "failed");
     assert.match(running.error, /已重启/);
     assert.equal(running.completedAt, "2026-05-21T00:01:00.000Z");
-  } finally {
-    store.close();
-    cleanup(paths.dataDir);
-  }
-});
-
-test("sqlite store rate limits repeated failed logins per account and ip", () => {
-  const paths = tempStore();
-  const store = createCloudStore({
-    ...paths,
-    loginRateLimit: { maxFailures: 2, windowMs: 60_000 }
-  });
-  try {
-    store.registerUser({ username: "limited", password: "secret1" });
-    assert.throws(
-      () => store.loginUser({ username: "limited", password: "wrong", ip: "10.0.0.1" }),
-      /用户名或密码不正确/
-    );
-    assert.throws(
-      () => store.loginUser({ username: "limited", password: "wrong", ip: "10.0.0.1" }),
-      /用户名或密码不正确/
-    );
-    assert.throws(
-      () => store.loginUser({ username: "limited", password: "secret1", ip: "10.0.0.1" }),
-      /登录尝试过多/
-    );
-
-    const loggedIn = store.loginUser({ username: "limited", password: "secret1", ip: "10.0.0.2" });
-    assert.ok(loggedIn.token);
   } finally {
     store.close();
     cleanup(paths.dataDir);

@@ -31,6 +31,36 @@
       ?? String(value ?? "").replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" }[ch]));
   }
 
+  function statusBadgeFrom(...sources) {
+    for (const source of sources) {
+      if (source && typeof source === "object" && Object.prototype.hasOwnProperty.call(source, "statusBadge")) return source.statusBadge;
+      if (source && typeof source === "object" && Object.prototype.hasOwnProperty.call(source, "status_badge")) return source.status_badge;
+    }
+    return undefined;
+  }
+
+  function appendNameWithBadge(el, { identity, fallbackName, statusBadge } = {}) {
+    const renderer = global.miaNameWithBadge;
+    if (renderer && (typeof renderer.setNameWithBadge === "function" || typeof renderer.renderNameWithBadge === "function")) {
+      try {
+        const payload = { identity, fallbackName, statusBadge };
+        if (typeof renderer.setNameWithBadge === "function") {
+          renderer.setNameWithBadge(el, payload);
+        } else {
+          el.appendChild(renderer.renderNameWithBadge(payload));
+        }
+        return;
+      } catch {
+        // Fall through to plain text.
+      }
+    }
+    el.textContent = fallbackName || identity?.displayName || "";
+  }
+
+  function initNameBadgeLotties(root) {
+    try { global.miaNameWithBadge?.initLottieBadges?.(root); } catch { /* optional badge animation */ }
+  }
+
   function applyTilesToButton(buttonEl, conversation, members) {
     if (!buttonEl) return;
     const slot = buttonEl.querySelector(".avatar");
@@ -142,7 +172,22 @@
       global.miaAvatar.paintAvatar(avatarEl, avatar);
       const nameEl = document.createElement("span");
       nameEl.className = "group-info-member-name";
-      nameEl.textContent = label;
+      const localBot = member.member_kind === MemberKind.Bot
+        ? (bots || []).find((x) => (x.id || x.key) === member.member_ref)
+        : null;
+      const friend = member.member_kind === MemberKind.User
+        ? (friends || []).find((f) => f.id === member.member_ref)
+        : null;
+      const identity = member.member_kind === MemberKind.Bot
+        ? (member.identity || { kind: "bot", id: member.member_ref, displayName: label })
+        : (member.member_ref === self?.id
+          ? { kind: "user", id: self?.id, displayName: label, statusBadge: statusBadgeFrom(self) }
+          : { kind: "user", id: member.member_ref, displayName: label, statusBadge: statusBadgeFrom(friend, member.identity) });
+      appendNameWithBadge(nameEl, {
+        identity,
+        fallbackName: label,
+        statusBadge: statusBadgeFrom(localBot, member.identity, friend, member)
+      });
       if (isHost) {
         const badge = document.createElement("span");
         badge.className = "group-info-host-badge";
@@ -197,6 +242,7 @@
       row.appendChild(actions);
       box.appendChild(row);
     }
+    initNameBadgeLotties(box);
   }
 
   async function reload(conversationId) {

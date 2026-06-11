@@ -26,7 +26,9 @@ function setup(overrides = {}) {
     startedEvents: 0,
     startedBridge: 0,
     stoppedEvents: 0,
-    stoppedBridge: 0
+    stoppedBridge: 0,
+    openedUrls: [],
+    waits: []
   };
   const responses = overrides.responses || [];
   const client = createCloudDesktopSyncClient({
@@ -49,21 +51,6 @@ function setup(overrides = {}) {
       return responses.shift() || jsonResponse({ ok: true, user: { id: "u_1", username: "refreshed" } });
     },
     timeoutSignal: () => "timeout-signal",
-    loadBotManifest: () => ({
-      bots: [{
-        key: "codex",
-        name: "Codex",
-        color: "#123456",
-        avatarImage: "data:image/png;base64,abc",
-        avatarCrop: { x: 1 },
-        bio: "assistant",
-        personaText: "manifest persona",
-        capabilities: { chat: true, image: false }
-      }]
-    }),
-    botPersonaPath: (key) => `/personas/${key}.md`,
-    fileExists: (filePath) => filePath === "/personas/codex.md",
-    readBotPersona: () => "persona text",
     runtimePaths: () => ({ userProfile: "/profile.json" }),
     readJson: (filePath) => filePath === "/profile.json"
       ? { avatarImage: "data:image/png;base64,user", avatarCrop: { y: 2 }, avatarColor: "#ffcc00" }
@@ -77,27 +64,45 @@ function setup(overrides = {}) {
     startCloudBridge: () => { calls.startedBridge += 1; },
     stopCloudEvents: () => { calls.stoppedEvents += 1; },
     stopCloudBridge: () => { calls.stoppedBridge += 1; },
+    waitMs: async (ms) => { calls.waits.push(ms); },
     now: () => 123456,
     ...overrides
   });
   return { client, calls, getSettings: () => settings };
 }
 
-test("login normalizes the cloud URL, resets local auth, then starts sockets with the returned token", async () => {
+test("login normalizes the cloud URL, starts WeChat auth, then starts sockets with the returned token", async () => {
   const { client, calls, getSettings } = setup({
-    responses: [jsonResponse({ token: "tok_new", user: { id: "u_new", username: "jung" } })]
+    responses: [
+      jsonResponse({
+        mode: "wechat_mp_scene",
+        authorizationUrl: "https://new.example/api/auth/wechat/mp/qr?state=wx_state",
+        qrCodeUrl: "https://mp.weixin.qq.com/cgi-bin/showqrcode?ticket=ticket",
+        state: "wx_state"
+      }),
+      jsonResponse({ status: "complete", token: "tok_new", user: { id: "u_new", username: "jung" } })
+    ]
   });
 
-  const status = await client.login({ username: " jung ", password: "pw", mode: "register", url: "https://new.example///" });
+  const status = await client.login({ url: "https://new.example///" });
 
   assert.deepEqual(calls.writes[0], { url: "https://new.example", enabled: false, token: "", user: null });
   assert.deepEqual(calls.fetch[0], {
-    url: "https://new.example/api/auth/register",
+    url: "https://new.example/api/auth/wechat/start",
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: { username: "jung", password: "pw" },
+    body: { client: "desktop" },
     signal: "timeout-signal"
   });
+  assert.deepEqual(calls.fetch[1], {
+    url: "https://new.example/api/auth/wechat/complete",
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: { state: "wx_state" },
+    signal: "timeout-signal"
+  });
+  assert.deepEqual(calls.openedUrls, []);
+  assert.deepEqual(calls.waits, [1500]);
   assert.deepEqual(calls.writes[1], {
     url: "https://new.example",
     enabled: true,
@@ -110,33 +115,16 @@ test("login normalizes the cloud URL, resets local auth, then starts sockets wit
   assert.equal(getSettings().token, "tok_new");
 });
 
-test("syncWorkspace syncs bot identity and stable conversations without reading local sessions or overwriting the cloud profile", async () => {
+test("syncWorkspace refreshes the cloud user without syncing local manifest bots", async () => {
   const { client, calls } = setup();
-  const { normalizeBotCapabilities } = require("../src/shared/bot-identity.js");
 
   await client.syncWorkspace();
 
   assert.deepEqual(calls.fetch.map((request) => [request.method, request.url]), [
-    ["PUT", "https://cloud.example/api/me/bots/codex"],
-    ["PUT", "https://cloud.example/api/me/bot-conversations/codex"],
     ["GET", "https://cloud.example/api/me"]
   ]);
   assert.equal(calls.fetch[0].headers.Authorization, "Bearer tok_1");
-  assert.deepEqual(calls.fetch[0].body, {
-    displayName: "Codex",
-    name: "Codex",
-    color: "#123456",
-    avatarImage: "data:image/png;base64,abc",
-    avatarCrop: { x: 1 },
-    bio: "assistant",
-    capabilities: normalizeBotCapabilities({ chat: true, image: false }),
-    personaText: "manifest persona"
-  });
-  assert.deepEqual(calls.fetch[1].body, {
-    botId: "codex",
-    title: "Codex",
-    runtimeKind: "desktop-local"
-  });
+  assert.equal(calls.fetch[0].body, null);
   assert.deepEqual(calls.writes.at(-1), { user: { id: "u_1", username: "refreshed" } });
 });
 
@@ -149,7 +137,8 @@ test("saveUserProfile writes the local profile and immediately syncs it to Mia C
         displayName: String(profile.displayName || "").trim(),
         avatarImage: String(profile.avatarImage || "").trim(),
         avatarCrop: profile.avatarCrop || null,
-        avatarColor: String(profile.avatarColor || "").trim()
+        avatarColor: String(profile.avatarColor || "").trim(),
+        statusBadge: profile.statusBadge || null
       };
       calls.profileWrites.push(savedProfile);
       return savedProfile;
@@ -170,14 +159,16 @@ test("saveUserProfile writes the local profile and immediately syncs it to Mia C
     displayName: " Jung ",
     avatarImage: "data:image/png;base64,new",
     avatarCrop: { x: 45, y: 55, zoom: 1.2 },
-    avatarColor: "#112233"
+    avatarColor: "#112233",
+    statusBadge: { kind: "lottie", assetId: "rainbow", label: "彩虹动画", loop: "always" }
   });
 
   assert.deepEqual(calls.profileWrites, [{
     displayName: "Jung",
     avatarImage: "data:image/png;base64,new",
     avatarCrop: { x: 45, y: 55, zoom: 1.2 },
-    avatarColor: "#112233"
+    avatarColor: "#112233",
+    statusBadge: { kind: "lottie", assetId: "rainbow", label: "彩虹动画", loop: "always" }
   }]);
   assert.deepEqual(calls.fetch.map((request) => [request.method, request.url]), [
     ["PATCH", "https://cloud.example/api/me/profile"]
@@ -186,7 +177,8 @@ test("saveUserProfile writes the local profile and immediately syncs it to Mia C
     displayName: "Jung",
     avatarImage: "data:image/png;base64,new",
     avatarCrop: { x: 45, y: 55, zoom: 1.2 },
-    avatarColor: "#112233"
+    avatarColor: "#112233",
+    statusBadge: { kind: "lottie", assetId: "rainbow", label: "彩虹动画", loop: "always" }
   });
   assert.deepEqual(calls.writes.at(-1), {
     user: {
@@ -199,6 +191,47 @@ test("saveUserProfile writes the local profile and immediately syncs it to Mia C
     }
   });
   assert.deepEqual(status, { ok: true, includeToken: false, token: undefined });
+});
+
+test("login can return an inline WeChat scene QR and complete it without opening a browser", async () => {
+  const { client, calls, getSettings } = setup({
+    responses: [
+      jsonResponse({
+        mode: "wechat_mp_scene",
+        authorizationUrl: "https://new.example/api/auth/wechat/mp/qr?state=wx_state",
+        qrCodeUrl: "https://mp.weixin.qq.com/cgi-bin/showqrcode?ticket=ticket",
+        state: "wx_state",
+        expiresAt: "2026-06-11T13:00:00.000Z"
+      }),
+      jsonResponse({ status: "pending", expiresAt: "2026-06-11T13:00:00.000Z" }),
+      jsonResponse({ status: "complete", token: "tok_new", user: { id: "u_new", username: "jung" } })
+    ]
+  });
+
+  const started = await client.login({ action: "start", url: "https://new.example///" });
+  assert.deepEqual(started, {
+    kind: "wechat-login-start",
+    mode: "wechat_mp_scene",
+    state: "wx_state",
+    qrCodeUrl: "https://mp.weixin.qq.com/cgi-bin/showqrcode?ticket=ticket",
+    authorizationUrl: "https://new.example/api/auth/wechat/mp/qr?state=wx_state",
+    expiresAt: "2026-06-11T13:00:00.000Z"
+  });
+  assert.deepEqual(calls.openedUrls, []);
+
+  const pending = await client.login({ action: "complete", state: "wx_state" });
+  assert.deepEqual(pending, {
+    kind: "wechat-login-pending",
+    status: "pending",
+    expiresAt: "2026-06-11T13:00:00.000Z"
+  });
+
+  const completed = await client.login({ action: "complete", state: "wx_state" });
+  assert.deepEqual(completed, { kind: "wechat-login-complete", status: "complete" });
+  assert.equal(getSettings().enabled, true);
+  assert.equal(getSettings().token, "tok_new");
+  assert.equal(calls.startedEvents, 1);
+  assert.equal(calls.startedBridge, 1);
 });
 
 test("saveAppearanceSettings writes local appearance and syncs the cloud user settings bag", async () => {
@@ -237,75 +270,12 @@ test("saveAppearanceSettings writes local appearance and syncs the cloud user se
   assert.deepEqual(status, { ok: true, includeToken: false, token: undefined });
 });
 
-test("pushAllBots ensures a stable cloud conversation for each local bot", async () => {
-  const { client, calls } = setup();
+test("local bot manifest sync methods are not exposed by the cloud desktop sync client", () => {
+  const { client } = setup();
 
-  await client.pushAllBots();
-
-  assert.deepEqual(calls.fetch.map((request) => [request.method, request.url]), [
-    ["PUT", "https://cloud.example/api/me/bots/codex"],
-    ["PUT", "https://cloud.example/api/me/bot-conversations/codex"]
-  ]);
-  assert.deepEqual(calls.fetch[1].body, {
-    botId: "codex",
-    title: "Codex",
-    runtimeKind: "desktop-local"
-  });
-});
-
-test("pushAllBots does not overwrite cloud avatar assets from stale local mirrors", async () => {
-  const { client, calls } = setup({
-    loadBotManifest: () => ({
-      bots: [{
-        key: "jiangmei",
-        name: "Jiangmei",
-        color: "#e8a876",
-        avatarImage: "https://cloud.example/api/avatar-assets/old.avatar.mp4",
-        avatarCrop: { start: 7.26, duration: 4.94 },
-        bio: "assistant",
-        capabilities: { chat: true }
-      }]
-    }),
-    botPersonaPath: () => "/personas/jiangmei.md",
-    fileExists: () => false
-  });
-  const { normalizeBotCapabilities } = require("../src/shared/bot-identity.js");
-
-  await client.pushAllBots();
-
-  assert.deepEqual(calls.fetch[0].body, {
-    displayName: "Jiangmei",
-    name: "Jiangmei",
-    color: "#e8a876",
-    bio: "assistant",
-    capabilities: normalizeBotCapabilities({ chat: true }),
-    personaText: ""
-  });
-  assert.equal(Object.hasOwn(calls.fetch[0].body, "avatarImage"), false);
-  assert.equal(Object.hasOwn(calls.fetch[0].body, "avatarCrop"), false);
-});
-
-test("pushAllBots ensures conversations even when local user metadata is missing", async () => {
-  const { client, calls } = setup({
-    initialSettings: {
-      enabled: true,
-      token: "tok_1",
-      url: "https://cloud.example/",
-      user: null
-    }
-  });
-
-  await client.pushAllBots();
-
-  assert.deepEqual(calls.fetch.map((request) => [request.method, request.url]), [
-    ["PUT", "https://cloud.example/api/me/bots/codex"],
-    ["PUT", "https://cloud.example/api/me/bot-conversations/codex"]
-  ]);
-  assert.deepEqual(calls.fetch[1].body, {
-    botId: "codex",
-    title: "Codex",
-    runtimeKind: "desktop-local"
-  });
+  assert.equal(Object.hasOwn(client, "pushAllBots"), false);
+  assert.equal(Object.hasOwn(client, "pushBot"), false);
+  assert.equal(Object.hasOwn(client, "deleteBot"), false);
 });
 
 test("listMarketSkills serves a fresh local cache without hitting the cloud", async () => {

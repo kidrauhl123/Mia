@@ -18,10 +18,6 @@ function createRuntimeInitializerService(deps = {}) {
   const defaultDaemonSettings = deps.defaultDaemonSettings || (() => ({}));
   const defaultUserProfile = deps.defaultUserProfile || (() => ({}));
   const defaultAppearanceSettings = deps.defaultAppearanceSettings || (() => ({}));
-  const loadBotManifest = deps.loadBotManifest || (() => ({ bots: [] }));
-  const saveBotManifest = deps.saveBotManifest || (() => {});
-  const botPersonaBody = deps.botPersonaBody || ((name, bio) => `${name || "Mia"}\n\n${bio || ""}`);
-  const botMetadata = deps.botMetadata || ((bot) => bot);
   const ensureClaudeBridgePlugin = deps.ensureClaudeBridgePlugin || (() => {});
   const appendEngineLog = deps.appendEngineLog || (() => {});
   const getRuntimeStatus = deps.getRuntimeStatus || ((created) => ({ created }));
@@ -32,34 +28,6 @@ function createRuntimeInitializerService(deps = {}) {
     const options = mode == null ? undefined : { mode };
     fsImpl.writeFileSync(filePath, content, options);
     return true;
-  }
-
-  function initializeBots(created) {
-    const p = runtimePaths();
-    const manifest = loadBotManifest();
-    const bots = Array.isArray(manifest.bots) ? manifest.bots : [];
-    const hadBotManifest = fsImpl.existsSync(p.botManifest);
-    saveBotManifest({ ...manifest, bots });
-    if (!hadBotManifest) {
-      created.push("runtime/engine-home/bots/manifest.json");
-    }
-
-    for (const bot of bots) {
-      const mdPath = path.join(p.botDir, `${bot.key}.md`);
-      const metaPath = path.join(p.botDir, `${bot.key}.bot.json`);
-      let body = "";
-      if (fsImpl.existsSync(mdPath)) {
-        body = fsImpl.readFileSync(mdPath, "utf8");
-      } else {
-        body = bot.personaText || bot.persona_text || botPersonaBody(bot.name, bot.bio);
-      }
-      if (writeFileIfMissing(mdPath, body)) {
-        created.push(`runtime/engine-home/bots/${bot.key}.md`);
-      }
-      if (writeFileIfMissing(metaPath, JSON.stringify(botMetadata(bot), null, 2) + "\n")) {
-        created.push(`runtime/engine-home/bots/${bot.key}.bot.json`);
-      }
-    }
   }
 
   function initializeRuntimeCore() {
@@ -144,8 +112,6 @@ function createRuntimeInitializerService(deps = {}) {
       created.push("runtime/engine-home/SOUL.md");
     }
 
-    initializeBots(created);
-
     try {
       ensureClaudeBridgePlugin();
     } catch (error) {
@@ -157,7 +123,6 @@ function createRuntimeInitializerService(deps = {}) {
 
   return {
     initializeRuntimeCore,
-    initializeBots,
     writeFileIfMissing
   };
 }

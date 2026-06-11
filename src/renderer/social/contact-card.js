@@ -28,6 +28,30 @@
       ?? String(value ?? "").replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" }[ch]));
   }
 
+  function statusBadgeFrom(...sources) {
+    for (const source of sources) {
+      if (source && typeof source === "object" && Object.prototype.hasOwnProperty.call(source, "statusBadge")) return source.statusBadge;
+      if (source && typeof source === "object" && Object.prototype.hasOwnProperty.call(source, "status_badge")) return source.status_badge;
+    }
+    return undefined;
+  }
+
+  function renderNameWithBadgeHtml({ identity, fallbackName, statusBadge } = {}) {
+    const renderer = global.miaNameWithBadge;
+    if (renderer && typeof renderer.renderNameWithBadgeHtml === "function") {
+      try {
+        return renderer.renderNameWithBadgeHtml({ identity, fallbackName, statusBadge });
+      } catch {
+        // Optional badge payloads must not break contact cards.
+      }
+    }
+    return escapeHtml(fallbackName || identity?.displayName || "");
+  }
+
+  function initNameBadgeLotties(root) {
+    try { global.miaNameWithBadge?.initLottieBadges?.(root); } catch { /* optional badge animation */ }
+  }
+
   function closeCard() {
     if (_popover) { _popover.remove(); _popover = null; }
     if (_onOutside) { document.removeEventListener("click", _onOutside, true); _onOutside = null; }
@@ -103,14 +127,10 @@
   function localBot(ref) {
     const runtime = _ctx?.deps?.getState?.()?.runtime || {};
     const cloudBots = Array.isArray(_ctx?.moduleState?.bots) ? _ctx.moduleState.bots : [];
-    const localBots = [
-      ...(Array.isArray(runtime.bots) ? runtime.bots : []),
-      ...(Array.isArray(runtime.personas) ? runtime.personas : [])
-    ];
     const bots = _ctx?.adapterCtx?.()?.bots
       || (global.miaBotDirectory
-        ? global.miaBotDirectory.listOwnedBots({ cloudBots: cloudBots, localBots: localBots, runtime })
-        : [...cloudBots, ...localBots]);
+        ? global.miaBotDirectory.listOwnedBots({ cloudBots: cloudBots, runtime })
+        : cloudBots);
     const target = String(ref || "");
     return bots.find((f) => String(f.key || "") === target || String(f.id || "") === target) || null;
   }
@@ -214,15 +234,14 @@
     const member = findBotConversationMember(conversationId, ref);
     const ownerId = member?.owner_id || "";
     const me = selfUser();
-    // In a shared conversation, trust the member row's owner_id (never elevate just
-    // because a bot key happens to collide with one of our local keys). Only
-    // when there's NO conversation member (private bot chat) does a local bot
-    // count as ours — there's no owner_id to read there.
+    // In a shared conversation, trust the member row's owner_id. Only when
+    // there's NO conversation member (private bot chat) does an owned cloud bot
+    // identity count as ours — there's no owner_id to read there.
     const isMine = member ? (ownerId === me.id) : Boolean(localBot(ref));
-    // Bind the local bot ONLY when it's actually ours. A same-key bot
+    // Bind the owned bot identity ONLY when it's actually ours. A same-key bot
     // owned by another conversation member must fall through to the remote-only card —
     // otherwise its name/avatar/controls would mirror, and edits would persist
-    // to, my own local bot settings.
+    // to my own bot identity.
     const local = isMine ? localBot(ref) : null;
 
     const name = local?.name || member?.identity?.displayName || member?.bot_name || ref;
@@ -247,7 +266,11 @@
         <div class="contact-card-head">
           <span class="avatar contact-card-avatar"></span>
           <div class="contact-card-head-text">
-            <strong class="contact-card-name">${escapeHtml(name)}</strong>
+            <strong class="contact-card-name">${renderNameWithBadgeHtml({
+              identity: member?.identity || { kind: "bot", id: ref, displayName: name },
+              fallbackName: name,
+              statusBadge: statusBadgeFrom(member?.identity, member)
+            })}</strong>
             <span class="contact-card-kind">远端</span>
           </div>
         </div>
@@ -257,6 +280,7 @@
         </div>
       `;
       paintContactCardAvatar(card, avatar);
+      initNameBadgeLotties(card);
       card.addEventListener("click", (event) => {
         if (event.target.closest("[data-card-action]")) closeCard();
       });
@@ -345,10 +369,14 @@
       : "";
 
     card.innerHTML = `
-      <div class="contact-card-head">
-        <span class="avatar contact-card-avatar"></span>
-        <div class="contact-card-head-text">
-          <strong class="contact-card-name">${escapeHtml(name)}</strong>
+        <div class="contact-card-head">
+          <span class="avatar contact-card-avatar"></span>
+          <div class="contact-card-head-text">
+          <strong class="contact-card-name">${renderNameWithBadgeHtml({
+            identity: { kind: "bot", id: local.id || local.key || ref, displayName: name, statusBadge: statusBadgeFrom(local) },
+            fallbackName: name,
+            statusBadge: statusBadgeFrom(local)
+          })}</strong>
           <span class="contact-card-kind">${escapeHtml(local.runtimeLabel || (isCloudHermes ? "Mia Cloud" : engine))}</span>
         </div>
       </div>
@@ -394,6 +422,7 @@
       </div>
     `;
     paintContactCardAvatar(card, avatar);
+    initNameBadgeLotties(card);
 
     async function persistField(field, value) {
       try {
@@ -457,7 +486,11 @@
       <div class="contact-card-head">
         <span class="avatar contact-card-avatar"></span>
         <div class="contact-card-head-text">
-          <strong class="contact-card-name">${escapeHtml(name)}</strong>
+          <strong class="contact-card-name">${renderNameWithBadgeHtml({
+            identity: { kind: "user", id: ref, displayName: name, statusBadge: statusBadgeFrom(f) },
+            fallbackName: name,
+            statusBadge: statusBadgeFrom(f)
+          })}</strong>
           <span class="contact-card-kind">${isSelf ? "我" : "联系人"}</span>
         </div>
       </div>
@@ -466,6 +499,7 @@
       </div>
     `;
     paintContactCardAvatar(card, avatar);
+    initNameBadgeLotties(card);
     card.addEventListener("click", (event) => {
       const btn = event.target.closest("[data-card-action]");
       if (!btn) return;

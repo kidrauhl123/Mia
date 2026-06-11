@@ -116,9 +116,6 @@ function makeService(overrides = {}) {
         return fallback;
       }
     },
-    loadBotManifest: () => ({
-      bots: [{ key: "alice_bot", name: "Alice Bot" }]
-    }),
     dataUrlToBuffer: (value) => {
       const match = String(value || "").match(/^data:image\/png;base64,(.+)$/);
       return match ? { data: Buffer.from(match[1], "base64"), ext: ".png" } : null;
@@ -197,6 +194,7 @@ test("startGeneration materializes references, spawns hatch_generate, and comple
   const dataUrl = `data:image/png;base64,${Buffer.from("image").toString("base64")}`;
   const job = service.startGeneration({
     botKey: "alice_bot",
+    bot: { key: "alice_bot", name: "Alice Bot" },
     prompt: "wear a scarf",
     stylePreset: "soft",
     referenceImages: [dataUrl]

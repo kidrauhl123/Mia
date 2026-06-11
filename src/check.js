@@ -215,7 +215,8 @@ assert.match(mainSource, /requestSingleInstanceLock/);
 
 const cloudServerSource = fs.readFileSync(path.join(__dirname, "..", "scripts/serve-cloud.js"), "utf8");
 assert.match(cloudServerSource, /createCloudStore/);
-assert.doesNotMatch(cloudServerSource, /\b(readDb|writeDb|emptyDb|authenticatedToken|passwordHash|createSession|serveFile)\b/);
+assert.doesNotMatch(cloudServerSource, /\b(readDb|writeDb|emptyDb|authenticatedToken|createSession|serveFile)\b/);
+assert.doesNotMatch(cloudServerSource, /\/api\/auth\/(?:login|register)/);
 assert.doesNotMatch(cloudServerSource, /\bdb\.users\b|\bdb\.sessions\b|\bdb\.workspaces\b|\bdb\.files\b/);
 assert.match(cloudServerSource, /allowQueryTokenAuth/);
 assert.doesNotMatch(cloudServerSource, /authenticateToken\([^)]*url\.searchParams\.get\("token"\)/);

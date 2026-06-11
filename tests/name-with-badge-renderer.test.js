@@ -14,6 +14,13 @@ function createMockDocument() {
       children: [],
       _text: "",
       appendChild(child) { this.children.push(child); return child; },
+      replaceChildren(...children) {
+        this.children = children;
+        this._text = "";
+      },
+      get firstElementChild() {
+        return this.children[0] || null;
+      },
       setAttribute(name, value) {
         this.attrs[name] = String(value);
         if (name.startsWith("data-")) {
@@ -33,9 +40,9 @@ function createMockDocument() {
   return { createElement: mockEl };
 }
 
-function loadRenderer() {
+function loadRenderer(options = {}) {
   const src = fs.readFileSync(path.join(__dirname, "..", "src", "renderer", "name-with-badge.js"), "utf8");
-  const window = {};
+  const window = { ...(options.window || {}) };
   const context = vm.createContext({ window, globalThis: window, document: createMockDocument(), console });
   vm.runInContext(src, context, { filename: "src/renderer/name-with-badge.js" });
   return window.miaNameWithBadge;
@@ -79,11 +86,133 @@ test("renderNameWithBadge renders lottie and gift badges as asset spans", () => 
 
   assert.equal(lottie.children[1].textContent, "");
   assert.equal(lottie.children[1].dataset.assetId, "sparkle");
+  assert.equal(lottie.children[1].dataset.lottie, "sparkle");
+  assert.equal(lottie.children[1].dataset.lottieTrigger, "loop");
+  assert.equal(lottie.children[1].getAttribute("aria-hidden"), "true");
   assert.equal(lottie.children[1].getAttribute("title"), "Active");
   assert.equal(gift.children[1].textContent, "");
   assert.equal(gift.children[1].dataset.assetId, "rose");
   assert.equal(gift.children[1].dataset.collectibleId, "nft_1");
+  assert.equal(gift.children[1].getAttribute("aria-hidden"), "true");
   assert.equal(gift.children[1].hasAttribute("title"), false);
+});
+
+test("renderNameWithBadge initializes lottie badges when the lottie renderer is available", () => {
+  const calls = [];
+  const renderer = loadRenderer({
+    window: {
+      miaLottieIcons: {
+        init(root) { calls.push(root); }
+      }
+    }
+  });
+
+  const el = renderer.renderNameWithBadge({
+    identity: { displayName: "Runner" },
+    statusBadge: { kind: "lottie", assetId: "sparkle" }
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0], el);
+});
+
+test("setNameWithBadge reuses an existing lottie badge node for identical content", () => {
+  const calls = [];
+  const renderer = loadRenderer({
+    window: {
+      miaLottieIcons: {
+        init(root) { calls.push(root); }
+      }
+    }
+  });
+  const target = createMockDocument().createElement("strong");
+
+  const first = renderer.setNameWithBadge(target, {
+    identity: { displayName: "Runner" },
+    statusBadge: { kind: "lottie", assetId: "sparkle" }
+  });
+  const second = renderer.setNameWithBadge(target, {
+    identity: { displayName: "Runner" },
+    statusBadge: { kind: "lottie", assetId: "sparkle" }
+  });
+
+  assert.equal(target.children.length, 1);
+  assert.equal(first, second);
+  assert.equal(calls.length, 2);
+});
+
+test("renderNameWithBadgeHtml emits lottie attributes and rejects unsafe asset paths", () => {
+  const renderer = loadRenderer();
+  const html = renderer.renderNameWithBadgeHtml({
+    identity: { displayName: "Runner" },
+    statusBadge: { kind: "lottie", assetId: "sparkle", label: "Active" }
+  });
+  const unsafe = renderer.renderNameWithBadgeHtml({
+    identity: { displayName: "Runner" },
+    statusBadge: { kind: "lottie", assetId: "../sparkle" }
+  });
+
+  assert.match(html, /data-asset-id="sparkle"/);
+  assert.match(html, /data-lottie="sparkle"/);
+  assert.match(html, /data-lottie-trigger="loop"/);
+  assert.match(html, /aria-hidden="true"/);
+  assert.doesNotMatch(unsafe, /data-lottie=/);
+  assert.doesNotMatch(unsafe, /data-asset-id=/);
+});
+
+test("renderNameWithBadge uses cloud status badge asset paths when configured", () => {
+  const renderer = loadRenderer();
+  renderer.setStatusBadgeAssetBaseUrl("https://mia.example.com/");
+  const el = renderer.renderNameWithBadge({
+    identity: { displayName: "Runner" },
+    statusBadge: { kind: "lottie", assetId: "rainbow" }
+  });
+  const html = renderer.renderNameWithBadgeHtml({
+    identity: { displayName: "Runner" },
+    statusBadge: { kind: "lottie", assetId: "rainbow" }
+  });
+
+  assert.equal(el.children[1].dataset.lottiePath, "https://mia.example.com/api/status-badge-assets/rainbow.json");
+  assert.match(html, /data-lottie-path="https:\/\/mia\.example\.com\/api\/status-badge-assets\/rainbow\.json"/);
+});
+
+test("renderNameWithBadge keeps bundled desktop badge assets local even when cloud is configured", () => {
+  const renderer = loadRenderer({ window: { mia: {} } });
+  renderer.setStatusBadgeAssetBaseUrl("https://mia.example.com/");
+  const cat = renderer.renderNameWithBadge({
+    identity: { displayName: "Cat" },
+    statusBadge: { kind: "lottie", assetId: "surprised-cat", label: "惊讶猫" }
+  });
+  const rainbow = renderer.renderNameWithBadge({
+    identity: { displayName: "Rainbow" },
+    statusBadge: { kind: "lottie", assetId: "rainbow" }
+  });
+
+  assert.equal(cat.children[1].dataset.lottieFormat, "tgs");
+  assert.equal(cat.children[1].dataset.lottieLocal, "status-badge");
+  assert.equal(cat.children[1].dataset.lottiePath, "./assets/status-badges/surprised-cat.tgs");
+  assert.equal(rainbow.children[1].dataset.lottiePath, "./assets/lottie/rainbow.json");
+});
+
+test("renderNameWithBadge marks local TGS badge assets for desktop playback", () => {
+  const renderer = loadRenderer();
+  const el = renderer.renderNameWithBadge({
+    identity: { displayName: "Cat" },
+    statusBadge: { kind: "lottie", assetId: "surprised-cat", label: "惊讶猫" }
+  });
+  const html = renderer.renderNameWithBadgeHtml({
+    identity: { displayName: "Cat" },
+    statusBadge: { kind: "lottie", assetId: "surprised-cat", label: "惊讶猫" }
+  });
+
+  assert.equal(el.children[1].dataset.lottieFormat, "tgs");
+  assert.equal(el.children[1].dataset.lottieLocal, "status-badge");
+  assert.equal(el.children[1].dataset.lottieFallback, undefined);
+  assert.equal(el.children[1].dataset.lottiePath, "./assets/status-badges/surprised-cat.tgs");
+  assert.match(html, /data-lottie-format="tgs"/);
+  assert.match(html, /data-lottie-local="status-badge"/);
+  assert.doesNotMatch(html, /data-lottie-fallback/);
+  assert.match(html, /data-lottie-path="\.\/assets\/status-badges\/surprised-cat\.tgs"/);
 });
 
 test("renderNameWithBadge accepts snake_case gift badges from identity", () => {

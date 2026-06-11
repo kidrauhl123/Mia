@@ -33,6 +33,43 @@
     return "";
   }
 
+  function safeLottieAssetId(value) {
+    const text = clean(value);
+    return /^[A-Za-z0-9_-]+$/.test(text) ? text : "";
+  }
+
+  let statusBadgeAssetBaseUrl = "";
+  const localJsonAssetIds = new Set(["rainbow"]);
+  const localTgsAssetIds = new Set(["surprised-cat"]);
+
+  function setStatusBadgeAssetBaseUrl(value) {
+    statusBadgeAssetBaseUrl = String(value || "").trim().replace(/\/+$/, "");
+  }
+
+  function isDesktopRenderer() {
+    return Boolean(global.mia || global.location?.protocol === "file:");
+  }
+
+  function shouldUseLocalAsset(lottieName) {
+    return isDesktopRenderer() && (localJsonAssetIds.has(lottieName) || localTgsAssetIds.has(lottieName));
+  }
+
+  function statusBadgeAssetUrl(assetId) {
+    const lottieName = safeLottieAssetId(assetId);
+    if (!lottieName) return "";
+    if ((!statusBadgeAssetBaseUrl || shouldUseLocalAsset(lottieName)) && localJsonAssetIds.has(lottieName)) return `./assets/lottie/${encodeURIComponent(lottieName)}.json`;
+    if ((!statusBadgeAssetBaseUrl || shouldUseLocalAsset(lottieName)) && localTgsAssetIds.has(lottieName)) return `./assets/status-badges/${encodeURIComponent(lottieName)}.tgs`;
+    if (!statusBadgeAssetBaseUrl) return `/api/status-badge-assets/${encodeURIComponent(lottieName)}.json`;
+    return `${statusBadgeAssetBaseUrl}/api/status-badge-assets/${encodeURIComponent(lottieName)}.json`;
+  }
+
+  function statusBadgeAssetFormat(assetId) {
+    const lottieName = safeLottieAssetId(assetId);
+    if (!lottieName) return "";
+    if ((!statusBadgeAssetBaseUrl || shouldUseLocalAsset(lottieName)) && localTgsAssetIds.has(lottieName)) return "tgs";
+    return "json";
+  }
+
   function displayNameFor(identity, fallbackName) {
     const source = identity && typeof identity === "object" ? identity : {};
     return firstSafeDisplayName(source.displayName, source.display_name, fallbackName) || "未知";
@@ -49,8 +86,10 @@
     if (kind === "lottie" || kind === "gift") {
       const assetId = firstNonEmpty(input.assetId, input.asset_id);
       if (!assetId) return null;
+      if (kind === "lottie" && !safeLottieAssetId(assetId)) return null;
       const collectibleId = kind === "gift" ? firstNonEmpty(input.collectibleId, input.collectible_id) : "";
-      return { kind, assetId, collectibleId, label };
+      const loop = kind === "lottie" ? firstNonEmpty(input.loop) : "";
+      return { kind, assetId, collectibleId, label, loop };
     }
     return null;
   }
@@ -72,15 +111,72 @@
       return el;
     }
     el.setAttribute("data-asset-id", badge.assetId);
+    el.setAttribute("aria-hidden", "true");
+    if (badge.kind === "lottie") {
+      const lottieName = safeLottieAssetId(badge.assetId);
+      if (lottieName) {
+        el.setAttribute("data-lottie", lottieName);
+        el.setAttribute("data-lottie-trigger", "loop");
+        const format = statusBadgeAssetFormat(lottieName);
+        if (format === "tgs") {
+          el.setAttribute("data-lottie-format", "tgs");
+          el.setAttribute("data-lottie-local", "status-badge");
+        }
+        const remotePath = statusBadgeAssetUrl(lottieName);
+        if (remotePath) el.setAttribute("data-lottie-path", remotePath);
+      }
+    }
     if (badge.kind === "gift" && badge.collectibleId) {
       el.setAttribute("data-collectible-id", badge.collectibleId);
     }
     return el;
   }
 
+  function badgeRenderKey(badge) {
+    if (!badge) return "";
+    if (badge.kind === "emoji") return ["emoji", badge.emoji || "", badge.label || ""].join("\u001f");
+    if (badge.kind === "gift") return ["gift", badge.assetId || "", badge.collectibleId || "", badge.label || ""].join("\u001f");
+    if (badge.kind === "lottie") {
+      const assetId = safeLottieAssetId(badge.assetId);
+      return [
+        "lottie",
+        assetId,
+        badge.label || "",
+        statusBadgeAssetFormat(assetId),
+        statusBadgeAssetUrl(assetId)
+      ].join("\u001f");
+    }
+    return "";
+  }
+
+  function renderKeyFor({ identity, fallbackName, statusBadge } = {}) {
+    const name = displayNameFor(identity, fallbackName);
+    const badge = badgeFor(identity, statusBadge);
+    return [name, badgeRenderKey(badge)].join("\u001e");
+  }
+
+  function initLottieBadges(root) {
+    const init = global.miaLottieIcons && global.miaLottieIcons.init;
+    if (!root || typeof init !== "function") return;
+    const run = () => {
+      if (root.isConnected === false) return;
+      try { init(root); } catch { /* optional badge animation must not break names */ }
+    };
+    if (root.isConnected === false) {
+      const defer = typeof global.requestAnimationFrame === "function"
+        ? global.requestAnimationFrame
+        : global.setTimeout;
+      if (typeof defer === "function") defer(run, 0);
+      return;
+    }
+    run();
+  }
+
   function renderNameWithBadge({ identity, fallbackName, statusBadge } = {}) {
+    const key = renderKeyFor({ identity, fallbackName, statusBadge });
     const wrapper = document.createElement("span");
     wrapper.className = "name-with-badge";
+    wrapper.setAttribute("data-name-with-badge-key", key);
 
     const text = document.createElement("span");
     text.className = "name-with-badge-text";
@@ -88,8 +184,32 @@
     wrapper.appendChild(text);
 
     const badge = badgeFor(identity, statusBadge);
-    if (badge) wrapper.appendChild(renderBadge(badge));
+    if (badge) {
+      wrapper.appendChild(renderBadge(badge));
+      if (badge.kind === "lottie") initLottieBadges(wrapper);
+    }
     return wrapper;
+  }
+
+  function setNameWithBadge(target, { identity, fallbackName, statusBadge } = {}) {
+    if (!target) return null;
+    const key = renderKeyFor({ identity, fallbackName, statusBadge });
+    const currentKey = target.dataset?.nameWithBadgeKey || target.getAttribute?.("data-name-with-badge-key") || "";
+    const existing = target.firstElementChild || target.children?.[0] || null;
+    if (currentKey === key && existing?.className === "name-with-badge") {
+      initLottieBadges(target);
+      return existing;
+    }
+    const node = renderNameWithBadge({ identity, fallbackName, statusBadge });
+    if (typeof target.replaceChildren === "function") {
+      target.replaceChildren(node);
+    } else {
+      target.textContent = "";
+      target.appendChild(node);
+    }
+    if (target.dataset) target.dataset.nameWithBadgeKey = key;
+    else target.setAttribute?.("data-name-with-badge-key", key);
+    return node;
   }
 
   function renderBadgeHtml(badge) {
@@ -99,10 +219,16 @@
       return `<span class="${className}"${titleAttr}>${escapeHtml(badge.emoji)}</span>`;
     }
     const assetAttr = ` data-asset-id="${escapeHtml(badge.assetId)}"`;
+    const lottieName = badge.kind === "lottie" ? safeLottieAssetId(badge.assetId) : "";
+    const lottiePath = lottieName ? statusBadgeAssetUrl(lottieName) : "";
+    const lottieFormat = lottieName ? statusBadgeAssetFormat(lottieName) : "";
+    const lottieAttr = lottieName
+      ? ` data-lottie="${escapeHtml(lottieName)}" data-lottie-trigger="loop"${lottieFormat === "tgs" ? " data-lottie-format=\"tgs\" data-lottie-local=\"status-badge\"" : ""}${lottiePath ? ` data-lottie-path="${escapeHtml(lottiePath)}"` : ""} aria-hidden="true"`
+      : " aria-hidden=\"true\"";
     const collectibleAttr = badge.kind === "gift" && badge.collectibleId
       ? ` data-collectible-id="${escapeHtml(badge.collectibleId)}"`
       : "";
-    return `<span class="${className}"${titleAttr}${assetAttr}${collectibleAttr}></span>`;
+    return `<span class="${className}"${titleAttr}${assetAttr}${lottieAttr}${collectibleAttr}></span>`;
   }
 
   function renderNameWithBadgeHtml({ identity, fallbackName, statusBadge } = {}) {
@@ -111,5 +237,13 @@
     return `<span class="name-with-badge">${text}${badge ? renderBadgeHtml(badge) : ""}</span>`;
   }
 
-  global.miaNameWithBadge = { renderNameWithBadge, renderNameWithBadgeHtml };
+  global.miaNameWithBadge = {
+    renderNameWithBadge,
+    renderNameWithBadgeHtml,
+    setNameWithBadge,
+    initLottieBadges,
+    setStatusBadgeAssetBaseUrl,
+    statusBadgeAssetUrl,
+    statusBadgeAssetFormat
+  };
 })(typeof window !== "undefined" ? window : globalThis);

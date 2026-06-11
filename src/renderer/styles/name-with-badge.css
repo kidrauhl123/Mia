@@ -1,7 +1,8 @@
 .name-with-badge {
+  --name-badge-size: 1em;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 0.25em;
   max-width: 100%;
   min-width: 0;
   vertical-align: middle;
@@ -17,21 +18,20 @@
 
 .name-with-badge-badge {
   display: inline-flex;
-  flex: 0 0 16px;
+  flex: 0 0 var(--name-badge-size);
   align-items: center;
   justify-content: center;
-  width: 16px;
-  min-width: 16px;
-  height: 16px;
+  width: var(--name-badge-size);
+  min-width: var(--name-badge-size);
+  height: var(--name-badge-size);
   overflow: hidden;
-  line-height: 16px;
+  line-height: var(--name-badge-size);
 }
 
 .name-with-badge-badge-emoji {
-  font-size: 13px;
+  font-size: 0.95em;
 }
 
-.name-with-badge-badge-lottie,
 .name-with-badge-badge-gift {
   box-sizing: border-box;
   border: 1px solid currentColor;
@@ -39,7 +39,24 @@
   opacity: 0.72;
 }
 
+.name-with-badge-badge-lottie {
+  opacity: 1;
+}
+
+.name-with-badge-badge-lottie svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
 .persona-name .name-with-badge,
-.bubble-sender .name-with-badge {
+.bubble-sender .name-with-badge,
+#activeChatName .name-with-badge,
+.contact-row-main strong .name-with-badge,
+.contact-profile-title h2 .name-with-badge,
+.contact-card-name .name-with-badge,
+.group-info-member-name .name-with-badge,
+.group-create-member-row .member-name .name-with-badge,
+.cloud-account-identity .name-with-badge {
   width: 100%;
 }

@@ -99,7 +99,7 @@ test("setup guide offers official agent installs when no local agent is availabl
   assert.match(html, /data-setup-action="install-claude-code"/);
   assert.match(html, /data-setup-action="install-codex"/);
   assert.doesNotMatch(html, /data-setup-action="use-engine"/);
-  assert.match(html, /data-action="cloud-login"/);
+  assert.doesNotMatch(html, /data-action="cloud-login"/);
   assert.match(html, /OpenClaw/);
   assert.match(html, /安装官方 Hermes/);
   assert.match(html, /data-setup-action="install-openclaw"/);

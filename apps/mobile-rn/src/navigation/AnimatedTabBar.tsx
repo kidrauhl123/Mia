@@ -1,12 +1,35 @@
 import { useRef } from "react";
-import { View, Pressable, Text, StyleSheet, Animated } from "react-native";
+import { View, Pressable, Text, StyleSheet, Animated, Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
+import LottieIcon, { type LottieIconName } from "../ui/LottieIcon";
 import { color, hairlineWidth } from "../theme";
 
-const GLYPHS: Record<string, string> = { Messages: "✦", Contacts: "◇", Me: "●" };
-const LABELS: Record<string, string> = { Messages: "消息", Contacts: "联系人", Me: "我" };
+const LABELS: Record<string, string> = {
+  Messages: "消息",
+  Contacts: "联系人",
+  Agents: "运行",
+  Skills: "技能",
+  Settings: "设置",
+};
+
+// Match the desktop nav rail's Lottie icon set (src/renderer/assets/lottie).
+const TAB_ICON: Record<string, LottieIconName> = {
+  Messages: "chat",
+  Contacts: "contacts",
+  Agents: "checklist",
+  Skills: "extension",
+  Settings: "settings",
+};
+
+function tabFeedback() {
+  if (Platform.OS === "android") {
+    Haptics.performAndroidHapticsAsync(Haptics.AndroidHaptics.Segment_Tick).catch(() => {});
+  } else {
+    Haptics.selectionAsync().catch(() => {});
+  }
+}
 
 function TabItem({ routeName, focused, onPress }: { routeName: string; focused: boolean; onPress: () => void }) {
   const scale = useRef(new Animated.Value(1)).current;
@@ -17,15 +40,16 @@ function TabItem({ routeName, focused, onPress }: { routeName: string; focused: 
       Animated.timing(scale, { toValue: 1.35, duration: 110, useNativeDriver: true }),
       Animated.spring(scale, { toValue: 1, friction: 4, tension: 220, useNativeDriver: true }),
     ]).start();
-    // 触感反馈:轻震
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    tabFeedback();
     onPress();
   };
 
   const tint = focused ? color.accent : color.inkFaint;
   return (
     <Pressable style={styles.item} onPress={handle} hitSlop={8}>
-      <Animated.Text style={[styles.glyph, { color: tint, transform: [{ scale }] }]}>{GLYPHS[routeName] || "•"}</Animated.Text>
+      <Animated.View style={[styles.iconWrap, { transform: [{ scale }] }]}>
+        <LottieIcon name={TAB_ICON[routeName] || "chat"} size={24} color={tint} dimmed={!focused} play={focused} />
+      </Animated.View>
       <Text style={[styles.label, { color: tint }]}>{LABELS[routeName] || routeName}</Text>
     </Pressable>
   );
@@ -55,6 +79,6 @@ const styles = StyleSheet.create({
     borderTopColor: color.line,
   },
   item: { flex: 1, alignItems: "center", justifyContent: "center", paddingTop: 8, paddingBottom: 6, gap: 3 },
-  glyph: { fontSize: 18 },
+  iconWrap: { width: 24, height: 24, alignItems: "center", justifyContent: "center" },
   label: { fontSize: 11 },
 });

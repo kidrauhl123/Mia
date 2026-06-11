@@ -5,6 +5,16 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function parseJsonOr(value, fallback) {
+  if (!value) return fallback;
+  try {
+    const parsed = JSON.parse(String(value));
+    return parsed == null ? fallback : parsed;
+  } catch {
+    return fallback;
+  }
+}
+
 function randomId(prefix) {
   return prefix + "_" + crypto.randomBytes(8).toString("hex");
 }
@@ -179,9 +189,9 @@ function createSocialStore(db) {
       type: row.type || (row.id?.startsWith("dm:") ? "dm" : row.id?.startsWith("botc_") ? "bot" : "group"),
       name: row.name,
       avatar: row.avatar,
-      hostMember: row.host_member_json ? JSON.parse(row.host_member_json) : null,
-      decorations: row.decorations_json ? JSON.parse(row.decorations_json) : null,
-      contextCard: row.context_card_json ? JSON.parse(row.context_card_json) : null,
+      hostMember: parseJsonOr(row.host_member_json, null),
+      decorations: parseJsonOr(row.decorations_json, null),
+      contextCard: parseJsonOr(row.context_card_json, null),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };

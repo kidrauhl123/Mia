@@ -25,8 +25,8 @@ function freshStore() {
 
 function insertUser(db, id) {
   db.prepare(
-    "INSERT INTO users (id, account, username, password_salt, password_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)"
-  ).run(id, `${id}@local`, id, "salt", "hash", new Date().toISOString());
+    "INSERT INTO users (id, account, username, email, display_name, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+  ).run(id, `wechat:${id}`, id, "", id, new Date().toISOString());
 }
 
 function insertBot(db, id, ownerUserId) {

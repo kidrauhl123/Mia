@@ -116,7 +116,6 @@
   // Cache of conversation members per conversation id (fetched on first open, updated via WS events).
   const _conversationMembersCache = new Map();
   const _hydratingBotIdentities = new Set();
-  let _ensuringLocalBotConversations = null;
 
   // Distance (px) from the bottom within which we treat the user as "pinned" and
   // keep following new content. Mirrors the bot-chat threshold in app.js.
@@ -124,6 +123,98 @@
   // Which conversation renderConversationChat last painted — a change means the user switched
   // conversations, so we land at the bottom instead of preserving the old offset.
   let _lastRenderedConversationId = null;
+
+  function jsonSignature(value) {
+    try {
+      return JSON.stringify(value ?? null);
+    } catch {
+      return String(value ?? "");
+    }
+  }
+
+  function badgeSignature(badge) {
+    if (!badge || typeof badge !== "object") return "";
+    return jsonSignature({
+      kind: badge.kind || "",
+      emoji: badge.emoji || "",
+      assetId: badge.assetId || badge.asset_id || "",
+      collectibleId: badge.collectibleId || badge.collectible_id || "",
+      label: badge.label || ""
+    });
+  }
+
+  function conversationSignature(conversation) {
+    if (!conversation) return "";
+    return jsonSignature({
+      id: conversation.id || "",
+      type: conversation.type || "",
+      name: conversation.name || "",
+      updatedAt: conversation.updatedAt || conversation.updated_at || "",
+      badge: badgeSignature(statusBadgeFrom(conversation.identity, conversation)),
+      otherBadge: badgeSignature(statusBadgeFrom(conversation.otherUser?.identity, conversation.otherUser))
+    });
+  }
+
+  function memberSignature(member) {
+    if (!member) return "";
+    const identity = member.identity || {};
+    return jsonSignature({
+      kind: member.member_kind || identity.kind || "",
+      ref: member.member_ref || identity.id || "",
+      name: identity.displayName || identity.display_name || member.displayName || member.display_name || member.name || "",
+      badge: badgeSignature(statusBadgeFrom(identity, member))
+    });
+  }
+
+  function messageSignature(msg) {
+    if (!msg) return "";
+    return jsonSignature({
+      id: msg.id || "",
+      seq: msg.seq || "",
+      senderKind: msg.sender_kind || msg.senderKind || "",
+      senderRef: msg.sender_ref || msg.senderRef || "",
+      body: msg.body_md || msg.bodyMd || "",
+      createdAt: msg.created_at || msg.createdAt || "",
+      status: msg.status || "",
+      error: msg.error || "",
+      trace: msg.trace_json || msg.trace || "",
+      skills: msg.skills_json || "",
+      attachments: msg.attachments || [],
+      translation: msg.translation || null
+    });
+  }
+
+  function streamSignature(run) {
+    if (!run) return "";
+    return jsonSignature({
+      runId: run.runId || "",
+      botId: run.botId || "",
+      text: run.text || "",
+      reasoning: run.reasoning || "",
+      tools: run.tools || [],
+      createdAt: run.createdAt || ""
+    });
+  }
+
+  function chatRenderSignatureFor(conversationId) {
+    const entry = moduleState.messageCache.get(conversationId) || { messages: [], maxSeq: 0 };
+    const conversation = moduleState.conversations.find((r) => r.id === conversationId);
+    const type = conversationTypeFor(conversation, conversationId);
+    const members = type === "group" ? (_conversationMembersCache.get(conversationId) || []) : [];
+    return jsonSignature({
+      conversationId,
+      maxSeq: entry.maxSeq || 0,
+      conversation: conversationSignature(conversation),
+      members: members.map(memberSignature),
+      messages: (entry.messages || []).map(messageSignature),
+      stream: streamSignature(moduleState.cloudAgentRunsByConversation.get(conversationId))
+    });
+  }
+
+  function markChatRenderFresh(containerEl, conversationId = moduleState.activeConversationId) {
+    if (!containerEl?.dataset || !conversationId) return;
+    containerEl.dataset.conversationRenderSignature = chatRenderSignatureFor(conversationId);
+  }
 
   const moduleState = {
     conversations: [],
@@ -173,6 +264,18 @@
       }
     }
     return escapeHtml(fallbackName || identity?.displayName || "");
+  }
+
+  function statusBadgeFrom(...sources) {
+    for (const source of sources) {
+      if (source && typeof source === "object" && Object.prototype.hasOwnProperty.call(source, "statusBadge")) return source.statusBadge;
+      if (source && typeof source === "object" && Object.prototype.hasOwnProperty.call(source, "status_badge")) return source.status_badge;
+    }
+    return undefined;
+  }
+
+  function initNameBadgeLotties(root) {
+    try { global.miaNameWithBadge?.initLottieBadges?.(root); } catch { /* optional badge animation */ }
   }
 
   function senderTitleHtml(spec, color = "") {
@@ -842,87 +945,6 @@
     return (deps && typeof deps.getState === "function" && deps.getState()) || {};
   }
 
-  function localRuntimeBots() {
-    const state = currentState();
-    const runtime = state.runtime || {};
-    const candidates = [
-      ...(Array.isArray(runtime.bots) ? runtime.bots : []),
-      ...(Array.isArray(state.bots) ? state.bots : [])
-    ];
-    const seen = new Set();
-    const bots = [];
-    for (const item of candidates) {
-      if (!item || typeof item !== "object") continue;
-      const key = String(item.key || item.id || "").trim();
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-      bots.push({ ...item, key });
-    }
-    return bots;
-  }
-
-  async function syncLocalBotRuntimeBinding(api, bot) {
-    const botKey = String(bot?.key || bot?.id || "").trim();
-    if (!botKey || !window.miaBotCommands?.syncDesktopLocalBotRuntimeBinding) return;
-    try {
-      await window.miaBotCommands.syncDesktopLocalBotRuntimeBinding({
-        api,
-        state: currentState(),
-        bot,
-        engineContracts: window.miaEngineContracts,
-        modelSettings: window.miaModelSettings,
-        engineOptions: window.miaEngineOptions,
-        activateRuntime: "if-empty"
-      });
-    } catch (error) {
-      console.warn("[social] sync bot runtime failed", botKey, error);
-    }
-  }
-
-  async function syncLocalBotRuntimeBindings() {
-    const api = window.mia?.social;
-    if (!api || !window.miaBotCommands?.syncDesktopLocalBotRuntimeBinding) return;
-    for (const bot of localRuntimeBots()) {
-      await syncLocalBotRuntimeBinding(api, bot);
-    }
-  }
-
-  async function ensureLocalBotConversations(api) {
-    if (!api || !window.miaBotCommands?.ensureDesktopLocalBotConversation) return;
-    for (const bot of localRuntimeBots()) {
-      try {
-        await window.miaBotCommands.ensureDesktopLocalBotConversation({
-          api,
-          state: currentState(),
-          bot,
-          engineContracts: window.miaEngineContracts,
-          modelSettings: window.miaModelSettings,
-          engineOptions: window.miaEngineOptions,
-          activateRuntime: "if-empty",
-          onConversation: upsertConversation
-        });
-      } catch (error) {
-        console.warn("[social] ensure bot conversation failed", bot.key, error);
-      }
-    }
-  }
-
-  function ensureLocalBotConversationsInBackground(api) {
-    if (!api || !window.miaBotCommands?.ensureDesktopLocalBotConversation) return;
-    if (_ensuringLocalBotConversations) return;
-    _ensuringLocalBotConversations = Promise.resolve()
-      .then(() => ensureLocalBotConversations(api))
-      .then(() => {
-        if (deps && typeof deps.render === "function") deps.render();
-      })
-      .catch((error) => {
-        console.warn("[social] ensure local bot conversations failed:", error);
-      })
-      .finally(() => {
-        _ensuringLocalBotConversations = null;
-      });
-  }
-
   async function ensureBotConversation(bot) {
     const botKey = String(bot?.key || bot?.id || "").trim();
     if (!botKey || !window.miaBotCommands?.ensureDesktopLocalBotConversation) return null;
@@ -1005,13 +1027,9 @@
     const cloudUser = runtime.cloud?.user || {};
     const localUser = runtime.user || {};
     const cloudBots = Array.isArray(moduleState.bots) ? moduleState.bots : [];
-    const localBots = [
-      ...(Array.isArray(runtime.bots) ? runtime.bots : []),
-      ...(Array.isArray(runtime.personas) ? runtime.personas : [])
-    ];
     const bots = window.miaBotDirectory
-      ? window.miaBotDirectory.listOwnedBots({ cloudBots, localBots, runtime })
-      : [...cloudBots, ...localBots];
+      ? window.miaBotDirectory.listOwnedBots({ cloudBots, runtime })
+      : cloudBots;
     const self = window.miaSelfIdentity.resolveSelfIdentity({
       cloudUser,
       localUser,
@@ -1027,7 +1045,8 @@
         account: self.account,
         avatarImage: self.avatarImage,
         avatarCrop: self.avatarCrop,
-        avatarColor: self.avatarColor || ""
+        avatarColor: self.avatarColor || "",
+        statusBadge: self.statusBadge || null
       },
       bots,
       friends: moduleState.friends || []
@@ -1209,7 +1228,6 @@
         bootstrapCompleted = true;
       }
       hydrateVisibleBotIdentities(api, visibleSocialConversations(moduleState.conversations).slice(0, INITIAL_CONVERSATIONS_CAP));
-      ensureLocalBotConversationsInBackground(api);
 
       // Phase 3: cross-device user settings (pin / read marks / appearance).
       await bootstrapCloudSettings();
@@ -1587,6 +1605,8 @@
     const entry = moduleState.messageCache.get(conversationId) || { messages: [], maxSeq: 0 };
     const conversation = moduleState.conversations.find((r) => r.id === conversationId);
     const color = avatarColor(conversationId);
+    const conversationType = conversationTypeFor(conversation, conversationId);
+    const renderSignature = chatRenderSignatureFor(conversationId);
 
     // Decide BEFORE rebuilding whether to keep the view pinned to the bottom.
     // Stick when entering a different conversation (show its latest) or when the user is
@@ -1601,13 +1621,21 @@
       containerEl.scrollTop = stickToBottom ? containerEl.scrollHeight : prevScrollTop;
     };
 
+    if (!isConversationSwitch && containerEl.dataset?.conversationRenderSignature === renderSignature) {
+      initNameBadgeLotties(containerEl);
+      applyScroll();
+      if (conversation && conversationType === "group" && !_conversationMembersCache.has(conversationId)) {
+        _fetchAndCacheConversationMembers(conversationId);
+      }
+      return;
+    }
+    if (containerEl.dataset) containerEl.dataset.conversationRenderSignature = renderSignature;
     containerEl.innerHTML = "";
 
     // Header (avatar / name / meta) is painted by app.js render() — this
     // module only owns the message list so the chat header stays in lockstep
     // with the sidebar's group-avatar mosaic for every conversation type.
 
-    const conversationType = conversationTypeFor(conversation, conversationId);
     if (conversation && conversationType === "group") {
       const members = _conversationMembersCache.get(conversationId) || [];
       for (const msg of entry.messages) {
@@ -1618,6 +1646,7 @@
       if (streaming) containerEl.appendChild(streaming);
       window.miaAvatar?.hydrateAvatarVideos?.(containerEl);
       markRenderedTraceBlocks(containerEl);
+      initNameBadgeLotties(containerEl);
       applyScroll();
       if (!_conversationMembersCache.has(conversationId)) {
         _fetchAndCacheConversationMembers(conversationId);
@@ -1634,6 +1663,7 @@
     if (streaming) containerEl.appendChild(streaming);
     window.miaAvatar?.hydrateAvatarVideos?.(containerEl);
     markRenderedTraceBlocks(containerEl);
+    initNameBadgeLotties(containerEl);
     applyScroll();
   }
 
@@ -1822,6 +1852,7 @@
     if (!chatEl) return;
     const bubble = chatEl.querySelector(`.bubble[data-message-id="${(window.CSS && window.CSS.escape) ? window.CSS.escape(messageId) : messageId}"]`);
     bubble?.closest(".message")?.remove();
+    markChatRenderFresh(chatEl);
   }
 
   // Translate a cloud-conversation message in place. Mirrors message-menu.translateMessage
@@ -1834,8 +1865,7 @@
     if (!text) return;
     // sendChat needs a bot to run the utility model on: prefer a bot
     // member of this conversation, else fall back to the first available persona.
-    const runtime = (deps && typeof deps.getState === "function" && deps.getState()?.runtime) || {};
-    const bots = runtime.bots || runtime.personas || [];
+    const bots = Array.isArray(moduleState.bots) ? moduleState.bots : [];
     const { MemberKind } = conversationKinds();
     const conversationBot = (_conversationMembersCache.get(conversationId) || []).find((m) => m.member_kind === MemberKind.Bot);
     const botKey = (conversationBot && conversationBot.member_ref) || (bots[0] && (bots[0].key || bots[0].id)) || "";
@@ -1939,6 +1969,8 @@
     if (article) {
       chatEl.appendChild(article);
       window.miaAvatar?.hydrateAvatarVideos?.(article);
+      initNameBadgeLotties(article);
+      markChatRenderFresh(chatEl);
       if (stick || nearBottom) chatEl.scrollTop = chatEl.scrollHeight;
     }
   }
@@ -2286,9 +2318,7 @@
       // opposite end). Live WS events use `from` instead — accept either.
       const otherUser = req.other || req.from || {};
       const fallbackId = direction === "incoming" ? req.from_user : req.to_user;
-      const displayName = escapeHtml(
-        otherUser.username || otherUser.account || fallbackId || "—"
-      );
+      const displayName = otherUser.username || otherUser.account || fallbackId || "—";
 
       const avatar = document.createElement("span");
       avatar.className = "avatar request-avatar";
@@ -2303,7 +2333,11 @@
 
       const nameSpan = document.createElement("span");
       nameSpan.style.cssText = "flex:1; font-weight:500;";
-      nameSpan.innerHTML = displayName;
+      nameSpan.innerHTML = renderNameWithBadgeHtml({
+        identity: { kind: "user", id: otherUser.id || fallbackId || "", displayName, statusBadge: statusBadgeFrom(otherUser) },
+        fallbackName: displayName,
+        statusBadge: statusBadgeFrom(otherUser)
+      });
       row.appendChild(nameSpan);
 
       if (direction === "incoming") {
@@ -2363,6 +2397,7 @@
 
       container.appendChild(row);
     }
+    initNameBadgeLotties(container);
   }
 
   function pendingRequestCount() {
@@ -2848,7 +2883,6 @@
     moduleState,
     initSocialModule,
     bootstrapAfterLogin,
-    syncLocalBotRuntimeBindings,
     isBootstrapped,
     handleCloudEvent,
     renderSidebarRows,

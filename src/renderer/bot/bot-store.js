@@ -353,9 +353,8 @@
   }
 
   function existingPrincipalIds() {
-    const local = Array.isArray(state?.runtime?.bots) ? state.runtime.bots : [];
     const cloud = Array.isArray(window.miaSocial?.moduleState?.bots) ? window.miaSocial.moduleState.bots : [];
-    return [...local, ...cloud]
+    return [...cloud]
       .flatMap((item) => [item?.key, item?.id, item?.account_id, item?.accountId])
       .map((value) => String(value || "").trim())
       .filter(Boolean);

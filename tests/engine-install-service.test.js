@@ -207,6 +207,60 @@ test("installWithWindowsInstallerAsync fails when installer exits but detection 
   );
 });
 
+test("selectOfficialEnginePython skips the macOS developer tools python3 shim", (t) => {
+  const seen = [];
+  const { service } = setup(t, {
+    platform: "darwin",
+    shellCommandPath: (command) => (command === "python3" ? "/usr/bin/python3" : ""),
+    spawnSync: (command) => {
+      seen.push(command);
+      if (command === "python3" || command === "/usr/bin/python3") {
+        throw new Error("should not invoke macOS python3 shim");
+      }
+      return { status: 1, stdout: "", stderr: "" };
+    }
+  });
+
+  assert.throws(
+    () => service.selectOfficialEnginePython(),
+    /Official Hermes requires Python 3\.11\+/
+  );
+  assert.equal(seen.includes("python3"), false);
+  assert.equal(seen.includes("/usr/bin/python3"), false);
+});
+
+test("installFromOfficialPackageAsync allows the macOS developer tools python3 shim after the user starts install", async (t) => {
+  const versionProbes = [];
+  const pipCommands = [];
+  const { service } = setup(t, {
+    platform: "darwin",
+    shellCommandPath: (command) => (command === "python3" ? "/usr/bin/python3" : ""),
+    spawnSync: (command, args) => {
+      if (args[0] === "-c") {
+        const body = String(args[1] || "");
+        if (body.includes("version_info")) {
+          versionProbes.push(command);
+          return command === "/usr/bin/python3"
+            ? { status: 0, stdout: "3.11.8\n", stderr: "" }
+            : { status: 1, stdout: "", stderr: "" };
+        }
+        if (body.includes("sysconfig")) return { status: 0, stdout: "/home/test/Library/Python/3.11/bin\n", stderr: "" };
+      }
+      return { status: 0, stdout: "", stderr: "" };
+    },
+    spawn: (command, args) => {
+      if (args[0] === "-m" && args[1] === "pip") pipCommands.push([command, ...args]);
+      return fakeSpawnResult({ stdout: args[0] === "-c" ? "import OK\n" : "installed\n" });
+    }
+  });
+
+  await service.installFromOfficialPackageAsync();
+
+  assert.ok(versionProbes.includes("/usr/bin/python3"));
+  assert.equal(versionProbes.includes("python3"), false);
+  assert.equal(pipCommands[0][0], "/usr/bin/python3");
+});
+
 test("engine source and executable resolve from the system Hermes on PATH, else python3", (t) => {
   const system = setup(t, {
     systemHermesPython: () => "/Users/test/.local/share/hermes/bin/python3"

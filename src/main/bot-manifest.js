@@ -8,8 +8,9 @@
 // Plus the normalization helpers used everywhere (normalizeBot,
 // normalizeBotEngineConfig, mergeBotEngineConfig, etc.).
 //
-// Write-side CRUD lives in bot-service.js, which composes these record
-// helpers with cloud sync, task cleanup, chat cleanup, and pet cleanup.
+// Product Bot identity is cloud-owned. These helpers remain as a local runtime
+// fallback for desktop-local adapter/persona reads; new Bot writes must not use
+// this manifest as the source of truth.
 
 const crypto = require("node:crypto");
 const fs = require("node:fs");
@@ -135,6 +136,7 @@ function createBotManifest(deps = {}) {
       color: normalizeBotColor(item?.color || item?.avatarColor || item?.avatar_color),
       avatarImage: String(item?.avatarImage || item?.avatar_image || "").trim(),
       avatarCrop: normalizeAvatarCrop(item?.avatarCrop || item?.avatar_crop),
+      statusBadge: item?.statusBadge || item?.status_badge || null,
       pinned: Boolean(item?.pinned || item?.is_pinned || pinnedAt),
       pinnedAt,
       muted: Boolean(item?.muted || item?.is_muted || mutedAt),

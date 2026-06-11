@@ -105,6 +105,47 @@ function normalizeBotCapabilities(input = {}) {
   };
 }
 
+function botIdentityMatchesPreset(bot = {}, preset = {}) {
+  const botKeys = [bot.key, bot.id, bot.account_id, bot.accountId]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+  const presetKeys = [preset.key, preset.id]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+  if (botKeys.some((key) => presetKeys.includes(key))) return true;
+  const botNames = [bot.name, bot.displayName, bot.display_name, bot.username]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+  const presetNames = [preset.name, preset.displayName, preset.display_name]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+  return botNames.some((name) => presetNames.includes(name));
+}
+
+function botCapabilitiesWithPresetDefaults(bot = {}, presets = []) {
+  const capabilities = normalizeBotCapabilities(bot.capabilities);
+  if (
+    capabilities.inheritEngineDefaults === false
+    || capabilities.enabledSkills.length
+    || capabilities.disabledSkills.length
+  ) {
+    return capabilities;
+  }
+  const preset = (Array.isArray(presets) ? presets : []).find((item) => botIdentityMatchesPreset(bot, item));
+  if (!preset) return capabilities;
+  const presetCapabilities = normalizeBotCapabilities({
+    ...(preset.capabilities || {}),
+    inheritEngineDefaults: false
+  });
+  if (!presetCapabilities.enabledSkills.length && !presetCapabilities.disabledSkills.length) return capabilities;
+  return {
+    ...capabilities,
+    inheritEngineDefaults: false,
+    enabledSkills: presetCapabilities.enabledSkills,
+    disabledSkills: presetCapabilities.disabledSkills
+  };
+}
+
 function normalizeBotIdentity(input = {}, options = {}) {
   if (!input || typeof input !== "object") return null;
   const id = normalizeBotId(input.id || input.botId || input.bot_id || options.id);
@@ -147,5 +188,6 @@ module.exports = {
   normalizeBotAvatarCrop,
   normalizeCapabilityIds,
   normalizeBotCapabilities,
+  botCapabilitiesWithPresetDefaults,
   normalizeBotIdentity
 };

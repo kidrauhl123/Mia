@@ -16,6 +16,17 @@
 
 const TAG = "[AutoUpdate]";
 
+function versionFromInfo(info) {
+  return String(info?.version || "").trim();
+}
+
+function serializeError(error) {
+  return {
+    message: String(error?.message || error || "检查更新失败"),
+    code: error?.code || "",
+  };
+}
+
 function createAutoUpdateService(deps = {}) {
   const {
     // Lazy accessor so the electron-updater singleton is constructed only in
@@ -32,6 +43,8 @@ function createAutoUpdateService(deps = {}) {
   } = deps;
 
   let started = false;
+  let configured = false;
+  let checkingPromise = null;
   let restartPromptOpen = false;
   let updater = null;
 
@@ -40,17 +53,18 @@ function createAutoUpdateService(deps = {}) {
     return updater;
   }
 
-  function enabled() {
-    return Boolean(isPackaged) && !disabled;
+  function disabledReason() {
+    if (disabled) return "disabled";
+    if (!isPackaged) return "dev/unpacked build";
+    return "";
   }
 
-  function start() {
-    if (started) return;
-    started = true;
-    if (!enabled()) {
-      logger.info?.(`${TAG} skipped (${disabled ? "disabled" : "dev/unpacked build"})`);
-      return;
-    }
+  function enabled() {
+    return !disabledReason();
+  }
+
+  function configureUpdater() {
+    if (configured) return resolveUpdater();
     const autoUpdater = resolveUpdater();
     autoUpdater.autoDownload = true;
     // If the user dismisses the restart prompt, still apply on next quit.
@@ -66,17 +80,80 @@ function createAutoUpdateService(deps = {}) {
       logger.info?.(`${TAG} update downloaded: ${info?.version}`);
       promptRestart(info);
     });
+    configured = true;
+    return autoUpdater;
+  }
+
+  function start() {
+    if (started) return;
+    started = true;
+    if (!enabled()) {
+      logger.info?.(`${TAG} skipped (${disabledReason()})`);
+      return;
+    }
+    configureUpdater();
     checkForUpdates();
     setInterval(checkForUpdates, checkIntervalMs);
   }
 
   function checkForUpdates() {
-    if (!enabled()) return;
-    resolveUpdater()
-      .checkForUpdates()
-      .catch((error) => {
+    const reason = disabledReason();
+    if (reason) return Promise.resolve({ status: "disabled", reason });
+    const autoUpdater = configureUpdater();
+    if (checkingPromise) return checkingPromise;
+
+    checkingPromise = new Promise((resolve) => {
+      let settled = false;
+      const cleanup = () => {
+        autoUpdater.removeListener("update-available", onAvailable);
+        autoUpdater.removeListener("update-not-available", onNotAvailable);
+        autoUpdater.removeListener("update-downloaded", onDownloaded);
+        autoUpdater.removeListener("error", onError);
+      };
+      const finish = (result) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(result);
+      };
+      const onAvailable = (info) => {
+        finish({ status: "available", version: versionFromInfo(info) });
+      };
+      const onNotAvailable = (info) => {
+        finish({ status: "not-available", version: versionFromInfo(info) });
+      };
+      const onDownloaded = (info) => {
+        finish({ status: "downloaded", version: versionFromInfo(info) });
+      };
+      const onError = (error) => {
         logger.warn?.(`${TAG} checkForUpdates rejected`, error);
-      });
+        finish({ status: "error", error: serializeError(error) });
+      };
+
+      autoUpdater.once("update-available", onAvailable);
+      autoUpdater.once("update-not-available", onNotAvailable);
+      autoUpdater.once("update-downloaded", onDownloaded);
+      autoUpdater.once("error", onError);
+
+      try {
+        Promise.resolve(autoUpdater.checkForUpdates())
+          .then((result) => {
+            if (settled) return;
+            if (result?.downloadPromise) {
+              finish({ status: "available", version: versionFromInfo(result.updateInfo) });
+              return;
+            }
+            finish({ status: "not-available", version: versionFromInfo(result?.updateInfo) });
+          })
+          .catch(onError);
+      } catch (error) {
+        onError(error);
+      }
+    }).finally(() => {
+      checkingPromise = null;
+    });
+
+    return checkingPromise;
   }
 
   function promptRestart(info) {

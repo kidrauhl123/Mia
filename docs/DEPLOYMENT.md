@@ -27,7 +27,7 @@ Cloud 生产服务器：
 - `npm`、`rsync`、`systemctl`、`tar`、`docker`。
 - nginx 和有效 TLS 证书。
 - 非 root 的 `mia-cloud` 服务用户。
-- LiteLLM Proxy，用于 Cloud Hermes worker 的平台模型网关。
+- Mia 内部模型代理 secret，用于 Cloud Hermes worker 的付费平台模型网关；DeepSeek API Key 通过 `/admin/model` 保存，`MIA_DEEPSEEK_API_KEY` 仅作可选兜底；LiteLLM 仅在多供应商网关模式下可选。
 
 默认生产布局：
 
@@ -158,6 +158,57 @@ MIA_CLOUD_PUBLIC_URL=https://example.com \
 npm run cloud:deploy
 ```
 
+### 公司 JumpServer 部署通道
+
+当前生产资产不是普通 `ProxyJump jump.ixiaochuan.cn -> root@mia.gifgif.cn:22`。JumpServer 要用它自己的“资产直连”用户名格式，否则常见现象是跳板密码通过后，第二跳直接报 `kex_exchange_identification: Connection closed by remote host`。
+
+正确资产：
+
+```text
+JumpServer: jump.ixiaochuan.cn:2222
+JumpServer 用户: zhangguiyu
+资产: shtx-mia-test-miaAI
+资产地址: 10.8.8.10
+资产账号: root
+```
+
+本机 `~/.ssh/config` 需要一个不含密码的部署别名（已配好，列在此处供新机器复刻）：
+
+```sshconfig
+Host mia-jms-deploy
+  HostName jump.ixiaochuan.cn
+  Port 2222
+  User zhangguiyu@root@10.8.8.10
+  HostKeyAlgorithms +ssh-rsa
+  PubkeyAcceptedAlgorithms +ssh-rsa
+  StrictHostKeyChecking accept-new
+  ControlMaster auto
+  ControlPath ~/.ssh/cm-%r@%h-%p
+  ControlPersist 1800
+```
+
+#### 一条命令部署（无需手动输密码）
+
+JumpServer 密码存在 macOS 登录钥匙串里，由 `scripts/jms-askpass.sh` 在连接时读取，**仓库和日志里都不出现明文**。配好后部署就是一条命令：
+
+```bash
+bash scripts/deploy-cloud-jms.sh
+```
+
+该 wrapper 会自动用钥匙串密码建立可复用的跳板连接（已存在则复用），再带上腾讯云镜像源调用底层部署脚本。可叠加常规开关，例如 `MIA_DEPLOY_DRY_RUN=1`、`MIA_DEPLOY_SKIP_LOCAL_TESTS=1`、`MIA_INSTALL_SKIP_HERMES_IMAGE_BUILD=1`。
+
+新机器一次性初始化（密码只在这一步出现，存进钥匙串后即从命令行消失）：
+
+```bash
+security add-generic-password -U -s mia-jms-deploy -a zhangguiyu -w '<JumpServer 密码>' -T /usr/bin/ssh
+```
+
+轮换密码用同一条命令（`-U` 覆盖旧值）。**密码若曾出现在聊天/工单等不可控渠道，轮换后再重存。**
+
+> **更安全的升级路径（推荐）**：在 JumpServer 用户资料里上传一个 ed25519 公钥，改用密钥认证，磁盘上就彻底没有静态密码了。届时删除钥匙串条目并把 wrapper 里的 askpass 逻辑去掉即可。
+
+只有在全量本地测试被无关环境或旧线上 gate 卡住，并且 `npm run check`、相关 focused tests、release checksum 和 installer verify 都通过时，才临时加 `MIA_DEPLOY_SKIP_LOCAL_TESTS=1`。
+
 常用部署环境变量：
 
 ```text
@@ -214,12 +265,10 @@ npm run cloud:prod:verify -- https://mia.gifgif.cn
 端到端 Bridge smoke 需要一个固定 smoke 账号，并且桌面端已经用同账号登录、Bridge 在线：
 
 ```bash
-MIA_SMOKE_USERNAME=<account> \
-MIA_SMOKE_PASSWORD=<password> \
+MIA_CLOUD_TOKEN=<smoke-account-token> \
 npm run cloud:smoke:account -- https://mia.gifgif.cn
 
-MIA_SMOKE_USERNAME=<account> \
-MIA_SMOKE_PASSWORD=<password> \
+MIA_CLOUD_TOKEN=<smoke-account-token> \
 npm run cloud:prod:verify:e2e -- https://mia.gifgif.cn
 ```
 

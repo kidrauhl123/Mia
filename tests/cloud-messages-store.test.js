@@ -6,6 +6,7 @@ const path = require("node:path");
 const { createCloudStore } = require("../src/cloud/sqlite-store.js");
 const { createSocialStore } = require("../src/cloud/social-store.js");
 const { createMessagesStore } = require("../src/cloud/messages-store.js");
+const { createCloudUser } = require("./helpers/cloud-auth.js");
 
 function setup() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-msg-test-"));
@@ -13,8 +14,8 @@ function setup() {
   const db = cloudStore.getDb();
   const social = createSocialStore(db);
   const messages = createMessagesStore(db);
-  const alice = cloudStore.registerUser({ username: "alice", password: "Pa55word!" }).user;
-  const bob = cloudStore.registerUser({ username: "bob", password: "Pa55word!" }).user;
+  const alice = createCloudUser(cloudStore, "alice");
+  const bob = createCloudUser(cloudStore, "bob");
   social.createConversation({ id: "r-msg", name: null, avatar: null, hostMember: null, decorations: null, contextCard: null });
   social.addConversationMember({ conversationId: "r-msg", memberKind: "user", memberRef: alice.id, ownerId: null });
   social.addConversationMember({ conversationId: "r-msg", memberKind: "user", memberRef: bob.id, ownerId: null });

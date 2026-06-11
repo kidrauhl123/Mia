@@ -14,12 +14,14 @@ contextBridge.exposeInMainWorld("mia", {
   cloudLogin: (payload) => ipcRenderer.invoke(IpcChannel.CloudLogin, payload),
   cloudSync: () => ipcRenderer.invoke(IpcChannel.CloudSync),
   cloudLogout: () => ipcRenderer.invoke(IpcChannel.CloudLogout),
+  checkForUpdates: () => ipcRenderer.invoke(IpcChannel.UpdateCheck),
   onCloudEvent: (handler) => {
     const listener = (_event, envelope) => { try { handler(envelope); } catch { /* ignore */ } };
     ipcRenderer.on(IpcChannel.CloudEvent, listener);
     return () => ipcRenderer.removeListener(IpcChannel.CloudEvent, listener);
   },
   openExternal: (url) => ipcRenderer.invoke(IpcChannel.UtilOpenExternal, url),
+  loadStatusBadgeAsset: (assetId) => ipcRenderer.invoke(IpcChannel.StatusBadgeAssetLoad, assetId),
   installEngine: (engineId) => ipcRenderer.invoke(IpcChannel.EngineInstall, engineId),
   onEngineInstallProgress: (callback) => {
     const handler = (_event, payload) => callback(payload);
@@ -84,13 +86,6 @@ contextBridge.exposeInMainWorld("mia", {
   saveEffort: (settings) => ipcRenderer.invoke(IpcChannel.EffortSave, settings),
   saveAppearance: (settings) => ipcRenderer.invoke(IpcChannel.AppearanceSave, settings),
   saveProfile: (profile) => ipcRenderer.invoke(IpcChannel.ProfileSave, profile),
-  loadBotDetails: (key) => ipcRenderer.invoke(IpcChannel.BotDetails, key),
-  saveBot: (bot) => ipcRenderer.invoke(IpcChannel.BotSave, bot),
-  saveBotEngine: (payload) => ipcRenderer.invoke(IpcChannel.BotEngineSave, payload),
-  setBotPinned: (payload) => ipcRenderer.invoke(IpcChannel.BotPin, payload),
-  setBotMuted: (payload) => ipcRenderer.invoke(IpcChannel.BotMute, payload),
-  deleteBot: (payload) => ipcRenderer.invoke(IpcChannel.BotDelete, payload),
-  savePersona: (persona) => ipcRenderer.invoke(IpcChannel.PersonaSave, persona),
   loadPetJobs: () => ipcRenderer.invoke(IpcChannel.PetJobs),
   generateBotPet: (payload) => ipcRenderer.invoke(IpcChannel.PetGenerate, payload),
   placeBotPet: (key) => ipcRenderer.invoke(IpcChannel.PetPlace, key),
@@ -154,6 +149,7 @@ contextBridge.exposeInMainWorld("mia", {
     green: () => ipcRenderer.invoke(IpcChannel.WindowGreen),
     showMain: () => ipcRenderer.invoke(IpcChannel.WindowShowMain),
     onboarding: () => ipcRenderer.invoke(IpcChannel.WindowOnboarding),
+    signedOutOnboarding: () => ipcRenderer.invoke(IpcChannel.WindowSignedOutOnboarding),
     state: () => ipcRenderer.invoke(IpcChannel.WindowState),
     onFocusState: (handler) => {
       const listener = (_e, focused) => handler(focused);
