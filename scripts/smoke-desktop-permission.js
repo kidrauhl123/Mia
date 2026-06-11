@@ -247,9 +247,9 @@ async function main() {
 
   try {
     const baseUrl = await listen(server);
-    const account = await jsonRequest(baseUrl, "/api/auth/register", {
-      method: "POST",
-      body: { username: `permsmoke${Date.now()}`, password: "secret1" }
+    const account = server.mia.cloudStore.loginWithWechat({
+      openid: `desktop-permission-smoke-${Date.now()}`,
+      nickname: "Desktop Permission Smoke"
     });
     const home = path.join(desktopRoot, "runtime", "engine-home");
     writeJson(path.join(home, "mia-cloud.json"), {
@@ -287,7 +287,7 @@ async function main() {
       signal: runController.signal,
       body: {
         deviceId: device.id,
-        conversationId: account.workspace.activeConversationId || "default",
+        conversationId: "conv_mia",
         text: promptText,
         attachments: [{
           id: "smoke_attachment",

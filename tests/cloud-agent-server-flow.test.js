@@ -6,6 +6,7 @@ const path = require("node:path");
 const WebSocket = require("ws");
 
 const { createMiaCloudServer } = require("../scripts/serve-cloud.js");
+const { loginCloudUser } = require("./helpers/cloud-auth.js");
 
 function tempDir(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -43,6 +44,10 @@ function wsTokenProtocol(token) {
 
 function eventsWsUrl(baseUrl) {
   return `${baseUrl.replace(/^http:/, "ws:")}/api/events`;
+}
+
+function createAccount(server, name) {
+  return loginCloudUser(server.mia.cloudStore, name);
 }
 
 function waitForMessage(ws, predicate) {
@@ -130,10 +135,7 @@ test("bot DM falls back to desktop invocation when cloud dispatcher is not confi
   const baseUrl = await listen(server);
   let eventsWs = null;
   try {
-    const account = await jsonFetch(baseUrl, "/api/auth/register", {
-      method: "POST",
-      body: { username: "alice", password: "123456" }
-    });
+    const account = createAccount(server, "alice");
     const authHeaders = { authorization: `Bearer ${account.token}` };
     await upsertDesktopLocalBot(baseUrl, authHeaders, "codex", "Codex");
     const ensured = await jsonFetch(baseUrl, "/api/me/bot-conversations/codex", {
@@ -195,10 +197,7 @@ test("POST /api/conversations/:id/messages appends cloud bot reply through exist
   const baseUrl = await listen(server);
   let eventsWs = null;
   try {
-    const account = await jsonFetch(baseUrl, "/api/auth/register", {
-      method: "POST",
-      body: { username: "alice", password: "123456" }
-    });
+    const account = createAccount(server, "alice");
     const authHeaders = { authorization: `Bearer ${account.token}` };
     await upsertCloudHermesBot(baseUrl, authHeaders, "mia", "Mia");
     const ensured = await jsonFetch(baseUrl, "/api/me/bot-conversations/mia", {
@@ -276,10 +275,7 @@ test("POST group mention invokes cloud-hermes bot without desktop-local event fa
   const baseUrl = await listen(server);
   let eventsWs = null;
   try {
-    const account = await jsonFetch(baseUrl, "/api/auth/register", {
-      method: "POST",
-      body: { username: "alice", password: "123456" }
-    });
+    const account = createAccount(server, "alice");
     const authHeaders = { authorization: `Bearer ${account.token}` };
     await upsertCloudHermesBot(baseUrl, authHeaders, "mia", "Mia");
     const group = await jsonFetch(baseUrl, "/api/conversations", {
@@ -326,10 +322,7 @@ test("POST group mention does not invoke deleted bots from stale group membershi
   const baseUrl = await listen(server);
   let eventsWs = null;
   try {
-    const account = await jsonFetch(baseUrl, "/api/auth/register", {
-      method: "POST",
-      body: { username: "alice", password: "123456" }
-    });
+    const account = createAccount(server, "alice");
     const authHeaders = { authorization: `Bearer ${account.token}` };
     await upsertDesktopLocalBot(baseUrl, authHeaders, "codex", "Codex");
     const group = await jsonFetch(baseUrl, "/api/conversations", {
@@ -393,10 +386,7 @@ test("POST group message routes named bot only and gives the agent group identit
   });
   const baseUrl = await listen(server);
   try {
-    const account = await jsonFetch(baseUrl, "/api/auth/register", {
-      method: "POST",
-      body: { username: "alice", password: "123456" }
-    });
+    const account = createAccount(server, "alice");
     const authHeaders = { authorization: `Bearer ${account.token}` };
     await upsertCloudHermesBot(baseUrl, authHeaders, "mia", "Mia");
     await upsertCloudHermesBot(baseUrl, authHeaders, "kongling", "空铃", "你是空铃，群聊里的 Bot。");
@@ -458,10 +448,7 @@ test("POST group short message reaches the single-bot handler through the HTTP e
   });
   const baseUrl = await listen(server);
   try {
-    const account = await jsonFetch(baseUrl, "/api/auth/register", {
-      method: "POST",
-      body: { username: "alice", password: "123456" }
-    });
+    const account = createAccount(server, "alice");
     const authHeaders = { authorization: `Bearer ${account.token}` };
     await upsertCloudHermesBot(baseUrl, authHeaders, "mia", "Mia");
     const group = await jsonFetch(baseUrl, "/api/conversations", {

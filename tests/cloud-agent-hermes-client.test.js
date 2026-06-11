@@ -6,6 +6,7 @@ const path = require("node:path");
 
 const { createHermesWorkerManager } = require("../src/cloud-agent/hermes-worker-manager.js");
 const { createHermesRunsClient } = require("../src/cloud-agent/hermes-runs-client.js");
+const { verifyUserModelProxyToken } = require("../src/cloud/model-proxy-auth.js");
 
 test("worker manager derives separate roots and env per user", () => {
   const manager = createHermesWorkerManager({ rootDir: "/tmp/mia-agents", mode: "static", staticBaseUrl: "http://127.0.0.1:9999" });
@@ -65,6 +66,30 @@ test("worker manager writes platform LiteLLM config per user", () => {
   assert.match(config, /key: worker-api-key/);
   assert.doesNotMatch(config, /sk-litellm/);
   assert.equal(manager.envForUser("user_a").MIA_CLOUD_AGENT_MODEL_API_KEY, "sk-litellm");
+});
+
+test("worker manager can route user workers through Mia internal billing proxy", () => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-agents-"));
+  const manager = createHermesWorkerManager({
+    rootDir,
+    mode: "static",
+    staticBaseUrl: "http://127.0.0.1:9999",
+    publicUrl: "https://mia.example",
+    internalModelProxyKey: "internal-secret"
+  });
+
+  const paths = manager.ensureUserDirs("user_a");
+  const config = fs.readFileSync(path.join(paths.hermesHome, "config.yaml"), "utf8");
+  const tokenA = manager.envForUser("user_a").MIA_CLOUD_AGENT_MODEL_API_KEY;
+  const tokenB = manager.envForUser("user_b").MIA_CLOUD_AGENT_MODEL_API_KEY;
+
+  assert.match(config, /provider: "mia"/);
+  assert.match(config, /base_url: "https:\/\/mia\.example\/api\/internal\/model-proxy\/v1"/);
+  assert.match(config, /key_env: "MIA_CLOUD_AGENT_MODEL_API_KEY"/);
+  assert.doesNotMatch(config, /internal-secret/);
+  assert.notEqual(tokenA, tokenB);
+  assert.equal(verifyUserModelProxyToken("internal-secret", tokenA), "user_a");
+  assert.equal(verifyUserModelProxyToken("internal-secret", tokenB), "user_b");
 });
 
 test("Hermes runs client sends Bot headers and returns final text", async () => {

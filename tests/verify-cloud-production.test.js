@@ -127,7 +127,7 @@ test("production verifier stops before smoke when doctor fails", () => {
   }
 });
 
-test("production verifier fails fast when bridge smoke lacks a fixed account", () => {
+test("production verifier fails fast when bridge smoke lacks a cloud token", () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-prod-verify-"));
   try {
     const manifestPath = writeManifest(tempDir, {
@@ -145,18 +145,17 @@ test("production verifier fails fast when bridge smoke lacks a fixed account", (
       baseEnv: { MIA_SMOKE_REQUIRE_BRIDGE: "1" },
       cwd: "/repo",
       stdio: "pipe"
-    }), /MIA_SMOKE_USERNAME and MIA_SMOKE_PASSWORD are required/);
+    }), /MIA_CLOUD_TOKEN is required/);
     assert.equal(calls.length, 0);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
 
-test("bridge smoke environment accepts a fixed account", () => {
+test("bridge smoke environment accepts a cloud token", () => {
   assert.doesNotThrow(() => assertBridgeSmokeEnv({
     MIA_SMOKE_REQUIRE_BRIDGE: "1",
-    MIA_SMOKE_USERNAME: "smoketest",
-    MIA_SMOKE_PASSWORD: "secret1"
+    MIA_CLOUD_TOKEN: "smoke-token"
   }));
 });
 

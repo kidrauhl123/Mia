@@ -9,6 +9,9 @@ const http = require("node:http");
 const WebSocket = require("ws");
 const { spawn } = require("node:child_process");
 const { freePort } = require("./helpers/free-port");
+const { seedCloudAccountInDataDir } = require("./helpers/cloud-auth.js");
+
+const dataDirsByPort = new Map();
 
 async function startServer(extraEnv = {}) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-bot-api-"));
@@ -26,11 +29,17 @@ async function startServer(extraEnv = {}) {
       stdio: ["ignore", "pipe", "pipe"]
     });
     let resolved = false;
-    const done = () => { if (!resolved) { resolved = true; resolve({ proc, port, tmpDir }); } };
+    const done = () => {
+      if (!resolved) {
+        resolved = true;
+        dataDirsByPort.set(port, tmpDir);
+        resolve({ proc, port, tmpDir });
+      }
+    };
     proc.stdout.on("data", (c) => { if (/listening|Listening/.test(c.toString())) done(); });
     proc.stderr.on("data", (c) => { if (/listening|Listening|mia-cloud/i.test(c.toString())) done(); });
     proc.on("error", reject);
-    setTimeout(done, 1500);
+    setTimeout(done, 5000);
   });
 }
 
@@ -39,6 +48,7 @@ async function stopServer(ctx) {
     ctx.proc.kill("SIGTERM");
     await new Promise((r) => ctx.proc.once("exit", r));
   }
+  dataDirsByPort.delete(ctx.port);
   fs.rmSync(ctx.tmpDir, { recursive: true, force: true });
 }
 
@@ -63,9 +73,9 @@ function api(port, method, pathStr, { body, token } = {}) {
 }
 
 async function register(port, account) {
-  const r = await api(port, "POST", "/api/auth/register", { body: { account, password: "passworD1!", username: `u-${account}` } });
-  assert.ok(r.status === 200 || r.status === 201);
-  return r.body;
+  const dataDir = dataDirsByPort.get(port);
+  if (!dataDir) throw new Error("missing test cloud data dir for port " + port);
+  return seedCloudAccountInDataDir(dataDir, account);
 }
 
 test("PUT then GET /api/me/bots roundtrips identity fields", async () => {
@@ -281,12 +291,10 @@ fs.writeFileSync(process.argv[process.argv.length - 1], Buffer.alloc(1));
   }
 });
 
-test("auth login returns compact user identity even when the profile avatar is large", async () => {
+test("compact /api/me returns compact user identity even when the profile avatar is large", async () => {
   const ctx = await startServer();
   try {
-    const username = "logincompact";
-    const password = "passworD1!";
-    const A = await register(ctx.port, username);
+    const A = await register(ctx.port, "logincompact");
     const avatarImage = "data:image/png;base64," + "A".repeat(200_000);
     const profile = await api(ctx.port, "PATCH", "/api/me/profile", {
       token: A.token,
@@ -299,15 +307,13 @@ test("auth login returns compact user identity even when the profile avatar is l
     });
     assert.equal(profile.status, 200);
 
-    const login = await api(ctx.port, "POST", "/api/auth/login", {
-      body: { username: A.user.username, password }
-    });
-    assert.equal(login.status, 200);
-    assert.equal(login.body.user.id, A.user.id);
-    assert.equal(Object.prototype.hasOwnProperty.call(login.body.user, "avatarImage"), false);
-    assert.equal(Object.prototype.hasOwnProperty.call(login.body.user, "avatarCrop"), false);
-    assert.equal(Object.prototype.hasOwnProperty.call(login.body.user, "avatarColor"), false);
-    assert.ok(JSON.stringify(login.body).length < 1_000, "login response should stay small");
+    const me = await api(ctx.port, "GET", "/api/me?compact=1", { token: A.token });
+    assert.equal(me.status, 200);
+    assert.equal(me.body.user.id, A.user.id);
+    assert.equal(Object.prototype.hasOwnProperty.call(me.body.user, "avatarImage"), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(me.body.user, "avatarCrop"), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(me.body.user, "avatarColor"), false);
+    assert.ok(JSON.stringify(me.body).length < 1_000, "compact response should stay small");
   } finally { await stopServer(ctx); }
 });
 

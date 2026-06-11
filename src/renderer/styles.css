@@ -5638,7 +5638,8 @@ body.onboarding-window .setup-guide.ready .setup-footer { animation-delay: 0.13s
   margin: 0;
 }
 
-.cloud-account-card {
+.cloud-account-card,
+.app-update-card {
   align-content: start;
   gap: 0;
   max-width: 680px;
@@ -5646,6 +5647,10 @@ body.onboarding-window .setup-guide.ready .setup-footer { animation-delay: 0.13s
   border: 0;
   border-radius: 14px;
   background: var(--surface);
+}
+
+.app-update-row {
+  min-height: 62px;
 }
 
 .connection-row {

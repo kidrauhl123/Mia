@@ -27,7 +27,7 @@ Cloud 生产服务器：
 - `npm`、`rsync`、`systemctl`、`tar`、`docker`。
 - nginx 和有效 TLS 证书。
 - 非 root 的 `mia-cloud` 服务用户。
-- LiteLLM Proxy，用于 Cloud Hermes worker 的平台模型网关。
+- Mia 内部模型代理 secret，用于 Cloud Hermes worker 的付费平台模型网关；DeepSeek API Key 通过 `/admin/model` 保存，`MIA_DEEPSEEK_API_KEY` 仅作可选兜底；LiteLLM 仅在多供应商网关模式下可选。
 
 默认生产布局：
 
@@ -265,12 +265,10 @@ npm run cloud:prod:verify -- https://mia.gifgif.cn
 端到端 Bridge smoke 需要一个固定 smoke 账号，并且桌面端已经用同账号登录、Bridge 在线：
 
 ```bash
-MIA_SMOKE_USERNAME=<account> \
-MIA_SMOKE_PASSWORD=<password> \
+MIA_CLOUD_TOKEN=<smoke-account-token> \
 npm run cloud:smoke:account -- https://mia.gifgif.cn
 
-MIA_SMOKE_USERNAME=<account> \
-MIA_SMOKE_PASSWORD=<password> \
+MIA_CLOUD_TOKEN=<smoke-account-token> \
 npm run cloud:prod:verify:e2e -- https://mia.gifgif.cn
 ```
 

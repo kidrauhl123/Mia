@@ -10,7 +10,6 @@ const {
   bridgeUrl,
   buildCodexPrompt,
   imageAttachment,
-  loginCloudAccount,
   materializeAttachments,
   mapPermissionMode,
   recentGeneratedImagePaths,
@@ -40,53 +39,20 @@ test("local bridge sends cloud token via websocket subprotocol", () => {
   assert.deepEqual(bridgeProtocols("secret-token"), ["mia-token.secret-token"]);
 });
 
-test("local bridge can log in with the same Mia Cloud account", async () => {
-  let request;
-  const token = await loginCloudAccount({
-    cloudUrl: "https://cloud.example",
-    username: " Jung ",
-    password: "secret1",
-    fetchImpl: async (url, options) => {
-      request = { url: url.toString(), options };
-      return {
-        ok: true,
-        status: 200,
-        async json() {
-          return { token: "cloud-token" };
-        }
-      };
-    }
-  });
-
-  assert.equal(token, "cloud-token");
-  assert.equal(request.url, "https://cloud.example/api/auth/login");
-  assert.deepEqual(JSON.parse(request.options.body), {
-    username: "Jung",
-    password: "secret1"
-  });
-});
-
-test("local bridge token resolution prefers explicit token over password login", async () => {
+test("local bridge token resolution uses the explicit token", async () => {
   const token = await resolveBridgeToken({
-    MIA_CLOUD_TOKEN: "explicit-token",
-    MIA_CLOUD_USERNAME: "jung",
-    MIA_CLOUD_PASSWORD: "secret1"
-  }, async () => {
-    throw new Error("fetch should not be called");
+    MIA_CLOUD_TOKEN: "explicit-token"
   });
 
   assert.equal(token, "explicit-token");
 });
 
-test("local bridge account login reports missing credentials clearly", async () => {
+test("local bridge reports missing bearer token clearly", async () => {
   await assert.rejects(
     () => resolveBridgeToken({
-      MIA_CLOUD_URL: "https://cloud.example",
-      MIA_CLOUD_USERNAME: "jung"
-    }, async () => {
-      throw new Error("fetch should not be called");
+      MIA_CLOUD_URL: "https://cloud.example"
     }),
-    /MIA_CLOUD_PASSWORD is required/
+    /MIA_CLOUD_TOKEN is required/
   );
 });
 

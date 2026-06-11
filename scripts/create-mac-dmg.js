@@ -25,6 +25,9 @@ const target = path.join(root, "release", `${productName}-${version}-${targetLab
 const windowBounds = [200, 120, 800, 540];
 const appIconPosition = [180, 238];
 const applicationsIconPosition = [420, 238];
+const dmgPython = process.env.MIA_DMG_PYTHON ||
+  path.join(os.homedir(), ".cache", "mia-build-deps", "mia-dmg-python", "bin", "python");
+const defaultDmgPython = !process.env.MIA_DMG_PYTHON;
 
 if (process.platform !== "darwin") {
   throw new Error("create-mac-dmg.js only runs on macOS.");
@@ -100,6 +103,61 @@ end tell
   execFileSync("osascript", ["-e", script], { stdio: "inherit" });
 }
 
+function canImportDmgPythonDeps() {
+  if (!fs.existsSync(dmgPython)) return false;
+  try {
+    execFileSync(dmgPython, ["-c", "import ds_store, mac_alias"], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function ensureDmgPython() {
+  if (canImportDmgPythonDeps()) return;
+
+  if (!defaultDmgPython) {
+    throw new Error(
+      `DMG Python at ${dmgPython} cannot import ds_store/mac_alias. ` +
+      "Install ds-store==1.3.1 and mac-alias==2.2.2 into that interpreter."
+    );
+  }
+
+  const venvDir = path.dirname(path.dirname(dmgPython));
+  fs.mkdirSync(path.dirname(venvDir), { recursive: true });
+  if (!fs.existsSync(dmgPython)) {
+    execFileSync("python3", ["-m", "venv", venvDir], { stdio: "inherit" });
+  }
+  execFileSync(dmgPython, [
+    "-m",
+    "pip",
+    "install",
+    "ds-store==1.3.1",
+    "mac-alias==2.2.2"
+  ], { stdio: "inherit" });
+
+  if (!canImportDmgPythonDeps()) {
+    throw new Error(`Unable to prepare DMG Python helper at ${dmgPython}`);
+  }
+}
+
+function writeDsStoreLayout(volumePath) {
+  ensureDmgPython();
+
+  execFileSync(dmgPython, [
+    path.join(root, "scripts", "write-dmg-ds-store.py"),
+    "--volume", volumePath,
+    "--background", path.join(volumePath, ".background", "dmg-background.png"),
+    "--window-origin", `${windowBounds[0]},${windowBounds[1]}`,
+    "--window-size", `${windowBounds[2] - windowBounds[0]},${windowBounds[3] - windowBounds[1]}`,
+    "--app-position", appIconPosition.join(","),
+    "--applications-position", applicationsIconPosition.join(","),
+    "--icon-size", "96",
+    "--text-size", "14",
+    "--app-name", appName
+  ], { stdio: "inherit" });
+}
+
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mia-dmg-"));
 const stagingDir = path.join(tempRoot, "staging");
 const rwImage = path.join(tempRoot, `${productName}-rw.dmg`);
@@ -129,6 +187,7 @@ try {
   mountedVolume = attachImage(rwImage);
 
   execFileSync("chflags", ["hidden", path.join(mountedVolume, ".background")], { stdio: "inherit" });
+  writeDsStoreLayout(mountedVolume);
   applyFinderLayout(mountedVolume);
   detachVolume(mountedVolume);
   mountedVolume = null;

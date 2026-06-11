@@ -54,7 +54,8 @@ function createSettingsStore(deps = {}) {
       // hash. Only a color chosen in the profile editor is stored here.
       avatarColor: "",
       avatarImage: "",
-      avatarCrop: { x: 50, y: 50, zoom: 1 }
+      avatarCrop: { x: 50, y: 50, zoom: 1 },
+      statusBadge: null
     };
   }
 
@@ -136,7 +137,8 @@ function createSettingsStore(deps = {}) {
       avatarText: String(has("avatarText") ? profile.avatarText : current.avatarText).trim().slice(0, 2).toUpperCase(),
       avatarColor: String(has("avatarColor") ? profile.avatarColor : current.avatarColor).trim(),
       avatarImage: String(has("avatarImage") ? profile.avatarImage : current.avatarImage).trim(),
-      avatarCrop: normalizeAvatarCrop(has("avatarCrop") ? profile.avatarCrop : current.avatarCrop)
+      avatarCrop: normalizeAvatarCrop(has("avatarCrop") ? profile.avatarCrop : current.avatarCrop),
+      statusBadge: has("statusBadge") ? (profile.statusBadge || null) : (current.statusBadge || null)
     };
     fs.mkdirSync(path.dirname(p.userProfile), { recursive: true });
     fs.writeFileSync(p.userProfile, JSON.stringify(next, null, 2) + "\n");

@@ -101,7 +101,7 @@
     if (els.cloudLoginHint) {
       els.cloudLoginHint.textContent = enabled
         ? "Web 和手机端登录同一账号后会看到这台电脑在线。"
-        : "使用和 Web 端相同的用户名、密码。";
+        : "使用微信扫码登录 Mia Cloud。";
     }
   }
 

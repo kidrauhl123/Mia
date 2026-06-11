@@ -6,6 +6,7 @@ const path = require("node:path");
 const { createCloudStore } = require("../src/cloud/sqlite-store.js");
 const { createSocialStore } = require("../src/cloud/social-store.js");
 const { dmConversationId, ensureDmConversation } = require("../src/cloud/dm-conversation.js");
+const { createCloudUser } = require("./helpers/cloud-auth.js");
 
 test("dmConversationId is sorted and deterministic regardless of arg order", () => {
   assert.equal(dmConversationId("u_b", "u_a"), "dm:u_a:u_b");
@@ -22,8 +23,8 @@ test("ensureDmConversation creates conversation and adds two members on first ca
   const cloudStore = createCloudStore({ dataDir: tmpDir });
   try {
     const social = createSocialStore(cloudStore.getDb());
-    const alice = cloudStore.registerUser({ username: "alice", password: "Pa55word!" }).user;
-    const bob = cloudStore.registerUser({ username: "bob", password: "Pa55word!" }).user;
+    const alice = createCloudUser(cloudStore, "alice");
+    const bob = createCloudUser(cloudStore, "bob");
     social.addFriendship(alice.id, bob.id);
     const conversation = ensureDmConversation(social, alice.id, bob.id);
     assert.equal(conversation.id, dmConversationId(alice.id, bob.id));
@@ -44,8 +45,8 @@ test("ensureDmConversation returns existing conversation on second call (idempot
   const cloudStore = createCloudStore({ dataDir: tmpDir });
   try {
     const social = createSocialStore(cloudStore.getDb());
-    const alice = cloudStore.registerUser({ username: "alice", password: "Pa55word!" }).user;
-    const bob = cloudStore.registerUser({ username: "bob", password: "Pa55word!" }).user;
+    const alice = createCloudUser(cloudStore, "alice");
+    const bob = createCloudUser(cloudStore, "bob");
     social.addFriendship(alice.id, bob.id);
     const first = ensureDmConversation(social, alice.id, bob.id);
     const second = ensureDmConversation(social, alice.id, bob.id);
@@ -62,8 +63,8 @@ test("ensureDmConversation rejects non-friends", () => {
   const cloudStore = createCloudStore({ dataDir: tmpDir });
   try {
     const social = createSocialStore(cloudStore.getDb());
-    const alice = cloudStore.registerUser({ username: "alice", password: "Pa55word!" }).user;
-    const stranger = cloudStore.registerUser({ username: "stranger", password: "Pa55word!" }).user;
+    const alice = createCloudUser(cloudStore, "alice");
+    const stranger = createCloudUser(cloudStore, "stranger");
     assert.throws(() => ensureDmConversation(social, alice.id, stranger.id), /not friends/i);
   } finally {
     cloudStore.close();

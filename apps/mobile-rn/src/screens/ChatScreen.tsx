@@ -225,7 +225,7 @@ export default function ChatScreen({ navigation, route }: Props) {
         keyExtractor={(m) => m.messageId}
         contentContainerStyle={{ padding: 12 }}
         keyboardShouldPersistTaps="handled"
-        renderItem={({ item }) => <MessageBubble msg={item} apiBase={apiBase} onLongPress={setActionMsg} />}
+        renderItem={({ item }) => <MessageBubble msg={item} apiBase={apiBase} members={members} onLongPress={setActionMsg} />}
       />
       <View style={[styles.composer, { paddingBottom: space.sm + insets.bottom }]}>
         {showRuntimeControls ? (

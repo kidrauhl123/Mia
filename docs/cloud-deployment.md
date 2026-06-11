@@ -17,6 +17,7 @@ This document is the production checklist for the official Mia Cloud/Web host.
 MIA_CLOUD_HOST=127.0.0.1
 MIA_CLOUD_PORT=4175
 MIA_CLOUD_DATA=/var/lib/mia-cloud
+MIA_CLOUD_PUBLIC_URL=https://mia.gifgif.cn
 MIA_CLOUD_ALLOWED_ORIGINS=https://mia.gifgif.cn
 MIA_BRIDGE_RUN_TIMEOUT_MS=300000
 MIA_CLOUD_VERSION=2026-05-20
@@ -25,14 +26,17 @@ MIA_CLOUD_AGENT_ROOT=/var/lib/mia-cloud-agent-users
 MIA_CLOUD_HERMES_IMAGE=mia/hermes-cloud:2026.5.29
 MIA_CLOUD_HERMES_CONTAINER_PORT=8765
 MIA_CLOUD_AGENT_DOCKER_NETWORK=mia-cloud
-MIA_CLOUD_AGENT_MODEL_PROVIDER=mia-litellm
+MIA_CLOUD_AGENT_MODEL_PROVIDER=mia
 MIA_CLOUD_AGENT_MODEL=mia-default
-MIA_CLOUD_AGENT_MODEL_BASE_URL=http://litellm:4000/v1
-MIA_CLOUD_AGENT_MODEL_API_KEY=<LiteLLM virtual key>
-MIA_LITELLM_ADMIN_BASE_URL=http://127.0.0.1:4000
 MIA_CLOUD_ADMIN_USERNAME=<admin username>
 MIA_CLOUD_ADMIN_PASSWORD=<admin password>
-LITELLM_MASTER_KEY=<LiteLLM admin key>
+MIA_MODEL_GATEWAY=deepseek
+MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY=<random internal proxy secret>
+MIA_MODEL_INPUT_MICROUSD_PER_1M=140000
+MIA_MODEL_OUTPUT_MICROUSD_PER_1M=280000
+MIA_MODEL_MARKUP=1
+# Optional bootstrap fallback; the normal entry is /admin/model.
+# MIA_DEEPSEEK_API_KEY=<DeepSeek API key>
 ```
 
 `MIA_CLOUD_ALLOWED_ORIGINS` is required in production. Without it, WebSocket upgrades are limited to same-host/local origins only.
@@ -40,11 +44,20 @@ LITELLM_MASTER_KEY=<LiteLLM admin key>
 `MIA_CLOUD_AGENT_MODE=docker` enables the Cloud-hosted Hermes runtime for Bot runs. The release includes `hermes-image/`, and the installer builds `MIA_CLOUD_HERMES_IMAGE` locally on the VPS so the runtime does not depend on pulling a private image. The service creates one worker container per user, mounts only `/var/lib/mia-cloud-agent-users/<userId>` at `/data`, binds the Hermes API to `127.0.0.1` on a random host port, and passes `HERMES_HOME=/data/hermes-home`, `HOME=/data/home`, `TERMINAL_CWD=/data/workspace`, and `HERMES_WRITE_SAFE_ROOT=/data/workspace` into the container. The worker container must not mount `/var/lib/mia-cloud`, global uploads, other users' agent directories, or `/var/run/docker.sock`.
 On China-hosted VPS networks, Debian apt metadata or PyPI downloads can hang when they use upstream defaults. Set `MIA_DEBIAN_APT_MIRROR=https://mirrors.tencent.com/debian` and `MIA_PIP_INDEX_URL=https://mirrors.tencent.com/pypi/simple` before running `install-cloud-release-local.sh` or `cloud:deploy`.
 If `MIA_CLOUD_HERMES_IMAGE` is already present on the VPS and the Hermes version did not change, `MIA_INSTALL_SKIP_HERMES_IMAGE_BUILD=1` or `MIA_DEPLOY_SKIP_HERMES_IMAGE_BUILD=1` skips rebuilding the worker image after first verifying that image exists.
-`MIA_CLOUD_AGENT_MODEL_*` configures the platform-supplied model for every user's cloud Hermes worker. The worker manager writes each user's private `hermes-home/config.yaml` with a custom provider named `mia-litellm`, pointing to the LiteLLM Proxy OpenAI-compatible endpoint. Store provider keys inside LiteLLM and give Mia only a limited LiteLLM virtual key, not raw OpenAI/Anthropic/other provider keys.
+`MIA_MODEL_GATEWAY=deepseek` makes Mia Cloud the paid model gateway: users spend Mia model credits, Mia calls DeepSeek with the server-side key, records usage in SQLite, and deducts the user's balance. Save the DeepSeek API Key, base URL, public Mia model name, and token pricing at `/admin/model`; `MIA_DEEPSEEK_API_KEY` is only a bootstrap fallback if the database setting has not been saved yet. Cloud Hermes workers receive a per-user internal proxy token generated from `MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY`; they do not receive the raw DeepSeek key. Put `MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY`, optional fallback `MIA_DEEPSEEK_API_KEY`, and admin credentials in `/etc/mia-cloud/admin.env`, not in the repository.
 
-## LiteLLM Model Gateway
+To grant first-version manual credits before a payment provider is wired:
 
-Mia expects LiteLLM Proxy to be reachable from Hermes worker containers. A common production layout is a dedicated Docker network:
+```bash
+curl -u "$MIA_CLOUD_ADMIN_USERNAME:$MIA_CLOUD_ADMIN_PASSWORD" \
+  -H 'content-type: application/json' \
+  -d '{"account":"user@example.com","amountUsd":5,"reason":"manual_topup"}' \
+  https://mia.gifgif.cn/api/admin/model-credits/grant
+```
+
+## Optional LiteLLM Model Gateway
+
+LiteLLM remains useful if Mia later needs a multi-provider OpenAI-compatible gateway, provider failover, or LiteLLM virtual-key budgets. Set `MIA_MODEL_GATEWAY=litellm` and configure LiteLLM if you want that mode. A common production layout is a dedicated Docker network:
 
 ```bash
 docker network create mia-cloud || true
@@ -78,6 +91,7 @@ Environment=MIA_CLOUD_HOST=127.0.0.1
 Environment=MIA_CLOUD_PORT=4175
 Environment=MIA_CLOUD_DATA=/var/lib/mia-cloud
 Environment=MIA_WEB_ROOT=/var/www/mia-web
+Environment=MIA_CLOUD_PUBLIC_URL=https://mia.gifgif.cn
 Environment=MIA_CLOUD_ALLOWED_ORIGINS=https://mia.gifgif.cn
 Environment=MIA_BRIDGE_RUN_TIMEOUT_MS=300000
 Environment=MIA_CLOUD_VERSION=2026-05-20
@@ -86,11 +100,8 @@ Environment=MIA_CLOUD_AGENT_ROOT=/var/lib/mia-cloud-agent-users
 Environment=MIA_CLOUD_HERMES_IMAGE=mia/hermes-cloud:2026.5.29
 Environment=MIA_CLOUD_HERMES_CONTAINER_PORT=8765
 Environment=MIA_CLOUD_AGENT_DOCKER_NETWORK=mia-cloud
-Environment=MIA_CLOUD_AGENT_MODEL_PROVIDER=mia-litellm
+Environment=MIA_CLOUD_AGENT_MODEL_PROVIDER=mia
 Environment=MIA_CLOUD_AGENT_MODEL=mia-default
-Environment=MIA_CLOUD_AGENT_MODEL_BASE_URL=http://litellm:4000/v1
-Environment=MIA_CLOUD_AGENT_MODEL_API_KEY=<LiteLLM virtual key>
-Environment=MIA_LITELLM_ADMIN_BASE_URL=http://127.0.0.1:4000
 EnvironmentFile=-/etc/mia-cloud/admin.env
 NoNewPrivileges=true
 PrivateTmp=true
@@ -259,23 +270,21 @@ After an SSH deploy or server-local install, the development machine can run the
 ```bash
 npm run cloud:prod:verify -- https://mia.gifgif.cn
 MIA_DOCTOR_REMOTE=root@mia.gifgif.cn npm run cloud:prod:verify -- https://mia.gifgif.cn
-MIA_SMOKE_USERNAME=<account> \
-MIA_SMOKE_PASSWORD=<password> \
+MIA_CLOUD_TOKEN=<smoke-account-token> \
 npm run cloud:prod:verify:e2e -- https://mia.gifgif.cn
 ```
 
 `cloud:prod:verify` reads `dist/mia-cloud-release/manifest.json`, injects the expected `gitCommit` and `builtAt` into `doctor-cloud.js` and `smoke-cloud.js`, then verifies the root `5a371047c22c89872f93f00c7d8af123.txt` content. It fails unless the public service is the exact release that was just built and the site verification txt is live.
-`cloud:prod:verify:e2e` adds `MIA_SMOKE_REQUIRE_BRIDGE=1`, so it also requires `MIA_SMOKE_USERNAME`/`MIA_SMOKE_PASSWORD`, an online desktop bridge logged into that same account, and one `/api/bridge/run` response that contains `mia-cloud-bridge-smoke-ok`.
+`cloud:prod:verify:e2e` adds `MIA_SMOKE_REQUIRE_BRIDGE=1`, so it also requires `MIA_CLOUD_TOKEN`, an online desktop bridge logged into that same WeChat account, and one `/api/bridge/run` response that contains `mia-cloud-bridge-smoke-ok`.
 
-Before running bridge-required production smoke, prepare or validate the fixed smoke account:
+Before running bridge-required production smoke, validate the fixed smoke account token:
 
 ```bash
-MIA_SMOKE_USERNAME="<smoke-account>" \
-MIA_SMOKE_PASSWORD="<smoke-password>" \
+MIA_CLOUD_TOKEN="<smoke-account-token>" \
 npm run cloud:smoke:account -- https://mia.gifgif.cn
 ```
 
-The account command logs in if the account already exists, registers it if it does not exist, checks current online bridge devices for that account, and does not print the password or bearer token. If the account exists with a different password, it fails instead of changing credentials.
+The account command verifies `/api/me`, checks current online bridge devices for that account, and does not print the bearer token.
 
 The local installer verifies Node.js 25+ with `node:sqlite`, checks the release archive checksum when the `.sha256` sidecar is present, unpacks the release, validates required API/Web/smoke/doctor/site-verification files, creates or reuses the dedicated `mia-cloud` system user, backs up current data/API/Web/systemd unit paths, verifies each tar backup with `tar -tzf`, installs API and Web files, writes `/opt/mia-cloud/release-manifest.json`, grants the data directory to the service user, restarts `mia-cloud` as that non-root user, runs `doctor-cloud.js` with expected `gitCommit`/`builtAt`, runs `smoke-cloud.js` with the same expected release, then verifies the root site-verification txt. If install, doctor, smoke, or site verification fails, it stops the service, restores the previous data/API/Web/unit backups, and restarts the old service so SQLite data is not left on a newer schema after a code rollback. Set `MIA_INSTALL_SKIP_SMOKE=1` only for emergency installs where public DNS/nginx is known to be temporarily unavailable; despite the legacy variable name, this skips all post-install public verification gates.
 Set `MIA_INSTALL_VERIFY_ONLY=1` to verify the tarball and manifest hashes without installing files or requiring `systemctl`, `npm`, or `rsync`.
@@ -369,11 +378,10 @@ The release manifest records `builtAt`, source git commit, dirty state, and SHA-
    - Confirm a logged-in desktop appears in the Bridge device list.
    - Send one request through the selected desktop device and verify streamed output plus final assistant message.
 
-For a deploy-time end-to-end bridge smoke, log the desktop app into a dedicated smoke account, then run:
+For a deploy-time end-to-end bridge smoke, log the desktop app into a dedicated WeChat smoke account, then run:
 
 ```bash
-MIA_SMOKE_USERNAME=<account> \
-MIA_SMOKE_PASSWORD=<password> \
+MIA_CLOUD_TOKEN=<smoke-account-token> \
 npm run cloud:prod:verify:e2e -- https://mia.gifgif.cn
 ```
 
@@ -385,17 +393,16 @@ When the smoke uses the desktop app bridge, remote control is authorized by the 
 - Web/mobile can call that online desktop bridge directly; there is no separate local approval click for the remote connection.
 - Agent permission mode remains the normal per-Agent execution setting (Ask/YOLO/Deny or external-engine defaults). It is not device authentication.
 
-For an operator-side standalone local Agent bridge, the bridge can now log in with the same Mia Cloud account instead of copying a bearer token. Run this from a full Mia project checkout on the bridge machine, not from the extracted Cloud release directory:
+For an operator-side standalone local Agent bridge, pass a bearer token for the same Mia Cloud account. Run this from a full Mia project checkout on the bridge machine, not from the extracted Cloud release directory:
 
 ```bash
 cd /path/to/mia
 MIA_CLOUD_URL=https://mia.gifgif.cn \
-MIA_CLOUD_USERNAME=<account> \
-MIA_CLOUD_PASSWORD=<password> \
+MIA_CLOUD_TOKEN=<smoke-account-token> \
 npm run bridge
 ```
 
-`MIA_CLOUD_TOKEN` still works for automation and takes precedence when set, but the account/password path is the preferred production smoke path because it matches the Web/Desktop account model.
+The standalone bridge no longer accepts account/password credentials; WeChat login owns the user session, and the bridge receives only the cloud bearer token.
 
 ## Data Safety
 

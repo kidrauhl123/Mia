@@ -12,6 +12,9 @@ const { spawn } = require("node:child_process");
 const { createCloudStore } = require("../src/cloud/sqlite-store");
 const { createEventLogStore } = require("../src/cloud/event-log-store");
 const { freePort } = require("./helpers/free-port");
+const { seedCloudAccountInDataDir } = require("./helpers/cloud-auth.js");
+
+const dataDirsByPort = new Map();
 
 async function startServer() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-evt-int-"));
@@ -27,11 +30,17 @@ async function startServer() {
       stdio: ["ignore", "pipe", "pipe"],
     });
     let resolved = false;
-    const done = () => { if (!resolved) { resolved = true; resolve({ proc, port, tmpDir }); } };
+    const done = () => {
+      if (!resolved) {
+        resolved = true;
+        dataDirsByPort.set(port, tmpDir);
+        resolve({ proc, port, tmpDir });
+      }
+    };
     proc.stdout.on("data", (c) => { if (/listening|Listening/.test(c.toString())) done(); });
     proc.stderr.on("data", (c) => { if (/listening|Listening|mia-cloud/i.test(c.toString())) done(); });
     proc.on("error", reject);
-    setTimeout(done, 1500);
+    setTimeout(done, 5000);
   });
 }
 
@@ -40,6 +49,7 @@ async function stopServer(ctx) {
     ctx.proc.kill("SIGTERM");
     await new Promise((r) => ctx.proc.once("exit", r));
   }
+  dataDirsByPort.delete(ctx.port);
   fs.rmSync(ctx.tmpDir, { recursive: true, force: true });
 }
 
@@ -65,11 +75,9 @@ function api(port, method, pathStr, { body, token } = {}) {
 }
 
 async function register(port, account) {
-  const r = await api(port, "POST", "/api/auth/register", {
-    body: { account, password: "passworD1!", username: `u-${account}` }
-  });
-  assert.ok(r.status === 200 || r.status === 201, `register ${account}: ${r.status} ${JSON.stringify(r.body)}`);
-  return { token: r.body.token, user: r.body.user };
+  const dataDir = dataDirsByPort.get(port);
+  if (!dataDir) throw new Error("missing test cloud data dir for port " + port);
+  return seedCloudAccountInDataDir(dataDir, account);
 }
 
 function openStoreReadonly(tmpDir) {

@@ -136,6 +136,7 @@ function createBotManifest(deps = {}) {
       color: normalizeBotColor(item?.color || item?.avatarColor || item?.avatar_color),
       avatarImage: String(item?.avatarImage || item?.avatar_image || "").trim(),
       avatarCrop: normalizeAvatarCrop(item?.avatarCrop || item?.avatar_crop),
+      statusBadge: item?.statusBadge || item?.status_badge || null,
       pinned: Boolean(item?.pinned || item?.is_pinned || pinnedAt),
       pinnedAt,
       muted: Boolean(item?.muted || item?.is_muted || mutedAt),

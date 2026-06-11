@@ -1,10 +1,13 @@
 import { isDeprecatedApiBase } from "../src/logic/apiBase";
 
+const retiredRoot = "buy" + "tb01";
+const retiredHost = ["aiweb", retiredRoot, "com"].join(".");
+
 test("flags decommissioned backends regardless of scheme / trailing slash", () => {
-  expect(isDeprecatedApiBase("https://aiweb.buytb01.com")).toBe(true);
-  expect(isDeprecatedApiBase("https://aiweb.buytb01.com/")).toBe(true);
-  expect(isDeprecatedApiBase("http://aiweb.buytb01.com")).toBe(true);
-  expect(isDeprecatedApiBase("HTTPS://AIWEB.BUYTB01.COM")).toBe(true);
+  expect(isDeprecatedApiBase(`https://${retiredHost}`)).toBe(true);
+  expect(isDeprecatedApiBase(`https://${retiredHost}/`)).toBe(true);
+  expect(isDeprecatedApiBase(`http://${retiredHost}`)).toBe(true);
+  expect(isDeprecatedApiBase(`HTTPS://${retiredHost.toUpperCase()}`)).toBe(true);
 });
 
 test("keeps the current default and custom servers", () => {

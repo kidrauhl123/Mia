@@ -44,6 +44,19 @@ test("cloud conversation composer uses one social send path for dm and group con
   assert.doesNotMatch(appSource, /sendInActiveGroupConversation\(conversationText\)/);
 });
 
+test("settings exposes manual update checks through the preload bridge", () => {
+  const htmlSource = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const preloadSource = fs.readFileSync(path.join(root, "src/preload.js"), "utf8");
+  const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
+
+  assert.match(htmlSource, /id="checkUpdates"/);
+  assert.match(htmlSource, /id="appUpdateHint"/);
+  assert.match(appSource, /window\.mia\.checkForUpdates\(\)/);
+  assert.match(preloadSource, /checkForUpdates:\s*\(\)\s*=>\s*ipcRenderer\.invoke\(IpcChannel\.UpdateCheck\)/);
+  assert.match(mainSource, /ipcMain\.handle\(IpcChannel\.UpdateCheck,\s*\(\)\s*=>\s*autoUpdateService\.checkForUpdates\(\)\)/);
+});
+
 test("cloud conversation send and render do not depend on activeKey being empty", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
 
@@ -146,8 +159,33 @@ test("lottie icons support autoplaying loop animations for scanning state", () =
   const lottieSource = fs.readFileSync(path.join(root, "src/renderer/lottie-icons.js"), "utf8");
 
   assert.match(lottieSource, /triggerMode === "loop"/);
-  assert.match(lottieSource, /loop:\s*triggerMode === "loop"/);
-  assert.match(lottieSource, /autoplay:\s*triggerMode === "loop"/);
+  assert.match(lottieSource, /loop:\s*entry\.triggerMode === "loop"/);
+  assert.match(lottieSource, /autoplay:\s*entry\.triggerMode === "loop"/);
+});
+
+test("desktop lottie badges can load local TGS assets in the renderer with a preload bridge fallback", () => {
+  const channelSource = fs.readFileSync(path.join(root, "src/shared/ipc-channels.js"), "utf8");
+  const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
+  const preloadSource = fs.readFileSync(path.join(root, "src/preload.js"), "utf8");
+  const lottieSource = fs.readFileSync(path.join(root, "src/renderer/lottie-icons.js"), "utf8");
+  const nameBadgeSource = fs.readFileSync(path.join(root, "src/renderer/name-with-badge.js"), "utf8");
+
+  assert.match(channelSource, /StatusBadgeAssetLoad:\s*"status-badge:asset-load"/);
+  assert.match(preloadSource, /loadStatusBadgeAsset:\s*\(assetId\) => ipcRenderer\.invoke\(IpcChannel\.StatusBadgeAssetLoad, assetId\)/);
+  assert.match(mainSource, /zlib\.gunzipSync\(raw\)/);
+  assert.match(mainSource, /ipcMain\.handle\(IpcChannel\.StatusBadgeAssetLoad/);
+  assert.match(lottieSource, /dataSet\.lottieFormat|dataset\.lottieFormat/);
+  assert.match(lottieSource, /fetchTgsAnimationData/);
+  assert.match(lottieSource, /fetch\(animationPath\)/);
+  assert.match(lottieSource, /loadStatusBadgeAsset\(name\)/);
+  assert.match(lottieSource, /shouldDeferMount/);
+  assert.match(lottieSource, /addEventListener\("toggle"/);
+  assert.doesNotMatch(lottieSource, /lottie-load-failed/);
+  assert.match(nameBadgeSource, /localJsonAssetIds = new Set\(\["rainbow"\]\)/);
+  assert.match(nameBadgeSource, /localTgsAssetIds = new Set\(\["surprised-cat"\]\)/);
+  assert.match(nameBadgeSource, /shouldUseLocalAsset/);
+  assert.match(nameBadgeSource, /data-lottie-format", "tgs"/);
+  assert.doesNotMatch(nameBadgeSource, /data-lottie-fallback/);
 });
 
 test("refreshRuntime bootstraps social when cloud status arrives after startup", () => {

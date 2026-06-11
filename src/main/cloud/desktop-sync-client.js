@@ -23,7 +23,9 @@ function createCloudDesktopSyncClient({
   stopCloudBridge,
   skillMarketCache = null,
   skillMarketCacheTtlMs = DEFAULT_SKILL_MARKET_CACHE_TTL_MS,
-  now = () => Date.now()
+  now = () => Date.now(),
+  openExternal = null,
+  waitMs = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 }) {
   function settings() {
     return typeof getCloudSettings === "function" ? getCloudSettings() : {};
@@ -55,12 +57,16 @@ function createCloudDesktopSyncClient({
   }
 
   function profileSyncBody(profile = {}) {
-    return {
+    const body = {
       displayName: String(profile.displayName || ""),
       avatarImage: String(profile.avatarImage || ""),
       avatarCrop: profile.avatarCrop || null,
       avatarColor: String(profile.avatarColor || "")
     };
+    if (Object.prototype.hasOwnProperty.call(profile, "statusBadge")) {
+      body.statusBadge = profile.statusBadge || null;
+    }
+    return body;
   }
 
   async function pushUserProfile(profileOverride = null) {
@@ -208,19 +214,39 @@ function createCloudDesktopSyncClient({
     return Buffer.from(await response.arrayBuffer());
   }
 
-  async function login({ username, password, mode = "login", url = "" } = {}) {
+  async function loginWithWechat({ url = "" } = {}) {
     const nextUrl = normalizeCloudUrl(url || settings().url);
     writeCloudSettings({ url: nextUrl, enabled: false, token: "", user: null });
-    const pathSegment = mode === "register" ? "/api/auth/register" : "/api/auth/login";
-    const data = await cloudApi(pathSegment, {
+    const started = await cloudApi("/api/auth/wechat/start", {
       method: "POST",
-      body: { username: String(username || "").trim(), password: String(password || "") },
+      body: { client: "desktop" },
       token: ""
     });
+    if (!started.authorizationUrl || !started.state) throw new Error("微信登录启动失败。");
+    if (typeof openExternal === "function") await openExternal(started.authorizationUrl);
+    const startedAt = now();
+    let data = null;
+    while (now() - startedAt < 1000 * 60 * 5) {
+      await waitMs(1500);
+      const result = await cloudApi("/api/auth/wechat/complete", {
+        method: "POST",
+        body: { state: started.state },
+        token: ""
+      });
+      if (result.status === "pending") continue;
+      if (result.status === "failed" || result.ok === false) throw new Error(result.error || "微信登录失败。");
+      data = result;
+      break;
+    }
+    if (!data?.token) throw new Error("微信登录超时，请重新扫码。");
     writeCloudSettings({ url: nextUrl, enabled: true, token: data.token, user: data.user || null });
     startCloudEvents();
     startCloudBridge();
     return status(false);
+  }
+
+  async function login(options = {}) {
+    return loginWithWechat(options);
   }
 
   async function logout() {

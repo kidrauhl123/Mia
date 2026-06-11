@@ -5,6 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 
 const { createCloudStore } = require("../src/cloud/sqlite-store.js");
+const { createCloudUser } = require("./helpers/cloud-auth.js");
 const {
   createAttachmentMaterializer,
   parseAttachmentsFromMessage,
@@ -14,8 +15,8 @@ const {
 function setup() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-cloud-agent-attachments-"));
   const cloudStore = createCloudStore({ dataDir: dir });
-  const alice = cloudStore.registerUser({ username: "alice", password: "123456" }).user;
-  const bob = cloudStore.registerUser({ username: "bob", password: "123456" }).user;
+  const alice = createCloudUser(cloudStore, "alice");
+  const bob = createCloudUser(cloudStore, "bob");
   const workerRoot = path.join(dir, "worker", alice.id);
   const workerPaths = {
     root: workerRoot,

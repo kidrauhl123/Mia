@@ -6,6 +6,7 @@ const { test } = require("node:test");
 const WebSocket = require("ws");
 
 const { createMiaCloudServer } = require("../scripts/serve-cloud");
+const { loginCloudUser } = require("./helpers/cloud-auth.js");
 
 function tempDataDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "mia-cloud-bridge-"));
@@ -117,24 +118,22 @@ function bridgeWsUrl(baseUrl, params = {}) {
   return url.toString();
 }
 
-test("auth accepts username registration with six character password", async () => {
+function createAccount(server, name) {
+  return loginCloudUser(server.mia.cloudStore, name);
+}
+
+test("auth accepts WeChat login through the cloud store", async () => {
   const dataDir = tempDataDir();
   const server = createMiaCloudServer({ dataDir });
   const baseUrl = await listen(server);
-  let ws = null;
   try {
-    const account = await jsonFetch(baseUrl, "/api/auth/register", {
-      method: "POST",
-      body: { username: "jung", password: "123456" }
-    });
-    assert.equal(account.user.username, "jung");
+    const profile = { openid: "serve_cloud_bridge_jung", unionid: "serve_cloud_bridge_jung_union", nickname: "Jung" };
+    const account = server.mia.cloudStore.loginWithWechat(profile);
+    assert.match(account.user.username, /^wx_[a-f0-9]{12}$/);
     assert.ok(account.token);
 
-    const login = await jsonFetch(baseUrl, "/api/auth/login", {
-      method: "POST",
-      body: { username: "JUNG", password: "123456" }
-    });
-    assert.equal(login.user.username, "jung");
+    const login = server.mia.cloudStore.loginWithWechat(profile);
+    assert.equal(login.user.id, account.user.id);
     assert.ok(login.token);
   } finally {
     await close(server);
@@ -147,10 +146,7 @@ test("cloud logout invalidates bearer sessions", async () => {
   const server = createMiaCloudServer({ dataDir });
   const baseUrl = await listen(server);
   try {
-    const account = await jsonFetch(baseUrl, "/api/auth/register", {
-      method: "POST",
-      body: { username: "logout", password: "secret1" }
-    });
+    const account = createAccount(server, "logout");
     const headers = { Authorization: `Bearer ${account.token}` };
     const beforeLogout = await rawFetch(baseUrl, "/api/me", { headers });
     assert.equal(beforeLogout.status, 200);
@@ -264,7 +260,7 @@ test("cloud returns client errors for malformed or oversized JSON bodies", async
   const server = createMiaCloudServer({ dataDir });
   const baseUrl = await listen(server);
   try {
-    const malformed = await rawFetch(baseUrl, "/api/auth/register", {
+    const malformed = await rawFetch(baseUrl, "/api/auth/wechat/complete", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: "{"
@@ -272,10 +268,10 @@ test("cloud returns client errors for malformed or oversized JSON bodies", async
     assert.equal(malformed.status, 400);
     assert.match((await malformed.json()).error, /Invalid JSON/);
 
-    const oversized = await rawFetch(baseUrl, "/api/auth/register", {
+    const oversized = await rawFetch(baseUrl, "/api/auth/wechat/complete", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: "oversized", password: "secret1", padding: "x".repeat(28 * 1024 * 1024) })
+      body: JSON.stringify({ client: "test", padding: "x".repeat(28 * 1024 * 1024) })
     });
     assert.equal(oversized.status, 413);
     assert.match((await oversized.json()).error, /too large/);
@@ -290,10 +286,7 @@ test("cloud accepts image uploads at the documented eighteen megabyte limit", as
   const server = createMiaCloudServer({ dataDir });
   const baseUrl = await listen(server);
   try {
-    const account = await jsonFetch(baseUrl, "/api/auth/register", {
-      method: "POST",
-      body: { username: "large-upload", password: "secret1" }
-    });
+    const account = createAccount(server, "large-upload");
     const image = Buffer.alloc(18 * 1024 * 1024, 1);
     const upload = await jsonFetch(baseUrl, "/api/files", {
       method: "POST",
@@ -316,10 +309,7 @@ test("cloud rejects active-content image uploads", async () => {
   const server = createMiaCloudServer({ dataDir });
   const baseUrl = await listen(server);
   try {
-    const account = await jsonFetch(baseUrl, "/api/auth/register", {
-      method: "POST",
-      body: { username: "svg-upload", password: "secret1" }
-    });
+    const account = createAccount(server, "svg-upload");
     const svg = Buffer.from("<svg xmlns=\"http://www.w3.org/2000/svg\"><script>alert(1)</script></svg>");
     const upload = await rawFetch(baseUrl, "/api/files", {
       method: "POST",
@@ -390,6 +380,34 @@ test("cloud can serve bundled web assets without exposing path traversal", async
     assert.equal(manifestJson.display, "standalone");
     assert.deepEqual(manifestJson.icons?.map((icon) => icon.src), ["/icon-192.png", "/icon-512.png", "/favicon.svg"]);
 
+    const badgeManifest = await rawFetch(baseUrl, "/api/status-badge-assets");
+    assert.equal(badgeManifest.status, 200);
+    assert.match(badgeManifest.headers.get("content-type") || "", /application\/json/);
+    const badgeAssets = await badgeManifest.json();
+    assert.ok(badgeAssets.assets.some((asset) => asset.assetId === "rainbow" && /\/api\/status-badge-assets\/rainbow\.json$/.test(asset.url)));
+    const catAsset = badgeAssets.assets.find((asset) => asset.assetId === "surprised-cat");
+    assert.ok(catAsset, "surprised cat TGS badge should be exposed in the public asset manifest");
+    assert.equal(catAsset.format, "tgs");
+    assert.ok(catAsset.bytes > 0 && catAsset.bytes < 100_000, "TGS asset should stay compressed in the release bundle");
+    assert.match(catAsset.url, /\/api\/status-badge-assets\/surprised-cat\.json$/);
+
+    const badgeJson = await rawFetch(baseUrl, "/api/status-badge-assets/rainbow.json");
+    assert.equal(badgeJson.status, 200);
+    assert.match(badgeJson.headers.get("content-type") || "", /application\/json/);
+    assert.match(badgeJson.headers.get("cache-control") || "", /immutable/);
+    assert.ok((await badgeJson.json()).v);
+
+    const catJson = await rawFetch(baseUrl, "/api/status-badge-assets/surprised-cat.json");
+    assert.equal(catJson.status, 200);
+    assert.match(catJson.headers.get("content-type") || "", /application\/json/);
+    const catLottie = await catJson.json();
+    assert.equal(catLottie.w, 512);
+    assert.equal(catLottie.h, 512);
+    assert.equal(catLottie.op, 180);
+
+    const badgeTraversal = await rawFetch(baseUrl, "/api/status-badge-assets/..%2Fpackage.json");
+    assert.equal(badgeTraversal.status, 404);
+
     const traversal = await rawFetch(baseUrl, "/%2e%2e/package.json");
     assert.notEqual(traversal.status, 200);
     assert.doesNotMatch(await traversal.text(), /"mia"/);
@@ -412,10 +430,7 @@ test("cloud rejects websocket upgrades from disallowed browser origins", async (
   let allowedWs = null;
   let rejectedWs = null;
   try {
-    const account = await jsonFetch(baseUrl, "/api/auth/register", {
-      method: "POST",
-      body: { username: "origin", password: "secret1" }
-    });
+    const account = createAccount(server, "origin");
     allowedWs = new WebSocket(eventsWsUrl(baseUrl), wsTokenProtocol(account.token), {
       headers: { Origin: "https://mia.gifgif.cn" }
     });
@@ -441,10 +456,7 @@ test("cloud default origin policy allows same host and rejects foreign websocket
   let sameHostWs = null;
   let rejectedWs = null;
   try {
-    const account = await jsonFetch(baseUrl, "/api/auth/register", {
-      method: "POST",
-      body: { username: "default-origin", password: "secret1" }
-    });
+    const account = createAccount(server, "default-origin");
     sameHostWs = new WebSocket(eventsWsUrl(baseUrl), wsTokenProtocol(account.token), {
       headers: { Origin: baseUrl }
     });
@@ -469,10 +481,7 @@ test("cloud websocket auth accepts subprotocol tokens without query tokens", asy
   const baseUrl = await listen(server);
   let ws = null;
   try {
-    const account = await jsonFetch(baseUrl, "/api/auth/register", {
-      method: "POST",
-      body: { username: "protocol", password: "secret1" }
-    });
+    const account = createAccount(server, "protocol");
     ws = new WebSocket(eventsWsUrl(baseUrl), wsTokenProtocol(account.token));
     await waitForMessage(ws, (message) => message.type === "events_ready");
     assert.equal(ws.url.includes("token="), false);
@@ -490,10 +499,7 @@ test("cloud websocket auth rejects query token auth by default", async () => {
   let eventsWs = null;
   let bridgeWs = null;
   try {
-    const account = await jsonFetch(baseUrl, "/api/auth/register", {
-      method: "POST",
-      body: { username: "query-token", password: "secret1" }
-    });
+    const account = createAccount(server, "query-token");
     eventsWs = new WebSocket(`${eventsWsUrl(baseUrl)}?token=${encodeURIComponent(account.token)}`);
     assert.equal(await waitForWsClose(eventsWs), 1006);
 
@@ -520,10 +526,7 @@ test("cloud bridge forwards run progress events to authenticated event sockets",
   let bridgeWs = null;
   let eventsWs = null;
   try {
-    const account = await jsonFetch(baseUrl, "/api/auth/register", {
-      method: "POST",
-      body: { username: "progress", password: "secret1" }
-    });
+    const account = createAccount(server, "progress");
     const headers = { Authorization: `Bearer ${account.token}` };
     eventsWs = new WebSocket(eventsWsUrl(baseUrl), wsTokenProtocol(account.token));
     await waitForMessage(eventsWs, (message) => message.type === "events_ready");
@@ -581,10 +584,7 @@ test("cloud bridge run forwards selected runtime config to the desktop device", 
   const baseUrl = await listen(server);
   let bridgeWs = null;
   try {
-    const account = await jsonFetch(baseUrl, "/api/auth/register", {
-      method: "POST",
-      body: { username: "runtime-forward", password: "secret1" }
-    });
+    const account = createAccount(server, "runtime-forward");
     const headers = { Authorization: `Bearer ${account.token}` };
     bridgeWs = new WebSocket(bridgeWsUrl(baseUrl, {
       deviceName: "Mac",
@@ -643,10 +643,7 @@ test("cloud bridge broadcasts device removal when a desktop disconnects", async 
   let bridgeWs = null;
   let eventsWs = null;
   try {
-    const account = await jsonFetch(baseUrl, "/api/auth/register", {
-      method: "POST",
-      body: { username: "device-removal", password: "secret1" }
-    });
+    const account = createAccount(server, "device-removal");
     const headers = { Authorization: `Bearer ${account.token}` };
     eventsWs = new WebSocket(eventsWsUrl(baseUrl), wsTokenProtocol(account.token));
     await waitForMessage(eventsWs, (message) => message.type === "events_ready");
@@ -675,10 +672,7 @@ test("cloud bridge device listing follows live websocket state instead of stale 
   const baseUrl = await listen(server);
   let bridgeWs = null;
   try {
-    const account = await jsonFetch(baseUrl, "/api/auth/register", {
-      method: "POST",
-      body: { username: "live-devices", password: "secret1" }
-    });
+    const account = createAccount(server, "live-devices");
     const headers = { Authorization: `Bearer ${account.token}` };
     bridgeWs = new WebSocket(bridgeWsUrl(baseUrl, {
       deviceName: "Live Mac",
@@ -708,10 +702,7 @@ test("cloud bridge preserves stable device ids and can list offline history expl
   const baseUrl = await listen(server);
   let bridgeWs = null;
   try {
-    const account = await jsonFetch(baseUrl, "/api/auth/register", {
-      method: "POST",
-      body: { username: "stable-device", password: "secret1" }
-    });
+    const account = createAccount(server, "stable-device");
     const headers = { Authorization: `Bearer ${account.token}` };
     bridgeWs = new WebSocket(bridgeWsUrl(baseUrl, {
       deviceId: "device_windows_1",
@@ -749,10 +740,7 @@ test("cloud bridge stable device reconnect keeps the replacement online", async 
   let firstWs = null;
   let secondWs = null;
   try {
-    const account = await jsonFetch(baseUrl, "/api/auth/register", {
-      method: "POST",
-      body: { username: "stable-reconnect", password: "secret1" }
-    });
+    const account = createAccount(server, "stable-reconnect");
     const headers = { Authorization: `Bearer ${account.token}` };
     const params = {
       deviceId: "device_mac_reconnect",
@@ -787,10 +775,7 @@ test("cloud bridge requires explicit device selection when multiple devices are 
   let wsOne = null;
   let wsTwo = null;
   try {
-    const account = await jsonFetch(baseUrl, "/api/auth/register", {
-      method: "POST",
-      body: { username: "requires-device", password: "secret1" }
-    });
+    const account = createAccount(server, "requires-device");
     const headers = { Authorization: `Bearer ${account.token}` };
     wsOne = new WebSocket(bridgeWsUrl(baseUrl, { deviceName: "Mac One", engine: "codex" }), wsTokenProtocol(account.token));
     wsTwo = new WebSocket(bridgeWsUrl(baseUrl, { deviceName: "Mac Two", engine: "codex" }), wsTokenProtocol(account.token));
@@ -821,14 +806,8 @@ test("cloud files require owner authentication", async () => {
   const server = createMiaCloudServer({ dataDir });
   const baseUrl = await listen(server);
   try {
-    const alice = await jsonFetch(baseUrl, "/api/auth/register", {
-      method: "POST",
-      body: { username: "alice", password: "secret1" }
-    });
-    const bob = await jsonFetch(baseUrl, "/api/auth/register", {
-      method: "POST",
-      body: { username: "bob", password: "secret1" }
-    });
+    const alice = createAccount(server, "alice");
+    const bob = createAccount(server, "bob");
     const dataUrl = `data:image/png;base64,${Buffer.from("png-data").toString("base64")}`;
     const upload = await jsonFetch(baseUrl, "/api/files", {
       method: "POST",
@@ -866,10 +845,7 @@ test("cloud can cancel a pending bridge run", async () => {
   const baseUrl = await listen(server);
   let ws = null;
   try {
-    const account = await jsonFetch(baseUrl, "/api/auth/register", {
-      method: "POST",
-      body: { username: "cancel", password: "secret1" }
-    });
+    const account = createAccount(server, "cancel");
     const headers = { Authorization: `Bearer ${account.token}` };
     ws = new WebSocket(bridgeWsUrl(baseUrl, { deviceName: "Mac", engine: "codex" }), wsTokenProtocol(account.token));
     await waitForMessage(ws, (message) => message.type === "bridge_ready");
@@ -921,10 +897,7 @@ test("cloud marks bridge runs as timed_out when a device never responds", async 
   const baseUrl = await listen(server);
   let ws = null;
   try {
-    const account = await jsonFetch(baseUrl, "/api/auth/register", {
-      method: "POST",
-      body: { username: "timeout", password: "secret1" }
-    });
+    const account = createAccount(server, "timeout");
     const headers = { Authorization: `Bearer ${account.token}` };
     ws = new WebSocket(bridgeWsUrl(baseUrl, { deviceName: "Mac", engine: "codex" }), wsTokenProtocol(account.token));
     await waitForMessage(ws, (message) => message.type === "bridge_ready");

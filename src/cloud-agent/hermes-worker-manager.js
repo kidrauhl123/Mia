@@ -2,6 +2,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { execFile: execFileCb } = require("node:child_process");
 const { promisify } = require("node:util");
+const { createUserModelProxyToken } = require("../cloud/model-proxy-auth.js");
 
 const CONTAINER_ENV = Object.freeze({
   HERMES_HOME: "/data/hermes-home",
@@ -27,6 +28,10 @@ function assertSafeUserId(userId) {
   return id;
 }
 
+function cleanBaseUrl(value) {
+  return String(value || "").trim().replace(/\/+$/, "");
+}
+
 function createHermesWorkerManager(options = {}) {
   const rootDir = path.resolve(options.rootDir || process.env.MIA_CLOUD_AGENT_ROOT || "/var/lib/mia-cloud-agent-users");
   const mode = options.mode || process.env.MIA_CLOUD_AGENT_MODE || "disabled";
@@ -37,12 +42,21 @@ function createHermesWorkerManager(options = {}) {
   const dockerBin = options.dockerBin || process.env.MIA_DOCKER_BIN || "docker";
   const execFile = options.execFile || promisify(execFileCb);
   const containerPort = Number(options.containerPort || process.env.MIA_CLOUD_HERMES_CONTAINER_PORT || 8765);
-  const modelProvider = String(options.modelProvider || process.env.MIA_CLOUD_AGENT_MODEL_PROVIDER || "mia-litellm").trim();
+  const internalModelProxyKey = String(options.internalModelProxyKey || process.env.MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY || "").trim();
+  const internalModelBaseUrl = cleanBaseUrl(
+    options.internalModelBaseUrl
+      || process.env.MIA_INTERNAL_MODEL_BASE_URL
+      || (internalModelProxyKey && (options.publicUrl || process.env.MIA_CLOUD_PUBLIC_URL)
+        ? `${cleanBaseUrl(options.publicUrl || process.env.MIA_CLOUD_PUBLIC_URL)}/api/internal/model-proxy/v1`
+        : "")
+  );
+  const modelProvider = String(options.modelProvider || process.env.MIA_CLOUD_AGENT_MODEL_PROVIDER || (internalModelBaseUrl ? "mia" : "mia-litellm")).trim();
   const model = String(options.model || process.env.MIA_CLOUD_AGENT_MODEL || "mia-default").trim();
-  const modelBaseUrl = String(options.modelBaseUrl || process.env.MIA_CLOUD_AGENT_MODEL_BASE_URL || "http://litellm:4000/v1").trim();
+  const modelBaseUrl = String(options.modelBaseUrl || internalModelBaseUrl || process.env.MIA_CLOUD_AGENT_MODEL_BASE_URL || "http://litellm:4000/v1").trim();
+  const usesInternalModelProxy = Boolean(internalModelProxyKey && /\/api\/internal\/model-proxy\/v1\/?$/.test(cleanBaseUrl(modelBaseUrl)));
   const modelApiMode = String(options.modelApiMode || process.env.MIA_CLOUD_AGENT_MODEL_API_MODE || "chat_completions").trim();
   const modelApiKey = String(options.modelApiKey || process.env[MODEL_API_KEY_ENV] || process.env.MIA_LITELLM_API_KEY || "").trim();
-  const modelProviderName = String(options.modelProviderName || process.env.MIA_CLOUD_AGENT_MODEL_PROVIDER_NAME || "Mia LiteLLM").trim();
+  const modelProviderName = String(options.modelProviderName || process.env.MIA_CLOUD_AGENT_MODEL_PROVIDER_NAME || (internalModelBaseUrl ? "Mia Billing" : "Mia LiteLLM")).trim();
   const fetchImpl = options.fetch || fetch;
   const sleep = options.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
   const healthTimeoutMs = Number(options.healthTimeoutMs ?? process.env.MIA_CLOUD_HERMES_START_TIMEOUT_MS ?? 45000);
@@ -67,7 +81,7 @@ function createHermesWorkerManager(options = {}) {
   }
 
   function envForUser(userId) {
-    assertSafeUserId(userId);
+    const safeUserId = assertSafeUserId(userId);
     const env = {
       ...CONTAINER_ENV,
       HERMES_ACCEPT_HOOKS: "1",
@@ -78,7 +92,10 @@ function createHermesWorkerManager(options = {}) {
       API_SERVER_PORT: String(containerPort),
       API_SERVER_KEY: apiKey
     };
-    if (modelApiKey) env[MODEL_API_KEY_ENV] = modelApiKey;
+    const userModelApiKey = usesInternalModelProxy
+      ? createUserModelProxyToken(internalModelProxyKey, safeUserId)
+      : modelApiKey;
+    if (userModelApiKey) env[MODEL_API_KEY_ENV] = userModelApiKey;
     return env;
   }
 

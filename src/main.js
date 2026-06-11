@@ -4,6 +4,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const zlib = require("node:zlib");
 const WebSocket = require("ws");
 const { IpcChannel } = require("./shared/ipc-channels");
 const { MemberKind } = require("./shared/conversation-kinds");
@@ -126,6 +127,37 @@ function localDeviceId() {
   fs.mkdirSync(path.dirname(p.deviceIdentity), { recursive: true });
   fs.writeFileSync(p.deviceIdentity, JSON.stringify(next, null, 2) + "\n", { mode: 0o600 });
   return next.id;
+}
+
+const statusBadgeAssetDefinitions = Object.freeze({
+  "surprised-cat": Object.freeze({
+    format: "tgs",
+    relativePath: path.join("renderer", "assets", "status-badges", "surprised-cat.tgs")
+  })
+});
+
+function loadStatusBadgeAsset(assetId) {
+  const id = String(assetId || "").trim();
+  if (!/^[A-Za-z0-9_-]+$/.test(id)) return { ok: false, error: "bad_asset_id" };
+  const definition = statusBadgeAssetDefinitions[id];
+  if (!definition) return { ok: false, error: "unknown_asset" };
+  const filePath = path.resolve(__dirname, definition.relativePath);
+  const rendererRoot = path.resolve(__dirname, "renderer");
+  if (!filePath.startsWith(`${rendererRoot}${path.sep}`)) return { ok: false, error: "bad_asset_path" };
+  try {
+    const raw = fs.readFileSync(filePath);
+    const text = definition.format === "tgs"
+      ? zlib.gunzipSync(raw).toString("utf8")
+      : raw.toString("utf8");
+    return {
+      ok: true,
+      assetId: id,
+      format: definition.format,
+      animationData: JSON.parse(text)
+    };
+  } catch (error) {
+    return { ok: false, error: error?.message || "load_failed" };
+  }
 }
 
 let shouldRunDesktopInstance = true;
@@ -1896,6 +1928,7 @@ ipcMain.handle(IpcChannel.UtilOpenExternal, async (_event, url) => {
   await shell.openExternal(parsed.href);
   return true;
 });
+ipcMain.handle(IpcChannel.StatusBadgeAssetLoad, (_event, assetId) => loadStatusBadgeAsset(assetId));
 ipcMain.handle(IpcChannel.CloudStatus, () => cloudStatus(false));
 ipcMain.handle(IpcChannel.CloudLogin, async (_event, payload) => {
   await loginMiaCloud(payload || {});
@@ -1950,7 +1983,8 @@ cloudDesktopSyncRuntime = createCloudDesktopSyncClient({
   startCloudBridge,
   stopCloudEvents,
   stopCloudBridge,
-  skillMarketCache
+  skillMarketCache,
+  openExternal: (url) => shell.openExternal(url)
 });
 cloudBridgeRuntime = createCloudBridgeClient({
   WebSocketImpl: WebSocket,
@@ -2216,6 +2250,8 @@ const autoUpdateService = createAutoUpdateService({
   isPackaged: app.isPackaged,
   getMainWindow: () => BrowserWindow.getAllWindows()[0] || null,
 });
+
+ipcMain.handle(IpcChannel.UpdateCheck, () => autoUpdateService.checkForUpdates());
 
 app.whenReady().then(async () => {
   startupTimer.mark("app:ready");

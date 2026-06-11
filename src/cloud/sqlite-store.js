@@ -32,20 +32,20 @@ function normalizeAccount(value) {
   return String(value || "").trim().toLowerCase();
 }
 
-function accountFromBody(input = {}) {
-  return normalizeAccount(input.username || input.email || input.account);
+function wechatSubject(profile = {}) {
+  const unionid = String(profile.unionid || "").trim();
+  const openid = String(profile.openid || "").trim();
+  if (!unionid && !openid) throw new Error("微信授权结果缺少 openid。");
+  return unionid || openid;
 }
 
-function validateAccount(account) {
-  return account.length >= 2 && account.length <= 64 && !/[\s\x00-\x1f\x7f]/.test(account);
+function wechatUsername(profile = {}) {
+  const digest = crypto.createHash("sha256").update(wechatSubject(profile)).digest("hex").slice(0, 12);
+  return `wx_${digest}`;
 }
 
-function validatePassword(password) {
-  return String(password || "").length >= 6;
-}
-
-function passwordHash(password, salt) {
-  return crypto.scryptSync(String(password), salt, 64).toString("base64");
+function wechatDisplayName(profile = {}) {
+  return String(profile.nickname || profile.displayName || "").trim().slice(0, 80) || "微信用户";
 }
 
 function profileStatusBadge(row = {}) {
@@ -226,35 +226,20 @@ function createCloudStore(options = {}) {
   const uploadDir = options.uploadDir || path.join(path.dirname(dbPath), "uploads");
   const now = options.now || nowIso;
   const randomBytes = options.randomBytes || crypto.randomBytes;
-  const loginRateLimit = {
-    maxFailures: Number(options.loginRateLimit?.maxFailures || 8),
-    windowMs: Number(options.loginRateLimit?.windowMs || 1000 * 60 * 15)
-  };
-  const loginFailures = new Map();
-  // Salt used to run the KDF on login attempts for unknown accounts, so the
-  // response timing does not reveal whether an account exists.
-  const dummyLoginSalt = base64url(randomBytes(16));
   fs.mkdirSync(path.dirname(dbPath), { recursive: true, mode: 0o700 });
   fs.mkdirSync(uploadDir, { recursive: true, mode: 0o700 });
   const db = new DatabaseSync(dbPath);
   db.exec("PRAGMA foreign_keys = ON");
   db.exec("PRAGMA journal_mode = WAL");
   migrate(db);
-  importLegacyJsonIfNeeded(db, {
-    legacyJsonPath: options.legacyJsonPath || path.join(path.dirname(dbPath), "cloud.json")
-  });
   resetVolatileBridgeState(db, now);
 
   function id(prefix) {
     return randomId(prefix, randomBytes);
   }
 
-  function getUserByAccount(account) {
-    return db.prepare("SELECT * FROM users WHERE account = ?").get(account);
-  }
-
   function getUserByUsername(username) {
-    const row = db.prepare("SELECT * FROM users WHERE account = ?").get(String(username || "").trim().toLowerCase());
+    const row = db.prepare("SELECT * FROM users WHERE username = ?").get(String(username || "").trim().toLowerCase());
     return row ? publicUser(row) : null;
   }
 
@@ -276,89 +261,91 @@ function createCloudStore(options = {}) {
     return token;
   }
 
-  function rateLimitKey(account, ip) {
-    return `${String(ip || "unknown").trim() || "unknown"}:${account}`;
-  }
-
-  function recentFailures(account, ip) {
-    const key = rateLimitKey(account, ip);
-    const cutoff = Date.now() - loginRateLimit.windowMs;
-    const failures = (loginFailures.get(key) || []).filter((timestamp) => timestamp >= cutoff);
-    if (failures.length) loginFailures.set(key, failures);
-    else loginFailures.delete(key);
-    return failures;
-  }
-
-  function assertLoginAllowed(account, ip) {
-    if (recentFailures(account, ip).length >= loginRateLimit.maxFailures) {
-      throw new Error("登录尝试过多，请稍后再试。");
-    }
-  }
-
-  function recordLoginFailure(account, ip) {
-    const key = rateLimitKey(account, ip);
-    loginFailures.set(key, [...recentFailures(account, ip), Date.now()]);
-  }
-
-  function clearLoginFailures(account, ip) {
-    loginFailures.delete(rateLimitKey(account, ip));
-  }
-
   // (ensureWorkspace removed in Phase 4 cutover — workspace snapshots
   //  are no longer the conversation store. The `workspaces` table is
   //  left intact but unused; a future commit can DROP it once we've
   //  confirmed no rollback need.)
 
-  function registerUser(input = {}) {
-    const account = accountFromBody(input);
-    const password = String(input.password || "");
-    if (!validateAccount(account)) throw new Error("用户名需要 2-64 个字符，不能包含空格。");
-    if (!validatePassword(password)) throw new Error("密码至少 6 位。");
-    if (getUserByAccount(account)) throw new Error("账号已存在，请直接登录。");
-    const userId = generatePrincipalId(randomBytes);
-    const salt = base64url(randomBytes(16));
-    const createdAt = now();
-    db.prepare(`
-      INSERT INTO users (id, account, username, email, password_salt, password_hash, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      userId,
-      account,
-      account,
-      String(input.email || "").includes("@") ? account : "",
-      salt,
-      passwordHash(password, salt),
-      createdAt
-    );
-    const row = getUserById(userId);
-    const user = rowToUser(row);
-    // Phase 4 cutover: workspace removed from auth response. Clients
-    // bootstrap conversations from /api/conversations now.
-    return { token: createSession(user.id), user };
+  function findWechatUser(profile = {}) {
+    const unionid = String(profile.unionid || "").trim();
+    const openid = String(profile.openid || "").trim();
+    if (unionid) {
+      const row = db.prepare(`
+        SELECT u.*
+        FROM wechat_accounts w
+        JOIN users u ON u.id = w.user_id
+        WHERE w.unionid = ?
+        LIMIT 1
+      `).get(unionid);
+      if (row) return row;
+    }
+    if (openid) {
+      const row = db.prepare(`
+        SELECT u.*
+        FROM wechat_accounts w
+        JOIN users u ON u.id = w.user_id
+        WHERE w.openid = ?
+        LIMIT 1
+      `).get(openid);
+      if (row) return row;
+    }
+    return null;
   }
 
-  function loginUser(input = {}) {
-    const account = accountFromBody(input);
-    assertLoginAllowed(account, input.ip);
-    const row = getUserByAccount(account);
-    // Always run scrypt and compare in constant time — even for unknown
-    // accounts — so neither response timing nor early-return reveals whether
-    // the account exists.
-    const salt = row ? row.password_salt : dummyLoginSalt;
-    const candidate = Buffer.from(passwordHash(String(input.password || ""), salt));
-    // `expected` may be a legacy-imported hash of a different length/format, so
-    // guard the length before timingSafeEqual (which throws on a length
-    // mismatch) — a length mismatch is simply a non-match. All scrypt hashes
-    // share one length, so this preserves constant-time comparison for them.
-    const expected = Buffer.from(row ? row.password_hash : candidate.toString());
-    const matches = candidate.length === expected.length
-      && crypto.timingSafeEqual(candidate, expected);
-    if (!row || !matches) {
-      recordLoginFailure(account, input.ip);
-      throw new Error("用户名或密码不正确。");
+  function upsertWechatAccount(userId, profile = {}) {
+    const timestamp = now();
+    const openid = String(profile.openid || "").trim();
+    const unionid = String(profile.unionid || "").trim();
+    if (!openid && !unionid) throw new Error("微信授权结果缺少 openid。");
+    db.prepare(`
+      INSERT INTO wechat_accounts (
+        openid, user_id, unionid, nickname, avatar_url, raw_json, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(openid) DO UPDATE SET
+        user_id = excluded.user_id,
+        unionid = excluded.unionid,
+        nickname = excluded.nickname,
+        avatar_url = excluded.avatar_url,
+        raw_json = excluded.raw_json,
+        updated_at = excluded.updated_at
+    `).run(
+      openid || unionid,
+      userId,
+      unionid,
+      wechatDisplayName(profile),
+      String(profile.avatarUrl || "").trim(),
+      JSON.stringify(profile.raw || {}),
+      timestamp,
+      timestamp
+    );
+  }
+
+  function loginWithWechat(profile = {}) {
+    const openid = String(profile.openid || "").trim();
+    const unionid = String(profile.unionid || "").trim();
+    if (!openid && !unionid) throw new Error("微信授权结果缺少 openid。");
+    let row = findWechatUser(profile);
+    if (!row) {
+      const userId = generatePrincipalId(randomBytes);
+      const createdAt = now();
+      db.prepare(`
+        INSERT INTO users (id, account, username, email, display_name, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(
+        userId,
+        `wechat:${wechatSubject(profile)}`,
+        wechatUsername(profile),
+        "",
+        wechatDisplayName(profile),
+        createdAt
+      );
+      row = getUserById(userId);
+    } else if (!row.display_name) {
+      db.prepare("UPDATE users SET display_name = ? WHERE id = ?").run(wechatDisplayName(profile), row.id);
+      row = getUserById(row.id);
     }
-    clearLoginFailures(account, input.ip);
-    const user = rowToUser(row);
+    upsertWechatAccount(row.id, profile);
+    const user = rowToUser(getUserById(row.id));
     return { token: createSession(user.id), user };
   }
 
@@ -617,8 +604,7 @@ function createCloudStore(options = {}) {
   }
 
   return {
-    registerUser,
-    loginUser,
+    loginWithWechat,
     logoutSession,
     authenticateToken,
     saveImageDataUrl,
@@ -662,8 +648,6 @@ function migrate(db) {
       display_name TEXT NOT NULL DEFAULT '',
       username TEXT NOT NULL,
       email TEXT NOT NULL DEFAULT '',
-      password_salt TEXT NOT NULL,
-      password_hash TEXT NOT NULL,
       created_at TEXT NOT NULL
     );
 
@@ -673,6 +657,19 @@ function migrate(db) {
       created_at TEXT NOT NULL,
       expires_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS wechat_accounts (
+      openid TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      unionid TEXT NOT NULL DEFAULT '',
+      nickname TEXT NOT NULL DEFAULT '',
+      avatar_url TEXT NOT NULL DEFAULT '',
+      raw_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_wechat_accounts_user ON wechat_accounts(user_id);
+    CREATE INDEX IF NOT EXISTS idx_wechat_accounts_unionid ON wechat_accounts(unionid);
 
     CREATE TABLE IF NOT EXISTS workspaces (
       user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
@@ -936,6 +933,57 @@ function migrate(db) {
       reason      TEXT NOT NULL DEFAULT '',
       created_at  TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS model_accounts (
+      user_id           TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      balance_microusd  INTEGER NOT NULL DEFAULT 0,
+      updated_at        TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS model_balance_ledger (
+      id                      TEXT PRIMARY KEY,
+      user_id                 TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      delta_microusd          INTEGER NOT NULL,
+      balance_after_microusd  INTEGER NOT NULL,
+      reason                  TEXT NOT NULL DEFAULT '',
+      usage_id                TEXT NOT NULL DEFAULT '',
+      created_at              TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_model_balance_ledger_user
+      ON model_balance_ledger(user_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS model_usage_ledger (
+      id                 TEXT PRIMARY KEY,
+      user_id            TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      model_id           TEXT NOT NULL,
+      upstream_model     TEXT NOT NULL DEFAULT '',
+      provider           TEXT NOT NULL DEFAULT '',
+      request_path       TEXT NOT NULL DEFAULT '',
+      prompt_tokens      INTEGER NOT NULL DEFAULT 0,
+      completion_tokens  INTEGER NOT NULL DEFAULT 0,
+      total_tokens       INTEGER NOT NULL DEFAULT 0,
+      cost_microusd      INTEGER NOT NULL DEFAULT 0,
+      charge_microusd    INTEGER NOT NULL DEFAULT 0,
+      status             TEXT NOT NULL,
+      error              TEXT NOT NULL DEFAULT '',
+      created_at         TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_model_usage_ledger_user
+      ON model_usage_ledger(user_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS model_gateway_settings (
+      id                             TEXT PRIMARY KEY,
+      mode                           TEXT NOT NULL DEFAULT 'deepseek',
+      model_id                       TEXT NOT NULL DEFAULT 'mia-default',
+      provider                       TEXT NOT NULL DEFAULT 'deepseek',
+      upstream_model                 TEXT NOT NULL DEFAULT 'deepseek-chat',
+      api_base                       TEXT NOT NULL DEFAULT '',
+      api_key                        TEXT NOT NULL DEFAULT '',
+      input_microusd_per_million     INTEGER NOT NULL DEFAULT 140000,
+      output_microusd_per_million    INTEGER NOT NULL DEFAULT 280000,
+      markup                         REAL NOT NULL DEFAULT 1,
+      updated_at                     TEXT NOT NULL
+    );
   `);
   if (!hasColumn(db, "bridge_runs", "request_attachments_json")) {
     db.exec("ALTER TABLE bridge_runs ADD COLUMN request_attachments_json TEXT NOT NULL DEFAULT '[]'");
@@ -1048,6 +1096,10 @@ function migrate(db) {
   // global desktop-local file.
   db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (14, ?)")
     .run(nowIso());
+  // v15: platform model billing. Users buy Mia model credits; the server calls
+  // upstream providers with Mia-owned keys and records each billable model use.
+  db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (15, ?)")
+    .run(nowIso());
 }
 
 function retiredIdentityKind() {
@@ -1062,88 +1114,6 @@ function cleanupRetiredIdentityRows(db) {
   db.prepare("DELETE FROM conversation_members WHERE conversation_id LIKE ?").run(retiredPrivateConversation);
   db.prepare("DELETE FROM conversation_members WHERE member_kind = ?").run(retiredKind);
   db.prepare("DELETE FROM conversations WHERE type = ? OR id LIKE ?").run(retiredKind, retiredPrivateConversation);
-}
-
-function importLegacyJsonIfNeeded(db, { legacyJsonPath }) {
-  const userCount = db.prepare("SELECT COUNT(*) AS count FROM users").get().count;
-  if (Number(userCount) > 0 || !legacyJsonPath || !fs.existsSync(legacyJsonPath)) return;
-  let legacy = null;
-  try {
-    legacy = JSON.parse(fs.readFileSync(legacyJsonPath, "utf8"));
-  } catch {
-    return;
-  }
-  const timestamp = nowIso();
-  const insertUser = db.prepare(`
-    INSERT OR IGNORE INTO users (id, account, username, email, password_salt, password_hash, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `);
-  for (const [accountKey, user] of Object.entries(legacy.users || {})) {
-    if (!user?.id) continue;
-    const account = normalizeAccount(accountKey || user.username || user.email);
-    if (!account) continue;
-    insertUser.run(
-      String(user.id),
-      account,
-      normalizeAccount(user.username || account),
-      String(user.email || ""),
-      String(user.passwordSalt || user.password_salt || ""),
-      String(user.passwordHash || user.password_hash || ""),
-      String(user.createdAt || user.created_at || timestamp)
-    );
-  }
-
-  const insertSession = db.prepare(`
-    INSERT OR IGNORE INTO sessions (token_hash, user_id, created_at, expires_at)
-    VALUES (?, ?, ?, ?)
-  `);
-  for (const [tokenHash, session] of Object.entries(legacy.sessions || {})) {
-    if (!session?.userId && !session?.user_id) continue;
-    insertSession.run(
-      String(tokenHash),
-      String(session.userId || session.user_id),
-      String(session.createdAt || session.created_at || timestamp),
-      String(session.expiresAt || session.expires_at || timestamp)
-    );
-  }
-
-  const insertWorkspace = db.prepare(`
-    INSERT OR REPLACE INTO workspaces (user_id, revision, snapshot_json, updated_at)
-    VALUES (?, ?, ?, ?)
-  `);
-  for (const [userId, workspace] of Object.entries(legacy.workspaces || {})) {
-    if (!workspace || typeof workspace !== "object") continue;
-    insertWorkspace.run(
-      String(userId),
-      Number(workspace.revision || 1),
-      JSON.stringify(workspace),
-      String(workspace.updatedAt || timestamp)
-    );
-  }
-
-  const insertFile = db.prepare(`
-    INSERT OR IGNORE INTO files (id, user_id, type, name, mime_type, path, size, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-  for (const file of Object.values(legacy.files || {})) {
-    if (!file?.id || !file?.userId || !file?.path) continue;
-    let size = Number(file.size || 0);
-    try {
-      size = fs.statSync(file.path).size;
-    } catch {
-      // Keep metadata even if the legacy disk object is missing.
-    }
-    insertFile.run(
-      String(file.id),
-      String(file.userId),
-      String(file.type || "image"),
-      String(file.name || file.id),
-      String(file.mimeType || file.mime || "application/octet-stream"),
-      String(file.path),
-      size,
-      String(file.createdAt || file.created_at || timestamp)
-    );
-  }
 }
 
 module.exports = {

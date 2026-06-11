@@ -52,17 +52,14 @@
       <div class="onb-hero">
         <img class="onb-logo" src="../assets/mia-logo.png" alt="Mia" draggable="false">
         <h1 class="onb-title">欢迎使用 Mia</h1>
-        <p class="onb-tagline">一个聊天界面，指挥你所有的 AI Agent。先登录，把对话同步到云端。</p>
+        <p class="onb-tagline">一个聊天界面，指挥你所有的 AI Agent。先用微信登录，把对话同步到云端。</p>
       </div>
-      <form class="onb-form" data-login>
-        <input class="onb-input" type="text" autocomplete="username" placeholder="用户名" data-username>
-        <input class="onb-input" type="password" autocomplete="current-password" placeholder="密码（至少 6 位）" data-password>
+      <section class="onb-form" data-login>
         <p class="onb-hint" data-hint>${esc(hint)}</p>
-      </form>
+      </section>
       <div class="onb-spacer"></div>
       <div class="onb-footer">
-        <button class="onb-cta" type="button" data-action="login">登录</button>
-        <button class="onb-link" type="button" data-action="register">没有账号？注册一个</button>
+        <button class="onb-cta" type="button" data-action="login">微信登录</button>
       </div>
     `;
   }
@@ -176,21 +173,17 @@
     if (el) el.textContent = text;
   }
 
-  async function submitLogin(mode) {
-    const username = root.querySelector("[data-username]")?.value?.trim() || "";
-    const password = root.querySelector("[data-password]")?.value || "";
-    if (!username) return setHint("请输入用户名。");
-    if (password.length < 6) return setHint("密码至少 6 位。");
-    setHint(mode === "register" ? "正在注册并连接…" : "正在登录并连接…");
+  async function submitLogin() {
+    setHint("正在打开微信登录，请在浏览器中确认授权…");
     try {
-      const runtime = await mia.cloudLogin?.({ mode, username, password });
+      const runtime = await mia.cloudLogin?.({ mode: "wechat" });
       if (runtime && runtime.cloud && runtime.cloud.enabled) {
         hint = "";
         step = "scan";
         render();
         startScan();
       } else {
-        setHint(mode === "register" ? "注册未成功，请重试。" : "登录未成功，请检查或点下方注册。");
+        setHint("微信登录未成功，请重试。");
       }
     } catch (error) {
       setHint(`连接失败：${error?.message || error}`);
@@ -266,13 +259,12 @@
 
   function bind() {
     if (step === "login") {
-      root.querySelector("[data-login]")?.addEventListener("submit", (e) => { e.preventDefault(); submitLogin("login"); });
+      root.querySelector("[data-login]")?.addEventListener("submit", (e) => { e.preventDefault(); submitLogin(); });
     }
     root.querySelectorAll("[data-action]").forEach((el) => {
       el.addEventListener("click", () => {
         const action = el.dataset.action;
-        if (action === "login") submitLogin("login");
-        else if (action === "register") submitLogin("register");
+        if (action === "login") submitLogin();
         else if (action === "finish") {
           if (hasActiveInstall()) return;
           mia.onboardingComplete?.();

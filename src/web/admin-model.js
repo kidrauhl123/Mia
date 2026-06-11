@@ -8,6 +8,9 @@ const els = {
   apiKey: document.getElementById("apiKeyInput"),
   apiBase: document.getElementById("apiBaseInput"),
   apiVersion: document.getElementById("apiVersionInput"),
+  inputPrice: document.getElementById("inputPriceInput"),
+  outputPrice: document.getElementById("outputPriceInput"),
+  markup: document.getElementById("markupInput"),
   save: document.getElementById("saveModelButton"),
   test: document.getElementById("testModelButton"),
   output: document.getElementById("adminOutput")
@@ -42,7 +45,37 @@ function applyProviderPreset() {
   if (model) els.upstream.value = model;
 }
 
-function renderStatus(data) {
+function setFieldValue(element, value) {
+  if (!element) return;
+  element.value = value === undefined || value === null ? "" : String(value);
+}
+
+function renderDeepSeekStatus(data) {
+  const model = data.models?.[0] || {};
+  const settings = data.settings || {};
+  const configured = Boolean(data.gateway?.configured);
+  els.badge.textContent = configured ? "已设置" : "缺 API Key";
+  els.summary.textContent = configured
+    ? `DeepSeek · ${settings.modelId || model.id || data.modelName || "mia-default"} -> ${settings.upstreamModel || model.upstreamModel || "deepseek-chat"}`
+    : "请保存 DeepSeek API Key 后再开放用户调用。";
+  els.provider.value = "deepseek";
+  setFieldValue(els.publicModel, settings.modelId || model.id || data.modelName || "mia-default");
+  setFieldValue(els.upstream, settings.upstreamModel || model.upstreamModel || "deepseek-chat");
+  setFieldValue(els.apiBase, settings.apiBase || data.gateway?.baseUrl || "https://api.deepseek.com/v1");
+  setFieldValue(els.inputPrice, settings.inputMicrousdPerMillion ?? data.pricing?.inputMicrousdPerMillion ?? 140000);
+  setFieldValue(els.outputPrice, settings.outputMicrousdPerMillion ?? data.pricing?.outputMicrousdPerMillion ?? 280000);
+  setFieldValue(els.markup, settings.markup ?? data.pricing?.markup ?? 1);
+  els.apiKey.required = !configured;
+  els.apiKey.placeholder = configured ? "留空则保留已保存 key" : "填写 DeepSeek API Key";
+  els.apiVersion.disabled = true;
+  els.apiVersion.placeholder = "DeepSeek 直连不需要";
+}
+
+function renderLiteLLMStatus(data) {
+  els.apiKey.required = true;
+  els.apiKey.placeholder = "保存时必须填写";
+  els.apiVersion.disabled = false;
+  els.apiVersion.placeholder = "可选，Azure 等服务才需要";
   const model = data.models?.[0];
   if (!data.gateway?.adminConfigured) {
     els.badge.textContent = "未配置";
@@ -66,6 +99,14 @@ function renderStatus(data) {
   if (!els.upstream.value && model.litellm_params?.model) els.upstream.value = model.litellm_params.model;
   if (model.litellm_params?.api_base) els.apiBase.value = model.litellm_params.api_base;
   if (model.litellm_params?.api_version) els.apiVersion.value = model.litellm_params.api_version;
+}
+
+function renderStatus(data) {
+  if (data.gateway?.mode === "deepseek") {
+    renderDeepSeekStatus(data);
+    return;
+  }
+  renderLiteLLMStatus(data);
 }
 
 async function loadStatus() {
@@ -95,7 +136,10 @@ els.form.addEventListener("submit", async (event) => {
         upstreamModel: els.upstream.value,
         apiKey: els.apiKey.value,
         apiBase: els.apiBase.value,
-        apiVersion: els.apiVersion.value
+        apiVersion: els.apiVersion.value,
+        inputMicrousdPerMillion: els.inputPrice.value,
+        outputMicrousdPerMillion: els.outputPrice.value,
+        markup: els.markup.value
       })
     });
     els.apiKey.value = "";

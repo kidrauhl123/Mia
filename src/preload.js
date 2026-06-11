@@ -14,12 +14,14 @@ contextBridge.exposeInMainWorld("mia", {
   cloudLogin: (payload) => ipcRenderer.invoke(IpcChannel.CloudLogin, payload),
   cloudSync: () => ipcRenderer.invoke(IpcChannel.CloudSync),
   cloudLogout: () => ipcRenderer.invoke(IpcChannel.CloudLogout),
+  checkForUpdates: () => ipcRenderer.invoke(IpcChannel.UpdateCheck),
   onCloudEvent: (handler) => {
     const listener = (_event, envelope) => { try { handler(envelope); } catch { /* ignore */ } };
     ipcRenderer.on(IpcChannel.CloudEvent, listener);
     return () => ipcRenderer.removeListener(IpcChannel.CloudEvent, listener);
   },
   openExternal: (url) => ipcRenderer.invoke(IpcChannel.UtilOpenExternal, url),
+  loadStatusBadgeAsset: (assetId) => ipcRenderer.invoke(IpcChannel.StatusBadgeAssetLoad, assetId),
   installEngine: (engineId) => ipcRenderer.invoke(IpcChannel.EngineInstall, engineId),
   onEngineInstallProgress: (callback) => {
     const handler = (_event, payload) => callback(payload);

@@ -283,13 +283,12 @@ const els = {
   cloudAccountName: document.getElementById("cloudAccountName"),
   cloudAccountUid: document.getElementById("cloudAccountUid"),
   cloudLoginBox: document.getElementById("cloudLoginBox"),
-  cloudUsername: document.getElementById("cloudUsername"),
-  cloudPassword: document.getElementById("cloudPassword"),
   cloudLogin: document.getElementById("cloudLogin"),
-  cloudRegister: document.getElementById("cloudRegister"),
   cloudSync: document.getElementById("cloudSync"),
   cloudLogout: document.getElementById("cloudLogout"),
   cloudLoginHint: document.getElementById("cloudLoginHint"),
+  checkUpdates: document.getElementById("checkUpdates"),
+  appUpdateHint: document.getElementById("appUpdateHint"),
   tasksUnreadBadge: document.getElementById("tasksUnreadBadge"),
   contactsUnreadBadge: document.getElementById("contactsUnreadBadge"),
   chatUnreadBadge: document.getElementById("chatUnreadBadge"),
@@ -307,6 +306,27 @@ function firstNonEmpty(...values) {
     if (text) return text;
   }
   return "";
+}
+
+function updateVersionSuffix(version) {
+  const text = String(version || "").trim();
+  return text ? ` ${text}` : "";
+}
+
+function appUpdateStatusText(result = {}) {
+  const version = updateVersionSuffix(result.version);
+  if (result.status === "available") return `发现新版本${version}，正在后台下载。`;
+  if (result.status === "downloaded") return `新版本${version}已下载，请按提示重启。`;
+  if (result.status === "not-available") return "当前已经是最新版本。";
+  if (result.status === "disabled") return "检查更新只在安装版桌面 App 中可用。";
+  if (result.status === "error") return `检查失败：${result.error?.message || "请稍后再试"}`;
+  return "已发起更新检查。";
+}
+
+function updateStatusBadgeAssetBaseUrl(runtime = state.runtime) {
+  const cloud = runtime?.cloud || {};
+  const baseUrl = cloud.enabled ? String(cloud.url || "").trim() : "";
+  window.miaNameWithBadge?.setStatusBadgeAssetBaseUrl?.(baseUrl);
 }
 
 function hasOwn(obj, key) {
@@ -899,9 +919,7 @@ function conversationCardSpecFromRow(row, personas) {
             const res = await social.deleteCloudConversation(conversation.id);
             if (!res?.ok) alert(`删除失败：${res?.error || "未知错误"}`);
           },
-          // DM display name follows the peer's username, so server rejects
-          // PATCH name on dm:* conversations — surface that to the menu.
-          ...(isBot ? {} : { notSupported: { rename: "私聊对方名称由对方用户名决定，无法在此重命名" } })
+          ...(isBot ? { rename: () => openEditBotDialog(sessionHistory.botId(conversation)) } : {})
         },
         x, y
       )
@@ -957,12 +975,6 @@ function conversationCardSpecFromRow(row, personas) {
           },
           toggleMuted: (next) => { social.setConversationMuted(conversation.id, next); render(); },
           openInfo: () => window.miaGroupInfoDialog?.open(conversation.id),
-          rename: async () => {
-            const next = window.prompt("编辑群组名称", cgName);
-            if (!next || next.trim() === cgName) return;
-            const res = await social.renameConversation(conversation.id, next.trim());
-            if (!res?.ok) alert(`重命名失败：${res?.error || "未知错误"}`);
-          },
           remove: async () => {
             if (!confirm(`确定删除群组「${cgName}」？此操作不可撤销，所有成员都将无法访问。`)) return;
             const res = await social.deleteCloudConversation(conversation.id);
@@ -1389,6 +1401,7 @@ function render() {
     if (els.chat) els.chat.innerHTML = "";
     return;
   }
+  updateStatusBadgeAssetBaseUrl(runtime);
   const cloudSignedIn = Boolean(runtime?.cloud?.enabled);
   els.appShell?.setAttribute("data-auth-state", cloudSignedIn ? "signed-in" : "signed-out");
   renderSendButton();
@@ -2253,7 +2266,7 @@ function renderCloudLoginGuide() {
     <div class="cloud-login-guide">
       <h2>登录 Mia Cloud</h2>
       <p>Mia 的对话都在云端同步。登录后即可与你的 Bot 聊天。</p>
-      <button type="button" class="primary" data-action="cloud-login">登录 / 注册</button>
+      <button type="button" class="primary" data-action="cloud-login">微信登录</button>
     </div>
   `;
 }
@@ -3356,25 +3369,12 @@ document.querySelectorAll("[data-settings-tab]").forEach((button) => {
   });
 });
 
-async function submitCloudLogin(mode) {
-  const username = String(els.cloudUsername?.value || "").trim();
-  const password = String(els.cloudPassword?.value || "");
-  if (!username) {
-    setText(els.cloudLoginHint, "请输入用户名。");
-    els.cloudUsername?.focus();
-    return;
-  }
-  if (password.length < 6) {
-    setText(els.cloudLoginHint, "密码至少 6 位。");
-    els.cloudPassword?.focus();
-    return;
-  }
-  const buttons = [els.cloudLogin, els.cloudRegister].filter(Boolean);
+async function submitCloudLogin() {
+  const buttons = [els.cloudLogin].filter(Boolean);
   buttons.forEach((button) => { button.disabled = true; });
-  setText(els.cloudLoginHint, mode === "register" ? "正在注册并连接..." : "正在登录并连接...");
+  setText(els.cloudLoginHint, "正在打开微信登录，请在浏览器中确认授权...");
   try {
-    state.runtime = await window.mia.cloudLogin({ mode, username, password });
-    if (els.cloudPassword) els.cloudPassword.value = "";
+    state.runtime = await window.mia.cloudLogin({ mode: "wechat" });
     window.miaSocial?.bootstrapAfterLogin?.();
     render();
   } catch (error) {
@@ -3384,8 +3384,7 @@ async function submitCloudLogin(mode) {
   }
 }
 
-els.cloudLogin?.addEventListener("click", () => submitCloudLogin("login"));
-els.cloudRegister?.addEventListener("click", () => submitCloudLogin("register"));
+els.cloudLogin?.addEventListener("click", () => submitCloudLogin());
 els.cloudSync?.addEventListener("click", async () => {
   els.cloudSync.disabled = true;
   try {
@@ -3406,6 +3405,18 @@ els.cloudLogout?.addEventListener("click", async () => {
     setText(els.cloudLoginHint, `退出失败：${error.message || error}`);
   } finally {
     els.cloudLogout.disabled = false;
+  }
+});
+els.checkUpdates?.addEventListener("click", async () => {
+  els.checkUpdates.disabled = true;
+  setText(els.appUpdateHint, "正在检查更新...");
+  try {
+    const result = await window.mia.checkForUpdates();
+    setText(els.appUpdateHint, appUpdateStatusText(result));
+  } catch (error) {
+    setText(els.appUpdateHint, `检查失败：${error.message || error}`);
+  } finally {
+    els.checkUpdates.disabled = false;
   }
 });
 

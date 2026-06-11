@@ -82,7 +82,8 @@
       avatarText: initialsOf(displayName),
       avatarColor: String(cloudOrLocal("avatarColor", "avatar_color", "avatarColor") || ""),
       avatarImage: String(cloudOrLocal("avatarImage", "avatar_image", "avatarImage") || ""),
-      avatarCrop: cloudOrLocal("avatarCrop", "avatar_crop", "avatarCrop") || null
+      avatarCrop: cloudOrLocal("avatarCrop", "avatar_crop", "avatarCrop") || null,
+      statusBadge: cloudOrLocal("statusBadge", "status_badge", "statusBadge") || null
     };
   }
 

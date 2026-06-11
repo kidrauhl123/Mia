@@ -6,6 +6,10 @@ const path = require("node:path");
 const http = require("node:http");
 const { spawn } = require("node:child_process");
 const { freePort } = require("./helpers/free-port");
+const { seedCloudAccountInDataDir } = require("./helpers/cloud-auth.js");
+const { createUserModelProxyToken } = require("../src/cloud/model-proxy-auth.js");
+
+const dataDirsByPort = new Map();
 
 function request(port, method, pathStr, { body, auth, token } = {}) {
   return new Promise((resolve, reject) => {
@@ -94,15 +98,45 @@ async function startLiteLLMFake(initialModels = null) {
   return { port, calls, server, get models() { return models; } };
 }
 
-async function register(port, account) {
-  const response = await request(port, "POST", "/api/auth/register", {
-    body: { account, password: "passworD1!", username: `u-${account}` }
+async function startDeepSeekFake() {
+  const port = await freePort();
+  const calls = [];
+  const server = http.createServer((req, res) => {
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      calls.push({ method: req.method, path: url.pathname, body: body ? JSON.parse(body) : {} });
+      if (req.headers.authorization !== "Bearer deepseek-key") {
+        res.writeHead(401, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: { message: "unauthorized" } }));
+        return;
+      }
+      if (req.method === "POST" && url.pathname === "/v1/chat/completions") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({
+          id: "deepseek-test",
+          model: "deepseek-chat",
+          choices: [{ message: { role: "assistant", content: "deepseek-ok" } }],
+          usage: { prompt_tokens: 1000, completion_tokens: 500, total_tokens: 1500 }
+        }));
+        return;
+      }
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: { message: "not found" } }));
+    });
   });
-  assert.ok(response.status === 200 || response.status === 201);
-  return response.body;
+  await new Promise((resolve) => server.listen(port, "127.0.0.1", resolve));
+  return { port, calls, server };
 }
 
-async function startCloud(litellmPort) {
+async function register(port, account) {
+  const dataDir = dataDirsByPort.get(port);
+  if (!dataDir) throw new Error("missing test cloud data dir for port " + port);
+  return seedCloudAccountInDataDir(dataDir, account);
+}
+
+async function startCloud(litellmPort, extraEnv = {}) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-admin-test-"));
   const port = await freePort();
   const proc = spawn(process.execPath, ["scripts/serve-cloud.js"], {
@@ -113,9 +147,14 @@ async function startCloud(litellmPort) {
       MIA_CLOUD_DATA: tmpDir,
       MIA_CLOUD_ADMIN_USERNAME: "admin",
       MIA_CLOUD_ADMIN_PASSWORD: "secret",
+      MIA_CLOUD_AGENT_MODE: "disabled",
       MIA_LITELLM_ADMIN_BASE_URL: `http://127.0.0.1:${litellmPort}`,
       LITELLM_MASTER_KEY: "master",
-      MIA_CLOUD_AGENT_MODEL_API_KEY: "service"
+      MIA_CLOUD_AGENT_MODEL_API_KEY: "service",
+      MIA_MODEL_GATEWAY: "litellm",
+      MIA_DEEPSEEK_API_KEY: "",
+      DEEPSEEK_API_KEY: "",
+      ...extraEnv
     },
     stdio: ["ignore", "pipe", "pipe"]
   });
@@ -124,8 +163,9 @@ async function startCloud(litellmPort) {
     proc.stdout.on("data", (chunk) => { if (/listening|Listening/.test(chunk.toString())) done(); });
     proc.stderr.on("data", (chunk) => { if (/listening|Listening|mia-cloud/i.test(chunk.toString())) done(); });
     proc.on("error", reject);
-    setTimeout(done, 1200);
+    setTimeout(done, 5000);
   });
+  dataDirsByPort.set(port, tmpDir);
   return { port, proc, tmpDir };
 }
 
@@ -134,6 +174,7 @@ async function stopCloud(ctx) {
     ctx.proc.kill("SIGTERM");
     await new Promise((resolve) => ctx.proc.once("exit", resolve));
   }
+  dataDirsByPort.delete(ctx.port);
   fs.rmSync(ctx.tmpDir, { recursive: true, force: true });
 }
 
@@ -212,9 +253,14 @@ test("admin model page lets operators edit the public model alias", () => {
   const html = fs.readFileSync(path.join(__dirname, "..", "src/web/admin-model.html"), "utf8");
   const js = fs.readFileSync(path.join(__dirname, "..", "src/web/admin-model.js"), "utf8");
   assert.match(html, /id="publicModelInput"/);
+  assert.match(html, /id="inputPriceInput"/);
+  assert.match(html, /id="outputPriceInput"/);
+  assert.match(html, /id="markupInput"/);
+  assert.match(html, /留空则保留已保存 key/);
   assert.doesNotMatch(html, /id="publicModelInput"[^>]*readonly/);
   assert.match(js, /publicModel/);
   assert.match(js, /modelName:\s*els\.publicModel\.value/);
+  assert.match(js, /inputMicrousdPerMillion:\s*els\.inputPrice\.value/);
 });
 
 test("authenticated users can list platform model aliases without provider secrets", async () => {
@@ -309,5 +355,157 @@ test("authenticated users can call Mia model proxy without provider secrets", as
   } finally {
     await stopCloud(cloud);
     await new Promise((resolve) => lite.server.close(resolve));
+  }
+});
+
+test("DeepSeek gateway settings can be saved in admin without leaking the API key", async () => {
+  const deepseek = await startDeepSeekFake();
+  const cloud = await startCloud(9, {
+    MIA_MODEL_GATEWAY: "deepseek",
+    MIA_DEEPSEEK_API_KEY: "",
+    MIA_DEEPSEEK_BASE_URL: "",
+    MIA_MODEL_INPUT_MICROUSD_PER_1M: "",
+    MIA_MODEL_OUTPUT_MICROUSD_PER_1M: ""
+  });
+  const auth = { username: "admin", password: "secret" };
+  try {
+    const saved = await request(cloud.port, "POST", "/api/admin/model-gateway", {
+      auth,
+      body: {
+        modelName: "mia-admin",
+        provider: "deepseek",
+        upstreamModel: "deepseek/deepseek-chat",
+        apiKey: "deepseek-key",
+        apiBase: `http://127.0.0.1:${deepseek.port}/v1`,
+        inputMicrousdPerMillion: 1000000,
+        outputMicrousdPerMillion: 1000000,
+        markup: 1
+      }
+    });
+    assert.equal(saved.status, 200);
+    assert.equal(saved.body.model.modelId, "mia-admin");
+    assert.equal(saved.body.model.upstreamModel, "deepseek-chat");
+    assert.equal(saved.body.model.hasApiKey, true);
+    assert.doesNotMatch(JSON.stringify(saved.body), /deepseek-key/);
+
+    const status = await request(cloud.port, "GET", "/api/admin/model-gateway", { auth });
+    assert.equal(status.status, 200);
+    assert.equal(status.body.gateway.configured, true);
+    assert.equal(status.body.gateway.configuredFrom, "database");
+    assert.equal(status.body.settings.modelId, "mia-admin");
+    assert.equal(status.body.settings.hasApiKey, true);
+    assert.doesNotMatch(JSON.stringify(status.body), /deepseek-key/);
+
+    const tested = await request(cloud.port, "POST", "/api/admin/model-gateway/test", { auth, body: {} });
+    assert.equal(tested.status, 200);
+    assert.equal(tested.body.reply, "deepseek-ok");
+    assert.equal(tested.body.model, "mia-admin");
+
+    const user = await register(cloud.port, "saved-deepseek");
+    await request(cloud.port, "POST", "/api/admin/model-credits/grant", {
+      auth,
+      body: { userId: user.user.id, amountUsd: 1, reason: "test_topup" }
+    });
+    const completion = await request(cloud.port, "POST", "/api/me/model-proxy/v1/chat/completions", {
+      token: user.token,
+      body: { model: "mia-admin", messages: [{ role: "user", content: "hello" }] }
+    });
+    assert.equal(completion.status, 200);
+    assert.equal(completion.body.choices[0].message.content, "deepseek-ok");
+    assert.equal(deepseek.calls.at(-1).body.model, "deepseek-chat");
+
+    const balance = await request(cloud.port, "GET", "/api/me/model-balance", { token: user.token });
+    assert.equal(balance.status, 200);
+    assert.equal(balance.body.balance.balanceMicrousd, 998500);
+  } finally {
+    await stopCloud(cloud);
+    await new Promise((resolve) => deepseek.server.close(resolve));
+  }
+});
+
+test("DeepSeek direct model proxy requires balance and records billable usage", async () => {
+  const deepseek = await startDeepSeekFake();
+  const cloud = await startCloud(9, {
+    MIA_MODEL_GATEWAY: "deepseek",
+    MIA_DEEPSEEK_API_KEY: "deepseek-key",
+    MIA_DEEPSEEK_BASE_URL: `http://127.0.0.1:${deepseek.port}/v1`,
+    MIA_MODEL_INPUT_MICROUSD_PER_1M: "1000000",
+    MIA_MODEL_OUTPUT_MICROUSD_PER_1M: "1000000"
+  });
+  const auth = { username: "admin", password: "secret" };
+  try {
+    const user = await register(cloud.port, "paid-user");
+    const catalog = await request(cloud.port, "GET", "/api/me/model-catalog", { token: user.token });
+    assert.equal(catalog.status, 200);
+    assert.deepEqual(catalog.body.models.map((model) => model.id), ["mia-default"]);
+    assert.equal(catalog.body.models[0].provider, "deepseek");
+
+    const blocked = await request(cloud.port, "POST", "/api/me/model-proxy/v1/chat/completions", {
+      token: user.token,
+      body: { model: "mia-default", messages: [{ role: "user", content: "hello" }] }
+    });
+    assert.equal(blocked.status, 402);
+    assert.equal(deepseek.calls.length, 0);
+
+    const grant = await request(cloud.port, "POST", "/api/admin/model-credits/grant", {
+      auth,
+      body: { userId: user.user.id, amountUsd: 1, reason: "test_topup" }
+    });
+    assert.equal(grant.status, 200);
+    assert.equal(grant.body.balance.balanceMicrousd, 1000000);
+
+    const completion = await request(cloud.port, "POST", "/api/me/model-proxy/v1/chat/completions", {
+      token: user.token,
+      body: { model: "mia-default", messages: [{ role: "user", content: "hello" }] }
+    });
+    assert.equal(completion.status, 200);
+    assert.equal(completion.body.choices[0].message.content, "deepseek-ok");
+    assert.equal(deepseek.calls[0].body.model, "deepseek-chat");
+
+    const balance = await request(cloud.port, "GET", "/api/me/model-balance", { token: user.token });
+    assert.equal(balance.status, 200);
+    assert.equal(balance.body.balance.balanceMicrousd, 998500);
+    assert.equal(balance.body.recentUsage[0].promptTokens, 1000);
+    assert.equal(balance.body.recentUsage[0].completionTokens, 500);
+    assert.equal(balance.body.recentUsage[0].chargeMicrousd, 1500);
+  } finally {
+    await stopCloud(cloud);
+    await new Promise((resolve) => deepseek.server.close(resolve));
+  }
+});
+
+test("internal model proxy token bills the owning Mia user", async () => {
+  const deepseek = await startDeepSeekFake();
+  const internalSecret = "internal-secret";
+  const cloud = await startCloud(9, {
+    MIA_MODEL_GATEWAY: "deepseek",
+    MIA_DEEPSEEK_API_KEY: "deepseek-key",
+    MIA_DEEPSEEK_BASE_URL: `http://127.0.0.1:${deepseek.port}/v1`,
+    MIA_MODEL_INPUT_MICROUSD_PER_1M: "1000000",
+    MIA_MODEL_OUTPUT_MICROUSD_PER_1M: "1000000",
+    MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY: internalSecret
+  });
+  const auth = { username: "admin", password: "secret" };
+  try {
+    const user = await register(cloud.port, "worker-user");
+    await request(cloud.port, "POST", "/api/admin/model-credits/grant", {
+      auth,
+      body: { userId: user.user.id, amountUsd: 1, reason: "test_topup" }
+    });
+    const internalToken = createUserModelProxyToken(internalSecret, user.user.id);
+    const completion = await request(cloud.port, "POST", "/api/internal/model-proxy/v1/chat/completions", {
+      token: internalToken,
+      body: { model: "mia-default", messages: [{ role: "user", content: "hello from worker" }] }
+    });
+    assert.equal(completion.status, 200);
+    assert.equal(completion.body.choices[0].message.content, "deepseek-ok");
+
+    const adminBalance = await request(cloud.port, "GET", `/api/admin/model-credits?userId=${encodeURIComponent(user.user.id)}`, { auth });
+    assert.equal(adminBalance.status, 200);
+    assert.equal(adminBalance.body.balance.balanceMicrousd, 998500);
+    assert.equal(adminBalance.body.recentUsage[0].provider, "deepseek");
+  } finally {
+    await stopCloud(cloud);
+    await new Promise((resolve) => deepseek.server.close(resolve));
   }
 });

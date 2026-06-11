@@ -119,9 +119,6 @@ const els = {
   loginView: document.getElementById("loginView"),
   mainView: document.getElementById("mainView"),
   loginForm: document.getElementById("loginForm"),
-  usernameInput: document.getElementById("usernameInput"),
-  passwordInput: document.getElementById("passwordInput"),
-  registerButton: document.getElementById("registerButton"),
   loginHint: document.getElementById("loginHint"),
 
   conversationSearch: document.getElementById("conversationSearch"),
@@ -161,6 +158,11 @@ const els = {
   closeSettings: document.getElementById("closeSettings"),
   cloudAccountUsername: document.getElementById("cloudAccountUsername"),
   cloudLogoutFromSettings: document.getElementById("cloudLogoutFromSettings"),
+  profileNameText: document.getElementById("profileNameText"),
+  profileDisplayName: document.getElementById("profileDisplayName"),
+  profileStatusBadge: document.getElementById("profileStatusBadge"),
+  profileStatusBadgeDetails: document.getElementById("profileStatusBadgeDetails"),
+  profileStatusBadgeTrigger: document.getElementById("profileStatusBadgeTrigger"),
   appearanceTheme: document.getElementById("appearanceTheme"),
   appearanceListStyle: document.getElementById("appearanceListStyle"),
   appearanceSelectionStyle: document.getElementById("appearanceSelectionStyle"),
@@ -226,6 +228,151 @@ function escapeHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+function safeStatusBadgeAssetId(value) {
+  const text = String(value || "").trim();
+  return /^[A-Za-z0-9_-]+$/.test(text) ? text : "";
+}
+
+function normalizeStatusBadge(input) {
+  if (!input || typeof input !== "object") return null;
+  const kind = String(input.kind || "").trim();
+  const label = String(input.label || "").trim();
+  if (kind === "emoji") {
+    const emoji = String(input.emoji || "").trim();
+    return emoji ? { kind, emoji, label } : null;
+  }
+  if (kind === "lottie" || kind === "gift") {
+    const assetId = String(input.assetId || input.asset_id || "").trim();
+    if (!assetId) return null;
+    if (kind === "lottie" && !safeStatusBadgeAssetId(assetId)) return null;
+    const collectibleId = kind === "gift" ? String(input.collectibleId || input.collectible_id || "").trim() : "";
+    return { kind, assetId, collectibleId, label };
+  }
+  return null;
+}
+
+function statusBadgeFrom(...sources) {
+  for (const source of sources) {
+    if (!source || typeof source !== "object") continue;
+    if (Object.prototype.hasOwnProperty.call(source, "statusBadge")) return source.statusBadge;
+    if (Object.prototype.hasOwnProperty.call(source, "status_badge")) return source.status_badge;
+  }
+  return undefined;
+}
+
+function statusBadgeForPreset(value) {
+  const id = String(value || "").trim();
+  if (id === "star") return { kind: "emoji", emoji: "⭐", label: "星标" };
+  if (id === "fire") return { kind: "emoji", emoji: "🔥", label: "活跃" };
+  if (id === "rainbow") return { kind: "lottie", assetId: "rainbow", label: "彩虹动画", loop: "always" };
+  if (id === "surprised-cat") return { kind: "lottie", assetId: "surprised-cat", label: "惊讶猫", loop: "always" };
+  return null;
+}
+
+function statusBadgePresetValue(badge) {
+  const normalized = badge && typeof badge === "object" ? badge : null;
+  if (!normalized) return "";
+  if (normalized.kind === "emoji" && normalized.emoji === "⭐") return "star";
+  if (normalized.kind === "emoji" && normalized.emoji === "🔥") return "fire";
+  if (normalized.kind === "lottie" && normalized.assetId === "rainbow") return "rainbow";
+  if (normalized.kind === "lottie" && normalized.assetId === "surprised-cat") return "surprised-cat";
+  return "";
+}
+
+function statusBadgeAssetUrl(assetId) {
+  const id = safeStatusBadgeAssetId(assetId);
+  return id ? `/api/status-badge-assets/${encodeURIComponent(id)}.json` : "";
+}
+
+function renderStatusBadgeHtml(statusBadge) {
+  const badge = normalizeStatusBadge(statusBadge);
+  if (!badge) return "";
+  const className = `name-with-badge-badge name-with-badge-badge-${badge.kind}`;
+  const title = badge.label ? ` title="${escapeHtml(badge.label)}"` : "";
+  if (badge.kind === "emoji") {
+    return `<span class="${className}"${title}>${escapeHtml(badge.emoji)}</span>`;
+  }
+  const assetAttr = ` data-asset-id="${escapeHtml(badge.assetId)}"`;
+  if (badge.kind === "lottie") {
+    const assetId = safeStatusBadgeAssetId(badge.assetId);
+    const url = statusBadgeAssetUrl(assetId);
+    return `<span class="${className}"${title}${assetAttr}${assetId ? ` data-lottie="${escapeHtml(assetId)}" data-lottie-path="${escapeHtml(url)}" data-lottie-trigger="loop"` : ""} aria-hidden="true"></span>`;
+  }
+  const collectibleAttr = badge.collectibleId ? ` data-collectible-id="${escapeHtml(badge.collectibleId)}"` : "";
+  return `<span class="${className}"${title}${assetAttr}${collectibleAttr} aria-hidden="true"></span>`;
+}
+
+function renderNameWithBadgeHtml({ name, identity, statusBadge } = {}) {
+  const badge = typeof statusBadge !== "undefined" ? statusBadge : statusBadgeFrom(identity);
+  return `<span class="name-with-badge"><span class="name-with-badge-text">${escapeHtml(name || identity?.displayName || identity?.display_name || "未知")}</span>${renderStatusBadgeHtml(badge)}</span>`;
+}
+
+const statusBadgeLottieRegistry = new Map();
+
+function sweepStatusBadgeLotties() {
+  for (const [container, anim] of statusBadgeLottieRegistry) {
+    if (!container.isConnected) {
+      try { anim.destroy(); } catch { /* best effort */ }
+      statusBadgeLottieRegistry.delete(container);
+    }
+  }
+}
+
+function initStatusBadgeLotties(root = document) {
+  if (!window.lottie) return;
+  sweepStatusBadgeLotties();
+  root.querySelectorAll?.(".name-with-badge-badge-lottie[data-lottie]").forEach((container) => {
+    if (statusBadgeLottieRegistry.has(container)) return;
+    const path = container.dataset.lottiePath || statusBadgeAssetUrl(container.dataset.lottie);
+    if (!path) return;
+    const anim = window.lottie.loadAnimation({
+      container,
+      renderer: "svg",
+      loop: true,
+      autoplay: true,
+      path
+    });
+    statusBadgeLottieRegistry.set(container, anim);
+  });
+}
+
+function syncProfileNameText() {
+  if (!els.profileNameText || !els.profileDisplayName) return;
+  els.profileNameText.textContent = els.profileDisplayName.value.trim() || state.user?.displayName || state.user?.username || "Mia";
+}
+
+function renderStatusBadgeGlyph(target, badge) {
+  if (!target) return;
+  target.innerHTML = "";
+  target.classList.toggle("empty", !badge);
+  if (!badge) {
+    target.textContent = "+";
+    return;
+  }
+  if (badge.kind === "emoji") {
+    target.textContent = badge.emoji || "";
+    return;
+  }
+  if (badge.kind === "lottie") {
+    const assetId = safeStatusBadgeAssetId(badge.assetId);
+    if (!assetId) {
+      target.classList.add("empty");
+      target.textContent = "+";
+      return;
+    }
+    target.innerHTML = `<span class="name-with-badge-badge name-with-badge-badge-lottie" data-asset-id="${escapeHtml(assetId)}" data-lottie="${escapeHtml(assetId)}" data-lottie-path="${escapeHtml(statusBadgeAssetUrl(assetId))}" data-lottie-trigger="loop" aria-hidden="true"></span>`;
+    initStatusBadgeLotties(target);
+  }
+}
+
+function syncProfileStatusBadgeControl() {
+  if (!els.profileStatusBadge || !els.profileStatusBadgeTrigger) return;
+  renderStatusBadgeGlyph(els.profileStatusBadgeTrigger, statusBadgeForPreset(els.profileStatusBadge.value));
+  document.querySelectorAll("[data-status-badge-choice]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.statusBadgeChoice === els.profileStatusBadge.value);
+  });
 }
 
 function formatBytes(value) {
@@ -668,19 +815,11 @@ function setAuthView() {
   // It applies on script load so the page doesn't flash; don't override here.
 }
 
-async function handleLogin(register) {
-  const username = els.usernameInput.value.trim();
-  const password = els.passwordInput.value;
-  if (!username || !password) return;
+async function handleLogin() {
   try {
-    const path = register ? "/api/auth/register" : "/api/auth/login";
-    const data = await api(path, { method: "POST", body: { username, password } });
-    state.token = data.token;
-    state.user = data.user || { username };
-    saveSession();
-    setAuthView();
-    await bootstrap();
-    startCloudEvents();
+    const started = await api("/api/auth/wechat/start", { method: "POST", body: { client: "web" } });
+    if (!started.authorizationUrl) throw new Error("微信登录启动失败");
+    location.href = started.authorizationUrl;
   } catch (err) {
     showToast(err.message);
   }
@@ -1808,6 +1947,8 @@ function combinedConversationItems() {
     let color = "";
     let avatarText = "";
     let memberTiles = null;
+    let identity = null;
+    let statusBadge = undefined;
     if (isGroup) {
       if (!state.conversationMembersCache.has(r.id)) {
         ensureConversationMembers(r.id, { renderOnHydrate: true });
@@ -1824,6 +1965,8 @@ function combinedConversationItems() {
       avatarCrop = resolved.crop;
       color = resolved.color;
       avatarText = resolved.text;
+      identity = friend?.identity || friend || null;
+      statusBadge = statusBadgeFrom(identity, friend);
     } else if (isBot) {
       const botKey = sessionHistory.botId(r);
       const fa = botAvatarFor(r, botKey);
@@ -1833,6 +1976,11 @@ function combinedConversationItems() {
         color = fa.color;
         avatarText = fa.text;
       }
+      const bot = botByKey(botKey);
+      const members = state.conversationMembersCache.get(r.id) || [];
+      const member = members.find((m) => m.member_kind === MemberKind.Bot && m.member_ref === botKey);
+      identity = bot || member?.identity || null;
+      statusBadge = statusBadgeFrom(identity, bot, member?.identity, member);
     }
     return {
       kind: "conversation",
@@ -1847,6 +1995,8 @@ function combinedConversationItems() {
       avatarCrop,
       color,
       avatarText,
+      identity,
+      statusBadge,
       memberTiles,
       pinned: isConversationPinned(r.id)
     };
@@ -1920,7 +2070,7 @@ function renderConversationList() {
         <button class="persona" type="button" data-conv-id="${escapeHtml(it.id)}" data-conv-kind="${it.kind}">
           ${avatarMarkup}
           <span class="persona-main">
-            <strong class="persona-name">${it.pinned ? "📌 " : ""}${escapeHtml(it.title)}</strong>
+            <strong class="persona-name">${it.pinned ? "📌 " : ""}${renderNameWithBadgeHtml({ name: it.title, identity: it.identity, statusBadge: it.statusBadge })}</strong>
             <span class="persona-preview">${escapeHtml(it.preview)}</span>
           </span>
           ${sideHtml}
@@ -1930,6 +2080,7 @@ function renderConversationList() {
     `;
   }).join("");
   hydrateAvatarVideos(els.conversationList);
+  initStatusBadgeLotties(els.conversationList);
 }
 
 // Strip the wrapping <span class="unread-badge"> shared/unread produces so we
@@ -2024,11 +2175,9 @@ function openConvMenu(convId, anchorButton) {
   _convMenuTargetId = convId;
   const conversation = state.conversations.find((r) => r.id === convId);
   if (!conversation) return;
-  const isDM = convId.startsWith("dm:");
+  const isBot = conversation.type === "bot" || convId.startsWith("botc_");
   const pinned = isConversationPinned(convId);
-  // Cloud DM rename is hidden — display name comes from the peer's profile,
-  // not the conversation record. Server rejects it.
-  const showRename = !isDM;
+  const showRename = isBot;
   el.innerHTML = `
     <button type="button" data-conv-action="pin">${pinned ? "取消置顶" : "置顶"}</button>
     ${showRename ? `<button type="button" data-conv-action="rename">编辑</button>` : ""}
@@ -2065,19 +2214,35 @@ async function handleConversationAction(action, conversation) {
     return;
   }
   if (action === "rename") {
-    if (conversation.id.startsWith("dm:")) return; // Hidden in menu; defensive.
-    const next = window.prompt("编辑群组名称：", conversation.name || "");
+    const isBot = conversation.type === "bot" || conversation.id.startsWith("botc_");
+    if (!isBot) return;
+    const botId = sessionHistory.botId(conversation);
+    if (!botId) return;
+    const existing = state.bots.find((bot) => String(bot.id || bot.key || "") === botId) || {};
+    const currentName = existing.displayName || existing.display_name || existing.name || conversationDisplayTitle(conversation);
+    const next = window.prompt("编辑智能体名称：", currentName || "");
     if (next === null) return;
     const trimmed = String(next).trim();
     if (!trimmed) return;
     try {
-      const res = await api(`/api/conversations/${conversation.id}`, { method: "PATCH", body: { name: trimmed } });
-      if (res?.conversation) {
-        state.conversations = state.conversations.map((r) => (r.id === conversation.id ? { ...r, ...res.conversation } : r));
-        renderConversationList();
-      }
+      const body = {
+        name: trimmed,
+        color: existing.color || "",
+        avatarImage: existing.avatarImage || existing.avatar_image || "",
+        avatarCrop: existing.avatarCrop || existing.avatar_crop || null,
+        statusBadge: existing.statusBadge || existing.status_badge || null,
+        bio: existing.bio || existing.description || "",
+        personaText: existing.personaText || existing.persona_text || existing.bio || existing.description || "",
+        capabilities: existing.capabilities || { legacyCapabilities: ["chat", "files", "terminal", "code"] }
+      };
+      const res = await api(`/api/me/bots/${encodeURIComponent(botId)}`, { method: "PUT", body });
+      const savedBot = res.bot || { ...existing, id: botId, key: botId, name: trimmed };
+      state.bots = [savedBot, ...state.bots.filter((bot) => String(bot.id || bot.key || "") !== botId)];
+      state.conversations = state.conversations.map((r) => (r.id === conversation.id ? { ...r, name: trimmed, title: trimmed } : r));
+      renderConversationList();
+      renderActiveChat();
     } catch (err) {
-      showToast(err.message || "重命名失败");
+      showToast(err.message || "编辑失败");
     }
     return;
   }
@@ -2125,7 +2290,11 @@ function buildConversationMessageArticle(msg, conversation) {
     text: fallbackText
   });
   const senderTitleHtml = senderLabel && !isOwn
-    ? `<span class="bubble-sender" style="color:${escapeHtml(senderColor)};">${escapeHtml(senderLabel)}</span>`
+    ? `<span class="bubble-sender" style="color:${escapeHtml(senderColor)};">${renderNameWithBadgeHtml({
+        name: senderLabel,
+        identity: spec.authorIdentity,
+        statusBadge: spec.statusBadge
+      })}</span>`
     : "";
   const renderedBody = spec.bodyMd ? renderMarkdown(spec.bodyMd) : "";
   const highlightedBody = renderedBody && window.miaMentionRender
@@ -2386,6 +2555,7 @@ function renderActiveChat() {
       : `<p class="persona-empty">还没有消息。</p>`;
     if (!messages.length && streaming) els.chat.innerHTML = streaming;
     hydrateAvatarVideos(els.chat);
+    initStatusBadgeLotties(els.chat);
     if (window.miaTraceBlocks?.markRenderedTraceBlocks) window.miaTraceBlocks.markRenderedTraceBlocks(els.chat);
     if (messages.length || streaming) els.chat.scrollTop = els.chat.scrollHeight;
     setComposerEnabled(true, "输入消息，Enter 发送，Shift+Enter 换行");
@@ -2499,6 +2669,7 @@ function webBotDefaultDraft() {
     personaText: "",
     avatarImage: "",
     avatarCrop: null,
+    statusBadgeValue: "",
     runtimeTargetValue: webRuntimeTargetValue({ runtimeKind: "cloud-hermes", agentEngine: "hermes" }),
     saving: false
   };
@@ -2520,6 +2691,18 @@ function renderWebBotAvatarPreview(root, draft) {
 function renderWebBotAvatarDefaults(root, draft) {
   void root;
   void draft;
+}
+
+function renderWebBotNameAndBadge(root, draft) {
+  const nameText = root?.querySelector?.("#webBotNameText");
+  const nameInput = root?.querySelector?.("#webBotName");
+  const badgeTrigger = root?.querySelector?.("#webBotStatusBadgeTrigger");
+  if (nameText) nameText.textContent = String(draft.name || "").trim() || "未命名智能体";
+  if (nameInput) nameInput.value = draft.name || "";
+  renderStatusBadgeGlyph(badgeTrigger, statusBadgeForPreset(draft.statusBadgeValue));
+  root?.querySelectorAll?.("[data-web-bot-status-badge-choice]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.webBotStatusBadgeChoice === draft.statusBadgeValue);
+  });
 }
 
 function readWebBotAvatarFile(file, draft, root) {
@@ -2777,6 +2960,7 @@ async function saveBotFromWeb(draft) {
     color: "#2563eb",
     avatarImage: draft.avatarImage || "",
     avatarCrop: draft.avatarCrop,
+    statusBadge: statusBadgeForPreset(draft.statusBadgeValue),
     bio: draft.personaText || "",
     personaText: draft.personaText || "",
     capabilities: { legacyCapabilities: ["chat", "files", "terminal", "code"] }
@@ -2856,10 +3040,25 @@ function openCreateBotDialog() {
           </div>
           <button class="icon-button" type="button" data-action="close" title="关闭" aria-label="关闭">×</button>
         </header>
-        <label>
-          姓名
-          <input id="webBotName" autocomplete="off" value="${escapeHtml(draft.name)}">
-        </label>
+        <section class="identity-name-field">
+          <span class="identity-name-label">姓名</span>
+          <div class="identity-name-line">
+            <button id="webBotNameText" class="identity-name-text" type="button">${escapeHtml(draft.name || "未命名智能体")}</button>
+            <input id="webBotName" class="identity-name-input hidden" autocomplete="off" value="${escapeHtml(draft.name)}">
+            <details id="webBotStatusBadgeDetails" class="identity-badge-details accordion-details">
+              <summary id="webBotStatusBadgeTrigger" class="identity-badge-trigger" title="徽章" aria-label="徽章"></summary>
+              <div class="accordion-body identity-badge-panel">
+                <div class="identity-badge-choices">
+                  <button type="button" data-web-bot-status-badge-choice="">无</button>
+                  <button type="button" data-web-bot-status-badge-choice="star">⭐ 星标</button>
+                  <button type="button" data-web-bot-status-badge-choice="fire">🔥 活跃</button>
+                  <button type="button" data-web-bot-status-badge-choice="rainbow">彩虹动画</button>
+                  <button type="button" data-web-bot-status-badge-choice="surprised-cat">惊讶猫</button>
+                </div>
+              </div>
+            </details>
+          </div>
+        </section>
         <label>
           运行位置和 Agent 内核
           <select id="webBotRuntimeTarget" class="web-bot-runtime-select">
@@ -2892,12 +3091,46 @@ function openCreateBotDialog() {
     `;
     renderWebBotAvatarPreview(_createBotModal, draft);
     renderWebBotAvatarDefaults(_createBotModal, draft);
+    renderWebBotNameAndBadge(_createBotModal, draft);
     const nameInput = _createBotModal.querySelector("#webBotName");
+    const nameText = _createBotModal.querySelector("#webBotNameText");
     const seedInput = _createBotModal.querySelector("#webBotSeed");
     const runtimeSelect = _createBotModal.querySelector("#webBotRuntimeTarget");
     const fileInput = _createBotModal.querySelector("#webBotAvatarFile");
     const drop = _createBotModal.querySelector("#webBotAvatarDrop");
-    nameInput?.addEventListener("input", () => { draft.name = nameInput.value; });
+    nameText?.addEventListener("click", () => {
+      nameText.classList.add("hidden");
+      nameInput?.classList.remove("hidden");
+      nameInput?.focus();
+      nameInput?.select?.();
+    });
+    nameInput?.addEventListener("input", () => {
+      draft.name = nameInput.value;
+      renderWebBotNameAndBadge(_createBotModal, draft);
+    });
+    nameInput?.addEventListener("blur", () => {
+      nameInput.classList.add("hidden");
+      nameText?.classList.remove("hidden");
+      renderWebBotNameAndBadge(_createBotModal, draft);
+    });
+    nameInput?.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        nameInput.blur();
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        nameInput.blur();
+      }
+    });
+    _createBotModal.querySelectorAll("[data-web-bot-status-badge-choice]").forEach((button) => {
+      button.addEventListener("click", () => {
+        draft.statusBadgeValue = button.dataset.webBotStatusBadgeChoice || "";
+        const details = _createBotModal.querySelector("#webBotStatusBadgeDetails");
+        if (details) details.open = false;
+        renderWebBotNameAndBadge(_createBotModal, draft);
+      });
+    });
     seedInput?.addEventListener("input", () => { draft.personaText = seedInput.value; });
     runtimeSelect?.addEventListener("change", () => { draft.runtimeTargetValue = runtimeSelect.value; });
     _createBotModal.querySelector('[data-action="close"]')?.addEventListener("click", close);
@@ -2946,7 +3179,6 @@ function openCreateBotDialog() {
   document.addEventListener("keydown", onEsc);
   _createBotModal.addEventListener("click", onBackdrop);
   render();
-  setTimeout(() => _createBotModal.querySelector("#webBotName")?.focus(), 0);
 }
 
 // ── add-friend dialog ──────────────────────────────────────────────────────
@@ -3236,6 +3468,14 @@ function renderSettings() {
   if (els.cloudAccountUsername) {
     els.cloudAccountUsername.textContent = state.user?.username ? `已登录：${state.user.username}` : "未登录";
   }
+  if (els.profileDisplayName) {
+    els.profileDisplayName.value = state.user?.displayName || state.user?.username || "";
+    syncProfileNameText();
+  }
+  if (els.profileStatusBadge) {
+    els.profileStatusBadge.value = statusBadgePresetValue(state.user?.statusBadge);
+    syncProfileStatusBadgeControl();
+  }
   // Reflect current appearance state into the inputs every time the dialog
   // opens so it survives external mutations (multiple tabs, reset action).
   const ap = window.miaAppearance?.get?.() || {};
@@ -3270,8 +3510,7 @@ function setPane(pane) {
 
 els.loginForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  const isRegister = event.submitter === els.registerButton;
-  handleLogin(isRegister);
+  handleLogin();
 });
 
 els.conversationSearch.addEventListener("input", renderConversationList);
@@ -3445,6 +3684,60 @@ document.querySelectorAll("[data-settings-tab]").forEach((btn) => {
   });
 });
 els.cloudLogoutFromSettings?.addEventListener("click", handleLogout);
+async function saveProfilePatch(patch, errorText = "资料保存失败") {
+  try {
+    const result = await api("/api/me/profile", { method: "PATCH", body: patch });
+    state.user = result.user || state.user;
+    saveSession();
+    renderUserAvatar();
+    renderConversationList();
+    renderActiveChat();
+    renderSettings();
+  } catch (err) {
+    showToast(err.message || errorText);
+  }
+}
+els.profileNameText?.addEventListener("click", () => {
+  syncProfileNameText();
+  els.profileNameText.classList.add("hidden");
+  els.profileDisplayName.classList.remove("hidden");
+  els.profileDisplayName.focus();
+  els.profileDisplayName.select?.();
+});
+els.profileDisplayName?.addEventListener("input", syncProfileNameText);
+els.profileDisplayName?.addEventListener("blur", async () => {
+  const displayName = els.profileDisplayName.value.trim();
+  els.profileDisplayName.classList.add("hidden");
+  els.profileNameText.classList.remove("hidden");
+  syncProfileNameText();
+  if (!displayName || displayName === (state.user?.displayName || state.user?.username || "")) return;
+  await saveProfilePatch({ displayName }, "名字保存失败");
+});
+els.profileDisplayName?.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    els.profileDisplayName.blur();
+  }
+  if (event.key === "Escape") {
+    event.preventDefault();
+    els.profileDisplayName.value = state.user?.displayName || state.user?.username || "";
+    els.profileDisplayName.blur();
+  }
+});
+els.profileStatusBadge?.addEventListener("change", async () => {
+  const statusBadge = statusBadgeForPreset(els.profileStatusBadge.value);
+  syncProfileStatusBadgeControl();
+  await saveProfilePatch({ statusBadge }, "徽章保存失败");
+});
+document.querySelectorAll("[data-status-badge-choice]").forEach((button) => {
+  button.addEventListener("click", () => {
+    if (!els.profileStatusBadge) return;
+    els.profileStatusBadge.value = button.dataset.statusBadgeChoice || "";
+    syncProfileStatusBadgeControl();
+    if (els.profileStatusBadgeDetails) els.profileStatusBadgeDetails.open = false;
+    els.profileStatusBadge.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+});
 function bindAppearanceInput(el, key, getValue) {
   if (!el) return;
   el.addEventListener("change", () => {

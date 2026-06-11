@@ -4,11 +4,10 @@ function usage() {
   return [
     "Usage: node scripts/prepare-cloud-smoke-account.js <cloud-url>",
     "",
-    "Ensures the fixed production smoke account exists and the supplied password can log in.",
+    "Validates the Mia Cloud bearer token that will be used by production smoke.",
     "",
     "Environment:",
-    "  MIA_SMOKE_USERNAME=<account>   Required fixed smoke account username.",
-    "  MIA_SMOKE_PASSWORD=<password>  Required fixed smoke account password."
+    "  MIA_CLOUD_TOKEN=<token>  Required smoke account bearer token from WeChat login."
   ].join("\n");
 }
 
@@ -36,55 +35,22 @@ async function jsonRequest(baseUrl, path, { method = "GET", token = "", body = n
   return { response, data };
 }
 
-function smokeAccountEnv(env = process.env) {
-  const username = String(env.MIA_SMOKE_USERNAME || "").trim();
-  const password = String(env.MIA_SMOKE_PASSWORD || "");
-  if (!username || !password) {
-    throw new Error("MIA_SMOKE_USERNAME and MIA_SMOKE_PASSWORD are required.");
-  }
-  return { username, password };
-}
-
-async function loginOrRegisterSmokeAccount({
-  baseUrl,
-  username,
-  password,
-  fetchImpl = fetch
-}) {
-  const login = await jsonRequest(baseUrl, "/api/auth/login", {
-    method: "POST",
-    body: { username, password },
-    fetchImpl
-  });
-  if (login.response.ok) return { action: "login", account: login.data };
-
-  if (login.response.status !== 401) {
-    throw new Error(`Smoke account login failed: HTTP ${login.response.status} ${login.data.error || ""}`.trim());
-  }
-
-  const registration = await jsonRequest(baseUrl, "/api/auth/register", {
-    method: "POST",
-    body: { username, password },
-    fetchImpl
-  });
-  if (registration.response.ok) return { action: "register", account: registration.data };
-
-  if (registration.response.status === 409) {
-    throw new Error("Smoke account already exists but the supplied password did not log in.");
-  }
-  throw new Error(`Smoke account registration failed: HTTP ${registration.response.status} ${registration.data.error || ""}`.trim());
+function smokeTokenEnv(env = process.env) {
+  const token = String(env.MIA_CLOUD_TOKEN || "").trim();
+  if (!token) throw new Error("MIA_CLOUD_TOKEN is required.");
+  return { token };
 }
 
 async function prepareSmokeAccount({
   publicUrl,
-  username,
-  password,
+  token,
   fetchImpl = fetch
 }) {
   const baseUrl = normalizeBaseUrl(publicUrl);
-  const result = await loginOrRegisterSmokeAccount({ baseUrl, username, password, fetchImpl });
-  const token = String(result.account.token || "");
-  if (!token) throw new Error("Smoke account response did not include a bearer token.");
+  const me = await jsonRequest(baseUrl, "/api/me", { token, fetchImpl });
+  if (!me.response.ok || !me.data.user?.id) {
+    throw new Error(`Smoke account token check failed: HTTP ${me.response.status} ${me.data.error || ""}`.trim());
+  }
 
   const devices = await jsonRequest(baseUrl, "/api/bridge/devices", { token, fetchImpl });
   if (!devices.response.ok) {
@@ -92,32 +58,30 @@ async function prepareSmokeAccount({
   }
   return {
     baseUrl,
-    username,
-    action: result.action,
+    user: me.data.user,
     deviceCount: Array.isArray(devices.data.devices) ? devices.data.devices.length : 0
   };
 }
 
 function printResult(result) {
-  console.log(`OK smoke account - ${result.action} ${result.username}`);
-  console.log(`OK bridge devices - ${result.deviceCount} online for ${result.username}`);
+  const label = result.user.displayName || result.user.username || result.user.id;
+  console.log(`OK smoke account - ${label}`);
+  console.log(`OK bridge devices - ${result.deviceCount} online for ${label}`);
   console.log("");
-  console.log("Log the desktop app into this same account before running:");
+  console.log("Use this same WeChat account in the desktop app before running:");
   console.log("```bash");
-  console.log("MIA_SMOKE_USERNAME='<smoke-account>' \\");
-  console.log("MIA_SMOKE_PASSWORD='<same-password>' \\");
+  console.log("MIA_CLOUD_TOKEN='<smoke-account-token>' \\");
   console.log("npm run cloud:prod:verify:e2e -- " + result.baseUrl);
   console.log("```");
   console.log("");
   console.log("For the standalone local Agent bridge from a full Mia checkout:");
   console.log("```bash");
   console.log(`MIA_CLOUD_URL='${result.baseUrl.replace(/'/g, "'\\''")}' \\`);
-  console.log("MIA_CLOUD_USERNAME='<smoke-account>' \\");
-  console.log("MIA_CLOUD_PASSWORD='<same-password>' \\");
+  console.log("MIA_CLOUD_TOKEN='<smoke-account-token>' \\");
   console.log("npm run bridge");
   console.log("```");
   console.log("");
-  console.log("This command does not print the supplied password or bearer token.");
+  console.log("This command does not print the bearer token.");
 }
 
 async function main() {
@@ -126,11 +90,10 @@ async function main() {
     return;
   }
   const positional = process.argv.slice(2).filter((arg) => !String(arg).startsWith("-"));
-  const { username, password } = smokeAccountEnv();
+  const { token } = smokeTokenEnv();
   const result = await prepareSmokeAccount({
     publicUrl: positional[0] || process.env.MIA_CLOUD_PUBLIC_URL,
-    username,
-    password
+    token
   });
   printResult(result);
 }
@@ -143,8 +106,7 @@ if (require.main === module) {
 }
 
 module.exports = {
-  loginOrRegisterSmokeAccount,
   normalizeBaseUrl,
   prepareSmokeAccount,
-  smokeAccountEnv
+  smokeTokenEnv
 };

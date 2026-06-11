@@ -100,16 +100,13 @@
       <header class="setup-hero">
         <img class="setup-logo-img" src="./assets/mia-logo.png" alt="Mia" draggable="false">
         <h1 class="setup-title">欢迎使用 Mia</h1>
-        <p class="setup-tagline">一个聊天界面，指挥你所有的 AI Agent。先登录，把对话同步到云端。</p>
+        <p class="setup-tagline">一个聊天界面，指挥你所有的 AI Agent。先用微信登录，把对话同步到云端。</p>
       </header>
-      <form class="onb-login" data-onb-login>
-        <input class="onb-input" type="text" name="username" autocomplete="username" placeholder="用户名" data-onb-login-username>
-        <input class="onb-input" type="password" name="password" autocomplete="current-password" placeholder="密码（至少 6 位）" data-onb-login-password>
+      <section class="onb-login" data-onb-login>
         <p class="onb-login-hint" data-onb-login-hint>${escapeHtml(hint)}</p>
-      </form>
+      </section>
       <footer class="setup-footer onb-login-actions">
-        <button class="setup-cta" type="button" data-onb-action="login">登录</button>
-        <button class="onb-register-link" type="button" data-onb-action="register">没有账号？注册一个</button>
+        <button class="setup-cta" type="button" data-onb-action="login">微信登录</button>
       </footer>
     `;
   }
@@ -241,21 +238,15 @@
     bind(container, step);
   }
 
-  // mode is "login" or "register" — the backend login does NOT auto-create
-  // accounts, so first-run users must be able to explicitly register.
-  async function submitLogin(container, mode = "login") {
-    const username = container.querySelector("[data-onb-login-username]")?.value?.trim() || "";
-    const password = container.querySelector("[data-onb-login-password]")?.value || "";
+  async function submitLogin(container) {
     const setHint = (text) => {
       const el = container.querySelector("[data-onb-login-hint]");
       if (el) el.textContent = text;
       state.onboardingLoginHint = text;
     };
-    if (!username) return setHint("请输入用户名。");
-    if (password.length < 6) return setHint("密码至少 6 位。");
-    setHint(mode === "register" ? "正在注册并连接…" : "正在登录并连接…");
+    setHint("正在打开微信登录，请在浏览器中确认授权…");
     try {
-      const runtime = await deps.cloudLogin?.({ mode, username, password });
+      const runtime = await deps.cloudLogin?.({ mode: "wechat" });
       if (runtime) state.runtime = runtime;
       if (signedIn()) {
         state.onboardingLoginHint = "";
@@ -265,7 +256,7 @@
         if (onboarded) deps.rerender?.();
         else goToStep("prepare");
       } else {
-        setHint(mode === "register" ? "注册未成功，请重试。" : "登录未成功，请检查或点下方注册。");
+        setHint("微信登录未成功，请重试。");
       }
     } catch (error) {
       setHint(`连接失败：${error?.message || error}`);
@@ -279,7 +270,7 @@
     if (step === "login") {
       container.querySelector("[data-onb-login]")?.addEventListener("submit", (event) => {
         event.preventDefault();
-        submitLogin(container, "login");
+        submitLogin(container);
       });
     }
     // Kick off the async agent scan the first time the prepare step shows.
@@ -290,8 +281,7 @@
       const target = event.target.closest("[data-onb-action]");
       if (!target) return;
       const action = target.dataset.onbAction;
-      if (action === "login") return void submitLogin(container, "login");
-      if (action === "register") return void submitLogin(container, "register");
+      if (action === "login") return void submitLogin(container);
       if (action === "finish") {
         if (isSetupInstallInFlight()) return;
         return void deps.finish?.();

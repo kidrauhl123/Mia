@@ -1,28 +1,37 @@
 import { useState } from "react";
-import { View, Image, StyleSheet, KeyboardAvoidingView, Platform } from "react-native";
+import { View, Image, StyleSheet, KeyboardAvoidingView, Platform, Linking } from "react-native";
 import { createCloudClient } from "../api/client";
 import { useAuth, DEFAULT_API_BASE } from "../state/auth";
 import { color, space } from "../theme";
 import { Brand, Sub, Label } from "../ui/Text";
-import Input from "../ui/Input";
 import Button from "../ui/Button";
 
 export default function LoginScreen() {
   const { setSession } = useAuth();
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const submit = async (register: boolean) => {
+  const submit = async () => {
     const apiBase = DEFAULT_API_BASE;
     setError("");
     setBusy(true);
     try {
       const client = createCloudClient({ apiBase, getToken: () => "" });
-      const path = register ? "/api/auth/register" : "/api/auth/login";
-      const data = await client.api(path, { method: "POST", body: { username: username.trim(), password } });
-      setSession({ token: data.token, user: data.user || { username: username.trim() }, apiBase });
+      const started = await client.api("/api/auth/wechat/start", { method: "POST", body: { client: "mobile-rn" } });
+      if (!started?.authorizationUrl || !started?.state) throw new Error("微信登录启动失败");
+      await Linking.openURL(started.authorizationUrl);
+      const startedAt = Date.now();
+      let result: any = null;
+      while (Date.now() - startedAt < 5 * 60 * 1000) {
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        const next = await client.api("/api/auth/wechat/complete", { method: "POST", body: { state: started.state } });
+        if (next.status === "pending") continue;
+        if (next.status === "failed" || next.ok === false) throw new Error(next.error || "微信登录失败");
+        result = next;
+        break;
+      }
+      if (!result?.token) throw new Error("微信登录超时，请重新扫码");
+      setSession({ token: result.token, user: result.user || null, apiBase });
     } catch (e: any) {
       setError(e?.message || "登录失败");
     } finally {
@@ -38,21 +47,12 @@ export default function LoginScreen() {
           <Brand>MIA</Brand>
         </View>
         <Sub style={styles.tagline}>多 AI 伙伴工作台</Sub>
-
-        <View style={styles.field}>
-          <Label>用户名</Label>
-          <Input placeholder="用户名" autoCapitalize="none" value={username} onChangeText={setUsername} />
-        </View>
-        <View style={styles.field}>
-          <Label>密码</Label>
-          <Input placeholder="密码" secureTextEntry value={password} onChangeText={setPassword} />
-        </View>
+        <Label>使用微信登录后，消息、联系人和智能体会通过 Mia Cloud 同步。</Label>
 
         {error ? <Sub style={styles.error}>{error}</Sub> : null}
 
         <View style={styles.actions}>
-          <Button label="登录" busy={busy} onPress={() => submit(false)} />
-          <Button label="创建账号" variant="outline" disabled={busy} onPress={() => submit(true)} />
+          <Button label="微信登录" busy={busy} onPress={() => submit()} />
         </View>
       </View>
     </KeyboardAvoidingView>
@@ -65,7 +65,6 @@ const styles = StyleSheet.create({
   brandRow: { flexDirection: "row", alignItems: "center", gap: space.sm },
   mark: { width: 32, height: 32 },
   tagline: { marginBottom: space.lg },
-  field: { gap: space.xs },
   error: { color: color.danger },
   actions: { gap: space.sm, marginTop: space.sm },
 });

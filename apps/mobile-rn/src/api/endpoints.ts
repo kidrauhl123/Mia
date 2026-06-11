@@ -14,6 +14,10 @@ export function settingsPath(): string {
   return "/api/me/settings";
 }
 
+export function profilePath(): string {
+  return "/api/me/profile";
+}
+
 export function bridgeDevicesPath(): string {
   return "/api/bridge/devices";
 }

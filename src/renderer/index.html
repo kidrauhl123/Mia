@@ -604,13 +604,23 @@
                 </div>
                 <section id="cloudLoginBox" class="connection-details">
                   <div class="cloud-login-grid">
-                    <input id="cloudUsername" autocomplete="username" placeholder="用户名">
-                    <input id="cloudPassword" autocomplete="current-password" type="password" placeholder="密码">
-                    <button id="cloudLogin" class="primary" type="button">登录</button>
-                    <button id="cloudRegister" class="secondary" type="button">注册</button>
+                    <button id="cloudLogin" class="primary" type="button">微信登录</button>
                   </div>
-                  <p id="cloudLoginHint" class="pairing-hint">使用和 Web 端相同的用户名、密码。</p>
+                  <p id="cloudLoginHint" class="pairing-hint">使用微信扫码登录 Mia Cloud。</p>
                 </section>
+              </section>
+            </div>
+            <div class="runtime-card app-update-card">
+              <section class="connection-row app-update-row">
+                <div class="connection-row-head">
+                  <div class="cloud-account-status-copy">
+                    <strong>应用更新</strong>
+                    <p id="appUpdateHint">自动检查更新，也可以手动检查一次。</p>
+                  </div>
+                  <div class="cloud-actions">
+                    <button id="checkUpdates" class="secondary" type="button">检查更新</button>
+                  </div>
+                </div>
               </section>
             </div>
           </section>

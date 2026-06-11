@@ -32,6 +32,7 @@ test("server-local installer restores data backups during rollback", () => {
   assert.match(source, /AGENT_MODEL_API_KEY="\$\{MIA_CLOUD_AGENT_MODEL_API_KEY:-\$\{MIA_LITELLM_API_KEY:-\}\}"/);
   assert.match(source, /Environment=MIA_CLOUD_AGENT_MODEL_BASE_URL=\$AGENT_MODEL_BASE_URL/);
   assert.match(source, /Environment=MIA_CLOUD_AGENT_MODEL_API_KEY=\$AGENT_MODEL_API_KEY/);
+  assert.match(source, /Environment=MIA_CLOUD_PUBLIC_URL=\$PUBLIC_URL/);
   assert.match(source, /require_command id/);
   assert.match(source, /require_command chown/);
   assert.match(source, /require_command docker/);
@@ -99,6 +100,7 @@ test("ssh deploy script restores data backups during install and public verifica
   assert.match(source, /Environment=MIA_CLOUD_AGENT_DOCKER_NETWORK=\$AGENT_DOCKER_NETWORK/);
   assert.match(source, /Environment=MIA_CLOUD_AGENT_MODEL_BASE_URL=\$AGENT_MODEL_BASE_URL/);
   assert.match(source, /Environment=MIA_CLOUD_AGENT_MODEL_API_KEY=\$AGENT_MODEL_API_KEY/);
+  assert.match(source, /Environment=MIA_CLOUD_PUBLIC_URL=\$PUBLIC_URL/);
   assert.match(source, /run_as_root chown -R "\\\$SERVICE_USER:\\\$SERVICE_USER" "\$DATA_DIR"/);
   assert.match(source, /sync_web_release\(\) \{[\s\S]*?\$REMOTE_RELEASE_DIR\/web\/downloads[\s\S]*?rsync -a --delete --exclude '\/downloads\/' "\$REMOTE_RELEASE_DIR\/web\/" "\$WEB_DIR\/"/);
   assert.match(source, /run_as_root cp "\$REMOTE_RELEASE_DIR\/nginx\/mia-websocket-map\.conf" "\$NGINX_MAP_CONF"/);
@@ -185,12 +187,13 @@ test("release builder includes operator README with safe install verification", 
   assert.match(source, /Release web root must include the site verification txt file with the expected content/);
   assert.match(source, /"prepare-cloud-smoke-account\.js"/);
   assert.match(source, /node prepare-cloud-smoke-account\.js https:\/\/mia\.gifgif\.cn/);
-  assert.match(source, /MIA_SMOKE_USERNAME="<smoke-account>"/);
-  assert.match(source, /MIA_SMOKE_PASSWORD="<smoke-password>"/);
+  assert.match(source, /MIA_CLOUD_TOKEN="<smoke-account-token>"/);
   assert.match(source, /MIA_SMOKE_REQUIRE_BRIDGE=1/);
-  assert.match(source, /LiteLLM Proxy/);
-  assert.match(source, /MIA_CLOUD_AGENT_MODEL_BASE_URL=http:\/\/litellm:4000\/v1/);
-  assert.match(source, /MIA_CLOUD_AGENT_MODEL_API_KEY=<LiteLLM virtual key>/);
+  assert.match(source, /MIA_MODEL_GATEWAY=deepseek/);
+  assert.match(source, /\/admin\/model/);
+  assert.match(source, /MIA_DEEPSEEK_API_KEY=<DeepSeek API key>` is an optional bootstrap fallback/);
+  assert.match(source, /MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY=<random internal proxy secret>/);
+  assert.match(source, /\/api\/admin\/model-credits\/grant/);
   assert.match(source, /same Mia Cloud account/);
   assert.match(source, /does not require a separate local approval click/);
   assert.match(source, /Agent permission mode remains/);
@@ -199,8 +202,7 @@ test("release builder includes operator README with safe install verification", 
   assert.match(source, /not run from the extracted Cloud release directory/);
   assert.match(source, /cd \/path\/to\/mia/);
   assert.match(source, /MIA_CLOUD_URL=https:\/\/mia\.gifgif\.cn/);
-  assert.match(source, /MIA_CLOUD_USERNAME="<smoke-account>"/);
-  assert.match(source, /MIA_CLOUD_PASSWORD="<smoke-password>"/);
+  assert.match(source, /MIA_CLOUD_TOKEN="<smoke-account-token>"/);
   assert.match(source, /npm run bridge/);
   assert.match(source, /mia-cloud-bridge-smoke-ok/);
   assert.match(source, /Release README must document verify-only local install/);

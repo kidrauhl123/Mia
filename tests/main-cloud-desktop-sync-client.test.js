@@ -26,7 +26,9 @@ function setup(overrides = {}) {
     startedEvents: 0,
     startedBridge: 0,
     stoppedEvents: 0,
-    stoppedBridge: 0
+    stoppedBridge: 0,
+    openedUrls: [],
+    waits: []
   };
   const responses = overrides.responses || [];
   const client = createCloudDesktopSyncClient({
@@ -62,27 +64,41 @@ function setup(overrides = {}) {
     startCloudBridge: () => { calls.startedBridge += 1; },
     stopCloudEvents: () => { calls.stoppedEvents += 1; },
     stopCloudBridge: () => { calls.stoppedBridge += 1; },
+    openExternal: async (url) => { calls.openedUrls.push(url); },
+    waitMs: async (ms) => { calls.waits.push(ms); },
     now: () => 123456,
     ...overrides
   });
   return { client, calls, getSettings: () => settings };
 }
 
-test("login normalizes the cloud URL, resets local auth, then starts sockets with the returned token", async () => {
+test("login normalizes the cloud URL, starts WeChat auth, then starts sockets with the returned token", async () => {
   const { client, calls, getSettings } = setup({
-    responses: [jsonResponse({ token: "tok_new", user: { id: "u_new", username: "jung" } })]
+    responses: [
+      jsonResponse({ authorizationUrl: "https://open.weixin.qq.com/connect/qrconnect?state=wx_state", state: "wx_state" }),
+      jsonResponse({ status: "complete", token: "tok_new", user: { id: "u_new", username: "jung" } })
+    ]
   });
 
-  const status = await client.login({ username: " jung ", password: "pw", mode: "register", url: "https://new.example///" });
+  const status = await client.login({ url: "https://new.example///" });
 
   assert.deepEqual(calls.writes[0], { url: "https://new.example", enabled: false, token: "", user: null });
   assert.deepEqual(calls.fetch[0], {
-    url: "https://new.example/api/auth/register",
+    url: "https://new.example/api/auth/wechat/start",
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: { username: "jung", password: "pw" },
+    body: { client: "desktop" },
     signal: "timeout-signal"
   });
+  assert.deepEqual(calls.fetch[1], {
+    url: "https://new.example/api/auth/wechat/complete",
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: { state: "wx_state" },
+    signal: "timeout-signal"
+  });
+  assert.deepEqual(calls.openedUrls, ["https://open.weixin.qq.com/connect/qrconnect?state=wx_state"]);
+  assert.deepEqual(calls.waits, [1500]);
   assert.deepEqual(calls.writes[1], {
     url: "https://new.example",
     enabled: true,
@@ -117,7 +133,8 @@ test("saveUserProfile writes the local profile and immediately syncs it to Mia C
         displayName: String(profile.displayName || "").trim(),
         avatarImage: String(profile.avatarImage || "").trim(),
         avatarCrop: profile.avatarCrop || null,
-        avatarColor: String(profile.avatarColor || "").trim()
+        avatarColor: String(profile.avatarColor || "").trim(),
+        statusBadge: profile.statusBadge || null
       };
       calls.profileWrites.push(savedProfile);
       return savedProfile;
@@ -138,14 +155,16 @@ test("saveUserProfile writes the local profile and immediately syncs it to Mia C
     displayName: " Jung ",
     avatarImage: "data:image/png;base64,new",
     avatarCrop: { x: 45, y: 55, zoom: 1.2 },
-    avatarColor: "#112233"
+    avatarColor: "#112233",
+    statusBadge: { kind: "lottie", assetId: "rainbow", label: "彩虹动画", loop: "always" }
   });
 
   assert.deepEqual(calls.profileWrites, [{
     displayName: "Jung",
     avatarImage: "data:image/png;base64,new",
     avatarCrop: { x: 45, y: 55, zoom: 1.2 },
-    avatarColor: "#112233"
+    avatarColor: "#112233",
+    statusBadge: { kind: "lottie", assetId: "rainbow", label: "彩虹动画", loop: "always" }
   }]);
   assert.deepEqual(calls.fetch.map((request) => [request.method, request.url]), [
     ["PATCH", "https://cloud.example/api/me/profile"]
@@ -154,7 +173,8 @@ test("saveUserProfile writes the local profile and immediately syncs it to Mia C
     displayName: "Jung",
     avatarImage: "data:image/png;base64,new",
     avatarCrop: { x: 45, y: 55, zoom: 1.2 },
-    avatarColor: "#112233"
+    avatarColor: "#112233",
+    statusBadge: { kind: "lottie", assetId: "rainbow", label: "彩虹动画", loop: "always" }
   });
   assert.deepEqual(calls.writes.at(-1), {
     user: {

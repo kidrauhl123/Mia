@@ -147,7 +147,8 @@ test("fresh userProfile has no hard-coded personal identity", (t) => {
     avatarText: "",
     avatarColor: "",
     avatarImage: "",
-    avatarCrop: { x: 50, y: 50, zoom: 1 }
+    avatarCrop: { x: 50, y: 50, zoom: 1 },
+    statusBadge: null
   });
 });
 
@@ -183,7 +184,18 @@ test("writeUserProfile normalizes visible profile fields and avatar crop", (t) =
     avatarText: "AL",
     avatarColor: "#123456",
     avatarImage: "data:image/png;base64,abc",
-    avatarCrop: { x: 12, y: 34, zoom: 2 }
+    avatarCrop: { x: 12, y: 34, zoom: 2 },
+    statusBadge: null
   });
   assert.deepEqual(readJson(runtime.userProfile, {}), next);
+});
+
+test("writeUserProfile preserves status badge choices", (t) => {
+  const { runtime, store } = setup(t);
+  const badge = { kind: "lottie", assetId: "rainbow", label: "彩虹动画", loop: "always" };
+
+  const next = store.writeUserProfile({ statusBadge: badge });
+
+  assert.deepEqual(next.statusBadge, badge);
+  assert.deepEqual(readJson(runtime.userProfile, {}).statusBadge, badge);
 });

@@ -15,8 +15,8 @@ function freshStore() {
 
 function makeUser(store, id = "u1") {
   store.getDb().prepare(
-    "INSERT INTO users (id, account, username, password_salt, password_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)"
-  ).run(id, `${id}@local`, `user-${id}`, "salt", "hash", new Date().toISOString());
+    "INSERT INTO users (id, account, username, email, display_name, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+  ).run(id, `wechat:${id}`, `user-${id}`, "", `user-${id}`, new Date().toISOString());
   return id;
 }
 

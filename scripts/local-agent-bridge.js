@@ -72,36 +72,10 @@ function bridgeProtocols(inputToken = cloudToken) {
   return [`mia-token.${inputToken}`];
 }
 
-async function loginCloudAccount({ cloudUrl: targetCloudUrl = cloudUrl, username, password, fetchImpl = fetch } = {}) {
-  const cleanUsername = String(username || "").trim();
-  if (!cleanUsername) throw new Error("MIA_CLOUD_USERNAME is required when MIA_CLOUD_TOKEN is not set.");
-  if (!String(password || "")) throw new Error("MIA_CLOUD_PASSWORD is required when MIA_CLOUD_USERNAME is set.");
-  const response = await fetchImpl(new URL("/api/auth/login", targetCloudUrl), {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ username: cleanUsername, password: String(password) })
-  });
-  let data = {};
-  try {
-    data = await response.json();
-  } catch {
-    data = {};
-  }
-  if (!response.ok || !data.token) {
-    throw new Error(data.error || `Mia Cloud login failed: HTTP ${response.status}`);
-  }
-  return data.token;
-}
-
-async function resolveBridgeToken(env = process.env, fetchImpl = fetch) {
+async function resolveBridgeToken(env = process.env) {
   const configuredToken = String(env.MIA_CLOUD_TOKEN || "");
   if (configuredToken) return configuredToken;
-  return loginCloudAccount({
-    cloudUrl: env.MIA_CLOUD_URL || cloudUrl,
-    username: env.MIA_CLOUD_USERNAME,
-    password: env.MIA_CLOUD_PASSWORD,
-    fetchImpl
-  });
+  throw new Error("MIA_CLOUD_TOKEN is required.");
 }
 
 function shellCommandPath(command) {
@@ -392,7 +366,6 @@ async function connect() {
   if (!cloudToken) {
     try {
       cloudToken = await resolveBridgeToken();
-      log(`logged in to ${cloudUrl} as ${process.env.MIA_CLOUD_USERNAME}`);
     } catch (error) {
       process.stderr.write(`${error.message || error}\n`);
       process.exitCode = 1;
@@ -400,7 +373,7 @@ async function connect() {
     }
   }
   if (!cloudToken) {
-    process.stderr.write("MIA_CLOUD_TOKEN or MIA_CLOUD_USERNAME/MIA_CLOUD_PASSWORD is required.\n");
+    process.stderr.write("MIA_CLOUD_TOKEN is required.\n");
     process.exitCode = 1;
     return;
   }
@@ -458,7 +431,6 @@ module.exports = {
   bridgeUrl,
   buildCodexPrompt,
   imageAttachment,
-  loginCloudAccount,
   materializeAttachments,
   mapPermissionMode,
   recentGeneratedImagePaths,

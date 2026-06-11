@@ -12,6 +12,7 @@ import {
   friendRequestRespondPath,
   friendRequestsPath,
   modelCatalogPath,
+  profilePath,
   settingsPath,
   skillDetailPath,
   skillsPath,
@@ -19,6 +20,7 @@ import {
 
 test("builds account and bridge endpoint paths", () => {
   expect(settingsPath()).toBe("/api/me/settings");
+  expect(profilePath()).toBe("/api/me/profile");
   expect(bridgeDevicesPath()).toBe("/api/bridge/devices");
   expect(bridgeRunsPath()).toBe("/api/bridge/runs");
 });
