@@ -237,7 +237,7 @@ MIA_WECHAT_MP_ENCODING_AES_KEY=<message push EncodingAESKey>
 # MIA_WECHAT_MP_OAUTH_REDIRECT_URI=https://mia.gifgif.cn/api/auth/wechat/mp/oauth-callback
 \`\`\`
 
-Configure message push URL \`https://mia.gifgif.cn/api/auth/wechat/mp/events\`, XML data, and the matching token. Configure the Official Account web authorization domain as \`mia.gifgif.cn\`; \`JS接口安全域名\` is for the WeChat JS-SDK and is not required for this login path. If WeChat returns \`48001 api unauthorized\` for the scene QR API, Mia falls back to a server-rendered OAuth QR code. The final account profile comes from \`snsapi_userinfo\`, because subscribe/SCAN events do not include nickname or avatar.
+Configure message push URL \`https://mia.gifgif.cn/api/auth/wechat/mp/events\`, XML data, and the matching token. Configure the Official Account web authorization domain as the bare domain \`mia.gifgif.cn\` only; do not include \`https://\` or \`/api/auth/wechat/mp/oauth-callback\`. If WeChat asks for an \`MP_verify_*.txt\` file while saving that domain, put the exact file at the web root so it is reachable as \`https://mia.gifgif.cn/MP_verify_*.txt\`. \`JS接口安全域名\` is for the WeChat JS-SDK and is not required for this login path. If WeChat returns \`48001 api unauthorized\` for the scene QR API, Mia falls back to a server-rendered OAuth QR code. The final account profile comes from \`snsapi_userinfo\`, because subscribe/SCAN events do not include nickname or avatar.
 
 ## Platform Model Gateway
 

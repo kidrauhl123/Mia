@@ -1774,6 +1774,7 @@ function createWindow() {
     }
   });
   win.miaSkipAutomaticBackgroundStartup = onboarding;
+  win.miaSignedOutOnboarding = onboarding;
   if (process.platform === "darwin" && typeof win.setWindowButtonVisibility === "function") {
     win.setWindowButtonVisibility(onboarding);
   }
@@ -1806,6 +1807,33 @@ function createWindow() {
   return win;
 }
 
+function showSignedOutOnboardingWindow(win) {
+  const target = win && !win.isDestroyed() ? win : BrowserWindow.getAllWindows().find((w) => !w.isDestroyed());
+  if (!target) {
+    createWindow();
+    return;
+  }
+  if (target.miaSignedOutOnboarding) {
+    if (!target.isVisible()) target.show();
+    if (typeof target.focus === "function") target.focus();
+    return;
+  }
+  if (typeof target.isFullScreen === "function" && target.isFullScreen()) {
+    target.setFullScreen(false);
+  }
+  if (typeof target.setBackgroundColor === "function") target.setBackgroundColor("#ffffff");
+  if (process.platform === "darwin" && typeof target.setWindowButtonVisibility === "function") {
+    target.setWindowButtonVisibility(true);
+  }
+  target.setMinimumSize(400, 560);
+  target.setSize(460, 680);
+  target.center();
+  target.miaSkipAutomaticBackgroundStartup = true;
+  target.miaSignedOutOnboarding = true;
+  target.loadFile(path.join(__dirname, "renderer", "onboarding", "onboarding.html"));
+  if (!target.isVisible()) target.show();
+}
+
 // Onboarding finished (signed in): turn the lightweight onboarding window into
 // the real main app window — load the full app, restore main chrome/size, and
 // kick the deferred background startup. Reuses the one window (no flash).
@@ -1820,6 +1848,7 @@ function promoteOnboardingWindowToMain(win) {
   win.center();
   windowStateManager.attachWindowStatePersistence(win);
   win.miaSkipAutomaticBackgroundStartup = false;
+  win.miaSignedOutOnboarding = false;
   if (process.env.MIA_DISABLE_BACKGROUND_STARTUP !== "1") {
     win.webContents.once("did-finish-load", () => {
       setTimeout(() => runtimeLifecycle().scheduleBackgroundStartup(), 2500);
@@ -1958,9 +1987,12 @@ ipcMain.handle(IpcChannel.CloudSettingsPut, async (_event, settings) => {
     throw error;
   }
 });
-ipcMain.handle(IpcChannel.CloudLogout, async () => {
+ipcMain.handle(IpcChannel.CloudLogout, async (event) => {
   await logoutMiaCloud();
-  return getRuntimeStatus();
+  const runtime = getRuntimeStatus();
+  const win = BrowserWindow.fromWebContents(event.sender);
+  setTimeout(() => showSignedOutOnboardingWindow(win), 0);
+  return runtime;
 });
 const socialApi = createSocialApi({
   getSettings: () => settingsStore.cloudSettings(),
@@ -2100,7 +2132,13 @@ ipcMain.handle(IpcChannel.EngineInstall, async (event, engineId) => {
   }
 });
 ipcMain.handle(IpcChannel.OnboardingComplete, (event) => {
-  promoteOnboardingWindowToMain(BrowserWindow.fromWebContents(event.sender));
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!cloudStatus(false).enabled) {
+    showSignedOutOnboardingWindow(win);
+    return getRuntimeStatus();
+  }
+  promoteOnboardingWindowToMain(win);
+  return getRuntimeStatus();
 });
 ipcMain.handle(IpcChannel.EngineScan, async (event) => {
   // User-initiated async detection (onboarding prepare step). Streams each agent
@@ -2306,4 +2344,5 @@ app.on("window-all-closed", () => {
 app.on("activate", () => {
   if (IS_DAEMON_PROCESS) return;
   if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  else if (!cloudStatus(false).enabled) showSignedOutOnboardingWindow(BrowserWindow.getAllWindows()[0]);
 });

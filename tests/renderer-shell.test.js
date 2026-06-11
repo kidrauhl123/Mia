@@ -535,6 +535,9 @@ test("main window accepts the first mouse click after regaining focus", () => {
   // HTML), not the full app — and finishing promotes that window to the app.
   assert.match(mainSource, /onboarding[\s\S]{0,40}onboarding\.html/);
   assert.match(mainSource, /function promoteOnboardingWindowToMain/);
+  assert.match(mainSource, /function showSignedOutOnboardingWindow/);
+  assert.match(mainSource, /ipcMain\.handle\(IpcChannel\.CloudLogout,[\s\S]*?showSignedOutOnboardingWindow\(win\)/);
+  assert.match(mainSource, /if\s*\(!cloudStatus\(false\)\.enabled\)\s*\{[\s\S]*?showSignedOutOnboardingWindow\(win\)/);
   assert.match(ipcSource, /OnboardingComplete:\s*"onboarding:complete"/);
   assert.match(preloadSource, /onboardingComplete:\s*\(\)\s*=>/);
   assert.match(mainSource, /const minWindowWidth = onboarding \? 400 : 500;/);

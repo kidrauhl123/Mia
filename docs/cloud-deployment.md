@@ -60,10 +60,10 @@ Mia Cloud uses the Official Account identity as the only cloud account login. Th
 - Message push token: `MIA_WECHAT_MP_TOKEN`
 - Message format: XML
 - Message encryption: plaintext is enough for the current login flow; secure mode also requires the matching `MIA_WECHAT_MP_ENCODING_AES_KEY`.
-- Web authorization domain: `mia.gifgif.cn`
+- Web authorization domain: `mia.gifgif.cn` only. Do not include `https://` and do not include `/api/auth/wechat/mp/oauth-callback`.
 - OAuth callback: `https://mia.gifgif.cn/api/auth/wechat/mp/oauth-callback`
 
-`JS接口安全域名` is not required for this login path. It is for the WeChat JS-SDK. The setting that matters for nickname/avatar login is the Official Account web authorization domain.
+`JS接口安全域名` is not required for this login path. It is for the WeChat JS-SDK. The setting that matters for nickname/avatar login is the Official Account web authorization domain. If WeChat asks for an `MP_verify_*.txt` file while saving that domain, put the exact file at the web root so it is reachable as `https://mia.gifgif.cn/MP_verify_*.txt`.
 
 The preferred desktop login path is a scene QR code from WeChat's `qrcode/create` API. If the account lacks that permission and WeChat returns `48001 api unauthorized`, Mia falls back to a server-rendered OAuth QR code instead of failing the login start request. The OAuth callback uses `snsapi_userinfo`, then creates or reuses the Mia user with the WeChat nickname and avatar URL. A subscribe/SCAN event alone is not enough for a full profile because WeChat does not include nickname/avatar in the message event; the event can only bind or advance the pending login state.
 
