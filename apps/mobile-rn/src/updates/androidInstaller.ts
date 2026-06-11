@@ -12,27 +12,50 @@ export interface PreparedAndroidInstall extends AndroidApkInfo {
   localUri: string;
 }
 
+export type DownloadProgress = (ratio: number) => void;
+
 export interface AndroidInstallDeps {
-  downloadApk: (target: AndroidUpdateManifest) => Promise<string>;
+  downloadApk: (target: AndroidUpdateManifest, onProgress?: DownloadProgress) => Promise<string>;
   sha256File: (uri: string) => Promise<string>;
   inspectApk: (uri: string) => Promise<AndroidApkInfo>;
   installedPackageName: string;
   installedVersionCode: number;
 }
 
-export async function downloadAndroidApk(target: AndroidUpdateManifest): Promise<string> {
-  const { Directory, File, Paths } = require("expo-file-system");
-  const dir = new Directory(Paths.cache, "mia-updates");
-  dir.create({ idempotent: true });
-  const output = await File.downloadFileAsync(target.apkUrl, dir, { idempotent: true });
-  return output.uri;
+export async function downloadAndroidApk(
+  target: AndroidUpdateManifest,
+  onProgress?: DownloadProgress
+): Promise<string> {
+  // Use the legacy resumable download API: it is the only expo-file-system
+  // path that reports byte-level progress, which the update modal renders as a
+  // loading bar. The new File API downloads in one shot with no progress.
+  const FileSystem = require("expo-file-system/legacy");
+  const dir = `${FileSystem.cacheDirectory}mia-updates/`;
+  await FileSystem.makeDirectoryAsync(dir, { intermediates: true }).catch(() => {});
+  const targetUri = `${dir}mia-update-${target.versionCode}.apk`;
+  // Clear any partial leftover so a resumed-but-stale file can't corrupt the hash check.
+  await FileSystem.deleteAsync(targetUri, { idempotent: true }).catch(() => {});
+  const resumable = FileSystem.createDownloadResumable(
+    target.apkUrl,
+    targetUri,
+    {},
+    (p: { totalBytesWritten: number; totalBytesExpectedToWrite: number }) => {
+      if (onProgress && p.totalBytesExpectedToWrite > 0) {
+        onProgress(Math.max(0, Math.min(1, p.totalBytesWritten / p.totalBytesExpectedToWrite)));
+      }
+    }
+  );
+  const result = await resumable.downloadAsync();
+  if (!result?.uri) throw new Error("下载失败");
+  return result.uri;
 }
 
 export async function prepareAndroidApkInstall(
   target: AndroidUpdateManifest,
-  deps: AndroidInstallDeps
+  deps: AndroidInstallDeps,
+  onProgress?: DownloadProgress
 ): Promise<PreparedAndroidInstall> {
-  const localUri = await deps.downloadApk(target);
+  const localUri = await deps.downloadApk(target, onProgress);
   const actualSha = (await deps.sha256File(localUri)).toLowerCase();
   if (actualSha !== target.apkSha256.toLowerCase()) throw new Error("安装包校验失败");
   const apk = await deps.inspectApk(localUri);

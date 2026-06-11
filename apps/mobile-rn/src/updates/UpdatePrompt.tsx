@@ -20,6 +20,7 @@ export type UpdatePromptModel =
       mandatory: boolean;
       phase: UpdatePromptPhase;
       error?: string;
+      progress?: number;
     }
   | {
       kind: "ios-store";
@@ -27,12 +28,14 @@ export type UpdatePromptModel =
       mandatory: false;
       phase: UpdatePromptPhase;
       error?: string;
+      progress?: number;
     }
   | {
       kind: "ota";
       mandatory: false;
       phase: UpdatePromptPhase;
       error?: string;
+      progress?: number;
     };
 
 interface Props {
@@ -94,6 +97,14 @@ export default function UpdatePrompt({ prompt, onPrimary, onDismiss }: Props) {
               ))}
             </View>
           ) : null}
+          {prompt.phase === "downloading" ? (
+            <View style={styles.progressWrap}>
+              <View style={styles.progressTrack}>
+                <View style={[styles.progressFill, { width: `${Math.round((prompt.progress ?? 0) * 100)}%` }]} />
+              </View>
+              <Sub style={styles.progressPct}>{Math.round((prompt.progress ?? 0) * 100)}%</Sub>
+            </View>
+          ) : null}
           {status ? <Sub style={[styles.status, prompt.error ? styles.error : null]}>{status}</Sub> : null}
           <View style={styles.actions}>
             <Button label={primaryLabelFor(prompt)} busy={busyFor(prompt)} onPress={onPrimary} />
@@ -121,6 +132,10 @@ const styles = StyleSheet.create({
   },
   head: { gap: space.xs },
   title: { fontSize: 18 },
+  progressWrap: { flexDirection: "row", alignItems: "center", gap: space.sm },
+  progressTrack: { flex: 1, height: 6, borderRadius: 3, backgroundColor: color.surfaceMuted, overflow: "hidden" },
+  progressFill: { height: 6, borderRadius: 3, backgroundColor: color.accent },
+  progressPct: { minWidth: 38, textAlign: "right" },
   notes: { gap: space.xs },
   note: { color: color.inkMuted },
   status: { color: color.inkMuted },

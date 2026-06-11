@@ -75,6 +75,10 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
     setPrompt((current) => (current ? { ...current, phase, error: error || undefined } : current));
   }, []);
 
+  const setDownloadProgress = useCallback((ratio: number) => {
+    setPrompt((current) => (current ? { ...current, progress: ratio } : current));
+  }, []);
+
   const checkForUpdates = useCallback(
     async (manual = false) => {
       if (checkingRef.current) return;
@@ -155,21 +159,26 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      setDownloadProgress(0);
       setPromptPhase("downloading");
-      const prepared = await prepareAndroidApkInstall(prompt.target, {
-        downloadApk: downloadAndroidApk,
-        sha256File,
-        inspectApk: inspectDownloadedApk,
-        installedPackageName: applicationId,
-        installedVersionCode: installedVersionCode(installed),
-      });
+      const prepared = await prepareAndroidApkInstall(
+        prompt.target,
+        {
+          downloadApk: downloadAndroidApk,
+          sha256File,
+          inspectApk: inspectDownloadedApk,
+          installedPackageName: applicationId,
+          installedVersionCode: installedVersionCode(installed),
+        },
+        setDownloadProgress
+      );
       preparedInstall.current = prepared;
       setPromptPhase("verifying");
       await installPreparedApk(prepared.localUri);
     } catch (error: any) {
       setPromptPhase("failed", error?.message || "更新失败");
     }
-  }, [applicationId, installPreparedApk, installed, prompt, setPromptPhase]);
+  }, [applicationId, installPreparedApk, installed, prompt, setPromptPhase, setDownloadProgress]);
 
   const handleDismiss = useCallback(() => {
     if (prompt) setDismissedKey(promptKey(prompt));
