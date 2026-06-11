@@ -614,6 +614,7 @@ test("cloud release and local web server expose desktop markdown helper", () => 
 test("cloud release API package includes runtime dependencies required by server modules", () => {
   const build = fs.readFileSync(path.join(ROOT, "scripts/build-cloud-release.js"), "utf8");
   assert.match(build, /"adm-zip": rootPackage\.dependencies\?\.\["adm-zip"\]/);
+  assert.match(build, /qrcode: rootPackage\.dependencies\?\.qrcode/);
   assert.match(build, /ws: rootPackage\.dependencies\?\.ws/);
 });
 

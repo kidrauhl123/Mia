@@ -807,6 +807,7 @@ function main() {
     },
     dependencies: {
       "adm-zip": rootPackage.dependencies?.["adm-zip"] || "^0.5.17",
+      qrcode: rootPackage.dependencies?.qrcode || "^1.5.4",
       ws: rootPackage.dependencies?.ws || "^8.20.1"
     }
   });
