@@ -75,6 +75,34 @@ test("sqlite store persists synced profile display name and avatar", () => {
   }
 });
 
+test("sqlite store refreshes old fallback WeChat profile after OAuth returns real identity", () => {
+  const paths = tempStore();
+  const store = createCloudStore(paths);
+  try {
+    const fallbackProfile = {
+      openid: "fallback_openid",
+      unionid: "fallback_unionid",
+      nickname: "",
+      avatarUrl: ""
+    };
+    const registered = store.loginWithWechat(fallbackProfile);
+    assert.equal(registered.user.displayName, "微信用户");
+    assert.equal(registered.user.avatarImage, "");
+
+    const refreshed = store.loginWithWechat({
+      ...fallbackProfile,
+      nickname: "真实微信名",
+      avatarUrl: "https://wx.qlogo.cn/mmopen/real/0"
+    });
+    assert.equal(refreshed.user.id, registered.user.id);
+    assert.equal(refreshed.user.displayName, "真实微信名");
+    assert.equal(refreshed.user.avatarImage, "https://wx.qlogo.cn/mmopen/real/0");
+  } finally {
+    store.close();
+    cleanup(paths.dataDir);
+  }
+});
+
 
 
 

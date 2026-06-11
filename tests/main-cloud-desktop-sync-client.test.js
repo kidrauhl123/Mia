@@ -84,12 +84,11 @@ test("login normalizes the cloud URL, starts WeChat auth, then starts sockets wi
   const { client, calls, getSettings } = setup({
     responses: [
       jsonResponse({
-        mode: "wechat_mp_scene",
+        mode: "wechat_mp_oauth_userinfo",
         authorizationUrl: "https://new.example/api/auth/wechat/mp/qr?state=wx_state",
-        qrCodeUrl: "https://mp.weixin.qq.com/cgi-bin/showqrcode?ticket=ticket",
+        qrCodeUrl: `data:image/png;base64,${Buffer.from("qr-png").toString("base64")}`,
         state: "wx_state"
       }),
-      binaryResponse("qr-png"),
       jsonResponse({ status: "complete", token: "tok_new", user: { id: "u_new", username: "jung" } })
     ]
   });
@@ -105,13 +104,6 @@ test("login normalizes the cloud URL, starts WeChat auth, then starts sockets wi
     signal: "timeout-signal"
   });
   assert.deepEqual(calls.fetch[1], {
-    url: "https://mp.weixin.qq.com/cgi-bin/showqrcode?ticket=ticket",
-    method: "GET",
-    headers: undefined,
-    body: null,
-    signal: "timeout-signal"
-  });
-  assert.deepEqual(calls.fetch[2], {
     url: "https://new.example/api/auth/wechat/complete",
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -210,17 +202,16 @@ test("saveUserProfile writes the local profile and immediately syncs it to Mia C
   assert.deepEqual(status, { ok: true, includeToken: false, token: undefined });
 });
 
-test("login can return an inline WeChat scene QR and complete it without opening a browser", async () => {
+test("login can return an inline WeChat OAuth QR and complete it without opening a browser", async () => {
   const { client, calls, getSettings } = setup({
     responses: [
       jsonResponse({
-        mode: "wechat_mp_scene",
+        mode: "wechat_mp_oauth_userinfo",
         authorizationUrl: "https://new.example/api/auth/wechat/mp/qr?state=wx_state",
-        qrCodeUrl: "https://mp.weixin.qq.com/cgi-bin/showqrcode?ticket=ticket",
+        qrCodeUrl: `data:image/png;base64,${Buffer.from("qr-png").toString("base64")}`,
         state: "wx_state",
         expiresAt: "2026-06-11T13:00:00.000Z"
       }),
-      binaryResponse("qr-png"),
       jsonResponse({ status: "pending", expiresAt: "2026-06-11T13:00:00.000Z" }),
       jsonResponse({ status: "complete", token: "tok_new", user: { id: "u_new", username: "jung" } })
     ]
@@ -229,7 +220,7 @@ test("login can return an inline WeChat scene QR and complete it without opening
   const started = await client.login({ action: "start", url: "https://new.example///" });
   assert.deepEqual(started, {
     kind: "wechat-login-start",
-    mode: "wechat_mp_scene",
+    mode: "wechat_mp_oauth_userinfo",
     state: "wx_state",
     qrCodeUrl: `data:image/png;base64,${Buffer.from("qr-png").toString("base64")}`,
     authorizationUrl: "https://new.example/api/auth/wechat/mp/qr?state=wx_state",

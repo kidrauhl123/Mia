@@ -289,7 +289,7 @@ function wechatMpQrHtml(record = null) {
   if (!state || !qrCodeUrl) {
     return "<!doctype html><meta charset=\"utf-8\"><title>Mia 微信登录</title><body style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:32px;background:#f5f5f8;color:#15151a;\"><h1>微信登录已过期</h1><p>请返回 Mia 重新发起登录。</p></body>";
   }
-  return `<!doctype html><meta charset="utf-8"><title>Mia 微信登录</title><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;background:#f5f5f8;color:#15151a;"><main style="text-align:center;"><h1>微信扫码登录 Mia</h1><img alt="微信登录二维码" src="${escapeHtml(qrCodeUrl)}" style="width:260px;height:260px;background:#fff;padding:12px;border-radius:12px;box-shadow:0 12px 36px rgba(0,0,0,.12);"><p id="status" style="color:#666;">请使用微信扫码关注公众号，Mia 会自动完成登录。</p></main><script>
+  return `<!doctype html><meta charset="utf-8"><title>Mia 微信登录</title><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;background:#f5f5f8;color:#15151a;"><main style="text-align:center;"><h1>微信扫码登录 Mia</h1><img alt="微信登录二维码" src="${escapeHtml(qrCodeUrl)}" style="width:260px;height:260px;background:#fff;padding:12px;border-radius:12px;box-shadow:0 12px 36px rgba(0,0,0,.12);"><p id="status" style="color:#666;">请使用微信扫码，并按微信里的提示完成授权。</p></main><script>
 const state=${JSON.stringify(state)};
 const statusEl=document.getElementById("status");
 async function poll(){
@@ -307,6 +307,12 @@ async function poll(){
 }
 poll();
 </script></body>`;
+}
+
+function wechatOAuthResultHtml({ ok = false, message = "" } = {}) {
+  const title = ok ? "Mia 登录成功" : "Mia 登录失败";
+  const detail = message || (ok ? "请回到 Mia。" : "请回到 Mia 重新发起登录。");
+  return `<!doctype html><meta charset="utf-8"><title>${escapeHtml(title)}</title><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;background:#f5f5f8;color:#15151a;"><main style="text-align:center;padding:32px;"><h1>${escapeHtml(title)}</h1><p style="color:#666;font-size:17px;line-height:1.6;">${escapeHtml(detail)}</p></main></body>`;
 }
 
 function cdata(value = "") {
@@ -359,6 +365,33 @@ async function handleWechatMpEvents(req, res, context, url) {
     return true;
   }
   writeError(res, 405, "Method not allowed.");
+  return true;
+}
+
+async function handleWechatMpOAuthCallback(req, res, context, url) {
+  if (req.method !== "GET" || url.pathname !== "/api/auth/wechat/mp/oauth-callback") return false;
+  const state = url.searchParams.get("state") || "";
+  const code = url.searchParams.get("code") || "";
+  const denied = url.searchParams.get("error") || url.searchParams.get("errmsg") || "";
+  if (denied) {
+    writeText(res, 400, wechatOAuthResultHtml({ ok: false, message: denied }), "text/html; charset=utf-8");
+    return true;
+  }
+  if (!state || !code) {
+    writeText(res, 400, wechatOAuthResultHtml({ ok: false, message: "微信回调缺少授权参数，请回到 Mia 重新扫码。" }), "text/html; charset=utf-8");
+    return true;
+  }
+  const result = await context.wechatAuth.completeMpOAuth({
+    state,
+    code,
+    config: wechatMpConfig(context)
+  });
+  if (result.status === "complete" && result.account?.user?.id) {
+    ensureCloudAgentBootstrap(context, result.account.user.id);
+    writeText(res, 200, wechatOAuthResultHtml({ ok: true, message: "登录已完成，请回到 Mia。" }), "text/html; charset=utf-8");
+    return true;
+  }
+  writeText(res, 400, wechatOAuthResultHtml({ ok: false, message: result.error || "微信登录失败，请回到 Mia 重新扫码。" }), "text/html; charset=utf-8");
   return true;
 }
 
@@ -2412,6 +2445,7 @@ async function handleRequest(req, res, context) {
     return;
   }
   if (await handleWechatMpEvents(req, res, context, url)) return;
+  if (await handleWechatMpOAuthCallback(req, res, context, url)) return;
   if (req.method === "GET" && url.pathname === "/api/auth/wechat/mp/qr") {
     const record = context.wechatAuth.peek(url.searchParams.get("state"));
     writeText(res, 200, wechatMpQrHtml(record), "text/html; charset=utf-8");

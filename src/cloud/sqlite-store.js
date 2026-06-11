@@ -48,6 +48,10 @@ function wechatDisplayName(profile = {}) {
   return String(profile.nickname || profile.displayName || "").trim().slice(0, 80) || "微信用户";
 }
 
+function explicitWechatDisplayName(profile = {}) {
+  return String(profile.nickname || profile.displayName || "").trim().slice(0, 80);
+}
+
 function profileStatusBadge(row = {}) {
   return normalizeStatusBadge(row.statusBadge || row.status_badge || parseJson(row.status_badge_json, null));
 }
@@ -341,8 +345,23 @@ function createCloudStore(options = {}) {
         createdAt
       );
       row = getUserById(userId);
-    } else if (!row.display_name) {
-      db.prepare("UPDATE users SET display_name = ? WHERE id = ?").run(wechatDisplayName(profile), row.id);
+    } else {
+      const displayName = explicitWechatDisplayName(profile);
+      const avatarImage = String(profile.avatarUrl || "").trim();
+      const updates = [];
+      const values = [];
+      if (displayName && (!row.display_name || row.display_name === "微信用户")) {
+        updates.push("display_name = ?");
+        values.push(displayName);
+      }
+      if (avatarImage && !row.avatar_image) {
+        updates.push("avatar_image = ?");
+        values.push(avatarImage);
+      }
+      if (updates.length) {
+        values.push(row.id);
+        db.prepare(`UPDATE users SET ${updates.join(", ")} WHERE id = ?`).run(...values);
+      }
       row = getUserById(row.id);
     }
     upsertWechatAccount(row.id, profile);

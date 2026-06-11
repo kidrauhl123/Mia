@@ -51,17 +51,17 @@ If `MIA_CLOUD_HERMES_IMAGE` is already present on the VPS and the Hermes version
 
 ## WeChat Official Account Login
 
-Mia Cloud uses the Official Account identity as the only cloud account login. The login flow is the Official Account scene QR flow:
+Mia Cloud uses the Official Account identity as the only cloud account login. The login flow is the Official Account web authorization QR flow:
 
-- Message push URL: `https://mia.gifgif.cn/api/auth/wechat/mp/events`
-- Message push token: `MIA_WECHAT_MP_TOKEN`
-- Message format: XML
-- Message encryption: plaintext mode.
-- Required Official Account API: `生成带参数二维码` / `qrcode/create`.
+- Required env: `MIA_WECHAT_MP_APP_ID`, `MIA_WECHAT_MP_APP_SECRET`.
+- Required Official Account setting: `网页授权域名` must be `mia.gifgif.cn`.
+- OAuth callback URL: `https://mia.gifgif.cn/api/auth/wechat/mp/oauth-callback`.
+- Optional message push URL: `https://mia.gifgif.cn/api/auth/wechat/mp/events`.
+- Optional message push token: `MIA_WECHAT_MP_TOKEN`.
 
-`JS接口安全域名` is not required for this login path. Web authorization domain and OAuth callback are not used.
+`JS接口安全域名` is not required for this login path. `生成带参数二维码` / `qrcode/create` is not used.
 
-Mia calls WeChat's `qrcode/create` API to create a temporary `QR_STR_SCENE` code for each login request, then waits for WeChat to push a `subscribe` or `SCAN` event with that scene value. If WeChat returns `48001 api unauthorized`, the login start request fails with a clear configuration error; Mia does not fall back to web OAuth or message-code login. Profile name and avatar are read from the Official Account user info API when that permission is available; otherwise the account is still bound by `openid`.
+Mia creates a QR code that points to WeChat's Official Account OAuth page with `scope=snsapi_userinfo`. After the user scans it in WeChat and authorizes, WeChat calls the OAuth callback; Mia exchanges the code for an OAuth token, reads `nickname` and `headimgurl` from `sns/userinfo`, and completes the desktop/web polling login. If WeChat does not return both nickname and avatar, Mia fails the login instead of creating a fallback `微信用户` profile.
 
 To grant first-version manual credits before a payment provider is wired:
 

@@ -241,7 +241,7 @@ function createCloudDesktopSyncClient({
     const qrCodeDataUrl = await fetchQrCodeDataUrl(started.qrCodeUrl);
     return {
       kind: "wechat-login-start",
-      mode: started.mode || "wechat_mp_scene",
+      mode: started.mode || "wechat_mp_oauth_userinfo",
       state: started.state,
       qrCodeUrl: qrCodeDataUrl,
       authorizationUrl: started.authorizationUrl || "",
