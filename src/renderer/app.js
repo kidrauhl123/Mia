@@ -282,11 +282,8 @@ const els = {
   cloudAccountAvatar: document.getElementById("cloudAccountAvatar"),
   cloudAccountName: document.getElementById("cloudAccountName"),
   cloudAccountUid: document.getElementById("cloudAccountUid"),
-  cloudLoginBox: document.getElementById("cloudLoginBox"),
-  cloudLogin: document.getElementById("cloudLogin"),
   cloudSync: document.getElementById("cloudSync"),
   cloudLogout: document.getElementById("cloudLogout"),
-  cloudLoginHint: document.getElementById("cloudLoginHint"),
   checkUpdates: document.getElementById("checkUpdates"),
   appUpdateHint: document.getElementById("appUpdateHint"),
   tasksUnreadBadge: document.getElementById("tasksUnreadBadge"),
@@ -1662,11 +1659,9 @@ function render() {
   if (!messageRows.length) {
     const empty = document.createElement("div");
     empty.className = "persona-empty";
-    if (!cloudSignedIn) {
-      empty.innerHTML = `<span>登录后开始对话</span><button type="button" class="link" data-action="cloud-login">登录</button>`;
-    } else {
-      empty.textContent = cloudReady ? "没有匹配的消息" : "正在同步会话…";
-    }
+    empty.textContent = cloudSignedIn
+      ? (cloudReady ? "没有匹配的消息" : "正在同步会话…")
+      : "正在打开登录引导…";
     els.personaList.appendChild(empty);
   }
   renderView();
@@ -1684,6 +1679,8 @@ function renderView() {
   const cloudSignedIn = Boolean(state.runtime?.cloud?.enabled);
   els.appShell?.setAttribute("data-auth-state", cloudSignedIn ? "signed-in" : "signed-out");
   if (!cloudSignedIn) {
+    requestSignedOutOnboardingWindow();
+    state.settingsOpen = false;
     state.activeView = "chat";
     state.botMenuOpen = false;
     state.contactMenuOpen = false;
@@ -2261,14 +2258,14 @@ function renderCommandResultHtml(commandResult) {
   return `<div class="command-result session-list">${rows}</div>`;
 }
 
-function renderCloudLoginGuide() {
-  return `
-    <div class="cloud-login-guide">
-      <h2>登录 Mia Cloud</h2>
-      <p>Mia 的对话都在云端同步。登录后即可与你的 Bot 聊天。</p>
-      <button type="button" class="primary" data-action="cloud-login">微信登录</button>
-    </div>
-  `;
+let signedOutOnboardingRequested = false;
+function requestSignedOutOnboardingWindow() {
+  if (signedOutOnboardingRequested) return;
+  signedOutOnboardingRequested = true;
+  const task = window.mia?.window?.signedOutOnboarding?.();
+  if (task && typeof task.catch === "function") {
+    task.catch(() => { signedOutOnboardingRequested = false; });
+  }
 }
 
 function hasUsableLocalAgent(runtime = state.runtime) {
@@ -2282,14 +2279,13 @@ function renderNoAgentGuide() {
   const hermesState = renderHermesInstallState();
   const hermesAction = hermesSetupAction();
   return `
-    <div class="cloud-login-guide no-agent-guide">
+    <div class="no-agent-guide">
       <h2>本机 Agent 尚未连接</h2>
-      <p>要开始本机聊天，请安装官方 Hermes 或配置已有 Agent。你也可以登录 Mia Cloud，同步并使用云端对话。</p>
+      <p>要开始本机聊天，请安装官方 Hermes 或配置已有 Agent。</p>
       ${hermesState ? `<p>${window.miaMarkdown.escapeHtml(hermesState)}</p>` : ""}
       <div class="setup-actions">
         <button type="button" class="primary" data-setup-action="${hermesAction.action}">${window.miaMarkdown.escapeHtml(hermesAction.label)}</button>
         <button type="button" class="secondary" data-setup-action="open-agent-settings">查看本机引擎</button>
-        <button type="button" class="secondary" data-action="cloud-login">登录 Mia Cloud</button>
       </div>
     </div>
   `;
@@ -2323,7 +2319,8 @@ function renderChat() {
     els.chat.innerHTML = "";
     return;
   }
-  els.chat.innerHTML = renderCloudLoginGuide();
+  requestSignedOutOnboardingWindow();
+  els.chat.innerHTML = "";
 }
 
 function conversationTypeForComposer(conversation, conversationId = "") {
@@ -3117,13 +3114,6 @@ els.openSettings.addEventListener("click", () => {
   if (state.activeSettingsTab === "profile") state.activeSettingsTab = "appearance";
   renderView();
 });
-// Cloud-only: login guides (empty chat / empty sidebar) open Settings → account.
-document.addEventListener("click", (event) => {
-  if (!event.target?.closest?.("[data-action='cloud-login']")) return;
-  state.settingsOpen = true;
-  state.activeSettingsTab = "account";
-  renderView();
-});
 els.closeSettings.addEventListener("click", () => {
   state.settingsOpen = false;
   renderView();
@@ -3369,29 +3359,13 @@ document.querySelectorAll("[data-settings-tab]").forEach((button) => {
   });
 });
 
-async function submitCloudLogin() {
-  const buttons = [els.cloudLogin].filter(Boolean);
-  buttons.forEach((button) => { button.disabled = true; });
-  setText(els.cloudLoginHint, "正在打开微信登录二维码，请用微信扫码或关注公众号...");
-  try {
-    state.runtime = await window.mia.cloudLogin({ mode: "wechat" });
-    window.miaSocial?.bootstrapAfterLogin?.();
-    render();
-  } catch (error) {
-    setText(els.cloudLoginHint, `连接失败：${error.message || error}`);
-  } finally {
-    buttons.forEach((button) => { button.disabled = false; });
-  }
-}
-
-els.cloudLogin?.addEventListener("click", () => submitCloudLogin());
 els.cloudSync?.addEventListener("click", async () => {
   els.cloudSync.disabled = true;
   try {
     state.runtime = await window.mia.cloudSync();
     render();
   } catch (error) {
-    setText(els.cloudLoginHint, `同步失败：${error.message || error}`);
+    setText(els.cloudAccountHint, `同步失败：${error.message || error}`);
   } finally {
     els.cloudSync.disabled = false;
   }
@@ -3402,7 +3376,7 @@ els.cloudLogout?.addEventListener("click", async () => {
     state.runtime = await window.mia.cloudLogout();
     render();
   } catch (error) {
-    setText(els.cloudLoginHint, `退出失败：${error.message || error}`);
+    setText(els.cloudAccountHint, `退出失败：${error.message || error}`);
   } finally {
     els.cloudLogout.disabled = false;
   }

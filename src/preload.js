@@ -148,6 +148,7 @@ contextBridge.exposeInMainWorld("mia", {
     green: () => ipcRenderer.invoke(IpcChannel.WindowGreen),
     showMain: () => ipcRenderer.invoke(IpcChannel.WindowShowMain),
     onboarding: () => ipcRenderer.invoke(IpcChannel.WindowOnboarding),
+    signedOutOnboarding: () => ipcRenderer.invoke(IpcChannel.WindowSignedOutOnboarding),
     state: () => ipcRenderer.invoke(IpcChannel.WindowState),
     onFocusState: (handler) => {
       const listener = (_e, focused) => handler(focused);

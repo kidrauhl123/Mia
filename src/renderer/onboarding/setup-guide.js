@@ -211,7 +211,6 @@
         </section>
         <footer class="setup-footer">
           <button class="setup-cta" type="button" data-setup-action="finish-agent-scan"${isSetupInstallInFlight() ? " disabled" : ""}>进入 Mia</button>
-          <button class="setup-cloud-link" type="button" data-action="cloud-login">登录 Mia Cloud →</button>
         </footer>
       </article>
     `;

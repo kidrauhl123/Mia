@@ -90,8 +90,9 @@ test("logged-in active pane never falls back to local bot sessions", () => {
   assert.match(appSource, /if\s*\(cloudSignedIn\)\s*\{\s*state\.activeKey = "";/);
   assert.match(appSource, /const active = cloudSignedIn\s*\?\s*null\s*:/);
   assert.match(appSource, /if\s*\(state\.runtime\?\.cloud\?\.enabled\)\s*\{[\s\S]*?els\.chat\.innerHTML = "";\s*return;\s*\}/);
-  // Cloud-only: signed-out users get the login guide, never a local message list.
-  assert.match(appSource, /els\.chat\.innerHTML = renderCloudLoginGuide\(\);/);
+  // Cloud-only: signed-out users leave the main renderer for the standalone onboarding window.
+  assert.match(appSource, /requestSignedOutOnboardingWindow\(\);[\s\S]*?els\.chat\.innerHTML = "";/);
+  assert.doesNotMatch(appSource, /function renderCloudLoginGuide/);
 });
 
 test("renderer chat uses setup guide and supports no-agent continuation", () => {
@@ -115,7 +116,7 @@ test("renderer chat uses setup guide and supports no-agent continuation", () => 
   assert.doesNotMatch(htmlSource, /正在创建本地 runtime/);
   assert.match(appSource, /renderNoAgentGuide/);
   assert.match(appSource, /finish-agent-scan/);
-  assert.match(noAgentGuideSource, /data-action="cloud-login"/);
+  assert.doesNotMatch(noAgentGuideSource, /data-action="cloud-login"/);
   assert.match(appSource, /AGENT_SETUP_SKIPPED_KEY/);
   assert.match(appSource, /engineRowOpenClaw/);
   assert.match(htmlSource, /id="engineRowOpenClaw"/);
@@ -537,6 +538,7 @@ test("main window accepts the first mouse click after regaining focus", () => {
   assert.match(mainSource, /function promoteOnboardingWindowToMain/);
   assert.match(mainSource, /function showSignedOutOnboardingWindow/);
   assert.match(mainSource, /ipcMain\.handle\(IpcChannel\.CloudLogout,[\s\S]*?showSignedOutOnboardingWindow\(win\)/);
+  assert.match(mainSource, /ipcMain\.handle\(IpcChannel\.WindowSignedOutOnboarding,[\s\S]*?showSignedOutOnboardingWindow/);
   assert.match(mainSource, /if\s*\(!cloudStatus\(false\)\.enabled\)\s*\{[\s\S]*?showSignedOutOnboardingWindow\(win\)/);
   assert.match(ipcSource, /OnboardingComplete:\s*"onboarding:complete"/);
   assert.match(preloadSource, /onboardingComplete:\s*\(\)\s*=>/);
@@ -545,8 +547,10 @@ test("main window accepts the first mouse click after regaining focus", () => {
   assert.match(mainSource, /getRuntimeStatus\(created,\s*\{\s*scanAgents:\s*false\s*\}\)/);
   assert.match(ipcSource, /WindowShowMain:\s*"window:show-main"/);
   assert.match(ipcSource, /WindowOnboarding:\s*"window:onboarding"/);
+  assert.match(ipcSource, /WindowSignedOutOnboarding:\s*"window:signed-out-onboarding"/);
   assert.match(preloadSource, /showMain: \(\) => ipcRenderer\.invoke\(IpcChannel\.WindowShowMain\)/);
   assert.match(preloadSource, /onboarding: \(\) => ipcRenderer\.invoke\(IpcChannel\.WindowOnboarding\)/);
+  assert.match(preloadSource, /signedOutOnboarding: \(\) => ipcRenderer\.invoke\(IpcChannel\.WindowSignedOutOnboarding\)/);
   assert.match(windowIpcSource, /setMinimumSize\(420,\s*560\)/);
   assert.match(windowIpcSource, /setSize\(1040,\s*700\)/);
   // Compact onboarding window driven from the renderer.
@@ -571,6 +575,8 @@ test("first-run onboarding cannot enter Mia while an engine install is running",
   const wizardSource = fs.readFileSync(path.join(root, "src/renderer/onboarding/onboarding-wizard.js"), "utf8");
   const standaloneSource = fs.readFileSync(path.join(root, "src/renderer/onboarding/onboarding-window.js"), "utf8");
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const standaloneStyles = fs.readFileSync(path.join(root, "src/renderer/onboarding/onboarding.css"), "utf8");
+  const appStyles = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
 
   assert.match(wizardSource, /function isSetupInstallInFlight\(\)/);
   assert.match(wizardSource, /data-onb-action="finish"[^`]*\$\{isSetupInstallInFlight\(\) \? " disabled" : ""\}/);
@@ -583,6 +589,12 @@ test("first-run onboarding cannot enter Mia while an engine install is running",
   assert.match(appSource, /state\.agentSetupInstallInFlight = true;/);
   assert.match(appSource, /state\.agentSetupInstallInFlight = false;/);
   assert.match(appSource, /if\s*\(state\.agentSetupInstallInFlight\)\s*return true;/);
+  assert.match(wizardSource, /wechatIconSvg/);
+  assert.match(standaloneSource, /wechatIconSvg/);
+  assert.match(wizardSource, /wechat-login-cta/);
+  assert.match(standaloneSource, /wechat-login-cta/);
+  assert.match(standaloneStyles, /--wechat-green:\s*#07c160/);
+  assert.match(appStyles, /\.setup-cta\.wechat-login-cta[\s\S]*background:\s*#07c160/);
 });
 
 test("chat code blocks use a right-aligned language copy button without code frame borders", () => {

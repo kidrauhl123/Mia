@@ -11,6 +11,8 @@
   --onb-ink: #1f2024;        /* low-key primary button */
   --onb-ink-hover: #303137;
   --onb-ok: #1fab5a;
+  --wechat-green: #07c160;
+  --wechat-green-hover: #06ad56;
 }
 
 * { box-sizing: border-box; }
@@ -157,6 +159,26 @@ html, body {
 .onb-cta:hover { background: var(--onb-ink-hover); }
 .onb-cta:active { transform: translateY(1px); }
 .onb-cta:disabled { opacity: 0.55; cursor: default; }
+
+.wechat-login-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  background: var(--wechat-green);
+}
+
+.wechat-login-cta:hover { background: var(--wechat-green-hover); }
+
+.wechat-login-icon {
+  width: 23px;
+  height: 20px;
+  color: #fff;
+  flex: 0 0 auto;
+}
+
+.wechat-login-icon .wechat-bubble { fill: currentColor; }
+.wechat-login-icon .wechat-eye { fill: var(--wechat-green); }
 
 .onb-link {
   align-self: center;

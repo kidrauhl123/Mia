@@ -11,6 +11,7 @@
     WindowState: "window:state",
     WindowShowMain: "window:show-main",
     WindowOnboarding: "window:onboarding",
+    WindowSignedOutOnboarding: "window:signed-out-onboarding",
     WindowFocusState: "window:focus-state",
     WindowFullscreen: "window:fullscreen",
     EditContextMenu: "edit:context-menu",

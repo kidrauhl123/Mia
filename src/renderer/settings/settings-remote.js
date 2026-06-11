@@ -95,14 +95,8 @@
     } else {
       els.cloudAccountHint.textContent = "登录后，这台电脑会自动作为本机 Agent 出现在 Web 和手机端。";
     }
-    els.cloudLoginBox?.classList.toggle("hidden", enabled);
     els.cloudSync?.classList.toggle("hidden", !enabled);
     els.cloudLogout?.classList.toggle("hidden", !enabled);
-    if (els.cloudLoginHint) {
-      els.cloudLoginHint.textContent = enabled
-        ? "Web 和手机端登录同一账号后会看到这台电脑在线。"
-        : "使用微信扫码登录 Mia Cloud。";
-    }
   }
 
   window.miaSettingsRemote = {

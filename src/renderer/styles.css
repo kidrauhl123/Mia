@@ -838,20 +838,20 @@ body.sidebar-resizing * {
   transform: translateY(6px);
 }
 
-.cloud-login-guide {
+.no-agent-guide {
   max-width: 360px;
   margin: 18vh auto 0;
   text-align: center;
   color: var(--muted);
 }
 
-.cloud-login-guide h2 {
+.no-agent-guide h2 {
   margin: 0 0 8px;
   color: var(--text, inherit);
   font-size: 18px;
 }
 
-.cloud-login-guide p {
+.no-agent-guide p {
   margin: 0 0 18px;
   font-size: 13px;
   line-height: 1.5;
@@ -2933,20 +2933,6 @@ body.onboarding-window .setup-guide.ready .setup-engine-action:hover {
   transform: translateY(1px) scale(0.995);
 }
 
-.setup-cloud-link {
-  padding: 2px;
-  border: 0;
-  background: none;
-  color: var(--muted);
-  font-size: 12.5px;
-  cursor: pointer;
-  transition: color 0.15s ease;
-}
-
-.setup-cloud-link:hover {
-  color: var(--accent);
-}
-
 @keyframes setupRise {
   from { opacity: 0; transform: translateY(9px); }
   to { opacity: 1; transform: none; }
@@ -3035,6 +3021,31 @@ body.onboarding-window .setup-guide.ready .setup-footer { animation-delay: 0.13s
 .onb-login-actions {
   gap: 8px;
 }
+
+.setup-cta.wechat-login-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  background: #07c160;
+  color: #fff;
+}
+
+.setup-cta.wechat-login-cta:hover:not(:disabled) {
+  background: #06ad56;
+  box-shadow: 0 10px 24px rgb(7 193 96 / 0.18);
+  filter: none;
+}
+
+.wechat-login-icon {
+  width: 23px;
+  height: 20px;
+  color: #fff;
+  flex: 0 0 auto;
+}
+
+.wechat-login-icon .wechat-bubble { fill: currentColor; }
+.wechat-login-icon .wechat-eye { fill: #07c160; }
 
 /* Prepare-step loading: progress bar + per-agent scan rows. */
 .onb-progress-bar {
@@ -5789,52 +5800,6 @@ body.onboarding-window .setup-guide.ready .setup-footer { animation-delay: 0.13s
 
 .settings-switch.active span {
   transform: translateX(16px);
-}
-
-.connection-details {
-  display: grid;
-  justify-items: start;
-  gap: 7px;
-  padding: 2px 0 0;
-}
-
-.cloud-login-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto auto;
-  gap: 8px;
-  width: min(560px, 100%);
-}
-
-.cloud-login-grid input {
-  min-width: 0;
-  min-height: 34px;
-  padding: 0 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  outline: 0;
-  background: var(--field);
-  color: var(--text);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 400;
-}
-
-.cloud-login-grid input:focus {
-  border-color: var(--line-strong);
-}
-
-@media (max-width: 720px) {
-  .cloud-login-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-.pairing-hint {
-  margin: 0;
-  color: var(--faint);
-  font-size: 11px;
-  font-weight: 400;
-  line-height: 1.5;
 }
 
 .font-choice-grid {

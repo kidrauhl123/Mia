@@ -94,6 +94,17 @@
     `;
   }
 
+  function wechatIconSvg() {
+    return `<svg class="wechat-login-icon" viewBox="0 0 32 28" aria-hidden="true" focusable="false">
+      <path class="wechat-bubble" d="M13.2 2.5C6.7 2.5 1.5 6.7 1.5 12c0 3.1 1.8 5.8 4.6 7.5l-.9 3.1 3.7-1.8c1.3.4 2.7.7 4.3.7.6 0 1.2 0 1.8-.1-.5-1-.8-2.1-.8-3.3 0-4.6 4.5-8.3 10.1-8.3h.4C23.5 5.6 18.8 2.5 13.2 2.5Z"/>
+      <path class="wechat-bubble" d="M30.5 18.1c0-4.1-4.1-7.4-9.1-7.4s-9.1 3.3-9.1 7.4 4.1 7.4 9.1 7.4c1.2 0 2.3-.2 3.3-.6l3 1.5-.7-2.5c2.1-1.3 3.5-3.4 3.5-5.8Z"/>
+      <circle class="wechat-eye" cx="9.6" cy="10.3" r="1.05"/>
+      <circle class="wechat-eye" cx="16.6" cy="10.3" r="1.05"/>
+      <circle class="wechat-eye" cx="18.4" cy="17" r=".9"/>
+      <circle class="wechat-eye" cx="24.1" cy="17" r=".9"/>
+    </svg>`;
+  }
+
   function loginStepHtml() {
     const hint = state?.onboardingLoginHint || "";
     return `
@@ -106,7 +117,7 @@
         <p class="onb-login-hint" data-onb-login-hint>${escapeHtml(hint)}</p>
       </section>
       <footer class="setup-footer onb-login-actions">
-        <button class="setup-cta" type="button" data-onb-action="login">微信登录</button>
+        <button class="setup-cta wechat-login-cta" type="button" data-onb-action="login">${wechatIconSvg()}<span>微信登录</span></button>
       </footer>
     `;
   }

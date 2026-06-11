@@ -47,10 +47,8 @@ test("settings account card renders signed-in avatar, name, and uid", () => {
   const state = { runtime: { cloud: {} } };
   const els = {
     cloudAccountHint: el(),
-    cloudLoginBox: el(),
     cloudSync: el(),
     cloudLogout: el(),
-    cloudLoginHint: el(),
     cloudAccountProfile: el(),
     cloudAccountAvatar: el(),
     cloudAccountName: el(),

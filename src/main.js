@@ -1821,6 +1821,9 @@ function showSignedOutOnboardingWindow(win) {
   if (typeof target.isFullScreen === "function" && target.isFullScreen()) {
     target.setFullScreen(false);
   }
+  if (typeof target.isMaximized === "function" && target.isMaximized()) {
+    target.unmaximize();
+  }
   if (typeof target.setBackgroundColor === "function") target.setBackgroundColor("#ffffff");
   if (process.platform === "darwin" && typeof target.setWindowButtonVisibility === "function") {
     target.setWindowButtonVisibility(true);
@@ -2138,6 +2141,10 @@ ipcMain.handle(IpcChannel.OnboardingComplete, (event) => {
     return getRuntimeStatus();
   }
   promoteOnboardingWindowToMain(win);
+  return getRuntimeStatus();
+});
+ipcMain.handle(IpcChannel.WindowSignedOutOnboarding, (event) => {
+  showSignedOutOnboardingWindow(BrowserWindow.fromWebContents(event.sender));
   return getRuntimeStatus();
 });
 ipcMain.handle(IpcChannel.EngineScan, async (event) => {
