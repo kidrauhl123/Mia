@@ -137,10 +137,22 @@ try {
 }
 let createWechatAuthFlow = null;
 let wechatConfig = null;
+let wechatMpConfig = null;
+let verifyWechatMpSignature = null;
 try {
-  ({ createWechatAuthFlow, wechatConfig } = require("../src/cloud/wechat-auth.js"));
+  ({
+    createWechatAuthFlow,
+    verifyWechatMpSignature,
+    wechatConfig,
+    wechatMpConfig
+  } = require("../src/cloud/wechat-auth.js"));
 } catch {
-  ({ createWechatAuthFlow, wechatConfig } = require("./src/cloud/wechat-auth.js"));
+  ({
+    createWechatAuthFlow,
+    verifyWechatMpSignature,
+    wechatConfig,
+    wechatMpConfig
+  } = require("./src/cloud/wechat-auth.js"));
 }
 let createAttachmentMaterializer = null;
 try {
@@ -281,6 +293,36 @@ function wechatCallbackHtml(account = null, error = "") {
     ? `try{localStorage.setItem("mia.web.session",${safePayload});}catch(e){} setTimeout(function(){location.href="/app/";},500);`
     : "";
   return `<!doctype html><meta charset="utf-8"><title>Mia 微信登录</title><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:32px;background:#f5f5f8;color:#15151a;"><h1>${message}</h1><p>桌面端会自动完成登录；网页端将返回 Mia Web。</p><script>${script}</script></body>`;
+}
+
+async function handleWechatMpEvents(req, res, context, url) {
+  if (url.pathname !== "/api/auth/wechat/mp/events") return false;
+  const config = wechatMpConfig(context);
+  if (!config.token) {
+    writeError(res, 503, "微信公众号消息推送未配置。");
+    return true;
+  }
+  const ok = verifyWechatMpSignature({
+    token: config.token,
+    signature: url.searchParams.get("signature"),
+    timestamp: url.searchParams.get("timestamp"),
+    nonce: url.searchParams.get("nonce")
+  });
+  if (!ok) {
+    writeError(res, 403, "Invalid WeChat signature.");
+    return true;
+  }
+  if (req.method === "GET") {
+    writeText(res, 200, url.searchParams.get("echostr") || "");
+    return true;
+  }
+  if (req.method === "POST") {
+    await readBody(req);
+    writeText(res, 200, "success");
+    return true;
+  }
+  writeError(res, 405, "Method not allowed.");
+  return true;
 }
 
 function readBody(req) {
@@ -2323,6 +2365,7 @@ async function handleRequest(req, res, context) {
     });
     return;
   }
+  if (await handleWechatMpEvents(req, res, context, url)) return;
 
   if (url.pathname === "/admin") {
     res.writeHead(308, { "Location": "/admin/model" });
@@ -3503,6 +3546,10 @@ function createMiaCloudServer(options = {}) {
     wechatAppId: options.wechatAppId || process.env.MIA_WECHAT_APP_ID || "",
     wechatAppSecret: options.wechatAppSecret || process.env.MIA_WECHAT_APP_SECRET || "",
     wechatRedirectUri: options.wechatRedirectUri || process.env.MIA_WECHAT_REDIRECT_URI || "",
+    wechatMpAppId: options.wechatMpAppId || process.env.MIA_WECHAT_MP_APP_ID || "",
+    wechatMpAppSecret: options.wechatMpAppSecret || process.env.MIA_WECHAT_MP_APP_SECRET || "",
+    wechatMpToken: options.wechatMpToken || process.env.MIA_WECHAT_MP_TOKEN || "",
+    wechatMpEncodingAesKey: options.wechatMpEncodingAesKey || process.env.MIA_WECHAT_MP_ENCODING_AES_KEY || "",
     publicUrl: options.publicUrl || process.env.MIA_CLOUD_PUBLIC_URL || "",
     wechatAuth: null
   };

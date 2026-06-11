@@ -36,6 +36,31 @@ function wechatConfig(context = {}, req = null) {
   return { appId, appSecret, redirectUri };
 }
 
+function wechatMpConfig(context = {}) {
+  return {
+    appId: trim(context.wechatMpAppId || process.env.MIA_WECHAT_MP_APP_ID),
+    appSecret: trim(context.wechatMpAppSecret || process.env.MIA_WECHAT_MP_APP_SECRET),
+    token: trim(context.wechatMpToken || process.env.MIA_WECHAT_MP_TOKEN),
+    encodingAesKey: trim(context.wechatMpEncodingAesKey || process.env.MIA_WECHAT_MP_ENCODING_AES_KEY)
+  };
+}
+
+function wechatMpSignature({ token, timestamp, nonce } = {}) {
+  return crypto
+    .createHash("sha1")
+    .update([trim(token), trim(timestamp), trim(nonce)].sort().join(""))
+    .digest("hex");
+}
+
+function verifyWechatMpSignature(input = {}) {
+  const token = trim(input.token);
+  const signature = trim(input.signature);
+  const timestamp = trim(input.timestamp);
+  const nonce = trim(input.nonce);
+  if (!token || !signature || !timestamp || !nonce) return false;
+  return wechatMpSignature({ token, timestamp, nonce }) === signature;
+}
+
 function isWechatConfigured(config = {}) {
   return Boolean(trim(config.appId) && trim(config.appSecret) && trim(config.redirectUri));
 }
@@ -189,5 +214,8 @@ module.exports = {
   isWechatConfigured,
   normalizeWechatProfile,
   randomState,
+  verifyWechatMpSignature,
+  wechatMpConfig,
+  wechatMpSignature,
   wechatConfig
 };

@@ -1,4 +1,5 @@
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -121,6 +122,41 @@ function bridgeWsUrl(baseUrl, params = {}) {
 function createAccount(server, name) {
   return loginCloudUser(server.mia.cloudStore, name);
 }
+
+function wechatMpSignature(token, timestamp, nonce) {
+  return crypto
+    .createHash("sha1")
+    .update([token, timestamp, nonce].sort().join(""))
+    .digest("hex");
+}
+
+test("wechat mp event endpoint verifies server token without bearer auth", async () => {
+  const dataDir = tempDataDir();
+  const token = "MiaCloudMpTestToken";
+  const server = createMiaCloudServer({ dataDir, wechatMpToken: token });
+  const baseUrl = await listen(server);
+  try {
+    const timestamp = "1780000000";
+    const nonce = "mp_nonce";
+    const echostr = "wechat-check-ok";
+    const signature = wechatMpSignature(token, timestamp, nonce);
+    const ok = await rawFetch(
+      baseUrl,
+      `/api/auth/wechat/mp/events?signature=${signature}&timestamp=${timestamp}&nonce=${nonce}&echostr=${echostr}`
+    );
+    assert.equal(ok.status, 200);
+    assert.equal(await ok.text(), echostr);
+
+    const rejected = await rawFetch(
+      baseUrl,
+      `/api/auth/wechat/mp/events?signature=bad&timestamp=${timestamp}&nonce=${nonce}&echostr=${echostr}`
+    );
+    assert.equal(rejected.status, 403);
+  } finally {
+    await close(server);
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
 
 test("auth accepts WeChat login through the cloud store", async () => {
   const dataDir = tempDataDir();
