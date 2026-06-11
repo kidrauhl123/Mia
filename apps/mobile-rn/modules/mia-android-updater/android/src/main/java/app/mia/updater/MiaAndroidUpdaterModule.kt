@@ -54,8 +54,12 @@ class MiaAndroidUpdaterModule : Module() {
       if (!apkFile.exists()) throw CodedException("APK file does not exist: ${apkFile.absolutePath}")
       val authority = "${context.packageName}.mia_update_file_provider"
       val contentUri = FileProvider.getUriForFile(context, authority, apkFile)
-      val intent = Intent(Intent.ACTION_INSTALL_PACKAGE)
-        .setData(contentUri)
+      // ACTION_INSTALL_PACKAGE is deprecated and unresolvable on modern Android
+      // / many OEM ROMs (ActivityNotFoundException). ACTION_VIEW with the
+      // package-archive mime type is the supported way to hand a FileProvider
+      // content:// APK to the system package installer.
+      val intent = Intent(Intent.ACTION_VIEW)
+        .setDataAndType(contentUri, "application/vnd.android.package-archive")
         .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
       context.startActivity(intent)
