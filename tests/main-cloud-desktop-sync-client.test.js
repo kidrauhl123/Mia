@@ -11,6 +11,15 @@ function jsonResponse(body, ok = true, status = 200) {
   };
 }
 
+function binaryResponse(body = "qr-png", contentType = "image/png", ok = true, status = 200) {
+  return {
+    ok,
+    status,
+    headers: { get: (name) => String(name || "").toLowerCase() === "content-type" ? contentType : null },
+    arrayBuffer: async () => Buffer.from(body)
+  };
+}
+
 function setup(overrides = {}) {
   let settings = overrides.initialSettings || {
     enabled: true,
@@ -80,6 +89,7 @@ test("login normalizes the cloud URL, starts WeChat auth, then starts sockets wi
         qrCodeUrl: "https://mp.weixin.qq.com/cgi-bin/showqrcode?ticket=ticket",
         state: "wx_state"
       }),
+      binaryResponse("qr-png"),
       jsonResponse({ status: "complete", token: "tok_new", user: { id: "u_new", username: "jung" } })
     ]
   });
@@ -95,6 +105,13 @@ test("login normalizes the cloud URL, starts WeChat auth, then starts sockets wi
     signal: "timeout-signal"
   });
   assert.deepEqual(calls.fetch[1], {
+    url: "https://mp.weixin.qq.com/cgi-bin/showqrcode?ticket=ticket",
+    method: "GET",
+    headers: undefined,
+    body: null,
+    signal: "timeout-signal"
+  });
+  assert.deepEqual(calls.fetch[2], {
     url: "https://new.example/api/auth/wechat/complete",
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -203,6 +220,7 @@ test("login can return an inline WeChat scene QR and complete it without opening
         state: "wx_state",
         expiresAt: "2026-06-11T13:00:00.000Z"
       }),
+      binaryResponse("qr-png"),
       jsonResponse({ status: "pending", expiresAt: "2026-06-11T13:00:00.000Z" }),
       jsonResponse({ status: "complete", token: "tok_new", user: { id: "u_new", username: "jung" } })
     ]
@@ -213,7 +231,7 @@ test("login can return an inline WeChat scene QR and complete it without opening
     kind: "wechat-login-start",
     mode: "wechat_mp_scene",
     state: "wx_state",
-    qrCodeUrl: "https://mp.weixin.qq.com/cgi-bin/showqrcode?ticket=ticket",
+    qrCodeUrl: `data:image/png;base64,${Buffer.from("qr-png").toString("base64")}`,
     authorizationUrl: "https://new.example/api/auth/wechat/mp/qr?state=wx_state",
     expiresAt: "2026-06-11T13:00:00.000Z"
   });

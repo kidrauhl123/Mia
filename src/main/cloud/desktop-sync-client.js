@@ -213,6 +213,22 @@ function createCloudDesktopSyncClient({
     return Buffer.from(await response.arrayBuffer());
   }
 
+  async function fetchQrCodeDataUrl(qrCodeUrl = "") {
+    const url = String(qrCodeUrl || "").trim();
+    if (!url) throw new Error("微信登录二维码缺失。");
+    if (url.startsWith("data:image/")) return url;
+    const response = await fetchImpl(url, {
+      method: "GET",
+      signal: timeoutSignal(15000)
+    });
+    if (!response.ok) throw new Error(`微信登录二维码图片加载失败：HTTP ${response.status}`);
+    const contentType = String(response.headers?.get?.("content-type") || "image/png").split(";")[0].trim() || "image/png";
+    if (!contentType.startsWith("image/")) throw new Error("微信登录二维码图片格式无效。");
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (!bytes.length) throw new Error("微信登录二维码图片为空。");
+    return `data:${contentType};base64,${bytes.toString("base64")}`;
+  }
+
   async function startWechatLogin({ url = "" } = {}) {
     const nextUrl = normalizeCloudUrl(url || settings().url);
     writeCloudSettings({ url: nextUrl, enabled: false, token: "", user: null });
@@ -222,11 +238,12 @@ function createCloudDesktopSyncClient({
       token: ""
     });
     if (!started.state || !started.qrCodeUrl) throw new Error("微信登录启动失败。");
+    const qrCodeDataUrl = await fetchQrCodeDataUrl(started.qrCodeUrl);
     return {
       kind: "wechat-login-start",
       mode: started.mode || "wechat_mp_scene",
       state: started.state,
-      qrCodeUrl: started.qrCodeUrl,
+      qrCodeUrl: qrCodeDataUrl,
       authorizationUrl: started.authorizationUrl || "",
       expiresAt: started.expiresAt || ""
     };
