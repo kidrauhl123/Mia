@@ -1,21 +1,22 @@
 #!/usr/bin/env node
 "use strict";
 
-// Publish a mobile in-app update: upload the Android APK + the update manifest
-// (mia-mobile-update.json) to the cloud /downloads/ dir so the app's
+// Publish a mobile in-app update: place the Android APK + the update manifest
+// (mia-mobile-update.json) in the cloud /downloads/ dir so the app's
 // UpdateProvider detects it. One command per release.
 //
 // Usage:
 //   EXPO_TOKEN=... node scripts/publish-mobile-update.js --build <easBuildId> [--mandatory] [--notes "a|b"]
 //   node scripts/publish-mobile-update.js --apk path/to/app.apk --version-code 4 --version-name 1.0.0 [...]
 //
-// Auth to the server reuses the JumpServer alias + Keychain askpass (see
-// scripts/jms-askpass.sh); EAS lookups need EXPO_TOKEN.
+// Transfer goes through the JumpServer ssh alias (mia-jms-deploy) + Keychain
+// askpass. scp/sftp are unreliable through the bastion, so the APK is pulled
+// server-side from the EAS CDN (with --build) or piped over ssh stdin (--apk),
+// and the authoritative sha256/size are read back from the server.
 
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const crypto = require("crypto");
 const { execFileSync } = require("child_process");
 
 const ROOT = path.resolve(__dirname, "..");
@@ -37,54 +38,61 @@ const MIN_SUPPORTED = Number(arg("min-supported", "1"));
 const MANDATORY = flag("mandatory");
 const NOTES = arg("notes") ? arg("notes").split("|").map((s) => s.trim()).filter(Boolean) : [];
 
-// Reuse the Keychain-backed askpass so ssh/scp run without a password prompt.
 if (!process.env.SSH_ASKPASS) {
   process.env.SSH_ASKPASS = path.join(ROOT, "scripts", "jms-askpass.sh");
   process.env.SSH_ASKPASS_REQUIRE = "force";
 }
 
-function run(cmd, args, opts = {}) {
-  return execFileSync(cmd, args, { stdio: ["ignore", "pipe", "inherit"], encoding: "utf8", ...opts });
+function out(cmd, args, opts = {}) {
+  return execFileSync(cmd, args, { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"], ...opts });
+}
+function sshRun(remoteCmd, opts = {}) {
+  return execFileSync("ssh", [REMOTE, remoteCmd], { encoding: "utf8", stdio: ["pipe", "pipe", "inherit"], ...opts });
 }
 
-function eas(args) {
-  return run("npx", ["-y", "eas-cli@latest", ...args], { cwd: path.join(ROOT, "apps", "mobile-rn") });
-}
-
-function resolveFromBuild(buildId) {
+function resolveBuild(buildId) {
   console.log(`[publish] looking up EAS build ${buildId}…`);
-  const json = JSON.parse(eas(["build:view", buildId, "--json", "--non-interactive"]));
+  const json = JSON.parse(out("npx", ["-y", "eas-cli@latest", "build:view", buildId, "--json"], { cwd: path.join(ROOT, "apps", "mobile-rn") }));
   const url = json?.artifacts?.applicationArchiveUrl || json?.artifacts?.buildUrl;
   if (!url) throw new Error("EAS build has no downloadable artifact yet (still building?)");
-  const versionCode = Number(json.appBuildVersion || json.runtimeVersion);
-  const versionName = String(json.appVersion || "");
-  const dest = path.join(os.tmpdir(), `mia-android-${versionCode || "build"}.apk`);
-  console.log(`[publish] downloading APK → ${dest}`);
-  run("curl", ["-fSL", "-o", dest, url], { stdio: "inherit" });
-  return { apkPath: dest, versionCode, versionName };
+  return { url, versionCode: Number(json.appBuildVersion), versionName: String(json.appVersion || "") };
 }
 
 function main() {
-  let apkPath = arg("apk");
+  const buildId = arg("build");
+  let sourceUrl = "";
+  let localApk = arg("apk");
   let versionCode = Number(arg("version-code", "0"));
   let versionName = arg("version-name", "");
-  const buildId = arg("build");
 
   if (buildId) {
-    const r = resolveFromBuild(buildId);
-    apkPath = apkPath || r.apkPath;
-    versionCode = versionCode || r.versionCode;
-    versionName = versionName || r.versionName;
+    const b = resolveBuild(buildId);
+    sourceUrl = b.url;
+    versionCode = versionCode || b.versionCode;
+    versionName = versionName || b.versionName;
   }
-
-  if (!apkPath || !fs.existsSync(apkPath)) throw new Error("APK not found — pass --apk <path> or --build <id>");
   if (!Number.isFinite(versionCode) || versionCode <= 0) throw new Error("missing/invalid --version-code");
   if (!versionName) throw new Error("missing --version-name");
+  if (!sourceUrl && !(localApk && fs.existsSync(localApk))) throw new Error("need --build <id> or --apk <path>");
 
-  const bytes = fs.readFileSync(apkPath);
-  const sha256 = crypto.createHash("sha256").update(bytes).digest("hex");
   const apkName = `mia-android-${versionCode}.apk`;
+  const dest = `${DOWNLOADS_DIR}/${apkName}`;
   const apkUrl = `${PUBLIC_BASE}/downloads/${apkName}`;
+
+  // Put the APK on the server.
+  if (sourceUrl) {
+    console.log(`[publish] server pulling APK from EAS CDN → ${dest}`);
+    sshRun(`curl -fSL -o '${dest}' '${sourceUrl}'`, { stdio: ["pipe", "inherit", "inherit"] });
+  } else {
+    console.log(`[publish] piping local APK over ssh → ${dest}`);
+    execFileSync("ssh", [REMOTE, `cat > '${dest}'`], { input: fs.readFileSync(localApk), stdio: ["pipe", "inherit", "inherit"] });
+  }
+
+  // Read the authoritative sha256 + size back from the served file.
+  const stat = sshRun(`sha256sum '${dest}' | awk '{print $1}'; stat -c %s '${dest}'`).trim().split(/\s+/);
+  const sha256 = stat[0];
+  const sizeBytes = Number(stat[1]);
+  if (!/^[a-f0-9]{64}$/i.test(sha256) || !sizeBytes) throw new Error(`bad server stat: ${stat.join(" ")}`);
 
   const manifest = {
     schemaVersion: 1,
@@ -97,31 +105,23 @@ function main() {
       minSupportedVersionCode: MIN_SUPPORTED,
       apkUrl,
       apkSha256: sha256,
-      apkSizeBytes: bytes.length,
+      apkSizeBytes: sizeBytes,
       mandatory: MANDATORY,
       notes: NOTES,
     },
   };
-
   const manifestPath = path.join(os.tmpdir(), "mia-mobile-update.json");
   fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
-  console.log(`[publish] versionCode=${versionCode} name=${versionName} mandatory=${MANDATORY}`);
-  console.log(`[publish] sha256=${sha256} size=${(bytes.length / 1e6).toFixed(1)}MB`);
+  console.log(`[publish] versionCode=${versionCode} name=${versionName} mandatory=${MANDATORY} sha256=${sha256} size=${(sizeBytes / 1e6).toFixed(1)}MB`);
+  console.log(`[publish] uploading manifest → ${dest.replace(apkName, "mia-mobile-update.json")}`);
+  execFileSync("ssh", [REMOTE, `cat > '${DOWNLOADS_DIR}/mia-mobile-update.json'`], { input: fs.readFileSync(manifestPath), stdio: ["pipe", "inherit", "inherit"] });
 
-  // Upload APK first, then the manifest last, so the manifest never points at a
-  // not-yet-uploaded APK.
-  console.log(`[publish] uploading APK → ${REMOTE}:${DOWNLOADS_DIR}/${apkName}`);
-  run("scp", [apkPath, `${REMOTE}:${DOWNLOADS_DIR}/${apkName}`], { stdio: "inherit" });
-  console.log(`[publish] uploading manifest → ${REMOTE}:${DOWNLOADS_DIR}/mia-mobile-update.json`);
-  run("scp", [manifestPath, `${REMOTE}:${DOWNLOADS_DIR}/mia-mobile-update.json`], { stdio: "inherit" });
-
-  // Verify both are publicly reachable.
-  const manifestHttp = run("curl", ["-sS", "-o", "/dev/null", "-w", "%{http_code}", `${PUBLIC_BASE}/downloads/mia-mobile-update.json`]).trim();
-  const apkHttp = run("curl", ["-sS", "-I", "-o", "/dev/null", "-w", "%{http_code}", apkUrl]).trim();
+  const manifestHttp = out("curl", ["-sS", "-o", "/dev/null", "-w", "%{http_code}", `${PUBLIC_BASE}/downloads/mia-mobile-update.json`]).trim();
+  const apkHttp = out("curl", ["-sS", "-I", "-o", "/dev/null", "-w", "%{http_code}", apkUrl]).trim();
   console.log(`[publish] verify manifest=${manifestHttp} apk=${apkHttp}`);
   if (manifestHttp !== "200" || apkHttp !== "200") throw new Error("post-upload verification failed");
-  console.log(`[publish] done — clients on a lower versionCode will now see the update.`);
+  console.log("[publish] done — clients on a lower versionCode will now see the update.");
 }
 
 main();
