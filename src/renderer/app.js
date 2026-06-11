@@ -294,6 +294,12 @@ const els = {
   cloudLogout: document.getElementById("cloudLogout"),
   checkUpdates: document.getElementById("checkUpdates"),
   appUpdateHint: document.getElementById("appUpdateHint"),
+  appUpdateOverlay: document.getElementById("appUpdateOverlay"),
+  appUpdateOverlayTitle: document.getElementById("appUpdateOverlayTitle"),
+  appUpdateOverlayDetail: document.getElementById("appUpdateOverlayDetail"),
+  appUpdateProgressBar: document.getElementById("appUpdateProgressBar"),
+  appUpdateProgressFill: document.getElementById("appUpdateProgressFill"),
+  appUpdateProgressText: document.getElementById("appUpdateProgressText"),
   tasksUnreadBadge: document.getElementById("tasksUnreadBadge"),
   contactsUnreadBadge: document.getElementById("contactsUnreadBadge"),
   chatUnreadBadge: document.getElementById("chatUnreadBadge"),
@@ -320,12 +326,95 @@ function updateVersionSuffix(version) {
 
 function appUpdateStatusText(result = {}) {
   const version = updateVersionSuffix(result.version);
-  if (result.status === "available") return `发现新版本${version}，正在后台下载。`;
-  if (result.status === "downloaded") return `新版本${version}已下载，请按提示重启。`;
+  if (result.status === "available") return `发现新版本${version}，正在下载并安装。`;
+  if (result.status === "downloading") return `正在下载新版本${version}。`;
+  if (result.status === "downloaded") return `新版本${version}已下载，正在安装。`;
+  if (result.status === "installing") return `正在安装新版本${version}。`;
   if (result.status === "not-available") return "当前已经是最新版本。";
   if (result.status === "disabled") return "检查更新只在安装版桌面 App 中可用。";
   if (result.status === "error") return `检查失败：${result.error?.message || "请稍后再试"}`;
   return "已发起更新检查。";
+}
+
+function appUpdatePercent(payload = {}) {
+  const status = payload.status || payload.type || "";
+  if (status === "downloaded" || status === "installing") return 100;
+  const value = Number(payload.progress?.percent);
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, value));
+}
+
+function appUpdateOverlayCopy(payload = {}) {
+  const status = payload.status || payload.type || "";
+  const version = updateVersionSuffix(payload.version);
+  if (status === "available") {
+    return {
+      title: `发现 Mia${version} 更新`,
+      detail: "正在下载更新包，更新期间暂时不能操作其他内容。"
+    };
+  }
+  if (status === "downloaded") {
+    return {
+      title: "更新包已下载",
+      detail: "正在准备安装，Mia 会自动重启。"
+    };
+  }
+  if (status === "installing") {
+    return {
+      title: "正在安装更新",
+      detail: "安装程序已经启动，Mia 会自动完成重启。"
+    };
+  }
+  return {
+    title: `正在下载 Mia${version} 更新`,
+    detail: "更新期间暂时不能操作其他内容。"
+  };
+}
+
+function setAppShellUpdateLocked(locked) {
+  document.body.classList.toggle("update-locked", locked);
+  const shell = document.querySelector(".app-shell");
+  if (!shell) return;
+  if ("inert" in shell) shell.inert = locked;
+  if (locked) shell.setAttribute("aria-hidden", "true");
+  else shell.removeAttribute("aria-hidden");
+}
+
+function renderAppUpdateOverlay(payload = {}, visible = true) {
+  setAppShellUpdateLocked(visible);
+  els.appUpdateOverlay?.classList.toggle("hidden", !visible);
+  if (!visible) return;
+  const copy = appUpdateOverlayCopy(payload);
+  const percent = appUpdatePercent(payload);
+  setText(els.appUpdateOverlayTitle, copy.title);
+  setText(els.appUpdateOverlayDetail, copy.detail);
+  if (els.appUpdateProgressFill) els.appUpdateProgressFill.style.width = `${percent}%`;
+  if (els.appUpdateProgressBar) els.appUpdateProgressBar.setAttribute("aria-valuenow", String(Math.round(percent)));
+  setText(els.appUpdateProgressText, `${Math.round(percent)}%`);
+  try { document.activeElement?.blur?.(); } catch { /* ignore */ }
+  els.appUpdateOverlay?.focus?.();
+}
+
+function handleAppUpdateEvent(payload = {}) {
+  const status = payload.status || payload.type || "";
+  if (status === "error") {
+    renderAppUpdateOverlay(payload, false);
+    setText(els.appUpdateHint, appUpdateStatusText(payload));
+    return;
+  }
+  if (status === "not-available" || status === "disabled") {
+    renderAppUpdateOverlay(payload, false);
+    setText(els.appUpdateHint, appUpdateStatusText(payload));
+    return;
+  }
+  if (status === "checking") {
+    setText(els.appUpdateHint, "正在检查更新...");
+    return;
+  }
+  if (["available", "downloading", "downloaded", "installing"].includes(status)) {
+    setText(els.appUpdateHint, appUpdateStatusText(payload));
+    renderAppUpdateOverlay(payload, true);
+  }
 }
 
 function updateStatusBadgeAssetBaseUrl(runtime = state.runtime) {
@@ -3730,11 +3819,13 @@ els.cloudLogout?.addEventListener("click", async () => {
     els.cloudLogout.disabled = false;
   }
 });
+window.mia.onUpdateEvent?.((payload) => handleAppUpdateEvent(payload || {}));
 els.checkUpdates?.addEventListener("click", async () => {
   els.checkUpdates.disabled = true;
   setText(els.appUpdateHint, "正在检查更新...");
   try {
     const result = await window.mia.checkForUpdates();
+    handleAppUpdateEvent(result || {});
     setText(els.appUpdateHint, appUpdateStatusText(result));
   } catch (error) {
     setText(els.appUpdateHint, `检查失败：${error.message || error}`);

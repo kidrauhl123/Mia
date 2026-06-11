@@ -24,6 +24,23 @@
     </div>
   </section>
 
+  <section id="appUpdateOverlay" class="app-update-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="appUpdateOverlayTitle" aria-describedby="appUpdateOverlayDetail" tabindex="-1">
+    <div class="app-update-panel">
+      <div class="app-update-mark" aria-hidden="true">
+        <span></span>
+      </div>
+      <div class="app-update-copy">
+        <p class="app-update-kicker">Mia 更新</p>
+        <h2 id="appUpdateOverlayTitle">正在准备更新</h2>
+        <p id="appUpdateOverlayDetail">请保持 Mia 打开，更新完成后会自动安装。</p>
+        <div id="appUpdateProgressBar" class="app-update-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+          <span id="appUpdateProgressFill"></span>
+        </div>
+        <p id="appUpdateProgressText" class="app-update-progress-text">0%</p>
+      </div>
+    </div>
+  </section>
+
   <main class="app-shell" data-auth-state="signed-out">
     <aside class="nav-rail" aria-label="主导航">
       <div class="traffic-spacer" id="trafficSpacer">

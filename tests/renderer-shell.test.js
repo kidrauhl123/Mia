@@ -62,9 +62,16 @@ test("settings exposes manual update checks through the preload bridge", () => {
 
   assert.match(htmlSource, /id="checkUpdates"/);
   assert.match(htmlSource, /id="appUpdateHint"/);
+  assert.match(htmlSource, /id="appUpdateOverlay"/);
+  assert.match(htmlSource, /id="appUpdateProgressFill"/);
   assert.match(appSource, /window\.mia\.checkForUpdates\(\)/);
+  assert.match(appSource, /window\.mia\.onUpdateEvent\?\.\(\(payload\) => handleAppUpdateEvent/);
+  assert.match(appSource, /setAppShellUpdateLocked\(visible\)/);
   assert.match(preloadSource, /checkForUpdates:\s*\(\)\s*=>\s*ipcRenderer\.invoke\(IpcChannel\.UpdateCheck\)/);
+  assert.match(preloadSource, /onUpdateEvent:\s*\(callback\) => \{/);
+  assert.match(preloadSource, /ipcRenderer\.on\(IpcChannel\.UpdateEvent, handler\)/);
   assert.match(mainSource, /ipcMain\.handle\(IpcChannel\.UpdateCheck,\s*\(\)\s*=>\s*autoUpdateService\.checkForUpdates\(\)\)/);
+  assert.match(mainSource, /sendUpdateEvent:\s*\(payload\) => broadcastRendererEvent\(IpcChannel\.UpdateEvent, payload\)/);
 });
 
 test("cloud conversation send and render do not depend on activeKey being empty", () => {

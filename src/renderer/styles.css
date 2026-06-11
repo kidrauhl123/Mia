@@ -550,6 +550,108 @@ body.platform-win32 .topbar {
   to { transform: translateY(0); opacity: 1; }
 }
 
+body.update-locked {
+  cursor: wait;
+  user-select: none;
+}
+
+.app-update-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 12000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(18 20 28 / 0.38);
+  -webkit-backdrop-filter: blur(18px) saturate(1.05);
+  backdrop-filter: blur(18px) saturate(1.05);
+  pointer-events: auto;
+}
+
+.app-update-panel {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  gap: 16px;
+  width: min(440px, 100%);
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: 0 24px 70px rgb(0 0 0 / 0.24);
+}
+
+.app-update-mark {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  background: rgb(var(--accent-rgb) / 0.13);
+  color: var(--accent);
+}
+
+.app-update-mark span {
+  width: 28px;
+  height: 28px;
+  border: 3px solid rgb(var(--accent-rgb) / 0.22);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: appUpdateSpin 900ms linear infinite;
+}
+
+.app-update-copy {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.app-update-kicker,
+.app-update-progress-text {
+  color: var(--faint);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.app-update-copy h2 {
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 560;
+  line-height: 1.25;
+}
+
+.app-update-copy p {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.app-update-progress {
+  position: relative;
+  height: 8px;
+  margin-top: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--field);
+}
+
+.app-update-progress span {
+  display: block;
+  width: 0%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 180ms ease;
+}
+
+.app-update-progress-text {
+  justify-self: end;
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes appUpdateSpin {
+  to { transform: rotate(360deg); }
+}
+
 .sidebar,
 .workspace {
   min-width: 0;

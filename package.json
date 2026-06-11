@@ -1,6 +1,6 @@
 {
   "name": "mia",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "private": true,
   "workspaces": [
     "apps/mobile-rn",
@@ -49,6 +49,7 @@
     "release:mac": "npm run dist:mac && node scripts/publish-mac-update.js",
     "release:mac:publish": "node scripts/publish-mac-update.js",
     "dist:win": "node scripts/build-win.js",
+    "release:win": "npm run dist:win && node scripts/publish-win-update.js",
     "release:win:publish": "node scripts/publish-win-update.js"
   },
   "hermes": {

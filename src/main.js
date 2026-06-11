@@ -2309,9 +2309,10 @@ const autoUpdateService = createAutoUpdateService({
   // Lazy: constructs the electron-updater singleton only when the foreground
   // window calls start(), so it's never materialized in the daemon process.
   getAutoUpdater: () => require("electron-updater").autoUpdater,
-  dialog,
   isPackaged: app.isPackaged,
   getMainWindow: () => BrowserWindow.getAllWindows()[0] || null,
+  getMainWindows: () => BrowserWindow.getAllWindows(),
+  sendUpdateEvent: (payload) => broadcastRendererEvent(IpcChannel.UpdateEvent, payload),
 });
 
 ipcMain.handle(IpcChannel.UpdateCheck, () => autoUpdateService.checkForUpdates());

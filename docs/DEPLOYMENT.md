@@ -107,9 +107,10 @@ release/
 
 ### 桌面自动更新（in-app update）
 
-- 发布命令：`npm run release:mac`（= `dist:mac` + `scripts/publish-mac-update.js`）——把 `latest-mac.yml` + dmg/zip/blockmap 暂存到 `dist/mia-updates/`；设置 `MIA_UPDATE_DEPLOY=1` 时同步到 VPS 的 `/var/www/mia-updates/`，由 `https://mia.gifgif.cn/updates/` 提供。
+- 发布命令：`npm run release:mac`（= `dist:mac` + `scripts/publish-mac-update.js`）暂存 `latest-mac.yml` + dmg/zip/blockmap；`npm run release:win`（= `dist:win` + `scripts/publish-win-update.js`）暂存 `latest.yml` + NSIS setup/blockmap。设置 `MIA_UPDATE_DEPLOY=1` 时同步到 VPS 的 `/var/www/mia-updates/`，由 `https://mia.gifgif.cn/updates/` 提供。
 - 发版必须先 **bump `package.json` 的 `version`**，否则旧客户端版本号不变、不会触发更新。
-- 当前更新通道 = **generic HTTPS**（`build.publish` = `generic`, `url` = `https://mia.gifgif.cn/updates/`）；客户端用 electron-updater 拉 `latest-mac.yml` + 下载 zip/blockmap。
+- 当前更新通道 = **generic HTTPS**（`build.publish` = `generic`, `url` = `https://mia.gifgif.cn/updates/`）；客户端用 electron-updater 在 macOS 拉 `latest-mac.yml`，在 Windows 拉 `latest.yml`。
+- 客户端检查到新版本后是强制更新：主界面会被更新遮罩锁定，下载进度来自 `download-progress`，下载完成后自动进入安装并重启。
 - 产物**签名但默认未公证（notarize）**：本机可用，分发给其他 Mac 首开会被 Gatekeeper 拦——正式分发需配公证凭证重出。
 
 > **旧包迁移限制**：已经安装的 GitHub-provider 旧包只会去 GitHub release 检查更新。第一次迁移要发一个桥接版本：同一个新版本同时发布到 GitHub release 和 `mia.gifgif.cn/updates/`。旧包从 GitHub 升到桥接版本后，桥接版本内置的 generic provider 会让之后更新完全走 `mia.gifgif.cn/updates/`。

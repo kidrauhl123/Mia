@@ -15,6 +15,11 @@ contextBridge.exposeInMainWorld("mia", {
   cloudSync: () => ipcRenderer.invoke(IpcChannel.CloudSync),
   cloudLogout: () => ipcRenderer.invoke(IpcChannel.CloudLogout),
   checkForUpdates: () => ipcRenderer.invoke(IpcChannel.UpdateCheck),
+  onUpdateEvent: (callback) => {
+    const handler = (_event, payload) => { try { callback(payload); } catch { /* ignore */ } };
+    ipcRenderer.on(IpcChannel.UpdateEvent, handler);
+    return () => ipcRenderer.removeListener(IpcChannel.UpdateEvent, handler);
+  },
   onCloudEvent: (handler) => {
     const listener = (_event, envelope) => { try { handler(envelope); } catch { /* ignore */ } };
     ipcRenderer.on(IpcChannel.CloudEvent, listener);

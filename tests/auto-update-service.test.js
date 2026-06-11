@@ -16,8 +16,9 @@ class FakeUpdater extends EventEmitter {
     return this.checkForUpdatesImpl?.();
   }
 
-  quitAndInstall() {
+  quitAndInstall(...args) {
     this.quitCalled = true;
+    this.quitArgs = args;
   }
 }
 
@@ -90,4 +91,105 @@ test("manual update check serializes update errors for the renderer", async () =
     status: "error",
     error: { message: "network down", code: "ENETDOWN" },
   });
+});
+
+test("available updates lock the app, report progress, and force install", async () => {
+  const events = [];
+  const calls = [];
+  let scheduled = null;
+  let updater;
+  updater = new FakeUpdater(() => {
+    updater.emit("update-available", { version: "0.1.12" });
+    return Promise.resolve({
+      updateInfo: { version: "0.1.12" },
+      downloadPromise: Promise.resolve(),
+    });
+  });
+
+  const win = {
+    isDestroyed: () => false,
+    show: () => calls.push(["show"]),
+    focus: () => calls.push(["focus"]),
+    setClosable: (value) => calls.push(["closable", value]),
+    setMinimizable: (value) => calls.push(["minimizable", value]),
+    setMaximizable: (value) => calls.push(["maximizable", value]),
+  };
+  const service = createService(updater, {
+    getMainWindows: () => [win],
+    sendUpdateEvent: (payload) => events.push(payload),
+    forceInstallDelayMs: 25,
+    setTimeoutFn: (fn, ms) => {
+      scheduled = { fn, ms };
+      return 1;
+    },
+  });
+
+  const result = await service.checkForUpdates();
+  assert.deepEqual(result, { status: "available", version: "0.1.12" });
+  assert.equal(events[0].status, "available");
+  assert.equal(events[0].mandatory, true);
+  assert.deepEqual(calls.slice(0, 5), [
+    ["show"],
+    ["focus"],
+    ["closable", false],
+    ["minimizable", false],
+    ["maximizable", false],
+  ]);
+
+  updater.emit("download-progress", {
+    percent: 44.4,
+    bytesPerSecond: 512,
+    transferred: 44,
+    total: 100,
+  });
+  assert.deepEqual(events.at(-1).progress, {
+    percent: 44.4,
+    bytesPerSecond: 512,
+    transferred: 44,
+    total: 100,
+  });
+
+  updater.emit("update-downloaded", { version: "0.1.12" });
+  assert.equal(events.at(-1).status, "downloaded");
+  assert.equal(events.at(-1).progress.percent, 100);
+  assert.equal(scheduled.ms, 25);
+  assert.equal(updater.quitCalled, false);
+
+  scheduled.fn();
+  assert.equal(events.at(-1).status, "installing");
+  assert.equal(updater.quitCalled, true);
+  assert.deepEqual(updater.quitArgs, [false, true]);
+});
+
+test("update errors unlock the app and notify the renderer", async () => {
+  const events = [];
+  const calls = [];
+  const updater = new FakeUpdater(() => Promise.resolve({
+    updateInfo: { version: "0.1.12" },
+    downloadPromise: Promise.resolve(),
+  }));
+  const win = {
+    isDestroyed: () => false,
+    show: () => calls.push(["show"]),
+    focus: () => calls.push(["focus"]),
+    setClosable: (value) => calls.push(["closable", value]),
+    setMinimizable: (value) => calls.push(["minimizable", value]),
+    setMaximizable: (value) => calls.push(["maximizable", value]),
+  };
+
+  await createService(updater, {
+    getMainWindows: () => [win],
+    sendUpdateEvent: (payload) => events.push(payload),
+  }).checkForUpdates();
+
+  updater.emit("update-available", { version: "0.1.12" });
+  updater.emit("error", Object.assign(new Error("download failed"), { code: "EIO" }));
+
+  assert.equal(events.at(-1).status, "error");
+  assert.deepEqual(events.at(-1).error, { message: "download failed", code: "EIO" });
+  assert.deepEqual(calls.slice(-3), [
+    ["closable", true],
+    ["minimizable", true],
+    ["maximizable", true],
+  ]);
 });

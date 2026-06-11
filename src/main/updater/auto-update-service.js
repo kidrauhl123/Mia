@@ -1,4 +1,4 @@
-// In-app auto-update (macOS Squirrel.Mac via electron-updater).
+// In-app auto-update (macOS Squirrel.Mac / Windows NSIS via electron-updater).
 //
 // Feed is the generic HTTPS update source configured in package.json
 // `build.publish` (https://mia.gifgif.cn/updates/). electron-builder bakes that
@@ -27,25 +27,45 @@ function serializeError(error) {
   };
 }
 
+function clampPercent(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(100, n));
+}
+
+function normalizeProgress(progress = {}) {
+  return {
+    percent: clampPercent(progress.percent),
+    bytesPerSecond: Math.max(0, Number(progress.bytesPerSecond) || 0),
+    transferred: Math.max(0, Number(progress.transferred) || 0),
+    total: Math.max(0, Number(progress.total) || 0),
+  };
+}
+
 function createAutoUpdateService(deps = {}) {
   const {
     // Lazy accessor so the electron-updater singleton is constructed only in
     // the foreground path, never on module load in the daemon process.
     getAutoUpdater,
-    dialog,
     isPackaged,
     getMainWindow,
+    getMainWindows,
+    sendUpdateEvent,
     logger = console,
     disabled = process.env.MIA_DISABLE_AUTO_UPDATE === "1",
     // Re-check while the app stays open; most users update on relaunch, this
     // catches long-running sessions.
     checkIntervalMs = 6 * 60 * 60 * 1000,
+    forceInstallDelayMs = 1200,
+    setTimeoutFn = setTimeout,
+    setIntervalFn = setInterval,
   } = deps;
 
   let started = false;
   let configured = false;
   let checkingPromise = null;
-  let restartPromptOpen = false;
+  let installScheduled = false;
+  let windowInteractionLocked = false;
   let updater = null;
 
   function resolveUpdater() {
@@ -63,22 +83,92 @@ function createAutoUpdateService(deps = {}) {
     return !disabledReason();
   }
 
+  function updatePayload(type, info = null, extra = {}) {
+    return {
+      type,
+      status: type,
+      version: versionFromInfo(info) || String(extra.version || "").trim(),
+      mandatory: true,
+      ...extra,
+    };
+  }
+
+  function updateWindows() {
+    if (typeof getMainWindows === "function") return getMainWindows().filter(Boolean);
+    const win = typeof getMainWindow === "function" ? getMainWindow() : null;
+    return win ? [win] : [];
+  }
+
+  function setWindowInteractionLocked(locked) {
+    if (windowInteractionLocked === locked) return;
+    windowInteractionLocked = locked;
+    for (const win of updateWindows()) {
+      if (!win || win.isDestroyed?.()) continue;
+      try { if (locked) win.show?.(); } catch { /* best effort */ }
+      try { if (locked) win.focus?.(); } catch { /* best effort */ }
+      try { win.setClosable?.(!locked); } catch { /* platform-specific */ }
+      try { win.setMinimizable?.(!locked); } catch { /* platform-specific */ }
+      try { win.setMaximizable?.(!locked); } catch { /* platform-specific */ }
+    }
+  }
+
+  function emitUpdate(type, info = null, extra = {}) {
+    if (["available", "downloading", "downloaded", "installing"].includes(type)) {
+      setWindowInteractionLocked(true);
+    }
+    if (["not-available", "error"].includes(type)) {
+      setWindowInteractionLocked(false);
+    }
+    const payload = updatePayload(type, info, extra);
+    try {
+      sendUpdateEvent?.(payload);
+    } catch (error) {
+      logger.warn?.(`${TAG} update event dispatch failed`, error);
+    }
+    return payload;
+  }
+
+  function forceInstall(info) {
+    if (installScheduled) return;
+    installScheduled = true;
+    setTimeoutFn(() => {
+      emitUpdate("installing", info, { progress: normalizeProgress({ percent: 100 }) });
+      try {
+        resolveUpdater().quitAndInstall(false, true);
+      } catch (error) {
+        installScheduled = false;
+        logger.warn?.(`${TAG} quitAndInstall failed`, error);
+        emitUpdate("error", info, { error: serializeError(error) });
+      }
+    }, forceInstallDelayMs);
+  }
+
   function configureUpdater() {
     if (configured) return resolveUpdater();
     const autoUpdater = resolveUpdater();
     autoUpdater.autoDownload = true;
-    // If the user dismisses the restart prompt, still apply on next quit.
     autoUpdater.autoInstallOnAppQuit = true;
+    autoUpdater.on("checking-for-update", () => {
+      emitUpdate("checking");
+    });
     autoUpdater.on("error", (error) => {
-      // Update failures are routine (offline, no newer release) — warn, never nag.
       logger.warn?.(`${TAG} update check failed`, error);
+      emitUpdate("error", null, { error: serializeError(error) });
     });
     autoUpdater.on("update-available", (info) => {
       logger.info?.(`${TAG} update available: ${info?.version}`);
+      emitUpdate("available", info, { progress: normalizeProgress({ percent: 0 }) });
+    });
+    autoUpdater.on("update-not-available", (info) => {
+      emitUpdate("not-available", info);
+    });
+    autoUpdater.on("download-progress", (progress) => {
+      emitUpdate("downloading", null, { progress: normalizeProgress(progress) });
     });
     autoUpdater.on("update-downloaded", (info) => {
       logger.info?.(`${TAG} update downloaded: ${info?.version}`);
-      promptRestart(info);
+      emitUpdate("downloaded", info, { progress: normalizeProgress({ percent: 100 }) });
+      forceInstall(info);
     });
     configured = true;
     return autoUpdater;
@@ -93,7 +183,7 @@ function createAutoUpdateService(deps = {}) {
     }
     configureUpdater();
     checkForUpdates();
-    setInterval(checkForUpdates, checkIntervalMs);
+    setIntervalFn(checkForUpdates, checkIntervalMs);
   }
 
   function checkForUpdates() {
@@ -154,36 +244,6 @@ function createAutoUpdateService(deps = {}) {
     });
 
     return checkingPromise;
-  }
-
-  function promptRestart(info) {
-    if (restartPromptOpen) return;
-    restartPromptOpen = true;
-    const win = typeof getMainWindow === "function" ? getMainWindow() : null;
-    const options = {
-      type: "info",
-      buttons: ["立即重启", "稍后"],
-      defaultId: 0,
-      cancelId: 1,
-      title: "Mia 有新版本",
-      message: `Mia ${info?.version || ""} 已下载完成`.trim(),
-      detail: "重启后即可使用新版本。",
-    };
-    const onChoice = (result) => {
-      if (result?.response === 0) {
-        resolveUpdater().quitAndInstall();
-      } else {
-        // Let a later download cycle prompt again; quit-time install still applies.
-        restartPromptOpen = false;
-      }
-    };
-    const promise = win
-      ? dialog.showMessageBox(win, options)
-      : dialog.showMessageBox(options);
-    promise.then(onChoice).catch((error) => {
-      restartPromptOpen = false;
-      logger.warn?.(`${TAG} restart prompt failed`, error);
-    });
   }
 
   return { start, checkForUpdates };

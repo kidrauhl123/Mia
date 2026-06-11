@@ -31,6 +31,7 @@
     CloudLogout: "cloud:logout",
     CloudEvent: "cloud:event",
     UpdateCheck: "update:check",
+    UpdateEvent: "update:event",
     UtilOpenExternal: "util:open-external",
     StatusBadgeAssetLoad: "status-badge:asset-load",
     EngineInstall: "engine:install",
