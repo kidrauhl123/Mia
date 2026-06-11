@@ -3372,7 +3372,7 @@ document.querySelectorAll("[data-settings-tab]").forEach((button) => {
 async function submitCloudLogin() {
   const buttons = [els.cloudLogin].filter(Boolean);
   buttons.forEach((button) => { button.disabled = true; });
-  setText(els.cloudLoginHint, "正在打开微信登录，请在浏览器中确认授权...");
+  setText(els.cloudLoginHint, "正在打开微信登录二维码，请用微信扫码或关注公众号...");
   try {
     state.runtime = await window.mia.cloudLogin({ mode: "wechat" });
     window.miaSocial?.bootstrapAfterLogin?.();

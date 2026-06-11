@@ -244,7 +244,7 @@
       if (el) el.textContent = text;
       state.onboardingLoginHint = text;
     };
-    setHint("正在打开微信登录，请在浏览器中确认授权…");
+    setHint("正在打开微信登录二维码，请用微信扫码或关注公众号…");
     try {
       const runtime = await deps.cloudLogin?.({ mode: "wechat" });
       if (runtime) state.runtime = runtime;

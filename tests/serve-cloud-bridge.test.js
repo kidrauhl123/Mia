@@ -158,6 +158,97 @@ test("wechat mp event endpoint verifies server token without bearer auth", async
   }
 });
 
+test("wechat start uses mp scene qr and completes from subscribe event", async () => {
+  const dataDir = tempDataDir();
+  const mpToken = "MiaCloudMpLoginToken";
+  const fetchCalls = [];
+  const fetchImpl = async (url, options = {}) => {
+    const href = String(url);
+    fetchCalls.push({ url: href, options });
+    if (href.startsWith("https://api.weixin.qq.com/cgi-bin/token")) {
+      return new Response(JSON.stringify({ access_token: "mp_access_token", expires_in: 7200 }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+    if (href.startsWith("https://api.weixin.qq.com/cgi-bin/qrcode/create")) {
+      const body = JSON.parse(String(options.body || "{}"));
+      return new Response(JSON.stringify({ ticket: `ticket_${body.action_info.scene.scene_str}` }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+    return new Response(JSON.stringify({ errmsg: `unexpected ${href}` }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" }
+    });
+  };
+  const server = createMiaCloudServer({
+    dataDir,
+    fetchImpl,
+    publicUrl: "https://mia.test",
+    wechatMpAppId: "wx_test_app",
+    wechatMpAppSecret: "mp_secret",
+    wechatMpToken: mpToken
+  });
+  const baseUrl = await listen(server);
+  try {
+    const started = await jsonFetch(baseUrl, "/api/auth/wechat/start", {
+      method: "POST",
+      body: { client: "web" }
+    });
+    assert.equal(started.mode, "wechat_mp");
+    assert.match(started.state, /^wx_/);
+    assert.equal(started.authorizationUrl, `https://mia.test/api/auth/wechat/mp/qr?state=${encodeURIComponent(started.state)}`);
+    assert.equal(started.qrCodeUrl, `https://mp.weixin.qq.com/cgi-bin/showqrcode?ticket=ticket_${encodeURIComponent(started.state)}`);
+
+    const tokenCall = fetchCalls.find((call) => call.url.startsWith("https://api.weixin.qq.com/cgi-bin/token"));
+    assert.ok(tokenCall);
+    assert.match(tokenCall.url, /appid=wx_test_app/);
+    const qrCall = fetchCalls.find((call) => call.url.startsWith("https://api.weixin.qq.com/cgi-bin/qrcode/create"));
+    assert.ok(qrCall);
+    const qrBody = JSON.parse(String(qrCall.options.body || "{}"));
+    assert.equal(qrBody.action_name, "QR_STR_SCENE");
+    assert.equal(qrBody.action_info.scene.scene_str, started.state);
+
+    const qrPage = await rawFetch(baseUrl, `/api/auth/wechat/mp/qr?state=${encodeURIComponent(started.state)}`);
+    assert.equal(qrPage.status, 200);
+    assert.match(await qrPage.text(), /微信扫码登录 Mia/);
+
+    const timestamp = "1780000001";
+    const nonce = "mp_scan_nonce";
+    const signature = wechatMpSignature(mpToken, timestamp, nonce);
+    const xml = `<xml>
+<ToUserName><![CDATA[gh_test]]></ToUserName>
+<FromUserName><![CDATA[openid_test]]></FromUserName>
+<CreateTime>${timestamp}</CreateTime>
+<MsgType><![CDATA[event]]></MsgType>
+<Event><![CDATA[subscribe]]></Event>
+<EventKey><![CDATA[qrscene_${started.state}]]></EventKey>
+<Ticket><![CDATA[ticket]]></Ticket>
+</xml>`;
+    const event = await rawFetch(
+      baseUrl,
+      `/api/auth/wechat/mp/events?signature=${signature}&timestamp=${timestamp}&nonce=${nonce}`,
+      { method: "POST", headers: { "Content-Type": "text/xml" }, body: xml }
+    );
+    assert.equal(event.status, 200);
+    assert.equal(await event.text(), "success");
+
+    const completed = await jsonFetch(baseUrl, "/api/auth/wechat/complete", {
+      method: "POST",
+      body: { state: started.state }
+    });
+    assert.equal(completed.ok, true);
+    assert.equal(completed.status, "complete");
+    assert.ok(completed.token);
+    assert.match(completed.user.username, /^wx_[a-f0-9]{12}$/);
+  } finally {
+    await close(server);
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
 test("auth accepts WeChat login through the cloud store", async () => {
   const dataDir = tempDataDir();
   const server = createMiaCloudServer({ dataDir });

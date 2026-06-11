@@ -136,12 +136,14 @@ try {
   ({ verifyUserModelProxyToken } = require("./src/cloud/model-proxy-auth.js"));
 }
 let createWechatAuthFlow = null;
+let isWechatMpLoginConfigured = null;
 let wechatConfig = null;
 let wechatMpConfig = null;
 let verifyWechatMpSignature = null;
 try {
   ({
     createWechatAuthFlow,
+    isWechatMpLoginConfigured,
     verifyWechatMpSignature,
     wechatConfig,
     wechatMpConfig
@@ -149,6 +151,7 @@ try {
 } catch {
   ({
     createWechatAuthFlow,
+    isWechatMpLoginConfigured,
     verifyWechatMpSignature,
     wechatConfig,
     wechatMpConfig
@@ -295,6 +298,32 @@ function wechatCallbackHtml(account = null, error = "") {
   return `<!doctype html><meta charset="utf-8"><title>Mia 微信登录</title><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:32px;background:#f5f5f8;color:#15151a;"><h1>${message}</h1><p>桌面端会自动完成登录；网页端将返回 Mia Web。</p><script>${script}</script></body>`;
 }
 
+function wechatMpQrHtml(record = null) {
+  const state = record?.state || "";
+  const qrCodeUrl = record?.qrCodeUrl || "";
+  if (!state || !qrCodeUrl) {
+    return "<!doctype html><meta charset=\"utf-8\"><title>Mia 微信登录</title><body style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:32px;background:#f5f5f8;color:#15151a;\"><h1>微信登录已过期</h1><p>请返回 Mia 重新发起登录。</p></body>";
+  }
+  return `<!doctype html><meta charset="utf-8"><title>Mia 微信登录</title><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;background:#f5f5f8;color:#15151a;"><main style="text-align:center;"><h1>微信扫码登录 Mia</h1><img alt="微信登录二维码" src="${escapeHtml(qrCodeUrl)}" style="width:260px;height:260px;background:#fff;padding:12px;border-radius:12px;box-shadow:0 12px 36px rgba(0,0,0,.12);"><p id="status" style="color:#666;">请使用微信扫码，关注公众号后会自动登录。</p></main><script>
+const state=${JSON.stringify(state)};
+const statusEl=document.getElementById("status");
+async function poll(){
+  try{
+    const response=await fetch("/api/auth/wechat/complete",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({state})});
+    const data=await response.json();
+    if(data.status==="complete"&&data.token){
+      try{localStorage.setItem("mia.web.session",JSON.stringify({token:data.token,user:data.user||null,theme:"light"}));}catch(e){}
+      location.href="/app/";
+      return;
+    }
+    if(data.status==="failed"||data.ok===false){statusEl.textContent=data.error||"微信登录失败，请重新发起。";return;}
+  }catch(e){}
+  setTimeout(poll,1500);
+}
+poll();
+</script></body>`;
+}
+
 async function handleWechatMpEvents(req, res, context, url) {
   if (url.pathname !== "/api/auth/wechat/mp/events") return false;
   const config = wechatMpConfig(context);
@@ -317,7 +346,8 @@ async function handleWechatMpEvents(req, res, context, url) {
     return true;
   }
   if (req.method === "POST") {
-    await readBody(req);
+    const body = await readBody(req);
+    context.wechatAuth.handleMpEventXml(body);
     writeText(res, 200, "success");
     return true;
   }
@@ -558,7 +588,7 @@ function fileContentType(filePath, fallback = "application/octet-stream") {
 }
 
 function publicOriginFromContext(context = {}) {
-  const explicit = normalizeOrigin(process.env.MIA_CLOUD_PUBLIC_URL || process.env.MIA_PUBLIC_URL || "");
+  const explicit = normalizeOrigin(context.publicUrl || process.env.MIA_CLOUD_PUBLIC_URL || process.env.MIA_PUBLIC_URL || "");
   if (explicit) return explicit;
   const firstAllowed = Array.isArray(context.allowedOrigins) ? context.allowedOrigins[0] : "";
   return normalizeOrigin(firstAllowed || "");
@@ -2366,6 +2396,11 @@ async function handleRequest(req, res, context) {
     return;
   }
   if (await handleWechatMpEvents(req, res, context, url)) return;
+  if (req.method === "GET" && url.pathname === "/api/auth/wechat/mp/qr") {
+    const record = context.wechatAuth.peek(url.searchParams.get("state"));
+    writeText(res, 200, wechatMpQrHtml(record), "text/html; charset=utf-8");
+    return;
+  }
 
   if (url.pathname === "/admin") {
     res.writeHead(308, { "Location": "/admin/model" });
@@ -2399,9 +2434,18 @@ async function handleRequest(req, res, context) {
 
   try {
     if (req.method === "POST" && url.pathname === "/api/auth/wechat/start") {
+      const body = await readJson(req);
+      const mpConfig = wechatMpConfig(context);
+      if (isWechatMpLoginConfigured(mpConfig)) {
+        const started = await context.wechatAuth.startMp(mpConfig, {
+          client: body.client,
+          publicUrl: publicOriginFromContext(context)
+        });
+        return writeJson(res, 200, { ok: true, mode: "wechat_mp", ...started });
+      }
       const config = wechatConfig(context, req);
       const started = context.wechatAuth.start(config);
-      return writeJson(res, 200, { ok: true, ...started });
+      return writeJson(res, 200, { ok: true, mode: "wechat_qrconnect", ...started });
     }
 
     if (req.method === "GET" && url.pathname === "/api/auth/wechat/callback") {
