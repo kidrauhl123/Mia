@@ -3018,6 +3018,32 @@ body.onboarding-window .setup-guide.ready .setup-footer { animation-delay: 0.13s
   text-align: center;
 }
 
+.onb-login-qr-card {
+  align-self: center;
+  display: grid;
+  place-items: center;
+  width: 248px;
+  height: 248px;
+  padding: 12px;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 16px 42px rgba(26, 28, 36, 0.12);
+}
+
+.onb-login-qr-img {
+  width: 224px;
+  height: 224px;
+  object-fit: contain;
+}
+
+.onb-login-qr-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+  text-align: center;
+}
+
 .onb-login-actions {
   gap: 8px;
 }

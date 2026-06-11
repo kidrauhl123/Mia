@@ -1963,7 +1963,8 @@ ipcMain.handle(IpcChannel.UtilOpenExternal, async (_event, url) => {
 ipcMain.handle(IpcChannel.StatusBadgeAssetLoad, (_event, assetId) => loadStatusBadgeAsset(assetId));
 ipcMain.handle(IpcChannel.CloudStatus, () => cloudStatus(false));
 ipcMain.handle(IpcChannel.CloudLogin, async (_event, payload) => {
-  await loginMiaCloud(payload || {});
+  const result = await loginMiaCloud(payload || {});
+  if (result?.kind === "wechat-login-start" || result?.kind === "wechat-login-pending") return result;
   return getRuntimeStatus();
 });
 ipcMain.handle(IpcChannel.CloudSync, async () => {
@@ -2018,8 +2019,7 @@ cloudDesktopSyncRuntime = createCloudDesktopSyncClient({
   startCloudBridge,
   stopCloudEvents,
   stopCloudBridge,
-  skillMarketCache,
-  openExternal: (url) => shell.openExternal(url)
+  skillMarketCache
 });
 cloudBridgeRuntime = createCloudBridgeClient({
   WebSocketImpl: WebSocket,

@@ -64,7 +64,6 @@ function setup(overrides = {}) {
     startCloudBridge: () => { calls.startedBridge += 1; },
     stopCloudEvents: () => { calls.stoppedEvents += 1; },
     stopCloudBridge: () => { calls.stoppedBridge += 1; },
-    openExternal: async (url) => { calls.openedUrls.push(url); },
     waitMs: async (ms) => { calls.waits.push(ms); },
     now: () => 123456,
     ...overrides
@@ -75,7 +74,12 @@ function setup(overrides = {}) {
 test("login normalizes the cloud URL, starts WeChat auth, then starts sockets with the returned token", async () => {
   const { client, calls, getSettings } = setup({
     responses: [
-      jsonResponse({ authorizationUrl: "https://open.weixin.qq.com/connect/qrconnect?state=wx_state", state: "wx_state" }),
+      jsonResponse({
+        mode: "wechat_mp_scene",
+        authorizationUrl: "https://new.example/api/auth/wechat/mp/qr?state=wx_state",
+        qrCodeUrl: "https://mp.weixin.qq.com/cgi-bin/showqrcode?ticket=ticket",
+        state: "wx_state"
+      }),
       jsonResponse({ status: "complete", token: "tok_new", user: { id: "u_new", username: "jung" } })
     ]
   });
@@ -97,7 +101,7 @@ test("login normalizes the cloud URL, starts WeChat auth, then starts sockets wi
     body: { state: "wx_state" },
     signal: "timeout-signal"
   });
-  assert.deepEqual(calls.openedUrls, ["https://open.weixin.qq.com/connect/qrconnect?state=wx_state"]);
+  assert.deepEqual(calls.openedUrls, []);
   assert.deepEqual(calls.waits, [1500]);
   assert.deepEqual(calls.writes[1], {
     url: "https://new.example",
@@ -187,6 +191,47 @@ test("saveUserProfile writes the local profile and immediately syncs it to Mia C
     }
   });
   assert.deepEqual(status, { ok: true, includeToken: false, token: undefined });
+});
+
+test("login can return an inline WeChat scene QR and complete it without opening a browser", async () => {
+  const { client, calls, getSettings } = setup({
+    responses: [
+      jsonResponse({
+        mode: "wechat_mp_scene",
+        authorizationUrl: "https://new.example/api/auth/wechat/mp/qr?state=wx_state",
+        qrCodeUrl: "https://mp.weixin.qq.com/cgi-bin/showqrcode?ticket=ticket",
+        state: "wx_state",
+        expiresAt: "2026-06-11T13:00:00.000Z"
+      }),
+      jsonResponse({ status: "pending", expiresAt: "2026-06-11T13:00:00.000Z" }),
+      jsonResponse({ status: "complete", token: "tok_new", user: { id: "u_new", username: "jung" } })
+    ]
+  });
+
+  const started = await client.login({ action: "start", url: "https://new.example///" });
+  assert.deepEqual(started, {
+    kind: "wechat-login-start",
+    mode: "wechat_mp_scene",
+    state: "wx_state",
+    qrCodeUrl: "https://mp.weixin.qq.com/cgi-bin/showqrcode?ticket=ticket",
+    authorizationUrl: "https://new.example/api/auth/wechat/mp/qr?state=wx_state",
+    expiresAt: "2026-06-11T13:00:00.000Z"
+  });
+  assert.deepEqual(calls.openedUrls, []);
+
+  const pending = await client.login({ action: "complete", state: "wx_state" });
+  assert.deepEqual(pending, {
+    kind: "wechat-login-pending",
+    status: "pending",
+    expiresAt: "2026-06-11T13:00:00.000Z"
+  });
+
+  const completed = await client.login({ action: "complete", state: "wx_state" });
+  assert.deepEqual(completed, { kind: "wechat-login-complete", status: "complete" });
+  assert.equal(getSettings().enabled, true);
+  assert.equal(getSettings().token, "tok_new");
+  assert.equal(calls.startedEvents, 1);
+  assert.equal(calls.startedBridge, 1);
 });
 
 test("saveAppearanceSettings writes local appearance and syncs the cloud user settings bag", async () => {

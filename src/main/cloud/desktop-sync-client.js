@@ -24,7 +24,6 @@ function createCloudDesktopSyncClient({
   skillMarketCache = null,
   skillMarketCacheTtlMs = DEFAULT_SKILL_MARKET_CACHE_TTL_MS,
   now = () => Date.now(),
-  openExternal = null,
   waitMs = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 }) {
   function settings() {
@@ -214,7 +213,7 @@ function createCloudDesktopSyncClient({
     return Buffer.from(await response.arrayBuffer());
   }
 
-  async function loginWithWechat({ url = "" } = {}) {
+  async function startWechatLogin({ url = "" } = {}) {
     const nextUrl = normalizeCloudUrl(url || settings().url);
     writeCloudSettings({ url: nextUrl, enabled: false, token: "", user: null });
     const started = await cloudApi("/api/auth/wechat/start", {
@@ -222,30 +221,58 @@ function createCloudDesktopSyncClient({
       body: { client: "desktop" },
       token: ""
     });
-    if (!started.authorizationUrl || !started.state) throw new Error("微信登录启动失败。");
-    if (typeof openExternal === "function") await openExternal(started.authorizationUrl);
+    if (!started.state || !started.qrCodeUrl) throw new Error("微信登录启动失败。");
+    return {
+      kind: "wechat-login-start",
+      mode: started.mode || "wechat_mp_scene",
+      state: started.state,
+      qrCodeUrl: started.qrCodeUrl,
+      authorizationUrl: started.authorizationUrl || "",
+      expiresAt: started.expiresAt || ""
+    };
+  }
+
+  async function completeWechatLogin({ state = "" } = {}) {
+    const loginState = String(state || "").trim();
+    if (!loginState) throw new Error("微信登录状态缺失，请重新扫码。");
+    const result = await cloudApi("/api/auth/wechat/complete", {
+      method: "POST",
+      body: { state: loginState },
+      token: ""
+    });
+    if (result.status === "pending") {
+      return {
+        kind: "wechat-login-pending",
+        status: "pending",
+        expiresAt: result.expiresAt || ""
+      };
+    }
+    if (result.status === "failed" || result.ok === false) throw new Error(result.error || "微信登录失败。");
+    if (!result?.token) throw new Error("微信登录结果缺少 token，请重新扫码。");
+    writeCloudSettings({ url: normalizeCloudUrl(settings().url), enabled: true, token: result.token, user: result.user || null });
+    startCloudEvents();
+    startCloudBridge();
+    return { kind: "wechat-login-complete", status: "complete" };
+  }
+
+  async function loginWithWechat(options = {}) {
+    const started = await startWechatLogin(options);
     const startedAt = now();
     let data = null;
     while (now() - startedAt < 1000 * 60 * 5) {
       await waitMs(1500);
-      const result = await cloudApi("/api/auth/wechat/complete", {
-        method: "POST",
-        body: { state: started.state },
-        token: ""
-      });
+      const result = await completeWechatLogin({ state: started.state });
       if (result.status === "pending") continue;
-      if (result.status === "failed" || result.ok === false) throw new Error(result.error || "微信登录失败。");
       data = result;
       break;
     }
-    if (!data?.token) throw new Error("微信登录超时，请重新扫码。");
-    writeCloudSettings({ url: nextUrl, enabled: true, token: data.token, user: data.user || null });
-    startCloudEvents();
-    startCloudBridge();
+    if (data?.status !== "complete") throw new Error("微信登录超时，请重新扫码。");
     return status(false);
   }
 
   async function login(options = {}) {
+    if (options?.action === "start") return startWechatLogin(options);
+    if (options?.action === "complete") return completeWechatLogin(options);
     return loginWithWechat(options);
   }
 

@@ -32,6 +32,8 @@
   // Prepare-step async scan state. status: idle → scanning → done. Per-agent
   // results land in scan[agentId] as they resolve.
   let scan = { status: "idle", done: 0, total: 4 };
+  let loginFlow = null;
+  let loginAttempt = 0;
   const SCAN_AGENTS = [
     { id: "hermes", label: "Hermes" },
     { id: "claude-code", label: "Claude Code" },
@@ -107,17 +109,24 @@
 
   function loginStepHtml() {
     const hint = state?.onboardingLoginHint || "";
+    const qr = loginFlow?.qrCodeUrl
+      ? `<div class="onb-login-qr-card">
+          <img class="onb-login-qr-img" src="${escapeHtml(loginFlow.qrCodeUrl)}" alt="微信登录二维码" draggable="false">
+        </div>
+        <p class="onb-login-qr-note">用微信扫码关注公众号，Mia 会自动完成登录。</p>`
+      : "";
     return `
-      <header class="setup-hero">
+      <header class="setup-hero${loginFlow?.qrCodeUrl ? " compact" : ""}">
         <img class="setup-logo-img" src="./assets/mia-logo.png" alt="Mia" draggable="false">
         <h1 class="setup-title">欢迎使用 Mia</h1>
         <p class="setup-tagline">一个聊天界面，指挥你所有的 AI Agent。先用微信登录，把对话同步到云端。</p>
       </header>
       <section class="onb-login" data-onb-login>
+        ${qr}
         <p class="onb-login-hint" data-onb-login-hint>${escapeHtml(hint)}</p>
       </section>
       <footer class="setup-footer onb-login-actions">
-        <button class="setup-cta wechat-login-cta" type="button" data-onb-action="login">${wechatIconSvg()}<span>微信登录</span></button>
+        <button class="setup-cta wechat-login-cta" type="button" data-onb-action="login"${loginFlow?.qrCodeUrl ? " disabled" : ""}>${wechatIconSvg()}<span>${loginFlow?.qrCodeUrl ? "等待扫码" : "微信登录"}</span></button>
       </footer>
     `;
   }
@@ -234,7 +243,7 @@
     // place via updateScanDom, never a full re-render). prepare/done: keyed on
     // the engine list so an install result refreshes it.
     const sig = step === "login"
-      ? "login"
+      ? "login::" + (loginFlow?.state || "")
       : scan.status === "done"
         ? "prepare::done::" + (deps.renderEngineList?.() || "") + "::installing::" + (isSetupInstallInFlight() ? "1" : "0")
         : "prepare::scanning";
@@ -255,22 +264,58 @@
       if (el) el.textContent = text;
       state.onboardingLoginHint = text;
     };
-    setHint("正在打开微信登录二维码，请用微信扫码或关注公众号…");
+    const attempt = loginAttempt + 1;
+    loginAttempt = attempt;
+    loginFlow = null;
+    setHint("正在生成微信登录二维码…");
+    deps.rerender?.();
     try {
-      const runtime = await deps.cloudLogin?.({ mode: "wechat" });
+      const started = await deps.cloudLogin?.({ mode: "wechat", action: "start" });
+      if (!started?.state || !started?.qrCodeUrl) throw new Error("微信登录二维码生成失败。");
+      if (attempt !== loginAttempt) return;
+      loginFlow = started;
+      state.onboardingLoginHint = "等待微信扫码关注…";
+      deps.rerender?.();
+      pollLogin(container, attempt);
+    } catch (error) {
+      loginFlow = null;
+      setHint(`连接失败：${error?.message || error}`);
+      deps.rerender?.();
+    }
+  }
+
+  async function pollLogin(container, attempt) {
+    if (!loginFlow?.state || attempt !== loginAttempt) return;
+    const setHint = (text) => {
+      const el = container.querySelector("[data-onb-login-hint]");
+      if (el) el.textContent = text;
+      state.onboardingLoginHint = text;
+    };
+    try {
+      const runtime = await deps.cloudLogin?.({ mode: "wechat", action: "complete", state: loginFlow.state });
+      if (attempt !== loginAttempt) return;
+      if (runtime?.status === "pending") {
+        setHint("二维码已生成，等待微信扫码关注…");
+        setTimeout(() => pollLogin(container, attempt), 1500);
+        return;
+      }
       if (runtime) state.runtime = runtime;
       if (signedIn()) {
+        loginFlow = null;
         state.onboardingLoginHint = "";
-        // A returning user who already finished onboarding just lands in the app;
-        // a fresh user continues to the prepare (detect Agents) step.
         const onboarded = hasCompletedOnboarding();
         if (onboarded) deps.rerender?.();
         else goToStep("prepare");
       } else {
+        loginFlow = null;
         setHint("微信登录未成功，请重试。");
+        deps.rerender?.();
       }
     } catch (error) {
+      if (attempt !== loginAttempt) return;
+      loginFlow = null;
       setHint(`连接失败：${error?.message || error}`);
+      deps.rerender?.();
     }
   }
 

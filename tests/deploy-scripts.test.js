@@ -124,6 +124,8 @@ test("ssh deploy script restores data backups during install and public verifica
   assert.match(source, /MIA_DOCTOR_EXPECT_RELEASE_COMMIT="\$EXPECTED_RELEASE_COMMIT"[\s\S]*?MIA_DOCTOR_EXPECT_RELEASE_BUILT_AT="\$EXPECTED_RELEASE_BUILT_AT"[\s\S]*?npm run cloud:doctor -- "\$PUBLIC_URL"/);
   assert.match(source, /Public doctor failed; attempting remote rollback/);
   assert.match(source, /==> Running public smoke/);
+  assert.match(source, /MIA_DEPLOY_SKIP_SMOKE/);
+  assert.match(source, /Skipping public smoke because MIA_DEPLOY_SKIP_SMOKE=1/);
   assert.match(source, /MIA_SMOKE_EXPECT_RELEASE_COMMIT="\$EXPECTED_RELEASE_COMMIT"[\s\S]*?MIA_SMOKE_EXPECT_RELEASE_BUILT_AT="\$EXPECTED_RELEASE_BUILT_AT"[\s\S]*?npm run cloud:smoke -- "\$PUBLIC_URL"/);
   assert.match(source, /Public smoke failed; attempting remote rollback/);
   assert.match(source, /==> Running public site verification/);

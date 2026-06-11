@@ -593,8 +593,16 @@ test("first-run onboarding cannot enter Mia while an engine install is running",
   assert.match(standaloneSource, /wechatIconSvg/);
   assert.match(wizardSource, /wechat-login-cta/);
   assert.match(standaloneSource, /wechat-login-cta/);
+  assert.match(wizardSource, /action:\s*"start"/);
+  assert.match(wizardSource, /action:\s*"complete"/);
+  assert.match(wizardSource, /onb-login-qr-card/);
+  assert.match(standaloneSource, /action:\s*"start"/);
+  assert.match(standaloneSource, /action:\s*"complete"/);
+  assert.match(standaloneSource, /onb-qr-card/);
   assert.match(standaloneStyles, /--wechat-green:\s*#07c160/);
+  assert.match(standaloneStyles, /\.onb-qr-card/);
   assert.match(appStyles, /\.setup-cta\.wechat-login-cta[\s\S]*background:\s*#07c160/);
+  assert.match(appStyles, /\.onb-login-qr-card/);
 });
 
 test("chat code blocks use a right-aligned language copy button without code frame borders", () => {

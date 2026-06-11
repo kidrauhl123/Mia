@@ -31,6 +31,7 @@ NGINX_SITE_CONF="${MIA_DEPLOY_NGINX_SITE_CONF:-/etc/nginx/sites-enabled/mia-web}
 DEPLOY_SUDO="${MIA_DEPLOY_SUDO:-}"
 DEPLOY_DRY_RUN="${MIA_DEPLOY_DRY_RUN:-}"
 DEPLOY_SKIP_LOCAL_TESTS="${MIA_DEPLOY_SKIP_LOCAL_TESTS:-}"
+DEPLOY_SKIP_SMOKE="${MIA_DEPLOY_SKIP_SMOKE:-}"
 ARCHIVE="$ROOT/dist/mia-cloud-release.tgz"
 ARCHIVE_SHA="$ARCHIVE.sha256"
 DEPLOY_ID="${MIA_DEPLOY_ID:-$(date +%Y%m%d-%H%M%S)-$$}"
@@ -626,13 +627,17 @@ if ! MIA_DOCTOR_EXPECT_RELEASE_COMMIT="$EXPECTED_RELEASE_COMMIT" \
   exit 1
 fi
 
-echo "==> Running public smoke"
-if ! MIA_SMOKE_EXPECT_RELEASE_COMMIT="$EXPECTED_RELEASE_COMMIT" \
-  MIA_SMOKE_EXPECT_RELEASE_BUILT_AT="$EXPECTED_RELEASE_BUILT_AT" \
-  npm run cloud:smoke -- "$PUBLIC_URL"; then
-  echo "==> Public smoke failed; attempting remote rollback"
-  rollback_remote || echo "Remote rollback failed; inspect $REMOTE manually." >&2
-  exit 1
+if [ "$DEPLOY_SKIP_SMOKE" = "1" ]; then
+  echo "==> Skipping public smoke because MIA_DEPLOY_SKIP_SMOKE=1"
+else
+  echo "==> Running public smoke"
+  if ! MIA_SMOKE_EXPECT_RELEASE_COMMIT="$EXPECTED_RELEASE_COMMIT" \
+    MIA_SMOKE_EXPECT_RELEASE_BUILT_AT="$EXPECTED_RELEASE_BUILT_AT" \
+    npm run cloud:smoke -- "$PUBLIC_URL"; then
+    echo "==> Public smoke failed; attempting remote rollback"
+    rollback_remote || echo "Remote rollback failed; inspect $REMOTE manually." >&2
+    exit 1
+  fi
 fi
 
 echo "==> Running public site verification"
