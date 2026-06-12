@@ -65,6 +65,13 @@ function openConversationMessageCache(dbPath) {
   }
   fs.mkdirSync(path.dirname(dbPath), { recursive: true, mode: 0o700 });
   const db = new DatabaseSync(dbPath);
+  // ADR 2026-06-12 P4: the high-frequency writer is the event-stream owner
+  // (daemon while enabled, window otherwise — settled by P2). The window still
+  // mirrors low-frequency REST snapshots (social bootstrap); with two
+  // processes holding the file, a missing busy timeout turns any rare overlap
+  // into an immediate SQLITE_BUSY instead of a short wait. Set it before the
+  // WAL switch: that pragma itself takes a lock and can hit BUSY on dual open.
+  db.exec("PRAGMA busy_timeout = 3000");
   db.exec("PRAGMA journal_mode = WAL");
   migrate(db);
 

@@ -247,3 +247,20 @@ test("old social bootstrap cache without bots_json is rebuilt destructively", ()
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("two handles on the same cache file interleave writes without SQLITE_BUSY", (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-cache-dual-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const dbPath = path.join(dir, "conversation-cache.db");
+  const owner = openConversationMessageCache(dbPath);
+  const mirror = openConversationMessageCache(dbPath);
+  t.after(() => { owner.close?.(); mirror.close?.(); });
+
+  for (let i = 0; i < 25; i += 1) {
+    owner.upsertMessages("c_1", [{ id: `m_${i}`, seq: i + 1, sender_kind: "bot", body_md: `回复 ${i}` }]);
+    mirror.updateSocialBootstrap("u_1", { conversations: [{ id: "c_1", title: `第 ${i} 轮` }] });
+  }
+
+  assert.equal(owner.getRecentMessages("c_1", 50).length, 25);
+  assert.equal(mirror.getSocialBootstrap("u_1").conversations[0].title, "第 24 轮");
+});

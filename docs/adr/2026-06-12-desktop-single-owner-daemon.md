@@ -94,6 +94,10 @@ daemon 复活后自动续传（游标在 daemon 手里，不丢段）。
 **P4 消息缓存单写者**
 `conversation-cache.db` 写入移到 daemon（它本来就在收事件）；窗口只读。
 验收：窗口冷启动从缓存渲染正常；无 `SQLITE_BUSY`。
+*实施备注（2026-06-12）：高频写（消息事件流）随 P2 已归事件流 owner；
+窗口保留的唯一写入是低频 REST 镜像（social bootstrap 快照——daemon 侧
+没有对应数据源，强行经 API 中转属过度设计）。以 WAL + busy_timeout
+保证两进程罕见重叠时退化为短等待而非 SQLITE_BUSY，验收语义不变。*
 
 **P5 减法清理**
 删除：窗口进程的 cloud-events/bridge 装配、双跑防御（执行抢锁不再需要）、
