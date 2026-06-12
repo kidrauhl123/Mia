@@ -243,7 +243,7 @@ MIA_WECHAT_MP_APP_SECRET=<WeChat Official Account AppSecret>
 MIA_WECHAT_MP_TOKEN=<message push token configured in WeChat>
 \`\`\`
 
-Set the Official Account \`网页授权域名\` to \`mia.gifgif.cn\`. Mia creates a QR code that points to WeChat Official Account OAuth with \`scope=snsapi_userinfo\`, then completes login from \`https://mia.gifgif.cn/api/auth/wechat/mp/oauth-callback\` and reads nickname/avatar from \`sns/userinfo\`. \`JS接口安全域名\` and \`生成带参数二维码\` / \`qrcode/create\` are not used for this login path. Message push at \`https://mia.gifgif.cn/api/auth/wechat/mp/events\` remains optional for WeChat server verification and non-login events.
+Set the Official Account \`网页授权域名\` to \`mia.gifgif.cn\`. Mia creates a QR code that points to a Mia-hosted login explanation page; when the user taps the authorization button, Mia opens WeChat Official Account OAuth with \`scope=snsapi_userinfo\`, then completes login from \`https://mia.gifgif.cn/api/auth/wechat/mp/oauth-callback\` and reads nickname/avatar from \`sns/userinfo\`. \`JS接口安全域名\` and \`生成带参数二维码\` / \`qrcode/create\` are not used for this login path. Message push at \`https://mia.gifgif.cn/api/auth/wechat/mp/events\` remains optional for WeChat server verification and non-login events.
 
 ## Platform Model Gateway
 

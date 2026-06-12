@@ -63,7 +63,7 @@
       ? `<div class="onb-qr-card">
           <img class="onb-qr-img" src="${esc(loginFlow.qrCodeUrl)}" alt="微信登录二维码" draggable="false">
         </div>
-        <p class="onb-qr-note">用微信扫码关注公众号，Mia 会自动完成登录。</p>`
+        <p class="onb-qr-note">用微信扫码，并在微信里继续授权登录。</p>`
       : "";
     return `
       <p class="onb-step">第 1 / 2 步 · 登录</p>
@@ -206,7 +206,7 @@
       if (!started?.state || !started?.qrCodeUrl) throw new Error("微信登录二维码生成失败。");
       if (attempt !== loginAttempt) return;
       loginFlow = started;
-      hint = "等待微信扫码关注…";
+      hint = "等待微信扫码授权…";
       render();
       pollLogin(attempt);
     } catch (error) {
@@ -222,7 +222,7 @@
       const result = await mia.cloudLogin?.({ mode: "wechat", action: "complete", state: loginFlow.state });
       if (attempt !== loginAttempt) return;
       if (result?.status === "pending") {
-        setHint("二维码已生成，等待微信扫码关注…");
+        setHint("二维码已生成，等待微信扫码授权…");
         setTimeout(() => pollLogin(attempt), 1500);
         return;
       }

@@ -228,6 +228,16 @@ test("wechat start uses service account OAuth QR and completes from OAuth callba
     assert.match(qrPageHtml, /微信扫码登录 Mia/);
     assert.match(qrPageHtml, /data:image\/png;base64,/);
 
+    const wechatPage = await rawFetch(baseUrl, `/api/auth/wechat/mp/qr?state=${encodeURIComponent(started.state)}`, {
+      headers: { "User-Agent": "Mozilla/5.0 MicroMessenger/8.0.50" }
+    });
+    assert.equal(wechatPage.status, 200);
+    const wechatPageHtml = await wechatPage.text();
+    assert.match(wechatPageHtml, /Mia 需要读取你的微信昵称和头像/);
+    assert.match(wechatPageHtml, /继续微信授权/);
+    assert.match(wechatPageHtml, /https:\/\/open\.weixin\.qq\.com\/connect\/oauth2\/authorize/);
+    assert.match(wechatPageHtml, /connect_redirect=1/);
+
     const pending = await jsonFetch(baseUrl, "/api/auth/wechat/complete", {
       method: "POST",
       body: { state: started.state }
@@ -262,7 +272,7 @@ test("wechat start uses service account OAuth QR and completes from OAuth callba
   }
 });
 
-test("wechat OAuth callback fails instead of creating a fallback profile when userinfo is incomplete", async () => {
+test("wechat OAuth callback fails instead of creating a fallback profile for snapshot users", async () => {
   const dataDir = tempDataDir();
   const fetchImpl = async (url) => {
     const href = String(url);
@@ -270,7 +280,8 @@ test("wechat OAuth callback fails instead of creating a fallback profile when us
       return new Response(JSON.stringify({
         access_token: "oauth_access_token",
         openid: "openid_empty",
-        scope: "snsapi_userinfo"
+        scope: "snsapi_userinfo",
+        is_snapshotuser: 1
       }), {
         status: 200,
         headers: { "Content-Type": "application/json" }
@@ -310,7 +321,7 @@ test("wechat OAuth callback fails instead of creating a fallback profile when us
       `/api/auth/wechat/mp/oauth-callback?state=${encodeURIComponent(started.state)}&code=oauth_code`
     );
     assert.equal(callback.status, 400);
-    assert.match(await callback.text(), /昵称和头像/);
+    assert.match(await callback.text(), /快照页匿名用户/);
 
     const completed = await jsonFetch(baseUrl, "/api/auth/wechat/complete", {
       method: "POST",
@@ -318,7 +329,7 @@ test("wechat OAuth callback fails instead of creating a fallback profile when us
     });
     assert.equal(completed.ok, false);
     assert.equal(completed.status, "failed");
-    assert.match(completed.error, /昵称和头像/);
+    assert.match(completed.error, /快照页匿名用户/);
   } finally {
     await close(server);
     fs.rmSync(dataDir, { recursive: true, force: true });

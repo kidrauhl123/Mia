@@ -81,6 +81,9 @@ async function fetchWechatMpOAuthUserInfo({ fetchImpl = fetch, accessToken, open
 function normalizeWechatOAuthProfile(userInfo = {}, tokenData = {}) {
   const openid = trim(userInfo.openid || tokenData.openid);
   if (!openid) throw new Error("微信网页授权结果缺少 openid。");
+  if (Number(tokenData.is_snapshotuser || 0) === 1) {
+    throw new Error("微信返回了快照页匿名用户，未提供真实昵称和头像。请从 Mia 二维码打开的说明页继续授权后重试。");
+  }
   const nickname = trim(userInfo.nickname);
   const avatarUrl = trim(userInfo.headimgurl);
   if (!nickname || !avatarUrl) throw new Error("微信网页授权没有返回昵称和头像，请确认服务号已认证并启用网页授权获取用户基本信息。");
@@ -157,6 +160,7 @@ function createWechatAuthFlow({
       status: record.status,
       expiresAt: new Date(record.expiresAt).toISOString(),
       qrCodeUrl: record.qrCodeUrl || "",
+      authorizationTarget: record.authorizationTarget || "",
       mode: record.mode || "mp_oauth_userinfo"
     };
   }
@@ -177,8 +181,9 @@ function createWechatAuthFlow({
     oauthUrl.searchParams.set("response_type", "code");
     oauthUrl.searchParams.set("scope", "snsapi_userinfo");
     oauthUrl.searchParams.set("state", state);
+    oauthUrl.searchParams.set("connect_redirect", "1");
     const authorizationTarget = `${oauthUrl.toString()}#wechat_redirect`;
-    const qrCodeUrl = await QRCode.toDataURL(authorizationTarget, {
+    const qrCodeUrl = await QRCode.toDataURL(qrPageUrl, {
       errorCorrectionLevel: "M",
       margin: 2,
       width: 320

@@ -61,7 +61,7 @@ Mia Cloud uses the Official Account identity as the only cloud account login. Th
 
 `JS接口安全域名` is not required for this login path. `生成带参数二维码` / `qrcode/create` is not used.
 
-Mia creates a QR code that points to WeChat's Official Account OAuth page with `scope=snsapi_userinfo`. After the user scans it in WeChat and authorizes, WeChat calls the OAuth callback; Mia exchanges the code for an OAuth token, reads `nickname` and `headimgurl` from `sns/userinfo`, and completes the desktop/web polling login. If WeChat does not return both nickname and avatar, Mia fails the login instead of creating a fallback `微信用户` profile.
+Mia creates a QR code that points to a Mia-hosted WeChat login explanation page. After the user scans it in WeChat and taps the authorization button, Mia opens WeChat Official Account OAuth with `scope=snsapi_userinfo`. WeChat then calls the OAuth callback; Mia exchanges the code for an OAuth token, reads `nickname` and `headimgurl` from `sns/userinfo`, and completes the desktop/web polling login. If WeChat returns a snapshot anonymous user or does not return both nickname and avatar, Mia fails the login instead of creating a fallback `微信用户` profile.
 
 To grant first-version manual credits before a payment provider is wired:
 

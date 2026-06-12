@@ -113,7 +113,7 @@
       ? `<div class="onb-login-qr-card">
           <img class="onb-login-qr-img" src="${escapeHtml(loginFlow.qrCodeUrl)}" alt="微信登录二维码" draggable="false">
         </div>
-        <p class="onb-login-qr-note">用微信扫码关注公众号，Mia 会自动完成登录。</p>`
+        <p class="onb-login-qr-note">用微信扫码，并在微信里继续授权登录。</p>`
       : "";
     return `
       <header class="setup-hero${loginFlow?.qrCodeUrl ? " compact" : ""}">
@@ -274,7 +274,7 @@
       if (!started?.state || !started?.qrCodeUrl) throw new Error("微信登录二维码生成失败。");
       if (attempt !== loginAttempt) return;
       loginFlow = started;
-      state.onboardingLoginHint = "等待微信扫码关注…";
+      state.onboardingLoginHint = "等待微信扫码授权…";
       deps.rerender?.();
       pollLogin(container, attempt);
     } catch (error) {
@@ -295,7 +295,7 @@
       const runtime = await deps.cloudLogin?.({ mode: "wechat", action: "complete", state: loginFlow.state });
       if (attempt !== loginAttempt) return;
       if (runtime?.status === "pending") {
-        setHint("二维码已生成，等待微信扫码关注…");
+        setHint("二维码已生成，等待微信扫码授权…");
         setTimeout(() => pollLogin(container, attempt), 1500);
         return;
       }
