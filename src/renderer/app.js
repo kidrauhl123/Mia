@@ -2560,12 +2560,21 @@ window.miaUseSkillInActiveConversation = useSkillInActiveConversation;
 // the runtime so cloud.enabled stays true and the app looks "logged in" while
 // every call silently fails. Clear it and re-render so the cloud-only shell
 // falls back to the login guide instead of a stuck, empty screen.
+// A single 401 is NOT proof the token is dead — cloud deploys/restarts can
+// answer 401 transiently. Confirm with a fresh /api/me before destroying the
+// local token; a wrong logout here wipes a perfectly valid session.
 let cloudAuthExpiredHandling = false;
 async function handleCloudAuthExpired() {
   if (cloudAuthExpiredHandling) return;
   if (!state.runtime?.cloud?.enabled) return;
   cloudAuthExpiredHandling = true;
   try {
+    const recheck = await window.mia.social?.myIdentity?.().catch(() => null);
+    const confirmedExpired = Boolean(recheck && !recheck.ok && recheck.status === 401);
+    if (!confirmedExpired) {
+      console.warn("[cloud] ignored transient 401: /api/me recheck did not confirm auth expiry");
+      return;
+    }
     state.runtime = await window.mia.cloudLogout();
   } catch (error) {
     console.warn("[cloud] auto-logout after auth failure failed:", error?.message || error);
