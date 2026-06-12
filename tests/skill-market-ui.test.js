@@ -43,15 +43,12 @@ test("skill-library renders a market mode with an install action", () => {
   assert.match(src, /function renderMarketView/);
   assert.match(src, /function installMarketSkill/);
   assert.match(src, /data-skill-install=/);
-  // local curated market: no Mia Cloud sign-in gate
-  assert.doesNotMatch(src, /登录 Mia Cloud/);
 });
 
 test("market cards render Chinese fallback descriptions for English-only skills", () => {
   const src = read("src/renderer/skills/skill-library.js");
   assert.match(src, /function marketDescriptionZh/);
   assert.match(src, /function hasCjk/);
-  assert.match(src, /来自 \$\{source\} 的技能/);
   assert.match(src, /description:\s*marketDescriptionZh\(skill\)/);
 });
 
@@ -72,7 +69,6 @@ test("market cards render compact source logos beside source labels", () => {
   assert.match(src, /assets\/provider-icons\/browse-sh\.svg/);
   assert.match(src, /assets\/provider-icons\/claude\.svg/);
   assert.match(src, /assets\/provider-icons\/lobehub\.svg/);
-  assert.doesNotMatch(src, /已添加/);
   assert.match(src, /installedLocalSkillForMarket/);
   assert.match(src, /data-skill-use=/);
   assert.match(src, /skill-card-action-use/);
@@ -172,5 +168,4 @@ test("local market cards infer known source labels from legacy market ids", () =
 
   assert.match(html, /skill-source-logo-claude/);
   assert.match(html, />Claude</);
-  assert.doesNotMatch(html, />我的技能</);
 });

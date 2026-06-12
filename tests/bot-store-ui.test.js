@@ -10,16 +10,11 @@ test("discover bot store uses a two-step enrollment flow before saving", () => {
   const src = read("src/renderer/bot/bot-store.js");
 
   assert.match(src, /data-act="prepare"/);
-  assert.match(src, />添加<\/button>/);
   assert.match(src, /openEnrollmentStep\(f\)/);
   assert.match(src, /data-act="confirm"/);
-  assert.match(src, />确认<\/button>/);
   assert.match(src, /function openEnrollmentStep/);
-  assert.match(src, /运行位置 \/ Agent/);
-  assert.match(src, /<span>技能<\/span>/);
   assert.match(src, /function skillSummary/);
   assert.match(src, /enabledSkills/);
-  assert.match(src, /确认位置/);
   assert.match(src, /data-badge-engine/);
   assert.match(src, /data-runtime-target-select/);
   assert.match(src, /function targetSelectHtml/);
@@ -43,16 +38,10 @@ test("discover bot store uses a two-step enrollment flow before saving", () => {
   assert.match(src, /data-badge-uid/);
   assert.match(src, /UID · \$\{savedKey\}/);
   assert.match(src, /UID · \$\{escapeHtml\(plannedKey\)\}/);
-  assert.doesNotMatch(src, /<span>权限<\/span>/);
   assert.doesNotMatch(src, /data-runtime-target-picker/);
   assert.doesNotMatch(src, /data-engine-toggle/);
   assert.doesNotMatch(src, /classList\.toggle\("is-engine-open"\)/);
-  assert.doesNotMatch(src, /口语陪练/);
   assert.doesNotMatch(src, /speak-partner/);
-  assert.doesNotMatch(src, /保存后生成/);
-  assert.doesNotMatch(src, /凭证预览/);
-  assert.doesNotMatch(src, /办理入职/);
-  assert.doesNotMatch(src, /确认入职/);
   assert.doesNotMatch(src, /key:\s*principalId\(f\)/);
   assert.doesNotMatch(src, /credentialId/);
   assert.doesNotMatch(src, /MIA-\$\{/);

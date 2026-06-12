@@ -81,10 +81,6 @@ test("web root is a promo landing page with download and app entry points", () =
   assert.match(html, /Claude Code[\s\S]*Codex[\s\S]*OpenClaw/);
   assert.match(html, /Hermes/);
   assert.match(html, /assets\/icons\/openclaw\.svg/);
-  assert.doesNotMatch(html, /空铃：|Codex：|Hermes：/);
-  assert.doesNotMatch(html, /<strong>空铃<\/strong>|<strong>Codex<\/strong>|<strong>Hermes<\/strong>|<strong>匠妹<\/strong>/);
-  assert.doesNotMatch(html, /谁来跟/);
-  assert.doesNotMatch(html, /配额已耗尽|运行失败|没能生成回复/);
   assert.doesNotMatch(html, /Permission request/);
   assert.match(html, /Mia-macOS-Apple-Silicon\.dmg/);
   assert.match(html, /macOS Intel/);

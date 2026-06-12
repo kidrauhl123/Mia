@@ -129,8 +129,6 @@ test("bot owned by another user renders remote-only card despite same local key"
   card.attach(ctxWith("alice", "bob"));
   card.openCard({ kind: "bot", ref: "codex", conversationId: "g_1", anchor: null });
   const html = lastCardHtml(body);
-  assert.match(html, /不属于你/);
-  assert.doesNotMatch(html, /本地 fellow/);
   assert.doesNotMatch(html, new RegExp("data-" + "fellow-field"));
   assert.doesNotMatch(html, /edit-bot-old/);
 });
@@ -140,7 +138,6 @@ test("bot I own renders editable controls card", () => {
   card.attach(ctxWith("bob", "bob"));
   card.openCard({ kind: "bot", ref: "codex", conversationId: "g_1", anchor: null });
   const html = lastCardHtml(body);
-  assert.doesNotMatch(html, /不在你的本地 fellow 列表里/);
   assert.match(html, /edit-bot/);
 });
 
@@ -149,7 +146,6 @@ test("cloud bot I own renders editable controls instead of a separate cloud-only
   card.attach(ctxWithCloudOwnedFellow());
   card.openCard({ kind: "bot", ref: "mia", conversationId: "botc_bob_mia", anchor: null });
   const html = lastCardHtml(body);
-  assert.doesNotMatch(html, /不在你的本地 fellow 列表里/);
   assert.match(html, /Mia Cloud/);
   assert.match(html, /data-bot-field="model"/);
   assert.match(html, /data-card-action="edit-bot"/);

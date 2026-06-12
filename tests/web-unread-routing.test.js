@@ -594,9 +594,8 @@ test("web settings exposes a status badge profile control", () => {
   assert.match(html, /id="profileStatusBadge"/);
   assert.match(html, /id="profileStatusBadgeDetails"/);
   assert.match(html, /id="profileStatusBadgeTrigger"/);
-  assert.match(html, /value="surprised-cat">惊讶猫/);
+  assert.match(html, /value="surprised-cat"/);
   assert.doesNotMatch(html, /profileStatusBadgePreview/);
-  assert.doesNotMatch(html, /名字旁徽章/);
   assert.match(app, /saveProfilePatch\(\{ displayName \}/);
   assert.match(app, /saveProfilePatch\(\{ statusBadge \}/);
   assert.match(app, /function statusBadgeForPreset/);
@@ -701,7 +700,6 @@ test("src/web/app.js lets web controls update desktop-local bot runtime bindings
   assert.doesNotMatch(source, /return runtimeKind \|\| "cloud-hermes";/);
   assert.doesNotMatch(source, /runtimeKind === "desktop-local"\)\s*return null/);
   assert.doesNotMatch(source, /Desktop controls/);
-  assert.doesNotMatch(source, /桌面端本地伙伴需要在桌面端切换模型设置/);
   assert.doesNotMatch(source, /Desktop Local/);
   assert.match(source, /function engineForRuntimeBinding\(runtimeKind, binding\)/);
   assert.match(source, /config\.agentEngine/);

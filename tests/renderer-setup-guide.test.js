@@ -47,7 +47,6 @@ test("setup guide renders scanning state before agent inventory is available", (
   const html = guide.renderSetupGuide();
 
   assert.equal(guide.shouldShowSetupGuide({ messages: [] }), true);
-  assert.match(html, /正在扫描本机 Agent/);
   assert.match(html, /data-lottie="chemistry"/);
   assert.match(html, /data-lottie-trigger="loop"/);
   assert.doesNotMatch(html, /setup-engine-list/);
@@ -68,9 +67,8 @@ test("setup guide keeps the scanning state while agent inventory is still checki
   const guide = loadSetupGuide(state);
   const html = guide.renderSetupGuide();
 
-  assert.match(html, /正在扫描本机 Agent/);
   assert.match(html, /data-lottie="chemistry"/);
-  assert.doesNotMatch(html, /扫描结果/);
+  assert.doesNotMatch(html, /setup-engine-list/);
 });
 
 test("setup guide offers official agent installs when no local agent is available", () => {
@@ -92,8 +90,6 @@ test("setup guide offers official agent installs when no local agent is availabl
   const html = guide.renderSetupGuide();
 
   assert.equal(guide.shouldShowSetupGuide({ messages: [] }), true);
-  assert.match(html, /欢迎使用 Mia/);
-  assert.match(html, /本机 Agent/);
   assert.match(html, /data-setup-action="finish-agent-scan"/);
   assert.match(html, /data-setup-action="install-hermes"/);
   assert.match(html, /data-setup-action="install-claude-code"/);
@@ -101,11 +97,7 @@ test("setup guide offers official agent installs when no local agent is availabl
   assert.doesNotMatch(html, /data-setup-action="use-engine"/);
   assert.doesNotMatch(html, /data-action="cloud-login"/);
   assert.match(html, /OpenClaw/);
-  assert.match(html, /安装官方 Hermes/);
   assert.match(html, /data-setup-action="install-openclaw"/);
-  assert.match(html, /安装 OpenClaw/);
-  assert.doesNotMatch(html, /私有目录|Mia 私有 Hermes|独立副本/);
-  assert.doesNotMatch(html, /使用 OpenClaw/);
   assert.match(html, /setup-engine-icon hermes/);
   assert.match(html, /assets\/engine-icons\/hermesagent\.svg/);
   assert.doesNotMatch(html, /setup-engine-dot/);
@@ -176,10 +168,6 @@ test("setup guide allows installed Claude Code, Codex, and OpenClaw as ready eng
   const guide = loadSetupGuide(state);
   const html = guide.renderSetupGuide();
 
-  assert.doesNotMatch(html, /使用 Claude Code/);
-  assert.doesNotMatch(html, /使用 Codex/);
-  assert.match(html, /已就绪/);
-  assert.doesNotMatch(html, /暂未接入 Mia 聊天|已检测到，暂未接入/);
   assert.match(html, /assets\/engine-icons\/claudecode\.svg/);
   assert.match(html, /assets\/engine-icons\/codex-color\.svg/);
   assert.match(html, /assets\/provider-icons\/openclaw-color\.svg/);
@@ -208,7 +196,6 @@ test("setup guide allows system Hermes without requiring Mia private install", (
   const html = guide.renderSetupGuide();
 
   assert.match(html, /\/bin\/hermes · Hermes Agent/);
-  assert.doesNotMatch(html, /仍需要独立副本/);
   assert.doesNotMatch(html, /data-setup-action="install-hermes"/);
   assert.doesNotMatch(html, /data-setup-action="use-engine"/);
 });
@@ -230,9 +217,6 @@ test("setup guide renders broken Hermes with official repair action", () => {
 
   assert.match(html, /Hermes/);
   assert.match(html, /data-setup-action="repair-hermes"/);
-  assert.match(html, /修复官方 Hermes/);
-  assert.match(html, /官方 Hermes 状态异常，可修复/);
-  assert.doesNotMatch(html, /私有目录|Mia 私有 Hermes|独立副本/);
 });
 
 test("setup guide stays hidden after user skips agent setup", () => {

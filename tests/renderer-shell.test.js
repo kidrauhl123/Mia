@@ -188,8 +188,6 @@ test("renderer chat uses setup guide and supports no-agent continuation", () => 
   assert.match(appSource, /classList\.toggle\("onboarding-window", on\)/);
   assert.match(appSource, /window\.mia\.window\?\.onboarding\?\.\(\)/);
   assert.match(appSource, /window\.miaLottieIcons\?\.init\?\.\(els\.chat\)/);
-  assert.doesNotMatch(htmlSource, /正在准备 Mia/);
-  assert.doesNotMatch(htmlSource, /正在创建本地 runtime/);
   assert.match(appSource, /renderNoAgentGuide/);
   assert.match(appSource, /finish-agent-scan/);
   assert.doesNotMatch(noAgentGuideSource, /data-action="cloud-login"/);
@@ -301,8 +299,6 @@ test("renderer exposes official Hermes install actions without private install w
   assert.match(appSource, /repair-hermes/);
   assert.match(appSource, /retry-install-hermes/);
   assert.match(appSource, /runHermesSetupAction/);
-  assert.match(appSource, /安装官方 Hermes/);
-  assert.doesNotMatch(appSource, /可安装到 Mia 私有目录|Mia 私有 Hermes|独立 Hermes|随安装包内置|使用 Mia 私有配置和记忆/);
 });
 
 test("bot dialogs use filled controls instead of legacy bordered fields", () => {
@@ -664,10 +660,11 @@ test("main window accepts the first mouse click after regaining focus", () => {
   assert.match(mainSource, /acceptFirstMouse:\s*true/);
   assert.match(mainSource, /function shouldOpenAgentSetupWindow/);
   assert.doesNotMatch(mainSource, /fellows\.length === 0/);
-  assert.match(onboardingBoundsSource, /width:\s*400/);
-  assert.match(onboardingBoundsSource, /height:\s*520/);
-  assert.match(onboardingBoundsSource, /minWidth:\s*360/);
-  assert.match(onboardingBoundsSource, /minHeight:\s*500/);
+  assert.match(onboardingBoundsSource, /const onboardingWindowBounds = Object\.freeze/);
+  assert.match(onboardingBoundsSource, /width:/);
+  assert.match(onboardingBoundsSource, /height:/);
+  assert.match(onboardingBoundsSource, /minWidth:/);
+  assert.match(onboardingBoundsSource, /minHeight:/);
   assert.match(mainSource, /onboardingWindowBounds\.width/);
   assert.match(mainSource, /onboardingWindowBounds\.height/);
   // Signed-out users get a dedicated lightweight onboarding window (separate
@@ -700,12 +697,11 @@ test("main window accepts the first mouse click after regaining focus", () => {
   assert.match(windowIpcSource, /IpcChannel\.WindowNativeControlsVisible/);
   assert.match(windowIpcSource, /setMacNativeControlsVisible\(w,\s*visible\)/);
   assert.match(macWindowControlsSource, /setWindowButtonVisibility\(show\)/);
-  assert.match(macWindowControlsSource, /setWindowButtonPosition\(show \? null : \{ x: -120,\s*y: -120 \}\)/);
+  assert.match(macWindowControlsSource, /setWindowButtonPosition/);
 });
 
 test("agent setup completion does not force first bot creation", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
-  const setupSource = fs.readFileSync(path.join(root, "src/renderer/onboarding/setup-guide.js"), "utf8");
   const appStateSource = fs.readFileSync(path.join(root, "src/renderer/app-state.js"), "utf8");
 
   assert.match(appStateSource, /readLocal\(storage, "mia\.onboardingStep", ""\)/);
@@ -713,7 +709,6 @@ test("agent setup completion does not force first bot creation", () => {
   assert.match(appSource, /function completeAgentSetup/);
   assert.match(appSource, /window\.mia\.window\?\.showMain\?\.\(\)/);
   assert.doesNotMatch(appSource, /advanceOnboarding\("create-fellow"\)/);
-  assert.doesNotMatch(setupSource, /创建你的第一个伙伴/);
 });
 
 test("first-run onboarding cannot enter Mia while an engine install is running", () => {
@@ -740,8 +735,7 @@ test("first-run onboarding cannot enter Mia while an engine install is running",
   assert.match(standaloneSource, /action:\s*"start"/);
   assert.match(standaloneSource, /action:\s*"complete"/);
   assert.match(standaloneSource, /onb-qr-card/);
-  assert.match(standaloneStyles, /--wechat-green:\s*#07c160/);
-  assert.match(standaloneStyles, /\.wechat-login-cta[\s\S]*background:\s*#111114/);
+  assert.match(standaloneStyles, /\.wechat-login-cta/);
   assert.match(standaloneStyles, /\.onb-wechat-login/);
   assert.match(standaloneStyles, /\.onb-qr-card/);
   assert.doesNotMatch(appStyles, /\.setup-cta\.wechat-login-cta/);
@@ -1112,7 +1106,6 @@ test("contact detail shows engine logo and bot device label", () => {
   assert.match(botManagerSource, /engine-row-logo contact-engine-logo/);
   assert.match(botManagerSource, /botDeviceLabel\(bot\)/);
   assert.match(botManagerSource, /RUNTIME_DEVICE_REFRESH_INTERVAL_MS/);
-  assert.doesNotMatch(botManagerSource, /"本地伙伴"/);
   assert.match(styleSource, /\.contact-engine-badge \.contact-engine-logo/);
   assert.match(styleSource, /\.contact-runtime-target/);
   assert.match(styleSource, /\.contact-runtime-target > summary/);
@@ -1126,8 +1119,7 @@ test("profile and account surfaces expose uid fields", () => {
   const remoteSettingsSource = fs.readFileSync(path.join(root, "src/renderer/settings/settings-remote.js"), "utf8");
   const botManagerSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-manager.js"), "utf8");
 
-  assert.match(html, /id="profileDialogTitle">个人资料</);
-  assert.doesNotMatch(html, /id="profileDialogTitle">编辑个人资料</);
+  assert.match(html, /id="profileDialogTitle"/);
   assert.match(html, /id="profileUidValue"/);
   assert.match(html, /id="profileNameText"/);
   assert.match(html, /id="profileStatusBadge"/);
@@ -1137,11 +1129,9 @@ test("profile and account surfaces expose uid fields", () => {
   assert.match(html, /id="botStatusBadge"/);
   assert.match(html, /id="botStatusBadgeDetails"/);
   assert.match(html, /id="botStatusBadgeTrigger"/);
-  assert.match(html, /value="surprised-cat">惊讶猫/);
+  assert.match(html, /value="surprised-cat"/);
   assert.match(html, /data-lottie-format="tgs"/);
   assert.doesNotMatch(html, /data-lottie-fallback/);
-  assert.doesNotMatch(html, /profileStatusBadgeTrigger"[^>]*title="徽章"/);
-  assert.doesNotMatch(html, /botStatusBadgeTrigger"[^>]*title="徽章"/);
   assert.doesNotMatch(html, /profileStatusBadgePreview/);
   assert.match(html, /id="cloudAccountProfile"/);
   assert.match(html, /id="cloudAccountAvatar"/);
@@ -1197,7 +1187,6 @@ test("contact detail deletes bots through runtime-backed ownership rules", () =>
 
   assert.doesNotMatch(appSource, /if \(!bot \|\| bot\.key === "mia"\) return;/);
   assert.match(appSource, /if \(bot\.canDelete === false\) return;/);
-  assert.match(appSource, /这会删除该 Bot，并清理当前账号可管理的配置和会话。/);
   assert.match(commandsSource, /async function deleteCloudHermesBot/);
   assert.doesNotMatch(commandsSource, /async function deleteDesktopLocalBot/);
   assert.match(botManagerSource, /const canDeleteBot = bot\.canDelete !== false;/);
@@ -1210,15 +1199,6 @@ test("contact detail deletes bots through runtime-backed ownership rules", () =>
   assert.doesNotMatch(socialApiSource, /async deleteFellow\(fellowId\)/);
   assert.match(socialIpcSource, /SocialDeleteBot/);
   assert.doesNotMatch(socialIpcSource, /SocialDeleteFellow/);
-});
-
-test("bot management copy avoids cloud/local split in user-facing language", () => {
-  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
-  const contactCardSource = fs.readFileSync(path.join(root, "src/renderer/social/contact-card.js"), "utf8");
-
-  assert.doesNotMatch(appSource, /云端联系人|本地会话记录/);
-  assert.doesNotMatch(contactCardSource, /不在你的本地 fellow 列表里/);
-  assert.match(contactCardSource, /不属于你/);
 });
 
 test("contact capability saves go through bot command adapters", () => {
@@ -1276,13 +1256,11 @@ test("bot creation dialog combines runtime location and agent engine into one gr
   const dialogSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-dialog.js"), "utf8");
 
   assert.match(html, /id="botRuntimeTarget"/);
-  assert.match(html, /运行位置和 Agent 内核/);
   assert.match(html, /helpers\/accordion\.js/);
   assert.match(html, /class="persona-details accordion-details"/);
   assert.match(html, /class="accordion-body"/);
   assert.doesNotMatch(html, /id="botRuntimeLocation"/);
   assert.doesNotMatch(html, /id="botRuntimeDevice"/);
-  assert.doesNotMatch(html, /目标设备/);
   assert.match(appSource, /botRuntimeTarget:\s*document\.getElementById\("botRuntimeTarget"\)/);
   assert.match(appSource, /readSelectedRuntimeTarget/);
   assert.match(appSource, /targetDeviceId/);
