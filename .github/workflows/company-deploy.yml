@@ -1,0 +1,58 @@
+name: company-deploy
+
+on:
+  push:
+    branches:
+      - prod-deploy
+  workflow_dispatch:
+  release:
+    types:
+      - published
+
+concurrency:
+  group: company-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-cloud:
+    if: github.event_name != 'release'
+    runs-on: [self-hosted, macOS, X64, mia-deploy]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Deploy Mia Cloud through company JumpServer
+        run: bash scripts/deploy-cloud-jms.sh
+
+  publish-release-assets:
+    if: github.event_name == 'release'
+    runs-on: [self-hosted, macOS, X64, mia-deploy]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Download GitHub Release assets
+        run: |
+          rm -rf release
+          mkdir -p release
+          gh release download "${{ github.event.release.tag_name }}" --dir release --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Deploy desktop update artifacts through company JumpServer
+        run: |
+          if [ -f release/latest-mac.yml ]; then
+            MIA_UPDATE_DEPLOY=1 MIA_DEPLOY_REMOTE=mia-jms-deploy node scripts/publish-mac-update.js
+          fi
+          if [ -f release/latest.yml ]; then
+            MIA_UPDATE_DEPLOY=1 MIA_DEPLOY_REMOTE=mia-jms-deploy node scripts/publish-win-update.js
+          fi
