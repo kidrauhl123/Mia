@@ -229,17 +229,16 @@ test("wechat start uses service account OAuth QR and completes from OAuth callba
     assert.match(qrPageHtml, /data:image\/png;base64,/);
 
     const wechatPage = await rawFetch(baseUrl, `/api/auth/wechat/mp/qr?state=${encodeURIComponent(started.state)}`, {
-      headers: { "User-Agent": "Mozilla/5.0 MicroMessenger/8.0.50" }
+      headers: { "User-Agent": "Mozilla/5.0 MicroMessenger/8.0.50" },
+      redirect: "manual"
     });
-    assert.equal(wechatPage.status, 200);
-    const wechatPageHtml = await wechatPage.text();
-    assert.match(wechatPageHtml, /用微信登录 Mia/);
-    assert.match(wechatPageHtml, /Mia Agent/);
-    assert.match(wechatPageHtml, /确认登录/);
-    assert.doesNotMatch(wechatPageHtml, /Mia Cloud/);
-    assert.doesNotMatch(wechatPageHtml, /同步你的聊天/);
-    assert.match(wechatPageHtml, /https:\/\/open\.weixin\.qq\.com\/connect\/oauth2\/authorize/);
-    assert.match(wechatPageHtml, /connect_redirect=1/);
+    assert.equal(wechatPage.status, 302);
+    const wechatLocation = wechatPage.headers.get("location") || "";
+    assert.match(wechatLocation, /^https:\/\/open\.weixin\.qq\.com\/connect\/oauth2\/authorize/);
+    assert.match(wechatLocation, /scope=snsapi_userinfo/);
+    assert.match(wechatLocation, /connect_redirect=1/);
+    assert.match(wechatLocation, /#wechat_redirect$/);
+    assert.doesNotMatch(await wechatPage.text(), /确认登录/);
 
     const pending = await jsonFetch(baseUrl, "/api/auth/wechat/complete", {
       method: "POST",
