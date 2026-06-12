@@ -11,12 +11,13 @@ function createMainBotRuntimeDispatcher({
   localBotResponder,
   log = () => {}
 } = {}) {
-  function canHandle() {
-    return typeof shouldHandle === "function" ? Boolean(shouldHandle()) : true;
+  async function canHandle() {
+    // shouldHandle may probe daemon reachability, so it can be async.
+    return typeof shouldHandle === "function" ? Boolean(await shouldHandle()) : true;
   }
 
   async function handleBotInvocationRequested(message = {}) {
-    if (!canHandle()) return false;
+    if (!(await canHandle())) return false;
     const runtimeConfig = message.runtimeConfig && typeof message.runtimeConfig === "object" ? message.runtimeConfig : {};
     const wantedDeviceId = String(message.targetDeviceId || runtimeConfig.deviceId || runtimeConfig.targetDeviceId || "").trim();
     const ownDeviceIds = typeof currentDeviceIds === "function"

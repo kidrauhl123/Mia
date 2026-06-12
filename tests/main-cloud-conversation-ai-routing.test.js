@@ -38,7 +38,7 @@ test("main owns cloud conversation bot invocation execution without group coordi
   assert.doesNotMatch(main, /cloudEventsReconnectTimer/, "main must not own cloud events reconnect timer state");
 });
 
-test("cloud events execution tolerates the shared foreground-daemon cursor", () => {
+test("cloud events execution and cursor have a single owner (ADR 2026-06-12)", () => {
   const main = read("src/main.js");
   const responder = read("src/main/social/local-bot-responder.js");
   assert.match(
@@ -58,8 +58,13 @@ test("cloud events execution tolerates the shared foreground-daemon cursor", () 
   );
   assert.match(
     responder,
-    /if \(daemonEnabled\) return true;[\s\S]*return !Boolean\(isDaemon\)/,
-    "daemon-enabled installs must not let the foreground consume and drop cloud bot invocations"
+    /if \(isDaemon\) return Boolean\(daemonEnabled\);[\s\S]*if \(!daemonEnabled\) return true;[\s\S]*return !daemonReachable/,
+    "execution must have a single owner: enabled daemon executes, window only covers a dead daemon (ADR 2026-06-12)"
+  );
+  assert.match(
+    main,
+    /persistCursor: \(\) => IS_DAEMON_PROCESS \|\| !settingsStore\.daemonSettings\(\)\.enabled/,
+    "the lastEventSeq cursor must have a single writer: daemon while enabled, window otherwise"
   );
 });
 

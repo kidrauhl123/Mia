@@ -2065,10 +2065,26 @@ const localBotResponder = createLocalBotResponder({
   },
   log: (line) => appendCloudLog(line)
 });
-function shouldHandleCloudConversationAi() {
+async function shouldHandleCloudConversationAi() {
+  const daemonSettings = settingsStore.daemonSettings();
+  let daemonReachable = false;
+  if (!IS_DAEMON_PROCESS && daemonSettings.enabled) {
+    // Window falls back to executing only when the enabled daemon is actually
+    // dead (ADR 2026-06-12). A zombie daemon socket is covered by replay: the
+    // cursor is daemon-owned, so a missed invocation is re-delivered on its
+    // reconnect instead of being consumed here.
+    try {
+      const expectedRuntimeHome = runtimePaths().home;
+      const ping = await daemonControlServer.ping(daemonSettings, 500, { expectedRuntimeHome });
+      daemonReachable = Boolean(ping.ok);
+    } catch {
+      daemonReachable = false;
+    }
+  }
   return shouldHandleLocalCloudConversationAi({
     isDaemon: IS_DAEMON_PROCESS,
-    daemonEnabled: settingsStore.daemonSettings().enabled
+    daemonEnabled: daemonSettings.enabled,
+    daemonReachable
   });
 }
 const mainBotRuntimeDispatcher = createMainBotRuntimeDispatcher({
@@ -2104,7 +2120,8 @@ cloudEventSocketRuntime = createCloudEventsClient({
   cloudEventChannel: IpcChannel.CloudEvent,
   appendCloudLog,
   botRuntimeDispatcher: mainBotRuntimeDispatcher,
-  messageCache: conversationMessageCache
+  messageCache: conversationMessageCache,
+  persistCursor: () => IS_DAEMON_PROCESS || !settingsStore.daemonSettings().enabled
 });
 registerSocialIpc({
   ipcMain,

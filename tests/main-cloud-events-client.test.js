@@ -382,3 +382,24 @@ test("heartbeat recycles a socket stuck before events_ready", () => {
 
   assert.equal(ws.terminated, true);
 });
+
+test("persistCursor=false stops a non-owner from advancing lastEventSeq", () => {
+  const { client, calls, sockets, FakeWebSocket } = setup({ persistCursor: () => false });
+
+  client.start();
+  sockets[0].readyState = FakeWebSocket.OPEN;
+  sockets[0].emit("message", JSON.stringify({ type: "events_ready", sinceSeq: 3, serverSeq: 9, resetTo: 7 }));
+  sockets[0].emit("message", JSON.stringify({ type: "user_settings.updated", seq: 9 }));
+
+  assert.deepEqual(calls.settingsWrites, []);
+});
+
+test("persistCursor owner still advances lastEventSeq on events", () => {
+  const { client, calls, sockets, FakeWebSocket } = setup({ persistCursor: () => true });
+
+  client.start();
+  sockets[0].readyState = FakeWebSocket.OPEN;
+  sockets[0].emit("message", JSON.stringify({ type: "user_settings.updated", seq: 9 }));
+
+  assert.deepEqual(calls.settingsWrites, [{ lastEventSeq: 9 }]);
+});

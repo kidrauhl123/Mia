@@ -2,13 +2,14 @@
 
 const PROCESSED_CAP = 500;
 
-function shouldHandleLocalCloudConversationAi({ isDaemon, daemonEnabled }) {
-  // Foreground and daemon share the same cloud event cursor today. If the
-  // foreground consumes an invocation while daemon is enabled but refuses to run
-  // it, the daemon never sees that seq. Let every active host answer; the reply
-  // POST uses a deterministic clientOpId, so the cloud stores only one message.
-  if (daemonEnabled) return true;
-  return !Boolean(isDaemon);
+function shouldHandleLocalCloudConversationAi({ isDaemon, daemonEnabled, daemonReachable = false }) {
+  // Single owner (ADR 2026-06-12 desktop-single-owner-daemon): while the daemon
+  // is enabled it is the only executor; the window runs an invocation only as a
+  // dead-daemon fallback (reachability probed by the caller). With the daemon
+  // disabled the window is the sole owner. Never both.
+  if (isDaemon) return Boolean(daemonEnabled);
+  if (!daemonEnabled) return true;
+  return !daemonReachable;
 }
 
 function clientOpIdForDedupKey(dedupKey) {

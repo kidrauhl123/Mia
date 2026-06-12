@@ -23,7 +23,11 @@ function createCloudEventsClient({
   reconnectDelayMs = DEFAULT_RECONNECT_DELAY_MS,
   nowFn = () => Date.now(),
   readyTimeoutMs = 15000,
-  heartbeatIntervalMs = 20000
+  heartbeatIntervalMs = 20000,
+  // The lastEventSeq cursor has a single writer (ADR 2026-06-12): the daemon
+  // while it is enabled, the window otherwise. A non-owner persisting the
+  // cursor would mark events as consumed that the owner never processed.
+  persistCursor = true
 }) {
   let activeSocket = null;
   let reconnectTimer = null;
@@ -83,7 +87,12 @@ function createCloudEventsClient({
     if (n > current) writeCloudSettings({ lastEventSeq: n });
   }
 
+  function ownsCursor() {
+    return typeof persistCursor === "function" ? Boolean(persistCursor()) : Boolean(persistCursor);
+  }
+
   function applyResumeCursor(message) {
+    if (!ownsCursor()) return;
     if (Number.isFinite(Number(message.seq))) {
       saveLastEventSeq(message.seq);
       return;

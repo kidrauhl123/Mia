@@ -271,9 +271,12 @@ test("respond skips empty replies and incomplete invocations", async () => {
   assert.equal(calls.post.length, 0);
 });
 
-test("shouldHandleLocalCloudConversationAi lets foreground handle events when daemon may share the cursor", () => {
-  assert.equal(shouldHandleLocalCloudConversationAi({ isDaemon: false, daemonEnabled: true }), true);
-  assert.equal(shouldHandleLocalCloudConversationAi({ isDaemon: false, daemonEnabled: false }), true);
+test("shouldHandleLocalCloudConversationAi keeps a single execution owner (ADR 2026-06-12)", () => {
+  // Enabled daemon owns execution; the window only covers a dead daemon.
   assert.equal(shouldHandleLocalCloudConversationAi({ isDaemon: true, daemonEnabled: true }), true);
+  assert.equal(shouldHandleLocalCloudConversationAi({ isDaemon: false, daemonEnabled: true, daemonReachable: true }), false);
+  assert.equal(shouldHandleLocalCloudConversationAi({ isDaemon: false, daemonEnabled: true, daemonReachable: false }), true);
+  // Daemon disabled: the window is the sole owner, a lingering daemon must not run.
+  assert.equal(shouldHandleLocalCloudConversationAi({ isDaemon: false, daemonEnabled: false }), true);
   assert.equal(shouldHandleLocalCloudConversationAi({ isDaemon: true, daemonEnabled: false }), false);
 });
