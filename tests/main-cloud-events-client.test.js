@@ -31,6 +31,16 @@ function fakeWebSocketClass() {
       this.readyState = FakeWebSocket.CLOSED;
       this.closed = { code, reason };
     }
+
+    ping() {
+      this.pings = (this.pings || 0) + 1;
+    }
+
+    terminate() {
+      this.terminated = true;
+      this.readyState = FakeWebSocket.CLOSED;
+      this.emit("close");
+    }
   }
   return { FakeWebSocket, sockets };
 }
@@ -306,4 +316,69 @@ test("socket close clears only the active socket and schedules one reconnect", (
   second.emit("close");
   assert.equal(calls.timers.length, 1);
   assert.equal(calls.timers[0].delayMs, 3000);
+});
+
+test("heartbeat pings a connected socket and a pong keeps it alive", () => {
+  let tick = null;
+  const { client, sockets, FakeWebSocket } = setup({
+    setIntervalFn: (fn) => { tick = fn; return { fn }; },
+    clearIntervalFn: () => {},
+    heartbeatIntervalMs: 1000
+  });
+
+  client.start();
+  const ws = sockets[0];
+  ws.readyState = FakeWebSocket.OPEN;
+  ws.emit("message", JSON.stringify({ type: "events_ready", sinceSeq: 3, serverSeq: 3 }));
+
+  tick();                 // ping #1
+  ws.emit("pong");        // server answered → still alive
+  tick();                 // ping #2
+
+  assert.equal(ws.pings, 2);
+  assert.notEqual(ws.terminated, true);
+  assert.equal(ws.closed, null);
+});
+
+test("heartbeat recycles a silently dropped socket and reconnects", () => {
+  let tick = null;
+  const { client, calls, sockets, FakeWebSocket } = setup({
+    setIntervalFn: (fn) => { tick = fn; return { fn }; },
+    clearIntervalFn: () => {},
+    heartbeatIntervalMs: 1000
+  });
+
+  client.start();
+  const ws = sockets[0];
+  ws.readyState = FakeWebSocket.OPEN;
+  ws.emit("message", JSON.stringify({ type: "events_ready", sinceSeq: 3, serverSeq: 3 }));
+
+  tick();                 // ping sent, awaiting pong
+  assert.equal(ws.pings, 1);
+  assert.equal(ws.terminated, undefined);
+
+  tick();                 // no pong / no traffic since → dead → terminate + reconnect
+  assert.equal(ws.terminated, true);
+  assert.equal(calls.timers.length, 1);
+  assert.equal(calls.timers[0].delayMs, 3000);
+});
+
+test("heartbeat recycles a socket stuck before events_ready", () => {
+  let tick = null;
+  let now = 1000;
+  const { client, sockets } = setup({
+    setIntervalFn: (fn) => { tick = fn; return { fn }; },
+    clearIntervalFn: () => {},
+    heartbeatIntervalMs: 1000,
+    nowFn: () => now,
+    readyTimeoutMs: 15000
+  });
+
+  client.start();
+  const ws = sockets[0];
+  // never emits events_ready; advance past the handshake timeout
+  now += 20000;
+  tick();
+
+  assert.equal(ws.terminated, true);
 });

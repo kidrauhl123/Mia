@@ -18,12 +18,20 @@ function createCloudEventsClient({
   messageCache = null,
   setTimeoutFn = setTimeout,
   clearTimeoutFn = clearTimeout,
+  setIntervalFn = setInterval,
+  clearIntervalFn = clearInterval,
   reconnectDelayMs = DEFAULT_RECONNECT_DELAY_MS,
   nowFn = () => Date.now(),
-  readyTimeoutMs = 15000
+  readyTimeoutMs = 15000,
+  heartbeatIntervalMs = 20000
 }) {
   let activeSocket = null;
   let reconnectTimer = null;
+  let heartbeatTimer = null;
+  // Liveness flag for the active socket: set true on every inbound frame (events
+  // or a pong), flipped false right after we send a ping. If it's still false at
+  // the next heartbeat tick, the socket went silent (half-open) and we recycle it.
+  let isAlive = true;
   let eventState = {
     connecting: false,
     connected: false,
@@ -95,6 +103,8 @@ function createCloudEventsClient({
   }
 
   function handleMessage(raw) {
+    // Any inbound frame proves the socket is still live this heartbeat window.
+    isAlive = true;
     let message = null;
     try {
       message = JSON.parse(String(raw || ""));
@@ -154,6 +164,58 @@ function createCloudEventsClient({
     }
   }
 
+  // Force-recycle the active socket and reconnect. Used by the heartbeat when a
+  // socket goes silent (TCP half-open) or never finishes the handshake — cases
+  // where "close" never fires on its own, so the renderer would otherwise stop
+  // receiving events (no replies, no typing) until a full app restart.
+  function recycleSocket(ws, reason) {
+    if (!ws) return;
+    eventState.lastError = reason;
+    log(`Mia Cloud events ${reason}; reconnecting.`);
+    try {
+      if (typeof ws.terminate === "function") ws.terminate();
+      else ws.close(4000, reason);
+    } catch { /* ignore terminate failures */ }
+    // terminate()/close() may fire "close" async (or not at all for a half-open
+    // socket); drive the disconnect path here if this is still the active socket.
+    if (activeSocket === ws) {
+      activeSocket = null;
+      eventState.connecting = false;
+      eventState.connected = false;
+      eventState.openedAt = 0;
+      eventState.readyAt = 0;
+      scheduleReconnect();
+    }
+  }
+
+  function heartbeatTick() {
+    const ws = activeSocket;
+    if (!ws) return;
+    if (!eventState.connected) {
+      // Connected at TCP level but never received events_ready: stuck handshake.
+      if (shouldReplaceStaleSocket(ws)) recycleSocket(ws, "handshake timeout");
+      return;
+    }
+    if (!isAlive) {
+      // Pinged last tick, got neither a pong nor any event since: socket is dead.
+      recycleSocket(ws, "heartbeat timeout");
+      return;
+    }
+    isAlive = false;
+    try {
+      if (typeof ws.ping === "function") ws.ping();
+    } catch {
+      recycleSocket(ws, "ping failed");
+    }
+  }
+
+  function ensureHeartbeat() {
+    if (heartbeatTimer) return;
+    heartbeatTimer = setIntervalFn(heartbeatTick, heartbeatIntervalMs);
+    // Don't let the heartbeat keep the process alive on its own.
+    if (heartbeatTimer && typeof heartbeatTimer.unref === "function") heartbeatTimer.unref();
+  }
+
   function scheduleReconnect() {
     if (reconnectTimer) return;
     const s = settings();
@@ -168,6 +230,10 @@ function createCloudEventsClient({
     if (reconnectTimer) {
       clearTimeoutFn(reconnectTimer);
       reconnectTimer = null;
+    }
+    if (heartbeatTimer) {
+      clearIntervalFn(heartbeatTimer);
+      heartbeatTimer = null;
     }
     const ws = activeSocket;
     activeSocket = null;
@@ -200,11 +266,14 @@ function createCloudEventsClient({
     eventState.lastError = "";
     eventState.openedAt = nowFn();
     eventState.readyAt = 0;
+    isAlive = true;
     const ws = new WebSocketImpl(cloudEventsUrl(s), cloudWebSocketProtocols(s));
     activeSocket = ws;
+    ensureHeartbeat();
     ws.on("open", () => {
       log(`Listening to Mia Cloud events: ${s.url}`);
     });
+    ws.on("pong", () => { isAlive = true; });
     ws.on("message", (raw) => handleMessage(raw));
     ws.on("error", (error) => {
       eventState.lastError = String(error?.message || error);
