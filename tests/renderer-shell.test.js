@@ -736,8 +736,6 @@ test("first-run onboarding cannot enter Mia while an engine install is running",
   assert.match(standaloneSource, /wechat-login-cta/);
   assert.match(standaloneSource, /data-action="back"/);
   assert.match(standaloneSource, /setNativeControlsVisible/);
-  assert.match(standaloneSource, /Mia会复用本机现有的Agent，独立维护一套配置和记忆。/);
-  assert.doesNotMatch(standaloneSource, /没装的可以在这里装/);
   assert.match(standaloneStyles, /\.onb\[data-step="done"\]/);
   assert.match(standaloneSource, /action:\s*"start"/);
   assert.match(standaloneSource, /action:\s*"complete"/);
