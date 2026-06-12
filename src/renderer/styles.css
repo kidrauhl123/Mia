@@ -5663,7 +5663,8 @@ select.select-open {
 }
 
 .cloud-account-card,
-.app-update-card {
+.app-update-card,
+.daemon-runtime-card {
   align-content: start;
   gap: 0;
   max-width: 680px;

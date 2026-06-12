@@ -16,6 +16,7 @@ function createStartupBackgroundService({
   startDaemonService,
   refreshSystemHermesAsync,
   startEngine,
+  isDaemonEnabled = () => true,
   setDaemonLastError = () => {},
   setEngineLastError = () => {},
   appendDaemonLog = () => {},
@@ -25,6 +26,9 @@ function createStartupBackgroundService({
 
   async function runDaemon() {
     if (typeof startDaemonService !== "function") return createStepResult(true, { skipped: true });
+    // Respect the user's toggle: when the background daemon is disabled, don't
+    // auto-start it on launch (otherwise it silently comes back every boot).
+    if (!isDaemonEnabled()) return createStepResult(true, { skipped: true });
     try {
       const status = await startDaemonService();
       return createStepResult(true, { status });

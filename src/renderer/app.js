@@ -279,6 +279,9 @@ const els = {
   cloudSync: document.getElementById("cloudSync"),
   cloudLogout: document.getElementById("cloudLogout"),
   checkUpdates: document.getElementById("checkUpdates"),
+  daemonEnabled: document.getElementById("daemonEnabled"),
+  daemonRestart: document.getElementById("daemonRestart"),
+  daemonHint: document.getElementById("daemonHint"),
   appUpdateHint: document.getElementById("appUpdateHint"),
   appUpdateOverlay: document.getElementById("appUpdateOverlay"),
   appUpdateOverlayTitle: document.getElementById("appUpdateOverlayTitle"),
@@ -3526,6 +3529,7 @@ els.openSettings.addEventListener("click", () => {
   state.settingsOpen = true;
   if (state.activeSettingsTab === "profile") state.activeSettingsTab = "appearance";
   renderView();
+  refreshDaemonControls();
 });
 els.closeSettings.addEventListener("click", () => {
   state.settingsOpen = false;
@@ -3807,6 +3811,61 @@ els.checkUpdates?.addEventListener("click", async () => {
   } finally {
     els.checkUpdates.disabled = false;
   }
+});
+
+function renderDaemonStatus(status = {}) {
+  const enabled = status?.settings?.enabled !== false;
+  const running = Boolean(status?.running);
+  if (els.daemonEnabled) {
+    els.daemonEnabled.classList.toggle("active", enabled);
+    els.daemonEnabled.setAttribute("aria-checked", enabled ? "true" : "false");
+  }
+  if (els.daemonHint) {
+    const host = status?.host || status?.settings?.host || "";
+    const port = status?.port || status?.settings?.port || "";
+    const where = host && port ? ` · ${host}:${port}` : "";
+    setText(els.daemonHint, !enabled
+      ? "Mia 只在窗口打开时工作"
+      : running
+        ? `运行中${where}  关闭 Mia 后仍能在后台回复消息、执行任务`
+        : `未运行  关闭 Mia 后仍能在后台回复消息、执行任务`);
+  }
+  if (els.daemonRestart) els.daemonRestart.disabled = !enabled;
+}
+
+async function refreshDaemonControls() {
+  if (!els.daemonHint) return;
+  try {
+    renderDaemonStatus(await window.mia.daemonStatus());
+  } catch (error) {
+    setText(els.daemonHint, `状态获取失败：${error.message || error}`);
+  }
+}
+
+els.daemonEnabled?.addEventListener("click", async () => {
+  const next = els.daemonEnabled.getAttribute("aria-checked") !== "true";
+  els.daemonEnabled.setAttribute("aria-checked", next ? "true" : "false");
+  els.daemonEnabled.classList.toggle("active", next);
+  setText(els.daemonHint, next ? "启动中…" : "停止中…");
+  try {
+    await window.mia.saveDaemonSettings({ enabled: next });
+    await (next ? window.mia.startDaemon() : window.mia.stopDaemon());
+  } catch (error) {
+    setText(els.daemonHint, `操作失败：${error.message || error}`);
+  }
+  await refreshDaemonControls();
+});
+
+els.daemonRestart?.addEventListener("click", async () => {
+  els.daemonRestart.disabled = true;
+  setText(els.daemonHint, "重启中…");
+  try {
+    await window.mia.stopDaemon();
+    await window.mia.startDaemon();
+  } catch (error) {
+    setText(els.daemonHint, `重启失败：${error.message || error}`);
+  }
+  await refreshDaemonControls();
 });
 
 function toggleHermesModelForm() {

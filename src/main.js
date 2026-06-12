@@ -593,6 +593,7 @@ const startupBackgroundService = createStartupBackgroundService({
   appendDaemonLog,
   appendEngineLog,
   getRuntimeStatus,
+  isDaemonEnabled: () => settingsStore.daemonSettings().enabled,
   refreshSystemHermesAsync: systemHermesService.refresh,
   setDaemonLastError: (message) => daemonControlServer?.setLastError(message),
   setEngineLastError: (message) => { engineState.lastError = message; },

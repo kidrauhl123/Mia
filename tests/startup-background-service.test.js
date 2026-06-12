@@ -23,6 +23,23 @@ test("startup background service runs daemon, system refresh, and engine when in
   assert.equal(result.steps.engine.ok, true);
 });
 
+test("startup background service skips daemon when it is disabled", async () => {
+  const calls = [];
+  const service = createStartupBackgroundService({
+    getRuntimeStatus: () => ({ engineInstalled: true }),
+    isDaemonEnabled: () => false,
+    startDaemonService: async () => { calls.push("daemon"); return { running: true }; },
+    refreshSystemHermesAsync: async () => { calls.push("system-hermes"); },
+    startEngine: async () => { calls.push("engine"); return { engineRunning: true }; }
+  });
+
+  const result = await service.run();
+
+  assert.equal(calls.includes("daemon"), false);
+  assert.equal(result.steps.daemon.ok, true);
+  assert.equal(result.steps.daemon.skipped, true);
+});
+
 test("startup background service skips engine when Hermes is not installed", async () => {
   const calls = [];
   const service = createStartupBackgroundService({

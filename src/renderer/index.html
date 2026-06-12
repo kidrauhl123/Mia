@@ -638,6 +638,20 @@
                 </div>
               </section>
             </div>
+            <div class="runtime-card daemon-runtime-card">
+              <section class="connection-row">
+                <div class="connection-row-head">
+                  <div class="cloud-account-status-copy">
+                    <strong>后台守护进程</strong>
+                    <p id="daemonHint">开启后，关闭 Mia 窗口时仍能在后台回复消息、执行定时任务；关闭则只在窗口打开时工作。</p>
+                  </div>
+                  <div class="cloud-actions">
+                    <button id="daemonRestart" class="secondary" type="button" title="停止并重新启动后台守护进程，可用于修复卡死的旧进程。">重启</button>
+                    <button id="daemonEnabled" class="settings-switch" type="button" role="switch" aria-checked="false" aria-label="启用后台守护进程"><span></span></button>
+                  </div>
+                </div>
+              </section>
+            </div>
           </section>
         </div>
       </section>
