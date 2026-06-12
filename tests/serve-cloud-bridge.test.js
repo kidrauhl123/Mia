@@ -233,8 +233,11 @@ test("wechat start uses service account OAuth QR and completes from OAuth callba
     });
     assert.equal(wechatPage.status, 200);
     const wechatPageHtml = await wechatPage.text();
-    assert.match(wechatPageHtml, /Mia 需要读取你的微信昵称和头像/);
-    assert.match(wechatPageHtml, /继续微信授权/);
+    assert.match(wechatPageHtml, /用微信登录 Mia/);
+    assert.match(wechatPageHtml, /Mia Agent/);
+    assert.match(wechatPageHtml, /确认登录/);
+    assert.doesNotMatch(wechatPageHtml, /Mia Cloud/);
+    assert.doesNotMatch(wechatPageHtml, /同步你的聊天/);
     assert.match(wechatPageHtml, /https:\/\/open\.weixin\.qq\.com\/connect\/oauth2\/authorize/);
     assert.match(wechatPageHtml, /connect_redirect=1/);
 
@@ -249,7 +252,10 @@ test("wechat start uses service account OAuth QR and completes from OAuth callba
       `/api/auth/wechat/mp/oauth-callback?state=${encodeURIComponent(started.state)}&code=oauth_code`
     );
     assert.equal(callback.status, 200);
-    assert.match(await callback.text(), /Mia 登录成功/);
+    const callbackHtml = await callback.text();
+    assert.match(callbackHtml, /Mia 登录成功/);
+    assert.match(callbackHtml, /assets\/lottie\/lottie_light\.min\.js/);
+    assert.match(callbackHtml, /assets\/lottie\/wechat-success\.json/);
 
     const completed = await jsonFetch(baseUrl, "/api/auth/wechat/complete", {
       method: "POST",
@@ -562,6 +568,11 @@ test("cloud can serve bundled web assets without exposing path traversal", async
     const app = await rawFetch(baseUrl, "/app.js");
     assert.equal(app.status, 200);
     assert.match(app.headers.get("content-type") || "", /javascript/);
+
+    const wechatSuccessLottie = await rawFetch(baseUrl, "/assets/lottie/wechat-success.json");
+    assert.equal(wechatSuccessLottie.status, 200);
+    assert.match(wechatSuccessLottie.headers.get("content-type") || "", /application\/json/);
+    assert.equal((await wechatSuccessLottie.json()).w, 520);
 
     const shared = await rawFetch(baseUrl, "/shared/engine-contracts.js");
     assert.equal(shared.status, 200);

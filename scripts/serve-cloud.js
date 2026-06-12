@@ -292,7 +292,9 @@ function wechatMpAuthorizeHtml(record = null) {
   if (!target) {
     return "<!doctype html><meta charset=\"utf-8\"><title>Mia 微信登录</title><body style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:32px;background:#f5f5f8;color:#15151a;\"><h1>微信登录已过期</h1><p>请回到 Mia 重新扫码。</p></body>";
   }
-  return `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Mia 微信登录</title><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;margin:0;background:#f6f7f8;color:#15151a;display:grid;place-items:center;"><main style="width:min(420px,calc(100vw - 48px));text-align:center;"><h1 style="font-size:26px;margin:0 0 14px;">登录 Mia</h1><p style="font-size:16px;line-height:1.7;color:#666;margin:0 0 28px;">Mia 需要读取你的微信昵称和头像，用于创建账号资料和在设备间同步登录状态。</p><a href="${escapeHtml(target)}" style="display:block;text-decoration:none;background:#07c160;color:white;border-radius:14px;padding:15px 18px;font-size:18px;font-weight:700;">继续微信授权</a><p style="font-size:13px;line-height:1.6;color:#999;margin:18px 0 0;">授权完成后请回到 Mia。</p></main></body>`;
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Mia 微信登录</title><style>
+*{box-sizing:border-box}body{margin:0;min-height:100vh;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f7f8fa;color:#16181d;display:grid;place-items:center}.wrap{width:min(390px,calc(100vw - 44px));text-align:center}.title{font-size:30px;line-height:1.15;margin:0 0 10px;font-weight:800;letter-spacing:0}.caption{font-size:15px;line-height:1.5;color:#7a8089;margin:0 0 28px;font-weight:600}.button{min-width:156px;height:46px;border-radius:12px;background:#07c160;color:white;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;padding:0 24px;font-size:17px;font-weight:800;box-shadow:0 8px 18px rgba(7,193,96,.22)}
+</style></head><body><main class="wrap"><h1 class="title">用微信登录 Mia</h1><p class="caption">Mia Agent</p><a class="button" href="${escapeHtml(target)}" aria-label="确认登录">确认登录</a></main></body></html>`;
 }
 
 function wechatMpQrHtml(record = null, userAgent = "") {
@@ -325,7 +327,25 @@ poll();
 function wechatOAuthResultHtml({ ok = false, message = "" } = {}) {
   const title = ok ? "Mia 登录成功" : "Mia 登录失败";
   const detail = message || (ok ? "请回到 Mia。" : "请回到 Mia 重新发起登录。");
-  return `<!doctype html><meta charset="utf-8"><title>${escapeHtml(title)}</title><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;background:#f5f5f8;color:#15151a;"><main style="text-align:center;padding:32px;"><h1>${escapeHtml(title)}</h1><p style="color:#666;font-size:17px;line-height:1.6;">${escapeHtml(detail)}</p></main></body>`;
+  const stateClass = ok ? "is-ok" : "is-error";
+  const mark = ok ? "✓" : "!";
+  const animationScript = ok ? `<script src="/assets/lottie/lottie_light.min.js"></script><script>
+(function(){
+  var container=document.querySelector("[data-lottie-box]");
+  if(!container||!window.lottie)return;
+  container.classList.add("has-lottie");
+  window.lottie.loadAnimation({
+    container:container,
+    renderer:"svg",
+    loop:false,
+    autoplay:true,
+    path:"/assets/lottie/wechat-success.json"
+  });
+})();
+</script>` : "";
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>${escapeHtml(title)}</title><style>
+*{box-sizing:border-box}body{margin:0;min-height:100vh;min-height:100dvh;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f7f8fa;color:#16181d;display:grid;place-items:center}.result{width:min(360px,calc(100vw - 48px));text-align:center}.motion{width:112px;height:112px;margin:0 auto 18px;position:relative;display:grid;place-items:center}.motion svg{width:100%;height:100%;display:block}.fallback{width:72px;height:72px;border-radius:50%;display:grid;place-items:center;font-size:38px;font-weight:800;background:#07c160;color:white;box-shadow:0 12px 30px rgba(7,193,96,.2)}.has-lottie .fallback{display:none}.is-error .fallback{background:#ff4d4f;box-shadow:0 12px 30px rgba(255,77,79,.16)}.title{font-size:28px;line-height:1.18;margin:0 0 10px;font-weight:800;letter-spacing:0}.detail{font-size:16px;line-height:1.55;color:#6d727b;margin:0}
+</style></head><body><main class="result ${stateClass}"><div class="motion" data-lottie-box><span class="fallback">${mark}</span></div><h1 class="title">${escapeHtml(title)}</h1><p class="detail">${escapeHtml(detail)}</p></main>${animationScript}</body></html>`;
 }
 
 function cdata(value = "") {
