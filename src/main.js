@@ -508,6 +508,10 @@ let daemonTasksClient = null;
 let activeChatAbortController = null;
 let cloudEventSocketRuntime = null;
 let cloudBridgeRuntime = null;
+let localEventsRuntime = null;
+// Last cloud-events health the daemon pushed over the local channel; lets the
+// window report the real upstream state instead of just "local channel up".
+let daemonCloudEventsStatus = null;
 let cloudDesktopSyncRuntime = null;
 const pendingCloudLogs = [];
 const schedulerMcpBridge = createSchedulerMcpBridge({
@@ -1082,6 +1086,20 @@ function cloudEventsStatus() {
     lastError: "",
     lastEventSeq: Number(settings.lastEventSeq) || 0
   };
+  // ADR P2: while the daemon hosts /api/events, the window's event health is
+  // its local-channel subscription combined with the upstream state the daemon
+  // last reported — a live local channel with a dead cloud socket is not "OK".
+  if (!IS_DAEMON_PROCESS && settingsStore?.daemonSettings?.().enabled) {
+    const localConnected = Boolean(localEventsRuntime?.status?.().connected);
+    const upstreamDown = daemonCloudEventsStatus?.connected === false;
+    return {
+      ...fallback,
+      connected: localConnected && !upstreamDown,
+      lastError: !localConnected
+        ? "等待后台守护进程的本地事件通道"
+        : (upstreamDown ? (daemonCloudEventsStatus?.lastError || "后台守护进程未连接云端") : "")
+    };
+  }
   return cloudEventSocketRuntime?.status?.() || fallback;
 }
 
@@ -1961,10 +1979,25 @@ ipcMain.handle(IpcChannel.StartupBackgroundServices, () => startupBackgroundServ
 ipcMain.handle(IpcChannel.DaemonStatus, async () => {
   return getObservedDaemonStatus(500);
 });
-ipcMain.handle(IpcChannel.DaemonStart, () => startDaemonService());
-ipcMain.handle(IpcChannel.DaemonStop, () => stopDaemonService());
+ipcMain.handle(IpcChannel.DaemonStart, async () => {
+  const result = await startDaemonService();
+  // ADR P2: events socket ownership follows the daemon toggle — re-evaluate
+  // ours (start() self-gates and releases when the daemon hosts the feed).
+  startCloudEvents();
+  return result;
+});
+ipcMain.handle(IpcChannel.DaemonStop, async () => {
+  const result = await stopDaemonService();
+  startCloudEvents();
+  return result;
+});
 ipcMain.handle(IpcChannel.DaemonSettingsSave, (_event, settings) => {
   settingsStore.writeDaemonSettings(settings);
+  // Re-evaluate immediately only when the daemon just became enabled (the
+  // window must release its socket). The disable path waits for DaemonStop:
+  // grabbing /api/events while the daemon is still draining would briefly
+  // double-host the feed.
+  if (settingsStore.daemonSettings().enabled) startCloudEvents();
   return getDaemonStatus();
 });
 ipcMain.handle(IpcChannel.UtilOpenExternal, async (_event, url) => {
@@ -2121,25 +2154,39 @@ cloudEventSocketRuntime = createCloudEventsClient({
   cloudStatus: () => cloudStatus(false),
   cloudEventsUrl,
   cloudWebSocketProtocols,
-  broadcastRendererEvent,
+  // ADR P2: in the daemon every renderer-bound cloud event is also pushed to
+  // the local channel, because the daemon is the only /api/events host and
+  // the window renders from the forwarded feed.
+  broadcastRendererEvent: (channel, envelope) => {
+    broadcastRendererEvent(channel, envelope);
+    if (IS_DAEMON_PROCESS) daemonControlServer?.publishLocalEvent?.(envelope);
+  },
   cloudEventChannel: IpcChannel.CloudEvent,
   appendCloudLog,
   botRuntimeDispatcher: mainBotRuntimeDispatcher,
   messageCache: conversationMessageCache,
-  persistCursor: () => IS_DAEMON_PROCESS || !settingsStore.daemonSettings().enabled
+  persistCursor: () => IS_DAEMON_PROCESS || !settingsStore.daemonSettings().enabled,
+  isDaemonProcess: IS_DAEMON_PROCESS,
+  isDaemonEnabled: () => settingsStore.daemonSettings().enabled
 });
-// ADR P0: the window listens to the daemon's local event stream and replays
-// the envelopes to its renderers — that's how bot run streams (typing /
-// token deltas / tool traces) reach the UI now that only the daemon executes.
+// ADR P0/P2: the window listens to the daemon's local event stream and replays
+// the envelopes to its renderers — bot run streams (typing / token deltas /
+// tool traces) and, with the daemon enabled, the entire cloud event feed.
 if (!IS_DAEMON_PROCESS) {
-  const localEventsRuntime = createLocalEventsClient({
+  localEventsRuntime = createLocalEventsClient({
     baseUrl: () => {
       const daemonSettings = settingsStore.daemonSettings();
       return `http://${daemonSettings.host}:${daemonSettings.port}`;
     },
     daemonToken,
     enabled: () => settingsStore.daemonSettings().enabled,
-    onEnvelope: (envelope) => broadcastRendererEvent(IpcChannel.CloudEvent, envelope)
+    onEnvelope: (envelope) => {
+      if (envelope?.type === "daemon.cloud_events_status") {
+        daemonCloudEventsStatus = envelope.payload || null;
+        return;
+      }
+      broadcastRendererEvent(IpcChannel.CloudEvent, envelope);
+    }
   });
   localEventsRuntime.start();
   app.on("before-quit", () => localEventsRuntime.stop());
@@ -2382,7 +2429,15 @@ app.whenReady().then(async () => {
       appendDaemonLog(`Daemon runtime init failed: ${error?.message || error}`);
     }
     startCloudRuntimeSockets();
-    setInterval(startCloudRuntimeSockets, 10000);
+    setInterval(() => {
+      startCloudRuntimeSockets();
+      // ADR P2: keep the window honest about upstream health — local channel
+      // up + cloud socket down must not render as "connected".
+      daemonControlServer?.publishLocalEvent?.({
+        type: "daemon.cloud_events_status",
+        payload: cloudEventsStatus()
+      });
+    }, 10000);
     return;
   }
   const win = createWindow();

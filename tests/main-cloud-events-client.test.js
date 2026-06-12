@@ -403,3 +403,38 @@ test("persistCursor owner still advances lastEventSeq on events", () => {
 
   assert.deepEqual(calls.settingsWrites, [{ lastEventSeq: 9 }]);
 });
+
+test("window defers the /api/events socket to an enabled daemon (ADR P2)", () => {
+  let daemonEnabled = true;
+  const { client, sockets, FakeWebSocket } = setup({
+    isDaemonProcess: false,
+    isDaemonEnabled: () => daemonEnabled
+  });
+
+  client.start();
+  assert.equal(sockets.length, 0); // deferred: no own socket
+
+  daemonEnabled = false;
+  client.start();
+  assert.equal(sockets.length, 1); // window became the owner
+
+  sockets[0].readyState = FakeWebSocket.OPEN;
+  daemonEnabled = true;
+  client.start();
+  assert.equal(sockets[0].closed?.code, 1000); // released back to the daemon
+});
+
+test("daemon process hosts the events socket while enabled, releases when toggled off", () => {
+  let daemonEnabled = true;
+  const { client, sockets, FakeWebSocket } = setup({
+    isDaemonProcess: true,
+    isDaemonEnabled: () => daemonEnabled
+  });
+  client.start();
+  assert.equal(sockets.length, 1);
+
+  sockets[0].readyState = FakeWebSocket.OPEN;
+  daemonEnabled = false; // lingering daemon: toggle off → must release, not double-host
+  client.start();
+  assert.equal(sockets[0].closed?.code, 1000);
+});

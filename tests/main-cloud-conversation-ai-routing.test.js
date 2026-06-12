@@ -48,7 +48,7 @@ test("cloud events execution and cursor have a single owner (ADR 2026-06-12)", (
   );
   assert.match(
     main,
-    /if \(IS_DAEMON_PROCESS\) \{[\s\S]*startCloudRuntimeSockets\(\);[\s\S]*setInterval\(startCloudRuntimeSockets, 10000\);/,
+    /if \(IS_DAEMON_PROCESS\) \{[\s\S]*startCloudRuntimeSockets\(\);[\s\S]*setInterval\(\(\) => \{\s*\n\s*startCloudRuntimeSockets\(\);[\s\S]*\}, 10000\);/,
     "daemon process must retry both cloud events and bridge sockets"
   );
   assert.doesNotMatch(
