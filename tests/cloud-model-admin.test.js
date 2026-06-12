@@ -471,6 +471,13 @@ test("DeepSeek direct model proxy requires balance and records billable usage", 
     });
     assert.equal(blocked.status, 402);
     assert.equal(deepseek.calls.length, 0);
+    const blockedSummary = await request(cloud.port, "GET", "/api/admin/model-usage-summary", { auth });
+    assert.equal(blockedSummary.status, 200);
+    assert.equal(blockedSummary.body.totals.requestCount, 1);
+    assert.equal(blockedSummary.body.totals.failedCount, 1);
+    assert.equal(blockedSummary.body.totals.chargeMicrousd, 0);
+    assert.equal(blockedSummary.body.recentUsage[0].status, "failed");
+    assert.match(blockedSummary.body.recentUsage[0].error, /余额不足/);
 
     const grant = await request(cloud.port, "POST", "/api/admin/model-credits/grant", {
       auth,

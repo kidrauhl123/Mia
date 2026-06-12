@@ -27,6 +27,11 @@ function parseErrorMessage(text) {
 }
 
 function parseSseBlock(block) {
+  const eventName = block
+    .split(/\n/)
+    .find((line) => line.startsWith("event:"))
+    ?.slice(6)
+    .trim();
   const dataLines = block
     .split(/\n/)
     .filter((line) => line.startsWith("data:"))
@@ -35,10 +40,26 @@ function parseSseBlock(block) {
   const data = dataLines.join("\n");
   if (data === "[DONE]") return null;
   try {
-    return JSON.parse(data);
+    const parsed = JSON.parse(data);
+    if (eventName && parsed && typeof parsed === "object" && !parsed.type && !parsed.event) {
+      return { type: eventName, ...parsed };
+    }
+    return parsed;
   } catch {
-    return { type: "raw", data };
+    return { type: eventName || "raw", data };
   }
+}
+
+function eventType(event = {}) {
+  return String(event.type || event.event || "");
+}
+
+function eventErrorMessage(event = {}) {
+  const error = event.error || event.data?.error;
+  if (typeof error === "string") return error;
+  if (error && typeof error === "object") return String(error.message || error.error || JSON.stringify(error));
+  if (typeof event.message === "string") return event.message;
+  return "";
 }
 
 function createHermesRunsClient(deps = {}) {
@@ -84,13 +105,18 @@ function createHermesRunsClient(deps = {}) {
 
     const events = [];
     let content = "";
+    let failure = "";
     const handleEvent = (event) => {
       if (!event) return;
       events.push(event);
       if (typeof onEvent === "function") onEvent(event);
+      const type = eventType(event);
+      if (type === "run.failed" || type === "message.failed" || event.status === "failed") {
+        failure = eventErrorMessage(event) || "Hermes run failed.";
+      }
       const delta = event.delta || event.content_delta || event.text_delta || "";
       if (typeof delta === "string") content += delta;
-      if (typeof event.content === "string" && (event.type === "message.completed" || event.type === "run.completed")) {
+      if (typeof event.content === "string" && (type === "message.completed" || type === "run.completed")) {
         content = event.content;
       }
     };
@@ -115,7 +141,7 @@ function createHermesRunsClient(deps = {}) {
       const text = await response.text();
       for (const block of String(text || "").split(/\n\n+/)) handleEvent(parseSseBlock(block));
     }
-    return { events, content };
+    return { events, content, error: failure };
   }
 
   // Resolve a pending run approval. choice ∈ once | session | always | deny;
@@ -205,6 +231,7 @@ function createHermesRunsClient(deps = {}) {
       signal: args.signal,
       onEvent: args.onEvent
     });
+    if (stream.error) throw new Error(stream.error);
     return { runId, content: stream.content || "", events: stream.events };
   }
 

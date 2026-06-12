@@ -125,6 +125,45 @@ test("cloud-hermes DM runs the bot and appends a reply", async () => {
   }
 });
 
+test("cloud-hermes DM surfaces run failures as visible bot messages", async () => {
+  const ctx = setup();
+  const broadcasts = [];
+  try {
+    const dispatcher = makeDispatcher(ctx, {
+      hermesRunsClient: {
+        async runChat() {
+          throw new Error("Error code: 402 - {'error': '模型余额不足，请先充值。'}");
+        }
+      },
+      broadcastPersistedEvent(userId, event) {
+        broadcasts.push({ userId, event });
+      }
+    });
+    const message = ctx.messagesStore.appendMessage({
+      conversationId: ctx.conversation.id,
+      senderKind: "user",
+      senderRef: ctx.user.id,
+      bodyMd: "hello"
+    });
+    const reply = await dispatcher.handleUserMessage({
+      userId: ctx.user.id,
+      conversationId: ctx.conversation.id,
+      message
+    });
+
+    assert.equal(reply.sender_ref, BOT_ID);
+    assert.match(reply.body_md, /模型调用失败：模型余额不足，请先充值。/);
+    const run = ctx.cloudStore.getDb()
+      .prepare("SELECT status, error_json FROM cloud_agent_runs ORDER BY created_at DESC LIMIT 1")
+      .get();
+    assert.equal(run.status, "error");
+    assert.match(run.error_json, /402/);
+    assert.equal(broadcasts.some((entry) => entry.event.type === "conversation.message_appended" && entry.event.message.id === reply.id), true);
+  } finally {
+    ctx.cleanup();
+  }
+});
+
 test("cloud-hermes refuses a contaminated bot binding owned by another user", async () => {
   const ctx = setup();
   const hermesCalls = [];

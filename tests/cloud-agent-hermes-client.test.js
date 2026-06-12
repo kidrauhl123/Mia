@@ -173,6 +173,47 @@ test("Hermes runs client sends Bot headers and returns final text", async () => 
   ]);
 });
 
+test("Hermes runs client rejects run.failed events instead of returning empty text", async () => {
+  const callbacks = [];
+  const fakeFetch = async (url) => {
+    if (String(url).endsWith("/v1/runs")) {
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ run_id: "run_failed" })
+      };
+    }
+    if (String(url).endsWith("/v1/runs/run_failed/events")) {
+      return {
+        ok: true,
+        status: 200,
+        text: async () => [
+          "event: run.failed",
+          "data: {\"error\":\"模型余额不足，请先充值。\"}",
+          "",
+        ].join("\n")
+      };
+    }
+    throw new Error(`unexpected url ${url}`);
+  };
+
+  const client = createHermesRunsClient({ fetch: fakeFetch });
+  await assert.rejects(
+    () => client.runChat({
+      baseUrl: "http://worker",
+      userId: "u1",
+      bot: { id: "bot_mia", displayName: "Mia" },
+      conversationId: "botc_u1_bot_mia",
+      input: "hi",
+      onEvent(event) {
+        callbacks.push(event);
+      }
+    }),
+    /模型余额不足/
+  );
+  assert.deepEqual(callbacks.map((event) => event.type), ["run.failed"]);
+});
+
 test("Hermes runs client accepts an isolated session id for conductor-style calls", async () => {
   const calls = [];
   const fakeFetch = async (url, options = {}) => {

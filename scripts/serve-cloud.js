@@ -1516,10 +1516,6 @@ async function proxyDeepSeekChatCompletion(req, res, context, url, { userId, pre
     writeError(res, 503, "Mia DeepSeek 模型未配置。");
     return true;
   }
-  if (!context.modelBillingStore.hasPositiveBalance(userId)) {
-    writeError(res, 402, "模型余额不足，请先充值。");
-    return true;
-  }
 
   let body = {};
   try {
@@ -1533,6 +1529,21 @@ async function proxyDeepSeekChatCompletion(req, res, context, url, { userId, pre
   const selected = models.find((model) => model.id === requestedModel);
   if (!selected) {
     writeError(res, 400, "模型不可用。");
+    return true;
+  }
+  if (!context.modelBillingStore.hasPositiveBalance(userId)) {
+    context.modelBillingStore.recordUsage({
+      userId,
+      modelId: selected.id,
+      upstreamModel: selected.upstreamModel,
+      provider: "deepseek",
+      requestPath: proxyPath,
+      usage: {},
+      pricing: modelPricing(context),
+      status: "failed",
+      error: "模型余额不足，请先充值。"
+    });
+    writeError(res, 402, "模型余额不足，请先充值。");
     return true;
   }
 

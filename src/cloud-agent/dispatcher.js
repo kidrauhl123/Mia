@@ -160,6 +160,36 @@ function createCloudAgentDispatcher(deps = {}) {
     return { collect, payload };
   }
 
+  function userFacingRunError(error) {
+    const message = String(error?.message || error || "").trim();
+    if (/模型余额不足|HTTP 402|Error code:\s*402|insufficient.*balance|quota/i.test(message)) {
+      return "模型余额不足，请先充值。";
+    }
+    if (/api key|no API key|authentication|unauthorized/i.test(message)) {
+      return "模型服务鉴权失败，请联系管理员检查 API Key。";
+    }
+    return message || "模型调用失败。";
+  }
+
+  function appendRunErrorReply({ ownerId, bot, conversationId, error }) {
+    const reply = messagesStore.appendMessage({
+      conversationId,
+      senderKind: BOT_SENDER_KIND,
+      senderRef: bot.id,
+      senderOwnerId: ownerId,
+      bodyMd: `模型调用失败：${userFacingRunError(error)}`,
+      attachments: null,
+      trace: null,
+      status: "complete"
+    });
+    for (const member of socialStore.listConversationMembers(conversationId)) {
+      if (member.member_kind === MemberKind.User) {
+        broadcastPersistedEvent(member.member_ref, { type: "conversation.message_appended", conversationId, message: reply });
+      }
+    }
+    return reply;
+  }
+
   function invocationSender(message, fallbackUserId) {
     const senderRef = String(message?.sender_ref || fallbackUserId || "").trim();
     return getUserPublic(senderRef) || (senderRef ? { id: senderRef } : null);
@@ -267,7 +297,7 @@ function createCloudAgentDispatcher(deps = {}) {
       return reply;
     } catch (error) {
       cloudAgentRunsStore.markError(run.id, error);
-      return null;
+      return appendRunErrorReply({ ownerId, bot, conversationId, error });
     }
   }
 
