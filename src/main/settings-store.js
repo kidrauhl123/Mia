@@ -370,6 +370,13 @@ function createSettingsStore(deps = {}) {
   function writeCloudSettings(settings = {}) {
     const p = runtimePaths();
     const current = cloudSettings();
+    // Foreground and daemon both rewrite this file on every cloud event (the
+    // lastEventSeq cursor). If this read-modify-write starts from a failed read
+    // (concurrent writer, partial file), `current.token` is empty and persisting
+    // it would destroy a valid session — observed as random logouts. A write
+    // that doesn't explicitly touch credentials must never be able to clear them.
+    const touchesAuth = settings.token !== undefined || settings.user !== undefined || settings.enabled !== undefined;
+    if (!touchesAuth && !current.token) return current;
     const next = {
       enabled: settings.enabled !== undefined ? Boolean(settings.enabled) : current.enabled,
       url: normalizeCloudUrl(settings.url || current.url),
@@ -387,7 +394,12 @@ function createSettingsStore(deps = {}) {
       next.lastEventSeq = 0;
     }
     fs.mkdirSync(path.dirname(p.cloudSettings), { recursive: true });
-    fs.writeFileSync(p.cloudSettings, JSON.stringify(next, null, 2) + "\n", { mode: 0o600 });
+    // Atomic replace: a plain writeFileSync truncates first, so the other
+    // process reading in that window sees partial JSON, falls back to empty
+    // defaults, and its next cursor write would have persisted the wipe.
+    const tmpPath = `${p.cloudSettings}.${process.pid}.tmp`;
+    fs.writeFileSync(tmpPath, JSON.stringify(next, null, 2) + "\n", { mode: 0o600 });
+    fs.renameSync(tmpPath, p.cloudSettings);
     return next;
   }
 

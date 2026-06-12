@@ -199,3 +199,42 @@ test("writeUserProfile preserves status badge choices", (t) => {
   assert.deepEqual(next.statusBadge, badge);
   assert.deepEqual(readJson(runtime.userProfile, {}).statusBadge, badge);
 });
+
+test("cursor-only writeCloudSettings cannot wipe credentials after a failed read", (t) => {
+  const { runtime, store } = setup(t);
+  // Signed-in state on disk.
+  store.writeCloudSettings({ enabled: true, token: "tok_alive", user: { id: "u1" }, lastEventSeq: 10 });
+  // Simulate the concurrent-writer window: the file reads as corrupt JSON.
+  fs.writeFileSync(runtime.cloudSettings, "{\"enab");
+
+  // Both processes do this on every cloud event.
+  const result = store.writeCloudSettings({ lastEventSeq: 11 });
+
+  // The wipe (enabled:false token:"" user:null lastEventSeq:0) must NOT be persisted.
+  assert.equal(result.token, "");
+  assert.equal(readJson(runtime.cloudSettings, null), null); // file untouched (still corrupt)
+});
+
+test("explicit logout still clears credentials and resets the cursor", (t) => {
+  const { runtime, store } = setup(t);
+  store.writeCloudSettings({ enabled: true, token: "tok_alive", user: { id: "u1" }, lastEventSeq: 10 });
+
+  const next = store.writeCloudSettings({ enabled: false, token: "", user: null });
+
+  assert.equal(next.enabled, false);
+  assert.equal(next.token, "");
+  assert.equal(next.user, null);
+  assert.equal(next.lastEventSeq, 0);
+  assert.deepEqual(readJson(runtime.cloudSettings, {}).token, "");
+});
+
+test("writeCloudSettings replaces the file atomically without tmp leftovers", (t) => {
+  const { runtime, store } = setup(t);
+  store.writeCloudSettings({ enabled: true, token: "tok_alive", user: { id: "u1" }, lastEventSeq: 1 });
+  store.writeCloudSettings({ lastEventSeq: 2 });
+
+  assert.equal(readJson(runtime.cloudSettings, {}).lastEventSeq, 2);
+  assert.equal(readJson(runtime.cloudSettings, {}).token, "tok_alive");
+  const leftovers = fs.readdirSync(path.dirname(runtime.cloudSettings)).filter((name) => name.includes(".tmp"));
+  assert.deepEqual(leftovers, []);
+});
