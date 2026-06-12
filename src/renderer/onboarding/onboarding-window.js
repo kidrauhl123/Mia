@@ -29,6 +29,7 @@
   let scan = { done: 0, total: 4, byId: {} };
   let inventory = null;
   let renderTimer = 0;
+  let nativeControlsVisible = null;
   const installStates = {};
 
   function hasActiveInstall() {
@@ -52,6 +53,12 @@
     </svg>`;
   }
 
+  function backIconSvg() {
+    return `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M15.8 5.2 9 12l6.8 6.8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>`;
+  }
+
   function dotsHtml(active) {
     const order = ["login", "prepare"];
     const pos = active === "login" ? 0 : 1;
@@ -65,6 +72,7 @@
         : "";
       return `
         <section class="onb-wechat-login" data-login>
+          <button class="onb-back" type="button" data-action="back" aria-label="返回" title="返回">${backIconSvg()}</button>
           <header class="onb-wechat-head">
             <div class="onb-wechat-title">${wechatIconSvg()}<h1>微信登录</h1></div>
             <p>请使用微信扫描二维码登录</p>
@@ -197,7 +205,15 @@
   function render() {
     if (!root) return;
     root.innerHTML = step === "login" ? loginHtml() : step === "scan" ? scanHtml() : doneHtml();
+    syncNativeControls();
     bind();
+  }
+
+  function syncNativeControls() {
+    const shouldShow = !(step === "login" && loginFlow?.qrCodeUrl);
+    if (nativeControlsVisible === shouldShow) return;
+    nativeControlsVisible = shouldShow;
+    mia.window?.setNativeControlsVisible?.(shouldShow);
   }
 
   function setHint(text) {
@@ -221,6 +237,7 @@
       render();
       pollLogin(attempt);
     } catch (error) {
+      if (attempt !== loginAttempt) return;
       loginFlow = null;
       setHint(`连接失败：${error?.message || error}`);
       render();
@@ -333,6 +350,12 @@
       el.addEventListener("click", () => {
         const action = el.dataset.action;
         if (action === "login") submitLogin();
+        else if (action === "back") {
+          loginAttempt += 1;
+          loginFlow = null;
+          hint = "";
+          render();
+        }
         else if (action === "finish") {
           if (hasActiveInstall()) return;
           mia.onboardingComplete?.();

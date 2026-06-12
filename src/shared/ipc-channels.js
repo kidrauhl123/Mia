@@ -13,6 +13,7 @@
     WindowShowMain: "window:show-main",
     WindowOnboarding: "window:onboarding",
     WindowSignedOutOnboarding: "window:signed-out-onboarding",
+    WindowNativeControlsVisible: "window:native-controls-visible",
     WindowFocusState: "window:focus-state",
     WindowFullscreen: "window:fullscreen",
     WindowMaximized: "window:maximized",

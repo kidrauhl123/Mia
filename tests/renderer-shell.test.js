@@ -664,9 +664,9 @@ test("main window accepts the first mouse click after regaining focus", () => {
   assert.match(mainSource, /function shouldOpenAgentSetupWindow/);
   assert.doesNotMatch(mainSource, /fellows\.length === 0/);
   assert.match(onboardingBoundsSource, /width:\s*400/);
-  assert.match(onboardingBoundsSource, /height:\s*560/);
+  assert.match(onboardingBoundsSource, /height:\s*520/);
   assert.match(onboardingBoundsSource, /minWidth:\s*360/);
-  assert.match(onboardingBoundsSource, /minHeight:\s*520/);
+  assert.match(onboardingBoundsSource, /minHeight:\s*500/);
   assert.match(mainSource, /onboardingWindowBounds\.width/);
   assert.match(mainSource, /onboardingWindowBounds\.height/);
   // Signed-out users get a dedicated lightweight onboarding window (separate
@@ -685,15 +685,19 @@ test("main window accepts the first mouse click after regaining focus", () => {
   assert.match(ipcSource, /WindowShowMain:\s*"window:show-main"/);
   assert.match(ipcSource, /WindowOnboarding:\s*"window:onboarding"/);
   assert.match(ipcSource, /WindowSignedOutOnboarding:\s*"window:signed-out-onboarding"/);
+  assert.match(ipcSource, /WindowNativeControlsVisible:\s*"window:native-controls-visible"/);
   assert.match(preloadSource, /showMain: \(\) => ipcRenderer\.invoke\(IpcChannel\.WindowShowMain\)/);
   assert.match(preloadSource, /onboarding: \(\) => ipcRenderer\.invoke\(IpcChannel\.WindowOnboarding\)/);
   assert.match(preloadSource, /signedOutOnboarding: \(\) => ipcRenderer\.invoke\(IpcChannel\.WindowSignedOutOnboarding\)/);
+  assert.match(preloadSource, /setNativeControlsVisible: \(visible\) => ipcRenderer\.invoke\(IpcChannel\.WindowNativeControlsVisible,\s*Boolean\(visible\)\)/);
   assert.match(windowIpcSource, /setMinimumSize\(420,\s*560\)/);
   assert.match(windowIpcSource, /setSize\(1040,\s*700\)/);
   // Compact onboarding window driven from the renderer.
   assert.match(windowIpcSource, /IpcChannel\.WindowOnboarding/);
   assert.match(windowIpcSource, /onboardingWindowBounds\.minWidth/);
   assert.match(windowIpcSource, /onboardingWindowBounds\.width/);
+  assert.match(windowIpcSource, /IpcChannel\.WindowNativeControlsVisible/);
+  assert.match(windowIpcSource, /setWindowButtonVisibility\(Boolean\(visible\)\)/);
 });
 
 test("agent setup completion does not force first bot creation", () => {
@@ -727,6 +731,8 @@ test("first-run onboarding cannot enter Mia while an engine install is running",
   assert.doesNotMatch(appSource, /miaOnboardingWizard/);
   assert.match(standaloneSource, /wechatIconSvg/);
   assert.match(standaloneSource, /wechat-login-cta/);
+  assert.match(standaloneSource, /data-action="back"/);
+  assert.match(standaloneSource, /setNativeControlsVisible/);
   assert.match(standaloneSource, /action:\s*"start"/);
   assert.match(standaloneSource, /action:\s*"complete"/);
   assert.match(standaloneSource, /onb-qr-card/);

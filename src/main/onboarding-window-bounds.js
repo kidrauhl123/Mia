@@ -1,8 +1,8 @@
 const onboardingWindowBounds = Object.freeze({
   width: 400,
-  height: 560,
+  height: 520,
   minWidth: 360,
-  minHeight: 520
+  minHeight: 500
 });
 
 module.exports = { onboardingWindowBounds };

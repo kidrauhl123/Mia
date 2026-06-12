@@ -73,6 +73,11 @@ function registerWindowIpc({ ipcMain, startupTimer, runtimeLifecycle }) {
       w.setWindowButtonVisibility(true);
     }
   });
+  ipcMain.handle(IpcChannel.WindowNativeControlsVisible, (event, visible) => {
+    const w = BrowserWindow.fromWebContents(event.sender);
+    if (!w || process.platform !== "darwin" || typeof w.setWindowButtonVisibility !== "function") return;
+    w.setWindowButtonVisibility(Boolean(visible));
+  });
   ipcMain.handle(IpcChannel.WindowState, (event) => {
     const w = BrowserWindow.fromWebContents(event.sender);
     return windowState(w);

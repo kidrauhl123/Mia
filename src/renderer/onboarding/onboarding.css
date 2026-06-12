@@ -42,7 +42,7 @@ html, body {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
-  padding: 42px 28px 24px;
+  padding: 36px 28px 22px;
 }
 
 .onb-step {
@@ -134,15 +134,44 @@ html, body {
 }
 
 .onb-wechat-login {
+  position: relative;
   flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 22px;
-  padding: 10px 0 18px;
+  gap: 18px;
+  padding: 16px 0 12px;
   text-align: center;
   -webkit-app-region: no-drag;
+}
+
+.onb-back {
+  position: fixed;
+  top: 14px;
+  left: 16px;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #8b8c91;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+  -webkit-app-region: no-drag;
+}
+
+.onb-back:hover {
+  background: #f1f1f3;
+  color: var(--onb-text);
+}
+
+.onb-back svg {
+  width: 21px;
+  height: 21px;
 }
 
 .onb-wechat-head {
@@ -177,8 +206,8 @@ html, body {
   align-self: center;
   display: grid;
   place-items: center;
-  width: 244px;
-  height: 244px;
+  width: 230px;
+  height: 230px;
   padding: 12px;
   border: 1px solid var(--onb-line);
   border-radius: 16px;
@@ -187,8 +216,8 @@ html, body {
 }
 
 .onb-qr-img {
-  width: 220px;
-  height: 220px;
+  width: 206px;
+  height: 206px;
   object-fit: contain;
 }
 
