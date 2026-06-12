@@ -99,6 +99,14 @@ daemon 复活后自动续传（游标在 daemon 手里，不丢段）。
 没有对应数据源，强行经 API 中转属过度设计）。以 WAL + busy_timeout
 保证两进程罕见重叠时退化为短等待而非 SQLITE_BUSY，验收语义不变。*
 
+**P6 删除窗口接管（macOS，2026-06-12 提议，待下一轮）**
+用户提议彻底化：macOS 上 daemon 不可用即 App 不可用，删除窗口的全部
+owner 兜底（执行探活兜底、凭据写本地兜底、events 自连回退），设置开关
+降级为仅"重启"；daemon 死亡显示降级横幅，依赖 launchd KeepAlive 秒级
+复活。约束：非 darwin 与 `MIA_DISABLE_BACKGROUND_STARTUP=1` 开发模式
+保留窗口内嵌宿主——那些环境没有独立 daemon 进程，窗口本就是唯一
+owner，单一语义不受影响。
+
 **P5 减法清理**
 删除：窗口进程的 cloud-events/bridge 装配、双跑防御（执行抢锁不再需要）、
 游标共享注释；保留：clientOpId 幂等（多设备）、settings 原子写（防御纵深）。
