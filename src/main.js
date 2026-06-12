@@ -68,6 +68,7 @@ const { createModelSettingsService } = require("./main/model-settings-service.js
 const { createConversationTitleService } = require("./main/conversation-title-service.js");
 const { createDaemonControlServer } = require("./main/daemon/control-server.js");
 const { createDaemonTasksClient } = require("./main/daemon/tasks-client.js");
+const { createLocalEventsClient } = require("./main/daemon/local-events-client.js");
 const { createProviderConnections } = require("./main/provider-connections.js");
 const { createAuthService } = require("./main/auth-service.js");
 const { createEngineCatalogService } = require("./main/engine-catalog-service.js");
@@ -2058,10 +2059,14 @@ const localBotResponder = createLocalBotResponder({
   sendChat,
   postConversationMessageAsBot: (conversationId, body) => socialApi.postConversationMessageAsBot(conversationId, body),
   emitCloudEvent: (message) => {
-    broadcastRendererEvent(IpcChannel.CloudEvent, {
+    const envelope = {
       type: message.type,
       payload: message
-    });
+    };
+    broadcastRendererEvent(IpcChannel.CloudEvent, envelope);
+    // The daemon has no windows: push run streams (typing, token deltas,
+    // tool traces) to the window over the local channel (ADR P0).
+    if (IS_DAEMON_PROCESS) daemonControlServer?.publishLocalEvent?.(envelope);
   },
   log: (line) => appendCloudLog(line)
 });
@@ -2123,6 +2128,22 @@ cloudEventSocketRuntime = createCloudEventsClient({
   messageCache: conversationMessageCache,
   persistCursor: () => IS_DAEMON_PROCESS || !settingsStore.daemonSettings().enabled
 });
+// ADR P0: the window listens to the daemon's local event stream and replays
+// the envelopes to its renderers — that's how bot run streams (typing /
+// token deltas / tool traces) reach the UI now that only the daemon executes.
+if (!IS_DAEMON_PROCESS) {
+  const localEventsRuntime = createLocalEventsClient({
+    baseUrl: () => {
+      const daemonSettings = settingsStore.daemonSettings();
+      return `http://${daemonSettings.host}:${daemonSettings.port}`;
+    },
+    daemonToken,
+    enabled: () => settingsStore.daemonSettings().enabled,
+    onEnvelope: (envelope) => broadcastRendererEvent(IpcChannel.CloudEvent, envelope)
+  });
+  localEventsRuntime.start();
+  app.on("before-quit", () => localEventsRuntime.stop());
+}
 registerSocialIpc({
   ipcMain,
   socialApi,

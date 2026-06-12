@@ -177,6 +177,61 @@ function createDaemonControlServer({
     });
   }
 
+  // P0 of ADR 2026-06-12 desktop-single-owner-daemon: the daemon pushes
+  // renderer-bound events (bot run streams now, all cloud events in P2) to the
+  // window over this local SSE stream, since the window no longer executes
+  // runs itself and would otherwise lose typing/streaming UI.
+  const localEventSubscribers = new Set();
+
+  function handleLocalEventsStream(req, res) {
+    // Defense in depth: this stream carries the user's full run/cloud event
+    // feed, so never rely solely on handleRequest's guard ordering.
+    const url = new URL(req.url || "/", `http://${req.headers.host || "127.0.0.1"}`);
+    if (!isAuthorized(req, url)) {
+      writeJson(res, 401, { error: "Unauthorized" });
+      return;
+    }
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive"
+    });
+    res.write(": connected\n\n");
+    localEventSubscribers.add(res);
+    req.on("close", () => localEventSubscribers.delete(res));
+  }
+
+  function closeLocalEventSubscribers() {
+    for (const subscriber of [...localEventSubscribers]) {
+      try {
+        subscriber.end();
+      } catch { /* already gone */ }
+    }
+    localEventSubscribers.clear();
+  }
+
+  function publishLocalEvent(envelope = {}) {
+    if (!envelope || !envelope.type) return 0;
+    let payload;
+    try {
+      payload = `data: ${JSON.stringify(envelope)}\n\n`;
+    } catch {
+      return 0;
+    }
+    for (const subscriber of [...localEventSubscribers]) {
+      if (subscriber.destroyed || subscriber.writableEnded) {
+        localEventSubscribers.delete(subscriber);
+        continue;
+      }
+      try {
+        subscriber.write(payload);
+      } catch {
+        localEventSubscribers.delete(subscriber);
+      }
+    }
+    return localEventSubscribers.size;
+  }
+
   async function handleRequest(req, res) {
     const url = new URL(req.url || "/", `http://${req.headers.host || "127.0.0.1"}`);
     if (req.method === "OPTIONS") {
@@ -250,6 +305,10 @@ function createDaemonControlServer({
         tasksRoutes().handleEventsStream(req, res);
         return;
       }
+      if (url.pathname === "/api/local-events" && req.method === "GET") {
+        handleLocalEventsStream(req, res);
+        return;
+      }
       if (url.pathname.startsWith("/api/tasks")) {
         initSchedulerSubsystem();
         const body = ["POST", "PATCH"].includes(req.method) ? await readBody(req) : null;
@@ -297,6 +356,7 @@ function createDaemonControlServer({
   }
 
   function stop() {
+    closeLocalEventSubscribers();
     if (!controlServer) {
       state.running = false;
       state.starting = false;
@@ -336,6 +396,7 @@ function createDaemonControlServer({
     setLastError,
     connectUrls: daemonConnectUrls,
     pingUrls: daemonPingUrls,
+    publishLocalEvent,
     status,
     observedStatus,
     handleRequest,
