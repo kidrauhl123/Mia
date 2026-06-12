@@ -3,7 +3,9 @@ import { Alert, Pressable, ScrollView, StyleSheet, TextInput, View } from "react
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import Avatar from "../components/Avatar";
 import StatusBadge from "../components/StatusBadge";
+import StatusBadgeEmptyIcon from "../components/StatusBadgeEmptyIcon";
 import { resolveAvatar } from "../logic/conversationList";
+import { STATUS_BADGE_CHOICES, statusBadgeForValue, statusBadgeValue as statusBadgeValueForBadge } from "../logic/statusBadgeAssets";
 import { useAuth } from "../state/auth";
 import { useBotDetail, useBotRuntime, useDeleteBot, useSaveBotIdentity } from "../state/queries";
 import Button from "../ui/Button";
@@ -12,7 +14,6 @@ import StateBlock from "../ui/StateBlock";
 import { Body, BodyStrong, Label, Sub, Title } from "../ui/Text";
 import { color, space, hairlineWidth } from "../theme";
 import type { ContactsStackParamList } from "../navigation/types";
-import type { StatusBadge as StatusBadgeT } from "../api/types";
 
 type Props = NativeStackScreenProps<ContactsStackParamList, "BotDetail">;
 
@@ -23,23 +24,6 @@ function Row({ label, value }: { label: string; value: string }) {
       <Body style={styles.value}>{value}</Body>
     </View>
   );
-}
-
-function statusBadgeForPreset(value: string): StatusBadgeT | null {
-  if (value === "star") return { kind: "emoji", emoji: "⭐", label: "星标" };
-  if (value === "fire") return { kind: "emoji", emoji: "🔥", label: "活跃" };
-  if (value === "rainbow") return { kind: "lottie", assetId: "rainbow", label: "彩虹动画", loop: "always" };
-  if (value === "surprised-cat") return { kind: "lottie", assetId: "surprised-cat", label: "惊讶猫", loop: "always" };
-  return null;
-}
-
-function statusBadgePresetValue(badge?: StatusBadgeT | null): string {
-  if (!badge) return "";
-  if (badge.kind === "emoji" && badge.emoji === "⭐") return "star";
-  if (badge.kind === "emoji" && badge.emoji === "🔥") return "fire";
-  if (badge.kind === "lottie" && badge.assetId === "rainbow") return "rainbow";
-  if (badge.kind === "lottie" && badge.assetId === "surprised-cat") return "surprised-cat";
-  return "";
 }
 
 export default function BotDetailScreen({ navigation, route }: Props) {
@@ -63,7 +47,7 @@ export default function BotDetailScreen({ navigation, route }: Props) {
     if (!data) return;
     setName(title);
     setPersonaText(persona);
-    setStatusBadgeValue(statusBadgePresetValue(data?.statusBadge || data?.status_badge || null));
+    setStatusBadgeValue(statusBadgeValueForBadge(data?.statusBadge || data?.status_badge || null));
   }, [data?.id, data?.key, title, persona, data?.statusBadge, data?.status_badge]);
 
   async function save() {
@@ -83,7 +67,7 @@ export default function BotDetailScreen({ navigation, route }: Props) {
           color: data?.color || "",
           avatarImage: data?.avatarImage || data?.avatar_image || "",
           avatarCrop: data?.avatarCrop || data?.avatar_crop || null,
-          statusBadge: statusBadgeForPreset(statusBadgeValue),
+          statusBadge: statusBadgeForValue(statusBadgeValue),
           capabilities: data?.capabilities || { legacyCapabilities: ["chat", "files", "terminal", "code"] },
         },
       });
@@ -149,22 +133,16 @@ export default function BotDetailScreen({ navigation, route }: Props) {
             </Pressable>
           )}
           <Pressable
-            style={[styles.badgeTrigger, !statusBadgeForPreset(statusBadgeValue) && styles.badgeTriggerEmpty]}
+            style={[styles.badgeTrigger, !statusBadgeForValue(statusBadgeValue) && styles.badgeTriggerEmpty]}
             onPress={() => setBadgeOpen((v) => !v)}
           >
-            <StatusBadge badge={statusBadgeForPreset(statusBadgeValue)} apiBase={apiBase} size={20} />
-            {!statusBadgeForPreset(statusBadgeValue) ? <Body style={styles.badgePlus}>+</Body> : null}
+            <StatusBadge badge={statusBadgeForValue(statusBadgeValue)} apiBase={apiBase} size={20} />
+            {!statusBadgeForValue(statusBadgeValue) ? <StatusBadgeEmptyIcon size={22} strokeColor={color.inkMuted} /> : null}
           </Pressable>
         </View>
         {badgeOpen ? (
           <View style={styles.badgeChoices}>
-            {[
-              ["", "无"],
-              ["star", "⭐ 星标"],
-              ["fire", "🔥 活跃"],
-              ["rainbow", "彩虹动画"],
-              ["surprised-cat", "惊讶猫"],
-            ].map(([value, label]) => (
+            {STATUS_BADGE_CHOICES.map(({ value, label }) => (
               <Button
                 key={value}
                 label={label}
@@ -226,11 +204,8 @@ const styles = StyleSheet.create({
     borderRadius: 15,
   },
   badgeTriggerEmpty: {
-    borderWidth: hairlineWidth,
-    borderStyle: "dashed",
-    borderColor: color.line,
+    opacity: 0.78,
   },
-  badgePlus: { color: color.inkMuted },
   badgeChoices: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
   badgeButton: { minWidth: 92, height: 38 },
 });

@@ -263,27 +263,17 @@ function statusBadgeFrom(...sources) {
 }
 
 function statusBadgeForPreset(value) {
-  const id = String(value || "").trim();
-  if (id === "star") return { kind: "emoji", emoji: "⭐", label: "星标" };
-  if (id === "fire") return { kind: "emoji", emoji: "🔥", label: "活跃" };
-  if (id === "rainbow") return { kind: "lottie", assetId: "rainbow", label: "彩虹动画", loop: "always" };
-  if (id === "surprised-cat") return { kind: "lottie", assetId: "surprised-cat", label: "惊讶猫", loop: "always" };
-  return null;
+  return window.miaStatusBadgeAssets?.statusBadgeForValue?.(value) || null;
 }
 
 function statusBadgePresetValue(badge) {
-  const normalized = badge && typeof badge === "object" ? badge : null;
-  if (!normalized) return "";
-  if (normalized.kind === "emoji" && normalized.emoji === "⭐") return "star";
-  if (normalized.kind === "emoji" && normalized.emoji === "🔥") return "fire";
-  if (normalized.kind === "lottie" && normalized.assetId === "rainbow") return "rainbow";
-  if (normalized.kind === "lottie" && normalized.assetId === "surprised-cat") return "surprised-cat";
-  return "";
+  return window.miaStatusBadgeAssets?.statusBadgeValue?.(badge) || "";
 }
 
 function statusBadgeAssetUrl(assetId) {
   const id = safeStatusBadgeAssetId(assetId);
-  return id ? `/api/status-badge-assets/${encodeURIComponent(id)}.json` : "";
+  if (!id) return "";
+  return window.miaStatusBadgeAssets?.statusBadgeAssetUrl?.(id, { baseUrl: API_BASE }) || `/api/status-badge-assets/${encodeURIComponent(id)}.json`;
 }
 
 function renderStatusBadgeHtml(statusBadge) {
@@ -348,7 +338,7 @@ function renderStatusBadgeGlyph(target, badge) {
   target.innerHTML = "";
   target.classList.toggle("empty", !badge);
   if (!badge) {
-    target.textContent = "+";
+    renderEmptyStatusBadgeGlyph(target);
     return;
   }
   if (badge.kind === "emoji") {
@@ -359,7 +349,7 @@ function renderStatusBadgeGlyph(target, badge) {
     const assetId = safeStatusBadgeAssetId(badge.assetId);
     if (!assetId) {
       target.classList.add("empty");
-      target.textContent = "+";
+      renderEmptyStatusBadgeGlyph(target);
       return;
     }
     target.innerHTML = `<span class="name-with-badge-badge name-with-badge-badge-lottie" data-asset-id="${escapeHtml(assetId)}" data-lottie="${escapeHtml(assetId)}" data-lottie-path="${escapeHtml(statusBadgeAssetUrl(assetId))}" data-lottie-trigger="loop" aria-hidden="true"></span>`;
@@ -367,13 +357,97 @@ function renderStatusBadgeGlyph(target, badge) {
   }
 }
 
+function renderEmptyStatusBadgeGlyph(target) {
+  if (!target) return;
+  target.innerHTML = `
+    <span class="identity-badge-empty-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" focusable="false">
+        <circle class="identity-badge-empty-ring" cx="12" cy="12" r="8.25"></circle>
+        <circle class="identity-badge-empty-eye" cx="9.4" cy="10.5" r=".78"></circle>
+        <circle class="identity-badge-empty-eye" cx="14.6" cy="10.5" r=".78"></circle>
+        <path class="identity-badge-empty-smile" d="M8.9 14.3c1.4 1.5 4.8 1.5 6.2 0"></path>
+      </svg>
+    </span>`;
+}
+
+function statusBadgeChoices() {
+  return window.miaStatusBadgeAssets?.statusBadgeChoices?.({ includeEmpty: true }) || [
+    { value: "", label: "无", badge: null }
+  ];
+}
+
+function renderStatusBadgeChoiceContent(choice) {
+  if (!choice?.badge) return `<span class="identity-badge-choice-empty">无</span>`;
+  const badge = choice.badge;
+  if (badge.kind === "emoji") return `<span class="identity-badge-choice-emoji">${escapeHtml(badge.emoji || "")}</span>`;
+  return renderStatusBadgeHtml(badge);
+}
+
+function statusBadgeChoiceButtonsHtml(attributeName, target = "") {
+  return statusBadgeChoices().map((choice) => {
+    const targetAttr = target ? ` data-status-badge-target="${escapeHtml(target)}"` : "";
+    const label = choice.value ? `${choice.label || choice.value}徽章` : "无徽章";
+    return `<button type="button" ${attributeName}="${escapeHtml(choice.value || "")}"${targetAttr} aria-label="${escapeHtml(label)}">${renderStatusBadgeChoiceContent(choice)}</button>`;
+  }).join("");
+}
+
+function renderProfileStatusBadgeChoices() {
+  const select = els.profileStatusBadge;
+  const panel = els.profileStatusBadgeDetails?.querySelector?.(".identity-badge-choices");
+  const key = statusBadgeChoices().map((choice) => `${choice.value}:${choice.kind}:${choice.label}`).join("|");
+  if (select && select.dataset.statusBadgeCatalogKey !== key) {
+    const value = select.value || "";
+    select.innerHTML = statusBadgeChoices().map((choice) => `<option value="${escapeHtml(choice.value || "")}">${escapeHtml(choice.label || "无")}</option>`).join("");
+    select.value = statusBadgeChoices().some((choice) => choice.value === value) ? value : "";
+    select.dataset.statusBadgeCatalogKey = key;
+  }
+  if (panel && panel.dataset.statusBadgeCatalogKey !== key) {
+    panel.innerHTML = statusBadgeChoiceButtonsHtml("data-status-badge-choice", "profile");
+    panel.dataset.statusBadgeCatalogKey = key;
+    initStatusBadgeLotties(panel);
+  }
+}
+
 function syncProfileStatusBadgeControl() {
   if (!els.profileStatusBadge || !els.profileStatusBadgeTrigger) return;
+  renderProfileStatusBadgeChoices();
   renderStatusBadgeGlyph(els.profileStatusBadgeTrigger, statusBadgeForPreset(els.profileStatusBadge.value));
   document.querySelectorAll("[data-status-badge-choice]").forEach((button) => {
     button.classList.toggle("active", button.dataset.statusBadgeChoice === els.profileStatusBadge.value);
   });
 }
+
+function bindStatusBadgeDetailsDismissal(details) {
+  if (!details || details.dataset.statusBadgeDismissBound === "1") return;
+  details.dataset.statusBadgeDismissBound = "1";
+  let hideTimer = 0;
+  const cancelHide = () => {
+    if (!hideTimer) return;
+    window.clearTimeout(hideTimer);
+    hideTimer = 0;
+  };
+  const scheduleHide = () => {
+    cancelHide();
+    hideTimer = window.setTimeout(() => {
+      details.open = false;
+      hideTimer = 0;
+    }, 90);
+  };
+  details.addEventListener("mouseenter", cancelHide);
+  details.addEventListener("mouseleave", scheduleHide);
+  details.addEventListener("toggle", () => {
+    if (!details.open) {
+      cancelHide();
+      return;
+    }
+    document.querySelectorAll(".identity-badge-details[open]").forEach((node) => {
+      if (node !== details) node.open = false;
+    });
+    initStatusBadgeLotties(details);
+  });
+}
+
+document.querySelectorAll(".identity-badge-details").forEach(bindStatusBadgeDetailsDismissal);
 
 function formatBytes(value) {
   const bytes = Number(value) || 0;
@@ -2703,6 +2777,7 @@ function renderWebBotNameAndBadge(root, draft) {
   root?.querySelectorAll?.("[data-web-bot-status-badge-choice]").forEach((button) => {
     button.classList.toggle("active", button.dataset.webBotStatusBadgeChoice === draft.statusBadgeValue);
   });
+  initStatusBadgeLotties(root);
 }
 
 function readWebBotAvatarFile(file, draft, root) {
@@ -3049,11 +3124,7 @@ function openCreateBotDialog() {
               <summary id="webBotStatusBadgeTrigger" class="identity-badge-trigger" title="徽章" aria-label="徽章"></summary>
               <div class="accordion-body identity-badge-panel">
                 <div class="identity-badge-choices">
-                  <button type="button" data-web-bot-status-badge-choice="">无</button>
-                  <button type="button" data-web-bot-status-badge-choice="star">⭐ 星标</button>
-                  <button type="button" data-web-bot-status-badge-choice="fire">🔥 活跃</button>
-                  <button type="button" data-web-bot-status-badge-choice="rainbow">彩虹动画</button>
-                  <button type="button" data-web-bot-status-badge-choice="surprised-cat">惊讶猫</button>
+                  ${statusBadgeChoiceButtonsHtml("data-web-bot-status-badge-choice", "web-bot")}
                 </div>
               </div>
             </details>
@@ -3208,7 +3279,7 @@ function openAddFriendDialog() {
 
 function renderAddFriendModal() {
   if (!_addFriendModal) return;
-  const myName = state.user?.username || "—";
+  const myUserId = state.user?.id || "—";
   const incoming = state.incomingRequests || [];
   const outgoing = state.outgoingRequests || [];
   _addFriendModal.innerHTML = `
@@ -3221,25 +3292,30 @@ function renderAddFriendModal() {
               <section class="connection-row">
                 <div class="connection-row-head">
                   <div>
-                    <strong>我的用户名</strong>
+                    <strong>我的 UID</strong>
                     <p>把这个发给朋友，让对方添加你。</p>
                   </div>
                 </div>
                 <section class="connection-details">
-                  <p class="pairing-hint" style="font-family:monospace;">${escapeHtml(myName)}</p>
+                  <p class="pairing-hint" style="font-family:monospace;">${escapeHtml(myUserId)}</p>
                 </section>
               </section>
               <section class="connection-row">
                 <div class="connection-row-head">
                   <div>
                     <strong>添加好友</strong>
-                    <p>输入对方的用户名发送请求。</p>
+                    <p>输入对方的 UID 发送请求。</p>
                   </div>
                 </div>
                 <section class="connection-details">
-                  <div class="cloud-login-grid" style="grid-template-columns:1fr auto;">
-                    <input id="addFriendInput" placeholder="用户名" autocomplete="off">
-                    <button class="primary" type="button" data-action="send">发送</button>
+                  <div class="add-friend-send-row">
+                    <input id="addFriendInput" placeholder="UID" inputmode="numeric" autocomplete="off">
+                    <button class="add-friend-icon-button" type="button" data-action="send" title="发送好友请求" aria-label="发送好友请求">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M7 17 17 7"></path>
+                        <path d="M9 7h8v8"></path>
+                      </svg>
+                    </button>
                   </div>
                   <p id="addFriendStatus" class="pairing-hint">—</p>
                 </section>
@@ -3255,7 +3331,7 @@ function renderAddFriendModal() {
                   <section class="connection-details">
                     ${incoming.map((r) => `
                       <div style="display:flex; align-items:center; gap:8px; padding:6px 0;">
-                        <span style="flex:1;">${escapeHtml(r.other?.username || r.from_user)}</span>
+                        <span style="flex:1;">${escapeHtml(r.other?.displayName || r.other?.id || r.from_user)}</span>
                         <button class="primary" type="button" data-respond="${escapeHtml(r.id)}" data-action-arg="accept">同意</button>
                         <button class="secondary" type="button" data-respond="${escapeHtml(r.id)}" data-action-arg="reject">拒绝</button>
                       </div>
@@ -3273,7 +3349,7 @@ function renderAddFriendModal() {
                   <section class="connection-details">
                     ${outgoing.map((r) => `
                       <div style="display:flex; align-items:center; gap:8px; padding:6px 0;">
-                        <span style="flex:1;">${escapeHtml(r.other?.username || r.to_user)}</span>
+                        <span style="flex:1;">${escapeHtml(r.other?.displayName || r.other?.id || r.to_user)}</span>
                         <button class="secondary" type="button" data-cancel="${escapeHtml(r.id)}">撤回</button>
                       </div>
                     `).join("")}
@@ -3289,12 +3365,13 @@ function renderAddFriendModal() {
   _addFriendModal.querySelector('[data-action="send"]')?.addEventListener("click", async () => {
     const input = _addFriendModal.querySelector("#addFriendInput");
     const statusEl = _addFriendModal.querySelector("#addFriendStatus");
-    const username = String(input?.value || "").trim();
-    if (!username) { statusEl.textContent = "请输入用户名"; return; }
+    const toUserId = String(input?.value || "").trim();
+    if (!toUserId) { statusEl.textContent = "请输入 UID"; return; }
+    if (!/^\d{10}$/.test(toUserId)) { statusEl.textContent = "请输入 10 位 UID"; return; }
     try {
-      const res = await api("/api/social/friend-requests", { method: "POST", body: { toUsername: username } });
+      const res = await api("/api/social/friend-requests", { method: "POST", body: { toUserId } });
       if (res.request) {
-        state.outgoingRequests = [{ ...res.request, other: { username } }, ...state.outgoingRequests];
+        state.outgoingRequests = [{ ...res.request, other: { id: toUserId } }, ...state.outgoingRequests];
         statusEl.textContent = "已发送请求";
         if (input) input.value = "";
         renderAddFriendModal();
@@ -3729,14 +3806,13 @@ els.profileStatusBadge?.addEventListener("change", async () => {
   syncProfileStatusBadgeControl();
   await saveProfilePatch({ statusBadge }, "徽章保存失败");
 });
-document.querySelectorAll("[data-status-badge-choice]").forEach((button) => {
-  button.addEventListener("click", () => {
-    if (!els.profileStatusBadge) return;
-    els.profileStatusBadge.value = button.dataset.statusBadgeChoice || "";
-    syncProfileStatusBadgeControl();
-    if (els.profileStatusBadgeDetails) els.profileStatusBadgeDetails.open = false;
-    els.profileStatusBadge.dispatchEvent(new Event("change", { bubbles: true }));
-  });
+document.addEventListener("click", (event) => {
+  const button = event.target?.closest?.("[data-status-badge-choice]");
+  if (!button || !els.profileStatusBadge) return;
+  els.profileStatusBadge.value = button.dataset.statusBadgeChoice || "";
+  syncProfileStatusBadgeControl();
+  if (els.profileStatusBadgeDetails) els.profileStatusBadgeDetails.open = false;
+  els.profileStatusBadge.dispatchEvent(new Event("change", { bubbles: true }));
 });
 function bindAppearanceInput(el, key, getValue) {
   if (!el) return;

@@ -5,12 +5,13 @@ import { useBridgeDevices, useMe, useSaveProfile, useUserSettings } from "../sta
 import { resolveAvatar } from "../logic/avatar";
 import AvatarMedia from "../components/AvatarMedia";
 import StatusBadge from "../components/StatusBadge";
+import StatusBadgeEmptyIcon from "../components/StatusBadgeEmptyIcon";
+import { STATUS_BADGE_CHOICES, statusBadgeForValue, statusBadgeValue } from "../logic/statusBadgeAssets";
 import Button from "../ui/Button";
 import StateBlock from "../ui/StateBlock";
 import { Body, BodyStrong, Brand, Label, Sub } from "../ui/Text";
 import { color, space, hairlineWidth } from "../theme";
 import UpdateSettingsCard from "../updates/UpdateSettingsCard";
-import type { StatusBadge as StatusBadgeT } from "../api/types";
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
@@ -19,23 +20,6 @@ function Row({ label, value }: { label: string; value: string }) {
       <Body style={styles.value}>{value}</Body>
     </View>
   );
-}
-
-function statusBadgeForPreset(value: string): StatusBadgeT | null {
-  if (value === "star") return { kind: "emoji", emoji: "⭐", label: "星标" };
-  if (value === "fire") return { kind: "emoji", emoji: "🔥", label: "活跃" };
-  if (value === "rainbow") return { kind: "lottie", assetId: "rainbow", label: "彩虹动画", loop: "always" };
-  if (value === "surprised-cat") return { kind: "lottie", assetId: "surprised-cat", label: "惊讶猫", loop: "always" };
-  return null;
-}
-
-function statusBadgePresetValue(badge?: StatusBadgeT | null): string {
-  if (!badge) return "";
-  if (badge.kind === "emoji" && badge.emoji === "⭐") return "star";
-  if (badge.kind === "emoji" && badge.emoji === "🔥") return "fire";
-  if (badge.kind === "lottie" && badge.assetId === "rainbow") return "rainbow";
-  if (badge.kind === "lottie" && badge.assetId === "surprised-cat") return "surprised-cat";
-  return "";
 }
 
 export default function SettingsScreen() {
@@ -53,7 +37,7 @@ export default function SettingsScreen() {
   const userId = me.data?.id || session?.user?.id || "";
   const username = me.data?.username || session?.user?.username || "未登录";
   const avatar = resolveAvatar(userId, username, me.data?.avatarImage || "", me.data?.avatarCrop || null);
-  const badgeValue = statusBadgePresetValue(me.data?.statusBadge);
+  const badgeValue = statusBadgeValue(me.data?.statusBadge || null);
 
   useEffect(() => {
     setNameDraft(me.data?.displayName || me.data?.username || session?.user?.username || "");
@@ -98,18 +82,12 @@ export default function SettingsScreen() {
           )}
           <Pressable style={[styles.badgeTrigger, !me.data?.statusBadge && styles.badgeTriggerEmpty]} onPress={() => setBadgeOpen((v) => !v)}>
             <StatusBadge badge={me.data?.statusBadge || null} apiBase={apiBase} size={22} />
-            {!me.data?.statusBadge ? <Body style={styles.badgePlus}>+</Body> : null}
+            {!me.data?.statusBadge ? <StatusBadgeEmptyIcon size={22} strokeColor={color.inkMuted} /> : null}
           </Pressable>
         </View>
         {badgeOpen ? (
           <View style={styles.badgeChoices}>
-            {[
-              ["", "无"],
-              ["star", "⭐ 星标"],
-              ["fire", "🔥 活跃"],
-              ["rainbow", "彩虹动画"],
-              ["surprised-cat", "惊讶猫"],
-            ].map(([value, label]) => (
+            {STATUS_BADGE_CHOICES.map(({ value, label }) => (
               <Button
                 key={value}
                 label={label}
@@ -118,7 +96,7 @@ export default function SettingsScreen() {
                 style={styles.badgeButton}
                 onPress={() => {
                   setBadgeOpen(false);
-                  saveProfile.mutate({ statusBadge: statusBadgeForPreset(value) });
+                  saveProfile.mutate({ statusBadge: statusBadgeForValue(value) });
                 }}
               />
             ))}
@@ -198,12 +176,7 @@ const styles = StyleSheet.create({
     borderRadius: 15,
   },
   badgeTriggerEmpty: {
-    borderWidth: hairlineWidth,
-    borderStyle: "dashed",
-    borderColor: color.line,
-  },
-  badgePlus: {
-    color: color.inkMuted,
+    opacity: 0.78,
   },
   badgeChoices: {
     flexDirection: "row",

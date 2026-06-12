@@ -154,7 +154,7 @@ test("bootstrapAfterLogin does not import local runtime bots as cloud identities
     appendTransientChat: () => {}
   });
   s.__mockWindow.mia.social = {
-    myUsername: async () => ({ ok: true, data: { id: "u_1", username: "jung" } }),
+    myIdentity: async () => ({ ok: true, data: { id: "u_1", username: "jung" } }),
     listFriends: async () => ({ ok: true, data: { friends: [] } }),
     listFriendRequests: async () => ({ ok: true, data: { requests: [] } }),
     settingsGet: async () => ({}),
@@ -192,7 +192,7 @@ test("bootstrapAfterLogin asks untitled loaded conversations to generate titles"
     }
   });
   s.__mockWindow.mia.social = {
-    myUsername: async () => ({ ok: true, data: { id: "u_1", username: "jung" } }),
+    myIdentity: async () => ({ ok: true, data: { id: "u_1", username: "jung" } }),
     listFriends: async () => ({ ok: true, data: { friends: [] } }),
     listFriendRequests: async () => ({ ok: true, data: { requests: [] } }),
     listBots: async () => ({ ok: true, data: { bots: [] } }),
@@ -232,7 +232,7 @@ test("bootstrapAfterLogin prefetches group members beyond the initial message ca
     { id: "g_late", type: "group", name: "Late Group" }
   ];
   s.__mockWindow.mia.social = {
-    myUsername: async () => ({ ok: true, data: { id: "u_1", username: "jung" } }),
+    myIdentity: async () => ({ ok: true, data: { id: "u_1", username: "jung" } }),
     listFriends: async () => ({ ok: true, data: { friends: [] } }),
     listFriendRequests: async () => ({ ok: true, data: { requests: [] } }),
     listBots: async () => ({ ok: true, data: { bots: [] } }),
@@ -271,7 +271,7 @@ test("bootstrapAfterLogin paints cached SQLite social data before slow cloud con
       ok: true,
       data: { messages: [{ id: "m1", seq: 1, sender_kind: "bot", sender_ref: "mia", body_md: "cached hello" }] }
     }),
-    myUsername: async () => ({ ok: true, data: { id: "u_1", username: "jung" } }),
+    myIdentity: async () => ({ ok: true, data: { id: "u_1", username: "jung" } }),
     listFriends: async () => ({ ok: true, data: { friends: [] } }),
     listFriendRequests: async () => ({ ok: true, data: { requests: [] } }),
     listBots: async () => ({ ok: true, data: { bots: [] } }),
@@ -320,7 +320,7 @@ test("bootstrapAfterLogin keeps legacy UUID bot sessions for history but hides t
       data: { userId, conversations: [legacy, stable], friends: [], bots: [{ id: "mia", name: "Mia" }], members: {} }
     }),
     getCachedConversationMessages: async () => ({ ok: true, data: { messages: [] } }),
-    myUsername: async () => ({ ok: true, data: { id: "u_1", username: "jung" } }),
+    myIdentity: async () => ({ ok: true, data: { id: "u_1", username: "jung" } }),
     listFriends: async () => ({ ok: true, data: { friends: [] } }),
     listFriendRequests: async () => ({ ok: true, data: { requests: [] } }),
     listBots: async () => ({ ok: true, data: { bots: [{ id: "mia", name: "Mia" }] } }),
@@ -2004,7 +2004,7 @@ test("bootstrapAfterLogin does not write the legacy localStorage snapshot", asyn
   });
   s.initSocialModule({ getState: () => ({ runtime: {} }), render: () => {}, els: {}, appendTransientChat: () => {} });
   s.__mockWindow.mia.social = {
-    myUsername: async () => ({ ok: true, data: { id: "u_me", username: "me" } }),
+    myIdentity: async () => ({ ok: true, data: { id: "u_me", username: "me" } }),
     listFriends: async () => ({ ok: true, data: { friends: [] } }),
     listFriendRequests: async () => ({ ok: true, data: { requests: [] } }),
     listBots: async () => ({ ok: true, data: { bots: [] } }),

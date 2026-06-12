@@ -821,6 +821,7 @@ p {
   align-items: flex-start;
   gap: 8px;
   min-width: 0;
+  font-size: 18px;
 }
 
 .identity-name-text {
@@ -885,16 +886,53 @@ p {
 }
 
 .identity-badge-trigger.empty {
-  border: 1px dashed var(--line);
+  border: 0;
   color: var(--faint);
-  font-size: 17px;
+  font-size: inherit;
   line-height: 1;
+}
+
+.identity-badge-empty-icon {
+  display: block;
+  width: 1.08em;
+  height: 1.08em;
+  color: currentColor;
+  transform: translateY(0.08em);
+}
+
+.identity-badge-empty-icon svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.identity-badge-empty-ring,
+.identity-badge-empty-smile {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.65;
+}
+
+.identity-badge-empty-ring {
+  stroke-dasharray: 2.4 2.1;
+}
+
+.identity-badge-empty-eye {
+  fill: currentColor;
 }
 
 .identity-badge-trigger:hover,
 .identity-badge-trigger:focus-visible {
   background: var(--hover);
   outline: 0;
+}
+
+.identity-badge-trigger.empty:hover,
+.identity-badge-trigger.empty:focus-visible {
+  color: var(--muted);
 }
 
 .identity-badge-panel {
@@ -912,23 +950,49 @@ p {
 }
 
 .identity-badge-choices {
-  display: grid;
-  gap: 6px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 
 .identity-badge-choices button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
   border: 0;
   border-radius: 8px;
-  padding: 8px 10px;
-  background: var(--field);
+  padding: 0;
+  background: transparent;
   color: var(--text);
   font: inherit;
-  text-align: left;
+  text-align: center;
+  cursor: pointer;
 }
 
-.identity-badge-choices button:hover,
+.identity-badge-choices button:hover {
+  background: transparent;
+}
+
 .identity-badge-choices button.active {
-  background: var(--hover);
+  background: var(--field);
+}
+
+.identity-badge-choice-empty {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.identity-badge-choice-emoji {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.identity-badge-choices .name-with-badge-badge,
+.identity-badge-choices .name-with-badge-badge svg {
+  --name-badge-size: 22px;
 }
 
 .persona.active .persona-name {
@@ -2430,6 +2494,50 @@ p {
   color: #fff;
   font-size: 13px;
   font-weight: 600;
+}
+
+.add-friend-send-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 36px;
+  align-items: center;
+  gap: 8px;
+}
+
+.add-friend-icon-button {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text);
+  transition: background 120ms ease, color 120ms ease, transform 120ms ease, opacity 120ms ease;
+}
+
+.add-friend-icon-button svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.add-friend-icon-button:hover:not(:disabled),
+.add-friend-icon-button:focus-visible:not(:disabled) {
+  background: var(--hover);
+  color: var(--accent);
+}
+
+.add-friend-icon-button:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+.add-friend-icon-button:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .social-add-friend-result {

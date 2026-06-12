@@ -1,11 +1,35 @@
+import {
+  statusBadgeChoices as sharedStatusBadgeChoices,
+  statusBadgeForValue as sharedStatusBadgeForValue,
+  statusBadgeValue as sharedStatusBadgeValue,
+} from "@mia/shared/status-badge-assets";
+import type { StatusBadge as ApiStatusBadge } from "../api/types";
+
 export interface StatusBadgeAssetManifestEntry {
   id?: string;
   assetId?: string;
   kind?: string;
+  label?: string;
+  format?: string;
   url?: string;
   sha256?: string;
   bytes?: number;
 }
+
+export type StatusBadgeValue = "" | string;
+
+export interface StatusBadgeChoice {
+  value: StatusBadgeValue;
+  label: string;
+  badge: ApiStatusBadge | null;
+}
+
+export const STATUS_BADGE_CHOICES: StatusBadgeChoice[] = sharedStatusBadgeChoices({ includeEmpty: true })
+  .map((choice) => ({
+    value: choice.value,
+    label: choice.label,
+    badge: choice.badge as ApiStatusBadge | null,
+  }));
 
 export function safeStatusBadgeAssetId(value: string | null | undefined): string {
   const text = String(value || "").trim();
@@ -36,4 +60,12 @@ export function statusBadgeCacheFileName(entry: StatusBadgeAssetManifestEntry): 
   if (!id) return "";
   const hash = String(entry.sha256 || "").trim();
   return hash ? `${id}-${hash.slice(0, 16)}.json` : `${id}.json`;
+}
+
+export function statusBadgeForValue(value: string | null | undefined): StatusBadgeChoice["badge"] {
+  return sharedStatusBadgeForValue(value) as ApiStatusBadge | null;
+}
+
+export function statusBadgeValue(badge?: unknown): string {
+  return sharedStatusBadgeValue(badge);
 }

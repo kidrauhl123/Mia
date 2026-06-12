@@ -9,6 +9,7 @@ const WebSocket = require("ws");
 const { IpcChannel } = require("./shared/ipc-channels");
 const { MemberKind } = require("./shared/conversation-kinds");
 const { botConversationId } = require("./shared/bot-identity");
+const statusBadgeAssets = require("../packages/shared/status-badge-assets");
 const {
   adapterForEngine,
   normalizeAgentEngine,
@@ -131,12 +132,15 @@ function localDeviceId() {
   return next.id;
 }
 
-const statusBadgeAssetDefinitions = Object.freeze({
-  "surprised-cat": Object.freeze({
-    format: "tgs",
-    relativePath: path.join("renderer", "assets", "status-badges", "surprised-cat.tgs")
-  })
-});
+const statusBadgeAssetDefinitions = Object.fromEntries(
+  statusBadgeAssets.statusBadgeAssetDefinitions().map((definition) => [
+    definition.id,
+    {
+      ...definition,
+      relativePath: path.join("renderer", definition.relativePath)
+    }
+  ])
+);
 
 function loadStatusBadgeAsset(assetId) {
   const id = String(assetId || "").trim();
@@ -2109,7 +2113,7 @@ registerSocialIpc({
   getCloudUserId: () => settingsStore.cloudSettings().user?.id || "",
   log: (line) => appendCloudLog(line)
 });
-ipcMain.handle(IpcChannel.SocialMyUsername, () => {
+ipcMain.handle(IpcChannel.SocialMyIdentity, () => {
   // Wrap in the same {ok, data} envelope safeCall uses for the other
   // social IPCs so the renderer's destructure path is consistent and
   // `meRes.ok` actually flips true when a session is present.

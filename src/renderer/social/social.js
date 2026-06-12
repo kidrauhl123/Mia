@@ -1191,7 +1191,7 @@
     try {
       await hydrateCachedSocialBootstrap(api);
       const [meRes, friendsRes, incomingRes, outgoingRes, botsRes] = await Promise.all([
-        api.myUsername(),
+        api.myIdentity(),
         api.listFriends(),
         api.listFriendRequests("incoming"),
         api.listFriendRequests("outgoing"),
@@ -2116,7 +2116,7 @@
 
   // ── openAddFriendDialog ───────────────────────────────────────────────────
 
-  // Lightweight re-fetch of friend-request state (username + incoming +
+  // Lightweight re-fetch of friend-request state (self identity + incoming +
   // outgoing) for the add-friend dialog. We call this on every dialog open
   // so users always see the latest server state even when the WS lost
   // events or bootstrapAfterLogin never ran (e.g., cloud login happened in
@@ -2126,7 +2126,7 @@
     const api = window.mia.social;
     try {
       const [meRes, incomingRes, outgoingRes] = await Promise.all([
-        api.myUsername(),
+        api.myIdentity(),
         api.listFriendRequests("incoming"),
         api.listFriendRequests("outgoing"),
       ]);
@@ -2190,8 +2190,7 @@
     modal.innerHTML = "";
 
     const card = document.createElement("div");
-    card.className = "skill-preview-card";
-    card.style.cssText = "width:min(440px,calc(100vw - 68px)); height:auto; max-height:80vh; overflow-y:auto;";
+    card.className = "skill-preview-card group-create-card add-friend-card";
 
     // Header
     const toolbar = document.createElement("div");
@@ -2211,17 +2210,17 @@
     const body = document.createElement("div");
     body.className = "group-create-body";
 
-    // My username row
+    // My UID row
     const meSection = document.createElement("section");
     meSection.className = "group-create-section";
-    const myUsernameDisplay = escapeHtml(moduleState.myUsername || "—");
+    const myUserIdDisplay = escapeHtml(moduleState.myUserId || "—");
     meSection.innerHTML = `
       <div class="group-create-section-header">
-        <span class="group-create-section-title">我的用户名</span>
+        <span class="group-create-section-title">我的 UID</span>
       </div>
       <div style="display:flex; align-items:center; gap:8px; padding:6px 0;">
-        <span id="socialMyUsernameLabel" style="font-weight:600;">${myUsernameDisplay}</span>
-        <button type="button" class="button-soft" id="socialCopyUsername" style="font-size:12px; padding:3px 8px;">复制</button>
+        <span id="socialMyUserIdLabel" style="font-weight:600; font-variant-numeric:tabular-nums;">${myUserIdDisplay}</span>
+        <button type="button" class="button-soft" id="socialCopyUserId" style="font-size:12px; padding:3px 8px;">复制</button>
       </div>
     `;
     body.appendChild(meSection);
@@ -2233,81 +2232,88 @@
       <div class="group-create-section-header">
         <span class="group-create-section-title">发送好友请求</span>
       </div>
-      <div style="display:flex; gap:8px; margin-top:6px;">
-        <input id="socialAddUsernameInput" class="group-create-input" type="text" placeholder="对方的用户名" style="flex:1;">
-        <button type="button" class="button-primary" id="socialSendRequestBtn">发送</button>
+      <div class="add-friend-send-row">
+        <input id="socialAddUserIdInput" class="group-create-input" type="text" placeholder="对方的 UID" inputmode="numeric" style="flex:1;">
+        <button type="button" class="add-friend-icon-button" id="socialSendRequestBtn" title="发送好友请求" aria-label="发送好友请求">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M7 17 17 7"></path>
+            <path d="M9 7h8v8"></path>
+          </svg>
+        </button>
       </div>
       <p id="socialSendError" style="color:#ff3b30; font-size:13px; margin-top:4px; min-height:18px;"></p>
     `;
     body.appendChild(sendSection);
 
-    // Incoming requests
-    const incomingSection = document.createElement("section");
-    incomingSection.className = "group-create-section";
-    incomingSection.innerHTML = `<div class="group-create-section-header"><span class="group-create-section-title">收到的好友请求</span></div>`;
-    const incomingList = document.createElement("div");
-    incomingList.id = "socialIncomingList";
-    _renderRequestList(incomingList, moduleState.incomingRequests, "incoming", modal);
-    incomingSection.appendChild(incomingList);
-    body.appendChild(incomingSection);
+    if (moduleState.incomingRequests.length) {
+      const incomingSection = document.createElement("section");
+      incomingSection.className = "group-create-section";
+      incomingSection.innerHTML = `<div class="group-create-section-header"><span class="group-create-section-title">收到的好友请求</span></div>`;
+      const incomingList = document.createElement("div");
+      incomingList.id = "socialIncomingList";
+      _renderRequestList(incomingList, moduleState.incomingRequests, "incoming", modal);
+      incomingSection.appendChild(incomingList);
+      body.appendChild(incomingSection);
+    }
 
-    // Outgoing requests
-    const outgoingSection = document.createElement("section");
-    outgoingSection.className = "group-create-section";
-    outgoingSection.innerHTML = `<div class="group-create-section-header"><span class="group-create-section-title">我发出的请求</span></div>`;
-    const outgoingList = document.createElement("div");
-    outgoingList.id = "socialOutgoingList";
-    _renderRequestList(outgoingList, moduleState.outgoingRequests, "outgoing", modal);
-    outgoingSection.appendChild(outgoingList);
-    body.appendChild(outgoingSection);
+    if (moduleState.outgoingRequests.length) {
+      const outgoingSection = document.createElement("section");
+      outgoingSection.className = "group-create-section";
+      outgoingSection.innerHTML = `<div class="group-create-section-header"><span class="group-create-section-title">我发出的请求</span></div>`;
+      const outgoingList = document.createElement("div");
+      outgoingList.id = "socialOutgoingList";
+      _renderRequestList(outgoingList, moduleState.outgoingRequests, "outgoing", modal);
+      outgoingSection.appendChild(outgoingList);
+      body.appendChild(outgoingSection);
+    }
 
     card.appendChild(body);
     modal.appendChild(card);
 
     // Wire copy button
-    card.querySelector("#socialCopyUsername")?.addEventListener("click", () => {
-      try { navigator.clipboard.writeText(moduleState.myUsername || ""); } catch { /* ignore */ }
-      const btn = card.querySelector("#socialCopyUsername");
+    card.querySelector("#socialCopyUserId")?.addEventListener("click", () => {
+      try { navigator.clipboard.writeText(moduleState.myUserId || ""); } catch { /* ignore */ }
+      const btn = card.querySelector("#socialCopyUserId");
       if (btn) { btn.textContent = "已复制"; setTimeout(() => { btn.textContent = "复制"; }, 1500); }
     });
 
     // Wire send button
     const sendBtn = card.querySelector("#socialSendRequestBtn");
-    const usernameInput = card.querySelector("#socialAddUsernameInput");
+    const userIdInput = card.querySelector("#socialAddUserIdInput");
     const errorEl = card.querySelector("#socialSendError");
     sendBtn?.addEventListener("click", async () => {
-      const username = (usernameInput?.value || "").trim();
-      if (!username) { if (errorEl) errorEl.textContent = "请输入用户名"; return; }
+      const toUserId = (userIdInput?.value || "").trim();
+      if (!toUserId) { if (errorEl) errorEl.textContent = "请输入 UID"; return; }
+      if (!/^\d{10}$/.test(toUserId)) { if (errorEl) errorEl.textContent = "请输入 10 位 UID"; return; }
       if (errorEl) errorEl.textContent = "";
       sendBtn.disabled = true;
       try {
-        const res = await window.mia.social.sendFriendRequest(username);
+        const res = await window.mia.social.sendFriendRequest(toUserId);
         if (!res.ok) {
           if (errorEl) errorEl.textContent = res.error || "发送失败";
           return;
         }
-        if (usernameInput) usernameInput.value = "";
+        if (userIdInput) userIdInput.value = "";
         // Refresh outgoing list
         const outRes = await window.mia.social.listFriendRequests("outgoing");
         if (outRes.ok) moduleState.outgoingRequests = outRes.data?.requests || [];
-        // Re-render modal sections
-        const oList = card.querySelector("#socialOutgoingList");
-        if (oList) _renderRequestList(oList, moduleState.outgoingRequests, "outgoing", modal);
+        _renderAddFriendModal(modal);
       } catch (err) {
         if (errorEl) errorEl.textContent = String(err && err.message ? err.message : err);
       } finally {
         sendBtn.disabled = false;
       }
     });
+    userIdInput?.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      sendBtn?.click();
+    });
   }
 
   function _renderRequestList(container, requests, direction, modal) {
     container.innerHTML = "";
     if (!requests.length) {
-      const empty = document.createElement("p");
-      empty.style.cssText = "color:var(--fg-muted,#888); font-size:13px; margin:6px 0;";
-      empty.textContent = direction === "incoming" ? "暂无收到的请求" : "暂无发出的请求";
-      container.appendChild(empty);
       return;
     }
     for (const req of requests) {
@@ -2318,7 +2324,7 @@
       // opposite end). Live WS events use `from` instead — accept either.
       const otherUser = req.other || req.from || {};
       const fallbackId = direction === "incoming" ? req.from_user : req.to_user;
-      const displayName = otherUser.username || otherUser.account || fallbackId || "—";
+      const displayName = otherUser.displayName || otherUser.account || otherUser.id || fallbackId || "—";
 
       const avatar = document.createElement("span");
       avatar.className = "avatar request-avatar";
@@ -2327,7 +2333,7 @@
         otherUser.avatarImage,
         otherUser.avatarCrop,
         otherUser.avatarColor || window.miaMemberColor.memberAccentColor(otherUser.id || fallbackId || displayName),
-        (otherUser.username || otherUser.account || fallbackId || "?").slice(0, 1).toUpperCase()
+        (displayName || "?").slice(0, 1).toUpperCase()
       );
       row.appendChild(avatar);
 

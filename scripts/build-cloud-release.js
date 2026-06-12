@@ -746,6 +746,7 @@ function main() {
   copyFile("src/shared/member-color.js", path.join(apiDir, "src", "shared", "member-color.js"));
   copyFile("src/shared/avatar-media.js", path.join(apiDir, "src", "shared", "avatar-media.js"));
   copyFile("src/shared/avatar-resolve.js", path.join(apiDir, "src", "shared", "avatar-resolve.js"));
+  copyFile("packages/shared/status-badge-assets.js", path.join(apiDir, "packages", "shared", "status-badge-assets.js"));
   copyFile("packages/shared/avatar.js", path.join(apiDir, "packages", "shared", "avatar.js"));
   copyFile("src/shared/bot-identity.js", path.join(apiDir, "src", "shared", "bot-identity.js"));
   copyFile("src/shared/identity.js", path.join(apiDir, "src", "shared", "identity.js"));
@@ -782,6 +783,7 @@ function main() {
   copyFile("src/shared/agent-permissions.js", path.join(webDir, "shared", "agent-permissions.js"));
   copyFile("src/shared/trace-blocks.js", path.join(webDir, "shared", "trace-blocks.js"));
   copyFile("src/shared/mention-render.js", path.join(webDir, "shared", "mention-render.js"));
+  copyFile("packages/shared/status-badge-assets.js", path.join(webDir, "shared", "status-badge-assets.js"));
   copyFile("src/renderer/helpers/markdown-helpers.js", path.join(webDir, "helpers", "markdown-helpers.js"));
   copyFile("src/renderer/message-sources/cloud-conversation-source.js", path.join(webDir, "message-sources", "cloud-conversation-source.js"));
   rewriteWebAssetVersions();

@@ -82,7 +82,7 @@ function createSocialStore(db) {
     return selectFriendsOf.all(id, id).map((row) => (row.user_a === id ? row.user_b : row.user_a));
   }
 
-  function createFriendRequestByUsername({ fromUserId, toUserId }) {
+  function createFriendRequest({ fromUserId, toUserId }) {
     const from = String(fromUserId);
     const to = String(toUserId);
     if (from === to) throw new Error("cannot send friend request to yourself");
@@ -317,7 +317,7 @@ function createSocialStore(db) {
     removeFriendship,
     areFriends,
     listFriends,
-    createFriendRequestByUsername,
+    createFriendRequest,
     getFriendRequestById,
     listIncomingPending,
     listOutgoingPending,

@@ -92,7 +92,7 @@ test("friend acceptance lands social.friend_added in user_events for BOTH partie
     const B = await register(ctx.port, "bob");
     // A sends friend request to B
     const reqRes = await api(ctx.port, "POST", "/api/social/friend-requests",
-      { token: A.token, body: { toUsername: B.user.username } });
+      { token: A.token, body: { toUserId: B.user.id } });
     assert.equal(reqRes.status, 201);
     // B accepts
     const acc = await api(ctx.port, "POST", `/api/social/friend-requests/${reqRes.body.request.id}/respond`,

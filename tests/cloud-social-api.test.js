@@ -91,7 +91,7 @@ async function createBot(port, account, botId, displayName = botId) {
 async function friendUp(port, a, b) {
   const created = await api(port, "POST", "/api/social/friend-requests", {
     token: a.token,
-    body: { toUsername: b.user.username }
+    body: { toUserId: b.user.id }
   });
   if (created.status !== 201) throw new Error("friend request failed: " + JSON.stringify(created));
   const accepted = await api(port, "POST", "/api/social/friend-requests/" + created.body.request.id + "/respond", {
@@ -109,7 +109,7 @@ test("POST /api/social/friend-requests creates pending request", async () => {
     const bob = await register(ctx.port, "bob");
     const r = await api(ctx.port, "POST", "/api/social/friend-requests", {
       token: alice.token,
-      body: { toUsername: "bob" }
+      body: { toUserId: bob.user.id }
     });
     assert.equal(r.status, 201);
     assert.ok(r.body.request.id);
@@ -125,7 +125,7 @@ test("POST /api/social/friend-requests → 404 unknown user", async () => {
     const alice = await register(ctx.port, "alice");
     const r = await api(ctx.port, "POST", "/api/social/friend-requests", {
       token: alice.token,
-      body: { toUsername: "nobody_here" }
+      body: { toUserId: "9999999999" }
     });
     assert.equal(r.status, 404);
   } finally { await stopServer(ctx); }
@@ -137,7 +137,7 @@ test("POST /api/social/friend-requests → 400 self-add", async () => {
     const alice = await register(ctx.port, "alice");
     const r = await api(ctx.port, "POST", "/api/social/friend-requests", {
       token: alice.token,
-      body: { toUsername: "alice" }
+      body: { toUserId: alice.user.id }
     });
     assert.equal(r.status, 400);
   } finally { await stopServer(ctx); }
@@ -151,7 +151,7 @@ test("POST /api/social/friend-requests → 409 already friends", async () => {
     await friendUp(ctx.port, alice, bob);
     const r = await api(ctx.port, "POST", "/api/social/friend-requests", {
       token: alice.token,
-      body: { toUsername: "bob" }
+      body: { toUserId: bob.user.id }
     });
     assert.equal(r.status, 409);
   } finally { await stopServer(ctx); }
@@ -161,14 +161,14 @@ test("POST /api/social/friend-requests → 409 duplicate pending", async () => {
   const ctx = await startServer();
   try {
     const alice = await register(ctx.port, "alice");
-    await register(ctx.port, "bob");
-    await api(ctx.port, "POST", "/api/social/friend-requests", { token: alice.token, body: { toUsername: "bob" } });
-    const r = await api(ctx.port, "POST", "/api/social/friend-requests", { token: alice.token, body: { toUsername: "bob" } });
+    const bob = await register(ctx.port, "bob");
+    await api(ctx.port, "POST", "/api/social/friend-requests", { token: alice.token, body: { toUserId: bob.user.id } });
+    const r = await api(ctx.port, "POST", "/api/social/friend-requests", { token: alice.token, body: { toUserId: bob.user.id } });
     assert.equal(r.status, 409);
   } finally { await stopServer(ctx); }
 });
 
-test("POST /api/social/friend-requests → 400 missing toUsername", async () => {
+test("POST /api/social/friend-requests → 400 missing toUserId", async () => {
   const ctx = await startServer();
   try {
     const alice = await register(ctx.port, "alice");
@@ -186,7 +186,7 @@ test("POST /:id/respond accept creates friendship + DM conversation + returns bo
     const alice = await register(ctx.port, "alice");
     const bob = await register(ctx.port, "bob");
     const created = await api(ctx.port, "POST", "/api/social/friend-requests", {
-      token: alice.token, body: { toUsername: "bob" }
+      token: alice.token, body: { toUserId: bob.user.id }
     });
     const accept = await api(ctx.port, "POST", "/api/social/friend-requests/" + created.body.request.id + "/respond", {
       token: bob.token, body: { action: "accept" }
@@ -204,7 +204,7 @@ test("POST /:id/respond reject returns 200 without friend/conversation", async (
     const alice = await register(ctx.port, "alice");
     const bob = await register(ctx.port, "bob");
     const created = await api(ctx.port, "POST", "/api/social/friend-requests", {
-      token: alice.token, body: { toUsername: "bob" }
+      token: alice.token, body: { toUserId: bob.user.id }
     });
     const reject = await api(ctx.port, "POST", "/api/social/friend-requests/" + created.body.request.id + "/respond", {
       token: bob.token, body: { action: "reject" }
@@ -222,7 +222,7 @@ test("POST /:id/respond → 400 invalid action", async () => {
     const alice = await register(ctx.port, "alice");
     const bob = await register(ctx.port, "bob");
     const created = await api(ctx.port, "POST", "/api/social/friend-requests", {
-      token: alice.token, body: { toUsername: "bob" }
+      token: alice.token, body: { toUserId: bob.user.id }
     });
     const r = await api(ctx.port, "POST", "/api/social/friend-requests/" + created.body.request.id + "/respond", {
       token: bob.token, body: { action: "maybe" }
@@ -237,7 +237,7 @@ test("POST /:id/respond → 400 non-recipient cannot respond", async () => {
     const alice = await register(ctx.port, "alice");
     const bob = await register(ctx.port, "bob");
     const created = await api(ctx.port, "POST", "/api/social/friend-requests", {
-      token: alice.token, body: { toUsername: "bob" }
+      token: alice.token, body: { toUserId: bob.user.id }
     });
     // Alice tries to accept her own request
     const r = await api(ctx.port, "POST", "/api/social/friend-requests/" + created.body.request.id + "/respond", {
@@ -253,7 +253,7 @@ test("DELETE /api/social/friend-requests/:id cancels by sender", async () => {
     const alice = await register(ctx.port, "alice");
     const bob = await register(ctx.port, "bob");
     const created = await api(ctx.port, "POST", "/api/social/friend-requests", {
-      token: alice.token, body: { toUsername: "bob" }
+      token: alice.token, body: { toUserId: bob.user.id }
     });
     const del = await api(ctx.port, "DELETE", "/api/social/friend-requests/" + created.body.request.id, {
       token: alice.token
@@ -275,7 +275,7 @@ test("DELETE /api/social/friend-requests/:id → 400 non-sender cannot cancel", 
     const alice = await register(ctx.port, "alice");
     const bob = await register(ctx.port, "bob");
     const created = await api(ctx.port, "POST", "/api/social/friend-requests", {
-      token: alice.token, body: { toUsername: "bob" }
+      token: alice.token, body: { toUserId: bob.user.id }
     });
     const r = await api(ctx.port, "DELETE", "/api/social/friend-requests/" + created.body.request.id, {
       token: bob.token
@@ -289,7 +289,7 @@ test("GET /api/social/friend-requests?direction=incoming lists incoming", async 
   try {
     const alice = await register(ctx.port, "alice");
     const bob = await register(ctx.port, "bob");
-    await api(ctx.port, "POST", "/api/social/friend-requests", { token: alice.token, body: { toUsername: "bob" } });
+    await api(ctx.port, "POST", "/api/social/friend-requests", { token: alice.token, body: { toUserId: bob.user.id } });
     const list = await api(ctx.port, "GET", "/api/social/friend-requests?direction=incoming", { token: bob.token });
     assert.equal(list.status, 200);
     assert.equal(list.body.requests.length, 1);
@@ -303,8 +303,8 @@ test("GET /api/social/friend-requests?direction=outgoing lists outgoing", async 
   const ctx = await startServer();
   try {
     const alice = await register(ctx.port, "alice");
-    await register(ctx.port, "bob");
-    await api(ctx.port, "POST", "/api/social/friend-requests", { token: alice.token, body: { toUsername: "bob" } });
+    const bob = await register(ctx.port, "bob");
+    await api(ctx.port, "POST", "/api/social/friend-requests", { token: alice.token, body: { toUserId: bob.user.id } });
     const list = await api(ctx.port, "GET", "/api/social/friend-requests?direction=outgoing", { token: alice.token });
     assert.equal(list.status, 200);
     assert.equal(list.body.requests.length, 1);
@@ -638,7 +638,7 @@ test("respond accept emits social.friend_added to both users", async () => {
     const bobWs = await openEventsWs(ctx.port, bob.token);
     try {
       const created = await api(ctx.port, "POST", "/api/social/friend-requests", {
-        token: alice.token, body: { toUsername: "bob" }
+        token: alice.token, body: { toUserId: bob.user.id }
       });
       await api(ctx.port, "POST", "/api/social/friend-requests/" + created.body.request.id + "/respond", {
         token: bob.token, body: { action: "accept" }
@@ -663,7 +663,7 @@ test("POST friend-request emits social.friend_request_received to recipient", as
     const bobWs = await openEventsWs(ctx.port, bob.token);
     try {
       await api(ctx.port, "POST", "/api/social/friend-requests", {
-        token: alice.token, body: { toUsername: "bob" }
+        token: alice.token, body: { toUserId: bob.user.id }
       });
       const evt = await waitForEvent(bobWs.events, (e) => e.type === "social.friend_request_received");
       assert.equal(evt.request.from.id, alice.user.id);
@@ -704,7 +704,7 @@ test("end-to-end: two users meet, friend up, exchange DM messages with seq", asy
     const bob = await register(ctx.port, "bob");
 
     const created = await api(ctx.port, "POST", "/api/social/friend-requests", {
-      token: alice.token, body: { toUsername: "bob" }
+      token: alice.token, body: { toUserId: bob.user.id }
     });
     assert.equal(created.status, 201);
 
@@ -742,7 +742,7 @@ test("end-to-end: two users meet, friend up, exchange DM messages with seq", asy
 async function setupGroupScenario(port) {
   const alice = await register(port, "alice");
   const bob = await register(port, "bob");
-  const created = await api(port, "POST", "/api/social/friend-requests", { token: alice.token, body: { toUsername: "bob" } });
+  const created = await api(port, "POST", "/api/social/friend-requests", { token: alice.token, body: { toUserId: bob.user.id } });
   await api(port, "POST", "/api/social/friend-requests/" + created.body.request.id + "/respond", { token: bob.token, body: { action: "accept" } });
   await createBot(port, alice, "bot_codex", "Codex");
   return { alice, bob };
@@ -797,7 +797,7 @@ test("POST /api/conversations/:id/members adds friend after group exists", async
     const { alice, bob } = await setupGroupScenario(ctx.port);
     const charlie = await register(ctx.port, "charlie");
     // alice friends charlie
-    const fr = await api(ctx.port, "POST", "/api/social/friend-requests", { token: alice.token, body: { toUsername: "charlie" } });
+    const fr = await api(ctx.port, "POST", "/api/social/friend-requests", { token: alice.token, body: { toUserId: charlie.user.id } });
     await api(ctx.port, "POST", "/api/social/friend-requests/" + fr.body.request.id + "/respond", { token: charlie.token, body: { action: "accept" } });
     // create group with bob
     const grp = await api(ctx.port, "POST", "/api/conversations", {

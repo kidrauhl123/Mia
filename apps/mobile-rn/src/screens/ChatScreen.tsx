@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useState } from "react";
-import { View, FlatList, Pressable, StyleSheet, KeyboardAvoidingView, Platform, Text } from "react-native";
+import { ActivityIndicator, View, FlatList, Pressable, StyleSheet, KeyboardAvoidingView, Platform, Text } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import * as DocumentPicker from "expo-document-picker";
 import { File } from "expo-file-system";
+import Svg, { Path } from "react-native-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQueryClient } from "@tanstack/react-query";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
@@ -267,7 +268,26 @@ export default function ChatScreen({ navigation, route }: Props) {
             blurOnSubmit={false}
             returnKeyType="send"
           />
-          <Button label="发送" style={styles.send} onPress={send} busy={sending} disabled={sending} />
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="发送"
+            onPress={send}
+            disabled={sending}
+            style={({ pressed }) => [
+              styles.sendIconButton,
+              sending && styles.sendIconButtonDisabled,
+              pressed && styles.sendIconButtonPressed,
+            ]}
+          >
+            {sending ? (
+              <ActivityIndicator color={color.accent} />
+            ) : (
+              <Svg width={30} height={30} viewBox="0 0 24 24">
+                <Path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z" stroke={color.accent} strokeWidth={2} fill="none" />
+                <Path d="m8.5 13.5 3.5-3.5 3.5 3.5" stroke={color.accent} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+              </Svg>
+            )}
+          </Pressable>
         </View>
       </View>
       <MessageActions
@@ -318,5 +338,14 @@ const styles = StyleSheet.create({
   attachmentError: { color: color.danger, paddingHorizontal: space.md },
   attachButton: { width: 70, paddingHorizontal: 0 },
   input: { flex: 1 },
-  send: { paddingHorizontal: space.lg },
+  sendIconButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "transparent",
+  },
+  sendIconButtonPressed: { backgroundColor: color.field, transform: [{ scale: 0.96 }] },
+  sendIconButtonDisabled: { opacity: 0.38 },
 });

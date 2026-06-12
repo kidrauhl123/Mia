@@ -111,7 +111,7 @@ test("POST /api/conversations/:id/messages is idempotent on clientOpId", async (
   try {
     const A = await register(ctx.port, "kappa");
     const B = await register(ctx.port, "lambda");
-    const fr = await api(ctx.port, "POST", "/api/social/friend-requests", { token: A.token, body: { toUsername: B.user.username, clientOpId: "op_fr_1" } });
+    const fr = await api(ctx.port, "POST", "/api/social/friend-requests", { token: A.token, body: { toUserId: B.user.id, clientOpId: "op_fr_1" } });
     await api(ctx.port, "POST", `/api/social/friend-requests/${fr.body.request.id}/respond`, { token: B.token, body: { action: "accept", clientOpId: "op_resp_1" } });
     const dm = `dm:${[A.user.id, B.user.id].sort().join(":")}`;
     const msg = { bodyMd: "hello-once", clientOpId: "op_msg_42" };
@@ -161,7 +161,7 @@ test("POST /api/social/friend-requests is idempotent on clientOpId", async () =>
   try {
     const A = await register(ctx.port, "mu");
     const B = await register(ctx.port, "nu");
-    const body = { toUsername: B.user.username, clientOpId: "op_fr_aaa" };
+    const body = { toUserId: B.user.id, clientOpId: "op_fr_aaa" };
     const r1 = await api(ctx.port, "POST", "/api/social/friend-requests", { token: A.token, body });
     const r2 = await api(ctx.port, "POST", "/api/social/friend-requests", { token: A.token, body });
     assert.equal(r1.body.request.id, r2.body.request.id, "same request id across retries");

@@ -35,12 +35,12 @@
 
   function safeLottieAssetId(value) {
     const text = clean(value);
+    const shared = global.miaStatusBadgeAssets;
+    if (shared?.safeStatusBadgeAssetId) return shared.safeStatusBadgeAssetId(text);
     return /^[A-Za-z0-9_-]+$/.test(text) ? text : "";
   }
 
   let statusBadgeAssetBaseUrl = "";
-  const localJsonAssetIds = new Set(["rainbow"]);
-  const localTgsAssetIds = new Set(["surprised-cat"]);
 
   function setStatusBadgeAssetBaseUrl(value) {
     statusBadgeAssetBaseUrl = String(value || "").trim().replace(/\/+$/, "");
@@ -51,14 +51,20 @@
   }
 
   function shouldUseLocalAsset(lottieName) {
-    return isDesktopRenderer() && (localJsonAssetIds.has(lottieName) || localTgsAssetIds.has(lottieName));
+    return Boolean(isDesktopRenderer() && global.miaStatusBadgeAssets?.findStatusBadgeAsset?.(lottieName)?.relativePath);
   }
 
   function statusBadgeAssetUrl(assetId) {
     const lottieName = safeLottieAssetId(assetId);
     if (!lottieName) return "";
-    if ((!statusBadgeAssetBaseUrl || shouldUseLocalAsset(lottieName)) && localJsonAssetIds.has(lottieName)) return `./assets/lottie/${encodeURIComponent(lottieName)}.json`;
-    if ((!statusBadgeAssetBaseUrl || shouldUseLocalAsset(lottieName)) && localTgsAssetIds.has(lottieName)) return `./assets/status-badges/${encodeURIComponent(lottieName)}.tgs`;
+    const shared = global.miaStatusBadgeAssets;
+    if (shared?.statusBadgeAssetUrl) {
+      return shared.statusBadgeAssetUrl(lottieName, {
+        baseUrl: statusBadgeAssetBaseUrl,
+        preferLocal: !statusBadgeAssetBaseUrl || shouldUseLocalAsset(lottieName),
+        localPrefix: "./"
+      });
+    }
     if (!statusBadgeAssetBaseUrl) return `/api/status-badge-assets/${encodeURIComponent(lottieName)}.json`;
     return `${statusBadgeAssetBaseUrl}/api/status-badge-assets/${encodeURIComponent(lottieName)}.json`;
   }
@@ -66,7 +72,12 @@
   function statusBadgeAssetFormat(assetId) {
     const lottieName = safeLottieAssetId(assetId);
     if (!lottieName) return "";
-    if ((!statusBadgeAssetBaseUrl || shouldUseLocalAsset(lottieName)) && localTgsAssetIds.has(lottieName)) return "tgs";
+    const shared = global.miaStatusBadgeAssets;
+    if (shared?.statusBadgeAssetFormat) {
+      return shared.statusBadgeAssetFormat(lottieName, {
+        preferLocal: !statusBadgeAssetBaseUrl || shouldUseLocalAsset(lottieName)
+      });
+    }
     return "json";
   }
 

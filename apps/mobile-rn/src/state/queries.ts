@@ -186,8 +186,8 @@ export function useSendFriendRequest() {
   const api = useApi();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ toUsername }: { toUsername: string }) =>
-      api.api(friendRequestCreatePath(), { method: "POST", body: { toUsername } }).then((d) => d.request || null),
+    mutationFn: ({ toUserId }: { toUserId: string }) =>
+      api.api(friendRequestCreatePath(), { method: "POST", body: { toUserId } }).then((d) => d.request || null),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["friend-requests", "outgoing"] });
     },

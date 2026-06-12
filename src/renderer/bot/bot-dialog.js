@@ -147,6 +147,7 @@
     renderColorSwatches(document.getElementById("profileAvatarColors"), draft.color || "", (color) => {
       if (state.profileAvatarDraft) state.profileAvatarDraft.color = color;
       renderProfileAvatarDraft();
+      window.miaProfileControls?.saveDraft?.();
     });
   }
 
@@ -797,6 +798,11 @@
     renderView();
     window.miaStatusBadgeControls?.syncIdentityNameText?.("bot");
     window.miaStatusBadgeControls?.syncStatusBadgeControl?.("bot");
+    if (!actualBot) {
+      window.miaStatusBadgeControls?.beginIdentityNameEdit?.("bot");
+    } else {
+      window.miaStatusBadgeControls?.endIdentityNameEdit?.("bot");
+    }
   }
 
   function refreshBridgeDevicesForDialog() {

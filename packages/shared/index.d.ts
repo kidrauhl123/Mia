@@ -9,3 +9,4 @@ export * as sessionHistory from "./session-history";
 export * as cloudClient from "./cloud-client";
 export * as botIdentity from "./bot-identity";
 export * as unread from "./unread";
+export * as statusBadgeAssets from "./status-badge-assets";

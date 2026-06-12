@@ -3,7 +3,7 @@ import type { Friend, FriendRequest } from "../api/types";
 export type FriendRequestDirection = "incoming" | "outgoing";
 
 export function friendName(friend?: Friend | null, fallback = "用户"): string {
-  const value = friend?.username || friend?.account || friend?.id || fallback;
+  const value = friend?.displayName || friend?.id || fallback;
   return String(value || fallback);
 }
 

@@ -55,6 +55,12 @@ try {
 } catch {
   avatarMedia = require("./src/shared/avatar-media.js");
 }
+let statusBadgeAssets = null;
+try {
+  statusBadgeAssets = require("../packages/shared/status-badge-assets.js");
+} catch {
+  statusBadgeAssets = require("./packages/shared/status-badge-assets.js");
+}
 let createSkillsStore = null;
 try {
   ({ createSkillsStore } = require("../src/cloud/skills-store.js"));
@@ -672,20 +678,7 @@ function avatarAssetPublicUrl(context = {}, filename = "") {
   return origin ? `${origin}${pathPart}` : pathPart;
 }
 
-const statusBadgeAssetDefinitions = [
-  {
-    id: "rainbow",
-    label: "彩虹动画",
-    format: "json",
-    relativePath: "assets/lottie/rainbow.json"
-  },
-  {
-    id: "surprised-cat",
-    label: "惊讶猫",
-    format: "tgs",
-    relativePath: "assets/status-badges/surprised-cat.tgs"
-  }
-];
+const statusBadgeAssetDefinitions = statusBadgeAssets.statusBadgeAssetDefinitions();
 
 function safeStatusBadgeAssetId(value = "") {
   const text = String(value || "").trim();
@@ -1680,6 +1673,16 @@ async function handleInternalModelProxy(req, res, context, url) {
 
 async function handleAdminModelGateway(req, res, context, url) {
   if (!requireAdmin(req, res, context)) return;
+  if (req.method === "GET" && url.pathname === "/api/admin/model-usage-summary") {
+    if (!context.modelBillingStore?.adminUsageSummary) {
+      return writeError(res, 503, "模型用量统计未初始化。");
+    }
+    const limit = Number(url.searchParams.get("limit") || 50);
+    return writeJson(res, 200, {
+      ok: true,
+      ...context.modelBillingStore.adminUsageSummary(limit)
+    });
+  }
   if (req.method === "GET" && url.pathname === "/api/admin/model-credits") {
     const account = String(url.searchParams.get("account") || "").trim();
     const userId = String(url.searchParams.get("userId") || "").trim();
@@ -2555,9 +2558,9 @@ async function handleRequest(req, res, context) {
     if (req.method === "POST" && url.pathname === "/api/social/friend-requests") {
       const body = await readJson(req);
       if (replayIfCached(context, res, auth.user.id, body)) return;
-      const toUsername = String(body.toUsername || "").trim();
-      if (!toUsername) return writeError(res, 400, "toUsername is required");
-      const toUser = context.cloudStore.getUserByUsername(toUsername);
+      const toUserId = String(body.toUserId || "").trim();
+      if (!toUserId) return writeError(res, 400, "toUserId is required");
+      const toUser = context.cloudStore.getUserPublic(toUserId);
       if (!toUser) return writeError(res, 404, "user not found");
       if (toUser.id === auth.user.id) return writeError(res, 400, "cannot add yourself");
       if (context.socialStore.areFriends(auth.user.id, toUser.id)) {
@@ -2565,7 +2568,7 @@ async function handleRequest(req, res, context) {
       }
       let created;
       try {
-        created = context.socialStore.createFriendRequestByUsername({ fromUserId: auth.user.id, toUserId: toUser.id });
+        created = context.socialStore.createFriendRequest({ fromUserId: auth.user.id, toUserId: toUser.id });
       } catch (e) {
         return writeError(res, 409, e.message);
       }

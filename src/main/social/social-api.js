@@ -48,8 +48,8 @@ function createSocialApi({ getSettings, normalizeUrl }) {
     };
   }
   return {
-    async sendFriendRequest(toUsername) {
-      return jsonFetch({ ...ctx(), method: "POST", path: "/api/social/friend-requests", body: withOpId({ toUsername }) });
+    async sendFriendRequest(toUserId) {
+      return jsonFetch({ ...ctx(), method: "POST", path: "/api/social/friend-requests", body: withOpId({ toUserId }) });
     },
     async respondFriendRequest(requestId, action) {
       return jsonFetch({ ...ctx(), method: "POST", path: `/api/social/friend-requests/${encodeURIComponent(requestId)}/respond`, body: withOpId({ action }) });

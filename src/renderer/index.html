@@ -48,7 +48,7 @@
         <button class="traffic-light minimize" type="button" data-action="minimize" aria-label="最小化"></button>
         <button class="traffic-light green" type="button" data-action="green" aria-label="全屏"></button>
       </div>
-      <div id="userAvatar" class="profile-avatar rail-avatar" role="button" tabindex="0" title="个人资料"></div>
+      <div id="userAvatar" class="profile-avatar rail-avatar" role="button" tabindex="0" title="个人资料" aria-haspopup="dialog" aria-expanded="false" aria-controls="profileDialog"></div>
       <span id="userDisplayName" class="visually-hidden"></span>
       <div class="rail-divider"></div>
       <button class="rail-button active" type="button" data-view="chat" title="消息" aria-label="消息">
@@ -658,58 +658,41 @@
       </div>
     </section>
 
-    <section id="profileDialog" class="bot-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="profileDialogTitle">
-      <form id="profileForm" class="bot-form">
+    <section id="profileDialog" class="profile-popover hidden" role="dialog" aria-labelledby="profileDialogTitle">
+      <form id="profileForm" class="bot-form profile-popover-form">
         <header class="bot-dialog-head">
           <div>
             <h2 id="profileDialogTitle">个人资料</h2>
           </div>
           <button id="closeProfileDialog" class="icon-button" type="button" title="关闭">×</button>
         </header>
-        <section class="identity-name-field">
-          <span class="identity-name-label">名字</span>
-          <div class="identity-name-line">
-            <button id="profileNameText" class="identity-name-text" type="button"></button>
-            <input id="profileDisplayName" class="identity-name-input hidden" autocomplete="off" placeholder="例如 小明">
-            <details id="profileStatusBadgeDetails" class="identity-badge-details accordion-details">
-              <summary id="profileStatusBadgeTrigger" class="identity-badge-trigger" aria-label="徽章"></summary>
-              <div class="accordion-body identity-badge-panel">
-                <select id="profileStatusBadge" class="hidden" aria-hidden="true" tabindex="-1">
-                  <option value="">无</option>
-                  <option value="star">⭐ 星标</option>
-                  <option value="fire">🔥 活跃</option>
-                  <option value="rainbow">彩虹动画</option>
-                  <option value="surprised-cat">惊讶猫</option>
-                </select>
-                <div class="identity-badge-choices">
-                  <button type="button" data-status-badge-choice="" data-status-badge-target="profile" aria-label="无徽章"><span class="identity-badge-choice-empty">无</span></button>
-                  <button type="button" data-status-badge-choice="star" data-status-badge-target="profile" aria-label="星标徽章"><span class="identity-badge-choice-emoji">⭐</span></button>
-                  <button type="button" data-status-badge-choice="fire" data-status-badge-target="profile" aria-label="活跃徽章"><span class="identity-badge-choice-emoji">🔥</span></button>
-                  <button type="button" data-status-badge-choice="rainbow" data-status-badge-target="profile" aria-label="彩虹动画徽章"><span class="name-with-badge-badge name-with-badge-badge-lottie" data-lottie="rainbow" data-lottie-trigger="loop" data-lottie-path="./assets/lottie/rainbow.json" aria-hidden="true"></span></button>
-                  <button type="button" data-status-badge-choice="surprised-cat" data-status-badge-target="profile" aria-label="惊讶猫徽章"><span class="name-with-badge-badge name-with-badge-badge-lottie" data-lottie="surprised-cat" data-lottie-trigger="loop" data-lottie-format="tgs" data-lottie-local="status-badge" data-lottie-path="./assets/status-badges/surprised-cat.tgs" aria-hidden="true"></span></button>
-                </div>
-              </div>
-            </details>
-          </div>
-        </section>
-        <p class="profile-uid-line">UID <span id="profileUidValue"></span></p>
-        <section class="avatar-picker">
-          <div id="profileAvatarPreview" class="avatar-crop-preview"></div>
-          <div id="profileAvatarDrop" class="avatar-drop">
+        <section class="dialog-identity-card">
+          <div id="profileAvatarDrop" class="avatar-upload-shell">
+            <div id="profileAvatarPreview" class="avatar-crop-preview"></div>
             <input id="profileAvatarFile" type="file" accept="image/*,video/*" class="hidden">
             <input id="profileAvatarImage" type="hidden">
-            <button id="chooseProfileAvatar" class="secondary avatar-file-button" type="button" title="选择图片" aria-label="选择图片">
+            <button id="chooseProfileAvatar" class="avatar-upload-button" type="button" title="选择图片" aria-label="选择图片">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M17 8l-5-5-5 5 M12 3v12"/></svg>
-              选择图片
             </button>
-            <span>也可以把图片拖到这里</span>
+          </div>
+          <div class="dialog-identity-main">
+            <div class="identity-name-line dialog-identity-name-line">
+              <button id="profileNameText" class="identity-name-text" type="button"></button>
+              <input id="profileDisplayName" class="identity-name-input hidden" autocomplete="off" placeholder="例如 小明">
+              <details id="profileStatusBadgeDetails" class="identity-badge-details accordion-details">
+                <summary id="profileStatusBadgeTrigger" class="identity-badge-trigger" aria-label="徽章"></summary>
+                <div class="accordion-body identity-badge-panel">
+                  <select id="profileStatusBadge" class="hidden" aria-hidden="true" tabindex="-1">
+                    <option value="">无</option>
+                  </select>
+                  <div class="identity-badge-choices"></div>
+                </div>
+              </details>
+            </div>
+            <p class="profile-uid-line">UID <span id="profileUidValue"></span></p>
           </div>
         </section>
         <div class="avatar-colors" id="profileAvatarColors" role="radiogroup" aria-label="头像颜色"></div>
-        <footer class="bot-dialog-actions">
-          <button id="cancelProfile" class="secondary" type="button">取消</button>
-          <button class="primary" type="submit">保存资料</button>
-        </footer>
       </form>
     </section>
 
@@ -722,51 +705,38 @@
           <button id="closeBotDialog" class="icon-button" type="button" title="关闭">×</button>
         </header>
         <input id="botKey" type="hidden">
-        <section class="identity-name-field">
-          <span class="identity-name-label">姓名</span>
-          <div class="identity-name-line">
-            <button id="botNameText" class="identity-name-text" type="button"></button>
-            <input id="botName" class="identity-name-input hidden" autocomplete="off">
-            <details id="botStatusBadgeDetails" class="identity-badge-details accordion-details">
-              <summary id="botStatusBadgeTrigger" class="identity-badge-trigger" aria-label="徽章"></summary>
-              <div class="accordion-body identity-badge-panel">
-                <select id="botStatusBadge" class="hidden" aria-hidden="true" tabindex="-1">
-                  <option value="">无</option>
-                  <option value="star">⭐ 星标</option>
-                  <option value="fire">🔥 活跃</option>
-                  <option value="rainbow">彩虹动画</option>
-                  <option value="surprised-cat">惊讶猫</option>
-                </select>
-                <div class="identity-badge-choices">
-                  <button type="button" data-status-badge-choice="" data-status-badge-target="bot" aria-label="无徽章"><span class="identity-badge-choice-empty">无</span></button>
-                  <button type="button" data-status-badge-choice="star" data-status-badge-target="bot" aria-label="星标徽章"><span class="identity-badge-choice-emoji">⭐</span></button>
-                  <button type="button" data-status-badge-choice="fire" data-status-badge-target="bot" aria-label="活跃徽章"><span class="identity-badge-choice-emoji">🔥</span></button>
-                  <button type="button" data-status-badge-choice="rainbow" data-status-badge-target="bot" aria-label="彩虹动画徽章"><span class="name-with-badge-badge name-with-badge-badge-lottie" data-lottie="rainbow" data-lottie-trigger="loop" data-lottie-path="./assets/lottie/rainbow.json" aria-hidden="true"></span></button>
-                  <button type="button" data-status-badge-choice="surprised-cat" data-status-badge-target="bot" aria-label="惊讶猫徽章"><span class="name-with-badge-badge name-with-badge-badge-lottie" data-lottie="surprised-cat" data-lottie-trigger="loop" data-lottie-format="tgs" data-lottie-local="status-badge" data-lottie-path="./assets/status-badges/surprised-cat.tgs" aria-hidden="true"></span></button>
+        <section class="dialog-identity-card">
+          <div id="botAvatarDrop" class="avatar-upload-shell">
+            <div id="botAvatarPreview" class="avatar-crop-preview"></div>
+            <input id="botAvatarFile" type="file" accept="image/*,video/*" class="hidden">
+            <input id="botAvatar" type="hidden">
+            <button id="chooseBotAvatar" class="avatar-upload-button" type="button" title="选择图片" aria-label="选择图片">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M17 8l-5-5-5 5 M12 3v12"/></svg>
+            </button>
+          </div>
+          <div class="dialog-identity-main">
+            <div class="identity-name-line dialog-identity-name-line">
+              <button id="botNameText" class="identity-name-text hidden" type="button"></button>
+              <input id="botName" class="identity-name-input" autocomplete="off" placeholder="输入姓名">
+              <details id="botStatusBadgeDetails" class="identity-badge-details accordion-details">
+                <summary id="botStatusBadgeTrigger" class="identity-badge-trigger" aria-label="徽章"></summary>
+                <div class="accordion-body identity-badge-panel">
+                  <select id="botStatusBadge" class="hidden" aria-hidden="true" tabindex="-1">
+                    <option value="">无</option>
+                  </select>
+                  <div class="identity-badge-choices"></div>
                 </div>
-              </div>
-            </details>
+              </details>
+            </div>
           </div>
         </section>
+        <div class="avatar-colors" id="botAvatarColors" role="radiogroup" aria-label="头像颜色"></div>
         <label id="botRuntimeTargetField">
           运行位置和 Agent 内核
           <select id="botRuntimeTarget">
             <option value="">当前设备 · Hermes</option>
           </select>
         </label>
-        <section class="avatar-picker">
-          <div id="botAvatarPreview" class="avatar-crop-preview"></div>
-          <div id="botAvatarDrop" class="avatar-drop">
-            <input id="botAvatarFile" type="file" accept="image/*,video/*" class="hidden">
-            <input id="botAvatar" type="hidden">
-            <button id="chooseBotAvatar" class="secondary avatar-file-button" type="button" title="选择图片" aria-label="选择图片">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M17 8l-5-5-5 5 M12 3v12"/></svg>
-              选择图片
-            </button>
-            <span>也可以把图片拖到这里</span>
-          </div>
-        </section>
-        <div class="avatar-colors" id="botAvatarColors" role="radiogroup" aria-label="头像颜色"></div>
         <details id="botPersonaDetails" class="persona-details accordion-details">
           <summary>人设</summary>
           <div class="accordion-body">
@@ -1088,6 +1058,7 @@
 
   <!-- Shared avatar renderer (one entry point for every avatar display) -->
   <script src="./contact-avatar.js"></script>
+  <script src="../../packages/shared/status-badge-assets.js"></script>
   <script src="./name-with-badge.js"></script>
 
   <!-- Message source adapters (raw schema → RenderableMessageSpec) -->

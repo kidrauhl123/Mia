@@ -78,6 +78,7 @@ export interface Bot {
 
 export interface Friend {
   id?: string;
+  displayName?: string;
   username?: string;
   account?: string;
   avatarImage?: string;

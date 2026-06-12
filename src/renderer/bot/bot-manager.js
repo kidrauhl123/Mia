@@ -238,12 +238,6 @@
       .map((item) => item.row);
   }
 
-  function contactSessionSummary(bot) {
-    // Cloud-only: the contacts list no longer derives a preview from local
-    // sessions; it shows the bot's subtitle.
-    return { count: 0, preview: `${botSubtitle(bot)} · 暂无对话`, time: "" };
-  }
-
   function contactPetLabel(pet = {}) {
     if (pet.placed) return "桌面中";
     if (pet.hasAsset) return "已生成桌宠";
@@ -342,10 +336,6 @@
     return window.miaBotDirectory.runtimeLabelFor(bot, state?.runtime || {});
   }
 
-  function botSubtitle(bot = {}) {
-    return firstNonEmpty(bot.bio, bot.description, botDeviceLabel(bot));
-  }
-
   function contactUid(bot = {}) {
     return firstNonEmpty(bot.uid, bot.publicId, bot.public_id, bot.id, bot.key, bot.globalId, bot.global_id);
   }
@@ -400,10 +390,11 @@
     return `
       <label class="capability-row">
         <input type="checkbox" data-capability-type="${window.miaMarkdown.escapeHtml(type)}" data-capability-id="${window.miaMarkdown.escapeHtml(item.id)}" ${checked ? "checked" : ""}>
-        <span>
+        <span class="capability-copy">
           <strong>${window.miaMarkdown.escapeHtml(title)}</strong>
           ${meta ? `<small>${window.miaMarkdown.escapeHtml(meta)}</small>` : ""}
         </span>
+        <span class="capability-check" aria-hidden="true"></span>
       </label>
     `;
   }
@@ -411,27 +402,23 @@
   function renderBotCapabilitiesPanel(bot) {
     const capabilities = botCapabilities(bot);
     const { skills } = botCapabilityItems(bot);
-    const engine = bot.agentEngine || bot.agent_engine || "hermes";
     const panelOpen = state?.openCapabilityPanelKeys?.has?.(bot?.key);
     return `
       <details class="contact-capabilities accordion-details" data-capabilities-panel-key="${window.miaMarkdown.escapeHtml(bot?.key || "")}"${panelOpen ? " open" : ""}>
         <summary>
           <div>
             <strong>能力</strong>
-            <p>${window.miaMarkdown.escapeHtml(engineLabel(engine))} · ${skills.length} 技能</p>
+            <p>${skills.length} 技能</p>
           </div>
           <span class="runtime-target-chevron" aria-hidden="true">⌄</span>
         </summary>
         <div class="accordion-body">
-          <div class="capability-columns">
-            <section>
-              <h3>技能</h3>
-              ${skills.length ? skills.map((item) => renderCapabilityCheckbox({
-                item,
-                checked: capabilityChecked(capabilities, item.id, "enabledSkills", "disabledSkills"),
-                type: "skill"
-              })).join("") : `<div class="capability-empty">当前引擎没有可选技能</div>`}
-            </section>
+          <div class="capability-list">
+            ${skills.length ? skills.map((item) => renderCapabilityCheckbox({
+              item,
+              checked: capabilityChecked(capabilities, item.id, "enabledSkills", "disabledSkills"),
+              type: "skill"
+            })).join("") : `<div class="capability-empty">当前引擎没有可选技能</div>`}
           </div>
         </div>
       </details>
@@ -780,7 +767,6 @@
 
   function renderContactDetail(bot) {
     if (!state || !els || !els.contactDetail || !bot) return;
-    const summary = contactSessionSummary(bot);
     const engine = bot.agentEngine || bot.agent_engine || bot.engine || "hermes";
     const uid = contactUid(bot);
     setBotNameWithBadge(els.contactPageTitle, bot, bot.name || "联系人");
@@ -800,7 +786,6 @@
                 <strong>${window.miaMarkdown.escapeHtml(engineLabel(engine))}</strong>
               </span>
             </div>
-            <p>${window.miaMarkdown.escapeHtml(botSubtitle(bot))}</p>
             ${uid ? `<p class="contact-profile-uid"><span>UID</span><code>${window.miaMarkdown.escapeHtml(uid)}</code></p>` : ""}
           </div>
           <div class="contact-actions">
@@ -809,13 +794,11 @@
             ${canDeleteBot ? `<button class="secondary danger" type="button" data-contact-action="delete">删除伙伴</button>` : ""}
           </div>
         </header>
-        <section class="contact-note">
-          <strong>最近内容</strong>
-          <p>${window.miaMarkdown.escapeHtml(summary.preview)}</p>
+        <section class="contact-info-card">
+          ${renderBotRuntimeTargetPanel(bot)}
+          ${bot.canConfigureCapabilities !== false ? renderBotCapabilitiesPanel(bot) : ""}
+          ${renderBotPersonaPanel(bot)}
         </section>
-        ${renderBotRuntimeTargetPanel(bot)}
-        ${bot.canConfigureCapabilities !== false ? renderBotCapabilitiesPanel(bot) : ""}
-        ${renderBotPersonaPanel(bot)}
       </article>
     `;
     initNameBadgeLotties(els.contactDetail);
@@ -1026,7 +1009,6 @@
     sortMessageCardsForSidebar,
     allOwnedBots,
     useSkillOnBot,
-    contactSessionSummary,
     contactPetLabel,
     openBotChat,
     defaultBotCapabilities,
@@ -1037,7 +1019,6 @@
     botCapabilityItems,
     capabilityChecked,
     botDeviceLabel,
-    botSubtitle,
     botPersonaText,
     engineLogoHtml,
     renderCapabilityCheckbox,

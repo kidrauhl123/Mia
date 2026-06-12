@@ -1,97 +1,284 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="admin-model-root">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="theme-color" content="#f7f7f8">
-    <title>Mia 模型后台</title>
+    <title>Mia 管理后台</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="/styles.css">
-    <script defer src="/admin-model.js"></script>
+    <link rel="stylesheet" href="/admin-model.css?v=20260612-oneapi-console">
+    <script defer src="/admin-model.js?v=20260612-oneapi-console"></script>
   </head>
-  <body class="admin-body">
-    <main class="admin-shell">
-      <header class="admin-header">
-        <div>
-          <p>Mia Cloud</p>
-          <h1>模型后台</h1>
-        </div>
-        <a href="/" class="admin-link">回到 Web</a>
-      </header>
-
-      <section class="admin-panel">
-        <div class="admin-status-row">
+  <body class="admin-body admin-model-body">
+    <div class="console-shell">
+      <aside class="console-sidebar">
+        <div class="console-brand">
+          <span class="console-logo">M</span>
           <div>
-            <strong>平台供给模型</strong>
-            <p id="adminSummary">正在读取配置...</p>
+            <strong>Mia Cloud</strong>
+            <small>模型分发后台</small>
           </div>
-          <span id="adminStatusBadge" class="admin-badge">检查中</span>
         </div>
+        <nav class="console-nav" aria-label="后台导航">
+          <button class="active" type="button" data-admin-nav="overview">总览</button>
+          <button type="button" data-admin-nav="users">用户用量</button>
+          <button type="button" data-admin-nav="logs">调用日志</button>
+          <button type="button" data-admin-nav="gateway">模型网关</button>
+        </nav>
+        <a href="/" class="console-back-link">回到 Web</a>
+      </aside>
 
-        <form id="modelAdminForm" class="admin-form">
-          <label>
-            供应商
-            <select id="providerSelect">
-              <option value="deepseek" data-model="deepseek-chat">DeepSeek</option>
-              <option value="openai" data-model="openai/gpt-4o-mini">OpenAI</option>
-              <option value="openrouter" data-model="openrouter/openai/gpt-4o-mini">OpenRouter</option>
-              <option value="gemini" data-model="gemini/gemini-2.0-flash">Gemini</option>
-              <option value="xai" data-model="xai/grok-2-latest">xAI</option>
-              <option value="custom" data-model="">自定义</option>
-            </select>
-          </label>
-
-          <label>
-            Mia 模型名
-            <input id="publicModelInput" value="mia-default" autocomplete="off" spellcheck="false" placeholder="mia-default" required>
-          </label>
-
-          <label>
-            真实模型
-            <input id="upstreamModelInput" autocomplete="off" spellcheck="false" placeholder="deepseek-chat" required>
-          </label>
-
-          <label>
-            API Key
-            <input id="apiKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="留空则保留已保存 key">
-          </label>
-
-          <label>
-            API Base URL
-            <input id="apiBaseInput" autocomplete="off" spellcheck="false" placeholder="https://api.deepseek.com/v1">
-          </label>
-
-          <label>
-            API Version
-            <input id="apiVersionInput" autocomplete="off" spellcheck="false" placeholder="可选，Azure 等服务才需要">
-          </label>
-
-          <label>
-            输入单价（microUSD / 1M tokens）
-            <input id="inputPriceInput" type="number" min="0" step="1" inputmode="numeric" placeholder="140000">
-          </label>
-
-          <label>
-            输出单价（microUSD / 1M tokens）
-            <input id="outputPriceInput" type="number" min="0" step="1" inputmode="numeric" placeholder="280000">
-          </label>
-
-          <label>
-            加价倍率
-            <input id="markupInput" type="number" min="0" step="0.01" inputmode="decimal" placeholder="1">
-          </label>
-
-          <div class="admin-actions">
-            <button id="saveModelButton" class="admin-primary" type="submit">保存配置</button>
-            <button id="testModelButton" class="admin-secondary" type="button">测试模型</button>
+      <main class="console-main">
+        <header class="console-topbar">
+          <div>
+            <p id="consoleEyebrow">Dashboard</p>
+            <h1 id="consoleTitle">总览</h1>
           </div>
-        </form>
-      </section>
+          <div class="console-actions">
+            <span id="adminStatusBadge" class="admin-badge">检查中</span>
+            <button id="refreshUsageButton" class="admin-secondary" type="button">刷新</button>
+          </div>
+        </header>
 
-      <section class="admin-panel admin-log-panel">
-        <strong>结果</strong>
-        <pre id="adminOutput">等待操作。</pre>
-      </section>
-    </main>
+        <section id="adminNotice" class="console-notice">正在读取模型网关和用量统计...</section>
+
+        <section class="console-page active" data-admin-page="overview">
+          <div class="metric-grid">
+            <article class="metric-card">
+              <span>用户</span>
+              <strong id="metricUsers">-</strong>
+              <small>总用户 / 活跃调用</small>
+            </article>
+            <article class="metric-card">
+              <span>请求</span>
+              <strong id="metricRequests">-</strong>
+              <small id="metricSuccessText">成功 - / 失败 -</small>
+            </article>
+            <article class="metric-card">
+              <span>Token</span>
+              <strong id="metricTokens">-</strong>
+              <small>Prompt + Completion</small>
+            </article>
+            <article class="metric-card">
+              <span>扣费</span>
+              <strong id="metricCharge">-</strong>
+              <small>按 Mia 余额扣减</small>
+            </article>
+            <article class="metric-card">
+              <span>余额</span>
+              <strong id="metricBalance">-</strong>
+              <small>用户可用余额合计</small>
+            </article>
+            <article class="metric-card">
+              <span>网关</span>
+              <strong id="metricGateway">-</strong>
+              <small id="metricGatewayDetail">DeepSeek</small>
+            </article>
+          </div>
+
+          <div class="console-grid two">
+            <section class="console-card">
+              <div class="card-heading">
+                <div>
+                  <strong>用户排行</strong>
+                  <p>按最近调用和扣费排序</p>
+                </div>
+                <button class="text-button" type="button" data-admin-nav-jump="users">查看全部</button>
+              </div>
+              <div class="admin-table-wrap">
+                <table class="admin-table">
+                  <thead>
+                    <tr>
+                      <th>用户</th>
+                      <th>余额</th>
+                      <th>请求</th>
+                      <th>扣费</th>
+                    </tr>
+                  </thead>
+                  <tbody id="overviewUsersBody">
+                    <tr><td colspan="4">正在读取...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="console-card">
+              <div class="card-heading">
+                <div>
+                  <strong>最近调用</strong>
+                  <p>最新模型请求和错误</p>
+                </div>
+                <button class="text-button" type="button" data-admin-nav-jump="logs">查看日志</button>
+              </div>
+              <div id="recentUsageList" class="event-list">
+                <div class="event-row">正在读取...</div>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section class="console-page" data-admin-page="users">
+          <section class="console-card">
+            <div class="card-heading">
+              <div>
+                <strong>用户用量和余额</strong>
+                <p id="usageSummaryText">正在读取统计...</p>
+              </div>
+            </div>
+
+            <form id="userCreditForm" class="toolbar-form">
+              <input id="userAccountInput" autocomplete="off" spellcheck="false" placeholder="搜索用户账号 / username">
+              <input id="creditAmountInput" type="number" min="0" step="0.01" inputmode="decimal" placeholder="充值 USD">
+              <button id="lookupUserButton" class="admin-secondary" type="submit">查询</button>
+              <button id="grantCreditButton" class="admin-primary" type="button">发放余额</button>
+            </form>
+
+            <div id="selectedUserUsage" class="admin-user-detail" hidden></div>
+
+            <div class="admin-table-wrap">
+              <table class="admin-table wide">
+                <thead>
+                  <tr>
+                    <th>用户</th>
+                    <th>余额</th>
+                    <th>请求</th>
+                    <th>Token</th>
+                    <th>扣费</th>
+                    <th>最近调用</th>
+                  </tr>
+                </thead>
+                <tbody id="usageUsersBody">
+                  <tr><td colspan="6">正在读取...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <section class="console-page" data-admin-page="logs">
+          <section class="console-card">
+            <div class="card-heading">
+              <div>
+                <strong>调用日志</strong>
+                <p>最近 50 条模型代理请求</p>
+              </div>
+            </div>
+            <div class="toolbar-form log-filter">
+              <input id="logSearchInput" autocomplete="off" spellcheck="false" placeholder="过滤用户 / 模型 / 错误">
+              <select id="logStatusSelect">
+                <option value="">全部状态</option>
+                <option value="succeeded">成功</option>
+                <option value="failed">失败</option>
+              </select>
+            </div>
+            <div class="admin-table-wrap">
+              <table class="admin-table wide">
+                <thead>
+                  <tr>
+                    <th>时间</th>
+                    <th>用户</th>
+                    <th>模型</th>
+                    <th>状态</th>
+                    <th>Prompt</th>
+                    <th>Completion</th>
+                    <th>扣费</th>
+                    <th>错误</th>
+                  </tr>
+                </thead>
+                <tbody id="usageLogsBody">
+                  <tr><td colspan="8">正在读取...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <section class="console-page" data-admin-page="gateway">
+          <section class="console-card">
+            <div class="card-heading">
+              <div>
+                <strong>平台供给模型</strong>
+                <p id="adminSummary">正在读取配置...</p>
+              </div>
+              <button id="testModelButton" class="admin-secondary" type="button">测试模型</button>
+            </div>
+
+            <form id="modelAdminForm" class="gateway-form">
+              <label data-admin-field="provider" hidden>
+                供应商
+                <select id="providerSelect">
+                  <option value="deepseek" data-model="deepseek-chat">DeepSeek</option>
+                  <option value="openai" data-model="openai/gpt-4o-mini">OpenAI</option>
+                  <option value="openrouter" data-model="openrouter/openai/gpt-4o-mini">OpenRouter</option>
+                  <option value="gemini" data-model="gemini/gemini-2.0-flash">Gemini</option>
+                  <option value="xai" data-model="xai/grok-2-latest">xAI</option>
+                  <option value="custom" data-model="">自定义</option>
+                </select>
+              </label>
+
+              <div class="form-grid">
+                <label data-admin-field="apiKey">
+                  API Key
+                  <input id="apiKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="留空则保留已保存 key">
+                </label>
+
+                <label data-admin-field="upstream">
+                  真实模型
+                  <input id="upstreamModelInput" autocomplete="off" spellcheck="false" placeholder="deepseek-chat" required>
+                </label>
+              </div>
+
+              <details class="admin-advanced-fields">
+                <summary>高级参数</summary>
+                <div class="form-grid">
+                  <label data-admin-field="publicModel">
+                    Mia 模型名
+                    <input id="publicModelInput" value="mia-default" autocomplete="off" spellcheck="false" placeholder="mia-default" required>
+                  </label>
+
+                  <label data-admin-field="apiBase">
+                    API Base URL
+                    <input id="apiBaseInput" autocomplete="off" spellcheck="false" placeholder="https://api.deepseek.com/v1">
+                  </label>
+
+                  <label data-admin-field="inputPrice">
+                    输入单价（microUSD / 1M tokens）
+                    <input id="inputPriceInput" type="number" min="0" step="1" inputmode="numeric" placeholder="140000">
+                  </label>
+
+                  <label data-admin-field="outputPrice">
+                    输出单价（microUSD / 1M tokens）
+                    <input id="outputPriceInput" type="number" min="0" step="1" inputmode="numeric" placeholder="280000">
+                  </label>
+
+                  <label data-admin-field="markup">
+                    加价倍率
+                    <input id="markupInput" type="number" min="0" step="0.01" inputmode="decimal" placeholder="1">
+                  </label>
+
+                  <label data-admin-field="apiVersion" hidden>
+                    API Version
+                    <input id="apiVersionInput" autocomplete="off" spellcheck="false" placeholder="可选，Azure 等服务才需要">
+                  </label>
+                </div>
+              </details>
+
+              <div class="admin-actions">
+                <button id="saveModelButton" class="admin-primary" type="submit">保存配置</button>
+              </div>
+            </form>
+          </section>
+        </section>
+
+        <section class="console-card console-output-card">
+          <div class="card-heading compact">
+            <strong>操作结果</strong>
+            <button id="clearOutputButton" class="text-button" type="button">清空</button>
+          </div>
+          <pre id="adminOutput">等待操作。</pre>
+        </section>
+      </main>
+    </div>
   </body>
 </html>

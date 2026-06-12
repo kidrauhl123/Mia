@@ -110,7 +110,7 @@ test("WS reconnect with since_seq replays every persisted event missed while off
     const B = await register(ctx.port, "bravo");
     // Cause some events: A friends B, both accept
     const req = await api(ctx.port, "POST", "/api/social/friend-requests",
-      { token: A.token, body: { toUsername: B.user.username } });
+      { token: A.token, body: { toUserId: B.user.id } });
     await api(ctx.port, "POST", `/api/social/friend-requests/${req.body.request.id}/respond`,
       { token: B.token, body: { action: "accept" } });
 
@@ -153,7 +153,7 @@ test("WS connecting with up-to-date since_seq receives no replay", async () => {
     const A = await register(ctx.port, "gamma");
     const B = await register(ctx.port, "delta");
     const req = await api(ctx.port, "POST", "/api/social/friend-requests",
-      { token: A.token, body: { toUsername: B.user.username } });
+      { token: A.token, body: { toUserId: B.user.id } });
     await api(ctx.port, "POST", `/api/social/friend-requests/${req.body.request.id}/respond`,
       { token: B.token, body: { action: "accept" } });
 

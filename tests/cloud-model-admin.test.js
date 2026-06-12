@@ -253,6 +253,15 @@ test("admin model page lets operators edit the public model alias", () => {
   const html = fs.readFileSync(path.join(__dirname, "..", "src/web/admin-model.html"), "utf8");
   const js = fs.readFileSync(path.join(__dirname, "..", "src/web/admin-model.js"), "utf8");
   assert.match(html, /id="publicModelInput"/);
+  assert.match(html, /admin-model\.css\?v=20260612-oneapi-console/);
+  assert.match(html, /class="console-sidebar"/);
+  assert.match(html, /data-admin-nav="overview"/);
+  assert.match(html, /data-admin-nav="logs"/);
+  assert.match(html, /id="overviewUsersBody"/);
+  assert.match(html, /id="usageLogsBody"/);
+  assert.match(html, /id="usageUsersBody"/);
+  assert.match(html, /id="userCreditForm"/);
+  assert.match(html, /高级参数/);
   assert.match(html, /id="inputPriceInput"/);
   assert.match(html, /id="outputPriceInput"/);
   assert.match(html, /id="markupInput"/);
@@ -261,6 +270,9 @@ test("admin model page lets operators edit the public model alias", () => {
   assert.match(js, /publicModel/);
   assert.match(js, /modelName:\s*els\.publicModel\.value/);
   assert.match(js, /inputMicrousdPerMillion:\s*els\.inputPrice\.value/);
+  assert.match(js, /model-usage-summary/);
+  assert.match(js, /data-admin-nav/);
+  assert.match(js, /renderLogs/);
 });
 
 test("authenticated users can list platform model aliases without provider secrets", async () => {
@@ -417,6 +429,19 @@ test("DeepSeek gateway settings can be saved in admin without leaking the API ke
     const balance = await request(cloud.port, "GET", "/api/me/model-balance", { token: user.token });
     assert.equal(balance.status, 200);
     assert.equal(balance.body.balance.balanceMicrousd, 998500);
+
+    const summary = await request(cloud.port, "GET", "/api/admin/model-usage-summary", { auth });
+    assert.equal(summary.status, 200);
+    assert.equal(summary.body.totals.userCount, 1);
+    assert.equal(summary.body.totals.activeUserCount, 1);
+    assert.equal(summary.body.totals.requestCount, 1);
+    assert.equal(summary.body.totals.totalTokens, 1500);
+    assert.equal(summary.body.totals.chargeMicrousd, 1500);
+    assert.equal(summary.body.users[0].user.username, "saved-deepseek");
+    assert.equal(summary.body.users[0].balance.balanceMicrousd, 998500);
+    assert.equal(summary.body.users[0].usage.chargeMicrousd, 1500);
+    assert.equal(summary.body.recentUsage[0].user.username, "saved-deepseek");
+    assert.doesNotMatch(JSON.stringify(summary.body), /deepseek-key|api_key/);
   } finally {
     await stopCloud(cloud);
     await new Promise((resolve) => deepseek.server.close(resolve));

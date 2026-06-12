@@ -17,7 +17,7 @@ async function teardown(ctx) {
   await new Promise((r) => ctx.server.close(r));
 }
 
-test("sendFriendRequest posts toUsername and parses response", async () => {
+test("sendFriendRequest posts toUserId and parses response", async () => {
   const seen = [];
   const ctx = await spawnFakeCloud(async (req, res) => {
     let body = "";
@@ -33,12 +33,12 @@ test("sendFriendRequest posts toUsername and parses response", async () => {
       getSettings: () => ({ enabled: true, token: "t", url: ctx.baseUrl }),
       normalizeUrl: (u) => u
     });
-    const result = await api.sendFriendRequest("bob");
+    const result = await api.sendFriendRequest("1234567890");
     assert.equal(result.request.id, "fr_1");
     assert.equal(seen[0].method, "POST");
     assert.equal(seen[0].url, "/api/social/friend-requests");
     const sent = JSON.parse(seen[0].body);
-    assert.equal(sent.toUsername, "bob");
+    assert.equal(sent.toUserId, "1234567890");
     // Phase 1.D: writes carry an auto-generated clientOpId for idempotency.
     assert.match(String(sent.clientOpId || ""), /^op_/, "clientOpId should be auto-attached");
   } finally { await teardown(ctx); }

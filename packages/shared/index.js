@@ -9,5 +9,6 @@ module.exports = {
   sessionHistory: require("./session-history.js"),
   cloudClient: require("./cloud-client.js"),
   botIdentity: require("./bot-identity.js"),
-  unread: require("./unread.js")
+  unread: require("./unread.js"),
+  statusBadgeAssets: require("./status-badge-assets.js")
 };

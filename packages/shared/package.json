@@ -53,6 +53,10 @@
     "./unread": {
       "types": "./unread.d.ts",
       "default": "./unread.js"
+    },
+    "./status-badge-assets": {
+      "types": "./status-badge-assets.d.ts",
+      "default": "./status-badge-assets.js"
     }
   }
 }

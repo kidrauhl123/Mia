@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { FlatList, Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { ActivityIndicator, FlatList, Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
+import Svg, { Path } from "react-native-svg";
 import {
   useBots,
   useCancelFriendRequest,
@@ -35,7 +36,7 @@ interface Row {
 }
 
 export default function ContactsScreen({ navigation }: Props) {
-  const [username, setUsername] = useState("");
+  const [userId, setUserId] = useState("");
   const [status, setStatus] = useState("");
   const [addOpen, setAddOpen] = useState(false);
   const { data: me } = useMe();
@@ -48,15 +49,19 @@ export default function ContactsScreen({ navigation }: Props) {
   const cancelFriendRequest = useCancelFriendRequest();
 
   async function send() {
-    const toUsername = username.trim();
-    if (!toUsername) {
-      setStatus("请输入用户名");
+    const toUserId = userId.trim();
+    if (!toUserId) {
+      setStatus("请输入 UID");
+      return;
+    }
+    if (!/^\d{10}$/.test(toUserId)) {
+      setStatus("请输入 10 位 UID");
       return;
     }
     setStatus("");
     try {
-      await sendFriendRequest.mutateAsync({ toUsername });
-      setUsername("");
+      await sendFriendRequest.mutateAsync({ toUserId });
+      setUserId("");
       setStatus("已发送请求");
     } catch (err) {
       setStatus(err instanceof Error ? err.message : "发送失败");
@@ -108,8 +113,8 @@ export default function ContactsScreen({ navigation }: Props) {
         ListHeaderComponent={
           <View style={styles.header}>
             <View style={styles.identityPanel}>
-              <Label>我的用户名</Label>
-              <BodyStrong selectable>{friendName(me, "未登录")}</BodyStrong>
+              <Label>我的 UID</Label>
+              <BodyStrong selectable>{me?.id || "未登录"}</BodyStrong>
             </View>
 
             {incoming.length ? (
@@ -191,20 +196,39 @@ export default function ContactsScreen({ navigation }: Props) {
               <View style={styles.addPanel}>
                 <View style={styles.sectionHead}>
                   <Title>添加好友</Title>
-                  <Sub>输入对方用户名发送请求</Sub>
+                  <Sub>输入对方 UID 发送请求</Sub>
                 </View>
                 <View style={styles.addRow}>
                   <Input
-                    value={username}
-                    onChangeText={setUsername}
+                    value={userId}
+                    onChangeText={setUserId}
                     autoCapitalize="none"
                     autoCorrect={false}
-                    placeholder="用户名"
+                    placeholder="UID"
                     returnKeyType="send"
                     onSubmitEditing={send}
                     style={styles.addInput}
                   />
-                  <Button label="发送" onPress={send} busy={sendFriendRequest.isPending} disabled={!username.trim()} style={styles.sendButton} />
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="发送好友请求"
+                    onPress={send}
+                    disabled={!userId.trim() || sendFriendRequest.isPending}
+                    style={({ pressed }) => [
+                      styles.sendIconButton,
+                      (!userId.trim() || sendFriendRequest.isPending) && styles.sendIconButtonDisabled,
+                      pressed && styles.sendIconButtonPressed,
+                    ]}
+                  >
+                    {sendFriendRequest.isPending ? (
+                      <ActivityIndicator color={color.accent} />
+                    ) : (
+                      <Svg width={21} height={21} viewBox="0 0 24 24">
+                        <Path d="M7 17 17 7" stroke={color.ink} strokeWidth={2.1} strokeLinecap="round" strokeLinejoin="round" />
+                        <Path d="M9 7h8v8" stroke={color.ink} strokeWidth={2.1} strokeLinecap="round" strokeLinejoin="round" />
+                      </Svg>
+                    )}
+                  </Pressable>
                 </View>
                 {status ? <Sub style={styles.status}>{status}</Sub> : null}
               </View>
@@ -242,7 +266,16 @@ const styles = StyleSheet.create({
   sectionHead: { gap: 2 },
   addRow: { flexDirection: "row", alignItems: "center", gap: space.sm },
   addInput: { flex: 1, minWidth: 0 },
-  sendButton: { width: 82, paddingHorizontal: 0 },
+  sendIconButton: {
+    width: 42,
+    height: 42,
+    borderRadius: radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "transparent",
+  },
+  sendIconButtonPressed: { backgroundColor: color.field, transform: [{ scale: 0.96 }] },
+  sendIconButtonDisabled: { opacity: 0.38 },
   status: { color: color.inkMuted },
   requestsPanel: {
     borderWidth: 1,

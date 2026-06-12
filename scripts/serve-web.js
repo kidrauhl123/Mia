@@ -39,6 +39,7 @@ function safePath(requestPath) {
       || target === "shared/send-pipeline.js"
       || target === "shared/cloud-client.js"
       || target === "shared/unread.js"
+      || target === "shared/status-badge-assets.js"
   ) {
     const packageTarget = target === "shared/avatar-resolve.js" || target === "shared/avatar-media.js" || target === "shared/member-color.js"
       ? "shared/avatar.js"

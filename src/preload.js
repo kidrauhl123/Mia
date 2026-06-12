@@ -114,7 +114,7 @@ contextBridge.exposeInMainWorld("mia", {
     loadPrompts: () => ipcRenderer.invoke(IpcChannel.ConductorLoadPrompts),
   },
   social: {
-    sendFriendRequest: (toUsername) => ipcRenderer.invoke(IpcChannel.SocialSendFriendRequest, toUsername),
+    sendFriendRequest: (toUserId) => ipcRenderer.invoke(IpcChannel.SocialSendFriendRequest, toUserId),
     respondFriendRequest: (requestId, action) => ipcRenderer.invoke(IpcChannel.SocialRespondFriendRequest, requestId, action),
     cancelFriendRequest: (requestId) => ipcRenderer.invoke(IpcChannel.SocialCancelFriendRequest, requestId),
     listFriendRequests: (direction) => ipcRenderer.invoke(IpcChannel.SocialListFriendRequests, direction),
@@ -132,7 +132,7 @@ contextBridge.exposeInMainWorld("mia", {
     getCachedSocialBootstrap: (userId) => ipcRenderer.invoke(IpcChannel.SocialGetCachedBootstrap, userId),
     postConversationMessage: (conversationId, body) => ipcRenderer.invoke(IpcChannel.SocialPostConversationMessage, conversationId, body),
     deleteConversationMessage: (conversationId, messageId) => ipcRenderer.invoke(IpcChannel.SocialDeleteConversationMessage, conversationId, messageId),
-    myUsername: () => ipcRenderer.invoke(IpcChannel.SocialMyUsername),
+    myIdentity: () => ipcRenderer.invoke(IpcChannel.SocialMyIdentity),
     createConversation: (payload) => ipcRenderer.invoke(IpcChannel.SocialCreateConversation, payload),
     ensureBotConversation: (botId, body) => ipcRenderer.invoke(IpcChannel.SocialEnsureBotConversation, botId, body),
     ensureBotSessionConversation: (sessionId, body) => ipcRenderer.invoke(IpcChannel.SocialEnsureBotSessionConversation, sessionId, body),

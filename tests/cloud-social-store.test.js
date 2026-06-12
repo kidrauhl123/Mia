@@ -46,10 +46,10 @@ test("areFriends returns true after addFriendship, false after remove", () => {
   } finally { cleanup(ctx); }
 });
 
-test("createFriendRequestByUsername happy path returns pending row", () => {
+test("createFriendRequest happy path returns pending row", () => {
   const ctx = makeStores();
   try {
-    const req = ctx.social.createFriendRequestByUsername({ fromUserId: ctx.alice.id, toUserId: ctx.bob.id });
+    const req = ctx.social.createFriendRequest({ fromUserId: ctx.alice.id, toUserId: ctx.bob.id });
     assert.ok(req.id);
     assert.equal(req.status, "pending");
     assert.equal(req.from_user, ctx.alice.id);
@@ -58,33 +58,33 @@ test("createFriendRequestByUsername happy path returns pending row", () => {
   } finally { cleanup(ctx); }
 });
 
-test("createFriendRequestByUsername rejects self-request", () => {
+test("createFriendRequest rejects self-request", () => {
   const ctx = makeStores();
   try {
     assert.throws(
-      () => ctx.social.createFriendRequestByUsername({ fromUserId: ctx.alice.id, toUserId: ctx.alice.id }),
+      () => ctx.social.createFriendRequest({ fromUserId: ctx.alice.id, toUserId: ctx.alice.id }),
       /yourself/i
     );
   } finally { cleanup(ctx); }
 });
 
-test("createFriendRequestByUsername rejects already-friends", () => {
+test("createFriendRequest rejects already-friends", () => {
   const ctx = makeStores();
   try {
     ctx.social.addFriendship(ctx.alice.id, ctx.bob.id);
     assert.throws(
-      () => ctx.social.createFriendRequestByUsername({ fromUserId: ctx.alice.id, toUserId: ctx.bob.id }),
+      () => ctx.social.createFriendRequest({ fromUserId: ctx.alice.id, toUserId: ctx.bob.id }),
       /already friends/i
     );
   } finally { cleanup(ctx); }
 });
 
-test("createFriendRequestByUsername rejects duplicate pending", () => {
+test("createFriendRequest rejects duplicate pending", () => {
   const ctx = makeStores();
   try {
-    ctx.social.createFriendRequestByUsername({ fromUserId: ctx.alice.id, toUserId: ctx.bob.id });
+    ctx.social.createFriendRequest({ fromUserId: ctx.alice.id, toUserId: ctx.bob.id });
     assert.throws(
-      () => ctx.social.createFriendRequestByUsername({ fromUserId: ctx.alice.id, toUserId: ctx.bob.id }),
+      () => ctx.social.createFriendRequest({ fromUserId: ctx.alice.id, toUserId: ctx.bob.id }),
       /already pending/i
     );
   } finally { cleanup(ctx); }
@@ -93,7 +93,7 @@ test("createFriendRequestByUsername rejects duplicate pending", () => {
 test("getFriendRequestById returns row or null", () => {
   const ctx = makeStores();
   try {
-    const req = ctx.social.createFriendRequestByUsername({ fromUserId: ctx.alice.id, toUserId: ctx.bob.id });
+    const req = ctx.social.createFriendRequest({ fromUserId: ctx.alice.id, toUserId: ctx.bob.id });
     const fetched = ctx.social.getFriendRequestById(req.id);
     assert.equal(fetched.id, req.id);
     assert.equal(fetched.status, "pending");
@@ -105,8 +105,8 @@ test("listOutgoingPending returns sender's pending requests", () => {
   const ctx = makeStores();
   try {
     const charlie = createCloudUser(ctx.cloudStore, "charlie");
-    ctx.social.createFriendRequestByUsername({ fromUserId: ctx.alice.id, toUserId: ctx.bob.id });
-    ctx.social.createFriendRequestByUsername({ fromUserId: ctx.alice.id, toUserId: charlie.id });
+    ctx.social.createFriendRequest({ fromUserId: ctx.alice.id, toUserId: ctx.bob.id });
+    ctx.social.createFriendRequest({ fromUserId: ctx.alice.id, toUserId: charlie.id });
     const outgoing = ctx.social.listOutgoingPending(ctx.alice.id);
     assert.equal(outgoing.length, 2);
     const bobOutgoing = ctx.social.listOutgoingPending(ctx.bob.id);
@@ -118,8 +118,8 @@ test("listIncomingPending returns recipient's pending requests", () => {
   const ctx = makeStores();
   try {
     const charlie = createCloudUser(ctx.cloudStore, "charlie");
-    ctx.social.createFriendRequestByUsername({ fromUserId: ctx.alice.id, toUserId: ctx.bob.id });
-    ctx.social.createFriendRequestByUsername({ fromUserId: charlie.id, toUserId: ctx.bob.id });
+    ctx.social.createFriendRequest({ fromUserId: ctx.alice.id, toUserId: ctx.bob.id });
+    ctx.social.createFriendRequest({ fromUserId: charlie.id, toUserId: ctx.bob.id });
     const incoming = ctx.social.listIncomingPending(ctx.bob.id);
     assert.equal(incoming.length, 2);
     const aliceIncoming = ctx.social.listIncomingPending(ctx.alice.id);
@@ -130,7 +130,7 @@ test("listIncomingPending returns recipient's pending requests", () => {
 test("respondToFriendRequest accept creates friendship atomically", () => {
   const ctx = makeStores();
   try {
-    const req = ctx.social.createFriendRequestByUsername({ fromUserId: ctx.alice.id, toUserId: ctx.bob.id });
+    const req = ctx.social.createFriendRequest({ fromUserId: ctx.alice.id, toUserId: ctx.bob.id });
     const updated = ctx.social.respondToFriendRequest(req.id, ctx.bob.id, "accept");
     assert.equal(updated.status, "accepted");
     assert.ok(updated.resolved_at);
@@ -141,7 +141,7 @@ test("respondToFriendRequest accept creates friendship atomically", () => {
 test("respondToFriendRequest reject does NOT create friendship", () => {
   const ctx = makeStores();
   try {
-    const req = ctx.social.createFriendRequestByUsername({ fromUserId: ctx.alice.id, toUserId: ctx.bob.id });
+    const req = ctx.social.createFriendRequest({ fromUserId: ctx.alice.id, toUserId: ctx.bob.id });
     const updated = ctx.social.respondToFriendRequest(req.id, ctx.bob.id, "reject");
     assert.equal(updated.status, "rejected");
     assert.ok(updated.resolved_at);
@@ -152,7 +152,7 @@ test("respondToFriendRequest reject does NOT create friendship", () => {
 test("respondToFriendRequest rejects when non-recipient tries to respond", () => {
   const ctx = makeStores();
   try {
-    const req = ctx.social.createFriendRequestByUsername({ fromUserId: ctx.alice.id, toUserId: ctx.bob.id });
+    const req = ctx.social.createFriendRequest({ fromUserId: ctx.alice.id, toUserId: ctx.bob.id });
     assert.throws(
       () => ctx.social.respondToFriendRequest(req.id, ctx.alice.id, "accept"),
       /not the recipient/i
@@ -163,7 +163,7 @@ test("respondToFriendRequest rejects when non-recipient tries to respond", () =>
 test("respondToFriendRequest rejects invalid action", () => {
   const ctx = makeStores();
   try {
-    const req = ctx.social.createFriendRequestByUsername({ fromUserId: ctx.alice.id, toUserId: ctx.bob.id });
+    const req = ctx.social.createFriendRequest({ fromUserId: ctx.alice.id, toUserId: ctx.bob.id });
     assert.throws(
       () => ctx.social.respondToFriendRequest(req.id, ctx.bob.id, "maybe"),
       /action must be/i
@@ -174,7 +174,7 @@ test("respondToFriendRequest rejects invalid action", () => {
 test("cancelFriendRequest only sender can cancel", () => {
   const ctx = makeStores();
   try {
-    const req = ctx.social.createFriendRequestByUsername({ fromUserId: ctx.alice.id, toUserId: ctx.bob.id });
+    const req = ctx.social.createFriendRequest({ fromUserId: ctx.alice.id, toUserId: ctx.bob.id });
     assert.throws(
       () => ctx.social.cancelFriendRequest(req.id, ctx.bob.id),
       /not the sender/i
@@ -188,7 +188,7 @@ test("cancelFriendRequest only sender can cancel", () => {
 test("cancelFriendRequest is idempotent if already cancelled", () => {
   const ctx = makeStores();
   try {
-    const req = ctx.social.createFriendRequestByUsername({ fromUserId: ctx.alice.id, toUserId: ctx.bob.id });
+    const req = ctx.social.createFriendRequest({ fromUserId: ctx.alice.id, toUserId: ctx.bob.id });
     ctx.social.cancelFriendRequest(req.id, ctx.alice.id);
     // second cancel should be a no-op returning the existing row
     const again = ctx.social.cancelFriendRequest(req.id, ctx.alice.id);

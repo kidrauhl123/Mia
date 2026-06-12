@@ -1847,17 +1847,37 @@ body.topbar-click-capture .topbar {
   overflow-wrap: anywhere;
 }
 
-.contact-runtime-target,
-.contact-capabilities,
-.contact-persona-card {
+.contact-info-card {
   display: grid;
-  gap: 12px;
   min-width: 0;
-  padding: 14px;
   border: 0;
   border-radius: 8px;
   background: var(--surface);
+  overflow: hidden;
   box-shadow: 0 1px 2px rgba(16, 20, 39, 0.05), inset 0 0 0 1px rgba(0, 0, 0, 0.035);
+}
+
+.contact-runtime-target,
+.contact-capabilities,
+.contact-persona-card {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.contact-info-card > details + details::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 28px;
+  right: 28px;
+  height: 1px;
+  background: var(--line);
 }
 
 .contact-runtime-target > summary,
@@ -1868,13 +1888,15 @@ body.topbar-click-capture .topbar {
   justify-content: space-between;
   gap: 12px;
   min-width: 0;
+  min-height: 64px;
+  padding: 13px 28px;
 }
 
 .contact-runtime-target > summary,
 .contact-capabilities > summary,
 .contact-persona-card > summary {
   list-style: none;
-  cursor: pointer;
+  cursor: default;
 }
 
 .contact-runtime-target > summary::-webkit-details-marker,
@@ -1901,8 +1923,8 @@ body.topbar-click-capture .topbar {
 .contact-capabilities > summary strong,
 .contact-persona-card > summary strong {
   color: var(--text);
-  font-size: 14px;
-  font-weight: 520;
+  font-size: 13px;
+  font-weight: 430;
 }
 
 .contact-runtime-target > summary p,
@@ -1910,7 +1932,7 @@ body.topbar-click-capture .topbar {
 .contact-persona-card > summary p {
   margin: 3px 0 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.4;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1923,11 +1945,15 @@ body.topbar-click-capture .topbar {
   min-width: 0;
 }
 
+.contact-info-card .accordion-body {
+  padding: 0 28px 16px;
+}
+
 .runtime-target-list {
   display: grid;
   gap: 8px;
   min-width: 0;
-  margin-top: 12px;
+  margin-top: 0;
 }
 
 .runtime-device-group {
@@ -2038,47 +2064,82 @@ body.topbar-click-capture .topbar {
   font-size: 11px;
 }
 
-.capability-columns {
+.capability-list {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 10px;
+  gap: 4px;
   min-width: 0;
-}
-
-.capability-columns section {
-  display: grid;
-  align-content: start;
-  gap: 6px;
-  min-width: 0;
-}
-
-.capability-columns h3 {
-  margin: 0 0 2px;
-  color: var(--faint);
-  font-size: 11px;
-  font-weight: 520;
 }
 
 .capability-row {
+  position: relative;
   display: grid;
-  grid-template-columns: 16px minmax(0, 1fr);
-  gap: 7px;
-  align-items: start;
+  grid-template-columns: minmax(0, 1fr) 17px;
+  gap: 12px;
+  align-items: center;
   min-width: 0;
-  padding: 7px;
+  min-height: 44px;
+  margin: 0 -8px;
+  padding: 10px 8px;
   border: 0;
-  border-radius: 7px;
-  background: var(--surface-muted);
+  border-radius: 8px;
+  background: transparent;
+  cursor: default;
+  transition: background 120ms ease;
+}
+
+.capability-row:hover {
+  background: var(--hover);
 }
 
 .capability-row input {
-  margin-top: 1px;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
 }
 
-.capability-row span {
+.capability-copy {
   display: grid;
-  gap: 2px;
+  gap: 3px;
   min-width: 0;
+}
+
+.capability-check {
+  justify-self: end;
+  display: grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 50%;
+  background: transparent;
+  transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.capability-check::after {
+  content: "";
+  width: 9px;
+  height: 5px;
+  margin-top: -2px;
+  border-left: 1.75px solid #fff;
+  border-bottom: 1.75px solid #fff;
+  opacity: 0;
+  transform: rotate(-45deg);
+}
+
+.capability-row input:checked ~ .capability-check {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.capability-row input:checked ~ .capability-check::after {
+  opacity: 1;
+}
+
+.capability-row:focus-within .capability-check {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.14);
 }
 
 .capability-row strong,
@@ -2090,30 +2151,30 @@ body.topbar-click-capture .topbar {
 
 .capability-row strong {
   color: var(--text);
-  font-size: 12px;
-  font-weight: 480;
+  font-size: 13px;
+  font-weight: 430;
 }
 
 .capability-row small,
 .capability-empty {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .capability-empty {
-  padding: 9px;
+  padding: 4px 0 8px;
   border: 0;
-  border-radius: 7px;
-  background: var(--surface-muted);
+  border-radius: 0;
+  background: transparent;
 }
 
 .contact-persona-text {
   margin: 0;
-  padding: 10px;
-  border-radius: 7px;
-  background: var(--surface-muted);
+  padding: 0 0 4px;
+  border-radius: 0;
+  background: transparent;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.6;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -2125,9 +2186,7 @@ body.topbar-click-capture .topbar {
 }
 
 :root[data-theme="dark"] .contact-note,
-:root[data-theme="dark"] .contact-runtime-target,
-:root[data-theme="dark"] .contact-capabilities,
-:root[data-theme="dark"] .contact-persona-card {
+:root[data-theme="dark"] .contact-info-card {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
 }
 
@@ -4548,6 +4607,40 @@ select.select-open {
   box-shadow: 0 24px 70px rgba(16, 20, 39, 0.18);
 }
 
+.profile-popover {
+  position: fixed;
+  top: 34px;
+  left: 58px;
+  z-index: 24;
+  width: min(370px, calc(100vw - 72px));
+  max-height: calc(100vh - 46px);
+  overflow: visible;
+  background: transparent;
+  pointer-events: none;
+}
+
+.profile-popover-form {
+  width: 100%;
+  max-height: calc(100vh - 46px);
+  overflow: auto;
+  pointer-events: auto;
+  transform-origin: 0 18px;
+  animation: profile-popover-open 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes profile-popover-open {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scaleY(0.96);
+    clip-path: inset(0 0 100% 0 round 14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scaleY(1);
+    clip-path: inset(0 0 0 0 round 14px);
+  }
+}
+
 .pet-generate-dialog {
   position: fixed;
   inset: 0;
@@ -4627,6 +4720,7 @@ select.select-open {
   align-items: center;
   gap: 8px;
   min-width: 0;
+  font-size: 16px;
 }
 
 .identity-name-text {
@@ -4679,6 +4773,35 @@ select.select-open {
   box-shadow: inset 0 -1px 0 var(--accent);
 }
 
+.identity-name-line .identity-name-input::placeholder {
+  color: var(--faint);
+  font-weight: 500;
+}
+
+.dialog-identity-card {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  min-width: 0;
+}
+
+.dialog-identity-main {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.dialog-identity-name-line {
+  min-height: 34px;
+  border-bottom: 1px solid var(--line);
+}
+
+.dialog-identity-name-line .identity-name-text,
+.dialog-identity-name-line .identity-name-input {
+  font-size: 16px;
+}
+
 .identity-badge-details {
   position: relative;
   flex: 0 0 auto;
@@ -4707,10 +4830,42 @@ select.select-open {
 }
 
 .identity-badge-trigger.empty {
-  border: 1px dashed var(--line-strong);
+  border: 0;
   color: var(--faint);
-  font-size: 17px;
+  font-size: inherit;
   line-height: 1;
+}
+
+.identity-badge-empty-icon {
+  display: block;
+  width: 1.08em;
+  height: 1.08em;
+  color: currentColor;
+  transform: translateY(0.08em);
+}
+
+.identity-badge-empty-icon svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.identity-badge-empty-ring,
+.identity-badge-empty-smile {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.65;
+}
+
+.identity-badge-empty-ring {
+  stroke-dasharray: 2.4 2.1;
+}
+
+.identity-badge-empty-eye {
+  fill: currentColor;
 }
 
 .identity-badge-trigger:not(.empty):hover,
@@ -4719,6 +4874,11 @@ select.select-open {
 .identity-badge-trigger.empty:focus-visible {
   background: var(--hover);
   outline: 0;
+}
+
+.identity-badge-trigger.empty:hover,
+.identity-badge-trigger.empty:focus-visible {
+  color: var(--muted);
 }
 
 .identity-badge-panel {
@@ -4758,14 +4918,14 @@ select.select-open {
 
 .identity-badge-choices button:hover,
 .identity-badge-choices button:focus-visible {
-  background: var(--hover);
+  background: transparent;
   outline: 0;
 }
 
 .identity-badge-choices button.active {
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  color: var(--accent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 32%, transparent);
+  background: var(--field);
+  color: var(--text);
+  box-shadow: none;
 }
 
 .identity-badge-choice-empty {
@@ -4950,6 +5110,48 @@ select.select-open {
 
 .avatar-crop-preview:hover {
   box-shadow: inset 0 0 0 4px rgb(255 255 255 / 0.42), 0 0 0 3px rgb(var(--accent-rgb) / 0.12);
+}
+
+.avatar-upload-shell {
+  position: relative;
+  width: 82px;
+  height: 82px;
+}
+
+.avatar-upload-button {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 50%;
+  padding: 0;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 2px 8px rgba(16, 20, 39, 0.16), inset 0 0 0 1px var(--line);
+  cursor: pointer;
+}
+
+.avatar-upload-button:hover,
+.avatar-upload-button:focus-visible {
+  color: var(--accent);
+  outline: 0;
+  box-shadow: 0 3px 10px rgba(16, 20, 39, 0.18), inset 0 0 0 1px color-mix(in srgb, var(--accent) 34%, var(--line));
+}
+
+.avatar-upload-button svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .avatar-drop {
@@ -6556,10 +6758,6 @@ pre {
 
   .session-trigger {
     grid-template-columns: minmax(54px, 130px);
-  }
-
-  .capability-columns {
-    grid-template-columns: 1fr;
   }
 
   .contact-profile-head {

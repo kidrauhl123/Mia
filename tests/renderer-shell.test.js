@@ -256,8 +256,7 @@ test("desktop lottie badges can load local TGS assets in the renderer with a pre
   assert.match(lottieSource, /shouldDeferMount/);
   assert.match(lottieSource, /addEventListener\("toggle"/);
   assert.doesNotMatch(lottieSource, /lottie-load-failed/);
-  assert.match(nameBadgeSource, /localJsonAssetIds = new Set\(\["rainbow"\]\)/);
-  assert.match(nameBadgeSource, /localTgsAssetIds = new Set\(\["surprised-cat"\]\)/);
+  assert.match(nameBadgeSource, /miaStatusBadgeAssets/);
   assert.match(nameBadgeSource, /shouldUseLocalAsset/);
   assert.match(nameBadgeSource, /data-lottie-format", "tgs"/);
   assert.doesNotMatch(nameBadgeSource, /data-lottie-fallback/);
@@ -1116,21 +1115,25 @@ test("contact detail shows engine logo and bot device label", () => {
 test("profile and account surfaces expose uid fields", () => {
   const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const styleSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
   const remoteSettingsSource = fs.readFileSync(path.join(root, "src/renderer/settings/settings-remote.js"), "utf8");
   const botManagerSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-manager.js"), "utf8");
 
   assert.match(html, /id="profileDialogTitle"/);
+  assert.match(html, /id="profileDialog" class="profile-popover hidden"/);
+  assert.match(html, /id="userAvatar"[^>]+aria-expanded="false"/);
   assert.match(html, /id="profileUidValue"/);
   assert.match(html, /id="profileNameText"/);
   assert.match(html, /id="profileStatusBadge"/);
   assert.match(html, /id="profileStatusBadgeDetails"/);
   assert.match(html, /id="profileStatusBadgeTrigger"/);
+  assert.doesNotMatch(html, /id="cancelProfile"/);
+  assert.doesNotMatch(html, />保存资料</);
   assert.match(html, /id="botNameText"/);
   assert.match(html, /id="botStatusBadge"/);
   assert.match(html, /id="botStatusBadgeDetails"/);
   assert.match(html, /id="botStatusBadgeTrigger"/);
-  assert.match(html, /value="surprised-cat"/);
-  assert.match(html, /data-lottie-format="tgs"/);
+  assert.match(html, /status-badge-assets\.js/);
   assert.doesNotMatch(html, /data-lottie-fallback/);
   assert.doesNotMatch(html, /profileStatusBadgePreview/);
   assert.match(html, /id="cloudAccountProfile"/);
@@ -1138,13 +1141,18 @@ test("profile and account surfaces expose uid fields", () => {
   assert.match(html, /id="cloudAccountName"/);
   assert.match(html, /id="cloudAccountUid"/);
   assert.match(appSource, /profileUidValue:\s*document\.getElementById\("profileUidValue"\)/);
+  assert.match(appSource, /closeProfilePopoverFromOutside/);
+  assert.match(appSource, /function profileDraftPayload/);
+  assert.match(appSource, /async function saveProfileDraft/);
+  assert.match(styleSource, /\.profile-popover/);
+  assert.match(styleSource, /@keyframes profile-popover-open/);
   assert.match(appSource, /profileNameText:\s*document\.getElementById\("profileNameText"\)/);
   assert.match(appSource, /profileStatusBadge:\s*document\.getElementById\("profileStatusBadge"\)/);
   assert.match(appSource, /profileStatusBadgeTrigger:\s*document\.getElementById\("profileStatusBadgeTrigger"\)/);
   assert.match(appSource, /botNameText:\s*document\.getElementById\("botNameText"\)/);
   assert.match(appSource, /botStatusBadge:\s*document\.getElementById\("botStatusBadge"\)/);
   assert.match(appSource, /statusBadgeForPreset/);
-  assert.match(appSource, /surprised-cat/);
+  assert.match(appSource, /renderStatusBadgeChoiceLists/);
   assert.match(appSource, /function setNameWithBadge/);
   assert.match(appSource, /els\.profileUidValue\.textContent = user\.id/);
   assert.match(remoteSettingsSource, /cloudAccountUid/);

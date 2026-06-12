@@ -70,7 +70,7 @@ function cachedSocialBootstrap({ messageCache, getCloudUserId, requestedUserId }
 }
 
 function registerSocialIpc({ ipcMain, socialApi, messageCache = null, getCloudUserId = null, log = () => {} }) {
-  ipcMain.handle(IpcChannel.SocialSendFriendRequest, safeCall((toUsername) => socialApi.sendFriendRequest(toUsername)));
+  ipcMain.handle(IpcChannel.SocialSendFriendRequest, safeCall((toUserId) => socialApi.sendFriendRequest(toUserId)));
   ipcMain.handle(IpcChannel.SocialRespondFriendRequest, safeCall((requestId, action) => socialApi.respondFriendRequest(requestId, action)));
   ipcMain.handle(IpcChannel.SocialCancelFriendRequest, safeCall((requestId) => socialApi.cancelFriendRequest(requestId)));
   ipcMain.handle(IpcChannel.SocialListFriendRequests, safeCall((direction) => socialApi.listFriendRequests(direction)));

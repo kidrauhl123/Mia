@@ -576,14 +576,18 @@ test("cloud release and local web server expose desktop model icon assets", () =
 test("web app loads lottie player and renders status badge lotties from cloud assets", () => {
   const html = fs.readFileSync(path.join(ROOT, "src/web/app/index.html"), "utf8");
   const app = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
+  const build = fs.readFileSync(path.join(ROOT, "scripts/build-cloud-release.js"), "utf8");
   const lottieIdx = html.indexOf("assets/lottie/lottie_light.min.js");
+  const catalogIdx = html.indexOf("../shared/status-badge-assets.js");
   const appIdx = html.indexOf("../app.js");
   assert.ok(lottieIdx >= 0, "web app must load lottie-web before app.js");
   assert.ok(lottieIdx < appIdx, "lottie player must load before app.js initializes badge animations");
+  assert.ok(catalogIdx >= 0 && catalogIdx < appIdx, "status badge catalog must load before app.js");
   assert.match(app, /function renderNameWithBadgeHtml/);
-  assert.match(app, /\/api\/status-badge-assets\/\$\{encodeURIComponent\(id\)\}\.json/);
+  assert.match(app, /miaStatusBadgeAssets/);
   assert.match(app, /function initStatusBadgeLotties/);
-  assert.match(app, /surprised-cat/);
+  assert.match(fs.readFileSync(path.join(ROOT, "packages/shared/status-badge-assets.js"), "utf8"), /surprised-cat/);
+  assert.match(build, /packages\/shared\/status-badge-assets\.js/);
 });
 
 test("web settings exposes a status badge profile control", () => {
@@ -594,7 +598,7 @@ test("web settings exposes a status badge profile control", () => {
   assert.match(html, /id="profileStatusBadge"/);
   assert.match(html, /id="profileStatusBadgeDetails"/);
   assert.match(html, /id="profileStatusBadgeTrigger"/);
-  assert.match(html, /value="surprised-cat"/);
+  assert.match(app, /function renderProfileStatusBadgeChoices/);
   assert.doesNotMatch(html, /profileStatusBadgePreview/);
   assert.match(app, /saveProfilePatch\(\{ displayName \}/);
   assert.match(app, /saveProfilePatch\(\{ statusBadge \}/);

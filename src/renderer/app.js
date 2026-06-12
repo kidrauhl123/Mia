@@ -8,6 +8,11 @@ const SIDEBAR_WIDTH_MIN = 220;
 const SIDEBAR_WIDTH_MAX = 380;
 const SIDEBAR_WIDTH_DEFAULT = 280;
 let skillPickerHoverCloseTimer = 0;
+let profilePopoverHideTimer = 0;
+let profileSaveDebounceTimer = 0;
+let profileSaveInFlight = false;
+let profileSaveRequested = false;
+let profileLastSaveSignature = "";
 let avatarTrimDrag = null;
 const botRuntimeControlCache = new Map();
 const botRuntimeControlInFlight = new Set();
@@ -185,7 +190,6 @@ const els = {
   profileAvatarDrop: document.getElementById("profileAvatarDrop"),
   profileAvatarPreview: document.getElementById("profileAvatarPreview"),
   closeProfileDialog: document.getElementById("closeProfileDialog"),
-  cancelProfile: document.getElementById("cancelProfile"),
   botNameText: document.getElementById("botNameText"),
   botStatusBadge: document.getElementById("botStatusBadge"),
   botStatusBadgeDetails: document.getElementById("botStatusBadgeDetails"),
@@ -425,22 +429,11 @@ function statusBadgeFrom(...sources) {
 }
 
 function statusBadgeForPreset(value) {
-  const id = String(value || "").trim();
-  if (id === "star") return { kind: "emoji", emoji: "⭐", label: "星标" };
-  if (id === "fire") return { kind: "emoji", emoji: "🔥", label: "活跃" };
-  if (id === "rainbow") return { kind: "lottie", assetId: "rainbow", label: "彩虹动画", loop: "always" };
-  if (id === "surprised-cat") return { kind: "lottie", assetId: "surprised-cat", label: "惊讶猫", loop: "always" };
-  return null;
+  return window.miaStatusBadgeAssets?.statusBadgeForValue?.(value) || null;
 }
 
 function statusBadgePresetValue(badge) {
-  const normalized = badge && typeof badge === "object" ? badge : null;
-  if (!normalized) return "";
-  if (normalized.kind === "emoji" && normalized.emoji === "⭐") return "star";
-  if (normalized.kind === "emoji" && normalized.emoji === "🔥") return "fire";
-  if (normalized.kind === "lottie" && normalized.assetId === "rainbow") return "rainbow";
-  if (normalized.kind === "lottie" && normalized.assetId === "surprised-cat") return "surprised-cat";
-  return "";
+  return window.miaStatusBadgeAssets?.statusBadgeValue?.(badge) || "";
 }
 
 function identityNameEls(kind) {
@@ -471,9 +464,19 @@ function beginIdentityNameEdit(kind) {
   input.select?.();
 }
 
+function shouldKeepIdentityNameInputVisible(kind) {
+  return kind === "bot"
+    && state.botDialogMode === "create";
+}
+
 function endIdentityNameEdit(kind) {
   const { input, text } = identityNameEls(kind);
   if (!input || !text) return;
+  if (shouldKeepIdentityNameInputVisible(kind)) {
+    text.classList.add("hidden");
+    input.classList.remove("hidden");
+    return;
+  }
   input.classList.add("hidden");
   text.classList.remove("hidden");
   syncIdentityNameText(kind);
@@ -509,7 +512,7 @@ function renderStatusBadgeGlyph(target, badge) {
   target.innerHTML = "";
   target.classList.toggle("empty", !badge);
   if (!badge) {
-    target.textContent = "+";
+    renderEmptyStatusBadgeGlyph(target);
     return;
   }
   if (badge.kind === "emoji") {
@@ -519,8 +522,8 @@ function renderStatusBadgeGlyph(target, badge) {
   if (badge.kind === "lottie") {
     const assetId = String(badge.assetId || "").trim();
     if (!/^[A-Za-z0-9_-]+$/.test(assetId)) {
-      target.textContent = "+";
       target.classList.add("empty");
+      renderEmptyStatusBadgeGlyph(target);
       return;
     }
     const span = document.createElement("span");
@@ -541,9 +544,83 @@ function renderStatusBadgeGlyph(target, badge) {
   }
 }
 
+function renderEmptyStatusBadgeGlyph(target) {
+  if (!target) return;
+  target.innerHTML = `
+    <span class="identity-badge-empty-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" focusable="false">
+        <circle class="identity-badge-empty-ring" cx="12" cy="12" r="8.25"></circle>
+        <circle class="identity-badge-empty-eye" cx="9.4" cy="10.5" r=".78"></circle>
+        <circle class="identity-badge-empty-eye" cx="14.6" cy="10.5" r=".78"></circle>
+        <path class="identity-badge-empty-smile" d="M8.9 14.3c1.4 1.5 4.8 1.5 6.2 0"></path>
+      </svg>
+    </span>`;
+}
+
+function statusBadgeChoices() {
+  return window.miaStatusBadgeAssets?.statusBadgeChoices?.({ includeEmpty: true }) || [
+    { value: "", label: "无", badge: null }
+  ];
+}
+
+function statusBadgeChoiceCatalogKey() {
+  return statusBadgeChoices()
+    .map((choice) => `${choice.value}:${choice.kind || ""}:${choice.label || ""}:${choice.assetId || ""}:${choice.emoji || ""}`)
+    .join("|");
+}
+
+function renderStatusBadgeChoicePreview(target, choice) {
+  if (!target) return;
+  if (!choice?.badge) {
+    target.innerHTML = `<span class="identity-badge-choice-empty">无</span>`;
+    return;
+  }
+  if (choice.badge.kind === "emoji") {
+    const emoji = document.createElement("span");
+    emoji.className = "identity-badge-choice-emoji";
+    emoji.textContent = choice.badge.emoji || "";
+    target.replaceChildren(emoji);
+    return;
+  }
+  const preview = document.createElement("span");
+  preview.className = "identity-badge-choice-preview";
+  target.replaceChildren(preview);
+  renderStatusBadgeGlyph(preview, choice.badge);
+}
+
+function renderStatusBadgeChoiceLists(kind) {
+  const { select, details } = identityBadgeEls(kind);
+  const panel = details?.querySelector?.(".identity-badge-choices");
+  const key = statusBadgeChoiceCatalogKey();
+  if (select && select.dataset.statusBadgeCatalogKey !== key) {
+    const value = select.value || "";
+    select.replaceChildren(...statusBadgeChoices().map((choice) => {
+      const option = document.createElement("option");
+      option.value = choice.value || "";
+      option.textContent = choice.label || "无";
+      return option;
+    }));
+    select.value = statusBadgeChoices().some((choice) => choice.value === value) ? value : "";
+    select.dataset.statusBadgeCatalogKey = key;
+  }
+  if (!panel || panel.dataset.statusBadgeCatalogKey === `${kind}:${key}`) return;
+  panel.replaceChildren(...statusBadgeChoices().map((choice) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.dataset.statusBadgeChoice = choice.value || "";
+    button.dataset.statusBadgeTarget = kind;
+    button.setAttribute("aria-label", choice.value ? `${choice.label || choice.value}徽章` : "无徽章");
+    renderStatusBadgeChoicePreview(button, choice);
+    return button;
+  }));
+  panel.dataset.statusBadgeCatalogKey = `${kind}:${key}`;
+  refreshStatusBadgeLotties(panel);
+}
+
 function syncStatusBadgeControl(kind) {
   const { select, trigger, details } = identityBadgeEls(kind);
   if (!select || !trigger) return;
+  renderStatusBadgeChoiceLists(kind);
   const badge = statusBadgeForPreset(select.value);
   renderStatusBadgeGlyph(trigger, badge);
   document.querySelectorAll(`[data-status-badge-target="${kind}"]`).forEach((button) => {
@@ -552,19 +629,144 @@ function syncStatusBadgeControl(kind) {
   refreshStatusBadgeLotties(details || trigger);
 }
 
+function bindStatusBadgeDetailsDismissal(details) {
+  if (!details || details.dataset.statusBadgeDismissBound === "1") return;
+  details.dataset.statusBadgeDismissBound = "1";
+  let hideTimer = 0;
+  const cancelHide = () => {
+    if (!hideTimer) return;
+    window.clearTimeout(hideTimer);
+    hideTimer = 0;
+  };
+  const scheduleHide = () => {
+    cancelHide();
+    hideTimer = window.setTimeout(() => {
+      details.open = false;
+      hideTimer = 0;
+    }, 90);
+  };
+  details.addEventListener("mouseenter", cancelHide);
+  details.addEventListener("mouseleave", scheduleHide);
+  details.addEventListener("toggle", () => {
+    if (!details.open) {
+      cancelHide();
+      return;
+    }
+    document.querySelectorAll(".identity-badge-details[open]").forEach((node) => {
+      if (node !== details) node.open = false;
+    });
+    refreshStatusBadgeLotties(details);
+  });
+}
+
+document.querySelectorAll(".identity-badge-details").forEach(bindStatusBadgeDetailsDismissal);
+renderStatusBadgeChoiceLists("profile");
+renderStatusBadgeChoiceLists("bot");
+
 function openProfileDialogFromRenderer() {
+  clearProfilePopoverDismiss();
+  if (state.profileDialogOpen) {
+    window.miaBotDialog.closeProfileDialog();
+    return;
+  }
   window.miaBotDialog.openProfileDialog();
   const user = runtimeUserIdentity();
   if (els.profileStatusBadge) els.profileStatusBadge.value = statusBadgePresetValue(user.statusBadge);
   syncIdentityNameText("profile");
   syncStatusBadgeControl("profile");
+  profileSaveRequested = false;
+  profileLastSaveSignature = JSON.stringify(profileDraftPayload());
 }
+
+function clearProfilePopoverDismiss() {
+  if (!profilePopoverHideTimer) return;
+  window.clearTimeout(profilePopoverHideTimer);
+  profilePopoverHideTimer = 0;
+}
+
+function profilePopoverHasEditingFocus() {
+  const active = document.activeElement;
+  if (!active || !els.profileForm?.contains(active)) return false;
+  return ["INPUT", "SELECT", "TEXTAREA"].includes(active.tagName);
+}
+
+function scheduleProfilePopoverDismiss() {
+  clearProfilePopoverDismiss();
+  profilePopoverHideTimer = window.setTimeout(() => {
+    profilePopoverHideTimer = 0;
+    if (!state.profileDialogOpen || state.avatarCropEditor?.open || profilePopoverHasEditingFocus()) return;
+    if (els.profileDialog?.matches?.(":hover") || els.userAvatar?.matches?.(":hover")) return;
+    window.miaBotDialog.closeProfileDialog();
+  }, 160);
+}
+
+function closeProfilePopoverFromOutside(event) {
+  if (!state.profileDialogOpen || state.avatarCropEditor?.open) return;
+  const target = event.target;
+  if (els.profileDialog?.contains(target) || els.userAvatar?.contains(target) || els.avatarCropDialog?.contains(target)) return;
+  clearProfilePopoverDismiss();
+  window.miaBotDialog.closeProfileDialog();
+}
+
+function profileDraftPayload() {
+  const displayName = (els.profileDisplayName?.value || "").trim();
+  return {
+    displayName,
+    avatarText: displayName ? window.miaAvatar.initials(displayName) : "",
+    avatarImage: state.profileAvatarDraft?.image || els.profileAvatarImage?.value || "",
+    avatarCrop: window.miaAvatar.normalizeCrop(state.profileAvatarDraft?.crop),
+    avatarColor: state.profileAvatarDraft?.color || "",
+    statusBadge: statusBadgeForPreset(els.profileStatusBadge?.value || "")
+  };
+}
+
+async function saveProfileDraft() {
+  if (profileSaveDebounceTimer) {
+    window.clearTimeout(profileSaveDebounceTimer);
+    profileSaveDebounceTimer = 0;
+  }
+  profileSaveRequested = true;
+  if (profileSaveInFlight) return;
+  profileSaveInFlight = true;
+  try {
+    while (profileSaveRequested) {
+      profileSaveRequested = false;
+      const payload = profileDraftPayload();
+      const signature = JSON.stringify(payload);
+      if (signature === profileLastSaveSignature) continue;
+      profileLastSaveSignature = signature;
+      try {
+        state.runtime = await window.mia.saveProfile(payload);
+        render();
+      } catch (error) {
+        profileLastSaveSignature = "";
+        console.error("[profile] save failed:", error);
+      }
+    }
+  } finally {
+    profileSaveInFlight = false;
+  }
+}
+
+function scheduleProfileDraftSave(delay = 520) {
+  if (profileSaveDebounceTimer) window.clearTimeout(profileSaveDebounceTimer);
+  profileSaveDebounceTimer = window.setTimeout(() => {
+    profileSaveDebounceTimer = 0;
+    saveProfileDraft();
+  }, delay);
+}
+
+window.miaProfileControls = {
+  saveDraft: saveProfileDraft
+};
 
 window.miaStatusBadgeControls = {
   statusBadgeForPreset,
   statusBadgePresetValue,
   syncIdentityNameText,
-  syncStatusBadgeControl
+  syncStatusBadgeControl,
+  beginIdentityNameEdit,
+  endIdentityNameEdit
 };
 
 function nameBadgeIdentity(kind, record, displayName, fallbackId = "") {
@@ -1777,6 +1979,8 @@ function renderView() {
   els.settingsView.classList.toggle("hidden", !state.settingsOpen);
   if (state.settingsOpen) refreshWorkspaceSetting();
   els.profileDialog?.classList.toggle("hidden", !state.profileDialogOpen);
+  els.profileDialog?.classList.toggle("is-open", state.profileDialogOpen);
+  els.userAvatar?.setAttribute("aria-expanded", state.profileDialogOpen ? "true" : "false");
   els.botCreateMenu?.classList.toggle("hidden", !state.botMenuOpen);
   els.contactCreateMenu?.classList.toggle("hidden", !state.contactMenuOpen);
   // Contacts unread = number of pending incoming friend requests.
@@ -3567,11 +3771,16 @@ document.addEventListener("keydown", (event) => {
   if (state.botContextMenu.open) window.miaBotManager.closeBotContextMenu();
   if (state.messageContextMenu.open) window.miaMessageMenu?.closeMessageContextMenu();
   window.miaComposer.closeComposerAddMenu();
+  if (state.profileDialogOpen && !state.avatarCropEditor?.open) {
+    event.preventDefault();
+    window.miaBotDialog.closeProfileDialog();
+  }
   if (state.skillPreviewOpen) {
     state.skillPreviewOpen = false;
     window.miaSkillLibrary.renderSkillPreview();
   }
 });
+document.addEventListener("pointerdown", closeProfilePopoverFromOutside);
 els.sessionMenuButton.addEventListener("click", (event) => {
   event.stopPropagation();
   state.sessionMenuOpen = !state.sessionMenuOpen;
@@ -4200,6 +4409,11 @@ els.contactMenuNewGroup?.addEventListener("click", () => {
   renderView();
   window.miaSocial?.openCreateGroupDialog?.();
 });
+els.userAvatar?.addEventListener("mouseenter", clearProfilePopoverDismiss);
+els.userAvatar?.addEventListener("mouseleave", scheduleProfilePopoverDismiss);
+els.profileDialog?.addEventListener("mouseenter", clearProfilePopoverDismiss);
+els.profileDialog?.addEventListener("mouseleave", scheduleProfilePopoverDismiss);
+els.profileDialog?.addEventListener("focusin", clearProfilePopoverDismiss);
 els.userAvatar?.addEventListener("click", openProfileDialogFromRenderer);
 els.userAvatar?.addEventListener("keydown", (event) => {
   if (event.key !== "Enter" && event.key !== " ") return;
@@ -4207,7 +4421,6 @@ els.userAvatar?.addEventListener("keydown", (event) => {
   openProfileDialogFromRenderer();
 });
 els.closeProfileDialog?.addEventListener("click", () => window.miaBotDialog.closeProfileDialog());
-els.cancelProfile?.addEventListener("click", () => window.miaBotDialog.closeProfileDialog());
 els.closeBotDialog?.addEventListener("click", () => window.miaBotDialog.closeBotDialog());
 els.cancelBot?.addEventListener("click", () => window.miaBotDialog.closeBotDialog());
 els.closePetGenerateDialog?.addEventListener("click", () => window.miaPetDialog?.closePetGenerateDialog());
@@ -4262,16 +4475,18 @@ els.botAvatarPreview?.addEventListener("keydown", (event) => {
   if (!draft?.image) return;
   window.miaBotDialog.openAvatarCropEditor(draft.image, draft.crop);
 });
-els.botAvatarDrop?.addEventListener("dragover", (event) => {
+
+function hasDraggedFiles(event) {
+  return Array.from(event.dataTransfer?.types || []).includes("Files");
+}
+
+els.botForm?.addEventListener("dragover", (event) => {
+  if (!hasDraggedFiles(event)) return;
   event.preventDefault();
-  els.botAvatarDrop.classList.add("dragging");
 });
-els.botAvatarDrop?.addEventListener("dragleave", () => {
-  els.botAvatarDrop.classList.remove("dragging");
-});
-els.botAvatarDrop?.addEventListener("drop", (event) => {
+els.botForm?.addEventListener("drop", (event) => {
+  if (!hasDraggedFiles(event)) return;
   event.preventDefault();
-  els.botAvatarDrop.classList.remove("dragging");
   window.miaBotDialog.readBotAvatarFile(event.dataTransfer?.files?.[0]);
 });
 els.chooseProfileAvatar?.addEventListener("click", () => els.profileAvatarFile?.click());
@@ -4297,16 +4512,13 @@ els.profileAvatarPreview?.addEventListener("keydown", (event) => {
   }
   window.miaBotDialog.openAvatarCropEditor(draft.image, draft.crop, "profile");
 });
-els.profileAvatarDrop?.addEventListener("dragover", (event) => {
+els.profileForm?.addEventListener("dragover", (event) => {
+  if (!hasDraggedFiles(event)) return;
   event.preventDefault();
-  els.profileAvatarDrop.classList.add("dragging");
 });
-els.profileAvatarDrop?.addEventListener("dragleave", () => {
-  els.profileAvatarDrop.classList.remove("dragging");
-});
-els.profileAvatarDrop?.addEventListener("drop", (event) => {
+els.profileForm?.addEventListener("drop", (event) => {
+  if (!hasDraggedFiles(event)) return;
   event.preventDefault();
-  els.profileAvatarDrop.classList.remove("dragging");
   window.miaBotDialog.readProfileAvatarFile(event.dataTransfer?.files?.[0]);
 });
 els.avatarCropStage?.addEventListener("pointerdown", (event) => {
@@ -4456,25 +4668,7 @@ els.confirmAvatarCrop?.addEventListener("click", async () => {
   }
   if (state.avatarCropEditor.target === "profile") {
     window.miaBotDialog.setProfileAvatarDraft(state.avatarCropEditor.image, state.avatarCropEditor.crop);
-    // Auto-persist the avatar so closing the profile dialog without clicking
-    // "保存资料" doesn't silently drop the new avatar. The display name field
-    // is preserved by reading whatever is currently in the input.
-    try {
-      const displayName = (els.profileDisplayName?.value || "").trim()
-        || runtimeUserIdentity().displayName
-        || "";
-      state.runtime = await window.mia.saveProfile({
-        displayName,
-        avatarText: displayName ? window.miaAvatar.initials(displayName) : "",
-        avatarImage: state.profileAvatarDraft.image || els.profileAvatarImage?.value || "",
-        avatarCrop: window.miaAvatar.normalizeCrop(state.profileAvatarDraft.crop),
-        avatarColor: state.profileAvatarDraft.color || "",
-        statusBadge: statusBadgeForPreset(els.profileStatusBadge?.value || "")
-      });
-      render();
-    } catch (err) {
-      console.error("[profile] avatar auto-save failed:", err);
-    }
+    await saveProfileDraft();
   } else {
     window.miaBotDialog.setBotAvatarDraft(state.avatarCropEditor.image, state.avatarCropEditor.crop);
   }
@@ -4491,9 +4685,13 @@ els.resetAvatarCrop?.addEventListener("click", () => {
 els.profileDisplayName?.addEventListener("input", () => {
   window.miaBotDialog?.renderProfileAvatarDraft?.();
   syncIdentityNameText("profile");
+  scheduleProfileDraftSave();
 });
 els.profileNameText?.addEventListener("click", () => beginIdentityNameEdit("profile"));
-els.profileDisplayName?.addEventListener("blur", () => endIdentityNameEdit("profile"));
+els.profileDisplayName?.addEventListener("blur", () => {
+  endIdentityNameEdit("profile");
+  saveProfileDraft();
+});
 els.profileDisplayName?.addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
     event.preventDefault();
@@ -4504,31 +4702,20 @@ els.profileDisplayName?.addEventListener("keydown", (event) => {
     els.profileDisplayName.blur();
   }
 });
-els.profileStatusBadge?.addEventListener("change", () => syncStatusBadgeControl("profile"));
-document.querySelectorAll("[data-status-badge-choice]").forEach((button) => {
-  button.addEventListener("click", () => {
-    const kind = button.dataset.statusBadgeTarget || "profile";
-    const { select, details } = identityBadgeEls(kind);
-    if (!select) return;
-    select.value = button.dataset.statusBadgeChoice || "";
-    syncStatusBadgeControl(kind);
-    if (details) details.open = false;
-  });
+els.profileStatusBadge?.addEventListener("change", () => {
+  syncStatusBadgeControl("profile");
+  saveProfileDraft();
 });
-
-els.profileForm?.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const displayName = els.profileDisplayName.value.trim();
-  state.runtime = await window.mia.saveProfile({
-    displayName,
-    avatarText: displayName ? window.miaAvatar.initials(displayName) : "",
-    avatarImage: state.profileAvatarDraft.image || els.profileAvatarImage.value,
-    avatarCrop: window.miaAvatar.normalizeCrop(state.profileAvatarDraft.crop),
-    avatarColor: state.profileAvatarDraft.color || "",
-    statusBadge: statusBadgeForPreset(els.profileStatusBadge?.value || "")
-  });
-  window.miaBotDialog.closeProfileDialog();
-  render();
+document.addEventListener("click", (event) => {
+  const button = event.target?.closest?.("[data-status-badge-choice]");
+  if (!button) return;
+  const kind = button.dataset.statusBadgeTarget || "profile";
+  const { select, details } = identityBadgeEls(kind);
+  if (!select) return;
+  select.value = button.dataset.statusBadgeChoice || "";
+  syncStatusBadgeControl(kind);
+  if (details) details.open = false;
+  if (kind === "profile") saveProfileDraft();
 });
 
 els.appearanceForm.addEventListener("submit", async (event) => {

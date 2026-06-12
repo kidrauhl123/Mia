@@ -51,6 +51,77 @@ function rowToUsage(row) {
   };
 }
 
+function rowToAdminUser(row = {}) {
+  const balanceMicrousd = toInteger(row.balance_microusd);
+  const chargeMicrousd = toInteger(row.charge_microusd);
+  const costMicrousd = toInteger(row.cost_microusd);
+  return {
+    user: {
+      id: row.user_id || "",
+      username: row.username || row.account || "",
+      account: row.account || row.username || "",
+      displayName: row.display_name || "",
+      email: row.email || "",
+      createdAt: row.user_created_at || ""
+    },
+    balance: {
+      userId: row.user_id || "",
+      balanceMicrousd,
+      balanceUsd: balanceMicrousd / MICRO_USD,
+      updatedAt: row.balance_updated_at || ""
+    },
+    usage: {
+      requestCount: toInteger(row.request_count),
+      succeededCount: toInteger(row.succeeded_count),
+      failedCount: toInteger(row.failed_count),
+      promptTokens: toInteger(row.prompt_tokens),
+      completionTokens: toInteger(row.completion_tokens),
+      totalTokens: toInteger(row.total_tokens),
+      costMicrousd,
+      costUsd: costMicrousd / MICRO_USD,
+      chargeMicrousd,
+      chargeUsd: chargeMicrousd / MICRO_USD,
+      lastUsedAt: row.last_used_at || ""
+    }
+  };
+}
+
+function rowToAdminTotals(row = {}) {
+  const costMicrousd = toInteger(row.cost_microusd);
+  const chargeMicrousd = toInteger(row.charge_microusd);
+  return {
+    userCount: toInteger(row.user_count),
+    activeUserCount: toInteger(row.active_user_count),
+    requestCount: toInteger(row.request_count),
+    succeededCount: toInteger(row.succeeded_count),
+    failedCount: toInteger(row.failed_count),
+    promptTokens: toInteger(row.prompt_tokens),
+    completionTokens: toInteger(row.completion_tokens),
+    totalTokens: toInteger(row.total_tokens),
+    costMicrousd,
+    costUsd: costMicrousd / MICRO_USD,
+    chargeMicrousd,
+    chargeUsd: chargeMicrousd / MICRO_USD,
+    balanceMicrousd: toInteger(row.balance_microusd),
+    balanceUsd: toInteger(row.balance_microusd) / MICRO_USD
+  };
+}
+
+function rowToAdminRecentUsage(row = {}) {
+  const usage = rowToUsage(row);
+  if (!usage) return null;
+  return {
+    ...usage,
+    user: {
+      id: row.user_id || "",
+      username: row.username || row.account || "",
+      account: row.account || row.username || "",
+      displayName: row.display_name || "",
+      email: row.email || ""
+    }
+  };
+}
+
 function usageTokenCounts(usage = {}) {
   const promptTokens = toInteger(usage.prompt_tokens ?? usage.input_tokens);
   const completionTokens = toInteger(usage.completion_tokens ?? usage.output_tokens);
@@ -110,6 +181,57 @@ function createModelBillingStore(db) {
     FROM model_usage_ledger
     WHERE user_id = ?
     ORDER BY created_at DESC
+    LIMIT ?
+  `);
+  const adminTotalsStmt = db.prepare(`
+    SELECT
+      (SELECT COUNT(*) FROM users) AS user_count,
+      COUNT(DISTINCT CASE WHEN l.id IS NOT NULL THEN l.user_id END) AS active_user_count,
+      COUNT(l.id) AS request_count,
+      SUM(CASE WHEN l.status = 'succeeded' THEN 1 ELSE 0 END) AS succeeded_count,
+      SUM(CASE WHEN l.status = 'failed' THEN 1 ELSE 0 END) AS failed_count,
+      COALESCE(SUM(l.prompt_tokens), 0) AS prompt_tokens,
+      COALESCE(SUM(l.completion_tokens), 0) AS completion_tokens,
+      COALESCE(SUM(l.total_tokens), 0) AS total_tokens,
+      COALESCE(SUM(l.cost_microusd), 0) AS cost_microusd,
+      COALESCE(SUM(l.charge_microusd), 0) AS charge_microusd,
+      (SELECT COALESCE(SUM(balance_microusd), 0) FROM model_accounts) AS balance_microusd
+    FROM model_usage_ledger l
+  `);
+  const adminUserSummaryStmt = db.prepare(`
+    SELECT
+      u.id AS user_id,
+      u.account,
+      u.username,
+      u.display_name,
+      u.email,
+      u.created_at AS user_created_at,
+      COALESCE(a.balance_microusd, 0) AS balance_microusd,
+      COALESCE(a.updated_at, '') AS balance_updated_at,
+      COUNT(l.id) AS request_count,
+      SUM(CASE WHEN l.status = 'succeeded' THEN 1 ELSE 0 END) AS succeeded_count,
+      SUM(CASE WHEN l.status = 'failed' THEN 1 ELSE 0 END) AS failed_count,
+      COALESCE(SUM(l.prompt_tokens), 0) AS prompt_tokens,
+      COALESCE(SUM(l.completion_tokens), 0) AS completion_tokens,
+      COALESCE(SUM(l.total_tokens), 0) AS total_tokens,
+      COALESCE(SUM(l.cost_microusd), 0) AS cost_microusd,
+      COALESCE(SUM(l.charge_microusd), 0) AS charge_microusd,
+      COALESCE(MAX(l.created_at), '') AS last_used_at
+    FROM users u
+    LEFT JOIN model_accounts a ON a.user_id = u.id
+    LEFT JOIN model_usage_ledger l ON l.user_id = u.id
+    GROUP BY u.id
+    ORDER BY (MAX(l.created_at) IS NULL) ASC, MAX(l.created_at) DESC, u.created_at DESC
+    LIMIT ?
+  `);
+  const adminRecentUsageStmt = db.prepare(`
+    SELECT l.id, l.user_id, l.model_id, l.upstream_model, l.provider, l.request_path,
+           l.prompt_tokens, l.completion_tokens, l.total_tokens, l.cost_microusd,
+           l.charge_microusd, l.status, l.error, l.created_at,
+           u.account, u.username, u.display_name, u.email
+    FROM model_usage_ledger l
+    LEFT JOIN users u ON u.id = l.user_id
+    ORDER BY l.created_at DESC
     LIMIT ?
   `);
 
@@ -196,7 +318,24 @@ function createModelBillingStore(db) {
     return listRecentUsageStmt.all(String(userId || "").trim(), normalizedLimit).map(rowToUsage);
   }
 
-  return { ensureAccount, getBalance, grantBalance, hasPositiveBalance, recordUsage, listRecentUsage };
+  function adminUsageSummary(limit = 50) {
+    const normalizedLimit = Math.min(200, Math.max(1, toInteger(limit, 50)));
+    return {
+      totals: rowToAdminTotals(adminTotalsStmt.get()),
+      users: adminUserSummaryStmt.all(normalizedLimit).map(rowToAdminUser),
+      recentUsage: adminRecentUsageStmt.all(Math.min(50, normalizedLimit)).map(rowToAdminRecentUsage).filter(Boolean)
+    };
+  }
+
+  return {
+    ensureAccount,
+    getBalance,
+    grantBalance,
+    hasPositiveBalance,
+    recordUsage,
+    listRecentUsage,
+    adminUsageSummary
+  };
 }
 
 module.exports = {

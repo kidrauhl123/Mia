@@ -111,7 +111,7 @@
     SocialGetCachedBootstrap: "social:get-cached-bootstrap",
     SocialPostConversationMessage: "social:post-conversation-message",
     SocialDeleteConversationMessage: "social:delete-conversation-message",
-    SocialMyUsername: "social:my-username",
+    SocialMyIdentity: "social:my-identity",
     SocialCreateConversation: "social:create-conversation",
     SocialEnsureBotConversation: "social:ensure-bot-conversation",
     SocialEnsureBotSessionConversation: "social:ensure-bot-session-conversation",

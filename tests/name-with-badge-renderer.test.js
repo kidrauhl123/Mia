@@ -41,9 +41,11 @@ function createMockDocument() {
 }
 
 function loadRenderer(options = {}) {
+  const shared = fs.readFileSync(path.join(__dirname, "..", "packages", "shared", "status-badge-assets.js"), "utf8");
   const src = fs.readFileSync(path.join(__dirname, "..", "src", "renderer", "name-with-badge.js"), "utf8");
   const window = { ...(options.window || {}) };
   const context = vm.createContext({ window, globalThis: window, document: createMockDocument(), console });
+  vm.runInContext(shared, context, { filename: "packages/shared/status-badge-assets.js" });
   vm.runInContext(src, context, { filename: "src/renderer/name-with-badge.js" });
   return window.miaNameWithBadge;
 }
