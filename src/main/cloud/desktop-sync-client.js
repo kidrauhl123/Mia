@@ -77,7 +77,7 @@ function createCloudDesktopSyncClient({
     try {
       const data = await cloudApi("/api/me/profile", { method: "PATCH", body });
       if (data && data.user) {
-        writeCloudSettings({ user: data.user });
+        await writeCloudSettings({ user: data.user });
       }
     } catch (error) {
       log(`Mia Cloud profile sync failed: ${error?.message || error}`);
@@ -117,7 +117,7 @@ function createCloudDesktopSyncClient({
     if (!current.enabled || !current.token) return status(false);
     try {
       const data = await cloudApi("/api/me");
-      writeCloudSettings({ user: data?.user || current.user });
+      await writeCloudSettings({ user: data?.user || current.user });
     } catch (error) {
       log(`Mia Cloud /api/me refresh failed: ${error?.message || error}`);
     }
@@ -231,7 +231,7 @@ function createCloudDesktopSyncClient({
 
   async function startWechatLogin({ url = "" } = {}) {
     const nextUrl = normalizeCloudUrl(url || settings().url);
-    writeCloudSettings({ url: nextUrl, enabled: false, token: "", user: null });
+    await writeCloudSettings({ url: nextUrl, enabled: false, token: "", user: null });
     const started = await cloudApi("/api/auth/wechat/start", {
       method: "POST",
       body: { client: "desktop" },
@@ -266,7 +266,7 @@ function createCloudDesktopSyncClient({
     }
     if (result.status === "failed" || result.ok === false) throw new Error(result.error || "微信登录失败。");
     if (!result?.token) throw new Error("微信登录结果缺少 token，请重新扫码。");
-    writeCloudSettings({ url: normalizeCloudUrl(settings().url), enabled: true, token: result.token, user: result.user || null });
+    await writeCloudSettings({ url: normalizeCloudUrl(settings().url), enabled: true, token: result.token, user: result.user || null });
     startCloudEvents();
     startCloudBridge();
     return { kind: "wechat-login-complete", status: "complete" };
@@ -299,7 +299,7 @@ function createCloudDesktopSyncClient({
     } catch {
       // Local logout should still clear the desktop token.
     }
-    writeCloudSettings({ enabled: false, token: "", user: null });
+    await writeCloudSettings({ enabled: false, token: "", user: null });
     stopCloudEvents();
     stopCloudBridge();
     return status(false);

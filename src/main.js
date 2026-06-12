@@ -61,6 +61,7 @@ const { createMainBotRuntimeDispatcher } = require("./main/social/bot-runtime-di
 const { createCloudEventsClient } = require("./main/cloud/cloud-events-client.js");
 const { createCloudBridgeClient } = require("./main/cloud/cloud-bridge-client.js");
 const { createCloudDesktopSyncClient } = require("./main/cloud/desktop-sync-client.js");
+const { createCloudSettingsWriter } = require("./main/cloud/cloud-settings-writer.js");
 const { openSkillMarketCache } = require("./main/skills/skill-market-cache.js");
 const { loadLocalSkillMarketPayload, packageLocalCatalogSkill } = require("./main/skills/skill-market-local.js");
 const { createRemoteControlRouter } = require("./main/remote/remote-control-router.js");
@@ -1936,6 +1937,22 @@ daemonControlServer = createDaemonControlServer({
   choosePort: engineHealthService.choosePort,
   getDaemonSettings: () => settingsStore.daemonSettings(),
   writeDaemonSettings: (settings) => settingsStore.writeDaemonSettings(settings),
+  // ADR P3: the daemon applies the window's delegated credential writes and
+  // reacts immediately when auth changes (new token → connect, logout → drop).
+  writeCloudSettings: (patch) => {
+    const next = settingsStore.writeCloudSettings(patch);
+    if (patch && (patch.token !== undefined || patch.enabled !== undefined)) {
+      try {
+        if (next.enabled && next.token) {
+          startCloudRuntimeSockets();
+        } else {
+          stopCloudEvents();
+          stopCloudBridge();
+        }
+      } catch { /* sockets re-evaluate on their own retry tick */ }
+    }
+    return next;
+  },
   normalizeDaemonHost: (host) => settingsStore.normalizeDaemonHost(host),
   normalizeDaemonPort: (port) => settingsStore.normalizeDaemonPort(port),
   runtimePaths,
@@ -2054,9 +2071,23 @@ const socialApi = createSocialApi({
   normalizeUrl: settingsStore.normalizeCloudUrl
 });
 const skillMarketCache = openSkillMarketCache(path.join(runtimePaths().home, "skill-market-cache.db"));
+// ADR P3: window-process credential writes route through the daemon (single
+// writer); the daemon itself — or the window when the daemon is off/dead —
+// writes the file directly.
+const cloudSettingsWriter = createCloudSettingsWriter({
+  isDaemonProcess: IS_DAEMON_PROCESS,
+  isDaemonEnabled: () => settingsStore.daemonSettings().enabled,
+  writeLocal: (patch) => settingsStore.writeCloudSettings(patch),
+  daemonBaseUrl: () => {
+    const daemonSettings = settingsStore.daemonSettings();
+    return `http://${daemonSettings.host}:${daemonSettings.port}`;
+  },
+  daemonToken,
+  log: (line) => appendCloudLog(line)
+});
 cloudDesktopSyncRuntime = createCloudDesktopSyncClient({
   getCloudSettings: () => settingsStore.cloudSettings(),
-  writeCloudSettings: (patch) => settingsStore.writeCloudSettings(patch),
+  writeCloudSettings: (patch) => cloudSettingsWriter.write(patch),
   normalizeCloudUrl: settingsStore.normalizeCloudUrl,
   cloudStatus: (includeToken) => cloudStatus(includeToken),
   appendLog: (line) => appendCloudLog(line),

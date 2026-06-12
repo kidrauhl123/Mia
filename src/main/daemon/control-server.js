@@ -20,6 +20,7 @@ function createDaemonControlServer({
   remoteRouter,
   initSchedulerSubsystem,
   tasksRoutes,
+  writeCloudSettings = null,
   fetchImpl = fetch,
   timeoutSignal = (timeoutMs) => AbortSignal.timeout(timeoutMs)
 }) {
@@ -307,6 +308,19 @@ function createDaemonControlServer({
       }
       if (url.pathname === "/api/local-events" && req.method === "GET") {
         handleLocalEventsStream(req, res);
+        return;
+      }
+      // ADR P3: the window delegates credential/settings writes here so the
+      // daemon stays the only mia-cloud.json writer while it is enabled.
+      if (url.pathname === "/api/cloud-settings" && req.method === "POST") {
+        if (typeof writeCloudSettings !== "function") {
+          writeJson(res, 501, { error: "cloud settings writes not supported" });
+          return;
+        }
+        const body = await readBody(req);
+        const patch = body && typeof body.patch === "object" && body.patch !== null ? body.patch : {};
+        const settings = await writeCloudSettings(patch);
+        writeJson(res, 200, { settings });
         return;
       }
       if (url.pathname.startsWith("/api/tasks")) {

@@ -129,3 +129,101 @@ test("parseSseBuffer handles split chunks, batches, and malformed payloads", () 
   assert.deepEqual(seen, ["a", "b"]);
   assert.equal(rest, "");
 });
+
+test("POST /api/cloud-settings applies the patch through the injected writer", async (t) => {
+  const port = await freePort();
+  const writes = [];
+  const { server } = setupServer(t);
+  // setupServer doesn't pass writeCloudSettings; exercise via a second server.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-cloud-settings-route-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const routed = require("../src/main/daemon/control-server.js").createDaemonControlServer({
+    isDaemonProcess: true,
+    serviceLabel: "ai.mia.daemon",
+    pid: () => 1,
+    uptime: () => 1,
+    networkInterfaces: () => ({}),
+    daemonToken: () => "secret-token",
+    initializeRuntime: () => {},
+    choosePort: async (preferred) => preferred,
+    getDaemonSettings: () => ({ enabled: true, host: "127.0.0.1", port: 0 }),
+    writeDaemonSettings: (s) => s,
+    normalizeDaemonHost: (host) => String(host || "127.0.0.1"),
+    normalizeDaemonPort: (p) => Number(p) || 27861,
+    runtimePaths: () => ({ home: path.join(dir, "home") }),
+    remoteRouter: () => null,
+    initSchedulerSubsystem: () => {},
+    tasksRoutes: () => ({ handle: async () => false, handleEventsStream: () => {} }),
+    writeCloudSettings: (patch) => { writes.push(patch); return { ...patch, ok: true }; },
+    fetchImpl: fetch,
+    timeoutSignal: (timeoutMs) => AbortSignal.timeout(timeoutMs)
+  });
+  const status = await routed.start({ host: "127.0.0.1", port });
+  t.after(() => routed.stop());
+  server.stop();
+
+  const unauthorized = await fetch(`${status.baseUrl}/api/cloud-settings`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ patch: { token: "tok" } })
+  });
+  assert.equal(unauthorized.status, 401);
+  assert.equal(writes.length, 0);
+
+  const authorized = await fetch(`${status.baseUrl}/api/cloud-settings`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer secret-token" },
+    body: JSON.stringify({ patch: { token: "tok", enabled: true } })
+  });
+  const data = await authorized.json();
+  assert.equal(authorized.status, 200);
+  assert.deepEqual(writes, [{ token: "tok", enabled: true }]);
+  assert.equal(data.settings.ok, true);
+});
+
+test("POST /api/cloud-settings awaits an async writer and surfaces its failure", async (t) => {
+  const port = await freePort();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-cloud-settings-async-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const routed = require("../src/main/daemon/control-server.js").createDaemonControlServer({
+    isDaemonProcess: true,
+    serviceLabel: "ai.mia.daemon",
+    pid: () => 1,
+    uptime: () => 1,
+    networkInterfaces: () => ({}),
+    daemonToken: () => "secret-token",
+    initializeRuntime: () => {},
+    choosePort: async (preferred) => preferred,
+    getDaemonSettings: () => ({ enabled: true, host: "127.0.0.1", port: 0 }),
+    writeDaemonSettings: (s) => s,
+    normalizeDaemonHost: (host) => String(host || "127.0.0.1"),
+    normalizeDaemonPort: (p) => Number(p) || 27861,
+    runtimePaths: () => ({ home: path.join(dir, "home") }),
+    remoteRouter: () => null,
+    initSchedulerSubsystem: () => {},
+    tasksRoutes: () => ({ handle: async () => false, handleEventsStream: () => {} }),
+    writeCloudSettings: async (patch) => {
+      if (patch.boom) throw new Error("disk full");
+      return { applied: patch };
+    },
+    fetchImpl: fetch,
+    timeoutSignal: (timeoutMs) => AbortSignal.timeout(timeoutMs)
+  });
+  const status = await routed.start({ host: "127.0.0.1", port });
+  t.after(() => routed.stop());
+
+  const ok = await fetch(`${status.baseUrl}/api/cloud-settings`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer secret-token" },
+    body: JSON.stringify({ patch: { token: "tok" } })
+  });
+  assert.equal((await ok.json()).settings.applied.token, "tok");
+
+  const failed = await fetch(`${status.baseUrl}/api/cloud-settings`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer secret-token" },
+    body: JSON.stringify({ patch: { boom: true } })
+  });
+  assert.equal(failed.status, 500);
+  assert.match((await failed.json()).error, /disk full/);
+});
