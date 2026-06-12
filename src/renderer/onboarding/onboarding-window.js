@@ -59,27 +59,38 @@
   }
 
   function loginHtml() {
-    const qr = loginFlow?.qrCodeUrl
-      ? `<div class="onb-qr-card">
-          <img class="onb-qr-img" src="${esc(loginFlow.qrCodeUrl)}" alt="微信登录二维码" draggable="false">
-        </div>
-        <p class="onb-qr-note">用微信扫码，并在微信里继续授权登录。</p>`
-      : "";
+    if (loginFlow?.qrCodeUrl) {
+      const qrHint = hint && !/二维码已生成|等待微信扫码/.test(hint)
+        ? `<p class="onb-hint onb-qr-hint" data-hint>${esc(hint)}</p>`
+        : "";
+      return `
+        <section class="onb-wechat-login" data-login>
+          <header class="onb-wechat-head">
+            <div class="onb-wechat-title">${wechatIconSvg()}<h1>微信登录</h1></div>
+            <p>请使用微信扫描二维码登录</p>
+          </header>
+          <div class="onb-qr-card">
+            <img class="onb-qr-img" src="${esc(loginFlow.qrCodeUrl)}" alt="微信登录二维码" draggable="false">
+          </div>
+          <p class="onb-qr-note">使用微信扫一扫登录</p>
+          ${qrHint}
+        </section>
+      `;
+    }
     return `
       <p class="onb-step">第 1 / 2 步 · 登录</p>
       ${dotsHtml("login")}
-      <div class="onb-hero${loginFlow?.qrCodeUrl ? " compact" : ""}">
+      <div class="onb-hero">
         <img class="onb-logo" src="../assets/mia-logo.png" alt="Mia" draggable="false">
         <h1 class="onb-title">欢迎使用 Mia</h1>
         <p class="onb-tagline">一个聊天界面，指挥你所有的 AI Agent。先用微信登录，把对话同步到云端。</p>
       </div>
       <section class="onb-form" data-login>
-        ${qr}
         <p class="onb-hint" data-hint>${esc(hint)}</p>
       </section>
       <div class="onb-spacer"></div>
       <div class="onb-footer">
-        <button class="onb-cta wechat-login-cta" type="button" data-action="login"${loginFlow?.qrCodeUrl ? " disabled" : ""}>${wechatIconSvg()}<span>${loginFlow?.qrCodeUrl ? "等待扫码" : "微信登录"}</span></button>
+        <button class="onb-cta wechat-login-cta" type="button" data-action="login">${wechatIconSvg()}<span>微信登录</span></button>
       </div>
     `;
   }

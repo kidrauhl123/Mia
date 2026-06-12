@@ -82,7 +82,7 @@ function normalizeWechatOAuthProfile(userInfo = {}, tokenData = {}) {
   const openid = trim(userInfo.openid || tokenData.openid);
   if (!openid) throw new Error("微信网页授权结果缺少 openid。");
   if (Number(tokenData.is_snapshotuser || 0) === 1) {
-    throw new Error("微信返回了快照页匿名用户，未提供真实昵称和头像。请从 Mia 二维码打开的说明页继续授权后重试。");
+    throw new Error("微信返回了快照页匿名用户，未提供真实昵称和头像。请从 Mia 二维码重新扫码授权。");
   }
   const nickname = trim(userInfo.nickname);
   const avatarUrl = trim(userInfo.headimgurl);

@@ -34,6 +34,7 @@ const { createRuntimeInitializerService } = require("./main/runtime-initializer-
 const { createRuntimeLifecycleService } = require("./main/runtime-lifecycle-service.js");
 const { createStartupBackgroundService } = require("./main/startup-background-service.js");
 const { createStartupTimer } = require("./main/startup-timing.js");
+const { onboardingWindowBounds } = require("./main/onboarding-window-bounds.js");
 const { createChatAttachments } = require("./main/chat-attachments.js");
 const { createBotManifest } = require("./main/bot-manifest.js");
 const { createRuntimePaths } = require("./main/runtime-paths.js");
@@ -1743,20 +1744,18 @@ function createWindow() {
   // opens instantly (no startup beachball) and is a clean native window.
   const onboarding = !Boolean(cloudStatus(false) && cloudStatus(false).enabled);
   if (onboarding) {
-    const onboardingWidth = 460;
-    const onboardingHeight = 680;
     const workArea = screen.getPrimaryDisplay().workArea;
     initialWindow.bounds = {
       ...initialWindow.bounds,
-      x: Math.round(workArea.x + (workArea.width - onboardingWidth) / 2),
-      y: Math.round(workArea.y + (workArea.height - onboardingHeight) / 2),
-      width: onboardingWidth,
-      height: onboardingHeight
+      x: Math.round(workArea.x + (workArea.width - onboardingWindowBounds.width) / 2),
+      y: Math.round(workArea.y + (workArea.height - onboardingWindowBounds.height) / 2),
+      width: onboardingWindowBounds.width,
+      height: onboardingWindowBounds.height
     };
     initialWindow.maximized = false;
   }
-  const minWindowWidth = onboarding ? 400 : 500;
-  const minWindowHeight = onboarding ? 560 : 560;
+  const minWindowWidth = onboarding ? onboardingWindowBounds.minWidth : 500;
+  const minWindowHeight = onboarding ? onboardingWindowBounds.minHeight : 560;
   const windowChromeOptions = process.platform === "darwin"
     ? { titleBarStyle: "hidden" }
     : process.platform === "win32"
@@ -1846,8 +1845,8 @@ function showSignedOutOnboardingWindow(win) {
   if (process.platform === "darwin" && typeof target.setWindowButtonVisibility === "function") {
     target.setWindowButtonVisibility(true);
   }
-  target.setMinimumSize(400, 560);
-  target.setSize(460, 680);
+  target.setMinimumSize(onboardingWindowBounds.minWidth, onboardingWindowBounds.minHeight);
+  target.setSize(onboardingWindowBounds.width, onboardingWindowBounds.height);
   target.center();
   target.miaSkipAutomaticBackgroundStartup = true;
   target.miaSignedOutOnboarding = true;

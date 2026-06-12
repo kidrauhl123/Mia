@@ -140,13 +140,13 @@ test("custom select menu opens away from the viewport edge", () => {
   assert.equal(menu.style.maxHeight, "300px");
 });
 
-test("onboarding wizard init wires the async agent-scan deps", () => {
+test("main renderer does not initialize the removed onboarding wizard", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const indexHtml = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
 
-  // The prepare step's progress loading page depends on these being passed in;
-  // omitting them silently skips the scan (startScan awaits undefined).
-  assert.match(appSource, /scanAgents:\s*\(\)\s*=>\s*window\.mia\.scanAgents/);
-  assert.match(appSource, /onScanProgress:\s*\(cb\)\s*=>\s*window\.mia\.onAgentScanProgress/);
+  assert.doesNotMatch(indexHtml, /onboarding-wizard\.js/);
+  assert.doesNotMatch(appSource, /miaOnboardingWizard/);
+  assert.match(appSource, /requestSignedOutOnboardingWindow/);
 });
 
 test("standalone onboarding completion marks onboarding done in the promoted main app", () => {
@@ -658,12 +658,17 @@ test("main window accepts the first mouse click after regaining focus", () => {
   const preloadSource = fs.readFileSync(path.join(root, "src/preload.js"), "utf8");
   const ipcSource = fs.readFileSync(path.join(root, "src/shared/ipc-channels.js"), "utf8");
   const windowIpcSource = fs.readFileSync(path.join(root, "src/main/ipc/window-ipc.js"), "utf8");
+  const onboardingBoundsSource = fs.readFileSync(path.join(root, "src/main/onboarding-window-bounds.js"), "utf8");
 
   assert.match(mainSource, /acceptFirstMouse:\s*true/);
   assert.match(mainSource, /function shouldOpenAgentSetupWindow/);
   assert.doesNotMatch(mainSource, /fellows\.length === 0/);
-  assert.match(mainSource, /const onboardingWidth = 460;/);
-  assert.match(mainSource, /const onboardingHeight = 680;/);
+  assert.match(onboardingBoundsSource, /width:\s*400/);
+  assert.match(onboardingBoundsSource, /height:\s*560/);
+  assert.match(onboardingBoundsSource, /minWidth:\s*360/);
+  assert.match(onboardingBoundsSource, /minHeight:\s*520/);
+  assert.match(mainSource, /onboardingWindowBounds\.width/);
+  assert.match(mainSource, /onboardingWindowBounds\.height/);
   // Signed-out users get a dedicated lightweight onboarding window (separate
   // HTML), not the full app — and finishing promotes that window to the app.
   assert.match(mainSource, /onboarding[\s\S]{0,40}onboarding\.html/);
@@ -674,8 +679,8 @@ test("main window accepts the first mouse click after regaining focus", () => {
   assert.match(mainSource, /if\s*\(!cloudStatus\(false\)\.enabled\)\s*\{[\s\S]*?showSignedOutOnboardingWindow\(win\)/);
   assert.match(ipcSource, /OnboardingComplete:\s*"onboarding:complete"/);
   assert.match(preloadSource, /onboardingComplete:\s*\(\)\s*=>/);
-  assert.match(mainSource, /const minWindowWidth = onboarding \? 400 : 500;/);
-  assert.match(mainSource, /const minWindowHeight = onboarding \? 560 : 560;/);
+  assert.match(mainSource, /const minWindowWidth = onboarding \? onboardingWindowBounds\.minWidth : 500;/);
+  assert.match(mainSource, /const minWindowHeight = onboarding \? onboardingWindowBounds\.minHeight : 560;/);
   assert.match(mainSource, /getRuntimeStatus\(created,\s*\{\s*scanAgents:\s*false\s*\}\)/);
   assert.match(ipcSource, /WindowShowMain:\s*"window:show-main"/);
   assert.match(ipcSource, /WindowOnboarding:\s*"window:onboarding"/);
@@ -687,7 +692,8 @@ test("main window accepts the first mouse click after regaining focus", () => {
   assert.match(windowIpcSource, /setSize\(1040,\s*700\)/);
   // Compact onboarding window driven from the renderer.
   assert.match(windowIpcSource, /IpcChannel\.WindowOnboarding/);
-  assert.match(windowIpcSource, /setSize\(460,\s*680\)/);
+  assert.match(windowIpcSource, /onboardingWindowBounds\.minWidth/);
+  assert.match(windowIpcSource, /onboardingWindowBounds\.width/);
 });
 
 test("agent setup completion does not force first bot creation", () => {
@@ -704,15 +710,11 @@ test("agent setup completion does not force first bot creation", () => {
 });
 
 test("first-run onboarding cannot enter Mia while an engine install is running", () => {
-  const wizardSource = fs.readFileSync(path.join(root, "src/renderer/onboarding/onboarding-wizard.js"), "utf8");
   const standaloneSource = fs.readFileSync(path.join(root, "src/renderer/onboarding/onboarding-window.js"), "utf8");
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const indexHtml = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
   const standaloneStyles = fs.readFileSync(path.join(root, "src/renderer/onboarding/onboarding.css"), "utf8");
   const appStyles = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
-
-  assert.match(wizardSource, /function isSetupInstallInFlight\(\)/);
-  assert.match(wizardSource, /data-onb-action="finish"[^`]*\$\{isSetupInstallInFlight\(\) \? " disabled" : ""\}/);
-  assert.match(wizardSource, /if\s*\(action === "finish"\)\s*\{[\s\S]*?if\s*\(isSetupInstallInFlight\(\)\)\s*return;[\s\S]*?deps\.finish\?\.\(\);[\s\S]*?\}/);
 
   assert.match(standaloneSource, /function hasActiveInstall\(\)/);
   assert.match(standaloneSource, /data-action="finish"[^`]*\$\{hasActiveInstall\(\) \? " disabled" : ""\}/);
@@ -721,20 +723,19 @@ test("first-run onboarding cannot enter Mia while an engine install is running",
   assert.match(appSource, /state\.agentSetupInstallInFlight = true;/);
   assert.match(appSource, /state\.agentSetupInstallInFlight = false;/);
   assert.match(appSource, /if\s*\(state\.agentSetupInstallInFlight\)\s*return true;/);
-  assert.match(wizardSource, /wechatIconSvg/);
+  assert.doesNotMatch(indexHtml, /onboarding-wizard\.js/);
+  assert.doesNotMatch(appSource, /miaOnboardingWizard/);
   assert.match(standaloneSource, /wechatIconSvg/);
-  assert.match(wizardSource, /wechat-login-cta/);
   assert.match(standaloneSource, /wechat-login-cta/);
-  assert.match(wizardSource, /action:\s*"start"/);
-  assert.match(wizardSource, /action:\s*"complete"/);
-  assert.match(wizardSource, /onb-login-qr-card/);
   assert.match(standaloneSource, /action:\s*"start"/);
   assert.match(standaloneSource, /action:\s*"complete"/);
   assert.match(standaloneSource, /onb-qr-card/);
   assert.match(standaloneStyles, /--wechat-green:\s*#07c160/);
+  assert.match(standaloneStyles, /\.wechat-login-cta[\s\S]*background:\s*#111114/);
+  assert.match(standaloneStyles, /\.onb-wechat-login/);
   assert.match(standaloneStyles, /\.onb-qr-card/);
-  assert.match(appStyles, /\.setup-cta\.wechat-login-cta[\s\S]*background:\s*#07c160/);
-  assert.match(appStyles, /\.onb-login-qr-card/);
+  assert.doesNotMatch(appStyles, /\.setup-cta\.wechat-login-cta/);
+  assert.doesNotMatch(appStyles, /\.onb-login-qr-card/);
 });
 
 test("chat code blocks use a right-aligned language copy button without code frame borders", () => {

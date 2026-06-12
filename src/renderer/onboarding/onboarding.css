@@ -12,7 +12,6 @@
   --onb-ink-hover: #303137;
   --onb-ok: #1fab5a;
   --wechat-green: #07c160;
-  --wechat-green-hover: #06ad56;
 }
 
 * { box-sizing: border-box; }
@@ -43,7 +42,7 @@ html, body {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
-  padding: 46px 30px 26px;
+  padding: 42px 28px 24px;
 }
 
 .onb-step {
@@ -77,20 +76,6 @@ html, body {
   text-align: center;
   gap: 12px;
   padding: 22px 0 24px;
-}
-
-.onb-hero.compact {
-  gap: 8px;
-  padding: 14px 0 12px;
-}
-
-.onb-hero.compact .onb-logo {
-  width: 58px;
-  height: 58px;
-}
-
-.onb-hero.compact .onb-tagline {
-  display: none;
 }
 
 .onb-logo {
@@ -148,21 +133,62 @@ html, body {
   text-align: center;
 }
 
+.onb-wechat-login {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+  padding: 10px 0 18px;
+  text-align: center;
+  -webkit-app-region: no-drag;
+}
+
+.onb-wechat-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.onb-wechat-title {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.onb-wechat-title h1 {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+.onb-wechat-head p {
+  margin: 0;
+  color: var(--onb-muted);
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+
 .onb-qr-card {
   align-self: center;
   display: grid;
   place-items: center;
-  width: 252px;
-  height: 252px;
+  width: 244px;
+  height: 244px;
   padding: 12px;
-  border-radius: 18px;
+  border: 1px solid var(--onb-line);
+  border-radius: 16px;
   background: #fff;
-  box-shadow: 0 16px 42px rgba(26, 28, 36, 0.12);
+  box-shadow: none;
 }
 
 .onb-qr-img {
-  width: 228px;
-  height: 228px;
+  width: 220px;
+  height: 220px;
   object-fit: contain;
 }
 
@@ -172,6 +198,11 @@ html, body {
   font-size: 12.5px;
   line-height: 1.5;
   text-align: center;
+}
+
+.onb-qr-hint {
+  max-width: 300px;
+  color: #d92d20;
 }
 
 .onb-spacer { flex: 1; }
@@ -184,7 +215,8 @@ html, body {
 }
 
 .onb-cta {
-  width: 100%;
+  align-self: center;
+  width: min(320px, calc(100% - 18px));
   min-height: 46px;
   border: 0;
   border-radius: 12px;
@@ -205,10 +237,10 @@ html, body {
   align-items: center;
   justify-content: center;
   gap: 9px;
-  background: var(--wechat-green);
+  background: #111114;
 }
 
-.wechat-login-cta:hover { background: var(--wechat-green-hover); }
+.wechat-login-cta:hover { background: #2b2b30; }
 
 .wechat-login-icon {
   width: 23px;
@@ -218,7 +250,17 @@ html, body {
 }
 
 .wechat-login-icon .wechat-bubble { fill: currentColor; }
-.wechat-login-icon .wechat-eye { fill: var(--wechat-green); }
+.wechat-login-icon .wechat-eye { fill: #111114; }
+
+.onb-wechat-title .wechat-login-icon {
+  width: 32px;
+  height: 28px;
+  color: var(--wechat-green);
+}
+
+.onb-wechat-title .wechat-login-icon .wechat-eye {
+  fill: #fff;
+}
 
 .onb-link {
   align-self: center;

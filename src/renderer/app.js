@@ -60,20 +60,6 @@ if (new URLSearchParams(window.location.search || "").get("onboarding") === "com
 if (window.miaSetupGuide && window.miaSetupGuide.initSetupGuide) {
   window.miaSetupGuide.initSetupGuide({ state, escapeHtml: window.miaMarkdown.escapeHtml });
 }
-if (window.miaOnboardingWizard && window.miaOnboardingWizard.initOnboardingWizard) {
-  window.miaOnboardingWizard.initOnboardingWizard({
-    state,
-    escapeHtml: window.miaMarkdown.escapeHtml,
-    cloudLogin: (payload) => window.mia.cloudLogin(payload),
-    renderEngineList: () => window.miaSetupGuide?.renderEngineList?.() || "",
-    setStep: (step) => { advanceOnboarding(step); renderView(); },
-    finish: () => { completeAgentSetup("", { skipped: false }).finally(() => renderView()); },
-    rerender: () => renderView(),
-    scanAgents: () => window.mia.scanAgents?.(),
-    onScanProgress: (cb) => window.mia.onAgentScanProgress?.(cb),
-    initLottie: (root) => window.miaLottieIcons?.init?.(root),
-  });
-}
 window.miaStartupOverlay?.init?.({ firstRun: agentSetupLaunch });
 
 const els = {
@@ -1472,17 +1458,7 @@ function setOnboardingWindow(active) {
   else if (wasOnboarding === true) window.mia.window?.showMain?.();
 }
 
-// First-run onboarding wizard takes over the chat area (compact window) until
-// the user finishes it. Returns true when it rendered, so callers short-circuit.
-function renderOnboardingWizardIfActive() {
-  if (!window.miaOnboardingWizard?.isActive?.()) return false;
-  setOnboardingWindow(true);
-  window.miaOnboardingWizard.render(els.chat);
-  return true;
-}
-
 function render() {
-  if (renderOnboardingWizardIfActive()) return;
   const runtime = state.runtime;
   if (!runtime) {
     if (window.miaSetupGuide?.shouldShowSetupGuide?.({ messages: [] })) {
@@ -2505,7 +2481,6 @@ function renderNoAgentGuide() {
 }
 
 function renderChat() {
-  if (renderOnboardingWizardIfActive()) return;
   const activeConversationId = window.miaSocial?.getActiveConversationId?.();
   let onboardingWindow = false;
   if (activeConversationId) {

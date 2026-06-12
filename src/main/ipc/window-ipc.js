@@ -1,5 +1,6 @@
 const { BrowserWindow, Menu } = require("electron");
 const { IpcChannel } = require("../../shared/ipc-channels");
+const { onboardingWindowBounds } = require("../onboarding-window-bounds.js");
 
 function windowState(w) {
   if (!w) return { focused: true, fullscreen: false, maximized: false };
@@ -61,8 +62,8 @@ function registerWindowIpc({ ipcMain, startupTimer, runtimeLifecycle }) {
   ipcMain.handle(IpcChannel.WindowOnboarding, (event) => {
     const w = BrowserWindow.fromWebContents(event.sender);
     if (!w || w.isFullScreen()) return;
-    w.setMinimumSize(400, 560);
-    w.setSize(460, 680);
+    w.setMinimumSize(onboardingWindowBounds.minWidth, onboardingWindowBounds.minHeight);
+    w.setSize(onboardingWindowBounds.width, onboardingWindowBounds.height);
     w.center();
     // The onboarding view has no custom topbar controls, so it must read as a
     // real native window: white base (no grey band) + native traffic lights so
