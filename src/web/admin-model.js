@@ -16,7 +16,8 @@ const state = {
   activePage: "overview",
   status: null,
   usage: null,
-  selectedUser: null
+  selectedUser: null,
+  inlineCreditUserId: ""
 };
 
 const els = {
@@ -289,6 +290,26 @@ function userCreditPayload(query, amountUsd) {
     : { account: value, amountUsd, reason: "admin_panel" };
 }
 
+function balanceCell(user = {}, balance = {}) {
+  const userId = String(user.id || "").trim();
+  const balanceText = formatUsdFromMicro(balance.balanceMicrousd);
+  if (!userId) return balanceText;
+  const active = state.inlineCreditUserId === userId;
+  return `
+    <div class="balance-cell">
+      <span>${balanceText}</span>
+      <button class="row-credit-button" type="button" data-credit-open="${escapeHtml(userId)}" aria-label="给 ${escapeHtml(userName(user))} 发放余额">+</button>
+    </div>
+    ${active ? `
+      <form class="row-credit-form" data-credit-form="${escapeHtml(userId)}">
+        <input data-credit-amount="${escapeHtml(userId)}" type="number" min="0" step="0.01" inputmode="decimal" placeholder="USD" autocomplete="off">
+        <button class="row-credit-confirm" type="submit">确认</button>
+        <button class="row-credit-cancel" type="button" data-credit-cancel="${escapeHtml(userId)}">取消</button>
+      </form>
+    ` : ""}
+  `;
+}
+
 function usersTableRows(users, compact = false) {
   if (!users.length) {
     return `<tr><td colspan="${compact ? 4 : 6}">暂无用户用量。</td></tr>`;
@@ -301,7 +322,7 @@ function usersTableRows(users, compact = false) {
       return `
         <tr>
           <td><strong>${escapeHtml(userName(user))}</strong><div class="muted">${escapeHtml(userMeta(user))}</div></td>
-          <td>${formatUsdFromMicro(balance.balanceMicrousd)}</td>
+          <td>${balanceCell(user, balance)}</td>
           <td>${formatNumber(usage.requestCount)}</td>
           <td>${formatUsdFromMicro(usage.chargeMicrousd)}</td>
         </tr>
@@ -310,7 +331,7 @@ function usersTableRows(users, compact = false) {
     return `
       <tr>
         <td><strong>${escapeHtml(userName(user))}</strong><div class="muted">${escapeHtml(userMeta(user))}</div></td>
-        <td>${formatUsdFromMicro(balance.balanceMicrousd)}</td>
+        <td>${balanceCell(user, balance)}</td>
         <td>${formatNumber(usage.requestCount)}<div class="muted">失败 ${formatNumber(usage.failedCount)}</div></td>
         <td>${formatNumber(usage.totalTokens)}<div class="muted">${formatNumber(usage.promptTokens)} / ${formatNumber(usage.completionTokens)}</div></td>
         <td>${formatUsdFromMicro(usage.chargeMicrousd)}</td>
@@ -530,6 +551,61 @@ async function grantCredit() {
   }
 }
 
+function focusInlineCreditInput(userId) {
+  const input = Array.from(document.querySelectorAll("[data-credit-amount]"))
+    .find((node) => node.dataset.creditAmount === userId);
+  if (input) input.focus();
+}
+
+function rerenderUsageTables() {
+  if (state.usage) renderUsageSummary(state.usage);
+}
+
+async function grantInlineCredit(userId, amountUsd) {
+  if (!userId) throw new Error("缺少用户 UID。");
+  if (!Number.isFinite(amountUsd) || amountUsd <= 0) throw new Error("请填写正数充值金额。");
+  setBusy(true);
+  try {
+    const data = await requestJson("/api/admin/model-credits/grant", {
+      method: "POST",
+      body: JSON.stringify({ userId, amountUsd, reason: "admin_panel" })
+    });
+    state.inlineCreditUserId = "";
+    writeOutput(JSON.stringify(data, null, 2));
+    await loadUsageSummary({ quiet: true });
+  } finally {
+    setBusy(false);
+  }
+}
+
+function handleCreditTableClick(event) {
+  const open = event.target.closest("[data-credit-open]");
+  if (open) {
+    state.inlineCreditUserId = String(open.dataset.creditOpen || "");
+    rerenderUsageTables();
+    focusInlineCreditInput(state.inlineCreditUserId);
+    return;
+  }
+  const cancel = event.target.closest("[data-credit-cancel]");
+  if (cancel) {
+    state.inlineCreditUserId = "";
+    rerenderUsageTables();
+  }
+}
+
+async function handleCreditTableSubmit(event) {
+  const form = event.target.closest("[data-credit-form]");
+  if (!form) return;
+  event.preventDefault();
+  const userId = String(form.dataset.creditForm || "");
+  const input = form.querySelector("[data-credit-amount]");
+  try {
+    await grantInlineCredit(userId, Number(input?.value));
+  } catch (error) {
+    writeOutput(error.message);
+  }
+}
+
 function initialPage() {
   return window.location.hash.replace(/^#/, "") || "overview";
 }
@@ -550,6 +626,10 @@ els.refreshUsage.addEventListener("click", refreshAll);
 els.clearOutput.addEventListener("click", () => writeOutput("等待操作。"));
 els.logSearch.addEventListener("input", renderLogs);
 els.logStatus.addEventListener("change", renderLogs);
+els.overviewUsersBody.addEventListener("click", handleCreditTableClick);
+els.usageUsersBody.addEventListener("click", handleCreditTableClick);
+els.overviewUsersBody.addEventListener("submit", handleCreditTableSubmit);
+els.usageUsersBody.addEventListener("submit", handleCreditTableSubmit);
 els.userCreditForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   setBusy(true);
@@ -561,7 +641,7 @@ els.userCreditForm.addEventListener("submit", async (event) => {
     setBusy(false);
   }
 });
-els.grantCredit.addEventListener("click", grantCredit);
+els.grantCredit?.addEventListener("click", grantCredit);
 
 applyProviderPreset();
 setActivePage(initialPage());

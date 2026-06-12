@@ -253,7 +253,7 @@ test("admin model page lets operators edit the public model alias", () => {
   const html = fs.readFileSync(path.join(__dirname, "..", "src/web/admin-model.html"), "utf8");
   const js = fs.readFileSync(path.join(__dirname, "..", "src/web/admin-model.js"), "utf8");
   assert.match(html, /id="publicModelInput"/);
-  assert.match(html, /admin-model\.css\?v=20260612-oneapi-console/);
+  assert.match(html, /admin-model\.css\?v=20260612-row-credit/);
   assert.match(html, /class="console-sidebar"/);
   assert.match(html, /data-admin-nav="overview"/);
   assert.match(html, /data-admin-nav="logs"/);
@@ -261,7 +261,10 @@ test("admin model page lets operators edit the public model alias", () => {
   assert.match(html, /id="usageLogsBody"/);
   assert.match(html, /id="usageUsersBody"/);
   assert.match(html, /id="userCreditForm"/);
+  assert.match(html, /user-filter-form/);
   assert.match(html, /搜索 UID \/ username/);
+  assert.doesNotMatch(html, /id="creditAmountInput"/);
+  assert.doesNotMatch(html, /id="grantCreditButton"/);
   assert.match(html, /高级参数/);
   assert.match(html, /id="inputPriceInput"/);
   assert.match(html, /id="outputPriceInput"/);
@@ -277,6 +280,9 @@ test("admin model page lets operators edit the public model alias", () => {
   assert.match(js, /UID \$\{user\.id\}/);
   assert.match(js, /userLookupParam/);
   assert.match(js, /userId/);
+  assert.match(js, /row-credit-button/);
+  assert.match(js, /data-credit-open/);
+  assert.match(js, /grantInlineCredit/);
 });
 
 test("authenticated users can list platform model aliases without provider secrets", async () => {

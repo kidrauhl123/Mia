@@ -7,8 +7,8 @@
     <title>Mia 管理后台</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="/styles.css">
-    <link rel="stylesheet" href="/admin-model.css?v=20260612-oneapi-console">
-    <script defer src="/admin-model.js?v=20260612-oneapi-console"></script>
+    <link rel="stylesheet" href="/admin-model.css?v=20260612-row-credit">
+    <script defer src="/admin-model.js?v=20260612-row-credit"></script>
   </head>
   <body class="admin-body admin-model-body">
     <div class="console-shell">
@@ -127,11 +127,9 @@
               </div>
             </div>
 
-            <form id="userCreditForm" class="toolbar-form">
+            <form id="userCreditForm" class="toolbar-form user-filter-form">
               <input id="userAccountInput" autocomplete="off" spellcheck="false" placeholder="搜索 UID / username">
-              <input id="creditAmountInput" type="number" min="0" step="0.01" inputmode="decimal" placeholder="充值 USD">
               <button id="lookupUserButton" class="admin-secondary" type="submit">查询</button>
-              <button id="grantCreditButton" class="admin-primary" type="button">发放余额</button>
             </form>
 
             <div id="selectedUserUsage" class="admin-user-detail" hidden></div>
