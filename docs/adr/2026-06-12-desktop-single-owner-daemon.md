@@ -1,7 +1,7 @@
 # ADR: 桌面端唯一大脑 —— daemon 拥有云会话与执行权，窗口是纯视图
 
 **Date:** 2026-06-12
-**Status:** Accepted
+**Status:** Accepted; P0–P5 已于 2026-06-12 落地（P4 取实施备注所述细化）
 **Related:** [2026-05-22 Conversation state canonical owner](./2026-05-22-conversation-state-canonical-owner.md)
 
 ## Context

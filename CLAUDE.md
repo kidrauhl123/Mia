@@ -108,6 +108,7 @@ mia 是 Electron app，主进程、渲染进程、preload、cloud / web / mobile
 - main 不写 DOM 逻辑；窗口、文件、进程、runtime、IPC 编排留在 main 或 `src/main/<feature>/`。
 - 跨进程通信必须走明确 IPC channel；新增 channel 要集中登记或收敛到所属 feature 的常量文件，不要在调用点散落裸字符串。
 - 同一个聊天 / 任务 / agent runtime 的主状态只能有一个 canonical owner。Web、mobile、desktop 可以是壳或辅助视图，不要各自重写一套会话状态机。
+- **桌面端唯一大脑是 daemon**：启用时云 WebSocket、bot 执行、`mia-cloud.json` 写权归 daemon；窗口是纯视图，经 127.0.0.1 控制服务器对接。窗口接管的两种情形：daemon 被用户关闭（整体接管），或 daemon 探活失败/不可达（执行与凭据写的兜底）——任一时刻 owner 只有一个。例外：`conversation-cache.db` 的低频 REST 镜像写（social bootstrap 快照）留在窗口，见 ADR P4 实施备注。给窗口进程新增其他直连云或直写共享文件的代码一律拒绝。所有权矩阵见 `docs/adr/2026-06-12-desktop-single-owner-daemon.md`。
 
 ### 常量 / 状态 / schema
 
