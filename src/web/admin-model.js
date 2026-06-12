@@ -269,7 +269,24 @@ function userName(user = {}) {
 }
 
 function userMeta(user = {}) {
-  return user.account || user.email || user.id || "-";
+  return user.id ? `UID ${user.id}` : (user.username || user.email || "-");
+}
+
+function userSearchText(user = {}) {
+  return [user.id, user.displayName, user.username, user.account, user.email].filter(Boolean).join(" ");
+}
+
+function userLookupParam(query) {
+  const value = String(query || "").trim();
+  const key = /^\d+$/.test(value) ? "userId" : "account";
+  return `${key}=${encodeURIComponent(value)}`;
+}
+
+function userCreditPayload(query, amountUsd) {
+  const value = String(query || "").trim();
+  return /^\d+$/.test(value)
+    ? { userId: value, amountUsd, reason: "admin_panel" }
+    : { account: value, amountUsd, reason: "admin_panel" };
 }
 
 function usersTableRows(users, compact = false) {
@@ -323,8 +340,7 @@ function filteredLogs() {
       log.provider,
       log.status,
       log.error,
-      userName(user),
-      userMeta(user)
+      userSearchText(user)
     ].join(" ").toLowerCase();
     return haystack.includes(needle);
   });
@@ -431,8 +447,8 @@ function renderUserDetail(data) {
 
 async function lookupUser({ quiet = false } = {}) {
   const account = els.userAccount.value.trim();
-  if (!account) throw new Error("请填写用户账号。");
-  const data = await requestJson(`/api/admin/model-credits?account=${encodeURIComponent(account)}`);
+  if (!account) throw new Error("请填写 UID 或用户账号。");
+  const data = await requestJson(`/api/admin/model-credits?${userLookupParam(account)}`);
   renderUserDetail(data);
   if (!quiet) writeOutput(JSON.stringify(data, null, 2));
   return data;
@@ -498,11 +514,11 @@ async function grantCredit() {
   try {
     const account = els.userAccount.value.trim();
     const amountUsd = Number(els.creditAmount.value);
-    if (!account) throw new Error("请填写用户账号。");
+    if (!account) throw new Error("请填写 UID 或用户账号。");
     if (!Number.isFinite(amountUsd) || amountUsd <= 0) throw new Error("请填写正数充值金额。");
     const data = await requestJson("/api/admin/model-credits/grant", {
       method: "POST",
-      body: JSON.stringify({ account, amountUsd, reason: "admin_panel" })
+      body: JSON.stringify(userCreditPayload(account, amountUsd))
     });
     writeOutput(JSON.stringify(data, null, 2));
     await lookupUser({ quiet: true });

@@ -261,6 +261,7 @@ test("admin model page lets operators edit the public model alias", () => {
   assert.match(html, /id="usageLogsBody"/);
   assert.match(html, /id="usageUsersBody"/);
   assert.match(html, /id="userCreditForm"/);
+  assert.match(html, /搜索 UID \/ username/);
   assert.match(html, /高级参数/);
   assert.match(html, /id="inputPriceInput"/);
   assert.match(html, /id="outputPriceInput"/);
@@ -273,6 +274,9 @@ test("admin model page lets operators edit the public model alias", () => {
   assert.match(js, /model-usage-summary/);
   assert.match(js, /data-admin-nav/);
   assert.match(js, /renderLogs/);
+  assert.match(js, /UID \$\{user\.id\}/);
+  assert.match(js, /userLookupParam/);
+  assert.match(js, /userId/);
 });
 
 test("authenticated users can list platform model aliases without provider secrets", async () => {
