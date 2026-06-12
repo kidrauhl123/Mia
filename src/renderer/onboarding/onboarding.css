@@ -42,7 +42,9 @@ html, body {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
+  height: 100vh;
   padding: 36px 28px 22px;
+  overflow: hidden;
 }
 
 .onb-step {
@@ -302,6 +304,59 @@ html, body {
 }
 
 .onb-link:hover { color: var(--onb-text); }
+
+/* Done state must fit the compact 400x520 onboarding window without scrolling. */
+.onb[data-step="done"] {
+  padding: 30px 28px 18px;
+}
+
+.onb[data-step="done"] .onb-dots {
+  margin-top: 7px;
+}
+
+.onb[data-step="done"] .onb-hero {
+  gap: 8px;
+  padding: 18px 0 18px;
+}
+
+.onb[data-step="done"] .onb-title {
+  font-size: 20px;
+}
+
+.onb[data-step="done"] .onb-tagline {
+  max-width: 310px;
+  font-size: 12.5px;
+  line-height: 1.42;
+}
+
+.onb[data-step="done"] .onb-list {
+  gap: 8px;
+  margin-top: 0;
+}
+
+.onb[data-step="done"] .onb-row {
+  min-height: 50px;
+  padding: 7px 16px;
+  border-radius: 14px;
+}
+
+.onb[data-step="done"] .onb-row-icon {
+  width: 34px;
+  height: 34px;
+}
+
+.onb[data-step="done"] .onb-row-icon img {
+  width: 28px;
+  height: 28px;
+}
+
+.onb[data-step="done"] .onb-row-name {
+  font-size: 13px;
+}
+
+.onb[data-step="done"] .onb-cta {
+  min-height: 44px;
+}
 
 /* Scan / loading */
 .onb-bar {

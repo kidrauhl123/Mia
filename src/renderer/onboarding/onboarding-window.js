@@ -192,7 +192,7 @@
       ${dotsHtml("prepare")}
       <div class="onb-hero">
         <h1 class="onb-title">本机 Agent</h1>
-        <p class="onb-tagline">Mia 复用你已装好的 Agent，用自己的配置和记忆。没装的可以在这里装。</p>
+        <p class="onb-tagline">Mia会复用本机现有的Agent，独立维护一套配置和记忆。</p>
       </div>
       <div class="onb-list">${doneRowsHtml()}</div>
       <div class="onb-spacer"></div>
@@ -204,6 +204,7 @@
 
   function render() {
     if (!root) return;
+    root.dataset.step = step;
     root.innerHTML = step === "login" ? loginHtml() : step === "scan" ? scanHtml() : doneHtml();
     syncNativeControls();
     bind();
