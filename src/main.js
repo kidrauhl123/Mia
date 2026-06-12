@@ -35,6 +35,7 @@ const { createRuntimeLifecycleService } = require("./main/runtime-lifecycle-serv
 const { createStartupBackgroundService } = require("./main/startup-background-service.js");
 const { createStartupTimer } = require("./main/startup-timing.js");
 const { onboardingWindowBounds } = require("./main/onboarding-window-bounds.js");
+const { setMacNativeControlsVisible } = require("./main/mac-window-controls.js");
 const { createChatAttachments } = require("./main/chat-attachments.js");
 const { createBotManifest } = require("./main/bot-manifest.js");
 const { createRuntimePaths } = require("./main/runtime-paths.js");
@@ -1790,9 +1791,7 @@ function createWindow() {
   }
   win.miaSkipAutomaticBackgroundStartup = onboarding;
   win.miaSignedOutOnboarding = onboarding;
-  if (process.platform === "darwin" && typeof win.setWindowButtonVisibility === "function") {
-    win.setWindowButtonVisibility(onboarding);
-  }
+  setMacNativeControlsVisible(win, onboarding);
   if (initialWindow.maximized) win.maximize();
   if (!onboarding) windowStateManager.attachWindowStatePersistence(win);
   const sendWindowEvent = (channel, payload) => {
@@ -1842,9 +1841,7 @@ function showSignedOutOnboardingWindow(win) {
     target.unmaximize();
   }
   if (typeof target.setBackgroundColor === "function") target.setBackgroundColor("#ffffff");
-  if (process.platform === "darwin" && typeof target.setWindowButtonVisibility === "function") {
-    target.setWindowButtonVisibility(true);
-  }
+  setMacNativeControlsVisible(target, true);
   target.setMinimumSize(onboardingWindowBounds.minWidth, onboardingWindowBounds.minHeight);
   target.setSize(onboardingWindowBounds.width, onboardingWindowBounds.height);
   target.center();
@@ -1860,9 +1857,7 @@ function showSignedOutOnboardingWindow(win) {
 function promoteOnboardingWindowToMain(win) {
   if (!win || win.isDestroyed()) return;
   if (typeof win.setBackgroundColor === "function") win.setBackgroundColor("#f0f0f3");
-  if (process.platform === "darwin" && typeof win.setWindowButtonVisibility === "function") {
-    win.setWindowButtonVisibility(false);
-  }
+  setMacNativeControlsVisible(win, false);
   win.setMinimumSize(500, 560);
   win.setSize(1040, 700);
   win.center();

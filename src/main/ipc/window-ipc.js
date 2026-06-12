@@ -1,6 +1,7 @@
 const { BrowserWindow, Menu } = require("electron");
 const { IpcChannel } = require("../../shared/ipc-channels");
 const { onboardingWindowBounds } = require("../onboarding-window-bounds.js");
+const { setMacNativeControlsVisible } = require("../mac-window-controls.js");
 
 function windowState(w) {
   if (!w) return { focused: true, fullscreen: false, maximized: false };
@@ -52,9 +53,7 @@ function registerWindowIpc({ ipcMain, startupTimer, runtimeLifecycle }) {
     // Main app paints its own grey chrome edge-to-edge and uses custom window
     // controls in the topbar, so hide the native traffic lights again.
     if (typeof w.setBackgroundColor === "function") w.setBackgroundColor("#f0f0f3");
-    if (process.platform === "darwin" && typeof w.setWindowButtonVisibility === "function") {
-      w.setWindowButtonVisibility(false);
-    }
+    setMacNativeControlsVisible(w, false);
   });
   // Onboarding / agent-scan shows in a compact, narrow window. The renderer
   // drives this whenever it enters the setup guide, since the create-time
@@ -69,14 +68,11 @@ function registerWindowIpc({ ipcMain, startupTimer, runtimeLifecycle }) {
     // real native window: white base (no grey band) + native traffic lights so
     // there's a close button. Reverted by window:show-main.
     if (typeof w.setBackgroundColor === "function") w.setBackgroundColor("#ffffff");
-    if (process.platform === "darwin" && typeof w.setWindowButtonVisibility === "function") {
-      w.setWindowButtonVisibility(true);
-    }
+    setMacNativeControlsVisible(w, true);
   });
   ipcMain.handle(IpcChannel.WindowNativeControlsVisible, (event, visible) => {
     const w = BrowserWindow.fromWebContents(event.sender);
-    if (!w || process.platform !== "darwin" || typeof w.setWindowButtonVisibility !== "function") return;
-    w.setWindowButtonVisibility(Boolean(visible));
+    setMacNativeControlsVisible(w, visible);
   });
   ipcMain.handle(IpcChannel.WindowState, (event) => {
     const w = BrowserWindow.fromWebContents(event.sender);

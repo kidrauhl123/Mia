@@ -659,6 +659,7 @@ test("main window accepts the first mouse click after regaining focus", () => {
   const ipcSource = fs.readFileSync(path.join(root, "src/shared/ipc-channels.js"), "utf8");
   const windowIpcSource = fs.readFileSync(path.join(root, "src/main/ipc/window-ipc.js"), "utf8");
   const onboardingBoundsSource = fs.readFileSync(path.join(root, "src/main/onboarding-window-bounds.js"), "utf8");
+  const macWindowControlsSource = fs.readFileSync(path.join(root, "src/main/mac-window-controls.js"), "utf8");
 
   assert.match(mainSource, /acceptFirstMouse:\s*true/);
   assert.match(mainSource, /function shouldOpenAgentSetupWindow/);
@@ -697,7 +698,9 @@ test("main window accepts the first mouse click after regaining focus", () => {
   assert.match(windowIpcSource, /onboardingWindowBounds\.minWidth/);
   assert.match(windowIpcSource, /onboardingWindowBounds\.width/);
   assert.match(windowIpcSource, /IpcChannel\.WindowNativeControlsVisible/);
-  assert.match(windowIpcSource, /setWindowButtonVisibility\(Boolean\(visible\)\)/);
+  assert.match(windowIpcSource, /setMacNativeControlsVisible\(w,\s*visible\)/);
+  assert.match(macWindowControlsSource, /setWindowButtonVisibility\(show\)/);
+  assert.match(macWindowControlsSource, /setWindowButtonPosition\(show \? null : \{ x: -120,\s*y: -120 \}\)/);
 });
 
 test("agent setup completion does not force first bot creation", () => {
