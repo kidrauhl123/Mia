@@ -37,9 +37,9 @@ function setup(t, overrides = {}) {
     },
     platform: "darwin",
     getuid: () => 501,
-    spawnSync: (command, args) => {
+    execFile: (command, args, _options, callback) => {
       calls.push([command, ...args]);
-      return { status: 0, stdout: "", stderr: "" };
+      callback(null, "", "");
     },
     appendLog: (line) => calls.push(["log", line]),
     ...overrides
@@ -63,10 +63,10 @@ test("gateway launch agent plist escapes values and uses Hermes gateway argument
   assert.match(plist, new RegExp(`<string>${escapeRe(path.join(runtime.logsDir, "gateway.log"))}</string>`));
 });
 
-test("startGateway writes plist, bootouts old jobs, then bootstrap and kickstart", (t) => {
+test("startGateway writes plist, bootouts old jobs, then bootstrap and kickstart", async (t) => {
   const { calls, runtime, service } = setup(t);
 
-  service.startGateway();
+  await service.startGateway();
 
   assert.ok(fs.existsSync(runtime.launchAgent));
   assert.deepEqual(calls, [
@@ -94,11 +94,11 @@ test("daemon launch agent uses the app executable and daemon environment", (t) =
   assert.match(plist, new RegExp(`<string>${escapeRe(path.join(runtime.logsDir, "daemon.error.log"))}</string>`));
 });
 
-test("launchd start fails clearly on non-macOS platforms", (t) => {
+test("launchd start fails clearly on non-macOS platforms", async (t) => {
   const { service } = setup(t, { platform: "linux" });
 
-  assert.throws(() => service.startGateway(), /macOS launchd/);
-  assert.throws(() => service.startDaemon(), /macOS launchd/);
-  assert.doesNotThrow(() => service.stopGateway());
-  assert.doesNotThrow(() => service.stopDaemon());
+  await assert.rejects(() => service.startGateway(), /macOS launchd/);
+  await assert.rejects(() => service.startDaemon(), /macOS launchd/);
+  await service.stopGateway();
+  await service.stopDaemon();
 });

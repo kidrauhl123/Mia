@@ -1,6 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
-const { spawnSync: defaultSpawnSync } = require("node:child_process");
+const { execFile: defaultExecFile } = require("node:child_process");
 
 function xmlEscape(value) {
   return String(value)
@@ -78,7 +78,7 @@ function createLaunchdService(deps = {}) {
   const platform = deps.platform || process.platform;
   const env = deps.env || process.env;
   const getuid = typeof deps.getuid === "function" ? deps.getuid : () => (typeof process.getuid === "function" ? process.getuid() : null);
-  const spawnSync = deps.spawnSync || defaultSpawnSync;
+  const execFile = deps.execFile || defaultExecFile;
   const appendLog = typeof deps.appendLog === "function" ? deps.appendLog : () => {};
 
   function launchdDomain() {
@@ -87,18 +87,21 @@ function createLaunchdService(deps = {}) {
     return `gui/${uid}`;
   }
 
+  // Async on purpose: these run in the Electron main process, and a synchronous
+  // launchctl call freezes the whole UI (beachball) for however long launchd
+  // takes — seconds when a job is mid start/stop.
   function runLaunchctl(args, { ignoreFailure = false } = {}) {
-    const result = spawnSync("launchctl", args, { encoding: "utf8" });
-    const output = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
-    if (output) appendLog(`launchctl ${args.join(" ")}: ${output}`);
-    if (result.error) {
-      if (ignoreFailure) return result;
-      throw result.error;
-    }
-    if (result.status !== 0 && !ignoreFailure) {
-      throw new Error(`launchctl ${args.join(" ")} exited with code ${result.status}`);
-    }
-    return result;
+    return new Promise((resolve, reject) => {
+      execFile("launchctl", args, { encoding: "utf8" }, (error, stdout, stderr) => {
+        const output = [stdout, stderr].filter(Boolean).join("\n").trim();
+        if (output) appendLog(`launchctl ${args.join(" ")}: ${output}`);
+        if (error && !ignoreFailure) {
+          reject(new Error(`launchctl ${args.join(" ")} failed: ${error.message}`));
+          return;
+        }
+        resolve({ stdout, stderr, error: error || null });
+      });
+    });
   }
 
   function gatewayEnvironment() {
@@ -186,31 +189,31 @@ function createLaunchdService(deps = {}) {
     return p.daemonLaunchAgent;
   }
 
-  function stopJob({ plistPath, label }) {
+  async function stopJob({ plistPath, label }) {
     if (platform !== "darwin") return;
     const domain = launchdDomain();
     if (!domain) return;
-    runLaunchctl(["bootout", domain, plistPath], { ignoreFailure: true });
-    runLaunchctl(["bootout", `${domain}/${label}`], { ignoreFailure: true });
+    await runLaunchctl(["bootout", domain, plistPath], { ignoreFailure: true });
+    await runLaunchctl(["bootout", `${domain}/${label}`], { ignoreFailure: true });
   }
 
-  function startJob({ plistPath, label, writePlist, errorMessage }) {
+  async function startJob({ plistPath, label, writePlist, errorMessage }) {
     const domain = launchdDomain();
     if (platform !== "darwin" || !domain) {
       throw new Error(errorMessage);
     }
     const plist = writePlist();
-    stopJob({ plistPath, label });
-    runLaunchctl(["bootstrap", domain, plist]);
-    runLaunchctl(["kickstart", "-k", `${domain}/${label}`], { ignoreFailure: true });
+    await stopJob({ plistPath, label });
+    await runLaunchctl(["bootstrap", domain, plist]);
+    await runLaunchctl(["kickstart", "-k", `${domain}/${label}`], { ignoreFailure: true });
   }
 
   function stopGateway() {
-    stopJob({ plistPath: runtimePaths().launchAgent, label: gatewayServiceLabel });
+    return stopJob({ plistPath: runtimePaths().launchAgent, label: gatewayServiceLabel });
   }
 
   function startGateway() {
-    startJob({
+    return startJob({
       plistPath: runtimePaths().launchAgent,
       label: gatewayServiceLabel,
       writePlist: writeGatewayLaunchAgentPlist,
@@ -219,11 +222,11 @@ function createLaunchdService(deps = {}) {
   }
 
   function stopDaemon() {
-    stopJob({ plistPath: runtimePaths().daemonLaunchAgent, label: daemonServiceLabel });
+    return stopJob({ plistPath: runtimePaths().daemonLaunchAgent, label: daemonServiceLabel });
   }
 
   function startDaemon() {
-    startJob({
+    return startJob({
       plistPath: runtimePaths().daemonLaunchAgent,
       label: daemonServiceLabel,
       writePlist: writeDaemonLaunchAgentPlist,

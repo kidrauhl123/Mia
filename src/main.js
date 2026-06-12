@@ -1045,7 +1045,7 @@ async function startDaemonService() {
   const existing = await daemonControlServer.ping(settings, 500, { expectedRuntimeHome });
   if (existing.ok) return { ...getDaemonStatus(), running: true, baseUrl: existing.baseUrl };
   if (process.platform === "darwin") {
-    launchdService.startDaemon();
+    await launchdService.startDaemon();
     for (let i = 0; i < 20; i += 1) {
       const ping = await daemonControlServer.ping(settings, 500, { expectedRuntimeHome });
       if (ping.ok) return { ...getDaemonStatus(), running: true, baseUrl: ping.baseUrl };
@@ -1056,9 +1056,9 @@ async function startDaemonService() {
   return daemonControlServer.start(settings);
 }
 
-function stopDaemonService() {
+async function stopDaemonService() {
   if (process.platform === "darwin" && !IS_DAEMON_PROCESS) {
-    launchdService.stopDaemon();
+    await launchdService.stopDaemon();
   }
   return daemonControlServer.stop();
 }
@@ -1254,7 +1254,7 @@ async function startEngine() {
   };
 
   if (useLaunchd) {
-    launchdService.startGateway();
+    await launchdService.startGateway();
     const ok = await engineHealthService.waitForHealth(engineState.baseUrl, 45000, false);
     engineState.starting = false;
     engineState.running = ok;
@@ -1292,26 +1292,26 @@ async function startEngine() {
   engineState.running = ok;
   if (!ok) {
     engineState.lastError = "Timed out waiting for Hermes API health.";
-    stopEngine();
+    await stopEngine();
     throw new Error(engineState.lastError);
   }
   return getRuntimeStatus();
 }
 
-function stopEngine() {
+async function stopEngine() {
   if (engineProcess) {
     engineProcess.kill("SIGTERM");
     engineProcess = null;
   }
-  launchdService.stopGateway();
+  await launchdService.stopGateway();
   engineState.running = false;
   engineState.starting = false;
   engineState.managedBy = "";
   return getRuntimeStatus();
 }
 
-function uninstallStandaloneEngine() {
-  stopEngine();
+async function uninstallStandaloneEngine() {
+  await stopEngine();
   const p = runtimePaths();
   try { fs.rmSync(p.launchAgent, { force: true }); } catch { /* plist may not exist */ }
   try { fs.rmSync(p.engine, { recursive: true, force: true }); } catch { /* engine dir may not exist */ }
@@ -1396,7 +1396,7 @@ function resolveManagedModelRuntime(config = {}) {
 async function restartEngineIfRunning() {
   const shouldRestart = Boolean(engineProcess || engineState.running || engineState.starting);
   if (!shouldRestart) return getRuntimeStatus();
-  stopEngine();
+  await stopEngine();
   return startEngine();
 }
 
