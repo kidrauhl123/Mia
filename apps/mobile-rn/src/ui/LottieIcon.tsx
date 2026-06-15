@@ -53,6 +53,8 @@ interface Props {
   loop?: boolean;
   /** Frame to rest on while not playing: 0 = first frame, 1 = last. Default 0. */
   idleProgress?: number;
+  /** Playback rate. >1 makes the flourish quicker. Default 1. */
+  speed?: number;
   style?: StyleProp<ViewStyle>;
 }
 
@@ -64,6 +66,7 @@ export default function LottieIcon({
   play,
   loop = false,
   idleProgress = 0,
+  speed = 1,
   style,
 }: Props) {
   const source = SOURCES[name];
@@ -85,7 +88,7 @@ export default function LottieIcon({
   return (
     <View style={box}>
       {play ? (
-        <LottieView key="play" source={source} autoPlay loop={loop} colorFilters={colorFilters} style={inner} />
+        <LottieView key="play" source={source} autoPlay loop={loop} speed={speed} colorFilters={colorFilters} style={inner} />
       ) : (
         <LottieView
           key="idle"

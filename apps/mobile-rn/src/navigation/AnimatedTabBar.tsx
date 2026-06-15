@@ -57,6 +57,7 @@ function TabItem({ routeName, focused, onPress }: { routeName: string; focused: 
           dimmed={!focused}
           play={focused}
           idleProgress={1}
+          speed={3}
         />
       </Animated.View>
       <Text style={[styles.label, { color: tint }]}>{LABELS[routeName] || routeName}</Text>
