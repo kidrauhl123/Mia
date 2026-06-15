@@ -4,18 +4,12 @@
 //   group  → 成员拼贴 mosaic(或群存储头像图)
 import type { AvatarDescriptor, Conversation, Member } from "../api/types";
 import { botDisplayTitle, botId, conversationType } from "./sessionHistory";
-import { resolveAvatarForContact } from "./avatar";
+import { hasAvatarIdentityFields, resolveAvatarForContact } from "./avatar";
 import { resolveContact, ContactKind, botAvatarIdentityId, type ResolveCtx } from "./contact";
 import { resolveGroupMemberTiles } from "./groupTiles";
 
 export interface AvatarResolveCtx extends ResolveCtx {
   membersByConv?: Record<string, Member[]>;
-}
-
-function botGlobalIdFromConversation(c: Conversation, key: string): string {
-  const id = String(c.id || "");
-  if (!id.startsWith("botc_") || !key) return "";
-  return id;
 }
 
 export function conversationAvatarTiles(c: Conversation, ctx: AvatarResolveCtx = {}): AvatarDescriptor[] {
@@ -25,19 +19,36 @@ export function conversationAvatarTiles(c: Conversation, ctx: AvatarResolveCtx =
   if (type === "bot") {
     const key = botId(c);
     const bot: any = (ctx.bots || []).find((item: any) => (item.id || item.botId || item.bot_id || item.key) === key);
+    const member: any = members.find((item: any) => item.member_kind === "bot" && item.member_ref === key);
+    const identityAvatar = member?.identity?.avatar || {};
     const botRecord = bot || {
       id: key,
       key,
-      name: c.name || key,
-      globalId: botGlobalIdFromConversation(c, key),
+      name: c.name || member?.identity?.displayName || member?.bot_name || key,
     };
-    // 用与列表标题一致的 displayName(含 c.name 回退),色按 bot 身份哈希
+    const displayName = bot?.displayName || bot?.display_name || bot?.name || member?.identity?.displayName || member?.bot_name || botDisplayTitle(c, ctx.bots || []);
+    const avatarId = botAvatarIdentityId(key, { ...botRecord, id: botRecord.id || botRecord.key || member?.identity?.id || key, botId: key, member_ref: key });
+    if (bot && hasAvatarIdentityFields(bot)) {
+      return [
+        resolveAvatarForContact({
+          id: avatarId,
+          displayName,
+          avatarImage: bot.avatarImage || bot.avatar_image || "",
+          avatarCrop: bot.avatarCrop || bot.avatar_crop || null,
+          color: bot.color || bot.avatarColor || bot.avatar_color || "",
+        }),
+      ];
+    }
+    if (member?.identity?.avatar && (identityAvatar.image || identityAvatar.color || identityAvatar.text)) {
+      return [identityAvatar];
+    }
     return [
       resolveAvatarForContact({
-        id: botAvatarIdentityId(botRecord.globalId || botRecord.global_id || botRecord.key || botRecord.id || key, botRecord),
-        displayName: botDisplayTitle(c, ctx.bots || []),
-        avatarImage: botRecord.avatarImage || botRecord.avatar_image || "",
-        avatarCrop: botRecord.avatarCrop || botRecord.avatar_crop || null,
+        id: avatarId,
+        displayName,
+        avatarImage: identityAvatar.image || member?.bot_avatar_image || "",
+        avatarCrop: identityAvatar.crop || member?.bot_avatar_crop || null,
+        color: identityAvatar.color || member?.bot_color || member?.avatarColor || member?.avatar_color || botRecord.color || botRecord.avatarColor || botRecord.avatar_color || "",
       }),
     ];
   }

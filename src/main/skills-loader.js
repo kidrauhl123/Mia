@@ -171,6 +171,24 @@ function createSkillsLoader(deps = {}) {
     return "";
   }
 
+  function applyMarketMarker(skill, marker) {
+    skill.fromMarket = Boolean(marker);
+    if (!marker) return skill;
+    skill.marketId = marker.id || "";
+    skill.marketVersion = marker.version || "";
+    skill.marketChecksum = marker.checksum || "";
+    skill.marketSourceLabel = marker.sourceLabel || inferMarketSourceLabel(marker);
+    skill.marketUpstreamSource = marker.upstreamSource || "";
+    skill.marketUpstreamId = marker.upstreamId || "";
+    skill.marketUpstreamRepo = marker.upstreamRepo || "";
+    skill.marketUpstreamPath = marker.upstreamPath || "";
+    skill.marketTrustLevel = marker.trustLevel || "";
+    skill.marketNameZh = marker.nameZh || marker.name_zh || "";
+    skill.marketSummaryZh = marker.summaryZh || marker.summary_zh || "";
+    skill.marketCategoryZh = marker.categoryZh || marker.category_zh || "";
+    return skill;
+  }
+
   function simpleYamlValue(text, key) {
     const match = String(text || "").match(new RegExp(`^${key}:\\s*(.+)$`, "m"));
     return match ? cleanYamlScalar(match[1]) : "";
@@ -300,7 +318,11 @@ function createSkillsLoader(deps = {}) {
           upstreamId: String(marketMeta.upstreamId || ""),
           upstreamRepo: String(marketMeta.upstreamRepo || ""),
           upstreamPath: String(marketMeta.upstreamPath || ""),
-          trustLevel: String(marketMeta.trustLevel || "")
+          trustLevel: String(marketMeta.trustLevel || ""),
+          checksum: String(marketMeta.checksum || ""),
+          nameZh: String(marketMeta.nameZh || marketMeta.name_zh || ""),
+          summaryZh: String(marketMeta.summaryZh || marketMeta.summary_zh || ""),
+          categoryZh: String(marketMeta.categoryZh || marketMeta.category_zh || "")
         } : {})
       }),
       "utf8"
@@ -435,14 +457,7 @@ function createSkillsLoader(deps = {}) {
           skill.pluginSource = plugin.source;
           skill.extensionId = plugin.extensionId || "";
           skill.sourceKind = plugin.kind || "skill-source";
-          const marketMarker = readMarketMarkerForSkill(filePath, plugin.root);
-          skill.fromMarket = Boolean(marketMarker);
-          if (marketMarker) {
-            skill.marketSourceLabel = marketMarker.sourceLabel || inferMarketSourceLabel(marketMarker);
-            skill.marketUpstreamSource = marketMarker.upstreamSource || "";
-            skill.marketUpstreamId = marketMarker.upstreamId || "";
-            skill.marketTrustLevel = marketMarker.trustLevel || "";
-          }
+          applyMarketMarker(skill, readMarketMarkerForSkill(filePath, plugin.root));
           skills.push(skill);
           pluginSkills += 1;
         } catch (error) {
@@ -512,6 +527,7 @@ function createSkillsLoader(deps = {}) {
           skill.pluginId = plugin.id;
           skill.pluginLabel = plugin.label;
           skill.pluginSource = plugin.source;
+          applyMarketMarker(skill, readMarketMarkerForSkill(filePath, plugin.root));
           const aliases = [
             skill.id,
             skill.name,

@@ -69,7 +69,18 @@ test("installMarketplaceSkill extracts a multi-file zip into <home>/skills and i
     const library = await loader.installMarketplaceSkill({
       id: "demo-skill",
       zipBuffer: makeZip(),
-      marketMeta: { sourceLabel: "GitHub", upstreamId: "owner/repo/skills/demo-skill", trustLevel: "community" }
+      marketVersion: "1.2.3",
+      marketMeta: {
+        sourceLabel: "GitHub",
+        upstreamId: "owner/repo/skills/demo-skill",
+        upstreamRepo: "owner/repo",
+        upstreamPath: "skills/demo-skill",
+        trustLevel: "community",
+        checksum: "a".repeat(64),
+        nameZh: "演示技能",
+        summaryZh: "用于验证安装来源。",
+        categoryZh: "开发工程"
+      }
     });
 
     const dir = path.join(home, "skills", "demo-skill");
@@ -77,12 +88,29 @@ test("installMarketplaceSkill extracts a multi-file zip into <home>/skills and i
     assert.ok(fs.existsSync(path.join(dir, "scripts", "run.py")), "nested file extracted");
     const marker = JSON.parse(fs.readFileSync(path.join(dir, ".mia-market.json"), "utf8"));
     assert.equal(marker.sourceLabel, "GitHub");
+    assert.equal(marker.id, "demo-skill");
+    assert.equal(marker.version, "1.2.3");
     assert.equal(marker.upstreamId, "owner/repo/skills/demo-skill");
+    assert.equal(marker.nameZh, "演示技能");
+    assert.equal(marker.summaryZh, "用于验证安装来源。");
+    assert.equal(marker.categoryZh, "开发工程");
 
     const found = library.skills.find((s) => s.name === "demo-skill");
     assert.ok(found, "installed skill appears in local scan");
     assert.equal(found.source, "mia");
+    assert.equal(found.marketId, "demo-skill");
+    assert.equal(found.marketVersion, "1.2.3");
+    assert.equal(found.marketChecksum, "a".repeat(64));
     assert.equal(found.marketSourceLabel, "GitHub");
+    assert.equal(found.marketUpstreamRepo, "owner/repo");
+    assert.equal(found.marketUpstreamPath, "skills/demo-skill");
+    assert.equal(found.marketNameZh, "演示技能");
+    assert.equal(found.marketSummaryZh, "用于验证安装来源。");
+    assert.equal(found.marketCategoryZh, "开发工程");
+
+    const detail = loader.readLocalSkill(found.id);
+    assert.equal(detail.marketId, "demo-skill");
+    assert.equal(detail.marketNameZh, "演示技能");
   } finally {
     fs.rmSync(home, { recursive: true, force: true });
   }

@@ -282,8 +282,10 @@
             skill.name,
             skill.title,
             skill.description,
+            window.miaSkillHelpers.skillDisplayName(skill),
+            window.miaSkillHelpers.skillSummaryZh(skill),
             skill.pluginLabel,
-            skill.category,
+            window.miaSkillHelpers.skillDisplayCategory(skill),
             ...(skill.tags || [])
           ].join(" ").toLowerCase();
           return hay.includes(needle);
@@ -316,8 +318,8 @@
         <div class="skill-picker-list">
           ${filtered.length ? filtered.map((skill) => `
             <button class="skill-picker-item" type="button" data-skill-pick="${window.miaMarkdown.escapeHtml(skill.name)}">
-              <strong>${window.miaMarkdown.escapeHtml(skill.name)}</strong>
-              <small>${window.miaMarkdown.escapeHtml((skill.description || window.miaSkillHelpers.skillSummaryZh(skill) || "").slice(0, 108))}</small>
+              <strong>${window.miaMarkdown.escapeHtml(window.miaSkillHelpers.skillDisplayName(skill))}</strong>
+              <small>${window.miaMarkdown.escapeHtml((window.miaSkillHelpers.skillSummaryZh(skill) || skill.description || "").slice(0, 108))}</small>
             </button>
           `).join("") : `<div class="skill-picker-empty">${state.skillsLoading ? "正在加载…" : "没有匹配的 Skill"}</div>`}
         </div>

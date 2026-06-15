@@ -520,7 +520,7 @@ function memberIdentityForBot(bot, fallbackRef = "", ownerId = "") {
     ownerUserId: owner,
     displayName,
     avatar: avatarResolve.resolveAvatarForContact({
-      id: owner ? `${owner}:${id}` : id,
+      id,
       displayName,
       avatarImage: safeAvatar,
       avatarCrop: bot?.avatarCrop || bot?.avatar?.crop || null

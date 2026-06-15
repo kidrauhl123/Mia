@@ -28,6 +28,7 @@ test("getSettings returns defaults for users with no row", () => {
     assert.deepEqual(out.pins, []);
     assert.deepEqual(out.readMarks, {});
     assert.deepEqual(out.appearance, {});
+    assert.deepEqual(out.tags, { items: [], assignments: {} });
   } finally { ctx.cleanup(); }
 });
 
@@ -39,11 +40,17 @@ test("putSettings whole-bag replace then read roundtrips, bumps version", () => 
     const put = s.putSettings(u, {
       pins: ["g_abc", "fellow:codex"],
       readMarks: { "g_abc": 17, "dm:a:b": 4 },
-      appearance: { theme: "dark", accentColor: "#5e5ce6" }
+      appearance: { theme: "dark", accentColor: "#5e5ce6" },
+      tags: {
+        items: [{ id: "work", name: "工作", color: "#16a34a" }],
+        assignments: { "g_abc": ["work"] }
+      }
     });
     assert.equal(put.ok, true);
     assert.equal(put.settings.version, 1);
     assert.deepEqual(put.settings.pins, ["g_abc", "fellow:codex"]);
+    assert.deepEqual(put.settings.tags.items.map((item) => item.name), ["工作"]);
+    assert.deepEqual(put.settings.tags.assignments.g_abc, [put.settings.tags.items[0].id]);
 
     const put2 = s.putSettings(u, {
       pins: ["only-one"],
@@ -56,6 +63,7 @@ test("putSettings whole-bag replace then read roundtrips, bumps version", () => 
 
     const read = s.getSettings(u);
     assert.deepEqual(read.pins, ["only-one"]);
+    assert.deepEqual(read.tags.items.map((item) => item.name), ["工作"], "older clients that omit tags preserve existing tags");
     assert.equal(read.version, 2);
   } finally { ctx.cleanup(); }
 });
@@ -102,13 +110,16 @@ test("putSettings CAS: stale expectedVersion returns conflict + current settings
   } finally { ctx.cleanup(); }
 });
 
-test("schema: user_settings table + migration v6", () => {
+test("schema: user_settings table + migration v6 and v16 tags column", () => {
   const ctx = freshStore();
   try {
     const db = ctx.store.getDb();
     const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((r) => r.name);
     assert.ok(tables.includes("user_settings"));
+    const columns = db.prepare("PRAGMA table_info(user_settings)").all().map((r) => r.name);
+    assert.ok(columns.includes("tags_json"));
     const m = db.prepare("SELECT version FROM schema_migrations").all().map((r) => r.version);
     assert.ok(m.includes(6));
+    assert.ok(m.includes(16));
   } finally { ctx.cleanup(); }
 });

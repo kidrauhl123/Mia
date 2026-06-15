@@ -111,7 +111,7 @@ release/
 - 发版必须先 **bump `package.json` 的 `version`**，否则旧客户端版本号不变、不会触发更新。
 - 当前更新通道 = **generic HTTPS**（`build.publish` = `generic`, `url` = `https://mia.gifgif.cn/updates/`）；客户端用 electron-updater 在 macOS 拉 `latest-mac.yml`，在 Windows 拉 `latest.yml`。
 - 客户端检查到新版本后是强制更新：主界面会被更新遮罩锁定，下载进度来自 `download-progress`，下载完成后自动进入安装并重启。
-- 产物**签名但默认未公证（notarize）**：本机可用，分发给其他 Mac 首开会被 Gatekeeper 拦——正式分发需配公证凭证重出。
+- macOS 正式分发前必须公证并装订票据。一次性保存凭据：`xcrun notarytool store-credentials mia --apple-id <apple-id> --team-id S4NWU843M5`；然后执行 `npm run notarize:mac` 或 `npm run notarize:mac:intel`。若 Apple 返回 `403 Invalid or inaccessible developer team ID`，说明该 Apple ID 没有 `S4NWU843M5` 团队的公证权限，需要换有权限的账号或 App Store Connect API Key。
 
 > **旧包迁移限制**：已经安装的 GitHub-provider 旧包只会去 GitHub release 检查更新。第一次迁移要发一个桥接版本：同一个新版本同时发布到 GitHub release 和 `mia.gifgif.cn/updates/`。旧包从 GitHub 升到桥接版本后，桥接版本内置的 generic provider 会让之后更新完全走 `mia.gifgif.cn/updates/`。
 

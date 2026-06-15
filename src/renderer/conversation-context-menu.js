@@ -67,6 +67,7 @@
   // actions: {
   //   togglePinned?: () => Promise<void>,
   //   rename?: () => void,
+  //   editTags?: () => void,
   //   toggleRead?: (nextUnreadState: boolean) => void,   // label flips on
   //                                                       conversation.unread
   //   toggleMuted?: (nextMutedState: boolean) => void,
@@ -99,6 +100,9 @@
     if (actions.rename || actions.notSupported?.rename) {
       items.push({ icon: "edit", label: "编辑", key: "rename" });
     }
+    if (actions.editTags) {
+      items.push({ icon: "tag", label: "标签...", key: "tags" });
+    }
     pushReadItem(items, conversation, actions);
     pushMutedItem(items, conversation, actions);
     if (actions.remove || actions.notSupported?.remove) {
@@ -112,6 +116,7 @@
         if (actions.rename) return actions.rename();
         return alert(actions.notSupported?.rename || "暂未支持");
       }
+      if (key === "tags") return actions.editTags?.();
       if (key === "toggle-read") return actions.toggleRead?.(conversation.unread <= 0);
       if (key === "toggle-muted") return actions.toggleMuted?.(!conversation.muted);
       if (key === "remove") {
@@ -132,6 +137,9 @@
     if (actions.openInfo) {
       items.push({ icon: "edit", label: "群信息", key: "info" });
     }
+    if (actions.editTags) {
+      items.push({ icon: "tag", label: "标签...", key: "tags" });
+    }
     pushReadItem(items, conversation, actions);
     pushMutedItem(items, conversation, actions);
     if (actions.remove || actions.notSupported?.remove) {
@@ -146,12 +154,32 @@
         if (actions.rename) return actions.rename();
         return alert(actions.notSupported?.rename || "暂未支持");
       }
+      if (key === "tags") return actions.editTags?.();
       if (key === "toggle-read") return actions.toggleRead?.(conversation.unread <= 0);
       if (key === "toggle-muted") return actions.toggleMuted?.(!conversation.muted);
       if (key === "remove") {
         if (actions.remove) return actions.remove();
         return alert(actions.notSupported?.remove || "暂未支持");
       }
+    });
+    position(menu, x, y);
+    wireOutsideClose(menu);
+  }
+
+  function openConversationTagMenu(tag, actions, x, y) {
+    const menu = ensureMenuEl();
+    const name = String(tag?.name || "").trim();
+    const items = [
+      { icon: "tag", label: `${tag?.filterActive ? "取消筛选" : "筛选"}「${name}」`, key: "filter" },
+      { icon: "edit", label: "重命名", key: "rename" },
+      { separator: true },
+      { icon: "delete", label: "移除标签", key: "remove", danger: true }
+    ];
+    render(menu, items, async (key) => {
+      closeMenu();
+      if (key === "filter") return actions.filter?.();
+      if (key === "rename") return actions.rename?.();
+      if (key === "remove") return actions.remove?.();
     });
     position(menu, x, y);
     wireOutsideClose(menu);
@@ -174,6 +202,7 @@
   global.miaConversationContextMenu = {
     openPrivateConversationMenu,
     openGroupConversationMenu,
+    openConversationTagMenu,
     closeConversationContextMenu: closeMenu
   };
 })(typeof window !== "undefined" ? window : globalThis);

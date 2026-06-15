@@ -145,11 +145,30 @@ test("src/web/app/index.html loads shared session-history before app.js", () => 
   assert.ok(historyIdx < appIdx, "session-history must be loaded before app.js");
 });
 
+test("src/web/app/index.html loads shared conversation tags before app.js", () => {
+  const html = fs.readFileSync(path.join(ROOT, "src/web/app/index.html"), "utf8");
+  const tagsIdx = html.indexOf("shared/conversation-tags.js");
+  const appIdx = html.indexOf("../app.js");
+  assert.ok(tagsIdx >= 0, "index.html must reference shared/conversation-tags.js");
+  assert.ok(appIdx >= 0, "index.html must load app.js");
+  assert.ok(tagsIdx < appIdx, "conversation tags must be loaded before app.js");
+});
+
+test("src/web/app.js renders and searches conversation tags from settings", () => {
+  const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
+  assert.match(source, /const conversationTagsApi = window\.miaConversationTags/);
+  assert.match(source, /function conversationTagsFor\(conversationId\)/);
+  assert.match(source, /tags:\s*conversationTagsFor\(r\.id\)/);
+  assert.match(source, /function tagChipsHtml\(tags\)/);
+  assert.match(source, /data-conv-action="tags"/);
+  assert.match(source, /setConversationTagNames\(conversation\.id,\s*names\)/);
+  assert.match(source, /tag\.name[\s\S]{0,120}includes\(query\)/);
+});
+
 test("src/web bot avatars use shared bot identity instead of bare bot key", () => {
   const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
 
   assert.match(source, /function botAvatarIdentityId\(botKey, bot = \{\}, member = null\)/);
-  assert.match(source, /function botGlobalIdFromConversation\(conversation, botKey\)/);
   assert.match(source, /const sharedIdentityId = window\.miaContact\?\.botAvatarIdentityId;/);
   assert.match(source, /const avatarId = botAvatarIdentityId\(wanted, owned \|\| fallbackBot, member \|\| null\);/);
   assert.doesNotMatch(source, /resolveAvatarForContact\(\{\s*id:\s*wanted\b/);
@@ -240,6 +259,22 @@ test("scripts/build-cloud-release.js copies shared/avatar-media.js from package 
     /["']web\/shared\/avatar-media\.js["']/,
     "verifyRelease must assert web/shared/avatar-media.js exists instead of allowing nginx to serve HTML fallback"
   );
+});
+
+test("scripts/build-cloud-release.js copies shared conversation tags into api and web trees", () => {
+  const build = fs.readFileSync(path.join(ROOT, "scripts/build-cloud-release.js"), "utf8");
+  assert.match(
+    build,
+    /copyFile\(["']src\/shared\/conversation-tags\.js["'][^)]+["']src["'][^)]+["']shared["'][^)]+["']conversation-tags\.js["']\)/,
+    "build-cloud-release must copy src/shared/conversation-tags.js to api/src/shared/conversation-tags.js"
+  );
+  assert.match(
+    build,
+    /copyFile\(["']src\/shared\/conversation-tags\.js["'][^)]+["']shared["'][^)]+["']conversation-tags\.js["']\)/,
+    "build-cloud-release must copy src/shared/conversation-tags.js to web/shared/conversation-tags.js"
+  );
+  assert.match(build, /["']api\/src\/shared\/conversation-tags\.js["']/);
+  assert.match(build, /["']web\/shared\/conversation-tags\.js["']/);
 });
 
 test("scripts/build-cloud-release.js ships package-owned contact as the web shared contact module", () => {
@@ -588,6 +623,14 @@ test("web app loads lottie player and renders status badge lotties from cloud as
   assert.match(app, /function initStatusBadgeLotties/);
   assert.match(fs.readFileSync(path.join(ROOT, "packages/shared/status-badge-assets.js"), "utf8"), /surprised-cat/);
   assert.match(build, /packages\/shared\/status-badge-assets\.js/);
+});
+
+test("cloud release ships the shared label lottie used by conversation tags", () => {
+  const build = fs.readFileSync(path.join(ROOT, "scripts/build-cloud-release.js"), "utf8");
+  const labelAsset = fs.readFileSync(path.join(ROOT, "src/renderer/assets/lottie/label.json"), "utf8");
+
+  assert.match(build, /["']web\/assets\/lottie\/label\.json["']/);
+  assert.match(labelAsset, /"nm":\s*"system-regular-146-label"/);
 });
 
 test("web settings exposes a status badge profile control", () => {

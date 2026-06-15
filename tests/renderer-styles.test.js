@@ -60,6 +60,24 @@ test("sidebar and chat headers use the same surface and own their divider line",
   );
 });
 
+test("conversation cards keep the default cursor outside tag controls", () => {
+  const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+  const personaRule = baseCss.match(/\.persona\s*\{([\s\S]*?)\}/);
+
+  assert.ok(personaRule, "base .persona rule should exist");
+  assert.doesNotMatch(
+    personaRule[1],
+    /cursor:\s*pointer/,
+    "the whole conversation card should not turn into a hand cursor"
+  );
+  assert.match(baseCss, /\.persona-tag-chip\s*\{[\s\S]*?cursor:\s*pointer;/);
+  const tagButtonRule = baseCss.match(/button\.persona-tag-chip\s*\{([\s\S]*?)\}/)?.[1] || "";
+  assert.doesNotMatch(tagButtonRule, /font:\s*inherit/);
+  assert.match(baseCss, /\.persona-tag-input\s*\{[\s\S]*?font-size:\s*10px;/);
+  assert.match(baseCss, /\.persona-tag-input-wrap\s*\{[\s\S]*?animation:\s*tagInputOpen/);
+  assert.match(baseCss, /\.persona-tag-chip\.removing\s*\{[\s\S]*?animation:\s*tagChipRemove/);
+});
+
 test("lottie icon styles keep filled shapes from gaining outline strokes", () => {
   const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
 

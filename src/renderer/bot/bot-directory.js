@@ -122,15 +122,11 @@
       input.agentEngine || input.agent_engine || input.engine || runtimeConfig.agentEngine || runtimeConfig.agent_engine,
       runtimeKind
     );
-    // Leave color empty when the user has not set one — resolveAvatarForContact
-    // then hashes the canonical (global) id. Baking memberAccentColor(key) here
-    // made record-based surfaces (the sidebar list) honor a key-only hash that
-    // disagreed with the global-id hash the chat header / bubbles use, so the
-    // same bot showed two different background colors.
+    // Leave color empty when the user has not set one; shared avatar
+    // resolution hashes the bot uid consistently across surfaces.
     const color = botIdentity.normalizeBotColor(input.color || input.avatarColor || input.avatar_color);
-    // Owned bots belong to the signed-in user, so stamp the owner id when the
-    // record lacks it; botAvatarIdentityId then yields bot:<owner>:<key>
-    // (matching the conversation id) instead of falling back to the bare key.
+    // Keep owner as metadata for edit/sync decisions. It is not part of the
+    // default avatar color identity.
     const ownerUserId = firstNonEmpty(
       input.ownerUserId, input.owner_user_id, input.ownerId, input.owner_id,
       runtime.cloud?.user?.id, runtime.cloud?.user?.userId, runtime.cloud?.user?.user_id

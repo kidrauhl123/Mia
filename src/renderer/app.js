@@ -904,22 +904,57 @@ function allOwnedBotsForIdentity() {
   return Array.isArray(cloudBots) ? cloudBots : [];
 }
 
-function botAvatarIdentityId(botKey, bot = {}) {
-  const ownerUserId = bot?.ownerUserId || bot?.owner_user_id || bot?.ownerId || bot?.owner_id || "";
-  return window.miaContact?.botAvatarIdentityId?.(botKey, bot)
-    || bot?.globalId
-    || bot?.global_id
-    || bot?.botGlobalId
-    || bot?.bot_global_id
-    || (ownerUserId && botKey ? `botc_${ownerUserId}_${botKey}` : "")
-    || botKey;
+function botAvatarIdentityId(botKey, bot = {}, member = null) {
+  const identity = member?.identity || {};
+  return window.miaContact?.botAvatarIdentityId?.(botKey, {
+    ...(bot || {}),
+    id: bot?.id || bot?.key || identity.id || botKey,
+    member_ref: botKey
+  }) || identity.id || bot?.id || bot?.key || botKey;
 }
 
-function botGlobalIdFromConversation(conversation, botKey) {
-  const id = String(conversation?.id || "");
-  const key = String(botKey || "");
-  if (!id.startsWith("botc_") || !key) return "";
-  return id;
+function hasAvatarIdentityFields(record) {
+  if (typeof window.miaAvatarResolve?.hasAvatarIdentityFields === "function") {
+    return window.miaAvatarResolve.hasAvatarIdentityFields(record);
+  }
+  return Boolean(record && typeof record === "object" && (
+    Object.prototype.hasOwnProperty.call(record, "avatarImage")
+      || Object.prototype.hasOwnProperty.call(record, "avatarCrop")
+      || Object.prototype.hasOwnProperty.call(record, "avatar_image")
+      || Object.prototype.hasOwnProperty.call(record, "avatar_crop")
+  ));
+}
+
+function botMemberForConversation(social, conversation, botKey) {
+  const members = social?.getConversationMembers?.(conversation?.id) || [];
+  return members.find((m) => m.member_kind === MemberKind.Bot && m.member_ref === botKey) || null;
+}
+
+function botAvatarForConversation(conversation, botKey, { bot = null, member = null, displayName = "" } = {}) {
+  const wanted = String(botKey || "");
+  const localHasAvatar = hasAvatarIdentityFields(bot);
+  const identityAvatar = member?.identity?.avatar || {};
+  const name = displayName || bot?.name || bot?.displayName || member?.identity?.displayName || member?.bot_name || conversation?.name || wanted;
+  const avatarId = botAvatarIdentityId(wanted, bot || {}, member || null);
+  if (bot && localHasAvatar) {
+    return window.miaAvatarResolve.resolveAvatarForContact({
+      id: avatarId,
+      displayName: name,
+      avatarImage: bot.avatarImage || bot.avatar_image || "",
+      avatarCrop: bot.avatarCrop || bot.avatar_crop || null,
+      color: bot.color || bot.avatarColor || bot.avatar_color || ""
+    });
+  }
+  if (member?.identity?.avatar && (identityAvatar.image || identityAvatar.color || identityAvatar.text)) {
+    return identityAvatar;
+  }
+  return window.miaAvatarResolve.resolveAvatarForContact({
+    id: avatarId,
+    displayName: name,
+    avatarImage: identityAvatar.image || member?.bot_avatar_image || "",
+    avatarCrop: identityAvatar.crop || member?.bot_avatar_crop || null,
+    color: identityAvatar.color || member?.bot_color || member?.avatarColor || member?.avatar_color || bot?.color || bot?.avatarColor || bot?.avatar_color || ""
+  });
 }
 
 // Reconcile #activeChatMeta with the active cloud-agent run state. While the
@@ -1130,30 +1165,20 @@ function conversationCardSpecFromRow(row, personas) {
     if (isBot) {
       const botKey = sessionHistory.botId(conversation);
       const bot = identityBots.find((p) => (p.id || p.key) === botKey);
-      // The conversation id always carries owner:key, so derive the canonical
-      // global id from it. The merged bot record sometimes lacks
-      // ownerUserId, which made botAvatarIdentityId fall back to the bare key
-      // and hash to a different color here than in the chat header / bubbles
-      // (same bot, two background colors).
-      const botGlobalId = botGlobalIdFromConversation(conversation, botKey);
-      const botRecord = {
-        ...(bot || { key: botKey, id: botKey, name: conversation.name || botKey }),
-        globalId: (bot && (bot.globalId || bot.global_id)) || botGlobalId
+      const member = botMemberForConversation(social, conversation, botKey);
+      const botRecord = bot || {
+        key: botKey,
+        id: botKey,
+        name: conversation.name || member?.identity?.displayName || member?.bot_name || botKey
       };
       name = sessionHistory.botDisplayTitle(conversation, identityBots, "对话");
-      const resolved = window.miaContact?.resolveContact?.(
-        { kind: window.miaContact.IdentityKind.Bot, ref: botKey },
-        { bots: [botRecord] }
-      );
-      avatar = resolved?.avatar || window.miaAvatarResolve.resolveAvatarForContact({
-        id: botAvatarIdentityId(botKey, botRecord),
-        displayName: name || botRecord.name || botKey,
-        avatarImage: botRecord.avatarImage || "",
-        avatarCrop: botRecord.avatarCrop || null,
-        color: botRecord.color || botRecord.avatarColor || botRecord.avatar_color || ""
+      avatar = botAvatarForConversation(conversation, botKey, {
+        bot: botRecord,
+        member,
+        displayName: name || botRecord.name || botKey
       });
-      identity = nameBadgeIdentity("bot", botRecord, name, botKey);
-      statusBadge = statusBadgeFrom(botRecord);
+      identity = bot || member?.identity || nameBadgeIdentity("bot", botRecord, name, botKey);
+      statusBadge = statusBadgeFrom(identity, botRecord, member?.identity, member);
     } else {
       const other = conversation.otherUser || {};
       name = other.displayName || other.username || other.account || "好友";
@@ -1180,9 +1205,12 @@ function conversationCardSpecFromRow(row, personas) {
       preview: conversation.lastMessagePreview || "暂无对话",
       time: formatConversationTime(row.updatedAt),
       unread,
+      tags: conversation.tags || social?.conversationTagsFor?.(conversation.id) || [],
+      tagEditor: social?.conversationTagEditorFor?.(conversation.id) || null,
       avatar,
       identity,
       statusBadge,
+      dataAttrs: { conversationId: conversation.id },
       onClick: () => {
         state.activeKey = "";
         window.miaSocial.setActiveConversationId(conversation.id);
@@ -1199,6 +1227,7 @@ function conversationCardSpecFromRow(row, personas) {
             render();
           },
           toggleMuted: (next) => { social.setConversationMuted(conversation.id, next); render(); },
+          editTags: () => social.editConversationTags?.(conversation.id, name, render, { anchor: { x, y } }),
           remove: async () => {
             if (!confirm(`确定删除与「${name}」的对话？此操作不可撤销。`)) return;
             const res = await social.deleteCloudConversation(conversation.id);
@@ -1239,10 +1268,13 @@ function conversationCardSpecFromRow(row, personas) {
       preview: conversation.lastMessagePreview || "暂无消息",
       time: formatConversationTime(row.updatedAt),
       unread: cgUnread,
+      tags: conversation.tags || social?.conversationTagsFor?.(conversation.id) || [],
+      tagEditor: social?.conversationTagEditorFor?.(conversation.id) || null,
       members: tiles,
       customAvatar: conversation.decorations?.avatar || null,
       identity: cgIdentity,
       statusBadge: cgStatusBadge,
+      dataAttrs: { conversationId: conversation.id },
       onClick: () => {
         state.activeKey = "";
         window.miaSocial.setActiveConversationId(conversation.id);
@@ -1259,6 +1291,7 @@ function conversationCardSpecFromRow(row, personas) {
             render();
           },
           toggleMuted: (next) => { social.setConversationMuted(conversation.id, next); render(); },
+          editTags: () => social.editConversationTags?.(conversation.id, cgName, render, { anchor: { x, y } }),
           openInfo: () => window.miaGroupInfoDialog?.open(conversation.id),
           remove: async () => {
             if (!confirm(`确定删除群组「${cgName}」？此操作不可撤销，所有成员都将无法访问。`)) return;
@@ -1322,22 +1355,27 @@ function paintActiveCloudConversationHeader(conversation, { personas, social }) 
   if (conversationType === "bot") {
     const botKey = sessionHistory.botId(conversation);
     const bot = identityBots.find((p) => (p.id || p.key) === botKey);
+    const member = botMemberForConversation(social, conversation, botKey);
     const botRecord = bot || {
       key: botKey,
       id: botKey,
-      name: conversation.name,
-      globalId: botGlobalIdFromConversation(conversation, botKey)
+      name: conversation.name || member?.identity?.displayName || member?.bot_name || botKey
     };
+    const botName = sessionHistory.botDisplayTitle(conversation, identityBots, "对话");
+    const avatar = botAvatarForConversation(conversation, botKey, {
+      bot: botRecord,
+      member,
+      displayName: botName
+    });
     if (avatarEl) {
       avatarEl.removeAttribute("data-count");
       avatarEl.className = "profile-avatar";
-      avatarHelper.applyBotAvatar(avatarEl, botRecord);
+      avatarHelper.paintAvatar(avatarEl, avatar);
     }
-    const botName = sessionHistory.botDisplayTitle(conversation, identityBots, "对话");
     setNameWithBadge(nameEl, {
-      identity: nameBadgeIdentity("bot", botRecord, botName, botKey),
+      identity: bot || member?.identity || nameBadgeIdentity("bot", botRecord, botName, botKey),
       fallbackName: botName,
-      statusBadge: statusBadgeFrom(botRecord)
+      statusBadge: statusBadgeFrom(bot, member?.identity, member, botRecord)
     });
     if (metaEl) metaEl.textContent = "私聊";
     return;
@@ -1663,6 +1701,16 @@ function setOnboardingWindow(active) {
   else if (wasOnboarding === true) window.mia.window?.showMain?.();
 }
 
+function focusedSidebarTagInput() {
+  const input = document.activeElement;
+  if (!input?.matches?.("[data-tag-input]")) return null;
+  if (!els.personaList?.contains(input)) return null;
+  const card = input.closest?.("[data-conversation-id]");
+  const conversationId = String(card?.dataset?.conversationId || "").trim();
+  if (!conversationId) return null;
+  return { conversationId, value: input.value || "" };
+}
+
 function render() {
   const runtime = state.runtime;
   if (!runtime) {
@@ -1923,24 +1971,30 @@ function render() {
   const cloudReady = !cloudSignedIn || !social || social.isBootstrapped?.();
   const socialRows = cloudReady ? (social?.renderSidebarRows?.() || []) : [];
   const messageRows = !cloudReady ? [] : window.miaBotManager.sortMessageCardsForSidebar(socialRows);
+  const tagInput = focusedSidebarTagInput();
+  if (tagInput) social?.setConversationTagDraft?.(tagInput.conversationId, tagInput.value);
+  const holdSidebarForTagInput = Boolean(tagInput
+    && social?.conversationTagEditorFor?.(tagInput.conversationId)?.active);
 
-  els.personaList.innerHTML = "";
-  for (const row of messageRows) {
-    const spec = conversationCardSpecFromRow(row, personas);
-    if (!spec) continue;
-    const card = spec.kind === ConversationKind.CloudGroup
-      ? window.miaSidebarCards.createGroupCard(spec)
-      : window.miaSidebarCards.createPrivateCard(spec);
-    els.personaList.appendChild(card);
-  }
+  if (!holdSidebarForTagInput) {
+    els.personaList.innerHTML = "";
+    for (const row of messageRows) {
+      const spec = conversationCardSpecFromRow(row, personas);
+      if (!spec) continue;
+      const card = spec.kind === ConversationKind.CloudGroup
+        ? window.miaSidebarCards.createGroupCard(spec)
+        : window.miaSidebarCards.createPrivateCard(spec);
+      els.personaList.appendChild(card);
+    }
 
-  if (!messageRows.length) {
-    const empty = document.createElement("div");
-    empty.className = "persona-empty";
-    empty.textContent = cloudSignedIn
-      ? (cloudReady ? "没有匹配的消息" : "正在同步会话…")
-      : "正在打开登录引导…";
-    els.personaList.appendChild(empty);
+    if (!messageRows.length) {
+      const empty = document.createElement("div");
+      empty.className = "persona-empty";
+      empty.textContent = cloudSignedIn
+        ? (cloudReady ? "没有匹配的消息" : "正在同步会话…")
+        : "正在打开登录引导…";
+      els.personaList.appendChild(empty);
+    }
   }
   renderView();
   renderSessionMenu();

@@ -879,6 +879,11 @@ body.sidebar-resizing * {
   text-align: left;
 }
 
+.persona:focus-visible {
+  outline: 2px solid rgba(var(--accent-rgb), 0.28);
+  outline-offset: 2px;
+}
+
 .message-card {
   background: transparent;
 }
@@ -994,6 +999,10 @@ body.sidebar-resizing * {
   min-height: 52px;
 }
 
+.persona.has-tags .persona-main {
+  grid-template-rows: 18px 17px 17px;
+}
+
 .persona-name-row {
   display: flex;
   align-items: center;
@@ -1041,6 +1050,65 @@ body.sidebar-resizing * {
 .persona-key .sidebar-preview-link {
   color: var(--accent);
   font-weight: 500;
+}
+
+.persona-tags {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 3px;
+  vertical-align: 1px;
+}
+
+.persona-tag-chip {
+  display: inline-flex;
+  align-items: center;
+  border: 0;
+  max-width: 78px;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--tag-color, #64748b) 14%, transparent);
+  color: var(--tag-color, #64748b);
+  font-size: 10px;
+  font-weight: 560;
+  line-height: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, box-shadow 120ms ease, transform 120ms ease, opacity 120ms ease;
+}
+
+button.persona-tag-chip {
+  font-family: inherit;
+}
+
+.persona-tag-name {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.persona.active .persona-tag-chip {
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--tag-color, #64748b);
+}
+
+.persona-tag-chip.filtered {
+  background: color-mix(in srgb, var(--tag-color, #64748b) 24%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tag-color, #64748b) 34%, transparent);
+}
+
+.persona.active .persona-tag-chip.filtered {
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tag-color, #64748b) 48%, transparent);
+}
+
+.persona-tag-chip.removing {
+  pointer-events: none;
+  animation: tagChipRemove 140ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 
 .persona.active .persona-key .sidebar-preview-link {
@@ -1110,6 +1178,160 @@ body.sidebar-resizing * {
   align-items: start;
   gap: 8px;
   min-width: 0;
+}
+
+.persona.has-tags .persona-preview-row {
+  min-height: 17px;
+}
+
+.persona.has-tags .persona-key {
+  display: block;
+  max-height: 17px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  -webkit-line-clamp: unset;
+  -webkit-box-orient: unset;
+}
+
+.persona-tag-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: 17px;
+  overflow: hidden;
+}
+
+.persona-tag-row.editing {
+  overflow: visible;
+  z-index: 5;
+}
+
+.persona-tag-row .persona-tags {
+  align-items: center;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.persona-tag-row .persona-tag-chip {
+  flex: 0 1 auto;
+}
+
+.persona-tag-input-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-width: 72px;
+  height: 18px;
+  overflow: hidden;
+  animation: tagInputOpen 160ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.persona-tag-input {
+  display: inline-block;
+  width: 82px;
+  height: 18px;
+  min-width: 0;
+  border: 0;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.94);
+  color: var(--tag-color, #64748b);
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 560;
+  line-height: 18px;
+  padding: 0 6px;
+  outline: none;
+  transform-origin: left center;
+}
+
+.persona:not(.active) .persona-tag-input {
+  background: var(--field);
+}
+
+.persona-tag-suggestions {
+  position: absolute;
+  top: 20px;
+  left: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  width: min(218px, calc(100vw - 40px));
+  max-height: 0;
+  padding: 0 6px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 8px 22px rgba(16, 20, 39, 0.16);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition: max-height 160ms cubic-bezier(0.2, 0.7, 0.2, 1), padding 160ms ease, opacity 120ms ease, transform 160ms ease;
+}
+
+.persona-tag-row.mode-add .persona-tag-suggestions,
+.persona-tag-row.mode-rename .persona-tag-suggestions {
+  max-height: 54px;
+  padding: 6px;
+  overflow: auto;
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.persona-tag-suggestion {
+  display: inline-flex;
+  align-items: center;
+  max-width: 82px;
+  height: 20px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--tag-color, #64748b) 13%, transparent);
+  color: var(--tag-color, #64748b);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 560;
+  line-height: 20px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes tagInputOpen {
+  from {
+    max-width: 0;
+    opacity: 0;
+    transform: scaleX(0.86);
+  }
+  to {
+    max-width: 92px;
+    opacity: 1;
+    transform: scaleX(1);
+  }
+}
+
+@keyframes tagChipRemove {
+  from {
+    opacity: 1;
+    transform: scale(1);
+    max-width: 84px;
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.86);
+    max-width: 0;
+    padding-left: 0;
+    padding-right: 0;
+  }
+}
+
+.persona.has-tags .persona-side {
+  align-self: center;
+  min-height: 17px;
+  margin-bottom: 0;
 }
 
 .persona-side {

@@ -9,6 +9,12 @@ const { prepareOutgoingMessage } = window.miaSendPipeline;
 const { MemberKind, SenderKind } = window.miaConversationKinds;
 const sessionHistory = window.miaSessionHistory || {};
 const botRuntimeControl = window.miaBotRuntimeControl || {};
+const conversationTagsApi = window.miaConversationTags || {
+  defaultConversationTags: () => ({ items: [], assignments: {} }),
+  normalizeConversationTags: (value) => value && typeof value === "object" ? value : { items: [], assignments: {} },
+  tagsForTarget: () => [],
+  assignTagNames: (tags) => tags && typeof tags === "object" ? tags : { items: [], assignments: {} }
+};
 const engineContracts = window.miaEngineContracts || {};
 const normalizeAgentEngine = engineContracts.normalizeAgentEngine || ((value) => {
   const id = String(value || "hermes").trim().toLowerCase().replace(/_/g, "-");
@@ -185,11 +191,11 @@ let state = {
   // kept in sync via bot.upserted / bot.deleted WS events.
   bots: [],
   // Cross-device user settings (Phase 3). Holds pins + read marks +
-  // appearance. Populated from /api/me/settings on bootstrap; updated
+  // appearance + user-private conversation tags. Populated from /api/me/settings on bootstrap; updated
   // optimistically via pushSettings() + reconciled by
   // user_settings.updated WS events. Replaces the previous localStorage-
   // backed _pinnedConversations set.
-  settings: { pins: [], readMarks: {}, appearance: {} },
+  settings: defaultWebSettings(),
   incomingRequests: [],
   outgoingRequests: [],
   messageCache: new Map(),
@@ -228,6 +234,25 @@ function escapeHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+function defaultWebSettings() {
+  return { pins: [], readMarks: {}, appearance: {}, tags: conversationTagsApi.defaultConversationTags(), version: 0, updatedAt: "" };
+}
+
+function normalizeWebSettings(settings, previous = {}) {
+  const input = settings && typeof settings === "object" ? settings : {};
+  const prior = previous && typeof previous === "object" ? previous : {};
+  return {
+    pins: Array.isArray(input.pins) ? input.pins : (Array.isArray(prior.pins) ? prior.pins : []),
+    readMarks: input.readMarks && typeof input.readMarks === "object" ? input.readMarks : (prior.readMarks && typeof prior.readMarks === "object" ? prior.readMarks : {}),
+    appearance: input.appearance && typeof input.appearance === "object" ? input.appearance : (prior.appearance && typeof prior.appearance === "object" ? prior.appearance : {}),
+    tags: input.tags !== undefined
+      ? conversationTagsApi.normalizeConversationTags(input.tags)
+      : conversationTagsApi.normalizeConversationTags(prior.tags || conversationTagsApi.defaultConversationTags()),
+    version: Number.isFinite(Number(input.version)) ? Number(input.version) : (Number(prior.version) || 0),
+    updatedAt: input.updatedAt || input.updated_at || prior.updatedAt || ""
+  };
 }
 
 function safeStatusBadgeAssetId(value) {
@@ -819,7 +844,7 @@ function clearSession() {
   state.conversations = [];
   state.friends = [];
   state.bots = [];
-  state.settings = { pins: [], readMarks: {}, appearance: {} };
+  state.settings = defaultWebSettings();
   state.messageCache.clear?.();
   state.conversationMembersCache.clear?.();
   pendingConversationMemberFetches.clear();
@@ -930,8 +955,8 @@ async function bootstrap() {
     // Bot identities (name + avatar + persona) so bot conversation messages
     // render with proper attribution rather than bare ids.
     api("/api/me/bots?compact=1").then((d) => { state.bots = Array.isArray(d.bots) ? d.bots : []; }).catch(() => {}),
-    // Phase 3: cross-device user settings (pin / read marks / appearance).
-    api("/api/me/settings").then((d) => { if (d.settings) state.settings = d.settings; }).catch(() => {}),
+    // Phase 3: cross-device user settings (pin / read marks / appearance / tags).
+    api("/api/me/settings").then((d) => { if (d.settings) state.settings = normalizeWebSettings(d.settings, state.settings); }).catch(() => {}),
     // Bridge devices: lets Phase B decide whether the owner's desktop is
     // online and we can route the message through it. Empty array if none.
     api("/api/bridge/devices").then((d) => { state.bridgeDevices = Array.isArray(d.devices) ? d.devices : []; }).catch(() => {}),
@@ -945,19 +970,14 @@ async function bootstrap() {
     await ensureConversationMessages(state.activeConversationId);
     await ensureConversationMembers(state.activeConversationId);
   }
-  // Prefetch members for every group conversation so the sidebar mosaic
-  // shows real avatars on first paint, and for cross-owner bot chats
-  // so botAvatarFor can resolve the bot's enriched avatar instead of
-  // falling back to the blank single-letter bubble.
+  // Prefetch members for every group conversation and every bot chat so
+  // avatar resolution can use the server public identity path everywhere.
   await Promise.all(
     state.conversations
       .filter((r) => {
         const isGroup = r.type === "group" || (!r.id?.startsWith("dm:") && !r.id?.startsWith("botc_") && (r.id?.startsWith("g_") || r.id?.startsWith("g-")));
         if (isGroup) return true;
-        const isBot = r.type === "bot" || r.id?.startsWith("botc_");
-        if (!isBot) return false;
-        const botKey = sessionHistory.botId(r);
-        return !state.bots.some((bot) => String(bot.id || bot.key || "") === botKey);
+        return r.type === "bot" || r.id?.startsWith("botc_");
       })
       .map((r) => ensureConversationMembers(r.id))
   );
@@ -1446,8 +1466,8 @@ function handleCloudEvent(envelope) {
     // to merge field-by-field (settings bags are small and replaced as
     // a whole).
     if (envelope.settings) {
-      state.settings = envelope.settings;
-      reconcileUnreadFromReadMarks(envelope.settings.readMarks);
+      state.settings = normalizeWebSettings(envelope.settings, state.settings);
+      reconcileUnreadFromReadMarks(state.settings.readMarks);
       renderConversationList();
       renderRailUnreadBadge();
     }
@@ -1492,24 +1512,13 @@ function botByKey(key) {
 
 function botAvatarIdentityId(botKey, bot = {}, member = null) {
   const identity = member?.identity || {};
-  const ownerUserId = bot?.ownerUserId || bot?.owner_user_id || bot?.ownerId || bot?.owner_id || member?.owner_user_id || member?.owner_id || identity.ownerUserId || identity.owner_id || "";
-  const globalId = bot?.globalId || bot?.global_id || identity.globalId || identity.global_id || "";
   const sharedIdentityId = window.miaContact?.botAvatarIdentityId;
-  const canonicalId = globalId || (ownerUserId && botKey ? `botc_${ownerUserId}_${botKey}` : "") || botKey;
-  return sharedIdentityId?.(canonicalId, {
+  return sharedIdentityId?.(botKey, {
     ...(bot || {}),
-    id: canonicalId,
+    id: bot?.id || bot?.key || identity.id || botKey,
     botId: botKey,
-    ownerUserId,
-    globalId
-  }) || canonicalId;
-}
-
-function botGlobalIdFromConversation(conversation, botKey) {
-  const id = String(conversation?.id || "");
-  const key = String(botKey || "");
-  if (!id.startsWith("botc_") || !key) return "";
-  return id;
+    member_ref: botKey
+  }) || identity.id || bot?.id || bot?.key || botKey;
 }
 
 function hasAvatarIdentityFields(record) {
@@ -1551,8 +1560,7 @@ function botAvatarFor(conversation, botKey) {
   const fallbackBot = {
     key: wanted,
     id: wanted,
-    name: conversation?.name || wanted,
-    globalId: botGlobalIdFromConversation(conversation, wanted)
+    name: conversation?.name || wanted
   };
   const avatarId = botAvatarIdentityId(wanted, owned || fallbackBot, member || null);
   if (owned && ownedHasAvatarFields) {
@@ -2072,6 +2080,7 @@ function combinedConversationItems() {
       identity,
       statusBadge,
       memberTiles,
+      tags: conversationTagsFor(r.id),
       pinned: isConversationPinned(r.id)
     };
   });
@@ -2086,7 +2095,12 @@ function combinedConversationItems() {
 function renderConversationList() {
   const query = String(els.conversationSearch.value || "").trim().toLowerCase();
   const all = combinedConversationItems();
-  const items = query ? all.filter((it) => it.title.toLowerCase().includes(query)) : all;
+  const items = query
+    ? all.filter((it) => (
+        it.title.toLowerCase().includes(query)
+        || (Array.isArray(it.tags) && it.tags.some((tag) => String(tag.name || "").toLowerCase().includes(query)))
+      ))
+    : all;
 
   if (!items.length) {
     const empty = state.user
@@ -2145,7 +2159,7 @@ function renderConversationList() {
           ${avatarMarkup}
           <span class="persona-main">
             <strong class="persona-name">${it.pinned ? "📌 " : ""}${renderNameWithBadgeHtml({ name: it.title, identity: it.identity, statusBadge: it.statusBadge })}</strong>
-            <span class="persona-preview">${escapeHtml(it.preview)}</span>
+            <span class="persona-preview">${tagChipsHtml(it.tags)}${escapeHtml(it.preview)}</span>
           </span>
           ${sideHtml}
         </button>
@@ -2203,6 +2217,44 @@ function ensureConvMenuEl() {
 // kept current via user_settings.updated WS events. Local mutation goes
 // through pushSettings() which optimistically updates state.settings,
 // fires a PUT, and the broadcast comes back to confirm (or replace) it.
+function safeTagColor(color) {
+  const text = String(color || "").trim();
+  return /^#[0-9a-f]{6}$/i.test(text) ? text : "#64748b";
+}
+
+function conversationTagsFor(conversationId) {
+  if (!conversationId) return [];
+  return conversationTagsApi.tagsForTarget(normalizeWebSettings(state.settings, state.settings).tags, conversationId);
+}
+
+function tagChipsHtml(tags) {
+  const items = Array.isArray(tags) ? tags.slice(0, 2) : [];
+  if (!items.length) return "";
+  return `<span class="persona-tags">${items.map((tag) => {
+    const name = String(tag?.name || "").trim();
+    if (!name) return "";
+    return `<span class="persona-tag-chip" style="--tag-color:${safeTagColor(tag?.color)}">${escapeHtml(name)}</span>`;
+  }).join("")}</span>`;
+}
+
+async function setConversationTagNames(conversationId, names) {
+  if (!conversationId) return;
+  const base = normalizeWebSettings(state.settings, state.settings);
+  const tags = conversationTagsApi.assignTagNames(base.tags, conversationId, names);
+  await pushSettings({ tags });
+}
+
+async function editConversationTags(conversation) {
+  if (!conversation || !conversation.id || typeof window.prompt !== "function") return;
+  const current = conversationTagsFor(conversation.id).map((tag) => tag.name).join(", ");
+  const title = conversationDisplayTitle(conversation);
+  const input = window.prompt(`给「${title}」设置标签（逗号分隔）`, current);
+  if (input === null) return;
+  const names = String(input || "").split(/[,，]/).map((part) => part.trim()).filter(Boolean);
+  await setConversationTagNames(conversation.id, names);
+  renderConversationList();
+}
+
 function isConversationPinned(conversationId) {
   if (!conversationId) return false;
   return Array.isArray(state.settings?.pins) && state.settings.pins.includes(conversationId);
@@ -2218,25 +2270,26 @@ async function setConversationPinned(conversationId, pinned) {
 // PUTs with expectedVersion; on 409 conflict re-reads server state,
 // merges our delta on top (last-writer-wins per field), retries once.
 async function pushSettings(patch, _retried = false) {
-  const base = state.settings || { pins: [], readMarks: {}, appearance: {}, version: 0 };
+  const base = normalizeWebSettings(state.settings, state.settings);
   const next = {
     pins: patch.pins !== undefined ? patch.pins : base.pins,
     readMarks: patch.readMarks !== undefined ? { ...(base.readMarks || {}), ...patch.readMarks } : base.readMarks,
     appearance: patch.appearance !== undefined ? { ...(base.appearance || {}), ...patch.appearance } : base.appearance,
+    tags: patch.tags !== undefined ? conversationTagsApi.normalizeConversationTags(patch.tags) : base.tags,
     expectedVersion: base.version || 0
   };
-  state.settings = { ...next, version: base.version };
+  state.settings = normalizeWebSettings({ ...next, version: base.version, updatedAt: base.updatedAt }, base);
   renderConversationList();
   try {
     const res = await api("/api/me/settings", { method: "PUT", body: next });
-    if (res?.settings) state.settings = res.settings;
+    if (res?.settings) state.settings = normalizeWebSettings(res.settings, state.settings);
   } catch (err) {
     // /HTTP 409/ → conflict: server state moved on; refresh + retry once
     // with patch reapplied so our delta isn't lost.
     if (!_retried && /409|version conflict/i.test(String(err?.message || ""))) {
       try {
         const fresh = await api("/api/me/settings", { method: "GET" });
-        if (fresh?.settings) state.settings = fresh.settings;
+        if (fresh?.settings) state.settings = normalizeWebSettings(fresh.settings, state.settings);
         return pushSettings(patch, true);
       } catch { /* fall through */ }
     }
@@ -2254,6 +2307,7 @@ function openConvMenu(convId, anchorButton) {
   const showRename = isBot;
   el.innerHTML = `
     <button type="button" data-conv-action="pin">${pinned ? "取消置顶" : "置顶"}</button>
+    <button type="button" data-conv-action="tags">标签...</button>
     ${showRename ? `<button type="button" data-conv-action="rename">编辑</button>` : ""}
     <button type="button" data-conv-action="delete" class="conv-menu-danger">删除</button>
   `;
@@ -2285,6 +2339,10 @@ async function handleConversationAction(action, conversation) {
   const title = conversationDisplayTitle(conversation);
   if (action === "pin") {
     await setConversationPinned(conversation.id, !isConversationPinned(conversation.id));
+    return;
+  }
+  if (action === "tags") {
+    await editConversationTags(conversation);
     return;
   }
   if (action === "rename") {

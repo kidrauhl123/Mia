@@ -127,8 +127,7 @@
     return global.miaAvatarResolve.resolveAvatarForContact({
       id: global.miaContact?.botAvatarIdentityId?.(member.member_ref, {
         ...(f || {}),
-        ownerUserId: member.owner_id,
-        globalId: member.identity?.globalId
+        id: f?.id || f?.key || member.identity?.id || member.member_ref
       }) || member.member_ref,
       displayName: f?.name || member.identity?.displayName || member.bot_name || member.member_ref,
       avatarImage: f?.avatarImage || member.identity?.avatar?.image || member.bot_avatar_image || "",

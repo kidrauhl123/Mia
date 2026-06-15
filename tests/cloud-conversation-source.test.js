@@ -142,7 +142,7 @@ test("CloudConversationSource preserves member identity status badge", () => {
   assert.deepEqual(JSON.parse(JSON.stringify(spec.statusBadge)), { kind: "emoji", emoji: "⭐", label: "Premium" });
 });
 
-test("CloudConversationSource hashes owned empty bot avatar by global identity", () => {
+test("CloudConversationSource hashes owned empty bot avatar by owner-scoped identity", () => {
   const src = loadSource();
   const conversation = { id: "botc_user_me_mia", type: "bot", name: "Mia", decorations: { botId: "mia" } };
   const messages = [{ id: "msg_owned_empty", sender_kind: "bot", sender_ref: "mia", body_md: "yo", created_at: "", seq: 1 }];
@@ -156,7 +156,7 @@ test("CloudConversationSource hashes owned empty bot avatar by global identity",
   const spec = source.listMessages()[0];
   assert.equal(spec.avatar.image, "");
   assert.equal(spec.avatar.crop, null);
-  assert.equal(spec.avatar.color, memberAccentColor("mia"));
+  assert.equal(spec.avatar.color, memberAccentColor("user_me:mia"));
   assert.equal(spec.avatar.text, "Mi");
 });
 

@@ -35,24 +35,15 @@
     const identity = member.identity || {};
     const record = {
       ...(bot || {}),
+      id: firstNonEmpty(bot?.id, bot?.key, identity.id),
       member_ref: ref,
-      botId: firstNonEmpty(bot?.botId, bot?.bot_id, identity.botId, identity.bot_id),
-      ownerUserId: firstNonEmpty(
-        bot?.ownerUserId,
-        bot?.owner_user_id,
-        bot?.ownerId,
-        bot?.owner_id,
-        member.owner_user_id,
-        member.owner_id,
-        identity.ownerUserId,
-        identity.owner_id
-      )
+      botId: firstNonEmpty(bot?.botId, bot?.bot_id, identity.botId, identity.bot_id)
     };
     const helper = contactResolver();
     if (helper && typeof helper.botAvatarIdentityId === "function") {
       return helper.botAvatarIdentityId(ref, record);
     }
-    return firstNonEmpty(ref, record.id, record.botId, record.bot_id, record.member_ref);
+    return firstNonEmpty(record.id, record.botId, record.bot_id, record.key, record.member_ref, ref);
   }
 
   function resolveTile(input) {
@@ -116,7 +107,7 @@
         continue;
       }
       if (kind === "bot") {
-        const bot = (bots || []).find((b) => (b.id || b.botId || b.bot_id) === ref);
+        const bot = (bots || []).find((b) => (b.id || b.key || b.botId || b.bot_id) === ref);
         const hasBot = Boolean(bot);
         const hasBotAvatar = hasAvatarIdentityFields(bot);
         const identityAvatar = m.identity?.avatar || {};

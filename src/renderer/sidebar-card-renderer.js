@@ -42,6 +42,120 @@
     return escapeHtml(text);
   }
 
+  function tagItems(tags) {
+    return Array.isArray(tags)
+      ? tags.filter((tag) => String(tag?.name || "").trim()).slice(0, 3)
+      : [];
+  }
+
+  function tagChipHtml(tag, options = {}) {
+    const color = /^#[0-9a-f]{6}$/i.test(String(tag.color || "")) ? tag.color : "#64748b";
+    const name = String(tag.name || "").trim();
+    const filtered = String(options.filterName || "").trim().toLowerCase() === name.toLowerCase();
+    const removing = String(options.removingName || "").trim().toLowerCase() === name.toLowerCase();
+    const cls = `persona-tag-chip${filtered ? " filtered" : ""}${removing ? " removing" : ""}`;
+    return `
+      <button class="${cls}" type="button" data-tag-control data-tag-menu data-tag-name="${escapeHtml(name)}" style="--tag-color:${escapeHtml(color)}" aria-label="标签 ${escapeHtml(name)}">
+        <span class="persona-tag-name">${escapeHtml(name)}</span>
+      </button>
+    `;
+  }
+
+  function tagChipsHtml(tags, editor = null) {
+    const items = tagItems(tags);
+    if (!items.length) return "";
+    return `<span class="persona-tags">${items.map((tag) => tagChipHtml(tag, {
+      filterName: editor?.filterName,
+      removingName: editor?.removingName
+    })).join("")}</span>`;
+  }
+
+  function hasTagItems(tags) {
+    return tagItems(tags).length > 0;
+  }
+
+  function tagInputMetaAttrs(editor) {
+    const mode = String(editor?.mode || (editor?.adding ? "add" : "") || "").trim();
+    const targetName = String(editor?.targetName || "").trim();
+    return `data-tag-mode="${escapeHtml(mode)}" data-tag-target-name="${escapeHtml(targetName)}"`;
+  }
+
+  function tagSuggestionsHtml(editor, currentTags) {
+    const target = String(editor?.targetName || "").trim().toLowerCase();
+    const selected = new Set(tagItems(currentTags)
+      .map((tag) => String(tag.name || "").trim().toLowerCase())
+      .filter((name) => name && name !== target));
+    const candidates = (Array.isArray(editor?.allTags) ? editor.allTags : [])
+      .filter((tag) => {
+        const name = String(tag?.name || "").trim();
+        return name && !selected.has(name.toLowerCase());
+      })
+      .slice(0, 12);
+    if (!candidates.length) return "";
+    return `<span class="persona-tag-suggestions" data-tag-suggestions>${candidates.map((tag) => {
+      const color = /^#[0-9a-f]{6}$/i.test(String(tag.color || "")) ? tag.color : "#64748b";
+      const name = String(tag.name || "").trim();
+      return `<button class="persona-tag-suggestion" type="button" data-tag-control data-tag-pick data-tag-name="${escapeHtml(name)}" data-tag-search="${escapeHtml(name.toLowerCase())}" ${tagInputMetaAttrs(editor)} style="--tag-color:${escapeHtml(color)}">${escapeHtml(name)}</button>`;
+    }).join("")}</span>`;
+  }
+
+  function tagInputHtml(editor, placeholder = "标签", color = "") {
+    const value = escapeHtml(editor?.draft || "");
+    const safeColor = /^#[0-9a-f]{6}$/i.test(String(color || "")) ? color : "#64748b";
+    return `
+      <span class="persona-tag-input-wrap" data-tag-control style="--tag-color:${escapeHtml(safeColor)}">
+        <input class="persona-tag-input" data-tag-control data-tag-input ${tagInputMetaAttrs(editor)} autocomplete="off" placeholder="${escapeHtml(placeholder)}" value="${value}">
+      </span>
+    `;
+  }
+
+  function tagRowHtml(spec) {
+    const editor = spec.tagEditor || null;
+    const editing = Boolean(editor?.active);
+    const tags = tagItems(editing ? (editor.tags || spec.tags) : spec.tags);
+    if (!editing) return tagChipsHtml(tags, editor);
+    const maxTags = Number(editor.maxTags) || 3;
+    const canAdd = tags.length < maxTags;
+    const mode = editor.mode || (editor.adding ? "add" : "");
+    const target = String(editor.targetName || "").trim().toLowerCase();
+    const chips = tags.map((tag) => {
+      const name = String(tag.name || "").trim();
+      if (mode === "rename" && target && name.toLowerCase() === target) {
+        return tagInputHtml(editor, "重命名", tag.color);
+      }
+      return tagChipHtml(tag, {
+        filterName: editor.filterName,
+        removingName: editor.removingName
+      });
+    }).join("");
+    return `
+      <span class="persona-tags editing" data-tag-control>
+        ${chips}
+        ${mode === "add" && canAdd ? tagInputHtml(editor) : ""}
+      </span>
+      ${(mode === "add" && canAdd) || mode === "rename" ? tagSuggestionsHtml(editor, tags) : ""}
+    `;
+  }
+
+  function previewRowsHtml(spec, fallback = "") {
+    const tagsHtml = tagRowHtml(spec);
+    if (!tagsHtml) {
+      return `
+        <span class="persona-preview-row">
+          <span class="persona-key">${previewHtml(spec.preview, fallback)}</span>
+          ${buildStatusHtml(spec)}
+        </span>
+      `;
+    }
+    return `
+      <span class="persona-preview-row">
+        <span class="persona-key">${previewHtml(spec.preview, fallback)}</span>
+        ${buildStatusHtml(spec)}
+      </span>
+      <span class="persona-tag-row${spec.tagEditor?.active ? " editing" : ""}${spec.tagEditor?.adding ? " adding" : ""}${spec.tagEditor?.mode ? ` mode-${spec.tagEditor.mode}` : ""}">${tagsHtml}</span>
+    `;
+  }
+
   function nameWithBadgeRenderer() {
     const renderer = global.miaNameWithBadge;
     if (typeof renderer?.setNameWithBadge === "function") return renderer.setNameWithBadge;
@@ -101,8 +215,42 @@
   }
 
   function attachHandlers(btn, spec) {
-    btn.addEventListener("click", () => { try { spec.onClick?.(); } catch (err) { console.warn("[card] onClick error:", err); } });
+    btn.addEventListener("click", (event) => {
+      const tagControl = event.target?.closest?.("[data-tag-control]");
+      if (tagControl) {
+        event.preventDefault();
+        event.stopPropagation();
+        handleTagControlClick(btn, spec, event);
+        return;
+      }
+      try { spec.onClick?.(); } catch (err) { console.warn("[card] onClick error:", err); }
+    });
+    btn.addEventListener("input", (event) => {
+      if (!event.target?.matches?.("[data-tag-input]")) return;
+      try { spec.tagEditor?.onDraft?.(event.target.value || ""); } catch { /* best effort */ }
+      filterTagSuggestions(btn, event.target.value);
+    });
+    btn.addEventListener("focusout", (event) => {
+      if (!event.target?.matches?.("[data-tag-input]")) return;
+      handleTagInputFocusout(btn, spec);
+    });
+    btn.addEventListener("keydown", (event) => {
+      if (event.target?.matches?.("[data-tag-input]")) {
+        handleTagInputKeydown(btn, spec, event);
+        return;
+      }
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      try { spec.onClick?.(); } catch (err) { console.warn("[card] onClick error:", err); }
+    });
     btn.addEventListener("contextmenu", (event) => {
+      const tagMenu = event.target?.closest?.("[data-tag-menu]");
+      if (tagMenu) {
+        event.preventDefault();
+        event.stopPropagation();
+        openTagMenu(spec, tagMenu.dataset.tagName || "", event.clientX, event.clientY);
+        return;
+      }
       event.preventDefault();
       event.stopPropagation();
       try { spec.onContextMenu?.(event.clientX, event.clientY); } catch (err) { console.warn("[card] onContextMenu error:", err); }
@@ -112,10 +260,92 @@
     }
   }
 
+  function commitTagInput(btn, spec, input) {
+    const name = String(input?.value || "").trim();
+    if (!name) return false;
+    const details = tagCommitDetails(input);
+    try {
+      if (typeof spec.tagEditor?.onCommit === "function") spec.tagEditor.onCommit(name, details);
+      else spec.tagEditor?.onAdd?.(name);
+    } catch (err) {
+      console.warn("[card] tag commit error:", err);
+    }
+    if (input) input.value = "";
+    return true;
+  }
+
+  function tagCommitDetails(el) {
+    return {
+      mode: String(el?.dataset?.tagMode || ""),
+      targetName: String(el?.dataset?.tagTargetName || "")
+    };
+  }
+
+  function handleTagControlClick(btn, spec, event) {
+    const pick = event.target?.closest?.("[data-tag-pick]");
+    if (pick) {
+      try {
+        if (typeof spec.tagEditor?.onCommit === "function") spec.tagEditor.onCommit(pick.dataset.tagName || "", tagCommitDetails(pick));
+        else spec.tagEditor?.onAdd?.(pick.dataset.tagName || "");
+      } catch (err) { console.warn("[card] tag pick error:", err); }
+      return;
+    }
+    const tagMenu = event.target?.closest?.("[data-tag-menu]");
+    if (tagMenu) {
+      openTagMenu(spec, tagMenu.dataset.tagName || "", event.clientX, event.clientY);
+    }
+  }
+
+  function openTagMenu(spec, name, x, y) {
+    try { spec.tagEditor?.onOpenMenu?.(name, x, y); } catch (err) { console.warn("[card] tag menu error:", err); }
+  }
+
+  function handleTagInputKeydown(btn, spec, event) {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      event.stopPropagation();
+      commitTagInput(btn, spec, event.target);
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.target.value) {
+        event.target.value = "";
+        try { spec.tagEditor?.onDraft?.(""); } catch { /* best effort */ }
+        filterTagSuggestions(btn, "");
+        return;
+      }
+      spec.tagEditor?.onCancel?.();
+    }
+  }
+
+  function handleTagInputFocusout(btn, spec) {
+    setTimeout(() => {
+      const active = document.activeElement;
+      if (active && btn.contains(active) && active.closest?.("[data-tag-control]")) return;
+      const input = btn.querySelector("[data-tag-input]");
+      if (!input) return;
+      if (String(input.value || "").trim()) commitTagInput(btn, spec, input);
+    }, 0);
+  }
+
+  function filterTagSuggestions(btn, value) {
+    const query = String(value || "").trim().toLowerCase();
+    const suggestions = btn.querySelector("[data-tag-suggestions]");
+    if (!suggestions) return;
+    for (const item of suggestions.querySelectorAll("[data-tag-pick]")) {
+      const text = String(item.dataset.tagSearch || item.dataset.tagName || "").toLowerCase();
+      item.hidden = Boolean(query && !text.includes(query));
+    }
+  }
+
   function createPrivateCard(spec) {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = `persona message-card private-message-card${spec.active ? " active" : ""}${spec.pinned ? " pinned" : ""}`;
+    const btn = document.createElement("div");
+    const tagged = hasTagItems(spec.tags) || Boolean(spec.tagEditor?.active);
+    btn.setAttribute("role", "button");
+    btn.tabIndex = 0;
+    btn.className = `persona message-card private-message-card${tagged ? " has-tags" : ""}${spec.tagEditor?.active ? " tag-editing" : ""}${spec.active ? " active" : ""}${spec.pinned ? " pinned" : ""}`;
     btn.innerHTML = `
       <span class="avatar bot-photo"></span>
       <span class="persona-main">
@@ -124,10 +354,7 @@
           <span class="persona-type">${escapeHtml(spec.typeLabel || "私聊")}</span>
           <span class="persona-time">${escapeHtml(spec.time || "")}</span>
         </span>
-        <span class="persona-preview-row">
-          <span class="persona-key">${previewHtml(spec.preview, "暂无对话")}</span>
-          ${buildStatusHtml(spec)}
-        </span>
+        ${previewRowsHtml(spec, "暂无对话")}
       </span>
     `;
     const avatarEl = btn.querySelector(".avatar.bot-photo");
@@ -138,9 +365,11 @@
   }
 
   function createGroupCard(spec) {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = `persona message-card group-persona${spec.active ? " active" : ""}${spec.pinned ? " pinned" : ""}`;
+    const btn = document.createElement("div");
+    const tagged = hasTagItems(spec.tags) || Boolean(spec.tagEditor?.active);
+    btn.setAttribute("role", "button");
+    btn.tabIndex = 0;
+    btn.className = `persona message-card group-persona${tagged ? " has-tags" : ""}${spec.tagEditor?.active ? " tag-editing" : ""}${spec.active ? " active" : ""}${spec.pinned ? " pinned" : ""}`;
     btn.innerHTML = `
       <span class="avatar group-avatar"></span>
       <span class="persona-main">
@@ -149,10 +378,7 @@
           <span class="persona-type group">${escapeHtml(spec.typeLabel || "群聊")}</span>
           <span class="persona-time">${escapeHtml(spec.time || "")}</span>
         </span>
-        <span class="persona-preview-row">
-          <span class="persona-key">${previewHtml(spec.preview)}</span>
-          ${buildStatusHtml(spec)}
-        </span>
+        ${previewRowsHtml(spec)}
       </span>
     `;
     const avatarEl = btn.querySelector(".avatar.group-avatar");

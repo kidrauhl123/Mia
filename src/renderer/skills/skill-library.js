@@ -73,12 +73,17 @@
       skill.description,
       window.miaSkillHelpers.skillDisplayName(skill),
       window.miaSkillHelpers.skillSummaryZh(skill),
-      skill.category,
+      window.miaSkillHelpers.skillDisplayCategory(skill),
       skill.sourceLabel,
+      skill.marketId,
+      skill.marketNameZh,
+      skill.marketSummaryZh,
+      skill.marketCategoryZh,
       skill.relPath,
       ...(skill.tags || [])
     ].join(" ").toLowerCase();
-    return (!needle || haystack.includes(needle)) && (!category || String(skill.category || "") === category);
+    return (!needle || haystack.includes(needle))
+      && (!category || String(window.miaSkillHelpers.skillDisplayCategory(skill) || "").toLowerCase() === category);
   }
 
   function visibleSkills() {
@@ -89,7 +94,7 @@
   function skillCategories() {
     const counts = new Map();
     for (const skill of (state.skillLibrary.skills || [])) {
-      const category = skill.category || "uncategorized";
+      const category = window.miaSkillHelpers.skillDisplayCategory(skill);
       counts.set(category, (counts.get(category) || 0) + 1);
     }
     return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
@@ -147,7 +152,7 @@
       sourceLabel,
       ownerLabel: sourceLabel,
       upstreamSource: skill.marketUpstreamSource || skill.upstreamSource || "",
-      category: skill.category || ""
+      category: window.miaSkillHelpers.skillDisplayCategory(skill)
     });
   }
 
@@ -256,7 +261,7 @@
     const previewSource = previewMarketSource
       ? `${skill.sourceLabel || "Local"} · ${previewMarketSource}`
       : (skill.sourceLabel || "Local");
-    setText(els.skillPreviewMeta, `${skill.name || "Skill"} · ${previewSource} · ${skill.relPath || skill.category || ""}`);
+    setText(els.skillPreviewMeta, `${skill.name || "Skill"} · ${previewSource} · ${skill.relPath || window.miaSkillHelpers.skillDisplayCategory(skill) || ""}`);
     els.skillPreviewBody.innerHTML = skill.body
       ? window.miaSkillHelpers.renderSkillMarkdownSource(skill.body)
       : `<div class="skill-empty-state">正在读取 SKILL.md...</div>`;
@@ -329,7 +334,7 @@
       const published = await window.mia.publishSkill({ skillId, category: category.trim() || "uncategorized", version: "1.0.0" });
       window.alert(published ? `已发布「${published.name}」到市场。` : "发布失败。");
       state.skillMarket.loaded = false;
-      if (state.skillMarketMode) loadMarketSkills();
+      if (state.skillMarketMode) loadMarketSkills(marketRequestParams(), { forceRefresh: true });
     } catch (error) {
       window.alert(`发布失败：${error?.message || error}`);
     }
@@ -348,8 +353,19 @@
 
   // ---- Marketplace (探索发现) ----
 
+  function sameNonEmpty(a, b) {
+    const left = String(a || "").trim();
+    const right = String(b || "").trim();
+    return !!left && !!right && left === right;
+  }
+
   function installedLocalSkillForMarket(skill) {
-    return (state.skillLibrary.skills || []).find((local) => local.name === skill.name) || null;
+    return (state.skillLibrary.skills || []).find((local) => {
+      if (!local?.fromMarket) return false;
+      if (local.source === "mia-official") return false;
+      if (sameNonEmpty(local.marketId, skill.id)) return true;
+      return sameNonEmpty(local.marketUpstreamId, skill.upstreamId);
+    }) || null;
   }
 
   function formatInstallCount(n) {
@@ -576,7 +592,8 @@
 
   async function installMarketSkill(skillId) {
     if (!skillId || !state || state.installingSkillIds.has(skillId)) return;
-    // Curated local catalog — install directly, no scary "unreviewed" prompt.
+    // Desktop install uses the unified market path: local snapshot when current,
+    // cloud package download when the skill is new or newer than the snapshot.
     state.installingSkillIds.add(skillId);
     renderSkillLibrary();
     try {

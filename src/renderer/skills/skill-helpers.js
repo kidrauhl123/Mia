@@ -17,7 +17,7 @@
   }
 
   function skillTone(skill = {}) {
-    const text = `${skill.category || ""} ${(skill.tags || []).join(" ")} ${skill.name || ""}`.toLowerCase();
+    const text = `${skillDisplayCategory(skill)} ${(skill.tags || []).join(" ")} ${skillDisplayName(skill)} ${skill.name || ""}`.toLowerCase();
     if (/creative|image|video|art|design|media|p5|ascii|music/.test(text)) return "creative";
     if (/software|github|devops|mcp|agent|plugin|install|author|code/.test(text)) return "build";
     if (/apple|productivity|email|note|calendar|maps|home/.test(text)) return "ops";
@@ -51,11 +51,31 @@
     return false;
   }
 
+  const officialNamesZh = {
+    "mia-scheduler": "定时任务",
+    "paper-research": "文献研究",
+    "lab-report": "实验报告",
+    "study-review": "复习规划",
+    "resume-interview": "简历面试",
+    "problem-explainer": "讲题排错",
+    "pet-generator": "桌宠生成",
+    "skill-creator": "技能创作"
+  };
+
   function skillDisplayName(skill = {}) {
+    if (skill.marketNameZh) return skill.marketNameZh;
+    if (skill.name_zh) return skill.name_zh;
+    if (skill.source === "mia-official" && officialNamesZh[skill.name]) return officialNamesZh[skill.name];
     return skill.name || skill.title || "Skill";
   }
 
+  function skillDisplayCategory(skill = {}) {
+    return skill.marketCategoryZh || skill.category_zh || skill.category || "uncategorized";
+  }
+
   function skillSummaryZh(skill = {}) {
+    if (skill.marketSummaryZh) return skill.marketSummaryZh;
+    if (skill.summary_zh) return skill.summary_zh;
     const exact = {
       imagegen: "生成或编辑图片素材，适合做视觉参考、头像、纹理、插画和界面 mockup。",
       "openai-docs": "查询 OpenAI 官方文档，适合模型选择、API 用法和迁移升级问题。",
@@ -66,7 +86,7 @@
       "hatch-pet": "把角色图做成 Codex 宠物 spritesheet，并输出预览和打包文件。"
     };
     if (exact[skill.name]) return exact[skill.name];
-    const text = `${skill.category || ""} ${(skill.tags || []).join(" ")} ${skill.name || ""}`.toLowerCase();
+    const text = `${skillDisplayCategory(skill)} ${(skill.tags || []).join(" ")} ${skill.name || ""}`.toLowerCase();
     if (/creative|image|video|art|design|media|p5|ascii|music/.test(text)) return "创作与多媒体相关能力，适合图像、视频、音频、设计或可视化任务。";
     if (/software|github|devops|mcp|agent|plugin|install|author|code|test/.test(text)) return "工程开发相关能力，适合代码实现、调试、测试、插件、仓库或自动化工作流。";
     if (/research|paper|search|web|data|analysis|market/.test(text)) return "资料研究相关能力，适合检索、归纳、分析和结构化知识整理。";
@@ -179,6 +199,7 @@
     skillAuthorLabel,
     skillHasUpdate,
     skillDisplayName,
+    skillDisplayCategory,
     skillSummaryZh,
     stripSkillFrontmatter,
     renderSkillInlineMarkdown,
