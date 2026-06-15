@@ -74,6 +74,10 @@ test("web root is a promo landing page with download and app entry points", () =
   assert.match(js, /mac-intel/);
   assert.match(js, /android/);
   assert.match(js, /ios/);
+  // Android download link is patched at runtime from the in-app update manifest
+  // so the site never serves a stale/missing -latest.apk alias.
+  assert.match(js, /downloads\/mia-mobile-update\.json/);
+  assert.match(js, /DOWNLOADS\.android\.href = apkUrl/);
   assert.match(html, /@ 谁就谁来/);
   assert.match(html, /多端同步/);
   assert.match(html, /账号、好友、群聊云端同步/);

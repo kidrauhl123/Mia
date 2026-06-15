@@ -151,6 +151,39 @@
 
   setupDownloadChooser();
 
+  // The Android APK is published under a versioned name (mia-android-<code>.apk)
+  // by scripts/publish-mobile-update.js; the same manifest the app reads for
+  // in-app updates is the single source of truth for the latest apkUrl. Patch
+  // the static fallback link at runtime so the website never points at a stale
+  // or missing -latest.apk alias.
+  async function patchAndroidDownloadFromManifest() {
+    try {
+      const res = await fetch('/downloads/mia-mobile-update.json', { headers: { Accept: 'application/json' } });
+      if (!res.ok) return;
+      const manifest = await res.json();
+      const android = manifest && manifest.android;
+      const apkUrl = android && typeof android.apkUrl === 'string' ? android.apkUrl : '';
+      if (!/^https:\/\/.+\.apk$/i.test(apkUrl)) return;
+      const versionName = android.versionName ? String(android.versionName) : '';
+      const fileName = versionName ? `Mia-Android-${versionName}.apk` : 'Mia-Android.apk';
+      DOWNLOADS.android.href = apkUrl;
+      DOWNLOADS.android.download = fileName;
+      const menuLink = document.querySelector('[data-download-option="android"]');
+      if (menuLink) {
+        menuLink.setAttribute('href', apkUrl);
+        menuLink.setAttribute('download', fileName);
+      }
+      // If Android is the currently recommended download, refresh the primary button.
+      if (document.querySelector('[data-download-option="android"][aria-current="true"]')) {
+        applyDownload('android');
+      }
+    } catch {
+      // Manifest unreachable — keep the static fallback link rather than break the page.
+    }
+  }
+
+  patchAndroidDownloadFromManifest();
+
   /* ---------- nav: shadow + auto-hide (reveal on scroll up, like Marvis) ---------- */
   const nav = document.getElementById('nav');
   let lastY = window.scrollY;

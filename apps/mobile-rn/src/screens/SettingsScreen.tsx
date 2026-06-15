@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { useAuth } from "../state/auth";
+import { usePush } from "../notifications/PushProvider";
 import { useBridgeDevices, useMe, useSaveProfile, useUserSettings } from "../state/queries";
 import { resolveAvatar } from "../logic/avatar";
 import AvatarMedia from "../components/AvatarMedia";
@@ -23,7 +24,8 @@ function Row({ label, value }: { label: string; value: string }) {
 }
 
 export default function SettingsScreen() {
-  const { session, setSession, apiBase } = useAuth();
+  const { session, apiBase } = useAuth();
+  const { logout } = usePush();
   const me = useMe();
   const saveProfile = useSaveProfile();
   const [nameDraft, setNameDraft] = useState("");
@@ -104,7 +106,7 @@ export default function SettingsScreen() {
         ) : null}
         <Row label="用户名" value={username} />
         <Row label="用户 ID" value={userId} />
-        <Button label="退出登录" variant="danger" onPress={() => setSession(null)} />
+        <Button label="退出登录" variant="danger" onPress={() => { logout(); }} />
       </View>
       <UpdateSettingsCard />
       <View style={styles.section}>

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "871717363471",
+    "project_id": "mia-agent-d2ccc",
+    "storage_bucket": "mia-agent-d2ccc.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:871717363471:android:9d1a481c66de7909f1287a",
+        "android_client_info": {
+          "package_name": "app.mia.mobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyChwyA1ZkgzpAqA7jqWOuj9rwk_1m9KyJE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
