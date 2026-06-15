@@ -2,8 +2,14 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const packageJson = require("../package.json");
 
 const ROOT = path.join(__dirname, "..");
+const APP_VERSION = packageJson.version;
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 function read(relativePath) {
   return fs.readFileSync(path.join(ROOT, relativePath), "utf8");
@@ -46,11 +52,11 @@ test("web root is a promo landing page with download and app entry points", () =
   assert.match(scrollJs, /IntersectionObserver/);
   assert.match(scrollJs, /prefers-reduced-motion: reduce/);
   assert.match(html, /href="\/downloads\/mia-macos-apple-silicon-latest\.dmg"/);
-  assert.match(html, /download="Mia-macOS-Apple-Silicon\.dmg"/);
+  assert.match(html, new RegExp(`download="Mia-${escapeRegExp(APP_VERSION)}-Apple-Silicon\\.dmg"`));
   assert.match(html, /href="\/downloads\/mia-macos-intel-latest\.dmg"/);
-  assert.match(html, /download="Mia-macOS-Intel\.dmg"/);
+  assert.match(html, new RegExp(`download="Mia-${escapeRegExp(APP_VERSION)}-Intel\\.dmg"`));
   assert.match(html, /href="\/downloads\/mia-windows-latest\.exe"/);
-  assert.match(html, /download="Mia-Windows\.exe"/);
+  assert.match(html, new RegExp(`download="Mia-${escapeRegExp(APP_VERSION)}-Setup\\.exe"`));
   assert.match(html, /href="\/downloads\/mia-android-latest\.apk"/);
   assert.match(html, /data-download-option="android"/);
   assert.match(html, /data-primary-download/);
@@ -82,7 +88,10 @@ test("web root is a promo landing page with download and app entry points", () =
   assert.match(html, /Hermes/);
   assert.match(html, /assets\/icons\/openclaw\.svg/);
   assert.doesNotMatch(html, /Permission request/);
-  assert.match(html, /Mia-macOS-Apple-Silicon\.dmg/);
+  assert.match(html, new RegExp(`Mia-${escapeRegExp(APP_VERSION)}-Apple-Silicon\\.dmg`));
+  assert.match(js, new RegExp(`download: 'Mia-${escapeRegExp(APP_VERSION)}-Apple-Silicon\\.dmg'`));
+  assert.match(js, new RegExp(`download: 'Mia-${escapeRegExp(APP_VERSION)}-Intel\\.dmg'`));
+  assert.match(js, new RegExp(`download: 'Mia-${escapeRegExp(APP_VERSION)}-Setup\\.exe'`));
   assert.match(html, /macOS Intel/);
   assert.match(html, /Windows/);
 });
@@ -120,7 +129,12 @@ test("cloud release builder can publish desktop installers as web downloads", ()
   assert.match(source, /Mia-\*-Apple-Silicon\.dmg/);
   assert.match(source, /Mia-\*-Intel\.dmg/);
   assert.match(source, /Mia-\*-Setup\.exe/);
+  assert.match(source, /downloadNamePatterns: \[\/Mia-macOS-Apple-Silicon\\\.dmg\/g/);
+  assert.match(source, /const fileName = path\.basename\(artifact\)/);
   assert.match(source, /copyDesktopDownloadArtifacts/);
+  assert.match(source, /rewriteWebDownloadLinks/);
+  assert.match(source, /\/downloads\/\$\{download\.fileName\}/);
+  assert.match(source, /verifyVersionedWebDownloadLinks/);
   assert.match(source, /web\/assets\/mia\.css/);
   assert.match(source, /web\/assets\/mia\.js/);
   assert.match(source, /web\/assets\/mia-gradient\.css/);

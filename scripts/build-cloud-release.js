@@ -48,6 +48,7 @@ function copyDesktopDownloadArtifacts() {
   fs.mkdirSync(downloadsDir, { recursive: true });
   const targets = [
     {
+      downloadNamePatterns: [/Mia-macOS-Apple-Silicon\.dmg/g, /Mia-[0-9A-Za-z._-]+-Apple-Silicon\.dmg/g],
       aliases: ["mia-macos-apple-silicon-latest.dmg", "mia-macos-arm64-latest.dmg"],
       patterns: [
         {
@@ -61,6 +62,7 @@ function copyDesktopDownloadArtifacts() {
       ]
     },
     {
+      downloadNamePatterns: [/Mia-macOS-Intel\.dmg/g, /Mia-[0-9A-Za-z._-]+-Intel\.dmg/g],
       aliases: ["mia-macos-intel-latest.dmg", "mia-macos-x64-latest.dmg"],
       patterns: [
         {
@@ -74,6 +76,7 @@ function copyDesktopDownloadArtifacts() {
       ]
     },
     {
+      downloadNamePatterns: [/Mia-Windows\.exe/g, /Mia-[0-9A-Za-z._-]+-Setup\.exe/g],
       aliases: ["mia-windows-latest.exe", "mia-windows-x64-latest.exe"],
       patterns: [
         {
@@ -83,13 +86,22 @@ function copyDesktopDownloadArtifacts() {
       ]
     }
   ];
+  const downloads = [];
   for (const target of targets) {
     const artifact = newestReleaseArtifact(target.patterns);
     if (!artifact) continue;
+    const fileName = path.basename(artifact);
+    fs.copyFileSync(artifact, path.join(downloadsDir, fileName));
     for (const alias of target.aliases) {
       fs.copyFileSync(artifact, path.join(downloadsDir, alias));
     }
+    downloads.push({
+      fileName,
+      hrefs: target.aliases.map((alias) => `/downloads/${alias}`),
+      downloadNamePatterns: target.downloadNamePatterns
+    });
   }
+  return downloads;
 }
 
 function writeIcoFromPng(sourcePng, targetIco) {
@@ -142,6 +154,32 @@ function rewriteWebAssetVersions() {
   const assetVersion = assetVersionForRelease();
   const source = fs.readFileSync(indexPath, "utf8");
   fs.writeFileSync(indexPath, source.replace(/\?v=[^"'\s<>]+/g, `?v=${assetVersion}`));
+}
+
+function replaceAll(source, search, replacement) {
+  return source.split(search).join(replacement);
+}
+
+function rewriteWebDownloadLinks(downloads) {
+  if (!downloads.length) return;
+  const files = [
+    path.join(webDir, "index.html"),
+    path.join(webDir, "assets", "mia.js")
+  ];
+  for (const file of files) {
+    if (!fs.existsSync(file)) continue;
+    let source = fs.readFileSync(file, "utf8");
+    for (const download of downloads) {
+      const versionedHref = `/downloads/${download.fileName}`;
+      for (const href of download.hrefs) {
+        source = replaceAll(source, href, versionedHref);
+      }
+      for (const pattern of download.downloadNamePatterns) {
+        source = source.replace(pattern, download.fileName);
+      }
+    }
+    fs.writeFileSync(file, source);
+  }
 }
 
 function sha256File(filePath) {
@@ -440,6 +478,51 @@ server {
 `);
 }
 
+function verifyVersionedWebDownloadLinks() {
+  const productName = rootPackage.productName || "Mia";
+  const version = rootPackage.version || "0.0.0";
+  const checks = [
+    {
+      fileName: `${productName}-${version}-Apple-Silicon.dmg`,
+      oldHrefs: ["/downloads/mia-macos-apple-silicon-latest.dmg", "/downloads/mia-macos-arm64-latest.dmg"],
+      oldNames: ["Mia-macOS-Apple-Silicon.dmg"]
+    },
+    {
+      fileName: `${productName}-${version}-Intel.dmg`,
+      oldHrefs: ["/downloads/mia-macos-intel-latest.dmg", "/downloads/mia-macos-x64-latest.dmg"],
+      oldNames: ["Mia-macOS-Intel.dmg"]
+    },
+    {
+      fileName: `${productName}-${version}-Setup.exe`,
+      oldHrefs: ["/downloads/mia-windows-latest.exe", "/downloads/mia-windows-x64-latest.exe"],
+      oldNames: ["Mia-Windows.exe"]
+    }
+  ];
+  const sources = [
+    { label: "web/index.html", source: fs.readFileSync(assertFile("web/index.html"), "utf8") },
+    { label: "web/assets/mia.js", source: fs.readFileSync(assertFile("web/assets/mia.js"), "utf8") }
+  ];
+
+  for (const check of checks) {
+    if (!fs.existsSync(path.join(webDir, "downloads", check.fileName))) continue;
+    for (const { label, source } of sources) {
+      if (!source.includes(`/downloads/${check.fileName}`)) {
+        throw new Error(`${label} must link to the versioned desktop installer ${check.fileName}.`);
+      }
+      for (const oldHref of check.oldHrefs) {
+        if (source.includes(oldHref)) {
+          throw new Error(`${label} still points ${oldHref} at a desktop installer with no version in the filename.`);
+        }
+      }
+      for (const oldName of check.oldNames) {
+        if (source.includes(oldName)) {
+          throw new Error(`${label} still saves desktop installers as ${oldName} without a version.`);
+        }
+      }
+    }
+  }
+}
+
 function verifyRelease() {
   const requiredFiles = [
     "README.md",
@@ -625,6 +708,7 @@ function verifyRelease() {
   if (!webAppHtml.includes(`../app.js?v=${assetVersionForRelease()}`)) {
     throw new Error("Release web app shell must use the release asset version for app.js.");
   }
+  verifyVersionedWebDownloadLinks();
   if (/20260601-avatar-root/.test(webAppHtml)) {
     throw new Error("Release web app shell must not ship stale hard-coded avatar asset versions.");
   }
@@ -759,7 +843,8 @@ function main() {
   copyFile("src/permission-modes.js", path.join(apiDir, "src", "permission-modes.js"));
   copyDir("skills", path.join(apiDir, "skills"));
   copyDir("src/web", webDir);
-  copyDesktopDownloadArtifacts();
+  const desktopDownloads = copyDesktopDownloadArtifacts();
+  rewriteWebDownloadLinks(desktopDownloads);
   copyDir("src/renderer/assets/model-icons", path.join(webDir, "assets", "model-icons"));
   copyDir("src/renderer/assets/provider-icons", path.join(webDir, "assets", "provider-icons"));
   copyDir("src/renderer/assets/engine-icons", path.join(webDir, "assets", "engine-icons"));

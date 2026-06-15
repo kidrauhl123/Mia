@@ -1,1 +1,233 @@
-CLAUDE.md
+# mia — Claude 阅读须知
+
+## 这个项目是什么
+
+**Agent 时代的聊天平台 / 多 Agent 协作管理平台**。
+
+用 GUI 给用户一个统一、好用的入口，去聊、去管、去协调一堆 AI Agent：openclaw、Hermes、Codex、Claude Code…… 用户不用记每个 CLI 怎么用、各自跑在哪、状态怎样——mia 把它们都接进同一个聊天界面，让它们能像同事一样被叫出来、被指挥、被组合。
+
+简单说：**对话是入口，Agent 是肉，GUI 是壳**。
+
+## 技术实现
+
+桌面端是 Electron 应用。
+
+- **主进程**（`src/main.js` + `src/main/<feature>/`）—— UI / IPC，以及 mia 真正的价值层：**多引擎编排、会话与记忆隔离、多角色叙事与角色间的功能联系**。引擎可换可并行，这层不变。
+- **Agent 引擎（对等、可插拔）** —— Hermes、Claude Code、Codex、openclaw、gemini…… 以后还能接更多。对 mia **对等、可替换**：统一在 `chatEngineRegistry` 注册 + 每个引擎一个 `*-chat-adapter.js`，mia 只接入和编排、不改它们、保持兼容。
+- **引擎从哪来** —— **都不打包**：从用户系统 `PATH` 探测复用用户自己装的（Hermes 走 `src/main/system-hermes-service.js` 的 `shellCommandPath("hermes")`，claude/codex 等走 `src/main/local-agent-engine-service.js`），装在各自默认位置、mia 不干预安装路径；Hermes 也可以跑在云端 Docker（`cloud/hermes-image/`）。
+
+Hermes 只是其中一个上游开源引擎（上游 `~/github/Alkaka-reference/hermes-agent/`，**不是 mia 写的**，mia **不 fork**）。判断它真实行为看用户 `PATH` 上装的那个版本，或云端 `cloud/hermes-image/Dockerfile` pin 的 tag。
+
+### 硬规则
+
+- **永远不要把 claude / codex 二进制加进 `extraResources` 或当成可分发依赖打包**——复用用户已装好的 CLI 是产品定位的核心，曾把 DMG 从 379MB 砍到 207MB 就是靠这条。如果改动让你想"顺手"打包它们,先确认是不是误解了产品意图。
+- 合并或拉完代码记得 `npm run dist:mac`(或对应平台脚本)重建,否则你跑的还是旧二进制。
+
+## 运行 / 验证 / 故障边界
+
+常用入口按目标选，不要盲目跑最重命令：
+
+- **快速测试**：`npm test`
+- **项目自检**：`npm run check`
+- **桌面端开发**：`npm start` / `npm run open`
+- **Web 端本地预览**：`npm run web`
+- **Cloud / Bridge 调试**：优先看 `package.json` 里的 `cloud:*` 和 `bridge` 脚本，按当前链路只启动必要服务。
+- **Agent 引擎接入**：注册表 `chatEngineRegistry` + 各 `*-chat-adapter.js`；引擎探测/复用看 `system-hermes-service.js`（hermes）、`local-agent-engine-service.js`（claude/codex 等）；Hermes 起进程看 `runtime-lifecycle-service.js`，云端 Hermes 看 `cloud/hermes-image/`。
+
+遇到这些情况先停下来确认，不要用重试或"顺手修"掩盖问题：
+
+- Electron app 正在运行导致打包、覆盖、签名、删除失败：先让用户关闭正在运行的 app / 相关进程。
+- 端口被 `web` / `cloud` / `bridge` 占用：先确认是不是已有 mia 服务，不要直接 kill 不明进程。
+- Hermes 行为和源码不一致：确认用户系统上装的是哪个版本的 `hermes`（PATH 上的那个，随用户安装漂移）；云端看 `cloud/hermes-image/` 的 pin。
+- 测试或脚本需要用户数据目录时，必须使用临时目录或显式测试 fixture；不要让自动化测试写真实 `~/Library/Application Support/Mia`。
+
+## 代码组织
+
+**核心原则：避免新增或继续扩大“大杂烩”文件。**
+
+`src/main.js`、`src/renderer/app.js`、`src/renderer/styles.css` 已经承担了过多职责。新工作应该让这些入口逐步变薄，而不是继续把不相关逻辑塞进去。判断依据不是死板行数，而是职责是否混杂、审阅是否困难、是否会让并行改动更容易冲突。
+
+### 结构规则
+
+- 新功能优先放进按领域/职责命名的模块，例如 `src/main/ipc/`、`src/main/<feature>/`、`src/renderer/<feature>/`、`src/renderer/styles/<feature>.css`，再由入口文件装配。
+- 修改已明显偏大的入口文件时，除非只是极小改动，否则优先抽出清晰的子模块、共享 contract、feature stylesheet 或窄 adapter，让入口文件净减少或至少不继续膨胀。
+- 允许启动入口、协议适配、生成文件、迁移脚本、测试 fixture 暂时偏大；但不要把它当作继续混入无关职责的理由。大文件存在时，后续改动应顺手减债。
+- **禁止**起 `utils.js` / `helpers.js` / `common.js` 这种语义无关的"桶"文件——它们最后必然变成下一个大杂烩。辅助代码也要按所属领域命名。
+- **不要为单次使用提前抽象**——最小可解决问题的代码，不写"将来可能用得上"的参数 / 配置项 / 抽象层（参考 Karpathy 守则 "Simplicity First"）。
+- **改动外科手术化**：只动本次任务必要的行；不要"顺手"重命名、重排、改注释、改格式。每一行改动都要能直接追溯到用户的请求。
+- 删自己改动产生的孤立 import / 变量；**不要**删既有死代码（除非被明确要求）——它可能是别人 in-progress 的工作。
+
+### 已经在跑的拆分样板（照抄即可）
+
+- `src/shared/ipc-channels.js` / `src/shared/engine-contracts.js` —— main、preload、renderer、测试共用的 contract；新增跨进程字符串先收敛到这里或所属 feature 的 contract。
+- `src/main/ipc/window-ipc.js` / `tasks-ipc.js` —— IPC 按职责注册，`main.js` 只做装配。
+- `src/main/codex-chat-adapter.js` / `claude-code-chat-adapter.js` / `hermes-chat-adapter.js` —— 三个引擎适配器各一文件，统一在 `chatEngineRegistry` 注册。
+- `src/main/scheduler*.js` + `tasks-*.js` —— 任务调度子系统，按职责分多文件。
+- `src/renderer/app-state.js`、`src/renderer/bot/`、`src/renderer/social/social.js`、`src/renderer/message-sources/` —— renderer feature 用 IIFE + `window.miaXxx.init...({...deps})` 接回 `app.js`。
+- `src/renderer/styles/chat.css`、`groups.css`、`tasks.css`、`responsive.css` —— CSS 按界面职责拆分，由 `index.html` 组合。
+- `src/cloud/` / `src/web/` / `src/main/cloud/` / `src/main/remote/` / `apps/mobile-rn/src/` —— 跨设备 / 多端能力独立子目录。
+
+新功能直接照这些接口形状写新文件，不要发明新抽象层。
+
+### 目标布局（按特性切，参考 AionUi 的 process 目录和 Cherry 的 main 目录）
+
+```
+src/
+├── main.js              ← 启动 + 装配，持续变薄
+├── main/<feature>/      ← 主进程按业务领域分子目录（chat / ipc / hermes / cloud / permissions / window 等）
+├── renderer/
+│   ├── app.js           ← 装配 + 路由，持续变薄
+│   ├── <feature>.js     ← 小特性单文件（同 app-state 形状）
+│   ├── <feature>/       ← 复杂特性独立目录（同 group / social 形状）
+│   └── styles/<feature>.css
+├── preload.js
+└── cloud/  web/  main/cloud/  main/remote/  apps/mobile-rn/src/  ← 已有独立子系统保持隔离
+```
+
+### 改动前必答的三问
+
+1. 这段代码能放到新文件里吗，让 `main.js` / `app.js` 不再变长？
+2. 我引入的参数 / 抽象，是这次任务必须的，还是"将来可能用得上"？
+3. 我对相邻代码的"顺手改"，能不能不做、或者拆成独立 commit？
+
+任一答不上：停下来问用户。
+
+## 工程约束
+
+### Git / 提交消息
+
+- commit 标题必须写中文摘要，允许保留 conventional commit 前缀，例如 `fix(agent): 清理失效的 Claude Code 会话映射`。
+- 不要写只有英文的 commit subject；GitHub 列表第一眼要能让中文读者看懂这次改了什么。
+- body 可以继续用中文补充原因、验证命令和残余风险；如果没有必要，不要为了凑格式写空泛描述。
+
+### 进程边界 / IPC
+
+mia 是 Electron app，主进程、渲染进程、preload、cloud / web / mobile 子系统的边界要清楚：
+
+- renderer 不直接使用 Node / Electron 能力；需要系统能力时走 preload 暴露的窄接口。
+- main 不写 DOM 逻辑；窗口、文件、进程、runtime、IPC 编排留在 main 或 `src/main/<feature>/`。
+- 跨进程通信必须走明确 IPC channel；新增 channel 要集中登记或收敛到所属 feature 的常量文件，不要在调用点散落裸字符串。
+- 同一个聊天 / 任务 / agent runtime 的主状态只能有一个 canonical owner。Web、mobile、desktop 可以是壳或辅助视图，不要各自重写一套会话状态机。
+
+### 常量 / 状态 / schema
+
+- 多处比较或 switch 的字符串必须集中为模块级常量：engine id、session status、permission kind、task status、IPC channel、cloud event type 等都算。
+- 测试也要引用同一份常量，避免"实现改了、测试还在复制旧字符串"。
+- 持久化数据要向后兼容：SQLite 表、cloud state、本地会话、任务、Hermes runtime cache、用户配置都不能随意改字段语义。
+- 新字段要有默认值；重命名 / 删除 / 结构调整必须有迁移策略，并能重复运行而不破坏已有数据。
+- secret 只进系统钥匙串、用户私有配置或 `.env` 类机制；非 secret 的开关、路径、阈值不要藏在环境变量里当长期配置。
+
+### 日志
+
+- 日志要能服务诊断，不要制造噪音。轮询、heartbeat、streaming token 这类高频路径不要打 info 级日志。
+- 日志消息用英文自然句，带稳定模块 tag，例如 `[HermesRuntime] started runtime process`。
+- `warn` 用于可恢复异常和降级；`error` 用于需要调查的失败，并把 caught error object 作为最后一个参数传入。
+- 不写纯变量 dump、函数入口日志、每 tick 日志；需要调试细节时用 `debug` 或临时 instrumentation，结束后清理。
+
+### 扩展方式
+
+- 新 engine / channel / skill / runtime 能力优先走 adapter / registry / plugin 形状；缺 hook 就扩 hook，不要把某个 provider 或平台特例硬塞进核心大文件。
+- UI 尺寸、颜色、spacing 优先落在 CSS / design token / class，不要在 JS 里散落 magic number。
+
+## 参考项目
+
+设计聊天 UX、流式输出、tool-use 渲染、多引擎适配时，**先去读这些项目**。每个都从不同角度切入，按当前任务挑读，不要照抄。
+
+### 开源代码参考
+
+**AionUi**（iOfficeAI/AionUi，Apache-2.0）—— Electron 多引擎 AI 客户端，**和 mia 同一品类**，强相关。
+本地路径：`~/github/Alkaka-reference/AionUi`
+值得读的角度：
+- `src/process/agent/AgentRegistry.ts` —— 多引擎统一注册表（ACP CLIs、Gemini、OpenClaw、Nanobot、Remote、Custom ACP），覆盖 mia 未来要做的方向
+- `src/process/agent/acp/AcpDetector.ts` —— PATH 探测 CLI 可用性，和 Mia 的 `local-agent-engine-service` 同套思路，参考它的探测时机 / 缓存策略 / 失败回退
+- `src/process/channels/` —— Telegram / Lark / 钉钉 / 微信 / 企微 接入实现
+- `src/process/webserver/` —— 手机远程访问 WebUI（WebSocket + 配对协议）
+- `src/process/pet/` —— 桌宠状态机 / 事件桥（仅参考思路；mia 的桌宠按 ADR-0002 放在独立 repo）
+- `src/process/task/` —— Cron 调度
+- 三进程隔离约定（main / renderer / worker，禁止跨进程 API 混用）见根目录 `AGENTS.md`
+
+**LobsterAI**（网易有道，MIT）—— Electron + React 个人助理 Agent 客户端，主打 24/7 自动化任务，**和 mia "复用用户已装的外部 CLI / runtime" 的路线相关**。
+本地路径：`~/github/Alkaka-reference/lobsterai`
+值得读的角度：
+- `src/main/libs/openclawEngineManager.ts` —— Engine 状态机 / 自动重启 / runtime 探测的首选样板（Hermes runtime 管理可直接对照）
+- `src/main/libs/pythonRuntime.ts` —— Python 运行时怎么寻路、起进程、健康检查，mia 探测 / 启动用户的 Hermes（`system-hermes-service.js` / `runtime-lifecycle-service.js`）可参考
+- `src/scheduledTask/` —— Cron 调度（`cronJobService.ts`、模型映射、迁移），需要做定时 Agent 时直接看这里
+- `src/main/libs/mcpServerManager.ts` + `mcpBridgeServer.ts` —— MCP server 生命周期管理
+- `src/main/libs/coworkOpenAICompatProxy.ts` —— 给 Agent 暴露 OpenAI 兼容接口的代理写法
+- `src/common/coworkErrorClassify.ts` —— Agent 错误分类，统一错误展示参考
+
+**Cherry Studio** —— Electron + React 多供应商聊天客户端。
+本地路径：`Alkaka-reference/cherry-studio`
+值得读的角度：跨多 provider 的流式架构（Vercel AI SDK `fullStream` 适配器）、统一 chunk schema、thinking / reasoning UI、MCP tool 渲染、Electron IPC 上的 abort 流程。
+
+**ClaudeCodeUI**（siteboon/claudecodeui）—— React + Node.js Web UI，包了 Claude Code / Cursor CLI / Codex / Gemini CLI。
+本地路径：`Alkaka-reference/claudecodeui`
+值得读的角度：one-file-per-CLI 的 provider 布局、`normalizeMessage` 适配器模式、带轮转动词的 agent 状态栏、tool renderer 路由。
+
+**Telegram 开源端** —— 聊天 UX 参考。
+未本地克隆。主要候选：tdesktop（https://github.com/telegramdesktop/tdesktop ，C++/Qt）、telegram-web（https://github.com/Ajaxy/telegram-tt ，TS/React）。
+值得读的角度：typing / recording / 状态指示动画、消息列表虚拟化、reply / quote / forward 交互、动态贴纸、打磨过的聊天细节。
+
+### UX 参考（闭源，只观察行为）
+
+**WorkBuddy**（腾讯云 CodeBuddy 团队，2026.3 上线）—— **OpenClaw 兼容**的桌面 AI Agent，**和 mia 同一赛道的直接竞品**。
+官网 / 入口：腾讯云 WorkBuddy（macOS / Windows 都有）
+值得观察：
+- "自然语言 → 多步桌面任务"的指令到执行的 UX 链路（mia 正面对标这块）
+- **微信扫码一键配对，手机远程控制 PC 端 Agent** 的交互流程（可对比 AionUi 的 webserver 方案）
+- 20+ skill 模板（编码 / 文档 / 调研 / 数据分析 / 自动化）的入口和呈现
+- 多模型切换（混元 / DeepSeek / GLM / Kimi / MiniMax）的选择 UX
+- "no projects setup required"开箱即用的初始化路径
+（参考报道：[TechNode](https://technode.com/2026/03/09/tencent-launches-openclaw-like-workplace-ai-agent-workbuddy/)、[AIBase](https://www.aibase.com/news/26048)）
+
+**微信** —— alkaka-qt 的微信风格 UI 已经做了部分建模。
+值得观察：会话列表密度、窄窗返回导航、avatar + 名字 + 预览行、中国市场聊天界面惯例。
+
+**Codex 桌面端** —— OpenAI Codex.app（Electron，曾拆过 `app.asar` 看内部）。
+值得观察：agent 风格聊天（长任务、tool 密集）、todo / plan 渲染、avatar overlay 系统、多步任务进行中的状态反馈。
+
+**Claude 桌面端** —— Anthropic Claude.app。
+值得观察：流式 token 渲染、tool-use 卡片（inline，可折叠）、project / files 面板、代码块 UX。
+
+### 怎么用这份清单
+
+把它当作出发点，不是规范。当前任务在哪个维度，就去对应项目里挖灵感：
+
+- **多引擎检测 / 远程接入 / IM 接入 / 桌宠协议** → AionUi（最直接对位）
+- **Engine 状态机 / Python 运行时管理 / Cron 调度 / MCP 生命周期** → LobsterAI（路线最重合）
+- **流式 + tool 管道** → Cherry Studio、ClaudeCodeUI
+- **UI 打磨与微交互** → Telegram、微信、Claude、Codex 桌面端
+- **同赛道竞品体验（自然语言任务、扫码远控、skill 模板）** → WorkBuddy
+- **AI 供应商 / 模型 / Agent 图标** → LobeHub Icons（`https://lobehub.com/icons` / `lobehub/lobe-icons`）。静态 SVG 优先落到 `src/renderer/assets/engine-icons/`、`provider-icons/` 或 `model-icons/`，不要临时手画品牌图标。
+
+发现值得跨 session 记住的点，就在这里加一行指针（文件路径 + 一句"用来干嘛"）。
+
+
+<claude-mem-context>
+# Memory Context
+
+# [mia] recent context, 2026-06-12 6:23pm GMT+8
+
+Legend: 🎯session 🔴bugfix 🟣feature 🔄refactor ✅change 🔵discovery ⚖️decision
+Format: ID TIME TYPE TITLE
+Fetch details: get_observations([IDs]) | Search: mem-search skill
+
+Stats: 13 obs (7,160t read) | 233,279t work | 97% savings
+
+### Jun 12, 2026
+1247 5:55p ⚖️ ADR P2: Cloud Event Socket Single-Host — Daemon Owns, Window Defers to Local SSE
+1248 5:56p ⚖️ mia Electron ADR P2 Code Review: Cloud Event Socket Single-Host Architecture
+1249 5:57p ⚖️ ADR P2: Cloud Event Socket Single-Host — Daemon Owns Socket When Enabled
+1250 5:58p 🔵 Mia Cloud: Persisted vs Transient Event Broadcast Split in serve-cloud.js
+1251 5:59p 🔵 Cloud Agent Run Events Flow: local-bot-responder emits via emitCloudEvent, not broadcastPersistedEvent
+1252 6:00p ⚖️ ADR P2: Cloud Events Socket 单宿主架构 — daemon 启用时窗口让位
+1253 6:10p 🟣 mia ADR P3: Single-Writer Pattern for mia-cloud.json via Daemon Control API
+1254 " 🔴 mia desktop-sync-client: Missing `await` on writeCloudSettings Calls Fixed
+1255 " ⚖️ ADR P3: Daemon as Sole mia-cloud.json Writer with Silent Fallback
+1256 6:12p 🔵 mia: cloud-events-client Bypasses cloudSettingsWriter for Cursor-Only Updates
+1257 " 🔵 mia: /api/cloud-settings Handler Calls writeCloudSettings Synchronously — No await Gap
+1258 " 🔵 mia: daemonToken Is a File-Backed Function — Read Fresh on Every Call
+1259 6:13p 🟣 mia: ADR P3 单写者凭据委托架构实现
+
+Access 233k tokens of past work via get_observations([IDs]) or mem-search skill.
+</claude-mem-context>
