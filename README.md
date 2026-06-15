@@ -9,10 +9,10 @@ Mia 是一个桌面优先的多 Agent 聊天平台。
 ## 当前状态
 
 - 桌面端是主产品形态，基于 Electron。
-- macOS Apple Silicon 和 Intel 都有独立打包入口；Windows 打包脚本已存在但仍按实际验证结果发布。
+- macOS 优先面向 Apple Silicon；Intel 保留独立兼容包，Windows 脚本按实际验证结果发布。
 - Web/Cloud 已有账号、好友、群聊、Bot、文件、实时同步和桌面 Bridge 能力。
 - `apps/mobile-rn/` 下有 React Native 移动端工程，但当前 README 以桌面端和 Cloud/Web 为主。
-- 版本号见 `package.json`，当前为 `0.1.9`。
+- 版本号以 `package.json` 为准。
 
 公开入口：
 
