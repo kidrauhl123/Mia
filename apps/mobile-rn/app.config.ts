@@ -28,6 +28,10 @@ const config: ExpoConfig = {
   ios: {
     bundleIdentifier: "app.mia.mobile",
     supportsTablet: true,
+    infoPlist: {
+      // Allow opening / querying the WeChat app from the login screen.
+      LSApplicationQueriesSchemes: ["weixin"],
+    },
   },
   web: {
     favicon: "./assets/favicon.png",
