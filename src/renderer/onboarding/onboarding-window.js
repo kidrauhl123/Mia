@@ -21,6 +21,7 @@
     codex: "../assets/engine-icons/codex-color.svg",
     openclaw: "../assets/provider-icons/openclaw-color.svg"
   };
+  const INSTALL_MESSAGE_MAX = 72;
 
   let step = "login"; // login | scan | done
   let hint = "";
@@ -34,6 +35,11 @@
 
   function hasActiveInstall() {
     return Object.values(installStates).some((install) => install?.status === "installing");
+  }
+
+  function isAgentReady(id) {
+    const agent = ((inventory && inventory.agents) || []).find((item) => item.id === id);
+    return Boolean(agent && (agent.usableInMia || agent.installed));
   }
 
   function esc(value) {
@@ -121,7 +127,7 @@
   function shortMessage(value) {
     const text = String(value || "").replace(/\s+/g, " ").trim();
     if (!text) return "";
-    return text.length > 120 ? `${text.slice(0, 117)}…` : text;
+    return text.length > INSTALL_MESSAGE_MAX ? `${text.slice(0, INSTALL_MESSAGE_MAX - 1)}…` : text;
   }
 
   function scheduleRender() {
@@ -171,7 +177,7 @@
       const installPercent = Number(install?.percent);
       const percent = Number.isFinite(installPercent) ? Math.max(0, Math.min(100, Math.round(installPercent))) : null;
       const detail = install?.message
-        ? `<small class="onb-row-detail ${failed ? "error" : ""}">${esc(shortMessage(install.message))}</small>`
+        ? `<small class="onb-row-detail ${failed ? "error" : ""}" title="${esc(install.message)}">${esc(shortMessage(install.message))}</small>`
         : "";
       const progress = installing ? `<span class="onb-row-progress" aria-hidden="true"><span style="width:${percent === null ? 18 : Math.max(4, percent)}%"></span></span>` : "";
       const right = installing
@@ -315,15 +321,17 @@
       installStates[id] = { status: "installing", message: "安装完成，正在重新检测...", percent: 100 };
       const result = await mia.scanAgents?.();
       if (result && result.inventory) inventory = result.inventory;
-      const agent = ((inventory && inventory.agents) || []).find((x) => x.id === id);
-      if (agent && (agent.usableInMia || agent.installed)) delete installStates[id];
+      if (isAgentReady(id)) delete installStates[id];
       else installStates[id] = { status: "error", message: "安装命令已结束，但 Mia 仍未检测到。请确认命令所在目录已加入 PATH 后重试。" };
     } catch (error) {
-      installStates[id] = { status: "error", message: `安装失败：${error?.message || error}`, percent: installStates[id]?.percent };
+      const percent = installStates[id]?.percent;
+      const message = `安装失败：${error?.message || error}`;
       try {
         const result = await mia.scanAgents?.();
         if (result && result.inventory) inventory = result.inventory;
       } catch { /* keep the original install error */ }
+      if (isAgentReady(id)) delete installStates[id];
+      else installStates[id] = { status: "error", message, percent };
     }
     render();
   }

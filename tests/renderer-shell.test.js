@@ -741,6 +741,29 @@ test("first-run onboarding cannot enter Mia while an engine install is running",
   assert.doesNotMatch(appStyles, /\.onb-login-qr-card/);
 });
 
+test("first-run onboarding keeps install errors compact with full detail available", () => {
+  const standaloneSource = fs.readFileSync(path.join(root, "src/renderer/onboarding/onboarding-window.js"), "utf8");
+  const standaloneStyles = fs.readFileSync(path.join(root, "src/renderer/onboarding/onboarding.css"), "utf8");
+  const rowStateBlock = standaloneStyles.match(/\.onb-row\.installing,[\s\S]*?\.onb-row\.error \{[\s\S]*?\}/)?.[0] || "";
+  const detailBlock = standaloneStyles.match(/\.onb-row-detail \{[\s\S]*?\}/)?.[0] || "";
+
+  assert.match(standaloneSource, /const INSTALL_MESSAGE_MAX = 72;/);
+  assert.match(standaloneSource, /title="\$\{esc\(install\.message\)\}"/);
+  assert.match(rowStateBlock, /min-height:\s*76px;/);
+  assert.doesNotMatch(rowStateBlock, /height:\s*108px;/);
+  assert.match(detailBlock, /-webkit-line-clamp:\s*2;/);
+  assert.match(detailBlock, /max-height:\s*32px;/);
+});
+
+test("first-run onboarding clears install failure state when rescan finds the agent", () => {
+  const standaloneSource = fs.readFileSync(path.join(root, "src/renderer/onboarding/onboarding-window.js"), "utf8");
+  const installSource = extractFunctionSource(standaloneSource, "installAgent");
+
+  assert.match(standaloneSource, /function isAgentReady\(id\)/);
+  assert.match(installSource, /if\s*\(isAgentReady\(id\)\)\s*delete installStates\[id\];/);
+  assert.match(installSource, /catch\s*\(error\)\s*\{[\s\S]*?scanAgents\?\.\(\)[\s\S]*?if\s*\(isAgentReady\(id\)\)\s*delete installStates\[id\];[\s\S]*?else installStates\[id\] = \{ status: "error"/);
+});
+
 test("chat code blocks use a right-aligned language copy button without code frame borders", () => {
   const chatCss = fs.readFileSync(path.join(root, "src/renderer/styles/chat.css"), "utf8");
   const webCss = fs.readFileSync(path.join(root, "src/web/styles.css"), "utf8");
