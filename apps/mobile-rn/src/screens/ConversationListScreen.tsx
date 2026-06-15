@@ -104,7 +104,7 @@ export default function ConversationListScreen({ navigation }: Props) {
               <View style={styles.titleRow}>
                 <View style={styles.titleWithBadge}>
                   <BodyStrong numberOfLines={1} style={styles.title}>{item.title}</BodyStrong>
-                  <StatusBadge badge={item.statusBadge} apiBase={apiBase} size={15} />
+                  <StatusBadge badge={item.statusBadge} apiBase={apiBase} size={20} />
                 </View>
                 {pinnedSet.has(item.id) ? <Label style={styles.pin}>置顶</Label> : null}
                 {item.timeText ? <Sub numberOfLines={1} style={styles.time}>{item.timeText}</Sub> : null}
@@ -137,7 +137,7 @@ const styles = StyleSheet.create({
   pressed: { backgroundColor: color.surfaceMuted },
   textCol: { flex: 1, minWidth: 0, gap: 2 },
   titleRow: { flexDirection: "row", alignItems: "center", gap: space.sm },
-  titleWithBadge: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 4 },
+  titleWithBadge: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 0 },
   title: { flex: 1, minWidth: 0 },
   time: { color: color.inkFaint, fontSize: 12 },
   sub: { marginTop: 1 },

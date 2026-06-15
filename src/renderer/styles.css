@@ -5345,6 +5345,11 @@ select.select-open {
   line-height: 1;
 }
 
+.identity-badge-trigger .name-with-badge-badge {
+  --name-badge-shift-x: 0px;
+  --name-badge-shift-y: 0px;
+}
+
 .identity-badge-empty-icon {
   display: block;
   width: 1.08em;
@@ -5451,6 +5456,8 @@ select.select-open {
 .identity-badge-choices .name-with-badge-badge,
 .identity-badge-choices .name-with-badge-badge svg {
   --name-badge-size: 22px;
+  --name-badge-shift-x: 0px;
+  --name-badge-shift-y: 0px;
 }
 
 .pet-generate-card label,

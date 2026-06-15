@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View, type ViewStyle } from "react-native";
 import { Directory, File, Paths } from "expo-file-system";
 import { color } from "../theme";
 import type { StatusBadge as StatusBadgeT } from "../api/types";
@@ -77,7 +77,8 @@ export default function StatusBadge({ badge, apiBase, size = 16 }: { badge?: Sta
   const uriCacheKey = `${String(apiBase || "").replace(/\/+$/, "")}:${assetId}`;
   const [uri, setUri] = useState(() => lottieUriCache.get(uriCacheKey) || "");
   const lottieSource = useMemo(() => (uri ? { uri } : null), [uri]);
-  const boxStyle = { width: size, height: size };
+  const wrapperStyle: ViewStyle = { width: size + 2, height: size, paddingLeft: 2, transform: [{ translateY: -1 }] };
+  const boxStyle: ViewStyle = { width: size, height: size };
   const roundStyle = { borderRadius: size / 2 };
 
   useEffect(() => {
@@ -93,20 +94,37 @@ export default function StatusBadge({ badge, apiBase, size = 16 }: { badge?: Sta
 
   if (!badge) return null;
   if (badge.kind === "emoji") {
-    return <Text style={[styles.emoji, { fontSize: size * 0.82, lineHeight: size }]}>{badge.emoji}</Text>;
+    return (
+      <View style={[styles.wrap, wrapperStyle]}>
+        <Text style={[styles.emoji, { width: size, height: size, fontSize: size * 0.95, lineHeight: size }]}>{badge.emoji}</Text>
+      </View>
+    );
   }
   if (badge.kind === "lottie") {
     if (!assetId) return null;
     if (lottieSource && LottieView) {
-      return <LottieView source={lottieSource} autoPlay loop style={[styles.lottie, boxStyle]} />;
+      return (
+        <View style={[styles.wrap, wrapperStyle]}>
+          <LottieView source={lottieSource} autoPlay loop style={[styles.lottie, boxStyle]} />
+        </View>
+      );
     }
-    return <View style={[styles.placeholder, boxStyle, roundStyle]} />;
+    return (
+      <View style={[styles.wrap, wrapperStyle]}>
+        <View style={[styles.placeholder, boxStyle, roundStyle]} />
+      </View>
+    );
   }
-  return <View style={[styles.gift, boxStyle, { borderRadius: size * 0.25 }]} />;
+  return (
+    <View style={[styles.wrap, wrapperStyle]}>
+      <View style={[styles.gift, boxStyle, { borderRadius: size * 0.25 }]} />
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
-  emoji: {},
+  wrap: {},
+  emoji: { textAlign: "center" },
   lottie: {},
   placeholder: { backgroundColor: "rgba(94,92,230,0.16)" },
   gift: { borderWidth: StyleSheet.hairlineWidth, borderColor: color.inkMuted },

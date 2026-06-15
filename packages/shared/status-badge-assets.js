@@ -37,6 +37,26 @@
       relativePath: "assets/status-badges/surprised-cat.tgs",
       loop: "always",
       bundled: true
+    }),
+    Object.freeze({
+      id: "squint-bounce",
+      kind: "lottie",
+      assetId: "squint-bounce",
+      label: "眯眼小方块弹跳",
+      format: "tgs",
+      relativePath: "assets/status-badges/squint-bounce.tgs",
+      loop: "always",
+      bundled: true
+    }),
+    Object.freeze({
+      id: "blue-fire",
+      kind: "lottie",
+      assetId: "blue-fire",
+      label: "蓝色火焰",
+      format: "tgs",
+      relativePath: "assets/status-badges/blue-fire.tgs",
+      loop: "always",
+      bundled: true
     })
   ]);
 

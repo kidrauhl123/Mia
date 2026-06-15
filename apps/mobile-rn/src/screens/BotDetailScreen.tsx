@@ -136,7 +136,7 @@ export default function BotDetailScreen({ navigation, route }: Props) {
             style={[styles.badgeTrigger, !statusBadgeForValue(statusBadgeValue) && styles.badgeTriggerEmpty]}
             onPress={() => setBadgeOpen((v) => !v)}
           >
-            <StatusBadge badge={statusBadgeForValue(statusBadgeValue)} apiBase={apiBase} size={20} />
+            <StatusBadge badge={statusBadgeForValue(statusBadgeValue)} apiBase={apiBase} size={22} />
             {!statusBadgeForValue(statusBadgeValue) ? <StatusBadgeEmptyIcon size={22} strokeColor={color.inkMuted} /> : null}
           </Pressable>
         </View>

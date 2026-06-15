@@ -46,7 +46,7 @@ export default function MessageBubble({
         {!own && author?.name ? (
           <View style={styles.senderRow}>
             <Text numberOfLines={1} style={styles.senderName}>{author.name}</Text>
-            <StatusBadge badge={author.statusBadge} apiBase={apiBase} size={12} />
+            <StatusBadge badge={author.statusBadge} apiBase={apiBase} size={16} />
           </View>
         ) : null}
         <Markdown
@@ -74,6 +74,6 @@ const styles = StyleSheet.create({
   other: { backgroundColor: color.bubbleOther },
   pending: { opacity: 0.55 },
   failed: { borderWidth: 1, borderColor: color.danger },
-  senderRow: { flexDirection: "row", alignItems: "center", gap: 4, marginBottom: 3, maxWidth: "100%" },
+  senderRow: { flexDirection: "row", alignItems: "center", gap: 0, marginBottom: 3, maxWidth: "100%" },
   senderName: { color: color.inkMuted, fontSize: 12, fontWeight: "600", maxWidth: 180 },
 });

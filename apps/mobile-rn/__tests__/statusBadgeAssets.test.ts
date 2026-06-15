@@ -24,7 +24,11 @@ test("status badge cache filenames include manifest hashes", () => {
 
 test("status badge catalog maps UI values to stored badge descriptors", () => {
   expect(statusBadgeForValue("surprised-cat")).toEqual({ kind: "lottie", assetId: "surprised-cat", label: "惊讶猫", loop: "always" });
+  expect(statusBadgeForValue("squint-bounce")).toEqual({ kind: "lottie", assetId: "squint-bounce", label: "眯眼小方块弹跳", loop: "always" });
+  expect(statusBadgeForValue("blue-fire")).toEqual({ kind: "lottie", assetId: "blue-fire", label: "蓝色火焰", loop: "always" });
   expect(statusBadgeValue({ kind: "emoji", emoji: "🔥" })).toBe("fire");
   expect(statusBadgeValue({ kind: "lottie", assetId: "rainbow" })).toBe("rainbow");
+  expect(statusBadgeValue({ kind: "lottie", assetId: "squint-bounce" })).toBe("squint-bounce");
+  expect(statusBadgeValue({ kind: "lottie", assetId: "blue-fire" })).toBe("blue-fire");
   expect(statusBadgeForValue("../bad")).toBeNull();
 });

@@ -83,8 +83,8 @@ export default function SettingsScreen() {
             </Pressable>
           )}
           <Pressable style={[styles.badgeTrigger, !me.data?.statusBadge && styles.badgeTriggerEmpty]} onPress={() => setBadgeOpen((v) => !v)}>
-            <StatusBadge badge={me.data?.statusBadge || null} apiBase={apiBase} size={22} />
-            {!me.data?.statusBadge ? <StatusBadgeEmptyIcon size={22} strokeColor={color.inkMuted} /> : null}
+            <StatusBadge badge={me.data?.statusBadge || null} apiBase={apiBase} size={24} />
+            {!me.data?.statusBadge ? <StatusBadgeEmptyIcon size={24} strokeColor={color.inkMuted} /> : null}
           </Pressable>
         </View>
         {badgeOpen ? (

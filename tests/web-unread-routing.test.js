@@ -611,6 +611,7 @@ test("cloud release and local web server expose desktop model icon assets", () =
 test("web app loads lottie player and renders status badge lotties from cloud assets", () => {
   const html = fs.readFileSync(path.join(ROOT, "src/web/app/index.html"), "utf8");
   const app = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
+  const styles = fs.readFileSync(path.join(ROOT, "src/web/styles.css"), "utf8");
   const build = fs.readFileSync(path.join(ROOT, "scripts/build-cloud-release.js"), "utf8");
   const lottieIdx = html.indexOf("assets/lottie/lottie_light.min.js");
   const catalogIdx = html.indexOf("../shared/status-badge-assets.js");
@@ -621,6 +622,13 @@ test("web app loads lottie player and renders status badge lotties from cloud as
   assert.match(app, /function renderNameWithBadgeHtml/);
   assert.match(app, /miaStatusBadgeAssets/);
   assert.match(app, /function initStatusBadgeLotties/);
+  assert.match(styles, /--name-badge-size:\s*max\(20px,\s*1\.12em\)/);
+  assert.match(styles, /--name-badge-gap:\s*0px/);
+  assert.match(styles, /--name-badge-shift-x:\s*2px/);
+  assert.match(styles, /--name-badge-shift-y:\s*-1px/);
+  assert.match(styles, /padding-left:\s*var\(--name-badge-shift-x\)/);
+  assert.match(styles, /\.name-with-badge-badge\s*\{[^}]*overflow:\s*visible;/);
+  assert.match(styles, /\.name-with-badge-badge\s*\{[^}]*transform:\s*translateY\(var\(--name-badge-shift-y\)\)/);
   assert.match(fs.readFileSync(path.join(ROOT, "packages/shared/status-badge-assets.js"), "utf8"), /surprised-cat/);
   assert.match(build, /packages\/shared\/status-badge-assets\.js/);
 });

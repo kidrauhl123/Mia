@@ -189,10 +189,24 @@ test("renderNameWithBadge keeps bundled desktop badge assets local even when clo
     identity: { displayName: "Rainbow" },
     statusBadge: { kind: "lottie", assetId: "rainbow" }
   });
+  const squint = renderer.renderNameWithBadge({
+    identity: { displayName: "Square" },
+    statusBadge: { kind: "lottie", assetId: "squint-bounce", label: "眯眼小方块弹跳" }
+  });
+  const blueFire = renderer.renderNameWithBadge({
+    identity: { displayName: "Fire" },
+    statusBadge: { kind: "lottie", assetId: "blue-fire", label: "蓝色火焰" }
+  });
 
   assert.equal(cat.children[1].dataset.lottieFormat, "tgs");
   assert.equal(cat.children[1].dataset.lottieLocal, "status-badge");
   assert.equal(cat.children[1].dataset.lottiePath, "./assets/status-badges/surprised-cat.tgs");
+  assert.equal(squint.children[1].dataset.lottieFormat, "tgs");
+  assert.equal(squint.children[1].dataset.lottieLocal, "status-badge");
+  assert.equal(squint.children[1].dataset.lottiePath, "./assets/status-badges/squint-bounce.tgs");
+  assert.equal(blueFire.children[1].dataset.lottieFormat, "tgs");
+  assert.equal(blueFire.children[1].dataset.lottieLocal, "status-badge");
+  assert.equal(blueFire.children[1].dataset.lottiePath, "./assets/status-badges/blue-fire.tgs");
   assert.equal(rainbow.children[1].dataset.lottiePath, "./assets/lottie/rainbow.json");
 });
 
@@ -215,6 +229,42 @@ test("renderNameWithBadge marks local TGS badge assets for desktop playback", ()
   assert.match(html, /data-lottie-local="status-badge"/);
   assert.doesNotMatch(html, /data-lottie-fallback/);
   assert.match(html, /data-lottie-path="\.\/assets\/status-badges\/surprised-cat\.tgs"/);
+});
+
+test("renderNameWithBadge marks squint bounce TGS badge for desktop playback", () => {
+  const renderer = loadRenderer();
+  const el = renderer.renderNameWithBadge({
+    identity: { displayName: "Square" },
+    statusBadge: { kind: "lottie", assetId: "squint-bounce", label: "眯眼小方块弹跳" }
+  });
+  const html = renderer.renderNameWithBadgeHtml({
+    identity: { displayName: "Square" },
+    statusBadge: { kind: "lottie", assetId: "squint-bounce", label: "眯眼小方块弹跳" }
+  });
+
+  assert.equal(el.children[1].dataset.lottieFormat, "tgs");
+  assert.equal(el.children[1].dataset.lottieLocal, "status-badge");
+  assert.equal(el.children[1].dataset.lottiePath, "./assets/status-badges/squint-bounce.tgs");
+  assert.match(html, /data-lottie="squint-bounce"/);
+  assert.match(html, /data-lottie-path="\.\/assets\/status-badges\/squint-bounce\.tgs"/);
+});
+
+test("renderNameWithBadge marks blue fire TGS badge for desktop playback", () => {
+  const renderer = loadRenderer();
+  const el = renderer.renderNameWithBadge({
+    identity: { displayName: "Fire" },
+    statusBadge: { kind: "lottie", assetId: "blue-fire", label: "蓝色火焰" }
+  });
+  const html = renderer.renderNameWithBadgeHtml({
+    identity: { displayName: "Fire" },
+    statusBadge: { kind: "lottie", assetId: "blue-fire", label: "蓝色火焰" }
+  });
+
+  assert.equal(el.children[1].dataset.lottieFormat, "tgs");
+  assert.equal(el.children[1].dataset.lottieLocal, "status-badge");
+  assert.equal(el.children[1].dataset.lottiePath, "./assets/status-badges/blue-fire.tgs");
+  assert.match(html, /data-lottie="blue-fire"/);
+  assert.match(html, /data-lottie-path="\.\/assets\/status-badges\/blue-fire\.tgs"/);
 });
 
 test("renderNameWithBadge accepts snake_case gift badges from identity", () => {

@@ -614,6 +614,16 @@ test("cloud can serve bundled web assets without exposing path traversal", async
     assert.equal(catAsset.format, "tgs");
     assert.ok(catAsset.bytes > 0 && catAsset.bytes < 100_000, "TGS asset should stay compressed in the release bundle");
     assert.match(catAsset.url, /\/api\/status-badge-assets\/surprised-cat\.json$/);
+    const squintAsset = badgeAssets.assets.find((asset) => asset.assetId === "squint-bounce");
+    assert.ok(squintAsset, "squint bounce TGS badge should be exposed in the public asset manifest");
+    assert.equal(squintAsset.format, "tgs");
+    assert.ok(squintAsset.bytes > 0 && squintAsset.bytes < 100_000, "new TGS asset should stay compressed in the release bundle");
+    assert.match(squintAsset.url, /\/api\/status-badge-assets\/squint-bounce\.json$/);
+    const blueFireAsset = badgeAssets.assets.find((asset) => asset.assetId === "blue-fire");
+    assert.ok(blueFireAsset, "blue fire TGS badge should be exposed in the public asset manifest");
+    assert.equal(blueFireAsset.format, "tgs");
+    assert.ok(blueFireAsset.bytes > 0 && blueFireAsset.bytes < 100_000, "blue fire TGS asset should stay compressed in the release bundle");
+    assert.match(blueFireAsset.url, /\/api\/status-badge-assets\/blue-fire\.json$/);
 
     const badgeJson = await rawFetch(baseUrl, "/api/status-badge-assets/rainbow.json");
     assert.equal(badgeJson.status, 200);
@@ -628,6 +638,22 @@ test("cloud can serve bundled web assets without exposing path traversal", async
     assert.equal(catLottie.w, 512);
     assert.equal(catLottie.h, 512);
     assert.equal(catLottie.op, 180);
+
+    const squintJson = await rawFetch(baseUrl, "/api/status-badge-assets/squint-bounce.json");
+    assert.equal(squintJson.status, 200);
+    assert.match(squintJson.headers.get("content-type") || "", /application\/json/);
+    const squintLottie = await squintJson.json();
+    assert.equal(squintLottie.w, 512);
+    assert.equal(squintLottie.h, 512);
+    assert.equal(squintLottie.op, 60);
+
+    const blueFireJson = await rawFetch(baseUrl, "/api/status-badge-assets/blue-fire.json");
+    assert.equal(blueFireJson.status, 200);
+    assert.match(blueFireJson.headers.get("content-type") || "", /application\/json/);
+    const blueFireLottie = await blueFireJson.json();
+    assert.equal(blueFireLottie.w, 512);
+    assert.equal(blueFireLottie.h, 512);
+    assert.equal(blueFireLottie.op, 240);
 
     const badgeTraversal = await rawFetch(baseUrl, "/api/status-badge-assets/..%2Fpackage.json");
     assert.equal(badgeTraversal.status, 404);

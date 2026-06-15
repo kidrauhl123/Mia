@@ -1287,6 +1287,13 @@ test("desktop name surfaces render status badges beside names", () => {
   assert.match(groupInfoSource, /appendNameWithBadge\(nameEl/);
   assert.match(socialGroupsSource, /nameEl\.innerHTML = renderNameWithBadgeHtml/);
   assert.match(remoteSettingsSource, /renderer\.setNameWithBadge\(els\.cloudAccountName/);
+  assert.match(badgeStyles, /--name-badge-size:\s*max\(20px,\s*1\.12em\)/);
+  assert.match(badgeStyles, /--name-badge-gap:\s*0px/);
+  assert.match(badgeStyles, /--name-badge-shift-x:\s*2px/);
+  assert.match(badgeStyles, /--name-badge-shift-y:\s*-1px/);
+  assert.match(badgeStyles, /padding-left:\s*var\(--name-badge-shift-x\)/);
+  assert.match(badgeStyles, /\.name-with-badge-badge\s*\{[^}]*overflow:\s*visible;/);
+  assert.match(badgeStyles, /\.name-with-badge-badge\s*\{[^}]*transform:\s*translateY\(var\(--name-badge-shift-y\)\)/);
   assert.match(badgeStyles, /#activeChatName \.name-with-badge/);
   assert.match(badgeStyles, /\.contact-card-name \.name-with-badge/);
   assert.match(badgeStyles, /\.group-info-member-name \.name-with-badge/);

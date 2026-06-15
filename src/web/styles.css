@@ -766,10 +766,13 @@ p {
 }
 
 .name-with-badge {
-  --name-badge-size: 1em;
+  --name-badge-size: max(20px, 1.12em);
+  --name-badge-gap: 0px;
+  --name-badge-shift-x: 2px;
+  --name-badge-shift-y: -1px;
   display: inline-flex;
   align-items: center;
-  gap: 0.25em;
+  gap: var(--name-badge-gap);
   max-width: 100%;
   min-width: 0;
   vertical-align: middle;
@@ -784,15 +787,18 @@ p {
 }
 
 .name-with-badge-badge {
+  box-sizing: content-box;
   display: inline-flex;
-  flex: 0 0 var(--name-badge-size);
+  flex: 0 0 calc(var(--name-badge-size) + var(--name-badge-shift-x));
   align-items: center;
   justify-content: center;
   width: var(--name-badge-size);
   min-width: var(--name-badge-size);
   height: var(--name-badge-size);
-  overflow: hidden;
+  padding-left: var(--name-badge-shift-x);
+  overflow: visible;
   line-height: var(--name-badge-size);
+  transform: translateY(var(--name-badge-shift-y));
 }
 
 .name-with-badge-badge-emoji {
@@ -890,6 +896,11 @@ p {
   color: var(--faint);
   font-size: inherit;
   line-height: 1;
+}
+
+.identity-badge-trigger .name-with-badge-badge {
+  --name-badge-shift-x: 0px;
+  --name-badge-shift-y: 0px;
 }
 
 .identity-badge-empty-icon {
@@ -993,6 +1004,8 @@ p {
 .identity-badge-choices .name-with-badge-badge,
 .identity-badge-choices .name-with-badge-badge svg {
   --name-badge-size: 22px;
+  --name-badge-shift-x: 0px;
+  --name-badge-shift-y: 0px;
 }
 
 .persona.active .persona-name {
