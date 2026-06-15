@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import { View, type StyleProp, type ViewStyle } from "react-native";
 
 // lottie-react-native is a native module; absent in the node/jest env. Fall back
@@ -48,14 +48,60 @@ interface Props {
   color?: string;
   /** Dim to convey an inactive/disabled state. */
   dimmed?: boolean;
-  /** While true, play the animation once (e.g. on tab focus). Static otherwise. */
+  /** While true, play the flourish segment once (e.g. on tab focus). */
   play?: boolean;
   loop?: boolean;
-  /** Frame to rest on while not playing: 0 = first frame, 1 = last. Default 0. */
-  idleProgress?: number;
-  /** Playback rate. >1 makes the flourish quicker. Default 1. */
-  speed?: number;
+  /** Absolute frame to rest on when idle (desktop rail uses 60). Default 0. */
+  restFrame?: number;
+  /** [start, end] absolute frames to play on focus (desktop rail uses [70, 130]).
+      Like the desktop, we play only this short window — not the whole 2–4s draw —
+      then settle back on restFrame. */
+  playSegment?: [number, number];
   style?: StyleProp<ViewStyle>;
+}
+
+// Plays a short frame segment once on mount (focus gain), then settles back to
+// the rest frame — mirrors the desktop rail's playSegments()+goToAndStop().
+function FlourishIcon({
+  source,
+  segment,
+  restFrame,
+  colorFilters,
+  style,
+}: {
+  source: any;
+  segment: [number, number];
+  restFrame: number;
+  colorFilters: any;
+  style: any;
+}) {
+  const ref = useRef<any>(null);
+  const started = useRef(false);
+  const settling = useRef(false);
+
+  const begin = () => {
+    if (started.current) return;
+    started.current = true;
+    ref.current?.play?.(segment[0], segment[1]);
+  };
+  const onFinish = () => {
+    if (settling.current) return; // the settle's own finish — stop here
+    settling.current = true;
+    ref.current?.play?.(restFrame, restFrame); // freeze on the rest pose
+  };
+
+  return (
+    <LottieView
+      ref={ref}
+      source={source}
+      autoPlay={false}
+      loop={false}
+      onLayout={begin}
+      onAnimationFinish={onFinish}
+      colorFilters={colorFilters}
+      style={style}
+    />
+  );
 }
 
 export default function LottieIcon({
@@ -64,9 +110,8 @@ export default function LottieIcon({
   color,
   dimmed,
   play,
-  loop = false,
-  idleProgress = 0,
-  speed = 1,
+  restFrame = 0,
+  playSegment,
   style,
 }: Props) {
   const source = SOURCES[name];
@@ -81,21 +126,32 @@ export default function LottieIcon({
   const inner = { width: size, height: size };
   if (!LottieView || !source) return <View style={box} />;
 
-  // Two mutually-exclusive instances with distinct keys: switching between them
-  // remounts. The idle instance is a single frozen frame and NEVER animates, so
-  // de-focusing a tab can't replay its icon. The play instance mounts fresh on
-  // each focus gain and autoPlays exactly once, then rests on its last frame.
+  // Normalize the rest frame to 0..1 for the idle instance (op = JSON out-point).
+  const op = Math.max(1, Math.floor(Number(source.op) || 1));
+  const ip = Math.max(0, Math.floor(Number(source.ip) || 0));
+  const restProgress = Math.min(1, Math.max(0, (restFrame - ip) / Math.max(1, op - ip)));
+
+  // Two mutually-exclusive instances. Idle is a single frozen frame and NEVER
+  // animates, so siblings can't replay it. Focused mounts a fresh FlourishIcon
+  // that plays the short segment once, then settles back to the rest frame.
   return (
     <View style={box}>
-      {play ? (
-        <LottieView key="play" source={source} autoPlay loop={loop} speed={speed} colorFilters={colorFilters} style={inner} />
+      {play && playSegment ? (
+        <FlourishIcon
+          key="play"
+          source={source}
+          segment={playSegment}
+          restFrame={restFrame}
+          colorFilters={colorFilters}
+          style={inner}
+        />
       ) : (
         <LottieView
           key="idle"
           source={source}
           autoPlay={false}
           loop={false}
-          progress={idleProgress}
+          progress={restProgress}
           colorFilters={colorFilters}
           style={inner}
         />
