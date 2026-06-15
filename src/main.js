@@ -1210,6 +1210,15 @@ function marketSkillMatchesParams(skill = {}, params = {}) {
   ].join(" ").toLowerCase().includes(q);
 }
 
+function isHiddenRemoteMarketSkill(skill = {}) {
+  const id = String(skill?.id || "").trim().toLowerCase();
+  const source = String(skill?.source || "").trim().toLowerCase();
+  const sourceLabel = String(skill?.sourceLabel || skill?.ownerLabel || "").trim().toLowerCase();
+  if (id.startsWith("hermes.")) return true;
+  if (source === "hermes-hub") return true;
+  return skill?.remote === true && sourceLabel === "hermes";
+}
+
 function categoryCountsFromMarketSkills(skills = []) {
   const counts = new Map();
   for (const skill of Array.isArray(skills) ? skills : []) {
@@ -1242,6 +1251,7 @@ function normalizeDesktopMarketPayload(page = {}, params = {}) {
   const snapshots = skillMarketSnapshotAll();
   const snapshotById = new Map((snapshots.skills || []).map((skill) => [String(skill.id || ""), skill]));
   const skills = (Array.isArray(page.skills) ? page.skills : [])
+    .filter((skill) => !isHiddenRemoteMarketSkill(skill))
     .map((skill) => mergeMarketSkillWithSnapshot(skill, snapshotById.get(String(skill?.id || ""))))
     .filter((skill) => marketSkillMatchesParams(skill, params));
   return {
@@ -1317,6 +1327,7 @@ function verifySkillPackageChecksum(buf, checksum = "") {
 async function installDesktopMarketSkill(skillId) {
   const id = String(skillId || "").trim();
   if (!id) throw new Error("技能不存在或安装失败。");
+  if (isHiddenRemoteMarketSkill({ id })) throw new Error("这个技能来源暂未开放。");
   const snapshot = (skillMarketSnapshotAll().skills || []).find((skill) => skill.id === id) || null;
   const cloud = settingsStore.cloudSettings();
   const online = Boolean(cloud.enabled && cloud.token);

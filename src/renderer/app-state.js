@@ -124,7 +124,6 @@
       skillPickerPluginId: "",
       selectedSkillId: "",
       selectedSkillDetail: null,
-      skillPreviewOpen: false,
       skillsLoading: false,
       slashCommands: cloneSlashCommands(),
       agentSlashCommands: { "claude-code": [], codex: [] },

@@ -167,12 +167,6 @@ const els = {
   skillModeToggle: document.getElementById("skillModeToggle"),
   skillChipRow: document.getElementById("skillChipRow"),
   skillCardGrid: document.getElementById("skillCardGrid"),
-  skillPreviewDialog: document.getElementById("skillPreviewDialog"),
-  closeSkillPreview: document.getElementById("closeSkillPreview"),
-  skillPreviewMark: document.getElementById("skillPreviewMark"),
-  skillPreviewTitle: document.getElementById("skillPreviewTitle"),
-  skillPreviewMeta: document.getElementById("skillPreviewMeta"),
-  skillPreviewBody: document.getElementById("skillPreviewBody"),
   skillContextMenu: document.getElementById("skillContextMenu"),
   botContextMenu: document.getElementById("botContextMenu"),
   messageContextMenu: document.getElementById("messageContextMenu"),
@@ -2060,7 +2054,6 @@ function renderView() {
   els.botDialog?.classList.toggle("hidden", !state.botDialogOpen);
   els.petGenerateDialog?.classList.toggle("hidden", !state.petGenerateOpen);
   els.avatarCropDialog?.classList.toggle("hidden", !state.avatarCropEditor.open);
-  window.miaSkillLibrary.renderSkillPreview();
   window.miaBotManager.renderBotContextMenu();
   window.miaPetDialog?.renderPetGenerateDialog();
   window.miaPetDialog?.renderPetJobs();
@@ -2153,14 +2146,13 @@ async function deleteSkill(skillId) {
     if (state.selectedSkillId === skillId) {
       state.selectedSkillId = "";
       state.selectedSkillDetail = null;
-      state.skillPreviewOpen = false;
+      window.miaSkillLibrary.closeMarketModal();
     }
   } catch (error) {
     console.error("Failed to delete skill", error);
     window.alert(error.message || "删除 Skill 失败");
   }
   window.miaSkillLibrary.renderSkillLibrary();
-  window.miaSkillLibrary.renderSkillPreview();
 }
 
 async function openSkillDirectory(skillId) {
@@ -3808,16 +3800,6 @@ els.settingsView.addEventListener("click", (event) => {
     renderView();
   }
 });
-els.closeSkillPreview?.addEventListener("click", () => {
-  state.skillPreviewOpen = false;
-  window.miaSkillLibrary.renderSkillPreview();
-});
-els.skillPreviewDialog?.addEventListener("click", (event) => {
-  if (event.target === els.skillPreviewDialog) {
-    state.skillPreviewOpen = false;
-    window.miaSkillLibrary.renderSkillPreview();
-  }
-});
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
   closeImagePreview();
@@ -3828,10 +3810,6 @@ document.addEventListener("keydown", (event) => {
   if (state.profileDialogOpen && !state.avatarCropEditor?.open) {
     event.preventDefault();
     window.miaBotDialog.closeProfileDialog();
-  }
-  if (state.skillPreviewOpen) {
-    state.skillPreviewOpen = false;
-    window.miaSkillLibrary.renderSkillPreview();
   }
 });
 document.addEventListener("pointerdown", closeProfilePopoverFromOutside);

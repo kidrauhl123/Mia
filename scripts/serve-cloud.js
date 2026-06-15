@@ -3778,7 +3778,7 @@ function createMiaCloudServer(options = {}) {
   context.skillsStore.seedFromCatalog(loadSkillsCatalog());
   const hermesSkillsEnabled = options.hermesSkillsSource
     || options.hermesSkillsMarketEnabled === true
-    || (options.hermesSkillsMarketEnabled !== false && process.env.MIA_HERMES_SKILLS_MARKET !== "0");
+    || process.env.MIA_HERMES_SKILLS_MARKET === "1";
   context.hermesSkillsSource = options.hermesSkillsSource
     || (hermesSkillsEnabled && createHermesSkillsSource
       ? createHermesSkillsSource({ dataDir: context.cloudStore.dataDir })

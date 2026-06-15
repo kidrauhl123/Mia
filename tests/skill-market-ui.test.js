@@ -24,8 +24,11 @@ test("main serves a snapshot-plus-cloud market and installs through the unified 
   assert.match(main, /function cachedDesktopMarketPayload/);
   assert.match(main, /forceRefresh:\s*true/);
   assert.match(main, /cloudDesktopSync\(\)\.listMarketSkills/);
+  assert.match(main, /function isHiddenRemoteMarketSkill/);
+  assert.match(main, /\.filter\(\(skill\) => !isHiddenRemoteMarketSkill\(skill\)\)/);
   assert.match(main, /SkillsMarketInstall.*installDesktopMarketSkill/);
   assert.match(main, /function installDesktopMarketSkill/);
+  assert.match(main, /isHiddenRemoteMarketSkill\(\{\s*id\s*\}\)/);
   assert.match(main, /packageLocalCatalogSkill\(snapshot\.id\)/);
   assert.match(main, /cloudDesktopSync\(\)\.downloadSkillPackage/);
   assert.match(main, /verifySkillPackageChecksum/);
@@ -75,6 +78,18 @@ test("local skill helpers prefer market and official Chinese display metadata", 
   assert.equal(
     context.window.miaSkillHelpers.skillDisplayName({ source: "mia-official", name: "skill-creator" }),
     "技能创作"
+  );
+  assert.equal(
+    context.window.miaSkillHelpers.skillDisplayName({ source: "mia-official", name: "xlsx" }),
+    "Excel 表格"
+  );
+  assert.equal(
+    context.window.miaSkillHelpers.skillDisplayCategory({ source: "mia-official", name: "xlsx", category: "uncategorized" }),
+    "文档处理"
+  );
+  assert.match(
+    context.window.miaSkillHelpers.skillSummaryZh({ source: "mia-official", name: "xlsx" }),
+    /读写 Excel 表格/
   );
   assert.equal(
     context.window.miaSkillHelpers.skillDisplayName({ source: "mia", name: "my-custom-skill" }),
