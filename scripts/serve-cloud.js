@@ -2295,6 +2295,17 @@ function userIsMemberOfConversation(socialStore, conversationId, userId) {
   );
 }
 
+function messageSearchSnippet(text, query, radius = 36) {
+  const body = String(text || "").replace(/\s+/g, " ").trim();
+  const needle = String(query || "").trim().toLowerCase();
+  if (!body || !needle) return body.slice(0, radius * 2);
+  const idx = body.toLowerCase().indexOf(needle);
+  if (idx < 0) return body.slice(0, radius * 2);
+  const start = Math.max(0, idx - radius);
+  const end = Math.min(body.length, idx + needle.length + radius);
+  return `${start > 0 ? "..." : ""}${body.slice(start, end)}${end < body.length ? "..." : ""}`;
+}
+
 function mentionedBotIds(body = {}) {
   const ids = [];
   const seen = new Set();
@@ -2846,7 +2857,25 @@ async function handleRequest(req, res, context) {
     const conversationMembersMatch = url.pathname.match(/^\/api\/conversations\/([A-Za-z0-9_.:-]+)\/members$/);
     const conversationMsgDeleteMatch = url.pathname.match(/^\/api\/conversations\/([A-Za-z0-9_.:-]+)\/messages\/([A-Za-z0-9_-]+)$/);
     const conversationMsgsMatch = !conversationAsBotMatch && url.pathname.match(/^\/api\/conversations\/([A-Za-z0-9_.:-]+)\/messages$/);
-    const conversationDetailMatch = !conversationAsBotMatch && !conversationMembersMatch && !conversationMsgsMatch && !conversationMsgDeleteMatch && url.pathname.match(/^\/api\/conversations\/([A-Za-z0-9_.:-]+)$/);
+    const conversationSearchRoute = url.pathname === "/api/conversations/search";
+    const conversationDetailMatch = !conversationSearchRoute && !conversationAsBotMatch && !conversationMembersMatch && !conversationMsgsMatch && !conversationMsgDeleteMatch && url.pathname.match(/^\/api\/conversations\/([A-Za-z0-9_.:-]+)$/);
+
+    if (req.method === "GET" && conversationSearchRoute) {
+      const query = String(url.searchParams.get("q") || "").trim();
+      const limit = Number(url.searchParams.get("limit") || 80);
+      if (!query) return writeJson(res, 200, { results: [] });
+      const messages = context.messagesStore.searchMessagesForUser(auth.user.id, query, limit);
+      const results = messages.map((message) => {
+        const conversation = context.socialStore.getConversation(message.conversation_id);
+        if (!conversation) return null;
+        return {
+          conversation,
+          message,
+          matchText: messageSearchSnippet(message.body_md, query)
+        };
+      }).filter(Boolean);
+      return writeJson(res, 200, { results });
+    }
 
     // POST /api/conversations/:id/members — add member to existing group
     if (req.method === "POST" && conversationMembersMatch) {

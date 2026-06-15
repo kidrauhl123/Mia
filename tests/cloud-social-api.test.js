@@ -375,6 +375,50 @@ test("GET /api/conversations/:id/messages?since_seq=N returns incremental", asyn
   } finally { await stopServer(ctx); }
 });
 
+test("GET /api/conversations/search returns individual message hits across bot sessions", async () => {
+  const ctx = await startServer();
+  try {
+    const alice = await register(ctx.port, "alice");
+    await createBot(ctx.port, alice, "bot_codex", "Codex");
+
+    const first = await api(ctx.port, "PUT", "/api/me/bot-conversations/session_one", {
+      token: alice.token,
+      body: { botId: "bot_codex", title: "Codex one", runtimeKind: "desktop-local" }
+    });
+    const second = await api(ctx.port, "PUT", "/api/me/bot-conversations/session_two", {
+      token: alice.token,
+      body: { botId: "bot_codex", title: "Codex two", runtimeKind: "desktop-local" }
+    });
+    assert.equal(first.status, 200);
+    assert.equal(second.status, 200);
+    assert.notEqual(first.body.conversation.id, second.body.conversation.id);
+
+    await api(ctx.port, "POST", "/api/conversations/" + first.body.conversation.id + "/messages", {
+      token: alice.token,
+      body: { bodyMd: "searchable needle from first bot session" }
+    });
+    await api(ctx.port, "POST", "/api/conversations/" + second.body.conversation.id + "/messages", {
+      token: alice.token,
+      body: { bodyMd: "searchable needle from second bot session" }
+    });
+
+    const search = await api(ctx.port, "GET", "/api/conversations/search?q=searchable%20needle&limit=10", { token: alice.token });
+    assert.equal(search.status, 200);
+    const hits = search.body.results || [];
+    assert.equal(hits.length, 2);
+    assert.deepEqual(new Set(hits.map((hit) => hit.conversation.id)), new Set([
+      first.body.conversation.id,
+      second.body.conversation.id
+    ]));
+    assert.deepEqual(new Set(hits.map((hit) => hit.conversation.decorations.botId)), new Set(["bot_codex"]));
+    assert.deepEqual(new Set(hits.map((hit) => hit.message.body_md)), new Set([
+      "searchable needle from first bot session",
+      "searchable needle from second bot session"
+    ]));
+    assert.equal(hits.every((hit) => String(hit.matchText || "").includes("searchable needle")), true);
+  } finally { await stopServer(ctx); }
+});
+
 test("POST to conversation user is not member of returns 403", async () => {
   const ctx = await startServer();
   try {

@@ -68,12 +68,17 @@
     return { text, range };
   }
 
+  function closestBubbleForSelectionNode(node) {
+    const element = node?.nodeType === 1 ? node : node?.parentElement;
+    return element?.closest?.(".bubble[data-message-index]") || null;
+  }
+
   function hasActiveMessageTextSelection() {
     const selection = window.getSelection?.();
     if (!selection || selection.isCollapsed || selection.rangeCount === 0) return false;
     if (!String(selection.toString() || "").trim()) return false;
-    const anchorBubble = selection.anchorNode?.parentElement?.closest?.(".bubble[data-message-index]");
-    const focusBubble = selection.focusNode?.parentElement?.closest?.(".bubble[data-message-index]");
+    const anchorBubble = closestBubbleForSelectionNode(selection.anchorNode);
+    const focusBubble = closestBubbleForSelectionNode(selection.focusNode);
     return Boolean(anchorBubble && focusBubble && anchorBubble === focusBubble && els.chat?.contains(anchorBubble));
   }
 

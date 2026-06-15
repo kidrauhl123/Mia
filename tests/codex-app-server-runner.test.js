@@ -7,6 +7,7 @@ const {
   codexDecisionFor,
   createCodexAppServerConnection,
   isCodexApprovalRequest,
+  runCodexAppServerTurn,
   toolPayloadFromCodexItem
 } = require("../src/main/codex-app-server-runner.js");
 
@@ -91,7 +92,12 @@ test("createCodexAppServerConnection starts app-server with explicit config over
   child.stdout = new PassThrough();
   child.stderr = new PassThrough();
   child.killed = false;
-  child.kill = () => { child.killed = true; };
+  child.kill = () => {
+    child.killed = true;
+    child.stdout.end();
+    child.stderr.end();
+    child.emit("exit", 0, null);
+  };
   const spawn = (command, args, options) => {
     spawnCalls.push({ command, args, options });
     return child;
@@ -114,6 +120,113 @@ test("createCodexAppServerConnection starts app-server with explicit config over
     'mcp_servers.mia-scheduler.command="/opt/node"'
   ]);
   assert.deepEqual(spawnCalls[0].options.env, { PATH: "/bin" });
+});
+
+test("createCodexAppServerConnection writes Codex protocol version on requests", async () => {
+  const child = new EventEmitter();
+  const written = [];
+  child.stdin = {
+    destroyed: false,
+    write(line) { written.push(line); }
+  };
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  child.killed = false;
+  child.kill = () => { child.killed = true; };
+  const connection = createCodexAppServerConnection({
+    codexPath: "/bin/codex",
+    env: { PATH: "/bin" },
+    spawn: () => child
+  });
+
+  const pending = connection.request("initialize", { clientInfo: { name: "mia", title: "Mia", version: "0.1.0" } });
+  const request = JSON.parse(written[0]);
+  assert.equal(request.version, 2);
+  assert.equal(request.method, "initialize");
+
+  child.stdout.write(JSON.stringify({ id: request.id, result: { ok: true } }) + "\n");
+  assert.deepEqual(await pending, { ok: true });
+  connection.close();
+});
+
+test("createCodexAppServerConnection runs codex with its own bin dir first in PATH", () => {
+  const child = new EventEmitter();
+  child.stdin = new PassThrough();
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  child.killed = false;
+  child.kill = () => { child.killed = true; };
+  let spawnOptions = null;
+  const connection = createCodexAppServerConnection({
+    codexPath: "/opt/codex-node/bin/codex",
+    env: { PATH: "/bad-node/bin:/usr/bin:/opt/codex-node/bin" },
+    spawn: (_command, _args, options) => {
+      spawnOptions = options;
+      return child;
+    }
+  });
+  connection.close();
+
+  assert.equal(spawnOptions.env.PATH, "/opt/codex-node/bin:/bad-node/bin:/usr/bin");
+});
+
+test("runCodexAppServerTurn sends Codex permission profiles as thread config", async () => {
+  const requests = [];
+  const child = new EventEmitter();
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  child.killed = false;
+  child.kill = () => {
+    child.killed = true;
+    child.stdout.end();
+    child.stderr.end();
+    child.emit("exit", 0, null);
+  };
+  child.stdin = {
+    destroyed: false,
+    write(line) {
+      const request = JSON.parse(line);
+      requests.push(request);
+      if (request.method === "initialize") {
+        queueMicrotask(() => child.stdout.write(JSON.stringify({ id: request.id, result: { ok: true } }) + "\n"));
+      } else if (request.method === "thread/start") {
+        queueMicrotask(() => child.stdout.write(JSON.stringify({ id: request.id, result: { thread: { id: "thread_1" } } }) + "\n"));
+      } else if (request.method === "turn/start") {
+        queueMicrotask(() => {
+          child.stdout.write(JSON.stringify({
+            id: request.id,
+            result: {
+              turn: {
+                id: "turn_1",
+                status: "completed",
+                items: [{ type: "agentMessage", text: "done" }]
+              }
+            }
+          }) + "\n");
+        });
+      }
+    }
+  };
+
+  const result = await runCodexAppServerTurn({
+    codexPath: "/bin/codex",
+    env: { PATH: "/bin" },
+    prompt: "hello",
+    options: {
+      permissionProfile: ":workspace",
+      workingDirectory: "/repo",
+      modelReasoningEffort: "low"
+    },
+    spawn: () => child
+  });
+
+  const threadStart = requests.find((request) => request.method === "thread/start");
+  const turnStart = requests.find((request) => request.method === "turn/start");
+  assert.deepEqual(threadStart.params.config, { default_permissions: ":workspace" });
+  assert.equal(Object.hasOwn(threadStart.params, "approvalPolicy"), false);
+  assert.equal(Object.hasOwn(threadStart.params, "sandbox"), false);
+  assert.equal(Object.hasOwn(turnStart.params, "approvalPolicy"), false);
+  assert.equal(result.finalResponse, "done");
 });
 
 test("MCP elicitation requests are treated as Codex approval requests", () => {

@@ -122,9 +122,12 @@
   // Distance (px) from the bottom within which we treat the user as "pinned" and
   // keep following new content. Mirrors the bot-chat threshold in app.js.
   const SCROLL_STICK_THRESHOLD_PX = 80;
+  const MESSAGE_FOCUS_PENDING_TTL_MS = 10000;
+  const MESSAGE_FOCUS_HIGHLIGHT_MS = 2200;
   // Which conversation renderConversationChat last painted — a change means the user switched
   // conversations, so we land at the bottom instead of preserving the old offset.
   let _lastRenderedConversationId = null;
+  let _pendingMessageFocus = null;
 
   function jsonSignature(value) {
     try {
@@ -216,6 +219,126 @@
   function markChatRenderFresh(containerEl, conversationId = moduleState.activeConversationId) {
     if (!containerEl?.dataset || !conversationId) return;
     containerEl.dataset.conversationRenderSignature = chatRenderSignatureFor(conversationId);
+  }
+
+  function cssEscapeValue(value) {
+    const text = String(value || "");
+    if (typeof window !== "undefined" && window.CSS && typeof window.CSS.escape === "function") {
+      return window.CSS.escape(text);
+    }
+    return text.replace(/["\\]/g, "\\$&");
+  }
+
+  function pendingFocusFor(conversationId) {
+    if (!_pendingMessageFocus) return null;
+    if (_pendingMessageFocus.conversationId !== conversationId) return null;
+    const now = Date.now();
+    const highlightUntil = Number(_pendingMessageFocus.highlightUntil || 0);
+    if (highlightUntil > 0) {
+      if (now <= highlightUntil) return _pendingMessageFocus;
+      _pendingMessageFocus = null;
+      return null;
+    }
+    if (now - Number(_pendingMessageFocus.startedAt || 0) > MESSAGE_FOCUS_PENDING_TTL_MS) {
+      _pendingMessageFocus = null;
+      return null;
+    }
+    return _pendingMessageFocus;
+  }
+
+  function elementTopWithin(containerEl, targetEl) {
+    let top = 0;
+    let node = targetEl;
+    while (node && node !== containerEl) {
+      top += Number(node.offsetTop) || 0;
+      node = node.offsetParent;
+    }
+    if (node === containerEl) return top;
+    try {
+      const containerRect = containerEl.getBoundingClientRect?.();
+      const targetRect = targetEl.getBoundingClientRect?.();
+      if (containerRect && targetRect) {
+        return (Number(targetRect.top) || 0) - (Number(containerRect.top) || 0) + (Number(containerEl.scrollTop) || 0);
+      }
+    } catch {
+      // Fall through to current scroll position.
+    }
+    return Number(containerEl.scrollTop) || 0;
+  }
+
+  function centerMessageTarget(containerEl, targetEl) {
+    if (!containerEl || !targetEl) return;
+    const targetTop = elementTopWithin(containerEl, targetEl);
+    const targetHeight = Number(targetEl.offsetHeight) || Number(targetEl.getBoundingClientRect?.().height) || 0;
+    const viewportHeight = Number(containerEl.clientHeight) || 0;
+    const maxScroll = Math.max(0, (Number(containerEl.scrollHeight) || 0) - viewportHeight);
+    const nextTop = Math.max(0, Math.min(maxScroll, Math.round(targetTop - (viewportHeight - targetHeight) / 2)));
+    containerEl.scrollTop = nextTop;
+  }
+
+  function focusPendingMessage(containerEl = document.getElementById("chat")) {
+    const pending = pendingFocusFor(moduleState.activeConversationId);
+    if (!pending || !containerEl || !pending.messageId) return false;
+    const escapedId = cssEscapeValue(pending.messageId);
+    const bubble = containerEl.querySelector(`.bubble[data-message-id="${escapedId}"]`);
+    const target = bubble?.closest?.(".message")
+      || containerEl.querySelector(`.message[data-message-id="${escapedId}"]`)
+      || bubble;
+    if (!target) return false;
+    centerMessageTarget(containerEl, target);
+    const now = Date.now();
+    pending.focusedAt = now;
+    pending.highlightUntil = Math.max(Number(pending.highlightUntil || 0), now + MESSAGE_FOCUS_HIGHLIGHT_MS);
+    target.classList.remove("search-focus");
+    const raf = typeof requestAnimationFrame === "function"
+      ? requestAnimationFrame
+      : (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function"
+          ? window.requestAnimationFrame.bind(window)
+          : (fn) => setTimeout(fn, 0));
+    const focusState = pending;
+    raf(() => {
+      target.classList.add("search-focus");
+      setTimeout(() => {
+        target.classList.remove("search-focus");
+        if (_pendingMessageFocus === focusState && Date.now() >= Number(focusState.highlightUntil || 0)) {
+          _pendingMessageFocus = null;
+        }
+      }, MESSAGE_FOCUS_HIGHLIGHT_MS);
+    });
+    return true;
+  }
+
+  function nextAnimationFrame() {
+    return new Promise((resolve) => {
+      const raf = typeof requestAnimationFrame === "function"
+        ? requestAnimationFrame
+        : (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function"
+            ? window.requestAnimationFrame.bind(window)
+            : (fn) => setTimeout(fn, 0));
+      raf(() => resolve());
+    });
+  }
+
+  async function waitForPendingMessageFocus(attempts = 6) {
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      if (!pendingFocusFor(moduleState.activeConversationId)) return true;
+      if (focusPendingMessage(document.getElementById("chat"))) return true;
+      await nextAnimationFrame();
+    }
+    return !pendingFocusFor(moduleState.activeConversationId);
+  }
+
+  function schedulePendingMessageFocus(attempts = 5) {
+    const raf = typeof requestAnimationFrame === "function"
+      ? requestAnimationFrame
+      : (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function"
+          ? window.requestAnimationFrame.bind(window)
+          : (fn) => setTimeout(fn, 0));
+    raf(() => {
+      if (!pendingFocusFor(moduleState.activeConversationId)) return;
+      if (focusPendingMessage(document.getElementById("chat"))) return;
+      if (attempts > 1) setTimeout(() => schedulePendingMessageFocus(attempts - 1), 80);
+    });
   }
 
   const moduleState = {
@@ -910,7 +1033,7 @@
       String(options.activeConversationId || "").trim(),
       ...Object.values(options.preferredConversationIdByBotKey || {}).map((id) => String(id || "").trim())
     ].filter(Boolean));
-    const filteredTag = String(moduleState.tagFilterName || "").trim().toLowerCase();
+    const filteredTag = options.ignoreTagFilter ? "" : String(moduleState.tagFilterName || "").trim().toLowerCase();
     return conversations.filter((conversation) =>
       !isLegacyBotSessionConversation(conversation)
       || keepLegacyIds.has(String(conversation?.id || ""))
@@ -1448,7 +1571,9 @@
       }
       if (cachedMessage.seq > entry.maxSeq) entry.maxSeq = cachedMessage.seq;
       const { SenderKind } = conversationKinds();
-      if (cachedMessage.sender_kind === SenderKind.Bot) {
+      const isBotMessage = cachedMessage.sender_kind === SenderKind.Bot;
+      const hadStreamingRun = isBotMessage && moduleState.cloudAgentRunsByConversation.has(conversationId);
+      if (isBotMessage) {
         clearRunPermissions(moduleState.cloudAgentRunsByConversation.get(conversationId));
         moduleState.cloudAgentRunsByConversation.delete(conversationId);
         renderAgentPermissionBanner();
@@ -1477,7 +1602,11 @@
       // stick to the bottom for my own messages; someone else's message must not
       // pull me away from history I've scrolled up to read.
       if (fresh && conversationId === moduleState.activeConversationId) {
-        _appendMessageToActiveChat(message, { stick: isMine });
+        if (hadStreamingRun) {
+          _reRenderActiveChat();
+        } else {
+          _appendMessageToActiveChat(cachedMessage, { stick: isMine });
+        }
       }
       if (deps && typeof deps.render === "function") deps.render();
       return;
@@ -1632,10 +1761,14 @@
     // background re-render never yanks them out of the history they scrolled to.
     const isConversationSwitch = conversationId !== _lastRenderedConversationId;
     const prevScrollTop = containerEl.scrollTop;
-    const stickToBottom = isConversationSwitch
-      || (containerEl.scrollHeight - containerEl.scrollTop - containerEl.clientHeight < SCROLL_STICK_THRESHOLD_PX);
+    const hasPendingFocus = Boolean(pendingFocusFor(conversationId));
+    const stickToBottom = !hasPendingFocus && (
+      isConversationSwitch
+      || (containerEl.scrollHeight - containerEl.scrollTop - containerEl.clientHeight < SCROLL_STICK_THRESHOLD_PX)
+    );
     _lastRenderedConversationId = conversationId;
     const applyScroll = () => {
+      if (focusPendingMessage(containerEl)) return;
       containerEl.scrollTop = stickToBottom ? containerEl.scrollHeight : prevScrollTop;
     };
 
@@ -1764,6 +1897,11 @@
 
     const article = document.createElement("article");
     article.className = `message ${roleClass}`;
+    if (typeof article.setAttribute === "function") {
+      article.setAttribute("data-message-id", msg.id || "");
+    } else {
+      article.dataset = { ...(article.dataset || {}), messageId: msg.id || "" };
+    }
     // Tag the avatar like the group builder so the same app.js handlers fire:
     // left-click → contact card, right-click → dropdown. Private chat and
     // group chat share one avatar-interaction path (一视同仁).
@@ -1862,10 +2000,18 @@
     return `<span class="message-send-status is-error" title="${escapeHtml(errorText)}">发送失败</span>`;
   }
 
-  function _reRenderActiveChat() {
+  function _reRenderActiveChat(options = {}) {
     const chatEl = document.getElementById("chat");
+    if (options.force && chatEl?.dataset) {
+      delete chatEl.dataset.conversationRenderSignature;
+    }
     if (chatEl && moduleState.activeConversationId) renderConversationChat(chatEl);
     renderAgentPermissionBanner();
+  }
+
+  function renderForMessageFocus() {
+    if (deps && typeof deps.render === "function") deps.render();
+    _reRenderActiveChat({ force: true });
   }
 
   // Remove a single message's bubble from the open chat without a full repaint.
@@ -1879,11 +2025,12 @@
 
   // Translate a cloud-conversation message in place. Mirrors message-menu.translateMessage
   // but stores the result on the cached message and re-renders the conversation.
-  async function translateConversationMessage(conversationId, messageId) {
+  async function translateConversationMessage(conversationId, messageId, selectionText = "") {
     const entry = moduleState.messageCache.get(conversationId);
     const msg = entry && entry.messages.find((m) => m.id === messageId);
     if (!msg) return;
-    const text = String(msg.body_md || msg.bodyMd || "").trim();
+    const selected = String(selectionText || "").trim();
+    const text = selected || String(msg.body_md || msg.bodyMd || "").trim();
     if (!text) return;
     // sendChat needs a bot to run the utility model on: prefer a bot
     // member of this conversation, else fall back to the first available persona.
@@ -1892,11 +2039,11 @@
     const conversationBot = (_conversationMembersCache.get(conversationId) || []).find((m) => m.member_kind === MemberKind.Bot);
     const botKey = (conversationBot && conversationBot.member_ref) || (bots[0] && (bots[0].key || bots[0].id)) || "";
     if (!botKey) {
-      msg.translation = { status: "error", text: "", error: "没有可用于翻译的 bot。" };
+      msg.translation = { status: "error", text: "", error: "没有可用于翻译的 bot。", sourceText: selected };
       if (conversationId === moduleState.activeConversationId) _reRenderActiveChat();
       return;
     }
-    msg.translation = { status: "loading", text: "", error: "" };
+    msg.translation = { status: "loading", text: "", error: "", sourceText: selected };
     if (conversationId === moduleState.activeConversationId) _reRenderActiveChat();
     try {
       const prompt = [
@@ -1914,10 +2061,10 @@
       });
       const translated = String(response?.choices?.[0]?.message?.content || "").trim();
       msg.translation = translated
-        ? { status: "done", text: translated, error: "" }
-        : { status: "error", text: "", error: "模型没有返回译文。" };
+        ? { status: "done", text: translated, error: "", sourceText: selected }
+        : { status: "error", text: "", error: "模型没有返回译文。", sourceText: selected };
     } catch (error) {
-      msg.translation = { status: "error", text: "", error: `翻译失败: ${error?.message || error}` };
+      msg.translation = { status: "error", text: "", error: `翻译失败: ${error?.message || error}`, sourceText: selected };
     }
     if (conversationId === moduleState.activeConversationId) _reRenderActiveChat();
   }
@@ -2532,6 +2679,13 @@
     return entry;
   }
 
+  function cachedMessageById(conversationId, messageId) {
+    const entry = moduleState.messageCache.get(conversationId);
+    if (!entry || !Array.isArray(entry.messages)) return null;
+    const id = String(messageId || "");
+    return entry.messages.find((msg) => String(msg?.id || "") === id) || null;
+  }
+
   const _ensuringConversations = new Set();
 
   // TG-style local-first open: paint the locally-cached recent history instantly
@@ -2586,6 +2740,68 @@
     } finally {
       _ensuringConversations.delete(conversationId);
     }
+  }
+
+  async function focusConversationMessage(conversationId, target = {}) {
+    const id = String(conversationId || "").trim();
+    const message = target?.message && typeof target.message === "object" ? target.message : null;
+    const messageId = String(target?.messageId || target?.id || message?.id || "").trim();
+    if (!id || !messageId) return { ok: false, error: "missing message target" };
+    const focusMessage = message
+      ? messageWithFallbackRunTrace(id, { ...message, conversation_id: message.conversation_id || id })
+      : null;
+
+    _pendingMessageFocus = {
+      conversationId: id,
+      messageId,
+      startedAt: Date.now(),
+      smooth: false
+    };
+
+    if (focusMessage) {
+      _mergeMessagesIntoCache(id, [focusMessage]);
+    }
+
+    const seq = Number(target?.seq ?? message?.seq ?? 0) || 0;
+    setActiveConversationId(id);
+    renderForMessageFocus();
+    schedulePendingMessageFocus();
+    const immediateFound = await waitForPendingMessageFocus(seq > 0 ? 3 : 8);
+    if (immediateFound && seq <= 0) return { ok: true, found: true };
+
+    const api = window.mia && window.mia.social;
+    try {
+      if (api && typeof api.listConversationMessages === "function") {
+        const sinceSeq = seq > 0 ? Math.max(0, seq - 120) : 0;
+        const limit = seq > 0 ? 260 : 500;
+        const res = await api.listConversationMessages(id, sinceSeq, limit);
+        const messages = (res?.ok ? res.data?.messages : res?.messages) || [];
+        if (Array.isArray(messages) && messages.length) {
+          _mergeMessagesIntoCache(id, messages.map((m) => messageWithFallbackRunTrace(id, m)));
+        }
+      }
+    } catch (err) {
+      console.warn("[social] focusConversationMessage backfill failed:", err?.message || err);
+    }
+
+    if (focusMessage && !cachedMessageById(id, messageId)) {
+      _mergeMessagesIntoCache(id, [focusMessage]);
+    }
+
+    _pendingMessageFocus = {
+      conversationId: id,
+      messageId,
+      startedAt: Date.now(),
+      smooth: true
+    };
+    if (moduleState.activeConversationId === id) {
+      renderForMessageFocus();
+    }
+    schedulePendingMessageFocus(8);
+    const found = await waitForPendingMessageFocus(10);
+    const cached = Boolean(cachedMessageById(id, messageId));
+    if (!found && !cached) console.warn("[social] focusConversationMessage target not found:", messageId);
+    return { ok: true, found: found || cached };
   }
 
   function setActiveConversationId(id) {
@@ -2767,6 +2983,43 @@
     const used = new Set(Object.values(tags?.assignments || {}).flatMap((ids) =>
       Array.isArray(ids) ? ids : []));
     return Array.isArray(tags?.items) ? tags.items.filter((item) => used.has(item.id)) : [];
+  }
+  function conversationTagFilters() {
+    const tags = _ensureCloudSettings().tags;
+    const active = String(moduleState.tagFilterName || "").trim().toLowerCase();
+    const visibleIds = new Set(visibleSocialConversations(moduleState.conversations, {
+      activeConversationId: moduleState.activeConversationId,
+      preferredConversationIdByBotKey: moduleState.lastBotConversationByKey,
+      ignoreTagFilter: true
+    }).map((conversation) => String(conversation?.id || "")).filter(Boolean));
+    const counts = new Map();
+    for (const [conversationId, ids] of Object.entries(tags?.assignments || {})) {
+      if (!visibleIds.has(String(conversationId || ""))) continue;
+      for (const tagId of new Set(Array.isArray(ids) ? ids : [])) {
+        counts.set(tagId, (counts.get(tagId) || 0) + 1);
+      }
+    }
+    return (Array.isArray(tags?.items) ? tags.items : [])
+      .map((item) => {
+        const name = String(item?.name || "").trim();
+        const count = counts.get(item?.id) || 0;
+        if (!name || count <= 0) return null;
+        return {
+          id: item.id,
+          name,
+          color: item.color,
+          count,
+          filterActive: Boolean(active && name.toLowerCase() === active)
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => {
+        if (b.count !== a.count) return b.count - a.count;
+        return a.name.localeCompare(b.name, "zh-Hans-CN");
+      });
+  }
+  function getConversationTagFilter() {
+    return String(moduleState.tagFilterName || "").trim();
   }
   function focusConversationTagInput(conversationId, target = "add") {
     if (typeof document === "undefined") return;
@@ -3214,6 +3467,7 @@
     getConversationById,
     botConversationForKey,
     setActiveConversationId,
+    focusConversationMessage,
     markConversationRead,
     isConversationPinned,
     setConversationPinned,
@@ -3222,6 +3476,8 @@
     isConversationManuallyUnread,
     setConversationManuallyUnread,
     conversationTagsFor,
+    conversationTagFilters,
+    getConversationTagFilter,
     conversationTagEditorFor,
     setConversationTagNames,
     beginConversationTagEdit,

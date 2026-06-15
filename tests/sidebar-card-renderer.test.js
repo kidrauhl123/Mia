@@ -99,3 +99,29 @@ test("sidebar private card propagates identity status badge to name renderer", (
   assert.ok(nameEl.children.some((child) => child.className === "name-with-badge"));
   assert.deepEqual(JSON.parse(JSON.stringify(calls[0])), { identity, fallbackName: "Mia", statusBadge: badge });
 });
+
+test("sidebar search result cards are compact hits without tag rows", () => {
+  const cards = loadSidebarCards();
+  const card = cards.createPrivateCard({
+    searchResult: true,
+    active: true,
+    name: "我耳塞呢",
+    preview: "TD5E5y7VfPtwdW2zPxYn9aP9fVZsn7ATus",
+    time: "9/2/25",
+    avatar: {},
+    tags: [{ name: "收款用的", color: "#2386d9" }],
+    unread: 8,
+    dataAttrs: { conversationId: "botc_sess_1", searchMessageId: "m_42", searchMessageSeq: 42 }
+  });
+
+  assert.match(card.className, /\bsearch-result\b/);
+  assert.match(card.className, /\bactive\b/);
+  assert.doesNotMatch(card.className, /\bhas-tags\b/);
+  assert.doesNotMatch(card.innerHTML, /persona-tag-row/);
+  assert.doesNotMatch(card.innerHTML, /persona-tag-chip/);
+  assert.doesNotMatch(card.innerHTML, /unread-badge/);
+  assert.match(card.innerHTML, /TD5E5y7VfPtwdW2zPxYn9aP9fVZsn7ATus/);
+  assert.equal(card.dataset.conversationId, "botc_sess_1");
+  assert.equal(card.dataset.searchMessageId, "m_42");
+  assert.equal(card.dataset.searchMessageSeq, "42");
+});

@@ -336,15 +336,17 @@
     const currentEffortLabel = effortEntries.find((e) => e.value === currentEffort)?.label || "Medium";
 
     const currentPermission = config.permissionMode
-      || permissionEntries.find((p) => p.value === (isCloudHermes ? "ask" : "default"))?.value
+      || permissionEntries.find((p) => p.value === (isCloudHermes ? "ask" : "default") || (Array.isArray(p.aliases) && p.aliases.includes("default")))?.value
       || permissionEntries[0]?.value
       || "";
-    const currentPermissionLabel = permissionEntries.find((p) => p.value === currentPermission)?.label || "Ask";
+    const currentPermissionEntry = permissionEntries.find((p) => p.value === currentPermission || (Array.isArray(p.aliases) && p.aliases.includes(currentPermission)));
+    const currentPermissionLabel = currentPermissionEntry?.label || "Ask";
 
     function options(entries, valueKey, labelKey, selectedValue) {
       return entries.map((e) => {
         const value = e[valueKey];
-        const sel = value === selectedValue ? " selected" : "";
+        const aliases = Array.isArray(e.aliases) ? e.aliases : [];
+        const sel = value === selectedValue || aliases.includes(selectedValue) ? " selected" : "";
         return `<option value="${escapeHtml(value)}"${sel}>${escapeHtml(e[labelKey])}</option>`;
       }).join("");
     }

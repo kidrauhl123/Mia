@@ -86,7 +86,10 @@ const { createEnginePluginsService } = require("./main/engine-plugins-service.js
 const { createLocalAgentEngineService } = require("./main/local-agent-engine-service.js");
 const { createAgentSessionStore } = require("./main/agent-session-store.js");
 const { createAgentPermissionCoordinator } = require("./main/agent-permission-coordinator.js");
-const { runCodexAppServerTurn } = require("./main/codex-app-server-runner.js");
+const {
+  createCodexAppServerConnection,
+  runCodexAppServerTurn
+} = require("./main/codex-app-server-runner.js");
 const { createSchedulerMcpBridge } = require("./main/scheduler-mcp-bridge.js");
 const { schedulerSkillIdsForTurn } = require("./main/scheduler-skill-detector.js");
 const { deliverTaskReplyToConversation } = require("./main/task-reply-delivery.js");
@@ -503,7 +506,12 @@ const engineCatalogService = createEngineCatalogService({
   buildPythonPath,
   runPythonScript,
   appendEngineLog,
-  timeEngineStepAsync
+  timeEngineStepAsync,
+  shellCommandPath: (command) => localAgentEngineService.shellCommandPath(command),
+  processEnvStrings,
+  ensureCodexHome: () => schedulerMcpBridge.ensureCodexHome(),
+  createCodexAppServerConnection,
+  cwd: () => process.cwd()
 });
 let claudeAgentSdkModule = null;
 let codexSdkModule = null;

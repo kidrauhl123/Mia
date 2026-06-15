@@ -65,6 +65,30 @@ test("listConversationMessages encodes sinceSeq and limit as query params", asyn
   } finally { await teardown(ctx); }
 });
 
+test("searchConversationMessages encodes the query and limit", async () => {
+  const seen = [];
+  const ctx = await spawnFakeCloud((req, res) => {
+    seen.push(req.url);
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({
+      results: [{
+        conversation: { id: "botc_sess_1", type: "bot" },
+        message: { id: "m1", conversation_id: "botc_sess_1", body_md: "hello okx" },
+        matchText: "hello okx"
+      }]
+    }));
+  });
+  try {
+    const api = createSocialApi({
+      getSettings: () => ({ enabled: true, token: "t", url: ctx.baseUrl }),
+      normalizeUrl: (u) => u
+    });
+    const result = await api.searchConversationMessages("okx 收款", 42);
+    assert.equal(result.results[0].message.id, "m1");
+    assert.equal(seen[0], "/api/conversations/search?q=okx%20%E6%94%B6%E6%AC%BE&limit=42");
+  } finally { await teardown(ctx); }
+});
+
 test("updateConversation sends PATCH with patch body verbatim", async () => {
   const seen = [];
   const ctx = await spawnFakeCloud(async (req, res) => {

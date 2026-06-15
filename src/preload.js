@@ -128,6 +128,7 @@ contextBridge.exposeInMainWorld("mia", {
     listPlatformModels: () => ipcRenderer.invoke(IpcChannel.SocialListPlatformModels),
     getConversation: (conversationId) => ipcRenderer.invoke(IpcChannel.SocialGetConversation, conversationId),
     listConversationMessages: (conversationId, sinceSeq, limit) => ipcRenderer.invoke(IpcChannel.SocialListConversationMessages, conversationId, sinceSeq, limit),
+    searchConversationMessages: (query, limit) => ipcRenderer.invoke(IpcChannel.SocialSearchConversationMessages, query, limit),
     getCachedConversationMessages: (conversationId, limit) => ipcRenderer.invoke(IpcChannel.SocialGetCachedMessages, conversationId, limit),
     getCachedSocialBootstrap: (userId) => ipcRenderer.invoke(IpcChannel.SocialGetCachedBootstrap, userId),
     postConversationMessage: (conversationId, body) => ipcRenderer.invoke(IpcChannel.SocialPostConversationMessage, conversationId, body),

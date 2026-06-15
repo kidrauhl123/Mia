@@ -1,5 +1,8 @@
 const { spawn: defaultSpawn } = require("node:child_process");
+const path = require("node:path");
 const readline = require("node:readline");
+
+const CODEX_APP_SERVER_PROTOCOL_VERSION = 2;
 
 function tomlString(value) {
   return `"${String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
@@ -98,7 +101,22 @@ function toolPayloadFromCodexItem(item = {}) {
 
 function writeJsonLine(child, message) {
   if (!child.stdin || child.stdin.destroyed) return;
-  child.stdin.write(`${JSON.stringify(message)}\n`);
+  const payload = message && typeof message === "object" && !Object.prototype.hasOwnProperty.call(message, "version")
+    ? { version: CODEX_APP_SERVER_PROTOCOL_VERSION, ...message }
+    : message;
+  child.stdin.write(`${JSON.stringify(payload)}\n`);
+}
+
+function envWithExecutableDirFirst(env = {}, executablePath = "") {
+  const dir = path.dirname(String(executablePath || ""));
+  if (!dir || dir === ".") return env || {};
+  const delimiter = process.platform === "win32" ? ";" : path.delimiter;
+  const currentPath = String(env?.PATH || env?.Path || "");
+  const parts = currentPath.split(delimiter).filter(Boolean).filter((item) => item !== dir);
+  return {
+    ...(env || {}),
+    PATH: [dir, ...parts].join(delimiter)
+  };
 }
 
 function createCodexAppServerConnection({
@@ -119,7 +137,7 @@ function createCodexAppServerConnection({
   }
   const child = spawn(codexPath, args, {
     stdio: ["pipe", "pipe", "pipe"],
-    env
+    env: envWithExecutableDirFirst(env, codexPath)
   });
   let stderr = "";
   if (child.stderr) {
@@ -444,16 +462,19 @@ async function runCodexAppServerTurn({
       clientInfo: { name: "mia", title: "Mia", version: "0.1.0" },
       capabilities: { experimentalApi: true, requestAttestation: false }
     });
+    const permissionProfile = String(options.permissionProfile || "").trim();
     const common = {
       model: options.model || null,
       cwd: options.workingDirectory || null,
-      approvalPolicy: options.approvalPolicy || "untrusted",
       approvalsReviewer: "user",
-      sandbox: options.sandboxMode || "workspace-write",
-      config: null,
+      config: permissionProfile ? { default_permissions: permissionProfile } : null,
       serviceName: "Mia",
       ephemeral: false
     };
+    if (!permissionProfile) {
+      common.approvalPolicy = options.approvalPolicy || "untrusted";
+      common.sandbox = options.sandboxMode || "workspace-write";
+    }
     if (activeThreadId) {
       const resumed = await connection.request("thread/resume", { threadId: activeThreadId, ...common });
       activeThreadId = resumed?.thread?.id || activeThreadId;
@@ -462,14 +483,17 @@ async function runCodexAppServerTurn({
       activeThreadId = started?.thread?.id || "";
       if (typeof emit === "function" && activeThreadId) emit("session_started", { sessionId: activeThreadId });
     }
-    const startedTurn = await connection.request("turn/start", {
+    const turnParams = {
       threadId: activeThreadId,
       input: [{ type: "text", text: String(prompt || ""), text_elements: [] }],
       model: options.model || null,
       effort: options.modelReasoningEffort || null,
-      approvalPolicy: options.approvalPolicy || "untrusted",
       approvalsReviewer: "user"
-    });
+    };
+    if (!permissionProfile) {
+      turnParams.approvalPolicy = options.approvalPolicy || "untrusted";
+    }
+    const startedTurn = await connection.request("turn/start", turnParams);
     activeTurnId = startedTurn?.turn?.id || activeTurnId;
     if (startedTurn?.turn?.status === "completed") {
       completedTurn = startedTurn.turn;

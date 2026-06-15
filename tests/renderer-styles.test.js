@@ -62,20 +62,38 @@ test("sidebar and chat headers use the same surface and own their divider line",
 
 test("conversation cards keep the default cursor outside tag controls", () => {
   const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+  const chatCss = fs.readFileSync(path.join(root, "src/renderer/styles/chat.css"), "utf8");
   const personaRule = baseCss.match(/\.persona\s*\{([\s\S]*?)\}/);
 
   assert.ok(personaRule, "base .persona rule should exist");
+  assert.match(baseCss, /body\s*\{[\s\S]*?cursor:\s*default;[\s\S]*?user-select:\s*none;/);
   assert.doesNotMatch(
     personaRule[1],
     /cursor:\s*pointer/,
     "the whole conversation card should not turn into a hand cursor"
   );
+  assert.match(personaRule[1], /cursor:\s*default;/);
+  assert.match(personaRule[1], /user-select:\s*none;/);
+  assert.match(chatCss, /\.message \.avatar\s*\{[\s\S]*?user-select:\s*none;/);
+  assert.match(chatCss, /\.bubble\s*\{[\s\S]*?cursor:\s*text;[\s\S]*?user-select:\s*text;/);
+  assert.match(chatCss, /\.message\.search-focus \.bubble\s*\{[\s\S]*?animation:\s*messageSearchFocus/);
+  assert.match(chatCss, /@keyframes messageSearchFocus/);
   assert.match(baseCss, /\.persona-tag-chip\s*\{[\s\S]*?cursor:\s*pointer;/);
   const tagButtonRule = baseCss.match(/button\.persona-tag-chip\s*\{([\s\S]*?)\}/)?.[1] || "";
   assert.doesNotMatch(tagButtonRule, /font:\s*inherit/);
   assert.match(baseCss, /\.persona-tag-input\s*\{[\s\S]*?font-size:\s*10px;/);
   assert.match(baseCss, /\.persona-tag-input-wrap\s*\{[\s\S]*?animation:\s*tagInputOpen/);
   assert.match(baseCss, /\.persona-tag-chip\.removing\s*\{[\s\S]*?animation:\s*tagChipRemove/);
+  assert.match(baseCss, /\.sidebar-tag-filter\s*\{[\s\S]*?height:\s*16px;[\s\S]*?font-size:\s*10px;/);
+  assert.match(baseCss, /\.sidebar-tag-filter\s*\{[\s\S]*?border-radius:\s*5px;/);
+  assert.match(baseCss, /\.sidebar-tag-filter\s*\{[\s\S]*?background:\s*rgba\(142,\s*142,\s*147,\s*0\.14\);[\s\S]*?color:\s*rgba\(60,\s*60,\s*67,\s*0\.56\);/);
+  assert.match(baseCss, /\.search-clear\s*\{[\s\S]*?background:\s*transparent;[\s\S]*?color:\s*var\(--faint\);/);
+  assert.match(baseCss, /\.search-clear:hover\s*\{[\s\S]*?background:\s*transparent;[\s\S]*?color:\s*var\(--muted\);/);
+  assert.match(baseCss, /\.persona\.search-result\s*\{[\s\S]*?grid-template-columns:\s*34px minmax\(0,\s*1fr\);[\s\S]*?min-height:\s*50px;/);
+  assert.match(baseCss, /\.persona\.search-result:hover:not\(\.active\)\s*\{[\s\S]*?background:\s*rgba\(var\(--accent-rgb\),\s*0\.08\);/);
+  assert.doesNotMatch(baseCss, /\.persona\.search-result\.search-selected/);
+  assert.match(baseCss, /\.persona\.search-result \.persona-key\s*\{[\s\S]*?white-space:\s*nowrap;[\s\S]*?-webkit-line-clamp:\s*unset;/);
+  assert.match(baseCss, /\.persona\.search-result \.persona-tag-row,\s*\.persona\.search-result \.persona-tags\s*\{[\s\S]*?display:\s*none;/);
 });
 
 test("lottie icon styles keep filled shapes from gaining outline strokes", () => {

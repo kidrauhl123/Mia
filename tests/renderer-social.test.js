@@ -210,6 +210,112 @@ test("bootstrapAfterLogin asks untitled loaded conversations to generate titles"
   assert.deepEqual(titleCandidates, ["botc_u_1_kongling"]);
 });
 
+test("focusConversationMessage backfills around the hit seq then scrolls to it", async () => {
+  let renderCalls = 0;
+  let listCall = null;
+  let backfilled = false;
+  const article = {
+    offsetTop: 620,
+    offsetHeight: 80,
+    offsetParent: null,
+    classList: { add() {}, remove() {} },
+  };
+  const bubble = { closest: () => article };
+  const chat = {
+    dataset: {},
+    scrollTop: 0,
+    scrollHeight: 1400,
+    clientHeight: 500,
+    appendChild() {},
+    querySelector(selector) {
+      return backfilled && selector.includes("m_hit") ? bubble : null;
+    }
+  };
+  article.offsetParent = chat;
+  const s = loadSocial({ requestAnimationFrame: (fn) => fn(), elementsById: { chat } });
+  s.initSocialModule({
+    getState: () => ({ runtime: {} }),
+    render: () => { renderCalls += 1; },
+    els: {},
+    appendTransientChat: () => {}
+  });
+  s.moduleState.activeConversationId = "botc_sess_1";
+  s.moduleState.conversations = [{ id: "botc_sess_1", type: "bot", name: "论文搭子" }];
+  s.moduleState.messageCache.set("botc_sess_1", { messages: [], maxSeq: 0 });
+  s.__mockWindow.mia.social = {
+    listConversationMessages: async (conversationId, sinceSeq, limit) => {
+      listCall = { conversationId, sinceSeq, limit };
+      backfilled = true;
+      return { ok: true, data: { messages: [{ id: "m_hit", seq: 120, conversation_id: conversationId, body_md: "命中消息" }] } };
+    },
+    settingsPut: async () => ({}),
+  };
+
+  const result = await s.focusConversationMessage("botc_sess_1", { messageId: "m_hit", seq: 120 });
+
+  assert.equal(result.found, true);
+  assert.deepEqual(listCall, { conversationId: "botc_sess_1", sinceSeq: 0, limit: 260 });
+  assert.equal(s.moduleState.messageCache.get("botc_sess_1").messages[0].id, "m_hit");
+  assert.ok(renderCalls >= 2);
+  assert.equal(chat.scrollTop, 410);
+});
+
+test("focusConversationMessage loads around the hit seq even when the preview hit is already rendered", async () => {
+  let renderCalls = 0;
+  let listCall = null;
+  const focusClasses = [];
+  const article = {
+    offsetTop: 500,
+    offsetHeight: 80,
+    offsetParent: null,
+    classList: {
+      add(name) { focusClasses.push(["add", name]); },
+      remove(name) { focusClasses.push(["remove", name]); }
+    },
+  };
+  const bubble = { closest: () => article };
+  const chat = {
+    dataset: {},
+    scrollTop: 0,
+    scrollHeight: 1200,
+    clientHeight: 400,
+    appendChild() {},
+    querySelector(selector) {
+      return selector.includes("m_hit") ? bubble : null;
+    }
+  };
+  article.offsetParent = chat;
+  const s = loadSocial({ requestAnimationFrame: (fn) => fn(), elementsById: { chat } });
+  s.initSocialModule({
+    getState: () => ({ runtime: {} }),
+    render: () => { renderCalls += 1; },
+    els: {},
+    appendTransientChat: () => {}
+  });
+  s.moduleState.activeConversationId = "botc_sess_1";
+  s.moduleState.conversations = [{ id: "botc_sess_1", type: "bot", name: "论文搭子" }];
+  s.moduleState.messageCache.set("botc_sess_1", { messages: [], maxSeq: 0 });
+  s.__mockWindow.mia.social = {
+    listConversationMessages: async (conversationId, sinceSeq, limit) => {
+      listCall = { conversationId, sinceSeq, limit };
+      return { ok: true, data: { messages: [{ id: "m_hit", seq: 120, conversation_id: conversationId, body_md: "命中消息" }] } };
+    },
+    settingsPut: async () => ({}),
+  };
+
+  const result = await s.focusConversationMessage("botc_sess_1", {
+    messageId: "m_hit",
+    seq: 120,
+    message: { id: "m_hit", seq: 120, conversation_id: "botc_sess_1", body_md: "搜索预览" }
+  });
+
+  assert.equal(result.found, true);
+  assert.deepEqual(listCall, { conversationId: "botc_sess_1", sinceSeq: 0, limit: 260 });
+  assert.equal(chat.scrollTop, 340);
+  assert.ok(renderCalls >= 2);
+  assert.ok(focusClasses.some(([action, name]) => action === "add" && name === "search-focus"));
+});
+
 test("bootstrapAfterLogin prefetches group members beyond the initial message cap", async () => {
   const s = loadSocial();
   const fetched = [];
@@ -825,6 +931,51 @@ test("conversation tag menu actions can rename and filter tagged sidebar rows", 
   assert.deepEqual(s.renderSidebarRows().map((row) => row.key), ["dm:u_a:u_b"]);
   s.setConversationTagFilter("客户");
   assert.equal(s.renderSidebarRows().length, 2);
+});
+
+test("conversationTagFilters returns in-use tag counts without moving the selected tag", () => {
+  const s = loadSocial();
+  s.moduleState.myUserId = "u_a";
+  s.moduleState.friends = [
+    { id: "u_b", username: "bob", account: "bob" },
+    { id: "u_c", username: "cora", account: "cora" },
+    { id: "u_d", username: "dora", account: "dora" }
+  ];
+  s.moduleState.cloudSettings = {
+    pins: [],
+    readMarks: {},
+    appearance: {},
+    tags: {
+      items: [
+        { id: "tag_work", name: "工作", color: "#16a34a" },
+        { id: "tag_client", name: "客户", color: "#2563eb" },
+        { id: "tag_unused", name: "未引用", color: "#dc2626" }
+      ],
+      assignments: {
+        "dm:u_a:u_b": ["tag_work", "tag_client"],
+        "dm:u_a:u_c": ["tag_work"],
+        "dm:u_a:u_missing": ["tag_unused"]
+      }
+    },
+    version: 1
+  };
+  s.moduleState.conversations = [
+    { id: "dm:u_a:u_b", type: "dm", updatedAt: "2026-05-21T20:00:00.000Z" },
+    { id: "dm:u_a:u_c", type: "dm", updatedAt: "2026-05-21T20:01:00.000Z" },
+    { id: "dm:u_a:u_d", type: "dm", updatedAt: "2026-05-21T20:02:00.000Z" }
+  ];
+
+  assert.deepEqual(
+    s.conversationTagFilters().map((tag) => [tag.name, tag.count, tag.filterActive]),
+    [["工作", 2, false], ["客户", 1, false]]
+  );
+
+  s.setConversationTagFilter("客户");
+  assert.deepEqual(
+    s.conversationTagFilters().map((tag) => [tag.name, tag.count, tag.filterActive]),
+    [["工作", 2, false], ["客户", 1, true]]
+  );
+  assert.equal(s.getConversationTagFilter(), "客户");
 });
 
 test("conversation tag inline commit renames the target instead of adding a second tag", async () => {
@@ -2161,6 +2312,50 @@ test("handleCloudEvent bot reply clears transient cloud agent stream", () => {
     },
   });
   assert.equal(s.moduleState.cloudAgentRunsByConversation.has("botc_u_a_mia"), false);
+});
+
+test("handleCloudEvent bot reply replaces the active streaming bubble", () => {
+  const chat = {
+    dataset: {},
+    children: [],
+    appendChild(child) { this.children.push(child); return child; },
+    querySelector() { return null; },
+    set innerHTML(value) { this.children = []; this._html = value; },
+    get innerHTML() { return this._html || ""; },
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+  };
+  const s = loadSocial({ elementsById: { chat } });
+  s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.activeConversationId = "botc_u_a_mia";
+  s.moduleState.conversations = [{ id: "botc_u_a_mia", type: "bot", name: "Mia", decorations: { botId: "mia" } }];
+  s.moduleState.messageCache.set("botc_u_a_mia", { messages: [], maxSeq: 0 });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_started",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", botId: "mia" },
+  });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", event: { type: "message.delta", delta: "done" } },
+  });
+  s.renderConversationChat(chat);
+
+  assert.equal(chat.children.length, 1);
+  assert.match(chat.children[0].className, /streaming/);
+
+  s.handleCloudEvent({
+    type: "conversation.message_appended",
+    payload: {
+      conversationId: "botc_u_a_mia",
+      message: { id: "m1", seq: 1, sender_kind: "bot", sender_ref: "mia", body_md: "done" },
+    },
+  });
+
+  assert.equal(s.moduleState.cloudAgentRunsByConversation.has("botc_u_a_mia"), false);
+  assert.equal(chat.children.length, 1);
+  assert.doesNotMatch(chat.children[0].className, /streaming/);
+  assert.match(chat.children[0].innerHTML, /done/);
 });
 
 test("handleCloudEvent preserves transient run trace when final bot message lacks trace_json", () => {

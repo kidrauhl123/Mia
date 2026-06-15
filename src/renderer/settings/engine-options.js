@@ -112,7 +112,9 @@
 
   function externalPermissionOptions(engine) {
     if (engineContracts.externalPermissionOptions && engineContracts.isExternalEngine?.(engine)) {
-      return engineContracts.externalPermissionOptions(engine);
+      return engineContracts.externalPermissionOptions(engine, {
+        codexPermissionProfiles: state?.engineCapabilities?.engines?.codex?.permissionProfiles
+      });
     }
     if (engine === "claude-code") {
       return [
@@ -147,6 +149,7 @@
   function effortOptions(engine) {
     if (engineContracts.effortOptions) {
       return engineContracts.effortOptions(engine, {
+        codexModels: state?.engineCapabilities?.engines?.codex?.models || state?.codexModels,
         effortLevels: state?.engineCapabilities?.effortLevels,
         effortLabels: EFFORT_LABELS
       });

@@ -112,6 +112,19 @@ function registerSocialIpc({ ipcMain, socialApi, messageCache = null, getCloudUs
     }
     return result;
   }));
+  ipcMain.handle(IpcChannel.SocialSearchConversationMessages, safeCall(async (query, limit) => {
+    const result = await socialApi.searchConversationMessages(query, limit);
+    const results = resultArray(result, "results");
+    if (messageCache && results.length) {
+      for (const item of results) {
+        const conversationId = item?.conversation?.id || item?.message?.conversation_id;
+        if (!conversationId || !item?.message) continue;
+        try { messageCache.upsertMessages(conversationId, [item.message]); }
+        catch (error) { log(`[social-ipc] search message cache upsert failed: ${error?.message || error}`); }
+      }
+    }
+    return result;
+  }));
   ipcMain.handle(IpcChannel.SocialGetCachedMessages, safeCall((conversationId, limit) => {
     if (!messageCache) return { messages: [] };
     return { messages: messageCache.getRecentMessages(conversationId, limit) };

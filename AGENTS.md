@@ -206,13 +206,13 @@ mia 是 Electron app，主进程、渲染进程、preload、cloud / web / mobile
 <claude-mem-context>
 # Memory Context
 
-# [mia] recent context, 2026-06-12 6:23pm GMT+8
+# [mia] recent context, 2026-06-15 6:09pm GMT+8
 
 Legend: 🎯session 🔴bugfix 🟣feature 🔄refactor ✅change 🔵discovery ⚖️decision
 Format: ID TIME TYPE TITLE
 Fetch details: get_observations([IDs]) | Search: mem-search skill
 
-Stats: 13 obs (7,160t read) | 233,279t work | 97% savings
+Stats: 17 obs (7,964t read) | 265,177t work | 97% savings
 
 ### Jun 12, 2026
 1247 5:55p ⚖️ ADR P2: Cloud Event Socket Single-Host — Daemon Owns, Window Defers to Local SSE
@@ -228,6 +228,10 @@ Stats: 13 obs (7,160t read) | 233,279t work | 97% savings
 1257 " 🔵 mia: /api/cloud-settings Handler Calls writeCloudSettings Synchronously — No await Gap
 1258 " 🔵 mia: daemonToken Is a File-Backed Function — Read Fresh on Every Call
 1259 6:13p 🟣 mia: ADR P3 单写者凭据委托架构实现
+1260 6:23p ✅ mia CLAUDE.md: 桌面端单 owner 规则写入架构约束
+1261 " ⚖️ mia ADR P0–P5 落地收口：桌面端 daemon 单 owner 架构完成
+1262 6:24p ✅ mia CLAUDE.md: 桌面端单 Owner 规则写入 + ADR P0–P5 标记完成
+1263 6:25p ⚖️ mia CLAUDE.md: 桌面端单一 Owner 规则落地，ADR P0–P5 标记完成
 
-Access 233k tokens of past work via get_observations([IDs]) or mem-search skill.
+Access 265k tokens of past work via get_observations([IDs]) or mem-search skill.
 </claude-mem-context>

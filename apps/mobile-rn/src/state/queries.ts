@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useApi } from "./clientProvider";
 import { useAuth } from "./auth";
-import { normalizeServerRow } from "../logic/normalizeMessage";
+import { mergeFetchedMessages, normalizeServerRow } from "../logic/normalizeMessage";
 import {
   botConversationPath,
   botDetailPath,
@@ -77,6 +77,7 @@ export function useConversationMessages(conversationId: string) {
       api
         .api(`/api/conversations/${conversationId}/messages?limit=200`)
         .then((d) => (d.messages || []).map((r: MessageRow, i: number) => normalizeServerRow(r, selfId, i))),
+    structuralSharing: (oldData, newData) => mergeFetchedMessages(oldData || [], newData || []),
   });
 }
 

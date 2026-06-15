@@ -74,14 +74,27 @@ test("loadCodexModels reads the Codex cache, filters hidden rows, and sorts by p
   fs.writeFileSync(cachePath, JSON.stringify({
     models: [
       { slug: "hidden", display_name: "Hidden", priority: 1, visibility: "hide" },
-      { slug: "z-model", display_name: "Zed", priority: 20 },
+      {
+        slug: "z-model",
+        display_name: "Zed",
+        priority: 20,
+        default_reasoning_level: "high",
+        supported_reasoning_levels: [{ effort: "low", description: "Fast" }, { effort: "high" }]
+      },
       { slug: "a-model", priority: 2 }
     ]
   }));
 
   assert.deepEqual(service.loadCodexModels(), [
-    { slug: "a-model", displayName: "a-model", priority: 2 },
-    { slug: "z-model", displayName: "Zed", priority: 20 }
+    { slug: "a-model", displayName: "a-model", description: "", priority: 2, defaultReasoningLevel: "", supportedReasoningLevels: [] },
+    {
+      slug: "z-model",
+      displayName: "Zed",
+      description: "",
+      priority: 20,
+      defaultReasoningLevel: "high",
+      supportedReasoningLevels: [{ effort: "low", description: "Fast" }, { effort: "high", description: "" }]
+    }
   ]);
 });
 
@@ -96,6 +109,65 @@ test("loadEngineCapabilities and loadHermesSlashCommands parse runtime output wi
     }
   });
 
-  assert.deepEqual(await service.loadEngineCapabilities(), { approvalModes: ["ask"], effortLevels: ["low", "high"] });
+  assert.deepEqual(await service.loadEngineCapabilities(), {
+    approvalModes: ["ask"],
+    effortLevels: ["low", "high"],
+    engines: {
+      hermes: { approvalModes: ["ask"], effortLevels: ["low", "high"] },
+      codex: { models: [], effortLevels: [], effortOptions: [], permissionProfiles: [] }
+    }
+  });
   assert.deepEqual(await service.loadHermesSlashCommands(), [{ command: "/goal", description: "Set goal" }]);
+});
+
+test("loadEngineCapabilities probes Codex app-server models and permission profiles", async () => {
+  const requests = [];
+  const { service } = createHarness({
+    shellCommandPath: (command) => command === "codex" ? "/bin/codex" : "",
+    processEnvStrings: () => ({ PATH: "/bin" }),
+    ensureCodexHome: () => "/tmp/codex-home",
+    createCodexAppServerConnection: ({ codexPath, env }) => {
+      requests.push(["connect", codexPath, env]);
+      return {
+        close: () => requests.push(["close"]),
+        request: async (method, params) => {
+          requests.push(["request", method, params]);
+          if (method === "model/list") {
+            return {
+              data: [{
+                id: "gpt-test",
+                model: "gpt-test",
+                displayName: "GPT Test",
+                hidden: false,
+                defaultReasoningEffort: "medium",
+                supportedReasoningEfforts: [{ reasoningEffort: "low", description: "Fast" }, { reasoningEffort: "medium" }]
+              }]
+            };
+          }
+          if (method === "permissionProfile/list") {
+            return { data: [{ id: ":workspace", description: null }, { id: ":read-only", description: "Read files only" }] };
+          }
+          return {};
+        }
+      };
+    }
+  });
+
+  const caps = await service.loadEngineCapabilities();
+
+  assert.equal(requests[0][1], "/bin/codex");
+  assert.equal(requests[0][2].CODEX_HOME, "/tmp/codex-home");
+  assert.deepEqual(caps.engines.codex.models, [{
+    slug: "gpt-test",
+    displayName: "GPT Test",
+    description: "",
+    priority: 0,
+    defaultReasoningLevel: "medium",
+    supportedReasoningLevels: [{ effort: "low", description: "Fast" }, { effort: "medium", description: "" }]
+  }]);
+  assert.deepEqual(caps.engines.codex.effortLevels, ["low", "medium"]);
+  assert.deepEqual(caps.engines.codex.permissionProfiles, [
+    { id: ":workspace", description: null },
+    { id: ":read-only", description: "Read files only" }
+  ]);
 });

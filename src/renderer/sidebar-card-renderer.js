@@ -110,6 +110,7 @@
   }
 
   function tagRowHtml(spec) {
+    if (spec.searchResult) return "";
     const editor = spec.tagEditor || null;
     const editing = Boolean(editor?.active);
     const tags = tagItems(editing ? (editor.tags || spec.tags) : spec.tags);
@@ -199,7 +200,8 @@
     global.miaAvatar.paintAvatar(el, { image, crop, color, text });
   }
 
-  function buildStatusHtml({ pinned, unread, muted }) {
+  function buildStatusHtml({ searchResult, pinned, unread, muted }) {
+    if (searchResult) return '<span class="persona-side empty"></span>';
     const badge = unreadShared().unreadBadgeHtml(unread);
     const cls = muted ? "persona-unread muted" : "persona-unread";
     const unreadHtml = badge
@@ -342,10 +344,11 @@
 
   function createPrivateCard(spec) {
     const btn = document.createElement("div");
-    const tagged = hasTagItems(spec.tags) || Boolean(spec.tagEditor?.active);
+    const searchResult = Boolean(spec.searchResult);
+    const tagged = !searchResult && (hasTagItems(spec.tags) || Boolean(spec.tagEditor?.active));
     btn.setAttribute("role", "button");
     btn.tabIndex = 0;
-    btn.className = `persona message-card private-message-card${tagged ? " has-tags" : ""}${spec.tagEditor?.active ? " tag-editing" : ""}${spec.active ? " active" : ""}${spec.pinned ? " pinned" : ""}`;
+    btn.className = `persona message-card private-message-card${searchResult ? " search-result" : ""}${tagged ? " has-tags" : ""}${!searchResult && spec.tagEditor?.active ? " tag-editing" : ""}${spec.active ? " active" : ""}${spec.pinned ? " pinned" : ""}`;
     btn.innerHTML = `
       <span class="avatar bot-photo"></span>
       <span class="persona-main">
@@ -366,10 +369,11 @@
 
   function createGroupCard(spec) {
     const btn = document.createElement("div");
-    const tagged = hasTagItems(spec.tags) || Boolean(spec.tagEditor?.active);
+    const searchResult = Boolean(spec.searchResult);
+    const tagged = !searchResult && (hasTagItems(spec.tags) || Boolean(spec.tagEditor?.active));
     btn.setAttribute("role", "button");
     btn.tabIndex = 0;
-    btn.className = `persona message-card group-persona${tagged ? " has-tags" : ""}${spec.tagEditor?.active ? " tag-editing" : ""}${spec.active ? " active" : ""}${spec.pinned ? " pinned" : ""}`;
+    btn.className = `persona message-card group-persona${searchResult ? " search-result" : ""}${tagged ? " has-tags" : ""}${!searchResult && spec.tagEditor?.active ? " tag-editing" : ""}${spec.active ? " active" : ""}${spec.pinned ? " pinned" : ""}`;
     btn.innerHTML = `
       <span class="avatar group-avatar"></span>
       <span class="persona-main">

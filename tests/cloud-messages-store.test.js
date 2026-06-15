@@ -147,6 +147,40 @@ test("hideMessageForUser is idempotent; missing id returns null", () => {
   } finally { teardown(ctx); }
 });
 
+test("searchMessagesForUser searches only visible messages in joined conversations", () => {
+  const ctx = setup();
+  try {
+    ctx.social.createConversation({ id: "r-alice-only", name: "Alice", avatar: null, hostMember: null, decorations: null, contextCard: null });
+    ctx.social.addConversationMember({ conversationId: "r-alice-only", memberKind: "user", memberRef: ctx.alice.id, ownerId: null });
+    const visible = ctx.messages.appendMessage({
+      conversationId: "r-msg",
+      senderKind: "user",
+      senderRef: ctx.alice.id,
+      bodyMd: "needle visible message"
+    });
+    const hidden = ctx.messages.appendMessage({
+      conversationId: "r-msg",
+      senderKind: "user",
+      senderRef: ctx.alice.id,
+      bodyMd: "needle hidden from bob"
+    });
+    ctx.messages.appendMessage({
+      conversationId: "r-alice-only",
+      senderKind: "user",
+      senderRef: ctx.alice.id,
+      bodyMd: "needle private alice"
+    });
+    ctx.messages.hideMessageForUser("r-msg", hidden.id, ctx.bob.id);
+
+    const bobHits = ctx.messages.searchMessagesForUser(ctx.bob.id, "needle", 20);
+    assert.deepEqual(bobHits.map((m) => m.id), [visible.id]);
+
+    const aliceHits = ctx.messages.searchMessagesForUser(ctx.alice.id, "needle", 20);
+    assert.equal(aliceHits.length, 3);
+    assert.equal(aliceHits.some((m) => m.id === hidden.id), true);
+  } finally { teardown(ctx); }
+});
+
 test("updateMessageStatus transitions streaming -> complete", () => {
   const ctx = setup();
   try {

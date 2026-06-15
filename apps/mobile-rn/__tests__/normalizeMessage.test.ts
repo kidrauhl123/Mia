@@ -1,4 +1,4 @@
-import { normalizeServerRow, mergeMessage } from "../src/logic/normalizeMessage";
+import { mergeFetchedMessages, normalizeServerRow, mergeMessage } from "../src/logic/normalizeMessage";
 import type { ChatMessage } from "../src/api/types";
 
 test("bot 消息 → assistant,不 own", () => {
@@ -70,4 +70,33 @@ test("mergeMessage: messageId 去重不重复追加", () => {
   let list = mergeMessage([], a);
   list = mergeMessage(list, a);
   expect(list.length).toBe(1);
+});
+
+test("mergeFetchedMessages preserves local pending messages during stale refetch", () => {
+  const oldList: ChatMessage[] = [
+    normalizeServerRow({ id: "s1", seq: 1, sender_kind: "bot", body_md: "old" }, "u1"),
+    { messageId: "pending:t1", clientTraceId: "t1", role: "user", bodyMd: "new", isOwn: true, isPending: true, createdAt: "" },
+  ];
+  const fetched = [
+    normalizeServerRow({ id: "s1", seq: 1, sender_kind: "bot", body_md: "old" }, "u1"),
+  ];
+
+  const next = mergeFetchedMessages(oldList, fetched);
+
+  expect(next.map((m) => m.messageId)).toEqual(["s1", "pending:t1"]);
+});
+
+test("mergeFetchedMessages drops pending message after server echo appears", () => {
+  const oldList: ChatMessage[] = [
+    { messageId: "pending:t1", clientTraceId: "t1", role: "user", bodyMd: "new", isOwn: true, isPending: true, createdAt: "" },
+  ];
+  const fetched = [
+    normalizeServerRow({ id: "s2", seq: 2, sender_kind: "user", sender_ref: "u1", turn_id: "t1", body_md: "new" } as any, "u1"),
+  ];
+
+  const next = mergeFetchedMessages(oldList, fetched);
+
+  expect(next).toHaveLength(1);
+  expect(next[0].messageId).toBe("s2");
+  expect(next[0].isPending).toBe(false);
 });

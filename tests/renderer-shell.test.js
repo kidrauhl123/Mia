@@ -265,11 +265,34 @@ test("conversation tag editor is inline on the sidebar card and uses the label a
   assert.match(sidebarSource, /tagCommitDetails/);
   assert.match(sidebarSource, /onOpenMenu/);
   assert.match(sidebarSource, /onDraft/);
+  assert.match(html, /id="personaTagFilters"/);
+  assert.match(html, /id="openPersonaSearch"/);
+  assert.match(html, /class="search-box hidden"/);
+  assert.match(html, /id="personaSearchClear"/);
+  assert.match(html, /id="closePersonaSearch"[^>]+hidden/);
+  assert.match(appSource, /function renderConversationSearchTools\(cloudReady\)/);
+  assert.match(appSource, /function conversationRowsFromMessageSearch\(results,\s*query\)/);
+  assert.match(appSource, /async function searchConversationMessages\(query,\s*limit = 80\)/);
+  assert.match(appSource, /function isMissingSearchIpcHandlerError\(error\)/);
+  assert.match(appSource, /function isRemoteSearchUnavailableEnvelope\(res\)/);
+  assert.match(appSource, /not a member of this conversation/i);
+  assert.match(appSource, /moduleState\?\.messageCache/);
+  assert.match(appSource, /async function searchConversationMessagesViaExistingIpc\(query,\s*limit = 80\)/);
+  assert.match(appSource, /searchResult:\s*true/);
+  assert.match(appSource, /searchMessageId/);
+  assert.match(appSource, /function setPersonaSearchOpen\(open/);
+  assert.match(appSource, /personaSearchOpen/);
+  assert.match(appSource, /data-sidebar-tag-filter/);
+  assert.doesNotMatch(appSource, /data-sidebar-tag-clear/);
+  assert.match(sidebarSource, /spec\.searchResult/);
+  assert.match(sidebarSource, /search-result/);
   const focusoutBody = sidebarSource.match(/function handleTagInputFocusout\(btn, spec\) \{([\s\S]*?)\n  \}/)?.[1] || "";
   assert.doesNotMatch(focusoutBody, /onCancel/, "empty tag input blur should not collapse the editor");
   assert.doesNotMatch(sidebarSource, /data-tag-remove|showTagInput|hideTagInput/);
   assert.match(socialSource, /function startConversationTagRename\(conversationId,\s*name\)/);
   assert.match(socialSource, /function setConversationTagFilter\(name\)/);
+  assert.match(socialSource, /function conversationTagFilters\(\)/);
+  assert.match(socialSource, /function getConversationTagFilter\(\)/);
   assert.match(sidebarSource, /has-tags/);
   assert.match(sidebarSource, /document\.createElement\("div"\)/);
   assert.match(sidebarSource, /setAttribute\("role",\s*"button"\)/);
@@ -279,6 +302,14 @@ test("conversation tag editor is inline on the sidebar card and uses the label a
   assert.match(stylesSource, /\.persona-tag-row/);
   assert.match(stylesSource, /\.persona-tag-suggestions/);
   assert.match(stylesSource, /\.persona-tag-input-wrap/);
+  assert.match(stylesSource, /\.sidebar-tag-filters/);
+  assert.match(stylesSource, /\.sidebar-tools\.search-active/);
+  assert.match(stylesSource, /\.sidebar-tag-filter\.active/);
+  assert.match(stylesSource, /\.persona\.search-result/);
+  assert.doesNotMatch(stylesSource, /\.sidebar-tag-filter-clear/);
+  assert.match(stylesSource, /\.search-clear/);
+  assert.match(html, /id="personaSearchClear"[\s\S]*?<svg viewBox="0 0 24 24"/);
+  assert.match(html, /id="closePersonaSearch"[\s\S]*?<svg viewBox="0 0 24 24"/);
   assert.match(stylesSource, /@keyframes tagInputOpen/);
   assert.match(stylesSource, /@keyframes tagChipRemove/);
   assert.doesNotMatch(stylesSource, /\.persona-tag-add|\.persona-tag-remove-mark/);
@@ -1046,9 +1077,13 @@ test("renderer no longer mirrors local sends through legacy cloud push", () => {
   assert.doesNotMatch(channelSource, /CloudPushMessage/);
 });
 
-test("cloud-only: the sidebar message list is built from social rows alone", () => {
+test("cloud-only: the sidebar uses social rows normally and message hits while searching", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
 
+  assert.match(appSource, /const searchMode = Boolean\(state\.personaSearchOpen \|\| searchQuery\)/);
+  assert.match(appSource, /const useMessageSearch = searchMode && Boolean\(searchQuery\)/);
+  assert.match(appSource, /searchMode[\s\S]*\? \(useMessageSearch[\s\S]*: ""\)/);
+  assert.match(appSource, /conversationRowsFromMessageSearch\(/);
   assert.match(appSource, /sortMessageCardsForSidebar\(socialRows\)/);
   // No local bot personas feed the conversation list anymore.
   assert.doesNotMatch(appSource, /visiblePersonas\.map/);

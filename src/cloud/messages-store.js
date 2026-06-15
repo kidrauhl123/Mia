@@ -57,6 +57,18 @@ function createMessagesStore(db) {
       AND id NOT IN (SELECT message_id FROM message_hidden WHERE user_id = ?)
     ORDER BY seq ASC LIMIT ?
   `);
+  const searchForViewer = db.prepare(`
+    SELECT m.*
+    FROM messages m
+    INNER JOIN conversation_members cm
+      ON cm.conversation_id = m.conversation_id
+      AND cm.member_kind = 'user'
+      AND cm.member_ref = ?
+    WHERE m.body_md LIKE ? ESCAPE '\\'
+      AND m.id NOT IN (SELECT message_id FROM message_hidden WHERE user_id = ?)
+    ORDER BY m.created_at DESC, m.seq DESC
+    LIMIT ?
+  `);
   const insertHidden = db.prepare(`
     INSERT OR IGNORE INTO message_hidden (user_id, conversation_id, message_id, created_at)
     VALUES (?, ?, ?, ?)
@@ -127,6 +139,15 @@ function createMessagesStore(db) {
     return selectSince.all(String(conversationId), Number(sinceSeq) || 0, cap);
   }
 
+  function searchMessagesForUser(userId, query, limit = 80) {
+    const user = String(userId || "").trim();
+    const text = String(query || "").trim();
+    if (!user || !text) return [];
+    const cap = Math.min(Math.max(Number(limit) || 80, 1), 200);
+    const escaped = text.replace(/[\\%_]/g, (ch) => "\\" + ch);
+    return searchForViewer.all(user, `%${escaped}%`, user, cap);
+  }
+
   function updateMessageStatus(id, status, errorJson = null) {
     updateStatus.run(String(status), errorJson ? JSON.stringify(errorJson) : null, String(id));
   }
@@ -151,7 +172,7 @@ function createMessagesStore(db) {
     return row;
   }
 
-  return { appendMessage, getMessage, listMessagesSince, updateMessageStatus, deleteMessage, hideMessageForUser };
+  return { appendMessage, getMessage, listMessagesSince, searchMessagesForUser, updateMessageStatus, deleteMessage, hideMessageForUser };
 }
 
 module.exports = { createMessagesStore, normalizeTrace };
