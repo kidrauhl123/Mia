@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { View, type StyleProp, type ViewStyle } from "react-native";
 
 // lottie-react-native is a native module; absent in the node/jest env. Fall back
@@ -55,19 +55,21 @@ interface Props {
 }
 
 export default function LottieIcon({ name, size = 24, color, dimmed, play, loop = false, style }: Props) {
-  const ref = useRef<any>(null);
   const source = SOURCES[name];
   const colorFilters = color ? RECOLOR_KEYPATHS.map((keypath) => ({ keypath, color })) : undefined;
 
+  // Each instance plays exactly once on mount (autoPlay) and rests on its final
+  // frame — so an idle icon shows the fully-drawn glyph instead of frame 0
+  // (which is blank for these draw-in animations). To replay once when `play`
+  // flips true (tab focus), bump a key to remount a fresh single-play instance.
+  // The first effect run is skipped so the initial autoPlay isn't doubled.
+  const [playSeq, setPlaySeq] = useState(0);
+  const prevPlay = useRef<boolean | null>(null);
   useEffect(() => {
-    if (play && ref.current?.play) {
-      try {
-        ref.current.reset?.();
-        ref.current.play();
-      } catch {
-        /* no-op */
-      }
+    if (prevPlay.current !== null && play && !prevPlay.current) {
+      setPlaySeq((n) => n + 1);
     }
+    prevPlay.current = !!play;
   }, [play]);
 
   const box: StyleProp<ViewStyle> = [{ width: size, height: size, opacity: dimmed ? 0.45 : 1 }, style];
@@ -75,9 +77,9 @@ export default function LottieIcon({ name, size = 24, color, dimmed, play, loop 
   return (
     <View style={box}>
       <LottieView
-        ref={ref}
+        key={playSeq}
         source={source}
-        autoPlay={loop}
+        autoPlay
         loop={loop}
         colorFilters={colorFilters}
         style={{ width: size, height: size }}
