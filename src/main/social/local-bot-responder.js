@@ -126,12 +126,39 @@ function triggerMessageIdForDedupKey(dedupKey) {
   return String(dedupKey || "").split(":")[0] || "";
 }
 
+function sanitizeFailureDetail(message) {
+  let text = String(message || "")
+    .replace(/\x1b\[[0-9;]*m/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!text) return "";
+  text = text
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [redacted]")
+    .replace(/\b(?:sk-[A-Za-z0-9_-]{8,}|gh[opsu]_[A-Za-z0-9_]{8,}|xox[baprs]-[A-Za-z0-9-]{8,})\b/g, "[redacted]")
+    .replace(/\b((?:api[_-]?key|auth(?:orization)?|auth[_-]?token|token|password|secret)\s*[:=]\s*)(?:"[^"]+"|'[^']+'|[^\s,;]+)/gi, "$1[redacted]");
+  return text.length > 600 ? `${text.slice(0, 597)}...` : text;
+}
+
 function userFacingFailureMessage(message) {
-  const text = String(message || "").trim();
-  if (/(quota|exhaust|RESOURCE_EXHAUSTED|429)/i.test(text)) {
-    return "我这次没能生成回复：模型配额已耗尽，请稍后重试或切换模型。";
+  const detail = sanitizeFailureDetail(message);
+  const text = detail || String(message || "").trim();
+  let summary = "本地模型运行失败";
+  let advice = "请稍后重试或切换模型。";
+  if (/(quota|exhaust|RESOURCE_EXHAUSTED|429|credit balance|insufficient credits?|insufficient quota|usage limit|billing|too many requests|rate limit)/i.test(text)) {
+    summary = "模型配额已耗尽";
+  } else if (/(unauthorized|authentication|auth|login|required to sign in|not logged in|invalid api key|api key invalid|401|403|credential|permission denied)/i.test(text)) {
+    summary = "本地引擎认证失败";
+    advice = "请检查登录状态、API Key 或切换模型。";
+  } else if (/(model.*not found|unknown model|invalid model|model .* unavailable|not available for|unsupported model)/i.test(text)) {
+    summary = "当前模型不可用";
+  } else if (/(invalid config|config|settings|profile|not configured|missing .*config)/i.test(text)) {
+    summary = "本地引擎配置有问题";
+    advice = "请检查本地引擎配置或切换模型。";
+  } else if (/(ECONNREFUSED|ENOTFOUND|ETIMEDOUT|timeout|timed out|network|gateway|connection refused|connect .* failed)/i.test(text)) {
+    summary = "本地引擎连接失败";
   }
-  return "我这次没能生成回复：本地模型运行失败，请稍后重试或切换模型。";
+  const reason = detail ? `原因：${detail}。` : "";
+  return `我这次没能生成回复：${summary}。${reason}${advice}`;
 }
 
 // Composer "使用" chips travel with the user's cloud message (skills_json). Pull

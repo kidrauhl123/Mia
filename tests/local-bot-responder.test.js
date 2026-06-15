@@ -247,11 +247,31 @@ test("respond posts a visible bot error when the local engine fails", async () =
   assert.equal(calls.post[0].conversationId, "g_1");
   assert.equal(calls.post[0].body.botId, "codex");
   assert.match(calls.post[0].body.bodyMd, /模型配额已耗尽/);
+  assert.match(calls.post[0].body.bodyMd, /HTTP 429: Gemini quota exhausted/);
   assert.deepEqual(calls.post[0].body.errorJson, {
     stage: "engine",
     message: "HTTP 429: Gemini quota exhausted"
   });
   assert.equal(calls.post[0].body.clientOpId, "op_bot_reply_error_m_1_codex");
+});
+
+test("respond posts the real local engine error with secrets redacted", async () => {
+  const { responder, calls } = setup({
+    sendChat: async (args) => {
+      calls.engine.push(args);
+      throw new Error("Claude Code authentication failed: token=sk-abcdefghijklmnopqrstuvwxyz123456 Bearer gho_abcdefghijklmnopqrstuvwxyz1234567890");
+    }
+  });
+
+  const result = await responder.respond(base);
+
+  assert.equal(result, true);
+  assert.match(calls.post[0].body.bodyMd, /本地引擎认证失败/);
+  assert.match(calls.post[0].body.bodyMd, /Claude Code authentication failed/);
+  assert.match(calls.post[0].body.bodyMd, /token=\[redacted\]/);
+  assert.match(calls.post[0].body.bodyMd, /Bearer \[redacted\]/);
+  assert.doesNotMatch(calls.post[0].body.bodyMd, /sk-abcdefghijklmnopqrstuvwxyz123456/);
+  assert.doesNotMatch(calls.post[0].body.bodyMd, /gho_abcdefghijklmnopqrstuvwxyz1234567890/);
 });
 
 test("respond skips empty replies and incomplete invocations", async () => {
