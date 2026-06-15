@@ -224,18 +224,22 @@ function createSettingsStore(deps = {}) {
   function normalizeEffortLevel(value, engine = "hermes") {
     const raw = String(value || "").trim().toLowerCase();
     const normalized = raw === "extra-high" || raw === "extra_high" ? "xhigh" : raw;
-    const valid = engine === "claude-code"
+    const engineId = String(engine || "hermes").trim().toLowerCase().replace(/_/g, "-");
+    const openClawValue = engineId === "openclaw" && normalized === "none" ? "off" : normalized;
+    const valid = engineId === "claude-code"
       ? ["low", "medium", "high", "xhigh", "max"]
-      : engine === "codex"
+      : engineId === "codex"
         ? ["minimal", "low", "medium", "high", "xhigh"]
-        : ["none", "minimal", "low", "medium", "high", "xhigh"];
-    return valid.includes(normalized) ? normalized : "medium";
+        : engineId === "openclaw"
+          ? ["off", "minimal", "low", "medium", "high", "xhigh", "adaptive", "max"]
+          : ["none", "minimal", "low", "medium", "high", "xhigh"];
+    return valid.includes(openClawValue) ? openClawValue : "medium";
   }
 
   function normalizeStoredEffortLevel(value) {
     const raw = String(value || "").trim().toLowerCase();
     const normalized = raw === "extra-high" || raw === "extra_high" ? "xhigh" : raw;
-    return ["none", "minimal", "low", "medium", "high", "xhigh", "max"].includes(normalized) ? normalized : "medium";
+    return ["off", "none", "minimal", "low", "medium", "high", "xhigh", "adaptive", "max"].includes(normalized) ? normalized : "medium";
   }
 
   function effortSettings() {

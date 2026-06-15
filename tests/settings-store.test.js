@@ -110,6 +110,16 @@ test("writeAppearanceSettings rejects removed font presets", (t) => {
   assert.equal(store.writeAppearanceSettings({ fontPreset: "mono" }).fontPreset, "system");
 });
 
+test("normalizeEffortLevel keeps OpenClaw CLI thinking levels", (t) => {
+  const { store } = setup(t);
+
+  assert.equal(store.normalizeEffortLevel("adaptive", "openclaw"), "adaptive");
+  assert.equal(store.normalizeEffortLevel("max", "openclaw"), "max");
+  assert.equal(store.normalizeEffortLevel("none", "openclaw"), "off");
+  assert.equal(store.normalizeStoredEffortLevel("adaptive"), "adaptive");
+  assert.equal(store.normalizeStoredEffortLevel("off"), "off");
+});
+
 test("windowSettings reads and writes normalized bounds", (t) => {
   const { runtime, store } = setup(t);
 

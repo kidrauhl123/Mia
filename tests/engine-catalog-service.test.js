@@ -4,7 +4,11 @@ const os = require("node:os");
 const path = require("node:path");
 const { test } = require("node:test");
 
-const { createEngineCatalogService } = require("../src/main/engine-catalog-service.js");
+const {
+  choicesFromHelp,
+  createEngineCatalogService,
+  normalizeOpenClawModels
+} = require("../src/main/engine-catalog-service.js");
 
 function createHarness(overrides = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-engine-catalog-"));
@@ -114,10 +118,180 @@ test("loadEngineCapabilities and loadHermesSlashCommands parse runtime output wi
     effortLevels: ["low", "high"],
     engines: {
       hermes: { approvalModes: ["ask"], effortLevels: ["low", "high"] },
-      codex: { models: [], effortLevels: [], effortOptions: [], permissionProfiles: [] }
+      "claude-code": {
+        available: false,
+        cliPath: "",
+        models: [],
+        currentModel: "",
+        currentEffortLevel: "",
+        effortLevels: [],
+        effortOptions: [],
+        permissionModes: [],
+        permissionOptions: [],
+        source: "claude-code",
+        error: ""
+      },
+      codex: { models: [], effortLevels: [], effortOptions: [], permissionProfiles: [] },
+      openclaw: {
+        available: false,
+        cliPath: "",
+        models: [],
+        effortLevels: [],
+        effortOptions: [],
+        permissionModes: ["default", "acceptEdits", "readOnly", "bypassPermissions"],
+        permissionOptions: [
+          { value: "default", label: "Ask", title: "OpenClaw 通过 Mia 权限弹窗逐次确认工具调用。", source: "mia-acp-adapter" },
+          { value: "acceptEdits", label: "Edits", title: "OpenClaw 自动接受编辑类工具调用，其他危险操作仍按规则处理。", source: "mia-acp-adapter" },
+          { value: "readOnly", label: "Read", title: "OpenClaw 只读模式。", source: "mia-acp-adapter" },
+          { value: "bypassPermissions", label: "YOLO", title: "OpenClaw 自动允许工具调用，只在完全信任时使用。", source: "mia-acp-adapter" }
+        ],
+        permissionSource: "mia-acp-adapter",
+        source: "openclaw",
+        error: ""
+      }
     }
   });
   assert.deepEqual(await service.loadHermesSlashCommands(), [{ command: "/goal", description: "Set goal" }]);
+});
+
+test("choicesFromHelp parses Claude Code and OpenClaw CLI choice text", () => {
+  const help = `
+  --model <model>            Model alias such as 'fable', 'opus', 'sonnet' or model's full name (e.g. 'claude-fable-5')
+  --effort <level>           Reasoning effort (choices: low, medium, high, xhigh, max)
+  --permission-mode <mode>   Permission mode: "acceptEdits", "auto", "bypassPermissions", "default", "dontAsk", "plan"
+  --thinking <level>         Thinking level: off | minimal | low | medium | high
+                             | xhigh | adaptive | max where supported
+`;
+
+  assert.deepEqual(choicesFromHelp(help, "--effort"), ["low", "medium", "high", "xhigh", "max"]);
+  assert.deepEqual(choicesFromHelp(help, "--permission-mode"), ["acceptEdits", "auto", "bypassPermissions", "default", "dontAsk", "plan"]);
+  assert.deepEqual(choicesFromHelp(help, "--thinking"), ["off", "minimal", "low", "medium", "high", "xhigh", "adaptive", "max"]);
+});
+
+test("normalizeOpenClawModels accepts current models list JSON shape", () => {
+  assert.deepEqual(normalizeOpenClawModels({
+    count: 2,
+    models: [
+      { key: "openai/gpt-5.5", name: "gpt-5.5", contextWindow: 200000, available: false, tags: ["default"], missing: false },
+      { key: "missing/model", name: "Missing", missing: true }
+    ]
+  }), [{
+    id: "openai/gpt-5.5",
+    provider: "openclaw",
+    providerLabel: "OpenClaw",
+    model: "openai/gpt-5.5",
+    label: "gpt-5.5",
+    source: "openclaw-models-list",
+    description: "",
+    available: false,
+    contextWindow: 200000,
+    tags: ["default"]
+  }]);
+});
+
+test("loadEngineCapabilities probes Claude Code SDK settings and CLI help", async () => {
+  const execCalls = [];
+  const { service } = createHarness({
+    shellCommandPath: (command) => command === "claude" ? "/opt/claude-node/bin/claude" : "",
+    processEnvStrings: () => ({ PATH: "/bad-node/bin:/usr/bin:/opt/claude-node/bin" }),
+    claudeAgentSdk: async () => ({
+      resolveSettings: async () => ({ effective: { model: "opus[1m]", effortLevel: "high" } })
+    }),
+    execFile: (file, args, options, callback) => {
+      execCalls.push({ file, args, options });
+      callback(null, `
+  --model <model>            Model alias such as 'fable', 'opus', 'sonnet' or model's full name (e.g. 'claude-fable-5')
+  --effort <level>           Reasoning effort (choices: low, medium, high, xhigh, max)
+  --permission-mode <mode>   Permission mode: "acceptEdits", "auto", "bypassPermissions", "default", "dontAsk", "plan"
+`, "");
+    }
+  });
+
+  const caps = await service.loadEngineCapabilities();
+  const claude = caps.engines["claude-code"];
+
+  assert.equal(execCalls[0].file, "/opt/claude-node/bin/claude");
+  assert.deepEqual(execCalls[0].args, ["--help"]);
+  assert.equal(execCalls[0].options.env.PATH, "/opt/claude-node/bin:/bad-node/bin:/usr/bin");
+  assert.equal(claude.available, true);
+  assert.equal(claude.currentModel, "opus[1m]");
+  assert.equal(claude.currentEffortLevel, "high");
+  assert.deepEqual(claude.effortLevels, ["low", "medium", "high", "xhigh", "max"]);
+  assert.deepEqual(claude.permissionModes, ["acceptEdits", "auto", "bypassPermissions", "default", "dontAsk", "plan"]);
+  assert.equal(claude.models[0].model, "opus[1m]");
+  assert.equal(claude.models.some((entry) => entry.model === "sonnet"), true);
+  assert.equal(claude.models.some((entry) => entry.model === "claude-fable-5"), true);
+  assert.equal(claude.models.some((entry) => entry.model.includes("full name")), false);
+});
+
+test("loadEngineCapabilities probes OpenClaw models and thinking levels from the CLI", async () => {
+  const execCalls = [];
+  const { service } = createHarness({
+    shellCommandPath: (command) => command === "openclaw" ? "/opt/openclaw-node/bin/openclaw" : "",
+    processEnvStrings: () => ({ PATH: "/bad-node/bin:/usr/bin:/opt/openclaw-node/bin" }),
+    execFile: (file, args, options, callback) => {
+      execCalls.push({ file, args, options });
+      if (args.join(" ") === "agent --help") {
+        callback(null, `
+  --thinking <level>         Thinking level: off | minimal | low | medium | high
+                             | xhigh | adaptive | max where supported
+`, "");
+        return;
+      }
+      callback(null, JSON.stringify({
+        models: [{ key: "openai/gpt-5.5", name: "gpt-5.5", contextWindow: 200000, available: false, tags: ["default"] }]
+      }), "");
+    }
+  });
+
+  const caps = await service.loadEngineCapabilities();
+  const openclaw = caps.engines.openclaw;
+
+  assert.deepEqual(execCalls.map((call) => call.args), [["agent", "--help"], ["models", "list", "--json"]]);
+  assert.deepEqual(execCalls.map((call) => call.options.env.PATH), [
+    "/opt/openclaw-node/bin:/bad-node/bin:/usr/bin",
+    "/opt/openclaw-node/bin:/bad-node/bin:/usr/bin"
+  ]);
+  assert.equal(openclaw.available, true);
+  assert.deepEqual(openclaw.effortLevels, ["off", "minimal", "low", "medium", "high", "xhigh", "adaptive", "max"]);
+  assert.deepEqual(openclaw.permissionModes, ["default", "acceptEdits", "readOnly", "bypassPermissions"]);
+  assert.equal(openclaw.models[0].model, "openai/gpt-5.5");
+});
+
+test("loadEngineCapabilities falls back to OpenClaw dev help only for thinking levels", async () => {
+  const execCalls = [];
+  const { service } = createHarness({
+    shellCommandPath: (command) => command === "openclaw" ? "/opt/openclaw-node/bin/openclaw" : "",
+    processEnvStrings: () => ({ PATH: "/bad-node/bin:/usr/bin:/opt/openclaw-node/bin" }),
+    execFile: (file, args, options, callback) => {
+      execCalls.push({ file, args, options });
+      if (args.join(" ") === "agent --help") {
+        const error = new Error("bad config");
+        error.code = 1;
+        callback(error, "", "invalid config");
+        return;
+      }
+      if (args.join(" ") === "--dev agent --help") {
+        callback(null, "  --thinking <level>         Thinking level: off | minimal | adaptive | max where supported\n", "");
+        return;
+      }
+      const error = new Error("bad config");
+      error.code = 1;
+      callback(error, "", "invalid config");
+    }
+  });
+
+  const caps = await service.loadEngineCapabilities();
+  const openclaw = caps.engines.openclaw;
+
+  assert.deepEqual(execCalls.map((call) => call.args), [
+    ["agent", "--help"],
+    ["--dev", "agent", "--help"],
+    ["models", "list", "--json"]
+  ]);
+  assert.deepEqual(openclaw.effortLevels, ["off", "minimal", "adaptive", "max"]);
+  assert.deepEqual(openclaw.models, []);
+  assert.match(openclaw.error, /models-list/);
 });
 
 test("loadEngineCapabilities probes Codex app-server models and permission profiles", async () => {

@@ -43,7 +43,8 @@ function createDeps(messages, overrides = {}) {
     clearAgentSessionEntry: (...args) => calls.push(["clear-session", ...args]),
     setAgentSessionEntry: (...args) => calls.push(["set-session", ...args]),
     shellCommandPath: (command) => command === "claude" ? "/bin/claude" : "",
-    writeSchedulerMcpContext: () => {}
+    writeSchedulerMcpContext: () => {},
+    ...overrides
   };
 }
 
@@ -135,6 +136,28 @@ test("sendChat routes Mia-managed Claude Code models through Anthropic gateway e
   assert.equal(queryCall.options.env.ANTHROPIC_CUSTOM_MODEL_OPTION, "mia-default");
   assert.equal(queryCall.options.env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY, "1");
   assert.equal(Object.hasOwn(queryCall.options.env, "ANTHROPIC_API_KEY"), false);
+});
+
+test("sendChat puts the selected Claude Code bin dir first in SDK env", async () => {
+  const deps = createDeps([
+    { type: "assistant", message: { content: [{ text: "ok" }] } }
+  ], {
+    processEnvStrings: () => ({ PATH: "/bad-node/bin:/usr/bin:/opt/claude-node/bin" }),
+    shellCommandPath: (command) => command === "claude" ? "/opt/claude-node/bin/claude" : ""
+  });
+  const adapter = createClaudeCodeChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot: { key: "alice", name: "Alice", bio: "" },
+    sessionId: "s1",
+    messages: [{ role: "user", content: "hello" }],
+    signal: null,
+    abortController: {},
+    utility: false
+  });
+
+  const queryCall = deps.calls.find((call) => call[0] === "query")[1];
+  assert.equal(queryCall.options.env.PATH, "/opt/claude-node/bin:/bad-node/bin:/usr/bin");
 });
 
 test("sendChat resumes only when bridge fingerprint matches", async () => {

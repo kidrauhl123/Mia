@@ -511,6 +511,7 @@ const engineCatalogService = createEngineCatalogService({
   processEnvStrings,
   ensureCodexHome: () => schedulerMcpBridge.ensureCodexHome(),
   createCodexAppServerConnection,
+  claudeAgentSdk,
   cwd: () => process.cwd()
 });
 let claudeAgentSdkModule = null;

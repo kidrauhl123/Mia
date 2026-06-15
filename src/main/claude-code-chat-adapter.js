@@ -1,4 +1,5 @@
 const crypto = require("node:crypto");
+const path = require("node:path");
 const {
   appendMiaMemoryBlock,
   sanitizeMiaMemorySpoof,
@@ -29,6 +30,18 @@ function normalizeClaudePermissionMode(value) {
   const id = String(value || "default").trim();
   if (["default", "acceptEdits", "auto", "bypassPermissions", "plan", "dontAsk"].includes(id)) return id;
   return "default";
+}
+
+function envWithExecutableDirFirst(env = {}, executablePath = "") {
+  const dir = path.dirname(String(executablePath || ""));
+  if (!dir || dir === ".") return env || {};
+  const delimiter = process.platform === "win32" ? ";" : path.delimiter;
+  const currentPath = String(env?.PATH || env?.Path || "");
+  const parts = currentPath.split(delimiter).filter(Boolean).filter((item) => item !== dir);
+  return {
+    ...(env || {}),
+    PATH: [dir, ...parts].join(delimiter)
+  };
 }
 
 function statelessPrompt(systemPrompt, userPrompt) {
@@ -155,7 +168,10 @@ function createClaudeCodeChatAdapter(deps = {}) {
     })();
     const managedModel = resolveManagedModelRuntime(bot.engineConfig || {}, { engine, bot });
     const selectedModel = String(managedModel?.model || bot.engineConfig?.model || "").trim();
-    const env = applyManagedClaudeModelEnv(processEnvStrings(), managedModel || {});
+    const env = envWithExecutableDirFirst(
+      applyManagedClaudeModelEnv(processEnvStrings(), managedModel || {}),
+      commandPath
+    );
     const mcpServers = {
       ...(miaAppMcpSpec ? { "mia-app": miaAppMcpSpec } : {}),
       ...(schedulerMcpSpec ? { "mia-scheduler": schedulerMcpSpec } : {})
@@ -358,7 +374,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
     const options = {
       cwd: cwd(),
       pathToClaudeCodeExecutable: commandPath,
-      env: processEnvStrings(),
+      env: envWithExecutableDirFirst(processEnvStrings(), commandPath),
       tools: { type: "preset", preset: "claude_code" },
       settingSources: ["project", "user", "local"],
       systemPrompt: { type: "preset", preset: "claude_code" }

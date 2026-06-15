@@ -30,95 +30,41 @@ const engineLabel = engineContracts.engineLabel || ((value) => {
   if (engine === "openclaw") return "OpenClaw";
   return "Hermes";
 });
-const fallbackMiaModelEntries = () => {
-  const platformModels = Array.isArray(state?.platformModels) ? state.platformModels : [];
-  const entries = platformModels.map((entry) => {
-    const id = String(entry.id || entry.value || entry.model_name || entry.model || "").trim();
-    if (!id) return null;
-    return {
-      id,
-      provider: "mia",
-      providerLabel: "Mia",
-      model: id,
-      label: String(entry.label || entry.name || entry.displayName || id).trim() || id,
-      authType: "mia_account",
-      modelProfileId: `mia:${id}`,
-      upstreamModel: String(entry.upstreamModel || entry.upstream_model || "").trim()
-    };
-  }).filter(Boolean);
-  return entries.length
-    ? entries
-    : [{ id: "mia-default", provider: "mia", providerLabel: "Mia", model: "mia-default", label: "Mia Default", authType: "mia_account", modelProfileId: "mia:mia-default", upstreamModel: "" }];
-};
-const fallbackExternalModelEntries = (value) => {
-  const engine = normalizeAgentEngine(value);
-  if (engine === "claude-code") {
-    return [
-      { id: "default", provider: "claude-code", providerLabel: "Claude Code", model: "", label: "Claude Code 默认" },
-      { id: "claude-opus-4-7", provider: "claude-code", providerLabel: "Claude Code", model: "claude-opus-4-7", label: "Claude Opus 4.7" },
-      { id: "claude-sonnet-4-6", provider: "claude-code", providerLabel: "Claude Code", model: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
-      { id: "opus", provider: "claude-code", providerLabel: "Claude Code", model: "opus", label: "Opus alias" },
-      { id: "sonnet", provider: "claude-code", providerLabel: "Claude Code", model: "sonnet", label: "Sonnet alias" },
-      ...fallbackMiaModelEntries()
-    ];
-  }
-  if (engine === "codex") {
-    return [
-      { id: "default", provider: "codex", providerLabel: "Codex CLI", model: "", label: "Codex 默认" },
-      { id: "gpt-5.3-codex-spark", provider: "codex", providerLabel: "Codex CLI", model: "gpt-5.3-codex-spark", label: "GPT-5.3 Codex Spark" },
-      { id: "gpt-5.3-codex", provider: "codex", providerLabel: "Codex CLI", model: "gpt-5.3-codex", label: "GPT-5.3 Codex" },
-      { id: "gpt-5.2", provider: "codex", providerLabel: "Codex CLI", model: "gpt-5.2", label: "GPT-5.2" },
-      ...fallbackMiaModelEntries()
-    ];
-  }
-  if (engine === "openclaw") {
-    return [
-      { id: "default", provider: "openclaw", providerLabel: "OpenClaw", model: "", label: "OpenClaw 默认" }
-    ];
-  }
-  return [];
-};
 function externalModelEntries(value) {
   if (engineContracts.externalModelEntries) {
-    return engineContracts.externalModelEntries(value, { platformModels: state?.platformModels });
+    return engineContracts.externalModelEntries(value, {
+      engineCapabilities: state?.engineCapabilities,
+      platformModels: state?.platformModels
+    });
   }
-  return fallbackExternalModelEntries(value);
+  const engine = normalizeAgentEngine(value);
+  if (engine === "claude-code") return [{ id: "default", provider: "claude-code", providerLabel: "Claude Code", model: "", label: "Claude Code 默认" }];
+  if (engine === "codex") return [{ id: "default", provider: "codex", providerLabel: "Codex CLI", model: "", label: "Codex 默认" }];
+  if (engine === "openclaw") return [{ id: "default", provider: "openclaw", providerLabel: "OpenClaw", model: "", label: "OpenClaw 默认" }];
+  return [];
 }
-const effortOptions = engineContracts.effortOptions || ((value) => {
-  const engine = normalizeAgentEngine(value);
-  const labels = { minimal: "Minimal", low: "Low", medium: "Medium", high: "High", xhigh: "Extra high", max: "Max" };
-  const levels = engine === "claude-code"
-    ? ["low", "medium", "high", "xhigh", "max"]
-    : (engine === "codex" || engine === "openclaw")
-      ? ["minimal", "low", "medium", "high", "xhigh"]
-      : ["low", "medium", "high"];
-  return levels.map((level) => ({ value: level, label: labels[level] || level }));
-});
-const externalPermissionOptions = engineContracts.externalPermissionOptions || ((value) => {
-  const engine = normalizeAgentEngine(value);
-  if (engine === "claude-code") {
-    return [
-      { value: "default", label: "Ask Permissions" },
-      { value: "acceptEdits", label: "Accept Edits" },
-      { value: "plan", label: "Plan Mode" },
-      { value: "auto", label: "Auto Mode" },
-      { value: "bypassPermissions", label: "Bypass Permissions" }
-    ];
+
+function effortOptions(value) {
+  if (engineContracts.effortOptions) {
+    return engineContracts.effortOptions(value, {
+      engineCapabilities: state?.engineCapabilities,
+      effortLabels: { off: "Off", none: "None", minimal: "Minimal", low: "Low", medium: "Medium", high: "High", xhigh: "Extra high", adaptive: "Adaptive", max: "Max" }
+    });
   }
-  if (engine === "codex" || engine === "openclaw") {
-    return [
-      { value: "default", label: "Ask" },
-      { value: "acceptEdits", label: "Edits" },
-      { value: "readOnly", label: "Read" },
-      { value: "bypassPermissions", label: "YOLO" }
-    ];
+  const engine = normalizeAgentEngine(value);
+  if (engine === "claude-code" || engine === "codex" || engine === "openclaw") return [{ value: "medium", label: "Medium" }];
+  return ["low", "medium", "high"].map((level) => ({ value: level, label: level[0].toUpperCase() + level.slice(1) }));
+}
+
+function externalPermissionOptions(value) {
+  if (engineContracts.externalPermissionOptions) {
+    return engineContracts.externalPermissionOptions(value, { engineCapabilities: state?.engineCapabilities });
   }
-  return [
-    { value: "ask", label: "Ask" },
-    { value: "auto", label: "Auto" },
-    { value: "readOnly", label: "Read" }
-  ];
-});
+  const engine = normalizeAgentEngine(value);
+  if (engine === "claude-code") return [{ value: "default", label: "Ask Permissions" }];
+  if (engine === "codex" || engine === "openclaw") return [{ value: "default", label: "Ask" }];
+  return [{ value: "ask", label: "Ask" }];
+}
 
 const els = {
   root: document.querySelector(".app-shell"),

@@ -1,5 +1,6 @@
 const { execFile: defaultExecFile, spawn: defaultSpawn } = require("node:child_process");
 const crypto = require("node:crypto");
+const path = require("node:path");
 const { PassThrough, Readable, Writable } = require("node:stream");
 const {
   appendMiaMemoryBlock,
@@ -10,6 +11,18 @@ const {
 function requireDependency(deps, key) {
   if (typeof deps[key] !== "function") throw new Error(`${key} dependency is required.`);
   return deps[key];
+}
+
+function envWithExecutableDirFirst(env = {}, executablePath = "") {
+  const dir = path.dirname(String(executablePath || ""));
+  if (!dir || dir === ".") return env || {};
+  const delimiter = process.platform === "win32" ? ";" : path.delimiter;
+  const currentPath = String(env?.PATH || env?.Path || "");
+  const parts = currentPath.split(delimiter).filter(Boolean).filter((item) => item !== dir);
+  return {
+    ...(env || {}),
+    PATH: [dir, ...parts].join(delimiter)
+  };
 }
 
 function stoppedError() {
@@ -310,7 +323,7 @@ function createOpenClawChatAdapter(deps = {}) {
     });
     const result = await execFileAsync(execFile, commandPath, args, {
       cwd: cwd(),
-      env: processEnvStrings(),
+      env: envWithExecutableDirFirst(processEnvStrings(), commandPath),
       encoding: "utf8",
       maxBuffer: 16 * 1024 * 1024,
       signal
@@ -345,7 +358,7 @@ function createOpenClawChatAdapter(deps = {}) {
     const args = buildOpenClawAcpArgs(bot);
     const child = spawn(commandPath, args, {
       cwd: cwd(),
-      env: processEnvStrings(),
+      env: envWithExecutableDirFirst(processEnvStrings(), commandPath),
       stdio: ["pipe", "pipe", "pipe"]
     });
     if (!child.stdin || !child.stdout) {

@@ -51,39 +51,6 @@
     })
   });
 
-  const CLAUDE_MODEL_ENTRIES = Object.freeze([
-    { id: "default", provider: EngineId.ClaudeCode, providerLabel: "Claude Code", model: "", label: "Claude Code 默认" },
-    { id: "claude-opus-4-7", provider: EngineId.ClaudeCode, providerLabel: "Claude Code", model: "claude-opus-4-7", label: "Claude Opus 4.7" },
-    { id: "claude-sonnet-4-6", provider: EngineId.ClaudeCode, providerLabel: "Claude Code", model: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
-    { id: "opus", provider: EngineId.ClaudeCode, providerLabel: "Claude Code", model: "opus", label: "Opus alias" },
-    { id: "sonnet", provider: EngineId.ClaudeCode, providerLabel: "Claude Code", model: "sonnet", label: "Sonnet alias" }
-  ]);
-
-  const CODEX_FALLBACK_MODEL_ENTRIES = Object.freeze([
-    { id: "gpt-5.3-codex-spark", provider: EngineId.Codex, providerLabel: "Codex CLI", model: "gpt-5.3-codex-spark", label: "GPT-5.3 Codex Spark" },
-    { id: "gpt-5.3-codex", provider: EngineId.Codex, providerLabel: "Codex CLI", model: "gpt-5.3-codex", label: "GPT-5.3 Codex" },
-    { id: "gpt-5.2", provider: EngineId.Codex, providerLabel: "Codex CLI", model: "gpt-5.2", label: "GPT-5.2" }
-  ]);
-
-  const OPENCLAW_MODEL_ENTRIES = Object.freeze([
-    { id: "default", provider: EngineId.OpenClaw, providerLabel: "OpenClaw", model: "", label: "OpenClaw 默认" }
-  ]);
-
-  const CLAUDE_PERMISSION_OPTIONS = Object.freeze([
-    { value: "default", label: "Ask Permissions", title: "Claude Code 默认权限，危险操作会询问。" },
-    { value: "acceptEdits", label: "Accept Edits", title: "Claude Code 自动接受文件编辑，其他危险操作仍按规则处理。" },
-    { value: "plan", label: "Plan Mode", title: "Claude Code 计划模式，只读规划。" },
-    { value: "auto", label: "Auto Mode", title: "Claude Code 自动判断低风险操作，高风险操作仍会询问。" },
-    { value: "bypassPermissions", label: "Bypass Permissions", title: "Claude Code Bypass Permissions，只在完全信任时使用。" }
-  ]);
-
-  const CODEX_PERMISSION_OPTIONS = Object.freeze([
-    { value: "default", label: "Ask", title: "Codex 默认 workspace-write + untrusted。" },
-    { value: "acceptEdits", label: "Edits", title: "Codex workspace-write + on-request。" },
-    { value: "readOnly", label: "Read", title: "Codex 只读模式。" },
-    { value: "bypassPermissions", label: "YOLO", title: "Codex danger-full-access + never。" }
-  ]);
-
   const CODEX_PERMISSION_PROFILE_LABELS = Object.freeze({
     ":workspace": "Workspace",
     ":read-only": "Read Only",
@@ -96,19 +63,26 @@
     ":danger-full-access": ["bypassPermissions", "yolo", "off", "never", "danger-full-access"]
   });
 
-  const OPENCLAW_PERMISSION_OPTIONS = Object.freeze([
-    { value: "default", label: "Ask", title: "OpenClaw 默认 workspace-write + untrusted。" },
-    { value: "acceptEdits", label: "Edits", title: "OpenClaw workspace-write + on-request。" },
-    { value: "readOnly", label: "Read", title: "OpenClaw 只读模式。" },
-    { value: "bypassPermissions", label: "YOLO", title: "OpenClaw danger-full-access + never。" }
-  ]);
+  const EXTERNAL_PERMISSION_LABELS = Object.freeze({
+    default: "Ask",
+    acceptEdits: "Edits",
+    auto: "Auto Mode",
+    bypassPermissions: "YOLO",
+    dontAsk: "Don't Ask",
+    plan: "Plan Mode",
+    readOnly: "Read",
+    yolo: "YOLO"
+  });
 
   const DEFAULT_EFFORT_LABELS = Object.freeze({
+    off: "Off",
+    none: "None",
     minimal: "Minimal",
     low: "Low",
     medium: "Medium",
     high: "High",
     xhigh: "Extra high",
+    adaptive: "Adaptive",
     max: "Max"
   });
 
@@ -128,10 +102,6 @@
     return adapterForEngine(value).label;
   }
 
-  function cloneEntries(entries) {
-    return entries.map((entry) => ({ ...entry }));
-  }
-
   function titleCaseWords(value = "") {
     return String(value || "")
       .replace(/^:+/, "")
@@ -143,6 +113,67 @@
   function isExternalEngine(value) {
     const engine = normalizeAgentEngine(value);
     return engine === EngineId.ClaudeCode || engine === EngineId.Codex || engine === EngineId.OpenClaw;
+  }
+
+  function capabilitiesForEngine(engine, options = {}) {
+    return options.engineCapability
+      || options.externalCapabilities?.[engine]
+      || options.engineCapabilities?.engines?.[engine]
+      || options.engines?.[engine]
+      || {};
+  }
+
+  function defaultExternalModelEntry(engine) {
+    if (engine === EngineId.ClaudeCode) {
+      return { id: "default", provider: EngineId.ClaudeCode, providerLabel: "Claude Code", model: "", label: "Claude Code 默认" };
+    }
+    if (engine === EngineId.Codex) {
+      return { id: "default", provider: EngineId.Codex, providerLabel: "Codex CLI", model: "", label: "Codex 默认" };
+    }
+    if (engine === EngineId.OpenClaw) {
+      return { id: "default", provider: EngineId.OpenClaw, providerLabel: "OpenClaw", model: "", label: "OpenClaw 默认" };
+    }
+    return null;
+  }
+
+  function normalizeExternalModelEntry(engine, entry = {}, index = 0) {
+    if (!entry || typeof entry !== "object") return null;
+    const id = String(entry.id || entry.key || entry.value || entry.model || entry.name || "").trim();
+    const model = String(entry.model || entry.key || entry.id || entry.value || entry.name || "").trim();
+    if (!id && !model) return null;
+    const fallback = defaultExternalModelEntry(engine) || {};
+    const label = String(entry.label || entry.displayName || entry.display_name || entry.name || model || id).trim();
+    return {
+      id: id || model || `${engine}-${index}`,
+      provider: String(entry.provider || fallback.provider || engine).trim(),
+      providerLabel: String(entry.providerLabel || entry.provider_label || fallback.providerLabel || engineLabel(engine)).trim(),
+      model,
+      label: label || model || id,
+      authType: entry.authType || entry.auth_type || "",
+      modelProfileId: entry.modelProfileId || entry.model_profile_id || "",
+      description: String(entry.description || "").trim(),
+      defaultReasoningLevel: String(entry.defaultReasoningLevel || entry.default_reasoning_level || "").trim(),
+      supportedReasoningLevels: Array.isArray(entry.supportedReasoningLevels)
+        ? entry.supportedReasoningLevels.map((item) => ({ ...item }))
+        : [],
+      source: String(entry.source || "").trim(),
+      available: entry.available,
+      contextWindow: entry.contextWindow,
+      tags: Array.isArray(entry.tags) ? entry.tags.slice() : []
+    };
+  }
+
+  function dedupeModelEntries(entries = []) {
+    const seen = new Set();
+    const result = [];
+    for (const entry of entries) {
+      if (!entry) continue;
+      const key = `${entry.provider || ""}:${entry.id || entry.model || ""}`;
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      result.push(entry);
+    }
+    return result;
   }
 
   function normalizePlatformModelEntry(entry = {}) {
@@ -180,12 +211,31 @@
   function externalModelEntries(value, options = {}) {
     const engine = normalizeAgentEngine(value);
     const miaEntries = miaModelEntries(options);
-    if (engine === EngineId.ClaudeCode) return [...cloneEntries(CLAUDE_MODEL_ENTRIES), ...miaEntries];
-    if (engine === EngineId.OpenClaw) return cloneEntries(OPENCLAW_MODEL_ENTRIES);
+    const capability = capabilitiesForEngine(engine, options);
+    const defaultEntry = defaultExternalModelEntry(engine);
+    if (engine === EngineId.ClaudeCode) {
+      const dynamic = Array.isArray(capability.models) ? capability.models : [];
+      return [
+        ...dedupeModelEntries([
+          defaultEntry,
+          ...dynamic.map((entry, index) => normalizeExternalModelEntry(engine, entry, index)).filter(Boolean)
+        ]),
+        ...miaEntries
+      ];
+    }
+    if (engine === EngineId.OpenClaw) {
+      const dynamic = Array.isArray(capability.models) ? capability.models : [];
+      return dedupeModelEntries([
+        defaultEntry,
+        ...dynamic.map((entry, index) => normalizeExternalModelEntry(engine, entry, index)).filter(Boolean)
+      ]);
+    }
     if (engine !== EngineId.Codex) return [];
 
-    const entries = [{ id: "default", provider: EngineId.Codex, providerLabel: "Codex CLI", model: "", label: "Codex 默认" }];
-    const dynamic = Array.isArray(options.codexModels) ? options.codexModels : [];
+    const entries = [defaultEntry];
+    const dynamic = Array.isArray(capability.models) && capability.models.length
+      ? capability.models
+      : (Array.isArray(options.codexModels) ? options.codexModels : []);
     if (dynamic.length) {
       for (const model of dynamic) {
         if (!model?.slug) continue;
@@ -202,9 +252,8 @@
             : []
         });
       }
-      return [...entries, ...miaEntries];
     }
-    return [...entries, ...cloneEntries(CODEX_FALLBACK_MODEL_ENTRIES), ...miaEntries];
+    return [...dedupeModelEntries(entries), ...miaEntries];
   }
 
   function codexPermissionOptionsFromProfiles(profiles = []) {
@@ -216,7 +265,7 @@
         }))
         .filter((profile) => profile.id)
       : [];
-    if (!rows.length) return cloneEntries(CODEX_PERMISSION_OPTIONS);
+    if (!rows.length) return [{ value: "default", label: "Ask", title: "Codex 默认权限。" }];
 
     const rank = {
       ":workspace": 0,
@@ -235,23 +284,72 @@
       }));
   }
 
+  function normalizePermissionOption(engine, item = {}) {
+    const value = String(item.value || item.id || "").trim();
+    if (!value) return null;
+    return {
+      value,
+      label: String(item.label || EXTERNAL_PERMISSION_LABELS[value] || titleCaseWords(value) || value),
+      title: String(item.title || item.description || ""),
+      profileId: item.profileId || item.profile_id || "",
+      aliases: Array.isArray(item.aliases) ? item.aliases.map((alias) => String(alias)).filter(Boolean) : []
+    };
+  }
+
   function externalPermissionOptions(value, options = {}) {
     const engine = normalizeAgentEngine(value);
-    if (engine === EngineId.ClaudeCode) return cloneEntries(CLAUDE_PERMISSION_OPTIONS);
-    if (engine === EngineId.Codex) return codexPermissionOptionsFromProfiles(options.codexPermissionProfiles);
-    if (engine === EngineId.OpenClaw) return cloneEntries(OPENCLAW_PERMISSION_OPTIONS);
+    const capability = capabilitiesForEngine(engine, options);
+    const dynamicOptions = Array.isArray(capability.permissionOptions) ? capability.permissionOptions : [];
+    if (dynamicOptions.length) {
+      return dynamicOptions.map((item) => normalizePermissionOption(engine, item)).filter(Boolean);
+    }
+    const dynamicModes = Array.isArray(capability.permissionModes) ? capability.permissionModes : [];
+    if (dynamicModes.length) {
+      return dynamicModes.map((mode) => normalizePermissionOption(engine, { value: mode })).filter(Boolean);
+    }
+    if (engine === EngineId.Codex) {
+      const profiles = Array.isArray(capability.permissionProfiles) && capability.permissionProfiles.length
+        ? capability.permissionProfiles
+        : options.codexPermissionProfiles;
+      return codexPermissionOptionsFromProfiles(profiles);
+    }
+    if (engine === EngineId.ClaudeCode) return [{ value: "default", label: "Ask Permissions", title: "Claude Code 默认权限。" }];
+    if (engine === EngineId.OpenClaw) return [{ value: "default", label: "Ask", title: "OpenClaw 默认权限。" }];
     return [];
   }
 
   function effortOptions(value, options = {}) {
     const engine = normalizeAgentEngine(value);
     const labels = options.effortLabels || DEFAULT_EFFORT_LABELS;
+    const capability = capabilitiesForEngine(engine, options);
+    const dynamicOptions = Array.isArray(capability.effortOptions) ? capability.effortOptions : [];
+    if (dynamicOptions.length) {
+      return dynamicOptions
+        .map((item) => {
+          const level = String(item?.value || item?.effort || item || "").trim();
+          if (!level) return null;
+          return {
+            value: level,
+            label: item?.label || labels[level] || level,
+            title: item?.title || item?.description || ""
+          };
+        })
+        .filter(Boolean);
+    }
+    const dynamicLevels = Array.isArray(capability.effortLevels) ? capability.effortLevels : [];
+    if (dynamicLevels.length) {
+      return dynamicLevels
+        .map((level) => String(level || "").trim())
+        .filter(Boolean)
+        .map((level) => ({ value: level, label: labels[level] || level }));
+    }
     let levels = [];
-    if (engine === EngineId.ClaudeCode) levels = ["low", "medium", "high", "xhigh", "max"];
-    else if (engine === EngineId.Codex) {
+    if (engine === EngineId.Codex) {
       const dynamic = [];
       const seen = new Set();
-      const models = Array.isArray(options.codexModels) ? options.codexModels : [];
+      const models = Array.isArray(capability.models) && capability.models.length
+        ? capability.models
+        : (Array.isArray(options.codexModels) ? options.codexModels : []);
       for (const model of models) {
         const supported = Array.isArray(model?.supportedReasoningLevels) ? model.supportedReasoningLevels : [];
         for (const item of supported) {
@@ -262,10 +360,10 @@
         }
       }
       if (dynamic.length) return dynamic;
-      levels = ["minimal", "low", "medium", "high", "xhigh"];
     }
-    else if (engine === EngineId.OpenClaw) levels = ["minimal", "low", "medium", "high", "xhigh"];
-    else {
+    if (engine === EngineId.ClaudeCode || engine === EngineId.Codex || engine === EngineId.OpenClaw) {
+      levels = ["medium"];
+    } else {
       levels = (Array.isArray(options.effortLevels) && options.effortLevels.length)
         ? options.effortLevels
         : ["low", "medium", "high"];

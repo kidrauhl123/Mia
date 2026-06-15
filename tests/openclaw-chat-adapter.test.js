@@ -247,6 +247,23 @@ test("sendChat runs OpenClaw through ACP backend and stores the stable session k
   assert.equal(deps.calls.some((call) => call[0] === "exec"), false);
 });
 
+test("sendChat puts the selected OpenClaw bin dir first in ACP env", async () => {
+  const deps = createDeps({
+    processEnvStrings: () => ({ PATH: "/bad-node/bin:/usr/bin:/opt/openclaw-node/bin" }),
+    shellCommandPath: (command) => (command === "openclaw" ? "/opt/openclaw-node/bin/openclaw" : "")
+  });
+  const adapter = createOpenClawChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot: { key: "claw", name: "Claw", engineConfig: { effortLevel: "high" } },
+    sessionId: "mia-session",
+    messages: [{ role: "user", content: "hello" }]
+  });
+
+  const spawnCall = deps.calls.find((call) => call[0] === "spawn");
+  assert.equal(spawnCall[4], "/opt/openclaw-node/bin:/bad-node/bin:/usr/bin");
+});
+
 test("sendChat can explicitly fall back to the legacy OpenClaw agent CLI", async () => {
   const deps = createDeps();
   const adapter = createOpenClawChatAdapter(deps);

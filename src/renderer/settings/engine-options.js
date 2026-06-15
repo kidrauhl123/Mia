@@ -39,73 +39,13 @@
     return persona?.engineConfig || persona?.engine_config || {};
   }
 
-  function platformMiaModelEntries() {
-    const platformModels = Array.isArray(state?.platformModels) ? state.platformModels : [];
-    const entries = platformModels.map((entry) => {
-      const id = String(entry.id || entry.value || entry.model_name || entry.model || "").trim();
-      if (!id) return null;
-      return {
-        id,
-        provider: "mia",
-        providerLabel: "Mia",
-        model: id,
-        label: String(entry.label || entry.name || entry.displayName || id).trim() || id,
-        authType: "mia_account",
-        modelProfileId: `mia:${id}`,
-        upstreamModel: String(entry.upstreamModel || entry.upstream_model || "").trim()
-      };
-    }).filter(Boolean);
-    return entries.length
-      ? entries
-      : [{ id: "mia-default", provider: "mia", providerLabel: "Mia", model: "mia-default", label: "Mia Default", authType: "mia_account", modelProfileId: "mia:mia-default", upstreamModel: "" }];
-  }
-
   function externalModelEntries(engine) {
     if (engineContracts.externalModelEntries) {
       return engineContracts.externalModelEntries(engine, {
+        engineCapabilities: state?.engineCapabilities,
         codexModels: state?.codexModels,
         platformModels: state?.platformModels
       });
-    }
-    if (engine === "claude-code") {
-      return [
-        { id: "default", provider: "claude-code", providerLabel: "Claude Code", model: "", label: "Claude Code 默认" },
-        { id: "claude-opus-4-7", provider: "claude-code", providerLabel: "Claude Code", model: "claude-opus-4-7", label: "Claude Opus 4.7" },
-        { id: "claude-sonnet-4-6", provider: "claude-code", providerLabel: "Claude Code", model: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
-        { id: "opus", provider: "claude-code", providerLabel: "Claude Code", model: "opus", label: "Opus alias" },
-        { id: "sonnet", provider: "claude-code", providerLabel: "Claude Code", model: "sonnet", label: "Sonnet alias" },
-        ...platformMiaModelEntries()
-      ];
-    }
-    if (engine === "codex") {
-      const entries = [{ id: "default", provider: "codex", providerLabel: "Codex CLI", model: "", label: "Codex 默认" }];
-      const dynamic = Array.isArray(state?.codexModels) ? state.codexModels : [];
-      if (dynamic.length) {
-        for (const m of dynamic) {
-          if (!m?.slug) continue;
-          entries.push({
-            id: m.slug,
-            provider: "codex",
-            providerLabel: "Codex CLI",
-            model: m.slug,
-            label: m.displayName || m.slug
-          });
-        }
-        return [...entries, ...platformMiaModelEntries()];
-      }
-      // Fallback if ~/.codex/models_cache.json is missing (fresh install pre-login).
-      return [
-        ...entries,
-        { id: "gpt-5.3-codex-spark", provider: "codex", providerLabel: "Codex CLI", model: "gpt-5.3-codex-spark", label: "GPT-5.3 Codex Spark" },
-        { id: "gpt-5.3-codex", provider: "codex", providerLabel: "Codex CLI", model: "gpt-5.3-codex", label: "GPT-5.3 Codex" },
-        { id: "gpt-5.2", provider: "codex", providerLabel: "Codex CLI", model: "gpt-5.2", label: "GPT-5.2" },
-        ...platformMiaModelEntries()
-      ];
-    }
-    if (engine === "openclaw") {
-      return [
-        { id: "default", provider: "openclaw", providerLabel: "OpenClaw", model: "", label: "OpenClaw 默认" }
-      ];
     }
     return [];
   }
@@ -113,26 +53,13 @@
   function externalPermissionOptions(engine) {
     if (engineContracts.externalPermissionOptions && engineContracts.isExternalEngine?.(engine)) {
       return engineContracts.externalPermissionOptions(engine, {
+        engineCapabilities: state?.engineCapabilities,
         codexPermissionProfiles: state?.engineCapabilities?.engines?.codex?.permissionProfiles
       });
     }
-    if (engine === "claude-code") {
-      return [
-        { value: "default", label: "Ask Permissions", title: "Claude Code 默认权限，危险操作会询问。" },
-        { value: "acceptEdits", label: "Accept Edits", title: "Claude Code 自动接受文件编辑，其他危险操作仍按规则处理。" },
-        { value: "plan", label: "Plan Mode", title: "Claude Code 计划模式，只读规划。" },
-        { value: "auto", label: "Auto Mode", title: "Claude Code 自动判断低风险操作，高风险操作仍会询问。" },
-        { value: "bypassPermissions", label: "Bypass Permissions", title: "Claude Code Bypass Permissions，只在完全信任时使用。" }
-      ];
-    }
-    if (engine === "codex" || engine === "openclaw") {
-      const label = engine === "openclaw" ? "OpenClaw" : "Codex";
-      return [
-        { value: "default", label: "Ask", title: `${label} 默认 workspace-write + untrusted。` },
-        { value: "acceptEdits", label: "Edits", title: `${label} workspace-write + on-request。` },
-        { value: "readOnly", label: "Read", title: `${label} 只读模式。` },
-        { value: "bypassPermissions", label: "YOLO", title: `${label} danger-full-access + never。` }
-      ];
+    const normalized = engineContracts.normalizeAgentEngine ? engineContracts.normalizeAgentEngine(engine) : engine;
+    if (normalized === "claude-code" || normalized === "codex" || normalized === "openclaw") {
+      return [{ value: "default", label: normalized === "claude-code" ? "Ask Permissions" : "Ask", title: "" }];
     }
     // Hermes — pull from real engine capabilities (probed via SETTINGS_SCHEMA).
     // Defaults to the upstream ask/yolo/deny set if the probe hasn't completed.
@@ -149,28 +76,15 @@
   function effortOptions(engine) {
     if (engineContracts.effortOptions) {
       return engineContracts.effortOptions(engine, {
+        engineCapabilities: state?.engineCapabilities,
         codexModels: state?.engineCapabilities?.engines?.codex?.models || state?.codexModels,
         effortLevels: state?.engineCapabilities?.effortLevels,
         effortLabels: EFFORT_LABELS
       });
     }
-    if (engine === "claude-code") {
-      return [
-        { value: "low", label: "Low" },
-        { value: "medium", label: "Medium" },
-        { value: "high", label: "High" },
-        { value: "xhigh", label: "Extra high" },
-        { value: "max", label: "Max" }
-      ];
-    }
-    if (engine === "codex" || engine === "openclaw") {
-      return [
-        { value: "minimal", label: "Minimal" },
-        { value: "low", label: "Low" },
-        { value: "medium", label: "Medium" },
-        { value: "high", label: "High" },
-        { value: "xhigh", label: "Extra high" }
-      ];
+    const normalized = engineContracts.normalizeAgentEngine ? engineContracts.normalizeAgentEngine(engine) : engine;
+    if (normalized === "claude-code" || normalized === "codex" || normalized === "openclaw") {
+      return [{ value: "medium", label: EFFORT_LABELS.medium || "Medium" }];
     }
     // Hermes — pull from real engine capabilities (probed via SETTINGS_SCHEMA at
     // startup). Defaults to low/medium/high if the probe hasn't completed yet.
