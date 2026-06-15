@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo } from "react";
 import { View, type StyleProp, type ViewStyle } from "react-native";
 
 // lottie-react-native is a native module; absent in the node/jest env. Fall back
@@ -48,50 +48,55 @@ interface Props {
   color?: string;
   /** Dim to convey an inactive/disabled state. */
   dimmed?: boolean;
-  /** Replay once each time this flips to true (e.g. on tab focus). */
+  /** While true, play the animation once (e.g. on tab focus). Static otherwise. */
   play?: boolean;
   loop?: boolean;
+  /** Frame to rest on while not playing: 0 = first frame, 1 = last. Default 0. */
+  idleProgress?: number;
   style?: StyleProp<ViewStyle>;
 }
 
-export default function LottieIcon({ name, size = 24, color, dimmed, play, loop = false, style }: Props) {
+export default function LottieIcon({
+  name,
+  size = 24,
+  color,
+  dimmed,
+  play,
+  loop = false,
+  idleProgress = 0,
+  style,
+}: Props) {
   const source = SOURCES[name];
-  // Memoize by the color value: a fresh array each render makes RN Lottie
-  // re-apply color filters, which restarts playback. A stable reference keeps an
-  // idle icon from re-animating when a sibling tab changes (the de-focused icon
-  // bug). Keep the color CONSTANT across focus states upstream for the same
-  // reason — convey focus via opacity, not by recoloring the animation.
+  // Stable reference: a fresh array each render makes RN Lottie re-apply color
+  // filters, which restarts playback.
   const colorFilters = useMemo(
     () => (color ? RECOLOR_KEYPATHS.map((keypath) => ({ keypath, color })) : undefined),
     [color]
   );
 
-  // Each instance plays exactly once on mount (autoPlay) and rests on its final
-  // frame — so an idle icon shows the fully-drawn glyph instead of frame 0
-  // (which is blank for these draw-in animations). To replay once when `play`
-  // flips true (tab focus), bump a key to remount a fresh single-play instance.
-  // The first effect run is skipped so the initial autoPlay isn't doubled.
-  const [playSeq, setPlaySeq] = useState(0);
-  const prevPlay = useRef<boolean | null>(null);
-  useEffect(() => {
-    if (prevPlay.current !== null && play && !prevPlay.current) {
-      setPlaySeq((n) => n + 1);
-    }
-    prevPlay.current = !!play;
-  }, [play]);
-
   const box: StyleProp<ViewStyle> = [{ width: size, height: size, opacity: dimmed ? 0.45 : 1 }, style];
+  const inner = { width: size, height: size };
   if (!LottieView || !source) return <View style={box} />;
+
+  // Two mutually-exclusive instances with distinct keys: switching between them
+  // remounts. The idle instance is a single frozen frame and NEVER animates, so
+  // de-focusing a tab can't replay its icon. The play instance mounts fresh on
+  // each focus gain and autoPlays exactly once, then rests on its last frame.
   return (
     <View style={box}>
-      <LottieView
-        key={playSeq}
-        source={source}
-        autoPlay
-        loop={loop}
-        colorFilters={colorFilters}
-        style={{ width: size, height: size }}
-      />
+      {play ? (
+        <LottieView key="play" source={source} autoPlay loop={loop} colorFilters={colorFilters} style={inner} />
+      ) : (
+        <LottieView
+          key="idle"
+          source={source}
+          autoPlay={false}
+          loop={false}
+          progress={idleProgress}
+          colorFilters={colorFilters}
+          style={inner}
+        />
+      )}
     </View>
   );
 }

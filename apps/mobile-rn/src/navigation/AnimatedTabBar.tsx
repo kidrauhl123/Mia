@@ -48,10 +48,16 @@ function TabItem({ routeName, focused, onPress }: { routeName: string; focused: 
   return (
     <Pressable style={styles.item} onPress={handle} hitSlop={8}>
       <Animated.View style={[styles.iconWrap, { transform: [{ scale }] }]}>
-        {/* Constant icon color across focus states — recoloring the Lottie on
-            focus change restarts its animation, which made the de-focused tab
-            replay. Selection is conveyed by opacity (dimmed) + the label color. */}
-        <LottieIcon name={TAB_ICON[routeName] || "chat"} size={24} color={color.ink} dimmed={!focused} play={focused} />
+        {/* Idle icons render a static last frame (idleProgress=1) and never
+            animate; only the focused tab plays, once. */}
+        <LottieIcon
+          name={TAB_ICON[routeName] || "chat"}
+          size={24}
+          color={tint}
+          dimmed={!focused}
+          play={focused}
+          idleProgress={1}
+        />
       </Animated.View>
       <Text style={[styles.label, { color: tint }]}>{LABELS[routeName] || routeName}</Text>
     </Pressable>
