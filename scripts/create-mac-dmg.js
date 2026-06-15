@@ -58,6 +58,28 @@ function detachVolume(volumePath) {
   }
 }
 
+function detachStaleVolumes() {
+  // A stale "/Volumes/Mia" forces our staging image to mount as "Mia 1", which
+  // bakes that transient name into the .DS_Store background bookmark and breaks
+  // the installer background on every other machine. Clear any leftover Mia
+  // volumes so the staging volume always mounts under the canonical name.
+  const namePattern = new RegExp(`^${productName}( \\d+)?$`);
+  let entries;
+  try {
+    entries = fs.readdirSync("/Volumes");
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (!namePattern.test(entry)) continue;
+    try {
+      execFileSync("hdiutil", ["detach", path.join("/Volumes", entry), "-force"], { stdio: "inherit" });
+    } catch {
+      // Not a detachable mount (or already gone) — leave it alone.
+    }
+  }
+}
+
 function attachImage(imagePath) {
   const output = execFileSync("hdiutil", [
     "attach",
@@ -165,6 +187,7 @@ let mountedVolume = null;
 fs.mkdirSync(stagingDir, { recursive: true });
 
 try {
+  detachStaleVolumes();
   execFileSync("ditto", [source, path.join(stagingDir, appName)], { stdio: "inherit" });
   fs.symlinkSync("/Applications", path.join(stagingDir, "Applications"));
   fs.mkdirSync(path.join(stagingDir, ".background"), { recursive: true });

@@ -105,6 +105,16 @@ release/
 
 如果正在运行 Mia，打包、覆盖、签名或删除 release 文件可能失败。先退出 app，再重新构建。
 
+### macOS DMG 安装窗口样式
+
+`scripts/dist:mac` 末尾用 `scripts/create-mac-dmg.js` 生成带样式的安装窗口，规格是固定的（改动需同步更新这里）：
+
+- 自定义背景图 `build/dmg-background.png`（600×420），窗口大小 600×420、隐藏工具栏/侧边栏/状态栏。
+- 图标尺寸 96、文字 14、不自动排列；**`Mia.app` 在左 `(180,238)`、`Applications` 软链在右 `(420,238)`**——左拖右、符合 macOS 拖拽安装直觉。
+- 布局写进 `.DS_Store`：`create-mac-dmg.js` 先用 `write-dmg-ds-store.py`（无头写，CI 可用）写一遍，再用 Finder/osascript 复刷一遍兜底。
+
+**构建机必须保持干净——这是踩过的坑：** Finder 同名卷会自动改名（`/Volumes/Mia` 被占 → 新卷挂成 `/Volumes/Mia 1`）。`write-dmg-ds-store.py` 的背景图书签是**含卷名的绝对路径**，一旦暂存卷不是规范的 `Mia`，固化进 `.DS_Store` 的就是 `/Volumes/Mia 1`，用户机器上卷名对不上 → **背景失效、白底默认窗口**。`create-mac-dmg.js` 现在打包前会 `detachStaleVolumes()` 卸掉所有 `/Volumes/Mia*`；**别在挂着 Mia 卷（旧 dmg / 正在运行的安装盘）时打包**。验证产物：挂载 dmg，读 `.DS_Store` 的 `icvp.backgroundImageAlias`，里面的卷路径必须是 `/Volumes/Mia`。
+
 ### 桌面自动更新（in-app update）
 
 - 发布命令：`npm run release:mac`（= `dist:mac` + `scripts/publish-mac-update.js`）暂存 `latest-mac.yml` + dmg/zip/blockmap；`npm run release:win`（= `dist:win` + `scripts/publish-win-update.js`）暂存 `latest.yml` + NSIS setup/blockmap。设置 `MIA_UPDATE_DEPLOY=1` 时同步到 VPS 的 `/var/www/mia-updates/`，由 `https://mia.gifgif.cn/updates/` 提供。
@@ -114,6 +124,11 @@ release/
 - 产物**签名但默认未公证（notarize）**：本机可用，分发给其他 Mac 首开会被 Gatekeeper 拦——正式分发需配公证凭证重出。
 
 > **旧包迁移限制**：已经安装的 GitHub-provider 旧包只会去 GitHub release 检查更新。第一次迁移要发一个桥接版本：同一个新版本同时发布到 GitHub release 和 `mia.gifgif.cn/updates/`。旧包从 GitHub 升到桥接版本后，桥接版本内置的 generic provider 会让之后更新完全走 `mia.gifgif.cn/updates/`。
+
+#### release → VPS 自动部署链路（`.github/workflows/company-deploy.yml`）
+
+- `release: published` 触发自托管 runner（`mia-deploy`）跑 `publish-release-assets`：`gh release download` 拉资产 → `MIA_UPDATE_DEPLOY=1 publish-mac-update.js` 经公司 JumpServer 推到 VPS 更新源。**不需要手动 SSH 到服务器**。
+- **弯路提示（慢的回拉）：** runner 在国内，从 GitHub 下载 ~240MB 资产极慢（一次跑过 ~1 小时），mac 包又只能在 macOS + 签名证书的机器上构建，所以二进制会「本地构建 → 传 GitHub → 国内 runner 再从 GitHub 拉回」绕一圈。要根治就别让二进制过 GitHub：让构建机直接 rsync 到 VPS，或让 runner 自己构建后直推。runner 装到 VPS（上海，Linux）解决不了这条——它仍要从 GitHub 拉、且无法构建签名 mac 包。
 
 ## Cloud/Web 发布
 
