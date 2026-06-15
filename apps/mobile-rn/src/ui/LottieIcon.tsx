@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { View, type StyleProp, type ViewStyle } from "react-native";
 
 // lottie-react-native is a native module; absent in the node/jest env. Fall back
@@ -56,7 +56,15 @@ interface Props {
 
 export default function LottieIcon({ name, size = 24, color, dimmed, play, loop = false, style }: Props) {
   const source = SOURCES[name];
-  const colorFilters = color ? RECOLOR_KEYPATHS.map((keypath) => ({ keypath, color })) : undefined;
+  // Memoize by the color value: a fresh array each render makes RN Lottie
+  // re-apply color filters, which restarts playback. A stable reference keeps an
+  // idle icon from re-animating when a sibling tab changes (the de-focused icon
+  // bug). Keep the color CONSTANT across focus states upstream for the same
+  // reason — convey focus via opacity, not by recoloring the animation.
+  const colorFilters = useMemo(
+    () => (color ? RECOLOR_KEYPATHS.map((keypath) => ({ keypath, color })) : undefined),
+    [color]
+  );
 
   // Each instance plays exactly once on mount (autoPlay) and rests on its final
   // frame — so an idle icon shows the fully-drawn glyph instead of frame 0
