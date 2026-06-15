@@ -38,18 +38,18 @@ test("resolveContact bot by id", () => {
   assert.equal(c.ownerUserId, "user_me");
 });
 
-test("resolveContact bot avatar uses owner-scoped bot identity", () => {
+test("resolveContact bot avatar uses bot uid for fallback color", () => {
   const c = resolveContact({ kind: "bot", ref: "bot_mia" }, {
     bots: [{ id: "bot_mia", ownerUserId: "user_me", displayName: "Mia" }]
   });
   const expected = avatarResolve.resolveAvatarForContact({
-    id: "user_me:bot_mia",
+    id: "bot_mia",
     displayName: "Mia",
     avatarImage: "",
     avatarCrop: null
   });
 
-  assert.equal(botAvatarIdentityId("bot_mia", { ownerUserId: "user_me" }), "user_me:bot_mia");
+  assert.equal(botAvatarIdentityId("bot_mia", { ownerUserId: "user_me" }), "bot_mia");
   assert.deepEqual(c.avatar, expected);
 });
 

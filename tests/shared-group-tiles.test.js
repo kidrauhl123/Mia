@@ -71,14 +71,14 @@ test("compact owned bot does not hide the enriched member-row avatar", () => {
   }]);
 });
 
-test("group tile hashes owned bot fallback by owner-scoped bot identity", () => {
+test("group tile hashes owned bot fallback by bot uid", () => {
   const members = [{ member_kind: "bot", member_ref: "mia", owner_id: "user_me" }];
   const tiles = resolveGroupMemberTiles(members, {
     bots: [{ id: "mia", name: "Mia", ownerUserId: "user_me" }]
   });
   assert.equal(tiles[0].image, "");
   assert.equal(tiles[0].crop, null);
-  assert.equal(tiles[0].color, memberAccentColor("user_me:mia"));
+  assert.equal(tiles[0].color, memberAccentColor("mia"));
   assert.equal(tiles[0].text, "Mi");
 });
 
@@ -93,7 +93,7 @@ test("group tile preserves an owned bot's explicit avatar color", () => {
   assert.equal(tiles[0].text, "哈哈");
 });
 
-test("group tile hashes cross-owner bot fallback by owner-scoped bot identity", () => {
+test("group tile hashes cross-owner bot fallback by bot uid", () => {
   const members = [{
     member_kind: "bot",
     member_ref: "mia",
@@ -103,7 +103,7 @@ test("group tile hashes cross-owner bot fallback by owner-scoped bot identity", 
   const tiles = resolveGroupMemberTiles(members, { bots: [] });
   assert.equal(tiles[0].image, "");
   assert.equal(tiles[0].crop, null);
-  assert.equal(tiles[0].color, memberAccentColor("user_friend:mia"));
+  assert.equal(tiles[0].color, memberAccentColor("mia"));
   assert.equal(tiles[0].text, "Mi");
 });
 

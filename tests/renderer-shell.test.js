@@ -588,7 +588,7 @@ test("local assistant bubble avatars render with bot sender kind for contact car
           avatarHtml: ({ attrs }) => '<span class="avatar message-avatar" ' + attrs + '></span>'
         }
       };
-      function botAvatarIdentityId(ref) { return "botc_user_me_" + ref; }
+      function botAvatarIdentityId(ref) { return ref; }
       function formatRunTime() { return ""; }
       function renderMessageTime() { return ""; }
       function renderCommandResultHtml() { return ""; }

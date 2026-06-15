@@ -15,6 +15,7 @@ function mockEl(tagName = "span") {
     _queries: {},
     classList: { add() {}, remove() {}, toggle() {} },
     addEventListener() {},
+    setAttribute(name, value) { this[name] = String(value || ""); },
     appendChild(child) { this.children.push(child); return child; },
     replaceChildren(...children) { this.children = children; this._html = ""; },
     querySelector(selector) {

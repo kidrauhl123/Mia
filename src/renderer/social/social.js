@@ -1251,7 +1251,7 @@
       const conversationsToFetch = visibleSocialConversations(moduleState.conversations).slice(0, INITIAL_CONVERSATIONS_CAP);
       // Prefetch members for group mosaics and bot private chats. Bot chats need
       // the member public identity so sidebar/header/bubbles hash the same
-      // owner+bot id and can show cross-device avatars.
+      // public bot identity and can show cross-device avatars.
       const memberConversationsToFetch = visibleSocialConversations(moduleState.conversations).filter((r) => {
         const t = r.type
           || (r.id?.startsWith("dm:") ? "dm"
