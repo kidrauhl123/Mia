@@ -157,6 +157,9 @@ body {
   color: var(--text);
   font: 14px/1.5 var(--app-font);
   letter-spacing: 0;
+  cursor: default;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 button,
@@ -166,6 +169,14 @@ textarea {
   font: inherit;
   letter-spacing: 0;
   -webkit-app-region: no-drag;
+}
+
+input,
+textarea,
+[contenteditable="true"] {
+  cursor: text;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 button {
@@ -720,12 +731,37 @@ body.sidebar-resizing * {
   position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 32px;
+  grid-template-rows: 34px auto;
   align-items: center;
   gap: 6px;
   min-height: 66px;
   padding: 14px 10px 10px;
   border-bottom: 1px solid var(--line);
   background: var(--surface);
+}
+
+.conversation-sidebar .sidebar-tools {
+  grid-template-columns: minmax(0, 1fr) 32px 32px;
+}
+
+.sidebar-tools.has-tag-filters {
+  align-content: start;
+  min-height: 84px;
+  padding-bottom: 8px;
+}
+
+.sidebar-title {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  color: var(--text);
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+.sidebar-tools.search-active .sidebar-title {
+  display: none;
 }
 
 .create-menu {
@@ -790,15 +826,39 @@ body.sidebar-resizing * {
   display: grid;
   grid-template-columns: 24px minmax(0, 1fr);
   align-items: center;
-  height: 32px;
-  padding: 0 8px;
-  border-radius: 10px;
+  height: 34px;
+  min-width: 0;
+  padding: 0 6px 0 8px;
+  border-radius: 14px;
   background: var(--field);
   color: var(--faint);
   cursor: text;
+  transition: background 140ms ease, box-shadow 140ms ease;
 }
 
-.search-box span {
+.conversation-sidebar .search-box {
+  grid-column: 1 / 3;
+  grid-template-columns: 24px minmax(0, 1fr) 24px;
+  animation: searchBoxOpen 140ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.search-box:focus-within {
+  background: color-mix(in srgb, var(--field) 78%, var(--surface) 22%);
+  box-shadow: inset 0 0 0 1px rgb(var(--accent-rgb) / 0.20);
+}
+
+.search-box-icon {
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+.search-box-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.search-box > span:not(.search-box-icon) {
   pointer-events: none;
   font-size: 18px;
   line-height: 1;
@@ -814,10 +874,155 @@ body.sidebar-resizing * {
   padding: 0;
   background: transparent;
   color: var(--text);
-  line-height: 32px;
+  font-size: 14px;
+  line-height: 34px;
   box-shadow: none;
   -webkit-appearance: none;
   appearance: none;
+}
+
+.search-clear {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  justify-self: end;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+}
+
+.search-clear svg {
+  display: block;
+  width: 13px;
+  height: 13px;
+}
+
+.search-clear:hover {
+  background: transparent;
+  color: var(--muted);
+}
+
+.sidebar-search-trigger {
+  grid-column: 2;
+}
+
+.conversation-sidebar #newPersona,
+.sidebar-search-close {
+  grid-column: 3;
+}
+
+.sidebar-search-trigger svg {
+  width: 18px;
+  height: 18px;
+}
+
+.sidebar-search-close {
+  color: var(--muted);
+}
+
+.sidebar-search-close svg {
+  display: block;
+  width: 18px;
+  height: 18px;
+}
+
+.sidebar-tag-filters {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+  min-width: 0;
+  height: 18px;
+  animation: sidebarTagRailIn 150ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.sidebar-tag-filter-strip {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  height: 18px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 18px), transparent 100%);
+  mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 18px), transparent 100%);
+}
+
+.sidebar-tag-filter-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.sidebar-tag-filter {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 3px;
+  max-width: 78px;
+  height: 16px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: 5px;
+  background: rgba(142, 142, 147, 0.14);
+  color: rgba(60, 60, 67, 0.56);
+  font-size: 10px;
+  font-weight: 560;
+  line-height: 16px;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease, transform 140ms ease, box-shadow 140ms ease;
+}
+
+.sidebar-tag-filter:hover {
+  background: rgba(142, 142, 147, 0.20);
+  color: rgba(60, 60, 67, 0.66);
+}
+
+.sidebar-tag-filter.active {
+  background: #2386d9;
+  color: #fff;
+  box-shadow: 0 5px 14px rgb(35 134 217 / 0.24);
+}
+
+.sidebar-tag-filter-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-tag-filter-count {
+  flex: 0 0 auto;
+  color: inherit;
+  opacity: 0.72;
+}
+
+:root[data-theme="dark"] .sidebar-tag-filter {
+  background: rgba(174, 174, 178, 0.16);
+  color: rgba(235, 235, 245, 0.58);
+}
+
+:root[data-theme="dark"] .sidebar-tag-filter:hover {
+  background: rgba(174, 174, 178, 0.22);
+  color: rgba(235, 235, 245, 0.68);
+}
+
+:root[data-theme="dark"] .sidebar-tag-filter.active {
+  background: #2386d9;
+  color: #fff;
+  box-shadow: 0 5px 14px rgb(35 134 217 / 0.28);
+}
+
+@keyframes sidebarTagRailIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes searchBoxOpen {
+  from { opacity: 0; transform: scaleX(0.96); }
+  to { opacity: 1; transform: scaleX(1); }
 }
 
 .icon-button {
@@ -876,7 +1081,38 @@ body.sidebar-resizing * {
   border-radius: 11px;
   background: transparent;
   color: var(--text);
+  cursor: default;
   text-align: left;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.persona *,
+.contact-row *,
+.topbar *,
+.nav-rail *,
+.sidebar-tools * {
+  cursor: default;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.search-box,
+.search-box * {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.search-box input,
+.persona-tag-input {
+  cursor: text;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.persona:focus-visible {
+  outline: 2px solid rgba(var(--accent-rgb), 0.28);
+  outline-offset: 2px;
 }
 
 .message-card {
@@ -897,6 +1133,62 @@ body.sidebar-resizing * {
 
 .persona.pinned:not(.active):hover {
   background: var(--field);
+}
+
+.persona.search-result {
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 8px;
+  min-height: 50px;
+  padding: 5px 9px;
+  border-radius: 8px;
+}
+
+.persona.search-result:hover:not(.active) {
+  background: rgba(var(--accent-rgb), 0.08);
+}
+
+.persona.search-result .avatar,
+.persona.search-result .bot-photo {
+  width: 34px;
+  height: 34px;
+}
+
+.persona.search-result .persona-main {
+  grid-template-rows: 18px 18px;
+  gap: 0;
+  min-height: 36px;
+}
+
+.persona.search-result .persona-name {
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 560;
+  line-height: 18px;
+}
+
+.persona.search-result .persona-preview-row {
+  align-items: center;
+  min-height: 18px;
+}
+
+.persona.search-result .persona-key {
+  display: block;
+  align-self: center;
+  max-height: 18px;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  word-break: normal;
+  -webkit-line-clamp: unset;
+  -webkit-box-orient: unset;
+}
+
+.persona.search-result .persona-tag-row,
+.persona.search-result .persona-tags {
+  display: none;
 }
 
 .persona-empty {
@@ -994,6 +1286,10 @@ body.sidebar-resizing * {
   min-height: 52px;
 }
 
+.persona.has-tags .persona-main {
+  grid-template-rows: 18px 17px 17px;
+}
+
 .persona-name-row {
   display: flex;
   align-items: center;
@@ -1041,6 +1337,65 @@ body.sidebar-resizing * {
 .persona-key .sidebar-preview-link {
   color: var(--accent);
   font-weight: 500;
+}
+
+.persona-tags {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 3px;
+  vertical-align: 1px;
+}
+
+.persona-tag-chip {
+  display: inline-flex;
+  align-items: center;
+  border: 0;
+  max-width: 78px;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--tag-color, #64748b) 14%, transparent);
+  color: var(--tag-color, #64748b);
+  font-size: 10px;
+  font-weight: 560;
+  line-height: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, box-shadow 120ms ease, transform 120ms ease, opacity 120ms ease;
+}
+
+button.persona-tag-chip {
+  font-family: inherit;
+}
+
+.persona-tag-name {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.persona.active .persona-tag-chip {
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--tag-color, #64748b);
+}
+
+.persona-tag-chip.filtered {
+  background: color-mix(in srgb, var(--tag-color, #64748b) 24%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tag-color, #64748b) 34%, transparent);
+}
+
+.persona.active .persona-tag-chip.filtered {
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tag-color, #64748b) 48%, transparent);
+}
+
+.persona-tag-chip.removing {
+  pointer-events: none;
+  animation: tagChipRemove 140ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 
 .persona.active .persona-key .sidebar-preview-link {
@@ -1110,6 +1465,160 @@ body.sidebar-resizing * {
   align-items: start;
   gap: 8px;
   min-width: 0;
+}
+
+.persona.has-tags .persona-preview-row {
+  min-height: 17px;
+}
+
+.persona.has-tags .persona-key {
+  display: block;
+  max-height: 17px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  -webkit-line-clamp: unset;
+  -webkit-box-orient: unset;
+}
+
+.persona-tag-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: 17px;
+  overflow: hidden;
+}
+
+.persona-tag-row.editing {
+  overflow: visible;
+  z-index: 5;
+}
+
+.persona-tag-row .persona-tags {
+  align-items: center;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.persona-tag-row .persona-tag-chip {
+  flex: 0 1 auto;
+}
+
+.persona-tag-input-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-width: 72px;
+  height: 18px;
+  overflow: hidden;
+  animation: tagInputOpen 160ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.persona-tag-input {
+  display: inline-block;
+  width: 82px;
+  height: 18px;
+  min-width: 0;
+  border: 0;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.94);
+  color: var(--tag-color, #64748b);
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 560;
+  line-height: 18px;
+  padding: 0 6px;
+  outline: none;
+  transform-origin: left center;
+}
+
+.persona:not(.active) .persona-tag-input {
+  background: var(--field);
+}
+
+.persona-tag-suggestions {
+  position: absolute;
+  top: 20px;
+  left: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  width: min(218px, calc(100vw - 40px));
+  max-height: 0;
+  padding: 0 6px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 8px 22px rgba(16, 20, 39, 0.16);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition: max-height 160ms cubic-bezier(0.2, 0.7, 0.2, 1), padding 160ms ease, opacity 120ms ease, transform 160ms ease;
+}
+
+.persona-tag-row.mode-add .persona-tag-suggestions,
+.persona-tag-row.mode-rename .persona-tag-suggestions {
+  max-height: 54px;
+  padding: 6px;
+  overflow: auto;
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.persona-tag-suggestion {
+  display: inline-flex;
+  align-items: center;
+  max-width: 82px;
+  height: 20px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--tag-color, #64748b) 13%, transparent);
+  color: var(--tag-color, #64748b);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 560;
+  line-height: 20px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes tagInputOpen {
+  from {
+    max-width: 0;
+    opacity: 0;
+    transform: scaleX(0.86);
+  }
+  to {
+    max-width: 92px;
+    opacity: 1;
+    transform: scaleX(1);
+  }
+}
+
+@keyframes tagChipRemove {
+  from {
+    opacity: 1;
+    transform: scale(1);
+    max-width: 84px;
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.86);
+    max-width: 0;
+    padding-left: 0;
+    padding-right: 0;
+  }
+}
+
+.persona.has-tags .persona-side {
+  align-self: center;
+  min-height: 17px;
+  margin-bottom: 0;
 }
 
 .persona-side {

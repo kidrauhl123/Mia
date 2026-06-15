@@ -195,6 +195,11 @@
 
     const article = document.createElement("article");
     article.className = `message ${roleClass}`;
+    if (typeof article.setAttribute === "function") {
+      article.setAttribute("data-message-id", msg.id || "");
+    } else {
+      article.dataset = { ...(article.dataset || {}), messageId: msg.id || "" };
+    }
     // Name color tracks the resolved avatar color, so a member's set accent
     // color shows here too; falls back to the id hash when none is set.
     const senderTitleHtml = senderLabel

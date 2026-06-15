@@ -107,6 +107,7 @@
     SocialListPlatformModels: "social:list-platform-models",
     SocialGetConversation: "social:get-conversation",
     SocialListConversationMessages: "social:list-conversation-messages",
+    SocialSearchConversationMessages: "social:search-conversation-messages",
     SocialGetCachedMessages: "social:get-cached-messages",
     SocialGetCachedBootstrap: "social:get-cached-bootstrap",
     SocialPostConversationMessage: "social:post-conversation-message",

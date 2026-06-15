@@ -43,13 +43,9 @@
 
   function botAvatarIdentityId(bot = {}) {
     const localId = bot.key || bot.id || "";
-    const ownerUserId = bot.ownerUserId || bot.owner_user_id || bot.ownerId || bot.owner_id || "";
     return contact()?.botAvatarIdentityId?.(localId, bot)
-      || bot.globalId
-      || bot.global_id
-      || bot.botGlobalId
-      || bot.bot_global_id
-      || (ownerUserId && localId ? "botc_" + ownerUserId + "_" + localId : "")
+      || bot.id
+      || bot.key
       || localId;
   }
 

@@ -73,12 +73,17 @@
       skill.description,
       window.miaSkillHelpers.skillDisplayName(skill),
       window.miaSkillHelpers.skillSummaryZh(skill),
-      skill.category,
+      window.miaSkillHelpers.skillDisplayCategory(skill),
       skill.sourceLabel,
+      skill.marketId,
+      skill.marketNameZh,
+      skill.marketSummaryZh,
+      skill.marketCategoryZh,
       skill.relPath,
       ...(skill.tags || [])
     ].join(" ").toLowerCase();
-    return (!needle || haystack.includes(needle)) && (!category || String(skill.category || "") === category);
+    return (!needle || haystack.includes(needle))
+      && (!category || String(window.miaSkillHelpers.skillDisplayCategory(skill) || "").toLowerCase() === category);
   }
 
   function visibleSkills() {
@@ -89,7 +94,7 @@
   function skillCategories() {
     const counts = new Map();
     for (const skill of (state.skillLibrary.skills || [])) {
-      const category = skill.category || "uncategorized";
+      const category = window.miaSkillHelpers.skillDisplayCategory(skill);
       counts.set(category, (counts.get(category) || 0) + 1);
     }
     return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
@@ -100,16 +105,15 @@
     state.selectedSkillId = skillId;
     const listed = state.skillLibrary.skills.find((skill) => skill.id === skillId);
     state.selectedSkillDetail = listed || null;
-    if (openPreview) state.skillPreviewOpen = true;
     renderSkillLibrary();
-    renderSkillPreview();
+    if (openPreview) openLocalSkillModal(skillId);
     try {
       state.selectedSkillDetail = await window.mia.readSkill(skillId);
     } catch (error) {
       console.error("Failed to read skill", error);
     }
     renderSkillLibrary();
-    renderSkillPreview();
+    if (openPreview && skillModal.kind === "local" && skillModal.skillId === skillId) renderSkillModal();
   }
 
   function skillEmptyText() {
@@ -147,7 +151,7 @@
       sourceLabel,
       ownerLabel: sourceLabel,
       upstreamSource: skill.marketUpstreamSource || skill.upstreamSource || "",
-      category: skill.category || ""
+      category: window.miaSkillHelpers.skillDisplayCategory(skill)
     });
   }
 
@@ -244,26 +248,11 @@
     if (!attached) window.alert("请先在消息页打开一个 Bot 对话，再使用技能。");
   }
 
-  function renderSkillPreview() {
-    if (!state || !els || !els.skillPreviewDialog) return;
-    els.skillPreviewDialog.classList.toggle("hidden", !state.skillPreviewOpen);
-    const skill = state.selectedSkillDetail || state.skillLibrary.skills.find((item) => item.id === state.selectedSkillId);
-    if (!skill) return;
-    els.skillPreviewMark.className = `skill-dot ${window.miaSkillHelpers.skillTone(skill)}`;
-    els.skillPreviewMark.textContent = window.miaSkillHelpers.skillInitials(skill.name);
-    setText(els.skillPreviewTitle, window.miaSkillHelpers.skillDisplayName(skill));
-    const previewMarketSource = localSkillMarketSourceLabel(skill);
-    const previewSource = previewMarketSource
-      ? `${skill.sourceLabel || "Local"} · ${previewMarketSource}`
-      : (skill.sourceLabel || "Local");
-    setText(els.skillPreviewMeta, `${skill.name || "Skill"} · ${previewSource} · ${skill.relPath || skill.category || ""}`);
-    els.skillPreviewBody.innerHTML = skill.body
-      ? window.miaSkillHelpers.renderSkillMarkdownSource(skill.body)
-      : `<div class="skill-empty-state">正在读取 SKILL.md...</div>`;
-    els.skillPreviewBody.querySelectorAll("a[href]").forEach((link) => {
-      link.setAttribute("target", "_blank");
-      link.setAttribute("rel", "noreferrer");
-    });
+  function localSkillModalSourceText(skill) {
+    const marketSource = localSkillMarketSourceLabel(skill);
+    const author = String(skill.sourceLabel || window.miaSkillHelpers.skillAuthorLabel(skill) || "").trim();
+    const base = (!author || author === "Local" || author === "Mia Runtime") ? "本机技能" : author;
+    return marketSource ? `${base} · ${marketSource}` : base;
   }
 
   function openSkillContextMenu(skillId, x, y) {
@@ -329,7 +318,7 @@
       const published = await window.mia.publishSkill({ skillId, category: category.trim() || "uncategorized", version: "1.0.0" });
       window.alert(published ? `已发布「${published.name}」到市场。` : "发布失败。");
       state.skillMarket.loaded = false;
-      if (state.skillMarketMode) loadMarketSkills();
+      if (state.skillMarketMode) loadMarketSkills(marketRequestParams(), { forceRefresh: true });
     } catch (error) {
       window.alert(`发布失败：${error?.message || error}`);
     }
@@ -348,8 +337,19 @@
 
   // ---- Marketplace (探索发现) ----
 
+  function sameNonEmpty(a, b) {
+    const left = String(a || "").trim();
+    const right = String(b || "").trim();
+    return !!left && !!right && left === right;
+  }
+
   function installedLocalSkillForMarket(skill) {
-    return (state.skillLibrary.skills || []).find((local) => local.name === skill.name) || null;
+    return (state.skillLibrary.skills || []).find((local) => {
+      if (!local?.fromMarket) return false;
+      if (local.source === "mia-official") return false;
+      if (sameNonEmpty(local.marketId, skill.id)) return true;
+      return sameNonEmpty(local.marketUpstreamId, skill.upstreamId);
+    }) || null;
   }
 
   function formatInstallCount(n) {
@@ -576,7 +576,8 @@
 
   async function installMarketSkill(skillId) {
     if (!skillId || !state || state.installingSkillIds.has(skillId)) return;
-    // Curated local catalog — install directly, no scary "unreviewed" prompt.
+    // Desktop install uses the unified market path: local snapshot when current,
+    // cloud package download when the skill is new or newer than the snapshot.
     state.installingSkillIds.add(skillId);
     renderSkillLibrary();
     try {
@@ -593,19 +594,29 @@
     }
   }
 
-  // --- Market skill detail modal ----------------------------------------
-  // Click a market card to open a popup: Chinese name + summary + source,
-  // an 「添加」 action, and a 「展开正文 ⇄ 返回」 toggle that reveals the raw
-  // SKILL.md body. Self-contained: DOM is injected lazily, no index.html dep.
-  let marketModal = { skillId: "", showBody: false };
-  let marketModalEl = null;
+  // --- Shared skill detail modal ----------------------------------------
+  // Market and local skill cards reuse this popup. It opens on the intro and
+  // keeps a visible 「展开正文」 path to the raw SKILL.md body.
+  let skillModal = { kind: "", skillId: "", showBody: false };
+  let skillModalEl = null;
 
   function findMarketSkill(skillId) {
     return (state?.skillMarket?.skills || []).find((skill) => skill.id === skillId) || null;
   }
 
+  function findLocalSkill(skillId) {
+    if (state?.selectedSkillDetail?.id === skillId) return state.selectedSkillDetail;
+    return (state?.skillLibrary?.skills || []).find((skill) => skill.id === skillId) || null;
+  }
+
+  function findModalSkill() {
+    if (skillModal.kind === "local") return findLocalSkill(skillModal.skillId);
+    if (skillModal.kind === "market") return findMarketSkill(skillModal.skillId);
+    return null;
+  }
+
   function ensureMarketModalEl() {
-    if (marketModalEl) return marketModalEl;
+    if (skillModalEl) return skillModalEl;
     const el = document.createElement("div");
     el.id = "skillMarketModal";
     el.className = "skill-market-modal hidden";
@@ -634,16 +645,21 @@
       node.addEventListener("click", closeMarketModal);
     });
     el.querySelector(".smm-body-toggle").addEventListener("click", () => {
-      marketModal.showBody = !marketModal.showBody;
-      renderMarketModal();
+      skillModal.showBody = !skillModal.showBody;
+      renderSkillModal();
     });
     el.querySelector(".smm-back").addEventListener("click", () => {
-      marketModal.showBody = false;
-      renderMarketModal();
+      skillModal.showBody = false;
+      renderSkillModal();
     });
     el.querySelector(".smm-add").addEventListener("click", () => {
-      const skill = findMarketSkill(marketModal.skillId);
+      const skill = findModalSkill();
       if (!skill) return;
+      if (skillModal.kind === "local") {
+        useSkillInComposer(skill.id);
+        closeMarketModal();
+        return;
+      }
       const installed = installedLocalSkillForMarket(skill);
       if (installed) {
         useSkillInComposer(installed.id);
@@ -653,7 +669,7 @@
       }
     });
     document.body.appendChild(el);
-    marketModalEl = el;
+    skillModalEl = el;
     return el;
   }
 
@@ -663,51 +679,83 @@
 
   function openMarketModal(skillId) {
     if (!skillId || !findMarketSkill(skillId)) return;
-    marketModal = { skillId, showBody: false };
+    skillModal = { kind: "market", skillId, showBody: false };
     ensureMarketModalEl().classList.remove("hidden");
     document.addEventListener("keydown", onMarketModalKeydown);
-    renderMarketModal();
+    renderSkillModal();
+  }
+
+  function openLocalSkillModal(skillId) {
+    if (!skillId || !findLocalSkill(skillId)) return;
+    skillModal = { kind: "local", skillId, showBody: false };
+    ensureMarketModalEl().classList.remove("hidden");
+    document.addEventListener("keydown", onMarketModalKeydown);
+    renderSkillModal();
   }
 
   function closeMarketModal() {
-    marketModal = { skillId: "", showBody: false };
-    if (marketModalEl) marketModalEl.classList.add("hidden");
+    skillModal = { kind: "", skillId: "", showBody: false };
+    if (skillModalEl) skillModalEl.classList.add("hidden");
     document.removeEventListener("keydown", onMarketModalKeydown);
   }
 
-  function renderMarketModal() {
-    if (!marketModalEl) return;
-    const skill = findMarketSkill(marketModal.skillId);
+  function modalTitle(skill) {
+    return skillModal.kind === "local"
+      ? window.miaSkillHelpers.skillDisplayName(skill)
+      : (skill.name_zh || skill.name || "技能");
+  }
+
+  function modalMeta(skill) {
+    if (skillModal.kind === "local") {
+      return [
+        window.miaSkillHelpers.skillDisplayCategory(skill),
+        localSkillModalSourceText(skill),
+        skill.name || ""
+      ].filter(Boolean).join(" · ");
+    }
+    const category = skill.category_zh || skill.category || "";
+    const installs = formatInstallCount(skill.installCount);
+    return [category, skill.sourceLabel, installs].filter(Boolean).join(" · ");
+  }
+
+  function modalSummary(skill) {
+    return skillModal.kind === "local"
+      ? window.miaSkillHelpers.skillSummaryZh(skill)
+      : (skill.summary_zh || marketDescriptionZh(skill));
+  }
+
+  function modalSourceLogoHtml(skill) {
+    return skillModal.kind === "local" ? skillSourceLogoHtml(skill) : marketSourceLogoHtml(skill);
+  }
+
+  function renderSkillModal() {
+    if (!skillModalEl) return;
+    const skill = findModalSkill();
     if (!skill) {
       closeMarketModal();
       return;
     }
-    const title = skill.name_zh || skill.name || "技能";
-    const category = skill.category_zh || skill.category || "";
-    const installs = formatInstallCount(skill.installCount);
-    const meta = [category, skill.sourceLabel, installs].filter(Boolean).join(" · ");
-    const summary = skill.summary_zh || marketDescriptionZh(skill);
-    const installed = installedLocalSkillForMarket(skill);
-    const installing = state.installingSkillIds.has(skill.id);
+    const installed = skillModal.kind === "market" ? installedLocalSkillForMarket(skill) : skill;
+    const installing = skillModal.kind === "market" && state.installingSkillIds.has(skill.id);
     const hasBody = !!String(skill.body || "").trim();
 
-    marketModalEl.querySelector(".smm-source-logo").innerHTML = marketSourceLogoHtml(skill);
-    setText(marketModalEl.querySelector(".smm-title"), title);
-    setText(marketModalEl.querySelector(".smm-meta"), meta);
-    setText(marketModalEl.querySelector(".smm-summary"), summary);
+    skillModalEl.querySelector(".smm-source-logo").innerHTML = modalSourceLogoHtml(skill);
+    setText(skillModalEl.querySelector(".smm-title"), modalTitle(skill));
+    setText(skillModalEl.querySelector(".smm-meta"), modalMeta(skill));
+    setText(skillModalEl.querySelector(".smm-summary"), modalSummary(skill));
 
-    const intro = marketModalEl.querySelector(".smm-intro");
-    const body = marketModalEl.querySelector(".smm-body");
-    const bodyContent = marketModalEl.querySelector(".smm-body-content");
-    const toggle = marketModalEl.querySelector(".smm-body-toggle");
-    const add = marketModalEl.querySelector(".smm-add");
+    const intro = skillModalEl.querySelector(".smm-intro");
+    const body = skillModalEl.querySelector(".smm-body");
+    const bodyContent = skillModalEl.querySelector(".smm-body-content");
+    const toggle = skillModalEl.querySelector(".smm-body-toggle");
+    const add = skillModalEl.querySelector(".smm-add");
 
-    if (marketModal.showBody) {
+    if (skillModal.showBody) {
       intro.classList.add("hidden");
       body.classList.remove("hidden");
       bodyContent.innerHTML = hasBody
         ? window.miaSkillHelpers.renderSkillMarkdownSource(skill.body)
-        : `<div class="skill-empty-state">完整 SKILL.md 内容将在添加到本机后查看。</div>`;
+        : `<div class="skill-empty-state">${skillModal.kind === "local" ? "正在读取完整正文..." : "完整 SKILL.md 内容将在添加到本机后查看。"}</div>`;
       bodyContent.querySelectorAll("a[href]").forEach((link) => {
         link.setAttribute("target", "_blank");
         link.setAttribute("rel", "noreferrer");
@@ -717,10 +765,11 @@
       body.classList.add("hidden");
     }
 
-    toggle.textContent = marketModal.showBody ? "收起正文" : "展开正文";
+    toggle.textContent = skillModal.showBody ? "收起正文" : "展开正文";
+    toggle.disabled = false;
     add.disabled = installing;
     add.classList.toggle("smm-add-installed", !!installed);
-    add.textContent = installed ? "使用" : installing ? "添加中…" : "添加";
+    add.textContent = skillModal.kind === "local" || installed ? "使用" : installing ? "添加中…" : "添加";
   }
 
   window.miaSkillLibrary = {
@@ -732,7 +781,6 @@
     renderSkillCard,
     skillEmptyText,
     renderSkillLibrary,
-    renderSkillPreview,
     openSkillContextMenu,
     closeSkillContextMenu,
     renderSkillContextMenu,
@@ -740,6 +788,7 @@
     loadMarketSkills,
     installMarketSkill,
     openMarketModal,
+    openLocalSkillModal,
     closeMarketModal,
   };
 })();

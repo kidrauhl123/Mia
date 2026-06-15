@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useMemo, useRef } from "react";
 import { View, type StyleProp, type ViewStyle } from "react-native";
 
 // lottie-react-native is a native module; absent in the node/jest env. Fall back
@@ -48,40 +48,114 @@ interface Props {
   color?: string;
   /** Dim to convey an inactive/disabled state. */
   dimmed?: boolean;
-  /** Replay once each time this flips to true (e.g. on tab focus). */
+  /** While true, play the flourish segment once (e.g. on tab focus). */
   play?: boolean;
   loop?: boolean;
+  /** Absolute frame to rest on when idle (desktop rail uses 60). Default 0. */
+  restFrame?: number;
+  /** [start, end] absolute frames to play on focus (desktop rail uses [70, 130]).
+      Like the desktop, we play only this short window — not the whole 2–4s draw —
+      then settle back on restFrame. */
+  playSegment?: [number, number];
   style?: StyleProp<ViewStyle>;
 }
 
-export default function LottieIcon({ name, size = 24, color, dimmed, play, loop = false, style }: Props) {
+// Plays a short frame segment once on mount (focus gain), then settles back to
+// the rest frame — mirrors the desktop rail's playSegments()+goToAndStop().
+function FlourishIcon({
+  source,
+  segment,
+  restFrame,
+  colorFilters,
+  style,
+}: {
+  source: any;
+  segment: [number, number];
+  restFrame: number;
+  colorFilters: any;
+  style: any;
+}) {
   const ref = useRef<any>(null);
-  const source = SOURCES[name];
-  const colorFilters = color ? RECOLOR_KEYPATHS.map((keypath) => ({ keypath, color })) : undefined;
+  const started = useRef(false);
+  const settling = useRef(false);
 
-  useEffect(() => {
-    if (play && ref.current?.play) {
-      try {
-        ref.current.reset?.();
-        ref.current.play();
-      } catch {
-        /* no-op */
-      }
-    }
-  }, [play]);
+  const begin = () => {
+    if (started.current) return;
+    started.current = true;
+    ref.current?.play?.(segment[0], segment[1]);
+  };
+  const onFinish = () => {
+    if (settling.current) return; // the settle's own finish — stop here
+    settling.current = true;
+    ref.current?.play?.(restFrame, restFrame); // freeze on the rest pose
+  };
+
+  return (
+    <LottieView
+      ref={ref}
+      source={source}
+      autoPlay={false}
+      loop={false}
+      onLayout={begin}
+      onAnimationFinish={onFinish}
+      colorFilters={colorFilters}
+      style={style}
+    />
+  );
+}
+
+export default function LottieIcon({
+  name,
+  size = 24,
+  color,
+  dimmed,
+  play,
+  restFrame = 0,
+  playSegment,
+  style,
+}: Props) {
+  const source = SOURCES[name];
+  // Stable reference: a fresh array each render makes RN Lottie re-apply color
+  // filters, which restarts playback.
+  const colorFilters = useMemo(
+    () => (color ? RECOLOR_KEYPATHS.map((keypath) => ({ keypath, color })) : undefined),
+    [color]
+  );
 
   const box: StyleProp<ViewStyle> = [{ width: size, height: size, opacity: dimmed ? 0.45 : 1 }, style];
+  const inner = { width: size, height: size };
   if (!LottieView || !source) return <View style={box} />;
+
+  // Normalize the rest frame to 0..1 for the idle instance (op = JSON out-point).
+  const op = Math.max(1, Math.floor(Number(source.op) || 1));
+  const ip = Math.max(0, Math.floor(Number(source.ip) || 0));
+  const restProgress = Math.min(1, Math.max(0, (restFrame - ip) / Math.max(1, op - ip)));
+
+  // Two mutually-exclusive instances. Idle is a single frozen frame and NEVER
+  // animates, so siblings can't replay it. Focused mounts a fresh FlourishIcon
+  // that plays the short segment once, then settles back to the rest frame.
   return (
     <View style={box}>
-      <LottieView
-        ref={ref}
-        source={source}
-        autoPlay={loop}
-        loop={loop}
-        colorFilters={colorFilters}
-        style={{ width: size, height: size }}
-      />
+      {play && playSegment ? (
+        <FlourishIcon
+          key="play"
+          source={source}
+          segment={playSegment}
+          restFrame={restFrame}
+          colorFilters={colorFilters}
+          style={inner}
+        />
+      ) : (
+        <LottieView
+          key="idle"
+          source={source}
+          autoPlay={false}
+          loop={false}
+          progress={restProgress}
+          colorFilters={colorFilters}
+          style={inner}
+        />
+      )}
     </View>
   );
 }

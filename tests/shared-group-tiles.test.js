@@ -71,7 +71,7 @@ test("compact owned bot does not hide the enriched member-row avatar", () => {
   }]);
 });
 
-test("group tile hashes owned bot fallback by global bot identity", () => {
+test("group tile hashes owned bot fallback by bot uid", () => {
   const members = [{ member_kind: "bot", member_ref: "mia", owner_id: "user_me" }];
   const tiles = resolveGroupMemberTiles(members, {
     bots: [{ id: "mia", name: "Mia", ownerUserId: "user_me" }]
@@ -93,7 +93,7 @@ test("group tile preserves an owned bot's explicit avatar color", () => {
   assert.equal(tiles[0].text, "哈哈");
 });
 
-test("group tile hashes cross-owner bot fallback by global bot identity", () => {
+test("group tile hashes cross-owner bot fallback by bot uid", () => {
   const members = [{
     member_kind: "bot",
     member_ref: "mia",

@@ -100,6 +100,13 @@ function createSocialApi({ getSettings, normalizeUrl }) {
     async listConversationMessages(conversationId, sinceSeq = 0, limit = 100) {
       return jsonFetch({ ...ctx(), method: "GET", path: `/api/conversations/${conversationId}/messages?since_seq=${Number(sinceSeq) || 0}&limit=${Number(limit) || 100}` });
     },
+    async searchConversationMessages(query, limit = 80) {
+      return jsonFetch({
+        ...ctx({ timeoutMs: 20000 }),
+        method: "GET",
+        path: `/api/conversations/search?q=${encodeURIComponent(String(query || ""))}&limit=${Number(limit) || 80}`
+      });
+    },
     async postConversationMessage(conversationId, body) {
       return jsonFetch({ ...ctx(), method: "POST", path: `/api/conversations/${conversationId}/messages`, body: withOpId(body) });
     },

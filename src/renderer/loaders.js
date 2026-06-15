@@ -55,6 +55,8 @@
         if (res && Array.isArray(res.approvalModes) && res.approvalModes.length
             && Array.isArray(res.effortLevels) && res.effortLevels.length) {
           caps = res;
+          const codexModels = res.engines?.codex?.models;
+          if (Array.isArray(codexModels) && codexModels.length) state.codexModels = codexModels;
         }
       }
     } catch (error) {

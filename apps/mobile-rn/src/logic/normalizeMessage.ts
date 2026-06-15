@@ -71,3 +71,32 @@ function dedupeMessages(list: ChatMessage[]): ChatMessage[] {
 
   return out;
 }
+
+function isLocalUnconfirmed(msg: ChatMessage): boolean {
+  return Boolean(
+    msg?.isPending
+      || msg?.failed
+      || String(msg?.messageId || "").startsWith("pending:")
+  );
+}
+
+function hasConfirmedMatch(list: ChatMessage[], msg: ChatMessage): boolean {
+  const trace = String(msg?.clientTraceId || "");
+  const id = String(msg?.messageId || "");
+  return list.some((item) => (
+    (trace && item.clientTraceId === trace)
+      || (id && item.messageId === id)
+  ));
+}
+
+// React Query refetches should take the server list as truth, but must not
+// erase a local outgoing bubble that has not been echoed by the server yet.
+export function mergeFetchedMessages(previous: ChatMessage[] = [], fetched: ChatMessage[] = []): ChatMessage[] {
+  const next = dedupeMessages(Array.isArray(fetched) ? fetched.slice() : []);
+  for (const msg of Array.isArray(previous) ? previous : []) {
+    if (!isLocalUnconfirmed(msg)) continue;
+    if (hasConfirmedMatch(next, msg)) continue;
+    next.push(msg);
+  }
+  return dedupeMessages(next);
+}

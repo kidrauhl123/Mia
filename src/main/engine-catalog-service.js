@@ -3,6 +3,88 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
+const DEFAULT_HERMES_CAPABILITIES = Object.freeze({
+  approvalModes: ["ask", "yolo", "deny"],
+  effortLevels: ["low", "medium", "high"]
+});
+
+const CODEX_CAPABILITY_CACHE_TTL_MS = 30000;
+
+function normalizeCodexReasoningOption(option) {
+  const effort = String(
+    option?.effort
+    || option?.reasoningEffort
+    || option?.reasoning_effort
+    || option
+    || ""
+  ).trim();
+  if (!effort) return null;
+  return {
+    effort,
+    description: String(option?.description || "").trim()
+  };
+}
+
+function normalizeCodexModel(model = {}, index = 0) {
+  const slug = String(model.slug || model.model || model.id || "").trim();
+  if (!slug) return null;
+  const supportedReasoningLevels = [
+    ...(Array.isArray(model.supported_reasoning_levels) ? model.supported_reasoning_levels : []),
+    ...(Array.isArray(model.supportedReasoningEfforts) ? model.supportedReasoningEfforts : [])
+  ].map(normalizeCodexReasoningOption).filter(Boolean);
+  return {
+    slug,
+    displayName: String(model.display_name || model.displayName || model.name || slug),
+    description: String(model.description || "").trim(),
+    priority: Number.isFinite(model.priority) ? model.priority : index,
+    defaultReasoningLevel: String(model.default_reasoning_level || model.defaultReasoningEffort || "").trim(),
+    supportedReasoningLevels
+  };
+}
+
+function normalizeCodexModels(models = []) {
+  return (Array.isArray(models) ? models : [])
+    .filter((model) => model && model.visibility !== "hide" && model.hidden !== true)
+    .map((model, index) => normalizeCodexModel(model, index))
+    .filter(Boolean)
+    .sort((a, b) => a.priority - b.priority);
+}
+
+function codexEffortOptionsFromModels(models = []) {
+  const seen = new Set();
+  const options = [];
+  for (const model of Array.isArray(models) ? models : []) {
+    for (const item of Array.isArray(model?.supportedReasoningLevels) ? model.supportedReasoningLevels : []) {
+      const value = String(item?.effort || "").trim();
+      if (!value || seen.has(value)) continue;
+      seen.add(value);
+      options.push({ value, description: String(item.description || "").trim() });
+    }
+  }
+  return options;
+}
+
+function normalizeCodexPermissionProfile(profile = {}) {
+  const id = String(profile.id || profile.value || "").trim();
+  if (!id) return null;
+  return {
+    id,
+    description: profile.description == null ? null : String(profile.description)
+  };
+}
+
+function normalizeCodexPermissionProfiles(profiles = []) {
+  const seen = new Set();
+  const result = [];
+  for (const profile of Array.isArray(profiles) ? profiles : []) {
+    const normalized = normalizeCodexPermissionProfile(profile);
+    if (!normalized || seen.has(normalized.id)) continue;
+    seen.add(normalized.id);
+    result.push(normalized);
+  }
+  return result;
+}
+
 function createEngineCatalogService({
   isEngineInstalled,
   initializeRuntime,
@@ -12,8 +94,16 @@ function createEngineCatalogService({
   buildPythonPath,
   runPythonScript,
   appendEngineLog,
-  timeEngineStepAsync
+  timeEngineStepAsync,
+  shellCommandPath = () => "",
+  processEnvStrings = () => process.env,
+  ensureCodexHome = null,
+  createCodexAppServerConnection = null,
+  cwd = () => process.cwd(),
+  now = () => Date.now()
 }) {
+  let codexCapabilityCache = { at: 0, value: null };
+
   function fallbackModelCatalog() {
     return [
       {
@@ -84,17 +174,63 @@ function createEngineCatalogService({
       const cachePath = path.join(userHome(), ".codex", "models_cache.json");
       const raw = fs.readFileSync(cachePath, "utf8");
       const parsed = JSON.parse(raw);
-      const models = Array.isArray(parsed?.models) ? parsed.models : [];
-      return models
-        .filter((model) => model && typeof model.slug === "string" && model.slug && model.visibility !== "hide")
-        .map((model) => ({
-          slug: String(model.slug),
-          displayName: String(model.display_name || model.slug),
-          priority: Number.isFinite(model.priority) ? model.priority : 0
-        }))
-        .sort((a, b) => a.priority - b.priority);
+      return normalizeCodexModels(parsed?.models);
     } catch {
       return [];
+    }
+  }
+
+  async function loadCodexRuntimeCapabilities() {
+    if (codexCapabilityCache.value && (now() - codexCapabilityCache.at) < CODEX_CAPABILITY_CACHE_TTL_MS) {
+      return codexCapabilityCache.value;
+    }
+    const empty = { models: [], permissionProfiles: [] };
+    if (typeof createCodexAppServerConnection !== "function") return empty;
+    const codexPath = String(shellCommandPath("codex") || "").trim();
+    if (!codexPath) return empty;
+    let codexHome = "";
+    try {
+      codexHome = typeof ensureCodexHome === "function" ? String(ensureCodexHome() || "") : "";
+    } catch (error) {
+      appendEngineLog(`Codex capability probe skipped: ${error?.message || error}`);
+      return empty;
+    }
+
+    let connection = null;
+    try {
+      const baseEnv = typeof processEnvStrings === "function" ? processEnvStrings() : process.env;
+      connection = createCodexAppServerConnection({
+        codexPath,
+        env: { ...(baseEnv || {}), ...(codexHome ? { CODEX_HOME: codexHome } : {}) },
+        appendLog: appendEngineLog
+      });
+      await connection.request("initialize", {
+        clientInfo: { name: "mia", title: "Mia", version: "0.1.0" },
+        capabilities: { experimentalApi: true, requestAttestation: false }
+      });
+      let modelResult = null;
+      let permissionResult = null;
+      try {
+        modelResult = await connection.request("model/list", { cursor: null });
+      } catch (error) {
+        appendEngineLog(`Codex model capability probe failed: ${error?.message || error}`);
+      }
+      try {
+        permissionResult = await connection.request("permissionProfile/list", { cursor: null, cwd: cwd() });
+      } catch (error) {
+        appendEngineLog(`Codex permission capability probe failed: ${error?.message || error}`);
+      }
+      const value = {
+        models: normalizeCodexModels(modelResult?.data),
+        permissionProfiles: normalizeCodexPermissionProfiles(permissionResult?.data)
+      };
+      codexCapabilityCache = { at: now(), value };
+      return value;
+    } catch (error) {
+      appendEngineLog(`Codex capability probe failed: ${error?.message || error}`);
+      return empty;
+    } finally {
+      if (connection) connection.close();
     }
   }
 
@@ -178,9 +314,9 @@ print(json.dumps(rows, ensure_ascii=False))
     return fallbackModelCatalog();
   }
 
-  async function loadEngineCapabilities() {
+  async function loadHermesEngineCapabilities() {
     if (!isEngineInstalled()) {
-      return { approvalModes: ["ask", "yolo", "deny"], effortLevels: ["low", "medium", "high"] };
+      return { ...DEFAULT_HERMES_CAPABILITIES };
     }
     const p = runtimePaths();
     const script = String.raw`
@@ -218,7 +354,26 @@ print(json.dumps(result))
     } catch {
       // fall through
     }
-    return { approvalModes: ["ask", "yolo", "deny"], effortLevels: ["low", "medium", "high"] };
+    return { ...DEFAULT_HERMES_CAPABILITIES };
+  }
+
+  async function loadEngineCapabilities() {
+    const hermes = await loadHermesEngineCapabilities();
+    const codexRuntime = await loadCodexRuntimeCapabilities();
+    const codexModels = codexRuntime.models.length ? codexRuntime.models : loadCodexModels();
+    const codexEffortOptions = codexEffortOptionsFromModels(codexModels);
+    return {
+      ...hermes,
+      engines: {
+        hermes: { ...hermes },
+        codex: {
+          models: codexModels,
+          effortLevels: codexEffortOptions.map((item) => item.value),
+          effortOptions: codexEffortOptions,
+          permissionProfiles: codexRuntime.permissionProfiles
+        }
+      }
+    };
   }
 
   function fallbackSlashCommands() {
@@ -308,5 +463,8 @@ print(json.dumps(rows, ensure_ascii=False))
 }
 
 module.exports = {
-  createEngineCatalogService
+  codexEffortOptionsFromModels,
+  createEngineCatalogService,
+  normalizeCodexModels,
+  normalizeCodexPermissionProfiles
 };

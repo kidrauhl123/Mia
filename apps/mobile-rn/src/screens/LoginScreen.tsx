@@ -1,70 +1,183 @@
-import { useState } from "react";
-import { View, Image, StyleSheet, KeyboardAvoidingView, Platform, Linking } from "react-native";
-import { createCloudClient } from "../api/client";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  View,
+  Image,
+  StyleSheet,
+  ScrollView,
+  ActivityIndicator,
+  AppState,
+  Linking,
+} from "react-native";
+import { createCloudClient, type CloudClient } from "../api/client";
 import { useAuth, DEFAULT_API_BASE } from "../state/auth";
-import { color, space } from "../theme";
-import { Brand, Sub, Label } from "../ui/Text";
+import { color, space, radius } from "../theme";
+import { Brand, Sub, Label, Body } from "../ui/Text";
 import Button from "../ui/Button";
+
+type Phase = "starting" | "waiting" | "expired" | "error";
+
+interface QrSession {
+  qrCodeUrl: string;
+  state: string;
+  expiresAt: number;
+}
 
 export default function LoginScreen() {
   const { setSession } = useAuth();
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
+  const apiBase = DEFAULT_API_BASE;
+  const clientRef = useRef<CloudClient>(createCloudClient({ apiBase, getToken: () => "" }));
 
-  const submit = async () => {
-    const apiBase = DEFAULT_API_BASE;
+  const [phase, setPhase] = useState<Phase>("starting");
+  const [error, setError] = useState("");
+  const [qr, setQr] = useState<QrSession | null>(null);
+
+  // Refs the interval/AppState callbacks read so they never go stale.
+  const qrRef = useRef<QrSession | null>(null);
+  const pollingRef = useRef(false);
+  qrRef.current = qr;
+
+  const start = useCallback(async () => {
+    setPhase("starting");
     setError("");
-    setBusy(true);
+    setQr(null);
     try {
-      const client = createCloudClient({ apiBase, getToken: () => "" });
-      const started = await client.api("/api/auth/wechat/start", { method: "POST", body: { client: "mobile-rn" } });
-      if (!started?.authorizationUrl || !started?.state) throw new Error("微信登录启动失败");
-      await Linking.openURL(started.authorizationUrl);
-      const startedAt = Date.now();
-      let result: any = null;
-      while (Date.now() - startedAt < 5 * 60 * 1000) {
-        await new Promise((resolve) => setTimeout(resolve, 1500));
-        const next = await client.api("/api/auth/wechat/complete", { method: "POST", body: { state: started.state } });
-        if (next.status === "pending") continue;
-        if (next.status === "failed" || next.ok === false) throw new Error(next.error || "微信登录失败");
-        result = next;
-        break;
-      }
-      if (!result?.token) throw new Error("微信登录超时，请重新扫码");
-      setSession({ token: result.token, user: result.user || null, apiBase });
+      const started = await clientRef.current.api("/api/auth/wechat/start", {
+        method: "POST",
+        body: { client: "mobile-rn" },
+      });
+      if (!started?.qrCodeUrl || !started?.state) throw new Error("微信登录启动失败");
+      const expiresAt = Date.parse(started.expiresAt) || Date.now() + 5 * 60 * 1000;
+      setQr({ qrCodeUrl: started.qrCodeUrl, state: started.state, expiresAt });
+      setPhase("waiting");
     } catch (e: any) {
-      setError(e?.message || "登录失败");
-    } finally {
-      setBusy(false);
+      setError(e?.message || "微信登录未就绪，请稍后重试");
+      setPhase("error");
     }
+  }, []);
+
+  // One poll of /complete. Guarded so AppState + interval can't overlap.
+  const pollOnce = useCallback(async () => {
+    const session = qrRef.current;
+    if (!session || pollingRef.current) return;
+    if (Date.now() > session.expiresAt) {
+      setPhase("expired");
+      return;
+    }
+    pollingRef.current = true;
+    try {
+      const next = await clientRef.current.api("/api/auth/wechat/complete", {
+        method: "POST",
+        body: { state: session.state },
+      });
+      if (next.status === "pending") return;
+      if (next.status === "failed" || next.ok === false) {
+        setError(next.error || "微信登录失败，请重试");
+        setPhase("error");
+        return;
+      }
+      if (next.token) {
+        setSession({ token: next.token, user: next.user || null, apiBase });
+      }
+    } catch {
+      // Transient network blip — the next tick retries.
+    } finally {
+      pollingRef.current = false;
+    }
+  }, [apiBase, setSession]);
+
+  useEffect(() => {
+    start();
+  }, [start]);
+
+  // Poll while waiting; stop on any other phase.
+  useEffect(() => {
+    if (phase !== "waiting") return;
+    const timer = setInterval(pollOnce, 1500);
+    return () => clearInterval(timer);
+  }, [phase, pollOnce]);
+
+  // Returning from WeChat: poll immediately so login completes the instant the
+  // user switches back, instead of waiting for the next interval tick.
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (next) => {
+      if (next === "active" && phase === "waiting") pollOnce();
+    });
+    return () => sub.remove();
+  }, [phase, pollOnce]);
+
+  const openWeixin = () => {
+    Linking.openURL("weixin://").catch(() => {
+      setError("未检测到微信，请确认已安装微信");
+    });
   };
 
   return (
-    <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-      <View style={styles.panel}>
-        <View style={styles.brandRow}>
-          <Image source={require("../../assets/icon.png")} style={styles.mark} resizeMode="contain" />
-          <Brand>MIA</Brand>
-        </View>
-        <Sub style={styles.tagline}>多 AI 伙伴工作台</Sub>
-        <Label>使用微信登录后，消息、联系人和智能体会通过 Mia Cloud 同步。</Label>
-
-        {error ? <Sub style={styles.error}>{error}</Sub> : null}
-
-        <View style={styles.actions}>
-          <Button label="微信登录" busy={busy} onPress={() => submit()} />
-        </View>
+    <ScrollView contentContainerStyle={styles.root} keyboardShouldPersistTaps="handled">
+      <View style={styles.brandRow}>
+        <Image source={require("../../assets/icon.png")} style={styles.mark} resizeMode="contain" />
+        <Brand>MIA</Brand>
       </View>
-    </KeyboardAvoidingView>
+      <Sub style={styles.tagline}>多 AI 伙伴工作台 · 微信登录</Sub>
+
+      <View style={styles.qrCard}>
+        {phase === "waiting" && qr ? (
+          <Image source={{ uri: qr.qrCodeUrl }} style={styles.qr} />
+        ) : (
+          <View style={[styles.qr, styles.qrPlaceholder]}>
+            {phase === "starting" ? (
+              <ActivityIndicator color={color.accent} />
+            ) : (
+              <Label style={styles.placeholderText}>
+                {phase === "expired" ? "二维码已过期" : "二维码加载失败"}
+              </Label>
+            )}
+          </View>
+        )}
+      </View>
+
+      {error ? <Sub style={styles.error}>{error}</Sub> : null}
+
+      <View style={styles.steps}>
+        <Body style={styles.stepsTitle}>用微信扫码登录</Body>
+        <Sub style={styles.step}>· 用另一台设备的微信「扫一扫」上方二维码即可</Sub>
+        <Sub style={styles.step}>
+          · 就这一台手机：截屏保存二维码 → 打开微信「扫一扫」→ 右上角「相册」→ 选择刚才的截图
+        </Sub>
+        <Sub style={styles.step}>· 在微信里确认授权后，回到 Mia 会自动登录</Sub>
+      </View>
+
+      <View style={styles.actions}>
+        <Button label="打开微信" onPress={openWeixin} />
+        {(phase === "expired" || phase === "error") && (
+          <Button label="重新获取二维码" variant="outline" onPress={() => start()} />
+        )}
+      </View>
+
+      <Label style={styles.footnote}>登录后，消息、联系人和智能体会通过 Mia Cloud 同步。</Label>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: color.bg, justifyContent: "center", padding: space.xl },
-  panel: { gap: space.md },
-  brandRow: { flexDirection: "row", alignItems: "center", gap: space.sm },
+  root: { flexGrow: 1, backgroundColor: color.bg, justifyContent: "center", padding: space.xl, gap: space.md },
+  brandRow: { flexDirection: "row", alignItems: "center", gap: space.sm, justifyContent: "center" },
   mark: { width: 32, height: 32 },
-  tagline: { marginBottom: space.lg },
-  error: { color: color.danger },
-  actions: { gap: space.sm, marginTop: space.sm },
+  tagline: { textAlign: "center", marginBottom: space.sm },
+  qrCard: {
+    alignSelf: "center",
+    padding: space.md,
+    backgroundColor: "#fff",
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: color.line,
+  },
+  qr: { width: 240, height: 240, borderRadius: radius.sm },
+  qrPlaceholder: { alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.03)" },
+  placeholderText: { textAlign: "center" },
+  error: { color: color.danger, textAlign: "center" },
+  steps: { gap: space.xs, marginTop: space.sm },
+  stepsTitle: { fontWeight: "700" },
+  step: { lineHeight: 20 },
+  actions: { gap: space.sm, marginTop: space.md },
+  footnote: { textAlign: "center", marginTop: space.sm },
 });

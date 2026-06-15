@@ -156,7 +156,7 @@ test("cloud bot card avatar preserves the bot explicit color", () => {
   card.attach(ctxWithCloudOwnedFellow());
   card.openCard({ kind: "bot", ref: "mia", conversationId: "botc_bob_mia", anchor: null });
 
-  assert.equal(window.lastAvatarResolveInput.id, "botc_bob_mia");
+  assert.equal(window.lastAvatarResolveInput.id, "mia");
   assert.equal(window.lastPaintedAvatar.color, "#5e5ce6");
 });
 

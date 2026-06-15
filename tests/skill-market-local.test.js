@@ -5,6 +5,8 @@ const os = require("node:os");
 const path = require("node:path");
 const {
   loadLocalSkillMarket,
+  loadLocalSkillMarketPayload,
+  packageLocalCatalogSkill,
   validateCatalog
 } = require("../src/main/skills/skill-market-local.js");
 
@@ -53,7 +55,37 @@ test("loadLocalSkillMarket merges SKILL.md with catalog.zh.json by id", () => {
     assert.equal(s.summary_zh, "读写 PDF。");
     assert.equal(s.category_zh, "文档处理");
     assert.equal(s.sourceLabel, "Anthropic 官方");
+    assert.equal(s.latestVersion, "1.0.0");
+    assert.equal(s.version, "1.0.0");
+    assert.match(s.checksum, /^[a-f0-9]{64}$/);
     assert.ok(s.body.includes("body text"), "full SKILL.md kept as body");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadLocalSkillMarketPayload exposes the snapshot in renderer/cloud shape", () => {
+  const dir = makeCatalogDir(
+    [
+      { id: "pdf", skillMd: skillMd({ name: "pdf", description: "Work with PDFs", category: "docs" }) },
+      { id: "code", skillMd: skillMd({ name: "code", description: "Work with code", category: "dev" }) }
+    ],
+    [
+      { id: "pdf", name_zh: "PDF 文档处理", summary_zh: "读写 PDF。", category_zh: "文档处理", source_label: "Anthropic 官方", order: 1 },
+      { id: "code", name_zh: "代码任务", summary_zh: "写代码。", category_zh: "开发工程", source_label: "社区", order: 2 }
+    ]
+  );
+  try {
+    const page = loadLocalSkillMarketPayload({ catalogDir: dir, params: { category: "文档处理", q: "PDF", limit: 10 } });
+    assert.deepEqual(page.categories, [{ category: "文档处理", count: 1 }]);
+    assert.equal(page.skills.length, 1);
+    const [skill] = page.skills;
+    assert.equal(skill.id, "pdf");
+    assert.equal(skill.category, "文档处理");
+    assert.equal(skill.rawCategory, "docs");
+    assert.equal(skill.description, "读写 PDF。");
+    assert.match(skill.checksum, /^[a-f0-9]{64}$/);
+    assert.equal(Buffer.isBuffer(packageLocalCatalogSkill("pdf", { catalogDir: dir })), true);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

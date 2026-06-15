@@ -145,6 +145,9 @@
     if (mode === "auto") return "Auto Mode";
     if (mode === "bypassPermissions") return window.miaEngineOptions.activeAgentEngine() === "claude-code" ? "Bypass Permissions" : "YOLO";
     if (mode === "readOnly") return "Read";
+    if (mode === ":workspace") return "Workspace";
+    if (mode === ":read-only") return "Read Only";
+    if (mode === ":danger-full-access") return "Full Access";
     return "Ask";
   }
 
@@ -152,8 +155,14 @@
     if (!els || !els.permissionMode) return;
     const previous = els.permissionMode.value;
     const options = window.miaEngineOptions.externalPermissionOptions(engine);
-    const ids = new Set(options.map((option) => option.value));
-    const nextValue = ids.has(currentMode) ? currentMode : ids.has(previous) ? previous : options[0]?.value || "";
+    const matches = (option, value) => {
+      const raw = String(value || "");
+      return String(option?.value || "") === raw
+        || (Array.isArray(option?.aliases) && option.aliases.map((item) => String(item)).includes(raw));
+    };
+    const currentOption = options.find((option) => matches(option, currentMode));
+    const previousOption = options.find((option) => matches(option, previous));
+    const nextValue = currentOption?.value || previousOption?.value || options[0]?.value || "";
     els.permissionMode.innerHTML = "";
     for (const item of options) {
       const option = document.createElement("option");
@@ -177,7 +186,7 @@
     setText(els.permissionLabel, permissionLabelForMode(els.permissionMode.value));
     els.permissionMode.title = `权限模式：${permissionLabelForMode(els.permissionMode.value)}`;
     const switcher = els.permissionMode.closest(".permission-switcher");
-    switcher?.classList.toggle("yolo", els.permissionMode.value === "yolo" || els.permissionMode.value === "off" || (engine !== "claude-code" && els.permissionMode.value === "bypassPermissions"));
+    switcher?.classList.toggle("yolo", els.permissionMode.value === "yolo" || els.permissionMode.value === "off" || els.permissionMode.value === ":danger-full-access" || (engine !== "claude-code" && els.permissionMode.value === "bypassPermissions"));
     switcher?.classList.toggle("claude-bypass", engine === "claude-code" && els.permissionMode.value === "bypassPermissions");
   }
 

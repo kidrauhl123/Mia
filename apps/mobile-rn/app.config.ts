@@ -15,6 +15,7 @@ const config: ExpoConfig = {
   },
   android: {
     package: "app.mia.mobile",
+    googleServicesFile: "./google-services.json",
     softwareKeyboardLayoutMode: "pan",
     adaptiveIcon: {
       backgroundColor: "#ffffff",
@@ -27,11 +28,20 @@ const config: ExpoConfig = {
   ios: {
     bundleIdentifier: "app.mia.mobile",
     supportsTablet: true,
+    infoPlist: {
+      // Allow opening / querying the WeChat app from the login screen.
+      LSApplicationQueriesSchemes: ["weixin"],
+    },
   },
   web: {
     favicon: "./assets/favicon.png",
   },
-  plugins: ["expo-secure-store", "expo-video", "./modules/mia-android-updater/plugin/withMiaAndroidUpdater"],
+  plugins: [
+    "expo-secure-store",
+    "expo-video",
+    "expo-notifications",
+    "./modules/mia-android-updater/plugin/withMiaAndroidUpdater",
+  ],
   extra: {
     apiBase: "https://mia.gifgif.cn",
     eas: {

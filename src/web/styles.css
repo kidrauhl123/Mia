@@ -1004,6 +1004,37 @@ p {
   font-size: 12px;
 }
 
+.persona-tags {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+.persona-tag-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 74px;
+  height: 16px;
+  padding: 0 6px;
+  border: 1px solid color-mix(in srgb, var(--tag-color) 26%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--tag-color) 12%, transparent);
+  color: var(--tag-color);
+  font-size: 10px;
+  font-weight: 680;
+  line-height: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.persona-row.active .persona-tag-chip {
+  background: color-mix(in srgb, var(--tag-color) 18%, transparent);
+}
+
 .persona-side {
   display: grid;
   justify-items: end;

@@ -18,6 +18,8 @@ const botRuntimeControlCache = new Map();
 const botRuntimeControlInFlight = new Set();
 const platformModelCatalog = { loaded: false, loading: false, entries: [] };
 let socialBootstrapInFlight = null;
+let personaSearchTimer = 0;
+let personaSearchSerial = 0;
 const ICON_PARK_PIN_SVG = '<svg class="icon-park-pin" viewBox="0 0 48 48" aria-hidden="true" focusable="false"><path d="M10.6963 17.5042C13.3347 14.8657 16.4701 14.9387 19.8781 16.8076L32.62 9.74509L31.8989 4.78683L43.2126 16.1005L38.2656 15.3907L31.1918 28.1214C32.9752 31.7589 33.1337 34.6647 30.4953 37.3032C30.4953 37.3032 26.235 33.0429 22.7171 29.525L6.44305 41.5564L18.4382 25.2461C14.9202 21.7281 10.6963 17.5042 10.6963 17.5042Z"/></svg>';
 const rendererPlatform = String(window.mia?.platform || "unknown");
 document.body.classList.toggle("platform-win32", rendererPlatform === "win32");
@@ -91,7 +93,11 @@ const els = {
   engineRowOpenClawActions: document.getElementById("engineRowOpenClawActions"),
   engineDetection: document.getElementById("engineDetection"),
   engineInstallActions: document.getElementById("engineInstallActions"),
+  openPersonaSearch: document.getElementById("openPersonaSearch"),
   personaSearch: document.getElementById("personaSearch"),
+  personaSearchClear: document.getElementById("personaSearchClear"),
+  closePersonaSearch: document.getElementById("closePersonaSearch"),
+  personaTagFilters: document.getElementById("personaTagFilters"),
   personaCount: document.getElementById("personaCount"),
   botCreateMenu: document.getElementById("botCreateMenu"),
   addBot: document.getElementById("addBot"),
@@ -167,12 +173,6 @@ const els = {
   skillModeToggle: document.getElementById("skillModeToggle"),
   skillChipRow: document.getElementById("skillChipRow"),
   skillCardGrid: document.getElementById("skillCardGrid"),
-  skillPreviewDialog: document.getElementById("skillPreviewDialog"),
-  closeSkillPreview: document.getElementById("closeSkillPreview"),
-  skillPreviewMark: document.getElementById("skillPreviewMark"),
-  skillPreviewTitle: document.getElementById("skillPreviewTitle"),
-  skillPreviewMeta: document.getElementById("skillPreviewMeta"),
-  skillPreviewBody: document.getElementById("skillPreviewBody"),
   skillContextMenu: document.getElementById("skillContextMenu"),
   botContextMenu: document.getElementById("botContextMenu"),
   messageContextMenu: document.getElementById("messageContextMenu"),
@@ -877,6 +877,304 @@ function typingDotsHtml(label) {
   return `<span class="typing-status">${escape(prefix)}正在输入<span class="typing-dots"><i></i><i></i><i></i></span></span>`;
 }
 
+function safeTagColor(value) {
+  return /^#[0-9a-f]{6}$/i.test(String(value || "")) ? value : "#64748b";
+}
+
+function resetPersonaMessageSearch() {
+  personaSearchSerial += 1;
+  if (personaSearchTimer) clearTimeout(personaSearchTimer);
+  personaSearchTimer = 0;
+  state.personaSearchLoading = false;
+  state.personaSearchError = "";
+  state.personaSearchQuery = "";
+  state.personaSearchResults = [];
+  state.personaSearchFocus = { conversationId: "", messageId: "" };
+}
+
+function isMissingSearchIpcHandlerError(error) {
+  const text = String(error?.message || error || "").replace(/[–—]/g, "-");
+  return /No handler registered/i.test(text)
+    && /social:search-conversation-messages/i.test(text);
+}
+
+function isRemoteSearchUnavailableEnvelope(res) {
+  if (!res || res.ok !== false) return false;
+  const status = Number(res.status) || 0;
+  const text = String(res.error || "").replace(/[–—]/g, "-");
+  return status === 404
+    || (status === 403 && /not a member of this conversation/i.test(text))
+    || /Mia Cloud 404|not found/i.test(text);
+}
+
+function rendererMessageSearchSnippet(text, query, radius = 36) {
+  const body = String(text || "").replace(/\s+/g, " ").trim();
+  const needle = String(query || "").trim().toLowerCase();
+  if (!body || !needle) return body.slice(0, radius * 2);
+  const idx = body.toLowerCase().indexOf(needle);
+  if (idx < 0) return body.slice(0, radius * 2);
+  const start = Math.max(0, idx - radius);
+  const end = Math.min(body.length, idx + needle.length + radius);
+  return `${start > 0 ? "..." : ""}${body.slice(start, end)}${end < body.length ? "..." : ""}`;
+}
+
+async function searchConversationMessagesViaExistingIpc(query, limit = 80) {
+  const social = window.miaSocial;
+  const fetchMessages = window.mia?.social?.listConversationMessages;
+  if (typeof fetchMessages !== "function") return { results: [] };
+  const lower = String(query || "").trim().toLowerCase();
+  if (!lower) return { results: [] };
+  const seen = new Set();
+  const rows = social?.renderSidebarRows?.() || [];
+  const conversations = rows.map((row) => row?.conversation).filter((conversation) => {
+    const id = String(conversation?.id || "").trim();
+    if (!id || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+  const activeConversationId = String(social?.getActiveConversationId?.() || "").trim();
+  const activeConversation = activeConversationId ? social?.getConversationById?.(activeConversationId) : null;
+  if (activeConversationId && activeConversation && !seen.has(activeConversationId)) {
+    seen.add(activeConversationId);
+    conversations.unshift(activeConversation);
+  }
+  const results = [];
+  for (const conversation of conversations) {
+    const conversationId = String(conversation?.id || "").trim();
+    if (!conversationId) continue;
+    const cacheEntry = social?.moduleState?.messageCache?.get?.(conversationId);
+    const cachedMessages = Array.isArray(cacheEntry?.messages) ? cacheEntry.messages : [];
+    let fetchedMessages = [];
+    try {
+      const res = await fetchMessages(conversationId, 0, 500);
+      fetchedMessages = Array.isArray(res?.data?.messages) ? res.data.messages : [];
+    } catch (error) {
+      console.warn("[search] fallback listConversationMessages failed:", conversationId, error?.message || error);
+      fetchedMessages = [];
+    }
+    const messagesByKey = new Map();
+    for (const message of [...cachedMessages, ...fetchedMessages]) {
+      const key = String(message?.id || `${message?.conversation_id || conversationId}:${message?.seq || messagesByKey.size}`);
+      if (!key) continue;
+      messagesByKey.set(key, message);
+    }
+    const messages = Array.from(messagesByKey.values());
+    for (const message of messages) {
+      const body = String(message?.body_md || message?.bodyMd || "");
+      if (!body.toLowerCase().includes(lower)) continue;
+      results.push({
+        conversation,
+        message,
+        matchText: rendererMessageSearchSnippet(body, query)
+      });
+    }
+  }
+  results.sort((a, b) => {
+    const at = new Date(a.message?.created_at || a.message?.createdAt || 0).getTime() || Number(a.message?.seq || 0);
+    const bt = new Date(b.message?.created_at || b.message?.createdAt || 0).getTime() || Number(b.message?.seq || 0);
+    return bt - at;
+  });
+  return { results: results.slice(0, Math.min(Math.max(Number(limit) || 80, 1), 200)) };
+}
+
+async function searchConversationMessages(query, limit = 80) {
+  const searchRemote = window.mia?.social?.searchConversationMessages;
+  if (typeof searchRemote !== "function") {
+    return { ok: true, data: await searchConversationMessagesViaExistingIpc(query, limit) };
+  }
+  try {
+    const res = await searchRemote(query, limit);
+    if (isRemoteSearchUnavailableEnvelope(res)) {
+      console.warn("[search] remote search route unavailable; using listConversationMessages fallback.");
+      return { ok: true, data: await searchConversationMessagesViaExistingIpc(query, limit) };
+    }
+    return res;
+  } catch (error) {
+    if (!isMissingSearchIpcHandlerError(error)) throw error;
+    console.warn("[search] search IPC handler missing; using listConversationMessages fallback.");
+    return { ok: true, data: await searchConversationMessagesViaExistingIpc(query, limit) };
+  }
+}
+
+function schedulePersonaMessageSearch() {
+  const query = String(state.personaFilter || "").trim();
+  if (personaSearchTimer) clearTimeout(personaSearchTimer);
+  if (!query) {
+    resetPersonaMessageSearch();
+    render();
+    return;
+  }
+  const serial = ++personaSearchSerial;
+  state.personaSearchLoading = true;
+  state.personaSearchError = "";
+  render();
+  personaSearchTimer = setTimeout(async () => {
+    try {
+      const res = await searchConversationMessages(query, 80);
+      if (serial !== personaSearchSerial) return;
+      if (!res?.ok) {
+        state.personaSearchResults = [];
+        state.personaSearchError = res?.error || "搜索失败";
+      } else {
+        state.personaSearchResults = Array.isArray(res.data?.results) ? res.data.results : [];
+        state.personaSearchError = "";
+      }
+      state.personaSearchQuery = query;
+    } catch (error) {
+      if (serial !== personaSearchSerial) return;
+      state.personaSearchResults = [];
+      state.personaSearchQuery = query;
+      state.personaSearchError = String(error?.message || error || "搜索失败");
+    } finally {
+      if (serial === personaSearchSerial) {
+        state.personaSearchLoading = false;
+        render();
+      }
+    }
+  }, 220);
+}
+
+function setPersonaSearchOpen(open, options = {}) {
+  state.personaSearchOpen = Boolean(open);
+  if (!state.personaSearchOpen) {
+    state.personaFilter = "";
+    if (els.personaSearch) els.personaSearch.value = "";
+    resetPersonaMessageSearch();
+    if (options.clearTagFilter !== false) {
+      window.miaSocial?.setConversationTagFilter?.("");
+      if (window.miaSocial) return;
+    }
+  }
+  render();
+  if (state.personaSearchOpen) {
+    setTimeout(() => els.personaSearch?.focus?.(), 0);
+  }
+}
+
+function rowMatchesActiveTag(row) {
+  const active = String(window.miaSocial?.getConversationTagFilter?.() || "").trim().toLowerCase();
+  if (!active) return true;
+  const tags = row?.conversation?.tags || window.miaSocial?.conversationTagsFor?.(row?.conversation?.id) || [];
+  return Array.isArray(tags) && tags.some((tag) => String(tag?.name || "").trim().toLowerCase() === active);
+}
+
+function searchResultPreview(result, query) {
+  const text = String(result?.matchText || result?.message?.body_md || "").replace(/\s+/g, " ").trim();
+  if (text) return text;
+  return query ? `匹配「${query}」` : "匹配的聊天记录";
+}
+
+function conversationRowsFromMessageSearch(results, query) {
+  const social = window.miaSocial;
+  return (Array.isArray(results) ? results : []).map((result) => {
+    const message = result?.message || {};
+    const conversationId = String(result?.conversation?.id || message.conversation_id || "").trim();
+    const conversation = result?.conversation || social?.getConversationById?.(conversationId);
+    if (!conversationId || !conversation) return null;
+    const conversationType = conversation.type
+      || (conversationId.startsWith("dm:") ? "dm"
+        : conversationId.startsWith("botc_") ? "bot"
+        : conversationId.startsWith("g_") || conversationId.startsWith("g-") ? "group"
+        : "dm");
+    const tags = social?.conversationTagsFor?.(conversationId) || [];
+    const row = {
+      type: conversationType === "group" ? "group-conversation" : "private-conversation",
+      key: `search:${conversationId}:${message.id || message.seq || ""}`,
+      searchResult: true,
+      searchMessageId: message.id || "",
+      searchMessageSeq: Number(message.seq) || 0,
+      searchMessage: message,
+      pinned: false,
+      pinnedAt: "",
+      updatedAt: new Date(message.created_at || message.createdAt || 0).getTime() || 0,
+      conversation: {
+        ...conversation,
+        id: conversationId,
+        type: conversationType,
+        otherUser: conversationType === "dm" ? social?.otherUserForConversation?.(conversation) : null,
+        lastMessagePreview: searchResultPreview(result, query),
+        tags
+      }
+    };
+    return rowMatchesActiveTag(row) ? row : null;
+  }).filter(Boolean);
+}
+
+function openConversationSearchResult(conversationId, row) {
+  const id = String(conversationId || "").trim();
+  const messageId = String(row?.searchMessageId || row?.searchMessage?.id || "").trim();
+  if (!id || !messageId) return false;
+  state.activeKey = "";
+  state.personaSearchFocus = { conversationId: id, messageId };
+  showNarrowContent();
+  render();
+  if (typeof window.miaSocial?.focusConversationMessage !== "function") {
+    window.miaSocial?.setActiveConversationId?.(id);
+    render();
+    return true;
+  }
+  const task = window.miaSocial?.focusConversationMessage?.(id, {
+    messageId,
+    seq: Number(row?.searchMessageSeq || row?.searchMessage?.seq) || 0,
+    message: row?.searchMessage || null
+  });
+  if (task && typeof task.catch === "function") {
+    task.catch((error) => console.warn("[renderer] search result focus failed:", error?.message || error));
+  }
+  return true;
+}
+
+function sidebarTagFilterHtml(tag) {
+  const name = String(tag?.name || "").trim();
+  const count = Number(tag?.count) || 0;
+  const active = Boolean(tag?.filterActive);
+  const color = safeTagColor(tag?.color);
+  return `
+    <button class="sidebar-tag-filter${active ? " active" : ""}" type="button"
+      data-sidebar-tag-filter data-tag-name="${window.miaMarkdown.escapeHtml(name)}"
+      aria-pressed="${active ? "true" : "false"}" title="筛选「${window.miaMarkdown.escapeHtml(name)}」"
+      style="--tag-color:${window.miaMarkdown.escapeHtml(color)}">
+      <span class="sidebar-tag-filter-name">${window.miaMarkdown.escapeHtml(name)}</span>
+      <span class="sidebar-tag-filter-count">${window.miaMarkdown.escapeHtml(String(count))}</span>
+    </button>
+  `;
+}
+
+function renderConversationSearchTools(cloudReady) {
+  const searchValue = String(state.personaFilter || "");
+  const activeFilterName = String(window.miaSocial?.getConversationTagFilter?.() || "").trim();
+  const searchOpen = Boolean(state.personaSearchOpen || searchValue || activeFilterName);
+  const filters = cloudReady ? (window.miaSocial?.conversationTagFilters?.() || []) : [];
+  const showFilters = searchOpen && filters.length > 0;
+  const tools = els.personaSearch?.closest?.(".sidebar-tools") || null;
+  const searchBox = els.personaSearch?.closest?.(".search-box") || null;
+
+  if (els.personaSearch && els.personaSearch.value !== searchValue) {
+    els.personaSearch.value = searchValue;
+  }
+  if (els.personaSearch) {
+    els.personaSearch.placeholder = "搜索聊天记录";
+  }
+  tools?.classList.toggle("search-active", searchOpen);
+  els.personaSearchClear?.classList.toggle("hidden", !searchValue);
+  els.openPersonaSearch?.classList.toggle("hidden", searchOpen);
+  els.newPersona?.classList.toggle("hidden", searchOpen);
+  els.closePersonaSearch?.classList.toggle("hidden", !searchOpen);
+  searchBox?.classList.toggle("hidden", !searchOpen);
+  tools?.classList.toggle("has-tag-filters", showFilters);
+  if (!els.personaTagFilters) return;
+  els.personaTagFilters.classList.toggle("hidden", !showFilters);
+  if (!showFilters) {
+    els.personaTagFilters.innerHTML = "";
+    return;
+  }
+  els.personaTagFilters.innerHTML = `
+    <div class="sidebar-tag-filter-strip" role="listbox" aria-label="标签筛选">
+      ${filters.map(sidebarTagFilterHtml).join("")}
+    </div>
+  `;
+}
+
 function typingLabelForActiveRun(social, conversation) {
   const run = social?.activeConversationRun?.();
   const botId = run?.botId || "";
@@ -904,22 +1202,57 @@ function allOwnedBotsForIdentity() {
   return Array.isArray(cloudBots) ? cloudBots : [];
 }
 
-function botAvatarIdentityId(botKey, bot = {}) {
-  const ownerUserId = bot?.ownerUserId || bot?.owner_user_id || bot?.ownerId || bot?.owner_id || "";
-  return window.miaContact?.botAvatarIdentityId?.(botKey, bot)
-    || bot?.globalId
-    || bot?.global_id
-    || bot?.botGlobalId
-    || bot?.bot_global_id
-    || (ownerUserId && botKey ? `botc_${ownerUserId}_${botKey}` : "")
-    || botKey;
+function botAvatarIdentityId(botKey, bot = {}, member = null) {
+  const identity = member?.identity || {};
+  return window.miaContact?.botAvatarIdentityId?.(botKey, {
+    ...(bot || {}),
+    id: bot?.id || bot?.key || identity.id || botKey,
+    member_ref: botKey
+  }) || identity.id || bot?.id || bot?.key || botKey;
 }
 
-function botGlobalIdFromConversation(conversation, botKey) {
-  const id = String(conversation?.id || "");
-  const key = String(botKey || "");
-  if (!id.startsWith("botc_") || !key) return "";
-  return id;
+function hasAvatarIdentityFields(record) {
+  if (typeof window.miaAvatarResolve?.hasAvatarIdentityFields === "function") {
+    return window.miaAvatarResolve.hasAvatarIdentityFields(record);
+  }
+  return Boolean(record && typeof record === "object" && (
+    Object.prototype.hasOwnProperty.call(record, "avatarImage")
+      || Object.prototype.hasOwnProperty.call(record, "avatarCrop")
+      || Object.prototype.hasOwnProperty.call(record, "avatar_image")
+      || Object.prototype.hasOwnProperty.call(record, "avatar_crop")
+  ));
+}
+
+function botMemberForConversation(social, conversation, botKey) {
+  const members = social?.getConversationMembers?.(conversation?.id) || [];
+  return members.find((m) => m.member_kind === MemberKind.Bot && m.member_ref === botKey) || null;
+}
+
+function botAvatarForConversation(conversation, botKey, { bot = null, member = null, displayName = "" } = {}) {
+  const wanted = String(botKey || "");
+  const localHasAvatar = hasAvatarIdentityFields(bot);
+  const identityAvatar = member?.identity?.avatar || {};
+  const name = displayName || bot?.name || bot?.displayName || member?.identity?.displayName || member?.bot_name || conversation?.name || wanted;
+  const avatarId = botAvatarIdentityId(wanted, bot || {}, member || null);
+  if (bot && localHasAvatar) {
+    return window.miaAvatarResolve.resolveAvatarForContact({
+      id: avatarId,
+      displayName: name,
+      avatarImage: bot.avatarImage || bot.avatar_image || "",
+      avatarCrop: bot.avatarCrop || bot.avatar_crop || null,
+      color: bot.color || bot.avatarColor || bot.avatar_color || ""
+    });
+  }
+  if (member?.identity?.avatar && (identityAvatar.image || identityAvatar.color || identityAvatar.text)) {
+    return identityAvatar;
+  }
+  return window.miaAvatarResolve.resolveAvatarForContact({
+    id: avatarId,
+    displayName: name,
+    avatarImage: identityAvatar.image || member?.bot_avatar_image || "",
+    avatarCrop: identityAvatar.crop || member?.bot_avatar_crop || null,
+    color: identityAvatar.color || member?.bot_color || member?.avatarColor || member?.avatar_color || bot?.color || bot?.avatarColor || bot?.avatar_color || ""
+  });
 }
 
 // Reconcile #activeChatMeta with the active cloud-agent run state. While the
@@ -1125,35 +1458,29 @@ function conversationCardSpecFromRow(row, personas) {
   if (row.type === "private-conversation") {
     const conversation = row.conversation;
     const activeConversationId = social?.getActiveConversationId?.();
+    const searchResult = Boolean(row.searchResult);
+    const searchActive = searchResult
+      && String(state.personaSearchFocus?.conversationId || "") === String(conversation.id || "")
+      && String(state.personaSearchFocus?.messageId || "") === String(row.searchMessageId || "");
     const isBot = conversation.type === "bot";
     let name, avatar, identity, statusBadge;
     if (isBot) {
       const botKey = sessionHistory.botId(conversation);
       const bot = identityBots.find((p) => (p.id || p.key) === botKey);
-      // The conversation id always carries owner:key, so derive the canonical
-      // global id from it. The merged bot record sometimes lacks
-      // ownerUserId, which made botAvatarIdentityId fall back to the bare key
-      // and hash to a different color here than in the chat header / bubbles
-      // (same bot, two background colors).
-      const botGlobalId = botGlobalIdFromConversation(conversation, botKey);
-      const botRecord = {
-        ...(bot || { key: botKey, id: botKey, name: conversation.name || botKey }),
-        globalId: (bot && (bot.globalId || bot.global_id)) || botGlobalId
+      const member = botMemberForConversation(social, conversation, botKey);
+      const botRecord = bot || {
+        key: botKey,
+        id: botKey,
+        name: conversation.name || member?.identity?.displayName || member?.bot_name || botKey
       };
       name = sessionHistory.botDisplayTitle(conversation, identityBots, "对话");
-      const resolved = window.miaContact?.resolveContact?.(
-        { kind: window.miaContact.IdentityKind.Bot, ref: botKey },
-        { bots: [botRecord] }
-      );
-      avatar = resolved?.avatar || window.miaAvatarResolve.resolveAvatarForContact({
-        id: botAvatarIdentityId(botKey, botRecord),
-        displayName: name || botRecord.name || botKey,
-        avatarImage: botRecord.avatarImage || "",
-        avatarCrop: botRecord.avatarCrop || null,
-        color: botRecord.color || botRecord.avatarColor || botRecord.avatar_color || ""
+      avatar = botAvatarForConversation(conversation, botKey, {
+        bot: botRecord,
+        member,
+        displayName: name || botRecord.name || botKey
       });
-      identity = nameBadgeIdentity("bot", botRecord, name, botKey);
-      statusBadge = statusBadgeFrom(botRecord);
+      identity = bot || member?.identity || nameBadgeIdentity("bot", botRecord, name, botKey);
+      statusBadge = statusBadgeFrom(identity, botRecord, member?.identity, member);
     } else {
       const other = conversation.otherUser || {};
       name = other.displayName || other.username || other.account || "好友";
@@ -1172,18 +1499,27 @@ function conversationCardSpecFromRow(row, personas) {
     const unread = social?.getUnreadForConversation?.(conversation.id) || 0;
     return {
       kind: "private",
-      active: conversation.id === activeConversationId,
-      pinned,
+      searchResult,
+      active: searchResult ? searchActive : conversation.id === activeConversationId,
+      pinned: searchResult ? false : pinned,
       muted,
       name,
       typeLabel: "私聊",
       preview: conversation.lastMessagePreview || "暂无对话",
       time: formatConversationTime(row.updatedAt),
-      unread,
+      unread: searchResult ? 0 : unread,
+      tags: searchResult ? [] : (conversation.tags || social?.conversationTagsFor?.(conversation.id) || []),
+      tagEditor: searchResult ? null : (social?.conversationTagEditorFor?.(conversation.id) || null),
       avatar,
       identity,
       statusBadge,
+      dataAttrs: {
+        conversationId: conversation.id,
+        ...(row.searchMessageId ? { searchMessageId: row.searchMessageId } : {}),
+        ...(row.searchMessageSeq ? { searchMessageSeq: row.searchMessageSeq } : {})
+      },
       onClick: () => {
+        if (searchResult && openConversationSearchResult(conversation.id, row)) return;
         state.activeKey = "";
         window.miaSocial.setActiveConversationId(conversation.id);
         showNarrowContent();
@@ -1199,6 +1535,7 @@ function conversationCardSpecFromRow(row, personas) {
             render();
           },
           toggleMuted: (next) => { social.setConversationMuted(conversation.id, next); render(); },
+          editTags: () => social.editConversationTags?.(conversation.id, name, render, { anchor: { x, y } }),
           remove: async () => {
             if (!confirm(`确定删除与「${name}」的对话？此操作不可撤销。`)) return;
             const res = await social.deleteCloudConversation(conversation.id);
@@ -1215,6 +1552,10 @@ function conversationCardSpecFromRow(row, personas) {
   if (row.type === "group-conversation") {
     const conversation = row.conversation;
     const activeConversationId = social?.getActiveConversationId?.();
+    const searchResult = Boolean(row.searchResult);
+    const searchActive = searchResult
+      && String(state.personaSearchFocus?.conversationId || "") === String(conversation.id || "")
+      && String(state.personaSearchFocus?.messageId || "") === String(row.searchMessageId || "");
     const memberRecords = social?.getConversationMembers?.(conversation.id) || [];
     const tiles = window.miaGroupTiles.resolveGroupMemberTiles(memberRecords, groupTilesCtx(personas));
     const memberCount = memberRecords.length || conversation.memberCount || 0;
@@ -1231,19 +1572,28 @@ function conversationCardSpecFromRow(row, personas) {
     const cgStatusBadge = statusBadgeFrom(conversation.identity, conversation);
     return {
       kind: "group",
-      active: conversation.id === activeConversationId,
-      pinned: cgPinned,
+      searchResult,
+      active: searchResult ? searchActive : conversation.id === activeConversationId,
+      pinned: searchResult ? false : cgPinned,
       muted: cgMuted,
       name: cgName,
       typeLabel: memberCount ? `群聊 · ${memberCount}人` : "群聊",
       preview: conversation.lastMessagePreview || "暂无消息",
       time: formatConversationTime(row.updatedAt),
-      unread: cgUnread,
+      unread: searchResult ? 0 : cgUnread,
+      tags: searchResult ? [] : (conversation.tags || social?.conversationTagsFor?.(conversation.id) || []),
+      tagEditor: searchResult ? null : (social?.conversationTagEditorFor?.(conversation.id) || null),
       members: tiles,
       customAvatar: conversation.decorations?.avatar || null,
       identity: cgIdentity,
       statusBadge: cgStatusBadge,
+      dataAttrs: {
+        conversationId: conversation.id,
+        ...(row.searchMessageId ? { searchMessageId: row.searchMessageId } : {}),
+        ...(row.searchMessageSeq ? { searchMessageSeq: row.searchMessageSeq } : {})
+      },
       onClick: () => {
+        if (searchResult && openConversationSearchResult(conversation.id, row)) return;
         state.activeKey = "";
         window.miaSocial.setActiveConversationId(conversation.id);
         showNarrowContent();
@@ -1259,6 +1609,7 @@ function conversationCardSpecFromRow(row, personas) {
             render();
           },
           toggleMuted: (next) => { social.setConversationMuted(conversation.id, next); render(); },
+          editTags: () => social.editConversationTags?.(conversation.id, cgName, render, { anchor: { x, y } }),
           openInfo: () => window.miaGroupInfoDialog?.open(conversation.id),
           remove: async () => {
             if (!confirm(`确定删除群组「${cgName}」？此操作不可撤销，所有成员都将无法访问。`)) return;
@@ -1322,22 +1673,27 @@ function paintActiveCloudConversationHeader(conversation, { personas, social }) 
   if (conversationType === "bot") {
     const botKey = sessionHistory.botId(conversation);
     const bot = identityBots.find((p) => (p.id || p.key) === botKey);
+    const member = botMemberForConversation(social, conversation, botKey);
     const botRecord = bot || {
       key: botKey,
       id: botKey,
-      name: conversation.name,
-      globalId: botGlobalIdFromConversation(conversation, botKey)
+      name: conversation.name || member?.identity?.displayName || member?.bot_name || botKey
     };
+    const botName = sessionHistory.botDisplayTitle(conversation, identityBots, "对话");
+    const avatar = botAvatarForConversation(conversation, botKey, {
+      bot: botRecord,
+      member,
+      displayName: botName
+    });
     if (avatarEl) {
       avatarEl.removeAttribute("data-count");
       avatarEl.className = "profile-avatar";
-      avatarHelper.applyBotAvatar(avatarEl, botRecord);
+      avatarHelper.paintAvatar(avatarEl, avatar);
     }
-    const botName = sessionHistory.botDisplayTitle(conversation, identityBots, "对话");
     setNameWithBadge(nameEl, {
-      identity: nameBadgeIdentity("bot", botRecord, botName, botKey),
+      identity: bot || member?.identity || nameBadgeIdentity("bot", botRecord, botName, botKey),
       fallbackName: botName,
-      statusBadge: statusBadgeFrom(botRecord)
+      statusBadge: statusBadgeFrom(bot, member?.identity, member, botRecord)
     });
     if (metaEl) metaEl.textContent = "私聊";
     return;
@@ -1663,6 +2019,16 @@ function setOnboardingWindow(active) {
   else if (wasOnboarding === true) window.mia.window?.showMain?.();
 }
 
+function focusedSidebarTagInput() {
+  const input = document.activeElement;
+  if (!input?.matches?.("[data-tag-input]")) return null;
+  if (!els.personaList?.contains(input)) return null;
+  const card = input.closest?.("[data-conversation-id]");
+  const conversationId = String(card?.dataset?.conversationId || "").trim();
+  if (!conversationId) return null;
+  return { conversationId, value: input.value || "" };
+}
+
 function render() {
   const runtime = state.runtime;
   if (!runtime) {
@@ -1922,25 +2288,53 @@ function render() {
   // cloud bot conversation once bootstrap completes.
   const cloudReady = !cloudSignedIn || !social || social.isBootstrapped?.();
   const socialRows = cloudReady ? (social?.renderSidebarRows?.() || []) : [];
-  const messageRows = !cloudReady ? [] : window.miaBotManager.sortMessageCardsForSidebar(socialRows);
+  renderConversationSearchTools(cloudReady);
+  const searchQuery = String(state.personaFilter || "").trim();
+  const searchMode = Boolean(state.personaSearchOpen || searchQuery);
+  const useMessageSearch = searchMode && Boolean(searchQuery);
+  const messageRows = !cloudReady
+    ? []
+    : searchMode
+      ? (useMessageSearch
+        ? conversationRowsFromMessageSearch(
+          state.personaSearchQuery === searchQuery ? state.personaSearchResults : [],
+          searchQuery
+        )
+        : [])
+      : window.miaBotManager.sortMessageCardsForSidebar(socialRows);
+  const tagInput = focusedSidebarTagInput();
+  if (tagInput) social?.setConversationTagDraft?.(tagInput.conversationId, tagInput.value);
+  const holdSidebarForTagInput = Boolean(tagInput
+    && social?.conversationTagEditorFor?.(tagInput.conversationId)?.active);
 
-  els.personaList.innerHTML = "";
-  for (const row of messageRows) {
-    const spec = conversationCardSpecFromRow(row, personas);
-    if (!spec) continue;
-    const card = spec.kind === ConversationKind.CloudGroup
-      ? window.miaSidebarCards.createGroupCard(spec)
-      : window.miaSidebarCards.createPrivateCard(spec);
-    els.personaList.appendChild(card);
-  }
+  if (!holdSidebarForTagInput) {
+    els.personaList.innerHTML = "";
+    for (const row of messageRows) {
+      const spec = conversationCardSpecFromRow(row, personas);
+      if (!spec) continue;
+      const card = spec.kind === ConversationKind.CloudGroup
+        ? window.miaSidebarCards.createGroupCard(spec)
+        : window.miaSidebarCards.createPrivateCard(spec);
+      els.personaList.appendChild(card);
+    }
 
-  if (!messageRows.length) {
-    const empty = document.createElement("div");
-    empty.className = "persona-empty";
-    empty.textContent = cloudSignedIn
-      ? (cloudReady ? "没有匹配的消息" : "正在同步会话…")
-      : "正在打开登录引导…";
-    els.personaList.appendChild(empty);
+    if (!messageRows.length) {
+      const emptyText = cloudSignedIn
+        ? (cloudReady
+          ? (searchMode
+            ? (useMessageSearch
+              ? (state.personaSearchLoading ? "正在搜索聊天记录…" : (state.personaSearchError || "没有匹配的聊天记录"))
+              : "")
+            : "没有匹配的消息")
+          : "正在同步会话…")
+        : "正在打开登录引导…";
+      if (emptyText) {
+        const empty = document.createElement("div");
+        empty.className = "persona-empty";
+        empty.textContent = emptyText;
+        els.personaList.appendChild(empty);
+      }
+    }
   }
   renderView();
   renderSessionMenu();
@@ -2006,7 +2400,6 @@ function renderView() {
   els.botDialog?.classList.toggle("hidden", !state.botDialogOpen);
   els.petGenerateDialog?.classList.toggle("hidden", !state.petGenerateOpen);
   els.avatarCropDialog?.classList.toggle("hidden", !state.avatarCropEditor.open);
-  window.miaSkillLibrary.renderSkillPreview();
   window.miaBotManager.renderBotContextMenu();
   window.miaPetDialog?.renderPetGenerateDialog();
   window.miaPetDialog?.renderPetJobs();
@@ -2099,14 +2492,13 @@ async function deleteSkill(skillId) {
     if (state.selectedSkillId === skillId) {
       state.selectedSkillId = "";
       state.selectedSkillDetail = null;
-      state.skillPreviewOpen = false;
+      window.miaSkillLibrary.closeMarketModal();
     }
   } catch (error) {
     console.error("Failed to delete skill", error);
     window.alert(error.message || "删除 Skill 失败");
   }
   window.miaSkillLibrary.renderSkillLibrary();
-  window.miaSkillLibrary.renderSkillPreview();
 }
 
 async function openSkillDirectory(skillId) {
@@ -2885,16 +3277,20 @@ function setComposerSelectOptions(select, entries, selectedValue) {
     .filter((entry) => entry && (entry.id !== undefined || entry.value !== undefined))
     .map((entry) => ({
       value: String(entry.id ?? entry.value),
-      label: String(entry.label || entry.id || entry.value)
+      label: String(entry.label || entry.id || entry.value),
+      title: String(entry.title || ""),
+      aliases: Array.isArray(entry.aliases) ? entry.aliases.map((item) => String(item)) : []
     }));
   select.innerHTML = normalized.map((entry) => {
     const option = document.createElement("option");
     option.value = entry.value;
     option.textContent = entry.label;
+    if (entry.title) option.title = entry.title;
     return option.outerHTML;
   }).join("");
   const value = String(selectedValue || normalized[0]?.value || "");
-  select.value = normalized.some((entry) => entry.value === value) ? value : normalized[0]?.value || "";
+  const selected = normalized.find((entry) => entry.value === value || entry.aliases.includes(value));
+  select.value = selected?.value || normalized[0]?.value || "";
   return select.selectedOptions?.[0]?.textContent || "";
 }
 
@@ -3159,7 +3555,7 @@ function syncConversationBotRuntimeControls() {
   );
   setText(els.permissionLabel, permissionLabel || "Ask");
   const permissionSwitcher = els.permissionMode?.closest(".permission-switcher");
-  permissionSwitcher?.classList.toggle("yolo", els.permissionMode?.value === "yolo" || (engine !== "claude-code" && els.permissionMode?.value === "bypassPermissions"));
+  permissionSwitcher?.classList.toggle("yolo", els.permissionMode?.value === "yolo" || els.permissionMode?.value === ":danger-full-access" || (engine !== "claude-code" && els.permissionMode?.value === "bypassPermissions"));
   permissionSwitcher?.classList.toggle("claude-bypass", engine === "claude-code" && els.permissionMode?.value === "bypassPermissions");
   if (els.quickModelSelect) els.quickModelSelect.disabled = false;
   if (els.effortSelect) els.effortSelect.disabled = false;
@@ -3754,16 +4150,6 @@ els.settingsView.addEventListener("click", (event) => {
     renderView();
   }
 });
-els.closeSkillPreview?.addEventListener("click", () => {
-  state.skillPreviewOpen = false;
-  window.miaSkillLibrary.renderSkillPreview();
-});
-els.skillPreviewDialog?.addEventListener("click", (event) => {
-  if (event.target === els.skillPreviewDialog) {
-    state.skillPreviewOpen = false;
-    window.miaSkillLibrary.renderSkillPreview();
-  }
-});
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
   closeImagePreview();
@@ -3774,10 +4160,6 @@ document.addEventListener("keydown", (event) => {
   if (state.profileDialogOpen && !state.avatarCropEditor?.open) {
     event.preventDefault();
     window.miaBotDialog.closeProfileDialog();
-  }
-  if (state.skillPreviewOpen) {
-    state.skillPreviewOpen = false;
-    window.miaSkillLibrary.renderSkillPreview();
   }
 });
 document.addEventListener("pointerdown", closeProfilePopoverFromOutside);
@@ -3820,6 +4202,7 @@ els.chat?.addEventListener("contextmenu", (event) => {
   }
   const bubble = event.target.closest(".bubble[data-message-index]");
   if (!bubble || !els.chat.contains(bubble)) return;
+  const selection = window.miaMessageMenu?.selectionInsideBubble(bubble);
   // Cloud-conversation bubbles (cloud DM + cloud group) carry data-message-source +
   // data-message-id and live in social.moduleState.messageCache, not the
   // bot session, so dispatch to the lightweight social message menu.
@@ -3833,10 +4216,9 @@ els.chat?.addEventListener("contextmenu", (event) => {
     if (!message) return;
     event.preventDefault();
     event.stopPropagation();
-    window.miaSocialMessageMenu?.openSocialMessageMenu(message, event.clientX, event.clientY);
+    window.miaSocialMessageMenu?.openSocialMessageMenu(message, event.clientX, event.clientY, selection);
     return;
   }
-  const selection = window.miaMessageMenu?.selectionInsideBubble(bubble);
   event.preventDefault();
   event.stopPropagation();
   window.miaMessageMenu?.openMessageContextMenu(bubble.dataset.messageIndex, event.clientX, event.clientY, selection);
@@ -3875,9 +4257,45 @@ els.newSession.addEventListener("click", async (event) => {
   await createNewSessionForActive();
 });
 els.initialize?.addEventListener("click", initializeRuntime);
+els.openPersonaSearch?.addEventListener("click", (event) => {
+  event.preventDefault();
+  setPersonaSearchOpen(true);
+});
 els.personaSearch.addEventListener("input", () => {
+  state.personaSearchOpen = true;
   state.personaFilter = els.personaSearch.value;
+  schedulePersonaMessageSearch();
+});
+els.personaSearch.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  event.preventDefault();
+  if (state.personaFilter) {
+    state.personaFilter = "";
+    els.personaSearch.value = "";
+    resetPersonaMessageSearch();
+    render();
+    return;
+  }
+  setPersonaSearchOpen(false);
+});
+els.personaSearchClear?.addEventListener("click", (event) => {
+  event.preventDefault();
+  state.personaFilter = "";
+  if (els.personaSearch) els.personaSearch.value = "";
+  resetPersonaMessageSearch();
   render();
+  els.personaSearch?.focus?.();
+});
+els.closePersonaSearch?.addEventListener("click", (event) => {
+  event.preventDefault();
+  setPersonaSearchOpen(false);
+});
+els.personaTagFilters?.addEventListener("click", (event) => {
+  const chip = event.target?.closest?.("[data-sidebar-tag-filter]");
+  if (!chip) return;
+  event.preventDefault();
+  state.personaSearchOpen = true;
+  window.miaSocial?.setConversationTagFilter?.(chip.dataset.tagName || "");
 });
 els.contactSearch?.addEventListener("input", () => {
   state.contactFilter = els.contactSearch.value;

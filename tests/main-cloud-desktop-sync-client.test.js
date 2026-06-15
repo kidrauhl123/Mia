@@ -279,6 +279,25 @@ test("saveAppearanceSettings writes local appearance and syncs the cloud user se
   assert.deepEqual(status, { ok: true, includeToken: false, token: undefined });
 });
 
+test("saveAppearanceSettings preserves remote conversation tags when the server supports them", async () => {
+  const tags = {
+    items: [{ id: "tag_work", name: "工作", color: "#16a34a" }],
+    assignments: { "dm:u_1:u_2": ["tag_work"] }
+  };
+  const { client, calls } = setup({
+    writeAppearanceSettings: (settings) => ({ theme: settings.theme || "light" }),
+    responses: [
+      jsonResponse({ settings: { pins: [], readMarks: {}, appearance: {}, tags, version: 8 } }),
+      jsonResponse({ settings: { pins: [], readMarks: {}, appearance: { theme: "dark" }, tags, version: 9 } })
+    ]
+  });
+
+  await client.saveAppearanceSettings({ theme: "dark" });
+
+  assert.deepEqual(calls.fetch[1].body.tags, tags);
+  assert.equal(calls.fetch[1].body.expectedVersion, 8);
+});
+
 test("local bot manifest sync methods are not exposed by the cloud desktop sync client", () => {
   const { client } = setup();
 

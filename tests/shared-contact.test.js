@@ -38,7 +38,7 @@ test("resolveContact bot by id", () => {
   assert.equal(c.ownerUserId, "user_me");
 });
 
-test("resolveContact bot avatar uses global bot id without owner prefix", () => {
+test("resolveContact bot avatar uses bot uid for fallback color", () => {
   const c = resolveContact({ kind: "bot", ref: "bot_mia" }, {
     bots: [{ id: "bot_mia", ownerUserId: "user_me", displayName: "Mia" }]
   });

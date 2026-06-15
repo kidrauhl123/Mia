@@ -349,24 +349,6 @@
   cursor: default;
 }
 
-/* 预览弹窗的 #skillPreviewMark 仍用 .skill-dot */
-.skill-dot {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  color: #fff;
-  font-size: 10px;
-  font-weight: 430;
-}
-
-.skill-dot.docs { background: #2563eb; }
-.skill-dot.creative { background: #0f766e; }
-.skill-dot.build { background: #7c3aed; }
-.skill-dot.ops { background: #475569; }
-
 /* 「使用」→ 选 Bot 的弹出选择器 */
 .skill-use-picker {
   position: fixed;

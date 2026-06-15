@@ -79,7 +79,7 @@
     }
   }
 
-  function openSocialMessageMenu(message, x, y) {
+  function openSocialMessageMenu(message, x, y, selection = null) {
     const menu = getMenuEl();
     if (!menu) return;
     // Tear down a still-open instance of THIS menu first, or its document
@@ -92,13 +92,15 @@
     const social = global.miaSocial;
     const conversationId = social?.getActiveConversationId?.();
     const desc = social?.describeMessageForMenu?.(message) || { authorName: "", isOwn: false, bodyMd: message?.body_md || "" };
-    const plain = plainTextFromMarkdown(desc.bodyMd);
+    const selectionText = String(selection?.text || "").trim();
+    const plain = selectionText || plainTextFromMarkdown(desc.bodyMd);
+    const hasSelection = Boolean(selectionText);
     const hasText = Boolean(plain);
 
     menu.innerHTML = `
-      ${menuItemHtml({ icon: "quote", label: "回复", attrs: `data-social-message-action="reply" ${hasText ? "" : "disabled"}` })}
-      ${menuItemHtml({ icon: "copy", label: "拷贝", attrs: `data-social-message-action="copy" ${hasText ? "" : "disabled"}` })}
-      ${menuItemHtml({ icon: "translate", label: "翻译", attrs: `data-social-message-action="translate" ${hasText ? "" : "disabled"}` })}
+      ${menuItemHtml({ icon: "quote", label: hasSelection ? "回复选中" : "回复", attrs: `data-social-message-action="reply" ${hasText ? "" : "disabled"}` })}
+      ${menuItemHtml({ icon: "copy", label: hasSelection ? "拷贝选中" : "拷贝", attrs: `data-social-message-action="copy" ${hasText ? "" : "disabled"}` })}
+      ${menuItemHtml({ icon: "translate", label: hasSelection ? "翻译选中" : "翻译", attrs: `data-social-message-action="translate" ${hasText ? "" : "disabled"}` })}
       <div class="skill-context-menu-separator" role="separator"></div>
       ${menuItemHtml({ icon: "delete", label: "删除", attrs: 'data-social-message-action="delete"', className: "danger" })}
     `;
@@ -128,7 +130,7 @@
           return;
         }
         if (action === "translate") {
-          if (conversationId && message?.id) await social?.translateConversationMessage?.(conversationId, message.id);
+          if (conversationId && message?.id) await social?.translateConversationMessage?.(conversationId, message.id, selectionText);
           return;
         }
         if (action === "delete") {

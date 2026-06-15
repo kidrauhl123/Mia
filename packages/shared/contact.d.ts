@@ -24,11 +24,14 @@ export interface SelfRecord {
 
 export interface BotRecord {
   id?: string;
+  key?: string;
   botId?: string;
   bot_id?: string;
   member_ref?: string;
   ownerUserId?: string;
   owner_user_id?: string;
+  ownerId?: string;
+  owner_id?: string;
   name?: string;
   displayName?: string;
   display_name?: string;

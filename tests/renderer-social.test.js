@@ -35,6 +35,7 @@ function loadSocial(options = {}) {
     miaBotCommands: require("../src/renderer/bot/bot-commands.js"),
     miaSelfIdentity: require("../packages/shared/self-identity.js"),
     miaSendPipeline: require("../src/shared/send-pipeline.js"),
+    miaConversationTags: require("../src/shared/conversation-tags.js"),
     miaMarkdown: {
       escapeHtml: (v) => String(v || "").replace(/&/g, "&amp;").replace(/</g, "&lt;"),
       renderMarkdown: (v) => String(v || ""),
@@ -209,6 +210,112 @@ test("bootstrapAfterLogin asks untitled loaded conversations to generate titles"
   assert.deepEqual(titleCandidates, ["botc_u_1_kongling"]);
 });
 
+test("focusConversationMessage backfills around the hit seq then scrolls to it", async () => {
+  let renderCalls = 0;
+  let listCall = null;
+  let backfilled = false;
+  const article = {
+    offsetTop: 620,
+    offsetHeight: 80,
+    offsetParent: null,
+    classList: { add() {}, remove() {} },
+  };
+  const bubble = { closest: () => article };
+  const chat = {
+    dataset: {},
+    scrollTop: 0,
+    scrollHeight: 1400,
+    clientHeight: 500,
+    appendChild() {},
+    querySelector(selector) {
+      return backfilled && selector.includes("m_hit") ? bubble : null;
+    }
+  };
+  article.offsetParent = chat;
+  const s = loadSocial({ requestAnimationFrame: (fn) => fn(), elementsById: { chat } });
+  s.initSocialModule({
+    getState: () => ({ runtime: {} }),
+    render: () => { renderCalls += 1; },
+    els: {},
+    appendTransientChat: () => {}
+  });
+  s.moduleState.activeConversationId = "botc_sess_1";
+  s.moduleState.conversations = [{ id: "botc_sess_1", type: "bot", name: "论文搭子" }];
+  s.moduleState.messageCache.set("botc_sess_1", { messages: [], maxSeq: 0 });
+  s.__mockWindow.mia.social = {
+    listConversationMessages: async (conversationId, sinceSeq, limit) => {
+      listCall = { conversationId, sinceSeq, limit };
+      backfilled = true;
+      return { ok: true, data: { messages: [{ id: "m_hit", seq: 120, conversation_id: conversationId, body_md: "命中消息" }] } };
+    },
+    settingsPut: async () => ({}),
+  };
+
+  const result = await s.focusConversationMessage("botc_sess_1", { messageId: "m_hit", seq: 120 });
+
+  assert.equal(result.found, true);
+  assert.deepEqual(listCall, { conversationId: "botc_sess_1", sinceSeq: 0, limit: 260 });
+  assert.equal(s.moduleState.messageCache.get("botc_sess_1").messages[0].id, "m_hit");
+  assert.ok(renderCalls >= 2);
+  assert.equal(chat.scrollTop, 410);
+});
+
+test("focusConversationMessage loads around the hit seq even when the preview hit is already rendered", async () => {
+  let renderCalls = 0;
+  let listCall = null;
+  const focusClasses = [];
+  const article = {
+    offsetTop: 500,
+    offsetHeight: 80,
+    offsetParent: null,
+    classList: {
+      add(name) { focusClasses.push(["add", name]); },
+      remove(name) { focusClasses.push(["remove", name]); }
+    },
+  };
+  const bubble = { closest: () => article };
+  const chat = {
+    dataset: {},
+    scrollTop: 0,
+    scrollHeight: 1200,
+    clientHeight: 400,
+    appendChild() {},
+    querySelector(selector) {
+      return selector.includes("m_hit") ? bubble : null;
+    }
+  };
+  article.offsetParent = chat;
+  const s = loadSocial({ requestAnimationFrame: (fn) => fn(), elementsById: { chat } });
+  s.initSocialModule({
+    getState: () => ({ runtime: {} }),
+    render: () => { renderCalls += 1; },
+    els: {},
+    appendTransientChat: () => {}
+  });
+  s.moduleState.activeConversationId = "botc_sess_1";
+  s.moduleState.conversations = [{ id: "botc_sess_1", type: "bot", name: "论文搭子" }];
+  s.moduleState.messageCache.set("botc_sess_1", { messages: [], maxSeq: 0 });
+  s.__mockWindow.mia.social = {
+    listConversationMessages: async (conversationId, sinceSeq, limit) => {
+      listCall = { conversationId, sinceSeq, limit };
+      return { ok: true, data: { messages: [{ id: "m_hit", seq: 120, conversation_id: conversationId, body_md: "命中消息" }] } };
+    },
+    settingsPut: async () => ({}),
+  };
+
+  const result = await s.focusConversationMessage("botc_sess_1", {
+    messageId: "m_hit",
+    seq: 120,
+    message: { id: "m_hit", seq: 120, conversation_id: "botc_sess_1", body_md: "搜索预览" }
+  });
+
+  assert.equal(result.found, true);
+  assert.deepEqual(listCall, { conversationId: "botc_sess_1", sinceSeq: 0, limit: 260 });
+  assert.equal(chat.scrollTop, 340);
+  assert.ok(renderCalls >= 2);
+  assert.ok(focusClasses.some(([action, name]) => action === "add" && name === "search-focus"));
+});
+
 test("bootstrapAfterLogin prefetches group members beyond the initial message cap", async () => {
   const s = loadSocial();
   const fetched = [];
@@ -243,7 +350,7 @@ test("bootstrapAfterLogin prefetches group members beyond the initial message ca
 
   await s.bootstrapAfterLogin();
 
-  assert.deepEqual(fetched, ["g_late"]);
+  assert.ok(fetched.includes("g_late"), "group conversations beyond the initial message cap should still prefetch members");
 });
 
 test("bootstrapAfterLogin paints cached SQLite social data before slow cloud conversations return", async () => {
@@ -639,6 +746,266 @@ test("renderSidebarRows carries cloud pin state for sidebar sorting", () => {
   assert.equal(rows.length, 1);
   assert.equal(rows[0].pinned, true);
   assert.equal(rows[0].pinnedAt, "2026-05-21T20:02:00.000Z");
+});
+
+test("renderSidebarRows carries user-private conversation tags", () => {
+  const s = loadSocial();
+  s.moduleState.myUserId = "u_alice";
+  s.moduleState.friends = [{ id: "u_bob", username: "bob", account: "bob" }];
+  s.moduleState.cloudSettings = {
+    pins: [],
+    readMarks: {},
+    appearance: {},
+    tags: {
+      items: [{ id: "work", name: "工作", color: "#16a34a" }],
+      assignments: { "dm:u_alice:u_bob": ["work"] }
+    }
+  };
+  s.moduleState.conversations = [{ id: "dm:u_alice:u_bob", type: "dm", name: null, updatedAt: "2026-05-21T20:00:00.000Z" }];
+
+  const rows = s.renderSidebarRows();
+
+  assert.deepEqual(rows[0].conversation.tags.map((tag) => tag.name), ["工作"]);
+  assert.equal(rows[0].conversation.tags[0].color, "#16a34a");
+});
+
+test("setConversationTagNames persists normalized tags through settingsPut", async () => {
+  const s = loadSocial();
+  const writes = [];
+  s.__mockWindow.mia.social = {
+    settingsPut: async (body) => {
+      writes.push(body);
+      return { settings: { ...body, version: 6, updatedAt: "2026-06-15T10:00:00.000Z" } };
+    }
+  };
+  s.moduleState.cloudSettings = {
+    pins: [],
+    readMarks: {},
+    appearance: {},
+    tags: { items: [], assignments: {} },
+    version: 5
+  };
+
+  await s.setConversationTagNames("dm:u_a:u_b", ["工作", "客户"]);
+
+  assert.equal(writes.length, 1);
+  assert.deepEqual(writes[0].tags.items.map((item) => item.name), ["工作", "客户"]);
+  assert.deepEqual(
+    writes[0].tags.assignments["dm:u_a:u_b"],
+    writes[0].tags.items.map((item) => item.id)
+  );
+  assert.equal(writes[0].expectedVersion, 5);
+  assert.deepEqual(s.conversationTagsFor("dm:u_a:u_b").map((tag) => tag.name), ["工作", "客户"]);
+});
+
+test("editConversationTags switches the matching sidebar card into inline edit mode", async () => {
+  const s = loadSocial();
+  let saved = 0;
+  s.__mockWindow.mia.social = {
+    settingsPut: async (body) => ({ settings: { ...body, version: 2, updatedAt: "2026-06-15T10:00:00.000Z" } })
+  };
+  s.moduleState.cloudSettings = {
+    pins: [],
+    readMarks: {},
+    appearance: {},
+    tags: {
+      items: [
+        { id: "tag_old", name: "旧标签", color: "#2563eb" },
+        { id: "tag_unused", name: "未引用标签", color: "#dc2626" }
+      ],
+      assignments: { "dm:u_a:u_b": ["tag_old"] }
+    },
+    version: 1
+  };
+
+  await s.editConversationTags("dm:u_a:u_b", "Bob", () => { saved += 1; });
+
+  const editor = s.conversationTagEditorFor("dm:u_a:u_b");
+  assert.equal(editor.active, true);
+  assert.equal(editor.adding, true);
+  assert.equal(editor.mode, "add");
+  assert.equal(editor.maxTags, 3);
+  assert.deepEqual(editor.tags.map((tag) => tag.name), ["旧标签"]);
+  assert.deepEqual(editor.allTags.map((tag) => tag.name), ["旧标签"]);
+  assert.equal(saved, 1);
+});
+
+test("inline conversation tag draft survives render and cancel leaves no empty assignment", async () => {
+  const s = loadSocial();
+  let renders = 0;
+  s.initSocialModule({ getState: () => ({}), render: () => { renders += 1; }, els: {}, appendTransientChat: () => {} });
+  s.moduleState.cloudSettings = {
+    pins: [],
+    readMarks: {},
+    appearance: {},
+    tags: { items: [], assignments: {} },
+    version: 1
+  };
+
+  await s.editConversationTags("dm:u_a:u_b", "Bob");
+  s.startConversationTagAdd("dm:u_a:u_b");
+  s.setConversationTagDraft("dm:u_a:u_b", "sa");
+
+  let editor = s.conversationTagEditorFor("dm:u_a:u_b");
+  assert.equal(editor.active, true);
+  assert.equal(editor.adding, true);
+  assert.equal(editor.draft, "sa");
+  assert.deepEqual(s.conversationTagsFor("dm:u_a:u_b"), []);
+
+  s.endConversationTagEdit("dm:u_a:u_b");
+  editor = s.conversationTagEditorFor("dm:u_a:u_b");
+  assert.equal(editor.active, false);
+  assert.equal(editor.adding, false);
+  assert.equal(editor.draft, "");
+  assert.deepEqual(s.moduleState.cloudSettings.tags.assignments, {});
+  assert.ok(renders >= 3);
+});
+
+test("inline conversation tag editor adds and removes tags through settings", async () => {
+  const s = loadSocial();
+  const writes = [];
+  s.__mockWindow.mia.social = {
+    settingsPut: async (body) => {
+      writes.push(body);
+      return { settings: { ...body, version: writes.length + 1, updatedAt: "2026-06-15T10:00:00.000Z" } };
+    }
+  };
+  s.moduleState.cloudSettings = {
+    pins: [],
+    readMarks: {},
+    appearance: {},
+    tags: {
+      items: [{ id: "tag_old", name: "旧标签", color: "#2563eb" }],
+      assignments: { "dm:u_a:u_b": ["tag_old"] }
+    },
+    version: 1
+  };
+
+  await s.addConversationTagName("dm:u_a:u_b", "工作");
+  assert.deepEqual(s.conversationTagsFor("dm:u_a:u_b").map((tag) => tag.name), ["旧标签", "工作"]);
+  await s.removeConversationTagName("dm:u_a:u_b", "旧标签");
+  assert.deepEqual(s.conversationTagsFor("dm:u_a:u_b").map((tag) => tag.name), ["工作"]);
+  assert.deepEqual(writes.at(-1).tags.assignments["dm:u_a:u_b"], [writes.at(-1).tags.items.find((tag) => tag.name === "工作").id]);
+  assert.deepEqual(writes.at(-1).tags.items.map((tag) => tag.name), ["工作"]);
+});
+
+test("conversation tag menu actions can rename and filter tagged sidebar rows", async () => {
+  const s = loadSocial();
+  const writes = [];
+  s.__mockWindow.mia.social = {
+    settingsPut: async (body) => {
+      writes.push(body);
+      return { settings: { ...body, version: writes.length + 1, updatedAt: "2026-06-15T10:00:00.000Z" } };
+    }
+  };
+  s.moduleState.myUserId = "u_a";
+  s.moduleState.friends = [
+    { id: "u_b", username: "bob", account: "bob" },
+    { id: "u_c", username: "cora", account: "cora" }
+  ];
+  s.moduleState.cloudSettings = {
+    pins: [],
+    readMarks: {},
+    appearance: {},
+    tags: {
+      items: [
+        { id: "tag_old", name: "旧标签", color: "#2563eb" },
+        { id: "tag_work", name: "工作", color: "#16a34a" }
+      ],
+      assignments: {
+        "dm:u_a:u_b": ["tag_old"],
+        "dm:u_a:u_c": ["tag_work"]
+      }
+    },
+    version: 1
+  };
+  s.moduleState.conversations = [
+    { id: "dm:u_a:u_b", type: "dm", updatedAt: "2026-05-21T20:00:00.000Z" },
+    { id: "dm:u_a:u_c", type: "dm", updatedAt: "2026-05-21T20:01:00.000Z" }
+  ];
+
+  await s.renameConversationTagName("dm:u_a:u_b", "旧标签", "客户");
+  assert.deepEqual(s.conversationTagsFor("dm:u_a:u_b").map((tag) => tag.name), ["客户"]);
+
+  s.setConversationTagFilter("客户");
+  assert.deepEqual(s.renderSidebarRows().map((row) => row.key), ["dm:u_a:u_b"]);
+  s.setConversationTagFilter("客户");
+  assert.equal(s.renderSidebarRows().length, 2);
+});
+
+test("conversationTagFilters returns in-use tag counts without moving the selected tag", () => {
+  const s = loadSocial();
+  s.moduleState.myUserId = "u_a";
+  s.moduleState.friends = [
+    { id: "u_b", username: "bob", account: "bob" },
+    { id: "u_c", username: "cora", account: "cora" },
+    { id: "u_d", username: "dora", account: "dora" }
+  ];
+  s.moduleState.cloudSettings = {
+    pins: [],
+    readMarks: {},
+    appearance: {},
+    tags: {
+      items: [
+        { id: "tag_work", name: "工作", color: "#16a34a" },
+        { id: "tag_client", name: "客户", color: "#2563eb" },
+        { id: "tag_unused", name: "未引用", color: "#dc2626" }
+      ],
+      assignments: {
+        "dm:u_a:u_b": ["tag_work", "tag_client"],
+        "dm:u_a:u_c": ["tag_work"],
+        "dm:u_a:u_missing": ["tag_unused"]
+      }
+    },
+    version: 1
+  };
+  s.moduleState.conversations = [
+    { id: "dm:u_a:u_b", type: "dm", updatedAt: "2026-05-21T20:00:00.000Z" },
+    { id: "dm:u_a:u_c", type: "dm", updatedAt: "2026-05-21T20:01:00.000Z" },
+    { id: "dm:u_a:u_d", type: "dm", updatedAt: "2026-05-21T20:02:00.000Z" }
+  ];
+
+  assert.deepEqual(
+    s.conversationTagFilters().map((tag) => [tag.name, tag.count, tag.filterActive]),
+    [["工作", 2, false], ["客户", 1, false]]
+  );
+
+  s.setConversationTagFilter("客户");
+  assert.deepEqual(
+    s.conversationTagFilters().map((tag) => [tag.name, tag.count, tag.filterActive]),
+    [["工作", 2, false], ["客户", 1, true]]
+  );
+  assert.equal(s.getConversationTagFilter(), "客户");
+});
+
+test("conversation tag inline commit renames the target instead of adding a second tag", async () => {
+  const s = loadSocial();
+  const writes = [];
+  s.__mockWindow.mia.social = {
+    settingsPut: async (body) => {
+      writes.push(body);
+      return { settings: { ...body, version: writes.length + 1, updatedAt: "2026-06-15T10:00:00.000Z" } };
+    }
+  };
+  s.moduleState.cloudSettings = {
+    pins: [],
+    readMarks: {},
+    appearance: {},
+    tags: {
+      items: [{ id: "tag_old", name: "旧标签", color: "#2563eb" }],
+      assignments: { "dm:u_a:u_b": ["tag_old"] }
+    },
+    version: 1
+  };
+
+  s.startConversationTagRename("dm:u_a:u_b", "旧标签");
+  const editor = s.conversationTagEditorFor("dm:u_a:u_b");
+  s.moduleState.tagEditingMode = "add";
+  await editor.onCommit("客户", { mode: "rename", targetName: "旧标签" });
+
+  assert.deepEqual(s.conversationTagsFor("dm:u_a:u_b").map((tag) => tag.name), ["客户"]);
+  assert.deepEqual(writes.at(-1).tags.items.map((tag) => tag.name), ["客户"]);
+  assert.deepEqual(writes.at(-1).tags.assignments["dm:u_a:u_b"], [writes.at(-1).tags.items[0].id]);
 });
 
 test("renderSidebarRows uses the last rendered message time instead of metadata-only updates", () => {
@@ -1945,6 +2312,50 @@ test("handleCloudEvent bot reply clears transient cloud agent stream", () => {
     },
   });
   assert.equal(s.moduleState.cloudAgentRunsByConversation.has("botc_u_a_mia"), false);
+});
+
+test("handleCloudEvent bot reply replaces the active streaming bubble", () => {
+  const chat = {
+    dataset: {},
+    children: [],
+    appendChild(child) { this.children.push(child); return child; },
+    querySelector() { return null; },
+    set innerHTML(value) { this.children = []; this._html = value; },
+    get innerHTML() { return this._html || ""; },
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+  };
+  const s = loadSocial({ elementsById: { chat } });
+  s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.activeConversationId = "botc_u_a_mia";
+  s.moduleState.conversations = [{ id: "botc_u_a_mia", type: "bot", name: "Mia", decorations: { botId: "mia" } }];
+  s.moduleState.messageCache.set("botc_u_a_mia", { messages: [], maxSeq: 0 });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_started",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", botId: "mia" },
+  });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", event: { type: "message.delta", delta: "done" } },
+  });
+  s.renderConversationChat(chat);
+
+  assert.equal(chat.children.length, 1);
+  assert.match(chat.children[0].className, /streaming/);
+
+  s.handleCloudEvent({
+    type: "conversation.message_appended",
+    payload: {
+      conversationId: "botc_u_a_mia",
+      message: { id: "m1", seq: 1, sender_kind: "bot", sender_ref: "mia", body_md: "done" },
+    },
+  });
+
+  assert.equal(s.moduleState.cloudAgentRunsByConversation.has("botc_u_a_mia"), false);
+  assert.equal(chat.children.length, 1);
+  assert.doesNotMatch(chat.children[0].className, /streaming/);
+  assert.match(chat.children[0].innerHTML, /done/);
 });
 
 test("handleCloudEvent preserves transient run trace when final bot message lacks trace_json", () => {

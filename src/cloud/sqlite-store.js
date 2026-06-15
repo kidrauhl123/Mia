@@ -623,6 +623,36 @@ function createCloudStore(options = {}) {
     return rowToUser(getUserById(userId));
   }
 
+  function upsertPushToken(userId, token, meta = {}) {
+    const value = String(token || "").trim();
+    if (!userId || !value) return false;
+    const now = nowIso();
+    db.prepare(
+      `INSERT INTO push_tokens (token, user_id, platform, device_name, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(token) DO UPDATE SET
+         user_id = excluded.user_id,
+         platform = excluded.platform,
+         device_name = excluded.device_name,
+         updated_at = excluded.updated_at`
+    ).run(value, userId, String(meta.platform || "").slice(0, 40), String(meta.deviceName || "").slice(0, 120), now, now);
+    return true;
+  }
+
+  function deletePushToken(token) {
+    const value = String(token || "").trim();
+    if (!value) return false;
+    return db.prepare("DELETE FROM push_tokens WHERE token = ?").run(value).changes > 0;
+  }
+
+  function listPushTokens(userId) {
+    if (!userId) return [];
+    return db
+      .prepare("SELECT token, platform, device_name FROM push_tokens WHERE user_id = ?")
+      .all(userId)
+      .map((r) => ({ token: r.token, platform: r.platform, deviceName: r.device_name }));
+  }
+
   return {
     loginWithWechat,
     logoutSession,
@@ -644,6 +674,9 @@ function createCloudStore(options = {}) {
     getBridgeRun,
     getUserPublic,
     getUserByUsername,
+    upsertPushToken,
+    deletePushToken,
+    listPushTokens,
     getDb: () => db,
     uploadDir,
     dataDir: path.dirname(dbPath),
@@ -881,6 +914,7 @@ function migrate(db) {
       pins_json        TEXT NOT NULL DEFAULT '[]',
       read_marks_json  TEXT NOT NULL DEFAULT '{}',
       appearance_json  TEXT NOT NULL DEFAULT '{}',
+      tags_json        TEXT NOT NULL DEFAULT '{"items":[],"assignments":{}}',
       version          INTEGER NOT NULL DEFAULT 0,
       updated_at       TEXT NOT NULL
     );
@@ -1004,6 +1038,19 @@ function migrate(db) {
       markup                         REAL NOT NULL DEFAULT 1,
       updated_at                     TEXT NOT NULL
     );
+
+    -- Expo push tokens for mobile devices. token is globally unique to one
+    -- device; re-login as another account on the same phone re-points the row
+    -- so a device never double-delivers to a previous user.
+    CREATE TABLE IF NOT EXISTS push_tokens (
+      token       TEXT PRIMARY KEY,
+      user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      platform    TEXT NOT NULL DEFAULT '',
+      device_name TEXT NOT NULL DEFAULT '',
+      created_at  TEXT NOT NULL,
+      updated_at  TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_push_tokens_user ON push_tokens(user_id);
   `);
   if (!hasColumn(db, "bridge_runs", "request_attachments_json")) {
     db.exec("ALTER TABLE bridge_runs ADD COLUMN request_attachments_json TEXT NOT NULL DEFAULT '[]'");
@@ -1035,6 +1082,9 @@ function migrate(db) {
   // PUTs without CAS silently dropped each other (codex review).
   if (!hasColumn(db, "user_settings", "version")) {
     db.exec("ALTER TABLE user_settings ADD COLUMN version INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!hasColumn(db, "user_settings", "tags_json")) {
+    db.exec("ALTER TABLE user_settings ADD COLUMN tags_json TEXT NOT NULL DEFAULT '{\"items\":[],\"assignments\":{}}'");
   }
   // v7: conversations.type column for explicit conversation kind. Existing
   // rows backfilled by id prefix; new rows must declare it.
@@ -1119,6 +1169,9 @@ function migrate(db) {
   // v15: platform model billing. Users buy Mia model credits; the server calls
   // upstream providers with Mia-owned keys and records each billable model use.
   db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (15, ?)")
+    .run(nowIso());
+  // v16: per-user conversation tags live in user_settings.tags_json.
+  db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (16, ?)")
     .run(nowIso());
 }
 

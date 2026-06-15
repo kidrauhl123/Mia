@@ -11,6 +11,15 @@ const {
 
 function mapCodexPermissionMode(value) {
   const id = String(value || "default").trim();
+  if (id === ":read-only") {
+    return { permissionProfile: ":read-only", sandboxMode: "read-only", approvalPolicy: "never" };
+  }
+  if (id === ":workspace") {
+    return { permissionProfile: ":workspace", sandboxMode: "workspace-write", approvalPolicy: "never" };
+  }
+  if (id === ":danger-full-access") {
+    return { permissionProfile: ":danger-full-access", sandboxMode: "danger-full-access", approvalPolicy: "never" };
+  }
   if (id === "acceptEdits") return { sandboxMode: "workspace-write", approvalPolicy: "on-request" };
   if (id === "bypassPermissions" || id === "yolo" || id === "off" || id === "never") {
     return { sandboxMode: "danger-full-access", approvalPolicy: "never" };
@@ -102,6 +111,18 @@ function generatedImageAttachments(imagePaths = []) {
 function requireDependency(deps, key) {
   if (typeof deps[key] !== "function") throw new Error(`${key} dependency is required.`);
   return deps[key];
+}
+
+function envWithExecutableDirFirst(env = {}, executablePath = "") {
+  const dir = path.dirname(String(executablePath || ""));
+  if (!dir || dir === ".") return env || {};
+  const delimiter = process.platform === "win32" ? ";" : path.delimiter;
+  const currentPath = String(env?.PATH || env?.Path || "");
+  const parts = currentPath.split(delimiter).filter(Boolean).filter((item) => item !== dir);
+  return {
+    ...(env || {}),
+    PATH: [dir, ...parts].join(delimiter)
+  };
 }
 
 function emitCodexItemEvent(emit, event, textByItem) {
@@ -246,7 +267,7 @@ function createCodexChatAdapter(deps = {}) {
       throw new Error(`Mia Codex profile setup failed: ${error?.message || error}`);
     }
     if (!codexHomePath) throw new Error("Mia Codex profile setup failed: missing CODEX_HOME.");
-    const env = { ...baseEnv, CODEX_HOME: codexHomePath };
+    const env = envWithExecutableDirFirst({ ...baseEnv, CODEX_HOME: codexHomePath }, commandPath);
     const managedModel = resolveManagedModelRuntime(bot.engineConfig || {}, { engine: "codex", bot });
     const permission = mapCodexPermissionMode(bot.engineConfig?.permissionMode || bot.agentPermissionMode || "default");
     const effectivePermission = typeof emit === "function"
@@ -331,7 +352,7 @@ function createCodexChatAdapter(deps = {}) {
     const { Codex } = await codexSdk();
     const codex = new Codex({
       codexPathOverride: commandPath,
-      env: processEnvStrings()
+      env: envWithExecutableDirFirst(processEnvStrings(), commandPath)
     });
     const thread = codex.startThread({
       workingDirectory: cwd(),

@@ -14,6 +14,11 @@ const LABELS: Record<string, string> = {
   Settings: "设置",
 };
 
+// Desktop rail plays only frames 70→130 on activation (data-lottie-play), then
+// settles on frame 60 — a ~1s flourish, not the full 2–4s draw. Module-level so
+// the array reference stays stable across renders.
+const RAIL_PLAY_SEGMENT: [number, number] = [70, 130];
+
 // Match the desktop nav rail's Lottie icon set (src/renderer/assets/lottie).
 const TAB_ICON: Record<string, LottieIconName> = {
   Messages: "chat",
@@ -48,7 +53,17 @@ function TabItem({ routeName, focused, onPress }: { routeName: string; focused: 
   return (
     <Pressable style={styles.item} onPress={handle} hitSlop={8}>
       <Animated.View style={[styles.iconWrap, { transform: [{ scale }] }]}>
-        <LottieIcon name={TAB_ICON[routeName] || "chat"} size={24} color={tint} dimmed={!focused} play={focused} />
+        {/* Match the desktop rail: rest on frame 60, and on focus play only the
+            short [70,130] window (≈1s) instead of the whole 2–4s draw. */}
+        <LottieIcon
+          name={TAB_ICON[routeName] || "chat"}
+          size={24}
+          color={tint}
+          dimmed={!focused}
+          play={focused}
+          restFrame={60}
+          playSegment={RAIL_PLAY_SEGMENT}
+        />
       </Animated.View>
       <Text style={[styles.label, { color: tint }]}>{LABELS[routeName] || routeName}</Text>
     </Pressable>

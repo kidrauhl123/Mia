@@ -116,13 +116,18 @@
   // Cache of conversation members per conversation id (fetched on first open, updated via WS events).
   const _conversationMembersCache = new Map();
   const _hydratingBotIdentities = new Set();
+  let _tagEditOutsideHandler = null;
+  let _tagEditOutsideGeneration = 0;
 
   // Distance (px) from the bottom within which we treat the user as "pinned" and
   // keep following new content. Mirrors the bot-chat threshold in app.js.
   const SCROLL_STICK_THRESHOLD_PX = 80;
+  const MESSAGE_FOCUS_PENDING_TTL_MS = 10000;
+  const MESSAGE_FOCUS_HIGHLIGHT_MS = 2200;
   // Which conversation renderConversationChat last painted — a change means the user switched
   // conversations, so we land at the bottom instead of preserving the old offset.
   let _lastRenderedConversationId = null;
+  let _pendingMessageFocus = null;
 
   function jsonSignature(value) {
     try {
@@ -200,7 +205,7 @@
     const entry = moduleState.messageCache.get(conversationId) || { messages: [], maxSeq: 0 };
     const conversation = moduleState.conversations.find((r) => r.id === conversationId);
     const type = conversationTypeFor(conversation, conversationId);
-    const members = type === "group" ? (_conversationMembersCache.get(conversationId) || []) : [];
+    const members = (type === "group" || type === "bot") ? (_conversationMembersCache.get(conversationId) || []) : [];
     return jsonSignature({
       conversationId,
       maxSeq: entry.maxSeq || 0,
@@ -216,6 +221,126 @@
     containerEl.dataset.conversationRenderSignature = chatRenderSignatureFor(conversationId);
   }
 
+  function cssEscapeValue(value) {
+    const text = String(value || "");
+    if (typeof window !== "undefined" && window.CSS && typeof window.CSS.escape === "function") {
+      return window.CSS.escape(text);
+    }
+    return text.replace(/["\\]/g, "\\$&");
+  }
+
+  function pendingFocusFor(conversationId) {
+    if (!_pendingMessageFocus) return null;
+    if (_pendingMessageFocus.conversationId !== conversationId) return null;
+    const now = Date.now();
+    const highlightUntil = Number(_pendingMessageFocus.highlightUntil || 0);
+    if (highlightUntil > 0) {
+      if (now <= highlightUntil) return _pendingMessageFocus;
+      _pendingMessageFocus = null;
+      return null;
+    }
+    if (now - Number(_pendingMessageFocus.startedAt || 0) > MESSAGE_FOCUS_PENDING_TTL_MS) {
+      _pendingMessageFocus = null;
+      return null;
+    }
+    return _pendingMessageFocus;
+  }
+
+  function elementTopWithin(containerEl, targetEl) {
+    let top = 0;
+    let node = targetEl;
+    while (node && node !== containerEl) {
+      top += Number(node.offsetTop) || 0;
+      node = node.offsetParent;
+    }
+    if (node === containerEl) return top;
+    try {
+      const containerRect = containerEl.getBoundingClientRect?.();
+      const targetRect = targetEl.getBoundingClientRect?.();
+      if (containerRect && targetRect) {
+        return (Number(targetRect.top) || 0) - (Number(containerRect.top) || 0) + (Number(containerEl.scrollTop) || 0);
+      }
+    } catch {
+      // Fall through to current scroll position.
+    }
+    return Number(containerEl.scrollTop) || 0;
+  }
+
+  function centerMessageTarget(containerEl, targetEl) {
+    if (!containerEl || !targetEl) return;
+    const targetTop = elementTopWithin(containerEl, targetEl);
+    const targetHeight = Number(targetEl.offsetHeight) || Number(targetEl.getBoundingClientRect?.().height) || 0;
+    const viewportHeight = Number(containerEl.clientHeight) || 0;
+    const maxScroll = Math.max(0, (Number(containerEl.scrollHeight) || 0) - viewportHeight);
+    const nextTop = Math.max(0, Math.min(maxScroll, Math.round(targetTop - (viewportHeight - targetHeight) / 2)));
+    containerEl.scrollTop = nextTop;
+  }
+
+  function focusPendingMessage(containerEl = document.getElementById("chat")) {
+    const pending = pendingFocusFor(moduleState.activeConversationId);
+    if (!pending || !containerEl || !pending.messageId) return false;
+    const escapedId = cssEscapeValue(pending.messageId);
+    const bubble = containerEl.querySelector(`.bubble[data-message-id="${escapedId}"]`);
+    const target = bubble?.closest?.(".message")
+      || containerEl.querySelector(`.message[data-message-id="${escapedId}"]`)
+      || bubble;
+    if (!target) return false;
+    centerMessageTarget(containerEl, target);
+    const now = Date.now();
+    pending.focusedAt = now;
+    pending.highlightUntil = Math.max(Number(pending.highlightUntil || 0), now + MESSAGE_FOCUS_HIGHLIGHT_MS);
+    target.classList.remove("search-focus");
+    const raf = typeof requestAnimationFrame === "function"
+      ? requestAnimationFrame
+      : (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function"
+          ? window.requestAnimationFrame.bind(window)
+          : (fn) => setTimeout(fn, 0));
+    const focusState = pending;
+    raf(() => {
+      target.classList.add("search-focus");
+      setTimeout(() => {
+        target.classList.remove("search-focus");
+        if (_pendingMessageFocus === focusState && Date.now() >= Number(focusState.highlightUntil || 0)) {
+          _pendingMessageFocus = null;
+        }
+      }, MESSAGE_FOCUS_HIGHLIGHT_MS);
+    });
+    return true;
+  }
+
+  function nextAnimationFrame() {
+    return new Promise((resolve) => {
+      const raf = typeof requestAnimationFrame === "function"
+        ? requestAnimationFrame
+        : (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function"
+            ? window.requestAnimationFrame.bind(window)
+            : (fn) => setTimeout(fn, 0));
+      raf(() => resolve());
+    });
+  }
+
+  async function waitForPendingMessageFocus(attempts = 6) {
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      if (!pendingFocusFor(moduleState.activeConversationId)) return true;
+      if (focusPendingMessage(document.getElementById("chat"))) return true;
+      await nextAnimationFrame();
+    }
+    return !pendingFocusFor(moduleState.activeConversationId);
+  }
+
+  function schedulePendingMessageFocus(attempts = 5) {
+    const raf = typeof requestAnimationFrame === "function"
+      ? requestAnimationFrame
+      : (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function"
+          ? window.requestAnimationFrame.bind(window)
+          : (fn) => setTimeout(fn, 0));
+    raf(() => {
+      if (!pendingFocusFor(moduleState.activeConversationId)) return;
+      if (focusPendingMessage(document.getElementById("chat"))) return;
+      if (attempts > 1) setTimeout(() => schedulePendingMessageFocus(attempts - 1), 80);
+    });
+  }
+
   const moduleState = {
     conversations: [],
     friends: [],
@@ -229,6 +354,14 @@
     cloudAgentRunsByConversation: new Map(),
     pendingPermissionsById: new Map(),
     lastBotConversationByKey: readLastBotConversationByKey(),
+    tagEditingConversationId: "",
+    tagEditingAdding: false,
+    tagEditingMode: "",
+    tagEditingTargetName: "",
+    tagEditingDraft: "",
+    tagFilterName: "",
+    tagRemovingConversationId: "",
+    tagRemovingName: "",
     // unreadByConversation: conversationId → count. Bumped by WS conversation.message_appended when
     // the message is from someone else and the conversation isn't currently open.
     // Cleared by setActiveConversationId (and on bootstrap — incomingRequests path
@@ -900,10 +1033,15 @@
       String(options.activeConversationId || "").trim(),
       ...Object.values(options.preferredConversationIdByBotKey || {}).map((id) => String(id || "").trim())
     ].filter(Boolean));
+    const filteredTag = options.ignoreTagFilter ? "" : String(moduleState.tagFilterName || "").trim().toLowerCase();
     return conversations.filter((conversation) =>
       !isLegacyBotSessionConversation(conversation)
       || keepLegacyIds.has(String(conversation?.id || ""))
-    );
+    ).filter((conversation) => {
+      if (!filteredTag) return true;
+      return conversationTagsFor(conversation?.id).some((tag) =>
+        String(tag?.name || "").trim().toLowerCase() === filteredTag);
+    });
   }
 
   function upsertConversation(conversation) {
@@ -1234,19 +1372,18 @@
 
       // Fetch initial messages for up to INITIAL_CONVERSATIONS_CAP conversations.
       const conversationsToFetch = visibleSocialConversations(moduleState.conversations).slice(0, INITIAL_CONVERSATIONS_CAP);
-      // Prefetch members for every group conversation so sidebar/header mosaics
-      // have the real member tiles before message backfill finishes. This is not
-      // capped by INITIAL_CONVERSATIONS_CAP: groups are few, and older groups can
-      // still be visible in the sidebar.
-      const groupConversationsToFetch = visibleSocialConversations(moduleState.conversations).filter((r) => {
+      // Prefetch members for group mosaics and bot private chats. Bot chats need
+      // the member public identity so sidebar/header/bubbles hash the same
+      // public bot identity and can show cross-device avatars.
+      const memberConversationsToFetch = visibleSocialConversations(moduleState.conversations).filter((r) => {
         const t = r.type
           || (r.id?.startsWith("dm:") ? "dm"
             : r.id?.startsWith("botc_") ? "bot"
             : (r.id?.startsWith("g_") || r.id?.startsWith("g-")) ? "group"
             : null);
-        return t === "group";
+        return t === "group" || t === "bot";
       });
-      await Promise.all(groupConversationsToFetch.map((r) => _fetchAndCacheConversationMembers(r.id)));
+      await Promise.all(memberConversationsToFetch.map((r) => _fetchAndCacheConversationMembers(r.id)));
       await Promise.all(conversationsToFetch.map(async (conversation) => {
         if (!moduleState.messageCache.has(conversation.id)) {
           moduleState.messageCache.set(conversation.id, { messages: [], maxSeq: 0 });
@@ -1434,7 +1571,9 @@
       }
       if (cachedMessage.seq > entry.maxSeq) entry.maxSeq = cachedMessage.seq;
       const { SenderKind } = conversationKinds();
-      if (cachedMessage.sender_kind === SenderKind.Bot) {
+      const isBotMessage = cachedMessage.sender_kind === SenderKind.Bot;
+      const hadStreamingRun = isBotMessage && moduleState.cloudAgentRunsByConversation.has(conversationId);
+      if (isBotMessage) {
         clearRunPermissions(moduleState.cloudAgentRunsByConversation.get(conversationId));
         moduleState.cloudAgentRunsByConversation.delete(conversationId);
         renderAgentPermissionBanner();
@@ -1463,7 +1602,11 @@
       // stick to the bottom for my own messages; someone else's message must not
       // pull me away from history I've scrolled up to read.
       if (fresh && conversationId === moduleState.activeConversationId) {
-        _appendMessageToActiveChat(message, { stick: isMine });
+        if (hadStreamingRun) {
+          _reRenderActiveChat();
+        } else {
+          _appendMessageToActiveChat(cachedMessage, { stick: isMine });
+        }
       }
       if (deps && typeof deps.render === "function") deps.render();
       return;
@@ -1558,6 +1701,7 @@
         : (new Date(conversation.updatedAt || conversation.updated_at || 0).getTime() || 0);
       const pinned = isConversationPinned(conversation.id);
       const pinnedAt = pinned ? (_ensureCloudSettings().updatedAt || conversation.updatedAt || updatedAt || "") : "";
+      const tags = conversationTagsFor(conversation.id);
 
       // Route on conversations.type (schema truth). Two card shapes only:
       // private-conversation (dm / bot) and group-conversation.
@@ -1578,10 +1722,13 @@
           pinned,
           pinnedAt,
           updatedAt,
-          conversation: { ...conversation, type: "group", lastMessagePreview, memberCount }
+          conversation: { ...conversation, type: "group", lastMessagePreview, memberCount, tags }
         };
       }
 
+      if (conversationType === "bot" && !_conversationMembersCache.has(conversation.id)) {
+        _fetchAndCacheConversationMembers(conversation.id);
+      }
       const otherUser = conversationType === "dm" ? otherUserForConversation(conversation) : null;
       return {
         type: "private-conversation",
@@ -1589,7 +1736,7 @@
         pinned,
         pinnedAt,
         updatedAt,
-        conversation: { ...conversation, type: conversationType || "dm", otherUser, lastMessagePreview }
+        conversation: { ...conversation, type: conversationType || "dm", otherUser, lastMessagePreview, tags }
       };
     });
   }
@@ -1614,10 +1761,14 @@
     // background re-render never yanks them out of the history they scrolled to.
     const isConversationSwitch = conversationId !== _lastRenderedConversationId;
     const prevScrollTop = containerEl.scrollTop;
-    const stickToBottom = isConversationSwitch
-      || (containerEl.scrollHeight - containerEl.scrollTop - containerEl.clientHeight < SCROLL_STICK_THRESHOLD_PX);
+    const hasPendingFocus = Boolean(pendingFocusFor(conversationId));
+    const stickToBottom = !hasPendingFocus && (
+      isConversationSwitch
+      || (containerEl.scrollHeight - containerEl.scrollTop - containerEl.clientHeight < SCROLL_STICK_THRESHOLD_PX)
+    );
     _lastRenderedConversationId = conversationId;
     const applyScroll = () => {
+      if (focusPendingMessage(containerEl)) return;
       containerEl.scrollTop = stickToBottom ? containerEl.scrollHeight : prevScrollTop;
     };
 
@@ -1655,11 +1806,15 @@
     }
 
     // DM and bot conversations share the 1-on-1 message bubble path.
+    const members = conversationType === "bot" ? (_conversationMembersCache.get(conversationId) || []) : [];
+    if (conversationType === "bot" && !_conversationMembersCache.has(conversationId)) {
+      _fetchAndCacheConversationMembers(conversationId);
+    }
     for (const msg of entry.messages) {
-      const article = _buildMessageArticle(msg, color);
+      const article = _buildMessageArticle(msg, color, members);
       if (article) containerEl.appendChild(article);
     }
-    const streaming = _buildCloudAgentStreamingArticle(conversationId, color);
+    const streaming = _buildCloudAgentStreamingArticle(conversationId, color, members);
     if (streaming) containerEl.appendChild(streaming);
     window.miaAvatar?.hydrateAvatarVideos?.(containerEl);
     markRenderedTraceBlocks(containerEl);
@@ -1694,8 +1849,8 @@
   // bubble. The bubble carries data-message-source="cloud-conversation" + a
   // data-message-id so the chat-level contextmenu dispatcher in app.js
   // routes to openSocialMessageMenu instead of the bot message menu.
-  function _buildMessageArticle(msg, accentColor) {
-    const spec = _specForMessage(msg);
+  function _buildMessageArticle(msg, accentColor, members = []) {
+    const spec = _specForMessage(msg, members);
     const conversation = moduleState.conversations.find((r) => r.id === moduleState.activeConversationId);
     const isUser = Boolean(spec && spec.isOwn);
     const roleClass = isUser ? "user" : "assistant";
@@ -1742,6 +1897,11 @@
 
     const article = document.createElement("article");
     article.className = `message ${roleClass}`;
+    if (typeof article.setAttribute === "function") {
+      article.setAttribute("data-message-id", msg.id || "");
+    } else {
+      article.dataset = { ...(article.dataset || {}), messageId: msg.id || "" };
+    }
     // Tag the avatar like the group builder so the same app.js handlers fire:
     // left-click → contact card, right-click → dropdown. Private chat and
     // group chat share one avatar-interaction path (一视同仁).
@@ -1840,10 +2000,18 @@
     return `<span class="message-send-status is-error" title="${escapeHtml(errorText)}">发送失败</span>`;
   }
 
-  function _reRenderActiveChat() {
+  function _reRenderActiveChat(options = {}) {
     const chatEl = document.getElementById("chat");
+    if (options.force && chatEl?.dataset) {
+      delete chatEl.dataset.conversationRenderSignature;
+    }
     if (chatEl && moduleState.activeConversationId) renderConversationChat(chatEl);
     renderAgentPermissionBanner();
+  }
+
+  function renderForMessageFocus() {
+    if (deps && typeof deps.render === "function") deps.render();
+    _reRenderActiveChat({ force: true });
   }
 
   // Remove a single message's bubble from the open chat without a full repaint.
@@ -1857,11 +2025,12 @@
 
   // Translate a cloud-conversation message in place. Mirrors message-menu.translateMessage
   // but stores the result on the cached message and re-renders the conversation.
-  async function translateConversationMessage(conversationId, messageId) {
+  async function translateConversationMessage(conversationId, messageId, selectionText = "") {
     const entry = moduleState.messageCache.get(conversationId);
     const msg = entry && entry.messages.find((m) => m.id === messageId);
     if (!msg) return;
-    const text = String(msg.body_md || msg.bodyMd || "").trim();
+    const selected = String(selectionText || "").trim();
+    const text = selected || String(msg.body_md || msg.bodyMd || "").trim();
     if (!text) return;
     // sendChat needs a bot to run the utility model on: prefer a bot
     // member of this conversation, else fall back to the first available persona.
@@ -1870,11 +2039,11 @@
     const conversationBot = (_conversationMembersCache.get(conversationId) || []).find((m) => m.member_kind === MemberKind.Bot);
     const botKey = (conversationBot && conversationBot.member_ref) || (bots[0] && (bots[0].key || bots[0].id)) || "";
     if (!botKey) {
-      msg.translation = { status: "error", text: "", error: "没有可用于翻译的 bot。" };
+      msg.translation = { status: "error", text: "", error: "没有可用于翻译的 bot。", sourceText: selected };
       if (conversationId === moduleState.activeConversationId) _reRenderActiveChat();
       return;
     }
-    msg.translation = { status: "loading", text: "", error: "" };
+    msg.translation = { status: "loading", text: "", error: "", sourceText: selected };
     if (conversationId === moduleState.activeConversationId) _reRenderActiveChat();
     try {
       const prompt = [
@@ -1892,10 +2061,10 @@
       });
       const translated = String(response?.choices?.[0]?.message?.content || "").trim();
       msg.translation = translated
-        ? { status: "done", text: translated, error: "" }
-        : { status: "error", text: "", error: "模型没有返回译文。" };
+        ? { status: "done", text: translated, error: "", sourceText: selected }
+        : { status: "error", text: "", error: "模型没有返回译文。", sourceText: selected };
     } catch (error) {
-      msg.translation = { status: "error", text: "", error: `翻译失败: ${error?.message || error}` };
+      msg.translation = { status: "error", text: "", error: `翻译失败: ${error?.message || error}`, sourceText: selected };
     }
     if (conversationId === moduleState.activeConversationId) _reRenderActiveChat();
   }
@@ -1963,9 +2132,10 @@
     const conversation = moduleState.conversations.find((r) => r.id === moduleState.activeConversationId);
     const color = conversation ? avatarColor(conversation.id) : "#5e5ce6";
     const conversationType = conversationTypeFor(conversation, moduleState.activeConversationId);
+    const members = _conversationMembersCache.get(moduleState.activeConversationId) || [];
     const article = conversationType === "group"
       ? _buildGroupMessageArticle(msg, color, _conversationMembersCache.get(moduleState.activeConversationId) || [])
-      : _buildMessageArticle(msg, color);
+      : _buildMessageArticle(msg, color, conversationType === "bot" ? members : []);
     if (article) {
       chatEl.appendChild(article);
       window.miaAvatar?.hydrateAvatarVideos?.(article);
@@ -2509,6 +2679,13 @@
     return entry;
   }
 
+  function cachedMessageById(conversationId, messageId) {
+    const entry = moduleState.messageCache.get(conversationId);
+    if (!entry || !Array.isArray(entry.messages)) return null;
+    const id = String(messageId || "");
+    return entry.messages.find((msg) => String(msg?.id || "") === id) || null;
+  }
+
   const _ensuringConversations = new Set();
 
   // TG-style local-first open: paint the locally-cached recent history instantly
@@ -2563,6 +2740,68 @@
     } finally {
       _ensuringConversations.delete(conversationId);
     }
+  }
+
+  async function focusConversationMessage(conversationId, target = {}) {
+    const id = String(conversationId || "").trim();
+    const message = target?.message && typeof target.message === "object" ? target.message : null;
+    const messageId = String(target?.messageId || target?.id || message?.id || "").trim();
+    if (!id || !messageId) return { ok: false, error: "missing message target" };
+    const focusMessage = message
+      ? messageWithFallbackRunTrace(id, { ...message, conversation_id: message.conversation_id || id })
+      : null;
+
+    _pendingMessageFocus = {
+      conversationId: id,
+      messageId,
+      startedAt: Date.now(),
+      smooth: false
+    };
+
+    if (focusMessage) {
+      _mergeMessagesIntoCache(id, [focusMessage]);
+    }
+
+    const seq = Number(target?.seq ?? message?.seq ?? 0) || 0;
+    setActiveConversationId(id);
+    renderForMessageFocus();
+    schedulePendingMessageFocus();
+    const immediateFound = await waitForPendingMessageFocus(seq > 0 ? 3 : 8);
+    if (immediateFound && seq <= 0) return { ok: true, found: true };
+
+    const api = window.mia && window.mia.social;
+    try {
+      if (api && typeof api.listConversationMessages === "function") {
+        const sinceSeq = seq > 0 ? Math.max(0, seq - 120) : 0;
+        const limit = seq > 0 ? 260 : 500;
+        const res = await api.listConversationMessages(id, sinceSeq, limit);
+        const messages = (res?.ok ? res.data?.messages : res?.messages) || [];
+        if (Array.isArray(messages) && messages.length) {
+          _mergeMessagesIntoCache(id, messages.map((m) => messageWithFallbackRunTrace(id, m)));
+        }
+      }
+    } catch (err) {
+      console.warn("[social] focusConversationMessage backfill failed:", err?.message || err);
+    }
+
+    if (focusMessage && !cachedMessageById(id, messageId)) {
+      _mergeMessagesIntoCache(id, [focusMessage]);
+    }
+
+    _pendingMessageFocus = {
+      conversationId: id,
+      messageId,
+      startedAt: Date.now(),
+      smooth: true
+    };
+    if (moduleState.activeConversationId === id) {
+      renderForMessageFocus();
+    }
+    schedulePendingMessageFocus(8);
+    const found = await waitForPendingMessageFocus(10);
+    const cached = Boolean(cachedMessageById(id, messageId));
+    if (!found && !cached) console.warn("[social] focusConversationMessage target not found:", messageId);
+    return { ok: true, found: found || cached };
   }
 
   function setActiveConversationId(id) {
@@ -2634,6 +2873,7 @@
         pins: s.pins,
         readMarks: nextReadMarks,
         appearance: s.appearance,
+        tags: s.tags,
         mutedConversations: s.mutedConversations || [],
         unreadOverrides: nextOverrides,
         expectedVersion: s.version || 0
@@ -2659,14 +2899,32 @@
   // populated by bootstrapCloudSettings() at login and refreshed on each
   // user_settings.updated WS event. Mutations PUT via IPC and the
   // broadcast confirms / replaces the optimistic update.
+  function conversationTagsShared() {
+    if (typeof window !== "undefined" && window.miaConversationTags) return window.miaConversationTags;
+    if (typeof require === "function") return require("../../shared/conversation-tags.js");
+    return {
+      defaultConversationTags: () => ({ items: [], assignments: {} }),
+      normalizeConversationTags: (value) => value && typeof value === "object" ? value : { items: [], assignments: {} },
+      pruneUnusedTagItems: (value) => value && typeof value === "object" ? value : { items: [], assignments: {} },
+      tagsForTarget: () => [],
+      assignTagNames: (tags) => tags && typeof tags === "object" ? tags : { items: [], assignments: {} }
+    };
+  }
+
   function normalizeCloudSettings(settings, previous = {}) {
     const input = settings && typeof settings === "object" ? settings : {};
     const prior = previous && typeof previous === "object" ? previous : {};
+    const tagApi = conversationTagsShared();
+    const rawTags = input.tags !== undefined ? input.tags : (prior.tags || tagApi.defaultConversationTags());
+    const tags = typeof tagApi.pruneUnusedTagItems === "function"
+      ? tagApi.pruneUnusedTagItems(rawTags)
+      : tagApi.normalizeConversationTags(rawTags);
     return {
       ...input,
       pins: Array.isArray(input.pins) ? input.pins : [],
       readMarks: input.readMarks && typeof input.readMarks === "object" ? input.readMarks : {},
       appearance: input.appearance && typeof input.appearance === "object" ? input.appearance : {},
+      tags,
       // Older cloud settings responses only echo pins/readMarks/appearance.
       // Preserve these local bags so optimistic menu toggles don't flash away.
       mutedConversations: Array.isArray(input.mutedConversations)
@@ -2716,7 +2974,307 @@
   async function setConversationManuallyUnread(conversationId, unread, _retried = false) {
     return _patchCloudSettings({ manualUnread: unread, conversationId, _retried });
   }
-  async function _patchCloudSettings({ pinned, muted, manualUnread, conversationId, _retried }) {
+  function conversationTagsFor(conversationId) {
+    if (!conversationId) return [];
+    return conversationTagsShared().tagsForTarget(_ensureCloudSettings().tags, conversationId);
+  }
+  function allConversationTags() {
+    const tags = _ensureCloudSettings().tags;
+    const used = new Set(Object.values(tags?.assignments || {}).flatMap((ids) =>
+      Array.isArray(ids) ? ids : []));
+    return Array.isArray(tags?.items) ? tags.items.filter((item) => used.has(item.id)) : [];
+  }
+  function conversationTagFilters() {
+    const tags = _ensureCloudSettings().tags;
+    const active = String(moduleState.tagFilterName || "").trim().toLowerCase();
+    const visibleIds = new Set(visibleSocialConversations(moduleState.conversations, {
+      activeConversationId: moduleState.activeConversationId,
+      preferredConversationIdByBotKey: moduleState.lastBotConversationByKey,
+      ignoreTagFilter: true
+    }).map((conversation) => String(conversation?.id || "")).filter(Boolean));
+    const counts = new Map();
+    for (const [conversationId, ids] of Object.entries(tags?.assignments || {})) {
+      if (!visibleIds.has(String(conversationId || ""))) continue;
+      for (const tagId of new Set(Array.isArray(ids) ? ids : [])) {
+        counts.set(tagId, (counts.get(tagId) || 0) + 1);
+      }
+    }
+    return (Array.isArray(tags?.items) ? tags.items : [])
+      .map((item) => {
+        const name = String(item?.name || "").trim();
+        const count = counts.get(item?.id) || 0;
+        if (!name || count <= 0) return null;
+        return {
+          id: item.id,
+          name,
+          color: item.color,
+          count,
+          filterActive: Boolean(active && name.toLowerCase() === active)
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => {
+        if (b.count !== a.count) return b.count - a.count;
+        return a.name.localeCompare(b.name, "zh-Hans-CN");
+      });
+  }
+  function getConversationTagFilter() {
+    return String(moduleState.tagFilterName || "").trim();
+  }
+  function focusConversationTagInput(conversationId, target = "add") {
+    if (typeof document === "undefined") return;
+    setTimeout(() => {
+      const id = String(conversationId || "");
+      const cards = document.querySelectorAll?.("[data-conversation-id]") || [];
+      for (const card of cards) {
+        if (card?.dataset?.conversationId !== id) continue;
+        card.querySelector?.("[data-tag-input]")?.focus?.();
+        break;
+      }
+    }, 0);
+  }
+  function unwireTagEditOutsideClose() {
+    _tagEditOutsideGeneration += 1;
+    if (_tagEditOutsideHandler && typeof document !== "undefined") {
+      document.removeEventListener("pointerdown", _tagEditOutsideHandler, true);
+    }
+    _tagEditOutsideHandler = null;
+  }
+  function wireTagEditOutsideClose(conversationId) {
+    unwireTagEditOutsideClose();
+    if (typeof document === "undefined") return;
+    const generation = _tagEditOutsideGeneration;
+    setTimeout(() => {
+      if (generation !== _tagEditOutsideGeneration) return;
+      if (String(moduleState.tagEditingConversationId || "") !== String(conversationId || "")) return;
+      _tagEditOutsideHandler = (event) => {
+        const activeId = String(moduleState.tagEditingConversationId || "");
+        if (!activeId || activeId !== String(conversationId || "")) return;
+        const card = event.target?.closest?.("[data-conversation-id]");
+        if (card?.dataset?.conversationId === activeId) return;
+        endConversationTagEdit(activeId);
+      };
+      document.addEventListener("pointerdown", _tagEditOutsideHandler, true);
+    }, 0);
+  }
+  function beginConversationTagEdit(conversationId) {
+    const id = String(conversationId || "").trim();
+    if (!id) return false;
+    moduleState.tagEditingConversationId = id;
+    moduleState.tagEditingAdding = true;
+    moduleState.tagEditingMode = "add";
+    moduleState.tagEditingTargetName = "";
+    moduleState.tagEditingDraft = "";
+    if (deps && typeof deps.render === "function") deps.render();
+    wireTagEditOutsideClose(id);
+    focusConversationTagInput(id, "input");
+    return true;
+  }
+  function startConversationTagAdd(conversationId) {
+    const id = String(conversationId || "").trim();
+    if (!id) return false;
+    moduleState.tagEditingConversationId = id;
+    moduleState.tagEditingAdding = true;
+    moduleState.tagEditingMode = "add";
+    moduleState.tagEditingTargetName = "";
+    moduleState.tagEditingDraft = "";
+    if (deps && typeof deps.render === "function") deps.render();
+    wireTagEditOutsideClose(id);
+    focusConversationTagInput(id, "input");
+    return true;
+  }
+  function startConversationTagRename(conversationId, name) {
+    const id = String(conversationId || "").trim();
+    const clean = String(name || "").trim();
+    if (!id || !clean) return false;
+    moduleState.tagEditingConversationId = id;
+    moduleState.tagEditingAdding = false;
+    moduleState.tagEditingMode = "rename";
+    moduleState.tagEditingTargetName = clean;
+    moduleState.tagEditingDraft = clean;
+    if (deps && typeof deps.render === "function") deps.render();
+    wireTagEditOutsideClose(id);
+    focusConversationTagInput(id, "input");
+    return true;
+  }
+  function setConversationTagDraft(conversationId, value) {
+    const id = String(conversationId || "").trim();
+    if (!id || moduleState.tagEditingConversationId !== id) return false;
+    moduleState.tagEditingDraft = String(value || "");
+    return true;
+  }
+  function endConversationTagEdit(conversationId = "") {
+    const id = String(conversationId || "").trim();
+    if (id && moduleState.tagEditingConversationId !== id) return false;
+    moduleState.tagEditingConversationId = "";
+    moduleState.tagEditingAdding = false;
+    moduleState.tagEditingMode = "";
+    moduleState.tagEditingTargetName = "";
+    moduleState.tagEditingDraft = "";
+    unwireTagEditOutsideClose();
+    if (deps && typeof deps.render === "function") deps.render();
+    return true;
+  }
+  function conversationTagEditorFor(conversationId) {
+    const id = String(conversationId || "").trim();
+    if (!id) return null;
+    const active = moduleState.tagEditingConversationId === id;
+    return {
+      active,
+      maxTags: 3,
+      tags: conversationTagsFor(id),
+      allTags: allConversationTags(),
+      adding: active && moduleState.tagEditingAdding,
+      mode: active ? moduleState.tagEditingMode : "",
+      targetName: active ? moduleState.tagEditingTargetName : "",
+      draft: active ? moduleState.tagEditingDraft : "",
+      filterName: moduleState.tagFilterName || "",
+      removingName: moduleState.tagRemovingConversationId === id ? moduleState.tagRemovingName : "",
+      onStartAdd: () => startConversationTagAdd(id),
+      onDraft: (value) => setConversationTagDraft(id, value),
+      onCommit: (name, details = null) => commitConversationTagInput(id, name, details),
+      onAdd: (name) => addConversationTagName(id, name),
+      onRemove: (name) => removeConversationTagName(id, name),
+      onOpenMenu: (name, x, y) => openConversationTagMenu(id, name, x, y),
+      onCancel: () => endConversationTagEdit(id)
+    };
+  }
+  async function commitConversationTagInput(conversationId, name, details = null) {
+    const id = String(conversationId || "").trim();
+    const clean = String(name || "").trim();
+    if (!id || !clean) return endConversationTagEdit(id);
+    const explicitMode = String(details?.mode || "").trim();
+    const explicitTarget = String(details?.targetName || "").trim();
+    const isRename = explicitMode === "rename"
+      || (moduleState.tagEditingConversationId === id && moduleState.tagEditingMode === "rename");
+    if (isRename) {
+      const target = explicitTarget || String(moduleState.tagEditingTargetName || "").trim();
+      return renameConversationTagName(id, target, clean);
+    }
+    return addConversationTagName(id, clean);
+  }
+  async function setConversationTagNames(conversationId, names, _retried = false) {
+    if (!conversationId) return;
+    const s = _ensureCloudSettings();
+    const tags = conversationTagsShared().assignTagNames(s.tags, conversationId, names);
+    return _patchCloudSettings({ tags, conversationId, _retried });
+  }
+  async function addConversationTagName(conversationId, name) {
+    const id = String(conversationId || "").trim();
+    const clean = String(name || "").trim();
+    if (!id || !clean) return;
+    const names = conversationTagsFor(id).map((tag) => tag.name);
+    if (!names.some((item) => item.toLowerCase() === clean.toLowerCase())) {
+      if (names.length >= 3) return endConversationTagEdit(id);
+      names.push(clean);
+    }
+    moduleState.tagEditingConversationId = "";
+    moduleState.tagEditingAdding = false;
+    moduleState.tagEditingMode = "";
+    moduleState.tagEditingTargetName = "";
+    moduleState.tagEditingDraft = "";
+    return setConversationTagNames(id, names);
+  }
+  async function removeConversationTagName(conversationId, name) {
+    const id = String(conversationId || "").trim();
+    const clean = String(name || "").trim().toLowerCase();
+    if (!id || !clean) return;
+    const names = conversationTagsFor(id)
+      .map((tag) => tag.name)
+      .filter((item) => item.toLowerCase() !== clean);
+    moduleState.tagEditingConversationId = "";
+    moduleState.tagEditingAdding = false;
+    moduleState.tagEditingMode = "";
+    moduleState.tagEditingTargetName = "";
+    moduleState.tagEditingDraft = "";
+    return setConversationTagNames(id, names);
+  }
+  async function removeConversationTagNameAnimated(conversationId, name) {
+    const id = String(conversationId || "").trim();
+    const clean = String(name || "").trim();
+    if (!id || !clean) return;
+    moduleState.tagRemovingConversationId = id;
+    moduleState.tagRemovingName = clean;
+    if (deps && typeof deps.render === "function") deps.render();
+    setTimeout(() => {
+      if (moduleState.tagRemovingConversationId === id
+        && moduleState.tagRemovingName.toLowerCase() === clean.toLowerCase()) {
+        moduleState.tagRemovingConversationId = "";
+        moduleState.tagRemovingName = "";
+        removeConversationTagName(id, clean);
+      }
+    }, 140);
+  }
+  async function renameConversationTagName(conversationId, oldName, newName) {
+    const id = String(conversationId || "").trim();
+    const source = String(oldName || "").trim();
+    const target = String(newName || "").trim();
+    if (!id || !source || !target) return endConversationTagEdit(id);
+    const api = conversationTagsShared();
+    const current = api.normalizeConversationTags(_ensureCloudSettings().tags);
+    const sourceItem = current.items.find((item) => item.name.toLowerCase() === source.toLowerCase());
+    if (!sourceItem) return endConversationTagEdit(id);
+    const existing = current.items.find((item) =>
+      item.id !== sourceItem.id && item.name.toLowerCase() === target.toLowerCase());
+    let nextItems = [];
+    let nextAssignments = {};
+    if (existing) {
+      nextItems = current.items.filter((item) => item.id !== sourceItem.id);
+      for (const [targetId, ids] of Object.entries(current.assignments || {})) {
+        const merged = [...new Set((Array.isArray(ids) ? ids : []).map((tagId) =>
+          tagId === sourceItem.id ? existing.id : tagId))].slice(0, 3);
+        if (merged.length) nextAssignments[targetId] = merged;
+      }
+    } else {
+      nextItems = current.items.map((item) =>
+        item.id === sourceItem.id ? { ...item, name: target } : item);
+      nextAssignments = { ...current.assignments };
+    }
+    moduleState.tagEditingConversationId = "";
+    moduleState.tagEditingAdding = false;
+    moduleState.tagEditingMode = "";
+    moduleState.tagEditingTargetName = "";
+    moduleState.tagEditingDraft = "";
+    const tags = typeof api.pruneUnusedTagItems === "function"
+      ? api.pruneUnusedTagItems({ items: nextItems, assignments: nextAssignments })
+      : api.normalizeConversationTags({ items: nextItems, assignments: nextAssignments });
+    return _patchCloudSettings({
+      tags,
+      conversationId: id
+    });
+  }
+  function setConversationTagFilter(name) {
+    const clean = String(name || "").trim();
+    const current = String(moduleState.tagFilterName || "").trim();
+    moduleState.tagFilterName = current && current.toLowerCase() === clean.toLowerCase() ? "" : clean;
+    if (deps && typeof deps.render === "function") deps.render();
+  }
+  function openConversationTagMenu(conversationId, name, x, y) {
+    const id = String(conversationId || "").trim();
+    const clean = String(name || "").trim();
+    if (!id || !clean || typeof window === "undefined") return;
+    window.miaConversationContextMenu?.openConversationTagMenu?.(
+      {
+        conversationId: id,
+        name: clean,
+        filterActive: String(moduleState.tagFilterName || "").trim().toLowerCase() === clean.toLowerCase()
+      },
+      {
+        filter: () => setConversationTagFilter(clean),
+        rename: () => startConversationTagRename(id, clean),
+        remove: () => removeConversationTagNameAnimated(id, clean)
+      },
+      x,
+      y
+    );
+  }
+  async function editConversationTags(conversationId, title = "", onSaved = null, options = {}) {
+    if (!conversationId || typeof window === "undefined") return;
+    const result = beginConversationTagEdit(conversationId);
+    if (typeof onSaved === "function") onSaved();
+    return result;
+  }
+  async function _patchCloudSettings({ pinned, muted, manualUnread, tags, conversationId, _retried }) {
     if (!conversationId) return;
     const s = _ensureCloudSettings();
     const pins = Array.isArray(s.pins) ? s.pins : [];
@@ -2731,7 +3289,8 @@
         : mutedConversations,
       unreadOverrides,
       readMarks: s.readMarks || {},
-      appearance: s.appearance || {}
+      appearance: s.appearance || {},
+      tags: tags !== undefined ? conversationTagsShared().normalizeConversationTags(tags) : s.tags
     };
     if (manualUnread === true) {
       next.unreadOverrides[conversationId] = true;
@@ -2749,6 +3308,7 @@
         unreadOverrides: next.unreadOverrides,
         readMarks: next.readMarks,
         appearance: next.appearance,
+        tags: next.tags,
         expectedVersion: s.version || 0
       });
       const updatedSettings = unwrapCloudSettingsResponse(updated);
@@ -2756,7 +3316,7 @@
     } catch (err) {
       if (!_retried && /409|version conflict/i.test(String(err?.message || ""))) {
         await bootstrapCloudSettings();
-        return _patchCloudSettings({ pinned, muted, manualUnread, conversationId, _retried: true });
+        return _patchCloudSettings({ pinned, muted, manualUnread, tags, conversationId, _retried: true });
       }
       console.warn("[social] settingsPut failed:", err?.message || err);
       moduleState.cloudSettings = s;
@@ -2907,6 +3467,7 @@
     getConversationById,
     botConversationForKey,
     setActiveConversationId,
+    focusConversationMessage,
     markConversationRead,
     isConversationPinned,
     setConversationPinned,
@@ -2914,6 +3475,21 @@
     setConversationMuted,
     isConversationManuallyUnread,
     setConversationManuallyUnread,
+    conversationTagsFor,
+    conversationTagFilters,
+    getConversationTagFilter,
+    conversationTagEditorFor,
+    setConversationTagNames,
+    beginConversationTagEdit,
+    startConversationTagAdd,
+    startConversationTagRename,
+    setConversationTagDraft,
+    endConversationTagEdit,
+    addConversationTagName,
+    removeConversationTagName,
+    renameConversationTagName,
+    setConversationTagFilter,
+    editConversationTags,
     applyCloudSettings,
     ensureBotConversation,
     upsertBotConversation,

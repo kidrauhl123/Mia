@@ -63,6 +63,35 @@ test("listing conversation messages writes through to the local cache; cached re
   assert.deepEqual(cached, { ok: true, data: { messages: [{ id: "m1", seq: 1 }] } });
 });
 
+test("searching conversation messages writes hit messages through to the local cache", async () => {
+  const ipcMain = fakeIpcMain();
+  const upserts = [];
+  const fakeCache = {
+    upsertMessages: (conversationId, messages) => upserts.push({ conversationId, messages })
+  };
+  const searchResult = {
+    conversation: { id: "botc_sess_1", type: "bot" },
+    message: { id: "m_search", conversation_id: "botc_sess_1", body_md: "needle in session one" },
+    matchText: "needle in session one"
+  };
+  registerSocialIpc({
+    ipcMain,
+    socialApi: {
+      searchConversationMessages: async () => ({ results: [searchResult] })
+    },
+    messageCache: fakeCache
+  });
+
+  const result = await ipcMain.handlers.get(IpcChannel.SocialSearchConversationMessages)(null, "needle", 80);
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.data, { results: [searchResult] });
+  assert.deepEqual(upserts, [{
+    conversationId: "botc_sess_1",
+    messages: [searchResult.message]
+  }]);
+});
+
 test("social list IPC writes bootstrap data through to the local cache", async () => {
   const ipcMain = fakeIpcMain();
   const patches = [];

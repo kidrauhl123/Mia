@@ -131,6 +131,14 @@ macOS Intel 包：
 npm run dist:mac:intel
 ```
 
+macOS 公证需要先把 notarytool 凭据保存到登录钥匙串，profile 默认名为 `mia`：
+
+```bash
+xcrun notarytool store-credentials mia --apple-id <apple-id> --team-id S4NWU843M5
+npm run notarize:mac
+npm run notarize:mac:intel
+```
+
 Windows 包：
 
 ```bash

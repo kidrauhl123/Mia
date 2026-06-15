@@ -12,7 +12,7 @@ test("market card click opens the detail modal", () => {
   assert.match(src, /\[data-market-id\][\s\S]*addEventListener\("click", \(\) => openMarketModal/);
   assert.match(src, /function openMarketModal/);
   assert.match(src, /function closeMarketModal/);
-  assert.match(src, /function renderMarketModal/);
+  assert.match(src, /function renderSkillModal/);
 });
 
 test("detail modal shows Chinese name + summary, body toggle, and add action", () => {
@@ -21,12 +21,33 @@ test("detail modal shows Chinese name + summary, body toggle, and add action", (
   assert.match(src, /skill\.name_zh \|\| skill\.name/);
   assert.match(src, /skill\.summary_zh \|\| marketDescriptionZh\(skill\)/);
   // 展开正文 ⇄ 返回 toggle reveals the raw SKILL.md body
-  assert.match(src, /marketModal\.showBody/);
+  assert.match(src, /skillModal\.showBody/);
   assert.match(src, /renderSkillMarkdownSource\(skill\.body\)/);
   assert.match(src, /展开正文/);
   assert.match(src, /返回简介/);
   // add / use action
   assert.match(src, /installMarketSkill\(skill\.id\)/);
+});
+
+test("local skill cards reuse the shared market modal and keep the body entry", () => {
+  const src = read("src/renderer/skills/skill-library.js");
+  assert.match(src, /\[data-skill-select\][\s\S]*addEventListener\("click", \(\) => selectSkill/);
+  assert.match(src, /function openLocalSkillModal/);
+  assert.match(src, /skillModal = \{ kind: "local", skillId, showBody: false \}/);
+  assert.match(src, /ensureMarketModalEl\(\)\.classList\.remove\("hidden"\)/);
+  assert.match(src, /skillModal\.kind === "local"[\s\S]*window\.miaSkillHelpers\.skillSummaryZh\(skill\)/);
+  assert.match(src, /skillModal\.kind === "local"[\s\S]*useSkillInComposer\(skill\.id\)/);
+  assert.match(src, /renderSkillMarkdownSource\(skill\.body\)/);
+  assert.doesNotMatch(src, /function renderSkillPreview/);
+});
+
+test("legacy local skill preview dialog is removed", () => {
+  const html = read("src/renderer/index.html");
+  const app = read("src/renderer/app.js");
+  const state = read("src/renderer/app-state.js");
+  assert.doesNotMatch(html, /id="skillPreviewDialog"/);
+  assert.doesNotMatch(app, /skillPreviewDialog|closeSkillPreview|skillPreviewBody|renderSkillPreview/);
+  assert.doesNotMatch(state, /skillPreviewOpen/);
 });
 
 test("detail modal closes on Escape and backdrop", () => {
@@ -41,4 +62,12 @@ test("detail modal styles exist", () => {
   assert.match(css, /\.smm-panel/);
   assert.match(css, /\.smm-body-toggle/);
   assert.match(css, /\.smm-add/);
+});
+
+test("legacy local skill preview styles are removed", () => {
+  const css = read("src/renderer/styles.css");
+  const skillsCss = read("src/renderer/styles/skills.css");
+  assert.doesNotMatch(css, /\.skill-preview-intro/);
+  assert.doesNotMatch(css, /\.skill-preview-use/);
+  assert.doesNotMatch(skillsCss, /\.skill-dot/);
 });

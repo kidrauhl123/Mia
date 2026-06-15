@@ -62,7 +62,11 @@ const { createCloudEventsClient } = require("./main/cloud/cloud-events-client.js
 const { createCloudBridgeClient } = require("./main/cloud/cloud-bridge-client.js");
 const { createCloudDesktopSyncClient } = require("./main/cloud/desktop-sync-client.js");
 const { createCloudSettingsWriter } = require("./main/cloud/cloud-settings-writer.js");
-const { openSkillMarketCache } = require("./main/skills/skill-market-cache.js");
+const {
+  DEFAULT_SKILL_MARKET_CACHE_TTL_MS,
+  normalizeSkillMarketParams,
+  openSkillMarketCache
+} = require("./main/skills/skill-market-cache.js");
 const { loadLocalSkillMarketPayload, packageLocalCatalogSkill } = require("./main/skills/skill-market-local.js");
 const { createRemoteControlRouter } = require("./main/remote/remote-control-router.js");
 const { createModelSettingsService } = require("./main/model-settings-service.js");
@@ -82,7 +86,10 @@ const { createEnginePluginsService } = require("./main/engine-plugins-service.js
 const { createLocalAgentEngineService } = require("./main/local-agent-engine-service.js");
 const { createAgentSessionStore } = require("./main/agent-session-store.js");
 const { createAgentPermissionCoordinator } = require("./main/agent-permission-coordinator.js");
-const { runCodexAppServerTurn } = require("./main/codex-app-server-runner.js");
+const {
+  createCodexAppServerConnection,
+  runCodexAppServerTurn
+} = require("./main/codex-app-server-runner.js");
 const { createSchedulerMcpBridge } = require("./main/scheduler-mcp-bridge.js");
 const { schedulerSkillIdsForTurn } = require("./main/scheduler-skill-detector.js");
 const { deliverTaskReplyToConversation } = require("./main/task-reply-delivery.js");
@@ -499,7 +506,12 @@ const engineCatalogService = createEngineCatalogService({
   buildPythonPath,
   runPythonScript,
   appendEngineLog,
-  timeEngineStepAsync
+  timeEngineStepAsync,
+  shellCommandPath: (command) => localAgentEngineService.shellCommandPath(command),
+  processEnvStrings,
+  ensureCodexHome: () => schedulerMcpBridge.ensureCodexHome(),
+  createCodexAppServerConnection,
+  cwd: () => process.cwd()
 });
 let claudeAgentSdkModule = null;
 let codexSdkModule = null;
@@ -1149,6 +1161,224 @@ function cloudSettingsGet() {
 
 function cloudSettingsPut(settings = {}) {
   return cloudDesktopSync().putUserSettings(settings);
+}
+
+function hasCjkText(value) {
+  return /[\u3400-\u9fff]/.test(String(value || ""));
+}
+
+function skillMarketSnapshot(params = {}) {
+  return loadLocalSkillMarketPayload({ params: normalizeSkillMarketParams(params) });
+}
+
+function skillMarketSnapshotAll() {
+  return loadLocalSkillMarketPayload({ params: { limit: 10000 } });
+}
+
+function skillMarketCacheUserId() {
+  const cloud = settingsStore.cloudSettings();
+  return String(cloud?.user?.id || cloud?.user?.username || "").trim();
+}
+
+function cloudMarketParamsForDesktop(params = {}) {
+  const normalized = normalizeSkillMarketParams(params);
+  // The cloud catalog stores first-party categories/descriptions in the
+  // underlying SKILL.md language. Chinese UI filters are applied after we
+  // overlay the bundled zh snapshot, so broad-fetch those refreshes.
+  return {
+    category: hasCjkText(normalized.category) ? "" : normalized.category,
+    q: hasCjkText(normalized.q) ? "" : normalized.q,
+    limit: normalized.limit
+  };
+}
+
+function marketSkillDisplayCategory(skill = {}) {
+  return String(skill.category_zh || skill.category || "").trim();
+}
+
+function marketSkillMatchesParams(skill = {}, params = {}) {
+  const normalized = normalizeSkillMarketParams(params);
+  if (normalized.category) {
+    const category = String(normalized.category || "").trim();
+    if (marketSkillDisplayCategory(skill) !== category && String(skill.rawCategory || "") !== category) return false;
+  }
+  const q = String(normalized.q || "").trim().toLowerCase();
+  if (!q) return true;
+  return [
+    skill.id,
+    skill.name,
+    skill.name_zh,
+    skill.description,
+    skill.summary_zh,
+    skill.category,
+    skill.category_zh,
+    skill.sourceLabel,
+    skill.ownerLabel,
+    skill.upstreamId
+  ].join(" ").toLowerCase().includes(q);
+}
+
+function isHiddenRemoteMarketSkill(skill = {}) {
+  const id = String(skill?.id || "").trim().toLowerCase();
+  const source = String(skill?.source || "").trim().toLowerCase();
+  const sourceLabel = String(skill?.sourceLabel || skill?.ownerLabel || "").trim().toLowerCase();
+  if (id.startsWith("hermes.")) return true;
+  if (source === "hermes-hub") return true;
+  return skill?.remote === true && sourceLabel === "hermes";
+}
+
+function categoryCountsFromMarketSkills(skills = []) {
+  const counts = new Map();
+  for (const skill of Array.isArray(skills) ? skills : []) {
+    const category = marketSkillDisplayCategory(skill);
+    if (!category) continue;
+    counts.set(category, (counts.get(category) || 0) + 1);
+  }
+  return [...counts.entries()].map(([category, count]) => ({ category, count }));
+}
+
+function mergeMarketSkillWithSnapshot(skill = {}, snapshot = null) {
+  if (!snapshot) return skill;
+  return {
+    ...skill,
+    rawCategory: skill.category || snapshot.rawCategory || "",
+    name_zh: skill.name_zh || snapshot.name_zh || "",
+    summary_zh: skill.summary_zh || snapshot.summary_zh || "",
+    category_zh: skill.category_zh || snapshot.category_zh || snapshot.category || "",
+    category: snapshot.category || skill.category || "",
+    description: snapshot.description || skill.description || "",
+    sourceLabel: skill.sourceLabel || snapshot.sourceLabel || "",
+    ownerLabel: skill.ownerLabel || snapshot.ownerLabel || snapshot.sourceLabel || "",
+    latestVersion: skill.latestVersion || snapshot.latestVersion || snapshot.version || "",
+    version: skill.version || snapshot.version || "",
+    checksum: skill.checksum || snapshot.checksum || ""
+  };
+}
+
+function normalizeDesktopMarketPayload(page = {}, params = {}) {
+  const snapshots = skillMarketSnapshotAll();
+  const snapshotById = new Map((snapshots.skills || []).map((skill) => [String(skill.id || ""), skill]));
+  const skills = (Array.isArray(page.skills) ? page.skills : [])
+    .filter((skill) => !isHiddenRemoteMarketSkill(skill))
+    .map((skill) => mergeMarketSkillWithSnapshot(skill, snapshotById.get(String(skill?.id || ""))))
+    .filter((skill) => marketSkillMatchesParams(skill, params));
+  return {
+    skills,
+    categories: categoryCountsFromMarketSkills(skills),
+    cached: Boolean(page.cached),
+    stale: Boolean(page.stale),
+    updatedAt: page.updatedAt || ""
+  };
+}
+
+function cachedDesktopMarketPayload(params = {}) {
+  const userId = skillMarketCacheUserId();
+  if (!userId) return null;
+  const cached = skillMarketCache.getMarketPage(userId, cloudMarketParamsForDesktop(params), {
+    nowMs: Date.now(),
+    ttlMs: DEFAULT_SKILL_MARKET_CACHE_TTL_MS
+  });
+  return cached ? normalizeDesktopMarketPayload({ ...cached, cached: true }, params) : null;
+}
+
+async function listDesktopMarketSkills(params = {}) {
+  const normalized = normalizeSkillMarketParams(params);
+  const cloud = settingsStore.cloudSettings();
+  const online = Boolean(cloud.enabled && cloud.token);
+  const snapshot = {
+    ...skillMarketSnapshot(normalized),
+    cached: true,
+    stale: online && !params.forceRefresh,
+    updatedAt: ""
+  };
+  if (!online) return { ...snapshot, stale: false };
+
+  if (!params.forceRefresh) {
+    const cached = cachedDesktopMarketPayload(normalized);
+    return cached || snapshot;
+  }
+
+  try {
+    const page = await cloudDesktopSync().listMarketSkills({
+      ...cloudMarketParamsForDesktop(normalized),
+      forceRefresh: true
+    });
+    return normalizeDesktopMarketPayload(page, normalized);
+  } catch (error) {
+    appendCloudLog(`Mia Cloud skill market refresh failed: ${error?.message || error}`);
+    return { ...snapshot, stale: false, error: error?.message || String(error) };
+  }
+}
+
+function marketMetaFromSkill(skill = {}, extra = {}) {
+  return {
+    sourceLabel: skill.sourceLabel || skill.ownerLabel || "",
+    upstreamSource: skill.upstreamSource || "",
+    upstreamId: skill.upstreamId || "",
+    upstreamRepo: skill.upstreamRepo || "",
+    upstreamPath: skill.upstreamPath || "",
+    trustLevel: skill.trustLevel || "",
+    checksum: extra.checksum || skill.checksum || "",
+    nameZh: skill.name_zh || "",
+    summaryZh: skill.summary_zh || "",
+    categoryZh: skill.category_zh || (hasCjkText(skill.category) ? skill.category : "")
+  };
+}
+
+function verifySkillPackageChecksum(buf, checksum = "") {
+  const expected = String(checksum || "").trim().toLowerCase();
+  if (!expected) return;
+  const actual = crypto.createHash("sha256").update(Buffer.from(buf)).digest("hex");
+  if (actual !== expected) throw new Error("技能安装包校验失败。");
+}
+
+async function installDesktopMarketSkill(skillId) {
+  const id = String(skillId || "").trim();
+  if (!id) throw new Error("技能不存在或安装失败。");
+  if (isHiddenRemoteMarketSkill({ id })) throw new Error("这个技能来源暂未开放。");
+  const snapshot = (skillMarketSnapshotAll().skills || []).find((skill) => skill.id === id) || null;
+  const cloud = settingsStore.cloudSettings();
+  const online = Boolean(cloud.enabled && cloud.token);
+  let cloudSkill = null;
+  let download = null;
+
+  if (online) {
+    try {
+      const result = await cloudDesktopSync().installMarketSkill(id);
+      cloudSkill = result?.skill || null;
+      download = result?.download || null;
+    } catch (error) {
+      appendCloudLog(`Mia Cloud skill install failed for ${id}: ${error?.message || error}`);
+      if (!snapshot) throw error;
+    }
+  }
+
+  const mergedSkill = mergeMarketSkillWithSnapshot(cloudSkill || snapshot || { id }, snapshot);
+  const cloudVersion = String(download?.version || cloudSkill?.latestVersion || cloudSkill?.version?.version || "");
+  const snapshotVersion = String(snapshot?.latestVersion || snapshot?.version || "");
+  if (snapshot && (!cloudVersion || cloudVersion === snapshotVersion)) {
+    const zipBuffer = packageLocalCatalogSkill(snapshot.id);
+    const library = await skillsLoader.installMarketplaceSkill({
+      id: snapshot.id,
+      zipBuffer,
+      marketVersion: snapshotVersion,
+      marketMeta: marketMetaFromSkill(mergedSkill, { checksum: snapshot.checksum })
+    });
+    return { skill: mergedSkill, library };
+  }
+
+  if (!download?.url) {
+    throw new Error(online ? "技能安装包缺失。" : "请登录云端后添加这个技能。");
+  }
+  const zipBuffer = await cloudDesktopSync().downloadSkillPackage(download.url);
+  verifySkillPackageChecksum(zipBuffer, download.checksum);
+  const library = await skillsLoader.installMarketplaceSkill({
+    id,
+    zipBuffer,
+    marketVersion: download.version || cloudVersion,
+    marketMeta: marketMetaFromSkill(mergedSkill, { checksum: download.checksum })
+  });
+  return { skill: mergedSkill, library };
 }
 
 function cloudWebSocketUrl(pathname, settings = settingsStore.cloudSettings()) {
@@ -2357,19 +2587,8 @@ ipcMain.handle(IpcChannel.PluginsInstall, (_event, extensionId) => skillsLoader.
 ipcMain.handle(IpcChannel.SkillsRead, (_event, skillId) => skillsLoader.readLocalSkill(skillId));
 ipcMain.handle(IpcChannel.SkillsDelete, (_event, skillId) => skillsLoader.deleteLocalSkill(skillId));
 ipcMain.handle(IpcChannel.SkillsOpenDirectory, (_event, skillId) => skillsLoader.openLocalSkillDirectory(skillId));
-ipcMain.handle(IpcChannel.SkillsMarketList, () => loadLocalSkillMarketPayload());
-ipcMain.handle(IpcChannel.SkillsMarketInstall, async (_event, skillId) => {
-  const { skills } = loadLocalSkillMarketPayload();
-  const skill = skills.find((item) => item.id === skillId);
-  if (!skill) throw new Error("技能不存在或安装失败。");
-  const zipBuffer = packageLocalCatalogSkill(skill.id);
-  const library = await skillsLoader.installMarketplaceSkill({
-    id: skill.id,
-    zipBuffer,
-    marketMeta: { sourceLabel: skill.sourceLabel || "" }
-  });
-  return { skill, library };
-});
+ipcMain.handle(IpcChannel.SkillsMarketList, (_event, params) => listDesktopMarketSkills(params || {}));
+ipcMain.handle(IpcChannel.SkillsMarketInstall, (_event, skillId) => installDesktopMarketSkill(skillId));
 ipcMain.handle(IpcChannel.SkillsPublish, async (_event, payload) => {
   const pkg = skillsLoader.packageLocalSkill(payload?.skillId);
   return cloudDesktopSync().publishSkill({

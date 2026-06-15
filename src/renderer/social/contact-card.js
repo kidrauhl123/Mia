@@ -100,28 +100,13 @@
   }
 
   function botAvatarIdentityId(ref, bot = {}, member = null, conversationId = "") {
+    void conversationId;
     const identity = member?.identity || {};
-    const me = selfUser();
-    const ownerUserId = bot?.ownerUserId
-      || bot?.owner_user_id
-      || bot?.ownerId
-      || bot?.owner_id
-      || member?.owner_user_id
-      || member?.owner_id
-      || identity.ownerUserId
-      || identity.owner_id
-      || (bot ? me.id : "");
-    const globalId = bot?.globalId
-      || bot?.global_id
-      || identity.globalId
-      || identity.global_id;
-    return globalId
-      || (ownerUserId && ref ? `botc_${ownerUserId}_${ref}` : "")
-      || contact()?.botAvatarIdentityId?.(ref, {
+    return contact()?.botAvatarIdentityId?.(ref, {
       ...(bot || {}),
-      ownerUserId,
-      globalId
-    }) || ref;
+      id: bot?.id || bot?.key || identity.id || ref,
+      member_ref: ref,
+    }) || identity.id || bot?.id || bot?.key || ref;
   }
 
   function localBot(ref) {
@@ -351,15 +336,17 @@
     const currentEffortLabel = effortEntries.find((e) => e.value === currentEffort)?.label || "Medium";
 
     const currentPermission = config.permissionMode
-      || permissionEntries.find((p) => p.value === (isCloudHermes ? "ask" : "default"))?.value
+      || permissionEntries.find((p) => p.value === (isCloudHermes ? "ask" : "default") || (Array.isArray(p.aliases) && p.aliases.includes("default")))?.value
       || permissionEntries[0]?.value
       || "";
-    const currentPermissionLabel = permissionEntries.find((p) => p.value === currentPermission)?.label || "Ask";
+    const currentPermissionEntry = permissionEntries.find((p) => p.value === currentPermission || (Array.isArray(p.aliases) && p.aliases.includes(currentPermission)));
+    const currentPermissionLabel = currentPermissionEntry?.label || "Ask";
 
     function options(entries, valueKey, labelKey, selectedValue) {
       return entries.map((e) => {
         const value = e[valueKey];
-        const sel = value === selectedValue ? " selected" : "";
+        const aliases = Array.isArray(e.aliases) ? e.aliases : [];
+        const sel = value === selectedValue || aliases.includes(selectedValue) ? " selected" : "";
         return `<option value="${escapeHtml(value)}"${sel}>${escapeHtml(e[labelKey])}</option>`;
       }).join("");
     }

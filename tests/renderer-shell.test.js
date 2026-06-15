@@ -238,6 +238,86 @@ test("lottie icons support autoplaying loop animations for scanning state", () =
   assert.match(lottieSource, /autoplay:\s*entry\.triggerMode === "loop"/);
 });
 
+test("conversation tag editor is inline on the sidebar card and uses the label asset", () => {
+  const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const socialSource = fs.readFileSync(path.join(root, "src/renderer/social/social.js"), "utf8");
+  const markdownSource = fs.readFileSync(path.join(root, "src/renderer/helpers/markdown-helpers.js"), "utf8");
+  const sidebarSource = fs.readFileSync(path.join(root, "src/renderer/sidebar-card-renderer.js"), "utf8");
+  const stylesSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+  const labelAsset = fs.readFileSync(path.join(root, "src/renderer/assets/lottie/label.json"), "utf8");
+
+  assert.doesNotMatch(html, /social\/conversation-tags-dialog\.js/);
+  assert.match(appSource, /editConversationTags\?\.\(conversation\.id,\s*name,\s*render,\s*\{ anchor: \{ x, y \} \}\)/);
+  assert.match(appSource, /function focusedSidebarTagInput\(\)/);
+  assert.match(appSource, /holdSidebarForTagInput/);
+  assert.doesNotMatch(socialSource, /miaConversationTagsDialog/);
+  assert.match(socialSource, /function conversationTagEditorFor\(conversationId\)/);
+  assert.match(socialSource, /maxTags:\s*3/);
+  assert.match(sidebarSource, /persona-tag-row/);
+  assert.match(sidebarSource, /data-tag-input/);
+  assert.match(sidebarSource, /data-tag-mode/);
+  assert.match(sidebarSource, /data-tag-target-name/);
+  assert.match(sidebarSource, /data-tag-suggestions/);
+  assert.match(sidebarSource, /data-tag-menu/);
+  assert.match(sidebarSource, /data-tag-pick/);
+  assert.match(sidebarSource, /onCommit/);
+  assert.match(sidebarSource, /tagCommitDetails/);
+  assert.match(sidebarSource, /onOpenMenu/);
+  assert.match(sidebarSource, /onDraft/);
+  assert.match(html, /id="personaTagFilters"/);
+  assert.match(html, /id="openPersonaSearch"/);
+  assert.match(html, /class="search-box hidden"/);
+  assert.match(html, /id="personaSearchClear"/);
+  assert.match(html, /id="closePersonaSearch"[^>]+hidden/);
+  assert.match(appSource, /function renderConversationSearchTools\(cloudReady\)/);
+  assert.match(appSource, /function conversationRowsFromMessageSearch\(results,\s*query\)/);
+  assert.match(appSource, /async function searchConversationMessages\(query,\s*limit = 80\)/);
+  assert.match(appSource, /function isMissingSearchIpcHandlerError\(error\)/);
+  assert.match(appSource, /function isRemoteSearchUnavailableEnvelope\(res\)/);
+  assert.match(appSource, /not a member of this conversation/i);
+  assert.match(appSource, /moduleState\?\.messageCache/);
+  assert.match(appSource, /async function searchConversationMessagesViaExistingIpc\(query,\s*limit = 80\)/);
+  assert.match(appSource, /searchResult:\s*true/);
+  assert.match(appSource, /searchMessageId/);
+  assert.match(appSource, /function setPersonaSearchOpen\(open/);
+  assert.match(appSource, /personaSearchOpen/);
+  assert.match(appSource, /data-sidebar-tag-filter/);
+  assert.doesNotMatch(appSource, /data-sidebar-tag-clear/);
+  assert.match(sidebarSource, /spec\.searchResult/);
+  assert.match(sidebarSource, /search-result/);
+  const focusoutBody = sidebarSource.match(/function handleTagInputFocusout\(btn, spec\) \{([\s\S]*?)\n  \}/)?.[1] || "";
+  assert.doesNotMatch(focusoutBody, /onCancel/, "empty tag input blur should not collapse the editor");
+  assert.doesNotMatch(sidebarSource, /data-tag-remove|showTagInput|hideTagInput/);
+  assert.match(socialSource, /function startConversationTagRename\(conversationId,\s*name\)/);
+  assert.match(socialSource, /function setConversationTagFilter\(name\)/);
+  assert.match(socialSource, /function conversationTagFilters\(\)/);
+  assert.match(socialSource, /function getConversationTagFilter\(\)/);
+  assert.match(sidebarSource, /has-tags/);
+  assert.match(sidebarSource, /document\.createElement\("div"\)/);
+  assert.match(sidebarSource, /setAttribute\("role",\s*"button"\)/);
+  assert.ok(!sidebarSource.includes("${tagChipsHtml(spec.tags)}${previewHtml"), "tags should render on their own row");
+  assert.match(fs.readFileSync(path.join(root, "src/renderer/conversation-context-menu.js"), "utf8"), /openConversationTagMenu/);
+  assert.match(stylesSource, /\.persona\.has-tags \.persona-main/);
+  assert.match(stylesSource, /\.persona-tag-row/);
+  assert.match(stylesSource, /\.persona-tag-suggestions/);
+  assert.match(stylesSource, /\.persona-tag-input-wrap/);
+  assert.match(stylesSource, /\.sidebar-tag-filters/);
+  assert.match(stylesSource, /\.sidebar-tools\.search-active/);
+  assert.match(stylesSource, /\.sidebar-tag-filter\.active/);
+  assert.match(stylesSource, /\.persona\.search-result/);
+  assert.doesNotMatch(stylesSource, /\.sidebar-tag-filter-clear/);
+  assert.match(stylesSource, /\.search-clear/);
+  assert.match(html, /id="personaSearchClear"[\s\S]*?<svg viewBox="0 0 24 24"/);
+  assert.match(html, /id="closePersonaSearch"[\s\S]*?<svg viewBox="0 0 24 24"/);
+  assert.match(stylesSource, /@keyframes tagInputOpen/);
+  assert.match(stylesSource, /@keyframes tagChipRemove/);
+  assert.doesNotMatch(stylesSource, /\.persona-tag-add|\.persona-tag-remove-mark/);
+  assert.doesNotMatch(stylesSource, /\.conversation-tags-popover/);
+  assert.match(markdownSource, /tag:\s*\{ name:\s*"label"/);
+  assert.match(labelAsset, /"nm":\s*"system-regular-146-label"/);
+});
+
 test("desktop lottie badges can load local TGS assets in the renderer with a preload bridge fallback", () => {
   const channelSource = fs.readFileSync(path.join(root, "src/shared/ipc-channels.js"), "utf8");
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
@@ -539,7 +619,7 @@ test("local assistant bubble avatars render with bot sender kind for contact car
           avatarHtml: ({ attrs }) => '<span class="avatar message-avatar" ' + attrs + '></span>'
         }
       };
-      function botAvatarIdentityId(ref) { return "botc_user_me_" + ref; }
+      function botAvatarIdentityId(ref) { return ref; }
       function formatRunTime() { return ""; }
       function renderMessageTime() { return ""; }
       function renderCommandResultHtml() { return ""; }
@@ -589,10 +669,11 @@ test("sidebar card specs carry identity status badges when available", () => {
         botId: (conversation) => conversation.decorations?.botId || "mia",
         botDisplayTitle: () => "Mia"
       };
-      const ownedBots = [{ key: "mia", id: "mia", name: "Mia", statusBadge: { kind: "emoji", emoji: "⭐", label: "Premium" } }];
+      const ownedBots = [{ kind: "bot", key: "mia", id: "mia", name: "Mia", displayName: "Mia", statusBadge: { kind: "emoji", emoji: "⭐", label: "Premium" } }];
       function allOwnedBotsForIdentity() { return ownedBots; }
-      function botGlobalIdFromConversation() { return "bot_global"; }
       function botAvatarIdentityId() { return "bot_global"; }
+      function botMemberForConversation() { return null; }
+      function botAvatarForConversation() { return {}; }
       function formatConversationTime() { return ""; }
       function groupTilesCtx() { return {}; }
       function showNarrowContent() {}
@@ -1019,9 +1100,13 @@ test("renderer no longer mirrors local sends through legacy cloud push", () => {
   assert.doesNotMatch(channelSource, /CloudPushMessage/);
 });
 
-test("cloud-only: the sidebar message list is built from social rows alone", () => {
+test("cloud-only: the sidebar uses social rows normally and message hits while searching", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
 
+  assert.match(appSource, /const searchMode = Boolean\(state\.personaSearchOpen \|\| searchQuery\)/);
+  assert.match(appSource, /const useMessageSearch = searchMode && Boolean\(searchQuery\)/);
+  assert.match(appSource, /searchMode[\s\S]*\? \(useMessageSearch[\s\S]*: ""\)/);
+  assert.match(appSource, /conversationRowsFromMessageSearch\(/);
   assert.match(appSource, /sortMessageCardsForSidebar\(socialRows\)/);
   // No local bot personas feed the conversation list anymore.
   assert.doesNotMatch(appSource, /visiblePersonas\.map/);

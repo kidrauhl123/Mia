@@ -73,7 +73,7 @@ function createDeps(overrides = {}) {
     readBotPersona: () => "persona",
     resolveManagedModelRuntime: overrides.resolveManagedModelRuntime || (() => null),
     setAgentSessionId: (...args) => calls.push(["set-session", ...args]),
-    shellCommandPath: (command) => command === "codex" ? "/bin/codex" : "",
+    shellCommandPath: (command) => command === "codex" ? (overrides.commandPath || "/bin/codex") : "",
     writeSchedulerMcpContext: () => {}
   };
 }
@@ -93,6 +93,21 @@ test("mapCodexPermissionMode maps known permission modes", () => {
   });
   assert.deepEqual(mapCodexPermissionMode("readOnly"), {
     sandboxMode: "read-only",
+    approvalPolicy: "never"
+  });
+  assert.deepEqual(mapCodexPermissionMode(":workspace"), {
+    permissionProfile: ":workspace",
+    sandboxMode: "workspace-write",
+    approvalPolicy: "never"
+  });
+  assert.deepEqual(mapCodexPermissionMode(":read-only"), {
+    permissionProfile: ":read-only",
+    sandboxMode: "read-only",
+    approvalPolicy: "never"
+  });
+  assert.deepEqual(mapCodexPermissionMode(":danger-full-access"), {
+    permissionProfile: ":danger-full-access",
+    sandboxMode: "danger-full-access",
     approvalPolicy: "never"
   });
   assert.deepEqual(mapCodexPermissionMode("other"), {
@@ -131,6 +146,27 @@ test("sendChat starts new thread with persona on first turn", async () => {
   ]);
   assert.equal(response.id, "thread_1");
   assert.equal(response.choices[0].message.content, "codex out");
+});
+
+test("sendChat puts the selected codex bin dir first in SDK env", async () => {
+  const deps = createDeps({
+    commandPath: "/opt/codex-node/bin/codex",
+    env: { PATH: "/bad-node/bin:/usr/bin:/opt/codex-node/bin" }
+  });
+  const adapter = createCodexChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot: { key: "alice", name: "Alice", bio: "" },
+    sessionId: "s1",
+    messages: [{ role: "user", content: "hello" }],
+    signal: null,
+    utility: false
+  });
+
+  assert.deepEqual(deps.calls[1], ["constructor", {
+    codexPathOverride: "/opt/codex-node/bin/codex",
+    env: { PATH: "/opt/codex-node/bin:/bad-node/bin:/usr/bin", CODEX_HOME: "/runtime/codex-home" }
+  }]);
 });
 
 test("sendChat routes Mia-managed Codex models through the proxy profile", async () => {
@@ -398,6 +434,29 @@ test("sendChat uses Codex app-server runner for interactive approval-capable tur
   assert.deepEqual(emitted.map((event) => event.kind), ["text_delta"]);
 });
 
+test("sendChat passes Codex permission profiles to app-server runner", async () => {
+  const deps = createDeps();
+  deps.runCodexAppServerTurn = async (args) => {
+    deps.calls.push(["app-server", args]);
+    return { threadId: "app_thread_1", finalResponse: "app out", items: [] };
+  };
+  const adapter = createCodexChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot: { key: "alice", name: "Alice", bio: "", engineConfig: { permissionMode: ":workspace" } },
+    sessionId: "s1",
+    messages: [{ role: "user", content: "hello" }],
+    signal: null,
+    emit: () => {},
+    utility: false
+  });
+
+  const call = deps.calls.find((entry) => entry[0] === "app-server")[1];
+  assert.equal(call.options.permissionProfile, ":workspace");
+  assert.equal(call.options.sandboxMode, "workspace-write");
+  assert.equal(call.options.approvalPolicy, "never");
+});
+
 test("sendChat passes Mia-managed Codex profile to app-server runner", async () => {
   const deps = createDeps({
     resolveManagedModelRuntime: () => ({
@@ -426,4 +485,29 @@ test("sendChat passes Mia-managed Codex profile to app-server runner", async () 
   assert.equal(call.baseUrl, "https://mia.example/api/me/model-proxy/v1");
   assert.equal(call.apiKey, "cloud-token");
   assert.equal(call.options.model, "mia-default");
+});
+
+test("sendChat puts the selected codex bin dir first in app-server env", async () => {
+  const deps = createDeps({
+    commandPath: "/opt/codex-node/bin/codex",
+    env: { PATH: "/bad-node/bin:/usr/bin:/opt/codex-node/bin" }
+  });
+  deps.runCodexAppServerTurn = async (args) => {
+    deps.calls.push(["app-server", args]);
+    return { threadId: "app_thread_1", finalResponse: "app out", items: [] };
+  };
+  const adapter = createCodexChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot: { key: "alice", name: "Alice", bio: "" },
+    sessionId: "s1",
+    messages: [{ role: "user", content: "hello" }],
+    signal: null,
+    emit: () => {},
+    utility: false
+  });
+
+  const call = deps.calls.find((entry) => entry[0] === "app-server")[1];
+  assert.equal(call.codexPath, "/opt/codex-node/bin/codex");
+  assert.equal(call.env.PATH, "/opt/codex-node/bin:/bad-node/bin:/usr/bin");
 });

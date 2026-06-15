@@ -75,11 +75,34 @@
 
     <aside id="conversationSidebar" class="sidebar conversation-sidebar">
       <header class="sidebar-tools">
-        <label class="search-box">
-          <span>⌕</span>
+        <div class="sidebar-title">消息</div>
+        <button id="openPersonaSearch" class="icon-button sidebar-search-trigger" type="button" title="搜索" aria-label="搜索">
+          <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+            <circle cx="10.8" cy="10.8" r="6.6" fill="none" stroke="currentColor" stroke-width="2"/>
+            <path d="M16 16L21 21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+        </button>
+        <div class="search-box hidden" role="search">
+          <span class="search-box-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" focusable="false">
+              <circle cx="10.8" cy="10.8" r="6.6" fill="none" stroke="currentColor" stroke-width="2"/>
+              <path d="M16 16L21 21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </span>
           <input id="personaSearch" autocomplete="off" placeholder="搜索">
-        </label>
+          <button id="personaSearchClear" class="search-clear hidden" type="button" title="清除搜索" aria-label="清除搜索">
+            <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+              <path d="M7 7L17 17M17 7L7 17" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+            </svg>
+          </button>
+        </div>
         <button id="newPersona" class="icon-button" type="button" title="新建">＋</button>
+        <button id="closePersonaSearch" class="icon-button sidebar-search-close hidden" type="button" title="关闭搜索" aria-label="关闭搜索">
+          <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+            <path d="M6 6L18 18M18 6L6 18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+          </svg>
+        </button>
+        <div id="personaTagFilters" class="sidebar-tag-filters hidden" aria-label="标签筛选"></div>
         <div id="botCreateMenu" class="create-menu hidden">
           <button id="convMenuDiscoverBots" type="button">
             <span class="create-menu-icon" aria-hidden="true">
@@ -821,21 +844,6 @@
       </div>
     </section>
 
-    <section id="skillPreviewDialog" class="skill-preview-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="skillPreviewTitle">
-      <div class="skill-preview-card">
-        <header class="skill-preview-toolbar">
-          <div class="skill-preview-title">
-            <span id="skillPreviewMark" class="skill-dot docs">SK</span>
-            <div>
-              <h2 id="skillPreviewTitle">Skill</h2>
-              <p id="skillPreviewMeta"></p>
-            </div>
-          </div>
-          <button id="closeSkillPreview" class="icon-button" type="button" title="关闭">×</button>
-        </header>
-        <article id="skillPreviewBody" class="skill-markdown-body"></article>
-      </div>
-    </section>
     <div id="skillContextMenu" class="skill-context-menu hidden" role="menu"></div>
     <div id="botContextMenu" class="skill-context-menu bot-context-menu hidden" role="menu"></div>
     <div id="messageContextMenu" class="skill-context-menu message-context-menu hidden" role="menu"></div>
@@ -1026,6 +1034,7 @@
   <script src="../shared/cloud-events.js"></script>
   <script src="../../packages/shared/unread.js"></script>
   <script src="../shared/conversation-kinds.js"></script>
+  <script src="../shared/conversation-tags.js"></script>
   <script src="../shared/mention-render.js"></script>
   <script src="../../packages/shared/session-history.js"></script>
   <script src="../../packages/shared/group-tiles.js"></script>

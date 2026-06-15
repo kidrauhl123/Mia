@@ -43,7 +43,13 @@
         body: body && typeof body !== "string" ? JSON.stringify(body) : body
       });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+      if (!response.ok) {
+        const err = new Error(data.error || `HTTP ${response.status}`);
+        // Expose the HTTP status so callers can react to auth failures (401)
+        // without string-matching the localized error message.
+        err.status = response.status;
+        throw err;
+      }
       return data;
     }
 

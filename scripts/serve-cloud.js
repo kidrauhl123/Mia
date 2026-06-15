@@ -37,6 +37,12 @@ try {
 } catch {
   ({ createBotsStore } = require("./src/cloud/bots-store.js"));
 }
+let pushNotifications = null;
+try {
+  pushNotifications = require("../src/cloud/push-notifications.js");
+} catch {
+  pushNotifications = require("./src/cloud/push-notifications.js");
+}
 let botConversationId = null;
 try {
   ({ botConversationId } = require("../src/shared/bot-identity.js"));
@@ -514,7 +520,7 @@ function memberIdentityForBot(bot, fallbackRef = "", ownerId = "") {
     ownerUserId: owner,
     displayName,
     avatar: avatarResolve.resolveAvatarForContact({
-      id: owner ? `${owner}:${id}` : id,
+      id,
       displayName,
       avatarImage: safeAvatar,
       avatarCrop: bot?.avatarCrop || bot?.avatar?.crop || null
@@ -1988,6 +1994,64 @@ function broadcastTransientEvent(hub, userId, payload) {
   }
 }
 
+// Determine whether a user currently has at least one live event socket.
+// "No live socket" is our offline signal: the app is closed (or backgrounded
+// long enough to drop the WebSocket), so it can't receive the message live and
+// should get a push instead. A user connected on any device (desktop daemon or
+// mobile foreground) is "present" and gets no push.
+function userHasLiveSocket(context, userId) {
+  const sockets = context.eventHub.socketsByUser.get(userId);
+  if (!sockets) return false;
+  for (const ws of sockets) {
+    if (ws.readyState === WebSocket.OPEN) return true;
+  }
+  return false;
+}
+
+function chatSenderLabel(context, message) {
+  if (message?.sender_kind === "user") {
+    const pub = context.cloudStore.getUserPublic(message.sender_ref);
+    if (pub) return pub.displayName || pub.username || "Mia";
+  }
+  // Bots / system senders may carry a denormalized name on the row.
+  return message?.sender_name || message?.senderName || "Mia";
+}
+
+// Send an offline push for a freshly-appended chat message to every user-member
+// who isn't the sender and has no live socket. Fire-and-forget: a missed or
+// failed push must never block or fail the message-send request.
+function pushChatMessageToOfflineMembers(context, conversationId, message, userMemberIds, senderUserId) {
+  if (!pushNotifications || typeof context.cloudStore?.listPushTokens !== "function") return;
+  const recipients = userMemberIds.filter(
+    (id) => id && id !== senderUserId && !userHasLiveSocket(context, id)
+  );
+  if (!recipients.length) return;
+
+  const conversation = context.socialStore.getConversation(conversationId);
+  const isGroup = conversation?.type === "group";
+  const senderLabel = chatSenderLabel(context, message);
+  const text = String(message?.body_md || "").trim();
+  const title = isGroup ? conversation?.name || "群聊" : senderLabel;
+  const body = isGroup ? `${senderLabel}: ${text}` : text;
+
+  const pushMessages = [];
+  for (const userId of recipients) {
+    for (const { token } of context.cloudStore.listPushTokens(userId)) {
+      // title rides in data too so a tap can set the chat header before the
+      // conversation finishes loading.
+      pushMessages.push(pushNotifications.buildChatPushMessage(token, { title, body, conversationId, data: { title } }));
+    }
+  }
+  if (!pushMessages.length) return;
+
+  pushNotifications
+    .sendExpoPushMessages(pushMessages, { log: (msg, detail) => console.warn(`[push] ${msg}`, detail || "") })
+    .then(({ invalidTokens }) => {
+      for (const token of invalidTokens) context.cloudStore.deletePushToken(token);
+    })
+    .catch((err) => console.warn("[push] delivery failed", err?.message));
+}
+
 // ── write idempotency (Phase 1.D) ─────────────────────────────────────────
 //
 // Wrap any state-mutating handler so an identical request body
@@ -2229,6 +2293,17 @@ function userIsMemberOfConversation(socialStore, conversationId, userId) {
   return socialStore.listConversationMembers(conversationId).some(
     (m) => m.member_kind === "user" && m.member_ref === userId
   );
+}
+
+function messageSearchSnippet(text, query, radius = 36) {
+  const body = String(text || "").replace(/\s+/g, " ").trim();
+  const needle = String(query || "").trim().toLowerCase();
+  if (!body || !needle) return body.slice(0, radius * 2);
+  const idx = body.toLowerCase().indexOf(needle);
+  if (idx < 0) return body.slice(0, radius * 2);
+  const start = Math.max(0, idx - radius);
+  const end = Math.min(body.length, idx + needle.length + radius);
+  return `${start > 0 ? "..." : ""}${body.slice(start, end)}${end < body.length ? "..." : ""}`;
 }
 
 function mentionedBotIds(body = {}) {
@@ -2565,6 +2640,29 @@ async function handleRequest(req, res, context) {
       return writeJson(res, 200, { ok: true, balance, recentUsage });
     }
 
+    // POST /api/me/push-token — register this device's Expo push token so the
+    // server can deliver offline message notifications. Idempotent on the token.
+    if (req.method === "POST" && url.pathname === "/api/me/push-token") {
+      const body = await readJson(req);
+      const token = String(body?.token || "").trim();
+      if (!pushNotifications?.isExpoPushToken(token)) return writeError(res, 400, "invalid push token");
+      context.cloudStore.upsertPushToken(auth.user.id, token, {
+        platform: body?.platform,
+        deviceName: body?.deviceName,
+      });
+      return writeJson(res, 200, { ok: true });
+    }
+
+    // DELETE /api/me/push-token — unregister on logout so a shared device stops
+    // receiving this account's notifications.
+    if (req.method === "DELETE" && url.pathname === "/api/me/push-token") {
+      const body = await readJson(req);
+      const token = String(body?.token || "").trim();
+      if (!token) return writeError(res, 400, "token is required");
+      context.cloudStore.deletePushToken(token);
+      return writeJson(res, 200, { ok: true });
+    }
+
     // POST /api/social/friend-requests
     if (req.method === "POST" && url.pathname === "/api/social/friend-requests") {
       const body = await readJson(req);
@@ -2759,7 +2857,25 @@ async function handleRequest(req, res, context) {
     const conversationMembersMatch = url.pathname.match(/^\/api\/conversations\/([A-Za-z0-9_.:-]+)\/members$/);
     const conversationMsgDeleteMatch = url.pathname.match(/^\/api\/conversations\/([A-Za-z0-9_.:-]+)\/messages\/([A-Za-z0-9_-]+)$/);
     const conversationMsgsMatch = !conversationAsBotMatch && url.pathname.match(/^\/api\/conversations\/([A-Za-z0-9_.:-]+)\/messages$/);
-    const conversationDetailMatch = !conversationAsBotMatch && !conversationMembersMatch && !conversationMsgsMatch && !conversationMsgDeleteMatch && url.pathname.match(/^\/api\/conversations\/([A-Za-z0-9_.:-]+)$/);
+    const conversationSearchRoute = url.pathname === "/api/conversations/search";
+    const conversationDetailMatch = !conversationSearchRoute && !conversationAsBotMatch && !conversationMembersMatch && !conversationMsgsMatch && !conversationMsgDeleteMatch && url.pathname.match(/^\/api\/conversations\/([A-Za-z0-9_.:-]+)$/);
+
+    if (req.method === "GET" && conversationSearchRoute) {
+      const query = String(url.searchParams.get("q") || "").trim();
+      const limit = Number(url.searchParams.get("limit") || 80);
+      if (!query) return writeJson(res, 200, { results: [] });
+      const messages = context.messagesStore.searchMessagesForUser(auth.user.id, query, limit);
+      const results = messages.map((message) => {
+        const conversation = context.socialStore.getConversation(message.conversation_id);
+        if (!conversation) return null;
+        return {
+          conversation,
+          message,
+          matchText: messageSearchSnippet(message.body_md, query)
+        };
+      }).filter(Boolean);
+      return writeJson(res, 200, { results });
+    }
 
     // POST /api/conversations/:id/members — add member to existing group
     if (req.method === "POST" && conversationMembersMatch) {
@@ -2862,11 +2978,14 @@ async function handleRequest(req, res, context) {
         status: "complete",
         errorJson: body.errorJson || null,
       });
+      const userMemberIds = [];
       for (const m of context.socialStore.listConversationMembers(conversationId)) {
         if (m.member_kind === "user") {
+          userMemberIds.push(m.member_ref);
           broadcastPersistedEvent(context, m.member_ref, { type: "conversation.message_appended", conversationId, message });
         }
       }
+      pushChatMessageToOfflineMembers(context, conversationId, message, userMemberIds, auth.user.id);
       const payload = { message };
       rememberOp(context, auth.user.id, body, 201, payload);
       return writeJson(res, 201, payload);
@@ -3026,11 +3145,14 @@ async function handleRequest(req, res, context) {
       });
       // 1. Broadcast conversation.message_appended to all user-members
       const allMembers = context.socialStore.listConversationMembers(conversationId);
+      const userMemberIds = [];
       for (const m of allMembers) {
         if (m.member_kind === "user") {
+          userMemberIds.push(m.member_ref);
           broadcastPersistedEvent(context, m.member_ref, { type: "conversation.message_appended", conversationId, message });
         }
       }
+      pushChatMessageToOfflineMembers(context, conversationId, message, userMemberIds, auth.user.id);
       broadcastBotInvocations(context, conversationId, message, body, context.cloudStore.getUserPublic(auth.user.id) || { id: auth.user.id });
       if (context.cloudAgentDispatcher) {
         context.cloudAgentDispatcher.handleUserMessage({
@@ -3301,7 +3423,7 @@ async function handleRequest(req, res, context) {
     }
 
     // GET /api/me/settings — cross-device user settings (pin / read marks
-    // / appearance). Phase 3. Clients fetch on bootstrap + subscribe to
+    // / appearance / tags). Clients fetch on bootstrap + subscribe to
     // user_settings.updated to stay in sync.
     if (req.method === "GET" && url.pathname === "/api/me/settings") {
       return writeJson(res, 200, { settings: context.userSettingsStore.getSettings(auth.user.id) });
@@ -3320,6 +3442,7 @@ async function handleRequest(req, res, context) {
         pins: body.pins,
         readMarks: body.readMarks,
         appearance: body.appearance,
+        tags: body.tags,
         expectedVersion: body.expectedVersion
       });
       if (!out.ok) {
@@ -3684,7 +3807,7 @@ function createMiaCloudServer(options = {}) {
   context.skillsStore.seedFromCatalog(loadSkillsCatalog());
   const hermesSkillsEnabled = options.hermesSkillsSource
     || options.hermesSkillsMarketEnabled === true
-    || (options.hermesSkillsMarketEnabled !== false && process.env.MIA_HERMES_SKILLS_MARKET !== "0");
+    || process.env.MIA_HERMES_SKILLS_MARKET === "1";
   context.hermesSkillsSource = options.hermesSkillsSource
     || (hermesSkillsEnabled && createHermesSkillsSource
       ? createHermesSkillsSource({ dataDir: context.cloudStore.dataDir })

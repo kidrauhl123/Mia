@@ -84,6 +84,18 @@
     { value: "bypassPermissions", label: "YOLO", title: "Codex danger-full-access + never。" }
   ]);
 
+  const CODEX_PERMISSION_PROFILE_LABELS = Object.freeze({
+    ":workspace": "Workspace",
+    ":read-only": "Read Only",
+    ":danger-full-access": "Full Access"
+  });
+
+  const CODEX_PERMISSION_PROFILE_ALIASES = Object.freeze({
+    ":workspace": ["default", "acceptEdits", "workspace"],
+    ":read-only": ["readOnly", "read-only"],
+    ":danger-full-access": ["bypassPermissions", "yolo", "off", "never", "danger-full-access"]
+  });
+
   const OPENCLAW_PERMISSION_OPTIONS = Object.freeze([
     { value: "default", label: "Ask", title: "OpenClaw 默认 workspace-write + untrusted。" },
     { value: "acceptEdits", label: "Edits", title: "OpenClaw workspace-write + on-request。" },
@@ -118,6 +130,14 @@
 
   function cloneEntries(entries) {
     return entries.map((entry) => ({ ...entry }));
+  }
+
+  function titleCaseWords(value = "") {
+    return String(value || "")
+      .replace(/^:+/, "")
+      .replace(/[-_]+/g, " ")
+      .replace(/\b\w/g, (ch) => ch.toUpperCase())
+      .trim();
   }
 
   function isExternalEngine(value) {
@@ -174,7 +194,12 @@
           provider: EngineId.Codex,
           providerLabel: "Codex CLI",
           model: model.slug,
-          label: model.displayName || model.slug
+          label: model.displayName || model.slug,
+          description: model.description || "",
+          defaultReasoningLevel: model.defaultReasoningLevel || "",
+          supportedReasoningLevels: Array.isArray(model.supportedReasoningLevels)
+            ? model.supportedReasoningLevels.map((item) => ({ ...item }))
+            : []
         });
       }
       return [...entries, ...miaEntries];
@@ -182,10 +207,38 @@
     return [...entries, ...cloneEntries(CODEX_FALLBACK_MODEL_ENTRIES), ...miaEntries];
   }
 
-  function externalPermissionOptions(value) {
+  function codexPermissionOptionsFromProfiles(profiles = []) {
+    const rows = Array.isArray(profiles)
+      ? profiles
+        .map((profile) => ({
+          id: String(profile?.id || profile?.value || "").trim(),
+          description: profile?.description == null ? "" : String(profile.description)
+        }))
+        .filter((profile) => profile.id)
+      : [];
+    if (!rows.length) return cloneEntries(CODEX_PERMISSION_OPTIONS);
+
+    const rank = {
+      ":workspace": 0,
+      ":read-only": 1,
+      ":danger-full-access": 2
+    };
+    return rows
+      .slice()
+      .sort((a, b) => (rank[a.id] ?? 50) - (rank[b.id] ?? 50) || a.id.localeCompare(b.id))
+      .map((profile) => ({
+        value: profile.id,
+        label: CODEX_PERMISSION_PROFILE_LABELS[profile.id] || titleCaseWords(profile.id) || profile.id,
+        title: profile.description || `Codex permission profile ${profile.id}`,
+        profileId: profile.id,
+        aliases: CODEX_PERMISSION_PROFILE_ALIASES[profile.id] || []
+      }));
+  }
+
+  function externalPermissionOptions(value, options = {}) {
     const engine = normalizeAgentEngine(value);
     if (engine === EngineId.ClaudeCode) return cloneEntries(CLAUDE_PERMISSION_OPTIONS);
-    if (engine === EngineId.Codex) return cloneEntries(CODEX_PERMISSION_OPTIONS);
+    if (engine === EngineId.Codex) return codexPermissionOptionsFromProfiles(options.codexPermissionProfiles);
     if (engine === EngineId.OpenClaw) return cloneEntries(OPENCLAW_PERMISSION_OPTIONS);
     return [];
   }
@@ -195,7 +248,23 @@
     const labels = options.effortLabels || DEFAULT_EFFORT_LABELS;
     let levels = [];
     if (engine === EngineId.ClaudeCode) levels = ["low", "medium", "high", "xhigh", "max"];
-    else if (engine === EngineId.Codex || engine === EngineId.OpenClaw) levels = ["minimal", "low", "medium", "high", "xhigh"];
+    else if (engine === EngineId.Codex) {
+      const dynamic = [];
+      const seen = new Set();
+      const models = Array.isArray(options.codexModels) ? options.codexModels : [];
+      for (const model of models) {
+        const supported = Array.isArray(model?.supportedReasoningLevels) ? model.supportedReasoningLevels : [];
+        for (const item of supported) {
+          const level = String(item?.effort || item?.value || "").trim();
+          if (!level || seen.has(level)) continue;
+          seen.add(level);
+          dynamic.push({ value: level, label: labels[level] || item.label || level, title: item.description || "" });
+        }
+      }
+      if (dynamic.length) return dynamic;
+      levels = ["minimal", "low", "medium", "high", "xhigh"];
+    }
+    else if (engine === EngineId.OpenClaw) levels = ["minimal", "low", "medium", "high", "xhigh"];
     else {
       levels = (Array.isArray(options.effortLevels) && options.effortLevels.length)
         ? options.effortLevels

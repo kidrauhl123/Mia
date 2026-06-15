@@ -68,14 +68,10 @@
       const identity = member?.identity || {};
       const record = {
         ...(bot || {}),
-        member_ref: ref,
-        globalId: bot?.globalId || bot?.global_id || identity.globalId || identity.global_id,
-        ownerUserId: bot?.ownerUserId || bot?.owner_user_id || bot?.ownerId || bot?.owner_id
-          || member?.owner_user_id || member?.owner_id || identity.ownerUserId || identity.owner_id
+        id: bot?.id || bot?.key || identity.id || ref,
+        member_ref: ref
       };
-      return contactApi.botAvatarIdentityId?.(ref, record)
-        || record.globalId
-        || ref;
+      return contactApi.botAvatarIdentityId?.(ref, record) || ref;
     }
 
     function authorForMessage(m) {

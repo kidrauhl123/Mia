@@ -8,10 +8,11 @@ const read = (rel) => fs.readFileSync(path.join(root, rel), "utf8");
 
 test("skill-library renders a single unified skill grid without icon cards", () => {
   const src = read("src/renderer/skills/skill-library.js");
-  // 卡片只保留标题、描述、来源和动作按钮；数据驱动分类，仍走 selectSkill 预览
+  // 卡片只保留标题、描述、来源和动作按钮；数据驱动分类，本机详情复用共享弹窗
   assert.match(src, /renderUnifiedSkillCard/);
   assert.doesNotMatch(src, /skill-card-icon/);
   assert.match(src, /data-skill-select=/);
+  assert.match(src, /openLocalSkillModal/);
   // 不再有 plugins/connectors/extensions 的渲染与目录导航
   assert.doesNotMatch(src, /renderPluginCard|renderConnectorCard|renderExtensionDetail|renderExtensionNavRow|renderDirectorySectionRow|directorySectionRows/);
   assert.doesNotMatch(src, /data-directory-section|data-extension-select|data-extension-install|data-skill-plugin/);
@@ -23,7 +24,7 @@ test("skills view has no DIRECTORY sidebar and search lives in the workspace", (
   assert.doesNotMatch(html, /id="skillsSidebar"/);
   assert.doesNotMatch(html, /id="skillNav"/);
   // 搜索框在 skillsView 工作区内
-  const view = html.slice(html.indexOf('id="skillsView"'), html.indexOf('id="skillPreviewDialog"'));
+  const view = html.slice(html.indexOf('id="skillsView"'), html.indexOf('id="skillContextMenu"'));
   assert.match(view, /id="skillSearch"/);
   // skills.css 已链接
   assert.match(html, /styles\/skills\.css/);

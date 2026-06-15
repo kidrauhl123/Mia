@@ -63,16 +63,46 @@ test("engine contract owns external model and mode options for browser clients",
   assert.equal(contract.externalModelEntries("claude-code").find((entry) => entry.provider === "mia").authType, "mia_account");
   assert.equal(contract.externalModelEntries("openclaw").some((entry) => entry.provider === "mia"), false);
   assert.deepEqual(
-    contract.externalModelEntries("codex", { codexModels: [{ slug: "gpt-test", displayName: "GPT Test" }] }),
+    contract.externalModelEntries("codex", {
+      codexModels: [{
+        slug: "gpt-test",
+        displayName: "GPT Test",
+        description: "Test model",
+        defaultReasoningLevel: "medium",
+        supportedReasoningLevels: [{ effort: "low", description: "Fast" }, { effort: "medium" }]
+      }]
+    }),
     [
       { id: "default", provider: "codex", providerLabel: "Codex CLI", model: "", label: "Codex 默认" },
-      { id: "gpt-test", provider: "codex", providerLabel: "Codex CLI", model: "gpt-test", label: "GPT Test" },
+      {
+        id: "gpt-test",
+        provider: "codex",
+        providerLabel: "Codex CLI",
+        model: "gpt-test",
+        label: "GPT Test",
+        description: "Test model",
+        defaultReasoningLevel: "medium",
+        supportedReasoningLevels: [{ effort: "low", description: "Fast" }, { effort: "medium" }]
+      },
       { id: "mia-default", provider: "mia", providerLabel: "Mia", model: "mia-default", label: "Mia Default", authType: "mia_account", modelProfileId: "mia:mia-default", upstreamModel: "" }
     ]
   );
   assert.equal(contract.externalPermissionOptions("claude-code").find((item) => item.value === "plan").label, "Plan Mode");
-  assert.equal(contract.externalPermissionOptions("codex").find((item) => item.value === "readOnly").label, "Read");
+  assert.deepEqual(
+    contract.externalPermissionOptions("codex", { codexPermissionProfiles: [{ id: ":read-only" }, { id: ":workspace" }, { id: ":danger-full-access" }] }).map((item) => ({ value: item.value, label: item.label, aliases: item.aliases })),
+    [
+      { value: ":workspace", label: "Workspace", aliases: ["default", "acceptEdits", "workspace"] },
+      { value: ":read-only", label: "Read Only", aliases: ["readOnly", "read-only"] },
+      { value: ":danger-full-access", label: "Full Access", aliases: ["bypassPermissions", "yolo", "off", "never", "danger-full-access"] }
+    ]
+  );
   assert.equal(contract.externalPermissionOptions("openclaw").find((item) => item.value === "readOnly").label, "Read");
+  assert.deepEqual(contract.effortOptions("codex", {
+    codexModels: [{ supportedReasoningLevels: [{ effort: "low", description: "Fast" }, { effort: "high" }] }]
+  }), [
+    { value: "low", label: "Low", title: "Fast" },
+    { value: "high", label: "High", title: "" }
+  ]);
   assert.deepEqual(contract.effortOptions("codex").map((item) => item.value), ["minimal", "low", "medium", "high", "xhigh"]);
   assert.deepEqual(contract.effortOptions("openclaw").map((item) => item.value), ["minimal", "low", "medium", "high", "xhigh"]);
   assert.deepEqual(

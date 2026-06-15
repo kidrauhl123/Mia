@@ -95,7 +95,7 @@ test("群头像取成员拼贴 mosaic", () => {
   expect(items[0].tiles.map((t) => t.text)).toEqual(["我", "Bo", "Cl"]);
 });
 
-test("bot 会话头像按全局 bot identity 着色", () => {
+test("bot 会话头像按 bot uid 着色", () => {
   const badge = { kind: "lottie" as const, assetId: "rainbow", label: "Active" };
   const items = buildConversationListItems({
     conversations: [{ id: "botc_user_me_mia", type: "bot", name: "Mia", decorations: { botId: "mia" } } as any],
@@ -107,12 +107,12 @@ test("bot 会话头像按全局 bot identity 着色", () => {
   expect(items[0].statusBadge).toEqual(badge);
 });
 
-test("bot 会话缺 bot 记录时从稳定 conversation id 取头像身份", () => {
+test("bot 会话缺 bot 记录和 owner 时回退到 bot id 取头像身份", () => {
   const items = buildConversationListItems({
     conversations: [{ id: "botc_user_me_mia", type: "bot", bot_id: "mia", name: "Mia" } as any],
   });
   expect(items[0].tiles[0].image).toBe("");
-  expect(items[0].tiles[0].color).toBe(memberAccentColor("botc_user_me_mia"));
+  expect(items[0].tiles[0].color).toBe(memberAccentColor("mia"));
   expect(items[0].tiles[0].text).toBe("Mi");
 });
 

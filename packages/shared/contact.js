@@ -28,7 +28,7 @@
   }
 
   function botAvatarIdentityId(id, record = {}) {
-    return firstNonEmpty(id, record.id, record.botId, record.bot_id, record.member_ref);
+    return firstNonEmpty(record.id, record.botId, record.bot_id, record.key, record.member_ref, id);
   }
 
   function avatarForRecord(id, record = {}, displayName = "") {
@@ -69,8 +69,8 @@
     }
     if (kind === IdentityKind.Bot) {
       const bots = Array.isArray(ctx.bots) ? ctx.bots : [];
-      const b = bots.find((x) => x.id === ref || x.botId === ref || x.bot_id === ref);
-      const id = String((b && (b.id || b.botId || b.bot_id)) || ref || "");
+      const b = bots.find((x) => x.id === ref || x.key === ref || x.botId === ref || x.bot_id === ref);
+      const id = String((b && (b.id || b.key || b.botId || b.bot_id)) || ref || "");
       const displayName = (b && (b.displayName || b.display_name || b.name || b.username || b.id)) || String(ref || "");
       return {
         kind: IdentityKind.Bot,

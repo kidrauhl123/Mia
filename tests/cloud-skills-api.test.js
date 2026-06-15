@@ -21,15 +21,19 @@ async function startServer(extraEnv = {}) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-skills-test-"));
   const port = await freePort();
   return new Promise((resolve, reject) => {
+    const env = {
+      ...process.env,
+      MIA_CLOUD_HOST: "127.0.0.1",
+      MIA_CLOUD_PORT: String(port),
+      MIA_CLOUD_DATA: tmpDir,
+      MIA_HERMES_SKILLS_MARKET: "0",
+      ...extraEnv,
+    };
+    for (const key of Object.keys(env)) {
+      if (env[key] === undefined || env[key] === null) delete env[key];
+    }
     const proc = spawn(process.execPath, ["scripts/serve-cloud.js"], {
-      env: {
-        ...process.env,
-        MIA_CLOUD_HOST: "127.0.0.1",
-        MIA_CLOUD_PORT: String(port),
-        MIA_CLOUD_DATA: tmpDir,
-        MIA_HERMES_SKILLS_MARKET: "0",
-        ...extraEnv,
-      },
+      env,
       stdio: ["ignore", "pipe", "pipe"],
     });
     let resolved = false;
@@ -213,6 +217,25 @@ test("POST install bumps count once per user, returns download info; package dow
     const i3 = await api(ctx.port, "POST", "/api/skills/pdf/install", { token: bob.token });
     assert.equal(i3.body.skill.installCount, 2);
   } finally { await stopServer(ctx); }
+});
+
+test("Hermes remote skills stay hidden unless the market flag is enabled", async () => {
+  const fixture = await startHermesFixtureServer();
+  const ctx = await startServer({
+    MIA_HERMES_SKILLS_MARKET: null,
+    MIA_HERMES_SKILLS_INDEX_URL: `${fixture.url}/index.json`,
+    MIA_HERMES_GITHUB_ARCHIVE_BASE_URL: `${fixture.url}/github-archive`
+  });
+  try {
+    const alice = await register(ctx.port, "alice");
+    const list = await api(ctx.port, "GET", "/api/skills", { token: alice.token });
+    assert.equal(list.status, 200);
+    assert.ok(!list.body.skills.some((skill) => skill.name === "demo-remote"), "remote Hermes skill is hidden by default");
+    assert.ok(!list.body.skills.some((skill) => String(skill.id || "").startsWith("hermes.")), "no Hermes ids leak into the default market");
+  } finally {
+    await stopServer(ctx);
+    await fixture.close();
+  }
 });
 
 test("Hermes remote skills appear in market and install as real packages", async () => {

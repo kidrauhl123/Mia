@@ -46,6 +46,8 @@
     "dist:mac": "npm run clean:release && electron-builder --config electron-builder.mac-arm64.js --mac dir zip --arm64 --publish never && MIA_MAC_DMG_LABEL=Apple-Silicon node scripts/create-mac-dmg.js && npm run tidy:release",
     "dist:mac:intel": "npm run clean:release && electron-builder --config electron-builder.mac-intel.js --mac dir zip --x64 --publish never && MIA_MAC_DMG_LABEL=Intel node scripts/create-mac-dmg.js && npm run tidy:release",
     "dist:mac:x64": "npm run dist:mac:intel",
+    "notarize:mac": "node scripts/notarize-mac-dmg.js Apple-Silicon",
+    "notarize:mac:intel": "node scripts/notarize-mac-dmg.js Intel",
     "release:mac": "npm run dist:mac && node scripts/publish-mac-update.js",
     "release:mac:publish": "node scripts/publish-mac-update.js",
     "dist:win": "node scripts/build-win.js",
@@ -119,7 +121,7 @@
       "icon": "build/icon.icns",
       "category": "public.app-category.productivity",
       "identity": "XiaoChuan Technology Co., Ltd. (S4NWU843M5)",
-      "hardenedRuntime": false,
+      "hardenedRuntime": true,
       "gatekeeperAssess": false
     },
     "dmg": {

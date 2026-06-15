@@ -1,5 +1,6 @@
 import { View, StyleSheet } from "react-native";
 import { useAuth } from "../state/auth";
+import { usePush } from "../notifications/PushProvider";
 import { useMe } from "../state/queries";
 import { resolveAvatar } from "../logic/avatar";
 import AvatarMedia from "../components/AvatarMedia";
@@ -8,7 +9,8 @@ import { Brand, Label, Sub } from "../ui/Text";
 import { color, space } from "../theme";
 
 export default function MeScreen() {
-  const { session, setSession } = useAuth();
+  const { session } = useAuth();
+  const { logout } = usePush();
   const { data: me } = useMe();
   const id = me?.id || session?.user?.id || "";
   const username = me?.username || session?.user?.username || "未登录";
@@ -25,7 +27,7 @@ export default function MeScreen() {
 
       <View style={styles.block}>
         <Label>账号</Label>
-        <Button label="退出登录" variant="danger" onPress={() => setSession(null)} />
+        <Button label="退出登录" variant="danger" onPress={() => { logout(); }} />
       </View>
     </View>
   );

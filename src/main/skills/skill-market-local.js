@@ -1,19 +1,50 @@
 "use strict";
 
-// Local, bundled skill marketplace source.
+// Local, bundled skill marketplace snapshot.
 //
 // The curated catalog ships in the repo `skills/` folder (one `<id>/SKILL.md`
 // per skill, git-versioned) plus a single `catalog.zh.json` that holds the
-// Chinese display metadata (name/summary/category/order). This module merges
-// the two into the market listing the desktop renders — no cloud, no network.
+// Chinese display metadata (name/summary/category/order). This module turns
+// that into an offline snapshot of the cloud market: same stable ids, same
+// renderer shape, and a stable content checksum so installs can be satisfied
+// locally when the bundled version is current.
 // `_`-prefixed dirs (e.g. `_builtin/`) ship pre-installed and are not market
 // entries. `validateCatalog` is run at build time to keep dirs and manifest
 // in lock-step.
 
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 
 const REQUIRED_ZH_FIELDS = ["name_zh", "summary_zh", "category_zh"];
+const SNAPSHOT_VERSION = "1.0.0";
+
+function directoryChecksum(dir) {
+  const hash = crypto.createHash("sha256");
+  function walk(current, prefix = "") {
+    let entries = [];
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+    for (const entry of entries) {
+      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+      const full = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        walk(full, rel);
+      } else if (entry.isFile()) {
+        hash.update(rel);
+        hash.update("\0");
+        hash.update(fs.readFileSync(full));
+        hash.update("\0");
+      }
+    }
+  }
+  walk(dir);
+  return hash.digest("hex");
+}
 
 // In a packaged app the catalog ships via electron-builder extraResources
 // (skills/ → <resources>/skills); in dev it is the repo `skills/` folder.
@@ -77,22 +108,40 @@ function zhMapById(entries) {
   return map;
 }
 
+function packageLocalCatalogSkill(id, { catalogDir = defaultCatalogDir() } = {}) {
+  if (!id) throw new Error("packageLocalCatalogSkill: id required");
+  const dir = path.join(catalogDir, String(id));
+  if (!fs.existsSync(path.join(dir, "SKILL.md"))) throw new Error(`技能不存在：${id}`);
+  const AdmZip = require("adm-zip");
+  const zip = new AdmZip();
+  zip.addLocalFolder(dir);
+  return zip.toBuffer();
+}
+
 // Returns the merged market listing, sorted by `order` (asc) then `id`.
 function loadLocalSkillMarket({ catalogDir = defaultCatalogDir() } = {}) {
   const zh = zhMapById(readZhManifest(catalogDir));
   const skills = [];
   for (const id of skillDirEntries(catalogDir)) {
     const body = fs.readFileSync(path.join(catalogDir, id, "SKILL.md"), "utf8");
+    const skillDir = path.join(catalogDir, id);
     const meta = parseFrontmatter(body);
     const zhEntry = zh.get(id) || {};
+    const nameZh = String(zhEntry.name_zh || "").trim() || meta.name || id;
+    const summaryZh = String(zhEntry.summary_zh || "").trim() || meta.description || "";
+    const categoryZh = String(zhEntry.category_zh || "").trim() || meta.category || "";
     skills.push({
       id,
       name: meta.name || id,
-      name_zh: String(zhEntry.name_zh || "").trim() || meta.name || id,
-      summary_zh: String(zhEntry.summary_zh || "").trim() || meta.description || "",
+      name_zh: nameZh,
+      summary_zh: summaryZh,
       category: meta.category || "",
-      category_zh: String(zhEntry.category_zh || "").trim() || meta.category || "",
+      category_zh: categoryZh,
       sourceLabel: String(zhEntry.source_label || "").trim(),
+      ownerLabel: String(zhEntry.source_label || "").trim() || "Mia 官方",
+      latestVersion: SNAPSHOT_VERSION,
+      version: SNAPSHOT_VERSION,
+      checksum: directoryChecksum(skillDir),
       order: Number.isFinite(Number(zhEntry.order)) ? Number(zhEntry.order) : Number.MAX_SAFE_INTEGER,
       body
     });
@@ -131,12 +180,38 @@ function validateCatalog({ catalogDir = defaultCatalogDir() } = {}) {
 
 // Renderer-shaped market payload. The market UI keys filtering, search and
 // cards off `category`/`description`, so surface the Chinese fields there.
+function skillMatchesParams(skill, params = {}) {
+  const category = String(params.category || "").trim();
+  const q = String(params.q || "").trim().toLowerCase();
+  if (category && String(skill.category || "") !== category && String(skill.category_zh || "") !== category) return false;
+  if (!q) return true;
+  return [
+    skill.id,
+    skill.name,
+    skill.name_zh,
+    skill.description,
+    skill.summary_zh,
+    skill.category,
+    skill.category_zh,
+    skill.sourceLabel,
+    skill.ownerLabel
+  ].join(" ").toLowerCase().includes(q);
+}
+
 function loadLocalSkillMarketPayload(opts = {}) {
-  const skills = loadLocalSkillMarket(opts).map((skill) => ({
+  const params = opts.params || opts;
+  const limit = Number.isFinite(Number(params.limit)) && Number(params.limit) > 0
+    ? Math.floor(Number(params.limit))
+    : Number.MAX_SAFE_INTEGER;
+  const skills = loadLocalSkillMarket(opts)
+    .map((skill) => ({
     ...skill,
+    rawCategory: skill.category,
     category: skill.category_zh || skill.category,
     description: skill.summary_zh
-  }));
+  }))
+    .filter((skill) => skillMatchesParams(skill, params))
+    .slice(0, limit);
   const counts = new Map();
   for (const skill of skills) {
     const key = skill.category || "";
@@ -144,17 +219,6 @@ function loadLocalSkillMarketPayload(opts = {}) {
   }
   const categories = [...counts.entries()].map(([category, count]) => ({ category, count }));
   return { skills, categories };
-}
-
-// Zip a bundled catalog skill dir into a buffer for local install (no download).
-function packageLocalCatalogSkill(id, { catalogDir = defaultCatalogDir() } = {}) {
-  if (!id) throw new Error("packageLocalCatalogSkill: id required");
-  const dir = path.join(catalogDir, String(id));
-  if (!fs.existsSync(path.join(dir, "SKILL.md"))) throw new Error(`技能不存在：${id}`);
-  const AdmZip = require("adm-zip");
-  const zip = new AdmZip();
-  zip.addLocalFolder(dir);
-  return zip.toBuffer();
 }
 
 module.exports = {

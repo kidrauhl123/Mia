@@ -545,6 +545,7 @@ function verifyRelease() {
     "api/src/cloud-agent/hermes-runs-client.js",
     "api/src/cloud-agent/dispatcher.js",
     "api/src/shared/conversation-kinds.js",
+    "api/src/shared/conversation-tags.js",
     "api/src/shared/cloud-events.js",
     "api/src/shared/engine-contracts.js",
     "api/src/shared/ids.js",
@@ -574,6 +575,7 @@ function verifyRelease() {
     "web/assets/mia-scroll.css",
     "web/assets/mia-scroll.js",
     "web/assets/mia-logo.png",
+    "web/assets/lottie/label.json",
     "web/favicon.svg",
     "web/favicon.ico",
     "web/5a371047c22c89872f93f00c7d8af123.txt",
@@ -585,6 +587,7 @@ function verifyRelease() {
     "web/shared/avatar-media.js",
     "web/shared/contact.js",
     "web/shared/ids.js",
+    "web/shared/conversation-tags.js",
     "web/shared/group-tiles.js",
     "web/shared/member-color.js",
     "web/shared/unread.js",
@@ -629,6 +632,7 @@ function verifyRelease() {
     "api/src/cloud-agent/hermes-runs-client.js",
     "api/src/cloud-agent/dispatcher.js",
     "api/src/shared/conversation-kinds.js",
+    "api/src/shared/conversation-tags.js",
     "api/src/shared/cloud-events.js",
     "api/src/shared/engine-contracts.js",
     "api/src/shared/member-color.js",
@@ -824,6 +828,7 @@ function main() {
   copyDir("src/cloud", path.join(apiDir, "src", "cloud"));
   copyDir("src/cloud-agent", path.join(apiDir, "src", "cloud-agent"));
   copyFile("src/shared/conversation-kinds.js", path.join(apiDir, "src", "shared", "conversation-kinds.js"));
+  copyFile("src/shared/conversation-tags.js", path.join(apiDir, "src", "shared", "conversation-tags.js"));
   copyFile("src/shared/cloud-events.js", path.join(apiDir, "src", "shared", "cloud-events.js"));
   copyFile("src/shared/engine-contracts.js", path.join(apiDir, "src", "shared", "engine-contracts.js"));
   copyFile("src/shared/ids.js", path.join(apiDir, "src", "shared", "ids.js"));
@@ -856,6 +861,7 @@ function main() {
   copyFile("src/shared/engine-contracts.js", path.join(webDir, "shared", "engine-contracts.js"));
   copyFile("src/shared/ids.js", path.join(webDir, "shared", "ids.js"));
   copyFile("src/shared/conversation-kinds.js", path.join(webDir, "shared", "conversation-kinds.js"));
+  copyFile("src/shared/conversation-tags.js", path.join(webDir, "shared", "conversation-tags.js"));
   copyFile("packages/shared/avatar.js", path.join(webDir, "shared", "member-color.js"));
   copyFile("packages/shared/avatar.js", path.join(webDir, "shared", "avatar-media.js"));
   copyFile("packages/shared/avatar.js", path.join(webDir, "shared", "avatar-resolve.js"));
