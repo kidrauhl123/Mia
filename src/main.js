@@ -129,18 +129,46 @@ function localDeviceName() {
   return hostname || "本机";
 }
 
-function localDeviceId() {
+function createLocalDeviceIdentity(previousId = "") {
+  return {
+    id: `device_${crypto.randomUUID().replace(/-/g, "")}`,
+    createdAt: new Date().toISOString(),
+    ...(previousId ? { previousId } : {})
+  };
+}
+
+function writeLocalDeviceIdentity(identity) {
+  const p = runtimePaths();
+  fs.mkdirSync(path.dirname(p.deviceIdentity), { recursive: true });
+  fs.writeFileSync(p.deviceIdentity, JSON.stringify(identity, null, 2) + "\n", { mode: 0o600 });
+  return identity;
+}
+
+function localDeviceIdentity() {
   const p = runtimePaths();
   const saved = readJson(p.deviceIdentity, {});
   const existing = String(saved.id || saved.deviceId || "").trim();
-  if (/^device_[A-Za-z0-9_-]{8,}$/.test(existing)) return existing;
-  const next = {
-    id: `device_${crypto.randomUUID().replace(/-/g, "")}`,
-    createdAt: new Date().toISOString()
-  };
-  fs.mkdirSync(path.dirname(p.deviceIdentity), { recursive: true });
-  fs.writeFileSync(p.deviceIdentity, JSON.stringify(next, null, 2) + "\n", { mode: 0o600 });
-  return next.id;
+  if (/^device_[A-Za-z0-9_-]{8,}$/.test(existing)) return { ...saved, id: existing };
+  return writeLocalDeviceIdentity(createLocalDeviceIdentity(existing));
+}
+
+function resetLocalDeviceIdentity() {
+  const current = localDeviceIdentity();
+  return writeLocalDeviceIdentity(createLocalDeviceIdentity(current.id));
+}
+
+function localDeviceId() {
+  return localDeviceIdentity().id;
+}
+
+function localDeviceFingerprint() {
+  const payload = JSON.stringify({
+    hostname: os.hostname(),
+    platform: os.platform(),
+    arch: os.arch(),
+    userData: app.getPath("userData")
+  });
+  return crypto.createHash("sha256").update(payload).digest("hex").slice(0, 40);
 }
 
 const statusBadgeAssetDefinitions = Object.fromEntries(
@@ -1476,6 +1504,7 @@ function localBridgeEngineIds() {
 function cloudBridgeUrl(settings = settingsStore.cloudSettings()) {
   const url = cloudWebSocketUrl("/api/bridge", settings);
   const bridgeEngineIds = localBridgeEngineIds();
+  const deviceIdentity = localDeviceIdentity();
   url.searchParams.set("deviceId", localDeviceId());
   url.searchParams.set("deviceName", localDeviceName());
   url.searchParams.set("engine", bridgeEngineIds[0] || "mia-desktop");
@@ -1488,7 +1517,11 @@ function cloudBridgeUrl(settings = settingsStore.cloudSettings()) {
     engines: bridgeEngineIds,
     app: "Mia Desktop",
     appVersion: app.getVersion(),
-    hostname: os.hostname()
+    hostname: os.hostname(),
+    platform: os.platform(),
+    arch: os.arch(),
+    deviceFingerprint: localDeviceFingerprint(),
+    deviceCreatedAt: deviceIdentity.createdAt || ""
   }));
   return url.toString();
 }
@@ -2094,7 +2127,8 @@ function createWindow() {
     autoHideMenuBar: process.platform !== "darwin",
     transparent: process.platform === "darwin",
     show: false,
-    backgroundColor: process.platform === "darwin" ? "#00000000" : onboarding ? "#ffffff" : "#f0f0f3",
+    backgroundColor: onboarding ? "#ffffff" : "#f0f0f3",
+    ...(onboarding ? {} : { backgroundColor: process.platform === "darwin" ? "#00000000" : "#f0f0f3" }),
     acceptFirstMouse: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -2251,6 +2285,8 @@ daemonControlServer = createDaemonControlServer({
   remoteRouter: () => remoteControlRouter,
   initSchedulerSubsystem,
   tasksRoutes: () => tasksRoutes,
+  getCloudSettings: () => settingsStore.cloudSettings(),
+  normalizeCloudUrl: settingsStore.normalizeCloudUrl,
   fetchImpl: fetch,
   timeoutSignal: (timeoutMs) => AbortSignal.timeout(timeoutMs)
 });
@@ -2404,6 +2440,7 @@ cloudBridgeRuntime = createCloudBridgeClient({
   cloudWebSocketProtocols,
   createActiveBridgeChatAdapter,
   createActiveCodexChatAdapter,
+  resetLocalDeviceIdentity,
   resolveBotCapabilities: ({ botKey, botName }) => {
     const bot = { key: botKey, id: botKey, name: botName };
     return skillsLoader.botCapabilitiesWithPresetDefaults(bot);

@@ -320,6 +320,28 @@ test("bot runtime updates are forwarded to the renderer", () => {
   });
 });
 
+test("task events are forwarded to the renderer", () => {
+  const { client, calls } = setup();
+
+  client.handleMessage(JSON.stringify({
+    type: "task.finished",
+    seq: 10,
+    taskId: "t-1",
+    runId: "r-1"
+  }));
+
+  assert.deepEqual(calls.settingsWrites, [{ lastEventSeq: 10 }]);
+  assert.deepEqual(calls.broadcasts[0].envelope, {
+    type: "task.finished",
+    payload: {
+      type: "task.finished",
+      seq: 10,
+      taskId: "t-1",
+      runId: "r-1"
+    }
+  });
+});
+
 test("socket close clears only the active socket and schedules one reconnect", () => {
   const { client, calls, sockets } = setup();
 

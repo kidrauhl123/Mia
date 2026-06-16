@@ -976,9 +976,21 @@ test("bot mention in group message triggers conversation.bot_invocation_requeste
   const ctx = await startServer();
   try {
     const { alice, bob } = await setupGroupScenario(ctx.port);
+    await api(ctx.port, "PUT", "/api/me/bots/bot_codex/runtime", {
+      token: alice.token,
+      body: {
+        runtimeKind: "desktop-local",
+        enabled: true,
+        config: { agentEngine: "codex", deviceId: "desktop-codex" }
+      }
+    });
     const grp = await api(ctx.port, "POST", "/api/conversations", {
       token: alice.token,
-      body: { name: "G", memberBots: [{ botId: "bot_codex" }], memberFriendUserIds: [bob.user.id] }
+      body: {
+        name: "G",
+        memberBots: [{ botId: "bot_codex", runtimeKind: "desktop-local" }],
+        memberFriendUserIds: [bob.user.id]
+      }
     });
     const aliceWs = await openEventsWs(ctx.port, alice.token);
     try {
@@ -988,6 +1000,7 @@ test("bot mention in group message triggers conversation.bot_invocation_requeste
       });
       const inv = await waitForEvent(aliceWs.events, (e) => e.type === "conversation.bot_invocation_requested");
       assert.equal(inv.botId, "bot_codex");
+      assert.equal(inv.targetDeviceId, "desktop-codex");
       assert.equal(inv.invokedBy.id, bob.user.id);
       assert.ok(Array.isArray(inv.recentMessages));
       assert.ok(inv.triggeringMessage.body_md.includes("help me"));

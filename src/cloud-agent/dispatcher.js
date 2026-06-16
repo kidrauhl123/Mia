@@ -17,6 +17,24 @@ function botDisplayName(bot) {
   return bot?.displayName || bot?.display_name || bot?.name || "";
 }
 
+function runtimeDeviceId(config = {}) {
+  return String(config.deviceId || config.device_id || config.targetDeviceId || config.target_device_id || "").trim();
+}
+
+function runtimeDeviceName(device = {}, fallback = "") {
+  return String(device.deviceName || device.device_name || device.name || fallback || "目标设备").trim();
+}
+
+function findRuntimeDevice(devices = [], deviceId = "") {
+  const wanted = String(deviceId || "").trim();
+  if (!wanted) return null;
+  return (Array.isArray(devices) ? devices : []).find((device) => (
+    String(device?.id || "") === wanted
+      || String(device?.deviceId || "") === wanted
+      || (Array.isArray(device?.aliases) && device.aliases.map((id) => String(id || "")).includes(wanted))
+  )) || null;
+}
+
 function memberDisplayName(member, bots) {
   if (member?.member_kind === BOT_MEMBER_KIND) {
     const bot = botForMember(member, bots);
@@ -147,6 +165,7 @@ function createCloudAgentDispatcher(deps = {}) {
   const loadPrompts = typeof deps.loadPrompts === "function" ? deps.loadPrompts : undefined;
   const getUserPublic = typeof deps.getUserPublic === "function" ? deps.getUserPublic : () => null;
   const skillsCatalog = Array.isArray(deps.skillsCatalog) ? deps.skillsCatalog : [];
+  const listBridgeDevices = typeof deps.listBridgeDevices === "function" ? deps.listBridgeDevices : null;
   const log = typeof deps.log === "function" ? deps.log : () => {};
   const pending = new Set();
   const groupOrchestrator = createGroupOrchestrator({
@@ -263,6 +282,26 @@ function createCloudAgentDispatcher(deps = {}) {
     return reply;
   }
 
+  function appendRuntimeConfigErrorReply({ ownerId, bot, conversationId, message }) {
+    const reply = messagesStore.appendMessage({
+      conversationId,
+      senderKind: BOT_SENDER_KIND,
+      senderRef: bot.id,
+      senderOwnerId: ownerId,
+      bodyMd: message,
+      attachments: null,
+      trace: null,
+      status: "complete",
+      errorJson: { type: "desktop_runtime_unavailable", message }
+    });
+    for (const member of socialStore.listConversationMembers(conversationId)) {
+      if (member.member_kind === MemberKind.User) {
+        broadcastPersistedEvent(member.member_ref, { type: "conversation.message_appended", conversationId, message: reply });
+      }
+    }
+    return reply;
+  }
+
   function invocationSender(message, fallbackUserId) {
     const senderRef = String(message?.sender_ref || fallbackUserId || "").trim();
     return getUserPublic(senderRef) || (senderRef ? { id: senderRef } : null);
@@ -275,12 +314,52 @@ function createCloudAgentDispatcher(deps = {}) {
       botId,
       runtimeKind: "desktop-local",
       runtimeConfig: runtimeConfig || {},
-      targetDeviceId: String(runtimeConfig?.deviceId || runtimeConfig?.targetDeviceId || ""),
+      targetDeviceId: runtimeDeviceId(runtimeConfig || {}),
       invokedBy: invocationSender(message, ownerId),
       triggeringMessage: message,
       recentMessages,
       members
     });
+  }
+
+  async function validateDesktopRuntimeBinding({ ownerId, botId, binding }) {
+    if (!binding) {
+      return {
+        ok: false,
+        message: "这个 Bot 还没有配置运行位置，请在 Bot 详情里选择本机或 Mia Cloud。"
+      };
+    }
+    const runtimeConfig = binding.config && typeof binding.config === "object" ? binding.config : {};
+    const targetDeviceId = runtimeDeviceId(runtimeConfig);
+    if (!targetDeviceId) {
+      return {
+        ok: false,
+        message: "这个 Bot 没有明确的运行设备，请在 Bot 详情里重新选择本机或 Mia Cloud。"
+      };
+    }
+    if (!listBridgeDevices) return { ok: true, runtimeConfig, targetDeviceId };
+    let devices = [];
+    try {
+      devices = await Promise.resolve(listBridgeDevices(ownerId, { includeOffline: true, botId }));
+    } catch (error) {
+      log(`[cloud-agent] failed to list bridge devices: ${error?.message || error}`);
+      devices = [];
+    }
+    const targetDevice = findRuntimeDevice(devices, targetDeviceId);
+    if (!targetDevice) {
+      return {
+        ok: false,
+        message: "这个 Bot 的运行设备已失效，请在 Bot 详情里重新选择本机或 Mia Cloud。"
+      };
+    }
+    const status = String(targetDevice.status || "").trim().toLowerCase();
+    if (status && status !== "online" && status !== "local") {
+      return {
+        ok: false,
+        message: `${runtimeDeviceName(targetDevice)} 当前离线，打开该设备上的 Mia 后再试。`
+      };
+    }
+    return { ok: true, runtimeConfig, targetDeviceId, targetDevice };
   }
 
   async function runHermesInline({ ownerId, botId, bot: validatedBot = null, runtimeConfig, conversationId, message, members, bots }) {
@@ -406,15 +485,27 @@ function createCloudAgentDispatcher(deps = {}) {
     return { ok: true, choice };
   }
 
-  async function dispatchBot({ ownerId, botId, conversationId, message, members, bots, recentMessages }) {
+  function runtimeOverrideBinding(binding = null) {
+    if (!binding || typeof binding !== "object") return null;
+    const runtimeKind = String(binding.runtimeKind || binding.runtime_kind || "").trim();
+    if (!runtimeKind) return null;
+    return {
+      runtimeKind,
+      enabled: binding.enabled !== false,
+      config: binding.config && typeof binding.config === "object" ? binding.config : {}
+    };
+  }
+
+  async function dispatchBot({ ownerId, botId, conversationId, message, members, bots, recentMessages, runtimeBinding }) {
     const bot = botsStore.getBot(botId);
     if (!bot || String(bot.ownerUserId || "") !== String(ownerId || "")) {
       log(`[cloud-agent] refusing bot dispatch for unowned bot ${botId}`);
       return null;
     }
-    const activeBinding = typeof runtimeBindingsStore.getActiveBinding === "function"
+    const overrideBinding = runtimeOverrideBinding(runtimeBinding);
+    const activeBinding = overrideBinding || (typeof runtimeBindingsStore.getActiveBinding === "function"
       ? runtimeBindingsStore.getActiveBinding(ownerId, botId)
-      : null;
+      : null);
     const cloudBinding = activeBinding?.runtimeKind === "cloud-hermes"
       ? activeBinding
       : (!activeBinding ? runtimeBindingsStore.getEnabledBinding(ownerId, botId, "cloud-hermes") : null);
@@ -433,10 +524,19 @@ function createCloudAgentDispatcher(deps = {}) {
     const desktopBinding = activeBinding?.runtimeKind === "desktop-local"
       ? activeBinding
       : runtimeBindingsStore.getEnabledBinding(ownerId, botId, "desktop-local");
+    const desktopRuntime = await validateDesktopRuntimeBinding({ ownerId, botId, binding: desktopBinding });
+    if (!desktopRuntime.ok) {
+      return appendRuntimeConfigErrorReply({
+        ownerId,
+        bot,
+        conversationId,
+        message: desktopRuntime.message
+      });
+    }
     broadcastDesktopInvocation({
       ownerId,
       botId,
-      runtimeConfig: desktopBinding?.config || {},
+      runtimeConfig: desktopRuntime.runtimeConfig || {},
       conversationId,
       message,
       members,
@@ -449,6 +549,7 @@ function createCloudAgentDispatcher(deps = {}) {
     const userId = String(args.userId || "").trim();
     const conversationId = String(args.conversationId || "").trim();
     const requestedBotId = String(args.botId || "").trim();
+    const runtimeBinding = runtimeOverrideBinding(args.runtimeBinding);
     const message = args.message || {};
     if (!userId || !conversationId || !message.id) return null;
     if (message.sender_kind && message.sender_kind !== "user") return null;
@@ -475,7 +576,8 @@ function createCloudAgentDispatcher(deps = {}) {
           message,
           members: decision.members || [],
           bots: decision.bots || [],
-          recentMessages: decision.recentMessages || []
+          recentMessages: decision.recentMessages || [],
+          runtimeBinding: requestedBotId && member.member_ref === requestedBotId ? runtimeBinding : null
         });
         if (reply) replies.push(reply);
       }
@@ -495,7 +597,8 @@ function createCloudAgentDispatcher(deps = {}) {
       conversationId,
       message,
       members: socialStore.listConversationMembers(conversationId),
-      recentMessages: []
+      recentMessages: [],
+      runtimeBinding
     });
   }
 

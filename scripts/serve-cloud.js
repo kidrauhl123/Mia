@@ -99,6 +99,18 @@ try {
 } catch {
   ({ createUserSettingsStore } = require("./src/cloud/user-settings-store.js"));
 }
+let createCloudTasksStore = null;
+try {
+  ({ createCloudTasksStore } = require("../src/cloud/tasks-store.js"));
+} catch {
+  ({ createCloudTasksStore } = require("./src/cloud/tasks-store.js"));
+}
+let createCloudTasksService = null;
+try {
+  ({ createCloudTasksService } = require("../src/cloud/tasks-service.js"));
+} catch {
+  ({ createCloudTasksService } = require("./src/cloud/tasks-service.js"));
+}
 let createRuntimeBindingsStore = null;
 try {
   ({ createRuntimeBindingsStore } = require("../src/cloud-agent/runtime-bindings-store.js"));
@@ -1494,6 +1506,14 @@ function runtimeBindingSummary(binding, devices = []) {
     ? (Array.isArray(devices) ? devices : []).find((device) => String(device?.id || "") === deviceId)
     : null;
   const deviceName = compactRuntimeDeviceName(matchedDevice?.deviceName || config.deviceName || config.device_name || "");
+  const deviceStatus = String(matchedDevice?.status || "").trim();
+  const runtimeStatus = binding.runtimeKind === "cloud-hermes"
+    ? "cloud"
+    : (!deviceId
+      ? "invalid_config"
+      : (!matchedDevice
+        ? "stale_device"
+        : (deviceStatus === "online" ? "remote_online" : "remote_offline")));
   return {
     runtimeKind: binding.runtimeKind,
     runtimeConfig: config,
@@ -1503,6 +1523,10 @@ function runtimeBindingSummary(binding, devices = []) {
     targetDeviceId: deviceId,
     deviceId,
     deviceName,
+    runtimeStatus,
+    runtime_status: runtimeStatus,
+    deviceStatus,
+    device_status: deviceStatus,
     runtimeLabel: binding.runtimeKind === "cloud-hermes"
       ? "Mia Cloud"
       : (deviceName || "当前设备")
@@ -2196,8 +2220,38 @@ function bridgeDeviceEngine(engine, capabilities = {}) {
   return explicit || engines[0] || "mia-desktop";
 }
 
+function bridgeDeviceFingerprint(capabilities = {}) {
+  return String(
+    capabilities.deviceFingerprint
+      || capabilities.device_fingerprint
+      || capabilities.machineFingerprint
+      || capabilities.machine_fingerprint
+      || ""
+  ).trim().slice(0, 160);
+}
+
 function attachBridgeDevice(hub, ws, { userId, deviceId, deviceName, engine, capabilities, cloudStore, eventHub }) {
   const stableDeviceId = normalizeBridgeDeviceId(deviceId, id("bridge"));
+  if (!hub.devicesByUser.has(userId)) hub.devicesByUser.set(userId, new Map());
+  const userDevices = hub.devicesByUser.get(userId);
+  const previousDevice = userDevices.get(stableDeviceId);
+  const previousFingerprint = bridgeDeviceFingerprint(previousDevice?.capabilities || {});
+  const nextFingerprint = bridgeDeviceFingerprint(capabilities || {});
+  if (
+    previousDevice
+      && previousDevice.ws.readyState === WebSocket.OPEN
+      && previousFingerprint
+      && nextFingerprint
+      && previousFingerprint !== nextFingerprint
+  ) {
+    sendWsJson(ws, {
+      type: "device_identity_conflict",
+      deviceId: stableDeviceId,
+      message: "这个设备标识已被另一台电脑使用，Mia 将重新生成本机设备标识。"
+    });
+    try { ws.close(4009, "device identity conflict"); } catch { /* ignore stale socket close */ }
+    return null;
+  }
   const device = {
     id: stableDeviceId,
     userId,
@@ -2216,9 +2270,6 @@ function attachBridgeDevice(hub, ws, { userId, deviceId, deviceName, engine, cap
     engine: device.engine,
     capabilities: device.capabilities
   });
-  if (!hub.devicesByUser.has(userId)) hub.devicesByUser.set(userId, new Map());
-  const userDevices = hub.devicesByUser.get(userId);
-  const previousDevice = userDevices.get(device.id);
   if (previousDevice && previousDevice !== device && previousDevice.ws.readyState === WebSocket.OPEN) {
     try { previousDevice.ws.close(1000, "device reconnected"); } catch { /* ignore stale socket close */ }
   }
@@ -2368,12 +2419,25 @@ function broadcastBotInvocations(context, conversationId, message, body, invoked
     const bot = context.botsStore.getBot(member.member_ref);
     if (!bot || bot.ownerUserId !== member.owner_id) continue;
     const aiPerms = parseJson(member.ai_perms_json, {});
+    const memberRuntimeKind = normalizeMemberRuntimeKind(aiPerms.runtimeKind);
+    const binding = memberRuntimeKind
+      ? context.runtimeBindingsStore?.getEnabledBinding?.(member.owner_id, member.member_ref, memberRuntimeKind)
+      : context.runtimeBindingsStore?.getActiveBinding?.(member.owner_id, member.member_ref);
+    const runtimeKind = memberRuntimeKind || binding?.runtimeKind || "desktop-local";
+    const runtimeConfig = {
+      ...(binding?.config && typeof binding.config === "object" ? binding.config : {}),
+      ...aiPerms,
+      runtimeKind
+    };
+    const targetDeviceId = String(runtimeConfig.deviceId || runtimeConfig.device_id || runtimeConfig.targetDeviceId || runtimeConfig.target_device_id || "").trim();
+    if (runtimeKind === "desktop-local" && !targetDeviceId) continue;
     broadcastPersistedEvent(context, member.owner_id, {
       type: "conversation.bot_invocation_requested",
       conversationId,
       botId: member.member_ref,
-      runtimeKind: aiPerms.runtimeKind || "desktop-local",
-      runtimeConfig: aiPerms,
+      runtimeKind,
+      runtimeConfig,
+      targetDeviceId,
       invokedBy,
       triggeringMessage: message,
       recentMessages,
@@ -2405,13 +2469,15 @@ function broadcastBotDmDesktopInvocationFallback(context, conversationId, messag
   const runtimeConfig = desktopBinding.config && typeof desktopBinding.config === "object"
     ? desktopBinding.config
     : {};
+  const targetDeviceId = String(runtimeConfig.deviceId || runtimeConfig.device_id || runtimeConfig.targetDeviceId || runtimeConfig.target_device_id || "").trim();
+  if (!targetDeviceId) return false;
   broadcastPersistedEvent(context, userId, {
     type: "conversation.bot_invocation_requested",
     conversationId,
     botId,
     runtimeKind: "desktop-local",
     runtimeConfig,
-    targetDeviceId: String(runtimeConfig.deviceId || runtimeConfig.device_id || runtimeConfig.targetDeviceId || "").trim(),
+    targetDeviceId,
     invokedBy,
     triggeringMessage: message,
     recentMessages: context.messagesStore.listMessagesSince(conversationId, 0, 20),
@@ -2698,6 +2764,80 @@ async function handleRequest(req, res, context) {
       if (!token) return writeError(res, 400, "token is required");
       context.cloudStore.deletePushToken(token);
       return writeJson(res, 200, { ok: true });
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/tasks") {
+      const tasks = context.cloudTasksService.list(auth.user.id);
+      return writeJson(res, 200, { tasks });
+    }
+
+    const writeTaskError = (error) => {
+      const message = String(error?.message || error || "task error");
+      if (/not found/i.test(message)) return writeError(res, 404, message);
+      if (/not a member|own bots|only schedule/i.test(message)) return writeError(res, 403, message);
+      return writeError(res, 400, message);
+    };
+
+    if (req.method === "POST" && url.pathname === "/api/tasks") {
+      try {
+        const body = await readJson(req);
+        const task = context.cloudTasksService.create(auth.user.id, body || {});
+        return writeJson(res, 201, { task });
+      } catch (error) {
+        return writeTaskError(error);
+      }
+    }
+
+    const taskRouteMatch = url.pathname.match(/^\/api\/tasks\/([^/]+)(?:\/(run-now|pause|resume))?$/);
+    if (taskRouteMatch) {
+      const taskId = taskRouteMatch[1];
+      const action = taskRouteMatch[2] || "";
+      if (req.method === "GET" && !action) {
+        const task = context.cloudTasksService.get(auth.user.id, taskId);
+        if (!task) return writeError(res, 404, "task not found");
+        return writeJson(res, 200, { task });
+      }
+      if (req.method === "PATCH" && !action) {
+        try {
+          const body = await readJson(req);
+          const task = context.cloudTasksService.update(auth.user.id, taskId, body || {});
+          return writeJson(res, 200, { task });
+        } catch (error) {
+          return writeTaskError(error);
+        }
+      }
+      if (req.method === "DELETE" && !action) {
+        try {
+          const result = context.cloudTasksService.delete(auth.user.id, taskId);
+          return writeJson(res, 200, result);
+        } catch (error) {
+          return writeTaskError(error);
+        }
+      }
+      if (req.method === "POST" && action === "run-now") {
+        try {
+          const result = await context.cloudTasksService.runNow(auth.user.id, taskId);
+          return writeJson(res, 200, result);
+        } catch (error) {
+          return writeTaskError(error);
+        }
+      }
+      if (req.method === "POST" && action === "pause") {
+        try {
+          const task = context.cloudTasksService.pause(auth.user.id, taskId);
+          return writeJson(res, 200, { task });
+        } catch (error) {
+          return writeTaskError(error);
+        }
+      }
+      if (req.method === "POST" && action === "resume") {
+        try {
+          const task = context.cloudTasksService.resume(auth.user.id, taskId);
+          return writeJson(res, 200, { task });
+        } catch (error) {
+          return writeTaskError(error);
+        }
+      }
     }
 
     // POST /api/social/friend-requests
@@ -3166,7 +3306,6 @@ async function handleRequest(req, res, context) {
         }
       }
       pushChatMessageToOfflineMembers(context, conversationId, message, userMemberIds, auth.user.id);
-      broadcastBotInvocations(context, conversationId, message, body, context.cloudStore.getUserPublic(auth.user.id) || { id: auth.user.id });
       if (context.cloudAgentDispatcher) {
         context.cloudAgentDispatcher.handleUserMessage({
           userId: auth.user.id,
@@ -3176,6 +3315,7 @@ async function handleRequest(req, res, context) {
           console.warn("[cloud-agent] dispatch failed:", error?.message || error);
         });
       } else {
+        broadcastBotInvocations(context, conversationId, message, body, context.cloudStore.getUserPublic(auth.user.id) || { id: auth.user.id });
         broadcastBotDmDesktopInvocationFallback(
           context,
           conversationId,
@@ -3277,6 +3417,7 @@ async function handleRequest(req, res, context) {
             : {})
       });
       const payload = { user: updated };
+      broadcastPersistedEvent(context, auth.user.id, { type: "user.profile_updated", user: updated });
       rememberOp(context, auth.user.id, body, 200, payload);
       return writeJson(res, 200, payload);
     }
@@ -3805,6 +3946,8 @@ function createMiaCloudServer(options = {}) {
     releaseManifest: options.releaseManifest === undefined ? defaultReleaseManifest() : options.releaseManifest,
     socialStore: null,
     messagesStore: null,
+    cloudTasksStore: null,
+    cloudTasksService: null,
     runtimeBindingsStore: null,
     cloudAgentRunsStore: null,
     cloudAgentDispatcher: null,
@@ -3820,6 +3963,7 @@ function createMiaCloudServer(options = {}) {
   };
   context.socialStore = createSocialStore(context.cloudStore.getDb());
   context.messagesStore = createMessagesStore(context.cloudStore.getDb());
+  context.cloudTasksStore = createCloudTasksStore(context.cloudStore.getDb());
   context.eventLog = createEventLogStore(context.cloudStore.getDb());
   context.botsStore = createBotsStore(context.cloudStore.getDb());
   context.skillsStore = createSkillsStore(context.cloudStore.getDb(), {
@@ -3867,9 +4011,18 @@ function createMiaCloudServer(options = {}) {
       broadcastPersistedEvent: (userId, payload) => broadcastPersistedEvent(context, userId, payload),
       broadcastTransientEvent: (userId, payload) => broadcastTransientEvent(context.eventHub, userId, payload),
       getUserPublic: (userId) => context.cloudStore.getUserPublic(userId),
+      listBridgeDevices: (userId, options = {}) => bridgeDevices(context.bridgeHub, userId, {
+        includeOffline: options.includeOffline,
+        cloudStore: context.cloudStore
+      }),
       skillsCatalog
     });
   }
+  context.cloudTasksService = createCloudTasksService({
+    ...context,
+    broadcastPersistedEvent: (userId, payload) => broadcastPersistedEvent(context, userId, payload)
+  });
+  context.cloudTasksService.start();
   // Inject botsStore so listConversationMembers can enrich bot members
   // with name/avatar from the owner's bot definitions in one shot.
   context.socialStore._attachBotsStore?.(context.botsStore);
@@ -3892,7 +4045,10 @@ function createMiaCloudServer(options = {}) {
   const server = http.createServer((req, res) => handleRequest(req, res, context));
   const wss = new WebSocketServer({ noServer: true });
   server.on("upgrade", (req, socket, head) => handleBridgeUpgrade(req, socket, head, context, wss));
-  server.on("close", () => context.cloudStore.close?.());
+  server.on("close", () => {
+    context.cloudTasksService?.stop?.();
+    context.cloudStore.close?.();
+  });
   server.mia = context;
   return server;
 }

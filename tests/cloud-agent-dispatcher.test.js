@@ -83,6 +83,12 @@ function makeDispatcher(ctx, overrides = {}) {
     },
     broadcastPersistedEvent() {},
     broadcastTransientEvent() {},
+    listBridgeDevices() {
+      return [
+        { id: "device_mac", deviceName: "Mac", status: "online" },
+        { id: "device_windows", deviceName: "Windows", status: "online" }
+      ];
+    },
     ...overrides
   });
 }
@@ -366,6 +372,99 @@ test("active desktop-local binding wins over stale cloud-hermes binding", async 
   }
 });
 
+test("desktop-local binding without a target device appends a visible error instead of broadcasting", async () => {
+  const ctx = setup();
+  const broadcasts = [];
+  try {
+    ctx.runtimeBindingsStore.upsertBinding({
+      userId: ctx.user.id,
+      botId: BOT_ID,
+      runtimeKind: "cloud-hermes",
+      enabled: false,
+      config: {}
+    });
+    ctx.runtimeBindingsStore.upsertBinding({
+      userId: ctx.user.id,
+      botId: BOT_ID,
+      runtimeKind: "desktop-local",
+      activate: true,
+      config: { agentEngine: "codex" }
+    });
+    const dispatcher = makeDispatcher(ctx, {
+      broadcastPersistedEvent(userId, event) {
+        broadcasts.push({ userId, event });
+      }
+    });
+    const message = ctx.messagesStore.appendMessage({
+      conversationId: ctx.conversation.id,
+      senderKind: "user",
+      senderRef: ctx.user.id,
+      bodyMd: "hello"
+    });
+
+    const reply = await dispatcher.handleUserMessage({
+      userId: ctx.user.id,
+      conversationId: ctx.conversation.id,
+      message
+    });
+
+    assert.match(reply.body_md, /没有明确的运行设备/);
+    assert.equal(reply.sender_ref, BOT_ID);
+    assert.equal(broadcasts.length, 1);
+    assert.equal(broadcasts[0].event.type, "conversation.message_appended");
+  } finally {
+    ctx.cleanup();
+  }
+});
+
+test("desktop-local binding on an offline target appends a visible error instead of broadcasting", async () => {
+  const ctx = setup();
+  const broadcasts = [];
+  try {
+    ctx.runtimeBindingsStore.upsertBinding({
+      userId: ctx.user.id,
+      botId: BOT_ID,
+      runtimeKind: "cloud-hermes",
+      enabled: false,
+      config: {}
+    });
+    ctx.runtimeBindingsStore.upsertBinding({
+      userId: ctx.user.id,
+      botId: BOT_ID,
+      runtimeKind: "desktop-local",
+      activate: true,
+      config: { agentEngine: "codex", deviceId: "device_mac" }
+    });
+    const dispatcher = makeDispatcher(ctx, {
+      broadcastPersistedEvent(userId, event) {
+        broadcasts.push({ userId, event });
+      },
+      listBridgeDevices() {
+        return [{ id: "device_mac", deviceName: "Mac", status: "offline" }];
+      }
+    });
+    const message = ctx.messagesStore.appendMessage({
+      conversationId: ctx.conversation.id,
+      senderKind: "user",
+      senderRef: ctx.user.id,
+      bodyMd: "hello"
+    });
+
+    const reply = await dispatcher.handleUserMessage({
+      userId: ctx.user.id,
+      conversationId: ctx.conversation.id,
+      message
+    });
+
+    assert.match(reply.body_md, /Mac 当前离线/);
+    assert.equal(reply.sender_ref, BOT_ID);
+    assert.equal(broadcasts.length, 1);
+    assert.equal(broadcasts[0].event.type, "conversation.message_appended");
+  } finally {
+    ctx.cleanup();
+  }
+});
+
 test("desktop-local refuses a contaminated bot binding owned by another user", async () => {
   const ctx = setup();
   const broadcasts = [];
@@ -611,7 +710,7 @@ test("desktop-only bot gets a bot_invocation_requested broadcast and no inline r
       botId: "bot_spec_master",
       runtimeKind: "desktop-local",
       enabled: true,
-      config: { model: "claude" }
+      config: { model: "claude", deviceId: "device_mac" }
     });
     const dispatcher = makeDispatcher(ctx, {
       broadcastPersistedEvent(userId, event) {

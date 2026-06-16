@@ -4,6 +4,15 @@ const { createRuntimeLifecycleService } = require("../src/main/runtime-lifecycle
 
 const wait = (ms = 0) => new Promise((resolve) => setTimeout(resolve, ms));
 
+async function waitUntil(predicate, timeoutMs = 250) {
+  const start = Date.now();
+  while (!predicate()) {
+    if (Date.now() - start > timeoutMs) return false;
+    await wait(5);
+  }
+  return true;
+}
+
 function createTimer() {
   const marks = [];
   return {
@@ -56,7 +65,7 @@ test("runtime lifecycle schedules daemon and engine startup once", async () => {
 
   assert.equal(service.scheduleBackgroundStartup({ delayMs: 0, engineDelayMs: 0 }), true);
   assert.equal(service.scheduleBackgroundStartup({ delayMs: 0, engineDelayMs: 0 }), false);
-  await wait(50);
+  await waitUntil(() => calls.some((entry) => entry[0] === "start-engine"));
 
   assert.deepEqual(calls, [
     ["start-daemon"],

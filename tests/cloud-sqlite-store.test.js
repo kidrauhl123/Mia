@@ -274,14 +274,19 @@ test("schema v2 creates social tables and indexes", () => {
     for (const t of ["friendships", "friend_requests", "conversations", "conversation_members", "messages"]) {
       assert.ok(tables.includes(t), `missing table: ${t}`);
     }
+    for (const t of ["scheduled_tasks", "scheduled_task_runs"]) {
+      assert.ok(tables.includes(t), `missing table: ${t}`);
+    }
     const idx = db.prepare(`SELECT name FROM sqlite_master WHERE type='index' ORDER BY name`).all().map((r) => r.name);
     for (const i of ["idx_friend_requests_to", "idx_friend_requests_code", "idx_conversation_members_user", "idx_messages_conversation_seq", "idx_conversations_public_id"]) {
       assert.ok(idx.includes(i), `missing index: ${i}`);
     }
     const conversationColumns = db.prepare("PRAGMA table_info(conversations)").all().map((r) => r.name);
     assert.ok(conversationColumns.includes("public_id"), "missing conversations column: public_id");
+    const taskColumns = db.prepare("PRAGMA table_info(scheduled_tasks)").all().map((r) => r.name);
+    assert.ok(taskColumns.includes("next_fire_at"), "missing scheduled_tasks column: next_fire_at");
     const version = db.prepare("SELECT MAX(version) AS v FROM schema_migrations").get().v;
-    assert.ok(version >= 2, `schema_migrations max version should be >= 2, got ${version}`);
+    assert.ok(version >= 17, `schema_migrations max version should be >= 17, got ${version}`);
   } finally {
     store.close();
     fs.rmSync(tmpDir, { recursive: true, force: true });

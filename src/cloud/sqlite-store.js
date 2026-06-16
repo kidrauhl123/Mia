@@ -1059,12 +1059,59 @@ function migrate(db) {
       updated_at  TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_push_tokens_user ON push_tokens(user_id);
+
+    -- v17: scheduled tasks are account-scoped cloud state. Desktop and MCP
+    -- still call the local daemon, but the daemon proxies these APIs to Cloud
+    -- so every device sees the same task list and history.
+    CREATE TABLE IF NOT EXISTS scheduled_tasks (
+      id                  TEXT PRIMARY KEY,
+      user_id             TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      title               TEXT NOT NULL,
+      bot_id              TEXT NOT NULL,
+      conversation_id     TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      session_id          TEXT NOT NULL DEFAULT '',
+      origin_message_id   TEXT NOT NULL DEFAULT '',
+      trigger_json        TEXT NOT NULL DEFAULT '{}',
+      timezone            TEXT NOT NULL DEFAULT 'UTC',
+      prompt              TEXT NOT NULL DEFAULT '',
+      status              TEXT NOT NULL DEFAULT 'active',
+      runtime_kind        TEXT NOT NULL DEFAULT '',
+      runtime_config_json TEXT NOT NULL DEFAULT '{}',
+      target_device_id    TEXT NOT NULL DEFAULT '',
+      next_fire_at        INTEGER,
+      created_at          INTEGER NOT NULL,
+      updated_at          INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_user ON scheduled_tasks(user_id, status, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_due ON scheduled_tasks(status, next_fire_at);
+    CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_conversation ON scheduled_tasks(conversation_id);
+
+    CREATE TABLE IF NOT EXISTS scheduled_task_runs (
+      id                TEXT PRIMARY KEY,
+      task_id           TEXT NOT NULL REFERENCES scheduled_tasks(id) ON DELETE CASCADE,
+      user_id           TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      fired_at          INTEGER NOT NULL,
+      finished_at       INTEGER,
+      status            TEXT NOT NULL,
+      output_message_id TEXT,
+      output_text       TEXT NOT NULL DEFAULT '',
+      error             TEXT NOT NULL DEFAULT '',
+      missed_count      INTEGER NOT NULL DEFAULT 0,
+      first_missed_at   INTEGER,
+      last_missed_at    INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_scheduled_task_runs_task ON scheduled_task_runs(task_id, fired_at);
+    CREATE INDEX IF NOT EXISTS idx_scheduled_task_runs_user ON scheduled_task_runs(user_id, fired_at);
   `);
   if (!hasColumn(db, "bridge_runs", "request_attachments_json")) {
     db.exec("ALTER TABLE bridge_runs ADD COLUMN request_attachments_json TEXT NOT NULL DEFAULT '[]'");
   }
   if (!hasColumn(db, "users", "display_name")) {
     db.exec("ALTER TABLE users ADD COLUMN display_name TEXT NOT NULL DEFAULT ''");
+  }
+  if (!hasColumn(db, "scheduled_tasks", "next_fire_at")) {
+    db.exec("ALTER TABLE scheduled_tasks ADD COLUMN next_fire_at INTEGER");
+    db.exec("CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_due ON scheduled_tasks(status, next_fire_at)");
   }
   // Profile avatar columns added in v3 so friends + the user themself can
   // surface their display avatar on every device.
@@ -1180,6 +1227,9 @@ function migrate(db) {
     .run(nowIso());
   // v16: per-user conversation tags live in user_settings.tags_json.
   db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (16, ?)")
+    .run(nowIso());
+  // v17: cloud-owned scheduled tasks and run history.
+  db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (17, ?)")
     .run(nowIso());
 }
 

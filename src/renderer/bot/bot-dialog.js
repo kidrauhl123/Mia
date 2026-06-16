@@ -586,6 +586,11 @@
     return [...byId.values()];
   }
 
+  function editableBridgeDeviceOptions() {
+    const local = localDeviceOption(state?.runtime || {});
+    return local ? [local] : [];
+  }
+
   function deviceStatusLabel(device = {}) {
     if (device.isLocal || device.status === "local") return "本机";
     if (device.status === "online") return "在线";
@@ -654,15 +659,32 @@
       });
     }
 
-    const devices = bridgeDeviceOptions();
+    const devices = editableBridgeDeviceOptions();
     const wantedDeviceId = String(current.deviceId || "").trim();
-    if (wantedDeviceId && !devices.some((device) => device.id === wantedDeviceId || (device.aliases || []).includes(wantedDeviceId))) {
-      devices.push(normalizedDevice({
+    const allDevices = bridgeDeviceOptions();
+    const wantedDevice = wantedDeviceId
+      ? allDevices.find((device) => device.id === wantedDeviceId || (device.aliases || []).includes(wantedDeviceId))
+      : null;
+    const wantedIsEditable = wantedDeviceId && devices.some((device) => device.id === wantedDeviceId || (device.aliases || []).includes(wantedDeviceId));
+    if (wantedDeviceId && !wantedIsEditable) {
+      const displayDevice = wantedDevice || normalizedDevice({
         id: wantedDeviceId,
         deviceName: current.deviceName || wantedDeviceId,
         status: "offline",
         capabilities: { engines: [current.agentEngine || "hermes"] }
-      }));
+      });
+      const deviceName = runtimeDeviceDisplayName(displayDevice);
+      groups.push({
+        label: "当前运行位置",
+        options: [{
+          runtimeKind: "desktop-local",
+          deviceId: wantedDeviceId,
+          deviceName,
+          agentEngine: current.agentEngine || "hermes",
+          label: `${deviceName} · ${deviceStatusLabel(displayDevice)}`,
+          disabled: true
+        }]
+      });
     }
 
     for (const device of devices.filter(Boolean)) {
@@ -708,6 +730,7 @@
         const node = document.createElement("option");
         node.value = encodeRuntimeTarget(option);
         node.textContent = option.label;
+        node.disabled = Boolean(option.disabled);
         optgroup.appendChild(node);
       }
       select.appendChild(optgroup);
@@ -719,7 +742,7 @@
   }
 
   function detectedAgentEngineOptions() {
-    return deviceEngineIds(bridgeDeviceOptions()[0] || {}).map((id) => ({ id, label: engineLabel(id) }));
+    return deviceEngineIds(localDeviceOption(state?.runtime || {}) || {}).map((id) => ({ id, label: engineLabel(id) }));
   }
 
   function renderBotRuntimeLocationSelect(current = "desktop-local") {

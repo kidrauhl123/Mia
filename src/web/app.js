@@ -1392,6 +1392,13 @@ function handleCloudEvent(envelope) {
       renderConversationList();
       renderActiveChat();
     }
+  } else if (type === "user.profile_updated") {
+    if (envelope.user) {
+      state.user = envelope.user;
+      renderSettings();
+      renderConversationList();
+      renderActiveChat();
+    }
   } else if (type === "bot.upserted") {
     // Phase 2: another device created/edited a bot — replace by id so
     // names/avatars stay current across this browser too.

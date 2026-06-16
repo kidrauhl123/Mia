@@ -120,6 +120,31 @@ test("start opens one bridge socket and ready updates status", () => {
   assert.equal(client.status().deviceId, "dev_1");
 });
 
+test("device identity conflict resets local identity and schedules reconnect", () => {
+  const resets = [];
+  const { client, calls, sockets, FakeWebSocket } = setup({
+    resetLocalDeviceIdentity: (message) => resets.push(message)
+  });
+  client.start();
+  const ws = sockets[0];
+  ws.readyState = FakeWebSocket.OPEN;
+
+  ws.emit("message", JSON.stringify({
+    type: "device_identity_conflict",
+    deviceId: "device_same",
+    message: "设备标识冲突"
+  }));
+
+  assert.equal(resets.length, 1);
+  assert.equal(resets[0].deviceId, "device_same");
+  assert.equal(client.status().connected, false);
+  assert.equal(client.status().connecting, false);
+  assert.equal(client.status().deviceId, "");
+  assert.equal(client.status().lastError, "设备标识冲突");
+  assert.equal(ws.closed.code, 4009);
+  assert.equal(calls.timers.length, 1);
+});
+
 test("run messages execute the requested Agent engine through the bridge Module", async () => {
   const { client, calls, sockets, FakeWebSocket } = setup();
   client.start();

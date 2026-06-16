@@ -10,6 +10,9 @@ test("CloudEvent has known event types", () => {
   assert.equal(CloudEvent.ConversationBotInvocationRequested, "conversation.bot_invocation_requested");
   assert.equal(CloudEvent.BotUpserted, "bot.upserted");
   assert.equal(CloudEvent.BotDeleted, "bot.deleted");
+  assert.equal(CloudEvent.UserProfileUpdated, "user.profile_updated");
+  assert.equal(CloudEvent.TaskCreated, "task.created");
+  assert.equal(CloudEvent.TaskFinished, "task.finished");
   assert.equal(CloudEvent.WorkspaceUpdated, "workspace_updated");
   assert.equal(CloudEvent.MessageCreated, "message_created");
   assert.equal(CloudEvent.BridgeRunUpdated, "bridge_run_updated");

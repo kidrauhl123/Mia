@@ -263,6 +263,11 @@
     return [...byId.values()];
   }
 
+  function editableRuntimeDevices() {
+    const local = localDeviceCandidate();
+    return local ? [local] : [];
+  }
+
   function deviceStatusLabel(device = {}) {
     if (device.isLocal || device.status === "local") return "本机";
     if (device.status === "online") return "在线";
@@ -305,7 +310,7 @@
       });
     }
     const wantedDeviceId = String(current.deviceId || "").trim();
-    const devices = runtimeDevices();
+    const devices = editableRuntimeDevices();
     if (wantedDeviceId && !devices.some((device) => device.id === wantedDeviceId || (device.aliases || []).includes(wantedDeviceId))) {
       devices.push(normalizeDevice({
         id: wantedDeviceId,

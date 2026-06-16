@@ -4639,6 +4639,9 @@ if (window.mia.onCloudEvent) {
         runtimeBinding
       );
     }
+    if (String(envelope.type || "").startsWith("task.")) {
+      window.miaTasksPanel?.handleTaskEvent?.(envelope);
+    }
     window.miaSocial?.handleCloudEvent?.(envelope);
     const updatedDevices = envelope.type === "device_updated" ? envelope.payload?.devices : null;
     if (Array.isArray(updatedDevices) && state.runtime) {

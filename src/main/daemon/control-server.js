@@ -20,6 +20,8 @@ function createDaemonControlServer({
   remoteRouter,
   initSchedulerSubsystem,
   tasksRoutes,
+  getCloudSettings = null,
+  normalizeCloudUrl = (value) => String(value || "").replace(/\/+$/, ""),
   writeCloudSettings = null,
   fetchImpl = fetch,
   timeoutSignal = (timeoutMs) => AbortSignal.timeout(timeoutMs)
@@ -148,6 +150,45 @@ function createDaemonControlServer({
       "Cache-Control": "no-store"
     });
     res.end(body);
+  }
+
+  function hasCloudTasksProxy() {
+    return typeof getCloudSettings === "function";
+  }
+
+  function cloudTasksSettings() {
+    const settings = typeof getCloudSettings === "function" ? getCloudSettings() : null;
+    const token = String(settings?.token || "").trim();
+    const url = normalizeCloudUrl(settings?.url || "");
+    if (!settings?.enabled || !token || !url) {
+      throw new Error("请先登录 Mia Cloud 后再使用定时任务。");
+    }
+    return { url, token };
+  }
+
+  async function proxyCloudTasks(req, res, url) {
+    const cloud = cloudTasksSettings();
+    const upstream = `${cloud.url}${url.pathname}${url.search || ""}`;
+    const method = String(req.method || "GET").toUpperCase();
+    const hasBody = ["POST", "PUT", "PATCH", "DELETE"].includes(method);
+    const body = hasBody ? await readBody(req) : null;
+    const response = await fetchImpl(upstream, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${cloud.token}`
+      },
+      body: hasBody ? JSON.stringify(body || {}) : undefined,
+      signal: timeoutSignal(30_000)
+    });
+    const text = await response.text().catch(() => "");
+    let payload = {};
+    try {
+      payload = text ? JSON.parse(text) : {};
+    } catch {
+      payload = text ? { error: text } : {};
+    }
+    writeJson(res, response.status, payload);
   }
 
   function readBody(req, maxBytes = 48 * 1024 * 1024) {
@@ -302,6 +343,16 @@ function createDaemonControlServer({
         return;
       }
       if (url.pathname === "/api/tasks/events" && req.method === "GET") {
+        if (hasCloudTasksProxy()) {
+          res.writeHead(200, {
+            "Content-Type": "text/event-stream; charset=utf-8",
+            "Cache-Control": "no-cache, no-transform",
+            Connection: "keep-alive",
+            "Access-Control-Allow-Origin": "*"
+          });
+          res.write(": connected\n\n");
+          return;
+        }
         initSchedulerSubsystem();
         tasksRoutes().handleEventsStream(req, res);
         return;
@@ -324,6 +375,10 @@ function createDaemonControlServer({
         return;
       }
       if (url.pathname.startsWith("/api/tasks")) {
+        if (hasCloudTasksProxy()) {
+          await proxyCloudTasks(req, res, url);
+          return;
+        }
         initSchedulerSubsystem();
         const body = ["POST", "PATCH"].includes(req.method) ? await readBody(req) : null;
         const handled = await tasksRoutes().handle(req, res, body);
@@ -361,7 +416,7 @@ function createDaemonControlServer({
       controlServer.once("error", reject);
       controlServer.listen(port, host, resolve);
     });
-    initSchedulerSubsystem();
+    if (!hasCloudTasksProxy()) initSchedulerSubsystem();
     state.running = true;
     state.starting = false;
     writeDaemonSettings({ ...settings, host, port });

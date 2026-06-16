@@ -82,6 +82,37 @@
     return isDefaultSourceBio(raw) ? "" : raw;
   }
 
+  function runtimeDeviceById(runtime = {}, deviceId = "") {
+    const wanted = String(deviceId || "").trim();
+    if (!wanted) return null;
+    const devices = [
+      ...(Array.isArray(runtime.cloud?.devices) ? runtime.cloud.devices : []),
+      ...(Array.isArray(runtime.cloud?.bridgeDevices) ? runtime.cloud.bridgeDevices : [])
+    ];
+    return devices.find((device) => (
+      String(device?.id || "") === wanted
+        || String(device?.deviceId || "") === wanted
+        || (Array.isArray(device?.aliases) && device.aliases.map((id) => String(id || "")).includes(wanted))
+    )) || null;
+  }
+
+  function isCurrentRuntimeDevice(runtime = {}, deviceId = "") {
+    const wanted = String(deviceId || "").trim();
+    if (!wanted) return false;
+    return [
+      runtime.localDevice?.id,
+      runtime.cloud?.deviceId
+    ].some((id) => String(id || "").trim() === wanted);
+  }
+
+  function deviceStatusText(device = {}) {
+    const status = String(device.status || "").trim();
+    if (status === "online") return "在线";
+    if (status === "offline") return "离线";
+    if (status === "local") return "本机";
+    return status || "";
+  }
+
   function runtimeLabelFor(bot = {}, runtime = {}) {
     const runtimeConfig = bot.runtimeConfig || bot.runtime_config || bot.config || {};
     const runtimeKind = normalizeRuntimeKind(
@@ -89,6 +120,34 @@
       bot.sourceKind === "cloud" ? "cloud-hermes" : "desktop-local"
     );
     if (runtimeKind === "cloud-hermes") return "Mia Cloud";
+    const targetDeviceId = firstNonEmpty(
+      bot.targetDeviceId,
+      bot.target_device_id,
+      bot.deviceId,
+      bot.device_id,
+      runtimeConfig.deviceId,
+      runtimeConfig.device_id
+    );
+    if (!targetDeviceId) return "运行设备未配置";
+    if (isCurrentRuntimeDevice(runtime, targetDeviceId)) return "本机运行";
+    const matchedDevice = runtimeDeviceById(runtime, targetDeviceId);
+    if (matchedDevice) {
+      const name = compactDeviceName(firstNonEmpty(
+        matchedDevice.deviceName,
+        matchedDevice.device_name,
+        matchedDevice.name,
+        bot.targetDeviceName,
+        bot.target_device_name,
+        bot.deviceName,
+        bot.device_name,
+        runtimeConfig.deviceName,
+        runtimeConfig.device_name,
+        targetDeviceId
+      )) || "远程设备";
+      const status = deviceStatusText(matchedDevice);
+      return status ? `${name} · ${status}` : name;
+    }
+    if (bot.runtimeStatus === "stale_device" || bot.runtime_status === "stale_device") return "运行设备已失效";
     return compactDeviceName(firstNonEmpty(
       bot.runtimeLabel,
       bot.runtime_label,

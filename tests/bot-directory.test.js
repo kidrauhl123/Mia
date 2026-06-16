@@ -58,7 +58,7 @@ test("bot directory keeps cloud identity fields for desktop-runtime bots", () =>
   assert.equal(bots[0].name, "Alice Cloud");
   assert.equal(bots[0].bio, "cloud copy");
   assert.equal(bots[0].runtimeKind, "desktop-local");
-  assert.equal(bots[0].runtimeLabel, "Office Mac");
+  assert.equal(bots[0].runtimeLabel, "运行设备未配置");
   assert.deepEqual(bots[0].sourceKinds, ["cloud"]);
   assert.equal(isCloudIdentityBot(bots[0]), true);
   assert.equal(isCloudRuntimeKind(bots[0].runtimeKind), false);
@@ -115,7 +115,7 @@ test("bot directory reads desktop active runtime from runtimeConfig", () => {
   assert.equal(bots[0].runtimeKind, "desktop-local");
   assert.equal(bots[0].agentEngine, "claude-code");
   assert.equal(bots[0].targetDeviceId, "mac-1");
-  assert.equal(bots[0].runtimeLabel, "Office Mac");
+  assert.equal(bots[0].runtimeLabel, "本机运行");
 });
 
 test("bot directory compacts verbose Mia Desktop device labels", () => {
@@ -139,8 +139,8 @@ test("bot directory compacts verbose Mia Desktop device labels", () => {
     }
   });
 
-  assert.equal(bots[0].runtimeLabel, "zuiyoudeMacBook-Pro");
-  assert.doesNotMatch(bots[0].runtimeLabel, /Mia Desktop|\.local|本机/);
+  assert.equal(bots[0].runtimeLabel, "本机运行");
+  assert.doesNotMatch(bots[0].runtimeLabel, /Mia Desktop|\.local/);
 });
 
 test("bot directory ignores local-only desktop manifest bots", () => {

@@ -21,12 +21,14 @@ function setup(overrides = {}) {
 }
 
 test("desktop responds when the cloud requests a bot invocation", async () => {
-  const { dispatcher, calls } = setup();
+  const { dispatcher, calls } = setup({ currentDeviceId: () => "device_mac" });
 
   await dispatcher.handleCloudEvent({
     type: "conversation.bot_invocation_requested",
     conversationId: "g_1",
     botId: "codex",
+    targetDeviceId: "device_mac",
+    runtimeConfig: { deviceId: "device_mac", agentEngine: "codex" },
     invokedBy: { username: "alice" },
     triggeringMessage: { id: "m_1", body_md: "@codex 看看", sender_kind: "user" },
     recentMessages: [{ sender_kind: "user", sender_ref: "u_1", body_md: "背景" }]
@@ -37,6 +39,20 @@ test("desktop responds when the cloud requests a bot invocation", async () => {
   assert.equal(calls.responder[0].botId, "codex");
   assert.equal(calls.responder[0].dedupKey, "m_1:codex");
   assert.match(calls.responder[0].systemPrompt, /背景/);
+});
+
+test("desktop ignores bot invocations without a target device", async () => {
+  const { dispatcher, calls } = setup({ currentDeviceId: () => "device_mac" });
+
+  const handled = await dispatcher.handleCloudEvent({
+    type: "conversation.bot_invocation_requested",
+    conversationId: "g_1",
+    botId: "codex",
+    triggeringMessage: { id: "m_1", body_md: "@codex 看看", sender_kind: "user" }
+  });
+
+  assert.equal(handled, false);
+  assert.equal(calls.responder.length, 0);
 });
 
 test("conversation.message_appended events do not wake the desktop dispatcher", async () => {

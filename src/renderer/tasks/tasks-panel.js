@@ -876,22 +876,25 @@
   }
 
   let _tasksUnsubscribe = null;
+  async function handleTaskEvent(envelope = {}) {
+    await loadTasksFromDaemon();
+    const type = String(envelope.type || "").replace(/^task\./, "");
+    // Count completions, failures, and offline-missed sweeps as unread —
+    // user-facing meaning is "something happened on this task while you
+    // weren't looking", regardless of outcome status.
+    if (["finished", "failed", "missed"].includes(type)) {
+      const taskId = envelope.payload?.taskId || envelope.taskId;
+      if (taskId && state.selectedTaskId !== taskId) {
+        state.tasksUnread.set(taskId, (state.tasksUnread.get(taskId) || 0) + 1);
+      }
+    }
+    updateTasksRailBadge();
+    if (state.activeView === "tasks") renderTaskView();
+  }
+
   function subscribeTaskEvents() {
     if (_tasksUnsubscribe) return;
-    _tasksUnsubscribe = window.mia.tasks.subscribe(async (envelope) => {
-      await loadTasksFromDaemon();
-      // Count completions, failures, and offline-missed sweeps as unread —
-      // user-facing meaning is "something happened on this task while you
-      // weren't looking", regardless of outcome status.
-      if (["finished", "failed", "missed"].includes(envelope.type)) {
-        const taskId = envelope.payload?.taskId;
-        if (taskId && state.selectedTaskId !== taskId) {
-          state.tasksUnread.set(taskId, (state.tasksUnread.get(taskId) || 0) + 1);
-        }
-      }
-      updateTasksRailBadge();
-      if (state.activeView === "tasks") renderTaskView();
-    });
+    _tasksUnsubscribe = window.mia.tasks.subscribe(handleTaskEvent);
   }
 
   function updateTasksRailBadge() {
@@ -914,6 +917,7 @@
     renderTaskView,
     loadTasksFromDaemon,
     subscribeTaskEvents,
+    handleTaskEvent,
     updateTasksRailBadge
   };
 })();

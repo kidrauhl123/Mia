@@ -46,6 +46,14 @@ function eventsWsUrl(baseUrl) {
   return `${baseUrl.replace(/^http:/, "ws:")}/api/events`;
 }
 
+function bridgeWsUrl(baseUrl, params = {}) {
+  const url = new URL(`${baseUrl.replace(/^http:/, "ws:")}/api/bridge`);
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== "") url.searchParams.set(key, String(value));
+  }
+  return url.toString();
+}
+
 function createAccount(server, name) {
   return loginCloudUser(server.mia.cloudStore, name);
 }
@@ -108,7 +116,7 @@ async function upsertCloudHermesBot(baseUrl, authHeaders, botId, displayName = b
   });
 }
 
-async function upsertDesktopLocalBot(baseUrl, authHeaders, botId, displayName = botId) {
+async function upsertDesktopLocalBot(baseUrl, authHeaders, botId, displayName = botId, runtimeConfig = {}) {
   await jsonFetch(baseUrl, `/api/me/bots/${encodeURIComponent(botId)}`, {
     method: "PUT",
     headers: authHeaders,
@@ -124,20 +132,27 @@ async function upsertDesktopLocalBot(baseUrl, authHeaders, botId, displayName = 
     body: {
       runtimeKind: "desktop-local",
       enabled: true,
-      config: { agentEngine: "codex" }
+      config: { agentEngine: "codex", ...runtimeConfig }
     }
   });
 }
 
-test("bot DM falls back to desktop invocation when cloud dispatcher is not configured", async () => {
+test("bot DM falls back to targeted desktop invocation when cloud dispatcher is not configured", async () => {
   const dataDir = tempDir("mia-cloud-agent-desktop-fallback-");
   const server = createMiaCloudServer({ dataDir });
   const baseUrl = await listen(server);
   let eventsWs = null;
+  let bridgeWs = null;
   try {
     const account = createAccount(server, "alice");
     const authHeaders = { authorization: `Bearer ${account.token}` };
-    await upsertDesktopLocalBot(baseUrl, authHeaders, "codex", "Codex");
+    bridgeWs = new WebSocket(bridgeWsUrl(baseUrl, {
+      deviceId: "desktop-codex",
+      deviceName: "Office Mac",
+      engine: "codex"
+    }), wsTokenProtocol(account.token));
+    const ready = await waitForMessage(bridgeWs, (message) => message.type === "bridge_ready");
+    await upsertDesktopLocalBot(baseUrl, authHeaders, "codex", "Codex", { deviceId: ready.deviceId });
     const ensured = await jsonFetch(baseUrl, "/api/me/bot-conversations/codex", {
       method: "PUT",
       headers: authHeaders,
@@ -160,11 +175,13 @@ test("bot DM falls back to desktop invocation when cloud dispatcher is not confi
     const invocation = await invocationPromise;
     assert.equal(invocation.runtimeKind, "desktop-local");
     assert.equal(invocation.runtimeConfig.agentEngine, "codex");
+    assert.equal(invocation.targetDeviceId, ready.deviceId);
     assert.equal(invocation.triggeringMessage.body_md, "hi desktop");
     assert.equal(invocation.invokedBy.id, account.user.id);
     assert.ok(Array.isArray(invocation.members));
   } finally {
     closeWs(eventsWs);
+    closeWs(bridgeWs);
     await close(server);
     fs.rmSync(dataDir, { recursive: true, force: true });
   }

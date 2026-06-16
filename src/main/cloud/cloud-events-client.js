@@ -156,6 +156,17 @@ function createCloudEventsClient({
       emitToRenderer({ type: message.type, payload: message });
       return;
     }
+    if (message.type === CloudEvent.UserProfileUpdated) {
+      if (message.user && typeof message.user === "object") {
+        writeCloudSettings({ user: message.user });
+      }
+      emitToRenderer({ type: message.type, payload: message, cloud: cloudUiStatus() });
+      return;
+    }
+    if (message.type && message.type.startsWith("task.")) {
+      emitToRenderer({ type: message.type, payload: message });
+      return;
+    }
     if (message.type === CloudEvent.BotUpserted || message.type === CloudEvent.BotDeleted || message.type === "bot.runtime_updated") {
       emitToRenderer({ type: message.type, payload: message });
       return;

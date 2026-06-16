@@ -540,6 +540,11 @@
     return [...byId.values()];
   }
 
+  function editableRuntimeDevices() {
+    const local = localDeviceCandidate();
+    return local ? [local] : [];
+  }
+
   function deviceStatusLabel(device = {}) {
     if (device.isLocal || device.status === "local") return "本机";
     if (device.status === "online") return "在线";
@@ -602,7 +607,7 @@
   }
 
   function renderBotRuntimeTargetPanel(bot) {
-    const devices = runtimeDevices();
+    const devices = editableRuntimeDevices();
     const cloudEnabled = Boolean(state?.runtime?.cloud?.enabled);
     const panelOpen = state?.openRuntimeTargetPanelKeys?.has?.(bot?.key);
     return `

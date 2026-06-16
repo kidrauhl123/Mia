@@ -65,6 +65,7 @@ function createCloudBridgeClient({
   createActiveBridgeChatAdapter,
   createActiveCodexChatAdapter,
   resolveBotCapabilities = () => ({}),
+  resetLocalDeviceIdentity = null,
   randomUUID,
   setTimeoutFn = setTimeout,
   clearTimeoutFn = clearTimeout,
@@ -185,6 +186,24 @@ function createCloudBridgeClient({
       bridgeState.deviceId = String(message.deviceId || "");
       bridgeState.lastError = "";
       appendLog("Mia Cloud Bridge connected.");
+      return;
+    }
+    if (message.type === "device_identity_conflict") {
+      bridgeState.connected = false;
+      bridgeState.connecting = false;
+      bridgeState.deviceId = "";
+      bridgeState.lastError = String(message.message || "设备标识冲突，已重新生成本机设备标识。");
+      appendLog(bridgeState.lastError);
+      try {
+        if (typeof resetLocalDeviceIdentity === "function") resetLocalDeviceIdentity(message);
+      } catch (error) {
+        appendLog(`Device identity reset failed: ${error?.message || error}`);
+      }
+      if (activeSocket === ws) activeSocket = null;
+      if (ws.readyState === WebSocketImpl.OPEN || ws.readyState === WebSocketImpl.CONNECTING) {
+        try { ws.close(4009, "device identity conflict"); } catch { /* ignore stale socket close */ }
+      }
+      scheduleReconnect();
       return;
     }
     if (message.type === "cancel") {

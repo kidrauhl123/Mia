@@ -21,7 +21,10 @@ const ALLOWED_FILES = [
   // Cloud agent service layer dispatches from raw conversation/message rows before
   // renderer message-source adapters exist; comparisons are against storage
   // fields, not rendered MessageSpec state.
-  "cloud-agent/dispatcher.js"
+  "cloud-agent/dispatcher.js",
+  // Cloud tasks service broadcasts stored conversation messages to raw member
+  // rows; renderer adapters are not involved in this server-side fanout.
+  "cloud/tasks-service.js"
 ];
 
 function walk(dir, out = []) {

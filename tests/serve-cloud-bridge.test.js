@@ -1016,6 +1016,46 @@ test("cloud bridge stable device reconnect keeps the replacement online", async 
   }
 });
 
+test("cloud bridge reports identity conflict when copied device id is used on another machine", async () => {
+  const dataDir = tempDataDir();
+  const server = createMiaCloudServer({ dataDir });
+  const baseUrl = await listen(server);
+  let firstWs = null;
+  let secondWs = null;
+  try {
+    const account = createAccount(server, "device-conflict");
+    const headers = { Authorization: `Bearer ${account.token}` };
+    firstWs = new WebSocket(bridgeWsUrl(baseUrl, {
+      deviceId: "device_copied",
+      deviceName: "Mac A",
+      engine: "codex",
+      capabilities: JSON.stringify({ engines: ["codex"], deviceFingerprint: "machine-a" })
+    }), wsTokenProtocol(account.token));
+    await waitForMessage(firstWs, (message) => message.type === "bridge_ready");
+
+    secondWs = new WebSocket(bridgeWsUrl(baseUrl, {
+      deviceId: "device_copied",
+      deviceName: "Mac B",
+      engine: "codex",
+      capabilities: JSON.stringify({ engines: ["codex"], deviceFingerprint: "machine-b" })
+    }), wsTokenProtocol(account.token));
+    const conflict = await waitForMessage(secondWs, (message) => message.type === "device_identity_conflict");
+    assert.equal(conflict.deviceId, "device_copied");
+    await waitForWsClose(secondWs);
+
+    const online = await jsonFetch(baseUrl, "/api/bridge/devices", { headers });
+    assert.equal(online.devices.length, 1);
+    assert.equal(online.devices[0].id, "device_copied");
+    assert.equal(online.devices[0].deviceName, "Mac A");
+    assert.equal(online.devices[0].status, "online");
+  } finally {
+    closeWs(firstWs);
+    closeWs(secondWs);
+    await close(server);
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
 
 
 test("cloud bridge requires explicit device selection when multiple devices are online", async () => {

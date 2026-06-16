@@ -98,6 +98,40 @@ test("start serves health, protects remote routes, and delegates authorized remo
   server.stop();
 });
 
+test("cloud task proxy forwards daemon task calls without starting local scheduler", async (t) => {
+  const port = await freePort();
+  const upstream = [];
+  const { calls, server } = setup(t, {
+    getCloudSettings: () => ({
+      enabled: true,
+      token: "cloud-token",
+      url: "https://cloud.example/"
+    }),
+    normalizeCloudUrl: (value) => String(value || "").replace(/\/+$/, ""),
+    fetchImpl: async (url, options = {}) => {
+      upstream.push({ url: String(url), options });
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ tasks: [{ id: "t-cloud" }] })
+      };
+    },
+    timeoutSignal: () => undefined
+  });
+
+  const status = await server.start({ host: "127.0.0.1", port });
+  t.after(() => server.stop());
+  assert.equal(calls.scheduler, 0);
+
+  const response = await fetch(`${status.baseUrl}/api/tasks`, {
+    headers: { Authorization: "Bearer secret-token" }
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { tasks: [{ id: "t-cloud" }] });
+  assert.equal(upstream[0].url, "https://cloud.example/api/tasks");
+  assert.equal(upstream[0].options.headers.Authorization, "Bearer cloud-token");
+});
+
 test("ping rejects a daemon running from a different runtime home", async (t) => {
   const port = await freePort();
   const { dir, server, setDaemonSettings } = setup(t, {

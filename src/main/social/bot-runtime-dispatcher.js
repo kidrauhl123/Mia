@@ -26,7 +26,11 @@ function createMainBotRuntimeDispatcher({
     const ownDeviceIdSet = new Set((Array.isArray(ownDeviceIds) ? ownDeviceIds : [ownDeviceIds])
       .map((id) => String(id || "").trim())
       .filter(Boolean));
-    if (wantedDeviceId && ownDeviceIdSet.size && !ownDeviceIdSet.has(wantedDeviceId)) return false;
+    if (!wantedDeviceId) {
+      log("Ignoring desktop bot invocation without target device.");
+      return false;
+    }
+    if (!ownDeviceIdSet.has(wantedDeviceId)) return false;
     if (!localBotResponder || typeof localBotResponder.respond !== "function") return false;
     const args = buildBotInvocation(message, listBots());
     if (!args) return false;
