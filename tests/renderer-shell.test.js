@@ -1299,6 +1299,37 @@ test("desktop name surfaces render status badges beside names", () => {
   assert.match(badgeStyles, /\.group-info-member-name \.name-with-badge/);
 });
 
+test("group settings member names prefer display names over generated WeChat usernames", () => {
+  const groupInfoSource = fs.readFileSync(path.join(root, "src/renderer/social/group-info-dialog.js"), "utf8");
+  const sandbox = {};
+  vm.createContext(sandbox);
+  vm.runInContext(
+    `${extractFunctionSource(groupInfoSource, "firstDisplayName")}\n${extractFunctionSource(groupInfoSource, "userNameFor")}\nthis.userNameFor = userNameFor;`,
+    sandbox
+  );
+
+  assert.equal(
+    sandbox.userNameFor(
+      {
+        member_ref: "1234567890",
+        identity: { displayName: "服务器名字" },
+        user: { displayName: "接口名字" }
+      },
+      [],
+      { id: "1234567890", username: "wx_8067aabb7153", displayName: "展示名字" }
+    ),
+    "展示名字"
+  );
+  assert.equal(
+    sandbox.userNameFor(
+      { member_ref: "1234567890" },
+      [],
+      { id: "1234567890", username: "wx_8067aabb7153" }
+    ),
+    "我"
+  );
+});
+
 test("contact detail deletes bots through runtime-backed ownership rules", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const botManagerSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-manager.js"), "utf8");

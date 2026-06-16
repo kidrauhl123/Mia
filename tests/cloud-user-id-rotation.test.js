@@ -36,6 +36,7 @@ function oldReferenceCount(db, oldIds) {
   const checks = [
     ["users", "id"],
     ["sessions", "user_id"],
+    ["wechat_accounts", "user_id"],
     ["workspaces", "user_id"],
     ["files", "user_id"],
     ["bridge_devices", "user_id"],
@@ -55,7 +56,11 @@ function oldReferenceCount(db, oldIds) {
     ["cloud_agent_runs", "user_id"],
     ["skills", "owner_user_id"],
     ["skill_installs", "user_id"],
-    ["skill_reports", "reporter_id"]
+    ["skill_reports", "reporter_id"],
+    ["model_accounts", "user_id"],
+    ["model_balance_ledger", "user_id"],
+    ["model_usage_ledger", "user_id"],
+    ["push_tokens", "user_id"]
   ];
   for (const [table, column] of checks) {
     for (const oldId of oldIds) {
@@ -88,6 +93,8 @@ test("rotateCloudUserIds rewrites legacy user ids, conversation ids, JSON settin
     insertUser(db, oldKing, "king");
     insertUser(db, friend, "friend");
     db.prepare("INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES ('tok', ?, 't', 't')").run(old755);
+    db.prepare("INSERT INTO wechat_accounts (openid, user_id, unionid, nickname, avatar_url, raw_json, created_at, updated_at) VALUES ('openid_a', ?, 'union_a', 'Alice', '', '{}', 't', 't')")
+      .run(old755);
     db.prepare("INSERT INTO workspaces (user_id, revision, snapshot_json, updated_at) VALUES (?, 1, ?, 't')")
       .run(old755, JSON.stringify({ activeConversationId: dmOld, owner: old755 }));
     db.prepare("INSERT INTO files (id, user_id, type, name, mime_type, path, size, created_at) VALUES ('file_a', ?, 'image', 'a.png', 'image/png', ?, 6, 't')")
@@ -140,6 +147,14 @@ test("rotateCloudUserIds rewrites legacy user ids, conversation ids, JSON settin
       .run(oldMarcos);
     db.prepare("INSERT INTO skill_reports (id, skill_id, reporter_id, created_at) VALUES ('report_a', 'skill_a', ?, 't')")
       .run(oldKing);
+    db.prepare("INSERT INTO model_accounts (user_id, balance_microusd, updated_at) VALUES (?, 100, 't')")
+      .run(old755);
+    db.prepare("INSERT INTO model_balance_ledger (id, user_id, delta_microusd, balance_after_microusd, reason, usage_id, created_at) VALUES ('ledger_a', ?, 100, 100, 'test', '', 't')")
+      .run(old755);
+    db.prepare("INSERT INTO model_usage_ledger (id, user_id, model_id, upstream_model, provider, request_path, prompt_tokens, completion_tokens, total_tokens, cost_microusd, charge_microusd, status, error, created_at) VALUES ('usage_a', ?, 'mia-default', 'deepseek-chat', 'deepseek', '/v1/chat/completions', 1, 2, 3, 4, 5, 'ok', '', 't')")
+      .run(old755);
+    db.prepare("INSERT INTO push_tokens (token, user_id, platform, device_name, created_at, updated_at) VALUES ('push_a', ?, 'ios', 'iPhone', 't', 't')")
+      .run(old755);
 
     const result = rotateCloudUserIds({
       dbPath: paths.dbPath,
@@ -203,6 +218,53 @@ test("rotateCloudUserIds dry run reports current-format ids without mutating", (
     assert.equal(result.rotated.length, 0);
     assert.equal(result.skipped[0].reason, "already-current-format");
     assert.equal(db.prepare("SELECT id FROM users WHERE account = '755439'").get().id, "5123456789");
+  } finally {
+    store.close();
+    fs.rmSync(paths.dataDir, { recursive: true, force: true });
+  }
+});
+
+test("rotateCloudUserIds can target a user by display name", () => {
+  const paths = tempStore();
+  const store = createCloudStore(paths);
+  const db = store.getDb();
+  try {
+    insertUser(db, "5123456", "wechat:openid");
+    db.prepare("UPDATE users SET username = 'wx_8067aabb7153', display_name = '我耳塞呢' WHERE id = '5123456'").run();
+    const result = rotateCloudUserIds({
+      dbPath: paths.dbPath,
+      accounts: ["我耳塞呢"],
+      apply: false,
+      backup: false,
+      idGenerator: () => "100001"
+    });
+    assert.equal(result.rotated.length, 0);
+    assert.equal(result.skipped[0].id, "5123456");
+    assert.equal(result.skipped[0].reason, "already-current-format");
+  } finally {
+    store.close();
+    fs.rmSync(paths.dataDir, { recursive: true, force: true });
+  }
+});
+
+test("rotateCloudUserIds force-rotates current ids to a custom short uid", () => {
+  const paths = tempStore();
+  const store = createCloudStore(paths);
+  const db = store.getDb();
+  try {
+    insertUser(db, "5123456", "wechat:openid");
+    db.prepare("UPDATE users SET display_name = '我耳塞呢' WHERE id = '5123456'").run();
+    const result = rotateCloudUserIds({
+      dbPath: paths.dbPath,
+      accounts: ["我耳塞呢"],
+      apply: true,
+      backup: false,
+      forceCurrent: true,
+      idGenerator: () => "100001"
+    });
+    assert.deepEqual(result.rotated.map((item) => [item.oldId, item.newId]), [["5123456", "100001"]]);
+    assert.equal(db.prepare("SELECT id FROM users WHERE display_name = '我耳塞呢'").get().id, "100001");
+    assert.equal(db.prepare("PRAGMA foreign_key_check").all().length, 0);
   } finally {
     store.close();
     fs.rmSync(paths.dataDir, { recursive: true, force: true });

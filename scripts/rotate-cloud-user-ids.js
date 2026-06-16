@@ -6,12 +6,13 @@ const { DatabaseSync } = require("node:sqlite");
 const { generatePrincipalId } = require("../src/shared/ids.js");
 const { dmConversationId } = require("../src/cloud/dm-conversation.js");
 
-const CURRENT_USER_ID_RE = /^[1-9][0-9]{9}$/;
+const CURRENT_USER_ID_RE = /^[1-9][0-9]{5,11}$/;
 const DEFAULT_ACCOUNTS = ["755439", "Marcos", "king"];
 
 const USER_ID_COLUMNS = [
   ["users", "id"],
   ["sessions", "user_id"],
+  ["wechat_accounts", "user_id"],
   ["workspaces", "user_id"],
   ["files", "user_id"],
   ["bridge_devices", "user_id"],
@@ -29,7 +30,11 @@ const USER_ID_COLUMNS = [
   ["cloud_agent_runs", "user_id"],
   ["skills", "owner_user_id"],
   ["skill_installs", "user_id"],
-  ["skill_reports", "reporter_id"]
+  ["skill_reports", "reporter_id"],
+  ["model_accounts", "user_id"],
+  ["model_balance_ledger", "user_id"],
+  ["model_usage_ledger", "user_id"],
+  ["push_tokens", "user_id"]
 ];
 
 const CONVERSATION_ID_COLUMNS = [
@@ -63,6 +68,31 @@ function normalizeAccount(value) {
 
 function isCurrentUserId(value) {
   return CURRENT_USER_ID_RE.test(String(value || "").trim());
+}
+
+function findUserForRotation(db, accountOrName) {
+  const raw = String(accountOrName || "").trim();
+  const normalized = normalizeAccount(raw);
+  if (!raw) return null;
+  const rows = db.prepare(`
+    SELECT id, account, username, display_name
+    FROM users
+    WHERE account IN (?, ?)
+       OR username IN (?, ?)
+       OR display_name = ?
+  `).all(raw, normalized, raw, normalized, raw);
+  const unique = [];
+  const seen = new Set();
+  for (const row of rows) {
+    const id = String(row.id || "");
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    unique.push(row);
+  }
+  if (unique.length > 1) {
+    throw new Error(`multiple users match ${raw}; use an exact account or username`);
+  }
+  return unique[0] || null;
 }
 
 function quoteSqlString(value) {
@@ -225,9 +255,9 @@ function planUserIdRotation(db, accounts, { forceCurrent = false, idGenerator = 
   for (const rawAccount of accounts) {
     const account = normalizeAccount(rawAccount);
     if (!account) continue;
-    const row = db.prepare("SELECT id, account, username FROM users WHERE account = ?").get(account);
+    const row = findUserForRotation(db, rawAccount);
     if (!row) {
-      missing.push(account);
+      missing.push(String(rawAccount).trim());
       continue;
     }
     const oldId = String(row.id || "");

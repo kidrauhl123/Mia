@@ -251,6 +251,14 @@ function createCloudStore(options = {}) {
     return db.prepare("SELECT * FROM users WHERE id = ?").get(userId);
   }
 
+  function generateUniquePrincipalId() {
+    for (let attempt = 0; attempt < 1000; attempt += 1) {
+      const userId = generatePrincipalId(randomBytes);
+      if (!getUserById(userId)) return userId;
+    }
+    throw new Error("无法生成唯一用户 UID。");
+  }
+
   function createSession(userId) {
     const token = base64url(randomBytes(32));
     db.prepare(`
@@ -330,7 +338,7 @@ function createCloudStore(options = {}) {
     if (!openid && !unionid) throw new Error("微信授权结果缺少 openid。");
     let row = findWechatUser(profile);
     if (!row) {
-      const userId = generatePrincipalId(randomBytes);
+      const userId = generateUniquePrincipalId();
       const createdAt = now();
       db.prepare(`
         INSERT INTO users (id, account, username, email, display_name, avatar_image, created_at)

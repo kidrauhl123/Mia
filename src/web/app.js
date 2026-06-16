@@ -30,6 +30,16 @@ const engineLabel = engineContracts.engineLabel || ((value) => {
   if (engine === "openclaw") return "OpenClaw";
   return "Hermes";
 });
+
+function isValidPublicUid(value) {
+  const text = String(value || "").trim();
+  if (!text) return false;
+  if (window.miaIds && typeof window.miaIds.isPublicId === "function") {
+    return window.miaIds.isPublicId(text);
+  }
+  return /^[1-9][0-9]{5,11}$/.test(text);
+}
+
 function externalModelEntries(value) {
   if (engineContracts.externalModelEntries) {
     return engineContracts.externalModelEntries(value, {
@@ -3371,7 +3381,7 @@ function renderAddFriendModal() {
     const statusEl = _addFriendModal.querySelector("#addFriendStatus");
     const toUserId = String(input?.value || "").trim();
     if (!toUserId) { statusEl.textContent = "请输入 UID"; return; }
-    if (!/^\d{10}$/.test(toUserId)) { statusEl.textContent = "请输入 10 位 UID"; return; }
+    if (!isValidPublicUid(toUserId)) { statusEl.textContent = "请输入有效 UID"; return; }
     try {
       const res = await api("/api/social/friend-requests", { method: "POST", body: { toUserId } });
       if (res.request) {

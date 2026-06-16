@@ -6,9 +6,11 @@
   "use strict";
 
   const PUBLIC_ID_ALPHABET = "0123456789";
-  const PUBLIC_ID_LENGTH = 10;
+  const PUBLIC_ID_LENGTH = 7;
+  const PUBLIC_ID_MIN_LENGTH = 6;
+  const PUBLIC_ID_MAX_LENGTH = 12;
   const PUBLIC_ID_BYTES = PUBLIC_ID_LENGTH;
-  const PUBLIC_ID_RE = /^(?:[1-9][0-9]{9}|[23456789abcdefghjkmnpqrstuvwxyz]{12}|[a-f0-9]{20})$/;
+  const PUBLIC_ID_RE = new RegExp(`^(?:[1-9][0-9]{${PUBLIC_ID_MIN_LENGTH - 1},${PUBLIC_ID_MAX_LENGTH - 1}}|[23456789abcdefghjkmnpqrstuvwxyz]{12}|[a-f0-9]{20})$`);
 
   function nodeRandomBytes(size) {
     if (typeof require === "function") {
@@ -74,6 +76,8 @@
   return {
     PUBLIC_ID_BYTES,
     PUBLIC_ID_LENGTH,
+    PUBLIC_ID_MIN_LENGTH,
+    PUBLIC_ID_MAX_LENGTH,
     PUBLIC_ID_ALPHABET,
     PUBLIC_ID_RE,
     generatePublicId,

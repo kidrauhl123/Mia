@@ -32,7 +32,7 @@ test("sqlite store logs in with WeChat, authenticates, and logs out a user", () 
     assert.equal(registered.user.displayName, "Alice");
     assert.equal(registered.user.avatarImage, "https://wx.qlogo.cn/mmopen/alice/0");
     assert.equal(ids.isPublicId(registered.user.id), true);
-    assert.match(registered.user.id, /^[1-9][0-9]{9}$/);
+    assert.match(registered.user.id, /^[1-9][0-9]{6}$/);
     assert.doesNotMatch(registered.user.id, /^(user|bot)_/);
     assert.ok(registered.token);
 

@@ -15,6 +15,15 @@
   const LAST_CONVERSATION_KEY = "mia.lastActiveConversationId";
   const LAST_BOT_CONVERSATION_KEY = "mia.lastBotConversationByKey";
 
+  function isValidPublicUid(value) {
+    const text = String(value || "").trim();
+    if (!text) return false;
+    if (global.miaIds && typeof global.miaIds.isPublicId === "function") {
+      return global.miaIds.isPublicId(text);
+    }
+    return /^[1-9][0-9]{5,11}$/.test(text);
+  }
+
   function rendererLocalStorage() {
     try {
       if (typeof window !== "undefined" && window.localStorage) return window.localStorage;
@@ -2454,7 +2463,7 @@
     sendBtn?.addEventListener("click", async () => {
       const toUserId = (userIdInput?.value || "").trim();
       if (!toUserId) { if (errorEl) errorEl.textContent = "请输入 UID"; return; }
-      if (!/^\d{10}$/.test(toUserId)) { if (errorEl) errorEl.textContent = "请输入 10 位 UID"; return; }
+      if (!isValidPublicUid(toUserId)) { if (errorEl) errorEl.textContent = "请输入有效 UID"; return; }
       if (errorEl) errorEl.textContent = "";
       sendBtn.disabled = true;
       try {

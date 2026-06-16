@@ -136,10 +136,35 @@
     });
   }
 
+  function firstDisplayName(...values) {
+    for (const value of values) {
+      const text = String(value || "").trim();
+      if (!text) continue;
+      if (/^wx_[a-f0-9]{8,16}$/i.test(text)) continue;
+      return text;
+    }
+    return "";
+  }
+
   function userNameFor(member, friends, self) {
-    if (member.member_ref === self?.id) return self?.username || "我";
     const friend = (friends || []).find((f) => f.id === member.member_ref);
-    return friend?.username || friend?.account || member.member_ref;
+    if (member.member_ref === self?.id) {
+      return firstDisplayName(
+        self?.displayName,
+        member.identity?.displayName,
+        member.user?.displayName,
+        self?.username,
+        self?.account
+      ) || "我";
+    }
+    return firstDisplayName(
+      friend?.displayName,
+      member.identity?.displayName,
+      member.user?.displayName,
+      friend?.username,
+      friend?.account,
+      member.member_ref
+    ) || member.member_ref;
   }
 
   function renderMembersSection(box, conversation, members, bots, friends, self) {

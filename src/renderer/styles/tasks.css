@@ -50,11 +50,6 @@
   border-left: 1px solid rgba(255, 255, 255, 0.22);
   border-radius: 0 999px 999px 0;
 }
-.task-create-main:hover,
-.task-create-chevron:hover {
-  background: rgba(255, 255, 255, 0.08);
-}
-
 /* Dropdown anchored to the split button. */
 .task-create-menu {
   top: calc(100% + 6px);
