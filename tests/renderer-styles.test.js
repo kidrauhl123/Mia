@@ -75,7 +75,12 @@ test("conversation cards keep the default cursor outside tag controls", () => {
   assert.match(personaRule[1], /cursor:\s*default;/);
   assert.match(personaRule[1], /user-select:\s*none;/);
   assert.match(chatCss, /\.message \.avatar\s*\{[\s\S]*?user-select:\s*none;/);
-  assert.match(chatCss, /\.bubble\s*\{[\s\S]*?cursor:\s*text;[\s\S]*?user-select:\s*text;/);
+  assert.doesNotMatch(chatCss, /data:image\/svg\+xml/);
+  assert.match(chatCss, /\.bubble\s*\{[\s\S]*?cursor:\s*default;[\s\S]*?user-select:\s*text;/);
+  assert.match(chatCss, /\.bubble\.text-hit\s*\{[\s\S]*?cursor:\s*text;/);
+  assert.doesNotMatch(chatCss, /cursor:\s*var\(--message-text-cursor\)/);
+  assert.match(chatCss, /\.bubble a\.message-link\s*\{[\s\S]*?cursor:\s*pointer;/);
+  assert.match(chatCss, /\.bubble code\.inline-code\s*\{[\s\S]*?cursor:\s*pointer;/);
   assert.match(chatCss, /\.message\.search-focus \.bubble\s*\{[\s\S]*?animation:\s*messageSearchFocus/);
   assert.match(chatCss, /@keyframes messageSearchFocus/);
   assert.match(baseCss, /\.persona-tag-chip\s*\{[\s\S]*?cursor:\s*pointer;/);

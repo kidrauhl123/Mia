@@ -595,6 +595,7 @@ function verifyRelease() {
     "web/shared/cloud-client.js",
     "web/shared/bot-runtime-control.js",
     "web/shared/agent-permissions.js",
+    "web/shared/message-text-cursor.js",
     "smoke-cloud.js",
     "prepare-cloud-smoke-account.js",
     "doctor-cloud.js",
@@ -651,6 +652,7 @@ function verifyRelease() {
     "web/app.js",
     "web/admin-model.js",
     "web/appearance.js",
+    "web/shared/message-text-cursor.js",
     "smoke-cloud.js",
     "prepare-cloud-smoke-account.js",
     "doctor-cloud.js",
@@ -873,6 +875,7 @@ function main() {
   copyFile("src/shared/bot-runtime-control.js", path.join(webDir, "shared", "bot-runtime-control.js"));
   copyFile("src/shared/agent-permissions.js", path.join(webDir, "shared", "agent-permissions.js"));
   copyFile("src/shared/trace-blocks.js", path.join(webDir, "shared", "trace-blocks.js"));
+  copyFile("src/shared/message-text-cursor.js", path.join(webDir, "shared", "message-text-cursor.js"));
   copyFile("src/shared/mention-render.js", path.join(webDir, "shared", "mention-render.js"));
   copyFile("packages/shared/status-badge-assets.js", path.join(webDir, "shared", "status-badge-assets.js"));
   copyFile("src/renderer/helpers/markdown-helpers.js", path.join(webDir, "helpers", "markdown-helpers.js"));

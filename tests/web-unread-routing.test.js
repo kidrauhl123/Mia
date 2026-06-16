@@ -880,6 +880,33 @@ test("src/web/styles.css carries desktop-style rich bubble formatting", () => {
   assert.match(css, /\.bubble code\.inline-code/);
   assert.match(css, /\.message-code-block/);
   assert.match(css, /\.syntax-keyword/);
+  assert.doesNotMatch(css, /data:image\/svg\+xml/);
+  assert.match(css, /\.bubble\s*\{[\s\S]*?cursor:\s*default;[\s\S]*?user-select:\s*text;/);
+  assert.match(css, /\.bubble\.text-hit\s*\{[\s\S]*?cursor:\s*text;/);
+  assert.doesNotMatch(css, /cursor:\s*var\(--message-text-cursor\)/);
+  assert.match(css, /\.bubble a\.message-link\s*\{[\s\S]*?cursor:\s*pointer;/);
+  assert.match(css, /\.bubble code\.inline-code\s*\{[\s\S]*?cursor:\s*pointer;/);
+});
+
+test("message text cursor script loads before app.js and uses caret hit testing", () => {
+  const webHtml = fs.readFileSync(path.join(ROOT, "src/web/app/index.html"), "utf8");
+  const desktopHtml = fs.readFileSync(path.join(ROOT, "src/renderer/index.html"), "utf8");
+  const source = fs.readFileSync(path.join(ROOT, "src/shared/message-text-cursor.js"), "utf8");
+  const build = fs.readFileSync(path.join(ROOT, "scripts/build-cloud-release.js"), "utf8");
+  const webCursorIdx = webHtml.indexOf("shared/message-text-cursor.js");
+  const webAppIdx = webHtml.indexOf("../app.js");
+  const desktopCursorIdx = desktopHtml.indexOf("../shared/message-text-cursor.js");
+  const desktopAppIdx = desktopHtml.indexOf("./app.js");
+
+  assert.ok(webCursorIdx >= 0, "web app must load message text cursor hit testing");
+  assert.ok(webCursorIdx < webAppIdx, "web cursor hit testing must load before app.js");
+  assert.ok(desktopCursorIdx >= 0, "desktop renderer must load message text cursor hit testing");
+  assert.ok(desktopCursorIdx < desktopAppIdx, "desktop cursor hit testing must load before app.js");
+  assert.match(source, /caretPositionFromPoint|caretRangeFromPoint/);
+  assert.match(source, /pointHitsTextNode/);
+  assert.match(source, /TEXT_HIT_CLASS\s*=\s*"text-hit"/);
+  assert.match(build, /src\/shared\/message-text-cursor\.js/);
+  assert.match(build, /web\/shared\/message-text-cursor\.js/);
 });
 
 test("src/web/app.js routes through window.miaUnread", () => {

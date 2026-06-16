@@ -67,6 +67,7 @@ npm run dist:win
 - 跨进程共享字符串放到 `src/shared/` 或所属 feature contract。
 - 新 CSS 放到 `src/renderer/styles/<feature>.css`，除非只是现有 selector 的极小调整。
 - 不要新建 `utils.js`、`helpers.js`、`common.js` 这种语义桶文件；辅助模块也要按领域命名。
+- 对已有成熟范式的交互、协议、渲染或状态机制，先查本仓库既有模式和参考项目的真实实现，理解其状态模型、命中边界和失败路径，再落地；不要用视觉近似或自创简化替代成熟机制。
 
 往大入口文件加代码前先回答：
 
