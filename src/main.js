@@ -2092,8 +2092,9 @@ function createWindow() {
     title: "Mia",
     ...windowChromeOptions,
     autoHideMenuBar: process.platform !== "darwin",
+    transparent: process.platform === "darwin",
     show: false,
-    backgroundColor: onboarding ? "#ffffff" : "#f0f0f3",
+    backgroundColor: process.platform === "darwin" ? "#00000000" : onboarding ? "#ffffff" : "#f0f0f3",
     acceptFirstMouse: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -2107,7 +2108,7 @@ function createWindow() {
   }
   win.miaSkipAutomaticBackgroundStartup = onboarding;
   win.miaSignedOutOnboarding = onboarding;
-  setMacNativeControlsVisible(win, onboarding);
+  setMacNativeControlsVisible(win, process.platform === "darwin");
   if (initialWindow.maximized) win.maximize();
   if (!onboarding) windowStateManager.attachWindowStatePersistence(win);
   const sendWindowEvent = (channel, payload) => {

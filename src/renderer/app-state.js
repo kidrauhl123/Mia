@@ -55,7 +55,8 @@
       forceScrollToBottom: false,
       sessionMenuOpen: false,
       activeView: "chat",
-      // 发现/联系人 section 上次停留的子页（仿 skillMarketMode 持久化），rail 回来时恢复，默认发现
+      // 发现/联系人 section 上次停留的子页。联系人 rail 默认落到发现页；
+      // 切到联系人子页时才启用中栏 + 详情的三槽布局。
       discoverSectionView: "bot-store",
       activeContactKey: "",
       narrowPane: "content",
@@ -127,7 +128,6 @@
       savingBotCapabilities: new Set(),
       skillPickerOpen: false,
       skillPickerFilter: "",
-      skillPickerPluginId: "",
       selectedSkillId: "",
       selectedSkillDetail: null,
       skillsLoading: false,

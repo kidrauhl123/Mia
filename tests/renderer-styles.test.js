@@ -35,14 +35,17 @@ test("group create member picker uses compact filled contact rows", () => {
   assert.match(groupsCss, /\.group-create-member-row\.is-selected \.member-check\s*\{[\s\S]*?background:\s*var\(--accent\);/);
 });
 
-test("chat topbar stays on the white surface while the transcript canvas is gray", () => {
+test("chat workspace uses the shared continuous floor", () => {
   const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
   const chatCss = fs.readFileSync(path.join(root, "src/renderer/styles/chat.css"), "utf8");
 
-  assert.match(baseCss, /--chat-background:\s*#f0f0f3;/);
-  assert.match(baseCss, /#chatView \.topbar\s*\{[^}]*background:\s*var\(--surface\);/);
-  assert.doesNotMatch(baseCss, /#chatView \.topbar\s*\{[^}]*background:\s*var\(--chat-background\);/);
-  assert.match(chatCss, /\.chat-layout\s*\{[^}]*background:\s*var\(--chat-background\);/);
+  assert.match(baseCss, /--workspace-floor:\s*#f0f0f3;/);
+  assert.match(baseCss, /--chat-background:\s*var\(--workspace-floor\);/);
+  assert.match(baseCss, /\.app-shell\s*\{[\s\S]*?background:\s*var\(--workspace-floor\);/);
+  assert.match(baseCss, /#chatView\s*\{[\s\S]*?background:\s*transparent;/);
+  assert.match(baseCss, /\.topbar\s*\{[\s\S]*?background:\s*transparent;/);
+  assert.match(baseCss, /#chatView \.topbar\s*\{[^}]*background:\s*transparent;/);
+  assert.match(chatCss, /\.chat-layout\s*\{[^}]*background:\s*transparent;/);
 });
 
 test("sidebar and chat headers use the same surface and own their divider line", () => {

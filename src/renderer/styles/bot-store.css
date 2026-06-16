@@ -1,11 +1,11 @@
-/* 发现 AI 同事 / 联系人 —— 整屏灰底，顶栏 mode 胶囊，内容是浮在灰底上的白卡（仿技能/任务）。
-   发现 = 整块卡片网格；联系人 = 浮动白卡列表 + 详情内容卡片直接浮在灰底上。 */
+/* 发现 AI 同事 / 联系人 —— 共用全局连续地板，顶栏 mode 胶囊，内容卡片浮在地板上。
+   发现 = 整块卡片网格；联系人 = 浮动白卡列表 + 详情内容卡片直接浮在地板上。 */
 
 /* ── app-shell 改成「顶条一行 + 内容一行」，顶条横跨中栏+右栏 ── */
 .app-shell[data-active-view="contacts"],
 .app-shell[data-active-view="bot-store"] {
   grid-template-rows: auto minmax(0, 1fr);
-  background: var(--surface-muted);   /* 整壳灰底，浮卡之间的间隙也是这个灰 */
+  background: var(--workspace-floor);
 }
 .discover-top-bar { display: none; }
 .app-shell[data-active-view="contacts"] .discover-top-bar,
@@ -15,7 +15,7 @@
   grid-column: 2 / -1;
   grid-row: 1;
   padding: 14px 22px 6px;
-  background: var(--surface-muted);
+  background: transparent;
   border-radius: 0 14px 0 0;          /* 同技能：左上角直角、右上角圆 */
   -webkit-app-region: drag;           /* 顶条空白处可拖窗（同 .topbar），胶囊保持可点 */
 }
@@ -79,9 +79,9 @@
    整块是单一白卡（搜索+列表），靠 margin 在灰壳上浮起；阴影/描边与 .contact-note / .contact-capabilities 完全一致 */
 .app-shell[data-active-view="contacts"] .contacts-sidebar {
   background: var(--surface);
-  border-radius: 14px;
-  box-shadow: 0 1px 2px rgba(16, 20, 39, 0.05), inset 0 0 0 1px rgba(0, 0, 0, 0.035);
-  margin: 12px 14px 14px 12px;
+  border-radius: var(--rail-corner-radius);
+  box-shadow: var(--rail-expanded-shadow);
+  margin: 8px 8px 10px 0;
   overflow: hidden;
   gap: 0;
 }
@@ -94,9 +94,9 @@
 .app-shell[data-active-view="contacts"] .contacts-sidebar .contact-section {
   background: transparent;
 }
-/* 详情：与顶条同灰、无阴影无圆角接缝；里面的内容卡片直接浮在灰底上 */
+/* 详情：无页面底板；里面的内容卡片直接浮在连续地板上 */
 .app-shell[data-active-view="contacts"] #contactsView {
-  background: var(--surface-muted);
+  background: transparent;
   box-shadow: none;
   border-radius: 0 0 14px 0;
 }
@@ -111,7 +111,7 @@
   gap: 14px;
   min-height: 0;
   padding: 8px 24px 24px;
-  background: var(--surface-muted);
+  background: transparent;
   overflow: hidden;
 }
 
@@ -628,18 +628,25 @@
 
 /* ── 窄窗(≤720px)：保留顶部胶囊条，内容(单列)放它下面 ──
    沿用桌面的「顶条一行 + 内容一行」结构，胶囊条照常显示在 row1（否则窄屏切不了 发现/联系人）。
-   只做两件必要的事:① 详情桌面在 col4，窄屏只有两列须拉回 col2，否则跑屏外;② 列表去掉浮卡外观。 */
+   只做两件必要的事:① 详情桌面在 col4，窄屏只有两列须拉回 col2，否则跑屏外;② 列表沿用展开抽屉但降低阴影。 */
 @media (max-width: 720px) {
-  .app-shell[data-active-view="contacts"] #contactsView {
-    grid-column: 2;
+  .app-shell[data-active-view="contacts"],
+  .app-shell[data-active-view="bot-store"] {
+    grid-template-columns: var(--rail-column-width) minmax(0, 1fr);
   }
+
+  .app-shell[data-active-view="contacts"] #contactsView {
+    grid-column: 2 / -1;
+  }
+
   .contacts-workspace {
     grid-template-rows: auto minmax(0, 1fr);   /* 给 narrow-back 留一行 */
   }
-  /* 窄屏列表恢复满屏白底，去掉浮卡的外边距/圆角/阴影 */
+
+  /* 窄屏列表仍然是 rail 展开抽屉，只降低阴影，避免小窗贴边溢出 */
   .app-shell[data-active-view="contacts"] .contacts-sidebar {
-    margin: 0;
-    border-radius: 0;
+    margin: 8px 10px 10px 0;
+    border-radius: var(--rail-corner-radius);
     box-shadow: none;
   }
   .app-shell[data-active-view="contacts"] .contacts-sidebar .sidebar-tools,
