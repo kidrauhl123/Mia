@@ -93,16 +93,122 @@ test("desktop window controls use Windows maximize semantics off macOS", () => {
   assert.match(mainSource, /process\.platform === "win32"[\s\S]*titleBarOverlay:\s*\{/);
   assert.match(mainSource, /titleBarOverlay:\s*\{[\s\S]*color:\s*"rgba\(0,\s*0,\s*0,\s*0\)"/);
   assert.match(mainSource, /titleBarOverlay:\s*\{[\s\S]*height:\s*36/);
+  assert.match(mainSource, /transparent:\s*process\.platform === "darwin"/);
+  assert.match(mainSource, /backgroundColor:\s*process\.platform === "darwin"\s*\?\s*"#00000000"/);
   assert.match(mainSource, /autoHideMenuBar:\s*process\.platform !== "darwin"/);
   assert.match(mainSource, /process\.platform !== "darwin"[\s\S]*win\.setMenuBarVisibility\(false\)/);
   assert.match(appSource, /document\.body\.classList\.toggle\("platform-win32",\s*rendererPlatform === "win32"\)/);
+  assert.match(appSource, /document\.body\.classList\.toggle\("platform-darwin",\s*rendererPlatform === "darwin"\)/);
+  assert.match(appSource, /document\.body\.classList\.toggle\("window-fullscreen",\s*Boolean\(fullscreen\)\)/);
   assert.doesNotMatch(appSource, /getElementById\("windowControls"\)/);
   assert.match(appSource, /const task = isWindows \? \(api\.maximize\?\.\(\) \|\| api\.green\(\)\) : api\.green\(\);/);
   assert.match(preloadSource, /maximize:\s*\(\)\s*=>\s*ipcRenderer\.invoke\(IpcChannel\.WindowMaximize\)/);
   assert.match(windowIpcSource, /if \(process\.platform !== "darwin"\) return toggleMaximized\(w\);/);
+  assert.match(windowIpcSource, /setBackgroundColor\(process\.platform === "darwin"\s*\?\s*"#00000000"\s*:\s*"#f0f0f3"\)/);
+  assert.match(windowIpcSource, /setMacNativeControlsVisible\(w,\s*true\)/);
   assert.match(css, /body\.platform-win32 \.traffic-spacer \.traffic-light\s*\{\s*display:\s*none;/);
+  assert.match(css, /body\.platform-darwin \.traffic-spacer \.traffic-light\s*\{\s*display:\s*none;/);
+  assert.match(css, /body\.platform-darwin \.app-shell\s*\{[\s\S]*?border-radius:\s*var\(--window-corner-radius\);/);
+  assert.match(css, /body\.platform-darwin\.window-maximized \.app-shell,[\s\S]*?body\.platform-darwin\.window-fullscreen \.app-shell\s*\{[\s\S]*?border-radius:\s*0;/);
   assert.doesNotMatch(css, /\.window-controls/);
   assert.match(css, /body\.platform-win32 \.topbar\s*\{\s*padding-right:\s*150px;/);
+});
+
+test("desktop shell uses optional middle pane by active view", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const appStateSource = fs.readFileSync(path.join(root, "src/renderer/app-state.js"), "utf8");
+  const css = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+
+  assert.match(appSource, /function shellLayoutForView\(view\)/);
+  assert.match(appSource, /view === "chat" \|\| view === "contacts" \? "index-workspace" : "workspace"/);
+  assert.match(appSource, /setAttribute\("data-layout", shellLayoutForView\(state\.activeView\)\)/);
+  assert.match(appSource, /state\.discoverSectionView \|\| "bot-store"/);
+  assert.match(appStateSource, /discoverSectionView:\s*"bot-store"/);
+  assert.doesNotMatch(appStateSource, /skillPickerPluginId/);
+  assert.match(css, /--rail-column-width:\s*78px;/);
+  assert.match(css, /\.app-shell\[data-layout="index-workspace"\]\s*\{[\s\S]*?grid-template-columns:\s*var\(--rail-column-width\) var\(--sidebar-width\) 0 minmax\(0,\s*1fr\);/);
+  assert.match(css, /\.app-shell\[data-layout="workspace"\]\s*\{[\s\S]*?grid-template-columns:\s*var\(--rail-column-width\) minmax\(0,\s*1fr\);/);
+  assert.match(css, /\.nav-rail\s*\{[\s\S]*?margin:\s*8px 8px 10px 8px;[\s\S]*?border-radius:\s*var\(--rail-corner-radius\);[\s\S]*?backdrop-filter:\s*blur\(24px\) saturate\(1\.16\);/);
+  assert.match(css, /\.app-shell\[data-layout="index-workspace"\] \.sidebar\s*\{[\s\S]*?margin:\s*8px 8px 10px 0;[\s\S]*?border-radius:\s*var\(--rail-corner-radius\);[\s\S]*?box-shadow:\s*var\(--rail-expanded-shadow\);/);
+  assert.match(css, /\.app-shell\[data-layout="workspace"\] \.sidebar,[\s\S]*?\.app-shell\[data-layout="workspace"\] \.sidebar-resize-handle\s*\{[\s\S]*?display:\s*none;/);
+});
+
+test("narrow desktop shell collapses the expanded rail into one content column", () => {
+  const css = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+  const chatCss = fs.readFileSync(path.join(root, "src/renderer/styles/chat.css"), "utf8");
+
+  assert.match(
+    css,
+    /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.app-shell,\s*\.app-shell\[data-layout="index-workspace"\],\s*\.app-shell\[data-layout="workspace"\]\s*\{[\s\S]*?grid-template-columns:\s*var\(--rail-column-width\) minmax\(0,\s*1fr\);/,
+    "narrow layout must override the higher-specificity data-layout desktop grid"
+  );
+  assert.match(css, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?#chatView \.session-menu-wrap\s*\{[\s\S]*?display:\s*none;/);
+  assert.match(css, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?#chatView \.top-actions\s*\{[\s\S]*?display:\s*none;/);
+  assert.match(css, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.composer\s*\{[\s\S]*?padding:\s*8px 12px 14px;/);
+  assert.match(css, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.model-switcher\s*\{[\s\S]*?max-width:\s*112px;/);
+  assert.match(chatCss, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.bubble,\s*\.message-stack\s*\{[\s\S]*?max-width:\s*min\(100%, calc\(100vw - var\(--rail-column-width\) - 70px\)\);/);
+  assert.match(chatCss, /@media\s*\(max-width:\s*520px\)\s*\{[\s\S]*?\.message \.avatar\s*\{[\s\S]*?display:\s*none;/);
+});
+
+test("chat composer floats on the chat floor instead of owning a bottom panel", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const styleSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+  const chatStyleSource = fs.readFileSync(path.join(root, "src/renderer/styles/chat.css"), "utf8");
+
+  assert.match(chatStyleSource, /\.chat-layout\s*\{[\s\S]*?grid-template-rows:\s*minmax\(0,\s*1fr\);[\s\S]*?position:\s*relative;/);
+  assert.match(chatStyleSource, /--chat-header-overlay-height:\s*86px;/);
+  assert.match(chatStyleSource, /\.chat\s*\{[\s\S]*?padding:\s*calc\(var\(--chat-header-overlay-height\) \+ 12px\) 18px calc\(var\(--composer-overlay-height\) \+ 18px\);/);
+  assert.match(styleSource, /\.composer\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?bottom:\s*0;[\s\S]*?background:\s*transparent;/);
+  assert.match(appSource, /function syncComposerOverlayHeight\(\)/);
+  assert.match(appSource, /new ResizeObserver\(schedule\)/);
+  assert.match(appSource, /--composer-overlay-height/);
+});
+
+test("chat header is a floating card layer rather than a layout topbar", () => {
+  const styleSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+
+  assert.match(styleSource, /#chatView\s*\{[\s\S]*?position:\s*relative;[\s\S]*?grid-template-rows:\s*minmax\(0,\s*1fr\);/);
+  assert.match(styleSource, /#chatView \.topbar\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?top:\s*16px;[\s\S]*?background:\s*transparent;[\s\S]*?pointer-events:\s*none;/);
+  assert.match(styleSource, /#chatView \.topbar > \*\s*\{[\s\S]*?pointer-events:\s*auto;/);
+  assert.match(styleSource, /#chatView \.group-title\s*\{[\s\S]*?border-radius:\s*26px;[\s\S]*?backdrop-filter:\s*blur\(24px\) saturate\(1\.14\);/);
+  assert.match(styleSource, /#chatView \.top-actions\s*\{[\s\S]*?border-radius:\s*26px;[\s\S]*?backdrop-filter:\s*blur\(24px\) saturate\(1\.14\);/);
+});
+
+test("composer skill picker is a compact flat skill list", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const composerSource = fs.readFileSync(path.join(root, "src/renderer/chat/composer.js"), "utf8");
+  const styleSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+
+  assert.doesNotMatch(appSource, /data-skill-picker-plugin/);
+  assert.doesNotMatch(composerSource, /data-skill-picker-plugin/);
+  assert.doesNotMatch(composerSource, /skillPickerPluginId/);
+  assert.match(styleSource, /\.skill-picker\s*\{[\s\S]*?width:\s*360px;[\s\S]*?min-width:\s*300px;/);
+  assert.match(styleSource, /\.skill-picker-body\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\);/);
+  assert.match(styleSource, /\.skill-picker-plugins\s*\{[\s\S]*?display:\s*none;/);
+  assert.match(styleSource, /\.skill-picker-skills\s*\{[\s\S]*?grid-template-rows:\s*minmax\(0,\s*1fr\);/);
+});
+
+test("rail pages use one continuous workspace floor", () => {
+  const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+  const chatCss = fs.readFileSync(path.join(root, "src/renderer/styles/chat.css"), "utf8");
+  const skillsCss = fs.readFileSync(path.join(root, "src/renderer/styles/skills.css"), "utf8");
+  const tasksCss = fs.readFileSync(path.join(root, "src/renderer/styles/tasks.css"), "utf8");
+  const botStoreCss = fs.readFileSync(path.join(root, "src/renderer/styles/bot-store.css"), "utf8");
+
+  assert.match(baseCss, /--workspace-floor:\s*#f0f0f3;/);
+  assert.match(baseCss, /--chat-background:\s*var\(--workspace-floor\);/);
+  assert.match(baseCss, /\.app-shell\s*\{[\s\S]*?background:\s*var\(--workspace-floor\);/);
+  assert.match(baseCss, /\.workspace\s*\{[\s\S]*?background:\s*transparent;/);
+  assert.match(baseCss, /#chatView\s*\{[\s\S]*?background:\s*transparent;/);
+  assert.match(baseCss, /\.topbar\s*\{[\s\S]*?background:\s*transparent;/);
+  assert.match(baseCss, /\.contacts-layout\s*\{[\s\S]*?background:\s*transparent;/);
+  assert.match(chatCss, /\.chat-layout\s*\{[\s\S]*?background:\s*transparent;/);
+  assert.match(skillsCss, /\.skills-topbar\s*\{[\s\S]*?background:\s*transparent;/);
+  assert.match(skillsCss, /\.skills-layout\s*\{[\s\S]*?background:\s*transparent;/);
+  assert.match(tasksCss, /\.tasks-topbar\s*\{[\s\S]*?background:\s*transparent;/);
+  assert.match(tasksCss, /\.tasks-layout\s*\{[\s\S]*?background:\s*transparent;/);
+  assert.match(botStoreCss, /\.discover-top-bar[\s\S]*?background:\s*transparent;/);
+  assert.match(botStoreCss, /\.bot-store-layout\s*\{[\s\S]*?background:\s*transparent;/);
 });
 
 test("custom select menu opens away from the viewport edge", () => {
@@ -777,7 +883,8 @@ test("main window accepts the first mouse click after regaining focus", () => {
   assert.match(windowIpcSource, /IpcChannel\.WindowNativeControlsVisible/);
   assert.match(windowIpcSource, /setMacNativeControlsVisible\(w,\s*visible\)/);
   assert.match(macWindowControlsSource, /setWindowButtonVisibility\(show\)/);
-  assert.match(macWindowControlsSource, /setWindowButtonPosition/);
+  assert.match(macWindowControlsSource, /nativeTrafficLightPosition = \{\s*x:\s*12,\s*y:\s*18\s*\}/);
+  assert.match(macWindowControlsSource, /setWindowButtonPosition\(show \? nativeTrafficLightPosition : \{ x: -120, y: -120 \}\)/);
 });
 
 test("agent setup completion does not force first bot creation", () => {

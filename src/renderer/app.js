@@ -863,8 +863,36 @@ function showNarrowSidebar() {
   syncNarrowLayout();
 }
 
+function syncComposerOverlayHeight() {
+  if (!els.chatForm) return;
+  const layout = els.chatForm.closest(".chat-layout");
+  if (!layout) return;
+  const rect = els.chatForm.getBoundingClientRect?.();
+  const height = Math.ceil(rect?.height || els.chatForm.offsetHeight || 0);
+  if (height > 0) layout.style.setProperty("--composer-overlay-height", `${height}px`);
+}
+
+function observeComposerOverlayHeight() {
+  if (!els.chatForm) return;
+  syncComposerOverlayHeight();
+  const schedule = () => {
+    if (typeof window.requestAnimationFrame === "function") window.requestAnimationFrame(syncComposerOverlayHeight);
+    else syncComposerOverlayHeight();
+  };
+  if (typeof ResizeObserver === "function") {
+    const observer = new ResizeObserver(schedule);
+    observer.observe(els.chatForm);
+  }
+  window.addEventListener("resize", schedule);
+}
+
+function shellLayoutForView(view) {
+  return view === "chat" || view === "contacts" ? "index-workspace" : "workspace";
+}
+
 applySidebarWidth(state.sidebarWidth);
 syncNarrowLayout();
+observeComposerOverlayHeight();
 
 function isActiveRunRunning() {
   return window.miaSocial?.activeConversationRun?.()?.status === "running";
@@ -2364,6 +2392,7 @@ function renderView() {
   els.botStoreView?.classList.toggle("hidden", state.activeView !== "bot-store");
   els.tasksView?.classList.toggle("hidden", state.activeView !== "tasks");
   els.appShell?.setAttribute("data-active-view", state.activeView);
+  els.appShell?.setAttribute("data-layout", shellLayoutForView(state.activeView));
   els.discoverModeToggle?.querySelectorAll("[data-discover-mode]").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.discoverMode === state.activeView);
   });
@@ -4347,7 +4376,7 @@ window.miaLottieIcons?.init();
 
 document.querySelectorAll("[data-view]").forEach((button) => {
   button.addEventListener("click", () => {
-    // 联系人 rail 图标进的是 发现/联系人 section，落到上次停留的子页（默认发现）
+    // 联系人 rail 图标进的是 发现/联系人 section，默认落到发现页。
     state.activeView = button.dataset.view === "contacts"
       ? (state.discoverSectionView || "bot-store")
       : button.dataset.view;
@@ -5506,22 +5535,6 @@ els.skillPickerBody?.addEventListener("click", (event) => {
   window.miaComposer.closeComposerAddMenu();
   window.miaComposer.closeSkillPicker();
 });
-els.skillPickerBody?.addEventListener("click", (event) => {
-  const button = event.target.closest("[data-skill-picker-plugin]");
-  if (!button) return;
-  state.skillPickerPluginId = button.dataset.skillPickerPlugin || "";
-  state.skillPickerFilter = "";
-  if (els.skillPickerSearch) els.skillPickerSearch.value = "";
-  window.miaComposer.renderSkillPicker();
-});
-els.skillPickerBody?.addEventListener("pointerover", (event) => {
-  const button = event.target.closest("[data-skill-picker-plugin]");
-  if (!button || button.dataset.skillPickerPlugin === state.skillPickerPluginId) return;
-  state.skillPickerPluginId = button.dataset.skillPickerPlugin || "";
-  state.skillPickerFilter = "";
-  if (els.skillPickerSearch) els.skillPickerSearch.value = "";
-  window.miaComposer.renderSkillPicker();
-});
 els.skillPickerSearch?.addEventListener("keydown", (event) => {
   if (event.key === "Escape") window.miaComposer.closeSkillPicker();
   if (event.key === "Enter") {
@@ -5976,6 +5989,7 @@ setInterval(refreshRuntime, 2000);
     document.body.classList.toggle("window-blurred", !focused);
   };
   const applyFullscreen = (fullscreen) => {
+    document.body.classList.toggle("window-fullscreen", Boolean(fullscreen));
     spacer.dataset.fullscreen = fullscreen ? "true" : "false";
   };
   api.onFocusState?.(applyFocus);

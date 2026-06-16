@@ -50,10 +50,12 @@ function registerWindowIpc({ ipcMain, startupTimer, runtimeLifecycle }) {
     w.setMinimumSize(420, 560);
     w.setSize(1040, 700);
     w.center();
-    // Main app paints its own grey chrome edge-to-edge and uses custom window
-    // controls in the topbar, so hide the native traffic lights again.
-    if (typeof w.setBackgroundColor === "function") w.setBackgroundColor("#f0f0f3");
-    setMacNativeControlsVisible(w, false);
+    // Main app uses the native macOS traffic lights. Renderer-drawn controls are
+    // only a fallback for non-mac shells and web/mock surfaces.
+    if (typeof w.setBackgroundColor === "function") {
+      w.setBackgroundColor(process.platform === "darwin" ? "#00000000" : "#f0f0f3");
+    }
+    setMacNativeControlsVisible(w, true);
   });
   // Onboarding / agent-scan shows in a compact, narrow window. The renderer
   // drives this whenever it enters the setup guide, since the create-time
@@ -67,7 +69,9 @@ function registerWindowIpc({ ipcMain, startupTimer, runtimeLifecycle }) {
     // The onboarding view has no custom topbar controls, so it must read as a
     // real native window: white base (no grey band) + native traffic lights so
     // there's a close button. Reverted by window:show-main.
-    if (typeof w.setBackgroundColor === "function") w.setBackgroundColor("#ffffff");
+    if (typeof w.setBackgroundColor === "function") {
+      w.setBackgroundColor(process.platform === "darwin" ? "#00000000" : "#ffffff");
+    }
     setMacNativeControlsVisible(w, true);
   });
   ipcMain.handle(IpcChannel.WindowNativeControlsVisible, (event, visible) => {

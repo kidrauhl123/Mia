@@ -1,8 +1,11 @@
 .chat-layout {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr);
+  position: relative;
   min-height: 0;
-  background: var(--chat-background);
+  background: transparent;
+  --chat-header-overlay-height: 86px;
+  --composer-overlay-height: 118px;
 }
 
 .chat {
@@ -10,7 +13,7 @@
   align-content: start;
   gap: 4px;
   overflow: auto;
-  padding: 14px 18px 10px;
+  padding: calc(var(--chat-header-overlay-height) + 12px) 18px calc(var(--composer-overlay-height) + 18px);
 }
 
 .app-shell[data-auth-state="signed-out"] .chat-layout {
@@ -1021,6 +1024,38 @@
 
 .message.user .message-stack {
   align-items: flex-end;
+}
+
+@media (max-width: 720px) {
+  .chat-layout {
+    --chat-header-overlay-height: 74px;
+  }
+
+  .message {
+    gap: 6px;
+    padding: 3px 0;
+  }
+
+  .message .avatar {
+    width: 36px;
+    height: 36px;
+  }
+
+  .bubble,
+  .message-stack {
+    max-width: min(100%, calc(100vw - var(--rail-column-width) - 70px));
+  }
+}
+
+@media (max-width: 520px) {
+  .message .avatar {
+    display: none;
+  }
+
+  .bubble,
+  .message-stack {
+    max-width: 100%;
+  }
 }
 
 /* ----- terminal-style trace (reasoning + tools) ----- */

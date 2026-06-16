@@ -251,8 +251,6 @@
     }
     state.skillPickerOpen = true;
     state.skillPickerFilter = "";
-    const firstPlugin = (state.skillLibrary.plugins || []).find((plugin) => plugin.skillCount > 0);
-    if (!state.skillPickerPluginId && firstPlugin) state.skillPickerPluginId = firstPlugin.id;
     if (els.skillPickerSearch) els.skillPickerSearch.value = "";
     renderSkillPicker();
     setTimeout(() => els.skillPickerSearch?.focus(), 0);
@@ -271,11 +269,6 @@
     if (!state.skillPickerOpen || !els.skillPickerBody) return;
     const needle = String(state.skillPickerFilter || "").trim().toLowerCase();
     const skills = state.skillLibrary.skills || [];
-    const plugins = (state.skillLibrary.plugins || []).filter((plugin) => plugin.skillCount > 0);
-    if (!state.skillPickerPluginId && plugins.length) state.skillPickerPluginId = plugins[0].id;
-    if (state.skillPickerPluginId && plugins.length && !plugins.some((plugin) => plugin.id === state.skillPickerPluginId)) {
-      state.skillPickerPluginId = plugins[0].id;
-    }
     const filtered = needle
       ? skills.filter((skill) => {
           const hay = [
@@ -290,31 +283,13 @@
           ].join(" ").toLowerCase();
           return hay.includes(needle);
         })
-      : skills.filter((skill) => !state.skillPickerPluginId || skill.pluginId === state.skillPickerPluginId);
-    if (!filtered.length && !plugins.length) {
+      : skills;
+    if (!filtered.length && !skills.length) {
       els.skillPickerBody.innerHTML = `<div class="skill-picker-empty">${state.skillsLoading ? "正在加载…" : "没有匹配的 Skill"}</div>`;
       return;
     }
-    const pluginCounts = skills.reduce((acc, skill) => {
-      const pluginId = skill.pluginId || "_other";
-      acc[pluginId] = (acc[pluginId] || 0) + 1;
-      return acc;
-    }, {});
-    const currentPlugin = plugins.find((plugin) => plugin.id === state.skillPickerPluginId);
     els.skillPickerBody.innerHTML = `
-      <aside class="skill-picker-plugins">
-        ${plugins.map((plugin) => `
-          <button class="${plugin.id === state.skillPickerPluginId ? "active" : ""}" type="button" data-skill-picker-plugin="${window.miaMarkdown.escapeHtml(plugin.id)}">
-            <span>${window.miaMarkdown.escapeHtml(plugin.label || plugin.name)}</span>
-            <em>${pluginCounts[plugin.id] || plugin.skillCount || 0}</em>
-          </button>
-        `).join("")}
-      </aside>
       <section class="skill-picker-skills">
-        <header>
-          <span>${window.miaMarkdown.escapeHtml(needle ? "搜索结果" : (currentPlugin?.label || "Skills"))}</span>
-          <em>${filtered.length}</em>
-        </header>
         <div class="skill-picker-list">
           ${filtered.length ? filtered.map((skill) => `
             <button class="skill-picker-item" type="button" data-skill-pick="${window.miaMarkdown.escapeHtml(skill.name)}">

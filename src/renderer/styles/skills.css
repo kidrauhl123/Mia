@@ -1,4 +1,4 @@
-/* 技能库 — 单列全屏卡片网格。白卡片浮在浅灰底、无边框，参考 Marvis Skill库。 */
+/* 技能库 — 单列卡片网格。白卡片浮在全局连续地板上。 */
 
 /* 没有中栏，skillsView 显式跨 sidebar/handle/workspace 三列铺满 nav-rail 右侧 */
 .skills-workspace {
@@ -12,11 +12,11 @@
   display: none;
 }
 
-/* 顶栏并入灰底，去掉分隔线，让整屏是一个无缝表面 */
+/* 顶栏不再画自己的底板，控件直接放在全局连续地板上 */
 .skills-topbar {
   align-items: center;
   border-bottom: 0;
-  background: var(--surface-muted);
+  background: transparent;
 }
 
 .skills-search {
@@ -30,7 +30,7 @@
   gap: 18px;
   min-height: 0;
   padding: 16px 24px 24px;
-  background: var(--surface-muted);
+  background: transparent;
   overflow: auto;
 }
 
