@@ -47,8 +47,19 @@ Electron + React 个人助理 Agent 客户端。适合参考：
 - `~/github/tdesktop`
 - `~/github/telegram-android`
 - `~/github/telegram-ios`
+- `~/github/telegram-macos`
 
 适合参考聊天 UX：typing/recording 状态、消息列表虚拟化、reply/quote/forward、动态贴纸、窄窗导航和长列表细节。
+
+`telegram-macos` 是 Apple 平台原生客户端。适合重点参考：
+
+- `packages/TGUIKit/Sources/TableRowItem.swift` / `TableRowView.swift`：stable row model、差量列表、行级交互。
+- `Telegram-Mac/ChatHistoryEntry.swift`：把原始消息、日期、未读线、服务事件等先转成 timeline entries。
+- `Telegram-Mac/ChatListController.swift`：会话列表 entry 构造和 transition 更新。
+- `packages/TGUIKit/Sources/PresentationTheme.swift` / `Telegram-Mac/Appearance.swift`：语义 presentation、派生资源和主题缓存。
+- `packages/TGUIKit/Sources/VisualEffectView.swift` / `Window.swift`：克制使用 macOS visual effect、窗口 chrome、平台交互。
+
+Mia 的落地基线见 `docs/superpowers/specs/2026-06-16-tg-mac-inspired-desktop-frontend-design.md`。
 
 特别注意 `tdesktop/AGENTS.md` 的写法：它把环境、构建、失败边界、持久化兼容、项目内 DSL/API 模式写成具体操作说明。Mia 的 AGENTS 应该学习这种形状，而不是堆泛泛原则。
 

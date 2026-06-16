@@ -33,6 +33,7 @@ test("builds social endpoint paths", () => {
   expect(friendRequestCancelPath("req.1")).toBe("/api/social/friend-requests/req.1");
   expect(friendPath("u.1")).toBe("/api/social/friends/u.1");
   expect(conversationsPath()).toBe("/api/conversations");
+  expect(conversationsPath({ includeMembers: true })).toBe("/api/conversations?include=members");
 });
 
 test("builds bot endpoint paths and runtime query", () => {

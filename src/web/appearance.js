@@ -12,7 +12,7 @@
 
   const defaults = {
     theme: "light",            // "light" | "dark"
-    listStyle: "card",         // "card" | "flush"
+    listStyle: "card",
     selectionStyle: "soft",    // "soft" | "solid"
     hoverBackground: true,
     accentColor: DEFAULT_ACCENT,
@@ -51,7 +51,6 @@
   function applyToDom(next) {
     const root = document.documentElement;
     root.dataset.theme = next.theme === "dark" ? "dark" : "light";
-    root.dataset.listStyle = next.listStyle === "flush" ? "flush" : "card";
     root.dataset.selectionStyle = next.selectionStyle === "solid" ? "solid" : "soft";
     root.dataset.hoverBackground = next.hoverBackground ? "on" : "off";
     root.dataset.showUserAvatar = next.showUserAvatar ? "on" : "off";

@@ -222,7 +222,7 @@ function createLocalAgentEngineService(deps = {}) {
 
   function executablePath(filePath) {
     try {
-      fsImpl.accessSync(filePath, fs.constants.X_OK);
+      fsImpl.accessSync(filePath, platform === "win32" ? fs.constants.F_OK : fs.constants.X_OK);
       return filePath;
     } catch {
       return "";

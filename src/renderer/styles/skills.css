@@ -83,7 +83,7 @@
   min-width: 0;
 }
 
-/* 卡片 —— 无边框，白底 + 柔和阴影，悬停轻微浮起 */
+/* 卡片 —— 无边框，白底 + 柔和阴影 */
 .skill-card {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -96,12 +96,11 @@
   background: var(--surface);
   box-shadow: 0 1px 2px rgba(17, 24, 39, 0.04), 0 6px 20px rgba(17, 24, 39, 0.04);
   cursor: pointer;
-  transition: box-shadow 0.16s ease, transform 0.16s ease;
+  transition: box-shadow 0.16s ease;
 }
 
 .skill-card:hover {
   box-shadow: 0 2px 6px rgba(17, 24, 39, 0.06), 0 12px 28px rgba(17, 24, 39, 0.09);
-  transform: translateY(-1px);
 }
 
 .skill-card.featured {
@@ -292,61 +291,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.skill-card-action {
-  flex: 0 0 auto;
-  min-width: 54px;
-  min-height: 32px;
-  padding: 0 15px;
-  border: 0;
-  border-radius: 999px;
-  background: rgba(17, 24, 39, 0.06);
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  opacity: 1;
-  pointer-events: auto;
-  transform: none;
-  transition: background 0.16s ease, color 0.16s ease;
-}
-
-.skill-card-action:hover:not(:disabled) {
-  background: rgba(17, 24, 39, 0.1);
-}
-
-.skill-card-action-use {
-  opacity: 1;
-  pointer-events: auto;
-  transform: none;
-}
-
-.skill-card-action-install {
-  background: #111827;
-  color: #fff;
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(2px);
-  transition: opacity 0.16s ease, background 0.16s ease, color 0.16s ease, transform 0.16s ease;
-}
-
-.skill-card:hover .skill-card-action-install,
-.skill-card:focus-within .skill-card-action-install {
-  opacity: 1;
-  pointer-events: auto;
-  transform: translateY(0);
-}
-
-.skill-card-action-install:hover:not(:disabled) {
-  background: #030712;
-  color: #fff;
-  transform: translateY(-1px);
-}
-
-.skill-card-action:disabled {
-  opacity: 0.6;
-  cursor: default;
 }
 
 /* 「使用」→ 选 Bot 的弹出选择器 */

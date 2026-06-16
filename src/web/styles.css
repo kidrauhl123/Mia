@@ -25,18 +25,6 @@
 :root[data-hover-background="off"] {
   --hover: transparent;
 }
-:root[data-list-style="flush"] .persona-row {
-  margin: 0;
-  border-radius: 0;
-  border-bottom: 1px solid var(--line);
-}
-:root[data-list-style="flush"] .persona {
-  border-radius: 0;
-  min-height: 66px;
-}
-:root[data-list-style="flush"] .persona-row.active {
-  border-bottom-color: transparent;
-}
 :root[data-selection-style="solid"] .persona-row.active {
   background: var(--accent);
 }

@@ -28,9 +28,20 @@ export interface Conversation {
   bot_id?: string;
   botId?: string;
   decorations?: { botId?: string; botName?: string; runtimeKind?: string };
+  members?: Member[];
+  lastMessageText?: string;
   last_message_text?: string;
+  lastMessageSeq?: number;
+  last_message_seq?: number;
+  lastMessageCreatedAt?: string;
+  last_message_created_at?: string;
+  lastActivityAt?: string;
   last_activity_at?: string;
+  lastMessageHasAttachments?: boolean;
+  last_message_has_attachments?: boolean;
+  updatedAt?: string;
   updated_at?: string;
+  createdAt?: string;
   created_at?: string;
   identity?: { avatar?: AvatarDescriptor; statusBadge?: StatusBadge | null };
 }

@@ -12,11 +12,10 @@
   });
   const FALLBACK_ACCENT_COLOR = "#0162db";
   const FALLBACK_USER_BUBBLE_COLOR = "#0162db";
-  const FALLBACK_LIST_STYLE = "flush";
   const FALLBACK_SELECTION_STYLE = "solid";
 
   let state, els, mia;
-  let fontPresets, DEFAULT_ACCENT_COLOR, DEFAULT_USER_BUBBLE_COLOR, DEFAULT_LIST_STYLE, DEFAULT_SELECTION_STYLE;
+  let fontPresets, DEFAULT_ACCENT_COLOR, DEFAULT_USER_BUBBLE_COLOR, DEFAULT_SELECTION_STYLE;
 
   // Module-local timers, formerly top-of-app.js lets 22-24.
   let appearanceSaveStatusTimer = 0;
@@ -30,7 +29,6 @@
     fontPresets = deps.fontPresets;
     DEFAULT_ACCENT_COLOR = deps.DEFAULT_ACCENT_COLOR;
     DEFAULT_USER_BUBBLE_COLOR = deps.DEFAULT_USER_BUBBLE_COLOR;
-    DEFAULT_LIST_STYLE = deps.DEFAULT_LIST_STYLE;
     DEFAULT_SELECTION_STYLE = deps.DEFAULT_SELECTION_STYLE;
   }
 
@@ -44,10 +42,6 @@
 
   function defaultUserBubbleColor() {
     return DEFAULT_USER_BUBBLE_COLOR || FALLBACK_USER_BUBBLE_COLOR;
-  }
-
-  function defaultListStyle() {
-    return DEFAULT_LIST_STYLE || FALLBACK_LIST_STYLE;
   }
 
   function defaultSelectionStyle() {
@@ -77,7 +71,7 @@
   }
 
   function normalizeListStyle(value) {
-    return value === "card" || value === "flush" ? value : defaultListStyle();
+    return "card";
   }
 
   function normalizeSelectionStyle(value) {
@@ -128,11 +122,9 @@
     const userBubbleColor = normalizeHexColor(appearance.userBubbleColor, defaultUserBubbleColor());
     const userBubbleRgb = hexToRgb(userBubbleColor);
     const userBubbleText = selectionTextColors(userBubbleRgb).text;
-    const listStyle = normalizeListStyle(appearance.listStyle);
     const selectionStyle = normalizeSelectionStyle(appearance.selectionStyle);
     const softActive = `rgb(${rgb.r} ${rgb.g} ${rgb.b} / ${theme === "dark" ? "0.22" : "0.16"})`;
     document.documentElement.dataset.theme = theme;
-    document.documentElement.dataset.listStyle = listStyle;
     document.documentElement.dataset.selectionStyle = selectionStyle;
     document.documentElement.dataset.hoverBackground = appearance.showHoverBackground === false ? "false" : "true";
     document.documentElement.dataset.showUserAvatar = appearance.showUserAvatar === false ? "false" : "true";
@@ -167,7 +159,7 @@
       showHoverBackground: controls.appearanceShowHoverBackground?.getAttribute("aria-checked") !== "false",
       showUserAvatar: controls.appearanceShowUserAvatar?.getAttribute("aria-checked") !== "false",
       showAssistantAvatar: controls.appearanceShowAssistantAvatar?.getAttribute("aria-checked") !== "false",
-      listStyle: normalizeListStyle(controls.appearanceListStyle?.value),
+      listStyle: "card",
       selectionStyle: normalizeSelectionStyle(controls.appearanceSelectionStyle?.value)
     };
   }
@@ -191,13 +183,6 @@
     if (controls.appearanceFontPreset) controls.appearanceFontPreset.value = fontPreset;
     document.querySelectorAll("[data-font-preset]").forEach((button) => {
       const active = button.dataset.fontPreset === fontPreset;
-      button.classList.toggle("active", active);
-      button.setAttribute("aria-checked", active ? "true" : "false");
-    });
-    const listStyle = normalizeListStyle(appearance.listStyle);
-    if (controls.appearanceListStyle) controls.appearanceListStyle.value = listStyle;
-    document.querySelectorAll("[data-list-style]").forEach((button) => {
-      const active = button.dataset.listStyle === listStyle;
       button.classList.toggle("active", active);
       button.setAttribute("aria-checked", active ? "true" : "false");
     });

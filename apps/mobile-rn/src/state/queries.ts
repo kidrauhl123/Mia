@@ -45,7 +45,7 @@ export function useConversations() {
   const api = useApi();
   return useQuery<Conversation[]>({
     queryKey: ["conversations"],
-    queryFn: () => api.api("/api/conversations").then((d) => d.conversations || []),
+    queryFn: () => api.api(conversationsPath({ includeMembers: true })).then((d) => d.conversations || []),
   });
 }
 

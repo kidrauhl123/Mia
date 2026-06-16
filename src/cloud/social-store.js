@@ -170,10 +170,27 @@ function createSocialStore(db) {
     "SELECT * FROM conversation_members WHERE conversation_id = ? AND member_kind = ? AND member_ref = ?"
   );
   const selectConversationsByUser = db.prepare(`
-    SELECT r.* FROM conversations r
+    SELECT
+      r.*,
+      lm.body_md AS last_message_text,
+      lm.seq AS last_message_seq,
+      lm.created_at AS last_message_created_at,
+      lm.attachments_json AS last_message_attachments_json
+    FROM conversations r
     INNER JOIN conversation_members m ON m.conversation_id = r.id
+    LEFT JOIN messages lm ON lm.id = (
+      SELECT msg.id
+      FROM messages msg
+      WHERE msg.conversation_id = r.id
+        AND NOT EXISTS (
+          SELECT 1 FROM message_hidden h
+          WHERE h.user_id = ? AND h.message_id = msg.id
+        )
+      ORDER BY msg.seq DESC
+      LIMIT 1
+    )
     WHERE m.member_kind = 'user' AND m.member_ref = ?
-    ORDER BY r.updated_at DESC
+    ORDER BY COALESCE(lm.created_at, r.updated_at) DESC
   `);
   const updateMemberPerms = db.prepare(`
     UPDATE conversation_members SET ai_perms_json = ?
@@ -182,6 +199,11 @@ function createSocialStore(db) {
 
   function parseConversationRow(row) {
     if (!row) return null;
+    const lastMessageSeq = Number(row.last_message_seq) || 0;
+    const lastMessageCreatedAt = row.last_message_created_at || "";
+    const lastMessageAttachments = parseJsonOr(row.last_message_attachments_json, []);
+    const lastMessageHasAttachments = Array.isArray(lastMessageAttachments) && lastMessageAttachments.length > 0;
+    const lastActivityAt = lastMessageCreatedAt || row.updated_at || row.created_at;
     return {
       id: row.id,
       publicId: row.public_id || null,
@@ -193,7 +215,19 @@ function createSocialStore(db) {
       decorations: parseJsonOr(row.decorations_json, null),
       contextCard: parseJsonOr(row.context_card_json, null),
       createdAt: row.created_at,
+      created_at: row.created_at,
       updatedAt: row.updated_at,
+      updated_at: row.updated_at,
+      lastMessageText: row.last_message_text || "",
+      last_message_text: row.last_message_text || "",
+      lastMessageSeq,
+      last_message_seq: lastMessageSeq,
+      lastMessageCreatedAt,
+      last_message_created_at: lastMessageCreatedAt,
+      lastActivityAt,
+      last_activity_at: lastActivityAt,
+      lastMessageHasAttachments,
+      last_message_has_attachments: lastMessageHasAttachments,
     };
   }
 
@@ -300,7 +334,8 @@ function createSocialStore(db) {
   }
 
   function listConversationsForUser(userId) {
-    return selectConversationsByUser.all(String(userId)).map(parseConversationRow);
+    const id = String(userId);
+    return selectConversationsByUser.all(id, id).map(parseConversationRow);
   }
 
   function updateConversationMemberPerms(conversationId, memberKind, memberRef, aiPerms) {

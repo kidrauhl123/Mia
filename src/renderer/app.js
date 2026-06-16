@@ -246,7 +246,6 @@ const els = {
   appearanceTheme: document.getElementById("appearanceTheme"),
   appearanceFontPreset: document.getElementById("appearanceFontPreset"),
   appearanceFontChoices: document.getElementById("appearanceFontChoices"),
-  appearanceListStyle: document.getElementById("appearanceListStyle"),
   appearanceSelectionStyle: document.getElementById("appearanceSelectionStyle"),
   workspacePath: document.getElementById("workspacePath"),
   workspacePickButton: document.getElementById("workspacePickButton"),
@@ -1362,7 +1361,6 @@ const fontPresets = {
 
 const DEFAULT_ACCENT_COLOR = "#0162db";
 const DEFAULT_USER_BUBBLE_COLOR = "#0162db";
-const DEFAULT_LIST_STYLE = "flush";
 const DEFAULT_SELECTION_STYLE = "solid";
 
 
@@ -2062,7 +2060,7 @@ function render() {
     showHoverBackground: false,
     showUserAvatar: true,
     showAssistantAvatar: true,
-    listStyle: DEFAULT_LIST_STYLE,
+    listStyle: "card",
     selectionStyle: DEFAULT_SELECTION_STYLE
   };
   window.miaSettingsAppearance.applyAppearance(appearance);
@@ -2070,7 +2068,6 @@ function render() {
     els.appearanceTheme.value = appearance.theme || "light";
     const savedFontPreset = appearance.fontPreset || "system";
     els.appearanceFontPreset.value = fontPresets[savedFontPreset] ? savedFontPreset : "system";
-    if (els.appearanceListStyle) els.appearanceListStyle.value = window.miaSettingsAppearance.normalizeListStyle(appearance.listStyle);
     if (els.appearanceSelectionStyle) els.appearanceSelectionStyle.value = window.miaSettingsAppearance.normalizeSelectionStyle(appearance.selectionStyle);
     window.miaSettingsAppearance.syncAppearanceControls(appearance);
   }
@@ -3867,7 +3864,6 @@ async function initializeRuntime(options = {}) {
       fontPresets,
       DEFAULT_ACCENT_COLOR,
       DEFAULT_USER_BUBBLE_COLOR,
-      DEFAULT_LIST_STYLE,
       DEFAULT_SELECTION_STYLE,
     });
   }
@@ -5187,10 +5183,6 @@ els.appearanceFontChoices?.addEventListener("click", (event) => {
   const button = event.target.closest("[data-font-preset]");
   if (!button || !els.appearanceFontChoices.contains(button)) return;
   els.appearanceFontPreset.value = button.dataset.fontPreset || "system";
-  window.miaSettingsAppearance.scheduleAppearanceSave(0);
-});
-
-els.appearanceListStyle?.addEventListener("change", () => {
   window.miaSettingsAppearance.scheduleAppearanceSave(0);
 });
 

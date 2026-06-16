@@ -68,7 +68,7 @@ function createSettingsStore(deps = {}) {
       showHoverBackground: false,
       showUserAvatar: true,
       showAssistantAvatar: true,
-      listStyle: "flush",
+      listStyle: "card",
       selectionStyle: "solid"
     };
   }
@@ -150,6 +150,7 @@ function createSettingsStore(deps = {}) {
     const saved = readJson(p.appearanceSettings, {});
     const next = { ...defaultAppearanceSettings(), ...saved };
     next.fontPreset = normalizeAppearanceFontPreset(next.fontPreset);
+    next.listStyle = "card";
     return next;
   }
 
@@ -163,7 +164,6 @@ function createSettingsStore(deps = {}) {
     const showHoverBackground = settings.showHoverBackground == null ? current.showHoverBackground !== false : settings.showHoverBackground !== false;
     const showUserAvatar = settings.showUserAvatar == null ? current.showUserAvatar !== false : settings.showUserAvatar !== false;
     const showAssistantAvatar = settings.showAssistantAvatar == null ? current.showAssistantAvatar !== false : settings.showAssistantAvatar !== false;
-    const listStyle = String(settings.listStyle || current.listStyle || "card").trim();
     const selectionStyle = String(settings.selectionStyle || current.selectionStyle || "soft").trim();
     const validHex = (value, fallback) => /^#[0-9a-fA-F]{6}$/.test(value) ? value.toLowerCase() : fallback;
     const next = {
@@ -174,7 +174,7 @@ function createSettingsStore(deps = {}) {
       showHoverBackground,
       showUserAvatar,
       showAssistantAvatar,
-      listStyle: ["card", "flush"].includes(listStyle) ? listStyle : "card",
+      listStyle: "card",
       selectionStyle: ["soft", "solid"].includes(selectionStyle) ? selectionStyle : "soft"
     };
     fs.mkdirSync(path.dirname(p.appearanceSettings), { recursive: true });

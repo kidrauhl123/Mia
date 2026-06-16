@@ -40,7 +40,7 @@ test("main serves a snapshot-plus-cloud market and installs through the unified 
   assert.match(main, /marketMetaFromSkill/);
 });
 
-test("skill-library renders a market mode with an install action", () => {
+test("skill-library renders a market mode with modal install actions", () => {
   const src = read("src/renderer/skills/skill-library.js");
   assert.match(src, /const MARKET_SKILL_PAGE_LIMIT = 72/);
   assert.match(src, /function marketRequestParams/);
@@ -56,7 +56,9 @@ test("skill-library renders a market mode with an install action", () => {
   assert.match(src, /state\.skillMarketMode/);
   assert.match(src, /function renderMarketView/);
   assert.match(src, /function installMarketSkill/);
-  assert.match(src, /data-skill-install=/);
+  assert.match(src, /openMarketModal\(card\.dataset\.marketId\)/);
+  assert.match(src, /installMarketSkill\(skill\.id\)/);
+  assert.doesNotMatch(src, /data-skill-install=/);
 });
 
 test("market cards render Chinese fallback descriptions for English-only skills", () => {
@@ -123,13 +125,17 @@ test("market cards render compact source logos beside source labels", () => {
   assert.match(src, /local\.marketId/);
   assert.match(src, /local\.source === "mia-official"/);
   assert.doesNotMatch(src, /local\.name === skill\.name/);
-  assert.match(src, /data-skill-use=/);
-  assert.match(src, /skill-card-action-use/);
-  assert.match(src, /skill-card-action-install/);
+  assert.doesNotMatch(src, /data-skill-use=/);
+  assert.doesNotMatch(src, /data-skill-install=/);
+  assert.doesNotMatch(src, /skill-card-action/);
 
   const css = read("src/renderer/styles/skills.css");
   assert.match(css, /\.skill-card\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)/);
   assert.match(css, /\.skill-card-source\s*\{[\s\S]*display:\s*flex/);
+  const skillCardRule = css.match(/\.skill-card\s*\{([\s\S]*?)\}/)?.[1] || "";
+  const skillCardHoverRule = css.match(/\.skill-card:hover\s*\{([\s\S]*?)\}/)?.[1] || "";
+  assert.doesNotMatch(skillCardRule, /transition:[^;]*transform/, "skill cards should not animate their own position");
+  assert.doesNotMatch(skillCardHoverRule, /transform:/, "skill cards should not float on hover");
   assert.match(css, /\.skill-source-logo\s*\{/);
   assert.match(css, /\.skill-source-logo-mask/);
   assert.match(css, /assets\/engine-icons\/hermesagent\.svg/);
@@ -137,15 +143,7 @@ test("market cards render compact source logos beside source labels", () => {
   assert.match(css, /\.skill-source-logo-hermes\s*\{[\s\S]*color:\s*#0f172a/);
   assert.doesNotMatch(css, /\.skill-card-icon\.source-logo/);
   assert.doesNotMatch(css, /background:\s*var\(--accent\)/);
-  assert.doesNotMatch(css, /\.skill-card-action\.installed/);
-  assert.match(css, /\.skill-card-action\s*\{[\s\S]*border:\s*0/);
-  assert.match(css, /\.skill-card-action\s*\{[\s\S]*opacity:\s*1/);
-  assert.match(css, /\.skill-card-action-use\s*\{[\s\S]*opacity:\s*1/);
-  assert.match(css, /\.skill-card-action-install\s*\{[\s\S]*opacity:\s*0/);
-  assert.match(css, /\.skill-card:hover \.skill-card-action-install/);
-  assert.match(css, /\.skill-card:focus-within \.skill-card-action-install/);
-  assert.match(css, /\.skill-card-action-install\s*\{[\s\S]*background:\s*#111827/);
-  assert.match(css, /\.skill-card-action-install\s*\{[\s\S]*color:\s*#fff/);
+  assert.doesNotMatch(css, /\.skill-card-action/);
 
   [
     "src/renderer/assets/engine-icons/hermesagent.svg",
@@ -158,7 +156,7 @@ test("market cards render compact source logos beside source labels", () => {
   ].forEach((rel) => assert.ok(fs.existsSync(path.join(root, rel)), `${rel} should exist`));
 });
 
-test("market cards switch to use only when a local installed skill has the same market id", () => {
+test("market cards do not render direct install or use actions", () => {
   const src = read("src/renderer/skills/skill-library.js");
   const fakeEl = () => ({
     innerHTML: "",
@@ -233,13 +231,17 @@ test("market cards switch to use only when a local installed skill has the same 
   });
 
   context.window.miaSkillLibrary.renderSkillLibrary();
-  assert.match(els.skillCardGrid.innerHTML, /data-skill-install="skill-creator"/, "same-name official skill must not count as installed");
+  assert.match(els.skillCardGrid.innerHTML, /data-market-id="skill-creator"/);
+  assert.doesNotMatch(els.skillCardGrid.innerHTML, /skill-card-action/);
+  assert.doesNotMatch(els.skillCardGrid.innerHTML, /data-skill-install=/);
   assert.doesNotMatch(els.skillCardGrid.innerHTML, /data-skill-use=/);
 
   state.skillLibrary.skills.push({ id: "mia:skill-creator", source: "mia", fromMarket: true, marketId: "skill-creator", name: "skill-creator" });
   context.window.miaSkillLibrary.renderSkillLibrary();
-  assert.match(els.skillCardGrid.innerHTML, /data-skill-use="mia:skill-creator"/);
-  assert.doesNotMatch(els.skillCardGrid.innerHTML, /data-skill-install="skill-creator"/);
+  assert.match(els.skillCardGrid.innerHTML, /data-market-id="skill-creator"/);
+  assert.doesNotMatch(els.skillCardGrid.innerHTML, /skill-card-action/);
+  assert.doesNotMatch(els.skillCardGrid.innerHTML, /data-skill-install=/);
+  assert.doesNotMatch(els.skillCardGrid.innerHTML, /data-skill-use=/);
 });
 
 test("topbar has the mine/market toggle and market styles exist", () => {
@@ -247,7 +249,8 @@ test("topbar has the mine/market toggle and market styles exist", () => {
   assert.match(html, /id="skillModeToggle"/);
   const css = read("src/renderer/styles/skills.css");
   assert.match(css, /\.skill-mode-toggle/);
-  assert.match(css, /\.skill-card-action/);
+  assert.match(css, /\.skill-card/);
+  assert.doesNotMatch(css, /\.skill-card-action/);
 });
 
 test("market state tracks cached pages separately from foreground loading", () => {

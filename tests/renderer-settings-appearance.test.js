@@ -47,7 +47,6 @@ function loadAppearanceModule(depsOverride = {}) {
     },
     DEFAULT_ACCENT_COLOR: "#0162db",
     DEFAULT_USER_BUBBLE_COLOR: "#0162db",
-    DEFAULT_LIST_STYLE: "flush",
     DEFAULT_SELECTION_STYLE: "solid",
     ...depsOverride
   });
@@ -61,12 +60,12 @@ function cssBlock(selector) {
   return match[1];
 }
 
-test("appearance normalizers preserve both list and selection choices", () => {
+test("appearance normalizers keep the list style fixed to cards", () => {
   const { api } = loadAppearanceModule();
 
   assert.equal(api.normalizeListStyle("card"), "card");
-  assert.equal(api.normalizeListStyle("flush"), "flush");
-  assert.equal(api.normalizeListStyle("invalid"), "flush");
+  assert.equal(api.normalizeListStyle("flush"), "card");
+  assert.equal(api.normalizeListStyle("invalid"), "card");
   assert.equal(api.normalizeSelectionStyle("soft"), "soft");
   assert.equal(api.normalizeSelectionStyle("solid"), "solid");
   assert.equal(api.normalizeSelectionStyle("invalid"), "solid");
@@ -84,7 +83,6 @@ test("applyAppearance writes card and soft choices to document state", () => {
     selectionStyle: "soft"
   });
 
-  assert.equal(documentElement.dataset.listStyle, "card");
   assert.equal(documentElement.dataset.selectionStyle, "soft");
   assert.equal(styleValues.get("--list-active-text"), "#0162db");
 });
@@ -94,7 +92,6 @@ test("applyAppearance keeps default tokens when appearance deps are missing", ()
     fontPresets: undefined,
     DEFAULT_ACCENT_COLOR: undefined,
     DEFAULT_USER_BUBBLE_COLOR: undefined,
-    DEFAULT_LIST_STYLE: undefined,
     DEFAULT_SELECTION_STYLE: undefined
   });
 
@@ -107,7 +104,6 @@ test("applyAppearance keeps default tokens when appearance deps are missing", ()
 
   assert.match(styleValues.get("--app-font"), /PingFang SC/);
   assert.equal(styleValues.get("--accent"), "#0162db");
-  assert.equal(documentElement.dataset.listStyle, "card");
   assert.equal(documentElement.dataset.selectionStyle, "soft");
 });
 
@@ -117,7 +113,6 @@ test("syncAppearanceControls skips form controls when element deps are missing",
     fontPresets: undefined,
     DEFAULT_ACCENT_COLOR: undefined,
     DEFAULT_USER_BUBBLE_COLOR: undefined,
-    DEFAULT_LIST_STYLE: undefined,
     DEFAULT_SELECTION_STYLE: undefined
   });
 
@@ -137,6 +132,13 @@ test("desktop appearance settings expose a serif font preset", () => {
   assert.match(htmlSource, /data-font-preset="serif"[\s\S]*衬线/);
   assert.match(htmlSource, /<option value="serif">Serif<\/option>/);
   assert.match(cssSource, /\.font-choice\[data-font-preset="serif"\]/);
+});
+
+test("desktop appearance settings no longer expose the middle list style switch", () => {
+  assert.doesNotMatch(htmlSource, /中栏列表/);
+  assert.doesNotMatch(htmlSource, /appearanceListStyle/);
+  assert.doesNotMatch(appSource, /appearanceListStyle/);
+  assert.doesNotMatch(cssSource, /data-list-style="flush"/);
 });
 
 test("desktop appearance settings do not expose removed font presets", () => {

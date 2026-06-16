@@ -492,11 +492,27 @@ test("GET /api/conversations lists current user's conversations", async () => {
   try {
     const alice = await register(ctx.port, "alice");
     const bob = await register(ctx.port, "bob");
-    await friendUp(ctx.port, alice, bob);
+    const conversation = await friendUp(ctx.port, alice, bob);
+    const posted = await api(ctx.port, "POST", "/api/conversations/" + conversation.id + "/messages", {
+      token: bob.token,
+      body: { bodyMd: "hello from bob" }
+    });
+    assert.equal(posted.status, 201);
     const list = await api(ctx.port, "GET", "/api/conversations", { token: alice.token });
     assert.equal(list.status, 200);
     const dmConversations = list.body.conversations.filter((conversation) => conversation.id.startsWith("dm:"));
     assert.equal(dmConversations.length, 1);
+    assert.equal(dmConversations[0].last_message_text, "hello from bob");
+    assert.equal(dmConversations[0].lastMessageText, "hello from bob");
+    assert.equal(dmConversations[0].last_message_seq, 1);
+    assert.equal(dmConversations[0].lastMessageSeq, 1);
+    assert.equal(dmConversations[0].last_activity_at, posted.body.message.created_at);
+
+    const withMembers = await api(ctx.port, "GET", "/api/conversations?include=members", { token: alice.token });
+    assert.equal(withMembers.status, 200);
+    const dmWithMembers = withMembers.body.conversations.find((item) => item.id === conversation.id);
+    assert.equal(dmWithMembers.members.length, 2);
+    assert.equal(dmWithMembers.members.some((member) => member.identity?.kind === "user" && member.member_ref === bob.user.id), true);
   } finally { await stopServer(ctx); }
 });
 

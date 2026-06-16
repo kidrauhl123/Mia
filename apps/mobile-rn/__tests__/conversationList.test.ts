@@ -1,4 +1,4 @@
-import { buildConversationListItems, unreadCountsFromMessages } from "../src/logic/conversationList";
+import { buildConversationListItems, unreadCountsFromConversations, unreadCountsFromMessages } from "../src/logic/conversationList";
 import { memberAccentColor } from "../src/logic/avatar";
 
 test("按最后活动倒序 + 未读 + 末句", () => {
@@ -81,6 +81,35 @@ test("按 readMarks 和消息 seq 计算未读数", () => {
   );
 
   expect(unread).toEqual({ c1: 3 });
+});
+
+test("列表摘要字段驱动预览、排序和未读,无需预拉消息", () => {
+  const conversations = [
+    {
+      id: "older",
+      last_message_text: "旧消息",
+      last_message_seq: 2,
+      last_activity_at: "2026-06-01T10:00:00Z",
+    },
+    {
+      id: "newer",
+      lastMessageText: "",
+      lastMessageSeq: 7,
+      lastActivityAt: "2026-06-01T12:00:00Z",
+      lastMessageHasAttachments: true,
+    },
+  ];
+  const unread = unreadCountsFromConversations(conversations as any, { older: 2, newer: 4 });
+  const items = buildConversationListItems({
+    conversations: conversations as any,
+    unreadByConversation: unread,
+  });
+
+  expect(unread).toEqual({ newer: 3 });
+  expect(items.map((item) => item.id)).toEqual(["newer", "older"]);
+  expect(items[0].subtitle).toBe("[附件]");
+  expect(items[0].unread).toBe(3);
+  expect(items[1].subtitle).toBe("旧消息");
 });
 
 test("置顶会话排在普通会话前", () => {

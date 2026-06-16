@@ -126,7 +126,6 @@ const els = {
   profileStatusBadgeDetails: document.getElementById("profileStatusBadgeDetails"),
   profileStatusBadgeTrigger: document.getElementById("profileStatusBadgeTrigger"),
   appearanceTheme: document.getElementById("appearanceTheme"),
-  appearanceListStyle: document.getElementById("appearanceListStyle"),
   appearanceSelectionStyle: document.getElementById("appearanceSelectionStyle"),
   appearanceHoverBackground: document.getElementById("appearanceHoverBackground"),
   appearanceAccentColor: document.getElementById("appearanceAccentColor"),
@@ -3571,7 +3570,6 @@ function renderSettings() {
   // opens so it survives external mutations (multiple tabs, reset action).
   const ap = window.miaAppearance?.get?.() || {};
   if (els.appearanceTheme) els.appearanceTheme.value = ap.theme || "light";
-  if (els.appearanceListStyle) els.appearanceListStyle.value = ap.listStyle || "card";
   if (els.appearanceSelectionStyle) els.appearanceSelectionStyle.value = ap.selectionStyle || "soft";
   if (els.appearanceHoverBackground) els.appearanceHoverBackground.checked = ap.hoverBackground !== false;
   if (els.appearanceAccentColor) els.appearanceAccentColor.value = ap.accentColor || "#5e5ce6";
@@ -3841,7 +3839,6 @@ function bindAppearanceInput(el, key, getValue) {
   }
 }
 bindAppearanceInput(els.appearanceTheme, "theme", (e) => e.value);
-bindAppearanceInput(els.appearanceListStyle, "listStyle", (e) => e.value);
 bindAppearanceInput(els.appearanceSelectionStyle, "selectionStyle", (e) => e.value);
 bindAppearanceInput(els.appearanceHoverBackground, "hoverBackground", (e) => e.checked);
 bindAppearanceInput(els.appearanceAccentColor, "accentColor", (e) => e.value);

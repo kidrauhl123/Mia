@@ -66,6 +66,14 @@ test("appearanceSettings falls back from removed font presets", (t) => {
   assert.equal(store.appearanceSettings().fontPreset, "system");
 });
 
+test("appearanceSettings folds legacy flush list style back to cards", (t) => {
+  const { runtime, store } = setup(t);
+  fs.mkdirSync(path.dirname(runtime.appearanceSettings), { recursive: true });
+  fs.writeFileSync(runtime.appearanceSettings, JSON.stringify({ listStyle: "flush" }));
+
+  assert.equal(store.appearanceSettings().listStyle, "card");
+});
+
 test("writeAppearanceSettings validates choices, colors, and boolean toggles", (t) => {
   const { runtime, store } = setup(t);
 

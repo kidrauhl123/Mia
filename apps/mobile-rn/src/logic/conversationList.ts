@@ -20,7 +20,7 @@ export { identityDisplayText, memberAccentColor, resolveAvatar } from "./avatar"
 
 function activityTime(c: Conversation, messages?: ChatMessage[]): number {
   const last = lastRenderableMessage(messages);
-  const t = last?.createdAt || c.last_activity_at || c.updated_at || c.created_at || "";
+  const t = last?.createdAt || c.lastActivityAt || c.last_activity_at || c.updatedAt || c.updated_at || c.createdAt || c.created_at || "";
   const ms = Date.parse(t);
   return Number.isFinite(ms) ? ms : 0;
 }
@@ -106,8 +106,14 @@ function conversationPreview(c: Conversation, messages?: ChatMessage[]): string 
     if (body) return body.slice(0, 80);
     if (last.attachments?.length) return "[附件]";
   }
-  const fallback = String(c.last_message_text || "").trim();
+  const fallback = String(c.lastMessageText || c.last_message_text || "").trim();
+  if (!fallback && (c.lastMessageHasAttachments || c.last_message_has_attachments)) return "[附件]";
   return fallback || "暂无对话";
+}
+
+function conversationLastSeq(c: Conversation): number {
+  const value = Number(c.lastMessageSeq ?? c.last_message_seq ?? 0);
+  return Number.isFinite(value) && value > 0 ? value : 0;
 }
 
 export function formatConversationTime(value: string | number | Date | undefined): string {
@@ -133,6 +139,19 @@ export function unreadCountsFromMessages(
     const readSeq = Number(readMarks[conversationId]) || 0;
     const maxSeq = (messages || []).reduce((max, msg) => Math.max(max, Number(msg.seq) || 0), 0);
     if (maxSeq > readSeq) unread[conversationId] = maxSeq - readSeq;
+  });
+  return unread;
+}
+
+export function unreadCountsFromConversations(
+  conversations: Conversation[] = [],
+  readMarks: Record<string, number> = {}
+): Record<string, number> {
+  const unread: Record<string, number> = {};
+  conversations.forEach((conversation) => {
+    const readSeq = Number(readMarks[conversation.id]) || 0;
+    const lastSeq = conversationLastSeq(conversation);
+    if (lastSeq > readSeq) unread[conversation.id] = lastSeq - readSeq;
   });
   return unread;
 }

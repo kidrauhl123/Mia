@@ -529,6 +529,43 @@ function memberIdentityForBot(bot, fallbackRef = "", ownerId = "") {
   };
 }
 
+function enrichedConversationMembers(context, conversation) {
+  const conversationId = typeof conversation === "string" ? conversation : conversation?.id;
+  if (!conversationId) return [];
+  const members = context.socialStore.listConversationMembers(conversationId);
+  return members.map((m) => {
+    if (m.member_kind === "user") {
+      const user = context.cloudStore.getUserPublic(m.member_ref);
+      return {
+        ...m,
+        user: conversationMemberOwnerPublic(user),
+        identity: memberIdentityForUser(user, m.member_ref)
+      };
+    }
+    if (m.member_kind === "bot" && m.owner_id) {
+      const owner = context.cloudStore.getUserPublic(m.owner_id);
+      const conversationBotId = conversation?.decorations?.botId || "";
+      const fallbackName = m.bot_name
+        || (conversationBotId === m.member_ref && conversation?.name ? conversation.name : "")
+        || m.member_ref;
+      const bot = context.botsStore.getBot(m.member_ref) || {
+        id: m.member_ref,
+        ownerUserId: m.owner_id,
+        displayName: fallbackName,
+        avatarImage: m.bot_avatar_image || "",
+        avatarCrop: m.bot_avatar_crop || null,
+        color: m.bot_color || ""
+      };
+      return {
+        ...m,
+        owner: conversationMemberOwnerPublic(owner),
+        identity: memberIdentityForBot(bot, m.member_ref, m.owner_id)
+      };
+    }
+    return m;
+  });
+}
+
 function compactPublicUser(user) {
   if (!user) return null;
   const { avatarImage, avatarCrop, avatarColor, ...identity } = user;
@@ -2772,7 +2809,15 @@ async function handleRequest(req, res, context) {
 
     if (req.method === "GET" && url.pathname === "/api/conversations") {
       ensureCloudAgentBootstrap(context, auth.user.id);
-      const conversations = context.socialStore.listConversationsForUser(auth.user.id);
+      const includes = new Set(String(url.searchParams.get("include") || "").split(",").map((s) => s.trim()).filter(Boolean));
+      const includeMembers = includes.has("members") || url.searchParams.get("includeMembers") === "1";
+      let conversations = context.socialStore.listConversationsForUser(auth.user.id);
+      if (includeMembers) {
+        conversations = conversations.map((conversation) => ({
+          ...conversation,
+          members: enrichedConversationMembers(context, conversation)
+        }));
+      }
       return writeJson(res, 200, { conversations });
     }
 
@@ -2998,41 +3043,9 @@ async function handleRequest(req, res, context) {
       }
       const conversation = context.socialStore.getConversation(conversationId);
       if (!conversation) return writeError(res, 404, "conversation not found");
-      const members = context.socialStore.listConversationMembers(conversationId);
       // Enrich members with public identity so clients and conductors can
       // resolve display names without profile-avatar payloads.
-      const enriched = members.map((m) => {
-        if (m.member_kind === "user") {
-          const user = context.cloudStore.getUserPublic(m.member_ref);
-          return {
-            ...m,
-            user: conversationMemberOwnerPublic(user),
-            identity: memberIdentityForUser(user, m.member_ref)
-          };
-        }
-        if (m.member_kind === "bot" && m.owner_id) {
-          const owner = context.cloudStore.getUserPublic(m.owner_id);
-          const conversationBotId = conversation?.decorations?.botId || "";
-          const fallbackName = m.bot_name
-            || (conversationBotId === m.member_ref && conversation?.name ? conversation.name : "")
-            || m.member_ref;
-          const bot = context.botsStore.getBot(m.member_ref) || {
-            id: m.member_ref,
-            ownerUserId: m.owner_id,
-            displayName: fallbackName,
-            avatarImage: m.bot_avatar_image || "",
-            avatarCrop: m.bot_avatar_crop || null,
-            color: m.bot_color || ""
-          };
-          return {
-            ...m,
-            owner: conversationMemberOwnerPublic(owner),
-            identity: memberIdentityForBot(bot, m.member_ref, m.owner_id)
-          };
-        }
-        return m;
-      });
-      return writeJson(res, 200, { conversation, members: enriched });
+      return writeJson(res, 200, { conversation, members: enrichedConversationMembers(context, conversation) });
     }
 
     // PATCH /api/conversations/:id — update conversation metadata (name, decorations).

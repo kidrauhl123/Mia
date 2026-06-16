@@ -1,25 +1,20 @@
 import { Alert, View, FlatList, Pressable, StyleSheet } from "react-native";
-import { useQueries } from "@tanstack/react-query";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useBots, useConversations, useFriends, useMe, useSaveUserSettings, useUserSettings } from "../state/queries";
-import { useApi } from "../state/clientProvider";
 import { useAuth } from "../state/auth";
-import { buildConversationListItems, unreadCountsFromMessages } from "../logic/conversationList";
-import { normalizeServerRow } from "../logic/normalizeMessage";
+import { buildConversationListItems, unreadCountsFromConversations } from "../logic/conversationList";
 import { togglePinnedConversation } from "../logic/settings";
-import { conversationType } from "../logic/sessionHistory";
 import ConversationAvatar from "../components/ConversationAvatar";
 import ConnBanner from "../components/ConnBanner";
 import StatusBadge from "../components/StatusBadge";
 import { BodyStrong, Label, Sub } from "../ui/Text";
 import { color, space } from "../theme";
-import type { ChatMessage, Member, MessageRow } from "../api/types";
+import type { Member } from "../api/types";
 import type { MessagesStackParamList } from "../navigation/types";
 
 type Props = NativeStackScreenProps<MessagesStackParamList, "Conversations">;
 
 export default function ConversationListScreen({ navigation }: Props) {
-  const api = useApi();
   const { session, apiBase } = useAuth();
   const { data: conversations = [], isLoading, refetch, isRefetching } = useConversations();
   const { data: bots = [] } = useBots();
@@ -28,40 +23,11 @@ export default function ConversationListScreen({ navigation }: Props) {
   const { data: settings } = useUserSettings();
   const saveSettings = useSaveUserSettings();
 
-  // dm / group 需要成员才能解析对方头像 / 群拼贴 —— 按需补拉(react-query 缓存)。
-  const memberConvs = conversations.filter((c) => {
-    const t = conversationType(c);
-    return t === "dm" || t === "group";
-  });
-  const memberResults = useQueries({
-    queries: memberConvs.map((c) => ({
-      queryKey: ["members", c.id],
-      queryFn: () => api.api(`/api/conversations/${encodeURIComponent(c.id)}`).then((d) => (d.members || []) as Member[]),
-      staleTime: 60_000,
-    })),
-  });
   const membersByConv: Record<string, Member[]> = {};
-  memberConvs.forEach((c, i) => {
-    const m = memberResults[i]?.data;
-    if (m) membersByConv[c.id] = m;
+  conversations.forEach((c) => {
+    if (Array.isArray(c.members)) membersByConv[c.id] = c.members;
   });
-
-  const messageResults = useQueries({
-    queries: conversations.map((c) => ({
-      queryKey: ["messages", c.id],
-      queryFn: () =>
-        api
-          .api(`/api/conversations/${c.id}/messages?limit=200`)
-          .then((d) => (d.messages || []).map((r: MessageRow, i: number) => normalizeServerRow(r, session?.user?.id, i))),
-      staleTime: 30_000,
-    })),
-  });
-  const messagesByConv: Record<string, ChatMessage[]> = {};
-  conversations.forEach((c, i) => {
-    const m = messageResults[i]?.data as ChatMessage[] | undefined;
-    if (m) messagesByConv[c.id] = m;
-  });
-  const unreadByConversation = unreadCountsFromMessages(messagesByConv, settings?.readMarks || {});
+  const unreadByConversation = unreadCountsFromConversations(conversations, settings?.readMarks || {});
 
   // 自己:优先完整资料(带头像 + 裁剪),回退到会话里的精简 user。
   const self = me
@@ -72,7 +38,7 @@ export default function ConversationListScreen({ navigation }: Props) {
 
   const pinnedIds = settings?.pins || [];
   const pinnedSet = new Set(pinnedIds);
-  const items = buildConversationListItems({ conversations, bots, friends, self, membersByConv, messagesByConv, unreadByConversation, pinnedIds });
+  const items = buildConversationListItems({ conversations, bots, friends, self, membersByConv, unreadByConversation, pinnedIds });
 
   function openConversationActions(item: (typeof items)[number]) {
     const pinned = pinnedSet.has(item.id);

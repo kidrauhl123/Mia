@@ -121,14 +121,13 @@
     return "没有匹配的 Skill";
   }
 
-  function renderUnifiedSkillCard({ title, description, sourceHtml, actionHtml, className = "", attrs = "" }) {
+  function renderUnifiedSkillCard({ title, description, sourceHtml, className = "", attrs = "" }) {
     const cardClass = ["skill-card", className].filter(Boolean).join(" ");
     return `
       <article class="${escapeHtml(cardClass)}"${attrs ? ` ${attrs}` : ""}>
         <div class="skill-card-head">
           <div class="skill-card-titlerow">
             <strong>${escapeHtml(title || "Skill")}</strong>
-            ${actionHtml || ""}
           </div>
           <p>${escapeHtml(description || "")}</p>
         </div>
@@ -161,7 +160,6 @@
       title: window.miaSkillHelpers.skillDisplayName(skill),
       description: window.miaSkillHelpers.skillSummaryZh(skill),
       sourceHtml: `${skillSourceLogoHtml(skill)}<span class="skill-card-source-text">${escapeHtml(sourceText)}</span>`,
-      actionHtml: `<button class="skill-card-action skill-card-action-use" type="button" data-skill-use="${escapeHtml(skill.id)}">使用</button>`,
       className: skill.id === state.selectedSkillId ? "featured" : "",
       attrs: `data-skill-select="${escapeHtml(skill.id)}"`
     });
@@ -227,13 +225,6 @@
       card.addEventListener("contextmenu", (event) => {
         event.preventDefault();
         openSkillContextMenu(card.dataset.skillSelect, event.clientX, event.clientY);
-      });
-    });
-    els.skillCardGrid.querySelectorAll("[data-skill-use]").forEach((button) => {
-      button.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        useSkillInComposer(button.dataset.skillUse);
       });
     });
   }
@@ -462,17 +453,11 @@
   }
 
   function renderMarketCard(skill) {
-    const installedSkill = installedLocalSkillForMarket(skill);
-    const installing = state.installingSkillIds.has(skill.id);
-    const action = installedSkill
-      ? `<button class="skill-card-action skill-card-action-use" type="button" data-skill-use="${escapeHtml(installedSkill.id)}">使用</button>`
-      : `<button class="skill-card-action skill-card-action-install" type="button" data-skill-install="${escapeHtml(skill.id)}"${installing ? " disabled" : ""}>${installing ? "…" : "添加"}</button>`;
     const meta = [skill.sourceLabel, formatInstallCount(skill.installCount)].filter(Boolean).join(" · ");
     return renderUnifiedSkillCard({
       title: skill.name_zh || skill.name,
       description: marketDescriptionZh(skill),
       sourceHtml: `${marketSourceLogoHtml(skill)}<span class="skill-card-source-text">${escapeHtml(meta)}</span>`,
-      actionHtml: action,
       className: "market-card",
       attrs: `data-market-id="${escapeHtml(skill.id)}"`
     });
@@ -504,20 +489,6 @@
     els.skillCardGrid.innerHTML = shown.length
       ? shown.map((skill) => renderMarketCard(skill)).join("")
       : `<div class="skill-empty-state">没有匹配的技能</div>`;
-    els.skillCardGrid.querySelectorAll("[data-skill-install]").forEach((button) => {
-      button.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        installMarketSkill(button.dataset.skillInstall);
-      });
-    });
-    els.skillCardGrid.querySelectorAll("[data-skill-use]").forEach((button) => {
-      button.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        useSkillInComposer(button.dataset.skillUse);
-      });
-    });
     els.skillCardGrid.querySelectorAll("[data-market-id]").forEach((card) => {
       card.addEventListener("click", () => openMarketModal(card.dataset.marketId));
       card.addEventListener("contextmenu", (event) => {

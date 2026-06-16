@@ -118,7 +118,6 @@ export default function SettingsScreen() {
       <View style={styles.section}>
         <BodyStrong>外观</BodyStrong>
         <Row label="主题" value={String(appearance.theme || "light")} />
-        <Row label="列表样式" value={String(appearance.listStyle || "default")} />
       </View>
     </ScrollView>
   );

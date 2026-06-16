@@ -35,6 +35,38 @@ function approvalPreview(event: any = {}): string {
   );
 }
 
+function messageHasAttachments(row: MessageRow): boolean {
+  if (Array.isArray(row.attachments)) return row.attachments.length > 0;
+  const raw = (row as any).attachments_json;
+  if (!raw) return false;
+  try {
+    const parsed = JSON.parse(String(raw));
+    return Array.isArray(parsed) && parsed.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function patchConversationSummary(conversation: Conversation, row: MessageRow): Conversation {
+  const createdAt = row.created_at || "";
+  const seq = Number(row.seq) || 0;
+  const body = String(row.body_md || "");
+  const hasAttachments = messageHasAttachments(row);
+  return {
+    ...conversation,
+    lastMessageText: body,
+    last_message_text: body,
+    lastMessageSeq: seq,
+    last_message_seq: seq,
+    lastMessageCreatedAt: createdAt,
+    last_message_created_at: createdAt,
+    lastActivityAt: createdAt || conversation.lastActivityAt || conversation.last_activity_at,
+    last_activity_at: createdAt || conversation.last_activity_at || conversation.lastActivityAt,
+    lastMessageHasAttachments: hasAttachments,
+    last_message_has_attachments: hasAttachments,
+  };
+}
+
 export function EventsProvider({ children }: { children: React.ReactNode }) {
   const { apiBase, session } = useAuth();
   const qc = useQueryClient();
@@ -69,6 +101,16 @@ export function EventsProvider({ children }: { children: React.ReactNode }) {
           if (cid) {
             const incoming = normalizeServerRow(row, session.user?.id);
             qc.setQueryData<ChatMessage[]>(["messages", cid], (old) => mergeMessage(old || [], incoming));
+            qc.setQueryData<Conversation[]>(["conversations"], (old) => {
+              if (!old?.length) return old;
+              let changed = false;
+              const next = old.map((conversation) => {
+                if (conversation.id !== cid) return conversation;
+                changed = true;
+                return patchConversationSummary(conversation, row);
+              });
+              return changed ? next : old;
+            });
           }
         } else if (t === "conversation.message_deleted") {
           // 本设备或其它设备的微信式本地隐藏:从对应会话列表里移除。

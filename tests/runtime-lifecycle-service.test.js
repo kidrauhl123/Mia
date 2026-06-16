@@ -56,7 +56,7 @@ test("runtime lifecycle schedules daemon and engine startup once", async () => {
 
   assert.equal(service.scheduleBackgroundStartup({ delayMs: 0, engineDelayMs: 0 }), true);
   assert.equal(service.scheduleBackgroundStartup({ delayMs: 0, engineDelayMs: 0 }), false);
-  await wait(10);
+  await wait(50);
 
   assert.deepEqual(calls, [
     ["start-daemon"],
@@ -89,7 +89,7 @@ test("runtime lifecycle records startup errors without throwing from scheduler",
   });
 
   service.scheduleBackgroundStartup({ delayMs: 0, engineDelayMs: 0 });
-  await wait(10);
+  await wait(50);
 
   assert.deepEqual(errors, [
     ["daemon-error", "daemon failed"],

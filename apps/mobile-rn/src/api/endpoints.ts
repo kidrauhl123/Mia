@@ -46,8 +46,8 @@ export function friendPath(friendId: string): string {
   return `/api/social/friends/${encodeURIComponent(friendId)}`;
 }
 
-export function conversationsPath(): string {
-  return "/api/conversations";
+export function conversationsPath(options: { includeMembers?: boolean } = {}): string {
+  return withQuery("/api/conversations", { include: options.includeMembers ? "members" : undefined });
 }
 
 export function botDetailPath(botId: string): string {

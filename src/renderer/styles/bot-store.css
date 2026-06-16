@@ -75,7 +75,7 @@
 }
 .discover-mode-toggle button.active { color: var(--text); font-weight: 560; }
 
-/* ── 联系人模式：中栏列表 = 一张悬浮白卡（四角圆润 + 与详情卡片同款阴影/描边）──
+/* ── 联系人模式列表 = 一张悬浮白卡（四角圆润 + 与详情卡片同款阴影/描边）──
    整块是单一白卡（搜索+列表），靠 margin 在灰壳上浮起；阴影/描边与 .contact-note / .contact-capabilities 完全一致 */
 .app-shell[data-active-view="contacts"] .contacts-sidebar {
   background: var(--surface);

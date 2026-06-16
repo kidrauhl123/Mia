@@ -1833,40 +1833,6 @@ button.persona-tag-chip {
   font-weight: 600;
 }
 
-:root[data-list-style="flush"] .persona-list,
-:root[data-list-style="flush"] .contact-list,
-:root[data-list-style="flush"] .skills-nav {
-  gap: 0;
-  padding: 0;
-}
-
-:root[data-list-style="flush"] .persona,
-:root[data-list-style="flush"] .contact-row,
-:root[data-list-style="flush"] .skill-nav-row,
-:root[data-list-style="flush"] .skill-filter-row {
-  width: 100%;
-  margin: 0;
-  border-bottom: 1px solid var(--line);
-  border-radius: 0;
-}
-
-:root[data-list-style="flush"] .persona {
-  min-height: 68px;
-  padding: 8px 14px;
-}
-
-:root[data-list-style="flush"] .contact-row {
-  min-height: 40px;
-  padding: 5px 14px;
-}
-
-:root[data-list-style="flush"] .persona.active,
-:root[data-list-style="flush"] .contact-row.active,
-:root[data-list-style="flush"] .skill-nav-row.active,
-:root[data-list-style="flush"] .skill-filter-row.active {
-  border-bottom-color: transparent;
-}
-
 :root[data-selection-style="solid"] .skill-nav-row.active em,
 :root[data-selection-style="solid"] .skill-filter-row.active em,
 :root[data-selection-style="solid"] .persona.active .persona-unread {
@@ -6191,22 +6157,6 @@ select.select-open {
   font-weight: 400;
 }
 
-:root[data-list-style="flush"] .settings-tabs {
-  gap: 5px;
-  padding: 48px 10px 14px;
-}
-
-:root[data-list-style="flush"] .settings-tab {
-  min-height: 36px;
-  border-bottom: 0;
-  border-radius: 8px;
-  padding: 0 12px;
-}
-
-:root[data-list-style="flush"] .settings-tab.active {
-  border-bottom-color: transparent;
-}
-
 .settings-content,
 .settings-panel,
 .form-grid,
@@ -7380,16 +7330,6 @@ pre {
     padding: 0 13px;
     text-align: center;
     white-space: nowrap;
-  }
-
-  :root[data-list-style="flush"] .settings-tabs {
-    gap: 8px;
-    padding: 42px 14px 12px;
-  }
-
-  :root[data-list-style="flush"] .settings-tab {
-    min-height: 32px;
-    padding: 0 13px;
   }
 
   .settings-close-button {
