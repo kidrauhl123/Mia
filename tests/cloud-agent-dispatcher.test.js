@@ -125,6 +125,48 @@ test("cloud-hermes DM runs the bot and appends a reply", async () => {
   }
 });
 
+test("cloud-hermes DM injects selected message skill context into the run input", async () => {
+  const ctx = setup();
+  const hermesCalls = [];
+  try {
+    const dispatcher = makeDispatcher(ctx, {
+      skillsCatalog: [{
+        id: "flashcards",
+        name: "Anki 记忆卡",
+        body: "---\nname: generating-stem-flashcards\n---\n# STEM Flashcard Generation\nUse this for Anki cards."
+      }],
+      hermesRunsClient: {
+        async runChat(args) {
+          hermesCalls.push(args);
+          return { runId: "hr_skills", content: "skill reply", events: [] };
+        }
+      }
+    });
+    const message = ctx.messagesStore.appendMessage({
+      conversationId: ctx.conversation.id,
+      senderKind: "user",
+      senderRef: ctx.user.id,
+      bodyMd: "咋用",
+      skills: [{ id: "mia:flashcards", name: "Anki 记忆卡" }]
+    });
+
+    await dispatcher.handleUserMessage({
+      userId: ctx.user.id,
+      conversationId: ctx.conversation.id,
+      message
+    });
+
+    assert.equal(hermesCalls.length, 1);
+    assert.match(hermesCalls[0].input, /用户为这条消息明确选择了以下 Skill/);
+    assert.match(hermesCalls[0].input, /=== Skill: Anki 记忆卡 ===/);
+    assert.match(hermesCalls[0].input, /STEM Flashcard Generation/);
+    assert.match(hermesCalls[0].input, /不要改用其它未被选择的 Skill/);
+    assert.match(hermesCalls[0].input, /用户消息：\n咋用/);
+  } finally {
+    ctx.cleanup();
+  }
+});
+
 test("cloud-hermes DM surfaces run failures as visible bot messages", async () => {
   const ctx = setup();
   const broadcasts = [];

@@ -46,6 +46,78 @@ function inputWithGroupContext(input, members, bots, bot) {
   ].join("\n\n");
 }
 
+function selectedSkillIdsFromMessage(message) {
+  let parsed = null;
+  try {
+    parsed = JSON.parse(message?.skills_json || "[]");
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  const ids = [];
+  const seen = new Set();
+  for (const skill of parsed) {
+    if (ids.length >= 8) break;
+    const raw = typeof skill === "string" ? skill : (skill && typeof skill.id === "string" ? skill.id : "");
+    const id = raw.trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+  return ids;
+}
+
+function skillLookupKeys(id) {
+  const raw = String(id || "").trim();
+  if (!raw) return [];
+  const keys = [raw];
+  const colon = raw.includes(":") ? raw.split(":").pop() : "";
+  if (colon) keys.push(colon);
+  const slash = raw.includes("/") ? raw.split("/").filter(Boolean).pop() : "";
+  if (slash) keys.push(slash);
+  return [...new Set(keys.map((key) => String(key || "").trim()).filter(Boolean))];
+}
+
+function selectedSkillContext(message, skillsCatalog = []) {
+  const ids = selectedSkillIdsFromMessage(message);
+  if (!ids.length) return "";
+  const byKey = new Map();
+  for (const skill of Array.isArray(skillsCatalog) ? skillsCatalog : []) {
+    const id = String(skill?.id || "").trim();
+    const name = String(skill?.name || "").trim();
+    if (id) {
+      byKey.set(id, skill);
+      byKey.set(`mia:${id}`, skill);
+    }
+    if (name) byKey.set(name, skill);
+  }
+
+  const blocks = [];
+  const names = [];
+  const seen = new Set();
+  for (const id of ids) {
+    const found = skillLookupKeys(id).map((key) => byKey.get(key)).find(Boolean);
+    if (!found) continue;
+    const key = String(found.id || id);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const name = String(found.name || found.name_zh || id).trim() || id;
+    const body = String(found.body || "").trim();
+    if (!body) continue;
+    names.push(name);
+    blocks.push(`=== Skill: ${name} ===\n${body}\n=== End Skill ===`);
+  }
+  if (!blocks.length) return "";
+  const list = names.map((name) => `「${name}」`).join("、");
+  return [
+    "当前用户为这条消息明确选择了以下 Skill。请优先严格按这些 Skill 的指南完成本次任务：",
+    "",
+    blocks.join("\n\n"),
+    "",
+    `用户明确选择了 Skill：${list}。不要改用其它未被选择的 Skill。`
+  ].join("\n");
+}
+
 function requireDep(deps, key) {
   if (!deps || !deps[key]) throw new Error(`${key} dependency is required`);
   return deps[key];
@@ -74,6 +146,7 @@ function createCloudAgentDispatcher(deps = {}) {
     : () => {};
   const loadPrompts = typeof deps.loadPrompts === "function" ? deps.loadPrompts : undefined;
   const getUserPublic = typeof deps.getUserPublic === "function" ? deps.getUserPublic : () => null;
+  const skillsCatalog = Array.isArray(deps.skillsCatalog) ? deps.skillsCatalog : [];
   const log = typeof deps.log === "function" ? deps.log : () => {};
   const pending = new Set();
   const groupOrchestrator = createGroupOrchestrator({
@@ -245,7 +318,10 @@ function createCloudAgentDispatcher(deps = {}) {
         model: runtimeConfig.model || "mia-default",
         effortLevel: runtimeConfig.effortLevel || "medium",
         permissionMode: runtimeConfig.permissionMode || "ask",
-        input: inputWithGroupContext(materialized.input || message.body_md || "", rosterMembers, rosterBots, bot),
+        input: [
+          selectedSkillContext(message, skillsCatalog),
+          inputWithGroupContext(materialized.input || message.body_md || "", rosterMembers, rosterBots, bot)
+        ].filter(Boolean).join("\n\n"),
         attachments: materialized.attachments || [],
         conversationHistory: conversationHistory(conversationId),
         onRunCreated(hermesRunId) {

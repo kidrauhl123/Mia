@@ -3803,8 +3803,9 @@ function createMiaCloudServer(options = {}) {
     uploadDir: context.cloudStore.uploadDir,
     dataDir: context.cloudStore.dataDir
   });
+  const skillsCatalog = loadSkillsCatalog();
   context.skillsStore.backfillBodyVersions();
-  context.skillsStore.seedFromCatalog(loadSkillsCatalog());
+  context.skillsStore.seedFromCatalog(skillsCatalog);
   const hermesSkillsEnabled = options.hermesSkillsSource
     || options.hermesSkillsMarketEnabled === true
     || process.env.MIA_HERMES_SKILLS_MARKET === "1";
@@ -3842,7 +3843,8 @@ function createMiaCloudServer(options = {}) {
         : null,
       broadcastPersistedEvent: (userId, payload) => broadcastPersistedEvent(context, userId, payload),
       broadcastTransientEvent: (userId, payload) => broadcastTransientEvent(context.eventHub, userId, payload),
-      getUserPublic: (userId) => context.cloudStore.getUserPublic(userId)
+      getUserPublic: (userId) => context.cloudStore.getUserPublic(userId),
+      skillsCatalog
     });
   }
   // Inject botsStore so listConversationMembers can enrich bot members
