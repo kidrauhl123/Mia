@@ -3713,9 +3713,19 @@ async function handleRequest(req, res, context) {
     }
     const skillDetailMatch = url.pathname.match(/^\/api\/skills\/([A-Za-z0-9._-]+)$/);
     if (req.method === "GET" && skillDetailMatch) {
+      if (context.hermesSkillsSource && String(skillDetailMatch[1]).startsWith("hermes.")) {
+        const prepared = await context.hermesSkillsSource.prepareInstall(skillDetailMatch[1]).catch(() => null);
+        if (prepared) return writeJson(res, 200, { skill: prepared.skill, download: prepared.download });
+      }
       const skill = context.skillsStore.getSkill(skillDetailMatch[1]);
       if (!skill) return writeError(res, 404, "Skill not found.");
-      return writeJson(res, 200, { skill });
+      const download = skill.version ? {
+        version: skill.version.version,
+        url: `/api/skills/${encodeURIComponent(skill.id)}/versions/${encodeURIComponent(skill.version.version)}/package`,
+        checksum: skill.version.checksum,
+        entryPath: skill.version.entryPath
+      } : null;
+      return writeJson(res, 200, { skill, download });
     }
 
     writeError(res, 404, "Not found.");

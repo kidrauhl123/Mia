@@ -390,6 +390,25 @@ test("listMarketSkills returns stale cache first and forceRefresh updates the ca
   ]);
 });
 
+test("getMarketSkill fetches a skill detail without installing", async () => {
+  const { client, calls } = setup({
+    responses: [jsonResponse({
+      skill: { id: "pdf", name: "pdf", latestVersion: "1.0.0" },
+      download: { url: "/api/skills/pdf/versions/1.0.0/package", checksum: "abc" }
+    })]
+  });
+
+  const detail = await client.getMarketSkill("pdf");
+
+  assert.deepEqual(detail, {
+    skill: { id: "pdf", name: "pdf", latestVersion: "1.0.0" },
+    download: { url: "/api/skills/pdf/versions/1.0.0/package", checksum: "abc" }
+  });
+  assert.deepEqual(calls.fetch.map((request) => [request.method, request.url]), [
+    ["GET", "https://cloud.example/api/skills/pdf"]
+  ]);
+});
+
 test("logout clears local cloud auth even when remote logout fails and stops sockets", async () => {
   const { client, calls, getSettings } = setup({
     responses: [jsonResponse({ error: "gone" }, false, 500)]

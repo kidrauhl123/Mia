@@ -22,9 +22,12 @@ test("detail modal shows Chinese name + summary, body toggle, and add action", (
   assert.match(src, /skill\.summary_zh \|\| marketDescriptionZh\(skill\)/);
   // 展开正文 ⇄ 返回 toggle reveals the raw SKILL.md body
   assert.match(src, /skillModal\.showBody/);
+  assert.match(src, /function loadMarketSkillBody/);
+  assert.match(src, /window\.mia\.readMarketSkill/);
   assert.match(src, /renderSkillMarkdownSource\(skill\.body\)/);
   assert.match(src, /展开正文/);
   assert.match(src, /返回简介/);
+  assert.doesNotMatch(src, /完整 SKILL\.md 内容将在添加到本机后查看/);
   // add / use action
   assert.match(src, /installMarketSkill\(skill\.id\)/);
 });

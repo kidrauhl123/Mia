@@ -10,16 +10,19 @@ const read = (rel) => fs.readFileSync(path.join(root, rel), "utf8");
 test("market IPC channels + preload bridge are wired", () => {
   const channels = read("src/shared/ipc-channels.js");
   assert.match(channels, /SkillsMarketList:\s*"skills:market-list"/);
+  assert.match(channels, /SkillsMarketRead:\s*"skills:market-read"/);
   assert.match(channels, /SkillsMarketInstall:\s*"skills:market-install"/);
 
   const preload = read("src/preload.js");
   assert.match(preload, /marketSkills:.*SkillsMarketList/);
+  assert.match(preload, /readMarketSkill:.*SkillsMarketRead/);
   assert.match(preload, /installMarketSkill:.*SkillsMarketInstall/);
 });
 
 test("main serves a snapshot-plus-cloud market and installs through the unified path", () => {
   const main = read("src/main.js");
   assert.match(main, /SkillsMarketList.*listDesktopMarketSkills/);
+  assert.match(main, /SkillsMarketRead.*readDesktopMarketSkill/);
   assert.match(main, /function skillMarketSnapshot/);
   assert.match(main, /function cachedDesktopMarketPayload/);
   assert.match(main, /forceRefresh:\s*true/);
@@ -28,6 +31,8 @@ test("main serves a snapshot-plus-cloud market and installs through the unified 
   assert.match(main, /\.filter\(\(skill\) => !isHiddenRemoteMarketSkill\(skill\)\)/);
   assert.match(main, /SkillsMarketInstall.*installDesktopMarketSkill/);
   assert.match(main, /function installDesktopMarketSkill/);
+  assert.match(main, /function readDesktopMarketSkill/);
+  assert.match(main, /readSkillMarkdownFromPackage/);
   assert.match(main, /isHiddenRemoteMarketSkill\(\{\s*id\s*\}\)/);
   assert.match(main, /packageLocalCatalogSkill\(snapshot\.id\)/);
   assert.match(main, /cloudDesktopSync\(\)\.downloadSkillPackage/);

@@ -594,6 +594,33 @@
     }
   }
 
+  async function loadMarketSkillBody(skillId) {
+    const skill = findMarketSkill(skillId);
+    if (!skill || String(skill.body || "").trim() || skill.marketBodyLoading) return;
+    if (typeof window.mia?.readMarketSkill !== "function") {
+      skill.marketBodyError = "当前版本暂时无法读取技能正文。";
+      renderSkillModal();
+      return;
+    }
+    skill.marketBodyLoading = true;
+    skill.marketBodyError = "";
+    renderSkillModal();
+    try {
+      const detail = await window.mia.readMarketSkill(skillId);
+      const current = findMarketSkill(skillId);
+      if (!current) return;
+      if (detail?.skill && typeof detail.skill === "object") Object.assign(current, detail.skill);
+      current.body = String(detail?.body || current.body || "");
+    } catch (error) {
+      const current = findMarketSkill(skillId);
+      if (current) current.marketBodyError = error?.message || "技能正文读取失败。";
+    } finally {
+      const current = findMarketSkill(skillId);
+      if (current) current.marketBodyLoading = false;
+      if (skillModal.kind === "market" && skillModal.skillId === skillId) renderSkillModal();
+    }
+  }
+
   // --- Shared skill detail modal ----------------------------------------
   // Market and local skill cards reuse this popup. It opens on the intro and
   // keeps a visible 「展开正文」 path to the raw SKILL.md body.
@@ -647,6 +674,7 @@
     el.querySelector(".smm-body-toggle").addEventListener("click", () => {
       skillModal.showBody = !skillModal.showBody;
       renderSkillModal();
+      if (skillModal.showBody && skillModal.kind === "market") loadMarketSkillBody(skillModal.skillId);
     });
     el.querySelector(".smm-back").addEventListener("click", () => {
       skillModal.showBody = false;
@@ -738,6 +766,8 @@
     const installed = skillModal.kind === "market" ? installedLocalSkillForMarket(skill) : skill;
     const installing = skillModal.kind === "market" && state.installingSkillIds.has(skill.id);
     const hasBody = !!String(skill.body || "").trim();
+    const bodyLoading = skillModal.kind === "market" && !!skill.marketBodyLoading;
+    const bodyError = skillModal.kind === "market" ? String(skill.marketBodyError || "").trim() : "";
 
     skillModalEl.querySelector(".smm-source-logo").innerHTML = modalSourceLogoHtml(skill);
     setText(skillModalEl.querySelector(".smm-title"), modalTitle(skill));
@@ -755,11 +785,14 @@
       body.classList.remove("hidden");
       bodyContent.innerHTML = hasBody
         ? window.miaSkillHelpers.renderSkillMarkdownSource(skill.body)
-        : `<div class="skill-empty-state">${skillModal.kind === "local" ? "正在读取完整正文..." : "完整 SKILL.md 内容将在添加到本机后查看。"}</div>`;
+        : `<div class="skill-empty-state">${escapeHtml(bodyError || "正在读取完整正文...")}</div>`;
       bodyContent.querySelectorAll("a[href]").forEach((link) => {
         link.setAttribute("target", "_blank");
         link.setAttribute("rel", "noreferrer");
       });
+      if (skillModal.kind === "market" && !hasBody && !bodyLoading && !bodyError) {
+        loadMarketSkillBody(skill.id);
+      }
     } else {
       intro.classList.remove("hidden");
       body.classList.add("hidden");

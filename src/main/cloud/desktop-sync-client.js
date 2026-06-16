@@ -194,6 +194,11 @@ function createCloudDesktopSyncClient({
     return { skill: data && data.skill ? data.skill : null, download: data && data.download ? data.download : null };
   }
 
+  async function getMarketSkill(skillId) {
+    const data = await cloudApi(`/api/skills/${encodeURIComponent(String(skillId))}`, { method: "GET" });
+    return { skill: data && data.skill ? data.skill : null, download: data && data.download ? data.download : null };
+  }
+
   async function publishSkill(payload) {
     const data = await cloudApi("/api/skills", { method: "POST", body: payload || {} });
     return data && data.skill ? data.skill : null;
@@ -312,6 +317,7 @@ function createCloudDesktopSyncClient({
   return {
     getUserSettings,
     installMarketSkill,
+    getMarketSkill,
     downloadSkillPackage,
     publishSkill,
     reportSkill,

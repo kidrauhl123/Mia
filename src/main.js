@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const zlib = require("node:zlib");
+const AdmZip = require("adm-zip");
 const WebSocket = require("ws");
 const { IpcChannel } = require("./shared/ipc-channels");
 const { MemberKind } = require("./shared/conversation-kinds");
@@ -68,6 +69,7 @@ const {
   openSkillMarketCache
 } = require("./main/skills/skill-market-cache.js");
 const { loadLocalSkillMarketPayload, packageLocalCatalogSkill } = require("./main/skills/skill-market-local.js");
+const { isSafeEntryName, MAX_UNCOMPRESSED_BYTES } = require("./shared/skill-safety.js");
 const { createRemoteControlRouter } = require("./main/remote/remote-control-router.js");
 const { createModelSettingsService } = require("./main/model-settings-service.js");
 const { createConversationTitleService } = require("./main/conversation-title-service.js");
@@ -1333,6 +1335,64 @@ function verifySkillPackageChecksum(buf, checksum = "") {
   if (actual !== expected) throw new Error("技能安装包校验失败。");
 }
 
+function readSkillMarkdownFromPackage(zipBuffer, entryPath = "SKILL.md") {
+  const zip = new AdmZip(Buffer.from(zipBuffer));
+  const entries = zip.getEntries().filter((entry) => !entry.isDirectory);
+  const preferred = String(entryPath || "").trim();
+  const entry = entries.find((item) => preferred && item.entryName === preferred)
+    || entries.find((item) => item.entryName === "SKILL.md")
+    || entries.find((item) => String(item.entryName || "").endsWith("/SKILL.md"));
+  if (!entry) throw new Error("技能安装包缺少 SKILL.md。");
+  if (!isSafeEntryName(entry.entryName)) throw new Error("技能安装包路径不安全。");
+  if (Number(entry.header?.size || 0) > MAX_UNCOMPRESSED_BYTES) throw new Error("技能正文过大。");
+  return entry.getData().toString("utf8");
+}
+
+function marketSkillDownloadFromVersion(skill = {}) {
+  const version = skill?.version && typeof skill.version === "object" ? skill.version : null;
+  if (!skill?.id || !version?.version) return null;
+  return {
+    version: version.version,
+    url: `/api/skills/${encodeURIComponent(String(skill.id))}/versions/${encodeURIComponent(String(version.version))}/package`,
+    checksum: version.checksum || "",
+    entryPath: version.entryPath || "SKILL.md"
+  };
+}
+
+async function readDesktopMarketSkill(skillId) {
+  const id = String(skillId || "").trim();
+  if (!id) throw new Error("技能不存在。");
+  if (isHiddenRemoteMarketSkill({ id })) throw new Error("这个技能来源暂未开放。");
+
+  const snapshot = (skillMarketSnapshotAll().skills || []).find((skill) => skill.id === id) || null;
+  const cloud = settingsStore.cloudSettings();
+  const online = Boolean(cloud.enabled && cloud.token);
+  if (!online) {
+    if (snapshot?.body) return { skill: snapshot, body: snapshot.body };
+    throw new Error("请登录云端后查看这个技能正文。");
+  }
+
+  try {
+    const detail = await cloudDesktopSync().getMarketSkill(id);
+    const cloudSkill = detail?.skill || null;
+    const mergedSkill = mergeMarketSkillWithSnapshot(cloudSkill || snapshot || { id }, snapshot);
+    const download = detail?.download || marketSkillDownloadFromVersion(cloudSkill);
+    const cloudVersion = String(download?.version || cloudSkill?.latestVersion || cloudSkill?.version?.version || "");
+    const snapshotVersion = String(snapshot?.latestVersion || snapshot?.version || "");
+    if (snapshot?.body && (!cloudVersion || cloudVersion === snapshotVersion)) {
+      return { skill: mergedSkill, body: snapshot.body };
+    }
+    if (!download?.url) throw new Error("技能正文下载信息缺失。");
+    const zipBuffer = await cloudDesktopSync().downloadSkillPackage(download.url);
+    verifySkillPackageChecksum(zipBuffer, download.checksum);
+    return { skill: mergedSkill, body: readSkillMarkdownFromPackage(zipBuffer, download.entryPath) };
+  } catch (error) {
+    appendCloudLog(`Mia Cloud skill preview failed for ${id}: ${error?.message || error}`);
+    if (snapshot?.body) return { skill: snapshot, body: snapshot.body };
+    throw error;
+  }
+}
+
 async function installDesktopMarketSkill(skillId) {
   const id = String(skillId || "").trim();
   if (!id) throw new Error("技能不存在或安装失败。");
@@ -2589,6 +2649,7 @@ ipcMain.handle(IpcChannel.SkillsRead, (_event, skillId) => skillsLoader.readLoca
 ipcMain.handle(IpcChannel.SkillsDelete, (_event, skillId) => skillsLoader.deleteLocalSkill(skillId));
 ipcMain.handle(IpcChannel.SkillsOpenDirectory, (_event, skillId) => skillsLoader.openLocalSkillDirectory(skillId));
 ipcMain.handle(IpcChannel.SkillsMarketList, (_event, params) => listDesktopMarketSkills(params || {}));
+ipcMain.handle(IpcChannel.SkillsMarketRead, (_event, skillId) => readDesktopMarketSkill(skillId));
 ipcMain.handle(IpcChannel.SkillsMarketInstall, (_event, skillId) => installDesktopMarketSkill(skillId));
 ipcMain.handle(IpcChannel.SkillsPublish, async (_event, payload) => {
   const pkg = skillsLoader.packageLocalSkill(payload?.skillId);

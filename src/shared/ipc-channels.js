@@ -71,6 +71,7 @@
     SkillsDelete: "skills:delete",
     SkillsOpenDirectory: "skills:open-directory",
     SkillsMarketList: "skills:market-list",
+    SkillsMarketRead: "skills:market-read",
     SkillsMarketInstall: "skills:market-install",
     SkillsPublish: "skills:publish",
     SkillsReport: "skills:report",

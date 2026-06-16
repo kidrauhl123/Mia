@@ -83,6 +83,7 @@ contextBridge.exposeInMainWorld("mia", {
   deleteSkill: (skillId) => ipcRenderer.invoke(IpcChannel.SkillsDelete, skillId),
   openSkillDirectory: (skillId) => ipcRenderer.invoke(IpcChannel.SkillsOpenDirectory, skillId),
   marketSkills: (params) => ipcRenderer.invoke(IpcChannel.SkillsMarketList, params),
+  readMarketSkill: (skillId) => ipcRenderer.invoke(IpcChannel.SkillsMarketRead, skillId),
   installMarketSkill: (skillId) => ipcRenderer.invoke(IpcChannel.SkillsMarketInstall, skillId),
   publishSkill: (payload) => ipcRenderer.invoke(IpcChannel.SkillsPublish, payload),
   reportMarketSkill: (payload) => ipcRenderer.invoke(IpcChannel.SkillsReport, payload),

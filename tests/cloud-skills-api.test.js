@@ -181,7 +181,7 @@ test("GET /api/skills?category= filters", async () => {
   } finally { await stopServer(ctx); }
 });
 
-test("GET /api/skills/:id returns listing + latest version meta (no raw body)", async () => {
+test("GET /api/skills/:id returns listing + latest version download meta (no raw body)", async () => {
   const ctx = await startServer();
   try {
     const alice = await register(ctx.port, "alice");
@@ -190,6 +190,7 @@ test("GET /api/skills/:id returns listing + latest version meta (no raw body)", 
     assert.equal(r.body.skill.id, "pdf");
     assert.equal(r.body.skill.latestVersion, "1.0.0");
     assert.ok(r.body.skill.version && r.body.skill.version.checksum, "carries a packaged version");
+    assert.ok(r.body.download && r.body.download.url && r.body.download.checksum, "detail returns package download info");
     assert.equal(r.body.skill.body, undefined, "detail no longer ships a raw body");
   } finally { await stopServer(ctx); }
 });
@@ -262,6 +263,31 @@ test("Hermes remote skills appear in market and install as real packages", async
 
     const pkg = await api(ctx.port, "GET", inst.body.download.url, { token: alice.token });
     assert.equal(pkg.status, 200);
+  } finally {
+    await stopServer(ctx);
+    await fixture.close();
+  }
+});
+
+test("GET /api/skills/:id can preview Hermes remote package metadata without installing", async () => {
+  const fixture = await startHermesFixtureServer();
+  const ctx = await startServer({
+    MIA_HERMES_SKILLS_MARKET: "1",
+    MIA_HERMES_SKILLS_INDEX_URL: `${fixture.url}/index.json`,
+    MIA_HERMES_GITHUB_ARCHIVE_BASE_URL: `${fixture.url}/github-archive`
+  });
+  try {
+    const alice = await register(ctx.port, "alice");
+    const list = await api(ctx.port, "GET", "/api/skills", { token: alice.token });
+    const remote = list.body.skills.find((skill) => skill.name === "demo-remote");
+
+    const detail = await api(ctx.port, "GET", `/api/skills/${encodeURIComponent(remote.id)}`, { token: alice.token });
+
+    assert.equal(detail.status, 200);
+    assert.equal(detail.body.skill.id, remote.id);
+    assert.ok(detail.body.download.url.includes("/api/hermes-skills/"));
+    assert.match(detail.body.download.checksum, /^[a-f0-9]{64}$/);
+    assert.equal(detail.body.skill.body, undefined);
   } finally {
     await stopServer(ctx);
     await fixture.close();
