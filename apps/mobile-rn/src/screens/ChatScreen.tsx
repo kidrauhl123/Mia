@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useState } from "react";
-import { ActivityIndicator, View, FlatList, Pressable, StyleSheet, KeyboardAvoidingView, Platform, Text } from "react-native";
+import { ActivityIndicator, View, FlatList, Pressable, StyleSheet, KeyboardAvoidingView, Platform, Text, Modal } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import * as DocumentPicker from "expo-document-picker";
 import { File } from "expo-file-system";
@@ -30,13 +30,14 @@ import MessageActions from "../components/MessageActions";
 import ApprovalSheet from "../components/ApprovalSheet";
 import RuntimeControls from "../components/RuntimeControls";
 import Input from "../ui/Input";
-import Button from "../ui/Button";
 import { Sub } from "../ui/Text";
 import { color, space, hairlineWidth } from "../theme";
 import {
   botIdForRuntimeControls,
+  EFFORT_OPTIONS,
   modelEntriesFromCatalog,
   patchForRuntimeField,
+  PERMISSION_OPTIONS,
   runtimeControlState,
   runtimeKindForControls,
 } from "../logic/runtimeControls";
@@ -44,6 +45,50 @@ import type { ChatMessage, MessageAttachment } from "../api/types";
 import type { MessagesStackParamList } from "../navigation/types";
 
 type Props = NativeStackScreenProps<MessagesStackParamList, "Chat">;
+
+function optionLabel(options: { value: string; label: string }[], value: string, fallback: string) {
+  return options.find((item) => item.value === value)?.label || fallback;
+}
+
+function PaperclipIcon({ tint }: { tint: string }) {
+  return (
+    <Svg width={23} height={23} viewBox="0 0 24 24">
+      <Path
+        d="M8.8 12.7 13.9 7.6a3.2 3.2 0 0 1 4.5 4.5l-6.2 6.2a5 5 0 0 1-7.1-7.1l6.7-6.7"
+        stroke={tint}
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill="none"
+      />
+      <Path
+        d="m9.6 12 5.1-5.1"
+        stroke={tint}
+        strokeWidth={2}
+        strokeLinecap="round"
+        fill="none"
+      />
+    </Svg>
+  );
+}
+
+function SendIcon({ tint }: { tint: string }) {
+  return (
+    <Svg width={22} height={22} viewBox="0 0 24 24">
+      <Path d="M4 11.7 20 4l-4.7 16-3.2-6.2L4 11.7Z" fill={tint} />
+      <Path d="m12.1 13.8 3.2-3.3" stroke={color.accent} strokeWidth={1.8} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
+function TuneIcon({ tint }: { tint: string }) {
+  return (
+    <Svg width={22} height={22} viewBox="0 0 24 24">
+      <Path d="M5 7h10M19 7h0M5 17h4M13 17h6" stroke={tint} strokeWidth={2} strokeLinecap="round" />
+      <Path d="M15 5.2v3.6M9 15.2v3.6" stroke={tint} strokeWidth={2} strokeLinecap="round" />
+    </Svg>
+  );
+}
 
 export default function ChatScreen({ navigation, route }: Props) {
   const { conversationId } = route.params;
@@ -68,12 +113,20 @@ export default function ChatScreen({ navigation, route }: Props) {
   const [pendingAttachments, setPendingAttachments] = useState<MessageAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState("");
   const [actionMsg, setActionMsg] = useState<ChatMessage | null>(null);
+  const [runtimeSheetOpen, setRuntimeSheetOpen] = useState(false);
   const [sending, setSending] = useState(false);
   const [savingField, setSavingField] = useState<"model" | "effort" | "permission" | "">("");
   const [runtimeError, setRuntimeError] = useState("");
   const modelEntries = modelEntriesFromCatalog(modelCatalog.data || runtime.data?.config?.modelEntries || []);
   const controls = runtimeControlState({ binding: runtime.data, modelEntries });
   const maxSeq = lastSeenSeq(messages);
+  const canSend = Boolean(text.trim() || pendingAttachments.length) && !sending;
+  const currentModelLabel = modelEntries.find((entry) => entry.value === controls.modelValue)?.label || controls.modelValue || "默认模型";
+  const runtimeSummary = [
+    currentModelLabel,
+    optionLabel(EFFORT_OPTIONS, controls.effortValue, "中强度"),
+    optionLabel(PERMISSION_OPTIONS, controls.permissionValue, "询问"),
+  ].filter(Boolean).join(" · ");
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -219,6 +272,21 @@ export default function ChatScreen({ navigation, route }: Props) {
       enabled={chatKeyboardAvoidingEnabled(Platform.OS)}
       keyboardVerticalOffset={90}
     >
+      {showRuntimeControls ? (
+        <Pressable
+          style={({ pressed }) => [styles.runtimeStrip, pressed && styles.runtimeStripPressed]}
+          onPress={() => setRuntimeSheetOpen(true)}
+        >
+          <View style={styles.runtimeDot} />
+          <View style={styles.runtimeText}>
+            <Text style={styles.runtimeTitle}>云端运行</Text>
+            <Sub numberOfLines={1} style={styles.runtimeSummary}>{runtimeSummary}</Sub>
+          </View>
+          <View style={styles.runtimeIcon}>
+            <TuneIcon tint={color.accent} />
+          </View>
+        </Pressable>
+      ) : null}
       <FlatList
         style={styles.list}
         data={data}
@@ -229,17 +297,6 @@ export default function ChatScreen({ navigation, route }: Props) {
         renderItem={({ item }) => <MessageBubble msg={item} apiBase={apiBase} members={members} onLongPress={setActionMsg} />}
       />
       <View style={[styles.composer, { paddingBottom: space.sm + insets.bottom }]}>
-        {showRuntimeControls ? (
-          <RuntimeControls
-            modelEntries={modelEntries}
-            modelValue={controls.modelValue}
-            effortValue={controls.effortValue}
-            permissionValue={controls.permissionValue}
-            savingField={savingField}
-            error={runtimeError}
-            onChange={saveRuntimeField}
-          />
-        ) : null}
         {pendingAttachments?.length ? (
           <View style={styles.attachmentBar}>
             {pendingAttachments.map((attachment, index) => (
@@ -258,7 +315,15 @@ export default function ChatScreen({ navigation, route }: Props) {
         ) : null}
         {attachmentError ? <Sub style={styles.attachmentError}>{attachmentError}</Sub> : null}
         <View style={styles.composerInputRow}>
-          <Button label="附件" variant="outline" style={styles.attachButton} onPress={pickAttachments} />
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="添加附件"
+            hitSlop={8}
+            onPress={pickAttachments}
+            style={({ pressed }) => [styles.iconButton, pressed && styles.iconButtonPressed]}
+          >
+            <PaperclipIcon tint={color.inkMuted} />
+          </Pressable>
           <Input
             style={styles.input}
             placeholder="输入消息…"
@@ -266,30 +331,50 @@ export default function ChatScreen({ navigation, route }: Props) {
             onChangeText={setText}
             onSubmitEditing={send}
             blurOnSubmit={false}
+            multiline
             returnKeyType="send"
           />
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="发送"
             onPress={send}
-            disabled={sending}
+            disabled={!canSend}
             style={({ pressed }) => [
               styles.sendIconButton,
-              sending && styles.sendIconButtonDisabled,
+              !canSend && styles.sendIconButtonDisabled,
               pressed && styles.sendIconButtonPressed,
             ]}
           >
             {sending ? (
-              <ActivityIndicator color={color.accent} />
+              <ActivityIndicator color={color.accentText} />
             ) : (
-              <Svg width={30} height={30} viewBox="0 0 24 24">
-                <Path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z" stroke={color.accent} strokeWidth={2} fill="none" />
-                <Path d="m8.5 13.5 3.5-3.5 3.5 3.5" stroke={color.accent} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" fill="none" />
-              </Svg>
+              <SendIcon tint={color.accentText} />
             )}
           </Pressable>
         </View>
       </View>
+      <Modal visible={runtimeSheetOpen} transparent animationType="slide" onRequestClose={() => setRuntimeSheetOpen(false)}>
+        <Pressable style={styles.sheetBackdrop} onPress={() => setRuntimeSheetOpen(false)}>
+          <Pressable style={[styles.runtimeSheet, { paddingBottom: space.lg + insets.bottom }]} onPress={() => {}}>
+            <View style={styles.sheetHandle} />
+            <View style={styles.sheetHead}>
+              <Text style={styles.sheetTitle}>运行设置</Text>
+              <Pressable hitSlop={10} onPress={() => setRuntimeSheetOpen(false)}>
+                <Text style={styles.sheetDone}>完成</Text>
+              </Pressable>
+            </View>
+            <RuntimeControls
+              modelEntries={modelEntries}
+              modelValue={controls.modelValue}
+              effortValue={controls.effortValue}
+              permissionValue={controls.permissionValue}
+              savingField={savingField}
+              error={runtimeError}
+              onChange={saveRuntimeField}
+            />
+          </Pressable>
+        </Pressable>
+      </Modal>
       <MessageActions
         msg={actionMsg}
         onClose={() => setActionMsg(null)}
@@ -306,6 +391,26 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: color.chatBg },
   headerAction: { color: color.accent, fontSize: 15, fontWeight: "600" },
   list: { flex: 1 },
+  runtimeStrip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.sm,
+    marginHorizontal: space.md,
+    marginTop: space.sm,
+    marginBottom: 2,
+    paddingHorizontal: space.md,
+    paddingVertical: 9,
+    borderRadius: 16,
+    backgroundColor: color.surface,
+    borderWidth: hairlineWidth,
+    borderColor: color.line,
+  },
+  runtimeStripPressed: { backgroundColor: color.surfaceMuted },
+  runtimeDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: color.accent2 },
+  runtimeText: { flex: 1, minWidth: 0, gap: 1 },
+  runtimeTitle: { color: color.ink, fontSize: 13, fontWeight: "700" },
+  runtimeSummary: { fontSize: 12, color: color.inkMuted },
+  runtimeIcon: { width: 30, height: 30, alignItems: "center", justifyContent: "center", borderRadius: 15, backgroundColor: color.accentSoft },
   composer: {
     gap: space.sm,
     backgroundColor: color.surface,
@@ -314,6 +419,7 @@ const styles = StyleSheet.create({
   },
   composerInputRow: {
     flexDirection: "row",
+    alignItems: "flex-end",
     gap: space.sm,
     paddingHorizontal: space.md,
     paddingTop: space.sm,
@@ -336,16 +442,40 @@ const styles = StyleSheet.create({
   attachmentRemove: { width: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: color.field },
   attachmentRemoveText: { color: color.inkMuted, fontSize: 14 },
   attachmentError: { color: color.danger, paddingHorizontal: space.md },
-  attachButton: { width: 70, paddingHorizontal: 0 },
-  input: { flex: 1 },
+  iconButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: color.surfaceMuted,
+  },
+  iconButtonPressed: { backgroundColor: color.field, transform: [{ scale: 0.96 }] },
+  input: { flex: 1, minHeight: 42, maxHeight: 118, paddingVertical: 10, borderRadius: 21 },
   sendIconButton: {
     width: 42,
     height: 42,
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "transparent",
+    backgroundColor: color.accent,
   },
-  sendIconButtonPressed: { backgroundColor: color.field, transform: [{ scale: 0.96 }] },
+  sendIconButtonPressed: { opacity: 0.86, transform: [{ scale: 0.96 }] },
   sendIconButtonDisabled: { opacity: 0.38 },
+  sheetBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.24)" },
+  runtimeSheet: {
+    backgroundColor: color.surface,
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    paddingTop: space.sm,
+    shadowColor: "#141828",
+    shadowOpacity: 0.16,
+    shadowRadius: 22,
+    shadowOffset: { width: 0, height: -8 },
+    elevation: 18,
+  },
+  sheetHandle: { alignSelf: "center", width: 42, height: 4, borderRadius: 2, backgroundColor: color.lineStrong, marginBottom: space.md },
+  sheetHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: space.lg, paddingBottom: space.sm },
+  sheetTitle: { color: color.ink, fontSize: 17, fontWeight: "700" },
+  sheetDone: { color: color.accent, fontSize: 15, fontWeight: "700" },
 });

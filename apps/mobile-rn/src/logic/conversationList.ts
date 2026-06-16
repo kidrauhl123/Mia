@@ -124,6 +124,19 @@ export function formatConversationTime(value: string | number | Date | undefined
   return `${date.getMonth() + 1}/${date.getDate()}`;
 }
 
+export function unreadCountsFromMessages(
+  messagesByConv: Record<string, ChatMessage[]> = {},
+  readMarks: Record<string, number> = {}
+): Record<string, number> {
+  const unread: Record<string, number> = {};
+  Object.entries(messagesByConv).forEach(([conversationId, messages]) => {
+    const readSeq = Number(readMarks[conversationId]) || 0;
+    const maxSeq = (messages || []).reduce((max, msg) => Math.max(max, Number(msg.seq) || 0), 0);
+    if (maxSeq > readSeq) unread[conversationId] = maxSeq - readSeq;
+  });
+  return unread;
+}
+
 // 按主体聚合 + 按类型解析头像(bot / dm 用户 / group 拼贴),对齐桌面/web。
 export function buildConversationListItems(deps: {
   conversations: Conversation[];

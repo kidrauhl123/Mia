@@ -77,7 +77,11 @@ export function useConversationMessages(conversationId: string) {
       api
         .api(`/api/conversations/${conversationId}/messages?limit=200`)
         .then((d) => (d.messages || []).map((r: MessageRow, i: number) => normalizeServerRow(r, selfId, i))),
-    structuralSharing: (oldData, newData) => mergeFetchedMessages(oldData || [], newData || []),
+    structuralSharing: (oldData: unknown, newData: unknown) =>
+      mergeFetchedMessages(
+        Array.isArray(oldData) ? oldData as ChatMessage[] : [],
+        Array.isArray(newData) ? newData as ChatMessage[] : []
+      ),
   });
 }
 

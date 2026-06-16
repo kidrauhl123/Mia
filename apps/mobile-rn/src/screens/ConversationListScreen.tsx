@@ -4,7 +4,7 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useBots, useConversations, useFriends, useMe, useSaveUserSettings, useUserSettings } from "../state/queries";
 import { useApi } from "../state/clientProvider";
 import { useAuth } from "../state/auth";
-import { buildConversationListItems } from "../logic/conversationList";
+import { buildConversationListItems, unreadCountsFromMessages } from "../logic/conversationList";
 import { normalizeServerRow } from "../logic/normalizeMessage";
 import { togglePinnedConversation } from "../logic/settings";
 import { conversationType } from "../logic/sessionHistory";
@@ -61,6 +61,7 @@ export default function ConversationListScreen({ navigation }: Props) {
     const m = messageResults[i]?.data as ChatMessage[] | undefined;
     if (m) messagesByConv[c.id] = m;
   });
+  const unreadByConversation = unreadCountsFromMessages(messagesByConv, settings?.readMarks || {});
 
   // 自己:优先完整资料(带头像 + 裁剪),回退到会话里的精简 user。
   const self = me
@@ -71,7 +72,7 @@ export default function ConversationListScreen({ navigation }: Props) {
 
   const pinnedIds = settings?.pins || [];
   const pinnedSet = new Set(pinnedIds);
-  const items = buildConversationListItems({ conversations, bots, friends, self, membersByConv, messagesByConv, unreadByConversation: {}, pinnedIds });
+  const items = buildConversationListItems({ conversations, bots, friends, self, membersByConv, messagesByConv, unreadByConversation, pinnedIds });
 
   function openConversationActions(item: (typeof items)[number]) {
     const pinned = pinnedSet.has(item.id);

@@ -63,7 +63,7 @@ export default function RuntimeControls({
     <View style={styles.wrap}>
       <View style={styles.head}>
         <BodyStrong>运行设置</BodyStrong>
-        <Label>{savingField ? "保存中…" : "Cloud Hermes"}</Label>
+        <Label>{savingField ? "保存中…" : "云端运行"}</Label>
       </View>
       <ControlRow label="模型" options={modelOptions} value={modelValue} saving={savingField === "model"} onChange={(value) => onChange("model", value)} />
       <ControlRow label="强度" options={EFFORT_OPTIONS} value={effortValue} saving={savingField === "effort"} onChange={(value) => onChange("effort", value)} />

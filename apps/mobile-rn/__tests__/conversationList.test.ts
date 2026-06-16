@@ -1,4 +1,4 @@
-import { buildConversationListItems } from "../src/logic/conversationList";
+import { buildConversationListItems, unreadCountsFromMessages } from "../src/logic/conversationList";
 import { memberAccentColor } from "../src/logic/avatar";
 
 test("按最后活动倒序 + 未读 + 末句", () => {
@@ -64,6 +64,23 @@ test("列表预览和时间优先取消息缓存最后一条", () => {
   expect(items[1].subtitle).toBe("new");
   expect((items[1] as any).sortTime).toBe(Date.parse("2026-06-01T12:34:00Z"));
   expect(items[0].subtitle).toBe("[附件]");
+});
+
+test("按 readMarks 和消息 seq 计算未读数", () => {
+  const unread = unreadCountsFromMessages(
+    {
+      c1: [
+        { messageId: "m1", seq: 1, role: "user", bodyMd: "a", isOwn: false, isPending: false, createdAt: "2026-06-01T12:00:00Z" },
+        { messageId: "m2", seq: 4, role: "assistant", bodyMd: "b", isOwn: false, isPending: false, createdAt: "2026-06-01T12:01:00Z" },
+      ],
+      c2: [
+        { messageId: "m3", seq: 2, role: "user", bodyMd: "c", isOwn: false, isPending: false, createdAt: "2026-06-01T12:02:00Z" },
+      ],
+    } as any,
+    { c1: 1, c2: 2 }
+  );
+
+  expect(unread).toEqual({ c1: 3 });
 });
 
 test("置顶会话排在普通会话前", () => {

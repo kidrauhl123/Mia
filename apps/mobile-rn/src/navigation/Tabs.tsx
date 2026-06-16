@@ -1,5 +1,6 @@
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import type { NavigationState, PartialState, Route } from "@react-navigation/native";
 import ConversationListScreen from "../screens/ConversationListScreen";
 import ChatScreen from "../screens/ChatScreen";
 import ContactsScreen from "../screens/ContactsScreen";
@@ -25,6 +26,7 @@ const AgentsStackNav = createNativeStackNavigator<AgentsStackParamList>();
 const SkillsStackNav = createNativeStackNavigator<SkillsStackParamList>();
 const SettingsStackNav = createNativeStackNavigator<SettingsStackParamList>();
 const Tab = createBottomTabNavigator();
+const HIDE_TAB_ON_CHILD = new Set(["Chat", "GroupDetail", "BotSessions", "BotDetail"]);
 
 const headerOptions = {
   headerStyle: { backgroundColor: color.bg },
@@ -34,6 +36,18 @@ const headerOptions = {
   headerTitleAlign: "center" as const,
   contentStyle: { backgroundColor: color.bg },
 };
+
+function activeChildName(route: Route<string> & { state?: NavigationState | PartialState<NavigationState> }) {
+  const state = route.state;
+  if (!state || !Array.isArray(state.routes) || !state.routes.length) return "";
+  const index = typeof state.index === "number" ? state.index : 0;
+  return state.routes[index]?.name || "";
+}
+
+function shouldHideTabBar(state: NavigationState) {
+  const route = state.routes[state.index] as Route<string> & { state?: NavigationState | PartialState<NavigationState> };
+  return HIDE_TAB_ON_CHILD.has(activeChildName(route));
+}
 
 function MessagesStack() {
   return (
@@ -97,7 +111,7 @@ function SettingsStack() {
 
 export default function Tabs() {
   return (
-    <Tab.Navigator screenOptions={headerOptions} tabBar={(props) => <AnimatedTabBar {...props} />}>
+    <Tab.Navigator screenOptions={headerOptions} tabBar={(props) => shouldHideTabBar(props.state) ? null : <AnimatedTabBar {...props} />}>
       <Tab.Screen name="Messages" component={MessagesStack} options={{ headerShown: false, title: "消息" }} />
       <Tab.Screen name="Contacts" component={ContactsStack} options={{ headerShown: false, title: "联系人" }} />
       <Tab.Screen name="Agents" component={AgentsStack} options={{ headerShown: false, title: "运行" }} />

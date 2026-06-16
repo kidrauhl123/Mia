@@ -7,15 +7,15 @@ type ModelEntryLike = Partial<RuntimeModelEntry> & {
 };
 
 export const EFFORT_OPTIONS = [
-  { value: "low", label: "Low" },
-  { value: "medium", label: "Medium" },
-  { value: "high", label: "High" },
+  { value: "low", label: "低强度" },
+  { value: "medium", label: "中强度" },
+  { value: "high", label: "高强度" },
 ];
 
 export const PERMISSION_OPTIONS = [
-  { value: "ask", label: "Ask" },
-  { value: "yolo", label: "YOLO" },
-  { value: "deny", label: "Deny" },
+  { value: "ask", label: "每次询问" },
+  { value: "yolo", label: "自动执行" },
+  { value: "deny", label: "只读" },
 ];
 
 export function botIdForRuntimeControls(conversation?: Conversation | null): string {
