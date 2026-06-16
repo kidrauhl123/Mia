@@ -537,6 +537,8 @@ function verifyRelease() {
     "api/src/cloud/model-billing-store.js",
     "api/src/cloud/model-gateway-store.js",
     "api/src/cloud/model-proxy-auth.js",
+    "api/src/cloud/tasks-store.js",
+    "api/src/cloud/tasks-service.js",
     "api/src/cloud-agent/runtime-bindings-store.js",
     "api/src/cloud-agent/cloud-agent-runs-store.js",
     "api/src/cloud-agent/attachment-materializer.js",
@@ -903,6 +905,7 @@ function main() {
     },
     dependencies: {
       "adm-zip": rootPackage.dependencies?.["adm-zip"] || "^0.5.17",
+      "cron-parser": rootPackage.dependencies?.["cron-parser"] || "^4.9.0",
       qrcode: rootPackage.dependencies?.qrcode || "^1.5.4",
       ws: rootPackage.dependencies?.ws || "^8.20.1"
     }
