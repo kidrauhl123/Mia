@@ -319,10 +319,10 @@ function updateVersionSuffix(version) {
 
 function appUpdateStatusText(result = {}) {
   const version = updateVersionSuffix(result.version);
-  if (result.status === "available") return `发现新版本${version}，正在下载并安装。`;
-  if (result.status === "downloading") return `正在下载新版本${version}。`;
-  if (result.status === "downloaded") return `新版本${version}已下载，正在安装。`;
-  if (result.status === "installing") return `正在安装新版本${version}。`;
+  if (result.status === "available") return `正在更新${version}`;
+  if (result.status === "downloading") return `正在下载${version}`;
+  if (result.status === "downloaded") return `正在安装${version}`;
+  if (result.status === "installing") return `正在重启${version}`;
   if (result.status === "not-available") return "当前已经是最新版本。";
   if (result.status === "disabled") return "检查更新只在安装版桌面 App 中可用。";
   if (result.status === "error") return `检查失败：${result.error?.message || "请稍后再试"}`;
@@ -342,25 +342,25 @@ function appUpdateOverlayCopy(payload = {}) {
   const version = updateVersionSuffix(payload.version);
   if (status === "available") {
     return {
-      title: `发现 Mia${version} 更新`,
-      detail: "正在下载更新包，更新期间暂时不能操作其他内容。"
+      title: "正在更新",
+      detail: `Mia${version || ""}`
     };
   }
   if (status === "downloaded") {
     return {
-      title: "更新包已下载",
-      detail: "正在准备安装，Mia 会自动重启。"
+      title: "正在安装",
+      detail: "即将重启"
     };
   }
   if (status === "installing") {
     return {
-      title: "正在安装更新",
-      detail: "安装程序已经启动，Mia 会自动完成重启。"
+      title: "正在重启",
+      detail: "马上完成"
     };
   }
   return {
-    title: `正在下载 Mia${version} 更新`,
-    detail: "更新期间暂时不能操作其他内容。"
+    title: "正在下载",
+    detail: `Mia${version || ""}`
   };
 }
 

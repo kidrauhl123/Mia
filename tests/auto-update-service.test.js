@@ -96,7 +96,8 @@ test("manual update check serializes update errors for the renderer", async () =
 test("available updates lock the app, report progress, and force install", async () => {
   const events = [];
   const calls = [];
-  let scheduled = null;
+  const scheduled = [];
+  let quitFallbackCalled = false;
   let updater;
   updater = new FakeUpdater(() => {
     updater.emit("update-available", { version: "0.1.12" });
@@ -118,9 +119,12 @@ test("available updates lock the app, report progress, and force install", async
     getMainWindows: () => [win],
     sendUpdateEvent: (payload) => events.push(payload),
     forceInstallDelayMs: 25,
+    installRetryDelayMs: 50,
+    installQuitFallbackDelayMs: 75,
+    quitApp: () => { quitFallbackCalled = true; },
     setTimeoutFn: (fn, ms) => {
-      scheduled = { fn, ms };
-      return 1;
+      scheduled.push({ fn, ms });
+      return scheduled.length;
     },
   });
 
@@ -152,13 +156,58 @@ test("available updates lock the app, report progress, and force install", async
   updater.emit("update-downloaded", { version: "0.1.12" });
   assert.equal(events.at(-1).status, "downloaded");
   assert.equal(events.at(-1).progress.percent, 100);
-  assert.equal(scheduled.ms, 25);
+  assert.equal(scheduled[0].ms, 25);
   assert.equal(updater.quitCalled, false);
 
-  scheduled.fn();
+  scheduled[0].fn();
   assert.equal(events.at(-1).status, "installing");
   assert.equal(updater.quitCalled, true);
-  assert.deepEqual(updater.quitArgs, [false, true]);
+  assert.deepEqual(updater.quitArgs, [true, true]);
+  assert.deepEqual(calls.slice(-3), [
+    ["closable", true],
+    ["minimizable", true],
+    ["maximizable", true],
+  ]);
+  assert.equal(scheduled[1].ms, 50);
+  assert.equal(scheduled[2].ms, 75);
+
+  scheduled[1].fn();
+  assert.equal(updater.quitCalled, true);
+
+  scheduled[2].fn();
+  assert.equal(quitFallbackCalled, true);
+});
+
+test("update install watchdog stops after before-quit-for-update", async () => {
+  const scheduled = [];
+  let quitFallbackCalled = false;
+  let updater;
+  updater = new FakeUpdater(() => {
+    updater.emit("update-available", { version: "0.1.12" });
+    return Promise.resolve({
+      updateInfo: { version: "0.1.12" },
+      downloadPromise: Promise.resolve(),
+    });
+  });
+  const service = createService(updater, {
+    forceInstallDelayMs: 1,
+    installRetryDelayMs: 2,
+    installQuitFallbackDelayMs: 3,
+    quitApp: () => { quitFallbackCalled = true; },
+    setTimeoutFn: (fn, ms) => {
+      scheduled.push({ fn, ms });
+      return scheduled.length;
+    },
+  });
+
+  await service.checkForUpdates();
+  updater.emit("update-downloaded", { version: "0.1.12" });
+  scheduled[0].fn();
+  updater.emit("before-quit-for-update");
+
+  scheduled[1].fn();
+  scheduled[2].fn();
+  assert.equal(quitFallbackCalled, false);
 });
 
 test("update errors unlock the app and notify the renderer", async () => {

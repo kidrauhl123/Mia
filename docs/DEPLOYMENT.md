@@ -120,7 +120,7 @@ release/
 - 发布命令：`npm run release:mac`（= `dist:mac` + `scripts/publish-mac-update.js`）暂存 `latest-mac.yml` + dmg/zip/blockmap；`npm run release:win`（= `dist:win` + `scripts/publish-win-update.js`）暂存 `latest.yml` + NSIS setup/blockmap。设置 `MIA_UPDATE_DEPLOY=1` 时同步到 VPS 的 `/var/www/mia-updates/`，由 `https://mia.gifgif.cn/updates/` 提供。
 - 发版必须先 **bump `package.json` 的 `version`**，否则旧客户端版本号不变、不会触发更新。
 - 当前更新通道 = **generic HTTPS**（`build.publish` = `generic`, `url` = `https://mia.gifgif.cn/updates/`）；客户端用 electron-updater 在 macOS 拉 `latest-mac.yml`，在 Windows 拉 `latest.yml`。
-- 客户端检查到新版本后是强制更新：主界面会被更新遮罩锁定，下载进度来自 `download-progress`，下载完成后自动进入安装并重启。
+- 客户端检查到新版本后是强制更新：主界面会被更新遮罩锁定，下载进度来自 `download-progress`，下载完成后自动进入安装并重启。进入安装态时只能锁页面交互，不能继续用 native `setClosable(false)` 锁窗口；macOS 的 Squirrel quit/install 路径需要窗口可关闭，否则可能出现进度到 100% 但 App 不退出，用户强制退出后才完成更新。
 - macOS 正式分发前必须公证并装订票据。一次性保存凭据：`xcrun notarytool store-credentials mia --apple-id <apple-id> --team-id S4NWU843M5`；然后执行 `npm run notarize:mac` 或 `npm run notarize:mac:intel`。若 Apple 返回 `403 Invalid or inaccessible developer team ID`，说明该 Apple ID 没有 `S4NWU843M5` 团队的公证权限，需要换有权限的账号或 App Store Connect API Key。
 
 > **旧包迁移限制**：已经安装的 GitHub-provider 旧包只会去 GitHub release 检查更新。第一次迁移要发一个桥接版本：同一个新版本同时发布到 GitHub release 和 `mia.gifgif.cn/updates/`。旧包从 GitHub 升到桥接版本后，桥接版本内置的 generic provider 会让之后更新完全走 `mia.gifgif.cn/updates/`。
@@ -278,7 +278,13 @@ MIA_DOCTOR_REMOTE=root@mia.gifgif.cn \
 npm run cloud:prod:verify -- https://mia.gifgif.cn
 ```
 
-端到端 Bridge smoke 需要一个固定 smoke 账号，并且桌面端已经用同账号登录、Bridge 在线：
+`MIA_CLOUD_TOKEN` 是固定 smoke 账号通过微信登录后拿到的 Cloud bearer session token，只给部署验证脚本使用；它不是模型 API Key、服务器 admin token，也不是用户需要手动管理的产品概念。没有这个 token 的构建机仍然可以部署，但要显式跳过 token smoke，保留 doctor 和站点验证：
+
+```bash
+MIA_DEPLOY_SKIP_SMOKE=1 bash scripts/deploy-cloud-jms.sh
+```
+
+端到端 Bridge smoke 需要这个固定 smoke 账号，并且桌面端已经用同账号登录、Bridge 在线：
 
 ```bash
 MIA_CLOUD_TOKEN=<smoke-account-token> \
@@ -288,7 +294,7 @@ MIA_CLOUD_TOKEN=<smoke-account-token> \
 npm run cloud:prod:verify:e2e -- https://mia.gifgif.cn
 ```
 
-`cloud:prod:verify` 会读取 `dist/mia-cloud-release/manifest.json`，把当前包的 `gitCommit` 和 `builtAt` 注入 doctor/smoke，并验证官网根目录的 `5a371047c22c89872f93f00c7d8af123.txt` 内容。通过这个检查才说明公网服务部署到了刚构建的 release，且站点验证文件已经上线。
+`cloud:prod:verify` 会读取 `dist/mia-cloud-release/manifest.json`，把当前包的 `gitCommit` 和 `builtAt` 注入 doctor/smoke，并验证官网根目录的 `5a371047c22c89872f93f00c7d8af123.txt` 内容。没有 `MIA_CLOUD_TOKEN` 时，`cloud:prod:verify` 的 doctor 会通过但 smoke 会失败；这种机器用 `cloud:doctor` + `cloud:site-verify` 验证部署落点，用有 smoke token 的机器再跑完整 e2e。
 
 ## 回滚
 
