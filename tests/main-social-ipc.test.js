@@ -63,6 +63,30 @@ test("listing conversation messages writes through to the local cache; cached re
   assert.deepEqual(cached, { ok: true, data: { messages: [{ id: "m1", seq: 1 }] } });
 });
 
+test("listing conversation messages reconciles stale local cache rows in the fetched window", async () => {
+  const ipcMain = fakeIpcMain();
+  const calls = [];
+  const messages = [{ id: "m1", seq: 1 }];
+  registerSocialIpc({
+    ipcMain,
+    socialApi: {
+      listConversationMessages: async () => ({ messages })
+    },
+    messageCache: {
+      reconcileFetchedMessages: (conversationId, sinceSeq, fetched, limit) => calls.push(["reconcile", conversationId, sinceSeq, fetched, limit]),
+      upsertMessages: (conversationId, fetched) => calls.push(["upsert", conversationId, fetched])
+    }
+  });
+
+  const listed = await ipcMain.handlers.get(IpcChannel.SocialListConversationMessages)(null, "dm:a:b", 30, 100);
+
+  assert.equal(listed.ok, true);
+  assert.deepEqual(calls, [
+    ["reconcile", "dm:a:b", 30, messages, 100],
+    ["upsert", "dm:a:b", messages]
+  ]);
+});
+
 test("searching conversation messages writes hit messages through to the local cache", async () => {
   const ipcMain = fakeIpcMain();
   const upserts = [];
@@ -90,6 +114,26 @@ test("searching conversation messages writes hit messages through to the local c
     conversationId: "botc_sess_1",
     messages: [searchResult.message]
   }]);
+});
+
+test("deleting a conversation message removes it from the local cache after cloud success", async () => {
+  const ipcMain = fakeIpcMain();
+  const deletes = [];
+  registerSocialIpc({
+    ipcMain,
+    socialApi: {
+      deleteConversationMessage: async () => ({ ok: true, conversationId: "dm:a:b", messageId: "m1" })
+    },
+    messageCache: {
+      deleteMessage: (conversationId, messageId) => deletes.push({ conversationId, messageId })
+    }
+  });
+
+  const result = await ipcMain.handlers.get(IpcChannel.SocialDeleteConversationMessage)(null, "dm:a:b", "m1");
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.data, { ok: true, conversationId: "dm:a:b", messageId: "m1" });
+  assert.deepEqual(deletes, [{ conversationId: "dm:a:b", messageId: "m1" }]);
 });
 
 test("social list IPC writes bootstrap data through to the local cache", async () => {

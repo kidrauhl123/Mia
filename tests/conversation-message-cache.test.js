@@ -134,6 +134,56 @@ test("deleteConversation removes only that conversation", () => {
   }
 });
 
+test("deleteMessage removes one cached row and survives reopen", () => {
+  const { dir, dbPath } = tempCache();
+  let cache = openConversationMessageCache(dbPath);
+  try {
+    cache.upsertMessages("c1", [msg(1), msg(2), msg(3)]);
+    assert.equal(cache.deleteMessage("c1", "m2"), 1);
+    assert.equal(cache.deleteMessage("c1", "m_missing"), 0);
+    assert.deepEqual(cache.getRecentMessages("c1", 50).map((m) => m.id), ["m1", "m3"]);
+  } finally {
+    cache.close();
+  }
+
+  cache = openConversationMessageCache(dbPath);
+  try {
+    assert.deepEqual(cache.getRecentMessages("c1", 50).map((m) => m.id), ["m1", "m3"]);
+    assert.equal(cache.getMaxSeq("c1"), 3);
+  } finally {
+    cache.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("reconcileFetchedMessages removes cached rows missing from a complete server window", () => {
+  const { dir, dbPath } = tempCache();
+  const cache = openConversationMessageCache(dbPath);
+  try {
+    cache.upsertMessages("c1", [msg(1), msg(2), msg(3)]);
+    const removed = cache.reconcileFetchedMessages("c1", 0, [msg(1), msg(3)], 100);
+    assert.equal(removed, 1);
+    assert.deepEqual(cache.getRecentMessages("c1", 50).map((m) => m.id), ["m1", "m3"]);
+  } finally {
+    cache.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("reconcileFetchedMessages keeps rows beyond a full page boundary", () => {
+  const { dir, dbPath } = tempCache();
+  const cache = openConversationMessageCache(dbPath);
+  try {
+    cache.upsertMessages("c1", [msg(1), msg(2), msg(200)]);
+    const removed = cache.reconcileFetchedMessages("c1", 0, [msg(1), msg(2)], 2);
+    assert.equal(removed, 0);
+    assert.deepEqual(cache.getRecentMessages("c1", 50).map((m) => m.id), ["m1", "m2", "m200"]);
+  } finally {
+    cache.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("cache persists across reopen (cold-start render survives restart)", () => {
   const { dir, dbPath } = tempCache();
   let cache = openConversationMessageCache(dbPath);

@@ -8,6 +8,7 @@
   // Fetch a small recent overlap so older local SQLite rows can be upgraded when
   // the server adds fields like trace_json after the row was first cached.
   const MESSAGE_BACKFILL_OVERLAP = 50;
+  const MESSAGE_REMOVE_ANIMATION_MS = 180;
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   // Device-local memory of the last conversation the user had open, so relaunch
   // lands back on it instead of an empty chat pane. Same renderer-prefs convention
@@ -382,6 +383,7 @@
   let _cloudRunRenderFrame = 0;
   let _permissionBannerWired = false;
   const _permissionDecisionInFlight = new Set();
+  const _localDeletingMessageKeys = new Set();
 
   // ── helpers ───────────────────────────────────────────────────────────────
 
@@ -1665,11 +1667,19 @@
     if (type === "conversation.message_deleted") {
       const { conversationId, messageId } = payload || {};
       if (!conversationId || !messageId) return;
+      const localDeleteKey = `${conversationId}:${messageId}`;
+      const locallyDeleting = _localDeletingMessageKeys.has(localDeleteKey);
       const entry = moduleState.messageCache.get(conversationId);
       if (entry) {
         entry.messages = entry.messages.filter((m) => m.id !== messageId);
       }
-      if (conversationId === moduleState.activeConversationId) _removeMessageFromActiveChat(messageId);
+      if (locallyDeleting) return;
+      if (conversationId === moduleState.activeConversationId) {
+        _animateRemoveMessageFromActiveChat(messageId).then(() => {
+          if (deps && typeof deps.render === "function") deps.render();
+        });
+        return;
+      }
       if (deps && typeof deps.render === "function") deps.render();
       return;
     }
@@ -2023,13 +2033,65 @@
     _reRenderActiveChat({ force: true });
   }
 
+  function _activeChatMessageTarget(messageId) {
+    const chatEl = document.getElementById("chat");
+    if (!chatEl) return { chatEl: null, target: null };
+    const escapedId = cssEscapeValue(messageId);
+    const bubble = chatEl.querySelector(`.bubble[data-message-id="${escapedId}"]`);
+    const target = bubble?.closest?.(".message")
+      || chatEl.querySelector(`.message[data-message-id="${escapedId}"]`)
+      || bubble;
+    return { chatEl, target };
+  }
+
   // Remove a single message's bubble from the open chat without a full repaint.
   function _removeMessageFromActiveChat(messageId) {
-    const chatEl = document.getElementById("chat");
+    const { chatEl, target } = _activeChatMessageTarget(messageId);
     if (!chatEl) return;
-    const bubble = chatEl.querySelector(`.bubble[data-message-id="${(window.CSS && window.CSS.escape) ? window.CSS.escape(messageId) : messageId}"]`);
-    bubble?.closest(".message")?.remove();
+    if (target && typeof target.remove === "function") target.remove();
     markChatRenderFresh(chatEl);
+  }
+
+  function prefersReducedMotion() {
+    try {
+      return Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches);
+    } catch {
+      return false;
+    }
+  }
+
+  async function _animateRemoveMessageFromActiveChat(messageId) {
+    const { chatEl, target } = _activeChatMessageTarget(messageId);
+    if (!chatEl || !target || typeof target.remove !== "function") {
+      _removeMessageFromActiveChat(messageId);
+      return false;
+    }
+    if (prefersReducedMotion() || target.classList?.contains?.("message-removing")) {
+      target.remove();
+      markChatRenderFresh(chatEl);
+      return false;
+    }
+    const rect = typeof target.getBoundingClientRect === "function" ? target.getBoundingClientRect() : null;
+    const height = Math.max(1, Number(rect?.height) || Number(target.offsetHeight) || 1);
+    target.style.height = `${height}px`;
+    target.style.maxHeight = `${height}px`;
+    // Force a layout read so the browser transitions from the measured height.
+    void target.offsetHeight;
+    target.classList.add("message-removing");
+    await new Promise((resolve) => {
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        target.removeEventListener?.("transitionend", finish);
+        resolve();
+      };
+      target.addEventListener?.("transitionend", finish, { once: true });
+      setTimeout(finish, MESSAGE_REMOVE_ANIMATION_MS + 80);
+    });
+    target.remove();
+    markChatRenderFresh(chatEl);
+    return true;
   }
 
   // Translate a cloud-conversation message in place. Mirrors message-menu.translateMessage
@@ -2087,17 +2149,25 @@
     // server rejects — otherwise the bubble vanishes locally while the message
     // still exists on the server (divergence until the next bootstrap).
     const removed = entry ? entry.messages.find((m) => m.id === messageId) : null;
+    const localDeleteKey = `${conversationId}:${messageId}`;
+    _localDeletingMessageKeys.add(localDeleteKey);
+    const request = (async () => {
+      try {
+        return await window.mia.social.deleteConversationMessage(conversationId, messageId);
+      } catch (err) {
+        return { ok: false, error: err };
+      }
+    })();
+    if (conversationId === moduleState.activeConversationId) {
+      await _animateRemoveMessageFromActiveChat(messageId);
+    }
     if (entry) entry.messages = entry.messages.filter((m) => m.id !== messageId);
-    if (conversationId === moduleState.activeConversationId) _removeMessageFromActiveChat(messageId);
     if (deps && typeof deps.render === "function") deps.render();
     let ok = false;
-    try {
-      const res = await window.mia.social.deleteConversationMessage(conversationId, messageId);
-      ok = Boolean(res && res.ok !== false);
-      if (!ok) console.warn("[social] deleteConversationMessage failed:", res?.error || "unknown");
-    } catch (err) {
-      console.warn("[social] deleteConversationMessage error:", err?.message || err);
-    }
+    const res = await request;
+    _localDeletingMessageKeys.delete(localDeleteKey);
+    ok = Boolean(res && res.ok !== false);
+    if (!ok) console.warn("[social] deleteConversationMessage failed:", res?.error?.message || res?.error || "unknown");
     if (!ok && removed && entry && !entry.messages.find((m) => m.id === messageId)) {
       // Restore the message and re-render so the user doesn't silently lose it.
       entry.messages.push(removed);
@@ -2688,6 +2758,26 @@
     return entry;
   }
 
+  function _reconcileFetchedMessageWindow(conversationId, sinceSeq, incoming, limit = 100) {
+    const entry = moduleState.messageCache.get(conversationId);
+    if (!entry || !Array.isArray(entry.messages)) return false;
+    const fresh = Array.isArray(incoming) ? incoming.filter((msg) => msg?.id) : [];
+    const visibleIds = new Set(fresh.map((msg) => String(msg.id)));
+    const seqs = fresh.map((msg) => Number(msg.seq)).filter(Number.isFinite);
+    const cap = Math.max(1, Number(limit) || 100);
+    const lowerSeq = Number(sinceSeq) || 0;
+    const completeWindow = fresh.length < cap;
+    const upperSeq = completeWindow ? Infinity : Math.max(...seqs, lowerSeq);
+    const before = entry.messages.length;
+    entry.messages = entry.messages.filter((msg) => {
+      const seq = Number(msg?.seq);
+      if (!Number.isFinite(seq) || seq <= lowerSeq) return true;
+      if (upperSeq !== Infinity && seq > upperSeq) return true;
+      return visibleIds.has(String(msg.id || ""));
+    });
+    return entry.messages.length !== before;
+  }
+
   function cachedMessageById(conversationId, messageId) {
     const entry = moduleState.messageCache.get(conversationId);
     if (!entry || !Array.isArray(entry.messages)) return null;
@@ -2730,10 +2820,12 @@
       //    up newly-added fields like trace_json.
       try {
         const sinceSeq = Math.max(0, cachedMaxSeq - MESSAGE_BACKFILL_OVERLAP);
-        const res = await api.listConversationMessages(conversationId, sinceSeq, 100);
+        const limit = 100;
+        const res = await api.listConversationMessages(conversationId, sinceSeq, limit);
         if (res?.ok) {
           const fresh = (res.data?.messages || []).map((m) => messageWithFallbackRunTrace(conversationId, m));
-          if (fresh.length) {
+          const reconciled = _reconcileFetchedMessageWindow(conversationId, sinceSeq, fresh, limit);
+          if (fresh.length || reconciled) {
             _mergeMessagesIntoCache(conversationId, fresh);
             if (conversationId === moduleState.activeConversationId) {
               _reRenderActiveChat();

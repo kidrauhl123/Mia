@@ -1498,6 +1498,24 @@ test("opening a bot conversation preserves existing cloud runtime kind", () => {
   assert.match(appSource, /window\.miaSocial\.setActiveConversationId\(existingConversation\.id\)/);
 });
 
+test("settings drawer waits for close animation before hiding", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const syncSource = extractFunctionSource(appSource, "syncSettingsDrawerVisibility");
+  const closeSource = extractFunctionSource(appSource, "closeSettingsDrawer");
+
+  assert.match(appSource, /let settingsDrawerHideTimer = 0;/);
+  assert.match(syncSource, /window\.clearTimeout\(settingsDrawerHideTimer\)/);
+  assert.match(syncSource, /classList\.remove\("hidden", "settings-closing"\)/);
+  assert.match(syncSource, /classList\.add\("settings-open"\)/);
+  assert.match(syncSource, /classList\.remove\("settings-open"\)/);
+  assert.match(syncSource, /classList\.add\("settings-closing"\)/);
+  assert.match(syncSource, /settingsDrawerHideTimer = window\.setTimeout\(\(\) => \{/);
+  assert.match(syncSource, /classList\.add\("hidden"\)/);
+  assert.match(closeSource, /state\.settingsOpen = false;/);
+  assert.match(appSource, /els\.closeSettings\.addEventListener\("click", \(\) => \{\s*closeSettingsDrawer\(\);/);
+  assert.match(appSource, /if \(event\.target === els\.settingsView\) \{\s*closeSettingsDrawer\(\);/);
+});
+
 test("bot runtime controls resolve identity from the canonical bot directory", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
 

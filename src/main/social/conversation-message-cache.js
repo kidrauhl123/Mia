@@ -92,9 +92,20 @@ function openConversationMessageCache(dbPath) {
     ORDER BY seq DESC
     LIMIT ?
   `);
+  const cachedAfterStmt = db.prepare(`
+    SELECT id, seq FROM messages
+    WHERE conversation_id = ? AND seq > ?
+    ORDER BY seq ASC
+  `);
+  const cachedBetweenStmt = db.prepare(`
+    SELECT id, seq FROM messages
+    WHERE conversation_id = ? AND seq > ? AND seq <= ?
+    ORDER BY seq ASC
+  `);
   const maxSeqStmt = db.prepare(`
     SELECT MAX(seq) AS maxSeq FROM messages WHERE conversation_id = ?
   `);
+  const deleteMessageStmt = db.prepare("DELETE FROM messages WHERE conversation_id = ? AND id = ?");
   const deleteConvStmt = db.prepare("DELETE FROM messages WHERE conversation_id = ?");
   const socialBootstrapStmt = db.prepare(`
     SELECT conversations_json, friends_json, bots_json, members_json, updated_at
@@ -198,6 +209,39 @@ function openConversationMessageCache(dbPath) {
       delete members[convId];
       updateSocialBootstrap(row.user_id, { conversations, members });
     }
+  }
+
+  function deleteMessage(conversationId, messageId) {
+    const convId = String(conversationId || "");
+    const id = String(messageId || "");
+    if (!convId || !id) return 0;
+    const result = deleteMessageStmt.run(convId, id);
+    return Number(result.changes) || 0;
+  }
+
+  // Reconcile a server-fetched window with the disk cache. The cloud list API
+  // filters per-user hidden messages, so a cached id missing from a complete
+  // fetched window is stale and must be removed or cold start will resurrect it.
+  function reconcileFetchedMessages(conversationId, sinceSeq, messages = [], limit = DEFAULT_RECENT_LIMIT) {
+    const convId = String(conversationId || "");
+    if (!convId) return 0;
+    const incoming = Array.isArray(messages) ? messages.filter((msg) => msg?.id) : [];
+    const visibleIds = new Set(incoming.map((msg) => String(msg.id)));
+    const seqs = incoming.map((msg) => Number(msg.seq)).filter(Number.isFinite);
+    const cap = Math.max(1, Number(limit) || DEFAULT_RECENT_LIMIT);
+    const lowerSeq = Number(sinceSeq) || 0;
+    const completeWindow = incoming.length < cap;
+    const upperSeq = completeWindow ? Infinity : Math.max(...seqs, lowerSeq);
+    const rows = upperSeq === Infinity
+      ? cachedAfterStmt.all(convId, lowerSeq)
+      : cachedBetweenStmt.all(convId, lowerSeq, upperSeq);
+    let removed = 0;
+    for (const row of rows) {
+      const id = String(row.id || "");
+      if (!id || visibleIds.has(id)) continue;
+      removed += deleteMessage(convId, id);
+    }
+    return removed;
   }
 
   // Keep only the newest `keep` messages for a conversation, dropping older rows.
@@ -310,6 +354,8 @@ function openConversationMessageCache(dbPath) {
     upsertMessages,
     getRecentMessages,
     getMaxSeq,
+    deleteMessage,
+    reconcileFetchedMessages,
     deleteConversation,
     pruneConversation,
     getSocialBootstrap,

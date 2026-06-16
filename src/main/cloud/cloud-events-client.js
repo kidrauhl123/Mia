@@ -82,6 +82,15 @@ function createCloudEventsClient({
     }
   }
 
+  function deleteMessageFromCache(conversationId, messageId) {
+    if (!messageCache || !conversationId || !messageId || typeof messageCache.deleteMessage !== "function") return;
+    try {
+      messageCache.deleteMessage(conversationId, messageId);
+    } catch (error) {
+      log(`Mia Cloud message cache delete failed: ${error?.message || error}`);
+    }
+  }
+
   function settings() {
     return typeof getSettings === "function" ? getSettings() : {};
   }
@@ -159,6 +168,11 @@ function createCloudEventsClient({
     }
     if (message.type === CloudEvent.ConversationMessageAppended) {
       writeMessageToCache(message.conversationId, message.message);
+      emitToRenderer({ type: message.type, payload: message });
+      return;
+    }
+    if (message.type === "conversation.message_deleted") {
+      deleteMessageFromCache(message.conversationId, message.messageId);
       emitToRenderer({ type: message.type, payload: message });
       return;
     }

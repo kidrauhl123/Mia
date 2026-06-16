@@ -106,8 +106,13 @@ function registerSocialIpc({ ipcMain, socialApi, messageCache = null, getCloudUs
     const result = await socialApi.listConversationMessages(conversationId, sinceSeq, limit);
     // Write-through to the local cache so the next cold start renders instantly
     // and subsequent fetches can be incremental (since_seq = cached max seq).
-    if (messageCache && Array.isArray(result?.messages) && result.messages.length) {
-      try { messageCache.upsertMessages(conversationId, result.messages); }
+    if (messageCache && Array.isArray(result?.messages)) {
+      try {
+        if (typeof messageCache.reconcileFetchedMessages === "function") {
+          messageCache.reconcileFetchedMessages(conversationId, sinceSeq, result.messages, limit);
+        }
+        if (result.messages.length) messageCache.upsertMessages(conversationId, result.messages);
+      }
       catch (error) { log(`[social-ipc] message cache upsert failed: ${error?.message || error}`); }
     }
     return result;
@@ -133,7 +138,14 @@ function registerSocialIpc({ ipcMain, socialApi, messageCache = null, getCloudUs
     cachedSocialBootstrap({ messageCache, getCloudUserId, requestedUserId: userId })
   )));
   ipcMain.handle(IpcChannel.SocialPostConversationMessage, safeCall((conversationId, body) => socialApi.postConversationMessage(conversationId, body)));
-  ipcMain.handle(IpcChannel.SocialDeleteConversationMessage, safeCall((conversationId, messageId) => socialApi.deleteConversationMessage(conversationId, messageId)));
+  ipcMain.handle(IpcChannel.SocialDeleteConversationMessage, safeCall(async (conversationId, messageId) => {
+    const result = await socialApi.deleteConversationMessage(conversationId, messageId);
+    if (messageCache && typeof messageCache.deleteMessage === "function") {
+      try { messageCache.deleteMessage(conversationId, messageId); }
+      catch (error) { log(`[social-ipc] message cache delete failed: ${error?.message || error}`); }
+    }
+    return result;
+  }));
   ipcMain.handle(IpcChannel.SocialCreateConversation, safeCall((payload) => socialApi.createConversation(payload)));
   ipcMain.handle(IpcChannel.SocialEnsureBotConversation, safeCall((botId, body) => socialApi.ensureBotConversation(botId, body)));
   ipcMain.handle(IpcChannel.SocialEnsureBotSessionConversation, safeCall((sessionId, body) => socialApi.ensureBotSessionConversation(sessionId, body)));

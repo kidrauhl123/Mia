@@ -270,6 +270,27 @@ test("conversation.message_appended events are written through to the local mess
   assert.equal(calls.broadcasts[0].envelope.type, "conversation.message_appended");
 });
 
+test("conversation.message_deleted events remove the row from the local message cache", async () => {
+  const deleted = [];
+  const { client, calls } = setup({
+    messageCache: {
+      deleteMessage: (conversationId, messageId) => deleted.push({ conversationId, messageId })
+    }
+  });
+
+  client.handleMessage(JSON.stringify({
+    type: "conversation.message_deleted",
+    seq: 6,
+    conversationId: "bot:u_1:mia",
+    messageId: "m_2"
+  }));
+  await Promise.resolve();
+
+  assert.deepEqual(deleted, [{ conversationId: "bot:u_1:mia", messageId: "m_2" }]);
+  assert.deepEqual(calls.settingsWrites, [{ lastEventSeq: 6 }]);
+  assert.equal(calls.broadcasts[0].envelope.type, "conversation.message_deleted");
+});
+
 test("bot runtime updates are forwarded to the renderer", () => {
   const { client, calls } = setup();
 

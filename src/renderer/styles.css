@@ -5090,9 +5090,24 @@ select.select-open {
   inset: 0;
   z-index: 20;
   display: grid;
-  place-items: center;
-  padding: 28px;
+  align-items: end;
+  justify-items: center;
+  padding: 0 18px;
   background: rgba(16, 20, 39, 0.18);
+  opacity: 0;
+  pointer-events: none;
+  transition: background 180ms ease, opacity 180ms ease;
+}
+
+.settings-modal.settings-open,
+.settings-modal.settings-closing {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.settings-modal.settings-closing {
+  background: rgba(16, 20, 39, 0);
+  pointer-events: none;
 }
 
 .bot-dialog {
@@ -6049,13 +6064,65 @@ select.select-open {
   display: grid;
   position: relative;
   grid-template-rows: minmax(0, 1fr);
-  width: min(900px, calc(100vw - 56px));
-  height: min(620px, calc(100vh - 56px));
+  width: min(980px, calc(100vw - 36px));
+  height: min(760px, calc(100vh - 22px));
   overflow: hidden;
   border: 1px solid rgb(0 0 0 / 0.10);
-  border-radius: 14px;
+  border-bottom: 0;
+  border-radius: 24px 24px 0 0;
   background: var(--surface-muted);
   box-shadow: 0 28px 80px rgba(16, 20, 39, 0.20);
+  transform-origin: bottom center;
+  will-change: transform, opacity;
+}
+
+.settings-modal.settings-open .settings-dialog {
+  animation: settingsDrawerIn 220ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+.settings-modal.settings-closing .settings-dialog {
+  animation: settingsDrawerOut 200ms cubic-bezier(0.4, 0, 1, 1) both;
+}
+
+@keyframes settingsDrawerIn {
+  from {
+    opacity: 0;
+    transform: translateY(42px) scaleY(0.975);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scaleY(1);
+  }
+}
+
+@keyframes settingsDrawerOut {
+  from {
+    opacity: 1;
+    transform: translateY(0) scaleY(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(44px) scaleY(0.985);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-modal,
+  .settings-modal .settings-dialog {
+    transition: none;
+  }
+
+  .settings-modal.settings-open .settings-dialog,
+  .settings-modal.settings-closing .settings-dialog {
+    animation: none;
+  }
+
+  .settings-modal.settings-closing .settings-dialog {
+    opacity: 0;
+    transform: translateY(18px);
+  }
 }
 
 .settings-close-button {
@@ -6301,6 +6368,8 @@ select.select-open {
   color: var(--text);
   font-size: 12px;
   font-weight: 400;
+  white-space: nowrap;
+  word-break: keep-all;
 }
 
 .settings-panel .secondary:hover:not(:disabled) {
@@ -6319,6 +6388,11 @@ select.select-open {
 
 .settings-actions .primary {
   margin: 0;
+}
+
+.settings-panel button,
+.settings-secondary-button {
+  writing-mode: horizontal-tb;
 }
 
 .settings-content input,
@@ -7265,6 +7339,250 @@ pre {
 
 .hidden {
   display: none !important;
+}
+
+@media (max-width: 720px) {
+  .settings-modal {
+    align-items: end;
+    justify-items: stretch;
+    padding: 0;
+  }
+
+  .settings-dialog {
+    width: 100vw;
+    height: calc(100vh - 10px);
+    border-radius: 22px 22px 0 0;
+  }
+
+  .settings-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .settings-tabs {
+    flex-direction: row;
+    gap: 8px;
+    align-items: center;
+    overflow-x: auto;
+    padding: 42px 14px 12px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    scrollbar-width: none;
+  }
+
+  .settings-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .settings-tab {
+    flex: 0 0 auto;
+    min-height: 32px;
+    padding: 0 13px;
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  :root[data-list-style="flush"] .settings-tabs {
+    gap: 8px;
+    padding: 42px 14px 12px;
+  }
+
+  :root[data-list-style="flush"] .settings-tab {
+    min-height: 32px;
+    padding: 0 13px;
+  }
+
+  .settings-close-button {
+    top: 17px;
+    left: 20px;
+  }
+
+  .settings-content {
+    padding: 16px 14px 20px;
+    overflow-x: hidden;
+  }
+
+  .settings-panel,
+  .cloud-account-card,
+  .app-update-card,
+  .daemon-runtime-card {
+    max-width: none;
+  }
+
+  .settings-section-label {
+    margin: 12px 4px 8px;
+  }
+
+  .connection-row {
+    padding: 14px 16px;
+  }
+
+  .connection-row-head {
+    gap: 12px;
+  }
+
+  .cloud-actions {
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
+  }
+
+  .settings-panel .secondary,
+  .settings-panel .primary,
+  .settings-secondary-button {
+    min-width: max-content;
+    white-space: nowrap;
+    word-break: keep-all;
+  }
+
+  .settings-panel[data-settings-panel="model"] {
+    gap: 10px;
+  }
+
+  .workspace-setting {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    padding: 14px 16px;
+  }
+
+  .workspace-path {
+    overflow: visible;
+    max-width: 100%;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.45;
+  }
+
+  .workspace-setting .settings-secondary-button {
+    justify-self: start;
+  }
+
+  .engine-row {
+    grid-template-columns: 30px minmax(0, 1fr) auto 14px;
+    align-items: start;
+    min-height: 62px;
+    padding: 10px 16px;
+  }
+
+  .engine-row:not(:last-child)::after {
+    right: 16px;
+    left: 58px;
+  }
+
+  .engine-row-body small {
+    display: -webkit-box;
+    overflow: hidden;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-height: 1.3;
+  }
+
+  .engine-row-actions {
+    align-self: center;
+  }
+
+  .engine-action-stack {
+    min-width: 0;
+  }
+
+  .engine-detail-panel .connected-providers,
+  .engine-detail-panel .add-provider-panel,
+  .engine-detail-panel .api-key-field.wide,
+  .engine-detail-panel .inline-auth {
+    padding-right: 16px;
+    padding-left: 58px;
+  }
+
+  .engine-install-actions {
+    padding-right: 16px;
+    padding-left: 58px;
+  }
+}
+
+@media (max-width: 500px) {
+  .settings-row {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    gap: 10px;
+    padding: 13px 16px;
+  }
+
+  .settings-row:not(:last-of-type):not(.settings-group-end):not(.accent-settings-row):not(.appearance-last-row)::after {
+    right: 16px;
+    left: 16px;
+  }
+
+  .settings-content .settings-row > select {
+    justify-self: stretch;
+    max-width: none;
+  }
+
+  .font-choice-grid {
+    justify-self: stretch;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .accent-picker {
+    justify-self: start;
+  }
+
+  .settings-row .settings-switch {
+    justify-self: start;
+  }
+
+  .connection-row-head {
+    align-items: flex-start;
+  }
+
+  .cloud-account-main {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .cloud-account-profile {
+    flex-basis: auto;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .cloud-account-status-copy {
+    flex-basis: auto;
+  }
+
+  .engine-row {
+    grid-template-columns: 30px minmax(0, 1fr) 14px;
+    gap: 10px;
+    padding: 10px 14px;
+  }
+
+  .engine-row-actions:empty {
+    display: none;
+  }
+
+  .engine-row-actions:not(:empty) {
+    grid-column: 2 / 3;
+    grid-row: 2;
+    justify-content: flex-start;
+  }
+
+  .engine-row-chev {
+    grid-column: 3;
+    grid-row: 1;
+    align-self: center;
+  }
+
+  .engine-detail-panel .connected-providers,
+  .engine-detail-panel .add-provider-panel,
+  .engine-detail-panel .api-key-field.wide,
+  .engine-detail-panel .inline-auth,
+  .engine-install-actions {
+    padding-right: 14px;
+    padding-left: 14px;
+  }
 }
 
 @media (max-width: 860px) {

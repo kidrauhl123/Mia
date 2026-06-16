@@ -9,6 +9,7 @@ const SIDEBAR_WIDTH_MAX = 380;
 const SIDEBAR_WIDTH_DEFAULT = 280;
 let skillPickerHoverCloseTimer = 0;
 let profilePopoverHideTimer = 0;
+let settingsDrawerHideTimer = 0;
 let profileSaveDebounceTimer = 0;
 let profileSaveInFlight = false;
 let profileSaveRequested = false;
@@ -2370,8 +2371,7 @@ function renderView() {
     btn.classList.toggle("active", btn.dataset.discoverMode === state.activeView);
   });
   if (typeof syncDiscoverModeIndicator === "function") syncDiscoverModeIndicator();
-  els.settingsView.classList.toggle("hidden", !state.settingsOpen);
-  if (state.settingsOpen) refreshWorkspaceSetting();
+  syncSettingsDrawerVisibility();
   els.profileDialog?.classList.toggle("hidden", !state.profileDialogOpen);
   els.profileDialog?.classList.toggle("is-open", state.profileDialogOpen);
   els.userAvatar?.setAttribute("aria-expanded", state.profileDialogOpen ? "true" : "false");
@@ -2418,6 +2418,38 @@ function renderView() {
   window.miaSkillLibrary.renderSkillLibrary();
   window.miaBotManager.renderContacts();
   window.miaTasksPanel?.renderTaskView();
+}
+
+function syncSettingsDrawerVisibility() {
+  if (!els.settingsView) return;
+  if (state.settingsOpen) {
+    window.clearTimeout(settingsDrawerHideTimer);
+    els.settingsView.classList.remove("hidden", "settings-closing");
+    els.settingsView.classList.add("settings-open");
+    els.settingsView.setAttribute("aria-hidden", "false");
+    refreshWorkspaceSetting();
+    return;
+  }
+  els.settingsView.classList.remove("settings-open");
+  els.settingsView.setAttribute("aria-hidden", "true");
+  if (els.settingsView.classList.contains("hidden")) {
+    els.settingsView.classList.remove("settings-closing");
+    return;
+  }
+  if (els.settingsView.classList.contains("settings-closing")) return;
+  window.clearTimeout(settingsDrawerHideTimer);
+  els.settingsView.classList.add("settings-closing");
+  settingsDrawerHideTimer = window.setTimeout(() => {
+    if (state.settingsOpen) return;
+    els.settingsView.classList.add("hidden");
+    els.settingsView.classList.remove("settings-closing");
+  }, 220);
+}
+
+function closeSettingsDrawer() {
+  if (!state.settingsOpen && !els.settingsView?.classList.contains("settings-open")) return;
+  state.settingsOpen = false;
+  renderView();
 }
 
 
@@ -4141,13 +4173,11 @@ els.openSettings.addEventListener("click", () => {
   refreshDaemonControls();
 });
 els.closeSettings.addEventListener("click", () => {
-  state.settingsOpen = false;
-  renderView();
+  closeSettingsDrawer();
 });
 els.settingsView.addEventListener("click", (event) => {
   if (event.target === els.settingsView) {
-    state.settingsOpen = false;
-    renderView();
+    closeSettingsDrawer();
   }
 });
 document.addEventListener("keydown", (event) => {
@@ -4160,6 +4190,10 @@ document.addEventListener("keydown", (event) => {
   if (state.profileDialogOpen && !state.avatarCropEditor?.open) {
     event.preventDefault();
     window.miaBotDialog.closeProfileDialog();
+  }
+  if (state.settingsOpen) {
+    event.preventDefault();
+    closeSettingsDrawer();
   }
 });
 document.addEventListener("pointerdown", closeProfilePopoverFromOutside);

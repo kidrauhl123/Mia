@@ -101,6 +101,74 @@ test("conversation cards keep the default cursor outside tag controls", () => {
   assert.match(baseCss, /\.persona\.search-result \.persona-tag-row,\s*\.persona\.search-result \.persona-tags\s*\{[\s\S]*?display:\s*none;/);
 });
 
+test("settings drawer adapts to narrow app windows", () => {
+  const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+
+  assert.match(
+    baseCss,
+    /\.settings-modal\s*\{[\s\S]*?align-items:\s*end;[\s\S]*?justify-items:\s*center;/,
+    "settings should open as a bottom drawer instead of a centered modal"
+  );
+  assert.match(
+    baseCss,
+    /\.settings-dialog\s*\{[\s\S]*?border-radius:\s*24px 24px 0 0;[\s\S]*?transform-origin:\s*bottom center;/,
+    "settings drawer should visually anchor to the bottom edge"
+  );
+  assert.match(
+    baseCss,
+    /\.settings-modal\.settings-open \.settings-dialog\s*\{[\s\S]*?animation:\s*settingsDrawerIn\s+220ms/);
+  assert.match(
+    baseCss,
+    /\.settings-modal\.settings-closing \.settings-dialog\s*\{[\s\S]*?animation:\s*settingsDrawerOut\s+200ms/);
+  assert.match(baseCss, /@keyframes settingsDrawerIn/);
+  assert.match(baseCss, /@keyframes settingsDrawerOut/);
+  assert.match(
+    baseCss,
+    /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.settings-layout\s*\{[\s\S]*?grid-template-columns:\s*1fr;[\s\S]*?grid-template-rows:\s*auto\s+minmax\(0,\s*1fr\);/,
+    "settings drawer should stop hard-splitting into a sidebar and content column on narrow windows"
+  );
+  assert.match(
+    baseCss,
+    /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.settings-dialog\s*\{[\s\S]*?width:\s*100vw;[\s\S]*?height:\s*calc\(100vh - 10px\);/,
+    "settings drawer should use the full narrow window width instead of inset modal margins"
+  );
+  assert.match(
+    baseCss,
+    /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.settings-tabs\s*\{[\s\S]*?flex-direction:\s*row;[\s\S]*?overflow-x:\s*auto;/,
+    "settings tabs should become a compact horizontal strip on narrow windows"
+  );
+  assert.match(
+    baseCss,
+    /\.settings-panel \.secondary\s*\{[\s\S]*?white-space:\s*nowrap;[\s\S]*?word-break:\s*keep-all;/,
+    "settings action buttons should not collapse into vertical Chinese text"
+  );
+  assert.match(
+    baseCss,
+    /@media\s*\(max-width:\s*500px\)\s*\{[\s\S]*?\.settings-row\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\);/,
+    "very narrow settings rows should stack their controls below labels"
+  );
+  assert.match(
+    baseCss,
+    /@media\s*\(max-width:\s*500px\)\s*\{[\s\S]*?\.font-choice-grid\s*\{[\s\S]*?grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\);/,
+    "font choices should avoid keeping the wide four-column layout on the smallest settings width"
+  );
+  assert.match(
+    baseCss,
+    /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.workspace-setting\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\);/,
+    "model workspace card should stack instead of squeezing the path and action button"
+  );
+  assert.match(
+    baseCss,
+    /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.workspace-path\s*\{[\s\S]*?white-space:\s*normal;[\s\S]*?overflow-wrap:\s*anywhere;/,
+    "model workspace path should wrap on narrow settings dialogs"
+  );
+  assert.match(
+    baseCss,
+    /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.engine-row-body small\s*\{[\s\S]*?white-space:\s*normal;[\s\S]*?-webkit-line-clamp:\s*2;/,
+    "engine executable paths should get a bounded wrapped preview on narrow settings dialogs"
+  );
+});
+
 test("lottie icon styles keep filled shapes from gaining outline strokes", () => {
   const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
 

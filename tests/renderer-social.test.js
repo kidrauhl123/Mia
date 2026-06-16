@@ -1891,6 +1891,30 @@ test("handleCloudEvent conversation.message_appended appends and tracks maxSeq",
   assert.equal(entry.maxSeq, 2);
 });
 
+test("handleCloudEvent conversation.message_deleted removes the cached message", () => {
+  const s = loadSocial();
+  let renders = 0;
+  s.initSocialModule({ getState: () => ({}), render: () => { renders += 1; }, els: {}, appendTransientChat: () => {} });
+  s.moduleState.activeConversationId = "dm:other";
+  s.moduleState.messageCache.set("dm:u_a:u_b", {
+    maxSeq: 2,
+    messages: [
+      { id: "m1", seq: 1, body_md: "keep" },
+      { id: "m2", seq: 2, body_md: "delete me" }
+    ]
+  });
+
+  s.handleCloudEvent({
+    type: "conversation.message_deleted",
+    payload: { conversationId: "dm:u_a:u_b", messageId: "m2" }
+  });
+
+  const entry = s.moduleState.messageCache.get("dm:u_a:u_b");
+  assert.deepEqual(entry.messages.map((message) => message.id), ["m1"]);
+  assert.equal(entry.maxSeq, 2);
+  assert.equal(renders, 1);
+});
+
 test("handleCloudEvent cloud_agent_run events track transient conversation streaming state", () => {
   const s = loadSocial();
   s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
@@ -2557,7 +2581,10 @@ test("opening a conversation with a WARM local cache fetches a bounded recent ov
   const listCalls = [];
   s.__mockWindow.mia.social = {
     getCachedConversationMessages: async () => ({ ok: true, data: { messages: makeMessages(1, 80) } }), // warm SQLite cache, max seq 80
-    listConversationMessages: async (_id, sinceSeq) => { listCalls.push(sinceSeq); return { ok: true, data: { messages: [] } }; },
+    listConversationMessages: async (_id, sinceSeq) => {
+      listCalls.push(sinceSeq);
+      return { ok: true, data: { messages: makeMessages(sinceSeq + 1, 80) } };
+    },
     settingsPut: async () => ({})
   };
 
@@ -2568,6 +2595,30 @@ test("opening a conversation with a WARM local cache fetches a bounded recent ov
 
   assert.deepEqual(listCalls, [30], "warm cache → recent overlap since maxSeq - 50, not a full refetch");
   assert.equal(s.moduleState.messageCache.get("dm:u_a:u_b").messages.length, 80, "cached history merged for instant paint");
+});
+
+test("opening a conversation removes cached messages missing from the cloud overlap", async () => {
+  const s = loadSocial();
+  installCloudConversationSource(s.__mockWindow);
+  s.__mockWindow.miaAvatar = { avatarThumbBackgroundStyle: () => "" };
+  s.initSocialModule({ getState: () => ({ runtime: {} }), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.myUserId = "u_me";
+  s.moduleState.cloudSettings = { version: 1, readMarks: {}, unreadOverrides: {} };
+  s.moduleState.conversations = [{ id: "dm:u_a:u_b", type: "dm" }];
+
+  s.__mockWindow.mia.social = {
+    getCachedConversationMessages: async () => ({ ok: true, data: { messages: makeMessages(1, 3) } }),
+    listConversationMessages: async () => ({ ok: true, data: { messages: [makeMessages(1, 1)[0], makeMessages(3, 3)[0]] } }),
+    settingsPut: async () => ({})
+  };
+
+  await withMutedConsoleWarn(async () => {
+    s.setActiveConversationId("dm:u_a:u_b");
+    await flushMicrotasks();
+  });
+
+  const cached = s.moduleState.messageCache.get("dm:u_a:u_b");
+  assert.equal(cached.messages.map((message) => message.id).join(","), "m1,m3");
 });
 
 test("applyCloudSettings clears auto-counted unread when peer device's readMark catches up", () => {
