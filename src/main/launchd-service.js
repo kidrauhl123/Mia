@@ -169,12 +169,21 @@ function createLaunchdService(deps = {}) {
     };
   }
 
+  // launchd chdir()s into WorkingDirectory before exec. appPath() resolves to the
+  // asar archive in a packaged build (a file, not a directory), which makes the
+  // job die with EX_CONFIG (exit 78). The executable's own folder is always a
+  // real directory in both dev and packaged builds, and cwd is irrelevant to the
+  // app (it loads via absolute paths), so anchor the daemon there.
+  function daemonWorkingDirectory() {
+    return path.dirname(execPath());
+  }
+
   function daemonLaunchAgentPlist() {
     const p = runtimePaths();
     return renderLaunchAgentPlist({
       label: daemonServiceLabel,
       programArguments: daemonProgramArguments(),
-      workingDirectory: appPath(),
+      workingDirectory: daemonWorkingDirectory(),
       environment: daemonEnvironment(),
       stdoutPath: path.join(p.logsDir, "daemon.log"),
       stderrPath: path.join(p.logsDir, "daemon.error.log")

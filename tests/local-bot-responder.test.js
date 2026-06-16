@@ -274,7 +274,7 @@ test("respond posts the real local engine error with secrets redacted", async ()
   assert.doesNotMatch(calls.post[0].body.bodyMd, /gho_abcdefghijklmnopqrstuvwxyz1234567890/);
 });
 
-test("respond skips empty replies and incomplete invocations", async () => {
+test("respond posts a visible bot error when the local engine returns empty text", async () => {
   const { responder, calls } = setup({
     sendChat: async (args) => {
       calls.engine.push(args);
@@ -282,12 +282,40 @@ test("respond skips empty replies and incomplete invocations", async () => {
     }
   });
 
+  const result = await responder.respond(base);
+
+  assert.equal(result, true);
+  assert.equal(calls.engine.length, 1);
+  assert.equal(calls.post.length, 1);
+  assert.equal(calls.post[0].conversationId, "g_1");
+  assert.equal(calls.post[0].body.botId, "codex");
+  assert.match(calls.post[0].body.bodyMd, /没能生成回复/);
+  assert.equal(calls.post[0].body.clientOpId, "op_bot_reply_error_m_1_codex");
+  assert.equal(calls.post[0].body.errorJson.stage, "empty");
+});
+
+test("respond dedups an empty-reply error and does not double-post", async () => {
+  const { responder, calls } = setup({
+    sendChat: async (args) => {
+      calls.engine.push(args);
+      return { choices: [{ message: { content: "" } }] };
+    }
+  });
+
   await responder.respond(base);
+  await responder.respond(base);
+
+  assert.equal(calls.post.length, 1);
+});
+
+test("respond skips incomplete invocations", async () => {
+  const { responder, calls } = setup();
+
   await responder.respond({ ...base, dedupKey: "" });
   await responder.respond({ ...base, conversationId: "" });
   await responder.respond({ ...base, botId: "" });
 
-  assert.equal(calls.engine.length, 1);
+  assert.equal(calls.engine.length, 0);
   assert.equal(calls.post.length, 0);
 });
 

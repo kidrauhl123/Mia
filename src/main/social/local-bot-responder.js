@@ -290,8 +290,20 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, emitC
         botId,
         event: { type: "run.failed", error: "empty response" }
       });
+      // The engine ran but produced no text (e.g. a tool permission was denied
+      // or the turn ended on tool calls only). Post a visible bubble instead of
+      // returning silently, so the bot never looks like a dead no-op.
+      const didPostEmpty = await postFailureMessage({
+        conversationId,
+        botId,
+        dedupKey,
+        turnId,
+        stage: "empty",
+        error: new Error("本地模型这次没有产生任何文本回复（可能是工具权限被拒，或本轮只调用了工具）")
+      });
+      if (didPostEmpty) remember(dedupKey);
       inFlight.delete(dedupKey);
-      return;
+      return didPostEmpty;
     }
 
     try {
