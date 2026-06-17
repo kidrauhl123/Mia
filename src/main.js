@@ -556,6 +556,7 @@ let localEventsRuntime = null;
 // Last cloud-events health the daemon pushed over the local channel; lets the
 // window report the real upstream state instead of just "local channel up".
 let daemonCloudEventsStatus = null;
+let daemonCloudRuntimeStatus = null;
 let cloudDesktopSyncRuntime = null;
 const pendingCloudLogs = [];
 const schedulerMcpBridge = createSchedulerMcpBridge({
@@ -1136,6 +1137,34 @@ function appendCloudLog(line) {
   if (pendingCloudLogs.length > 200) pendingCloudLogs.splice(0, pendingCloudLogs.length - 200);
 }
 
+function daemonLocalEventsConnected() {
+  return Boolean(localEventsRuntime?.status?.().connected);
+}
+
+function daemonReportedEventsStatus() {
+  return daemonCloudRuntimeStatus?.events || daemonCloudEventsStatus || null;
+}
+
+function daemonReportedBridgeStatus() {
+  return daemonCloudRuntimeStatus?.bridge || null;
+}
+
+function daemonOwnsCloudEvents() {
+  if (IS_DAEMON_PROCESS) return Boolean(settingsStore?.daemonSettings?.().enabled);
+  if (!settingsStore?.daemonSettings?.().enabled) return false;
+  if (!daemonLocalEventsConnected()) return false;
+  const upstream = daemonReportedEventsStatus();
+  return upstream?.connected !== false;
+}
+
+function daemonOwnsCloudBridge() {
+  if (IS_DAEMON_PROCESS) return Boolean(settingsStore?.daemonSettings?.().enabled);
+  if (!settingsStore?.daemonSettings?.().enabled) return false;
+  if (!daemonLocalEventsConnected()) return false;
+  const bridge = daemonReportedBridgeStatus();
+  return bridge?.connected === true;
+}
+
 function cloudEventsStatus() {
   const settings = settingsStore?.cloudSettings?.() || {};
   const fallback = {
@@ -1149,14 +1178,15 @@ function cloudEventsStatus() {
   // its local-channel subscription combined with the upstream state the daemon
   // last reported — a live local channel with a dead cloud socket is not "OK".
   if (!IS_DAEMON_PROCESS && settingsStore?.daemonSettings?.().enabled) {
-    const localConnected = Boolean(localEventsRuntime?.status?.().connected);
-    const upstreamDown = daemonCloudEventsStatus?.connected === false;
+    const localConnected = daemonLocalEventsConnected();
+    const upstream = daemonReportedEventsStatus();
+    const upstreamDown = upstream?.connected === false;
     return {
       ...fallback,
       connected: localConnected && !upstreamDown,
       lastError: !localConnected
         ? "等待后台守护进程的本地事件通道"
-        : (upstreamDown ? (daemonCloudEventsStatus?.lastError || "后台守护进程未连接云端") : "")
+        : (upstreamDown ? (upstream?.lastError || "后台守护进程未连接云端") : "")
     };
   }
   return cloudEventSocketRuntime?.status?.() || fallback;
@@ -2451,7 +2481,7 @@ cloudBridgeRuntime = createCloudBridgeClient({
   WebSocketImpl: WebSocket,
   getSettings: () => settingsStore.cloudSettings(),
   isDaemonProcess: IS_DAEMON_PROCESS,
-  isDaemonEnabled: () => settingsStore.daemonSettings().enabled,
+  isDaemonEnabled: () => daemonOwnsCloudBridge(),
   cloudBridgeUrl,
   cloudWebSocketProtocols,
   createActiveBridgeChatAdapter,
@@ -2543,7 +2573,7 @@ cloudEventSocketRuntime = createCloudEventsClient({
   messageCache: conversationMessageCache,
   persistCursor: () => IS_DAEMON_PROCESS || !settingsStore.daemonSettings().enabled,
   isDaemonProcess: IS_DAEMON_PROCESS,
-  isDaemonEnabled: () => settingsStore.daemonSettings().enabled
+  isDaemonEnabled: () => daemonOwnsCloudEvents()
 });
 // ADR P0/P2: the window listens to the daemon's local event stream and replays
 // the envelopes to its renderers — bot run streams (typing / token deltas /
@@ -2559,9 +2589,19 @@ if (!IS_DAEMON_PROCESS) {
     onEnvelope: (envelope) => {
       if (envelope?.type === "daemon.cloud_events_status") {
         daemonCloudEventsStatus = envelope.payload || null;
+        startCloudRuntimeSockets();
+        return;
+      }
+      if (envelope?.type === "daemon.cloud_runtime_status") {
+        daemonCloudRuntimeStatus = envelope.payload || null;
+        daemonCloudEventsStatus = daemonCloudRuntimeStatus?.events || daemonCloudEventsStatus;
+        startCloudRuntimeSockets();
         return;
       }
       broadcastRendererEvent(IpcChannel.CloudEvent, envelope);
+    },
+    onStateChange: () => {
+      startCloudRuntimeSockets();
     }
   });
   localEventsRuntime.start();
@@ -2803,6 +2843,13 @@ app.whenReady().then(async () => {
       daemonControlServer?.publishLocalEvent?.({
         type: "daemon.cloud_events_status",
         payload: cloudEventsStatus()
+      });
+      daemonControlServer?.publishLocalEvent?.({
+        type: "daemon.cloud_runtime_status",
+        payload: {
+          events: cloudEventsStatus(),
+          bridge: cloudBridgeRuntime?.status?.(false) || null
+        }
       });
     }, 10000);
     return;

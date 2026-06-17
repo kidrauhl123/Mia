@@ -64,6 +64,20 @@ function inputWithGroupContext(input, members, bots, bot) {
   ].join("\n\n");
 }
 
+function inputWithPrivateContext(input, bot) {
+  const name = String(botDisplayName(bot) || bot?.id || bot?.key || "Bot").trim();
+  return [
+    `你是 ${name}，正在和用户私聊。`,
+    `用户消息：\n${input || ""}`
+  ].join("\n\n");
+}
+
+function inputWithConversationContext(input, { conversationType, members, bots, bot } = {}) {
+  return conversationType === "group"
+    ? inputWithGroupContext(input, members, bots, bot)
+    : inputWithPrivateContext(input, bot);
+}
+
 function selectedSkillIdsFromMessage(message) {
   let parsed = null;
   try {
@@ -307,10 +321,11 @@ function createCloudAgentDispatcher(deps = {}) {
     return getUserPublic(senderRef) || (senderRef ? { id: senderRef } : null);
   }
 
-  function broadcastDesktopInvocation({ ownerId, botId, runtimeConfig, conversationId, message, members, recentMessages }) {
+  function broadcastDesktopInvocation({ ownerId, botId, runtimeConfig, conversationId, conversationType, message, members, recentMessages }) {
     broadcastPersistedEvent(ownerId, {
       type: CloudEvent.ConversationBotInvocationRequested,
       conversationId,
+      conversationType,
       botId,
       runtimeKind: "desktop-local",
       runtimeConfig: runtimeConfig || {},
@@ -362,7 +377,7 @@ function createCloudAgentDispatcher(deps = {}) {
     return { ok: true, runtimeConfig, targetDeviceId, targetDevice };
   }
 
-  async function runHermesInline({ ownerId, botId, bot: validatedBot = null, runtimeConfig, conversationId, message, members, bots }) {
+  async function runHermesInline({ ownerId, botId, bot: validatedBot = null, runtimeConfig, conversationId, conversationType = "", message, members, bots }) {
     const bot = validatedBot || botsStore.getBot(botId);
     if (!bot || String(bot.ownerUserId || "") !== String(ownerId || "")) {
       log(`[cloud-agent] refusing bot run for unowned bot ${botId}`);
@@ -399,7 +414,12 @@ function createCloudAgentDispatcher(deps = {}) {
         permissionMode: runtimeConfig.permissionMode || "ask",
         input: [
           selectedSkillContext(message, skillsCatalog),
-          inputWithGroupContext(materialized.input || message.body_md || "", rosterMembers, rosterBots, bot)
+          inputWithConversationContext(materialized.input || message.body_md || "", {
+            conversationType,
+            members: rosterMembers,
+            bots: rosterBots,
+            bot
+          })
         ].filter(Boolean).join("\n\n"),
         attachments: materialized.attachments || [],
         conversationHistory: conversationHistory(conversationId),
@@ -496,7 +516,7 @@ function createCloudAgentDispatcher(deps = {}) {
     };
   }
 
-  async function dispatchBot({ ownerId, botId, conversationId, message, members, bots, recentMessages, runtimeBinding }) {
+  async function dispatchBot({ ownerId, botId, conversationId, conversationType = "", message, members, bots, recentMessages, runtimeBinding }) {
     const bot = botsStore.getBot(botId);
     if (!bot || String(bot.ownerUserId || "") !== String(ownerId || "")) {
       log(`[cloud-agent] refusing bot dispatch for unowned bot ${botId}`);
@@ -516,6 +536,7 @@ function createCloudAgentDispatcher(deps = {}) {
         bot,
         runtimeConfig: cloudBinding.config || {},
         conversationId,
+        conversationType,
         message,
         members,
         bots
@@ -538,6 +559,7 @@ function createCloudAgentDispatcher(deps = {}) {
       botId,
       runtimeConfig: desktopRuntime.runtimeConfig || {},
       conversationId,
+      conversationType,
       message,
       members,
       recentMessages
@@ -573,6 +595,7 @@ function createCloudAgentDispatcher(deps = {}) {
           ownerId: member.owner_id,
           botId: member.member_ref,
           conversationId,
+          conversationType: conversation.type,
           message,
           members: decision.members || [],
           bots: decision.bots || [],
@@ -595,6 +618,7 @@ function createCloudAgentDispatcher(deps = {}) {
       ownerId: botMember.owner_id,
       botId: botMember.member_ref,
       conversationId,
+      conversationType: conversation.type,
       message,
       members: socialStore.listConversationMembers(conversationId),
       recentMessages: [],

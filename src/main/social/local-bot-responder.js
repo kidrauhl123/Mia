@@ -212,7 +212,14 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, emitC
     }
   }
 
-  async function respond({ conversationId, botId, botSnapshot = null, dedupKey, systemPrompt, userPrompt, turnId = null, runtimeConfig = null, activeSkillIds = [] }) {
+  function isGroupConversation(conversationId, conversationType = "") {
+    const type = String(conversationType || "").trim();
+    if (type) return type === "group";
+    const id = String(conversationId || "").trim();
+    return id.startsWith("g_") || id.startsWith("g-");
+  }
+
+  async function respond({ conversationId, conversationType = "", botId, botSnapshot = null, dedupKey, systemPrompt, userPrompt, turnId = null, runtimeConfig = null, activeSkillIds = [] }) {
     if (!conversationId || !botId || !dedupKey) return;
     if (processed.has(dedupKey)) return;
     if (inFlight.has(dedupKey)) return;
@@ -237,7 +244,7 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, emitC
           { role: "system", content: systemPrompt || "" },
           { role: "user", content: userPrompt || "" }
         ],
-        group: true,
+        group: isGroupConversation(conversationId, conversationType),
         utility: true,
         persistAgentSession: true,
         allowSlashCommands: false

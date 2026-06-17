@@ -126,6 +126,9 @@ test("cloud-hermes DM runs the bot and appends a reply", async () => {
     assert.equal(reply.sender_ref, BOT_ID);
     assert.equal(reply.body_md, "hi");
     assert.equal(hermesCalls.length, 1);
+    assert.match(hermesCalls[0].input, /正在和用户私聊/);
+    assert.doesNotMatch(hermesCalls[0].input, /群聊/);
+    assert.doesNotMatch(hermesCalls[0].input, /群成员/);
   } finally {
     ctx.cleanup();
   }

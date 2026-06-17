@@ -35,6 +35,20 @@ function memberLines(members, bots) {
     .join("\n");
 }
 
+function conversationTypeFromPayload(payload = {}) {
+  const explicit = String(payload.conversationType || payload.conversation_type || payload.conversation?.type || "").trim();
+  if (explicit) return explicit;
+  const id = String(payload.conversationId || "").trim();
+  if (id.startsWith("g_") || id.startsWith("g-")) return "group";
+  if (id.startsWith("dm:")) return "dm";
+  if (id.startsWith("botc_") || id.startsWith("bot:")) return "bot";
+  return "";
+}
+
+function isGroupConversation(payload = {}) {
+  return conversationTypeFromPayload(payload) === "group";
+}
+
 function buildBotInvocation(payload, bots) {
   const { conversationId, botId, triggeringMessage, recentMessages, members, runtimeConfig } = payload || {};
   const triggerId = triggeringMessage && triggeringMessage.id;
@@ -72,14 +86,18 @@ function buildBotInvocation(payload, bots) {
   };
 
   const roster = memberLines(members, bots);
+  const groupConversation = isGroupConversation(payload);
   return {
     conversationId,
     botId,
+    conversationType: conversationTypeFromPayload(payload),
     botSnapshot,
     dedupKey: `${triggerId}:${botId}`,
     systemPrompt: [
-      `你是 ${botSnapshot.name || botSnapshot.displayName || botId}，正在一个群聊里。`,
-      roster ? `群成员：\n${roster}` : "",
+      groupConversation
+        ? `你是 ${botSnapshot.name || botSnapshot.displayName || botId}，正在一个群聊里。`
+        : `你是 ${botSnapshot.name || botSnapshot.displayName || botId}，正在和用户私聊。`,
+      groupConversation && roster ? `群成员：\n${roster}` : "",
       `最近的消息上下文：\n${contextLines(recentMessages)}`,
       "请用自然的口吻接话，简短直接。"
     ].filter(Boolean).join("\n\n"),

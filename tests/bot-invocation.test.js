@@ -36,6 +36,33 @@ test("buildBotInvocation turns an explicit @ event into responder args", () => {
   assert.match(args.systemPrompt, /\[bot:codex\] 收到/);
 });
 
+test("buildBotInvocation treats bot conversations as private chats", () => {
+  const args = buildBotInvocation({
+    type: "conversation.bot_invocation_requested",
+    conversationId: "botc_review",
+    conversationType: "bot",
+    botId: "reviewer",
+    triggeringMessage: {
+      id: "m_1",
+      sender_kind: "user",
+      sender_ref: "u_alice",
+      body_md: "你好"
+    },
+    members: [
+      { member_kind: "user", member_ref: "u_alice", username: "alice" },
+      { member_kind: "bot", member_ref: "reviewer", bot_name: "Reviewer" }
+    ],
+    recentMessages: [
+      { sender_kind: "user", sender_ref: "u_alice", body_md: "你好" }
+    ]
+  }, []);
+
+  assert.equal(args.conversationType, "bot");
+  assert.match(args.systemPrompt, /正在和用户私聊/);
+  assert.doesNotMatch(args.systemPrompt, /群聊/);
+  assert.doesNotMatch(args.systemPrompt, /群成员/);
+});
+
 test("buildBotInvocation returns null for missing trigger, conversation, or bot id", () => {
   const bots = [{ key: "codex", name: "Codex" }];
   const base = {

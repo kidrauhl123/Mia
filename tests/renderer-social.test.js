@@ -1408,6 +1408,47 @@ test("sendInActiveConversation reconciles a self websocket echo even when turn_i
   assert.deepEqual(entry.messages.map((m) => m.id), ["m_server_echo_no_turn"]);
 });
 
+test("handleCloudEvent keeps bot replies separate from pending user echoes with the same turn_id", () => {
+  const s = loadSocial();
+  s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.myUserId = "u_me";
+  s.moduleState.activeConversationId = "botc_private";
+  s.moduleState.conversations = [{ id: "botc_private", type: "bot", name: "Claude Code", decorations: { botId: "claude" } }];
+  s.moduleState.messageCache.set("botc_private", {
+    maxSeq: 0,
+    messages: [{
+      id: "local_1",
+      seq: Number.MAX_SAFE_INTEGER,
+      turn_id: "turn_1",
+      sender_kind: "user",
+      sender_ref: "u_me",
+      body_md: "你好",
+      status: "sending",
+      _localPending: true
+    }]
+  });
+
+  s.handleCloudEvent({
+    type: "conversation.message_appended",
+    payload: {
+      conversationId: "botc_private",
+      message: {
+        id: "m_bot_1",
+        seq: 2,
+        turn_id: "turn_1",
+        sender_kind: "bot",
+        sender_ref: "claude",
+        body_md: "我在"
+      }
+    }
+  });
+
+  const entry = s.moduleState.messageCache.get("botc_private");
+  assert.deepEqual(entry.messages.map((m) => m.id), ["m_bot_1", "local_1"]);
+  assert.equal(entry.messages.find((m) => m.id === "local_1")._localPending, true);
+  assert.equal(entry.messages.find((m) => m.id === "m_bot_1").sender_kind, "bot");
+});
+
 test("sendInActiveConversation keeps a failed outgoing cloud message visible", async () => {
   const s = loadSocial();
   const posted = [];

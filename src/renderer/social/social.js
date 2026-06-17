@@ -2305,6 +2305,7 @@
 
   function _reconcileEchoedConversationMessage(conversationId, sentMsg) {
     if (!conversationId || !sentMsg || !sentMsg.id) return false;
+    if (sentMsg.sender_kind !== conversationKinds().SenderKind.User || !_messageLooksFromSelf(sentMsg)) return false;
     const entry = moduleState.messageCache.get(conversationId);
     if (!entry) return false;
     const localIdx = sentMsg.turn_id

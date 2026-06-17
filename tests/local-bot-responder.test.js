@@ -73,6 +73,19 @@ test("respond folds the message's skill chips into the engine turn", async () =>
   assert.deepEqual(calls.engine[0].activeSkillIds, ["pdf-fill", "data-viz"]);
 });
 
+test("respond does not mark bot private conversations as group turns", async () => {
+  const { responder, calls } = setup();
+
+  await responder.respond({
+    ...base,
+    conversationId: "botc_private",
+    conversationType: "bot"
+  });
+
+  assert.equal(calls.engine.length, 1);
+  assert.equal(calls.engine[0].group, false);
+});
+
 test("respond omits activeSkillIds when the message carried no chips", async () => {
   const { responder, calls } = setup();
 

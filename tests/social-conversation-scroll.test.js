@@ -155,6 +155,14 @@ test("appendMessageToActiveChat does not yank a scrolled-up reader to the bottom
   assert.equal(chat.scrollTop, 100, "an incoming message from someone else must not steal scroll");
 });
 
+test("appendMessageToActiveChat follows incoming messages when already near bottom", () => {
+  const { social, setChat } = loadSocial();
+  const chat = scrollEl({ scrollTop: 570, scrollHeight: 1000, clientHeight: 400 }); // 30px from bottom
+  setChat(chat);
+  social._internalCtx.appendMessageToActiveChat(incoming, { stick: false });
+  assert.equal(chat.scrollTop, 1000, "near-bottom readers should see the incoming reply immediately");
+});
+
 test("appendMessageToActiveChat follows to bottom when stick:true (self-sent / near bottom)", () => {
   const { social, setChat } = loadSocial();
   const chat = scrollEl({ scrollTop: 100, scrollHeight: 1000, clientHeight: 400 });
