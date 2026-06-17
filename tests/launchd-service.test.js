@@ -94,6 +94,23 @@ test("daemon launch agent uses the app executable and daemon environment", (t) =
   assert.match(plist, new RegExp(`<string>${escapeRe(path.join(runtime.logsDir, "daemon.error.log"))}</string>`));
 });
 
+test("daemon launch agent WorkingDirectory is a real directory, never the asar archive", (t) => {
+  // Packaged apps resolve getAppPath() to the asar archive — a file, not a dir.
+  // launchd chdir()s into WorkingDirectory before exec; a file path makes the
+  // job die with EX_CONFIG (exit 78), so the daemon must never point there.
+  const { service } = setup(t, {
+    appPath: () => "/Applications/Mia.app/Contents/Resources/app.asar",
+    execPath: () => "/Applications/Mia.app/Contents/MacOS/Mia",
+    defaultApp: () => false
+  });
+
+  const plist = service.daemonLaunchAgentPlist();
+  const workdir = plist.match(/<key>WorkingDirectory<\/key>\s*<string>([^<]*)<\/string>/)[1];
+
+  assert.doesNotMatch(workdir, /\.asar/);
+  assert.equal(workdir, "/Applications/Mia.app/Contents/MacOS");
+});
+
 test("launchd start fails clearly on non-macOS platforms", async (t) => {
   const { service } = setup(t, { platform: "linux" });
 

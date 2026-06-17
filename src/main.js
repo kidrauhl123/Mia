@@ -73,7 +73,7 @@ const { isSafeEntryName, MAX_UNCOMPRESSED_BYTES } = require("./shared/skill-safe
 const { createRemoteControlRouter } = require("./main/remote/remote-control-router.js");
 const { createModelSettingsService } = require("./main/model-settings-service.js");
 const { createConversationTitleService } = require("./main/conversation-title-service.js");
-const { createDaemonControlServer } = require("./main/daemon/control-server.js");
+const { createDaemonControlServer, daemonNeedsReplacement } = require("./main/daemon/control-server.js");
 const { createDaemonTasksClient } = require("./main/daemon/tasks-client.js");
 const { createLocalEventsClient } = require("./main/daemon/local-events-client.js");
 const { createProviderConnections } = require("./main/provider-connections.js");
@@ -1092,12 +1092,27 @@ async function startDaemonService() {
   if (IS_DAEMON_PROCESS) return daemonControlServer.start(settings);
   const expectedRuntimeHome = runtimePaths().home;
   const existing = await daemonControlServer.ping(settings, 500, { expectedRuntimeHome });
-  if (existing.ok) return { ...getDaemonStatus(), running: true, baseUrl: existing.baseUrl };
+  if (existing.ok) {
+    // A KeepAlive launchd daemon survives app updates, so the freshly-updated
+    // window can find an old-version daemon still owning cloud events + bot
+    // execution. Reuse it only when versions match; otherwise fall through to
+    // launchdService.startDaemon() below, which rewrites the plist and
+    // bootout+bootstraps a daemon running this app's code.
+    if (!daemonNeedsReplacement(existing, app.getVersion())) {
+      return { ...getDaemonStatus(), running: true, baseUrl: existing.baseUrl };
+    }
+    appendDaemonLog(`Daemon version ${existing.version || "(none)"} != app ${app.getVersion()}; replacing.`);
+  }
   if (process.platform === "darwin") {
     await launchdService.startDaemon();
     for (let i = 0; i < 20; i += 1) {
       const ping = await daemonControlServer.ping(settings, 500, { expectedRuntimeHome });
-      if (ping.ok) return { ...getDaemonStatus(), running: true, baseUrl: ping.baseUrl };
+      // Only accept once the *replacement* answers: during bootout/kickstart the
+      // old daemon can still briefly hold the port, so require a version match
+      // (not just ok) or the stale one would be accepted and replaced again next launch.
+      if (ping.ok && !daemonNeedsReplacement(ping, app.getVersion())) {
+        return { ...getDaemonStatus(), running: true, baseUrl: ping.baseUrl };
+      }
       await new Promise((resolve) => setTimeout(resolve, 300));
     }
     throw new Error("Timed out waiting for Mia daemon LaunchAgent.");
@@ -2259,6 +2274,7 @@ daemonControlServer = createDaemonControlServer({
   isDaemonProcess: IS_DAEMON_PROCESS,
   serviceLabel: MIA_DAEMON_SERVICE_LABEL,
   daemonToken,
+  appVersion: () => app.getVersion(),
   initializeRuntime,
   choosePort: engineHealthService.choosePort,
   getDaemonSettings: () => settingsStore.daemonSettings(),

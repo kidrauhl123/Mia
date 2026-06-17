@@ -41,13 +41,39 @@ function createLocalEventsClient({
   requestImpl = defaultHttpRequest,
   setTimeoutFn = setTimeout,
   clearTimeoutFn = clearTimeout,
-  initialReconnectDelayMs = 1000
+  initialReconnectDelayMs = 1000,
+  // A half-open TCP socket stops delivering "data" but never fires "end"/"error",
+  // so without a watchdog the window would silently stop receiving events until a
+  // full app restart. The daemon sends periodic heartbeats, so any silence longer
+  // than this means the stream is dead — recycle it. 0 disables the watchdog.
+  idleTimeoutMs = 45000
 }) {
   let stopped = false;
   let timer = null;
+  let idleTimer = null;
   let activeRequest = null;
   let connected = false;
   let reconnectDelay = initialReconnectDelayMs;
+
+  function clearIdleTimer() {
+    if (idleTimer) {
+      clearTimeoutFn(idleTimer);
+      idleTimer = null;
+    }
+  }
+
+  function armIdleTimer() {
+    if (stopped || !(idleTimeoutMs > 0)) return;
+    clearIdleTimer();
+    idleTimer = setTimeoutFn(() => {
+      idleTimer = null;
+      const request = activeRequest;
+      if (request) {
+        try { request.destroy?.(); } catch { /* ignore teardown failures */ }
+      }
+      scheduleReconnect();
+    }, idleTimeoutMs);
+  }
 
   function setConnected(next) {
     if (connected === next) return;
@@ -59,6 +85,7 @@ function createLocalEventsClient({
 
   function scheduleReconnect() {
     setConnected(false);
+    clearIdleTimer();
     activeRequest = null;
     if (stopped || timer) return;
     timer = setTimeoutFn(() => {
@@ -102,8 +129,11 @@ function createLocalEventsClient({
       }
       reconnectDelay = initialReconnectDelayMs;
       setConnected(true);
+      armIdleTimer();
       let buffer = "";
       response.on("data", (chunk) => {
+        // Any inbound frame (event or heartbeat comment) proves liveness.
+        armIdleTimer();
         buffer = parseSseBuffer(buffer + String(chunk), onEnvelope);
       });
       response.on("end", scheduleReconnect);
@@ -124,6 +154,7 @@ function createLocalEventsClient({
       clearTimeoutFn(timer);
       timer = null;
     }
+    clearIdleTimer();
     const request = activeRequest;
     activeRequest = null;
     try {

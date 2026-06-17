@@ -82,7 +82,8 @@ test("start serves health, protects remote routes, and delegates authorized remo
     pid: 1234,
     uptime: 12,
     mode: "daemon",
-    runtimeHome: path.join(dir, "home")
+    runtimeHome: path.join(dir, "home"),
+    version: ""
   });
 
   const unauthorized = await fetch(`${status.baseUrl}/api/runtime/status`);

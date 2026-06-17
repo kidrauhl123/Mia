@@ -10,6 +10,7 @@ function createDaemonControlServer({
   uptime = () => process.uptime(),
   networkInterfaces = () => os.networkInterfaces(),
   daemonToken,
+  appVersion = () => "",
   initializeRuntime,
   choosePort,
   getDaemonSettings,
@@ -24,9 +25,15 @@ function createDaemonControlServer({
   normalizeCloudUrl = (value) => String(value || "").replace(/\/+$/, ""),
   writeCloudSettings = null,
   fetchImpl = fetch,
-  timeoutSignal = (timeoutMs) => AbortSignal.timeout(timeoutMs)
+  timeoutSignal = (timeoutMs) => AbortSignal.timeout(timeoutMs),
+  setIntervalFn = setInterval,
+  clearIntervalFn = clearInterval,
+  // Keep-alive comments on the local SSE channel so the window's idle watchdog
+  // (local-events-client) can tell a healthy idle stream from a half-open one.
+  localEventHeartbeatMs = 15000
 }) {
   let controlServer = null;
+  let localEventHeartbeatTimer = null;
   let state = {
     running: false,
     starting: false,
@@ -243,6 +250,35 @@ function createDaemonControlServer({
     req.on("close", () => localEventSubscribers.delete(res));
   }
 
+  function writeLocalEventHeartbeat() {
+    for (const subscriber of [...localEventSubscribers]) {
+      if (subscriber.destroyed || subscriber.writableEnded) {
+        localEventSubscribers.delete(subscriber);
+        continue;
+      }
+      try {
+        subscriber.write(":hb\n\n");
+      } catch {
+        localEventSubscribers.delete(subscriber);
+      }
+    }
+  }
+
+  function startLocalEventHeartbeat() {
+    if (localEventHeartbeatTimer || !(localEventHeartbeatMs > 0)) return;
+    localEventHeartbeatTimer = setIntervalFn(writeLocalEventHeartbeat, localEventHeartbeatMs);
+    if (localEventHeartbeatTimer && typeof localEventHeartbeatTimer.unref === "function") {
+      localEventHeartbeatTimer.unref();
+    }
+  }
+
+  function stopLocalEventHeartbeat() {
+    if (localEventHeartbeatTimer) {
+      clearIntervalFn(localEventHeartbeatTimer);
+      localEventHeartbeatTimer = null;
+    }
+  }
+
   function closeLocalEventSubscribers() {
     for (const subscriber of [...localEventSubscribers]) {
       try {
@@ -292,7 +328,8 @@ function createDaemonControlServer({
         pid: pid(),
         uptime: Math.round(uptime()),
         mode: isDaemonProcess ? "daemon" : "desktop",
-        runtimeHome: runtimePaths().home
+        runtimeHome: runtimePaths().home,
+        version: String(appVersion() || "")
       });
       return;
     }
@@ -419,12 +456,14 @@ function createDaemonControlServer({
     if (!hasCloudTasksProxy()) initSchedulerSubsystem();
     state.running = true;
     state.starting = false;
+    startLocalEventHeartbeat();
     writeDaemonSettings({ ...settings, host, port });
     appendLog(`Mia daemon listening at ${state.baseUrl}`);
     return status();
   }
 
   function stop() {
+    stopLocalEventHeartbeat();
     closeLocalEventSubscribers();
     if (!controlServer) {
       state.running = false;
@@ -447,12 +486,10 @@ function createDaemonControlServer({
       try {
         const response = await fetchImpl(`${baseUrl}/health`, { signal: timeoutSignal(timeoutMs) });
         if (!response.ok) continue;
-        if (expectedRuntimeHome) {
-          let body = null;
-          try { body = await response.json(); } catch { body = null; }
-          if (String(body?.runtimeHome || "") !== expectedRuntimeHome) continue;
-        }
-        return { ok: true, baseUrl };
+        let body = null;
+        try { body = await response.json(); } catch { body = null; }
+        if (expectedRuntimeHome && String(body?.runtimeHome || "") !== expectedRuntimeHome) continue;
+        return { ok: true, baseUrl, version: String(body?.version || "") };
       } catch {
         // Try the next candidate URL.
       }
@@ -475,6 +512,20 @@ function createDaemonControlServer({
   };
 }
 
+// A KeepAlive launchd daemon outlives app updates, so a freshly-updated window
+// can find an old-version daemon still holding the single-owner role. Decide
+// whether to replace it: only when it is reachable AND its version differs from
+// (or is older/absent than) this app's. A missing daemon version means a
+// pre-reconciliation build — treat it as stale. An unknown app version never
+// triggers churn.
+function daemonNeedsReplacement(probe, appVersion) {
+  if (!probe || !probe.ok) return false;
+  const current = String(appVersion || "").trim();
+  if (!current) return false;
+  return String(probe.version || "").trim() !== current;
+}
+
 module.exports = {
-  createDaemonControlServer
+  createDaemonControlServer,
+  daemonNeedsReplacement
 };
