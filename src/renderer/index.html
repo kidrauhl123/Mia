@@ -443,18 +443,17 @@
       </div>
     </section>
 
-    <section id="settingsView" class="settings-modal hidden" role="dialog" aria-modal="true">
-      <div class="settings-dialog">
-      <button id="closeSettings" class="icon-button settings-close-button" type="button" title="关闭" aria-label="关闭设置">×</button>
+    <section id="settingsView" class="workspace settings-workspace hidden" aria-label="设置">
+      <div class="settings-shell">
+        <section class="settings-layout">
+          <aside class="settings-tabs">
+            <div class="settings-tabs-title">设置</div>
+            <button class="settings-tab active" type="button" data-settings-tab="account">账号与同步</button>
+            <button class="settings-tab" type="button" data-settings-tab="appearance">外观</button>
+            <button class="settings-tab" type="button" data-settings-tab="model">模型</button>
+          </aside>
 
-      <section class="settings-layout">
-        <aside class="settings-tabs">
-          <button class="settings-tab active" type="button" data-settings-tab="account">账号与同步</button>
-          <button class="settings-tab" type="button" data-settings-tab="appearance">外观</button>
-          <button class="settings-tab" type="button" data-settings-tab="model">模型</button>
-        </aside>
-
-        <div class="settings-content">
+          <div class="settings-content">
           <section class="settings-panel hidden" data-settings-panel="appearance">
             <form id="appearanceForm" class="form-grid">
               <div class="settings-section-label">通用</div>
@@ -725,8 +724,8 @@
               </section>
             </div>
           </section>
-        </div>
-      </section>
+          </div>
+        </section>
       </div>
     </section>
 

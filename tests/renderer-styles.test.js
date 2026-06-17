@@ -124,36 +124,56 @@ test("conversation cards keep the default cursor outside tag controls", () => {
   assert.match(baseCss, /\.persona\.search-result \.persona-tag-row,\s*\.persona\.search-result \.persona-tags\s*\{[\s\S]*?display:\s*none;/);
 });
 
-test("settings drawer adapts to narrow app windows", () => {
+test("settings workspace lives on the app floor and adapts to narrow windows", () => {
   const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
 
+  assert.doesNotMatch(baseCss, /\.settings-modal/);
+  assert.doesNotMatch(baseCss, /\.settings-dialog/);
+  assert.doesNotMatch(baseCss, /@keyframes settingsDrawerIn/);
+  assert.doesNotMatch(baseCss, /@keyframes settingsDrawerOut/);
   assert.match(
     baseCss,
-    /\.settings-modal\s*\{[\s\S]*?align-items:\s*end;[\s\S]*?justify-items:\s*center;/,
-    "settings should open as a bottom drawer instead of a centered modal"
+    /\.app-shell\[data-active-view="settings"\]\s*\{[\s\S]*?background:\s*#f0f0f3;/,
+    "settings should use a fixed default light-gray bottom board"
   );
   assert.match(
     baseCss,
-    /\.settings-dialog\s*\{[\s\S]*?border-radius:\s*24px 24px 0 0;[\s\S]*?transform-origin:\s*bottom center;/,
-    "settings drawer should visually anchor to the bottom edge"
+    /\.settings-workspace\s*\{[\s\S]*?grid-column:\s*2;[\s\S]*?grid-row:\s*1;[\s\S]*?margin:\s*0;[\s\S]*?box-shadow:\s*none;/,
+    "settings should occupy the bottom-board workspace column"
   );
   assert.match(
     baseCss,
-    /\.settings-modal\.settings-open \.settings-dialog\s*\{[\s\S]*?animation:\s*settingsDrawerIn\s+220ms/);
+    /\.settings-shell\s*\{[\s\S]*?display:\s*grid;[\s\S]*?grid-template-rows:\s*minmax\(0,\s*1fr\);[\s\S]*?background:\s*transparent;/,
+    "settings shell should stop behaving like a large page card"
+  );
+  assert.doesNotMatch(baseCss, /\.settings-topbar/);
   assert.match(
     baseCss,
-    /\.settings-modal\.settings-closing \.settings-dialog\s*\{[\s\S]*?animation:\s*settingsDrawerOut\s+200ms/);
-  assert.match(baseCss, /@keyframes settingsDrawerIn/);
-  assert.match(baseCss, /@keyframes settingsDrawerOut/);
+    /\.settings-layout\s*\{[\s\S]*?grid-template-columns:\s*max-content minmax\(0,\s*1fr\);[\s\S]*?gap:\s*18px;[\s\S]*?padding:\s*8px 28px 10px 0;/,
+    "settings should size the floating middle pane from its own content"
+  );
+  assert.match(
+    baseCss,
+    /\.settings-tabs\s*\{[\s\S]*?width:\s*max-content;[\s\S]*?min-width:\s*168px;[\s\S]*?max-width:\s*188px;[\s\S]*?border-radius:\s*var\(--rail-corner-radius\);[\s\S]*?box-shadow:\s*var\(--rail-expanded-shadow\);/,
+    "settings navigation should be a compact floating middle card"
+  );
+  assert.match(
+    baseCss,
+    /\.settings-content\s*\{[\s\S]*?background:\s*transparent;/,
+    "settings content should sit directly on the fixed floor"
+  );
+  assert.match(
+    baseCss,
+    /\.settings-content \.settings-row\s*\{[\s\S]*?min-width:\s*0;[\s\S]*?width:\s*100%;[\s\S]*?border-radius:\s*14px;[\s\S]*?box-shadow:/,
+    "settings rows should split into individual cards"
+  );
+  assert.match(baseCss, /\.workspace-path\s*\{[\s\S]*?display:\s*block;[\s\S]*?text-overflow:\s*ellipsis;[\s\S]*?white-space:\s*nowrap;/);
+  assert.match(baseCss, /\.connection-row-head\s*\{[\s\S]*?flex-wrap:\s*wrap;[\s\S]*?min-width:\s*0;/);
+  assert.match(baseCss, /\.cloud-actions\s*\{[\s\S]*?flex:\s*0 0 auto;[\s\S]*?flex-wrap:\s*wrap;/);
   assert.match(
     baseCss,
     /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.settings-layout\s*\{[\s\S]*?grid-template-columns:\s*1fr;[\s\S]*?grid-template-rows:\s*auto\s+minmax\(0,\s*1fr\);/,
-    "settings drawer should stop hard-splitting into a sidebar and content column on narrow windows"
-  );
-  assert.match(
-    baseCss,
-    /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.settings-dialog\s*\{[\s\S]*?width:\s*100vw;[\s\S]*?height:\s*calc\(100vh - 10px\);/,
-    "settings drawer should use the full narrow window width instead of inset modal margins"
+    "settings workspace should stop hard-splitting into a sidebar and content column on narrow windows"
   );
   assert.match(
     baseCss,

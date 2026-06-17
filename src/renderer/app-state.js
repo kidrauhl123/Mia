@@ -124,7 +124,6 @@
         lastX: 0,
         lastY: 0
       },
-      settingsOpen: false,
       modelCatalog: [],
       skillLibrary: { plugins: [], sources: [], extensions: [], connectors: [], skills: [], botPresets: [], roots: [] },
       savingBotCapabilities: new Set(),

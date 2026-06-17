@@ -10,7 +10,6 @@ const SIDEBAR_WIDTH_DEFAULT = 280;
 const SHELL_SINGLE_MAX_WIDTH = 720;
 let skillPickerHoverCloseTimer = 0;
 let profilePopoverHideTimer = 0;
-let settingsDrawerHideTimer = 0;
 let profileSaveDebounceTimer = 0;
 let profileSaveInFlight = false;
 let profileSaveRequested = false;
@@ -74,7 +73,6 @@ window.miaStartupOverlay?.init?.({ firstRun: agentSetupLaunch });
 const els = {
   appShell: document.querySelector(".app-shell"),
   openSettings: document.getElementById("openSettings"),
-  closeSettings: document.getElementById("closeSettings"),
   userAvatar: document.getElementById("userAvatar"),
   userDisplayName: document.getElementById("userDisplayName"),
   activeChatAvatar: document.getElementById("activeChatAvatar"),
@@ -2460,7 +2458,6 @@ function renderView() {
   els.appShell?.setAttribute("data-auth-state", cloudSignedIn ? "signed-in" : "signed-out");
   if (!cloudSignedIn) {
     requestSignedOutOnboardingWindow();
-    state.settingsOpen = false;
     state.activeView = "chat";
     state.botMenuOpen = false;
     state.contactMenuOpen = false;
@@ -2473,6 +2470,7 @@ function renderView() {
   els.skillsView?.classList.toggle("hidden", state.activeView !== "skills");
   els.botStoreView?.classList.toggle("hidden", state.activeView !== "bot-store");
   els.tasksView?.classList.toggle("hidden", state.activeView !== "tasks");
+  els.settingsView?.classList.toggle("hidden", state.activeView !== "settings");
   els.appShell?.setAttribute("data-active-view", state.activeView);
   els.appShell?.setAttribute("data-layout", legacyGridLayoutForView(state.activeView));
   els.appShell?.setAttribute("data-shell-layout", state.shellLayout);
@@ -2481,7 +2479,6 @@ function renderView() {
     btn.classList.toggle("active", btn.dataset.discoverMode === state.activeView);
   });
   if (typeof syncDiscoverModeIndicator === "function") syncDiscoverModeIndicator();
-  syncSettingsDrawerVisibility();
   els.profileDialog?.classList.toggle("hidden", !state.profileDialogOpen);
   els.profileDialog?.classList.toggle("is-open", state.profileDialogOpen);
   els.userAvatar?.setAttribute("aria-expanded", state.profileDialogOpen ? "true" : "false");
@@ -2519,6 +2516,7 @@ function renderView() {
       || (button.dataset.view === "contacts" && state.activeView === "bot-store");
     button.classList.toggle("active", active);
   });
+  els.openSettings?.classList.toggle("active", state.activeView === "settings");
   document.querySelectorAll("[data-settings-tab]").forEach((button) => {
     button.classList.toggle("active", button.dataset.settingsTab === state.activeSettingsTab);
   });
@@ -2530,36 +2528,17 @@ function renderView() {
   window.miaTasksPanel?.renderTaskView();
 }
 
-function syncSettingsDrawerVisibility() {
-  if (!els.settingsView) return;
-  if (state.settingsOpen) {
-    window.clearTimeout(settingsDrawerHideTimer);
-    els.settingsView.classList.remove("hidden", "settings-closing");
-    els.settingsView.classList.add("settings-open");
-    els.settingsView.setAttribute("aria-hidden", "false");
-    refreshWorkspaceSetting();
-    return;
-  }
-  els.settingsView.classList.remove("settings-open");
-  els.settingsView.setAttribute("aria-hidden", "true");
-  if (els.settingsView.classList.contains("hidden")) {
-    els.settingsView.classList.remove("settings-closing");
-    return;
-  }
-  if (els.settingsView.classList.contains("settings-closing")) return;
-  window.clearTimeout(settingsDrawerHideTimer);
-  els.settingsView.classList.add("settings-closing");
-  window.miaScrollbarOverlay?.validateScrollbarOverlay?.();
-  settingsDrawerHideTimer = window.setTimeout(() => {
-    if (state.settingsOpen) return;
-    els.settingsView.classList.add("hidden");
-    els.settingsView.classList.remove("settings-closing");
-  }, 220);
-}
-
-function closeSettingsDrawer() {
-  if (!state.settingsOpen && !els.settingsView?.classList.contains("settings-open")) return;
-  state.settingsOpen = false;
+function openSettingsView(tab = state.activeSettingsTab) {
+  state.activeView = "settings";
+  if (tab === "profile") tab = "appearance";
+  if (tab === "runtime") tab = "model";
+  if (tab === "mobile") tab = "account";
+  if (tab) state.activeSettingsTab = tab;
+  state.botMenuOpen = false;
+  state.contactMenuOpen = false;
+  showNarrowContent();
+  refreshWorkspaceSetting();
+  refreshDaemonControls();
   renderView();
 }
 
@@ -4284,18 +4263,7 @@ document.addEventListener("keydown", (event) => {
 window.addEventListener("resize", closeComposerSelectMenu);
 
 els.openSettings.addEventListener("click", () => {
-  state.settingsOpen = true;
-  if (state.activeSettingsTab === "profile") state.activeSettingsTab = "appearance";
-  renderView();
-  refreshDaemonControls();
-});
-els.closeSettings.addEventListener("click", () => {
-  closeSettingsDrawer();
-});
-els.settingsView.addEventListener("click", (event) => {
-  if (event.target === els.settingsView) {
-    closeSettingsDrawer();
-  }
+  openSettingsView();
 });
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
@@ -4307,10 +4275,6 @@ document.addEventListener("keydown", (event) => {
   if (state.profileDialogOpen && !state.avatarCropEditor?.open) {
     event.preventDefault();
     window.miaBotDialog.closeProfileDialog();
-  }
-  if (state.settingsOpen) {
-    event.preventDefault();
-    closeSettingsDrawer();
   }
 });
 document.addEventListener("pointerdown", closeProfilePopoverFromOutside);
@@ -4482,7 +4446,6 @@ document.querySelectorAll("[data-view]").forEach((button) => {
     } else {
       showNarrowContent();
     }
-    if (button.dataset.view === "settings") state.settingsOpen = true;
     if (button.dataset.view === "skills" && !state.skillLibrary.skills.length && !state.skillsLoading) window.miaLoaders.loadSkills();
     if (state.activeView === "bot-store" && !(state.skillLibrary.botPresets || []).length && !state.skillsLoading) window.miaLoaders.loadSkills();
     if (state.activeView === "bot-store") window.miaBotStore?.renderBotStore?.();
@@ -6011,15 +5974,11 @@ async function handleSetupGuideAction(button) {
     return true;
   }
   if (action === "open-model-settings") {
-    state.settingsOpen = true;
-    state.activeSettingsTab = "model";
-    renderView();
+    openSettingsView("model");
     return true;
   }
   if (action === "open-agent-settings") {
-    state.settingsOpen = true;
-    state.activeSettingsTab = "model";
-    renderView();
+    openSettingsView("model");
     return true;
   }
   if (action === "continue-no-agent") {
@@ -6059,9 +6018,7 @@ function openInitialBotDialog() {
     window.miaBotDialog.openBotDialog(null, seed);
   } else {
     // Fallback: at least open settings
-    state.settingsOpen = true;
-    state.activeSettingsTab = "model";
-    renderView();
+    openSettingsView("model");
   }
 }
 

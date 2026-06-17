@@ -145,6 +145,16 @@ test("desktop shell uses optional middle pane by active view", () => {
   assert.match(css, /\.app-shell\[data-layout="index-workspace"\]\s*\{[\s\S]*?grid-template-columns:\s*var\(--rail-column-width\) var\(--sidebar-width\) 0 minmax\(0,\s*1fr\);/);
   assert.match(css, /\.app-shell\[data-layout="index-workspace"\]\[data-sidebar-state="collapsed"\]\s*\{[\s\S]*?grid-template-columns:\s*var\(--rail-column-width\) 0 0 minmax\(0,\s*1fr\);/);
   assert.match(css, /\.app-shell\[data-layout="workspace"\]\s*\{[\s\S]*?grid-template-columns:\s*var\(--rail-column-width\) minmax\(0,\s*1fr\);/);
+  assert.match(html, /id="settingsView" class="workspace settings-workspace hidden"/);
+  assert.doesNotMatch(html, /id="settingsView" class="settings-modal/);
+  assert.doesNotMatch(html, /class="settings-dialog"/);
+  assert.doesNotMatch(html, /id="closeSettings"/);
+  assert.doesNotMatch(html, /settings-topbar/);
+  assert.match(html, /class="settings-tabs"[\s\S]*?class="settings-tabs-title">设置</);
+  assert.match(appSource, /els\.settingsView\?\.classList\.toggle\("hidden", state\.activeView !== "settings"\)/);
+  assert.match(appSource, /state\.activeView = "settings";/);
+  assert.doesNotMatch(appSource, /state\.settingsOpen/);
+  assert.doesNotMatch(appSource, /syncSettingsDrawerVisibility/);
   assert.match(css, /#chatView\s*\{[\s\S]*?grid-column:\s*4;[\s\S]*?grid-row:\s*1;/);
   assert.match(css, /\.nav-rail\s*\{[\s\S]*?grid-template-rows:\s*var\(--traffic-spacer-height\) 44px 1px repeat\(4,\s*44px\) minmax\(0,\s*1fr\) 44px;[\s\S]*?margin:\s*8px 8px 10px 8px;[\s\S]*?border-radius:\s*var\(--rail-corner-radius\);[\s\S]*?background:\s*color-mix\(in srgb,\s*var\(--surface-soft\) 62%,\s*transparent\);[\s\S]*?backdrop-filter:\s*blur\(24px\) saturate\(1\.16\);/);
   assert.match(css, /:root\[data-theme="dark"\] \.nav-rail\s*\{[\s\S]*?background:\s*var\(--surface\);[\s\S]*?backdrop-filter:\s*none;/);
@@ -255,12 +265,13 @@ test("chat scrollbar overlay stops at the composer top edge", () => {
   assert.match(scrollbarSource, /trackRect\.height - trackInset \* 2/);
 });
 
-test("custom scrollbar overlay is invalidated when panes or dialogs hide", () => {
+test("custom scrollbar overlay is invalidated when panes hide", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const scrollbarSource = fs.readFileSync(path.join(root, "src/renderer/helpers/scrollbar-overlay.js"), "utf8");
 
   assert.match(scrollbarSource, /function isScrollbarTargetUsable\(target\)/);
-  assert.match(scrollbarSource, /target\.closest\("\.hidden, \[hidden\], \.settings-closing"\)/);
+  assert.match(scrollbarSource, /target\.closest\("\.hidden, \[hidden\]"\)/);
+  assert.doesNotMatch(scrollbarSource, /settings-closing/);
   assert.match(scrollbarSource, /shell\.dataset\.sidebarState === "collapsed" && target\.closest\("\.sidebar"\)/);
   assert.match(scrollbarSource, /shell\.dataset\.narrowPane === "content" && target\.closest\("\.sidebar"\)/);
   assert.match(scrollbarSource, /hideScrollbarOverlay\(target,\s*true\)/);
@@ -1714,22 +1725,16 @@ test("opening a bot conversation preserves existing cloud runtime kind", () => {
   assert.match(appSource, /window\.miaSocial\.setActiveConversationId\(existingConversation\.id\)/);
 });
 
-test("settings drawer waits for close animation before hiding", () => {
+test("settings is a workspace view instead of a drawer", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
-  const syncSource = extractFunctionSource(appSource, "syncSettingsDrawerVisibility");
-  const closeSource = extractFunctionSource(appSource, "closeSettingsDrawer");
 
-  assert.match(appSource, /let settingsDrawerHideTimer = 0;/);
-  assert.match(syncSource, /window\.clearTimeout\(settingsDrawerHideTimer\)/);
-  assert.match(syncSource, /classList\.remove\("hidden", "settings-closing"\)/);
-  assert.match(syncSource, /classList\.add\("settings-open"\)/);
-  assert.match(syncSource, /classList\.remove\("settings-open"\)/);
-  assert.match(syncSource, /classList\.add\("settings-closing"\)/);
-  assert.match(syncSource, /settingsDrawerHideTimer = window\.setTimeout\(\(\) => \{/);
-  assert.match(syncSource, /classList\.add\("hidden"\)/);
-  assert.match(closeSource, /state\.settingsOpen = false;/);
-  assert.match(appSource, /els\.closeSettings\.addEventListener\("click", \(\) => \{\s*closeSettingsDrawer\(\);/);
-  assert.match(appSource, /if \(event\.target === els\.settingsView\) \{\s*closeSettingsDrawer\(\);/);
+  assert.doesNotMatch(appSource, /let settingsDrawerHideTimer/);
+  assert.doesNotMatch(appSource, /function closeSettingsDrawer/);
+  assert.match(appSource, /function openSettingsView\(tab = state\.activeSettingsTab\)/);
+  assert.doesNotMatch(appSource, /function closeSettingsView/);
+  assert.match(appSource, /state\.activeView = "settings";/);
+  assert.doesNotMatch(appSource, /state\.lastMainView/);
+  assert.doesNotMatch(appSource, /els\.closeSettings/);
 });
 
 test("bot runtime controls resolve identity from the canonical bot directory", () => {

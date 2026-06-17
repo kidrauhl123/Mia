@@ -37,7 +37,7 @@
     if (!(target instanceof Element)) return false;
     if (target === document.documentElement || target === document.body) return false;
     if (!target.isConnected) return false;
-    if (target.closest(".hidden, [hidden], .settings-closing")) return false;
+    if (target.closest(".hidden, [hidden]")) return false;
     if (scrollbarTargetHiddenByShellState(target)) return false;
     const rect = target.getBoundingClientRect();
     if (rect.width <= 1 || rect.height <= 1) return false;

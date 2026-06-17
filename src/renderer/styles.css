@@ -232,6 +232,10 @@ p {
   transition: grid-template-columns 220ms cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 
+.app-shell[data-active-view="settings"] {
+  background: #f0f0f3;
+}
+
 body.platform-darwin .app-shell {
   border-radius: var(--window-corner-radius);
 }
@@ -311,6 +315,8 @@ body.platform-darwin.window-fullscreen .app-shell {
 .app-shell[data-auth-state="signed-out"] .composer,
 .app-shell[data-auth-state="signed-out"] #contactsView,
 .app-shell[data-auth-state="signed-out"] #skillsView,
+.app-shell[data-auth-state="signed-out"] #botStoreView,
+.app-shell[data-auth-state="signed-out"] #settingsView,
 .app-shell[data-auth-state="signed-out"] #tasksView {
   display: none;
 }
@@ -3912,6 +3918,8 @@ body.onboarding-window .setup-guide.ready .setup-footer { animation-delay: 0.13s
   display: flex;
   align-items: center;
   gap: 14px;
+  min-width: 0;
+  max-width: 100%;
   padding: 12px 14px;
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -3933,6 +3941,8 @@ body.onboarding-window .setup-guide.ready .setup-footer { animation-delay: 0.13s
 }
 
 .workspace-path {
+  display: block;
+  max-width: 100%;
   overflow: hidden;
   font-size: 12px;
   color: var(--text);
@@ -5364,31 +5374,6 @@ select.select-open {
   background: rgba(209, 67, 67, 0.16);
 }
 
-.settings-modal {
-  position: fixed;
-  inset: 0;
-  z-index: 20;
-  display: grid;
-  align-items: end;
-  justify-items: center;
-  padding: 0 18px;
-  background: rgba(16, 20, 39, 0.18);
-  opacity: 0;
-  pointer-events: none;
-  transition: background 180ms ease, opacity 180ms ease;
-}
-
-.settings-modal.settings-open,
-.settings-modal.settings-closing {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.settings-modal.settings-closing {
-  background: rgba(16, 20, 39, 0);
-  pointer-events: none;
-}
-
 .bot-dialog {
   position: fixed;
   inset: 0;
@@ -6339,102 +6324,41 @@ select.select-open {
   text-align: center;
 }
 
-.settings-dialog {
+.settings-workspace {
   display: grid;
-  position: relative;
   grid-template-rows: minmax(0, 1fr);
-  width: min(980px, calc(100vw - 36px));
-  height: min(760px, calc(100vh - 22px));
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
   overflow: hidden;
-  border: 1px solid rgb(0 0 0 / 0.10);
-  border-bottom: 0;
-  border-radius: 24px 24px 0 0;
-  background: var(--surface-muted);
-  box-shadow: 0 28px 80px rgba(16, 20, 39, 0.20);
-  transform-origin: bottom center;
-  will-change: transform, opacity;
-}
-
-.settings-modal.settings-open .settings-dialog {
-  animation: settingsDrawerIn 220ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
-}
-
-.settings-modal.settings-closing .settings-dialog {
-  animation: settingsDrawerOut 200ms cubic-bezier(0.4, 0, 1, 1) both;
-}
-
-@keyframes settingsDrawerIn {
-  from {
-    opacity: 0;
-    transform: translateY(42px) scaleY(0.975);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0) scaleY(1);
-  }
-}
-
-@keyframes settingsDrawerOut {
-  from {
-    opacity: 1;
-    transform: translateY(0) scaleY(1);
-  }
-
-  to {
-    opacity: 0;
-    transform: translateY(44px) scaleY(0.985);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .settings-modal,
-  .settings-modal .settings-dialog {
-    transition: none;
-  }
-
-  .settings-modal.settings-open .settings-dialog,
-  .settings-modal.settings-closing .settings-dialog {
-    animation: none;
-  }
-
-  .settings-modal.settings-closing .settings-dialog {
-    opacity: 0;
-    transform: translateY(18px);
-  }
-}
-
-.settings-close-button {
-  position: absolute;
-  top: 16px;
-  left: 16px;
-  z-index: 3;
-  width: 13px;
-  height: 13px;
-  border: none;
-  background: url("./assets/traffic-lights/close-normal.svg") center/contain no-repeat;
-  background-color: transparent;
-  font-size: 0;
-  color: transparent;
+  border-radius: 0;
+  background: transparent;
   box-shadow: none;
 }
 
-.settings-close-button:hover,
-.settings-close-button:focus-visible {
-  background-image: url("./assets/traffic-lights/close-hover.svg");
-}
-
-.settings-close-button:active {
-  background-image: url("./assets/traffic-lights/close-press.svg");
+.settings-shell {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .settings-layout {
   display: grid;
-  grid-template-columns: 178px minmax(0, 1fr);
-  gap: 0;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 18px;
   min-height: 0;
+  padding: 8px 28px 10px 0;
   overflow: hidden;
-  background: var(--surface-muted);
+  background: transparent;
 }
 
 .settings-tabs {
@@ -6442,12 +6366,35 @@ select.select-open {
   flex-direction: column;
   align-content: start;
   gap: 5px;
-  padding: 48px 10px 14px;
-  border-right: 1px solid var(--line);
-  background: var(--surface-soft);
+  width: max-content;
+  min-width: 168px;
+  max-width: 188px;
+  padding: 28px 18px;
+  overflow: hidden;
+  border-radius: var(--rail-corner-radius);
+  background: color-mix(in srgb, var(--surface-soft) 86%, transparent);
+  box-shadow: var(--rail-expanded-shadow);
+  -webkit-backdrop-filter: blur(24px) saturate(1.12);
+  backdrop-filter: blur(24px) saturate(1.12);
+}
+
+:root[data-theme="dark"] .settings-tabs {
+  background: var(--surface);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.settings-tabs-title {
+  margin: 0 4px 22px;
+  color: var(--text);
+  font-size: 20px;
+  font-weight: 560;
+  line-height: 1.15;
 }
 
 .settings-tab {
+  width: 100%;
+  min-width: 132px;
   min-height: 36px;
   padding: 0 12px;
   border-radius: 8px;
@@ -6478,16 +6425,18 @@ select.select-open {
 }
 
 .settings-content {
-  overflow: auto;
-  padding: 24px 30px 28px;
-  background: var(--surface-muted);
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 36px 28px 48px 12px;
+  background: transparent;
 }
 
 .settings-panel {
   display: grid;
   gap: 0;
+  width: min(100%, 820px);
   min-height: 0;
-  max-width: 680px;
+  max-width: 820px;
 }
 
 .form-grid,
@@ -6503,6 +6452,10 @@ select.select-open {
 
 .form-grid {
   grid-template-columns: minmax(0, 1fr);
+}
+
+.settings-content .form-grid {
+  gap: 10px;
 }
 
 .wide {
@@ -6557,7 +6510,22 @@ select.select-open {
   pointer-events: none;
 }
 
+.settings-content .settings-row {
+  min-width: 0;
+  width: 100%;
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgba(16, 20, 39, 0.04), 0 10px 26px rgba(16, 20, 39, 0.04);
+}
+
+.settings-content .settings-row::after {
+  display: none;
+}
+
 .settings-row > div:first-child {
+  min-width: 0;
+}
+
+.settings-content .settings-row > * {
   min-width: 0;
 }
 
@@ -6577,7 +6545,7 @@ select.select-open {
 }
 
 .settings-section-label {
-  margin: 16px 4px 8px;
+  margin: 18px 8px 8px;
   color: var(--faint);
   font-size: 11px;
   font-weight: 400;
@@ -6765,11 +6733,19 @@ select.select-open {
 }
 
 .settings-panel[data-settings-panel="account"] {
-  gap: 12px;
+  gap: 10px;
 }
 
 .settings-panel[data-settings-panel="model"] .engine-detail-panel {
   gap: 0;
+}
+
+.settings-panel[data-settings-panel="model"] .workspace-setting,
+.settings-panel[data-settings-panel="model"] .engine-detection {
+  border: 0;
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgba(16, 20, 39, 0.04), 0 10px 26px rgba(16, 20, 39, 0.04);
 }
 
 .settings-panel[data-settings-panel="model"] .primary,
@@ -6783,11 +6759,13 @@ select.select-open {
 .daemon-runtime-card {
   align-content: start;
   gap: 0;
-  max-width: 680px;
+  width: min(100%, 820px);
+  max-width: 820px;
   overflow: hidden;
   border: 0;
   border-radius: 14px;
   background: var(--surface);
+  box-shadow: 0 1px 2px rgba(16, 20, 39, 0.04), 0 10px 26px rgba(16, 20, 39, 0.04);
 }
 
 .app-update-row {
@@ -6821,9 +6799,11 @@ select.select-open {
 
 .connection-row-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  min-width: 0;
 }
 
 .connection-row-head > div {
@@ -6832,6 +6812,7 @@ select.select-open {
 
 .cloud-account-main {
   display: flex;
+  flex: 1 1 360px;
   flex-wrap: wrap;
   gap: 14px;
   align-items: center;
@@ -6897,8 +6878,16 @@ select.select-open {
 
 .cloud-actions {
   display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.cloud-actions > button {
+  flex: 0 0 auto;
 }
 
 .settings-switch {
@@ -7666,32 +7655,35 @@ pre {
 }
 
 @media (max-width: 720px) {
-  .settings-modal {
-    align-items: end;
-    justify-items: stretch;
-    padding: 0;
-  }
-
-  .settings-dialog {
-    width: 100vw;
-    height: calc(100vh - 10px);
-    border-radius: 22px 22px 0 0;
+  .settings-workspace {
+    margin: 0;
+    border-radius: 0;
+    box-shadow: none;
   }
 
   .settings-layout {
     grid-template-columns: 1fr;
     grid-template-rows: auto minmax(0, 1fr);
+    gap: 10px;
+    padding: 8px 10px 10px 0;
   }
 
   .settings-tabs {
+    width: auto;
+    min-width: 0;
+    max-width: none;
     flex-direction: row;
     gap: 8px;
     align-items: center;
     overflow-x: auto;
-    padding: 42px 14px 12px;
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
+    padding: 10px;
     scrollbar-width: none;
+  }
+
+  .settings-tabs-title {
+    flex: 0 0 auto;
+    margin: 0 8px 0 2px;
+    font-size: 16px;
   }
 
   .settings-tabs::-webkit-scrollbar {
@@ -7704,11 +7696,6 @@ pre {
     padding: 0 13px;
     text-align: center;
     white-space: nowrap;
-  }
-
-  .settings-close-button {
-    top: 17px;
-    left: 20px;
   }
 
   .settings-content {
