@@ -1,10 +1,21 @@
-/* 技能库 — 单列卡片网格。白卡片浮在全局连续地板上。 */
+/* 技能库 — 单列卡片网格。白卡片和控件浮在全局连续地板上。 */
 
 /* 没有中栏，skillsView 显式跨 sidebar/handle/workspace 三列铺满 nav-rail 右侧 */
 .skills-workspace {
-  grid-template-rows: auto minmax(0, 1fr);
+  position: relative;
+  grid-template-rows: minmax(0, 1fr);
   grid-column: 2 / -1;
   box-shadow: none;   /* 纯平，与 发现/联系人 一致：层次靠白卡而非面板投影 */
+}
+
+.app-shell[data-active-view="skills"] {
+  padding: 0;
+}
+
+.app-shell[data-active-view="skills"] #skillsView {
+  margin: 0;
+  border-radius: 0;
+  overflow: visible;
 }
 
 /* 没有中栏可拖，隐藏调宽手柄，免得它占住 col2 */
@@ -12,44 +23,82 @@
   display: none;
 }
 
-/* 顶栏不再画自己的底板，控件直接放在全局连续地板上 */
+/* 顶栏只负责摆放浮动控件，不再占据页面结构的一行 */
 .skills-topbar {
+  position: absolute;
+  top: 18px;
+  right: 24px;
+  left: 24px;
+  z-index: 12;
   align-items: center;
+  height: auto;
+  min-height: 0;
+  padding: 0;
   border-bottom: 0;
   background: transparent;
+  pointer-events: none;
+}
+
+.skills-topbar > * {
+  pointer-events: auto;
 }
 
 .skills-search {
+  height: 38px;
   max-width: 280px;
   margin-left: auto;
+  border-radius: 999px;
+  background: var(--floating-control-bg);
+  color: var(--faint);
+  box-shadow: var(--floating-control-shadow);
+  -webkit-backdrop-filter: blur(18px) saturate(1.08);
+  backdrop-filter: blur(18px) saturate(1.08);
+}
+
+.skills-search input {
+  color: var(--text);
+}
+
+.skills-search input::placeholder {
+  color: var(--muted);
+  opacity: 1;
 }
 
 .skills-layout {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: none;
   gap: 18px;
   min-height: 0;
-  padding: 16px 24px 24px;
+  padding: 98px 24px 24px;
   background: transparent;
   overflow: auto;
 }
 
-/* 分类 pill —— 无边框，选中项是浮起的白胶囊 */
+/* 分类筛选：删除整块大胶囊，每个分类自己是独立浮动 chip。 */
 .skill-chip-row {
   display: flex;
   align-items: center;
   gap: 8px;
+  width: auto;
+  max-width: 100%;
   min-width: 0;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
   flex-wrap: wrap;
 }
 
 .skill-chip-row button {
   flex: 0 0 auto;
-  min-height: 32px;
+  min-height: 34px;
   padding: 0 16px;
   border: 0;
   border-radius: 999px;
-  background: transparent;
+  background: var(--floating-control-bg);
+  box-shadow: var(--floating-control-shadow);
+  -webkit-backdrop-filter: blur(18px) saturate(1.08);
+  backdrop-filter: blur(18px) saturate(1.08);
   color: var(--muted);
   font-size: 13px;
   font-weight: 450;
@@ -66,11 +115,19 @@
   color: var(--text);
 }
 
+.skill-chip-row button:hover span {
+  color: var(--faint);
+}
+
 .skill-chip-row button.active {
   background: var(--surface);
   color: var(--text);
   font-weight: 560;
-  box-shadow: 0 1px 3px rgba(17, 24, 39, 0.06);
+  box-shadow: var(--floating-control-shadow);
+}
+
+.skill-chip-row button.active span {
+  color: var(--faint);
 }
 
 /* 卡片网格 */
@@ -151,7 +208,7 @@
 
 .skill-empty-state {
   padding: 48px 12px;
-  color: var(--faint);
+  color: var(--floor-faint);
   text-align: center;
   font-size: 13px;
 }
@@ -170,7 +227,10 @@
   gap: 2px;
   padding: 3px;
   border-radius: 999px;
-  background: var(--field);
+  background: var(--floating-control-bg);
+  box-shadow: var(--floating-control-shadow);
+  -webkit-backdrop-filter: blur(18px) saturate(1.08);
+  backdrop-filter: blur(18px) saturate(1.08);
   isolation: isolate;
 }
 
@@ -183,7 +243,7 @@
   width: var(--pill-w, 0px);
   border-radius: 999px;
   background: var(--surface);
-  box-shadow: 0 1px 3px rgba(17, 24, 39, 0.08);
+  box-shadow: var(--floating-control-pill-shadow);
   opacity: var(--pill-ready, 0);
   pointer-events: none;
   transform: translateX(var(--pill-x, 0px));

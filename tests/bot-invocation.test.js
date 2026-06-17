@@ -31,9 +31,10 @@ test("buildBotInvocation turns an explicit @ event into responder args", () => {
   assert.equal(args.userPrompt, "@codex 看看这个");
   assert.equal(args.turnId, "turn_1");
   assert.match(args.systemPrompt, /你是 Codex/);
-  assert.match(args.systemPrompt, /alice/);
-  assert.match(args.systemPrompt, /\[user:u_alice\] 先看背景/);
-  assert.match(args.systemPrompt, /\[bot:codex\] 收到/);
+  assert.deepEqual(args.historyMessages, [
+    { role: "user", content: "[user:u_alice] 先看背景" },
+    { role: "assistant", content: "[bot:codex] 收到" }
+  ]);
 });
 
 test("buildBotInvocation treats bot conversations as private chats", () => {
@@ -53,7 +54,9 @@ test("buildBotInvocation treats bot conversations as private chats", () => {
       { member_kind: "bot", member_ref: "reviewer", bot_name: "Reviewer" }
     ],
     recentMessages: [
-      { sender_kind: "user", sender_ref: "u_alice", body_md: "你好" }
+      { id: "m_prev_user", sender_kind: "user", sender_ref: "u_alice", body_md: "前面我问过开题" },
+      { id: "m_prev_bot", sender_kind: "bot", sender_ref: "reviewer", body_md: "我建议先列提纲" },
+      { id: "m_1", sender_kind: "user", sender_ref: "u_alice", body_md: "你好" }
     ]
   }, []);
 
@@ -61,6 +64,10 @@ test("buildBotInvocation treats bot conversations as private chats", () => {
   assert.match(args.systemPrompt, /正在和用户私聊/);
   assert.doesNotMatch(args.systemPrompt, /群聊/);
   assert.doesNotMatch(args.systemPrompt, /群成员/);
+  assert.deepEqual(args.historyMessages, [
+    { role: "user", content: "前面我问过开题" },
+    { role: "assistant", content: "我建议先列提纲" }
+  ]);
 });
 
 test("buildBotInvocation returns null for missing trigger, conversation, or bot id", () => {

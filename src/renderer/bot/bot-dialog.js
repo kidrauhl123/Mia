@@ -10,6 +10,7 @@
   let state, els;
   let renderView, render;
   let avatarTrimFrameToken = 0;
+  let botRuntimeHydrateToken = 0;
 
   function initBotDialog(deps) {
     state = deps.state;
@@ -643,6 +644,81 @@
     };
   }
 
+  function runtimeTargetFromBinding(binding = {}) {
+    const runtimeKind = window.miaBotDirectory?.normalizeRuntimeKind?.(
+      binding.runtimeKind || binding.runtime_kind,
+      "cloud-hermes"
+    ) || "cloud-hermes";
+    const config = binding.config && typeof binding.config === "object"
+      ? binding.config
+      : (binding.runtimeConfig && typeof binding.runtimeConfig === "object" ? binding.runtimeConfig : {});
+    if (runtimeKind === "cloud-hermes") {
+      return { runtimeKind: "cloud-hermes", deviceId: "", deviceName: "Mia Cloud", agentEngine: "hermes" };
+    }
+    return {
+      runtimeKind: "desktop-local",
+      deviceId: String(config.deviceId || config.device_id || binding.targetDeviceId || binding.target_device_id || "").trim(),
+      deviceName: String(config.deviceName || config.device_name || binding.targetDeviceName || binding.target_device_name || "").trim(),
+      agentEngine: window.miaBotDirectory?.normalizeAgentEngine?.(config.agentEngine || config.agent_engine || binding.agentEngine || binding.agent_engine || "hermes", "desktop-local")
+        || "hermes"
+    };
+  }
+
+  function mergeRuntimeBindingIntoBotSnapshot(bot = {}, binding = {}) {
+    const key = String(bot.key || bot.id || binding.botId || binding.bot_id || "").trim();
+    if (!key) return null;
+    const target = runtimeTargetFromBinding(binding);
+    const config = binding.config && typeof binding.config === "object"
+      ? binding.config
+      : (binding.runtimeConfig && typeof binding.runtimeConfig === "object" ? binding.runtimeConfig : {});
+    return {
+      ...bot,
+      key,
+      id: bot.id || key,
+      runtimeKind: target.runtimeKind,
+      runtimeConfig: config,
+      agentEngine: target.agentEngine,
+      targetDeviceId: target.deviceId,
+      targetDeviceName: target.deviceName,
+      deviceId: target.deviceId,
+      deviceName: target.deviceName,
+      runtimeLabel: target.runtimeKind === "cloud-hermes" ? "Mia Cloud" : (target.deviceName || "当前设备")
+    };
+  }
+
+  function updateOwnedBotRuntimeSnapshot(bot = {}, binding = {}) {
+    const nextBot = mergeRuntimeBindingIntoBotSnapshot(bot, binding);
+    if (!nextBot) return;
+    const socialState = window.miaSocial?.moduleState;
+    if (!socialState || !Array.isArray(socialState.bots)) return;
+    socialState.bots = [
+      nextBot,
+      ...socialState.bots.filter((item) => String(item?.key || item?.id || "") !== nextBot.key)
+    ];
+  }
+
+  async function hydrateActiveRuntimeTargetForDialog(bot = {}, initialSelectValue = "") {
+    const key = String(bot?.key || bot?.id || "").trim();
+    if (!key || typeof window.miaBotCommands?.getBotRuntimeBinding !== "function") return;
+    const token = ++botRuntimeHydrateToken;
+    try {
+      const binding = await window.miaBotCommands.getBotRuntimeBinding({
+        api: window.mia,
+        botKey: key,
+        runtimeKind: "active"
+      });
+      if (!binding || binding.enabled === false) return;
+      if (token !== botRuntimeHydrateToken) return;
+      if (!state?.botDialogOpen || String(els?.botKey?.value || "") !== key) return;
+      if (initialSelectValue && els?.botRuntimeTarget?.value !== initialSelectValue) return;
+      const target = runtimeTargetFromBinding(binding);
+      updateOwnedBotRuntimeSnapshot(bot, binding);
+      renderBotRuntimeTargetSelect(target);
+    } catch (error) {
+      console.warn("[bot-dialog] active bot runtime load failed:", error?.message || error);
+    }
+  }
+
   function runtimeTargetGroups(current = {}) {
     const groups = [];
     const cloudEnabled = Boolean(state?.runtime?.cloud?.enabled);
@@ -718,7 +794,7 @@
       : {
         runtimeKind: "desktop-local",
         deviceId: canonicalDevice?.id || current.deviceId || state?.runtime?.localDevice?.id || state?.runtime?.cloud?.deviceId || "",
-        deviceName: canonicalDevice?.deviceName || current.deviceName || state?.runtime?.localDevice?.name || "当前设备",
+        deviceName: canonicalDevice ? runtimeDeviceDisplayName(canonicalDevice) : (current.deviceName || state?.runtime?.localDevice?.name || "当前设备"),
         agentEngine: current.agentEngine || state?.preferredAgentEngine || "hermes"
       });
     const groups = runtimeTargetGroups(current);
@@ -803,6 +879,7 @@
         || "",
       agentEngine: actualBot?.agentEngine || actualBot?.agent_engine || seed?.agentEngine || state.preferredAgentEngine || "hermes"
     });
+    const initialRuntimeSelectValue = els.botRuntimeTarget?.value || "";
     refreshBridgeDevicesForDialog();
     const avatarImage = actualBot?.avatarImage || "";
     setBotAvatarDraft(avatarImage, window.miaAvatar.avatarCropForImage(avatarImage, actualBot?.avatarCrop));
@@ -825,6 +902,7 @@
       window.miaStatusBadgeControls?.beginIdentityNameEdit?.("bot");
     } else {
       window.miaStatusBadgeControls?.endIdentityNameEdit?.("bot");
+      hydrateActiveRuntimeTargetForDialog(actualBot, initialRuntimeSelectValue);
     }
   }
 
@@ -856,6 +934,7 @@
 
   function closeBotDialog() {
     if (!state) return;
+    botRuntimeHydrateToken += 1;
     state.botDialogOpen = false;
     teardownColorSwatches(document.getElementById("botAvatarColors"));
     renderView();

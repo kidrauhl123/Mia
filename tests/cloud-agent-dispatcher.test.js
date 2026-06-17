@@ -295,6 +295,19 @@ test("desktop-local DM broadcasts a bot invocation and does not run inline", asy
         }
       }
     });
+    const previousUser = ctx.messagesStore.appendMessage({
+      conversationId: ctx.conversation.id,
+      senderKind: "user",
+      senderRef: ctx.user.id,
+      bodyMd: "前情：我们在讨论第七日演武"
+    });
+    const previousBot = ctx.messagesStore.appendMessage({
+      conversationId: ctx.conversation.id,
+      senderKind: "bot",
+      senderRef: BOT_ID,
+      senderOwnerId: ctx.user.id,
+      bodyMd: "我建议先选 1"
+    });
     const message = ctx.messagesStore.appendMessage({
       conversationId: ctx.conversation.id,
       senderKind: "user",
@@ -317,6 +330,14 @@ test("desktop-local DM broadcasts a bot invocation and does not run inline", asy
     assert.equal(broadcasts[0].event.runtimeConfig.model, "claude-sonnet-4-6");
     assert.equal(broadcasts[0].event.targetDeviceId, "device_mac");
     assert.equal(broadcasts[0].event.triggeringMessage.id, message.id);
+    assert.deepEqual(
+      broadcasts[0].event.recentMessages.map((item) => item.id),
+      [previousUser.id, previousBot.id, message.id]
+    );
+    assert.deepEqual(
+      broadcasts[0].event.recentMessages.map((item) => item.body_md),
+      ["前情：我们在讨论第七日演武", "我建议先选 1", "hello"]
+    );
   } finally {
     ctx.cleanup();
   }

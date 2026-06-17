@@ -369,16 +369,12 @@
 
   function marketRequestParams() {
     return {
-      category: state.skillCategoryFilter.trim(),
-      q: state.skillFilter.trim(),
       limit: MARKET_SKILL_PAGE_LIMIT
     };
   }
 
   function marketQueryKey(params) {
     return JSON.stringify({
-      category: params.category || "",
-      q: params.q || "",
       limit: params.limit || MARKET_SKILL_PAGE_LIMIT
     });
   }
@@ -469,15 +465,15 @@
     const queryKey = marketQueryKey(params);
     renderChips(marketCategoryEntries());
     // Lazy-load the catalog the first time the market is shown.
-    if (state.skillMarket.queryKey !== queryKey && !state.skillMarket.loading) {
-      loadMarketSkills(params);
-      return;
-    }
     if (!state.skillMarket.loaded && !state.skillMarket.loading) {
       loadMarketSkills(params);
       return;
     }
-    if ((state.skillMarket.loading && !state.skillMarket.loaded) || state.skillMarket.queryKey !== queryKey) {
+    if (state.skillMarket.queryKey && state.skillMarket.queryKey !== queryKey && !state.skillMarket.loading) {
+      loadMarketSkills(params);
+      return;
+    }
+    if (state.skillMarket.loading && !state.skillMarket.loaded) {
       els.skillCardGrid.innerHTML = `<div class="skill-empty-state">正在加载技能市场...</div>`;
       return;
     }
@@ -522,7 +518,8 @@
         : await window.mia.marketSkills(params);
       if (state.skillMarket.queryKey !== queryKey) return;
       state.skillMarket.skills = Array.isArray(data?.skills) ? data.skills : [];
-      state.skillMarket.categories = Array.isArray(data?.categories) ? data.categories : [];
+      const categories = Array.isArray(data?.categories) ? data.categories : [];
+      state.skillMarket.categories = categories;
       state.skillMarket.cached = Boolean(data?.cached);
       state.skillMarket.stale = Boolean(data?.stale);
       state.skillMarket.updatedAt = data?.updatedAt || "";

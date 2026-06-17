@@ -6,6 +6,7 @@ const { decisionToHermesChoice } = require("../shared/agent-permissions.js");
 
 const BOT_MEMBER_KIND = "bot";
 const BOT_SENDER_KIND = "bot";
+const DESKTOP_INVOCATION_HISTORY_LIMIT = 200;
 
 function botForMember(member, bots) {
   const ref = member?.member_ref;
@@ -198,6 +199,10 @@ function createCloudAgentDispatcher(deps = {}) {
       role: messageRole(row),
       content: row.body_md || ""
     }));
+  }
+
+  function recentMessagesForDesktopInvocation(conversationId) {
+    return messagesStore.listMessagesSince(conversationId, 0, DESKTOP_INVOCATION_HISTORY_LIMIT);
   }
 
   function eventType(event = {}) {
@@ -590,6 +595,7 @@ function createCloudAgentDispatcher(deps = {}) {
       const chosen = decision?.chosen || [];
       if (!chosen.length) return null;
       const replies = [];
+      const invocationRecentMessages = recentMessagesForDesktopInvocation(conversationId);
       for (const member of chosen) {
         const reply = await dispatchBot({
           ownerId: member.owner_id,
@@ -599,7 +605,7 @@ function createCloudAgentDispatcher(deps = {}) {
           message,
           members: decision.members || [],
           bots: decision.bots || [],
-          recentMessages: decision.recentMessages || [],
+          recentMessages: invocationRecentMessages.length ? invocationRecentMessages : (decision.recentMessages || []),
           runtimeBinding: requestedBotId && member.member_ref === requestedBotId ? runtimeBinding : null
         });
         if (reply) replies.push(reply);
@@ -621,7 +627,7 @@ function createCloudAgentDispatcher(deps = {}) {
       conversationType: conversation.type,
       message,
       members: socialStore.listConversationMembers(conversationId),
-      recentMessages: [],
+      recentMessages: recentMessagesForDesktopInvocation(conversationId),
       runtimeBinding
     });
   }

@@ -22,6 +22,9 @@
   --menu-shadow: 0 16px 40px rgba(16, 20, 39, 0.14);
   --menu-separator: rgba(20, 24, 40, 0.08);
   --composer-add-menu-width: 154px;
+  --floating-control-bg: color-mix(in srgb, var(--surface) 86%, transparent);
+  --floating-control-shadow: 0 1px 2px rgba(16, 20, 39, 0.06), 0 10px 28px rgba(16, 20, 39, 0.08);
+  --floating-control-pill-shadow: 0 1px 3px rgba(17, 24, 39, 0.08);
   --accent-rgb: 49 138 211;
   --active: rgb(var(--accent-rgb) / 0.16);
   --list-active: var(--active);
@@ -2036,6 +2039,10 @@ button.persona-tag-chip {
   padding: 12px;
   color: var(--muted);
   font-size: 13px;
+}
+
+.contact-empty.detail-empty {
+  color: var(--floor-muted);
 }
 
 .contact-request-avatar {

@@ -1141,6 +1141,18 @@ function daemonLocalEventsConnected() {
   return Boolean(localEventsRuntime?.status?.().connected);
 }
 
+function daemonUnavailableError() {
+  const error = new Error("后台守护进程未运行，Mia 暂不可用。");
+  error.status = 503;
+  return error;
+}
+
+function requireDaemonRuntimeAvailable() {
+  if (IS_DAEMON_PROCESS) return;
+  if (daemonLocalEventsConnected()) return;
+  throw daemonUnavailableError();
+}
+
 function daemonReportedEventsStatus() {
   return daemonCloudRuntimeStatus?.events || daemonCloudEventsStatus || null;
 }
@@ -1174,10 +1186,10 @@ function cloudEventsStatus() {
     lastError: "",
     lastEventSeq: Number(settings.lastEventSeq) || 0
   };
-  // ADR P2: while the daemon hosts /api/events, the window's event health is
-  // its local-channel subscription combined with the upstream state the daemon
-  // last reported — a live local channel with a dead cloud socket is not "OK".
-  if (!IS_DAEMON_PROCESS && settingsStore?.daemonSettings?.().enabled) {
+  // ADR P2: the daemon hosts /api/events. The window's event health is its
+  // local-channel subscription combined with the upstream state the daemon last
+  // reported — a live local channel with a dead cloud socket is not "OK".
+  if (!IS_DAEMON_PROCESS) {
     const localConnected = daemonLocalEventsConnected();
     const upstream = daemonReportedEventsStatus();
     const upstreamDown = upstream?.connected === false;
@@ -1185,7 +1197,7 @@ function cloudEventsStatus() {
       ...fallback,
       connected: localConnected && !upstreamDown,
       lastError: !localConnected
-        ? "等待后台守护进程的本地事件通道"
+        ? "后台守护进程未运行，Mia 暂不可用。"
         : (upstreamDown ? (upstream?.lastError || "后台守护进程未连接云端") : "")
     };
   }
@@ -1193,6 +1205,27 @@ function cloudEventsStatus() {
 }
 
 function cloudStatus(includeToken = false) {
+  if (!IS_DAEMON_PROCESS) {
+    const settings = settingsStore.cloudSettings();
+    const localConnected = daemonLocalEventsConnected();
+    const bridge = daemonReportedBridgeStatus();
+    const bridgeKnown = bridge && typeof bridge === "object";
+    const logs = Array.isArray(bridge?.logs) ? bridge.logs : pendingCloudLogs.slice(-80);
+    return {
+      enabled: Boolean(settings.enabled && settings.token),
+      connected: Boolean(localConnected && bridge?.connected),
+      connecting: Boolean(localConnected && bridge?.connecting),
+      url: settings.url,
+      user: settings.user,
+      deviceId: localConnected ? String(bridge?.deviceId || "") : "",
+      lastError: !localConnected
+        ? "后台守护进程未运行，Mia 暂不可用。"
+        : (bridgeKnown ? String(bridge.lastError || "") : "等待后台守护进程上报云端连接状态"),
+      logs,
+      events: cloudEventsStatus(),
+      ...(includeToken ? { token: settings.token } : {})
+    };
+  }
   if (cloudBridgeRuntime) {
     return {
       ...cloudBridgeRuntime.status(includeToken),
@@ -2372,23 +2405,21 @@ ipcMain.handle(IpcChannel.DaemonStatus, async () => {
 });
 ipcMain.handle(IpcChannel.DaemonStart, async () => {
   const result = await startDaemonService();
-  // ADR P2: events socket ownership follows the daemon toggle — re-evaluate
-  // ours (start() self-gates and releases when the daemon hosts the feed).
-  startCloudEvents();
+  // The daemon is the only runtime owner. This call only nudges status/socket
+  // clients to re-evaluate; foreground clients self-gate and never take over.
+  startCloudRuntimeSockets();
   return result;
 });
 ipcMain.handle(IpcChannel.DaemonStop, async () => {
   const result = await stopDaemonService();
-  startCloudEvents();
+  // Stopping the daemon makes the foreground unavailable instead of promoting
+  // it to runtime owner.
+  startCloudRuntimeSockets();
   return result;
 });
 ipcMain.handle(IpcChannel.DaemonSettingsSave, (_event, settings) => {
   settingsStore.writeDaemonSettings(settings);
-  // Re-evaluate immediately only when the daemon just became enabled (the
-  // window must release its socket). The disable path waits for DaemonStop:
-  // grabbing /api/events while the daemon is still draining would briefly
-  // double-host the feed.
-  if (settingsStore.daemonSettings().enabled) startCloudEvents();
+  startCloudRuntimeSockets();
   return getDaemonStatus();
 });
 ipcMain.handle(IpcChannel.UtilOpenExternal, async (_event, url) => {
@@ -2405,11 +2436,13 @@ ipcMain.handle(IpcChannel.UtilOpenExternal, async (_event, url) => {
 ipcMain.handle(IpcChannel.StatusBadgeAssetLoad, (_event, assetId) => loadStatusBadgeAsset(assetId));
 ipcMain.handle(IpcChannel.CloudStatus, () => cloudStatus(false));
 ipcMain.handle(IpcChannel.CloudLogin, async (_event, payload) => {
+  requireDaemonRuntimeAvailable();
   const result = await loginMiaCloud(payload || {});
   if (result?.kind === "wechat-login-start" || result?.kind === "wechat-login-pending") return result;
   return getRuntimeStatus();
 });
 ipcMain.handle(IpcChannel.CloudSync, async () => {
+  requireDaemonRuntimeAvailable();
   await syncMiaCloudWorkspace();
   return getRuntimeStatus();
 });
@@ -2419,14 +2452,17 @@ ipcMain.handle(IpcChannel.CloudSync, async () => {
 // the renderer.
 ipcMain.handle(IpcChannel.CloudSettingsGet, async () => {
   try {
+    requireDaemonRuntimeAvailable();
     return await cloudSettingsGet();
   } catch (error) {
+    if (error?.status === 503) throw error;
     appendCloudLog(`Cloud settings get failed: ${error?.message || error}`);
     return { pins: [], readMarks: {}, appearance: {} };
   }
 });
 ipcMain.handle(IpcChannel.CloudSettingsPut, async (_event, settings) => {
   try {
+    requireDaemonRuntimeAvailable();
     return await cloudSettingsPut(settings || {});
   } catch (error) {
     appendCloudLog(`Cloud settings put failed: ${error?.message || error}`);
@@ -2434,6 +2470,7 @@ ipcMain.handle(IpcChannel.CloudSettingsPut, async (_event, settings) => {
   }
 });
 ipcMain.handle(IpcChannel.CloudLogout, async (event) => {
+  requireDaemonRuntimeAvailable();
   await logoutMiaCloud();
   const runtime = getRuntimeStatus();
   const win = BrowserWindow.fromWebContents(event.sender);
@@ -2445,9 +2482,8 @@ const socialApi = createSocialApi({
   normalizeUrl: settingsStore.normalizeCloudUrl
 });
 const skillMarketCache = openSkillMarketCache(path.join(runtimePaths().home, "skill-market-cache.db"));
-// ADR P3: window-process credential writes route through the daemon (single
-// writer); the daemon itself — or the window when the daemon is off/dead —
-// writes the file directly.
+// ADR P3: daemon-process credential writes are the only local file writes.
+// Foreground credential writes route through the daemon and fail if it is down.
 const cloudSettingsWriter = createCloudSettingsWriter({
   isDaemonProcess: IS_DAEMON_PROCESS,
   isDaemonEnabled: () => settingsStore.daemonSettings().enabled,
@@ -2497,6 +2533,7 @@ for (const line of pendingCloudLogs.splice(0)) cloudBridgeRuntime.appendLog(line
 const localBotResponder = createLocalBotResponder({
   sendChat,
   postConversationMessageAsBot: (conversationId, body) => socialApi.postConversationMessageAsBot(conversationId, body),
+  listConversationMessages: (conversationId, sinceSeq, limit) => socialApi.listConversationMessages(conversationId, sinceSeq, limit),
   emitCloudEvent: (message) => {
     const envelope = {
       type: message.type,
@@ -2511,24 +2548,9 @@ const localBotResponder = createLocalBotResponder({
 });
 async function shouldHandleCloudConversationAi() {
   const daemonSettings = settingsStore.daemonSettings();
-  let daemonReachable = false;
-  if (!IS_DAEMON_PROCESS && daemonSettings.enabled) {
-    // Window falls back to executing only when the enabled daemon is actually
-    // dead (ADR 2026-06-12). A zombie daemon socket is covered by replay: the
-    // cursor is daemon-owned, so a missed invocation is re-delivered on its
-    // reconnect instead of being consumed here.
-    try {
-      const expectedRuntimeHome = runtimePaths().home;
-      const ping = await daemonControlServer.ping(daemonSettings, 500, { expectedRuntimeHome });
-      daemonReachable = Boolean(ping.ok);
-    } catch {
-      daemonReachable = false;
-    }
-  }
   return shouldHandleLocalCloudConversationAi({
     isDaemon: IS_DAEMON_PROCESS,
-    daemonEnabled: daemonSettings.enabled,
-    daemonReachable
+    daemonEnabled: daemonSettings.enabled
   });
 }
 const mainBotRuntimeDispatcher = createMainBotRuntimeDispatcher({
@@ -2571,7 +2593,7 @@ cloudEventSocketRuntime = createCloudEventsClient({
   appendCloudLog,
   botRuntimeDispatcher: mainBotRuntimeDispatcher,
   messageCache: conversationMessageCache,
-  persistCursor: () => IS_DAEMON_PROCESS || !settingsStore.daemonSettings().enabled,
+  persistCursor: () => IS_DAEMON_PROCESS,
   isDaemonProcess: IS_DAEMON_PROCESS,
   isDaemonEnabled: () => daemonOwnsCloudEvents()
 });
@@ -2612,6 +2634,7 @@ registerSocialIpc({
   socialApi,
   messageCache: conversationMessageCache,
   getCloudUserId: () => settingsStore.cloudSettings().user?.id || "",
+  ensureRuntimeAvailable: requireDaemonRuntimeAvailable,
   log: (line) => appendCloudLog(line)
 });
 ipcMain.handle(IpcChannel.SocialMyIdentity, () => {
@@ -2858,7 +2881,7 @@ app.whenReady().then(async () => {
   startupTimer.mark("window:created");
   autoUpdateService.start();
   daemonTasksClient.startEvents();
-  startCloudRuntimeSockets(); // bridge self-gates: defers to the daemon when it's enabled
+  startCloudRuntimeSockets(); // foreground clients self-gate; daemon owns runtime sockets
   syncMiaCloudWorkspace().catch((error) => appendCloudLog(`Cloud workspace sync failed: ${error?.message || error}`));
   if (!win.miaSkipAutomaticBackgroundStartup && process.env.MIA_DISABLE_BACKGROUND_STARTUP !== "1") {
     win.webContents.once("did-finish-load", () => {

@@ -98,8 +98,9 @@ function createLocalEventsClient({
   function connect() {
     if (stopped || activeRequest) return;
     if (!enabled()) {
-      // Daemon disabled: the window is the sole owner and runs everything
-      // itself — keep idling cheaply until the toggle flips back.
+      // Local events are the foreground app's only runtime feed. If disabled
+      // by a test/dev hook, keep retrying cheaply; the window never takes over
+      // cloud events or bot execution.
       scheduleReconnect();
       return;
     }

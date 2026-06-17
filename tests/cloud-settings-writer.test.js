@@ -39,38 +39,37 @@ test("window delegates writes to the daemon while it is enabled", async () => {
   assert.equal(calls.remote[0].options.headers.Authorization, "Bearer secret-token");
 });
 
-test("daemon process and daemon-off window write locally", async () => {
+test("daemon process writes locally", async () => {
   const daemon = setup({ isDaemonProcess: true });
   await daemon.writer.write({ lastEventSeq: 5 });
   assert.equal(daemon.calls.local.length, 1);
   assert.equal(daemon.calls.remote.length, 0);
+});
 
+test("daemon-off window fails instead of writing locally", async () => {
   const windowOwner = setup({ isDaemonEnabled: () => false });
-  await windowOwner.writer.write({ lastEventSeq: 6 });
-  assert.equal(windowOwner.calls.local.length, 1);
+
+  await assert.rejects(() => windowOwner.writer.write({ lastEventSeq: 6 }), /daemon is required/i);
+  assert.equal(windowOwner.calls.local.length, 0);
   assert.equal(windowOwner.calls.remote.length, 0);
 });
 
-test("dead daemon falls back to a local write", async () => {
+test("dead daemon fails instead of writing locally", async () => {
   const { writer, calls } = setup({
     fetchImpl: async () => { throw new Error("ECONNREFUSED"); }
   });
 
-  const result = await writer.write({ enabled: false, token: "", user: null });
-
-  assert.equal(result.written, "local");
-  assert.equal(calls.local.length, 1);
+  await assert.rejects(() => writer.write({ enabled: false, token: "", user: null }), /daemon unavailable/i);
+  assert.equal(calls.local.length, 0);
 });
 
-test("version skew (404/501) keeps the window as the writer", async () => {
+test("version skew (404/501) fails instead of writing locally", async () => {
   const { writer, calls } = setup({
     fetchImpl: async () => ({ ok: false, status: 404, json: async () => ({}) })
   });
 
-  const result = await writer.write({ user: { id: "u1" } });
-
-  assert.equal(result.written, "local");
-  assert.equal(calls.local.length, 1);
+  await assert.rejects(() => writer.write({ user: { id: "u1" } }), /route unavailable/i);
+  assert.equal(calls.local.length, 0);
 });
 
 test("a live daemon erroring (5xx) throws instead of splitting the writer", async () => {

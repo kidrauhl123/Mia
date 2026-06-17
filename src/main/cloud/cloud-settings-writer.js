@@ -3,8 +3,8 @@
 // ADR 2026-06-12 P3: mia-cloud.json has a single writer. The daemon owns the
 // file while it is enabled; the window must hand its credential writes (login,
 // logout, profile refresh) to the daemon over the control API instead of
-// touching the file itself. With the daemon disabled — or dead, after a probe
-// failure — the window is the legitimate owner and writes locally.
+// touching the file itself. There is no foreground fallback: if the daemon is
+// unavailable, runtime state is unavailable too.
 function createCloudSettingsWriter({
   isDaemonProcess = false,
   isDaemonEnabled = () => false,
@@ -18,7 +18,8 @@ function createCloudSettingsWriter({
   if (typeof writeLocal !== "function") throw new Error("writeLocal dependency is required.");
 
   async function write(patch = {}) {
-    if (isDaemonProcess || !isDaemonEnabled()) return writeLocal(patch);
+    if (isDaemonProcess) return writeLocal(patch);
+    if (!isDaemonEnabled()) throw new Error("Mia daemon is required for cloud settings writes.");
     let response;
     try {
       response = await fetchImpl(`${daemonBaseUrl()}/api/cloud-settings`, {
@@ -31,20 +32,12 @@ function createCloudSettingsWriter({
         signal: AbortSignal.timeout(timeoutMs)
       });
     } catch (error) {
-      // Unreachable daemon (refused / timed out): the window falls back to
-      // owning the write, same rule as the execution fallback in P1.
-      log(`[cloud-settings] daemon unreachable, writing locally: ${error?.message || error}`);
-      return writeLocal(patch);
+      log(`[cloud-settings] daemon unavailable: ${error?.message || error}`);
+      throw new Error(`Mia daemon unavailable for cloud settings writes: ${error?.message || error}`);
     }
-    // Version skew: a daemon predating this route answers 404 (or 501 when the
-    // dep isn't wired). The capability simply doesn't exist there — the window
-    // must keep owning the write or login would brick until the daemon updates.
     if (response.status === 404 || response.status === 501) {
-      log(`[cloud-settings] daemon lacks the write route (HTTP ${response.status}), writing locally`);
-      return writeLocal(patch);
+      throw new Error(`daemon cloud-settings write route unavailable: HTTP ${response.status}`);
     }
-    // A live daemon that errors (401/5xx) must NOT be papered over with a
-    // local write — that would split the single writer and mask the failure.
     if (!response.ok) throw new Error(`daemon cloud-settings write failed: HTTP ${response.status}`);
     const data = await response.json();
     return data?.settings ?? data;

@@ -292,7 +292,6 @@ const els = {
   cloudSync: document.getElementById("cloudSync"),
   cloudLogout: document.getElementById("cloudLogout"),
   checkUpdates: document.getElementById("checkUpdates"),
-  daemonEnabled: document.getElementById("daemonEnabled"),
   daemonRestart: document.getElementById("daemonRestart"),
   daemonHint: document.getElementById("daemonHint"),
   appUpdateHint: document.getElementById("appUpdateHint"),
@@ -903,7 +902,7 @@ function syncNarrowLayout() {
 }
 
 function sidebarCollapseSupported(view = state.activeView) {
-  return !state.isNarrowWindow && viewHasIndexPane(view);
+  return !state.isNarrowWindow && view === "chat";
 }
 
 function syncSidebarCollapseState() {
@@ -4619,23 +4618,19 @@ els.checkUpdates?.addEventListener("click", async () => {
 });
 
 function renderDaemonStatus(status = {}) {
-  const enabled = status?.settings?.enabled !== false;
   const running = Boolean(status?.running);
-  if (els.daemonEnabled) {
-    els.daemonEnabled.classList.toggle("active", enabled);
-    els.daemonEnabled.setAttribute("aria-checked", enabled ? "true" : "false");
-  }
   if (els.daemonHint) {
     const host = status?.host || status?.settings?.host || "";
     const port = status?.port || status?.settings?.port || "";
     const where = host && port ? ` · ${host}:${port}` : "";
-    setText(els.daemonHint, !enabled
-      ? "Mia 只在窗口打开时工作"
-      : running
-        ? `运行中${where}  关闭 Mia 后仍能在后台回复消息、执行任务`
-        : `未运行  关闭 Mia 后仍能在后台回复消息、执行任务`);
+    setText(els.daemonHint, running
+      ? `运行中${where}  后台服务是 Mia 的运行时核心`
+      : `未运行${where}  Mia 暂不可用，请重启后台服务`);
   }
-  if (els.daemonRestart) els.daemonRestart.disabled = !enabled;
+  if (els.daemonRestart) {
+    els.daemonRestart.disabled = false;
+    els.daemonRestart.textContent = running ? "重启" : "启动";
+  }
 }
 
 async function refreshDaemonControls() {
@@ -4646,20 +4641,6 @@ async function refreshDaemonControls() {
     setText(els.daemonHint, `状态获取失败：${error.message || error}`);
   }
 }
-
-els.daemonEnabled?.addEventListener("click", async () => {
-  const next = els.daemonEnabled.getAttribute("aria-checked") !== "true";
-  els.daemonEnabled.setAttribute("aria-checked", next ? "true" : "false");
-  els.daemonEnabled.classList.toggle("active", next);
-  setText(els.daemonHint, next ? "启动中…" : "停止中…");
-  try {
-    await window.mia.saveDaemonSettings({ enabled: next });
-    await (next ? window.mia.startDaemon() : window.mia.stopDaemon());
-  } catch (error) {
-    setText(els.daemonHint, `操作失败：${error.message || error}`);
-  }
-  await refreshDaemonControls();
-});
 
 els.daemonRestart?.addEventListener("click", async () => {
   els.daemonRestart.disabled = true;

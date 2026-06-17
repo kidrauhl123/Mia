@@ -328,7 +328,7 @@ function createSettingsStore(deps = {}) {
     return {
       ...defaultDaemonSettings(),
       ...saved,
-      enabled: saved.enabled !== false,
+      enabled: true,
       host: normalizeDaemonHost(saved.host || defaultDaemonSettings().host),
       port: normalizeDaemonPort(saved.port || defaultDaemonSettings().port)
     };
@@ -338,7 +338,7 @@ function createSettingsStore(deps = {}) {
     const p = runtimePaths();
     const current = daemonSettings();
     const next = {
-      enabled: settings.enabled !== undefined ? Boolean(settings.enabled) : current.enabled,
+      enabled: true,
       host: normalizeDaemonHost(settings.host || current.host),
       port: normalizeDaemonPort(settings.port || current.port)
     };

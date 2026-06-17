@@ -24,14 +24,13 @@ function createCloudEventsClient({
   nowFn = () => Date.now(),
   readyTimeoutMs = 15000,
   heartbeatIntervalMs = 20000,
-  // The lastEventSeq cursor has a single writer (ADR 2026-06-12): the daemon
-  // while it is enabled, the window otherwise. A non-owner persisting the
-  // cursor would mark events as consumed that the owner never processed.
+  // The lastEventSeq cursor has a single writer (ADR 2026-06-12): the daemon.
+  // A non-owner persisting the cursor would mark events as consumed that the
+  // owner never processed.
   persistCursor = true,
   // P2: the /api/events socket itself has a single host, mirroring the bridge.
-  // While the daemon is enabled the window defers entirely — it receives the
-  // forwarded feed over the daemon's local channel instead. A lingering daemon
-  // whose toggle is off must release the socket too (codex review).
+  // The window never hosts this socket; it receives the forwarded feed over
+  // the daemon's local channel. No foreground fallback.
   isDaemonProcess = false,
   isDaemonEnabled = null
 }) {
@@ -291,9 +290,8 @@ function createCloudEventsClient({
   }
 
   function shouldHostEvents() {
-    const enabled = typeof isDaemonEnabled === "function" ? Boolean(isDaemonEnabled()) : null;
-    if (enabled === null) return true;
-    return isDaemonProcess ? enabled : !enabled;
+    if (!isDaemonProcess) return false;
+    return typeof isDaemonEnabled === "function" ? Boolean(isDaemonEnabled()) : true;
   }
 
   function start() {

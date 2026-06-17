@@ -26,9 +26,10 @@ function createStartupBackgroundService({
 
   async function runDaemon() {
     if (typeof startDaemonService !== "function") return createStepResult(true, { skipped: true });
-    // Respect the user's toggle: when the background daemon is disabled, don't
-    // auto-start it on launch (otherwise it silently comes back every boot).
-    if (!isDaemonEnabled()) return createStepResult(true, { skipped: true });
+    // The daemon is Mia's single runtime owner. There is no foreground fallback;
+    // still call the predicate so embedders can surface diagnostics, but never
+    // skip startup because of a stale disabled setting.
+    isDaemonEnabled();
     try {
       const status = await startDaemonService();
       return createStepResult(true, { status });

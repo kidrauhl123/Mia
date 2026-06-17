@@ -58,22 +58,22 @@ test("cloud events execution and cursor have a single owner (ADR 2026-06-12)", (
   );
   assert.match(
     responder,
-    /if \(isDaemon\) return Boolean\(daemonEnabled\);[\s\S]*if \(!daemonEnabled\) return true;[\s\S]*return !daemonReachable/,
-    "execution must have a single owner: enabled daemon executes, window only covers a dead daemon (ADR 2026-06-12)"
+    /return Boolean\(isDaemon && daemonEnabled\);/,
+    "execution must have a single owner: daemon executes, window never covers a dead daemon (ADR 2026-06-12)"
   );
   assert.match(
     main,
-    /persistCursor: \(\) => IS_DAEMON_PROCESS \|\| !settingsStore\.daemonSettings\(\)\.enabled/,
-    "the lastEventSeq cursor must have a single writer: daemon while enabled, window otherwise"
+    /persistCursor: \(\) => IS_DAEMON_PROCESS/,
+    "the lastEventSeq cursor must have a single writer: daemon only"
   );
 });
 
-test("desktop only trusts a daemon running from the same runtime home", () => {
+test("desktop only manages a daemon running from the same runtime home", () => {
   const main = read("src/main.js");
   assert.match(
     main,
     /const expectedRuntimeHome = runtimePaths\(\)\.home;[\s\S]*daemonControlServer\.ping\(settings, 500, \{ expectedRuntimeHome \}\)/,
-    "desktop must not defer group AI to a stale LaunchAgent pointed at another MIA_HOME"
+    "desktop must not manage a stale LaunchAgent pointed at another MIA_HOME"
   );
 });
 

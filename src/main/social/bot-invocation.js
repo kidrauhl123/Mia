@@ -3,17 +3,29 @@
 const { MemberKind, SenderKind } = require("../../shared/conversation-kinds.js");
 const { activeSkillIdsFromMessage } = require("./local-bot-responder.js");
 
-function contextLines(recentMessages) {
-  return (Array.isArray(recentMessages) ? recentMessages : [])
-    .map((message) => {
-      const senderKind = String(message?.sender_kind || "");
-      const senderRef = String(message?.sender_ref || "");
-      const tag = senderKind === SenderKind.Bot
-        ? `bot:${senderRef}`
-        : (senderKind === SenderKind.System ? "system" : `user:${senderRef}`);
-      return `[${tag}] ${message?.body_md || ""}`;
-    })
-    .join("\n");
+const HISTORY_MESSAGE_LIMIT = 80;
+const HISTORY_MESSAGE_CHAR_LIMIT = 4000;
+const HISTORY_TOTAL_CHAR_LIMIT = 24000;
+
+function senderTag(message) {
+  const senderKind = String(message?.sender_kind || "");
+  const senderRef = String(message?.sender_ref || "");
+  if (senderKind === SenderKind.Bot) return `bot:${senderRef}`;
+  if (senderKind === SenderKind.System) return "system";
+  return `user:${senderRef}`;
+}
+
+function historyRole(message) {
+  const senderKind = String(message?.sender_kind || "");
+  if (senderKind === SenderKind.Bot) return "assistant";
+  if (senderKind === SenderKind.System) return "system";
+  return "user";
+}
+
+function truncateText(text, limit = HISTORY_MESSAGE_CHAR_LIMIT) {
+  const value = String(text || "").trim();
+  if (value.length <= limit) return value;
+  return `${value.slice(0, Math.max(0, limit - 1)).trimEnd()}…`;
 }
 
 function memberName(member, bots) {
@@ -47,6 +59,39 @@ function conversationTypeFromPayload(payload = {}) {
 
 function isGroupConversation(payload = {}) {
   return conversationTypeFromPayload(payload) === "group";
+}
+
+function historyMessageContent(message, groupConversation) {
+  const body = truncateText(message?.body_md || message?.bodyMd || message?.content || "");
+  if (!body) return "";
+  return groupConversation ? `[${senderTag(message)}] ${body}` : body;
+}
+
+function buildHistoryMessages({ recentMessages, triggeringMessage, groupConversation }) {
+  const triggerId = String(triggeringMessage?.id || "");
+  const rows = (Array.isArray(recentMessages) ? recentMessages : [])
+    .filter((message) => {
+      if (!message) return false;
+      if (triggerId && String(message.id || "") === triggerId) return false;
+      return true;
+    })
+    .map((message) => ({
+      role: historyRole(message),
+      content: historyMessageContent(message, groupConversation)
+    }))
+    .filter((message) => message.content)
+    .slice(-HISTORY_MESSAGE_LIMIT);
+
+  const selected = [];
+  let total = 0;
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const message = rows[index];
+    const nextTotal = total + message.content.length;
+    if (selected.length && nextTotal > HISTORY_TOTAL_CHAR_LIMIT) break;
+    selected.push(message);
+    total = nextTotal;
+  }
+  return selected.reverse();
 }
 
 function buildBotInvocation(payload, bots) {
@@ -87,20 +132,23 @@ function buildBotInvocation(payload, bots) {
 
   const roster = memberLines(members, bots);
   const groupConversation = isGroupConversation(payload);
+  const historyMessages = buildHistoryMessages({ recentMessages, triggeringMessage, groupConversation });
   return {
     conversationId,
     botId,
     conversationType: conversationTypeFromPayload(payload),
     botSnapshot,
     dedupKey: `${triggerId}:${botId}`,
+    triggerMessageId: triggerId,
+    triggerSeq: Number(triggeringMessage?.seq) || 0,
     systemPrompt: [
       groupConversation
         ? `你是 ${botSnapshot.name || botSnapshot.displayName || botId}，正在一个群聊里。`
         : `你是 ${botSnapshot.name || botSnapshot.displayName || botId}，正在和用户私聊。`,
       groupConversation && roster ? `群成员：\n${roster}` : "",
-      `最近的消息上下文：\n${contextLines(recentMessages)}`,
       "请用自然的口吻接话，简短直接。"
     ].filter(Boolean).join("\n\n"),
+    historyMessages,
     userPrompt: triggeringMessage.body_md || "",
     runtimeConfig: nextRuntimeConfig,
     turnId: triggeringMessage.turn_id || null,

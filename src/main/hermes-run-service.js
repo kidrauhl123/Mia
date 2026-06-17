@@ -149,6 +149,26 @@ function createHermesRunService(deps = {}) {
     return /^\/[A-Za-z0-9_:/.-]+(?:\s|$)/.test(input) ? input : "";
   }
 
+  function roleLabel(role) {
+    if (role === "assistant") return "助手";
+    if (role === "system") return "系统";
+    return "用户";
+  }
+
+  function messagePromptContent(message) {
+    const attachmentText = message.role === "user" ? attachmentContext(message.attachments) : "";
+    return [
+      message.content,
+      attachmentText ? `附件上下文：\n${attachmentText}` : ""
+    ].filter(Boolean).join("\n\n").trim();
+  }
+
+  function transcriptLine(message) {
+    const content = messagePromptContent(message);
+    if (!content) return "";
+    return `${roleLabel(message.role)}：${content}`;
+  }
+
   async function readRunEventStream({ runId, signal, emit }) {
     if (typeof baseUrl !== "function") throw new Error("baseUrl dependency is required.");
     if (typeof apiKey !== "function") throw new Error("apiKey dependency is required.");
@@ -292,10 +312,25 @@ function createHermesRunService(deps = {}) {
 
   function lastUserPrompt(messages) {
     const normalized = normalizeRunMessages(messages);
-    const last = [...normalized].reverse().find((message) => message.role === "user");
-    if (!last || (!last.content && !last.attachments.length)) throw new Error("No user message found.");
-    const attachmentText = attachmentContext(last.attachments);
-    return [last.content, attachmentText ? `附件上下文：\n${attachmentText}` : ""].filter(Boolean).join("\n\n");
+    const lastUserIndex = normalized.map((message) => message.role).lastIndexOf("user");
+    if (lastUserIndex < 0) throw new Error("No user message found.");
+    const last = normalized[lastUserIndex];
+    const currentUserPrompt = messagePromptContent(last);
+    if (!currentUserPrompt) throw new Error("No user message found.");
+    const context = normalized
+      .slice(0, lastUserIndex)
+      .map(transcriptLine)
+      .filter(Boolean)
+      .join("\n\n")
+      .trim();
+    if (!context) return currentUserPrompt;
+    return [
+      "会话前文（按时间顺序）：",
+      context,
+      "",
+      "当前用户消息：",
+      currentUserPrompt
+    ].join("\n");
   }
 
   return {

@@ -213,6 +213,7 @@ function createLaunchdService(deps = {}) {
     }
     const plist = writePlist();
     await stopJob({ plistPath, label });
+    await runLaunchctl(["enable", `${domain}/${label}`]);
     await runLaunchctl(["bootstrap", domain, plist]);
     await runLaunchctl(["kickstart", "-k", `${domain}/${label}`], { ignoreFailure: true });
   }

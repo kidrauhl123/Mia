@@ -103,7 +103,8 @@ function createCloudBridgeClient({
   }
 
   function shouldHostBridge() {
-    return Boolean(isDaemonProcess) || !(typeof isDaemonEnabled === "function" && isDaemonEnabled());
+    if (!isDaemonProcess) return false;
+    return typeof isDaemonEnabled === "function" ? Boolean(isDaemonEnabled()) : true;
   }
 
   function sendCloudBridgeRunEvent(ws, runId, kind, payload = {}) {
@@ -254,7 +255,10 @@ function createCloudBridgeClient({
   }
 
   function start() {
-    if (!shouldHostBridge()) return status(false);
+    if (!shouldHostBridge()) {
+      if (activeSocket) stop();
+      return status(false);
+    }
     const s = settings();
     if (!s.enabled || !s.token) return status(false);
     if (activeSocket && [WebSocketImpl.CONNECTING, WebSocketImpl.OPEN].includes(activeSocket.readyState)) {

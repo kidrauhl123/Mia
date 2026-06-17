@@ -72,8 +72,24 @@ test("startGateway writes plist, bootouts old jobs, then bootstrap and kickstart
   assert.deepEqual(calls, [
     ["launchctl", "bootout", "gui/501", runtime.launchAgent],
     ["launchctl", "bootout", "gui/501/ai.mia.hermes.gateway"],
+    ["launchctl", "enable", "gui/501/ai.mia.hermes.gateway"],
     ["launchctl", "bootstrap", "gui/501", runtime.launchAgent],
     ["launchctl", "kickstart", "-k", "gui/501/ai.mia.hermes.gateway"]
+  ]);
+});
+
+test("startDaemon re-enables a disabled LaunchAgent before bootstrapping", async (t) => {
+  const { calls, runtime, service } = setup(t);
+
+  await service.startDaemon();
+
+  assert.ok(fs.existsSync(runtime.daemonLaunchAgent));
+  assert.deepEqual(calls, [
+    ["launchctl", "bootout", "gui/501", runtime.daemonLaunchAgent],
+    ["launchctl", "bootout", "gui/501/ai.mia.daemon"],
+    ["launchctl", "enable", "gui/501/ai.mia.daemon"],
+    ["launchctl", "bootstrap", "gui/501", runtime.daemonLaunchAgent],
+    ["launchctl", "kickstart", "-k", "gui/501/ai.mia.daemon"]
   ]);
 });
 

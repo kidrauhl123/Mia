@@ -176,7 +176,7 @@ test("market cards do not render direct install or use actions", () => {
       categories: [{ category: "开发工程", count: 1 }],
       loading: false,
       loaded: true,
-      queryKey: JSON.stringify({ category: "", q: "", limit: 72 }),
+      queryKey: JSON.stringify({ limit: 72 }),
       error: ""
     },
     skillLibrary: {
@@ -242,6 +242,107 @@ test("market cards do not render direct install or use actions", () => {
   assert.doesNotMatch(els.skillCardGrid.innerHTML, /skill-card-action/);
   assert.doesNotMatch(els.skillCardGrid.innerHTML, /data-skill-install=/);
   assert.doesNotMatch(els.skillCardGrid.innerHTML, /data-skill-use=/);
+});
+
+test("market category and search filters are local only after the catalog loads", () => {
+  const src = read("src/renderer/skills/skill-library.js");
+  assert.match(src, /function marketRequestParams/);
+  assert.doesNotMatch(src, /category:\s*state\.skillCategoryFilter/);
+  assert.doesNotMatch(src, /q:\s*state\.skillFilter/);
+
+  const fakeEl = (selectorAll = []) => ({
+    innerHTML: "",
+    textContent: "",
+    style: { setProperty: () => {} },
+    classList: { toggle: () => {}, add: () => {}, remove: () => {} },
+    querySelector: () => null,
+    querySelectorAll: () => selectorAll,
+    addEventListener: () => {},
+    getBoundingClientRect: () => ({ left: 0, width: 0, height: 0 })
+  });
+  const state = {
+    skillFilter: "anki",
+    skillCategoryFilter: "文档处理",
+    skillMarketMode: true,
+    skillMarket: {
+      skills: [
+        { id: "pdf", name: "pdf", name_zh: "PDF", category: "文档处理", description: "docs", sourceLabel: "Anthropic 官方" },
+        { id: "anki", name: "anki", name_zh: "Anki", category: "文档处理", description: "study", sourceLabel: "Anthropic 官方" },
+        { id: "web", name: "web", name_zh: "Web", category: "开发工程", description: "dev", sourceLabel: "Anthropic 官方" }
+      ],
+      categories: [{ category: "文档处理", count: 2 }, { category: "开发工程", count: 1 }],
+      loading: false,
+      refreshing: false,
+      loaded: true,
+      queryKey: JSON.stringify({ limit: 72 }),
+      error: ""
+    },
+    skillLibrary: { skills: [] },
+    installingSkillIds: new Set(),
+    selectedSkillId: "",
+    skillContextMenu: { open: false, skillId: "" }
+  };
+  const els = {
+    skillModeToggle: fakeEl(),
+    skillChipRow: fakeEl(),
+    skillCardGrid: fakeEl(),
+    skillPageTitle: fakeEl(),
+    skillContextMenu: fakeEl()
+  };
+  let marketCalls = 0;
+  const context = {
+    console,
+    requestAnimationFrame: (fn) => fn(),
+    window: {
+      addEventListener: () => {},
+      innerWidth: 1024,
+      mia: {
+        marketSkills: () => {
+          marketCalls += 1;
+          return Promise.resolve({ skills: [], categories: [] });
+        }
+      },
+      miaSkillHelpers: {
+        skillDisplayName: (skill) => skill.name_zh || skill.marketNameZh || skill.name,
+        skillSummaryZh: (skill) => skill.description || "",
+        skillDisplayCategory: (skill) => skill.category || skill.marketCategoryZh || "",
+        skillAuthorLabel: (skill) => skill.pluginLabel || skill.sourceLabel || "Local",
+        skillTone: () => "blue",
+        skillInitials: () => "SK",
+        renderSkillMarkdownSource: (body) => body
+      }
+    }
+  };
+  vm.createContext(context);
+  vm.runInContext(src, context, { filename: "skill-library.js" });
+  context.window.miaSkillLibrary.initSkillLibrary({
+    state,
+    els,
+    mia: null,
+    escapeHtml: (value) => String(value || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;"),
+    setText: (el, value) => { el.textContent = String(value || ""); },
+    menuItemHtml: () => "",
+    syncTopbarClickCapture: () => {},
+    closeGroupContextMenu: () => {},
+    showNarrowContent: () => {},
+    deleteSkill: () => {},
+    openSkillDirectory: () => {}
+  });
+
+  context.window.miaSkillLibrary.renderSkillLibrary();
+  assert.equal(state.skillMarket.loading, false);
+  assert.equal(state.skillMarket.refreshing, false);
+  assert.equal(marketCalls, 0);
+  assert.match(els.skillChipRow.innerHTML, /文档处理/);
+  assert.match(els.skillChipRow.innerHTML, /开发工程/);
+  assert.match(els.skillCardGrid.innerHTML, /data-market-id="anki"/);
+  assert.doesNotMatch(els.skillCardGrid.innerHTML, /data-market-id="pdf"/);
+  assert.doesNotMatch(els.skillCardGrid.innerHTML, /data-market-id="web"/);
+  assert.doesNotMatch(els.skillCardGrid.innerHTML, /正在加载技能市场/);
 });
 
 test("topbar has the mine/market toggle and market styles exist", () => {

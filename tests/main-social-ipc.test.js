@@ -40,6 +40,47 @@ test("posting a conversation message returns the cloud envelope and runs no desk
   assert.deepEqual(result, { ok: true, data: { message } });
 });
 
+test("runtime gate allows user message writes but blocks runtime social reads while cached reads stay available", async () => {
+  const ipcMain = fakeIpcMain();
+  let posted = false;
+
+  registerSocialIpc({
+    ipcMain,
+    socialApi: {
+      postConversationMessage: async () => {
+        posted = true;
+        return { message: { id: "m_live" } };
+      },
+      listConversations: async () => ({ conversations: [{ id: "live" }] })
+    },
+    messageCache: {
+      getRecentMessages: () => [{ id: "m_cached", seq: 1 }]
+    },
+    ensureRuntimeAvailable: () => {
+      const error = new Error("后台守护进程未运行，Mia 暂不可用。");
+      error.status = 503;
+      throw error;
+    }
+  });
+
+  const blocked = await ipcMain.handlers.get(IpcChannel.SocialPostConversationMessage)(
+    null,
+    "botc_u_1_session_1",
+    { bodyMd: "你好" }
+  );
+  const blockedList = await ipcMain.handlers.get(IpcChannel.SocialListConversations)(null);
+  const cached = await ipcMain.handlers.get(IpcChannel.SocialGetCachedMessages)(null, "botc_u_1_session_1", 50);
+
+  assert.equal(posted, true);
+  assert.deepEqual(blocked, { ok: true, data: { message: { id: "m_live" } } });
+  assert.deepEqual(blockedList, {
+    ok: false,
+    error: "后台守护进程未运行，Mia 暂不可用。",
+    status: 503
+  });
+  assert.deepEqual(cached, { ok: true, data: { messages: [{ id: "m_cached", seq: 1 }] } });
+});
+
 test("listing conversation messages writes through to the local cache; cached read returns them", async () => {
   const ipcMain = fakeIpcMain();
   const upserts = [];

@@ -52,8 +52,8 @@ function setup(overrides = {}) {
   const client = createCloudBridgeClient({
     WebSocketImpl: FakeWebSocket,
     getSettings: () => settings,
-    isDaemonProcess: false,
-    isDaemonEnabled: () => false,
+    isDaemonProcess: true,
+    isDaemonEnabled: () => true,
     cloudBridgeUrl: () => "wss://cloud.example/api/bridge?deviceName=Mac",
     cloudWebSocketProtocols: (s) => [`mia-token.${s.token}`],
     createActiveBridgeChatAdapter: (engine) => ({
@@ -85,8 +85,8 @@ function setup(overrides = {}) {
   return { client, calls, sockets, FakeWebSocket, setSettings: (patch) => { settings = { ...settings, ...patch }; } };
 }
 
-test("start gates foreground bridge when daemon is enabled", () => {
-  const { client, sockets } = setup({ isDaemonEnabled: () => true });
+test("foreground bridge never opens a cloud socket", () => {
+  const { client, sockets } = setup({ isDaemonProcess: false, isDaemonEnabled: () => false });
 
   client.start();
 

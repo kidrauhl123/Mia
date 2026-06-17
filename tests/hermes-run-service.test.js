@@ -93,14 +93,30 @@ test("buildRunPayload applies per-turn runtime model and control metadata", () =
 test("slashCommandText and lastUserPrompt share the same normalized message surface", () => {
   const runs = service();
   const messages = [
-    { role: "system", content: "/ignored" },
-    { role: "assistant", content: "ok" },
     { role: "user", content: " /status now " }
   ];
 
   assert.equal(runs.slashCommandText(messages), "/status now");
   assert.equal(runs.lastUserPrompt(messages), "/status now");
   assert.equal(runs.slashCommandText([{ role: "user", content: "hello" }]), "");
+});
+
+test("lastUserPrompt carries prior system and dialogue context for single-prompt engines", () => {
+  const runs = service();
+  const prompt = runs.lastUserPrompt([
+    { role: "system", content: "你是剧情主持" },
+    { role: "user", content: "前面我要选哪项", attachments: [{ name: "plan.png" }] },
+    { role: "assistant", content: "建议选 1" },
+    { role: "user", content: "那我选 1", attachments: [{ name: "choice.png" }] }
+  ]);
+
+  assert.match(prompt, /会话前文（按时间顺序）：/);
+  assert.match(prompt, /系统：你是剧情主持/);
+  assert.match(prompt, /用户：前面我要选哪项/);
+  assert.match(prompt, /ctx:plan\.png/);
+  assert.match(prompt, /助手：建议选 1/);
+  assert.match(prompt, /当前用户消息：\n那我选 1/);
+  assert.match(prompt, /ctx:choice\.png/);
 });
 
 test("readRunEventStream emits deltas and returns final run content", async () => {

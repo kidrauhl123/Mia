@@ -248,6 +248,19 @@ test("writeUserProfile preserves status badge choices", (t) => {
   assert.deepEqual(readJson(runtime.userProfile, {}).statusBadge, badge);
 });
 
+test("daemon settings are always enabled and ignore stale disable writes", (t) => {
+  const { runtime, store } = setup(t);
+  fs.mkdirSync(path.dirname(runtime.daemonSettings), { recursive: true });
+  fs.writeFileSync(runtime.daemonSettings, JSON.stringify({ enabled: false, host: "localhost", port: 27862 }));
+
+  assert.equal(store.daemonSettings().enabled, true);
+
+  const next = store.writeDaemonSettings({ enabled: false, host: "localhost", port: 27863 });
+
+  assert.deepEqual(next, { enabled: true, host: "localhost", port: 27863 });
+  assert.equal(readJson(runtime.daemonSettings, {}).enabled, true);
+});
+
 test("cursor-only writeCloudSettings cannot wipe credentials after a failed read", (t) => {
   const { runtime, store } = setup(t);
   // Signed-in state on disk.

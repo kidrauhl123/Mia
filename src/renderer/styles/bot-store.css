@@ -1,32 +1,37 @@
-/* 发现 AI 助手 / 联系人 —— 共用全局连续地板，顶栏 mode 胶囊，内容卡片浮在地板上。
-   发现 = 整块卡片网格；联系人 = 浮动白卡列表 + 详情内容卡片直接浮在地板上。 */
+/* 发现 AI 助手 / 联系人 —— 共用全局连续地板；只有控件和内容卡片浮在地板上。 */
 
-/* ── app-shell 改成「顶条一行 + 内容一行」，顶条横跨中栏+右栏 ── */
+/* ── 不为顶栏保留 grid 行：顶栏只是覆盖在地板上的浮动控件层 ── */
 .app-shell[data-active-view="contacts"],
 .app-shell[data-active-view="bot-store"] {
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  padding: 0;
   background: var(--workspace-floor);
 }
 .discover-top-bar { display: none; }
 .app-shell[data-active-view="contacts"] .discover-top-bar,
 .app-shell[data-active-view="bot-store"] .discover-top-bar {
+  position: absolute;
+  top: 16px;
+  right: 22px;
+  left: calc(var(--rail-column-width) + 22px);
+  z-index: 12;
   display: flex;
   align-items: center;
-  grid-column: 2 / -1;
-  grid-row: 1;
-  padding: 14px 22px 6px;
+  padding: 0;
   background: transparent;
-  border-radius: 0 14px 0 0;          /* 同技能：左上角直角、右上角圆 */
-  -webkit-app-region: drag;           /* 顶条空白处可拖窗（同 .topbar），胶囊保持可点 */
+  pointer-events: none;
 }
-.discover-mode-toggle { -webkit-app-region: no-drag; }
-/* rail 跨两行；列表/详情/网格都在第二行；发现模式无中栏可拖 */
+.discover-mode-toggle {
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+}
+/* rail / 列表 / 详情 / 网格都在同一个地板行；发现模式无中栏可拖 */
 .app-shell[data-active-view="contacts"] .nav-rail,
-.app-shell[data-active-view="bot-store"] .nav-rail { grid-row: 1 / -1; grid-column: 1; }
-.app-shell[data-active-view="contacts"] .contacts-sidebar { grid-row: 2; grid-column: 2; }
-.app-shell[data-active-view="contacts"] #sidebarResizeHandle { grid-row: 2; grid-column: 3; display: none; }
-.app-shell[data-active-view="contacts"] #contactsView { grid-row: 2; grid-column: 4; }
-.app-shell[data-active-view="bot-store"] #botStoreView { grid-row: 2; grid-column: 2 / -1; }
+.app-shell[data-active-view="bot-store"] .nav-rail { grid-row: 1; grid-column: 1; }
+.app-shell[data-active-view="contacts"] .contacts-sidebar { grid-row: 1; grid-column: 2; }
+.app-shell[data-active-view="contacts"] #sidebarResizeHandle { grid-row: 1; grid-column: 3; display: none; }
+.app-shell[data-active-view="contacts"] #contactsView { grid-row: 1; grid-column: 4; }
+.app-shell[data-active-view="bot-store"] #botStoreView { grid-row: 1; grid-column: 2 / -1; }
 .app-shell[data-active-view="bot-store"] #sidebarResizeHandle { display: none; }
 
 /* 两视图都去掉了自带顶栏，内容占满整格 */
@@ -41,7 +46,10 @@
   gap: 2px;
   padding: 3px;
   border-radius: 999px;
-  background: var(--field);
+  background: var(--floating-control-bg);
+  box-shadow: var(--floating-control-shadow);
+  -webkit-backdrop-filter: blur(18px) saturate(1.08);
+  backdrop-filter: blur(18px) saturate(1.08);
   isolation: isolate;
 }
 .discover-mode-toggle::before {
@@ -51,7 +59,7 @@
   width: var(--pill-w, 0px);
   border-radius: 999px;
   background: var(--surface);
-  box-shadow: 0 1px 3px rgba(17, 24, 39, 0.08);
+  box-shadow: var(--floating-control-pill-shadow);
   opacity: var(--pill-ready, 0);
   transform: translateX(var(--pill-x, 0px));
   pointer-events: none;
@@ -73,7 +81,11 @@
   cursor: pointer;
   transition: color 140ms ease;
 }
-.discover-mode-toggle button.active { color: var(--text); font-weight: 560; }
+.discover-mode-toggle button.active {
+  background: transparent;
+  color: var(--text);
+  font-weight: 560;
+}
 
 /* ── 联系人模式列表 = 一张悬浮白卡（四角圆润 + 与详情卡片同款阴影/描边）──
    整块是单一白卡（搜索+列表），靠 margin 在灰壳上浮起；阴影/描边与 .contact-note / .contact-capabilities 完全一致 */
@@ -81,7 +93,7 @@
   background: var(--surface);
   border-radius: var(--rail-corner-radius);
   box-shadow: var(--rail-expanded-shadow);
-  margin: 8px 8px 10px 0;
+  margin: 72px 8px 10px 0;
   overflow: hidden;
   gap: 0;
 }
@@ -95,24 +107,26 @@
   background: transparent;
 }
 /* 详情：无页面底板；里面的内容卡片直接浮在连续地板上 */
-.app-shell[data-active-view="contacts"] #contactsView {
+.app-shell[data-active-view="contacts"] #contactsView,
+.app-shell[data-active-view="bot-store"] #botStoreView {
+  margin: 0;
   background: transparent;
   box-shadow: none;
-  border-radius: 0 0 14px 0;
+  border-radius: 0;
+  overflow: visible;
 }
-.app-shell[data-active-view="bot-store"] #botStoreView {
-  box-shadow: none;
-  border-radius: 0 0 14px 0;
+.app-shell[data-active-view="contacts"] .contacts-layout {
+  padding-top: 84px;
 }
 
 .bot-store-layout {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: none;
   gap: 14px;
   min-height: 0;
-  padding: 8px 24px 24px;
+  padding: 84px 24px 24px;
   background: transparent;
-  overflow: hidden;
+  overflow: auto;
 }
 
 /* 顶部分类胶囊 —— 滑动白胶囊 */
@@ -120,10 +134,16 @@
   position: relative;
   display: inline-flex;
   align-self: start;
+  justify-self: start;
   gap: 2px;
+  width: fit-content;
+  max-width: 100%;
   padding: 3px;
   border-radius: 999px;
-  background: var(--field);
+  background: var(--floating-control-bg);
+  box-shadow: var(--floating-control-shadow);
+  -webkit-backdrop-filter: blur(18px) saturate(1.08);
+  backdrop-filter: blur(18px) saturate(1.08);
   isolation: isolate;
 }
 .bot-store-cap::before {
@@ -135,7 +155,7 @@
   width: var(--pill-w, 0px);
   border-radius: 999px;
   background: var(--surface);
-  box-shadow: 0 1px 3px rgba(17, 24, 39, 0.10);
+  box-shadow: var(--floating-control-pill-shadow);
   opacity: var(--pill-ready, 0);
   transform: translateX(var(--pill-x, 0px));
   pointer-events: none;
@@ -157,10 +177,14 @@
   cursor: pointer;
   transition: color 140ms ease;
 }
-.bot-store-cap button.active { color: var(--text); font-weight: 580; }
+.bot-store-cap button.active {
+  background: transparent;
+  color: var(--text);
+  font-weight: 580;
+}
 
 /* 卡片网格 */
-.bot-store-grid-scroll { overflow: auto; min-height: 0; }
+.bot-store-grid-scroll { overflow: visible; min-height: 0; }
 .bot-store-grid {
   display: grid;
   gap: 16px;
@@ -226,7 +250,7 @@
 
 .bot-store-empty {
   padding: 48px 12px;
-  color: var(--faint);
+  color: var(--floor-faint);
   text-align: center;
   font-size: 13px;
 }
@@ -626,9 +650,7 @@
   }
 }
 
-/* ── 窄窗(≤720px)：保留顶部胶囊条，内容(单列)放它下面 ──
-   沿用桌面的「顶条一行 + 内容一行」结构，胶囊条照常显示在 row1（否则窄屏切不了 发现/联系人）。
-   只做两件必要的事:① 详情桌面在 col4，窄屏只有两列须拉回 col2，否则跑屏外;② 列表沿用展开抽屉但降低阴影。 */
+/* ── 窄窗(≤720px)：胶囊条仍是浮动控件层，内容只通过 padding / margin 避开它 ── */
 @media (max-width: 720px) {
   .app-shell[data-active-view="contacts"],
   .app-shell[data-active-view="bot-store"] {
@@ -640,12 +662,12 @@
   }
 
   .contacts-workspace {
-    grid-template-rows: auto minmax(0, 1fr);   /* 给 narrow-back 留一行 */
+    grid-template-rows: minmax(0, 1fr);
   }
 
   /* 窄屏列表仍然是 rail 展开抽屉，只降低阴影，避免小窗贴边溢出 */
   .app-shell[data-active-view="contacts"] .contacts-sidebar {
-    margin: 8px 10px 10px 0;
+    margin: 66px 10px 10px 0;
     border-radius: var(--rail-corner-radius);
     box-shadow: none;
   }
@@ -653,12 +675,14 @@
   .app-shell[data-active-view="contacts"] .contacts-sidebar .contact-section {
     background: var(--surface);
   }
-  /* 顶条窄屏收一点内边距、去掉桌面的右上圆角 */
   .app-shell[data-active-view="contacts"] .discover-top-bar,
   .app-shell[data-active-view="bot-store"] .discover-top-bar {
-    padding: 10px 14px 6px;
-    border-radius: 0;
+    top: 12px;
+    right: 14px;
+    left: calc(var(--rail-column-width) + 14px);
   }
+  .app-shell[data-active-view="contacts"] .contacts-layout,
+  .bot-store-layout { padding-top: 76px; }
   .bot-store-scrim { padding: 14px; }
   .bot-store-sheet.is-enrolling {
     max-height: calc(100vh - 28px);

@@ -281,24 +281,37 @@ test("lottie icon styles keep filled shapes from gaining outline strokes", () =>
 });
 
 test("topbar mode toggles animate a shared selected capsule indicator", () => {
+  const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+  const botStoreCss = fs.readFileSync(path.join(root, "src/renderer/styles/bot-store.css"), "utf8");
   const skillCss = fs.readFileSync(path.join(root, "src/renderer/styles/skills.css"), "utf8");
   const taskCss = fs.readFileSync(path.join(root, "src/renderer/styles/tasks.css"), "utf8");
   const skillLibrary = fs.readFileSync(path.join(root, "src/renderer/skills/skill-library.js"), "utf8");
   const taskPanel = fs.readFileSync(path.join(root, "src/renderer/tasks/tasks-panel.js"), "utf8");
 
+  assert.match(baseCss, /--floating-control-bg:\s*color-mix\(in srgb,\s*var\(--surface\)\s*86%,\s*transparent\);/);
+  assert.match(baseCss, /--floating-control-shadow:\s*0 1px 2px rgba\(16,\s*20,\s*39,\s*0\.06\),\s*0 10px 28px rgba\(16,\s*20,\s*39,\s*0\.08\);/);
+  assert.match(baseCss, /--floating-control-pill-shadow:\s*0 1px 3px rgba\(17,\s*24,\s*39,\s*0\.08\);/);
+
   for (const [name, selector, css] of [
+    ["discover", "discover-mode-toggle", botStoreCss],
+    ["bot store category", "bot-store-cap", botStoreCss],
     ["skills", "skill-mode-toggle", skillCss],
     ["tasks", "task-mode-toggle", taskCss]
   ]) {
     assert.match(
       css,
-      new RegExp(`\\.${selector}\\s*\\{[^}]*position:\\s*relative;[^}]*isolation:\\s*isolate;`),
-      `${name} topbar toggle should establish a positioning layer for the animated capsule`
+      new RegExp(`\\.${selector}\\s*\\{[^}]*position:\\s*relative;[^}]*background:\\s*var\\(--floating-control-bg\\);[^}]*box-shadow:\\s*var\\(--floating-control-shadow\\);[^}]*backdrop-filter:\\s*blur\\(18px\\) saturate\\(1\\.08\\);[^}]*isolation:\\s*isolate;`),
+      `${name} toggle should be a floating control card on the workspace floor`
     );
     assert.match(
       css,
-      new RegExp(`\\.${selector}::before\\s*\\{[^}]*width:\\s*var\\(--pill-w,\\s*0px\\);[^}]*transform:\\s*translateX\\(var\\(--pill-x,\\s*0px\\)\\);[^}]*transition:\\s*transform\\s+\\d+ms[^;]*,\\s*width\\s+\\d+ms[^;]*,\\s*opacity\\s+\\d+ms`),
+      new RegExp(`\\.${selector}::before\\s*\\{[^}]*width:\\s*var\\(--pill-w,\\s*0px\\);[^}]*background:\\s*var\\(--surface\\);[^}]*box-shadow:\\s*var\\(--floating-control-pill-shadow\\);[^}]*transform:\\s*translateX\\(var\\(--pill-x,\\s*0px\\)\\);[^}]*transition:\\s*transform\\s+\\d+ms[^;]*,\\s*width\\s+\\d+ms[^;]*,\\s*opacity\\s+\\d+ms`),
       `${name} topbar toggle should move one selected capsule instead of swapping button backgrounds`
+    );
+    assert.match(
+      css,
+      new RegExp(`\\.${selector}\\s+button\\s*\\{[^}]*color:\\s*var\\(--muted\\);`),
+      `${name} inactive toggle labels should use the floating card text palette`
     );
     assert.match(
       css,
@@ -322,6 +335,177 @@ test("topbar mode toggles animate a shared selected capsule indicator", () => {
     /syncModeToggleIndicator\(host\)/,
     "task mode toggle should sync the selected capsule after render"
   );
+});
+
+test("floating-floor text uses adaptive floor colors outside surface cards", () => {
+  const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+  const botStoreCss = fs.readFileSync(path.join(root, "src/renderer/styles/bot-store.css"), "utf8");
+  const skillCss = fs.readFileSync(path.join(root, "src/renderer/styles/skills.css"), "utf8");
+  const taskCss = fs.readFileSync(path.join(root, "src/renderer/styles/tasks.css"), "utf8");
+
+  assert.match(
+    skillCss,
+    /\.skills-search\s*\{[^}]*color:\s*var\(--faint\);/,
+    "skills search icon sits inside a floating card and should use the normal card palette"
+  );
+  assert.match(
+    skillCss,
+    /\.skills-search\s+input\s*\{[^}]*color:\s*var\(--text\);/,
+    "skills search input sits inside a floating card and should use the normal card palette"
+  );
+  assert.match(
+    skillCss,
+    /\.skills-search\s+input::placeholder\s*\{[^}]*color:\s*var\(--muted\);/,
+    "skills search placeholder sits inside a floating card and should use the normal card palette"
+  );
+
+  assert.match(baseCss, /\.contact-empty\.detail-empty\s*\{[^}]*color:\s*var\(--floor-muted\);/);
+  assert.match(botStoreCss, /\.bot-store-empty\s*\{[^}]*color:\s*var\(--floor-faint\);/);
+  assert.match(skillCss, /\.skill-empty-state\s*\{[^}]*color:\s*var\(--floor-faint\);/);
+  assert.match(taskCss, /\.tasks-empty\s*\{[^}]*color:\s*var\(--floor-muted\);/);
+  assert.match(taskCss, /\.tasks-empty h2\s*\{[^}]*color:\s*var\(--floor-text\);/);
+  assert.match(taskCss, /\.tasks-empty em\s*\{[^}]*color:\s*var\(--floor-text\);/);
+  assert.match(taskCss, /\.task-mode-count\s*\{[^}]*color:\s*var\(--faint\);/);
+  assert.match(
+    taskCss,
+    /\.task-mode-toggle button\.active \.task-mode-count\s*\{[^}]*color:\s*var\(--faint\);/,
+    "selected task mode counts sit on a surface capsule and should not use bright floor text"
+  );
+});
+
+test("discover, skill, and task controls float over one continuous workspace floor", () => {
+  const botStoreCss = fs.readFileSync(path.join(root, "src/renderer/styles/bot-store.css"), "utf8");
+  const skillCss = fs.readFileSync(path.join(root, "src/renderer/styles/skills.css"), "utf8");
+  const taskCss = fs.readFileSync(path.join(root, "src/renderer/styles/tasks.css"), "utf8");
+
+  assert.match(
+    botStoreCss,
+    /\.app-shell\[data-active-view="contacts"\],\s*\.app-shell\[data-active-view="bot-store"\]\s*\{[^}]*grid-template-rows:\s*minmax\(0,\s*1fr\);/,
+    "contacts and discover should not reserve a fake topbar grid row"
+  );
+  assert.match(
+    botStoreCss,
+    /\.app-shell\[data-active-view="contacts"\]\s+\.discover-top-bar,\s*\.app-shell\[data-active-view="bot-store"\]\s+\.discover-top-bar\s*\{[^}]*position:\s*absolute;[^}]*pointer-events:\s*none;/,
+    "discover topbar container should float over the floor without eating floor clicks"
+  );
+  assert.match(
+    botStoreCss,
+    /\.discover-mode-toggle\s*\{[^}]*pointer-events:\s*auto;/,
+    "discover mode toggle itself should remain clickable"
+  );
+  assert.match(
+    botStoreCss,
+    /\.app-shell\[data-active-view="contacts"\]\s+\.contacts-sidebar\s*\{[^}]*grid-row:\s*1;/
+  );
+  assert.match(
+    botStoreCss,
+    /\.app-shell\[data-active-view="bot-store"\]\s+#botStoreView\s*\{[^}]*grid-row:\s*1;/
+  );
+  assert.match(
+    botStoreCss,
+    /\.bot-store-layout\s*\{[^}]*overflow:\s*auto;/,
+    "bot store should scroll the whole workspace floor, not an inner list window"
+  );
+  assert.match(
+    botStoreCss,
+    /\.bot-store-grid-scroll\s*\{[^}]*overflow:\s*visible;/,
+    "bot store grid wrapper should not create a second scroll boundary"
+  );
+
+  for (const [name, css, workspaceSelector, topbarSelector, contentSelector] of [
+    ["skills", skillCss, "skills-workspace", "skills-topbar", "skills-layout"],
+    ["tasks", taskCss, "tasks-workspace", "tasks-topbar", "tasks-layout"]
+  ]) {
+    assert.match(
+      css,
+      new RegExp(`\\.${workspaceSelector}\\s*\\{[^}]*grid-template-rows:\\s*minmax\\(0,\\s*1fr\\);`),
+      `${name} workspace should not reserve a fake topbar grid row`
+    );
+    assert.match(
+      css,
+      new RegExp(`\\.${topbarSelector}\\s*\\{[^}]*position:\\s*absolute;[^}]*pointer-events:\\s*none;`),
+      `${name} topbar container should float over the floor without eating floor clicks`
+    );
+    assert.match(
+      css,
+      new RegExp(`\\.${topbarSelector}\\s*>\\s*\\*\\s*\\{[^}]*pointer-events:\\s*auto;`),
+      `${name} floating topbar controls should remain clickable`
+    );
+    assert.match(
+      css,
+      new RegExp(`\\.${contentSelector}\\s*\\{[^}]*grid-template-rows:\\s*none;[^}]*overflow:\\s*auto;`),
+      `${name} content should scroll as one floor rather than a row-limited panel`
+    );
+  }
+});
+
+test("floating-floor pages remove the workspace frame even in narrow layouts", () => {
+  const botStoreCss = fs.readFileSync(path.join(root, "src/renderer/styles/bot-store.css"), "utf8");
+  const skillCss = fs.readFileSync(path.join(root, "src/renderer/styles/skills.css"), "utf8");
+  const taskCss = fs.readFileSync(path.join(root, "src/renderer/styles/tasks.css"), "utf8");
+
+  assert.match(
+    botStoreCss,
+    /\.app-shell\[data-active-view="contacts"\],\s*\.app-shell\[data-active-view="bot-store"\]\s*\{[^}]*padding:\s*0;/,
+    "contacts/discover should not keep the app-shell padding as a blue edge"
+  );
+  assert.match(
+    botStoreCss,
+    /\.app-shell\[data-active-view="contacts"\]\s+#contactsView,\s*\.app-shell\[data-active-view="bot-store"\]\s+#botStoreView\s*\{[^}]*margin:\s*0;[^}]*border-radius:\s*0;[^}]*overflow:\s*visible;/,
+    "contacts/discover workspaces should override the narrow workspace margin and rounded frame"
+  );
+
+  for (const [name, css, activeView, viewId] of [
+    ["skills", skillCss, "skills", "skillsView"],
+    ["tasks", taskCss, "tasks", "tasksView"]
+  ]) {
+    assert.match(
+      css,
+      new RegExp(`\\.app-shell\\[data-active-view="${activeView}"\\]\\s*\\{[^}]*padding:\\s*0;`),
+      `${name} should not keep the app-shell padding as a blue edge`
+    );
+    assert.match(
+      css,
+      new RegExp(`\\.app-shell\\[data-active-view="${activeView}"\\]\\s+#${viewId}\\s*\\{[^}]*margin:\\s*0;[^}]*border-radius:\\s*0;[^}]*overflow:\\s*visible;`),
+      `${name} workspace should override the narrow workspace margin and rounded frame`
+    );
+  }
+});
+
+test("skill and task category filters are redesigned as individual floating chips", () => {
+  const skillCss = fs.readFileSync(path.join(root, "src/renderer/styles/skills.css"), "utf8");
+  const taskCss = fs.readFileSync(path.join(root, "src/renderer/styles/tasks.css"), "utf8");
+
+  for (const [name, selector, css] of [
+    ["skills", "skill-chip-row", skillCss],
+    ["tasks", "task-chip-row", taskCss]
+  ]) {
+    assert.match(
+      css,
+      new RegExp(`\\.${selector}\\s*\\{[^}]*padding:\\s*0;[^}]*border-radius:\\s*0;[^}]*background:\\s*transparent;[^}]*box-shadow:\\s*none;[^}]*flex-wrap:\\s*wrap;`),
+      `${name} category row should not be one oversized floating card`
+    );
+    assert.match(
+      css,
+      new RegExp(`\\.${selector}\\s+button\\s*\\{[^}]*background:\\s*var\\(--floating-control-bg\\);[^}]*box-shadow:\\s*var\\(--floating-control-shadow\\);[^}]*backdrop-filter:\\s*blur\\(18px\\) saturate\\(1\\.08\\);[^}]*color:\\s*var\\(--muted\\);`),
+      `${name} inactive category chips should each be their own floating chip`
+    );
+    assert.match(
+      css,
+      new RegExp(`\\.${selector}\\s+button\\s+span\\s*\\{[^}]*color:\\s*var\\(--faint\\);`),
+      `${name} inactive category chip counts should use the normal floating card palette`
+    );
+    assert.match(
+      css,
+      new RegExp(`\\.${selector}\\s+button\\.active\\s*\\{[^}]*background:\\s*var\\(--surface\\);[^}]*color:\\s*var\\(--text\\);[^}]*box-shadow:\\s*var\\(--floating-control-shadow\\);`),
+      `${name} active category chip should stay independent instead of relying on a parent card`
+    );
+    assert.match(
+      css,
+      new RegExp(`\\.${selector}\\s+button(?::hover|\\.active)\\s+span\\s*\\{[^}]*color:\\s*var\\(--faint\\);`),
+      `${name} counts should return to the normal surface palette on white chips`
+    );
+  }
 });
 
 test("task preview dialog uses a structured inspector layout", () => {

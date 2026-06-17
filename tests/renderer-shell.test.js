@@ -137,6 +137,7 @@ test("desktop shell uses optional middle pane by active view", () => {
   assert.match(appSource, /setAttribute\("data-layout", legacyGridLayoutForView\(state\.activeView\)\)/);
   assert.match(appSource, /setAttribute\("data-shell-layout", state\.shellLayout\)/);
   assert.match(appSource, /function syncSidebarCollapseState\(\)/);
+  assert.match(appSource, /function sidebarCollapseSupported\(view = state\.activeView\)\s*\{\s*return !state\.isNarrowWindow && view === "chat";\s*\}/);
   assert.match(appSource, /setAttribute\("data-sidebar-state", collapsed \? "collapsed" : "expanded"\)/);
   assert.match(appSource, /localStorage\.setItem\("mia\.sidebarCollapsed\.v1", state\.sidebarCollapsed \? "1" : "0"\)/);
   assert.match(appSource, /if \(state\.isNarrowWindow && viewHasIndexPane\(state\.activeView\)\) \{\s*showNarrowSidebar\(\);/);

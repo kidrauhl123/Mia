@@ -38,7 +38,9 @@ test("desktop responds when the cloud requests a bot invocation", async () => {
   assert.equal(calls.responder[0].conversationId, "g_1");
   assert.equal(calls.responder[0].botId, "codex");
   assert.equal(calls.responder[0].dedupKey, "m_1:codex");
-  assert.match(calls.responder[0].systemPrompt, /背景/);
+  assert.deepEqual(calls.responder[0].historyMessages, [
+    { role: "user", content: "[user:u_1] 背景" }
+  ]);
 });
 
 test("desktop ignores bot invocations without a target device", async () => {

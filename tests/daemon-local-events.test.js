@@ -127,7 +127,7 @@ test("local events stream rejects a missing or wrong daemon token", async (t) =>
   assert.deepEqual(received, []);
 });
 
-test("client stays idle while the daemon toggle is off", () => {
+test("client stays idle while a dev hook disables local events", () => {
   let requests = 0;
   const timers = [];
   const client = createLocalEventsClient({

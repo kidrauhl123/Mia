@@ -1,15 +1,17 @@
 "use strict";
 
-const PROCESSED_CAP = 500;
+const { CloudEvent } = require("../../shared/cloud-events.js");
 
-function shouldHandleLocalCloudConversationAi({ isDaemon, daemonEnabled, daemonReachable = false }) {
-  // Single owner (ADR 2026-06-12 desktop-single-owner-daemon): while the daemon
-  // is enabled it is the only executor; the window runs an invocation only as a
-  // dead-daemon fallback (reachability probed by the caller). With the daemon
-  // disabled the window is the sole owner. Never both.
-  if (isDaemon) return Boolean(daemonEnabled);
-  if (!daemonEnabled) return true;
-  return !daemonReachable;
+const PROCESSED_CAP = 500;
+const HISTORY_MESSAGE_LIMIT = 80;
+const HISTORY_MESSAGE_CHAR_LIMIT = 4000;
+const HISTORY_TOTAL_CHAR_LIMIT = 24000;
+
+function shouldHandleLocalCloudConversationAi({ isDaemon, daemonEnabled }) {
+  // Single owner (ADR 2026-06-12 desktop-single-owner-daemon): only the daemon
+  // executes bot turns. The foreground window never falls back to running
+  // runtime work because that splits cursor/run/session ownership.
+  return Boolean(isDaemon && daemonEnabled);
 }
 
 function clientOpIdForDedupKey(dedupKey) {
@@ -28,6 +30,14 @@ function errorClientOpIdForDedupKey(dedupKey) {
 function responseText(result) {
   const message = result?.choices?.[0]?.message || result?.message || {};
   return String(message.content || result?.content || "").trim();
+}
+
+function postedMessageFromResult(result) {
+  const direct = result?.message;
+  if (direct && typeof direct === "object" && !Array.isArray(direct)) return direct;
+  const nested = result?.data?.message;
+  if (nested && typeof nested === "object" && !Array.isArray(nested)) return nested;
+  return null;
 }
 
 function normalizeToolStatus(status) {
@@ -161,6 +171,38 @@ function userFacingFailureMessage(message) {
   return `我这次没能生成回复：${summary}。${reason}${advice}`;
 }
 
+function normalizedHistoryRole(role) {
+  const value = String(role || "").trim();
+  if (value === "assistant" || value === "system") return value;
+  return "user";
+}
+
+function truncateHistoryContent(content) {
+  const text = String(content || "").trim();
+  if (text.length <= HISTORY_MESSAGE_CHAR_LIMIT) return text;
+  return `${text.slice(0, Math.max(0, HISTORY_MESSAGE_CHAR_LIMIT - 1)).trimEnd()}…`;
+}
+
+function normalizeHistoryMessages(historyMessages) {
+  const rows = (Array.isArray(historyMessages) ? historyMessages : [])
+    .map((message) => ({
+      role: normalizedHistoryRole(message?.role),
+      content: truncateHistoryContent(message?.content)
+    }))
+    .filter((message) => message.content)
+    .slice(-HISTORY_MESSAGE_LIMIT);
+  const selected = [];
+  let total = 0;
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const message = rows[index];
+    const nextTotal = total + message.content.length;
+    if (selected.length && nextTotal > HISTORY_TOTAL_CHAR_LIMIT) break;
+    selected.push(message);
+    total = nextTotal;
+  }
+  return selected.reverse();
+}
+
 // Composer "使用" chips travel with the user's cloud message (skills_json). Pull
 // the selected skill ids off the triggering message so the responder can drive
 // the agent with them — one source of truth, works across devices.
@@ -185,13 +227,47 @@ function activeSkillIdsFromMessage(message) {
   return ids;
 }
 
-function createLocalBotResponder({ sendChat, postConversationMessageAsBot, emitCloudEvent = () => {}, log = () => {} }) {
+function normalizeMessageSeq(message) {
+  const value = Number(message?.seq);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function hasBotReplyAfterTrigger(messages, { botId, triggerSeq, triggerMessageId, turnId }) {
+  const rows = Array.isArray(messages) ? messages : [];
+  const targetBot = String(botId || "");
+  const targetTurn = String(turnId || "");
+  const triggerId = String(triggerMessageId || "");
+  const afterSeq = Number(triggerSeq) || 0;
+  for (const message of rows) {
+    if (!message || String(message.sender_kind || "") !== "bot") continue;
+    if (targetBot && String(message.sender_ref || "") !== targetBot) continue;
+    if (afterSeq && normalizeMessageSeq(message) <= afterSeq) continue;
+    if (targetTurn && String(message.turn_id || "") === targetTurn) return true;
+    const body = String(message.body_md || "").trim();
+    const createdAt = String(message.created_at || "").trim();
+    if (!targetTurn && (body || createdAt)) return true;
+    if (triggerId && String(message.trigger_message_id || "") === triggerId) return true;
+  }
+  return false;
+}
+
+function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listConversationMessages = null, emitCloudEvent = () => {}, log = () => {} }) {
   const processed = new Set();
   const inFlight = new Set();
 
   function remember(key) {
     processed.add(key);
     if (processed.size > PROCESSED_CAP) processed.delete(processed.values().next().value);
+  }
+
+  function emitPostedMessage(conversationId, result) {
+    const message = postedMessageFromResult(result);
+    if (!conversationId || !message?.id) return;
+    emitCloudEvent({
+      type: CloudEvent.ConversationMessageAppended,
+      conversationId,
+      message
+    });
   }
 
   async function postFailureMessage({ conversationId, botId, dedupKey, turnId, stage, error }) {
@@ -205,6 +281,7 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, emitC
         clientOpId: errorClientOpIdForDedupKey(dedupKey)
       });
       if (result && result.ok === false) throw new Error(result.error || result.message || "post failed");
+      emitPostedMessage(conversationId, result);
       return true;
     } catch (postError) {
       log(`[local-bot-responder] failure post failed: ${postError?.message || postError}`);
@@ -219,11 +296,31 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, emitC
     return id.startsWith("g_") || id.startsWith("g-");
   }
 
-  async function respond({ conversationId, conversationType = "", botId, botSnapshot = null, dedupKey, systemPrompt, userPrompt, turnId = null, runtimeConfig = null, activeSkillIds = [] }) {
+  async function replyAlreadyExists({ conversationId, botId, triggerSeq, triggerMessageId, turnId }) {
+    if (typeof listConversationMessages !== "function") return false;
+    const sinceSeq = Math.max(0, (Number(triggerSeq) || 0) - 1);
+    try {
+      const result = await listConversationMessages(conversationId, sinceSeq, 50);
+      const messages = Array.isArray(result?.messages) ? result.messages : (Array.isArray(result) ? result : []);
+      return hasBotReplyAfterTrigger(messages, { botId, triggerSeq, triggerMessageId, turnId });
+    } catch (error) {
+      log(`[local-bot-responder] reply existence check failed: ${error?.message || error}`);
+      return false;
+    }
+  }
+
+  async function respond({ conversationId, conversationType = "", botId, botSnapshot = null, dedupKey, triggerMessageId = "", triggerSeq = 0, systemPrompt, historyMessages = [], userPrompt, turnId = null, runtimeConfig = null, activeSkillIds = [] }) {
     if (!conversationId || !botId || !dedupKey) return;
     if (processed.has(dedupKey)) return;
     if (inFlight.has(dedupKey)) return;
     inFlight.add(dedupKey);
+
+    const resolvedTriggerMessageId = triggerMessageId || triggerMessageIdForDedupKey(dedupKey);
+    if (await replyAlreadyExists({ conversationId, botId, triggerSeq, triggerMessageId: resolvedTriggerMessageId, turnId })) {
+      remember(dedupKey);
+      inFlight.delete(dedupKey);
+      return false;
+    }
 
     let text = "";
     const runId = runIdForDedupKey(dedupKey);
@@ -233,7 +330,7 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, emitC
       runId,
       conversationId,
       botId,
-      triggerMessageId: triggerMessageIdForDedupKey(dedupKey)
+      triggerMessageId: resolvedTriggerMessageId
     });
     try {
       const chatArgs = {
@@ -242,6 +339,7 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, emitC
         sessionId: `conversation:${conversationId}`,
         messages: [
           { role: "system", content: systemPrompt || "" },
+          ...normalizeHistoryMessages(historyMessages),
           { role: "user", content: userPrompt || "" }
         ],
         group: isGroupConversation(conversationId, conversationType),
@@ -323,6 +421,7 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, emitC
         ...(tracePayload ? { trace: tracePayload } : {})
       });
       if (result && result.ok === false) throw new Error(result.error || result.message || "post failed");
+      emitPostedMessage(conversationId, result);
       remember(dedupKey);
       inFlight.delete(dedupKey);
       return true;
@@ -347,6 +446,7 @@ module.exports = {
   activeSkillIdsFromMessage,
   clientOpIdForDedupKey,
   createLocalBotResponder,
+  postedMessageFromResult,
   runIdForDedupKey,
   responseText,
   shouldHandleLocalCloudConversationAi

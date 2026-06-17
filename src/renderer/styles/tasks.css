@@ -1,9 +1,20 @@
 /* 任务 — 单列全屏卡片网格，参照 skills 页面。 */
 
 .tasks-workspace {
-  grid-template-rows: auto minmax(0, 1fr);
+  position: relative;
+  grid-template-rows: minmax(0, 1fr);
   grid-column: 2 / -1;
   box-shadow: none;   /* 纯平，与 发现/联系人 一致：层次靠白卡而非面板投影 */
+}
+
+.app-shell[data-active-view="tasks"] {
+  padding: 0;
+}
+
+.app-shell[data-active-view="tasks"] #tasksView {
+  margin: 0;
+  border-radius: 0;
+  overflow: visible;
 }
 
 .app-shell[data-active-view="tasks"] #sidebarResizeHandle {
@@ -11,9 +22,22 @@
 }
 
 .tasks-topbar {
+  position: absolute;
+  top: 18px;
+  right: 24px;
+  left: 24px;
+  z-index: 12;
   align-items: center;
+  height: auto;
+  min-height: 0;
+  padding: 0;
   border-bottom: 0;
   background: transparent;
+  pointer-events: none;
+}
+
+.tasks-topbar > * {
+  pointer-events: auto;
 }
 
 /* Primary action: split button "通过聊天创建" + chevron dropdown.
@@ -74,7 +98,10 @@
   gap: 2px;
   padding: 3px;
   border-radius: 999px;
-  background: var(--field);
+  background: var(--floating-control-bg);
+  box-shadow: var(--floating-control-shadow);
+  -webkit-backdrop-filter: blur(18px) saturate(1.08);
+  backdrop-filter: blur(18px) saturate(1.08);
   isolation: isolate;
 }
 .task-mode-toggle::before {
@@ -86,7 +113,7 @@
   width: var(--pill-w, 0px);
   border-radius: 999px;
   background: var(--surface);
-  box-shadow: 0 1px 3px rgba(17, 24, 39, 0.08);
+  box-shadow: var(--floating-control-pill-shadow);
   opacity: var(--pill-ready, 0);
   pointer-events: none;
   transform: translateX(var(--pill-x, 0px));
@@ -119,6 +146,9 @@
   color: var(--faint);
   font-size: 12px;
 }
+.task-mode-toggle button.active .task-mode-count {
+  color: var(--faint);
+}
 .task-mode-unread {
   min-width: 17px;
   height: 17px;
@@ -143,10 +173,10 @@
 
 .tasks-layout {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: none;
   gap: 18px;
   min-height: 0;
-  padding: 16px 24px 24px;
+  padding: 98px 24px 24px;
   background: transparent;
   overflow: auto;
 }
@@ -155,16 +185,25 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  width: auto;
+  max-width: 100%;
   min-width: 0;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
   flex-wrap: wrap;
 }
 .task-chip-row button {
   flex: 0 0 auto;
-  min-height: 32px;
+  min-height: 34px;
   padding: 0 16px;
   border: 0;
   border-radius: 999px;
-  background: transparent;
+  background: var(--floating-control-bg);
+  box-shadow: var(--floating-control-shadow);
+  -webkit-backdrop-filter: blur(18px) saturate(1.08);
+  backdrop-filter: blur(18px) saturate(1.08);
   color: var(--muted);
   font-size: 13px;
   font-weight: 450;
@@ -176,12 +215,14 @@
   font-size: 12px;
 }
 .task-chip-row button:hover { background: var(--surface); color: var(--text); }
+.task-chip-row button:hover span { color: var(--faint); }
 .task-chip-row button.active {
   background: var(--surface);
   color: var(--text);
   font-weight: 560;
-  box-shadow: 0 1px 3px rgba(17, 24, 39, 0.06);
+  box-shadow: var(--floating-control-shadow);
 }
+.task-chip-row button.active span { color: var(--faint); }
 
 .task-card-grid {
   display: grid;
@@ -298,14 +339,14 @@
   justify-content: center;
   min-height: 320px;
   text-align: center;
-  color: var(--muted);
+  color: var(--floor-muted);
   gap: 12px;
   padding: 48px 32px;
 }
 .tasks-empty-emoji { font-size: 64px; opacity: 0.7; line-height: 1; }
-.tasks-empty h2 { font-size: 16px; font-weight: 600; margin: 0; color: var(--text); }
+.tasks-empty h2 { font-size: 16px; font-weight: 600; margin: 0; color: var(--floor-text); }
 .tasks-empty p { margin: 0; font-size: 13px; line-height: 1.6; }
-.tasks-empty em { font-style: italic; color: var(--text); }
+.tasks-empty em { font-style: italic; color: var(--floor-text); }
 .tasks-empty .secondary {
   margin-top: 4px; padding: 6px 14px; font-size: 13px; cursor: pointer;
   border: 0; border-radius: 8px;

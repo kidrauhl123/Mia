@@ -65,6 +65,31 @@ test("respond runs the local engine and posts the reply as the bot", async () =>
   }]);
 });
 
+test("respond passes structured conversation history before the current user turn", async () => {
+  const { responder, calls } = setup();
+
+  await responder.respond({
+    ...base,
+    historyMessages: [
+      { role: "user", content: "前面问：要不要去" },
+      { role: "assistant", content: "建议先别表态" },
+      { role: "system", content: "这是一条系统提示" },
+      { role: "ignored", content: "非法 role 当用户处理" },
+      { role: "assistant", content: "   " }
+    ],
+    userPrompt: "那我选 1"
+  });
+
+  assert.deepEqual(calls.engine[0].messages, [
+    { role: "system", content: "sys" },
+    { role: "user", content: "前面问：要不要去" },
+    { role: "assistant", content: "建议先别表态" },
+    { role: "system", content: "这是一条系统提示" },
+    { role: "user", content: "非法 role 当用户处理" },
+    { role: "user", content: "那我选 1" }
+  ]);
+});
+
 test("respond folds the message's skill chips into the engine turn", async () => {
   const { responder, calls } = setup();
 
@@ -123,6 +148,67 @@ test("respond emits a transient conversation run start before the local engine c
   assert.equal(calls.cloudEvents[0].botId, "codex");
   assert.equal(calls.cloudEvents[0].triggerMessageId, "m_1");
   assert.match(calls.cloudEvents[0].runId, /^local_/);
+});
+
+test("respond publishes the persisted bot message immediately after posting it", async () => {
+  const postedMessage = {
+    id: "m_bot_1",
+    seq: 2,
+    sender_kind: "bot",
+    sender_ref: "codex",
+    body_md: "hi from codex"
+  };
+  const { responder, calls } = setup({
+    postConversationMessageAsBot: async (conversationId, body) => {
+      calls.post.push({ conversationId, body });
+      return { message: postedMessage };
+    }
+  });
+
+  await responder.respond(base);
+
+  assert.deepEqual(calls.cloudEvents.at(-1), {
+    type: "conversation.message_appended",
+    conversationId: "g_1",
+    message: postedMessage
+  });
+});
+
+test("respond skips replayed invocations when the bot already replied to the trigger turn", async () => {
+  const calls = { engine: [], post: [], list: [], cloudEvents: [], log: [] };
+  const responder = createLocalBotResponder({
+    sendChat: async (args) => {
+      calls.engine.push(args);
+      return { choices: [{ message: { content: "should not run" } }] };
+    },
+    postConversationMessageAsBot: async (conversationId, body) => {
+      calls.post.push({ conversationId, body });
+      return { ok: true };
+    },
+    listConversationMessages: async (conversationId, sinceSeq, limit) => {
+      calls.list.push({ conversationId, sinceSeq, limit });
+      return {
+        messages: [
+          { id: "m_1", seq: 21, sender_kind: "user", sender_ref: "u_1", turn_id: "t_1", body_md: "3" },
+          { id: "m_2", seq: 22, sender_kind: "bot", sender_ref: "codex", turn_id: "t_1", body_md: "done", created_at: "2026-06-17T09:17:02.599Z" }
+        ]
+      };
+    },
+    emitCloudEvent: (event) => calls.cloudEvents.push(event),
+    log: (line) => calls.log.push(line)
+  });
+
+  const handled = await responder.respond({
+    ...base,
+    triggerSeq: 21,
+    triggerMessageId: "m_1"
+  });
+
+  assert.equal(handled, false);
+  assert.deepEqual(calls.list, [{ conversationId: "g_1", sinceSeq: 20, limit: 50 }]);
+  assert.equal(calls.engine.length, 0);
+  assert.equal(calls.post.length, 0);
+  assert.equal(calls.cloudEvents.length, 0);
 });
 
 test("respond streams local engine trace events through cloud run events and saves final trace", async () => {
@@ -333,11 +419,10 @@ test("respond skips incomplete invocations", async () => {
 });
 
 test("shouldHandleLocalCloudConversationAi keeps a single execution owner (ADR 2026-06-12)", () => {
-  // Enabled daemon owns execution; the window only covers a dead daemon.
+  // Daemon owns execution; the window never covers a dead or disabled daemon.
   assert.equal(shouldHandleLocalCloudConversationAi({ isDaemon: true, daemonEnabled: true }), true);
   assert.equal(shouldHandleLocalCloudConversationAi({ isDaemon: false, daemonEnabled: true, daemonReachable: true }), false);
-  assert.equal(shouldHandleLocalCloudConversationAi({ isDaemon: false, daemonEnabled: true, daemonReachable: false }), true);
-  // Daemon disabled: the window is the sole owner, a lingering daemon must not run.
-  assert.equal(shouldHandleLocalCloudConversationAi({ isDaemon: false, daemonEnabled: false }), true);
+  assert.equal(shouldHandleLocalCloudConversationAi({ isDaemon: false, daemonEnabled: true, daemonReachable: false }), false);
+  assert.equal(shouldHandleLocalCloudConversationAi({ isDaemon: false, daemonEnabled: false }), false);
   assert.equal(shouldHandleLocalCloudConversationAi({ isDaemon: true, daemonEnabled: false }), false);
 });
