@@ -18,7 +18,9 @@
     accentColor: DEFAULT_ACCENT,
     userBubbleColor: DEFAULT_USER_BUBBLE,
     showUserAvatar: true,
-    showAssistantAvatar: true
+    showAssistantAvatar: true,
+    workspaceBackgroundColor: "",
+    workspaceBackgroundImage: ""
   };
 
   let current = { ...defaults };
@@ -63,6 +65,18 @@
     if (next.userBubbleColor) {
       root.style.setProperty("--user-bubble-color", next.userBubbleColor);
     }
+    if (/^#[0-9a-fA-F]{6}$/.test(String(next.workspaceBackgroundColor || ""))) {
+      root.style.setProperty("--workspace-floor", String(next.workspaceBackgroundColor).toLowerCase());
+    } else {
+      root.style.removeProperty("--workspace-floor");
+    }
+    const image = String(next.workspaceBackgroundImage || "").trim();
+    root.style.setProperty(
+      "--workspace-floor-image",
+      /^data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=\s]+$/i.test(image) && image.length <= 4 * 1024 * 1024
+        ? `url("${image.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/[\n\r\f]/g, "")}")`
+        : "none"
+    );
   }
 
   function init() {

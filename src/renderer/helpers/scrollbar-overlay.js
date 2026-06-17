@@ -39,14 +39,35 @@
     return scrollbarOverlayEl;
   }
 
+  function scrollbarOverlayTrackRect(target) {
+    if (!(target instanceof Element)) return;
+    const rect = target.getBoundingClientRect();
+    if (target.id === "chat") {
+      const composer = document.querySelector("#chatView .composer-card");
+      const composerRect = composer?.getBoundingClientRect?.();
+      if (!composerRect || composerRect.top <= rect.top) return rect;
+      const trackBottom = Math.min(rect.bottom, composerRect.top);
+      return {
+        top: rect.top,
+        right: rect.right,
+        bottom: trackBottom,
+        left: rect.left,
+        width: rect.width,
+        height: Math.max(0, trackBottom - rect.top)
+      };
+    }
+    return rect;
+  }
+
   function scrollbarOverlayMetrics(target) {
     if (!(target instanceof Element)) return;
     const maxScroll = target.scrollHeight - target.clientHeight;
     if (maxScroll <= 0) return;
-    const rect = target.getBoundingClientRect();
+    const trackRect = scrollbarOverlayTrackRect(target);
+    const rect = trackRect;
     if (rect.width <= 0 || rect.height <= 0) return;
     const trackInset = 3;
-    const trackHeight = Math.max(0, rect.height - trackInset * 2);
+    const trackHeight = Math.max(0, trackRect.height - trackInset * 2);
     const thumbHeight = Math.max(28, Math.min(trackHeight, (target.clientHeight / target.scrollHeight) * trackHeight));
     const travel = Math.max(0, trackHeight - thumbHeight);
     return { rect, maxScroll, trackInset, trackHeight, thumbHeight, travel };
@@ -183,6 +204,7 @@
 
   window.miaScrollbarOverlay = {
     ensureScrollbarOverlay,
+    scrollbarOverlayTrackRect,
     scrollbarOverlayMetrics,
     updateScrollbarOverlay,
     hideScrollbarOverlay,

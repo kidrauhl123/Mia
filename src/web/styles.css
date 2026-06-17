@@ -5,6 +5,8 @@
   --surface: #ffffff;
   --surface-soft: rgba(255, 255, 255, 0.9);
   --surface-muted: #f5f5f8;
+  --workspace-floor: var(--surface-muted);
+  --workspace-floor-image: none;
   --field: rgba(0, 0, 0, 0.06);
   --hover: rgba(0, 0, 0, 0.06);
   --line: rgba(0, 0, 0, 0.08);
@@ -330,6 +332,10 @@ p {
 
 .app-shell {
   min-height: 100dvh;
+  background: var(--workspace-floor-image), var(--workspace-floor);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
 }
 
 .login-view {

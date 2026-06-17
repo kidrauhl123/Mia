@@ -65,14 +65,15 @@ test("src/web/app/index.html includes private AI composer controls", () => {
   assert.match(html, /id="permissionMode"/);
 });
 
-test("src/web/app/index.html includes the desktop-style chat history menu", () => {
+test("src/web/app/index.html includes the desktop-style session history menu", () => {
   const html = fs.readFileSync(path.join(ROOT, "src/web/app/index.html"), "utf8");
   assert.match(html, /id="sessionMenuButton"/);
   assert.match(html, /id="currentSessionTitle"/);
   assert.match(html, /id="sessionMenu"/);
   assert.match(html, /id="sessionList"/);
   assert.match(html, /id="newSession"/);
-  assert.match(html, />\s*聊天记录\s*</);
+  assert.match(html, />\s*会话记录\s*</);
+  assert.doesNotMatch(html, /聊天记录/);
 });
 
 test("src/web exposes bot creation with a runtime target selector from the sidebar plus menu", () => {

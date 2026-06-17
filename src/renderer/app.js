@@ -255,6 +255,15 @@ const els = {
   appearanceUserBubbleColor: document.getElementById("appearanceUserBubbleColor"),
   appearanceUserBubblePreview: document.getElementById("appearanceUserBubblePreview"),
   appearanceUserBubbleReset: document.getElementById("appearanceUserBubbleReset"),
+  appearanceWorkspaceBackgroundColor: document.getElementById("appearanceWorkspaceBackgroundColor"),
+  appearanceWorkspaceBackgroundPreview: document.getElementById("appearanceWorkspaceBackgroundPreview"),
+  appearanceWorkspaceBackgroundPresets: document.getElementById("appearanceWorkspaceBackgroundPresets"),
+  appearanceWorkspaceBackgroundReset: document.getElementById("appearanceWorkspaceBackgroundReset"),
+  appearanceWorkspaceBackgroundImage: document.getElementById("appearanceWorkspaceBackgroundImage"),
+  appearanceWorkspaceBackgroundImageFile: document.getElementById("appearanceWorkspaceBackgroundImageFile"),
+  appearanceWorkspaceBackgroundImageChoose: document.getElementById("appearanceWorkspaceBackgroundImageChoose"),
+  appearanceWorkspaceBackgroundImageClear: document.getElementById("appearanceWorkspaceBackgroundImageClear"),
+  appearanceWorkspaceBackgroundImageLabel: document.getElementById("appearanceWorkspaceBackgroundImageLabel"),
   appearanceShowHoverBackground: document.getElementById("appearanceShowHoverBackground"),
   appearanceShowUserAvatar: document.getElementById("appearanceShowUserAvatar"),
   appearanceShowAssistantAvatar: document.getElementById("appearanceShowAssistantAvatar"),
@@ -1089,7 +1098,7 @@ function rowMatchesActiveTag(row) {
 function searchResultPreview(result, query) {
   const text = String(result?.matchText || result?.message?.body_md || "").replace(/\s+/g, " ").trim();
   if (text) return text;
-  return query ? `匹配「${query}」` : "匹配的聊天记录";
+  return query ? `匹配「${query}」` : "匹配的会话记录";
 }
 
 function conversationRowsFromMessageSearch(results, query) {
@@ -1181,7 +1190,7 @@ function renderConversationSearchTools(cloudReady) {
     els.personaSearch.value = searchValue;
   }
   if (els.personaSearch) {
-    els.personaSearch.placeholder = "搜索聊天记录";
+    els.personaSearch.placeholder = "搜索会话记录";
   }
   tools?.classList.toggle("search-active", searchOpen);
   els.personaSearchClear?.classList.toggle("hidden", !searchValue);
@@ -2089,7 +2098,9 @@ function render() {
     showUserAvatar: true,
     showAssistantAvatar: true,
     listStyle: "card",
-    selectionStyle: DEFAULT_SELECTION_STYLE
+    selectionStyle: DEFAULT_SELECTION_STYLE,
+    workspaceBackgroundColor: "",
+    workspaceBackgroundImage: ""
   };
   window.miaSettingsAppearance.applyAppearance(appearance);
   if (!editingAppearance) {
@@ -2349,7 +2360,7 @@ function render() {
         ? (cloudReady
           ? (searchMode
             ? (useMessageSearch
-              ? (state.personaSearchLoading ? "正在搜索聊天记录…" : (state.personaSearchError || "没有匹配的聊天记录"))
+              ? (state.personaSearchLoading ? "正在搜索会话记录…" : (state.personaSearchError || "没有匹配的会话记录"))
               : "")
             : "没有匹配的消息")
           : "正在同步会话…")
@@ -3836,6 +3847,12 @@ async function refreshRuntime() {
       links: previousDaemon.links
     };
   }
+  if (runtime?.appearance && state.runtime?.appearance) {
+    runtime.appearance = window.miaSettingsAppearance?.mergeCloudAppearance?.(state.runtime.appearance, runtime.appearance) || {
+      ...(state.runtime.appearance || {}),
+      ...runtime.appearance
+    };
+  }
   state.runtime = runtime;
   state.petJobs = state.runtime?.petJobs || state.petJobs;
   maybeBootstrapSocialAfterRuntime(runtime);
@@ -4058,12 +4075,13 @@ async function initializeRuntime(options = {}) {
       paintHeaderStatus,
       applyCloudAppearance: (appearance) => {
         if (!appearance || typeof appearance !== "object") return;
+        const nextAppearance = window.miaSettingsAppearance?.mergeCloudAppearance?.(state.runtime?.appearance, appearance) || {
+          ...(state.runtime?.appearance || {}),
+          ...appearance
+        };
         state.runtime = {
           ...(state.runtime || {}),
-          appearance: {
-            ...(state.runtime?.appearance || {}),
-            ...appearance
-          }
+          appearance: nextAppearance
         };
         window.miaSettingsAppearance?.applyAppearance?.(state.runtime.appearance);
         window.miaSettingsAppearance?.syncAppearanceControls?.(state.runtime.appearance);
@@ -5255,6 +5273,41 @@ els.appearanceUserBubbleColor?.addEventListener("input", () => {
 els.appearanceUserBubbleReset?.addEventListener("click", () => {
   if (els.appearanceUserBubbleColor) els.appearanceUserBubbleColor.value = DEFAULT_USER_BUBBLE_COLOR;
   window.miaSettingsAppearance.scheduleAppearanceSave(0);
+});
+
+function saveWorkspaceBackgroundColor() {
+  window.miaSettingsAppearance.scheduleAppearanceSave(0);
+}
+
+els.appearanceWorkspaceBackgroundColor?.addEventListener("input", saveWorkspaceBackgroundColor);
+
+els.appearanceWorkspaceBackgroundColor?.addEventListener("change", saveWorkspaceBackgroundColor);
+
+els.appearanceWorkspaceBackgroundPresets?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-workspace-background-color]");
+  if (!button || !els.appearanceWorkspaceBackgroundPresets.contains(button)) return;
+  if (els.appearanceWorkspaceBackgroundColor) {
+    els.appearanceWorkspaceBackgroundColor.value = button.dataset.workspaceBackgroundColor || "#f0f0f3";
+  }
+  window.miaSettingsAppearance.scheduleAppearanceSave(0);
+});
+
+els.appearanceWorkspaceBackgroundReset?.addEventListener("click", () => {
+  window.miaSettingsAppearance.resetWorkspaceBackground();
+});
+
+els.appearanceWorkspaceBackgroundImageChoose?.addEventListener("click", () => {
+  els.appearanceWorkspaceBackgroundImageFile?.click();
+});
+
+els.appearanceWorkspaceBackgroundImageFile?.addEventListener("change", () => {
+  const file = els.appearanceWorkspaceBackgroundImageFile?.files?.[0];
+  window.miaSettingsAppearance.readWorkspaceBackgroundImage(file);
+  if (els.appearanceWorkspaceBackgroundImageFile) els.appearanceWorkspaceBackgroundImageFile.value = "";
+});
+
+els.appearanceWorkspaceBackgroundImageClear?.addEventListener("click", () => {
+  window.miaSettingsAppearance.clearWorkspaceBackgroundImage();
 });
 
 els.appearanceShowHoverBackground?.addEventListener("click", () => {

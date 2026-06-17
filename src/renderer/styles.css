@@ -6,6 +6,7 @@
   --surface-soft: rgba(255, 255, 255, 0.86);
   --surface-muted: #f5f5f8;
   --workspace-floor: #f0f0f3;
+  --workspace-floor-image: none;
   --chat-background: var(--workspace-floor);
   --field: rgba(0, 0, 0, 0.06);
   --hover: rgba(0, 0, 0, 0.06);
@@ -40,6 +41,9 @@
   --shadow: 0 14px 34px rgba(20, 24, 40, 0.08);
   --window-corner-radius: 28px;
   --rail-column-width: 78px;
+  --mac-rail-column-width: 82px;
+  --traffic-spacer-height: 52px;
+  --mac-traffic-spacer-height: 64px;
   --rail-corner-radius: 22px;
   --rail-expanded-shadow: 0 1px 2px rgba(16, 20, 39, 0.05), 0 18px 46px rgba(16, 20, 39, 0.08);
   --sidebar-width: 280px;
@@ -169,6 +173,11 @@ body {
   user-select: none;
 }
 
+body.platform-darwin {
+  --rail-column-width: var(--mac-rail-column-width);
+  --traffic-spacer-height: var(--mac-traffic-spacer-height);
+}
+
 button,
 input,
 select,
@@ -204,7 +213,10 @@ p {
   height: 100vh;
   padding: 0 2px 2px 0;
   gap: 0;
-  background: var(--workspace-floor);
+  background: var(--workspace-floor-image), var(--workspace-floor);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
   overflow: hidden;
 }
 
@@ -255,7 +267,7 @@ body.platform-darwin.window-fullscreen .app-shell {
 
 .nav-rail {
   display: grid;
-  grid-template-rows: 52px 44px 1px repeat(4, 44px) minmax(0, 1fr) 44px;
+  grid-template-rows: var(--traffic-spacer-height) 44px 1px repeat(4, 44px) minmax(0, 1fr) 44px;
   justify-items: center;
   align-items: center;
   gap: 4px;
@@ -282,7 +294,7 @@ body.platform-darwin.window-fullscreen .app-shell {
 
 .traffic-spacer {
   width: 100%;
-  height: 52px;
+  height: var(--traffic-spacer-height);
   -webkit-app-region: drag;
   display: flex;
   align-items: center;
@@ -1152,6 +1164,7 @@ body.sidebar-resizing * {
   text-align: left;
   -webkit-user-select: none;
   user-select: none;
+  transition: background 120ms cubic-bezier(0.2, 0.7, 0.2, 1), box-shadow 120ms cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 
 .persona *,
@@ -1188,6 +1201,13 @@ body.sidebar-resizing * {
 
 .message-card:hover {
   background: var(--hover-background);
+}
+
+.persona-name,
+.persona-key,
+.persona-time,
+.persona-pin {
+  transition: color 120ms cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 
 .persona.active {
@@ -1952,27 +1972,27 @@ button.persona-tag-chip {
 }
 
 #chatView .group-title {
-  min-height: 52px;
-  padding: 6px 18px 6px 8px;
-  border-radius: 26px;
-  background: color-mix(in srgb, var(--surface-soft) 92%, transparent);
-  box-shadow: 0 1px 2px rgba(16, 20, 39, 0.06), 0 12px 34px rgba(16, 20, 39, 0.08);
+  gap: 8px;
+  min-height: 40px;
+  padding: 4px 12px 4px 5px;
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  box-shadow: 0 1px 2px rgba(16, 20, 39, 0.05), 0 10px 28px rgba(16, 20, 39, 0.07);
   -webkit-backdrop-filter: blur(24px) saturate(1.14);
   backdrop-filter: blur(24px) saturate(1.14);
 }
 
 #chatView .top-actions {
-  min-height: 52px;
-  padding: 8px;
-  border-radius: 26px;
-  background: color-mix(in srgb, var(--surface-soft) 92%, transparent);
-  box-shadow: 0 1px 2px rgba(16, 20, 39, 0.06), 0 12px 34px rgba(16, 20, 39, 0.08);
-  -webkit-backdrop-filter: blur(24px) saturate(1.14);
-  backdrop-filter: blur(24px) saturate(1.14);
+  min-height: 40px;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
-:root[data-theme="dark"] #chatView .group-title,
-:root[data-theme="dark"] #chatView .top-actions {
+:root[data-theme="dark"] #chatView .group-title {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.26), 0 14px 36px rgba(0, 0, 0, 0.28);
 }
 
@@ -2013,6 +2033,11 @@ body.topbar-click-capture .topbar {
   border-radius: 50%;
 }
 
+#chatView #activeChatAvatar {
+  width: 32px;
+  height: 32px;
+}
+
 .group-title h1 {
   display: flex;
   align-items: center;
@@ -2021,6 +2046,11 @@ body.topbar-click-capture .topbar {
   color: var(--text);
   font-size: 16px;
   font-weight: 450;
+}
+
+#chatView .group-title h1 {
+  font-size: 14px;
+  line-height: 17px;
 }
 
 .group-title h1 span {
@@ -2042,6 +2072,11 @@ body.topbar-click-capture .topbar {
   color: var(--muted);
   font-size: 12px;
   font-weight: 400;
+}
+
+#chatView .topbar p {
+  font-size: 11px;
+  line-height: 15px;
 }
 
 .top-actions {
@@ -2070,6 +2105,33 @@ body.topbar-click-capture .topbar {
   border-radius: 10px;
   background: var(--field);
   color: var(--text);
+}
+
+#chatView .session-trigger {
+  grid-template-columns: 16px minmax(56px, 142px);
+  gap: 7px;
+  height: 38px;
+  padding: 0 12px 0 10px;
+  border-radius: 19px;
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  box-shadow: 0 1px 2px rgba(16, 20, 39, 0.05), 0 8px 22px rgba(16, 20, 39, 0.07);
+}
+
+#chatView .session-trigger:hover {
+  background: var(--surface);
+}
+
+.session-trigger-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+}
+
+.session-trigger-icon svg {
+  width: 16px;
+  height: 16px;
 }
 
 .current-session-title {
@@ -2111,12 +2173,16 @@ body.topbar-click-capture .topbar {
   padding: 8px;
   border: 1px solid var(--menu-border);
   border-radius: 14px;
-  background: var(--menu-surface);
+  background: var(--surface);
   box-shadow: var(--menu-shadow);
-  -webkit-backdrop-filter: blur(22px) saturate(1.08);
-  backdrop-filter: blur(22px) saturate(1.08);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   transform-origin: top right;
   animation: menuPopoverIn 120ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+:root[data-theme="dark"] .session-menu {
+  background: var(--surface);
 }
 
 .session-menu-head {
@@ -6500,6 +6566,58 @@ select.select-open {
   font-size: 11px;
 }
 
+.workspace-background-controls {
+  display: grid;
+  grid-template-columns: auto auto auto minmax(0, 1fr);
+  align-items: center;
+  justify-self: end;
+  gap: 8px;
+  min-width: 0;
+  max-width: 280px;
+}
+
+.workspace-background-controls .accent-picker {
+  gap: 6px;
+}
+
+.workspace-background-controls .secondary {
+  min-height: 28px;
+  padding: 0 10px;
+}
+
+.workspace-background-image-label {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--faint);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-background-controls .icon-button:disabled {
+  opacity: 0.35;
+}
+
+.workspace-background-presets {
+  display: flex;
+  grid-column: 1 / -1;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+  min-width: 0;
+  padding-top: 2px;
+}
+
+.workspace-background-presets .avatar-color-chip {
+  width: 22px;
+  height: 22px;
+}
+
+.workspace-background-presets .avatar-color-chip.is-selected {
+  border-color: rgb(var(--accent-rgb) / 0.38);
+  box-shadow: 0 0 0 2px rgb(var(--accent-rgb) / 0.10);
+}
+
 .settings-panel[data-settings-panel="model"] .form-grid,
 .settings-panel[data-settings-panel="account"] .runtime-card {
   gap: 12px;
@@ -7745,8 +7863,8 @@ pre {
   }
 
   #chatView .group-title {
-    min-height: 52px;
-    padding: 6px 14px 6px 8px;
+    min-height: 40px;
+    padding: 4px 10px 4px 5px;
   }
 
   .group-title {

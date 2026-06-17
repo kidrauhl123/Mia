@@ -13,6 +13,9 @@
   const FALLBACK_ACCENT_COLOR = "#0162db";
   const FALLBACK_USER_BUBBLE_COLOR = "#0162db";
   const FALLBACK_SELECTION_STYLE = "solid";
+  const FALLBACK_WORKSPACE_BACKGROUND_COLOR = "#f0f0f3";
+  const FALLBACK_DARK_WORKSPACE_BACKGROUND_COLOR = "#171920";
+  const MAX_WORKSPACE_BACKGROUND_IMAGE_BYTES = 3 * 1024 * 1024;
 
   let state, els, mia;
   let fontPresets, DEFAULT_ACCENT_COLOR, DEFAULT_USER_BUBBLE_COLOR, DEFAULT_SELECTION_STYLE;
@@ -44,6 +47,10 @@
     return DEFAULT_USER_BUBBLE_COLOR || FALLBACK_USER_BUBBLE_COLOR;
   }
 
+  function defaultWorkspaceBackgroundColor(theme = "light") {
+    return theme === "dark" ? FALLBACK_DARK_WORKSPACE_BACKGROUND_COLOR : FALLBACK_WORKSPACE_BACKGROUND_COLOR;
+  }
+
   function defaultSelectionStyle() {
     return DEFAULT_SELECTION_STYLE || FALLBACK_SELECTION_STYLE;
   }
@@ -68,6 +75,16 @@
     const raw = String(value || "").trim();
     const expanded = raw.replace(/^#([0-9a-fA-F]{3})$/, (_, hex) => `#${hex.split("").map((part) => part + part).join("")}`);
     return /^#[0-9a-fA-F]{6}$/.test(expanded) ? expanded.toLowerCase() : fallback;
+  }
+
+  function normalizeWorkspaceBackgroundImage(value) {
+    const image = String(value || "").trim();
+    if (!image || image.length > 4 * 1024 * 1024) return "";
+    return /^data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=\s]+$/i.test(image) ? image : "";
+  }
+
+  function cssUrl(value) {
+    return String(value || "").replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/[\n\r\f]/g, "");
   }
 
   function normalizeListStyle(value) {
@@ -123,6 +140,8 @@
     const userBubbleRgb = hexToRgb(userBubbleColor);
     const userBubbleText = selectionTextColors(userBubbleRgb).text;
     const selectionStyle = normalizeSelectionStyle(appearance.selectionStyle);
+    const workspaceBackgroundColor = normalizeHexColor(appearance.workspaceBackgroundColor, "");
+    const workspaceBackgroundImage = normalizeWorkspaceBackgroundImage(appearance.workspaceBackgroundImage);
     const softActive = `rgb(${rgb.r} ${rgb.g} ${rgb.b} / ${theme === "dark" ? "0.22" : "0.16"})`;
     document.documentElement.dataset.theme = theme;
     document.documentElement.dataset.selectionStyle = selectionStyle;
@@ -135,6 +154,15 @@
     document.documentElement.style.setProperty("--active", softActive);
     document.documentElement.style.setProperty("--user-bubble", userBubbleColor);
     document.documentElement.style.setProperty("--user-bubble-text", userBubbleText);
+    if (workspaceBackgroundColor) {
+      document.documentElement.style.setProperty("--workspace-floor", workspaceBackgroundColor);
+    } else {
+      document.documentElement.style.removeProperty?.("--workspace-floor");
+    }
+    document.documentElement.style.setProperty(
+      "--workspace-floor-image",
+      workspaceBackgroundImage ? `url("${cssUrl(workspaceBackgroundImage)}")` : "none"
+    );
     if (selectionStyle === "solid") {
       const textColors = selectionTextColors(rgb);
       document.documentElement.style.setProperty("--list-active", accentColor);
@@ -151,8 +179,13 @@
 
   function currentAppearanceDraft() {
     const controls = els || {};
+    const theme = controls.appearanceTheme?.value || "light";
+    const workspaceBackgroundColor = normalizeHexColor(
+      controls.appearanceWorkspaceBackgroundColor?.value,
+      defaultWorkspaceBackgroundColor(theme === "dark" ? "dark" : "light")
+    );
     return {
-      theme: controls.appearanceTheme?.value || "light",
+      theme,
       fontPreset: controls.appearanceFontPreset?.value || "system",
       accentColor: normalizeHexColor(controls.appearanceAccentColor?.value),
       userBubbleColor: normalizeHexColor(controls.appearanceUserBubbleColor?.value, defaultUserBubbleColor()),
@@ -160,8 +193,28 @@
       showUserAvatar: controls.appearanceShowUserAvatar?.getAttribute("aria-checked") !== "false",
       showAssistantAvatar: controls.appearanceShowAssistantAvatar?.getAttribute("aria-checked") !== "false",
       listStyle: "card",
-      selectionStyle: normalizeSelectionStyle(controls.appearanceSelectionStyle?.value)
+      selectionStyle: normalizeSelectionStyle(controls.appearanceSelectionStyle?.value),
+      workspaceBackgroundColor,
+      workspaceBackgroundImage: normalizeWorkspaceBackgroundImage(controls.appearanceWorkspaceBackgroundImage?.value)
     };
+  }
+
+  function mergeCloudAppearance(current = {}, incoming = {}) {
+    const base = current && typeof current === "object" ? current : {};
+    const patch = incoming && typeof incoming === "object" ? incoming : {};
+    const next = { ...base, ...patch };
+    const has = (key) => Object.prototype.hasOwnProperty.call(patch, key);
+    if (has("workspaceBackgroundColor")) {
+      const incomingColor = normalizeHexColor(patch.workspaceBackgroundColor, "");
+      const currentColor = normalizeHexColor(base.workspaceBackgroundColor, "");
+      next.workspaceBackgroundColor = incomingColor || currentColor || "";
+    }
+    if (has("workspaceBackgroundImage")) {
+      const incomingImage = normalizeWorkspaceBackgroundImage(patch.workspaceBackgroundImage);
+      const currentImage = normalizeWorkspaceBackgroundImage(base.workspaceBackgroundImage);
+      next.workspaceBackgroundImage = incomingImage || currentImage || "";
+    }
+    return next;
   }
 
   function setSettingsSwitch(button, enabled) {
@@ -199,9 +252,72 @@
     const userBubbleColor = normalizeHexColor(appearance.userBubbleColor, defaultUserBubbleColor());
     if (controls.appearanceUserBubbleColor) controls.appearanceUserBubbleColor.value = userBubbleColor;
     if (controls.appearanceUserBubblePreview) controls.appearanceUserBubblePreview.style.backgroundColor = userBubbleColor;
+    const workspaceBackgroundDefault = defaultWorkspaceBackgroundColor(appearance.theme === "dark" ? "dark" : "light");
+    const workspaceBackgroundColor = normalizeHexColor(appearance.workspaceBackgroundColor, workspaceBackgroundDefault);
+    if (controls.appearanceWorkspaceBackgroundColor) {
+      controls.appearanceWorkspaceBackgroundColor.value = workspaceBackgroundColor;
+    }
+    if (controls.appearanceWorkspaceBackgroundPreview) controls.appearanceWorkspaceBackgroundPreview.style.backgroundColor = workspaceBackgroundColor;
+    document.querySelectorAll("[data-workspace-background-color]").forEach((button) => {
+      const active = String(button.dataset.workspaceBackgroundColor || "").toLowerCase() === workspaceBackgroundColor;
+      button.classList.toggle("is-selected", active);
+      button.setAttribute("aria-checked", active ? "true" : "false");
+    });
+    const workspaceBackgroundImage = normalizeWorkspaceBackgroundImage(appearance.workspaceBackgroundImage);
+    if (controls.appearanceWorkspaceBackgroundImage) controls.appearanceWorkspaceBackgroundImage.value = workspaceBackgroundImage;
+    if (controls.appearanceWorkspaceBackgroundImageLabel) {
+      controls.appearanceWorkspaceBackgroundImageLabel.textContent = workspaceBackgroundImage ? "已选择图片" : "未选择图片";
+    }
+    if (controls.appearanceWorkspaceBackgroundImageClear) controls.appearanceWorkspaceBackgroundImageClear.disabled = !workspaceBackgroundImage;
     setSettingsSwitch(controls.appearanceShowHoverBackground, appearance.showHoverBackground !== false);
     setSettingsSwitch(controls.appearanceShowUserAvatar, appearance.showUserAvatar !== false);
     setSettingsSwitch(controls.appearanceShowAssistantAvatar, appearance.showAssistantAvatar !== false);
+  }
+
+  function resetWorkspaceBackground() {
+    const controls = els || {};
+    if (controls.appearanceWorkspaceBackgroundColor) {
+      controls.appearanceWorkspaceBackgroundColor.value = defaultWorkspaceBackgroundColor(controls.appearanceTheme?.value === "dark" ? "dark" : "light");
+    }
+    if (controls.appearanceWorkspaceBackgroundImage) controls.appearanceWorkspaceBackgroundImage.value = "";
+    if (controls.appearanceWorkspaceBackgroundImageLabel) controls.appearanceWorkspaceBackgroundImageLabel.textContent = "未选择图片";
+    if (controls.appearanceWorkspaceBackgroundImageClear) controls.appearanceWorkspaceBackgroundImageClear.disabled = true;
+    scheduleAppearanceSave(0);
+  }
+
+  function clearWorkspaceBackgroundImage() {
+    const controls = els || {};
+    if (controls.appearanceWorkspaceBackgroundImage) controls.appearanceWorkspaceBackgroundImage.value = "";
+    if (controls.appearanceWorkspaceBackgroundImageLabel) controls.appearanceWorkspaceBackgroundImageLabel.textContent = "未选择图片";
+    if (controls.appearanceWorkspaceBackgroundImageClear) controls.appearanceWorkspaceBackgroundImageClear.disabled = true;
+    scheduleAppearanceSave(0);
+  }
+
+  function readWorkspaceBackgroundImage(file) {
+    const controls = els || {};
+    if (!file) return;
+    if (!String(file.type || "").startsWith("image/")) {
+      showAppearanceSaveStatus("请选择图片文件", "error");
+      return;
+    }
+    if (Number(file.size || 0) > MAX_WORKSPACE_BACKGROUND_IMAGE_BYTES) {
+      showAppearanceSaveStatus("图片请控制在 3MB 以内", "error");
+      return;
+    }
+    const reader = new FileReader();
+    reader.addEventListener("load", () => {
+      const image = normalizeWorkspaceBackgroundImage(reader.result);
+      if (!image) {
+        showAppearanceSaveStatus("图片读取失败", "error");
+        return;
+      }
+      if (controls.appearanceWorkspaceBackgroundImage) controls.appearanceWorkspaceBackgroundImage.value = image;
+      if (controls.appearanceWorkspaceBackgroundImageLabel) controls.appearanceWorkspaceBackgroundImageLabel.textContent = file.name || "已选择图片";
+      if (controls.appearanceWorkspaceBackgroundImageClear) controls.appearanceWorkspaceBackgroundImageClear.disabled = false;
+      scheduleAppearanceSave(0);
+    });
+    reader.addEventListener("error", () => showAppearanceSaveStatus("图片读取失败", "error"));
+    reader.readAsDataURL(file);
   }
 
   function mergeRuntimeAppearance(appearance) {
@@ -247,6 +363,7 @@
     initSettingsAppearance,
     showAppearanceSaveStatus,
     normalizeHexColor,
+    normalizeWorkspaceBackgroundImage,
     normalizeListStyle,
     normalizeSelectionStyle,
     hexToRgb,
@@ -255,9 +372,13 @@
     fontStackForAppearance,
     applyAppearance,
     currentAppearanceDraft,
+    mergeCloudAppearance,
     setSettingsSwitch,
     toggleSettingsSwitch,
     syncAppearanceControls,
+    resetWorkspaceBackground,
+    clearWorkspaceBackgroundImage,
+    readWorkspaceBackgroundImage,
     mergeRuntimeAppearance,
     persistAppearanceDraft,
     scheduleAppearanceSave,

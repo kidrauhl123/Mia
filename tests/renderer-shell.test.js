@@ -108,6 +108,10 @@ test("desktop window controls use Windows maximize semantics off macOS", () => {
   assert.match(windowIpcSource, /setMacNativeControlsVisible\(w,\s*true\)/);
   assert.match(css, /body\.platform-win32 \.traffic-spacer \.traffic-light\s*\{\s*display:\s*none;/);
   assert.match(css, /body\.platform-darwin \.traffic-spacer \.traffic-light\s*\{\s*display:\s*none;/);
+  assert.match(css, /--traffic-spacer-height:\s*52px;/);
+  assert.match(css, /--mac-traffic-spacer-height:\s*64px;/);
+  assert.match(css, /--mac-rail-column-width:\s*82px;/);
+  assert.match(css, /body\.platform-darwin\s*\{[\s\S]*?--rail-column-width:\s*var\(--mac-rail-column-width\);[\s\S]*?--traffic-spacer-height:\s*var\(--mac-traffic-spacer-height\);/);
   assert.match(css, /body\.platform-darwin \.app-shell\s*\{[\s\S]*?border-radius:\s*var\(--window-corner-radius\);/);
   assert.match(css, /body\.platform-darwin\.window-maximized \.app-shell,[\s\S]*?body\.platform-darwin\.window-fullscreen \.app-shell\s*\{[\s\S]*?border-radius:\s*0;/);
   assert.doesNotMatch(css, /\.window-controls/);
@@ -128,7 +132,8 @@ test("desktop shell uses optional middle pane by active view", () => {
   assert.match(css, /--rail-column-width:\s*78px;/);
   assert.match(css, /\.app-shell\[data-layout="index-workspace"\]\s*\{[\s\S]*?grid-template-columns:\s*var\(--rail-column-width\) var\(--sidebar-width\) 0 minmax\(0,\s*1fr\);/);
   assert.match(css, /\.app-shell\[data-layout="workspace"\]\s*\{[\s\S]*?grid-template-columns:\s*var\(--rail-column-width\) minmax\(0,\s*1fr\);/);
-  assert.match(css, /\.nav-rail\s*\{[\s\S]*?margin:\s*8px 8px 10px 8px;[\s\S]*?border-radius:\s*var\(--rail-corner-radius\);[\s\S]*?backdrop-filter:\s*blur\(24px\) saturate\(1\.16\);/);
+  assert.match(css, /\.nav-rail\s*\{[\s\S]*?grid-template-rows:\s*var\(--traffic-spacer-height\) 44px 1px repeat\(4,\s*44px\) minmax\(0,\s*1fr\) 44px;[\s\S]*?margin:\s*8px 8px 10px 8px;[\s\S]*?border-radius:\s*var\(--rail-corner-radius\);[\s\S]*?backdrop-filter:\s*blur\(24px\) saturate\(1\.16\);/);
+  assert.match(css, /\.traffic-spacer\s*\{[\s\S]*?height:\s*var\(--traffic-spacer-height\);/);
   assert.match(css, /\.app-shell\[data-layout="index-workspace"\] \.sidebar\s*\{[\s\S]*?margin:\s*8px 8px 10px 0;[\s\S]*?border-radius:\s*var\(--rail-corner-radius\);[\s\S]*?box-shadow:\s*var\(--rail-expanded-shadow\);/);
   assert.match(css, /\.app-shell\[data-layout="workspace"\] \.sidebar,[\s\S]*?\.app-shell\[data-layout="workspace"\] \.sidebar-resize-handle\s*\{[\s\S]*?display:\s*none;/);
 });
@@ -156,7 +161,7 @@ test("chat composer floats on the chat floor instead of owning a bottom panel", 
   const chatStyleSource = fs.readFileSync(path.join(root, "src/renderer/styles/chat.css"), "utf8");
 
   assert.match(chatStyleSource, /\.chat-layout\s*\{[\s\S]*?grid-template-rows:\s*minmax\(0,\s*1fr\);[\s\S]*?position:\s*relative;/);
-  assert.match(chatStyleSource, /--chat-header-overlay-height:\s*86px;/);
+  assert.match(chatStyleSource, /--chat-header-overlay-height:\s*70px;/);
   assert.match(chatStyleSource, /\.chat\s*\{[\s\S]*?padding:\s*calc\(var\(--chat-header-overlay-height\) \+ 12px\) 18px calc\(var\(--composer-overlay-height\) \+ 18px\);/);
   assert.match(styleSource, /\.composer\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?bottom:\s*0;[\s\S]*?background:\s*transparent;/);
   assert.match(appSource, /function syncComposerOverlayHeight\(\)/);
@@ -170,8 +175,44 @@ test("chat header is a floating card layer rather than a layout topbar", () => {
   assert.match(styleSource, /#chatView\s*\{[\s\S]*?position:\s*relative;[\s\S]*?grid-template-rows:\s*minmax\(0,\s*1fr\);/);
   assert.match(styleSource, /#chatView \.topbar\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?top:\s*16px;[\s\S]*?background:\s*transparent;[\s\S]*?pointer-events:\s*none;/);
   assert.match(styleSource, /#chatView \.topbar > \*\s*\{[\s\S]*?pointer-events:\s*auto;/);
-  assert.match(styleSource, /#chatView \.group-title\s*\{[\s\S]*?border-radius:\s*26px;[\s\S]*?backdrop-filter:\s*blur\(24px\) saturate\(1\.14\);/);
-  assert.match(styleSource, /#chatView \.top-actions\s*\{[\s\S]*?border-radius:\s*26px;[\s\S]*?backdrop-filter:\s*blur\(24px\) saturate\(1\.14\);/);
+  assert.match(styleSource, /#chatView \.group-title\s*\{[\s\S]*?min-height:\s*40px;[\s\S]*?padding:\s*4px 12px 4px 5px;[\s\S]*?border-radius:\s*20px;[\s\S]*?background:\s*color-mix\(in srgb, var\(--surface\) 96%, transparent\);/);
+  assert.match(styleSource, /#chatView #activeChatAvatar\s*\{[\s\S]*?width:\s*32px;[\s\S]*?height:\s*32px;/);
+  assert.match(styleSource, /#chatView \.group-title h1\s*\{[\s\S]*?font-size:\s*14px;[\s\S]*?line-height:\s*17px;/);
+  assert.match(styleSource, /#chatView \.topbar p\s*\{[\s\S]*?font-size:\s*11px;[\s\S]*?line-height:\s*15px;/);
+  assert.match(styleSource, /#chatView \.top-actions\s*\{[\s\S]*?min-height:\s*40px;[\s\S]*?padding:\s*0;[\s\S]*?background:\s*transparent;/);
+  assert.match(styleSource, /#chatView \.session-trigger\s*\{[\s\S]*?grid-template-columns:\s*16px minmax\(56px,\s*142px\);[\s\S]*?height:\s*38px;[\s\S]*?border-radius:\s*19px;[\s\S]*?background:\s*color-mix\(in srgb, var\(--surface\) 96%, transparent\);/);
+  assert.match(styleSource, /\.session-trigger-icon\s*\{[\s\S]*?width:\s*16px;[\s\S]*?height:\s*16px;/);
+  assert.match(styleSource, /\.session-menu\s*\{[\s\S]*?background:\s*var\(--surface\);[\s\S]*?-webkit-backdrop-filter:\s*none;[\s\S]*?backdrop-filter:\s*none;/);
+  assert.match(styleSource, /:root\[data-theme="dark"\] \.session-menu\s*\{[\s\S]*?background:\s*var\(--surface\);/);
+});
+
+test("session history trigger uses a compact icon pill", () => {
+  const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
+  const trigger = html.match(/<button id="sessionMenuButton"[\s\S]*?<\/button>/)?.[0] || "";
+
+  assert.match(trigger, /title="会话记录"/);
+  assert.match(trigger, /aria-label="会话记录"/);
+  assert.match(trigger, /session-trigger-icon/);
+  assert.match(trigger, /<svg viewBox="0 0 48 48"/);
+  assert.match(trigger, /id="currentSessionTitle"/);
+  assert.doesNotMatch(html, /聊天记录/);
+});
+
+test("chat scrollbar overlay stops at the composer top edge", () => {
+  const scrollbarSource = fs.readFileSync(path.join(root, "src/renderer/helpers/scrollbar-overlay.js"), "utf8");
+
+  assert.match(scrollbarSource, /function scrollbarOverlayTrackRect\(target\)/);
+  assert.match(scrollbarSource, /target\.id === "chat"/);
+  assert.match(scrollbarSource, /document\.querySelector\("#chatView \.composer-card"\)/);
+  assert.match(scrollbarSource, /const trackBottom = Math\.min\(rect\.bottom,\s*composerRect\.top\);/);
+  assert.match(scrollbarSource, /trackRect\.height - trackInset \* 2/);
+});
+
+test("sidebar active conversation color changes with a fast transition", () => {
+  const css = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+
+  assert.match(css, /\.persona\s*\{[\s\S]*?transition:\s*background 120ms cubic-bezier\(0\.2,\s*0\.7,\s*0\.2,\s*1\),\s*box-shadow 120ms cubic-bezier\(0\.2,\s*0\.7,\s*0\.2,\s*1\);/);
+  assert.match(css, /\.persona-name,[\s\S]*?\.persona-key,[\s\S]*?\.persona-time,[\s\S]*?\.persona-pin\s*\{[\s\S]*?transition:\s*color 120ms cubic-bezier\(0\.2,\s*0\.7,\s*0\.2,\s*1\);/);
 });
 
 test("composer skill picker is a compact flat skill list", () => {
@@ -196,8 +237,9 @@ test("rail pages use one continuous workspace floor", () => {
   const botStoreCss = fs.readFileSync(path.join(root, "src/renderer/styles/bot-store.css"), "utf8");
 
   assert.match(baseCss, /--workspace-floor:\s*#f0f0f3;/);
+  assert.match(baseCss, /--workspace-floor-image:\s*none;/);
   assert.match(baseCss, /--chat-background:\s*var\(--workspace-floor\);/);
-  assert.match(baseCss, /\.app-shell\s*\{[\s\S]*?background:\s*var\(--workspace-floor\);/);
+  assert.match(baseCss, /\.app-shell\s*\{[\s\S]*?background:\s*var\(--workspace-floor-image\),\s*var\(--workspace-floor\);[\s\S]*?background-size:\s*cover;[\s\S]*?background-position:\s*center;[\s\S]*?background-repeat:\s*no-repeat;/);
   assert.match(baseCss, /\.workspace\s*\{[\s\S]*?background:\s*transparent;/);
   assert.match(baseCss, /#chatView\s*\{[\s\S]*?background:\s*transparent;/);
   assert.match(baseCss, /\.topbar\s*\{[\s\S]*?background:\s*transparent;/);
@@ -842,6 +884,7 @@ test("main window accepts the first mouse click after regaining focus", () => {
   const windowIpcSource = fs.readFileSync(path.join(root, "src/main/ipc/window-ipc.js"), "utf8");
   const onboardingBoundsSource = fs.readFileSync(path.join(root, "src/main/onboarding-window-bounds.js"), "utf8");
   const macWindowControlsSource = fs.readFileSync(path.join(root, "src/main/mac-window-controls.js"), "utf8");
+  const { macNativeChromeMetrics } = require(path.join(root, "src/main/mac-window-controls.js"));
 
   assert.match(mainSource, /acceptFirstMouse:\s*true/);
   assert.match(mainSource, /function shouldOpenAgentSetupWindow/);
@@ -882,9 +925,13 @@ test("main window accepts the first mouse click after regaining focus", () => {
   assert.match(windowIpcSource, /onboardingWindowBounds\.width/);
   assert.match(windowIpcSource, /IpcChannel\.WindowNativeControlsVisible/);
   assert.match(windowIpcSource, /setMacNativeControlsVisible\(w,\s*visible\)/);
+  assert.deepEqual(macNativeChromeMetrics.trafficLightPosition, { x: 10, y: 18 });
+  assert.deepEqual(macNativeChromeMetrics.hiddenTrafficLightPosition, { x: -120, y: -120 });
+  assert.equal(macNativeChromeMetrics.railSafeAreaHeight, 64);
   assert.match(macWindowControlsSource, /setWindowButtonVisibility\(show\)/);
-  assert.match(macWindowControlsSource, /nativeTrafficLightPosition = \{\s*x:\s*12,\s*y:\s*18\s*\}/);
-  assert.match(macWindowControlsSource, /setWindowButtonPosition\(show \? nativeTrafficLightPosition : \{ x: -120, y: -120 \}\)/);
+  assert.doesNotMatch(macWindowControlsSource, /nativeTrafficLightPosition = \{\s*x:\s*12,\s*y:\s*18\s*\}/);
+  assert.match(macWindowControlsSource, /const targetPosition = show[\s\S]*?\? macNativeChromeMetrics\.trafficLightPosition[\s\S]*?: macNativeChromeMetrics\.hiddenTrafficLightPosition;/);
+  assert.match(macWindowControlsSource, /setWindowButtonPosition\(targetPosition\)/);
 });
 
 test("agent setup completion does not force first bot creation", () => {

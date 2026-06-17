@@ -13,10 +13,18 @@ const path = require("node:path");
 const { normalizePermissionMode, permissionModeLabel } = require("../permission-modes");
 
 const APPEARANCE_FONT_PRESETS = ["system", "pingfang", "serif"];
+const MAX_APPEARANCE_BACKGROUND_IMAGE_LENGTH = 4 * 1024 * 1024;
 
 function normalizeAppearanceFontPreset(value) {
   const preset = String(value || "").trim();
   return APPEARANCE_FONT_PRESETS.includes(preset) ? preset : "system";
+}
+
+function normalizeAppearanceBackgroundImage(value) {
+  const image = String(value || "").trim();
+  if (!image) return "";
+  if (image.length > MAX_APPEARANCE_BACKGROUND_IMAGE_LENGTH) return "";
+  return /^data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=\s]+$/i.test(image) ? image : "";
 }
 
 function createSettingsStore(deps = {}) {
@@ -69,7 +77,9 @@ function createSettingsStore(deps = {}) {
       showUserAvatar: true,
       showAssistantAvatar: true,
       listStyle: "card",
-      selectionStyle: "solid"
+      selectionStyle: "solid",
+      workspaceBackgroundColor: "",
+      workspaceBackgroundImage: ""
     };
   }
 
@@ -157,6 +167,7 @@ function createSettingsStore(deps = {}) {
   function writeAppearanceSettings(settings = {}) {
     const p = runtimePaths();
     const current = appearanceSettings();
+    const has = (key) => Object.prototype.hasOwnProperty.call(settings, key);
     const theme = String(settings.theme || current.theme || "light").trim();
     const fontPreset = String(settings.fontPreset || current.fontPreset || "system").trim();
     const accentColor = String(settings.accentColor || current.accentColor || "#5e5ce6").trim();
@@ -166,6 +177,8 @@ function createSettingsStore(deps = {}) {
     const showAssistantAvatar = settings.showAssistantAvatar == null ? current.showAssistantAvatar !== false : settings.showAssistantAvatar !== false;
     const selectionStyle = String(settings.selectionStyle || current.selectionStyle || "soft").trim();
     const validHex = (value, fallback) => /^#[0-9a-fA-F]{6}$/.test(value) ? value.toLowerCase() : fallback;
+    const workspaceBackgroundColorInput = String(has("workspaceBackgroundColor") ? settings.workspaceBackgroundColor : (current.workspaceBackgroundColor || "")).trim();
+    const workspaceBackgroundImageInput = has("workspaceBackgroundImage") ? settings.workspaceBackgroundImage : (current.workspaceBackgroundImage || "");
     const next = {
       theme: ["light", "dark"].includes(theme) ? theme : "light",
       fontPreset: normalizeAppearanceFontPreset(fontPreset),
@@ -175,7 +188,9 @@ function createSettingsStore(deps = {}) {
       showUserAvatar,
       showAssistantAvatar,
       listStyle: "card",
-      selectionStyle: ["soft", "solid"].includes(selectionStyle) ? selectionStyle : "soft"
+      selectionStyle: ["soft", "solid"].includes(selectionStyle) ? selectionStyle : "soft",
+      workspaceBackgroundColor: workspaceBackgroundColorInput ? validHex(workspaceBackgroundColorInput, "") : "",
+      workspaceBackgroundImage: normalizeAppearanceBackgroundImage(workspaceBackgroundImageInput)
     };
     fs.mkdirSync(path.dirname(p.appearanceSettings), { recursive: true });
     fs.writeFileSync(p.appearanceSettings, JSON.stringify(next, null, 2) + "\n");

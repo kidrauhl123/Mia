@@ -4,7 +4,7 @@
   position: relative;
   min-height: 0;
   background: transparent;
-  --chat-header-overlay-height: 86px;
+  --chat-header-overlay-height: 70px;
   --composer-overlay-height: 118px;
 }
 
@@ -1028,7 +1028,7 @@
 
 @media (max-width: 720px) {
   .chat-layout {
-    --chat-header-overlay-height: 74px;
+    --chat-header-overlay-height: 60px;
   }
 
   .message {

@@ -86,7 +86,9 @@ test("writeAppearanceSettings validates choices, colors, and boolean toggles", (
     showUserAvatar: null,
     showAssistantAvatar: false,
     listStyle: "invalid",
-    selectionStyle: "solid"
+    selectionStyle: "solid",
+    workspaceBackgroundColor: "#ABCDEF",
+    workspaceBackgroundImage: "data:image/png;base64,abc123"
   });
 
   assert.deepEqual(next, {
@@ -98,9 +100,23 @@ test("writeAppearanceSettings validates choices, colors, and boolean toggles", (
     showUserAvatar: true,
     showAssistantAvatar: false,
     listStyle: "card",
-    selectionStyle: "solid"
+    selectionStyle: "solid",
+    workspaceBackgroundColor: "#abcdef",
+    workspaceBackgroundImage: "data:image/png;base64,abc123"
   });
   assert.deepEqual(readJson(runtime.appearanceSettings, {}), next);
+});
+
+test("writeAppearanceSettings rejects invalid bottom board image data", (t) => {
+  const { store } = setup(t);
+
+  const next = store.writeAppearanceSettings({
+    workspaceBackgroundColor: "not-a-color",
+    workspaceBackgroundImage: "https://example.test/bg.png"
+  });
+
+  assert.equal(next.workspaceBackgroundColor, "");
+  assert.equal(next.workspaceBackgroundImage, "");
 });
 
 test("writeAppearanceSettings accepts the serif font preset", (t) => {
