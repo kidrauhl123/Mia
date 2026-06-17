@@ -77,22 +77,21 @@ def main():
         assert path.is_dir(), f"Error: {path} is not a directory or Office file"
         unpacked_dir = path
 
-    match file_extension:
-        case ".docx":
-            validators = [
-                DOCXSchemaValidator(unpacked_dir, original_file, verbose=args.verbose),
-            ]
-            if original_file:
-                validators.append(
-                    RedliningValidator(unpacked_dir, original_file, verbose=args.verbose, author=args.author)  
-                )
-        case ".pptx":
-            validators = [
-                PPTXSchemaValidator(unpacked_dir, original_file, verbose=args.verbose),
-            ]
-        case _:
-            print(f"Error: Validation not supported for file type {file_extension}")
-            sys.exit(1)
+    if file_extension == ".docx":
+        validators = [
+            DOCXSchemaValidator(unpacked_dir, original_file, verbose=args.verbose),
+        ]
+        if original_file:
+            validators.append(
+                RedliningValidator(unpacked_dir, original_file, verbose=args.verbose, author=args.author)
+            )
+    elif file_extension == ".pptx":
+        validators = [
+            PPTXSchemaValidator(unpacked_dir, original_file, verbose=args.verbose),
+        ]
+    else:
+        print(f"Error: Validation not supported for file type {file_extension}")
+        sys.exit(1)
 
     if args.auto_repair:
         total_repairs = sum(v.repair() for v in validators)

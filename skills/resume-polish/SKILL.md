@@ -5,7 +5,7 @@
 
 # Basic Information
 name: resume-tailor
-description: ">"
+description: "Tailor resumes and CVs to a target role or job description: identify keyword gaps, rewrite bullets truthfully, improve structure, and prepare application-ready wording."
 version: "1.0.0"
 author: claude-office-skills
 license: MIT
@@ -29,14 +29,6 @@ models:
     - gpt-4
     - gpt-4o
 
-# MCP Tools Integration
-mcp:
-  server: office-mcp
-  tools:
-    - extract_text_from_pdf
-    - extract_text_from_docx
-    - create_docx
-
 # Skill Capabilities
 capabilities:
   - resume_optimization
@@ -54,6 +46,11 @@ languages:
 ## Overview
 
 I help you customize your resume for specific job applications. Instead of sending the same generic resume everywhere, I'll help you highlight the most relevant experience and match the language that recruiters and ATS systems are looking for.
+
+This Mia market version works without any separate MCP server. Use pasted text
+or user-provided files when available, return clear Markdown edits by default,
+and create a document file only when explicitly requested and supported by the
+current runtime.
 
 **What I can do:**
 - Analyze job descriptions to identify key requirements
@@ -285,7 +282,10 @@ I'll provide:
 3. Quantify your team leadership impact
 4. Move Python experience higher in skills list
 
-[Full tailored resume follows...]
+**Tailored bullet examples:**
+- Built Python microservices that processed 2M+ daily events, improving pipeline reliability by 35%.
+- Led 3 engineers through a service migration to AWS ECS, reducing deployment time from 45 minutes to 12 minutes.
+- Partnered with product and support teams to diagnose customer-impacting incidents and ship monitored fixes.
 
 ### Example 2: Career Change
 

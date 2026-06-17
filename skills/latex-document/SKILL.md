@@ -67,7 +67,7 @@ Create any LaTeX document, compile to PDF, and generate PNG previews. Convert PD
 ## Workflow: Create Documents
 
 1. Determine document type (resume, report, letter, invoice, article, thesis, academic CV, presentation, poster, exam, book, cheat sheet)
-2. **If the target is an IEEE journal / Transactions / IEEE two-column paper:** Read [references/ieee-journal-twocolumn-guide.md](references/ieee-journal-twocolumn-guide.md) before choosing a template. Start from `examples/ieee-twocolumn-sample.tex` for a working IEEEtran baseline and use `examples/ieee-twocolumn.png` / `examples/ieee-twocolumn-p1.png` / `examples/ieee-twocolumn-p2.png` as visual references.
+2. **If the target is an IEEE journal / Transactions / IEEE two-column paper:** Read [references/ieee-journal-twocolumn-guide.md](references/ieee-journal-twocolumn-guide.md) before choosing a template. Generate the IEEEtran baseline in the working directory from the guide instead of assuming a bundled sample file exists.
 3. **If poster:** Run the poster sub-workflow (see [Poster Sub-Workflow](#poster-sub-workflow) below), then skip to step 5.
 4. **If cheat sheet / reference card:** Run the cheat sheet sub-workflow (see [Cheat Sheet / Reference Card Sub-Workflow](#cheat-sheet--reference-card-sub-workflow) below), then skip to step 5.
 5. **Ask the user which enrichment elements they want** (use AskUserQuestion tool with multiSelect). Offer relevant options based on document type:
@@ -78,7 +78,7 @@ Create any LaTeX document, compile to PDF, and generate PNG previews. Convert PD
    - **Tables with data** -- comparison matrices, financial data, statistics (booktabs)
    - **Watermarks** -- DRAFT, CONFIDENTIAL, or company logo background
    - Skip this step for simple documents (cover letters, invoices) or when the user has already specified exactly what they want.
-6. Copy the appropriate template from `assets/templates/` or write from scratch
+6. Create the appropriate template in the working directory or write from scratch
 7. Customize content based on user requirements
 8. Generate external assets based on user's element choices:
    - AI images: `python3 <skill_path>/../generate-image/scripts/generate_image.py "prompt" --output ./outputs/figure.png`
@@ -102,7 +102,7 @@ When the user requests a cheat sheet, reference card, or formula sheet:
 
 ## Workflow: Mail Merge (Batch Personalized Documents)
 
-Generate N personalized documents from a LaTeX template + CSV/JSON data source using `scripts/mail_merge.py`. Template syntax: `{{variable}}` for simple substitution, Jinja2 (`<< >>`, `<% %>`) for conditionals/loops. See `assets/templates/mail-merge-letter.tex` for an example. Full guide: [references/interactive-features.md](references/interactive-features.md).
+Generate N personalized documents from a LaTeX template + CSV/JSON data source using `scripts/mail_merge.py`. Template syntax: `{{variable}}` for simple substitution, Jinja2 (`<< >>`, `<% %>`) for conditionals/loops. Create the mail-merge template in the working directory before running the script. Full guide: [references/interactive-features.md](references/interactive-features.md).
 
 ## Workflow: Version Diffing (latexdiff)
 
@@ -220,7 +220,7 @@ For PDF utilities (encrypt, merge, optimize, extract pages, pdf-to-images), LaTe
 
 ## Templates
 
-Copy from `assets/templates/` and customize.
+Create the needed `.tex` file in the working directory from the matching pattern below, then customize it for the user's content.
 
 ### Resume Templates (5 ATS-Compatible Options)
 
@@ -258,17 +258,17 @@ All 5 templates follow ATS rules: single-column, no graphics/images, no tables f
 - **`cover-letter.tex`** -- Professional cover letter with sender/recipient blocks
 - **`invoice.tex`** -- Invoice with company header, line items table, subtotal/tax/total
 - **`academic-paper.tex`** -- Research paper with abstract, sections, bibliography, figures. Includes example `.bib` file (`references.bib`) for BibTeX citations.
-- **`examples/ieee-twocolumn-sample.tex`** -- IEEE Transactions / journal example using `\documentclass[journal,10pt]{IEEEtran}` with abstract, keywords, single-column figure, single-column table, full-width table, and numeric bibliography. Use with [references/ieee-journal-twocolumn-guide.md](references/ieee-journal-twocolumn-guide.md). Preview PNGs: `examples/ieee-twocolumn.png`, `examples/ieee-twocolumn-p1.png`, `examples/ieee-twocolumn-p2.png`.
+- **IEEE journal baseline** -- IEEE Transactions / journal example using `\documentclass[journal,10pt]{IEEEtran}` with abstract, keywords, single-column figure, single-column table, full-width table, and numeric bibliography. Generate this file from [references/ieee-journal-twocolumn-guide.md](references/ieee-journal-twocolumn-guide.md) when needed.
 - **`presentation.tex`** -- Beamer presentation with title slide, content frames, columns
 - **`fillable-form.tex`** -- Fillable PDF form (`article` class) with hyperref form fields: text inputs, checkboxes, radio buttons, dropdowns, push buttons. Two-column layout with `tabularx`. Custom `\FormField`, `\FormCheck`, `\FormDropdown` helper commands. Requires Adobe Reader for full form support (browser PDF viewers have limited form capabilities).
 - **`conditional-document.tex`** -- Configurable document (`article` class) with etoolbox toggle system: show/hide TOC, appendix, watermark, draft mode, confidential marking, abstract. Template variables via `\providecommand` (title, author, org, version). Three visual profiles (corporate, academic, minimal). Supports command-line variable passing for CI/CD.
-- **`mail-merge-letter.tex`** -- Mail merge letter template with `{{variable}}` placeholders for use with `scripts/mail_merge.py`. Company-branded letterhead, recipient address block, body text with data-driven personalization. Pair with CSV/JSON data source.
+- **Mail merge letter** -- Create a letter template with `{{variable}}` placeholders for use with `scripts/mail_merge.py`. Include letterhead, recipient address block, and body text with data-driven personalization. Pair with CSV/JSON data source.
 - **`resume.tex`** -- Legacy resume template (has photo area and tables -- not ATS-optimized)
 
 Usage:
 ```bash
-cp <skill_path>/assets/templates/resume-classic-ats.tex ./outputs/my_resume.tex
-# Edit content, then compile
+mkdir -p ./outputs
+# Create ./outputs/my_resume.tex using the ATS-safe resume pattern above, then compile.
 bash <skill_path>/scripts/compile_latex.sh ./outputs/my_resume.tex --preview --preview-dir ./outputs
 ```
 
@@ -290,7 +290,7 @@ bash <skill_path>/scripts/compile_latex.sh ./outputs/my_resume.tex --preview --p
 | Cover letter | `cover-letter.tex` | `article` |
 | Invoice | `invoice.tex` | `article` |
 | Academic paper | `academic-paper.tex` + `references.bib` | `article` |
-| IEEE journal, IEEE Transactions, IEEE two-column paper | `examples/ieee-twocolumn-sample.tex` + [ieee-journal-twocolumn-guide.md](references/ieee-journal-twocolumn-guide.md) | `IEEEtran` |
+| IEEE journal, IEEE Transactions, IEEE two-column paper | Generate from [ieee-journal-twocolumn-guide.md](references/ieee-journal-twocolumn-guide.md) | `IEEEtran` |
 | Book | `book.tex` | `book` |
 | Scientific poster (portrait) | `poster.tex` | `tikzposter` |
 | Scientific poster (landscape) | `poster-landscape.tex` | `tikzposter` |
@@ -302,7 +302,7 @@ bash <skill_path>/scripts/compile_latex.sh ./outputs/my_resume.tex --preview --p
 | Slides, presentation | `presentation.tex` | `beamer` |
 | Fillable PDF form | `fillable-form.tex` | `article` |
 | Conditional/configurable document | `conditional-document.tex` | `article` |
-| Mail merge, batch letters | `mail-merge-letter.tex` + `scripts/mail_merge.py` | `article` |
+| Mail merge, batch letters | Create a `mail-merge-letter.tex` working file + `scripts/mail_merge.py` | `article` |
 | **Version diff (latexdiff)** | Use `scripts/latex_diff.sh` + see [interactive-features.md](references/interactive-features.md) | varies |
 | **Convert PDF to LaTeX** | Select profile + see [pdf-conversion.md](references/pdf-conversion.md) | varies |
 | **Convert formats** | Use `scripts/convert_document.sh` + see [format-conversion.md](references/format-conversion.md) | varies |
@@ -364,7 +364,7 @@ When uncertain about LaTeX patterns, compilation issues, or document quality, co
 | Format Conversion (Pandoc) | [format-conversion.md](references/format-conversion.md) | Markdown/DOCX/HTML to/from LaTeX |
 | Tables and Images | [tables-and-images.md](references/tables-and-images.md) | Colored rows, multi-row/column, booktabs, long tables, images, TikZ |
 | Charts and Graphs (pgfplots) | [charts-and-graphs.md](references/charts-and-graphs.md) | Line plots, bar charts, scatter plots, pie charts in pgfplots |
-| IEEE Journal Two-Column Typography | [ieee-journal-twocolumn-guide.md](references/ieee-journal-twocolumn-guide.md) | IEEEtran journal layout, float rules, XeLaTeX vs. pdfLaTeX, bibliography, Markdown-to-IEEE workflow, sample PNGs in `examples/ieee-twocolumn*.png` |
+| IEEE Journal Two-Column Typography | [ieee-journal-twocolumn-guide.md](references/ieee-journal-twocolumn-guide.md) | IEEEtran journal layout, float rules, XeLaTeX vs. pdfLaTeX, bibliography, Markdown-to-IEEE workflow |
 | LaTeX Packages | [packages.md](references/packages.md) | Common packages reference |
 | Poster Design Guide | [poster-design-guide.md](references/poster-design-guide.md) | Conference size presets, typography, color schemes, layout archetypes, content guidelines |
 | Resume ATS Guide | [resume-ats-guide.md](references/resume-ats-guide.md) | ATS rules, LaTeX pitfalls, keywords |
@@ -413,4 +413,3 @@ These cause `Undefined control sequence` -- always include the required package:
 ## Long-Form Document Anti-Patterns
 
 For documents 5+ pages (reports, theses, books), read [references/long-form-best-practices.md](references/long-form-best-practices.md) for 9 critical anti-patterns, the report preamble best practices, and the content generation checklist. **This is MUST-READ material before generating any long document.**
-

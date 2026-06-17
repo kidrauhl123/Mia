@@ -5,7 +5,7 @@
 
 # Basic Information
 name: email-drafter
-description: ">"
+description: "Draft clear, context-aware emails for professional, academic, and personal communication. Use when the user needs a new email, reply, follow-up, outreach message, apology, escalation, or tone rewrite."
 version: "1.0.0"
 author: Claude Office Skills Contributors
 license: MIT
@@ -28,12 +28,6 @@ models:
     - gpt-4
     - gpt-4o
 
-# MCP Tools Integration
-mcp:
-  server: office-mcp
-  tools:
-    - create_docx
-
 # Skill Capabilities
 capabilities:
   - email_writing
@@ -51,6 +45,10 @@ languages:
 ## Overview
 
 This skill helps you draft professional emails for various business scenarios. It understands context, maintains appropriate tone, and follows email best practices for different situations.
+
+This Mia market version works without any separate MCP server. Draft in
+Markdown/plain text by default. Create a document file only when the user asks
+for one and the current runtime has document-writing capability available.
 
 **Use Cases:**
 - Responding to client inquiries

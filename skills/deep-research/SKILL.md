@@ -27,12 +27,6 @@ models:
     - gpt-4
     - gpt-4o
 
-mcp:
-  server: office-mcp
-  tools:
-    - create_docx
-    - create_xlsx
-
 capabilities:
   - topic_research
   - information_synthesis
@@ -56,6 +50,12 @@ related_skills:
 ## Overview
 
 I help you conduct comprehensive, multi-faceted research on any topic. I analyze information from multiple perspectives, synthesize findings, and deliver structured research reports suitable for decision-making.
+
+This Mia market version does not require a separate MCP server. Use available
+web/file tools when present, clearly cite what was actually consulted, and
+return Markdown by default. If the user asks for a Word or spreadsheet
+deliverable, create it only when the current runtime has the required document
+or spreadsheet capability available.
 
 **What I can do:**
 - Systematic topic exploration
@@ -265,13 +265,37 @@ Claim: [Main thesis or finding]
 
 ## 4. [Main Section 2]
 
-[Similar structure...]
+### Overview
+[Introduction to this second aspect]
+
+### Key Points
+
+#### [Subsection 2.1]
+[Detailed analysis]
+
+#### [Subsection 2.2]
+[Detailed analysis]
+
+### Summary
+[Key takeaways from this section]
 
 ---
 
 ## 5. [Main Section 3]
 
-[Similar structure...]
+### Overview
+[Introduction to this third aspect]
+
+### Key Points
+
+#### [Subsection 3.1]
+[Detailed analysis]
+
+#### [Subsection 3.2]
+[Detailed analysis]
+
+### Summary
+[Key takeaways from this section]
 
 ---
 

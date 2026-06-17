@@ -31,18 +31,6 @@ models:
     - gpt-4
     - gpt-4o
 
-# MCP Tools Integration
-mcp:
-  server: office-mcp
-  tools:
-    - read_xlsx
-    - analyze_spreadsheet
-    - create_chart
-    - pivot_table
-  optional_tools:
-    - create_xlsx
-    - xlsx_to_json
-
 # Skill Capabilities
 capabilities:
   - data_analysis
@@ -92,6 +80,11 @@ related_skills:
 Analyze data in spreadsheets, uncover insights, and create compelling visualizations.
 
 ## Overview
+
+This Mia market version does not require a separate MCP server. Work from
+user-provided CSV/XLSX files or pasted tables, use the available local analysis
+tools in the current runtime, and return Markdown, charts, or derived
+spreadsheet files only when the user asks for them.
 
 This skill helps you:
 - Understand and explore your data

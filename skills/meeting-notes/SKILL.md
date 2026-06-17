@@ -5,7 +5,7 @@
 
 # Basic Information
 name: meeting-notes
-description: ">"
+description: "Turn meeting notes, transcripts, or rough discussion records into structured summaries, decisions, action items, owners, due dates, and open questions."
 version: "1.0.0"
 author: Claude Office Skills Contributors
 license: MIT
@@ -29,12 +29,6 @@ models:
     - gpt-4
     - gpt-4o
 
-# MCP Tools Integration
-mcp:
-  server: office-mcp
-  tools:
-    - create_docx
-
 # Skill Capabilities
 capabilities:
   - note_structuring
@@ -52,6 +46,10 @@ languages:
 ## Overview
 
 This skill transforms raw meeting notes, transcripts, or audio summaries into clear, structured documentation with action items, decisions, and key takeaways.
+
+This Mia market version works without any separate MCP server. Produce Markdown
+by default. Create a document file only when explicitly requested and when the
+current runtime has document-writing capability available.
 
 **Use Cases:**
 - Converting messy handwritten notes to clean summaries
@@ -124,7 +122,9 @@ This skill transforms raw meeting notes, transcripts, or audio summaries into cl
 **Blockers:** [Issues, if any]
 
 ## [Team Member 2]
-...
+**Yesterday:** [Completed tasks]
+**Today:** [Planned tasks]
+**Blockers:** [Issues, if any]
 
 ## Team Blockers
 - [Blocker requiring escalation]

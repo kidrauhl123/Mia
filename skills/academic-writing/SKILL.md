@@ -221,10 +221,16 @@ For "prepare for submission" or "is this ready to submit?", run a comprehensive 
    - *Suggested action*: ...
 
 ### Important Issues (N items)
-...
+1. **[Category]** [FILE:LINE] — Description
+   - *Found by*: [agent name]
+   - *Principle*: [PN]
+   - *Suggested action*: [concrete revision]
 
 ### Minor Issues (N items)
-...
+1. **[Category]** [FILE:LINE] — Description
+   - *Found by*: [agent name]
+   - *Principle*: [PN]
+   - *Suggested action*: [small edit]
 
 ### Patterns Observed
 - [Recurring themes across findings]
