@@ -119,6 +119,7 @@ test("desktop window controls use Windows maximize semantics off macOS", () => {
 });
 
 test("desktop shell uses optional middle pane by active view", () => {
+  const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const appStateSource = fs.readFileSync(path.join(root, "src/renderer/app-state.js"), "utf8");
   const css = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
@@ -130,19 +131,31 @@ test("desktop shell uses optional middle pane by active view", () => {
   assert.match(appSource, /return viewHasIndexPane\(view\) \? "dual" : "workspace"/);
   assert.match(appSource, /setAttribute\("data-layout", legacyGridLayoutForView\(state\.activeView\)\)/);
   assert.match(appSource, /setAttribute\("data-shell-layout", state\.shellLayout\)/);
+  assert.match(appSource, /function syncSidebarCollapseState\(\)/);
+  assert.match(appSource, /setAttribute\("data-sidebar-state", collapsed \? "collapsed" : "expanded"\)/);
+  assert.match(appSource, /localStorage\.setItem\("mia\.sidebarCollapsed\.v1", state\.sidebarCollapsed \? "1" : "0"\)/);
   assert.match(appSource, /if \(state\.isNarrowWindow && viewHasIndexPane\(state\.activeView\)\) \{\s*showNarrowSidebar\(\);/);
   assert.match(appSource, /state\.discoverSectionView \|\| "bot-store"/);
   assert.match(appStateSource, /discoverSectionView:\s*"bot-store"/);
   assert.match(appStateSource, /shellLayout:\s*windowWidth <= 720 \? "single" : "dual"/);
+  assert.match(appStateSource, /sidebarCollapsed:\s*options\.sidebarCollapsed \?\? readLocal\(storage, "mia\.sidebarCollapsed\.v1"\) === "1"/);
   assert.doesNotMatch(appStateSource, /skillPickerPluginId/);
+  assert.match(html, /id="sidebarRailToggle" class="sidebar-rail-toggle"[\s\S]*?aria-expanded="true"[\s\S]*?<path d="M15 18L9 12L15 6"/);
   assert.match(css, /--rail-column-width:\s*78px;/);
   assert.match(css, /\.app-shell\[data-layout="index-workspace"\]\s*\{[\s\S]*?grid-template-columns:\s*var\(--rail-column-width\) var\(--sidebar-width\) 0 minmax\(0,\s*1fr\);/);
+  assert.match(css, /\.app-shell\[data-layout="index-workspace"\]\[data-sidebar-state="collapsed"\]\s*\{[\s\S]*?grid-template-columns:\s*var\(--rail-column-width\) 0 0 minmax\(0,\s*1fr\);/);
   assert.match(css, /\.app-shell\[data-layout="workspace"\]\s*\{[\s\S]*?grid-template-columns:\s*var\(--rail-column-width\) minmax\(0,\s*1fr\);/);
+  assert.match(css, /#chatView\s*\{[\s\S]*?grid-column:\s*4;[\s\S]*?grid-row:\s*1;/);
   assert.match(css, /\.nav-rail\s*\{[\s\S]*?grid-template-rows:\s*var\(--traffic-spacer-height\) 44px 1px repeat\(4,\s*44px\) minmax\(0,\s*1fr\) 44px;[\s\S]*?margin:\s*8px 8px 10px 8px;[\s\S]*?border-radius:\s*var\(--rail-corner-radius\);[\s\S]*?background:\s*color-mix\(in srgb,\s*var\(--surface-soft\) 62%,\s*transparent\);[\s\S]*?backdrop-filter:\s*blur\(24px\) saturate\(1\.16\);/);
   assert.match(css, /:root\[data-theme="dark"\] \.nav-rail\s*\{[\s\S]*?background:\s*var\(--surface\);[\s\S]*?backdrop-filter:\s*none;/);
   assert.match(css, /\.traffic-spacer\s*\{[\s\S]*?height:\s*var\(--traffic-spacer-height\);/);
   assert.match(css, /\.app-shell\[data-layout="index-workspace"\] \.sidebar\s*\{[\s\S]*?margin:\s*8px 8px 10px 0;[\s\S]*?border-radius:\s*var\(--rail-corner-radius\);[\s\S]*?box-shadow:\s*var\(--rail-expanded-shadow\);/);
-  assert.match(css, /\.app-shell\[data-layout="workspace"\] \.sidebar,[\s\S]*?\.app-shell\[data-layout="workspace"\] \.sidebar-resize-handle\s*\{[\s\S]*?display:\s*none;/);
+  assert.match(css, /\.sidebar-rail-toggle\s*\{[\s\S]*?top:\s*12px;[\s\S]*?bottom:\s*12px;[\s\S]*?left:\s*calc\(var\(--rail-column-width\) - 7px\);[\s\S]*?width:\s*14px;[\s\S]*?height:\s*auto;[\s\S]*?background:\s*transparent;[\s\S]*?transform:\s*translateX\(-50%\);/);
+  assert.match(css, /\.sidebar-rail-toggle::before\s*\{[\s\S]*?display:\s*none;[\s\S]*?content:\s*"";/);
+  assert.match(css, /\.sidebar-rail-toggle svg\s*\{[\s\S]*?opacity:\s*0;/);
+  assert.match(css, /\.sidebar-rail-toggle:hover svg,[\s\S]*?\.sidebar-rail-toggle:focus-visible svg\s*\{[\s\S]*?opacity:\s*1;/);
+  assert.match(css, /\.app-shell\[data-sidebar-state="collapsed"\] \.sidebar-rail-toggle svg\s*\{[\s\S]*?transform:\s*rotate\(180deg\);/);
+  assert.match(css, /\.app-shell\[data-layout="workspace"\] \.sidebar,[\s\S]*?\.app-shell\[data-layout="workspace"\] \.sidebar-resize-handle,[\s\S]*?\.app-shell\[data-layout="workspace"\] \.sidebar-rail-toggle\s*\{[\s\S]*?display:\s*none;/);
 });
 
 test("narrow desktop shell collapses the expanded rail into one content column", () => {
@@ -236,6 +249,20 @@ test("chat scrollbar overlay stops at the composer top edge", () => {
   assert.match(scrollbarSource, /document\.querySelector\("#chatView \.composer-card"\)/);
   assert.match(scrollbarSource, /const trackBottom = Math\.min\(rect\.bottom,\s*composerRect\.top\);/);
   assert.match(scrollbarSource, /trackRect\.height - trackInset \* 2/);
+});
+
+test("custom scrollbar overlay is invalidated when panes or dialogs hide", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const scrollbarSource = fs.readFileSync(path.join(root, "src/renderer/helpers/scrollbar-overlay.js"), "utf8");
+
+  assert.match(scrollbarSource, /function isScrollbarTargetUsable\(target\)/);
+  assert.match(scrollbarSource, /target\.closest\("\.hidden, \[hidden\], \.settings-closing"\)/);
+  assert.match(scrollbarSource, /shell\.dataset\.sidebarState === "collapsed" && target\.closest\("\.sidebar"\)/);
+  assert.match(scrollbarSource, /shell\.dataset\.narrowPane === "content" && target\.closest\("\.sidebar"\)/);
+  assert.match(scrollbarSource, /hideScrollbarOverlay\(target,\s*true\)/);
+  assert.match(scrollbarSource, /new MutationObserver\(\(records\) => \{/);
+  assert.match(scrollbarSource, /validateScrollbarOverlay/);
+  assert.match(appSource, /window\.miaScrollbarOverlay\?\.validateScrollbarOverlay\?\.\(\);/);
 });
 
 test("sidebar active conversation color changes with a fast transition", () => {

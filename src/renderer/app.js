@@ -140,6 +140,7 @@ const els = {
   conversationSidebar: document.getElementById("conversationSidebar"),
   contactsSidebar: document.getElementById("contactsSidebar"),
   sidebarResizeHandle: document.getElementById("sidebarResizeHandle"),
+  sidebarRailToggle: document.getElementById("sidebarRailToggle"),
   narrowBackButtons: document.querySelectorAll("[data-narrow-back]"),
   chatView: document.getElementById("chatView"),
   contactsView: document.getElementById("contactsView"),
@@ -867,14 +868,48 @@ function syncNarrowLayout() {
   }
 }
 
+function sidebarCollapseSupported(view = state.activeView) {
+  return !state.isNarrowWindow && viewHasIndexPane(view);
+}
+
+function syncSidebarCollapseState() {
+  const supported = sidebarCollapseSupported(state.activeView);
+  const collapsed = supported && state.sidebarCollapsed;
+  if (els.appShell) {
+    els.appShell.setAttribute("data-sidebar-state", collapsed ? "collapsed" : "expanded");
+    els.appShell.setAttribute("data-sidebar-toggle", supported ? "available" : "hidden");
+  }
+  if (els.sidebarRailToggle) {
+    els.sidebarRailToggle.hidden = !supported;
+    els.sidebarRailToggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    els.sidebarRailToggle.title = collapsed ? "展开中栏" : "收起中栏";
+    els.sidebarRailToggle.setAttribute("aria-label", collapsed ? "展开中栏" : "收起中栏");
+  }
+  window.miaScrollbarOverlay?.validateScrollbarOverlay?.();
+}
+
+function setSidebarCollapsed(collapsed, persist = false) {
+  state.sidebarCollapsed = Boolean(collapsed);
+  if (persist) {
+    try {
+      localStorage.setItem("mia.sidebarCollapsed.v1", state.sidebarCollapsed ? "1" : "0");
+    } catch {
+      // localStorage may be unavailable in restricted renderer contexts.
+    }
+  }
+  syncSidebarCollapseState();
+}
+
 function showNarrowContent() {
   state.narrowPane = "content";
   syncNarrowLayout();
+  syncSidebarCollapseState();
 }
 
 function showNarrowSidebar() {
   state.narrowPane = "sidebar";
   syncNarrowLayout();
+  syncSidebarCollapseState();
 }
 
 function viewHasIndexPane(view = state.activeView) {
@@ -2441,6 +2476,7 @@ function renderView() {
   els.appShell?.setAttribute("data-active-view", state.activeView);
   els.appShell?.setAttribute("data-layout", legacyGridLayoutForView(state.activeView));
   els.appShell?.setAttribute("data-shell-layout", state.shellLayout);
+  syncSidebarCollapseState();
   els.discoverModeToggle?.querySelectorAll("[data-discover-mode]").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.discoverMode === state.activeView);
   });
@@ -2513,6 +2549,7 @@ function syncSettingsDrawerVisibility() {
   if (els.settingsView.classList.contains("settings-closing")) return;
   window.clearTimeout(settingsDrawerHideTimer);
   els.settingsView.classList.add("settings-closing");
+  window.miaScrollbarOverlay?.validateScrollbarOverlay?.();
   settingsDrawerHideTimer = window.setTimeout(() => {
     if (state.settingsOpen) return;
     els.settingsView.classList.add("hidden");
@@ -4432,9 +4469,14 @@ window.miaLottieIcons?.init();
 document.querySelectorAll("[data-view]").forEach((button) => {
   button.addEventListener("click", () => {
     // 联系人 rail 图标进的是 发现/联系人 section，默认落到发现页。
-    state.activeView = button.dataset.view === "contacts"
+    const nextView = button.dataset.view === "contacts"
       ? (state.discoverSectionView || "bot-store")
       : button.dataset.view;
+    const reselectingCollapsedIndex = state.activeView === nextView
+      && sidebarCollapseSupported(nextView)
+      && state.sidebarCollapsed;
+    state.activeView = nextView;
+    if (reselectingCollapsedIndex) setSidebarCollapsed(false, true);
     if (state.isNarrowWindow && viewHasIndexPane(state.activeView)) {
       showNarrowSidebar();
     } else {
@@ -4451,6 +4493,12 @@ document.querySelectorAll("[data-view]").forEach((button) => {
       });
     }
   });
+});
+
+els.sidebarRailToggle?.addEventListener("click", () => {
+  if (!sidebarCollapseSupported(state.activeView)) return;
+  setSidebarCollapsed(!state.sidebarCollapsed, true);
+  renderView();
 });
 
 els.narrowBackButtons?.forEach((button) => {
@@ -4523,6 +4571,7 @@ window.addEventListener("resize", () => {
   normalizeNarrowPaneForView(state.activeView);
   state.shellLayout = shellLayoutForView(state.activeView);
   syncNarrowLayout();
+  syncSidebarCollapseState();
   if (els.appShell) els.appShell.setAttribute("data-shell-layout", state.shellLayout);
 });
 

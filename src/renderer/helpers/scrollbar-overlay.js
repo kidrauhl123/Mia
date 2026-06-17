@@ -12,6 +12,57 @@
   let scrollbarOverlayEl = null;
   let scrollbarOverlayTarget = null;
   let scrollbarDrag = null;
+  let scrollbarInvalidationFrame = 0;
+
+  function clearScrollbarHide(target) {
+    if (!(target instanceof Element)) return;
+    const previous = scrollbarTimers.get(target);
+    if (previous) {
+      window.clearTimeout(previous);
+      scrollbarTimers.delete(target);
+    }
+  }
+
+  function scrollbarTargetHiddenByShellState(target) {
+    const shell = target.closest?.(".app-shell");
+    if (!shell) return false;
+    if (shell.dataset.sidebarState === "collapsed" && target.closest(".sidebar")) return true;
+    if (shell.dataset.shellLayout !== "single") return false;
+    if (shell.dataset.narrowPane === "content" && target.closest(".sidebar")) return true;
+    if (shell.dataset.narrowPane === "index" && target.closest(".workspace")) return true;
+    return false;
+  }
+
+  function isScrollbarTargetUsable(target) {
+    if (!(target instanceof Element)) return false;
+    if (target === document.documentElement || target === document.body) return false;
+    if (!target.isConnected) return false;
+    if (target.closest(".hidden, [hidden], .settings-closing")) return false;
+    if (scrollbarTargetHiddenByShellState(target)) return false;
+    const rect = target.getBoundingClientRect();
+    if (rect.width <= 1 || rect.height <= 1) return false;
+    const style = window.getComputedStyle(target);
+    if (style.display === "none" || style.visibility === "hidden") return false;
+    return target.scrollHeight > target.clientHeight;
+  }
+
+  function validateScrollbarOverlay() {
+    const target = scrollbarOverlayTarget;
+    if (!target) return;
+    if (!isScrollbarTargetUsable(target)) {
+      hideScrollbarOverlay(target, true);
+      return;
+    }
+    updateScrollbarOverlay(target);
+  }
+
+  function scheduleScrollbarInvalidation() {
+    if (scrollbarInvalidationFrame) return;
+    scrollbarInvalidationFrame = window.requestAnimationFrame(() => {
+      scrollbarInvalidationFrame = 0;
+      validateScrollbarOverlay();
+    });
+  }
 
   function ensureScrollbarOverlay() {
     if (scrollbarOverlayEl) return scrollbarOverlayEl;
@@ -21,11 +72,11 @@
     scrollbarOverlayEl.addEventListener("pointerenter", () => {
       const target = scrollbarOverlayTarget;
       if (!target) return;
-      const previous = scrollbarTimers.get(target);
-      if (previous) {
-        window.clearTimeout(previous);
-        scrollbarTimers.delete(target);
+      if (!isScrollbarTargetUsable(target)) {
+        hideScrollbarOverlay(target, true);
+        return;
       }
+      clearScrollbarHide(target);
       target.classList.add("scrollbar-visible", "scrollbar-active");
       updateScrollbarOverlay(target);
     });
@@ -74,8 +125,15 @@
   }
 
   function updateScrollbarOverlay(target) {
+    if (!isScrollbarTargetUsable(target)) {
+      hideScrollbarOverlay(target, true);
+      return false;
+    }
     const metrics = scrollbarOverlayMetrics(target);
-    if (!metrics) return;
+    if (!metrics) {
+      hideScrollbarOverlay(target, true);
+      return false;
+    }
     const { rect, maxScroll, trackInset, thumbHeight, travel } = metrics;
     const overlay = ensureScrollbarOverlay();
     const thumbTop = rect.top + trackInset + (target.scrollTop / maxScroll) * travel;
@@ -85,21 +143,43 @@
     overlay.style.transform = `translate3d(${Math.round(thumbLeft)}px, ${Math.round(thumbTop)}px, 0)`;
     overlay.classList.add("visible");
     scrollbarOverlayTarget = target;
+    return true;
   }
 
-  function hideScrollbarOverlay(target) {
-    if (scrollbarDrag?.active) return;
-    if (target && scrollbarOverlayTarget !== target) return;
-    if (!scrollbarOverlayEl) return;
+  function hideScrollbarOverlay(target, force = false) {
+    if (target && scrollbarOverlayTarget && scrollbarOverlayTarget !== target) return;
+    if (scrollbarDrag?.active && !force) return;
+    const activeTarget = target instanceof Element ? target : scrollbarOverlayTarget;
+    if (activeTarget instanceof Element) {
+      clearScrollbarHide(activeTarget);
+      activeTarget.classList.remove("scrollbar-visible", "scrollbar-active");
+    }
+    if (scrollbarDrag?.active && force) {
+      scrollbarOverlayEl?.releasePointerCapture?.(scrollbarDrag.pointerId);
+      scrollbarDrag = null;
+    }
+    if (!scrollbarOverlayEl) {
+      scrollbarOverlayTarget = null;
+      return;
+    }
     scrollbarOverlayEl.classList.remove("visible");
+    scrollbarOverlayEl.classList.remove("dragging");
+    scrollbarOverlayEl.style.transform = "translate3d(-9999px, -9999px, 0)";
     scrollbarOverlayTarget = null;
   }
 
   function scheduleScrollbarHide(target, delay = 850) {
     if (!(target instanceof Element)) return;
-    const previous = scrollbarTimers.get(target);
-    if (previous) window.clearTimeout(previous);
+    if (!isScrollbarTargetUsable(target)) {
+      hideScrollbarOverlay(target, true);
+      return;
+    }
+    clearScrollbarHide(target);
     scrollbarTimers.set(target, window.setTimeout(() => {
+      if (!isScrollbarTargetUsable(target)) {
+        hideScrollbarOverlay(target, true);
+        return;
+      }
       if (scrollbarDrag?.active && scrollbarDrag.target === target) return;
       if (target.matches(":hover") || scrollbarOverlayEl?.matches(":hover")) return;
       target.classList.remove("scrollbar-visible");
@@ -110,9 +190,10 @@
   }
 
   function showScrollingScrollbar(target) {
-    if (!(target instanceof Element)) return;
-    if (target === document.documentElement || target === document.body) return;
-    if (target.scrollHeight <= target.clientHeight && target.scrollWidth <= target.clientWidth) return;
+    if (!isScrollbarTargetUsable(target)) {
+      hideScrollbarOverlay(target, true);
+      return;
+    }
     updateScrollbarOverlay(target);
     target.classList.add("scrollbar-visible");
     target.classList.add("scrollbar-active");
@@ -124,7 +205,7 @@
     while (current && current !== document.body && current !== document.documentElement) {
       const style = window.getComputedStyle(current);
       const canScrollY = current.scrollHeight > current.clientHeight && /(auto|scroll|overlay)/.test(style.overflowY);
-      if (canScrollY) return current;
+      if (canScrollY && isScrollbarTargetUsable(current)) return current;
       current = current.parentElement;
     }
     return null;
@@ -143,15 +224,15 @@
 
   function startScrollbarOverlayDrag(event) {
     const target = scrollbarOverlayTarget;
+    if (!isScrollbarTargetUsable(target)) {
+      hideScrollbarOverlay(target, true);
+      return;
+    }
     const metrics = scrollbarOverlayMetrics(target);
     if (!target || !metrics || !scrollbarOverlayEl) return;
     event.preventDefault();
     event.stopPropagation();
-    const previous = scrollbarTimers.get(target);
-    if (previous) {
-      window.clearTimeout(previous);
-      scrollbarTimers.delete(target);
-    }
+    clearScrollbarHide(target);
     scrollbarOverlayEl.setPointerCapture?.(event.pointerId);
     scrollbarOverlayEl.classList.add("dragging");
     target.classList.add("scrollbar-visible", "scrollbar-active");
@@ -168,6 +249,10 @@
 
   function updateScrollbarOverlayDrag(event) {
     if (!scrollbarDrag?.active) return;
+    if (!isScrollbarTargetUsable(scrollbarDrag.target)) {
+      hideScrollbarOverlay(scrollbarDrag.target, true);
+      return;
+    }
     event.preventDefault();
     const { target, startY, startScrollTop, maxScroll, travel } = scrollbarDrag;
     const deltaY = event.clientY - startY;
@@ -181,8 +266,7 @@
     scrollbarOverlayEl?.releasePointerCapture?.(pointerId);
     scrollbarOverlayEl?.classList.remove("dragging");
     scrollbarDrag = null;
-    updateScrollbarOverlay(target);
-    scheduleScrollbarHide(target, 650);
+    if (updateScrollbarOverlay(target)) scheduleScrollbarHide(target, 650);
   }
 
   // Read-only getter so app.js can re-render on layout changes without
@@ -195,12 +279,32 @@
   // listener in app.js so a hovered scrollbar stays visible.
   function cancelScrollbarHide(target) {
     if (!(target instanceof Element)) return;
-    const previous = scrollbarTimers.get(target);
-    if (previous) {
-      window.clearTimeout(previous);
-      scrollbarTimers.delete(target);
-    }
+    clearScrollbarHide(target);
   }
+
+  function installScrollbarInvalidationObserver() {
+    if (typeof MutationObserver !== "function") return;
+    const observer = new MutationObserver((records) => {
+      if (records.every((record) => scrollbarOverlayEl?.contains(record.target))) return;
+      scheduleScrollbarInvalidation();
+    });
+    observer.observe(document.documentElement, {
+      subtree: true,
+      attributes: true,
+      attributeFilter: [
+        "class",
+        "hidden",
+        "style",
+        "data-layout",
+        "data-sidebar-state",
+        "data-shell-layout",
+        "data-narrow-pane"
+      ]
+    });
+    window.addEventListener("resize", scheduleScrollbarInvalidation, { passive: true });
+  }
+
+  installScrollbarInvalidationObserver();
 
   window.miaScrollbarOverlay = {
     ensureScrollbarOverlay,
@@ -217,5 +321,6 @@
     stopScrollbarOverlayDrag,
     getScrollbarOverlayTarget,
     cancelScrollbarHide,
+    validateScrollbarOverlay,
   };
 })();

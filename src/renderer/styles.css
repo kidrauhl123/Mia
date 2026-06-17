@@ -217,6 +217,7 @@ p {
 }
 
 .app-shell {
+  position: relative;
   display: grid;
   grid-template-columns: var(--rail-column-width) var(--sidebar-width) 0 minmax(0, 1fr);
   width: 100vw;
@@ -228,6 +229,7 @@ p {
   background-position: center;
   background-repeat: no-repeat;
   overflow: hidden;
+  transition: grid-template-columns 220ms cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 
 body.platform-darwin .app-shell {
@@ -243,12 +245,17 @@ body.platform-darwin.window-fullscreen .app-shell {
   grid-template-columns: var(--rail-column-width) var(--sidebar-width) 0 minmax(0, 1fr);
 }
 
+.app-shell[data-layout="index-workspace"][data-sidebar-state="collapsed"] {
+  grid-template-columns: var(--rail-column-width) 0 0 minmax(0, 1fr);
+}
+
 .app-shell[data-layout="workspace"] {
   grid-template-columns: var(--rail-column-width) minmax(0, 1fr);
 }
 
 .app-shell[data-layout="workspace"] .sidebar,
-.app-shell[data-layout="workspace"] .sidebar-resize-handle {
+.app-shell[data-layout="workspace"] .sidebar-resize-handle,
+.app-shell[data-layout="workspace"] .sidebar-rail-toggle {
   display: none;
 }
 
@@ -299,6 +306,7 @@ body.platform-darwin.window-fullscreen .app-shell {
 .app-shell[data-auth-state="signed-out"] .nav-rail,
 .app-shell[data-auth-state="signed-out"] .sidebar,
 .app-shell[data-auth-state="signed-out"] .sidebar-resize-handle,
+.app-shell[data-auth-state="signed-out"] .sidebar-rail-toggle,
 .app-shell[data-auth-state="signed-out"] .topbar,
 .app-shell[data-auth-state="signed-out"] .composer,
 .app-shell[data-auth-state="signed-out"] #contactsView,
@@ -797,6 +805,8 @@ body.update-locked {
 }
 
 #chatView {
+  grid-column: 4;
+  grid-row: 1;
   background: transparent;
 }
 
@@ -819,8 +829,17 @@ body.update-locked {
   border-radius: var(--rail-corner-radius);
   background: color-mix(in srgb, var(--surface) 96%, transparent);
   box-shadow: var(--rail-expanded-shadow);
+  opacity: 1;
+  transform: translateX(0);
+  transition: opacity 180ms cubic-bezier(0.2, 0.7, 0.2, 1), transform 220ms cubic-bezier(0.2, 0.7, 0.2, 1);
   -webkit-backdrop-filter: blur(18px) saturate(1.08);
   backdrop-filter: blur(18px) saturate(1.08);
+}
+
+.app-shell[data-layout="index-workspace"][data-sidebar-state="collapsed"] .sidebar {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-10px);
 }
 
 .app-shell[data-layout="index-workspace"] .sidebar-resize-handle::before {
@@ -850,6 +869,65 @@ body.update-locked {
 
 :root[data-theme="dark"] .sidebar-resize-handle::before {
   background: rgba(255, 255, 255, 0.08);
+}
+
+.app-shell[data-sidebar-state="collapsed"] .sidebar-resize-handle {
+  display: none;
+}
+
+.sidebar-rail-toggle {
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  left: calc(var(--rail-column-width) - 7px);
+  z-index: 12;
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: auto;
+  border-radius: 0;
+  background: transparent;
+  color: var(--faint);
+  box-shadow: none;
+  opacity: 1;
+  transform: translateX(-50%);
+  transition: color 120ms ease;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  -webkit-app-region: no-drag;
+}
+
+.sidebar-rail-toggle::before {
+  display: none;
+  content: "";
+}
+
+.sidebar-rail-toggle svg {
+  position: relative;
+  width: 10px;
+  height: 10px;
+  opacity: 0;
+  transition: opacity 120ms ease, transform 180ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.sidebar-rail-toggle:hover,
+.sidebar-rail-toggle:focus-visible {
+  color: var(--text);
+}
+
+.sidebar-rail-toggle:hover svg,
+.sidebar-rail-toggle:focus-visible svg {
+  opacity: 1;
+}
+
+.app-shell[data-sidebar-state="collapsed"] .sidebar-rail-toggle svg {
+  transform: rotate(180deg);
+}
+
+.app-shell[data-sidebar-toggle="hidden"] .sidebar-rail-toggle,
+.app-shell[data-shell-layout="single"] .sidebar-rail-toggle,
+.sidebar-rail-toggle[hidden] {
+  display: none;
 }
 
 body.sidebar-resizing,
@@ -3436,6 +3514,7 @@ body.onboarding-window .app-shell {
 body.onboarding-window .nav-rail,
 body.onboarding-window .sidebar,
 body.onboarding-window .sidebar-resize-handle,
+body.onboarding-window .sidebar-rail-toggle,
 body.onboarding-window .topbar,
 body.onboarding-window .composer,
 body.onboarding-window #contactsView,

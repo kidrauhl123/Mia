@@ -62,6 +62,7 @@
       narrowPane: "content",
       shellLayout: windowWidth <= 720 ? "single" : "dual",
       isNarrowWindow: windowWidth <= 720,
+      sidebarCollapsed: options.sidebarCollapsed ?? readLocal(storage, "mia.sidebarCollapsed.v1") === "1",
       sidebarWidth: options.sidebarWidth,
       sidebarResize: { dragging: false, startX: 0, startWidth: 0 },
       activeSettingsTab: "account",
