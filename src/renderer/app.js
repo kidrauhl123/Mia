@@ -299,6 +299,7 @@ const els = {
   appUpdateOverlay: document.getElementById("appUpdateOverlay"),
   appUpdateOverlayTitle: document.getElementById("appUpdateOverlayTitle"),
   appUpdateOverlayDetail: document.getElementById("appUpdateOverlayDetail"),
+  appUpdateReleaseNotes: document.getElementById("appUpdateReleaseNotes"),
   appUpdateProgressBar: document.getElementById("appUpdateProgressBar"),
   appUpdateProgressFill: document.getElementById("appUpdateProgressFill"),
   appUpdateProgressText: document.getElementById("appUpdateProgressText"),
@@ -346,6 +347,40 @@ function appUpdatePercent(payload = {}) {
   return Math.max(0, Math.min(100, value));
 }
 
+function appUpdateReleaseNoteLines(payload = {}) {
+  const raw = payload.releaseNotes;
+  const source = Array.isArray(raw) ? raw : String(raw || "").split(/\r?\n/);
+  const seen = new Set();
+  const notes = [];
+  for (const value of source) {
+    let line = String(value || "").trim();
+    if (!line || /^```/.test(line) || /^#{1,6}\s+Mia\b/i.test(line)) continue;
+    line = line
+      .replace(/^#{1,6}\s+/, "")
+      .replace(/^[-*+]\s+/, "")
+      .replace(/^\d+[.)]\s+/, "")
+      .trim();
+    if (!line || seen.has(line)) continue;
+    seen.add(line);
+    notes.push(line.length > 180 ? `${line.slice(0, 177)}...` : line);
+    if (notes.length >= 5) break;
+  }
+  return notes;
+}
+
+function renderAppUpdateReleaseNotes(payload = {}) {
+  const list = els.appUpdateReleaseNotes;
+  if (!list) return;
+  list.textContent = "";
+  const notes = appUpdateReleaseNoteLines(payload);
+  list.hidden = notes.length === 0;
+  for (const note of notes) {
+    const item = document.createElement("li");
+    item.textContent = note;
+    list.appendChild(item);
+  }
+}
+
 function appUpdateOverlayCopy(payload = {}) {
   const status = payload.status || payload.type || "";
   const version = updateVersionSuffix(payload.version);
@@ -390,6 +425,7 @@ function renderAppUpdateOverlay(payload = {}, visible = true) {
   const percent = appUpdatePercent(payload);
   setText(els.appUpdateOverlayTitle, copy.title);
   setText(els.appUpdateOverlayDetail, copy.detail);
+  renderAppUpdateReleaseNotes(payload);
   if (els.appUpdateProgressFill) els.appUpdateProgressFill.style.width = `${percent}%`;
   if (els.appUpdateProgressBar) els.appUpdateProgressBar.setAttribute("aria-valuenow", String(Math.round(percent)));
   setText(els.appUpdateProgressText, `${Math.round(percent)}%`);

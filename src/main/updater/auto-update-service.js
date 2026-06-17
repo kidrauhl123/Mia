@@ -20,6 +20,43 @@ function versionFromInfo(info) {
   return String(info?.version || "").trim();
 }
 
+function releaseNoteText(value) {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  return String(value.note || "");
+}
+
+function releaseNotesFromInfo(info) {
+  const source = info?.releaseNotes;
+  if (!source) return [];
+  const chunks = Array.isArray(source) ? source.map(releaseNoteText) : [releaseNoteText(source)];
+  const seen = new Set();
+  const notes = [];
+  for (const chunk of chunks) {
+    for (const rawLine of String(chunk || "").replace(/\r\n/g, "\n").split("\n")) {
+      let line = rawLine.trim();
+      if (!line || /^```/.test(line) || /^#{1,6}\s+Mia\b/i.test(line)) continue;
+      line = line
+        .replace(/^#{1,6}\s+/, "")
+        .replace(/^[-*+]\s+/, "")
+        .replace(/^\d+[.)]\s+/, "")
+        .trim();
+      if (!line || seen.has(line)) continue;
+      seen.add(line);
+      notes.push(line.length > 180 ? `${line.slice(0, 177)}...` : line);
+      if (notes.length >= 6) return notes;
+    }
+  }
+  return notes;
+}
+
+function updateInfoPayload(info) {
+  const payload = { version: versionFromInfo(info) };
+  const releaseNotes = releaseNotesFromInfo(info);
+  if (releaseNotes.length) payload.releaseNotes = releaseNotes;
+  return payload;
+}
+
 function serializeError(error) {
   return {
     message: String(error?.message || error || "检查更新失败"),
@@ -71,6 +108,7 @@ function createAutoUpdateService(deps = {}) {
   let quitForUpdateStarted = false;
   let windowInteractionLocked = false;
   let updater = null;
+  let activeUpdateInfo = null;
 
   function resolveUpdater() {
     if (!updater) updater = getAutoUpdater();
@@ -91,6 +129,7 @@ function createAutoUpdateService(deps = {}) {
     return {
       type,
       status: type,
+      ...updateInfoPayload(info),
       version: versionFromInfo(info) || String(extra.version || "").trim(),
       mandatory: true,
       ...extra,
@@ -117,6 +156,8 @@ function createAutoUpdateService(deps = {}) {
   }
 
   function emitUpdate(type, info = null, extra = {}) {
+    if (["available", "downloaded"].includes(type) && info) activeUpdateInfo = info;
+    if (["not-available", "error"].includes(type)) activeUpdateInfo = null;
     if (["available", "downloading", "downloaded"].includes(type)) {
       setWindowInteractionLocked(true);
     }
@@ -203,7 +244,7 @@ function createAutoUpdateService(deps = {}) {
       emitUpdate("not-available", info);
     });
     autoUpdater.on("download-progress", (progress) => {
-      emitUpdate("downloading", null, { progress: normalizeProgress(progress) });
+      emitUpdate("downloading", activeUpdateInfo, { progress: normalizeProgress(progress) });
     });
     autoUpdater.on("update-downloaded", (info) => {
       logger.info?.(`${TAG} update downloaded: ${info?.version}`);
@@ -247,13 +288,13 @@ function createAutoUpdateService(deps = {}) {
         resolve(result);
       };
       const onAvailable = (info) => {
-        finish({ status: "available", version: versionFromInfo(info) });
+        finish({ status: "available", ...updateInfoPayload(info) });
       };
       const onNotAvailable = (info) => {
-        finish({ status: "not-available", version: versionFromInfo(info) });
+        finish({ status: "not-available", ...updateInfoPayload(info) });
       };
       const onDownloaded = (info) => {
-        finish({ status: "downloaded", version: versionFromInfo(info) });
+        finish({ status: "downloaded", ...updateInfoPayload(info) });
       };
       const onError = (error) => {
         logger.warn?.(`${TAG} checkForUpdates rejected`, error);
@@ -270,10 +311,10 @@ function createAutoUpdateService(deps = {}) {
           .then((result) => {
             if (settled) return;
             if (result?.downloadPromise) {
-              finish({ status: "available", version: versionFromInfo(result.updateInfo) });
+              finish({ status: "available", ...updateInfoPayload(result.updateInfo) });
               return;
             }
-            finish({ status: "not-available", version: versionFromInfo(result?.updateInfo) });
+            finish({ status: "not-available", ...updateInfoPayload(result?.updateInfo) });
           })
           .catch(onError);
       } catch (error) {

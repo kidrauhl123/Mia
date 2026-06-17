@@ -80,6 +80,42 @@ test("manual update check reports available updates without waiting for download
   assert.equal(updater.checkCalls, 1);
 });
 
+test("available update events include release notes during download progress", async () => {
+  const events = [];
+  const releaseNotes = [
+    "桌面端更新弹窗现在会展示本次更新摘要，下载和安装期间也会保留版本信息。",
+    "发布脚本会把变更说明写入 latest-mac.yml / latest.yml。",
+  ];
+  let updater;
+  updater = new FakeUpdater(() => {
+    updater.emit("update-available", {
+      version: "0.1.18",
+      releaseNotes: [
+        "# Mia 0.1.18",
+        "",
+        `- ${releaseNotes[0]}`,
+        `- ${releaseNotes[1]}`,
+      ].join("\n"),
+    });
+    return Promise.resolve({
+      updateInfo: { version: "0.1.18" },
+      downloadPromise: Promise.resolve(),
+    });
+  });
+
+  const result = await createService(updater, {
+    sendUpdateEvent: (payload) => events.push(payload),
+  }).checkForUpdates();
+
+  assert.deepEqual(result, { status: "available", version: "0.1.18", releaseNotes });
+  assert.deepEqual(events[0].releaseNotes, releaseNotes);
+
+  updater.emit("download-progress", { percent: 12 });
+  assert.equal(events.at(-1).status, "downloading");
+  assert.equal(events.at(-1).version, "0.1.18");
+  assert.deepEqual(events.at(-1).releaseNotes, releaseNotes);
+});
+
 test("manual update check serializes update errors for the renderer", async () => {
   const updater = new FakeUpdater(() => {
     throw Object.assign(new Error("network down"), { code: "ENETDOWN" });

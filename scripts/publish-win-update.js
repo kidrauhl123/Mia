@@ -10,12 +10,13 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const yaml = require("js-yaml");
+const { attachDesktopReleaseNotes } = require("./desktop-release-notes.js");
 
 const root = path.resolve(__dirname, "..");
 const pkg = require(path.join(root, "package.json"));
 const productName = pkg.productName || "Mia";
 const version = pkg.version || "0.0.0";
-const releaseDir = path.join(root, "release");
+const releaseDir = path.resolve(process.env.MIA_RELEASE_DIR || path.join(root, "release"));
 const stageDir = path.resolve(process.env.MIA_UPDATE_STAGING_DIR || path.join(root, "dist", "mia-updates"));
 const updateUrl = String(process.env.MIA_UPDATE_BASE_URL || pkg.build?.publish?.url || "https://mia.gifgif.cn/updates/").replace(/\/?$/, "/");
 const remote = String(process.env.MIA_UPDATE_REMOTE || process.env.MIA_DEPLOY_REMOTE || "").trim();
@@ -46,8 +47,9 @@ function copyArtifact(source) {
   return target;
 }
 
-const feedPaths = feedFiles.map(resolveOrThrow);
-const feed = yaml.load(fs.readFileSync(path.join(releaseDir, "latest.yml"), "utf8"));
+const feedPath = resolveOrThrow("latest.yml");
+const feedPaths = [feedPath, ...feedFiles.slice(1).map(resolveOrThrow)];
+const feed = yaml.load(fs.readFileSync(feedPath, "utf8"));
 if (feed?.version !== version) {
   throw new Error(
     `latest.yml is version ${feed?.version}, but package.json is ${version}. ` +
@@ -57,6 +59,8 @@ if (feed?.version !== version) {
 if (pkg.build?.publish?.provider !== "generic" || !pkg.build?.publish?.url) {
   throw new Error("package.json build.publish must be the generic provider before publishing Mia updates.");
 }
+const withNotes = attachDesktopReleaseNotes(feed, root, version);
+fs.writeFileSync(feedPath, yaml.dump(withNotes.feed, { lineWidth: -1 }));
 
 fs.rmSync(stageDir, { recursive: true, force: true });
 fs.mkdirSync(stageDir, { recursive: true });
@@ -69,6 +73,7 @@ fs.writeFileSync(path.join(stageDir, "SHA256SUMS"), checksumLines);
 
 console.log(`Mia Windows update feed staged: ${stageDir}`);
 console.log(`Update base URL: ${updateUrl}`);
+console.log(`Release notes: ${path.relative(root, withNotes.file)}`);
 for (const file of staged) console.log(`  - ${path.basename(file)}`);
 
 if (shouldDeploy) {

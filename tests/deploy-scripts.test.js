@@ -1,7 +1,10 @@
 const assert = require("node:assert/strict");
+const childProcess = require("node:child_process");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const { test } = require("node:test");
+const yaml = require("js-yaml");
 
 const root = path.resolve(__dirname, "..");
 
@@ -237,6 +240,41 @@ test("package exposes repeatable desktop permission smoke without enabling it in
   const main = readScript("src/main.js");
   assert.match(main, /MIA_ALLOW_MULTIPLE_INSTANCES/);
   assert.match(main, /!IS_DAEMON_PROCESS && !ALLOW_MULTIPLE_INSTANCES/);
+});
+
+test("desktop update publisher injects versioned release notes into mac feed", () => {
+  const pkg = JSON.parse(readScript("package.json"));
+  const version = pkg.version;
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-update-publish-"));
+  const releaseDir = path.join(tempDir, "release");
+  const stageDir = path.join(tempDir, "stage");
+  fs.mkdirSync(releaseDir, { recursive: true });
+  fs.writeFileSync(path.join(releaseDir, "latest-mac.yml"), yaml.dump({
+    version,
+    files: [{ url: `Mia-${version}-arm64-mac.zip`, sha512: "abc", size: 3 }],
+    path: `Mia-${version}-arm64-mac.zip`,
+    sha512: "abc",
+    releaseDate: "2026-06-17T00:00:00.000Z",
+  }));
+  fs.writeFileSync(path.join(releaseDir, `Mia-${version}-arm64-mac.zip`), "zip");
+  fs.writeFileSync(path.join(releaseDir, `Mia-${version}-arm64-mac.zip.blockmap`), "blockmap");
+  fs.writeFileSync(path.join(releaseDir, `Mia-${version}-Apple-Silicon.dmg`), "dmg");
+
+  childProcess.execFileSync(process.execPath, [path.join(root, "scripts", "publish-mac-update.js")], {
+    cwd: root,
+    env: {
+      ...process.env,
+      MIA_RELEASE_DIR: releaseDir,
+      MIA_UPDATE_STAGING_DIR: stageDir,
+    },
+    stdio: "pipe",
+  });
+
+  const stagedFeed = yaml.load(fs.readFileSync(path.join(stageDir, "latest-mac.yml"), "utf8"));
+  assert.equal(stagedFeed.version, version);
+  assert.match(stagedFeed.releaseNotes, new RegExp(`# Mia ${version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+  assert.match(stagedFeed.releaseNotes, /设置页从底部弹窗改为主工作区/);
+  assert.match(readScript("scripts/publish-win-update.js"), /attachDesktopReleaseNotes/);
 });
 
 test("cloud blockers command prints exact remaining gate commands", () => {

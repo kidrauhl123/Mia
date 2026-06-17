@@ -63,10 +63,15 @@ test("settings exposes manual update checks through the preload bridge", () => {
   assert.match(htmlSource, /id="checkUpdates"/);
   assert.match(htmlSource, /id="appUpdateHint"/);
   assert.match(htmlSource, /id="appUpdateOverlay"/);
+  assert.match(htmlSource, /id="appUpdateReleaseNotes"/);
   assert.match(htmlSource, /id="appUpdateProgressFill"/);
   assert.match(appSource, /window\.mia\.checkForUpdates\(\)/);
   assert.match(appSource, /window\.mia\.onUpdateEvent\?\.\(\(payload\) => handleAppUpdateEvent/);
+  assert.match(appSource, /function appUpdateReleaseNoteLines\(payload = \{\}\)/);
+  assert.match(appSource, /function renderAppUpdateReleaseNotes\(payload = \{\}\)/);
+  assert.match(appSource, /item\.textContent = note/);
   assert.match(appSource, /setAppShellUpdateLocked\(visible\)/);
+  assert.match(htmlSource, /class="app-update-notes" hidden/);
   assert.match(preloadSource, /checkForUpdates:\s*\(\)\s*=>\s*ipcRenderer\.invoke\(IpcChannel\.UpdateCheck\)/);
   assert.match(preloadSource, /onUpdateEvent:\s*\(callback\) => \{/);
   assert.match(preloadSource, /ipcRenderer\.on\(IpcChannel\.UpdateEvent, handler\)/);
