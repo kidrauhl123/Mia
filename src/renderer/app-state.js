@@ -60,6 +60,7 @@
       discoverSectionView: "bot-store",
       activeContactKey: "",
       narrowPane: "content",
+      shellLayout: windowWidth <= 720 ? "single" : "dual",
       isNarrowWindow: windowWidth <= 720,
       sidebarWidth: options.sidebarWidth,
       sidebarResize: { dragging: false, startX: 0, startWidth: 0 },

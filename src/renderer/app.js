@@ -7,6 +7,7 @@ const sessionHistory = (typeof window !== "undefined" && window.miaSessionHistor
 const SIDEBAR_WIDTH_MIN = 220;
 const SIDEBAR_WIDTH_MAX = 380;
 const SIDEBAR_WIDTH_DEFAULT = 280;
+const SHELL_SINGLE_MAX_WIDTH = 720;
 let skillPickerHoverCloseTimer = 0;
 let profilePopoverHideTimer = 0;
 let settingsDrawerHideTimer = 0;
@@ -858,8 +859,12 @@ function applySidebarWidth(width = state.sidebarWidth, persist = false) {
 }
 
 function syncNarrowLayout() {
-  document.body.classList.toggle("narrow-sidebar", state.narrowPane === "sidebar");
-  document.body.classList.toggle("narrow-content", state.narrowPane !== "sidebar");
+  const pane = state.narrowPane === "sidebar" ? "index" : "content";
+  document.body.classList.toggle("narrow-sidebar", pane === "index");
+  document.body.classList.toggle("narrow-content", pane === "content");
+  if (els.appShell) {
+    els.appShell.setAttribute("data-narrow-pane", pane);
+  }
 }
 
 function showNarrowContent() {
@@ -870,6 +875,38 @@ function showNarrowContent() {
 function showNarrowSidebar() {
   state.narrowPane = "sidebar";
   syncNarrowLayout();
+}
+
+function viewHasIndexPane(view = state.activeView) {
+  return view === "chat" || view === "contacts";
+}
+
+function activeViewHasDetail(view = state.activeView) {
+  if (view === "chat") {
+    return Boolean(window.miaSocial?.getActiveConversationId?.() || state.activeKey);
+  }
+  if (view === "contacts") {
+    return Boolean(state.activeContactKey);
+  }
+  return true;
+}
+
+function normalizeNarrowPaneForView(view = state.activeView) {
+  if (!viewHasIndexPane(view)) {
+    state.narrowPane = "content";
+    return;
+  }
+  if (state.narrowPane === "sidebar") return;
+  state.narrowPane = activeViewHasDetail(view) ? "content" : "sidebar";
+}
+
+function shellLayoutForView(view) {
+  if (state.isNarrowWindow) return "single";
+  return viewHasIndexPane(view) ? "dual" : "workspace";
+}
+
+function legacyGridLayoutForView(view) {
+  return viewHasIndexPane(view) ? "index-workspace" : "workspace";
 }
 
 function syncComposerOverlayHeight() {
@@ -893,10 +930,6 @@ function observeComposerOverlayHeight() {
     observer.observe(els.chatForm);
   }
   window.addEventListener("resize", schedule);
-}
-
-function shellLayoutForView(view) {
-  return view === "chat" || view === "contacts" ? "index-workspace" : "workspace";
 }
 
 applySidebarWidth(state.sidebarWidth);
@@ -2379,6 +2412,9 @@ function render() {
 }
 
 function renderView() {
+  state.isNarrowWindow = window.innerWidth <= SHELL_SINGLE_MAX_WIDTH;
+  normalizeNarrowPaneForView(state.activeView);
+  state.shellLayout = shellLayoutForView(state.activeView);
   if (state.activeSettingsTab === "profile") state.activeSettingsTab = "appearance";
   if (state.activeSettingsTab === "runtime") state.activeSettingsTab = "model";
   if (state.activeSettingsTab === "mobile") state.activeSettingsTab = "account";
@@ -2403,7 +2439,8 @@ function renderView() {
   els.botStoreView?.classList.toggle("hidden", state.activeView !== "bot-store");
   els.tasksView?.classList.toggle("hidden", state.activeView !== "tasks");
   els.appShell?.setAttribute("data-active-view", state.activeView);
-  els.appShell?.setAttribute("data-layout", shellLayoutForView(state.activeView));
+  els.appShell?.setAttribute("data-layout", legacyGridLayoutForView(state.activeView));
+  els.appShell?.setAttribute("data-shell-layout", state.shellLayout);
   els.discoverModeToggle?.querySelectorAll("[data-discover-mode]").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.discoverMode === state.activeView);
   });
@@ -4398,7 +4435,11 @@ document.querySelectorAll("[data-view]").forEach((button) => {
     state.activeView = button.dataset.view === "contacts"
       ? (state.discoverSectionView || "bot-store")
       : button.dataset.view;
-    showNarrowContent();
+    if (state.isNarrowWindow && viewHasIndexPane(state.activeView)) {
+      showNarrowSidebar();
+    } else {
+      showNarrowContent();
+    }
     if (button.dataset.view === "settings") state.settingsOpen = true;
     if (button.dataset.view === "skills" && !state.skillLibrary.skills.length && !state.skillsLoading) window.miaLoaders.loadSkills();
     if (state.activeView === "bot-store" && !(state.skillLibrary.botPresets || []).length && !state.skillsLoading) window.miaLoaders.loadSkills();
@@ -4473,13 +4514,16 @@ document.addEventListener("mouseout", (event) => {
 window.addEventListener("resize", () => {
   const overlayTarget = window.miaScrollbarOverlay.getScrollbarOverlayTarget();
   if (overlayTarget) window.miaScrollbarOverlay.updateScrollbarOverlay(overlayTarget);
-  const isNarrow = window.innerWidth <= 720;
+  const isNarrow = window.innerWidth <= SHELL_SINGLE_MAX_WIDTH;
   if (!state.isNarrowWindow && isNarrow) {
-    state.narrowPane = "content";
+    state.narrowPane = activeViewHasDetail(state.activeView) ? "content" : "sidebar";
   }
   state.isNarrowWindow = isNarrow;
   applySidebarWidth(state.sidebarWidth);
+  normalizeNarrowPaneForView(state.activeView);
+  state.shellLayout = shellLayoutForView(state.activeView);
   syncNarrowLayout();
+  if (els.appShell) els.appShell.setAttribute("data-shell-layout", state.shellLayout);
 });
 
 document.querySelectorAll("[data-settings-tab]").forEach((button) => {
@@ -4839,7 +4883,11 @@ function renderDiscoverModeToggle() {
       state.contactMenuOpen = false;
       state.activeView = btn.dataset.discoverMode;
       state.discoverSectionView = state.activeView; // 记住子页，rail 回来时恢复
-      showNarrowContent();
+      if (state.isNarrowWindow && viewHasIndexPane(state.activeView)) {
+        showNarrowSidebar();
+      } else {
+        showNarrowContent();
+      }
       if (state.activeView === "bot-store" && !(state.skillLibrary.botPresets || []).length && !state.skillsLoading) window.miaLoaders.loadSkills();
       if (state.activeView === "bot-store") window.miaBotStore?.renderBotStore?.();
       renderView();

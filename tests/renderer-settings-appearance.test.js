@@ -10,6 +10,7 @@ const htmlSource = fs.readFileSync(path.join(root, "src/renderer/index.html"), "
 const cssSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
 
 function loadAppearanceModule(depsOverride = {}) {
+  const { windowOverrides = {}, documentOverrides = {}, ...initOverrides } = depsOverride;
   const source = fs.readFileSync(path.join(root, "src/renderer/settings/settings-appearance.js"), "utf8");
   const styleValues = new Map();
   const documentElement = {
@@ -17,8 +18,18 @@ function loadAppearanceModule(depsOverride = {}) {
     style: {
       setProperty(name, value) {
         styleValues.set(name, value);
+      },
+      removeProperty(name) {
+        styleValues.delete(name);
       }
     }
+  };
+  const documentApi = {
+    documentElement,
+    querySelectorAll() {
+      return [];
+    },
+    ...documentOverrides
   };
   const sandbox = {
     console,
@@ -26,14 +37,10 @@ function loadAppearanceModule(depsOverride = {}) {
       clearTimeout() {},
       setTimeout() { return 1; },
       mia: null,
-      miaSettingsAppearance: null
+      miaSettingsAppearance: null,
+      ...windowOverrides
     },
-    document: {
-      documentElement,
-      querySelectorAll() {
-        return [];
-      }
-    }
+    document: documentApi
   };
   vm.runInNewContext(source, sandbox, { filename: "settings-appearance.js" });
   const api = sandbox.window.miaSettingsAppearance;
@@ -48,9 +55,53 @@ function loadAppearanceModule(depsOverride = {}) {
     DEFAULT_ACCENT_COLOR: "#0162db",
     DEFAULT_USER_BUBBLE_COLOR: "#0162db",
     DEFAULT_SELECTION_STYLE: "solid",
-    ...depsOverride
+    ...initOverrides
   });
-  return { api, documentElement, styleValues };
+  return { api, documentElement, styleValues, sandbox };
+}
+
+function settingsSwitch(checked = true) {
+  return {
+    checked,
+    classList: { toggle() {} },
+    getAttribute(name) {
+      return name === "aria-checked" ? (this.checked ? "true" : "false") : "";
+    },
+    setAttribute(name, value) {
+      if (name === "aria-checked") this.checked = value !== "false";
+    }
+  };
+}
+
+function appearanceControls(overrides = {}) {
+  return {
+    appearanceTheme: { value: "light" },
+    appearanceFontPreset: { value: "system" },
+    appearanceAccentColor: { value: "#0162db" },
+    appearanceAccentPreview: { style: {} },
+    appearanceUserBubbleColor: { value: "#0162db" },
+    appearanceUserBubblePreview: { style: {} },
+    appearanceSelectionStyle: { value: "solid" },
+    appearanceShowHoverBackground: settingsSwitch(true),
+    appearanceShowUserAvatar: settingsSwitch(true),
+    appearanceShowAssistantAvatar: settingsSwitch(true),
+    appearanceWorkspaceBackgroundColor: { value: "#f0f0f3" },
+    appearanceWorkspaceBackgroundPreview: { style: {} },
+    appearanceWorkspaceBackgroundImage: { value: "" },
+    appearanceWorkspaceBackgroundImageLabel: { textContent: "" },
+    appearanceWorkspaceBackgroundImageClear: { disabled: true },
+    appearanceSaveStatus: {
+      textContent: "",
+      dataset: {},
+      classList: { toggle() {}, remove() {} }
+    },
+    ...overrides
+  };
+}
+
+async function flushMicrotasks() {
+  await Promise.resolve();
+  await Promise.resolve();
 }
 
 function cssBlock(selector) {
@@ -120,6 +171,68 @@ test("currentAppearanceDraft always saves the visible bottom board color", () =>
   });
 
   assert.equal(api.currentAppearanceDraft().workspaceBackgroundColor, "#f0f0f3");
+});
+
+test("stale bottom board save response cannot roll back a newer color draft", async () => {
+  const timers = new Map();
+  let nextTimerId = 1;
+  const runTimers = (delay) => {
+    for (const [id, timer] of [...timers]) {
+      if (timer.delay !== delay) continue;
+      timers.delete(id);
+      timer.fn();
+    }
+  };
+  let resolveFirstSave;
+  let resolveSecondSave;
+  const saveResponses = [
+    new Promise((resolve) => { resolveFirstSave = resolve; }),
+    new Promise((resolve) => { resolveSecondSave = resolve; })
+  ];
+  const savedDrafts = [];
+  const controls = appearanceControls();
+
+  const { api, styleValues } = loadAppearanceModule({
+    state: { runtime: { appearance: { workspaceBackgroundColor: "#f0f0f3" } } },
+    els: controls,
+    windowOverrides: {
+      setTimeout(fn, delay = 0) {
+        const id = nextTimerId++;
+        timers.set(id, { fn, delay });
+        return id;
+      },
+      clearTimeout(id) {
+        timers.delete(id);
+      },
+      mia: {
+        saveAppearance: async (appearance) => {
+          savedDrafts.push(appearance);
+          return saveResponses[savedDrafts.length - 1];
+        }
+      }
+    }
+  });
+
+  controls.appearanceWorkspaceBackgroundColor.value = "#dbeafe";
+  api.scheduleAppearanceSave(0);
+  runTimers(0);
+  assert.equal(savedDrafts[0].workspaceBackgroundColor, "#dbeafe");
+
+  controls.appearanceWorkspaceBackgroundColor.value = "#dcfce7";
+  api.scheduleAppearanceSave(0);
+  resolveFirstSave({ appearance: { workspaceBackgroundColor: "#f0f0f3" } });
+  await flushMicrotasks();
+
+  assert.equal(controls.appearanceWorkspaceBackgroundColor.value, "#dcfce7");
+  assert.equal(styleValues.get("--workspace-floor"), "#dcfce7");
+
+  runTimers(0);
+  assert.equal(savedDrafts[1].workspaceBackgroundColor, "#dcfce7");
+  resolveSecondSave({ appearance: { workspaceBackgroundColor: "#dcfce7" } });
+  await flushMicrotasks();
+
+  assert.equal(controls.appearanceWorkspaceBackgroundColor.value, "#dcfce7");
+  assert.equal(styleValues.get("--workspace-floor"), "#dcfce7");
 });
 
 test("cloud appearance empty bottom board values do not overwrite local bottom board choices", () => {

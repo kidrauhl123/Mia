@@ -40,8 +40,9 @@ test("chat workspace uses the shared continuous floor", () => {
   const chatCss = fs.readFileSync(path.join(root, "src/renderer/styles/chat.css"), "utf8");
 
   assert.match(baseCss, /--workspace-floor:\s*#f0f0f3;/);
+  assert.match(baseCss, /--workspace-floor-image:\s*none;/);
   assert.match(baseCss, /--chat-background:\s*var\(--workspace-floor\);/);
-  assert.match(baseCss, /\.app-shell\s*\{[\s\S]*?background:\s*var\(--workspace-floor\);/);
+  assert.match(baseCss, /\.app-shell\s*\{[\s\S]*?background:\s*var\(--workspace-floor-image\),\s*var\(--workspace-floor\);/);
   assert.match(baseCss, /#chatView\s*\{[\s\S]*?background:\s*transparent;/);
   assert.match(baseCss, /\.topbar\s*\{[\s\S]*?background:\s*transparent;/);
   assert.match(baseCss, /#chatView \.topbar\s*\{[^}]*background:\s*transparent;/);

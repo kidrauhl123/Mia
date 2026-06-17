@@ -331,16 +331,24 @@
     };
   }
 
-  async function persistAppearanceDraft(appearance) {
+  async function persistAppearanceDraft(appearance, seq = ++appearanceAutoSaveSeq) {
     if (!window.mia?.saveAppearance) return;
-    const seq = ++appearanceAutoSaveSeq;
     try {
       const runtime = await window.mia.saveAppearance(appearance);
       if (seq !== appearanceAutoSaveSeq) return;
-      state.runtime = runtime;
-      applyAppearance(runtime.appearance || appearance);
+      const nextAppearance = {
+        ...(runtime?.appearance || {}),
+        ...appearance
+      };
+      state.runtime = {
+        ...(runtime || {}),
+        appearance: nextAppearance
+      };
+      applyAppearance(nextAppearance);
+      syncAppearanceControls(nextAppearance);
       showAppearanceSaveStatus("已保存");
     } catch (error) {
+      if (seq !== appearanceAutoSaveSeq) return;
       console.error(error);
       showAppearanceSaveStatus("保存失败", "error");
     }
@@ -348,6 +356,7 @@
 
   function scheduleAppearanceSave(delay = 160) {
     const next = currentAppearanceDraft();
+    const seq = ++appearanceAutoSaveSeq;
     applyAppearance(next);
     syncAppearanceControls(next);
     mergeRuntimeAppearance(next);
@@ -355,7 +364,7 @@
     if (appearanceAutoSaveTimer) window.clearTimeout(appearanceAutoSaveTimer);
     appearanceAutoSaveTimer = window.setTimeout(() => {
       appearanceAutoSaveTimer = 0;
-      persistAppearanceDraft(currentAppearanceDraft());
+      persistAppearanceDraft(next, seq);
     }, delay);
   }
 

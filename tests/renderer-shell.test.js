@@ -124,10 +124,16 @@ test("desktop shell uses optional middle pane by active view", () => {
   const css = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
 
   assert.match(appSource, /function shellLayoutForView\(view\)/);
-  assert.match(appSource, /view === "chat" \|\| view === "contacts" \? "index-workspace" : "workspace"/);
-  assert.match(appSource, /setAttribute\("data-layout", shellLayoutForView\(state\.activeView\)\)/);
+  assert.match(appSource, /function viewHasIndexPane\(view = state\.activeView\)/);
+  assert.match(appSource, /function normalizeNarrowPaneForView\(view = state\.activeView\)/);
+  assert.match(appSource, /if \(state\.isNarrowWindow\) return "single";/);
+  assert.match(appSource, /return viewHasIndexPane\(view\) \? "dual" : "workspace"/);
+  assert.match(appSource, /setAttribute\("data-layout", legacyGridLayoutForView\(state\.activeView\)\)/);
+  assert.match(appSource, /setAttribute\("data-shell-layout", state\.shellLayout\)/);
+  assert.match(appSource, /if \(state\.isNarrowWindow && viewHasIndexPane\(state\.activeView\)\) \{\s*showNarrowSidebar\(\);/);
   assert.match(appSource, /state\.discoverSectionView \|\| "bot-store"/);
   assert.match(appStateSource, /discoverSectionView:\s*"bot-store"/);
+  assert.match(appStateSource, /shellLayout:\s*windowWidth <= 720 \? "single" : "dual"/);
   assert.doesNotMatch(appStateSource, /skillPickerPluginId/);
   assert.match(css, /--rail-column-width:\s*78px;/);
   assert.match(css, /\.app-shell\[data-layout="index-workspace"\]\s*\{[\s\S]*?grid-template-columns:\s*var\(--rail-column-width\) var\(--sidebar-width\) 0 minmax\(0,\s*1fr\);/);
@@ -144,15 +150,36 @@ test("narrow desktop shell collapses the expanded rail into one content column",
 
   assert.match(
     css,
-    /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.app-shell,\s*\.app-shell\[data-layout="index-workspace"\],\s*\.app-shell\[data-layout="workspace"\]\s*\{[\s\S]*?grid-template-columns:\s*var\(--rail-column-width\) minmax\(0,\s*1fr\);/,
+    /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.app-shell,\s*\.app-shell\[data-layout="index-workspace"\],\s*\.app-shell\[data-layout="workspace"\],\s*\.app-shell\[data-shell-layout="single"\]\s*\{[\s\S]*?grid-template-columns:\s*var\(--rail-column-width\) minmax\(0,\s*1fr\);/,
     "narrow layout must override the higher-specificity data-layout desktop grid"
   );
+  assert.match(css, /\.app-shell\[data-shell-layout="single"\]\[data-narrow-pane="content"\] \.sidebar\s*\{[\s\S]*?display:\s*none !important;/);
+  assert.match(css, /\.app-shell\[data-shell-layout="single"\]\[data-narrow-pane="index"\] \.workspace\s*\{[\s\S]*?display:\s*none !important;/);
+  assert.match(css, /@keyframes\s+miaPanePushIn\s*\{[\s\S]*?translateX\(26px\)/);
+  assert.match(css, /@keyframes\s+miaPanePopIn\s*\{[\s\S]*?translateX\(-22px\)/);
+  assert.match(css, /\.app-shell\[data-shell-layout="single"\]\[data-narrow-pane="content"\] \.workspace:not\(\.hidden\)\s*\{[\s\S]*?animation:\s*miaPanePushIn 190ms/);
+  assert.match(css, /\.app-shell\[data-shell-layout="single"\]\[data-narrow-pane="index"\] \.sidebar:not\(\.hidden\)\s*\{[\s\S]*?animation:\s*miaPanePopIn 190ms/);
+  assert.match(css, /\.app-shell\[data-shell-layout="single"\] \.persona\.active,[\s\S]*?\.app-shell\[data-shell-layout="single"\] \.contact-row\.active\s*\{[\s\S]*?background:\s*transparent;/);
   assert.match(css, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?#chatView \.session-menu-wrap\s*\{[\s\S]*?display:\s*none;/);
   assert.match(css, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?#chatView \.top-actions\s*\{[\s\S]*?display:\s*none;/);
   assert.match(css, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.composer\s*\{[\s\S]*?padding:\s*8px 12px 14px;/);
   assert.match(css, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.model-switcher\s*\{[\s\S]*?max-width:\s*112px;/);
-  assert.match(chatCss, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.bubble,\s*\.message-stack\s*\{[\s\S]*?max-width:\s*min\(100%, calc\(100vw - var\(--rail-column-width\) - 70px\)\);/);
+  assert.match(chatCss, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.bubble,\s*\.message-stack\s*\{[\s\S]*?max-width:\s*min\(100%, 560px\);/);
   assert.match(chatCss, /@media\s*\(max-width:\s*520px\)\s*\{[\s\S]*?\.message \.avatar\s*\{[\s\S]*?display:\s*none;/);
+});
+
+test("narrow navigation and composer send use static svg icons", () => {
+  const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
+  const css = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+
+  assert.match(html, /class="narrow-back-icon"[\s\S]*?stroke-linecap="square"[\s\S]*?stroke-linejoin="miter"[\s\S]*?<path d="M15 18L9 12L15 6"/);
+  assert.match(html, /class="send-icon"[\s\S]*?<path d="M3\.8 20\.2L21 12L3\.8 3\.8L6\.95 10\.85L14\.1 12L6\.95 13\.15L3\.8 20\.2Z" fill="currentColor"/);
+  assert.doesNotMatch(html, /send-lottie/);
+  assert.doesNotMatch(html, /data-lottie="send"/);
+  assert.doesNotMatch(html, />‹</);
+  assert.match(css, /\.narrow-back-button\s*\{[\s\S]*?font-size:\s*0;/);
+  assert.match(css, /\.send-icon\s*\{[\s\S]*?width:\s*22px;[\s\S]*?height:\s*22px;/);
+  assert.match(css, /\.send-button\.stop \.send-icon\s*\{[\s\S]*?display:\s*none;/);
 });
 
 test("chat composer floats on the chat floor instead of owning a bottom panel", () => {
@@ -184,6 +211,8 @@ test("chat header is a floating card layer rather than a layout topbar", () => {
   assert.match(styleSource, /\.session-trigger-icon\s*\{[\s\S]*?width:\s*16px;[\s\S]*?height:\s*16px;/);
   assert.match(styleSource, /\.session-menu\s*\{[\s\S]*?background:\s*var\(--surface\);[\s\S]*?-webkit-backdrop-filter:\s*none;[\s\S]*?backdrop-filter:\s*none;/);
   assert.match(styleSource, /:root\[data-theme="dark"\] \.session-menu\s*\{[\s\S]*?background:\s*var\(--surface\);/);
+  assert.match(styleSource, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?#chatView \.topbar\s*\{[\s\S]*?border-radius:\s*29px;[\s\S]*?background:\s*color-mix\(in srgb, var\(--surface-soft\) 92%, transparent\);[\s\S]*?backdrop-filter:\s*blur\(24px\) saturate\(1\.14\);/);
+  assert.match(styleSource, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?#chatView \.group-title\s*\{[\s\S]*?background:\s*transparent;[\s\S]*?box-shadow:\s*none;/);
 });
 
 test("session history trigger uses a compact icon pill", () => {
@@ -223,10 +252,11 @@ test("composer skill picker is a compact flat skill list", () => {
   assert.doesNotMatch(appSource, /data-skill-picker-plugin/);
   assert.doesNotMatch(composerSource, /data-skill-picker-plugin/);
   assert.doesNotMatch(composerSource, /skillPickerPluginId/);
-  assert.match(styleSource, /\.skill-picker\s*\{[\s\S]*?width:\s*360px;[\s\S]*?min-width:\s*300px;/);
+  assert.match(styleSource, /\.skill-picker\s*\{[\s\S]*?width:\s*320px;[\s\S]*?min-width:\s*260px;/);
   assert.match(styleSource, /\.skill-picker-body\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\);/);
   assert.match(styleSource, /\.skill-picker-plugins\s*\{[\s\S]*?display:\s*none;/);
   assert.match(styleSource, /\.skill-picker-skills\s*\{[\s\S]*?grid-template-rows:\s*minmax\(0,\s*1fr\);/);
+  assert.match(styleSource, /@media\s*\(max-width:\s*860px\)\s*\{[\s\S]*?\.skill-picker\s*\{[\s\S]*?width:\s*min\(320px, calc\(100% - 16px\)\);/);
 });
 
 test("rail pages use one continuous workspace floor", () => {

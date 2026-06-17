@@ -220,7 +220,11 @@
 
     <section id="chatView" class="workspace">
       <header class="topbar">
-        <button class="narrow-back-button" type="button" data-narrow-back title="返回消息栏" aria-label="返回消息栏">‹</button>
+        <button class="narrow-back-button" type="button" data-narrow-back title="返回消息栏" aria-label="返回消息栏">
+          <svg class="narrow-back-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.35" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true" focusable="false">
+            <path d="M15 18L9 12L15 6"/>
+          </svg>
+        </button>
         <div class="group-title">
           <div id="activeChatAvatar" class="profile-avatar">A</div>
           <div>
@@ -273,7 +277,11 @@
                 <div id="composerSkills" class="composer-skills hidden"></div>
                 <textarea id="chatInput" placeholder="输入消息，Enter 发送，Shift+Enter 换行"></textarea>
               </div>
-              <button id="sendChat" class="send-button" type="submit" title="发送" aria-label="发送"><span class="send-lottie" data-lottie="send" data-lottie-trigger="boomerang" data-lottie-play="0,200" data-lottie-rest="200" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8.5 13.5L12 10l3.5 3.5"/></svg></span></button>
+              <button id="sendChat" class="send-button" type="submit" title="发送" aria-label="发送">
+                <svg class="send-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path d="M3.8 20.2L21 12L3.8 3.8L6.95 10.85L14.1 12L6.95 13.15L3.8 20.2Z" fill="currentColor"/>
+                </svg>
+              </button>
             </div>
             <div class="composer-toolbar">
               <button id="composerAdd" class="composer-add-button" type="button" title="添加" aria-label="添加"><span class="composer-add-lottie" data-lottie="plusToX" data-lottie-trigger="toggle" aria-hidden="true"></span></button>
@@ -330,7 +338,11 @@
 
     <section id="contactsView" class="workspace contacts-workspace hidden">
       <div hidden><span id="contactPageTitle">联系人</span><span id="contactPageMeta"></span></div>
-      <button class="narrow-back-button contacts-narrow-back" type="button" data-narrow-back title="返回联系人" aria-label="返回联系人">‹</button>
+      <button class="narrow-back-button contacts-narrow-back" type="button" data-narrow-back title="返回联系人" aria-label="返回联系人">
+        <svg class="narrow-back-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.35" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true" focusable="false">
+          <path d="M15 18L9 12L15 6"/>
+        </svg>
+      </button>
       <section class="contacts-layout">
         <div id="contactDetail" class="contact-detail"></div>
       </section>
@@ -338,7 +350,11 @@
 
     <section id="skillsView" class="workspace skills-workspace hidden">
       <header class="topbar skills-topbar">
-        <button class="narrow-back-button" type="button" data-narrow-back title="返回能力库" aria-label="返回能力库">‹</button>
+        <button class="narrow-back-button" type="button" data-narrow-back title="返回能力库" aria-label="返回能力库">
+          <svg class="narrow-back-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.35" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true" focusable="false">
+            <path d="M15 18L9 12L15 6"/>
+          </svg>
+        </button>
         <div class="group-title">
           <div class="skills-topbar-title">
             <div id="skillModeToggle" class="skill-mode-toggle" role="tablist"></div>
@@ -370,7 +386,11 @@
 
     <section id="tasksView" class="workspace tasks-workspace hidden">
       <header class="topbar tasks-topbar">
-        <button class="narrow-back-button" type="button" data-narrow-back title="返回任务" aria-label="返回任务">‹</button>
+        <button class="narrow-back-button" type="button" data-narrow-back title="返回任务" aria-label="返回任务">
+          <svg class="narrow-back-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.35" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true" focusable="false">
+            <path d="M15 18L9 12L15 6"/>
+          </svg>
+        </button>
         <div class="group-title">
           <div class="tasks-topbar-title">
             <div id="taskModeToggle" class="task-mode-toggle" role="tablist"></div>

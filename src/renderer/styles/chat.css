@@ -1043,7 +1043,7 @@
 
   .bubble,
   .message-stack {
-    max-width: min(100%, calc(100vw - var(--rail-column-width) - 70px));
+    max-width: min(100%, 560px);
   }
 }
 
