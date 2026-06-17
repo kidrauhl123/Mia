@@ -203,6 +203,7 @@ test("chat composer floats on the chat floor instead of owning a bottom panel", 
 
   assert.match(chatStyleSource, /\.chat-layout\s*\{[\s\S]*?grid-template-rows:\s*minmax\(0,\s*1fr\);[\s\S]*?position:\s*relative;/);
   assert.match(chatStyleSource, /--chat-header-overlay-height:\s*70px;/);
+  assert.match(chatStyleSource, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.chat-layout\s*\{[\s\S]*?--chat-header-overlay-height:\s*48px;/);
   assert.match(chatStyleSource, /\.chat\s*\{[\s\S]*?padding:\s*calc\(var\(--chat-header-overlay-height\) \+ 12px\) 18px calc\(var\(--composer-overlay-height\) \+ 18px\);/);
   assert.match(styleSource, /\.composer\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?bottom:\s*0;[\s\S]*?background:\s*transparent;/);
   assert.match(appSource, /function syncComposerOverlayHeight\(\)/);
@@ -225,7 +226,7 @@ test("chat header is a floating card layer rather than a layout topbar", () => {
   assert.match(styleSource, /\.session-trigger-icon\s*\{[\s\S]*?width:\s*16px;[\s\S]*?height:\s*16px;/);
   assert.match(styleSource, /\.session-menu\s*\{[\s\S]*?background:\s*var\(--surface\);[\s\S]*?-webkit-backdrop-filter:\s*none;[\s\S]*?backdrop-filter:\s*none;/);
   assert.match(styleSource, /:root\[data-theme="dark"\] \.session-menu\s*\{[\s\S]*?background:\s*var\(--surface\);/);
-  assert.match(styleSource, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?#chatView \.topbar\s*\{[\s\S]*?border-radius:\s*29px;[\s\S]*?background:\s*color-mix\(in srgb, var\(--surface-soft\) 92%, transparent\);[\s\S]*?backdrop-filter:\s*blur\(24px\) saturate\(1\.14\);/);
+  assert.match(styleSource, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?#chatView \.topbar\s*\{[\s\S]*?min-height:\s*40px;[\s\S]*?padding:\s*0 4px;[\s\S]*?border-radius:\s*20px;[\s\S]*?background:\s*color-mix\(in srgb, var\(--surface-soft\) 92%, transparent\);[\s\S]*?backdrop-filter:\s*blur\(24px\) saturate\(1\.14\);/);
   assert.match(styleSource, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?#chatView \.group-title\s*\{[\s\S]*?background:\s*transparent;[\s\S]*?box-shadow:\s*none;/);
 });
 

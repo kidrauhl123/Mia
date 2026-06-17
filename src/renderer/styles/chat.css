@@ -1024,7 +1024,7 @@
 
 @media (max-width: 720px) {
   .chat-layout {
-    --chat-header-overlay-height: 60px;
+    --chat-header-overlay-height: 48px;
   }
 
   .message {

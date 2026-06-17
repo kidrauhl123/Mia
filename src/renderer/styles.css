@@ -8059,14 +8059,15 @@ pre {
   }
 
   #chatView .topbar {
-    grid-template-columns: 42px minmax(0, 1fr);
+    grid-template-columns: 36px minmax(0, 1fr);
     top: 12px;
     right: 12px;
     left: 12px;
     align-items: center;
-    min-height: 58px;
-    padding: 7px 8px;
-    border-radius: 29px;
+    height: auto;
+    min-height: 40px;
+    padding: 0 4px;
+    border-radius: 20px;
     background: color-mix(in srgb, var(--surface-soft) 92%, transparent);
     box-shadow: 0 1px 2px rgba(16, 20, 39, 0.06), 0 12px 34px rgba(16, 20, 39, 0.08);
     -webkit-backdrop-filter: blur(24px) saturate(1.14);
@@ -8091,9 +8092,9 @@ pre {
   }
 
   #chatView .narrow-back-button {
-    width: 42px;
-    height: 42px;
-    border-radius: 21px;
+    width: 36px;
+    height: 36px;
+    border-radius: 18px;
     background: transparent;
     box-shadow: none;
     -webkit-backdrop-filter: none;
@@ -8102,7 +8103,7 @@ pre {
 
   #chatView .group-title {
     min-height: 40px;
-    padding: 4px 10px 4px 5px;
+    padding: 4px 8px 4px 2px;
     border-radius: 0;
     background: transparent;
     box-shadow: none;
