@@ -52,7 +52,7 @@ function loadAppearanceModule(depsOverride = {}) {
       system: "system-ui",
       pingfang: "PingFang SC"
     },
-    DEFAULT_ACCENT_COLOR: "#0162db",
+    DEFAULT_ACCENT_COLOR: "#318ad3",
     DEFAULT_USER_BUBBLE_COLOR: "#0162db",
     DEFAULT_SELECTION_STYLE: "solid",
     ...initOverrides
@@ -77,7 +77,7 @@ function appearanceControls(overrides = {}) {
   return {
     appearanceTheme: { value: "light" },
     appearanceFontPreset: { value: "system" },
-    appearanceAccentColor: { value: "#0162db" },
+    appearanceAccentColor: { value: "#318ad3" },
     appearanceAccentPreview: { style: {} },
     appearanceUserBubbleColor: { value: "#0162db" },
     appearanceUserBubblePreview: { style: {} },
@@ -128,14 +128,14 @@ test("applyAppearance writes card and soft choices to document state", () => {
   api.applyAppearance({
     theme: "light",
     fontPreset: "pingfang",
-    accentColor: "#0162db",
+    accentColor: "#318ad3",
     userBubbleColor: "#0162db",
     listStyle: "card",
     selectionStyle: "soft"
   });
 
   assert.equal(documentElement.dataset.selectionStyle, "soft");
-  assert.equal(styleValues.get("--list-active-text"), "#0162db");
+  assert.equal(styleValues.get("--list-active-text"), "#318ad3");
 });
 
 test("applyAppearance writes bottom board color and image variables", () => {
@@ -182,7 +182,7 @@ test("currentAppearanceDraft always saves the visible bottom board color", () =>
     els: {
       appearanceTheme: { value: "light" },
       appearanceFontPreset: { value: "system" },
-      appearanceAccentColor: { value: "#0162db" },
+      appearanceAccentColor: { value: "#318ad3" },
       appearanceUserBubbleColor: { value: "#0162db" },
       appearanceSelectionStyle: { value: "solid" },
       appearanceShowHoverBackground: { getAttribute: () => "true" },
@@ -302,7 +302,7 @@ test("applyAppearance keeps default tokens when appearance deps are missing", ()
   });
 
   assert.match(styleValues.get("--app-font"), /PingFang SC/);
-  assert.equal(styleValues.get("--accent"), "#0162db");
+  assert.equal(styleValues.get("--accent"), "#318ad3");
   assert.equal(documentElement.dataset.selectionStyle, "soft");
 });
 
@@ -318,7 +318,7 @@ test("syncAppearanceControls skips form controls when element deps are missing",
   assert.doesNotThrow(() => {
     api.syncAppearanceControls({
       fontPreset: "pingfang",
-      accentColor: "#0162db",
+      accentColor: "#318ad3",
       userBubbleColor: "#0162db",
       listStyle: "card",
       selectionStyle: "soft"

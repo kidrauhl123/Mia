@@ -7,7 +7,7 @@
   "use strict";
 
   const STORAGE_KEY = "mia.web.appearance";
-  const DEFAULT_ACCENT = "#5e5ce6";
+  const DEFAULT_ACCENT = "#318ad3";
   const DEFAULT_USER_BUBBLE = "#0162db";
 
   const defaults = {
@@ -41,7 +41,7 @@
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(current)); } catch {}
   }
 
-  // "#5e5ce6" → "94 92 230". Used to derive --accent-rgb so rgb(var(--accent-rgb) / 0.16)
+  // "#318ad3" → "49 138 211". Used to derive --accent-rgb so rgb(var(--accent-rgb) / 0.16)
   // works for hover/active translucent backgrounds without picking colors by hand.
   function hexToRgbTriplet(hex) {
     const m = /^#?([a-fA-F0-9]{6})$/.exec(String(hex || "").trim());

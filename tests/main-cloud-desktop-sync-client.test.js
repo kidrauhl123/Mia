@@ -248,7 +248,7 @@ test("saveAppearanceSettings writes local appearance and syncs the cloud user se
     writeAppearanceSettings: (settings) => ({
       theme: settings.theme || "light",
       fontPreset: settings.fontPreset || "system",
-      accentColor: settings.accentColor || "#0162db",
+      accentColor: settings.accentColor || "#318ad3",
       workspaceBackgroundColor: settings.workspaceBackgroundColor || "",
       workspaceBackgroundImage: settings.workspaceBackgroundImage || ""
     }),

@@ -174,8 +174,9 @@ test("narrow desktop shell collapses the expanded rail into one content column",
   assert.match(css, /\.app-shell\[data-shell-layout="single"\]\[data-narrow-pane="content"\] \.workspace:not\(\.hidden\)\s*\{[\s\S]*?animation:\s*miaPanePushIn 190ms/);
   assert.match(css, /\.app-shell\[data-shell-layout="single"\]\[data-narrow-pane="index"\] \.sidebar:not\(\.hidden\)\s*\{[\s\S]*?animation:\s*miaPanePopIn 190ms/);
   assert.match(css, /\.app-shell\[data-shell-layout="single"\] \.persona\.active,[\s\S]*?\.app-shell\[data-shell-layout="single"\] \.contact-row\.active\s*\{[\s\S]*?background:\s*transparent;/);
-  assert.match(css, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?#chatView \.session-menu-wrap\s*\{[\s\S]*?display:\s*none;/);
-  assert.match(css, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?#chatView \.top-actions\s*\{[\s\S]*?display:\s*none;/);
+  assert.match(css, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?#chatView\.workspace\s*\{[\s\S]*?margin:\s*0;[\s\S]*?border-radius:\s*0;/);
+  assert.match(css, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?#chatView \.session-menu-wrap\s*\{[\s\S]*?display:\s*block;/);
+  assert.match(css, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?#chatView \.top-actions\s*\{[\s\S]*?display:\s*flex;[\s\S]*?min-height:\s*40px;/);
   assert.match(css, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.composer\s*\{[\s\S]*?padding:\s*8px 12px 14px;/);
   assert.match(css, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.model-switcher\s*\{[\s\S]*?max-width:\s*112px;/);
   assert.match(chatCss, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.bubble,\s*\.message-stack\s*\{[\s\S]*?max-width:\s*min\(100%, 560px\);/);
@@ -226,8 +227,10 @@ test("chat header is a floating card layer rather than a layout topbar", () => {
   assert.match(styleSource, /\.session-trigger-icon\s*\{[\s\S]*?width:\s*16px;[\s\S]*?height:\s*16px;/);
   assert.match(styleSource, /\.session-menu\s*\{[\s\S]*?background:\s*var\(--surface\);[\s\S]*?-webkit-backdrop-filter:\s*none;[\s\S]*?backdrop-filter:\s*none;/);
   assert.match(styleSource, /:root\[data-theme="dark"\] \.session-menu\s*\{[\s\S]*?background:\s*var\(--surface\);/);
-  assert.match(styleSource, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?#chatView \.topbar\s*\{[\s\S]*?min-height:\s*40px;[\s\S]*?padding:\s*0 4px;[\s\S]*?border-radius:\s*20px;[\s\S]*?background:\s*color-mix\(in srgb, var\(--surface-soft\) 92%, transparent\);[\s\S]*?backdrop-filter:\s*blur\(24px\) saturate\(1\.14\);/);
-  assert.match(styleSource, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?#chatView \.group-title\s*\{[\s\S]*?background:\s*transparent;[\s\S]*?box-shadow:\s*none;/);
+  assert.match(styleSource, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?#chatView \.topbar\s*\{[\s\S]*?grid-template-columns:\s*36px minmax\(0,\s*1fr\) auto;[\s\S]*?min-height:\s*40px;[\s\S]*?padding:\s*0;[\s\S]*?background:\s*transparent;[\s\S]*?pointer-events:\s*none;/);
+  assert.match(styleSource, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?#chatView \.group-title\s*\{[\s\S]*?min-height:\s*40px;[\s\S]*?border-radius:\s*20px;[\s\S]*?background:\s*color-mix\(in srgb, var\(--surface\) 96%, transparent\);[\s\S]*?backdrop-filter:\s*blur\(24px\) saturate\(1\.14\);/);
+  assert.match(styleSource, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?#chatView \.session-trigger\s*\{[\s\S]*?grid-template-columns:\s*16px minmax\(0,\s*82px\);[\s\S]*?height:\s*40px;[\s\S]*?max-width:\s*118px;[\s\S]*?border-radius:\s*20px;/);
+  assert.match(styleSource, /@media\s*\(max-width:\s*520px\)\s*\{[\s\S]*?#chatView \.session-trigger\s*\{[\s\S]*?grid-template-columns:\s*16px;[\s\S]*?width:\s*40px;[\s\S]*?#chatView \.session-trigger \.current-session-title\s*\{[\s\S]*?display:\s*none;/);
 });
 
 test("session history trigger uses a compact icon pill", () => {

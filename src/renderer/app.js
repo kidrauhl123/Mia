@@ -1464,7 +1464,7 @@ const fontPresets = {
   serif: 'ui-serif, "Iowan Old Style", "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", Georgia, serif'
 };
 
-const DEFAULT_ACCENT_COLOR = "#0162db";
+const DEFAULT_ACCENT_COLOR = "#318ad3";
 const DEFAULT_USER_BUBBLE_COLOR = "#0162db";
 const DEFAULT_SELECTION_STYLE = "solid";
 

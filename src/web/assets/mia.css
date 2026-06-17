@@ -5,10 +5,10 @@
 
 :root {
   /* product brand — used INSIDE the Mia window only (authentic Mia UI) */
-  --accent: #5e5ce6;
+  --accent: #318ad3;
   --accent-press: #4a47d6;
   --accent-soft: #efeefe;
-  --accent-rgb: 94 92 230;
+  --accent-rgb: 49 138 211;
   --green: #30d158;
   --user-bubble: #5e5ce6;
   --user-bubble-soft: #dedcff;
@@ -18,7 +18,7 @@
 
   --claude: #d97706;
   --codex: #10a37f;
-  --hermes: #5e5ce6;
+  --hermes: #318ad3;
 
   /* marketing accent — restrained ink */
   --ink-accent: #1a1917;

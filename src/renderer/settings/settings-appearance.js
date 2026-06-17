@@ -10,7 +10,7 @@
     pingfang: '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif',
     serif: 'ui-serif, "Iowan Old Style", "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", Georgia, serif'
   });
-  const FALLBACK_ACCENT_COLOR = "#0162db";
+  const FALLBACK_ACCENT_COLOR = "#318ad3";
   const FALLBACK_USER_BUBBLE_COLOR = "#0162db";
   const FALLBACK_SELECTION_STYLE = "solid";
   const FALLBACK_WORKSPACE_BACKGROUND_COLOR = "#f0f0f3";

@@ -71,7 +71,7 @@ function createSettingsStore(deps = {}) {
     return {
       theme: "light",
       fontPreset: "pingfang",
-      accentColor: "#0162db",
+      accentColor: "#318ad3",
       userBubbleColor: "#0162db",
       showHoverBackground: false,
       showUserAvatar: true,
@@ -170,7 +170,7 @@ function createSettingsStore(deps = {}) {
     const has = (key) => Object.prototype.hasOwnProperty.call(settings, key);
     const theme = String(settings.theme || current.theme || "light").trim();
     const fontPreset = String(settings.fontPreset || current.fontPreset || "system").trim();
-    const accentColor = String(settings.accentColor || current.accentColor || "#5e5ce6").trim();
+    const accentColor = String(settings.accentColor || current.accentColor || "#318ad3").trim();
     const userBubbleColor = String(settings.userBubbleColor || current.userBubbleColor || "#dedcff").trim();
     const showHoverBackground = settings.showHoverBackground == null ? current.showHoverBackground !== false : settings.showHoverBackground !== false;
     const showUserAvatar = settings.showUserAvatar == null ? current.showUserAvatar !== false : settings.showUserAvatar !== false;
@@ -182,7 +182,7 @@ function createSettingsStore(deps = {}) {
     const next = {
       theme: ["light", "dark"].includes(theme) ? theme : "light",
       fontPreset: normalizeAppearanceFontPreset(fontPreset),
-      accentColor: validHex(accentColor, "#5e5ce6"),
+      accentColor: validHex(accentColor, "#318ad3"),
       userBubbleColor: validHex(userBubbleColor, "#dedcff"),
       showHoverBackground,
       showUserAvatar,

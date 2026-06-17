@@ -14,8 +14,8 @@
   --text: rgba(0, 0, 0, 0.92);
   --muted: rgba(0, 0, 0, 0.6);
   --faint: rgba(0, 0, 0, 0.36);
-  --accent-rgb: 94 92 230;
-  --accent: #5e5ce6;
+  --accent-rgb: 49 138 211;
+  --accent: #318ad3;
   --list-active: rgb(var(--accent-rgb) / 0.16);
   --shadow: 0 14px 34px rgba(20, 24, 40, 0.08);
   --sidebar-width: 286px;
@@ -3566,8 +3566,8 @@ p {
   display: inline;
   padding: 0 4px;
   border-radius: 4px;
-  background: rgb(var(--accent-rgb, 94 92 230) / 0.14);
-  color: rgb(var(--accent-rgb, 94 92 230));
+  background: rgb(var(--accent-rgb, 49 138 211) / 0.14);
+  color: rgb(var(--accent-rgb, 49 138 211));
   font-weight: 500;
   text-decoration: none;
 }
