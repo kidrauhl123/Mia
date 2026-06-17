@@ -5,6 +5,15 @@ const test = require("node:test");
 
 const root = path.join(__dirname, "..");
 
+function cssRuleBody(source, selector, fromIndex = 0) {
+  const selectorIndex = source.indexOf(selector, fromIndex);
+  assert.notEqual(selectorIndex, -1, `missing CSS selector ${selector}`);
+  const open = source.indexOf("{", selectorIndex);
+  const close = source.indexOf("}", open);
+  assert.ok(open > selectorIndex && close > open, `missing CSS body for ${selector}`);
+  return source.slice(open + 1, close);
+}
+
 test("renderer styles are split into feature stylesheets", () => {
   const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
   const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
@@ -157,6 +166,12 @@ test("settings workspace lives on the app floor and adapts to narrow windows", (
     /\.settings-tabs\s*\{[\s\S]*?width:\s*max-content;[\s\S]*?min-width:\s*168px;[\s\S]*?max-width:\s*188px;[\s\S]*?border-radius:\s*var\(--rail-corner-radius\);[\s\S]*?box-shadow:\s*var\(--rail-expanded-shadow\);/,
     "settings navigation should be a compact floating middle card"
   );
+  const settingsTitleRule = cssRuleBody(baseCss, ".settings-tabs-title");
+  assert.match(settingsTitleRule, /font-size:\s*18px;/, "settings title should stay lighter than a page headline");
+  assert.match(settingsTitleRule, /font-weight:\s*500;/, "settings title should not use heavy display weight");
+  const sidebarTitleRule = cssRuleBody(baseCss, ".sidebar-title");
+  assert.match(sidebarTitleRule, /font-size:\s*16px;/, "conversation sidebar title should stay visually quieter on first load");
+  assert.match(sidebarTitleRule, /font-weight:\s*560;/, "conversation sidebar title should not use heavy display weight");
   assert.match(
     baseCss,
     /\.settings-content\s*\{[\s\S]*?background:\s*transparent;/,
@@ -180,6 +195,14 @@ test("settings workspace lives on the app floor and adapts to narrow windows", (
     /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.settings-tabs\s*\{[\s\S]*?flex-direction:\s*row;[\s\S]*?overflow-x:\s*auto;/,
     "settings tabs should become a compact horizontal strip on narrow windows"
   );
+  const narrowSettingsIndex = baseCss.indexOf("@media (max-width: 720px) {\n  .settings-workspace");
+  assert.notEqual(narrowSettingsIndex, -1, "settings narrow-window media query should exist");
+  const narrowSettingsTitleRule = cssRuleBody(baseCss, ".settings-tabs-title", narrowSettingsIndex);
+  assert.match(narrowSettingsTitleRule, /font-size:\s*15px;/, "settings title should be smaller in the compact top strip");
+  const narrowSettingsTabRule = cssRuleBody(baseCss, ".settings-tab {", narrowSettingsIndex);
+  assert.match(narrowSettingsTabRule, /width:\s*auto;/, "narrow settings tabs should override the base full width");
+  assert.match(narrowSettingsTabRule, /min-width:\s*0;/, "narrow settings tabs should override the base minimum width");
+  assert.match(narrowSettingsTabRule, /flex:\s*1 1 0;/, "settings tabs should divide the narrow top strip instead of letting one tab fill it");
   assert.match(
     baseCss,
     /\.settings-panel \.secondary\s*\{[\s\S]*?white-space:\s*nowrap;[\s\S]*?word-break:\s*keep-all;/,
