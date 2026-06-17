@@ -42,11 +42,30 @@ test("chat workspace uses the shared continuous floor", () => {
   assert.match(baseCss, /--workspace-floor:\s*#f0f0f3;/);
   assert.match(baseCss, /--workspace-floor-image:\s*none;/);
   assert.match(baseCss, /--chat-background:\s*var\(--workspace-floor\);/);
+  assert.match(baseCss, /--floor-text:\s*rgba\(0,\s*0,\s*0,\s*0\.88\);/);
+  assert.match(baseCss, /--floor-muted:\s*rgba\(0,\s*0,\s*0,\s*0\.64\);/);
+  assert.match(baseCss, /--floor-faint:\s*rgba\(0,\s*0,\s*0,\s*0\.48\);/);
   assert.match(baseCss, /\.app-shell\s*\{[\s\S]*?background:\s*var\(--workspace-floor-image\),\s*var\(--workspace-floor\);/);
   assert.match(baseCss, /#chatView\s*\{[\s\S]*?background:\s*transparent;/);
   assert.match(baseCss, /\.topbar\s*\{[\s\S]*?background:\s*transparent;/);
   assert.match(baseCss, /#chatView \.topbar\s*\{[^}]*background:\s*transparent;/);
   assert.match(chatCss, /\.chat-layout\s*\{[^}]*background:\s*transparent;/);
+});
+
+test("chat floor overlay text uses the adaptive floor palette", () => {
+  const chatCss = fs.readFileSync(path.join(root, "src/renderer/styles/chat.css"), "utf8");
+
+  assert.match(chatCss, /\.message-time\s*\{[\s\S]*?color:\s*var\(--floor-faint\);/);
+  assert.match(chatCss, /\.message-send-status\s*\{[\s\S]*?color:\s*var\(--floor-faint\);/);
+  assert.match(chatCss, /\.trace\s*\{[\s\S]*?color:\s*var\(--floor-muted\);[\s\S]*?opacity:\s*1;/);
+  assert.match(chatCss, /\.trace-row:hover\s*>\s*summary\s*\{[\s\S]*?background:\s*var\(--floor-hover\);/);
+  assert.match(chatCss, /:root\[data-hover-background="false"\]\s+\.trace-row:hover\s*>\s*summary\s*\{[\s\S]*?background:\s*transparent;/);
+  assert.match(chatCss, /\.trace-cmd\s*\{[\s\S]*?color:\s*var\(--floor-text\);/);
+  assert.match(chatCss, /\.trace-arg\s*\{[\s\S]*?color:\s*var\(--floor-muted\);/);
+  assert.match(chatCss, /\.trace-meta\s*\{[\s\S]*?color:\s*var\(--floor-faint\);/);
+  assert.match(chatCss, /\.trace-body\s*\{[\s\S]*?border-left-color:\s*var\(--floor-line\);[\s\S]*?color:\s*var\(--floor-muted\);[\s\S]*?opacity:\s*1;/);
+  assert.doesNotMatch(chatCss, /--text-dim/);
+  assert.doesNotMatch(chatCss, /:root\[data-theme="dark"\]\s+\.message-time/);
 });
 
 test("sidebar and chat headers use the same surface and own their divider line", () => {

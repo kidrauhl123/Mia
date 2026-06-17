@@ -127,6 +127,31 @@
         };
   }
 
+  function isDefaultWorkspaceBackgroundColor(value, theme = "light") {
+    const color = normalizeHexColor(value, "");
+    if (!color) return false;
+    return color === defaultWorkspaceBackgroundColor(theme === "dark" ? "dark" : "light");
+  }
+
+  function floorTextColors(rgb) {
+    const lightBackground = relativeLuminance(rgb) > 0.50;
+    return lightBackground
+      ? {
+          text: "rgba(0, 0, 0, 0.88)",
+          muted: "rgba(0, 0, 0, 0.64)",
+          faint: "rgba(0, 0, 0, 0.48)",
+          line: "rgba(0, 0, 0, 0.16)",
+          hover: "rgba(0, 0, 0, 0.07)"
+        }
+      : {
+          text: "rgba(255, 255, 255, 0.96)",
+          muted: "rgba(255, 255, 255, 0.80)",
+          faint: "rgba(255, 255, 255, 0.66)",
+          line: "rgba(255, 255, 255, 0.22)",
+          hover: "rgba(255, 255, 255, 0.10)"
+        };
+  }
+
   function fontStackForAppearance(appearance = {}) {
     const presets = configuredFontPresets();
     return presets[appearance.fontPreset || "system"] || presets.system;
@@ -141,6 +166,8 @@
     const userBubbleText = selectionTextColors(userBubbleRgb).text;
     const selectionStyle = normalizeSelectionStyle(appearance.selectionStyle);
     const workspaceBackgroundColor = normalizeHexColor(appearance.workspaceBackgroundColor, "");
+    const resolvedWorkspaceBackgroundColor = workspaceBackgroundColor || defaultWorkspaceBackgroundColor(theme);
+    const floorColors = floorTextColors(hexToRgb(resolvedWorkspaceBackgroundColor));
     const workspaceBackgroundImage = normalizeWorkspaceBackgroundImage(appearance.workspaceBackgroundImage);
     const softActive = `rgb(${rgb.r} ${rgb.g} ${rgb.b} / ${theme === "dark" ? "0.22" : "0.16"})`;
     document.documentElement.dataset.theme = theme;
@@ -154,6 +181,11 @@
     document.documentElement.style.setProperty("--active", softActive);
     document.documentElement.style.setProperty("--user-bubble", userBubbleColor);
     document.documentElement.style.setProperty("--user-bubble-text", userBubbleText);
+    document.documentElement.style.setProperty("--floor-text", floorColors.text);
+    document.documentElement.style.setProperty("--floor-muted", floorColors.muted);
+    document.documentElement.style.setProperty("--floor-faint", floorColors.faint);
+    document.documentElement.style.setProperty("--floor-line", floorColors.line);
+    document.documentElement.style.setProperty("--floor-hover", floorColors.hover);
     if (workspaceBackgroundColor) {
       document.documentElement.style.setProperty("--workspace-floor", workspaceBackgroundColor);
     } else {
@@ -207,7 +239,13 @@
     if (has("workspaceBackgroundColor")) {
       const incomingColor = normalizeHexColor(patch.workspaceBackgroundColor, "");
       const currentColor = normalizeHexColor(base.workspaceBackgroundColor, "");
-      next.workspaceBackgroundColor = incomingColor || currentColor || "";
+      const incomingTheme = patch.theme === "dark" ? "dark" : (base.theme === "dark" ? "dark" : "light");
+      const currentTheme = base.theme === "dark" ? "dark" : "light";
+      const incomingIsDefault = isDefaultWorkspaceBackgroundColor(incomingColor, incomingTheme);
+      const currentIsCustom = currentColor && !isDefaultWorkspaceBackgroundColor(currentColor, currentTheme);
+      next.workspaceBackgroundColor = (!incomingColor || (incomingIsDefault && currentIsCustom))
+        ? currentColor || ""
+        : incomingColor;
     }
     if (has("workspaceBackgroundImage")) {
       const incomingImage = normalizeWorkspaceBackgroundImage(patch.workspaceBackgroundImage);
@@ -378,6 +416,7 @@
     hexToRgb,
     relativeLuminance,
     selectionTextColors,
+    floorTextColors,
     fontStackForAppearance,
     applyAppearance,
     currentAppearanceDraft,

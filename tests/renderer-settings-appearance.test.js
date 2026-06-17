@@ -151,6 +151,32 @@ test("applyAppearance writes bottom board color and image variables", () => {
   assert.equal(styleValues.get("--workspace-floor-image"), 'url("data:image/png;base64,abc123")');
 });
 
+test("applyAppearance derives readable floor text from the bottom board color", () => {
+  const { api, styleValues } = loadAppearanceModule();
+
+  api.applyAppearance({
+    theme: "light",
+    workspaceBackgroundColor: "#4096f3"
+  });
+
+  assert.equal(styleValues.get("--floor-text"), "rgba(255, 255, 255, 0.96)");
+  assert.equal(styleValues.get("--floor-muted"), "rgba(255, 255, 255, 0.80)");
+  assert.equal(styleValues.get("--floor-faint"), "rgba(255, 255, 255, 0.66)");
+  assert.equal(styleValues.get("--floor-line"), "rgba(255, 255, 255, 0.22)");
+  assert.equal(styleValues.get("--floor-hover"), "rgba(255, 255, 255, 0.10)");
+
+  api.applyAppearance({
+    theme: "light",
+    workspaceBackgroundColor: "#f8fafc"
+  });
+
+  assert.equal(styleValues.get("--floor-text"), "rgba(0, 0, 0, 0.88)");
+  assert.equal(styleValues.get("--floor-muted"), "rgba(0, 0, 0, 0.64)");
+  assert.equal(styleValues.get("--floor-faint"), "rgba(0, 0, 0, 0.48)");
+  assert.equal(styleValues.get("--floor-line"), "rgba(0, 0, 0, 0.16)");
+  assert.equal(styleValues.get("--floor-hover"), "rgba(0, 0, 0, 0.07)");
+});
+
 test("currentAppearanceDraft always saves the visible bottom board color", () => {
   const { api } = loadAppearanceModule({
     els: {
@@ -239,13 +265,25 @@ test("cloud appearance empty bottom board values do not overwrite local bottom b
   const { api } = loadAppearanceModule();
 
   const merged = api.mergeCloudAppearance(
-    { theme: "light", workspaceBackgroundColor: "#dbeafe", workspaceBackgroundImage: "data:image/png;base64,abc123" },
+    { theme: "light", workspaceBackgroundColor: "#2ca1ff", workspaceBackgroundImage: "data:image/png;base64,abc123" },
     { theme: "dark", workspaceBackgroundColor: "", workspaceBackgroundImage: "" }
   );
 
   assert.equal(merged.theme, "dark");
-  assert.equal(merged.workspaceBackgroundColor, "#dbeafe");
+  assert.equal(merged.workspaceBackgroundColor, "#2ca1ff");
   assert.equal(merged.workspaceBackgroundImage, "data:image/png;base64,abc123");
+});
+
+test("cloud appearance stale default bottom board does not overwrite local custom color", () => {
+  const { api } = loadAppearanceModule();
+
+  const merged = api.mergeCloudAppearance(
+    { theme: "light", workspaceBackgroundColor: "#2ca1ff" },
+    { theme: "light", workspaceBackgroundColor: "#f0f0f3", accentColor: "#112233" }
+  );
+
+  assert.equal(merged.accentColor, "#112233");
+  assert.equal(merged.workspaceBackgroundColor, "#2ca1ff");
 });
 
 test("applyAppearance keeps default tokens when appearance deps are missing", () => {
@@ -317,7 +355,10 @@ test("desktop appearance settings expose bottom board color and image controls",
   assert.match(htmlSource, /<strong>底板背景<\/strong>/);
   assert.match(htmlSource, /id="appearanceWorkspaceBackgroundPresets"/);
   assert.match(htmlSource, /data-workspace-background-color="#f0f0f3"/);
-  assert.match(htmlSource, /data-workspace-background-color="#dbeafe"/);
+  assert.match(htmlSource, /data-workspace-background-color="#2ca1ff"/);
+  assert.match(htmlSource, /title="#2CA1FF"/);
+  assert.match(htmlSource, /data-workspace-background-color="#0f766e"/);
+  assert.match(htmlSource, /data-workspace-background-color="#1f2937"/);
   assert.match(htmlSource, /id="appearanceWorkspaceBackgroundColor"[^>]*type="color"/);
   assert.match(htmlSource, /id="appearanceWorkspaceBackgroundImageFile"[^>]*type="file"[^>]*accept="image\/\*"/);
   assert.match(htmlSource, /id="appearanceWorkspaceBackgroundImage"/);
@@ -332,6 +373,9 @@ test("desktop appearance settings expose bottom board color and image controls",
   assert.match(appSource, /function saveWorkspaceBackgroundColor\(\)\s*\{\s*window\.miaSettingsAppearance\.scheduleAppearanceSave\(0\);/);
   assert.doesNotMatch(appSource, /appearanceWorkspaceBackgroundColor[^;\n]+dataset\.custom/);
   assert.match(cssSource, /\.workspace-background-presets \.avatar-color-chip\.is-selected\s*\{[\s\S]*border-color:\s*rgb\(var\(--accent-rgb\) \/ 0\.38\);[\s\S]*box-shadow:\s*0 0 0 2px rgb\(var\(--accent-rgb\) \/ 0\.10\);/);
+  assert.match(cssSource, /\.workspace-background-controls \.accent-swatch\s*\{[\s\S]*border-radius:\s*8px;/);
+  assert.match(cssSource, /\.workspace-background-controls \.accent-swatch span\s*\{[\s\S]*border-radius:\s*6px;/);
+  assert.match(cssSource, /\.workspace-background-presets \.avatar-color-chip\s*\{[\s\S]*border-radius:\s*6px;/);
 });
 
 test("appearance settings initialize before startup modules that can render", () => {

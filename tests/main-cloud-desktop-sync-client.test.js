@@ -248,7 +248,9 @@ test("saveAppearanceSettings writes local appearance and syncs the cloud user se
     writeAppearanceSettings: (settings) => ({
       theme: settings.theme || "light",
       fontPreset: settings.fontPreset || "system",
-      accentColor: settings.accentColor || "#0162db"
+      accentColor: settings.accentColor || "#0162db",
+      workspaceBackgroundColor: settings.workspaceBackgroundColor || "",
+      workspaceBackgroundImage: settings.workspaceBackgroundImage || ""
     }),
     responses: [
       jsonResponse({ settings: { pins: ["conv_1"], readMarks: { conv_1: 7 }, appearance: { theme: "light" }, version: 4 } }),
@@ -259,7 +261,9 @@ test("saveAppearanceSettings writes local appearance and syncs the cloud user se
   const status = await client.saveAppearanceSettings({
     theme: "dark",
     fontPreset: "serif",
-    accentColor: "#112233"
+    accentColor: "#112233",
+    workspaceBackgroundColor: "#2CA1FF",
+    workspaceBackgroundImage: "data:image/png;base64,abc123"
   });
 
   assert.deepEqual(calls.fetch.map((request) => [request.method, request.url]), [
@@ -272,7 +276,9 @@ test("saveAppearanceSettings writes local appearance and syncs the cloud user se
     appearance: {
       theme: "dark",
       fontPreset: "serif",
-      accentColor: "#112233"
+      accentColor: "#112233",
+      workspaceBackgroundColor: "#2CA1FF",
+      workspaceBackgroundImage: "data:image/png;base64,abc123"
     },
     expectedVersion: 4
   });

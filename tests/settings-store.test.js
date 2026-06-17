@@ -107,6 +107,20 @@ test("writeAppearanceSettings validates choices, colors, and boolean toggles", (
   assert.deepEqual(readJson(runtime.appearanceSettings, {}), next);
 });
 
+test("writeAppearanceSettings preserves saved bottom board fields on partial saves", (t) => {
+  const { store } = setup(t);
+
+  store.writeAppearanceSettings({
+    workspaceBackgroundColor: "#2CA1FF",
+    workspaceBackgroundImage: "data:image/png;base64,abc123"
+  });
+  const next = store.writeAppearanceSettings({ theme: "dark" });
+
+  assert.equal(next.theme, "dark");
+  assert.equal(next.workspaceBackgroundColor, "#2ca1ff");
+  assert.equal(next.workspaceBackgroundImage, "data:image/png;base64,abc123");
+});
+
 test("writeAppearanceSettings rejects invalid bottom board image data", (t) => {
   const { store } = setup(t);
 
