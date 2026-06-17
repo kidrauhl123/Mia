@@ -472,6 +472,42 @@ test("floating-floor pages remove the workspace frame even in narrow layouts", (
   }
 });
 
+test("contacts detail narrow header keeps back control separate from the mode capsule", () => {
+  const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+  const botStoreCss = fs.readFileSync(path.join(root, "src/renderer/styles/bot-store.css"), "utf8");
+
+  assert.match(
+    botStoreCss,
+    /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.app-shell\[data-active-view="contacts"\]\s+#contactsView\s*\{[^}]*position:\s*relative;/,
+    "contacts detail should be the positioning context for its floating back control"
+  );
+  assert.match(
+    botStoreCss,
+    /\.app-shell\[data-active-view="contacts"\]\s+\.contacts-narrow-back\s*\{[^}]*position:\s*absolute;[^}]*top:\s*12px;[^}]*left:\s*14px;[^}]*background:\s*var\(--floating-control-bg\);/,
+    "contacts back control should float independently instead of sharing the mode capsule"
+  );
+  assert.match(
+    botStoreCss,
+    /\.app-shell\[data-active-view="contacts"\]\s+\.discover-top-bar\s*\{[^}]*left:\s*calc\(var\(--rail-column-width\)\s*\+\s*66px\);/,
+    "contacts mode capsule should leave room for the floating back control"
+  );
+  assert.match(
+    botStoreCss,
+    /\.app-shell\[data-active-view="contacts"\]\s+\.contacts-layout\s*\{[^}]*padding:\s*64px\s+14px\s+18px;/,
+    "contacts detail should start close under the floating controls on narrow screens"
+  );
+  assert.match(
+    baseCss,
+    /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.app-shell\[data-active-view="contacts"\]\s+\.contact-profile-head\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\);[^}]*justify-items:\s*center;[^}]*text-align:\s*center;/,
+    "contacts profile header should switch to a compact centered narrow layout"
+  );
+  assert.match(
+    baseCss,
+    /\.app-shell\[data-active-view="contacts"\]\s+\.contact-actions\s*\{[^}]*grid-column:\s*auto;[^}]*justify-content:\s*center;/,
+    "contacts actions should not retain the medium-width two-column placement on narrow screens"
+  );
+});
+
 test("skill and task category filters are redesigned as individual floating chips", () => {
   const skillCss = fs.readFileSync(path.join(root, "src/renderer/styles/skills.css"), "utf8");
   const taskCss = fs.readFileSync(path.join(root, "src/renderer/styles/tasks.css"), "utf8");

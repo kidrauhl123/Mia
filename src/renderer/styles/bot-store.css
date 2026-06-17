@@ -659,6 +659,7 @@
 
   .app-shell[data-active-view="contacts"] #contactsView {
     grid-column: 2 / -1;
+    position: relative;
   }
 
   .contacts-workspace {
@@ -675,13 +676,32 @@
   .app-shell[data-active-view="contacts"] .contacts-sidebar .contact-section {
     background: var(--surface);
   }
-  .app-shell[data-active-view="contacts"] .discover-top-bar,
+  .app-shell[data-active-view="contacts"] .contacts-narrow-back {
+    position: absolute;
+    top: 12px;
+    left: 14px;
+    z-index: 13;
+    width: 38px;
+    height: 38px;
+    border-radius: 999px;
+    background: var(--floating-control-bg);
+    box-shadow: var(--floating-control-shadow);
+    -webkit-backdrop-filter: blur(18px) saturate(1.08);
+    backdrop-filter: blur(18px) saturate(1.08);
+  }
+  .app-shell[data-active-view="contacts"] .discover-top-bar {
+    top: 12px;
+    right: 14px;
+    left: calc(var(--rail-column-width) + 66px);
+  }
   .app-shell[data-active-view="bot-store"] .discover-top-bar {
     top: 12px;
     right: 14px;
     left: calc(var(--rail-column-width) + 14px);
   }
-  .app-shell[data-active-view="contacts"] .contacts-layout,
+  .app-shell[data-active-view="contacts"] .contacts-layout {
+    padding: 64px 14px 18px;
+  }
   .bot-store-layout { padding-top: 76px; }
   .bot-store-scrim { padding: 14px; }
   .bot-store-sheet.is-enrolling {

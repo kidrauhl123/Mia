@@ -174,6 +174,15 @@ test("desktop shell uses optional middle pane by active view", () => {
   assert.match(css, /\.app-shell\[data-layout="workspace"\] \.sidebar,[\s\S]*?\.app-shell\[data-layout="workspace"\] \.sidebar-resize-handle,[\s\S]*?\.app-shell\[data-layout="workspace"\] \.sidebar-rail-toggle\s*\{[\s\S]*?display:\s*none;/);
 });
 
+test("single-pane rail pages do not render meaningless narrow back buttons", () => {
+  const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
+
+  assert.match(html, /title="返回消息栏"/);
+  assert.match(html, /title="返回联系人"/);
+  assert.doesNotMatch(html, /title="返回能力库"/);
+  assert.doesNotMatch(html, /title="返回任务"/);
+});
+
 test("narrow desktop shell collapses the expanded rail into one content column", () => {
   const css = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
   const chatCss = fs.readFileSync(path.join(root, "src/renderer/styles/chat.css"), "utf8");

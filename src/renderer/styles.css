@@ -8067,6 +8067,67 @@ pre {
     background: var(--field);
   }
 
+  .app-shell[data-active-view="contacts"] .contact-detail {
+    align-content: start;
+  }
+
+  .app-shell[data-active-view="contacts"] .contact-profile {
+    width: 100%;
+    gap: 12px;
+  }
+
+  .app-shell[data-active-view="contacts"] .contact-profile-head {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+    align-items: start;
+    gap: 10px;
+    padding: 4px 0 10px;
+    text-align: center;
+  }
+
+  .app-shell[data-active-view="contacts"] .contact-profile-avatar {
+    width: 84px;
+    height: 84px;
+  }
+
+  .app-shell[data-active-view="contacts"] .contact-profile-title {
+    justify-items: center;
+    width: min(100%, 320px);
+  }
+
+  .app-shell[data-active-view="contacts"] .contact-profile-title h2 {
+    max-width: 100%;
+    font-size: 22px;
+    line-height: 1.22;
+    white-space: normal;
+  }
+
+  .app-shell[data-active-view="contacts"] .contact-profile-title .contact-profile-uid {
+    justify-content: center;
+  }
+
+  .app-shell[data-active-view="contacts"] .contact-actions {
+    grid-column: auto;
+    justify-content: center;
+    width: 100%;
+  }
+
+  .app-shell[data-active-view="contacts"] .contact-info-card {
+    border-radius: 14px;
+  }
+
+  .app-shell[data-active-view="contacts"] .contact-runtime-target > summary,
+  .app-shell[data-active-view="contacts"] .contact-capabilities > summary,
+  .app-shell[data-active-view="contacts"] .contact-persona-card > summary {
+    min-height: 58px;
+    padding: 12px 18px;
+  }
+
+  .app-shell[data-active-view="contacts"] .contact-info-card > details + details::before {
+    left: 18px;
+    right: 18px;
+  }
+
   :root[data-selection-style="solid"] .app-shell[data-shell-layout="single"] .persona.active .persona-unread {
     background: #ff3b30;
     color: #fff;
