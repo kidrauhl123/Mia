@@ -112,6 +112,17 @@ test("列表摘要字段驱动预览、排序和未读,无需预拉消息", () =
   expect(items[1].subtitle).toBe("旧消息");
 });
 
+test("会话摘要未读支持手动未读覆盖", () => {
+  const conversations = [
+    { id: "read", last_message_seq: 4 },
+    { id: "real", last_message_seq: 9 },
+  ];
+  expect(unreadCountsFromConversations(conversations as any, { read: 4, real: 7 }, { read: true })).toEqual({
+    read: 1,
+    real: 2,
+  });
+});
+
 test("置顶会话排在普通会话前", () => {
   const items = buildConversationListItems({
     conversations: [
@@ -119,8 +130,24 @@ test("置顶会话排在普通会话前", () => {
       { id: "old-pinned", last_activity_at: "2026-06-01T10:00:00Z" },
     ],
     pinnedIds: ["old-pinned"],
+    mutedIds: ["new"],
+    unreadOverrides: { "old-pinned": true },
   });
   expect(items.map((item) => item.id)).toEqual(["old-pinned", "new"]);
+  expect(items[0].pinned).toBe(true);
+  expect(items[0].manualUnread).toBe(true);
+  expect(items[1].muted).toBe(true);
+});
+
+test("会话列表搜索匹配标题、预览和会话 id", () => {
+  const items = buildConversationListItems({
+    conversations: [
+      { id: "dm:a", type: "dm", name: "Alice", last_message_text: "hello" },
+      { id: "g_team", type: "group", name: "团队", last_message_text: "周报" },
+    ],
+    query: "周报",
+  });
+  expect(items.map((item) => item.id)).toEqual(["g_team"]);
 });
 
 test("群头像取成员拼贴 mosaic", () => {

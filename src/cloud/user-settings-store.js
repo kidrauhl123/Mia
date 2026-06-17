@@ -1,6 +1,8 @@
 // Per-user cross-device settings (Phase 3). Holds:
 //   pins:        ["conversation_id_a", "bot_ref_b", ...]   — pinned conversation refs
 //   readMarks:   { "conversation_id_a": last_seen_seq, ... } — last seq the user has read
+//   mutedConversations: ["conversation_id_a", ...]     — conversations excluded from global unread
+//   unreadOverrides: { "conversation_id_a": true }      — manual unread flags
 //   appearance:  { theme, listStyle, ... }            — UI preferences
 //   tags:        { items, assignments }                — user-private conversation tags
 //
@@ -22,34 +24,51 @@ function parseJsonOr(value, fallback) {
 }
 
 function defaultSettings() {
-  return { pins: [], readMarks: {}, appearance: {}, tags: defaultConversationTags() };
+  return { pins: [], readMarks: {}, mutedConversations: [], unreadOverrides: {}, appearance: {}, tags: defaultConversationTags() };
+}
+
+function normalizeStringList(value, cap = 1000) {
+  return Array.isArray(value) ? [...new Set(value.map(String).filter(Boolean))].slice(0, cap) : [];
+}
+
+function normalizeUnreadOverrides(value, cap = 1000) {
+  if (!value || typeof value !== "object") return {};
+  const out = {};
+  for (const [key, raw] of Object.entries(value)) {
+    if (!key || raw !== true) continue;
+    out[String(key)] = true;
+    if (Object.keys(out).length >= cap) break;
+  }
+  return out;
 }
 
 function createUserSettingsStore(db) {
   const selectStmt = db.prepare(
-    "SELECT pins_json, read_marks_json, appearance_json, tags_json, version, updated_at FROM user_settings WHERE user_id = ?"
+    "SELECT pins_json, read_marks_json, muted_conversations_json, unread_overrides_json, appearance_json, tags_json, version, updated_at FROM user_settings WHERE user_id = ?"
   );
   // CAS-aware upsert. Caller supplies expectedVersion; we only write
   // when the stored version matches. INSERT path is unconditional
   // (no row yet, no race possible). The RETURNING clause hands back
   // the new version so the caller's cache stays current.
   const insertStmt = db.prepare(
-    "INSERT INTO user_settings (user_id, pins_json, read_marks_json, appearance_json, tags_json, version, updated_at) " +
-    "VALUES (?, ?, ?, ?, ?, 1, ?) " +
-    "RETURNING pins_json, read_marks_json, appearance_json, tags_json, version, updated_at"
+    "INSERT INTO user_settings (user_id, pins_json, read_marks_json, muted_conversations_json, unread_overrides_json, appearance_json, tags_json, version, updated_at) " +
+    "VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?) " +
+    "RETURNING pins_json, read_marks_json, muted_conversations_json, unread_overrides_json, appearance_json, tags_json, version, updated_at"
   );
   const updateStmt = db.prepare(
-    "UPDATE user_settings SET pins_json = ?, read_marks_json = ?, appearance_json = ?, tags_json = ?, " +
+    "UPDATE user_settings SET pins_json = ?, read_marks_json = ?, muted_conversations_json = ?, unread_overrides_json = ?, appearance_json = ?, tags_json = ?, " +
     "  version = version + 1, updated_at = ? " +
     "WHERE user_id = ? AND version = ? " +
-    "RETURNING pins_json, read_marks_json, appearance_json, tags_json, version, updated_at"
+    "RETURNING pins_json, read_marks_json, muted_conversations_json, unread_overrides_json, appearance_json, tags_json, version, updated_at"
   );
 
   function rowToSettings(row) {
     if (!row) return { ...defaultSettings(), version: 0, updatedAt: "" };
     return {
-      pins: parseJsonOr(row.pins_json, []),
+      pins: normalizeStringList(parseJsonOr(row.pins_json, [])),
       readMarks: parseJsonOr(row.read_marks_json, {}),
+      mutedConversations: normalizeStringList(parseJsonOr(row.muted_conversations_json, [])),
+      unreadOverrides: normalizeUnreadOverrides(parseJsonOr(row.unread_overrides_json, {})),
       appearance: parseJsonOr(row.appearance_json, {}),
       tags: normalizeConversationTags(parseJsonOr(row.tags_json, defaultConversationTags())),
       version: Number(row.version) || 0,
@@ -71,12 +90,18 @@ function createUserSettingsStore(db) {
   //   - N>0 → caller read with version N and now writes N+1.
   // Returns { ok, settings, conflict } — on conflict the caller should
   // re-read, merge their delta with the server's latest, and retry.
-  function putSettings(userId, { pins, readMarks, appearance, tags, expectedVersion = null }) {
+  function putSettings(userId, { pins, readMarks, mutedConversations, unreadOverrides, appearance, tags, expectedVersion = null }) {
     const existing = _selectRow(userId);
     const existingSettings = rowToSettings(existing);
     const safe = {
-      pins: Array.isArray(pins) ? pins.map(String).slice(0, 1000) : [],
+      pins: normalizeStringList(pins),
       readMarks: readMarks && typeof readMarks === "object" ? readMarks : {},
+      mutedConversations: mutedConversations === undefined
+        ? existingSettings.mutedConversations
+        : normalizeStringList(mutedConversations),
+      unreadOverrides: unreadOverrides === undefined
+        ? existingSettings.unreadOverrides
+        : normalizeUnreadOverrides(unreadOverrides),
       appearance: appearance && typeof appearance === "object" ? appearance : {},
       tags: tags === undefined ? existingSettings.tags : normalizeConversationTags(tags)
     };
@@ -94,6 +119,8 @@ function createUserSettingsStore(db) {
         String(userId),
         JSON.stringify(safe.pins),
         JSON.stringify(safe.readMarks),
+        JSON.stringify(safe.mutedConversations),
+        JSON.stringify(safe.unreadOverrides),
         JSON.stringify(safe.appearance),
         JSON.stringify(safe.tags),
         nowIso()
@@ -102,6 +129,8 @@ function createUserSettingsStore(db) {
       row = updateStmt.get(
         JSON.stringify(safe.pins),
         JSON.stringify(safe.readMarks),
+        JSON.stringify(safe.mutedConversations),
+        JSON.stringify(safe.unreadOverrides),
         JSON.stringify(safe.appearance),
         JSON.stringify(safe.tags),
         nowIso(),

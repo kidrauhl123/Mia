@@ -56,7 +56,7 @@ const JSON_COLUMNS = [
   ["user_events", ["payload"]],
   ["op_idempotency", ["result_json"]],
   ["bots", ["avatar_crop_json", "status_badge_json", "capabilities_json"]],
-  ["user_settings", ["pins_json", "read_marks_json", "appearance_json"]],
+  ["user_settings", ["pins_json", "read_marks_json", "muted_conversations_json", "unread_overrides_json", "appearance_json", "tags_json"]],
   ["bot_runtime_bindings", ["config_json"]],
   ["cloud_agent_runs", ["error_json"]],
   ["skill_versions", ["manifest_json"]]

@@ -100,6 +100,8 @@ export interface UserSettings {
   version?: number;
   pins?: string[];
   readMarks?: Record<string, number>;
+  mutedConversations?: string[];
+  unreadOverrides?: Record<string, boolean>;
   appearance?: Record<string, unknown>;
 }
 

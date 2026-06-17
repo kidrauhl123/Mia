@@ -36,6 +36,9 @@ export default function SettingsScreen() {
   const loading = me.isLoading || settings.isLoading;
   const error = me.error || settings.error;
   const appearance = settings.data?.appearance || {};
+  const readMarksCount = Object.keys(settings.data?.readMarks || {}).length;
+  const mutedCount = settings.data?.mutedConversations?.length || 0;
+  const manualUnreadCount = Object.keys(settings.data?.unreadOverrides || {}).length;
   const userId = me.data?.id || session?.user?.id || "";
   const username = me.data?.username || session?.user?.username || "未登录";
   const avatar = resolveAvatar(userId, username, me.data?.avatarImage || "", me.data?.avatarCrop || null);
@@ -113,6 +116,9 @@ export default function SettingsScreen() {
         <BodyStrong>同步</BodyStrong>
         <Row label="设置版本" value={String(settings.data?.version || 0)} />
         <Row label="置顶会话" value={String(settings.data?.pins?.length || 0)} />
+        <Row label="已读标记" value={String(readMarksCount)} />
+        <Row label="免打扰会话" value={String(mutedCount)} />
+        <Row label="手动未读" value={String(manualUnreadCount)} />
         <Row label="桌面设备" value={String(devices.data?.length || 0)} />
       </View>
       <View style={styles.section}>

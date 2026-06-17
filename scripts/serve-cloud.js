@@ -3577,7 +3577,7 @@ async function handleRequest(req, res, context) {
     }
 
     // GET /api/me/settings — cross-device user settings (pin / read marks
-    // / appearance / tags). Clients fetch on bootstrap + subscribe to
+    // / mute / manual unread / appearance / tags). Clients fetch on bootstrap + subscribe to
     // user_settings.updated to stay in sync.
     if (req.method === "GET" && url.pathname === "/api/me/settings") {
       return writeJson(res, 200, { settings: context.userSettingsStore.getSettings(auth.user.id) });
@@ -3595,6 +3595,8 @@ async function handleRequest(req, res, context) {
       const out = context.userSettingsStore.putSettings(auth.user.id, {
         pins: body.pins,
         readMarks: body.readMarks,
+        mutedConversations: body.mutedConversations,
+        unreadOverrides: body.unreadOverrides,
         appearance: body.appearance,
         tags: body.tags,
         expectedVersion: body.expectedVersion

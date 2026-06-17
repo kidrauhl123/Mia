@@ -36,7 +36,12 @@ function tabFeedback() {
   }
 }
 
-function TabItem({ routeName, focused, onPress }: { routeName: string; focused: boolean; onPress: () => void }) {
+function badgeText(value: number): string {
+  if (!value || value < 1) return "";
+  return value > 99 ? "99+" : String(value);
+}
+
+function TabItem({ routeName, focused, badge, onPress }: { routeName: string; focused: boolean; badge?: number; onPress: () => void }) {
   const scale = useRef(new Animated.Value(1)).current;
 
   const handle = () => {
@@ -50,6 +55,7 @@ function TabItem({ routeName, focused, onPress }: { routeName: string; focused: 
   };
 
   const tint = focused ? color.accent : color.inkFaint;
+  const visibleBadge = badgeText(Number(badge) || 0);
   return (
     <Pressable style={styles.item} onPress={handle} hitSlop={8}>
       <Animated.View style={[styles.iconWrap, { transform: [{ scale }] }]}>
@@ -64,13 +70,18 @@ function TabItem({ routeName, focused, onPress }: { routeName: string; focused: 
           restFrame={60}
           playSegment={RAIL_PLAY_SEGMENT}
         />
+        {visibleBadge ? (
+          <View style={styles.badge}>
+            <Text style={styles.badgeText}>{visibleBadge}</Text>
+          </View>
+        ) : null}
       </Animated.View>
       <Text style={[styles.label, { color: tint }]}>{LABELS[routeName] || routeName}</Text>
     </Pressable>
   );
 }
 
-export default function AnimatedTabBar({ state, navigation }: BottomTabBarProps) {
+export default function AnimatedTabBar({ state, navigation, badges = {} }: BottomTabBarProps & { badges?: Record<string, number> }) {
   const insets = useSafeAreaInsets();
   return (
     <View style={[styles.bar, { paddingBottom: insets.bottom }]}>
@@ -80,7 +91,7 @@ export default function AnimatedTabBar({ state, navigation }: BottomTabBarProps)
           const event = navigation.emit({ type: "tabPress", target: route.key, canPreventDefault: true });
           if (!focused && !event.defaultPrevented) navigation.navigate(route.name);
         };
-        return <TabItem key={route.key} routeName={route.name} focused={focused} onPress={onPress} />;
+        return <TabItem key={route.key} routeName={route.name} focused={focused} badge={badges[route.name]} onPress={onPress} />;
       })}
     </View>
   );
@@ -94,6 +105,21 @@ const styles = StyleSheet.create({
     borderTopColor: color.line,
   },
   item: { flex: 1, alignItems: "center", justifyContent: "center", paddingTop: 8, paddingBottom: 6, gap: 3 },
-  iconWrap: { width: 24, height: 24, alignItems: "center", justifyContent: "center" },
+  iconWrap: { width: 28, height: 24, alignItems: "center", justifyContent: "center" },
   label: { fontSize: 11 },
+  badge: {
+    position: "absolute",
+    top: -5,
+    right: -8,
+    minWidth: 17,
+    height: 17,
+    borderRadius: 9,
+    paddingHorizontal: 4,
+    backgroundColor: color.danger,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: color.bg,
+  },
+  badgeText: { color: "#FFFFFF", fontSize: 10, fontWeight: "700" },
 });

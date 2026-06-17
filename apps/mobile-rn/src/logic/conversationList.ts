@@ -11,6 +11,9 @@ export interface ConversationListItem {
   timeText: string;
   sortTime: number;
   unread: number;
+  pinned: boolean;
+  muted: boolean;
+  manualUnread: boolean;
   tiles: AvatarDescriptor[]; // 1 = 单头像;>1 = 群拼贴
   statusBadge?: StatusBadge | null;
   raw: Conversation;
@@ -145,15 +148,28 @@ export function unreadCountsFromMessages(
 
 export function unreadCountsFromConversations(
   conversations: Conversation[] = [],
-  readMarks: Record<string, number> = {}
+  readMarks: Record<string, number> = {},
+  unreadOverrides: Record<string, boolean> = {}
 ): Record<string, number> {
   const unread: Record<string, number> = {};
   conversations.forEach((conversation) => {
     const readSeq = Number(readMarks[conversation.id]) || 0;
     const lastSeq = conversationLastSeq(conversation);
-    if (lastSeq > readSeq) unread[conversation.id] = lastSeq - readSeq;
+    const count = lastSeq > readSeq ? lastSeq - readSeq : 0;
+    if (count > 0 || unreadOverrides[conversation.id] === true) {
+      unread[conversation.id] = Math.max(count, 1);
+    }
   });
   return unread;
+}
+
+export function filterConversationListItems(items: ConversationListItem[], query: string): ConversationListItem[] {
+  const needle = String(query || "").trim().toLowerCase();
+  if (!needle) return items;
+  return items.filter((item) => {
+    const haystack = `${item.title}\n${item.subtitle}\n${item.id}`.toLowerCase();
+    return haystack.includes(needle);
+  });
 }
 
 // 按主体聚合 + 按类型解析头像(bot / dm 用户 / group 拼贴),对齐桌面/web。
@@ -167,10 +183,15 @@ export function buildConversationListItems(deps: {
   unreadByConversation?: Record<string, number>;
   activeConversationId?: string;
   pinnedIds?: string[];
+  mutedIds?: string[];
+  unreadOverrides?: Record<string, boolean>;
+  query?: string;
 }): ConversationListItem[] {
   const bots = deps.bots || [];
   const unread = deps.unreadByConversation || {};
   const pinned = new Set(deps.pinnedIds || []);
+  const muted = new Set(deps.mutedIds || []);
+  const manualUnread = deps.unreadOverrides || {};
   const ctx: AvatarResolveCtx = {
     self: deps.self,
     bots,
@@ -182,7 +203,7 @@ export function buildConversationListItems(deps: {
     const pinDelta = Number(pinned.has(b.id)) - Number(pinned.has(a.id));
     return pinDelta || activityTime(b, deps.messagesByConv?.[b.id]) - activityTime(a, deps.messagesByConv?.[a.id]);
   });
-  return aggregated.map((c) => {
+  const items = aggregated.map((c) => {
     const sortTime = activityTime(c, deps.messagesByConv?.[c.id]);
     return {
       id: c.id,
@@ -191,11 +212,15 @@ export function buildConversationListItems(deps: {
       timeText: formatConversationTime(sortTime),
       sortTime,
       unread: Number(unread[c.id]) || 0,
+      pinned: pinned.has(c.id),
+      muted: muted.has(c.id),
+      manualUnread: manualUnread[c.id] === true,
       tiles: conversationAvatarTiles(c, ctx),
       statusBadge: statusBadgeForConversation(c, bots, ctx) || null,
       raw: c,
     };
   });
+  return filterConversationListItems(items, deps.query || "");
 }
 
 export { conversationType };

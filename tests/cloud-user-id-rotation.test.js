@@ -131,8 +131,23 @@ test("rotateCloudUserIds rewrites legacy user ids, conversation ids, JSON settin
       .run(oldMarcos, dmOld);
     db.prepare("INSERT INTO bots (id, owner_user_id, display_name, created_at, updated_at) VALUES ('mia', ?, 'Mia', 't', 't')")
       .run(old755);
-    db.prepare("INSERT INTO user_settings (user_id, pins_json, read_marks_json, appearance_json, updated_at) VALUES (?, ?, ?, '{}', 't')")
-      .run(old755, JSON.stringify([dmOld, botOld]), JSON.stringify({ [dmOld]: 1, [botOld]: 2 }));
+    db.prepare(`
+      INSERT INTO user_settings (
+        user_id,
+        pins_json,
+        read_marks_json,
+        muted_conversations_json,
+        unread_overrides_json,
+        appearance_json,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, '{}', 't')
+    `).run(
+      old755,
+      JSON.stringify([dmOld, botOld]),
+      JSON.stringify({ [dmOld]: 1, [botOld]: 2 }),
+      JSON.stringify([dmOld]),
+      JSON.stringify({ [botOld]: true })
+    );
     db.prepare("INSERT INTO bot_runtime_bindings (user_id, bot_id, runtime_kind, config_json, created_at, updated_at) VALUES (?, 'mia', 'cloud-hermes', ?, 't', 't')")
       .run(old755, JSON.stringify({ session: botOld, owner: old755 }));
     db.prepare("INSERT INTO cloud_agent_runs (id, user_id, bot_id, conversation_id, trigger_message_id, status, error_json, created_at, updated_at) VALUES ('car_a', ?, 'mia', ?, 'msg_b', 'queued', ?, 't', 't')")
@@ -184,9 +199,11 @@ test("rotateCloudUserIds rewrites legacy user ids, conversation ids, JSON settin
       db.prepare("SELECT user_a, user_b FROM friendships").all().map((row) => [row.user_a, row.user_b]),
       [["7234567890", "8123456789"]]
     );
-    const settings = db.prepare("SELECT pins_json, read_marks_json FROM user_settings WHERE user_id = '8123456789'").get();
+    const settings = db.prepare("SELECT pins_json, read_marks_json, muted_conversations_json, unread_overrides_json FROM user_settings WHERE user_id = '8123456789'").get();
     assert.deepEqual(JSON.parse(settings.pins_json), [newDm, newBot]);
     assert.deepEqual(Object.keys(JSON.parse(settings.read_marks_json)).sort(), [newBot, newDm].sort());
+    assert.deepEqual(JSON.parse(settings.muted_conversations_json), [newDm]);
+    assert.deepEqual(JSON.parse(settings.unread_overrides_json), { [newBot]: true });
     assert.ok(db.prepare("SELECT payload FROM user_events WHERE user_id = '8123456789'").get().payload.includes(newDm));
     assert.ok(db.prepare("SELECT result_json FROM op_idempotency WHERE user_id = '8123456789'").get().result_json.includes("8123456789"));
     assert.equal(oldReferenceCount(db, [old755, oldMarcos, oldKing]), 0);

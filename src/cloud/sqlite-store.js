@@ -921,6 +921,8 @@ function migrate(db) {
       user_id          TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
       pins_json        TEXT NOT NULL DEFAULT '[]',
       read_marks_json  TEXT NOT NULL DEFAULT '{}',
+      muted_conversations_json TEXT NOT NULL DEFAULT '[]',
+      unread_overrides_json TEXT NOT NULL DEFAULT '{}',
       appearance_json  TEXT NOT NULL DEFAULT '{}',
       tags_json        TEXT NOT NULL DEFAULT '{"items":[],"assignments":{}}',
       version          INTEGER NOT NULL DEFAULT 0,
@@ -1141,6 +1143,12 @@ function migrate(db) {
   if (!hasColumn(db, "user_settings", "tags_json")) {
     db.exec("ALTER TABLE user_settings ADD COLUMN tags_json TEXT NOT NULL DEFAULT '{\"items\":[],\"assignments\":{}}'");
   }
+  if (!hasColumn(db, "user_settings", "muted_conversations_json")) {
+    db.exec("ALTER TABLE user_settings ADD COLUMN muted_conversations_json TEXT NOT NULL DEFAULT '[]'");
+  }
+  if (!hasColumn(db, "user_settings", "unread_overrides_json")) {
+    db.exec("ALTER TABLE user_settings ADD COLUMN unread_overrides_json TEXT NOT NULL DEFAULT '{}'");
+  }
   // v7: conversations.type column for explicit conversation kind. Existing
   // rows backfilled by id prefix; new rows must declare it.
   if (!hasColumn(db, "conversations", "type")) {
@@ -1230,6 +1238,9 @@ function migrate(db) {
     .run(nowIso());
   // v17: cloud-owned scheduled tasks and run history.
   db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (17, ?)")
+    .run(nowIso());
+  // v18: conversation mute + manual unread overrides live in user_settings.
+  db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (18, ?)")
     .run(nowIso());
 }
 

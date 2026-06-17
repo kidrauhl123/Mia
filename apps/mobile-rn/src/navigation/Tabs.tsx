@@ -1,6 +1,7 @@
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import type { NavigationState, PartialState, Route } from "@react-navigation/native";
+import { useMemo } from "react";
 import ConversationListScreen from "../screens/ConversationListScreen";
 import ChatScreen from "../screens/ChatScreen";
 import ContactsScreen from "../screens/ContactsScreen";
@@ -11,6 +12,8 @@ import BotDetailScreen from "../screens/BotDetailScreen";
 import GroupDetailScreen from "../screens/GroupDetailScreen";
 import BotSessionsScreen from "../screens/BotSessionsScreen";
 import AnimatedTabBar from "./AnimatedTabBar";
+import { mobileTabBadges } from "../logic/tabBadges";
+import { useConversations, useFriendRequests, useUserSettings } from "../state/queries";
 import { color } from "../theme";
 import type {
   AgentsStackParamList,
@@ -110,8 +113,15 @@ function SettingsStack() {
 }
 
 export default function Tabs() {
+  const { data: conversations = [] } = useConversations();
+  const { data: settings } = useUserSettings();
+  const { data: incomingRequests = [] } = useFriendRequests("incoming");
+  const badges = useMemo(
+    () => mobileTabBadges({ conversations, settings, incomingRequests }),
+    [conversations, settings, incomingRequests]
+  );
   return (
-    <Tab.Navigator screenOptions={headerOptions} tabBar={(props) => shouldHideTabBar(props.state) ? null : <AnimatedTabBar {...props} />}>
+    <Tab.Navigator screenOptions={headerOptions} tabBar={(props) => shouldHideTabBar(props.state) ? null : <AnimatedTabBar {...props} badges={badges} />}>
       <Tab.Screen name="Messages" component={MessagesStack} options={{ headerShown: false, title: "消息" }} />
       <Tab.Screen name="Contacts" component={ContactsStack} options={{ headerShown: false, title: "联系人" }} />
       <Tab.Screen name="Agents" component={AgentsStack} options={{ headerShown: false, title: "运行" }} />
