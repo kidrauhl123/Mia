@@ -27,12 +27,15 @@ test("discover bot store uses a two-step enrollment flow before saving", () => {
   assert.match(src, /listBridgeDevices\(\{ includeOffline: true \}\)/);
   assert.match(src, /function generateEnrollmentPrincipalId/);
   assert.match(src, /window\.miaIds\?\.generatePrincipalId/);
+  assert.match(src, /function defaultConversationTagName/);
+  assert.match(src, /setConversationTagNames\(\s*conversationId,\s*\[defaultConversationTagName\(f\)\]\s*\)/);
   assert.match(src, /sheet\.dataset\.botKey = plannedKey/);
   assert.match(src, /addBot\(f, readEnrollmentTarget\(sheet\), sheet\.dataset\.botKey \|\| plannedKey\)/);
   assert.match(src, /runtimeKind:\s*target\.runtimeKind/);
   assert.match(src, /agentEngine:\s*target\.agentEngine/);
   assert.match(src, /targetDeviceId:\s*target\.deviceId/);
   assert.match(src, /targetDeviceName:\s*target\.deviceName/);
+  assert.match(src, /category:\s*defaultConversationTagName\(f\)/);
   assert.match(src, /key,\s*\n\s*name: f\.name/);
   assert.match(src, /function principalId/);
   assert.match(src, /data-badge-uid/);
@@ -45,6 +48,22 @@ test("discover bot store uses a two-step enrollment flow before saving", () => {
   assert.doesNotMatch(src, /key:\s*principalId\(f\)/);
   assert.doesNotMatch(src, /credentialId/);
   assert.doesNotMatch(src, /MIA-\$\{/);
+});
+
+test("discover bot store is framed as assistants, not coworkers", () => {
+  const app = read("src/renderer/app.js");
+  const html = read("src/renderer/index.html");
+  const store = read("src/renderer/bot/bot-store.js");
+
+  assert.match(app, /label:\s*"发现 AI 助手"/);
+  assert.match(html, />发现 AI 助手</);
+  assert.match(html, /aria-label="AI 助手列表"/);
+  assert.match(store, /AI 助手入库/);
+  assert.match(store, /MIA · AI 助手凭证/);
+
+  assert.doesNotMatch(app, /发现 AI 同事/);
+  assert.doesNotMatch(html, /发现 AI 同事|AI 同事列表/);
+  assert.doesNotMatch(store, /AI 同事|入职/);
 });
 
 test("discover bot store credential styles are tied to the second step", () => {
@@ -80,5 +99,12 @@ test("official bot presets exclude voice-only coworkers until voice is available
 
   assert.equal(presets.some((item) => item.key === "speak-partner"), false);
   assert.equal(presets.some((item) => item.name === "口语陪练"), false);
+  assert.equal(presets.length, 10);
+  assert.deepEqual([...new Set(presets.map((item) => item.category))], ["学习", "办公", "写作", "求职", "娱乐"]);
+  assert.ok(["表格整理师", "汇报设计师", "文档编辑", "会议纪要官", "剧情主持"].every((name) =>
+    presets.some((item) => item.name === name)
+  ));
   assert.equal(presets.every((item) => Array.isArray(item.capabilities?.enabledSkills) && item.capabilities.enabledSkills.length > 0), true);
+  assert.equal(presets.every((item) => !Object.prototype.hasOwnProperty.call(item, "tags")), true);
+  assert.equal(presets.every((item) => !Object.prototype.hasOwnProperty.call(item, "roleTitle")), true);
 });

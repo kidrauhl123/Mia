@@ -1,4 +1,4 @@
-// 发现 AI 同事 —— 官方 Bot 预设商店（renderer 模块）
+// 发现 AI 助手 —— 官方 Bot 预设商店（renderer 模块）
 // 预设来自 resources/official-library/library.json，通过 loadSkills 一并下发。
 (function () {
   "use strict";
@@ -16,49 +16,94 @@
   // capabilities.enabledSkills 要和官方库保持同一套 id，保存后会进入运行时 Skill 注入链路。
   const FALLBACK_PRESETS = [
     {
-      key: "paper-buddy", cat: "论文", emoji: "📄", c1: "#eef0ff", c2: "#5e5ce6",
+      key: "paper-buddy", cat: "学习", emoji: "📄", c1: "#ecebfc", c2: "#5e5ce6",
       name: "论文搭子", tagline: "文献综述 / 开题 / 引用",
-      line: "拖一个装满 PDF 的文件夹进来，30 秒出一张文献综述对比表。",
-      desc: "专治写论文最磨人的环节：把一堆文献读完、对比、整理成表。你只管把 PDF 丢进来，它来读。",
-      demo: "你：<b>把这个文件夹里 18 篇文献做成综述对比表</b><br>论文搭子：已读完 → 按「作者 / 方法 / 结论 / 局限」生成了一张表 ✅",
-      persona: "你是「论文搭子」，帮大学生处理文献相关的活：批量读 PDF、做文献综述对比表、整理引用格式、中英互译。语气务实、简洁，先确认用户给的文件再动手。",
+      line: "把一组 PDF 变成综述表、研究脉络和可继续写的段落。",
+      desc: "适合开题、综述、论文初稿阶段。它会先确认资料范围，再帮你提取作者、方法、结论和局限。",
+      demo: "你：<b>把这个文件夹里 18 篇文献做成综述对比表</b><br>论文搭子：已按「作者 / 方法 / 结论 / 局限」整理，并标出共同脉络。",
+      persona: "你是「论文搭子」，帮用户处理文献相关工作：批量读 PDF、做文献综述对比表、整理引用格式、中英互译。语气务实简洁，先确认用户给的文件和目标，再动手。",
       capabilities: { enabledSkills: ["mia-official:paper-research"] }
     },
     {
-      key: "lab-data", cat: "实验", emoji: "📊", c1: "#e9f9ef", c2: "#1a9d5a",
+      key: "lab-data", cat: "学习", emoji: "📊", c1: "#e4f3eb", c2: "#1a9d5a",
       name: "实验数据助手", tagline: "画图 / 统计 / 报告",
-      line: "丢一个数据表，自动画图、跑统计，再写成实验报告段落。",
-      desc: "理工科写 lab report 的苦力都给它。从原始 csv 到能贴进报告的图和结论，一步到位。",
-      demo: "你：<b>用这份 data.csv 画个趋势图，跑下相关性</b><br>实验数据助手：图已生成，r = 0.81（强相关），结论段落见下 ✅",
-      persona: "你是「实验数据助手」，帮大学生处理实验数据：读数据文件、画图、跑基础统计、把结果写成实验报告段落。动手前先确认数据列的含义。",
+      line: "丢一份数据表，自动检查列、画图、跑基础统计并写报告段落。",
+      desc: "适合理工科实验、课程项目和小型分析。它会先问清数据列含义，再输出图表、统计结论和能贴进报告的文字。",
+      demo: "你：<b>用 data.csv 画趋势图，跑相关性</b><br>实验数据助手：趋势图已生成，r = 0.81，下面是可放进报告的结果描述。",
+      persona: "你是「实验数据助手」，帮用户处理实验数据：读取表格、确认列含义、画图、跑基础统计、把结果写成实验报告段落。遇到数据含义不明时先提问。",
       capabilities: { enabledSkills: ["mia-official:lab-report"] }
     },
     {
-      key: "exam-buddy", cat: "复习", emoji: "📚", c1: "#fff3e6", c2: "#d9730a",
-      name: "复习搭子", tagline: "提纲 / 自测题",
-      line: "把一学期的 PPT、讲义丢进来，出复习提纲 + 自测题。",
-      desc: "期末救命。把课件全塞给它，回你一份带例题的复习提纲，还能随时考你两道。",
-      demo: "你：<b>这门课 12 个 PPT，帮我整一份复习提纲</b><br>复习搭子：提纲分 5 大块，每块附 2 道自测题 ✅",
-      persona: "你是「复习搭子」，帮大学生备考：读 PPT / 讲义，整理出结构清晰的复习提纲，并出自测题。提纲要分块、抓重点，自测题给答案与解析。",
+      key: "exam-buddy", cat: "学习", emoji: "📚", c1: "#faeee2", c2: "#d9730a",
+      name: "复习搭子", tagline: "提纲 / 自测题 / 错题",
+      line: "把课件和讲义整理成复习提纲，再按章节出自测题。",
+      desc: "适合期末、考证和课程复盘。它会按知识点拆结构、抓重点、生成题目和答案解析。",
+      demo: "你：<b>这门课 12 个 PPT，帮我做复习提纲</b><br>复习搭子：已分成 5 个模块，每个模块附 2 道自测题和答案。",
+      persona: "你是「复习搭子」，帮用户备考：阅读 PPT、讲义或笔记，整理结构清晰的复习提纲，并生成自测题、答案与解析。表达清楚，不直接堆长篇。",
       capabilities: { enabledSkills: ["mia-official:study-review"] }
     },
     {
-      key: "career-coach", cat: "求职", emoji: "💼", c1: "#eaf1ff", c2: "#2563eb",
-      name: "简历面试官", tagline: "改简历 / 模拟面试",
-      line: "简历 + JD 丢进来，改一版，还能陪你模拟面试。",
-      desc: "网申季搭子。按目标岗位改简历，再扮演面试官跟你过一遍高频问题。",
-      demo: "你：<b>照这个产品实习 JD 改我的简历</b><br>简历面试官：已对齐 JD 关键词，改了 6 处，要不要现在模拟面试？",
-      persona: "你是「简历面试官」，帮大学生求职：按目标 JD 优化简历措辞与重点，并能扮演面试官做模拟面试、给反馈。先问清目标岗位再动手。",
+      key: "qa-helper", cat: "学习", emoji: "💡", c1: "#f6f0e2", c2: "#b8860b",
+      name: "答疑助手", tagline: "讲题 / 讲代码 / 排错",
+      line: "拍一道题或贴一段报错，按步骤讲到你能复述。",
+      desc: "适合卡题、代码报错和概念不清。它会拆解原因和思路，不只是直接给最终答案。",
+      demo: "你：<b>这段代码为什么报 NoneType 错？</b><br>答疑助手：第 14 行 find() 没命中返回 None，我按调用链拆给你看。",
+      persona: "你是「答疑助手」，帮用户弄懂题目和代码：一步步拆解思路与原因，不直接甩最终答案。讲完反问一句确认对方是否听懂。",
+      capabilities: { enabledSkills: ["mia-official:problem-explainer"] }
+    },
+    {
+      key: "spreadsheet-organizer", cat: "办公", emoji: "🧮", c1: "#e2f1ef", c2: "#0f766e",
+      name: "表格整理师", tagline: "清洗 / 公式 / 图表",
+      line: "把杂乱 Excel、CSV 整成能分析、能汇报、能继续维护的表。",
+      desc: "适合报销、问卷、运营表、实验记录和临时台账。它会先识别表头、单位和脏数据，再给出清洗结果、公式或图表。",
+      demo: "你：<b>这张表列名乱、空值多，帮我整理出月度汇总</b><br>表格整理师：已清理重复行和空值，生成月度透视表，并标出异常数据。",
+      persona: "你是「表格整理师」，帮用户处理 Excel、CSV 和表格数据：整理表头、清洗数据、补公式、做透视和图表。先确认字段含义和输出目标，不随意改动原始数据。",
+      capabilities: { enabledSkills: ["mia-official:spreadsheet-organizer"] }
+    },
+    {
+      key: "presentation-designer", cat: "办公", emoji: "📽", c1: "#e1f3f6", c2: "#0891b2",
+      name: "汇报设计师", tagline: "大纲 / 排版 / 演示稿",
+      line: "把资料和要点整理成一份结构清楚、能上台讲的 PPT。",
+      desc: "适合课堂展示、组会、答辩和工作汇报。它会先抓主线，再拆页、写讲稿提示，并提醒哪些页面需要图表或素材。",
+      demo: "你：<b>把这份调研整理成 8 页课堂展示</b><br>汇报设计师：已拆成问题、方法、发现和结论四段，并给每页配了标题和讲稿备注。",
+      persona: "你是「汇报设计师」，帮用户制作演示文稿：梳理叙事主线、拆分页面、优化标题、给出排版和讲稿建议。默认追求清楚、有重点，而不是堆满文字。",
+      capabilities: { enabledSkills: ["mia-official:presentation-designer"] }
+    },
+    {
+      key: "meeting-notes", cat: "办公", emoji: "🗒", c1: "#eae9fc", c2: "#4f46e5",
+      name: "会议纪要官", tagline: "摘要 / 决议 / 待办",
+      line: "把会议记录、转写稿或零散笔记整理成纪要和可执行待办。",
+      desc: "适合小组讨论、项目例会、访谈和头脑风暴复盘。它会区分结论、分歧、负责人和截止时间。",
+      demo: "你：<b>把这段会议转写整理成纪要</b><br>会议纪要官：已按议题归纳 4 条决定、6 个待办和 2 个未决问题。",
+      persona: "你是「会议纪要官」，帮用户整理会议材料：提炼议题、决定、待办、负责人和未决问题。事实不明确时标注待确认，不把讨论猜成结论。",
+      capabilities: { enabledSkills: ["mia-official:meeting-notes"] }
+    },
+    {
+      key: "document-editor", cat: "写作", emoji: "📝", c1: "#f3e7fb", c2: "#9333ea",
+      name: "文档编辑", tagline: "润色 / 结构 / Word",
+      line: "把草稿、报告和长文档改成结构清楚、表达稳妥的版本。",
+      desc: "适合课程报告、申请材料、说明文档和正式邮件附件。它会先判断读者和用途，再做结构调整、措辞润色和格式建议。",
+      demo: "你：<b>帮我把这份项目报告改得更正式</b><br>文档编辑：已重排章节标题，压缩重复段落，并给出可直接替换的修订版。",
+      persona: "你是「文档编辑」，帮用户处理长文档和正式写作：调整结构、润色表达、统一术语、提出 Word 排版建议。保留用户原意，不替用户编造经历或数据。",
+      capabilities: { enabledSkills: ["mia-official:document-editor"] }
+    },
+    {
+      key: "career-coach", cat: "求职", emoji: "💼", c1: "#e5ecfd", c2: "#2563eb",
+      name: "简历面试官", tagline: "改简历 / JD 匹配 / 模拟面试",
+      line: "对照 JD 改简历，提炼项目亮点，再模拟一轮面试。",
+      desc: "适合投实习、校招和转岗。它会先确认目标岗位，再把经历改成更贴近 JD 的表达。",
+      demo: "你：<b>照这个产品实习 JD 改我的简历</b><br>简历面试官：已对齐 6 个关键词，并给出一轮模拟面试问题。",
+      persona: "你是「简历面试官」，帮用户求职：按目标 JD 优化简历措辞与重点，提炼项目经历，并能扮演面试官做模拟面试和反馈。先问清目标岗位。",
       capabilities: { enabledSkills: ["mia-official:resume-interview"] }
     },
     {
-      key: "qa-helper", cat: "复习", emoji: "💡", c1: "#fff7e0", c2: "#b8860b",
-      name: "答疑助手", tagline: "讲题 / 讲代码",
-      line: "拍一道题、贴一段代码，讲到你懂为止。",
-      desc: "卡住的题别死磕。给它题目或报错代码，它一步步拆给你看，而不是直接甩答案。",
-      demo: "你：<b>这段代码为什么报 NoneType 错？</b><br>答疑助手：第 14 行 find() 没命中返回了 None，往下拆给你看 …",
-      persona: "你是「答疑助手」，帮大学生弄懂题目和代码：一步步拆解思路与原因，而不是直接给最终答案。讲完反问一句确认对方是否听懂。",
-      capabilities: { enabledSkills: ["mia-official:problem-explainer"] }
+      key: "story-host", cat: "娱乐", emoji: "🎲", c1: "#f7e1e7", c2: "#be123c",
+      name: "剧情主持", tagline: "互动故事 / 角色 / 分支",
+      line: "开一局轻量互动故事，帮你设定角色、推进剧情和保留选择后果。",
+      desc: "适合放松、脑洞创作和桌游式文字冒险。它会维护当前场景、角色目标和分支结果，不需要屏幕录制或实时操作。",
+      demo: "你：<b>来一局赛博校园悬疑，我想扮演调查员</b><br>剧情主持：夜里的实验楼只剩一盏灯，我先给你三个可选行动。",
+      persona: "你是「剧情主持」，负责轻量互动故事和文字冒险：设定世界观、扮演 NPC、推进分支、记录关键选择。每轮给用户 2-4 个行动选项，也允许自由输入。保持娱乐性质，不把虚构内容当现实建议。",
+      capabilities: { enabledSkills: ["mia-official:story-host"] }
     }
   ];
 
@@ -68,6 +113,7 @@
     codex: { label: "Codex", department: "代码工程部", accent: "#378add" },
     openclaw: { label: "OpenClaw", department: "开放 Agent 部", accent: "#ef9f27" }
   };
+  const CATEGORY_ORDER = ["学习", "办公", "写作", "求职", "娱乐", "推荐"];
 
   const SKILL_LABELS = {
     "mia-official:paper-research": "文献研究",
@@ -80,6 +126,16 @@
     "resume-interview": "简历面试",
     "mia-official:problem-explainer": "讲题排错",
     "problem-explainer": "讲题排错",
+    "mia-official:spreadsheet-organizer": "表格整理",
+    "spreadsheet-organizer": "表格整理",
+    "mia-official:presentation-designer": "汇报设计",
+    "presentation-designer": "汇报设计",
+    "mia-official:meeting-notes": "会议纪要",
+    "meeting-notes": "会议纪要",
+    "mia-official:document-editor": "文档编辑",
+    "document-editor": "文档编辑",
+    "mia-official:story-host": "剧情主持",
+    "story-host": "剧情主持",
     "weekly-report": "周报",
     "commit-craft": "提交信息",
     "trip-planner": "行程"
@@ -91,12 +147,17 @@
   }
 
   function categories() {
-    const out = ["全部"];
+    const seen = [];
     for (const preset of presets()) {
       const cat = String(preset.cat || preset.category || "推荐").trim() || "推荐";
-      if (!out.includes(cat)) out.push(cat);
+      if (!seen.includes(cat)) seen.push(cat);
     }
-    return out;
+    seen.sort((a, b) => {
+      const ia = CATEGORY_ORDER.includes(a) ? CATEGORY_ORDER.indexOf(a) : CATEGORY_ORDER.length;
+      const ib = CATEGORY_ORDER.includes(b) ? CATEGORY_ORDER.indexOf(b) : CATEGORY_ORDER.length;
+      return ia - ib || a.localeCompare(b, "zh-Hans-CN");
+    });
+    return ["全部", ...seen];
   }
 
   function maybeLoadOfficialLibrary() {
@@ -146,6 +207,10 @@
     const labels = ids.map(skillLabel).filter(Boolean);
     const shown = labels.slice(0, 3).join(" / ");
     return labels.length > 3 ? `${shown} +${labels.length - 3}` : shown;
+  }
+
+  function defaultConversationTagName(f = {}) {
+    return String(f.cat || f.category || "推荐").trim() || "推荐";
   }
 
   function firstNonEmpty(...values) {
@@ -370,12 +435,12 @@
     const presetId = principalId(f);
     if (presetId && !existing.has(presetId)) return presetId;
     const generate = window.miaIds?.generatePrincipalId;
-    if (typeof generate !== "function") throw new Error("无法生成 AI 同事账号 ID。");
+    if (typeof generate !== "function") throw new Error("无法生成 AI 助手账号 ID。");
     for (let attempt = 0; attempt < 20; attempt += 1) {
       const id = String(generate() || "").trim();
       if (id && !existing.has(id)) return id;
     }
-    throw new Error("无法生成未占用的 AI 同事账号 ID。");
+    throw new Error("无法生成未占用的 AI 助手账号 ID。");
   }
 
   function initBotStore(deps) {
@@ -518,7 +583,7 @@
     renderCategories();
     const list = presets().filter((f) => activeCat === "全部" || (f.cat || f.category) === activeCat);
     if (!list.length) {
-      grid.innerHTML = `<div class="bot-store-empty">这个分类暂时还没有 AI 同事</div>`;
+      grid.innerHTML = `<div class="bot-store-empty">这个分类暂时还没有 AI 助手</div>`;
       return;
     }
     grid.innerHTML = list.map((f, i) => `
@@ -571,7 +636,7 @@
     try {
       plannedKey = generateEnrollmentPrincipalId(f);
     } catch (error) {
-      window.alert(error?.message || "无法生成 AI 同事账号 ID。");
+      window.alert(error?.message || "无法生成 AI 助手账号 ID。");
       return;
     }
     const target = normalizeRuntimeTarget(selectedTarget || defaultEnrollmentTarget(f));
@@ -584,17 +649,17 @@
       <div class="bot-store-enroll-console" style="--badge-accent:${safeColor(f.c2, "#5dcaa5")};--engine-accent:${safeColor(meta.accent, "#5dcaa5")}">
         <div class="bot-store-enroll-bar">
           <span class="bot-store-enroll-light" aria-hidden="true"></span>
-          <span>AI 同事入职</span>
+          <span>AI 助手入库</span>
           <span class="bot-store-enroll-status" data-enroll-status>确认位置</span>
         </div>
         <div class="bot-store-badge-stage">
           <div class="bot-store-badge-card">
-            <div class="bot-store-badge-title">MIA · AI 同事凭证</div>
+            <div class="bot-store-badge-title">MIA · AI 助手凭证</div>
             <div class="bot-store-badge-shimmer" aria-hidden="true"></div>
             <div class="bot-store-badge-main">
               ${avatarHtml(f, "bot-store-badge-avatar")}
               <div class="bot-store-badge-id">
-                <span>AI 同事</span>
+                <span>AI 助手</span>
                 <strong>${escapeHtml(f.name)}</strong>
                 <code data-badge-uid>UID · ${escapeHtml(plannedKey)}</code>
               </div>
@@ -672,6 +737,26 @@
     els.botStoreScrim?.classList.remove("open");
   }
 
+  function savedConversationId(saved = {}) {
+    return String(
+      saved.conversation?.id
+      || saved.data?.conversation?.id
+      || saved.conversationId
+      || saved.bot?.conversationId
+      || ""
+    ).trim();
+  }
+
+  async function applyDefaultConversationTag(f, saved) {
+    const conversationId = savedConversationId(saved);
+    if (!conversationId || typeof window.miaSocial?.setConversationTagNames !== "function") return;
+    try {
+      await window.miaSocial.setConversationTagNames(conversationId, [defaultConversationTagName(f)]);
+    } catch (error) {
+      console.warn("[bot-store] default assistant tag failed:", error?.message || error);
+    }
+  }
+
   async function addBot(f, runtimeTarget = {}, plannedKey = "") {
     if (adding) return;
     adding = true;
@@ -680,7 +765,7 @@
     try {
       const target = normalizeRuntimeTarget(runtimeTarget);
       const key = String(plannedKey || "").trim();
-      if (!key) throw new Error("AI 同事账号 ID 缺失。");
+      if (!key) throw new Error("AI 助手账号 ID 缺失。");
       const saved = await window.miaBotCommands.saveBot({
         state,
         runtimeKind: target.runtimeKind,
@@ -690,6 +775,7 @@
         bot: {
           key,
           name: f.name,
+          category: defaultConversationTagName(f),
           color: f.c2,
           description: f.line,
           personaText: f.persona,
@@ -700,6 +786,7 @@
         }
       });
       if (saved.runtime) state.runtime = saved.runtime;
+      await applyDefaultConversationTag(f, saved);
       els.botStoreSheet?.classList.add("is-stamped");
       const status = els.botStoreSheet?.querySelector("[data-enroll-status]");
       if (status) status.textContent = "✓ 已激活";

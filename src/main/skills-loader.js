@@ -20,6 +20,24 @@ function cleanYamlScalar(value) {
   return String(value || "").trim().replace(/^['"]|['"]$/g, "");
 }
 
+function normalizeHexColor(value, fallback = "") {
+  const text = String(value || "").trim().toLowerCase();
+  const short = text.match(/^#([0-9a-f]{3})$/i);
+  if (short) {
+    return `#${short[1].split("").map((char) => char + char).join("")}`;
+  }
+  return /^#[0-9a-f]{6}$/i.test(text) ? text : fallback;
+}
+
+function softBackgroundForColor(color) {
+  const hex = normalizeHexColor(color, "#5e5ce6").slice(1);
+  const channel = (offset) => parseInt(hex.slice(offset, offset + 2), 16);
+  const mix = (value) => Math.round(255 * 0.88 + value * 0.12)
+    .toString(16)
+    .padStart(2, "0");
+  return `#${mix(channel(0))}${mix(channel(2))}${mix(channel(4))}`;
+}
+
 function createSkillsLoader(deps = {}) {
   const {
     runtimePaths,
@@ -380,12 +398,14 @@ function createSkillsLoader(deps = {}) {
         const key = String(item?.key || item?.id || "").trim();
         const name = String(item?.name || "").trim();
         if (!key || !name) return null;
+        const accentColor = normalizeHexColor(item.color || item.c2, "#5e5ce6");
+        const backgroundColor = normalizeHexColor(item.background || item.c1, "") || softBackgroundForColor(accentColor);
         return {
           key,
           cat: String(item.category || item.cat || "推荐").trim() || "推荐",
           emoji: String(item.emoji || "◇").trim() || "◇",
-          c1: String(item.background || item.c1 || "#eef0ff").trim() || "#eef0ff",
-          c2: String(item.color || item.c2 || "#5e5ce6").trim() || "#5e5ce6",
+          c1: backgroundColor,
+          c2: accentColor,
           name,
           tagline: String(item.tagline || "").trim(),
           line: String(item.line || item.description || "").trim(),

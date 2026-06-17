@@ -2511,7 +2511,7 @@ function renderView() {
   window.miaPetDialog?.renderPetGenerateDialog();
   window.miaPetDialog?.renderPetJobs();
   document.querySelectorAll("[data-view]").forEach((button) => {
-    // 联系人 图标在「联系人」和「发现 AI 同事」两个子页下都高亮
+    // 联系人 图标在「联系人」和「发现 AI 助手」两个子页下都高亮
     const active = button.dataset.view === state.activeView
       || (button.dataset.view === "contacts" && state.activeView === "bot-store");
     button.classList.toggle("active", active);
@@ -4876,10 +4876,10 @@ els.newPersona.addEventListener("click", (event) => {
   renderView();
 });
 
-// 发现 AI 同事 | 联系人 —— 顶栏滑动胶囊（仿技能 我的技能/探索发现）。
+// 发现 AI 助手 | 联系人 —— 顶栏滑动胶囊（仿技能 我的技能/探索发现）。
 // discover = 整屏卡片网格(bot 商店)；contacts = 列表(浮动白卡)+详情。
 const DISCOVER_MODES = [
-  { view: "bot-store", label: "发现 AI 同事" },
+  { view: "bot-store", label: "发现 AI 助手" },
   { view: "contacts", label: "联系人" }
 ];
 function renderDiscoverModeToggle() {

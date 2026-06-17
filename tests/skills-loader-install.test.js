@@ -274,11 +274,23 @@ test("bundled official library exposes first-release bot presets", async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "mia-skills-loader-"));
   try {
     const loader = makeBundledLoader(home);
+    const rawLibrary = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "resources", "official-library", "library.json"), "utf8"));
+    const rawPresets = Array.isArray(rawLibrary.botPresets) ? rawLibrary.botPresets : [];
+    assert.ok(rawPresets.every((preset) => !Object.prototype.hasOwnProperty.call(preset, "background")), "official bot presets should only maintain one color field");
+
     const presets = loader.readMiaOfficialBotPresets();
-    assert.ok(presets.length >= 5);
+    assert.equal(presets.length, 10);
     assert.ok(presets.every((preset) => preset.name && preset.persona));
+    assert.ok(presets.every((preset) => /^#[0-9a-f]{6}$/i.test(preset.c1) && /^#[0-9a-f]{6}$/i.test(preset.c2)));
+    assert.ok(presets.every((preset) => preset.c1.toLowerCase() !== preset.c2.toLowerCase()));
     assert.ok(presets.every((preset) => Array.isArray(preset.capabilities?.enabledSkills) && preset.capabilities.enabledSkills.length));
     assert.ok(presets.some((preset) => preset.name === "论文搭子"));
+    assert.ok(presets.some((preset) => preset.name === "表格整理师"));
+    assert.ok(presets.some((preset) => preset.name === "汇报设计师"));
+    assert.ok(presets.some((preset) => preset.name === "文档编辑"));
+    assert.ok(presets.some((preset) => preset.name === "会议纪要官"));
+    assert.ok(presets.some((preset) => preset.name === "剧情主持"));
+    assert.deepEqual([...new Set(presets.map((preset) => preset.cat))], ["学习", "办公", "写作", "求职", "娱乐"]);
     assert.equal(presets.some((preset) => preset.key === "speak-partner"), false);
 
     const enabledSkillIds = new Set(presets.flatMap((preset) => preset.capabilities.enabledSkills));
