@@ -48,12 +48,18 @@ function scrollEl({ scrollTop, scrollHeight, clientHeight }) {
   return el;
 }
 
-function loadSocial() {
+function loadSocial(options = {}) {
   const src = fs.readFileSync(path.join(__dirname, "..", "src", "renderer", "social", "social.js"), "utf8");
   let chatEl = mockEl();
   const groupArticles = [];
   const mockWindow = {
-    mia: {},
+    requestAnimationFrame: options.requestAnimationFrame,
+    mia: {
+      social: {
+        settingsGet: async () => ({ ok: true, data: { settings: { version: 1 } } }),
+        listConversationMessages: async () => ({ ok: true, data: { messages: [] } })
+      }
+    },
     miaMarkdown: {
       escapeHtml: (v) => String(v || ""),
       renderMarkdown: (v) => String(v || ""),
@@ -130,6 +136,23 @@ test("renderConversationChat jumps to the bottom on conversation switch even if 
   const c = scrollEl({ scrollTop: 0, scrollHeight: 1000, clientHeight: 400 });
   social.renderConversationChat(c);
   assert.equal(c.scrollTop, 1000, "entering a conversation should show its latest messages");
+});
+
+test("renderConversationChat keeps a new conversation pinned after first-paint layout growth", () => {
+  const frames = [];
+  const { social } = loadSocial({
+    requestAnimationFrame: (fn) => {
+      frames.push(fn);
+      return frames.length;
+    }
+  });
+  const c = scrollEl({ scrollTop: 0, scrollHeight: 0, clientHeight: 400 });
+  social.renderConversationChat(c);
+
+  c.scrollHeight = 1000;
+  for (const frame of frames) frame();
+
+  assert.equal(c.scrollTop, 1000, "initial open must stay pinned after async layout increases height");
 });
 
 test("re-entering a conversation after a detour through a local bot chat lands at the bottom", () => {
