@@ -1,6 +1,7 @@
 const { spawn: defaultSpawn } = require("node:child_process");
 const path = require("node:path");
 const readline = require("node:readline");
+const { isForbiddenSchedulerToolName } = require("./scheduler-tool-guard.js");
 
 const CODEX_APP_SERVER_PROTOCOL_VERSION = 2;
 
@@ -406,6 +407,9 @@ async function runCodexAppServerTurn({
     const params = message.params || {};
     if (!isCodexApprovalRequest(method)) {
       throw new Error(`Unsupported Codex server request: ${method}`);
+    }
+    if (method === "mcpServer/elicitation/request" && isForbiddenSchedulerToolName(codexMcpToolName(params))) {
+      return codexDecisionFor(method, { decision: "deny" });
     }
     if (!permissionCoordinator || typeof permissionCoordinator.requestPermission !== "function") {
       return codexDecisionFor(method, { decision: "deny" });

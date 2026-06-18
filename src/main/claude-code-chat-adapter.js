@@ -5,6 +5,7 @@ const {
   sanitizeMiaMemorySpoof,
   withMiaRuntimeContext
 } = require("./mia-runtime-context.js");
+const { schedulerDisallowedTools } = require("./scheduler-tool-guard.js");
 
 function firstTextValue(value) {
   if (typeof value === "string") return value;
@@ -182,6 +183,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
       pathToClaudeCodeExecutable: commandPath,
       env,
       tools: { type: "preset", preset: "claude_code" },
+      disallowedTools: schedulerDisallowedTools(),
       settingSources: ["project", "user", "local"],
       permissionMode: normalizeClaudePermissionMode(bot.engineConfig?.permissionMode || bot.agentPermissionMode || "default"),
       systemPrompt: {

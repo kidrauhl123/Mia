@@ -213,6 +213,34 @@ test("sendChat exposes mia-app MCP while preserving scheduler compatibility", as
   });
 });
 
+test("sendChat disables Claude cronjob so reminders route through Mia scheduler", async () => {
+  const deps = createDeps([
+    { type: "assistant", message: { content: [{ text: "ok" }] } }
+  ], {
+    schedulerMcpSpec: {
+      type: "stdio",
+      command: "/opt/node",
+      args: ["/tmp/mia-scheduler.js"],
+      env: { MIA_DAEMON_URL: "http://127.0.0.1:27861" }
+    }
+  });
+  const adapter = createClaudeCodeChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot: { key: "alice", name: "Alice", bio: "" },
+    sessionId: "s1",
+    messages: [{ role: "user", content: "2分钟后提醒我吃饭" }],
+    signal: null,
+    abortController: {},
+    emit: null,
+    utility: false
+  });
+
+  const queryCall = deps.calls.find((call) => call[0] === "query")[1];
+  assert.deepEqual(queryCall.options.disallowedTools, ["cronjob"]);
+  assert.deepEqual(Object.keys(queryCall.options.mcpServers), ["mia-scheduler"]);
+});
+
 test("sendChat can persist native sessions for utility turns", async () => {
   const deps = createDeps([
     { session_id: "sess_native" },

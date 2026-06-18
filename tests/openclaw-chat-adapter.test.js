@@ -188,6 +188,73 @@ test("acpPermissionFallback never grants tools unless the bot is explicitly yolo
   });
 });
 
+test("sendChat rejects OpenClaw cronjob permission even in bypass mode", async () => {
+  const permissionResponses = [];
+  function rejectingCronjobAcpSdk(calls) {
+    class FakeClientSideConnection {
+      constructor(toClient, stream) {
+        calls.push(["acp-connect", Boolean(stream?.readable), Boolean(stream?.writable)]);
+        this.handlers = toClient(this);
+      }
+
+      async initialize() {
+        return { protocolVersion: 1, agentCapabilities: {}, agentInfo: { name: "openclaw-acp" } };
+      }
+
+      async newSession() {
+        return { sessionId: "acp-session", configOptions: [], modes: { currentModeId: "adaptive", availableModes: [] } };
+      }
+
+      async setSessionMode() {
+        return {};
+      }
+
+      async prompt(params) {
+        permissionResponses.push(await this.handlers.requestPermission({
+          sessionId: params.sessionId,
+          toolCall: {
+            kind: "cronjob",
+            title: "cronjob",
+            rawInput: { action: "create", schedule: "2m", prompt: "提醒我吃饭" }
+          },
+          options: [
+            { optionId: "allow-1", kind: "allow_once", name: "Allow" },
+            { optionId: "reject-1", kind: "reject_once", name: "Reject" }
+          ]
+        }));
+        await this.handlers.sessionUpdate({
+          sessionId: params.sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "done" }
+          }
+        });
+        return { stopReason: "end_turn" };
+      }
+    }
+
+    return {
+      ClientSideConnection: FakeClientSideConnection,
+      PROTOCOL_VERSION: 1,
+      ndJsonStream: (writable, readable) => ({ writable, readable })
+    };
+  }
+  const deps = createDeps({
+    importAcpSdk: async () => rejectingCronjobAcpSdk(deps.calls)
+  });
+  const adapter = createOpenClawChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot: { key: "claw", name: "Claw", engineConfig: { permissionMode: "bypassPermissions" } },
+    sessionId: "mia-session",
+    messages: [{ role: "user", content: "2分钟后提醒我吃饭" }]
+  });
+
+  assert.deepEqual(permissionResponses[0], {
+    outcome: { outcome: "selected", optionId: "reject-1" }
+  });
+});
+
 test("sendChat runs OpenClaw through ACP backend and stores the stable session key", async () => {
   const deps = createDeps();
   const adapter = createOpenClawChatAdapter(deps);

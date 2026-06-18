@@ -232,3 +232,74 @@ test("runCodexAppServerTurn sends Codex permission profiles as thread config", a
 test("MCP elicitation requests are treated as Codex approval requests", () => {
   assert.equal(isCodexApprovalRequest("mcpServer/elicitation/request"), true);
 });
+
+test("runCodexAppServerTurn rejects cronjob MCP requests before user permission", async () => {
+  const requests = [];
+  let elicitationResponse = null;
+  let turnStartId = null;
+  let permissionCalled = false;
+  const child = new EventEmitter();
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  child.killed = false;
+  child.kill = () => {
+    child.killed = true;
+    child.stdout.end();
+    child.stderr.end();
+    child.emit("exit", 0, null);
+  };
+  child.stdin = {
+    destroyed: false,
+    write(line) {
+      const request = JSON.parse(line);
+      requests.push(request);
+      if (request.method === "initialize") {
+        queueMicrotask(() => child.stdout.write(JSON.stringify({ id: request.id, result: { ok: true } }) + "\n"));
+      } else if (request.method === "thread/start") {
+        queueMicrotask(() => child.stdout.write(JSON.stringify({ id: request.id, result: { thread: { id: "thread_1" } } }) + "\n"));
+      } else if (request.method === "turn/start") {
+        turnStartId = request.id;
+        queueMicrotask(() => child.stdout.write(JSON.stringify({
+          id: 900,
+          method: "mcpServer/elicitation/request",
+          params: {
+            serverName: "cronjob",
+            tool: "create",
+            message: "Use tool \"create\"",
+            _meta: { tool_params: { schedule: "2m", prompt: "提醒我吃饭" } }
+          }
+        }) + "\n"));
+      } else if (request.id === 900) {
+        elicitationResponse = request.result;
+        queueMicrotask(() => child.stdout.write(JSON.stringify({
+          id: turnStartId,
+          result: {
+            turn: {
+              id: "turn_1",
+              status: "completed",
+              items: [{ type: "agentMessage", text: "done" }]
+            }
+          }
+        }) + "\n"));
+      }
+    }
+  };
+
+  const result = await runCodexAppServerTurn({
+    codexPath: "/bin/codex",
+    env: { PATH: "/bin" },
+    prompt: "2分钟后提醒我吃饭",
+    options: { workingDirectory: "/repo" },
+    permissionCoordinator: {
+      requestPermission: async () => {
+        permissionCalled = true;
+        return { decision: "allow", scope: "always" };
+      }
+    },
+    spawn: () => child
+  });
+
+  assert.deepEqual(elicitationResponse, { action: "decline" });
+  assert.equal(permissionCalled, false);
+  assert.equal(result.finalResponse, "done");
+});

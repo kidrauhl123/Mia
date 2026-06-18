@@ -7,6 +7,7 @@ const {
   sanitizeMiaMemorySpoof,
   withMiaRuntimeContext
 } = require("./mia-runtime-context.js");
+const { isForbiddenSchedulerToolName } = require("./scheduler-tool-guard.js");
 
 function requireDependency(deps, key) {
   if (typeof deps[key] !== "function") throw new Error(`${key} dependency is required.`);
@@ -195,6 +196,14 @@ function acpPermissionFallback(params = {}, { permissionMode = "default" } = {})
 async function acpPermissionResponse(params = {}, context = {}) {
   const { permissionCoordinator, permissionMode = "default", engine, bot, sessionId, signal, emit } = context;
   if (signal?.aborted) return { outcome: { outcome: "cancelled" } };
+  const tool = params.toolCall || {};
+  const toolName = [tool.kind, tool.title, tool.name].filter(Boolean).join(".");
+  if (isForbiddenSchedulerToolName(toolName)) {
+    const selected = optionByKind(Array.isArray(params.options) ? params.options : [], ["reject_once", "reject_always"]);
+    return selected?.optionId
+      ? { outcome: { outcome: "selected", optionId: selected.optionId } }
+      : { outcome: { outcome: "cancelled" } };
+  }
   const normalized = String(permissionMode || "default").trim();
   const canAsk = permissionCoordinator && typeof permissionCoordinator.requestPermission === "function"
     && normalized !== "bypassPermissions"
@@ -203,7 +212,6 @@ async function acpPermissionResponse(params = {}, context = {}) {
     && normalized !== "never";
   if (!canAsk) return acpPermissionFallback(params, { permissionMode: normalized });
 
-  const tool = params.toolCall || {};
   const preview = commandPreview(tool.rawInput ?? tool.rawOutput ?? tool.content);
   const decision = await permissionCoordinator.requestPermission({
     engine,
