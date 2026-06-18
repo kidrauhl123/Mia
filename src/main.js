@@ -999,7 +999,7 @@ async function runRemoteChatRequest(body, eventSink = null) {
     id: agentSessionId,
     conversationId,
     botId: bot.key,
-    messages: [savedUser, savedAssistant],
+    messages: body?.suppressUserMessage ? [savedAssistant] : [savedUser, savedAssistant],
     updatedAt: savedAssistant.createdAt
   };
   // When signed into Mia Cloud, the conversation the user sees is a per-bot

@@ -123,7 +123,7 @@ test("cloud tasks API creates account-scoped tasks and records run history", asy
     const messageBodies = server.mia.messagesStore
       .listMessagesSince(conversation.id, 0, 20)
       .map((message) => message.body_md);
-    assert.deepEqual(messageBodies, ["检查状态", "任务完成"]);
+    assert.deepEqual(messageBodies, ["任务完成"]);
 
     const kinds = server.mia.eventLog
       .listEventsSince(account.user.id, 0, 20)
@@ -221,6 +221,56 @@ test("cloud task scheduler fires persisted due tasks and advances cron cursor", 
     assert.equal(after.task.runs[0].status, "ok");
     assert.equal(after.task.runs[0].outputText, "到点执行");
     assert.ok(after.task.nextFireAt > Date.now(), `expected future nextFireAt, got ${after.task.nextFireAt}`);
+  } finally {
+    await close(server);
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("cloud task fire does not append a visible user trigger message", async () => {
+  const dataDir = tempDataDir();
+  const hermesCalls = [];
+  const server = createMiaCloudServer({
+    dataDir,
+    cloudAgentWorkerManager: {
+      async ensureWorker(userId) {
+        return { userId, baseUrl: "http://worker", apiKey: "worker-key" };
+      }
+    },
+    cloudAgentHermesClient: {
+      async runChat(args) {
+        hermesCalls.push(args);
+        return { runId: "hr_reminder", content: "该睡觉了", events: [] };
+      }
+    }
+  });
+  const baseUrl = await listen(server);
+  try {
+    const account = loginCloudUser(server.mia.cloudStore, "task_visible_user");
+    const { conversation } = setupTaskOwner(server, account);
+    const created = await jsonFetch(baseUrl, "/api/tasks", account.token, {
+      method: "POST",
+      body: {
+        title: "提醒：睡觉",
+        botId: "bot_tasker",
+        conversationId: conversation.id,
+        prompt: "请在 Mia 会话里提醒用户：睡觉",
+        trigger: { type: "oneshot", at: new Date(Date.now() + 60_000).toISOString() },
+        timezone: "Asia/Shanghai"
+      }
+    });
+
+    await jsonFetch(baseUrl, `/api/tasks/${created.task.id}/run-now`, account.token, {
+      method: "POST",
+      body: {}
+    });
+
+    assert.equal(hermesCalls.length, 1);
+    assert.match(hermesCalls[0].input, /请在 Mia 会话里提醒用户：睡觉/);
+    const messageBodies = server.mia.messagesStore
+      .listMessagesSince(conversation.id, 0, 20)
+      .map((message) => message.body_md);
+    assert.deepEqual(messageBodies, ["该睡觉了"]);
   } finally {
     await close(server);
     fs.rmSync(dataDir, { recursive: true, force: true });

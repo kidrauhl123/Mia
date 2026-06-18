@@ -63,6 +63,38 @@ test("createFireRunner.fire: ok path records run with outputMessageId", async ()
   assert.equal(finished.payload.createdAt, "2026-05-20T09:00:01Z");
 });
 
+test("createFireRunner.fire suppresses the task prompt as a visible user message", async () => {
+  const store = tmpStore();
+  const t = store.create({
+    title: "提醒：睡觉",
+    botId: "f",
+    sessionId: "conversation:botc_u1_f",
+    originMessageId: "m",
+    trigger: { type: "oneshot", at: new Date(Date.now() + 60_000).toISOString() },
+    timezone: "Asia/Shanghai",
+    prompt: "请在 Mia 会话里提醒用户：睡觉"
+  });
+  const calls = [];
+  const runner = createFireRunner({
+    store,
+    runRemoteChatRequest: async (body) => {
+      calls.push(body);
+      return {
+        bot: { key: "f" },
+        session: { id: "s", messages: [{ role: "assistant", content: "该睡觉了", id: "msg-1" }] },
+        response: { id: "msg-1" },
+        assistantMessageId: "msg-1"
+      };
+    },
+    emit: () => {}
+  });
+
+  await runner.fire(store.get(t.id));
+
+  assert.equal(calls[0].text, "请在 Mia 会话里提醒用户：睡觉");
+  assert.equal(calls[0].suppressUserMessage, true);
+});
+
 test("createFireRunner.fire: error path records run with status=failed", async () => {
   const store = tmpStore();
   const t = store.create({

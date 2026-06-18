@@ -55,18 +55,6 @@ function userIsMemberOfConversation(socialStore, conversationId, userId) {
   return Boolean(socialStore?.getConversationMember?.(conversationId, "user", userId));
 }
 
-function broadcastConversationMessage(context, conversationId, message) {
-  for (const member of context.socialStore.listConversationMembers(conversationId)) {
-    if (member.member_kind === "user") {
-      context.broadcastPersistedEvent(member.member_ref, {
-        type: "conversation.message_appended",
-        conversationId,
-        message
-      });
-    }
-  }
-}
-
 function createCloudTasksService(context, options = {}) {
   const tasksStore = context.cloudTasksStore;
   const nowMs = options.nowMs || (() => Date.now());
@@ -192,15 +180,15 @@ function createCloudTasksService(context, options = {}) {
       if (!userIsMemberOfConversation(context.socialStore, task.conversationId, task.userId)) {
         throw new Error("not a member of this conversation");
       }
-      const message = context.messagesStore.appendMessage({
-        conversationId: task.conversationId,
-        senderKind: "user",
-        senderRef: task.userId,
-        bodyMd: task.prompt,
-        turnId: `task:${task.id}:${runId}`,
+      const message = {
+        id: `task:${task.id}:${runId}`,
+        conversation_id: task.conversationId,
+        sender_kind: "user",
+        sender_ref: task.userId,
+        body_md: task.prompt,
+        turn_id: `task:${task.id}:${runId}`,
         status: "complete"
-      });
-      broadcastConversationMessage(context, task.conversationId, message);
+      };
       if (!context.cloudAgentDispatcher?.invokeBot) {
         throw new Error("cloud agent dispatcher is not enabled");
       }

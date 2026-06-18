@@ -38,7 +38,7 @@ function createFireRunner({ store, runRemoteChatRequest, emit, logger = console 
         conversationId,
         agentSessionId,
         text: task.prompt,
-        displayText: task.prompt,
+        suppressUserMessage: true,
         // Run independently of the interactive single-flight abort controller so
         // foreground/web chat (or an overlapping task) can't abort this run.
         background: true,
