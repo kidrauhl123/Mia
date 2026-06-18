@@ -15,6 +15,7 @@
     "expo-clipboard": "~56.0.3",
     "expo-constants": "~56.0.18",
     "expo-crypto": "~56.0.4",
+    "expo-dev-client": "~56.0.20",
     "expo-device": "~56.0.4",
     "expo-document-picker": "~56.0.4",
     "expo-file-system": "~56.0.7",
@@ -45,6 +46,8 @@
   },
   "scripts": {
     "start": "expo start",
+    "dev": "APP_VARIANT=development expo start --dev-client --tunnel",
+    "dev:lan": "APP_VARIANT=development expo start --dev-client --lan",
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",

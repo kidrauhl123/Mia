@@ -17,19 +17,23 @@ function ensureUsesPermission(manifest, permissionName) {
 
 function ensureProvider(androidManifest) {
   const mainApplication = AndroidConfig.Manifest.getMainApplicationOrThrow(androidManifest);
-  const packageName = androidManifest.manifest.$.package || "app.mia.mobile";
-  const authority = `${packageName}.mia_update_file_provider`;
+  const authority = "${applicationId}.mia_update_file_provider";
   const providers = mainApplication.provider || [];
-  const existing = providers.find((provider) => provider.$["android:authorities"] === authority);
+  const existing = providers.find(
+    (provider) =>
+      provider.$["android:authorities"] === authority ||
+      (provider.$["android:name"] === PROVIDER_NAME &&
+        String(provider.$["android:authorities"] || "").endsWith(".mia_update_file_provider"))
+  );
   const provider = existing || {
     $: {
       "android:name": PROVIDER_NAME,
-      "android:authorities": authority,
       "android:exported": "false",
       "android:grantUriPermissions": "true",
     },
     "meta-data": [],
   };
+  provider.$["android:authorities"] = authority;
 
   provider["meta-data"] = provider["meta-data"] || [];
   if (!provider["meta-data"].some((meta) => meta.$["android:name"] === FILE_PROVIDER_PATHS)) {

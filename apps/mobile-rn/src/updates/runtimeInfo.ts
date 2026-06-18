@@ -40,6 +40,12 @@ export function getUpdateChannel(): string {
   return Updates.channel || "";
 }
 
+export function getAppVariant(): string {
+  const Constants = require("expo-constants");
+  const extra = Constants.expoConfig?.extra || {};
+  return typeof extra.appVariant === "string" ? extra.appVariant : "";
+}
+
 export function getApplicationId(): string {
   const Application = require("expo-application");
   return Application.applicationId || "app.mia.mobile";

@@ -5,7 +5,7 @@ import type { CloudClient } from "../api/client";
 
 // Single Android channel for chat messages. Created at runtime (the config
 // plugin only bundles the icon/color); HIGH importance so messages surface as a
-// heads-up banner with sound.
+// heads-up banner.
 export const MESSAGES_CHANNEL_ID = "messages";
 
 // Foreground presentation. The live event socket already rendered the message
@@ -16,7 +16,7 @@ export function configureNotificationHandler() {
     handleNotification: async () => ({
       shouldShowBanner: true,
       shouldShowList: true,
-      shouldPlaySound: true,
+      shouldPlaySound: false,
       shouldSetBadge: false,
     }),
   });
@@ -27,7 +27,6 @@ export async function ensureAndroidChannel() {
   await Notifications.setNotificationChannelAsync(MESSAGES_CHANNEL_ID, {
     name: "消息",
     importance: Notifications.AndroidImportance.HIGH,
-    sound: "default",
     vibrationPattern: [0, 250, 250, 250],
     lockscreenVisibility: Notifications.AndroidNotificationVisibility.PRIVATE,
   });

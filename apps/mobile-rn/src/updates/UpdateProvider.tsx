@@ -13,7 +13,8 @@ import {
 import { sha256File } from "./checksum";
 import { parseMobileUpdateManifest } from "./manifest";
 import { checkForOtaUpdate, fetchOtaUpdate, reloadIntoOtaUpdate } from "./otaUpdates";
-import { getApplicationId, getInstalledAppInfo, getUpdateChannel, type InstalledRuntimeInfo } from "./runtimeInfo";
+import { getAppVariant, getApplicationId, getInstalledAppInfo, getUpdateChannel, type InstalledRuntimeInfo } from "./runtimeInfo";
+import { shouldDisableProductionUpdateChecks } from "./updateEnvironment";
 import { decideUpdate, type UpdateDecision } from "./versionPolicy";
 import UpdatePrompt, { type UpdatePromptModel, type UpdatePromptPhase } from "./UpdatePrompt";
 
@@ -63,7 +64,9 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
   const { apiBase } = useAuth();
   const [installed] = useState(() => getInstalledAppInfo());
   const [applicationId] = useState(() => getApplicationId());
+  const [appVariant] = useState(() => getAppVariant());
   const [channel] = useState(() => getUpdateChannel());
+  const updatesDisabled = shouldDisableProductionUpdateChecks(applicationId, appVariant);
   const [lastCheck, setLastCheck] = useState("未检查");
   const [checking, setChecking] = useState(false);
   const [prompt, setPrompt] = useState<UpdatePromptModel | null>(null);
@@ -81,6 +84,13 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
 
   const checkForUpdates = useCallback(
     async (manual = false) => {
+      if (updatesDisabled) {
+        preparedInstall.current = null;
+        setPrompt(null);
+        setChecking(false);
+        setLastCheck("开发版不检查正式更新");
+        return;
+      }
       if (checkingRef.current) return;
       checkingRef.current = true;
       setChecking(true);
@@ -113,15 +123,20 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
         setChecking(false);
       }
     },
-    [apiBase, dismissedKey, installed]
+    [apiBase, dismissedKey, installed, updatesDisabled]
   );
 
   useEffect(() => {
+    if (updatesDisabled) {
+      setPrompt(null);
+      setLastCheck("开发版不检查正式更新");
+      return;
+    }
     const timer = setTimeout(() => {
       checkForUpdates(false);
     }, 900);
     return () => clearTimeout(timer);
-  }, [checkForUpdates]);
+  }, [checkForUpdates, updatesDisabled]);
 
   const installPreparedApk = useCallback(
     async (localUri: string) => {
