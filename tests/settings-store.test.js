@@ -58,13 +58,14 @@ test("appearanceSettings merges saved appearance over defaults", (t) => {
   });
 });
 
-test("appearanceSettings defaults both chat avatar toggles off", (t) => {
+test("appearanceSettings defaults chat avatars off and desktop notifications on", (t) => {
   const { store } = setup(t);
 
   const appearance = store.appearanceSettings();
 
   assert.equal(appearance.showUserAvatar, false);
   assert.equal(appearance.showAssistantAvatar, false);
+  assert.equal(appearance.showDesktopNotifications, true);
 });
 
 test("appearanceSettings falls back from removed font presets", (t) => {
@@ -94,6 +95,7 @@ test("writeAppearanceSettings validates choices, colors, and boolean toggles", (
     showHoverBackground: false,
     showUserAvatar: null,
     showAssistantAvatar: false,
+    showDesktopNotifications: false,
     listStyle: "invalid",
     selectionStyle: "solid",
     workspaceBackgroundColor: "#ABCDEF",
@@ -108,6 +110,7 @@ test("writeAppearanceSettings validates choices, colors, and boolean toggles", (
     showHoverBackground: false,
     showUserAvatar: false,
     showAssistantAvatar: false,
+    showDesktopNotifications: false,
     listStyle: "card",
     selectionStyle: "solid",
     workspaceBackgroundColor: "#abcdef",

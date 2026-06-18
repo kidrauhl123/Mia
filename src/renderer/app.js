@@ -47,6 +47,7 @@ const state = window.miaAppState.createInitialState({
   sidebarWidth: savedSidebarWidth(),
   windowWidth: window.innerWidth
 });
+let desktopWindowFocused = true;
 const agentSetupLaunch = new URLSearchParams(window.location.search || "").get("mode") === "agent-setup";
 if (agentSetupLaunch && !state.onboardingStep && !state.setupGuideDismissed && !state.agentSetupSkipped) {
   state.onboardingStep = "login";
@@ -265,6 +266,7 @@ const els = {
   appearanceWorkspaceBackgroundImageClear: document.getElementById("appearanceWorkspaceBackgroundImageClear"),
   appearanceWorkspaceBackgroundImageLabel: document.getElementById("appearanceWorkspaceBackgroundImageLabel"),
   appearanceShowHoverBackground: document.getElementById("appearanceShowHoverBackground"),
+  appearanceShowDesktopNotifications: document.getElementById("appearanceShowDesktopNotifications"),
   appearanceShowUserAvatar: document.getElementById("appearanceShowUserAvatar"),
   appearanceShowAssistantAvatar: document.getElementById("appearanceShowAssistantAvatar"),
   appearanceSaveStatus: document.getElementById("appearanceSaveStatus"),
@@ -1248,6 +1250,26 @@ function openConversationSearchResult(conversationId, row) {
     task.catch((error) => console.warn("[renderer] search result focus failed:", error?.message || error));
   }
   return true;
+}
+
+function openDesktopNotificationConversation(payload = {}) {
+  const conversationId = String(payload.conversationId || "").trim();
+  const messageId = String(payload.messageId || "").trim();
+  if (!conversationId) return;
+  state.activeView = "chat";
+  state.activeKey = "";
+  state.personaSearchFocus = messageId ? { conversationId, messageId } : { conversationId: "", messageId: "" };
+  showNarrowContent();
+  render();
+  if (messageId && typeof window.miaSocial?.focusConversationMessage === "function") {
+    const task = window.miaSocial.focusConversationMessage(conversationId, { messageId });
+    if (task && typeof task.catch === "function") {
+      task.catch((error) => console.warn("[renderer] desktop notification focus failed:", error?.message || error));
+    }
+    return;
+  }
+  window.miaSocial?.setActiveConversationId?.(conversationId);
+  render();
 }
 
 function sidebarTagFilterHtml(tag) {
@@ -4148,6 +4170,8 @@ async function initializeRuntime(options = {}) {
       appendTransientChat,
       maybeGenerateConversationTitle: maybeGenerateCloudConversationTitle,
       onCloudAuthExpired: handleCloudAuthExpired,
+      isWindowFocused: () => desktopWindowFocused,
+      showDesktopMessageNotification: (payload) => window.mia.showDesktopNotification?.(payload),
       paintHeaderStatus,
       applyCloudAppearance: (appearance) => {
         if (!appearance || typeof appearance !== "object") return;
@@ -4757,6 +4781,8 @@ if (window.mia.onCloudEvent) {
     }, envelope.type === "events_ready" ? 500 : 120);
   });
 }
+
+window.mia.onDesktopNotificationClick?.(openDesktopNotificationConversation);
 
 els.startEngine?.addEventListener("click", async () => {
   els.startEngine.disabled = true;
@@ -5377,6 +5403,10 @@ els.appearanceWorkspaceBackgroundImageClear?.addEventListener("click", () => {
 
 els.appearanceShowHoverBackground?.addEventListener("click", () => {
   window.miaSettingsAppearance.toggleSettingsSwitch(els.appearanceShowHoverBackground);
+});
+
+els.appearanceShowDesktopNotifications?.addEventListener("click", () => {
+  window.miaSettingsAppearance.toggleSettingsSwitch(els.appearanceShowDesktopNotifications);
 });
 
 els.appearanceShowUserAvatar?.addEventListener("click", () => {
@@ -6101,6 +6131,7 @@ setInterval(refreshRuntime, 2000);
     event.stopPropagation();
   });
   const applyFocus = (focused) => {
+    desktopWindowFocused = Boolean(focused);
     document.body.classList.toggle("window-blurred", !focused);
   };
   const applyFullscreen = (fullscreen) => {

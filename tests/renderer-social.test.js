@@ -2778,3 +2778,102 @@ test("message_appended skips unread bump when readMark already covers the replay
   assert.equal(s.moduleState.unreadByConversation.get("dm:u_a:u_b"), 1,
     "fresh message at seq=6 with readMark=5 must bump unread");
 });
+
+test("message_appended shows a desktop notification for a fresh background message", () => {
+  const s = loadSocial();
+  const notifications = [];
+  s.__mockWindow.miaContact = require("../packages/shared/contact.js");
+  s.moduleState.conversations = [{ id: "dm:u_me:u_peer", type: "dm", name: "小明" }];
+  s.moduleState.friends = [{ id: "u_peer", username: "小明" }];
+  s.moduleState.activeConversationId = "dm:u_me:u_peer";
+  s.initSocialModule({
+    getState: () => ({ runtime: { cloud: { user: { id: "u_me", username: "me" } }, appearance: { showDesktopNotifications: true } } }),
+    render: () => {},
+    els: {},
+    appendTransientChat: () => {},
+    isWindowFocused: () => false,
+    showDesktopMessageNotification: (payload) => {
+      notifications.push(payload);
+      return Promise.resolve({ ok: true });
+    }
+  });
+
+  s.handleCloudEvent({
+    type: "conversation.message_appended",
+    payload: {
+      conversationId: "dm:u_me:u_peer",
+      message: { id: "m_notify", seq: 7, body_md: "在吗", sender_kind: "user", sender_ref: "u_peer", created_at: "2026-05-28T00:04:00.000Z" }
+    }
+  });
+
+  assert.equal(notifications.length, 1);
+  assert.equal(notifications[0].title, "小明");
+  assert.equal(notifications[0].body, "在吗");
+  assert.equal(notifications[0].conversationId, "dm:u_me:u_peer");
+  assert.equal(notifications[0].messageId, "m_notify");
+});
+
+test("message_appended skips desktop notification for the focused active conversation", () => {
+  const s = loadSocial();
+  const notifications = [];
+  s.__mockWindow.miaContact = require("../packages/shared/contact.js");
+  s.moduleState.conversations = [{ id: "dm:u_me:u_peer", type: "dm", name: "小明" }];
+  s.moduleState.activeConversationId = "dm:u_me:u_peer";
+  s.initSocialModule({
+    getState: () => ({ runtime: { cloud: { user: { id: "u_me" } }, appearance: { showDesktopNotifications: true } } }),
+    render: () => {},
+    els: {},
+    appendTransientChat: () => {},
+    isWindowFocused: () => true,
+    showDesktopMessageNotification: (payload) => { notifications.push(payload); }
+  });
+
+  s.handleCloudEvent({
+    type: "conversation.message_appended",
+    payload: {
+      conversationId: "dm:u_me:u_peer",
+      message: { id: "m_focused", seq: 8, body_md: "hello", sender_kind: "user", sender_ref: "u_peer", created_at: "2026-05-28T00:05:00.000Z" }
+    }
+  });
+
+  assert.equal(notifications.length, 0);
+});
+
+test("message_appended skips desktop notification when disabled or muted", () => {
+  const s = loadSocial();
+  const notifications = [];
+  s.__mockWindow.miaContact = require("../packages/shared/contact.js");
+  s.moduleState.conversations = [
+    { id: "dm:u_me:u_peer", type: "dm", name: "小明" },
+    { id: "dm:u_me:u_muted", type: "dm", name: "静音" }
+  ];
+  s.moduleState.cloudSettings = { mutedConversations: ["dm:u_me:u_muted"], readMarks: {}, unreadOverrides: {} };
+  s.moduleState.activeConversationId = "dm:other";
+  let enabled = false;
+  s.initSocialModule({
+    getState: () => ({ runtime: { cloud: { user: { id: "u_me" } }, appearance: { showDesktopNotifications: enabled } } }),
+    render: () => {},
+    els: {},
+    appendTransientChat: () => {},
+    isWindowFocused: () => false,
+    showDesktopMessageNotification: (payload) => { notifications.push(payload); }
+  });
+
+  s.handleCloudEvent({
+    type: "conversation.message_appended",
+    payload: {
+      conversationId: "dm:u_me:u_peer",
+      message: { id: "m_disabled", seq: 9, body_md: "disabled", sender_kind: "user", sender_ref: "u_peer", created_at: "2026-05-28T00:06:00.000Z" }
+    }
+  });
+  enabled = true;
+  s.handleCloudEvent({
+    type: "conversation.message_appended",
+    payload: {
+      conversationId: "dm:u_me:u_muted",
+      message: { id: "m_muted", seq: 10, body_md: "muted", sender_kind: "user", sender_ref: "u_muted", created_at: "2026-05-28T00:07:00.000Z" }
+    }
+  });
+
+  assert.equal(notifications.length, 0);
+});

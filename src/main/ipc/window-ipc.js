@@ -1,4 +1,4 @@
-const { BrowserWindow, Menu } = require("electron");
+const { BrowserWindow, Menu, Notification } = require("electron");
 const { IpcChannel } = require("../../shared/ipc-channels");
 const { onboardingWindowBounds } = require("../onboarding-window-bounds.js");
 const { setMacNativeControlsVisible } = require("../mac-window-controls.js");
@@ -17,6 +17,31 @@ function toggleMaximized(w) {
   if (w.isMaximized()) w.unmaximize();
   else w.maximize();
   return windowState(w);
+}
+
+function compactNotificationText(value, limit) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!limit || text.length <= limit) return text;
+  return `${text.slice(0, Math.max(0, limit - 3))}...`;
+}
+
+function desktopNotificationPayload(input = {}) {
+  const conversationId = compactNotificationText(input.conversationId, 160);
+  const messageId = compactNotificationText(input.messageId, 160);
+  return {
+    title: compactNotificationText(input.title || "Mia", 100) || "Mia",
+    body: compactNotificationText(input.body || "新消息", 178) || "新消息",
+    conversationId,
+    messageId,
+    silent: input.silent === true
+  };
+}
+
+function restoreWindowForNotification(w) {
+  if (!w || w.isDestroyed?.()) return;
+  if (typeof w.isMinimized === "function" && w.isMinimized()) w.restore();
+  w.show();
+  w.focus();
 }
 
 function registerWindowIpc({ ipcMain, startupTimer, runtimeLifecycle }) {
@@ -95,6 +120,31 @@ function registerWindowIpc({ ipcMain, startupTimer, runtimeLifecycle }) {
       y: Number.isFinite(point.y) ? Math.round(point.y) : undefined
     });
   });
+  ipcMain.handle(IpcChannel.DesktopNotificationShow, (event, input = {}) => {
+    const supported = typeof Notification?.isSupported === "function" ? Notification.isSupported() : typeof Notification === "function";
+    if (!supported) return { ok: false, reason: "unsupported" };
+    const w = BrowserWindow.fromWebContents(event.sender);
+    const payload = desktopNotificationPayload(input);
+    try {
+      const notification = new Notification({
+        title: payload.title,
+        body: payload.body,
+        silent: payload.silent
+      });
+      notification.once("click", () => {
+        restoreWindowForNotification(w);
+        if (!w || w.isDestroyed?.()) return;
+        w.webContents?.send(IpcChannel.DesktopNotificationClick, {
+          conversationId: payload.conversationId,
+          messageId: payload.messageId
+        });
+      });
+      notification.show();
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, reason: error?.message || "show_failed" };
+    }
+  });
 }
 
-module.exports = { registerWindowIpc };
+module.exports = { registerWindowIpc, desktopNotificationPayload };

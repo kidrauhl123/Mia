@@ -18,6 +18,8 @@
     WindowFullscreen: "window:fullscreen",
     WindowMaximized: "window:maximized",
     EditContextMenu: "edit:context-menu",
+    DesktopNotificationShow: "desktop-notification:show",
+    DesktopNotificationClick: "desktop-notification:click",
     RuntimeInitialize: "runtime:initialize",
     RuntimeStatus: "runtime:status",
     RuntimeEnginesChanged: "runtime:engines-changed",

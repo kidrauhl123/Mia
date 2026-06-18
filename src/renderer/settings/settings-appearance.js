@@ -228,6 +228,7 @@
       showHoverBackground: controls.appearanceShowHoverBackground?.getAttribute("aria-checked") !== "false",
       showUserAvatar: controls.appearanceShowUserAvatar?.getAttribute("aria-checked") === "true",
       showAssistantAvatar: controls.appearanceShowAssistantAvatar?.getAttribute("aria-checked") === "true",
+      showDesktopNotifications: controls.appearanceShowDesktopNotifications?.getAttribute("aria-checked") !== "false",
       listStyle: "card",
       selectionStyle: normalizeSelectionStyle(controls.appearanceSelectionStyle?.value),
       workspaceBackgroundColor,
@@ -312,6 +313,7 @@
     }
     if (controls.appearanceWorkspaceBackgroundImageClear) controls.appearanceWorkspaceBackgroundImageClear.disabled = !workspaceBackgroundImage;
     setSettingsSwitch(controls.appearanceShowHoverBackground, appearance.showHoverBackground !== false);
+    setSettingsSwitch(controls.appearanceShowDesktopNotifications, appearance.showDesktopNotifications !== false);
     setSettingsSwitch(controls.appearanceShowUserAvatar, avatarToggleEnabled(appearance.showUserAvatar));
     setSettingsSwitch(controls.appearanceShowAssistantAvatar, avatarToggleEnabled(appearance.showAssistantAvatar));
   }

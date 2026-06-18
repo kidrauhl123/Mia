@@ -128,6 +128,26 @@ test("desktop window controls use Windows maximize semantics off macOS", () => {
   assert.match(css, /body\.platform-win32 \.topbar\s*\{\s*padding-right:\s*150px;/);
 });
 
+test("desktop message notifications are wired through preload and main IPC", () => {
+  const channelSource = fs.readFileSync(path.join(root, "src/shared/ipc-channels.js"), "utf8");
+  const preloadSource = fs.readFileSync(path.join(root, "src/preload.js"), "utf8");
+  const windowIpcSource = fs.readFileSync(path.join(root, "src/main/ipc/window-ipc.js"), "utf8");
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const socialSource = fs.readFileSync(path.join(root, "src/renderer/social/social.js"), "utf8");
+
+  assert.match(channelSource, /DesktopNotificationShow:\s*"desktop-notification:show"/);
+  assert.match(channelSource, /DesktopNotificationClick:\s*"desktop-notification:click"/);
+  assert.match(preloadSource, /showDesktopNotification:\s*\(payload\) => ipcRenderer\.invoke\(IpcChannel\.DesktopNotificationShow,\s*payload\)/);
+  assert.match(preloadSource, /onDesktopNotificationClick:\s*\(handler\) => \{/);
+  assert.match(windowIpcSource, /ipcMain\.handle\(IpcChannel\.DesktopNotificationShow/);
+  assert.match(windowIpcSource, /new Notification\(\{/);
+  assert.match(windowIpcSource, /webContents\?\.send\(IpcChannel\.DesktopNotificationClick/);
+  assert.match(appSource, /window\.mia\.onDesktopNotificationClick\?\.\(openDesktopNotificationConversation\)/);
+  assert.match(appSource, /showDesktopMessageNotification:\s*\(payload\) => window\.mia\.showDesktopNotification\?\.\(payload\)/);
+  assert.match(socialSource, /function maybeNotifyDesktopMessage/);
+  assert.match(socialSource, /isConversationMuted\(conversationId\)/);
+});
+
 test("desktop shell uses optional middle pane by active view", () => {
   const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
@@ -1145,14 +1165,29 @@ test("agent permission banner uses a glass card and keeps allow buttons compact"
 
   assert.match(block, /border:\s*1px solid color-mix\(in srgb, var\(--line\) 64%, transparent\);/);
   assert.match(block, /border-radius:\s*14px;/);
-  assert.match(block, /background:\s*color-mix\(in srgb, var\(--surface-soft\) 76%, transparent\);/);
+  assert.match(block, /background:\s*color-mix\(in srgb, var\(--surface\) 94%, transparent\);/);
   assert.match(block, /box-shadow:\s*0 1px 2px rgba\(16,\s*20,\s*39,\s*0\.05\),\s*0 12px 28px rgba\(16,\s*20,\s*39,\s*0\.08\);/);
   assert.match(block, /backdrop-filter:\s*blur\(22px\) saturate\(1\.14\);/);
+  assert.match(block, /overflow:\s*hidden;/);
+  assert.match(block, /isolation:\s*isolate;/);
   assert.match(block, /gap:\s*8px;/);
   assert.match(block, /padding:\s*10px 12px 12px;/);
+  assert.match(css, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.agent-permission-banner\s*\{[\s\S]*?background:\s*color-mix\(in srgb, var\(--surface-soft\) 78%, transparent\);[\s\S]*?-webkit-backdrop-filter:\s*none;[\s\S]*?backdrop-filter:\s*none;/);
+  assert.match(css, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?:root\[data-theme="dark"\] \.agent-permission-banner\s*\{[\s\S]*?background:\s*color-mix\(in srgb, var\(--surface\) 86%, transparent\);/);
+  assert.match(css, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.agent-permission-actions\s*\{[\s\S]*?flex-wrap:\s*nowrap;[\s\S]*?gap:\s*6px;/);
+  assert.match(css, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.agent-permission-allow-actions\s*\{[\s\S]*?flex:\s*0 1 auto;[\s\S]*?margin-left:\s*auto;/);
   assert.match(allowButtons, /width:\s*64px;/);
   assert.match(allowButtons, /min-height:\s*26px;/);
   assert.doesNotMatch(primary, /min-width:/);
+});
+
+test("muted conversation list indicators stay grey in active desktop and narrow states", () => {
+  const css = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+
+  assert.match(css, /\.persona-muted-icon\s*\{[\s\S]*?width:\s*13px;[\s\S]*?color:\s*var\(--faint\);/);
+  assert.match(css, /\.persona-unread\.muted\s*\{[\s\S]*?background:\s*#b3b8c2;/);
+  assert.match(css, /:root\[data-selection-style="solid"\] \.persona\.active \.persona-unread:not\(\.muted\)\s*\{/);
+  assert.match(css, /:root\[data-selection-style="solid"\] \.app-shell\[data-shell-layout="single"\] \.persona\.active \.persona-unread:not\(\.muted\)\s*\{/);
 });
 
 test("desktop bot controls save through bot runtime control adapter", () => {

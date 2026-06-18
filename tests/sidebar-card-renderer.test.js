@@ -100,6 +100,30 @@ test("sidebar private card propagates identity status badge to name renderer", (
   assert.deepEqual(JSON.parse(JSON.stringify(calls[0])), { identity, fallbackName: "Mia", statusBadge: badge });
 });
 
+test("sidebar muted conversation cards show a bell-off icon and muted unread badge", () => {
+  const cards = loadSidebarCards();
+  const privateCard = cards.createPrivateCard({
+    name: "复习搭子",
+    muted: true,
+    preview: "马上设置",
+    avatar: {},
+    unread: 31
+  });
+  const groupCard = cards.createGroupCard({
+    name: "技术交流群",
+    muted: true,
+    preview: "欢迎",
+    members: [],
+    unread: 120
+  });
+
+  for (const card of [privateCard, groupCard]) {
+    assert.match(card.innerHTML, /class="persona-muted-icon"/);
+    assert.match(card.innerHTML, /<svg viewBox="0 0 48 48"/);
+    assert.match(card.innerHTML, /class="persona-unread muted"/);
+  }
+});
+
 test("sidebar search result cards are compact hits without tag rows", () => {
   const cards = loadSidebarCards();
   const card = cards.createPrivateCard({

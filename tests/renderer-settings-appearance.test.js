@@ -83,6 +83,7 @@ function appearanceControls(overrides = {}) {
     appearanceUserBubblePreview: { style: {} },
     appearanceSelectionStyle: { value: "solid" },
     appearanceShowHoverBackground: settingsSwitch(true),
+    appearanceShowDesktopNotifications: settingsSwitch(true),
     appearanceShowUserAvatar: settingsSwitch(true),
     appearanceShowAssistantAvatar: settingsSwitch(true),
     appearanceWorkspaceBackgroundColor: { value: "#f0f0f3" },
@@ -206,6 +207,7 @@ test("currentAppearanceDraft always saves the visible bottom board color", () =>
       appearanceUserBubbleColor: { value: "#0162db" },
       appearanceSelectionStyle: { value: "solid" },
       appearanceShowHoverBackground: { getAttribute: () => "true" },
+      appearanceShowDesktopNotifications: { getAttribute: () => "false" },
       appearanceShowUserAvatar: { getAttribute: () => "true" },
       appearanceShowAssistantAvatar: { getAttribute: () => "true" },
       appearanceWorkspaceBackgroundColor: {
@@ -217,6 +219,7 @@ test("currentAppearanceDraft always saves the visible bottom board color", () =>
   });
 
   assert.equal(api.currentAppearanceDraft().workspaceBackgroundColor, "#f0f0f3");
+  assert.equal(api.currentAppearanceDraft().showDesktopNotifications, false);
 });
 
 test("stale bottom board save response cannot roll back a newer color draft", async () => {
@@ -363,6 +366,12 @@ test("desktop appearance settings no longer expose the middle list style switch"
 test("desktop avatar display switches are initially off", () => {
   assert.match(htmlSource, /id="appearanceShowUserAvatar"[^>]*aria-checked="false"/);
   assert.match(htmlSource, /id="appearanceShowAssistantAvatar"[^>]*aria-checked="false"/);
+});
+
+test("desktop notification switch is initially on", () => {
+  assert.match(htmlSource, /id="appearanceShowDesktopNotifications"[^>]*aria-checked="true"/);
+  assert.match(appSource, /appearanceShowDesktopNotifications:\s*document\.getElementById\("appearanceShowDesktopNotifications"\)/);
+  assert.match(appSource, /appearanceShowDesktopNotifications\?\.addEventListener\("click"/);
 });
 
 test("desktop appearance settings do not expose removed font presets", () => {

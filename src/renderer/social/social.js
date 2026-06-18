@@ -74,6 +74,14 @@
     }
   }
 
+  function firstText(...values) {
+    for (const value of values) {
+      const text = String(value || "").trim();
+      if (text) return text;
+    }
+    return "";
+  }
+
   // Lazy shared-dep accessor (mirrors unreadShared / sendPipelineShared) so the
   // module still loads in test VMs where neither the global nor require exists.
   function conversationKinds() {
@@ -1285,6 +1293,97 @@
     return Boolean(contact && contact.id && contact.id === ctx.self?.id);
   }
 
+  function memberNameForSender(conversationId, senderKind, senderRef) {
+    const members = _conversationMembersCache.get(conversationId) || [];
+    const member = members.find((item) => {
+      const kind = String(item?.member_kind || item?.kind || item?.identity?.kind || "").trim();
+      const ref = String(item?.member_ref || item?.ref || item?.identity?.id || "").trim();
+      return ref === senderRef && (!senderKind || kind === senderKind);
+    });
+    if (!member) return "";
+    const identity = member.identity || {};
+    return firstText(
+      identity.displayName,
+      identity.display_name,
+      member.displayName,
+      member.display_name,
+      member.name,
+      member.username,
+      member.account,
+      member.bot_name
+    );
+  }
+
+  function senderNameForMessage(conversationId, message = {}) {
+    const { SenderKind } = conversationKinds();
+    const senderKind = String(message.sender_kind || message.senderKind || SenderKind.User).trim();
+    const senderRef = String(message.sender_ref || message.senderRef || "").trim();
+    const helper = (typeof window !== "undefined" && window.miaContact) || null;
+    if (helper && typeof helper.resolveContact === "function") {
+      const identityKind = helper.IdentityKind || {};
+      const kind = senderKind === SenderKind.Bot ? identityKind.Bot || "bot" : identityKind.User || "user";
+      const contact = helper.resolveContact({ kind, ref: senderRef }, adapterCtx());
+      const name = firstText(contact?.displayName, contact?.account, contact?.id);
+      if (name) return name;
+    }
+    return firstText(memberNameForSender(conversationId, senderKind, senderRef), senderRef);
+  }
+
+  function conversationNameForNotification(conversationId, conversation, senderName) {
+    const type = conversationTypeFor(conversation, conversationId);
+    if (type === "dm") {
+      const otherUser = conversation ? otherUserForConversation(conversation) : null;
+      return firstText(otherUser?.displayName, otherUser?.username, otherUser?.account, conversation?.name, senderName, "Mia");
+    }
+    return firstText(conversation?.name, senderName, "Mia");
+  }
+
+  function notificationBodyForMessage(message = {}) {
+    const body = String(message.body_md || message.bodyMd || "").replace(/\s+/g, " ").trim();
+    if (body) return body;
+    const attachments = Array.isArray(message.attachments) ? message.attachments : [];
+    return attachments.length ? "[附件]" : "新消息";
+  }
+
+  function desktopMessageNotificationPayload(conversationId, message = {}) {
+    const conversation = moduleState.conversations.find((item) => item.id === conversationId) || null;
+    const senderName = senderNameForMessage(conversationId, message);
+    const conversationName = conversationNameForNotification(conversationId, conversation, senderName);
+    const type = conversationTypeFor(conversation, conversationId);
+    const title = type === "group" && senderName && conversationName && senderName !== conversationName
+      ? `${senderName} @ ${conversationName}`
+      : firstText(senderName, conversationName, "Mia");
+    return {
+      title,
+      body: notificationBodyForMessage(message),
+      conversationId,
+      messageId: String(message.id || "").trim()
+    };
+  }
+
+  function desktopNotificationsEnabled() {
+    const runtime = currentState().runtime || {};
+    return runtime.appearance?.showDesktopNotifications !== false;
+  }
+
+  function maybeNotifyDesktopMessage(conversationId, message, { fresh, isMine } = {}) {
+    if (!fresh || isMine || !conversationId) return;
+    if (!desktopNotificationsEnabled()) return;
+    if (isConversationMuted(conversationId)) return;
+    const windowFocused = typeof deps?.isWindowFocused === "function" ? deps.isWindowFocused() !== false : true;
+    if (windowFocused && conversationId === moduleState.activeConversationId) return;
+    if (typeof deps?.showDesktopMessageNotification !== "function") return;
+    const payload = desktopMessageNotificationPayload(conversationId, message);
+    try {
+      const task = deps.showDesktopMessageNotification(payload);
+      if (task && typeof task.catch === "function") {
+        task.catch((error) => console.warn("[social] desktop notification failed:", error?.message || error));
+      }
+    } catch (error) {
+      console.warn("[social] desktop notification failed:", error?.message || error);
+    }
+  }
+
   // Resolve "is this a user-role message?" by routing through the canonical
   // cloud-conversation-source adapter and reading spec.role. Falls back to false when
   // the adapter isn't loaded (test sandbox or pre-bootstrap).
@@ -1724,6 +1823,7 @@
       // Unread bookkeeping: count messages that aren't mine and didn't land
       // in the currently open conversation.
       const isMine = _isMessageFromSelf(message);
+      maybeNotifyDesktopMessage(conversationId, cachedMessage, { fresh, isMine });
       if (fresh && !isMine && conversationId !== moduleState.activeConversationId) {
         // Skip the bump if another device already marked this seq read
         // (covers WS replay on reconnect: server replays old message_appended

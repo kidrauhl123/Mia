@@ -25,6 +25,12 @@ contextBridge.exposeInMainWorld("mia", {
     ipcRenderer.on(IpcChannel.CloudEvent, listener);
     return () => ipcRenderer.removeListener(IpcChannel.CloudEvent, listener);
   },
+  showDesktopNotification: (payload) => ipcRenderer.invoke(IpcChannel.DesktopNotificationShow, payload),
+  onDesktopNotificationClick: (handler) => {
+    const listener = (_event, payload) => { try { handler(payload); } catch { /* ignore */ } };
+    ipcRenderer.on(IpcChannel.DesktopNotificationClick, listener);
+    return () => ipcRenderer.removeListener(IpcChannel.DesktopNotificationClick, listener);
+  },
   openExternal: (url) => ipcRenderer.invoke(IpcChannel.UtilOpenExternal, url),
   loadStatusBadgeAsset: (assetId) => ipcRenderer.invoke(IpcChannel.StatusBadgeAssetLoad, assetId),
   installEngine: (engineId) => ipcRenderer.invoke(IpcChannel.EngineInstall, engineId),
