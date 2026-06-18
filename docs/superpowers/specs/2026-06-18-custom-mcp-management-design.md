@@ -20,19 +20,30 @@ AionUi provides the closest working pattern:
 - ACP sessions receive MCP servers during `session/new` or `session/load`, filtered by MCP transport capabilities.
 - MCP connection tests use the official MCP SDK and list tools instead of trusting config writes.
 
-Mia should reuse that product shape, adapted to its current Electron main, preload, renderer, and Agent adapter boundaries.
+LobsterAI provides the closest OpenClaw-specific pattern:
+
+- The renderer has a first-class MCP view with `Installed`, `Marketplace`, and `Custom` tabs.
+- The main process stores MCP records in SQLite, but renderer access still goes through narrow IPC.
+- A main-process MCP server manager starts enabled MCP servers with the official SDK transports, discovers tools, and routes tool calls.
+- A local HTTP MCP bridge binds to `127.0.0.1`, uses a random secret, and exposes discovered tools to OpenClaw through an `mcp-bridge` plugin config.
+- CRUD and enable changes trigger a bridge refresh, OpenClaw config sync, and a gateway restart when the callback URL or tool manifest changes.
+
+Mia should reuse AionUi's multi-engine sync shape and LobsterAI's bridge shape, adapted to its current Electron main, preload, renderer, and Agent adapter boundaries.
 
 ## Product Scope
 
 The finished product includes:
 
 - A `MCP 服务` mode inside the existing `能力库` workspace.
+- `MCP 服务` includes `已安装`, `市场`, and `自定义` sub-tabs.
 - Add, edit, delete, enable, disable, duplicate-name replacement, and JSON import.
+- Curated marketplace/template install flow for common MCP servers.
 - Transport support for `stdio`, `http`, `sse`, and `streamable_http`.
 - Connection testing through MCP SDK `initialize` and `tools/list`.
 - Visible status per server: `connected`, `disconnected`, `unsupported`, `auth_required`.
 - Visible sync status per engine: Hermes, Claude Code, Codex, OpenClaw.
 - Tool list preview after a successful connection test.
+- A Mia-owned local MCP bridge for transport normalization, tool discovery, tool execution, and OpenClaw/Hermes fallback paths.
 - External CLI sync for Claude Code and Codex.
 - Runtime config injection for Hermes.
 - ACP session injection for OpenClaw.
@@ -87,6 +98,8 @@ Transport shapes:
 
 Secrets are allowed in env values and headers because many MCP servers need them, but they must be masked in UI summaries and never written to logs.
 
+LobsterAI uses SQLite for this table. Mia can keep the MCP registry in a runtime JSON settings file because the data set is small, user-editable import/export matters, and sync is record-oriented. If Mia later moves this into a shared SQLite settings store, the main-process API and record shape should remain stable.
+
 ## Main Process Services
 
 Add a focused main service, for example `src/main/mcp-service.js`, responsible for:
@@ -100,6 +113,16 @@ Add a focused main service, for example `src/main/mcp-service.js`, responsible f
 
 Renderer must not write native Agent config files directly.
 
+Add a Mia MCP bridge layer, inspired by LobsterAI:
+
+- `mcp-server-manager` owns SDK clients for enabled user MCP servers.
+- It supports `StdioClientTransport`, `SSEClientTransport`, and `StreamableHTTPClientTransport`.
+- It discovers tools through `tools/list`, stores a masked manifest, and routes `callTool` to the right server.
+- It captures recent stderr for actionable diagnostics without logging secrets.
+- `mcp-bridge-server` binds only to `127.0.0.1`, uses a per-app random secret, and exposes a small HTTP callback surface for bridge consumers.
+- Bridge refresh stops old MCP client connections, reconnects enabled servers, re-lists tools, updates sync state, and notifies renderer progress.
+- OpenClaw config or session setup must run after the bridge is ready whenever OpenClaw uses bridge tools.
+
 ## IPC And Preload
 
 Add narrow IPC channels:
@@ -109,7 +132,10 @@ Add narrow IPC channels:
 - `mcp:delete`
 - `mcp:test`
 - `mcp:import-json`
+- `mcp:fetch-marketplace`
+- `mcp:install-template`
 - `mcp:sync`
+- `mcp:refresh-bridge`
 - `mcp:remove-from-agents`
 
 Expose them through `window.mia.mcp`. All return values must be serializable objects with success, data, and error fields.
@@ -134,6 +160,16 @@ Update the Skills page top mode toggle to:
 
 Error states and empty states in Agent chat may include a secondary action that opens `能力库 -> MCP 服务` directly.
 
+Inside `MCP 服务`, use LobsterAI's proven tab split:
+
+```text
+已安装 / 市场 / 自定义
+```
+
+- `已安装`: all saved servers, including marketplace-installed and custom servers.
+- `市场`: curated templates with default command, args, transport, required env keys, category, and install action.
+- `自定义`: manual add and JSON import flows.
+
 ## MCP Services UI
 
 The MCP services UI should be work-focused and dense:
@@ -143,9 +179,11 @@ The MCP services UI should be work-focused and dense:
 - HTTP/SSE form fields: URL, headers, bearer token env var.
 - Stdio form fields: command, args, env.
 - JSON import accepts Cursor, Claude, Codex, and generic `mcpServers` objects.
+- Marketplace cards show category, transport, required env keys, installed state, and install action.
 - Test button runs connection test and updates status/tools.
 - Sync button writes enabled servers to supported native agents.
 - Delete asks for confirmation and then cleans up synced native config.
+- Bridge refresh shows a blocking progress state only while enabled server changes are being applied to active engines.
 
 The UI should not require the user to understand engine internals. It should show useful errors such as "Codex does not support custom headers; use bearer token env var" rather than raw CLI output only.
 
@@ -190,7 +228,7 @@ mcp_servers.<name>.bearer_token_env_var="..."
 
 Hermes receives enabled MCP servers in Mia's generated `config.yaml`.
 
-If the installed Hermes supports `url` MCP servers, write HTTP/SSE entries directly. If not, Mia must provide a local stdio bridge that proxies HTTP/SSE/streamable HTTP MCP servers through the MCP SDK. The UI should mark Hermes as `synced` only when the generated config or bridge path is valid.
+If the installed Hermes supports `url` MCP servers, write HTTP/SSE entries directly. If not, Mia must provide a local bridge that proxies HTTP/SSE/streamable HTTP MCP servers through the MCP SDK. The UI should mark Hermes as `synced` only when the generated config or bridge path is valid.
 
 ### OpenClaw / ACP
 
@@ -206,6 +244,15 @@ Conversion rules follow ACP SDK `McpServer`:
 OpenClaw/ACP must filter by initialized MCP capabilities when available. When capabilities are missing, default to stdio only unless a stdio bridge is available. If a server is unsupported, show that in the sync status instead of silently omitting it.
 
 Because ACP MCP servers are supplied at session creation time, MCP config changes require a new ACP session. Mia should compute an MCP fingerprint and stop or recreate the OpenClaw ACP session before the next prompt when the fingerprint changes.
+
+OpenClaw should also support the LobsterAI-style bridge path when available:
+
+- Start the Mia MCP bridge before OpenClaw config sync or ACP session creation.
+- Expose the bridge callback URL, secret, and tool manifest to OpenClaw's `mcp-bridge` equivalent when the runtime supports that plugin surface.
+- Force a gateway/session restart when the bridge callback URL or tool manifest changes, because OpenClaw may snapshot plugin config at startup.
+- Prefer native ACP `mcpServers` when the backend advertises complete transport support; prefer the bridge when the OpenClaw gateway/plugin path is the proven available route or when native capabilities are missing.
+
+Product readiness means OpenClaw sees the user's enabled tools through one of these paths and the UI shows which path was used.
 
 ## MCP Fingerprint
 
@@ -288,7 +335,9 @@ Add focused tests for:
 - Claude CLI command generation.
 - Hermes `config.yaml` generation for stdio and URL MCP entries or bridge fallback.
 - OpenClaw ACP `mcpServers` conversion and fingerprint-triggered session recreation.
+- Mia MCP bridge startup, tool discovery, tool execution routing, refresh, and OpenClaw bridge config generation.
 - Renderer CRUD behavior for add, edit, delete, enable, disable, import, and status rendering.
+- Renderer marketplace and installed/custom tab behavior.
 - Permission payload formatting for MCP tool requests.
 
 ## Acceptance Criteria
@@ -296,6 +345,7 @@ Add focused tests for:
 The feature is product-ready when:
 
 - A Xiaohongshu HTTP MCP at `http://localhost:18060/mcp` can be added in Mia, tested, and show tools.
+- Common MCP servers can be installed from marketplace templates and then edited as normal records.
 - The same server is available to Codex, Claude Code, Hermes, and OpenClaw where the installed engine supports the transport or Mia provides a bridge.
 - Deleting or disabling the server removes it from Codex and Claude Code native configs and prevents stale Mia sessions from calling it.
 - Unsupported engines show an explicit status and reason.
