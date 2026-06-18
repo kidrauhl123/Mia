@@ -720,3 +720,16 @@ test("daemon task HTTP client and task event stream live behind a main daemon Mo
   assert.doesNotMatch(mainSource, /function subscribeDaemonTaskEvents/, "main must not own daemon task SSE subscription");
   assert.doesNotMatch(mainSource, /\/api\/tasks\/events/, "main must not own the daemon task event stream route");
 });
+
+test("foreground chat creates explicit reminders before engine skill prompting", () => {
+  const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
+  const sendStart = mainSource.indexOf("async function sendChat");
+  const sendEnd = mainSource.indexOf("function stopChat", sendStart);
+  const sendBody = mainSource.slice(sendStart, sendEnd);
+  const reminderIndex = sendBody.indexOf("handleReminderChatTurn");
+  const skillIndex = sendBody.indexOf("schedulerSkillIdsForTurn");
+
+  assert.ok(reminderIndex >= 0, "main foreground chat must call the app scheduler reminder bridge");
+  assert.ok(skillIndex >= 0, "main foreground chat still auto-enables scheduler skills for non-direct cases");
+  assert.ok(reminderIndex < skillIndex, "direct app scheduler reminder handling must run before skill directive injection");
+});

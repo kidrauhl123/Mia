@@ -1,9 +1,9 @@
 "use strict";
 
 const { CloudEvent } = require("../../shared/cloud-events.js");
+const { createScheduledReminderFromTurn } = require("../app-scheduler-reminder.js");
 const {
-  confirmationForReminder,
-  parseRelativeReminderIntent
+  confirmationForReminder
 } = require("../reminder-intent.js");
 
 const PROCESSED_CAP = 500;
@@ -334,22 +334,21 @@ function createLocalBotResponder({ sendChat, postConversationMessageAsBot, listC
 
   async function handleExplicitReminder({ conversationId, botId, dedupKey, triggerMessageId, userPrompt, turnId }) {
     if (typeof createScheduledTask !== "function") return null;
-    const intent = parseRelativeReminderIntent(userPrompt, { nowMs: nowMs(), timezone: "Asia/Shanghai" });
-    if (!intent) return null;
     try {
-      await createScheduledTask({
-        title: intent.title,
+      const scheduled = await createScheduledReminderFromTurn({
+        userPrompt,
         botId,
         conversationId,
         sessionId: `conversation:${conversationId}`,
         originMessageId: triggerMessageId,
-        trigger: intent.trigger,
-        timezone: intent.timezone,
-        prompt: intent.prompt
+        createScheduledTask,
+        nowMs,
+        timezone: "Asia/Shanghai"
       });
+      if (!scheduled) return null;
       const result = await postConversationMessageAsBot(conversationId, {
         botId,
-        bodyMd: confirmationForReminder(intent),
+        bodyMd: confirmationForReminder(scheduled.intent),
         turnId,
         clientOpId: clientOpIdForDedupKey(dedupKey),
         trace: {

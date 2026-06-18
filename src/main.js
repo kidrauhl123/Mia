@@ -99,6 +99,7 @@ const { createSystemHermesService } = require("./main/system-hermes-service.js")
 const { createEngineRuntimeConfigService } = require("./main/engine-runtime-config-service.js");
 const { createEngineHealthService } = require("./main/engine-health-service.js");
 const { createEngineInstallService } = require("./main/engine-install-service.js");
+const { handleReminderChatTurn } = require("./main/app-scheduler-reminder.js");
 const { registerWindowIpc } = require("./main/ipc/window-ipc.js");
 const { registerTasksIpc } = require("./main/ipc/tasks-ipc.js");
 // (cloud/desktop-sync helpers removed in Phase 4 cutover — bot chats
@@ -1975,6 +1976,14 @@ function createActiveChatEngineAdapters() {
   });
 }
 
+async function createAppScheduledTask(input) {
+  const result = await daemonTasksClient.call("/api/tasks", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+  return result.task;
+}
+
 function createActiveBridgeChatAdapter(agentEngine = "codex") {
   const chatEngine = resolveChatEngineAdapter({ agentEngine: normalizeAgentEngine(agentEngine, "codex") });
   const adapters = createActiveChatEngineAdapters();
@@ -2079,6 +2088,28 @@ async function sendChat({ botKey, botId, botSnapshot = null, sessionId, messages
         agentEngine: normalizeAgentEngine(runtimeAgentEngine, botForTurn.agentEngine || botForTurn.agent_engine || "hermes")
       };
     }
+    const chatEngine = resolveChatEngineAdapter(botForTurn);
+    const agentEngine = chatEngine.id;
+    const shouldNotifyPet = !utility && !String(sessionId || "").startsWith("title:");
+    const completeWithPetMessage = (response) => {
+      if (shouldNotifyPet) botPetService.notifyMessage(botForTurn.key, responseMessageContent(response));
+      return response;
+    };
+    if (emit) {
+      emit("session_started", { botKey: botForTurn.key, engine: agentEngine });
+    }
+    const reminderResponse = await handleReminderChatTurn({
+      messages,
+      bot: botForTurn,
+      sessionId,
+      createScheduledTask: createAppScheduledTask,
+      chatCompletionResponse,
+      emit,
+      model: adapterForEngine(agentEngine).responseModel,
+      scheduledFire,
+      background
+    });
+    if (reminderResponse) return completeWithPetMessage(reminderResponse);
     // Composer "使用" chips: enable these skills for this turn (so their content
     // is injected) AND prepend a directive to the user's message so the agent
     // actually USES them this turn — merely enabling is a no-op when the skill
@@ -2104,16 +2135,6 @@ async function sendChat({ botKey, botId, botSnapshot = null, sessionId, messages
         }
         messages = next;
       }
-    }
-    const chatEngine = resolveChatEngineAdapter(botForTurn);
-    const agentEngine = chatEngine.id;
-    const shouldNotifyPet = !utility && !String(sessionId || "").startsWith("title:");
-    const completeWithPetMessage = (response) => {
-      if (shouldNotifyPet) botPetService.notifyMessage(botForTurn.key, responseMessageContent(response));
-      return response;
-    };
-    if (emit) {
-      emit("session_started", { botKey: botForTurn.key, engine: agentEngine });
     }
     const slashText = allowSlashCommands ? hermesRunService.slashCommandText(messages) : "";
     const response = await sendWithChatEngineAdapter(createActiveChatEngineAdapters(), {
@@ -2534,13 +2555,7 @@ const localBotResponder = createLocalBotResponder({
   sendChat,
   postConversationMessageAsBot: (conversationId, body) => socialApi.postConversationMessageAsBot(conversationId, body),
   listConversationMessages: (conversationId, sinceSeq, limit) => socialApi.listConversationMessages(conversationId, sinceSeq, limit),
-  createScheduledTask: async (input) => {
-    const result = await daemonTasksClient.call("/api/tasks", {
-      method: "POST",
-      body: JSON.stringify(input)
-    });
-    return result.task;
-  },
+  createScheduledTask: createAppScheduledTask,
   emitCloudEvent: (message) => {
     const envelope = {
       type: message.type,
