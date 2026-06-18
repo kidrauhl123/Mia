@@ -16,7 +16,7 @@ Use Mia's scheduler MCP tools for every reminder or scheduled-task request. A cr
 - Use `schedule_update`, `schedule_delete`, `schedule_pause`, or `schedule_resume` for existing tasks.
 - Do not ask which bot or engine should run the task; Mia injects the current bot and conversation.
 - Do not invent delivery channels, retries, popups, logs, or alternate rooms. Mia currently creates conversation tasks only.
-- 不要使用 shell、`sleep`、`at`、`osascript`、`cron`、`launchd` 或本地临时命令来冒充 Mia 定时任务；这些不会进入 Mia 活跃任务。
+- 不要使用名为 `cronjob` 的工具，也不要使用 shell、`sleep`、`at`、`osascript`、`cron`、`launchd` 或本地临时命令来冒充 Mia 定时任务；这些不会进入 Mia 活跃任务。
 - If no `schedule_*` tool is available, say that Mia's scheduler tool is unavailable and that no task was created.
 
 ## Creating Tasks

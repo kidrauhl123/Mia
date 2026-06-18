@@ -129,8 +129,87 @@ test("cloud-hermes DM runs the bot and appends a reply", async () => {
     assert.match(hermesCalls[0].input, /正在和用户私聊/);
     assert.doesNotMatch(hermesCalls[0].input, /群聊/);
     assert.doesNotMatch(hermesCalls[0].input, /群成员/);
+    assert.match(hermesCalls[0].instructions, /Mia Runtime Context/);
+    assert.match(hermesCalls[0].instructions, /schedule_create/);
+    assert.match(hermesCalls[0].instructions, /You are Alice Bot\./);
   } finally {
     ctx.cleanup();
+  }
+});
+
+test("cloud-hermes scheduled fires use the delivery context instead of recreating tasks", async () => {
+  const ctx = setup();
+  const hermesCalls = [];
+  try {
+    const dispatcher = makeDispatcher(ctx, {
+      hermesRunsClient: {
+        async runChat(args) {
+          hermesCalls.push(args);
+          return { runId: "hr_task_fire", content: "该吃饭了", events: [] };
+        }
+      }
+    });
+    const message = ctx.messagesStore.appendMessage({
+      conversationId: ctx.conversation.id,
+      senderKind: "user",
+      senderRef: ctx.user.id,
+      bodyMd: "提醒我吃饭",
+      turnId: "task:t-1:r-1"
+    });
+
+    await dispatcher.invokeBot({
+      userId: ctx.user.id,
+      botId: BOT_ID,
+      conversationId: ctx.conversation.id,
+      message
+    });
+
+    assert.equal(hermesCalls.length, 1);
+    assert.match(hermesCalls[0].instructions, /Mia Runtime Context/);
+    assert.doesNotMatch(hermesCalls[0].instructions, /schedule_create/);
+    assert.match(hermesCalls[0].instructions, /You are Alice Bot\./);
+  } finally {
+    ctx.cleanup();
+  }
+});
+
+test("cloud-hermes writes scheduler MCP context before each bot run", async () => {
+  const ctx = setup();
+  const workerRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mia-cloud-worker-"));
+  const hermesHome = path.join(workerRoot, "hermes-home");
+  fs.mkdirSync(hermesHome, { recursive: true });
+  try {
+    const dispatcher = makeDispatcher(ctx, {
+      workerManager: {
+        async ensureWorker(userId) {
+          return { userId, baseUrl: "http://worker", apiKey: "k", paths: { hermesHome } };
+        }
+      }
+    });
+    const message = ctx.messagesStore.appendMessage({
+      conversationId: ctx.conversation.id,
+      senderKind: "user",
+      senderRef: ctx.user.id,
+      bodyMd: "2分钟后提醒我吃饭"
+    });
+
+    await dispatcher.invokeBot({
+      userId: ctx.user.id,
+      botId: BOT_ID,
+      conversationId: ctx.conversation.id,
+      message
+    });
+
+    const saved = JSON.parse(fs.readFileSync(path.join(hermesHome, "mia-scheduler-context.json"), "utf8"));
+    assert.deepEqual(saved, {
+      botId: BOT_ID,
+      conversationId: ctx.conversation.id,
+      sessionId: `conversation:${ctx.conversation.id}`,
+      originMessageId: message.id
+    });
+  } finally {
+    ctx.cleanup();
+    fs.rmSync(workerRoot, { recursive: true, force: true });
   }
 });
 

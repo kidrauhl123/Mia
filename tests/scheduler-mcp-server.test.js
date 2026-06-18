@@ -89,4 +89,10 @@ test("schedule_create injects botId from scheduler context", async (t) => {
   assert.equal(Object.prototype.hasOwnProperty.call(calls[0].body, "fellow" + "Id"), false);
   assert.equal(calls[0].body.sessionId, "conversation:botc_u1_bot_1");
   assert.equal(calls[0].body.originMessageId, "msg_1");
+  const text = result.result.content[0].text;
+  const payload = JSON.parse(text);
+  assert.equal(payload.taskId, "task_1");
+  assert.equal(payload.nextFireAt, new Date("2026-06-06T09:00:00+08:00").getTime());
+  assert.match(payload.nextFireAtLocal, /2026/);
+  assert.match(payload.nextFireAtLocal, /09:00/);
 });

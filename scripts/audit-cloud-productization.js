@@ -469,16 +469,16 @@ function runAudit({ rootDir = root } = {}) {
       checkFile(rootDir, "tests/cloud-sqlite-store.test.js"),
       checkSource(rootDir, "tests/bots-store.test.js", /listBots scopes to owner/, "cross-account bot scoping regression")
     ]),
-    item("cloud.durable-sqlite", "SQLite 持久化、迁移和 legacy JSON bootstrap", [
+    item("cloud.durable-sqlite", "SQLite 持久化、迁移和微信账号 bootstrap", [
       checkSource(rootDir, "src/cloud/sqlite-store.js", /DatabaseSync.*node:sqlite|node:sqlite[\s\S]*DatabaseSync/, "uses node:sqlite DatabaseSync"),
       checkSource(rootDir, "src/cloud/sqlite-store.js", /schema_migrations/, "schema migrations table"),
-      checkSource(rootDir, "src/cloud/sqlite-store.js", /importLegacyJsonIfNeeded/, "legacy JSON bootstrap"),
+      checkSource(rootDir, "src/cloud/sqlite-store.js", /CREATE TABLE IF NOT EXISTS wechat_accounts[\s\S]*idx_wechat_accounts_unionid/, "wechat account bootstrap"),
       checkSource(rootDir, "tests/event-log-store.test.js", /event_seq cache stays in lock-step/, "event log monotonic seq persistence")
     ]),
-    item("cloud.security-baseline", "安全基线：scrypt、会话哈希、所有权、限流、Origin/CORS/security headers", [
-      checkSource(rootDir, "src/cloud/sqlite-store.js", /scryptSync/, "scrypt password hashing"),
+    item("cloud.security-baseline", "安全基线：微信 OAuth、会话哈希、所有权、Origin/CORS/security headers", [
+      checkSource(rootDir, "src/cloud/wechat-auth.js", /verifyWechatMpSignature[\s\S]*randomState[\s\S]*DEFAULT_TTL_MS|DEFAULT_TTL_MS[\s\S]*randomState[\s\S]*verifyWechatMpSignature/, "wechat oauth state and signature checks"),
       checkSource(rootDir, "src/cloud/sqlite-store.js", /token_hash/, "hashed session tokens"),
-      checkSource(rootDir, "src/cloud/sqlite-store.js", /loginFailures|rateLimitKey/, "login failure rate limiting"),
+      checkSource(rootDir, "tests/serve-cloud-bridge.test.js", /wechat start uses service account OAuth QR[\s\S]*wechat OAuth callback fails instead of creating a fallback profile/, "wechat login regression tests"),
       checkSource(rootDir, "scripts/serve-cloud.js", /authenticated-files|applySecurityHeaders|MIA_CLOUD_ALLOWED_ORIGINS|isOriginAllowed/, "auth files and browser-origin controls"),
       checkSource(rootDir, "tests/serve-cloud-bridge.test.js", /cloud files require owner authentication/, "file ownership API test"),
       checkSource(rootDir, "tests/serve-cloud-bridge.test.js", /websocket auth rejects query token auth by default/, "query-token rejection test")
@@ -502,8 +502,8 @@ function runAudit({ rootDir = root } = {}) {
     ]),
     item("cloud.desktop-sync", "桌面端同账号云同步和 Bridge 自动接入", [
       checkSource(rootDir, "src/main.js", /cloudLogin|syncMiaCloudWorkspace|startCloudBridge/, "desktop login/sync/bridge IPC path"),
-      checkSource(rootDir, "src/main/cloud/desktop-sync-client.js", /pushAllBots[\s\S]*ensureBotConversation/, "desktop sync ensures stable bot cloud conversations"),
-      checkSource(rootDir, "tests/main-cloud-desktop-sync-client.test.js", /syncWorkspace syncs bot identity and stable conversations without reading local sessions/, "desktop sync no longer backfills local sessions on login"),
+      checkSource(rootDir, "src/main/cloud/desktop-sync-client.js", /async function syncWorkspace\(\)[\s\S]*cloudApi\("\/api\/me"\)[\s\S]*writeCloudSettings/, "desktop sync refreshes cloud account identity"),
+      checkSource(rootDir, "tests/main-cloud-desktop-sync-client.test.js", /syncWorkspace refreshes the cloud user without syncing local manifest bots/, "desktop sync no longer backfills local sessions on login"),
       checkSource(rootDir, "src/preload.js", /cloudStatus[\s\S]*cloudLogin[\s\S]*cloudSync|cloudLogin[\s\S]*cloudSync[\s\S]*cloudLogout/, "preload exposes cloud account actions"),
       checkSource(rootDir, "src/renderer/app.js", /sendInActiveConversation\(conversationText\b[\s\S]*?return;/, "renderer sends active cloud conversations through the unified social path"),
       checkSourceAbsent(rootDir, "src/renderer/app.js", /pushCloudMessageQuietly|cloudPushMessage/, "renderer does not mirror local sends through legacy cloud push"),

@@ -1749,6 +1749,105 @@ async function handleInternalModelProxy(req, res, context, url) {
   return handleMiaModelProxy(req, res, context, url, { userId, prefix });
 }
 
+function writeTaskError(res, error) {
+  const message = String(error?.message || error || "task error");
+  if (/not found/i.test(message)) writeError(res, 404, message);
+  else if (/not a member|own bots|only schedule/i.test(message)) writeError(res, 403, message);
+  else writeError(res, 400, message);
+  return true;
+}
+
+function internalUserIdFromRequest(req, context) {
+  const secret = String(context.internalModelProxyKey || process.env.MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY || "").trim();
+  const userId = verifyUserModelProxyToken ? verifyUserModelProxyToken(secret, bearerTokenFromRequest(req)) : null;
+  return userId && context.cloudStore.getUserPublic(userId) ? userId : "";
+}
+
+async function handleInternalTasks(req, res, context, url) {
+  const prefix = "/api/internal/tasks";
+  if (!url.pathname.startsWith(prefix)) return false;
+  const userId = internalUserIdFromRequest(req, context);
+  if (!userId) {
+    writeError(res, 401, "Invalid internal task token.");
+    return true;
+  }
+  const suffix = url.pathname.slice(prefix.length) || "";
+  if (req.method === "GET" && suffix === "") {
+    writeJson(res, 200, { tasks: context.cloudTasksService.list(userId) });
+    return true;
+  }
+  if (req.method === "POST" && suffix === "") {
+    try {
+      const body = await readJson(req);
+      const task = context.cloudTasksService.create(userId, body || {});
+      writeJson(res, 201, { task });
+      return true;
+    } catch (error) {
+      return writeTaskError(res, error);
+    }
+  }
+  const taskRouteMatch = suffix.match(/^\/([^/]+)(?:\/(run-now|pause|resume))?$/);
+  if (!taskRouteMatch) return false;
+  const taskId = taskRouteMatch[1];
+  const action = taskRouteMatch[2] || "";
+  if (req.method === "GET" && !action) {
+    const task = context.cloudTasksService.get(userId, taskId);
+    if (!task) {
+      writeError(res, 404, "task not found");
+      return true;
+    }
+    writeJson(res, 200, { task });
+    return true;
+  }
+  if (req.method === "PATCH" && !action) {
+    try {
+      const body = await readJson(req);
+      const task = context.cloudTasksService.update(userId, taskId, body || {});
+      writeJson(res, 200, { task });
+      return true;
+    } catch (error) {
+      return writeTaskError(res, error);
+    }
+  }
+  if (req.method === "DELETE" && !action) {
+    try {
+      const result = context.cloudTasksService.delete(userId, taskId);
+      writeJson(res, 200, result);
+      return true;
+    } catch (error) {
+      return writeTaskError(res, error);
+    }
+  }
+  if (req.method === "POST" && action === "run-now") {
+    try {
+      const result = await context.cloudTasksService.runNow(userId, taskId);
+      writeJson(res, 200, result);
+      return true;
+    } catch (error) {
+      return writeTaskError(res, error);
+    }
+  }
+  if (req.method === "POST" && action === "pause") {
+    try {
+      const task = context.cloudTasksService.pause(userId, taskId);
+      writeJson(res, 200, { task });
+      return true;
+    } catch (error) {
+      return writeTaskError(res, error);
+    }
+  }
+  if (req.method === "POST" && action === "resume") {
+    try {
+      const task = context.cloudTasksService.resume(userId, taskId);
+      writeJson(res, 200, { task });
+      return true;
+    } catch (error) {
+      return writeTaskError(res, error);
+    }
+  }
+  return false;
+}
+
 async function handleAdminModelGateway(req, res, context, url) {
   if (!requireAdmin(req, res, context)) return;
   if (req.method === "GET" && url.pathname === "/api/admin/model-usage-summary") {
@@ -2700,6 +2799,14 @@ async function handleRequest(req, res, context) {
       return;
     }
   }
+  if (url.pathname.startsWith("/api/internal/tasks")) {
+    try {
+      if (await handleInternalTasks(req, res, context, url)) return;
+    } catch (error) {
+      writeError(res, error.status || 500, error.message || "Internal task API failed.");
+      return;
+    }
+  }
 
   if (serveAvatarAsset(req, res, context, url.pathname)) return;
   if (serveStatusBadgeAsset(req, res, context, url.pathname)) return;
@@ -2771,20 +2878,13 @@ async function handleRequest(req, res, context) {
       return writeJson(res, 200, { tasks });
     }
 
-    const writeTaskError = (error) => {
-      const message = String(error?.message || error || "task error");
-      if (/not found/i.test(message)) return writeError(res, 404, message);
-      if (/not a member|own bots|only schedule/i.test(message)) return writeError(res, 403, message);
-      return writeError(res, 400, message);
-    };
-
     if (req.method === "POST" && url.pathname === "/api/tasks") {
       try {
         const body = await readJson(req);
         const task = context.cloudTasksService.create(auth.user.id, body || {});
         return writeJson(res, 201, { task });
       } catch (error) {
-        return writeTaskError(error);
+        return writeTaskError(res, error);
       }
     }
 
@@ -2803,7 +2903,7 @@ async function handleRequest(req, res, context) {
           const task = context.cloudTasksService.update(auth.user.id, taskId, body || {});
           return writeJson(res, 200, { task });
         } catch (error) {
-          return writeTaskError(error);
+          return writeTaskError(res, error);
         }
       }
       if (req.method === "DELETE" && !action) {
@@ -2811,7 +2911,7 @@ async function handleRequest(req, res, context) {
           const result = context.cloudTasksService.delete(auth.user.id, taskId);
           return writeJson(res, 200, result);
         } catch (error) {
-          return writeTaskError(error);
+          return writeTaskError(res, error);
         }
       }
       if (req.method === "POST" && action === "run-now") {
@@ -2819,7 +2919,7 @@ async function handleRequest(req, res, context) {
           const result = await context.cloudTasksService.runNow(auth.user.id, taskId);
           return writeJson(res, 200, result);
         } catch (error) {
-          return writeTaskError(error);
+          return writeTaskError(res, error);
         }
       }
       if (req.method === "POST" && action === "pause") {
@@ -2827,7 +2927,7 @@ async function handleRequest(req, res, context) {
           const task = context.cloudTasksService.pause(auth.user.id, taskId);
           return writeJson(res, 200, { task });
         } catch (error) {
-          return writeTaskError(error);
+          return writeTaskError(res, error);
         }
       }
       if (req.method === "POST" && action === "resume") {
@@ -2835,7 +2935,7 @@ async function handleRequest(req, res, context) {
           const task = context.cloudTasksService.resume(auth.user.id, taskId);
           return writeJson(res, 200, { task });
         } catch (error) {
-          return writeTaskError(error);
+          return writeTaskError(res, error);
         }
       }
     }

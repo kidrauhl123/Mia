@@ -33,9 +33,13 @@ function createTasksRoutes({ store, events, runNow, onChange }) {
     if (method === "POST" && url === "/api/tasks") {
       try {
         const task = store.create(body || {});
-        events.emit("created", { taskId: task.id, task });
+        const taskWithNextFire = {
+          ...task,
+          nextFireAt: computeNextFire(task.trigger, task.timezone, Date.now())
+        };
+        events.emit("created", { taskId: task.id, task: taskWithNextFire });
         onChange?.();
-        writeJSON(res, 201, { task });
+        writeJSON(res, 201, { task: taskWithNextFire });
       } catch (e) {
         writeJSON(res, 400, { error: String(e?.message || e) });
       }

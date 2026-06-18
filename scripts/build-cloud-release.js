@@ -563,6 +563,7 @@ function verifyRelease() {
     "api/packages/shared/session-history.js",
     "api/src/shared/skill-safety.js",
     "api/src/shared/agent-permissions.js",
+    "api/src/main/mia-runtime-context.js",
     "api/src/permission-modes.js",
     "api/skills/pdf/SKILL.md",
     "web/index.html",
@@ -610,6 +611,7 @@ function verifyRelease() {
     "hermes-image/mia_plugins/__init__.py",
     "hermes-image/mia_plugins/__main__.py",
     "hermes-image/mia_plugins/bot_overlay.py",
+    "hermes-image/mia_plugins/scheduler_mcp.py",
     "nginx/mia-websocket-map.conf",
     "nginx/mia-cloud-site.conf",
     "manifest.json"
@@ -650,6 +652,7 @@ function verifyRelease() {
     "api/packages/shared/session-history.js",
     "api/src/shared/skill-safety.js",
     "api/src/shared/agent-permissions.js",
+    "api/src/main/mia-runtime-context.js",
     "api/src/permission-modes.js",
     "web/app.js",
     "web/admin-model.js",
@@ -849,6 +852,7 @@ function main() {
   copyFile("packages/shared/session-history.js", path.join(apiDir, "packages", "shared", "session-history.js"));
   copyFile("src/shared/skill-safety.js", path.join(apiDir, "src", "shared", "skill-safety.js"));
   copyFile("src/shared/agent-permissions.js", path.join(apiDir, "src", "shared", "agent-permissions.js"));
+  copyFile("src/main/mia-runtime-context.js", path.join(apiDir, "src", "main", "mia-runtime-context.js"));
   copyFile("src/permission-modes.js", path.join(apiDir, "src", "permission-modes.js"));
   copyDir("skills", path.join(apiDir, "skills"));
   copyDir("src/web", webDir);

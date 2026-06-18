@@ -5,6 +5,7 @@ const path = require("node:path");
 const { test } = require("node:test");
 
 const { createMiaCloudServer } = require("../scripts/serve-cloud.js");
+const { createUserModelProxyToken } = require("../src/cloud/model-proxy-auth.js");
 const { loginCloudUser } = require("./helpers/cloud-auth.js");
 
 function tempDataDir() {
@@ -129,6 +130,50 @@ test("cloud tasks API creates account-scoped tasks and records run history", asy
       .map((event) => event.kind);
     assert.ok(kinds.includes("task.created"));
     assert.ok(kinds.includes("task.finished"));
+  } finally {
+    await close(server);
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("internal cloud task API accepts worker-scoped user tokens", async () => {
+  const dataDir = tempDataDir();
+  const server = createMiaCloudServer({
+    dataDir,
+    internalModelProxyKey: "internal-task-secret",
+    cloudAgentWorkerManager: {
+      async ensureWorker(userId) {
+        return { userId, baseUrl: "http://worker", apiKey: "worker-key" };
+      }
+    },
+    cloudAgentHermesClient: {
+      async runChat() {
+        return { runId: "hr_internal", content: "ok", events: [] };
+      }
+    }
+  });
+  const baseUrl = await listen(server);
+  try {
+    const account = loginCloudUser(server.mia.cloudStore, "internal_task_user");
+    const { conversation } = setupTaskOwner(server, account);
+    const token = createUserModelProxyToken("internal-task-secret", account.user.id);
+
+    const created = await jsonFetch(baseUrl, "/api/internal/tasks", token, {
+      method: "POST",
+      body: {
+        title: "吃饭提醒",
+        botId: "bot_tasker",
+        conversationId: conversation.id,
+        prompt: "提醒我吃饭。",
+        trigger: { type: "oneshot", at: new Date(Date.now() + 60_000).toISOString() },
+        timezone: "Asia/Shanghai"
+      }
+    });
+
+    assert.match(created.task.id, /^t-/);
+    assert.equal(created.task.conversationId, conversation.id);
+    const listed = await jsonFetch(baseUrl, "/api/internal/tasks", token);
+    assert.deepEqual(listed.tasks.map((task) => task.id), [created.task.id]);
   } finally {
     await close(server);
     fs.rmSync(dataDir, { recursive: true, force: true });

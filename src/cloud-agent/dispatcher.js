@@ -1,8 +1,11 @@
+const fs = require("node:fs");
+const path = require("node:path");
 const { parseAttachmentsFromMessage } = require("./attachment-materializer.js");
 const { createGroupOrchestrator } = require("./group-orchestrator.js");
 const { MemberKind } = require("../shared/conversation-kinds.js");
 const { CloudEvent } = require("../shared/cloud-events.js");
 const { decisionToHermesChoice } = require("../shared/agent-permissions.js");
+const { miaRuntimeSystemPrompt } = require("../main/mia-runtime-context.js");
 
 const BOT_MEMBER_KIND = "bot";
 const BOT_SENDER_KIND = "bot";
@@ -77,6 +80,34 @@ function inputWithConversationContext(input, { conversationType, members, bots, 
   return conversationType === "group"
     ? inputWithGroupContext(input, members, bots, bot)
     : inputWithPrivateContext(input, bot);
+}
+
+function isScheduledFireMessage(message = {}) {
+  return String(message.turn_id || message.turnId || "").startsWith("task:");
+}
+
+function cloudRuntimeInstructions(bot, message = {}) {
+  return [
+    miaRuntimeSystemPrompt({ scheduledFire: isScheduledFireMessage(message) }),
+    String(bot?.personaText || bot?.persona_text || "").trim()
+  ].filter(Boolean).join("\n\n");
+}
+
+function writeSchedulerContext(worker = {}, context = {}) {
+  const hermesHome = String(worker?.paths?.hermesHome || "").trim();
+  if (!hermesHome) return false;
+  fs.mkdirSync(hermesHome, { recursive: true });
+  fs.writeFileSync(
+    path.join(hermesHome, "mia-scheduler-context.json"),
+    JSON.stringify({
+      botId: String(context.botId || ""),
+      conversationId: String(context.conversationId || ""),
+      sessionId: String(context.sessionId || ""),
+      originMessageId: String(context.originMessageId || "")
+    }, null, 2) + "\n",
+    { mode: 0o600 }
+  );
+  return true;
 }
 
 function selectedSkillIdsFromMessage(message) {
@@ -399,6 +430,16 @@ function createCloudAgentDispatcher(deps = {}) {
     });
     try {
       const worker = await workerManager.ensureWorker(ownerId);
+      try {
+        writeSchedulerContext(worker, {
+          botId,
+          conversationId,
+          sessionId: `conversation:${conversationId}`,
+          originMessageId: message.id
+        });
+      } catch (error) {
+        log(`[cloud-agent] failed to write scheduler context: ${error?.message || error}`);
+      }
       const materialized = attachmentMaterializer
         ? attachmentMaterializer.materialize({
           userId: ownerId,
@@ -414,6 +455,7 @@ function createCloudAgentDispatcher(deps = {}) {
         userId: ownerId,
         bot,
         conversationId,
+        instructions: cloudRuntimeInstructions(bot, message),
         model: runtimeConfig.model || "mia-default",
         effortLevel: runtimeConfig.effortLevel || "medium",
         permissionMode: runtimeConfig.permissionMode || "ask",

@@ -62,6 +62,49 @@ function daemonFetch(method, urlPath, body) {
   });
 }
 
+function nextFireForTask(task = {}) {
+  if (Number.isFinite(Number(task.nextFireAt))) return Number(task.nextFireAt);
+  if (task.trigger?.type === "oneshot") {
+    const at = new Date(task.trigger.at).getTime();
+    return Number.isNaN(at) ? null : at;
+  }
+  return null;
+}
+
+function formatLocalFireTime(ms, timezone = "Asia/Shanghai") {
+  const at = Number(ms);
+  if (!Number.isFinite(at)) return "";
+  const tz = String(timezone || "Asia/Shanghai");
+  try {
+    return new Intl.DateTimeFormat("zh-CN", {
+      timeZone: tz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23"
+    }).format(new Date(at));
+  } catch {
+    return new Date(at).toISOString();
+  }
+}
+
+function taskToolPayload(task = {}) {
+  const nextFireAt = nextFireForTask(task);
+  const timezone = String(task.timezone || "Asia/Shanghai");
+  return {
+    task: {
+      ...task,
+      ...(nextFireAt == null ? {} : { nextFireAt }),
+      ...(nextFireAt == null ? {} : { nextFireAtLocal: formatLocalFireTime(nextFireAt, timezone) })
+    },
+    ...(nextFireAt == null ? {} : { nextFireAt }),
+    ...(nextFireAt == null ? {} : { nextFireAtLocal: formatLocalFireTime(nextFireAt, timezone) }),
+    timezone
+  };
+}
+
 // Tool schemas exposed to the AI (minimal — context fields injected server-side)
 const TOOLS = [
   {
@@ -177,7 +220,7 @@ async function callTool(name, args) {
       };
       const { status, body } = await daemonFetch("POST", "/api/tasks", payload);
       if (status !== 201) throw new Error(body?.error || `Daemon returned ${status}`);
-      return { taskId: body.task?.id, task: body.task };
+      return { taskId: body.task?.id, ...taskToolPayload(body.task) };
     }
     case "schedule_list": {
       const { status, body } = await daemonFetch("GET", "/api/tasks", null);

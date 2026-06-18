@@ -43,13 +43,15 @@ function createHermesWorkerManager(options = {}) {
   const execFile = options.execFile || promisify(execFileCb);
   const containerPort = Number(options.containerPort || process.env.MIA_CLOUD_HERMES_CONTAINER_PORT || 8765);
   const internalModelProxyKey = String(options.internalModelProxyKey || process.env.MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY || "").trim();
+  const publicUrl = cleanBaseUrl(options.publicUrl || process.env.MIA_CLOUD_PUBLIC_URL || "");
   const internalModelBaseUrl = cleanBaseUrl(
     options.internalModelBaseUrl
       || process.env.MIA_INTERNAL_MODEL_BASE_URL
-      || (internalModelProxyKey && (options.publicUrl || process.env.MIA_CLOUD_PUBLIC_URL)
-        ? `${cleanBaseUrl(options.publicUrl || process.env.MIA_CLOUD_PUBLIC_URL)}/api/internal/model-proxy/v1`
+      || (internalModelProxyKey && publicUrl
+        ? `${publicUrl}/api/internal/model-proxy/v1`
         : "")
   );
+  const internalTasksUrl = internalModelProxyKey && publicUrl ? `${publicUrl}/api/internal/tasks` : "";
   const modelProvider = String(options.modelProvider || process.env.MIA_CLOUD_AGENT_MODEL_PROVIDER || (internalModelBaseUrl ? "mia" : "mia-litellm")).trim();
   const model = String(options.model || process.env.MIA_CLOUD_AGENT_MODEL || "mia-default").trim();
   const modelBaseUrl = String(options.modelBaseUrl || internalModelBaseUrl || process.env.MIA_CLOUD_AGENT_MODEL_BASE_URL || "http://litellm:4000/v1").trim();
@@ -99,7 +101,25 @@ function createHermesWorkerManager(options = {}) {
     return env;
   }
 
-  function renderHermesConfig() {
+  function renderSchedulerMcpConfig(userId) {
+    const token = createUserModelProxyToken(internalModelProxyKey, userId);
+    if (!internalTasksUrl || !token) return [];
+    return [
+      "mcp_servers:",
+      "  mia-scheduler:",
+      "    command: \"python\"",
+      "    args:",
+      "      - \"-m\"",
+      "      - \"mia_plugins.scheduler_mcp\"",
+      "    env:",
+      `      MIA_CLOUD_TASKS_URL: ${JSON.stringify(internalTasksUrl)}`,
+      `      MIA_CLOUD_TASKS_TOKEN: ${JSON.stringify(token)}`,
+      "      MIA_SCHEDULER_CONTEXT_FILE: \"/data/hermes-home/mia-scheduler-context.json\"",
+      ""
+    ];
+  }
+
+  function renderHermesConfig(userId = "") {
     const lines = [
       "model:",
       `  provider: ${JSON.stringify(modelProvider)}`,
@@ -134,7 +154,10 @@ function createHermesWorkerManager(options = {}) {
       "",
       "agent:",
       "  reasoning_effort: \"medium\"",
+      "  disabled_toolsets:",
+      "    - cronjob",
       "",
+      ...renderSchedulerMcpConfig(userId),
       "mia:",
       "  runtime_schema: 1",
       ""
@@ -143,7 +166,7 @@ function createHermesWorkerManager(options = {}) {
   }
 
   function writeHermesConfig(paths) {
-    atomicWriteFile(path.join(paths.hermesHome, "config.yaml"), renderHermesConfig(), 0o600);
+    atomicWriteFile(path.join(paths.hermesHome, "config.yaml"), renderHermesConfig(paths.userId), 0o600);
   }
 
   function ensureUserDirs(userId) {

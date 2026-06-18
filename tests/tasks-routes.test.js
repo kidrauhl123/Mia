@@ -66,6 +66,22 @@ test("POST /api/tasks creates and emits 'created'", async () => {
   assert.ok(events.some((e) => e.type === "created"));
 });
 
+test("POST /api/tasks returns nextFireAt for created one-shot tasks", async () => {
+  const c = ctx();
+  const at = new Date(Date.now() + 60_000).toISOString();
+  const res = mkRes();
+  await c.routes.handle(
+    { method: "POST", url: "/api/tasks" },
+    res,
+    {
+      title: "x", botId: "f", sessionId: "s",
+      trigger: { type: "oneshot", at }, timezone: "Asia/Shanghai", prompt: "p"
+    }
+  );
+  const body = JSON.parse(res.body);
+  assert.equal(body.task.nextFireAt, new Date(at).getTime());
+});
+
 test("POST /api/tasks/:id/run-now triggers runNow", async () => {
   const c = ctx();
   const t = c.store.create({

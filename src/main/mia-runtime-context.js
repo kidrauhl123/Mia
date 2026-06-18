@@ -5,7 +5,7 @@ const MIA_RUNTIME_CONTEXT = [
   "",
   "Mia 定时任务规则：用户要求提醒、定时、倒计时、闹钟、每天/每周/每月周期任务，或管理活跃任务时，必须优先使用 Mia scheduler MCP 工具：schedule_create、schedule_list、schedule_update、schedule_delete、schedule_pause、schedule_resume。",
   "",
-  "不要使用 shell、sleep、at、osascript、cron、launchd 或本地临时命令来冒充 Mia 定时任务；这些不会出现在 Mia 的活跃任务里。",
+  "不要使用名为 cronjob 的工具，也不要使用 shell、sleep、at、osascript、cron、launchd 或本地临时命令来冒充 Mia 定时任务；这些不会出现在 Mia 的活跃任务里。",
   "",
   "如果本轮没有可用的 schedule_* 工具，或工具调用失败，请直接告诉用户 Mia 定时任务工具当前不可用，并说明没有创建任务。"
 ].join("\n");

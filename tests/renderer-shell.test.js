@@ -210,7 +210,7 @@ test("narrow desktop shell collapses the expanded rail into one content column",
   assert.match(css, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.composer\s*\{[\s\S]*?padding:\s*8px 12px 14px;/);
   assert.match(css, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.model-switcher\s*\{[\s\S]*?max-width:\s*112px;/);
   assert.match(chatCss, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.bubble,\s*\.message-stack\s*\{[\s\S]*?max-width:\s*min\(100%, 560px\);/);
-  assert.match(chatCss, /@media\s*\(max-width:\s*520px\)\s*\{[\s\S]*?\.message \.avatar\s*\{[\s\S]*?display:\s*none;/);
+  assert.match(chatCss, /@media\s*\(max-width:\s*520px\)\s*\{[\s\S]*?\.message:not\(\.group-message\)\s+\.avatar\s*\{[\s\S]*?display:\s*none;/);
 });
 
 test("narrow navigation and composer send use static svg icons", () => {
