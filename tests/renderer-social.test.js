@@ -1735,6 +1735,7 @@ test("renderConversationChat renders group sender status badge", () => {
   s.renderConversationChat(chat);
 
   assert.equal(chat.children.length, 1);
+  assert.match(chat.children[0].className, /\bgroup-message\b/);
   assert.match(chat.children[0].innerHTML, /name-with-badge/);
   assert.match(chat.children[0].innerHTML, /name-with-badge-badge-emoji/);
   assert.match(chat.children[0].innerHTML, /⭐/);

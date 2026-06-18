@@ -157,6 +157,10 @@
     return presets[appearance.fontPreset || "system"] || presets.system;
   }
 
+  function avatarToggleEnabled(value) {
+    return value === true;
+  }
+
   function applyAppearance(appearance = {}) {
     const theme = appearance.theme === "dark" ? "dark" : "light";
     const accentColor = normalizeHexColor(appearance.accentColor);
@@ -173,8 +177,8 @@
     document.documentElement.dataset.theme = theme;
     document.documentElement.dataset.selectionStyle = selectionStyle;
     document.documentElement.dataset.hoverBackground = appearance.showHoverBackground === false ? "false" : "true";
-    document.documentElement.dataset.showUserAvatar = appearance.showUserAvatar === false ? "false" : "true";
-    document.documentElement.dataset.showAssistantAvatar = appearance.showAssistantAvatar === false ? "false" : "true";
+    document.documentElement.dataset.showUserAvatar = avatarToggleEnabled(appearance.showUserAvatar) ? "true" : "false";
+    document.documentElement.dataset.showAssistantAvatar = avatarToggleEnabled(appearance.showAssistantAvatar) ? "true" : "false";
     document.documentElement.style.setProperty("--app-font", fontStackForAppearance(appearance));
     document.documentElement.style.setProperty("--accent", accentColor);
     document.documentElement.style.setProperty("--accent-rgb", `${rgb.r} ${rgb.g} ${rgb.b}`);
@@ -222,8 +226,8 @@
       accentColor: normalizeHexColor(controls.appearanceAccentColor?.value),
       userBubbleColor: normalizeHexColor(controls.appearanceUserBubbleColor?.value, defaultUserBubbleColor()),
       showHoverBackground: controls.appearanceShowHoverBackground?.getAttribute("aria-checked") !== "false",
-      showUserAvatar: controls.appearanceShowUserAvatar?.getAttribute("aria-checked") !== "false",
-      showAssistantAvatar: controls.appearanceShowAssistantAvatar?.getAttribute("aria-checked") !== "false",
+      showUserAvatar: controls.appearanceShowUserAvatar?.getAttribute("aria-checked") === "true",
+      showAssistantAvatar: controls.appearanceShowAssistantAvatar?.getAttribute("aria-checked") === "true",
       listStyle: "card",
       selectionStyle: normalizeSelectionStyle(controls.appearanceSelectionStyle?.value),
       workspaceBackgroundColor,
@@ -308,8 +312,8 @@
     }
     if (controls.appearanceWorkspaceBackgroundImageClear) controls.appearanceWorkspaceBackgroundImageClear.disabled = !workspaceBackgroundImage;
     setSettingsSwitch(controls.appearanceShowHoverBackground, appearance.showHoverBackground !== false);
-    setSettingsSwitch(controls.appearanceShowUserAvatar, appearance.showUserAvatar !== false);
-    setSettingsSwitch(controls.appearanceShowAssistantAvatar, appearance.showAssistantAvatar !== false);
+    setSettingsSwitch(controls.appearanceShowUserAvatar, avatarToggleEnabled(appearance.showUserAvatar));
+    setSettingsSwitch(controls.appearanceShowAssistantAvatar, avatarToggleEnabled(appearance.showAssistantAvatar));
   }
 
   function resetWorkspaceBackground() {

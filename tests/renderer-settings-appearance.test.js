@@ -138,6 +138,26 @@ test("applyAppearance writes card and soft choices to document state", () => {
   assert.equal(styleValues.get("--list-active-text"), "#318ad3");
 });
 
+test("appearance avatar toggles default off unless explicitly enabled", () => {
+  const controls = appearanceControls();
+  const { api, documentElement } = loadAppearanceModule({ els: controls });
+
+  api.applyAppearance({});
+
+  assert.equal(documentElement.dataset.showUserAvatar, "false");
+  assert.equal(documentElement.dataset.showAssistantAvatar, "false");
+
+  api.syncAppearanceControls({});
+
+  assert.equal(controls.appearanceShowUserAvatar.getAttribute("aria-checked"), "false");
+  assert.equal(controls.appearanceShowAssistantAvatar.getAttribute("aria-checked"), "false");
+
+  api.applyAppearance({ showUserAvatar: true, showAssistantAvatar: true });
+
+  assert.equal(documentElement.dataset.showUserAvatar, "true");
+  assert.equal(documentElement.dataset.showAssistantAvatar, "true");
+});
+
 test("applyAppearance writes bottom board color and image variables", () => {
   const { api, styleValues } = loadAppearanceModule();
 
@@ -338,6 +358,11 @@ test("desktop appearance settings no longer expose the middle list style switch"
   assert.doesNotMatch(htmlSource, /appearanceListStyle/);
   assert.doesNotMatch(appSource, /appearanceListStyle/);
   assert.doesNotMatch(cssSource, /data-list-style="flush"/);
+});
+
+test("desktop avatar display switches are initially off", () => {
+  assert.match(htmlSource, /id="appearanceShowUserAvatar"[^>]*aria-checked="false"/);
+  assert.match(htmlSource, /id="appearanceShowAssistantAvatar"[^>]*aria-checked="false"/);
 });
 
 test("desktop appearance settings do not expose removed font presets", () => {

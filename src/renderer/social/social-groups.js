@@ -194,7 +194,7 @@
     }
 
     const article = document.createElement("article");
-    article.className = `message ${roleClass}`;
+    article.className = `message ${roleClass} group-message`;
     if (typeof article.setAttribute === "function") {
       article.setAttribute("data-message-id", msg.id || "");
     } else {

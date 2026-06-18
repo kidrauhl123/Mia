@@ -58,6 +58,15 @@ test("appearanceSettings merges saved appearance over defaults", (t) => {
   });
 });
 
+test("appearanceSettings defaults both chat avatar toggles off", (t) => {
+  const { store } = setup(t);
+
+  const appearance = store.appearanceSettings();
+
+  assert.equal(appearance.showUserAvatar, false);
+  assert.equal(appearance.showAssistantAvatar, false);
+});
+
 test("appearanceSettings falls back from removed font presets", (t) => {
   const { runtime, store } = setup(t);
   fs.mkdirSync(path.dirname(runtime.appearanceSettings), { recursive: true });
@@ -97,7 +106,7 @@ test("writeAppearanceSettings validates choices, colors, and boolean toggles", (
     accentColor: "#aabbcc",
     userBubbleColor: "#dedcff",
     showHoverBackground: false,
-    showUserAvatar: true,
+    showUserAvatar: false,
     showAssistantAvatar: false,
     listStyle: "card",
     selectionStyle: "solid",

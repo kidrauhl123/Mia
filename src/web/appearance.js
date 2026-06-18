@@ -17,8 +17,8 @@
     hoverBackground: true,
     accentColor: DEFAULT_ACCENT,
     userBubbleColor: DEFAULT_USER_BUBBLE,
-    showUserAvatar: true,
-    showAssistantAvatar: true,
+    showUserAvatar: false,
+    showAssistantAvatar: false,
     workspaceBackgroundColor: "",
     workspaceBackgroundImage: ""
   };
@@ -55,8 +55,8 @@
     root.dataset.theme = next.theme === "dark" ? "dark" : "light";
     root.dataset.selectionStyle = next.selectionStyle === "solid" ? "solid" : "soft";
     root.dataset.hoverBackground = next.hoverBackground ? "on" : "off";
-    root.dataset.showUserAvatar = next.showUserAvatar ? "on" : "off";
-    root.dataset.showAssistantAvatar = next.showAssistantAvatar ? "on" : "off";
+    root.dataset.showUserAvatar = next.showUserAvatar === true ? "on" : "off";
+    root.dataset.showAssistantAvatar = next.showAssistantAvatar === true ? "on" : "off";
     if (next.accentColor) {
       root.style.setProperty("--accent", next.accentColor);
       const rgb = hexToRgbTriplet(next.accentColor);

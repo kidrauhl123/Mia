@@ -36,7 +36,7 @@
   color: #fff;
 }
 :root[data-show-user-avatar="off"] .chat .message.user .avatar,
-:root[data-show-assistant-avatar="off"] .chat .message.assistant .avatar {
+:root[data-show-assistant-avatar="off"] .chat .message.assistant:not(.group-message) .avatar {
   display: none !important;
 }
 .chat .message.user .bubble {
