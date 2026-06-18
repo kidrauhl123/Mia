@@ -2000,8 +2000,8 @@ function normalizeTurnRuntimeConfig(runtimeConfig = null) {
   if (!runtimeConfig || typeof runtimeConfig !== "object") return {};
   const config = {};
   const model = String(runtimeConfig.model || "").trim();
-  const effortLevel = String(runtimeConfig.effortLevel || "").trim();
-  const permissionMode = String(runtimeConfig.permissionMode || "").trim();
+  const effortLevel = String(runtimeConfig.effortLevel || runtimeConfig.effort_level || "").trim();
+  const permissionMode = String(runtimeConfig.permissionMode || runtimeConfig.permission_mode || "").trim();
   if (model) config.model = model;
   if (effortLevel) config.effortLevel = effortLevel;
   if (permissionMode) config.permissionMode = permissionMode;

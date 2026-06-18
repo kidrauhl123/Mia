@@ -1032,8 +1032,14 @@
       removePermissionRequestById(requestId);
       renderAgentPermissionBanner();
     } catch (error) {
+      const message = String(error?.message || error || "");
+      if (/permission request not found|权限申请未找到/i.test(message)) {
+        removePermissionRequestById(requestId);
+        renderAgentPermissionBanner();
+        return;
+      }
       buttons.forEach((item) => { item.disabled = false; });
-      deps?.appendTransientChat?.("assistant", error?.message || String(error || "权限审批失败"));
+      deps?.appendTransientChat?.("assistant", message || "权限审批失败");
     } finally {
       _permissionDecisionInFlight.delete(requestId);
     }

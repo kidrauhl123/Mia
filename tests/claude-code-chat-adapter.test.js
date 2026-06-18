@@ -2,6 +2,7 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const {
   claudeMessageText,
+  claudePermissionModeForTurn,
   createClaudeCodeChatAdapter,
   normalizeClaudePermissionMode
 } = require("../src/main/claude-code-chat-adapter.js");
@@ -50,7 +51,26 @@ function createDeps(messages, overrides = {}) {
 
 test("normalizeClaudePermissionMode preserves supported modes", () => {
   assert.equal(normalizeClaudePermissionMode("bypassPermissions"), "bypassPermissions");
+  assert.equal(normalizeClaudePermissionMode(":danger-full-access"), "bypassPermissions");
+  assert.equal(normalizeClaudePermissionMode("yolo"), "bypassPermissions");
   assert.equal(normalizeClaudePermissionMode("nope"), "default");
+});
+
+test("claudePermissionModeForTurn prefers runtime config over stale bot config", () => {
+  assert.equal(
+    claudePermissionModeForTurn(
+      { engineConfig: { permissionMode: "default" } },
+      { permissionMode: "bypassPermissions" }
+    ),
+    "bypassPermissions"
+  );
+  assert.equal(
+    claudePermissionModeForTurn(
+      { engine_config: { permission_mode: "default" } },
+      { permission_mode: ":danger-full-access" }
+    ),
+    "bypassPermissions"
+  );
 });
 
 test("claudeMessageText extracts nested assistant text", () => {
@@ -404,6 +424,37 @@ test("sendChat wires Claude tool permission requests through coordinator", async
   assert.equal(permissionCalls[0].sessionId, "s1");
   assert.equal(permissionCalls[0].toolName, "Bash");
   assert.equal(typeof permissionCalls[0].emit, "function");
+});
+
+test("sendChat does not show Mia permission prompts when runtime config is bypass", async () => {
+  const permissionCalls = [];
+  const deps = createDeps([
+    { type: "assistant", message: { content: [{ text: "ok" }] } }
+  ]);
+  deps.permissionCoordinator = {
+    requestPermission: async (payload) => {
+      permissionCalls.push(payload);
+      return { decision: "allow", scope: "always" };
+    }
+  };
+  const adapter = createClaudeCodeChatAdapter(deps);
+
+  await adapter.sendChat({
+    bot: { key: "alice", name: "Alice", bio: "", engineConfig: { permissionMode: "default" } },
+    sessionId: "s1",
+    messages: [{ role: "user", content: "hello" }],
+    signal: null,
+    abortController: {},
+    emit: () => {},
+    utility: false,
+    runtimeConfig: { permissionMode: "bypassPermissions" }
+  });
+
+  const queryCall = deps.calls.find((call) => call[0] === "query")[1];
+  assert.equal(queryCall.options.permissionMode, "bypassPermissions");
+  assert.equal(queryCall.options.allowDangerouslySkipPermissions, true);
+  assert.equal(queryCall.options.canUseTool, undefined);
+  assert.deepEqual(permissionCalls, []);
 });
 
 test("sendStateless uses prompt without persona append or resume", async () => {

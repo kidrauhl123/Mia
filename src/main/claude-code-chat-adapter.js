@@ -29,8 +29,24 @@ function claudeMessageText(message) {
 
 function normalizeClaudePermissionMode(value) {
   const id = String(value || "default").trim();
+  if ([":danger-full-access", "danger-full-access", "yolo", "off", "never"].includes(id)) return "bypassPermissions";
   if (["default", "acceptEdits", "auto", "bypassPermissions", "plan", "dontAsk"].includes(id)) return id;
   return "default";
+}
+
+function claudePermissionModeForTurn(bot = {}, runtimeConfig = null) {
+  return normalizeClaudePermissionMode(
+    runtimeConfig?.permissionMode
+      || runtimeConfig?.permission_mode
+      || bot.engineConfig?.permissionMode
+      || bot.engine_config?.permissionMode
+      || bot.engine_config?.permission_mode
+      || bot.runtimeConfig?.permissionMode
+      || bot.runtime_config?.permissionMode
+      || bot.runtime_config?.permission_mode
+      || bot.agentPermissionMode
+      || "default"
+  );
 }
 
 function envWithExecutableDirFirst(env = {}, executablePath = "") {
@@ -121,7 +137,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
   const randomUUID = deps.randomUUID || (() => crypto.randomUUID());
   const cwd = deps.cwd || (() => process.cwd());
 
-  async function sendChat({ bot, sessionId, messages, group, signal, abortController, emit, utility = false, scheduledFire = false, persistAgentSession = !utility }) {
+  async function sendChat({ bot, sessionId, messages, group, signal, abortController, emit, utility = false, scheduledFire = false, persistAgentSession = !utility, runtimeConfig = null }) {
     const engine = "claude-code";
     const shouldPersistAgentSession = Boolean(persistAgentSession);
     const commandPath = shellCommandPath("claude");
@@ -185,7 +201,7 @@ function createClaudeCodeChatAdapter(deps = {}) {
       tools: { type: "preset", preset: "claude_code" },
       disallowedTools: schedulerDisallowedTools(),
       settingSources: ["project", "user", "local"],
-      permissionMode: normalizeClaudePermissionMode(bot.engineConfig?.permissionMode || bot.agentPermissionMode || "default"),
+      permissionMode: claudePermissionModeForTurn(bot, runtimeConfig),
       systemPrompt: {
         type: "preset",
         preset: "claude_code",
@@ -400,5 +416,6 @@ function createClaudeCodeChatAdapter(deps = {}) {
 module.exports = {
   claudeMessageText,
   createClaudeCodeChatAdapter,
+  claudePermissionModeForTurn,
   normalizeClaudePermissionMode
 };

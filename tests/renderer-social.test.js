@@ -2064,6 +2064,36 @@ test("successful permission decision removes the pending banner after one click"
   assert.deepEqual(disabled.map((button) => button.disabled), [true, true]);
 });
 
+test("stale permission decision clears the banner instead of posting an error", async () => {
+  const disabled = [];
+  const banner = {
+    dataset: { requestId: "perm_stale" },
+    addEventListener() {},
+    classList: { add() {}, remove() {}, contains() { return false; } },
+    set innerHTML(value) { this._html = value; },
+    get innerHTML() { return this._html || ""; },
+    querySelectorAll(selector) {
+      assert.equal(selector, "button[data-permission-decision]");
+      return disabled;
+    }
+  };
+  let transient = "";
+  const s = loadSocial({ elementsById: { agentPermissionBanner: banner } });
+  disabled.push({ disabled: false }, { disabled: false });
+  s.__mockWindow.mia.respondChatPermission = async () => ({ ok: false, error: "permission request not found" });
+  s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: (_role, text) => { transient = text; } });
+  s.moduleState.activeConversationId = "botc_u_a_mia";
+  const run = s._internalCtx.cloudRunFor("botc_u_a_mia", "car_perm");
+  s._internalCtx.addRunPermission(run, { requestId: "perm_stale", title: "Codex 想执行命令" });
+  s._internalCtx.renderAgentPermissionBanner();
+
+  await s._internalCtx.submitPermissionDecision({ dataset: { permissionDecision: "allow_once" } });
+
+  assert.equal(run.pendingPermissions.length, 0);
+  assert.equal(s.moduleState.pendingPermissionsById.has("perm_stale"), false);
+  assert.equal(transient, "");
+});
+
 test("permission decision handles primary pointerdown before click fallback", async () => {
   const listeners = {};
   const disabled = [];
