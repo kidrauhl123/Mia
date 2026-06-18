@@ -50,6 +50,12 @@ jobs:
 
       - name: Deploy desktop update artifacts through company JumpServer
         run: |
+          export SSH_ASKPASS="$PWD/scripts/jms-askpass.sh"
+          export SSH_ASKPASS_REQUIRE=force
+          if ! ssh -O check mia-jms-deploy >/dev/null 2>&1; then
+            ssh -MNf mia-jms-deploy
+          fi
+          ssh mia-jms-deploy 'true' >/dev/null
           if [ -f release/latest-mac.yml ]; then
             MIA_UPDATE_DEPLOY=1 MIA_DEPLOY_REMOTE=mia-jms-deploy node scripts/publish-mac-update.js
           fi
