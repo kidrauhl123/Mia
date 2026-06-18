@@ -132,12 +132,16 @@
   // Distance (px) from the bottom within which we treat the user as "pinned" and
   // keep following new content. Mirrors the bot-chat threshold in app.js.
   const SCROLL_STICK_THRESHOLD_PX = 80;
+  const SCROLL_LAYOUT_SETTLE_FRAMES = 14;
+  const SCROLL_LAYOUT_OBSERVER_TIMEOUT_MS = 2200;
   const MESSAGE_FOCUS_PENDING_TTL_MS = 10000;
   const MESSAGE_FOCUS_HIGHLIGHT_MS = 2200;
   // Which conversation renderConversationChat last painted — a change means the user switched
   // conversations, so we land at the bottom instead of preserving the old offset.
   let _lastRenderedConversationId = null;
+  let _lastRenderedConversationMessageCount = 0;
   let _pendingMessageFocus = null;
+  const _chatBottomStickSessions = new WeakMap();
 
   function jsonSignature(value) {
     try {
@@ -213,6 +217,7 @@
 
   function chatRenderSignatureFor(conversationId) {
     const entry = moduleState.messageCache.get(conversationId) || { messages: [], maxSeq: 0 };
+    const messages = Array.isArray(entry.messages) ? entry.messages : [];
     const conversation = moduleState.conversations.find((r) => r.id === conversationId);
     const type = conversationTypeFor(conversation, conversationId);
     const members = (type === "group" || type === "bot") ? (_conversationMembersCache.get(conversationId) || []) : [];
@@ -221,7 +226,7 @@
       maxSeq: entry.maxSeq || 0,
       conversation: conversationSignature(conversation),
       members: members.map(memberSignature),
-      messages: (entry.messages || []).map(messageSignature),
+      messages: messages.map(messageSignature),
       stream: streamSignature(moduleState.cloudAgentRunsByConversation.get(conversationId))
     });
   }
@@ -837,18 +842,120 @@
     return chatEl.scrollHeight - chatEl.scrollTop - chatEl.clientHeight < SCROLL_STICK_THRESHOLD_PX;
   }
 
-  function scheduleChatBottomStick(chatEl, expectedScrollTop) {
-    if (!chatEl) return;
+  function scheduleFrame(fn) {
     const schedule = typeof global.requestAnimationFrame === "function"
       ? global.requestAnimationFrame.bind(global)
       : (fn) => setTimeout(fn, 16);
-    schedule(() => {
-      if (!chatEl) return;
-      const currentTop = Number(chatEl.scrollTop) || 0;
-      const expectedTop = Number(expectedScrollTop) || 0;
-      if (Math.abs(currentTop - expectedTop) > 1 && !isChatNearBottom(chatEl)) return;
+    return schedule(fn);
+  }
+
+  function bottomStickUserMovedAway(chatEl, expectedScrollTop) {
+    const currentTop = Number(chatEl?.scrollTop) || 0;
+    const expectedTop = Number(expectedScrollTop) || 0;
+    return Math.abs(currentTop - expectedTop) > 1 && !isChatNearBottom(chatEl);
+  }
+
+  function stopChatBottomStickSession(chatEl, session = _chatBottomStickSessions.get(chatEl)) {
+    if (!chatEl || !session) return;
+    session.active = false;
+    try { session.resizeObserver?.disconnect?.(); } catch (_) {}
+    try { session.mutationObserver?.disconnect?.(); } catch (_) {}
+    if (session.scrollHandler && typeof chatEl.removeEventListener === "function") {
+      chatEl.removeEventListener("scroll", session.scrollHandler);
+    }
+    const clearTimer = typeof global.clearTimeout === "function"
+      ? global.clearTimeout.bind(global)
+      : (typeof clearTimeout === "function" ? clearTimeout : null);
+    if (clearTimer && session.timeoutId) clearTimer(session.timeoutId);
+    _chatBottomStickSessions.delete(chatEl);
+  }
+
+  function observeChatBottomStickChildren(chatEl, session) {
+    if (!session?.resizeObserver || !chatEl?.children) return;
+    for (const child of Array.from(chatEl.children)) {
+      if (!child || session.observedChildren.has(child)) continue;
+      session.observedChildren.add(child);
+      try { session.resizeObserver.observe(child); } catch (_) {}
+    }
+  }
+
+  function installChatBottomStickObservers(chatEl, session) {
+    if (!chatEl || !session || session.observersInstalled) return;
+    session.observersInstalled = true;
+    const resync = () => {
+      observeChatBottomStickChildren(chatEl, session);
+      scheduleChatBottomStickStep(chatEl, session);
+    };
+    if (typeof global.ResizeObserver === "function") {
+      session.observedChildren = new Set();
+      session.resizeObserver = new global.ResizeObserver(resync);
+      observeChatBottomStickChildren(chatEl, session);
+    }
+    if (typeof global.MutationObserver === "function") {
+      session.mutationObserver = new global.MutationObserver(resync);
+      try { session.mutationObserver.observe(chatEl, { childList: true, subtree: true }); } catch (_) {}
+    }
+    if (typeof chatEl.addEventListener === "function") {
+      session.scrollHandler = () => {
+        if (bottomStickUserMovedAway(chatEl, session.expectedScrollTop)) {
+          stopChatBottomStickSession(chatEl, session);
+        }
+      };
+      chatEl.addEventListener("scroll", session.scrollHandler, { passive: true });
+    }
+    const setTimer = typeof global.setTimeout === "function"
+      ? global.setTimeout.bind(global)
+      : (typeof setTimeout === "function" ? setTimeout : null);
+    if (setTimer) {
+      session.timeoutId = setTimer(() => stopChatBottomStickSession(chatEl, session), SCROLL_LAYOUT_OBSERVER_TIMEOUT_MS);
+    }
+  }
+
+  function scheduleChatBottomStickStep(chatEl, session) {
+    if (!chatEl || !session?.active || session.framePending) return;
+    session.framePending = true;
+    scheduleFrame(() => {
+      session.framePending = false;
+      if (!session.active || !chatEl) return;
+      if (bottomStickUserMovedAway(chatEl, session.expectedScrollTop)) {
+        stopChatBottomStickSession(chatEl, session);
+        return;
+      }
       chatEl.scrollTop = chatEl.scrollHeight;
+      session.expectedScrollTop = Number(chatEl.scrollTop) || 0;
+      if (session.remainingFrames > 0) {
+        session.remainingFrames -= 1;
+        scheduleChatBottomStickStep(chatEl, session);
+      } else if (!session.observeLayout) {
+        stopChatBottomStickSession(chatEl, session);
+      }
     });
+  }
+
+  function scheduleChatBottomStick(chatEl, expectedScrollTop, remainingFrames = 1, observeLayout = false) {
+    if (!chatEl || remainingFrames <= 0) return;
+    let session = _chatBottomStickSessions.get(chatEl);
+    if (!session?.active) {
+      session = {
+        active: true,
+        expectedScrollTop: Number(expectedScrollTop) || 0,
+        remainingFrames: 0,
+        observeLayout: false,
+        observedChildren: new Set(),
+        framePending: false,
+        observersInstalled: false,
+        resizeObserver: null,
+        mutationObserver: null,
+        scrollHandler: null,
+        timeoutId: 0
+      };
+      _chatBottomStickSessions.set(chatEl, session);
+    }
+    session.expectedScrollTop = Number(expectedScrollTop) || 0;
+    session.remainingFrames = Math.max(session.remainingFrames || 0, remainingFrames);
+    session.observeLayout = Boolean(session.observeLayout || observeLayout);
+    if (session.observeLayout) installChatBottomStickObservers(chatEl, session);
+    scheduleChatBottomStickStep(chatEl, session);
   }
 
   function stickChatToBottomAfterPermissionLayout(chatEl, shouldStick) {
@@ -1783,28 +1890,40 @@
     renderAgentPermissionBanner();
 
     const entry = moduleState.messageCache.get(conversationId) || { messages: [], maxSeq: 0 };
+    const messages = Array.isArray(entry.messages) ? entry.messages : [];
     const conversation = moduleState.conversations.find((r) => r.id === conversationId);
     const color = avatarColor(conversationId);
     const conversationType = conversationTypeFor(conversation, conversationId);
     const renderSignature = chatRenderSignatureFor(conversationId);
 
     // Decide BEFORE rebuilding whether to keep the view pinned to the bottom.
-    // Stick when entering a different conversation (show its latest) or when the user is
-    // already near the bottom; otherwise restore their prior offset so a
+    // Stick when entering a different conversation, when the first non-empty
+    // message cache arrives after an empty relaunch paint, or when the user is
+    // already near the bottom. Otherwise restore their prior offset so a
     // background re-render never yanks them out of the history they scrolled to.
     const isConversationSwitch = conversationId !== _lastRenderedConversationId;
+    const isFirstMessageHydration = !isConversationSwitch
+      && _lastRenderedConversationMessageCount === 0
+      && messages.length > 0;
     const prevScrollTop = containerEl.scrollTop;
     const hasPendingFocus = Boolean(pendingFocusFor(conversationId));
     const stickToBottom = !hasPendingFocus && (
       isConversationSwitch
+      || isFirstMessageHydration
       || (containerEl.scrollHeight - containerEl.scrollTop - containerEl.clientHeight < SCROLL_STICK_THRESHOLD_PX)
     );
     _lastRenderedConversationId = conversationId;
+    _lastRenderedConversationMessageCount = messages.length;
     const applyScroll = () => {
       if (focusPendingMessage(containerEl)) return;
       if (stickToBottom) {
         containerEl.scrollTop = containerEl.scrollHeight;
-        scheduleChatBottomStick(containerEl, containerEl.scrollTop);
+        scheduleChatBottomStick(
+          containerEl,
+          containerEl.scrollTop,
+          (isConversationSwitch || isFirstMessageHydration) ? SCROLL_LAYOUT_SETTLE_FRAMES : 1,
+          isConversationSwitch || isFirstMessageHydration
+        );
       } else {
         containerEl.scrollTop = prevScrollTop;
       }
@@ -1827,7 +1946,7 @@
 
     if (conversation && conversationType === "group") {
       const members = _conversationMembersCache.get(conversationId) || [];
-      for (const msg of entry.messages) {
+      for (const msg of messages) {
         const article = _buildGroupMessageArticle(msg, color, members);
         if (article) containerEl.appendChild(article);
       }
@@ -1848,7 +1967,7 @@
     if (conversationType === "bot" && !_conversationMembersCache.has(conversationId)) {
       _fetchAndCacheConversationMembers(conversationId);
     }
-    for (const msg of entry.messages) {
+    for (const msg of messages) {
       const article = _buildMessageArticle(msg, color, members);
       if (article) containerEl.appendChild(article);
     }
@@ -2936,6 +3055,7 @@
     // renderConversationChat treats re-entry as a switch and lands at the latest message
     // instead of restoring a stale offset.
     _lastRenderedConversationId = null;
+    _lastRenderedConversationMessageCount = 0;
     moduleState.activeConversationId = next;
     if (id) {
       writeLastActiveConversationId(id);

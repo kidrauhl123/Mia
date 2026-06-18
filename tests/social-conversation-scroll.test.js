@@ -54,6 +54,8 @@ function loadSocial(options = {}) {
   const groupArticles = [];
   const mockWindow = {
     requestAnimationFrame: options.requestAnimationFrame,
+    ResizeObserver: options.ResizeObserver,
+    MutationObserver: options.MutationObserver,
     mia: {
       social: {
         settingsGet: async () => ({ ok: true, data: { settings: { version: 1 } } }),
@@ -86,8 +88,10 @@ function loadSocial(options = {}) {
       addEventListener() {}, removeEventListener() {},
     },
     navigator: { clipboard: { writeText: async () => {} } },
-    Map, Set, Date, JSON, Promise, console, String, Array, Object, Boolean, parseInt, Math,
+    Map, Set, WeakMap, Date, JSON, Promise, console, String, Array, Object, Boolean, parseInt, Math,
     setTimeout: () => 0, clearTimeout: () => {},
+    ResizeObserver: options.ResizeObserver,
+    MutationObserver: options.MutationObserver,
   });
   vm.runInContext(src, context);
   const social = mockWindow.miaSocial;
@@ -153,6 +157,97 @@ test("renderConversationChat keeps a new conversation pinned after first-paint l
   for (const frame of frames) frame();
 
   assert.equal(c.scrollTop, 1000, "initial open must stay pinned after async layout increases height");
+});
+
+test("renderConversationChat keeps a new conversation pinned after delayed narrow-pane layout growth", () => {
+  const frames = [];
+  const { social, setChat } = loadSocial({
+    requestAnimationFrame: (fn) => {
+      frames.push(fn);
+      return frames.length;
+    }
+  });
+  setChat(scrollEl({ scrollTop: 0, scrollHeight: 1000, clientHeight: 400 }));
+  const c = scrollEl({ scrollTop: 0, scrollHeight: 0, clientHeight: 0 });
+  social.renderConversationChat(c);
+
+  frames.shift()?.();
+  c.clientHeight = 400;
+  c.scrollHeight = 1000;
+  frames.shift()?.();
+
+  assert.equal(c.scrollTop, 1000, "narrow relaunch must stay pinned after layout becomes measurable");
+});
+
+test("renderConversationChat keeps restored conversations pinned when messages hydrate after an empty first paint", () => {
+  const { social } = loadSocial();
+  const c = scrollEl({ scrollTop: 0, scrollHeight: 0, clientHeight: 400 });
+  social.renderConversationChat(c);
+
+  social.moduleState.messageCache.set("g_1", {
+    maxSeq: 1,
+    messages: [{ id: "m1", seq: 1, sender_kind: "user", sender_ref: "u_other", body_md: "hi", created_at: "" }]
+  });
+  c.scrollHeight = 1000;
+  social.renderConversationChat(c);
+
+  assert.equal(c.scrollTop, 1000, "restored conversation must show latest messages after async cache hydration");
+});
+
+test("renderConversationChat keeps restored conversations pinned when content grows after frame settling", () => {
+  const frames = [];
+  const resizeCallbacks = [];
+  class FakeResizeObserver {
+    constructor(callback) {
+      resizeCallbacks.push(callback);
+    }
+    observe() {}
+    disconnect() {}
+  }
+  const { social, setChat } = loadSocial({
+    requestAnimationFrame: (fn) => {
+      frames.push(fn);
+      return frames.length;
+    },
+    ResizeObserver: FakeResizeObserver,
+  });
+  setChat(scrollEl({ scrollTop: 0, scrollHeight: 1000, clientHeight: 400 }));
+  social.moduleState.messageCache.set("g_1", {
+    maxSeq: 1,
+    messages: [{ id: "m1", seq: 1, sender_kind: "user", sender_ref: "u_other", body_md: "hi", created_at: "" }]
+  });
+  const c = scrollEl({ scrollTop: 0, scrollHeight: 0, clientHeight: 400 });
+  social.renderConversationChat(c);
+
+  while (frames.length) frames.shift()?.();
+  c.scrollHeight = 1000;
+  for (const callback of resizeCallbacks) callback();
+  frames.shift()?.();
+
+  assert.equal(c.scrollTop, 1000, "late content growth during narrow relaunch must still land at the latest message");
+});
+
+test("renderConversationChat preserves a scrolled-up reader when an already-rendered cache grows", () => {
+  const { social } = loadSocial();
+  social.moduleState.messageCache.set("g_1", {
+    maxSeq: 1,
+    messages: [{ id: "m1", seq: 1, sender_kind: "user", sender_ref: "u_other", body_md: "hi", created_at: "" }]
+  });
+  const c = scrollEl({ scrollTop: 600, scrollHeight: 1000, clientHeight: 400 });
+  social.renderConversationChat(c);
+
+  c.scrollTop = 120;
+  c.scrollHeight = 1200;
+  social.moduleState.messageCache.set("g_1", {
+    maxSeq: 2,
+    messages: [
+      { id: "m1", seq: 1, sender_kind: "user", sender_ref: "u_other", body_md: "hi", created_at: "" },
+      { id: "m2", seq: 2, sender_kind: "user", sender_ref: "u_other", body_md: "again", created_at: "" }
+    ]
+  });
+  social.renderConversationChat(c);
+
+  assert.equal(c.scrollTop, 120, "background cache growth must not yank a scrolled-up reader");
 });
 
 test("re-entering a conversation after a detour through a local bot chat lands at the bottom", () => {
